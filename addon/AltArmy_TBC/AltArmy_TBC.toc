@@ -7,6 +7,8 @@
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
 Core.lua
+SummaryData.lua
+Characters.lua
 TabSummary.lua
 TabCharacters.lua
 TabSearch.lua
