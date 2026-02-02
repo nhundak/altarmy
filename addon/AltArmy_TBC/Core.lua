@@ -24,6 +24,8 @@ local HEADER_HEIGHT = 24
 local TAB_HEIGHT = 22
 local CONTENT_INSET = 8
 
+local setActiveTab -- forward-declare so header search scripts can call it
+
 -- Create main frame
 local main = CreateFrame("Frame", "AltArmyTBC_MainFrame", UIParent)
 main:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
@@ -66,13 +68,70 @@ closeBtn:SetScript("OnClick", function()
     main:Hide()
 end)
 
+-- Header search: icon button (right) + EditBox (left of icon), vertically centered in header
+local headerSearchBtn = CreateFrame("Button", nil, main)
+headerSearchBtn:SetPoint("RIGHT", closeBtn, "LEFT", -4, 0)
+headerSearchBtn:SetSize(24, 24)
+headerSearchBtn:RegisterForClicks("LeftButtonUp")
+local searchIcon = headerSearchBtn:CreateTexture(nil, "ARTWORK")
+searchIcon:SetAllPoints(headerSearchBtn)
+searchIcon:SetTexture("Interface\\Icons\\INV_Misc_Spyglass_03")
+searchIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+headerSearchBtn:SetScript("OnClick", function()
+    local query = ""
+    if headerSearchEdit then
+        query = headerSearchEdit:GetText()
+    end
+    setActiveTab("Search")
+    if AltArmy.TabFrames and AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.SearchWithQuery then
+        AltArmy.TabFrames.Search:SearchWithQuery(query)
+    end
+end)
+headerSearchBtn:SetScript("OnEnter", function(self)
+    searchIcon:SetAlpha(0.8)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Search")
+end)
+headerSearchBtn:SetScript("OnLeave", function()
+    searchIcon:SetAlpha(1)
+    GameTooltip:Hide()
+end)
+
+local headerSearchEdit = CreateFrame("EditBox", "AltArmyTBC_HeaderSearchEdit", main)
+headerSearchEdit:SetPoint("RIGHT", headerSearchBtn, "LEFT", -4, 0)
+headerSearchEdit:SetSize(280, 20)
+headerSearchEdit:SetAutoFocus(false)
+headerSearchEdit:SetFontObject("GameFontHighlight")
+if headerSearchEdit.SetTextInsets then
+    headerSearchEdit:SetTextInsets(6, 6, 0, 0)
+end
+-- Visible input background
+local searchEditBg = headerSearchEdit:CreateTexture(nil, "BACKGROUND")
+searchEditBg:SetAllPoints(headerSearchEdit)
+searchEditBg:SetColorTexture(0.1, 0.1, 0.1, 0.9)
+local searchEditBorder = headerSearchEdit:CreateTexture(nil, "BORDER")
+searchEditBorder:SetPoint("TOPLEFT", headerSearchEdit, "TOPLEFT", -1, 1)
+searchEditBorder:SetPoint("BOTTOMRIGHT", headerSearchEdit, "BOTTOMRIGHT", 1, -1)
+searchEditBorder:SetColorTexture(0.4, 0.4, 0.4, 1)
+headerSearchEdit:SetScript("OnEnterPressed", function(box)
+    box:ClearFocus()
+    local query = box:GetText()
+    setActiveTab("Search")
+    if AltArmy.TabFrames and AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.SearchWithQuery then
+        AltArmy.TabFrames.Search:SearchWithQuery(query)
+    end
+end)
+headerSearchEdit:SetScript("OnEscapePressed", function(box)
+    box:ClearFocus()
+end)
+
 -- Tab button strip (below header)
 local tabStrip = CreateFrame("Frame", nil, main)
 tabStrip:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -HEADER_HEIGHT - 4)
 tabStrip:SetPoint("TOPRIGHT", main, "TOPRIGHT", -CONTENT_INSET, -HEADER_HEIGHT - 4)
 tabStrip:SetHeight(TAB_HEIGHT)
 
-local function setActiveTab(tabName)
+setActiveTab = function(tabName)
     AltArmy.CurrentTab = tabName
     for name, frame in pairs(AltArmy.TabFrames) do
         frame:SetShown(name == tabName)

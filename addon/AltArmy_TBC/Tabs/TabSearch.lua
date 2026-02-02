@@ -10,9 +10,9 @@ local NUM_ROWS = 14
 local SEARCH_BAR_HEIGHT = 24
 
 local SD = AltArmy.SearchData
-if not SD or not SD.Search then return end
+if not SD or not SD.SearchWithLocationGroups then return end
 
--- Search bar: edit box + button
+-- Search bar: edit box only (Enter runs search)
 local searchBar = CreateFrame("Frame", nil, frame)
 searchBar:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
 searchBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -PAD)
@@ -20,7 +20,7 @@ searchBar:SetHeight(SEARCH_BAR_HEIGHT)
 
 local searchEdit = CreateFrame("EditBox", "AltArmyTBC_SearchEditBox", searchBar)
 searchEdit:SetPoint("LEFT", searchBar, "LEFT", 0, 0)
-searchEdit:SetPoint("RIGHT", searchBar, "RIGHT", -70, 0)
+searchEdit:SetPoint("RIGHT", searchBar, "RIGHT", 0, 0)
 searchEdit:SetHeight(20)
 searchEdit:SetAutoFocus(false)
 searchEdit:SetFontObject("GameFontHighlight")
@@ -32,17 +32,6 @@ searchEdit:SetScript("OnEnterPressed", function(box)
     if frame.DoSearch then frame:DoSearch() end
 end)
 searchEdit:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
-
-local searchBtn = CreateFrame("Button", nil, searchBar)
-searchBtn:SetPoint("RIGHT", searchBar, "RIGHT", 0, 0)
-searchBtn:SetSize(60, 22)
-searchBtn:SetText("Search")
-searchBtn:SetNormalFontObject("GameFontNormalSmall")
-searchBtn:SetHighlightFontObject("GameFontHighlightSmall")
-searchBtn:RegisterForClicks("LeftButtonUp")
-searchBtn:SetScript("OnClick", function()
-    if frame.DoSearch then frame:DoSearch() end
-end)
 
 -- Placeholder for edit box (TBC may not have SetPlaceholderText; skip if missing)
 if searchEdit.SetPlaceholderText then
@@ -68,35 +57,28 @@ for _, colName in ipairs(colOrder) do
     x = x + w
 end
 
--- Scroll frame for results
-local scrollFrame = CreateFrame("ScrollFrame", "AltArmyTBC_SearchScrollFrame", frame, "UIPanelScrollFrameTemplate")
-scrollFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD - SEARCH_BAR_HEIGHT - 4 - HEADER_HEIGHT)
-scrollFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
-scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - 20, PAD)
-
-local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-scrollChild:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
-scrollChild:SetPoint("TOPRIGHT", scrollFrame, "TOPRIGHT", 0, 0)
-scrollFrame:SetScrollChild(scrollChild)
-
-local scrollBar = scrollFrame.ScrollBar or (scrollFrame:GetName() and _G[scrollFrame:GetName() .. "ScrollBar"])
+-- Results area (simple frame; rows are direct children so they're always laid out)
+local resultsArea = CreateFrame("Frame", nil, frame)
+resultsArea:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD - SEARCH_BAR_HEIGHT - 4 - HEADER_HEIGHT)
+resultsArea:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
+resultsArea:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - 20, PAD)
 
 -- Result rows (pool)
 local resultRows = {}
 local resultList = {}
 local function UpdateResults()
+    local n = #resultList
+    local needRows = math.max(NUM_ROWS, n)
     for i, row in ipairs(resultRows) do
         row:Hide()
         row.entry = nil
     end
-    local n = #resultList
-    local needRows = math.max(NUM_ROWS, n)
     for i = 1, needRows do
         if not resultRows[i] then
-            local row = CreateFrame("Frame", nil, scrollChild)
+            local row = CreateFrame("Frame", nil, resultsArea)
             row:SetHeight(ROW_HEIGHT)
-            row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -(i - 1) * ROW_HEIGHT)
-            row:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", 0, -(i - 1) * ROW_HEIGHT)
+            row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, -(i - 1) * ROW_HEIGHT)
+            row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, -(i - 1) * ROW_HEIGHT)
             row.cells = {}
             local cx = 0
             for _, colName in ipairs(colOrder) do
@@ -125,24 +107,26 @@ local function UpdateResults()
             row.cells.Character:SetText(entry.characterName or "")
             row.cells.Realm:SetText(entry.realm or "")
             row.cells.Count:SetText(tostring(entry.count or 1))
-            row.cells.Source:SetText(entry.location == "bank" and "Bank" or "Bag")
+            row.cells.Source:SetText(entry.location == "bank" and "Bank" or "bags")
         else
             row:Hide()
             row.entry = nil
         end
     end
-    scrollChild:SetHeight(math.max(needRows * ROW_HEIGHT, 1))
 end
 
 function frame.DoSearch()
-    local query = searchEdit:GetText and searchEdit:GetText() or ""
+    local query = ""
+    if searchEdit then
+        query = searchEdit:GetText()
+    end
     if query and query:match("^%s*$") then query = "" end
-    resultList = SD.SearchGroupedByCharacter and SD.SearchGroupedByCharacter(query) or SD.Search(query) or {}
+    resultList = SD.SearchWithLocationGroups(query) or {}
     UpdateResults()
 end
 
 -- Expose for header search box: switch to Search tab and run search with query.
-function frame.SearchWithQuery(query)
+function frame.SearchWithQuery(self, query)
     if searchEdit and searchEdit.SetText then
         searchEdit:SetText(query or "")
     end

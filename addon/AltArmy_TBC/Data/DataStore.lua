@@ -15,6 +15,32 @@ local NUM_BAG_SLOTS = NUM_BAG_SLOTS or 4
 local MIN_BANK_BAG_ID = 5
 local MAX_BANK_BAG_ID = 11
 local BANK_CONTAINER = -1
+local BACKPACK_FALLBACK_SLOTS = 16 -- TBC backpack size when GetContainerNumSlots(0) returns 0
+
+-- Bag API: use C_Container if present (some Classic clients expose it), else globals
+local function GetNumSlots(bagID)
+    if C_Container and C_Container.GetContainerNumSlots then
+        return C_Container.GetContainerNumSlots(bagID)
+    end
+    return GetContainerNumSlots and GetContainerNumSlots(bagID)
+end
+local function GetItemLink(bagID, slot)
+    if C_Container and C_Container.GetContainerItemLink then
+        return C_Container.GetContainerItemLink(bagID, slot)
+    end
+    return GetContainerItemLink and GetContainerItemLink(bagID, slot)
+end
+local function GetItemInfoForSlot(bagID, slot)
+    if C_Container and C_Container.GetContainerItemInfo then
+        local info = C_Container.GetContainerItemInfo(bagID, slot)
+        return info and info.stackCount or 1
+    end
+    if GetContainerItemInfo then
+        local _, count = GetContainerItemInfo(bagID, slot)
+        return (count and count > 0) and count or 1
+    end
+    return 1
+end
 
 -- Ensure SavedVariables structure (runs at load; SV are already loaded)
 AltArmyTBC_Data = AltArmyTBC_Data or {}
@@ -109,25 +135,21 @@ local function GetContainer(char, bagID)
     return bag
 end
 
---- Scan a single container (bag or bank bag). TBC: GetContainerNumSlots, GetContainerItemLink, GetContainerItemInfo.
-local function ScanContainer(char, bagID)
-    if not GetContainerNumSlots or not GetContainerItemLink or not GetContainerItemInfo then return end
-    local numSlots = GetContainerNumSlots(bagID)
+--- Scan a single container (bag or bank bag). Uses resolved bag API; sizeOverride forces slot count (e.g. 16 for backpack when API returns 0).
+local function ScanContainer(char, bagID, sizeOverride)
+    local numSlots = sizeOverride or GetNumSlots(bagID)
     if not numSlots or numSlots <= 0 then return end
+    if not GetItemLink then return end -- no link API at all
     local bag = GetContainer(char, bagID)
     bag.links = bag.links or {}
     bag.items = bag.items or {}
     for k in pairs(bag.links) do bag.links[k] = nil end
     for k in pairs(bag.items) do bag.items[k] = nil end
     for slot = 1, numSlots do
-        local link = GetContainerItemLink(bagID, slot)
+        local link = GetItemLink(bagID, slot)
         if link then
             local itemID = tonumber(link:match("item:(%d+)"))
-            local count = 1
-            if GetContainerItemInfo then
-                local _, c = GetContainerItemInfo(bagID, slot)
-                if c and c > 0 then count = c end
-            end
+            local count = GetItemInfoForSlot(bagID, slot)
             bag.links[slot] = link
             bag.items[slot] = { itemID = itemID, count = count }
         end
@@ -135,21 +157,26 @@ local function ScanContainer(char, bagID)
     char.lastUpdate = time()
 end
 
---- Scan bags 0-4 (backpack + bags).
+--- Scan bags 0-4 (backpack + bags). Backpack (0) uses BACKPACK_FALLBACK_SLOTS when API returns 0 (TBC Classic timing).
 local function ScanBags(char)
     if not char then return end
     for bagID = 0, NUM_BAG_SLOTS do
-        if GetContainerNumSlots and GetContainerNumSlots(bagID) and GetContainerNumSlots(bagID) > 0 then
-            ScanContainer(char, bagID)
+        local numSlots = GetNumSlots(bagID)
+        if bagID == 0 and (not numSlots or numSlots <= 0) then
+            numSlots = BACKPACK_FALLBACK_SLOTS
+        end
+        if numSlots and numSlots > 0 then
+            ScanContainer(char, bagID, numSlots)
         end
     end
     -- Update bag summary: total slots and free slots
     local totalSlots, freeSlots = 0, 0
+    local getFree = (C_Container and C_Container.GetContainerNumFreeSlots) or GetContainerNumFreeSlots
     for bagID = 0, NUM_BAG_SLOTS do
-        local n = GetContainerNumSlots and GetContainerNumSlots(bagID) or 0
+        local n = GetNumSlots(bagID) or (bagID == 0 and BACKPACK_FALLBACK_SLOTS) or 0
         totalSlots = totalSlots + n
-        if GetContainerNumFreeSlots and GetContainerNumFreeSlots(bagID) then
-            freeSlots = freeSlots + GetContainerNumFreeSlots(bagID)
+        if getFree and getFree(bagID) then
+            freeSlots = freeSlots + getFree(bagID)
         end
     end
     char.bagInfo = { totalSlots = totalSlots, freeSlots = freeSlots }
@@ -158,26 +185,27 @@ end
 --- Scan bank (main -1 and bags 5-11). Only valid when bank is open.
 local function ScanBank(char)
     if not char then return end
-    if GetContainerNumSlots and GetContainerNumSlots(BANK_CONTAINER) and GetContainerNumSlots(BANK_CONTAINER) > 0 then
+    if GetNumSlots(BANK_CONTAINER) and GetNumSlots(BANK_CONTAINER) > 0 then
         ScanContainer(char, BANK_CONTAINER)
     end
     for bagID = MIN_BANK_BAG_ID, MAX_BANK_BAG_ID do
-        if GetContainerNumSlots and GetContainerNumSlots(bagID) and GetContainerNumSlots(bagID) > 0 then
+        if GetNumSlots(bagID) and GetNumSlots(bagID) > 0 then
             ScanContainer(char, bagID)
         end
     end
     local totalSlots, freeSlots = 0, 0
-    if GetContainerNumSlots(BANK_CONTAINER) then
-        totalSlots = totalSlots + GetContainerNumSlots(BANK_CONTAINER)
-        if GetContainerNumFreeSlots and GetContainerNumFreeSlots(BANK_CONTAINER) then
-            freeSlots = freeSlots + GetContainerNumFreeSlots(BANK_CONTAINER)
+    local getFree = (C_Container and C_Container.GetContainerNumFreeSlots) or GetContainerNumFreeSlots
+    if GetNumSlots(BANK_CONTAINER) then
+        totalSlots = totalSlots + GetNumSlots(BANK_CONTAINER)
+        if getFree and getFree(BANK_CONTAINER) then
+            freeSlots = freeSlots + getFree(BANK_CONTAINER)
         end
     end
     for bagID = MIN_BANK_BAG_ID, MAX_BANK_BAG_ID do
-        local n = GetContainerNumSlots and GetContainerNumSlots(bagID) or 0
+        local n = GetNumSlots(bagID) or 0
         totalSlots = totalSlots + n
-        if GetContainerNumFreeSlots and GetContainerNumFreeSlots(bagID) then
-            freeSlots = freeSlots + GetContainerNumFreeSlots(bagID)
+        if getFree and getFree(bagID) then
+            freeSlots = freeSlots + getFree(bagID)
         end
     end
     char.bankInfo = { totalSlots = totalSlots, freeSlots = freeSlots }
@@ -324,6 +352,35 @@ function DS:IterateContainerSlots(char, callback)
     end
 end
 
+--- Refresh current character's bags (and bagInfo). Call before search so current char data is up to date.
+function DS:ScanCurrentCharacterBags()
+    local char = GetCurrentCharTable()
+    if char then
+        ScanBags(char)
+    end
+end
+
+--- Scan current character's bags now and print result (for temporary manual "Scan bags now" button).
+function DS:ScanBagsAndLog()
+    local char = GetCurrentCharTable()
+    if not char then
+        print("[AltArmy] Scan bags now: no char table")
+        return
+    end
+    ScanBags(char)
+    local numBags, numSlots = 0, 0
+    if char.Containers then
+        for bagID, bag in pairs(char.Containers) do
+            if bag and bag.items then
+                numBags = numBags + 1
+                for _ in pairs(bag.items) do numSlots = numSlots + 1 end
+            end
+        end
+    end
+    local bagInfoSlots = (char.bagInfo and char.bagInfo.totalSlots) or 0
+    print("[AltArmy] Scan bags now: " .. tostring(char.name) .. "-" .. tostring(char.realm) .. " — " .. numBags .. " bags, " .. numSlots .. " item slots (bagInfo totalSlots=" .. tostring(bagInfoSlots) .. ")")
+end
+
 --- Equipment: GetInventory(char), GetInventoryItem(char, slot), GetInventoryItemCount(char, itemID), IterateInventory(char, callback).
 function DS:GetInventory(char)
     return (char and char.Inventory) or {}
@@ -415,6 +472,30 @@ frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 local loginFired = false
 local isBankOpen = false
 
+-- Deferred bag scan: bags often aren't ready at PLAYER_ENTERING_WORLD. DataStore_Containers delays 3s after login
+-- (see https://github.com/Thaoky/DataStore_Containers). We do the same: wait 3s then run initial scan (no C_Timer in TBC, use OnUpdate).
+local BAG_SCAN_DELAY = 3
+local bagScanFrame = CreateFrame("Frame", nil, UIParent)
+bagScanFrame:SetScript("OnUpdate", nil)
+bagScanFrame.elapsed = 0
+
+local function runLoginBagScanAndLog()
+    local char = GetCurrentCharTable()
+    if not char then return end
+    ScanBags(char)
+    local numBags, numSlots = 0, 0
+    if char.Containers then
+        for bagID, bag in pairs(char.Containers) do
+            if bag and bag.items then
+                numBags = numBags + 1
+                for _ in pairs(bag.items) do numSlots = numSlots + 1 end
+            end
+        end
+    end
+    local bagInfoSlots = (char.bagInfo and char.bagInfo.totalSlots) or 0
+    print("[AltArmy] Login scan: " .. tostring(char.name) .. "-" .. tostring(char.realm) .. " — " .. numBags .. " bags, " .. numSlots .. " item slots stored (bagInfo totalSlots=" .. tostring(bagInfoSlots) .. ")")
+end
+
 frame:SetScript("OnEvent", function(_, event, addonName, a1)
     if event == "ADDON_LOADED" and addonName == "AltArmy_TBC" then
         AltArmyTBC_Data.Characters = AltArmyTBC_Data.Characters or {}
@@ -432,8 +513,16 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
         ScanCharacter()
         local char = GetCurrentCharTable()
         if char then
-            ScanBags(char)
             ScanEquipment(char)
+            -- Delay initial bag scan 3s after login (like DataStore_Containers) so bag API is ready
+            bagScanFrame.elapsed = 0
+            bagScanFrame:SetScript("OnUpdate", function(self, elapsed)
+                self.elapsed = self.elapsed + elapsed
+                if self.elapsed >= BAG_SCAN_DELAY then
+                    self:SetScript("OnUpdate", nil)
+                    runLoginBagScanAndLog()
+                end
+            end)
         end
         return
     end

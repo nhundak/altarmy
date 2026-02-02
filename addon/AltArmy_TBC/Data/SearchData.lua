@@ -24,6 +24,10 @@ function SD.GetAllContainerSlots()
     if not DS or not DS.GetRealms or not DS.GetCharacters or not DS.IterateContainerSlots or not DS.GetCharacterName then
         return list
     end
+    -- Refresh current character's bags so we have up-to-date data (PLAYER_ENTERING_WORLD may fire before bags are ready)
+    if DS.ScanCurrentCharacterBags then
+        DS:ScanCurrentCharacterBags()
+    end
     for realm in pairs(DS:GetRealms()) do
         for charName, charData in pairs(DS:GetCharacters(realm)) do
             if charData and DS.IterateContainerSlots then
@@ -42,6 +46,9 @@ function SD.GetAllContainerSlots()
                 end)
             end
         end
+    end
+    if AltArmy and AltArmy.DebugLog then
+        AltArmy.DebugLog("Search GetAllContainerSlots: " .. #list .. " slots across characters")
     end
     return list
 end
@@ -93,6 +100,9 @@ function SD.Search(query)
             table.insert(results, entry)
         end
     end
+    if AltArmy and AltArmy.DebugLog then
+        AltArmy.DebugLog("Search query='" .. tostring(query) .. "' raw matches=" .. #results)
+    end
     return results
 end
 
@@ -119,6 +129,75 @@ function SD.SearchGroupedByCharacter(query)
     local list = {}
     for _, v in pairs(byChar) do
         table.insert(list, v)
+    end
+    return list
+end
+
+--- Name match score: exact=3, prefix=2, contains=1 (for sort).
+local function GetNameMatchScore(itemName, queryLower)
+    if not itemName or not queryLower or queryLower == "" then return 0 end
+    local nameLower = itemName:lower()
+    if nameLower == queryLower then return 3 end
+    if nameLower:sub(1, #queryLower) == queryLower then return 2 end
+    if nameLower:find(queryLower, 1, true) then return 1 end
+    return 0
+end
+
+--- Aggregate by (itemID, characterName, realm, location); sort by name match, then char total, then bags before bank.
+--- Returns list of { itemID, itemLink, itemName, characterName, realm, location, count }.
+function SD.SearchWithLocationGroups(query)
+    if not query or (type(query) == "string" and query:match("^%s*$")) then
+        return {}
+    end
+    local raw = SD.Search(query)
+    local queryLower = type(query) == "string" and query:lower() or ""
+
+    -- Aggregate by (itemID, characterName, realm, location)
+    local byKey = {}
+    local charTotals = {} -- key = itemID .. "\t" .. characterName .. "\t" .. realm -> total count (bags + bank)
+    for _, entry in ipairs(raw) do
+        local key = (entry.itemID or 0) .. "\t" .. (entry.characterName or "") .. "\t" .. (entry.realm or "") .. "\t" .. (entry.location or "bag")
+        if not byKey[key] then
+            byKey[key] = {
+                itemID = entry.itemID,
+                itemLink = entry.itemLink,
+                itemName = entry.itemName,
+                characterName = entry.characterName,
+                realm = entry.realm,
+                location = entry.location or "bag",
+                count = 0,
+            }
+        end
+        byKey[key].count = byKey[key].count + (entry.count or 1)
+
+        local charKey = (entry.itemID or 0) .. "\t" .. (entry.characterName or "") .. "\t" .. (entry.realm or "")
+        charTotals[charKey] = (charTotals[charKey] or 0) + (entry.count or 1)
+    end
+
+    local list = {}
+    for _, row in pairs(byKey) do
+        local charKey = (row.itemID or 0) .. "\t" .. (row.characterName or "") .. "\t" .. (row.realm or "")
+        row.charTotal = charTotals[charKey] or 0
+        row.matchScore = GetNameMatchScore(row.itemName, queryLower)
+        table.insert(list, row)
+    end
+
+    table.sort(list, function(a, b)
+        if a.matchScore ~= b.matchScore then return a.matchScore > b.matchScore end
+        local na, nb = (a.itemName or ""):lower(), (b.itemName or ""):lower()
+        if na ~= nb then return na < nb end
+        if a.charTotal ~= b.charTotal then return a.charTotal > b.charTotal end
+        -- bags before bank: "bag" < "bank"
+        return (a.location or "bag") < (b.location or "bag")
+    end)
+
+    -- Remove temporary sort fields before return (optional; UI doesn't need them)
+    for _, row in ipairs(list) do
+        row.charTotal = nil
+        row.matchScore = nil
+    end
+    if AltArmy and AltArmy.DebugLog then
+        AltArmy.DebugLog("SearchWithLocationGroups query='" .. tostring(query) .. "' raw=" .. #raw .. " grouped rows=" .. #list)
     end
     return list
 end
