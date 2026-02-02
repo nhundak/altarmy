@@ -28,10 +28,6 @@ icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 btn:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 btn:SetScript("OnClick", function(_, mouseButton)
     if mouseButton == "LeftButton" then
-        if AltArmy.DebugLog then
-            AltArmy.DebugLog("Minimap button clicked")
-        end
-        print("[AltArmy] Minimap button clicked")
         local main = AltArmy.MainFrame
         if main:IsShown() then
             main:Hide()

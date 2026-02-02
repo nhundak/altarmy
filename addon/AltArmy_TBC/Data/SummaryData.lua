@@ -71,10 +71,11 @@ function AltArmy.SummaryData.FormatLastOnline(lastLogout, isCurrent)
     return m .. "m ago"
 end
 
---- Build rest XP display: rate is 0-100 (or 0-150). Return number for sorting; UI can format as "X%".
+--- Build rest XP display: rate is 0-100 (or 0-150). Round to nearest 0.1, show one decimal (e.g. "50.3%").
 function AltArmy.SummaryData.FormatRestXp(rate)
     if rate == nil then return "" end
-    return math.floor(rate + 0.5) .. "%"
+    local rounded = math.floor(rate * 10 + 0.5) / 10
+    return string.format("%.1f%%", rounded)
 end
 
 -- Returns a list of character entries: { name, realm, level, restXp, money, played, lastOnline }
@@ -99,12 +100,23 @@ function AltArmy.SummaryData.GetCharacterList()
             local money = DS:GetMoney(charData) or 0
             local played = DS:GetPlayTime(charData) or 0
             local lastLogout = DS:GetLastLogout(charData) or MAX_LOGOUT_SENTINEL
-            local restRate = (DS.GetRestXPRate and DS:GetRestXPRate(charData)) or 0
-            if level == MAX_LEVEL then
-                restRate = 0
-            end
             local classLoc, classFile = DS:GetCharacterClass(charData)
             local isCurrent = (name == currentName and realm == currentRealm)
+            local restRate
+            if level == MAX_LEVEL then
+                restRate = 0
+            elseif isCurrent and UnitXPMax and GetXPExhaustion then
+                local xpMax = UnitXPMax("player") or 0
+                local restXP = GetXPExhaustion() or 0
+                if xpMax <= 0 then
+                    restRate = 0
+                else
+                    local maxRest = xpMax * 1.5
+                    restRate = math.min(100, math.floor((restXP / maxRest) * 100 + 0.5))
+                end
+            else
+                restRate = (DS.GetRestXp and DS:GetRestXp(charData)) or 0
+            end
             table.insert(list, {
                 name = name,
                 realm = realm or "",

@@ -1,4 +1,5 @@
--- AltArmy TBC — Minimal options (SavedVariables + show minimap button)
+-- AltArmy TBC — Options in WoW's Interface Options (AddOns list).
+-- SavedVariables: AltArmyTBC_Options (debug, showMinimapButton).
 
 -- Apply defaults and current option state
 local function ensureDefaults()
@@ -26,12 +27,11 @@ end
 ensureDefaults()
 applyMinimapOption()
 
--- Blizzard Interface Options panel
+-- Blizzard Interface Options panel (shows under Interface > AddOns > AltArmy TBC)
 local panel = CreateFrame("Frame")
-panel.name = "AltArmy TBC"
+panel.name = "AltArmy"
 panel.okay = function()
     ensureDefaults()
-    -- Checkbox state is already saved on click; just reapply if needed
     applyMinimapOption()
 end
 panel.cancel = function()
@@ -42,39 +42,20 @@ panel.default = function()
     AltArmyTBC_Options.showMinimapButton = true
     AltArmyTBC_Options.debug = false
     applyMinimapOption()
-    if panel.checkbox then
-        panel.checkbox:SetChecked(true)
-    end
     if panel.debugCheckbox then
         panel.debugCheckbox:SetChecked(false)
     end
 end
 panel.refresh = function()
     ensureDefaults()
-    if panel.checkbox then
-        panel.checkbox:SetChecked(AltArmyTBC_Options.showMinimapButton)
-    end
     if panel.debugCheckbox then
         panel.debugCheckbox:SetChecked(AltArmyTBC_Options.debug)
     end
 end
 
--- Checkbox: Show minimap button
-local checkbox = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
-checkbox:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -16)
-checkbox:SetScript("OnClick", function()
-    AltArmyTBC_Options.showMinimapButton = checkbox:GetChecked()
-    applyMinimapOption()
-end)
-panel.checkbox = checkbox
-
-local label = checkbox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-label:SetPoint("LEFT", checkbox, "RIGHT", 4, 0)
-label:SetText("Show minimap button")
-
--- Checkbox: Enable debug logging
+-- Checkbox: Enable debug logging (only option on this page for now)
 local debugCheckbox = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
-debugCheckbox:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -44)
+debugCheckbox:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -16)
 debugCheckbox:SetScript("OnClick", function()
     AltArmyTBC_Options.debug = debugCheckbox:GetChecked()
 end)
@@ -84,7 +65,53 @@ local debugLabel = debugCheckbox:CreateFontString(nil, "OVERLAY", "GameFontNorma
 debugLabel:SetPoint("LEFT", debugCheckbox, "RIGHT", 4, 0)
 debugLabel:SetText("Enable debug logging")
 
--- InterfaceOptions_AddCategory was added in a later patch; not available in all TBC Classic builds
-if InterfaceOptions_AddCategory then
-    InterfaceOptions_AddCategory(panel)
+-- Category ID for new Settings API (Esc → Settings → AddOns). Nil if only old API exists.
+local settingsCategoryId = nil
+
+-- Register with WoW's options when the UI is ready. Support both:
+-- 1) New Settings API (Dragonflight-style): Esc → Settings → AddOns → AltArmy
+-- 2) Old Interface Options: Interface → AddOns → AltArmy (when still available)
+local function registerOptionsPanel()
+    -- New Settings UI (Interface 20502 / modern Classic clients)
+    if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
+        local category = Settings.RegisterCanvasLayoutCategory(panel, "AltArmy")
+        Settings.RegisterAddOnCategory(category)
+        -- OpenToCategory often expects 0-based index; store for slash command
+        settingsCategoryId = category:GetID()
+    end
+    -- Old Interface Options (when present)
+    if InterfaceOptions_AddCategory then
+        InterfaceOptions_AddCategory(panel)
+        if InterfaceAddOnsList_Update then
+            InterfaceAddOnsList_Update()
+        end
+    end
+end
+
+local reg = CreateFrame("Frame")
+reg:RegisterEvent("PLAYER_LOGIN")
+reg:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGIN" then
+        reg:UnregisterEvent("PLAYER_LOGIN")
+        registerOptionsPanel()
+    end
+end)
+
+-- Slash command: open options directly to AltArmy panel
+SLASH_ALTARMY1 = "/altarmy"
+SlashCmdList.ALTARMY = function(msg)
+    -- Prefer new Settings API so we open to our addon, not general settings
+    if settingsCategoryId and Settings and Settings.OpenToCategory then
+        -- Some clients expect 0-based category index
+        Settings.OpenToCategory(settingsCategoryId - 1)
+        return
+    end
+    -- Fallback: old Interface Options
+    if InterfaceOptions_AddCategory and InterfaceOptionsFrame_OpenToCategory then
+        if InterfaceAddOnsList_Update then
+            InterfaceAddOnsList_Update()
+        end
+        InterfaceOptionsFrame_Show()
+        InterfaceOptionsFrame_OpenToCategory(panel)
+    end
 end

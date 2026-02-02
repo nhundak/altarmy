@@ -40,7 +40,7 @@ local columns = {
         JustifyH = "RIGHT",
     },
     Money = {
-        Width = 95,
+        Width = 115,
         GetText = function(entry) return SD and SD.GetMoneyString and SD.GetMoneyString(entry.money) or "" end,
         JustifyH = "RIGHT",
     },
@@ -50,7 +50,7 @@ local columns = {
         JustifyH = "RIGHT",
     },
     LastOnline = {
-        Width = 115,
+        Width = 85,
         headerLabel = "Last Online",
         GetText = function(entry)
             return SD and SD.FormatLastOnline and SD.FormatLastOnline(entry.lastOnline, isCurrentCharacter(entry)) or ""

@@ -1,7 +1,7 @@
 -- AltArmy TBC — Core: namespace, main frame, header, tabs, content frames
 
-local ADDON_NAME = "AltArmy TBC"
-local ADDON_VERSION = "1.0.0"
+local ADDON_NAME = "AltArmy"
+local ADDON_VERSION = "0.0.1"
 
 -- Namespace
 AltArmy = AltArmy or {}
@@ -54,9 +54,9 @@ headerBg:SetPoint("TOPRIGHT", main, "TOPRIGHT", -8, -8)
 headerBg:SetHeight(HEADER_HEIGHT)
 headerBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
 
--- Title
+-- Title (vertically centered in header)
 local title = main:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-title:SetPoint("LEFT", main, "TOPLEFT", 16, -HEADER_HEIGHT / 2 - 2)
+title:SetPoint("LEFT", headerBg, "LEFT", 16, 0)
 title:SetText(ADDON_NAME)
 
 -- Close button
@@ -65,19 +65,6 @@ closeBtn:SetPoint("TOPRIGHT", main, "TOPRIGHT", -4, -4)
 closeBtn:SetScript("OnClick", function()
     main:Hide()
 end)
-
--- Optional: placeholder search box in header (no behavior yet)
-local searchBox = CreateFrame("EditBox", nil, main)
-searchBox:SetSize(140, 20)
-searchBox:SetPoint("RIGHT", closeBtn, "LEFT", -8, 0)
-searchBox:SetAutoFocus(false)
-searchBox:SetFontObject("GameFontHighlight")
-searchBox:SetTextInsets(4, 4, 0, 0)
-local searchBg = searchBox:CreateTexture(nil, "BACKGROUND")
-searchBg:SetAllPoints(searchBox)
-searchBg:SetColorTexture(0.1, 0.1, 0.1, 0.8)
-searchBox:SetScript("OnEscapePressed", function() searchBox:ClearFocus() end)
-AltArmy.HeaderSearchBox = searchBox
 
 -- Tab button strip (below header)
 local tabStrip = CreateFrame("Frame", nil, main)
