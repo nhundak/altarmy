@@ -63,15 +63,16 @@ function ns:Sort(ascending, sortKey)
     local list = self:GetList()
     if #list == 0 then return end
     sortKey = sortKey or "name"
-    local numericKeys = { level = true, restXp = true, money = true, played = true, lastOnline = true }
+    local numericKeys = { level = true, restXp = true, money = true, played = true, lastOnline = true, bagSlots = true, bagFree = true, equipmentCount = true }
     if numericKeys[sortKey] then
         table.sort(list, function(a, b)
             local va, vb
             if sortKey == "lastOnline" then
+                -- Current player has lastOnline = nil; treat as 0 so they stay at top (ascending) or bottom (descending)
                 va = a.lastOnline
                 vb = b.lastOnline
-                if va == nil then va = ascending and math.huge or 0 end
-                if vb == nil then vb = ascending and math.huge or 0 end
+                if va == nil then va = 0 end
+                if vb == nil then vb = 0 end
             else
                 va = tonumber(a[sortKey]) or 0
                 vb = tonumber(b[sortKey]) or 0

@@ -97,21 +97,10 @@ reg:SetScript("OnEvent", function(_, event)
     end
 end)
 
--- Slash command: open options directly to AltArmy panel
+-- Slash command: open the main AltArmy UI
 SLASH_ALTARMY1 = "/altarmy"
 SlashCmdList.ALTARMY = function(msg)
-    -- Prefer new Settings API so we open to our addon, not general settings
-    if settingsCategoryId and Settings and Settings.OpenToCategory then
-        -- Some clients expect 0-based category index
-        Settings.OpenToCategory(settingsCategoryId - 1)
-        return
-    end
-    -- Fallback: old Interface Options
-    if InterfaceOptions_AddCategory and InterfaceOptionsFrame_OpenToCategory then
-        if InterfaceAddOnsList_Update then
-            InterfaceAddOnsList_Update()
-        end
-        InterfaceOptionsFrame_Show()
-        InterfaceOptionsFrame_OpenToCategory(panel)
+    if AltArmy and AltArmy.MainFrame then
+        AltArmy.MainFrame:Show()
     end
 end

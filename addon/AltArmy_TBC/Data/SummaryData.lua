@@ -96,14 +96,20 @@ function AltArmy.SummaryData.GetCharacterList()
     for realm in pairs(DS:GetRealms()) do
         for charName, charData in pairs(DS:GetCharacters(realm)) do
             local name = DS:GetCharacterName(charData) or charName
+            local isCurrent = (name == currentName and realm == currentRealm)
             local level = DS:GetCharacterLevel(charData) or 0
+            -- Fractional level (level + xp progress) for display with one decimal, rounded down
+            local xp = isCurrent and (UnitXP and UnitXP("player")) or charData.xp
+            local xpMax = isCurrent and (UnitXPMax and UnitXPMax("player")) or charData.xpMax
+            if xp and xpMax and xpMax > 0 then
+                level = level + xp / xpMax
+            end
             local money = DS:GetMoney(charData) or 0
             local played = DS:GetPlayTime(charData) or 0
             local lastLogout = DS:GetLastLogout(charData) or MAX_LOGOUT_SENTINEL
             local classLoc, classFile = DS:GetCharacterClass(charData)
-            local isCurrent = (name == currentName and realm == currentRealm)
             local restRate
-            if level == MAX_LEVEL then
+            if math.floor(level) == MAX_LEVEL then
                 restRate = 0
             elseif isCurrent and UnitXPMax and GetXPExhaustion then
                 local xpMax = UnitXPMax("player") or 0
@@ -112,10 +118,18 @@ function AltArmy.SummaryData.GetCharacterList()
                     restRate = 0
                 else
                     local maxRest = xpMax * 1.5
-                    restRate = math.min(100, math.floor((restXP / maxRest) * 100 + 0.5))
+                    restRate = math.min(100, (restXP / maxRest) * 100)
                 end
             else
                 restRate = (DS.GetRestXp and DS:GetRestXp(charData)) or 0
+            end
+            local bagSlots = (DS.GetNumBagSlots and DS:GetNumBagSlots(charData)) or 0
+            local bagFree = (DS.GetNumFreeBagSlots and DS:GetNumFreeBagSlots(charData)) or 0
+            local equipmentCount = 0
+            if charData.Inventory then
+                for _ in pairs(charData.Inventory) do
+                    equipmentCount = equipmentCount + 1
+                end
             end
             table.insert(list, {
                 name = name,
@@ -127,6 +141,9 @@ function AltArmy.SummaryData.GetCharacterList()
                 lastOnline = isCurrent and nil or lastLogout,
                 class = classLoc or "",
                 classFile = classFile or "",
+                bagSlots = bagSlots,
+                bagFree = bagFree,
+                equipmentCount = equipmentCount,
             })
         end
     end

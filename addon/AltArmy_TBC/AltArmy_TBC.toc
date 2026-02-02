@@ -10,6 +10,7 @@ Core.lua
 Data\DataStore.lua
 Data\SummaryData.lua
 Data\Characters.lua
+Data\SearchData.lua
 Tabs\TabSummary.lua
 Tabs\TabCharacters.lua
 Tabs\TabSearch.lua
