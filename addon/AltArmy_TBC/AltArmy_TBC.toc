@@ -1,0 +1,14 @@
+## Interface: 20502
+## Title: AltArmy TBC
+## Notes: Alt management: character summary, per-character containers, cross-character item search. TBC Classic.
+## Version: 1.0.0
+## Author: AltArmy TBC
+## SavedVariables: AltArmyTBC_Options
+
+# TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
+Core.lua
+TabSummary.lua
+TabCharacters.lua
+TabSearch.lua
+Minimap.lua
+Options.lua
