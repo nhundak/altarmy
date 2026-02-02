@@ -3,14 +3,15 @@
 ## Notes: Alt management: character summary, per-character containers, cross-character item search. TBC Classic.
 ## Version: 1.0.0
 ## Author: AltArmy TBC
-## SavedVariables: AltArmyTBC_Options
+## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
 Core.lua
-SummaryData.lua
-Characters.lua
-TabSummary.lua
-TabCharacters.lua
-TabSearch.lua
-Minimap.lua
-Options.lua
+Data\DataStore.lua
+Data\SummaryData.lua
+Data\Characters.lua
+Tabs\TabSummary.lua
+Tabs\TabCharacters.lua
+Tabs\TabSearch.lua
+UI\Minimap.lua
+UI\Options.lua

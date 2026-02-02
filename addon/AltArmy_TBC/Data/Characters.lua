@@ -58,18 +58,39 @@ end
 
 --- Sort the character list in place. Call InvalidateView() before if data changed.
 --- @param ascending boolean
---- @param sortKey string "name" or "realm"
+--- @param sortKey string "name", "realm", "level", "restXp", "money", "played", or "lastOnline"
 function ns:Sort(ascending, sortKey)
     local list = self:GetList()
     if #list == 0 then return end
     sortKey = sortKey or "name"
-    table.sort(list, function(a, b)
-        local va = a[sortKey] or ""
-        local vb = b[sortKey] or ""
-        if ascending then
-            return va < vb
-        else
-            return va > vb
-        end
-    end)
+    local numericKeys = { level = true, restXp = true, money = true, played = true, lastOnline = true }
+    if numericKeys[sortKey] then
+        table.sort(list, function(a, b)
+            local va, vb
+            if sortKey == "lastOnline" then
+                va = a.lastOnline
+                vb = b.lastOnline
+                if va == nil then va = ascending and math.huge or 0 end
+                if vb == nil then vb = ascending and math.huge or 0 end
+            else
+                va = tonumber(a[sortKey]) or 0
+                vb = tonumber(b[sortKey]) or 0
+            end
+            if ascending then
+                return va < vb
+            else
+                return va > vb
+            end
+        end)
+    else
+        table.sort(list, function(a, b)
+            local va = a[sortKey] or ""
+            local vb = b[sortKey] or ""
+            if ascending then
+                return va < vb
+            else
+                return va > vb
+            end
+        end)
+    end
 end

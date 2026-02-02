@@ -33,6 +33,7 @@ main:SetClampedToScreen(true)
 main:RegisterForDrag("LeftButton")
 main:SetScript("OnDragStart", function(f) f:StartMoving() end)
 main:SetScript("OnDragStop", function(f) f:StopMovingOrSizing() end)
+main:EnableMouse(true)
 -- SetBackdrop is not available in all TBC Classic builds; use a simple background texture
 local bg = main:CreateTexture(nil, "BACKGROUND")
 bg:SetAllPoints(main)
@@ -41,6 +42,10 @@ bg:SetTexCoord(0, 1, 0, 1)
 main:Hide()
 
 AltArmy.MainFrame = main
+
+-- Dismiss UI when Escape is pressed (WoW closes topmost frame in UISpecialFrames)
+UISpecialFrames = UISpecialFrames or {}
+tinsert(UISpecialFrames, "AltArmyTBC_MainFrame")
 
 -- Header background
 local headerBg = main:CreateTexture(nil, "ARTWORK")
