@@ -57,29 +57,8 @@ local columns = {
         end,
         JustifyH = "RIGHT",
     },
-    Bags = {
-        Width = 55,
-        headerLabel = "Bags",
-        GetText = function(entry)
-            local total = entry.bagSlots or 0
-            local free = entry.bagFree or 0
-            if total == 0 then return "" end
-            return free .. "/" .. total
-        end,
-        JustifyH = "RIGHT",
-    },
-    Equip = {
-        Width = 45,
-        headerLabel = "Equip",
-        GetText = function(entry)
-            local n = entry.equipmentCount or 0
-            if n == 0 then return "" end
-            return n .. "/19"
-        end,
-        JustifyH = "RIGHT",
-    },
 }
-local columnOrder = { "Name", "Level", "RestXP", "Money", "Played", "LastOnline", "Bags", "Equip" }
+local columnOrder = { "Name", "Level", "RestXP", "Money", "Played", "LastOnline" }
 
 -- Column display name -> sort key for Characters:Sort()
 local columnToSortKey = {
@@ -89,8 +68,6 @@ local columnToSortKey = {
     Money = "money",
     Played = "played",
     LastOnline = "lastOnline",
-    Bags = "bagSlots",
-    Equip = "equipmentCount",
 }
 
 local currentSortKey = "name"

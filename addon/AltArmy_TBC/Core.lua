@@ -68,43 +68,30 @@ closeBtn:SetScript("OnClick", function()
     main:Hide()
 end)
 
--- Header search: icon button (right) + EditBox (left of icon), vertically centered in header
-local headerSearchBtn = CreateFrame("Button", nil, main)
-headerSearchBtn:SetPoint("RIGHT", closeBtn, "LEFT", -4, 0)
-headerSearchBtn:SetSize(24, 24)
-headerSearchBtn:RegisterForClicks("LeftButtonUp")
-local searchIcon = headerSearchBtn:CreateTexture(nil, "ARTWORK")
-searchIcon:SetAllPoints(headerSearchBtn)
-searchIcon:SetTexture("Interface\\Icons\\INV_Misc_Spyglass_03")
-searchIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-headerSearchBtn:SetScript("OnClick", function()
-    local query = ""
-    if headerSearchEdit then
-        query = headerSearchEdit:GetText()
-    end
-    setActiveTab("Search")
-    if AltArmy.TabFrames and AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.SearchWithQuery then
-        AltArmy.TabFrames.Search:SearchWithQuery(query)
-    end
-end)
-headerSearchBtn:SetScript("OnEnter", function(self)
-    searchIcon:SetAlpha(0.8)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:SetText("Search")
-end)
-headerSearchBtn:SetScript("OnLeave", function()
-    searchIcon:SetAlpha(1)
-    GameTooltip:Hide()
-end)
-
+-- Header search: EditBox to the left of close button
 local headerSearchEdit = CreateFrame("EditBox", "AltArmyTBC_HeaderSearchEdit", main)
-headerSearchEdit:SetPoint("RIGHT", headerSearchBtn, "LEFT", -4, 0)
+headerSearchEdit:SetPoint("RIGHT", closeBtn, "LEFT", -4, 0)
 headerSearchEdit:SetSize(280, 20)
 headerSearchEdit:SetAutoFocus(false)
 headerSearchEdit:SetFontObject("GameFontHighlight")
 if headerSearchEdit.SetTextInsets then
     headerSearchEdit:SetTextInsets(6, 6, 0, 0)
 end
+
+-- Clear (X) button at start of input; only visible when there is text
+local headerSearchClearBtn = CreateFrame("Button", nil, main)
+headerSearchClearBtn:SetPoint("RIGHT", headerSearchEdit, "LEFT", -2, 0)
+headerSearchClearBtn:SetSize(18, 18)
+headerSearchClearBtn:SetScript("OnClick", function()
+    headerSearchEdit:SetText("")
+    headerSearchEdit:SetFocus()
+end)
+headerSearchClearBtn:Hide()
+local clearBtnLabel = headerSearchClearBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+clearBtnLabel:SetPoint("CENTER", headerSearchClearBtn, "CENTER", 0, 0)
+clearBtnLabel:SetText("X")
+headerSearchClearBtn:SetHighlightFontObject("GameFontNormal")
+
 -- Visible input background
 local searchEditBg = headerSearchEdit:CreateTexture(nil, "BACKGROUND")
 searchEditBg:SetAllPoints(headerSearchEdit)
@@ -124,6 +111,28 @@ end)
 headerSearchEdit:SetScript("OnEscapePressed", function(box)
     box:ClearFocus()
 end)
+headerSearchEdit:SetScript("OnTextChanged", function(box)
+    local query = box:GetText()
+    local trimmed = query and query:match("^%s*(.-)%s*$") or ""
+    if trimmed == "" then
+        setActiveTab("Summary")
+        headerSearchClearBtn:Hide()
+    else
+        setActiveTab("Search")
+        headerSearchClearBtn:Show()
+    end
+    if AltArmy.TabFrames and AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.SearchWithQuery then
+        AltArmy.TabFrames.Search:SearchWithQuery(query)
+    end
+end)
+
+-- Expose for clearing header search and switching to Summary (e.g. from other code)
+function AltArmy.SwitchToSummaryTab()
+    if headerSearchEdit and headerSearchEdit.SetText then
+        headerSearchEdit:SetText("")
+    end
+    setActiveTab("Summary")
+end
 
 -- Tab button strip (below header)
 local tabStrip = CreateFrame("Frame", nil, main)
@@ -200,9 +209,10 @@ main:SetScript("OnEvent", function(_, event, addonName)
     end
 end)
 
--- Fallback: run "loaded" log when main frame is first shown (in case ADDON_LOADED fires before chat is ready)
+-- When UI is shown, always open on Summary tab; also run first-open log once
 local loadedLogged = false
 main:SetScript("OnShow", function()
+    setActiveTab("Summary")
     if not loadedLogged then
         loadedLogged = true
         print("[AltArmy] Addon ready (first open)")

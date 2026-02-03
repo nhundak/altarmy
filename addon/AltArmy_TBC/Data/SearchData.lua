@@ -31,6 +31,7 @@ function SD.GetAllContainerSlots()
     for realm in pairs(DS:GetRealms()) do
         for charName, charData in pairs(DS:GetCharacters(realm)) do
             if charData and DS.IterateContainerSlots then
+                local _, classFile = DS:GetCharacterClass(charData)
                 DS:IterateContainerSlots(charData, function(bagID, slot, itemID, count, link)
                     table.insert(list, {
                         characterName = DS:GetCharacterName(charData) or charName,
@@ -41,6 +42,7 @@ function SD.GetAllContainerSlots()
                         location = LocationFromBagID(bagID),
                         bagID = bagID,
                         slot = slot,
+                        classFile = classFile,
                     })
                     return false
                 end)
@@ -166,6 +168,7 @@ function SD.SearchWithLocationGroups(query)
                 realm = entry.realm,
                 location = entry.location or "bag",
                 count = 0,
+                classFile = entry.classFile,
             }
         end
         byKey[key].count = byKey[key].count + (entry.count or 1)
