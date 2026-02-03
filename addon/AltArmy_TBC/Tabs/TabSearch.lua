@@ -14,6 +14,18 @@ local NUM_ROWS = 14
 local SD = AltArmy.SearchData
 if not SD or not SD.SearchWithLocationGroups then return end
 
+-- Insert item link into chat (same as shift-clicking item in bags)
+local function InsertItemLinkIntoChat(itemLinkOrID)
+    local link = itemLinkOrID
+    if type(link) == "number" and GetItemInfo then
+        local _, itemLink = GetItemInfo(link)
+        link = itemLink
+    end
+    if type(link) == "string" and link ~= "" and ChatEdit_InsertLink then
+        ChatEdit_InsertLink(link)
+    end
+end
+
 -- Hidden edit box for header search flow (SearchWithQuery sets text, DoSearch reads it)
 local searchEdit = CreateFrame("EditBox", "AltArmyTBC_SearchEditBox", frame)
 searchEdit:SetPoint("LEFT", frame, "LEFT", -1000, 0)
@@ -179,6 +191,12 @@ local function UpdateResults()
             end)
             row:SetScript("OnLeave", function()
                 if GameTooltip then GameTooltip:Hide() end
+            end)
+            row:SetScript("OnMouseUp", function(self, button)
+                if button ~= "LeftButton" or not IsShiftKeyDown() then return end
+                local entry = self.entry
+                if not entry then return end
+                InsertItemLinkIntoChat(entry.itemLink or entry.itemID)
             end)
             resultRows[i] = row
         end
