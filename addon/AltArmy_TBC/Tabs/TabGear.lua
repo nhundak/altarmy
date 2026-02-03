@@ -11,7 +11,7 @@ local MESSAGE_ROW_HEIGHT = 20
 local CELL_SIZE = 28
 local NUM_EQUIPMENT_SLOTS = 19
 
--- Equipment slot ID -> display name (TBC slots 1-19)
+-- Equipment slot ID -> display name (TBC slots 1-19; ranged slot holds ranged weapons/relics; ammo omitted)
 local SLOT_NAMES = {
     [1] = "Head",
     [2] = "Neck",
@@ -32,6 +32,18 @@ local SLOT_NAMES = {
     [17] = "Off Hand",
     [18] = "Ranged",
     [19] = "Tabard",
+}
+
+-- Display order of rows: Main Hand, Off Hand, Ranged at top; Shirt, Tabard at bottom.
+-- Each entry is WoW inventory slot ID (1–19).
+local SLOT_ORDER = {
+    16, 17, 18,   -- Main Hand, Off Hand, Ranged
+    1, 2, 3, 5,   -- Head, Neck, Shoulder, Chest
+    15,           -- Back
+    9, 10,        -- Wrist, Hands
+    6, 7, 8,      -- Waist, Legs, Feet
+    11, 12, 13, 14,   -- Finger 1, Finger 2, Trinket 1, Trinket 2
+    4, 19,        -- Shirt, Tabard
 }
 
 -- State: dropped item link (nil = use default sort by level)
@@ -290,29 +302,92 @@ end)
 
 -- ---- Right panel: slot row headers + scrollable character columns ----
 local HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT
+local COLUMN_HEADER_HEIGHT_GEAR = 36
 local SLOT_LABEL_WIDTH = 80
-local COLUMN_WIDTH = CELL_SIZE + 4
-local NUM_VISIBLE_COLUMNS = 12
+local COLUMN_WIDTH = 61
+local ROW_HEIGHT = 42
 local SCROLL_BAR_WIDTH = 20
+local GRID_CONTENT_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT + NUM_EQUIPMENT_SLOTS * ROW_HEIGHT + PAD
 
 local rightPanel = CreateFrame("Frame", nil, frame)
 rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", PAD, 0)
 rightPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
 
--- Row headers (slot names), fixed on the left
-local slotHeaderContainer = CreateFrame("Frame", nil, rightPanel)
-slotHeaderContainer:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 0, 0)
-slotHeaderContainer:SetPoint("BOTTOMLEFT", rightPanel, "BOTTOMLEFT", 0, 0)
+local SCROLL_BAR_TOP_INSET = 16
+local SCROLL_BAR_BOTTOM_INSET = 16
+local SCROLL_BAR_RIGHT_OFFSET = 4
+local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
+
+-- Content area: leave room for vertical bar on right and horizontal bar at bottom
+local contentArea = CreateFrame("Frame", nil, rightPanel)
+contentArea:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 0, -(PAD + SCROLL_BAR_TOP_INSET))
+contentArea:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -SCROLL_BAR_WIDTH, SCROLL_BAR_BOTTOM_INSET + HORIZONTAL_SCROLL_BAR_HEIGHT)
+
+-- Vertical scroll (plain ScrollFrame, no template) so slot labels + grid stay inside the UI
+local verticalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearVerticalScroll", contentArea)
+verticalScroll:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 0, 0)
+verticalScroll:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", 0, 0)
+verticalScroll:EnableMouse(true)
+
+-- Scroll child: viewport width only; slot labels + horizontal scroll viewport live here (no horizontal scroll on this frame)
+local MIN_SCROLL_CHILD_WIDTH = 400
+local verticalScrollChild = CreateFrame("Frame", nil, verticalScroll)
+verticalScrollChild:SetPoint("TOPLEFT", verticalScroll, "TOPLEFT", 0, 0)
+verticalScrollChild:SetHeight(GRID_CONTENT_HEIGHT)
+verticalScrollChild:SetWidth(MIN_SCROLL_CHILD_WIDTH)
+verticalScrollChild:EnableMouse(true)
+verticalScroll:SetScrollChild(verticalScrollChild)
+
+-- Vertical scroll bar: custom (no template) so it doesn't conflict with horizontal; both bars under our control
+local verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_GearVerticalScrollBar", rightPanel)
+verticalScrollBar:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET, -(PAD + SCROLL_BAR_TOP_INSET))
+verticalScrollBar:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET, SCROLL_BAR_BOTTOM_INSET)
+verticalScrollBar:SetWidth(SCROLL_BAR_WIDTH)
+verticalScrollBar:SetMinMaxValues(0, 0)
+verticalScrollBar:SetValueStep(ROW_HEIGHT)
+verticalScrollBar:SetValue(0)
+verticalScrollBar:SetOrientation("VERTICAL")
+verticalScrollBar:EnableMouse(true)
+local vertThumb = verticalScrollBar:CreateTexture(nil, "ARTWORK")
+vertThumb:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
+vertThumb:SetVertexColor(0.5, 0.5, 0.6, 1)
+vertThumb:SetSize(SCROLL_BAR_WIDTH - 4, 24)
+verticalScrollBar:SetThumbTexture(vertThumb)
+verticalScrollBar:SetScript("OnValueChanged", function(_, value)
+    verticalScroll:SetVerticalScroll(value)
+end)
+
+-- Mouse wheel: scroll the gear list when hovering over the scroll area (frame or scroll child)
+local WHEEL_STEP = ROW_HEIGHT * 2
+local function OnGearScrollWheel(_, delta)
+    if not verticalScrollBar then return end
+    local minVal, maxVal = verticalScrollBar:GetMinMaxValues()
+    local current = verticalScrollBar:GetValue()
+    -- delta: 1 = scroll up (see higher content), -1 = scroll down (see lower content)
+    local newVal = current - delta * WHEEL_STEP
+    newVal = math.max(minVal, math.min(maxVal, newVal))
+    verticalScrollBar:SetValue(newVal)
+    verticalScroll:SetVerticalScroll(newVal)
+end
+verticalScroll:SetScript("OnMouseWheel", OnGearScrollWheel)
+verticalScrollChild:SetScript("OnMouseWheel", OnGearScrollWheel)
+
+-- Row headers (slot names) — fixed on the left; create before horizontal scroll so viewport can anchor to them
+local slotHeaderContainer = CreateFrame("Frame", nil, verticalScrollChild)
+slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, 0)
+slotHeaderContainer:SetPoint("BOTTOMLEFT", verticalScrollChild, "BOTTOMLEFT", 0, 0)
 slotHeaderContainer:SetWidth(SLOT_LABEL_WIDTH)
 
--- Corner cell (above slot labels)
+-- Corner cell (above slot labels); height matches column header so slot labels align with equipment rows
 local cornerCell = slotHeaderContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 cornerCell:SetPoint("TOPLEFT", slotHeaderContainer, "TOPLEFT", 0, 0)
 cornerCell:SetWidth(SLOT_LABEL_WIDTH - 4)
-cornerCell:SetHeight(HEADER_ROW_HEIGHT)
+cornerCell:SetHeight(COLUMN_HEADER_HEIGHT_GEAR)
 cornerCell:SetJustifyH("LEFT")
 cornerCell:SetText("")
 
+-- Slot labels: height CELL_SIZE and vertically centered in each row (row height is ROW_HEIGHT)
+local SLOT_LABEL_ROW_OFFSET = (ROW_HEIGHT - CELL_SIZE) / 2
 local slotLabels = {}
 for slot = 1, NUM_EQUIPMENT_SLOTS do
     local label = slotHeaderContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -320,37 +395,123 @@ for slot = 1, NUM_EQUIPMENT_SLOTS do
     label:SetWidth(SLOT_LABEL_WIDTH - 4)
     label:SetHeight(CELL_SIZE)
     label:SetJustifyH("LEFT")
-    label:SetText(SLOT_NAMES[slot] or ("Slot " .. slot))
+    label:SetJustifyV("MIDDLE")
+    label:SetText(SLOT_NAMES[SLOT_ORDER[slot]] or ("Slot " .. slot))
     if slot == 1 then
-        label:SetPoint("TOP", cornerCell, "BOTTOM", 0, -(MESSAGE_ROW_HEIGHT + 2))
+        label:SetPoint("TOP", cornerCell, "BOTTOM", 0, -(MESSAGE_ROW_HEIGHT + 2 + SLOT_LABEL_ROW_OFFSET))
     else
-        label:SetPoint("TOP", slotLabels[slot - 1], "BOTTOM", 0, 0)
+        label:SetPoint("TOP", slotLabels[slot - 1], "TOP", 0, -ROW_HEIGHT)
     end
     slotLabels[slot] = label
 end
 
--- Grid area: fixed column pool (no ScrollFrame; we scroll by offset)
-local gridContainer = CreateFrame("Frame", nil, rightPanel)
-gridContainer:SetPoint("TOPLEFT", slotHeaderContainer, "TOPRIGHT", 0, 0)
-gridContainer:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -SCROLL_BAR_WIDTH, 0)
+-- Horizontal viewport: create before scroll bar scripts so callbacks see non-nil horizontalScroll
+local horizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearHorizontalScroll", verticalScrollChild)
+horizontalScroll:SetPoint("TOPLEFT", slotHeaderContainer, "TOPRIGHT", 0, 0)
+horizontalScroll:SetPoint("BOTTOMRIGHT", verticalScrollChild, "BOTTOMRIGHT", 0, 0)
+horizontalScroll:EnableMouse(true)
+
+-- Grid area: scroll child of horizontalScroll; engine scrolls via SetHorizontalScroll (like vertical)
+local gridContainer = CreateFrame("Frame", nil, horizontalScroll)
+gridContainer:SetPoint("TOPLEFT", horizontalScroll, "TOPLEFT", 0, 0)
+gridContainer:SetHeight(GRID_CONTENT_HEIGHT)
+horizontalScroll:SetScrollChild(gridContainer)
 
 -- Pool of character column frames (reused)
 local columnPool = {}
-local gridScrollBar
-local scrollOffset = 0
+
+-- Horizontal scroll bar: create after horizontalScroll/gridContainer exist so OnValueChanged sees them
+local horizontalScrollBar = CreateFrame("Slider", "AltArmyTBC_GearHorizontalScrollBar", rightPanel)
+horizontalScrollBar:SetPoint("BOTTOMLEFT", rightPanel, "BOTTOMLEFT", PAD, PAD)
+horizontalScrollBar:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -SCROLL_BAR_WIDTH - PAD, PAD)
+horizontalScrollBar:SetHeight(HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
+horizontalScrollBar:SetOrientation("HORIZONTAL")
+horizontalScrollBar:SetMinMaxValues(0, 0)
+horizontalScrollBar:SetValueStep(1)
+horizontalScrollBar:SetValue(0)
+horizontalScrollBar:EnableMouse(true)
+local lastHorizontalScrollValue = nil
+local horizontalBarDragging = false
+local horizontalDragStartX = 0
+local horizontalDragStartValue = 0
+local function ApplyHorizontalScrollValue(value)
+    if not horizontalScroll then return end
+    lastHorizontalScrollValue = value
+    if horizontalScroll.UpdateScrollChildRect then
+        horizontalScroll:UpdateScrollChildRect()
+    end
+    horizontalScroll:SetHorizontalScroll(value)
+end
+local function SyncHorizontalScrollPosition()
+    if not (horizontalScroll and horizontalScrollBar) then return end
+    local value = horizontalScrollBar:GetValue()
+    if lastHorizontalScrollValue == value then return end
+    ApplyHorizontalScrollValue(value)
+end
+horizontalScrollBar:SetScript("OnValueChanged", function(_, value)
+    SyncHorizontalScrollPosition()
+end)
+-- Manual drag: Slider often doesn't update value when thumb is dragged; track mouse and set value ourselves
+horizontalScrollBar:SetScript("OnMouseDown", function(_, button)
+    if button ~= "LeftButton" then return end
+    horizontalBarDragging = true
+    horizontalDragStartX = select(1, GetCursorPosition())
+    horizontalDragStartValue = horizontalScrollBar:GetValue()
+end)
+horizontalScrollBar:SetScript("OnUpdate", function()
+    if not frame:IsShown() then return end
+    if horizontalBarDragging then
+        if not IsMouseButtonDown(1) then
+            horizontalBarDragging = false
+        else
+            local minVal, maxVal = horizontalScrollBar:GetMinMaxValues()
+            local barWidth = horizontalScrollBar:GetWidth()
+            if barWidth and barWidth > 0 and maxVal > minVal then
+                local scale = (horizontalScrollBar.GetEffectiveScale and horizontalScrollBar:GetEffectiveScale()) or (UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
+                if scale <= 0 then scale = 1 end
+                local cursorX = select(1, GetCursorPosition()) / scale
+                local startX = horizontalDragStartX / scale
+                local deltaX = cursorX - startX
+                local value = horizontalDragStartValue + deltaX * (maxVal - minVal) / barWidth
+                value = math.max(minVal, math.min(maxVal, value))
+                horizontalScrollBar:SetValue(value)
+                ApplyHorizontalScrollValue(value)
+            end
+        end
+    end
+end)
+-- Visible track and thumb (TBC may lack SetBackdrop; thumb uses solid texture so it always shows)
+if horizontalScrollBar.SetBackdrop then
+    horizontalScrollBar:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = nil,
+        tile = true, tileSize = 0, edgeSize = 0,
+        insets = { left = 0, right = 0, top = 0, bottom = 0 },
+    })
+    horizontalScrollBar:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
+end
+-- Thumb: visible draggable nub (TBC-friendly texture)
+local thumbTex = horizontalScrollBar:CreateTexture(nil, "ARTWORK")
+thumbTex:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
+thumbTex:SetVertexColor(0.5, 0.5, 0.6, 1)
+thumbTex:SetSize(24, HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
+horizontalScrollBar:SetThumbTexture(thumbTex)
 
 local function GetColumnFrame(index)
     if not columnPool[index] then
         local col = CreateFrame("Frame", nil, gridContainer)
-        col:SetHeight(HEADER_ROW_HEIGHT + MESSAGE_ROW_HEIGHT + NUM_EQUIPMENT_SLOTS * CELL_SIZE + PAD)
+        col:SetSize(COLUMN_WIDTH, COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT + NUM_EQUIPMENT_SLOTS * ROW_HEIGHT + PAD)
         col.header = col:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        col.header:SetPoint("TOP", col, "TOP", 0, 0)
-        col.header:SetWidth(COLUMN_WIDTH - 4)
-        col.header:SetHeight(HEADER_ROW_HEIGHT)
+        col.header:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
+        col.header:SetPoint("TOPRIGHT", col, "TOPRIGHT", 0, 0)
+        col.header:SetHeight(COLUMN_HEADER_HEIGHT_GEAR)
         col.header:SetJustifyH("CENTER")
+        col.header:SetWordWrap(true)
+        col.header:SetNonSpaceWrap(true)
         col.message = col:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         col.message:SetPoint("TOP", col.header, "BOTTOM", 0, 0)
-        col.message:SetWidth(COLUMN_WIDTH - 4)
+        col.message:SetPoint("LEFT", col, "LEFT", 0, 0)
+        col.message:SetPoint("RIGHT", col, "RIGHT", 0, 0)
         col.message:SetHeight(MESSAGE_ROW_HEIGHT)
         col.message:SetJustifyH("CENTER")
         col.message:SetWordWrap(true)
@@ -365,7 +526,7 @@ local function GetColumnFrame(index)
             if slot == 1 then
                 cell:SetPoint("TOP", col.message, "BOTTOM", 0, -2)
             else
-                cell:SetPoint("TOP", col.cells[slot - 1], "BOTTOM", 0, 0)
+                cell:SetPoint("TOP", col.cells[slot - 1], "BOTTOM", 0, -(ROW_HEIGHT - CELL_SIZE))
             end
             col.cells[slot] = cell
         end
@@ -374,39 +535,24 @@ local function GetColumnFrame(index)
     return columnPool[index]
 end
 
--- Slider for character column offset (scroll through many characters)
-gridScrollBar = CreateFrame("Slider", "AltArmyTBC_GearScrollBar", rightPanel, "UIPanelScrollBarTemplate")
-gridScrollBar:SetPoint("TOPLEFT", gridContainer, "TOPRIGHT", 0, 0)
-gridScrollBar:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", 0, 0)
-gridScrollBar:SetWidth(SCROLL_BAR_WIDTH)
-gridScrollBar:SetMinMaxValues(0, 0)
-gridScrollBar:SetValueStep(1)
-gridScrollBar:SetValue(0)
-
-local function UpdateGridWithOffset(offset)
-    scrollOffset = offset
+local function UpdateGridWithOffset()
     if not AltArmy.Characters then return end
     local list = GetDisplayList()
     local numCols = #list
-    local visibleCols = math.min(NUM_VISIBLE_COLUMNS, numCols)
 
-    for i = 1, NUM_VISIBLE_COLUMNS do
-        local col = GetColumnFrame(i)
-        col:Hide()
+    for idx, col in pairs(columnPool) do
+        if idx > numCols then col:Hide() end
     end
 
-    for c = 1, visibleCols do
-        local idx = offset + c
-        if idx > numCols then break end
-        local entry = list[idx]
+    for c = 1, numCols do
+        local entry = list[c]
         local col = GetColumnFrame(c)
         col:ClearAllPoints()
         col:SetPoint("TOPLEFT", gridContainer, "TOPLEFT", (c - 1) * COLUMN_WIDTH + PAD, 0)
         col:Show()
 
         local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
-        local levelStr = entry.level and string.format("%.0f", math.floor(tonumber(entry.level) * 10) / 10) or "?"
-        col.header:SetText((entry.name or "?") .. "\n" .. levelStr)
+        col.header:SetText(entry.name or "?")
 
         local gray = CanNeverUseCurrentItem(entry)
         if gray then
@@ -438,7 +584,7 @@ local function UpdateGridWithOffset(offset)
 
         for slot = 1, NUM_EQUIPMENT_SLOTS do
             local cell = col.cells[slot]
-            local item = charData and DS.GetInventoryItem and DS:GetInventoryItem(charData, slot)
+            local item = charData and DS.GetInventoryItem and DS:GetInventoryItem(charData, SLOT_ORDER[slot])
             local texPath = GetItemTexture(item)
             if texPath then
                 cell.texture:SetTexture(texPath)
@@ -467,20 +613,34 @@ function frame:RefreshGrid()
 
     local list = GetDisplayList()
     local numCols = #list
-    local maxOffset = math.max(0, numCols - NUM_VISIBLE_COLUMNS)
-    scrollOffset = math.min(scrollOffset, maxOffset)
+    local viewWidth = verticalScroll and verticalScroll:GetWidth() or 0
+    local viewHeight = verticalScroll and verticalScroll:GetHeight() or 0
+    local gridContentWidth = numCols * COLUMN_WIDTH + PAD
+    local gridViewWidth = math.max(0, viewWidth - SLOT_LABEL_WIDTH)
 
-    if gridScrollBar then
-        gridScrollBar:SetMinMaxValues(0, maxOffset)
-        gridScrollBar:SetValueStep(1)
-        gridScrollBar:SetValue(scrollOffset)
-        gridScrollBar:SetStepsPerPage(NUM_VISIBLE_COLUMNS - 1)
-        gridScrollBar:SetScript("OnValueChanged", function(_, value)
-            UpdateGridWithOffset(math.floor(value + 0.5))
-        end)
+    -- Vertical scroll child: viewport width only so slot labels stay on screen; horizontal scroll is inner (grid only)
+    if verticalScrollChild and verticalScroll then
+        verticalScrollChild:SetWidth(math.max(MIN_SCROLL_CHILD_WIDTH, viewWidth))
+        if gridContainer then
+            gridContainer:SetWidth(math.max(0, gridContentWidth))
+        end
+        if verticalScrollBar then
+            local maxVertScroll = math.max(0, GRID_CONTENT_HEIGHT - viewHeight)
+            verticalScrollBar:SetMinMaxValues(0, maxVertScroll)
+            verticalScrollBar:SetValueStep(ROW_HEIGHT)
+            verticalScrollBar:SetStepsPerPage(10)
+        end
+        if horizontalScrollBar and horizontalScroll and gridContainer then
+            local maxHorzScroll = math.max(0, gridContentWidth - gridViewWidth)
+            horizontalScrollBar:SetMinMaxValues(0, maxHorzScroll)
+            horizontalScrollBar:SetValueStep(1)
+            horizontalScrollBar:SetValue(0)
+            lastHorizontalScrollValue = 0
+            horizontalScroll:SetHorizontalScroll(0)
+        end
     end
 
-    UpdateGridWithOffset(scrollOffset)
+    UpdateGridWithOffset()
 end
 
 frame:SetScript("OnShow", function()

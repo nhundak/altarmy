@@ -98,8 +98,15 @@ headerSearchEdit:SetScript("OnEnterPressed", function(box)
     box:ClearFocus()
     local query = box:GetText()
     local trimmed = query and query:match("^%s*(.-)%s*$") or ""
-    if trimmed ~= "" and AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.SearchWithQuery then
-        AltArmy.TabFrames.Search:SearchWithQuery(trimmed)
+    if trimmed ~= "" then
+        -- Debugging convenience: allow /reload from search box; remove before release.
+        if trimmed:lower() == "/reload" then
+            ReloadUI()
+            return
+        end
+        if AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.SearchWithQuery then
+            AltArmy.TabFrames.Search:SearchWithQuery(trimmed)
+        end
     end
 end)
 headerSearchEdit:SetScript("OnEscapePressed", function(box)

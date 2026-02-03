@@ -221,7 +221,7 @@ local function IsEnchanted(link)
     return true
 end
 
---- Scan equipped gear into char.Inventory. Slots 1-19 (TBC). Store link if enchanted, else itemID.
+--- Scan equipped gear into char.Inventory. Slots 1-19 (TBC). Ranged slot holds ranged/relics; ammo omitted. Store link if enchanted, else itemID.
 local function ScanEquipment(char)
     if not char or not GetInventoryItemLink then return end
     char.Inventory = char.Inventory or {}
