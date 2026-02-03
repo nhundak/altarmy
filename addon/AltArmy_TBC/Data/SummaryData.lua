@@ -84,9 +84,6 @@ function AltArmy.SummaryData.GetCharacterList()
     local list = {}
     local DS = AltArmy.DataStore
     if not DS or not DS.GetRealms or not DS.GetCharacters then
-        if AltArmy.DebugLog then
-            AltArmy.DebugLog("Character list: DataStore not ready")
-        end
         return list
     end
 
@@ -146,10 +143,6 @@ function AltArmy.SummaryData.GetCharacterList()
                 equipmentCount = equipmentCount,
             })
         end
-    end
-
-    if AltArmy.DebugLog then
-        AltArmy.DebugLog("Character list loaded: " .. #list .. " character(s)")
     end
     return list
 end

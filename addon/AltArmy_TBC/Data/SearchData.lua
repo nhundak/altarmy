@@ -49,9 +49,6 @@ function SD.GetAllContainerSlots()
             end
         end
     end
-    if AltArmy and AltArmy.DebugLog then
-        AltArmy.DebugLog("Search GetAllContainerSlots: " .. #list .. " slots across characters")
-    end
     return list
 end
 
@@ -101,9 +98,6 @@ function SD.Search(query)
             entry.itemName = itemName
             table.insert(results, entry)
         end
-    end
-    if AltArmy and AltArmy.DebugLog then
-        AltArmy.DebugLog("Search query='" .. tostring(query) .. "' raw matches=" .. #results)
     end
     return results
 end
@@ -198,9 +192,6 @@ function SD.SearchWithLocationGroups(query)
     for _, row in ipairs(list) do
         row.charTotal = nil
         row.matchScore = nil
-    end
-    if AltArmy and AltArmy.DebugLog then
-        AltArmy.DebugLog("SearchWithLocationGroups query='" .. tostring(query) .. "' raw=" .. #raw .. " grouped rows=" .. #list)
     end
     return list
 end

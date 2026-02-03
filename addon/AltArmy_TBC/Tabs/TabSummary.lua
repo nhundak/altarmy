@@ -277,10 +277,6 @@ Update = function(offset)
             end
         end
     end
-
-    if AltArmy.DebugLog then
-        AltArmy.DebugLog("Summary Update: " .. numItems .. " item(s), offset=" .. offset)
-    end
 end
 
 -- When scroll bar moves, recompute offset (row index) and refresh rows

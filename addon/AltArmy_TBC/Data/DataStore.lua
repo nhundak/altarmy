@@ -360,25 +360,13 @@ function DS:ScanCurrentCharacterBags()
     end
 end
 
---- Scan current character's bags now and print result (for temporary manual "Scan bags now" button).
+--- Scan current character's bags now (for temporary manual "Scan bags now" button).
 function DS:ScanBagsAndLog()
     local char = GetCurrentCharTable()
     if not char then
-        print("[AltArmy] Scan bags now: no char table")
         return
     end
     ScanBags(char)
-    local numBags, numSlots = 0, 0
-    if char.Containers then
-        for bagID, bag in pairs(char.Containers) do
-            if bag and bag.items then
-                numBags = numBags + 1
-                for _ in pairs(bag.items) do numSlots = numSlots + 1 end
-            end
-        end
-    end
-    local bagInfoSlots = (char.bagInfo and char.bagInfo.totalSlots) or 0
-    print("[AltArmy] Scan bags now: " .. tostring(char.name) .. "-" .. tostring(char.realm) .. " — " .. numBags .. " bags, " .. numSlots .. " item slots (bagInfo totalSlots=" .. tostring(bagInfoSlots) .. ")")
 end
 
 --- Equipment: GetInventory(char), GetInventoryItem(char, slot), GetInventoryItemCount(char, itemID), IterateInventory(char, callback).
@@ -479,21 +467,10 @@ local bagScanFrame = CreateFrame("Frame", nil, UIParent)
 bagScanFrame:SetScript("OnUpdate", nil)
 bagScanFrame.elapsed = 0
 
-local function runLoginBagScanAndLog()
+local function runLoginBagScan()
     local char = GetCurrentCharTable()
     if not char then return end
     ScanBags(char)
-    local numBags, numSlots = 0, 0
-    if char.Containers then
-        for bagID, bag in pairs(char.Containers) do
-            if bag and bag.items then
-                numBags = numBags + 1
-                for _ in pairs(bag.items) do numSlots = numSlots + 1 end
-            end
-        end
-    end
-    local bagInfoSlots = (char.bagInfo and char.bagInfo.totalSlots) or 0
-    print("[AltArmy] Login scan: " .. tostring(char.name) .. "-" .. tostring(char.realm) .. " — " .. numBags .. " bags, " .. numSlots .. " item slots stored (bagInfo totalSlots=" .. tostring(bagInfoSlots) .. ")")
 end
 
 frame:SetScript("OnEvent", function(_, event, addonName, a1)
@@ -520,7 +497,7 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
                 self.elapsed = self.elapsed + elapsed
                 if self.elapsed >= BAG_SCAN_DELAY then
                     self:SetScript("OnUpdate", nil)
-                    runLoginBagScanAndLog()
+                    runLoginBagScan()
                 end
             end)
         end

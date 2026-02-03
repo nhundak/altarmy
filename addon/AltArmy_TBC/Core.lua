@@ -11,13 +11,6 @@ AltArmy.MainFrame = nil
 AltArmy.TabFrames = {}
 AltArmy.CurrentTab = "Summary"
 
--- Debug logging: only prints when options.debug is true; output is local (current player only)
-function AltArmy.DebugLog(msg)
-    if AltArmyTBC_Options and AltArmyTBC_Options.debug then
-        print("[AltArmy] " .. tostring(msg))
-    end
-end
-
 local FRAME_WIDTH = 600
 local FRAME_HEIGHT = 400
 local HEADER_HEIGHT = 24
@@ -198,26 +191,6 @@ for _, tabName in ipairs(tabNames) do
     AltArmy.TabFrames[tabName] = cf
 end
 
--- Log when addon has finished loading (and optionally first run / new user)
-main:RegisterEvent("ADDON_LOADED")
-main:SetScript("OnEvent", function(_, event, addonName)
-    if event == "ADDON_LOADED" and addonName == "AltArmy_TBC" then
-        AltArmy.DebugLog("Addon loaded")
-        if AltArmy.firstRun then
-            AltArmy.DebugLog("First run (new user): defaults applied")
-        end
-    end
-end)
-
--- When UI is shown, always open on Summary tab; also run first-open log once
-local loadedLogged = false
 main:SetScript("OnShow", function()
     setActiveTab("Summary")
-    if not loadedLogged then
-        loadedLogged = true
-        print("[AltArmy] Addon ready (first open)")
-        if AltArmy.DebugLog then
-            AltArmy.DebugLog("Addon ready (first open)")
-        end
-    end
 end)

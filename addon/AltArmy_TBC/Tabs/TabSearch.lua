@@ -6,6 +6,8 @@ if not frame then return end
 local PAD = 4
 local ROW_HEIGHT = 81  -- 50% taller than 54
 local ROW_SPACING = 18
+-- Right-side (Total column) icon size; match left-side row icon (WoW :0 default ~14)
+local OVERLAY_ICON_SIZE = 14
 local HEADER_HEIGHT = 18  -- match ROW_SPACING for consistent gap below headers
 local NUM_ROWS = 14
 
@@ -30,8 +32,8 @@ headerRow:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
 headerRow:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD - 20, -PAD)
 headerRow:SetHeight(HEADER_HEIGHT)
 
-local colWidths = { Item = 280, Source = 160 }
-local colOrder = { "Item", "Source" }
+local colWidths = { Item = 280, Source = 160, Total = 70 }
+local colOrder = { "Item", "Source", "Total" }
 local x = 0
 for _, colName in ipairs(colOrder) do
     local w = colWidths[colName] or 80
@@ -51,7 +53,12 @@ scrollFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
 scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - 20, PAD)
 
 -- Results area (scroll child; width/height set so scroll frame can size viewport)
-local totalColWidth = (colWidths.Item or 280) + (colWidths.Source or 160)
+local function getTotalColWidth()
+    local w = 0
+    for _, colName in ipairs(colOrder) do w = w + (colWidths[colName] or 80) end
+    return w
+end
+local totalColWidth = getTotalColWidth()
 local resultsArea = CreateFrame("Frame", nil, scrollFrame)
 resultsArea:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
 resultsArea:SetWidth(totalColWidth)
@@ -61,9 +68,43 @@ scrollFrame:SetScrollChild(resultsArea)
 -- Result rows (pool)
 local resultRows = {}
 local resultList = {}
+
+-- Group overlay: total count (centered in group) + item icon to the right
+local groupOverlayPool = {}
+local function getGroupOverlay(i)
+    if not groupOverlayPool[i] then
+        local overlay = CreateFrame("Frame", nil, resultsArea)
+        overlay:SetFrameLevel(resultsArea:GetFrameLevel() + 1)
+        overlay.total = overlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        overlay.total:SetJustifyH("RIGHT")
+        overlay.icon = overlay:CreateTexture(nil, "OVERLAY")
+        overlay.icon:SetSize(OVERLAY_ICON_SIZE, OVERLAY_ICON_SIZE)
+        groupOverlayPool[i] = overlay
+    end
+    return groupOverlayPool[i]
+end
+
 local function UpdateResults()
     local n = #resultList
     local needRows = math.max(NUM_ROWS, n)
+
+    -- Group consecutive rows by item (itemID + itemName)
+    local groups = {}
+    local prevKey = nil
+    for i = 1, n do
+        local entry = resultList[i]
+        local key = (entry.itemID or 0) .. "\t" .. (entry.itemName or "")
+        if i == 1 or key ~= prevKey then
+            table.insert(groups, { start = i, count = 1, total = entry.count or 1 })
+            prevKey = key
+        else
+            local g = groups[#groups]
+            g.count = g.count + 1
+            g.total = g.total + (entry.count or 1)
+            prevKey = key
+        end
+    end
+
     for i, row in ipairs(resultRows) do
         row:Hide()
         row.entry = nil
@@ -113,11 +154,47 @@ local function UpdateResults()
             end
             local R, G, B = math.floor(r * 255), math.floor(g * 255), math.floor(b * 255)
             row.cells.Source:SetText(string.format("|cFF%02x%02x%02x%s|r|cFFFFFFFF (%s)|r", R, G, B, name, locLabel))
+            row.cells.Total:SetText("")  -- total shown in group overlay
         else
             row:Hide()
             row.entry = nil
         end
     end
+
+    -- Total column: overlay per group; total centered vertically in the group
+    local totalColX = (colWidths.Item or 280) + (colWidths.Source or 160)
+    local totalColW = colWidths.Total or 70
+    local overlayYOffset = 2 * ROW_SPACING - 2
+    for idx, group in ipairs(groups) do
+        local overlay = getGroupOverlay(idx)
+        local startRow = group.start
+        local groupSize = group.count
+        local firstRowFrame = resultRows[startRow]
+        local lastRowFrame = resultRows[startRow + groupSize - 1]
+        overlay:ClearAllPoints()
+        overlay:SetPoint("TOPLEFT", firstRowFrame, "TOPLEFT", totalColX, overlayYOffset)
+        overlay:SetPoint("BOTTOMLEFT", lastRowFrame, "BOTTOMLEFT", totalColX, overlayYOffset)
+        overlay:SetPoint("TOPRIGHT", firstRowFrame, "TOPLEFT", totalColX + totalColW, overlayYOffset)
+        overlay:SetPoint("BOTTOMRIGHT", lastRowFrame, "BOTTOMLEFT", totalColX + totalColW, overlayYOffset)
+        -- Icon on the right edge, vertically centered
+        overlay.icon:ClearAllPoints()
+        overlay.icon:SetPoint("CENTER", overlay, "RIGHT", -2 - OVERLAY_ICON_SIZE / 2, 0)
+        local firstEntry = resultList[group.start]
+        local iconPath = firstEntry and firstEntry.itemLink and GetItemInfo and GetItemInfo(firstEntry.itemLink) and (select(10, GetItemInfo(firstEntry.itemLink))) or "Interface\\Icons\\INV_Misc_QuestionMark"
+        overlay.icon:SetTexture(iconPath)
+        overlay.icon:Show()
+        -- Total right-aligned, 3px gap before icon; vertically centered
+        overlay.total:ClearAllPoints()
+        overlay.total:SetPoint("RIGHT", overlay.icon, "LEFT", -3, 0)
+        overlay.total:SetPoint("CENTER", overlay, "CENTER", 0, 0)
+        overlay.total:SetWidth(math.max(1, totalColW - OVERLAY_ICON_SIZE - 2))
+        overlay.total:SetText(tostring(group.total))
+        overlay:Show()
+    end
+    for idx = #groups + 1, #groupOverlayPool do
+        if groupOverlayPool[idx] then groupOverlayPool[idx]:Hide() end
+    end
+
     -- Scroll child height so scroll bar range is correct
     local contentHeight = (needRows >= 1) and ((needRows - 1) * ROW_SPACING + ROW_HEIGHT) or ROW_HEIGHT
     resultsArea:SetHeight(contentHeight)
