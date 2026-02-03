@@ -1,6 +1,6 @@
 -- AltArmy TBC — Core: namespace, main frame, header, tabs, content frames
 
-local ADDON_NAME = "AltArmy"
+local ADDON_NAME = "Alt Army"
 local ADDON_VERSION = "0.0.1"
 
 -- Namespace
@@ -18,6 +18,7 @@ local TAB_HEIGHT = 22
 local CONTENT_INSET = 8
 
 local setActiveTab -- forward-declare so header search scripts can call it
+local lastTab = "Summary"
 
 -- Create main frame
 local main = CreateFrame("Frame", "AltArmyTBC_MainFrame", UIParent)
@@ -51,7 +52,7 @@ headerBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
 
 -- Title (vertically centered in header)
 local title = main:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-title:SetPoint("LEFT", headerBg, "LEFT", 16, 0)
+title:SetPoint("LEFT", headerBg, "LEFT", 6, 0)
 title:SetText(ADDON_NAME)
 
 -- Close button
@@ -96,41 +97,29 @@ searchEditBorder:SetColorTexture(0.4, 0.4, 0.4, 1)
 headerSearchEdit:SetScript("OnEnterPressed", function(box)
     box:ClearFocus()
     local query = box:GetText()
-    setActiveTab("Search")
-    if AltArmy.TabFrames and AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.SearchWithQuery then
-        AltArmy.TabFrames.Search:SearchWithQuery(query)
+    local trimmed = query and query:match("^%s*(.-)%s*$") or ""
+    if trimmed ~= "" and AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.SearchWithQuery then
+        AltArmy.TabFrames.Search:SearchWithQuery(trimmed)
     end
 end)
 headerSearchEdit:SetScript("OnEscapePressed", function(box)
     box:ClearFocus()
 end)
-headerSearchEdit:SetScript("OnTextChanged", function(box)
-    local query = box:GetText()
-    local trimmed = query and query:match("^%s*(.-)%s*$") or ""
-    if trimmed == "" then
-        setActiveTab("Summary")
-        headerSearchClearBtn:Hide()
-    else
-        setActiveTab("Search")
-        headerSearchClearBtn:Show()
-    end
-    if AltArmy.TabFrames and AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.SearchWithQuery then
-        AltArmy.TabFrames.Search:SearchWithQuery(query)
-    end
-end)
+-- OnTextChanged registered below after enterSearchMode/exitSearchMode are defined
 
 -- Expose for clearing header search and switching to Summary (e.g. from other code)
 function AltArmy.SwitchToSummaryTab()
+    lastTab = "Summary"
     if headerSearchEdit and headerSearchEdit.SetText then
         headerSearchEdit:SetText("")
     end
-    setActiveTab("Summary")
 end
 
--- Tab button strip (below header)
+-- Tab button strip (below header; leave clear space so tabs don't overlap header)
+local HEADER_TOTAL_OFFSET = 40  -- 8 (top inset) + header content + gap
 local tabStrip = CreateFrame("Frame", nil, main)
-tabStrip:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -HEADER_HEIGHT - 4)
-tabStrip:SetPoint("TOPRIGHT", main, "TOPRIGHT", -CONTENT_INSET, -HEADER_HEIGHT - 4)
+tabStrip:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -HEADER_TOTAL_OFFSET)
+tabStrip:SetPoint("TOPRIGHT", main, "TOPRIGHT", -CONTENT_INSET, -HEADER_TOTAL_OFFSET)
 tabStrip:SetHeight(TAB_HEIGHT)
 
 setActiveTab = function(tabName)
@@ -150,29 +139,42 @@ setActiveTab = function(tabName)
     end
 end
 
-local tabNames = { "Summary", "Characters", "Search" }
+local TAB_BTN_MIN_WIDTH = 72
+local tabNames = { "Summary", "Gear" }
 tabStrip.buttons = {}
 local prevBtn = nil
 for _, tabName in ipairs(tabNames) do
     local btn = CreateFrame("Button", nil, tabStrip)
     btn.tabName = tabName
     btn:SetHeight(TAB_HEIGHT)
-    btn:SetNormalFontObject("GameFontHighlight")
-    btn:SetHighlightFontObject("GameFontNormal")
-    btn:SetDisabledFontObject("GameFontNormal")
-    btn:SetText(tabName)
+    btn:SetWidth(TAB_BTN_MIN_WIDTH)
     if prevBtn then
         btn:SetPoint("LEFT", prevBtn, "RIGHT", 4, 0)
     else
         btn:SetPoint("LEFT", tabStrip, "LEFT", 0, 0)
     end
+    -- Visible background so tab is clickable and visible
+    local bg = btn:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints(btn)
+    bg:SetColorTexture(0.25, 0.25, 0.25, 0.9)
+    -- Selected state (shown for active tab)
     local selectedBg = btn:CreateTexture(nil, "BACKGROUND")
     selectedBg:SetAllPoints(btn)
-    selectedBg:SetColorTexture(0.3, 0.3, 0.5, 0.6)
+    selectedBg:SetColorTexture(0.35, 0.35, 0.5, 0.8)
     btn.selectedBg = selectedBg
     selectedBg:Hide()
+    -- Label (plain Button has no built-in text)
+    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    label:SetText(tabName)
     btn:SetScript("OnClick", function()
         setActiveTab(tabName)
+    end)
+    btn:SetScript("OnEnable", function(self)
+        if label then label:SetTextColor(0.85, 0.85, 0.85, 1) end
+    end)
+    btn:SetScript("OnDisable", function(self)
+        if label then label:SetTextColor(1, 0.82, 0, 1) end
     end)
     prevBtn = btn
     tabStrip.buttons[tabName] = btn
@@ -181,7 +183,7 @@ setActiveTab("Summary")
 
 -- Content area: one frame per tab
 local contentArea = CreateFrame("Frame", nil, main)
-contentArea:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -HEADER_HEIGHT - TAB_HEIGHT - 8)
+contentArea:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -HEADER_TOTAL_OFFSET - TAB_HEIGHT - 4)
 contentArea:SetPoint("BOTTOMRIGHT", main, "BOTTOMRIGHT", -CONTENT_INSET, CONTENT_INSET)
 
 for _, tabName in ipairs(tabNames) do
@@ -191,6 +193,63 @@ for _, tabName in ipairs(tabNames) do
     AltArmy.TabFrames[tabName] = cf
 end
 
+-- Search content frame (no tab button; shown when search box has text)
+local searchFrame = CreateFrame("Frame", nil, contentArea)
+searchFrame:SetAllPoints(contentArea)
+searchFrame:Hide()
+AltArmy.TabFrames.Search = searchFrame
+
+-- "Search Results" label (replaces tab strip when in search mode)
+local searchResultsLabel = CreateFrame("Frame", nil, main)
+searchResultsLabel:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -HEADER_TOTAL_OFFSET)
+searchResultsLabel:SetPoint("TOPRIGHT", main, "TOPRIGHT", -CONTENT_INSET, -HEADER_TOTAL_OFFSET)
+searchResultsLabel:SetHeight(TAB_HEIGHT)
+searchResultsLabel:Hide()
+local searchResultsText = searchResultsLabel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+searchResultsText:SetPoint("LEFT", searchResultsLabel, "LEFT", 0, 0)
+searchResultsText:SetText("Search Results")
+
+local function enterSearchMode(trimmed)
+    lastTab = AltArmy.CurrentTab
+    tabStrip:Hide()
+    searchResultsLabel:Show()
+    if AltArmy.TabFrames.Summary then AltArmy.TabFrames.Summary:Hide() end
+    if AltArmy.TabFrames.Gear then AltArmy.TabFrames.Gear:Hide() end
+    if AltArmy.TabFrames.Search then
+        AltArmy.TabFrames.Search:Show()
+        if AltArmy.TabFrames.Search.SearchWithQuery then
+            AltArmy.TabFrames.Search:SearchWithQuery(trimmed)
+        end
+    end
+end
+
+local function exitSearchMode()
+    searchResultsLabel:Hide()
+    tabStrip:Show()
+    if AltArmy.TabFrames.Search then AltArmy.TabFrames.Search:Hide() end
+    if AltArmy.TabFrames[lastTab] then AltArmy.TabFrames[lastTab]:Show() end
+    setActiveTab(lastTab)
+end
+
+local function applySearchBoxState()
+    local query = headerSearchEdit:GetText()
+    local trimmed = query and query:match("^%s*(.-)%s*$") or ""
+    if trimmed == "" then
+        exitSearchMode()
+        headerSearchClearBtn:Hide()
+    else
+        headerSearchClearBtn:Show()
+        enterSearchMode(trimmed)
+    end
+end
+
+headerSearchEdit:SetScript("OnTextChanged", applySearchBoxState)
+headerSearchEdit:SetScript("OnChar", applySearchBoxState)
+
 main:SetScript("OnShow", function()
-    setActiveTab("Summary")
+    lastTab = "Summary"
+    if headerSearchEdit and headerSearchEdit.SetText then
+        headerSearchEdit:SetText("")
+    end
+    exitSearchMode()
 end)

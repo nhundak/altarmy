@@ -4,7 +4,7 @@ local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Search
 if not frame then return end
 
 local PAD = 4
-local ROW_HEIGHT = 81  -- 50% taller than 54
+local ROW_HEIGHT = 18
 local ROW_SPACING = 18
 -- Right-side (Total column) icon size; match left-side row icon (WoW :0 default ~14)
 local OVERLAY_ICON_SIZE = 14
@@ -113,6 +113,7 @@ local function UpdateResults()
         if not resultRows[i] then
             local row = CreateFrame("Frame", nil, resultsArea)
             row:SetHeight(ROW_HEIGHT)
+            row:EnableMouse(true)
             row.cells = {}
             local cx = 0
             for _, colName in ipairs(colOrder) do
@@ -125,12 +126,30 @@ local function UpdateResults()
                 row.cells[colName] = cell
                 cx = cx + w
             end
+            row:SetScript("OnEnter", function(self)
+                local entry = self.entry
+                if not entry then return end
+                if GameTooltip then
+                    GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+                    if entry.itemLink and entry.itemLink ~= "" then
+                        GameTooltip:SetHyperlink(entry.itemLink)
+                    elseif entry.itemID then
+                        GameTooltip:SetItemByID(entry.itemID)
+                    else
+                        GameTooltip:SetText("Item " .. tostring(entry.itemID or "?"))
+                    end
+                    GameTooltip:Show()
+                end
+            end)
+            row:SetScript("OnLeave", function()
+                if GameTooltip then GameTooltip:Hide() end
+            end)
             resultRows[i] = row
         end
         local entry = resultList[i]
         local row = resultRows[i]
         -- Position extra rows (beyond n) on top of last row so scroll bounds = content height
-        local rowY = (i <= n) and (-(i - 1) * ROW_SPACING) or (-(n - 1) * ROW_SPACING)
+        local rowY = (i <= n) and (-(i - 1) * ROW_HEIGHT) or (-(n - 1) * ROW_HEIGHT)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
         row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
@@ -167,7 +186,6 @@ local function UpdateResults()
     -- Total column: overlay per group; total centered vertically in the group
     local totalColX = (colWidths.Item or 280) + (colWidths.Source or 160)
     local totalColW = colWidths.Total or 70
-    local overlayYOffset = 2 * ROW_SPACING - 2
     for idx, group in ipairs(groups) do
         local overlay = getGroupOverlay(idx)
         local startRow = group.start
@@ -175,10 +193,10 @@ local function UpdateResults()
         local firstRowFrame = resultRows[startRow]
         local lastRowFrame = resultRows[startRow + groupSize - 1]
         overlay:ClearAllPoints()
-        overlay:SetPoint("TOPLEFT", firstRowFrame, "TOPLEFT", totalColX, overlayYOffset)
-        overlay:SetPoint("BOTTOMLEFT", lastRowFrame, "BOTTOMLEFT", totalColX, overlayYOffset)
-        overlay:SetPoint("TOPRIGHT", firstRowFrame, "TOPLEFT", totalColX + totalColW, overlayYOffset)
-        overlay:SetPoint("BOTTOMRIGHT", lastRowFrame, "BOTTOMLEFT", totalColX + totalColW, overlayYOffset)
+        overlay:SetPoint("TOPLEFT", firstRowFrame, "TOPLEFT", totalColX, 2)
+        overlay:SetPoint("BOTTOMLEFT", lastRowFrame, "BOTTOMLEFT", totalColX, 2)
+        overlay:SetPoint("TOPRIGHT", firstRowFrame, "TOPLEFT", totalColX + totalColW, 2)
+        overlay:SetPoint("BOTTOMRIGHT", lastRowFrame, "BOTTOMLEFT", totalColX + totalColW, 2)
         -- Icon on the right edge, vertically centered
         overlay.icon:ClearAllPoints()
         overlay.icon:SetPoint("CENTER", overlay, "RIGHT", -2 - OVERLAY_ICON_SIZE / 2, 0)
@@ -199,7 +217,7 @@ local function UpdateResults()
     end
 
     -- Scroll child height = exactly the height of n rows (no extra scroll past last item)
-    local contentHeight = (n >= 1) and ((n - 1) * ROW_SPACING + ROW_HEIGHT) or ROW_HEIGHT
+    local contentHeight = (n >= 1) and (n * ROW_HEIGHT) or ROW_HEIGHT
     resultsArea:SetHeight(contentHeight)
     if scrollFrame.UpdateScrollChildRect then
         scrollFrame:UpdateScrollChildRect()
@@ -217,12 +235,19 @@ function frame.DoSearch()
     scrollFrame:SetVerticalScroll(0)
 end
 
--- Expose for header search box: switch to Search tab and run search with query.
+-- Expose for header search box: run search with query directly (don't rely on edit box; SetText/GetText can be out of sync).
 function frame.SearchWithQuery(self, query)
+    local q = (query and type(query) == "string") and query:match("^%s*(.-)%s*$") or ""
+    if q == "" then
+        resultList = {}
+    else
+        resultList = SD.SearchWithLocationGroups(q) or {}
+    end
+    UpdateResults()
+    scrollFrame:SetVerticalScroll(0)
     if searchEdit and searchEdit.SetText then
         searchEdit:SetText(query or "")
     end
-    frame:DoSearch()
 end
 
 -- Initial empty state
