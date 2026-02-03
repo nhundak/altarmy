@@ -82,7 +82,7 @@ function SD.Search(query)
     end
     for _, entry in ipairs(all) do
         local match = false
-        if queryID and entry.itemID == queryID then
+        if queryID ~= nil and entry.itemID == queryID then
             match = true
         elseif queryLower then
             local name = GetItemName(entry.itemID, entry.itemLink)

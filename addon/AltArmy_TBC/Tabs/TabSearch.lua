@@ -113,9 +113,6 @@ local function UpdateResults()
         if not resultRows[i] then
             local row = CreateFrame("Frame", nil, resultsArea)
             row:SetHeight(ROW_HEIGHT)
-            row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, -(i - 1) * ROW_SPACING)
-            row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, -(i - 1) * ROW_SPACING)
-            row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, -(i - 1) * ROW_SPACING - ROW_HEIGHT)
             row.cells = {}
             local cx = 0
             for _, colName in ipairs(colOrder) do
@@ -132,6 +129,12 @@ local function UpdateResults()
         end
         local entry = resultList[i]
         local row = resultRows[i]
+        -- Position extra rows (beyond n) on top of last row so scroll bounds = content height
+        local rowY = (i <= n) and (-(i - 1) * ROW_SPACING) or (-(n - 1) * ROW_SPACING)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
+        row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
+        row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - ROW_HEIGHT)
         if entry then
             row:SetHeight(ROW_HEIGHT)
             row:Show()
@@ -195,8 +198,8 @@ local function UpdateResults()
         if groupOverlayPool[idx] then groupOverlayPool[idx]:Hide() end
     end
 
-    -- Scroll child height so scroll bar range is correct
-    local contentHeight = (needRows >= 1) and ((needRows - 1) * ROW_SPACING + ROW_HEIGHT) or ROW_HEIGHT
+    -- Scroll child height = exactly the height of n rows (no extra scroll past last item)
+    local contentHeight = (n >= 1) and ((n - 1) * ROW_SPACING + ROW_HEIGHT) or ROW_HEIGHT
     resultsArea:SetHeight(contentHeight)
     if scrollFrame.UpdateScrollChildRect then
         scrollFrame:UpdateScrollChildRect()
