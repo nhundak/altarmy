@@ -403,6 +403,26 @@ function DS:IterateInventory(char, callback)
     end
 end
 
+--- Average item level of equipped gear (slots 1–19). Uses GetItemInfo item level (4th return). Returns 0 if no equipment.
+function DS:GetAverageItemLevel(char)
+    if not char or not char.Inventory then return 0 end
+    if not GetItemInfo then return 0 end
+    local totalLevel = 0
+    local count = 0
+    for slot = 1, NUM_EQUIPMENT_SLOTS do
+        local item = char.Inventory[slot]
+        if item then
+            local _, _, _, iLevel = GetItemInfo(item)
+            if iLevel and type(iLevel) == "number" then
+                totalLevel = totalLevel + iLevel
+                count = count + 1
+            end
+        end
+    end
+    if count == 0 then return 0 end
+    return totalLevel / count
+end
+
 --- Stored rest XP rate as percentage (0–100). Simple: restXP / (xpMax * 1.5) * 100.
 --- Use this for the raw saved value only; use GetRestXp for "rest now" (predicted).
 function DS:GetStoredRestXp(char)

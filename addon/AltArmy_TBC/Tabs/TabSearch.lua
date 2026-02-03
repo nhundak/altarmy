@@ -45,12 +45,47 @@ for _, colName in ipairs(colOrder) do
     x = x + w
 end
 
--- Scroll frame (viewport for results; gap below headers = ROW_SPACING)
-local scrollFrame = CreateFrame("ScrollFrame", "AltArmyTBC_SearchScrollFrame", frame, "UIPanelScrollFrameTemplate")
+-- Scroll frame (viewport for results; no template — custom scroll bar like Gear tab)
+local scrollFrame = CreateFrame("ScrollFrame", "AltArmyTBC_SearchScrollFrame", frame)
 scrollFrame:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -ROW_SPACING)
 scrollFrame:SetPoint("TOPRIGHT", headerRow, "BOTTOMRIGHT", 0, -ROW_SPACING)
 scrollFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
 scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - 20, PAD)
+scrollFrame:EnableMouse(true)
+
+-- Custom vertical scroll bar (same style as Gear tab)
+local SCROLL_BAR_WIDTH = 20
+local SCROLL_BAR_TOP_INSET = 16
+local SCROLL_BAR_BOTTOM_INSET = 16
+local SCROLL_BAR_RIGHT_OFFSET = 4
+local searchScrollBar = CreateFrame("Slider", "AltArmyTBC_SearchScrollBar", frame)
+searchScrollBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET, -(PAD + SCROLL_BAR_TOP_INSET))
+searchScrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET, SCROLL_BAR_BOTTOM_INSET)
+searchScrollBar:SetWidth(SCROLL_BAR_WIDTH)
+searchScrollBar:SetMinMaxValues(0, 0)
+searchScrollBar:SetValueStep(ROW_HEIGHT)
+searchScrollBar:SetValue(0)
+searchScrollBar:SetOrientation("VERTICAL")
+searchScrollBar:EnableMouse(true)
+local searchVertThumb = searchScrollBar:CreateTexture(nil, "ARTWORK")
+searchVertThumb:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
+searchVertThumb:SetVertexColor(0.5, 0.5, 0.6, 1)
+searchVertThumb:SetSize(SCROLL_BAR_WIDTH - 4, 24)
+searchScrollBar:SetThumbTexture(searchVertThumb)
+searchScrollBar:SetScript("OnValueChanged", function(_, value)
+    scrollFrame:SetVerticalScroll(value)
+end)
+
+local function OnSearchScrollWheel(_, delta)
+    if not searchScrollBar then return end
+    local minVal, maxVal = searchScrollBar:GetMinMaxValues()
+    local current = searchScrollBar:GetValue()
+    local newVal = current - delta * ROW_HEIGHT * 2
+    newVal = math.max(minVal, math.min(maxVal, newVal))
+    searchScrollBar:SetValue(newVal)
+    scrollFrame:SetVerticalScroll(newVal)
+end
+scrollFrame:SetScript("OnMouseWheel", OnSearchScrollWheel)
 
 -- Results area (scroll child; width/height set so scroll frame can size viewport)
 local function getTotalColWidth()
@@ -64,6 +99,7 @@ resultsArea:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
 resultsArea:SetWidth(totalColWidth)
 resultsArea:SetHeight(ROW_HEIGHT)  -- non-zero initial so scroll child is valid
 scrollFrame:SetScrollChild(resultsArea)
+resultsArea:SetScript("OnMouseWheel", OnSearchScrollWheel)
 
 -- Result rows (pool)
 local resultRows = {}
@@ -222,6 +258,18 @@ local function UpdateResults()
     if scrollFrame.UpdateScrollChildRect then
         scrollFrame:UpdateScrollChildRect()
     end
+    -- Update custom scroll bar range and clamp value
+    if searchScrollBar then
+        local viewHeight = scrollFrame:GetHeight()
+        local maxScroll = math.max(0, contentHeight - viewHeight)
+        searchScrollBar:SetMinMaxValues(0, maxScroll)
+        searchScrollBar:SetValueStep(ROW_HEIGHT)
+        local val = searchScrollBar:GetValue()
+        if val > maxScroll then
+            searchScrollBar:SetValue(maxScroll)
+            scrollFrame:SetVerticalScroll(maxScroll)
+        end
+    end
 end
 
 function frame.DoSearch()
@@ -232,6 +280,7 @@ function frame.DoSearch()
     if query and query:match("^%s*$") then query = "" end
     resultList = SD.SearchWithLocationGroups(query) or {}
     UpdateResults()
+    if searchScrollBar then searchScrollBar:SetValue(0) end
     scrollFrame:SetVerticalScroll(0)
 end
 
@@ -244,6 +293,7 @@ function frame.SearchWithQuery(self, query)
         resultList = SD.SearchWithLocationGroups(q) or {}
     end
     UpdateResults()
+    if searchScrollBar then searchScrollBar:SetValue(0) end
     scrollFrame:SetVerticalScroll(0)
     if searchEdit and searchEdit.SetText then
         searchEdit:SetText(query or "")

@@ -6,8 +6,9 @@ if not frame then return end
 local DS = AltArmy.DataStore
 local PAD = 4
 local LEFT_PANEL_WIDTH = 120
+local LEFT_PANEL_VISIBLE = false  -- set true to show "Who can use this?" drop zone
 local COLUMN_HEADER_HEIGHT = 20
-local MESSAGE_ROW_HEIGHT = 20
+local MESSAGE_ROW_HEIGHT = 12
 local CELL_SIZE = 28
 local NUM_EQUIPMENT_SLOTS = 19
 
@@ -30,7 +31,7 @@ local SLOT_NAMES = {
     [15] = "Back",
     [16] = "Main Hand",
     [17] = "Off Hand",
-    [18] = "Ranged",
+    [18] = "Ranged/Relic",
     [19] = "Tabard",
 }
 
@@ -48,6 +49,39 @@ local SLOT_ORDER = {
 
 -- State: dropped item link (nil = use default sort by level)
 local droppedItemLink = nil
+
+-- Gear settings persistence (AltArmyTBC_GearSettings)
+local SORT_OPTIONS = { "Name", "Level", "Avg Item Level", "Time Played" }
+local function SortOptionValid(val)
+    for _, o in ipairs(SORT_OPTIONS) do if o == val then return true end end
+    return false
+end
+local function GetGearSettings()
+    AltArmyTBC_GearSettings = AltArmyTBC_GearSettings or {}
+    local s = AltArmyTBC_GearSettings
+    if not s.primarySort or not SortOptionValid(s.primarySort) then s.primarySort = "Time Played" end
+    if not s.secondarySort or not SortOptionValid(s.secondarySort) then s.secondarySort = "Name" end
+    if s.showSelfFirst == nil then s.showSelfFirst = true end
+    s.characters = s.characters or {}
+    return s
+end
+
+local function CharKey(name, realm)
+    return (realm or "") .. "\\" .. (name or "")
+end
+
+local function GetCharSetting(name, realm, key)
+    local s = GetGearSettings()
+    local c = s.characters[CharKey(name, realm)]
+    if not c then return false end
+    return c[key] == true
+end
+
+local function SetCharSetting(name, realm, pin, hide)
+    local s = GetGearSettings()
+    local key = CharKey(name, realm)
+    s.characters[key] = { pin = pin == true, hide = hide == true }
+end
 
 --- True if this class can ever wear this armor subclass (TBC rules). subclass = "Cloth"|"Leather"|"Mail"|"Plate".
 local function CanClassEverUseArmor(classFile, subclass)
@@ -142,21 +176,85 @@ local function GetItemUseInfo(link)
     return reqLevel, subclass, nil
 end
 
---- Build display list: default = by level (highest first); when item dropped = by "who can use" then level delta.
+--- Sort value for an entry by key (Name, Level, Avg Item Level, Time Played). Numeric = high first, Name = A–Z.
+local function GetSortValue(entry, sortKey)
+    if sortKey == "Name" then return entry.name or "" end
+    if sortKey == "Level" then return tonumber(entry.level) or 0 end
+    if sortKey == "Avg Item Level" then return tonumber(entry.avgItemLevel) or 0 end
+    if sortKey == "Time Played" then return tonumber(entry.played) or 0 end
+    return 0
+end
+
+--- Compare two entries by primary then secondary sort (numeric high-first, string A–Z).
+local function CompareBySort(entryA, entryB, primary, secondary)
+    local va = GetSortValue(entryA, primary)
+    local vb = GetSortValue(entryB, primary)
+    if primary == "Name" then
+        if va ~= vb then return va < vb end
+    else
+        if va ~= vb then return va > vb end
+    end
+    va = GetSortValue(entryA, secondary)
+    vb = GetSortValue(entryB, secondary)
+    if secondary == "Name" then
+        return va < vb
+    else
+        return va > vb
+    end
+end
+
+--- Build display list: filter hidden; order = self (if show self first) + pinned (sorted) + non-pinned (sorted). Optionally re-sort by "who can use" when item dropped.
 local function GetDisplayList()
     if not AltArmy.Characters or not AltArmy.Characters.GetList then return {} end
-    local list = AltArmy.Characters:GetList()
-    if #list == 0 then return list end
+    local rawList = AltArmy.Characters:GetList()
+    if #rawList == 0 then return rawList end
 
-    if not droppedItemLink then
-        return list
+    local settings = GetGearSettings()
+    local currentName = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
+    local currentRealm = (GetRealmName and GetRealmName()) or ""
+
+    -- Filter out hidden
+    local visible = {}
+    for i = 1, #rawList do
+        local e = rawList[i]
+        if not GetCharSetting(e.name, e.realm, "hide") then
+            visible[#visible + 1] = e
+        end
     end
 
+    local primary = settings.primarySort or "Time Played"
+    local secondary = settings.secondarySort or "Name"
+    local showSelfFirst = settings.showSelfFirst ~= false
+
+    -- Split: self, pinned, non-pinned
+    local selfEntry = nil
+    local pinned = {}
+    local nonPinned = {}
+    for i = 1, #visible do
+        local e = visible[i]
+        local isSelf = (e.name == currentName and e.realm == currentRealm)
+        if isSelf then
+            selfEntry = e
+        elseif GetCharSetting(e.name, e.realm, "pin") then
+            pinned[#pinned + 1] = e
+        else
+            nonPinned[#nonPinned + 1] = e
+        end
+    end
+
+    table.sort(pinned, function(a, b) return CompareBySort(a, b, primary, secondary) end)
+    table.sort(nonPinned, function(a, b) return CompareBySort(a, b, primary, secondary) end)
+
+    local list = {}
+    if showSelfFirst and selfEntry then list[#list + 1] = selfEntry end
+    for i = 1, #pinned do list[#list + 1] = pinned[i] end
+    for i = 1, #nonPinned do list[#list + 1] = nonPinned[i] end
+    if not showSelfFirst and selfEntry then list[#list + 1] = selfEntry end
+
+    -- When item dropped, re-sort by "who can use" then level/name (overrides column order for fit)
+    if not droppedItemLink then return list end
     local reqLevel, armorSubclass, weaponSubclass = GetItemUseInfo(droppedItemLink)
-    if reqLevel == nil and armorSubclass == nil and weaponSubclass == nil then
-        -- GetItemInfo failed (e.g. not cached); keep default order
-        return list
-    end
+    if reqLevel == nil and armorSubclass == nil and weaponSubclass == nil then return list end
     reqLevel = reqLevel or 0
 
     local function score(entry)
@@ -299,18 +397,27 @@ dropBox:SetScript("OnMouseUp", function(_, button)
     end
     tryAcceptCursorItem()
 end)
+if not LEFT_PANEL_VISIBLE then
+    leftPanel:Hide()
+end
 
 -- ---- Right panel: slot row headers + scrollable character columns ----
 local HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT
-local COLUMN_HEADER_HEIGHT_GEAR = 36
+local COLUMN_HEADER_HEIGHT_GEAR = 18
 local SLOT_LABEL_WIDTH = 80
 local COLUMN_WIDTH = 61
 local ROW_HEIGHT = 42
 local SCROLL_BAR_WIDTH = 20
+local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
+local SCROLLABLE_GRID_HEIGHT = NUM_EQUIPMENT_SLOTS * ROW_HEIGHT + PAD
 local GRID_CONTENT_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT + NUM_EQUIPMENT_SLOTS * ROW_HEIGHT + PAD
 
 local rightPanel = CreateFrame("Frame", nil, frame)
-rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", PAD, 0)
+if LEFT_PANEL_VISIBLE then
+    rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", PAD, 0)
+else
+    rightPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
+end
 rightPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
 
 local SCROLL_BAR_TOP_INSET = 16
@@ -318,30 +425,67 @@ local SCROLL_BAR_BOTTOM_INSET = 16
 local SCROLL_BAR_RIGHT_OFFSET = 4
 local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
 
--- Content area: leave room for vertical bar on right and horizontal bar at bottom
+-- Content area: full height except scroll bars; fixed header will sit at top of this
 local contentArea = CreateFrame("Frame", nil, rightPanel)
-contentArea:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 0, -(PAD + SCROLL_BAR_TOP_INSET))
+contentArea:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 0, -PAD)
 contentArea:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -SCROLL_BAR_WIDTH, SCROLL_BAR_BOTTOM_INSET + HORIZONTAL_SCROLL_BAR_HEIGHT)
 
--- Vertical scroll (plain ScrollFrame, no template) so slot labels + grid stay inside the UI
+-- Vertical scroll: full content area; scroll child has spacer at top so header can overlay
 local verticalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearVerticalScroll", contentArea)
 verticalScroll:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 0, 0)
 verticalScroll:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", 0, 0)
 verticalScroll:EnableMouse(true)
 
--- Scroll child: viewport width only; slot labels + horizontal scroll viewport live here (no horizontal scroll on this frame)
+-- Scroll child: spacer at top (header overlays it) + slot labels + cell grid
 local MIN_SCROLL_CHILD_WIDTH = 400
 local verticalScrollChild = CreateFrame("Frame", nil, verticalScroll)
 verticalScrollChild:SetPoint("TOPLEFT", verticalScroll, "TOPLEFT", 0, 0)
-verticalScrollChild:SetHeight(GRID_CONTENT_HEIGHT)
+verticalScrollChild:SetHeight(FIXED_HEADER_ROW_HEIGHT + SCROLLABLE_GRID_HEIGHT)
 verticalScrollChild:SetWidth(MIN_SCROLL_CHILD_WIDTH)
 verticalScrollChild:EnableMouse(true)
 verticalScroll:SetScrollChild(verticalScrollChild)
 
+-- Spacer at top of scroll child so first row of content sits below where header will overlay
+local scrollTopSpacer = CreateFrame("Frame", nil, verticalScrollChild)
+scrollTopSpacer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, 0)
+scrollTopSpacer:SetPoint("TOPRIGHT", verticalScrollChild, "TOPRIGHT", 0, 0)
+scrollTopSpacer:SetHeight(FIXED_HEADER_ROW_HEIGHT)
+
+-- Fixed header row: overlays top of content area so names stay pinned; scrolls horizontally with grid
+local fixedHeaderRow = CreateFrame("Frame", nil, contentArea)
+fixedHeaderRow:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 0, 0)
+fixedHeaderRow:SetPoint("TOPRIGHT", contentArea, "TOPRIGHT", 0, 0)
+fixedHeaderRow:SetHeight(FIXED_HEADER_ROW_HEIGHT)
+fixedHeaderRow:SetFrameLevel(contentArea:GetFrameLevel() + 20)
+-- Opaque background so scrolling content doesn't show through; extend slightly above, stop short at bottom
+local HEADER_BG_OVERHANG = 6
+local HEADER_BG_BOTTOM_INSET = 6
+local headerBg = fixedHeaderRow:CreateTexture(nil, "BACKGROUND")
+headerBg:SetPoint("BOTTOMLEFT", fixedHeaderRow, "BOTTOMLEFT", 0, HEADER_BG_BOTTOM_INSET)
+headerBg:SetPoint("BOTTOMRIGHT", fixedHeaderRow, "BOTTOMRIGHT", 0, HEADER_BG_BOTTOM_INSET)
+headerBg:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, HEADER_BG_OVERHANG)
+headerBg:SetPoint("TOPRIGHT", fixedHeaderRow, "TOPRIGHT", 0, HEADER_BG_OVERHANG)
+headerBg:SetColorTexture(0.12, 0.12, 0.15, 1)
+fixedHeaderRow:EnableMouse(true)
+local headerCornerCell = fixedHeaderRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+headerCornerCell:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, 0)
+headerCornerCell:SetWidth(SLOT_LABEL_WIDTH - 4)
+headerCornerCell:SetHeight(FIXED_HEADER_ROW_HEIGHT)
+headerCornerCell:SetJustifyH("LEFT")
+headerCornerCell:SetText("")
+local headerHorizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearHeaderHorizontalScroll", fixedHeaderRow)
+headerHorizontalScroll:SetPoint("TOPLEFT", headerCornerCell, "TOPRIGHT", 0, 0)
+headerHorizontalScroll:SetPoint("BOTTOMRIGHT", fixedHeaderRow, "BOTTOMRIGHT", 0, 0)
+headerHorizontalScroll:EnableMouse(true)
+local headerGridContainer = CreateFrame("Frame", nil, headerHorizontalScroll)
+headerGridContainer:SetPoint("TOPLEFT", headerHorizontalScroll, "TOPLEFT", 0, 0)
+headerGridContainer:SetHeight(FIXED_HEADER_ROW_HEIGHT)
+headerHorizontalScroll:SetScrollChild(headerGridContainer)
+
 -- Vertical scroll bar: custom (no template) so it doesn't conflict with horizontal; both bars under our control
 local verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_GearVerticalScrollBar", rightPanel)
-verticalScrollBar:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET, -(PAD + SCROLL_BAR_TOP_INSET))
-verticalScrollBar:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET, SCROLL_BAR_BOTTOM_INSET)
+verticalScrollBar:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET + 4, -(PAD + SCROLL_BAR_TOP_INSET))
+verticalScrollBar:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET + 4, SCROLL_BAR_BOTTOM_INSET)
 verticalScrollBar:SetWidth(SCROLL_BAR_WIDTH)
 verticalScrollBar:SetMinMaxValues(0, 0)
 verticalScrollBar:SetValueStep(ROW_HEIGHT)
@@ -372,19 +516,11 @@ end
 verticalScroll:SetScript("OnMouseWheel", OnGearScrollWheel)
 verticalScrollChild:SetScript("OnMouseWheel", OnGearScrollWheel)
 
--- Row headers (slot names) — fixed on the left; create before horizontal scroll so viewport can anchor to them
+-- Row headers (slot names) — below spacer so they scroll with rows; fixed header overlays spacer only
 local slotHeaderContainer = CreateFrame("Frame", nil, verticalScrollChild)
-slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, 0)
+slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -FIXED_HEADER_ROW_HEIGHT)
 slotHeaderContainer:SetPoint("BOTTOMLEFT", verticalScrollChild, "BOTTOMLEFT", 0, 0)
 slotHeaderContainer:SetWidth(SLOT_LABEL_WIDTH)
-
--- Corner cell (above slot labels); height matches column header so slot labels align with equipment rows
-local cornerCell = slotHeaderContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-cornerCell:SetPoint("TOPLEFT", slotHeaderContainer, "TOPLEFT", 0, 0)
-cornerCell:SetWidth(SLOT_LABEL_WIDTH - 4)
-cornerCell:SetHeight(COLUMN_HEADER_HEIGHT_GEAR)
-cornerCell:SetJustifyH("LEFT")
-cornerCell:SetText("")
 
 -- Slot labels: height CELL_SIZE and vertically centered in each row (row height is ROW_HEIGHT)
 local SLOT_LABEL_ROW_OFFSET = (ROW_HEIGHT - CELL_SIZE) / 2
@@ -398,26 +534,52 @@ for slot = 1, NUM_EQUIPMENT_SLOTS do
     label:SetJustifyV("MIDDLE")
     label:SetText(SLOT_NAMES[SLOT_ORDER[slot]] or ("Slot " .. slot))
     if slot == 1 then
-        label:SetPoint("TOP", cornerCell, "BOTTOM", 0, -(MESSAGE_ROW_HEIGHT + 2 + SLOT_LABEL_ROW_OFFSET))
+        label:SetPoint("TOP", slotHeaderContainer, "TOP", 0, -SLOT_LABEL_ROW_OFFSET + 2)
     else
         label:SetPoint("TOP", slotLabels[slot - 1], "TOP", 0, -ROW_HEIGHT)
     end
     slotLabels[slot] = label
 end
 
--- Horizontal viewport: create before scroll bar scripts so callbacks see non-nil horizontalScroll
+-- Horizontal viewport: below spacer, same vertical start as slot labels
 local horizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearHorizontalScroll", verticalScrollChild)
-horizontalScroll:SetPoint("TOPLEFT", slotHeaderContainer, "TOPRIGHT", 0, 0)
+horizontalScroll:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", SLOT_LABEL_WIDTH, -FIXED_HEADER_ROW_HEIGHT)
 horizontalScroll:SetPoint("BOTTOMRIGHT", verticalScrollChild, "BOTTOMRIGHT", 0, 0)
 horizontalScroll:EnableMouse(true)
 
 -- Grid area: scroll child of horizontalScroll; engine scrolls via SetHorizontalScroll (like vertical)
 local gridContainer = CreateFrame("Frame", nil, horizontalScroll)
 gridContainer:SetPoint("TOPLEFT", horizontalScroll, "TOPLEFT", 0, 0)
-gridContainer:SetHeight(GRID_CONTENT_HEIGHT)
+gridContainer:SetHeight(SCROLLABLE_GRID_HEIGHT)
 horizontalScroll:SetScrollChild(gridContainer)
 
--- Pool of character column frames (reused)
+-- Header column pool: name + message per character, in fixed header row (scrolls horizontally)
+local headerColumnPool = {}
+local function GetHeaderColumnFrame(index)
+    if not headerColumnPool[index] then
+        local col = CreateFrame("Frame", nil, headerGridContainer)
+        col:SetSize(COLUMN_WIDTH, FIXED_HEADER_ROW_HEIGHT)
+        col.header = col:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        col.header:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
+        col.header:SetPoint("TOPRIGHT", col, "TOPRIGHT", 0, 0)
+        col.header:SetHeight(COLUMN_HEADER_HEIGHT_GEAR)
+        col.header:SetJustifyH("CENTER")
+        col.header:SetWordWrap(true)
+        col.header:SetNonSpaceWrap(true)
+        col.message = col:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        col.message:SetPoint("TOP", col.header, "BOTTOM", 0, 0)
+        col.message:SetPoint("LEFT", col, "LEFT", 0, 0)
+        col.message:SetPoint("RIGHT", col, "RIGHT", 0, 0)
+        col.message:SetHeight(MESSAGE_ROW_HEIGHT)
+        col.message:SetJustifyH("CENTER")
+        col.message:SetWordWrap(true)
+        col.message:SetNonSpaceWrap(true)
+        headerColumnPool[index] = col
+    end
+    return headerColumnPool[index]
+end
+
+-- Pool of character column frames (cells only; reused)
 local columnPool = {}
 
 -- Horizontal scroll bar: create after horizontalScroll/gridContainer exist so OnValueChanged sees them
@@ -441,6 +603,12 @@ local function ApplyHorizontalScrollValue(value)
         horizontalScroll:UpdateScrollChildRect()
     end
     horizontalScroll:SetHorizontalScroll(value)
+    if headerHorizontalScroll then
+        if headerHorizontalScroll.UpdateScrollChildRect then
+            headerHorizontalScroll:UpdateScrollChildRect()
+        end
+        headerHorizontalScroll:SetHorizontalScroll(value)
+    end
 end
 local function SyncHorizontalScrollPosition()
     if not (horizontalScroll and horizontalScrollBar) then return end
@@ -500,33 +668,37 @@ horizontalScrollBar:SetThumbTexture(thumbTex)
 local function GetColumnFrame(index)
     if not columnPool[index] then
         local col = CreateFrame("Frame", nil, gridContainer)
-        col:SetSize(COLUMN_WIDTH, COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT + NUM_EQUIPMENT_SLOTS * ROW_HEIGHT + PAD)
-        col.header = col:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        col.header:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
-        col.header:SetPoint("TOPRIGHT", col, "TOPRIGHT", 0, 0)
-        col.header:SetHeight(COLUMN_HEADER_HEIGHT_GEAR)
-        col.header:SetJustifyH("CENTER")
-        col.header:SetWordWrap(true)
-        col.header:SetNonSpaceWrap(true)
-        col.message = col:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        col.message:SetPoint("TOP", col.header, "BOTTOM", 0, 0)
-        col.message:SetPoint("LEFT", col, "LEFT", 0, 0)
-        col.message:SetPoint("RIGHT", col, "RIGHT", 0, 0)
-        col.message:SetHeight(MESSAGE_ROW_HEIGHT)
-        col.message:SetJustifyH("CENTER")
-        col.message:SetWordWrap(true)
-        col.message:SetNonSpaceWrap(true)
+        col:SetSize(COLUMN_WIDTH, SCROLLABLE_GRID_HEIGHT)
         col.cells = {}
         for slot = 1, NUM_EQUIPMENT_SLOTS do
             local cell = CreateFrame("Frame", nil, col)
             cell:SetSize(CELL_SIZE, CELL_SIZE)
+            cell:EnableMouse(true)
             local tex = cell:CreateTexture(nil, "OVERLAY")
             tex:SetAllPoints(cell)
             cell.texture = tex
+            cell:SetScript("OnEnter", function(self)
+                if GameTooltip then
+                    GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+                    if self.itemLink and self.itemLink ~= "" then
+                        GameTooltip:SetHyperlink(self.itemLink)
+                    elseif self.itemID then
+                        GameTooltip:SetItemByID(self.itemID)
+                    else
+                        GameTooltip:Hide()
+                        return
+                    end
+                    GameTooltip:Show()
+                end
+            end)
+            cell:SetScript("OnLeave", function()
+                if GameTooltip then GameTooltip:Hide() end
+            end)
+            local cellXOffset = (COLUMN_WIDTH - CELL_SIZE) / 2
             if slot == 1 then
-                cell:SetPoint("TOP", col.message, "BOTTOM", 0, -2)
+                cell:SetPoint("TOPLEFT", col, "TOPLEFT", cellXOffset, -2)
             else
-                cell:SetPoint("TOP", col.cells[slot - 1], "BOTTOM", 0, -(ROW_HEIGHT - CELL_SIZE))
+                cell:SetPoint("TOPLEFT", col.cells[slot - 1], "BOTTOMLEFT", 0, -(ROW_HEIGHT - CELL_SIZE))
             end
             col.cells[slot] = cell
         end
@@ -543,48 +715,66 @@ local function UpdateGridWithOffset()
     for idx, col in pairs(columnPool) do
         if idx > numCols then col:Hide() end
     end
+    for idx, col in pairs(headerColumnPool) do
+        if idx > numCols then col:Hide() end
+    end
 
     for c = 1, numCols do
         local entry = list[c]
-        local col = GetColumnFrame(c)
-        col:ClearAllPoints()
-        col:SetPoint("TOPLEFT", gridContainer, "TOPLEFT", (c - 1) * COLUMN_WIDTH + PAD, 0)
-        col:Show()
+        local headerCol = GetHeaderColumnFrame(c)
+        headerCol:ClearAllPoints()
+        headerCol:SetPoint("TOPLEFT", headerGridContainer, "TOPLEFT", (c - 1) * COLUMN_WIDTH + PAD, 0)
+        headerCol:Show()
 
         local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
-        col.header:SetText(entry.name or "?")
+        headerCol.header:SetText(entry.name or "?")
 
         local gray = CanNeverUseCurrentItem(entry)
         if gray then
-            col.header:SetTextColor(0.5, 0.5, 0.5, 1)
+            headerCol.header:SetTextColor(0.5, 0.5, 0.5, 1)
         else
             if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
                 local rc = RAID_CLASS_COLORS[entry.classFile]
-                col.header:SetTextColor(rc.r, rc.g, rc.b, 1)
+                headerCol.header:SetTextColor(rc.r, rc.g, rc.b, 1)
             else
-                col.header:SetTextColor(1, 0.82, 0, 1)
+                headerCol.header:SetTextColor(1, 0.82, 0, 1)
             end
         end
 
         local fitMsg, fitColor = GetFitMessage(entry)
         if fitMsg and fitMsg ~= "" then
-            col.message:SetText(fitMsg)
+            headerCol.message:SetText(fitMsg)
             if fitColor == "red" then
-                col.message:SetTextColor(1, 0.3, 0.3, 1)
+                headerCol.message:SetTextColor(1, 0.3, 0.3, 1)
             elseif fitColor == "orange" then
-                col.message:SetTextColor(1, 0.6, 0.2, 1)
+                headerCol.message:SetTextColor(1, 0.6, 0.2, 1)
             else
-                col.message:SetTextColor(0.9, 0.9, 0.9, 1)
+                headerCol.message:SetTextColor(0.9, 0.9, 0.9, 1)
             end
-            col.message:Show()
+            headerCol.message:Show()
         else
-            col.message:SetText("")
-            col.message:Show()
+            headerCol.message:SetText("")
+            headerCol.message:Show()
         end
+
+        local col = GetColumnFrame(c)
+        col:ClearAllPoints()
+        col:SetPoint("TOPLEFT", gridContainer, "TOPLEFT", (c - 1) * COLUMN_WIDTH + PAD - 4, 0)
+        col:Show()
 
         for slot = 1, NUM_EQUIPMENT_SLOTS do
             local cell = col.cells[slot]
             local item = charData and DS.GetInventoryItem and DS:GetInventoryItem(charData, SLOT_ORDER[slot])
+            if type(item) == "string" then
+                cell.itemLink = item
+                cell.itemID = nil
+            elseif type(item) == "number" then
+                cell.itemLink = nil
+                cell.itemID = item
+            else
+                cell.itemLink = nil
+                cell.itemID = nil
+            end
             local texPath = GetItemTexture(item)
             if texPath then
                 cell.texture:SetTexture(texPath)
@@ -618,14 +808,18 @@ function frame:RefreshGrid()
     local gridContentWidth = numCols * COLUMN_WIDTH + PAD
     local gridViewWidth = math.max(0, viewWidth - SLOT_LABEL_WIDTH)
 
-    -- Vertical scroll child: viewport width only so slot labels stay on screen; horizontal scroll is inner (grid only)
+    -- Vertical scroll child: viewport width only; horizontal scroll is inner (grid only)
     if verticalScrollChild and verticalScroll then
         verticalScrollChild:SetWidth(math.max(MIN_SCROLL_CHILD_WIDTH, viewWidth))
         if gridContainer then
             gridContainer:SetWidth(math.max(0, gridContentWidth))
         end
+        if headerGridContainer then
+            headerGridContainer:SetWidth(math.max(0, gridContentWidth))
+        end
         if verticalScrollBar then
-            local maxVertScroll = math.max(0, GRID_CONTENT_HEIGHT - viewHeight)
+            local totalChildHeight = FIXED_HEADER_ROW_HEIGHT + SCROLLABLE_GRID_HEIGHT
+            local maxVertScroll = math.max(0, totalChildHeight - viewHeight)
             verticalScrollBar:SetMinMaxValues(0, maxVertScroll)
             verticalScrollBar:SetValueStep(ROW_HEIGHT)
             verticalScrollBar:SetStepsPerPage(10)
@@ -637,6 +831,9 @@ function frame:RefreshGrid()
             horizontalScrollBar:SetValue(0)
             lastHorizontalScrollValue = 0
             horizontalScroll:SetHorizontalScroll(0)
+            if headerHorizontalScroll then
+                headerHorizontalScroll:SetHorizontalScroll(0)
+            end
         end
     end
 
@@ -658,3 +855,256 @@ frame:SetScript("OnEvent", function(_, event)
         end
     end
 end)
+
+-- ---- Gear settings panel (replaces grid when settings icon clicked) ----
+local settingsPanel = CreateFrame("Frame", nil, frame)
+local frameWidth = frame:GetWidth()
+if frameWidth <= 0 then frameWidth = 400 end
+settingsPanel:SetPoint("TOP", frame, "TOP", 0, -PAD)
+settingsPanel:SetPoint("BOTTOM", frame, "BOTTOM", 0, PAD)
+settingsPanel:SetPoint("CENTER", frame, "CENTER", 0, 0)
+settingsPanel:SetWidth(frameWidth * 0.5)
+settingsPanel:Hide()
+
+local SETTINGS_ROW_HEIGHT = 22
+
+-- Show self first checkbox (at top)
+local showSelfFirstCheck = CreateFrame("CheckButton", nil, settingsPanel)
+showSelfFirstCheck:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
+showSelfFirstCheck:SetSize(24, 24)
+local showSelfFirstBg = showSelfFirstCheck:CreateTexture(nil, "BACKGROUND")
+showSelfFirstBg:SetAllPoints(showSelfFirstCheck)
+showSelfFirstBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
+local showSelfFirstCheckTex = showSelfFirstCheck:CreateTexture(nil, "OVERLAY")
+showSelfFirstCheckTex:SetPoint("CENTER", showSelfFirstCheck, "CENTER", 0, 0)
+showSelfFirstCheckTex:SetSize(16, 16)
+showSelfFirstCheckTex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+showSelfFirstCheck:SetCheckedTexture(showSelfFirstCheckTex)
+local showSelfFirstLabel = showSelfFirstCheck:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+showSelfFirstLabel:SetPoint("LEFT", showSelfFirstCheck, "RIGHT", 4, 0)
+showSelfFirstLabel:SetText("Show self first")
+showSelfFirstCheck:SetScript("OnClick", function()
+    GetGearSettings().showSelfFirst = showSelfFirstCheck:GetChecked()
+    if frame.RefreshGrid then frame:RefreshGrid() end
+end)
+
+-- Primary sort: full-width dropdown, collapsed shows "Primary Sort: Name"
+local btnPrimary = CreateFrame("Button", nil, settingsPanel)
+btnPrimary:SetPoint("TOPLEFT", showSelfFirstCheck, "BOTTOMLEFT", 0, -6)
+btnPrimary:SetPoint("TOPRIGHT", settingsPanel, "TOPRIGHT", 0, 0)
+btnPrimary:SetHeight(SETTINGS_ROW_HEIGHT)
+local btnPrimaryBg = btnPrimary:CreateTexture(nil, "BACKGROUND")
+btnPrimaryBg:SetAllPoints(btnPrimary)
+btnPrimaryBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
+local btnPrimaryText = btnPrimary:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+btnPrimaryText:SetPoint("LEFT", btnPrimary, "LEFT", 4, 0)
+btnPrimaryText:SetPoint("RIGHT", btnPrimary, "RIGHT", -4, 0)
+btnPrimaryText:SetJustifyH("LEFT")
+local primaryDropdown = CreateFrame("Frame", nil, settingsPanel)
+primaryDropdown:SetPoint("TOPLEFT", btnPrimary, "BOTTOMLEFT", 0, -2)
+primaryDropdown:SetPoint("TOPRIGHT", btnPrimary, "BOTTOMRIGHT", 0, 0)
+primaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
+primaryDropdown:SetFrameLevel(settingsPanel:GetFrameLevel() + 100)
+primaryDropdown:Hide()
+local primaryDropdownBg = primaryDropdown:CreateTexture(nil, "BACKGROUND")
+primaryDropdownBg:SetAllPoints(primaryDropdown)
+primaryDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
+for idx, opt in ipairs(SORT_OPTIONS) do
+    local b = CreateFrame("Button", nil, primaryDropdown)
+    b:SetPoint("TOPLEFT", primaryDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
+    b:SetPoint("LEFT", primaryDropdown, "LEFT", 2, 0)
+    b:SetPoint("RIGHT", primaryDropdown, "RIGHT", -2, 0)
+    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
+    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    t:SetPoint("LEFT", b, "LEFT", 4, 0)
+    t:SetText(opt)
+    b.option = opt
+    b:SetScript("OnClick", function()
+        GetGearSettings().primarySort = opt
+        primaryDropdown:Hide()
+        btnPrimaryText:SetText("Primary Sort: " .. opt)
+        if frame.RefreshGrid then frame:RefreshGrid() end
+        if settingsPanel.RefreshCharacterList then settingsPanel:RefreshCharacterList() end
+    end)
+end
+btnPrimary:SetScript("OnClick", function()
+    primaryDropdown:SetShown(not primaryDropdown:IsShown())
+    secondaryDropdown:Hide()
+end)
+
+-- Secondary sort: full-width dropdown, collapsed shows "Secondary Sort: Name"
+local btnSecondary = CreateFrame("Button", nil, settingsPanel)
+btnSecondary:SetPoint("TOPLEFT", btnPrimary, "BOTTOMLEFT", 0, -6)
+btnSecondary:SetPoint("TOPRIGHT", settingsPanel, "TOPRIGHT", 0, 0)
+btnSecondary:SetHeight(SETTINGS_ROW_HEIGHT)
+local btnSecondaryBg = btnSecondary:CreateTexture(nil, "BACKGROUND")
+btnSecondaryBg:SetAllPoints(btnSecondary)
+btnSecondaryBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
+local btnSecondaryText = btnSecondary:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+btnSecondaryText:SetPoint("LEFT", btnSecondary, "LEFT", 4, 0)
+btnSecondaryText:SetPoint("RIGHT", btnSecondary, "RIGHT", -4, 0)
+btnSecondaryText:SetJustifyH("LEFT")
+local secondaryDropdown = CreateFrame("Frame", nil, settingsPanel)
+secondaryDropdown:SetPoint("TOPLEFT", btnSecondary, "BOTTOMLEFT", 0, -2)
+secondaryDropdown:SetPoint("TOPRIGHT", btnSecondary, "BOTTOMRIGHT", 0, 0)
+secondaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
+secondaryDropdown:SetFrameLevel(settingsPanel:GetFrameLevel() + 100)
+secondaryDropdown:Hide()
+local secondaryDropdownBg = secondaryDropdown:CreateTexture(nil, "BACKGROUND")
+secondaryDropdownBg:SetAllPoints(secondaryDropdown)
+secondaryDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
+for idx, opt in ipairs(SORT_OPTIONS) do
+    local b = CreateFrame("Button", nil, secondaryDropdown)
+    b:SetPoint("TOPLEFT", secondaryDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
+    b:SetPoint("LEFT", secondaryDropdown, "LEFT", 2, 0)
+    b:SetPoint("RIGHT", secondaryDropdown, "RIGHT", -2, 0)
+    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
+    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    t:SetPoint("LEFT", b, "LEFT", 4, 0)
+    t:SetText(opt)
+    b.option = opt
+    b:SetScript("OnClick", function()
+        GetGearSettings().secondarySort = opt
+        secondaryDropdown:Hide()
+        btnSecondaryText:SetText("Secondary Sort: " .. opt)
+        if frame.RefreshGrid then frame:RefreshGrid() end
+        if settingsPanel.RefreshCharacterList then settingsPanel:RefreshCharacterList() end
+    end)
+end
+btnSecondary:SetScript("OnClick", function()
+    secondaryDropdown:SetShown(not secondaryDropdown:IsShown())
+    primaryDropdown:Hide()
+end)
+
+-- Character list (scrollable): name | Pin | Hide
+local CHAR_LIST_ROW = 20
+local charListScroll = CreateFrame("ScrollFrame", nil, settingsPanel)
+charListScroll:SetPoint("TOPLEFT", btnSecondary, "BOTTOMLEFT", 0, -8)
+charListScroll:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMRIGHT", 0, 0)
+charListScroll:EnableMouse(true)
+local charListChild = CreateFrame("Frame", nil, charListScroll)
+charListChild:SetPoint("TOPLEFT", charListScroll, "TOPLEFT", 0, 0)
+charListChild:SetWidth(1)
+charListScroll:SetScrollChild(charListChild)
+charListScroll:SetScript("OnMouseWheel", function(_, delta)
+    local scroll = charListScroll:GetVerticalScroll()
+    local newScroll = scroll - delta * CHAR_LIST_ROW * 2
+    newScroll = math.max(0, math.min(charListChild:GetHeight() - charListScroll:GetHeight(), newScroll))
+    charListScroll:SetVerticalScroll(newScroll)
+end)
+local charListRowPool = {}
+local function GetCharListRow(i)
+    if not charListRowPool[i] then
+        local row = CreateFrame("Frame", nil, charListChild)
+        row:SetPoint("TOPLEFT", charListChild, "TOPLEFT", 0, -(i - 1) * CHAR_LIST_ROW)
+        row:SetHeight(CHAR_LIST_ROW)
+        row:SetPoint("RIGHT", charListChild, "RIGHT", 0, 0)
+        row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.nameText:SetPoint("LEFT", row, "LEFT", 0, 0)
+        row.nameText:SetPoint("RIGHT", row, "RIGHT", -120, 0)
+        row.nameText:SetJustifyH("LEFT")
+        row.pinBtn = CreateFrame("CheckButton", nil, row)
+        row.pinBtn:SetPoint("RIGHT", row, "RIGHT", -60, 0)
+        row.pinBtn:SetSize(18, 18)
+        local pinBg = row.pinBtn:CreateTexture(nil, "BACKGROUND")
+        pinBg:SetAllPoints(row.pinBtn)
+        pinBg:SetColorTexture(0.25, 0.25, 0.25, 0.9)
+        row.pinBtn.tex = row.pinBtn:CreateTexture(nil, "OVERLAY")
+        row.pinBtn.tex:SetAllPoints(row.pinBtn)
+        row.pinBtn.tex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+        row.pinBtn:SetCheckedTexture(row.pinBtn.tex)
+        local pinLabel = row.pinBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        pinLabel:SetPoint("RIGHT", row.pinBtn, "LEFT", -2, 0)
+        pinLabel:SetText("Pin")
+        row.hideBtn = CreateFrame("CheckButton", nil, row)
+        row.hideBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.hideBtn:SetSize(18, 18)
+        local hideBg = row.hideBtn:CreateTexture(nil, "BACKGROUND")
+        hideBg:SetAllPoints(row.hideBtn)
+        hideBg:SetColorTexture(0.25, 0.25, 0.25, 0.9)
+        row.hideBtn.tex = row.hideBtn:CreateTexture(nil, "OVERLAY")
+        row.hideBtn.tex:SetAllPoints(row.hideBtn)
+        row.hideBtn.tex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+        row.hideBtn:SetCheckedTexture(row.hideBtn.tex)
+        local hideLabel = row.hideBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        hideLabel:SetPoint("RIGHT", row.hideBtn, "LEFT", -2, 0)
+        hideLabel:SetText("Hide")
+        charListRowPool[i] = row
+    end
+    return charListRowPool[i]
+end
+
+function settingsPanel:RefreshCharacterList()
+    local rawList = (AltArmy.Characters and AltArmy.Characters.GetList and AltArmy.Characters:GetList()) or {}
+    local list = {}
+    for i = 1, #rawList do list[i] = rawList[i] end
+    table.sort(list, function(a, b)
+        local na, nb = (a.name or ""):lower(), (b.name or ""):lower()
+        if na ~= nb then return na < nb end
+        return (a.realm or ""):lower() < (b.realm or ""):lower()
+    end)
+    for idx, row in pairs(charListRowPool) do
+        row:Hide()
+    end
+    local n = #list
+    charListChild:SetWidth(charListScroll:GetWidth() or 350)
+    charListChild:SetHeight(math.max(1, n * CHAR_LIST_ROW))
+    for i = 1, n do
+        local entry = list[i]
+        local row = GetCharListRow(i)
+        row:Show()
+        row.nameText:SetText(entry.name or "?")
+        if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
+            local rc = RAID_CLASS_COLORS[entry.classFile]
+            row.nameText:SetTextColor(rc.r, rc.g, rc.b, 1)
+        else
+            row.nameText:SetTextColor(1, 0.82, 0, 1)
+        end
+        row.entry = entry
+        local pin = GetCharSetting(entry.name, entry.realm, "pin")
+        local hide = GetCharSetting(entry.name, entry.realm, "hide")
+        row.pinBtn:SetChecked(pin)
+        row.hideBtn:SetChecked(hide)
+        row.pinBtn:SetScript("OnClick", function()
+            local newPin = not GetCharSetting(entry.name, entry.realm, "pin")
+            SetCharSetting(entry.name, entry.realm, newPin, false)
+            row.pinBtn:SetChecked(newPin)
+            row.hideBtn:SetChecked(false)
+            if frame.RefreshGrid then frame:RefreshGrid() end
+        end)
+        row.hideBtn:SetScript("OnClick", function()
+            local newHide = not GetCharSetting(entry.name, entry.realm, "hide")
+            SetCharSetting(entry.name, entry.realm, false, newHide)
+            row.hideBtn:SetChecked(newHide)
+            row.pinBtn:SetChecked(false)
+            if frame.RefreshGrid then frame:RefreshGrid() end
+        end)
+    end
+end
+
+-- Close dropdowns when clicking outside
+settingsPanel:SetScript("OnHide", function()
+    primaryDropdown:Hide()
+    secondaryDropdown:Hide()
+end)
+
+function frame:ToggleGearSettings()
+    local showSettings = not settingsPanel:IsShown()
+    settingsPanel:SetShown(showSettings)
+    rightPanel:SetShown(not showSettings)
+    if LEFT_PANEL_VISIBLE then
+        leftPanel:SetShown(not showSettings)
+    end
+    if showSettings then
+        local w = frame:GetWidth()
+        if w > 0 then settingsPanel:SetWidth(w * 0.5) end
+        local s = GetGearSettings()
+        btnPrimaryText:SetText("Primary Sort: " .. s.primarySort)
+        btnSecondaryText:SetText("Secondary Sort: " .. s.secondarySort)
+        showSelfFirstCheck:SetChecked(s.showSelfFirst)
+        if AltArmy.Characters and AltArmy.Characters.InvalidateView then
+            AltArmy.Characters:InvalidateView()
+        end
+        settingsPanel:RefreshCharacterList()
+    end
+end

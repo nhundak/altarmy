@@ -144,6 +144,14 @@ setActiveTab = function(tabName)
             if btn.selectedBg then btn.selectedBg:Hide() end
         end
     end
+    -- Gear tab settings button: only visible when Gear tab is active and tab strip is shown
+    if tabStrip.gearSettingsBtn then
+        if tabName == "Gear" and tabStrip:IsShown() then
+            tabStrip.gearSettingsBtn:Show()
+        else
+            tabStrip.gearSettingsBtn:Hide()
+        end
+    end
 end
 
 local TAB_BTN_MIN_WIDTH = 72
@@ -186,6 +194,22 @@ for _, tabName in ipairs(tabNames) do
     prevBtn = btn
     tabStrip.buttons[tabName] = btn
 end
+
+-- Gear tab settings icon (top right of tab strip; visible only when Gear tab is active)
+local gearSettingsBtn = CreateFrame("Button", nil, tabStrip)
+gearSettingsBtn:SetPoint("TOPRIGHT", tabStrip, "TOPRIGHT", 0, 0)
+gearSettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
+gearSettingsBtn:Hide()
+local gearSettingsIcon = gearSettingsBtn:CreateTexture(nil, "ARTWORK")
+gearSettingsIcon:SetAllPoints(gearSettingsBtn)
+gearSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
+gearSettingsBtn:SetScript("OnClick", function()
+    if AltArmy.TabFrames.Gear and AltArmy.TabFrames.Gear.ToggleGearSettings then
+        AltArmy.TabFrames.Gear:ToggleGearSettings()
+    end
+end)
+tabStrip.gearSettingsBtn = gearSettingsBtn
+
 setActiveTab("Summary")
 
 -- Content area: one frame per tab

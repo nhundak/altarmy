@@ -75,22 +75,54 @@ local sortAscending = true
 
 local Update -- forward-declare so header OnClick closure can call it
 
--- Scroll frame (viewport; scroll child height set in Update; bottom inset for totals row)
-local scrollFrame = CreateFrame("ScrollFrame", "AltArmyTBC_SummaryScrollFrame", frame, "UIPanelScrollFrameTemplate")
+-- Scroll frame (viewport; no template — we use a custom scroll bar like Gear tab)
+local scrollFrame = CreateFrame("ScrollFrame", "AltArmyTBC_SummaryScrollFrame", frame)
 scrollFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD - HEADER_HEIGHT)
 scrollFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD + TOTALS_ROW_HEIGHT)
 scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - 20, PAD + TOTALS_ROW_HEIGHT)
+scrollFrame:EnableMouse(true)
 
 local scrollChild = CreateFrame("Frame", nil, scrollFrame)
 scrollChild:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
 scrollChild:SetPoint("TOPRIGHT", scrollFrame, "TOPRIGHT", 0, 0)
 scrollFrame:SetScrollChild(scrollChild)
 
--- Resolve scroll bar (UIPanelScrollFrameTemplate uses $parentScrollBar)
-local scrollBar
+-- Custom vertical scroll bar (same style as Gear tab)
+local SCROLL_BAR_WIDTH = 20
+local SCROLL_BAR_TOP_INSET = 16
+local SCROLL_BAR_BOTTOM_INSET = 16
+local SCROLL_BAR_RIGHT_OFFSET = 4
+local scrollBar = CreateFrame("Slider", "AltArmyTBC_SummaryScrollBar", frame)
+scrollBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET, -(PAD + SCROLL_BAR_TOP_INSET))
+scrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET, SCROLL_BAR_BOTTOM_INSET)
+scrollBar:SetWidth(SCROLL_BAR_WIDTH)
+scrollBar:SetMinMaxValues(0, 0)
+scrollBar:SetValueStep(ROW_HEIGHT)
+scrollBar:SetValue(0)
+scrollBar:SetOrientation("VERTICAL")
+scrollBar:EnableMouse(true)
+local vertThumb = scrollBar:CreateTexture(nil, "ARTWORK")
+vertThumb:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
+vertThumb:SetVertexColor(0.5, 0.5, 0.6, 1)
+vertThumb:SetSize(SCROLL_BAR_WIDTH - 4, 24)
+scrollBar:SetThumbTexture(vertThumb)
+scrollBar:SetScript("OnValueChanged", function(_, value)
+    scrollFrame:SetVerticalScroll(value)
+end)
+
+local function OnSummaryScrollWheel(_, delta)
+    if not scrollBar then return end
+    local minVal, maxVal = scrollBar:GetMinMaxValues()
+    local current = scrollBar:GetValue()
+    local newVal = current - delta * ROW_HEIGHT * 2
+    newVal = math.max(minVal, math.min(maxVal, newVal))
+    scrollBar:SetValue(newVal)
+    scrollFrame:SetVerticalScroll(newVal)
+end
+scrollFrame:SetScript("OnMouseWheel", OnSummaryScrollWheel)
+scrollChild:SetScript("OnMouseWheel", OnSummaryScrollWheel)
+
 local function GetScrollBar()
-    if scrollBar then return scrollBar end
-    scrollBar = scrollFrame.ScrollBar or (scrollFrame:GetName() and _G[scrollFrame:GetName() .. "ScrollBar"])
     return scrollBar
 end
 
@@ -227,6 +259,11 @@ Update = function(offset)
         sb:SetMinMaxValues(0, maxScroll)
         sb:SetValueStep(ROW_HEIGHT)
         sb:SetStepsPerPage(NUM_ROWS - 1)
+        local val = sb:GetValue()
+        if val > maxScroll then
+            sb:SetValue(maxScroll)
+            scrollFrame:SetVerticalScroll(maxScroll)
+        end
     end
 
     for i = 1, NUM_ROWS do

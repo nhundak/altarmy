@@ -128,6 +128,7 @@ function AltArmy.SummaryData.GetCharacterList()
                     equipmentCount = equipmentCount + 1
                 end
             end
+            local avgItemLevel = (DS.GetAverageItemLevel and DS:GetAverageItemLevel(charData)) or 0
             table.insert(list, {
                 name = name,
                 realm = realm or "",
@@ -141,6 +142,7 @@ function AltArmy.SummaryData.GetCharacterList()
                 bagSlots = bagSlots,
                 bagFree = bagFree,
                 equipmentCount = equipmentCount,
+                avgItemLevel = avgItemLevel,
             })
         end
     end
