@@ -17,15 +17,15 @@ local function isCurrentCharacter(entry)
     return entry and (entry.name == currentName and entry.realm == currentRealm)
 end
 
--- Column definitions: Name, Level, RestXP, Money, Played, LastOnline
+-- Column definitions: Name, Level, RestXP, Money, Played, LastOnline (total width ~560)
 local columns = {
     Name = {
-        Width = 100,
+        Width = 109,
         GetText = function(entry) return entry.name or "" end,
         JustifyH = "LEFT",
     },
     Level = {
-        Width = 50,
+        Width = 54,
         GetText = function(entry)
             local l = entry.level
             if l == nil then return "" end
@@ -34,23 +34,23 @@ local columns = {
         JustifyH = "RIGHT",
     },
     RestXP = {
-        Width = 65,
+        Width = 71,
         headerLabel = "Rest XP",
         GetText = function(entry) return SD and SD.FormatRestXp and SD.FormatRestXp(entry.restXp) or "" end,
         JustifyH = "RIGHT",
     },
     Money = {
-        Width = 115,
+        Width = 125,
         GetText = function(entry) return SD and SD.GetMoneyString and SD.GetMoneyString(entry.money) or "" end,
         JustifyH = "RIGHT",
     },
     Played = {
-        Width = 100,
+        Width = 109,
         GetText = function(entry) return SD and SD.GetTimeString and SD.GetTimeString(entry.played) or "" end,
         JustifyH = "RIGHT",
     },
     LastOnline = {
-        Width = 85,
+        Width = 92,
         headerLabel = "Last Online",
         GetText = function(entry)
             return SD and SD.FormatLastOnline and SD.FormatLastOnline(entry.lastOnline, isCurrentCharacter(entry)) or ""

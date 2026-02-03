@@ -137,7 +137,8 @@ setActiveTab = function(tabName)
     -- Update tab button highlights (handled in each button's refresh or we do it here)
     for _, btn in pairs(tabStrip.buttons or {}) do
         if btn.tabName == tabName then
-            btn:SetEnabled(false)
+            -- Keep Gear tab enabled when active so clicking it can close settings and return to grid
+            btn:SetEnabled(btn.tabName == "Gear" or false)
             if btn.selectedBg then btn.selectedBg:Show() end
         else
             btn:SetEnabled(true)
@@ -194,6 +195,15 @@ for _, tabName in ipairs(tabNames) do
     prevBtn = btn
     tabStrip.buttons[tabName] = btn
 end
+
+-- Gear tab: clicking the tab again while settings are open switches back to the gear grid
+tabStrip.buttons["Gear"]:SetScript("OnClick", function()
+    if AltArmy.CurrentTab == "Gear" and AltArmy.TabFrames.Gear and AltArmy.TabFrames.Gear.IsGearSettingsShown and AltArmy.TabFrames.Gear:IsGearSettingsShown() then
+        AltArmy.TabFrames.Gear:ToggleGearSettings()
+    else
+        setActiveTab("Gear")
+    end
+end)
 
 -- Gear tab settings icon (top right of tab strip; visible only when Gear tab is active)
 local gearSettingsBtn = CreateFrame("Button", nil, tabStrip)

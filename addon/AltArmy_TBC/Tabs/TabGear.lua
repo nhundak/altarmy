@@ -1088,6 +1088,10 @@ settingsPanel:SetScript("OnHide", function()
     secondaryDropdown:Hide()
 end)
 
+function frame:IsGearSettingsShown()
+    return settingsPanel and settingsPanel:IsShown()
+end
+
 function frame:ToggleGearSettings()
     local showSettings = not settingsPanel:IsShown()
     settingsPanel:SetShown(showSettings)

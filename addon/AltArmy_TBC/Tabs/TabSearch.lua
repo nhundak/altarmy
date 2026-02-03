@@ -32,7 +32,7 @@ headerRow:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
 headerRow:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD - 20, -PAD)
 headerRow:SetHeight(HEADER_HEIGHT)
 
-local colWidths = { Item = 280, Source = 160, Total = 70 }
+local colWidths = { Item = 330, Source = 160, Total = 70 }  -- total 560
 local colOrder = { "Item", "Source", "Total" }
 local x = 0
 for _, colName in ipairs(colOrder) do
