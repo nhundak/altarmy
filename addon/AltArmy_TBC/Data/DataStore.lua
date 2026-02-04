@@ -106,11 +106,11 @@ function DS:GetDataVersion(_self, char, moduleName)
     return (char.dataVersions and char.dataVersions[moduleName]) or 0
 end
 
-function DS:NeedsRescan(self, char, moduleName)
+function DS:NeedsRescan(_self, char, moduleName)
     if not char or not moduleName then return true end
     local current = DATA_VERSIONS[moduleName]
     if not current then return false end
-    return (self:GetDataVersion(char, moduleName) or 0) < current
+    return (DS:GetDataVersion(char, moduleName) or 0) < current
 end
 
 function DS:GetAllDataVersions(_self, char)
@@ -196,10 +196,10 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
                 DS:ScanReputations()
             end
             bagScanFrame.elapsed = 0
-            bagScanFrame:SetScript("OnUpdate", function(self, elapsed)
-                self.elapsed = self.elapsed + elapsed
-                if self.elapsed >= BAG_SCAN_DELAY then
-                    self:SetScript("OnUpdate", nil)
+            bagScanFrame:SetScript("OnUpdate", function(f, elapsed)
+                f.elapsed = f.elapsed + elapsed
+                if f.elapsed >= BAG_SCAN_DELAY then
+                    f:SetScript("OnUpdate", nil)
                     if DS.ScanBags then DS:ScanBags() end
                 end
             end)
@@ -219,10 +219,10 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
             DS:ScanProfessionLinks()
         end
         tradeSkillScanFrame.elapsed = 0
-        tradeSkillScanFrame:SetScript("OnUpdate", function(self, elapsed)
-            self.elapsed = self.elapsed + elapsed
-            if self.elapsed >= TRADE_SKILL_SCAN_DELAY then
-                self:SetScript("OnUpdate", nil)
+        tradeSkillScanFrame:SetScript("OnUpdate", function(f, elapsed)
+            f.elapsed = f.elapsed + elapsed
+            if f.elapsed >= TRADE_SKILL_SCAN_DELAY then
+                f:SetScript("OnUpdate", nil)
                 if GetNumTradeSkills and GetTradeSkillLine and DS.RunDeferredRecipeScan then
                     DS:RunDeferredRecipeScan()
                 end

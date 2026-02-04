@@ -4,6 +4,9 @@
 -- WoW uses Lua 5.1
 std = "lua51"
 
+-- Do not warn about unused implicit self argument in method (:) definitions.
+self = false
+
 -- Globals the addon reads and writes (SavedVariables, slash commands, etc.)
 globals = {
     "AltArmy",

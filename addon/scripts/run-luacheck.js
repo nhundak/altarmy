@@ -28,7 +28,7 @@ const target = args.length ? args.join(" ") : "AltArmy_TBC";
 
 try {
   execSync(
-    `"${luaExe}" -e "package.path='${packagePath};'..package.path" "${binScript}" ${target}`,
+    `"${luaExe}" -e "package.path='${packagePath};'..package.path" "${binScript}" -q ${target}`,
     { cwd: root, stdio: "inherit", shell: true }
   );
 } catch (e) {
