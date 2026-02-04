@@ -12,36 +12,16 @@ local SPELL_ID_FIRSTAID = 3273
 local SPELL_ID_COOKING = 2550
 local SPELL_ID_FISHING = 7732
 
-local headersState = {}
-local function SaveTradeSkillHeaders()
-    for k in pairs(headersState) do headersState[k] = nil end
-    local headerCount = 0
-    if not GetNumTradeSkills then return end
+--- Expand all category headers so ScanRecipes can see every recipe. We do not collapse
+--- afterward, so the user's profession window stays expanded.
+local function ExpandAllTradeSkillHeaders()
+    if not GetNumTradeSkills or not ExpandTradeSkillSubClass then return end
     for i = GetNumTradeSkills(), 1, -1 do
         local _, skillType, _, _, isExpanded = GetTradeSkillInfo(i)
-        if skillType == "header" then
-            headerCount = headerCount + 1
-            if not isExpanded and ExpandTradeSkillSubClass then
-                ExpandTradeSkillSubClass(i)
-                headersState[headerCount] = true
-            end
+        if skillType == "header" and not isExpanded then
+            ExpandTradeSkillSubClass(i)
         end
     end
-end
-
-local function RestoreTradeSkillHeaders()
-    local headerCount = 0
-    if not GetNumTradeSkills then return end
-    for i = GetNumTradeSkills(), 1, -1 do
-        local _, skillType = GetTradeSkillInfo(i)
-        if skillType == "header" then
-            headerCount = headerCount + 1
-            if headersState[headerCount] and CollapseTradeSkillSubClass then
-                CollapseTradeSkillSubClass(i)
-            end
-        end
-    end
-    for k in pairs(headersState) do headersState[k] = nil end
 end
 
 function DS:ScanProfessionLinks(_self)
@@ -135,7 +115,14 @@ function DS:ScanRecipes(_self)
                 end
             end
             if recipeID then
-                prof.Recipes[recipeID] = color
+                local resultItemID
+                if GetTradeSkillItemLink then
+                    local itemLink = GetTradeSkillItemLink(i)
+                    if itemLink then
+                        resultItemID = tonumber(itemLink:match("item:(%d+)"))
+                    end
+                end
+                prof.Recipes[recipeID] = { color = color, resultItemID = resultItemID }
             end
         end
     end
@@ -144,10 +131,21 @@ function DS:ScanRecipes(_self)
     char.dataVersions.professions = DATA_VERSIONS.professions
 end
 
+local isRecipeScanInProgress = false
+
 function DS:RunDeferredRecipeScan()
-    SaveTradeSkillHeaders()
-    self:ScanRecipes()
-    RestoreTradeSkillHeaders()
+    if isRecipeScanInProgress then
+        return
+    end
+    isRecipeScanInProgress = true
+    local ok, err = pcall(function()
+        ExpandAllTradeSkillHeaders()
+        self:ScanRecipes()
+    end)
+    isRecipeScanInProgress = false
+    if not ok and err then
+        error(err)
+    end
 end
 
 function DS:GetProfessions(char)

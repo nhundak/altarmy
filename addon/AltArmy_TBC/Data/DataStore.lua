@@ -157,7 +157,6 @@ frame:RegisterEvent("AUCTION_BIDDER_LIST_UPDATE")
 local loginFired = false
 local isMailOpen = false
 local isAuctionHouseOpen = false
-local isTradeSkillOpen = false
 local lastReputationScan = 0
 local isBankOpen = false
 local REPUTATION_SCAN_THROTTLE = 3
@@ -216,7 +215,6 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
         return
     end
     if event == "TRADE_SKILL_SHOW" then
-        isTradeSkillOpen = true
         if GetNumSkillLines and GetSkillLineInfo and DS.ScanProfessionLinks then
             DS:ScanProfessionLinks()
         end
@@ -233,13 +231,12 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
         return
     end
     if event == "TRADE_SKILL_CLOSE" then
-        isTradeSkillOpen = false
         return
     end
+    -- Do NOT run full recipe scan on TRADE_SKILL_UPDATE. Expand/Collapse in
+    -- RunDeferredRecipeScan triggers more UPDATE events and can cause an infinite loop/crash.
+    -- (DataStore_Crafts only runs full scan once after TRADE_SKILL_SHOW via a timer.)
     if event == "TRADE_SKILL_UPDATE" then
-        if isTradeSkillOpen and DS.RunDeferredRecipeScan then
-            DS:RunDeferredRecipeScan()
-        end
         return
     end
     if event == "CHAT_MSG_SKILL" then

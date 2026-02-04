@@ -200,3 +200,85 @@ function SD.SearchWithLocationGroups(query)
     end
     return list
 end
+
+--- Build flat list of all known recipes across all characters.
+--- Each entry: { characterName, realm, classFile, professionName, skillRank, recipeID }.
+function SD.GetAllRecipes()
+    local list = {}
+    local DS = AltArmy.DataStore
+    if not DS or not DS.GetRealms or not DS.GetCharacters or not DS.GetCharacterName
+        or not DS.GetCharacterClass or not DS.GetProfessions then
+        return list
+    end
+    for realm in pairs(DS:GetRealms()) do
+        for charName, charData in pairs(DS:GetCharacters(realm)) do
+            if charData then
+                local professions = DS:GetProfessions(charData)
+                if professions then
+                    local characterName = DS:GetCharacterName(charData) or charName
+                    local _, classFile = DS:GetCharacterClass(charData)
+                    for profName, prof in pairs(professions) do
+                        if prof and prof.Recipes then
+                            local skillRank = prof.rank or 0
+                            for recipeID, data in pairs(prof.Recipes) do
+                                if recipeID then
+                                    local resultItemID
+                                    if type(data) == "table" and data.resultItemID then
+                                        resultItemID = data.resultItemID
+                                    end
+                                    table.insert(list, {
+                                        characterName = characterName,
+                                        realm = realm,
+                                        classFile = classFile,
+                                        professionName = profName,
+                                        skillRank = skillRank,
+                                        recipeID = recipeID,
+                                        resultItemID = resultItemID,
+                                    })
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return list
+end
+
+--- Get recipe name from recipeID (item or spell). Returns nil if not resolved.
+local function GetRecipeName(recipeID)
+    if not recipeID then return nil end
+    if GetItemInfo then
+        local name = GetItemInfo(recipeID)
+        if name and name ~= "" then return name end
+    end
+    if GetSpellInfo then
+        local name = GetSpellInfo(recipeID)
+        if name and name ~= "" then return name end
+    end
+    return nil
+end
+
+--- Search recipes by name (partial, case-insensitive). Returns list of matching entries.
+function SD.SearchRecipes(query)
+    if not query or (type(query) == "string" and query:match("^%s*$")) then
+        return {}
+    end
+    local all = SD.GetAllRecipes()
+    local queryLower = type(query) == "string" and query:lower() or ""
+    local results = {}
+    for _, entry in ipairs(all) do
+        local name = GetRecipeName(entry.recipeID)
+        if name and name:lower():find(queryLower, 1, true) then
+            table.insert(results, entry)
+        end
+    end
+    table.sort(results, function(a, b)
+        local na = GetRecipeName(a.recipeID) or ""
+        local nb = GetRecipeName(b.recipeID) or ""
+        if na:lower() ~= nb:lower() then return na:lower() < nb:lower() end
+        return (a.characterName or "") < (b.characterName or "")
+    end)
+    return results
+end

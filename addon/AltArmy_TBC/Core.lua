@@ -71,6 +71,31 @@ headerSearchEdit:SetFontObject("GameFontHighlight")
 if headerSearchEdit.SetTextInsets then
     headerSearchEdit:SetTextInsets(6, 6, 0, 0)
 end
+if headerSearchEdit.SetPlaceholderText then
+    headerSearchEdit:SetPlaceholderText("Search for items or recipes")
+else
+    -- Fallback for clients without SetPlaceholderText (e.g. TBC Classic): gray hint label
+    local searchPlaceholderHint = headerSearchEdit:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    searchPlaceholderHint:SetPoint("LEFT", headerSearchEdit, "LEFT", 6, 0)
+    searchPlaceholderHint:SetPoint("RIGHT", headerSearchEdit, "RIGHT", -6, 0)
+    searchPlaceholderHint:SetJustifyH("LEFT")
+    searchPlaceholderHint:SetText("Search for items or recipes")
+    searchPlaceholderHint:SetTextColor(0.5, 0.5, 0.5, 1)
+    headerSearchEdit.searchPlaceholderHint = searchPlaceholderHint
+end
+
+local function updateSearchPlaceholderVisibility()
+    local hint = headerSearchEdit.searchPlaceholderHint
+    if not hint then return end
+    local text = headerSearchEdit:GetText()
+    local trimmed = text and text:match("^%s*(.-)%s*$") or ""
+    local hasFocus = headerSearchEdit:HasFocus()
+    if trimmed == "" and not hasFocus then
+        hint:Show()
+    else
+        hint:Hide()
+    end
+end
 
 -- Clear (X) button at start of input; only visible when there is text
 local headerSearchClearBtn = CreateFrame("Button", nil, main)
@@ -112,6 +137,8 @@ end)
 headerSearchEdit:SetScript("OnEscapePressed", function(box)
     box:ClearFocus()
 end)
+headerSearchEdit:SetScript("OnEditFocusGained", updateSearchPlaceholderVisibility)
+headerSearchEdit:SetScript("OnEditFocusLost", updateSearchPlaceholderVisibility)
 -- OnTextChanged registered below after enterSearchMode/exitSearchMode are defined
 
 -- Expose for clearing header search and switching to Summary (e.g. from other code)
@@ -241,20 +268,50 @@ searchFrame:SetAllPoints(contentArea)
 searchFrame:Hide()
 AltArmy.TabFrames.Search = searchFrame
 
--- "Search Results" label (replaces tab strip when in search mode)
+-- Search category filter checkboxes (replace tab strip when in search mode)
+AltArmy.SearchCategories = AltArmy.SearchCategories or { Items = true, Recipes = true }
 local searchResultsLabel = CreateFrame("Frame", nil, main)
 searchResultsLabel:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -HEADER_TOTAL_OFFSET)
 searchResultsLabel:SetPoint("TOPRIGHT", main, "TOPRIGHT", -CONTENT_INSET, -HEADER_TOTAL_OFFSET)
 searchResultsLabel:SetHeight(TAB_HEIGHT)
 searchResultsLabel:Hide()
-local searchResultsText = searchResultsLabel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-searchResultsText:SetPoint("LEFT", searchResultsLabel, "LEFT", 0, 0)
-searchResultsText:SetText("Search Results")
+local function refreshSearchIfActive()
+    if AltArmy.TabFrames.Search and AltArmy.TabFrames.Search:IsShown() and headerSearchEdit then
+        local query = headerSearchEdit:GetText()
+        local trimmed = query and query:match("^%s*(.-)%s*$") or ""
+        if trimmed ~= "" and AltArmy.TabFrames.Search.SearchWithQuery then
+            AltArmy.TabFrames.Search:SearchWithQuery(trimmed)
+        end
+    end
+end
+local gap = 12
+local itemsCheck = CreateFrame("CheckButton", nil, searchResultsLabel, "UICheckButtonTemplate")
+itemsCheck:SetPoint("LEFT", searchResultsLabel, "LEFT", 0, 0)
+itemsCheck:SetChecked(AltArmy.SearchCategories.Items)
+itemsCheck:SetScript("OnClick", function()
+    AltArmy.SearchCategories.Items = itemsCheck:GetChecked()
+    refreshSearchIfActive()
+end)
+local itemsLabel = searchResultsLabel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+itemsLabel:SetPoint("LEFT", itemsCheck, "RIGHT", 2, 0)
+itemsLabel:SetText("Items")
+local recipesCheck = CreateFrame("CheckButton", nil, searchResultsLabel, "UICheckButtonTemplate")
+recipesCheck:SetPoint("LEFT", itemsLabel, "RIGHT", gap, 0)
+recipesCheck:SetChecked(AltArmy.SearchCategories.Recipes)
+recipesCheck:SetScript("OnClick", function()
+    AltArmy.SearchCategories.Recipes = recipesCheck:GetChecked()
+    refreshSearchIfActive()
+end)
+local recipesLabel = searchResultsLabel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+recipesLabel:SetPoint("LEFT", recipesCheck, "RIGHT", 2, 0)
+recipesLabel:SetText("Recipes")
 
 local function enterSearchMode(trimmed)
     lastTab = AltArmy.CurrentTab
     tabStrip:Hide()
     searchResultsLabel:Show()
+    if itemsCheck then itemsCheck:SetChecked(AltArmy.SearchCategories.Items) end
+    if recipesCheck then recipesCheck:SetChecked(AltArmy.SearchCategories.Recipes) end
     if AltArmy.TabFrames.Summary then AltArmy.TabFrames.Summary:Hide() end
     if AltArmy.TabFrames.Gear then AltArmy.TabFrames.Gear:Hide() end
     if AltArmy.TabFrames.Search then
@@ -276,6 +333,7 @@ end
 local function applySearchBoxState()
     local query = headerSearchEdit:GetText()
     local trimmed = query and query:match("^%s*(.-)%s*$") or ""
+    updateSearchPlaceholderVisibility()
     if trimmed == "" then
         exitSearchMode()
         headerSearchClearBtn:Hide()
@@ -287,6 +345,7 @@ end
 
 headerSearchEdit:SetScript("OnTextChanged", applySearchBoxState)
 headerSearchEdit:SetScript("OnChar", applySearchBoxState)
+updateSearchPlaceholderVisibility()
 
 main:SetScript("OnShow", function()
     lastTab = "Summary"

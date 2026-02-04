@@ -129,4 +129,89 @@ describe("SearchData", function()
       assert.are.equal(results[1].count, 5)
     end)
   end)
+
+  describe("GetAllRecipes", function()
+    it("returns empty when DS or GetProfessions missing", function()
+      local DS = AltArmy.DataStore
+      local oldGetProfessions = DS and DS.GetProfessions
+      if DS then DS.GetProfessions = nil end
+      local oldGetRealms = DS and DS.GetRealms
+      if DS then DS.GetRealms = function() return {} end end
+      assert.are.same(SD.GetAllRecipes(), {})
+      if DS and oldGetProfessions then DS.GetProfessions = oldGetProfessions end
+      if DS and oldGetRealms then DS.GetRealms = oldGetRealms end
+    end)
+    it("returns flat list of recipe entries per character profession", function()
+      local DS = AltArmy.DataStore
+      local oldGetRealms = DS.GetRealms
+      local oldGetCharacters = DS.GetCharacters
+      local oldGetCharacterName = DS.GetCharacterName
+      local oldGetCharacterClass = DS.GetCharacterClass
+      local oldGetProfessions = DS.GetProfessions
+      DS.GetRealms = function() return { Realm1 = true } end
+      DS.GetCharacters = function()
+        return {
+          Char1 = {
+            name = "Char1",
+            Professions = {
+              Alchemy = { rank = 300, maxRank = 375, Recipes = { [12345] = 1, [67890] = 2 } },
+            },
+          },
+        }
+      end
+      DS.GetCharacterName = function(_, char) return char and char.name or "" end
+      DS.GetCharacterClass = function(_, char)
+        return char and char.class or "", char and char.classFile or "WARLOCK"
+      end
+      DS.GetProfessions = function(_, char) return char and char.Professions or {} end
+      local results = SD.GetAllRecipes()
+      DS.GetRealms = oldGetRealms
+      DS.GetCharacters = oldGetCharacters
+      DS.GetCharacterName = oldGetCharacterName
+      DS.GetCharacterClass = oldGetCharacterClass
+      DS.GetProfessions = oldGetProfessions
+      assert.are.equal(#results, 2)
+      table.sort(results, function(a, b) return (a.recipeID or 0) < (b.recipeID or 0) end)
+      assert.are.equal(results[1].characterName, "Char1")
+      assert.are.equal(results[1].realm, "Realm1")
+      assert.are.equal(results[1].professionName, "Alchemy")
+      assert.are.equal(results[1].skillRank, 300)
+      assert.are.equal(results[1].recipeID, 12345)
+      assert.are.equal(results[2].recipeID, 67890)
+    end)
+  end)
+
+  describe("SearchRecipes", function()
+    it("returns empty for nil or whitespace query", function()
+      local old = SD.GetAllRecipes
+      SD.GetAllRecipes = function() return {} end
+      assert.are.same(SD.SearchRecipes(nil), {})
+      assert.are.same(SD.SearchRecipes("   "), {})
+      SD.GetAllRecipes = old
+    end)
+    it("filters by recipe name (item or spell)", function()
+      local oldGetAll = SD.GetAllRecipes
+      local oldGetItemInfo = _G.GetItemInfo
+      local oldGetSpellInfo = _G.GetSpellInfo
+      SD.GetAllRecipes = function()
+        return {
+          { characterName = "A", realm = "R", professionName = "Alchemy", skillRank = 300, recipeID = 111 },
+          { characterName = "B", realm = "R", professionName = "Alchemy", skillRank = 250, recipeID = 222 },
+        }
+      end
+      _G.GetItemInfo = function(id)
+        if id == 111 then return "Minor Healing Potion", nil, nil, nil, nil, nil, nil, nil, nil, "icon1" end
+        if id == 222 then return "Super Mana Potion", nil, nil, nil, nil, nil, nil, nil, nil, "icon2" end
+        return nil
+      end
+      _G.GetSpellInfo = function() return nil end
+      local results = SD.SearchRecipes("mana")
+      SD.GetAllRecipes = oldGetAll
+      _G.GetItemInfo = oldGetItemInfo
+      _G.GetSpellInfo = oldGetSpellInfo
+      assert.are.equal(#results, 1)
+      assert.are.equal(results[1].recipeID, 222)
+      assert.are.equal(results[1].characterName, "B")
+    end)
+  end)
 end)

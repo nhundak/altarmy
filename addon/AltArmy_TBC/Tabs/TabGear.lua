@@ -55,7 +55,7 @@ local function SortOptionValid(val)
     for _, o in ipairs(SORT_OPTIONS) do if o == val then return true end end
     return false
 end
-local SPACING_OPTIONS = { "Very compact", "Compact", "Comfortable" }
+local SPACING_OPTIONS = { "Compact", "Normal", "Comfortable" }
 local function SpacingValid(val)
     for _, o in ipairs(SPACING_OPTIONS) do if o == val then return true end end
     return false
@@ -71,6 +71,8 @@ local function GetGearSettings()
     if not s.primarySort or not SortOptionValid(s.primarySort) then s.primarySort = "Time Played" end
     if not s.secondarySort or not SortOptionValid(s.secondarySort) then s.secondarySort = "Name" end
     if s.showSelfFirst == nil then s.showSelfFirst = true end
+    -- Migrate legacy spacing: only "Very compact" -> "Compact"; do not overwrite current "Compact" (2px)
+    if s.spacing == "Very compact" then s.spacing = "Compact" end
     if not s.spacing or not SpacingValid(s.spacing) then s.spacing = "Comfortable" end
     if not s.iconSize or not IconSizeValid(s.iconSize) then s.iconSize = "medium" end
     s.characters = s.characters or {}
@@ -81,9 +83,9 @@ end
 --- Used with icon size to get rowHeight/columnWidth.
 local function GetSpacingGaps()
     local sp = GetGearSettings().spacing or "Comfortable"
-    if sp == "Very compact" then return 2, 2 end
-    if sp == "Compact" then return 14, 14 end
-    -- Comfortable: row gap 14, column gap 33 (was 42,61 with cell 28)
+    if sp == "Compact" then return 2, 2 end
+    if sp == "Normal" then return 14, 14 end
+    -- Comfortable: row gap 14, column gap 33
     return 14, 33
 end
 
