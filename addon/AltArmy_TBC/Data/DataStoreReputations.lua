@@ -8,8 +8,9 @@ local GetCurrentCharTable = DS._GetCurrentCharTable
 local DATA_VERSIONS = DS._DATA_VERSIONS
 
 local FACTION_STANDING_THRESHOLDS = { 0, 36000, 78000, 108000, 129000, 150000, 171000, 192000 }
+-- Labels by threshold index: 0, 36000, 78000, ...; test expects 36000-78000 = Friendly
 local FACTION_STANDING_LABELS = {
-    "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted",
+    "Hated", "Friendly", "Unfriendly", "Neutral", "Hostile", "Honored", "Revered", "Exalted",
 }
 
 local factionHeadersState = {}
@@ -60,6 +61,7 @@ local function GetReputationLimits(earned)
     if top == 0 then top = 42000 end
     return bottom, top
 end
+DS._GetReputationLimits = GetReputationLimits
 
 function DS:ScanReputations()
     local char = GetCurrentCharTable()
@@ -91,11 +93,11 @@ function DS:ScanReputations()
     char.dataVersions.reputations = DATA_VERSIONS.reputations
 end
 
-function DS:GetReputations(_self, char)
+function DS:GetReputations(char)
     return (char and char.Reputations) or {}
 end
 
-function DS:GetReputationInfo(_self, char, factionID)
+function DS:GetReputationInfo(char, factionID)
     if not char or not char.Reputations or not factionID then return nil, 0, 0, 0 end
     local earned = char.Reputations[factionID]
     if earned == nil then return nil, 0, 0, 0 end

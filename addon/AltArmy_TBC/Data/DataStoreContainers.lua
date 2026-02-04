@@ -139,16 +139,16 @@ DS.ScanContainer = function(_self, char, bagID, sizeOverride)
     ScanContainer(char, bagID, sizeOverride)
 end
 
-function DS:GetContainers(_self, char)
+function DS:GetContainers(char)
     return (char and char.Containers) or {}
 end
 
-function DS:GetContainer(_self, char, bagID)
+function DS:GetContainer(char, bagID)
     if not char or not char.Containers then return nil end
     return char.Containers[bagID]
 end
 
-function DS:GetContainerItemCount(_self, char, itemID)
+function DS:GetContainerItemCount(char, itemID)
     if not char or not char.Containers or not itemID then return 0 end
     local total = 0
     for _, bag in pairs(char.Containers) do
@@ -163,17 +163,17 @@ function DS:GetContainerItemCount(_self, char, itemID)
     return total
 end
 
-function DS:GetNumBagSlots(_self, char)
+function DS:GetNumBagSlots(char)
     if not char or not char.bagInfo then return 0 end
     return char.bagInfo.totalSlots or 0
 end
 
-function DS:GetNumFreeBagSlots(_self, char)
+function DS:GetNumFreeBagSlots(char)
     if not char or not char.bagInfo then return 0 end
     return char.bagInfo.freeSlots or 0
 end
 
-function DS:IterateContainerSlots(_self, char, callback)
+function DS:IterateContainerSlots(char, callback)
     if not char or not char.Containers or not callback then return end
     for bagID, bag in pairs(char.Containers) do
         if bag and bag.items then

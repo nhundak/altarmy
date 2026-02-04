@@ -10,6 +10,7 @@ local DATA_VERSIONS = DS._DATA_VERSIONS
 local function IsAuctionSold(saleStatus)
     return saleStatus and saleStatus == 1
 end
+DS._IsAuctionSold = IsAuctionSold
 
 function DS:ScanAuctions(_self)
     local char = GetCurrentCharTable()
@@ -76,12 +77,12 @@ function DS:ScanBids(_self)
     char.dataVersions.auctions = DATA_VERSIONS.auctions
 end
 
-function DS:GetNumAuctions(_self, char)
+function DS:GetNumAuctions(char)
     if not char or not char.Auctions then return 0 end
     return #char.Auctions
 end
 
-function DS:GetAuctionInfo(_self, char, index)
+function DS:GetAuctionInfo(char, index)
     if not char or not char.Auctions or not index or index < 1 or index > #char.Auctions then
         return nil, nil, nil, nil, nil
     end
@@ -90,12 +91,12 @@ function DS:GetAuctionInfo(_self, char, index)
     return data.itemID, data.count, data.bidAmount, data.buyoutAmount, data.timeLeft
 end
 
-function DS:GetNumBids(_self, char)
+function DS:GetNumBids(char)
     if not char or not char.Bids then return 0 end
     return #char.Bids
 end
 
-function DS:GetBidInfo(_self, char, index)
+function DS:GetBidInfo(char, index)
     if not char or not char.Bids or not index or index < 1 or index > #char.Bids then
         return nil, nil, nil, nil, nil, nil
     end
@@ -104,7 +105,7 @@ function DS:GetBidInfo(_self, char, index)
     return data.itemID, data.count, data.bidAmount, data.buyoutAmount, data.timeLeft, data.seller
 end
 
-function DS:GetAuctionItemCount(_self, char, itemID)
+function DS:GetAuctionItemCount(char, itemID)
     if not char or not itemID then return 0 end
     local count = 0
     if char.Auctions then

@@ -74,7 +74,7 @@ DS._GetCurrentCharTable = GetCurrentCharTable
 DS._MigrateDataVersions = MigrateDataVersions
 DS._DATA_VERSIONS = DATA_VERSIONS
 
-function DS:GetRealms(_self)
+function DS:GetRealms()
     local out = {}
     for realm in pairs(AltArmyTBC_Data.Characters) do
         out[realm] = true
@@ -82,40 +82,40 @@ function DS:GetRealms(_self)
     return out
 end
 
-function DS:GetCharacters(_self, realm)
+function DS:GetCharacters(realm)
     if not realm then return {} end
     return AltArmyTBC_Data.Characters[realm] or {}
 end
 
-function DS:GetCharacter(_self, name, realm)
+function DS:GetCharacter(name, realm)
     if not name or not realm then return nil end
     local realmTable = AltArmyTBC_Data.Characters[realm]
     return realmTable and realmTable[name] or nil
 end
 
-function DS:GetCurrentCharacter(_self)
+function DS:GetCurrentCharacter()
     return GetCurrentCharTable()
 end
 
-function DS:HasModuleData(_self, char, moduleName)
+function DS:HasModuleData(char, moduleName)
     if not char or not moduleName then return false end
     local v = (char.dataVersions and char.dataVersions[moduleName]) or 0
     return v > 0
 end
 
-function DS:GetDataVersion(_self, char, moduleName)
+function DS:GetDataVersion(char, moduleName)
     if not char or not moduleName then return 0 end
     return (char.dataVersions and char.dataVersions[moduleName]) or 0
 end
 
-function DS:NeedsRescan(_self, char, moduleName)
+function DS:NeedsRescan(char, moduleName)
     if not char or not moduleName then return true end
     local current = DATA_VERSIONS[moduleName]
     if not current then return false end
     return (DS:GetDataVersion(char, moduleName) or 0) < current
 end
 
-function DS:GetAllDataVersions(_self, char)
+function DS:GetAllDataVersions(char)
     if not char then return {} end
     local out = {}
     for k, v in pairs(char.dataVersions or {}) do

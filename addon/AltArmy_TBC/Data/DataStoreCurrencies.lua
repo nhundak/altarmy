@@ -41,7 +41,7 @@ function DS:GetCurrencyCount(char, itemID)
     return self:GetContainerItemCount(char, itemID)
 end
 
-function DS:GetAllCurrencies(_self, char)
+function DS:GetAllCurrencies(char)
     if not char then return {} end
     local out = {}
     if char.Currencies then

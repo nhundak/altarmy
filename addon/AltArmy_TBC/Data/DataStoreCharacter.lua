@@ -71,36 +71,36 @@ function DS:ScanCharacter(_self)
     char.dataVersions.character = DATA_VERSIONS.character
 end
 
-function DS:GetCharacterName(_self, char)
+function DS:GetCharacterName(char)
     return char and char.name or ""
 end
 
-function DS:GetCharacterLevel(_self, char)
+function DS:GetCharacterLevel(char)
     return (char and char.level) or 0
 end
 
-function DS:GetMoney(_self, char)
+function DS:GetMoney(char)
     return (char and char.money) or 0
 end
 
-function DS:GetPlayTime(_self, char)
+function DS:GetPlayTime(char)
     return (char and char.played) or 0
 end
 
-function DS:GetLastLogout(_self, char)
+function DS:GetLastLogout(char)
     return (char and char.lastLogout) or MAX_LOGOUT_SENTINEL
 end
 
-function DS:GetCharacterClass(_self, char)
+function DS:GetCharacterClass(char)
     if not char then return "", "" end
     return char.class or "", char.classFile or ""
 end
 
-function DS:GetCharacterFaction(_self, char)
+function DS:GetCharacterFaction(char)
     return (char and char.faction) or ""
 end
 
-function DS:GetStoredRestXp(_self, char)
+function DS:GetStoredRestXp(char)
     if not char or char.level == MAX_LEVEL then return 0 end
     local xpMax = char.xpMax or 0
     local restXP = char.restXP or 0
@@ -109,7 +109,7 @@ function DS:GetStoredRestXp(_self, char)
     return math.min(100, (restXP / maxRest) * 100)
 end
 
-function DS:GetRestXp(_self, char)
+function DS:GetRestXp(char)
     if not char or char.level == MAX_LEVEL then return 0 end
     local xpMax = char.xpMax or 0
     local restXP = char.restXP or 0

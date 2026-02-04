@@ -150,16 +150,16 @@ function DS:RunDeferredRecipeScan()
     RestoreTradeSkillHeaders()
 end
 
-function DS:GetProfessions(_self, char)
+function DS:GetProfessions(char)
     return (char and char.Professions) or {}
 end
 
-function DS:GetProfession(_self, char, name)
+function DS:GetProfession(char, name)
     if not char or not char.Professions or not name then return nil end
     return char.Professions[name]
 end
 
-function DS:GetProfession1(_self, char)
+function DS:GetProfession1(char)
     if not char then return 0, 0, nil end
     local name = char.Prof1
     if not name then return 0, 0, nil end
@@ -168,7 +168,7 @@ function DS:GetProfession1(_self, char)
     return prof.rank or 0, prof.maxRank or 0, name
 end
 
-function DS:GetProfession2(_self, char)
+function DS:GetProfession2(char)
     if not char then return 0, 0, nil end
     local name = char.Prof2
     if not name then return 0, 0, nil end
@@ -177,7 +177,7 @@ function DS:GetProfession2(_self, char)
     return prof.rank or 0, prof.maxRank or 0, name
 end
 
-function DS:GetCookingRank(_self, char)
+function DS:GetCookingRank(char)
     if not char or not GetSpellInfo then return 0, 0 end
     local name = GetSpellInfo(SPELL_ID_COOKING)
     local prof = name and char.Professions and char.Professions[name]
@@ -185,7 +185,7 @@ function DS:GetCookingRank(_self, char)
     return prof.rank or 0, prof.maxRank or 0
 end
 
-function DS:GetFishingRank(_self, char)
+function DS:GetFishingRank(char)
     if not char or not GetSpellInfo then return 0, 0 end
     local name = GetSpellInfo(SPELL_ID_FISHING)
     local prof = name and char.Professions and char.Professions[name]
@@ -193,7 +193,7 @@ function DS:GetFishingRank(_self, char)
     return prof.rank or 0, prof.maxRank or 0
 end
 
-function DS:GetFirstAidRank(_self, char)
+function DS:GetFirstAidRank(char)
     if not char or not GetSpellInfo then return 0, 0 end
     local name = GetSpellInfo(SPELL_ID_FIRSTAID)
     local prof = name and char.Professions and char.Professions[name]
@@ -201,7 +201,7 @@ function DS:GetFirstAidRank(_self, char)
     return prof.rank or 0, prof.maxRank or 0
 end
 
-function DS:GetNumRecipes(_self, char, profName)
+function DS:GetNumRecipes(char, profName)
     if not char or not char.Professions or not profName then return 0 end
     local prof = char.Professions[profName]
     if not prof or not prof.Recipes then return 0 end
@@ -210,7 +210,7 @@ function DS:GetNumRecipes(_self, char, profName)
     return n
 end
 
-function DS:IsRecipeKnown(_self, char, profName, spellID)
+function DS:IsRecipeKnown(char, profName, spellID)
     if not char or not char.Professions or not profName or not spellID then return false end
     local prof = char.Professions[profName]
     if not prof or not prof.Recipes then return false end

@@ -14,6 +14,7 @@ local function IsEnchanted(link)
     if link:match("item:%d+:0:0:0:0:0:0:%d+:%d+:0:0") then return false end
     return true
 end
+DS._IsEnchanted = IsEnchanted
 
 function DS:ScanEquipment(_self)
     local char = GetCurrentCharTable()
@@ -37,16 +38,16 @@ function DS:ScanEquipment(_self)
     char.dataVersions.equipment = DATA_VERSIONS.equipment
 end
 
-function DS:GetInventory(_self, char)
+function DS:GetInventory(char)
     return (char and char.Inventory) or {}
 end
 
-function DS:GetInventoryItem(_self, char, slot)
+function DS:GetInventoryItem(char, slot)
     if not char or not char.Inventory then return nil end
     return char.Inventory[slot]
 end
 
-function DS:GetInventoryItemCount(_self, char, itemID)
+function DS:GetInventoryItemCount(char, itemID)
     if not char or not char.Inventory or not itemID then return 0 end
     local count = 0
     for _, v in pairs(char.Inventory) do
@@ -59,7 +60,7 @@ function DS:GetInventoryItemCount(_self, char, itemID)
     return count
 end
 
-function DS:IterateInventory(_self, char, callback)
+function DS:IterateInventory(char, callback)
     if not char or not char.Inventory or not callback then return end
     for slot, itemIDOrLink in pairs(char.Inventory) do
         if itemIDOrLink and callback(slot, itemIDOrLink) then
@@ -68,7 +69,7 @@ function DS:IterateInventory(_self, char, callback)
     end
 end
 
-function DS:GetAverageItemLevel(_self, char)
+function DS:GetAverageItemLevel(char)
     if not char or not char.Inventory then return 0 end
     if not GetItemInfo then return 0 end
     local totalLevel = 0

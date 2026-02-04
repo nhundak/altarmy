@@ -15,6 +15,7 @@ local function LocationFromBagID(bagID)
     end
     return "bag"
 end
+SD._LocationFromBagID = LocationFromBagID
 
 --- Build flat list of all container slots across all characters.
 --- Each entry: { characterName, realm, itemID, itemLink, count, location, bagID, slot }.
@@ -140,6 +141,7 @@ local function GetNameMatchScore(itemName, queryLower)
     if nameLower:find(queryLower, 1, true) then return 1 end
     return 0
 end
+SD._GetNameMatchScore = GetNameMatchScore
 
 --- Aggregate by (itemID, characterName, realm, location); sort by name match, then char total, then bags before bank.
 --- Returns list of { itemID, itemLink, itemName, characterName, realm, location, count }.

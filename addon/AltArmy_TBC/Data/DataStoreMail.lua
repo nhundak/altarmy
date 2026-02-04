@@ -74,12 +74,12 @@ function DS:ScanMailbox(_self)
     char.dataVersions.mail = DATA_VERSIONS.mail
 end
 
-function DS:GetNumMails(_self, char)
+function DS:GetNumMails(char)
     if not char or not char.Mails then return 0 end
     return #char.Mails
 end
 
-function DS:GetMailInfo(_self, char, index)
+function DS:GetMailInfo(char, index)
     if not char or not char.Mails or not index or index < 1 or index > #char.Mails then
         return nil, nil, nil, nil, nil, nil, nil, nil
     end
@@ -93,7 +93,7 @@ function DS:GetMailInfo(_self, char, index)
     return data.icon, data.count, data.link, data.money, data.subject, data.sender, daysLeft, data.returned
 end
 
-function DS:GetMailItemCount(_self, char, itemID)
+function DS:GetMailItemCount(char, itemID)
     if not char or not char.Mails or not itemID then return 0 end
     local count = 0
     for _, v in ipairs(char.Mails) do
@@ -104,7 +104,7 @@ function DS:GetMailItemCount(_self, char, itemID)
     return count
 end
 
-function DS:GetMailboxLastVisit(_self, char)
+function DS:GetMailboxLastVisit(char)
     if not char then return 0 end
     return char.lastMailCheck or 0
 end
