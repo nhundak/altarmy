@@ -148,3 +148,67 @@ function AltArmy.SummaryData.GetCharacterList()
     end
     return list
 end
+
+-- Module name -> instruction when that module's data has not been gathered
+-- (mail, auctions excluded: do not warn for mailbox or auction house)
+local MODULE_INSTRUCTIONS = {
+    containers = "* Open your bags or visit a bank",
+    equipment = "* Log in with this character",
+    professions = "* Open your Skills window (P)",
+    reputations = "* Open your Reputation panel",
+    currencies = "* Open your bags or visit a bank",
+}
+
+-- Professions we do not warn about (gathering/secondary; no "Open your X window")
+local PROFESSIONS_NO_WARNING = {
+    Fishing = true,
+    Riding = true,
+    Herbalism = true,
+    Mining = true,
+    Skinning = true,
+}
+
+--- Returns whether a character is missing any gathered data and a list of instructions for the tooltip.
+--- @param name string Character name
+--- @param realm string Realm name
+--- @return table { hasMissing = boolean, instructions = string[] }
+function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
+    local out = { hasMissing = false, instructions = {} }
+    local DS = AltArmy.DataStore
+    if not DS or not DS.GetCharacter then return out end
+    local char = DS:GetCharacter(name, realm)
+    if not char then return out end
+
+    local currentName = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
+    local currentRealm = GetRealmName and GetRealmName() or ""
+    local isCurrent = (name == currentName and realm == currentRealm)
+    local addedLoginInstruction = false
+
+    for moduleName, instruction in pairs(MODULE_INSTRUCTIONS) do
+        if not (DS.HasModuleData and DS:HasModuleData(char, moduleName)) then
+            if isCurrent then
+                table.insert(out.instructions, instruction)
+            elseif not addedLoginInstruction then
+                table.insert(out.instructions, "* Log in with this character")
+                addedLoginInstruction = true
+            end
+        end
+    end
+
+    -- Per-profession: if we have profession data but a skill has no recipes, add "Open your X window"
+    -- (skip Fishing, Riding, Herbalism, Mining, Skinning)
+    if DS.HasModuleData and DS:HasModuleData(char, "professions") and DS.GetProfessions and DS.GetNumRecipes then
+        local professions = DS:GetProfessions(char)
+        for profName, prof in pairs(professions or {}) do
+            if not PROFESSIONS_NO_WARNING[profName] then
+                local rank = (prof and prof.rank) or 0
+                if rank > 0 and DS:GetNumRecipes(char, profName) == 0 then
+                    table.insert(out.instructions, "* Open your " .. profName .. " window")
+                end
+            end
+        end
+    end
+
+    out.hasMissing = #out.instructions > 0
+    return out
+end

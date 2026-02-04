@@ -246,15 +246,15 @@ function SD.GetAllRecipes()
     return list
 end
 
---- Get recipe name from recipeID (item or spell). Returns nil if not resolved.
+--- Get recipe name from recipeID (spell first, then item). Returns nil if not resolved.
 local function GetRecipeName(recipeID)
     if not recipeID then return nil end
-    if GetItemInfo then
-        local name = GetItemInfo(recipeID)
-        if name and name ~= "" then return name end
-    end
     if GetSpellInfo then
         local name = GetSpellInfo(recipeID)
+        if name and name ~= "" then return name end
+    end
+    if GetItemInfo then
+        local name = GetItemInfo(recipeID)
         if name and name ~= "" then return name end
     end
     return nil

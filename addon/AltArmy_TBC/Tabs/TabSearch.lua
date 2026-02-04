@@ -26,15 +26,15 @@ local function InsertItemLinkIntoChat(itemLinkOrID)
     end
 end
 
--- Recipe link for display/tooltip: try item then spell
+-- Recipe link for display/tooltip: try spell first (most recipes), then item (recipe scrolls)
 local function GetRecipeLink(recipeID)
     if not recipeID then return nil end
-    if GetItemInfo then
-        local _, link = GetItemInfo(recipeID)
-        if link and link ~= "" then return link end
-    end
     if _G.GetSpellLink then
         local link = _G.GetSpellLink(recipeID)
+        if link and link ~= "" then return link end
+    end
+    if GetItemInfo then
+        local _, link = GetItemInfo(recipeID)
         if link and link ~= "" then return link end
     end
     return nil
@@ -376,6 +376,9 @@ local function UpdateResults()
             row:Hide()
             row.entry = nil
         end
+        for idx = 1, #groupOverlayPool do
+            if groupOverlayPool[idx] then groupOverlayPool[idx]:Hide() end
+        end
     end
 
     -- Recipes section
@@ -402,12 +405,13 @@ local function UpdateResults()
             row.entry = entry
             local recipeName = "Recipe " .. tostring(entry.recipeID or "?")
             local iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
-            if GetItemInfo and entry.recipeID then
-                local name = GetItemInfo(entry.recipeID)
+            -- Resolve name from recipe (spell first, then item), not from result item
+            if GetSpellInfo and entry.recipeID then
+                local name = GetSpellInfo(entry.recipeID)
                 if name then recipeName = name end
             end
-            if recipeName == ("Recipe " .. tostring(entry.recipeID or "?")) and GetSpellInfo and entry.recipeID then
-                local name = GetSpellInfo(entry.recipeID)
+            if recipeName == ("Recipe " .. tostring(entry.recipeID or "?")) and GetItemInfo and entry.recipeID then
+                local name = GetItemInfo(entry.recipeID)
                 if name then recipeName = name end
             end
             -- Prefer icon of the crafted item (result), not the recipe scroll/spell

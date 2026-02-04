@@ -96,33 +96,63 @@ function DS:ScanRecipes(_self)
         local _, recipeSkillType = GetTradeSkillInfo(i)
         local color = SkillTypeToColor[recipeSkillType]
         if color and recipeSkillType ~= "header" and recipeSkillType ~= "subheader" then
+            -- recipeID must come from the recipe link (spell/enchant/recipe item), not the crafted result
             local recipeID
             if GetTradeSkillRecipeLink then
                 local link = GetTradeSkillRecipeLink(i)
                 if link then
                     recipeID = tonumber(link:match("enchant:(%d+)"))
+                        or tonumber(link:match("spell:(%d+)"))
+                        or tonumber(link:match("item:(%d+)"))
                 end
-                if not recipeID and GetTradeSkillItemLink then
-                    local itemLink = GetTradeSkillItemLink(i)
-                    if itemLink then
-                        recipeID = tonumber(itemLink:match("item:(%d+)"))
-                    end
-                end
-            elseif GetTradeSkillItemLink then
+            end
+            local resultItemID
+            if GetTradeSkillItemLink then
                 local itemLink = GetTradeSkillItemLink(i)
                 if itemLink then
-                    recipeID = tonumber(itemLink:match("item:(%d+)"))
+                    resultItemID = tonumber(itemLink:match("item:(%d+)"))
                 end
             end
             if recipeID then
-                local resultItemID
-                if GetTradeSkillItemLink then
-                    local itemLink = GetTradeSkillItemLink(i)
-                    if itemLink then
-                        resultItemID = tonumber(itemLink:match("item:(%d+)"))
-                    end
-                end
                 prof.Recipes[recipeID] = { color = color, resultItemID = resultItemID }
+            end
+        end
+    end
+    char.lastUpdate = time()
+    char.dataVersions = char.dataVersions or {}
+    char.dataVersions.professions = DATA_VERSIONS.professions
+end
+
+--- Scan recipes from the Craft window (Enchanting in TBC Classic uses Craft API, not Trade Skill).
+--- Only runs when GetCraftSkillLine etc. exist (TBC Classic); no-op on clients that use Trade Skill only.
+function DS:ScanCraftRecipes(_self)
+    if not GetCraftSkillLine or not GetNumCrafts or not GetCraftInfo or not GetCraftRecipeLink then
+        return
+    end
+    local char = GetCurrentCharTable()
+    if not char then return end
+    local craftName = GetCraftSkillLine()
+    if not craftName or craftName == "" then return end
+    local numCrafts = GetNumCrafts()
+    if not numCrafts or numCrafts == 0 then return end
+    char.Professions = char.Professions or {}
+    local prof = char.Professions[craftName]
+    if not prof then
+        prof = { rank = 0, maxRank = 0, Recipes = {} }
+        char.Professions[craftName] = prof
+    end
+    prof.Recipes = prof.Recipes or {}
+    for k in pairs(prof.Recipes) do prof.Recipes[k] = nil end
+    local craftTypeToColor = { optimal = 1, medium = 2, easy = 3, trivial = 4 }
+    for i = 1, numCrafts do
+        local _, _, craftType = GetCraftInfo(i)
+        if craftType and craftType ~= "header" and craftTypeToColor[craftType] then
+            local link = GetCraftRecipeLink(i)
+            if link then
+                local recipeID = tonumber(link:match("enchant:(%d+)"))
+                if recipeID then
+                    prof.Recipes[recipeID] = { color = craftTypeToColor[craftType], resultItemID = nil }
+                end
             end
         end
     end

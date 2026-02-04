@@ -8,6 +8,7 @@ local NUM_ROWS = 14
 local HEADER_HEIGHT = 20
 local TOTALS_ROW_HEIGHT = 18
 local PAD = 4
+local WARNING_COL_WIDTH = 20
 
 local SD = AltArmy.SummaryData
 
@@ -17,10 +18,10 @@ local function isCurrentCharacter(entry)
     return entry and (entry.name == currentName and entry.realm == currentRealm)
 end
 
--- Column definitions: Name, Level, RestXP, Money, Played, LastOnline (total width ~560)
+-- Column definitions: Name, Level, RestXP, Money, Played, LastOnline, Warning (total width unchanged)
 local columns = {
     Name = {
-        Width = 109,
+        Width = 119 - WARNING_COL_WIDTH,
         GetText = function(entry) return entry.name or "" end,
         JustifyH = "LEFT",
     },
@@ -50,15 +51,19 @@ local columns = {
         JustifyH = "RIGHT",
     },
     LastOnline = {
-        Width = 92,
+        Width = 82,
         headerLabel = "Last Online",
         GetText = function(entry)
             return SD and SD.FormatLastOnline and SD.FormatLastOnline(entry.lastOnline, isCurrentCharacter(entry)) or ""
         end,
         JustifyH = "RIGHT",
     },
+    Warning = {
+        Width = WARNING_COL_WIDTH,
+        headerLabel = "",
+    },
 }
-local columnOrder = { "Name", "Level", "RestXP", "Money", "Played", "LastOnline" }
+local columnOrder = { "Name", "Level", "RestXP", "Money", "Played", "LastOnline", "Warning" }
 
 -- Column display name -> sort key for Characters:Sort()
 local columnToSortKey = {
@@ -152,35 +157,42 @@ for _, colName in ipairs(columnOrder) do
     local col = columns[colName]
     local w = col and col.Width or 100
     local cn = colName
-    local btn = CreateFrame("Button", nil, headerRow)
-    btn:SetPoint("LEFT", headerRow, "LEFT", x, 0)
-    btn:SetSize(w, HEADER_HEIGHT)
-    btn:EnableMouse(true)
-    btn:RegisterForClicks("LeftButtonUp")
-    btn:SetScript("OnClick", function()
-        local sortKey = columnToSortKey[cn]
-        if sortKey == currentSortKey then
-            sortAscending = not sortAscending
-        else
-            currentSortKey = sortKey
-            sortAscending = true
-        end
-        if AltArmy.Characters and AltArmy.Characters.Sort then
-            AltArmy.Characters:Sort(sortAscending, currentSortKey)
-        end
-        local sb = GetScrollBar()
-        local scrollValue = sb and sb:GetValue() or 0
-        Update(math.floor(scrollValue / ROW_HEIGHT))
-        UpdateHeaderSortIndicators()
-    end)
-    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    label:SetPoint("LEFT", btn, "LEFT", 0, 0)
-    label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
-    label:SetHeight(HEADER_HEIGHT)
-    label:SetJustifyH(col and col.JustifyH or "LEFT")
-    label:SetText(col and col.headerLabel or colName)
-    btn.label = label
-    headerButtons[colName] = btn
+    if cn == "Warning" then
+        local headerFrame = CreateFrame("Frame", nil, headerRow)
+        headerFrame:SetPoint("LEFT", headerRow, "LEFT", x, 0)
+        headerFrame:SetSize(w, HEADER_HEIGHT)
+        headerButtons[colName] = headerFrame
+    else
+        local btn = CreateFrame("Button", nil, headerRow)
+        btn:SetPoint("LEFT", headerRow, "LEFT", x, 0)
+        btn:SetSize(w, HEADER_HEIGHT)
+        btn:EnableMouse(true)
+        btn:RegisterForClicks("LeftButtonUp")
+        btn:SetScript("OnClick", function()
+            local sortKey = columnToSortKey[cn]
+            if sortKey == currentSortKey then
+                sortAscending = not sortAscending
+            else
+                currentSortKey = sortKey
+                sortAscending = true
+            end
+            if AltArmy.Characters and AltArmy.Characters.Sort then
+                AltArmy.Characters:Sort(sortAscending, currentSortKey)
+            end
+            local sb = GetScrollBar()
+            local scrollValue = sb and sb:GetValue() or 0
+            Update(math.floor(scrollValue / ROW_HEIGHT))
+            UpdateHeaderSortIndicators()
+        end)
+        local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        label:SetPoint("LEFT", btn, "LEFT", 0, 0)
+        label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
+        label:SetHeight(HEADER_HEIGHT)
+        label:SetJustifyH(col and col.JustifyH or "LEFT")
+        label:SetText(col and col.headerLabel or colName)
+        btn.label = label
+        headerButtons[colName] = btn
+    end
     x = x + w
 end
 
@@ -226,11 +238,41 @@ for i = 1, NUM_ROWS do
     for _, colName in ipairs(columnOrder) do
         local col = columns[colName]
         local w = col and col.Width or 100
-        local cell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        cell:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
-        cell:SetWidth(w)
-        cell:SetJustifyH(col and col.JustifyH or "LEFT")
-        row.cells[colName] = cell
+        if colName == "Warning" then
+            local warningFrame = CreateFrame("Frame", nil, row)
+            warningFrame:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
+            warningFrame:SetSize(w, ROW_HEIGHT)
+            warningFrame:EnableMouse(true)
+            local mark = warningFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            mark:SetText("!")
+            mark:SetPoint("CENTER", warningFrame, "CENTER", 0, 0)
+            mark:SetTextColor(1, 0.82, 0, 1)
+            warningFrame.mark = mark
+            mark:Hide()
+            warningFrame:SetScript("OnEnter", function(self)
+                if self.tooltipTitle and GameTooltip then
+                    GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+                    GameTooltip:ClearLines()
+                    GameTooltip:AddLine(self.tooltipTitle, 1, 1, 1, true)
+                    if self.tooltipLines then
+                        for _, line in ipairs(self.tooltipLines) do
+                            GameTooltip:AddLine(line, 1, 0.82, 0, true)
+                        end
+                    end
+                    GameTooltip:Show()
+                end
+            end)
+            warningFrame:SetScript("OnLeave", function()
+                if GameTooltip then GameTooltip:Hide() end
+            end)
+            row.cells[colName] = warningFrame
+        else
+            local cell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            cell:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
+            cell:SetWidth(w)
+            cell:SetJustifyH(col and col.JustifyH or "LEFT")
+            row.cells[colName] = cell
+        end
         rowCellX = rowCellX + w
     end
     rowPool[i] = row
@@ -274,7 +316,33 @@ Update = function(offset)
             for _, colName in ipairs(columnOrder) do
                 local col = columns[colName]
                 local cell = rowFrame.cells[colName]
-                if cell and col and col.GetText then
+                if colName == "Warning" then
+                    local info = { hasMissing = false, instructions = {} }
+                    if SD and SD.GetMissingDataInfo then
+                        local result = SD.GetMissingDataInfo(entry.name, entry.realm)
+                        if result then info = result end
+                    end
+                    if info.hasMissing and cell and cell.mark then
+                        cell.mark:Show()
+                        local name = entry.name or ""
+                        local r, g, b = 1, 0.82, 0
+                        if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
+                            local c = RAID_CLASS_COLORS[entry.classFile]
+                            r, g, b = c.r, c.g, c.b
+                        end
+                        local hex = string.format("|cFF%02x%02x%02x",
+                            math.floor(r * 255), math.floor(g * 255), math.floor(b * 255))
+                        local titlePrefix = "Some data for " .. hex .. name .. "|r"
+                        cell.tooltipTitle = titlePrefix .. " has not been gathered yet."
+                        cell.tooltipLines = info.instructions
+                    else
+                        if cell then
+                            if cell.mark then cell.mark:Hide() end
+                            cell.tooltipTitle = nil
+                            cell.tooltipLines = nil
+                        end
+                    end
+                elseif cell and col and col.GetText then
                     cell:SetText(col.GetText(entry))
                     if colName == "Name" then
                         local classFile = entry.classFile
@@ -289,6 +357,12 @@ Update = function(offset)
             end
             rowFrame:Show()
         else
+            local warningCell = rowFrame.cells and rowFrame.cells["Warning"]
+            if warningCell then
+                if warningCell.mark then warningCell.mark:Hide() end
+                warningCell.tooltipTitle = nil
+                warningCell.tooltipLines = nil
+            end
             rowFrame:Hide()
         end
     end

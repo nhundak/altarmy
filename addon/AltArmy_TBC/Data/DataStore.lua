@@ -144,6 +144,7 @@ frame:RegisterEvent("SKILL_LINES_CHANGED")
 frame:RegisterEvent("TRADE_SKILL_SHOW")
 frame:RegisterEvent("TRADE_SKILL_CLOSE")
 frame:RegisterEvent("TRADE_SKILL_UPDATE")
+frame:RegisterEvent("CRAFT_SHOW")
 frame:RegisterEvent("CHAT_MSG_SKILL")
 frame:RegisterEvent("UPDATE_FACTION")
 frame:RegisterEvent("MAIL_SHOW")
@@ -167,9 +168,19 @@ local bagScanFrame = CreateFrame("Frame", nil, UIParent)
 bagScanFrame:SetScript("OnUpdate", nil)
 bagScanFrame.elapsed = 0
 
+-- Run professions + reputations again after delay (skill/faction data can load late)
+local LATE_SCAN_DELAY = 2
+local lateScanFrame = CreateFrame("Frame", nil, UIParent)
+lateScanFrame:SetScript("OnUpdate", nil)
+lateScanFrame.elapsed = 0
+
 local tradeSkillScanFrame = CreateFrame("Frame", nil, UIParent)
 tradeSkillScanFrame:SetScript("OnUpdate", nil)
 tradeSkillScanFrame.elapsed = 0
+
+local craftScanFrame = CreateFrame("Frame", nil, UIParent)
+craftScanFrame:SetScript("OnUpdate", nil)
+craftScanFrame.elapsed = 0
 
 frame:SetScript("OnEvent", function(_, event, addonName, a1)
     if event == "ADDON_LOADED" and addonName == "AltArmy_TBC" then
@@ -196,6 +207,25 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
             if GetNumFactions and GetFactionInfo and DS.ScanReputations then
                 DS:ScanReputations()
             end
+            -- Delayed run: skill/faction data can load after login; rescan so we get it without opening panels
+            lateScanFrame.elapsed = 0
+            lateScanFrame:SetScript("OnUpdate", function(f, elapsed)
+                f.elapsed = f.elapsed + elapsed
+                if f.elapsed >= LATE_SCAN_DELAY then
+                    f:SetScript("OnUpdate", nil)
+                    local c = GetCurrentCharTable()
+                    if c then
+                        if GetNumSkillLines and GetSkillLineInfo and DS.ScanProfessionLinks then
+                            DS:ScanProfessionLinks()
+                        end
+                        if GetNumFactions and GetFactionInfo and DS.ScanReputations then
+                            DS:ScanReputations()
+                        end
+                    end
+                end
+            end)
+            -- Bags: run once now (if ready) and again after delay to catch late-loaded data
+            if DS.ScanBags then DS:ScanBags() end
             bagScanFrame.elapsed = 0
             bagScanFrame:SetScript("OnUpdate", function(f, elapsed)
                 f.elapsed = f.elapsed + elapsed
@@ -231,6 +261,21 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
         return
     end
     if event == "TRADE_SKILL_CLOSE" then
+        return
+    end
+    if event == "CRAFT_SHOW" then
+        if GetCraftSkillLine and DS.ScanCraftRecipes then
+            craftScanFrame.elapsed = 0
+            craftScanFrame:SetScript("OnUpdate", function(f, elapsed)
+                f.elapsed = f.elapsed + elapsed
+                if f.elapsed >= TRADE_SKILL_SCAN_DELAY then
+                    f:SetScript("OnUpdate", nil)
+                    if GetCraftSkillLine and DS.ScanCraftRecipes then
+                        DS:ScanCraftRecipes()
+                    end
+                end
+            end)
+        end
         return
     end
     -- Do NOT run full recipe scan on TRADE_SKILL_UPDATE. Expand/Collapse in
