@@ -8,7 +8,7 @@ local PAD = 4
 local LEFT_PANEL_WIDTH = 120
 local LEFT_PANEL_VISIBLE = false  -- set true to show "Who can use this?" drop zone
 local MESSAGE_ROW_HEIGHT = 12
-local CELL_SIZE = 28
+-- Base cell size was 28; icon size (small 24, medium 32, large 48) now in dims.cellSize
 local NUM_EQUIPMENT_SLOTS = 19
 
 -- Equipment slot ID -> display name (TBC slots 1-19; ranged slot holds ranged weapons/relics; ammo omitted)
@@ -60,6 +60,11 @@ local function SpacingValid(val)
     for _, o in ipairs(SPACING_OPTIONS) do if o == val then return true end end
     return false
 end
+local ICON_SIZE_OPTIONS = { "small", "medium", "large" }
+local function IconSizeValid(val)
+    for _, o in ipairs(ICON_SIZE_OPTIONS) do if o == val then return true end end
+    return false
+end
 local function GetGearSettings()
     AltArmyTBC_GearSettings = AltArmyTBC_GearSettings or {}
     local s = AltArmyTBC_GearSettings
@@ -67,16 +72,34 @@ local function GetGearSettings()
     if not s.secondarySort or not SortOptionValid(s.secondarySort) then s.secondarySort = "Name" end
     if s.showSelfFirst == nil then s.showSelfFirst = true end
     if not s.spacing or not SpacingValid(s.spacing) then s.spacing = "Comfortable" end
+    if not s.iconSize or not IconSizeValid(s.iconSize) then s.iconSize = "medium" end
     s.characters = s.characters or {}
     return s
 end
---- Returns rowHeight, columnWidth for current spacing. Comfortable: 42,61; Compact: 42,42; Very compact: 30,30.
-local function GetSpacingDimensions()
+
+--- Returns rowGap, columnGap for current spacing (pixels between cells).
+--- Used with icon size to get rowHeight/columnWidth.
+local function GetSpacingGaps()
     local sp = GetGearSettings().spacing or "Comfortable"
-    if sp == "Very compact" then return 30, 30 end
-    if sp == "Compact" then return 42, 42 end
-    -- Comfortable (or legacy "Normal")
-    return 42, 61
+    if sp == "Very compact" then return 2, 2 end
+    if sp == "Compact" then return 14, 14 end
+    -- Comfortable: row gap 14, column gap 33 (was 42,61 with cell 28)
+    return 14, 33
+end
+
+--- Returns icon size in pixels. small=24, medium=32, large=48.
+local function GetIconSizePx()
+    local sz = GetGearSettings().iconSize or "medium"
+    if sz == "small" then return 24 end
+    if sz == "large" then return 48 end
+    return 32
+end
+
+--- Returns rowHeight, columnWidth for current spacing and icon size.
+local function GetSpacingDimensions()
+    local rowGap, colGap = GetSpacingGaps()
+    local cell = GetIconSizePx()
+    return cell + rowGap, cell + colGap
 end
 
 local function CharKey(name, realm)
@@ -448,9 +471,10 @@ local COLUMN_HEADER_HEIGHT_GEAR = 18
 local SLOT_LABEL_WIDTH = 80
 local SCROLL_BAR_WIDTH = 20
 local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
--- Layout dimensions from spacing setting (Comfortable / Compact / Very compact)
+-- Layout dimensions from spacing + icon size
 local dims = {}
 do
+    dims.cellSize = GetIconSizePx()
     local rh, cw = GetSpacingDimensions()
     dims.rowHeight, dims.columnWidth = rh, cw
     dims.scrollableGridHeight = NUM_EQUIPMENT_SLOTS * dims.rowHeight + PAD
@@ -568,14 +592,14 @@ slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -FIXE
 slotHeaderContainer:SetPoint("BOTTOMLEFT", verticalScrollChild, "BOTTOMLEFT", 0, 0)
 slotHeaderContainer:SetWidth(SLOT_LABEL_WIDTH)
 
--- Slot labels: height CELL_SIZE and vertically centered in each row (row height is dims.rowHeight)
-local SLOT_LABEL_ROW_OFFSET = (dims.rowHeight - CELL_SIZE) / 2
+-- Slot labels: height dims.cellSize and vertically centered in each row (row height is dims.rowHeight)
+local SLOT_LABEL_ROW_OFFSET = (dims.rowHeight - dims.cellSize) / 2
 local slotLabels = {}
 for slot = 1, NUM_EQUIPMENT_SLOTS do
     local label = slotHeaderContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetPoint("LEFT", slotHeaderContainer, "LEFT", 0, 0)
     label:SetWidth(SLOT_LABEL_WIDTH - 4)
-    label:SetHeight(CELL_SIZE)
+    label:SetHeight(dims.cellSize)
     label:SetJustifyH("LEFT")
     label:SetJustifyV("MIDDLE")
     label:SetText(SLOT_NAMES[SLOT_ORDER[slot]] or ("Slot " .. slot))
@@ -751,7 +775,7 @@ local function GetColumnFrame(index)
         col.cells = {}
         for slot = 1, NUM_EQUIPMENT_SLOTS do
             local cell = CreateFrame("Frame", nil, col)
-            cell:SetSize(CELL_SIZE, CELL_SIZE)
+            cell:SetSize(dims.cellSize, dims.cellSize)
             cell:EnableMouse(true)
             local tex = cell:CreateTexture(nil, "OVERLAY")
             tex:SetAllPoints(cell)
@@ -777,11 +801,11 @@ local function GetColumnFrame(index)
             cell:SetScript("OnLeave", function()
                 if GameTooltip then GameTooltip:Hide() end
             end)
-            local cellXOffset = (dims.columnWidth - CELL_SIZE) / 2
+            local cellXOffset = (dims.columnWidth - dims.cellSize) / 2
             if slot == 1 then
                 cell:SetPoint("TOPLEFT", col, "TOPLEFT", cellXOffset, -2)
             else
-                cell:SetPoint("TOPLEFT", col.cells[slot - 1], "BOTTOMLEFT", 0, -(dims.rowHeight - CELL_SIZE))
+                cell:SetPoint("TOPLEFT", col.cells[slot - 1], "BOTTOMLEFT", 0, -(dims.rowHeight - dims.cellSize))
             end
             col.cells[slot] = cell
         end
@@ -930,8 +954,9 @@ function frame:RefreshGrid(_self)
     UpdateGridWithOffset()
 end
 
---- Reapply layout dimensions from spacing setting; call when spacing changes.
+--- Reapply layout dimensions from spacing and icon size; call when either changes.
 local function ApplySpacing()
+    dims.cellSize = GetIconSizePx()
     local rh, cw = GetSpacingDimensions()
     dims.rowHeight, dims.columnWidth = rh, cw
     dims.scrollableGridHeight = NUM_EQUIPMENT_SLOTS * dims.rowHeight + PAD
@@ -947,14 +972,16 @@ local function ApplySpacing()
     end
 
     if slotLabels and slotLabels[1] then
-        local slotLabelRowOffset = (dims.rowHeight - CELL_SIZE) / 2
-        slotLabels[1]:ClearAllPoints()
-        slotLabels[1]:SetPoint("LEFT", slotHeaderContainer, "LEFT", 0, 0)
-        slotLabels[1]:SetPoint("TOP", slotHeaderContainer, "TOP", 0, -slotLabelRowOffset + 2)
-        for slot = 2, NUM_EQUIPMENT_SLOTS do
+        local slotLabelRowOffset = (dims.rowHeight - dims.cellSize) / 2
+        for slot = 1, NUM_EQUIPMENT_SLOTS do
+            slotLabels[slot]:SetHeight(dims.cellSize)
             slotLabels[slot]:ClearAllPoints()
             slotLabels[slot]:SetPoint("LEFT", slotHeaderContainer, "LEFT", 0, 0)
-            slotLabels[slot]:SetPoint("TOP", slotLabels[slot - 1], "TOP", 0, -dims.rowHeight)
+            if slot == 1 then
+                slotLabels[slot]:SetPoint("TOP", slotHeaderContainer, "TOP", 0, -slotLabelRowOffset + 2)
+            else
+                slotLabels[slot]:SetPoint("TOP", slotLabels[slot - 1], "TOP", 0, -dims.rowHeight)
+            end
         end
     end
 
@@ -963,14 +990,15 @@ local function ApplySpacing()
     end
     for _, col in pairs(columnPool) do
         col:SetSize(dims.columnWidth, dims.scrollableGridHeight)
-        local cellXOffset = (dims.columnWidth - CELL_SIZE) / 2
+        local cellXOffset = (dims.columnWidth - dims.cellSize) / 2
         for slot = 1, NUM_EQUIPMENT_SLOTS do
             local cell = col.cells[slot]
+            cell:SetSize(dims.cellSize, dims.cellSize)
             cell:ClearAllPoints()
             if slot == 1 then
                 cell:SetPoint("TOPLEFT", col, "TOPLEFT", cellXOffset, -2)
             else
-                cell:SetPoint("TOPLEFT", col.cells[slot - 1], "BOTTOMLEFT", 0, -(dims.rowHeight - CELL_SIZE))
+                cell:SetPoint("TOPLEFT", col.cells[slot - 1], "BOTTOMLEFT", 0, -(dims.rowHeight - dims.cellSize))
             end
         end
     end
@@ -1011,12 +1039,122 @@ ApplySettingsPanelLayout()
 settingsPanel:Hide()
 
 local SETTINGS_ROW_HEIGHT = 22
+local TAB_STRIP_HEIGHT = 26
 local primaryDropdown, secondaryDropdown  -- forward ref for dropdowns created below
 
--- Spacing dropdown (at top)
-local btnSpacing = CreateFrame("Button", nil, settingsPanel)
-btnSpacing:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
-btnSpacing:SetPoint("TOPRIGHT", settingsPanel, "TOPRIGHT", 0, 0)
+-- Tab strip: Sorting | Appearance
+local tabSorting = CreateFrame("Button", nil, settingsPanel)
+tabSorting:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
+tabSorting:SetHeight(TAB_STRIP_HEIGHT)
+tabSorting:SetWidth(80)
+local tabSortingBg = tabSorting:CreateTexture(nil, "BACKGROUND")
+tabSortingBg:SetAllPoints(tabSorting)
+tabSortingBg:SetColorTexture(0.25, 0.25, 0.3, 0.95)
+local tabSortingLabel = tabSorting:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+tabSortingLabel:SetPoint("CENTER", tabSorting, "CENTER", 0, 0)
+tabSortingLabel:SetText("Sorting")
+
+local tabAppearance = CreateFrame("Button", nil, settingsPanel)
+tabAppearance:SetPoint("TOPLEFT", tabSorting, "TOPRIGHT", 2, 0)
+tabAppearance:SetHeight(TAB_STRIP_HEIGHT)
+tabAppearance:SetWidth(80)
+local tabAppearanceBg = tabAppearance:CreateTexture(nil, "BACKGROUND")
+tabAppearanceBg:SetAllPoints(tabAppearance)
+tabAppearanceBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
+local tabAppearanceLabel = tabAppearance:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+tabAppearanceLabel:SetPoint("CENTER", tabAppearance, "CENTER", 0, 0)
+tabAppearanceLabel:SetText("Appearance")
+
+local sortingContent = CreateFrame("Frame", nil, settingsPanel)
+sortingContent:SetPoint("TOPLEFT", tabSorting, "BOTTOMLEFT", 0, -4)
+sortingContent:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMRIGHT", 0, 0)
+sortingContent:Show()
+
+local appearanceContent = CreateFrame("Frame", nil, settingsPanel)
+appearanceContent:SetPoint("TOPLEFT", tabSorting, "BOTTOMLEFT", 0, -4)
+appearanceContent:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMRIGHT", 0, 0)
+appearanceContent:Hide()
+
+local spacingDropdown  -- forward ref; created in Appearance tab below
+local function SetSettingsTab(tabName)
+    local isSorting = (tabName == "Sorting")
+    sortingContent:SetShown(isSorting)
+    appearanceContent:SetShown(not isSorting)
+    local r = isSorting and 0.25 or 0.2
+    local g = isSorting and 0.25 or 0.2
+    local b = isSorting and 0.35 or 0.2
+    local a = isSorting and 0.95 or 0.9
+    tabSortingBg:SetColorTexture(r, g, b, a)
+    tabAppearanceBg:SetColorTexture(not isSorting and 0.25 or 0.2, not isSorting and 0.25 or 0.2,
+        not isSorting and 0.35 or 0.2, not isSorting and 0.95 or 0.9)
+    -- Match main tab text colors: yellow when selected, gray when not
+    if tabSortingLabel then
+        tabSortingLabel:SetTextColor(isSorting and 1 or 0.85, isSorting and 0.82 or 0.85, isSorting and 0 or 0.85, 1)
+    end
+    if tabAppearanceLabel then
+        local sel = not isSorting
+        tabAppearanceLabel:SetTextColor(sel and 1 or 0.85, sel and 0.82 or 0.85, sel and 0 or 0.85, 1)
+    end
+end
+tabSorting:SetScript("OnClick", function()
+    SetSettingsTab("Sorting")
+    primaryDropdown:Hide()
+    secondaryDropdown:Hide()
+end)
+tabAppearance:SetScript("OnClick", function()
+    SetSettingsTab("Appearance")
+    if spacingDropdown then spacingDropdown:Hide() end
+end)
+SetSettingsTab("Sorting")
+
+-- ---- Appearance tab: Icon Size (above Spacing) ----
+local btnIconSize = CreateFrame("Button", nil, appearanceContent)
+btnIconSize:SetPoint("TOPLEFT", appearanceContent, "TOPLEFT", 0, 0)
+btnIconSize:SetPoint("TOPRIGHT", appearanceContent, "TOPRIGHT", 0, 0)
+btnIconSize:SetHeight(SETTINGS_ROW_HEIGHT)
+local btnIconSizeBg = btnIconSize:CreateTexture(nil, "BACKGROUND")
+btnIconSizeBg:SetAllPoints(btnIconSize)
+btnIconSizeBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
+local btnIconSizeText = btnIconSize:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+btnIconSizeText:SetPoint("LEFT", btnIconSize, "LEFT", 4, 0)
+btnIconSizeText:SetPoint("RIGHT", btnIconSize, "RIGHT", -4, 0)
+btnIconSizeText:SetJustifyH("LEFT")
+local iconSizeDropdown = CreateFrame("Frame", nil, appearanceContent)
+iconSizeDropdown:SetPoint("TOPLEFT", btnIconSize, "BOTTOMLEFT", 0, -2)
+iconSizeDropdown:SetPoint("TOPRIGHT", btnIconSize, "BOTTOMRIGHT", 0, 0)
+iconSizeDropdown:SetHeight(#ICON_SIZE_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
+iconSizeDropdown:SetFrameLevel(appearanceContent:GetFrameLevel() + 100)
+iconSizeDropdown:Hide()
+local iconSizeDropdownBg = iconSizeDropdown:CreateTexture(nil, "BACKGROUND")
+iconSizeDropdownBg:SetAllPoints(iconSizeDropdown)
+iconSizeDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
+for idx, opt in ipairs(ICON_SIZE_OPTIONS) do
+    local b = CreateFrame("Button", nil, iconSizeDropdown)
+    b:SetPoint("TOPLEFT", iconSizeDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
+    b:SetPoint("LEFT", iconSizeDropdown, "LEFT", 2, 0)
+    b:SetPoint("RIGHT", iconSizeDropdown, "RIGHT", -2, 0)
+    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
+    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    t:SetPoint("LEFT", b, "LEFT", 4, 0)
+    t:SetText(opt:sub(1, 1):upper() .. opt:sub(2))
+    b.option = opt
+    b:SetScript("OnClick", function()
+        GetGearSettings().iconSize = opt
+        iconSizeDropdown:Hide()
+        btnIconSizeText:SetText("Icon Size: " .. (opt:sub(1, 1):upper() .. opt:sub(2)))
+        ApplySpacing()
+        if frame.RefreshGrid then frame:RefreshGrid() end
+    end)
+end
+btnIconSize:SetScript("OnClick", function()
+    iconSizeDropdown:SetShown(not iconSizeDropdown:IsShown())
+    spacingDropdown:Hide()
+end)
+
+-- ---- Appearance tab: Spacing ----
+local btnSpacing = CreateFrame("Button", nil, appearanceContent)
+btnSpacing:SetPoint("TOPLEFT", btnIconSize, "BOTTOMLEFT", 0, -6)
+btnSpacing:SetPoint("TOPRIGHT", appearanceContent, "TOPRIGHT", 0, 0)
 btnSpacing:SetHeight(SETTINGS_ROW_HEIGHT)
 local btnSpacingBg = btnSpacing:CreateTexture(nil, "BACKGROUND")
 btnSpacingBg:SetAllPoints(btnSpacing)
@@ -1025,11 +1163,11 @@ local btnSpacingText = btnSpacing:CreateFontString(nil, "OVERLAY", "GameFontHigh
 btnSpacingText:SetPoint("LEFT", btnSpacing, "LEFT", 4, 0)
 btnSpacingText:SetPoint("RIGHT", btnSpacing, "RIGHT", -4, 0)
 btnSpacingText:SetJustifyH("LEFT")
-local spacingDropdown = CreateFrame("Frame", nil, settingsPanel)
+spacingDropdown = CreateFrame("Frame", nil, appearanceContent)
 spacingDropdown:SetPoint("TOPLEFT", btnSpacing, "BOTTOMLEFT", 0, -2)
 spacingDropdown:SetPoint("TOPRIGHT", btnSpacing, "BOTTOMRIGHT", 0, 0)
 spacingDropdown:SetHeight(#SPACING_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
-spacingDropdown:SetFrameLevel(settingsPanel:GetFrameLevel() + 100)
+spacingDropdown:SetFrameLevel(appearanceContent:GetFrameLevel() + 100)
 spacingDropdown:Hide()
 local spacingDropdownBg = spacingDropdown:CreateTexture(nil, "BACKGROUND")
 spacingDropdownBg:SetAllPoints(spacingDropdown)
@@ -1054,13 +1192,12 @@ for idx, opt in ipairs(SPACING_OPTIONS) do
 end
 btnSpacing:SetScript("OnClick", function()
     spacingDropdown:SetShown(not spacingDropdown:IsShown())
-    primaryDropdown:Hide()
-    secondaryDropdown:Hide()
+    iconSizeDropdown:Hide()
 end)
 
--- Show self first checkbox
-local showSelfFirstCheck = CreateFrame("CheckButton", nil, settingsPanel)
-showSelfFirstCheck:SetPoint("TOPLEFT", btnSpacing, "BOTTOMLEFT", 0, -6)
+-- ---- Sorting tab: Show self first, Primary/Secondary sort, Character list ----
+local showSelfFirstCheck = CreateFrame("CheckButton", nil, sortingContent)
+showSelfFirstCheck:SetPoint("TOPLEFT", sortingContent, "TOPLEFT", 0, 0)
 showSelfFirstCheck:SetSize(24, 24)
 local showSelfFirstBg = showSelfFirstCheck:CreateTexture(nil, "BACKGROUND")
 showSelfFirstBg:SetAllPoints(showSelfFirstCheck)
@@ -1079,9 +1216,9 @@ showSelfFirstCheck:SetScript("OnClick", function()
 end)
 
 -- Primary sort: full-width dropdown, collapsed shows "Primary Sort: Name"
-local btnPrimary = CreateFrame("Button", nil, settingsPanel)
+local btnPrimary = CreateFrame("Button", nil, sortingContent)
 btnPrimary:SetPoint("TOPLEFT", showSelfFirstCheck, "BOTTOMLEFT", 0, -6)
-btnPrimary:SetPoint("TOPRIGHT", settingsPanel, "TOPRIGHT", 0, 0)
+btnPrimary:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
 btnPrimary:SetHeight(SETTINGS_ROW_HEIGHT)
 local btnPrimaryBg = btnPrimary:CreateTexture(nil, "BACKGROUND")
 btnPrimaryBg:SetAllPoints(btnPrimary)
@@ -1090,11 +1227,11 @@ local btnPrimaryText = btnPrimary:CreateFontString(nil, "OVERLAY", "GameFontHigh
 btnPrimaryText:SetPoint("LEFT", btnPrimary, "LEFT", 4, 0)
 btnPrimaryText:SetPoint("RIGHT", btnPrimary, "RIGHT", -4, 0)
 btnPrimaryText:SetJustifyH("LEFT")
-primaryDropdown = CreateFrame("Frame", nil, settingsPanel)
+primaryDropdown = CreateFrame("Frame", nil, sortingContent)
 primaryDropdown:SetPoint("TOPLEFT", btnPrimary, "BOTTOMLEFT", 0, -2)
 primaryDropdown:SetPoint("TOPRIGHT", btnPrimary, "BOTTOMRIGHT", 0, 0)
 primaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
-primaryDropdown:SetFrameLevel(settingsPanel:GetFrameLevel() + 100)
+primaryDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
 primaryDropdown:Hide()
 local primaryDropdownBg = primaryDropdown:CreateTexture(nil, "BACKGROUND")
 primaryDropdownBg:SetAllPoints(primaryDropdown)
@@ -1119,14 +1256,13 @@ for idx, opt in ipairs(SORT_OPTIONS) do
 end
 btnPrimary:SetScript("OnClick", function()
     primaryDropdown:SetShown(not primaryDropdown:IsShown())
-    spacingDropdown:Hide()
     secondaryDropdown:Hide()
 end)
 
 -- Secondary sort: full-width dropdown, collapsed shows "Secondary Sort: Name"
-local btnSecondary = CreateFrame("Button", nil, settingsPanel)
+local btnSecondary = CreateFrame("Button", nil, sortingContent)
 btnSecondary:SetPoint("TOPLEFT", btnPrimary, "BOTTOMLEFT", 0, -6)
-btnSecondary:SetPoint("TOPRIGHT", settingsPanel, "TOPRIGHT", 0, 0)
+btnSecondary:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
 btnSecondary:SetHeight(SETTINGS_ROW_HEIGHT)
 local btnSecondaryBg = btnSecondary:CreateTexture(nil, "BACKGROUND")
 btnSecondaryBg:SetAllPoints(btnSecondary)
@@ -1135,11 +1271,11 @@ local btnSecondaryText = btnSecondary:CreateFontString(nil, "OVERLAY", "GameFont
 btnSecondaryText:SetPoint("LEFT", btnSecondary, "LEFT", 4, 0)
 btnSecondaryText:SetPoint("RIGHT", btnSecondary, "RIGHT", -4, 0)
 btnSecondaryText:SetJustifyH("LEFT")
-secondaryDropdown = CreateFrame("Frame", nil, settingsPanel)
+secondaryDropdown = CreateFrame("Frame", nil, sortingContent)
 secondaryDropdown:SetPoint("TOPLEFT", btnSecondary, "BOTTOMLEFT", 0, -2)
 secondaryDropdown:SetPoint("TOPRIGHT", btnSecondary, "BOTTOMRIGHT", 0, 0)
 secondaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
-secondaryDropdown:SetFrameLevel(settingsPanel:GetFrameLevel() + 100)
+secondaryDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
 secondaryDropdown:Hide()
 local secondaryDropdownBg = secondaryDropdown:CreateTexture(nil, "BACKGROUND")
 secondaryDropdownBg:SetAllPoints(secondaryDropdown)
@@ -1164,15 +1300,14 @@ for idx, opt in ipairs(SORT_OPTIONS) do
 end
 btnSecondary:SetScript("OnClick", function()
     secondaryDropdown:SetShown(not secondaryDropdown:IsShown())
-    spacingDropdown:Hide()
     primaryDropdown:Hide()
 end)
 
 -- Character list (scrollable): name | Pin | Hide
 local CHAR_LIST_ROW = 20
-local charListScroll = CreateFrame("ScrollFrame", nil, settingsPanel)
+local charListScroll = CreateFrame("ScrollFrame", nil, sortingContent)
 charListScroll:SetPoint("TOPLEFT", btnSecondary, "BOTTOMLEFT", 0, -8)
-charListScroll:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMRIGHT", 0, 0)
+charListScroll:SetPoint("BOTTOMRIGHT", sortingContent, "BOTTOMRIGHT", 0, 0)
 charListScroll:EnableMouse(true)
 local charListChild = CreateFrame("Frame", nil, charListScroll)
 charListChild:SetPoint("TOPLEFT", charListScroll, "TOPLEFT", 0, 0)
@@ -1276,6 +1411,7 @@ end
 
 -- Close dropdowns when clicking outside
 settingsPanel:SetScript("OnHide", function()
+    iconSizeDropdown:Hide()
     spacingDropdown:Hide()
     primaryDropdown:Hide()
     secondaryDropdown:Hide()
@@ -1308,7 +1444,10 @@ function frame:ToggleGearSettings(_self)
     end
 
     if showSettings then
+        SetSettingsTab("Sorting")
         local s = GetGearSettings()
+        local iconStr = s.iconSize or "medium"
+        btnIconSizeText:SetText("Icon Size: " .. (iconStr:sub(1, 1):upper() .. iconStr:sub(2)))
         btnSpacingText:SetText("Spacing: " .. (s.spacing or "Comfortable"))
         btnPrimaryText:SetText("Primary Sort: " .. s.primarySort)
         btnSecondaryText:SetText("Secondary Sort: " .. s.secondarySort)
