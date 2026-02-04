@@ -65,9 +65,6 @@ local debugLabel = debugCheckbox:CreateFontString(nil, "OVERLAY", "GameFontNorma
 debugLabel:SetPoint("LEFT", debugCheckbox, "RIGHT", 4, 0)
 debugLabel:SetText("Enable debug logging")
 
--- Category ID for new Settings API (Esc → Settings → AddOns). Nil if only old API exists.
-local settingsCategoryId = nil
-
 -- Register with WoW's options when the UI is ready. Support both:
 -- 1) New Settings API (Dragonflight-style): Esc → Settings → AddOns → AltArmy
 -- 2) Old Interface Options: Interface → AddOns → AltArmy (when still available)
@@ -76,8 +73,6 @@ local function registerOptionsPanel()
     if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
         local category = Settings.RegisterCanvasLayoutCategory(panel, "AltArmy")
         Settings.RegisterAddOnCategory(category)
-        -- OpenToCategory often expects 0-based index; store for slash command
-        settingsCategoryId = category:GetID()
     end
     -- Old Interface Options (when present)
     if InterfaceOptions_AddCategory then
@@ -99,7 +94,7 @@ end)
 
 -- Slash command: open the main AltArmy UI
 SLASH_ALTARMY1 = "/altarmy"
-SlashCmdList.ALTARMY = function(msg)
+SlashCmdList.ALTARMY = function(_msg)
     if AltArmy and AltArmy.MainFrame then
         AltArmy.MainFrame:Show()
     end

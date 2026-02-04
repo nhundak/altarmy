@@ -21,10 +21,12 @@ end
 function SD.GetAllContainerSlots()
     local list = {}
     local DS = AltArmy.DataStore
-    if not DS or not DS.GetRealms or not DS.GetCharacters or not DS.IterateContainerSlots or not DS.GetCharacterName then
+    if not DS or not DS.GetRealms or not DS.GetCharacters
+        or not DS.IterateContainerSlots or not DS.GetCharacterName then
         return list
     end
-    -- Refresh current character's bags so we have up-to-date data (PLAYER_ENTERING_WORLD may fire before bags are ready)
+    -- Refresh current character's bags so we have up-to-date data
+    -- (PLAYER_ENTERING_WORLD may fire before bags are ready)
     if DS.ScanCurrentCharacterBags then
         DS:ScanCurrentCharacterBags()
     end
@@ -66,7 +68,7 @@ local function GetItemName(itemID, link)
 end
 
 --- Search: query can be item name (partial, case-insensitive) or item ID (number or string digits).
---- Returns list of entries matching query: { characterName, realm, itemID, itemLink, count, location, bagID, slot, itemName }.
+--- Returns list of entries matching query: { characterName, realm, itemID, itemLink, count, location, ... }.
 function SD.Search(query)
     if not query or (type(query) == "string" and query:match("^%s*$")) then
         return {}
@@ -152,7 +154,8 @@ function SD.SearchWithLocationGroups(query)
     local byKey = {}
     local charTotals = {} -- key = itemID .. "\t" .. characterName .. "\t" .. realm -> total count (bags + bank)
     for _, entry in ipairs(raw) do
-        local key = (entry.itemID or 0) .. "\t" .. (entry.characterName or "") .. "\t" .. (entry.realm or "") .. "\t" .. (entry.location or "bag")
+        local key = (entry.itemID or 0) .. "\t" .. (entry.characterName or "") .. "\t" .. (entry.realm or "")
+            .. "\t" .. (entry.location or "bag")
         if not byKey[key] then
             byKey[key] = {
                 itemID = entry.itemID,

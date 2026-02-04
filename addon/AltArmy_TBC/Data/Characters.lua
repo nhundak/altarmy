@@ -32,13 +32,13 @@ local function BuildView()
     return view
 end
 
-function ns:InvalidateView()
+function ns:InvalidateView(_self)
     isViewValid = nil
 end
 
 --- Returns the current view (indices into the character list). Rebuilds list and view if invalidated.
 --- @return number[] view Array of indices into the character list.
-function ns:GetView()
+function ns:GetView(_self)
     if not isViewValid then
         BuildList()
         BuildView()
@@ -48,7 +48,7 @@ end
 
 --- Returns the character list (same order as view indices). Rebuilds if invalidated.
 --- @return table[] list Array of entries { name = string, realm = string }.
-function ns:GetList()
+function ns:GetList(_self)
     if not isViewValid then
         BuildList()
         BuildView()
@@ -63,12 +63,15 @@ function ns:Sort(ascending, sortKey)
     local list = self:GetList()
     if #list == 0 then return end
     sortKey = sortKey or "name"
-    local numericKeys = { level = true, restXp = true, money = true, played = true, lastOnline = true, bagSlots = true, bagFree = true, equipmentCount = true }
+    local numericKeys = {
+        level = true, restXp = true, money = true, played = true,
+        lastOnline = true, bagSlots = true, bagFree = true, equipmentCount = true,
+    }
     if numericKeys[sortKey] then
         table.sort(list, function(a, b)
             local va, vb
             if sortKey == "lastOnline" then
-                -- Current player has lastOnline = nil; treat as 0 so they stay at top (ascending) or bottom (descending)
+                -- Current player has lastOnline = nil; treat as 0 for sort (top/bottom)
                 va = a.lastOnline
                 vb = b.lastOnline
                 if va == nil then va = 0 end

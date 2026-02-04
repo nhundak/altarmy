@@ -222,16 +222,16 @@ for i = 1, NUM_ROWS do
         row:SetPoint("TOPLEFT", prevRow, "BOTTOMLEFT", 0, 0)
     end
     row.cells = {}
-    local cellX = 0
+    local rowCellX = 0
     for _, colName in ipairs(columnOrder) do
         local col = columns[colName]
         local w = col and col.Width or 100
         local cell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        cell:SetPoint("LEFT", row, "LEFT", cellX, 0)
+        cell:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
         cell:SetWidth(w)
         cell:SetJustifyH(col and col.JustifyH or "LEFT")
         row.cells[colName] = cell
-        cellX = cellX + w
+        rowCellX = rowCellX + w
     end
     rowPool[i] = row
     prevRow = row
@@ -317,7 +317,7 @@ Update = function(offset)
 end
 
 -- When scroll bar moves, recompute offset (row index) and refresh rows
-scrollFrame:SetScript("OnVerticalScroll", function(self, scrollOffset)
+scrollFrame:SetScript("OnVerticalScroll", function(_self, scrollOffset)
     local offsetIndex = math.floor((scrollOffset or 0) / ROW_HEIGHT)
     Update(offsetIndex)
 end)

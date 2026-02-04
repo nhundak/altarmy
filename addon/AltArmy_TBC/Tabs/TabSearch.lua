@@ -153,7 +153,7 @@ local function UpdateResults()
         end
     end
 
-    for i, row in ipairs(resultRows) do
+    for _, row in ipairs(resultRows) do
         row:Hide()
         row.entry = nil
     end
@@ -213,10 +213,12 @@ local function UpdateResults()
             row:Show()
             row.entry = entry
             local count = entry.count or 1
-            local itemText = (entry.itemName and entry.itemName ~= "") and entry.itemName or ("Item " .. (entry.itemID or ""))
+            local itemText = (entry.itemName and entry.itemName ~= "") and entry.itemName
+                or ("Item " .. (entry.itemID or ""))
             local itemWithCount = itemText .. " x" .. tostring(count)
             if entry.itemLink and GetItemInfo and GetItemInfo(entry.itemLink) then
-                row.cells.Item:SetText("|T" .. (select(10, GetItemInfo(entry.itemLink)) or "Interface\\Icons\\INV_Misc_QuestionMark") .. ":0|t " .. itemWithCount)
+                local icon = select(10, GetItemInfo(entry.itemLink)) or "Interface\\Icons\\INV_Misc_QuestionMark"
+                row.cells.Item:SetText("|T" .. icon .. ":0|t " .. itemWithCount)
             else
                 row.cells.Item:SetText(itemWithCount)
             end
@@ -255,7 +257,11 @@ local function UpdateResults()
         overlay.icon:ClearAllPoints()
         overlay.icon:SetPoint("CENTER", overlay, "RIGHT", -2 - OVERLAY_ICON_SIZE / 2, 0)
         local firstEntry = resultList[group.start]
-        local iconPath = firstEntry and firstEntry.itemLink and GetItemInfo and GetItemInfo(firstEntry.itemLink) and (select(10, GetItemInfo(firstEntry.itemLink))) or "Interface\\Icons\\INV_Misc_QuestionMark"
+        local iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
+        if firstEntry and firstEntry.itemLink and GetItemInfo then
+            local _, _, _, _, _, _, _, _, _, tex = GetItemInfo(firstEntry.itemLink)
+            if tex then iconPath = tex end
+        end
         overlay.icon:SetTexture(iconPath)
         overlay.icon:Show()
         -- Total right-aligned, 3px gap before icon; vertically centered
@@ -302,8 +308,9 @@ function frame.DoSearch()
     scrollFrame:SetVerticalScroll(0)
 end
 
--- Expose for header search box: run search with query directly (don't rely on edit box; SetText/GetText can be out of sync).
-function frame.SearchWithQuery(self, query)
+-- Expose for header search box: run search with query directly
+-- (don't rely on edit box; SetText/GetText can be out of sync).
+function frame.SearchWithQuery(_self, query)
     local q = (query and type(query) == "string") and query:match("^%s*(.-)%s*$") or ""
     if q == "" then
         resultList = {}

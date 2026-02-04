@@ -8,6 +8,14 @@
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
 Core.lua
 Data\DataStore.lua
+Data\DataStoreCharacter.lua
+Data\DataStoreContainers.lua
+Data\DataStoreEquipment.lua
+Data\DataStoreCurrencies.lua
+Data\DataStoreProfessions.lua
+Data\DataStoreReputations.lua
+Data\DataStoreMail.lua
+Data\DataStoreAuctions.lua
 Data\SummaryData.lua
 Data\Characters.lua
 Data\SearchData.lua

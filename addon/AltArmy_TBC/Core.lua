@@ -170,9 +170,9 @@ for _, tabName in ipairs(tabNames) do
         btn:SetPoint("LEFT", tabStrip, "LEFT", 0, 0)
     end
     -- Visible background so tab is clickable and visible
-    local bg = btn:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(btn)
-    bg:SetColorTexture(0.25, 0.25, 0.25, 0.9)
+    local btnBg = btn:CreateTexture(nil, "BACKGROUND")
+    btnBg:SetAllPoints(btn)
+    btnBg:SetColorTexture(0.25, 0.25, 0.25, 0.9)
     -- Selected state (shown for active tab)
     local selectedBg = btn:CreateTexture(nil, "BACKGROUND")
     selectedBg:SetAllPoints(btn)
@@ -186,10 +186,10 @@ for _, tabName in ipairs(tabNames) do
     btn:SetScript("OnClick", function()
         setActiveTab(tabName)
     end)
-    btn:SetScript("OnEnable", function(self)
+    btn:SetScript("OnEnable", function(_self)
         if label then label:SetTextColor(0.85, 0.85, 0.85, 1) end
     end)
-    btn:SetScript("OnDisable", function(self)
+    btn:SetScript("OnDisable", function(_self)
         if label then label:SetTextColor(1, 0.82, 0, 1) end
     end)
     prevBtn = btn
@@ -198,7 +198,10 @@ end
 
 -- Gear tab: clicking the tab again while settings are open switches back to the gear grid
 tabStrip.buttons["Gear"]:SetScript("OnClick", function()
-    if AltArmy.CurrentTab == "Gear" and AltArmy.TabFrames.Gear and AltArmy.TabFrames.Gear.IsGearSettingsShown and AltArmy.TabFrames.Gear:IsGearSettingsShown() then
+    if AltArmy.CurrentTab == "Gear"
+        and AltArmy.TabFrames.Gear
+        and AltArmy.TabFrames.Gear.IsGearSettingsShown
+        and AltArmy.TabFrames.Gear:IsGearSettingsShown() then
         AltArmy.TabFrames.Gear:ToggleGearSettings()
     else
         setActiveTab("Gear")

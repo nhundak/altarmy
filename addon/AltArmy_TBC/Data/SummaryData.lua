@@ -109,12 +109,12 @@ function AltArmy.SummaryData.GetCharacterList()
             if math.floor(level) == MAX_LEVEL then
                 restRate = 0
             elseif isCurrent and UnitXPMax and GetXPExhaustion then
-                local xpMax = UnitXPMax("player") or 0
+                local playerXpMax = UnitXPMax("player") or 0
                 local restXP = GetXPExhaustion() or 0
-                if xpMax <= 0 then
+                if playerXpMax <= 0 then
                     restRate = 0
                 else
-                    local maxRest = xpMax * 1.5
+                    local maxRest = playerXpMax * 1.5
                     restRate = math.min(100, (restXP / maxRest) * 100)
                 end
             else

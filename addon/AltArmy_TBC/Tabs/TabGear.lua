@@ -7,7 +7,6 @@ local DS = AltArmy.DataStore
 local PAD = 4
 local LEFT_PANEL_WIDTH = 120
 local LEFT_PANEL_VISIBLE = false  -- set true to show "Who can use this?" drop zone
-local COLUMN_HEADER_HEIGHT = 20
 local MESSAGE_ROW_HEIGHT = 12
 local CELL_SIZE = 28
 local NUM_EQUIPMENT_SLOTS = 19
@@ -147,7 +146,8 @@ local WEAPON_PROFICIENCIES = {
     },
 }
 
---- True if this class can ever use this weapon subclass (TBC rules). subclass = GetItemInfo subclass e.g. "One-Handed Swords".
+--- True if this class can ever use this weapon subclass (TBC rules).
+--- subclass = GetItemInfo subclass e.g. "One-Handed Swords".
 local function CanClassEverUseWeapon(classFile, weaponSubclass)
     if not weaponSubclass or weaponSubclass == "" then return true end
     local key = weaponSubclass:lower()
@@ -203,7 +203,8 @@ local function CompareBySort(entryA, entryB, primary, secondary)
     end
 end
 
---- Build display list: filter hidden; order = self (if show self first) + pinned (sorted) + non-pinned (sorted). Optionally re-sort by "who can use" when item dropped.
+--- Build display list: filter hidden; order = self (if show self first) + pinned + non-pinned.
+--- Optionally re-sort by "who can use" when item dropped.
 local function GetDisplayList()
     if not AltArmy.Characters or not AltArmy.Characters.GetList then return {} end
     local rawList = AltArmy.Characters:GetList()
@@ -294,7 +295,8 @@ local function CanNeverUseCurrentItem(entry)
     return false
 end
 
---- Brief fit message for column: nil or "", or "Can not wear plate" / "10 levels ahead" etc. Returns message, color ("red" | "orange" | nil).
+--- Brief fit message for column: nil or "", or "Can not wear plate" / "10 levels ahead" etc.
+--- Returns message, color ("red" | "orange" | nil).
 local function GetFitMessage(entry)
     if not droppedItemLink then return nil, nil end
     local reqLevel, armorSubclass, weaponSubclass = GetItemUseInfo(droppedItemLink)
@@ -428,7 +430,6 @@ if not LEFT_PANEL_VISIBLE then
 end
 
 -- ---- Right panel: slot row headers + scrollable character columns ----
-local HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT
 local COLUMN_HEADER_HEIGHT_GEAR = 18
 local SLOT_LABEL_WIDTH = 80
 local COLUMN_WIDTH = 61
@@ -436,7 +437,6 @@ local ROW_HEIGHT = 42
 local SCROLL_BAR_WIDTH = 20
 local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
 local SCROLLABLE_GRID_HEIGHT = NUM_EQUIPMENT_SLOTS * ROW_HEIGHT + PAD
-local GRID_CONTENT_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT + NUM_EQUIPMENT_SLOTS * ROW_HEIGHT + PAD
 
 local rightPanel = CreateFrame("Frame", nil, frame)
 if LEFT_PANEL_VISIBLE then
@@ -454,7 +454,8 @@ local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
 -- Content area: full height except scroll bars; fixed header will sit at top of this
 local contentArea = CreateFrame("Frame", nil, rightPanel)
 contentArea:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 0, -PAD)
-contentArea:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -SCROLL_BAR_WIDTH, SCROLL_BAR_BOTTOM_INSET + HORIZONTAL_SCROLL_BAR_HEIGHT)
+contentArea:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -SCROLL_BAR_WIDTH,
+    SCROLL_BAR_BOTTOM_INSET + HORIZONTAL_SCROLL_BAR_HEIGHT)
 
 -- Vertical scroll: full content area; scroll child has spacer at top so header can overlay
 local verticalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearVerticalScroll", contentArea)
@@ -510,8 +511,10 @@ headerHorizontalScroll:SetScrollChild(headerGridContainer)
 
 -- Vertical scroll bar: custom (no template) so it doesn't conflict with horizontal; both bars under our control
 local verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_GearVerticalScrollBar", rightPanel)
-verticalScrollBar:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET + 4, -(PAD + SCROLL_BAR_TOP_INSET))
-verticalScrollBar:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET + 4, SCROLL_BAR_BOTTOM_INSET)
+verticalScrollBar:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET + 4,
+    -(PAD + SCROLL_BAR_TOP_INSET))
+verticalScrollBar:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET + 4,
+    SCROLL_BAR_BOTTOM_INSET)
 verticalScrollBar:SetWidth(SCROLL_BAR_WIDTH)
 verticalScrollBar:SetMinMaxValues(0, 0)
 verticalScrollBar:SetValueStep(ROW_HEIGHT)
@@ -642,7 +645,7 @@ local function SyncHorizontalScrollPosition()
     if lastHorizontalScrollValue == value then return end
     ApplyHorizontalScrollValue(value)
 end
-horizontalScrollBar:SetScript("OnValueChanged", function(_, value)
+horizontalScrollBar:SetScript("OnValueChanged", function(_, _value)
     SyncHorizontalScrollPosition()
 end)
 -- Manual drag: Slider often doesn't update value when thumb is dragged; track mouse and set value ourselves
@@ -661,7 +664,8 @@ horizontalScrollBar:SetScript("OnUpdate", function()
             local minVal, maxVal = horizontalScrollBar:GetMinMaxValues()
             local barWidth = horizontalScrollBar:GetWidth()
             if barWidth and barWidth > 0 and maxVal > minVal then
-                local scale = (horizontalScrollBar.GetEffectiveScale and horizontalScrollBar:GetEffectiveScale()) or (UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
+                local scale = (horizontalScrollBar.GetEffectiveScale and horizontalScrollBar:GetEffectiveScale())
+                    or (UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
                 if scale <= 0 then scale = 1 end
                 local cursorX = select(1, GetCursorPosition()) / scale
                 local startX = horizontalDragStartX / scale
@@ -822,7 +826,7 @@ local function UpdateGridWithOffset()
     end
 end
 
-function frame:RefreshGrid()
+function frame:RefreshGrid(_self)
     if not AltArmy.Characters then return end
     if AltArmy.Characters.InvalidateView then
         AltArmy.Characters:InvalidateView()
@@ -939,6 +943,7 @@ primaryDropdown:Hide()
 local primaryDropdownBg = primaryDropdown:CreateTexture(nil, "BACKGROUND")
 primaryDropdownBg:SetAllPoints(primaryDropdown)
 primaryDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
+local secondaryDropdown
 for idx, opt in ipairs(SORT_OPTIONS) do
     local b = CreateFrame("Button", nil, primaryDropdown)
     b:SetPoint("TOPLEFT", primaryDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
@@ -974,7 +979,7 @@ local btnSecondaryText = btnSecondary:CreateFontString(nil, "OVERLAY", "GameFont
 btnSecondaryText:SetPoint("LEFT", btnSecondary, "LEFT", 4, 0)
 btnSecondaryText:SetPoint("RIGHT", btnSecondary, "RIGHT", -4, 0)
 btnSecondaryText:SetJustifyH("LEFT")
-local secondaryDropdown = CreateFrame("Frame", nil, settingsPanel)
+secondaryDropdown = CreateFrame("Frame", nil, settingsPanel)
 secondaryDropdown:SetPoint("TOPLEFT", btnSecondary, "BOTTOMLEFT", 0, -2)
 secondaryDropdown:SetPoint("TOPRIGHT", btnSecondary, "BOTTOMRIGHT", 0, 0)
 secondaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
@@ -1064,7 +1069,7 @@ local function GetCharListRow(i)
     return charListRowPool[i]
 end
 
-function settingsPanel:RefreshCharacterList()
+function settingsPanel:RefreshCharacterList(_self)
     local rawList = (AltArmy.Characters and AltArmy.Characters.GetList and AltArmy.Characters:GetList()) or {}
     local list = {}
     for i = 1, #rawList do list[i] = rawList[i] end
@@ -1073,7 +1078,7 @@ function settingsPanel:RefreshCharacterList()
         if na ~= nb then return na < nb end
         return (a.realm or ""):lower() < (b.realm or ""):lower()
     end)
-    for idx, row in pairs(charListRowPool) do
+    for _, row in pairs(charListRowPool) do
         row:Hide()
     end
     local n = #list
@@ -1122,7 +1127,7 @@ function frame:IsGearSettingsShown()
     return settingsPanel and settingsPanel:IsShown()
 end
 
-function frame:ToggleGearSettings()
+function frame:ToggleGearSettings(_self)
     local showSettings = not settingsPanel:IsShown()
     settingsPanel:SetShown(showSettings)
     rightPanel:SetShown(not showSettings)
