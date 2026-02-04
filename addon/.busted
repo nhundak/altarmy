@@ -1,0 +1,13 @@
+-- Busted config: https://lunarmodules.github.io/busted/#predefined-busted-tasks
+return {
+  _all = {
+    verbose = true,
+    -- Only run files matching pattern (default: _spec)
+    pattern = "_spec",
+    -- Recurse into subdirectories
+    recursive = true,
+    -- Test root (so npm test needs no args)
+    ROOT = { "AltArmy_TBC" },
+  },
+  default = {},
+}

@@ -1,0 +1,6 @@
+---
+description: 
+alwaysApply: true
+---
+
+When implementing a new feature, prefer red-green-refactor development. Ie, write unit tests, run them and they should fail. Then update the code to pass the test.

@@ -103,3 +103,20 @@ read_globals = {
     "ExpandFactionHeader",
     "CollapseFactionHeader",
 }
+
+-- Busted spec files: test globals and assert extensions (e.g. assert.truthy)
+files = {
+    ["AltArmy_TBC/**/*_spec.lua"] = {
+        read_globals = {
+            "describe",
+            "it",
+            "setup",
+            "teardown",
+            "pending",
+            "context",
+            "insulate",
+            "expose",
+        },
+        ignore = { "143" }, -- accessing undefined field (e.g. assert.truthy, assert.are.same)
+    },
+}

@@ -52,8 +52,9 @@ local function GetCurrentCharTable()
     return char
 end
 
-local function MigrateDataVersions()
-    for _, chars in pairs(AltArmyTBC_Data.Characters or {}) do
+local function MigrateDataVersions(data)
+    data = data or AltArmyTBC_Data
+    for _, chars in pairs(data.Characters or {}) do
         for _, char in pairs(chars) do
             char.dataVersions = char.dataVersions or {}
             if char.name and not char.dataVersions.character then
@@ -70,6 +71,7 @@ local function MigrateDataVersions()
 end
 
 DS._GetCurrentCharTable = GetCurrentCharTable
+DS._MigrateDataVersions = MigrateDataVersions
 DS._DATA_VERSIONS = DATA_VERSIONS
 
 function DS:GetRealms(_self)
