@@ -55,14 +55,28 @@ local function SortOptionValid(val)
     for _, o in ipairs(SORT_OPTIONS) do if o == val then return true end end
     return false
 end
+local SPACING_OPTIONS = { "Very compact", "Compact", "Comfortable" }
+local function SpacingValid(val)
+    for _, o in ipairs(SPACING_OPTIONS) do if o == val then return true end end
+    return false
+end
 local function GetGearSettings()
     AltArmyTBC_GearSettings = AltArmyTBC_GearSettings or {}
     local s = AltArmyTBC_GearSettings
     if not s.primarySort or not SortOptionValid(s.primarySort) then s.primarySort = "Time Played" end
     if not s.secondarySort or not SortOptionValid(s.secondarySort) then s.secondarySort = "Name" end
     if s.showSelfFirst == nil then s.showSelfFirst = true end
+    if not s.spacing or not SpacingValid(s.spacing) then s.spacing = "Comfortable" end
     s.characters = s.characters or {}
     return s
+end
+--- Returns rowHeight, columnWidth for current spacing. Comfortable: 42,61; Compact: 42,42; Very compact: 30,30.
+local function GetSpacingDimensions()
+    local sp = GetGearSettings().spacing or "Comfortable"
+    if sp == "Very compact" then return 30, 30 end
+    if sp == "Compact" then return 42, 42 end
+    -- Comfortable (or legacy "Normal")
+    return 42, 61
 end
 
 local function CharKey(name, realm)
@@ -432,11 +446,15 @@ end
 -- ---- Right panel: slot row headers + scrollable character columns ----
 local COLUMN_HEADER_HEIGHT_GEAR = 18
 local SLOT_LABEL_WIDTH = 80
-local COLUMN_WIDTH = 61
-local ROW_HEIGHT = 42
 local SCROLL_BAR_WIDTH = 20
 local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
-local SCROLLABLE_GRID_HEIGHT = NUM_EQUIPMENT_SLOTS * ROW_HEIGHT + PAD
+-- Layout dimensions from spacing setting (Comfortable / Compact / Very compact)
+local dims = {}
+do
+    local rh, cw = GetSpacingDimensions()
+    dims.rowHeight, dims.columnWidth = rh, cw
+    dims.scrollableGridHeight = NUM_EQUIPMENT_SLOTS * dims.rowHeight + PAD
+end
 
 local rightPanel = CreateFrame("Frame", nil, frame)
 if LEFT_PANEL_VISIBLE then
@@ -467,7 +485,7 @@ verticalScroll:EnableMouse(true)
 local MIN_SCROLL_CHILD_WIDTH = 400
 local verticalScrollChild = CreateFrame("Frame", nil, verticalScroll)
 verticalScrollChild:SetPoint("TOPLEFT", verticalScroll, "TOPLEFT", 0, 0)
-verticalScrollChild:SetHeight(FIXED_HEADER_ROW_HEIGHT + SCROLLABLE_GRID_HEIGHT)
+verticalScrollChild:SetHeight(FIXED_HEADER_ROW_HEIGHT + dims.scrollableGridHeight)
 verticalScrollChild:SetWidth(MIN_SCROLL_CHILD_WIDTH)
 verticalScrollChild:EnableMouse(true)
 verticalScroll:SetScrollChild(verticalScrollChild)
@@ -517,7 +535,7 @@ verticalScrollBar:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", SCROLL_BAR_
     SCROLL_BAR_BOTTOM_INSET)
 verticalScrollBar:SetWidth(SCROLL_BAR_WIDTH)
 verticalScrollBar:SetMinMaxValues(0, 0)
-verticalScrollBar:SetValueStep(ROW_HEIGHT)
+verticalScrollBar:SetValueStep(dims.rowHeight)
 verticalScrollBar:SetValue(0)
 verticalScrollBar:SetOrientation("VERTICAL")
 verticalScrollBar:EnableMouse(true)
@@ -531,13 +549,12 @@ verticalScrollBar:SetScript("OnValueChanged", function(_, value)
 end)
 
 -- Mouse wheel: scroll the gear list when hovering over the scroll area (frame or scroll child)
-local WHEEL_STEP = ROW_HEIGHT * 2
 local function OnGearScrollWheel(_, delta)
     if not verticalScrollBar then return end
     local minVal, maxVal = verticalScrollBar:GetMinMaxValues()
     local current = verticalScrollBar:GetValue()
     -- delta: 1 = scroll up (see higher content), -1 = scroll down (see lower content)
-    local newVal = current - delta * WHEEL_STEP
+    local newVal = current - delta * dims.rowHeight * 2
     newVal = math.max(minVal, math.min(maxVal, newVal))
     verticalScrollBar:SetValue(newVal)
     verticalScroll:SetVerticalScroll(newVal)
@@ -551,8 +568,8 @@ slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -FIXE
 slotHeaderContainer:SetPoint("BOTTOMLEFT", verticalScrollChild, "BOTTOMLEFT", 0, 0)
 slotHeaderContainer:SetWidth(SLOT_LABEL_WIDTH)
 
--- Slot labels: height CELL_SIZE and vertically centered in each row (row height is ROW_HEIGHT)
-local SLOT_LABEL_ROW_OFFSET = (ROW_HEIGHT - CELL_SIZE) / 2
+-- Slot labels: height CELL_SIZE and vertically centered in each row (row height is dims.rowHeight)
+local SLOT_LABEL_ROW_OFFSET = (dims.rowHeight - CELL_SIZE) / 2
 local slotLabels = {}
 for slot = 1, NUM_EQUIPMENT_SLOTS do
     local label = slotHeaderContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -565,7 +582,7 @@ for slot = 1, NUM_EQUIPMENT_SLOTS do
     if slot == 1 then
         label:SetPoint("TOP", slotHeaderContainer, "TOP", 0, -SLOT_LABEL_ROW_OFFSET + 2)
     else
-        label:SetPoint("TOP", slotLabels[slot - 1], "TOP", 0, -ROW_HEIGHT)
+        label:SetPoint("TOP", slotLabels[slot - 1], "TOP", 0, -dims.rowHeight)
     end
     slotLabels[slot] = label
 end
@@ -579,22 +596,43 @@ horizontalScroll:EnableMouse(true)
 -- Grid area: scroll child of horizontalScroll; engine scrolls via SetHorizontalScroll (like vertical)
 local gridContainer = CreateFrame("Frame", nil, horizontalScroll)
 gridContainer:SetPoint("TOPLEFT", horizontalScroll, "TOPLEFT", 0, 0)
-gridContainer:SetHeight(SCROLLABLE_GRID_HEIGHT)
+gridContainer:SetHeight(dims.scrollableGridHeight)
 horizontalScroll:SetScrollChild(gridContainer)
+
+-- Truncate name with "..." if it exceeds maxWidth; sets fontString text and returns displayed string.
+local function TruncateName(fontString, fullName, maxWidth)
+    if not fullName or fullName == "" then
+        fontString:SetText("?")
+        return "?"
+    end
+    fontString:SetText(fullName)
+    if fontString:GetStringWidth() <= maxWidth then
+        return fullName
+    end
+    for len = #fullName - 1, 1, -1 do
+        local truncated = fullName:sub(1, len) .. "..."
+        fontString:SetText(truncated)
+        if fontString:GetStringWidth() <= maxWidth then
+            return truncated
+        end
+    end
+    fontString:SetText("...")
+    return "..."
+end
 
 -- Header column pool: name + message per character, in fixed header row (scrolls horizontally)
 local headerColumnPool = {}
 local function GetHeaderColumnFrame(index)
     if not headerColumnPool[index] then
         local col = CreateFrame("Frame", nil, headerGridContainer)
-        col:SetSize(COLUMN_WIDTH, FIXED_HEADER_ROW_HEIGHT)
+        col:SetSize(dims.columnWidth, FIXED_HEADER_ROW_HEIGHT)
+        col:EnableMouse(true)
         col.header = col:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         col.header:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
         col.header:SetPoint("TOPRIGHT", col, "TOPRIGHT", 0, 0)
         col.header:SetHeight(COLUMN_HEADER_HEIGHT_GEAR)
         col.header:SetJustifyH("CENTER")
-        col.header:SetWordWrap(true)
-        col.header:SetNonSpaceWrap(true)
+        col.header:SetWordWrap(false)
         col.message = col:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         col.message:SetPoint("TOP", col.header, "BOTTOM", 0, 0)
         col.message:SetPoint("LEFT", col, "LEFT", 0, 0)
@@ -603,6 +641,17 @@ local function GetHeaderColumnFrame(index)
         col.message:SetJustifyH("CENTER")
         col.message:SetWordWrap(true)
         col.message:SetNonSpaceWrap(true)
+        col:SetScript("OnEnter", function(self)
+            if self.fullName and self.truncated and GameTooltip then
+                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+                GameTooltip:ClearLines()
+                GameTooltip:AddLine(self.fullName, self.classR or 1, self.classG or 0.82, self.classB or 0)
+                GameTooltip:Show()
+            end
+        end)
+        col:SetScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+        end)
         headerColumnPool[index] = col
     end
     return headerColumnPool[index]
@@ -698,7 +747,7 @@ horizontalScrollBar:SetThumbTexture(thumbTex)
 local function GetColumnFrame(index)
     if not columnPool[index] then
         local col = CreateFrame("Frame", nil, gridContainer)
-        col:SetSize(COLUMN_WIDTH, SCROLLABLE_GRID_HEIGHT)
+        col:SetSize(dims.columnWidth, dims.scrollableGridHeight)
         col.cells = {}
         for slot = 1, NUM_EQUIPMENT_SLOTS do
             local cell = CreateFrame("Frame", nil, col)
@@ -728,11 +777,11 @@ local function GetColumnFrame(index)
             cell:SetScript("OnLeave", function()
                 if GameTooltip then GameTooltip:Hide() end
             end)
-            local cellXOffset = (COLUMN_WIDTH - CELL_SIZE) / 2
+            local cellXOffset = (dims.columnWidth - CELL_SIZE) / 2
             if slot == 1 then
                 cell:SetPoint("TOPLEFT", col, "TOPLEFT", cellXOffset, -2)
             else
-                cell:SetPoint("TOPLEFT", col.cells[slot - 1], "BOTTOMLEFT", 0, -(ROW_HEIGHT - CELL_SIZE))
+                cell:SetPoint("TOPLEFT", col.cells[slot - 1], "BOTTOMLEFT", 0, -(dims.rowHeight - CELL_SIZE))
             end
             col.cells[slot] = cell
         end
@@ -757,23 +806,30 @@ local function UpdateGridWithOffset()
         local entry = list[c]
         local headerCol = GetHeaderColumnFrame(c)
         headerCol:ClearAllPoints()
-        headerCol:SetPoint("TOPLEFT", headerGridContainer, "TOPLEFT", (c - 1) * COLUMN_WIDTH + PAD, 0)
+        headerCol:SetPoint("TOPLEFT", headerGridContainer, "TOPLEFT", (c - 1) * dims.columnWidth + PAD, 0)
         headerCol:Show()
 
         local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
-        headerCol.header:SetText(entry.name or "?")
+        local fullName = entry.name or "?"
 
         local gray = CanNeverUseCurrentItem(entry)
         if gray then
             headerCol.header:SetTextColor(0.5, 0.5, 0.5, 1)
+            headerCol.classR, headerCol.classG, headerCol.classB = 0.5, 0.5, 0.5
         else
             if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
                 local rc = RAID_CLASS_COLORS[entry.classFile]
                 headerCol.header:SetTextColor(rc.r, rc.g, rc.b, 1)
+                headerCol.classR, headerCol.classG, headerCol.classB = rc.r, rc.g, rc.b
             else
                 headerCol.header:SetTextColor(1, 0.82, 0, 1)
+                headerCol.classR, headerCol.classG, headerCol.classB = 1, 0.82, 0
             end
         end
+
+        TruncateName(headerCol.header, fullName, dims.columnWidth - 4)
+        headerCol.fullName = fullName
+        headerCol.truncated = (headerCol.header:GetText() ~= fullName)
 
         local fitMsg, fitColor = GetFitMessage(entry)
         if fitMsg and fitMsg ~= "" then
@@ -793,7 +849,7 @@ local function UpdateGridWithOffset()
 
         local col = GetColumnFrame(c)
         col:ClearAllPoints()
-        col:SetPoint("TOPLEFT", gridContainer, "TOPLEFT", (c - 1) * COLUMN_WIDTH + PAD - 4, 0)
+        col:SetPoint("TOPLEFT", gridContainer, "TOPLEFT", (c - 1) * dims.columnWidth + PAD - 4, 0)
         col:Show()
 
         for slot = 1, NUM_EQUIPMENT_SLOTS do
@@ -839,7 +895,7 @@ function frame:RefreshGrid(_self)
     local numCols = #list
     local viewWidth = verticalScroll and verticalScroll:GetWidth() or 0
     local viewHeight = verticalScroll and verticalScroll:GetHeight() or 0
-    local gridContentWidth = numCols * COLUMN_WIDTH + PAD
+    local gridContentWidth = numCols * dims.columnWidth + PAD
     local gridViewWidth = math.max(0, viewWidth - SLOT_LABEL_WIDTH)
 
     -- Vertical scroll child: viewport width only; horizontal scroll is inner (grid only)
@@ -852,10 +908,10 @@ function frame:RefreshGrid(_self)
             headerGridContainer:SetWidth(math.max(0, gridContentWidth))
         end
         if verticalScrollBar then
-            local totalChildHeight = FIXED_HEADER_ROW_HEIGHT + SCROLLABLE_GRID_HEIGHT
+            local totalChildHeight = FIXED_HEADER_ROW_HEIGHT + dims.scrollableGridHeight
             local maxVertScroll = math.max(0, totalChildHeight - viewHeight)
             verticalScrollBar:SetMinMaxValues(0, maxVertScroll)
-            verticalScrollBar:SetValueStep(ROW_HEIGHT)
+            verticalScrollBar:SetValueStep(dims.rowHeight)
             verticalScrollBar:SetStepsPerPage(10)
         end
         if horizontalScrollBar and horizontalScroll and gridContainer then
@@ -874,7 +930,55 @@ function frame:RefreshGrid(_self)
     UpdateGridWithOffset()
 end
 
+--- Reapply layout dimensions from spacing setting; call when spacing changes.
+local function ApplySpacing()
+    local rh, cw = GetSpacingDimensions()
+    dims.rowHeight, dims.columnWidth = rh, cw
+    dims.scrollableGridHeight = NUM_EQUIPMENT_SLOTS * dims.rowHeight + PAD
+
+    if verticalScrollChild then
+        verticalScrollChild:SetHeight(FIXED_HEADER_ROW_HEIGHT + dims.scrollableGridHeight)
+    end
+    if gridContainer then
+        gridContainer:SetHeight(dims.scrollableGridHeight)
+    end
+    if verticalScrollBar then
+        verticalScrollBar:SetValueStep(dims.rowHeight)
+    end
+
+    if slotLabels and slotLabels[1] then
+        local slotLabelRowOffset = (dims.rowHeight - CELL_SIZE) / 2
+        slotLabels[1]:ClearAllPoints()
+        slotLabels[1]:SetPoint("LEFT", slotHeaderContainer, "LEFT", 0, 0)
+        slotLabels[1]:SetPoint("TOP", slotHeaderContainer, "TOP", 0, -slotLabelRowOffset + 2)
+        for slot = 2, NUM_EQUIPMENT_SLOTS do
+            slotLabels[slot]:ClearAllPoints()
+            slotLabels[slot]:SetPoint("LEFT", slotHeaderContainer, "LEFT", 0, 0)
+            slotLabels[slot]:SetPoint("TOP", slotLabels[slot - 1], "TOP", 0, -dims.rowHeight)
+        end
+    end
+
+    for _, col in pairs(headerColumnPool) do
+        col:SetSize(dims.columnWidth, FIXED_HEADER_ROW_HEIGHT)
+    end
+    for _, col in pairs(columnPool) do
+        col:SetSize(dims.columnWidth, dims.scrollableGridHeight)
+        local cellXOffset = (dims.columnWidth - CELL_SIZE) / 2
+        for slot = 1, NUM_EQUIPMENT_SLOTS do
+            local cell = col.cells[slot]
+            cell:ClearAllPoints()
+            if slot == 1 then
+                cell:SetPoint("TOPLEFT", col, "TOPLEFT", cellXOffset, -2)
+            else
+                cell:SetPoint("TOPLEFT", col.cells[slot - 1], "BOTTOMLEFT", 0, -(dims.rowHeight - CELL_SIZE))
+            end
+        end
+    end
+end
+
+-- Apply saved spacing when tab is shown (SavedVariables may not be ready at file load)
 frame:SetScript("OnShow", function()
+    ApplySpacing()
     frame:RefreshGrid()
 end)
 
@@ -884,27 +988,79 @@ frame:SetScript("OnEvent", function(_, event)
         if AltArmy.Characters and AltArmy.Characters.InvalidateView then
             AltArmy.Characters:InvalidateView()
         end
+        ApplySpacing()
         if frame:IsShown() then
             frame:RefreshGrid()
         end
     end
 end)
 
--- ---- Gear settings panel (replaces grid when settings icon clicked) ----
+-- ---- Gear settings panel: right 40% of frame when visible (grid 60%, both full height) ----
+local GRID_SPLIT_FRACTION = 0.6  -- grid gets 60%, settings gets 40%
 local settingsPanel = CreateFrame("Frame", nil, frame)
-local frameWidth = frame:GetWidth()
-if frameWidth <= 0 then frameWidth = 400 end
-settingsPanel:SetPoint("TOP", frame, "TOP", 0, -PAD)
-settingsPanel:SetPoint("BOTTOM", frame, "BOTTOM", 0, PAD)
-settingsPanel:SetPoint("CENTER", frame, "CENTER", 0, 0)
-settingsPanel:SetWidth(frameWidth * 0.5)
+local function ApplySettingsPanelLayout()
+    local w = frame:GetWidth()
+    if w <= 0 then return end
+    settingsPanel:ClearAllPoints()
+    settingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * GRID_SPLIT_FRACTION + PAD, -PAD)
+    settingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", w * GRID_SPLIT_FRACTION + PAD, PAD)
+    settingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -PAD)
+    settingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+end
+ApplySettingsPanelLayout()
 settingsPanel:Hide()
 
 local SETTINGS_ROW_HEIGHT = 22
+local primaryDropdown, secondaryDropdown  -- forward ref for dropdowns created below
 
--- Show self first checkbox (at top)
+-- Spacing dropdown (at top)
+local btnSpacing = CreateFrame("Button", nil, settingsPanel)
+btnSpacing:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
+btnSpacing:SetPoint("TOPRIGHT", settingsPanel, "TOPRIGHT", 0, 0)
+btnSpacing:SetHeight(SETTINGS_ROW_HEIGHT)
+local btnSpacingBg = btnSpacing:CreateTexture(nil, "BACKGROUND")
+btnSpacingBg:SetAllPoints(btnSpacing)
+btnSpacingBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
+local btnSpacingText = btnSpacing:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+btnSpacingText:SetPoint("LEFT", btnSpacing, "LEFT", 4, 0)
+btnSpacingText:SetPoint("RIGHT", btnSpacing, "RIGHT", -4, 0)
+btnSpacingText:SetJustifyH("LEFT")
+local spacingDropdown = CreateFrame("Frame", nil, settingsPanel)
+spacingDropdown:SetPoint("TOPLEFT", btnSpacing, "BOTTOMLEFT", 0, -2)
+spacingDropdown:SetPoint("TOPRIGHT", btnSpacing, "BOTTOMRIGHT", 0, 0)
+spacingDropdown:SetHeight(#SPACING_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
+spacingDropdown:SetFrameLevel(settingsPanel:GetFrameLevel() + 100)
+spacingDropdown:Hide()
+local spacingDropdownBg = spacingDropdown:CreateTexture(nil, "BACKGROUND")
+spacingDropdownBg:SetAllPoints(spacingDropdown)
+spacingDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
+for idx, opt in ipairs(SPACING_OPTIONS) do
+    local b = CreateFrame("Button", nil, spacingDropdown)
+    b:SetPoint("TOPLEFT", spacingDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
+    b:SetPoint("LEFT", spacingDropdown, "LEFT", 2, 0)
+    b:SetPoint("RIGHT", spacingDropdown, "RIGHT", -2, 0)
+    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
+    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    t:SetPoint("LEFT", b, "LEFT", 4, 0)
+    t:SetText(opt)
+    b.option = opt
+    b:SetScript("OnClick", function()
+        GetGearSettings().spacing = opt
+        spacingDropdown:Hide()
+        btnSpacingText:SetText("Spacing: " .. opt)
+        ApplySpacing()
+        if frame.RefreshGrid then frame:RefreshGrid() end
+    end)
+end
+btnSpacing:SetScript("OnClick", function()
+    spacingDropdown:SetShown(not spacingDropdown:IsShown())
+    primaryDropdown:Hide()
+    secondaryDropdown:Hide()
+end)
+
+-- Show self first checkbox
 local showSelfFirstCheck = CreateFrame("CheckButton", nil, settingsPanel)
-showSelfFirstCheck:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
+showSelfFirstCheck:SetPoint("TOPLEFT", btnSpacing, "BOTTOMLEFT", 0, -6)
 showSelfFirstCheck:SetSize(24, 24)
 local showSelfFirstBg = showSelfFirstCheck:CreateTexture(nil, "BACKGROUND")
 showSelfFirstBg:SetAllPoints(showSelfFirstCheck)
@@ -934,7 +1090,7 @@ local btnPrimaryText = btnPrimary:CreateFontString(nil, "OVERLAY", "GameFontHigh
 btnPrimaryText:SetPoint("LEFT", btnPrimary, "LEFT", 4, 0)
 btnPrimaryText:SetPoint("RIGHT", btnPrimary, "RIGHT", -4, 0)
 btnPrimaryText:SetJustifyH("LEFT")
-local primaryDropdown = CreateFrame("Frame", nil, settingsPanel)
+primaryDropdown = CreateFrame("Frame", nil, settingsPanel)
 primaryDropdown:SetPoint("TOPLEFT", btnPrimary, "BOTTOMLEFT", 0, -2)
 primaryDropdown:SetPoint("TOPRIGHT", btnPrimary, "BOTTOMRIGHT", 0, 0)
 primaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
@@ -943,7 +1099,6 @@ primaryDropdown:Hide()
 local primaryDropdownBg = primaryDropdown:CreateTexture(nil, "BACKGROUND")
 primaryDropdownBg:SetAllPoints(primaryDropdown)
 primaryDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
-local secondaryDropdown
 for idx, opt in ipairs(SORT_OPTIONS) do
     local b = CreateFrame("Button", nil, primaryDropdown)
     b:SetPoint("TOPLEFT", primaryDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
@@ -964,6 +1119,7 @@ for idx, opt in ipairs(SORT_OPTIONS) do
 end
 btnPrimary:SetScript("OnClick", function()
     primaryDropdown:SetShown(not primaryDropdown:IsShown())
+    spacingDropdown:Hide()
     secondaryDropdown:Hide()
 end)
 
@@ -1008,6 +1164,7 @@ for idx, opt in ipairs(SORT_OPTIONS) do
 end
 btnSecondary:SetScript("OnClick", function()
     secondaryDropdown:SetShown(not secondaryDropdown:IsShown())
+    spacingDropdown:Hide()
     primaryDropdown:Hide()
 end)
 
@@ -1119,6 +1276,7 @@ end
 
 -- Close dropdowns when clicking outside
 settingsPanel:SetScript("OnHide", function()
+    spacingDropdown:Hide()
     primaryDropdown:Hide()
     secondaryDropdown:Hide()
 end)
@@ -1130,14 +1288,28 @@ end
 function frame:ToggleGearSettings(_self)
     local showSettings = not settingsPanel:IsShown()
     settingsPanel:SetShown(showSettings)
-    rightPanel:SetShown(not showSettings)
+
+    if showSettings then
+        ApplySettingsPanelLayout()
+    end
+
+    -- Resize grid (rightPanel): full width when settings closed, left 60% when settings open
+    rightPanel:ClearAllPoints()
     if LEFT_PANEL_VISIBLE then
-        leftPanel:SetShown(not showSettings)
+        rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", PAD, 0)
+    else
+        rightPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
     end
     if showSettings then
-        local w = frame:GetWidth()
-        if w > 0 then settingsPanel:SetWidth(w * 0.5) end
+        -- Extra gap so vertical scroll bar (anchored with RIGHT_OFFSET+4 past right edge) doesn't overlap settings
+        rightPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -(PAD + SCROLL_BAR_RIGHT_OFFSET + 4), 0)
+    else
+        rightPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+    end
+
+    if showSettings then
         local s = GetGearSettings()
+        btnSpacingText:SetText("Spacing: " .. (s.spacing or "Comfortable"))
         btnPrimaryText:SetText("Primary Sort: " .. s.primarySort)
         btnSecondaryText:SetText("Secondary Sort: " .. s.secondarySort)
         showSelfFirstCheck:SetChecked(s.showSelfFirst)
@@ -1146,4 +1318,21 @@ function frame:ToggleGearSettings(_self)
         end
         settingsPanel:RefreshCharacterList()
     end
+
+    if frame.RefreshGrid then frame:RefreshGrid() end
 end
+
+-- Keep 60/40 split when frame is resized and settings are open
+frame:SetScript("OnSizeChanged", function()
+    if settingsPanel and settingsPanel:IsShown() then
+        ApplySettingsPanelLayout()
+        rightPanel:ClearAllPoints()
+        if LEFT_PANEL_VISIBLE then
+            rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", PAD, 0)
+        else
+            rightPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
+        end
+        rightPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -(PAD + SCROLL_BAR_RIGHT_OFFSET + 4), 0)
+        if frame.RefreshGrid then frame:RefreshGrid() end
+    end
+end)

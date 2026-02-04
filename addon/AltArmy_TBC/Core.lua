@@ -134,15 +134,18 @@ setActiveTab = function(tabName)
     for name, frame in pairs(AltArmy.TabFrames) do
         frame:SetShown(name == tabName)
     end
-    -- Update tab button highlights (handled in each button's refresh or we do it here)
+    -- Update tab button highlights: background and label color by selected state
     for _, btn in pairs(tabStrip.buttons or {}) do
-        if btn.tabName == tabName then
+        local isSelected = (btn.tabName == tabName)
+        if isSelected then
             -- Keep Gear tab enabled when active so clicking it can close settings and return to grid
             btn:SetEnabled(btn.tabName == "Gear" or false)
             if btn.selectedBg then btn.selectedBg:Show() end
+            if btn.label then btn.label:SetTextColor(1, 0.82, 0, 1) end  -- yellow when selected
         else
             btn:SetEnabled(true)
             if btn.selectedBg then btn.selectedBg:Hide() end
+            if btn.label then btn.label:SetTextColor(0.85, 0.85, 0.85, 1) end  -- gray when not selected
         end
     end
     -- Gear tab settings button: only visible when Gear tab is active and tab strip is shown
@@ -179,18 +182,13 @@ for _, tabName in ipairs(tabNames) do
     selectedBg:SetColorTexture(0.35, 0.35, 0.5, 0.8)
     btn.selectedBg = selectedBg
     selectedBg:Hide()
-    -- Label (plain Button has no built-in text)
+    -- Label (plain Button has no built-in text); color is set in setActiveTab for consistent selected look
     local label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetPoint("CENTER", btn, "CENTER", 0, 0)
     label:SetText(tabName)
+    btn.label = label
     btn:SetScript("OnClick", function()
         setActiveTab(tabName)
-    end)
-    btn:SetScript("OnEnable", function(_self)
-        if label then label:SetTextColor(0.85, 0.85, 0.85, 1) end
-    end)
-    btn:SetScript("OnDisable", function(_self)
-        if label then label:SetTextColor(1, 0.82, 0, 1) end
     end)
     prevBtn = btn
     tabStrip.buttons[tabName] = btn
