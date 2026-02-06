@@ -2,7 +2,6 @@
 
 local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Search
 if not frame then
-    print("[AltArmy] TabSearch: frame is nil (AltArmy or TabFrames.Search missing), returning early")
     return
 end
 
@@ -19,10 +18,8 @@ local RECIPE_POOL_SIZE = 32
 
 local SD = AltArmy.SearchData
 if not SD or not SD.SearchWithLocationGroups or not SD.SearchRecipes then
-    print("[AltArmy] TabSearch: SearchData missing or missing SearchWithLocationGroups/SearchRecipes, returning early")
     return
 end
-print("[AltArmy] TabSearch: loaded, frame and SearchData OK")
 
 local REALM_FILTER_OPTIONS = { "all", "currentRealm" }
 local REALM_FILTER_LABELS = { all = "All Characters", currentRealm = "Current Realm Only" }
@@ -33,6 +30,19 @@ local function GetSearchSettings()
         s.realmFilter = "all"
     end
     return s
+end
+
+--- True if the account has characters on more than one realm (used to decide whether to show realm suffix).
+local function AccountHasMultipleRealms()
+    local DS = AltArmy.DataStore
+    if not DS or not DS.GetRealms then return false end
+    local realms = DS:GetRealms()
+    local n = 0
+    for _ in pairs(realms or {}) do
+        n = n + 1
+        if n > 1 then return true end
+    end
+    return false
 end
 
 -- Insert item link into chat (same as shift-clicking item in bags)
@@ -73,9 +83,9 @@ searchEdit:SetScript("OnEnterPressed", function(box)
 end)
 searchEdit:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
 
-local colWidths = { Item = 325, Character = 160, Total = 70 }  -- items table (first col -5 for total width)
+local colWidths = { Item = 325, Character = 170, Total = 60 }  -- items table (first col -5 for total width)
 local colOrder = { "Item", "Character", "Total" }
-local recipeColWidths = { Recipe = 325, Character = 160, Skill = 70 }  -- first col -5
+local recipeColWidths = { Recipe = 325, Character = 170, Skill = 60 }  -- first col -5
 local recipeColOrder = { "Recipe", "Character", "Skill" }
 
 --- Truncate name part only; suffix (e.g. " (Bags)") is never truncated. Sets cell to truncatedName + suffix.
@@ -118,6 +128,19 @@ local function SetCharacterCellTruncated(cell, namePartColored, suffixText, maxT
     cell:SetText(prefix .. "..." .. (prefix ~= "" and "|r" or "") .. (suffixText or ""))
 end
 
+-- List viewport: clips results to left 60% when settings panel is open (so list doesn't show through).
+-- Horizontal scroll sits inside so the grid can scroll when viewport is narrower than totalColWidth.
+local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
+local listViewport = CreateFrame("Frame", nil, frame)
+listViewport:SetClipsChildren(true)
+-- Points set in ApplySearchListLayout
+
+local horizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_SearchHorizontalScroll", listViewport)
+horizontalScroll:SetAllPoints(listViewport)
+horizontalScroll:EnableMouse(true)
+
+-- horizontalScrollChild created after totalColWidth is known; scrollFrame reparented into it below
+
 -- Scroll frame (viewport for results; section headers live inside scroll)
 local scrollFrame = CreateFrame("ScrollFrame", "AltArmyTBC_SearchScrollFrame", frame)
 scrollFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
@@ -147,6 +170,81 @@ searchVertThumb:SetSize(SCROLL_BAR_WIDTH - 4, 24)
 searchScrollBar:SetThumbTexture(searchVertThumb)
 -- OnValueChanged set below after UpdateVisibleRows is defined
 
+-- Horizontal scroll bar at bottom of list area (like Summary tab)
+local horizontalScrollBar = CreateFrame("Slider", "AltArmyTBC_SearchHorizontalScrollBar", frame)
+horizontalScrollBar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
+horizontalScrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - SCROLL_BAR_WIDTH - PAD, PAD)
+horizontalScrollBar:SetHeight(HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
+horizontalScrollBar:SetOrientation("HORIZONTAL")
+horizontalScrollBar:SetMinMaxValues(0, 0)
+horizontalScrollBar:SetValueStep(1)
+horizontalScrollBar:SetValue(0)
+horizontalScrollBar:EnableMouse(true)
+local lastSearchHorizontalScrollValue = nil
+local searchHorizontalBarDragging = false
+local searchHorizontalDragStartX = 0
+local searchHorizontalDragStartValue = 0
+local function ApplySearchHorizontalScrollValue(value)
+    if not horizontalScroll then return end
+    lastSearchHorizontalScrollValue = value
+    if horizontalScroll.UpdateScrollChildRect then
+        horizontalScroll:UpdateScrollChildRect()
+    end
+    horizontalScroll:SetHorizontalScroll(value)
+end
+local function SyncSearchHorizontalScrollPosition()
+    if not (horizontalScroll and horizontalScrollBar) then return end
+    local value = horizontalScrollBar:GetValue()
+    if lastSearchHorizontalScrollValue == value then return end
+    ApplySearchHorizontalScrollValue(value)
+end
+horizontalScrollBar:SetScript("OnValueChanged", function(_, _value)
+    SyncSearchHorizontalScrollPosition()
+end)
+horizontalScrollBar:SetScript("OnMouseDown", function(_, button)
+    if button ~= "LeftButton" then return end
+    searchHorizontalBarDragging = true
+    searchHorizontalDragStartX = select(1, GetCursorPosition())
+    searchHorizontalDragStartValue = horizontalScrollBar:GetValue()
+end)
+horizontalScrollBar:SetScript("OnUpdate", function()
+    if not frame:IsShown() then return end
+    if searchHorizontalBarDragging then
+        if not IsMouseButtonDown(1) then
+            searchHorizontalBarDragging = false
+        else
+            local minVal, maxVal = horizontalScrollBar:GetMinMaxValues()
+            local barWidth = horizontalScrollBar:GetWidth()
+            if barWidth and barWidth > 0 and maxVal > minVal then
+                local scale = (horizontalScrollBar.GetEffectiveScale and horizontalScrollBar:GetEffectiveScale())
+                    or (UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
+                if scale <= 0 then scale = 1 end
+                local cursorX = select(1, GetCursorPosition()) / scale
+                local startX = searchHorizontalDragStartX / scale
+                local deltaX = cursorX - startX
+                local value = searchHorizontalDragStartValue + deltaX * (maxVal - minVal) / barWidth
+                value = math.max(minVal, math.min(maxVal, value))
+                horizontalScrollBar:SetValue(value)
+                ApplySearchHorizontalScrollValue(value)
+            end
+        end
+    end
+end)
+if horizontalScrollBar.SetBackdrop then
+    horizontalScrollBar:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = nil,
+        tile = true, tileSize = 0, edgeSize = 0,
+        insets = { left = 0, right = 0, top = 0, bottom = 0 },
+    })
+    horizontalScrollBar:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
+end
+local searchHThumbTex = horizontalScrollBar:CreateTexture(nil, "ARTWORK")
+searchHThumbTex:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
+searchHThumbTex:SetVertexColor(0.5, 0.5, 0.6, 1)
+searchHThumbTex:SetSize(24, HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
+horizontalScrollBar:SetThumbTexture(searchHThumbTex)
+
 local function OnSearchScrollWheel(_, delta)
     if not searchScrollBar then return end
     local minVal, maxVal = searchScrollBar:GetMinMaxValues()
@@ -170,6 +268,21 @@ local function getRecipeColWidth()
     return w
 end
 local totalColWidth = math.max(getTotalColWidth(), getRecipeColWidth())
+
+-- Horizontal scroll child: holds the vertical scroll frame so the whole results area can scroll horizontally
+local horizontalScrollChild = CreateFrame("Frame", nil, horizontalScroll)
+horizontalScrollChild:SetPoint("TOPLEFT", horizontalScroll, "TOPLEFT", 0, 0)
+horizontalScrollChild:SetHeight(1)
+horizontalScrollChild:SetWidth(totalColWidth)
+horizontalScroll:SetScrollChild(horizontalScrollChild)
+
+-- Reparent scroll frame into horizontal scroll child so it scrolls with the grid
+scrollFrame:ClearAllPoints()
+scrollFrame:SetParent(horizontalScrollChild)
+scrollFrame:SetPoint("TOPLEFT", horizontalScrollChild, "TOPLEFT", 0, 0)
+scrollFrame:SetPoint("BOTTOMLEFT", horizontalScrollChild, "BOTTOMLEFT", 0, 0)
+scrollFrame:SetPoint("BOTTOMRIGHT", horizontalScrollChild, "BOTTOMRIGHT", 0, 0)
+
 local resultsArea = CreateFrame("Frame", nil, scrollFrame)
 resultsArea:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
 resultsArea:SetWidth(totalColWidth)
@@ -406,12 +519,8 @@ UpdateVisibleRows = function()
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     local nItems = categories.Items and #itemList or 0
     local nRecipes = categories.Recipes and #recipeList or 0
-    local RF = AltArmy.RealmFilter
-    local combinedForRealms = {}
-    for i = 1, nItems do combinedForRealms[#combinedForRealms + 1] = itemList[i] end
-    for i = 1, nRecipes do combinedForRealms[#combinedForRealms + 1] = recipeList[i] end
-    local showRealmSuffix = (GetSearchSettings().realmFilter == "all")
-        and RF and RF.hasMultipleRealms and RF.hasMultipleRealms(combinedForRealms)
+    -- Show realm suffix only when viewing all realms and account has characters on multiple realms.
+    local showRealmSuffix = (GetSearchSettings().realmFilter == "all") and AccountHasMultipleRealms()
     local scrollValue = searchScrollBar and searchScrollBar:GetValue() or 0
     local viewHeight = scrollFrame:GetHeight()
     local itemsSectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
@@ -623,11 +732,33 @@ local function UpdateResults()
             scrollFrame:SetVerticalScroll(maxScroll)
         end
     end
+    -- Horizontal scroll: list viewport may be narrower than totalColWidth (e.g. when settings panel is open)
+    if listViewport and horizontalScroll and horizontalScrollChild and horizontalScrollBar then
+        local vw = listViewport:GetWidth()
+        if vw and vw > 0 then
+            horizontalScrollChild:SetWidth(totalColWidth)
+            local vh = listViewport:GetHeight()
+            if not vh or vh <= 0 then
+                vh = scrollFrame:GetHeight()
+            end
+            horizontalScrollChild:SetHeight(vh)
+            local maxHorzScroll = math.max(0, totalColWidth - vw)
+            horizontalScrollBar:SetMinMaxValues(0, maxHorzScroll)
+            horizontalScrollBar:SetValueStep(1)
+            horizontalScrollBar:SetShown(maxHorzScroll > 0)
+            local hVal = horizontalScrollBar:GetValue()
+            if hVal > maxHorzScroll then
+                horizontalScrollBar:SetValue(maxHorzScroll)
+                ApplySearchHorizontalScrollValue(maxHorzScroll)
+            else
+                SyncSearchHorizontalScrollPosition()
+            end
+        end
+    end
     UpdateVisibleRows()
 end
 
 function frame.DoSearch()
-    print("[AltArmy] TabSearch DoSearch called")
     local query = ""
     if searchEdit then
         query = searchEdit:GetText()
@@ -650,7 +781,6 @@ end
 
 -- Expose for header search box: run search with query directly
 function frame.SearchWithQuery(_self, query)
-    print("[AltArmy] TabSearch SearchWithQuery called, query='" .. tostring(query) .. "'")
     local q = (query and type(query) == "string") and query:match("^%s*(.-)%s*$") or ""
     frame.lastQuery = q
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
@@ -674,8 +804,6 @@ function frame.SearchWithQuery(_self, query)
     if searchEdit and searchEdit.SetText then
         searchEdit:SetText(query or "")
     end
-    local ni, nr = #itemList, #recipeList
-    print("[AltArmy] TabSearch SearchWithQuery done, items=" .. tostring(ni) .. " recipes=" .. tostring(nr))
 end
 
 -- Search settings panel (right 40% when visible); defined after UpdateVisibleRows
@@ -692,9 +820,16 @@ local function ApplySearchSettingsPanelLayout()
 end
 ApplySearchSettingsPanelLayout()
 searchSettingsPanel:Hide()
-local searchPanelBg = searchSettingsPanel:CreateTexture(nil, "BACKGROUND")
-searchPanelBg:SetAllPoints(searchSettingsPanel)
-searchPanelBg:SetColorTexture(0.18, 0.18, 0.22, 0.98)
+-- Solid background so list content doesn't show through (like Summary)
+if searchSettingsPanel.SetBackdrop then
+    searchSettingsPanel:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = nil,
+        tile = true, tileSize = 0, edgeSize = 0,
+        insets = { left = 0, right = 0, top = 0, bottom = 0 },
+    })
+    searchSettingsPanel:SetBackdropColor(0.18, 0.18, 0.22, 0.98)
+end
 local SETTINGS_TITLE_HEIGHT = 26
 local searchSettingsTitle = searchSettingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 searchSettingsTitle:SetPoint("TOPLEFT", searchSettingsPanel, "TOPLEFT", 0, 0)
@@ -753,6 +888,35 @@ function frame:IsSearchSettingsShown()
     return searchSettingsPanel and searchSettingsPanel:IsShown()
 end
 
+-- List viewport: panel open = left 60% (content clipped); closed = full width. Horizontal bar at bottom.
+local function ApplySearchListLayout()
+    local showSettings = searchSettingsPanel and searchSettingsPanel:IsShown()
+    local vpBottomY = PAD + HORIZONTAL_SCROLL_BAR_HEIGHT
+    listViewport:ClearAllPoints()
+    listViewport:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
+    if showSettings then
+        listViewport:SetPoint("BOTTOMRIGHT", searchSettingsPanel, "BOTTOMLEFT", -PAD - SCROLL_BAR_WIDTH, vpBottomY)
+    else
+        listViewport:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -(PAD + SCROLL_BAR_WIDTH), vpBottomY)
+    end
+    horizontalScrollBar:ClearAllPoints()
+    horizontalScrollBar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
+    if showSettings then
+        horizontalScrollBar:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, PAD - vpBottomY)
+    else
+        horizontalScrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -(PAD + SCROLL_BAR_WIDTH), PAD)
+    end
+    if showSettings then
+        searchScrollBar:ClearAllPoints()
+        searchScrollBar:SetPoint("TOPLEFT", listViewport, "TOPRIGHT", 0, -(PAD + SCROLL_BAR_TOP_INSET))
+        searchScrollBar:SetPoint("BOTTOMLEFT", listViewport, "BOTTOMRIGHT", 0, SCROLL_BAR_BOTTOM_INSET)
+    else
+        searchScrollBar:ClearAllPoints()
+        searchScrollBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET, -(PAD + SCROLL_BAR_TOP_INSET))
+        searchScrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET, SCROLL_BAR_BOTTOM_INSET)
+    end
+end
+
 function frame:ToggleSearchSettings(_self)
     local showSettings = not searchSettingsPanel:IsShown()
     searchSettingsPanel:SetShown(showSettings)
@@ -760,35 +924,25 @@ function frame:ToggleSearchSettings(_self)
         ApplySearchSettingsPanelLayout()
         btnSearchRealmText:SetText(REALM_FILTER_LABELS[GetSearchSettings().realmFilter] or "All Characters")
     end
-    local panelLeftX = -PAD - SCROLL_BAR_RIGHT_OFFSET - 4
-    if showSettings then
-        scrollFrame:SetPoint("BOTTOMRIGHT", searchSettingsPanel, "BOTTOMLEFT", panelLeftX, PAD)
-        searchScrollBar:SetPoint("TOPRIGHT", searchSettingsPanel, "TOPRIGHT", panelLeftX, -(PAD + SCROLL_BAR_TOP_INSET))
-        searchScrollBar:SetPoint("BOTTOMRIGHT", searchSettingsPanel, "BOTTOMRIGHT", panelLeftX, SCROLL_BAR_BOTTOM_INSET)
-    else
-        scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - 20, PAD)
-        searchScrollBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET, -(PAD + SCROLL_BAR_TOP_INSET))
-        searchScrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET, SCROLL_BAR_BOTTOM_INSET)
-    end
+    ApplySearchListLayout()
     if scrollFrame.UpdateScrollChildRect then scrollFrame:UpdateScrollChildRect() end
-    UpdateVisibleRows()
+    UpdateResults()
 end
 
 frame:SetScript("OnSizeChanged", function()
     if searchSettingsPanel and searchSettingsPanel:IsShown() then
         ApplySearchSettingsPanelLayout()
-        local panelLeftX = -PAD - SCROLL_BAR_RIGHT_OFFSET - 4
-        scrollFrame:SetPoint("BOTTOMRIGHT", searchSettingsPanel, "BOTTOMLEFT", panelLeftX, PAD)
-        searchScrollBar:SetPoint("TOPRIGHT", searchSettingsPanel, "TOPRIGHT", panelLeftX, -(PAD + SCROLL_BAR_TOP_INSET))
-        searchScrollBar:SetPoint("BOTTOMRIGHT", searchSettingsPanel, "BOTTOMRIGHT", panelLeftX, SCROLL_BAR_BOTTOM_INSET)
     end
+    ApplySearchListLayout()
 end)
 
--- Initial empty state
+-- Initial empty state: layout list viewport then build results (horizontal scroll range set in UpdateResults)
+ApplySearchListLayout()
 UpdateResults()
 
--- When tab is shown, refresh scroll child rect (viewport may have been zero when hidden)
+-- When tab is shown, refresh layout and scroll child rect (viewport may have been zero when hidden)
 frame:SetScript("OnShow", function()
+    ApplySearchListLayout()
     if scrollFrame and scrollFrame.UpdateScrollChildRect then
         scrollFrame:UpdateScrollChildRect()
     end

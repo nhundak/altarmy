@@ -21,7 +21,7 @@ local setActiveTab -- forward-declare so header search scripts can call it
 local searchModeHandlers = {}  -- enterSearchMode impl registered later (avoids nil if load errors)
 local function enterSearchMode(trimmed)
     local fn = searchModeHandlers.enterSearchMode
-    if fn then fn(trimmed) else print("[AltArmy] enterSearchMode: handler not registered") end
+    if fn then fn(trimmed) end
 end
 local lastTab = "Summary"
 
@@ -134,10 +134,7 @@ headerSearchEdit:SetScript("OnEnterPressed", function(box)
             return
         end
         if enterSearchMode then
-            print("[AltArmy] Header search Enter: trimmed='" .. tostring(trimmed) .. "', calling enterSearchMode")
             enterSearchMode(trimmed)
-        else
-            print("[AltArmy] Header search Enter: enterSearchMode is nil")
         end
     end
 end)
@@ -302,13 +299,11 @@ AltArmy.TabFrames.Search = searchFrame
 -- Handler reads refs from searchModeHandlers as we fill them in below.
 searchModeHandlers.tabStrip = tabStrip
 searchModeHandlers.enterSearchMode = function(trimmed)
-    print("[AltArmy] enterSearchMode called, trimmed='" .. tostring(trimmed) .. "'")
     local strip = searchModeHandlers.tabStrip
     local resultsLabel = searchModeHandlers.searchResultsLabel
     local itemsChk = searchModeHandlers.itemsCheck
     local recipesChk = searchModeHandlers.recipesCheck
     if not strip or not resultsLabel then
-        print("[AltArmy] enterSearchMode: tabStrip or searchResultsLabel not ready")
         return
     end
     lastTab = AltArmy.CurrentTab
@@ -319,17 +314,10 @@ searchModeHandlers.enterSearchMode = function(trimmed)
     if AltArmy.TabFrames.Summary then AltArmy.TabFrames.Summary:Hide() end
     if AltArmy.TabFrames.Gear then AltArmy.TabFrames.Gear:Hide() end
     if AltArmy.TabFrames.Search then
-        local hasSearchWithQuery = AltArmy.TabFrames.Search.SearchWithQuery
-        print("[AltArmy] enterSearchMode: showing Search tab, SearchWithQuery=" .. tostring(hasSearchWithQuery))
         AltArmy.TabFrames.Search:Show()
         if AltArmy.TabFrames.Search.SearchWithQuery then
-            print("[AltArmy] enterSearchMode: calling SearchWithQuery('" .. tostring(trimmed) .. "')")
             AltArmy.TabFrames.Search:SearchWithQuery(trimmed)
-        else
-            print("[AltArmy] enterSearchMode: SearchWithQuery is nil, not running search")
         end
-    else
-        print("[AltArmy] enterSearchMode: AltArmy.TabFrames.Search is nil")
     end
 end
 
@@ -360,8 +348,7 @@ itemsCheck:SetScript("OnClick", function()
     AltArmy.SearchCategories.Items = itemsCheck:GetChecked()
     refreshSearchIfActive()
 end)
-local itemsLabelFrame = CreateFrame("Frame", nil, searchResultsLabel)
-itemsLabelFrame:SetScript("OnClick", function() end)
+local itemsLabelFrame = CreateFrame("Button", nil, searchResultsLabel)
 itemsLabelFrame:SetPoint("LEFT", itemsCheck, "RIGHT", 2, 0)
 itemsLabelFrame:SetSize(50, TAB_HEIGHT)
 itemsLabelFrame:EnableMouse(true)
@@ -380,8 +367,7 @@ recipesCheck:SetScript("OnClick", function()
     AltArmy.SearchCategories.Recipes = recipesCheck:GetChecked()
     refreshSearchIfActive()
 end)
-local recipesLabelFrame = CreateFrame("Frame", nil, searchResultsLabel)
-recipesLabelFrame:SetScript("OnClick", function() end)
+local recipesLabelFrame = CreateFrame("Button", nil, searchResultsLabel)
 recipesLabelFrame:SetPoint("LEFT", recipesCheck, "RIGHT", 2, 0)
 recipesLabelFrame:SetSize(60, TAB_HEIGHT)
 recipesLabelFrame:EnableMouse(true)
