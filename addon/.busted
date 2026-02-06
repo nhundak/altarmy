@@ -6,8 +6,8 @@ return {
     pattern = "_spec",
     -- Recurse into subdirectories
     recursive = true,
-    -- Test root (so npm test needs no args)
-    ROOT = { "AltArmy_TBC" },
+    -- Test root: top-level spec/ (outside addon zip so it isn't shipped)
+    ROOT = { "spec" },
   },
   default = {},
 }

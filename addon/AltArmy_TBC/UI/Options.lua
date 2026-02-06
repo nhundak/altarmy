@@ -11,6 +11,9 @@ local function ensureDefaults()
     if AltArmyTBC_Options.showMinimapButton == nil then
         AltArmyTBC_Options.showMinimapButton = true
     end
+    if AltArmyTBC_Options.minimapAngle == nil then
+        AltArmyTBC_Options.minimapAngle = 90  -- degrees; 90 = top
+    end
     if AltArmyTBC_Options.debug == nil then
         AltArmyTBC_Options.debug = true
     end
