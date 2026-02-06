@@ -21,7 +21,7 @@ end
 -- Column definitions: Name, Level, RestXP, Money, Played, LastOnline, Warning (total width unchanged)
 local columns = {
     Name = {
-        Width = 119 - WARNING_COL_WIDTH,
+        Width = 129 - WARNING_COL_WIDTH,
         GetText = function(entry) return entry.name or "" end,
         JustifyH = "LEFT",
     },
@@ -41,7 +41,7 @@ local columns = {
         JustifyH = "RIGHT",
     },
     Money = {
-        Width = 125,
+        Width = 120,
         GetText = function(entry) return SD and SD.GetMoneyString and SD.GetMoneyString(entry.money) or "" end,
         JustifyH = "RIGHT",
     },
@@ -51,8 +51,8 @@ local columns = {
         JustifyH = "RIGHT",
     },
     LastOnline = {
-        Width = 82,
-        headerLabel = "Last Online",
+        Width = 77,
+        headerLabel = "Online",
         GetText = function(entry)
             return SD and SD.FormatLastOnline and SD.FormatLastOnline(entry.lastOnline, isCurrentCharacter(entry)) or ""
         end,

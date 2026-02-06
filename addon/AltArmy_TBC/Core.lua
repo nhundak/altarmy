@@ -18,6 +18,7 @@ local TAB_HEIGHT = 22
 local CONTENT_INSET = 8
 
 local setActiveTab -- forward-declare so header search scripts can call it
+local enterSearchMode -- forward-declare for OnEnterPressed / applySearchBoxState
 local lastTab = "Summary"
 
 -- Create main frame
@@ -124,13 +125,12 @@ headerSearchEdit:SetScript("OnEnterPressed", function(box)
     local query = box:GetText()
     local trimmed = query and query:match("^%s*(.-)%s*$") or ""
     if trimmed ~= "" then
-        -- Debugging convenience: allow /reload from search box; remove before release.
         if trimmed:lower() == "/reload" then
             ReloadUI()
             return
         end
-        if AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.SearchWithQuery then
-            AltArmy.TabFrames.Search:SearchWithQuery(trimmed)
+        if enterSearchMode then
+            enterSearchMode(trimmed)
         end
     end
 end)
@@ -306,7 +306,7 @@ local recipesLabel = searchResultsLabel:CreateFontString(nil, "OVERLAY", "GameFo
 recipesLabel:SetPoint("LEFT", recipesCheck, "RIGHT", 2, 0)
 recipesLabel:SetText("Recipes")
 
-local function enterSearchMode(trimmed)
+enterSearchMode = function(trimmed)
     lastTab = AltArmy.CurrentTab
     tabStrip:Hide()
     searchResultsLabel:Show()
@@ -339,7 +339,9 @@ local function applySearchBoxState()
         headerSearchClearBtn:Hide()
     else
         headerSearchClearBtn:Show()
-        enterSearchMode(trimmed)
+        if enterSearchMode then
+            enterSearchMode(trimmed)
+        end
     end
 end
 
