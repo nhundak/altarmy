@@ -18,7 +18,11 @@ local TAB_HEIGHT = 22
 local CONTENT_INSET = 8
 
 local setActiveTab -- forward-declare so header search scripts can call it
-local enterSearchMode -- forward-declare for OnEnterPressed / applySearchBoxState
+local searchModeHandlers = {}  -- enterSearchMode impl registered later (avoids nil if load errors)
+local function enterSearchMode(trimmed)
+    local fn = searchModeHandlers.enterSearchMode
+    if fn then fn(trimmed) else print("[AltArmy] enterSearchMode: handler not registered") end
+end
 local lastTab = "Summary"
 
 -- Create main frame
@@ -130,7 +134,10 @@ headerSearchEdit:SetScript("OnEnterPressed", function(box)
             return
         end
         if enterSearchMode then
+            print("[AltArmy] Header search Enter: trimmed='" .. tostring(trimmed) .. "', calling enterSearchMode")
             enterSearchMode(trimmed)
+        else
+            print("[AltArmy] Header search Enter: enterSearchMode is nil")
         end
     end
 end)
@@ -181,6 +188,14 @@ setActiveTab = function(tabName)
             tabStrip.gearSettingsBtn:Show()
         else
             tabStrip.gearSettingsBtn:Hide()
+        end
+    end
+    -- Summary tab settings button: only visible when Summary tab is active and tab strip is shown
+    if tabStrip.summarySettingsBtn then
+        if tabName == "Summary" and tabStrip:IsShown() then
+            tabStrip.summarySettingsBtn:Show()
+        else
+            tabStrip.summarySettingsBtn:Hide()
         end
     end
 end
@@ -248,6 +263,21 @@ gearSettingsBtn:SetScript("OnClick", function()
 end)
 tabStrip.gearSettingsBtn = gearSettingsBtn
 
+-- Summary tab settings icon (same position as Gear; visible only when Summary tab is active)
+local summarySettingsBtn = CreateFrame("Button", nil, tabStrip)
+summarySettingsBtn:SetPoint("TOPRIGHT", tabStrip, "TOPRIGHT", 0, 0)
+summarySettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
+summarySettingsBtn:Hide()
+local summarySettingsIcon = summarySettingsBtn:CreateTexture(nil, "ARTWORK")
+summarySettingsIcon:SetAllPoints(summarySettingsBtn)
+summarySettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
+summarySettingsBtn:SetScript("OnClick", function()
+    if AltArmy.TabFrames.Summary and AltArmy.TabFrames.Summary.ToggleSummarySettings then
+        AltArmy.TabFrames.Summary:ToggleSummarySettings()
+    end
+end)
+tabStrip.summarySettingsBtn = summarySettingsBtn
+
 setActiveTab("Summary")
 
 -- Content area: one frame per tab
@@ -268,9 +298,45 @@ searchFrame:SetAllPoints(contentArea)
 searchFrame:Hide()
 AltArmy.TabFrames.Search = searchFrame
 
+-- Register enterSearchMode handler early (before check buttons etc.) so it exists even if later UI errors.
+-- Handler reads refs from searchModeHandlers as we fill them in below.
+searchModeHandlers.tabStrip = tabStrip
+searchModeHandlers.enterSearchMode = function(trimmed)
+    print("[AltArmy] enterSearchMode called, trimmed='" .. tostring(trimmed) .. "'")
+    local strip = searchModeHandlers.tabStrip
+    local resultsLabel = searchModeHandlers.searchResultsLabel
+    local itemsChk = searchModeHandlers.itemsCheck
+    local recipesChk = searchModeHandlers.recipesCheck
+    if not strip or not resultsLabel then
+        print("[AltArmy] enterSearchMode: tabStrip or searchResultsLabel not ready")
+        return
+    end
+    lastTab = AltArmy.CurrentTab
+    strip:Hide()
+    resultsLabel:Show()
+    if itemsChk then itemsChk:SetChecked(AltArmy.SearchCategories.Items) end
+    if recipesChk then recipesChk:SetChecked(AltArmy.SearchCategories.Recipes) end
+    if AltArmy.TabFrames.Summary then AltArmy.TabFrames.Summary:Hide() end
+    if AltArmy.TabFrames.Gear then AltArmy.TabFrames.Gear:Hide() end
+    if AltArmy.TabFrames.Search then
+        local hasSearchWithQuery = AltArmy.TabFrames.Search.SearchWithQuery
+        print("[AltArmy] enterSearchMode: showing Search tab, SearchWithQuery=" .. tostring(hasSearchWithQuery))
+        AltArmy.TabFrames.Search:Show()
+        if AltArmy.TabFrames.Search.SearchWithQuery then
+            print("[AltArmy] enterSearchMode: calling SearchWithQuery('" .. tostring(trimmed) .. "')")
+            AltArmy.TabFrames.Search:SearchWithQuery(trimmed)
+        else
+            print("[AltArmy] enterSearchMode: SearchWithQuery is nil, not running search")
+        end
+    else
+        print("[AltArmy] enterSearchMode: AltArmy.TabFrames.Search is nil")
+    end
+end
+
 -- Search category filter checkboxes (replace tab strip when in search mode)
 AltArmy.SearchCategories = AltArmy.SearchCategories or { Items = true, Recipes = true }
 local searchResultsLabel = CreateFrame("Frame", nil, main)
+searchModeHandlers.searchResultsLabel = searchResultsLabel
 searchResultsLabel:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -HEADER_TOTAL_OFFSET)
 searchResultsLabel:SetPoint("TOPRIGHT", main, "TOPRIGHT", -CONTENT_INSET, -HEADER_TOTAL_OFFSET)
 searchResultsLabel:SetHeight(TAB_HEIGHT)
@@ -286,41 +352,57 @@ local function refreshSearchIfActive()
 end
 local gap = 12
 local itemsCheck = CreateFrame("CheckButton", nil, searchResultsLabel, "UICheckButtonTemplate")
+searchModeHandlers.itemsCheck = itemsCheck
+itemsCheck:SetScript("OnClick", function() end)  -- set before any GetScript("OnClick") from template
 itemsCheck:SetPoint("LEFT", searchResultsLabel, "LEFT", 0, 0)
 itemsCheck:SetChecked(AltArmy.SearchCategories.Items)
 itemsCheck:SetScript("OnClick", function()
     AltArmy.SearchCategories.Items = itemsCheck:GetChecked()
     refreshSearchIfActive()
 end)
-local itemsLabel = searchResultsLabel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-itemsLabel:SetPoint("LEFT", itemsCheck, "RIGHT", 2, 0)
+local itemsLabelFrame = CreateFrame("Frame", nil, searchResultsLabel)
+itemsLabelFrame:SetScript("OnClick", function() end)
+itemsLabelFrame:SetPoint("LEFT", itemsCheck, "RIGHT", 2, 0)
+itemsLabelFrame:SetSize(50, TAB_HEIGHT)
+itemsLabelFrame:EnableMouse(true)
+itemsLabelFrame:SetScript("OnClick", function()
+    itemsCheck:Click()
+end)
+local itemsLabel = itemsLabelFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+itemsLabel:SetPoint("LEFT", itemsLabelFrame, "LEFT", 0, 0)
 itemsLabel:SetText("Items")
 local recipesCheck = CreateFrame("CheckButton", nil, searchResultsLabel, "UICheckButtonTemplate")
-recipesCheck:SetPoint("LEFT", itemsLabel, "RIGHT", gap, 0)
+searchModeHandlers.recipesCheck = recipesCheck
+recipesCheck:SetScript("OnClick", function() end)  -- set before any GetScript("OnClick") from template
+recipesCheck:SetPoint("LEFT", itemsLabelFrame, "RIGHT", gap, 0)
 recipesCheck:SetChecked(AltArmy.SearchCategories.Recipes)
 recipesCheck:SetScript("OnClick", function()
     AltArmy.SearchCategories.Recipes = recipesCheck:GetChecked()
     refreshSearchIfActive()
 end)
-local recipesLabel = searchResultsLabel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-recipesLabel:SetPoint("LEFT", recipesCheck, "RIGHT", 2, 0)
+local recipesLabelFrame = CreateFrame("Frame", nil, searchResultsLabel)
+recipesLabelFrame:SetScript("OnClick", function() end)
+recipesLabelFrame:SetPoint("LEFT", recipesCheck, "RIGHT", 2, 0)
+recipesLabelFrame:SetSize(60, TAB_HEIGHT)
+recipesLabelFrame:EnableMouse(true)
+recipesLabelFrame:SetScript("OnClick", function()
+    recipesCheck:Click()
+end)
+local recipesLabel = recipesLabelFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+recipesLabel:SetPoint("LEFT", recipesLabelFrame, "LEFT", 0, 0)
 recipesLabel:SetText("Recipes")
-
-enterSearchMode = function(trimmed)
-    lastTab = AltArmy.CurrentTab
-    tabStrip:Hide()
-    searchResultsLabel:Show()
-    if itemsCheck then itemsCheck:SetChecked(AltArmy.SearchCategories.Items) end
-    if recipesCheck then recipesCheck:SetChecked(AltArmy.SearchCategories.Recipes) end
-    if AltArmy.TabFrames.Summary then AltArmy.TabFrames.Summary:Hide() end
-    if AltArmy.TabFrames.Gear then AltArmy.TabFrames.Gear:Hide() end
-    if AltArmy.TabFrames.Search then
-        AltArmy.TabFrames.Search:Show()
-        if AltArmy.TabFrames.Search.SearchWithQuery then
-            AltArmy.TabFrames.Search:SearchWithQuery(trimmed)
-        end
+-- Search settings gear (top right of search results bar; visible when in search mode)
+local searchSettingsBtn = CreateFrame("Button", nil, searchResultsLabel)
+searchSettingsBtn:SetPoint("TOPRIGHT", searchResultsLabel, "TOPRIGHT", 0, 0)
+searchSettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
+local searchSettingsIcon = searchSettingsBtn:CreateTexture(nil, "ARTWORK")
+searchSettingsIcon:SetAllPoints(searchSettingsBtn)
+searchSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
+searchSettingsBtn:SetScript("OnClick", function()
+    if AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.ToggleSearchSettings then
+        AltArmy.TabFrames.Search:ToggleSearchSettings()
     end
-end
+end)
 
 local function exitSearchMode()
     searchResultsLabel:Hide()
@@ -339,9 +421,7 @@ local function applySearchBoxState()
         headerSearchClearBtn:Hide()
     else
         headerSearchClearBtn:Show()
-        if enterSearchMode then
-            enterSearchMode(trimmed)
-        end
+        enterSearchMode(trimmed)  -- switch to search results on any character
     end
 end
 

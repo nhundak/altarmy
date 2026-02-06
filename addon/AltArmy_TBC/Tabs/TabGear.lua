@@ -51,6 +51,11 @@ local droppedItemLink = nil
 
 -- Gear settings persistence (AltArmyTBC_GearSettings)
 local SORT_OPTIONS = { "Name", "Level", "Avg Item Level", "Time Played" }
+local REALM_FILTER_OPTIONS = { "all", "currentRealm" }
+local function RealmFilterValid(val)
+    for _, o in ipairs(REALM_FILTER_OPTIONS) do if o == val then return true end end
+    return false
+end
 local function SortOptionValid(val)
     for _, o in ipairs(SORT_OPTIONS) do if o == val then return true end end
     return false
@@ -75,6 +80,7 @@ local function GetGearSettings()
     if s.spacing == "Very compact" then s.spacing = "Compact" end
     if not s.spacing or not SpacingValid(s.spacing) then s.spacing = "Comfortable" end
     if not s.iconSize or not IconSizeValid(s.iconSize) then s.iconSize = "medium" end
+    if not s.realmFilter or not RealmFilterValid(s.realmFilter) then s.realmFilter = "all" end
     s.characters = s.characters or {}
     return s
 end
@@ -290,6 +296,11 @@ local function GetDisplayList()
     for i = 1, #pinned do list[#list + 1] = pinned[i] end
     for i = 1, #nonPinned do list[#list + 1] = nonPinned[i] end
     if not showSelfFirst and selfEntry then list[#list + 1] = selfEntry end
+
+    local RF = AltArmy.RealmFilter
+    if RF and RF.filterListByRealm then
+        list = RF.filterListByRealm(list, settings.realmFilter or "all", currentRealm)
+    end
 
     -- When item dropped, re-sort by "who can use" then level/name (overrides column order for fit)
     if not droppedItemLink then return list end
@@ -668,10 +679,10 @@ local function GetHeaderColumnFrame(index)
         col.message:SetWordWrap(true)
         col.message:SetNonSpaceWrap(true)
         col:SetScript("OnEnter", function(self)
-            if self.fullName and self.truncated and GameTooltip then
+            if self.tooltipText and self.tooltipText ~= "" and GameTooltip then
                 GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
                 GameTooltip:ClearLines()
-                GameTooltip:AddLine(self.fullName, self.classR or 1, self.classG or 0.82, self.classB or 0)
+                GameTooltip:AddLine(self.tooltipText, self.classR or 1, self.classG or 0.82, self.classB or 0)
                 GameTooltip:Show()
             end
         end)
@@ -836,26 +847,30 @@ local function UpdateGridWithOffset()
         headerCol:Show()
 
         local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
-        local fullName = entry.name or "?"
-
+        local RF = AltArmy.RealmFilter
+        local classR, classG, classB = 1, 0.82, 0
         local gray = CanNeverUseCurrentItem(entry)
         if gray then
-            headerCol.header:SetTextColor(0.5, 0.5, 0.5, 1)
-            headerCol.classR, headerCol.classG, headerCol.classB = 0.5, 0.5, 0.5
+            classR, classG, classB = 0.5, 0.5, 0.5
         else
             if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
                 local rc = RAID_CLASS_COLORS[entry.classFile]
-                headerCol.header:SetTextColor(rc.r, rc.g, rc.b, 1)
-                headerCol.classR, headerCol.classG, headerCol.classB = rc.r, rc.g, rc.b
-            else
-                headerCol.header:SetTextColor(1, 0.82, 0, 1)
-                headerCol.classR, headerCol.classG, headerCol.classB = 1, 0.82, 0
+                classR, classG, classB = rc.r, rc.g, rc.b
             end
         end
-
-        TruncateName(headerCol.header, fullName, dims.columnWidth - 4)
-        headerCol.fullName = fullName
-        headerCol.truncated = (headerCol.header:GetText() ~= fullName)
+        headerCol.classR, headerCol.classG, headerCol.classB = classR, classG, classB
+        local displayName = entry.name or "?"
+        headerCol.header:SetTextColor(classR, classG, classB, 1)
+        TruncateName(headerCol.header, displayName, dims.columnWidth - 4)
+        headerCol.truncated = (headerCol.header:GetText() ~= displayName)
+        local hasRealm = entry.realm and entry.realm ~= ""
+        if headerCol.truncated or hasRealm then
+            headerCol.tooltipText = RF and RF.formatCharacterDisplayName
+                and RF.formatCharacterDisplayName(entry.name or "?", entry.realm or "", hasRealm)
+                or displayName
+        else
+            headerCol.tooltipText = nil
+        end
 
         local fitMsg, fitColor = GetFitMessage(entry)
         if fitMsg and fitMsg ~= "" then
@@ -944,6 +959,7 @@ function frame:RefreshGrid(_self)
             local maxHorzScroll = math.max(0, gridContentWidth - gridViewWidth)
             horizontalScrollBar:SetMinMaxValues(0, maxHorzScroll)
             horizontalScrollBar:SetValueStep(1)
+            horizontalScrollBar:SetShown(maxHorzScroll > 0)
             horizontalScrollBar:SetValue(0)
             lastHorizontalScrollValue = 0
             horizontalScroll:SetHorizontalScroll(0)
@@ -1042,11 +1058,18 @@ settingsPanel:Hide()
 
 local SETTINGS_ROW_HEIGHT = 22
 local TAB_STRIP_HEIGHT = 26
-local primaryDropdown, secondaryDropdown  -- forward ref for dropdowns created below
+local SETTINGS_TITLE_HEIGHT = 26
+local gearSettingsTitle = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+gearSettingsTitle:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
+gearSettingsTitle:SetPoint("TOPRIGHT", settingsPanel, "TOPRIGHT", 0, 0)
+gearSettingsTitle:SetJustifyH("LEFT")
+gearSettingsTitle:SetText("Gear Settings")
+local primaryDropdown, secondaryDropdown, realmDropdown  -- forward ref for dropdowns created below
+local gearCharListRefresh = function() end
 
 -- Tab strip: Sorting | Appearance
 local tabSorting = CreateFrame("Button", nil, settingsPanel)
-tabSorting:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
+tabSorting:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, -SETTINGS_TITLE_HEIGHT)
 tabSorting:SetHeight(TAB_STRIP_HEIGHT)
 tabSorting:SetWidth(80)
 local tabSortingBg = tabSorting:CreateTexture(nil, "BACKGROUND")
@@ -1054,7 +1077,7 @@ tabSortingBg:SetAllPoints(tabSorting)
 tabSortingBg:SetColorTexture(0.25, 0.25, 0.3, 0.95)
 local tabSortingLabel = tabSorting:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 tabSortingLabel:SetPoint("CENTER", tabSorting, "CENTER", 0, 0)
-tabSortingLabel:SetText("Sorting")
+tabSortingLabel:SetText("Sort/Filter")
 
 local tabAppearance = CreateFrame("Button", nil, settingsPanel)
 tabAppearance:SetPoint("TOPLEFT", tabSorting, "TOPRIGHT", 2, 0)
@@ -1253,12 +1276,13 @@ for idx, opt in ipairs(SORT_OPTIONS) do
         primaryDropdown:Hide()
         btnPrimaryText:SetText("Primary Sort: " .. opt)
         if frame.RefreshGrid then frame:RefreshGrid() end
-        if settingsPanel.RefreshCharacterList then settingsPanel:RefreshCharacterList() end
+        if gearCharListRefresh then gearCharListRefresh() end
     end)
 end
 btnPrimary:SetScript("OnClick", function()
     primaryDropdown:SetShown(not primaryDropdown:IsShown())
     secondaryDropdown:Hide()
+    realmDropdown:Hide()
 end)
 
 -- Secondary sort: full-width dropdown, collapsed shows "Secondary Sort: Name"
@@ -1297,118 +1321,74 @@ for idx, opt in ipairs(SORT_OPTIONS) do
         secondaryDropdown:Hide()
         btnSecondaryText:SetText("Secondary Sort: " .. opt)
         if frame.RefreshGrid then frame:RefreshGrid() end
-        if settingsPanel.RefreshCharacterList then settingsPanel:RefreshCharacterList() end
+        if gearCharListRefresh then gearCharListRefresh() end
     end)
 end
 btnSecondary:SetScript("OnClick", function()
     secondaryDropdown:SetShown(not secondaryDropdown:IsShown())
     primaryDropdown:Hide()
+    realmDropdown:Hide()
 end)
 
--- Character list (scrollable): name | Pin | Hide
-local CHAR_LIST_ROW = 20
-local charListScroll = CreateFrame("ScrollFrame", nil, sortingContent)
-charListScroll:SetPoint("TOPLEFT", btnSecondary, "BOTTOMLEFT", 0, -8)
-charListScroll:SetPoint("BOTTOMRIGHT", sortingContent, "BOTTOMRIGHT", 0, 0)
-charListScroll:EnableMouse(true)
-local charListChild = CreateFrame("Frame", nil, charListScroll)
-charListChild:SetPoint("TOPLEFT", charListScroll, "TOPLEFT", 0, 0)
-charListChild:SetWidth(1)
-charListScroll:SetScrollChild(charListChild)
-charListScroll:SetScript("OnMouseWheel", function(_, delta)
-    local scroll = charListScroll:GetVerticalScroll()
-    local newScroll = scroll - delta * CHAR_LIST_ROW * 2
-    newScroll = math.max(0, math.min(charListChild:GetHeight() - charListScroll:GetHeight(), newScroll))
-    charListScroll:SetVerticalScroll(newScroll)
-end)
-local charListRowPool = {}
-local function GetCharListRow(i)
-    if not charListRowPool[i] then
-        local row = CreateFrame("Frame", nil, charListChild)
-        row:SetPoint("TOPLEFT", charListChild, "TOPLEFT", 0, -(i - 1) * CHAR_LIST_ROW)
-        row:SetHeight(CHAR_LIST_ROW)
-        row:SetPoint("RIGHT", charListChild, "RIGHT", 0, 0)
-        row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.nameText:SetPoint("LEFT", row, "LEFT", 0, 0)
-        row.nameText:SetPoint("RIGHT", row, "RIGHT", -120, 0)
-        row.nameText:SetJustifyH("LEFT")
-        row.pinBtn = CreateFrame("CheckButton", nil, row)
-        row.pinBtn:SetPoint("RIGHT", row, "RIGHT", -60, 0)
-        row.pinBtn:SetSize(18, 18)
-        local pinBg = row.pinBtn:CreateTexture(nil, "BACKGROUND")
-        pinBg:SetAllPoints(row.pinBtn)
-        pinBg:SetColorTexture(0.25, 0.25, 0.25, 0.9)
-        row.pinBtn.tex = row.pinBtn:CreateTexture(nil, "OVERLAY")
-        row.pinBtn.tex:SetAllPoints(row.pinBtn)
-        row.pinBtn.tex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-        row.pinBtn:SetCheckedTexture(row.pinBtn.tex)
-        local pinLabel = row.pinBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        pinLabel:SetPoint("RIGHT", row.pinBtn, "LEFT", -2, 0)
-        pinLabel:SetText("Pin")
-        row.hideBtn = CreateFrame("CheckButton", nil, row)
-        row.hideBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-        row.hideBtn:SetSize(18, 18)
-        local hideBg = row.hideBtn:CreateTexture(nil, "BACKGROUND")
-        hideBg:SetAllPoints(row.hideBtn)
-        hideBg:SetColorTexture(0.25, 0.25, 0.25, 0.9)
-        row.hideBtn.tex = row.hideBtn:CreateTexture(nil, "OVERLAY")
-        row.hideBtn.tex:SetAllPoints(row.hideBtn)
-        row.hideBtn.tex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-        row.hideBtn:SetCheckedTexture(row.hideBtn.tex)
-        local hideLabel = row.hideBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        hideLabel:SetPoint("RIGHT", row.hideBtn, "LEFT", -2, 0)
-        hideLabel:SetText("Hide")
-        charListRowPool[i] = row
-    end
-    return charListRowPool[i]
-end
-
-function settingsPanel:RefreshCharacterList(_self)
-    local rawList = (AltArmy.Characters and AltArmy.Characters.GetList and AltArmy.Characters:GetList()) or {}
-    local list = {}
-    for i = 1, #rawList do list[i] = rawList[i] end
-    table.sort(list, function(a, b)
-        local na, nb = (a.name or ""):lower(), (b.name or ""):lower()
-        if na ~= nb then return na < nb end
-        return (a.realm or ""):lower() < (b.realm or ""):lower()
+-- Realm filter: "All Characters" | "Current Realm Only"
+local REALM_FILTER_LABELS = { all = "All Characters", currentRealm = "Current Realm Only" }
+local btnRealm = CreateFrame("Button", nil, sortingContent)
+btnRealm:SetPoint("TOPLEFT", btnSecondary, "BOTTOMLEFT", 0, -6)
+btnRealm:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
+btnRealm:SetHeight(SETTINGS_ROW_HEIGHT)
+local btnRealmBg = btnRealm:CreateTexture(nil, "BACKGROUND")
+btnRealmBg:SetAllPoints(btnRealm)
+btnRealmBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
+local btnRealmText = btnRealm:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+btnRealmText:SetPoint("LEFT", btnRealm, "LEFT", 4, 0)
+btnRealmText:SetPoint("RIGHT", btnRealm, "RIGHT", -4, 0)
+btnRealmText:SetJustifyH("LEFT")
+realmDropdown = CreateFrame("Frame", nil, sortingContent)
+realmDropdown:SetPoint("TOPLEFT", btnRealm, "BOTTOMLEFT", 0, -2)
+realmDropdown:SetPoint("TOPRIGHT", btnRealm, "BOTTOMRIGHT", 0, 0)
+realmDropdown:SetHeight(#REALM_FILTER_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
+realmDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
+realmDropdown:Hide()
+local realmDropdownBg = realmDropdown:CreateTexture(nil, "BACKGROUND")
+realmDropdownBg:SetAllPoints(realmDropdown)
+realmDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
+for idx, opt in ipairs(REALM_FILTER_OPTIONS) do
+    local b = CreateFrame("Button", nil, realmDropdown)
+    b:SetPoint("TOPLEFT", realmDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
+    b:SetPoint("LEFT", realmDropdown, "LEFT", 2, 0)
+    b:SetPoint("RIGHT", realmDropdown, "RIGHT", -2, 0)
+    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
+    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    t:SetPoint("LEFT", b, "LEFT", 4, 0)
+    t:SetText(REALM_FILTER_LABELS[opt] or opt)
+    b.option = opt
+    b:SetScript("OnClick", function()
+        GetGearSettings().realmFilter = opt
+        realmDropdown:Hide()
+        btnRealmText:SetText("Realm: " .. (REALM_FILTER_LABELS[opt] or opt))
+        if frame.RefreshGrid then frame:RefreshGrid() end
+        if gearCharListRefresh then gearCharListRefresh() end
     end)
-    for _, row in pairs(charListRowPool) do
-        row:Hide()
-    end
-    local n = #list
-    charListChild:SetWidth(charListScroll:GetWidth() or 350)
-    charListChild:SetHeight(math.max(1, n * CHAR_LIST_ROW))
-    for i = 1, n do
-        local entry = list[i]
-        local row = GetCharListRow(i)
-        row:Show()
-        row.nameText:SetText(entry.name or "?")
-        if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
-            local rc = RAID_CLASS_COLORS[entry.classFile]
-            row.nameText:SetTextColor(rc.r, rc.g, rc.b, 1)
-        else
-            row.nameText:SetTextColor(1, 0.82, 0, 1)
-        end
-        row.entry = entry
-        local pin = GetCharSetting(entry.name, entry.realm, "pin")
-        local hide = GetCharSetting(entry.name, entry.realm, "hide")
-        row.pinBtn:SetChecked(pin)
-        row.hideBtn:SetChecked(hide)
-        row.pinBtn:SetScript("OnClick", function()
-            local newPin = not GetCharSetting(entry.name, entry.realm, "pin")
-            SetCharSetting(entry.name, entry.realm, newPin, false)
-            row.pinBtn:SetChecked(newPin)
-            row.hideBtn:SetChecked(false)
+end
+btnRealm:SetScript("OnClick", function()
+    realmDropdown:SetShown(not realmDropdown:IsShown())
+    primaryDropdown:Hide()
+    secondaryDropdown:Hide()
+end)
+
+-- Character list: Pin/Hide (reusable component from UI/CharacterPinHideList.lua)
+if AltArmy.CreateCharacterPinHideList then
+    -- luacheck: push ignore 211
+    local _scroll, refresh = AltArmy.CreateCharacterPinHideList(sortingContent, btnRealm, {
+        getSettings = GetGearSettings,
+        getCharSetting = GetCharSetting,
+        setCharSetting = SetCharSetting,
+        onChange = function()
             if frame.RefreshGrid then frame:RefreshGrid() end
-        end)
-        row.hideBtn:SetScript("OnClick", function()
-            local newHide = not GetCharSetting(entry.name, entry.realm, "hide")
-            SetCharSetting(entry.name, entry.realm, false, newHide)
-            row.hideBtn:SetChecked(newHide)
-            row.pinBtn:SetChecked(false)
-            if frame.RefreshGrid then frame:RefreshGrid() end
-        end)
-    end
+        end,
+    })
+    if refresh then gearCharListRefresh = refresh end
+    -- luacheck: pop
 end
 
 -- Close dropdowns when clicking outside
@@ -1417,6 +1397,7 @@ settingsPanel:SetScript("OnHide", function()
     spacingDropdown:Hide()
     primaryDropdown:Hide()
     secondaryDropdown:Hide()
+    realmDropdown:Hide()
 end)
 
 function frame:IsGearSettingsShown()
@@ -1453,11 +1434,12 @@ function frame:ToggleGearSettings(_self)
         btnSpacingText:SetText("Spacing: " .. (s.spacing or "Comfortable"))
         btnPrimaryText:SetText("Primary Sort: " .. s.primarySort)
         btnSecondaryText:SetText("Secondary Sort: " .. s.secondarySort)
+        btnRealmText:SetText("Realm: " .. (REALM_FILTER_LABELS[s.realmFilter] or s.realmFilter or "All Characters"))
         showSelfFirstCheck:SetChecked(s.showSelfFirst)
         if AltArmy.Characters and AltArmy.Characters.InvalidateView then
             AltArmy.Characters:InvalidateView()
         end
-        settingsPanel:RefreshCharacterList()
+        if gearCharListRefresh then gearCharListRefresh() end
     end
 
     if frame.RefreshGrid then frame:RefreshGrid() end

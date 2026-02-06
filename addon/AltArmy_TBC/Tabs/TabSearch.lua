@@ -1,7 +1,10 @@
 -- AltArmy TBC — Search tab: item search across characters (bags + bank).
 
 local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Search
-if not frame then return end
+if not frame then
+    print("[AltArmy] TabSearch: frame is nil (AltArmy or TabFrames.Search missing), returning early")
+    return
+end
 
 local PAD = 4
 local ROW_HEIGHT = 18
@@ -15,7 +18,22 @@ local ITEM_POOL_SIZE = 32
 local RECIPE_POOL_SIZE = 32
 
 local SD = AltArmy.SearchData
-if not SD or not SD.SearchWithLocationGroups or not SD.SearchRecipes then return end
+if not SD or not SD.SearchWithLocationGroups or not SD.SearchRecipes then
+    print("[AltArmy] TabSearch: SearchData missing or missing SearchWithLocationGroups/SearchRecipes, returning early")
+    return
+end
+print("[AltArmy] TabSearch: loaded, frame and SearchData OK")
+
+local REALM_FILTER_OPTIONS = { "all", "currentRealm" }
+local REALM_FILTER_LABELS = { all = "All Characters", currentRealm = "Current Realm Only" }
+local function GetSearchSettings()
+    AltArmyTBC_SearchSettings = AltArmyTBC_SearchSettings or {}
+    local s = AltArmyTBC_SearchSettings
+    if s.realmFilter ~= "all" and s.realmFilter ~= "currentRealm" then
+        s.realmFilter = "all"
+    end
+    return s
+end
 
 -- Insert item link into chat (same as shift-clicking item in bags)
 local function InsertItemLinkIntoChat(itemLinkOrID)
@@ -59,6 +77,46 @@ local colWidths = { Item = 325, Character = 160, Total = 70 }  -- items table (f
 local colOrder = { "Item", "Character", "Total" }
 local recipeColWidths = { Recipe = 325, Character = 160, Skill = 70 }  -- first col -5
 local recipeColOrder = { "Recipe", "Character", "Skill" }
+
+--- Truncate name part only; suffix (e.g. " (Bags)") is never truncated. Sets cell to truncatedName + suffix.
+--- @param cell FontString
+--- @param namePartColored string Colored name (e.g. |cFFrrggbbName-Realm|r)
+--- @param suffixText string|nil Optional suffix (e.g. |cFFFFFFFF (Bags)|r); if nil, truncate whole namePart.
+--- @param maxTotalWidth number Cell width
+local function SetCharacterCellTruncated(cell, namePartColored, suffixText, maxTotalWidth)
+    local maxNameW = maxTotalWidth - 2
+    if suffixText and suffixText ~= "" then
+        cell:SetText(suffixText)
+        maxNameW = maxNameW - cell:GetStringWidth()
+        if maxNameW < 10 then maxNameW = 10 end
+    end
+    local prefix = namePartColored:match("^|c%x%x%x%x%x%x%x%x")
+    local visible
+    if prefix and #namePartColored >= 12 and namePartColored:sub(-2) == "|r" then
+        visible = namePartColored:sub(11, -3)
+    else
+        prefix = ""
+        visible = namePartColored
+    end
+    if visible == "" then
+        cell:SetText((suffixText and suffixText or ""))
+        return
+    end
+    cell:SetText(prefix .. visible .. (prefix ~= "" and "|r" or ""))
+    if cell:GetStringWidth() <= maxNameW then
+        cell:SetText(prefix .. visible .. (prefix ~= "" and "|r" or "") .. (suffixText or ""))
+        return
+    end
+    for len = #visible - 1, 1, -1 do
+        local truncated = visible:sub(1, len) .. "..."
+        cell:SetText(prefix .. truncated .. (prefix ~= "" and "|r" or ""))
+        if cell:GetStringWidth() <= maxNameW then
+            cell:SetText(prefix .. truncated .. (prefix ~= "" and "|r" or "") .. (suffixText or ""))
+            return
+        end
+    end
+    cell:SetText(prefix .. "..." .. (prefix ~= "" and "|r" or "") .. (suffixText or ""))
+end
 
 -- Scroll frame (viewport for results; section headers live inside scroll)
 local scrollFrame = CreateFrame("ScrollFrame", "AltArmyTBC_SearchScrollFrame", frame)
@@ -182,6 +240,7 @@ local function createItemRow()
         cell:SetWidth(w)
         cell:SetJustifyH(colName == "Item" and "LEFT" or "RIGHT")
         cell:SetNonSpaceWrap(false)
+        if colName == "Character" then cell:SetWordWrap(false) end
         row.cells[colName] = cell
         cx = cx + w
     end
@@ -225,6 +284,7 @@ local function createRecipeRow()
         cell:SetWidth(w)
         cell:SetJustifyH(colName == "Recipe" and "LEFT" or "RIGHT")
         cell:SetNonSpaceWrap(false)
+        if colName == "Character" then cell:SetWordWrap(false) end
         row.cells[colName] = cell
         cx = cx + w
     end
@@ -257,7 +317,7 @@ local function createRecipeRow()
     return row
 end
 
-local function fillItemRow(row, entry)
+local function fillItemRow(row, entry, showRealmSuffix)
     if not row or not entry then return end
     row.entry = entry
     local count = entry.count or 1
@@ -278,13 +338,21 @@ local function fillItemRow(row, entry)
         local c = RAID_CLASS_COLORS[classFile]
         r, g, b = c.r, c.g, c.b
     end
-    local R, G, B = math.floor(r * 255), math.floor(g * 255), math.floor(b * 255)
-    local srcText = string.format("|cFF%02x%02x%02x%s|r|cFFFFFFFF (%s)|r", R, G, B, name, locLabel)
-    row.cells.Character:SetText(srcText)
+    local RF = AltArmy.RealmFilter
+    local namePart
+    local suffixText = "|cFFFFFFFF (" .. locLabel .. ")|r"
+    if showRealmSuffix and RF and RF.formatCharacterDisplayNameColored and RF.formatCharacterDisplayName then
+        namePart = RF.formatCharacterDisplayNameColored(
+                RF.formatCharacterDisplayName(name, entry.realm, true), nil, false, r, g, b)
+    else
+        local R, G, B = math.floor(r * 255), math.floor(g * 255), math.floor(b * 255)
+        namePart = string.format("|cFF%02x%02x%02x%s|r", R, G, B, name)
+    end
+    SetCharacterCellTruncated(row.cells.Character, namePart, suffixText, colWidths.Character or 160)
     row.cells.Total:SetText("")
 end
 
-local function fillRecipeRow(row, entry)
+local function fillRecipeRow(row, entry, showRealmSuffix)
     if not row or not entry then return end
     row.entry = entry
     local recipeName = "Recipe " .. tostring(entry.recipeID or "?")
@@ -320,8 +388,16 @@ local function fillRecipeRow(row, entry)
         local c = RAID_CLASS_COLORS[entry.classFile]
         r, g, b = c.r, c.g, c.b
     end
-    local R, G, B = math.floor(r * 255), math.floor(g * 255), math.floor(b * 255)
-    row.cells.Character:SetText(string.format("|cFF%02x%02x%02x%s|r", R, G, B, name))
+    local RF = AltArmy.RealmFilter
+    local namePart
+    if showRealmSuffix and RF and RF.formatCharacterDisplayNameColored and RF.formatCharacterDisplayName then
+        namePart = RF.formatCharacterDisplayNameColored(
+                RF.formatCharacterDisplayName(name, entry.realm, true), nil, false, r, g, b)
+    else
+        local R, G, B = math.floor(r * 255), math.floor(g * 255), math.floor(b * 255)
+        namePart = string.format("|cFF%02x%02x%02x%s|r", R, G, B, name)
+    end
+    SetCharacterCellTruncated(row.cells.Character, namePart, nil, recipeColWidths.Character or 160)
     row.cells.Skill:SetText(tostring(entry.skillRank or 0))
 end
 
@@ -330,6 +406,12 @@ UpdateVisibleRows = function()
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     local nItems = categories.Items and #itemList or 0
     local nRecipes = categories.Recipes and #recipeList or 0
+    local RF = AltArmy.RealmFilter
+    local combinedForRealms = {}
+    for i = 1, nItems do combinedForRealms[#combinedForRealms + 1] = itemList[i] end
+    for i = 1, nRecipes do combinedForRealms[#combinedForRealms + 1] = recipeList[i] end
+    local showRealmSuffix = (GetSearchSettings().realmFilter == "all")
+        and RF and RF.hasMultipleRealms and RF.hasMultipleRealms(combinedForRealms)
     local scrollValue = searchScrollBar and searchScrollBar:GetValue() or 0
     local viewHeight = scrollFrame:GetHeight()
     local itemsSectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
@@ -360,7 +442,7 @@ UpdateVisibleRows = function()
                 row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
                 row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
                 row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - ROW_HEIGHT)
-                fillItemRow(row, entry)
+                fillItemRow(row, entry, showRealmSuffix)
                 row:Show()
                 row.dataIndex = dataIndex
             else
@@ -450,7 +532,7 @@ UpdateVisibleRows = function()
                 row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
                 row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
                 row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - ROW_HEIGHT)
-                fillRecipeRow(row, entry)
+                fillRecipeRow(row, entry, showRealmSuffix)
                 row:Show()
             else
                 row:Hide()
@@ -545,6 +627,7 @@ local function UpdateResults()
 end
 
 function frame.DoSearch()
+    print("[AltArmy] TabSearch DoSearch called")
     local query = ""
     if searchEdit then
         query = searchEdit:GetText()
@@ -553,6 +636,13 @@ function frame.DoSearch()
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     itemList = (categories.Items and query ~= "") and (SD.SearchWithLocationGroups(query) or {}) or {}
     recipeList = (categories.Recipes and query ~= "") and (SD.SearchRecipes(query) or {}) or {}
+    local RF = AltArmy.RealmFilter
+    local currentRealm = (GetRealmName and GetRealmName()) or ""
+    local s = GetSearchSettings()
+    if RF and RF.filterListByRealm then
+        itemList = RF.filterListByRealm(itemList, s.realmFilter or "all", currentRealm)
+        recipeList = RF.filterListByRealm(recipeList, s.realmFilter or "all", currentRealm)
+    end
     UpdateResults()
     if searchScrollBar then searchScrollBar:SetValue(0) end
     scrollFrame:SetVerticalScroll(0)
@@ -560,7 +650,9 @@ end
 
 -- Expose for header search box: run search with query directly
 function frame.SearchWithQuery(_self, query)
+    print("[AltArmy] TabSearch SearchWithQuery called, query='" .. tostring(query) .. "'")
     local q = (query and type(query) == "string") and query:match("^%s*(.-)%s*$") or ""
+    frame.lastQuery = q
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     if q == "" then
         itemList = {}
@@ -569,13 +661,128 @@ function frame.SearchWithQuery(_self, query)
         itemList = categories.Items and (SD.SearchWithLocationGroups(q) or {}) or {}
         recipeList = categories.Recipes and (SD.SearchRecipes(q) or {}) or {}
     end
+    local RF = AltArmy.RealmFilter
+    local currentRealm = (GetRealmName and GetRealmName()) or ""
+    local s = GetSearchSettings()
+    if RF and RF.filterListByRealm then
+        itemList = RF.filterListByRealm(itemList, s.realmFilter or "all", currentRealm)
+        recipeList = RF.filterListByRealm(recipeList, s.realmFilter or "all", currentRealm)
+    end
     UpdateResults()
     if searchScrollBar then searchScrollBar:SetValue(0) end
     scrollFrame:SetVerticalScroll(0)
     if searchEdit and searchEdit.SetText then
         searchEdit:SetText(query or "")
     end
+    local ni, nr = #itemList, #recipeList
+    print("[AltArmy] TabSearch SearchWithQuery done, items=" .. tostring(ni) .. " recipes=" .. tostring(nr))
 end
+
+-- Search settings panel (right 40% when visible); defined after UpdateVisibleRows
+local SEARCH_SETTINGS_SPLIT = 0.6
+local searchSettingsPanel = CreateFrame("Frame", nil, frame)
+local function ApplySearchSettingsPanelLayout()
+    local w = frame:GetWidth()
+    if w <= 0 then return end
+    searchSettingsPanel:ClearAllPoints()
+    searchSettingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * SEARCH_SETTINGS_SPLIT + PAD, -PAD)
+    searchSettingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", w * SEARCH_SETTINGS_SPLIT + PAD, PAD)
+    searchSettingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -PAD)
+    searchSettingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+end
+ApplySearchSettingsPanelLayout()
+searchSettingsPanel:Hide()
+local searchPanelBg = searchSettingsPanel:CreateTexture(nil, "BACKGROUND")
+searchPanelBg:SetAllPoints(searchSettingsPanel)
+searchPanelBg:SetColorTexture(0.18, 0.18, 0.22, 0.98)
+local SETTINGS_TITLE_HEIGHT = 26
+local searchSettingsTitle = searchSettingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+searchSettingsTitle:SetPoint("TOPLEFT", searchSettingsPanel, "TOPLEFT", 0, 0)
+searchSettingsTitle:SetPoint("TOPRIGHT", searchSettingsPanel, "TOPRIGHT", 0, 0)
+searchSettingsTitle:SetJustifyH("LEFT")
+searchSettingsTitle:SetText("Search Settings")
+local SETTINGS_ROW_HEIGHT = 22
+local btnSearchRealm = CreateFrame("Button", nil, searchSettingsPanel)
+btnSearchRealm:SetPoint("TOPLEFT", searchSettingsPanel, "TOPLEFT", 0, -SETTINGS_TITLE_HEIGHT)
+btnSearchRealm:SetPoint("TOPRIGHT", searchSettingsPanel, "TOPRIGHT", 0, 0)
+btnSearchRealm:SetHeight(SETTINGS_ROW_HEIGHT)
+local btnSearchRealmBg = btnSearchRealm:CreateTexture(nil, "BACKGROUND")
+btnSearchRealmBg:SetAllPoints(btnSearchRealm)
+btnSearchRealmBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
+local btnSearchRealmText = btnSearchRealm:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+btnSearchRealmText:SetPoint("LEFT", btnSearchRealm, "LEFT", 4, 0)
+btnSearchRealmText:SetPoint("RIGHT", btnSearchRealm, "RIGHT", -4, 0)
+btnSearchRealmText:SetJustifyH("LEFT")
+local searchRealmDropdown = CreateFrame("Frame", nil, searchSettingsPanel)
+searchRealmDropdown:SetPoint("TOPLEFT", btnSearchRealm, "BOTTOMLEFT", 0, -2)
+searchRealmDropdown:SetPoint("TOPRIGHT", btnSearchRealm, "BOTTOMRIGHT", 0, 0)
+searchRealmDropdown:SetHeight(#REALM_FILTER_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
+searchRealmDropdown:SetFrameLevel(searchSettingsPanel:GetFrameLevel() + 100)
+searchRealmDropdown:Hide()
+local searchRealmDropdownBg = searchRealmDropdown:CreateTexture(nil, "BACKGROUND")
+searchRealmDropdownBg:SetAllPoints(searchRealmDropdown)
+searchRealmDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
+for idx, opt in ipairs(REALM_FILTER_OPTIONS) do
+    local b = CreateFrame("Button", nil, searchRealmDropdown)
+    b:SetPoint("TOPLEFT", searchRealmDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
+    b:SetPoint("LEFT", searchRealmDropdown, "LEFT", 2, 0)
+    b:SetPoint("RIGHT", searchRealmDropdown, "RIGHT", -2, 0)
+    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
+    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    t:SetPoint("LEFT", b, "LEFT", 4, 0)
+    t:SetText(REALM_FILTER_LABELS[opt] or opt)
+    b.option = opt
+    b:SetScript("OnClick", function()
+        GetSearchSettings().realmFilter = opt
+        searchRealmDropdown:Hide()
+        btnSearchRealmText:SetText(REALM_FILTER_LABELS[opt] or opt)
+        if frame.lastQuery and frame.lastQuery ~= "" and frame.SearchWithQuery then
+            frame:SearchWithQuery(frame.lastQuery)
+        end
+        UpdateVisibleRows()
+    end)
+end
+btnSearchRealm:SetScript("OnClick", function()
+    searchRealmDropdown:SetShown(not searchRealmDropdown:IsShown())
+end)
+searchSettingsPanel:SetScript("OnHide", function()
+    searchRealmDropdown:Hide()
+end)
+
+function frame:IsSearchSettingsShown()
+    return searchSettingsPanel and searchSettingsPanel:IsShown()
+end
+
+function frame:ToggleSearchSettings(_self)
+    local showSettings = not searchSettingsPanel:IsShown()
+    searchSettingsPanel:SetShown(showSettings)
+    if showSettings then
+        ApplySearchSettingsPanelLayout()
+        btnSearchRealmText:SetText(REALM_FILTER_LABELS[GetSearchSettings().realmFilter] or "All Characters")
+    end
+    local panelLeftX = -PAD - SCROLL_BAR_RIGHT_OFFSET - 4
+    if showSettings then
+        scrollFrame:SetPoint("BOTTOMRIGHT", searchSettingsPanel, "BOTTOMLEFT", panelLeftX, PAD)
+        searchScrollBar:SetPoint("TOPRIGHT", searchSettingsPanel, "TOPRIGHT", panelLeftX, -(PAD + SCROLL_BAR_TOP_INSET))
+        searchScrollBar:SetPoint("BOTTOMRIGHT", searchSettingsPanel, "BOTTOMRIGHT", panelLeftX, SCROLL_BAR_BOTTOM_INSET)
+    else
+        scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - 20, PAD)
+        searchScrollBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET, -(PAD + SCROLL_BAR_TOP_INSET))
+        searchScrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET, SCROLL_BAR_BOTTOM_INSET)
+    end
+    if scrollFrame.UpdateScrollChildRect then scrollFrame:UpdateScrollChildRect() end
+    UpdateVisibleRows()
+end
+
+frame:SetScript("OnSizeChanged", function()
+    if searchSettingsPanel and searchSettingsPanel:IsShown() then
+        ApplySearchSettingsPanelLayout()
+        local panelLeftX = -PAD - SCROLL_BAR_RIGHT_OFFSET - 4
+        scrollFrame:SetPoint("BOTTOMRIGHT", searchSettingsPanel, "BOTTOMLEFT", panelLeftX, PAD)
+        searchScrollBar:SetPoint("TOPRIGHT", searchSettingsPanel, "TOPRIGHT", panelLeftX, -(PAD + SCROLL_BAR_TOP_INSET))
+        searchScrollBar:SetPoint("BOTTOMRIGHT", searchSettingsPanel, "BOTTOMRIGHT", panelLeftX, SCROLL_BAR_BOTTOM_INSET)
+    end
+end)
 
 -- Initial empty state
 UpdateResults()

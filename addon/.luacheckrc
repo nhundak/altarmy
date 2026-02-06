@@ -13,6 +13,8 @@ globals = {
     "AltArmyTBC_Data",
     "AltArmyTBC_Options",
     "AltArmyTBC_GearSettings",
+    "AltArmyTBC_SummarySettings",
+    "AltArmyTBC_SearchSettings",
     "UISpecialFrames",
     "SLASH_ALTARMY1",
     "SlashCmdList",

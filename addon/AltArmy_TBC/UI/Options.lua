@@ -1,21 +1,17 @@
 -- AltArmy TBC — Options in WoW's Interface Options (AddOns list).
--- SavedVariables: AltArmyTBC_Options (debug, showMinimapButton).
+-- SavedVariables: AltArmyTBC_Options (showMinimapButton, minimapAngle).
 
 -- Apply defaults and current option state
 local function ensureDefaults()
     if not AltArmyTBC_Options then
         AltArmyTBC_Options = {}
         AltArmy.firstRun = true
-        AltArmyTBC_Options.debug = true  -- on first run, show logs so user sees addon loaded
     end
     if AltArmyTBC_Options.showMinimapButton == nil then
         AltArmyTBC_Options.showMinimapButton = true
     end
     if AltArmyTBC_Options.minimapAngle == nil then
         AltArmyTBC_Options.minimapAngle = 90  -- degrees; 90 = top
-    end
-    if AltArmyTBC_Options.debug == nil then
-        AltArmyTBC_Options.debug = true
     end
 end
 
@@ -43,30 +39,30 @@ panel.cancel = function()
 end
 panel.default = function()
     AltArmyTBC_Options.showMinimapButton = true
-    AltArmyTBC_Options.debug = false
     applyMinimapOption()
-    if panel.debugCheckbox then
-        panel.debugCheckbox:SetChecked(false)
+    if panel.minimapCheckbox then
+        panel.minimapCheckbox:SetChecked(true)
     end
 end
 panel.refresh = function()
     ensureDefaults()
-    if panel.debugCheckbox then
-        panel.debugCheckbox:SetChecked(AltArmyTBC_Options.debug)
+    if panel.minimapCheckbox then
+        panel.minimapCheckbox:SetChecked(AltArmyTBC_Options.showMinimapButton)
     end
 end
 
--- Checkbox: Enable debug logging (only option on this page for now)
-local debugCheckbox = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
-debugCheckbox:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -16)
-debugCheckbox:SetScript("OnClick", function()
-    AltArmyTBC_Options.debug = debugCheckbox:GetChecked()
+-- Checkbox: Show Minimap Button (default on)
+local minimapCheckbox = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
+minimapCheckbox:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -16)
+minimapCheckbox:SetScript("OnClick", function()
+    AltArmyTBC_Options.showMinimapButton = minimapCheckbox:GetChecked()
+    applyMinimapOption()
 end)
-panel.debugCheckbox = debugCheckbox
+panel.minimapCheckbox = minimapCheckbox
 
-local debugLabel = debugCheckbox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-debugLabel:SetPoint("LEFT", debugCheckbox, "RIGHT", 4, 0)
-debugLabel:SetText("Enable debug logging")
+local minimapLabel = minimapCheckbox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+minimapLabel:SetPoint("LEFT", minimapCheckbox, "RIGHT", 4, 0)
+minimapLabel:SetText("Show Minimap Button")
 
 -- Register with WoW's options when the UI is ready. Support both:
 -- 1) New Settings API (Dragonflight-style): Esc → Settings → AddOns → AltArmy
