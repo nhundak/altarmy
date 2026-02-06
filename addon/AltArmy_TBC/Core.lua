@@ -18,6 +18,8 @@ local TAB_HEIGHT = 22
 local CONTENT_INSET = 8
 
 local setActiveTab -- forward-declare so header search scripts can call it
+local UpdateSettingsButtonGlow -- forward-declare; defined after settings buttons exist
+local searchSettingsBtn -- forward-declare; created with search results bar
 local searchModeHandlers = {}  -- enterSearchMode impl registered later (avoids nil if load errors)
 local function enterSearchMode(trimmed)
     local fn = searchModeHandlers.enterSearchMode
@@ -195,6 +197,7 @@ setActiveTab = function(tabName)
             tabStrip.summarySettingsBtn:Hide()
         end
     end
+    UpdateSettingsButtonGlow()
 end
 
 local TAB_BTN_MIN_WIDTH = 72
@@ -245,17 +248,47 @@ tabStrip.buttons["Gear"]:SetScript("OnClick", function()
     end
 end)
 
+-- Glow texture for settings buttons when their panel is active (shown behind icon)
+local function addSettingsButtonGlow(btn)
+    local glow = btn:CreateTexture(nil, "BACKGROUND")
+    glow:SetPoint("TOPLEFT", btn, "TOPLEFT", -3, 3)
+    glow:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 3, -3)
+    glow:SetColorTexture(1, 0.82, 0.2, 0.55)
+    glow:Hide()
+    btn.glow = glow
+end
+
+UpdateSettingsButtonGlow = function()
+    if tabStrip.gearSettingsBtn and tabStrip.gearSettingsBtn:IsShown() and tabStrip.gearSettingsBtn.glow then
+        local active = AltArmy.TabFrames.Gear and AltArmy.TabFrames.Gear.IsGearSettingsShown
+            and AltArmy.TabFrames.Gear:IsGearSettingsShown()
+        tabStrip.gearSettingsBtn.glow:SetShown(active)
+    end
+    if tabStrip.summarySettingsBtn and tabStrip.summarySettingsBtn:IsShown() and tabStrip.summarySettingsBtn.glow then
+        local active = AltArmy.TabFrames.Summary and AltArmy.TabFrames.Summary.IsSummarySettingsShown
+            and AltArmy.TabFrames.Summary:IsSummarySettingsShown()
+        tabStrip.summarySettingsBtn.glow:SetShown(active)
+    end
+    if searchSettingsBtn and searchSettingsBtn:IsShown() and searchSettingsBtn.glow then
+        local active = AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.IsSearchSettingsShown
+            and AltArmy.TabFrames.Search:IsSearchSettingsShown()
+        searchSettingsBtn.glow:SetShown(active)
+    end
+end
+
 -- Gear tab settings icon (top right of tab strip; visible only when Gear tab is active)
 local gearSettingsBtn = CreateFrame("Button", nil, tabStrip)
 gearSettingsBtn:SetPoint("TOPRIGHT", tabStrip, "TOPRIGHT", 0, 0)
 gearSettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
 gearSettingsBtn:Hide()
+addSettingsButtonGlow(gearSettingsBtn)
 local gearSettingsIcon = gearSettingsBtn:CreateTexture(nil, "ARTWORK")
 gearSettingsIcon:SetAllPoints(gearSettingsBtn)
 gearSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
 gearSettingsBtn:SetScript("OnClick", function()
     if AltArmy.TabFrames.Gear and AltArmy.TabFrames.Gear.ToggleGearSettings then
         AltArmy.TabFrames.Gear:ToggleGearSettings()
+        UpdateSettingsButtonGlow()
     end
 end)
 tabStrip.gearSettingsBtn = gearSettingsBtn
@@ -265,12 +298,14 @@ local summarySettingsBtn = CreateFrame("Button", nil, tabStrip)
 summarySettingsBtn:SetPoint("TOPRIGHT", tabStrip, "TOPRIGHT", 0, 0)
 summarySettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
 summarySettingsBtn:Hide()
+addSettingsButtonGlow(summarySettingsBtn)
 local summarySettingsIcon = summarySettingsBtn:CreateTexture(nil, "ARTWORK")
 summarySettingsIcon:SetAllPoints(summarySettingsBtn)
 summarySettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
 summarySettingsBtn:SetScript("OnClick", function()
     if AltArmy.TabFrames.Summary and AltArmy.TabFrames.Summary.ToggleSummarySettings then
         AltArmy.TabFrames.Summary:ToggleSummarySettings()
+        UpdateSettingsButtonGlow()
     end
 end)
 tabStrip.summarySettingsBtn = summarySettingsBtn
@@ -319,6 +354,7 @@ searchModeHandlers.enterSearchMode = function(trimmed)
             AltArmy.TabFrames.Search:SearchWithQuery(trimmed)
         end
     end
+    UpdateSettingsButtonGlow()
 end
 
 -- Search category filter checkboxes (replace tab strip when in search mode)
@@ -378,15 +414,17 @@ local recipesLabel = recipesLabelFrame:CreateFontString(nil, "OVERLAY", "GameFon
 recipesLabel:SetPoint("LEFT", recipesLabelFrame, "LEFT", 0, 0)
 recipesLabel:SetText("Recipes")
 -- Search settings gear (top right of search results bar; visible when in search mode)
-local searchSettingsBtn = CreateFrame("Button", nil, searchResultsLabel)
+searchSettingsBtn = CreateFrame("Button", nil, searchResultsLabel)
 searchSettingsBtn:SetPoint("TOPRIGHT", searchResultsLabel, "TOPRIGHT", 0, 0)
 searchSettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
+addSettingsButtonGlow(searchSettingsBtn)
 local searchSettingsIcon = searchSettingsBtn:CreateTexture(nil, "ARTWORK")
 searchSettingsIcon:SetAllPoints(searchSettingsBtn)
 searchSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
 searchSettingsBtn:SetScript("OnClick", function()
     if AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.ToggleSearchSettings then
         AltArmy.TabFrames.Search:ToggleSearchSettings()
+        UpdateSettingsButtonGlow()
     end
 end)
 
