@@ -76,16 +76,22 @@ jobs:
             CHANGELOG_FILE="CHANGELOG.txt"
           fi
           GAME_VERSIONS_JSON=$(echo "${{ vars.CURSEFORGE_GAME_VERSIONS }}" | jq -R 'split(",") | map(gsub(" "; "") | tonumber)')
-          API_URL="https://wow.curseforge.com/api/projects/${{ vars.CURSEFORGE_PROJECT_ID }}/upload-file"
+          # wow.curseforge.com and www.curseforge.com are behind CloudFront and block POST. Use authors subdomain.
+          API_URL="https://authors.curseforge.com/api/projects/${{ vars.CURSEFORGE_PROJECT_ID }}/upload-file"
           METADATA=$(jq -n \
             --arg displayName "$DISPLAY_NAME" \
             --arg releaseType "$RELEASE_TYPE" \
             --argjson gameVersions "$GAME_VERSIONS_JSON" \
             --rawfile changelog "$CHANGELOG_FILE" \
             '{displayName: $displayName, changelog: $changelog, changelogType: "text", releaseType: $releaseType, gameVersions: $gameVersions}')
-          curl -f -S -L -X POST \
+          HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/curseforge_response.txt -L -X POST \
             -H "X-Api-Token: ${{ secrets.CURSEFORGE_API_TOKEN }}" \
             -F "metadata=$METADATA" \
             -F "file=@$ZIP_FILE_NAME" \
-            "$API_URL"
-          echo "Uploaded $ZIP_FILE_NAME as $RELEASE_TYPE"
+            "$API_URL")
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "CurseForge API returned HTTP $HTTP_CODE. Response:"
+            cat /tmp/curseforge_response.txt
+            exit 1
+          fi
+          echo "Uploaded $ZIP_FILE_NAME as $RELEASE_TYPE (HTTP $HTTP_CODE)"

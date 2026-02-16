@@ -174,6 +174,32 @@ The workflow **`.github/workflows/release.yml`** is in place. Do the following t
 
 ---
 
+## Troubleshooting
+
+### Upload returns 403 (CloudFront: “only cachable requests”)
+
+If the response body mentions **CloudFront** and “only cachable requests” or “HTTP request method,” the CDN in front of that host is blocking **POST**. The workflow uses **https://authors.curseforge.com/api/...** for uploads (the author dashboard host), since **wow.curseforge.com** and **www.curseforge.com** both block POST at the CDN. If you still get this on authors.curseforge.com, CurseForge may have locked down direct upload API access; in that case use **Option A** (repository webhook + `pkgmeta.yaml`), which triggers packaging via a **GET** request and does not require POST.
+
+### Upload returns 403 Forbidden (auth/permission)
+
+A **403** without the CloudFront message usually means authentication or permission:
+
+1. **Use the right token**
+   - The token must be an **author API token**, created at [CurseForge API tokens](https://www.curseforge.com/account/api-tokens) (or [authors-old.curseforge.com/account/api-tokens](https://authors-old.curseforge.com/account/api-tokens)).
+   - Do **not** use a “3rd Party Developers” API key from the Overwolf application form; that’s for other kinds of apps.
+
+2. **You must be an author on the project**
+   - The account that created the token must be listed as an **Author** or **Maintainer** on the CurseForge project.
+   - Check the project’s **Authors** tab and add your account if needed.
+
+3. **Project ID and site**
+   - `CURSEFORGE_PROJECT_ID` must be the numeric ID of your **WoW** addon project (from the project’s Overview / URL on [wow.curseforge.com](https://wow.curseforge.com) or the “About this project” area). Using an ID from another game (e.g. Minecraft) will fail.
+
+4. **See the API’s error message**
+   - The workflow now prints CurseForge’s response body when the upload fails. Re-run the job and check the “Upload to CurseForge” step log; the body may give a more specific reason.
+
+---
+
 ## References
 
 - [CurseForge automatic packaging](https://support.curseforge.com/support/solutions/articles/9000197281-automatic-packaging) — webhook, pkgmeta, tokens, alpha/beta/release.
