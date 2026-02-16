@@ -1,0 +1,91 @@
+# CurseForge Release — build addon zip and upload via API
+# Requires: CURSEFORGE_API_TOKEN (secret), CURSEFORGE_PROJECT_ID, CURSEFORGE_DISPLAY_NAME, CURSEFORGE_GAME_VERSIONS (vars)
+
+name: CurseForge Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Release type"
+        required: true
+        default: "release"
+        type: choice
+        options:
+          - release
+          - beta
+          - alpha
+
+env:
+  CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            ADDON_VERSION="${GITHUB_REF#refs/tags/}"
+            ADDON_VERSION="${ADDON_VERSION#v}"
+          else
+            ADDON_VERSION=$(grep -oP "## Version: \K[^\r\n ]+" AltArmy_TBC/AltArmy_TBC.toc || true)
+            [ -z "$ADDON_VERSION" ] && ADDON_VERSION="0.0.0"
+          fi
+          echo "ADDON_VERSION=$ADDON_VERSION" >> $GITHUB_ENV
+          echo "version=$ADDON_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Set release type
+        id: release_type
+        run: |
+          if [[ "${{ github.event.inputs.release_type }}" != "" ]]; then
+            RELEASE_TYPE="${{ github.event.inputs.release_type }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            if [[ "$TAG" == *alpha* ]]; then RELEASE_TYPE="alpha"
+            elif [[ "$TAG" == *beta* ]]; then RELEASE_TYPE="beta"
+            else RELEASE_TYPE="release"
+            fi
+          else
+            RELEASE_TYPE="alpha"
+          fi
+          echo "RELEASE_TYPE=$RELEASE_TYPE" >> $GITHUB_ENV
+          echo "release_type=$RELEASE_TYPE" >> $GITHUB_OUTPUT
+
+      - name: Build zip
+        run: |
+          DISPLAY_NAME="${{ vars.CURSEFORGE_DISPLAY_NAME }} v$ADDON_VERSION"
+          ZIP_FILE_NAME="AltArmy_TBC-$ADDON_VERSION.zip"
+          zip -r -9 "$ZIP_FILE_NAME" AltArmy_TBC/
+          echo "DISPLAY_NAME=$DISPLAY_NAME" >> $GITHUB_ENV
+          echo "ZIP_FILE_NAME=$ZIP_FILE_NAME" >> $GITHUB_ENV
+
+      - name: Upload to CurseForge
+        run: |
+          if [ -f CHANGELOG.txt ]; then
+            CHANGELOG_FILE="CHANGELOG.txt"
+          else
+            echo "See repository for changes." > CHANGELOG.txt
+            CHANGELOG_FILE="CHANGELOG.txt"
+          fi
+          GAME_VERSIONS_JSON=$(echo "${{ vars.CURSEFORGE_GAME_VERSIONS }}" | jq -R 'split(",") | map(gsub(" "; "") | tonumber)')
+          API_URL="https://wow.curseforge.com/api/projects/${{ vars.CURSEFORGE_PROJECT_ID }}/upload-file"
+          METADATA=$(jq -n \
+            --arg displayName "$DISPLAY_NAME" \
+            --arg releaseType "$RELEASE_TYPE" \
+            --argjson gameVersions "$GAME_VERSIONS_JSON" \
+            --rawfile changelog "$CHANGELOG_FILE" \
+            '{displayName: $displayName, changelog: $changelog, changelogType: "text", releaseType: $releaseType, gameVersions: $gameVersions}')
+          curl -f -S -L -X POST \
+            -H "X-Api-Token: ${{ secrets.CURSEFORGE_API_TOKEN }}" \
+            -F "metadata=$METADATA" \
+            -F "file=@$ZIP_FILE_NAME" \
+            "$API_URL"
+          echo "Uploaded $ZIP_FILE_NAME as $RELEASE_TYPE"
