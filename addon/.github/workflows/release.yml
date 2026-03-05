@@ -67,6 +67,21 @@ jobs:
           echo "DISPLAY_NAME=$DISPLAY_NAME" >> $GITHUB_ENV
           echo "ZIP_FILE_NAME=$ZIP_FILE_NAME" >> $GITHUB_ENV
 
+      - name: Validate config
+        run: |
+          MISSING=""
+          [ -z "${{ vars.CURSEFORGE_PROJECT_ID }}" ]   && MISSING="$MISSING CURSEFORGE_PROJECT_ID"
+          [ -z "${{ vars.CURSEFORGE_GAME_VERSIONS }}" ] && MISSING="$MISSING CURSEFORGE_GAME_VERSIONS"
+          [ -z "${{ secrets.CURSEFORGE_API_TOKEN }}" ]  && MISSING="$MISSING CURSEFORGE_API_TOKEN"
+          if [ -n "$MISSING" ]; then
+            echo "ERROR: Missing required repository variables/secrets:$MISSING"
+            echo "Set them under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "Project ID : ${{ vars.CURSEFORGE_PROJECT_ID }}"
+          echo "Game versions: ${{ vars.CURSEFORGE_GAME_VERSIONS }}"
+          echo "Display name : ${{ vars.CURSEFORGE_DISPLAY_NAME }}"
+
       - name: Upload to CurseForge
         run: |
           if [ -f CHANGELOG.txt ]; then
@@ -76,17 +91,17 @@ jobs:
             CHANGELOG_FILE="CHANGELOG.txt"
           fi
           GAME_VERSIONS_JSON=$(echo "${{ vars.CURSEFORGE_GAME_VERSIONS }}" | jq -R 'split(",") | map(gsub(" "; "") | tonumber)')
-          # wow.curseforge.com and www.curseforge.com are behind CloudFront and block POST. Use authors subdomain.
-          API_URL="https://authors.curseforge.com/api/projects/${{ vars.CURSEFORGE_PROJECT_ID }}/upload-file"
+          API_URL="https://wow.curseforge.com/api/projects/${{ vars.CURSEFORGE_PROJECT_ID }}/upload-file"
+          echo "Uploading to: $API_URL"
           METADATA=$(jq -n \
             --arg displayName "$DISPLAY_NAME" \
             --arg releaseType "$RELEASE_TYPE" \
             --argjson gameVersions "$GAME_VERSIONS_JSON" \
             --rawfile changelog "$CHANGELOG_FILE" \
             '{displayName: $displayName, changelog: $changelog, changelogType: "text", releaseType: $releaseType, gameVersions: $gameVersions}')
-          HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/curseforge_response.txt -L -X POST \
+          HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/curseforge_response.txt -X POST \
             -H "X-Api-Token: ${{ secrets.CURSEFORGE_API_TOKEN }}" \
-            -F "metadata=$METADATA" \
+            -F "metadata=$METADATA;type=application/json" \
             -F "file=@$ZIP_FILE_NAME" \
             "$API_URL")
           if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
