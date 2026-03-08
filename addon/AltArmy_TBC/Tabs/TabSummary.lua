@@ -12,6 +12,29 @@ local WARNING_COL_WIDTH = 20
 
 local SD = AltArmy.SummaryData
 
+local CLASS_ICON_SHEET = "Interface\\WorldStateFrame\\Icons-Classes"
+local ICON_SIZE = 16
+
+local function SetNameIcon(icon, iconFallback, classFile)
+    local tcoords = CLASS_ICON_TCOORDS and classFile and CLASS_ICON_TCOORDS[classFile]
+    if tcoords then
+        icon:SetTexture(CLASS_ICON_SHEET)
+        icon:SetTexCoord(tcoords[1], tcoords[2], tcoords[3], tcoords[4])
+        icon:Show()
+        iconFallback:Hide()
+    else
+        icon:SetTexture(nil)
+        icon:Hide()
+        if classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile] then
+            local c = RAID_CLASS_COLORS[classFile]
+            iconFallback:SetColorTexture(c.r, c.g, c.b, 0.9)
+        else
+            iconFallback:SetColorTexture(0.5, 0.5, 0.5, 0.9)
+        end
+        iconFallback:Show()
+    end
+end
+
 local REALM_FILTER_OPTIONS = { "all", "currentRealm" }
 local REALM_FILTER_LABELS = { all = "All Characters", currentRealm = "Current Realm Only" }
 local function GetSummarySettings()
@@ -576,14 +599,27 @@ for i = 1, NUM_ROWS do
                 if GameTooltip then GameTooltip:Hide() end
             end)
             row.cells[colName] = warningFrame
+        elseif colName == "Name" then
+            local nameIcon = row:CreateTexture(nil, "ARTWORK")
+            nameIcon:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
+            nameIcon:SetSize(ICON_SIZE, ICON_SIZE)
+            row.nameIcon = nameIcon
+            local nameIconFallback = row:CreateTexture(nil, "ARTWORK")
+            nameIconFallback:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
+            nameIconFallback:SetSize(ICON_SIZE, ICON_SIZE)
+            nameIconFallback:Hide()
+            row.nameIconFallback = nameIconFallback
+            local cell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            cell:SetPoint("LEFT", row, "LEFT", rowCellX + ICON_SIZE + 2, 0)
+            cell:SetWidth(w - ICON_SIZE - 2)
+            cell:SetJustifyH(col and col.JustifyH or "LEFT")
+            cell:SetWordWrap(false)
+            row.cells[colName] = cell
         else
             local cell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             cell:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
             cell:SetWidth(w)
             cell:SetJustifyH(col and col.JustifyH or "LEFT")
-            if colName == "Name" then
-                cell:SetWordWrap(false)
-            end
             row.cells[colName] = cell
         end
         rowCellX = rowCellX + w
@@ -745,8 +781,9 @@ Update = function(offset)
                                 cell:SetTextColor(1, 0.82, 0, 1)
                             end
                         end
+                        SetNameIcon(rowFrame.nameIcon, rowFrame.nameIconFallback, entry.classFile)
                         local nameW = columns.Name and columns.Name.Width or (129 - WARNING_COL_WIDTH)
-                        local wasTruncated = TruncateName(cell, nameDisplayStr, nameW - 2)
+                        local wasTruncated = TruncateName(cell, nameDisplayStr, nameW - ICON_SIZE - 4)
                         local overlay = rowFrame.nameOverlay
                         if overlay then
                             overlay.fullNameDisplay = nameDisplayStr

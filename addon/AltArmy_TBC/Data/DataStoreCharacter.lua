@@ -40,9 +40,17 @@ function DS:ScanCharacter(_self)
         char.classFile = ""
     end
     if UnitRace then
-        char.race = UnitRace("player") or ""
+        local raceLoc, raceEng = UnitRace("player")
+        char.race = raceLoc or ""
+        char.raceFile = raceEng and raceEng:upper() or ""
     else
         char.race = ""
+        char.raceFile = ""
+    end
+    if UnitSex then
+        char.sex = UnitSex("player") or 2
+    else
+        char.sex = 2
     end
     if UnitFactionGroup then
         char.faction = UnitFactionGroup("player") or ""

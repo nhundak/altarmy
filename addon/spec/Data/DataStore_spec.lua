@@ -270,4 +270,62 @@ describe("DataStore", function()
       assert.are.same(DS:GetAllDataVersions({}), {})
     end)
   end)
+
+  describe("DeleteCharacter", function()
+    local invalidateCalled
+
+    before_each(function()
+      invalidateCalled = false
+      _G.AltArmy.Characters = {
+        InvalidateView = function() invalidateCalled = true end,
+      }
+    end)
+
+    it("removes the character entry from saved data", function()
+      _G.AltArmyTBC_Data = {
+        Characters = { R1 = { Alice = { name = "Alice" }, Bob = { name = "Bob" } } },
+      }
+      DS:DeleteCharacter("Alice", "R1")
+      assert.is_nil(_G.AltArmyTBC_Data.Characters.R1.Alice)
+      assert.truthy(_G.AltArmyTBC_Data.Characters.R1.Bob)
+    end)
+
+    it("invalidates the character view after deletion", function()
+      _G.AltArmyTBC_Data = {
+        Characters = { R1 = { Alice = { name = "Alice" } } },
+      }
+      DS:DeleteCharacter("Alice", "R1")
+      assert.is_true(invalidateCalled)
+    end)
+
+    it("is a no-op when character does not exist", function()
+      _G.AltArmyTBC_Data = { Characters = { R1 = {} } }
+      assert.has_no.errors(function()
+        DS:DeleteCharacter("NonExistent", "R1")
+      end)
+    end)
+
+    it("is a no-op when realm does not exist", function()
+      _G.AltArmyTBC_Data = { Characters = {} }
+      assert.has_no.errors(function()
+        DS:DeleteCharacter("Alice", "NoSuchRealm")
+      end)
+    end)
+
+    it("is a no-op when name is nil", function()
+      _G.AltArmyTBC_Data = { Characters = { R1 = { Alice = { name = "Alice" } } } }
+      assert.has_no.errors(function()
+        DS:DeleteCharacter(nil, "R1")
+      end)
+      assert.truthy(_G.AltArmyTBC_Data.Characters.R1.Alice)
+    end)
+
+    it("is a no-op when realm is nil", function()
+      _G.AltArmyTBC_Data = { Characters = { R1 = { Alice = { name = "Alice" } } } }
+      assert.has_no.errors(function()
+        DS:DeleteCharacter("Alice", nil)
+      end)
+      assert.truthy(_G.AltArmyTBC_Data.Characters.R1.Alice)
+    end)
+  end)
 end)

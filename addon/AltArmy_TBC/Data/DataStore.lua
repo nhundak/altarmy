@@ -124,6 +124,16 @@ function DS:GetAllDataVersions(char)
     return out
 end
 
+function DS:DeleteCharacter(name, realm)
+    if not name or not realm then return end
+    local realmTable = AltArmyTBC_Data.Characters[realm]
+    if not realmTable then return end
+    realmTable[name] = nil
+    if AltArmy.Characters and AltArmy.Characters.InvalidateView then
+        AltArmy.Characters:InvalidateView()
+    end
+end
+
 -- Event frame and dispatch
 local frame = CreateFrame("Frame", nil, UIParent)
 frame:RegisterEvent("ADDON_LOADED")
