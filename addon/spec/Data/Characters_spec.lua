@@ -81,6 +81,36 @@ describe("Characters", function()
       assert.are.equal(list[1].name, "B")
       assert.are.equal(list[2].name, "A")
     end)
+    it("sorts level 70 characters (restXp = 0) below chars with rest ascending", function()
+      -- GetCharacterList always produces restXp = 0 for max-level chars;
+      -- sorting by restXp should place them with other zero-rest characters.
+      AltArmy.SummaryData.GetCharacterList = function()
+        return {
+          { name = "MaxLevel", realm = "R", level = 70, restXp = 0  },
+          { name = "MidRest",  realm = "R", level = 60, restXp = 50 },
+          { name = "NoRest",   realm = "R", level = 40, restXp = 0  },
+        }
+      end
+      ns:InvalidateView()
+      ns:GetList()
+      ns:Sort(true, "restXp")
+      local list = ns:GetList()
+      assert.are.equal(list[3].name, "MidRest")
+    end)
+    it("sorts level 70 characters (restXp = 0) below chars with rest descending", function()
+      AltArmy.SummaryData.GetCharacterList = function()
+        return {
+          { name = "MaxLevel", realm = "R", level = 70, restXp = 0  },
+          { name = "MidRest",  realm = "R", level = 60, restXp = 50 },
+          { name = "NoRest",   realm = "R", level = 40, restXp = 0  },
+        }
+      end
+      ns:InvalidateView()
+      ns:GetList()
+      ns:Sort(false, "restXp")
+      local list = ns:GetList()
+      assert.are.equal(list[1].name, "MidRest")
+    end)
     it("does nothing when list empty", function()
       AltArmy.SummaryData.GetCharacterList = function() return {} end
       ns:InvalidateView()

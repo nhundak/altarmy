@@ -37,11 +37,23 @@ end
 
 local REALM_FILTER_OPTIONS = { "all", "currentRealm" }
 local REALM_FILTER_LABELS = { all = "All Characters", currentRealm = "Current Realm Only" }
+
+local VALID_SORT_KEYS = {
+    name = true, level = true, restXp = true,
+    money = true, played = true, lastOnline = true,
+}
+
 local function GetSummarySettings()
     AltArmyTBC_SummarySettings = AltArmyTBC_SummarySettings or {}
     local s = AltArmyTBC_SummarySettings
     if s.realmFilter ~= "all" and s.realmFilter ~= "currentRealm" then
         s.realmFilter = "all"
+    end
+    if not VALID_SORT_KEYS[s.sortKey] then
+        s.sortKey = "name"
+    end
+    if s.sortAscending == nil then
+        s.sortAscending = true
     end
     s.characters = s.characters or {}
     return s
@@ -75,12 +87,12 @@ end
 -- Column definitions: Name, Level, RestXP, Money, Played, LastOnline, Warning (total width unchanged)
 local columns = {
     Name = {
-        Width = 129 - WARNING_COL_WIDTH,
+        Width = 149 - WARNING_COL_WIDTH,
         GetText = function(entry) return entry.name or "" end,
         JustifyH = "LEFT",
     },
     Level = {
-        Width = 54,
+        Width = 34,
         GetText = function(entry)
             local l = entry.level
             if l == nil then return "" end
@@ -248,6 +260,9 @@ for _, colName in ipairs(columnOrder) do
                 currentSortKey = sortKey
                 sortAscending = true
             end
+            local s = GetSummarySettings()
+            s.sortKey = currentSortKey
+            s.sortAscending = sortAscending
             if AltArmy.Characters and AltArmy.Characters.Sort then
                 AltArmy.Characters:Sort(sortAscending, currentSortKey)
             end
@@ -841,6 +856,9 @@ end)
 
 -- Run Update when Summary tab is shown (invalidate so list is fresh)
 frame:SetScript("OnShow", function()
+    local s = GetSummarySettings()
+    currentSortKey = s.sortKey
+    sortAscending = s.sortAscending
     if AltArmy.Characters and AltArmy.Characters.InvalidateView then
         AltArmy.Characters:InvalidateView()
     end
