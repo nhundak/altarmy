@@ -103,6 +103,8 @@ read_globals = {
     "CollapseTradeSkillSubClass",
     "ExpandSkillHeader",
     "GetSpellInfo",
+    "GetSpellLink",
+    "InCombatLockdown",
     -- Craft API (TBC Classic Enchanting / Beast Training)
     "GetCraftSkillLine",
     "GetNumCrafts",

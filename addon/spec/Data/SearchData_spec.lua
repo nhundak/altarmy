@@ -91,6 +91,58 @@ describe("SearchData", function()
       assert.are.equal(#results, 1)
       assert.are.equal(results[1].itemID, 12345)
     end)
+    it("returns non-nil second value (tooltipOnly list)", function()
+      local old = SD.GetAllContainerSlots
+      SD.GetAllContainerSlots = function() return {} end
+      local _, tooltipOnly = SD.Search("anything")
+      SD.GetAllContainerSlots = old
+      assert.is_not_nil(tooltipOnly)
+    end)
+    it("puts tooltip-only matches into second result, not first", function()
+      local list = {
+        { characterName = "A", realm = "R", itemID = 11111, itemLink = nil, count = 1, location = "bag" },
+      }
+      local oldSlots = SD.GetAllContainerSlots
+      local oldGetSearchable = SD._GetSearchableTextForItem
+      SD.GetAllContainerSlots = function() return list end
+      SD._GetSearchableTextForItem = function(itemID, _)
+        if itemID == 11111 then return "mote of fire primal fire" end
+        return nil
+      end
+      local main, tooltipOnly = SD.Search("primal")
+      SD.GetAllContainerSlots = oldSlots
+      SD._GetSearchableTextForItem = oldGetSearchable
+      assert.are.equal(#main, 0)
+      assert.are.equal(#tooltipOnly, 1)
+      assert.are.equal(tooltipOnly[1].itemID, 11111)
+    end)
+    it("keeps name-matched entries in main result only", function()
+      local list = {
+        { characterName = "A", realm = "R", itemID = 22222, itemLink = nil, count = 1, location = "bag" },
+      }
+      local oldSlots = SD.GetAllContainerSlots
+      local oldGetItemInfo = _G.GetItemInfo
+      SD.GetAllContainerSlots = function() return list end
+      _G.GetItemInfo = function(id)
+        if id == 22222 then return "Primal Fire" end
+        return nil
+      end
+      local main, tooltipOnly = SD.Search("primal")
+      SD.GetAllContainerSlots = oldSlots
+      _G.GetItemInfo = oldGetItemInfo
+      assert.are.equal(#main, 1)
+      assert.are.equal(#tooltipOnly, 0)
+      assert.are.equal(main[1].itemID, 22222)
+    end)
+  end)
+
+  describe("ClearSearchableTextCache", function()
+    it("exists and does not error", function()
+      assert.is_function(SD.ClearSearchableTextCache)
+      assert.has_no.errors(function()
+        SD.ClearSearchableTextCache()
+      end)
+    end)
   end)
 
   describe("SearchGroupedByCharacter", function()
@@ -100,7 +152,7 @@ describe("SearchData", function()
         return {
           { characterName = "A", realm = "R", itemID = 100, count = 2 },
           { characterName = "A", realm = "R", itemID = 100, count = 3 },
-        }
+        }, {}
       end
       local results = SD.SearchGroupedByCharacter("x")
       SD.Search = old
@@ -110,8 +162,18 @@ describe("SearchData", function()
   end)
 
   describe("SearchWithLocationGroups", function()
-    it("returns empty for nil query", function()
-      assert.are.same(SD.SearchWithLocationGroups(nil), {})
+    it("returns empty tables for nil query", function()
+      local main, tooltipOnly = SD.SearchWithLocationGroups(nil)
+      assert.are.same(main, {})
+      assert.are.same(tooltipOnly, {})
+    end)
+    it("returns two non-nil values", function()
+      local old = SD.Search
+      SD.Search = function() return {}, {} end
+      local main, tooltipOnly = SD.SearchWithLocationGroups("foo")
+      SD.Search = old
+      assert.is_not_nil(main)
+      assert.is_not_nil(tooltipOnly)
     end)
     it("aggregates by itemID, character, realm, location", function()
       local old = SD.Search
@@ -121,12 +183,25 @@ describe("SearchData", function()
             location = "bag", count = 2, classFile = "" },
           { itemID = 100, itemLink = "x", itemName = "Foo", characterName = "A", realm = "R",
             location = "bag", count = 3, classFile = "" },
-        }
+        }, {}
       end
-      local results = SD.SearchWithLocationGroups("foo")
+      local results, _ = SD.SearchWithLocationGroups("foo")
       SD.Search = old
       assert.are.equal(#results, 1)
       assert.are.equal(results[1].count, 5)
+    end)
+    it("routes tooltip-only entries into second return", function()
+      local old = SD.Search
+      SD.Search = function()
+        return {}, {
+          { itemID = 300, itemLink = "link", itemName = "Mote of Fire", characterName = "A", realm = "R",
+            location = "bag", count = 1, classFile = "" },
+        }
+      end
+      local _, tooltipOnly = SD.SearchWithLocationGroups("primal")
+      SD.Search = old
+      assert.are.equal(#tooltipOnly, 1)
+      assert.are.equal(tooltipOnly[1].itemID, 300)
     end)
   end)
 

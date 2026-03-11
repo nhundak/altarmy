@@ -8,6 +8,26 @@ local BANK_CONTAINER = -1
 local MIN_BANK_BAG_ID = 5
 local MAX_BANK_BAG_ID = 11
 
+-- In-memory cache: itemID (number) -> lowercased searchable string (name + tooltip lines).
+-- Cleared on PLAYER_LOGOUT so it doesn't carry state across sessions.
+local _searchableTextCache = {}
+
+function SD.ClearSearchableTextCache()
+    _searchableTextCache = {}
+end
+
+local _cacheEventFrame = CreateFrame("Frame")
+_cacheEventFrame:RegisterEvent("PLAYER_LOGOUT")
+_cacheEventFrame:SetScript("OnEvent", function()
+    SD.ClearSearchableTextCache()
+end)
+
+-- Private tooltip frame for scanning item text.
+-- Using a dedicated frame (not GameTooltip) prevents other addons from injecting their
+-- extra lines via GameTooltip hooks (e.g. inventory-tracking addons that add character
+-- info to every tooltip). Only Blizzard's native tooltip lines are populated here.
+local _scanTooltip = CreateFrame("GameTooltip", "AltArmyTBC_ScanTooltip", UIParent, "GameTooltipTemplate")
+
 --- Determine location string from bagID: "bag" for 0-4, "bank" for -1 or 5-11.
 local function LocationFromBagID(bagID)
     if bagID == BANK_CONTAINER or (bagID >= MIN_BANK_BAG_ID and bagID <= MAX_BANK_BAG_ID) then
@@ -68,14 +88,64 @@ local function GetItemName(itemID, link)
     return nil
 end
 
+--- Build and cache a searchable string for an item: lowercased item name + all tooltip left-column lines.
+--- Returns a string on success, or nil if the item name cannot be resolved.
+--- Exposed as SD._GetSearchableTextForItem so tests can stub it without touching GameTooltip.
+function SD._GetSearchableTextForItem(itemID, itemLink)
+    if _searchableTextCache[itemID] then
+        return _searchableTextCache[itemID]
+    end
+    local name = GetItemName(itemID, itemLink)
+    if not name then return nil end
+
+    -- Skip tooltip scan in combat to avoid UI taint.
+    if InCombatLockdown and InCombatLockdown() then
+        local result = name:lower()
+        _searchableTextCache[itemID] = result
+        return result
+    end
+
+    local lines = { name }
+    if itemLink and itemLink ~= "" then
+        pcall(function()
+            _scanTooltip:SetOwner(UIParent, "ANCHOR_NONE")
+            _scanTooltip:ClearLines()
+            _scanTooltip:SetHyperlink(itemLink)
+            _scanTooltip:Show()
+            local numLines = _scanTooltip:NumLines()
+            local tooltipName = _scanTooltip:GetName()
+            -- Skip line 1 (item name already included)
+            for i = 2, math.min(numLines, 20) do
+                local lineText = _G[tooltipName .. "TextLeft" .. i]
+                if lineText then
+                    local text = lineText:GetText()
+                    if text and text ~= "" then
+                        -- Strip color codes
+                        text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+                        table.insert(lines, text)
+                    end
+                end
+            end
+            _scanTooltip:Hide()
+        end)
+    end
+
+    local result = table.concat(lines, " "):lower()
+    _searchableTextCache[itemID] = result
+    return result
+end
+
 --- Search: query can be item name (partial, case-insensitive) or item ID (number or string digits).
---- Returns list of entries matching query: { characterName, realm, itemID, itemLink, count, location, ... }.
-function SD.Search(query)
+--- Returns two lists: mainResults (matched by ID/name/link) and tooltipOnlyResults (matched via tooltip text).
+--- Pass skipTooltip=true to skip the tooltip scan (tooltipOnlyResults will be empty); use for the immediate
+--- search on each keystroke, then run the full search via debounce for tooltip results.
+function SD.Search(query, skipTooltip)
     if not query or (type(query) == "string" and query:match("^%s*$")) then
-        return {}
+        return {}, {}
     end
     local all = SD.GetAllContainerSlots()
-    local results = {}
+    local mainResults = {}
+    local tooltipOnlyResults = {}
     local queryLower = type(query) == "string" and query:lower() or nil
     local queryID = nil
     if type(query) == "number" then
@@ -84,31 +154,36 @@ function SD.Search(query)
         queryID = tonumber(query)
     end
     for _, entry in ipairs(all) do
-        local match = false
+        local mainMatch = false
         if queryID ~= nil and entry.itemID == queryID then
-            match = true
+            mainMatch = true
         elseif queryLower then
             local name = GetItemName(entry.itemID, entry.itemLink)
             if name and name:lower():find(queryLower, 1, true) then
-                match = true
+                mainMatch = true
             end
-            if not match and entry.itemLink and entry.itemLink:lower():find(queryLower, 1, true) then
-                match = true
+            if not mainMatch and entry.itemLink and entry.itemLink:lower():find(queryLower, 1, true) then
+                mainMatch = true
             end
         end
-        if match then
-            local itemName = GetItemName(entry.itemID, entry.itemLink)
-            entry.itemName = itemName
-            table.insert(results, entry)
+        if mainMatch then
+            entry.itemName = entry.itemName or GetItemName(entry.itemID, entry.itemLink)
+            table.insert(mainResults, entry)
+        elseif queryLower and not skipTooltip then
+            local searchableText = SD._GetSearchableTextForItem(entry.itemID, entry.itemLink)
+            if searchableText and searchableText:find(queryLower, 1, true) then
+                entry.itemName = entry.itemName or GetItemName(entry.itemID, entry.itemLink)
+                table.insert(tooltipOnlyResults, entry)
+            end
         end
     end
-    return results
+    return mainResults, tooltipOnlyResults
 end
 
 --- Aggregate search results by (itemID, characterName, realm): sum count, keep first link.
 --- Returns list of { characterName, realm, itemID, itemLink, count, location, itemName }.
 function SD.SearchGroupedByCharacter(query)
-    local raw = SD.Search(query)
+    local raw = SD.Search(query)  -- uses only main results
     local byChar = {}
     for _, entry in ipairs(raw) do
         local key = (entry.characterName or "") .. "\t" .. (entry.realm or "") .. "\t" .. (entry.itemID or 0)
@@ -143,18 +218,11 @@ local function GetNameMatchScore(itemName, queryLower)
 end
 SD._GetNameMatchScore = GetNameMatchScore
 
---- Aggregate by (itemID, characterName, realm, location); sort by name match, then char total, then bags before bank.
---- Returns list of { itemID, itemLink, itemName, characterName, realm, location, count }.
-function SD.SearchWithLocationGroups(query)
-    if not query or (type(query) == "string" and query:match("^%s*$")) then
-        return {}
-    end
-    local raw = SD.Search(query)
-    local queryLower = type(query) == "string" and query:lower() or ""
-
-    -- Aggregate by (itemID, characterName, realm, location)
+--- Aggregate a flat list of search entries by (itemID, characterName, realm, location).
+--- Returns an aggregated and sorted list.
+local function AggregateAndSort(raw, queryLower)
     local byKey = {}
-    local charTotals = {} -- key = itemID .. "\t" .. characterName .. "\t" .. realm -> total count (bags + bank)
+    local charTotals = {}
     for _, entry in ipairs(raw) do
         local key = (entry.itemID or 0) .. "\t" .. (entry.characterName or "") .. "\t" .. (entry.realm or "")
             .. "\t" .. (entry.location or "bag")
@@ -189,16 +257,29 @@ function SD.SearchWithLocationGroups(query)
         local na, nb = (a.itemName or ""):lower(), (b.itemName or ""):lower()
         if na ~= nb then return na < nb end
         if a.charTotal ~= b.charTotal then return a.charTotal > b.charTotal end
-        -- bags before bank: "bag" < "bank"
         return (a.location or "bag") < (b.location or "bag")
     end)
 
-    -- Remove temporary sort fields before return (optional; UI doesn't need them)
     for _, row in ipairs(list) do
         row.charTotal = nil
         row.matchScore = nil
     end
     return list
+end
+
+--- Aggregate by (itemID, characterName, realm, location); sort by name match, then char total, then bags before bank.
+--- Returns two lists: mainRows and tooltipOnlyRows (same row shape as before).
+--- Pass skipTooltip=true to skip tooltip scanning (tooltipOnlyRows will be empty).
+function SD.SearchWithLocationGroups(query, skipTooltip)
+    if not query or (type(query) == "string" and query:match("^%s*$")) then
+        return {}, {}
+    end
+    local mainResults, tooltipOnlyResults = SD.Search(query, skipTooltip)
+    local queryLower = type(query) == "string" and query:lower() or ""
+
+    local mainRows = AggregateAndSort(mainResults, queryLower)
+    local tooltipOnlyRows = AggregateAndSort(tooltipOnlyResults, queryLower)
+    return mainRows, tooltipOnlyRows
 end
 
 --- Build flat list of all known recipes across all characters.

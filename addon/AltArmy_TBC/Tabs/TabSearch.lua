@@ -15,6 +15,7 @@ local HEADER_ROW_GAP = 6  -- space between section header and first data row
 local ROW_BUFFER = 3   -- extra rows above/below viewport to render
 local ITEM_POOL_SIZE = 32
 local RECIPE_POOL_SIZE = 32
+local TOOLTIP_ONLY_POOL_SIZE = 32
 
 local SD = AltArmy.SearchData
 if not SD or not SD.SearchWithLocationGroups or not SD.SearchRecipes then
@@ -317,13 +318,71 @@ for _, colName in ipairs(recipeColOrder) do
     rx = rx + w
 end
 
+-- "You may also be interested in:" section header: same columns as items (Item/Character/Total),
+-- with the first column label replaced by the section title.
+local alsoInterestedHeaderRow = CreateFrame("Frame", nil, resultsArea)
+alsoInterestedHeaderRow:SetHeight(HEADER_HEIGHT)
+local aix = 0
+for _, colName in ipairs(colOrder) do
+    local w = colWidths[colName] or 80
+    local label = alsoInterestedHeaderRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    label:SetPoint("BOTTOMLEFT", alsoInterestedHeaderRow, "BOTTOMLEFT", aix, 0)
+    label:SetWidth(w)
+    label:SetJustifyH(colName == "Item" and "LEFT" or "RIGHT")
+    label:SetText(colName == "Item" and "You may also be interested in:" or colName)
+    aix = aix + w
+end
+
 -- Result rows (pool) for items
 local resultRows = {}
 local itemList = {}
 local recipeList = {}
 local recipeRows = {}
 local itemGroups = {}  -- built in UpdateResults, used by UpdateVisibleRows for overlays
+local tooltipOnlyItemList = {}
+local tooltipOnlyItemGroups = {}
+local tooltipOnlyResultRows = {}
 local UpdateVisibleRows  -- forward-declare for scroll bar script
+local UpdateResults      -- forward-declare for debounce callback
+
+-- Debounce for tooltip-only search: main results (ID/name/link) appear immediately;
+-- tooltip scan runs after the user stops typing for TOOLTIP_DEBOUNCE_SECS seconds.
+local TOOLTIP_DEBOUNCE_SECS = 0.4
+local tooltipDebounceFrame = CreateFrame("Frame")
+local tooltipDebounceRemaining = 0
+local tooltipDebounceQuery = nil
+
+local function tooltipDebounceOnUpdate(_, elapsed)
+    tooltipDebounceRemaining = tooltipDebounceRemaining - elapsed
+    if tooltipDebounceRemaining <= 0 then
+        tooltipDebounceFrame:SetScript("OnUpdate", nil)
+        local query = tooltipDebounceQuery
+        tooltipDebounceQuery = nil
+        if not query or query == "" or not frame:IsShown() then return end
+        local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
+        if not categories.Items then return end
+        local _, newTooltipOnly = SD.SearchWithLocationGroups(query)
+        local RF = AltArmy.RealmFilter
+        local currentRealm = (GetRealmName and GetRealmName()) or ""
+        local s = GetSearchSettings()
+        if RF and RF.filterListByRealm then
+            newTooltipOnly = RF.filterListByRealm(newTooltipOnly or {}, s.realmFilter or "all", currentRealm)
+        end
+        tooltipOnlyItemList = newTooltipOnly or {}
+        UpdateResults()
+    end
+end
+
+local function ScheduleTooltipSearch(query)
+    if not query or query == "" then
+        tooltipDebounceQuery = nil
+        tooltipDebounceFrame:SetScript("OnUpdate", nil)
+        return
+    end
+    tooltipDebounceQuery = query
+    tooltipDebounceRemaining = TOOLTIP_DEBOUNCE_SECS
+    tooltipDebounceFrame:SetScript("OnUpdate", tooltipDebounceOnUpdate)
+end
 
 -- Group overlay: total count (centered in group) + item icon to the right
 local groupOverlayPool = {}
@@ -338,6 +397,20 @@ local function getGroupOverlay(i)
         groupOverlayPool[i] = overlay
     end
     return groupOverlayPool[i]
+end
+
+local tooltipOnlyGroupOverlayPool = {}
+local function getTooltipOnlyGroupOverlay(i)
+    if not tooltipOnlyGroupOverlayPool[i] then
+        local overlay = CreateFrame("Frame", nil, resultsArea)
+        overlay:SetFrameLevel(resultsArea:GetFrameLevel() + 1)
+        overlay.total = overlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        overlay.total:SetJustifyH("RIGHT")
+        overlay.icon = overlay:CreateTexture(nil, "OVERLAY")
+        overlay.icon:SetSize(OVERLAY_ICON_SIZE, OVERLAY_ICON_SIZE)
+        tooltipOnlyGroupOverlayPool[i] = overlay
+    end
+    return tooltipOnlyGroupOverlayPool[i]
 end
 
 local function createItemRow()
@@ -614,11 +687,11 @@ UpdateVisibleRows = function()
     end
 
     -- Recipes: visible range and render range
+    local recipesSectionTop = itemsSectionTop + nItems * ROW_HEIGHT + HEADER_HEIGHT + HEADER_ROW_GAP
+    if nItems == 0 then
+        recipesSectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
+    end
     if nRecipes > 0 then
-        local recipesSectionTop = itemsSectionTop + nItems * ROW_HEIGHT + HEADER_HEIGHT + HEADER_ROW_GAP
-        if nItems == 0 then
-            recipesSectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
-        end
         local firstVisible = math.max(1, math.floor((scrollValue - recipesSectionTop) / ROW_HEIGHT) + 1)
         if scrollValue < recipesSectionTop then firstVisible = 1 end
         local lastVisible = math.min(nRecipes, math.floor((scrollValue + viewHeight - recipesSectionTop) / ROW_HEIGHT))
@@ -654,6 +727,104 @@ UpdateVisibleRows = function()
             row.entry = nil
         end
     end
+
+    -- "You may also be interested in:" tooltip-only section
+    local nTooltipOnly = #tooltipOnlyItemList
+    if nTooltipOnly > 0 then
+        local tooltipOnlySectionTop
+        if nRecipes > 0 then
+            tooltipOnlySectionTop = recipesSectionTop + nRecipes * ROW_HEIGHT + HEADER_HEIGHT + HEADER_ROW_GAP
+        elseif nItems > 0 then
+            tooltipOnlySectionTop = itemsSectionTop + nItems * ROW_HEIGHT + HEADER_HEIGHT + HEADER_ROW_GAP
+        else
+            tooltipOnlySectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
+        end
+
+        local firstVisible = math.max(1, math.floor((scrollValue - tooltipOnlySectionTop) / ROW_HEIGHT) + 1)
+        if scrollValue < tooltipOnlySectionTop then firstVisible = 1 end
+        local lastVisible = math.min(nTooltipOnly,
+            math.floor((scrollValue + viewHeight - tooltipOnlySectionTop) / ROW_HEIGHT))
+        local firstRender = math.max(1, firstVisible - ROW_BUFFER)
+        local lastRender = math.min(nTooltipOnly, lastVisible + ROW_BUFFER)
+        local tooltipOnlyFirstRowY = -tooltipOnlySectionTop
+
+        local totalColX = (colWidths.Item or 280) + (colWidths.Character or 160)
+        local totalColW = colWidths.Total or 70
+        local renderCount = lastRender - firstRender + 1
+        for poolIdx = 1, TOOLTIP_ONLY_POOL_SIZE do
+            local row = tooltipOnlyResultRows[poolIdx]
+            if not row then
+                row = createItemRow()
+                tooltipOnlyResultRows[poolIdx] = row
+            end
+            if poolIdx <= renderCount then
+                local dataIndex = firstRender + poolIdx - 1
+                local entry = tooltipOnlyItemList[dataIndex]
+                local rowY = tooltipOnlyFirstRowY - (dataIndex - 1) * ROW_HEIGHT
+                row:ClearAllPoints()
+                row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
+                row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
+                row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - ROW_HEIGHT)
+                fillItemRow(row, entry, showRealmSuffix)
+                row:Show()
+                row.dataIndex = dataIndex
+            else
+                row:Hide()
+                row.entry = nil
+                row.dataIndex = nil
+            end
+        end
+
+        local overlayIdx = 0
+        for _, group in ipairs(tooltipOnlyItemGroups) do
+            local gEnd = group.start + group.count - 1
+            if gEnd >= firstRender and group.start <= lastRender then
+                overlayIdx = overlayIdx + 1
+                local overlay = getTooltipOnlyGroupOverlay(overlayIdx)
+                local groupStart = math.max(group.start, firstRender)
+                local groupEnd = math.min(gEnd, lastRender)
+                local firstPoolIdx = groupStart - firstRender + 1
+                local lastPoolIdx = groupEnd - firstRender + 1
+                local firstRowFrame = tooltipOnlyResultRows[firstPoolIdx]
+                local lastRowFrame = tooltipOnlyResultRows[lastPoolIdx]
+                if firstRowFrame and lastRowFrame and firstRowFrame:IsShown() and lastRowFrame:IsShown() then
+                    overlay:ClearAllPoints()
+                    overlay:SetPoint("TOPLEFT", firstRowFrame, "TOPLEFT", totalColX, 2)
+                    overlay:SetPoint("BOTTOMLEFT", lastRowFrame, "BOTTOMLEFT", totalColX, 2)
+                    overlay:SetPoint("TOPRIGHT", firstRowFrame, "TOPLEFT", totalColX + totalColW, 2)
+                    overlay:SetPoint("BOTTOMRIGHT", lastRowFrame, "BOTTOMLEFT", totalColX + totalColW, 2)
+                    overlay.icon:ClearAllPoints()
+                    overlay.icon:SetPoint("CENTER", overlay, "RIGHT", -2 - OVERLAY_ICON_SIZE / 2, 0)
+                    local firstEntry = tooltipOnlyItemList[group.start]
+                    local iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
+                    if firstEntry and firstEntry.itemLink and GetItemInfo then
+                        local _, _, _, _, _, _, _, _, _, tex = GetItemInfo(firstEntry.itemLink)
+                        if tex then iconPath = tex end
+                    end
+                    overlay.icon:SetTexture(iconPath)
+                    overlay.icon:Show()
+                    overlay.total:ClearAllPoints()
+                    overlay.total:SetPoint("RIGHT", overlay.icon, "LEFT", -3, 0)
+                    overlay.total:SetPoint("CENTER", overlay, "CENTER", 0, 0)
+                    overlay.total:SetWidth(math.max(1, totalColW - OVERLAY_ICON_SIZE - 2))
+                    overlay.total:SetText(tostring(group.total))
+                    overlay:Show()
+                end
+            end
+        end
+        for idx = overlayIdx + 1, #tooltipOnlyGroupOverlayPool do
+            if tooltipOnlyGroupOverlayPool[idx] then tooltipOnlyGroupOverlayPool[idx]:Hide() end
+        end
+    else
+        for _, row in ipairs(tooltipOnlyResultRows) do
+            row:Hide()
+            row.entry = nil
+            row.dataIndex = nil
+        end
+        for idx = 1, #tooltipOnlyGroupOverlayPool do
+            if tooltipOnlyGroupOverlayPool[idx] then tooltipOnlyGroupOverlayPool[idx]:Hide() end
+        end
+    end
 end
 
 -- Wire scroll to refresh visible rows (must be after UpdateVisibleRows is defined)
@@ -662,7 +833,7 @@ searchScrollBar:SetScript("OnValueChanged", function(_, value)
     UpdateVisibleRows()
 end)
 
-local function UpdateResults()
+UpdateResults = function()
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     local nItems = categories.Items and #itemList or 0
     local nRecipes = categories.Recipes and #recipeList or 0
@@ -710,8 +881,39 @@ local function UpdateResults()
         recipesHeaderRow:Show()
         contentHeight = contentHeight + HEADER_HEIGHT + HEADER_ROW_GAP
         contentHeight = contentHeight + nRecipes * ROW_HEIGHT
+        currentY = currentY - HEADER_HEIGHT - HEADER_ROW_GAP - nRecipes * ROW_HEIGHT
     else
         recipesHeaderRow:Hide()
+    end
+
+    -- "You may also be interested in:" section: tooltip-only matches shown after Items and Recipes
+    local nTooltipOnly = #tooltipOnlyItemList
+    if nTooltipOnly > 0 then
+        alsoInterestedHeaderRow:ClearAllPoints()
+        alsoInterestedHeaderRow:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, currentY)
+        alsoInterestedHeaderRow:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, currentY)
+        alsoInterestedHeaderRow:Show()
+        contentHeight = contentHeight + HEADER_HEIGHT + HEADER_ROW_GAP
+
+        tooltipOnlyItemGroups = {}
+        local prevKey = nil
+        for i = 1, nTooltipOnly do
+            local entry = tooltipOnlyItemList[i]
+            local key = (entry.itemID or 0) .. "\t" .. (entry.itemName or "")
+            if i == 1 or key ~= prevKey then
+                table.insert(tooltipOnlyItemGroups, { start = i, count = 1, total = entry.count or 1 })
+                prevKey = key
+            else
+                local g = tooltipOnlyItemGroups[#tooltipOnlyItemGroups]
+                g.count = g.count + 1
+                g.total = g.total + (entry.count or 1)
+            end
+        end
+
+        contentHeight = contentHeight + nTooltipOnly * ROW_HEIGHT
+    else
+        alsoInterestedHeaderRow:Hide()
+        tooltipOnlyItemGroups = {}
     end
 
     if contentHeight < ROW_HEIGHT then
@@ -765,7 +967,15 @@ function frame.DoSearch()
     end
     if query and query:match("^%s*$") then query = "" end
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
-    itemList = (categories.Items and query ~= "") and (SD.SearchWithLocationGroups(query) or {}) or {}
+    if categories.Items and query ~= "" then
+        -- Skip tooltip scan for the immediate response; tooltip results arrive after debounce.
+        itemList = SD.SearchWithLocationGroups(query, true)
+        itemList = itemList or {}
+        tooltipOnlyItemList = {}
+    else
+        itemList = {}
+        tooltipOnlyItemList = {}
+    end
     recipeList = (categories.Recipes and query ~= "") and (SD.SearchRecipes(query) or {}) or {}
     local RF = AltArmy.RealmFilter
     local currentRealm = (GetRealmName and GetRealmName()) or ""
@@ -777,6 +987,7 @@ function frame.DoSearch()
     UpdateResults()
     if searchScrollBar then searchScrollBar:SetValue(0) end
     scrollFrame:SetVerticalScroll(0)
+    ScheduleTooltipSearch(query)
 end
 
 -- Expose for header search box: run search with query directly
@@ -786,9 +997,18 @@ function frame.SearchWithQuery(_self, query)
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     if q == "" then
         itemList = {}
+        tooltipOnlyItemList = {}
         recipeList = {}
     else
-        itemList = categories.Items and (SD.SearchWithLocationGroups(q) or {}) or {}
+        if categories.Items then
+            -- Skip tooltip scan for the immediate response; tooltip results arrive after debounce.
+            itemList = SD.SearchWithLocationGroups(q, true)
+            itemList = itemList or {}
+            tooltipOnlyItemList = {}
+        else
+            itemList = {}
+            tooltipOnlyItemList = {}
+        end
         recipeList = categories.Recipes and (SD.SearchRecipes(q) or {}) or {}
     end
     local RF = AltArmy.RealmFilter
@@ -804,6 +1024,7 @@ function frame.SearchWithQuery(_self, query)
     if searchEdit and searchEdit.SetText then
         searchEdit:SetText(query or "")
     end
+    ScheduleTooltipSearch(q)
 end
 
 -- Search settings panel (right 40% when visible); defined after UpdateVisibleRows
