@@ -9,6 +9,8 @@ AltArmy.DataStore = AltArmy.DataStore or {}
 
 local DS = AltArmy.DataStore
 
+DS.MAX_LEVEL = 70
+
 local DATA_VERSIONS = {
     character = 1,
     containers = 1,
@@ -430,8 +432,7 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
             if GetXPExhaustion then
                 char.restXP = GetXPExhaustion() or 0
             end
-            local maxLevel = DS.MAX_LEVEL or (MAX_PLAYER_LEVEL or 70)
-            if char.level == maxLevel then
+            if char.level == DS.MAX_LEVEL then
                 char.restXP = 0
             end
         end
@@ -441,8 +442,7 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
         local char = GetCurrentCharTable()
         if char and UnitLevel then
             char.level = UnitLevel("player")
-            local maxLevel = DS.MAX_LEVEL or (MAX_PLAYER_LEVEL or 70)
-            if char.level == maxLevel then
+            if char.level == DS.MAX_LEVEL then
                 char.restXP = 0
             end
         end

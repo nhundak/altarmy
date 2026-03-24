@@ -92,7 +92,7 @@ local columns = {
         JustifyH = "LEFT",
     },
     Level = {
-        Width = 34,
+        Width = 39,
         GetText = function(entry)
             local l = entry.level
             if l == nil then return "" end
@@ -103,11 +103,16 @@ local columns = {
     RestXP = {
         Width = 71,
         headerLabel = "Rest XP",
-        GetText = function(entry) return SD and SD.FormatRestXp and SD.FormatRestXp(entry.restXp) or "" end,
+        GetText = function(entry)
+            if entry.isMaxLevel then
+                return "--"
+            end
+            return SD and SD.FormatRestXp and SD.FormatRestXp(entry.restXp) or ""
+        end,
         JustifyH = "RIGHT",
     },
     Money = {
-        Width = 120,
+        Width = 115,
         GetText = function(entry) return SD and SD.GetMoneyString and SD.GetMoneyString(entry.money) or "" end,
         JustifyH = "RIGHT",
     },

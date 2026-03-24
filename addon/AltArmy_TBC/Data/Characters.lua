@@ -69,6 +69,32 @@ function ns:Sort(ascending, sortKey)
     }
     if numericKeys[sortKey] then
         table.sort(list, function(a, b)
+            if sortKey == "restXp" then
+                local aMax = a.isMaxLevel == true
+                local bMax = b.isMaxLevel == true
+                if aMax ~= bMax then
+                    return not aMax
+                end
+                if aMax and bMax then
+                    local ka = (a.realm or "") .. "\0" .. (a.name or "")
+                    local kb = (b.realm or "") .. "\0" .. (b.name or "")
+                    return ka < kb
+                end
+                local va = tonumber(a.restXp) or 0
+                local vb = tonumber(b.restXp) or 0
+                if ascending then
+                    if va ~= vb then
+                        return va < vb
+                    end
+                else
+                    if va ~= vb then
+                        return va > vb
+                    end
+                end
+                local ka = (a.realm or "") .. "\0" .. (a.name or "")
+                local kb = (b.realm or "") .. "\0" .. (b.name or "")
+                return ka < kb
+            end
             local va, vb
             if sortKey == "lastOnline" then
                 -- Current player has lastOnline = nil; treat as 0 for sort (top/bottom)

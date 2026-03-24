@@ -52,7 +52,6 @@ read_globals = {
     "C_Container",
     "NUM_BAG_SLOTS",
     "BANK_CONTAINER",
-    "MAX_PLAYER_LEVEL",
     -- Misc WoW
     "GetBuildInfo",
     "GetAddOnMetadata",

@@ -7,9 +7,8 @@ local DS = AltArmy.DataStore
 local GetCurrentCharTable = DS._GetCurrentCharTable
 local DATA_VERSIONS = DS._DATA_VERSIONS
 
-local MAX_LEVEL = MAX_PLAYER_LEVEL or 70
+local MAX_LEVEL = DS.MAX_LEVEL
 local MAX_LOGOUT_SENTINEL = 5000000000
-DS.MAX_LEVEL = MAX_LEVEL
 
 local function GetCurrentName()
     if UnitName then

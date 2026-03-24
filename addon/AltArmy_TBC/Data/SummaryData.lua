@@ -1,10 +1,11 @@
 -- AltArmy TBC — Summary data layer: character list for the Summary tab.
--- Uses internal AltArmy.DataStore (SavedVariables); entry shape: name, realm, level, restXp, money, played, lastOnline.
+-- Summary list entries (SavedVariables / DataStore): name, realm, level, restXp, isMaxLevel,
+-- money, played, lastOnline.
 
 AltArmy.SummaryData = AltArmy.SummaryData or {}
 
 local MAX_LOGOUT_SENTINEL = 5000000000
-local MAX_LEVEL = MAX_PLAYER_LEVEL or 70
+local MAX_LEVEL = (AltArmy.DataStore and AltArmy.DataStore.MAX_LEVEL) or 70
 
 -- Formatting helpers (raw values in entry; format in UI or here for display)
 
@@ -78,7 +79,7 @@ function AltArmy.SummaryData.FormatRestXp(rate)
     return string.format("%.1f%%", rounded)
 end
 
--- Returns a list of character entries: { name, realm, level, restXp, money, played, lastOnline }
+-- Returns a list of character entries: { name, realm, level, restXp, isMaxLevel, money, played, lastOnline }
 -- Raw values (copper, seconds, timestamp); formatting in UI.
 function AltArmy.SummaryData.GetCharacterList()
     local list = {}
@@ -105,8 +106,9 @@ function AltArmy.SummaryData.GetCharacterList()
             local played = DS:GetPlayTime(charData) or 0
             local lastLogout = DS:GetLastLogout(charData) or MAX_LOGOUT_SENTINEL
             local classLoc, classFile = DS:GetCharacterClass(charData)
+            local isMaxLevel = math.floor(level) == MAX_LEVEL
             local restRate
-            if math.floor(level) == MAX_LEVEL then
+            if isMaxLevel then
                 restRate = 0
             elseif isCurrent and UnitXPMax and GetXPExhaustion then
                 local playerXpMax = UnitXPMax("player") or 0
@@ -134,6 +136,7 @@ function AltArmy.SummaryData.GetCharacterList()
                 realm = realm or "",
                 level = level,
                 restXp = restRate,
+                isMaxLevel = isMaxLevel,
                 money = money,
                 played = played,
                 lastOnline = isCurrent and nil or lastLogout,
