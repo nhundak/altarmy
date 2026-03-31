@@ -1,9 +1,9 @@
 ## Interface: 20502
 ## Title: AltArmy
-## Notes: Alt management: character summary, per-character containers, cross-character item search. TBC Classic.
-## Version: 1.0.2
+## Notes: Alt management: character summary, gear and reputation grids, per-character containers, cross-character item search. TBC Classic.
+## Version: 1.1.0
 ## Author: Nick Tower
-## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings
+## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
 Core.lua
@@ -20,9 +20,11 @@ Data\SummaryData.lua
 Data\RealmFilter.lua
 Data\Characters.lua
 Data\SearchData.lua
+ReputationFactionFilter.lua
 UI\CharacterPinHideList.lua
 Tabs\TabSummary.lua
 Tabs\TabGear.lua
+Tabs\TabReputation.lua
 Tabs\TabSearch.lua
 UI\Minimap.lua
 UI\Options.lua

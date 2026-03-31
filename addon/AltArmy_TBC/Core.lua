@@ -1,7 +1,7 @@
 -- AltArmy TBC — Core: namespace, main frame, header, tabs, content frames
 
 local ADDON_NAME = "Alt Army"
-local ADDON_VERSION = "1.0.2"
+local ADDON_VERSION = "1.1.0"
 
 -- Namespace
 AltArmy = AltArmy or {}
@@ -10,6 +10,8 @@ AltArmy.Version = ADDON_VERSION
 AltArmy.MainFrame = nil
 AltArmy.TabFrames = {}
 AltArmy.CurrentTab = "Summary"
+
+AltArmyTBC_Options = AltArmyTBC_Options or {}
 
 local FRAME_WIDTH = 600
 local FRAME_HEIGHT = 400
@@ -172,7 +174,7 @@ setActiveTab = function(tabName)
         local isSelected = (btn.tabName == tabName)
         if isSelected then
             -- Keep Gear tab enabled when active so clicking it can close settings and return to grid
-            btn:SetEnabled(btn.tabName == "Gear" or false)
+            btn:SetEnabled(btn.tabName == "Gear" or btn.tabName == "Reputation" or false)
             if btn.selectedBg then btn.selectedBg:Show() end
             if btn.label then btn.label:SetTextColor(1, 0.82, 0, 1) end  -- yellow when selected
         else
@@ -197,11 +199,53 @@ setActiveTab = function(tabName)
             tabStrip.summarySettingsBtn:Hide()
         end
     end
+    if tabStrip.reputationSettingsBtn then
+        if tabName == "Reputation" and tabStrip:IsShown() then
+            tabStrip.reputationSettingsBtn:Show()
+        else
+            tabStrip.reputationSettingsBtn:Hide()
+        end
+    end
     UpdateSettingsButtonGlow()
 end
 
+-- Light hover tint (matches Reputation tab sortable rows / tooltip-style panels).
+local HOVER_TINT_BG = "Interface\\Tooltips\\UI-Tooltip-Background"
+local HOVER_TINT_ALPHA = 0.22
+
+local function InstallHoverTintTexture(target)
+    local t = target:CreateTexture(nil, "BACKGROUND")
+    t:SetTexture(HOVER_TINT_BG)
+    t:SetAllPoints(true)
+    t:SetVertexColor(1, 1, 1, 0)
+    target.altArmyHoverTint = t
+end
+
+local function HoverTintEnter(target)
+    local t = target.altArmyHoverTint
+    if t then
+        t:SetVertexColor(1, 1, 1, HOVER_TINT_ALPHA)
+    end
+end
+
+local function HoverTintLeave(target)
+    local t = target.altArmyHoverTint
+    if t then
+        t:SetVertexColor(1, 1, 1, 0)
+    end
+end
+
+-- Settings gear uses an ARTWORK icon; BACKGROUND tint is invisible on top of it — paint after the icon.
+local function InstallSettingsIconHoverTint(target)
+    local t = target:CreateTexture(nil, "ARTWORK")
+    t:SetTexture(HOVER_TINT_BG)
+    t:SetAllPoints(true)
+    t:SetVertexColor(1, 1, 1, 0)
+    target.altArmyHoverTint = t
+end
+
 local TAB_BTN_MIN_WIDTH = 72
-local tabNames = { "Summary", "Gear" }
+local tabNames = { "Summary", "Gear", "Reputation" }
 tabStrip.buttons = {}
 local prevBtn = nil
 for _, tabName in ipairs(tabNames) do
@@ -224,6 +268,7 @@ for _, tabName in ipairs(tabNames) do
     selectedBg:SetColorTexture(0.35, 0.35, 0.5, 0.8)
     btn.selectedBg = selectedBg
     selectedBg:Hide()
+    InstallHoverTintTexture(btn)
     -- Label (plain Button has no built-in text); color is set in setActiveTab for consistent selected look
     local label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetPoint("CENTER", btn, "CENTER", 0, 0)
@@ -231,6 +276,12 @@ for _, tabName in ipairs(tabNames) do
     btn.label = label
     btn:SetScript("OnClick", function()
         setActiveTab(tabName)
+    end)
+    btn:SetScript("OnEnter", function(self)
+        HoverTintEnter(self)
+    end)
+    btn:SetScript("OnLeave", function(self)
+        HoverTintLeave(self)
     end)
     prevBtn = btn
     tabStrip.buttons[tabName] = btn
@@ -245,6 +296,18 @@ tabStrip.buttons["Gear"]:SetScript("OnClick", function()
         AltArmy.TabFrames.Gear:ToggleGearSettings()
     else
         setActiveTab("Gear")
+    end
+end)
+
+-- Reputation tab: same pattern as Gear (toggle settings when clicking tab again)
+tabStrip.buttons["Reputation"]:SetScript("OnClick", function()
+    if AltArmy.CurrentTab == "Reputation"
+        and AltArmy.TabFrames.Reputation
+        and AltArmy.TabFrames.Reputation.IsReputationSettingsShown
+        and AltArmy.TabFrames.Reputation:IsReputationSettingsShown() then
+        AltArmy.TabFrames.Reputation:ToggleReputationSettings()
+    else
+        setActiveTab("Reputation")
     end
 end)
 
@@ -274,6 +337,12 @@ UpdateSettingsButtonGlow = function()
             and AltArmy.TabFrames.Search:IsSearchSettingsShown()
         searchSettingsBtn.glow:SetShown(active)
     end
+    if tabStrip.reputationSettingsBtn and tabStrip.reputationSettingsBtn:IsShown()
+        and tabStrip.reputationSettingsBtn.glow then
+        local active = AltArmy.TabFrames.Reputation and AltArmy.TabFrames.Reputation.IsReputationSettingsShown
+            and AltArmy.TabFrames.Reputation:IsReputationSettingsShown()
+        tabStrip.reputationSettingsBtn.glow:SetShown(active)
+    end
 end
 
 -- Gear tab settings icon (top right of tab strip; visible only when Gear tab is active)
@@ -285,6 +354,13 @@ addSettingsButtonGlow(gearSettingsBtn)
 local gearSettingsIcon = gearSettingsBtn:CreateTexture(nil, "ARTWORK")
 gearSettingsIcon:SetAllPoints(gearSettingsBtn)
 gearSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
+InstallSettingsIconHoverTint(gearSettingsBtn)
+gearSettingsBtn:SetScript("OnEnter", function(self)
+    HoverTintEnter(self)
+end)
+gearSettingsBtn:SetScript("OnLeave", function(self)
+    HoverTintLeave(self)
+end)
 gearSettingsBtn:SetScript("OnClick", function()
     if AltArmy.TabFrames.Gear and AltArmy.TabFrames.Gear.ToggleGearSettings then
         AltArmy.TabFrames.Gear:ToggleGearSettings()
@@ -302,6 +378,13 @@ addSettingsButtonGlow(summarySettingsBtn)
 local summarySettingsIcon = summarySettingsBtn:CreateTexture(nil, "ARTWORK")
 summarySettingsIcon:SetAllPoints(summarySettingsBtn)
 summarySettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
+InstallSettingsIconHoverTint(summarySettingsBtn)
+summarySettingsBtn:SetScript("OnEnter", function(self)
+    HoverTintEnter(self)
+end)
+summarySettingsBtn:SetScript("OnLeave", function(self)
+    HoverTintLeave(self)
+end)
 summarySettingsBtn:SetScript("OnClick", function()
     if AltArmy.TabFrames.Summary and AltArmy.TabFrames.Summary.ToggleSummarySettings then
         AltArmy.TabFrames.Summary:ToggleSummarySettings()
@@ -309,6 +392,30 @@ summarySettingsBtn:SetScript("OnClick", function()
     end
 end)
 tabStrip.summarySettingsBtn = summarySettingsBtn
+
+-- Reputation tab settings icon (same position; visible only when Reputation tab is active)
+local reputationSettingsBtn = CreateFrame("Button", nil, tabStrip)
+reputationSettingsBtn:SetPoint("TOPRIGHT", tabStrip, "TOPRIGHT", 0, 0)
+reputationSettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
+reputationSettingsBtn:Hide()
+addSettingsButtonGlow(reputationSettingsBtn)
+local reputationSettingsIcon = reputationSettingsBtn:CreateTexture(nil, "ARTWORK")
+reputationSettingsIcon:SetAllPoints(reputationSettingsBtn)
+reputationSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
+InstallSettingsIconHoverTint(reputationSettingsBtn)
+reputationSettingsBtn:SetScript("OnEnter", function(self)
+    HoverTintEnter(self)
+end)
+reputationSettingsBtn:SetScript("OnLeave", function(self)
+    HoverTintLeave(self)
+end)
+reputationSettingsBtn:SetScript("OnClick", function()
+    if AltArmy.TabFrames.Reputation and AltArmy.TabFrames.Reputation.ToggleReputationSettings then
+        AltArmy.TabFrames.Reputation:ToggleReputationSettings()
+        UpdateSettingsButtonGlow()
+    end
+end)
+tabStrip.reputationSettingsBtn = reputationSettingsBtn
 
 setActiveTab("Summary")
 
@@ -348,6 +455,7 @@ searchModeHandlers.enterSearchMode = function(trimmed)
     if recipesChk then recipesChk:SetChecked(AltArmy.SearchCategories.Recipes) end
     if AltArmy.TabFrames.Summary then AltArmy.TabFrames.Summary:Hide() end
     if AltArmy.TabFrames.Gear then AltArmy.TabFrames.Gear:Hide() end
+    if AltArmy.TabFrames.Reputation then AltArmy.TabFrames.Reputation:Hide() end
     if AltArmy.TabFrames.Search then
         AltArmy.TabFrames.Search:Show()
         if AltArmy.TabFrames.Search.SearchWithQuery then
@@ -421,6 +529,13 @@ addSettingsButtonGlow(searchSettingsBtn)
 local searchSettingsIcon = searchSettingsBtn:CreateTexture(nil, "ARTWORK")
 searchSettingsIcon:SetAllPoints(searchSettingsBtn)
 searchSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
+InstallSettingsIconHoverTint(searchSettingsBtn)
+searchSettingsBtn:SetScript("OnEnter", function(self)
+    HoverTintEnter(self)
+end)
+searchSettingsBtn:SetScript("OnLeave", function(self)
+    HoverTintLeave(self)
+end)
 searchSettingsBtn:SetScript("OnClick", function()
     if AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.ToggleSearchSettings then
         AltArmy.TabFrames.Search:ToggleSearchSettings()

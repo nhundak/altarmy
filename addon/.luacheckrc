@@ -13,6 +13,7 @@ globals = {
     "AltArmyTBC_Data",
     "AltArmyTBC_Options",
     "AltArmyTBC_GearSettings",
+    "AltArmyTBC_ReputationSettings",
     "AltArmyTBC_SummarySettings",
     "AltArmyTBC_SearchSettings",
     "UISpecialFrames",
@@ -65,6 +66,8 @@ read_globals = {
     "GetSkillLineInfo",
     "GetNumFactions",
     "GetFactionInfo",
+    "GetFactionInfoByID",
+    "C_Reputation",
     "GetInboxNumItems",
     "GetInboxHeaderInfo",
     "GetInboxItem",
@@ -83,6 +86,7 @@ read_globals = {
     "SecondsToTime",
     "Minimap",
     "GameTooltip",
+    "DEFAULT_CHAT_FRAME",
     "GetCursorPosition",
     "IsMouseButtonDown",
     "IsShiftKeyDown",
@@ -112,6 +116,7 @@ read_globals = {
     -- Reputations
     "ExpandFactionHeader",
     "CollapseFactionHeader",
+    "FACTION_BAR_COLORS",
 }
 
 -- Busted spec files: test globals and assert extensions (e.g. assert.truthy)

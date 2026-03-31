@@ -17,8 +17,9 @@ Each module has its own version number that is incremented when the storage form
 ### professions (v1)
 - **v1**: Initial version. Stores profession skills in `char.Professions[name]` with rank, maxRank, isPrimary/isSecondary, and Recipes table. Primary profession names in `char.Prof1` and `char.Prof2`.
 
-### reputations (v1)
-- **v1**: Initial version. Stores faction standings in `char.Reputations[factionID] = earnedValue`.
+### reputations (v2)
+- **v1**: Initial version. Stored `char.Reputations[factionID]` using a broken `FACTION_STANDING_THRESHOLDS[standingID]` mix; cross-standing sort/order was wrong.
+- **v2**: Stores `{ s = standingID, e = earnedValue, b = bottomValue, t = topValue }` per faction from `GetFactionInfo` so labels, colors, bars, and sort match the game.
 
 ### mail (v1)
 - **v1**: Initial version. Stores mailbox contents in `char.Mails[]` with icon, itemID, count, sender, link, money, subject, lastCheck, daysLeft, returned.

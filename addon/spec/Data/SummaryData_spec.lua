@@ -113,6 +113,10 @@ describe("SummaryData", function()
         _G.AltArmy.DataStore = {}
         DS = _G.AltArmy.DataStore
       end
+      -- Default: reputation storage is current (no stale-format warning)
+      DS.NeedsRescan = function()
+        return false
+      end
     end)
 
     it("returns no missing when char is nil", function()
@@ -128,12 +132,15 @@ describe("SummaryData", function()
       local char = {
         dataVersions = {
           character = 1, containers = 1, equipment = 1, professions = 1,
-          reputations = 1, mail = 1, auctions = 1, currencies = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
         },
         Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
       }
       DS.GetCharacter = function(_, _name, _realm) return char end
-      DS.HasModuleData = function(_, c, mod) return (c.dataVersions and c.dataVersions[mod]) == 1 end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
       DS.GetProfessions = function(_, c) return c.Professions or {} end
       DS.GetNumRecipes = function(_, c, profName)
         local p = c.Professions and c.Professions[profName]
@@ -145,6 +152,85 @@ describe("SummaryData", function()
       local out = SD.GetMissingDataInfo("Alice", "Realm1")
       assert.is_false(out.hasMissing)
       assert.are.same(out.instructions, {})
+    end)
+
+    it("flags outdated reputation storage for current character (needs relog/reload)", function()
+      local char = {
+        dataVersions = {
+          character = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 1, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
+        Reputations = { [47] = 50000 },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.NeedsRescan = function(_, c, mod)
+        return mod == "reputations" and (c.dataVersions.reputations or 0) < 2
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Bob" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_true(out.hasMissing)
+      local found = false
+      for _, line in ipairs(out.instructions) do
+        if line:find("reputation") and (line:find("reload") or line:find("log")) then
+          found = true
+          break
+        end
+      end
+      assert.is_true(found, "expected reputation refresh instruction for current character")
+    end)
+
+    it("flags outdated reputation storage for alt with log in instruction", function()
+      local char = {
+        dataVersions = {
+          character = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 1, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
+        Reputations = { [47] = 50000 },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.NeedsRescan = function(_, c, mod)
+        return mod == "reputations" and (c.dataVersions.reputations or 0) < 2
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Alice" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_true(out.hasMissing)
+      local found = false
+      for _, line in ipairs(out.instructions) do
+        if line:find("Log in with this character") then found = true break end
+      end
+      assert.is_true(found, "expected log-in instruction for alt with stale reputation")
     end)
 
     it("adds Skills instruction when professions module missing (current character)", function()
@@ -207,6 +293,104 @@ describe("SummaryData", function()
         if line:find("Alchemy") then found = true break end
       end
       assert.is_true(found, "expected an instruction containing 'Alchemy'")
+    end)
+
+    it("flags reputation when data version is current but storage still has legacy scalars", function()
+      local char = {
+        dataVersions = {
+          character = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
+        Reputations = { [47] = 5000 },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.NeedsRescan = function()
+        return false
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Alice" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Alice", "Realm1")
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_true(out.hasMissing)
+      local found = false
+      for _, line in ipairs(out.instructions) do
+        if line:find("reputation") then
+          found = true
+          break
+        end
+      end
+      assert.is_true(found, "expected reputation refresh for legacy scalar storage")
+    end)
+  end)
+
+  describe("GetMissingDataTooltip", function()
+    local DS
+
+    before_each(function()
+      DS = _G.AltArmy.DataStore
+      if not DS then
+        _G.AltArmy.DataStore = {}
+        DS = _G.AltArmy.DataStore
+      end
+      DS.NeedsRescan = function()
+        return false
+      end
+    end)
+
+    it("returns nil when nothing missing", function()
+      local char = {
+        dataVersions = {
+          character = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
+        Reputations = { [47] = { s = 5, e = 1, b = 0, t = 1 } },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local title, lines = SD.GetMissingDataTooltip("Zed", "R1", nil)
+      assert.is_nil(title)
+      assert.is_nil(lines)
+    end)
+
+    it("returns title and lines when data missing", function()
+      local char = { dataVersions = { character = 1 } }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.HasModuleData = function(_, c, mod) return (c.dataVersions and c.dataVersions[mod]) == 1 end
+      DS.GetProfessions = function(_, _c) return {} end
+      DS.GetNumRecipes = function() return 0 end
+      local title, lines = SD.GetMissingDataTooltip("Bob", "Realm1", nil)
+      assert.is_string(title)
+      assert.truthy(title:find("Some data for"))
+      assert.truthy(title:find("has not been gathered yet"))
+      assert.truthy(title:find("Bob"))
+      assert.is_table(lines)
+      assert.truthy(#lines > 0)
     end)
   end)
 end)

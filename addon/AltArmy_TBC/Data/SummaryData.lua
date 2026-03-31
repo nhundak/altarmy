@@ -171,6 +171,14 @@ local PROFESSIONS_NO_WARNING = {
     Skinning = true,
 }
 
+local function charHasLegacyReputationScalars(char)
+    if not char or not char.Reputations then return false end
+    for _, v in pairs(char.Reputations) do
+        if type(v) == "number" then return true end
+    end
+    return false
+end
+
 --- Returns whether a character is missing any gathered data and a list of instructions for the tooltip.
 --- @param name string Character name
 --- @param realm string Realm name
@@ -198,6 +206,19 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
         end
     end
 
+    -- Reputation: stale data version and/or legacy scalar storage (pre-v2 snapshot rows)
+    if DS.HasModuleData and DS:HasModuleData(char, "reputations") then
+        local staleVersion = DS.NeedsRescan and DS:NeedsRescan(char, "reputations")
+        local legacyScalars = charHasLegacyReputationScalars(char)
+        if staleVersion or legacyScalars then
+            if isCurrent then
+                table.insert(out.instructions, "* /reload or log in again to refresh reputation data")
+            elseif not addedLoginInstruction then
+                table.insert(out.instructions, "* Log in with this character")
+            end
+        end
+    end
+
     -- Per-profession: if we have profession data but a skill has no recipes, add "Open your X window"
     -- (skip Fishing, Riding, Herbalism, Mining, Skinning)
     if DS.HasModuleData and DS:HasModuleData(char, "professions") and DS.GetProfessions and DS.GetNumRecipes then
@@ -214,4 +235,40 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
 
     out.hasMissing = #out.instructions > 0
     return out
+end
+
+--- Title (with |c-colored name) and instruction lines for the Summary warning tooltip. nil if nothing missing.
+--- @param name string
+--- @param realm string
+--- @param classFile string|nil
+--- @return string|nil title, table|nil instructions
+function AltArmy.SummaryData.GetMissingDataTooltip(name, realm, classFile)
+    local info = AltArmy.SummaryData.GetMissingDataInfo(name, realm)
+    if not info or not info.hasMissing then return nil, nil end
+    local r, g, b = 1, 0.82, 0
+    if classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile] then
+        local c = RAID_CLASS_COLORS[classFile]
+        r, g, b = c.r, c.g, c.b
+    end
+    local hex = string.format("|cFF%02x%02x%02x", math.floor(r * 255), math.floor(g * 255), math.floor(b * 255))
+    local n = name or ""
+    local titlePrefix = "Some data for " .. hex .. n .. "|r"
+    local title = titlePrefix .. " has not been gathered yet."
+    return title, info.instructions
+end
+
+--- Same GameTooltip presentation as the Summary warning column (white title, gold instructions).
+--- @return boolean true if a tooltip was shown
+function AltArmy.SummaryData.PresentMissingDataTooltip(owner, anchor, name, realm, classFile)
+    if not owner or not GameTooltip then return false end
+    local title, lines = AltArmy.SummaryData.GetMissingDataTooltip(name, realm, classFile)
+    if not title or not lines then return false end
+    GameTooltip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
+    GameTooltip:ClearLines()
+    GameTooltip:AddLine(title, 1, 1, 1, true)
+    for _, line in ipairs(lines) do
+        GameTooltip:AddLine(line, 1, 0.82, 0, true)
+    end
+    GameTooltip:Show()
+    return true
 end

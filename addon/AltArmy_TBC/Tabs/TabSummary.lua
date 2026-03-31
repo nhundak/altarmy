@@ -603,16 +603,10 @@ for i = 1, NUM_ROWS do
             warningFrame.mark = mark
             mark:Hide()
             warningFrame:SetScript("OnEnter", function(self)
-                if self.tooltipTitle and GameTooltip then
-                    GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-                    GameTooltip:ClearLines()
-                    GameTooltip:AddLine(self.tooltipTitle, 1, 1, 1, true)
-                    if self.tooltipLines then
-                        for _, line in ipairs(self.tooltipLines) do
-                            GameTooltip:AddLine(line, 1, 0.82, 0, true)
-                        end
-                    end
-                    GameTooltip:Show()
+                if not GameTooltip then return end
+                local e = self.missingDataTooltipEntry
+                if e and SD and SD.PresentMissingDataTooltip then
+                    SD.PresentMissingDataTooltip(self, "ANCHOR_BOTTOMLEFT", e.name, e.realm, e.classFile)
                 end
             end)
             warningFrame:SetScript("OnLeave", function()
@@ -757,22 +751,15 @@ Update = function(offset)
                     end
                     if info.hasMissing and cell and cell.mark then
                         cell.mark:Show()
-                        local name = entry.name or ""
-                        local r, g, b = 1, 0.82, 0
-                        if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
-                            local c = RAID_CLASS_COLORS[entry.classFile]
-                            r, g, b = c.r, c.g, c.b
-                        end
-                        local hex = string.format("|cFF%02x%02x%02x",
-                            math.floor(r * 255), math.floor(g * 255), math.floor(b * 255))
-                        local titlePrefix = "Some data for " .. hex .. name .. "|r"
-                        cell.tooltipTitle = titlePrefix .. " has not been gathered yet."
-                        cell.tooltipLines = info.instructions
+                        cell.missingDataTooltipEntry = {
+                            name = entry.name or "",
+                            realm = entry.realm or "",
+                            classFile = entry.classFile,
+                        }
                     else
                         if cell then
                             if cell.mark then cell.mark:Hide() end
-                            cell.tooltipTitle = nil
-                            cell.tooltipLines = nil
+                            cell.missingDataTooltipEntry = nil
                         end
                     end
                 elseif cell and col and col.GetText then
@@ -819,8 +806,7 @@ Update = function(offset)
             local warningCell = rowFrame.cells and rowFrame.cells["Warning"]
             if warningCell then
                 if warningCell.mark then warningCell.mark:Hide() end
-                warningCell.tooltipTitle = nil
-                warningCell.tooltipLines = nil
+                warningCell.missingDataTooltipEntry = nil
             end
             if rowFrame.nameOverlay then
                 rowFrame.nameOverlay.fullNameDisplay = nil

@@ -8,9 +8,21 @@ local GetCurrentCharTable = DS._GetCurrentCharTable
 local DATA_VERSIONS = DS._DATA_VERSIONS
 
 local FACTION_STANDING_THRESHOLDS = { 0, 36000, 78000, 108000, 129000, 150000, 171000, 192000 }
--- Labels by threshold index: 0, 36000, 78000, ...; test expects 36000-78000 = Friendly
+-- Labels by threshold index (legacy number-only storage; not WoW standingID order)
 local FACTION_STANDING_LABELS = {
     "Hated", "Friendly", "Unfriendly", "Neutral", "Hostile", "Honored", "Revered", "Exalted",
+}
+
+-- WoW GetFactionInfo standingID 1..8 → display name (v2 table storage)
+local STANDING_ID_TO_LABEL = {
+    [1] = "Hated",
+    [2] = "Hostile",
+    [3] = "Unfriendly",
+    [4] = "Neutral",
+    [5] = "Friendly",
+    [6] = "Honored",
+    [7] = "Revered",
+    [8] = "Exalted",
 }
 
 local factionHeadersState = {}
@@ -63,28 +75,245 @@ local function GetReputationLimits(earned)
 end
 DS._GetReputationLimits = GetReputationLimits
 
+--- Progress line for reputation cell: "repEarned/nextSpan" or "Max" when span invalid (non-Exalted).
+--- Exalted uses the same cur/span as other tiers; when span is missing (capped API), TBC uses 0–1000 in Exalted.
+--- @param standing string|nil
+--- @param repEarned number
+--- @param nextLevel number
+--- @return string
+function DS.FormatReputationProgressText(standing, repEarned, nextLevel)
+    local span = tonumber(nextLevel) or 0
+    local cur = math.floor(tonumber(repEarned) or 0)
+    if span > 0 then
+        return tostring(cur) .. "/" .. tostring(span)
+    end
+    if standing == "Exalted" then
+        return tostring(cur) .. "/1000"
+    end
+    return "Max"
+end
+
+-- Bar RGB per standing label (WoW-like friendly / neutral / hostile palette); used when FACTION_BAR_COLORS unavailable.
+local STANDING_BAR_COLORS = {
+    Hated = { 0.8, 0.09, 0.09 },
+    Hostile = { 1, 0.25, 0 },
+    Unfriendly = { 0.9, 0.45, 0 },
+    Neutral = { 0.9, 0.85, 0.2 },
+    Friendly = { 0.2, 0.75, 0.1 },
+    Honored = { 0.1, 0.6, 0.85 },
+    Revered = { 0.35, 0.2, 0.95 },
+    Exalted = { 0.5, 0.2, 0.75 },
+}
+
+-- Standing name -> WoW standing index (for FACTION_BAR_COLORS[1..8] when present).
+local STANDING_NAME_TO_ID = {
+    Hated = 1,
+    Hostile = 2,
+    Unfriendly = 3,
+    Neutral = 4,
+    Friendly = 5,
+    Honored = 6,
+    Revered = 7,
+    Exalted = 8,
+}
+
+--- RGB 0..1 for reputation bar fill from standing name.
+--- @param standing string|nil
+--- @return number r, number g, number b
+function DS.GetReputationBarColorsForStanding(standing)
+    local key = standing
+    if type(key) == "string" then
+        key = key:gsub("^%s+", ""):gsub("%s+$", "")
+    end
+    local sid = type(key) == "string" and STANDING_NAME_TO_ID[key]
+    if sid and FACTION_BAR_COLORS and FACTION_BAR_COLORS[sid] then
+        local c = FACTION_BAR_COLORS[sid]
+        return c.r or 0.5, c.g or 0.5, c.b or 0.5
+    end
+    if type(key) == "string" and STANDING_BAR_COLORS[key] then
+        local t = STANDING_BAR_COLORS[key]
+        return t[1], t[2], t[3]
+    end
+    return 0.5, 0.5, 0.5
+end
+
+--- SavedVariables may use string keys; scans use numeric keys — check both.
+local function GetStoredFactionDisplayName(nameMap, factionID)
+    if not nameMap then
+        return nil
+    end
+    local n = tonumber(factionID)
+    if not n or n < 1 then
+        return nil
+    end
+    local s = nameMap[n]
+    if type(s) == "string" and s ~= "" then
+        return s
+    end
+    s = nameMap[tostring(n)]
+    if type(s) == "string" and s ~= "" then
+        return s
+    end
+    return nil
+end
+
+--- Client APIs that resolve a faction ID to a display name even if this character has not discovered it.
+local function TryFactionNameFromGameAPI(factionID)
+    if not factionID or factionID <= 0 then
+        return nil
+    end
+    if type(GetFactionInfoByID) == "function" then
+        local ok, name = pcall(function()
+            return GetFactionInfoByID(factionID)
+        end)
+        if ok and type(name) == "string" and name ~= "" then
+            return name
+        end
+    end
+    local CR = C_Reputation
+    if CR and type(CR.GetFactionDataByID) == "function" then
+        local ok, data = pcall(function()
+            return CR.GetFactionDataByID(factionID)
+        end)
+        if ok and type(data) == "table" then
+            local nm = data.name or data.factionName
+            if type(nm) == "string" and nm ~= "" then
+                return nm
+            end
+        end
+    end
+    return nil
+end
+
+--- True if saved rep data is worth showing: v2 snapshot only (legacy v1 scalars ignored for the grid).
+--- Among v2 rows, omit "Neutral at bottom of tier" with no progress (default capitals in the client list).
+local function reputationRawQualifiesForUnion(raw)
+    if raw == nil then
+        return false
+    end
+    if type(raw) == "number" then
+        return false
+    end
+    if type(raw) == "table" then
+        if tonumber(raw.s) == nil then
+            return false
+        end
+        local s = tonumber(raw.s) or 4
+        local e = tonumber(raw.e) or 0
+        local b = tonumber(raw.b) or 0
+        if s ~= 4 then
+            return true
+        end
+        return e > b
+    end
+    return false
+end
+
+--- Collect faction IDs from v2 rep snapshots only (at least one alt); legacy v1 scalars are skipped.
+local function CollectFactionIdsFromSavedCharacters()
+    local ids = {}
+    local data = AltArmyTBC_Data
+    if not data or not data.Characters then
+        return ids
+    end
+    for _, realmTbl in pairs(data.Characters) do
+        for _, char in pairs(realmTbl) do
+            local reps = char and char.Reputations
+            if reps then
+                for fid, raw in pairs(reps) do
+                    local n = tonumber(fid)
+                    if n and n > 0 and reputationRawQualifiesForUnion(raw) then
+                        ids[n] = true
+                    end
+                end
+            end
+        end
+    end
+    return ids
+end
+
+--- Faction rows: union of faction IDs where at least one alt has v2 rep data (non-legacy), excluding
+--- v2 Neutral with zero progress within that tier (still stored by scans but omitted from the grid).
+--- The live GetFactionInfo loop only fills ReputationFactionNames for labels. Sorted A–Z by name.
+--- @return table[] { { factionID = number, name = string }, ... }
+function DS:GetCurrentReputationFactionRows()
+    AltArmyTBC_Data.ReputationFactionNames = AltArmyTBC_Data.ReputationFactionNames or {}
+    local nameMap = AltArmyTBC_Data.ReputationFactionNames
+
+    local ids = CollectFactionIdsFromSavedCharacters()
+
+    -- Refresh display names from the current client's rep list (does not add factions to the grid).
+    if GetNumFactions and GetFactionInfo then
+        local n = GetNumFactions()
+        if n and n >= 1 then
+            for i = 1, n do
+                local name, _, _, _, _, _, _, _, isHeader, _, _, _, _, factionID =
+                    GetFactionInfo(i)
+                if not isHeader and factionID and factionID > 0 then
+                    if name and name ~= "" then
+                        nameMap[factionID] = name
+                    end
+                end
+            end
+        end
+    end
+
+    local rows = {}
+    for fid in pairs(ids) do
+        local label = GetStoredFactionDisplayName(nameMap, fid)
+        if not label then
+            label = TryFactionNameFromGameAPI(fid)
+            if label then
+                nameMap[fid] = label
+            end
+        end
+        if not label or label == "" then
+            label = "#" .. tostring(fid)
+        end
+        rows[#rows + 1] = {
+            factionID = fid,
+            name = label,
+        }
+    end
+
+    table.sort(rows, function(a, b)
+        local na = (a.name or ""):lower()
+        local nb = (b.name or ""):lower()
+        if na ~= nb then
+            return na < nb
+        end
+        return (a.factionID or 0) < (b.factionID or 0)
+    end)
+
+    return rows
+end
+
 function DS:ScanReputations()
     local char = GetCurrentCharTable()
     if not char then return end
     if not GetNumFactions or not GetFactionInfo then return end
+    AltArmyTBC_Data.ReputationFactionNames = AltArmyTBC_Data.ReputationFactionNames or {}
+    local factionNames = AltArmyTBC_Data.ReputationFactionNames
     char.Reputations = char.Reputations or {}
     for k in pairs(char.Reputations) do char.Reputations[k] = nil end
     SaveFactionHeaders()
     for i = 1, GetNumFactions() do
-        local _, _, standingID, barMin, _, barValue, _, _, isHeader, _, _, _, _, factionID = GetFactionInfo(i)
+        local name, _, standingID, bottomValue, topValue, earnedValue, _, _, isHeader, _, _, _, _, factionID =
+            GetFactionInfo(i)
         if not isHeader and factionID and factionID > 0 then
-            local earned
-            if standingID and barMin and barValue then
-                local threshold = FACTION_STANDING_THRESHOLDS[standingID]
-                if threshold then
-                    earned = threshold + (barValue - barMin)
-                else
-                    earned = barValue
-                end
-            else
-                earned = 0
+            if name and name ~= "" then
+                factionNames[factionID] = name
             end
-            char.Reputations[factionID] = earned
+            local snapshot = {
+                s = tonumber(standingID) or 4,
+                e = tonumber(earnedValue) or 0,
+                b = tonumber(bottomValue) or 0,
+                t = tonumber(topValue) or 0,
+            }
+            -- Skip storing default Neutral/no-progress rows (still listed by the client for everyone).
+            if reputationRawQualifiesForUnion(snapshot) then
+                char.Reputations[factionID] = snapshot
+            end
         end
     end
     RestoreFactionHeaders()
@@ -99,8 +328,24 @@ end
 
 function DS:GetReputationInfo(char, factionID)
     if not char or not char.Reputations or not factionID then return nil, 0, 0, 0 end
-    local earned = char.Reputations[factionID]
-    if earned == nil then return nil, 0, 0, 0 end
+    local raw = char.Reputations[factionID]
+    if raw == nil then return nil, 0, 0, 0 end
+
+    if type(raw) == "table" then
+        local sid = raw.s
+        local e = tonumber(raw.e) or 0
+        local b = tonumber(raw.b) or 0
+        local t = tonumber(raw.t) or 0
+        local standing = (type(sid) == "number" and STANDING_ID_TO_LABEL[sid]) or nil
+        if not standing then return nil, 0, 0, 0 end
+        local repEarned = e - b
+        local nextLevel = t - b
+        if nextLevel < 0 then nextLevel = 0 end
+        local rate = (nextLevel > 0) and (repEarned / nextLevel * 100) or 100
+        return standing, repEarned, nextLevel, rate
+    end
+
+    local earned = tonumber(raw) or 0
     local bottom, top = GetReputationLimits(earned)
     local standing = FACTION_STANDING_LABELS[1]
     for i = 1, #FACTION_STANDING_THRESHOLDS do
@@ -117,8 +362,14 @@ end
 
 function DS:IterateReputations(char, callback)
     if not char or not char.Reputations or not callback then return end
-    for factionID, earned in pairs(char.Reputations) do
+    for factionID, raw in pairs(char.Reputations) do
         local standing, repEarned, nextLevel, rate = self:GetReputationInfo(char, factionID)
+        local earned
+        if type(raw) == "table" then
+            earned = tonumber(raw.e) or 0
+        else
+            earned = tonumber(raw) or 0
+        end
         if callback(factionID, earned, standing, repEarned, nextLevel, rate) then
             return
         end
