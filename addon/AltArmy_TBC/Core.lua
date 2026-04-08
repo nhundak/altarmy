@@ -1,7 +1,7 @@
 -- AltArmy TBC — Core: namespace, main frame, header, tabs, content frames
 
 local ADDON_NAME = "Alt Army"
-local ADDON_VERSION = "1.1.0"
+local ADDON_VERSION = "1.1.1"
 
 -- Namespace
 AltArmy = AltArmy or {}
@@ -33,12 +33,22 @@ local lastTab = "Summary"
 local main = CreateFrame("Frame", "AltArmyTBC_MainFrame", UIParent)
 main:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
 main:SetPoint("CENTER", 0, 0)
+main:SetFrameStrata("DIALOG")
+main:SetFrameLevel(100)
+if main.SetToplevel then
+    main:SetToplevel(true)
+end
 main:SetMovable(true)
 main:SetClampedToScreen(true)
 main:RegisterForDrag("LeftButton")
 main:SetScript("OnDragStart", function(f) f:StartMoving() end)
 main:SetScript("OnDragStop", function(f) f:StopMovingOrSizing() end)
 main:EnableMouse(true)
+main:HookScript("OnShow", function(f)
+    if f.Raise then
+        f:Raise()
+    end
+end)
 -- SetBackdrop is not available in all TBC Classic builds; use a simple background texture
 local bg = main:CreateTexture(nil, "BACKGROUND")
 bg:SetAllPoints(main)

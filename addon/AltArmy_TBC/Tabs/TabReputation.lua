@@ -4,6 +4,7 @@ local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Reputation
 if not frame then return end
 
 local DS = AltArmy.DataStore
+local RepSort = AltArmy.ReputationFactionSort
 local SD = AltArmy.SummaryData
 local PAD = 4
 local FACTION_LABEL_WIDTH = 150
@@ -142,78 +143,6 @@ local columnSortHighFirst = true
 
 local lastFactionRows = {}
 
-local NO_FACTION_REP = -999999999
-
--- Faction-column sort: v2 snapshot rows (all table entries) left; any legacy scalar rep right.
-local function GetReputationStorageSortGroup(char)
-    if not char then return 0 end
-    if not DS.HasModuleData or not DS:HasModuleData(char, "reputations") then
-        return 0
-    end
-    local reps = char.Reputations
-    if not reps then return 0 end
-    for _, v in pairs(reps) do
-        if type(v) == "number" then
-            return 1
-        end
-    end
-    return 0
-end
-
-local function GetReputationStorageSortGroupForEntry(entry)
-    if not entry or not DS or not DS.GetCharacter then return 0 end
-    return GetReputationStorageSortGroup(DS:GetCharacter(entry.name, entry.realm))
-end
-
-local function GetFactionEarnedForEntry(entry, factionID)
-    if not entry or not factionID or not DS or not DS.GetCharacter then
-        return NO_FACTION_REP
-    end
-    local char = DS:GetCharacter(entry.name, entry.realm)
-    if not char or not DS.HasModuleData or not DS:HasModuleData(char, "reputations") then
-        return NO_FACTION_REP
-    end
-    local reps = char.Reputations
-    if not reps then return NO_FACTION_REP end
-    local v = reps[factionID]
-    if v == nil then return NO_FACTION_REP end
-    if type(v) == "table" then
-        local e = tonumber(v.e)
-        if e == nil then return NO_FACTION_REP end
-        return e
-    end
-    return tonumber(v) or NO_FACTION_REP
-end
-
---- True if this character has discovered rep for the faction (same notion as grid / GetReputationInfo standing).
-local function FactionHasDiscoveredRepForCharacter(entry, factionID)
-    if not entry or not factionID or not DS or not DS.GetCharacter or not DS.GetReputationInfo then
-        return false
-    end
-    local char = DS:GetCharacter(entry.name, entry.realm)
-    if not char then return false end
-    local standing = DS:GetReputationInfo(char, factionID)
-    return standing ~= nil
-end
-
-local function CompareByFactionRep(entryA, entryB, factionID, highFirst, primary, secondary)
-    local ga = GetReputationStorageSortGroupForEntry(entryA)
-    local gb = GetReputationStorageSortGroupForEntry(entryB)
-    if ga ~= gb then
-        return ga < gb
-    end
-    local ea = GetFactionEarnedForEntry(entryA, factionID)
-    local eb = GetFactionEarnedForEntry(entryB, factionID)
-    if ea ~= eb then
-        if highFirst then
-            return ea > eb
-        else
-            return ea < eb
-        end
-    end
-    return CompareBySort(entryA, entryB, primary, secondary)
-end
-
 local function GetDisplayList()
     if not AltArmy.Characters or not AltArmy.Characters.GetList then return {} end
     local rawList = AltArmy.Characters:GetList()
@@ -237,7 +166,8 @@ local function GetDisplayList()
 
     local function sortPair(a, b)
         if factionSortFactionID then
-            return CompareByFactionRep(a, b, factionSortFactionID, factionSortHighFirst, primary, secondary)
+            return RepSort.CompareByFactionRep(DS, a, b, factionSortFactionID, factionSortHighFirst, primary,
+                secondary)
         end
         return CompareBySort(a, b, primary, secondary)
     end
@@ -323,22 +253,7 @@ local function GetDisplayFactionRows()
     end
     local entry = { name = columnSortName, realm = columnSortRealm or "" }
     table.sort(sorted, function(ra, rb)
-        if not ra or not rb then return false end
-        local discA = FactionHasDiscoveredRepForCharacter(entry, ra.factionID)
-        local discB = FactionHasDiscoveredRepForCharacter(entry, rb.factionID)
-        if discA ~= discB then
-            return discA
-        end
-        local ea = GetFactionEarnedForEntry(entry, ra.factionID)
-        local eb = GetFactionEarnedForEntry(entry, rb.factionID)
-        if ea ~= eb then
-            if columnSortHighFirst then
-                return ea > eb
-            else
-                return ea < eb
-            end
-        end
-        return (ra.name or "") < (rb.name or "")
+        return RepSort.CompareFactionRowsForCharacter(DS, entry, ra, rb, columnSortHighFirst)
     end)
     return sorted
 end
