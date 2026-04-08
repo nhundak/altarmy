@@ -131,7 +131,8 @@ function DS:ScanCraftRecipes(_self)
     end
     local char = GetCurrentCharTable()
     if not char then return end
-    local craftName = GetCraftSkillLine()
+    -- Classic client requires a positive index; omitting it errors: Usage: GetCraftSkillLine(index)
+    local craftName = GetCraftSkillLine(1)
     if not craftName or craftName == "" then return end
     local numCrafts = GetNumCrafts()
     if not numCrafts or numCrafts == 0 then return end

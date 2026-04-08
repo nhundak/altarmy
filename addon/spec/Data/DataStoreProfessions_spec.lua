@@ -88,6 +88,41 @@ describe("DataStoreProfessions", function()
     end)
   end)
 
+  describe("ScanCraftRecipes", function()
+    it("calls GetCraftSkillLine with index 1 (client requires a positive index)", function()
+      local oldTime = _G.time
+      _G.UnitName = function()
+        return "TestPlayer"
+      end
+      _G.GetRealmName = function()
+        return "TestRealm"
+      end
+      local receivedIndex
+      _G.GetCraftSkillLine = function(index)
+        if index == nil then
+          error("Usage: GetCraftSkillLine(index)")
+        end
+        receivedIndex = index
+        return "Enchanting"
+      end
+      _G.GetNumCrafts = function()
+        return 1
+      end
+      _G.GetCraftInfo = function()
+        return nil, nil, "optimal"
+      end
+      _G.GetCraftRecipeLink = function()
+        return "enchant:12345"
+      end
+      _G.time = function()
+        return 0
+      end
+      DS:ScanCraftRecipes()
+      _G.time = oldTime
+      assert.are.equal(1, receivedIndex)
+    end)
+  end)
+
   describe("IsRecipeKnown", function()
     it("returns false when char or profName or spellID nil", function()
       assert.is_false(DS:IsRecipeKnown(nil, "Mining", 123))
