@@ -18,11 +18,11 @@ CD.CATEGORY_ORDER = {
     "spellcloth",
     "shadowcloth",
     "primal_mooncloth",
-    "salt_shaker",
     "void_shatter",
+    "salt_shaker",
 }
 
--- TBC: transmute spells (alchemy). Used for category membership + preferred recipe filtering.
+-- TBC: transmute spells (alchemy). Used for category membership + effective recipe resolution.
 CD.TRANSMUTE_SPELL_IDS = {
     17559, 17560, 17561, 17562, 17563, 17564, 17565, 17566,
     28566, 28567, 28568, 28569, 28580, 28581, 28582, 28583, 28584, 28585,
@@ -31,7 +31,7 @@ CD.TRANSMUTE_SPELL_IDS = {
     17187,
 }
 
---- Automatic cooldown display order when preference is "choose automatically" (per character).
+--- After last successful transmute (if still known): Primal Might, then Arcanite.
 CD.TRANSMUTE_AUTOMATIC_FALLBACK_SPELL_IDS = {
     29688, -- Transmute: Primal Might
     17187, -- Transmute: Arcanite
@@ -52,6 +52,22 @@ CD.SALT_SHAKER_ITEM_ID = 15846
 CD.SALT_SHAKER_COOLDOWN_SPELL_ID = 19566
 CD.SALT_SHAKER_LEATHERWORKING_MIN = 250
 local SPELL_ID_LEATHERWORKING = 2108
+
+-- TBC profession specialization passive spell IDs (for cooldown UI / alerts).
+CD.COOLDOWN_SPEC_SPELL_IDS = {
+    masterTransmutation = 28672,
+    spellfireTailor = 26797,
+    shadoweaveTailor = 26801,
+    moonclothTailor = 26798,
+}
+
+--- Maps cooldown category key -> char.cooldownSpecs field name (see DataStoreProfessions).
+CD.CATEGORY_SPEC_FIELD = {
+    transmute = "masterTransmutation",
+    spellcloth = "spellfireTailor",
+    shadowcloth = "shadoweaveTailor",
+    primal_mooncloth = "moonclothTailor",
+}
 
 --- @param dataStore table must provide GetContainerItemCount(self, char, itemId)
 function CD.CharacterQualifiesSaltShakerCooldown(char, dataStore)
@@ -191,10 +207,22 @@ function CD.EnsureCooldownOptions()
             cat = {}
             cd.categories[key] = cat
         end
-        if cat.hide == nil then cat.hide = false end
+        if cat.showInUI == nil then
+            cat.showInUI = true
+        end
+        cat.alertMinutesBefore = nil
+        cat.alertMinutesBeforeMinutes = nil
         if cat.alertWhenAvailable == nil then cat.alertWhenAvailable = true end
-        if cat.alertMinutesBefore == nil then cat.alertMinutesBefore = false end
-        if cat.alertMinutesBeforeMinutes == nil then cat.alertMinutesBeforeMinutes = 15 end
+        if cat.showOnlyIfSpecialization == nil then cat.showOnlyIfSpecialization = false end
+        if cat.alertOnlyIfSpecialization == nil then cat.alertOnlyIfSpecialization = false end
+        if cat.alertType ~= "chat" and cat.alertType ~= "raidWarning" and cat.alertType ~= "both" then
+            cat.alertType = "chat"
+        end
+        if cat.remindMe == nil then cat.remindMe = false end
+        local rm = tonumber(cat.remindEveryMinutes)
+        if not rm or rm < 1 then
+            cat.remindEveryMinutes = 30
+        end
     end
     local sk = cd.listSortKey
     if sk ~= "recipe" and sk ~= "character" and sk ~= "mats" and sk ~= "time" then
@@ -253,7 +281,7 @@ function CD.CharacterKnowsTransmute(char, getSpellInfoFn)
     return false
 end
 
---- Collect transmute spell ids known anywhere on the account (for options dropdown).
+--- Collect transmute spell ids known anywhere on the account.
 function CD.CollectAccountKnownTransmuteSpellIds(data, getSpellInfoFn)
     local out = {}
     local seen = {}
@@ -271,26 +299,6 @@ function CD.CollectAccountKnownTransmuteSpellIds(data, getSpellInfoFn)
                             end
                         end
                     end
-                end
-            end
-        end
-    end
-    table.sort(out)
-    return out
-end
-
---- Known transmute spell IDs on one character (for Preferred Transmute dropdown).
-function CD.CollectCharacterKnownTransmuteSpellIds(char, getSpellInfoFn)
-    local out = {}
-    local seen = {}
-    local gsi = getSpellInfoFn or GetSpellInfo
-    if not char or not char.Professions then return out end
-    for _, prof in pairs(char.Professions) do
-        if prof and prof.Recipes then
-            for rid in pairs(prof.Recipes) do
-                if rid and not seen[rid] and CD.IsTransmuteSpellId(rid, gsi) then
-                    seen[rid] = true
-                    out[#out + 1] = rid
                 end
             end
         end
@@ -322,18 +330,11 @@ function CD.RecordSuccessfulTransmuteCast(char, spellId)
 end
 
 --- Effective transmute spell for cooldown rows:
---- 1) explicit preferred when set and known,
---- 2) last successful transmute when still known,
---- 3) automatic Primal Might then Arcanite.
+--- 1) last successful transmute when still known,
+--- 2) Primal Might then Arcanite when known.
 --- nil = do not show transmute row.
 function CD.ResolveTransmuteSpellForCharacter(char)
     if not char then return nil end
-    local pref = char.preferredTransmuteSpellId
-    if type(pref) == "number" then
-        if select(1, CD.FindRecipeProfession(char, pref)) then
-            return pref
-        end
-    end
     local last = char.lastTransmute
     local lastId = type(last) == "table" and type(last.spellId) == "number" and last.spellId or nil
     if lastId and select(1, CD.FindRecipeProfession(char, lastId)) then
@@ -510,9 +511,30 @@ function CD.GetReagentHaveCounts(char, spellId, getContainerItemCount)
     return rows
 end
 
-local function CategoryRowVisible(categoryKey, options)
+--- @return string|nil field key on char.cooldownSpecs
+function CD.CategorySpecField(categoryKey)
+    return CD.CATEGORY_SPEC_FIELD[categoryKey]
+end
+
+--- @param char table
+--- @param field string e.g. "masterTransmutation"
+function CD.CharacterHasCooldownSpec(char, field)
+    if not char or not field then return false end
+    local cs = char.cooldownSpecs
+    return type(cs) == "table" and cs[field] == true
+end
+
+--- When requireFlag is false, always true. When true, character must have matching persisted spec.
+function CD.RowMeetsSpecializationGate(categoryKey, char, requireFlag)
+    if not requireFlag then return true end
+    local field = CD.CategorySpecField(categoryKey)
+    if not field then return true end
+    return CD.CharacterHasCooldownSpec(char, field)
+end
+
+local function CategoryListVisible(categoryKey, options)
     local o = options and options.categories and options.categories[categoryKey]
-    if o and o.hide then
+    if o and o.showInUI == false then
         return false
     end
     return true
@@ -565,9 +587,10 @@ function CD.BuildRows(DS, options, now)
     if not DS or not DS.GetRealms then return rows end
 
     for _, catKey in ipairs(CD.CATEGORY_ORDER) do
-        if CategoryRowVisible(catKey, options) then
+        if CategoryListVisible(catKey, options) then
             local cat = CD.CATEGORIES[catKey]
             if cat then
+                local catOpts = options.categories and options.categories[catKey] or {}
                 for realm in pairs(DS:GetRealms()) do
                     for charName, char in pairs(DS:GetCharacters(realm)) do
                         local displayName = (char and char.name) or charName
@@ -579,7 +602,9 @@ function CD.BuildRows(DS, options, now)
                         elseif cat.mode == "single" and cat.spellId then
                             include = select(1, CD.FindRecipeProfession(char, cat.spellId))
                         end
-                        if include then
+                        if include
+                            and CD.RowMeetsSpecializationGate(catKey, char, catOpts.showOnlyIfSpecialization == true)
+                        then
                             local spellId = CD.ResolveEffectiveSpellId(catKey, char, options)
                             local expires = CD.GetExpiryUnix(char, spellId)
                             local gsi = type(_G.GetSpellInfo) == "function" and _G.GetSpellInfo or nil
@@ -615,59 +640,56 @@ function CD.BuildRows(DS, options, now)
     return rows
 end
 
---- Alert evaluation: returns list of fired alerts { categoryKey, name, realm, spellId, kind }
---- kind = "available" | "soon"
---- stateMutate: availAnnounced, soonAnnounced — cleared when cooldown no longer in that state
+--- Alert evaluation: returns list of fired alerts
+--- { categoryKey, categoryTitle, name, realm, classFile, spellId, kind, alertType }
+--- kind = "available" only (reminder cadence via remindMe + remindEveryMinutes).
+--- stateMutate: lastAvailAlertAt unix per row key — cleared when cooldown no longer ready
 function CD.EvaluateAlerts(DS, options, now, stateMutate)
     local results = {}
     if not DS or not options then return results end
     now = now or (time and time() or 0)
     stateMutate = stateMutate or {}
-    stateMutate.availAnnounced = stateMutate.availAnnounced or {}
-    stateMutate.soonAnnounced = stateMutate.soonAnnounced or {}
+    stateMutate.lastAvailAlertAt = stateMutate.lastAvailAlertAt or {}
 
     local rows = CD.BuildRows(DS, options, now)
     for _, row in ipairs(rows) do
         local catKey = row.categoryKey
         local catOpts = options.categories and options.categories[catKey] or {}
-        if not catOpts.hide and catOpts.alertWhenAvailable ~= false then
+        local char = DS.GetCharacter and DS:GetCharacter(row.charKeyName, row.realm) or nil
+        if catOpts.alertWhenAvailable ~= false
+            and CD.RowMeetsSpecializationGate(catKey, char, catOpts.alertOnlyIfSpecialization == true)
+        then
             local exp = row.expiresUnix
             local key = (row.realm or "") .. "\0" .. (row.name or "") .. "\0" .. catKey
 
             if exp ~= nil and exp <= now then
-                stateMutate.soonAnnounced[key] = nil
-                if not stateMutate.availAnnounced[key] then
-                    stateMutate.availAnnounced[key] = true
+                local lastAt = stateMutate.lastAvailAlertAt[key]
+                local periodSec = math.max(60, (tonumber(catOpts.remindEveryMinutes) or 30) * 60)
+                local shouldFire = false
+                if not lastAt then
+                    shouldFire = true
+                elseif catOpts.remindMe == true and (now - lastAt) >= periodSec then
+                    shouldFire = true
+                end
+                if shouldFire then
+                    stateMutate.lastAvailAlertAt[key] = now
                     results[#results + 1] = {
                         categoryKey = catKey,
+                        categoryTitle = row.categoryTitle,
                         name = row.name,
                         realm = row.realm,
+                        classFile = char and char.classFile or nil,
                         spellId = row.spellId,
                         kind = "available",
+                        alertType = catOpts.alertType or "chat",
                     }
                 end
             else
-                stateMutate.availAnnounced[key] = nil
+                stateMutate.lastAvailAlertAt[key] = nil
             end
-
-            if catOpts.alertMinutesBefore and tonumber(catOpts.alertMinutesBeforeMinutes) then
-                local mins = tonumber(catOpts.alertMinutesBeforeMinutes) or 15
-                local leadSec = math.max(0, mins * 60)
-                if exp and exp > now and (exp - now) <= leadSec then
-                    if not stateMutate.soonAnnounced[key] then
-                        stateMutate.soonAnnounced[key] = true
-                        results[#results + 1] = {
-                            categoryKey = catKey,
-                            name = row.name,
-                            realm = row.realm,
-                            spellId = row.spellId,
-                            kind = "soon",
-                        }
-                    end
-                else
-                    stateMutate.soonAnnounced[key] = nil
-                end
-            end
+        else
+            local key = (row.realm or "") .. "\0" .. (row.name or "") .. "\0" .. catKey
+            stateMutate.lastAvailAlertAt[key] = nil
         end
     end
     return results

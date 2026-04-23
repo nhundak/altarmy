@@ -21,6 +21,7 @@ Data\DataStoreMail.lua
 Data\DataStoreAuctions.lua
 Data\SummaryData.lua
 Data\RealmFilter.lua
+Data\GlobalRealmFilter.lua
 Data\Characters.lua
 Data\SearchData.lua
 ReputationFactionFilter.lua

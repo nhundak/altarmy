@@ -452,7 +452,7 @@ cooldownSettingsBtn:SetScript("OnLeave", function(self)
 end)
 cooldownSettingsBtn:SetScript("OnClick", function()
     if AltArmy.OpenInterfaceOptions then
-        AltArmy.OpenInterfaceOptions()
+        AltArmy.OpenInterfaceOptions("cooldowns")
     end
 end)
 tabStrip.cooldownSettingsBtn = cooldownSettingsBtn

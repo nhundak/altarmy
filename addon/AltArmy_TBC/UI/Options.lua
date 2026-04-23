@@ -17,6 +17,9 @@ local function ensureDefaults()
     if AltArmyTBC_Options.minimapAngle == nil then
         AltArmyTBC_Options.minimapAngle = 90
     end
+    if AltArmy and AltArmy.GlobalRealmFilter and AltArmy.GlobalRealmFilter.Ensure then
+        AltArmy.GlobalRealmFilter.Ensure()
+    end
     if AltArmy and AltArmy.CooldownData and AltArmy.CooldownData.EnsureCooldownOptions then
         AltArmy.CooldownData.EnsureCooldownOptions()
     end
@@ -31,6 +34,26 @@ end
 
 ensureDefaults()
 applyMinimapOption()
+
+--- InterfaceOptions checkboxes do not include the caption in their hit rect; forward label clicks.
+function AltArmy.WireCheckboxLabelClick(checkButton, fontString)
+    if not checkButton or not fontString then return end
+    local hit = CreateFrame("Button", nil, checkButton)
+    hit:SetFrameStrata(checkButton:GetFrameStrata() or "MEDIUM")
+    hit:SetFrameLevel((checkButton:GetFrameLevel() or 0) + 5)
+    hit:EnableMouse(true)
+    hit:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    hit:SetScript("OnClick", function()
+        if not checkButton:IsEnabled() then return end
+        checkButton:Click()
+    end)
+    local function layout()
+        hit:ClearAllPoints()
+        hit:SetPoint("TOPLEFT", fontString, "TOPLEFT", -6, 6)
+        hit:SetPoint("BOTTOMRIGHT", fontString, "BOTTOMRIGHT", 6, -6)
+    end
+    layout()
+end
 
 -- ---------------------------------------------------------------------------
 -- Class icon helpers
@@ -125,6 +148,12 @@ panel.default = function()
     if panel.minimapCheckbox then
         panel.minimapCheckbox:SetChecked(true)
     end
+    if AltArmy.GlobalRealmFilter and AltArmy.GlobalRealmFilter.Set then
+        AltArmy.GlobalRealmFilter.Set("currentRealm")
+    end
+    if panel.RefreshRealmFilterDropdown then
+        panel.RefreshRealmFilterDropdown()
+    end
     if AltArmy.CooldownData and AltArmy.CooldownData.ResetCooldownOptionsToDefaults then
         AltArmy.CooldownData.ResetCooldownOptionsToDefaults()
     end
@@ -136,6 +165,9 @@ panel.refresh = function()
     ensureDefaults()
     if panel.minimapCheckbox then
         panel.minimapCheckbox:SetChecked(AltArmyTBC_Options.showMinimapButton)
+    end
+    if panel.RefreshRealmFilterDropdown then
+        panel.RefreshRealmFilterDropdown()
     end
     if panel.RefreshCooldownOptionsFromVars then
         panel.RefreshCooldownOptionsFromVars()
@@ -150,29 +182,133 @@ local header = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalHuge")
 header:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -12)
 header:SetText("Alt Army")
 
--- ---------------------------------------------------------------------------
--- Column layout constants
--- ---------------------------------------------------------------------------
-
-local COL_GAP    = 20
 local LEFT_INSET = 16
-local TOP_INSET  = 50
+local COL_GAP    = 20
 
 -- ---------------------------------------------------------------------------
--- Left column header: Characters
+-- Tab strip (General / Characters / Cooldowns)
 -- ---------------------------------------------------------------------------
 
-local charHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-charHeader:SetPoint("TOPLEFT", panel, "TOPLEFT", LEFT_INSET, -TOP_INSET)
-charHeader:SetText("Characters")
+local TAB_BAR_Y = -42
+local TAB_CONTENT_TOP = -72
+local TAB_BTN_W = 120
+local TAB_BTN_H = 22
+
+local tabGeneral = CreateFrame("Frame", nil, panel)
+local tabCharacters = CreateFrame("Frame", nil, panel)
+local tabCooldowns = CreateFrame("Frame", nil, panel)
+tabGeneral:SetPoint("TOPLEFT", panel, "TOPLEFT", LEFT_INSET, TAB_CONTENT_TOP)
+tabGeneral:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -16, 12)
+tabCharacters:SetAllPoints(tabGeneral)
+tabCooldowns:SetAllPoints(tabGeneral)
+
+local tabButtons = {}
+local function SetActiveOptionsTab(which)
+    tabGeneral:SetShown(which == "general")
+    tabCharacters:SetShown(which == "characters")
+    tabCooldowns:SetShown(which == "cooldowns")
+    for id, btn in pairs(tabButtons) do
+        if btn and btn.SetAlpha then
+            btn:SetAlpha(id == which and 1 or 0.55)
+        end
+    end
+end
+
+local tabBar = CreateFrame("Frame", nil, panel)
+tabBar:SetPoint("TOPLEFT", panel, "TOPLEFT", LEFT_INSET, TAB_BAR_Y)
+tabBar:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, TAB_BAR_Y)
+tabBar:SetHeight(TAB_BTN_H)
+local tabIds = { "general", "characters", "cooldowns" }
+local tabLabels = { general = "General", characters = "Characters", cooldowns = "Cooldowns" }
+for i, id in ipairs(tabIds) do
+    local b = CreateFrame("Button", nil, tabBar, "UIPanelButtonTemplate")
+    b:SetSize(TAB_BTN_W, TAB_BTN_H)
+    b:SetPoint("TOPLEFT", tabBar, "TOPLEFT", (i - 1) * (TAB_BTN_W + 4), 0)
+    b:SetText(tabLabels[id] or id)
+    b:SetScript("OnClick", function()
+        SetActiveOptionsTab(id)
+    end)
+    tabButtons[id] = b
+end
 
 -- ---------------------------------------------------------------------------
--- Right column header: Character Settings
+-- General tab
 -- ---------------------------------------------------------------------------
 
-local rightHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-rightHeader:SetPoint("TOPLEFT", panel, "TOP", COL_GAP / 2, -TOP_INSET)
-rightHeader:SetText("Character Settings")
+local minimapCheckbox = CreateFrame("CheckButton", nil, tabGeneral, "InterfaceOptionsCheckButtonTemplate")
+minimapCheckbox:SetPoint("TOPLEFT", tabGeneral, "TOPLEFT", 0, 0)
+minimapCheckbox:SetScript("OnClick", function(self)
+    AltArmyTBC_Options.showMinimapButton = self:GetChecked()
+    applyMinimapOption()
+end)
+panel.minimapCheckbox = minimapCheckbox
+
+local minimapLabel = minimapCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+minimapLabel:SetPoint("LEFT", minimapCheckbox, "RIGHT", 4, 0)
+minimapLabel:SetText("Show Minimap Button")
+AltArmy.WireCheckboxLabelClick(minimapCheckbox, minimapLabel)
+
+local REALM_FILTER_MENU = {
+    { value = "currentRealm", label = "Show characters from current realm" },
+    { value = "all",          label = "Show characters from all realms" },
+}
+
+local realmFilterDD = CreateFrame("Frame", "AltArmyTBC_RealmFilterDD", tabGeneral, "UIDropDownMenuTemplate")
+realmFilterDD:SetPoint("TOPLEFT", minimapCheckbox, "BOTTOMLEFT", -16, -14)
+
+local function RefreshRealmFilterDropdown()
+    if not realmFilterDD or not UIDropDownMenu_SetText then return end
+    local G = AltArmy.GlobalRealmFilter
+    if not G or not G.Get then return end
+    G.Ensure()
+    local v = G.Get()
+    local text = REALM_FILTER_MENU[1].label
+    for i = 1, #REALM_FILTER_MENU do
+        if REALM_FILTER_MENU[i].value == v then
+            text = REALM_FILTER_MENU[i].label
+            break
+        end
+    end
+    UIDropDownMenu_SetText(realmFilterDD, text)
+end
+
+local function InitRealmFilterDropdown(dropdown)
+    if not UIDropDownMenu_Initialize then return end
+    UIDropDownMenu_SetWidth(dropdown, 340)
+    UIDropDownMenu_Initialize(dropdown, function()
+        if UIDropDownMenu_ClearMenu then
+            UIDropDownMenu_ClearMenu(dropdown)
+        end
+        local G = AltArmy.GlobalRealmFilter
+        if not G or not G.Set then return end
+        for i = 1, #REALM_FILTER_MENU do
+            local entry = REALM_FILTER_MENU[i]
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = entry.label
+            info.func = function()
+                G.Set(entry.value)
+                UIDropDownMenu_SetText(dropdown, entry.label)
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+end
+
+InitRealmFilterDropdown(realmFilterDD)
+RefreshRealmFilterDropdown()
+panel.realmFilterDropdown = realmFilterDD
+panel.RefreshRealmFilterDropdown = RefreshRealmFilterDropdown
+
+local generalHint = tabGeneral:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+generalHint:SetPoint("TOPLEFT", realmFilterDD, "BOTTOMLEFT", 16, -10)
+generalHint:SetWidth(520)
+generalHint:SetJustifyH("LEFT")
+generalHint:SetText(
+    "Realm filter applies to Summary, Gear, Reputation, Search, and Cooldowns tabs."
+)
+
+-- Host frame for UI/CooldownOptions.lua (loaded after this file)
+panel.tabCooldownsHost = tabCooldowns
 
 -- ---------------------------------------------------------------------------
 -- Selection state
@@ -196,9 +332,9 @@ local ICON_SIZE   = 16
 local LIST_HEIGHT = 220
 local SCROLLBAR_W = 14
 
-local charListFrame = CreateFrame("Frame", nil, panel, "InsetFrameTemplate")
-charListFrame:SetPoint("TOPLEFT", charHeader, "BOTTOMLEFT", 0, -6)
-charListFrame:SetPoint("RIGHT",   panel, "CENTER", -COL_GAP / 2, 0)
+local charListFrame = CreateFrame("Frame", nil, tabCharacters, "InsetFrameTemplate")
+charListFrame:SetPoint("TOPLEFT", tabCharacters, "TOPLEFT", 0, 0)
+charListFrame:SetPoint("RIGHT",   tabCharacters, "CENTER", -COL_GAP / 2, 0)
 charListFrame:SetHeight(LIST_HEIGHT)
 
 -- ScrollFrame clips the visible area; scrollChild holds all rows.
@@ -366,16 +502,16 @@ RefreshCharacterList = RefreshCharacterList_impl
 -- ---------------------------------------------------------------------------
 
 -- "Choose a character to begin" shown when nothing is selected
-local charSettingPrompt = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-charSettingPrompt:SetPoint("TOPLEFT", rightHeader, "BOTTOMLEFT", 0, -12)
+local charSettingPrompt = tabCharacters:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+charSettingPrompt:SetPoint("TOPLEFT", tabCharacters, "TOP", COL_GAP / 2, 0)
 charSettingPrompt:SetText("Choose a character to begin")
 charSettingPrompt:Show()
 
 -- Delete button shown whenever any character is selected;
 -- disabled with "Can't delete self" when the current character is selected.
-local charSettingDeleteBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+local charSettingDeleteBtn = CreateFrame("Button", nil, tabCharacters, "UIPanelButtonTemplate")
 charSettingDeleteBtn:SetSize(160, 22)
-charSettingDeleteBtn:SetPoint("TOPLEFT", rightHeader, "BOTTOMLEFT", 0, -12)
+charSettingDeleteBtn:SetPoint("TOPLEFT", tabCharacters, "TOP", COL_GAP / 2, 0)
 charSettingDeleteBtn:SetText("Delete Data")
 charSettingDeleteBtn:Hide()
 
@@ -396,107 +532,6 @@ charSettingDeleteBtn:SetScript("OnClick", function(self)
     end
 end)
 
-local charTransmuteRow = CreateFrame("Frame", nil, panel)
-charTransmuteRow:SetHeight(52)
-charTransmuteRow:SetWidth(340)
-charTransmuteRow:SetPoint("TOPLEFT", charSettingDeleteBtn, "BOTTOMLEFT", 0, -12)
-charTransmuteRow:Hide()
-
-local charTransmuteTitle = charTransmuteRow:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-charTransmuteTitle:SetPoint("TOPLEFT", charTransmuteRow, "TOPLEFT", 0, 0)
-charTransmuteTitle:SetText("Preferred Transmute")
-
-local charTransmuteDD = CreateFrame(
-    "Frame",
-    "AltArmyTBC_CharPreferredTransmuteDD",
-    charTransmuteRow,
-    "UIDropDownMenuTemplate"
-)
-charTransmuteDD:SetPoint("TOPLEFT", charTransmuteTitle, "BOTTOMLEFT", 0, -6)
-
-local function RefreshCharacterTransmuteDropdownText(dropdown, char)
-    if not dropdown or not UIDropDownMenu_SetText then return end
-    local text = "Choose automatically"
-    local CD = AltArmy.CooldownData
-    if char and CD and type(char.preferredTransmuteSpellId) == "number" then
-        if select(1, CD.FindRecipeProfession(char, char.preferredTransmuteSpellId)) then
-            local sid = char.preferredTransmuteSpellId
-            text = (_G.GetSpellInfo and _G.GetSpellInfo(sid)) or ("Spell " .. tostring(sid))
-        end
-    end
-    UIDropDownMenu_SetText(dropdown, text)
-end
-
-local function InitCharTransmuteDropdown(dropdown)
-    if not UIDropDownMenu_Initialize then return end
-    UIDropDownMenu_SetWidth(dropdown, 280)
-    UIDropDownMenu_Initialize(dropdown, function()
-        if UIDropDownMenu_ClearMenu then
-            UIDropDownMenu_ClearMenu(dropdown)
-        end
-        if not selectedEntry or not AltArmy.DataStore then return end
-        local char = AltArmy.DataStore:GetCharacter(selectedEntry.name, selectedEntry.realm)
-        if not char then return end
-        local CD = AltArmy.CooldownData
-        if not CD then return end
-        local ids = CD.CollectCharacterKnownTransmuteSpellIds(char, _G.GetSpellInfo)
-
-        local autoInfo = UIDropDownMenu_CreateInfo()
-        autoInfo.text = "Choose automatically"
-        autoInfo.func = function()
-            char.preferredTransmuteSpellId = nil
-            UIDropDownMenu_SetText(dropdown, "Choose automatically")
-            local f = AltArmy.TabFrames and AltArmy.TabFrames.Cooldowns
-            if f and f.RefreshCooldownList then
-                f:RefreshCooldownList()
-            end
-        end
-        UIDropDownMenu_AddButton(autoInfo)
-
-        for _, spellId in ipairs(ids) do
-            local sid = spellId
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = (_G.GetSpellInfo and _G.GetSpellInfo(sid)) or ("Spell " .. tostring(sid))
-            info.func = function()
-                char.preferredTransmuteSpellId = sid
-                UIDropDownMenu_SetText(dropdown, info.text)
-                local f = AltArmy.TabFrames and AltArmy.TabFrames.Cooldowns
-                if f and f.RefreshCooldownList then
-                    f:RefreshCooldownList()
-                end
-            end
-            UIDropDownMenu_AddButton(info)
-        end
-    end)
-end
-
-InitCharTransmuteDropdown(charTransmuteDD)
-
-local function RefreshCharacterTransmutePrefUI()
-    if not charTransmuteRow then return end
-    if not selectedEntry or not AltArmy.DataStore then
-        charTransmuteRow:Hide()
-        return
-    end
-    local char = AltArmy.DataStore:GetCharacter(selectedEntry.name, selectedEntry.realm)
-    if not char then
-        charTransmuteRow:Hide()
-        return
-    end
-    local CD = AltArmy.CooldownData
-    if not CD then
-        charTransmuteRow:Hide()
-        return
-    end
-    local ids = CD.CollectCharacterKnownTransmuteSpellIds(char, _G.GetSpellInfo)
-    if #ids == 0 then
-        charTransmuteRow:Hide()
-        return
-    end
-    charTransmuteRow:Show()
-    RefreshCharacterTransmuteDropdownText(charTransmuteDD, char)
-end
-
 UpdateCharSettings = function()
     local hasSelection = selectedEntry ~= nil
     local isSelf = hasSelection
@@ -512,36 +547,59 @@ UpdateCharSettings = function()
         charSettingDeleteBtn:SetText("Delete Data")
         charSettingDeleteBtn:Enable()
     end
-    RefreshCharacterTransmutePrefUI()
 end
 
--- ---------------------------------------------------------------------------
--- Left column: Other Settings (below character list)
--- ---------------------------------------------------------------------------
-
-local otherHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-otherHeader:SetPoint("TOPLEFT", charListFrame, "BOTTOMLEFT", 0, -12)
-otherHeader:SetText("Other Settings")
-
-local minimapCheckbox = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
-minimapCheckbox:SetPoint("TOPLEFT", otherHeader, "BOTTOMLEFT", 0, -6)
-minimapCheckbox:SetScript("OnClick", function(self)
-    AltArmyTBC_Options.showMinimapButton = self:GetChecked()
-    applyMinimapOption()
-end)
-panel.minimapCheckbox = minimapCheckbox
-
-local minimapLabel = minimapCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-minimapLabel:SetPoint("LEFT", minimapCheckbox, "RIGHT", 4, 0)
-minimapLabel:SetText("Show Minimap Button")
+SetActiveOptionsTab("general")
 
 -- ---------------------------------------------------------------------------
 -- Panel show/hide hooks
 -- ---------------------------------------------------------------------------
 
+-- Apply General / Characters / Cooldowns after Interface Options has actually shown our panel
+-- (OpenToCategory often does not re-fire OnShow; IsShown() may be false until a later frame).
+local tabApplyFrame = CreateFrame("Frame", nil, panel)
+tabApplyFrame:Hide()
+
+local function optionsHostIsOpen()
+    local iof = _G.InterfaceOptionsFrame
+    if not iof or not iof.IsShown then
+        return true
+    end
+    return iof:IsShown()
+end
+
+local function scheduleApplyOptionsTab(tabId)
+    if tabId ~= "characters" and tabId ~= "cooldowns" then
+        return
+    end
+    tabApplyFrame:SetScript("OnUpdate", nil)
+    tabApplyFrame:Hide()
+    tabApplyFrame.tabId = tabId
+    tabApplyFrame.attempts = 0
+    tabApplyFrame:Show()
+    tabApplyFrame:SetScript("OnUpdate", function(self)
+        self.attempts = self.attempts + 1
+        if panel:IsShown() and optionsHostIsOpen() then
+            SetActiveOptionsTab(self.tabId)
+            if self.tabId == "cooldowns" and panel.RefreshCooldownOptionsFromVars then
+                panel.RefreshCooldownOptionsFromVars()
+            end
+            self:SetScript("OnUpdate", nil)
+            self:Hide()
+            return
+        end
+        if self.attempts > 300 then
+            self:SetScript("OnUpdate", nil)
+            self:Hide()
+        end
+    end)
+end
+
 panel:SetScript("OnHide", function()
     selectedEntry        = nil
     deleteConfirmPending = false
+    tabApplyFrame:SetScript("OnUpdate", nil)
+    tabApplyFrame:Hide()
     UpdateCharSettings()
 end)
 
@@ -550,6 +608,9 @@ panel:HookScript("OnShow", function()
     UpdateCharSettings()
     if panel.minimapCheckbox then
         panel.minimapCheckbox:SetChecked(AltArmyTBC_Options.showMinimapButton)
+    end
+    if panel.RefreshRealmFilterDropdown then
+        panel.RefreshRealmFilterDropdown()
     end
 end)
 
@@ -582,6 +643,9 @@ reg:SetScript("OnEvent", function(_, event)
         if panel.minimapCheckbox then
             panel.minimapCheckbox:SetChecked(AltArmyTBC_Options.showMinimapButton)
         end
+        if panel.RefreshRealmFilterDropdown then
+            panel.RefreshRealmFilterDropdown()
+        end
     end
 end)
 
@@ -598,10 +662,16 @@ end
 
 AltArmy.OptionsPanel = panel
 
-function AltArmy.OpenInterfaceOptions()
+--- @param initialTab string|nil "general" (default), "characters", or "cooldowns"
+function AltArmy.OpenInterfaceOptions(initialTab)
     if Settings and Settings.OpenToCategory and panel.altArmySettingsCategory then
         Settings.OpenToCategory(panel.altArmySettingsCategory:GetID())
     elseif InterfaceOptionsFrame_OpenToCategory then
         InterfaceOptionsFrame_OpenToCategory(panel)
+    end
+    if initialTab == "characters" or initialTab == "cooldowns" then
+        scheduleApplyOptionsTab(initialTab)
+    elseif panel:IsShown() and optionsHostIsOpen() then
+        SetActiveOptionsTab("general")
     end
 end

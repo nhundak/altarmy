@@ -158,13 +158,21 @@ describe("SummaryData", function()
 
     it("returns no missing when all modules have data", function()
       local char = {
+        level = 70,
         dataVersions = {
           character = 1, containers = 1, equipment = 1, professions = 1,
           reputations = 2, mail = 1, auctions = 1, currencies = 1,
         },
         Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
+        cooldownSpecs = {
+          masterTransmutation = false,
+          spellfireTailor = false,
+          shadoweaveTailor = false,
+          moonclothTailor = false,
+        },
       }
       DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
       DS.HasModuleData = function(_, c, mod)
         local v = c.dataVersions and c.dataVersions[mod]
         return v ~= nil and v > 0
@@ -363,6 +371,143 @@ describe("SummaryData", function()
       end
       assert.is_true(found, "expected reputation refresh for legacy scalar storage")
     end)
+
+    it("flags missing cooldown specialization data for current character (level 60+, tailoring 350+)", function()
+      local char = {
+        level = 60,
+        dataVersions = {
+          character = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Tailoring = { rank = 350, maxRank = 375, Recipes = { [1] = true } } },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      DS.NeedsRescan = function()
+        return false
+      end
+      local oldGi = _G.GetSpellInfo
+      _G.GetSpellInfo = function(id)
+        if id == 3908 then return "Tailoring" end
+        if id == 2259 then return "Alchemy" end
+        return oldGi and oldGi(id)
+      end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Tailor" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Tailor", "Realm1")
+      _G.GetSpellInfo = oldGi
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_true(out.hasMissing)
+      local found = false
+      for _, line in ipairs(out.instructions) do
+        if type(line) == "string" and line:find("Log in with this character", 1, true) then
+          found = true
+          break
+        end
+      end
+      assert.is_true(found, "expected login instruction for cooldown specialization scan")
+    end)
+
+    it("does not flag cooldown specialization when snapshot already exists", function()
+      local char = {
+        level = 70,
+        dataVersions = {
+          character = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Alchemy = { rank = 375, maxRank = 375, Recipes = { [1] = true } } },
+        cooldownSpecs = {
+          masterTransmutation = false,
+          spellfireTailor = false,
+          shadoweaveTailor = false,
+          moonclothTailor = false,
+        },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      DS.NeedsRescan = function()
+        return false
+      end
+      local oldGi = _G.GetSpellInfo
+      _G.GetSpellInfo = function(id)
+        if id == 3908 then return "Tailoring" end
+        if id == 2259 then return "Alchemy" end
+        return oldGi and oldGi(id)
+      end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Bob" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      _G.GetSpellInfo = oldGi
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_false(out.hasMissing)
+    end)
+
+    it("does not flag cooldown specialization below level 60", function()
+      local char = {
+        level = 59,
+        dataVersions = {
+          character = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Alchemy = { rank = 375, maxRank = 375, Recipes = { [1] = true } } },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      DS.NeedsRescan = function()
+        return false
+      end
+      local oldGi = _G.GetSpellInfo
+      _G.GetSpellInfo = function(id)
+        if id == 3908 then return "Tailoring" end
+        if id == 2259 then return "Alchemy" end
+        return oldGi and oldGi(id)
+      end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Bob" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      _G.GetSpellInfo = oldGi
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_false(out.hasMissing)
+    end)
   end)
 
   describe("GetMissingDataTooltip", function()
@@ -381,14 +526,22 @@ describe("SummaryData", function()
 
     it("returns nil when nothing missing", function()
       local char = {
+        level = 70,
         dataVersions = {
           character = 1, containers = 1, equipment = 1, professions = 1,
           reputations = 2, mail = 1, auctions = 1, currencies = 1,
         },
         Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
         Reputations = { [47] = { s = 5, e = 1, b = 0, t = 1 } },
+        cooldownSpecs = {
+          masterTransmutation = false,
+          spellfireTailor = false,
+          shadoweaveTailor = false,
+          moonclothTailor = false,
+        },
       }
       DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
       DS.HasModuleData = function(_, c, mod)
         local v = c.dataVersions and c.dataVersions[mod]
         return v ~= nil and v > 0

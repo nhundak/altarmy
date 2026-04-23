@@ -22,15 +22,12 @@ if not SD or not SD.SearchWithLocationGroups or not SD.SearchRecipes then
     return
 end
 
-local REALM_FILTER_OPTIONS = { "all", "currentRealm" }
-local REALM_FILTER_LABELS = { all = "All Characters", currentRealm = "Current Realm Only" }
-local function GetSearchSettings()
-    AltArmyTBC_SearchSettings = AltArmyTBC_SearchSettings or {}
-    local s = AltArmyTBC_SearchSettings
-    if s.realmFilter ~= "all" and s.realmFilter ~= "currentRealm" then
-        s.realmFilter = "all"
+local function GlobalRealmFilterValue()
+    local G = AltArmy.GlobalRealmFilter
+    if G and G.Get then
+        return G.Get()
     end
-    return s
+    return "all"
 end
 
 --- True if the account has characters on more than one realm (used to decide whether to show realm suffix).
@@ -364,9 +361,8 @@ local function tooltipDebounceOnUpdate(_, elapsed)
         local _, newTooltipOnly = SD.SearchWithLocationGroups(query)
         local RF = AltArmy.RealmFilter
         local currentRealm = (GetRealmName and GetRealmName()) or ""
-        local s = GetSearchSettings()
         if RF and RF.filterListByRealm then
-            newTooltipOnly = RF.filterListByRealm(newTooltipOnly or {}, s.realmFilter or "all", currentRealm)
+            newTooltipOnly = RF.filterListByRealm(newTooltipOnly or {}, GlobalRealmFilterValue(), currentRealm)
         end
         tooltipOnlyItemList = newTooltipOnly or {}
         UpdateResults()
@@ -595,7 +591,7 @@ UpdateVisibleRows = function()
     local nItems = categories.Items and #itemList or 0
     local nRecipes = categories.Recipes and #recipeList or 0
     -- Show realm suffix only when viewing all realms and account has characters on multiple realms.
-    local showRealmSuffix = (GetSearchSettings().realmFilter == "all") and AccountHasMultipleRealms()
+    local showRealmSuffix = (GlobalRealmFilterValue() == "all") and AccountHasMultipleRealms()
     local scrollValue = searchScrollBar and searchScrollBar:GetValue() or 0
     local viewHeight = scrollFrame:GetHeight()
     local itemsSectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
@@ -981,10 +977,10 @@ function frame.DoSearch()
     recipeList = (categories.Recipes and query ~= "") and (SD.SearchRecipes(query) or {}) or {}
     local RF = AltArmy.RealmFilter
     local currentRealm = (GetRealmName and GetRealmName()) or ""
-    local s = GetSearchSettings()
     if RF and RF.filterListByRealm then
-        itemList = RF.filterListByRealm(itemList, s.realmFilter or "all", currentRealm)
-        recipeList = RF.filterListByRealm(recipeList, s.realmFilter or "all", currentRealm)
+        local rf = GlobalRealmFilterValue()
+        itemList = RF.filterListByRealm(itemList, rf, currentRealm)
+        recipeList = RF.filterListByRealm(recipeList, rf, currentRealm)
     end
     UpdateResults()
     if searchScrollBar then searchScrollBar:SetValue(0) end
@@ -1015,10 +1011,10 @@ function frame.SearchWithQuery(_self, query)
     end
     local RF = AltArmy.RealmFilter
     local currentRealm = (GetRealmName and GetRealmName()) or ""
-    local s = GetSearchSettings()
     if RF and RF.filterListByRealm then
-        itemList = RF.filterListByRealm(itemList, s.realmFilter or "all", currentRealm)
-        recipeList = RF.filterListByRealm(recipeList, s.realmFilter or "all", currentRealm)
+        local rf = GlobalRealmFilterValue()
+        itemList = RF.filterListByRealm(itemList, rf, currentRealm)
+        recipeList = RF.filterListByRealm(recipeList, rf, currentRealm)
     end
     UpdateResults()
     if searchScrollBar then searchScrollBar:SetValue(0) end
@@ -1053,59 +1049,16 @@ if searchSettingsPanel.SetBackdrop then
     })
     searchSettingsPanel:SetBackdropColor(0.18, 0.18, 0.22, 0.98)
 end
-local SETTINGS_TITLE_HEIGHT = 26
 local searchSettingsTitle = searchSettingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 searchSettingsTitle:SetPoint("TOPLEFT", searchSettingsPanel, "TOPLEFT", 0, 0)
 searchSettingsTitle:SetPoint("TOPRIGHT", searchSettingsPanel, "TOPRIGHT", 0, 0)
 searchSettingsTitle:SetJustifyH("LEFT")
 searchSettingsTitle:SetText("Search Settings")
-local SETTINGS_ROW_HEIGHT = 22
-local btnSearchRealm = CreateFrame("Button", nil, searchSettingsPanel)
-btnSearchRealm:SetPoint("TOPLEFT", searchSettingsPanel, "TOPLEFT", 0, -SETTINGS_TITLE_HEIGHT)
-btnSearchRealm:SetPoint("TOPRIGHT", searchSettingsPanel, "TOPRIGHT", 0, 0)
-btnSearchRealm:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnSearchRealmBg = btnSearchRealm:CreateTexture(nil, "BACKGROUND")
-btnSearchRealmBg:SetAllPoints(btnSearchRealm)
-btnSearchRealmBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
-local btnSearchRealmText = btnSearchRealm:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-btnSearchRealmText:SetPoint("LEFT", btnSearchRealm, "LEFT", 4, 0)
-btnSearchRealmText:SetPoint("RIGHT", btnSearchRealm, "RIGHT", -4, 0)
-btnSearchRealmText:SetJustifyH("LEFT")
-local searchRealmDropdown = CreateFrame("Frame", nil, searchSettingsPanel)
-searchRealmDropdown:SetPoint("TOPLEFT", btnSearchRealm, "BOTTOMLEFT", 0, -2)
-searchRealmDropdown:SetPoint("TOPRIGHT", btnSearchRealm, "BOTTOMRIGHT", 0, 0)
-searchRealmDropdown:SetHeight(#REALM_FILTER_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
-searchRealmDropdown:SetFrameLevel(searchSettingsPanel:GetFrameLevel() + 100)
-searchRealmDropdown:Hide()
-local searchRealmDropdownBg = searchRealmDropdown:CreateTexture(nil, "BACKGROUND")
-searchRealmDropdownBg:SetAllPoints(searchRealmDropdown)
-searchRealmDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
-for idx, opt in ipairs(REALM_FILTER_OPTIONS) do
-    local b = CreateFrame("Button", nil, searchRealmDropdown)
-    b:SetPoint("TOPLEFT", searchRealmDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
-    b:SetPoint("LEFT", searchRealmDropdown, "LEFT", 2, 0)
-    b:SetPoint("RIGHT", searchRealmDropdown, "RIGHT", -2, 0)
-    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
-    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    t:SetPoint("LEFT", b, "LEFT", 4, 0)
-    t:SetText(REALM_FILTER_LABELS[opt] or opt)
-    b.option = opt
-    b:SetScript("OnClick", function()
-        GetSearchSettings().realmFilter = opt
-        searchRealmDropdown:Hide()
-        btnSearchRealmText:SetText(REALM_FILTER_LABELS[opt] or opt)
-        if frame.lastQuery and frame.lastQuery ~= "" and frame.SearchWithQuery then
-            frame:SearchWithQuery(frame.lastQuery)
-        end
-        UpdateVisibleRows()
-    end)
-end
-btnSearchRealm:SetScript("OnClick", function()
-    searchRealmDropdown:SetShown(not searchRealmDropdown:IsShown())
-end)
-searchSettingsPanel:SetScript("OnHide", function()
-    searchRealmDropdown:Hide()
-end)
+local searchRealmHint = searchSettingsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+searchRealmHint:SetPoint("TOPLEFT", searchSettingsTitle, "BOTTOMLEFT", 0, -8)
+searchRealmHint:SetPoint("TOPRIGHT", searchSettingsPanel, "TOPRIGHT", 0, -8)
+searchRealmHint:SetJustifyH("LEFT")
+searchRealmHint:SetText("Realm filter is configured in Esc > Interface > AddOns > AltArmy > General.")
 
 function frame:IsSearchSettingsShown()
     return searchSettingsPanel and searchSettingsPanel:IsShown()
@@ -1145,7 +1098,6 @@ function frame:ToggleSearchSettings(_self)
     searchSettingsPanel:SetShown(showSettings)
     if showSettings then
         ApplySearchSettingsPanelLayout()
-        btnSearchRealmText:SetText(REALM_FILTER_LABELS[GetSearchSettings().realmFilter] or "All Characters")
     end
     ApplySearchListLayout()
     if scrollFrame.UpdateScrollChildRect then scrollFrame:UpdateScrollChildRect() end

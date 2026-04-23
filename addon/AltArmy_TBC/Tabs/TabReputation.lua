@@ -63,13 +63,6 @@ end
 
 -- Reputation settings (AltArmyTBC_ReputationSettings)
 local SORT_OPTIONS = { "Name", "Level", "Avg Item Level", "Time Played" }
-local REALM_FILTER_OPTIONS = { "all", "currentRealm" }
-local function RealmFilterValid(val)
-    for _, o in ipairs(REALM_FILTER_OPTIONS) do
-        if o == val then return true end
-    end
-    return false
-end
 local function SortOptionValid(val)
     for _, o in ipairs(SORT_OPTIONS) do
         if o == val then return true end
@@ -83,7 +76,6 @@ local function GetReputationSettings()
     if not s.primarySort or not SortOptionValid(s.primarySort) then s.primarySort = "Time Played" end
     if not s.secondarySort or not SortOptionValid(s.secondarySort) then s.secondarySort = "Name" end
     if s.showSelfFirst == nil then s.showSelfFirst = true end
-    if not s.realmFilter or not RealmFilterValid(s.realmFilter) then s.realmFilter = "all" end
     s.characters = s.characters or {}
     return s
 end
@@ -203,8 +195,13 @@ local function GetDisplayList()
     end
 
     local RF = AltArmy.RealmFilter
+    local realmFilter = "all"
+    local GRF = AltArmy.GlobalRealmFilter
+    if GRF and GRF.Get then
+        realmFilter = GRF.Get()
+    end
     if RF and RF.filterListByRealm then
-        list = RF.filterListByRealm(list, settings.realmFilter or "all", currentRealm)
+        list = RF.filterListByRealm(list, realmFilter, currentRealm)
     end
     return list
 end
@@ -793,7 +790,12 @@ local function UpdateGridWithOffset()
         end
         headerCol.truncated = (shown ~= displayName)
         local RF = AltArmy.RealmFilter
-        local showRealmSuffix = (GetReputationSettings().realmFilter == "all")
+        local realmFilter = "all"
+        local GRF = AltArmy.GlobalRealmFilter
+        if GRF and GRF.Get then
+            realmFilter = GRF.Get()
+        end
+        local showRealmSuffix = (realmFilter == "all")
             and RF and RF.hasMultipleRealms and RF.hasMultipleRealms(list)
         local hasRealm = entry.realm and entry.realm ~= ""
         if headerCol.truncated or (showRealmSuffix and hasRealm) then
@@ -1051,7 +1053,7 @@ repSettingsTitle:SetPoint("TOPRIGHT", settingsPanel, "TOPRIGHT", 0, 0)
 repSettingsTitle:SetJustifyH("LEFT")
 repSettingsTitle:SetText("Reputation Settings")
 
-local primaryDropdown, secondaryDropdown, realmDropdown
+local primaryDropdown, secondaryDropdown
 local repCharListRefresh = function() end
 
 local sortingContent = CreateFrame("Frame", nil, settingsPanel)
@@ -1117,7 +1119,6 @@ end
 btnPrimary:SetScript("OnClick", function()
     primaryDropdown:SetShown(not primaryDropdown:IsShown())
     secondaryDropdown:Hide()
-    realmDropdown:Hide()
 end)
 
 local btnSecondary = CreateFrame("Button", nil, sortingContent)
@@ -1160,56 +1161,11 @@ end
 btnSecondary:SetScript("OnClick", function()
     secondaryDropdown:SetShown(not secondaryDropdown:IsShown())
     primaryDropdown:Hide()
-    realmDropdown:Hide()
-end)
-
-local REALM_FILTER_LABELS = { all = "All Characters", currentRealm = "Current Realm Only" }
-local btnRealm = CreateFrame("Button", nil, sortingContent)
-btnRealm:SetPoint("TOPLEFT", btnSecondary, "BOTTOMLEFT", 0, -6)
-btnRealm:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
-btnRealm:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnRealmBg = btnRealm:CreateTexture(nil, "BACKGROUND")
-btnRealmBg:SetAllPoints(btnRealm)
-btnRealmBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
-local btnRealmText = btnRealm:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-btnRealmText:SetPoint("LEFT", btnRealm, "LEFT", 4, 0)
-btnRealmText:SetPoint("RIGHT", btnRealm, "RIGHT", -4, 0)
-btnRealmText:SetJustifyH("LEFT")
-realmDropdown = CreateFrame("Frame", nil, sortingContent)
-realmDropdown:SetPoint("TOPLEFT", btnRealm, "BOTTOMLEFT", 0, -2)
-realmDropdown:SetPoint("TOPRIGHT", btnRealm, "BOTTOMRIGHT", 0, 0)
-realmDropdown:SetHeight(#REALM_FILTER_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
-realmDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
-realmDropdown:Hide()
-local realmDropdownBg = realmDropdown:CreateTexture(nil, "BACKGROUND")
-realmDropdownBg:SetAllPoints(realmDropdown)
-realmDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
-for idx, opt in ipairs(REALM_FILTER_OPTIONS) do
-    local b = CreateFrame("Button", nil, realmDropdown)
-    b:SetPoint("TOPLEFT", realmDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
-    b:SetPoint("LEFT", realmDropdown, "LEFT", 2, 0)
-    b:SetPoint("RIGHT", realmDropdown, "RIGHT", -2, 0)
-    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
-    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    t:SetPoint("LEFT", b, "LEFT", 4, 0)
-    t:SetText(REALM_FILTER_LABELS[opt] or opt)
-    b:SetScript("OnClick", function()
-        GetReputationSettings().realmFilter = opt
-        realmDropdown:Hide()
-        btnRealmText:SetText("Realm: " .. (REALM_FILTER_LABELS[opt] or opt))
-        frame:RefreshGrid()
-        if repCharListRefresh then repCharListRefresh() end
-    end)
-end
-btnRealm:SetScript("OnClick", function()
-    realmDropdown:SetShown(not realmDropdown:IsShown())
-    primaryDropdown:Hide()
-    secondaryDropdown:Hide()
 end)
 
 if AltArmy.CreateCharacterPinHideList then
     -- luacheck: push ignore 211
-    local _scroll, refresh = AltArmy.CreateCharacterPinHideList(sortingContent, btnRealm, {
+    local _scroll, refresh = AltArmy.CreateCharacterPinHideList(sortingContent, btnSecondary, {
         getSettings = GetReputationSettings,
         getCharSetting = GetCharSetting,
         setCharSetting = SetCharSetting,
@@ -1224,7 +1180,6 @@ end
 settingsPanel:SetScript("OnHide", function()
     primaryDropdown:Hide()
     secondaryDropdown:Hide()
-    realmDropdown:Hide()
 end)
 
 function frame:IsReputationSettingsShown()
@@ -1248,7 +1203,6 @@ function frame:ToggleReputationSettings(_self)
         local s = GetReputationSettings()
         btnPrimaryText:SetText("Primary Sort: " .. s.primarySort)
         btnSecondaryText:SetText("Secondary Sort: " .. s.secondarySort)
-        btnRealmText:SetText("Realm: " .. (REALM_FILTER_LABELS[s.realmFilter] or s.realmFilter or "All Characters"))
         showSelfFirstCheck:SetChecked(s.showSelfFirst)
         if AltArmy.Characters and AltArmy.Characters.InvalidateView then
             AltArmy.Characters:InvalidateView()

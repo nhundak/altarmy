@@ -253,6 +253,28 @@ local function CollectRecipeIdsFromTradeSkillIndex(index)
     return ids
 end
 
+--- Persist tailoring/alchemy specialization passives for cooldown option filters (current character).
+function DS:ScanCooldownSpecializations(char)
+    if not char then return end
+    local CD = AltArmy and AltArmy.CooldownData
+    local ids = CD and CD.COOLDOWN_SPEC_SPELL_IDS
+    if not ids then return end
+    char.cooldownSpecs = char.cooldownSpecs or {}
+    local cs = char.cooldownSpecs
+    local function knows(spellId)
+        if not spellId then return false end
+        if _G.IsSpellKnown then
+            local ok, k = pcall(_G.IsSpellKnown, spellId)
+            if ok and k then return true end
+        end
+        return false
+    end
+    cs.masterTransmutation = knows(ids.masterTransmutation)
+    cs.spellfireTailor = knows(ids.spellfireTailor)
+    cs.shadoweaveTailor = knows(ids.shadoweaveTailor)
+    cs.moonclothTailor = knows(ids.moonclothTailor)
+end
+
 function DS:ScanProfessionLinks()
     local char = GetCurrentCharTable()
     if not char then return end
@@ -300,6 +322,7 @@ function DS:ScanProfessionLinks()
     char.lastUpdate = time()
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.professions = DATA_VERSIONS.professions
+    self:ScanCooldownSpecializations(char)
 end
 
 function DS:ScanRecipes()
@@ -357,6 +380,7 @@ function DS:ScanRecipes()
     char.lastUpdate = time()
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.professions = DATA_VERSIONS.professions
+    self:ScanCooldownSpecializations(char)
 end
 
 --- Scan recipes from the Craft window (Enchanting in TBC Classic uses Craft API, not Trade Skill).

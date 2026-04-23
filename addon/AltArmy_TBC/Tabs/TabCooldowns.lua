@@ -517,7 +517,8 @@ local function PoolRow()
                 )
             end
             if charTable and CD.GetReagentHaveCounts then
-                local showRealm = AccountHasMultipleRealms()
+                local showRealm = (AltArmy.GlobalRealmFilter and AltArmy.GlobalRealmFilter.Get() == "all")
+                    and AccountHasMultipleRealms()
                     and charTable.realm
                     and charTable.realm ~= ""
                 local _, classFile = DS:GetCharacterClass(charTable)
@@ -1333,6 +1334,20 @@ RefreshList = function()
 
     local now = time and time() or 0
     local rows = CD.BuildRows(DS, opts, now)
+    do
+        local GRF = AltArmy.GlobalRealmFilter
+        local rf = GRF and GRF.Get and GRF.Get() or "all"
+        if rf == "currentRealm" then
+            local _, curRealm = GetCurrentIdentity()
+            local filtered = {}
+            for _, rd in ipairs(rows) do
+                if rd.realm == curRealm then
+                    filtered[#filtered + 1] = rd
+                end
+            end
+            rows = filtered
+        end
+    end
 
     for _, rd in ipairs(rows) do
         local ch = DS:GetCharacter(rd.charKeyName, rd.realm)
@@ -1362,7 +1377,10 @@ RefreshList = function()
         row.catCell:SetText(FormatRecipeColumnText(rd.spellId, rd.categoryTitle or "", row.charTableRef))
         local _, classFile = DS:GetCharacterClass(row.charTableRef)
         row.charCell:SetTextColor(1, 1, 1, 1)
-        local showRealm = AccountHasMultipleRealms() and rd.realm and rd.realm ~= ""
+        local showRealm = (AltArmy.GlobalRealmFilter and AltArmy.GlobalRealmFilter.Get() == "all")
+            and AccountHasMultipleRealms()
+            and rd.realm
+            and rd.realm ~= ""
         local charText = RF and RF.formatColoredCharacterNameRealm
             and RF.formatColoredCharacterNameRealm(rd.name or "", rd.realm, showRealm, classFile)
             or ((rd.name or "") .. (showRealm and (" — " .. rd.realm) or ""))

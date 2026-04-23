@@ -1,6 +1,7 @@
 -- AltArmy TBC — Summary data layer: character list for the Summary tab.
 -- Summary list entries (SavedVariables / DataStore): name, realm, level, restXp, isMaxLevel,
 -- money, played, lastOnline.
+-- luacheck: globals GetSpellInfo
 
 AltArmy.SummaryData = AltArmy.SummaryData or {}
 
@@ -182,6 +183,51 @@ local function charHasLegacyReputationScalars(char)
     return false
 end
 
+-- Profession spell IDs (TBC) — localized skill names from GetSpellInfo match DataStore Professions keys.
+local SPELL_ID_ALCHEMY = 2259
+local SPELL_ID_TAILORING = 3908
+local COOLDOWN_SPEC_SCAN_MIN_LEVEL = 60
+local COOLDOWN_SPEC_SCAN_MIN_PROF_RANK = 350
+
+--- True after DataStoreProfessions:ScanCooldownSpecializations has written boolean flags (even if all false).
+local function hasPersistedCooldownSpecializations(char)
+    local cs = char and char.cooldownSpecs
+    if type(cs) ~= "table" then
+        return false
+    end
+    return rawget(cs, "masterTransmutation") ~= nil
+end
+
+local function tailoringOrAlchemyAtLeastRank(char, minRank)
+    local gsi = _G.GetSpellInfo
+    if type(gsi) ~= "function" or not char or not char.Professions then
+        return false
+    end
+    local profs = char.Professions
+    local alchName = gsi(SPELL_ID_ALCHEMY)
+    local tailorName = gsi(SPELL_ID_TAILORING)
+    local alchR = (alchName and profs[alchName] and profs[alchName].rank) or 0
+    local tailR = (tailorName and profs[tailorName] and profs[tailorName].rank) or 0
+    return alchR >= minRank or tailR >= minRank
+end
+
+--- High-level toons with tailoring or alchemy may be missing cooldown specialization flags until login scan runs.
+local function needsCooldownSpecializationScan(char, DS)
+    if hasPersistedCooldownSpecializations(char) then
+        return false
+    end
+    local level = 0
+    if DS and DS.GetCharacterLevel then
+        level = tonumber(DS:GetCharacterLevel(char)) or 0
+    elseif char and char.level then
+        level = tonumber(char.level) or 0
+    end
+    if math.floor(level) < COOLDOWN_SPEC_SCAN_MIN_LEVEL then
+        return false
+    end
+    return tailoringOrAlchemyAtLeastRank(char, COOLDOWN_SPEC_SCAN_MIN_PROF_RANK)
+end
+
 --- Returns whether a character is missing any gathered data and a list of instructions for the tooltip.
 --- @param name string Character name
 --- @param realm string Realm name
@@ -233,6 +279,21 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
                     table.insert(out.instructions, "* Open your " .. profName .. " window")
                 end
             end
+        end
+    end
+
+    -- Cooldown specialization passives (Master of Transmutation, Spellfire, etc.): filled on login scan.
+    if needsCooldownSpecializationScan(char, DS) then
+        local loginMsg = "* Log in with this character"
+        local dup = false
+        for _, line in ipairs(out.instructions) do
+            if line == loginMsg then
+                dup = true
+                break
+            end
+        end
+        if not dup then
+            table.insert(out.instructions, loginMsg)
         end
     end
 

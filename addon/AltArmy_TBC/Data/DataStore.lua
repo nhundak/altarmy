@@ -275,12 +275,14 @@ frame:SetScript("OnEvent", function(_, event, ...)
         SyncAccountDataRoot()
         return
     end
-    if event == "ADDON_LOADED" and addonName == "AltArmy_TBC" then
-        SyncAccountDataRoot()
-        AltArmyTBC_Data.Characters = AltArmyTBC_Data.Characters or {}
-        AltArmyTBC_Data.RecipeReagents = AltArmyTBC_Data.RecipeReagents or {}
-        GetCurrentCharTable()
-        MigrateDataVersions()
+    if event == "ADDON_LOADED" then
+        if addonName == "AltArmy_TBC" then
+            SyncAccountDataRoot()
+            AltArmyTBC_Data.Characters = AltArmyTBC_Data.Characters or {}
+            AltArmyTBC_Data.RecipeReagents = AltArmyTBC_Data.RecipeReagents or {}
+            GetCurrentCharTable()
+            MigrateDataVersions()
+        end
         return
     end
     if event == "PLAYER_LOGIN" then

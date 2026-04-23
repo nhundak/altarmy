@@ -1,25 +1,22 @@
--- AltArmy TBC — Cooldown subsection for Interface > AddOns > AltArmy.
--- Loaded after UI/Options.lua (see .toc); uses AltArmy.OptionsPanel.
+-- AltArmy TBC — Cooldown options (Interface > AddOns > AltArmy > Cooldowns tab).
+-- Loaded after UI/Options.lua (see .toc); parents to AltArmy.OptionsPanel.tabCooldownsHost.
+-- luacheck: globals UIDropDownMenu_EnableDropDown UIDropDownMenu_DisableDropDown
 
 if not AltArmy then return end
 
 local panel = AltArmy.OptionsPanel
-if not panel then return end
+local host = panel and panel.tabCooldownsHost
+if not host then return end
 
 local CD = AltArmy.CooldownData
 if not CD then return end
 
-local LEFT_INSET = 16
-local BLOCK_GAP = 12
+local LEFT_INSET = 0
+local BLOCK_GAP = 18
 
-local cooldownHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-cooldownHeader:SetPoint("TOPLEFT", panel.minimapCheckbox, "BOTTOMLEFT", 0, -14)
-cooldownHeader:SetText("Cooldown")
-
-local scroll = CreateFrame("ScrollFrame", "AltArmyTBC_CooldownOptionsScroll", panel)
-scroll:SetPoint("TOPLEFT", cooldownHeader, "BOTTOMLEFT", 0, -6)
-scroll:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", LEFT_INSET, 12)
-scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -LEFT_INSET, 12)
+local scroll = CreateFrame("ScrollFrame", "AltArmyTBC_CooldownOptionsScroll", host)
+scroll:SetPoint("TOPLEFT", host, "TOPLEFT", LEFT_INSET, -4)
+scroll:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -LEFT_INSET, 4)
 
 local scrollBar = CreateFrame("Slider", nil, scroll)
 scrollBar:SetOrientation("VERTICAL")
@@ -54,16 +51,88 @@ end)
 
 panel.cooldownWidgets = {}
 
+local SPEC_LABEL = {
+    transmute = "Only if Master of Transmutation",
+    spellcloth = "Only if Spellfire Tailor",
+    shadowcloth = "Only if Shadoweave Tailor",
+    primal_mooncloth = "Only if Mooncloth Tailor",
+}
+
+local function CategoryHasSpecRow(key)
+    return SPEC_LABEL[key] ~= nil
+end
+
+local ALERT_TYPE_LABELS = {
+    chat = "Chat message",
+    -- Internal value remains "raidWarning"; uses RaidWarningFrame text only, not raid chat.
+    raidWarning = "Center screen alert",
+    both = "Chat + center screen",
+}
+
+--- Dim checkbox caption when the control is disabled (WoW does not gray companion text automatically).
+local function SetCheckboxCaptionMuted(fs, muted)
+    if not fs then return end
+    if muted then
+        fs:SetTextColor(0.5, 0.5, 0.5)
+    else
+        fs:SetTextColor(1, 1, 1)
+    end
+end
+
 local function SaveCategory(key)
     CD.EnsureCooldownOptions()
     local cat = AltArmyTBC_Options.cooldowns.categories[key]
     local w = panel.cooldownWidgets[key]
     if not cat or not w then return end
-    cat.hide = w.hideChk:GetChecked() == true
+    cat.showInUI = w.showChk:GetChecked() ~= false
+    if w.showSpecChk then
+        cat.showOnlyIfSpecialization = w.showSpecChk:GetChecked() == true
+    end
     cat.alertWhenAvailable = w.alertChk:GetChecked() ~= false
-    cat.alertMinutesBefore = w.minChk:GetChecked() == true
-    local mins = tonumber(w.minEdit:GetText())
-    cat.alertMinutesBeforeMinutes = mins or 15
+    if w.alertSpecChk then
+        cat.alertOnlyIfSpecialization = w.alertSpecChk:GetChecked() == true
+    end
+    cat.remindMe = w.remindChk:GetChecked() == true
+    local mins = tonumber(w.remindEdit:GetText())
+    cat.remindEveryMinutes = mins or 30
+end
+
+local function RefreshDependentEnabled(key)
+    local w = panel.cooldownWidgets[key]
+    if not w then return end
+    local showOn = w.showChk:GetChecked() == true
+    local alertOn = w.alertChk:GetChecked() == true
+    if w.showSpecChk then
+        if showOn then w.showSpecChk:Enable() else w.showSpecChk:Disable() end
+        if not showOn then w.showSpecChk:SetChecked(false) end
+        SetCheckboxCaptionMuted(w.showSpecLbl, not showOn)
+    end
+    if w.alertSpecChk then
+        if alertOn then w.alertSpecChk:Enable() else w.alertSpecChk:Disable() end
+        if not alertOn then w.alertSpecChk:SetChecked(false) end
+        SetCheckboxCaptionMuted(w.alertSpecLbl, not alertOn)
+    end
+    if w.typeDrop then
+        if alertOn and UIDropDownMenu_EnableDropDown then
+            UIDropDownMenu_EnableDropDown(w.typeDrop)
+        elseif not alertOn and UIDropDownMenu_DisableDropDown then
+            UIDropDownMenu_DisableDropDown(w.typeDrop)
+        end
+    end
+    if w.typeLabel then
+        SetCheckboxCaptionMuted(w.typeLabel, not alertOn)
+    end
+    if alertOn then w.remindChk:Enable() else w.remindChk:Disable() end
+    SetCheckboxCaptionMuted(w.remindLbl, not alertOn)
+    SetCheckboxCaptionMuted(w.remindSuffixFs, not alertOn)
+    if alertOn and w.remindChk:GetChecked() == true then
+        w.remindEdit:Enable()
+    else
+        w.remindEdit:Disable()
+    end
+    if not alertOn then
+        w.remindChk:SetChecked(false)
+    end
 end
 
 local totalHeight = 0
@@ -79,44 +148,121 @@ for _, key in ipairs(CD.CATEGORY_ORDER) do
     titleFs:SetPoint("TOPLEFT", block, "TOPLEFT", 0, 0)
     titleFs:SetText(title)
 
-    local hideChk = CreateFrame("CheckButton", nil, block, "InterfaceOptionsCheckButtonTemplate")
-    hideChk:SetPoint("TOPRIGHT", block, "TOPRIGHT", 0, 0)
-    hideChk:SetScript("OnClick", function() SaveCategory(key) end)
+    local showChk = CreateFrame("CheckButton", nil, block, "InterfaceOptionsCheckButtonTemplate")
+    showChk:SetPoint("TOPLEFT", titleFs, "BOTTOMLEFT", 0, -8)
+    showChk:SetScript("OnClick", function()
+        SaveCategory(key)
+        RefreshDependentEnabled(key)
+    end)
+    local showLbl = showChk:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    showLbl:SetPoint("LEFT", showChk, "RIGHT", 4, 0)
+    showLbl:SetText("Show in UI")
 
-    local hideLbl = hideChk:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    hideLbl:SetPoint("LEFT", hideChk, "RIGHT", 4, 0)
-    hideLbl:SetText("Hide")
+    local showSpecChk
+    local showSpecLbl
+    if CategoryHasSpecRow(key) then
+        showSpecChk = CreateFrame("CheckButton", nil, block, "InterfaceOptionsCheckButtonTemplate")
+        showSpecChk:SetPoint("LEFT", showChk, "RIGHT", 200, 0)
+        showSpecChk:SetScript("OnClick", function()
+            SaveCategory(key)
+        end)
+        showSpecLbl = showSpecChk:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        showSpecLbl:SetPoint("LEFT", showSpecChk, "RIGHT", 4, 0)
+        showSpecLbl:SetText(SPEC_LABEL[key])
+    end
 
     local alertChk = CreateFrame("CheckButton", nil, block, "InterfaceOptionsCheckButtonTemplate")
-    alertChk:SetPoint("TOPLEFT", titleFs, "BOTTOMLEFT", 0, -6)
-    alertChk:SetScript("OnClick", function() SaveCategory(key) end)
-
+    alertChk:SetPoint("TOPLEFT", showChk, "BOTTOMLEFT", 0, -6)
+    alertChk:SetScript("OnClick", function()
+        SaveCategory(key)
+        RefreshDependentEnabled(key)
+    end)
     local alertLbl = alertChk:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     alertLbl:SetPoint("LEFT", alertChk, "RIGHT", 4, 0)
     alertLbl:SetText("Alert when available")
 
-    local minChk = CreateFrame("CheckButton", nil, block, "InterfaceOptionsCheckButtonTemplate")
-    minChk:SetPoint("TOPLEFT", alertChk, "BOTTOMLEFT", 0, -4)
-    minChk:SetScript("OnClick", function() SaveCategory(key) end)
+    local alertSpecChk
+    local alertSpecLbl
+    if CategoryHasSpecRow(key) then
+        alertSpecChk = CreateFrame("CheckButton", nil, block, "InterfaceOptionsCheckButtonTemplate")
+        alertSpecChk:SetPoint("LEFT", alertChk, "RIGHT", 200, 0)
+        alertSpecChk:SetScript("OnClick", function()
+            SaveCategory(key)
+        end)
+        alertSpecLbl = alertSpecChk:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        alertSpecLbl:SetPoint("LEFT", alertSpecChk, "RIGHT", 4, 0)
+        alertSpecLbl:SetText(SPEC_LABEL[key])
+    end
 
-    local minLbl = minChk:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    minLbl:SetPoint("LEFT", minChk, "RIGHT", 4, 0)
-    minLbl:SetText("Alert minutes before")
+    local typeLabel = block:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    typeLabel:SetPoint("TOPLEFT", alertChk, "BOTTOMLEFT", 24, -8)
+    typeLabel:SetText("Alert type")
 
-    local minEdit = CreateFrame("EditBox", nil, block)
-    minEdit:SetSize(44, 20)
-    minEdit:SetFontObject("GameFontHighlightSmall")
-    minEdit:SetAutoFocus(false)
-    minEdit:SetNumeric(true)
-    minEdit:SetPoint("LEFT", minLbl, "RIGHT", 8, 0)
-    local minBg = minEdit:CreateTexture(nil, "BACKGROUND")
-    minBg:SetAllPoints(minEdit)
-    minBg:SetColorTexture(0.05, 0.05, 0.05, 0.9)
-    minEdit:SetScript("OnEnterPressed", function(box) box:ClearFocus() SaveCategory(key) end)
-    minEdit:SetScript("OnEditFocusLost", function() SaveCategory(key) end)
+    local typeDrop = CreateFrame("Frame", "AltArmyTBC_CDAlertType_" .. key, block, "UIDropDownMenuTemplate")
+    typeDrop:SetPoint("LEFT", typeLabel, "RIGHT", 12, -4)
+    UIDropDownMenu_SetWidth(typeDrop, 160)
+    UIDropDownMenu_Initialize(typeDrop, function()
+        if UIDropDownMenu_ClearMenu then
+            UIDropDownMenu_ClearMenu(typeDrop)
+        end
+        for _, opt in ipairs({ "chat", "raidWarning", "both" }) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = ALERT_TYPE_LABELS[opt] or opt
+            info.func = function()
+                AltArmyTBC_Options.cooldowns.categories[key].alertType = opt
+                UIDropDownMenu_SetText(typeDrop, ALERT_TYPE_LABELS[opt] or opt)
+                SaveCategory(key)
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
 
-    local blockH = 82
+    local remindChk = CreateFrame("CheckButton", nil, block, "InterfaceOptionsCheckButtonTemplate")
+    remindChk:SetPoint("TOPLEFT", typeLabel, "BOTTOMLEFT", -24, -10)
+    remindChk:SetScript("OnClick", function()
+        SaveCategory(key)
+        RefreshDependentEnabled(key)
+    end)
+    local remindLbl = remindChk:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    remindLbl:SetPoint("LEFT", remindChk, "RIGHT", 4, 0)
+    remindLbl:SetText("Remind me every")
 
+    local remindEdit = CreateFrame("EditBox", nil, block)
+    remindEdit:SetSize(44, 20)
+    remindEdit:SetFontObject("GameFontHighlightSmall")
+    remindEdit:SetAutoFocus(false)
+    remindEdit:SetNumeric(true)
+    remindEdit:SetJustifyH("CENTER")
+    remindEdit:SetPoint("LEFT", remindLbl, "RIGHT", 8, 0)
+    local remindBg = remindEdit:CreateTexture(nil, "BACKGROUND")
+    remindBg:SetAllPoints(remindEdit)
+    remindBg:SetColorTexture(0.05, 0.05, 0.05, 0.9)
+    remindEdit:SetScript("OnEnterPressed", function(box)
+        box:ClearFocus()
+        SaveCategory(key)
+    end)
+    remindEdit:SetScript("OnEditFocusLost", function()
+        SaveCategory(key)
+    end)
+
+    local remindSuffix = block:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    remindSuffix:SetPoint("LEFT", remindEdit, "RIGHT", 6, 0)
+    remindSuffix:SetText("minutes (while ready)")
+
+    if AltArmy.WireCheckboxLabelClick then
+        AltArmy.WireCheckboxLabelClick(showChk, showLbl)
+        AltArmy.WireCheckboxLabelClick(alertChk, alertLbl)
+        AltArmy.WireCheckboxLabelClick(remindChk, remindLbl)
+        AltArmy.WireCheckboxLabelClick(remindChk, remindSuffix)
+        if showSpecChk and showSpecLbl then
+            AltArmy.WireCheckboxLabelClick(showSpecChk, showSpecLbl)
+        end
+        if alertSpecChk and alertSpecLbl then
+            AltArmy.WireCheckboxLabelClick(alertSpecChk, alertSpecLbl)
+        end
+    end
+
+    local blockH = 168
     block:SetHeight(blockH)
     if not prevBlock then
         block:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, 0)
@@ -128,10 +274,18 @@ for _, key in ipairs(CD.CATEGORY_ORDER) do
     prevBlock = block
 
     panel.cooldownWidgets[key] = {
-        hideChk = hideChk,
+        showChk = showChk,
+        showSpecChk = showSpecChk,
+        showSpecLbl = showSpecLbl,
         alertChk = alertChk,
-        minChk = minChk,
-        minEdit = minEdit,
+        alertSpecChk = alertSpecChk,
+        alertSpecLbl = alertSpecLbl,
+        typeDrop = typeDrop,
+        typeLabel = typeLabel,
+        remindChk = remindChk,
+        remindLbl = remindLbl,
+        remindSuffixFs = remindSuffix,
+        remindEdit = remindEdit,
     }
 end
 
@@ -154,11 +308,22 @@ local function RefreshCooldownOptionsFromVars()
     CD.EnsureCooldownOptions()
     for key, w in pairs(panel.cooldownWidgets) do
         local cat = AltArmyTBC_Options.cooldowns.categories[key]
-        if cat and w.hideChk then
-            w.hideChk:SetChecked(cat.hide == true)
+        if cat and w.showChk then
+            w.showChk:SetChecked(cat.showInUI ~= false)
+            if w.showSpecChk then
+                w.showSpecChk:SetChecked(cat.showOnlyIfSpecialization == true)
+            end
             w.alertChk:SetChecked(cat.alertWhenAvailable ~= false)
-            w.minChk:SetChecked(cat.alertMinutesBefore == true)
-            w.minEdit:SetText(tostring(cat.alertMinutesBeforeMinutes or 15))
+            if w.alertSpecChk then
+                w.alertSpecChk:SetChecked(cat.alertOnlyIfSpecialization == true)
+            end
+            local at = cat.alertType or "chat"
+            if UIDropDownMenu_SetText and w.typeDrop then
+                UIDropDownMenu_SetText(w.typeDrop, ALERT_TYPE_LABELS[at] or ALERT_TYPE_LABELS.chat)
+            end
+            w.remindChk:SetChecked(cat.remindMe == true)
+            w.remindEdit:SetText(tostring(cat.remindEveryMinutes or 30))
+            RefreshDependentEnabled(key)
         end
     end
 end
@@ -167,7 +332,7 @@ panel.RefreshCooldownOptionsFromVars = RefreshCooldownOptionsFromVars
 RefreshCooldownOptionsFromVars()
 UpdateCooldownScrollRange()
 
-panel:HookScript("OnShow", function()
+host:HookScript("OnShow", function()
     RefreshCooldownOptionsFromVars()
     UpdateCooldownScrollRange()
 end)

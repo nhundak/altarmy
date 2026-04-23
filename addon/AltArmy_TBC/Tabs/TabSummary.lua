@@ -35,9 +35,6 @@ local function SetNameIcon(icon, iconFallback, classFile)
     end
 end
 
-local REALM_FILTER_OPTIONS = { "all", "currentRealm" }
-local REALM_FILTER_LABELS = { all = "All Characters", currentRealm = "Current Realm Only" }
-
 local VALID_SORT_KEYS = {
     name = true, level = true, restXp = true,
     money = true, played = true, lastOnline = true,
@@ -46,9 +43,6 @@ local VALID_SORT_KEYS = {
 local function GetSummarySettings()
     AltArmyTBC_SummarySettings = AltArmyTBC_SummarySettings or {}
     local s = AltArmyTBC_SummarySettings
-    if s.realmFilter ~= "all" and s.realmFilter ~= "currentRealm" then
-        s.realmFilter = "all"
-    end
     if not VALID_SORT_KEYS[s.sortKey] then
         s.sortKey = "name"
     end
@@ -439,66 +433,16 @@ local function ApplySummarySettingsPanelLayout()
 end
 ApplySummarySettingsPanelLayout()
 summarySettingsPanel:Hide()
-local SETTINGS_TITLE_HEIGHT = 26
 local summarySettingsTitle = summarySettingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 summarySettingsTitle:SetPoint("TOPLEFT", summarySettingsPanel, "TOPLEFT", 0, 0)
 summarySettingsTitle:SetPoint("TOPRIGHT", summarySettingsPanel, "TOPRIGHT", 0, 0)
 summarySettingsTitle:SetJustifyH("LEFT")
 summarySettingsTitle:SetText("Summary Settings")
-local SETTINGS_ROW_HEIGHT = 22
-local btnSummaryRealm = CreateFrame("Button", nil, summarySettingsPanel)
-btnSummaryRealm:SetPoint("TOPLEFT", summarySettingsPanel, "TOPLEFT", 0, -SETTINGS_TITLE_HEIGHT)
-btnSummaryRealm:SetPoint("TOPRIGHT", summarySettingsPanel, "TOPRIGHT", 0, 0)
-btnSummaryRealm:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnSummaryRealmBg = btnSummaryRealm:CreateTexture(nil, "BACKGROUND")
-btnSummaryRealmBg:SetAllPoints(btnSummaryRealm)
-btnSummaryRealmBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
-local btnSummaryRealmText = btnSummaryRealm:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-btnSummaryRealmText:SetPoint("LEFT", btnSummaryRealm, "LEFT", 4, 0)
-btnSummaryRealmText:SetPoint("RIGHT", btnSummaryRealm, "RIGHT", -4, 0)
-btnSummaryRealmText:SetJustifyH("LEFT")
-local summaryRealmDropdown = CreateFrame("Frame", nil, summarySettingsPanel)
-summaryRealmDropdown:SetPoint("TOPLEFT", btnSummaryRealm, "BOTTOMLEFT", 0, -2)
-summaryRealmDropdown:SetPoint("TOPRIGHT", btnSummaryRealm, "BOTTOMRIGHT", 0, 0)
-summaryRealmDropdown:SetHeight(#REALM_FILTER_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
-summaryRealmDropdown:SetFrameLevel(summarySettingsPanel:GetFrameLevel() + 100)
-summaryRealmDropdown:Hide()
-local summaryRealmDropdownBg = summaryRealmDropdown:CreateTexture(nil, "BACKGROUND")
-summaryRealmDropdownBg:SetAllPoints(summaryRealmDropdown)
-summaryRealmDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
-for idx, opt in ipairs(REALM_FILTER_OPTIONS) do
-    local b = CreateFrame("Button", nil, summaryRealmDropdown)
-    b:SetPoint("TOPLEFT", summaryRealmDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
-    b:SetPoint("LEFT", summaryRealmDropdown, "LEFT", 2, 0)
-    b:SetPoint("RIGHT", summaryRealmDropdown, "RIGHT", -2, 0)
-    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
-    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    t:SetPoint("LEFT", b, "LEFT", 4, 0)
-    t:SetText(REALM_FILTER_LABELS[opt] or opt)
-    b.option = opt
-    b:SetScript("OnClick", function()
-        GetSummarySettings().realmFilter = opt
-        summaryRealmDropdown:Hide()
-        btnSummaryRealmText:SetText(REALM_FILTER_LABELS[opt] or opt)
-        UpdateHeaderSortIndicators()
-        if summaryCharListRefresh then summaryCharListRefresh() end
-        local sb = GetScrollBar()
-        local scrollValue = sb and sb:GetValue() or 0
-        Update(math.floor(scrollValue / ROW_HEIGHT))
-    end)
-end
-btnSummaryRealm:SetScript("OnClick", function()
-    summaryRealmDropdown:SetShown(not summaryRealmDropdown:IsShown())
-end)
-summarySettingsPanel:SetScript("OnHide", function()
-    summaryRealmDropdown:Hide()
-end)
-
 -- Character list: Pin/Hide (reusable component, same as Gear tab)
 if AltArmy.CreateCharacterPinHideList then
     -- luacheck: push ignore 211
     local _scroll, refresh = AltArmy.CreateCharacterPinHideList(summarySettingsPanel,
-        btnSummaryRealm, {
+        summarySettingsTitle, {
             getSettings = GetSummarySettings,
             getCharSetting = GetSummaryCharSetting,
             setCharSetting = SetSummaryCharSetting,
@@ -557,7 +501,6 @@ function frame:ToggleSummarySettings(_self)
     summarySettingsPanel:SetShown(showSettings)
     if showSettings then
         ApplySummarySettingsPanelLayout()
-        btnSummaryRealmText:SetText(REALM_FILTER_LABELS[GetSummarySettings().realmFilter] or "All Characters")
         if summaryCharListRefresh then summaryCharListRefresh() end
     end
     ApplySummaryListLayout()
@@ -670,9 +613,14 @@ Update = function(offset)
     local rawList = AltArmy.Characters and AltArmy.Characters.GetList and AltArmy.Characters:GetList() or {}
     local currentRealm = (GetRealmName and GetRealmName()) or ""
     local RF = AltArmy.RealmFilter
+    local realmFilter = "all"
+    local GRF = AltArmy.GlobalRealmFilter
+    if GRF and GRF.Get then
+        realmFilter = GRF.Get()
+    end
     local filtered
     if RF and RF.filterListByRealm then
-        filtered = RF.filterListByRealm(rawList, GetSummarySettings().realmFilter or "all", currentRealm)
+        filtered = RF.filterListByRealm(rawList, realmFilter, currentRealm)
     else
         filtered = rawList
     end
@@ -764,7 +712,7 @@ Update = function(offset)
                     end
                 elseif cell and col and col.GetText then
                     if colName == "Name" then
-                        local showRealmSuffix = (GetSummarySettings().realmFilter == "all")
+                        local showRealmSuffix = (realmFilter == "all")
                             and RF and RF.hasMultipleRealms and RF.hasMultipleRealms(list)
                         local nameDisplayStr
                         if RF and RF.formatColoredCharacterNameRealm then

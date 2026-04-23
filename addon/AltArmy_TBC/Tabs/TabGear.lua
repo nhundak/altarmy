@@ -51,11 +51,6 @@ local droppedItemLink = nil
 
 -- Gear settings persistence (AltArmyTBC_GearSettings)
 local SORT_OPTIONS = { "Name", "Level", "Avg Item Level", "Time Played" }
-local REALM_FILTER_OPTIONS = { "all", "currentRealm" }
-local function RealmFilterValid(val)
-    for _, o in ipairs(REALM_FILTER_OPTIONS) do if o == val then return true end end
-    return false
-end
 local function SortOptionValid(val)
     for _, o in ipairs(SORT_OPTIONS) do if o == val then return true end end
     return false
@@ -80,7 +75,6 @@ local function GetGearSettings()
     if s.spacing == "Very compact" then s.spacing = "Compact" end
     if not s.spacing or not SpacingValid(s.spacing) then s.spacing = "Comfortable" end
     if not s.iconSize or not IconSizeValid(s.iconSize) then s.iconSize = "medium" end
-    if not s.realmFilter or not RealmFilterValid(s.realmFilter) then s.realmFilter = "all" end
     s.characters = s.characters or {}
     return s
 end
@@ -298,8 +292,13 @@ local function GetDisplayList()
     if not showSelfFirst and selfEntry then list[#list + 1] = selfEntry end
 
     local RF = AltArmy.RealmFilter
+    local realmFilter = "all"
+    local GRF = AltArmy.GlobalRealmFilter
+    if GRF and GRF.Get then
+        realmFilter = GRF.Get()
+    end
     if RF and RF.filterListByRealm then
-        list = RF.filterListByRealm(list, settings.realmFilter or "all", currentRealm)
+        list = RF.filterListByRealm(list, realmFilter, currentRealm)
     end
 
     -- When item dropped, re-sort by "who can use" then level/name (overrides column order for fit)
@@ -863,7 +862,12 @@ local function UpdateGridWithOffset()
         headerCol.header:SetTextColor(classR, classG, classB, 1)
         TruncateName(headerCol.header, displayName, dims.columnWidth - 4)
         headerCol.truncated = (headerCol.header:GetText() ~= displayName)
-        local showRealmSuffix = (GetGearSettings().realmFilter == "all")
+        local realmFilter = "all"
+        local GRF = AltArmy.GlobalRealmFilter
+        if GRF and GRF.Get then
+            realmFilter = GRF.Get()
+        end
+        local showRealmSuffix = (realmFilter == "all")
             and RF and RF.hasMultipleRealms and RF.hasMultipleRealms(list)
         local hasRealm = entry.realm and entry.realm ~= ""
         if headerCol.truncated or (showRealmSuffix and hasRealm) then
@@ -1071,7 +1075,7 @@ gearSettingsTitle:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
 gearSettingsTitle:SetPoint("TOPRIGHT", settingsPanel, "TOPRIGHT", 0, 0)
 gearSettingsTitle:SetJustifyH("LEFT")
 gearSettingsTitle:SetText("Gear Settings")
-local primaryDropdown, secondaryDropdown, realmDropdown  -- forward ref for dropdowns created below
+local primaryDropdown, secondaryDropdown  -- forward ref for dropdowns created below
 local gearCharListRefresh = function() end
 
 -- Tab strip: Sorting | Appearance
@@ -1289,7 +1293,6 @@ end
 btnPrimary:SetScript("OnClick", function()
     primaryDropdown:SetShown(not primaryDropdown:IsShown())
     secondaryDropdown:Hide()
-    realmDropdown:Hide()
 end)
 
 -- Secondary sort: full-width dropdown, collapsed shows "Secondary Sort: Name"
@@ -1334,59 +1337,12 @@ end
 btnSecondary:SetScript("OnClick", function()
     secondaryDropdown:SetShown(not secondaryDropdown:IsShown())
     primaryDropdown:Hide()
-    realmDropdown:Hide()
-end)
-
--- Realm filter: "All Characters" | "Current Realm Only"
-local REALM_FILTER_LABELS = { all = "All Characters", currentRealm = "Current Realm Only" }
-local btnRealm = CreateFrame("Button", nil, sortingContent)
-btnRealm:SetPoint("TOPLEFT", btnSecondary, "BOTTOMLEFT", 0, -6)
-btnRealm:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
-btnRealm:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnRealmBg = btnRealm:CreateTexture(nil, "BACKGROUND")
-btnRealmBg:SetAllPoints(btnRealm)
-btnRealmBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
-local btnRealmText = btnRealm:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-btnRealmText:SetPoint("LEFT", btnRealm, "LEFT", 4, 0)
-btnRealmText:SetPoint("RIGHT", btnRealm, "RIGHT", -4, 0)
-btnRealmText:SetJustifyH("LEFT")
-realmDropdown = CreateFrame("Frame", nil, sortingContent)
-realmDropdown:SetPoint("TOPLEFT", btnRealm, "BOTTOMLEFT", 0, -2)
-realmDropdown:SetPoint("TOPRIGHT", btnRealm, "BOTTOMRIGHT", 0, 0)
-realmDropdown:SetHeight(#REALM_FILTER_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
-realmDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
-realmDropdown:Hide()
-local realmDropdownBg = realmDropdown:CreateTexture(nil, "BACKGROUND")
-realmDropdownBg:SetAllPoints(realmDropdown)
-realmDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
-for idx, opt in ipairs(REALM_FILTER_OPTIONS) do
-    local b = CreateFrame("Button", nil, realmDropdown)
-    b:SetPoint("TOPLEFT", realmDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
-    b:SetPoint("LEFT", realmDropdown, "LEFT", 2, 0)
-    b:SetPoint("RIGHT", realmDropdown, "RIGHT", -2, 0)
-    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
-    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    t:SetPoint("LEFT", b, "LEFT", 4, 0)
-    t:SetText(REALM_FILTER_LABELS[opt] or opt)
-    b.option = opt
-    b:SetScript("OnClick", function()
-        GetGearSettings().realmFilter = opt
-        realmDropdown:Hide()
-        btnRealmText:SetText("Realm: " .. (REALM_FILTER_LABELS[opt] or opt))
-        if frame.RefreshGrid then frame:RefreshGrid() end
-        if gearCharListRefresh then gearCharListRefresh() end
-    end)
-end
-btnRealm:SetScript("OnClick", function()
-    realmDropdown:SetShown(not realmDropdown:IsShown())
-    primaryDropdown:Hide()
-    secondaryDropdown:Hide()
 end)
 
 -- Character list: Pin/Hide (reusable component from UI/CharacterPinHideList.lua)
 if AltArmy.CreateCharacterPinHideList then
     -- luacheck: push ignore 211
-    local _scroll, refresh = AltArmy.CreateCharacterPinHideList(sortingContent, btnRealm, {
+    local _scroll, refresh = AltArmy.CreateCharacterPinHideList(sortingContent, btnSecondary, {
         getSettings = GetGearSettings,
         getCharSetting = GetCharSetting,
         setCharSetting = SetCharSetting,
@@ -1404,7 +1360,6 @@ settingsPanel:SetScript("OnHide", function()
     spacingDropdown:Hide()
     primaryDropdown:Hide()
     secondaryDropdown:Hide()
-    realmDropdown:Hide()
 end)
 
 function frame:IsGearSettingsShown()
@@ -1441,7 +1396,6 @@ function frame:ToggleGearSettings(_self)
         btnSpacingText:SetText("Spacing: " .. (s.spacing or "Comfortable"))
         btnPrimaryText:SetText("Primary Sort: " .. s.primarySort)
         btnSecondaryText:SetText("Secondary Sort: " .. s.secondarySort)
-        btnRealmText:SetText("Realm: " .. (REALM_FILTER_LABELS[s.realmFilter] or s.realmFilter or "All Characters"))
         showSelfFirstCheck:SetChecked(s.showSelfFirst)
         if AltArmy.Characters and AltArmy.Characters.InvalidateView then
             AltArmy.Characters:InvalidateView()
