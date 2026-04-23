@@ -9,6 +9,7 @@
 Core.lua
 Data\DataStore.lua
 Data\CooldownData.lua
+Data\StockpilePlan.lua
 Data\DataStoreCharacter.lua
 Data\DataStoreContainers.lua
 Data\DataStoreEquipment.lua

@@ -414,6 +414,75 @@ function CD.GetMaxCraftableQuantity(char, spellId, getContainerItemCount)
     return minCrafts
 end
 
+--- Maximum crafts possible after transferring all reagents from source to target.
+--- Returns nil when reagent list is unknown (open tradeskill once).
+--- @param target table
+--- @param source table
+--- @param spellId number
+--- @param getTargetCount fun(char, itemID): number
+--- @param getSourceCount fun(char, itemID): number
+function CD.GetMaxCraftableQuantityAfterTransfer(target, source, spellId, getTargetCount, getSourceCount)
+    local list = CD.GetReagentList(spellId)
+    if not list then
+        return nil
+    end
+    if not target or not source or not getTargetCount or not getSourceCount then
+        return nil
+    end
+    local minCrafts = math.huge
+    for _, pair in ipairs(list) do
+        local itemId, need = pair[1], pair[2] or 1
+        if need <= 0 then
+            need = 1
+        end
+        local haveTarget = getTargetCount(target, itemId) or 0
+        local haveSource = getSourceCount(source, itemId) or 0
+        local n = math.floor((haveTarget + haveSource) / need)
+        if n < minCrafts then
+            minCrafts = n
+        end
+    end
+    if minCrafts == math.huge then
+        return 0
+    end
+    return minCrafts
+end
+
+--- For a requested craft count, compute per-reagent quantities needed from source to reach it.
+--- Assumes requestedCrafts is within feasible range; callers should validate vs max-after-transfer.
+--- Returns nil when reagent list is unknown.
+--- @return table[]|nil rows { itemID, need, targetHave, sourceHave, requiredToSend }
+function CD.GetReagentSendPlan(target, source, spellId, requestedCrafts, getTargetCount, getSourceCount)
+    local list = CD.GetReagentList(spellId)
+    if not list then
+        return nil
+    end
+    if not target or not source or not getTargetCount or not getSourceCount then
+        return nil
+    end
+    local crafts = tonumber(requestedCrafts) or 0
+    if crafts < 0 then crafts = 0 end
+    local rows = {}
+    for _, pair in ipairs(list) do
+        local itemId, need = pair[1], pair[2] or 1
+        if need <= 0 then
+            need = 1
+        end
+        local targetHave = getTargetCount(target, itemId) or 0
+        local sourceHave = getSourceCount(source, itemId) or 0
+        local required = crafts * need - targetHave
+        if required < 0 then required = 0 end
+        rows[#rows + 1] = {
+            itemID = itemId,
+            need = need,
+            targetHave = targetHave,
+            sourceHave = sourceHave,
+            requiredToSend = required,
+        }
+    end
+    return rows
+end
+
 --- true / false when reagents known; nil when RecipeReagents missing for this spell.
 function CD.CharacterHasReagents(char, spellId, getContainerItemCount)
     local qty = CD.GetMaxCraftableQuantity(char, spellId, getContainerItemCount)

@@ -208,6 +208,43 @@ describe("CooldownData", function()
         assert.are.equal(7, q)
     end)
 
+    it("GetMaxCraftableQuantityAfterTransfer sums source+target then takes minimum", function()
+        local target, source = {}, {}
+        local targetCounts = { [22452] = 1, [21885] = 0, [21884] = 0, [22451] = 0 }
+        local sourceCounts = { [22452] = 2, [21885] = 5, [21884] = 5, [22451] = 5 }
+        local function getTarget(_ch, itemId)
+            return targetCounts[itemId] or 0
+        end
+        local function getSource(_ch, itemId)
+            return sourceCounts[itemId] or 0
+        end
+        -- For spell 29688 all needs are 1; min across reagents will be 3 for item 22452.
+        local q = CD.GetMaxCraftableQuantityAfterTransfer(target, source, 29688, getTarget, getSource)
+        assert.are.equal(3, q)
+    end)
+
+    it("GetReagentSendPlan computes per-item requiredToSend for requested crafts", function()
+        local target, source = {}, {}
+        local targetCounts = { [22452] = 1, [21885] = 10, [21884] = 0, [22451] = 0 }
+        local sourceCounts = { [22452] = 99, [21885] = 0, [21884] = 99, [22451] = 99 }
+        local function getTarget(_ch, itemId)
+            return targetCounts[itemId] or 0
+        end
+        local function getSource(_ch, itemId)
+            return sourceCounts[itemId] or 0
+        end
+        local rows = CD.GetReagentSendPlan(target, source, 29688, 3, getTarget, getSource)
+        assert.truthy(rows)
+        local byId = {}
+        for _, r in ipairs(rows) do
+            byId[r.itemID] = r
+        end
+        assert.are.equal(2, byId[22452].requiredToSend) -- 3*1 - 1
+        assert.are.equal(0, byId[21885].requiredToSend) -- already enough
+        assert.are.equal(3, byId[21884].requiredToSend)
+        assert.are.equal(3, byId[22451].requiredToSend)
+    end)
+
     it("EvaluateAlerts fires available once until cooldown resumes", function()
         local char = {
             name = "Z",

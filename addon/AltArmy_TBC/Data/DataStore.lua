@@ -216,6 +216,10 @@ local craftReagentRetryFrame = CreateFrame("Frame", nil, UIParent)
 craftReagentRetryFrame:SetScript("OnUpdate", nil)
 craftReagentRetryFrame.elapsed = 0
 
+function DS:IsMailOpen()
+    return isMailOpen == true
+end
+
 frame:SetScript("OnEvent", function(_, event, addonName, a1)
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         if not CombatLogGetCurrentEventInfo or not UnitGUID then return end

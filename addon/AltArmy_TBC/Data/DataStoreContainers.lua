@@ -169,6 +169,26 @@ function DS:GetContainerItemCount(char, itemID)
     return total
 end
 
+--- Counts items in player bags only (excludes bank bags).
+--- Uses the character snapshot in SavedVariables; does not query live bag APIs.
+function DS:GetBagItemCount(char, itemID)
+    if not char or not char.Containers or not itemID then return 0 end
+    local total = 0
+    local maxBagId = self.NUM_BAG_SLOTS or NUM_BAG_SLOTS or 4
+    for bagID, bag in pairs(char.Containers) do
+        if type(bagID) == "number" and bagID >= 0 and bagID <= maxBagId then
+            if bag and bag.items then
+                for _, slotData in pairs(bag.items) do
+                    if slotData and slotData.itemID == itemID then
+                        total = total + (slotData.count or 1)
+                    end
+                end
+            end
+        end
+    end
+    return total
+end
+
 function DS:GetNumBagSlots(char)
     if not char or not char.bagInfo then return 0 end
     return char.bagInfo.totalSlots or 0
@@ -188,6 +208,25 @@ function DS:IterateContainerSlots(char, callback)
                     local link = (bag.links and bag.links[slot]) or nil
                     if callback(bagID, slot, slotData.itemID, slotData.count or 1, link) then
                         return
+                    end
+                end
+            end
+        end
+    end
+end
+
+function DS:IterateBagSlots(char, callback)
+    if not char or not char.Containers or not callback then return end
+    local maxBagId = self.NUM_BAG_SLOTS or NUM_BAG_SLOTS or 4
+    for bagID, bag in pairs(char.Containers) do
+        if type(bagID) == "number" and bagID >= 0 and bagID <= maxBagId then
+            if bag and bag.items then
+                for slot, slotData in pairs(bag.items) do
+                    if slotData and slotData.itemID then
+                        local link = (bag.links and bag.links[slot]) or nil
+                        if callback(bagID, slot, slotData.itemID, slotData.count or 1, link) then
+                            return
+                        end
                     end
                 end
             end

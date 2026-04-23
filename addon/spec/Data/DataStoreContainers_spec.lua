@@ -50,6 +50,26 @@ describe("DataStoreContainers", function()
     end)
   end)
 
+  describe("GetBagItemCount", function()
+    it("returns 0 when char is nil", function()
+      assert.are.equal(0, DS:GetBagItemCount(nil, 100))
+    end)
+    it("returns 0 when itemID is nil", function()
+      assert.are.equal(0, DS:GetBagItemCount({ Containers = {} }, nil))
+    end)
+    it("sums across bags but excludes bank containers", function()
+      local char = {
+        Containers = {
+          [0] = { items = { [1] = { itemID = 100, count = 2 } } },
+          [1] = { items = { [1] = { itemID = 100, count = 3 } } },
+          [-1] = { items = { [1] = { itemID = 100, count = 5 } } }, -- bank container
+          [5] = { items = { [1] = { itemID = 100, count = 7 } } }, -- bank bag range
+        },
+      }
+      assert.are.equal(5, DS:GetBagItemCount(char, 100))
+    end)
+  end)
+
   describe("IterateContainerSlots", function()
     it("does nothing when char is nil", function()
       local n = 0
@@ -92,6 +112,26 @@ describe("DataStoreContainers", function()
         return true
       end)
       assert.are.equal(1, n)
+    end)
+  end)
+
+  describe("IterateBagSlots", function()
+    it("invokes callback only for bag containers", function()
+      local char = {
+        Containers = {
+          [0] = { items = { [1] = { itemID = 100, count = 2 } }, links = { [1] = "link1" } },
+          [-1] = { items = { [1] = { itemID = 200, count = 1 } }, links = { [1] = "bank" } },
+        },
+      }
+      local calls = {}
+      DS:IterateBagSlots(char, function(bagID, slot, itemID, count, link)
+        table.insert(calls, { bagID = bagID, slot = slot, itemID = itemID, count = count, link = link })
+        return false
+      end)
+      assert.are.equal(1, #calls)
+      assert.are.equal(0, calls[1].bagID)
+      assert.are.equal(100, calls[1].itemID)
+      assert.are.equal("link1", calls[1].link)
     end)
   end)
 end)
