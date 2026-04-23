@@ -699,6 +699,159 @@ function DS:TryScanSaltShakerCooldownFromSpellApi()
     ))
 end
 
+--- Persist expiry for one tracked spell by reading GetSpellCooldown(spellId).
+--- Intended to be called right after a successful cast / use.
+function DS:TryScanTrackedCooldownFromSpellApi(spellId)
+    local CD = AltArmy and AltArmy.CooldownData
+    if not CD or not CD.IsTrackedSpellId then return end
+    if not spellId or not CD.IsTrackedSpellId(spellId) then return end
+    local GetSpellCooldown = _G.GetSpellCooldown
+    if not GetSpellCooldown then return end
+
+    local char = GetCurrentCharTable()
+    if not char then return end
+
+    local a, b = GetSpellCooldown(spellId)
+    local gt = GetTime and GetTime() or 0
+    local wall = time and time() or 0
+    local remaining = CooldownRemainingSeconds(a, b, gt)
+
+    char.ProfCooldownExpiry = char.ProfCooldownExpiry or {}
+    if remaining <= 0 then
+        char.ProfCooldownExpiry[spellId] = { expiresAtUnix = wall }
+    else
+        char.ProfCooldownExpiry[spellId] = { expiresAtUnix = wall + math.ceil(remaining) }
+    end
+    LogCooldownScanDebug(string.format(
+        "SpellApi spell=%d a=%s b=%s rem=%.1fs -> expUnix=%s",
+        spellId,
+        tostring(a),
+        tostring(b),
+        remaining,
+        tostring(char.ProfCooldownExpiry[spellId] and char.ProfCooldownExpiry[spellId].expiresAtUnix)
+    ))
+end
+
+--- Scan action bars for tracked spell/item cooldowns (current character only).
+--- Useful when the user never opens the profession window, but keeps the cooldown on a bar.
+function DS:TryScanTrackedCooldownsFromActionBars()
+    local GetActionInfo = _G.GetActionInfo
+    local GetActionCooldown = _G.GetActionCooldown
+    if not GetActionInfo or not GetActionCooldown then return end
+    local GetMacroInfo = _G.GetMacroInfo
+    local char = GetCurrentCharTable()
+    if not char then return end
+    local CD = AltArmy and AltArmy.CooldownData
+    if not CD or not CD.IsTrackedSpellId then return end
+    local trackedIds = {}
+    if CD.CATEGORIES then
+        for _, cat in pairs(CD.CATEGORIES) do
+            local list = cat and cat.spellIds
+            if type(list) == "table" then
+                for _, sid in ipairs(list) do
+                    -- Keep all category spell ids; we'll filter for persistence via IsTrackedSpellId.
+                    trackedIds[#trackedIds + 1] = sid
+                end
+            end
+        end
+    end
+
+    local maxSlots = 180 -- fallback: scan more for modern/extra bars (e.g. TBC Anniversary)
+    if type(_G.NUM_ACTIONBAR_BUTTONS) == "number"
+        and type(_G.NUM_ACTIONBAR_PAGES) == "number"
+        and _G.NUM_ACTIONBAR_BUTTONS > 0
+        and _G.NUM_ACTIONBAR_PAGES > 0
+    then
+        maxSlots = math.max(maxSlots, _G.NUM_ACTIONBAR_BUTTONS * _G.NUM_ACTIONBAR_PAGES)
+    end
+    local gt = GetTime and GetTime() or 0
+    local wall = time and time() or 0
+    char.ProfCooldownExpiry = char.ProfCooldownExpiry or {}
+
+    local scanned = 0
+    local macroHits = 0
+    local nonEmpty = 0
+    local debugPrinted = 0
+    local function persistFromActionCooldown(spellId, slot)
+        local a, b = GetActionCooldown(slot)
+        local remaining = CooldownRemainingSeconds(a, b, gt)
+        if remaining <= 0 then
+            char.ProfCooldownExpiry[spellId] = { expiresAtUnix = wall }
+        else
+            char.ProfCooldownExpiry[spellId] = { expiresAtUnix = wall + math.ceil(remaining) }
+        end
+        scanned = scanned + 1
+        LogCooldownScanDebug(string.format(
+            "ActionBar slot=%d type=%s spell=%d a=%s b=%s rem=%.1fs expUnix=%s",
+            slot,
+            tostring(select(1, GetActionInfo(slot))),
+            spellId,
+            tostring(a),
+            tostring(b),
+            remaining,
+            tostring(char.ProfCooldownExpiry[spellId] and char.ProfCooldownExpiry[spellId].expiresAtUnix)
+        ))
+    end
+    for slot = 1, maxSlots do
+        local actionType, actionId = GetActionInfo(slot)
+        if actionType ~= nil then
+            nonEmpty = nonEmpty + 1
+            if rawget(_G, "ALTARMY_DEBUG_COOLDOWNS") and debugPrinted < 12 then
+                debugPrinted = debugPrinted + 1
+                LogCooldownScanDebug(string.format(
+                    "ActionBar peek slot=%d type=%s id=%s",
+                    slot,
+                    tostring(actionType),
+                    tostring(actionId)
+                ))
+            end
+        end
+        if actionType == "spell" and type(actionId) == "number" then
+            local spellId = actionId
+            if CD.IsTrackedSpellId(spellId) then
+                persistFromActionCooldown(spellId, slot)
+            end
+        elseif actionType == "item" and type(actionId) == "number" then
+            -- Salt Shaker can be placed on bars as an item; treat it as the tracked cooldown spell id.
+            if CD.SALT_SHAKER_ITEM_ID
+                and CD.SALT_SHAKER_COOLDOWN_SPELL_ID
+                and actionId == CD.SALT_SHAKER_ITEM_ID
+            then
+                local spellId = CD.SALT_SHAKER_COOLDOWN_SPELL_ID
+                persistFromActionCooldown(spellId, slot)
+            end
+        elseif actionType == "macro" and type(actionId) == "number" and GetMacroInfo and GetSpellInfo then
+            -- Some profession casts appear on action bars as macros; match tracked spell names in macro body.
+            local _, _, body = GetMacroInfo(actionId)
+            if type(body) == "string" and body ~= "" then
+                local bodyLower = body:lower()
+                for _, spellId in ipairs(trackedIds) do
+                    local sid = spellId
+                    if CD.IsTrackedSpellId(sid) then
+                        local sname = GetSpellInfo(sid)
+                        if type(sname) == "string" and sname ~= "" then
+                            if bodyLower:find(sname:lower(), 1, true) then
+                                persistFromActionCooldown(sid, slot)
+                                macroHits = macroHits + 1
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    LogCooldownScanDebug(string.format(
+        "TryScanTrackedCooldownsFromActionBars maxSlots=%d nonEmpty=%d scanned=%d macroHits=%d trackedIds=%d",
+        maxSlots,
+        nonEmpty,
+        scanned,
+        macroHits,
+        #trackedIds
+    ))
+end
+
 --- Persist tracked profession cooldown expiry (unix) for spells used by Cooldowns tab.
 function DS:ScanTradeSkillCooldownExpiry()
     local char = GetCurrentCharTable()

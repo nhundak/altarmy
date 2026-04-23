@@ -177,6 +177,7 @@ frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
 frame:RegisterEvent("AUCTION_OWNED_LIST_UPDATE")
 frame:RegisterEvent("AUCTION_BIDDER_LIST_UPDATE")
 frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 
 local loginFired = false
 local isMailOpen = false
@@ -216,11 +217,18 @@ local craftReagentRetryFrame = CreateFrame("Frame", nil, UIParent)
 craftReagentRetryFrame:SetScript("OnUpdate", nil)
 craftReagentRetryFrame.elapsed = 0
 
+-- After a successful cast, the cooldown isn't always queryable on the same frame.
+local cooldownAfterCastFrame = CreateFrame("Frame", nil, UIParent)
+cooldownAfterCastFrame:SetScript("OnUpdate", nil)
+cooldownAfterCastFrame.elapsed = 0
+cooldownAfterCastFrame.pendingSpellId = nil
+
 function DS:IsMailOpen()
     return isMailOpen == true
 end
 
-frame:SetScript("OnEvent", function(_, event, addonName, a1)
+frame:SetScript("OnEvent", function(_, event, ...)
+    local addonName, a1, a3 = ...
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         if not CombatLogGetCurrentEventInfo or not UnitGUID then return end
         local CD = AltArmy and AltArmy.CooldownData
@@ -237,6 +245,30 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
         if char then
             CD.RecordSuccessfulTransmuteCast(char, spellId)
         end
+        return
+    end
+    if event == "UNIT_SPELLCAST_SUCCEEDED" then
+        local unit = addonName
+        local spellId = a3
+        if unit ~= "player" then return end
+        if type(spellId) ~= "number" then return end
+        local CD = AltArmy and AltArmy.CooldownData
+        if not CD or not CD.IsTrackedSpellId then return end
+        if not CD.IsTrackedSpellId(spellId) then return end
+
+        cooldownAfterCastFrame.pendingSpellId = spellId
+        cooldownAfterCastFrame.elapsed = 0
+        cooldownAfterCastFrame:SetScript("OnUpdate", function(f, elapsed)
+            f.elapsed = f.elapsed + elapsed
+            if f.elapsed >= 0.10 then
+                f:SetScript("OnUpdate", nil)
+                local sid = f.pendingSpellId
+                f.pendingSpellId = nil
+                if sid and DS.TryScanTrackedCooldownFromSpellApi then
+                    DS:TryScanTrackedCooldownFromSpellApi(sid)
+                end
+            end
+        end)
         return
     end
     if event == "VARIABLES_LOADED" then
@@ -288,12 +320,18 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
             end)
             -- Bags: run once now (if ready) and again after delay to catch late-loaded data
             if DS.ScanBags then DS:ScanBags() end
+            if DS.TryScanTrackedCooldownsFromActionBars then
+                DS:TryScanTrackedCooldownsFromActionBars()
+            end
             bagScanFrame.elapsed = 0
             bagScanFrame:SetScript("OnUpdate", function(f, elapsed)
                 f.elapsed = f.elapsed + elapsed
                 if f.elapsed >= BAG_SCAN_DELAY then
                     f:SetScript("OnUpdate", nil)
                     if DS.ScanBags then DS:ScanBags() end
+                    if DS.TryScanTrackedCooldownsFromActionBars then
+                        DS:TryScanTrackedCooldownsFromActionBars()
+                    end
                 end
             end)
         end
