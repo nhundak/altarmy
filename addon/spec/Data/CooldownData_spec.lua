@@ -208,6 +208,17 @@ describe("CooldownData", function()
         assert.are.equal(7, q)
     end)
 
+    it("GetMaxCraftableQuantity can reflect merged totals via callback (containers+mail)", function()
+        local char = {}
+        local containerCounts = { [22452] = 1, [21885] = 0, [21884] = 0, [22451] = 0 }
+        local mailCounts = { [22452] = 4, [21885] = 5, [21884] = 5, [22451] = 5 }
+        local function merged(_ch, itemId)
+            return (containerCounts[itemId] or 0) + (mailCounts[itemId] or 0)
+        end
+        local q = CD.GetMaxCraftableQuantity(char, 29688, merged)
+        assert.are.equal(5, q) -- reagent 22452 becomes limiting at 1+4
+    end)
+
     it("GetMaxCraftableQuantityAfterTransfer sums source+target then takes minimum", function()
         local target, source = {}, {}
         local targetCounts = { [22452] = 1, [21885] = 0, [21884] = 0, [22451] = 0 }

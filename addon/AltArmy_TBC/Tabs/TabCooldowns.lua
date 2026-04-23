@@ -501,6 +501,9 @@ local function PoolRow()
             local qty = nil
             if charTable and CD.GetMaxCraftableQuantity then
                 qty = CD.GetMaxCraftableQuantity(charTable, self.spellId, function(ch, itemId)
+                    if DS.GetTotalItemCount then
+                        return DS:GetTotalItemCount(ch, itemId)
+                    end
                     return DS:GetContainerItemCount(ch, itemId)
                 end)
             end
@@ -514,7 +517,20 @@ local function PoolRow()
                 )
             end
             if charTable and CD.GetReagentHaveCounts then
+                local showRealm = AccountHasMultipleRealms()
+                    and charTable.realm
+                    and charTable.realm ~= ""
+                local _, classFile = DS:GetCharacterClass(charTable)
+                local displayName = charTable.name or "?"
+                local displayRealm = charTable.realm or ""
+                local nameStr = RF and RF.formatColoredCharacterNameRealm
+                    and RF.formatColoredCharacterNameRealm(displayName, displayRealm, showRealm, classFile)
+                    or displayName
+                GameTooltip:AddLine(nameStr .. " has:", 1, 1, 1, true)
                 local rrows = CD.GetReagentHaveCounts(charTable, self.spellId, function(ch, itemId)
+                    if DS.GetTotalItemCount then
+                        return DS:GetTotalItemCount(ch, itemId)
+                    end
                     return DS:GetContainerItemCount(ch, itemId)
                 end)
                 for _, rr in ipairs(rrows) do
@@ -570,7 +586,7 @@ local function PoolRow()
             if not currentChar or not targetChar then return end
 
             local getTargetCount = function(ch, itemId)
-                return DS:GetContainerItemCount(ch, itemId)
+                return DS.GetTotalItemCount and DS:GetTotalItemCount(ch, itemId) or DS:GetContainerItemCount(ch, itemId)
             end
             local getSourceCount = function(ch, itemId)
                 if DS.GetBagItemCount then
@@ -780,7 +796,7 @@ ComputeMaxCraftsWithAttachmentCap = function(targetChar, sourceChar, spellId, mi
     if maxV == minV then return minV end
 
     local getTargetCount = function(ch, itemId)
-        return DS:GetContainerItemCount(ch, itemId)
+        return DS.GetTotalItemCount and DS:GetTotalItemCount(ch, itemId) or DS:GetContainerItemCount(ch, itemId)
     end
     local getSourceCount = function(ch, itemId)
         return DS.GetBagItemCount and DS:GetBagItemCount(ch, itemId) or DS:GetContainerItemCount(ch, itemId)
@@ -1119,7 +1135,7 @@ RunSendStockpile = function(ctx)
     if not currentChar or not targetChar then return end
 
     local getTargetCount = function(ch, itemId)
-        return DS:GetContainerItemCount(ch, itemId)
+        return DS.GetTotalItemCount and DS:GetTotalItemCount(ch, itemId) or DS:GetContainerItemCount(ch, itemId)
     end
     local getSourceCount = function(ch, itemId)
         return DS.GetBagItemCount and DS:GetBagItemCount(ch, itemId) or DS:GetContainerItemCount(ch, itemId)
@@ -1366,7 +1382,7 @@ RefreshList = function()
         local craftQty = nil
         if row.charTableRef and rd.spellId then
             craftQty = CD.GetMaxCraftableQuantity(row.charTableRef, rd.spellId, function(ch, itemId)
-                return DS:GetContainerItemCount(ch, itemId)
+                return DS.GetTotalItemCount and DS:GetTotalItemCount(ch, itemId) or DS:GetContainerItemCount(ch, itemId)
             end)
         end
         if craftQty == nil then

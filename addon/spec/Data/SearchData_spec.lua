@@ -20,6 +20,58 @@ describe("SearchData", function()
     SD = AltArmy.SearchData
   end)
 
+  describe("GetAllContainerSlots (mail)", function()
+    it("includes mail attachment items as location=mail", function()
+      local DS = AltArmy.DataStore
+      assert.truthy(DS)
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        IterateContainerSlots = DS.IterateContainerSlots,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+        ScanCurrentCharacterBags = DS.ScanCurrentCharacterBags,
+      }
+
+      DS.GetRealms = function() return { R1 = true } end
+      DS.GetCharacters = function()
+        return {
+          Alice = {
+            name = "Alice",
+            Mails = { { itemID = 111, count = 2, link = "item:111" } },
+            MailCache = { { itemID = 222, count = 3, link = "item:222" } },
+          },
+        }
+      end
+      DS.IterateContainerSlots = function(_self, _char, cb)
+        -- One bag item so we can verify mail + bag both exist
+        cb(0, 1, 999, 1, "item:999")
+      end
+      DS.GetCharacterName = function(_self, char) return char and char.name or "" end
+      DS.GetCharacterClass = function() return "", "WARRIOR" end
+      DS.ScanCurrentCharacterBags = function() end
+
+      local list = SD.GetAllContainerSlots()
+
+      DS.GetRealms = old.GetRealms
+      DS.GetCharacters = old.GetCharacters
+      DS.IterateContainerSlots = old.IterateContainerSlots
+      DS.GetCharacterName = old.GetCharacterName
+      DS.GetCharacterClass = old.GetCharacterClass
+      DS.ScanCurrentCharacterBags = old.ScanCurrentCharacterBags
+
+      local seenBag, seenMail111, seenMail222 = false, false, false
+      for _, e in ipairs(list) do
+        if e.itemID == 999 and e.location == "bag" then seenBag = true end
+        if e.itemID == 111 and e.location == "mail" and e.count == 2 then seenMail111 = true end
+        if e.itemID == 222 and e.location == "mail" and e.count == 3 then seenMail222 = true end
+      end
+      assert.is_true(seenBag)
+      assert.is_true(seenMail111)
+      assert.is_true(seenMail222)
+    end)
+  end)
+
   describe("_LocationFromBagID", function()
     it("returns bag for 0-4", function()
       assert.are.equal(SD._LocationFromBagID(0), "bag")

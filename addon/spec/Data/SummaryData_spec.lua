@@ -13,6 +13,34 @@ describe("SummaryData", function()
     SD = AltArmy.SummaryData
   end)
 
+  describe("GetCharacterList (money includes mail)", function()
+    it("adds mail money to on-character money when available", function()
+      _G.AltArmy = _G.AltArmy or {}
+      _G.AltArmyTBC_Data = _G.AltArmyTBC_Data or { Characters = {} }
+      _G.CreateFrame = _G.CreateFrame or function()
+        return { SetScript = function() end, RegisterEvent = function() end }
+      end
+      _G.UIParent = _G.UIParent or {}
+      package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+
+      require("DataStore")
+      require("DataStoreCharacter")
+      require("DataStoreMail")
+
+      local DS = _G.AltArmy.DataStore
+      DS.GetRealms = function() return { R1 = true } end
+      DS.GetCharacters = function()
+        return {
+          Alice = { name = "Alice", money = 1000, Mails = { { money = 2500 } } },
+        }
+      end
+
+      local list = SD.GetCharacterList()
+      assert.are.equal(1, #list)
+      assert.are.equal(3500, list[1].money)
+    end)
+  end)
+
   describe("GetMoneyString", function()
     it("formats copper only", function()
       local s = SD.GetMoneyString(99)

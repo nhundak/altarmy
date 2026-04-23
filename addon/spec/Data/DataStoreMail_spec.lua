@@ -30,6 +30,10 @@ describe("DataStoreMail", function()
       local char = { Mails = { {}, {}, {} } }
       assert.are.equal(3, DS:GetNumMails(char))
     end)
+    it("counts Mails + MailCache when both exist", function()
+      local char = { Mails = { {}, {} }, MailCache = { {}, {}, {} } }
+      assert.are.equal(5, DS:GetNumMails(char))
+    end)
   end)
 
   describe("GetMailItemCount", function()
@@ -52,6 +56,14 @@ describe("DataStoreMail", function()
     it("treats missing count as 1", function()
       local char = { Mails = { { itemID = 100 } } }
       assert.are.equal(1, DS:GetMailItemCount(char, 100))
+    end)
+    it("includes MailCache entries in counts", function()
+      local char = {
+        Mails = { { itemID = 100, count = 2 } },
+        MailCache = { { itemID = 100, count = 3 }, { itemID = 200, count = 9 } },
+      }
+      assert.are.equal(5, DS:GetMailItemCount(char, 100))
+      assert.are.equal(9, DS:GetMailItemCount(char, 200))
     end)
   end)
 
@@ -82,6 +94,24 @@ describe("DataStoreMail", function()
       assert.are.equal("S", sender)
       assert.are.equal(false, returned)
     end)
+    it("can read info from MailCache after Mails entries", function()
+      local char = {
+        Mails = { { icon = "m1", itemID = 1, count = 1, lastCheck = 0, daysLeft = 30 } },
+        MailCache = { { icon = "c1", itemID = 2, count = 5, link = "lk", money = 0, subject = "sub", sender = "Me", lastCheck = 0, daysLeft = 30, returned = true } },
+      }
+      local old = _G.time
+      _G.time = function() return 0 end
+      local icon, count, link, money, subject, sender, daysLeft, returned = DS:GetMailInfo(char, 2)
+      _G.time = old
+      assert.are.equal("c1", icon)
+      assert.are.equal(5, count)
+      assert.are.equal("lk", link)
+      assert.are.equal(0, money)
+      assert.are.equal("sub", subject)
+      assert.are.equal("Me", sender)
+      assert.are.equal(30, daysLeft)
+      assert.are.equal(true, returned)
+    end)
   end)
 
   describe("GetMailboxLastVisit", function()
@@ -91,6 +121,48 @@ describe("DataStoreMail", function()
     it("returns lastMailCheck or 0", function()
       assert.are.equal(12345, DS:GetMailboxLastVisit({ lastMailCheck = 12345 }))
       assert.are.equal(0, DS:GetMailboxLastVisit({}))
+    end)
+  end)
+
+  describe("Cache + scan interactions", function()
+    it("SaveMailAttachmentToCache appends an entry with expiry metadata", function()
+      local char = { Mails = {}, MailCache = {} }
+      local old = _G.time
+      _G.time = function() return 123 end
+      DS:SaveMailAttachmentToCache(char, "ic", 100, "link", 2, "Sender", "Subj", false)
+      _G.time = old
+      assert.are.equal(1, #char.MailCache)
+      assert.are.equal(100, char.MailCache[1].itemID)
+      assert.are.equal(2, char.MailCache[1].count)
+      assert.are.equal("Sender", char.MailCache[1].sender)
+      assert.are.equal("Subj", char.MailCache[1].subject)
+      assert.are.equal(30, char.MailCache[1].daysLeft)
+      assert.are.equal(123, char.MailCache[1].lastCheck)
+      assert.are.equal(false, char.MailCache[1].returned)
+    end)
+
+    it("SaveMailToCache appends a money/body entry", function()
+      local char = { Mails = {}, MailCache = {} }
+      DS:SaveMailToCache(char, 500, "body", "sub", "Sender", false)
+      assert.are.equal(1, #char.MailCache)
+      assert.are.equal(500, char.MailCache[1].money)
+      assert.are.equal("body", char.MailCache[1].text)
+      assert.are.equal("sub", char.MailCache[1].subject)
+      assert.are.equal("Sender", char.MailCache[1].sender)
+    end)
+
+    it("ScanMailbox clears MailCache once a real scan occurs", function()
+      local char = { Mails = {}, MailCache = { { itemID = 100, count = 1 } } }
+      -- Force current character table to this instance.
+      DS._GetCurrentCharTable = function() return char end
+      _G.GetInboxNumItems = function() return 0 end
+      _G.CheckInbox = function() end
+      local old = _G.time
+      _G.time = function() return 999 end
+      DS:ScanMailbox()
+      _G.time = old
+      assert.are.equal(0, #char.MailCache)
+      assert.are.equal(999, char.lastMailCheck)
     end)
   end)
 end)

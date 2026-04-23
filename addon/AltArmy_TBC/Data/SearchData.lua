@@ -37,6 +37,14 @@ local function LocationFromBagID(bagID)
 end
 SD._LocationFromBagID = LocationFromBagID
 
+local function LocationSortKey(location)
+    if location == "bag" then return 1 end
+    if location == "bank" then return 2 end
+    if location == "mail" then return 3 end
+    return 99
+end
+SD._LocationSortKey = LocationSortKey
+
 --- Build flat list of all container slots across all characters.
 --- Each entry: { characterName, realm, itemID, itemLink, count, location, bagID, slot }.
 function SD.GetAllContainerSlots()
@@ -69,6 +77,35 @@ function SD.GetAllContainerSlots()
                     })
                     return false
                 end)
+            end
+
+            -- Mail: include per-mail attachment rows (Mails + MailCache) as location="mail"
+            if charData and (charData.Mails or charData.MailCache) then
+                local characterName = (DS.GetCharacterName and DS:GetCharacterName(charData)) or charName
+                local classFile = nil
+                if DS.GetCharacterClass then
+                    local _, cf = DS:GetCharacterClass(charData)
+                    classFile = cf
+                end
+                local function pushMailRows(rows)
+                    for _, m in ipairs(rows or {}) do
+                        if m and m.itemID then
+                            table.insert(list, {
+                                characterName = characterName,
+                                realm = realm,
+                                itemID = m.itemID,
+                                itemLink = m.link,
+                                count = m.count or 1,
+                                location = "mail",
+                                bagID = nil,
+                                slot = nil,
+                                classFile = classFile,
+                            })
+                        end
+                    end
+                end
+                pushMailRows(charData.Mails)
+                pushMailRows(charData.MailCache)
             end
         end
     end
@@ -257,6 +294,8 @@ local function AggregateAndSort(raw, queryLower)
         local na, nb = (a.itemName or ""):lower(), (b.itemName or ""):lower()
         if na ~= nb then return na < nb end
         if a.charTotal ~= b.charTotal then return a.charTotal > b.charTotal end
+        local la, lb = LocationSortKey(a.location or "bag"), LocationSortKey(b.location or "bag")
+        if la ~= lb then return la < lb end
         return (a.location or "bag") < (b.location or "bag")
     end)
 

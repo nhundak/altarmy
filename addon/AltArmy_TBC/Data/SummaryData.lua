@@ -103,6 +103,9 @@ function AltArmy.SummaryData.GetCharacterList()
                 level = level + xp / xpMax
             end
             local money = DS:GetMoney(charData) or 0
+            if DS.GetMailMoneyTotal then
+                money = money + (DS:GetMailMoneyTotal(charData) or 0)
+            end
             local played = DS:GetPlayTime(charData) or 0
             local lastLogout = DS:GetLastLogout(charData) or MAX_LOGOUT_SENTINEL
             local classLoc, classFile = DS:GetCharacterClass(charData)

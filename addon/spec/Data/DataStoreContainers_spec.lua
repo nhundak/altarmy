@@ -16,6 +16,7 @@ describe("DataStoreContainers", function()
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     require("DataStore")
     require("DataStoreContainers")
+    require("DataStoreMail")
     DS = AltArmy.DataStore
   end)
 
@@ -47,6 +48,30 @@ describe("DataStoreContainers", function()
         },
       }
       assert.are.equal(1, DS:GetContainerItemCount(char, 100))
+    end)
+  end)
+
+  describe("GetTotalItemCount", function()
+    it("sums containers + mail", function()
+      local char = {
+        Containers = {
+          [0] = { items = { [1] = { itemID = 100, count = 2 } } },
+        },
+        Mails = {
+          { itemID = 100, count = 3 },
+          { itemID = 200, count = 9 },
+        },
+      }
+      assert.are.equal(5, DS:GetTotalItemCount(char, 100))
+      assert.are.equal(9, DS:GetTotalItemCount(char, 200))
+    end)
+
+    it("treats missing mail module as 0 (still counts containers)", function()
+      local old = DS.GetMailItemCount
+      DS.GetMailItemCount = nil
+      local char = { Containers = { [0] = { items = { [1] = { itemID = 100, count = 2 } } } } }
+      assert.are.equal(2, DS:GetTotalItemCount(char, 100))
+      DS.GetMailItemCount = old
     end)
   end)
 

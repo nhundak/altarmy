@@ -169,6 +169,17 @@ function DS:GetContainerItemCount(char, itemID)
     return total
 end
 
+--- Returns merged item count across containers (bags+bank snapshot) and mail snapshot/cache.
+--- This is the default "have" total for gameplay-facing displays; use GetBagItemCount for sendable (bag-only) items.
+function DS:GetTotalItemCount(char, itemID)
+    local containerCount = self:GetContainerItemCount(char, itemID)
+    local mailCount = 0
+    if self.GetMailItemCount then
+        mailCount = self:GetMailItemCount(char, itemID)
+    end
+    return containerCount + (mailCount or 0)
+end
+
 --- Counts items in player bags only (excludes bank bags).
 --- Uses the character snapshot in SavedVariables; does not query live bag APIs.
 function DS:GetBagItemCount(char, itemID)
