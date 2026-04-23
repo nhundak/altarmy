@@ -518,22 +518,25 @@ local function fillItemRow(row, entry, showRealmSuffix)
     end
     local locLabel = entry.location == "bank" and "Bank" or "Bags"
     local name = entry.characterName or ""
-    local r, g, b = 1, 0.82, 0
-    local classFile = entry.classFile
-    if classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile] then
-        local c = RAID_CLASS_COLORS[classFile]
-        r, g, b = c.r, c.g, c.b
-    end
     local RF = AltArmy.RealmFilter
     local namePart
-    local suffixText = "|cFFFFFFFF (" .. locLabel .. ")|r"
-    if showRealmSuffix and RF and RF.formatCharacterDisplayNameColored and RF.formatCharacterDisplayName then
-        namePart = RF.formatCharacterDisplayNameColored(
-                RF.formatCharacterDisplayName(name, entry.realm, true), nil, false, r, g, b)
+    if RF and RF.formatColoredCharacterNameRealm then
+        namePart = RF.formatColoredCharacterNameRealm(
+            name,
+            entry.realm,
+            showRealmSuffix,
+            entry.classFile
+        )
     else
+        local r, g, b = 1, 0.82, 0
+        if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
+            local c = RAID_CLASS_COLORS[entry.classFile]
+            r, g, b = c.r, c.g, c.b
+        end
         local R, G, B = math.floor(r * 255), math.floor(g * 255), math.floor(b * 255)
         namePart = string.format("|cFF%02x%02x%02x%s|r", R, G, B, name)
     end
+    local suffixText = "|cffffffff (" .. locLabel .. ")|r"
     SetCharacterCellTruncated(row.cells.Character, namePart, suffixText, colWidths.Character or 160)
     row.cells.Total:SetText("")
 end
@@ -569,17 +572,16 @@ local function fillRecipeRow(row, entry, showRealmSuffix)
     end
     row.cells.Recipe:SetText(("|T%s:0|t "):format(iconPath) .. recipeName)
     local name = entry.characterName or ""
-    local r, g, b = 1, 0.82, 0
-    if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
-        local c = RAID_CLASS_COLORS[entry.classFile]
-        r, g, b = c.r, c.g, c.b
-    end
     local RF = AltArmy.RealmFilter
     local namePart
-    if showRealmSuffix and RF and RF.formatCharacterDisplayNameColored and RF.formatCharacterDisplayName then
-        namePart = RF.formatCharacterDisplayNameColored(
-                RF.formatCharacterDisplayName(name, entry.realm, true), nil, false, r, g, b)
+    if RF and RF.formatColoredCharacterNameRealm then
+        namePart = RF.formatColoredCharacterNameRealm(name, entry.realm, showRealmSuffix, entry.classFile)
     else
+        local r, g, b = 1, 0.82, 0
+        if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
+            local c = RAID_CLASS_COLORS[entry.classFile]
+            r, g, b = c.r, c.g, c.b
+        end
         local R, G, B = math.floor(r * 255), math.floor(g * 255), math.floor(b * 255)
         namePart = string.format("|cFF%02x%02x%02x%s|r", R, G, B, name)
     end

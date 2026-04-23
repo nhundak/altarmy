@@ -682,7 +682,7 @@ local function GetHeaderColumnFrame(index)
             if self.tooltipText and self.tooltipText ~= "" and GameTooltip then
                 GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
                 GameTooltip:ClearLines()
-                GameTooltip:AddLine(self.tooltipText, self.classR or 1, self.classG or 0.82, self.classB or 0)
+                GameTooltip:AddLine(self.tooltipText, 1, 1, 1)
                 GameTooltip:Show()
             end
         end)
@@ -863,10 +863,17 @@ local function UpdateGridWithOffset()
         headerCol.header:SetTextColor(classR, classG, classB, 1)
         TruncateName(headerCol.header, displayName, dims.columnWidth - 4)
         headerCol.truncated = (headerCol.header:GetText() ~= displayName)
+        local showRealmSuffix = (GetGearSettings().realmFilter == "all")
+            and RF and RF.hasMultipleRealms and RF.hasMultipleRealms(list)
         local hasRealm = entry.realm and entry.realm ~= ""
-        if headerCol.truncated or hasRealm then
-            headerCol.tooltipText = RF and RF.formatCharacterDisplayName
-                and RF.formatCharacterDisplayName(entry.name or "?", entry.realm or "", hasRealm)
+        if headerCol.truncated or (showRealmSuffix and hasRealm) then
+            headerCol.tooltipText = RF and RF.formatColoredCharacterNameRealm
+                and RF.formatColoredCharacterNameRealm(
+                    entry.name or "?",
+                    entry.realm,
+                    showRealmSuffix,
+                    entry.classFile
+                )
                 or displayName
         else
             headerCol.tooltipText = nil

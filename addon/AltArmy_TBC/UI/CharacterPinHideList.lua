@@ -148,11 +148,16 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
             end
             local nameDisplayStr
             local tooltipDisplayStr
-            if showRealmSuffix and RF and RF.formatCharacterDisplayNameColored and RF.formatCharacterDisplayName then
-                nameDisplayStr = RF.formatCharacterDisplayNameColored(
-                    RF.formatCharacterDisplayName(entry.name or "?", entry.realm, true), nil, false, r, g, b)
+            if RF and RF.formatColoredCharacterNameRealm then
+                nameDisplayStr = RF.formatColoredCharacterNameRealm(
+                    entry.name or "?",
+                    entry.realm,
+                    showRealmSuffix,
+                    entry.classFile
+                )
                 tooltipDisplayStr = nameDisplayStr
                 row.nameText:SetText(nameDisplayStr)
+                row.nameText:SetTextColor(1, 1, 1, 1)
             else
                 nameDisplayStr = entry.name or "?"
                 tooltipDisplayStr = string.format("|cFF%02x%02x%02x%s|r",

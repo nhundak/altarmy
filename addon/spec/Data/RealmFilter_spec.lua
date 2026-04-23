@@ -8,6 +8,10 @@ describe("RealmFilter", function()
 
   setup(function()
     _G.AltArmy = _G.AltArmy or {}
+    _G.RAID_CLASS_COLORS = _G.RAID_CLASS_COLORS or {
+      WARRIOR = { r = 0.78, g = 0.61, b = 0.43 },
+      MAGE = { r = 0.41, g = 0.8, b = 0.94 },
+    }
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     require("RealmFilter")
     RF = AltArmy.RealmFilter
@@ -119,6 +123,28 @@ describe("RealmFilter", function()
       assert.truthy(s:find("Frell"))
       assert.truthy(s:find("|r"))
       assert.truthy(s:find("-Dreamscythe"))
+    end)
+  end)
+
+  describe("formatColoredCharacterNameRealm", function()
+    it("uses raid class color and gray realm with em dash when suffix on", function()
+      local s = RF.formatColoredCharacterNameRealm("Ada", "Alpha", true, "MAGE")
+      assert.truthy(s:find("|cff"))
+      assert.truthy(s:find("Ada"))
+      assert.truthy(s:find("|cffaaaaaa"))
+      assert.truthy(s:find(" — Alpha"))
+    end)
+
+    it("omits realm when showRealmSuffix false", function()
+      local s = RF.formatColoredCharacterNameRealm("Ada", "Alpha", false, "MAGE")
+      assert.is_nil(s:find("Alpha"))
+      assert.truthy(s:find("Ada"))
+    end)
+
+    it("uses white name when classFile nil", function()
+      local s = RF.formatColoredCharacterNameRealm("Bob", "Beta", true, nil)
+      assert.truthy(s:find("|cffffffffBob|r"))
+      assert.truthy(s:find(" — Beta"))
     end)
   end)
 end)

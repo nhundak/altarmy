@@ -216,6 +216,13 @@ setActiveTab = function(tabName)
             tabStrip.reputationSettingsBtn:Hide()
         end
     end
+    if tabStrip.cooldownSettingsBtn then
+        if tabName == "Cooldowns" and tabStrip:IsShown() then
+            tabStrip.cooldownSettingsBtn:Show()
+        else
+            tabStrip.cooldownSettingsBtn:Hide()
+        end
+    end
     UpdateSettingsButtonGlow()
 end
 
@@ -255,7 +262,7 @@ local function InstallSettingsIconHoverTint(target)
 end
 
 local TAB_BTN_MIN_WIDTH = 72
-local tabNames = { "Summary", "Gear", "Reputation" }
+local tabNames = { "Summary", "Gear", "Reputation", "Cooldowns" }
 tabStrip.buttons = {}
 local prevBtn = nil
 for _, tabName in ipairs(tabNames) do
@@ -427,6 +434,29 @@ reputationSettingsBtn:SetScript("OnClick", function()
 end)
 tabStrip.reputationSettingsBtn = reputationSettingsBtn
 
+-- Cooldowns tab settings icon — opens Interface > AddOns > AltArmy (same position as other tab gears).
+local cooldownSettingsBtn = CreateFrame("Button", nil, tabStrip)
+cooldownSettingsBtn:SetPoint("TOPRIGHT", tabStrip, "TOPRIGHT", 0, 0)
+cooldownSettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
+cooldownSettingsBtn:Hide()
+addSettingsButtonGlow(cooldownSettingsBtn)
+local cooldownSettingsIcon = cooldownSettingsBtn:CreateTexture(nil, "ARTWORK")
+cooldownSettingsIcon:SetAllPoints(cooldownSettingsBtn)
+cooldownSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
+InstallSettingsIconHoverTint(cooldownSettingsBtn)
+cooldownSettingsBtn:SetScript("OnEnter", function(self)
+    HoverTintEnter(self)
+end)
+cooldownSettingsBtn:SetScript("OnLeave", function(self)
+    HoverTintLeave(self)
+end)
+cooldownSettingsBtn:SetScript("OnClick", function()
+    if AltArmy.OpenInterfaceOptions then
+        AltArmy.OpenInterfaceOptions()
+    end
+end)
+tabStrip.cooldownSettingsBtn = cooldownSettingsBtn
+
 setActiveTab("Summary")
 
 -- Content area: one frame per tab
@@ -466,6 +496,7 @@ searchModeHandlers.enterSearchMode = function(trimmed)
     if AltArmy.TabFrames.Summary then AltArmy.TabFrames.Summary:Hide() end
     if AltArmy.TabFrames.Gear then AltArmy.TabFrames.Gear:Hide() end
     if AltArmy.TabFrames.Reputation then AltArmy.TabFrames.Reputation:Hide() end
+    if AltArmy.TabFrames.Cooldowns then AltArmy.TabFrames.Cooldowns:Hide() end
     if AltArmy.TabFrames.Search then
         AltArmy.TabFrames.Search:Show()
         if AltArmy.TabFrames.Search.SearchWithQuery then

@@ -8,11 +8,13 @@
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
 Core.lua
 Data\DataStore.lua
+Data\CooldownData.lua
 Data\DataStoreCharacter.lua
 Data\DataStoreContainers.lua
 Data\DataStoreEquipment.lua
 Data\DataStoreCurrencies.lua
 Data\DataStoreProfessions.lua
+Data\CooldownAlerts.lua
 Data\DataStoreReputations.lua
 Data\DataStoreMail.lua
 Data\DataStoreAuctions.lua
@@ -26,6 +28,8 @@ UI\CharacterPinHideList.lua
 Tabs\TabSummary.lua
 Tabs\TabGear.lua
 Tabs\TabReputation.lua
+Tabs\TabCooldowns.lua
 Tabs\TabSearch.lua
 UI\Minimap.lua
 UI\Options.lua
+UI\CooldownOptions.lua

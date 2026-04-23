@@ -88,6 +88,16 @@ describe("DataStoreProfessions", function()
     end)
   end)
 
+  describe("SaveRecipeReagentsMulti", function()
+    it("stores one list under every spell id key", function()
+      assert.is_not_nil(DS.accountData)
+      DS.accountData.RecipeReagents = {}
+      DS.SaveRecipeReagentsMulti(DS, { 26751, 31373 }, { { 21840, 1 }, { 14341, 1 } })
+      assert.are.same({ { 21840, 1 }, { 14341, 1 } }, DS.accountData.RecipeReagents[26751])
+      assert.are.equal(DS.accountData.RecipeReagents[26751], DS.accountData.RecipeReagents[31373])
+    end)
+  end)
+
   describe("ScanCraftRecipes", function()
     it("calls GetCraftSkillLine with index 1 (client requires a positive index)", function()
       local oldTime = _G.time
@@ -120,6 +130,22 @@ describe("DataStoreProfessions", function()
       DS:ScanCraftRecipes()
       _G.time = oldTime
       assert.are.equal(1, receivedIndex)
+    end)
+  end)
+
+  describe("IsRecipeKnownAnyProfession", function()
+    it("returns false when spell missing", function()
+      local char = { Professions = { Mining = { Recipes = { [1] = {} } } } }
+      assert.is_false(DS:IsRecipeKnownAnyProfession(char, 99))
+    end)
+    it("returns true when any profession has recipe", function()
+      local char = {
+        Professions = {
+          Mining = { Recipes = {} },
+          Alchemy = { Recipes = { [29688] = { color = 1 } } },
+        },
+      }
+      assert.is_true(DS:IsRecipeKnownAnyProfession(char, 29688))
     end)
   end)
 

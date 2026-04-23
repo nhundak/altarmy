@@ -17,6 +17,9 @@ local function ensureDefaults()
     if AltArmyTBC_Options.minimapAngle == nil then
         AltArmyTBC_Options.minimapAngle = 90
     end
+    if AltArmy and AltArmy.CooldownData and AltArmy.CooldownData.EnsureCooldownOptions then
+        AltArmy.CooldownData.EnsureCooldownOptions()
+    end
 end
 
 local function applyMinimapOption()
@@ -122,11 +125,20 @@ panel.default = function()
     if panel.minimapCheckbox then
         panel.minimapCheckbox:SetChecked(true)
     end
+    if AltArmy.CooldownData and AltArmy.CooldownData.ResetCooldownOptionsToDefaults then
+        AltArmy.CooldownData.ResetCooldownOptionsToDefaults()
+    end
+    if panel.RefreshCooldownOptionsFromVars then
+        panel.RefreshCooldownOptionsFromVars()
+    end
 end
 panel.refresh = function()
     ensureDefaults()
     if panel.minimapCheckbox then
         panel.minimapCheckbox:SetChecked(AltArmyTBC_Options.showMinimapButton)
+    end
+    if panel.RefreshCooldownOptionsFromVars then
+        panel.RefreshCooldownOptionsFromVars()
     end
 end
 
@@ -311,13 +323,24 @@ local function RefreshCharacterList_impl()
         -- Class icon
         SetCharIcon(row.icon, row.iconFallback, entry.classFile)
 
-        local rc = RAID_CLASS_COLORS and entry.classFile and RAID_CLASS_COLORS[entry.classFile]
-        if rc then
-            row.label:SetTextColor(rc.r, rc.g, rc.b, 1)
-        else
+        local RF = AltArmy.RealmFilter
+        if RF and RF.formatColoredCharacterNameRealm then
             row.label:SetTextColor(1, 1, 1, 1)
+            row.label:SetText(RF.formatColoredCharacterNameRealm(
+                entry.name or "",
+                entry.realm,
+                true,
+                entry.classFile
+            ))
+        else
+            local rc = RAID_CLASS_COLORS and entry.classFile and RAID_CLASS_COLORS[entry.classFile]
+            if rc then
+                row.label:SetTextColor(rc.r, rc.g, rc.b, 1)
+            else
+                row.label:SetTextColor(1, 1, 1, 1)
+            end
+            row.label:SetText((entry.name or "") .. " - " .. (entry.realm or ""))
         end
-        row.label:SetText(entry.name .. " - " .. entry.realm)
 
         -- Selection highlight
         local isSelected = selectedEntry
@@ -373,6 +396,107 @@ charSettingDeleteBtn:SetScript("OnClick", function(self)
     end
 end)
 
+local charTransmuteRow = CreateFrame("Frame", nil, panel)
+charTransmuteRow:SetHeight(52)
+charTransmuteRow:SetWidth(340)
+charTransmuteRow:SetPoint("TOPLEFT", charSettingDeleteBtn, "BOTTOMLEFT", 0, -12)
+charTransmuteRow:Hide()
+
+local charTransmuteTitle = charTransmuteRow:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+charTransmuteTitle:SetPoint("TOPLEFT", charTransmuteRow, "TOPLEFT", 0, 0)
+charTransmuteTitle:SetText("Preferred Transmute")
+
+local charTransmuteDD = CreateFrame(
+    "Frame",
+    "AltArmyTBC_CharPreferredTransmuteDD",
+    charTransmuteRow,
+    "UIDropDownMenuTemplate"
+)
+charTransmuteDD:SetPoint("TOPLEFT", charTransmuteTitle, "BOTTOMLEFT", 0, -6)
+
+local function RefreshCharacterTransmuteDropdownText(dropdown, char)
+    if not dropdown or not UIDropDownMenu_SetText then return end
+    local text = "Choose automatically"
+    local CD = AltArmy.CooldownData
+    if char and CD and type(char.preferredTransmuteSpellId) == "number" then
+        if select(1, CD.FindRecipeProfession(char, char.preferredTransmuteSpellId)) then
+            local sid = char.preferredTransmuteSpellId
+            text = (_G.GetSpellInfo and _G.GetSpellInfo(sid)) or ("Spell " .. tostring(sid))
+        end
+    end
+    UIDropDownMenu_SetText(dropdown, text)
+end
+
+local function InitCharTransmuteDropdown(dropdown)
+    if not UIDropDownMenu_Initialize then return end
+    UIDropDownMenu_SetWidth(dropdown, 280)
+    UIDropDownMenu_Initialize(dropdown, function()
+        if UIDropDownMenu_ClearMenu then
+            UIDropDownMenu_ClearMenu(dropdown)
+        end
+        if not selectedEntry or not AltArmy.DataStore then return end
+        local char = AltArmy.DataStore:GetCharacter(selectedEntry.name, selectedEntry.realm)
+        if not char then return end
+        local CD = AltArmy.CooldownData
+        if not CD then return end
+        local ids = CD.CollectCharacterKnownTransmuteSpellIds(char, _G.GetSpellInfo)
+
+        local autoInfo = UIDropDownMenu_CreateInfo()
+        autoInfo.text = "Choose automatically"
+        autoInfo.func = function()
+            char.preferredTransmuteSpellId = nil
+            UIDropDownMenu_SetText(dropdown, "Choose automatically")
+            local f = AltArmy.TabFrames and AltArmy.TabFrames.Cooldowns
+            if f and f.RefreshCooldownList then
+                f:RefreshCooldownList()
+            end
+        end
+        UIDropDownMenu_AddButton(autoInfo)
+
+        for _, spellId in ipairs(ids) do
+            local sid = spellId
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = (_G.GetSpellInfo and _G.GetSpellInfo(sid)) or ("Spell " .. tostring(sid))
+            info.func = function()
+                char.preferredTransmuteSpellId = sid
+                UIDropDownMenu_SetText(dropdown, info.text)
+                local f = AltArmy.TabFrames and AltArmy.TabFrames.Cooldowns
+                if f and f.RefreshCooldownList then
+                    f:RefreshCooldownList()
+                end
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+end
+
+InitCharTransmuteDropdown(charTransmuteDD)
+
+local function RefreshCharacterTransmutePrefUI()
+    if not charTransmuteRow then return end
+    if not selectedEntry or not AltArmy.DataStore then
+        charTransmuteRow:Hide()
+        return
+    end
+    local char = AltArmy.DataStore:GetCharacter(selectedEntry.name, selectedEntry.realm)
+    if not char then
+        charTransmuteRow:Hide()
+        return
+    end
+    local CD = AltArmy.CooldownData
+    if not CD then
+        charTransmuteRow:Hide()
+        return
+    end
+    local ids = CD.CollectCharacterKnownTransmuteSpellIds(char, _G.GetSpellInfo)
+    if #ids == 0 then
+        charTransmuteRow:Hide()
+        return
+    end
+    charTransmuteRow:Show()
+    RefreshCharacterTransmuteDropdownText(charTransmuteDD, char)
+end
+
 UpdateCharSettings = function()
     local hasSelection = selectedEntry ~= nil
     local isSelf = hasSelection
@@ -388,6 +512,7 @@ UpdateCharSettings = function()
         charSettingDeleteBtn:SetText("Delete Data")
         charSettingDeleteBtn:Enable()
     end
+    RefreshCharacterTransmutePrefUI()
 end
 
 -- ---------------------------------------------------------------------------
@@ -436,6 +561,7 @@ local function registerOptionsPanel()
     if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
         local category = Settings.RegisterCanvasLayoutCategory(panel, "AltArmy")
         Settings.RegisterAddOnCategory(category)
+        panel.altArmySettingsCategory = category
     end
     if InterfaceOptions_AddCategory then
         InterfaceOptions_AddCategory(panel)
@@ -467,5 +593,15 @@ SLASH_ALTARMY1 = "/altarmy"
 SlashCmdList.ALTARMY = function(_msg)
     if AltArmy and AltArmy.MainFrame then
         AltArmy.MainFrame:Show()
+    end
+end
+
+AltArmy.OptionsPanel = panel
+
+function AltArmy.OpenInterfaceOptions()
+    if Settings and Settings.OpenToCategory and panel.altArmySettingsCategory then
+        Settings.OpenToCategory(panel.altArmySettingsCategory:GetID())
+    elseif InterfaceOptionsFrame_OpenToCategory then
+        InterfaceOptionsFrame_OpenToCategory(panel)
     end
 end

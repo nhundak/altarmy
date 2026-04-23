@@ -78,3 +78,31 @@ function RF.formatCharacterDisplayNameColored(name, realm, showRealmSuffix, r, g
     end
     return hex
 end
+
+--- UI string with RAID class color on the name and gray " — realm" when showRealmSuffix (matches Cooldowns tab).
+--- @param name string
+--- @param realm string|nil
+--- @param showRealmSuffix boolean
+--- @param classFile string|nil e.g. "MAGE"
+--- @return string WoW escape sequences for FontString / GameTooltip
+function RF.formatColoredCharacterNameRealm(name, realm, showRealmSuffix, classFile)
+    name = name or ""
+    local namePart
+    local c = RAID_CLASS_COLORS and classFile and classFile ~= ""
+        and RAID_CLASS_COLORS[classFile]
+    if c then
+        namePart = string.format(
+            "|cff%02x%02x%02x%s|r",
+            math.floor(c.r * 255 + 0.5),
+            math.floor(c.g * 255 + 0.5),
+            math.floor(c.b * 255 + 0.5),
+            name
+        )
+    else
+        namePart = "|cffffffff" .. name .. "|r"
+    end
+    if showRealmSuffix and realm and realm ~= "" then
+        return namePart .. "|cffaaaaaa — " .. realm .. "|r"
+    end
+    return namePart
+end

@@ -25,7 +25,16 @@ local DATA_VERSIONS = {
 AltArmyTBC_Data = AltArmyTBC_Data or {}
 AltArmyTBC_Data.Characters = AltArmyTBC_Data.Characters or {}
 
+-- SavedVariables are applied after this file can run; the global table may be replaced, so
+-- re-point these in SyncAccountDataRoot (ADDON_LOADED + VARIABLES_LOADED) or writes (e.g.
+-- RecipeReagents) can go to a stale table and not persist across /reload.
 AltArmy.DB = AltArmyTBC_Data
+DS.accountData = AltArmyTBC_Data
+
+local function SyncAccountDataRoot()
+    DS.accountData = AltArmyTBC_Data
+    AltArmy.DB = AltArmyTBC_Data
+end
 
 local function GetCurrentName()
     if UnitName then
@@ -139,6 +148,7 @@ end
 -- Event frame and dispatch
 local frame = CreateFrame("Frame", nil, UIParent)
 frame:RegisterEvent("ADDON_LOADED")
+frame:RegisterEvent("VARIABLES_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("PLAYER_ALIVE")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -166,6 +176,7 @@ frame:RegisterEvent("AUCTION_HOUSE_SHOW")
 frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
 frame:RegisterEvent("AUCTION_OWNED_LIST_UPDATE")
 frame:RegisterEvent("AUCTION_BIDDER_LIST_UPDATE")
+frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
 local loginFired = false
 local isMailOpen = false
@@ -175,6 +186,9 @@ local isBankOpen = false
 local REPUTATION_SCAN_THROTTLE = 3
 local BAG_SCAN_DELAY = 3
 local TRADE_SKILL_SCAN_DELAY = 0.5
+--- Deferred reagent-only retry (Cooldowns RecipeReagents); avoids TRADE_SKILL_UPDATE loops.
+local TRADE_SKILL_REAGENT_RETRY_DELAY = 1.25
+local CRAFT_REAGENT_RETRY_DELAY = 1.25
 
 local bagScanFrame = CreateFrame("Frame", nil, UIParent)
 bagScanFrame:SetScript("OnUpdate", nil)
@@ -194,9 +208,41 @@ local craftScanFrame = CreateFrame("Frame", nil, UIParent)
 craftScanFrame:SetScript("OnUpdate", nil)
 craftScanFrame.elapsed = 0
 
+local tradeSkillReagentRetryFrame = CreateFrame("Frame", nil, UIParent)
+tradeSkillReagentRetryFrame:SetScript("OnUpdate", nil)
+tradeSkillReagentRetryFrame.elapsed = 0
+
+local craftReagentRetryFrame = CreateFrame("Frame", nil, UIParent)
+craftReagentRetryFrame:SetScript("OnUpdate", nil)
+craftReagentRetryFrame.elapsed = 0
+
 frame:SetScript("OnEvent", function(_, event, addonName, a1)
+    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        if not CombatLogGetCurrentEventInfo or not UnitGUID then return end
+        local CD = AltArmy and AltArmy.CooldownData
+        if not CD or not CD.RecordSuccessfulTransmuteCast then return end
+        local payload = { CombatLogGetCurrentEventInfo() }
+        local subevent = payload[2]
+        if subevent ~= "SPELL_CAST_SUCCESS" then return end
+        local srcGUID = payload[4]
+        local playerGUID = UnitGUID("player")
+        if not playerGUID or srcGUID ~= playerGUID then return end
+        local spellId = payload[12]
+        if type(spellId) ~= "number" then return end
+        local char = GetCurrentCharTable()
+        if char then
+            CD.RecordSuccessfulTransmuteCast(char, spellId)
+        end
+        return
+    end
+    if event == "VARIABLES_LOADED" then
+        SyncAccountDataRoot()
+        return
+    end
     if event == "ADDON_LOADED" and addonName == "AltArmy_TBC" then
+        SyncAccountDataRoot()
         AltArmyTBC_Data.Characters = AltArmyTBC_Data.Characters or {}
+        AltArmyTBC_Data.RecipeReagents = AltArmyTBC_Data.RecipeReagents or {}
         GetCurrentCharTable()
         MigrateDataVersions()
         return
@@ -270,6 +316,16 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
                 end
             end
         end)
+        tradeSkillReagentRetryFrame.elapsed = 0
+        tradeSkillReagentRetryFrame:SetScript("OnUpdate", function(f, elapsed)
+            f.elapsed = f.elapsed + elapsed
+            if f.elapsed >= TRADE_SKILL_REAGENT_RETRY_DELAY then
+                f:SetScript("OnUpdate", nil)
+                if GetNumTradeSkills and DS.CaptureAllTradeSkillReagentsOnly then
+                    DS:CaptureAllTradeSkillReagentsOnly()
+                end
+            end
+        end)
         return
     end
     if event == "TRADE_SKILL_CLOSE" then
@@ -284,6 +340,16 @@ frame:SetScript("OnEvent", function(_, event, addonName, a1)
                     f:SetScript("OnUpdate", nil)
                     if GetCraftSkillLine and DS.ScanCraftRecipes then
                         DS:ScanCraftRecipes()
+                    end
+                end
+            end)
+            craftReagentRetryFrame.elapsed = 0
+            craftReagentRetryFrame:SetScript("OnUpdate", function(f, elapsed)
+                f.elapsed = f.elapsed + elapsed
+                if f.elapsed >= CRAFT_REAGENT_RETRY_DELAY then
+                    f:SetScript("OnUpdate", nil)
+                    if GetNumCrafts and DS.CaptureAllCraftReagentsOnly then
+                        DS:CaptureAllCraftReagentsOnly()
                     end
                 end
             end)

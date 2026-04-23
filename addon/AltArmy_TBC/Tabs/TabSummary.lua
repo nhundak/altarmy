@@ -767,16 +767,15 @@ Update = function(offset)
                         local showRealmSuffix = (GetSummarySettings().realmFilter == "all")
                             and RF and RF.hasMultipleRealms and RF.hasMultipleRealms(list)
                         local nameDisplayStr
-                        if showRealmSuffix and RF.formatCharacterDisplayNameColored
-                            and RF.formatCharacterDisplayName then
-                            local r, g, b = 1, 0.82, 0
-                            if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
-                                local c = RAID_CLASS_COLORS[entry.classFile]
-                                r, g, b = c.r, c.g, c.b
-                            end
-                            local dispName = RF.formatCharacterDisplayName(entry.name or "", entry.realm, true)
-                            nameDisplayStr = RF.formatCharacterDisplayNameColored(dispName, nil, false, r, g, b)
+                        if RF and RF.formatColoredCharacterNameRealm then
+                            nameDisplayStr = RF.formatColoredCharacterNameRealm(
+                                entry.name or "",
+                                entry.realm,
+                                showRealmSuffix,
+                                entry.classFile
+                            )
                             cell:SetText(nameDisplayStr)
+                            cell:SetTextColor(1, 1, 1, 1)
                         else
                             nameDisplayStr = col.GetText(entry)
                             cell:SetText(nameDisplayStr)
