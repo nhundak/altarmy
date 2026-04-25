@@ -98,6 +98,22 @@ describe("DataStoreProfessions", function()
     end)
   end)
 
+  describe("Cooldown expiry persistence guard", function()
+    it("does not overwrite a known future expiry when scan returns (0,0)", function()
+      local char = { ProfCooldownExpiry = { [123] = { expiresAtUnix = 1000 } } }
+      local changed = DS._PersistCooldownExpiryForTest(char, 123, 0, 0, 0, 900, "Test")
+      assert.is_false(changed)
+      assert.are.equal(1000, char.ProfCooldownExpiry[123].expiresAtUnix)
+    end)
+
+    it("does overwrite when prior expiry is not meaningfully in the future", function()
+      local char = { ProfCooldownExpiry = { [123] = { expiresAtUnix = 905 } } }
+      local changed = DS._PersistCooldownExpiryForTest(char, 123, 0, 0, 0, 900, "Test")
+      assert.is_true(changed)
+      assert.are.equal(900, char.ProfCooldownExpiry[123].expiresAtUnix)
+    end)
+  end)
+
   describe("ScanCraftRecipes", function()
     it("calls GetCraftSkillLine with index 1 (client requires a positive index)", function()
       local oldTime = _G.time

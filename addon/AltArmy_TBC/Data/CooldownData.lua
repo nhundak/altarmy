@@ -554,6 +554,11 @@ function CD.FormatTimeRemaining(expiresUnix, now)
     local h = math.floor(sec / 3600)
     local m = math.floor((sec % 3600) / 60)
     local s = sec % 60
+    if h >= 24 then
+        local d = math.floor(h / 24)
+        local rh = h % 24
+        return string.format("%dd %dh %dm", d, rh, m)
+    end
     if h > 0 then
         return string.format("%dh %dm", h, m)
     end

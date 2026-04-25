@@ -35,6 +35,54 @@ local function CooldownRemainingSeconds(a, b, gt)
     return 0
 end
 
+local function PrevExpiryUnix(char, spellId)
+    if not char or not spellId then return nil end
+    local t = char.ProfCooldownExpiry and char.ProfCooldownExpiry[spellId]
+    if type(t) == "table" then
+        return t.expiresAtUnix
+    end
+    if type(t) == "number" then
+        return t
+    end
+    return nil
+end
+
+--- Persist a scanned cooldown safely.
+--- Guard: zoning/loading can transiently return (0,0) for cooldown APIs even when not actually ready.
+--- If we already have a future expiry and the scan returns exactly (0,0), keep the existing expiry.
+local function PersistCooldownExpiry(char, spellId, a, b, gt, wall, logPrefix)
+    if not char or not spellId then return false end
+    gt = gt or (GetTime and GetTime() or 0)
+    wall = wall or (time and time() or 0)
+
+    local remaining = CooldownRemainingSeconds(a, b, gt)
+    char.ProfCooldownExpiry = char.ProfCooldownExpiry or {}
+
+    if remaining <= 0 then
+        local prev = PrevExpiryUnix(char, spellId)
+        local a0 = type(a) == "number" and a == 0
+        local b0 = (b == nil) or (type(b) == "number" and b == 0)
+        if a0 and b0 and type(prev) == "number" and prev > (wall + 30) then
+            LogCooldownScanDebug(string.format(
+                "%s spell=%d suppress overwrite from (0,0); prevExpUnix=%s wall=%s",
+                tostring(logPrefix or "Persist"),
+                spellId,
+                tostring(prev),
+                tostring(wall)
+            ))
+            return false
+        end
+        char.ProfCooldownExpiry[spellId] = { expiresAtUnix = wall }
+        return true
+    end
+
+    char.ProfCooldownExpiry[spellId] = { expiresAtUnix = wall + math.ceil(remaining) }
+    return true
+end
+
+-- Exposed for unit tests (see spec/Data/DataStoreProfessions_spec.lua)
+DS._PersistCooldownExpiryForTest = PersistCooldownExpiry
+
 local SkillTypeToColor = { header = 0, optimal = 1, medium = 2, easy = 3, trivial = 4 }
 local SPELL_ID_FIRSTAID = 3273
 local SPELL_ID_COOKING = 2550
@@ -706,19 +754,13 @@ function DS:TryScanSaltShakerCooldownFromSpellApi()
     local a, b = GetSpellCooldown(spellId)
     local gt = GetTime and GetTime() or 0
     local wall = time and time() or 0
-    local remaining = CooldownRemainingSeconds(a, b, gt)
-    char.ProfCooldownExpiry = char.ProfCooldownExpiry or {}
-    if remaining <= 0 then
-        char.ProfCooldownExpiry[spellId] = { expiresAtUnix = wall }
-    else
-        char.ProfCooldownExpiry[spellId] = { expiresAtUnix = wall + math.ceil(remaining) }
-    end
+    PersistCooldownExpiry(char, spellId, a, b, gt, wall, "SaltShaker")
     LogCooldownScanDebug(string.format(
         "SaltShaker spell=%d a=%s b=%s rem=%.1fs -> expUnix=%s",
         spellId,
         tostring(a),
         tostring(b),
-        remaining,
+        CooldownRemainingSeconds(a, b, gt),
         tostring(char.ProfCooldownExpiry[spellId] and char.ProfCooldownExpiry[spellId].expiresAtUnix)
     ))
 end
@@ -738,20 +780,13 @@ function DS:TryScanTrackedCooldownFromSpellApi(spellId)
     local a, b = GetSpellCooldown(spellId)
     local gt = GetTime and GetTime() or 0
     local wall = time and time() or 0
-    local remaining = CooldownRemainingSeconds(a, b, gt)
-
-    char.ProfCooldownExpiry = char.ProfCooldownExpiry or {}
-    if remaining <= 0 then
-        char.ProfCooldownExpiry[spellId] = { expiresAtUnix = wall }
-    else
-        char.ProfCooldownExpiry[spellId] = { expiresAtUnix = wall + math.ceil(remaining) }
-    end
+    PersistCooldownExpiry(char, spellId, a, b, gt, wall, "SpellApi")
     LogCooldownScanDebug(string.format(
         "SpellApi spell=%d a=%s b=%s rem=%.1fs -> expUnix=%s",
         spellId,
         tostring(a),
         tostring(b),
-        remaining,
+        CooldownRemainingSeconds(a, b, gt),
         tostring(char.ProfCooldownExpiry[spellId] and char.ProfCooldownExpiry[spellId].expiresAtUnix)
     ))
 end
@@ -798,12 +833,7 @@ function DS:TryScanTrackedCooldownsFromActionBars()
     local debugPrinted = 0
     local function persistFromActionCooldown(spellId, slot)
         local a, b = GetActionCooldown(slot)
-        local remaining = CooldownRemainingSeconds(a, b, gt)
-        if remaining <= 0 then
-            char.ProfCooldownExpiry[spellId] = { expiresAtUnix = wall }
-        else
-            char.ProfCooldownExpiry[spellId] = { expiresAtUnix = wall + math.ceil(remaining) }
-        end
+        PersistCooldownExpiry(char, spellId, a, b, gt, wall, "ActionBar")
         scanned = scanned + 1
         LogCooldownScanDebug(string.format(
             "ActionBar slot=%d type=%s spell=%d a=%s b=%s rem=%.1fs expUnix=%s",
@@ -812,7 +842,7 @@ function DS:TryScanTrackedCooldownsFromActionBars()
             spellId,
             tostring(a),
             tostring(b),
-            remaining,
+            CooldownRemainingSeconds(a, b, gt),
             tostring(char.ProfCooldownExpiry[spellId] and char.ProfCooldownExpiry[spellId].expiresAtUnix)
         ))
     end
