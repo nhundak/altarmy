@@ -1,4 +1,4 @@
--- AltArmy TBC — Summary tab: character list (Altoholic-style fixed row pool + Update(offset))
+-- AltArmy TBC — Summary tab: character list (Altoholic-style fixed row pool + Update())
 
 local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Summary
 if not frame then return end
@@ -196,6 +196,12 @@ vertThumb:SetSize(SCROLL_BAR_WIDTH - 4, 24)
 scrollBar:SetThumbTexture(vertThumb)
 scrollBar:SetScript("OnValueChanged", function(_, value)
     scrollFrame:SetVerticalScroll(value)
+    -- Nested ScrollFrame (vertical inside horizontal scroll child) may not fire OnVerticalScroll;
+    -- refresh row pool from the scrollbar value so dragging/wheel updates the list.
+    if scrollFrame.UpdateScrollChildRect then
+        scrollFrame:UpdateScrollChildRect()
+    end
+    Update()
 end)
 
 local function OnSummaryScrollWheel(_, delta)
@@ -205,7 +211,6 @@ local function OnSummaryScrollWheel(_, delta)
     local newVal = current - delta * ROW_HEIGHT * 2
     newVal = math.max(minVal, math.min(maxVal, newVal))
     scrollBar:SetValue(newVal)
-    scrollFrame:SetVerticalScroll(newVal)
 end
 scrollFrame:SetScript("OnMouseWheel", OnSummaryScrollWheel)
 scrollChild:SetScript("OnMouseWheel", OnSummaryScrollWheel)
@@ -265,9 +270,7 @@ for _, colName in ipairs(columnOrder) do
             if AltArmy.Characters and AltArmy.Characters.Sort then
                 AltArmy.Characters:Sort(sortAscending, currentSortKey)
             end
-            local sb = GetScrollBar()
-            local scrollValue = sb and sb:GetValue() or 0
-            Update(math.floor(scrollValue / ROW_HEIGHT))
+            Update()
             UpdateHeaderSortIndicators()
         end)
         local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -447,8 +450,7 @@ if AltArmy.CreateCharacterPinHideList then
             getCharSetting = GetSummaryCharSetting,
             setCharSetting = SetSummaryCharSetting,
             onChange = function()
-                local sb = GetScrollBar()
-                Update(math.floor((sb and sb:GetValue() or 0) / ROW_HEIGHT))
+                Update()
             end,
         })
     if refresh then summaryCharListRefresh = refresh end
@@ -505,8 +507,7 @@ function frame:ToggleSummarySettings(_self)
     end
     ApplySummaryListLayout()
     UpdateHeaderSortIndicators()
-    local sb = GetScrollBar()
-    Update(math.floor((sb and sb:GetValue() or 0) / ROW_HEIGHT))
+    Update()
 end
 ApplySummaryListLayout()
 
@@ -606,10 +607,8 @@ local function GetRow(index)
     return rowPool[index]
 end
 
---- Update visible rows from the character list using scroll offset (row index).
---- @param offset number 0-based index of first visible row (from scroll position).
-Update = function(offset)
-    offset = offset or 0
+--- Update visible rows from the character list using current vertical scrollbar position.
+Update = function()
     local rawList = AltArmy.Characters and AltArmy.Characters.GetList and AltArmy.Characters:GetList() or {}
     local currentRealm = (GetRealmName and GetRealmName()) or ""
     local RF = AltArmy.RealmFilter
@@ -641,14 +640,19 @@ Update = function(offset)
     for i = 1, #rest do list[#list + 1] = rest[i] end
     local numItems = #list
 
-    -- Set scroll child height so scroll bar range is correct
-    local scrollChildHeight = numItems * ROW_HEIGHT
-    scrollChild:SetHeight(math.max(scrollChildHeight, scrollFrame:GetHeight()))
+    -- Virtual list: NUM_ROWS fixed row widgets; offset indexes into `list`. Maximum scroll is how far we
+    -- must move to bring item numItems into the last slot — (numItems - NUM_ROWS) row heights — not
+    -- (numItems * ROW_HEIGHT - viewportHeight). The latter wrongly assumes the viewport shows
+    -- viewportHeight/ROW_HEIGHT rows equal to NUM_ROWS; if the ScrollFrame is taller than
+    -- NUM_ROWS * ROW_HEIGHT, max scroll becomes too small (last rows never reachable); if the
+    -- viewport is taller than numItems*ROW_HEIGHT but numItems > NUM_ROWS, max scroll becomes 0.
+    local viewportH = scrollFrame:GetHeight()
+    local maxScroll = math.max(0, (numItems - NUM_ROWS) * ROW_HEIGHT)
+    scrollChild:SetHeight(viewportH + maxScroll)
     scrollChild:Show()
 
     local sb = GetScrollBar()
     if sb then
-        local maxScroll = math.max(0, scrollChildHeight - scrollFrame:GetHeight())
         sb:SetMinMaxValues(0, maxScroll)
         sb:SetValueStep(ROW_HEIGHT)
         sb:SetStepsPerPage(NUM_ROWS - 1)
@@ -657,6 +661,12 @@ Update = function(offset)
             sb:SetValue(maxScroll)
             scrollFrame:SetVerticalScroll(maxScroll)
         end
+    end
+
+    local offset = 0
+    if sb then
+        local maxOffset = math.max(0, numItems - NUM_ROWS)
+        offset = math.min(math.floor((sb:GetValue() or 0) / ROW_HEIGHT), maxOffset)
     end
 
     -- Horizontal scroll: list viewport may be narrower than totalColWidth (e.g. when settings panel is open)
@@ -786,12 +796,6 @@ Update = function(offset)
     end
 end
 
--- When scroll bar moves, recompute offset (row index) and refresh rows
-scrollFrame:SetScript("OnVerticalScroll", function(_self, scrollOffset)
-    local offsetIndex = math.floor((scrollOffset or 0) / ROW_HEIGHT)
-    Update(offsetIndex)
-end)
-
 -- Run Update when Summary tab is shown (invalidate so list is fresh)
 frame:SetScript("OnShow", function()
     local s = GetSummarySettings()
@@ -804,10 +808,7 @@ frame:SetScript("OnShow", function()
         AltArmy.Characters:Sort(sortAscending, currentSortKey)
     end
     UpdateHeaderSortIndicators()
-    local sb = GetScrollBar()
-    local scrollValue = sb and sb:GetValue() or 0
-    local offsetIndex = math.floor(scrollValue / ROW_HEIGHT)
-    Update(offsetIndex)
+    Update()
 end)
 
 -- Thin wrapper for external refresh (e.g. minimap, main frame OnShow)
@@ -820,9 +821,7 @@ function AltArmy.RefreshSummary()
         AltArmy.Characters:Sort(sortAscending, currentSortKey)
     end
     UpdateHeaderSortIndicators()
-    local sb = GetScrollBar()
-    local scrollValue = sb and sb:GetValue() or 0
-    Update(math.floor(scrollValue / ROW_HEIGHT))
+    Update()
 end
 
 if AltArmy.MainFrame then
@@ -841,7 +840,12 @@ frame:SetScript("OnEvent", function(_, event)
             AltArmy.Characters:InvalidateView()
         end
         if frame:IsShown() then
-            Update(0)
+            local sb = GetScrollBar()
+            if sb then
+                sb:SetValue(0)
+            end
+            scrollFrame:SetVerticalScroll(0)
+            Update()
         end
     end
 end)
