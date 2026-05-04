@@ -33,6 +33,18 @@ local function GetCurrentIdentity()
     return name, realm
 end
 
+local function ColorNameByClass(name, classFile)
+    local base = name or "?"
+    local rc = RAID_CLASS_COLORS and classFile and RAID_CLASS_COLORS[classFile]
+    if rc and rc.r and rc.g and rc.b then
+        local r = math.floor(rc.r * 255 + 0.5)
+        local g = math.floor(rc.g * 255 + 0.5)
+        local b = math.floor(rc.b * 255 + 0.5)
+        return string.format("|cff%02x%02x%02x%s|r", r, g, b, base)
+    end
+    return base
+end
+
 local function RecipeIconTexture(spellId, charTable)
     local fallback = "Interface\\Icons\\INV_Misc_QuestionMark"
     local resultItemID
@@ -240,7 +252,7 @@ local stockpilePopover = CreateFrame("Frame", nil, frame)
 stockpilePopover:Hide()
 stockpilePopover:SetFrameStrata("DIALOG")
 stockpilePopover:SetFrameLevel((frame:GetFrameLevel() or 0) + 200)
-stockpilePopover:SetSize(320, 110)
+stockpilePopover:SetSize(320, 120)
 stockpilePopover:EnableMouse(true)
 stockpilePopover:SetClampedToScreen(true)
 
@@ -278,7 +290,9 @@ popTitle:SetPoint("TOPLEFT", stockpilePopover, "TOPLEFT", 12, -10)
 popTitle:SetText("Send Stockpile")
 
 local popValueLabel = stockpilePopover:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-popValueLabel:SetPoint("TOPRIGHT", stockpilePopover, "TOPRIGHT", -12, -12)
+popValueLabel:SetPoint("TOPRIGHT", stockpilePopover, "TOPRIGHT", -12, -10)
+popValueLabel:SetJustifyH("RIGHT")
+popValueLabel:SetJustifyV("TOP")
 popValueLabel:SetText("")
 
 local popSlider = CreateFrame("Slider", nil, stockpilePopover)
@@ -328,6 +342,18 @@ local function HideStockpilePopover()
 end
 popCancel:SetScript("OnClick", HideStockpilePopover)
 
+local function SetPopoverValueLines(willHaveAfter)
+    if not popCtx then return end
+    local v = tonumber(willHaveAfter) or 0
+    local baseline = tonumber(popCtx.minCrafts) or 0
+    local sendN = math.max(0, v - baseline)
+    local srcPlain = popCtx.sourceDisplayName or "?"
+    local tgtPlain = popCtx.targetDisplayName or popCtx.targetName or "?"
+    local line1 = ColorNameByClass(srcPlain, popCtx.sourceClassFile) .. " will send: " .. tostring(sendN) .. "x"
+    local line2 = ColorNameByClass(tgtPlain, popCtx.targetClassFile) .. " will have: " .. tostring(v) .. "x"
+    popValueLabel:SetText(line1 .. "\n" .. line2)
+end
+
 local function IsMailboxActuallyOpen()
     local mf = _G.MailFrame
     if mf and mf.IsShown and mf:IsShown() then
@@ -345,8 +371,14 @@ local function SyncPopoverOkState()
         popOk:Disable()
         return
     end
-    local v = tonumber(popSlider:GetValue()) or popCtx.minCrafts or 0
-    if v > (popCtx.minCrafts or 0) then
+    local lo = tonumber(popCtx.sliderMinWillHave) or 0
+    local hi = tonumber(popCtx.sliderMaxWillHave) or lo
+    if hi < lo then
+        popOk:Disable()
+        return
+    end
+    local v = tonumber(popSlider:GetValue()) or lo
+    if v >= lo and v <= hi then
         popOk:Enable()
     else
         popOk:Disable()
@@ -355,7 +387,7 @@ end
 popSlider:SetScript("OnValueChanged", function(_, value)
     if not popCtx then return end
     local v = math.floor((tonumber(value) or 0) + 0.5)
-    popValueLabel:SetText("Will have: " .. tostring(v) .. "x")
+    SetPopoverValueLines(v)
     SyncPopoverOkState()
 end)
 
@@ -364,8 +396,9 @@ local function RunSendStockpile(_ctx)
 end
 popOk:SetScript("OnClick", function()
     if not popCtx then return end
-    local v = tonumber(popSlider:GetValue()) or popCtx.minCrafts or 0
-    if v <= (popCtx.minCrafts or 0) then return end
+    local lo = tonumber(popCtx.sliderMinWillHave) or 0
+    local v = tonumber(popSlider:GetValue()) or lo
+    if v < lo then return end
     popCtx.requestedCrafts = math.floor(v + 0.5)
     local ctx = popCtx
     HideStockpilePopover()
@@ -386,35 +419,21 @@ local function ShowStockpilePopover(anchorRow, ctx)
         local cx, cy = GetCursorPosition()
         stockpilePopover:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cx / scale + 6, cy / scale - 2)
     end
-    local minV = tonumber(ctx.minCrafts) or 0
-    local maxV = tonumber(ctx.maxCrafts) or minV
+    local baseline = tonumber(ctx.minCrafts) or 0
+    local maxV = tonumber(ctx.maxCrafts) or baseline
+    local minV = baseline + 1 -- minimum = send at least one craft worth (never "0 to send")
     if maxV < minV then maxV = minV end
+    ctx.sliderMinWillHave = minV
+    ctx.sliderMaxWillHave = maxV
     popSlider:SetMinMaxValues(minV, maxV)
 
-    local function ColorNameByClass(name, classFile)
-        local base = name or "?"
-        local rc = RAID_CLASS_COLORS and classFile and RAID_CLASS_COLORS[classFile]
-        if rc and rc.r and rc.g and rc.b then
-            local r = math.floor(rc.r * 255 + 0.5)
-            local g = math.floor(rc.g * 255 + 0.5)
-            local b = math.floor(rc.b * 255 + 0.5)
-            return string.format("|cff%02x%02x%02x%s|r", r, g, b, base)
-        end
-        return base
-    end
-
-    local titleName = ctx.targetDisplayName or ctx.targetName or "?"
-    local classFile = ctx.targetClassFile
-    popTitle:SetText("Send Stockpile to " .. ColorNameByClass(titleName, classFile))
+    popTitle:SetText("Send Stockpile")
 
     local defaultV = minV
-    if maxV > minV then
-        defaultV = math.min(maxV, minV + 1)
-    end
     popSlider:SetValue(defaultV)
     popMinLabel:SetText("Min: " .. tostring(minV))
     popMaxLabel:SetText("Max: " .. tostring(maxV))
-    popValueLabel:SetText("Will have: " .. tostring(defaultV) .. "x")
+    SetPopoverValueLines(defaultV)
     SyncPopoverOkState()
     stockpilePopoverOverlay:Show()
     stockpilePopover:Show()
@@ -637,6 +656,8 @@ local function PoolRow()
                 targetDisplayName = rd.name,
                 targetRealm = rd.realm,
                 targetClassFile = select(2, DS:GetCharacterClass(targetChar)),
+                sourceDisplayName = (DS.GetCharacterName and DS:GetCharacterName(currentChar)) or curName,
+                sourceClassFile = select(2, DS:GetCharacterClass(currentChar)),
                 minCrafts = minCrafts,
                 maxCrafts = cappedMax,
             })
@@ -922,7 +943,12 @@ local stockpileAttachSeq = {
     expectedCount = nil, -- optional: when waiting on a merged stack to reach a count
     startedAt = 0,
     lastLogAt = 0,
+    successTargetDisplayName = nil,
+    successTargetClassFile = nil,
 }
+
+--- Outgoing mail announce (shown on MAIL_SEND_SUCCESS).
+local stockpileMailPendingAnnounce = nil -- { displayName = string, classFile = string|nil }
 
 local function DebugIsSlotLocked(bagID, slot)
     local cItem = _G.C_Item
@@ -937,7 +963,7 @@ local function DebugIsSlotLocked(bagID, slot)
     return cItem.IsLocked(loc) == true
 end
 
-local function AbortAttachSeq(msg)
+local function ResetAttachSeqState()
     stockpileAttachSeq.active = false
     stockpileAttachSeq.queue = nil
     stockpileAttachSeq.queueIndex = 1
@@ -947,21 +973,107 @@ local function AbortAttachSeq(msg)
     stockpileAttachSeq.expectedCount = nil
     stockpileAttachSeq.startedAt = 0
     stockpileAttachSeq.lastLogAt = 0
+    stockpileAttachSeq.successTargetDisplayName = nil
+    stockpileAttachSeq.successTargetClassFile = nil
+end
+
+local function AbortAttachSeq(msg)
+    ResetAttachSeqState()
     ClearCursor()
     if msg then
         ChatInfo(msg)
     end
 end
 
--- Hide popover / abort attachment when mailbox closes.
+--- Classic mail UI leaves Send disabled until stationery, recipient, and subject are set (SendMailFrame_CanSend).
+local function EnsureStockpileMailComposeReady()
+    local spf = _G.StationeryPopupFrame
+    if spf and spf.selectedIndex == nil and _G.StationeryPopupButton_OnClick then
+        _G.StationeryPopupButton_OnClick(nil, 1)
+    end
+    local subj = _G.SendMailSubjectEditBox
+    if subj and subj.GetText and subj.SetText then
+        local t = subj:GetText() or ""
+        if t == "" then
+            subj:SetText(".")
+        end
+    end
+    if _G.SendMailFrame_Update then
+        _G.SendMailFrame_Update()
+    end
+    if _G.SendMailFrame_CanSend then
+        _G.SendMailFrame_CanSend()
+    end
+end
+
+local function FireStockpileMailSend()
+    EnsureStockpileMailComposeReady()
+    -- Same path as clicking SendMailMailButton (populates SendMail from edit boxes).
+    if type(_G.SendMailFrame_SendMail) == "function" then
+        _G.SendMailFrame_SendMail()
+        return
+    end
+    local btn = _G.SendMailMailButton
+    if btn then
+        if btn.Enable then
+            btn:Enable()
+        end
+        if btn.Click then
+            btn:Click()
+        end
+    end
+end
+
+local function CompleteAttachSeqAndSendMail()
+    local pending = nil
+    if stockpileAttachSeq.successTargetDisplayName then
+        pending = {
+            displayName = stockpileAttachSeq.successTargetDisplayName,
+            classFile = stockpileAttachSeq.successTargetClassFile,
+        }
+    end
+    ResetAttachSeqState()
+    ClearCursor()
+    stockpileMailPendingAnnounce = pending
+
+    local function runSend()
+        FireStockpileMailSend()
+    end
+    local ctimer = _G.C_Timer
+    if ctimer and ctimer.After then
+        ctimer.After(0, runSend)
+    else
+        runSend()
+    end
+end
+
+-- Hide popover / abort attachment when mailbox closes; announce stockpile send on mail sent.
 local mailCloseWatcher = CreateFrame("Frame", nil, frame)
 mailCloseWatcher:RegisterEvent("MAIL_CLOSED")
-mailCloseWatcher:SetScript("OnEvent", function()
-    if stockpilePopover and stockpilePopover.IsShown and stockpilePopover:IsShown() then
-        HideStockpilePopover()
+mailCloseWatcher:RegisterEvent("MAIL_SEND_SUCCESS")
+mailCloseWatcher:RegisterEvent("MAIL_FAILED")
+mailCloseWatcher:SetScript("OnEvent", function(_, event)
+    if event == "MAIL_SEND_SUCCESS" then
+        local p = stockpileMailPendingAnnounce
+        if p and p.displayName and p.displayName ~= "" then
+            local nameColored = ColorNameByClass(p.displayName, p.classFile)
+            ChatInfo("Items sent to " .. nameColored .. ".")
+        end
+        stockpileMailPendingAnnounce = nil
+        return
     end
-    if stockpileAttachSeq.active then
-        AbortAttachSeq()
+    if event == "MAIL_FAILED" then
+        stockpileMailPendingAnnounce = nil
+        return
+    end
+    if event == "MAIL_CLOSED" then
+        stockpileMailPendingAnnounce = nil
+        if stockpilePopover and stockpilePopover.IsShown and stockpilePopover:IsShown() then
+            HideStockpilePopover()
+        end
+        if stockpileAttachSeq.active then
+            AbortAttachSeq()
+        end
     end
 end)
 
@@ -991,7 +1103,7 @@ local function TryAdvanceAttachSeq()
 
     local step = stockpileAttachSeq.queue and stockpileAttachSeq.queue[stockpileAttachSeq.queueIndex] or nil
     if not step then
-        AbortAttachSeq()
+        CompleteAttachSeqAndSendMail()
         return
     end
 
@@ -1251,6 +1363,8 @@ RunSendStockpile = function(ctx)
     end
 
     ChatInfo("Attaching items...")
+    stockpileAttachSeq.successTargetDisplayName = ctx.targetDisplayName or ctx.targetName
+    stockpileAttachSeq.successTargetClassFile = ctx.targetClassFile
     StartAttachSeq(steps)
     TryAdvanceAttachSeq()
 end
