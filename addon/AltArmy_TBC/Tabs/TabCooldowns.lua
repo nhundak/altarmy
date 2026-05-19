@@ -35,10 +35,19 @@ local function ChatInfo(msg)
     end
 end
 
-local function GetCurrentIdentity()
-    local name = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
-    local realm = (GetRealmName and GetRealmName()) or ""
-    return name, realm
+local function ItemLinkForChat(itemID)
+    if not itemID then return "?" end
+    if GetItemInfo then
+        local _, link = GetItemInfo(itemID)
+        if link and link ~= "" and link:find("item:") then
+            return link
+        end
+        local name = GetItemInfo(itemID)
+        if name and name ~= "" then
+            return string.format("[%s]", name)
+        end
+    end
+    return string.format("[Item %s]", tostring(itemID))
 end
 
 local function ColorNameByClass(name, classFile)
@@ -51,6 +60,54 @@ local function ColorNameByClass(name, classFile)
         return string.format("|cff%02x%02x%02x%s|r", r, g, b, base)
     end
     return base
+end
+
+--- Chat: insufficient stockpile for target, then "You have:" lines per recipe reagent.
+local function ChatNotEnoughStockpile(displayName, classFile, spellId, getItemCount)
+    local nameColored = displayName and ColorNameByClass(displayName, classFile) or nil
+    if not CD.GetReagentList then
+        if nameColored then
+            ChatInfo(string.format("Not enough items to increase %s's stockpile.", nameColored))
+        else
+            ChatInfo("Not enough items to increase stockpile.")
+        end
+        return
+    end
+    local list = CD.GetReagentList(spellId)
+    if not list or #list == 0 then
+        if nameColored then
+            ChatInfo(string.format("Not enough items to increase %s's stockpile.", nameColored))
+        else
+            ChatInfo("Not enough items to increase stockpile.")
+        end
+        return
+    end
+    if nameColored then
+        ChatInfo(string.format("Not enough items to increase %s's stockpile. You have: ", nameColored))
+    else
+        ChatInfo("Not enough items to increase stockpile. You have: ")
+    end
+    for _, pair in ipairs(list) do
+        local itemId = pair[1]
+        local required = pair[2] or 1
+        if required <= 0 then
+            required = 1
+        end
+        local count = (getItemCount and getItemCount(itemId)) or 0
+        local countText
+        if count == 0 then
+            countText = "|cffff33330|r"
+        else
+            countText = string.format("|cffffffff%d|r", count)
+        end
+        ChatInfo(string.format("  %s %s / %d", ItemLinkForChat(itemId), countText, required))
+    end
+end
+
+local function GetCurrentIdentity()
+    local name = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
+    local realm = (GetRealmName and GetRealmName()) or ""
+    return name, realm
 end
 
 local function RecipeIconTexture(spellId, charTable)
@@ -649,7 +706,10 @@ local function PoolRow()
                 maxCrafts
             )
             if cappedMax <= minCrafts then
-                ChatInfo(string.format("Not enough items to increase %s's stockpile", rd.name or "?"))
+                local _, targetClassFile = DS:GetCharacterClass(targetChar)
+                ChatNotEnoughStockpile(rd.name, targetClassFile, self.spellId, function(itemId)
+                    return getSourceCount(currentChar, itemId)
+                end)
                 return
             end
 
@@ -1275,7 +1335,14 @@ RunSendStockpile = function(ctx)
     if minCrafts == nil or maxCrafts == nil then return end
     if ctx.requestedCrafts <= minCrafts then return end
     if ctx.requestedCrafts > maxCrafts then
-        ChatInfo(string.format("Not enough items to increase %s's stockpile", ctx.targetDisplayName or ctx.targetName))
+        ChatNotEnoughStockpile(
+            ctx.targetDisplayName or ctx.targetName,
+            ctx.targetClassFile,
+            ctx.spellId,
+            function(itemId)
+                return getSourceCount(currentChar, itemId)
+            end
+        )
         return
     end
 
@@ -1319,10 +1386,14 @@ RunSendStockpile = function(ctx)
                 have = have + (st.count or 1)
             end
             if have < needToSend then
-                ChatInfo(string.format(
-                    "Not enough items to increase %s's stockpile",
-                    ctx.targetDisplayName or ctx.targetName
-                ))
+                ChatNotEnoughStockpile(
+                    ctx.targetDisplayName or ctx.targetName,
+                    ctx.targetClassFile,
+                    ctx.spellId,
+                    function(itemId)
+                        return getSourceCount(currentChar, itemId)
+                    end
+                )
                 return
             end
         end
@@ -1350,7 +1421,9 @@ RunSendStockpile = function(ctx)
                 elseif reason == "no_empty_slot_for_split" then
                     ChatInfo("No free bag slots to split stacks")
                 else
-                    ChatInfo("Not enough items to increase stockpile")
+                    ChatNotEnoughStockpile(nil, ctx.targetClassFile, ctx.spellId, function(itemId)
+                        return getSourceCount(currentChar, itemId)
+                    end)
                 end
                 return
             end
