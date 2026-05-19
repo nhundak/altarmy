@@ -20,6 +20,14 @@ if not SP or not SP.BuildItemPlan then return end
 
 CD.EnsureCooldownOptions()
 
+--- Item counts for mats column and Mats sort (bags+bank+mail snapshot, same as tooltips).
+local function GetItemCountForMats(char, itemId)
+    if DS.GetTotalItemCount then
+        return DS:GetTotalItemCount(char, itemId)
+    end
+    return DS:GetContainerItemCount(char, itemId)
+end
+
 local function ChatInfo(msg)
     local chat = _G.DEFAULT_CHAT_FRAME
     if chat and chat.AddMessage and msg and msg ~= "" then
@@ -1467,9 +1475,7 @@ RefreshList = function()
         local ch = DS:GetCharacter(rd.charKeyName, rd.realm)
         rd._sortCraftQty = nil
         if ch and rd.spellId and CD.GetMaxCraftableQuantity then
-            rd._sortCraftQty = CD.GetMaxCraftableQuantity(ch, rd.spellId, function(charTable, itemId)
-                return DS:GetContainerItemCount(charTable, itemId)
-            end)
+            rd._sortCraftQty = CD.GetMaxCraftableQuantity(ch, rd.spellId, GetItemCountForMats)
         end
     end
 
@@ -1511,12 +1517,7 @@ RefreshList = function()
         row.spellId = rd.spellId
         row.rowData = rd
 
-        local craftQty = nil
-        if row.charTableRef and rd.spellId then
-            craftQty = CD.GetMaxCraftableQuantity(row.charTableRef, rd.spellId, function(ch, itemId)
-                return DS.GetTotalItemCount and DS:GetTotalItemCount(ch, itemId) or DS:GetContainerItemCount(ch, itemId)
-            end)
-        end
+        local craftQty = rd._sortCraftQty
         if craftQty == nil then
             row.matCountLabel:Hide()
             row.matIcon:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Waiting")
