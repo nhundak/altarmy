@@ -15,6 +15,7 @@ describe("DataStoreProfessions", function()
     _G.UIParent = _G.UIParent or {}
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     require("DataStore")
+    require("CooldownData")
     require("DataStoreProfessions")
     DS = AltArmy.DataStore
   end)
@@ -95,6 +96,65 @@ describe("DataStoreProfessions", function()
       DS.SaveRecipeReagentsMulti(DS, { 26751, 31373 }, { { 21840, 1 }, { 14341, 1 } })
       assert.are.same({ { 21840, 1 }, { 14341, 1 } }, DS.accountData.RecipeReagents[26751])
       assert.are.equal(DS.accountData.RecipeReagents[26751], DS.accountData.RecipeReagents[31373])
+    end)
+  end)
+
+  describe("ScanTradeSkillCooldownExpiry", function()
+    it("persists cooldown under cast spell id when recipe link is an item id", function()
+      local oldTime = _G.time
+      local oldGt = _G.GetTime
+      _G.UnitName = function()
+        return "TestPlayer"
+      end
+      _G.GetRealmName = function()
+        return "TestRealm"
+      end
+      _G.time = function()
+        return 1000
+      end
+      _G.GetTime = function()
+        return 50
+      end
+      _G.GetTradeSkillLine = function()
+        return "Alchemy"
+      end
+      _G.GetTradeSkillSelectionIndex = function()
+        return 1
+      end
+      _G.SelectTradeSkill = function() end
+      _G.ExpandAllTradeSkillHeaders = nil
+      _G.GetNumTradeSkills = function()
+        return 1
+      end
+      _G.GetTradeSkillInfo = function()
+        return "Transmute: Earthstorm Diamond", "optimal"
+      end
+      _G.GetTradeSkillRecipeLink = function()
+        return "|cff0070dd|Hitem:25868|h[Recipe: Transmute: Earthstorm Diamond]|h|r"
+      end
+      _G.GetTradeSkillItemLink = function()
+        return "|cffa335ee|Hitem:25867|h[Earthstorm Diamond]|h|r"
+      end
+      _G.GetItemSpell = function(itemRef)
+        if itemRef == 25868 or itemRef == 25867 then
+          return "Transmute: Earthstorm Diamond", 28566
+        end
+        return nil
+      end
+      _G.GetTradeSkillCooldown = function()
+        return 3600, 0
+      end
+      _G.GetSpellCooldown = function() end
+
+      DS:ScanTradeSkillCooldownExpiry()
+
+      _G.time = oldTime
+      _G.GetTime = oldGt
+
+      local char = AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.is_not_nil(char)
+      assert.is_not_nil(char.ProfCooldownExpiry[28566])
+      assert.is_true(char.ProfCooldownExpiry[28566].expiresAtUnix > 1000)
     end)
   end)
 

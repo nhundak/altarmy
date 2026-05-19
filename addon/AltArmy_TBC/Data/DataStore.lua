@@ -244,6 +244,21 @@ frame:SetScript("OnEvent", function(_, event, ...)
         local char = GetCurrentCharTable()
         if char then
             CD.RecordSuccessfulTransmuteCast(char, spellId)
+            cooldownAfterCastFrame.pendingSpellId = spellId
+            cooldownAfterCastFrame.elapsed = 0
+            cooldownAfterCastFrame:SetScript("OnUpdate", function(f, elapsed)
+                f.elapsed = f.elapsed + elapsed
+                if f.elapsed >= 0.10 then
+                    f:SetScript("OnUpdate", nil)
+                    local sid = f.pendingSpellId
+                    f.pendingSpellId = nil
+                    if sid and DS.TryScanTransmuteCooldownsFromSpellApi then
+                        DS:TryScanTransmuteCooldownsFromSpellApi(sid)
+                    elseif sid and DS.TryScanTrackedCooldownFromSpellApi then
+                        DS:TryScanTrackedCooldownFromSpellApi(sid)
+                    end
+                end
+            end)
         end
         return
     end
@@ -264,7 +279,11 @@ frame:SetScript("OnEvent", function(_, event, ...)
                 f:SetScript("OnUpdate", nil)
                 local sid = f.pendingSpellId
                 f.pendingSpellId = nil
-                if sid and DS.TryScanTrackedCooldownFromSpellApi then
+                if sid and CD.IsTransmuteSpellId and CD.IsTransmuteSpellId(sid)
+                    and DS.TryScanTransmuteCooldownsFromSpellApi
+                then
+                    DS:TryScanTransmuteCooldownsFromSpellApi(sid)
+                elseif sid and DS.TryScanTrackedCooldownFromSpellApi then
                     DS:TryScanTrackedCooldownFromSpellApi(sid)
                 end
             end
@@ -535,6 +554,9 @@ frame:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_XP_UPDATE" then
         local char = GetCurrentCharTable()
         if char then
+            if UnitLevel then
+                char.level = UnitLevel("player") or char.level
+            end
             if UnitXP and UnitXPMax then
                 char.xp = UnitXP("player") or 0
                 char.xpMax = UnitXPMax("player") or 0

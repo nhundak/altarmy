@@ -765,6 +765,59 @@ function DS:TryScanSaltShakerCooldownFromSpellApi()
     ))
 end
 
+--- Alchemy transmutes share one cooldown; the client may only expose it on one spell id.
+--- Scan all transmute spells and persist the longest remaining cooldown.
+function DS:TryScanTransmuteCooldownsFromSpellApi(preferredSpellId)
+    local CD = AltArmy and AltArmy.CooldownData
+    if not CD or not CD.TRANSMUTE_SPELL_IDS or not CD.IsTrackedSpellId then return end
+    local GetSpellCooldown = _G.GetSpellCooldown
+    if not GetSpellCooldown then return end
+
+    local char = GetCurrentCharTable()
+    if not char then return end
+
+    local gt = GetTime and GetTime() or 0
+    local wall = time and time() or 0
+    local bestRemaining = 0
+    local bestSpellId = preferredSpellId
+
+    local function consider(spellId)
+        if not spellId or not CD.IsTrackedSpellId(spellId) then return end
+        local a, b = GetSpellCooldown(spellId)
+        local rem = CooldownRemainingSeconds(a, b, gt)
+        if rem > bestRemaining then
+            bestRemaining = rem
+            bestSpellId = spellId
+        end
+    end
+
+    consider(preferredSpellId)
+    for _, sid in ipairs(CD.TRANSMUTE_SPELL_IDS) do
+        consider(sid)
+    end
+
+    if bestSpellId then
+        local a, b = GetSpellCooldown(bestSpellId)
+        PersistCooldownExpiry(char, bestSpellId, a, b, gt, wall, "TransmuteSpellApi")
+        if bestRemaining > 0 then
+            local expiresUnix = wall + math.ceil(bestRemaining)
+            char.ProfCooldownExpiry = char.ProfCooldownExpiry or {}
+            for _, sid in ipairs(CD.TRANSMUTE_SPELL_IDS) do
+                if CD.IsTrackedSpellId(sid) and select(1, CD.FindRecipeProfession(char, sid)) then
+                    char.ProfCooldownExpiry[sid] = { expiresAtUnix = expiresUnix }
+                end
+            end
+        end
+        LogCooldownScanDebug(string.format(
+            "TransmuteSpellApi preferred=%s best=%s rem=%.1fs expUnix=%s",
+            tostring(preferredSpellId),
+            tostring(bestSpellId),
+            bestRemaining,
+            tostring(char.ProfCooldownExpiry[bestSpellId] and char.ProfCooldownExpiry[bestSpellId].expiresAtUnix)
+        ))
+    end
+end
+
 --- Persist expiry for one tracked spell by reading GetSpellCooldown(spellId).
 --- Intended to be called right after a successful cast / use.
 function DS:TryScanTrackedCooldownFromSpellApi(spellId)
@@ -938,8 +991,20 @@ function DS:ScanTradeSkillCooldownExpiry()
                 local skillName, skillType = GetTradeSkillInfo(i)
                 if skillType and skillType ~= "header" and skillType ~= "subheader" then
                     local link = GetTradeSkillRecipeLink(i)
-                    local recipeID = RecipeIdFromTradeLink(link)
-                    if recipeID and CD.IsTrackedSpellId(recipeID) then
+                    local rowIds = CollectRecipeIdsFromTradeSkillIndex(i)
+                    if #rowIds == 0 then
+                        local fallback = RecipeIdFromTradeLink(link)
+                        if fallback then
+                            rowIds = { fallback }
+                        end
+                    end
+                    local trackedIds = {}
+                    for _, recipeID in ipairs(rowIds) do
+                        if recipeID and CD.IsTrackedSpellId(recipeID) then
+                            trackedIds[#trackedIds + 1] = recipeID
+                        end
+                    end
+                    if #trackedIds > 0 then
                         trackedRows = trackedRows + 1
                         -- Cooldown APIs match the tradeskill UI: row must be selected (same as reagent capture).
                         if SelectTradeSkill then
@@ -961,17 +1026,22 @@ function DS:ScanTradeSkillCooldownExpiry()
                         end
                         local expiresUnix
                         if remaining <= 0 then
-                            char.ProfCooldownExpiry[recipeID] = { expiresAtUnix = wall }
                             expiresUnix = wall
                         else
                             expiresUnix = wall + math.ceil(remaining)
-                            char.ProfCooldownExpiry[recipeID] = { expiresAtUnix = expiresUnix }
+                        end
+                        for _, recipeID in ipairs(trackedIds) do
+                            if remaining <= 0 then
+                                char.ProfCooldownExpiry[recipeID] = { expiresAtUnix = wall }
+                            else
+                                char.ProfCooldownExpiry[recipeID] = { expiresAtUnix = expiresUnix }
+                            end
                         end
                         local linkShort = link and link:sub(1, math.min(48, #link)) or "(nil)"
                         LogCooldownScanDebug(string.format(
-                            " row=%d id=%d name=%q a=%s b=%s gt=%.3f branch=%s rem=%.1fs -> expUnix=%s (%s)",
+                            " row=%d ids=%s name=%q a=%s b=%s gt=%.3f branch=%s rem=%.1fs -> expUnix=%s (%s)",
                             i,
-                            recipeID,
+                            table.concat(trackedIds, ","),
                             skillName or "?",
                             tostring(a),
                             tostring(b),

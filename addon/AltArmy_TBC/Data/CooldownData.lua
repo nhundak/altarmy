@@ -582,6 +582,19 @@ function CD.GetExpiryUnix(char, spellId)
     return nil
 end
 
+--- Alchemy transmutes share one cooldown; expiry may be stored under any transmute spell id.
+function CD.GetTransmuteExpiryUnix(char)
+    if not char then return nil end
+    local best = nil
+    for _, sid in ipairs(CD.TRANSMUTE_SPELL_IDS) do
+        local exp = CD.GetExpiryUnix(char, sid)
+        if exp ~= nil and (best == nil or exp > best) then
+            best = exp
+        end
+    end
+    return best
+end
+
 --- @param DS table AltArmy.DataStore
 --- @param options table AltArmyTBC_Options.cooldowns shape
 --- @param now number|nil unix
@@ -611,7 +624,9 @@ function CD.BuildRows(DS, options, now)
                             and CD.RowMeetsSpecializationGate(catKey, char, catOpts.showOnlyIfSpecialization == true)
                         then
                             local spellId = CD.ResolveEffectiveSpellId(catKey, char, options)
-                            local expires = CD.GetExpiryUnix(char, spellId)
+                            local expires = (catKey == "transmute")
+                                and CD.GetTransmuteExpiryUnix(char)
+                                or CD.GetExpiryUnix(char, spellId)
                             local gsi = type(_G.GetSpellInfo) == "function" and _G.GetSpellInfo or nil
                             local title = cat.title
                             if catKey == "transmute" then

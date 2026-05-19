@@ -114,6 +114,39 @@ describe("CooldownData", function()
         assert.is_nil(char.lastTransmute)
     end)
 
+    it("GetTransmuteExpiryUnix uses max expiry across transmute spell ids", function()
+        local char = {
+            ProfCooldownExpiry = {
+                [29688] = { expiresAtUnix = 500 },
+                [28566] = { expiresAtUnix = 900 },
+            },
+        }
+        assert.are.equal(900, CD.GetTransmuteExpiryUnix(char))
+        assert.is_nil(CD.GetTransmuteExpiryUnix({}))
+    end)
+
+    it("BuildRows transmute time uses shared expiry when only another transmute id was scanned", function()
+        local char = {
+            name = "T",
+            lastTransmute = { spellId = 28566 },
+            Professions = { Alchemy = { Recipes = { [28566] = {}, [29688] = {} } } },
+            ProfCooldownExpiry = { [29688] = { expiresAtUnix = 5000 } },
+        }
+        local ds = mockDS({ TestRealm = { P = char } })
+        local rows = CD.BuildRows(ds, AltArmyTBC_Options.cooldowns, 1000)
+        local transmuteRow
+        for _, r in ipairs(rows) do
+            if r.categoryKey == "transmute" and r.name == "T" then
+                transmuteRow = r
+                break
+            end
+        end
+        assert.is_not_nil(transmuteRow)
+        assert.are.equal(28566, transmuteRow.spellId)
+        assert.are.equal(5000, transmuteRow.expiresUnix)
+        assert.are_not.equal("Unscanned", transmuteRow.timeText)
+    end)
+
     it("TransmuteCategoryDisplayTitle takes text after Transmute colon", function()
         local function gsi()
             return "Alchemy: Transmute: Primal Might"
