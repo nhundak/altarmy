@@ -1,6 +1,6 @@
 -- AltArmy TBC — Options panel (Interface > AddOns > AltArmy).
 -- Two-column layout: character list + other settings (left), character settings (right).
--- SavedVariables: AltArmyTBC_Options (showMinimapButton, minimapAngle).
+-- SavedVariables: AltArmyTBC_Options (showMinimapButton legacy; minimap.hide / minimap.minimapPos for LibDBIcon).
 
 -- ---------------------------------------------------------------------------
 -- Defaults / minimap helpers
@@ -11,11 +11,12 @@ local function ensureDefaults()
         AltArmyTBC_Options = {}
         AltArmy.firstRun = true
     end
-    if AltArmyTBC_Options.showMinimapButton == nil then
-        AltArmyTBC_Options.showMinimapButton = true
-    end
-    if AltArmyTBC_Options.minimapAngle == nil then
-        AltArmyTBC_Options.minimapAngle = 90
+    if AltArmy.MigrateMinimapSavedVars then
+        AltArmy.MigrateMinimapSavedVars(AltArmyTBC_Options)
+    else
+        if AltArmyTBC_Options.showMinimapButton == nil then
+            AltArmyTBC_Options.showMinimapButton = true
+        end
     end
     if AltArmy and AltArmy.GlobalRealmFilter and AltArmy.GlobalRealmFilter.Ensure then
         AltArmy.GlobalRealmFilter.Ensure()
@@ -25,10 +26,18 @@ local function ensureDefaults()
     end
 end
 
+local function minimapShown()
+    local m = AltArmyTBC_Options.minimap
+    if m and m.hide ~= nil then
+        return not m.hide
+    end
+    return AltArmyTBC_Options.showMinimapButton ~= false
+end
+
 local function applyMinimapOption()
     ensureDefaults()
     if AltArmy.SetMinimapButtonShown then
-        AltArmy.SetMinimapButtonShown(AltArmyTBC_Options.showMinimapButton)
+        AltArmy.SetMinimapButtonShown(minimapShown())
     end
 end
 
@@ -144,6 +153,9 @@ panel.cancel = function()
 end
 panel.default = function()
     AltArmyTBC_Options.showMinimapButton = true
+    if AltArmyTBC_Options.minimap then
+        AltArmyTBC_Options.minimap.hide = false
+    end
     applyMinimapOption()
     if panel.minimapCheckbox then
         panel.minimapCheckbox:SetChecked(true)
@@ -164,7 +176,7 @@ end
 panel.refresh = function()
     ensureDefaults()
     if panel.minimapCheckbox then
-        panel.minimapCheckbox:SetChecked(AltArmyTBC_Options.showMinimapButton)
+        panel.minimapCheckbox:SetChecked(minimapShown())
     end
     if panel.RefreshRealmFilterDropdown then
         panel.RefreshRealmFilterDropdown()
@@ -238,7 +250,11 @@ end
 local minimapCheckbox = CreateFrame("CheckButton", nil, tabGeneral, "InterfaceOptionsCheckButtonTemplate")
 minimapCheckbox:SetPoint("TOPLEFT", tabGeneral, "TOPLEFT", 0, 0)
 minimapCheckbox:SetScript("OnClick", function(self)
-    AltArmyTBC_Options.showMinimapButton = self:GetChecked()
+    local show = self:GetChecked()
+    AltArmyTBC_Options.showMinimapButton = show
+    if AltArmyTBC_Options.minimap then
+        AltArmyTBC_Options.minimap.hide = not show
+    end
     applyMinimapOption()
 end)
 panel.minimapCheckbox = minimapCheckbox
@@ -607,7 +623,7 @@ panel:HookScript("OnShow", function()
     RefreshCharacterList()
     UpdateCharSettings()
     if panel.minimapCheckbox then
-        panel.minimapCheckbox:SetChecked(AltArmyTBC_Options.showMinimapButton)
+        panel.minimapCheckbox:SetChecked(minimapShown())
     end
     if panel.RefreshRealmFilterDropdown then
         panel.RefreshRealmFilterDropdown()
@@ -641,7 +657,7 @@ reg:SetScript("OnEvent", function(_, event)
         RefreshCharacterList()
         UpdateCharSettings()
         if panel.minimapCheckbox then
-            panel.minimapCheckbox:SetChecked(AltArmyTBC_Options.showMinimapButton)
+            panel.minimapCheckbox:SetChecked(minimapShown())
         end
         if panel.RefreshRealmFilterDropdown then
             panel.RefreshRealmFilterDropdown()
@@ -653,7 +669,7 @@ end)
 -- Slash command: open the main AltArmy UI
 -- ---------------------------------------------------------------------------
 
-SLASH_ALTARMY1 = "/altarmy"
+SLASH_ALTARMY1, SLASH_ALTARMY2 = "/altarmy", "/alta"
 SlashCmdList.ALTARMY = function(_msg)
     if AltArmy and AltArmy.MainFrame then
         AltArmy.MainFrame:Show()

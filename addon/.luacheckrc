@@ -4,6 +4,11 @@
 -- WoW uses Lua 5.1
 std = "lua51"
 
+-- Vendored libraries (LibDBIcon, LibStub, etc.)
+exclude_files = {
+    "AltArmy_TBC/Libs",
+}
+
 -- Do not warn about unused implicit self argument in method (:) definitions.
 self = false
 
@@ -18,6 +23,7 @@ globals = {
     "AltArmyTBC_SearchSettings",
     "UISpecialFrames",
     "SLASH_ALTARMY1",
+    "SLASH_ALTARMY2",
     "SlashCmdList",
 }
 
@@ -101,6 +107,8 @@ read_globals = {
     "GetNumTradeSkills",
     "SecondsToTime",
     "Minimap",
+    "LibStub",
+    "GetMinimapShape",
     "GameTooltip",
     "GameTooltip_Clear",
     "DEFAULT_CHAT_FRAME",

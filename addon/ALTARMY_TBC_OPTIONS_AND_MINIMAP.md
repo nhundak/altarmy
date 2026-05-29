@@ -11,7 +11,7 @@ This document describes **options** and the **minimap button** in minimal form. 
 
 ### AltArmy TBC options (minimal)
 
-- **Minimap**: Show/hide minimap button; optionally angle and radius (or use a simple show/hide only).
+- **Minimap**: Show/hide minimap button; position via LibDBIcon (`minimap.minimapPos`, `minimap.hide`). Legacy keys `minimapAngle` / `showMinimapButton` are migrated on load.
 - **UI**: Minimal settings (e.g. which tabs to show, sort defaults) if needed. No account-sharing or tooltip options in the initial version.
 
 No account sharing, no “show alts on tooltip” / “show crafted by” in v1; those are deprioritized.
@@ -21,7 +21,8 @@ No account sharing, no “show alts on tooltip” / “show crafted by” in v1;
 ## 2. Minimap Button
 
 - **Left-click**: Open or close the main AltArmy TBC window.
-- **Right-click + drag**: Reposition the minimap icon (angle/radius); saved in options. If scope is minimal, only show/hide may be implemented and position may be fixed.
+- **Drag**: Reposition via LibDBIcon (respects square minimaps when `GetMinimapShape` is provided, e.g. by SexyMap).
+- **Left-click**: Open/close main window.
 - **Tooltip**: Short text, e.g. “Left-click: open AltArmy TBC. Right-click + drag: move icon.”
 
 No extra menu or right-click actions required for the minimal version.
