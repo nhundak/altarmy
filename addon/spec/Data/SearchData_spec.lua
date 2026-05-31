@@ -20,6 +20,14 @@ describe("SearchData", function()
     SD = AltArmy.SearchData
   end)
 
+  before_each(function()
+    if SD and SD.ClearSearchCaches then
+      SD.ClearSearchCaches()
+    elseif SD and SD.ClearSearchableTextCache then
+      SD.ClearSearchableTextCache()
+    end
+  end)
+
   describe("GetAllContainerSlots (mail)", function()
     it("includes mail attachment items as location=mail", function()
       local DS = AltArmy.DataStore
@@ -69,6 +77,165 @@ describe("SearchData", function()
       assert.is_true(seenBag)
       assert.is_true(seenMail111)
       assert.is_true(seenMail222)
+    end)
+  end)
+
+  describe("search caches", function()
+    it("caches container slot list until invalidated", function()
+      local DS = AltArmy.DataStore
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        IterateContainerSlots = DS.IterateContainerSlots,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+      }
+
+      local iterateCalls = 0
+      DS.GetRealms = function() return { R1 = true } end
+      DS.GetCharacters = function()
+        return { Alice = { name = "Alice" } }
+      end
+      DS.IterateContainerSlots = function(_self, _char, cb)
+        iterateCalls = iterateCalls + 1
+        cb(0, 1, 999, 1, "item:999")
+      end
+      DS.GetCharacterName = function(_self, char) return char and char.name or "" end
+      DS.GetCharacterClass = function() return "", "WARRIOR" end
+
+      local first = SD.GetAllContainerSlots()
+      local second = SD.GetAllContainerSlots()
+      assert.are.equal(1, iterateCalls)
+      assert.are.equal(#first, #second)
+
+      SD.InvalidateContainerSlotsCache()
+      local third = SD.GetAllContainerSlots()
+      assert.are.equal(2, iterateCalls)
+      assert.are.equal(#first, #third)
+
+      DS.GetRealms = old.GetRealms
+      DS.GetCharacters = old.GetCharacters
+      DS.IterateContainerSlots = old.IterateContainerSlots
+      DS.GetCharacterName = old.GetCharacterName
+      DS.GetCharacterClass = old.GetCharacterClass
+    end)
+
+    it("does not scan current character bags while building container cache", function()
+      local DS = AltArmy.DataStore
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        IterateContainerSlots = DS.IterateContainerSlots,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+        ScanCurrentCharacterBags = DS.ScanCurrentCharacterBags,
+      }
+
+      local scanned = false
+      DS.GetRealms = function() return { R1 = true } end
+      DS.GetCharacters = function()
+        return { Alice = { name = "Alice" } }
+      end
+      DS.IterateContainerSlots = function(_self, _char, cb)
+        cb(0, 1, 999, 1, "item:999")
+      end
+      DS.GetCharacterName = function(_self, char) return char and char.name or "" end
+      DS.GetCharacterClass = function() return "", "WARRIOR" end
+      DS.ScanCurrentCharacterBags = function()
+        scanned = true
+      end
+
+      SD.InvalidateContainerSlotsCache()
+      SD.GetAllContainerSlots()
+      assert.is_false(scanned)
+
+      DS.GetRealms = old.GetRealms
+      DS.GetCharacters = old.GetCharacters
+      DS.IterateContainerSlots = old.IterateContainerSlots
+      DS.GetCharacterName = old.GetCharacterName
+      DS.GetCharacterClass = old.GetCharacterClass
+      DS.ScanCurrentCharacterBags = old.ScanCurrentCharacterBags
+    end)
+
+    it("caches recipe list until invalidated", function()
+      local DS = AltArmy.DataStore
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+        GetProfessions = DS.GetProfessions,
+      }
+
+      local getProfessionsCalls = 0
+      DS.GetRealms = function() return { Realm1 = true } end
+      DS.GetCharacters = function()
+        return {
+          Char1 = {
+            name = "Char1",
+            Professions = {
+              Alchemy = { rank = 300, Recipes = { [12345] = 1 } },
+            },
+          },
+        }
+      end
+      DS.GetCharacterName = function(_, char) return char and char.name or "" end
+      DS.GetCharacterClass = function() return "", "WARLOCK" end
+      DS.GetProfessions = function(_, char)
+        getProfessionsCalls = getProfessionsCalls + 1
+        return char and char.Professions or {}
+      end
+
+      local first = SD.GetAllRecipes()
+      local second = SD.GetAllRecipes()
+      assert.are.equal(1, getProfessionsCalls)
+      assert.are.equal(#first, #second)
+
+      SD.InvalidateRecipesCache()
+      local third = SD.GetAllRecipes()
+      assert.are.equal(2, getProfessionsCalls)
+      assert.are.equal(#first, #third)
+
+      DS.GetRealms = old.GetRealms
+      DS.GetCharacters = old.GetCharacters
+      DS.GetCharacterName = old.GetCharacterName
+      DS.GetCharacterClass = old.GetCharacterClass
+      DS.GetProfessions = old.GetProfessions
+    end)
+
+    it("does not re-fetch recipe names during sort comparator", function()
+      local oldGetAll = SD.GetAllRecipes
+      local oldGetSpellInfo = _G.GetSpellInfo
+      local oldGetItemInfo = _G.GetItemInfo
+
+      SD.GetAllRecipes = function()
+        return {
+          { characterName = "B", realm = "R", professionName = "Alchemy", skillRank = 300, recipeID = 111 },
+          { characterName = "A", realm = "R", professionName = "Alchemy", skillRank = 280, recipeID = 111 },
+          { characterName = "C", realm = "R", professionName = "Alchemy", skillRank = 260, recipeID = 222 },
+        }
+      end
+
+      local spellCalls = 0
+      _G.GetSpellInfo = function(id)
+        spellCalls = spellCalls + 1
+        if id == 111 then return "Minor Potion" end
+        if id == 222 then return "Major Potion" end
+        return nil
+      end
+      _G.GetItemInfo = function() return nil end
+
+      local results = SD.SearchRecipes("potion")
+      assert.are.equal(3, #results)
+      assert.are.equal(2, spellCalls)
+
+      local resultsAgain = SD.SearchRecipes("potion")
+      assert.are.equal(3, #resultsAgain)
+      assert.are.equal(2, spellCalls)
+
+      SD.GetAllRecipes = oldGetAll
+      _G.GetSpellInfo = oldGetSpellInfo
+      _G.GetItemInfo = oldGetItemInfo
     end)
   end)
 

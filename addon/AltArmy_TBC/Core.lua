@@ -606,7 +606,6 @@ local function applySearchBoxState()
 end
 
 headerSearchEdit:SetScript("OnTextChanged", applySearchBoxState)
-headerSearchEdit:SetScript("OnChar", applySearchBoxState)
 updateSearchPlaceholderVisibility()
 
 main:SetScript("OnShow", function()

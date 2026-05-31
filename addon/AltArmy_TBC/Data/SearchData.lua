@@ -11,15 +11,75 @@ local MAX_BANK_BAG_ID = 11
 -- In-memory cache: itemID (number) -> lowercased searchable string (name + tooltip lines).
 -- Cleared on PLAYER_LOGOUT so it doesn't carry state across sessions.
 local _searchableTextCache = {}
+local _containerSlotsCache = nil
+local _recipesCache = nil
+local _itemNameCache = {}
+local _recipeNameCache = {}
+
+--- Query timing debug. Enable: /run ALTARMY_DEBUG_SEARCH=true then use the Search tab.
+--- Uses debugprofilestart/stop (high-resolution) because GetTime() only updates once per frame.
+local function SearchDebugEnabled()
+    return rawget(_G, "ALTARMY_DEBUG_SEARCH")
+end
+
+local function LogSearchDebug(msg)
+    if not SearchDebugEnabled() then
+        return
+    end
+    local text = "|cff00ccff[AltArmy:Search]|r " .. tostring(msg)
+    if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+        DEFAULT_CHAT_FRAME:AddMessage(text)
+    end
+end
+
+local function SearchProfileStart()
+    if debugprofilestart then
+        debugprofilestart()
+    end
+end
+
+local function SearchProfileElapsedMs()
+    if debugprofilestop then
+        return debugprofilestop()
+    end
+    return 0
+end
+
+--- @param query string|number
+local function SearchQueryLabel(query)
+    if type(query) == "string" then
+        if #query > 40 then
+            return query:sub(1, 37) .. "..."
+        end
+        return query
+    end
+    return tostring(query)
+end
 
 function SD.ClearSearchableTextCache()
     _searchableTextCache = {}
 end
 
+function SD.InvalidateContainerSlotsCache()
+    _containerSlotsCache = nil
+end
+
+function SD.InvalidateRecipesCache()
+    _recipesCache = nil
+end
+
+function SD.ClearSearchCaches()
+    _searchableTextCache = {}
+    _containerSlotsCache = nil
+    _recipesCache = nil
+    _itemNameCache = {}
+    _recipeNameCache = {}
+end
+
 local _cacheEventFrame = CreateFrame("Frame")
 _cacheEventFrame:RegisterEvent("PLAYER_LOGOUT")
 _cacheEventFrame:SetScript("OnEvent", function()
-    SD.ClearSearchableTextCache()
+    SD.ClearSearchCaches()
 end)
 
 -- Private tooltip frame for scanning item text.
@@ -47,17 +107,12 @@ SD._LocationSortKey = LocationSortKey
 
 --- Build flat list of all container slots across all characters.
 --- Each entry: { characterName, realm, itemID, itemLink, count, location, bagID, slot }.
-function SD.GetAllContainerSlots()
+local function BuildAllContainerSlots()
     local list = {}
     local DS = AltArmy.DataStore
     if not DS or not DS.GetRealms or not DS.GetCharacters
         or not DS.IterateContainerSlots or not DS.GetCharacterName then
         return list
-    end
-    -- Refresh current character's bags so we have up-to-date data
-    -- (PLAYER_ENTERING_WORLD may fire before bags are ready)
-    if DS.ScanCurrentCharacterBags then
-        DS:ScanCurrentCharacterBags()
     end
     for realm in pairs(DS:GetRealms()) do
         for charName, charData in pairs(DS:GetCharacters(realm)) do
@@ -112,8 +167,16 @@ function SD.GetAllContainerSlots()
     return list
 end
 
+function SD.GetAllContainerSlots()
+    if _containerSlotsCache then
+        return _containerSlotsCache
+    end
+    _containerSlotsCache = BuildAllContainerSlots()
+    return _containerSlotsCache
+end
+
 --- Get item name from itemID or link (for search). Returns nil if not cached.
-local function GetItemName(itemID, link)
+local function ResolveItemName(itemID, link)
     if link and GetItemInfo then
         local name = GetItemInfo(link)
         if name then return name end
@@ -125,6 +188,31 @@ local function GetItemName(itemID, link)
     return nil
 end
 
+local function GetCachedItemName(itemID, link)
+    if itemID and _itemNameCache[itemID] and _itemNameCache[itemID].name then
+        return _itemNameCache[itemID].name
+    end
+    local name = ResolveItemName(itemID, link)
+    if itemID and name then
+        _itemNameCache[itemID] = {
+            name = name,
+            nameLower = name:lower(),
+        }
+    end
+    return name
+end
+
+local function GetCachedItemNameLower(itemID, link)
+    if itemID and _itemNameCache[itemID] and _itemNameCache[itemID].nameLower then
+        return _itemNameCache[itemID].nameLower
+    end
+    local name = GetCachedItemName(itemID, link)
+    if name then
+        return name:lower()
+    end
+    return nil
+end
+
 --- Build and cache a searchable string for an item: lowercased item name + all tooltip left-column lines.
 --- Returns a string on success, or nil if the item name cannot be resolved.
 --- Exposed as SD._GetSearchableTextForItem so tests can stub it without touching GameTooltip.
@@ -132,7 +220,7 @@ function SD._GetSearchableTextForItem(itemID, itemLink)
     if _searchableTextCache[itemID] then
         return _searchableTextCache[itemID]
     end
-    local name = GetItemName(itemID, itemLink)
+    local name = GetCachedItemName(itemID, itemLink)
     if not name then return nil end
 
     -- Skip tooltip scan in combat to avoid UI taint.
@@ -176,13 +264,7 @@ end
 --- Returns two lists: mainResults (matched by ID/name/link) and tooltipOnlyResults (matched via tooltip text).
 --- Pass skipTooltip=true to skip the tooltip scan (tooltipOnlyResults will be empty); use for the immediate
 --- search on each keystroke, then run the full search via debounce for tooltip results.
-function SD.Search(query, skipTooltip)
-    if not query or (type(query) == "string" and query:match("^%s*$")) then
-        return {}, {}
-    end
-    local all = SD.GetAllContainerSlots()
-    local mainResults = {}
-    local tooltipOnlyResults = {}
+local function ParseItemSearchQuery(query)
     local queryLower = type(query) == "string" and query:lower() or nil
     local queryID = nil
     if type(query) == "number" then
@@ -190,13 +272,20 @@ function SD.Search(query, skipTooltip)
     elseif type(query) == "string" and query:match("^%d+$") then
         queryID = tonumber(query)
     end
+    return queryLower, queryID
+end
+SD._ParseItemSearchQuery = ParseItemSearchQuery
+
+local function FilterContainerSlots(all, queryLower, queryID, skipTooltip)
+    local mainResults = {}
+    local tooltipOnlyResults = {}
     for _, entry in ipairs(all) do
         local mainMatch = false
         if queryID ~= nil and entry.itemID == queryID then
             mainMatch = true
         elseif queryLower then
-            local name = GetItemName(entry.itemID, entry.itemLink)
-            if name and name:lower():find(queryLower, 1, true) then
+            local nameLower = GetCachedItemNameLower(entry.itemID, entry.itemLink)
+            if nameLower and nameLower:find(queryLower, 1, true) then
                 mainMatch = true
             end
             if not mainMatch and entry.itemLink and entry.itemLink:lower():find(queryLower, 1, true) then
@@ -204,16 +293,33 @@ function SD.Search(query, skipTooltip)
             end
         end
         if mainMatch then
-            entry.itemName = entry.itemName or GetItemName(entry.itemID, entry.itemLink)
+            entry.itemName = entry.itemName or GetCachedItemName(entry.itemID, entry.itemLink)
             table.insert(mainResults, entry)
         elseif queryLower and not skipTooltip then
             local searchableText = SD._GetSearchableTextForItem(entry.itemID, entry.itemLink)
             if searchableText and searchableText:find(queryLower, 1, true) then
-                entry.itemName = entry.itemName or GetItemName(entry.itemID, entry.itemLink)
+                entry.itemName = entry.itemName or GetCachedItemName(entry.itemID, entry.itemLink)
                 table.insert(tooltipOnlyResults, entry)
             end
         end
     end
+    return mainResults, tooltipOnlyResults
+end
+SD._FilterContainerSlots = FilterContainerSlots
+
+local function SearchContainerSlots(query, skipTooltip)
+    local all = SD.GetAllContainerSlots()
+    local queryLower, queryID = ParseItemSearchQuery(query)
+    local mainResults, tooltipOnlyResults = FilterContainerSlots(all, queryLower, queryID, skipTooltip)
+    return mainResults, tooltipOnlyResults, #all, all
+end
+SD._SearchContainerSlots = SearchContainerSlots
+
+function SD.Search(query, skipTooltip)
+    if not query or (type(query) == "string" and query:match("^%s*$")) then
+        return {}, {}
+    end
+    local mainResults, tooltipOnlyResults = SearchContainerSlots(query, skipTooltip)
     return mainResults, tooltipOnlyResults
 end
 
@@ -313,17 +419,30 @@ function SD.SearchWithLocationGroups(query, skipTooltip)
     if not query or (type(query) == "string" and query:match("^%s*$")) then
         return {}, {}
     end
-    local mainResults, tooltipOnlyResults = SD.Search(query, skipTooltip)
+    local debug = SearchDebugEnabled()
+    if debug then
+        SearchProfileStart()
+    end
     local queryLower = type(query) == "string" and query:lower() or ""
-
+    local mainResults, tooltipOnlyResults = SD.Search(query, skipTooltip)
     local mainRows = AggregateAndSort(mainResults, queryLower)
     local tooltipOnlyRows = AggregateAndSort(tooltipOnlyResults, queryLower)
+    if debug then
+        LogSearchDebug(string.format(
+            "  items q=%q ms=%.2f mainRows=%d tooltipRows=%d skipTooltip=%s",
+            SearchQueryLabel(query),
+            SearchProfileElapsedMs(),
+            #mainRows,
+            #tooltipOnlyRows,
+            tostring(skipTooltip and true or false)
+        ))
+    end
     return mainRows, tooltipOnlyRows
 end
 
 --- Build flat list of all known recipes across all characters.
 --- Each entry: { characterName, realm, classFile, professionName, skillRank, recipeID }.
-function SD.GetAllRecipes()
+local function BuildAllRecipes()
     local list = {}
     local DS = AltArmy.DataStore
     if not DS or not DS.GetRealms or not DS.GetCharacters or not DS.GetCharacterName
@@ -366,8 +485,16 @@ function SD.GetAllRecipes()
     return list
 end
 
+function SD.GetAllRecipes()
+    if _recipesCache then
+        return _recipesCache
+    end
+    _recipesCache = BuildAllRecipes()
+    return _recipesCache
+end
+
 --- Get recipe name from recipeID (spell first, then item). Returns nil if not resolved.
-local function GetRecipeName(recipeID)
+local function ResolveRecipeName(recipeID)
     if not recipeID then return nil end
     if GetSpellInfo then
         local name = GetSpellInfo(recipeID)
@@ -380,25 +507,77 @@ local function GetRecipeName(recipeID)
     return nil
 end
 
---- Search recipes by name (partial, case-insensitive). Returns list of matching entries.
-function SD.SearchRecipes(query)
-    if not query or (type(query) == "string" and query:match("^%s*$")) then
-        return {}
+local function GetCachedRecipeName(recipeID)
+    if not recipeID then return nil end
+    if _recipeNameCache[recipeID] and _recipeNameCache[recipeID].name then
+        return _recipeNameCache[recipeID].name
     end
-    local all = SD.GetAllRecipes()
-    local queryLower = type(query) == "string" and query:lower() or ""
+    local name = ResolveRecipeName(recipeID)
+    if name then
+        _recipeNameCache[recipeID] = {
+            name = name,
+            nameLower = name:lower(),
+        }
+    else
+        _recipeNameCache[recipeID] = {
+            name = nil,
+            nameLower = nil,
+        }
+    end
+    return name
+end
+
+local function GetCachedRecipeNameLower(recipeID)
+    if not recipeID then return nil end
+    if _recipeNameCache[recipeID] then
+        return _recipeNameCache[recipeID].nameLower
+    end
+    local name = GetCachedRecipeName(recipeID)
+    if name then
+        return name:lower()
+    end
+    return nil
+end
+
+--- Search recipes by name (partial, case-insensitive). Returns list of matching entries.
+local function FilterAndSortRecipes(all, queryLower)
     local results = {}
     for _, entry in ipairs(all) do
-        local name = GetRecipeName(entry.recipeID)
-        if name and name:lower():find(queryLower, 1, true) then
+        local nameLower = GetCachedRecipeNameLower(entry.recipeID)
+        if nameLower and nameLower:find(queryLower, 1, true) then
+            entry.recipeNameLower = nameLower
             table.insert(results, entry)
         end
     end
     table.sort(results, function(a, b)
-        local na = GetRecipeName(a.recipeID) or ""
-        local nb = GetRecipeName(b.recipeID) or ""
-        if na:lower() ~= nb:lower() then return na:lower() < nb:lower() end
+        local na = a.recipeNameLower or ""
+        local nb = b.recipeNameLower or ""
+        if na ~= nb then return na < nb end
         return (a.characterName or "") < (b.characterName or "")
     end)
+    return results
+end
+SD._FilterAndSortRecipes = FilterAndSortRecipes
+
+function SD.SearchRecipes(query)
+    if not query or (type(query) == "string" and query:match("^%s*$")) then
+        return {}
+    end
+    local debug = SearchDebugEnabled()
+    if debug then
+        SearchProfileStart()
+    end
+    local all = SD.GetAllRecipes()
+    local queryLower = type(query) == "string" and query:lower() or ""
+    local results = FilterAndSortRecipes(all, queryLower)
+    if debug then
+        LogSearchDebug(string.format(
+            "  recipes q=%q ms=%.2f scanned=%d hits=%d",
+            SearchQueryLabel(query),
+            SearchProfileElapsedMs(),
+            #all,
+            #results
+        ))
+    end
     return results
 end

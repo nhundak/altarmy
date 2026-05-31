@@ -150,6 +150,8 @@ read_globals = {
     "GetSpellCooldown",
     "GetCraftCooldown",
     "GetTime",
+    "debugprofilestart",
+    "debugprofilestop",
     "PlaySound",
     "InterfaceOptionsFrame_OpenToCategory",
     "UIDropDownMenu_SetText",

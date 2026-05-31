@@ -7,6 +7,13 @@ local DS = AltArmy.DataStore
 local GetCurrentCharTable = DS._GetCurrentCharTable
 local DATA_VERSIONS = DS._DATA_VERSIONS
 
+local function InvalidateSearchRecipesCache()
+    local SD = AltArmy and AltArmy.SearchData
+    if SD and SD.InvalidateRecipesCache then
+        SD.InvalidateRecipesCache()
+    end
+end
+
 --- Chat debug for cooldown persistence. Enable: /run ALTARMY_DEBUG_COOLDOWNS=true then open Tailoring etc.
 local function LogCooldownScanDebug(msg)
     if not rawget(_G, "ALTARMY_DEBUG_COOLDOWNS") then
@@ -429,6 +436,7 @@ function DS:ScanRecipes()
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.professions = DATA_VERSIONS.professions
     self:ScanCooldownSpecializations(char)
+    InvalidateSearchRecipesCache()
 end
 
 --- Scan recipes from the Craft window (Enchanting in TBC Classic uses Craft API, not Trade Skill).
@@ -473,6 +481,7 @@ function DS:ScanCraftRecipes()
     if self.ScanCraftCooldownExpiry then
         self:ScanCraftCooldownExpiry()
     end
+    InvalidateSearchRecipesCache()
 end
 
 local isRecipeScanInProgress = false
@@ -496,6 +505,9 @@ function DS:RunDeferredRecipeScan()
         pcall(RestoreTradeSkillFiltersAfterScan)
     end
     isRecipeScanInProgress = false
+    if ok then
+        InvalidateSearchRecipesCache()
+    end
     if not ok and err then
         error(err)
     end

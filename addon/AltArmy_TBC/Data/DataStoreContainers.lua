@@ -7,6 +7,13 @@ local DS = AltArmy.DataStore
 local GetCurrentCharTable = DS._GetCurrentCharTable
 local DATA_VERSIONS = DS._DATA_VERSIONS
 
+local function InvalidateSearchContainerSlotsCache()
+    local SD = AltArmy and AltArmy.SearchData
+    if SD and SD.InvalidateContainerSlotsCache then
+        SD.InvalidateContainerSlotsCache()
+    end
+end
+
 local NUM_BAG_SLOTS = NUM_BAG_SLOTS or 4
 local MIN_BANK_BAG_ID = 5
 local MAX_BANK_BAG_ID = 11
@@ -104,6 +111,7 @@ function DS:ScanBags()
     if self.TryScanSaltShakerCooldownFromSpellApi then
         self:TryScanSaltShakerCooldownFromSpellApi()
     end
+    InvalidateSearchContainerSlotsCache()
 end
 
 function DS:ScanBank()
@@ -139,6 +147,7 @@ function DS:ScanBank()
     if self.TryScanSaltShakerCooldownFromSpellApi then
         self:TryScanSaltShakerCooldownFromSpellApi()
     end
+    InvalidateSearchContainerSlotsCache()
 end
 
 DS.ScanContainer = function(_self, char, bagID, sizeOverride)

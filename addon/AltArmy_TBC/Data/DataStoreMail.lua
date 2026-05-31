@@ -18,6 +18,13 @@ local GetSendMailItem = _G.GetSendMailItem
 local GetSendMailItemLink = _G.GetSendMailItemLink
 local GetSendMailMoney = _G.GetSendMailMoney
 
+local function InvalidateSearchContainerSlotsCache()
+    local SD = AltArmy and AltArmy.SearchData
+    if SD and SD.InvalidateContainerSlotsCache then
+        SD.InvalidateContainerSlotsCache()
+    end
+end
+
 local function Now()
     return (time and time()) or 0
 end
@@ -71,6 +78,7 @@ function DS:ScanMailbox(_self)
         char.lastMailCheck = Now()
         char.dataVersions = char.dataVersions or {}
         char.dataVersions.mail = DATA_VERSIONS.mail
+        InvalidateSearchContainerSlotsCache()
         return
     end
     if CheckInbox then CheckInbox() end
@@ -121,6 +129,7 @@ function DS:ScanMailbox(_self)
     char.lastUpdate = Now()
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.mail = DATA_VERSIONS.mail
+    InvalidateSearchContainerSlotsCache()
 end
 
 function DS:GetNumMails(char)
@@ -206,6 +215,7 @@ function DS:SaveMailToCache(char, money, body, subject, sender, returned)
         daysLeft = MAIL_EXPIRY_DAYS,
         returned = returned or false,
     })
+    InvalidateSearchContainerSlotsCache()
 end
 
 function DS:SaveMailAttachmentToCache(char, icon, itemID, link, count, sender, subject, returned)
@@ -223,6 +233,7 @@ function DS:SaveMailAttachmentToCache(char, icon, itemID, link, count, sender, s
         daysLeft = MAIL_EXPIRY_DAYS,
         returned = returned or false,
     })
+    InvalidateSearchContainerSlotsCache()
 end
 
 -- ---------------------------------------------------------------------------
