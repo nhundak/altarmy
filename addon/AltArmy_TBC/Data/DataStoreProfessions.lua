@@ -757,31 +757,6 @@ function DS:CaptureCraftReagentsForIndex(craftIndex, recipeSpellId)
     end
 end
 
---- Leatherworking Salt Shaker item use (spell 19566): cooldown may not appear in GetTradeSkill list.
-function DS:TryScanSaltShakerCooldownFromSpellApi()
-    local CD = AltArmy and AltArmy.CooldownData
-    if not CD or not CD.CharacterQualifiesSaltShakerCooldown or not CD.SALT_SHAKER_COOLDOWN_SPELL_ID then
-        return
-    end
-    if not GetSpellCooldown then return end
-    local char = GetCurrentCharTable()
-    if not char then return end
-    if not CD.CharacterQualifiesSaltShakerCooldown(char, self) then return end
-    local spellId = CD.SALT_SHAKER_COOLDOWN_SPELL_ID
-    local a, b = GetSpellCooldown(spellId)
-    local gt = GetTime and GetTime() or 0
-    local wall = time and time() or 0
-    PersistCooldownExpiry(char, spellId, a, b, gt, wall, "SaltShaker")
-    LogCooldownScanDebug(string.format(
-        "SaltShaker spell=%d a=%s b=%s rem=%.1fs -> expUnix=%s",
-        spellId,
-        tostring(a),
-        tostring(b),
-        CooldownRemainingSeconds(a, b, gt),
-        tostring(char.ProfCooldownExpiry[spellId] and char.ProfCooldownExpiry[spellId].expiresAtUnix)
-    ))
-end
-
 --- Alchemy transmutes share one cooldown; the client may only expose it on one spell id.
 --- Scan all transmute spells and persist the longest remaining cooldown.
 function DS:TryScanTransmuteCooldownsFromSpellApi(preferredSpellId)
@@ -935,15 +910,6 @@ function DS:TryScanTrackedCooldownsFromActionBars()
             if CD.IsTrackedSpellId(spellId) then
                 persistFromActionCooldown(spellId, slot)
             end
-        elseif actionType == "item" and type(actionId) == "number" then
-            -- Salt Shaker can be placed on bars as an item; treat it as the tracked cooldown spell id.
-            if CD.SALT_SHAKER_ITEM_ID
-                and CD.SALT_SHAKER_COOLDOWN_SPELL_ID
-                and actionId == CD.SALT_SHAKER_ITEM_ID
-            then
-                local spellId = CD.SALT_SHAKER_COOLDOWN_SPELL_ID
-                persistFromActionCooldown(spellId, slot)
-            end
         elseif actionType == "macro" and type(actionId) == "number" and GetMacroInfo and GetSpellInfo then
             -- Some profession casts appear on action bars as macros; match tracked spell names in macro body.
             local _, _, body = GetMacroInfo(actionId)
@@ -1082,8 +1048,6 @@ function DS:ScanTradeSkillCooldownExpiry()
         end)
     end
     LogCooldownScanDebug("restored selection to " .. tostring(prevSel))
-
-    self:TryScanSaltShakerCooldownFromSpellApi()
 end
 
 function DS:ScanCraftCooldownExpiry()

@@ -18,15 +18,18 @@ CD.CATEGORY_ORDER = {
     "spellcloth",
     "shadowcloth",
     "primal_mooncloth",
+    "brilliant_glass",
     "void_shatter",
-    "salt_shaker",
 }
 
 -- TBC: transmute spells (alchemy). Used for category membership + effective recipe resolution.
 CD.TRANSMUTE_SPELL_IDS = {
+    11480, -- Transmute: Mithril to Truesilver
     17559, 17560, 17561, 17562, 17563, 17564, 17565, 17566,
     28566, 28567, 28568, 28569, 28580, 28581, 28582, 28583, 28584, 28585,
-    29688,
+    29688, -- Transmute: Primal Might
+    32765, -- Transmute: Earthstorm Diamond
+    32766, -- Transmute: Skyfire Diamond
     -- Transmute: Arcanite (automatic fallback after Primal Might).
     17187,
 }
@@ -47,12 +50,6 @@ end
 
 CD.TRANSMUTE_SPELL_SET = KeySet(CD.TRANSMUTE_SPELL_IDS)
 
--- Salt Shaker (item 15846): use effect is spell 19566 (3-day), not engineering craft 19567.
-CD.SALT_SHAKER_ITEM_ID = 15846
-CD.SALT_SHAKER_COOLDOWN_SPELL_ID = 19566
-CD.SALT_SHAKER_LEATHERWORKING_MIN = 250
-local SPELL_ID_LEATHERWORKING = 2108
-
 -- TBC profession specialization passive spell IDs (for cooldown UI / alerts).
 CD.COOLDOWN_SPEC_SPELL_IDS = {
     masterTransmutation = 28672,
@@ -68,23 +65,6 @@ CD.CATEGORY_SPEC_FIELD = {
     shadowcloth = "shadoweaveTailor",
     primal_mooncloth = "moonclothTailor",
 }
-
---- @param dataStore table must provide GetContainerItemCount(self, char, itemId)
-function CD.CharacterQualifiesSaltShakerCooldown(char, dataStore)
-    if not char or not dataStore or not dataStore.GetContainerItemCount then
-        return false
-    end
-    if (dataStore:GetContainerItemCount(char, CD.SALT_SHAKER_ITEM_ID) or 0) < 1 then
-        return false
-    end
-    local lwName = GetSpellInfo and GetSpellInfo(SPELL_ID_LEATHERWORKING)
-    if not lwName or not char.Professions then
-        return false
-    end
-    local p = char.Professions[lwName]
-    local rank = (p and p.rank) or 0
-    return rank >= CD.SALT_SHAKER_LEATHERWORKING_MIN
-end
 
 CD.CATEGORIES = {
     transmute = {
@@ -114,20 +94,19 @@ CD.CATEGORIES = {
         spellId = 26751,
         spellIds = { 26751 },
     },
-    -- Engineering spell 19567 crafts the device; cooldown is on item use (19566), LW 250.
-    salt_shaker = {
-        key = "salt_shaker",
-        title = "Salt Shaker",
+    brilliant_glass = {
+        key = "brilliant_glass",
+        title = "Brilliant Glass",
         mode = "single",
-        spellId = 19566,
-        spellIds = { 19566 },
+        spellId = 47280,
+        spellIds = { 47280 },
     },
     void_shatter = {
         key = "void_shatter",
         title = "Void Shatter",
         mode = "single",
-        spellId = 33358,
-        spellIds = { 33358 },
+        spellId = 45765,
+        spellIds = { 45765 },
     },
 }
 
@@ -615,8 +594,6 @@ function CD.BuildRows(DS, options, now)
                         local include = false
                         if catKey == "transmute" then
                             include = CD.ResolveTransmuteSpellForCharacter(char) ~= nil
-                        elseif catKey == "salt_shaker" then
-                            include = CD.CharacterQualifiesSaltShakerCooldown(char, DS)
                         elseif cat.mode == "single" and cat.spellId then
                             include = select(1, CD.FindRecipeProfession(char, cat.spellId))
                         end

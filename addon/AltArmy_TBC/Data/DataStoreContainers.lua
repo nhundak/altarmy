@@ -108,9 +108,6 @@ function DS:ScanBags()
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.containers = DATA_VERSIONS.containers
     if self.ScanCurrencies then self:ScanCurrencies() end
-    if self.TryScanSaltShakerCooldownFromSpellApi then
-        self:TryScanSaltShakerCooldownFromSpellApi()
-    end
     InvalidateSearchContainerSlotsCache()
 end
 
@@ -144,9 +141,6 @@ function DS:ScanBank()
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.containers = DATA_VERSIONS.containers
     if self.ScanCurrencies then self:ScanCurrencies() end
-    if self.TryScanSaltShakerCooldownFromSpellApi then
-        self:TryScanSaltShakerCooldownFromSpellApi()
-    end
     InvalidateSearchContainerSlotsCache()
 end
 

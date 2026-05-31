@@ -18,7 +18,7 @@ describe("CooldownData", function()
         -- Same structure as in-game: filled when tradeskill/craft APIs run (see DataStoreProfessions).
         _G.AltArmyTBC_Data.RecipeReagents = {
             [29688] = { { 22452, 1 }, { 21885, 1 }, { 21884, 1 }, { 22451, 1 } },
-            [33358] = { { 22450, 1 } },
+            [45765] = { { 22450, 1 } },
         }
     end)
 
@@ -197,9 +197,9 @@ describe("CooldownData", function()
             if itemId == 22450 then return 3 end
             return 0
         end
-        local ok = CD.CharacterHasReagents(char, 33358, count)
+        local ok = CD.CharacterHasReagents(char, 45765, count)
         assert.is_true(ok)
-        local bad = CD.CharacterHasReagents(char, 33358, function()
+        local bad = CD.CharacterHasReagents(char, 45765, function()
             return 0
         end)
         assert.is_false(bad)
@@ -296,52 +296,41 @@ describe("CooldownData", function()
         assert.are.equal(1, #a4)
     end)
 
-    it("BuildRows omits salt shaker without Leatherworking/item", function()
-        local oldGi = _G.GetSpellInfo
-        _G.GetSpellInfo = function(spellId)
-            if spellId == 2108 then return "Leatherworking" end
-            return oldGi and oldGi(spellId)
-        end
-        local char = {
-            name = "SaltTest",
-            Professions = {
-                Engineering = { Recipes = { [19567] = {} }, rank = 375 },
-            },
-        }
-        local ds = mockDS({ TestRealm = { SaltTest = char } })
-        ds.GetContainerItemCount = function(_self, _ch, _itemId)
-            return 0
-        end
-        local rows = CD.BuildRows(ds, AltArmyTBC_Options.cooldowns, 1000)
-        _G.GetSpellInfo = oldGi
-        for _, r in ipairs(rows) do
-            assert.are_not.equal("salt_shaker", r.categoryKey)
-        end
+    it("GetAllTrackedSpellIds includes meta gem and legacy transmutes", function()
+        local _, seen = CD.GetAllTrackedSpellIds()
+        assert.is_true(seen[11480])
+        assert.is_true(seen[32765])
+        assert.is_true(seen[32766])
     end)
 
-    it("BuildRows includes salt shaker with LW 250 and Salt Shaker item", function()
-        local oldGi = _G.GetSpellInfo
-        _G.GetSpellInfo = function(spellId)
-            if spellId == 2108 then return "Leatherworking" end
-            return oldGi and oldGi(spellId)
+    it("IsTrackedSpellId recognizes void shatter spell id", function()
+        assert.is_true(CD.IsTrackedSpellId(45765))
+        assert.is_false(CD.IsTrackedSpellId(33358))
+    end)
+
+    it("CATEGORY_ORDER places brilliant_glass before void_shatter", function()
+        local brilliantIdx, voidIdx = nil, nil
+        for i, key in ipairs(CD.CATEGORY_ORDER) do
+            if key == "brilliant_glass" then brilliantIdx = i end
+            if key == "void_shatter" then voidIdx = i end
         end
+        assert.is_not_nil(brilliantIdx)
+        assert.is_not_nil(voidIdx)
+        assert.is_true(brilliantIdx < voidIdx)
+    end)
+
+    it("BuildRows includes brilliant glass when Jewelcrafting recipe known", function()
         local char = {
-            name = "SaltOk",
-            Professions = {
-                Leatherworking = { Recipes = {}, rank = 250 },
-            },
+            name = "Gems",
+            Professions = { Jewelcrafting = { Recipes = { [47280] = { color = 1 } } } },
         }
-        local ds = mockDS({ TestRealm = { SaltOk = char } })
-        ds.GetContainerItemCount = function(_self, _ch, itemId)
-            return itemId == CD.SALT_SHAKER_ITEM_ID and 1 or 0
-        end
+        local ds = mockDS({ TestRealm = { Gems = char } })
         local rows = CD.BuildRows(ds, AltArmyTBC_Options.cooldowns, 1000)
-        _G.GetSpellInfo = oldGi
         local found = false
         for _, r in ipairs(rows) do
-            if r.categoryKey == "salt_shaker" then
+            if r.categoryKey == "brilliant_glass" then
                 found = true
-                assert.are.equal(CD.SALT_SHAKER_COOLDOWN_SPELL_ID, r.spellId)
+                assert.are.equal(47280, r.spellId)
             end
         end
         assert.is_true(found)
