@@ -345,9 +345,108 @@ local UpdateResults      -- forward-declare for debounce callback
 -- Debounce for tooltip-only search: main results (ID/name/link) appear immediately;
 -- tooltip scan runs after the user stops typing for TOOLTIP_DEBOUNCE_SECS seconds.
 local TOOLTIP_DEBOUNCE_SECS = 0.4
+local TOOLTIP_CHUNK_SIZE = 80
 local tooltipDebounceFrame = CreateFrame("Frame")
 local tooltipDebounceRemaining = 0
 local tooltipDebounceQuery = nil
+local tooltipChunkFrame = CreateFrame("Frame")
+local tooltipChunkState = nil
+local tooltipChunkGeneration = 0
+
+local function ApplyTooltipOnlyRealmFilter(rows)
+    local RF = AltArmy.RealmFilter
+    local currentRealm = (GetRealmName and GetRealmName()) or ""
+    if RF and RF.filterListByRealm then
+        return RF.filterListByRealm(rows or {}, GlobalRealmFilterValue(), currentRealm)
+    end
+    return rows or {}
+end
+
+local function StopTooltipChunkSearch()
+    tooltipChunkFrame:SetScript("OnUpdate", nil)
+    tooltipChunkState = nil
+end
+
+local function StartTooltipChunkSearch(query)
+    StopTooltipChunkSearch()
+    if not query or query == "" or not frame:IsShown() then return end
+    local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
+    if not categories.Items then return end
+    local all = SD.GetAllContainerSlots and SD.GetAllContainerSlots() or {}
+    local queryLower, queryID = SD._ParseItemSearchQuery(query)
+    if not queryLower then
+        tooltipOnlyItemList = {}
+        UpdateResults()
+        return
+    end
+    tooltipChunkState = {
+        generation = tooltipChunkGeneration,
+        query = query,
+        queryLower = queryLower,
+        queryID = queryID,
+        all = all,
+        index = 1,
+        total = #all,
+        matches = {},
+    }
+    tooltipChunkFrame:SetScript("OnUpdate", function()
+        local state = tooltipChunkState
+        if not state then
+            StopTooltipChunkSearch()
+            return
+        end
+        if state.generation ~= tooltipChunkGeneration then
+            StopTooltipChunkSearch()
+            return
+        end
+        if not frame:IsShown() then
+            StopTooltipChunkSearch()
+            return
+        end
+        local currentQuery = frame.lastQuery
+        if currentQuery and currentQuery ~= state.query then
+            StopTooltipChunkSearch()
+            return
+        end
+        local categoriesNow = AltArmy.SearchCategories or { Items = true, Recipes = true }
+        if not categoriesNow.Items then
+            StopTooltipChunkSearch()
+            tooltipOnlyItemList = {}
+            UpdateResults()
+            return
+        end
+
+        local processed = 0
+        while processed < TOOLTIP_CHUNK_SIZE and state.index <= state.total do
+            local entry = state.all[state.index]
+            state.index = state.index + 1
+            processed = processed + 1
+            if entry and not SD._IsMainSearchMatch(entry, state.queryLower, state.queryID) then
+                local searchableText = SD._GetSearchableTextForItem(entry.itemID, entry.itemLink)
+                if searchableText and searchableText:find(state.queryLower, 1, true) then
+                    if SD._EnsureItemName then
+                        SD._EnsureItemName(entry)
+                    end
+                    table.insert(state.matches, entry)
+                end
+            end
+        end
+
+        if state.index > state.total then
+            StopTooltipChunkSearch()
+            if state.generation ~= tooltipChunkGeneration then return end
+            local rows
+            if SD._AggregateAndSort then
+                rows = SD._AggregateAndSort(state.matches, state.queryLower)
+            else
+                local _, fallback = SD.SearchWithLocationGroups(state.query)
+                rows = fallback or {}
+            end
+            tooltipOnlyItemList = ApplyTooltipOnlyRealmFilter(rows)
+            UpdateResults()
+        end
+    end)
+end
 
 local function tooltipDebounceOnUpdate(_, elapsed)
     tooltipDebounceRemaining = tooltipDebounceRemaining - elapsed
@@ -355,21 +454,13 @@ local function tooltipDebounceOnUpdate(_, elapsed)
         tooltipDebounceFrame:SetScript("OnUpdate", nil)
         local query = tooltipDebounceQuery
         tooltipDebounceQuery = nil
-        if not query or query == "" or not frame:IsShown() then return end
-        local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
-        if not categories.Items then return end
-        local _, newTooltipOnly = SD.SearchWithLocationGroups(query)
-        local RF = AltArmy.RealmFilter
-        local currentRealm = (GetRealmName and GetRealmName()) or ""
-        if RF and RF.filterListByRealm then
-            newTooltipOnly = RF.filterListByRealm(newTooltipOnly or {}, GlobalRealmFilterValue(), currentRealm)
-        end
-        tooltipOnlyItemList = newTooltipOnly or {}
-        UpdateResults()
+        StartTooltipChunkSearch(query)
     end
 end
 
 local function ScheduleTooltipSearch(query)
+    tooltipChunkGeneration = tooltipChunkGeneration + 1
+    StopTooltipChunkSearch()
     if not query or query == "" then
         tooltipDebounceQuery = nil
         tooltipDebounceFrame:SetScript("OnUpdate", nil)

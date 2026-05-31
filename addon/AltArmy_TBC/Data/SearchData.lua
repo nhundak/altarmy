@@ -281,25 +281,14 @@ local function FilterContainerSlots(all, queryLower, queryID, skipTooltip)
     local mainResults = {}
     local tooltipOnlyResults = {}
     for _, entry in ipairs(all) do
-        local mainMatch = false
-        if queryID ~= nil and entry.itemID == queryID then
-            mainMatch = true
-        elseif queryLower then
-            local nameLower = GetCachedItemNameLower(entry.itemID, entry.itemLink)
-            if nameLower and nameLower:find(queryLower, 1, true) then
-                mainMatch = true
-            end
-            if not mainMatch and entry.itemLink and entry.itemLink:lower():find(queryLower, 1, true) then
-                mainMatch = true
-            end
-        end
+        local mainMatch = SD._IsMainSearchMatch(entry, queryLower, queryID)
         if mainMatch then
-            entry.itemName = entry.itemName or GetCachedItemName(entry.itemID, entry.itemLink)
+            SD._EnsureItemName(entry)
             table.insert(mainResults, entry)
         elseif queryLower and not skipTooltip then
             local searchableText = SD._GetSearchableTextForItem(entry.itemID, entry.itemLink)
             if searchableText and searchableText:find(queryLower, 1, true) then
-                entry.itemName = entry.itemName or GetCachedItemName(entry.itemID, entry.itemLink)
+                SD._EnsureItemName(entry)
                 table.insert(tooltipOnlyResults, entry)
             end
         end
@@ -307,6 +296,30 @@ local function FilterContainerSlots(all, queryLower, queryID, skipTooltip)
     return mainResults, tooltipOnlyResults
 end
 SD._FilterContainerSlots = FilterContainerSlots
+
+function SD._EnsureItemName(entry)
+    if not entry then return nil end
+    entry.itemName = entry.itemName or GetCachedItemName(entry.itemID, entry.itemLink)
+    return entry.itemName
+end
+
+function SD._IsMainSearchMatch(entry, queryLower, queryID)
+    if not entry then return false end
+    if queryID ~= nil and entry.itemID == queryID then
+        return true
+    end
+    if not queryLower then
+        return false
+    end
+    local nameLower = GetCachedItemNameLower(entry.itemID, entry.itemLink)
+    if nameLower and nameLower:find(queryLower, 1, true) then
+        return true
+    end
+    if entry.itemLink and entry.itemLink:lower():find(queryLower, 1, true) then
+        return true
+    end
+    return false
+end
 
 local function SearchContainerSlots(query, skipTooltip)
     local all = SD.GetAllContainerSlots()
@@ -412,6 +425,7 @@ local function AggregateAndSort(raw, queryLower)
     end
     return list
 end
+SD._AggregateAndSort = AggregateAndSort
 
 --- Aggregate by (itemID, characterName, realm, location); sort by name match, then char total, then bags before bank.
 --- Returns two lists: mainRows and tooltipOnlyRows (same row shape as before).
