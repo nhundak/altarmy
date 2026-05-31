@@ -14,9 +14,14 @@ local function InvalidateSearchRecipesCache()
     end
 end
 
---- Chat debug for cooldown persistence. Enable: /run ALTARMY_DEBUG_COOLDOWNS=true then open Tailoring etc.
+--- Chat debug for cooldown persistence. Enable: /altarmy debug on, then AltArmy > Debug > cooldown scans.
+local function CooldownsDebugEnabled()
+    local Dbg = AltArmy and AltArmy.Debug
+    return Dbg and Dbg.IsCooldownsEnabled and Dbg.IsCooldownsEnabled()
+end
+
 local function LogCooldownScanDebug(msg)
-    if not rawget(_G, "ALTARMY_DEBUG_COOLDOWNS") then
+    if not CooldownsDebugEnabled() then
         return
     end
     local text = "|cff00ccff[AltArmy:CD]|r " .. tostring(msg)
@@ -915,7 +920,7 @@ function DS:TryScanTrackedCooldownsFromActionBars()
         local actionType, actionId = GetActionInfo(slot)
         if actionType ~= nil then
             nonEmpty = nonEmpty + 1
-            if rawget(_G, "ALTARMY_DEBUG_COOLDOWNS") and debugPrinted < 12 then
+            if CooldownsDebugEnabled() and debugPrinted < 12 then
                 debugPrinted = debugPrinted + 1
                 LogCooldownScanDebug(string.format(
                     "ActionBar peek slot=%d type=%s id=%s",

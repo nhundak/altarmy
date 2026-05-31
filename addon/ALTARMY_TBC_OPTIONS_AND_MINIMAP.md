@@ -12,6 +12,7 @@ This document describes **options** and the **minimap button** in minimal form. 
 ### AltArmy TBC options (minimal)
 
 - **Minimap**: Show/hide minimap button; position via LibDBIcon (`minimap.minimapPos`, `minimap.hide`). Legacy keys `minimapAngle` / `showMinimapButton` are migrated on load.
+- **Debug** (off by default): `/altarmy debug on` or `/alta debug on` enables a **Debug** tab in this panel with checkboxes for search timing and profession cooldown scan logging. `/altarmy debug off` hides the tab and suppresses logs without clearing saved checkbox choices (`AltArmyTBC_Options.debug`).
 - **UI**: Minimal settings (e.g. which tabs to show, sort defaults) if needed. No account-sharing or tooltip options in the initial version.
 
 No account sharing, no “show alts on tooltip” / “show crafted by” in v1; those are deprioritized.

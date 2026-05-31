@@ -7,6 +7,7 @@
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
 Core.lua
+Data\Debug.lua
 Data\DataStore.lua
 Data\CooldownData.lua
 Data\StockpilePlan.lua

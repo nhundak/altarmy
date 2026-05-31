@@ -24,6 +24,9 @@ local function ensureDefaults()
     if AltArmy and AltArmy.CooldownData and AltArmy.CooldownData.EnsureCooldownOptions then
         AltArmy.CooldownData.EnsureCooldownOptions()
     end
+    if AltArmy and AltArmy.Debug and AltArmy.Debug.Ensure then
+        AltArmy.Debug.Ensure()
+    end
 end
 
 local function minimapShown()
@@ -198,7 +201,7 @@ local LEFT_INSET = 16
 local COL_GAP    = 20
 
 -- ---------------------------------------------------------------------------
--- Tab strip (General / Characters / Cooldowns)
+-- Tab strip (General / Characters / Cooldowns / Debug)
 -- ---------------------------------------------------------------------------
 
 local TAB_BAR_Y = -42
@@ -209,20 +212,32 @@ local TAB_BTN_H = 22
 local tabGeneral = CreateFrame("Frame", nil, panel)
 local tabCharacters = CreateFrame("Frame", nil, panel)
 local tabCooldowns = CreateFrame("Frame", nil, panel)
+local tabDebug = CreateFrame("Frame", nil, panel)
 tabGeneral:SetPoint("TOPLEFT", panel, "TOPLEFT", LEFT_INSET, TAB_CONTENT_TOP)
 tabGeneral:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -16, 12)
 tabCharacters:SetAllPoints(tabGeneral)
 tabCooldowns:SetAllPoints(tabGeneral)
+tabDebug:SetAllPoints(tabGeneral)
 
 local tabButtons = {}
+local activeOptionsTab = "general"
+
+local RefreshDebugCheckboxes
+local RefreshDebugTabVisibility
+
 local function SetActiveOptionsTab(which)
+    activeOptionsTab = which
     tabGeneral:SetShown(which == "general")
     tabCharacters:SetShown(which == "characters")
     tabCooldowns:SetShown(which == "cooldowns")
+    tabDebug:SetShown(which == "debug")
     for id, btn in pairs(tabButtons) do
         if btn and btn.SetAlpha then
             btn:SetAlpha(id == which and 1 or 0.55)
         end
+    end
+    if which == "debug" and RefreshDebugCheckboxes then
+        RefreshDebugCheckboxes()
     end
 end
 
@@ -231,7 +246,7 @@ tabBar:SetPoint("TOPLEFT", panel, "TOPLEFT", LEFT_INSET, TAB_BAR_Y)
 tabBar:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, TAB_BAR_Y)
 tabBar:SetHeight(TAB_BTN_H)
 local tabIds = { "general", "characters", "cooldowns" }
-local tabLabels = { general = "General", characters = "Characters", cooldowns = "Cooldowns" }
+local tabLabels = { general = "General", characters = "Characters", cooldowns = "Cooldowns", debug = "Debug" }
 for i, id in ipairs(tabIds) do
     local b = CreateFrame("Button", nil, tabBar, "UIPanelButtonTemplate")
     b:SetSize(TAB_BTN_W, TAB_BTN_H)
@@ -242,6 +257,93 @@ for i, id in ipairs(tabIds) do
     end)
     tabButtons[id] = b
 end
+
+do
+    local b = CreateFrame("Button", nil, tabBar, "UIPanelButtonTemplate")
+    b:SetSize(TAB_BTN_W, TAB_BTN_H)
+    b:SetPoint("TOPLEFT", tabBar, "TOPLEFT", 3 * (TAB_BTN_W + 4), 0)
+    b:SetText("Debug")
+    b:SetScript("OnClick", function()
+        SetActiveOptionsTab("debug")
+    end)
+    b:Hide()
+    tabButtons["debug"] = b
+end
+
+-- ---------------------------------------------------------------------------
+-- Debug tab
+-- ---------------------------------------------------------------------------
+
+local debugSearchCheckbox = CreateFrame("CheckButton", nil, tabDebug, "InterfaceOptionsCheckButtonTemplate")
+debugSearchCheckbox:SetPoint("TOPLEFT", tabDebug, "TOPLEFT", 0, 0)
+debugSearchCheckbox:SetScript("OnClick", function(self)
+    if AltArmy.Debug and AltArmy.Debug.SetSearchEnabled then
+        AltArmy.Debug.SetSearchEnabled(self:GetChecked())
+    end
+end)
+panel.debugSearchCheckbox = debugSearchCheckbox
+
+local debugSearchLabel = debugSearchCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+debugSearchLabel:SetPoint("LEFT", debugSearchCheckbox, "RIGHT", 4, 0)
+debugSearchLabel:SetText("Search query timing")
+AltArmy.WireCheckboxLabelClick(debugSearchCheckbox, debugSearchLabel)
+
+local debugSearchHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+debugSearchHint:SetPoint("TOPLEFT", debugSearchCheckbox, "BOTTOMLEFT", 0, -8)
+debugSearchHint:SetWidth(520)
+debugSearchHint:SetJustifyH("LEFT")
+debugSearchHint:SetText("Logs search pipeline timing in chat when using the Search tab.")
+
+local debugCooldownsCheckbox = CreateFrame("CheckButton", nil, tabDebug, "InterfaceOptionsCheckButtonTemplate")
+debugCooldownsCheckbox:SetPoint("TOPLEFT", debugSearchHint, "BOTTOMLEFT", 0, -16)
+debugCooldownsCheckbox:SetScript("OnClick", function(self)
+    if AltArmy.Debug and AltArmy.Debug.SetCooldownsEnabled then
+        AltArmy.Debug.SetCooldownsEnabled(self:GetChecked())
+    end
+end)
+panel.debugCooldownsCheckbox = debugCooldownsCheckbox
+
+local debugCooldownsLabel = debugCooldownsCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+debugCooldownsLabel:SetPoint("LEFT", debugCooldownsCheckbox, "RIGHT", 4, 0)
+debugCooldownsLabel:SetText("Profession cooldown scans")
+AltArmy.WireCheckboxLabelClick(debugCooldownsCheckbox, debugCooldownsLabel)
+
+local debugCooldownsHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+debugCooldownsHint:SetPoint("TOPLEFT", debugCooldownsCheckbox, "BOTTOMLEFT", 0, -8)
+debugCooldownsHint:SetWidth(520)
+debugCooldownsHint:SetJustifyH("LEFT")
+debugCooldownsHint:SetText("Logs cooldown persistence when opening profession windows (e.g. Tailoring).")
+
+function RefreshDebugCheckboxes()
+    local D = AltArmy and AltArmy.Debug
+    if not D or not D.Ensure then return end
+    D.Ensure()
+    local d = AltArmyTBC_Options.debug
+    if panel.debugSearchCheckbox then
+        panel.debugSearchCheckbox:SetChecked(d.search == true)
+    end
+    if panel.debugCooldownsCheckbox then
+        panel.debugCooldownsCheckbox:SetChecked(d.cooldowns == true)
+    end
+end
+panel.RefreshDebugCheckboxes = RefreshDebugCheckboxes
+
+function RefreshDebugTabVisibility()
+    local D = AltArmy and AltArmy.Debug
+    local btn = tabButtons["debug"]
+    if not D or not D.IsEnabled or not btn then return end
+    if D.IsEnabled() then
+        btn:Show()
+    else
+        btn:Hide()
+        if activeOptionsTab == "debug" then
+            SetActiveOptionsTab("general")
+        end
+    end
+end
+panel.RefreshDebugTabVisibility = RefreshDebugTabVisibility
+
+RefreshDebugTabVisibility()
 
 -- ---------------------------------------------------------------------------
 -- General tab
@@ -585,7 +687,10 @@ local function optionsHostIsOpen()
 end
 
 local function scheduleApplyOptionsTab(tabId)
-    if tabId ~= "characters" and tabId ~= "cooldowns" then
+    if tabId ~= "characters" and tabId ~= "cooldowns" and tabId ~= "debug" then
+        return
+    end
+    if tabId == "debug" and AltArmy.Debug and not AltArmy.Debug.IsEnabled() then
         return
     end
     tabApplyFrame:SetScript("OnUpdate", nil)
@@ -599,6 +704,9 @@ local function scheduleApplyOptionsTab(tabId)
             SetActiveOptionsTab(self.tabId)
             if self.tabId == "cooldowns" and panel.RefreshCooldownOptionsFromVars then
                 panel.RefreshCooldownOptionsFromVars()
+            end
+            if self.tabId == "debug" and panel.RefreshDebugCheckboxes then
+                panel.RefreshDebugCheckboxes()
             end
             self:SetScript("OnUpdate", nil)
             self:Hide()
@@ -662,6 +770,12 @@ reg:SetScript("OnEvent", function(_, event)
         if panel.RefreshRealmFilterDropdown then
             panel.RefreshRealmFilterDropdown()
         end
+        if panel.RefreshDebugTabVisibility then
+            panel.RefreshDebugTabVisibility()
+        end
+        if panel.RefreshDebugCheckboxes then
+            panel.RefreshDebugCheckboxes()
+        end
     end
 end)
 
@@ -670,7 +784,33 @@ end)
 -- ---------------------------------------------------------------------------
 
 SLASH_ALTARMY1, SLASH_ALTARMY2 = "/altarmy", "/alta"
-SlashCmdList.ALTARMY = function(_msg)
+SlashCmdList.ALTARMY = function(msg)
+    local trimmed = (msg or ""):match("^%s*(.-)%s*$") or ""
+    local lower = trimmed:lower()
+    if lower == "debug on" then
+        if AltArmy.Debug and AltArmy.Debug.SetEnabled then
+            AltArmy.Debug.SetEnabled(true)
+            if AltArmy.Debug.NotifyChat then
+                AltArmy.Debug.NotifyChat("Debug options enabled")
+            end
+        end
+        if panel.RefreshDebugTabVisibility then
+            panel.RefreshDebugTabVisibility()
+        end
+        return
+    end
+    if lower == "debug off" then
+        if AltArmy.Debug and AltArmy.Debug.SetEnabled then
+            AltArmy.Debug.SetEnabled(false)
+            if AltArmy.Debug.NotifyChat then
+                AltArmy.Debug.NotifyChat("Debug options disabled")
+            end
+        end
+        if panel.RefreshDebugTabVisibility then
+            panel.RefreshDebugTabVisibility()
+        end
+        return
+    end
     if AltArmy and AltArmy.MainFrame then
         AltArmy.MainFrame:Show()
     end
@@ -678,14 +818,15 @@ end
 
 AltArmy.OptionsPanel = panel
 
---- @param initialTab string|nil "general" (default), "characters", or "cooldowns"
+--- @param initialTab string|nil "general" (default), "characters", "cooldowns", or "debug"
 function AltArmy.OpenInterfaceOptions(initialTab)
     if Settings and Settings.OpenToCategory and panel.altArmySettingsCategory then
         Settings.OpenToCategory(panel.altArmySettingsCategory:GetID())
     elseif InterfaceOptionsFrame_OpenToCategory then
         InterfaceOptionsFrame_OpenToCategory(panel)
     end
-    if initialTab == "characters" or initialTab == "cooldowns" then
+    if initialTab == "characters" or initialTab == "cooldowns"
+        or (initialTab == "debug" and AltArmy.Debug and AltArmy.Debug.IsEnabled()) then
         scheduleApplyOptionsTab(initialTab)
     elseif panel:IsShown() and optionsHostIsOpen() then
         SetActiveOptionsTab("general")

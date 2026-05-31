@@ -16,10 +16,11 @@ local _recipesCache = nil
 local _itemNameCache = {}
 local _recipeNameCache = {}
 
---- Query timing debug. Enable: /run ALTARMY_DEBUG_SEARCH=true then use the Search tab.
+--- Query timing debug. Enable: /altarmy debug on, then Interface > AddOns > AltArmy > Debug.
 --- Uses debugprofilestart/stop (high-resolution) because GetTime() only updates once per frame.
 local function SearchDebugEnabled()
-    return rawget(_G, "ALTARMY_DEBUG_SEARCH")
+    local Dbg = AltArmy and AltArmy.Debug
+    return Dbg and Dbg.IsSearchEnabled and Dbg.IsSearchEnabled()
 end
 
 local function LogSearchDebug(msg)
