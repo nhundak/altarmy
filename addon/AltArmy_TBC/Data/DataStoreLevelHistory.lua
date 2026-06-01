@@ -1,7 +1,7 @@
 -- AltArmy TBC — DataStore module: level-up milestones, death log, one-time backfill.
 -- Requires DataStore.lua (core) loaded first.
--- luacheck: globals GetRealZoneText GetMoney GetXPExhaustion RequestTimePlayed C_Timer
--- luacheck: globals UnitGUID UnitLevel DEFAULT_CHAT_FRAME
+-- luacheck: globals GetRealZoneText GetMoney GetXPExhaustion RequestTimePlayed C_Timer C_AddOns IsAddOnLoaded
+-- luacheck: globals UnitGUID UnitLevel UnitName GetRealmName DEFAULT_CHAT_FRAME RXPCTrackingData
 
 if not AltArmy or not AltArmy.DataStore then return end
 
@@ -16,6 +16,13 @@ local lastAttacker = { name = nil, guid = nil }
 local testCharOverride = nil
 local testChatMessages = nil
 local testDebugMessages = nil
+local testRxpAddonEnabled = nil
+local rxpBackfillRetryCount = 0
+local rxpBackfillRetryScheduled = false
+
+local RXP_ADDON_NAMES = { "RXPGuides", "RXPGuides_TBC" }
+local RXP_BACKFILL_RETRY_DELAY = 3
+local RXP_BACKFILL_MAX_RETRIES = 5
 
 local ALTARMY_GOLD = "|cfffecc00"
 local LEVEL_HISTORY_DEBUG_PREFIX = "|cff00ccff[AltArmy:LevelHistory]|r "
@@ -61,7 +68,14 @@ function DS._ResetLevelHistoryTestState()
     testCharOverride = nil
     testChatMessages = nil
     testDebugMessages = nil
+    testRxpAddonEnabled = nil
+    rxpBackfillRetryCount = 0
+    rxpBackfillRetryScheduled = false
     DS._pendingLevelUp = nil
+end
+
+function DS._SetLevelHistoryTestRxpAddonEnabled(enabled)
+    testRxpAddonEnabled = enabled
 end
 
 function DS._BeginLevelHistoryChatCapture()
@@ -403,7 +417,7 @@ local function BuildMilestoneFromRxpLevel(bracket)
         playedLevel = ts.finished - ts.started
         if playedLevel < 0 then playedLevel = nil end
     end
-    local reachedAt = DS._CalendarToUnix(bracket.dateFinished)
+    local reachedAt = DS._CalendarToUnix(ts.dateFinished)
     return {
         reachedAt = reachedAt,
         playedTotal = playedTotal,
@@ -439,8 +453,9 @@ function DS:ImportLevelHistoryFromRXP(char, rxpProfile)
     local history = EnsureLevelHistory(char)
     local imported = 0
     for bracketLevel, bracket in pairs(levels) do
-        if type(bracketLevel) == "number" then
-            local levelReached = bracketLevel + 1
+        local bracketNum = tonumber(bracketLevel)
+        if bracketNum and bracket then
+            local levelReached = bracketNum + 1
             local incoming = BuildMilestoneFromRxpLevel(bracket)
             if incoming and CountIncomingMilestoneFields(history.milestones[levelReached], incoming) > 0 then
                 history.milestones[levelReached] = DS._MergeMilestone(
@@ -489,11 +504,164 @@ function DS._FormatLevelHistorySummary(char)
     )
 end
 
-function DS:RunLevelHistoryBackfill()
-    LogLevelHistoryDebug("Checking level history import status")
-    local account = GetAccountData()
+local function IsRxpAddonEnabled()
+    if testRxpAddonEnabled ~= nil then
+        return testRxpAddonEnabled
+    end
+    for _, addonName in ipairs(RXP_ADDON_NAMES) do
+        if C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded(addonName) then
+            return true
+        end
+        if IsAddOnLoaded and IsAddOnLoaded(addonName) then
+            return true
+        end
+    end
+    return rawget(_G, "RXPGuides") ~= nil
+end
+
+function DS._BuildRxpProfileKey(name, realm)
+    if not name or not realm then return nil end
+    return name .. " - " .. realm
+end
+
+local function GetRxpProfileKey()
+    if not UnitName or not GetRealmName then return nil end
+    local name = UnitName("player")
+    local realm = GetRealmName()
+    return DS._BuildRxpProfileKey(name, realm)
+end
+
+local function ResolveRxpProfileFromSavedVar(rxp)
+    if not rxp or type(rxp) ~= "table" then return nil, nil end
+
+    if rxp.profiles and type(rxp.profiles) == "table" then
+        local profileKey = GetRxpProfileKey()
+        if profileKey and rxp.profiles[profileKey] then
+            return rxp.profiles[profileKey], "RXPCTrackingData.profiles[" .. profileKey .. "]"
+        end
+        if profileKey and rxp.profileKeys and rxp.profileKeys[profileKey] then
+            local alias = rxp.profileKeys[profileKey]
+            if rxp.profiles[alias] then
+                return rxp.profiles[alias], "RXPCTrackingData.profiles[" .. alias .. "]"
+            end
+        end
+        for key, profile in pairs(rxp.profiles) do
+            if profile and profile.levels and next(profile.levels) then
+                return profile, "RXPCTrackingData.profiles[" .. tostring(key) .. "]"
+            end
+        end
+    end
+
+    if rxp.profile and type(rxp.profile) == "table" then
+        return rxp.profile, "RXPCTrackingData.profile"
+    end
+
+    if rxp.levels then
+        return rxp, "RXPCTrackingData"
+    end
+
+    return nil, nil
+end
+
+function DS._ResolveRxpTrackingProfile()
+    local rxp = rawget(_G, "RXPCTrackingData")
+    return ResolveRxpProfileFromSavedVar(rxp)
+end
+
+local function ScheduleRxpBackfillRetry()
+    if rxpBackfillRetryScheduled then return end
+    if rxpBackfillRetryCount >= RXP_BACKFILL_MAX_RETRIES then return end
+    if not C_Timer or not C_Timer.After then return end
+
+    rxpBackfillRetryScheduled = true
+    rxpBackfillRetryCount = rxpBackfillRetryCount + 1
+    C_Timer.After(RXP_BACKFILL_RETRY_DELAY, function()
+        rxpBackfillRetryScheduled = false
+        if DS.TryRxpLevelHistoryImport then
+            DS:TryRxpLevelHistoryImport()
+        end
+    end)
+end
+
+function DS:TryRxpLevelHistoryImport()
     local char = GetActiveChar()
     local charLabel = (char and char.name) or "unknown"
+
+    if not char then
+        LogLevelHistoryDebug("RXP: skip import (no active character)")
+        return false
+    end
+
+    local rxpHistory = char.levelHistory
+    if rxpHistory and rxpHistory.meta and rxpHistory.meta.importedRxpAt then
+        LogLevelHistoryDebug(string.format(
+            "RXP: skip import for %s (already completed at %s)",
+            charLabel,
+            tostring(rxpHistory.meta.importedRxpAt)
+        ))
+        return true
+    end
+
+    local rxpProfile, rxpSource = DS._ResolveRxpTrackingProfile()
+    if rxpProfile then
+        LogLevelHistoryDebug(string.format(
+            "RXP: one-time import needed for %s; %s found, running import",
+            charLabel,
+            rxpSource
+        ))
+        local rxpImported = DS:ImportLevelHistoryFromRXP(char, rxpProfile) or 0
+        if rxpImported > 0 then
+            NotifyLevelHistoryChat(string.format(
+                "Imported %d level milestone(s) from RestedXP for %s.",
+                rxpImported,
+                charLabel
+            ))
+            LogLevelHistoryDebug(string.format(
+                "RXP: import complete for %s, added %d milestone(s)",
+                charLabel,
+                rxpImported
+            ))
+        else
+            LogLevelHistoryDebug(string.format(
+                "RXP: import complete for %s, no new milestones added",
+                charLabel
+            ))
+        end
+        local history = EnsureLevelHistory(char)
+        history.meta.importedRxpAt = time and time() or 0
+        return true
+    end
+
+    if IsRxpAddonEnabled() then
+        local rxp = rawget(_G, "RXPCTrackingData")
+        local profileCount = 0
+        if rxp and rxp.profiles then
+            for _ in pairs(rxp.profiles) do
+                profileCount = profileCount + 1
+            end
+        end
+        LogLevelHistoryDebug(string.format(
+            "RXP: tracking data not ready yet for %s (profile key %s, %d saved profile(s)), will retry shortly",
+            charLabel,
+            tostring(GetRxpProfileKey()),
+            profileCount
+        ))
+        ScheduleRxpBackfillRetry()
+    else
+        LogLevelHistoryDebug(string.format(
+            "RXP: RestedXP not loaded for %s, will retry on a future login",
+            charLabel
+        ))
+    end
+    return false
+end
+
+function DS:RunLevelHistoryBackfill()
+    LogLevelHistoryDebug("Checking level history import status")
+    rxpBackfillRetryCount = 0
+    rxpBackfillRetryScheduled = false
+    local account = GetAccountData()
+    local char = GetActiveChar()
 
     if not account.levelHistoryImport or not account.levelHistoryImport.questieAt then
         local questie = rawget(_G, "QuestieConfig")
@@ -553,52 +721,23 @@ function DS:RunLevelHistoryBackfill()
 
     if not char then
         LogLevelHistoryDebug("RXP: skip import (no active character)")
-        return
-    end
-
-    local rxpHistory = char.levelHistory
-    if rxpHistory and rxpHistory.meta and rxpHistory.meta.importedRxpAt then
-        LogLevelHistoryDebug(string.format(
-            "RXP: skip import for %s (already completed at %s)",
-            charLabel,
-            tostring(rxpHistory.meta.importedRxpAt)
-        ))
     else
-        local rxp = rawget(_G, "RXPCTrackingData")
-        if rxp and rxp.profile then
-            LogLevelHistoryDebug(string.format(
-                "RXP: one-time import needed for %s; RXPCTrackingData found, running import",
-                charLabel
-            ))
-            local rxpImported = DS:ImportLevelHistoryFromRXP(char, rxp.profile) or 0
-            if rxpImported > 0 then
-                NotifyLevelHistoryChat(string.format(
-                    "Imported %d level milestone(s) from RestedXP for %s.",
-                    rxpImported,
-                    charLabel
-                ))
-                LogLevelHistoryDebug(string.format(
-                    "RXP: import complete for %s, added %d milestone(s)",
-                    charLabel,
-                    rxpImported
-                ))
-            else
-                LogLevelHistoryDebug(string.format(
-                    "RXP: import complete for %s, no new milestones added",
-                    charLabel
-                ))
-            end
-            local history = EnsureLevelHistory(char)
-            history.meta.importedRxpAt = time and time() or 0
-        else
-            LogLevelHistoryDebug(string.format(
-                "RXP: RXPCTrackingData not found for %s, will retry on a future login",
-                charLabel
-            ))
-        end
+        DS:TryRxpLevelHistoryImport()
     end
 
     LogLevelHistoryDebug("Stored: " .. DS._FormatLevelHistorySummary(char))
+end
+
+local rxpAddonFrame = CreateFrame and CreateFrame("Frame")
+if rxpAddonFrame then
+    rxpAddonFrame:RegisterEvent("ADDON_LOADED")
+    rxpAddonFrame:SetScript("OnEvent", function(_, _, loadedName)
+        if loadedName == "RXPGuides" or loadedName == "RXPGuides_TBC" then
+            if DS.TryRxpLevelHistoryImport then
+                DS:TryRxpLevelHistoryImport()
+            end
+        end
+    end)
 end
 
 function DS:DeleteAllLevelHistory()

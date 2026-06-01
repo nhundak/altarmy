@@ -61,14 +61,54 @@ describe("LevelHistoryImport", function()
     end)
   end)
 
+  describe("_ResolveRxpTrackingProfile", function()
+    local oldUnitName, oldGetRealmName
+
+    before_each(function()
+      oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit)
+        return unit == "player" and "Bob" or nil
+      end
+      _G.GetRealmName = function()
+        return "Faerlina"
+      end
+    end)
+
+    after_each(function()
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      _G.RXPCTrackingData = nil
+    end)
+
+    it("reads AceDB character profile from RXPCTrackingData.profiles", function()
+      local profile = { levels = { [1] = { timestamp = { finished = 100 } } } }
+      _G.RXPCTrackingData = {
+        profileKeys = { ["Bob - Faerlina"] = "Bob - Faerlina" },
+        profiles = { ["Bob - Faerlina"] = profile },
+      }
+      local resolved, source = DS._ResolveRxpTrackingProfile()
+      assert.are.same(profile, resolved)
+      assert.matches("profiles%[Bob %- Faerlina%]", source)
+    end)
+
+    it("falls back to RXPCTrackingData.profile for legacy saves", function()
+      local profile = { levels = { [1] = { timestamp = { finished = 100 } } } }
+      _G.RXPCTrackingData = { profile = profile }
+      local resolved = DS._ResolveRxpTrackingProfile()
+      assert.are.same(profile, resolved)
+    end)
+  end)
+
   describe("ImportLevelHistoryFromRXP", function()
     it("imports native milestone fields only", function()
       local char = { name = "Bob", realm = "Faerlina" }
       local profile = {
         levels = {
           [5] = {
-            timestamp = { started = 1000, finished = 2500 },
-            dateFinished = { year = 2024, month = 6, monthDay = 15, hour = 14, minute = 30 },
+            timestamp = {
+              started = 1000,
+              finished = 2500,
+              dateFinished = { year = 2024, month = 6, monthDay = 15, hour = 14, minute = 30 },
+            },
             deaths = 2,
             quests = { ["Zone"] = { [123] = 500 } },
             mobs = { ["Zone"] = { xp = 800, count = 10 } },
@@ -156,10 +196,16 @@ describe("LevelHistoryImport", function()
       _G.AltArmyTBC_Data.levelHistoryImport = { questieAt = 1 }
       local char = { name = "Bob", realm = "Faerlina" }
       DS._SetLevelHistoryTestChar(char)
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Bob" or nil end
+      _G.GetRealmName = function() return "Faerlina" end
       _G.RXPCTrackingData = {
-        profile = {
-          levels = {
-            [4] = { timestamp = { started = 100, finished = 500 }, deaths = 1 },
+        profileKeys = { ["Bob - Faerlina"] = "Bob - Faerlina" },
+        profiles = {
+          ["Bob - Faerlina"] = {
+            levels = {
+              [4] = { timestamp = { started = 100, finished = 500 }, deaths = 1 },
+            },
           },
         },
       }
@@ -167,11 +213,12 @@ describe("LevelHistoryImport", function()
       assert.is_not_nil(char.levelHistory.meta.importedRxpAt)
       assert.are.equal(500, char.levelHistory.milestones[5].playedTotal)
 
-      _G.RXPCTrackingData.profile.levels[5] = {
+      _G.RXPCTrackingData.profiles["Bob - Faerlina"].levels[5] = {
         timestamp = { started = 500, finished = 900 },
       }
       DS:RunLevelHistoryBackfill()
       assert.is_nil(char.levelHistory.milestones[6])
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
     end)
 
     it("posts chat when Questie backfill imports milestones", function()
@@ -203,11 +250,17 @@ describe("LevelHistoryImport", function()
       _G.AltArmyTBC_Data.levelHistoryImport = { questieAt = 1 }
       local char = { name = "Bob", realm = "Faerlina" }
       DS._SetLevelHistoryTestChar(char)
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Bob" or nil end
+      _G.GetRealmName = function() return "Faerlina" end
       _G.RXPCTrackingData = {
-        profile = {
-          levels = {
-            [4] = { timestamp = { started = 100, finished = 500 }, deaths = 1 },
-            [5] = { timestamp = { started = 500, finished = 900 }, deaths = 0 },
+        profileKeys = { ["Bob - Faerlina"] = "Bob - Faerlina" },
+        profiles = {
+          ["Bob - Faerlina"] = {
+            levels = {
+              [4] = { timestamp = { started = 100, finished = 500 }, deaths = 1 },
+              [5] = { timestamp = { started = 500, finished = 900 }, deaths = 0 },
+            },
           },
         },
       }
@@ -218,6 +271,7 @@ describe("LevelHistoryImport", function()
       assert.matches("RestedXP", messages[1])
       assert.matches("Bob", messages[1])
       assert.matches("2 level milestone", messages[1])
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
     end)
 
     it("does not post chat when no import data is available", function()
@@ -237,6 +291,7 @@ describe("LevelHistoryImport", function()
       _G.AltArmyTBC_Data.levelHistoryImport = nil
       _G.QuestieConfig = nil
       _G.RXPCTrackingData = nil
+      _G.RXPGuides = nil
       local char = { name = "Bob", realm = "Faerlina" }
       DS._SetLevelHistoryTestChar(char)
       DS:RunLevelHistoryBackfill()
@@ -244,6 +299,53 @@ describe("LevelHistoryImport", function()
       assert.is_nil(char.levelHistory)
       DS:RunLevelHistoryBackfill()
       assert.is_nil(AltArmyTBC_Data.levelHistoryImport)
+    end)
+
+    it("imports RXP data after deferred retry once AceDB profile appears", function()
+      _G.AltArmyTBC_Data.levelHistoryImport = { questieAt = 1 }
+      local char = { name = "Bob", realm = "Faerlina" }
+      DS._SetLevelHistoryTestChar(char)
+      _G.RXPCTrackingData = nil
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Bob" or nil end
+      _G.GetRealmName = function() return "Faerlina" end
+      local scheduled = {}
+      _G.C_Timer = {
+        After = function(_, fn)
+          scheduled[#scheduled + 1] = fn
+        end,
+      }
+      DS._SetLevelHistoryTestRxpAddonEnabled(true)
+      enableLevelHistoryDebug()
+      DS._BeginLevelHistoryDebugCapture()
+      DS:RunLevelHistoryBackfill()
+      assert.is_nil(char.levelHistory)
+      assert.are.equal(1, #scheduled)
+      local messagesBeforeRetry = DS._GetLevelHistoryDebugMessages()
+      local foundDeferred = false
+      for _, line in ipairs(messagesBeforeRetry) do
+        if line:match("not ready yet") then
+          foundDeferred = true
+          break
+        end
+      end
+      assert.is_true(foundDeferred)
+      _G.RXPCTrackingData = {
+        profileKeys = { ["Bob - Faerlina"] = "Bob - Faerlina" },
+        profiles = {
+          ["Bob - Faerlina"] = {
+            levels = {
+              [4] = { timestamp = { started = 100, finished = 500 }, deaths = 1 },
+            },
+          },
+        },
+      }
+      scheduled[1]()
+      assert.is_not_nil(char.levelHistory.meta.importedRxpAt)
+      assert.are.equal(500, char.levelHistory.milestones[5].playedTotal)
+      _G.C_Timer = nil
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      DS._SetLevelHistoryTestRxpAddonEnabled(nil)
     end)
 
     it("logs import decisions and stored summary when debug enabled", function()
