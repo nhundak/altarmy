@@ -125,6 +125,87 @@ local function NotifyLevelHistoryChat(msg)
     end
 end
 
+local function EnsureOrphanImports(account)
+    account.OrphanImports = account.OrphanImports or {}
+    account.OrphanImports.levelHistory = account.OrphanImports.levelHistory or {}
+    return account.OrphanImports
+end
+
+function DS:GetOrphanLevelHistoryRecord(realm, name)
+    if not realm or not name then return nil end
+    local orphans = EnsureOrphanImports(GetAccountData())
+    orphans.levelHistory[realm] = orphans.levelHistory[realm] or {}
+    local record = orphans.levelHistory[realm][name]
+    if not record then
+        record = { name = name, realm = realm }
+        orphans.levelHistory[realm][name] = record
+    end
+    return record
+end
+
+function DS:MergeLevelHistory(targetChar, sourceChar)
+    if not targetChar or not sourceChar or not sourceChar.levelHistory then return end
+    local target = EnsureLevelHistory(targetChar)
+    local source = sourceChar.levelHistory
+    for level, milestone in pairs(source.milestones or {}) do
+        target.milestones[level] = DS._MergeMilestone(target.milestones[level], milestone)
+    end
+    for _, death in ipairs(source.deaths or {}) do
+        target.deaths[#target.deaths + 1] = death
+    end
+    if source.meta and source.meta.importedRxpAt and not target.meta.importedRxpAt then
+        target.meta.importedRxpAt = source.meta.importedRxpAt
+    end
+    targetChar.dataVersions = targetChar.dataVersions or {}
+    targetChar.dataVersions.levelHistory = DATA_VERSIONS.levelHistory
+end
+
+function DS:ClaimOrphanLevelHistory(name, realm, char)
+    if not name or not realm or not char then return false end
+    if not self:HasModuleData(char, "character") then return false end
+    local account = GetAccountData()
+    local orphans = account.OrphanImports and account.OrphanImports.levelHistory
+    if not orphans then return false end
+    local realmTable = orphans[realm]
+    if not realmTable then return false end
+    local orphan = realmTable[name]
+    if not orphan or not orphan.levelHistory then return false end
+
+    self:MergeLevelHistory(char, orphan)
+    realmTable[name] = nil
+    if not next(realmTable) then
+        orphans[realm] = nil
+    end
+    LogLevelHistoryDebug(string.format(
+        "Claimed orphan level history for %s on %s",
+        name,
+        realm
+    ))
+    return true
+end
+
+function DS:MigratePhantomLevelHistoryImports()
+    local account = GetAccountData()
+    local moved = 0
+    for realm, chars in pairs(account.Characters or {}) do
+        for name, char in pairs(chars) do
+            if char and char.levelHistory and not self:HasModuleData(char, "character") then
+                local orphan = self:GetOrphanLevelHistoryRecord(realm, name)
+                self:MergeLevelHistory(orphan, char)
+                chars[name] = nil
+                moved = moved + 1
+            end
+        end
+    end
+    if moved > 0 then
+        LogLevelHistoryDebug(string.format(
+            "Moved level history for %d phantom character(s) into OrphanImports",
+            moved
+        ))
+    end
+    return moved
+end
+
 function DS._SetLevelHistoryTestChar(char)
     testCharOverride = char
 end
@@ -673,13 +754,14 @@ function DS:RunLevelHistoryBackfill()
             for key, questieCharData in pairs(questie.char) do
                 local name, realm = ParseQuestieCharacterKey(key)
                 if name and realm then
-                    account.Characters[realm] = account.Characters[realm] or {}
-                    local questieChar = account.Characters[realm][name]
-                    if not questieChar then
-                        questieChar = { name = name, realm = realm }
-                        account.Characters[realm][name] = questieChar
+                    local storedChar = DS:GetCharacter(name, realm)
+                    local importTarget
+                    if storedChar and DS:HasModuleData(storedChar, "character") then
+                        importTarget = storedChar
+                    else
+                        importTarget = DS:GetOrphanLevelHistoryRecord(realm, name)
                     end
-                    local imported = DS:ImportLevelHistoryFromQuestie(questieChar, questieCharData)
+                    local imported = DS:ImportLevelHistoryFromQuestie(importTarget, questieCharData)
                     if imported > 0 then
                         questieCharacters = questieCharacters + 1
                         questieMilestones = questieMilestones + imported
@@ -743,6 +825,9 @@ end
 function DS:DeleteAllLevelHistory()
     local account = GetAccountData()
     account.levelHistoryImport = nil
+    if account.OrphanImports then
+        account.OrphanImports.levelHistory = nil
+    end
     local charactersCleared = 0
     for _, chars in pairs(account.Characters or {}) do
         for _, char in pairs(chars) do

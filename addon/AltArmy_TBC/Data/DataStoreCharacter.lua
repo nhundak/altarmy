@@ -76,6 +76,9 @@ function DS:ScanCharacter(_self)
     end
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.character = DATA_VERSIONS.character
+    if DS.ClaimOrphanLevelHistory then
+        DS:ClaimOrphanLevelHistory(char.name, char.realm, char)
+    end
 end
 
 function DS:GetCharacterName(char)

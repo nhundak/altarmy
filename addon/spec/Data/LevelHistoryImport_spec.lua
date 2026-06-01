@@ -168,7 +168,7 @@ describe("LevelHistoryImport", function()
   end)
 
   describe("RunLevelHistoryBackfill", function()
-    it("runs Questie import once account-wide", function()
+    it("runs Questie import once account-wide for tracked characters", function()
       _G.AltArmyTBC_Data.levelHistoryImport = nil
       _G.QuestieConfig = {
         char = {
@@ -178,7 +178,13 @@ describe("LevelHistoryImport", function()
         },
       }
       AltArmyTBC_Data.Characters = {
-        Faerlina = { Bob = { name = "Bob", realm = "Faerlina" } },
+        Faerlina = {
+          Bob = {
+            name = "Bob",
+            realm = "Faerlina",
+            dataVersions = { character = 1 },
+          },
+        },
       }
       DS._SetLevelHistoryTestChar(AltArmyTBC_Data.Characters.Faerlina.Bob)
       DS:RunLevelHistoryBackfill()
@@ -190,6 +196,25 @@ describe("LevelHistoryImport", function()
       }
       DS:RunLevelHistoryBackfill()
       assert.is_nil(AltArmyTBC_Data.Characters.Faerlina.Bob.levelHistory.milestones[6])
+    end)
+
+    it("stores Questie import for unknown characters in OrphanImports", function()
+      _G.AltArmyTBC_Data.levelHistoryImport = nil
+      _G.AltArmyTBC_Data.OrphanImports = nil
+      _G.QuestieConfig = {
+        char = {
+          ["OldName - Faerlina"] = {
+            journey = { { Event = "Level", NewLevel = 5, Timestamp = 500 } },
+          },
+        },
+      }
+      AltArmyTBC_Data.Characters = {}
+      DS:RunLevelHistoryBackfill()
+      assert.is_nil(AltArmyTBC_Data.Characters.Faerlina)
+      assert.are.equal(
+        500,
+        AltArmyTBC_Data.OrphanImports.levelHistory.Faerlina.OldName.levelHistory.milestones[5].reachedAt
+      )
     end)
 
     it("runs RXP import once per character", function()
@@ -235,7 +260,13 @@ describe("LevelHistoryImport", function()
         },
       }
       AltArmyTBC_Data.Characters = {
-        Faerlina = { Bob = { name = "Bob", realm = "Faerlina" } },
+        Faerlina = {
+          Bob = {
+            name = "Bob",
+            realm = "Faerlina",
+            dataVersions = { character = 1 },
+          },
+        },
       }
       DS._SetLevelHistoryTestChar(AltArmyTBC_Data.Characters.Faerlina.Bob)
       DS._BeginLevelHistoryChatCapture()

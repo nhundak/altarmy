@@ -25,6 +25,7 @@ local DATA_VERSIONS = {
 
 AltArmyTBC_Data = AltArmyTBC_Data or {}
 AltArmyTBC_Data.Characters = AltArmyTBC_Data.Characters or {}
+AltArmyTBC_Data.OrphanImports = AltArmyTBC_Data.OrphanImports or {}
 
 -- SavedVariables are applied after this file can run; the global table may be replaced, so
 -- re-point these in SyncAccountDataRoot (ADDON_LOADED + VARIABLES_LOADED) or writes (e.g.
@@ -302,9 +303,13 @@ frame:SetScript("OnEvent", function(_, event, ...)
         if addonName == "AltArmy_TBC" then
             SyncAccountDataRoot()
             AltArmyTBC_Data.Characters = AltArmyTBC_Data.Characters or {}
+            AltArmyTBC_Data.OrphanImports = AltArmyTBC_Data.OrphanImports or {}
             AltArmyTBC_Data.RecipeReagents = AltArmyTBC_Data.RecipeReagents or {}
             GetCurrentCharTable()
             MigrateDataVersions()
+            if DS.MigratePhantomLevelHistoryImports then
+                DS:MigratePhantomLevelHistoryImports()
+            end
         end
         return
     end

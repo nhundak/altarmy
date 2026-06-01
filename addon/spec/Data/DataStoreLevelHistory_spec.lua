@@ -267,4 +267,65 @@ describe("DataStoreLevelHistory", function()
       assert.is_nil(DS._pendingLevelUp)
     end)
   end)
+
+  describe("OrphanImports", function()
+    it("claims orphan level history when a tracked character logs in", function()
+      AltArmyTBC_Data.OrphanImports = {
+        levelHistory = {
+          Faerlina = {
+            Bob = {
+              name = "Bob",
+              realm = "Faerlina",
+              levelHistory = {
+                milestones = { [5] = { reachedAt = 500 } },
+                deaths = {},
+                meta = {},
+              },
+            },
+          },
+        },
+      }
+      local char = { name = "Bob", realm = "Faerlina", dataVersions = { character = 1 } }
+      assert.is_true(DS:ClaimOrphanLevelHistory("Bob", "Faerlina", char))
+      assert.are.equal(500, char.levelHistory.milestones[5].reachedAt)
+      assert.is_nil(AltArmyTBC_Data.OrphanImports.levelHistory.Faerlina)
+    end)
+
+    it("migrates phantom character shells into OrphanImports", function()
+      AltArmyTBC_Data.Characters = {
+        Faerlina = {
+          OldName = {
+            name = "OldName",
+            realm = "Faerlina",
+            levelHistory = {
+              milestones = { [5] = { reachedAt = 500 } },
+              deaths = {},
+              meta = {},
+            },
+          },
+        },
+      }
+      AltArmyTBC_Data.OrphanImports = nil
+      assert.are.equal(1, DS:MigratePhantomLevelHistoryImports())
+      assert.is_nil(AltArmyTBC_Data.Characters.Faerlina.OldName)
+      assert.are.equal(
+        500,
+        AltArmyTBC_Data.OrphanImports.levelHistory.Faerlina.OldName.levelHistory.milestones[5].reachedAt
+      )
+    end)
+
+    it("clears orphan imports when deleting all level history", function()
+      AltArmyTBC_Data.OrphanImports = {
+        levelHistory = {
+          Faerlina = {
+            Bob = {
+              levelHistory = { milestones = { [5] = { reachedAt = 1 } }, deaths = {}, meta = {} },
+            },
+          },
+        },
+      }
+      DS:DeleteAllLevelHistory()
+      assert.is_nil(AltArmyTBC_Data.OrphanImports.levelHistory)
+    end)
+  end)
 end)
