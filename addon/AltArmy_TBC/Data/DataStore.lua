@@ -20,6 +20,7 @@ local DATA_VERSIONS = {
     mail = 1,
     auctions = 1,
     currencies = 1,
+    levelHistory = 1,
 }
 
 AltArmyTBC_Data = AltArmyTBC_Data or {}
@@ -231,9 +232,12 @@ frame:SetScript("OnEvent", function(_, event, ...)
     local addonName, a1, a3 = ...
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         if not CombatLogGetCurrentEventInfo or not UnitGUID then return end
+        local payload = { CombatLogGetCurrentEventInfo() }
+        if DS.HandleCombatLogForLevelHistory then
+            DS:HandleCombatLogForLevelHistory(payload)
+        end
         local CD = AltArmy and AltArmy.CooldownData
         if not CD or not CD.RecordSuccessfulTransmuteCast then return end
-        local payload = { CombatLogGetCurrentEventInfo() }
         local subevent = payload[2]
         if subevent ~= "SPELL_CAST_SUCCESS" then return end
         local srcGUID = payload[4]
@@ -355,6 +359,9 @@ frame:SetScript("OnEvent", function(_, event, ...)
                     end
                 end
             end)
+            if DS.RunLevelHistoryBackfill then
+                DS:RunLevelHistoryBackfill()
+            end
         end
         return
     end
@@ -571,12 +578,16 @@ frame:SetScript("OnEvent", function(_, event, ...)
         return
     end
     if event == "PLAYER_LEVEL_UP" then
+        local newLevel = addonName
         local char = GetCurrentCharTable()
         if char and UnitLevel then
-            char.level = UnitLevel("player")
+            char.level = UnitLevel("player") or newLevel
             if char.level == DS.MAX_LEVEL then
                 char.restXP = 0
             end
+        end
+        if DS.BeginPendingLevelUp then
+            DS:BeginPendingLevelUp(newLevel or (char and char.level))
         end
         return
     end
@@ -584,6 +595,9 @@ frame:SetScript("OnEvent", function(_, event, ...)
         local char = GetCurrentCharTable()
         if char and addonName and type(addonName) == "number" then
             char.played = addonName
+            if DS.FinalizePendingLevelUp then
+                DS:FinalizePendingLevelUp(addonName)
+            end
         end
         return
     end

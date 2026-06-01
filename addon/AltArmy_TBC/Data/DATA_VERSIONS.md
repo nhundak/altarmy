@@ -29,3 +29,6 @@ Each module has its own version number that is incremented when the storage form
 
 ### currencies (v1)
 - **v1**: Initial version. Stores TBC currency item counts in `char.Currencies[itemID] = count`.
+
+### levelHistory (v1)
+- **v1**: Level-up milestones in `char.levelHistory.milestones[level]` with `reachedAt`, `playedTotal`, `playedLevel`, `zone`, `money`, `restXP`, `gear`, `deaths` (bracket count). Death log in `char.levelHistory.deaths[]` with `at`, `level`, `zone`, `playedTotal`, `killerName`, `killerGuid`. Account import gate `levelHistoryImport.questieAt`; per-character `levelHistory.meta.importedRxpAt`.

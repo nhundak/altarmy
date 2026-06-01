@@ -27,6 +27,9 @@ function D.Ensure()
     if d.cooldowns == nil then
         d.cooldowns = false
     end
+    if d.levelHistory == nil then
+        d.levelHistory = false
+    end
 end
 
 function D.IsEnabled()
@@ -57,6 +60,16 @@ end
 function D.SetCooldownsEnabled(on)
     D.Ensure()
     AltArmyTBC_Options.debug.cooldowns = on == true
+end
+
+function D.IsLevelHistoryEnabled()
+    local d = debugTable()
+    return d.enabled == true and d.levelHistory == true
+end
+
+function D.SetLevelHistoryEnabled(on)
+    D.Ensure()
+    AltArmyTBC_Options.debug.levelHistory = on == true
 end
 
 function D.NotifyChat(msg)

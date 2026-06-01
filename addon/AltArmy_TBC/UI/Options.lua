@@ -314,6 +314,56 @@ debugCooldownsHint:SetWidth(520)
 debugCooldownsHint:SetJustifyH("LEFT")
 debugCooldownsHint:SetText("Logs cooldown persistence when opening profession windows (e.g. Tailoring).")
 
+local debugLevelHistoryCheckbox = CreateFrame("CheckButton", nil, tabDebug, "InterfaceOptionsCheckButtonTemplate")
+debugLevelHistoryCheckbox:SetPoint("TOPLEFT", debugCooldownsHint, "BOTTOMLEFT", 0, -16)
+debugLevelHistoryCheckbox:SetScript("OnClick", function(self)
+    if AltArmy.Debug and AltArmy.Debug.SetLevelHistoryEnabled then
+        AltArmy.Debug.SetLevelHistoryEnabled(self:GetChecked())
+    end
+end)
+panel.debugLevelHistoryCheckbox = debugLevelHistoryCheckbox
+
+local debugLevelHistoryLabel = debugLevelHistoryCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+debugLevelHistoryLabel:SetPoint("LEFT", debugLevelHistoryCheckbox, "RIGHT", 4, 0)
+debugLevelHistoryLabel:SetText("Level history tracking")
+AltArmy.WireCheckboxLabelClick(debugLevelHistoryCheckbox, debugLevelHistoryLabel)
+
+local debugLevelHistoryHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+debugLevelHistoryHint:SetPoint("TOPLEFT", debugLevelHistoryCheckbox, "BOTTOMLEFT", 0, -8)
+debugLevelHistoryHint:SetWidth(520)
+debugLevelHistoryHint:SetJustifyH("LEFT")
+debugLevelHistoryHint:SetText("Logs level history import checks, decisions, and stored milestone summaries.")
+
+local deleteAllHistoryConfirmPending = false
+
+local debugDeleteAllHistoryBtn = CreateFrame("Button", nil, tabDebug, "UIPanelButtonTemplate")
+debugDeleteAllHistoryBtn:SetSize(160, 22)
+debugDeleteAllHistoryBtn:SetPoint("TOPLEFT", debugLevelHistoryHint, "BOTTOMLEFT", 0, -12)
+debugDeleteAllHistoryBtn:SetText("Delete all history")
+panel.debugDeleteAllHistoryBtn = debugDeleteAllHistoryBtn
+
+local function ResetDeleteAllHistoryButton()
+    deleteAllHistoryConfirmPending = false
+    if panel.debugDeleteAllHistoryBtn then
+        panel.debugDeleteAllHistoryBtn:SetText("Delete all history")
+        panel.debugDeleteAllHistoryBtn:Enable()
+    end
+end
+
+debugDeleteAllHistoryBtn:SetScript("OnClick", function(self)
+    if deleteAllHistoryConfirmPending then
+        deleteAllHistoryConfirmPending = false
+        local DS = AltArmy and AltArmy.DataStore
+        if DS and DS.DeleteAllLevelHistory then
+            DS:DeleteAllLevelHistory()
+        end
+        self:SetText("Delete all history")
+    else
+        deleteAllHistoryConfirmPending = true
+        self:SetText("Really Delete?")
+    end
+end)
+
 function RefreshDebugCheckboxes()
     local D = AltArmy and AltArmy.Debug
     if not D or not D.Ensure then return end
@@ -325,6 +375,10 @@ function RefreshDebugCheckboxes()
     if panel.debugCooldownsCheckbox then
         panel.debugCooldownsCheckbox:SetChecked(d.cooldowns == true)
     end
+    if panel.debugLevelHistoryCheckbox then
+        panel.debugLevelHistoryCheckbox:SetChecked(d.levelHistory == true)
+    end
+    ResetDeleteAllHistoryButton()
 end
 panel.RefreshDebugCheckboxes = RefreshDebugCheckboxes
 
