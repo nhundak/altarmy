@@ -246,9 +246,8 @@ describe("LevelHistoryImport", function()
       _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
     end)
 
-    it("posts chat when Questie backfill imports milestones", function()
+    it("does not post chat when backfill imports milestones", function()
       _G.AltArmyTBC_Data.levelHistoryImport = nil
-      _G.RXPCTrackingData = nil
       _G.QuestieConfig = {
         char = {
           ["Bob - Faerlina"] = {
@@ -269,40 +268,8 @@ describe("LevelHistoryImport", function()
         },
       }
       DS._SetLevelHistoryTestChar(AltArmyTBC_Data.Characters.Faerlina.Bob)
-      DS._BeginLevelHistoryChatCapture()
       DS:RunLevelHistoryBackfill()
-      local messages = DS._GetLevelHistoryChatMessages()
-      assert.are.equal(1, #messages)
-      assert.matches("Questie", messages[1])
-      assert.matches("2 level milestone", messages[1])
-    end)
-
-    it("posts chat when RestedXP backfill imports milestones", function()
-      _G.AltArmyTBC_Data.levelHistoryImport = { questieAt = 1 }
-      local char = { name = "Bob", realm = "Faerlina" }
-      DS._SetLevelHistoryTestChar(char)
-      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
-      _G.UnitName = function(unit) return unit == "player" and "Bob" or nil end
-      _G.GetRealmName = function() return "Faerlina" end
-      _G.RXPCTrackingData = {
-        profileKeys = { ["Bob - Faerlina"] = "Bob - Faerlina" },
-        profiles = {
-          ["Bob - Faerlina"] = {
-            levels = {
-              [4] = { timestamp = { started = 100, finished = 500 }, deaths = 1 },
-              [5] = { timestamp = { started = 500, finished = 900 }, deaths = 0 },
-            },
-          },
-        },
-      }
-      DS._BeginLevelHistoryChatCapture()
-      DS:RunLevelHistoryBackfill()
-      local messages = DS._GetLevelHistoryChatMessages()
-      assert.are.equal(1, #messages)
-      assert.matches("RestedXP", messages[1])
-      assert.matches("Bob", messages[1])
-      assert.matches("2 level milestone", messages[1])
-      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.are.equal(500, AltArmyTBC_Data.Characters.Faerlina.Bob.levelHistory.milestones[5].reachedAt)
     end)
 
     it("does not post chat when no import data is available", function()
@@ -311,9 +278,7 @@ describe("LevelHistoryImport", function()
       local char = { name = "Bob", realm = "Faerlina" }
       DS._SetLevelHistoryTestChar(char)
       _G.RXPCTrackingData = nil
-      DS._BeginLevelHistoryChatCapture()
       DS:RunLevelHistoryBackfill()
-      assert.are.equal(0, #DS._GetLevelHistoryChatMessages())
       assert.is_nil(AltArmyTBC_Data.levelHistoryImport)
       assert.is_nil(char.levelHistory)
     end)

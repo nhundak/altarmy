@@ -1,7 +1,7 @@
 -- AltArmy TBC — DataStore module: level-up milestones, death log, one-time backfill.
 -- Requires DataStore.lua (core) loaded first.
 -- luacheck: globals GetRealZoneText GetMoney GetXPExhaustion RequestTimePlayed C_Timer C_AddOns IsAddOnLoaded
--- luacheck: globals UnitGUID UnitLevel UnitName GetRealmName DEFAULT_CHAT_FRAME RXPCTrackingData
+-- luacheck: globals UnitGUID UnitLevel UnitName GetRealmName RXPCTrackingData
 
 if not AltArmy or not AltArmy.DataStore then return end
 
@@ -14,7 +14,6 @@ local ENVIRONMENT_KILLER = "Environment"
 
 local lastAttacker = { name = nil, guid = nil }
 local testCharOverride = nil
-local testChatMessages = nil
 local testDebugMessages = nil
 local testRxpAddonEnabled = nil
 local rxpBackfillRetryCount = 0
@@ -24,7 +23,6 @@ local RXP_ADDON_NAMES = { "RXPGuides", "RXPGuides_TBC" }
 local RXP_BACKFILL_RETRY_DELAY = 3
 local RXP_BACKFILL_MAX_RETRIES = 5
 
-local ALTARMY_GOLD = "|cfffecc00"
 local LEVEL_HISTORY_DEBUG_PREFIX = "|cff00ccff[AltArmy:LevelHistory]|r "
 
 local function GetAccountData()
@@ -66,7 +64,6 @@ end
 function DS._ResetLevelHistoryTestState()
     lastAttacker = { name = nil, guid = nil }
     testCharOverride = nil
-    testChatMessages = nil
     testDebugMessages = nil
     testRxpAddonEnabled = nil
     rxpBackfillRetryCount = 0
@@ -76,14 +73,6 @@ end
 
 function DS._SetLevelHistoryTestRxpAddonEnabled(enabled)
     testRxpAddonEnabled = enabled
-end
-
-function DS._BeginLevelHistoryChatCapture()
-    testChatMessages = {}
-end
-
-function DS._GetLevelHistoryChatMessages()
-    return testChatMessages or {}
 end
 
 function DS._BeginLevelHistoryDebugCapture()
@@ -109,19 +98,6 @@ local function LogLevelHistoryDebug(msg)
     local Dbg = AltArmy and AltArmy.Debug
     if Dbg and Dbg.NotifyChat then
         Dbg.NotifyChat(line)
-    end
-end
-
-local function NotifyLevelHistoryChat(msg)
-    if not msg or msg == "" then return end
-    local line = ALTARMY_GOLD .. "AltArmy|r " .. msg
-    if testChatMessages then
-        testChatMessages[#testChatMessages + 1] = line
-        return
-    end
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then
-        chat:AddMessage(line)
     end
 end
 
@@ -692,11 +668,6 @@ function DS:TryRxpLevelHistoryImport()
         ))
         local rxpImported = DS:ImportLevelHistoryFromRXP(char, rxpProfile) or 0
         if rxpImported > 0 then
-            NotifyLevelHistoryChat(string.format(
-                "Imported %d level milestone(s) from RestedXP for %s.",
-                rxpImported,
-                charLabel
-            ))
             LogLevelHistoryDebug(string.format(
                 "RXP: import complete for %s, added %d milestone(s)",
                 charLabel,
@@ -769,18 +740,6 @@ function DS:RunLevelHistoryBackfill()
                 end
             end
             if questieMilestones > 0 then
-                if questieCharacters == 1 then
-                    NotifyLevelHistoryChat(string.format(
-                        "Imported %d level milestone(s) from Questie.",
-                        questieMilestones
-                    ))
-                else
-                    NotifyLevelHistoryChat(string.format(
-                        "Imported %d level milestone(s) from Questie for %d character(s).",
-                        questieMilestones,
-                        questieCharacters
-                    ))
-                end
                 LogLevelHistoryDebug(string.format(
                     "Questie: import complete, added %d milestone(s) across %d character(s)",
                     questieMilestones,
