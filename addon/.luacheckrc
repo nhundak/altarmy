@@ -116,6 +116,7 @@ read_globals = {
     "IsMouseButtonDown",
     "IsShiftKeyDown",
     "RAID_CLASS_COLORS",
+    "ITEM_QUALITY_COLORS",
     "CLASS_ICON_TCOORDS",
     "ChatEdit_InsertLink",
     "GetCursorInfo",

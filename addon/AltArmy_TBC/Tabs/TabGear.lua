@@ -8,7 +8,7 @@ local PAD = 4
 local LEFT_PANEL_WIDTH = 120
 local LEFT_PANEL_VISIBLE = false  -- set true to show "Who can use this?" drop zone
 local MESSAGE_ROW_HEIGHT = 12
--- Base cell size was 28; icon size (small 24, medium 32, large 48) now in dims.cellSize
+-- Base cell size was 28; icon size (medium 32px) + glow inset in dims.cellSize
 local NUM_EQUIPMENT_SLOTS = 19
 
 -- Equipment slot ID -> display name (TBC slots 1-19; ranged slot holds ranged weapons/relics; ammo omitted)
@@ -55,52 +55,37 @@ local function SortOptionValid(val)
     for _, o in ipairs(SORT_OPTIONS) do if o == val then return true end end
     return false
 end
-local SPACING_OPTIONS = { "Compact", "Normal", "Comfortable" }
-local function SpacingValid(val)
-    for _, o in ipairs(SPACING_OPTIONS) do if o == val then return true end end
-    return false
-end
-local ICON_SIZE_OPTIONS = { "small", "medium", "large" }
-local function IconSizeValid(val)
-    for _, o in ipairs(ICON_SIZE_OPTIONS) do if o == val then return true end end
-    return false
-end
 local function GetGearSettings()
     AltArmyTBC_GearSettings = AltArmyTBC_GearSettings or {}
     local s = AltArmyTBC_GearSettings
     if not s.primarySort or not SortOptionValid(s.primarySort) then s.primarySort = "Time Played" end
     if not s.secondarySort or not SortOptionValid(s.secondarySort) then s.secondarySort = "Name" end
     if s.showSelfFirst == nil then s.showSelfFirst = true end
-    -- Migrate legacy spacing: only "Very compact" -> "Compact"; do not overwrite current "Compact" (2px)
-    if s.spacing == "Very compact" then s.spacing = "Compact" end
-    if not s.spacing or not SpacingValid(s.spacing) then s.spacing = "Comfortable" end
-    if not s.iconSize or not IconSizeValid(s.iconSize) then s.iconSize = "medium" end
     s.characters = s.characters or {}
     return s
 end
 
---- Returns rowGap, columnGap for current spacing (pixels between cells).
---- Used with icon size to get rowHeight/columnWidth.
+--- Fixed layout: Normal spacing (12px row/column gaps) and medium icons (32px).
 local function GetSpacingGaps()
-    local sp = GetGearSettings().spacing or "Comfortable"
-    if sp == "Compact" then return 2, 2 end
-    if sp == "Normal" then return 14, 14 end
-    -- Comfortable: row gap 14, column gap 33
-    return 14, 33
+    return 12, 12
 end
 
---- Returns icon size in pixels. small=24, medium=32, large=48.
 local function GetIconSizePx()
-    local sz = GetGearSettings().iconSize or "medium"
-    if sz == "small" then return 24 end
-    if sz == "large" then return 48 end
     return 32
 end
 
---- Returns rowHeight, columnWidth for current spacing and icon size.
+local ITEM_GLOW_ALPHA = 0.4
+local ITEM_ICON_INSET = 2
+
+--- Cell frame size: icon plus inset on each side for rarity glow ring.
+local function GetCellSizePx()
+    return GetIconSizePx() + 2 * ITEM_ICON_INSET
+end
+
+--- Returns rowHeight, columnWidth for current spacing and cell size.
 local function GetSpacingDimensions()
     local rowGap, colGap = GetSpacingGaps()
-    local cell = GetIconSizePx()
+    local cell = GetCellSizePx()
     return cell + rowGap, cell + colGap
 end
 
@@ -266,14 +251,14 @@ local function GetDisplayList()
     local secondary = settings.secondarySort or "Name"
     local showSelfFirst = settings.showSelfFirst ~= false
 
-    -- Split: self, pinned, non-pinned
+    -- Split: self (when show self first), pinned, non-pinned
     local selfEntry = nil
     local pinned = {}
     local nonPinned = {}
     for i = 1, #visible do
         local e = visible[i]
         local isSelf = (e.name == currentName and e.realm == currentRealm)
-        if isSelf then
+        if isSelf and showSelfFirst then
             selfEntry = e
         elseif GetCharSetting(e.name, e.realm, "pin") then
             pinned[#pinned + 1] = e
@@ -289,7 +274,6 @@ local function GetDisplayList()
     if showSelfFirst and selfEntry then list[#list + 1] = selfEntry end
     for i = 1, #pinned do list[#list + 1] = pinned[i] end
     for i = 1, #nonPinned do list[#list + 1] = nonPinned[i] end
-    if not showSelfFirst and selfEntry then list[#list + 1] = selfEntry end
 
     local RF = AltArmy.RealmFilter
     local realmFilter = "all"
@@ -383,6 +367,55 @@ local function GetItemTexture(itemIDOrLink)
     if not GetItemInfo then return nil end
     local _, _, _, _, _, _, _, _, _, texture = GetItemInfo(itemIDOrLink)
     return texture
+end
+
+--- Item quality from GetItemInfo (0=poor, 1=common, 2=uncommon, 3=rare, 4=epic, 5=legendary).
+local function GetItemQuality(itemIDOrLink)
+    if not itemIDOrLink or not GetItemInfo then return nil end
+    local _, _, quality = GetItemInfo(itemIDOrLink)
+    return quality
+end
+
+--- Glow color for uncommon–legendary; nil for poor/common or unknown quality.
+local function GetQualityGlowColor(quality)
+    if quality == nil or quality < 2 or quality > 5 then return nil end
+    if ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality] then
+        local c = ITEM_QUALITY_COLORS[quality]
+        return c.r, c.g, c.b
+    end
+    if quality == 2 then return 0, 1, 0 end
+    if quality == 3 then return 0, 0.44, 0.87 end
+    if quality == 4 then return 0.64, 0.21, 0.93 end
+    return 1, 0.5, 0
+end
+
+local function ApplyItemCellVisual(cell, item, gray)
+    local texPath = GetItemTexture(item)
+    if texPath then
+        cell.texture:SetTexture(texPath)
+        cell.texture:Show()
+        if gray then
+            cell.texture:SetVertexColor(0.5, 0.5, 0.5, 1)
+        else
+            cell.texture:SetVertexColor(1, 1, 1, 1)
+        end
+    else
+        cell.texture:SetTexture(nil)
+        cell.texture:Hide()
+    end
+
+    local gr, gg, gb = GetQualityGlowColor(GetItemQuality(item))
+    if gr and texPath and cell.glow then
+        cell.glow:SetColorTexture(gr, gg, gb, ITEM_GLOW_ALPHA)
+        if gray then
+            cell.glow:SetVertexColor(0.5, 0.5, 0.5, 1)
+        else
+            cell.glow:SetVertexColor(1, 1, 1, 1)
+        end
+        cell.glow:Show()
+    elseif cell.glow then
+        cell.glow:Hide()
+    end
 end
 
 --- Insert item link into chat (same as shift-clicking item in bags).
@@ -486,7 +519,7 @@ local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
 -- Layout dimensions from spacing + icon size
 local dims = {}
 do
-    dims.cellSize = GetIconSizePx()
+    dims.cellSize = GetCellSizePx()
     local rh, cw = GetSpacingDimensions()
     dims.rowHeight, dims.columnWidth = rh, cw
     dims.scrollableGridHeight = NUM_EQUIPMENT_SLOTS * dims.rowHeight + PAD
@@ -789,8 +822,13 @@ local function GetColumnFrame(index)
             local cell = CreateFrame("Frame", nil, col)
             cell:SetSize(dims.cellSize, dims.cellSize)
             cell:EnableMouse(true)
-            local tex = cell:CreateTexture(nil, "OVERLAY")
-            tex:SetAllPoints(cell)
+            local glow = cell:CreateTexture(nil, "BACKGROUND")
+            glow:SetAllPoints(cell)
+            glow:Hide()
+            cell.glow = glow
+            local tex = cell:CreateTexture(nil, "ARTWORK")
+            tex:SetPoint("TOPLEFT", cell, "TOPLEFT", ITEM_ICON_INSET, -ITEM_ICON_INSET)
+            tex:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -ITEM_ICON_INSET, ITEM_ICON_INSET)
             cell.texture = tex
             cell:SetScript("OnMouseUp", function(self, button)
                 if button ~= "LeftButton" or not IsShiftKeyDown() then return end
@@ -917,19 +955,7 @@ local function UpdateGridWithOffset()
                 cell.itemLink = nil
                 cell.itemID = nil
             end
-            local texPath = GetItemTexture(item)
-            if texPath then
-                cell.texture:SetTexture(texPath)
-                cell.texture:Show()
-                if gray then
-                    cell.texture:SetVertexColor(0.5, 0.5, 0.5, 1)
-                else
-                    cell.texture:SetVertexColor(1, 1, 1, 1)
-                end
-            else
-                cell.texture:SetTexture(nil)
-                cell.texture:Hide()
-            end
+            ApplyItemCellVisual(cell, item, gray)
         end
     end
 end
@@ -983,9 +1009,9 @@ function frame:RefreshGrid(_self)
     UpdateGridWithOffset()
 end
 
---- Reapply layout dimensions from spacing and icon size; call when either changes.
+--- Reapply fixed layout dimensions (medium icons, normal spacing).
 local function ApplySpacing()
-    dims.cellSize = GetIconSizePx()
+    dims.cellSize = GetCellSizePx()
     local rh, cw = GetSpacingDimensions()
     dims.rowHeight, dims.columnWidth = rh, cw
     dims.scrollableGridHeight = NUM_EQUIPMENT_SLOTS * dims.rowHeight + PAD
@@ -1033,7 +1059,7 @@ local function ApplySpacing()
     end
 end
 
--- Apply saved spacing when tab is shown (SavedVariables may not be ready at file load)
+-- Apply layout when tab is shown (dims initialized at file load)
 frame:SetScript("OnShow", function()
     ApplySpacing()
     frame:RefreshGrid()
@@ -1068,7 +1094,6 @@ ApplySettingsPanelLayout()
 settingsPanel:Hide()
 
 local SETTINGS_ROW_HEIGHT = 22
-local TAB_STRIP_HEIGHT = 26
 local SETTINGS_TITLE_HEIGHT = 26
 local gearSettingsTitle = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 gearSettingsTitle:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
@@ -1078,160 +1103,12 @@ gearSettingsTitle:SetText("Gear Settings")
 local primaryDropdown, secondaryDropdown  -- forward ref for dropdowns created below
 local gearCharListRefresh = function() end
 
--- Tab strip: Sorting | Appearance
-local tabSorting = CreateFrame("Button", nil, settingsPanel)
-tabSorting:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, -SETTINGS_TITLE_HEIGHT)
-tabSorting:SetHeight(TAB_STRIP_HEIGHT)
-tabSorting:SetWidth(80)
-local tabSortingBg = tabSorting:CreateTexture(nil, "BACKGROUND")
-tabSortingBg:SetAllPoints(tabSorting)
-tabSortingBg:SetColorTexture(0.25, 0.25, 0.3, 0.95)
-local tabSortingLabel = tabSorting:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-tabSortingLabel:SetPoint("CENTER", tabSorting, "CENTER", 0, 0)
-tabSortingLabel:SetText("Sort/Filter")
-
-local tabAppearance = CreateFrame("Button", nil, settingsPanel)
-tabAppearance:SetPoint("TOPLEFT", tabSorting, "TOPRIGHT", 2, 0)
-tabAppearance:SetHeight(TAB_STRIP_HEIGHT)
-tabAppearance:SetWidth(80)
-local tabAppearanceBg = tabAppearance:CreateTexture(nil, "BACKGROUND")
-tabAppearanceBg:SetAllPoints(tabAppearance)
-tabAppearanceBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
-local tabAppearanceLabel = tabAppearance:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-tabAppearanceLabel:SetPoint("CENTER", tabAppearance, "CENTER", 0, 0)
-tabAppearanceLabel:SetText("Appearance")
-
 local sortingContent = CreateFrame("Frame", nil, settingsPanel)
-sortingContent:SetPoint("TOPLEFT", tabSorting, "BOTTOMLEFT", 0, -4)
+sortingContent:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, -SETTINGS_TITLE_HEIGHT - 8)
 sortingContent:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMRIGHT", 0, 0)
 sortingContent:Show()
 
-local appearanceContent = CreateFrame("Frame", nil, settingsPanel)
-appearanceContent:SetPoint("TOPLEFT", tabSorting, "BOTTOMLEFT", 0, -4)
-appearanceContent:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMRIGHT", 0, 0)
-appearanceContent:Hide()
-
-local spacingDropdown  -- forward ref; created in Appearance tab below
-local function SetSettingsTab(tabName)
-    local isSorting = (tabName == "Sorting")
-    sortingContent:SetShown(isSorting)
-    appearanceContent:SetShown(not isSorting)
-    local r = isSorting and 0.25 or 0.2
-    local g = isSorting and 0.25 or 0.2
-    local b = isSorting and 0.35 or 0.2
-    local a = isSorting and 0.95 or 0.9
-    tabSortingBg:SetColorTexture(r, g, b, a)
-    tabAppearanceBg:SetColorTexture(not isSorting and 0.25 or 0.2, not isSorting and 0.25 or 0.2,
-        not isSorting and 0.35 or 0.2, not isSorting and 0.95 or 0.9)
-    -- Match main tab text colors: yellow when selected, gray when not
-    if tabSortingLabel then
-        tabSortingLabel:SetTextColor(isSorting and 1 or 0.85, isSorting and 0.82 or 0.85, isSorting and 0 or 0.85, 1)
-    end
-    if tabAppearanceLabel then
-        local sel = not isSorting
-        tabAppearanceLabel:SetTextColor(sel and 1 or 0.85, sel and 0.82 or 0.85, sel and 0 or 0.85, 1)
-    end
-end
-tabSorting:SetScript("OnClick", function()
-    SetSettingsTab("Sorting")
-    primaryDropdown:Hide()
-    secondaryDropdown:Hide()
-end)
-tabAppearance:SetScript("OnClick", function()
-    SetSettingsTab("Appearance")
-    if spacingDropdown then spacingDropdown:Hide() end
-end)
-SetSettingsTab("Sorting")
-
--- ---- Appearance tab: Icon Size (above Spacing) ----
-local btnIconSize = CreateFrame("Button", nil, appearanceContent)
-btnIconSize:SetPoint("TOPLEFT", appearanceContent, "TOPLEFT", 0, 0)
-btnIconSize:SetPoint("TOPRIGHT", appearanceContent, "TOPRIGHT", 0, 0)
-btnIconSize:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnIconSizeBg = btnIconSize:CreateTexture(nil, "BACKGROUND")
-btnIconSizeBg:SetAllPoints(btnIconSize)
-btnIconSizeBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
-local btnIconSizeText = btnIconSize:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-btnIconSizeText:SetPoint("LEFT", btnIconSize, "LEFT", 4, 0)
-btnIconSizeText:SetPoint("RIGHT", btnIconSize, "RIGHT", -4, 0)
-btnIconSizeText:SetJustifyH("LEFT")
-local iconSizeDropdown = CreateFrame("Frame", nil, appearanceContent)
-iconSizeDropdown:SetPoint("TOPLEFT", btnIconSize, "BOTTOMLEFT", 0, -2)
-iconSizeDropdown:SetPoint("TOPRIGHT", btnIconSize, "BOTTOMRIGHT", 0, 0)
-iconSizeDropdown:SetHeight(#ICON_SIZE_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
-iconSizeDropdown:SetFrameLevel(appearanceContent:GetFrameLevel() + 100)
-iconSizeDropdown:Hide()
-local iconSizeDropdownBg = iconSizeDropdown:CreateTexture(nil, "BACKGROUND")
-iconSizeDropdownBg:SetAllPoints(iconSizeDropdown)
-iconSizeDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
-for idx, opt in ipairs(ICON_SIZE_OPTIONS) do
-    local b = CreateFrame("Button", nil, iconSizeDropdown)
-    b:SetPoint("TOPLEFT", iconSizeDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
-    b:SetPoint("LEFT", iconSizeDropdown, "LEFT", 2, 0)
-    b:SetPoint("RIGHT", iconSizeDropdown, "RIGHT", -2, 0)
-    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
-    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    t:SetPoint("LEFT", b, "LEFT", 4, 0)
-    t:SetText(opt:sub(1, 1):upper() .. opt:sub(2))
-    b.option = opt
-    b:SetScript("OnClick", function()
-        GetGearSettings().iconSize = opt
-        iconSizeDropdown:Hide()
-        btnIconSizeText:SetText("Icon Size: " .. (opt:sub(1, 1):upper() .. opt:sub(2)))
-        ApplySpacing()
-        if frame.RefreshGrid then frame:RefreshGrid() end
-    end)
-end
-btnIconSize:SetScript("OnClick", function()
-    iconSizeDropdown:SetShown(not iconSizeDropdown:IsShown())
-    spacingDropdown:Hide()
-end)
-
--- ---- Appearance tab: Spacing ----
-local btnSpacing = CreateFrame("Button", nil, appearanceContent)
-btnSpacing:SetPoint("TOPLEFT", btnIconSize, "BOTTOMLEFT", 0, -6)
-btnSpacing:SetPoint("TOPRIGHT", appearanceContent, "TOPRIGHT", 0, 0)
-btnSpacing:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnSpacingBg = btnSpacing:CreateTexture(nil, "BACKGROUND")
-btnSpacingBg:SetAllPoints(btnSpacing)
-btnSpacingBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
-local btnSpacingText = btnSpacing:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-btnSpacingText:SetPoint("LEFT", btnSpacing, "LEFT", 4, 0)
-btnSpacingText:SetPoint("RIGHT", btnSpacing, "RIGHT", -4, 0)
-btnSpacingText:SetJustifyH("LEFT")
-spacingDropdown = CreateFrame("Frame", nil, appearanceContent)
-spacingDropdown:SetPoint("TOPLEFT", btnSpacing, "BOTTOMLEFT", 0, -2)
-spacingDropdown:SetPoint("TOPRIGHT", btnSpacing, "BOTTOMRIGHT", 0, 0)
-spacingDropdown:SetHeight(#SPACING_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
-spacingDropdown:SetFrameLevel(appearanceContent:GetFrameLevel() + 100)
-spacingDropdown:Hide()
-local spacingDropdownBg = spacingDropdown:CreateTexture(nil, "BACKGROUND")
-spacingDropdownBg:SetAllPoints(spacingDropdown)
-spacingDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
-for idx, opt in ipairs(SPACING_OPTIONS) do
-    local b = CreateFrame("Button", nil, spacingDropdown)
-    b:SetPoint("TOPLEFT", spacingDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
-    b:SetPoint("LEFT", spacingDropdown, "LEFT", 2, 0)
-    b:SetPoint("RIGHT", spacingDropdown, "RIGHT", -2, 0)
-    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
-    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    t:SetPoint("LEFT", b, "LEFT", 4, 0)
-    t:SetText(opt)
-    b.option = opt
-    b:SetScript("OnClick", function()
-        GetGearSettings().spacing = opt
-        spacingDropdown:Hide()
-        btnSpacingText:SetText("Spacing: " .. opt)
-        ApplySpacing()
-        if frame.RefreshGrid then frame:RefreshGrid() end
-    end)
-end
-btnSpacing:SetScript("OnClick", function()
-    spacingDropdown:SetShown(not spacingDropdown:IsShown())
-    iconSizeDropdown:Hide()
-end)
-
--- ---- Sorting tab: Show self first, Primary/Secondary sort, Character list ----
+-- ---- Sort/Filter: Show self first, Primary/Secondary sort, Character list ----
 local showSelfFirstCheck = CreateFrame("CheckButton", nil, sortingContent)
 showSelfFirstCheck:SetPoint("TOPLEFT", sortingContent, "TOPLEFT", 0, 0)
 showSelfFirstCheck:SetSize(24, 24)
@@ -1356,8 +1233,6 @@ end
 
 -- Close dropdowns when clicking outside
 settingsPanel:SetScript("OnHide", function()
-    iconSizeDropdown:Hide()
-    spacingDropdown:Hide()
     primaryDropdown:Hide()
     secondaryDropdown:Hide()
 end)
@@ -1389,11 +1264,7 @@ function frame:ToggleGearSettings(_self)
     end
 
     if showSettings then
-        SetSettingsTab("Sorting")
         local s = GetGearSettings()
-        local iconStr = s.iconSize or "medium"
-        btnIconSizeText:SetText("Icon Size: " .. (iconStr:sub(1, 1):upper() .. iconStr:sub(2)))
-        btnSpacingText:SetText("Spacing: " .. (s.spacing or "Comfortable"))
         btnPrimaryText:SetText("Primary Sort: " .. s.primarySort)
         btnSecondaryText:SetText("Secondary Sort: " .. s.secondarySort)
         showSelfFirstCheck:SetChecked(s.showSelfFirst)

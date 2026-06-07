@@ -10,6 +10,8 @@ local HEADER_HEIGHT = 18
 local HEADER_ROW_GAP = 6 -- TabSearch.lua section headers use this gap above first row
 local MAT_ICON_SIZE = 14 -- TabSearch OVERLAY_ICON_SIZE (inline "|Tpath:0|t" uses ~14px height)
 local REFRESH_INTERVAL = 1
+local TIP_ROW_HEIGHT = 16
+local TIP_ICON_SIZE = 14
 
 local CD = AltArmy.CooldownData
 local DS = AltArmy.DataStore
@@ -269,7 +271,23 @@ end
 
 local rowParent = CreateFrame("Frame", nil, frame)
 rowParent:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD - HEADER_HEIGHT - HEADER_ROW_GAP)
-rowParent:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - 16, PAD)
+rowParent:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - 16, PAD + TIP_ROW_HEIGHT)
+
+local tipRow = CreateFrame("Frame", nil, frame)
+tipRow:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
+tipRow:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+tipRow:SetHeight(TIP_ROW_HEIGHT)
+
+local tipIcon = tipRow:CreateTexture(nil, "ARTWORK")
+tipIcon:SetTexture("Interface\\Common\\help-i")
+tipIcon:SetSize(TIP_ICON_SIZE, TIP_ICON_SIZE)
+tipIcon:SetPoint("LEFT", tipRow, "LEFT", 0, 0)
+
+local tipLabel = tipRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+tipLabel:SetPoint("LEFT", tipIcon, "RIGHT", 4, 0)
+tipLabel:SetPoint("RIGHT", tipRow, "RIGHT", 0, 0)
+tipLabel:SetJustifyH("LEFT")
+tipLabel:SetText("Tip: visit a mailbox then click a row to send materials to that character")
 
 local scroll = CreateFrame("ScrollFrame", nil, rowParent)
 scroll:SetPoint("TOPLEFT", rowParent, "TOPLEFT", 0, 0)
