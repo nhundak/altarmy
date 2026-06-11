@@ -476,7 +476,7 @@ generalHint:SetPoint("TOPLEFT", realmFilterDD, "BOTTOMLEFT", 16, -10)
 generalHint:SetWidth(520)
 generalHint:SetJustifyH("LEFT")
 generalHint:SetText(
-    "Realm filter applies to Summary, Gear, Reputation, Search, and Cooldowns tabs."
+    "Realm filter applies to Summary, Gear, Reputation, Search, Cooldowns, and Progression tabs."
 )
 
 -- Host frame for UI/CooldownOptions.lua (loaded after this file)

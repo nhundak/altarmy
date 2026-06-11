@@ -3,7 +3,7 @@
 ## Notes: Alt management: character summary, gear and reputation grids, per-character containers, cross-character item search. TBC Classic.
 ## Version: 1.2.7
 ## Author: Nick Tower
-## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings
+## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings, AltArmyTBC_ProgressionSettings
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
 Core.lua
@@ -13,6 +13,7 @@ Data\CooldownData.lua
 Data\StockpilePlan.lua
 Data\DataStoreCharacter.lua
 Data\DataStoreLevelHistory.lua
+Data\LevelProgressData.lua
 Data\DataStoreContainers.lua
 Data\DataStoreEquipment.lua
 Data\DataStoreCurrencies.lua
@@ -29,11 +30,13 @@ Data\SearchData.lua
 ReputationFactionFilter.lua
 ReputationFactionSort.lua
 UI\CharacterPinHideList.lua
+UI\GraphCore.lua
 Tabs\TabSummary.lua
 Tabs\TabGear.lua
 Tabs\TabReputation.lua
 Tabs\TabCooldowns.lua
 Tabs\TabSearch.lua
+Tabs\TabProgression.lua
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua

@@ -262,7 +262,7 @@ local function InstallSettingsIconHoverTint(target)
 end
 
 local TAB_BTN_MIN_WIDTH = 72
-local tabNames = { "Summary", "Gear", "Reputation", "Cooldowns" }
+local tabNames = { "Summary", "Gear", "Reputation", "Cooldowns", "Progression" }
 tabStrip.buttons = {}
 local prevBtn = nil
 for _, tabName in ipairs(tabNames) do
