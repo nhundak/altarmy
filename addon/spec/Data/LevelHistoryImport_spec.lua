@@ -148,6 +148,73 @@ describe("LevelHistoryImport", function()
     end)
   end)
 
+  describe("ImportLevelHistoryFromNIT", function()
+    it("imports milestone fields from levelLog entries", function()
+      local char = { name = "Bob", realm = "Faerlina" }
+      local nitCharData = {
+        levelLog = {
+          [5] = { timestamp = 1000, played = 3600, zoneName = "Elwynn Forest", gold = 50000 },
+          [6] = { timestamp = 2000, played = 7200, zoneName = "Westfall" },
+        },
+      }
+      DS:ImportLevelHistoryFromNIT(char, nitCharData)
+      local m5 = char.levelHistory.milestones[5]
+      assert.are.equal(1000, m5.reachedAt)
+      assert.are.equal(3600, m5.playedTotal)
+      assert.are.equal(3600, m5.playedLevel)
+      assert.are.equal("Elwynn Forest", m5.zone)
+      assert.are.equal(50000, m5.money)
+      local m6 = char.levelHistory.milestones[6]
+      assert.are.equal(2000, m6.reachedAt)
+      assert.are.equal(7200, m6.playedTotal)
+      assert.is_nil(m6.playedLevel)
+      assert.are.equal("Westfall", m6.zone)
+    end)
+
+    it("falls back to subzoneName when zoneName is missing", function()
+      local char = { name = "Bob", realm = "Faerlina" }
+      DS:ImportLevelHistoryFromNIT(char, {
+        levelLog = {
+          [5] = { timestamp = 1000, subzoneName = "Northshire Abbey" },
+        },
+      })
+      assert.are.equal("Northshire Abbey", char.levelHistory.milestones[5].zone)
+    end)
+
+    it("skips played fields when playedSource is backupTimer", function()
+      local char = { name = "Bob", realm = "Faerlina" }
+      DS:ImportLevelHistoryFromNIT(char, {
+        levelLog = {
+          [5] = { timestamp = 1000, played = 120, playedSource = "backupTimer" },
+          [6] = { timestamp = 2000, played = 7200 },
+        },
+      })
+      local m5 = char.levelHistory.milestones[5]
+      assert.are.equal(1000, m5.reachedAt)
+      assert.is_nil(m5.playedTotal)
+      assert.is_nil(m5.playedLevel)
+    end)
+
+    it("does not overwrite existing milestone fields", function()
+      local char = {
+        levelHistory = {
+          milestones = { [5] = { reachedAt = 999, playedTotal = 100 } },
+          meta = {},
+          deaths = {},
+        },
+      }
+      DS:ImportLevelHistoryFromNIT(char, {
+        levelLog = {
+          [5] = { timestamp = 1000, played = 3600, zoneName = "Elwynn Forest", gold = 50000 },
+        },
+      })
+      assert.are.equal(999, char.levelHistory.milestones[5].reachedAt)
+      assert.are.equal(100, char.levelHistory.milestones[5].playedTotal)
+      assert.are.equal("Elwynn Forest", char.levelHistory.milestones[5].zone)
+      assert.are.equal(50000, char.levelHistory.milestones[5].money)
+    end)
+  end)
+
   describe("_CalendarToUnix", function()
     it("converts calendar table to unix time", function()
       local unix = DS._CalendarToUnix({
@@ -346,7 +413,7 @@ describe("LevelHistoryImport", function()
 
     it("logs import decisions and stored summary when debug enabled", function()
       enableLevelHistoryDebug()
-      _G.AltArmyTBC_Data.levelHistoryImport = { questieAt = 1 }
+      _G.AltArmyTBC_Data.levelHistoryImport = { questieAt = 1, nitAt = 1 }
       local char = {
         name = "Bob",
         realm = "Faerlina",
@@ -364,7 +431,83 @@ describe("LevelHistoryImport", function()
       assert.matches("Checking level history import status", messages[1])
       assert.matches("Questie: skip import", messages[2])
       assert.matches("RXP: skip import", messages[3])
+      assert.matches("NIT: skip import", messages[4])
       assert.matches("Stored: Bob: 2 level milestone%(s%), 2 death event%(s%)", messages[#messages])
+    end)
+
+    it("runs NIT import once account-wide for tracked characters", function()
+      _G.AltArmyTBC_Data.levelHistoryImport = { questieAt = 1 }
+      _G.RXPCTrackingData = nil
+      _G.NITdatabase = {
+        global = {
+          Faerlina = {
+            myChars = {
+              Bob = {
+                levelLog = {
+                  [5] = { timestamp = 1000, played = 3600, zoneName = "Elwynn Forest", gold = 50000 },
+                  [6] = { timestamp = 2000, played = 7200, zoneName = "Westfall" },
+                },
+              },
+            },
+          },
+        },
+      }
+      AltArmyTBC_Data.Characters = {
+        Faerlina = {
+          Bob = {
+            name = "Bob",
+            realm = "Faerlina",
+            dataVersions = { character = 1 },
+          },
+        },
+      }
+      DS._SetLevelHistoryTestChar(AltArmyTBC_Data.Characters.Faerlina.Bob)
+      DS:RunLevelHistoryBackfill()
+      assert.is_not_nil(AltArmyTBC_Data.levelHistoryImport.nitAt)
+      assert.are.equal(1000, AltArmyTBC_Data.Characters.Faerlina.Bob.levelHistory.milestones[5].reachedAt)
+      assert.are.equal(3600, AltArmyTBC_Data.Characters.Faerlina.Bob.levelHistory.milestones[5].playedTotal)
+
+      _G.NITdatabase.global.Faerlina.myChars.Bob.levelLog[7] = {
+        timestamp = 3000,
+        played = 10800,
+        zoneName = "Redridge Mountains",
+      }
+      DS:RunLevelHistoryBackfill()
+      assert.is_nil(AltArmyTBC_Data.Characters.Faerlina.Bob.levelHistory.milestones[7])
+    end)
+
+    it("stores NIT import for unknown characters in OrphanImports", function()
+      _G.AltArmyTBC_Data.levelHistoryImport = { questieAt = 1 }
+      _G.AltArmyTBC_Data.OrphanImports = nil
+      _G.NITdatabase = {
+        global = {
+          Faerlina = {
+            myChars = {
+              OldName = {
+                levelLog = {
+                  [5] = { timestamp = 1000, played = 3600, zoneName = "Elwynn Forest" },
+                },
+              },
+            },
+          },
+        },
+      }
+      AltArmyTBC_Data.Characters = {}
+      DS:RunLevelHistoryBackfill()
+      assert.is_not_nil(AltArmyTBC_Data.levelHistoryImport.nitAt)
+      assert.are.equal(
+        1000,
+        AltArmyTBC_Data.OrphanImports.levelHistory.Faerlina.OldName.levelHistory.milestones[5].reachedAt
+      )
+    end)
+
+    it("does not set nitAt when NITdatabase is absent", function()
+      _G.AltArmyTBC_Data.levelHistoryImport = { questieAt = 1 }
+      _G.NITdatabase = nil
+      local char = { name = "Bob", realm = "Faerlina" }
+      DS._SetLevelHistoryTestChar(char)
+      DS:RunLevelHistoryBackfill()
+      assert.is_nil(AltArmyTBC_Data.levelHistoryImport.nitAt)
     end)
 
     it("does not log debug messages when level history debug is disabled", function()

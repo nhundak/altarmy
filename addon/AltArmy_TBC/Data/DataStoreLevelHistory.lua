@@ -1,7 +1,7 @@
 -- AltArmy TBC — DataStore module: level-up milestones, death log, one-time backfill.
 -- Requires DataStore.lua (core) loaded first.
 -- luacheck: globals GetRealZoneText GetMoney GetXPExhaustion RequestTimePlayed C_Timer C_AddOns IsAddOnLoaded
--- luacheck: globals UnitGUID UnitLevel UnitName GetRealmName RXPCTrackingData
+-- luacheck: globals UnitGUID UnitLevel UnitName GetRealmName RXPCTrackingData NITdatabase
 
 if not AltArmy or not AltArmy.DataStore then return end
 
@@ -528,6 +528,63 @@ function DS:ImportLevelHistoryFromRXP(char, rxpProfile)
     return imported
 end
 
+local function BuildMilestoneFromNITLevel(entry, nextEntry)
+    if not entry or type(entry) ~= "table" then return nil end
+    local milestone = {}
+    if entry.timestamp then
+        milestone.reachedAt = entry.timestamp
+    end
+    local zone = entry.zoneName
+    if not zone or zone == "" then
+        zone = entry.subzoneName
+    end
+    if zone and zone ~= "" then
+        milestone.zone = zone
+    end
+    if entry.gold then
+        milestone.money = entry.gold
+    end
+    if entry.played and entry.playedSource ~= "backupTimer" then
+        milestone.playedTotal = entry.played
+        if nextEntry and nextEntry.played and nextEntry.playedSource ~= "backupTimer" then
+            local delta = nextEntry.played - entry.played
+            if delta > 0 then
+                milestone.playedLevel = delta
+            end
+        end
+    end
+    return milestone
+end
+
+function DS:ImportLevelHistoryFromNIT(char, nitCharData)
+    if not char or not nitCharData or not nitCharData.levelLog then return 0 end
+    local levelLog = nitCharData.levelLog
+    local history = EnsureLevelHistory(char)
+    local imported = 0
+    for levelKey, entry in pairs(levelLog) do
+        local level = tonumber(levelKey)
+        if level and entry then
+            local nextEntry = levelLog[level + 1]
+            local incoming = BuildMilestoneFromNITLevel(entry, nextEntry)
+            if incoming and CountIncomingMilestoneFields(history.milestones[level], incoming) > 0 then
+                history.milestones[level] = DS._MergeMilestone(
+                    history.milestones[level],
+                    incoming
+                )
+                char.dataVersions = char.dataVersions or {}
+                char.dataVersions.levelHistory = DATA_VERSIONS.levelHistory
+                imported = imported + 1
+            end
+        end
+    end
+    return imported
+end
+
+function DS._ResolveNITGlobal()
+    local nit = rawget(_G, "NITdatabase")
+    return nit and nit.global or nil
+end
+
 local function ParseQuestieCharacterKey(key)
     if type(key) ~= "string" then return nil, nil end
     local name, realm = key:match("^(.+) %- (.+)$")
@@ -766,6 +823,52 @@ function DS:RunLevelHistoryBackfill()
         DS:TryRxpLevelHistoryImport()
     end
 
+    if not account.levelHistoryImport or not account.levelHistoryImport.nitAt then
+        local nitGlobal = DS._ResolveNITGlobal()
+        if nitGlobal then
+            LogLevelHistoryDebug("NIT: one-time import needed; NITdatabase found, running import")
+            account.Characters = account.Characters or {}
+            local nitMilestones = 0
+            local nitCharacters = 0
+            for realm, realmData in pairs(nitGlobal) do
+                if type(realmData) == "table" and realmData.myChars then
+                    for charName, nitCharData in pairs(realmData.myChars) do
+                        local storedChar = DS:GetCharacter(charName, realm)
+                        local importTarget
+                        if storedChar and DS:HasModuleData(storedChar, "character") then
+                            importTarget = storedChar
+                        else
+                            importTarget = DS:GetOrphanLevelHistoryRecord(realm, charName)
+                        end
+                        local imported = DS:ImportLevelHistoryFromNIT(importTarget, nitCharData)
+                        if imported > 0 then
+                            nitCharacters = nitCharacters + 1
+                            nitMilestones = nitMilestones + imported
+                        end
+                    end
+                end
+            end
+            if nitMilestones > 0 then
+                LogLevelHistoryDebug(string.format(
+                    "NIT: import complete, added %d milestone(s) across %d character(s)",
+                    nitMilestones,
+                    nitCharacters
+                ))
+            else
+                LogLevelHistoryDebug("NIT: import complete, no new milestones added")
+            end
+            account.levelHistoryImport = account.levelHistoryImport or {}
+            account.levelHistoryImport.nitAt = time and time() or 0
+        else
+            LogLevelHistoryDebug("NIT: NITdatabase not found, will retry on a future login")
+        end
+    else
+        LogLevelHistoryDebug(string.format(
+            "NIT: skip import (already completed at %s)",
+            tostring(account.levelHistoryImport.nitAt)
+        ))
+    end
+
     LogLevelHistoryDebug("Stored: " .. DS._FormatLevelHistorySummary(char))
 end
 
@@ -776,6 +879,10 @@ if rxpAddonFrame then
         if loadedName == "RXPGuides" or loadedName == "RXPGuides_TBC" then
             if DS.TryRxpLevelHistoryImport then
                 DS:TryRxpLevelHistoryImport()
+            end
+        elseif loadedName == "NovaInstanceTracker" then
+            if DS.RunLevelHistoryBackfill then
+                DS:RunLevelHistoryBackfill()
             end
         end
     end)

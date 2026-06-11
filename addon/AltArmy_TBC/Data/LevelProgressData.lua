@@ -16,9 +16,9 @@ local FIRST_RECORDED_LEVEL = 1
 
 local PROGRESSION_DEBUG_PREFIX = "|cff00ccff[AltArmy:Progression]|r "
 local WATCH_NAMES_LOWER = {
-    frellbank = true,
-    frellbanq = true,
-    frellcloth = true,
+    -- frellbank = true,
+    -- frellbanq = true,
+    -- frellcloth = true,
 }
 
 --- Derive seconds spent on a level from milestone fields.

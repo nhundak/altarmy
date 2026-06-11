@@ -195,11 +195,34 @@ graphFrame:SetBackdropColor(0.08, 0.08, 0.10, 0.95)
 graphFrame:SetBackdropBorderColor(0.45, 0.38, 0.22, 0.9)
 graphFrame:EnableMouse(false)
 
+local HINT_SELECT_CHARACTERS = "Select one or more characters on the right\nto compare time per level."
+local HINT_LEVEL_UP_PROGRESSION =
+    "As you level up your characters\nthis page will display graphs of their progression"
+local HINT_NO_HISTORY = "No level history yet.\nLevel up characters while\nlevel history is enabled."
+
 local graphHint = graphFrame:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 graphHint:SetPoint("CENTER", graphFrame, "CENTER", 0, 0)
 graphHint:SetWidth(graphFrame:GetWidth() - 40)
-graphHint:SetText("Select one or more characters on the right\nto compare time per level.")
+graphHint:SetText(HINT_SELECT_CHARACTERS)
 graphHint:SetJustifyH("CENTER")
+
+local function UpdateEmptyGraphHint()
+    if not LPD or not LPD.GetCharactersWithHistory then return end
+
+    local list = ApplyRealmFilter(LPD.GetCharactersWithHistory())
+    local insufficientList = {}
+    if LPD.GetCharactersWithInsufficientHistory then
+        insufficientList = ApplyRealmFilter(LPD.GetCharactersWithInsufficientHistory())
+    end
+
+    if #list == 0 and #insufficientList == 0 then
+        graphHint:SetText(HINT_NO_HISTORY)
+    elseif #list == 0 then
+        graphHint:SetText(HINT_LEVEL_UP_PROGRESSION)
+    else
+        graphHint:SetText(HINT_SELECT_CHARACTERS)
+    end
+end
 
 -- Options panel (top right)
 local optionsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
@@ -308,6 +331,20 @@ local insufficientRows = {}
 local insufficientHeader = selectorChild:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 insufficientHeader:SetText("Not enough data:")
 insufficientHeader:Hide()
+
+local function UpdateSelectorLayout(hasCompareSection)
+    if hasCompareSection then
+        selectorTitle:Show()
+        selectorScroll:ClearAllPoints()
+        selectorScroll:SetPoint("TOPLEFT", selectorTitle, "BOTTOMLEFT", 0, -6)
+        selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -4, 4)
+    else
+        selectorTitle:Hide()
+        selectorScroll:ClearAllPoints()
+        selectorScroll:SetPoint("TOPLEFT", selectorPanel, "TOPLEFT", 4, -8)
+        selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -4, 4)
+    end
+end
 
 local function PositionListRow(row, yOffset)
     row:ClearAllPoints()
@@ -720,9 +757,7 @@ RebuildGraph = function()
     local toDraw = GetCharactersToDraw()
     if #toDraw == 0 then
         graphHint:Show()
-        if LPD.GetCharactersWithHistory and #ApplyRealmFilter(LPD.GetCharactersWithHistory()) > 0 then
-            graphHint:SetText("Select one or more characters on the right\nto compare time per level.")
-        end
+        UpdateEmptyGraphHint()
         return
     end
 
@@ -863,6 +898,7 @@ local function RefreshSelector()
         row:Hide()
     end
     insufficientHeader:Hide()
+    UpdateSelectorLayout(#list > 0)
 
     local scrollW = selectorScroll:GetWidth() or SELECTOR_WIDTH - 12
     selectorChild:SetWidth(scrollW)
@@ -901,7 +937,9 @@ local function RefreshSelector()
     end
 
     if #insufficientList > 0 then
-        yOffset = yOffset + INSUFFICIENT_SECTION_GAP
+        if #list > 0 then
+            yOffset = yOffset + INSUFFICIENT_SECTION_GAP
+        end
         insufficientHeader:ClearAllPoints()
         insufficientHeader:SetPoint("TOPLEFT", selectorChild, "TOPLEFT", 4, -yOffset)
         insufficientHeader:Show()
@@ -922,10 +960,6 @@ local function RefreshSelector()
     end
 
     selectorChild:SetHeight(math.max(1, yOffset))
-
-    if #list == 0 and #insufficientList == 0 then
-        graphHint:SetText("No level history yet.\nLevel up characters while\nlevel history is enabled.")
-    end
 
     if LPD.DebugLogSelectorEligibility then
         LPD.DebugLogSelectorEligibility()
