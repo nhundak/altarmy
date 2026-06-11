@@ -14,12 +14,18 @@ local LINE_THICKNESS = 2
 local DASH_THICKNESS = 1
 local MARKER_HIT_SIZE = 18
 local MARKER_DOT_SIZE = 4
+local ROW_HOVER_BG = "Interface\\Tooltips\\UI-Tooltip-Background"
+local ROW_HOVER_TINT = 0.22
+local DIM_LINE_ALPHA = 0.22
+local DIM_DASH_ALPHA = 0.14
+local DIM_MARKER_ALPHA = 0.35
 
 AltArmyTBC_ProgressionSettings = AltArmyTBC_ProgressionSettings or {}
 
 local hoverFrames = {}
 local markerDots = {}
-local tooltipFrame = nil
+local RF = AltArmy.RealmFilter
+local hoveredCompareEntry = nil
 
 local function CharKey(realm, name)
     return (realm or "") .. "\\" .. (name or "")
@@ -54,7 +60,6 @@ end
 
 local function ApplyRealmFilter(list)
     if not list then return {} end
-    local RF = AltArmy.RealmFilter
     if not RF or not RF.filterListByRealm then return list end
     local currentRealm = (GetRealmName and GetRealmName()) or ""
     return RF.filterListByRealm(list, GetRealmFilterValue(), currentRealm)
@@ -69,6 +74,71 @@ local function GetSelectedCharacters()
         end
     end
     return out
+end
+
+local function EntryKey(entry)
+    if not entry then return "" end
+    return CharKey(entry.realm, entry.name)
+end
+
+local function GetCharactersToDraw()
+    local out = {}
+    local seen = {}
+
+    for _, entry in ipairs(GetSelectedCharacters()) do
+        local key = EntryKey(entry)
+        if not seen[key] then
+            out[#out + 1] = entry
+            seen[key] = true
+        end
+    end
+
+    if hoveredCompareEntry then
+        local key = EntryKey(hoveredCompareEntry)
+        if not seen[key] then
+            out[#out + 1] = hoveredCompareEntry
+            seen[key] = true
+        end
+    end
+
+    return out
+end
+
+local function SetRowHoverHighlight(row, on)
+    local tint = row and row.hoverTint
+    if tint then
+        tint:SetVertexColor(1, 1, 1, on and ROW_HOVER_TINT or 0)
+    end
+end
+
+local function BindCompareRowHover(row, entry)
+    local function onEnter()
+        hoveredCompareEntry = entry
+        SetRowHoverHighlight(row, true)
+        frame:Redraw()
+    end
+
+    local function onLeave()
+        hoveredCompareEntry = nil
+        SetRowHoverHighlight(row, false)
+        frame:Redraw()
+    end
+
+    row:SetScript("OnEnter", onEnter)
+    row:SetScript("OnLeave", onLeave)
+    row.check:SetScript("OnEnter", onEnter)
+    row.check:SetScript("OnLeave", onLeave)
+    if row.nameButton then
+        row.nameButton:SetScript("OnEnter", onEnter)
+        row.nameButton:SetScript("OnLeave", onLeave)
+    end
+end
+
+local function ToggleCompareSelection(row, entry)
+    local checked = not IsSelected(entry.realm, entry.name)
+    row.check:SetChecked(checked)
+    SetSelected(entry.realm, entry.name, checked)
+    frame:Redraw()
 end
 
 -- Layout: graph (left) + selector (right)
@@ -155,6 +225,12 @@ end
 local function GetSelectorRow(i)
     if not selectorRows[i] then
         local row = CreateFrame("Frame", nil, selectorChild)
+        row:EnableMouse(true)
+
+        row.hoverTint = row:CreateTexture(nil, "BACKGROUND")
+        row.hoverTint:SetTexture(ROW_HOVER_BG)
+        row.hoverTint:SetAllPoints(true)
+        row.hoverTint:SetVertexColor(1, 1, 1, 0)
 
         row.check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
         row.check:SetPoint("LEFT", row, "LEFT", 2, 0)
@@ -170,6 +246,12 @@ local function GetSelectorRow(i)
         row.label:SetPoint("RIGHT", row, "RIGHT", -2, 0)
         row.label:SetJustifyH("LEFT")
         row.label:SetWordWrap(false)
+
+        row.nameButton = CreateFrame("Button", nil, row)
+        row.nameButton:SetPoint("TOPLEFT", row.swatch, "TOPLEFT", -2, 0)
+        row.nameButton:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -2, 0)
+        row.nameButton:SetFrameLevel(row:GetFrameLevel() + 2)
+        row.nameButton:RegisterForClicks("LeftButtonUp")
 
         selectorRows[i] = row
     end
@@ -196,77 +278,76 @@ local function GetInsufficientRow(i)
     return insufficientRows[i]
 end
 
-local function GetTooltipFrame()
-    if tooltipFrame then return tooltipFrame end
-    tooltipFrame = Core.CreateTooltipBase(graphFrame, 175, 72)
-
-    local padding = 12
-    local timeText = tooltipFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    timeText:SetPoint("TOPLEFT", tooltipFrame, "TOPLEFT", padding, -padding)
-    timeText:SetTextColor(Core.COLORS.headerText[1], Core.COLORS.headerText[2], Core.COLORS.headerText[3])
-    tooltipFrame.charText = timeText
-
-    local levelLabel = tooltipFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    levelLabel:SetPoint("TOPLEFT", timeText, "BOTTOMLEFT", 0, -6)
-    levelLabel:SetTextColor(Core.COLORS.labelText[1], Core.COLORS.labelText[2], Core.COLORS.labelText[3])
-    levelLabel:SetText("Level")
-    levelLabel:SetWidth(42)
-    levelLabel:SetJustifyH("LEFT")
-    tooltipFrame.levelLabel = levelLabel
-
-    local levelValue = tooltipFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    levelValue:SetPoint("LEFT", levelLabel, "RIGHT", 4, 0)
-    levelValue:SetTextColor(Core.COLORS.valueText[1], Core.COLORS.valueText[2], Core.COLORS.valueText[3])
-    tooltipFrame.levelValue = levelValue
-
-    local timeLabel = tooltipFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    timeLabel:SetPoint("TOPLEFT", levelLabel, "BOTTOMLEFT", 0, -4)
-    timeLabel:SetTextColor(Core.COLORS.labelText[1], Core.COLORS.labelText[2], Core.COLORS.labelText[3])
-    timeLabel:SetText("Time")
-    timeLabel:SetWidth(42)
-    timeLabel:SetJustifyH("LEFT")
-    tooltipFrame.timeLabel = timeLabel
-
-    local timeValue = tooltipFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    timeValue:SetPoint("LEFT", timeLabel, "RIGHT", 4, 0)
-    timeValue:SetTextColor(Core.COLORS.valueText[1], Core.COLORS.valueText[2], Core.COLORS.valueText[3])
-    tooltipFrame.timeValue = timeValue
-
-    return tooltipFrame
+local function FormatDurationUnit(value, singular, plural)
+    if value == 1 then
+        return "1 " .. singular
+    end
+    return string.format("%d %s", value, plural)
 end
 
-local function FormatDurationLong(seconds)
+local function FormatDurationPrecise(seconds)
     seconds = math.floor((seconds or 0) + 0.5)
-    if seconds < 60 then
-        return seconds == 1 and "1 second" or string.format("%d seconds", seconds)
-    elseif seconds < 3600 then
-        local minutes = math.floor(seconds / 60 + 0.5)
-        return minutes == 1 and "1 minute" or string.format("%d minutes", minutes)
-    elseif seconds < 86400 then
-        local hours = math.floor(seconds / 3600 + 0.5)
-        return hours == 1 and "1 hour" or string.format("%d hours", hours)
+    if seconds <= 0 then
+        return "0 seconds"
     end
+
     local days = math.floor(seconds / 86400)
-    local hours = math.floor((seconds % 86400) / 3600)
-    if hours > 0 then
-        local dayLabel = days == 1 and "1 day" or string.format("%d days", days)
-        local hourLabel = hours == 1 and "1 hour" or string.format("%d hours", hours)
-        return dayLabel .. " " .. hourLabel
+    local rem = seconds % 86400
+    local hours = math.floor(rem / 3600)
+    rem = rem % 3600
+    local minutes = math.floor(rem / 60)
+    local secs = rem % 60
+
+    local parts = {}
+    if days > 0 then
+        parts[#parts + 1] = FormatDurationUnit(days, "day", "days")
     end
-    return days == 1 and "1 day" or string.format("%d days", days)
+    if hours > 0 then
+        parts[#parts + 1] = FormatDurationUnit(hours, "hour", "hours")
+    end
+    if minutes > 0 then
+        parts[#parts + 1] = FormatDurationUnit(minutes, "minute", "minutes")
+    end
+    if secs > 0 and days == 0 and hours == 0 then
+        parts[#parts + 1] = FormatDurationUnit(secs, "second", "seconds")
+    end
+
+    if #parts == 0 then
+        return "0 seconds"
+    end
+    return table.concat(parts, " ")
 end
 
-local function ShowSegmentTooltip(tooltip, charLabel, fromLevel, toLevel, seconds, showCharName)
-    local header = string.format("Level %d-%d", fromLevel, toLevel)
-    if showCharName and charLabel and charLabel ~= "" and charLabel ~= "?" then
-        header = header .. " (" .. charLabel .. ")"
+local function FormatTooltipTitle(entry)
+    local name = (entry and entry.name) or "?"
+    local realm = entry and entry.realm
+    local classFile = entry and entry.classFile
+    if RF and RF.formatColoredCharacterNameRealm then
+        return RF.formatColoredCharacterNameRealm(name, realm, true, classFile)
     end
-    tooltip.charText:SetText(header)
-    if tooltip.levelLabel then tooltip.levelLabel:SetText("") end
-    tooltip.levelValue:SetText("")
-    if tooltip.timeLabel then tooltip.timeLabel:SetText("") end
-    tooltip.timeValue:SetText(FormatDurationLong(seconds))
-    tooltip:Show()
+    if realm and realm ~= "" then
+        return name .. " — " .. realm
+    end
+    return name
+end
+
+local function ShowSegmentTooltip(owner, entry, fromLevel, toLevel, totalSeconds, perLevelSeconds)
+    if not GameTooltip or not owner then return end
+
+    GameTooltip:SetOwner(owner, "ANCHOR_BOTTOMLEFT")
+    GameTooltip:ClearLines()
+    GameTooltip:AddLine(FormatTooltipTitle(entry), 1, 1, 1, true)
+    GameTooltip:AddLine(string.format("Level %d-%d", fromLevel, toLevel), 0.9, 0.9, 0.9, true)
+    GameTooltip:AddLine(FormatDurationPrecise(totalSeconds), 0.9, 0.9, 0.9, true)
+    local levelSpan = toLevel - fromLevel
+    if levelSpan > 1 then
+        local perLevel = perLevelSeconds or (totalSeconds / levelSpan)
+        GameTooltip:AddLine(
+            string.format("(%s per level)", FormatDurationPrecise(perLevel)),
+            0.9, 0.9, 0.9, true
+        )
+    end
+    GameTooltip:Show()
 end
 
 local function ClearHoverFrames()
@@ -286,12 +367,12 @@ local function ClearHoverFrames()
     end
     wipe(markerDots)
 
-    if tooltipFrame then tooltipFrame:Hide() end
+    if GameTooltip then GameTooltip:Hide() end
 end
 
-local function AddSegmentMarker(px, py, r, g, b, onEnter, onLeave)
+local function AddSegmentMarker(px, py, r, g, b, alpha, onEnter, onLeave)
     local dot = graphFrame:CreateTexture(nil, "OVERLAY")
-    dot:SetColorTexture(r, g, b, 1)
+    dot:SetColorTexture(r, g, b, alpha or 1)
     dot:SetSize(MARKER_DOT_SIZE, MARKER_DOT_SIZE)
     dot:SetPoint("CENTER", graphFrame, "BOTTOMLEFT", px, py)
     markerDots[#markerDots + 1] = dot
@@ -302,9 +383,9 @@ local function AddSegmentMarker(px, py, r, g, b, onEnter, onLeave)
     hf:SetFrameLevel(graphFrame:GetFrameLevel() + 50)
     hf:EnableMouse(true)
 
-    hf:SetScript("OnEnter", function()
+    hf:SetScript("OnEnter", function(self)
         dot:SetSize(MARKER_DOT_SIZE + 3, MARKER_DOT_SIZE + 3)
-        if onEnter then onEnter() end
+        if onEnter then onEnter(self) end
     end)
     hf:SetScript("OnLeave", function()
         dot:SetSize(MARKER_DOT_SIZE, MARKER_DOT_SIZE)
@@ -341,7 +422,6 @@ local function RefreshSelector()
     local scrollW = selectorScroll:GetWidth() or SELECTOR_WIDTH - 12
     selectorChild:SetWidth(scrollW)
 
-    local RF = AltArmy.RealmFilter
     local realmFilter = GetRealmFilterValue()
     local combinedForRealmCheck = {}
     for _, entry in ipairs(list) do combinedForRealmCheck[#combinedForRealmCheck + 1] = entry end
@@ -363,10 +443,14 @@ local function RefreshSelector()
 
         row.check:SetChecked(IsSelected(entry.realm, entry.name))
         row.check:SetScript("OnClick", function()
-            local checked = row.check:GetChecked()
-            SetSelected(entry.realm, entry.name, checked)
+            SetSelected(entry.realm, entry.name, row.check:GetChecked())
             frame:Redraw()
         end)
+        row.nameButton:SetScript("OnClick", function()
+            ToggleCompareSelection(row, entry)
+        end)
+        BindCompareRowHover(row, entry)
+        SetRowHoverHighlight(row, hoveredCompareEntry and EntryKey(hoveredCompareEntry) == EntryKey(entry))
 
         yOffset = yOffset + ROW_HEIGHT
     end
@@ -409,8 +493,8 @@ function frame:Redraw()
     Core.ClearObjects()
     ClearHoverFrames()
 
-    local selected = GetSelectedCharacters()
-    if #selected == 0 then
+    local toDraw = GetCharactersToDraw()
+    if #toDraw == 0 then
         graphHint:Show()
         if LPD.GetCharactersWithHistory and #ApplyRealmFilter(LPD.GetCharactersWithHistory()) > 0 then
             graphHint:SetText("Select one or more characters on the right\nto compare time per level.")
@@ -418,10 +502,13 @@ function frame:Redraw()
         return
     end
 
+    local hoverKey = hoveredCompareEntry and EntryKey(hoveredCompareEntry) or nil
+    local dimOthers = hoverKey ~= nil
+
     local seriesByChar = {}
     local yMax = 0
 
-    for _, entry in ipairs(selected) do
+    for _, entry in ipairs(toDraw) do
         local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
         local drawable = LPD.PrepareDrawableSeries(series)
         if #drawable.usable >= 1 then
@@ -466,15 +553,15 @@ function frame:Redraw()
         return tostring(math.floor(v + 0.5))
     end)
 
-    local tooltip = GetTooltipFrame()
-    local showCharName = #seriesByChar > 1
-
     for _, charData in ipairs(seriesByChar) do
         local drawable = charData.drawable
         local series = drawable.usable
         local r, g, b = charData.r, charData.g, charData.b
         local entry = charData.entry
-        local charLabel = entry.name or "?"
+        local isHovered = hoverKey and EntryKey(entry) == hoverKey
+        local lineAlpha = dimOthers and (isHovered and 0.9 or DIM_LINE_ALPHA) or 0.9
+        local dashAlpha = dimOthers and (isHovered and 0.55 or DIM_DASH_ALPHA) or 0.55
+        local markerAlpha = dimOthers and (isHovered and 1 or DIM_MARKER_ALPHA) or 1
 
         for i, pt in ipairs(series) do
             local x, y = X(pt.level), Y(pt.seconds)
@@ -482,26 +569,17 @@ function frame:Redraw()
             if drawable.leadingGap and i == 1 then
                 local gap = drawable.leadingGap
                 local gx1, gy1 = X(gap.fromLevel), Y(0)
-                Core.CreateDashedLine(graphFrame, gx1, gy1, x, y, DASH_THICKNESS, r, g, b, 0.55)
+                Core.CreateDashedLine(graphFrame, gx1, gy1, x, y, DASH_THICKNESS, r, g, b, dashAlpha)
             elseif i > 1 then
                 local prev = series[i - 1]
                 local x1, y1 = X(prev.level), Y(prev.seconds)
-                Core.CreateLine(graphFrame, x1, y1, x, y, LINE_THICKNESS, r, g, b, 0.9)
+                Core.CreateLine(graphFrame, x1, y1, x, y, LINE_THICKNESS, r, g, b, lineAlpha)
             end
 
-            AddSegmentMarker(x, y, r, g, b, function()
-                tooltip:ClearAllPoints()
-                tooltip:SetPoint("BOTTOMLEFT", graphFrame, "BOTTOMLEFT", x + 10, y + 10)
-                ShowSegmentTooltip(
-                    tooltip,
-                    charLabel,
-                    pt.fromLevel,
-                    pt.toLevel,
-                    pt.totalSeconds,
-                    showCharName
-                )
+            AddSegmentMarker(x, y, r, g, b, markerAlpha, function(owner)
+                ShowSegmentTooltip(owner, entry, pt.fromLevel, pt.toLevel, pt.totalSeconds, pt.seconds)
             end, function()
-                tooltip:Hide()
+                if GameTooltip then GameTooltip:Hide() end
             end)
         end
     end
