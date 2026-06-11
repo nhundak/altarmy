@@ -27,6 +27,68 @@ Core.graphLines = {}
 local SOFT_LINE_TEX = "Interface\\AddOns\\AltArmy_TBC\\Textures\\SoftLine"
 local _useNativeLine = nil
 
+local linePool = { free = {} }
+local texturePool = { free = {} }
+local fontStringPool = { free = {} }
+
+local function AcquireFromPool(pool, createFn)
+    local obj = table.remove(pool.free)
+    if not obj then
+        obj = createFn()
+    end
+    obj:Show()
+    return obj
+end
+
+local function ReleaseToPool(pool, obj)
+    if not obj then return end
+    obj:Hide()
+    table.insert(pool.free, obj)
+end
+
+local function RemoveFromActiveList(activeList, obj)
+    for i = #activeList, 1, -1 do
+        if activeList[i] == obj then
+            table.remove(activeList, i)
+            return true
+        end
+    end
+    return false
+end
+
+function Core.ReleaseDrawnObject(obj)
+    if not obj then return end
+    if RemoveFromActiveList(Core.graphLines, obj) then
+        ReleaseToPool(linePool, obj)
+        return
+    end
+    if RemoveFromActiveList(Core.graphTextures, obj) then
+        ReleaseToPool(texturePool, obj)
+        return
+    end
+    if RemoveFromActiveList(Core.graphLabels, obj) then
+        ReleaseToPool(fontStringPool, obj)
+    end
+end
+
+local function AcquireFontString(parent)
+    local fs = AcquireFromPool(fontStringPool, function()
+        return parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    end)
+    table.insert(Core.graphLabels, fs)
+    return fs
+end
+
+local function DetectNativeLine(parent)
+    if _useNativeLine ~= nil then return end
+    local ok, testLine = pcall(function() return parent:CreateLine(nil, "ARTWORK") end)
+    _useNativeLine = ok and testLine and testLine.SetStartPoint and testLine.SetEndPoint and true or false
+    if _useNativeLine and testLine then
+        testLine:Hide()
+        table.insert(linePool.free, testLine)
+    end
+end
+
 function Core.CreateDashedLine(parent, x1, y1, x2, y2, thickness, r, g, b, a, dashWidth, gapWidth)
     dashWidth = dashWidth or 6
     gapWidth = gapWidth or 4
@@ -60,17 +122,13 @@ function Core.CreateLine(parent, x1, y1, x2, y2, thickness, r, g, b, a)
     a = a or 0.95
     thickness = thickness or 2
 
-    if _useNativeLine == nil then
-        local ok, testLine = pcall(function() return parent:CreateLine(nil, "ARTWORK") end)
-        _useNativeLine = ok and testLine and testLine.SetStartPoint and testLine.SetEndPoint and true or false
-        if _useNativeLine and testLine then
-            testLine:Hide()
-            testLine:SetParent(nil)
-        end
-    end
+    DetectNativeLine(parent)
 
     if _useNativeLine then
-        local line = parent:CreateLine(nil, "ARTWORK")
+        local line = AcquireFromPool(linePool, function()
+            return parent:CreateLine(nil, "ARTWORK")
+        end)
+        line:ClearAllPoints()
         line:SetThickness(thickness + 1)
         line:SetTexture(SOFT_LINE_TEX)
         line:SetVertexColor(r, g, b, a)
@@ -82,7 +140,10 @@ function Core.CreateLine(parent, x1, y1, x2, y2, thickness, r, g, b, a)
 
     local angle = math.atan2(dy, dx)
     local midx, midy = (x1 + x2) / 2, (y1 + y2) / 2
-    local tex = parent:CreateTexture(nil, "ARTWORK")
+    local tex = AcquireFromPool(texturePool, function()
+        return parent:CreateTexture(nil, "ARTWORK")
+    end)
+    tex:ClearAllPoints()
     tex:SetTexture(SOFT_LINE_TEX)
     tex:SetVertexColor(r, g, b, a)
     tex:SetSize(length, thickness + 1)
@@ -93,27 +154,18 @@ function Core.CreateLine(parent, x1, y1, x2, y2, thickness, r, g, b, a)
 end
 
 function Core.ClearObjects()
-    for _, t in ipairs(Core.graphTextures) do
-        if t then
-            t:Hide()
-            t:SetParent(nil)
-        end
-    end
-    wipe(Core.graphTextures)
-
-    for _, line in ipairs(Core.graphLines) do
-        if line then
-            line:Hide()
-            line:SetParent(nil)
-        end
+    for i = #Core.graphLines, 1, -1 do
+        ReleaseToPool(linePool, Core.graphLines[i])
     end
     wipe(Core.graphLines)
 
-    for _, fs in ipairs(Core.graphLabels) do
-        if fs then
-            fs:Hide()
-            fs:SetParent(nil)
-        end
+    for i = #Core.graphTextures, 1, -1 do
+        ReleaseToPool(texturePool, Core.graphTextures[i])
+    end
+    wipe(Core.graphTextures)
+
+    for i = #Core.graphLabels, 1, -1 do
+        ReleaseToPool(fontStringPool, Core.graphLabels[i])
     end
     wipe(Core.graphLabels)
 end
@@ -181,10 +233,10 @@ function Core.RenderYLabels(parent, plotH, yMin, yRange, formatFunc)
 
         Core.CreateLine(parent, pad.left - 5, y, pad.left, y, 2, ax.r, ax.g, ax.b, ax.a)
 
-        local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        local fs = AcquireFontString(parent)
+        fs:ClearAllPoints()
         fs:SetText(formatFunc(val))
         fs:SetPoint("RIGHT", parent, "BOTTOMLEFT", pad.left - 8, y - 5)
-        table.insert(Core.graphLabels, fs)
     end
 end
 
@@ -200,10 +252,10 @@ function Core.RenderXLabels(parent, plotW, xMin, xRange, formatFunc)
 
         Core.CreateLine(parent, x, pad.bottom, x, pad.bottom + 5, 2, ax.r, ax.g, ax.b, ax.a)
 
-        local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        local fs = AcquireFontString(parent)
+        fs:ClearAllPoints()
         fs:SetText(formatFunc(val))
         fs:SetPoint("TOP", parent, "BOTTOMLEFT", x, pad.bottom - 2)
-        table.insert(Core.graphLabels, fs)
     end
 end
 
@@ -220,10 +272,10 @@ function Core.RenderXLabelsAtInterval(parent, plotW, xMin, xRange, interval, for
 
         Core.CreateLine(parent, x, pad.bottom, x, pad.bottom + 5, 2, ax.r, ax.g, ax.b, ax.a)
 
-        local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        local fs = AcquireFontString(parent)
+        fs:ClearAllPoints()
         fs:SetText(formatFunc(level))
         fs:SetPoint("TOP", parent, "BOTTOMLEFT", x, pad.bottom - 2)
-        table.insert(Core.graphLabels, fs)
 
         level = level + interval
     end

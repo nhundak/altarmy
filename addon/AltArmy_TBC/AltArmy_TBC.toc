@@ -36,6 +36,7 @@ Tabs\TabGear.lua
 Tabs\TabReputation.lua
 Tabs\TabCooldowns.lua
 Tabs\TabSearch.lua
+Tabs\ProgressionGraphLogic.lua
 Tabs\TabProgression.lua
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua

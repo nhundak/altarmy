@@ -5,6 +5,7 @@ if not frame then return end
 
 local LPD = AltArmy.LevelProgressData
 local Core = AltArmy.GraphCore
+local Logic = AltArmy.ProgressionGraphLogic
 
 local SELECTOR_WIDTH = 150
 local ROW_HEIGHT = 20
@@ -16,16 +17,31 @@ local MARKER_HIT_SIZE = 18
 local MARKER_DOT_SIZE = 4
 local ROW_HOVER_BG = "Interface\\Tooltips\\UI-Tooltip-Background"
 local ROW_HOVER_TINT = 0.22
-local DIM_LINE_ALPHA = 0.22
-local DIM_DASH_ALPHA = 0.14
-local DIM_MARKER_ALPHA = 0.35
+
+local FULL_LINE_ALPHA = Logic.FULL_LINE_ALPHA
+local FULL_DASH_ALPHA = Logic.FULL_DASH_ALPHA
+local FULL_MARKER_ALPHA = Logic.FULL_MARKER_ALPHA
+local DIM_LINE_ALPHA = Logic.DIM_LINE_ALPHA
+local DIM_DASH_ALPHA = Logic.DIM_DASH_ALPHA
+local DIM_MARKER_ALPHA = Logic.DIM_MARKER_ALPHA
 
 AltArmyTBC_ProgressionSettings = AltArmyTBC_ProgressionSettings or {}
 
-local hoverFrames = {}
-local markerDots = {}
 local RF = AltArmy.RealmFilter
 local hoveredCompareEntry = nil
+
+local currentX, currentY = nil, nil
+local currentRawYMax = 0
+local drawnKeys = {}
+local seriesGroups = {}
+
+local markerDotPool = { free = {} }
+local markerHitPool = { free = {} }
+
+local RebuildGraph
+local ApplyHighlight
+local HandleCompareRowEnter
+local HandleCompareRowLeave
 
 local function CharKey(realm, name)
     return (realm or "") .. "\\" .. (name or "")
@@ -113,15 +129,11 @@ end
 
 local function BindCompareRowHover(row, entry)
     local function onEnter()
-        hoveredCompareEntry = entry
-        SetRowHoverHighlight(row, true)
-        frame:Redraw()
+        HandleCompareRowEnter(row, entry)
     end
 
     local function onLeave()
-        hoveredCompareEntry = nil
-        SetRowHoverHighlight(row, false)
-        frame:Redraw()
+        HandleCompareRowLeave(row, entry)
     end
 
     row:SetScript("OnEnter", onEnter)
@@ -138,7 +150,7 @@ local function ToggleCompareSelection(row, entry)
     local checked = not IsSelected(entry.realm, entry.name)
     row.check:SetChecked(checked)
     SetSelected(entry.realm, entry.name, checked)
-    frame:Redraw()
+    RebuildGraph()
 end
 
 -- Layout: graph (left) + selector (right)
@@ -350,49 +362,311 @@ local function ShowSegmentTooltip(owner, entry, fromLevel, toLevel, totalSeconds
     GameTooltip:Show()
 end
 
-local function ClearHoverFrames()
-    for _, hf in ipairs(hoverFrames) do
-        if hf then
-            hf:Hide()
-            hf:SetParent(nil)
-        end
-    end
-    wipe(hoverFrames)
-
-    for _, dot in ipairs(markerDots) do
-        if dot then
-            dot:Hide()
-            dot:SetParent(nil)
-        end
-    end
-    wipe(markerDots)
-
-    if GameTooltip then GameTooltip:Hide() end
+local function ReleaseMarkerDot(dot)
+    if not dot then return end
+    dot:Hide()
+    table.insert(markerDotPool.free, dot)
 end
 
-local function AddSegmentMarker(px, py, r, g, b, alpha, onEnter, onLeave)
-    local dot = graphFrame:CreateTexture(nil, "OVERLAY")
+local function ReleaseMarkerHit(hf)
+    if not hf then return end
+    hf:Hide()
+    hf:SetScript("OnEnter", nil)
+    hf:SetScript("OnLeave", nil)
+    table.insert(markerHitPool.free, hf)
+end
+
+local function AcquireMarkerDot(r, g, b, alpha, px, py)
+    local dot = table.remove(markerDotPool.free)
+    if not dot then
+        dot = graphFrame:CreateTexture(nil, "OVERLAY")
+    end
+    dot:ClearAllPoints()
     dot:SetColorTexture(r, g, b, alpha or 1)
     dot:SetSize(MARKER_DOT_SIZE, MARKER_DOT_SIZE)
     dot:SetPoint("CENTER", graphFrame, "BOTTOMLEFT", px, py)
-    markerDots[#markerDots + 1] = dot
+    dot:Show()
+    return dot
+end
 
-    local hf = CreateFrame("Frame", nil, graphFrame)
+local function AcquireMarkerHit(px, py)
+    local hf = table.remove(markerHitPool.free)
+    if not hf then
+        hf = CreateFrame("Frame", nil, graphFrame)
+        hf:EnableMouse(true)
+        hf:SetFrameLevel(graphFrame:GetFrameLevel() + 50)
+    end
+    hf:ClearAllPoints()
     hf:SetSize(MARKER_HIT_SIZE, MARKER_HIT_SIZE)
     hf:SetPoint("CENTER", graphFrame, "BOTTOMLEFT", px, py)
-    hf:SetFrameLevel(graphFrame:GetFrameLevel() + 50)
-    hf:EnableMouse(true)
+    hf:Show()
+    return hf
+end
+
+local function AddStyledObject(group, obj, r, g, b, fullAlpha, dimAlpha)
+    group.objects[#group.objects + 1] = {
+        obj = obj,
+        r = r,
+        g = g,
+        b = b,
+        fullAlpha = fullAlpha,
+        dimAlpha = dimAlpha,
+    }
+end
+
+local function ApplyObjectAlpha(styled, dimOthers, isHovered)
+    local alpha = dimOthers and (isHovered and styled.fullAlpha or styled.dimAlpha) or styled.fullAlpha
+    styled.obj:SetVertexColor(styled.r, styled.g, styled.b, alpha)
+end
+
+local function TrackNewCoreObjects(group, r, g, b, fullAlpha, dimAlpha, lineCountBefore, texCountBefore)
+    for i = lineCountBefore + 1, #Core.graphLines do
+        AddStyledObject(group, Core.graphLines[i], r, g, b, fullAlpha, dimAlpha)
+    end
+    for i = texCountBefore + 1, #Core.graphTextures do
+        AddStyledObject(group, Core.graphTextures[i], r, g, b, fullAlpha, dimAlpha)
+    end
+end
+
+local function AddSegmentMarker(group, px, py, r, g, b, alpha, entry, pt)
+    local dot = AcquireMarkerDot(r, g, b, alpha, px, py)
+    group.markerDots[#group.markerDots + 1] = dot
+    AddStyledObject(group, dot, r, g, b, FULL_MARKER_ALPHA, DIM_MARKER_ALPHA)
+
+    local hf = AcquireMarkerHit(px, py)
+    group.markerHits[#group.markerHits + 1] = hf
 
     hf:SetScript("OnEnter", function(self)
         dot:SetSize(MARKER_DOT_SIZE + 3, MARKER_DOT_SIZE + 3)
-        if onEnter then onEnter(self) end
+        ShowSegmentTooltip(self, entry, pt.fromLevel, pt.toLevel, pt.totalSeconds, pt.seconds)
     end)
     hf:SetScript("OnLeave", function()
         dot:SetSize(MARKER_DOT_SIZE, MARKER_DOT_SIZE)
-        if onLeave then onLeave() end
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+end
+
+local function ReleaseSeriesGroupResources(group)
+    if not group then return end
+    for _, styled in ipairs(group.objects) do
+        Core.ReleaseDrawnObject(styled.obj)
+    end
+    wipe(group.objects)
+    for _, dot in ipairs(group.markerDots) do
+        ReleaseMarkerDot(dot)
+    end
+    wipe(group.markerDots)
+    for _, hf in ipairs(group.markerHits) do
+        ReleaseMarkerHit(hf)
+    end
+    wipe(group.markerHits)
+end
+
+local function ReleaseAllSeriesGroups()
+    for i = #seriesGroups, 1, -1 do
+        ReleaseSeriesGroupResources(seriesGroups[i])
+    end
+    wipe(seriesGroups)
+    wipe(drawnKeys)
+end
+
+local function GetSeriesMaxSeconds(entry)
+    if not LPD or not entry then return 0 end
+    local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
+    local drawable = LPD.PrepareDrawableSeries(series)
+    local maxSeconds = 0
+    for _, pt in ipairs(drawable.usable) do
+        if pt.seconds > maxSeconds then
+            maxSeconds = pt.seconds
+        end
+    end
+    return maxSeconds
+end
+
+local function DrawSeriesGroup(charData, X, Y)
+    local group = {
+        key = EntryKey(charData.entry),
+        entry = charData.entry,
+        objects = {},
+        markerDots = {},
+        markerHits = {},
+    }
+    local drawable = charData.drawable
+    local series = drawable.usable
+    local r, g, b = charData.r, charData.g, charData.b
+    local entry = charData.entry
+
+    for i, pt in ipairs(series) do
+        local x, y = X(pt.level), Y(pt.seconds)
+
+        if drawable.leadingGap and i == 1 then
+            local gap = drawable.leadingGap
+            local gx1, gy1 = X(gap.fromLevel), Y(0)
+            local lineCountBefore = #Core.graphLines
+            local texCountBefore = #Core.graphTextures
+            Core.CreateDashedLine(graphFrame, gx1, gy1, x, y, DASH_THICKNESS, r, g, b, FULL_DASH_ALPHA)
+            TrackNewCoreObjects(group, r, g, b, FULL_DASH_ALPHA, DIM_DASH_ALPHA, lineCountBefore, texCountBefore)
+        elseif i > 1 then
+            local prev = series[i - 1]
+            local x1, y1 = X(prev.level), Y(prev.seconds)
+            local line = Core.CreateLine(graphFrame, x1, y1, x, y, LINE_THICKNESS, r, g, b, FULL_LINE_ALPHA)
+            AddStyledObject(group, line, r, g, b, FULL_LINE_ALPHA, DIM_LINE_ALPHA)
+        end
+
+        AddSegmentMarker(group, x, y, r, g, b, FULL_MARKER_ALPHA, entry, pt)
+    end
+
+    return group
+end
+
+local function AddHoveredSeries(entry)
+    if not currentX or not currentY or not entry then return end
+
+    local key = EntryKey(entry)
+    if drawnKeys[key] then return end
+
+    local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
+    local drawable = LPD.PrepareDrawableSeries(series)
+    if #drawable.usable < 1 then return end
+
+    local cr, cg, cb = LPD.GetClassColor(entry.classFile)
+    local charData = {
+        entry = entry,
+        drawable = drawable,
+        r = cr,
+        g = cg,
+        b = cb,
+    }
+    local group = DrawSeriesGroup(charData, currentX, currentY)
+    drawnKeys[key] = true
+    seriesGroups[#seriesGroups + 1] = group
+end
+
+ApplyHighlight = function()
+    if #seriesGroups == 0 then return end
+
+    local hoverKey = hoveredCompareEntry and EntryKey(hoveredCompareEntry) or nil
+    local dimOthers = hoverKey ~= nil
+
+    for _, group in ipairs(seriesGroups) do
+        local isHovered = hoverKey and group.key == hoverKey
+        for _, styled in ipairs(group.objects) do
+            ApplyObjectAlpha(styled, dimOthers, isHovered)
+        end
+    end
+end
+
+RebuildGraph = function()
+    if not Core or not LPD or not Logic then return end
+
+    ReleaseAllSeriesGroups()
+    Core.ClearObjects()
+
+    currentX, currentY = nil, nil
+    currentRawYMax = 0
+
+    local toDraw = GetCharactersToDraw()
+    if #toDraw == 0 then
+        graphHint:Show()
+        if LPD.GetCharactersWithHistory and #ApplyRealmFilter(LPD.GetCharactersWithHistory()) > 0 then
+            graphHint:SetText("Select one or more characters on the right\nto compare time per level.")
+        end
+        return
+    end
+
+    local seriesByChar = {}
+    local yMax = 0
+
+    for _, entry in ipairs(toDraw) do
+        local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
+        local drawable = LPD.PrepareDrawableSeries(series)
+        if #drawable.usable >= 1 then
+            local cr, cg, cb = LPD.GetClassColor(entry.classFile)
+            seriesByChar[#seriesByChar + 1] = {
+                entry = entry,
+                drawable = drawable,
+                r = cr,
+                g = cg,
+                b = cb,
+            }
+            for _, pt in ipairs(drawable.usable) do
+                if pt.seconds > yMax then yMax = pt.seconds end
+            end
+        end
+    end
+
+    if #seriesByChar == 0 then
+        graphHint:SetText("Selected characters have no\nusable level history.")
+        graphHint:Show()
+        return
+    end
+
+    graphHint:Hide()
+
+    local xMin, _, xRange = LPD.GetAxisRange()
+
+    currentRawYMax = yMax
+    local yPad = math.max(1, math.floor(yMax * 0.08))
+    local yMin = 0
+    local paddedYMax = yMax + yPad
+    local yRange = math.max(1, paddedYMax - yMin)
+
+    local plotW, plotH = Core.CalculatePlotDimensions(graphFrame)
+    currentX, currentY = Core.CreateTransformers(plotW, plotH, xMin, xRange, yMin, yRange)
+
+    Core.RenderGridLines(graphFrame, plotW, plotH)
+    Core.RenderAxes(graphFrame, plotW, plotH)
+    Core.RenderYLabels(graphFrame, plotH, yMin, yRange, function(v)
+        return Core.FormatDuration(v)
+    end)
+    Core.RenderXLabelsAtInterval(graphFrame, plotW, xMin, xRange, 10, function(v)
+        return tostring(math.floor(v + 0.5))
     end)
 
-    hoverFrames[#hoverFrames + 1] = hf
+    for _, charData in ipairs(seriesByChar) do
+        local group = DrawSeriesGroup(charData, currentX, currentY)
+        drawnKeys[group.key] = true
+        seriesGroups[#seriesGroups + 1] = group
+    end
+
+    ApplyHighlight()
+end
+
+HandleCompareRowEnter = function(row, entry)
+    hoveredCompareEntry = entry
+    SetRowHoverHighlight(row, true)
+
+    local key = EntryKey(entry)
+    if drawnKeys[key] then
+        ApplyHighlight()
+        return
+    end
+
+    if #seriesGroups == 0 then
+        RebuildGraph()
+        return
+    end
+
+    local maxSec = GetSeriesMaxSeconds(entry)
+    if Logic.HoverNeedsRebuild(key, drawnKeys, maxSec, currentRawYMax) then
+        RebuildGraph()
+        return
+    end
+
+    AddHoveredSeries(entry)
+    ApplyHighlight()
+end
+
+HandleCompareRowLeave = function(row, entry)
+    hoveredCompareEntry = nil
+    SetRowHoverHighlight(row, false)
+
+    if IsSelected(entry.realm, entry.name) then
+        ApplyHighlight()
+        return
+    end
+
+    RebuildGraph()
 end
 
 local function FormatCharacterLabel(entry, showRealmSuffix)
@@ -444,7 +718,7 @@ local function RefreshSelector()
         row.check:SetChecked(IsSelected(entry.realm, entry.name))
         row.check:SetScript("OnClick", function()
             SetSelected(entry.realm, entry.name, row.check:GetChecked())
-            frame:Redraw()
+            RebuildGraph()
         end)
         row.nameButton:SetScript("OnClick", function()
             ToggleCompareSelection(row, entry)
@@ -488,101 +762,7 @@ local function RefreshSelector()
 end
 
 function frame:Redraw()
-    if not Core or not LPD then return end
-
-    Core.ClearObjects()
-    ClearHoverFrames()
-
-    local toDraw = GetCharactersToDraw()
-    if #toDraw == 0 then
-        graphHint:Show()
-        if LPD.GetCharactersWithHistory and #ApplyRealmFilter(LPD.GetCharactersWithHistory()) > 0 then
-            graphHint:SetText("Select one or more characters on the right\nto compare time per level.")
-        end
-        return
-    end
-
-    local hoverKey = hoveredCompareEntry and EntryKey(hoveredCompareEntry) or nil
-    local dimOthers = hoverKey ~= nil
-
-    local seriesByChar = {}
-    local yMax = 0
-
-    for _, entry in ipairs(toDraw) do
-        local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
-        local drawable = LPD.PrepareDrawableSeries(series)
-        if #drawable.usable >= 1 then
-            local cr, cg, cb = LPD.GetClassColor(entry.classFile)
-            seriesByChar[#seriesByChar + 1] = {
-                entry = entry,
-                drawable = drawable,
-                r = cr,
-                g = cg,
-                b = cb,
-            }
-            for _, pt in ipairs(drawable.usable) do
-                if pt.seconds > yMax then yMax = pt.seconds end
-            end
-        end
-    end
-
-    if #seriesByChar == 0 then
-        graphHint:SetText("Selected characters have no\nusable level history.")
-        graphHint:Show()
-        return
-    end
-
-    graphHint:Hide()
-
-    local xMin, _, xRange = LPD.GetAxisRange()
-
-    local yPad = math.max(1, math.floor(yMax * 0.08))
-    local yMin = 0
-    yMax = yMax + yPad
-    local yRange = math.max(1, yMax - yMin)
-
-    local plotW, plotH = Core.CalculatePlotDimensions(graphFrame)
-    local X, Y = Core.CreateTransformers(plotW, plotH, xMin, xRange, yMin, yRange)
-
-    Core.RenderGridLines(graphFrame, plotW, plotH)
-    Core.RenderAxes(graphFrame, plotW, plotH)
-    Core.RenderYLabels(graphFrame, plotH, yMin, yRange, function(v)
-        return Core.FormatDuration(v)
-    end)
-    Core.RenderXLabelsAtInterval(graphFrame, plotW, xMin, xRange, 10, function(v)
-        return tostring(math.floor(v + 0.5))
-    end)
-
-    for _, charData in ipairs(seriesByChar) do
-        local drawable = charData.drawable
-        local series = drawable.usable
-        local r, g, b = charData.r, charData.g, charData.b
-        local entry = charData.entry
-        local isHovered = hoverKey and EntryKey(entry) == hoverKey
-        local lineAlpha = dimOthers and (isHovered and 0.9 or DIM_LINE_ALPHA) or 0.9
-        local dashAlpha = dimOthers and (isHovered and 0.55 or DIM_DASH_ALPHA) or 0.55
-        local markerAlpha = dimOthers and (isHovered and 1 or DIM_MARKER_ALPHA) or 1
-
-        for i, pt in ipairs(series) do
-            local x, y = X(pt.level), Y(pt.seconds)
-
-            if drawable.leadingGap and i == 1 then
-                local gap = drawable.leadingGap
-                local gx1, gy1 = X(gap.fromLevel), Y(0)
-                Core.CreateDashedLine(graphFrame, gx1, gy1, x, y, DASH_THICKNESS, r, g, b, dashAlpha)
-            elseif i > 1 then
-                local prev = series[i - 1]
-                local x1, y1 = X(prev.level), Y(prev.seconds)
-                Core.CreateLine(graphFrame, x1, y1, x, y, LINE_THICKNESS, r, g, b, lineAlpha)
-            end
-
-            AddSegmentMarker(x, y, r, g, b, markerAlpha, function(owner)
-                ShowSegmentTooltip(owner, entry, pt.fromLevel, pt.toLevel, pt.totalSeconds, pt.seconds)
-            end, function()
-                if GameTooltip then GameTooltip:Hide() end
-            end)
-        end
-    end
+    RebuildGraph()
 end
 
 frame:SetScript("OnShow", function()
