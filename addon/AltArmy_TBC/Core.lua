@@ -493,10 +493,11 @@ searchModeHandlers.enterSearchMode = function(trimmed)
     resultsLabel:Show()
     if itemsChk then itemsChk:SetChecked(AltArmy.SearchCategories.Items) end
     if recipesChk then recipesChk:SetChecked(AltArmy.SearchCategories.Recipes) end
-    if AltArmy.TabFrames.Summary then AltArmy.TabFrames.Summary:Hide() end
-    if AltArmy.TabFrames.Gear then AltArmy.TabFrames.Gear:Hide() end
-    if AltArmy.TabFrames.Reputation then AltArmy.TabFrames.Reputation:Hide() end
-    if AltArmy.TabFrames.Cooldowns then AltArmy.TabFrames.Cooldowns:Hide() end
+    for name, tabFrame in pairs(AltArmy.TabFrames) do
+        if name ~= "Search" then
+            tabFrame:Hide()
+        end
+    end
     if AltArmy.TabFrames.Search then
         AltArmy.TabFrames.Search:Show()
         if AltArmy.TabFrames.Search.SearchWithQuery then

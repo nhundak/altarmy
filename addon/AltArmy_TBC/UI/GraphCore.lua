@@ -89,6 +89,61 @@ local function DetectNativeLine(parent)
     end
 end
 
+local function PointAlongPolyline(points, distance)
+    if #points < 2 then
+        local p = points[1]
+        return p and p.x or 0, p and p.y or 0
+    end
+
+    local travelled = 0
+    for i = 2, #points do
+        local prev = points[i - 1]
+        local curr = points[i]
+        local dx = curr.x - prev.x
+        local dy = curr.y - prev.y
+        local segLen = math.sqrt(dx * dx + dy * dy)
+        if segLen > 0.0001 then
+            if travelled + segLen >= distance then
+                local frac = (distance - travelled) / segLen
+                return prev.x + dx * frac, prev.y + dy * frac
+            end
+            travelled = travelled + segLen
+        end
+    end
+
+    local last = points[#points]
+    return last.x, last.y
+end
+
+function Core.CreateDashedPolyline(parent, points, thickness, r, g, b, a, dashWidth, gapWidth)
+    dashWidth = dashWidth or 6
+    gapWidth = gapWidth or 4
+    thickness = thickness or 1
+
+    if not points or #points < 2 then
+        return
+    end
+
+    local totalLength = 0
+    for i = 2, #points do
+        local dx = points[i].x - points[i - 1].x
+        local dy = points[i].y - points[i - 1].y
+        totalLength = totalLength + math.sqrt(dx * dx + dy * dy)
+    end
+    if totalLength <= 0.0001 then
+        return
+    end
+
+    local pos = 0
+    while pos < totalLength do
+        local dashEnd = math.min(pos + dashWidth, totalLength)
+        local sx, sy = PointAlongPolyline(points, pos)
+        local ex, ey = PointAlongPolyline(points, dashEnd)
+        Core.CreateLine(parent, sx, sy, ex, ey, thickness, r, g, b, a)
+        pos = dashEnd + gapWidth
+    end
+end
+
 function Core.CreateDashedLine(parent, x1, y1, x2, y2, thickness, r, g, b, a, dashWidth, gapWidth)
     dashWidth = dashWidth or 6
     gapWidth = gapWidth or 4
@@ -178,36 +233,75 @@ function Core.CalculatePlotDimensions(graphFrame)
     return plotW, plotH
 end
 
-function Core.CreateTransformers(plotW, plotH, xMin, xRange, yMin, yRange)
+function Core.CreateTransformers(plotW, plotH, xMin, xRange, yMin, yRange, opts)
     local pad = Core.PADDING
+    opts = opts or {}
+    local yAxisMode = opts.yAxisMode or "linear"
+    local logMin = opts.logMin
+    local logMax = opts.logMax
 
     local function X(x)
         return pad.left + plotW * ((x - xMin) / xRange)
     end
 
     local function Y(y)
+        if yAxisMode == "log" then
+            local clamped = math.max(y, yMin)
+            local logY = math.log(clamped) / math.log(10)
+            local logRange = logMax - logMin
+            if logRange <= 0 then
+                return pad.bottom
+            end
+            return pad.bottom + plotH * ((logY - logMin) / logRange)
+        end
         return pad.bottom + plotH * ((y - yMin) / yRange)
     end
 
     return X, Y
 end
 
-function Core.RenderGridLines(parent, plotW, plotH)
+function Core.RenderGridLines(parent, plotW, plotH, opts)
     local pad = Core.PADDING
     local grid = Core.GRID_COLOR
+    opts = opts or {}
 
-    for i = 1, Core.Y_TICKS - 1 do
-        local frac = i / Core.Y_TICKS
-        local y = pad.bottom + frac * plotH
-        Core.CreateLine(parent, pad.left, y, pad.left + plotW, y, 1,
-            grid.r, grid.g, grid.b, grid.a)
+    if opts.logYTicks and opts.logMin and opts.logMax then
+        local logRange = opts.logMax - opts.logMin
+        for _, val in ipairs(opts.logYTicks) do
+            if logRange > 0 then
+                local logY = math.log(val) / math.log(10)
+                local frac = (logY - opts.logMin) / logRange
+                local y = pad.bottom + frac * plotH
+                Core.CreateLine(parent, pad.left, y, pad.left + plotW, y, 1,
+                    grid.r, grid.g, grid.b, grid.a)
+            end
+        end
+    else
+        for i = 1, Core.Y_TICKS - 1 do
+            local frac = i / Core.Y_TICKS
+            local y = pad.bottom + frac * plotH
+            Core.CreateLine(parent, pad.left, y, pad.left + plotW, y, 1,
+                grid.r, grid.g, grid.b, grid.a)
+        end
     end
 
-    for i = 1, Core.X_TICKS - 1 do
-        local frac = i / Core.X_TICKS
-        local x = pad.left + frac * plotW
-        Core.CreateLine(parent, x, pad.bottom, x, pad.bottom + plotH, 1,
-            grid.r, grid.g, grid.b, grid.a)
+    if opts.xInterval and opts.xMin and opts.xRange then
+        local xMax = opts.xMin + opts.xRange
+        local interval = opts.xInterval
+        local level = math.floor(opts.xMin / interval) * interval
+        while level <= xMax + 0.001 do
+            local x = pad.left + plotW * ((level - opts.xMin) / opts.xRange)
+            Core.CreateLine(parent, x, pad.bottom, x, pad.bottom + plotH, 1,
+                grid.r, grid.g, grid.b, grid.a)
+            level = level + interval
+        end
+    else
+        for i = 1, Core.X_TICKS - 1 do
+            local frac = i / Core.X_TICKS
+            local x = pad.left + frac * plotW
+            Core.CreateLine(parent, x, pad.bottom, x, pad.bottom + plotH, 1,
+                grid.r, grid.g, grid.b, grid.a)
+        end
     end
 end
 
@@ -221,10 +315,30 @@ function Core.RenderAxes(parent, plotW, plotH)
         ax.r, ax.g, ax.b, ax.a)
 end
 
-function Core.RenderYLabels(parent, plotH, yMin, yRange, formatFunc)
+function Core.RenderYLabels(parent, plotH, yMin, yRange, formatFunc, opts)
     local pad = Core.PADDING
     local ax = Core.AXIS_COLOR
     formatFunc = formatFunc or function(v) return tostring(math.floor(v + 0.5)) end
+    opts = opts or {}
+
+    if opts.logYTicks and opts.logMin and opts.logMax then
+        local logRange = opts.logMax - opts.logMin
+        for _, val in ipairs(opts.logYTicks) do
+            if logRange > 0 then
+                local logY = math.log(val) / math.log(10)
+                local frac = (logY - opts.logMin) / logRange
+                local y = pad.bottom + frac * plotH
+
+                Core.CreateLine(parent, pad.left - 5, y, pad.left, y, 2, ax.r, ax.g, ax.b, ax.a)
+
+                local fs = AcquireFontString(parent)
+                fs:ClearAllPoints()
+                fs:SetText(formatFunc(val))
+                fs:SetPoint("RIGHT", parent, "BOTTOMLEFT", pad.left - 8, y - 5)
+            end
+        end
+        return
+    end
 
     for i = 0, Core.Y_TICKS do
         local frac = i / Core.Y_TICKS

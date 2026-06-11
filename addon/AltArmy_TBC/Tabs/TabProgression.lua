@@ -8,6 +8,9 @@ local Core = AltArmy.GraphCore
 local Logic = AltArmy.ProgressionGraphLogic
 
 local SELECTOR_WIDTH = 150
+local X_LEVEL_LABEL_INTERVAL = 10
+local OPTIONS_PANEL_HEIGHT = 36
+local OPTIONS_PANEL_GAP = 4
 local ROW_HEIGHT = 20
 local SECTION_HEADER_HEIGHT = 18
 local INSUFFICIENT_SECTION_GAP = 10
@@ -20,10 +23,8 @@ local ROW_HOVER_TINT = 0.22
 
 local FULL_LINE_ALPHA = Logic.FULL_LINE_ALPHA
 local FULL_DASH_ALPHA = Logic.FULL_DASH_ALPHA
-local FULL_MARKER_ALPHA = Logic.FULL_MARKER_ALPHA
 local DIM_LINE_ALPHA = Logic.DIM_LINE_ALPHA
 local DIM_DASH_ALPHA = Logic.DIM_DASH_ALPHA
-local DIM_MARKER_ALPHA = Logic.DIM_MARKER_ALPHA
 
 AltArmyTBC_ProgressionSettings = AltArmyTBC_ProgressionSettings or {}
 
@@ -32,6 +33,8 @@ local hoveredCompareEntry = nil
 
 local currentX, currentY = nil, nil
 local currentRawYMax = 0
+local currentRawYMin = 0
+local currentLogAxisYMin = nil
 local drawnKeys = {}
 local seriesGroups = {}
 
@@ -49,7 +52,14 @@ end
 
 local function EnsureSettings()
     AltArmyTBC_ProgressionSettings.selected = AltArmyTBC_ProgressionSettings.selected or {}
+    if AltArmyTBC_ProgressionSettings.logarithmic == nil then
+        AltArmyTBC_ProgressionSettings.logarithmic = false
+    end
     return AltArmyTBC_ProgressionSettings
+end
+
+local function IsLogarithmic()
+    return EnsureSettings().logarithmic == true
 end
 
 local function IsSelected(realm, name)
@@ -183,9 +193,36 @@ local axisTitleX = graphFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableS
 axisTitleX:SetPoint("BOTTOMRIGHT", graphFrame, "BOTTOMRIGHT", -8, 6)
 axisTitleX:SetText("Level")
 
+-- Options panel (top right)
+local optionsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+optionsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+optionsPanel:SetSize(SELECTOR_WIDTH, OPTIONS_PANEL_HEIGHT)
+optionsPanel:SetBackdrop({
+    bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = false,
+    edgeSize = 12,
+    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+})
+optionsPanel:SetBackdropColor(0.10, 0.10, 0.12, 0.95)
+optionsPanel:SetBackdropBorderColor(0.45, 0.38, 0.22, 0.9)
+
+local logCheck = CreateFrame("CheckButton", nil, optionsPanel, "UICheckButtonTemplate")
+logCheck:SetPoint("LEFT", optionsPanel, "LEFT", 6, 0)
+logCheck:SetSize(18, 18)
+logCheck:SetChecked(IsLogarithmic())
+logCheck:SetScript("OnClick", function(self)
+    EnsureSettings().logarithmic = self:GetChecked() and true or false
+    RebuildGraph()
+end)
+
+local logLabel = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+logLabel:SetPoint("LEFT", logCheck, "RIGHT", 2, 0)
+logLabel:SetText("Logarithmic")
+
 -- Selector panel
 local selectorPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-selectorPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+selectorPanel:SetPoint("TOPRIGHT", optionsPanel, "BOTTOMRIGHT", 0, -OPTIONS_PANEL_GAP)
 selectorPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
 selectorPanel:SetWidth(SELECTOR_WIDTH)
 selectorPanel:SetBackdrop({
@@ -403,7 +440,7 @@ local function AcquireMarkerHit(px, py)
     return hf
 end
 
-local function AddStyledObject(group, obj, r, g, b, fullAlpha, dimAlpha)
+local function AddStyledObject(group, obj, r, g, b, fullAlpha, dimAlpha, useColorTexture)
     group.objects[#group.objects + 1] = {
         obj = obj,
         r = r,
@@ -411,12 +448,17 @@ local function AddStyledObject(group, obj, r, g, b, fullAlpha, dimAlpha)
         b = b,
         fullAlpha = fullAlpha,
         dimAlpha = dimAlpha,
+        useColorTexture = useColorTexture,
     }
 end
 
 local function ApplyObjectAlpha(styled, dimOthers, isHovered)
     local alpha = dimOthers and (isHovered and styled.fullAlpha or styled.dimAlpha) or styled.fullAlpha
-    styled.obj:SetVertexColor(styled.r, styled.g, styled.b, alpha)
+    if styled.useColorTexture then
+        styled.obj:SetColorTexture(styled.r, styled.g, styled.b, alpha)
+    else
+        styled.obj:SetVertexColor(styled.r, styled.g, styled.b, alpha)
+    end
 end
 
 local function TrackNewCoreObjects(group, r, g, b, fullAlpha, dimAlpha, lineCountBefore, texCountBefore)
@@ -431,7 +473,7 @@ end
 local function AddSegmentMarker(group, px, py, r, g, b, alpha, entry, pt)
     local dot = AcquireMarkerDot(r, g, b, alpha, px, py)
     group.markerDots[#group.markerDots + 1] = dot
-    AddStyledObject(group, dot, r, g, b, FULL_MARKER_ALPHA, DIM_MARKER_ALPHA)
+    AddStyledObject(group, dot, r, g, b, FULL_LINE_ALPHA, DIM_LINE_ALPHA, true)
 
     local hf = AcquireMarkerHit(px, py)
     group.markerHits[#group.markerHits + 1] = hf
@@ -470,20 +512,27 @@ local function ReleaseAllSeriesGroups()
     wipe(drawnKeys)
 end
 
-local function GetSeriesMaxSeconds(entry)
-    if not LPD or not entry then return 0 end
+local function GetSeriesSecondsBounds(entry)
+    if not LPD or not entry then return 0, 0 end
     local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
     local drawable = LPD.PrepareDrawableSeries(series)
+    local minSeconds = math.huge
     local maxSeconds = 0
     for _, pt in ipairs(drawable.usable) do
+        if pt.seconds > 0 and pt.seconds < minSeconds then
+            minSeconds = pt.seconds
+        end
         if pt.seconds > maxSeconds then
             maxSeconds = pt.seconds
         end
     end
-    return maxSeconds
+    if minSeconds == math.huge then
+        minSeconds = 0
+    end
+    return minSeconds, maxSeconds
 end
 
-local function DrawSeriesGroup(charData, X, Y)
+local function DrawSeriesGroup(charData, X, Y, logarithmic)
     local group = {
         key = EntryKey(charData.entry),
         entry = charData.entry,
@@ -501,10 +550,22 @@ local function DrawSeriesGroup(charData, X, Y)
 
         if drawable.leadingGap and i == 1 then
             local gap = drawable.leadingGap
-            local gx1, gy1 = X(gap.fromLevel), Y(0)
             local lineCountBefore = #Core.graphLines
             local texCountBefore = #Core.graphTextures
-            Core.CreateDashedLine(graphFrame, gx1, gy1, x, y, DASH_THICKNESS, r, g, b, FULL_DASH_ALPHA)
+            if logarithmic then
+                local samples = Logic.SampleLeadingGapCurve(gap, pt, nil, currentLogAxisYMin)
+                local screenPoints = {}
+                for _, sample in ipairs(samples) do
+                    screenPoints[#screenPoints + 1] = {
+                        x = X(sample.level),
+                        y = Y(sample.seconds),
+                    }
+                end
+                Core.CreateDashedPolyline(graphFrame, screenPoints, DASH_THICKNESS, r, g, b, FULL_DASH_ALPHA)
+            else
+                local gx1, gy1 = X(gap.fromLevel), Y(0)
+                Core.CreateDashedLine(graphFrame, gx1, gy1, x, y, DASH_THICKNESS, r, g, b, FULL_DASH_ALPHA)
+            end
             TrackNewCoreObjects(group, r, g, b, FULL_DASH_ALPHA, DIM_DASH_ALPHA, lineCountBefore, texCountBefore)
         elseif i > 1 then
             local prev = series[i - 1]
@@ -513,7 +574,7 @@ local function DrawSeriesGroup(charData, X, Y)
             AddStyledObject(group, line, r, g, b, FULL_LINE_ALPHA, DIM_LINE_ALPHA)
         end
 
-        AddSegmentMarker(group, x, y, r, g, b, FULL_MARKER_ALPHA, entry, pt)
+        AddSegmentMarker(group, x, y, r, g, b, FULL_LINE_ALPHA, entry, pt)
     end
 
     return group
@@ -537,7 +598,7 @@ local function AddHoveredSeries(entry)
         g = cg,
         b = cb,
     }
-    local group = DrawSeriesGroup(charData, currentX, currentY)
+    local group = DrawSeriesGroup(charData, currentX, currentY, IsLogarithmic())
     drawnKeys[key] = true
     seriesGroups[#seriesGroups + 1] = group
 end
@@ -564,6 +625,8 @@ RebuildGraph = function()
 
     currentX, currentY = nil, nil
     currentRawYMax = 0
+    currentRawYMin = 0
+    currentLogAxisYMin = nil
 
     local toDraw = GetCharactersToDraw()
     if #toDraw == 0 then
@@ -576,6 +639,7 @@ RebuildGraph = function()
 
     local seriesByChar = {}
     local yMax = 0
+    local yMin = math.huge
 
     for _, entry in ipairs(toDraw) do
         local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
@@ -590,9 +654,14 @@ RebuildGraph = function()
                 b = cb,
             }
             for _, pt in ipairs(drawable.usable) do
+                if pt.seconds > 0 and pt.seconds < yMin then yMin = pt.seconds end
                 if pt.seconds > yMax then yMax = pt.seconds end
             end
         end
+    end
+
+    if yMin == math.huge then
+        yMin = 0
     end
 
     if #seriesByChar == 0 then
@@ -606,25 +675,45 @@ RebuildGraph = function()
     local xMin, _, xRange = LPD.GetAxisRange()
 
     currentRawYMax = yMax
-    local yPad = math.max(1, math.floor(yMax * 0.08))
-    local yMin = 0
-    local paddedYMax = yMax + yPad
-    local yRange = math.max(1, paddedYMax - yMin)
+    currentRawYMin = yMin
+    local logarithmic = IsLogarithmic()
+    local linearAxis = Logic.ComputeLinearYAxis(yMax)
+    local logAxis = logarithmic and Logic.ComputeLogYAxis(yMax, yMin) or nil
+    currentLogAxisYMin = logAxis and logAxis.yMin or nil
 
     local plotW, plotH = Core.CalculatePlotDimensions(graphFrame)
-    currentX, currentY = Core.CreateTransformers(plotW, plotH, xMin, xRange, yMin, yRange)
+    if logarithmic and logAxis then
+        currentX, currentY = Core.CreateTransformers(plotW, plotH, xMin, xRange, logAxis.yMin, 0, {
+            yAxisMode = "log",
+            logMin = logAxis.logMin,
+            logMax = logAxis.logMax,
+        })
+    else
+        currentX, currentY = Core.CreateTransformers(plotW, plotH, xMin, xRange, linearAxis.yMin, linearAxis.yRange)
+    end
 
-    Core.RenderGridLines(graphFrame, plotW, plotH)
+    local gridOpts = {
+        xInterval = X_LEVEL_LABEL_INTERVAL,
+        xMin = xMin,
+        xRange = xRange,
+    }
+    if logarithmic and logAxis then
+        gridOpts.logYTicks = logAxis.gridTicks
+        gridOpts.logMin = logAxis.logMin
+        gridOpts.logMax = logAxis.logMax
+    end
+
+    Core.RenderGridLines(graphFrame, plotW, plotH, gridOpts)
     Core.RenderAxes(graphFrame, plotW, plotH)
-    Core.RenderYLabels(graphFrame, plotH, yMin, yRange, function(v)
+    Core.RenderYLabels(graphFrame, plotH, linearAxis.yMin, linearAxis.yRange, function(v)
         return Core.FormatDuration(v)
-    end)
-    Core.RenderXLabelsAtInterval(graphFrame, plotW, xMin, xRange, 10, function(v)
+    end, logarithmic and logAxis and gridOpts or nil)
+    Core.RenderXLabelsAtInterval(graphFrame, plotW, xMin, xRange, X_LEVEL_LABEL_INTERVAL, function(v)
         return tostring(math.floor(v + 0.5))
     end)
 
     for _, charData in ipairs(seriesByChar) do
-        local group = DrawSeriesGroup(charData, currentX, currentY)
+        local group = DrawSeriesGroup(charData, currentX, currentY, logarithmic)
         drawnKeys[group.key] = true
         seriesGroups[#seriesGroups + 1] = group
     end
@@ -647,8 +736,8 @@ HandleCompareRowEnter = function(row, entry)
         return
     end
 
-    local maxSec = GetSeriesMaxSeconds(entry)
-    if Logic.HoverNeedsRebuild(key, drawnKeys, maxSec, currentRawYMax) then
+    local minSec, maxSec = GetSeriesSecondsBounds(entry)
+    if Logic.HoverNeedsRebuild(key, drawnKeys, maxSec, currentRawYMax, minSec, currentRawYMin, IsLogarithmic()) then
         RebuildGraph()
         return
     end
@@ -766,6 +855,7 @@ function frame:Redraw()
 end
 
 frame:SetScript("OnShow", function()
+    logCheck:SetChecked(IsLogarithmic())
     RefreshSelector()
     frame:Redraw()
 end)
