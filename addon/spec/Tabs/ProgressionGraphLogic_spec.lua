@@ -173,6 +173,177 @@ describe("ProgressionGraphLogic", function()
         end)
     end)
 
+    local function makePoint(level, seconds)
+        return {
+            level = level,
+            seconds = seconds,
+            fromLevel = level - 1,
+            toLevel = level,
+            totalSeconds = seconds,
+        }
+    end
+
+    describe("ApplyOutlierFlags", function()
+        it("does not flag outliers when disabled", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 10000),
+            }
+            local marked = Logic.ApplyOutlierFlags(points, false)
+            assert.is_false(marked[2].isOutlier)
+        end)
+
+        it("flags extreme values among the longest-duration levels", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 120),
+                makePoint(30, 110),
+                makePoint(40, 105),
+                makePoint(50, 8000),
+            }
+            local marked = Logic.ApplyOutlierFlags(points, true)
+            assert.is_false(marked[1].isOutlier)
+            assert.is_false(marked[4].isOutlier)
+            assert.is_true(marked[5].isOutlier)
+        end)
+
+        it("flags only the cap-wait spike among the ten longest durations", function()
+            local points = {}
+            for level = 20, 49 do
+                points[#points + 1] = makePoint(level, 3600)
+            end
+            points[#points + 1] = makePoint(61, 205200)
+            for level = 62, 70 do
+                points[#points + 1] = makePoint(level, 21600)
+            end
+
+            local marked = Logic.ApplyOutlierFlags(points, true)
+            assert.is_true(marked[31].isOutlier)
+            for i = 32, #marked do
+                assert.is_false(marked[i].isOutlier)
+            end
+            for i = 1, 30 do
+                assert.is_false(marked[i].isOutlier)
+            end
+        end)
+
+        it("does not flag long durations outside the top ten", function()
+            local points = { makePoint(1, 205200) }
+            for level = 2, 16 do
+                points[#points + 1] = makePoint(level, 21600)
+            end
+
+            local marked = Logic.ApplyOutlierFlags(points, true)
+            assert.is_true(marked[1].isOutlier)
+            for i = 11, #marked do
+                assert.is_false(marked[i].isOutlier)
+            end
+        end)
+    end)
+
+    describe("BuildSeriesDrawPlan", function()
+        it("spikes up to the true outlier position then returns to the next level", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 8000),
+                makePoint(30, 110),
+            }
+            points[2].isOutlier = true
+
+            local plan = Logic.BuildSeriesDrawPlan(points)
+            assert.are.equal(2, #plan.segments)
+            assert.are.equal("solid", plan.segments[1].style)
+            assert.are.equal(10, plan.segments[1].from.level)
+            assert.are.equal(20, plan.segments[1].to.level)
+            assert.are.equal(8000, plan.segments[1].to.seconds)
+            assert.is_true(plan.segments[1].isOutlierSpike)
+            assert.are.equal("solid", plan.segments[2].style)
+            assert.are.equal(20, plan.segments[2].from.level)
+            assert.are.equal(30, plan.segments[2].to.level)
+            assert.is_true(plan.segments[2].isOutlierReturn)
+            assert.are.equal(3, #plan.markers)
+            assert.is_true(plan.markers[2].pt.isOutlier)
+        end)
+
+        it("spikes to a trailing outlier and marks it near the plot top", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 8000),
+            }
+            points[2].isOutlier = true
+
+            local plan = Logic.BuildSeriesDrawPlan(points)
+            assert.are.equal(1, #plan.segments)
+            assert.are.equal("solid", plan.segments[1].style)
+            assert.are.equal(20, plan.segments[1].to.level)
+            assert.are.equal(8000, plan.segments[1].to.seconds)
+            assert.is_true(plan.segments[1].isOutlierSpike)
+            assert.are.equal(2, #plan.markers)
+            assert.are.equal(10, plan.markers[1].pt.level)
+            assert.is_true(plan.markers[2].pt.isOutlier)
+            assert.are.equal(20, plan.markers[2].pt.level)
+        end)
+
+        it("chains consecutive outliers off the chart", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 8000),
+                makePoint(30, 9000),
+                makePoint(40, 110),
+            }
+            points[2].isOutlier = true
+            points[3].isOutlier = true
+
+            local plan = Logic.BuildSeriesDrawPlan(points)
+            assert.are.equal(3, #plan.segments)
+            assert.is_true(plan.segments[1].isOutlierSpike)
+            assert.is_true(plan.segments[2].isOutlierSpike)
+            assert.are.equal(20, plan.segments[2].from.level)
+            assert.are.equal(30, plan.segments[2].to.level)
+            assert.is_true(plan.segments[3].isOutlierReturn)
+            assert.are.equal(40, plan.segments[3].to.level)
+        end)
+
+        it("keeps solid segments between normal points", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 120),
+            }
+            local plan = Logic.BuildSeriesDrawPlan(points)
+            assert.are.equal("solid", plan.segments[1].style)
+        end)
+    end)
+
+    describe("PlotSeriesPoint", function()
+        it("clamps outlier points to the plot top", function()
+            local pt = makePoint(20, 8000)
+            pt.isOutlier = true
+            local x, y = Logic.PlotSeriesPoint(pt, 120, 500, 400)
+            assert.are.equal(120, x)
+            assert.are.equal(400, y)
+        end)
+
+        it("keeps normal points at their true y position", function()
+            local pt = makePoint(20, 120)
+            local x, y = Logic.PlotSeriesPoint(pt, 120, 180, 400)
+            assert.are.equal(120, x)
+            assert.are.equal(180, y)
+        end)
+    end)
+
+    describe("GetSeriesScaleBounds", function()
+        it("excludes outliers from axis bounds when requested", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 9000),
+            }
+            points[2].isOutlier = true
+            local yMin, yMax = Logic.GetSeriesScaleBounds(points, true)
+            assert.are.equal(100, yMin)
+            assert.are.equal(100, yMax)
+        end)
+    end)
+
     describe("HoverNeedsRebuild with logarithmic scale", function()
         local drawnKeys = { ["Realm\\Bob"] = true }
 

@@ -289,7 +289,7 @@ for _, tabName in ipairs(tabNames) do
     -- Label (plain Button has no built-in text); color is set in setActiveTab for consistent selected look
     local label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetPoint("CENTER", btn, "CENTER", 0, 0)
-    label:SetText(tabName)
+    label:SetText(tabName == "Progression" and "Graphs" or tabName)
     btn.label = label
     btn:SetScript("OnClick", function()
         setActiveTab(tabName)

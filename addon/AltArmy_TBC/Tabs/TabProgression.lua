@@ -9,9 +9,10 @@ local Logic = AltArmy.ProgressionGraphLogic
 
 local SELECTOR_WIDTH = 150
 local X_LEVEL_LABEL_INTERVAL = 10
-local OPTIONS_PANEL_HEIGHT = 36
+local OPTIONS_PANEL_HEIGHT = 46
 local OPTIONS_PANEL_GAP = 4
 local ROW_HEIGHT = 20
+local OUTLIER_INFO_ICON_SIZE = 14
 local SECTION_HEADER_HEIGHT = 18
 local INSUFFICIENT_SECTION_GAP = 10
 local LINE_THICKNESS = 2
@@ -40,6 +41,8 @@ local seriesGroups = {}
 
 local markerDotPool = { free = {} }
 local markerHitPool = { free = {} }
+local hoveredLogarithmicPreview = false
+local hoveredOutliersPreview = false
 
 local RebuildGraph
 local ApplyHighlight
@@ -55,11 +58,24 @@ local function EnsureSettings()
     if AltArmyTBC_ProgressionSettings.logarithmic == nil then
         AltArmyTBC_ProgressionSettings.logarithmic = false
     end
+    if AltArmyTBC_ProgressionSettings.ignoreOutliers == nil then
+        AltArmyTBC_ProgressionSettings.ignoreOutliers = false
+    end
     return AltArmyTBC_ProgressionSettings
 end
 
 local function IsLogarithmic()
+    if hoveredLogarithmicPreview then
+        return true
+    end
     return EnsureSettings().logarithmic == true
+end
+
+local function IsIgnoreOutliers()
+    if hoveredOutliersPreview then
+        return true
+    end
+    return EnsureSettings().ignoreOutliers == true
 end
 
 local function IsSelected(realm, name)
@@ -185,14 +201,6 @@ graphHint:SetWidth(graphFrame:GetWidth() - 40)
 graphHint:SetText("Select one or more characters on the right\nto compare time per level.")
 graphHint:SetJustifyH("CENTER")
 
-local axisTitleY = graphFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-axisTitleY:SetPoint("TOPLEFT", graphFrame, "TOPLEFT", 4, -6)
-axisTitleY:SetText("Time")
-
-local axisTitleX = graphFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-axisTitleX:SetPoint("BOTTOMRIGHT", graphFrame, "BOTTOMRIGHT", -8, 6)
-axisTitleX:SetText("Level")
-
 -- Options panel (top right)
 local optionsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 optionsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
@@ -207,18 +215,55 @@ optionsPanel:SetBackdrop({
 optionsPanel:SetBackdropColor(0.10, 0.10, 0.12, 0.95)
 optionsPanel:SetBackdropBorderColor(0.45, 0.38, 0.22, 0.9)
 
-local logCheck = CreateFrame("CheckButton", nil, optionsPanel, "UICheckButtonTemplate")
-logCheck:SetPoint("LEFT", optionsPanel, "LEFT", 6, 0)
-logCheck:SetSize(18, 18)
-logCheck:SetChecked(IsLogarithmic())
-logCheck:SetScript("OnClick", function(self)
+local function CreateOptionRow(parent)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetHeight(18)
+    row:EnableMouse(true)
+
+    row.hoverTint = row:CreateTexture(nil, "BACKGROUND")
+    row.hoverTint:SetAllPoints(true)
+    row.hoverTint:SetTexture(ROW_HOVER_BG)
+    row.hoverTint:SetVertexColor(1, 1, 1, 0)
+
+    row.check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+    row.check:SetPoint("LEFT", row, "LEFT", 0, 0)
+    row.check:SetSize(18, 18)
+
+    row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.label:SetPoint("LEFT", row.check, "RIGHT", 2, 0)
+    row.label:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.label:SetJustifyH("LEFT")
+    row.label:SetWordWrap(false)
+
+    return row
+end
+
+local logRow = CreateOptionRow(optionsPanel)
+logRow:SetPoint("TOPLEFT", optionsPanel, "TOPLEFT", 6, -6)
+logRow:SetPoint("RIGHT", optionsPanel, "RIGHT", -6, 0)
+logRow.label:SetText("Logarithmic")
+logRow.check:SetChecked(EnsureSettings().logarithmic == true)
+logRow.check:SetScript("OnClick", function(self)
     EnsureSettings().logarithmic = self:GetChecked() and true or false
     RebuildGraph()
 end)
 
-local logLabel = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-logLabel:SetPoint("LEFT", logCheck, "RIGHT", 2, 0)
-logLabel:SetText("Logarithmic")
+local outlierRow = CreateOptionRow(optionsPanel)
+outlierRow:SetPoint("TOPLEFT", logRow, "BOTTOMLEFT", 0, 0)
+outlierRow:SetPoint("RIGHT", optionsPanel, "RIGHT", -6, 0)
+outlierRow.label:SetText("Shrink Outliers")
+outlierRow.infoIcon = outlierRow:CreateTexture(nil, "ARTWORK")
+outlierRow.infoIcon:SetTexture("Interface\\Common\\help-i")
+outlierRow.infoIcon:SetSize(OUTLIER_INFO_ICON_SIZE, OUTLIER_INFO_ICON_SIZE)
+outlierRow.infoIcon:SetPoint("RIGHT", outlierRow, "RIGHT", 0, 0)
+outlierRow.label:ClearAllPoints()
+outlierRow.label:SetPoint("LEFT", outlierRow.check, "RIGHT", 2, 0)
+outlierRow.label:SetPoint("RIGHT", outlierRow.infoIcon, "LEFT", -4, 0)
+outlierRow.check:SetChecked(EnsureSettings().ignoreOutliers == true)
+outlierRow.check:SetScript("OnClick", function(self)
+    EnsureSettings().ignoreOutliers = self:GetChecked() and true or false
+    RebuildGraph()
+end)
 
 -- Selector panel
 local selectorPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
@@ -399,6 +444,29 @@ local function ShowSegmentTooltip(owner, entry, fromLevel, toLevel, totalSeconds
     GameTooltip:Show()
 end
 
+local function ShowOutlierOptionTooltip(owner)
+    if not GameTooltip or not owner then return end
+
+    GameTooltip:SetOwner(owner, "ANCHOR_NONE")
+    GameTooltip:ClearLines()
+    GameTooltip:AddLine("Shrink Outliers", 1, 1, 1, true)
+    GameTooltip:AddLine(
+        "Extremely long times are artificially shifted down so you can see more details on the other levels.",
+        0.9, 0.9, 0.9, true
+    )
+    GameTooltip:AddLine(
+        "For example, if your character sat at level 60 for several days, "
+            .. "the graph can be hard to read unless you turn this feature on.",
+        0.9, 0.9, 0.9, true
+    )
+    GameTooltip:SetPoint("TOPLEFT", owner, "TOPRIGHT", 8, 0)
+    GameTooltip:Show()
+end
+
+local function HideOutlierOptionTooltip()
+    if GameTooltip then GameTooltip:Hide() end
+end
+
 local function ReleaseMarkerDot(dot)
     if not dot then return end
     dot:Hide()
@@ -513,26 +581,67 @@ local function ReleaseAllSeriesGroups()
 end
 
 local function GetSeriesSecondsBounds(entry)
-    if not LPD or not entry then return 0, 0 end
+    if not LPD or not entry or not Logic then return 0, 0 end
     local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
     local drawable = LPD.PrepareDrawableSeries(series)
-    local minSeconds = math.huge
-    local maxSeconds = 0
-    for _, pt in ipairs(drawable.usable) do
-        if pt.seconds > 0 and pt.seconds < minSeconds then
-            minSeconds = pt.seconds
-        end
-        if pt.seconds > maxSeconds then
-            maxSeconds = pt.seconds
-        end
-    end
-    if minSeconds == math.huge then
-        minSeconds = 0
-    end
-    return minSeconds, maxSeconds
+    local marked = Logic.ApplyOutlierFlags(drawable.usable, IsIgnoreOutliers())
+    return Logic.GetSeriesScaleBounds(marked, true)
 end
 
-local function DrawSeriesGroup(charData, X, Y, logarithmic)
+local function PrepareCharGraphData(entry, drawable)
+    local ignoreOutliers = IsIgnoreOutliers()
+    local markedPoints = Logic.ApplyOutlierFlags(drawable.usable, ignoreOutliers)
+    local drawPlan = Logic.BuildSeriesDrawPlan(markedPoints)
+    local cr, cg, cb = LPD.GetClassColor(entry.classFile)
+    return {
+        entry = entry,
+        drawable = drawable,
+        markedPoints = markedPoints,
+        drawPlan = drawPlan,
+        r = cr,
+        g = cg,
+        b = cb,
+    }
+end
+
+local function DrawLineSegment(group, x1, y1, x2, y2, style, r, g, b)
+    if style == "dashed" then
+        local lineCountBefore = #Core.graphLines
+        local texCountBefore = #Core.graphTextures
+        Core.CreateDashedLine(graphFrame, x1, y1, x2, y2, DASH_THICKNESS, r, g, b, FULL_DASH_ALPHA)
+        TrackNewCoreObjects(group, r, g, b, FULL_DASH_ALPHA, DIM_DASH_ALPHA, lineCountBefore, texCountBefore)
+    else
+        local line = Core.CreateLine(graphFrame, x1, y1, x2, y2, LINE_THICKNESS, r, g, b, FULL_LINE_ALPHA)
+        AddStyledObject(group, line, r, g, b, FULL_LINE_ALPHA, DIM_LINE_ALPHA)
+    end
+end
+
+local function DrawLeadingGap(group, gap, endPt, X, Y, logarithmic, r, g, b)
+    local x, y = X(endPt.level), Y(endPt.seconds)
+    local lineCountBefore = #Core.graphLines
+    local texCountBefore = #Core.graphTextures
+    if logarithmic then
+        local samples = Logic.SampleLeadingGapCurve(gap, endPt, nil, currentLogAxisYMin)
+        local screenPoints = {}
+        for _, sample in ipairs(samples) do
+            screenPoints[#screenPoints + 1] = {
+                x = X(sample.level),
+                y = Y(sample.seconds),
+            }
+        end
+        Core.CreateDashedPolyline(graphFrame, screenPoints, DASH_THICKNESS, r, g, b, FULL_DASH_ALPHA)
+    else
+        local gx1, gy1 = X(gap.fromLevel), Y(0)
+        Core.CreateDashedLine(graphFrame, gx1, gy1, x, y, DASH_THICKNESS, r, g, b, FULL_DASH_ALPHA)
+    end
+    TrackNewCoreObjects(group, r, g, b, FULL_DASH_ALPHA, DIM_DASH_ALPHA, lineCountBefore, texCountBefore)
+end
+
+local function PlotSeriesPoint(pt, X, Y, plotTopY)
+    return Logic.PlotSeriesPoint(pt, X(pt.level), Y(pt.seconds), plotTopY)
+end
+
+local function DrawSeriesGroup(charData, X, Y, logarithmic, plotH)
     local group = {
         key = EntryKey(charData.entry),
         entry = charData.entry,
@@ -541,39 +650,25 @@ local function DrawSeriesGroup(charData, X, Y, logarithmic)
         markerHits = {},
     }
     local drawable = charData.drawable
-    local series = drawable.usable
+    local drawPlan = charData.drawPlan
     local r, g, b = charData.r, charData.g, charData.b
     local entry = charData.entry
+    local firstMarker = drawPlan.markers[1]
+    local plotTopY = Logic.ComputePlotTopY(plotH, Core.PADDING)
 
-    for i, pt in ipairs(series) do
-        local x, y = X(pt.level), Y(pt.seconds)
+    if drawable.leadingGap and firstMarker then
+        DrawLeadingGap(group, drawable.leadingGap, firstMarker.pt, X, Y, logarithmic, r, g, b)
+    end
 
-        if drawable.leadingGap and i == 1 then
-            local gap = drawable.leadingGap
-            local lineCountBefore = #Core.graphLines
-            local texCountBefore = #Core.graphTextures
-            if logarithmic then
-                local samples = Logic.SampleLeadingGapCurve(gap, pt, nil, currentLogAxisYMin)
-                local screenPoints = {}
-                for _, sample in ipairs(samples) do
-                    screenPoints[#screenPoints + 1] = {
-                        x = X(sample.level),
-                        y = Y(sample.seconds),
-                    }
-                end
-                Core.CreateDashedPolyline(graphFrame, screenPoints, DASH_THICKNESS, r, g, b, FULL_DASH_ALPHA)
-            else
-                local gx1, gy1 = X(gap.fromLevel), Y(0)
-                Core.CreateDashedLine(graphFrame, gx1, gy1, x, y, DASH_THICKNESS, r, g, b, FULL_DASH_ALPHA)
-            end
-            TrackNewCoreObjects(group, r, g, b, FULL_DASH_ALPHA, DIM_DASH_ALPHA, lineCountBefore, texCountBefore)
-        elseif i > 1 then
-            local prev = series[i - 1]
-            local x1, y1 = X(prev.level), Y(prev.seconds)
-            local line = Core.CreateLine(graphFrame, x1, y1, x, y, LINE_THICKNESS, r, g, b, FULL_LINE_ALPHA)
-            AddStyledObject(group, line, r, g, b, FULL_LINE_ALPHA, DIM_LINE_ALPHA)
-        end
+    for _, seg in ipairs(drawPlan.segments) do
+        local x1, y1 = PlotSeriesPoint(seg.from, X, Y, plotTopY)
+        local x2, y2 = PlotSeriesPoint(seg.to, X, Y, plotTopY)
+        DrawLineSegment(group, x1, y1, x2, y2, seg.style, r, g, b)
+    end
 
+    for _, marker in ipairs(drawPlan.markers) do
+        local pt = marker.pt
+        local x, y = PlotSeriesPoint(pt, X, Y, plotTopY)
         AddSegmentMarker(group, x, y, r, g, b, FULL_LINE_ALPHA, entry, pt)
     end
 
@@ -590,15 +685,9 @@ local function AddHoveredSeries(entry)
     local drawable = LPD.PrepareDrawableSeries(series)
     if #drawable.usable < 1 then return end
 
-    local cr, cg, cb = LPD.GetClassColor(entry.classFile)
-    local charData = {
-        entry = entry,
-        drawable = drawable,
-        r = cr,
-        g = cg,
-        b = cb,
-    }
-    local group = DrawSeriesGroup(charData, currentX, currentY, IsLogarithmic())
+    local charData = PrepareCharGraphData(entry, drawable)
+    local _, plotH = Core.CalculatePlotDimensions(graphFrame)
+    local group = DrawSeriesGroup(charData, currentX, currentY, IsLogarithmic(), plotH)
     drawnKeys[key] = true
     seriesGroups[#seriesGroups + 1] = group
 end
@@ -645,18 +734,11 @@ RebuildGraph = function()
         local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
         local drawable = LPD.PrepareDrawableSeries(series)
         if #drawable.usable >= 1 then
-            local cr, cg, cb = LPD.GetClassColor(entry.classFile)
-            seriesByChar[#seriesByChar + 1] = {
-                entry = entry,
-                drawable = drawable,
-                r = cr,
-                g = cg,
-                b = cb,
-            }
-            for _, pt in ipairs(drawable.usable) do
-                if pt.seconds > 0 and pt.seconds < yMin then yMin = pt.seconds end
-                if pt.seconds > yMax then yMax = pt.seconds end
-            end
+            local charData = PrepareCharGraphData(entry, drawable)
+            seriesByChar[#seriesByChar + 1] = charData
+            local scaleMin, scaleMax = Logic.GetSeriesScaleBounds(charData.markedPoints, true)
+            if scaleMin > 0 and scaleMin < yMin then yMin = scaleMin end
+            if scaleMax > yMax then yMax = scaleMax end
         end
     end
 
@@ -713,7 +795,7 @@ RebuildGraph = function()
     end)
 
     for _, charData in ipairs(seriesByChar) do
-        local group = DrawSeriesGroup(charData, currentX, currentY, logarithmic)
+        local group = DrawSeriesGroup(charData, currentX, currentY, logarithmic, plotH)
         drawnKeys[group.key] = true
         seriesGroups[#seriesGroups + 1] = group
     end
@@ -854,8 +936,70 @@ function frame:Redraw()
     RebuildGraph()
 end
 
+local function WireOptionLabelClick(row, onEnter, onLeave)
+    local check = row.check
+    local label = row.label
+    local hit = CreateFrame("Button", nil, check)
+    hit:SetFrameLevel((check:GetFrameLevel() or 0) + 5)
+    hit:EnableMouse(true)
+    hit:RegisterForClicks("LeftButtonUp")
+    hit:SetScript("OnClick", function()
+        if check:IsEnabled() then
+            check:Click()
+        end
+    end)
+    hit:SetScript("OnEnter", onEnter)
+    hit:SetScript("OnLeave", onLeave)
+    hit:SetPoint("TOPLEFT", label, "TOPLEFT", -6, 6)
+    hit:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 6, -6)
+end
+
+local function BindOptionRowHover(row, setPreview, onHoverExtra)
+    local function onEnter()
+        setPreview(true)
+        SetRowHoverHighlight(row, true)
+        if onHoverExtra then onHoverExtra(true) end
+        RebuildGraph()
+    end
+
+    local function onLeave()
+        setPreview(false)
+        SetRowHoverHighlight(row, false)
+        if onHoverExtra then onHoverExtra(false) end
+        RebuildGraph()
+    end
+
+    row:SetScript("OnEnter", onEnter)
+    row:SetScript("OnLeave", onLeave)
+    row.check:SetScript("OnEnter", onEnter)
+    row.check:SetScript("OnLeave", onLeave)
+    WireOptionLabelClick(row, onEnter, onLeave)
+end
+
+BindOptionRowHover(logRow, function(on)
+    hoveredLogarithmicPreview = on
+end)
+BindOptionRowHover(outlierRow, function(on)
+    hoveredOutliersPreview = on
+end, function(show)
+    if show then
+        ShowOutlierOptionTooltip(outlierRow)
+    else
+        HideOutlierOptionTooltip()
+    end
+end)
+
+frame:SetScript("OnHide", function()
+    hoveredLogarithmicPreview = false
+    hoveredOutliersPreview = false
+    SetRowHoverHighlight(logRow, false)
+    SetRowHoverHighlight(outlierRow, false)
+    HideOutlierOptionTooltip()
+end)
+
 frame:SetScript("OnShow", function()
-    logCheck:SetChecked(IsLogarithmic())
+    logRow.check:SetChecked(EnsureSettings().logarithmic == true)
+    outlierRow.check:SetChecked(EnsureSettings().ignoreOutliers == true)
     RefreshSelector()
     frame:Redraw()
 end)
