@@ -17,6 +17,23 @@ Logic.OUTLIER_IQR_MULTIPLIER = 3
 Logic.OUTLIER_MEDIAN_MULTIPLIER = 5
 Logic.OUTLIER_TOP_DURATION_COUNT = 10
 Logic.OUTLIER_TOP_MARGIN = 6
+Logic.ROLLING_AVERAGE_WINDOW = 5
+Logic.COMPARE_SELECT_ALL_MIN_COUNT = 4
+
+function Logic.ShouldShowCompareSelectAll(characterCount)
+    return characterCount > Logic.COMPARE_SELECT_ALL_MIN_COUNT
+end
+
+function Logic.IsCompareSelectAllChecked(characterCount, selectedCount)
+    if characterCount <= 0 then
+        return false
+    end
+    return selectedCount >= characterCount
+end
+
+function Logic.GetCompareSelectAllAction(allCurrentlySelected)
+    return not allCurrentlySelected
+end
 
 function Logic.ComputeSeriesAlphas(dimOthers, isHovered)
     if not dimOthers then
@@ -236,6 +253,62 @@ function Logic.GetTopDurationPointIndices(points, count)
         indices[ranked[i].index] = true
     end
     return indices
+end
+
+function Logic.BuildShrunkVirtualSeconds(points)
+    local virtual = {}
+    local _, shrunkMax = Logic.GetSeriesScaleBounds(points, true)
+
+    for i, pt in ipairs(points) do
+        if pt.isOutlier and shrunkMax > 0 then
+            virtual[i] = shrunkMax
+        else
+            virtual[i] = pt.seconds or 0
+        end
+    end
+
+    return virtual
+end
+
+function Logic.ApplyRollingAverage(points, windowSize, shrinkOutliers)
+    if not points or #points == 0 then
+        return {}
+    end
+
+    windowSize = windowSize or Logic.ROLLING_AVERAGE_WINDOW
+    if windowSize <= 1 then
+        local unchanged = {}
+        for _, pt in ipairs(points) do
+            unchanged[#unchanged + 1] = CopySeriesPoint(pt)
+        end
+        return unchanged
+    end
+
+    local virtualSeconds = shrinkOutliers and Logic.BuildShrunkVirtualSeconds(points) or nil
+    local half = math.floor(windowSize / 2)
+    local smoothed = {}
+
+    for i, pt in ipairs(points) do
+        local copy = CopySeriesPoint(pt)
+        local sum = 0
+        local count = 0
+        local fromIndex = math.max(1, i - half)
+        local toIndex = math.min(#points, i + half)
+
+        for j = fromIndex, toIndex do
+            local value = virtualSeconds and virtualSeconds[j] or (points[j].seconds or 0)
+            sum = sum + value
+            count = count + 1
+        end
+
+        if count > 0 then
+            copy.seconds = sum / count
+        end
+        copy.isOutlier = false
+        smoothed[#smoothed + 1] = copy
+    end
+
+    return smoothed
 end
 
 function Logic.ApplyOutlierFlags(points, ignoreOutliers)

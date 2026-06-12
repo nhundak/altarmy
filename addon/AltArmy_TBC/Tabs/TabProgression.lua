@@ -9,7 +9,7 @@ local Logic = AltArmy.ProgressionGraphLogic
 
 local SELECTOR_WIDTH = 150
 local X_LEVEL_LABEL_INTERVAL = 10
-local OPTIONS_PANEL_HEIGHT = 46
+local OPTIONS_PANEL_HEIGHT = 64
 local OPTIONS_PANEL_GAP = 4
 local ROW_HEIGHT = 20
 local OUTLIER_INFO_ICON_SIZE = 14
@@ -43,11 +43,13 @@ local markerDotPool = { free = {} }
 local markerHitPool = { free = {} }
 local hoveredLogarithmicPreview = false
 local hoveredOutliersPreview = false
+local hoveredRollingAveragePreview = false
 
 local RebuildGraph
 local ApplyHighlight
 local HandleCompareRowEnter
 local HandleCompareRowLeave
+local UpdateSelectAllCheckbox
 
 local function CharKey(realm, name)
     return (realm or "") .. "\\" .. (name or "")
@@ -60,6 +62,9 @@ local function EnsureSettings()
     end
     if AltArmyTBC_ProgressionSettings.ignoreOutliers == nil then
         AltArmyTBC_ProgressionSettings.ignoreOutliers = false
+    end
+    if AltArmyTBC_ProgressionSettings.rollingAverage == nil then
+        AltArmyTBC_ProgressionSettings.rollingAverage = false
     end
     return AltArmyTBC_ProgressionSettings
 end
@@ -76,6 +81,13 @@ local function IsIgnoreOutliers()
         return true
     end
     return EnsureSettings().ignoreOutliers == true
+end
+
+local function IsRollingAverage()
+    if hoveredRollingAveragePreview then
+        return true
+    end
+    return EnsureSettings().rollingAverage == true
 end
 
 local function IsSelected(realm, name)
@@ -176,6 +188,9 @@ local function ToggleCompareSelection(row, entry)
     local checked = not IsSelected(entry.realm, entry.name)
     row.check:SetChecked(checked)
     SetSelected(entry.realm, entry.name, checked)
+    if UpdateSelectAllCheckbox then
+        UpdateSelectAllCheckbox()
+    end
     RebuildGraph()
 end
 
@@ -288,6 +303,16 @@ outlierRow.check:SetScript("OnClick", function(self)
     RebuildGraph()
 end)
 
+local rollingAverageRow = CreateOptionRow(optionsPanel)
+rollingAverageRow:SetPoint("TOPLEFT", outlierRow, "BOTTOMLEFT", 0, 0)
+rollingAverageRow:SetPoint("RIGHT", optionsPanel, "RIGHT", -6, 0)
+rollingAverageRow.label:SetText("Rolling Average")
+rollingAverageRow.check:SetChecked(EnsureSettings().rollingAverage == true)
+rollingAverageRow.check:SetScript("OnClick", function(self)
+    EnsureSettings().rollingAverage = self:GetChecked() and true or false
+    RebuildGraph()
+end)
+
 -- Selector panel
 local selectorPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 selectorPanel:SetPoint("TOPRIGHT", optionsPanel, "BOTTOMRIGHT", 0, -OPTIONS_PANEL_GAP)
@@ -327,6 +352,7 @@ end)
 
 local selectorRows = {}
 local insufficientRows = {}
+local selectAllRow = nil
 
 local insufficientHeader = selectorChild:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 insufficientHeader:SetText("Not enough data:")
@@ -407,6 +433,81 @@ local function GetInsufficientRow(i)
         insufficientRows[i] = row
     end
     return insufficientRows[i]
+end
+
+local function GetCompareList()
+    if not LPD or not LPD.GetCharactersWithHistory then return {} end
+    return ApplyRealmFilter(LPD.GetCharactersWithHistory())
+end
+
+local function CountCompareSelected(list)
+    local count = 0
+    for _, entry in ipairs(list) do
+        if IsSelected(entry.realm, entry.name) then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+local function AreAllCompareSelected()
+    local list = GetCompareList()
+    return Logic.IsCompareSelectAllChecked(#list, CountCompareSelected(list))
+end
+
+local function SetAllCompareSelected(selectAll)
+    for _, entry in ipairs(GetCompareList()) do
+        SetSelected(entry.realm, entry.name, selectAll)
+    end
+end
+
+local function EnsureSelectAllRow()
+    if selectAllRow then
+        return selectAllRow
+    end
+
+    selectAllRow = CreateFrame("Frame", nil, selectorChild)
+    selectAllRow:EnableMouse(true)
+
+    selectAllRow.check = CreateFrame("CheckButton", nil, selectAllRow, "UICheckButtonTemplate")
+    selectAllRow.check:SetPoint("LEFT", selectAllRow, "LEFT", 2, 0)
+    selectAllRow.check:SetSize(18, 18)
+
+    selectAllRow.label = selectAllRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    selectAllRow.label:SetPoint("LEFT", selectAllRow.check, "RIGHT", 2, 0)
+    selectAllRow.label:SetPoint("RIGHT", selectAllRow, "RIGHT", -2, 0)
+    selectAllRow.label:SetJustifyH("LEFT")
+    selectAllRow.label:SetWordWrap(false)
+    selectAllRow.label:SetText("All")
+
+    selectAllRow.labelButton = CreateFrame("Button", nil, selectAllRow)
+    selectAllRow.labelButton:SetPoint("TOPLEFT", selectAllRow.label, "TOPLEFT", -2, 0)
+    selectAllRow.labelButton:SetPoint("BOTTOMRIGHT", selectAllRow, "BOTTOMRIGHT", -2, 0)
+    selectAllRow.labelButton:SetFrameLevel(selectAllRow:GetFrameLevel() + 2)
+    selectAllRow.labelButton:RegisterForClicks("LeftButtonUp")
+    selectAllRow.labelButton:SetScript("OnClick", function()
+        selectAllRow.check:Click()
+    end)
+
+    selectAllRow.check:SetScript("OnClick", function(self)
+        local selectAll = Logic.GetCompareSelectAllAction(AreAllCompareSelected())
+        SetAllCompareSelected(selectAll)
+        self:SetChecked(selectAll)
+        for _, row in ipairs(selectorRows) do
+            if row:IsShown() and row.entry then
+                row.check:SetChecked(selectAll)
+            end
+        end
+        RebuildGraph()
+    end)
+
+    return selectAllRow
+end
+
+UpdateSelectAllCheckbox = function()
+    if selectAllRow and selectAllRow:IsShown() then
+        selectAllRow.check:SetChecked(AreAllCompareSelected())
+    end
 end
 
 local function FormatDurationUnit(value, singular, plural)
@@ -622,12 +723,26 @@ local function GetSeriesSecondsBounds(entry)
     local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
     local drawable = LPD.PrepareDrawableSeries(series)
     local marked = Logic.ApplyOutlierFlags(drawable.usable, IsIgnoreOutliers())
+    if IsRollingAverage() then
+        marked = Logic.ApplyRollingAverage(
+            marked,
+            Logic.ROLLING_AVERAGE_WINDOW,
+            IsIgnoreOutliers()
+        )
+    end
     return Logic.GetSeriesScaleBounds(marked, true)
 end
 
 local function PrepareCharGraphData(entry, drawable)
     local ignoreOutliers = IsIgnoreOutliers()
     local markedPoints = Logic.ApplyOutlierFlags(drawable.usable, ignoreOutliers)
+    if IsRollingAverage() then
+        markedPoints = Logic.ApplyRollingAverage(
+            markedPoints,
+            Logic.ROLLING_AVERAGE_WINDOW,
+            ignoreOutliers
+        )
+    end
     local drawPlan = Logic.BuildSeriesDrawPlan(markedPoints)
     local cr, cg, cb = LPD.GetClassColor(entry.classFile)
     return {
@@ -703,10 +818,12 @@ local function DrawSeriesGroup(charData, X, Y, logarithmic, plotH)
         DrawLineSegment(group, x1, y1, x2, y2, seg.style, r, g, b)
     end
 
-    for _, marker in ipairs(drawPlan.markers) do
-        local pt = marker.pt
-        local x, y = PlotSeriesPoint(pt, X, Y, plotTopY)
-        AddSegmentMarker(group, x, y, r, g, b, FULL_LINE_ALPHA, entry, pt)
+    if not IsRollingAverage() then
+        for _, marker in ipairs(drawPlan.markers) do
+            local pt = marker.pt
+            local x, y = PlotSeriesPoint(pt, X, Y, plotTopY)
+            AddSegmentMarker(group, x, y, r, g, b, FULL_LINE_ALPHA, entry, pt)
+        end
     end
 
     return group
@@ -911,6 +1028,16 @@ local function RefreshSelector()
         and RF and RF.hasMultipleRealms and RF.hasMultipleRealms(combinedForRealmCheck)
 
     local yOffset = 0
+    if Logic.ShouldShowCompareSelectAll(#list) then
+        local allRow = EnsureSelectAllRow()
+        PositionListRow(allRow, yOffset)
+        allRow:Show()
+        allRow.check:SetChecked(AreAllCompareSelected())
+        yOffset = yOffset + ROW_HEIGHT
+    elseif selectAllRow then
+        selectAllRow:Hide()
+    end
+
     for i, entry in ipairs(list) do
         local row = GetSelectorRow(i)
         PositionListRow(row, yOffset)
@@ -925,6 +1052,7 @@ local function RefreshSelector()
         row.check:SetChecked(IsSelected(entry.realm, entry.name))
         row.check:SetScript("OnClick", function()
             SetSelected(entry.realm, entry.name, row.check:GetChecked())
+            UpdateSelectAllCheckbox()
             RebuildGraph()
         end)
         row.nameButton:SetScript("OnClick", function()
@@ -1022,18 +1150,24 @@ end, function(show)
         HideOutlierOptionTooltip()
     end
 end)
+BindOptionRowHover(rollingAverageRow, function(on)
+    hoveredRollingAveragePreview = on
+end)
 
 frame:SetScript("OnHide", function()
     hoveredLogarithmicPreview = false
     hoveredOutliersPreview = false
+    hoveredRollingAveragePreview = false
     SetRowHoverHighlight(logRow, false)
     SetRowHoverHighlight(outlierRow, false)
+    SetRowHoverHighlight(rollingAverageRow, false)
     HideOutlierOptionTooltip()
 end)
 
 frame:SetScript("OnShow", function()
     logRow.check:SetChecked(EnsureSettings().logarithmic == true)
     outlierRow.check:SetChecked(EnsureSettings().ignoreOutliers == true)
+    rollingAverageRow.check:SetChecked(EnsureSettings().rollingAverage == true)
     RefreshSelector()
     frame:Redraw()
 end)

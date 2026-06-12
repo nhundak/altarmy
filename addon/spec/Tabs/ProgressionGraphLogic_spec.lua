@@ -14,6 +14,24 @@ describe("ProgressionGraphLogic", function()
         Logic = AltArmy.ProgressionGraphLogic
     end)
 
+    describe("Compare select all", function()
+        it("shows the All row only when there are more than four characters", function()
+            assert.is_false(Logic.ShouldShowCompareSelectAll(4))
+            assert.is_true(Logic.ShouldShowCompareSelectAll(5))
+        end)
+
+        it("checks All only when every compare character is selected", function()
+            assert.is_false(Logic.IsCompareSelectAllChecked(5, 4))
+            assert.is_true(Logic.IsCompareSelectAllChecked(5, 5))
+            assert.is_false(Logic.IsCompareSelectAllChecked(0, 0))
+        end)
+
+        it("selects all when not fully selected and deselects when fully selected", function()
+            assert.is_true(Logic.GetCompareSelectAllAction(false))
+            assert.is_false(Logic.GetCompareSelectAllAction(true))
+        end)
+    end)
+
     describe("ComputeSeriesAlphas", function()
         it("returns full alphas when not dimming others", function()
             local line, dash, marker = Logic.ComputeSeriesAlphas(false, false)
@@ -182,6 +200,86 @@ describe("ProgressionGraphLogic", function()
             totalSeconds = seconds,
         }
     end
+
+    describe("ApplyRollingAverage", function()
+        it("returns unchanged seconds when the window size is 1", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 200),
+            }
+            local smoothed = Logic.ApplyRollingAverage(points, 1)
+            assert.are.equal(100, smoothed[1].seconds)
+            assert.are.equal(200, smoothed[2].seconds)
+        end)
+
+        it("computes a centered rolling average with partial windows at the edges", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 200),
+                makePoint(30, 300),
+                makePoint(40, 400),
+                makePoint(50, 500),
+            }
+            local smoothed = Logic.ApplyRollingAverage(points, 5)
+            assert.are.equal(200, smoothed[1].seconds)
+            assert.are.equal(250, smoothed[2].seconds)
+            assert.are.equal(300, smoothed[3].seconds)
+            assert.are.equal(350, smoothed[4].seconds)
+            assert.are.equal(400, smoothed[5].seconds)
+        end)
+
+        it("defaults to a window of 5", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 200),
+                makePoint(30, 300),
+                makePoint(40, 400),
+                makePoint(50, 500),
+            }
+            local smoothed = Logic.ApplyRollingAverage(points)
+            assert.are.equal(300, smoothed[3].seconds)
+        end)
+
+        it("clears outlier flags so the smoothed line stays on-chart", function()
+            local points = { makePoint(10, 8000) }
+            points[1].isOutlier = true
+            local smoothed = Logic.ApplyRollingAverage(points, 3)
+            assert.is_false(smoothed[1].isOutlier)
+        end)
+
+        it("uses shrunk virtual values when shrinkOutliers is enabled", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 200),
+                makePoint(30, 8000),
+                makePoint(40, 120),
+                makePoint(50, 110),
+            }
+            points[3].isOutlier = true
+
+            local raw = Logic.ApplyRollingAverage(points, 5, false)
+            assert.is_true(raw[3].seconds > 1000)
+
+            local shrunk = Logic.ApplyRollingAverage(points, 5, true)
+            assert.are.equal(146, shrunk[3].seconds)
+        end)
+    end)
+
+    describe("BuildShrunkVirtualSeconds", function()
+        it("replaces outlier seconds with the max non-outlier value", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 8000),
+                makePoint(30, 120),
+            }
+            points[2].isOutlier = true
+
+            local virtual = Logic.BuildShrunkVirtualSeconds(points)
+            assert.are.equal(100, virtual[1])
+            assert.are.equal(120, virtual[2])
+            assert.are.equal(120, virtual[3])
+        end)
+    end)
 
     describe("ApplyOutlierFlags", function()
         it("does not flag outliers when disabled", function()
