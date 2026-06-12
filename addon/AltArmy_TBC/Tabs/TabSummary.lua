@@ -272,6 +272,7 @@ for _, colName in ipairs(columnOrder) do
         label:SetText(col and col.headerLabel or colName)
         btn.label = label
         headerButtons[colName] = btn
+        Theme.BindInteractableHover(btn)
     end
     x = x + w
 end
@@ -494,7 +495,7 @@ end)
 local rowPool = {}
 local prevRow = nil
 for i = 1, NUM_ROWS do
-    local row = CreateFrame("Button", nil, scrollFrame)
+    local row = CreateFrame("Frame", nil, scrollFrame)
     row:SetHeight(ROW_HEIGHT)
     row:SetWidth(totalColWidth)
     if i == 1 then

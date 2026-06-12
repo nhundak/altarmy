@@ -29,35 +29,6 @@ local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
 local MIN_SCROLL_CHILD_WIDTH = 400
 local GRID_SPLIT_FRACTION = 0.6
 
-local function CreateSortableHoverTint(target, bandHeight)
-    local t = target:CreateTexture(nil, "BACKGROUND")
-    t:SetTexture(Theme.HOVER_TINT_BG)
-    if bandHeight then
-        t:SetPoint("TOPLEFT", target, "TOPLEFT", 0, 0)
-        t:SetPoint("TOPRIGHT", target, "TOPRIGHT", 0, 0)
-        t:SetHeight(bandHeight)
-    else
-        t:SetAllPoints(true)
-    end
-    t:SetVertexColor(1, 1, 1, 0)
-    target.reputationHoverTint = t
-end
-
-local function SortableHoverEnter(target)
-    local t = target.reputationHoverTint
-    if t then
-        t:SetVertexColor(1, 1, 1, Theme.HOVER_TINT_ALPHA)
-    end
-end
-
-local function SortableHoverLeave(target)
-    local t = target.reputationHoverTint
-    if t then
-        t:SetVertexColor(1, 1, 1, 0)
-    end
-end
-
--- Reputation settings (AltArmyTBC_ReputationSettings)
 local SORT_OPTIONS = { "Name", "Level", "Avg Item Level", "Time Played" }
 local function SortOptionValid(val)
     for _, o in ipairs(SORT_OPTIONS) do
@@ -439,7 +410,20 @@ local function GetHeaderColumnFrame(index)
     if not headerColumnPool[index] then
         local col = CreateFrame("Button", nil, headerGridContainer)
         col:SetSize(dims.columnWidth, FIXED_HEADER_ROW_HEIGHT)
-        CreateSortableHoverTint(col, COLUMN_HEADER_HEIGHT_GEAR)
+        Theme.BindInteractableHover(col, {
+            bandHeight = COLUMN_HEADER_HEIGHT_GEAR,
+            onEnter = function(self)
+                if self.tooltipText and self.tooltipText ~= "" and GameTooltip then
+                    GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+                    GameTooltip:ClearLines()
+                    GameTooltip:AddLine(self.tooltipText, 1, 1, 1)
+                    GameTooltip:Show()
+                end
+            end,
+            onLeave = function()
+                if GameTooltip then GameTooltip:Hide() end
+            end,
+        })
         if col.RegisterForClicks then
             col:RegisterForClicks("LeftButtonUp")
         end
@@ -458,19 +442,6 @@ local function GetHeaderColumnFrame(index)
         col.message:SetJustifyH("CENTER")
         col.message:SetWordWrap(true)
         col.message:SetNonSpaceWrap(true)
-        col:SetScript("OnEnter", function(self)
-            SortableHoverEnter(self)
-            if self.tooltipText and self.tooltipText ~= "" and GameTooltip then
-                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-                GameTooltip:ClearLines()
-                GameTooltip:AddLine(self.tooltipText, 1, 1, 1)
-                GameTooltip:Show()
-            end
-        end)
-        col:SetScript("OnLeave", function(self)
-            SortableHoverLeave(self)
-            if GameTooltip then GameTooltip:Hide() end
-        end)
         col:SetScript("OnMouseUp", OnReputationHeaderColumnClick)
         headerColumnPool[index] = col
     end
@@ -627,7 +598,7 @@ local factionLabelPool = {}
 local function GetFactionLabelRow(i)
     if not factionLabelPool[i] then
         local row = CreateFrame("Button", nil, factionHeaderContainer)
-        CreateSortableHoverTint(row, nil)
+        Theme.BindInteractableHover(row)
         if row.RegisterForClicks then
             row:RegisterForClicks("LeftButtonUp")
         end
@@ -655,8 +626,6 @@ local function GetFactionLabelRow(i)
                 frame:RefreshGrid()
             end
         end)
-        row:SetScript("OnEnter", SortableHoverEnter)
-        row:SetScript("OnLeave", SortableHoverLeave)
         factionLabelPool[i] = row
     end
     return factionLabelPool[i]

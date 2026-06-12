@@ -96,30 +96,34 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
     end)
 
     local rowPool = {}
+    local function SetPinRegionHover(row, on)
+        Theme.SetHoverTint(row.pinRegion, on)
+    end
+    local function SetHideRegionHover(row, on)
+        Theme.SetHoverTint(row.hideRegion, on)
+    end
+    local function BindPinRegionHover(row, widget)
+        if not widget then return end
+        widget:HookScript("OnEnter", function() SetPinRegionHover(row, true) end)
+        widget:HookScript("OnLeave", function() SetPinRegionHover(row, false) end)
+    end
+    local function BindHideRegionHover(row, widget)
+        if not widget then return end
+        widget:HookScript("OnEnter", function() SetHideRegionHover(row, true) end)
+        widget:HookScript("OnLeave", function() SetHideRegionHover(row, false) end)
+    end
     local function GetRow(i)
         if not rowPool[i] then
             local row = CreateFrame("Frame", nil, child)
             row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -(i - 1) * CHAR_LIST_ROW)
             row:SetHeight(CHAR_LIST_ROW)
             row:SetPoint("RIGHT", child, "RIGHT", 0, 0)
-            row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            row.nameText:SetPoint("LEFT", row, "LEFT", 0, 0)
-            row.nameText:SetPoint("RIGHT", row, "RIGHT", -ROW_RIGHT_INSET, 0)
-            row.nameText:SetJustifyH("LEFT")
-            row.nameText:SetWordWrap(false)
-            row.pinBtn = CreateFrame("CheckButton", nil, row)
-            row.pinBtn:SetPoint("RIGHT", row, "RIGHT", -60, 0)
-            row.pinBtn:SetSize(18, 18)
-            local pinBg = row.pinBtn:CreateTexture(nil, "BACKGROUND")
-            pinBg:SetAllPoints(row.pinBtn)
-            Theme.ApplyCheckboxBackground(pinBg)
-            row.pinBtn.tex = row.pinBtn:CreateTexture(nil, "OVERLAY")
-            row.pinBtn.tex:SetAllPoints(row.pinBtn)
-            row.pinBtn.tex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-            row.pinBtn:SetCheckedTexture(row.pinBtn.tex)
-            local pinLabel = row.pinBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            pinLabel:SetPoint("RIGHT", row.pinBtn, "LEFT", -2, 0)
-            pinLabel:SetText("Pin")
+
+            row.pinRegion = CreateFrame("Frame", nil, row)
+            row.pinRegion:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+            row.pinRegion:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+            Theme.InstallHoverTint(row.pinRegion)
+
             row.hideBtn = CreateFrame("CheckButton", nil, row)
             row.hideBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
             row.hideBtn:SetSize(18, 18)
@@ -130,15 +134,48 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
             row.hideBtn.tex:SetAllPoints(row.hideBtn)
             row.hideBtn.tex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
             row.hideBtn:SetCheckedTexture(row.hideBtn.tex)
-            local hideLabel = row.hideBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            hideLabel:SetPoint("RIGHT", row.hideBtn, "LEFT", -2, 0)
-            hideLabel:SetText("Hide")
-            local nameOverlay = CreateFrame("Frame", nil, row)
+            row.hideLabel = row.hideBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            row.hideLabel:SetPoint("RIGHT", row.hideBtn, "LEFT", -2, 0)
+            row.hideLabel:SetText("Hide")
+
+            row.pinRegion:SetPoint("RIGHT", row.hideLabel, "LEFT", -4, 0)
+
+            row.hideRegion = CreateFrame("Frame", nil, row)
+            row.hideRegion:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
+            row.hideRegion:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+            row.hideRegion:SetPoint("LEFT", row.hideLabel, "LEFT", -4, 0)
+            Theme.InstallHoverTint(row.hideRegion)
+
+            row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            row.nameText:SetPoint("LEFT", row, "LEFT", 0, 0)
+            row.nameText:SetPoint("RIGHT", row, "RIGHT", -ROW_RIGHT_INSET, 0)
+            row.nameText:SetJustifyH("LEFT")
+            row.nameText:SetWordWrap(false)
+
+            row.pinBtn = CreateFrame("CheckButton", nil, row)
+            row.pinBtn:SetPoint("RIGHT", row, "RIGHT", -60, 0)
+            row.pinBtn:SetSize(18, 18)
+            local pinBg = row.pinBtn:CreateTexture(nil, "BACKGROUND")
+            pinBg:SetAllPoints(row.pinBtn)
+            Theme.ApplyCheckboxBackground(pinBg)
+            row.pinBtn.tex = row.pinBtn:CreateTexture(nil, "OVERLAY")
+            row.pinBtn.tex:SetAllPoints(row.pinBtn)
+            row.pinBtn.tex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+            row.pinBtn:SetCheckedTexture(row.pinBtn.tex)
+            row.pinLabel = row.pinBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            row.pinLabel:SetPoint("RIGHT", row.pinBtn, "LEFT", -2, 0)
+            row.pinLabel:SetText("Pin")
+
+            local nameOverlay = CreateFrame("Button", nil, row)
             nameOverlay:SetPoint("LEFT", row, "LEFT", 0, 0)
-            nameOverlay:SetPoint("RIGHT", row, "RIGHT", -ROW_RIGHT_INSET, 0)
+            nameOverlay:SetPoint("RIGHT", row.hideLabel, "LEFT", -4, 0)
             nameOverlay:SetHeight(CHAR_LIST_ROW)
-            nameOverlay:EnableMouse(true)
+            nameOverlay:RegisterForClicks("LeftButtonUp")
+            nameOverlay:SetScript("OnClick", function()
+                row.pinBtn:Click()
+            end)
             nameOverlay:SetScript("OnEnter", function(self)
+                SetPinRegionHover(row, true)
                 if self.fullNameDisplay and self.wasTruncated and GameTooltip then
                     GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
                     GameTooltip:ClearLines()
@@ -147,10 +184,35 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
                 end
             end)
             nameOverlay:SetScript("OnLeave", function()
+                SetPinRegionHover(row, false)
                 if GameTooltip then GameTooltip:Hide() end
             end)
             row.nameOverlay = nameOverlay
-            Theme.InstallHoverTint(row)
+
+            row.pinRegion:EnableMouse(true)
+            row.pinRegion:SetScript("OnEnter", function() SetPinRegionHover(row, true) end)
+            row.pinRegion:SetScript("OnLeave", function() SetPinRegionHover(row, false) end)
+            row.pinRegion:SetScript("OnMouseUp", function(_, button)
+                if button == "LeftButton" then row.pinBtn:Click() end
+            end)
+
+            row.hideRegion:EnableMouse(true)
+            row.hideRegion:SetScript("OnEnter", function() SetHideRegionHover(row, true) end)
+            row.hideRegion:SetScript("OnLeave", function() SetHideRegionHover(row, false) end)
+            row.hideRegion:SetScript("OnMouseUp", function(_, button)
+                if button == "LeftButton" then row.hideBtn:Click() end
+            end)
+
+            BindPinRegionHover(row, row.pinBtn)
+            BindHideRegionHover(row, row.hideBtn)
+
+            row.pinRegion:SetFrameLevel(row:GetFrameLevel())
+            row.hideRegion:SetFrameLevel(row:GetFrameLevel())
+            row.nameText:SetDrawLayer("OVERLAY")
+            nameOverlay:SetFrameLevel(row:GetFrameLevel() + 2)
+            row.pinBtn:SetFrameLevel(row:GetFrameLevel() + 4)
+            row.hideBtn:SetFrameLevel(row:GetFrameLevel() + 4)
+
             rowPool[i] = row
         end
         return rowPool[i]

@@ -521,8 +521,6 @@ local function PoolRow()
         row = CreateFrame("Button", nil, scrollChild)
         row:SetHeight(ROW_HEIGHT)
 
-        row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
-
         local cat = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         cat:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
         cat:SetSize(colWidths.Category, ROW_HEIGHT)
@@ -566,86 +564,88 @@ local function PoolRow()
         tm:SetNonSpaceWrap(false)
         row.timeCell = tm
 
-        row:SetScript("OnEnter", function(self)
-            if not self.spellId then
-                return
-            end
-            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-            local link = _G.GetSpellLink and _G.GetSpellLink(self.spellId)
-            if link and link ~= "" then
-                GameTooltip:SetHyperlink(link)
-            else
-                if GameTooltip_Clear then
-                    GameTooltip_Clear(GameTooltip)
-                elseif GameTooltip.ClearLines then
-                    GameTooltip:ClearLines()
+        Theme.BindInteractableHover(row, {
+            onEnter = function(self)
+                if not self.spellId then
+                    return
                 end
-                local title = _G.GetSpellInfo and _G.GetSpellInfo(self.spellId)
-                GameTooltip:AddLine(title or ("Spell " .. tostring(self.spellId)), 1, 1, 1)
-            end
-            -- Small gap before custom material summary (between default spell tooltip and AltArmy lines).
-            GameTooltip:AddLine(" ", 1, 1, 1)
-            local charTable = self.charTableRef
-            local qty = nil
-            if charTable and CD.GetMaxCraftableQuantity then
-                qty = CD.GetMaxCraftableQuantity(charTable, self.spellId, function(ch, itemId)
-                    if DS.GetTotalItemCount then
-                        return DS:GetTotalItemCount(ch, itemId)
+                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+                local link = _G.GetSpellLink and _G.GetSpellLink(self.spellId)
+                if link and link ~= "" then
+                    GameTooltip:SetHyperlink(link)
+                else
+                    if GameTooltip_Clear then
+                        GameTooltip_Clear(GameTooltip)
+                    elseif GameTooltip.ClearLines then
+                        GameTooltip:ClearLines()
                     end
-                    return DS:GetContainerItemCount(ch, itemId)
-                end)
-            end
-            if qty == nil then
-                GameTooltip:AddLine(
-                    "Open this profession's tradeskill window once to load material counts.",
-                    0.75,
-                    0.75,
-                    0.75,
-                    true
-                )
-            end
-            if charTable and CD.GetReagentHaveCounts then
-                local showRealm = (AltArmy.GlobalRealmFilter and AltArmy.GlobalRealmFilter.Get() == "all")
-                    and AccountHasMultipleRealms()
-                    and charTable.realm
-                    and charTable.realm ~= ""
-                local _, classFile = DS:GetCharacterClass(charTable)
-                local displayName = charTable.name or "?"
-                local displayRealm = charTable.realm or ""
-                local nameStr = RF and RF.formatColoredCharacterNameRealm
-                    and RF.formatColoredCharacterNameRealm(displayName, displayRealm, showRealm, classFile)
-                    or displayName
-                GameTooltip:AddLine(nameStr .. " has:", 1, 1, 1, true)
-                local rrows = CD.GetReagentHaveCounts(charTable, self.spellId, function(ch, itemId)
-                    if DS.GetTotalItemCount then
-                        return DS:GetTotalItemCount(ch, itemId)
-                    end
-                    return DS:GetContainerItemCount(ch, itemId)
-                end)
-                for _, rr in ipairs(rrows) do
-                    local have, need = rr.have or 0, rr.need or 0
-                    local label
-                    if GetItemInfo then
-                        local itemName = GetItemInfo(rr.itemID)
-                        label = itemName or ("Item " .. tostring(rr.itemID))
-                    else
-                        label = "Item " .. tostring(rr.itemID)
-                    end
-                    local color = have >= need and { 0, 1, 0 } or { 1, 0.3, 0.3 }
+                    local title = _G.GetSpellInfo and _G.GetSpellInfo(self.spellId)
+                    GameTooltip:AddLine(title or ("Spell " .. tostring(self.spellId)), 1, 1, 1)
+                end
+                -- Small gap before custom material summary (between default spell tooltip and AltArmy lines).
+                GameTooltip:AddLine(" ", 1, 1, 1)
+                local charTable = self.charTableRef
+                local qty = nil
+                if charTable and CD.GetMaxCraftableQuantity then
+                    qty = CD.GetMaxCraftableQuantity(charTable, self.spellId, function(ch, itemId)
+                        if DS.GetTotalItemCount then
+                            return DS:GetTotalItemCount(ch, itemId)
+                        end
+                        return DS:GetContainerItemCount(ch, itemId)
+                    end)
+                end
+                if qty == nil then
                     GameTooltip:AddLine(
-                        TooltipReagentLine(rr.itemID, label, have, need),
-                        color[1],
-                        color[2],
-                        color[3],
+                        "Open this profession's tradeskill window once to load material counts.",
+                        0.75,
+                        0.75,
+                        0.75,
                         true
                     )
                 end
-            end
-            GameTooltip:Show()
-        end)
-        row:SetScript("OnLeave", function()
-            GameTooltip:Hide()
-        end)
+                if charTable and CD.GetReagentHaveCounts then
+                    local showRealm = (AltArmy.GlobalRealmFilter and AltArmy.GlobalRealmFilter.Get() == "all")
+                        and AccountHasMultipleRealms()
+                        and charTable.realm
+                        and charTable.realm ~= ""
+                    local _, classFile = DS:GetCharacterClass(charTable)
+                    local displayName = charTable.name or "?"
+                    local displayRealm = charTable.realm or ""
+                    local nameStr = RF and RF.formatColoredCharacterNameRealm
+                        and RF.formatColoredCharacterNameRealm(displayName, displayRealm, showRealm, classFile)
+                        or displayName
+                    GameTooltip:AddLine(nameStr .. " has:", 1, 1, 1, true)
+                    local rrows = CD.GetReagentHaveCounts(charTable, self.spellId, function(ch, itemId)
+                        if DS.GetTotalItemCount then
+                            return DS:GetTotalItemCount(ch, itemId)
+                        end
+                        return DS:GetContainerItemCount(ch, itemId)
+                    end)
+                    for _, rr in ipairs(rrows) do
+                        local have, need = rr.have or 0, rr.need or 0
+                        local label
+                        if GetItemInfo then
+                            local itemName = GetItemInfo(rr.itemID)
+                            label = itemName or ("Item " .. tostring(rr.itemID))
+                        else
+                            label = "Item " .. tostring(rr.itemID)
+                        end
+                        local color = have >= need and { 0, 1, 0 } or { 1, 0.3, 0.3 }
+                        GameTooltip:AddLine(
+                            TooltipReagentLine(rr.itemID, label, have, need),
+                            color[1],
+                            color[2],
+                            color[3],
+                            true
+                        )
+                    end
+                end
+                GameTooltip:Show()
+            end,
+            onLeave = function()
+                GameTooltip:Hide()
+            end,
+        })
 
         row:RegisterForClicks("LeftButtonUp")
         row:SetScript("OnClick", function(self)

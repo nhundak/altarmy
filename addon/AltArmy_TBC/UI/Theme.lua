@@ -236,11 +236,24 @@ function Theme.SkinButton(btn, isToggle)
     end
 end
 
-function Theme.InstallHoverTint(target, layer)
+function Theme.InstallHoverTint(target, layerOrBandHeight)
     if not target or target.altArmyHoverTint then return end
-    local t = target:CreateTexture(nil, layer or "BACKGROUND")
+    local layer = "BACKGROUND"
+    local bandHeight = nil
+    if type(layerOrBandHeight) == "string" then
+        layer = layerOrBandHeight
+    elseif type(layerOrBandHeight) == "number" then
+        bandHeight = layerOrBandHeight
+    end
+    local t = target:CreateTexture(nil, layer)
     t:SetTexture(Theme.HOVER_TINT_BG)
-    t:SetAllPoints(true)
+    if bandHeight then
+        t:SetPoint("TOPLEFT", target, "TOPLEFT", 0, 0)
+        t:SetPoint("TOPRIGHT", target, "TOPRIGHT", 0, 0)
+        t:SetHeight(bandHeight)
+    else
+        t:SetAllPoints(true)
+    end
     t:SetVertexColor(1, 1, 1, 0)
     target.altArmyHoverTint = t
 end
@@ -250,6 +263,35 @@ function Theme.SetHoverTint(target, on)
     if t then
         t:SetVertexColor(1, 1, 1, on and Theme.HOVER_TINT_ALPHA or 0)
     end
+end
+
+--- Wire OnEnter/OnLeave row highlight (Graphs Compare panel style).
+function Theme.BindInteractableHover(target, opts)
+    if not target then return end
+    opts = opts or {}
+    Theme.InstallHoverTint(target, opts.bandHeight or opts.layer)
+    local function onEnter()
+        Theme.SetHoverTint(target, true)
+        if opts.onEnter then opts.onEnter(target) end
+    end
+    local function onLeave()
+        Theme.SetHoverTint(target, false)
+        if opts.onLeave then opts.onLeave(target) end
+    end
+    if target.EnableMouse then target:EnableMouse(true) end
+    target:SetScript("OnEnter", onEnter)
+    target:SetScript("OnLeave", onLeave)
+    if opts.children then
+        for i = 1, #opts.children do
+            local child = opts.children[i]
+            if child then
+                if child.EnableMouse then child:EnableMouse(true) end
+                child:SetScript("OnEnter", onEnter)
+                child:SetScript("OnLeave", onLeave)
+            end
+        end
+    end
+    return onEnter, onLeave
 end
 
 function Theme.InstallRowHoverHighlight(row)

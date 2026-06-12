@@ -196,6 +196,26 @@ describe("AltArmy.Theme", function()
         end)
     end)
 
+    describe("BindInteractableHover", function()
+        it("installs tint and wires enter/leave scripts", function()
+            local f = makeStubFrame()
+            f._scripts = {}
+            function f:EnableMouse() end
+            Theme.BindInteractableHover(f)
+            assert.is_not_nil(f.altArmyHoverTint)
+            assert.is_not_nil(f._scripts.OnEnter)
+            assert.is_not_nil(f._scripts.OnLeave)
+        end)
+
+        it("supports bandHeight for partial-row highlights", function()
+            local f = makeStubFrame()
+            f._scripts = {}
+            function f:EnableMouse() end
+            Theme.BindInteractableHover(f, { bandHeight = 18 })
+            assert.is_not_nil(f.altArmyHoverTint)
+        end)
+    end)
+
     describe("vertical scroll bar layout", function()
         it("defines Graphs-tab width, gap, inset, and gutter", function()
             assert.are.equal(14, Theme.SCROLL_BAR_WIDTH)
