@@ -162,10 +162,7 @@ searchScrollBar:SetValueStep(ROW_HEIGHT)
 searchScrollBar:SetValue(0)
 searchScrollBar:SetOrientation("VERTICAL")
 searchScrollBar:EnableMouse(true)
-local searchVertThumb = searchScrollBar:CreateTexture(nil, "ARTWORK")
-Theme.StyleScrollThumb(searchVertThumb)
-searchVertThumb:SetSize(SCROLL_BAR_WIDTH - 4, 24)
-searchScrollBar:SetThumbTexture(searchVertThumb)
+Theme.SetupScrollBar(searchScrollBar, { thickness = SCROLL_BAR_WIDTH })
 -- OnValueChanged set below after UpdateVisibleRows is defined
 
 -- Horizontal scroll bar at bottom of list area (like Summary tab)
@@ -228,11 +225,10 @@ horizontalScrollBar:SetScript("OnUpdate", function()
         end
     end
 end)
-Theme.StyleHorizontalScrollBar(horizontalScrollBar)
-local searchHThumbTex = horizontalScrollBar:CreateTexture(nil, "ARTWORK")
-Theme.StyleScrollThumb(searchHThumbTex)
-searchHThumbTex:SetSize(24, HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
-horizontalScrollBar:SetThumbTexture(searchHThumbTex)
+Theme.SetupScrollBar(horizontalScrollBar, {
+    horizontal = true,
+    thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
+})
 
 local function OnSearchScrollWheel(_, delta)
     if not searchScrollBar then return end

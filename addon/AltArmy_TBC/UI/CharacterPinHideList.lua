@@ -6,6 +6,8 @@ if not AltArmy then return end
 local Theme = AltArmy.Theme
 local CHAR_LIST_ROW = 20
 local ROW_RIGHT_INSET = 120
+local SCROLL_BAR_WIDTH = 14
+local SCROLL_BAR_GAP = 2
 
 local function TruncateName(fontString, fullName, maxWidth)
     if not fullName or fullName == "" then
@@ -40,20 +42,62 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
 
     local scroll = CreateFrame("ScrollFrame", nil, parent)
     scroll:SetPoint("TOPLEFT", anchorBelow, "BOTTOMLEFT", 0, -8)
-    scroll:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
+    scroll:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -(SCROLL_BAR_WIDTH + SCROLL_BAR_GAP), 0)
     scroll:EnableMouse(true)
+
+    local scrollBar = CreateFrame("Slider", nil, parent)
+    scrollBar:SetOrientation("VERTICAL")
+    scrollBar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", SCROLL_BAR_GAP, 0)
+    scrollBar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", SCROLL_BAR_GAP, 0)
+    scrollBar:SetWidth(SCROLL_BAR_WIDTH)
+    scrollBar:SetMinMaxValues(0, 0)
+    scrollBar:SetValueStep(CHAR_LIST_ROW)
+    scrollBar:SetValue(0)
+    scrollBar:EnableMouse(true)
+    Theme.SetupScrollBar(scrollBar, { thickness = SCROLL_BAR_WIDTH })
+    scroll.scrollBar = scrollBar
 
     local child = CreateFrame("Frame", nil, scroll)
     child:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, 0)
     child:SetWidth(1)
     scroll:SetScrollChild(child)
 
+    local function UpdateScrollbar()
+        local viewH = scroll:GetHeight() or 0
+        local maxScroll = math.max(0, child:GetHeight() - viewH)
+        local cur = scroll:GetVerticalScroll()
+        scrollBar:SetMinMaxValues(0, maxScroll)
+        scrollBar:SetValueStep(CHAR_LIST_ROW)
+        if cur > maxScroll then
+            cur = maxScroll
+            scroll:SetVerticalScroll(cur)
+        end
+        scrollBar:SetValue(cur)
+        scrollBar:SetShown(maxScroll > 0)
+    end
+
+    local function ApplyScrollOffset(offset)
+        local maxScroll = math.max(0, child:GetHeight() - (scroll:GetHeight() or 0))
+        local value = math.max(0, math.min(maxScroll, offset))
+        scroll:SetVerticalScroll(value)
+        scrollBar:SetValue(value)
+    end
+
+    scrollBar:SetScript("OnValueChanged", function(_, value)
+        scroll:SetVerticalScroll(value)
+    end)
+
     scroll:SetScript("OnMouseWheel", function(_, delta)
-        local scrollVal = scroll:GetVerticalScroll()
-        local newScroll = scrollVal - delta * CHAR_LIST_ROW * 2
-        local maxScroll = math.max(0, child:GetHeight() - scroll:GetHeight())
-        newScroll = math.max(0, math.min(maxScroll, newScroll))
-        scroll:SetVerticalScroll(newScroll)
+        ApplyScrollOffset(scroll:GetVerticalScroll() - delta * CHAR_LIST_ROW * 2)
+    end)
+
+    child:SetScript("OnMouseWheel", function(_, delta)
+        ApplyScrollOffset(scroll:GetVerticalScroll() - delta * CHAR_LIST_ROW * 2)
+    end)
+
+    scroll:SetScript("OnSizeChanged", function()
+        child:SetWidth(scroll:GetWidth() or 350)
+        UpdateScrollbar()
     end)
 
     local rowPool = {}
@@ -146,6 +190,7 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
         local n = #list
         child:SetWidth(scroll:GetWidth() or 350)
         child:SetHeight(math.max(1, n * CHAR_LIST_ROW))
+        UpdateScrollbar()
         for i = 1, n do
             local entry = list[i]
             local row = GetRow(i)

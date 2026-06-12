@@ -598,10 +598,7 @@ verticalScrollBar:SetValueStep(dims.rowHeight)
 verticalScrollBar:SetValue(0)
 verticalScrollBar:SetOrientation("VERTICAL")
 verticalScrollBar:EnableMouse(true)
-local vertThumb = verticalScrollBar:CreateTexture(nil, "ARTWORK")
-Theme.StyleScrollThumb(vertThumb)
-vertThumb:SetSize(SCROLL_BAR_WIDTH - 4, 24)
-verticalScrollBar:SetThumbTexture(vertThumb)
+Theme.SetupScrollBar(verticalScrollBar, { thickness = SCROLL_BAR_WIDTH })
 verticalScrollBar:SetScript("OnValueChanged", function(_, value)
     verticalScroll:SetVerticalScroll(value)
 end)
@@ -786,11 +783,10 @@ horizontalScrollBar:SetScript("OnUpdate", function()
     end
 end)
 -- Visible track and thumb (TBC may lack SetBackdrop; thumb uses solid texture so it always shows)
-Theme.StyleHorizontalScrollBar(horizontalScrollBar)
-local thumbTex = horizontalScrollBar:CreateTexture(nil, "ARTWORK")
-Theme.StyleScrollThumb(thumbTex)
-thumbTex:SetSize(24, HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
-horizontalScrollBar:SetThumbTexture(thumbTex)
+Theme.SetupScrollBar(horizontalScrollBar, {
+    horizontal = true,
+    thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
+})
 
 local function GetColumnFrame(index)
     if not columnPool[index] then
@@ -1075,18 +1071,19 @@ settingsPanel:Hide()
 
 local SETTINGS_ROW_HEIGHT = 22
 local SETTINGS_TITLE_HEIGHT = 26
-local gearSettingsTitle = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-gearSettingsTitle:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
-gearSettingsTitle:SetPoint("TOPRIGHT", settingsPanel, "TOPRIGHT", 0, 0)
+local settingsContent = Theme.CreateSettingsPanelContent(settingsPanel)
+local gearSettingsTitle = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+gearSettingsTitle:SetPoint("TOPLEFT", settingsContent, "TOPLEFT", 0, 0)
+gearSettingsTitle:SetPoint("TOPRIGHT", settingsContent, "TOPRIGHT", 0, 0)
 gearSettingsTitle:SetJustifyH("LEFT")
 gearSettingsTitle:SetText("Gear Settings")
 Theme.SetTitleColor(gearSettingsTitle)
 local primaryDropdown, secondaryDropdown  -- forward ref for dropdowns created below
 local gearCharListRefresh = function() end
 
-local sortingContent = CreateFrame("Frame", nil, settingsPanel)
-sortingContent:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, -SETTINGS_TITLE_HEIGHT - 8)
-sortingContent:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMRIGHT", 0, 0)
+local sortingContent = CreateFrame("Frame", nil, settingsContent)
+sortingContent:SetPoint("TOPLEFT", settingsContent, "TOPLEFT", 0, -SETTINGS_TITLE_HEIGHT - 8)
+sortingContent:SetPoint("BOTTOMRIGHT", settingsContent, "BOTTOMRIGHT", 0, 0)
 sortingContent:Show()
 
 -- ---- Sort/Filter: Show self first, Primary/Secondary sort, Character list ----

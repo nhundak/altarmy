@@ -383,10 +383,7 @@ verticalScrollBar:SetValueStep(dims.rowHeight)
 verticalScrollBar:SetValue(0)
 verticalScrollBar:SetOrientation("VERTICAL")
 verticalScrollBar:EnableMouse(true)
-local vertThumb = verticalScrollBar:CreateTexture(nil, "ARTWORK")
-Theme.StyleScrollThumb(vertThumb)
-vertThumb:SetSize(SCROLL_BAR_WIDTH - 4, 24)
-verticalScrollBar:SetThumbTexture(vertThumb)
+Theme.SetupScrollBar(verticalScrollBar, { thickness = SCROLL_BAR_WIDTH })
 verticalScrollBar:SetScript("OnValueChanged", function(_, value)
     verticalScroll:SetVerticalScroll(value)
 end)
@@ -621,11 +618,10 @@ horizontalScrollBar:SetScript("OnUpdate", function()
         end
     end
 end)
-Theme.StyleHorizontalScrollBar(horizontalScrollBar)
-local repHorizThumb = horizontalScrollBar:CreateTexture(nil, "ARTWORK")
-Theme.StyleScrollThumb(repHorizThumb)
-repHorizThumb:SetSize(24, HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
-horizontalScrollBar:SetThumbTexture(repHorizThumb)
+Theme.SetupScrollBar(horizontalScrollBar, {
+    horizontal = true,
+    thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
+})
 
 local factionLabelPool = {}
 local function GetFactionLabelRow(i)
@@ -1029,9 +1025,10 @@ ApplySettingsPanelLayout()
 settingsPanel:Hide()
 
 local SETTINGS_ROW_HEIGHT = 22
-local repSettingsTitle = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-repSettingsTitle:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
-repSettingsTitle:SetPoint("TOPRIGHT", settingsPanel, "TOPRIGHT", 0, 0)
+local settingsContent = Theme.CreateSettingsPanelContent(settingsPanel)
+local repSettingsTitle = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+repSettingsTitle:SetPoint("TOPLEFT", settingsContent, "TOPLEFT", 0, 0)
+repSettingsTitle:SetPoint("TOPRIGHT", settingsContent, "TOPRIGHT", 0, 0)
 repSettingsTitle:SetJustifyH("LEFT")
 repSettingsTitle:SetText("Reputation Settings")
 Theme.SetTitleColor(repSettingsTitle)
@@ -1039,9 +1036,9 @@ Theme.SetTitleColor(repSettingsTitle)
 local primaryDropdown, secondaryDropdown
 local repCharListRefresh = function() end
 
-local sortingContent = CreateFrame("Frame", nil, settingsPanel)
+local sortingContent = CreateFrame("Frame", nil, settingsContent)
 sortingContent:SetPoint("TOPLEFT", repSettingsTitle, "BOTTOMLEFT", 0, -8)
-sortingContent:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMRIGHT", 0, 0)
+sortingContent:SetPoint("BOTTOMRIGHT", settingsContent, "BOTTOMRIGHT", 0, 0)
 
 local showSelfFirstCheck = CreateFrame("CheckButton", nil, sortingContent)
 showSelfFirstCheck:SetPoint("TOPLEFT", sortingContent, "TOPLEFT", 0, 0)

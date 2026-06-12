@@ -190,10 +190,7 @@ scrollBar:SetValueStep(ROW_HEIGHT)
 scrollBar:SetValue(0)
 scrollBar:SetOrientation("VERTICAL")
 scrollBar:EnableMouse(true)
-local vertThumb = scrollBar:CreateTexture(nil, "ARTWORK")
-Theme.StyleScrollThumb(vertThumb)
-vertThumb:SetSize(SCROLL_BAR_WIDTH - 4, 24)
-scrollBar:SetThumbTexture(vertThumb)
+Theme.SetupScrollBar(scrollBar, { thickness = SCROLL_BAR_WIDTH })
 scrollBar:SetScript("OnValueChanged", function(_, value)
     scrollFrame:SetVerticalScroll(value)
     -- Nested ScrollFrame (vertical inside horizontal scroll child) may not fire OnVerticalScroll;
@@ -407,11 +404,10 @@ horizontalScrollBar:SetScript("OnUpdate", function()
         end
     end
 end)
-Theme.StyleHorizontalScrollBar(horizontalScrollBar)
-local hThumbTex = horizontalScrollBar:CreateTexture(nil, "ARTWORK")
-Theme.StyleScrollThumb(hThumbTex)
-hThumbTex:SetSize(24, HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
-horizontalScrollBar:SetThumbTexture(hThumbTex)
+Theme.SetupScrollBar(horizontalScrollBar, {
+    horizontal = true,
+    thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
+})
 
 -- Summary settings panel (right 40% when visible; same layout as Gear tab)
 local SUMMARY_SETTINGS_SPLIT = 0.6
@@ -428,16 +424,17 @@ local function ApplySummarySettingsPanelLayout()
 end
 ApplySummarySettingsPanelLayout()
 summarySettingsPanel:Hide()
-local summarySettingsTitle = summarySettingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-summarySettingsTitle:SetPoint("TOPLEFT", summarySettingsPanel, "TOPLEFT", 0, 0)
-summarySettingsTitle:SetPoint("TOPRIGHT", summarySettingsPanel, "TOPRIGHT", 0, 0)
+local summarySettingsContent = Theme.CreateSettingsPanelContent(summarySettingsPanel)
+local summarySettingsTitle = summarySettingsContent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+summarySettingsTitle:SetPoint("TOPLEFT", summarySettingsContent, "TOPLEFT", 0, 0)
+summarySettingsTitle:SetPoint("TOPRIGHT", summarySettingsContent, "TOPRIGHT", 0, 0)
 summarySettingsTitle:SetJustifyH("LEFT")
 summarySettingsTitle:SetText("Summary Settings")
 Theme.SetTitleColor(summarySettingsTitle)
 -- Character list: Pin/Hide (reusable component, same as Gear tab)
 if AltArmy.CreateCharacterPinHideList then
     -- luacheck: push ignore 211
-    local _scroll, refresh = AltArmy.CreateCharacterPinHideList(summarySettingsPanel,
+    local _scroll, refresh = AltArmy.CreateCharacterPinHideList(summarySettingsContent,
         summarySettingsTitle, {
             getSettings = GetSummarySettings,
             getCharSetting = GetSummaryCharSetting,

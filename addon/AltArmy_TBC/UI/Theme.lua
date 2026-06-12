@@ -11,9 +11,14 @@ Theme.HOVER_TINT_BG = "Interface\\Tooltips\\UI-Tooltip-Background"
 Theme.HOVER_TINT_ALPHA = 0.22
 
 Theme.COLORS = {
+    -- Shell: semi-transparent so gaps between opaque section panels show the game through.
+    windowBg      = { 0.08, 0.08, 0.10, 0.55 },
+    windowBorder  = { 0.45, 0.38, 0.22, 0.75 },
+    -- In-tab panels: nearly opaque cards on top of the shell.
     panelBg       = { 0.08, 0.08, 0.10, 0.95 },
     sectionBg     = { 0.10, 0.10, 0.12, 0.95 },
     graphBg       = { 0.08, 0.08, 0.10, 0.95 },
+    dialogBg      = { 0.08, 0.08, 0.10, 0.97 },
     inputBg       = { 0.06, 0.06, 0.08, 1.00 },
 
     panelBorder   = { 0.45, 0.38, 0.22, 0.90 },
@@ -45,7 +50,7 @@ Theme.COLORS = {
     scrollTrack   = { 0.08, 0.08, 0.08, 0.80 },
     scrollThumb   = { 0.50, 0.50, 0.60, 1.00 },
 
-    headerBg      = { 0.10, 0.10, 0.12, 0.95 },
+    headerBg      = { 0.10, 0.10, 0.12, 0.65 },
     settingsGlow  = { 1.00, 0.82, 0.20, 0.55 },
 
     green         = { 0.20, 0.85, 0.35, 1.00 },
@@ -107,7 +112,8 @@ local TIER_BACKDROP = {
 }
 
 local TIER_BG = {
-    window = C.panelBg,
+    window = C.windowBg,
+    dialog = C.dialogBg,
     section = C.sectionBg,
     graph = C.graphBg,
     tooltip = C.tooltipBg,
@@ -115,7 +121,8 @@ local TIER_BG = {
 }
 
 local TIER_BORDER = {
-    window = C.panelBorder,
+    window = C.windowBorder,
+    dialog = C.panelBorder,
     section = C.sectionBorder,
     graph = C.sectionBorder,
     tooltip = C.tooltipBorder,
@@ -280,11 +287,18 @@ function Theme.SetRowSelected(row, on)
     end
 end
 
+Theme.SCROLL_KNOB_TEXTURE = "Interface\\Buttons\\UI-ScrollBar-Knob"
+Theme.SCROLL_THUMB_LENGTH = 24
+
+function Theme.StyleScrollKnob(texture)
+    if texture then
+        texture:SetTexture(Theme.SCROLL_KNOB_TEXTURE)
+    end
+end
+
+--- @deprecated use StyleScrollKnob or SetupScrollBar
 function Theme.StyleScrollThumb(texture)
-    if not texture then return end
-    texture:SetTexture(Theme.HOVER_TINT_BG)
-    local thumb = C.scrollThumb
-    texture:SetVertexColor(thumb[1], thumb[2], thumb[3], thumb[4])
+    Theme.StyleScrollKnob(texture)
 end
 
 function Theme.StyleScrollTrack(texture)
@@ -293,10 +307,63 @@ function Theme.StyleScrollTrack(texture)
     texture:SetColorTexture(track[1], track[2], track[3], track[4])
 end
 
+--- Apply Compare-panel scrollbar chrome: dark track + Blizzard knob thumb.
+--- opts.thickness: bar width (vertical) or height (horizontal); defaults from slider size.
+--- opts.thumbLength: knob length along the scroll axis (default 24).
+--- opts.horizontal: true for horizontal scroll bars.
+function Theme.SetupScrollBar(slider, opts)
+    if not slider then return nil end
+    opts = opts or {}
+    local horizontal = opts.horizontal == true
+    local thumbLength = opts.thumbLength or Theme.SCROLL_THUMB_LENGTH
+    local thickness = opts.thickness
+    if not thickness then
+        if horizontal and slider.GetHeight then
+            thickness = slider:GetHeight() or 14
+        elseif slider.GetWidth then
+            thickness = slider:GetWidth() or 14
+        else
+            thickness = 14
+        end
+    end
+
+    if not slider.altArmyScrollTrack then
+        local track = slider:CreateTexture(nil, "BACKGROUND")
+        track:SetAllPoints(slider)
+        slider.altArmyScrollTrack = track
+    end
+    Theme.StyleScrollTrack(slider.altArmyScrollTrack)
+
+    local thumb = slider.altArmyScrollThumb
+    if not thumb then
+        thumb = slider:CreateTexture(nil, "OVERLAY")
+        slider.altArmyScrollThumb = thumb
+    end
+    if horizontal then
+        thumb:SetSize(thumbLength, thickness + 4)
+    else
+        thumb:SetSize(thickness + 4, thumbLength)
+    end
+    Theme.StyleScrollKnob(thumb)
+    slider:SetThumbTexture(thumb)
+    return thumb
+end
+
 function Theme.StyleGridHeader(texture)
     if not texture then return end
     local hdr = C.gridHeaderBg
     texture:SetColorTexture(hdr[1], hdr[2], hdr[3], hdr[4])
+end
+
+Theme.SETTINGS_PANEL_PADDING = 8
+
+--- Inset content area inside a bordered settings panel (keeps controls off the edge).
+function Theme.CreateSettingsPanelContent(panel)
+    local p = Theme.SETTINGS_PANEL_PADDING
+    local content = CreateFrame("Frame", nil, panel)
+    content:SetPoint("TOPLEFT", panel, "TOPLEFT", p, -p)
+    content:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -p, p)
+    return content
 end
 
 function Theme.CreateSeparator(parent, width)
@@ -363,20 +430,11 @@ function Theme.ApplySettingsGlow(texture)
     texture:SetColorTexture(g[1], g[2], g[3], g[4])
 end
 
-function Theme.StyleHorizontalScrollBar(slider)
+function Theme.StyleHorizontalScrollBar(slider, opts)
     if not slider then return end
-    Theme.EnsureBackdrop(slider)
-    if not slider.SetBackdrop then return end
-    slider:SetBackdrop({
-        bgFile = Theme.HOVER_TINT_BG,
-        edgeFile = nil,
-        tile = true,
-        tileSize = 0,
-        edgeSize = 0,
-        insets = { left = 0, right = 0, top = 0, bottom = 0 },
-    })
-    local track = C.scrollTrack
-    slider:SetBackdropColor(track[1], track[2], track[3], track[4])
+    local o = opts or {}
+    o.horizontal = true
+    Theme.SetupScrollBar(slider, o)
 end
 
 function Theme.ApplyCheckboxBackground(texture)

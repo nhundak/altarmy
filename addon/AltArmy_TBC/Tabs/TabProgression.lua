@@ -356,14 +356,7 @@ selectorScrollBar:SetValueStep(ROW_HEIGHT)
 selectorScrollBar:SetValue(0)
 selectorScrollBar:EnableMouse(true)
 
-local selectorScrollBarBg = selectorScrollBar:CreateTexture(nil, "BACKGROUND")
-selectorScrollBarBg:SetAllPoints(selectorScrollBar)
-Theme.StyleScrollTrack(selectorScrollBarBg)
-
-local selectorScrollBarThumb = selectorScrollBar:CreateTexture(nil, "OVERLAY")
-selectorScrollBarThumb:SetTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
-selectorScrollBarThumb:SetSize(SELECTOR_SCROLLBAR_WIDTH + 4, 24)
-selectorScrollBar:SetThumbTexture(selectorScrollBarThumb)
+Theme.SetupScrollBar(selectorScrollBar, { thickness = SELECTOR_SCROLLBAR_WIDTH })
 
 local function UpdateSelectorScrollbar()
     local maxScroll = math.max(0, selectorChild:GetHeight() - selectorScroll:GetHeight())

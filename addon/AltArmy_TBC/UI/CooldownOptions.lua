@@ -29,10 +29,7 @@ scrollBar:SetMinMaxValues(0, 0)
 scrollBar:SetValue(0)
 scrollBar:SetValueStep(20)
 
-local sbThumb = scrollBar:CreateTexture(nil, "OVERLAY")
-sbThumb:SetTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
-sbThumb:SetSize(18, 24)
-scrollBar:SetThumbTexture(sbThumb)
+Theme.SetupScrollBar(scrollBar, { thickness = 14 })
 
 local scrollChild = CreateFrame("Frame", nil, scroll)
 scroll:SetScrollChild(scrollChild)

@@ -15,7 +15,8 @@ describe("AltArmy.Theme", function()
         function t:SetAllPoints() end
         function t:SetPoint() end
         function t:SetHeight() end
-        function t:SetWidth() end
+        function t:SetWidth(w) self._width = w end
+        function t:SetSize(w, h) self._width = w self._height = h end
         return t
     end
 
@@ -46,6 +47,9 @@ describe("AltArmy.Theme", function()
         function f:GetScript(event) return self._scripts[event] end
         function f:SetScript(event, fn) self._scripts[event] = fn end
         function f:CreateTexture() return makeStubTexture() end
+        function f:SetThumbTexture() end
+        function f:GetWidth() return 14 end
+        function f:SetPoint() end
         function f:CreateFontString() return { SetTextColor = function() end } end
         function f:GetFontString() return { SetTextColor = function() end } end
         function f:GetNormalTexture() return nil end
@@ -88,9 +92,10 @@ describe("AltArmy.Theme", function()
 
     describe("COLORS", function()
         it("defines tiered background roles", function()
-            assert.are.same({ 0.08, 0.08, 0.10, 0.95 }, Theme.COLORS.panelBg)
+            assert.are.same({ 0.08, 0.08, 0.10, 0.55 }, Theme.COLORS.windowBg)
             assert.are.same({ 0.10, 0.10, 0.12, 0.95 }, Theme.COLORS.sectionBg)
             assert.are.same({ 0.08, 0.08, 0.10, 0.95 }, Theme.COLORS.graphBg)
+            assert.is_true(Theme.COLORS.windowBg[4] < Theme.COLORS.sectionBg[4])
         end)
 
         it("defines warm bronze panel border", function()
@@ -121,11 +126,18 @@ describe("AltArmy.Theme", function()
     end)
 
     describe("ApplyBackdrop", function()
+        it("applies window tier with semi-transparent shell bg", function()
+            local f = makeStubFrame()
+            Theme.ApplyBackdrop(f, "window")
+            assert.are.equal(0.55, f._backdropColor[4])
+        end)
+
         it("applies section tier colors to a frame", function()
             local f = makeStubFrame()
             Theme.ApplyBackdrop(f, "section")
             assert.is_not_nil(f._backdrop)
             assert.are.equal(0.10, f._backdropColor[1])
+            assert.are.equal(0.95, f._backdropColor[4])
             assert.are.equal(0.45, f._backdropBorderColor[1])
         end)
 
@@ -184,12 +196,34 @@ describe("AltArmy.Theme", function()
         end)
     end)
 
-    describe("StyleScrollThumb", function()
-        it("sets tooltip background texture and thumb color", function()
-            local tex = makeStubTexture()
-            Theme.StyleScrollThumb(tex)
-            assert.are.equal(Theme.HOVER_TINT_BG, tex._texture)
-            assert.are.equal(0.50, tex._vertex[1])
+    describe("SetupScrollBar", function()
+        it("styles track and knob thumb like the Compare panel", function()
+            local slider = makeStubFrame()
+            slider.GetWidth = function() return 14 end
+            Theme.SetupScrollBar(slider, { thickness = 14 })
+            assert.is_not_nil(slider.altArmyScrollTrack)
+            assert.are.equal(0.08, slider.altArmyScrollTrack._color[1])
+            assert.is_not_nil(slider.altArmyScrollThumb)
+            assert.are.equal(Theme.SCROLL_KNOB_TEXTURE, slider.altArmyScrollThumb._texture)
+            assert.are.equal(18, slider.altArmyScrollThumb._width)
+            assert.are.equal(24, slider.altArmyScrollThumb._height)
+        end)
+
+        it("sizes horizontal thumbs along the bar width", function()
+            local slider = makeStubFrame()
+            slider.GetHeight = function() return 12 end
+            Theme.SetupScrollBar(slider, { horizontal = true, thickness = 12 })
+            assert.are.equal(24, slider.altArmyScrollThumb._width)
+            assert.are.equal(16, slider.altArmyScrollThumb._height)
+        end)
+    end)
+
+    describe("CreateSettingsPanelContent", function()
+        it("creates a child content frame with standard padding", function()
+            local panel = makeStubFrame()
+            assert.are.equal(8, Theme.SETTINGS_PANEL_PADDING)
+            local content = Theme.CreateSettingsPanelContent(panel)
+            assert.is_not_nil(content)
         end)
     end)
 

@@ -303,10 +303,7 @@ scrollBar:SetMinMaxValues(0, 0)
 scrollBar:SetValue(0)
 scrollBar:SetValueStep(ROW_HEIGHT)
 
-local sbThumb = scrollBar:CreateTexture(nil, "OVERLAY")
-sbThumb:SetTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
-sbThumb:SetSize(18, 24)
-scrollBar:SetThumbTexture(sbThumb)
+Theme.SetupScrollBar(scrollBar, { thickness = 14 })
 
 local scrollChild = CreateFrame("Frame", nil, scroll)
 scroll:SetScrollChild(scrollChild)
@@ -339,7 +336,7 @@ stockpilePopover:SetFrameLevel((frame:GetFrameLevel() or 0) + 200)
 stockpilePopover:SetSize(320, 120)
 stockpilePopover:EnableMouse(true)
 stockpilePopover:SetClampedToScreen(true)
-Theme.ApplyBackdrop(stockpilePopover, "window")
+Theme.ApplyBackdrop(stockpilePopover, "dialog")
 
 -- Click-catcher overlay: click outside popover to close it.
 local stockpilePopoverOverlay = CreateFrame("Frame", nil, UIParent)

@@ -543,14 +543,7 @@ scrollBar:SetMinMaxValues(0, 0)
 scrollBar:SetValueStep(ROW_STRIDE)
 scrollBar:SetValue(0)
 
-local sbBg = scrollBar:CreateTexture(nil, "BACKGROUND")
-sbBg:SetAllPoints(scrollBar)
-Theme.StyleScrollTrack(sbBg)
-
-local sbThumb = scrollBar:CreateTexture(nil, "OVERLAY")
-Theme.StyleScrollThumb(sbThumb)
-sbThumb:SetSize(SCROLLBAR_W + 4, 24)
-scrollBar:SetThumbTexture(sbThumb)
+Theme.SetupScrollBar(scrollBar, { thickness = SCROLLBAR_W })
 
 scrollBar:SetScript("OnValueChanged", function(_, value)
     scrollFrame:SetVerticalScroll(value)

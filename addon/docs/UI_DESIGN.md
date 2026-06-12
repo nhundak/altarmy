@@ -13,9 +13,12 @@ Visual language for the AltArmy TBC addon. Inspired by [AHPriceGraph](https://ww
 
 | Role | RGBA | Usage |
 |------|------|-------|
-| `panelBg` | 0.08, 0.08, 0.10, 0.95 | Main window, outer panels |
-| `sectionBg` | 0.10, 0.10, 0.12, 0.95 | Side panels, settings, top bars |
-| `graphBg` | 0.08, 0.08, 0.10, 0.95 | Graph plot area |
+| `windowBg` | 0.08, 0.08, 0.10, **0.55** | Main window shell (semi-transparent; gaps between section panels show through) |
+| `windowBorder` | 0.45, 0.38, 0.22, 0.75 | Main window outer border |
+| `sectionBg` | 0.10, 0.10, 0.12, **0.95** | Side panels, settings (opaque cards on the shell) |
+| `graphBg` | 0.08, 0.08, 0.10, **0.95** | Graph plot area |
+| `dialogBg` | 0.08, 0.08, 0.10, 0.97 | Modal popovers (opaque) |
+| `panelBg` | 0.08, 0.08, 0.10, 0.95 | Legacy alias; prefer tier-specific roles |
 | `inputBg` | 0.06, 0.06, 0.08, 1.00 | Edit boxes |
 | `panelBorder` | 0.45, 0.38, 0.22, 0.90 | Window / primary panel edges |
 | `sectionBorder` | 0.45, 0.38, 0.22, 0.90 | Inner section edges |
@@ -97,7 +100,11 @@ T.CreateSeparator(parent, width)
 T.ApplyInputTextures(editBox)       -- sets .bg and .border child textures
 T.SetTitleColor(fontString)
 T.SetGroupHeaderColor(fontString)
+T.SetupScrollBar(slider, { thickness = 14 })           -- vertical
+T.SetupScrollBar(slider, { horizontal = true, thickness = 12 })
 ```
+
+Scrollbars use a dark `scrollTrack` background plus the Blizzard `UI-ScrollBar-Knob` thumb (Compare panel style).
 
 ## Compatibility
 
