@@ -5,6 +5,8 @@ if not frame then return end
 
 local Theme = AltArmy.Theme
 local SECTION_INSET = Theme.TAB_SECTION_INSET
+local PAD = 4
+local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 -- Match TabSearch.lua result rows (items / recipes): row height, fonts, flush columns, icon scale.
 local ROW_HEIGHT = 18
 local HEADER_HEIGHT = 18
@@ -169,7 +171,7 @@ local function AccountHasMultipleRealms()
 end
 
 local colWidths = {
-    Category = 175,
+    Category = 230, -- +55 vs original 175 to fill 640px frame content width
     Character = 190,
     Mats = 44,
     Time = 128,
@@ -271,13 +273,19 @@ for _, sk in ipairs(SORT_KEYS_ORDER) do
     label:SetJustifyH(SORT_HEADER_JUSTIFY[sk] or "LEFT")
     label:SetText(SORT_HEADER_LABEL[sk])
     btn.label = label
+    Theme.BindInteractableHover(btn)
     headerButtons[sk] = btn
     hx = hx + SORT_COL_WIDTH[sk]
 end
 
-local rowParent = CreateFrame("Frame", nil, tabContentInner)
-rowParent:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, -HEADER_HEIGHT - HEADER_ROW_GAP)
-rowParent:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", -16, TIP_ROW_HEIGHT)
+-- Scrollbar track aligns with listViewport (Gear / Reputation / Summary pattern).
+local listViewport = CreateFrame("Frame", nil, tabContentInner)
+listViewport:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, -PAD)
+listViewport:SetPoint("BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, PAD)
+
+local rowParent = CreateFrame("Frame", nil, listViewport)
+rowParent:SetPoint("TOPLEFT", listViewport, "TOPLEFT", 0, -(HEADER_HEIGHT + HEADER_ROW_GAP - PAD))
+rowParent:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, TIP_ROW_HEIGHT)
 
 local tipRow = CreateFrame("Frame", nil, tabContentInner)
 tipRow:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", 0, 0)
@@ -297,18 +305,14 @@ tipLabel:SetText("Tip: visit a mailbox then click a row to send materials to tha
 
 local scroll = CreateFrame("ScrollFrame", nil, rowParent)
 scroll:SetPoint("TOPLEFT", rowParent, "TOPLEFT", 0, 0)
-scroll:SetPoint("BOTTOMRIGHT", rowParent, "BOTTOMRIGHT", -14, 0)
+scroll:SetPoint("BOTTOMRIGHT", rowParent, "BOTTOMRIGHT", 0, 0)
 
-local scrollBar = CreateFrame("Slider", nil, rowParent)
-scrollBar:SetOrientation("VERTICAL")
-scrollBar:SetPoint("TOPRIGHT", rowParent, "TOPRIGHT", 0, 0)
-scrollBar:SetPoint("BOTTOMRIGHT", rowParent, "BOTTOMRIGHT", 0, 0)
-scrollBar:SetWidth(14)
+local scrollBar = CreateFrame("Slider", nil, tabContentPanel)
 scrollBar:SetMinMaxValues(0, 0)
 scrollBar:SetValue(0)
 scrollBar:SetValueStep(ROW_HEIGHT)
-
-Theme.SetupScrollBar(scrollBar, { thickness = 14 })
+scrollBar:EnableMouse(true)
+Theme.AnchorVerticalScrollBar(scrollBar, tabContentPanel, listViewport)
 
 local scrollChild = CreateFrame("Frame", nil, scroll)
 scroll:SetScrollChild(scrollChild)
@@ -321,10 +325,6 @@ scroll:SetScript("OnMouseWheel", function(_, delta)
     local cur = scrollBar:GetValue()
     local lo, hi = scrollBar:GetMinMaxValues()
     scrollBar:SetValue(math.max(lo, math.min(hi, cur - delta * ROW_HEIGHT * 3)))
-end)
-
-scroll:SetScript("OnSizeChanged", function(s, w)
-    scrollChild:SetWidth(math.max(1, (w or s:GetWidth()) - 18))
 end)
 
 local rowPool = {}
@@ -1567,7 +1567,7 @@ RefreshList = function()
         activeRows[#activeRows + 1] = row
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, y)
-        row:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", 0, y)
+        row:SetWidth(totalColWidth)
         y = y - ROW_HEIGHT
 
         row.charTableRef = DS:GetCharacter(rd.charKeyName, rd.realm)

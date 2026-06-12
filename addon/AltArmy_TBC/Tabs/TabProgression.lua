@@ -30,6 +30,7 @@ AltArmyTBC_ProgressionSettings = AltArmyTBC_ProgressionSettings or {}
 
 local RF = AltArmy.RealmFilter
 local hoveredCompareEntry = nil
+local hoveredCompareSelectAll = false
 
 local currentX, currentY = nil, nil
 local currentRawYMax = 0
@@ -51,6 +52,8 @@ local RebuildGraph
 local ApplyHighlight
 local HandleCompareRowEnter
 local HandleCompareRowLeave
+local HandleCompareSelectAllEnter
+local HandleCompareSelectAllLeave
 local UpdateSelectAllCheckbox
 
 local function CharKey(realm, name)
@@ -134,6 +137,11 @@ local function ApplyRealmFilter(list)
     return RF.filterListByRealm(list, GetRealmFilterValue(), currentRealm)
 end
 
+local function GetCompareList()
+    if not LPD or not LPD.GetCharactersWithHistory then return {} end
+    return ApplyRealmFilter(LPD.GetCharactersWithHistory())
+end
+
 local function GetSelectedCharacters()
     local out = {}
     if not LPD or not LPD.GetCharactersWithHistory then return out end
@@ -151,6 +159,10 @@ local function EntryKey(entry)
 end
 
 local function GetCharactersToDraw()
+    if hoveredCompareSelectAll then
+        return GetCompareList()
+    end
+
     local out = {}
     local seen = {}
 
@@ -193,6 +205,25 @@ local function BindCompareRowHover(row, entry)
     if row.nameButton then
         row.nameButton:SetScript("OnEnter", onEnter)
         row.nameButton:SetScript("OnLeave", onLeave)
+    end
+end
+
+local function BindSelectAllRowHover(row)
+    local function onEnter()
+        HandleCompareSelectAllEnter(row)
+    end
+
+    local function onLeave()
+        HandleCompareSelectAllLeave(row)
+    end
+
+    row:SetScript("OnEnter", onEnter)
+    row:SetScript("OnLeave", onLeave)
+    row.check:SetScript("OnEnter", onEnter)
+    row.check:SetScript("OnLeave", onLeave)
+    if row.labelButton then
+        row.labelButton:SetScript("OnEnter", onEnter)
+        row.labelButton:SetScript("OnLeave", onLeave)
     end
 end
 
@@ -458,11 +489,6 @@ local function GetInsufficientRow(i)
     return insufficientRows[i]
 end
 
-local function GetCompareList()
-    if not LPD or not LPD.GetCharactersWithHistory then return {} end
-    return ApplyRealmFilter(LPD.GetCharactersWithHistory())
-end
-
 local function CountCompareSelected(list)
     local count = 0
     for _, entry in ipairs(list) do
@@ -491,6 +517,8 @@ local function EnsureSelectAllRow()
 
     selectAllRow = CreateFrame("Frame", nil, selectorChild)
     selectAllRow:EnableMouse(true)
+
+    Theme.InstallHoverTint(selectAllRow)
 
     selectAllRow.check = CreateFrame("CheckButton", nil, selectAllRow, "UICheckButtonTemplate")
     selectAllRow.check:SetPoint("LEFT", selectAllRow, "LEFT", 2, 0)
@@ -522,18 +550,26 @@ local function EnsureSelectAllRow()
                 row.check:SetChecked(selectAll)
             end
         end
-        if wasSelectAll and not selectAll and hoveredCompareEntry then
-            local hoverKey = EntryKey(hoveredCompareEntry)
-            hoveredCompareEntry = nil
-            for _, row in ipairs(selectorRows) do
-                if row:IsShown() and row.entry and EntryKey(row.entry) == hoverKey then
-                    row.suppressHoverPreview = true
-                    break
+        if wasSelectAll and not selectAll then
+            if hoveredCompareSelectAll then
+                hoveredCompareSelectAll = false
+                selectAllRow.suppressHoverPreview = true
+            end
+            if hoveredCompareEntry then
+                local hoverKey = EntryKey(hoveredCompareEntry)
+                hoveredCompareEntry = nil
+                for _, row in ipairs(selectorRows) do
+                    if row:IsShown() and row.entry and EntryKey(row.entry) == hoverKey then
+                        row.suppressHoverPreview = true
+                        break
+                    end
                 end
             end
         end
         RebuildGraph()
     end)
+
+    BindSelectAllRowHover(selectAllRow)
 
     return selectAllRow
 end
@@ -989,6 +1025,25 @@ RebuildGraph = function()
     ApplyHighlight()
 end
 
+HandleCompareSelectAllEnter = function(row)
+    SetRowHoverHighlight(row, true)
+
+    if row.suppressHoverPreview then
+        return
+    end
+
+    hoveredCompareEntry = nil
+    hoveredCompareSelectAll = true
+    RebuildGraph()
+end
+
+HandleCompareSelectAllLeave = function(row)
+    row.suppressHoverPreview = false
+    hoveredCompareSelectAll = false
+    SetRowHoverHighlight(row, false)
+    RebuildGraph()
+end
+
 HandleCompareRowEnter = function(row, entry)
     SetRowHoverHighlight(row, true)
 
@@ -996,6 +1051,7 @@ HandleCompareRowEnter = function(row, entry)
         return
     end
 
+    hoveredCompareSelectAll = false
     hoveredCompareEntry = entry
 
     local key = EntryKey(entry)
@@ -1073,6 +1129,7 @@ local function RefreshSelector()
         PositionListRow(allRow, yOffset)
         allRow:Show()
         allRow.check:SetChecked(AreAllCompareSelected())
+        SetRowHoverHighlight(allRow, hoveredCompareSelectAll)
         yOffset = yOffset + ROW_HEIGHT
     elseif selectAllRow then
         selectAllRow:Hide()
@@ -1217,6 +1274,7 @@ end)
 
 frame:SetScript("OnHide", function()
     hoveredCompareEntry = nil
+    hoveredCompareSelectAll = false
     hoveredLogarithmicPreview = false
     hoveredOutliersPreview = false
     hoveredRollingAveragePreview = false
@@ -1225,6 +1283,10 @@ frame:SetScript("OnHide", function()
     suppressRollingAverageHoverPreview = false
     for _, row in ipairs(selectorRows) do
         row.suppressHoverPreview = false
+    end
+    if selectAllRow then
+        selectAllRow.suppressHoverPreview = false
+        SetRowHoverHighlight(selectAllRow, false)
     end
     SetRowHoverHighlight(logRow, false)
     SetRowHoverHighlight(outlierRow, false)

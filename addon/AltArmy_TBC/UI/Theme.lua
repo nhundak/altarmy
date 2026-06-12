@@ -37,10 +37,17 @@ Theme.COLORS = {
     btnHoverBg    = { 0.20, 0.18, 0.14, 1.00 },
     btnHoverBorder= { 0.45, 0.38, 0.18, 1.00 },
     btnPressBg    = { 0.08, 0.08, 0.10, 1.00 },
-    btnActiveBg   = { 0.18, 0.16, 0.10, 1.00 },
-    btnActiveBorder = { 0.55, 0.46, 0.22, 1.00 },
+    btnActiveBg   = { 0.30, 0.24, 0.08, 1.00 },
+    btnActiveBorder = { 0.82, 0.68, 0.22, 1.00 },
     btnText       = { 0.90, 0.88, 0.80, 1.00 },
     btnTextHover  = { 1.00, 0.94, 0.70, 1.00 },
+
+    btnDangerBg       = { 0.24, 0.06, 0.06, 1.00 },
+    btnDangerBorder   = { 0.78, 0.20, 0.14, 1.00 },
+    btnDangerHoverBg  = { 0.34, 0.08, 0.06, 1.00 },
+    btnDangerHoverBorder = { 0.92, 0.28, 0.18, 1.00 },
+    btnDangerPressBg  = { 0.16, 0.04, 0.04, 1.00 },
+    btnDangerText     = { 1.00, 0.55, 0.45, 1.00 },
 
     rowHover      = { 0.20, 0.18, 0.12, 0.40 },
     rowSelected   = { 0.22, 0.20, 0.10, 0.60 },
@@ -184,10 +191,7 @@ local function setButtonTextColor(btn, color)
     end
 end
 
-function Theme.SkinButton(btn, isToggle)
-    if not btn or btn._skinned then return end
-    btn._skinned = true
-
+local function stripButtonTemplate(btn)
     if btn.Left then btn.Left:SetAlpha(0) end
     if btn.Right then btn.Right:SetAlpha(0) end
     if btn.Middle then btn.Middle:SetAlpha(0) end
@@ -197,6 +201,13 @@ function Theme.SkinButton(btn, isToggle)
     if ht and ht.SetTexture then ht:SetTexture(nil) end
     local pt = btn.GetPushedTexture and btn:GetPushedTexture()
     if pt and pt.SetTexture then pt:SetTexture(nil) end
+end
+
+function Theme.SkinButton(btn, isToggle)
+    if not btn or btn._skinned then return end
+    btn._skinned = true
+
+    stripButtonTemplate(btn)
 
     Theme.ApplyBackdrop(btn, "button")
     setButtonTextColor(btn, C.btnText)
@@ -204,10 +215,11 @@ function Theme.SkinButton(btn, isToggle)
     local function restoreNormal(self)
         if self._selected then
             applyButtonColors(self, C.btnActiveBg, C.btnActiveBorder)
+            setButtonTextColor(self, C.btnTextHover)
         else
             applyButtonColors(self, C.btnBg, C.btnBorder)
+            setButtonTextColor(self, C.btnText)
         end
-        setButtonTextColor(self, C.btnText)
     end
 
     if btn.HookScript then
@@ -229,10 +241,38 @@ function Theme.SkinButton(btn, isToggle)
             self._selected = on
             if on then
                 applyButtonColors(self, C.btnActiveBg, C.btnActiveBorder)
+                setButtonTextColor(self, C.btnTextHover)
             else
                 applyButtonColors(self, C.btnBg, C.btnBorder)
+                setButtonTextColor(self, C.btnText)
             end
         end
+    end
+end
+
+function Theme.SkinDangerButton(btn)
+    if not btn or btn._skinned then return end
+    btn._skinned = true
+    stripButtonTemplate(btn)
+    Theme.ApplyBackdrop(btn, "button")
+    applyButtonColors(btn, C.btnDangerBg, C.btnDangerBorder)
+    setButtonTextColor(btn, C.btnDangerText)
+
+    local function restoreNormal(self)
+        applyButtonColors(self, C.btnDangerBg, C.btnDangerBorder)
+        setButtonTextColor(self, C.btnDangerText)
+    end
+
+    if btn.HookScript then
+        btn:HookScript("OnEnter", function(self)
+            applyButtonColors(self, C.btnDangerHoverBg, C.btnDangerHoverBorder)
+            setButtonTextColor(self, C.red)
+        end)
+        btn:HookScript("OnLeave", restoreNormal)
+        btn:HookScript("OnMouseDown", function(self)
+            applyButtonColors(self, C.btnDangerPressBg, C.btnDangerBorder)
+        end)
+        btn:HookScript("OnMouseUp", restoreNormal)
     end
 end
 
@@ -531,6 +571,81 @@ function Theme.ApplyCheckboxBackground(texture)
     if not texture then return end
     local bg = C.inputBg
     texture:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
+end
+
+Theme.CHAR_LIST_CHECKBOX_SIZE = 18
+Theme.CHAR_LIST_ROW_HEIGHT = 20
+
+--- Settings-row checkbox matching CharacterPinHideList (18px, hover band, label toggles).
+function Theme.CreateLabeledCheckbox(parent, opts)
+    opts = opts or {}
+    local rowHeight = opts.rowHeight or Theme.CHAR_LIST_ROW_HEIGHT
+    local checkSize = opts.checkSize or Theme.CHAR_LIST_CHECKBOX_SIZE
+
+    local row = CreateFrame("Frame", nil, parent)
+    if opts.relativeTo then
+        row:SetPoint(opts.point or "TOPLEFT", opts.relativeTo, opts.relativePoint or "TOPLEFT",
+            opts.x or 0, opts.y or 0)
+    else
+        row:SetPoint(opts.point or "TOPLEFT", parent, opts.relativePoint or "TOPLEFT", opts.x or 0, opts.y or 0)
+    end
+    row:SetHeight(rowHeight)
+    row:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+
+    local hoverRegion = CreateFrame("Frame", nil, row)
+    hoverRegion:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+    hoverRegion:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+    Theme.InstallHoverTint(hoverRegion)
+
+    local check = CreateFrame("CheckButton", nil, row)
+    check:SetPoint("LEFT", row, "LEFT", 0, 0)
+    check:SetSize(checkSize, checkSize)
+    local checkBg = check:CreateTexture(nil, "BACKGROUND")
+    checkBg:SetAllPoints(check)
+    Theme.ApplyCheckboxBackground(checkBg)
+    local checkTex = check:CreateTexture(nil, "OVERLAY")
+    checkTex:SetAllPoints(check)
+    checkTex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    check:SetCheckedTexture(checkTex)
+
+    local label = check:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetPoint("LEFT", check, "RIGHT", 2, 0)
+    label:SetText(opts.text or "")
+
+    hoverRegion:SetPoint("RIGHT", label, "RIGHT", 4, 0)
+    hoverRegion:EnableMouse(true)
+    hoverRegion:SetScript("OnEnter", function()
+        Theme.SetHoverTint(hoverRegion, true)
+    end)
+    hoverRegion:SetScript("OnLeave", function()
+        Theme.SetHoverTint(hoverRegion, false)
+    end)
+    hoverRegion:SetScript("OnMouseUp", function(_, button)
+        if button == "LeftButton" then
+            check:Click()
+        end
+    end)
+
+    check:HookScript("OnEnter", function()
+        Theme.SetHoverTint(hoverRegion, true)
+    end)
+    check:HookScript("OnLeave", function()
+        Theme.SetHoverTint(hoverRegion, false)
+    end)
+
+    if opts.onClick then
+        check:SetScript("OnClick", function()
+            opts.onClick(check:GetChecked())
+        end)
+    end
+
+    hoverRegion:SetFrameLevel(row:GetFrameLevel())
+    check:SetFrameLevel(row:GetFrameLevel() + 4)
+
+    row.check = check
+    row.label = label
+    row.hoverRegion = hoverRegion
+    return row
 end
 
 function Theme.ApplyDropdownBackground(frame)

@@ -34,22 +34,25 @@ end
 --- @param opts table getSettings, getCharSetting, setCharSetting, onChange (optional)
 --- @return Frame scrollFrame, function Refresh()
 function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
+    opts = opts or {}
     local getSettings = opts.getSettings or function() return {} end
     local getCharSetting = opts.getCharSetting or function() return false end
     local setCharSetting = opts.setCharSetting or function() end
     local onChange = opts.onChange or function() end
+    -- Align scrollbar with section border (same as main tab listViewport + tabContentPanel).
+    local gutterEdge = opts.gutterEdge or parent
 
     local scroll = CreateFrame("ScrollFrame", nil, parent)
     scroll:SetPoint("TOPLEFT", anchorBelow, "BOTTOMLEFT", 0, -8)
-    scroll:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
+    scroll:SetPoint("BOTTOMRIGHT", gutterEdge, "BOTTOMRIGHT", -SCROLL_GUTTER, opts.bottomInset or 0)
     scroll:EnableMouse(true)
 
-    local scrollBar = CreateFrame("Slider", nil, parent)
+    local scrollBar = CreateFrame("Slider", nil, gutterEdge)
     scrollBar:SetMinMaxValues(0, 0)
     scrollBar:SetValueStep(CHAR_LIST_ROW)
     scrollBar:SetValue(0)
     scrollBar:EnableMouse(true)
-    Theme.AnchorVerticalScrollBar(scrollBar, parent, scroll)
+    Theme.AnchorVerticalScrollBar(scrollBar, gutterEdge, scroll)
     scroll.scrollBar = scrollBar
 
     local child = CreateFrame("Frame", nil, scroll)

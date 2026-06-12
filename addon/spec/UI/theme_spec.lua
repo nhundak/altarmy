@@ -48,9 +48,29 @@ describe("AltArmy.Theme", function()
         function f:SetScript(event, fn) self._scripts[event] = fn end
         function f:CreateTexture() return makeStubTexture() end
         function f:SetThumbTexture() end
-        function f:GetWidth() return 14 end
+        function f:GetWidth() return self._width or 14 end
+        function f:GetHeight() return self._height or 20 end
+        function f:SetSize(w, h) self._width = w self._height = h end
+        function f:SetHeight(h) self._height = h end
+        function f:GetFrameLevel() return self._frameLevel or 0 end
+        function f:SetFrameLevel(level) self._frameLevel = level end
+        function f:EnableMouse() end
         function f:SetPoint() end
-        function f:CreateFontString() return { SetTextColor = function() end } end
+        function f:SetCheckedTexture() end
+        function f:GetChecked() return self._checked end
+        function f:SetChecked(checked) self._checked = checked end
+        function f:Click()
+            if self._scripts.OnClick then
+                self._scripts.OnClick(self)
+            end
+        end
+        function f:CreateFontString()
+            return {
+                SetTextColor = function() end,
+                SetText = function() end,
+                SetPoint = function() end,
+            }
+        end
         function f:GetFontString() return { SetTextColor = function() end } end
         function f:GetNormalTexture() return nil end
         function f:GetHighlightTexture() return nil end
@@ -182,7 +202,19 @@ describe("AltArmy.Theme", function()
             assert.is_not_nil(btn.SetSelected)
             btn:SetSelected(true)
             assert.is_true(btn._selected)
-            assert.are.equal(0.18, btn._backdropColor[1])
+            assert.are.equal(0.30, btn._backdropColor[1])
+        end)
+    end)
+
+    describe("SkinDangerButton", function()
+        it("applies red danger styling", function()
+            local btn = makeStubFrame()
+            Theme.SkinDangerButton(btn)
+            assert.is_true(btn._skinned)
+            assert.are.equal(0.24, btn._backdropColor[1])
+            assert.are.equal(0.78, btn._backdropBorderColor[1])
+            btn._scripts.OnEnter(btn)
+            assert.are.equal(0.34, btn._backdropColor[1])
         end)
     end)
 
@@ -278,6 +310,24 @@ describe("AltArmy.Theme", function()
             local parent = makeStubFrame()
             local sep = Theme.CreateSeparator(parent, 100)
             assert.are.equal(Theme.COLORS.sepLine[1], sep._color[1])
+        end)
+    end)
+
+    describe("CreateLabeledCheckbox", function()
+        it("uses character-list checkbox size and hover region", function()
+            local parent = makeStubFrame()
+            local clicked = false
+            local row = Theme.CreateLabeledCheckbox(parent, {
+                text = "Show self first",
+                onClick = function()
+                    clicked = true
+                end,
+            })
+            assert.are.equal(18, row.check._width)
+            assert.are.equal(18, row.check._height)
+            assert.is_not_nil(row.hoverRegion.altArmyHoverTint)
+            row.hoverRegion._scripts.OnMouseUp(row.hoverRegion, "LeftButton")
+            assert.is_true(clicked)
         end)
     end)
 end)

@@ -8,7 +8,6 @@ end
 local PAD = 4
 local Theme = AltArmy.Theme
 local SECTION_INSET = Theme.TAB_SECTION_INSET
-local SECTION_GAP = Theme.SECTION_GAP
 local ROW_HEIGHT = 18
 -- Right-side (Total column) icon size; match left-side row icon (WoW :0 default ~14)
 local OVERLAY_ICON_SIZE = 14
@@ -134,11 +133,18 @@ local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
 local tabContentPanel = Theme.CreateTabContentPanel(frame)
 local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)
 
--- List viewport: clips results to left 60% when settings panel is open (so list doesn't show through).
--- Horizontal scroll sits inside so the grid can scroll when viewport is narrower than totalColWidth.
+-- List viewport: clips results; horizontal scroll when viewport is narrower than totalColWidth.
 local listViewport = CreateFrame("Frame", nil, tabContentInner)
 listViewport:SetClipsChildren(true)
 -- Points set in ApplySearchListLayout
+
+local HINT_NO_SEARCH_RESULTS = "No matching items or recipes\nwere found for your search."
+local noResultsHint = tabContentInner:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+noResultsHint:SetPoint("CENTER", listViewport, "CENTER", 0, 0)
+noResultsHint:SetWidth(280)
+noResultsHint:SetJustifyH("CENTER")
+noResultsHint:SetText(HINT_NO_SEARCH_RESULTS)
+noResultsHint:Hide()
 
 local horizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_SearchHorizontalScroll", listViewport)
 horizontalScroll:SetAllPoints(listViewport)
@@ -452,6 +458,47 @@ local function ScheduleTooltipSearch(query)
     tooltipDebounceQuery = query
     tooltipDebounceRemaining = TOOLTIP_DEBOUNCE_SECS
     tooltipDebounceFrame:SetScript("OnUpdate", tooltipDebounceOnUpdate)
+end
+
+local function IsTooltipSearchPending()
+    if tooltipDebounceFrame:GetScript("OnUpdate") then
+        return true
+    end
+    return tooltipChunkState ~= nil
+end
+
+local function CountSearchResults(categories)
+    local nItems = categories.Items and #itemList or 0
+    local nRecipes = categories.Recipes and #recipeList or 0
+    local nTooltipOnly = categories.Items and #tooltipOnlyItemList or 0
+    return nItems + nRecipes + nTooltipOnly
+end
+
+local function ShouldShowNoSearchResultsHint(query, categories, resultCount, tooltipPending)
+    if not query or query == "" then
+        return false
+    end
+    if resultCount > 0 then
+        return false
+    end
+    if categories.Items and tooltipPending then
+        return false
+    end
+    return true
+end
+
+local function UpdateNoResultsHint()
+    local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
+    local show = ShouldShowNoSearchResultsHint(
+        frame.lastQuery,
+        categories,
+        CountSearchResults(categories),
+        IsTooltipSearchPending())
+    if show then
+        noResultsHint:Show()
+    else
+        noResultsHint:Hide()
+    end
 end
 
 -- Group overlay: total count (centered in group) + item icon to the right
@@ -1006,7 +1053,7 @@ UpdateResults = function()
             scrollFrame:SetVerticalScroll(maxScroll)
         end
     end
-    -- Horizontal scroll: list viewport may be narrower than totalColWidth (e.g. when settings panel is open)
+    -- Horizontal scroll: list viewport may be narrower than totalColWidth
     if listViewport and horizontalScroll and horizontalScrollChild and horizontalScrollBar then
         local vw = listViewport:GetWidth()
         if vw and vw > 0 then
@@ -1030,6 +1077,7 @@ UpdateResults = function()
         end
     end
     UpdateVisibleRows()
+    UpdateNoResultsHint()
 end
 
 function frame.DoSearch()
@@ -1099,77 +1147,28 @@ function frame.SearchWithQuery(_self, query)
     ScheduleTooltipSearch(q)
 end
 
--- Search settings panel (right 40% when visible); defined after UpdateVisibleRows
-local SEARCH_SETTINGS_SPLIT = 0.6
-local searchSettingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-Theme.ApplyBackdrop(searchSettingsPanel, "section")
-local function ApplySearchSettingsPanelLayout()
-    local w = frame:GetWidth()
-    if w <= 0 then return end
-    searchSettingsPanel:ClearAllPoints()
-    searchSettingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * SEARCH_SETTINGS_SPLIT + SECTION_GAP, -SECTION_INSET)
-    searchSettingsPanel:SetPoint(
-        "BOTTOMLEFT", frame, "BOTTOMLEFT", w * SEARCH_SETTINGS_SPLIT + SECTION_GAP, SECTION_INSET)
-    searchSettingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SECTION_INSET, -SECTION_INSET)
-    searchSettingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
-end
-ApplySearchSettingsPanelLayout()
-searchSettingsPanel:Hide()
-local searchSettingsTitle = searchSettingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-searchSettingsTitle:SetPoint("TOPLEFT", searchSettingsPanel, "TOPLEFT", 0, 0)
-searchSettingsTitle:SetPoint("TOPRIGHT", searchSettingsPanel, "TOPRIGHT", 0, 0)
-searchSettingsTitle:SetJustifyH("LEFT")
-searchSettingsTitle:SetText("Search Settings")
-Theme.SetTitleColor(searchSettingsTitle)
-local searchSettingsSep = Theme.CreateSeparator(searchSettingsPanel)
-searchSettingsSep:SetPoint("TOPLEFT", searchSettingsTitle, "BOTTOMLEFT", 0, -4)
-searchSettingsSep:SetPoint("TOPRIGHT", searchSettingsTitle, "BOTTOMRIGHT", 0, -4)
-local searchRealmHint = searchSettingsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-searchRealmHint:SetPoint("TOPLEFT", searchSettingsSep, "BOTTOMLEFT", 0, -8)
-searchRealmHint:SetPoint("TOPRIGHT", searchSettingsPanel, "TOPRIGHT", 0, -8)
-searchRealmHint:SetJustifyH("LEFT")
-searchRealmHint:SetText("Realm filter is configured in Esc > Interface > AddOns > AltArmy > General.")
-Theme.SetLabelColor(searchRealmHint)
-
-function frame:IsSearchSettingsShown()
-    return searchSettingsPanel and searchSettingsPanel:IsShown()
-end
-
--- List viewport: panel open = left 60% (content clipped); closed = full width. Horizontal bar at bottom.
+-- List viewport and horizontal scroll bar layout.
 local function ApplySearchListLayout()
-    local showSettings = searchSettingsPanel and searchSettingsPanel:IsShown()
     tabContentPanel:ClearAllPoints()
     tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
-    if showSettings then
-        tabContentPanel:SetPoint("BOTTOMRIGHT", searchSettingsPanel, "BOTTOMLEFT", -SECTION_GAP, 0)
-    else
-        tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
-    end
+    tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
     listViewport:ClearAllPoints()
-    listViewport:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
+    listViewport:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, -PAD)
     listViewport:SetPoint(
         "BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, HORIZONTAL_SCROLL_BAR_HEIGHT)
     horizontalScrollBar:ClearAllPoints()
-    horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", 0, -4)
+    horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", PAD, -4)
     horizontalScrollBar:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, -4)
     Theme.AnchorVerticalScrollBar(searchScrollBar, tabContentPanel, listViewport)
-end
-
-function frame:ToggleSearchSettings(_self)
-    local showSettings = not searchSettingsPanel:IsShown()
-    searchSettingsPanel:SetShown(showSettings)
-    if showSettings then
-        ApplySearchSettingsPanelLayout()
+    if noResultsHint and listViewport then
+        local vw = listViewport:GetWidth()
+        if vw and vw > 0 then
+            noResultsHint:SetWidth(math.max(200, vw - 40))
+        end
     end
-    ApplySearchListLayout()
-    if scrollFrame.UpdateScrollChildRect then scrollFrame:UpdateScrollChildRect() end
-    UpdateResults()
 end
 
 frame:SetScript("OnSizeChanged", function()
-    if searchSettingsPanel and searchSettingsPanel:IsShown() then
-        ApplySearchSettingsPanelLayout()
-    end
     ApplySearchListLayout()
 end)
 

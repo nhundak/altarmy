@@ -4,11 +4,27 @@ local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Summary
 if not frame then return end
 
 local ROW_HEIGHT = 18
-local NUM_ROWS = 14
+local ROW_POOL_SIZE = 20 -- row widget pool; visible count follows scrollFrame height
+
+local function GetVisibleRowCount(viewportH)
+    if not viewportH or viewportH <= 0 then
+        return 1
+    end
+    local rows = math.min(ROW_POOL_SIZE, math.max(1, math.ceil(viewportH / ROW_HEIGHT)))
+    return math.max(1, rows - 1)
+end
+
+local function GetSummaryListViewportBottomInset(needsHorizontalScroll, horizontalScrollBarHeight, summaryRowLift)
+    if needsHorizontalScroll then
+        return horizontalScrollBarHeight
+    end
+    return summaryRowLift or 0
+end
 local HEADER_HEIGHT = 20
 local TOTALS_ROW_HEIGHT = 18
 local PAD = 4
 local WARNING_COL_WIDTH = 20
+local NAME_COL_BASE_WIDTH = 189 -- +40 vs original 149 to fill 640px frame content width
 
 local SD = AltArmy.SummaryData
 local Theme = AltArmy.Theme
@@ -81,10 +97,10 @@ local function isCurrentCharacter(entry)
     return entry and (entry.name == currentName and entry.realm == currentRealm)
 end
 
--- Column definitions: Name, Level, RestXP, Money, Played, LastOnline, Warning (total width unchanged)
+-- Column definitions: Name, Level, RestXP, Money, Played, LastOnline, Warning
 local columns = {
     Name = {
-        Width = 149 - WARNING_COL_WIDTH,
+        Width = NAME_COL_BASE_WIDTH - WARNING_COL_WIDTH,
         GetText = function(entry) return entry.name or "" end,
         JustifyH = "LEFT",
     },
@@ -180,6 +196,7 @@ scrollFrame:SetScrollChild(scrollChild)
 
 -- Custom vertical scroll bar (Graphs / Compare panel style)
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
+local summaryNeedsHorizontalScroll = false
 local scrollBar = CreateFrame("Slider", "AltArmyTBC_SummaryScrollBar", frame)
 scrollBar:SetMinMaxValues(0, 0)
 scrollBar:SetValueStep(ROW_HEIGHT)
@@ -435,6 +452,7 @@ if AltArmy.CreateCharacterPinHideList then
     -- luacheck: push ignore 211
     local _scroll, refresh = AltArmy.CreateCharacterPinHideList(summarySettingsContent,
         summarySettingsTitle, {
+            gutterEdge = summarySettingsPanel,
             getSettings = GetSummarySettings,
             getCharSetting = GetSummaryCharSetting,
             setCharSetting = SetSummaryCharSetting,
@@ -459,16 +477,64 @@ local function ApplySummaryListLayout()
     else
         tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
     end
-    -- List viewport: panel open = leave room for vertical scroll bar; closed = inner minus scroll bar.
+    -- List viewport: reserve bottom space for horizontal scroll bar only when columns overflow.
     listViewport:ClearAllPoints()
-    listViewport:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
+    listViewport:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, -PAD)
+    local listBottomInset = GetSummaryListViewportBottomInset(
+        summaryNeedsHorizontalScroll, HORIZONTAL_SCROLL_BAR_HEIGHT, PAD)
     listViewport:SetPoint(
-        "BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, HORIZONTAL_SCROLL_BAR_HEIGHT)
+        "BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, listBottomInset)
     -- Horizontal scroll bar: same span as list viewport at bottom of inner content.
     horizontalScrollBar:ClearAllPoints()
     horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", PAD, -4)
     horizontalScrollBar:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, -4)
     Theme.AnchorVerticalScrollBar(scrollBar, tabContentPanel, listViewport)
+end
+
+local summaryDeferredUpdatePending = false
+
+local function ScheduleSummaryUpdateAfterLayout()
+    if summaryDeferredUpdatePending then return end
+    summaryDeferredUpdatePending = true
+    local ctimer = _G.C_Timer
+    if ctimer and ctimer.After then
+        ctimer.After(0, function()
+            summaryDeferredUpdatePending = false
+            if frame and frame.IsVisible and frame:IsVisible() then
+                Update()
+            end
+        end)
+    else
+        summaryDeferredUpdatePending = false
+    end
+end
+
+local function GetSummaryScrollViewportHeight()
+    if listViewport then
+        local listH = listViewport:GetHeight()
+        if listH and listH > 0 then
+            return math.max(1, listH - HEADER_HEIGHT - TOTALS_ROW_HEIGHT)
+        end
+    end
+    local scrollH = scrollFrame and scrollFrame:GetHeight() or 0
+    return math.max(1, scrollH > 0 and scrollH or 1)
+end
+
+--- Sync list viewport bottom inset when column overflow changes; returns true if layout changed.
+local function SyncSummaryHorizontalScrollLayout()
+    local needsHorzScroll = false
+    if listViewport then
+        local vw = listViewport:GetWidth()
+        if vw and vw > 0 then
+            needsHorzScroll = totalColWidth > vw
+        end
+    end
+    if needsHorzScroll == summaryNeedsHorizontalScroll then
+        return false
+    end
+    summaryNeedsHorizontalScroll = needsHorzScroll
+    ApplySummaryListLayout()
+    return true
 end
 
 function frame:ToggleSummarySettings(_self)
@@ -481,6 +547,7 @@ function frame:ToggleSummarySettings(_self)
     ApplySummaryListLayout()
     UpdateHeaderSortIndicators()
     Update()
+    ScheduleSummaryUpdateAfterLayout()
 end
 ApplySummaryListLayout()
 
@@ -489,12 +556,14 @@ frame:SetScript("OnSizeChanged", function()
         ApplySummarySettingsPanelLayout()
     end
     ApplySummaryListLayout()
+    Update()
+    ScheduleSummaryUpdateAfterLayout()
 end)
 
 -- Row pool: parented to scrollFrame so they're clipped and don't show under settings panel
 local rowPool = {}
 local prevRow = nil
-for i = 1, NUM_ROWS do
+for i = 1, ROW_POOL_SIZE do
     local row = CreateFrame("Frame", nil, scrollFrame)
     row:SetHeight(ROW_HEIGHT)
     row:SetWidth(totalColWidth)
@@ -613,14 +682,18 @@ Update = function()
     for i = 1, #rest do list[#list + 1] = rest[i] end
     local numItems = #list
 
-    -- Virtual list: NUM_ROWS fixed row widgets; offset indexes into `list`. Maximum scroll is how far we
-    -- must move to bring item numItems into the last slot — (numItems - NUM_ROWS) row heights — not
-    -- (numItems * ROW_HEIGHT - viewportHeight). The latter wrongly assumes the viewport shows
-    -- viewportHeight/ROW_HEIGHT rows equal to NUM_ROWS; if the ScrollFrame is taller than
-    -- NUM_ROWS * ROW_HEIGHT, max scroll becomes too small (last rows never reachable); if the
-    -- viewport is taller than numItems*ROW_HEIGHT but numItems > NUM_ROWS, max scroll becomes 0.
-    local viewportH = scrollFrame:GetHeight()
-    local maxScroll = math.max(0, (numItems - NUM_ROWS) * ROW_HEIGHT)
+    -- Horizontal scroll need drives list viewport height (totals row sits lower when bar hidden).
+    local horzLayoutChanged = SyncSummaryHorizontalScrollLayout()
+
+    -- Virtual list: ROW_POOL_SIZE row widgets; visibleRows derived from viewport height. Maximum scroll
+    -- is how far we must move to bring item numItems into the last slot — (numItems - visibleRows)
+    -- row heights — not (numItems * ROW_HEIGHT - viewportHeight).
+    local viewportH = GetSummaryScrollViewportHeight()
+    local visibleRows = GetVisibleRowCount(viewportH)
+    if horzLayoutChanged then
+        ScheduleSummaryUpdateAfterLayout()
+    end
+    local maxScroll = math.max(0, (numItems - visibleRows) * ROW_HEIGHT)
     scrollChild:SetHeight(viewportH + maxScroll)
     scrollChild:Show()
 
@@ -628,7 +701,7 @@ Update = function()
     if sb then
         sb:SetMinMaxValues(0, maxScroll)
         sb:SetValueStep(ROW_HEIGHT)
-        sb:SetStepsPerPage(NUM_ROWS - 1)
+        sb:SetStepsPerPage(visibleRows - 1)
         local val = sb:GetValue()
         if val > maxScroll then
             sb:SetValue(maxScroll)
@@ -638,7 +711,7 @@ Update = function()
 
     local offset = 0
     if sb then
-        local maxOffset = math.max(0, numItems - NUM_ROWS)
+        local maxOffset = math.max(0, numItems - visibleRows)
         offset = math.min(math.floor((sb:GetValue() or 0) / ROW_HEIGHT), maxOffset)
     end
 
@@ -666,12 +739,15 @@ Update = function()
         end
     end
 
-    for i = 1, NUM_ROWS do
+    for i = 1, ROW_POOL_SIZE do
         local rowFrame = GetRow(i)
-        local j = offset + i
-        if j <= numItems then
-            local entry = list[j]
-            for _, colName in ipairs(columnOrder) do
+        if i > visibleRows then
+            rowFrame:Hide()
+        else
+            local j = offset + i
+            if j <= numItems then
+                local entry = list[j]
+                for _, colName in ipairs(columnOrder) do
                 local col = columns[colName]
                 local cell = rowFrame.cells[colName]
                 if colName == "Warning" then
@@ -719,7 +795,7 @@ Update = function()
                             end
                         end
                         SetNameIcon(rowFrame.nameIcon, rowFrame.nameIconFallback, entry.classFile)
-                        local nameW = columns.Name and columns.Name.Width or (129 - WARNING_COL_WIDTH)
+                        local nameW = columns.Name and columns.Name.Width or (NAME_COL_BASE_WIDTH - WARNING_COL_WIDTH)
                         local wasTruncated = TruncateName(cell, nameDisplayStr, nameW - ICON_SIZE - 4)
                         local overlay = rowFrame.nameOverlay
                         if overlay then
@@ -731,18 +807,19 @@ Update = function()
                     end
                 end
             end
-            rowFrame:Show()
-        else
-            local warningCell = rowFrame.cells and rowFrame.cells["Warning"]
-            if warningCell then
-                if warningCell.mark then warningCell.mark:Hide() end
-                warningCell.missingDataTooltipEntry = nil
+                rowFrame:Show()
+            else
+                local warningCell = rowFrame.cells and rowFrame.cells["Warning"]
+                if warningCell then
+                    if warningCell.mark then warningCell.mark:Hide() end
+                    warningCell.missingDataTooltipEntry = nil
+                end
+                if rowFrame.nameOverlay then
+                    rowFrame.nameOverlay.fullNameDisplay = nil
+                    rowFrame.nameOverlay.wasTruncated = nil
+                end
+                rowFrame:Hide()
             end
-            if rowFrame.nameOverlay then
-                rowFrame.nameOverlay.fullNameDisplay = nil
-                rowFrame.nameOverlay.wasTruncated = nil
-            end
-            rowFrame:Hide()
         end
     end
 

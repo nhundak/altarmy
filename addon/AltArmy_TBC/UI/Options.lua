@@ -347,7 +347,7 @@ local debugDeleteAllHistoryBtn = CreateFrame("Button", nil, tabDebug, "UIPanelBu
 debugDeleteAllHistoryBtn:SetSize(160, 22)
 debugDeleteAllHistoryBtn:SetPoint("TOPLEFT", debugLevelHistoryHint, "BOTTOMLEFT", 0, -12)
 debugDeleteAllHistoryBtn:SetText("Delete all history")
-Theme.SkinButton(debugDeleteAllHistoryBtn)
+Theme.SkinDangerButton(debugDeleteAllHistoryBtn)
 panel.debugDeleteAllHistoryBtn = debugDeleteAllHistoryBtn
 
 local function ResetDeleteAllHistoryButton()
@@ -684,7 +684,7 @@ charSettingDeleteBtn:SetSize(160, 22)
 charSettingDeleteBtn:SetPoint("TOPLEFT", tabCharacters, "TOP", COL_GAP / 2, 0)
 charSettingDeleteBtn:SetText("Delete Data")
 charSettingDeleteBtn:Hide()
-Theme.SkinButton(charSettingDeleteBtn)
+Theme.SkinDangerButton(charSettingDeleteBtn)
 
 charSettingDeleteBtn:SetScript("OnClick", function(self)
     if deleteConfirmPending then

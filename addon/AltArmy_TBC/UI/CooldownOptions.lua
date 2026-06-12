@@ -20,13 +20,13 @@ local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 
 local scroll = CreateFrame("ScrollFrame", "AltArmyTBC_CooldownOptionsScroll", host)
 scroll:SetPoint("TOPLEFT", host, "TOPLEFT", LEFT_INSET, -4)
-scroll:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -SCROLL_GUTTER, 4)
+scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -SCROLL_GUTTER, 4)
 
-local scrollBar = CreateFrame("Slider", nil, host)
+local scrollBar = CreateFrame("Slider", nil, panel)
 scrollBar:SetMinMaxValues(0, 0)
 scrollBar:SetValue(0)
 scrollBar:SetValueStep(20)
-Theme.AnchorVerticalScrollBar(scrollBar, host, scroll)
+Theme.AnchorVerticalScrollBar(scrollBar, panel, scroll)
 
 local scrollChild = CreateFrame("Frame", nil, scroll)
 scroll:SetScrollChild(scrollChild)

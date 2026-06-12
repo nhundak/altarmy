@@ -17,13 +17,12 @@ local Theme = AltArmy.Theme
 
 local FRAME_WIDTH = 640
 local FRAME_HEIGHT = 420
-local HEADER_HEIGHT = 24
 local TAB_HEIGHT = 22
 local CONTENT_INSET = 8
+local HEADER_TOTAL_OFFSET = 40  -- CONTENT_INSET + header section + gap before tab strip
 
 local setActiveTab -- forward-declare so header search scripts can call it
 local UpdateSettingsButtonGlow -- forward-declare; defined after settings buttons exist
-local searchSettingsBtn -- forward-declare; created with search results bar
 local searchModeHandlers = {}  -- enterSearchMode impl registered later (avoids nil if load errors)
 local function enterSearchMode(trimmed)
     local fn = searchModeHandlers.enterSearchMode
@@ -60,30 +59,33 @@ AltArmy.MainFrame = main
 UISpecialFrames = UISpecialFrames or {}
 tinsert(UISpecialFrames, "AltArmyTBC_MainFrame")
 
--- Header background
-local headerBg = main:CreateTexture(nil, "ARTWORK")
-headerBg:SetPoint("TOPLEFT", main, "TOPLEFT", 8, -8)
-headerBg:SetPoint("TOPRIGHT", main, "TOPRIGHT", -8, -8)
-headerBg:SetHeight(HEADER_HEIGHT)
-Theme.ApplyHeaderBar(headerBg)
+-- Header section (title, search, close) — same nearly-opaque card + bronze border as tab panels
+local HEADER_SECTION_GAP = 4
+local HEADER_PANEL_HEIGHT = HEADER_TOTAL_OFFSET - CONTENT_INSET - HEADER_SECTION_GAP
+local headerPanel = CreateFrame("Frame", nil, main, "BackdropTemplate")
+headerPanel:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
+headerPanel:SetPoint("TOPRIGHT", main, "TOPRIGHT", -CONTENT_INSET, -CONTENT_INSET)
+headerPanel:SetHeight(HEADER_PANEL_HEIGHT)
+headerPanel:EnableMouse(false)
+Theme.ApplyBackdrop(headerPanel, "section")
 
 -- Title (vertically centered in header)
-local title = main:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-title:SetPoint("LEFT", headerBg, "LEFT", 6, 0)
+local title = headerPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+title:SetPoint("LEFT", headerPanel, "LEFT", Theme.TAB_CONTENT_PADDING, 0)
 title:SetText(ADDON_NAME)
 Theme.SetTitleColor(title)
 
--- Close button
-local closeBtn = CreateFrame("Button", nil, main, "UIPanelCloseButton")
-closeBtn:SetPoint("TOPRIGHT", main, "TOPRIGHT", -4, -4)
+-- Close button (vertically centered like title)
+local closeBtn = CreateFrame("Button", nil, headerPanel, "UIPanelCloseButton")
+closeBtn:SetPoint("RIGHT", headerPanel, "RIGHT", 2, 0)
 closeBtn:SetScript("OnClick", function()
     main:Hide()
 end)
 
--- Header search: EditBox to the left of close button
-local headerSearchEdit = CreateFrame("EditBox", "AltArmyTBC_HeaderSearchEdit", main)
-headerSearchEdit:SetPoint("RIGHT", closeBtn, "LEFT", -4, 0)
-headerSearchEdit:SetSize(280, 20)
+-- Header search: EditBox to the left of close button (vertically centered in header)
+local headerSearchEdit = CreateFrame("EditBox", "AltArmyTBC_HeaderSearchEdit", headerPanel)
+headerSearchEdit:SetPoint("RIGHT", closeBtn, "LEFT", 2, 0)
+headerSearchEdit:SetSize(288, 20)
 headerSearchEdit:SetAutoFocus(false)
 headerSearchEdit:SetFontObject("GameFontHighlight")
 if headerSearchEdit.SetTextInsets then
@@ -116,7 +118,7 @@ local function updateSearchPlaceholderVisibility()
 end
 
 -- Clear (X) button at start of input; only visible when there is text
-local headerSearchClearBtn = CreateFrame("Button", nil, main)
+local headerSearchClearBtn = CreateFrame("Button", nil, headerPanel)
 headerSearchClearBtn:SetPoint("RIGHT", headerSearchEdit, "LEFT", -2, 0)
 headerSearchClearBtn:SetSize(18, 18)
 headerSearchClearBtn:SetScript("OnClick", function()
@@ -160,7 +162,6 @@ function AltArmy.SwitchToSummaryTab()
 end
 
 -- Tab button strip (below header; leave clear space so tabs don't overlap header)
-local HEADER_TOTAL_OFFSET = 40  -- 8 (top inset) + header content + gap
 local tabStrip = CreateFrame("Frame", nil, main)
 tabStrip:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -HEADER_TOTAL_OFFSET)
 tabStrip:SetPoint("TOPRIGHT", main, "TOPRIGHT", -CONTENT_INSET, -HEADER_TOTAL_OFFSET)
@@ -295,11 +296,6 @@ UpdateSettingsButtonGlow = function()
         local active = AltArmy.TabFrames.Summary and AltArmy.TabFrames.Summary.IsSummarySettingsShown
             and AltArmy.TabFrames.Summary:IsSummarySettingsShown()
         tabStrip.summarySettingsBtn.glow:SetShown(active)
-    end
-    if searchSettingsBtn and searchSettingsBtn:IsShown() and searchSettingsBtn.glow then
-        local active = AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.IsSearchSettingsShown
-            and AltArmy.TabFrames.Search:IsSearchSettingsShown()
-        searchSettingsBtn.glow:SetShown(active)
     end
     if tabStrip.reputationSettingsBtn and tabStrip.reputationSettingsBtn:IsShown()
         and tabStrip.reputationSettingsBtn.glow then
@@ -510,27 +506,6 @@ end)
 local recipesLabel = recipesLabelFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 recipesLabel:SetPoint("LEFT", recipesLabelFrame, "LEFT", 0, 0)
 recipesLabel:SetText("Recipes")
--- Search settings gear (top right of search results bar; visible when in search mode)
-searchSettingsBtn = CreateFrame("Button", nil, searchResultsLabel)
-searchSettingsBtn:SetPoint("TOPRIGHT", searchResultsLabel, "TOPRIGHT", 0, 0)
-searchSettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
-addSettingsButtonGlow(searchSettingsBtn)
-local searchSettingsIcon = searchSettingsBtn:CreateTexture(nil, "ARTWORK")
-searchSettingsIcon:SetAllPoints(searchSettingsBtn)
-searchSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
-Theme.InstallHoverTint(searchSettingsBtn, "ARTWORK")
-searchSettingsBtn:SetScript("OnEnter", function(self)
-    HoverTintEnter(self)
-end)
-searchSettingsBtn:SetScript("OnLeave", function(self)
-    HoverTintLeave(self)
-end)
-searchSettingsBtn:SetScript("OnClick", function()
-    if AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.ToggleSearchSettings then
-        AltArmy.TabFrames.Search:ToggleSearchSettings()
-        UpdateSettingsButtonGlow()
-    end
-end)
 
 local function exitSearchMode()
     searchResultsLabel:Hide()

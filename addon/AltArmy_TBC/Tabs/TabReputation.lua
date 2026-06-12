@@ -522,11 +522,9 @@ local function EnsureCell(col, rowIndex)
     return col.cells[rowIndex]
 end
 
-local horizontalScrollBar = CreateFrame("Slider", "AltArmyTBC_ReputationHorizontalScrollBar", rightPanel)
-local HORIZONTAL_SCROLL_BAR_BOTTOM = PAD - 8
-horizontalScrollBar:SetPoint("BOTTOMLEFT", rightPanel, "BOTTOMLEFT", PAD, HORIZONTAL_SCROLL_BAR_BOTTOM)
-horizontalScrollBar:SetPoint(
-    "BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -SCROLL_GUTTER - PAD, HORIZONTAL_SCROLL_BAR_BOTTOM)
+local horizontalScrollBar = CreateFrame("Slider", "AltArmyTBC_ReputationHorizontalScrollBar", tabContentInner)
+horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", PAD, -4)
+horizontalScrollBar:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", 0, -4)
 horizontalScrollBar:SetHeight(HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
 horizontalScrollBar:SetOrientation("HORIZONTAL")
 horizontalScrollBar:SetMinMaxValues(0, 0)
@@ -1009,27 +1007,20 @@ local sortingContent = CreateFrame("Frame", nil, settingsContent)
 sortingContent:SetPoint("TOPLEFT", repSettingsTitle, "BOTTOMLEFT", 0, -8)
 sortingContent:SetPoint("BOTTOMRIGHT", settingsContent, "BOTTOMRIGHT", 0, 0)
 
-local showSelfFirstCheck = CreateFrame("CheckButton", nil, sortingContent)
-showSelfFirstCheck:SetPoint("TOPLEFT", sortingContent, "TOPLEFT", 0, 0)
-showSelfFirstCheck:SetSize(24, 24)
-local showSelfFirstBg = showSelfFirstCheck:CreateTexture(nil, "BACKGROUND")
-showSelfFirstBg:SetAllPoints(showSelfFirstCheck)
-Theme.ApplyCheckboxBackground(showSelfFirstBg)
-local showSelfFirstCheckTex = showSelfFirstCheck:CreateTexture(nil, "OVERLAY")
-showSelfFirstCheckTex:SetPoint("CENTER", showSelfFirstCheck, "CENTER", 0, 0)
-showSelfFirstCheckTex:SetSize(16, 16)
-showSelfFirstCheckTex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-showSelfFirstCheck:SetCheckedTexture(showSelfFirstCheckTex)
-local showSelfFirstLabel = showSelfFirstCheck:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-showSelfFirstLabel:SetPoint("LEFT", showSelfFirstCheck, "RIGHT", 4, 0)
-showSelfFirstLabel:SetText("Show self first")
-showSelfFirstCheck:SetScript("OnClick", function()
-    GetReputationSettings().showSelfFirst = showSelfFirstCheck:GetChecked()
-    frame:RefreshGrid()
-end)
+local showSelfFirstRow = Theme.CreateLabeledCheckbox(sortingContent, {
+    point = "TOPLEFT",
+    x = 0,
+    y = 0,
+    text = "Show self first",
+    onClick = function(checked)
+        GetReputationSettings().showSelfFirst = checked
+        frame:RefreshGrid()
+    end,
+})
+local showSelfFirstCheck = showSelfFirstRow.check
 
 local btnPrimary = CreateFrame("Button", nil, sortingContent)
-btnPrimary:SetPoint("TOPLEFT", showSelfFirstCheck, "BOTTOMLEFT", 0, -6)
+btnPrimary:SetPoint("TOPLEFT", showSelfFirstRow, "BOTTOMLEFT", 0, -6)
 btnPrimary:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
 btnPrimary:SetHeight(SETTINGS_ROW_HEIGHT)
 local btnPrimaryText = btnPrimary:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1107,6 +1098,7 @@ end)
 if AltArmy.CreateCharacterPinHideList then
     -- luacheck: push ignore 211
     local _scroll, refresh = AltArmy.CreateCharacterPinHideList(sortingContent, btnSecondary, {
+        gutterEdge = settingsPanel,
         getSettings = GetReputationSettings,
         getCharSetting = GetCharSetting,
         setCharSetting = SetCharSetting,
