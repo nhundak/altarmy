@@ -6,8 +6,7 @@ if not AltArmy then return end
 local Theme = AltArmy.Theme
 local CHAR_LIST_ROW = 20
 local ROW_RIGHT_INSET = 120
-local SCROLL_BAR_WIDTH = 14
-local SCROLL_BAR_GAP = 2
+local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 
 local function TruncateName(fontString, fullName, maxWidth)
     if not fullName or fullName == "" then
@@ -42,19 +41,15 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
 
     local scroll = CreateFrame("ScrollFrame", nil, parent)
     scroll:SetPoint("TOPLEFT", anchorBelow, "BOTTOMLEFT", 0, -8)
-    scroll:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -(SCROLL_BAR_WIDTH + SCROLL_BAR_GAP), 0)
+    scroll:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
     scroll:EnableMouse(true)
 
     local scrollBar = CreateFrame("Slider", nil, parent)
-    scrollBar:SetOrientation("VERTICAL")
-    scrollBar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", SCROLL_BAR_GAP, 0)
-    scrollBar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", SCROLL_BAR_GAP, 0)
-    scrollBar:SetWidth(SCROLL_BAR_WIDTH)
     scrollBar:SetMinMaxValues(0, 0)
     scrollBar:SetValueStep(CHAR_LIST_ROW)
     scrollBar:SetValue(0)
     scrollBar:EnableMouse(true)
-    Theme.SetupScrollBar(scrollBar, { thickness = SCROLL_BAR_WIDTH })
+    Theme.AnchorVerticalScrollBar(scrollBar, parent, scroll)
     scroll.scrollBar = scrollBar
 
     local child = CreateFrame("Frame", nil, scroll)

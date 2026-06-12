@@ -510,7 +510,7 @@ local ROW_SPACING = 2
 local ROW_STRIDE  = ROW_HEIGHT + ROW_SPACING
 local ICON_SIZE   = 16
 local LIST_HEIGHT = 220
-local SCROLLBAR_W = 14
+local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 
 local charListFrame = CreateFrame("Frame", nil, tabCharacters, "BackdropTemplate")
 Theme.ApplyBackdrop(charListFrame, "section")
@@ -521,7 +521,7 @@ charListFrame:SetHeight(LIST_HEIGHT)
 -- ScrollFrame clips the visible area; scrollChild holds all rows.
 local scrollFrame = CreateFrame("ScrollFrame", nil, charListFrame)
 scrollFrame:SetPoint("TOPLEFT",     charListFrame, "TOPLEFT",     4,                 -4)
-scrollFrame:SetPoint("BOTTOMRIGHT", charListFrame, "BOTTOMRIGHT", -(SCROLLBAR_W + 6), 4)
+scrollFrame:SetPoint("BOTTOMRIGHT", charListFrame, "BOTTOMRIGHT", -SCROLL_GUTTER, 4)
 scrollFrame:EnableMouseWheel(true)
 
 local scrollChild = CreateFrame("Frame")
@@ -535,15 +535,10 @@ end)
 
 -- Scrollbar
 local scrollBar = CreateFrame("Slider", nil, charListFrame)
-scrollBar:SetOrientation("VERTICAL")
-scrollBar:SetPoint("TOPRIGHT",    charListFrame, "TOPRIGHT",    -4, -4)
-scrollBar:SetPoint("BOTTOMRIGHT", charListFrame, "BOTTOMRIGHT", -4,  4)
-scrollBar:SetWidth(SCROLLBAR_W)
 scrollBar:SetMinMaxValues(0, 0)
 scrollBar:SetValueStep(ROW_STRIDE)
 scrollBar:SetValue(0)
-
-Theme.SetupScrollBar(scrollBar, { thickness = SCROLLBAR_W })
+Theme.AnchorVerticalScrollBar(scrollBar, charListFrame, scrollFrame)
 
 scrollBar:SetScript("OnValueChanged", function(_, value)
     scrollFrame:SetVerticalScroll(value)

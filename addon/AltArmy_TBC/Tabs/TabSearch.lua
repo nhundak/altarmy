@@ -7,6 +7,8 @@ end
 
 local PAD = 4
 local Theme = AltArmy.Theme
+local SECTION_INSET = Theme.TAB_SECTION_INSET
+local SECTION_GAP = Theme.SECTION_GAP
 local ROW_HEIGHT = 18
 -- Right-side (Total column) icon size; match left-side row icon (WoW :0 default ~14)
 local OVERLAY_ICON_SIZE = 14
@@ -127,10 +129,14 @@ local function SetCharacterCellTruncated(cell, namePartColored, suffixText, maxT
     cell:SetText(prefix .. "..." .. (prefix ~= "" and "|r" or "") .. (suffixText or ""))
 end
 
+-- Main tab content: bordered panel (same styling as settings panel).
+local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
+local tabContentPanel = Theme.CreateTabContentPanel(frame)
+local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)
+
 -- List viewport: clips results to left 60% when settings panel is open (so list doesn't show through).
 -- Horizontal scroll sits inside so the grid can scroll when viewport is narrower than totalColWidth.
-local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
-local listViewport = CreateFrame("Frame", nil, frame)
+local listViewport = CreateFrame("Frame", nil, tabContentInner)
 listViewport:SetClipsChildren(true)
 -- Points set in ApplySearchListLayout
 
@@ -149,26 +155,16 @@ scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - 20, PAD)
 scrollFrame:EnableMouse(true)
 
 -- Custom vertical scroll bar (same style as Gear tab)
-local SCROLL_BAR_WIDTH = 20
-local SCROLL_BAR_TOP_INSET = 16
-local SCROLL_BAR_BOTTOM_INSET = 16
-local SCROLL_BAR_RIGHT_OFFSET = 4
-local searchScrollBar = CreateFrame("Slider", "AltArmyTBC_SearchScrollBar", frame)
-searchScrollBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET, -(PAD + SCROLL_BAR_TOP_INSET))
-searchScrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET, SCROLL_BAR_BOTTOM_INSET)
-searchScrollBar:SetWidth(SCROLL_BAR_WIDTH)
+local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
+local searchScrollBar = CreateFrame("Slider", "AltArmyTBC_SearchScrollBar", tabContentInner)
 searchScrollBar:SetMinMaxValues(0, 0)
 searchScrollBar:SetValueStep(ROW_HEIGHT)
 searchScrollBar:SetValue(0)
-searchScrollBar:SetOrientation("VERTICAL")
 searchScrollBar:EnableMouse(true)
-Theme.SetupScrollBar(searchScrollBar, { thickness = SCROLL_BAR_WIDTH })
 -- OnValueChanged set below after UpdateVisibleRows is defined
 
 -- Horizontal scroll bar at bottom of list area (like Summary tab)
-local horizontalScrollBar = CreateFrame("Slider", "AltArmyTBC_SearchHorizontalScrollBar", frame)
-horizontalScrollBar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
-horizontalScrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - SCROLL_BAR_WIDTH - PAD, PAD)
+local horizontalScrollBar = CreateFrame("Slider", "AltArmyTBC_SearchHorizontalScrollBar", tabContentInner)
 horizontalScrollBar:SetHeight(HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
 horizontalScrollBar:SetOrientation("HORIZONTAL")
 horizontalScrollBar:SetMinMaxValues(0, 0)
@@ -1111,10 +1107,11 @@ local function ApplySearchSettingsPanelLayout()
     local w = frame:GetWidth()
     if w <= 0 then return end
     searchSettingsPanel:ClearAllPoints()
-    searchSettingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * SEARCH_SETTINGS_SPLIT + PAD, -PAD)
-    searchSettingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", w * SEARCH_SETTINGS_SPLIT + PAD, PAD)
-    searchSettingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -PAD)
-    searchSettingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+    searchSettingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * SEARCH_SETTINGS_SPLIT + SECTION_GAP, -SECTION_INSET)
+    searchSettingsPanel:SetPoint(
+        "BOTTOMLEFT", frame, "BOTTOMLEFT", w * SEARCH_SETTINGS_SPLIT + SECTION_GAP, SECTION_INSET)
+    searchSettingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SECTION_INSET, -SECTION_INSET)
+    searchSettingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 end
 ApplySearchSettingsPanelLayout()
 searchSettingsPanel:Hide()
@@ -1141,30 +1138,21 @@ end
 -- List viewport: panel open = left 60% (content clipped); closed = full width. Horizontal bar at bottom.
 local function ApplySearchListLayout()
     local showSettings = searchSettingsPanel and searchSettingsPanel:IsShown()
-    local vpBottomY = PAD + HORIZONTAL_SCROLL_BAR_HEIGHT
+    tabContentPanel:ClearAllPoints()
+    tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+    if showSettings then
+        tabContentPanel:SetPoint("BOTTOMRIGHT", searchSettingsPanel, "BOTTOMLEFT", -SECTION_GAP, 0)
+    else
+        tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+    end
     listViewport:ClearAllPoints()
-    listViewport:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
-    if showSettings then
-        listViewport:SetPoint("BOTTOMRIGHT", searchSettingsPanel, "BOTTOMLEFT", -PAD - SCROLL_BAR_WIDTH, vpBottomY)
-    else
-        listViewport:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -(PAD + SCROLL_BAR_WIDTH), vpBottomY)
-    end
+    listViewport:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
+    listViewport:SetPoint(
+        "BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, HORIZONTAL_SCROLL_BAR_HEIGHT)
     horizontalScrollBar:ClearAllPoints()
-    horizontalScrollBar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
-    if showSettings then
-        horizontalScrollBar:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, PAD - vpBottomY)
-    else
-        horizontalScrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -(PAD + SCROLL_BAR_WIDTH), PAD)
-    end
-    if showSettings then
-        searchScrollBar:ClearAllPoints()
-        searchScrollBar:SetPoint("TOPLEFT", listViewport, "TOPRIGHT", 0, -(PAD + SCROLL_BAR_TOP_INSET))
-        searchScrollBar:SetPoint("BOTTOMLEFT", listViewport, "BOTTOMRIGHT", 0, SCROLL_BAR_BOTTOM_INSET)
-    else
-        searchScrollBar:ClearAllPoints()
-        searchScrollBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET, -(PAD + SCROLL_BAR_TOP_INSET))
-        searchScrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET, SCROLL_BAR_BOTTOM_INSET)
-    end
+    horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", 0, -4)
+    horizontalScrollBar:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, -4)
+    Theme.AnchorVerticalScrollBar(searchScrollBar, tabContentPanel, listViewport)
 end
 
 function frame:ToggleSearchSettings(_self)

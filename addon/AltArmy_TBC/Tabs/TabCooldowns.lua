@@ -3,8 +3,8 @@
 local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Cooldowns
 if not frame then return end
 
-local PAD = 4
 local Theme = AltArmy.Theme
+local SECTION_INSET = Theme.TAB_SECTION_INSET
 -- Match TabSearch.lua result rows (items / recipes): row height, fonts, flush columns, icon scale.
 local ROW_HEIGHT = 18
 local HEADER_HEIGHT = 18
@@ -230,11 +230,16 @@ end
 
 local totalColWidth = colWidths.Category + colWidths.Character + colWidths.Mats + colWidths.Time
 
-local headerRow = CreateFrame("Frame", nil, frame)
+local tabContentPanel = Theme.CreateTabContentPanel(frame)
+tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)
+
+local headerRow = CreateFrame("Frame", nil, tabContentInner)
 headerRow:SetHeight(HEADER_HEIGHT)
 headerRow:SetWidth(totalColWidth)
 headerRow:SetFrameLevel((frame:GetFrameLevel() or 0) + 10)
-headerRow:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
+headerRow:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
 
 local hx = 0
 for _, sk in ipairs(SORT_KEYS_ORDER) do
@@ -270,13 +275,13 @@ for _, sk in ipairs(SORT_KEYS_ORDER) do
     hx = hx + SORT_COL_WIDTH[sk]
 end
 
-local rowParent = CreateFrame("Frame", nil, frame)
-rowParent:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD - HEADER_HEIGHT - HEADER_ROW_GAP)
-rowParent:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - 16, PAD + TIP_ROW_HEIGHT)
+local rowParent = CreateFrame("Frame", nil, tabContentInner)
+rowParent:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, -HEADER_HEIGHT - HEADER_ROW_GAP)
+rowParent:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", -16, TIP_ROW_HEIGHT)
 
-local tipRow = CreateFrame("Frame", nil, frame)
-tipRow:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
-tipRow:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+local tipRow = CreateFrame("Frame", nil, tabContentInner)
+tipRow:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", 0, 0)
+tipRow:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", 0, 0)
 tipRow:SetHeight(TIP_ROW_HEIGHT)
 
 local tipIcon = tipRow:CreateTexture(nil, "ARTWORK")

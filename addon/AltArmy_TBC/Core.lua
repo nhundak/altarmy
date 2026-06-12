@@ -15,8 +15,8 @@ AltArmyTBC_Options = AltArmyTBC_Options or {}
 
 local Theme = AltArmy.Theme
 
-local FRAME_WIDTH = 600
-local FRAME_HEIGHT = 400
+local FRAME_WIDTH = 640
+local FRAME_HEIGHT = 420
 local HEADER_HEIGHT = 24
 local TAB_HEIGHT = 22
 local CONTENT_INSET = 8

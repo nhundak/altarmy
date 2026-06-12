@@ -8,6 +8,8 @@ local Theme = AltArmy.Theme
 local RepSort = AltArmy.ReputationFactionSort
 local SD = AltArmy.SummaryData
 local PAD = 4
+local SECTION_INSET = Theme.TAB_SECTION_INSET
+local SECTION_GAP = Theme.SECTION_GAP
 local FACTION_LABEL_WIDTH = 150
 local REP_ROW_HEIGHT = 46
 local REP_BAR_HEIGHT = 20
@@ -20,12 +22,9 @@ local MISSING_DATA_TEXT_R, MISSING_DATA_TEXT_G, MISSING_DATA_TEXT_B = 0.78, 0.68
 -- Match TabGear header: name row + message row (Reputation uses only one text line, centered in full height)
 local MESSAGE_ROW_HEIGHT = 12
 local COLUMN_HEADER_HEIGHT_GEAR = 18
-local SCROLL_BAR_WIDTH = 20
+local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
 local COLUMN_WIDTH = 96
-local SCROLL_BAR_TOP_INSET = 16
-local SCROLL_BAR_BOTTOM_INSET = 16
-local SCROLL_BAR_RIGHT_OFFSET = 4
 local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
 local MIN_SCROLL_CHILD_WIDTH = 400
 local GRID_SPLIT_FRACTION = 0.6
@@ -264,14 +263,19 @@ local function GetFirstRowCellVerticalOffset()
     return (dims.rowHeight - REP_FACTION_LABEL_TEXT_HEIGHT) / 2
 end
 
-local rightPanel = CreateFrame("Frame", nil, frame)
-rightPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
-rightPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+local tabContentPanel = Theme.CreateTabContentPanel(frame)
+tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)
+
+local rightPanel = CreateFrame("Frame", nil, tabContentInner)
+rightPanel:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
+rightPanel:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", 0, 0)
 
 local contentArea = CreateFrame("Frame", nil, rightPanel)
 contentArea:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 0, -PAD)
-contentArea:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -SCROLL_BAR_WIDTH,
-    SCROLL_BAR_BOTTOM_INSET + HORIZONTAL_SCROLL_BAR_HEIGHT)
+contentArea:SetPoint("BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER,
+    HORIZONTAL_SCROLL_BAR_HEIGHT)
 
 local verticalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_ReputationVerticalScroll", contentArea)
 verticalScroll:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 0, 0)
@@ -373,17 +377,11 @@ headerGridContainer:SetHeight(FIXED_HEADER_ROW_HEIGHT)
 headerHorizontalScroll:SetScrollChild(headerGridContainer)
 
 local verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_ReputationVerticalScrollBar", rightPanel)
-verticalScrollBar:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET + 4,
-    -(PAD + SCROLL_BAR_TOP_INSET))
-verticalScrollBar:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET + 4,
-    SCROLL_BAR_BOTTOM_INSET)
-verticalScrollBar:SetWidth(SCROLL_BAR_WIDTH)
 verticalScrollBar:SetMinMaxValues(0, 0)
 verticalScrollBar:SetValueStep(dims.rowHeight)
 verticalScrollBar:SetValue(0)
-verticalScrollBar:SetOrientation("VERTICAL")
 verticalScrollBar:EnableMouse(true)
-Theme.SetupScrollBar(verticalScrollBar, { thickness = SCROLL_BAR_WIDTH })
+Theme.AnchorVerticalScrollBar(verticalScrollBar, tabContentPanel, contentArea)
 verticalScrollBar:SetScript("OnValueChanged", function(_, value)
     verticalScroll:SetVerticalScroll(value)
 end)
@@ -554,8 +552,10 @@ local function EnsureCell(col, rowIndex)
 end
 
 local horizontalScrollBar = CreateFrame("Slider", "AltArmyTBC_ReputationHorizontalScrollBar", rightPanel)
-horizontalScrollBar:SetPoint("BOTTOMLEFT", rightPanel, "BOTTOMLEFT", PAD, PAD)
-horizontalScrollBar:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -SCROLL_BAR_WIDTH - PAD, PAD)
+local HORIZONTAL_SCROLL_BAR_BOTTOM = PAD - 8
+horizontalScrollBar:SetPoint("BOTTOMLEFT", rightPanel, "BOTTOMLEFT", PAD, HORIZONTAL_SCROLL_BAR_BOTTOM)
+horizontalScrollBar:SetPoint(
+    "BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -SCROLL_GUTTER - PAD, HORIZONTAL_SCROLL_BAR_BOTTOM)
 horizontalScrollBar:SetHeight(HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
 horizontalScrollBar:SetOrientation("HORIZONTAL")
 horizontalScrollBar:SetMinMaxValues(0, 0)
@@ -1016,10 +1016,10 @@ local function ApplySettingsPanelLayout()
     local w = frame:GetWidth()
     if w <= 0 then return end
     settingsPanel:ClearAllPoints()
-    settingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * GRID_SPLIT_FRACTION + PAD, -PAD)
-    settingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", w * GRID_SPLIT_FRACTION + PAD, PAD)
-    settingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -PAD)
-    settingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+    settingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * GRID_SPLIT_FRACTION + SECTION_GAP, -SECTION_INSET)
+    settingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", w * GRID_SPLIT_FRACTION + SECTION_GAP, SECTION_INSET)
+    settingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SECTION_INSET, -SECTION_INSET)
+    settingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 end
 ApplySettingsPanelLayout()
 settingsPanel:Hide()
@@ -1164,13 +1164,16 @@ function frame:ToggleReputationSettings(_self)
     if showSettings then
         ApplySettingsPanelLayout()
     end
-    rightPanel:ClearAllPoints()
-    rightPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
+    tabContentPanel:ClearAllPoints()
+    tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
     if showSettings then
-        rightPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -(PAD + SCROLL_BAR_RIGHT_OFFSET + 4), 0)
+        tabContentPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -SECTION_GAP, 0)
     else
-        rightPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+        tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
     end
+    rightPanel:ClearAllPoints()
+    rightPanel:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
+    rightPanel:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", 0, 0)
     if showSettings then
         local s = GetReputationSettings()
         btnPrimaryText:SetText("Primary Sort: " .. s.primarySort)
@@ -1187,9 +1190,12 @@ end
 frame:SetScript("OnSizeChanged", function()
     if settingsPanel and settingsPanel:IsShown() then
         ApplySettingsPanelLayout()
+        tabContentPanel:ClearAllPoints()
+        tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+        tabContentPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -SECTION_GAP, 0)
         rightPanel:ClearAllPoints()
-        rightPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
-        rightPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -(PAD + SCROLL_BAR_RIGHT_OFFSET + 4), 0)
+        rightPanel:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
+        rightPanel:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", 0, 0)
         frame:RefreshGrid()
     end
 end)

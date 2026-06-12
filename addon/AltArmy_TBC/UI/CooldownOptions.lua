@@ -16,20 +16,17 @@ local Theme = AltArmy.Theme
 local LEFT_INSET = 0
 local BLOCK_GAP = 18
 
+local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
+
 local scroll = CreateFrame("ScrollFrame", "AltArmyTBC_CooldownOptionsScroll", host)
 scroll:SetPoint("TOPLEFT", host, "TOPLEFT", LEFT_INSET, -4)
-scroll:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -LEFT_INSET, 4)
+scroll:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -SCROLL_GUTTER, 4)
 
-local scrollBar = CreateFrame("Slider", nil, scroll)
-scrollBar:SetOrientation("VERTICAL")
-scrollBar:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", 0, 0)
-scrollBar:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", 0, 0)
-scrollBar:SetWidth(14)
+local scrollBar = CreateFrame("Slider", nil, host)
 scrollBar:SetMinMaxValues(0, 0)
 scrollBar:SetValue(0)
 scrollBar:SetValueStep(20)
-
-Theme.SetupScrollBar(scrollBar, { thickness = 14 })
+Theme.AnchorVerticalScrollBar(scrollBar, host, scroll)
 
 local scrollChild = CreateFrame("Frame", nil, scroll)
 scroll:SetScrollChild(scrollChild)
@@ -45,7 +42,7 @@ scroll:SetScript("OnMouseWheel", function(_, delta)
 end)
 
 scroll:SetScript("OnSizeChanged", function(s, w)
-    scrollChild:SetWidth(math.max(1, (w or s:GetWidth()) - 18))
+    scrollChild:SetWidth(math.max(1, w or s:GetWidth() or 1))
 end)
 
 panel.cooldownWidgets = {}

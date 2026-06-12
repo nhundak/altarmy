@@ -289,6 +289,9 @@ end
 
 Theme.SCROLL_KNOB_TEXTURE = "Interface\\Buttons\\UI-ScrollBar-Knob"
 Theme.SCROLL_THUMB_LENGTH = 24
+Theme.SCROLL_BAR_WIDTH = 14
+Theme.SCROLL_BAR_GAP = 2 -- space between scroll viewport and track
+Theme.SCROLL_BAR_RIGHT_INSET = 4 -- track ends this far inside the bronze border (Graphs Compare panel)
 
 function Theme.StyleScrollKnob(texture)
     if texture then
@@ -349,6 +352,34 @@ function Theme.SetupScrollBar(slider, opts)
     return thumb
 end
 
+--- Horizontal space reserved beside a vertical scroll viewport (inset + track + gap).
+function Theme.VerticalScrollBarGutter(opts)
+    opts = opts or {}
+    local w = opts.width or Theme.SCROLL_BAR_WIDTH
+    local gap = opts.gap or Theme.SCROLL_BAR_GAP
+    local inset = opts.rightInset
+    if inset == nil then
+        inset = Theme.SCROLL_BAR_RIGHT_INSET
+    end
+    return w + gap + inset
+end
+
+--- Anchor a vertical scrollbar beside scrollFrame; track ends rightInset inside gutterEdge's right edge.
+--- scrollFrame should end at -(VerticalScrollBarGutter()) from gutterEdge's right edge.
+function Theme.AnchorVerticalScrollBar(scrollBar, _gutterEdge, scrollFrame, opts)
+    if not scrollBar or not scrollFrame then return scrollBar end
+    opts = opts or {}
+    local w = opts.width or Theme.SCROLL_BAR_WIDTH
+    local gap = opts.gap or Theme.SCROLL_BAR_GAP
+    scrollBar:SetOrientation("VERTICAL")
+    scrollBar:SetWidth(w)
+    scrollBar:ClearAllPoints()
+    scrollBar:SetPoint("TOPLEFT", scrollFrame, "TOPRIGHT", gap, 0)
+    scrollBar:SetPoint("BOTTOMLEFT", scrollFrame, "BOTTOMRIGHT", gap, 0)
+    Theme.SetupScrollBar(scrollBar, { thickness = w, thumbLength = opts.thumbLength })
+    return scrollBar
+end
+
 function Theme.StyleGridHeader(texture)
     if not texture then return end
     local hdr = C.gridHeaderBg
@@ -356,14 +387,31 @@ function Theme.StyleGridHeader(texture)
 end
 
 Theme.SETTINGS_PANEL_PADDING = 8
+Theme.TAB_CONTENT_PADDING = 8
+-- Section panels sit flush on the tab frame; Core CONTENT_INSET (8px) is the window-edge gutter.
+Theme.TAB_SECTION_INSET = 0
+-- Gap between adjacent section panels within a tab (Graphs tab graph | selector).
+Theme.SECTION_GAP = 4
 
---- Inset content area inside a bordered settings panel (keeps controls off the edge).
-function Theme.CreateSettingsPanelContent(panel)
-    local p = Theme.SETTINGS_PANEL_PADDING
+--- Bordered section panel for main tab content (matches settings panel styling).
+function Theme.CreateTabContentPanel(parent)
+    local panel = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    Theme.ApplyBackdrop(panel, "section")
+    return panel
+end
+
+--- Inset content area inside a bordered panel (keeps controls off the edge).
+function Theme.CreatePanelInnerContent(panel, padding)
+    local p = padding or Theme.TAB_CONTENT_PADDING
     local content = CreateFrame("Frame", nil, panel)
     content:SetPoint("TOPLEFT", panel, "TOPLEFT", p, -p)
     content:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -p, p)
     return content
+end
+
+--- Inset content area inside a bordered settings panel (keeps controls off the edge).
+function Theme.CreateSettingsPanelContent(panel)
+    return Theme.CreatePanelInnerContent(panel, Theme.SETTINGS_PANEL_PADDING)
 end
 
 function Theme.CreateSeparator(parent, width)

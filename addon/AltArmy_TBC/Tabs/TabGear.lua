@@ -6,6 +6,8 @@ if not frame then return end
 local DS = AltArmy.DataStore
 local Theme = AltArmy.Theme
 local PAD = 4
+local SECTION_INSET = Theme.TAB_SECTION_INSET
+local SECTION_GAP = Theme.SECTION_GAP
 local LEFT_PANEL_WIDTH = 120
 local LEFT_PANEL_VISIBLE = false  -- set true to show "Who can use this?" drop zone
 local MESSAGE_ROW_HEIGHT = 12
@@ -445,10 +447,16 @@ local function InsertItemLinkIntoChat(itemLinkOrID)
     end
 end
 
+-- ---- Tab content panel (bordered; same styling as settings panel) ----
+local tabContentPanel = Theme.CreateTabContentPanel(frame)
+tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)
+
 -- ---- Left panel ----
-local leftPanel = CreateFrame("Frame", nil, frame)
-leftPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
-leftPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
+local leftPanel = CreateFrame("Frame", nil, tabContentInner)
+leftPanel:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
+leftPanel:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", 0, 0)
 leftPanel:SetWidth(LEFT_PANEL_WIDTH)
 
 local labelWho = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -504,7 +512,7 @@ end
 -- ---- Right panel: slot row headers + scrollable character columns ----
 local COLUMN_HEADER_HEIGHT_GEAR = 18
 local SLOT_LABEL_WIDTH = 80
-local SCROLL_BAR_WIDTH = 20
+local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
 -- Layout dimensions from spacing + icon size
 local dims = {}
@@ -515,24 +523,21 @@ do
     dims.scrollableGridHeight = NUM_EQUIPMENT_SLOTS * dims.rowHeight + PAD
 end
 
-local rightPanel = CreateFrame("Frame", nil, frame)
+local rightPanel = CreateFrame("Frame", nil, tabContentInner)
 if LEFT_PANEL_VISIBLE then
     rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", PAD, 0)
 else
-    rightPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
+    rightPanel:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
 end
-rightPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+rightPanel:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", 0, 0)
 
-local SCROLL_BAR_TOP_INSET = 16
-local SCROLL_BAR_BOTTOM_INSET = 16
-local SCROLL_BAR_RIGHT_OFFSET = 4
 local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
 
 -- Content area: full height except scroll bars; fixed header will sit at top of this
 local contentArea = CreateFrame("Frame", nil, rightPanel)
 contentArea:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 0, -PAD)
-contentArea:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -SCROLL_BAR_WIDTH,
-    SCROLL_BAR_BOTTOM_INSET + HORIZONTAL_SCROLL_BAR_HEIGHT)
+contentArea:SetPoint("BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER,
+    HORIZONTAL_SCROLL_BAR_HEIGHT)
 
 -- Vertical scroll: full content area; scroll child has spacer at top so header can overlay
 local verticalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearVerticalScroll", contentArea)
@@ -588,17 +593,11 @@ headerHorizontalScroll:SetScrollChild(headerGridContainer)
 
 -- Vertical scroll bar: custom (no template) so it doesn't conflict with horizontal; both bars under our control
 local verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_GearVerticalScrollBar", rightPanel)
-verticalScrollBar:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET + 4,
-    -(PAD + SCROLL_BAR_TOP_INSET))
-verticalScrollBar:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET + 4,
-    SCROLL_BAR_BOTTOM_INSET)
-verticalScrollBar:SetWidth(SCROLL_BAR_WIDTH)
 verticalScrollBar:SetMinMaxValues(0, 0)
 verticalScrollBar:SetValueStep(dims.rowHeight)
 verticalScrollBar:SetValue(0)
-verticalScrollBar:SetOrientation("VERTICAL")
 verticalScrollBar:EnableMouse(true)
-Theme.SetupScrollBar(verticalScrollBar, { thickness = SCROLL_BAR_WIDTH })
+Theme.AnchorVerticalScrollBar(verticalScrollBar, tabContentPanel, contentArea)
 verticalScrollBar:SetScript("OnValueChanged", function(_, value)
     verticalScroll:SetVerticalScroll(value)
 end)
@@ -717,8 +716,10 @@ local columnPool = {}
 
 -- Horizontal scroll bar: create after horizontalScroll/gridContainer exist so OnValueChanged sees them
 local horizontalScrollBar = CreateFrame("Slider", "AltArmyTBC_GearHorizontalScrollBar", rightPanel)
-horizontalScrollBar:SetPoint("BOTTOMLEFT", rightPanel, "BOTTOMLEFT", PAD, PAD)
-horizontalScrollBar:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -SCROLL_BAR_WIDTH - PAD, PAD)
+local HORIZONTAL_SCROLL_BAR_BOTTOM = PAD - 8
+horizontalScrollBar:SetPoint("BOTTOMLEFT", rightPanel, "BOTTOMLEFT", PAD, HORIZONTAL_SCROLL_BAR_BOTTOM)
+horizontalScrollBar:SetPoint(
+    "BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -SCROLL_GUTTER - PAD, HORIZONTAL_SCROLL_BAR_BOTTOM)
 horizontalScrollBar:SetHeight(HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
 horizontalScrollBar:SetOrientation("HORIZONTAL")
 horizontalScrollBar:SetMinMaxValues(0, 0)
@@ -1061,10 +1062,10 @@ local function ApplySettingsPanelLayout()
     local w = frame:GetWidth()
     if w <= 0 then return end
     settingsPanel:ClearAllPoints()
-    settingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * GRID_SPLIT_FRACTION + PAD, -PAD)
-    settingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", w * GRID_SPLIT_FRACTION + PAD, PAD)
-    settingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -PAD)
-    settingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+    settingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * GRID_SPLIT_FRACTION + SECTION_GAP, -SECTION_INSET)
+    settingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", w * GRID_SPLIT_FRACTION + SECTION_GAP, SECTION_INSET)
+    settingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SECTION_INSET, -SECTION_INSET)
+    settingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 end
 ApplySettingsPanelLayout()
 settingsPanel:Hide()
@@ -1219,19 +1220,21 @@ function frame:ToggleGearSettings(_self)
         ApplySettingsPanelLayout()
     end
 
-    -- Resize grid (rightPanel): full width when settings closed, left 60% when settings open
+    -- Resize tab content: full width when settings closed, left 60% when settings open
+    tabContentPanel:ClearAllPoints()
+    tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+    if showSettings then
+        tabContentPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -SECTION_GAP, 0)
+    else
+        tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+    end
     rightPanel:ClearAllPoints()
     if LEFT_PANEL_VISIBLE then
         rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", PAD, 0)
     else
-        rightPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
+        rightPanel:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
     end
-    if showSettings then
-        -- Extra gap so vertical scroll bar (anchored with RIGHT_OFFSET+4 past right edge) doesn't overlap settings
-        rightPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -(PAD + SCROLL_BAR_RIGHT_OFFSET + 4), 0)
-    else
-        rightPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
-    end
+    rightPanel:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", 0, 0)
 
     if showSettings then
         local s = GetGearSettings()
@@ -1251,13 +1254,16 @@ end
 frame:SetScript("OnSizeChanged", function()
     if settingsPanel and settingsPanel:IsShown() then
         ApplySettingsPanelLayout()
+        tabContentPanel:ClearAllPoints()
+        tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+        tabContentPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -SECTION_GAP, 0)
         rightPanel:ClearAllPoints()
         if LEFT_PANEL_VISIBLE then
             rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", PAD, 0)
         else
-            rightPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
+            rightPanel:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
         end
-        rightPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -(PAD + SCROLL_BAR_RIGHT_OFFSET + 4), 0)
+        rightPanel:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", 0, 0)
         if frame.RefreshGrid then frame:RefreshGrid() end
     end
 end)

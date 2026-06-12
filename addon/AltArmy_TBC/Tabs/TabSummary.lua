@@ -12,6 +12,8 @@ local WARNING_COL_WIDTH = 20
 
 local SD = AltArmy.SummaryData
 local Theme = AltArmy.Theme
+local SECTION_INSET = Theme.TAB_SECTION_INSET
+local SECTION_GAP = Theme.SECTION_GAP
 
 local CLASS_ICON_SHEET = "Interface\\WorldStateFrame\\Icons-Classes"
 local ICON_SIZE = 16
@@ -176,21 +178,13 @@ scrollChild:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
 scrollChild:SetPoint("TOPRIGHT", scrollFrame, "TOPRIGHT", 0, 0)
 scrollFrame:SetScrollChild(scrollChild)
 
--- Custom vertical scroll bar (same style as Gear tab)
-local SCROLL_BAR_WIDTH = 20
-local SCROLL_BAR_TOP_INSET = 16
-local SCROLL_BAR_BOTTOM_INSET = 16
-local SCROLL_BAR_RIGHT_OFFSET = 4
+-- Custom vertical scroll bar (Graphs / Compare panel style)
+local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 local scrollBar = CreateFrame("Slider", "AltArmyTBC_SummaryScrollBar", frame)
-scrollBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET, -(PAD + SCROLL_BAR_TOP_INSET))
-scrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET, SCROLL_BAR_BOTTOM_INSET)
-scrollBar:SetWidth(SCROLL_BAR_WIDTH)
 scrollBar:SetMinMaxValues(0, 0)
 scrollBar:SetValueStep(ROW_HEIGHT)
 scrollBar:SetValue(0)
-scrollBar:SetOrientation("VERTICAL")
 scrollBar:EnableMouse(true)
-Theme.SetupScrollBar(scrollBar, { thickness = SCROLL_BAR_WIDTH })
 scrollBar:SetScript("OnValueChanged", function(_, value)
     scrollFrame:SetVerticalScroll(value)
     -- Nested ScrollFrame (vertical inside horizontal scroll child) may not fire OnVerticalScroll;
@@ -307,12 +301,17 @@ for _, colName in ipairs(columnOrder) do
     cellX = cellX + w
 end
 
+-- Main tab content: bordered panel (same styling as settings panel).
+local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
+local tabContentPanel = Theme.CreateTabContentPanel(frame)
+local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)
+scrollBar:SetParent(tabContentInner) -- reparented; layout in ApplySummaryListLayout
+
 -- List viewport: clips list content to left 60% when settings panel is open (so list doesn't show through).
 -- Horizontal scroll sits inside so the grid can scroll when viewport is narrower than totalColWidth.
-local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
-local listViewport = CreateFrame("Frame", nil, frame)
+local listViewport = CreateFrame("Frame", nil, tabContentInner)
 listViewport:SetClipsChildren(true)
--- Points set in ToggleSummarySettings / OnSizeChanged
+-- Points set in ApplySummaryListLayout
 
 local horizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_SummaryHorizontalScroll", listViewport)
 horizontalScroll:SetAllPoints(listViewport)
@@ -345,9 +344,7 @@ totalsRow:SetPoint("BOTTOMLEFT", horizontalScrollChild, "BOTTOMLEFT", 0, 0)
 totalsRow:SetPoint("BOTTOMRIGHT", horizontalScrollChild, "BOTTOMRIGHT", 0, 0)
 
 -- Horizontal scroll bar at bottom of list area (like Gear tab)
-local horizontalScrollBar = CreateFrame("Slider", "AltArmyTBC_SummaryHorizontalScrollBar", frame)
-horizontalScrollBar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
-horizontalScrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - SCROLL_BAR_WIDTH - PAD, PAD)
+local horizontalScrollBar = CreateFrame("Slider", "AltArmyTBC_SummaryHorizontalScrollBar", tabContentInner)
 horizontalScrollBar:SetHeight(HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
 horizontalScrollBar:SetOrientation("HORIZONTAL")
 horizontalScrollBar:SetMinMaxValues(0, 0)
@@ -417,10 +414,11 @@ local function ApplySummarySettingsPanelLayout()
     local w = frame:GetWidth()
     if w <= 0 then return end
     summarySettingsPanel:ClearAllPoints()
-    summarySettingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * SUMMARY_SETTINGS_SPLIT + PAD, -PAD)
-    summarySettingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", w * SUMMARY_SETTINGS_SPLIT + PAD, PAD)
-    summarySettingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -PAD)
-    summarySettingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+    summarySettingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * SUMMARY_SETTINGS_SPLIT + SECTION_GAP, -SECTION_INSET)
+    summarySettingsPanel:SetPoint(
+        "BOTTOMLEFT", frame, "BOTTOMLEFT", w * SUMMARY_SETTINGS_SPLIT + SECTION_GAP, SECTION_INSET)
+    summarySettingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SECTION_INSET, -SECTION_INSET)
+    summarySettingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 end
 ApplySummarySettingsPanelLayout()
 summarySettingsPanel:Hide()
@@ -453,39 +451,23 @@ end
 
 local function ApplySummaryListLayout()
     local showSettings = summarySettingsPanel and summarySettingsPanel:IsShown()
-    local vpBottomY = PAD + HORIZONTAL_SCROLL_BAR_HEIGHT
-    -- List viewport: panel open = leave room for vertical scroll bar then panel; closed = frame minus scroll bar.
-    -- Use same bottom Y in both states so the totals row does not jump (panel bottom is already at frame+PAD).
+    tabContentPanel:ClearAllPoints()
+    tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+    if showSettings then
+        tabContentPanel:SetPoint("BOTTOMRIGHT", summarySettingsPanel, "BOTTOMLEFT", -SECTION_GAP, 0)
+    else
+        tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+    end
+    -- List viewport: panel open = leave room for vertical scroll bar; closed = inner minus scroll bar.
     listViewport:ClearAllPoints()
-    listViewport:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
-    if showSettings then
-        -- End viewport before vertical scroll bar. Y offset = HORIZONTAL_SCROLL_BAR_HEIGHT so bottom matches closed.
-        listViewport:SetPoint("BOTTOMRIGHT", summarySettingsPanel, "BOTTOMLEFT", -PAD - SCROLL_BAR_WIDTH,
-            HORIZONTAL_SCROLL_BAR_HEIGHT)
-    else
-        local vpRight = -(PAD + SCROLL_BAR_WIDTH)
-        listViewport:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", vpRight, vpBottomY)
-    end
-    -- Horizontal scroll bar: same span as list viewport; keep bottom at frame+PAD in both states so it doesn't jump.
+    listViewport:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
+    listViewport:SetPoint(
+        "BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, HORIZONTAL_SCROLL_BAR_HEIGHT)
+    -- Horizontal scroll bar: same span as list viewport at bottom of inner content.
     horizontalScrollBar:ClearAllPoints()
-    horizontalScrollBar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
-    if showSettings then
-        -- Bar BOTTOMRIGHT at (listViewport right, frame+PAD) via offset from viewport BOTTOMRIGHT
-        horizontalScrollBar:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, PAD - vpBottomY)
-    else
-        local hrRight = -(PAD + SCROLL_BAR_WIDTH)
-        horizontalScrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", hrRight, PAD)
-    end
-    -- Vertical scroll bar: when open, sit at right edge of list viewport (left 60%); when closed, at frame right.
-    if showSettings then
-        scrollBar:ClearAllPoints()
-        scrollBar:SetPoint("TOPLEFT", listViewport, "TOPRIGHT", 0, -(PAD + SCROLL_BAR_TOP_INSET))
-        scrollBar:SetPoint("BOTTOMLEFT", listViewport, "BOTTOMRIGHT", 0, SCROLL_BAR_BOTTOM_INSET)
-    else
-        scrollBar:ClearAllPoints()
-        scrollBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", SCROLL_BAR_RIGHT_OFFSET, -(PAD + SCROLL_BAR_TOP_INSET))
-        scrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", SCROLL_BAR_RIGHT_OFFSET, SCROLL_BAR_BOTTOM_INSET)
-    end
+    horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", PAD, -4)
+    horizontalScrollBar:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, -4)
+    Theme.AnchorVerticalScrollBar(scrollBar, tabContentPanel, listViewport)
 end
 
 function frame:ToggleSummarySettings(_self)

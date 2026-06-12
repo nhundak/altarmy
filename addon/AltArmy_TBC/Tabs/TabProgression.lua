@@ -9,10 +9,10 @@ local Logic = AltArmy.ProgressionGraphLogic
 local Theme = AltArmy.Theme
 
 local SELECTOR_WIDTH = 150
-local SELECTOR_SCROLLBAR_WIDTH = 14
+local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 local X_LEVEL_LABEL_INTERVAL = 10
 local OPTIONS_PANEL_HEIGHT = 64
-local OPTIONS_PANEL_GAP = 4
+local SECTION_GAP = Theme.SECTION_GAP
 local ROW_HEIGHT = 20
 local OUTLIER_INFO_ICON_SIZE = 14
 local SECTION_HEADER_HEIGHT = 18
@@ -221,7 +221,7 @@ end
 local graphFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 graphFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
 graphFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
-graphFrame:SetPoint("RIGHT", frame, "RIGHT", -SELECTOR_WIDTH - 4, 0)
+graphFrame:SetPoint("RIGHT", frame, "RIGHT", -SELECTOR_WIDTH - SECTION_GAP, 0)
 Theme.ApplyBackdrop(graphFrame, "graph")
 graphFrame:EnableMouse(false)
 
@@ -325,7 +325,7 @@ rollingAverageRow.check:SetScript("OnClick", WireOptionRowCheck(
 
 -- Selector panel
 local selectorPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-selectorPanel:SetPoint("TOPRIGHT", optionsPanel, "BOTTOMRIGHT", 0, -OPTIONS_PANEL_GAP)
+selectorPanel:SetPoint("TOPRIGHT", optionsPanel, "BOTTOMRIGHT", 0, -SECTION_GAP)
 selectorPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
 selectorPanel:SetWidth(SELECTOR_WIDTH)
 Theme.ApplyBackdrop(selectorPanel, "section")
@@ -337,7 +337,7 @@ Theme.SetTitleColor(selectorTitle)
 
 local selectorScroll = CreateFrame("ScrollFrame", nil, selectorPanel)
 selectorScroll:SetPoint("TOPLEFT", selectorTitle, "BOTTOMLEFT", 0, -6)
-selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -(SELECTOR_SCROLLBAR_WIDTH + 6), 4)
+selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, 4)
 selectorScroll:EnableMouse(true)
 selectorScroll:EnableMouseWheel(true)
 
@@ -347,16 +347,11 @@ selectorChild:SetWidth(1)
 selectorScroll:SetScrollChild(selectorChild)
 
 local selectorScrollBar = CreateFrame("Slider", nil, selectorPanel)
-selectorScrollBar:SetOrientation("VERTICAL")
-selectorScrollBar:SetPoint("TOPRIGHT", selectorScroll, "TOPRIGHT", SELECTOR_SCROLLBAR_WIDTH + 2, 0)
-selectorScrollBar:SetPoint("BOTTOMRIGHT", selectorScroll, "BOTTOMRIGHT", SELECTOR_SCROLLBAR_WIDTH + 2, 0)
-selectorScrollBar:SetWidth(SELECTOR_SCROLLBAR_WIDTH)
 selectorScrollBar:SetMinMaxValues(0, 0)
 selectorScrollBar:SetValueStep(ROW_HEIGHT)
 selectorScrollBar:SetValue(0)
 selectorScrollBar:EnableMouse(true)
-
-Theme.SetupScrollBar(selectorScrollBar, { thickness = SELECTOR_SCROLLBAR_WIDTH })
+Theme.AnchorVerticalScrollBar(selectorScrollBar, selectorPanel, selectorScroll)
 
 local function UpdateSelectorScrollbar()
     local maxScroll = math.max(0, selectorChild:GetHeight() - selectorScroll:GetHeight())
@@ -393,16 +388,14 @@ local function UpdateSelectorLayout(hasCompareSection)
         selectorTitle:Show()
         selectorScroll:ClearAllPoints()
         selectorScroll:SetPoint("TOPLEFT", selectorTitle, "BOTTOMLEFT", 0, -6)
-        selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -(SELECTOR_SCROLLBAR_WIDTH + 6), 4)
+        selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, 4)
     else
         selectorTitle:Hide()
         selectorScroll:ClearAllPoints()
         selectorScroll:SetPoint("TOPLEFT", selectorPanel, "TOPLEFT", 4, -8)
-        selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -(SELECTOR_SCROLLBAR_WIDTH + 6), 4)
+        selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, 4)
     end
-    selectorScrollBar:ClearAllPoints()
-    selectorScrollBar:SetPoint("TOPRIGHT", selectorScroll, "TOPRIGHT", SELECTOR_SCROLLBAR_WIDTH + 2, 0)
-    selectorScrollBar:SetPoint("BOTTOMRIGHT", selectorScroll, "BOTTOMRIGHT", SELECTOR_SCROLLBAR_WIDTH + 2, 0)
+    Theme.AnchorVerticalScrollBar(selectorScrollBar, selectorPanel, selectorScroll)
 end
 
 local function PositionListRow(row, yOffset)
