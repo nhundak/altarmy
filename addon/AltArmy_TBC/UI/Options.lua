@@ -1,4 +1,6 @@
 -- AltArmy TBC — Options panel (Interface > AddOns > AltArmy).
+
+local Theme = AltArmy.Theme
 -- Two-column layout: character list + other settings (left), character settings (right).
 -- SavedVariables: AltArmyTBC_Options (showMinimapButton legacy; minimap.hide / minimap.minimapPos for LibDBIcon).
 
@@ -196,6 +198,7 @@ end
 local header = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalHuge")
 header:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -12)
 header:SetText("Alt Army")
+Theme.SetTitleColor(header)
 
 local LEFT_INSET = 16
 local COL_GAP    = 20
@@ -232,7 +235,9 @@ local function SetActiveOptionsTab(which)
     tabCooldowns:SetShown(which == "cooldowns")
     tabDebug:SetShown(which == "debug")
     for id, btn in pairs(tabButtons) do
-        if btn and btn.SetAlpha then
+        if btn and btn.SetSelected then
+            btn:SetSelected(id == which)
+        elseif btn and btn.SetAlpha then
             btn:SetAlpha(id == which and 1 or 0.55)
         end
     end
@@ -252,6 +257,7 @@ for i, id in ipairs(tabIds) do
     b:SetSize(TAB_BTN_W, TAB_BTN_H)
     b:SetPoint("TOPLEFT", tabBar, "TOPLEFT", (i - 1) * (TAB_BTN_W + 4), 0)
     b:SetText(tabLabels[id] or id)
+    Theme.SkinButton(b, true)
     b:SetScript("OnClick", function()
         SetActiveOptionsTab(id)
     end)
@@ -263,6 +269,7 @@ do
     b:SetSize(TAB_BTN_W, TAB_BTN_H)
     b:SetPoint("TOPLEFT", tabBar, "TOPLEFT", 3 * (TAB_BTN_W + 4), 0)
     b:SetText("Debug")
+    Theme.SkinButton(b, true)
     b:SetScript("OnClick", function()
         SetActiveOptionsTab("debug")
     end)
@@ -340,6 +347,7 @@ local debugDeleteAllHistoryBtn = CreateFrame("Button", nil, tabDebug, "UIPanelBu
 debugDeleteAllHistoryBtn:SetSize(160, 22)
 debugDeleteAllHistoryBtn:SetPoint("TOPLEFT", debugLevelHistoryHint, "BOTTOMLEFT", 0, -12)
 debugDeleteAllHistoryBtn:SetText("Delete all history")
+Theme.SkinButton(debugDeleteAllHistoryBtn)
 panel.debugDeleteAllHistoryBtn = debugDeleteAllHistoryBtn
 
 local function ResetDeleteAllHistoryButton()
@@ -504,7 +512,8 @@ local ICON_SIZE   = 16
 local LIST_HEIGHT = 220
 local SCROLLBAR_W = 14
 
-local charListFrame = CreateFrame("Frame", nil, tabCharacters, "InsetFrameTemplate")
+local charListFrame = CreateFrame("Frame", nil, tabCharacters, "BackdropTemplate")
+Theme.ApplyBackdrop(charListFrame, "section")
 charListFrame:SetPoint("TOPLEFT", tabCharacters, "TOPLEFT", 0, 0)
 charListFrame:SetPoint("RIGHT",   tabCharacters, "CENTER", -COL_GAP / 2, 0)
 charListFrame:SetHeight(LIST_HEIGHT)
@@ -536,10 +545,10 @@ scrollBar:SetValue(0)
 
 local sbBg = scrollBar:CreateTexture(nil, "BACKGROUND")
 sbBg:SetAllPoints(scrollBar)
-sbBg:SetColorTexture(0.08, 0.08, 0.08, 0.8)
+Theme.StyleScrollTrack(sbBg)
 
 local sbThumb = scrollBar:CreateTexture(nil, "OVERLAY")
-sbThumb:SetTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
+Theme.StyleScrollThumb(sbThumb)
 sbThumb:SetSize(SCROLLBAR_W + 4, 24)
 scrollBar:SetThumbTexture(sbThumb)
 
@@ -563,15 +572,15 @@ local function AcquireRow()
         row = CreateFrame("Button", nil, scrollChild)
         row:SetHeight(ROW_HEIGHT)
 
-        -- Hover highlight (gold shimmer, same feel as Syndicator's search-highlight)
-        row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        Theme.InstallRowHoverHighlight(row)
 
-        -- Selection highlight (persistent tinted background for the selected row)
         local selBg = row:CreateTexture(nil, "BACKGROUND")
         selBg:SetAllPoints(row)
-        selBg:SetColorTexture(0.3, 0.6, 1, 0.25)
+        selBg:SetVertexColor(0, 0, 0, 0)
         selBg:Hide()
         row.selBg = selBg
+        row.altArmyRowBg = selBg
+        Theme.InstallRowAccentBar(row)
 
         -- Race/class icon
         local icon = row:CreateTexture(nil, "ARTWORK")
@@ -655,6 +664,7 @@ local function RefreshCharacterList_impl()
             and selectedEntry.name  == entry.name
             and selectedEntry.realm == entry.realm
         row.selBg:SetShown(isSelected == true)
+        Theme.SetRowSelected(row, isSelected == true)
 
         -- Click: select this character and update the right pane
         local capName  = entry.name
@@ -686,6 +696,7 @@ charSettingDeleteBtn:SetSize(160, 22)
 charSettingDeleteBtn:SetPoint("TOPLEFT", tabCharacters, "TOP", COL_GAP / 2, 0)
 charSettingDeleteBtn:SetText("Delete Data")
 charSettingDeleteBtn:Hide()
+Theme.SkinButton(charSettingDeleteBtn)
 
 charSettingDeleteBtn:SetScript("OnClick", function(self)
     if deleteConfirmPending then

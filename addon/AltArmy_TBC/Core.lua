@@ -13,6 +13,8 @@ AltArmy.CurrentTab = "Summary"
 
 AltArmyTBC_Options = AltArmyTBC_Options or {}
 
+local Theme = AltArmy.Theme
+
 local FRAME_WIDTH = 600
 local FRAME_HEIGHT = 400
 local HEADER_HEIGHT = 24
@@ -49,11 +51,7 @@ main:HookScript("OnShow", function(f)
         f:Raise()
     end
 end)
--- SetBackdrop is not available in all TBC Classic builds; use a simple background texture
-local bg = main:CreateTexture(nil, "BACKGROUND")
-bg:SetAllPoints(main)
-bg:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Background")
-bg:SetTexCoord(0, 1, 0, 1)
+Theme.ApplyBackdrop(main, "window")
 main:Hide()
 
 AltArmy.MainFrame = main
@@ -67,12 +65,13 @@ local headerBg = main:CreateTexture(nil, "ARTWORK")
 headerBg:SetPoint("TOPLEFT", main, "TOPLEFT", 8, -8)
 headerBg:SetPoint("TOPRIGHT", main, "TOPRIGHT", -8, -8)
 headerBg:SetHeight(HEADER_HEIGHT)
-headerBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
+Theme.ApplyHeaderBar(headerBg)
 
 -- Title (vertically centered in header)
 local title = main:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 title:SetPoint("LEFT", headerBg, "LEFT", 6, 0)
 title:SetText(ADDON_NAME)
+Theme.SetTitleColor(title)
 
 -- Close button
 local closeBtn = CreateFrame("Button", nil, main, "UIPanelCloseButton")
@@ -130,14 +129,7 @@ clearBtnLabel:SetPoint("CENTER", headerSearchClearBtn, "CENTER", 0, 0)
 clearBtnLabel:SetText("X")
 headerSearchClearBtn:SetHighlightFontObject("GameFontNormal")
 
--- Visible input background
-local searchEditBg = headerSearchEdit:CreateTexture(nil, "BACKGROUND")
-searchEditBg:SetAllPoints(headerSearchEdit)
-searchEditBg:SetColorTexture(0.1, 0.1, 0.1, 0.9)
-local searchEditBorder = headerSearchEdit:CreateTexture(nil, "BORDER")
-searchEditBorder:SetPoint("TOPLEFT", headerSearchEdit, "TOPLEFT", -1, 1)
-searchEditBorder:SetPoint("BOTTOMRIGHT", headerSearchEdit, "BOTTOMRIGHT", 1, -1)
-searchEditBorder:SetColorTexture(0.4, 0.4, 0.4, 1)
+Theme.ApplyInputTextures(headerSearchEdit)
 headerSearchEdit:SetScript("OnEnterPressed", function(box)
     box:ClearFocus()
     local query = box:GetText()
@@ -185,12 +177,10 @@ setActiveTab = function(tabName)
         if isSelected then
             -- Keep Gear tab enabled when active so clicking it can close settings and return to grid
             btn:SetEnabled(btn.tabName == "Gear" or btn.tabName == "Reputation" or false)
-            if btn.selectedBg then btn.selectedBg:Show() end
-            if btn.label then btn.label:SetTextColor(1, 0.82, 0, 1) end  -- yellow when selected
+            if btn.SetSelected then btn:SetSelected(true) end
         else
             btn:SetEnabled(true)
-            if btn.selectedBg then btn.selectedBg:Hide() end
-            if btn.label then btn.label:SetTextColor(0.85, 0.85, 0.85, 1) end  -- gray when not selected
+            if btn.SetSelected then btn:SetSelected(false) end
         end
     end
     -- Gear tab settings button: only visible when Gear tab is active and tab strip is shown
@@ -226,39 +216,12 @@ setActiveTab = function(tabName)
     UpdateSettingsButtonGlow()
 end
 
--- Light hover tint (matches Reputation tab sortable rows / tooltip-style panels).
-local HOVER_TINT_BG = "Interface\\Tooltips\\UI-Tooltip-Background"
-local HOVER_TINT_ALPHA = 0.22
-
-local function InstallHoverTintTexture(target)
-    local t = target:CreateTexture(nil, "BACKGROUND")
-    t:SetTexture(HOVER_TINT_BG)
-    t:SetAllPoints(true)
-    t:SetVertexColor(1, 1, 1, 0)
-    target.altArmyHoverTint = t
-end
-
 local function HoverTintEnter(target)
-    local t = target.altArmyHoverTint
-    if t then
-        t:SetVertexColor(1, 1, 1, HOVER_TINT_ALPHA)
-    end
+    Theme.SetHoverTint(target, true)
 end
 
 local function HoverTintLeave(target)
-    local t = target.altArmyHoverTint
-    if t then
-        t:SetVertexColor(1, 1, 1, 0)
-    end
-end
-
--- Settings gear uses an ARTWORK icon; BACKGROUND tint is invisible on top of it — paint after the icon.
-local function InstallSettingsIconHoverTint(target)
-    local t = target:CreateTexture(nil, "ARTWORK")
-    t:SetTexture(HOVER_TINT_BG)
-    t:SetAllPoints(true)
-    t:SetVertexColor(1, 1, 1, 0)
-    target.altArmyHoverTint = t
+    Theme.SetHoverTint(target, false)
 end
 
 local TAB_BTN_MIN_WIDTH = 72
@@ -275,30 +238,14 @@ for _, tabName in ipairs(tabNames) do
     else
         btn:SetPoint("LEFT", tabStrip, "LEFT", 0, 0)
     end
-    -- Visible background so tab is clickable and visible
-    local btnBg = btn:CreateTexture(nil, "BACKGROUND")
-    btnBg:SetAllPoints(btn)
-    btnBg:SetColorTexture(0.25, 0.25, 0.25, 0.9)
-    -- Selected state (shown for active tab)
-    local selectedBg = btn:CreateTexture(nil, "BACKGROUND")
-    selectedBg:SetAllPoints(btn)
-    selectedBg:SetColorTexture(0.35, 0.35, 0.5, 0.8)
-    btn.selectedBg = selectedBg
-    selectedBg:Hide()
-    InstallHoverTintTexture(btn)
-    -- Label (plain Button has no built-in text); color is set in setActiveTab for consistent selected look
+    -- Label (plain Button has no built-in text)
     local label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetPoint("CENTER", btn, "CENTER", 0, 0)
     label:SetText(tabName == "Progression" and "Graphs" or tabName)
     btn.label = label
+    Theme.SkinButton(btn, true)
     btn:SetScript("OnClick", function()
         setActiveTab(tabName)
-    end)
-    btn:SetScript("OnEnter", function(self)
-        HoverTintEnter(self)
-    end)
-    btn:SetScript("OnLeave", function(self)
-        HoverTintLeave(self)
     end)
     prevBtn = btn
     tabStrip.buttons[tabName] = btn
@@ -333,7 +280,7 @@ local function addSettingsButtonGlow(btn)
     local glow = btn:CreateTexture(nil, "BACKGROUND")
     glow:SetPoint("TOPLEFT", btn, "TOPLEFT", -3, 3)
     glow:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 3, -3)
-    glow:SetColorTexture(1, 0.82, 0.2, 0.55)
+    Theme.ApplySettingsGlow(glow)
     glow:Hide()
     btn.glow = glow
 end
@@ -371,7 +318,7 @@ addSettingsButtonGlow(gearSettingsBtn)
 local gearSettingsIcon = gearSettingsBtn:CreateTexture(nil, "ARTWORK")
 gearSettingsIcon:SetAllPoints(gearSettingsBtn)
 gearSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
-InstallSettingsIconHoverTint(gearSettingsBtn)
+Theme.InstallHoverTint(gearSettingsBtn, "ARTWORK")
 gearSettingsBtn:SetScript("OnEnter", function(self)
     HoverTintEnter(self)
 end)
@@ -395,7 +342,7 @@ addSettingsButtonGlow(summarySettingsBtn)
 local summarySettingsIcon = summarySettingsBtn:CreateTexture(nil, "ARTWORK")
 summarySettingsIcon:SetAllPoints(summarySettingsBtn)
 summarySettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
-InstallSettingsIconHoverTint(summarySettingsBtn)
+Theme.InstallHoverTint(summarySettingsBtn, "ARTWORK")
 summarySettingsBtn:SetScript("OnEnter", function(self)
     HoverTintEnter(self)
 end)
@@ -419,7 +366,7 @@ addSettingsButtonGlow(reputationSettingsBtn)
 local reputationSettingsIcon = reputationSettingsBtn:CreateTexture(nil, "ARTWORK")
 reputationSettingsIcon:SetAllPoints(reputationSettingsBtn)
 reputationSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
-InstallSettingsIconHoverTint(reputationSettingsBtn)
+Theme.InstallHoverTint(reputationSettingsBtn, "ARTWORK")
 reputationSettingsBtn:SetScript("OnEnter", function(self)
     HoverTintEnter(self)
 end)
@@ -443,7 +390,7 @@ addSettingsButtonGlow(cooldownSettingsBtn)
 local cooldownSettingsIcon = cooldownSettingsBtn:CreateTexture(nil, "ARTWORK")
 cooldownSettingsIcon:SetAllPoints(cooldownSettingsBtn)
 cooldownSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
-InstallSettingsIconHoverTint(cooldownSettingsBtn)
+Theme.InstallHoverTint(cooldownSettingsBtn, "ARTWORK")
 cooldownSettingsBtn:SetScript("OnEnter", function(self)
     HoverTintEnter(self)
 end)
@@ -571,7 +518,7 @@ addSettingsButtonGlow(searchSettingsBtn)
 local searchSettingsIcon = searchSettingsBtn:CreateTexture(nil, "ARTWORK")
 searchSettingsIcon:SetAllPoints(searchSettingsBtn)
 searchSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
-InstallSettingsIconHoverTint(searchSettingsBtn)
+Theme.InstallHoverTint(searchSettingsBtn, "ARTWORK")
 searchSettingsBtn:SetScript("OnEnter", function(self)
     HoverTintEnter(self)
 end)

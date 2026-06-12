@@ -4,6 +4,7 @@ local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Gear
 if not frame then return end
 
 local DS = AltArmy.DataStore
+local Theme = AltArmy.Theme
 local PAD = 4
 local LEFT_PANEL_WIDTH = 120
 local LEFT_PANEL_VISIBLE = false  -- set true to show "Who can use this?" drop zone
@@ -454,22 +455,11 @@ local labelWho = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSm
 labelWho:SetPoint("TOPLEFT", leftPanel, "TOPLEFT", 0, 0)
 labelWho:SetText("Who can use this?")
 
-local dropBox = CreateFrame("Frame", "AltArmyTBC_GearDropBox", leftPanel)
+local dropBox = CreateFrame("Frame", "AltArmyTBC_GearDropBox", leftPanel, "BackdropTemplate")
 dropBox:SetSize(40, 40)
 dropBox:SetPoint("TOPLEFT", labelWho, "BOTTOMLEFT", 0, -4)
 dropBox:EnableMouse(true)
-if dropBox.SetBackdrop then
-    dropBox:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile = true, tileSize = 16, edgeSize = 16,
-        insets = { left = 4, right = 4, top = 4, bottom = 4 },
-    })
-else
-    local bg = dropBox:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(dropBox)
-    bg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
-end
+Theme.ApplyBackdrop(dropBox, "section")
 
 local dropBoxIcon = dropBox:CreateTexture(nil, "OVERLAY")
 dropBoxIcon:SetPoint("CENTER", dropBox, "CENTER", 0, 0)
@@ -579,7 +569,7 @@ headerBg:SetPoint("BOTTOMLEFT", fixedHeaderRow, "BOTTOMLEFT", 0, HEADER_BG_BOTTO
 headerBg:SetPoint("BOTTOMRIGHT", fixedHeaderRow, "BOTTOMRIGHT", 0, HEADER_BG_BOTTOM_INSET)
 headerBg:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, HEADER_BG_OVERHANG)
 headerBg:SetPoint("TOPRIGHT", fixedHeaderRow, "TOPRIGHT", 0, HEADER_BG_OVERHANG)
-headerBg:SetColorTexture(0.12, 0.12, 0.15, 1)
+Theme.StyleGridHeader(headerBg)
 fixedHeaderRow:EnableMouse(true)
 local headerCornerCell = fixedHeaderRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 headerCornerCell:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, 0)
@@ -609,8 +599,7 @@ verticalScrollBar:SetValue(0)
 verticalScrollBar:SetOrientation("VERTICAL")
 verticalScrollBar:EnableMouse(true)
 local vertThumb = verticalScrollBar:CreateTexture(nil, "ARTWORK")
-vertThumb:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
-vertThumb:SetVertexColor(0.5, 0.5, 0.6, 1)
+Theme.StyleScrollThumb(vertThumb)
 vertThumb:SetSize(SCROLL_BAR_WIDTH - 4, 24)
 verticalScrollBar:SetThumbTexture(vertThumb)
 verticalScrollBar:SetScript("OnValueChanged", function(_, value)
@@ -797,19 +786,9 @@ horizontalScrollBar:SetScript("OnUpdate", function()
     end
 end)
 -- Visible track and thumb (TBC may lack SetBackdrop; thumb uses solid texture so it always shows)
-if horizontalScrollBar.SetBackdrop then
-    horizontalScrollBar:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = nil,
-        tile = true, tileSize = 0, edgeSize = 0,
-        insets = { left = 0, right = 0, top = 0, bottom = 0 },
-    })
-    horizontalScrollBar:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
-end
--- Thumb: visible draggable nub (TBC-friendly texture)
+Theme.StyleHorizontalScrollBar(horizontalScrollBar)
 local thumbTex = horizontalScrollBar:CreateTexture(nil, "ARTWORK")
-thumbTex:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
-thumbTex:SetVertexColor(0.5, 0.5, 0.6, 1)
+Theme.StyleScrollThumb(thumbTex)
 thumbTex:SetSize(24, HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
 horizontalScrollBar:SetThumbTexture(thumbTex)
 
@@ -1080,7 +1059,8 @@ end)
 
 -- ---- Gear settings panel: right 40% of frame when visible (grid 60%, both full height) ----
 local GRID_SPLIT_FRACTION = 0.6  -- grid gets 60%, settings gets 40%
-local settingsPanel = CreateFrame("Frame", nil, frame)
+local settingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+Theme.ApplyBackdrop(settingsPanel, "section")
 local function ApplySettingsPanelLayout()
     local w = frame:GetWidth()
     if w <= 0 then return end
@@ -1100,6 +1080,7 @@ gearSettingsTitle:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
 gearSettingsTitle:SetPoint("TOPRIGHT", settingsPanel, "TOPRIGHT", 0, 0)
 gearSettingsTitle:SetJustifyH("LEFT")
 gearSettingsTitle:SetText("Gear Settings")
+Theme.SetTitleColor(gearSettingsTitle)
 local primaryDropdown, secondaryDropdown  -- forward ref for dropdowns created below
 local gearCharListRefresh = function() end
 
@@ -1114,7 +1095,7 @@ showSelfFirstCheck:SetPoint("TOPLEFT", sortingContent, "TOPLEFT", 0, 0)
 showSelfFirstCheck:SetSize(24, 24)
 local showSelfFirstBg = showSelfFirstCheck:CreateTexture(nil, "BACKGROUND")
 showSelfFirstBg:SetAllPoints(showSelfFirstCheck)
-showSelfFirstBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
+Theme.ApplyCheckboxBackground(showSelfFirstBg)
 local showSelfFirstCheckTex = showSelfFirstCheck:CreateTexture(nil, "OVERLAY")
 showSelfFirstCheckTex:SetPoint("CENTER", showSelfFirstCheck, "CENTER", 0, 0)
 showSelfFirstCheckTex:SetSize(16, 16)
@@ -1133,22 +1114,18 @@ local btnPrimary = CreateFrame("Button", nil, sortingContent)
 btnPrimary:SetPoint("TOPLEFT", showSelfFirstCheck, "BOTTOMLEFT", 0, -6)
 btnPrimary:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
 btnPrimary:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnPrimaryBg = btnPrimary:CreateTexture(nil, "BACKGROUND")
-btnPrimaryBg:SetAllPoints(btnPrimary)
-btnPrimaryBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
 local btnPrimaryText = btnPrimary:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 btnPrimaryText:SetPoint("LEFT", btnPrimary, "LEFT", 4, 0)
 btnPrimaryText:SetPoint("RIGHT", btnPrimary, "RIGHT", -4, 0)
 btnPrimaryText:SetJustifyH("LEFT")
-primaryDropdown = CreateFrame("Frame", nil, sortingContent)
+Theme.SkinButton(btnPrimary)
+primaryDropdown = CreateFrame("Frame", nil, sortingContent, "BackdropTemplate")
 primaryDropdown:SetPoint("TOPLEFT", btnPrimary, "BOTTOMLEFT", 0, -2)
 primaryDropdown:SetPoint("TOPRIGHT", btnPrimary, "BOTTOMRIGHT", 0, 0)
 primaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
 primaryDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
 primaryDropdown:Hide()
-local primaryDropdownBg = primaryDropdown:CreateTexture(nil, "BACKGROUND")
-primaryDropdownBg:SetAllPoints(primaryDropdown)
-primaryDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
+Theme.ApplyBackdrop(primaryDropdown, "section")
 for idx, opt in ipairs(SORT_OPTIONS) do
     local b = CreateFrame("Button", nil, primaryDropdown)
     b:SetPoint("TOPLEFT", primaryDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
@@ -1177,22 +1154,18 @@ local btnSecondary = CreateFrame("Button", nil, sortingContent)
 btnSecondary:SetPoint("TOPLEFT", btnPrimary, "BOTTOMLEFT", 0, -6)
 btnSecondary:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
 btnSecondary:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnSecondaryBg = btnSecondary:CreateTexture(nil, "BACKGROUND")
-btnSecondaryBg:SetAllPoints(btnSecondary)
-btnSecondaryBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
 local btnSecondaryText = btnSecondary:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 btnSecondaryText:SetPoint("LEFT", btnSecondary, "LEFT", 4, 0)
 btnSecondaryText:SetPoint("RIGHT", btnSecondary, "RIGHT", -4, 0)
 btnSecondaryText:SetJustifyH("LEFT")
-secondaryDropdown = CreateFrame("Frame", nil, sortingContent)
+Theme.SkinButton(btnSecondary)
+secondaryDropdown = CreateFrame("Frame", nil, sortingContent, "BackdropTemplate")
 secondaryDropdown:SetPoint("TOPLEFT", btnSecondary, "BOTTOMLEFT", 0, -2)
 secondaryDropdown:SetPoint("TOPRIGHT", btnSecondary, "BOTTOMRIGHT", 0, 0)
 secondaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
 secondaryDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
 secondaryDropdown:Hide()
-local secondaryDropdownBg = secondaryDropdown:CreateTexture(nil, "BACKGROUND")
-secondaryDropdownBg:SetAllPoints(secondaryDropdown)
-secondaryDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
+Theme.ApplyBackdrop(secondaryDropdown, "section")
 for idx, opt in ipairs(SORT_OPTIONS) do
     local b = CreateFrame("Button", nil, secondaryDropdown)
     b:SetPoint("TOPLEFT", secondaryDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)

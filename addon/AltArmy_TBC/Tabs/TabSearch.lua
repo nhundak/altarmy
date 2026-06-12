@@ -6,6 +6,7 @@ if not frame then
 end
 
 local PAD = 4
+local Theme = AltArmy.Theme
 local ROW_HEIGHT = 18
 -- Right-side (Total column) icon size; match left-side row icon (WoW :0 default ~14)
 local OVERLAY_ICON_SIZE = 14
@@ -162,8 +163,7 @@ searchScrollBar:SetValue(0)
 searchScrollBar:SetOrientation("VERTICAL")
 searchScrollBar:EnableMouse(true)
 local searchVertThumb = searchScrollBar:CreateTexture(nil, "ARTWORK")
-searchVertThumb:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
-searchVertThumb:SetVertexColor(0.5, 0.5, 0.6, 1)
+Theme.StyleScrollThumb(searchVertThumb)
 searchVertThumb:SetSize(SCROLL_BAR_WIDTH - 4, 24)
 searchScrollBar:SetThumbTexture(searchVertThumb)
 -- OnValueChanged set below after UpdateVisibleRows is defined
@@ -228,18 +228,9 @@ horizontalScrollBar:SetScript("OnUpdate", function()
         end
     end
 end)
-if horizontalScrollBar.SetBackdrop then
-    horizontalScrollBar:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = nil,
-        tile = true, tileSize = 0, edgeSize = 0,
-        insets = { left = 0, right = 0, top = 0, bottom = 0 },
-    })
-    horizontalScrollBar:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
-end
+Theme.StyleHorizontalScrollBar(horizontalScrollBar)
 local searchHThumbTex = horizontalScrollBar:CreateTexture(nil, "ARTWORK")
-searchHThumbTex:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
-searchHThumbTex:SetVertexColor(0.5, 0.5, 0.6, 1)
+Theme.StyleScrollThumb(searchHThumbTex)
 searchHThumbTex:SetSize(24, HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
 horizontalScrollBar:SetThumbTexture(searchHThumbTex)
 
@@ -1118,7 +1109,8 @@ end
 
 -- Search settings panel (right 40% when visible); defined after UpdateVisibleRows
 local SEARCH_SETTINGS_SPLIT = 0.6
-local searchSettingsPanel = CreateFrame("Frame", nil, frame)
+local searchSettingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+Theme.ApplyBackdrop(searchSettingsPanel, "section")
 local function ApplySearchSettingsPanelLayout()
     local w = frame:GetWidth()
     if w <= 0 then return end
@@ -1130,26 +1122,21 @@ local function ApplySearchSettingsPanelLayout()
 end
 ApplySearchSettingsPanelLayout()
 searchSettingsPanel:Hide()
--- Solid background so list content doesn't show through (like Summary)
-if searchSettingsPanel.SetBackdrop then
-    searchSettingsPanel:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = nil,
-        tile = true, tileSize = 0, edgeSize = 0,
-        insets = { left = 0, right = 0, top = 0, bottom = 0 },
-    })
-    searchSettingsPanel:SetBackdropColor(0.18, 0.18, 0.22, 0.98)
-end
 local searchSettingsTitle = searchSettingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 searchSettingsTitle:SetPoint("TOPLEFT", searchSettingsPanel, "TOPLEFT", 0, 0)
 searchSettingsTitle:SetPoint("TOPRIGHT", searchSettingsPanel, "TOPRIGHT", 0, 0)
 searchSettingsTitle:SetJustifyH("LEFT")
 searchSettingsTitle:SetText("Search Settings")
+Theme.SetTitleColor(searchSettingsTitle)
+local searchSettingsSep = Theme.CreateSeparator(searchSettingsPanel)
+searchSettingsSep:SetPoint("TOPLEFT", searchSettingsTitle, "BOTTOMLEFT", 0, -4)
+searchSettingsSep:SetPoint("TOPRIGHT", searchSettingsTitle, "BOTTOMRIGHT", 0, -4)
 local searchRealmHint = searchSettingsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-searchRealmHint:SetPoint("TOPLEFT", searchSettingsTitle, "BOTTOMLEFT", 0, -8)
+searchRealmHint:SetPoint("TOPLEFT", searchSettingsSep, "BOTTOMLEFT", 0, -8)
 searchRealmHint:SetPoint("TOPRIGHT", searchSettingsPanel, "TOPRIGHT", 0, -8)
 searchRealmHint:SetJustifyH("LEFT")
 searchRealmHint:SetText("Realm filter is configured in Esc > Interface > AddOns > AltArmy > General.")
+Theme.SetLabelColor(searchRealmHint)
 
 function frame:IsSearchSettingsShown()
     return searchSettingsPanel and searchSettingsPanel:IsShown()

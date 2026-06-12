@@ -32,6 +32,8 @@ globals = {
 read_globals = {
     -- Frame & UI
     "CreateFrame",
+    "Mixin",
+    "BackdropTemplateMixin",
     "UIParent",
     "tinsert",
     "GameFontNormal",

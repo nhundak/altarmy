@@ -11,6 +11,8 @@ if not host then return end
 local CD = AltArmy.CooldownData
 if not CD then return end
 
+local Theme = AltArmy.Theme
+
 local LEFT_INSET = 0
 local BLOCK_GAP = 18
 
@@ -234,9 +236,7 @@ for _, key in ipairs(CD.CATEGORY_ORDER) do
     remindEdit:SetNumeric(true)
     remindEdit:SetJustifyH("CENTER")
     remindEdit:SetPoint("LEFT", remindLbl, "RIGHT", 8, 0)
-    local remindBg = remindEdit:CreateTexture(nil, "BACKGROUND")
-    remindBg:SetAllPoints(remindEdit)
-    remindBg:SetColorTexture(0.05, 0.05, 0.05, 0.9)
+    Theme.ApplyInputTextures(remindEdit)
     remindEdit:SetScript("OnEnterPressed", function(box)
         box:ClearFocus()
         SaveCategory(key)

@@ -12,6 +12,11 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 - Tracks profession cooldown readiness and supports stockpile mailing workflows.
 - Provides configurable filters, sorting, pin/hide behavior, and alerts.
 
+## UI design system
+
+- Shared warm bronze / dark panel theme in `AltArmy_TBC/UI/Theme.lua` (see [UI_DESIGN.md](UI_DESIGN.md)).
+- All tabs, settings panels, popovers, and Interface Options use the same backdrop recipe and color roles.
+
 ## Main UI and access
 
 - Main frame is movable, closable, and registered for `Escape` closing.

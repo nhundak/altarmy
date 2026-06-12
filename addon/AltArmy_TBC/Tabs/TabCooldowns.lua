@@ -4,6 +4,7 @@ local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Cooldowns
 if not frame then return end
 
 local PAD = 4
+local Theme = AltArmy.Theme
 -- Match TabSearch.lua result rows (items / recipes): row height, fonts, flush columns, icon scale.
 local ROW_HEIGHT = 18
 local HEADER_HEIGHT = 18
@@ -331,34 +332,14 @@ local activeRows = {}
 -- Send Stockpile popover (row click)
 -- ---------------------------------------------------------------------------
 
-local stockpilePopover = CreateFrame("Frame", nil, frame)
+local stockpilePopover = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 stockpilePopover:Hide()
 stockpilePopover:SetFrameStrata("DIALOG")
 stockpilePopover:SetFrameLevel((frame:GetFrameLevel() or 0) + 200)
 stockpilePopover:SetSize(320, 120)
 stockpilePopover:EnableMouse(true)
 stockpilePopover:SetClampedToScreen(true)
-
--- Always-opaque background (some clients/skins disable backdrops)
-local stockpilePopoverBg = stockpilePopover:CreateTexture(nil, "BACKGROUND")
-stockpilePopoverBg:SetAllPoints(stockpilePopover)
-stockpilePopoverBg:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
-stockpilePopoverBg:SetVertexColor(0.06, 0.06, 0.08, 1)
-
-if stockpilePopover.SetBackdrop then
-    stockpilePopover:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true,
-        tileSize = 16,
-        edgeSize = 16,
-        insets = { left = 4, right = 4, top = 4, bottom = 4 },
-    })
-    stockpilePopover:SetBackdropColor(0.06, 0.06, 0.08, 1)
-    if stockpilePopover.SetBackdropBorderColor then
-        stockpilePopover:SetBackdropBorderColor(0.85, 0.82, 0.55, 1)
-    end
-end
+Theme.ApplyBackdrop(stockpilePopover, "window")
 
 -- Click-catcher overlay: click outside popover to close it.
 local stockpilePopoverOverlay = CreateFrame("Frame", nil, UIParent)
@@ -371,6 +352,7 @@ stockpilePopoverOverlay:EnableMouse(true)
 local popTitle = stockpilePopover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 popTitle:SetPoint("TOPLEFT", stockpilePopover, "TOPLEFT", 12, -10)
 popTitle:SetText("Send Stockpile")
+Theme.SetTitleColor(popTitle)
 
 local popValueLabel = stockpilePopover:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 popValueLabel:SetPoint("TOPRIGHT", stockpilePopover, "TOPRIGHT", -12, -10)
@@ -410,12 +392,14 @@ local popCancel = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTem
 popCancel:SetSize(90, 20)
 popCancel:SetPoint("BOTTOMRIGHT", stockpilePopover, "BOTTOMRIGHT", -12, 12)
 popCancel:SetText("Cancel")
+Theme.SkinButton(popCancel)
 
 local popOk = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTemplate")
 popOk:SetSize(90, 20)
 popOk:SetPoint("RIGHT", popCancel, "LEFT", -8, 0)
 popOk:SetText("Okay")
 popOk:Disable()
+Theme.SkinButton(popOk)
 
 local popCtx = nil
 local function HideStockpilePopover()

@@ -3,6 +3,7 @@
 
 if not AltArmy then return end
 
+local Theme = AltArmy.Theme
 local CHAR_LIST_ROW = 20
 local ROW_RIGHT_INSET = 120
 
@@ -72,7 +73,7 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
             row.pinBtn:SetSize(18, 18)
             local pinBg = row.pinBtn:CreateTexture(nil, "BACKGROUND")
             pinBg:SetAllPoints(row.pinBtn)
-            pinBg:SetColorTexture(0.25, 0.25, 0.25, 0.9)
+            Theme.ApplyCheckboxBackground(pinBg)
             row.pinBtn.tex = row.pinBtn:CreateTexture(nil, "OVERLAY")
             row.pinBtn.tex:SetAllPoints(row.pinBtn)
             row.pinBtn.tex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
@@ -85,7 +86,7 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
             row.hideBtn:SetSize(18, 18)
             local hideBg = row.hideBtn:CreateTexture(nil, "BACKGROUND")
             hideBg:SetAllPoints(row.hideBtn)
-            hideBg:SetColorTexture(0.25, 0.25, 0.25, 0.9)
+            Theme.ApplyCheckboxBackground(hideBg)
             row.hideBtn.tex = row.hideBtn:CreateTexture(nil, "OVERLAY")
             row.hideBtn.tex:SetAllPoints(row.hideBtn)
             row.hideBtn.tex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
@@ -110,6 +111,7 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
                 if GameTooltip then GameTooltip:Hide() end
             end)
             row.nameOverlay = nameOverlay
+            Theme.InstallHoverTint(row)
             rowPool[i] = row
         end
         return rowPool[i]

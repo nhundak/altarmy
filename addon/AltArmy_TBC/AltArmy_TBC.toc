@@ -6,6 +6,7 @@
 ## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings, AltArmyTBC_ProgressionSettings
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
+UI\Theme.lua
 Core.lua
 Data\Debug.lua
 Data\DataStore.lua

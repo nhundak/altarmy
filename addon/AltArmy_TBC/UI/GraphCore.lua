@@ -12,12 +12,15 @@ Core.GRID_COLOR = { r = 0.25, g = 0.23, b = 0.20, a = 0.25 }
 Core.Y_TICKS = 4
 Core.X_TICKS = 5
 
+local Theme = AltArmy.Theme
+local TC = Theme and Theme.COLORS
+
 Core.COLORS = {
-    headerText = { 0.92, 0.92, 0.92 },
-    labelText = { 0.69, 0.69, 0.69 },
-    valueText = { 0.92, 0.92, 0.92 },
-    border = { 0.70, 0.58, 0.28 },
-    bgTop = { 0.12, 0.12, 0.14 },
+    headerText = TC and TC.value or { 0.92, 0.92, 0.92 },
+    labelText = TC and TC.label or { 0.69, 0.69, 0.69 },
+    valueText = TC and TC.value or { 0.92, 0.92, 0.92 },
+    border = TC and TC.tooltipBorder or { 0.70, 0.58, 0.28 },
+    bgTop = TC and TC.tooltipBg or { 0.12, 0.12, 0.14 },
 }
 
 Core.graphTextures = {}
@@ -402,16 +405,20 @@ function Core.CreateTooltipBase(_parent, width, height)
     tooltip:SetFrameStrata("TOOLTIP")
     tooltip:SetFrameLevel(200)
     tooltip:SetSize(width, height)
-    tooltip:SetBackdrop({
-        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true,
-        tileSize = 16,
-        edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    })
-    tooltip:SetBackdropColor(colors.bgTop[1], colors.bgTop[2], colors.bgTop[3], 0.97)
-    tooltip:SetBackdropBorderColor(colors.border[1], colors.border[2], colors.border[3], 0.9)
+    if Theme and Theme.ApplyBackdrop then
+        Theme.ApplyBackdrop(tooltip, "tooltip")
+    else
+        tooltip:SetBackdrop({
+            bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true,
+            tileSize = 16,
+            edgeSize = 12,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        tooltip:SetBackdropColor(colors.bgTop[1], colors.bgTop[2], colors.bgTop[3], 0.97)
+        tooltip:SetBackdropBorderColor(colors.border[1], colors.border[2], colors.border[3], 0.9)
+    end
 
     local shadow = CreateFrame("Frame", nil, tooltip, "BackdropTemplate")
     shadow:SetPoint("TOPLEFT", -4, 4)

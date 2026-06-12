@@ -4,6 +4,7 @@ local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Reputation
 if not frame then return end
 
 local DS = AltArmy.DataStore
+local Theme = AltArmy.Theme
 local RepSort = AltArmy.ReputationFactionSort
 local SD = AltArmy.SummaryData
 local PAD = 4
@@ -29,13 +30,9 @@ local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
 local MIN_SCROLL_CHILD_WIDTH = 400
 local GRID_SPLIT_FRACTION = 0.6
 
--- Hover: light tint (same texture family as scroll/settings panels); works without SetBackdrop on Buttons.
-local SORTABLE_HOVER_BG = "Interface\\Tooltips\\UI-Tooltip-Background"
-local SORTABLE_HOVER_TINT = 0.22
-
 local function CreateSortableHoverTint(target, bandHeight)
     local t = target:CreateTexture(nil, "BACKGROUND")
-    t:SetTexture(SORTABLE_HOVER_BG)
+    t:SetTexture(Theme.HOVER_TINT_BG)
     if bandHeight then
         t:SetPoint("TOPLEFT", target, "TOPLEFT", 0, 0)
         t:SetPoint("TOPRIGHT", target, "TOPRIGHT", 0, 0)
@@ -50,7 +47,7 @@ end
 local function SortableHoverEnter(target)
     local t = target.reputationHoverTint
     if t then
-        t:SetVertexColor(1, 1, 1, SORTABLE_HOVER_TINT)
+        t:SetVertexColor(1, 1, 1, Theme.HOVER_TINT_ALPHA)
     end
 end
 
@@ -305,7 +302,7 @@ headerBg:SetPoint("BOTTOMLEFT", fixedHeaderRow, "BOTTOMLEFT", 0, HEADER_BG_BOTTO
 headerBg:SetPoint("BOTTOMRIGHT", fixedHeaderRow, "BOTTOMRIGHT", 0, HEADER_BG_BOTTOM_INSET)
 headerBg:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, HEADER_BG_OVERHANG)
 headerBg:SetPoint("TOPRIGHT", fixedHeaderRow, "TOPRIGHT", 0, HEADER_BG_OVERHANG)
-headerBg:SetColorTexture(0.12, 0.12, 0.15, 1)
+Theme.StyleGridHeader(headerBg)
 fixedHeaderRow:EnableMouse(true)
 
 -- Faction name filter (styled like main window header search)
@@ -323,13 +320,7 @@ factionFilterEdit:SetFontObject("GameFontHighlight")
 if factionFilterEdit.SetTextInsets then
     factionFilterEdit:SetTextInsets(4, 4, 0, 0)
 end
-local filterEditBg = factionFilterEdit:CreateTexture(nil, "BACKGROUND")
-filterEditBg:SetAllPoints(factionFilterEdit)
-filterEditBg:SetColorTexture(0.1, 0.1, 0.1, 0.9)
-local filterEditBorder = factionFilterEdit:CreateTexture(nil, "BORDER")
-filterEditBorder:SetPoint("TOPLEFT", factionFilterEdit, "TOPLEFT", -1, 1)
-filterEditBorder:SetPoint("BOTTOMRIGHT", factionFilterEdit, "BOTTOMRIGHT", 1, -1)
-filterEditBorder:SetColorTexture(0.4, 0.4, 0.4, 1)
+Theme.ApplyInputTextures(factionFilterEdit)
 
 local FACTION_FILTER_PLACEHOLDER = "Filter faction"
 if factionFilterEdit.SetPlaceholderText then
@@ -393,8 +384,7 @@ verticalScrollBar:SetValue(0)
 verticalScrollBar:SetOrientation("VERTICAL")
 verticalScrollBar:EnableMouse(true)
 local vertThumb = verticalScrollBar:CreateTexture(nil, "ARTWORK")
-vertThumb:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
-vertThumb:SetVertexColor(0.5, 0.5, 0.6, 1)
+Theme.StyleScrollThumb(vertThumb)
 vertThumb:SetSize(SCROLL_BAR_WIDTH - 4, 24)
 verticalScrollBar:SetThumbTexture(vertThumb)
 verticalScrollBar:SetScript("OnValueChanged", function(_, value)
@@ -631,18 +621,9 @@ horizontalScrollBar:SetScript("OnUpdate", function()
         end
     end
 end)
-if horizontalScrollBar.SetBackdrop then
-    horizontalScrollBar:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = nil,
-        tile = true, tileSize = 0, edgeSize = 0,
-        insets = { left = 0, right = 0, top = 0, bottom = 0 },
-    })
-    horizontalScrollBar:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
-end
+Theme.StyleHorizontalScrollBar(horizontalScrollBar)
 local repHorizThumb = horizontalScrollBar:CreateTexture(nil, "ARTWORK")
-repHorizThumb:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
-repHorizThumb:SetVertexColor(0.5, 0.5, 0.6, 1)
+Theme.StyleScrollThumb(repHorizThumb)
 repHorizThumb:SetSize(24, HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
 horizontalScrollBar:SetThumbTexture(repHorizThumb)
 
@@ -1033,7 +1014,8 @@ frame:SetScript("OnEvent", function(_, event)
 end)
 
 -- ---- Settings panel (60% grid / 40% settings) ----
-local settingsPanel = CreateFrame("Frame", nil, frame)
+local settingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+Theme.ApplyBackdrop(settingsPanel, "section")
 local function ApplySettingsPanelLayout()
     local w = frame:GetWidth()
     if w <= 0 then return end
@@ -1052,6 +1034,7 @@ repSettingsTitle:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
 repSettingsTitle:SetPoint("TOPRIGHT", settingsPanel, "TOPRIGHT", 0, 0)
 repSettingsTitle:SetJustifyH("LEFT")
 repSettingsTitle:SetText("Reputation Settings")
+Theme.SetTitleColor(repSettingsTitle)
 
 local primaryDropdown, secondaryDropdown
 local repCharListRefresh = function() end
@@ -1065,7 +1048,7 @@ showSelfFirstCheck:SetPoint("TOPLEFT", sortingContent, "TOPLEFT", 0, 0)
 showSelfFirstCheck:SetSize(24, 24)
 local showSelfFirstBg = showSelfFirstCheck:CreateTexture(nil, "BACKGROUND")
 showSelfFirstBg:SetAllPoints(showSelfFirstCheck)
-showSelfFirstBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
+Theme.ApplyCheckboxBackground(showSelfFirstBg)
 local showSelfFirstCheckTex = showSelfFirstCheck:CreateTexture(nil, "OVERLAY")
 showSelfFirstCheckTex:SetPoint("CENTER", showSelfFirstCheck, "CENTER", 0, 0)
 showSelfFirstCheckTex:SetSize(16, 16)
@@ -1083,22 +1066,18 @@ local btnPrimary = CreateFrame("Button", nil, sortingContent)
 btnPrimary:SetPoint("TOPLEFT", showSelfFirstCheck, "BOTTOMLEFT", 0, -6)
 btnPrimary:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
 btnPrimary:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnPrimaryBg = btnPrimary:CreateTexture(nil, "BACKGROUND")
-btnPrimaryBg:SetAllPoints(btnPrimary)
-btnPrimaryBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
 local btnPrimaryText = btnPrimary:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 btnPrimaryText:SetPoint("LEFT", btnPrimary, "LEFT", 4, 0)
 btnPrimaryText:SetPoint("RIGHT", btnPrimary, "RIGHT", -4, 0)
 btnPrimaryText:SetJustifyH("LEFT")
-primaryDropdown = CreateFrame("Frame", nil, sortingContent)
+Theme.SkinButton(btnPrimary)
+primaryDropdown = CreateFrame("Frame", nil, sortingContent, "BackdropTemplate")
 primaryDropdown:SetPoint("TOPLEFT", btnPrimary, "BOTTOMLEFT", 0, -2)
 primaryDropdown:SetPoint("TOPRIGHT", btnPrimary, "BOTTOMRIGHT", 0, 0)
 primaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
 primaryDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
 primaryDropdown:Hide()
-local primaryDropdownBg = primaryDropdown:CreateTexture(nil, "BACKGROUND")
-primaryDropdownBg:SetAllPoints(primaryDropdown)
-primaryDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
+Theme.ApplyBackdrop(primaryDropdown, "section")
 for idx, opt in ipairs(SORT_OPTIONS) do
     local b = CreateFrame("Button", nil, primaryDropdown)
     b:SetPoint("TOPLEFT", primaryDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
@@ -1125,22 +1104,18 @@ local btnSecondary = CreateFrame("Button", nil, sortingContent)
 btnSecondary:SetPoint("TOPLEFT", btnPrimary, "BOTTOMLEFT", 0, -6)
 btnSecondary:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
 btnSecondary:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnSecondaryBg = btnSecondary:CreateTexture(nil, "BACKGROUND")
-btnSecondaryBg:SetAllPoints(btnSecondary)
-btnSecondaryBg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
 local btnSecondaryText = btnSecondary:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 btnSecondaryText:SetPoint("LEFT", btnSecondary, "LEFT", 4, 0)
 btnSecondaryText:SetPoint("RIGHT", btnSecondary, "RIGHT", -4, 0)
 btnSecondaryText:SetJustifyH("LEFT")
-secondaryDropdown = CreateFrame("Frame", nil, sortingContent)
+Theme.SkinButton(btnSecondary)
+secondaryDropdown = CreateFrame("Frame", nil, sortingContent, "BackdropTemplate")
 secondaryDropdown:SetPoint("TOPLEFT", btnSecondary, "BOTTOMLEFT", 0, -2)
 secondaryDropdown:SetPoint("TOPRIGHT", btnSecondary, "BOTTOMRIGHT", 0, 0)
 secondaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
 secondaryDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
 secondaryDropdown:Hide()
-local secondaryDropdownBg = secondaryDropdown:CreateTexture(nil, "BACKGROUND")
-secondaryDropdownBg:SetAllPoints(secondaryDropdown)
-secondaryDropdownBg:SetColorTexture(0.15, 0.15, 0.18, 0.98)
+Theme.ApplyBackdrop(secondaryDropdown, "section")
 for idx, opt in ipairs(SORT_OPTIONS) do
     local b = CreateFrame("Button", nil, secondaryDropdown)
     b:SetPoint("TOPLEFT", secondaryDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)

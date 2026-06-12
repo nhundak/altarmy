@@ -19,6 +19,7 @@ There is **no** guild feature, no calendar/agenda, no comparison grids, no accou
 ## 2. Architecture Overview
 
 - **AltArmy TBC** — Core addon: main window, tabs, options, minimap button, and UI logic.
+- **UI/Theme.lua** — Shared visual design system (dark panels, bronze borders); see `docs/UI_DESIGN.md`.
 - **DataStore** — External addon library used for persistence. AltArmy TBC depends on DataStore and only the DataStore modules it needs (see §6).
 
 Data is stored via DataStore; AltArmy TBC focuses on UI and addon logic.

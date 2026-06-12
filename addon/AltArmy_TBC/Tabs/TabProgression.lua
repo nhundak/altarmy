@@ -6,6 +6,7 @@ if not frame then return end
 local LPD = AltArmy.LevelProgressData
 local Core = AltArmy.GraphCore
 local Logic = AltArmy.ProgressionGraphLogic
+local Theme = AltArmy.Theme
 
 local SELECTOR_WIDTH = 150
 local SELECTOR_SCROLLBAR_WIDTH = 14
@@ -20,9 +21,6 @@ local LINE_THICKNESS = 2
 local DASH_THICKNESS = 1
 local MARKER_HIT_SIZE = 18
 local MARKER_DOT_SIZE = 4
-local ROW_HOVER_BG = "Interface\\Tooltips\\UI-Tooltip-Background"
-local ROW_HOVER_TINT = 0.22
-
 local FULL_LINE_ALPHA = Logic.FULL_LINE_ALPHA
 local FULL_DASH_ALPHA = Logic.FULL_DASH_ALPHA
 local DIM_LINE_ALPHA = Logic.DIM_LINE_ALPHA
@@ -176,10 +174,7 @@ local function GetCharactersToDraw()
 end
 
 local function SetRowHoverHighlight(row, on)
-    local tint = row and row.hoverTint
-    if tint then
-        tint:SetVertexColor(1, 1, 1, on and ROW_HOVER_TINT or 0)
-    end
+    Theme.SetHoverTint(row, on)
 end
 
 local function BindCompareRowHover(row, entry)
@@ -227,15 +222,7 @@ local graphFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 graphFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
 graphFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
 graphFrame:SetPoint("RIGHT", frame, "RIGHT", -SELECTOR_WIDTH - 4, 0)
-graphFrame:SetBackdrop({
-    bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = false,
-    edgeSize = 12,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 },
-})
-graphFrame:SetBackdropColor(0.08, 0.08, 0.10, 0.95)
-graphFrame:SetBackdropBorderColor(0.45, 0.38, 0.22, 0.9)
+Theme.ApplyBackdrop(graphFrame, "graph")
 graphFrame:EnableMouse(false)
 
 local HINT_SELECT_CHARACTERS = "Select one or more characters on the right\nto compare time per level."
@@ -271,25 +258,14 @@ end
 local optionsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 optionsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
 optionsPanel:SetSize(SELECTOR_WIDTH, OPTIONS_PANEL_HEIGHT)
-optionsPanel:SetBackdrop({
-    bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = false,
-    edgeSize = 12,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 },
-})
-optionsPanel:SetBackdropColor(0.10, 0.10, 0.12, 0.95)
-optionsPanel:SetBackdropBorderColor(0.45, 0.38, 0.22, 0.9)
+Theme.ApplyBackdrop(optionsPanel, "section")
 
 local function CreateOptionRow(parent)
     local row = CreateFrame("Frame", nil, parent)
     row:SetHeight(18)
     row:EnableMouse(true)
 
-    row.hoverTint = row:CreateTexture(nil, "BACKGROUND")
-    row.hoverTint:SetAllPoints(true)
-    row.hoverTint:SetTexture(ROW_HOVER_BG)
-    row.hoverTint:SetVertexColor(1, 1, 1, 0)
+    Theme.InstallHoverTint(row)
 
     row.check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
     row.check:SetPoint("LEFT", row, "LEFT", 0, 0)
@@ -352,19 +328,12 @@ local selectorPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 selectorPanel:SetPoint("TOPRIGHT", optionsPanel, "BOTTOMRIGHT", 0, -OPTIONS_PANEL_GAP)
 selectorPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
 selectorPanel:SetWidth(SELECTOR_WIDTH)
-selectorPanel:SetBackdrop({
-    bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = false,
-    edgeSize = 12,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 },
-})
-selectorPanel:SetBackdropColor(0.10, 0.10, 0.12, 0.95)
-selectorPanel:SetBackdropBorderColor(0.45, 0.38, 0.22, 0.9)
+Theme.ApplyBackdrop(selectorPanel, "section")
 
 local selectorTitle = selectorPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 selectorTitle:SetPoint("TOPLEFT", selectorPanel, "TOPLEFT", 8, -8)
 selectorTitle:SetText("Compare")
+Theme.SetTitleColor(selectorTitle)
 
 local selectorScroll = CreateFrame("ScrollFrame", nil, selectorPanel)
 selectorScroll:SetPoint("TOPLEFT", selectorTitle, "BOTTOMLEFT", 0, -6)
@@ -389,7 +358,7 @@ selectorScrollBar:EnableMouse(true)
 
 local selectorScrollBarBg = selectorScrollBar:CreateTexture(nil, "BACKGROUND")
 selectorScrollBarBg:SetAllPoints(selectorScrollBar)
-selectorScrollBarBg:SetColorTexture(0.08, 0.08, 0.08, 0.8)
+Theme.StyleScrollTrack(selectorScrollBarBg)
 
 local selectorScrollBarThumb = selectorScrollBar:CreateTexture(nil, "OVERLAY")
 selectorScrollBarThumb:SetTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
@@ -455,10 +424,7 @@ local function GetSelectorRow(i)
         local row = CreateFrame("Frame", nil, selectorChild)
         row:EnableMouse(true)
 
-        row.hoverTint = row:CreateTexture(nil, "BACKGROUND")
-        row.hoverTint:SetTexture(ROW_HOVER_BG)
-        row.hoverTint:SetAllPoints(true)
-        row.hoverTint:SetVertexColor(1, 1, 1, 0)
+        Theme.InstallHoverTint(row)
 
         row.check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
         row.check:SetPoint("LEFT", row, "LEFT", 2, 0)

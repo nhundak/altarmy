@@ -11,6 +11,7 @@ local PAD = 4
 local WARNING_COL_WIDTH = 20
 
 local SD = AltArmy.SummaryData
+local Theme = AltArmy.Theme
 
 local CLASS_ICON_SHEET = "Interface\\WorldStateFrame\\Icons-Classes"
 local ICON_SIZE = 16
@@ -190,8 +191,7 @@ scrollBar:SetValue(0)
 scrollBar:SetOrientation("VERTICAL")
 scrollBar:EnableMouse(true)
 local vertThumb = scrollBar:CreateTexture(nil, "ARTWORK")
-vertThumb:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
-vertThumb:SetVertexColor(0.5, 0.5, 0.6, 1)
+Theme.StyleScrollThumb(vertThumb)
 vertThumb:SetSize(SCROLL_BAR_WIDTH - 4, 24)
 scrollBar:SetThumbTexture(vertThumb)
 scrollBar:SetScript("OnValueChanged", function(_, value)
@@ -407,24 +407,16 @@ horizontalScrollBar:SetScript("OnUpdate", function()
         end
     end
 end)
-if horizontalScrollBar.SetBackdrop then
-    horizontalScrollBar:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = nil,
-        tile = true, tileSize = 0, edgeSize = 0,
-        insets = { left = 0, right = 0, top = 0, bottom = 0 },
-    })
-    horizontalScrollBar:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
-end
+Theme.StyleHorizontalScrollBar(horizontalScrollBar)
 local hThumbTex = horizontalScrollBar:CreateTexture(nil, "ARTWORK")
-hThumbTex:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
-hThumbTex:SetVertexColor(0.5, 0.5, 0.6, 1)
+Theme.StyleScrollThumb(hThumbTex)
 hThumbTex:SetSize(24, HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
 horizontalScrollBar:SetThumbTexture(hThumbTex)
 
 -- Summary settings panel (right 40% when visible; same layout as Gear tab)
 local SUMMARY_SETTINGS_SPLIT = 0.6
-local summarySettingsPanel = CreateFrame("Frame", nil, frame)
+local summarySettingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+Theme.ApplyBackdrop(summarySettingsPanel, "section")
 local function ApplySummarySettingsPanelLayout()
     local w = frame:GetWidth()
     if w <= 0 then return end
@@ -441,6 +433,7 @@ summarySettingsTitle:SetPoint("TOPLEFT", summarySettingsPanel, "TOPLEFT", 0, 0)
 summarySettingsTitle:SetPoint("TOPRIGHT", summarySettingsPanel, "TOPRIGHT", 0, 0)
 summarySettingsTitle:SetJustifyH("LEFT")
 summarySettingsTitle:SetText("Summary Settings")
+Theme.SetTitleColor(summarySettingsTitle)
 -- Character list: Pin/Hide (reusable component, same as Gear tab)
 if AltArmy.CreateCharacterPinHideList then
     -- luacheck: push ignore 211
