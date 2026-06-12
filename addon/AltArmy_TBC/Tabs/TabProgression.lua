@@ -8,6 +8,7 @@ local Core = AltArmy.GraphCore
 local Logic = AltArmy.ProgressionGraphLogic
 
 local SELECTOR_WIDTH = 150
+local SELECTOR_SCROLLBAR_WIDTH = 14
 local X_LEVEL_LABEL_INTERVAL = 10
 local OPTIONS_PANEL_HEIGHT = 64
 local OPTIONS_PANEL_GAP = 4
@@ -44,6 +45,9 @@ local markerHitPool = { free = {} }
 local hoveredLogarithmicPreview = false
 local hoveredOutliersPreview = false
 local hoveredRollingAveragePreview = false
+local suppressLogarithmicHoverPreview = false
+local suppressOutliersHoverPreview = false
+local suppressRollingAverageHoverPreview = false
 
 local RebuildGraph
 local ApplyHighlight
@@ -70,24 +74,37 @@ local function EnsureSettings()
 end
 
 local function IsLogarithmic()
-    if hoveredLogarithmicPreview then
+    if hoveredLogarithmicPreview and not suppressLogarithmicHoverPreview then
         return true
     end
     return EnsureSettings().logarithmic == true
 end
 
 local function IsIgnoreOutliers()
-    if hoveredOutliersPreview then
+    if hoveredOutliersPreview and not suppressOutliersHoverPreview then
         return true
     end
     return EnsureSettings().ignoreOutliers == true
 end
 
 local function IsRollingAverage()
-    if hoveredRollingAveragePreview then
+    if hoveredRollingAveragePreview and not suppressRollingAverageHoverPreview then
         return true
     end
     return EnsureSettings().rollingAverage == true
+end
+
+local function WireOptionRowCheck(getSaved, setSaved, clearHoverPreview, setHoverSuppress)
+    return function(self)
+        local wasChecked = getSaved() == true
+        local nowChecked = self:GetChecked() and true or false
+        setSaved(nowChecked)
+        if wasChecked and not nowChecked then
+            clearHoverPreview()
+            setHoverSuppress(true)
+        end
+        RebuildGraph()
+    end
 end
 
 local function IsSelected(realm, name)
@@ -184,10 +201,21 @@ local function BindCompareRowHover(row, entry)
     end
 end
 
+local function OnCompareRowUnchecked(row, entry)
+    if hoveredCompareEntry and EntryKey(hoveredCompareEntry) == EntryKey(entry) then
+        hoveredCompareEntry = nil
+    end
+    row.suppressHoverPreview = true
+end
+
 local function ToggleCompareSelection(row, entry)
-    local checked = not IsSelected(entry.realm, entry.name)
+    local wasChecked = IsSelected(entry.realm, entry.name)
+    local checked = not wasChecked
     row.check:SetChecked(checked)
     SetSelected(entry.realm, entry.name, checked)
+    if wasChecked and not checked then
+        OnCompareRowUnchecked(row, entry)
+    end
     if UpdateSelectAllCheckbox then
         UpdateSelectAllCheckbox()
     end
@@ -281,10 +309,12 @@ logRow:SetPoint("TOPLEFT", optionsPanel, "TOPLEFT", 6, -6)
 logRow:SetPoint("RIGHT", optionsPanel, "RIGHT", -6, 0)
 logRow.label:SetText("Logarithmic")
 logRow.check:SetChecked(EnsureSettings().logarithmic == true)
-logRow.check:SetScript("OnClick", function(self)
-    EnsureSettings().logarithmic = self:GetChecked() and true or false
-    RebuildGraph()
-end)
+logRow.check:SetScript("OnClick", WireOptionRowCheck(
+    function() return EnsureSettings().logarithmic end,
+    function(v) EnsureSettings().logarithmic = v end,
+    function() hoveredLogarithmicPreview = false end,
+    function() suppressLogarithmicHoverPreview = true end
+))
 
 local outlierRow = CreateOptionRow(optionsPanel)
 outlierRow:SetPoint("TOPLEFT", logRow, "BOTTOMLEFT", 0, 0)
@@ -298,20 +328,24 @@ outlierRow.label:ClearAllPoints()
 outlierRow.label:SetPoint("LEFT", outlierRow.check, "RIGHT", 2, 0)
 outlierRow.label:SetPoint("RIGHT", outlierRow.infoIcon, "LEFT", -4, 0)
 outlierRow.check:SetChecked(EnsureSettings().ignoreOutliers == true)
-outlierRow.check:SetScript("OnClick", function(self)
-    EnsureSettings().ignoreOutliers = self:GetChecked() and true or false
-    RebuildGraph()
-end)
+outlierRow.check:SetScript("OnClick", WireOptionRowCheck(
+    function() return EnsureSettings().ignoreOutliers end,
+    function(v) EnsureSettings().ignoreOutliers = v end,
+    function() hoveredOutliersPreview = false end,
+    function() suppressOutliersHoverPreview = true end
+))
 
 local rollingAverageRow = CreateOptionRow(optionsPanel)
 rollingAverageRow:SetPoint("TOPLEFT", outlierRow, "BOTTOMLEFT", 0, 0)
 rollingAverageRow:SetPoint("RIGHT", optionsPanel, "RIGHT", -6, 0)
 rollingAverageRow.label:SetText("Rolling Average")
 rollingAverageRow.check:SetChecked(EnsureSettings().rollingAverage == true)
-rollingAverageRow.check:SetScript("OnClick", function(self)
-    EnsureSettings().rollingAverage = self:GetChecked() and true or false
-    RebuildGraph()
-end)
+rollingAverageRow.check:SetScript("OnClick", WireOptionRowCheck(
+    function() return EnsureSettings().rollingAverage end,
+    function(v) EnsureSettings().rollingAverage = v end,
+    function() hoveredRollingAveragePreview = false end,
+    function() suppressRollingAverageHoverPreview = true end
+))
 
 -- Selector panel
 local selectorPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
@@ -334,21 +368,55 @@ selectorTitle:SetText("Compare")
 
 local selectorScroll = CreateFrame("ScrollFrame", nil, selectorPanel)
 selectorScroll:SetPoint("TOPLEFT", selectorTitle, "BOTTOMLEFT", 0, -6)
-selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -4, 4)
+selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -(SELECTOR_SCROLLBAR_WIDTH + 6), 4)
 selectorScroll:EnableMouse(true)
+selectorScroll:EnableMouseWheel(true)
 
 local selectorChild = CreateFrame("Frame", nil, selectorScroll)
 selectorChild:SetPoint("TOPLEFT", selectorScroll, "TOPLEFT", 0, 0)
 selectorChild:SetWidth(1)
 selectorScroll:SetScrollChild(selectorChild)
 
-selectorScroll:SetScript("OnMouseWheel", function(_, delta)
-    local scrollVal = selectorScroll:GetVerticalScroll()
-    local newScroll = scrollVal - delta * ROW_HEIGHT * 2
+local selectorScrollBar = CreateFrame("Slider", nil, selectorPanel)
+selectorScrollBar:SetOrientation("VERTICAL")
+selectorScrollBar:SetPoint("TOPRIGHT", selectorScroll, "TOPRIGHT", SELECTOR_SCROLLBAR_WIDTH + 2, 0)
+selectorScrollBar:SetPoint("BOTTOMRIGHT", selectorScroll, "BOTTOMRIGHT", SELECTOR_SCROLLBAR_WIDTH + 2, 0)
+selectorScrollBar:SetWidth(SELECTOR_SCROLLBAR_WIDTH)
+selectorScrollBar:SetMinMaxValues(0, 0)
+selectorScrollBar:SetValueStep(ROW_HEIGHT)
+selectorScrollBar:SetValue(0)
+selectorScrollBar:EnableMouse(true)
+
+local selectorScrollBarBg = selectorScrollBar:CreateTexture(nil, "BACKGROUND")
+selectorScrollBarBg:SetAllPoints(selectorScrollBar)
+selectorScrollBarBg:SetColorTexture(0.08, 0.08, 0.08, 0.8)
+
+local selectorScrollBarThumb = selectorScrollBar:CreateTexture(nil, "OVERLAY")
+selectorScrollBarThumb:SetTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
+selectorScrollBarThumb:SetSize(SELECTOR_SCROLLBAR_WIDTH + 4, 24)
+selectorScrollBar:SetThumbTexture(selectorScrollBarThumb)
+
+local function UpdateSelectorScrollbar()
     local maxScroll = math.max(0, selectorChild:GetHeight() - selectorScroll:GetHeight())
-    newScroll = math.max(0, math.min(maxScroll, newScroll))
+    local prevScroll = selectorScrollBar:GetValue()
+    selectorScrollBar:SetMinMaxValues(0, maxScroll)
+    local newScroll = math.min(prevScroll, maxScroll)
+    selectorScrollBar:SetValue(newScroll)
     selectorScroll:SetVerticalScroll(newScroll)
+    selectorScrollBar:SetShown(maxScroll > 0)
+end
+
+selectorScrollBar:SetScript("OnValueChanged", function(_, value)
+    selectorScroll:SetVerticalScroll(value)
 end)
+
+local function OnSelectorScrollWheel(_, delta)
+    local cur = selectorScrollBar:GetValue()
+    local lo, hi = selectorScrollBar:GetMinMaxValues()
+    selectorScrollBar:SetValue(math.max(lo, math.min(hi, cur - delta * ROW_HEIGHT * 2)))
+end
+selectorScroll:SetScript("OnMouseWheel", OnSelectorScrollWheel)
+selectorChild:SetScript("OnMouseWheel", OnSelectorScrollWheel)
 
 local selectorRows = {}
 local insufficientRows = {}
@@ -363,13 +431,16 @@ local function UpdateSelectorLayout(hasCompareSection)
         selectorTitle:Show()
         selectorScroll:ClearAllPoints()
         selectorScroll:SetPoint("TOPLEFT", selectorTitle, "BOTTOMLEFT", 0, -6)
-        selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -4, 4)
+        selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -(SELECTOR_SCROLLBAR_WIDTH + 6), 4)
     else
         selectorTitle:Hide()
         selectorScroll:ClearAllPoints()
         selectorScroll:SetPoint("TOPLEFT", selectorPanel, "TOPLEFT", 4, -8)
-        selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -4, 4)
+        selectorScroll:SetPoint("BOTTOMRIGHT", selectorPanel, "BOTTOMRIGHT", -(SELECTOR_SCROLLBAR_WIDTH + 6), 4)
     end
+    selectorScrollBar:ClearAllPoints()
+    selectorScrollBar:SetPoint("TOPRIGHT", selectorScroll, "TOPRIGHT", SELECTOR_SCROLLBAR_WIDTH + 2, 0)
+    selectorScrollBar:SetPoint("BOTTOMRIGHT", selectorScroll, "BOTTOMRIGHT", SELECTOR_SCROLLBAR_WIDTH + 2, 0)
 end
 
 local function PositionListRow(row, yOffset)
@@ -490,12 +561,23 @@ local function EnsureSelectAllRow()
     end)
 
     selectAllRow.check:SetScript("OnClick", function(self)
-        local selectAll = Logic.GetCompareSelectAllAction(AreAllCompareSelected())
+        local wasSelectAll = AreAllCompareSelected()
+        local selectAll = Logic.GetCompareSelectAllAction(wasSelectAll)
         SetAllCompareSelected(selectAll)
         self:SetChecked(selectAll)
         for _, row in ipairs(selectorRows) do
             if row:IsShown() and row.entry then
                 row.check:SetChecked(selectAll)
+            end
+        end
+        if wasSelectAll and not selectAll and hoveredCompareEntry then
+            local hoverKey = EntryKey(hoveredCompareEntry)
+            hoveredCompareEntry = nil
+            for _, row in ipairs(selectorRows) do
+                if row:IsShown() and row.entry and EntryKey(row.entry) == hoverKey then
+                    row.suppressHoverPreview = true
+                    break
+                end
             end
         end
         RebuildGraph()
@@ -956,8 +1038,13 @@ RebuildGraph = function()
 end
 
 HandleCompareRowEnter = function(row, entry)
-    hoveredCompareEntry = entry
     SetRowHoverHighlight(row, true)
+
+    if row.suppressHoverPreview then
+        return
+    end
+
+    hoveredCompareEntry = entry
 
     local key = EntryKey(entry)
     if drawnKeys[key] then
@@ -981,6 +1068,7 @@ HandleCompareRowEnter = function(row, entry)
 end
 
 HandleCompareRowLeave = function(row, entry)
+    row.suppressHoverPreview = false
     hoveredCompareEntry = nil
     SetRowHoverHighlight(row, false)
 
@@ -1050,8 +1138,13 @@ local function RefreshSelector()
         row.label:SetTextColor(r, g, b, 1)
 
         row.check:SetChecked(IsSelected(entry.realm, entry.name))
-        row.check:SetScript("OnClick", function()
-            SetSelected(entry.realm, entry.name, row.check:GetChecked())
+        row.check:SetScript("OnClick", function(self)
+            local wasChecked = IsSelected(entry.realm, entry.name)
+            local nowChecked = self:GetChecked() and true or false
+            SetSelected(entry.realm, entry.name, nowChecked)
+            if wasChecked and not nowChecked then
+                OnCompareRowUnchecked(row, entry)
+            end
             UpdateSelectAllCheckbox()
             RebuildGraph()
         end)
@@ -1088,6 +1181,7 @@ local function RefreshSelector()
     end
 
     selectorChild:SetHeight(math.max(1, yOffset))
+    UpdateSelectorScrollbar()
 
     if LPD.DebugLogSelectorEligibility then
         LPD.DebugLogSelectorEligibility()
@@ -1116,16 +1210,19 @@ local function WireOptionLabelClick(row, onEnter, onLeave)
     hit:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 6, -6)
 end
 
-local function BindOptionRowHover(row, setPreview, onHoverExtra)
+local function BindOptionRowHover(row, setPreview, getSuppress, clearSuppress, onHoverExtra)
     local function onEnter()
-        setPreview(true)
         SetRowHoverHighlight(row, true)
         if onHoverExtra then onHoverExtra(true) end
-        RebuildGraph()
+        if not getSuppress() then
+            setPreview(true)
+            RebuildGraph()
+        end
     end
 
     local function onLeave()
         setPreview(false)
+        clearSuppress()
         SetRowHoverHighlight(row, false)
         if onHoverExtra then onHoverExtra(false) end
         RebuildGraph()
@@ -1140,9 +1237,17 @@ end
 
 BindOptionRowHover(logRow, function(on)
     hoveredLogarithmicPreview = on
+end, function()
+    return suppressLogarithmicHoverPreview
+end, function()
+    suppressLogarithmicHoverPreview = false
 end)
 BindOptionRowHover(outlierRow, function(on)
     hoveredOutliersPreview = on
+end, function()
+    return suppressOutliersHoverPreview
+end, function()
+    suppressOutliersHoverPreview = false
 end, function(show)
     if show then
         ShowOutlierOptionTooltip(outlierRow)
@@ -1152,12 +1257,23 @@ end, function(show)
 end)
 BindOptionRowHover(rollingAverageRow, function(on)
     hoveredRollingAveragePreview = on
+end, function()
+    return suppressRollingAverageHoverPreview
+end, function()
+    suppressRollingAverageHoverPreview = false
 end)
 
 frame:SetScript("OnHide", function()
+    hoveredCompareEntry = nil
     hoveredLogarithmicPreview = false
     hoveredOutliersPreview = false
     hoveredRollingAveragePreview = false
+    suppressLogarithmicHoverPreview = false
+    suppressOutliersHoverPreview = false
+    suppressRollingAverageHoverPreview = false
+    for _, row in ipairs(selectorRows) do
+        row.suppressHoverPreview = false
+    end
     SetRowHoverHighlight(logRow, false)
     SetRowHoverHighlight(outlierRow, false)
     SetRowHoverHighlight(rollingAverageRow, false)
