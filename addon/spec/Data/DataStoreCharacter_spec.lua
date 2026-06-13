@@ -74,6 +74,38 @@ describe("DataStoreCharacter", function()
       assert.are.equal(3600, DS:GetPlayTime({ played = 3600 }))
       assert.are.equal(0, DS:GetPlayTime(nil))
     end)
+    it("GetPlayTime returns derived total for the logged-in character", function()
+      require("DataStoreLevelHistory")
+      DS._ResetLevelHistoryTestState()
+      _G.time = function() return 1700000000 end
+      _G.UnitName = function() return "Bob" end
+      _G.GetRealmName = function() return "Faerlina" end
+      AltArmyTBC_Data.Characters = {
+        Faerlina = {
+          Bob = { name = "Bob", realm = "Faerlina", played = 3600 },
+        },
+      }
+      local char = AltArmyTBC_Data.Characters.Faerlina.Bob
+      DS:UpdatePlayedBaseline(5000)
+      _G.time = function() return 1700000600 end
+
+      assert.are.equal(5600, DS:GetPlayTime(char))
+    end)
+    it("GetPlayTime returns stored played for other characters", function()
+      require("DataStoreLevelHistory")
+      DS._ResetLevelHistoryTestState()
+      _G.UnitName = function() return "Bob" end
+      _G.GetRealmName = function() return "Faerlina" end
+      AltArmyTBC_Data.Characters = {
+        Faerlina = {
+          Bob = { name = "Bob", realm = "Faerlina", played = 5000 },
+        },
+      }
+      DS:UpdatePlayedBaseline(5000)
+      local alt = { name = "Alice", realm = "Faerlina", played = 3600 }
+
+      assert.are.equal(3600, DS:GetPlayTime(alt))
+    end)
     it("GetLastLogout returns lastLogout or sentinel", function()
       assert.are.equal(123, DS:GetLastLogout({ lastLogout = 123 }))
       assert.are.equal(5000000000, DS:GetLastLogout(nil))

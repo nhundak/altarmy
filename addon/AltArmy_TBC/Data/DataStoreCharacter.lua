@@ -94,7 +94,14 @@ function DS:GetMoney(char)
 end
 
 function DS:GetPlayTime(char)
-    return (char and char.played) or 0
+    if not char then return 0 end
+    if DS.GetDerivedPlayedTotal then
+        local current = GetCurrentCharTable()
+        if current and char == current then
+            return DS:GetDerivedPlayedTotal()
+        end
+    end
+    return char.played or 0
 end
 
 function DS:GetLastLogout(char)

@@ -25,7 +25,7 @@ describe("DataStoreLevelHistory", function()
       return { SetScript = function() end, RegisterEvent = function() end }
     end
     _G.UIParent = _G.UIParent or {}
-    _G.time = _G.time or function() return 1700000000 end
+    _G.time = function() return 1700000000 end
     _G.UnitGUID = _G.UnitGUID or function() return "Player-1-2" end
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     require("DataStore")
@@ -198,10 +198,118 @@ describe("DataStoreLevelHistory", function()
       assert.are.equal("Murloc", char.levelHistory.deaths[1].killerName)
       assert.are.equal("Creature-0-1", char.levelHistory.deaths[1].killerGuid)
     end)
+
+    it("records derived played total at death time", function()
+      local now = 1700000000
+      _G.time = function() return now end
+      local char = makeChar({ played = 3600 })
+      DS._SetLevelHistoryTestChar(char)
+      DS:UpdatePlayedBaseline(5000)
+      now = now + 600
+      DS:HandleCombatLogForLevelHistory({
+        1,
+        "SWING_DAMAGE",
+        nil,
+        "Creature-0-1",
+        "Murloc",
+        nil,
+        nil,
+        "Player-1-2",
+        "Bob",
+      })
+      DS:HandleCombatLogForLevelHistory({
+        2,
+        "UNIT_DIED",
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        "Player-1-2",
+        "Bob",
+      })
+      assert.are.equal(5600, char.levelHistory.deaths[1].playedTotal)
+    end)
   end)
 
-  describe("FinalizePendingLevelUp", function()
-    it("records milestone from pending state and played total", function()
+  describe("RequestTimePlayedSilently", function()
+    before_each(function()
+      DS._ResetLevelHistoryTestState()
+    end)
+
+    it("requests played time without allowing chat output", function()
+      local requested = false
+      _G.RequestTimePlayed = function()
+        requested = true
+      end
+      _G.ChatFrame_DisplayTimePlayed = function() end
+
+      DS:RequestTimePlayedSilently()
+
+      assert.is_true(requested)
+      assert.is_false(DS._GetReportPlayedTimeToChat())
+      assert.are.equal(1, DS._GetSuppressPlayedChatCount())
+    end)
+
+    it("detaches TIME_PLAYED_MSG from default chat frames", function()
+      local unregistered = {}
+      _G.NUM_CHAT_WINDOWS = 2
+      _G.ChatFrame1 = {
+        UnregisterEvent = function(_, event)
+          unregistered[#unregistered + 1] = "ChatFrame1:" .. event
+        end,
+      }
+      _G.ChatFrame2 = {
+        UnregisterEvent = function(_, event)
+          unregistered[#unregistered + 1] = "ChatFrame2:" .. event
+        end,
+      }
+      _G.ChatTypeGroup = { SYSTEM = { "TIME_PLAYED_MSG", "OTHER" } }
+      _G.RequestTimePlayed = function() end
+
+      DS:RequestTimePlayedSilently()
+
+      assert.is_true(DS._IsPlayedTimeDetachedFromChat())
+      assert.are.equal("ChatFrame1:TIME_PLAYED_MSG", unregistered[1])
+      assert.are.equal("ChatFrame2:TIME_PLAYED_MSG", unregistered[2])
+      assert.are.equal("OTHER", _G.ChatTypeGroup.SYSTEM[1])
+    end)
+
+    it("consumes suppress count in OnTimePlayedMessage when chat is detached", function()
+      _G.RequestTimePlayed = function() end
+      DS:RequestTimePlayedSilently()
+      assert.are.equal(1, DS._GetSuppressPlayedChatCount())
+
+      DS:OnTimePlayedMessage(5000, 120)
+
+      assert.are.equal(0, DS._GetSuppressPlayedChatCount())
+    end)
+  end)
+
+  describe("played baseline", function()
+    before_each(function()
+      DS._playedBaseline = nil
+    end)
+
+    it("GetDerivedPlayedTotal returns baseline total plus elapsed wall-clock", function()
+      local now = 1700000000
+      _G.time = function() return now end
+      DS:UpdatePlayedBaseline(5000)
+      now = now + 3600
+      assert.are.equal(8600, DS:GetDerivedPlayedTotal())
+    end)
+
+    it("GetDerivedPlayedTotal falls back to char.played when no baseline", function()
+      local char = makeChar({ played = 7200 })
+      DS._SetLevelHistoryTestChar(char)
+      assert.are.equal(7200, DS:GetDerivedPlayedTotal())
+    end)
+  end)
+
+  describe("BeginPendingLevelUp", function()
+    it("records milestone immediately with backupTimer when TIME_PLAYED_MSG never arrives", function()
+      local now = 1700000000
+      _G.time = function() return now end
       local char = makeChar({
         level = 10,
         played = 5000,
@@ -212,19 +320,48 @@ describe("DataStoreLevelHistory", function()
         },
       })
       DS._SetLevelHistoryTestChar(char)
-      DS._pendingLevelUp = {
-        level = 11,
-        reachedAt = 300,
-        zone = "Redridge",
-        money = 100,
-        restXP = 50,
-        deaths = 1,
-      }
-      DS:FinalizePendingLevelUp(5200)
+      DS:UpdatePlayedBaseline(5000)
+      now = now + 1800
+
+      DS:BeginPendingLevelUp(11)
+
+      assert.are.equal(11, DS._pendingLevelUp.level)
+      assert.are.equal(6800, char.levelHistory.milestones[11].playedTotal)
+      assert.are.equal(1800, char.levelHistory.milestones[11].playedLevel)
+      assert.are.equal("backupTimer", char.levelHistory.milestones[11].playedSource)
+    end)
+  end)
+
+  describe("OnTimePlayedMessage", function()
+    it("refines pending level played totals from authoritative server value", function()
+      local char = makeChar({
+        level = 10,
+        played = 5000,
+        levelHistory = {
+          milestones = {
+            [10] = { playedTotal = 5000 },
+            [11] = {
+              playedTotal = 6800,
+              playedLevel = 1800,
+              playedSource = "backupTimer",
+              zone = "Redridge",
+            },
+          },
+          meta = { bracketDeathCount = 0 },
+          deaths = {},
+        },
+      })
+      DS._SetLevelHistoryTestChar(char)
+      DS._pendingLevelUp = { level = 11 }
+
+      DS:OnTimePlayedMessage(5200)
+
       assert.is_nil(DS._pendingLevelUp)
       assert.are.equal(5200, char.levelHistory.milestones[11].playedTotal)
       assert.are.equal(200, char.levelHistory.milestones[11].playedLevel)
+      assert.are.equal("server", char.levelHistory.milestones[11].playedSource)
       assert.are.equal("Redridge", char.levelHistory.milestones[11].zone)
+      assert.are.equal(5200, DS._playedBaseline.totalPlayed)
     end)
   end)
 
@@ -259,12 +396,14 @@ describe("DataStoreLevelHistory", function()
       }
       AltArmyTBC_Data.levelHistoryImport = { questieAt = 123 }
       DS._pendingLevelUp = { level = 11 }
+      DS._playedBaseline = { totalPlayed = 1000, wallClock = 500 }
       assert.are.equal(2, DS:DeleteAllLevelHistory())
       assert.is_nil(AltArmyTBC_Data.levelHistoryImport)
       assert.is_nil(AltArmyTBC_Data.Characters.Faerlina.Bob.levelHistory)
       assert.is_nil(AltArmyTBC_Data.Characters.Faerlina.Alice.levelHistory)
       assert.is_nil(AltArmyTBC_Data.Characters.Faerlina.Bob.dataVersions.levelHistory)
       assert.is_nil(DS._pendingLevelUp)
+      assert.is_nil(DS._playedBaseline)
     end)
   end)
 

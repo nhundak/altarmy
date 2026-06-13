@@ -1,7 +1,8 @@
 -- AltArmy TBC — DataStore module: level-up milestones, death log, one-time backfill.
 -- Requires DataStore.lua (core) loaded first.
 -- luacheck: globals GetRealZoneText GetMoney GetXPExhaustion RequestTimePlayed C_Timer C_AddOns IsAddOnLoaded
--- luacheck: globals UnitGUID UnitLevel UnitName GetRealmName RXPCTrackingData NITdatabase
+-- luacheck: globals UnitGUID UnitLevel UnitName GetRealmName RXPCTrackingData NITdatabase ChatFrame_DisplayTimePlayed
+-- luacheck: globals NUM_CHAT_WINDOWS ChatTypeGroup
 
 if not AltArmy or not AltArmy.DataStore then return end
 
@@ -24,6 +25,94 @@ local RXP_BACKFILL_RETRY_DELAY = 3
 local RXP_BACKFILL_MAX_RETRIES = 5
 
 local LEVEL_HISTORY_DEBUG_PREFIX = "|cff00ccff[AltArmy:LevelHistory]|r "
+
+-- Silence /played chat spam from internal RequestTimePlayed calls (RXP-style hook).
+local reportPlayedTimeToChat = true
+local suppressPlayedChatCount = 0
+local PLAYED_CHAT_SUPPRESS_RESET_DELAY = 3
+local hookedChatFrame_DisplayTimePlayed = nil
+local playedTimeChatHookInstalled = false
+local playedTimeDetachedFromChat = false
+
+local function DetachPlayedTimeFromChatFrames()
+    if playedTimeDetachedFromChat then return true end
+    if not NUM_CHAT_WINDOWS then return false end
+
+    for i = 1, NUM_CHAT_WINDOWS do
+        local chatFrame = _G["ChatFrame" .. i]
+        if chatFrame and chatFrame.UnregisterEvent then
+            chatFrame:UnregisterEvent("TIME_PLAYED_MSG")
+        end
+    end
+
+    if ChatTypeGroup and ChatTypeGroup.SYSTEM then
+        local systemGroup = ChatTypeGroup.SYSTEM
+        for index, eventName in ipairs(systemGroup) do
+            if eventName == "TIME_PLAYED_MSG" then
+                table.remove(systemGroup, index)
+                break
+            end
+        end
+    end
+
+    playedTimeDetachedFromChat = true
+    return true
+end
+
+local function InstallPlayedTimeChatSuppressor()
+    if playedTimeChatHookInstalled then return true end
+    if not ChatFrame_DisplayTimePlayed then return false end
+
+    hookedChatFrame_DisplayTimePlayed = ChatFrame_DisplayTimePlayed
+    ChatFrame_DisplayTimePlayed = function(...)
+        if suppressPlayedChatCount > 0 then
+            suppressPlayedChatCount = suppressPlayedChatCount - 1
+            if C_Timer and C_Timer.After then
+                C_Timer.After(PLAYED_CHAT_SUPPRESS_RESET_DELAY, function()
+                    if suppressPlayedChatCount <= 0 then
+                        reportPlayedTimeToChat = true
+                    end
+                end)
+            elseif suppressPlayedChatCount <= 0 then
+                reportPlayedTimeToChat = true
+            end
+            return
+        end
+        if reportPlayedTimeToChat then
+            return hookedChatFrame_DisplayTimePlayed(...)
+        end
+        if C_Timer and C_Timer.After then
+            C_Timer.After(PLAYED_CHAT_SUPPRESS_RESET_DELAY, function()
+                reportPlayedTimeToChat = true
+            end)
+        else
+            reportPlayedTimeToChat = true
+        end
+    end
+    playedTimeChatHookInstalled = true
+    return true
+end
+
+function DS:RequestTimePlayedSilently()
+    if not RequestTimePlayed then return end
+    DetachPlayedTimeFromChatFrames()
+    InstallPlayedTimeChatSuppressor()
+    suppressPlayedChatCount = suppressPlayedChatCount + 1
+    reportPlayedTimeToChat = false
+    RequestTimePlayed()
+end
+
+function DS._IsPlayedTimeDetachedFromChat()
+    return playedTimeDetachedFromChat
+end
+
+function DS._GetReportPlayedTimeToChat()
+    return reportPlayedTimeToChat
+end
+
+function DS._GetSuppressPlayedChatCount()
+    return suppressPlayedChatCount
+end
 
 local function GetAccountData()
     return DS.accountData or AltArmyTBC_Data
@@ -69,6 +158,10 @@ function DS._ResetLevelHistoryTestState()
     rxpBackfillRetryCount = 0
     rxpBackfillRetryScheduled = false
     DS._pendingLevelUp = nil
+    DS._playedBaseline = nil
+    reportPlayedTimeToChat = true
+    suppressPlayedChatCount = 0
+    playedTimeDetachedFromChat = false
 end
 
 function DS._SetLevelHistoryTestRxpAddonEnabled(enabled)
@@ -286,6 +379,7 @@ function DS:RecordLevelMilestone(char, payload)
         reachedAt = payload.reachedAt,
         playedTotal = playedTotal,
         playedLevel = playedLevel,
+        playedSource = payload.playedSource,
         zone = payload.zone,
         money = payload.money,
         restXP = payload.restXP,
@@ -369,15 +463,76 @@ function DS:HandleCombatLogForLevelHistory(payload)
         at = time and time() or 0,
         level = level or 0,
         zone = zone,
-        playedTotal = char.played,
+        playedTotal = DS:GetDerivedPlayedTotal(),
         killerName = killer.killerName,
         killerGuid = killer.killerGuid,
     })
 end
 
+function DS:UpdatePlayedBaseline(totalPlayed)
+    if type(totalPlayed) ~= "number" then return end
+    DS._playedBaseline = {
+        totalPlayed = totalPlayed,
+        wallClock = time and time() or 0,
+    }
+end
+
+function DS:GetDerivedPlayedTotal()
+    local baseline = DS._playedBaseline
+    if baseline
+        and type(baseline.totalPlayed) == "number"
+        and type(baseline.wallClock) == "number"
+    then
+        local now = time and time() or baseline.wallClock
+        return baseline.totalPlayed + (now - baseline.wallClock)
+    end
+    local char = GetActiveChar()
+    return (char and char.played) or 0
+end
+
+function DS:RefinePlayedForLevel(char, level, authoritativePlayedTotal)
+    if not char or not level or type(authoritativePlayedTotal) ~= "number" then return false end
+    if not DS._pendingLevelUp or DS._pendingLevelUp.level ~= level then return false end
+
+    local history = EnsureLevelHistory(char)
+    local milestone = history.milestones[level]
+    if not milestone then return false end
+
+    milestone.playedTotal = authoritativePlayedTotal
+    milestone.playedLevel = DS._ComputePlayedLevel(
+        authoritativePlayedTotal,
+        GetPreviousMilestonePlayedTotal(char, level)
+    )
+    milestone.playedSource = "server"
+    char.lastUpdate = time and time() or nil
+    return true
+end
+
+function DS:OnTimePlayedMessage(totalTimePlayed, timePlayedThisLevel)
+    if type(totalTimePlayed) ~= "number" then return end
+
+    DS:UpdatePlayedBaseline(totalTimePlayed)
+
+    if suppressPlayedChatCount > 0 then
+        suppressPlayedChatCount = suppressPlayedChatCount - 1
+    elseif reportPlayedTimeToChat and hookedChatFrame_DisplayTimePlayed then
+        hookedChatFrame_DisplayTimePlayed(totalTimePlayed, timePlayedThisLevel)
+    end
+
+    local pending = DS._pendingLevelUp
+    if not pending or not pending.level then return end
+
+    local char = GetActiveChar()
+    if not char then return end
+
+    if DS:RefinePlayedForLevel(char, pending.level, totalTimePlayed) then
+        DS._pendingLevelUp = nil
+    end
+end
+
 function DS:BeginPendingLevelUp(newLevel)
     if not IsLevelHistoryEnabled() then return end
-    local char = GetCurrentCharTable()
+    local char = GetActiveChar()
     if not char or not newLevel then return end
 
     if DS.ScanEquipment then
@@ -403,48 +558,25 @@ function DS:BeginPendingLevelUp(newLevel)
     end
 
     local history = EnsureLevelHistory(char)
-    DS._pendingLevelUp = {
+    local deaths = history.meta.bracketDeathCount or 0
+
+    DS:RecordLevelMilestone(char, {
         level = newLevel,
         reachedAt = time and time() or 0,
+        playedTotal = DS:GetDerivedPlayedTotal(),
+        playedSource = "backupTimer",
         zone = zone,
         money = money,
         restXP = restXP,
         gear = gear,
-        deaths = history.meta.bracketDeathCount or 0,
-    }
+        deaths = deaths,
+    })
+
+    DS._pendingLevelUp = { level = newLevel }
 
     if RequestTimePlayed then
-        RequestTimePlayed()
+        DS:RequestTimePlayedSilently()
     end
-
-    if C_Timer and C_Timer.After then
-        C_Timer.After(5, function()
-            if DS._pendingLevelUp and DS._pendingLevelUp.level == newLevel then
-                local c = GetCurrentCharTable()
-                DS:FinalizePendingLevelUp(c and c.played or 0)
-            end
-        end)
-    end
-end
-
-function DS:FinalizePendingLevelUp(playedTotal)
-    if not DS._pendingLevelUp then return end
-    local pending = DS._pendingLevelUp
-    DS._pendingLevelUp = nil
-
-    local char = GetActiveChar()
-    if not char then return end
-
-    DS:RecordLevelMilestone(char, {
-        level = pending.level,
-        reachedAt = pending.reachedAt,
-        playedTotal = playedTotal,
-        zone = pending.zone,
-        money = pending.money,
-        restXP = pending.restXP,
-        gear = pending.gear,
-        deaths = pending.deaths,
-    })
 end
 
 function DS:ImportLevelHistoryFromQuestie(char, questieCharData)
@@ -888,6 +1020,17 @@ if rxpAddonFrame then
     end)
 end
 
+InstallPlayedTimeChatSuppressor()
+
+local playedTimeHookFrame = CreateFrame and CreateFrame("Frame")
+if playedTimeHookFrame then
+    playedTimeHookFrame:RegisterEvent("PLAYER_LOGIN")
+    playedTimeHookFrame:SetScript("OnEvent", function()
+        DetachPlayedTimeFromChatFrames()
+        InstallPlayedTimeChatSuppressor()
+    end)
+end
+
 function DS:DeleteAllLevelHistory()
     local account = GetAccountData()
     account.levelHistoryImport = nil
@@ -907,6 +1050,7 @@ function DS:DeleteAllLevelHistory()
         end
     end
     DS._pendingLevelUp = nil
+    DS._playedBaseline = nil
     lastAttacker.name = nil
     lastAttacker.guid = nil
     LogLevelHistoryDebug(string.format(

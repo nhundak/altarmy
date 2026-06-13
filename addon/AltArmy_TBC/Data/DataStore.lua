@@ -151,7 +151,6 @@ end
 local frame = CreateFrame("Frame", nil, UIParent)
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("VARIABLES_LOADED")
-frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("PLAYER_ALIVE")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("PLAYER_LOGOUT")
@@ -181,7 +180,6 @@ frame:RegisterEvent("AUCTION_BIDDER_LIST_UPDATE")
 frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 
-local loginFired = false
 local isMailOpen = false
 local isAuctionHouseOpen = false
 local lastReputationScan = 0
@@ -313,15 +311,13 @@ frame:SetScript("OnEvent", function(_, event, ...)
         end
         return
     end
-    if event == "PLAYER_LOGIN" then
-        if not loginFired and RequestTimePlayed then
-            RequestTimePlayed()
-            loginFired = true
-        end
-        return
-    end
     if event == "PLAYER_ALIVE" or event == "PLAYER_ENTERING_WORLD" then
         if DS.ScanCharacter then DS:ScanCharacter() end
+        if DS.RequestTimePlayedSilently then
+            DS:RequestTimePlayedSilently()
+        elseif RequestTimePlayed then
+            RequestTimePlayed()
+        end
         local char = GetCurrentCharTable()
         if char then
             if DS.ScanEquipment then DS:ScanEquipment() end
@@ -597,11 +593,12 @@ frame:SetScript("OnEvent", function(_, event, ...)
         return
     end
     if event == "TIME_PLAYED_MSG" then
+        local totalTimePlayed, timePlayedThisLevel = addonName, a1
         local char = GetCurrentCharTable()
-        if char and addonName and type(addonName) == "number" then
-            char.played = addonName
-            if DS.FinalizePendingLevelUp then
-                DS:FinalizePendingLevelUp(addonName)
+        if char and totalTimePlayed and type(totalTimePlayed) == "number" then
+            char.played = totalTimePlayed
+            if DS.OnTimePlayedMessage then
+                DS:OnTimePlayedMessage(totalTimePlayed, timePlayedThisLevel)
             end
         end
         return
