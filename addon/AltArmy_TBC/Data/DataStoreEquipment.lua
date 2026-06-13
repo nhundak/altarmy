@@ -7,6 +7,13 @@ local DS = AltArmy.DataStore
 local GetCurrentCharTable = DS._GetCurrentCharTable
 local DATA_VERSIONS = DS._DATA_VERSIONS
 
+local function InvalidateSearchContainerSlotsCache()
+    local SD = AltArmy and AltArmy.SearchData
+    if SD and SD.InvalidateContainerSlotsCache then
+        SD.InvalidateContainerSlotsCache()
+    end
+end
+
 local NUM_EQUIPMENT_SLOTS = 19
 
 local function IsEnchanted(link)
@@ -36,6 +43,7 @@ function DS:ScanEquipment(_self)
     char.lastUpdate = time()
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.equipment = DATA_VERSIONS.equipment
+    InvalidateSearchContainerSlotsCache()
 end
 
 function DS:GetInventory(char)

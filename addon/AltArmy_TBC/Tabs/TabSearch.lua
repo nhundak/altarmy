@@ -636,7 +636,10 @@ local function fillItemRow(row, entry, showRealmSuffix)
     else
         row.cells.Item:SetText(itemWithCount)
     end
-    local locLabel = entry.location == "bank" and "Bank" or (entry.location == "mail" and "Mail" or "Bags")
+    local locLabel = entry.location == "bank" and "Bank"
+        or (entry.location == "mail" and "Mail")
+        or (entry.location == "equipped" and "Equipped")
+        or "Bags"
     local name = entry.characterName or ""
     local RF = AltArmy.RealmFilter
     local namePart

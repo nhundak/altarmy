@@ -101,7 +101,8 @@ SD._LocationFromBagID = LocationFromBagID
 local function LocationSortKey(location)
     if location == "bag" then return 1 end
     if location == "bank" then return 2 end
-    if location == "mail" then return 3 end
+    if location == "equipped" then return 3 end
+    if location == "mail" then return 4 end
     return 99
 end
 SD._LocationSortKey = LocationSortKey
@@ -162,6 +163,39 @@ local function BuildAllContainerSlots()
                 end
                 pushMailRows(charData.Mails)
                 pushMailRows(charData.MailCache)
+            end
+
+            -- Equipped gear: include inventory slots as location="equipped"
+            if charData and DS.IterateInventory then
+                local characterName = (DS.GetCharacterName and DS:GetCharacterName(charData)) or charName
+                local classFile = nil
+                if DS.GetCharacterClass then
+                    local _, cf = DS:GetCharacterClass(charData)
+                    classFile = cf
+                end
+                DS:IterateInventory(charData, function(slot, itemIDOrLink)
+                    local link, itemID
+                    if type(itemIDOrLink) == "string" then
+                        link = itemIDOrLink
+                        itemID = tonumber(link:match("item:(%d+)"))
+                    else
+                        itemID = itemIDOrLink
+                    end
+                    if itemID then
+                        table.insert(list, {
+                            characterName = characterName,
+                            realm = realm,
+                            itemID = itemID,
+                            itemLink = link,
+                            count = 1,
+                            location = "equipped",
+                            bagID = nil,
+                            slot = slot,
+                            classFile = classFile,
+                        })
+                    end
+                    return false
+                end)
             end
         end
     end

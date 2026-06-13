@@ -16,6 +16,7 @@ describe("SearchData", function()
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     require("DataStore")
     require("DataStoreContainers")
+    require("DataStoreEquipment")
     require("SearchData")
     SD = AltArmy.SearchData
   end)
@@ -77,6 +78,53 @@ describe("SearchData", function()
       assert.is_true(seenBag)
       assert.is_true(seenMail111)
       assert.is_true(seenMail222)
+    end)
+
+    it("includes equipped items as location=equipped", function()
+      local DS = AltArmy.DataStore
+      assert.truthy(DS)
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        IterateContainerSlots = DS.IterateContainerSlots,
+        IterateInventory = DS.IterateInventory,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+      }
+
+      DS.GetRealms = function() return { R1 = true } end
+      DS.GetCharacters = function()
+        return { Alice = { name = "Alice" } }
+      end
+      DS.IterateContainerSlots = function(_self, _char, _cb) end
+      DS.IterateInventory = function(_self, _char, cb)
+        cb(1, 333)
+        cb(2, "item:444:0:0:0:0:0:0:0:0:0:0:0:0")
+      end
+      DS.GetCharacterName = function(_self, char) return char and char.name or "" end
+      DS.GetCharacterClass = function() return "", "WARRIOR" end
+
+      local list = SD.GetAllContainerSlots()
+
+      DS.GetRealms = old.GetRealms
+      DS.GetCharacters = old.GetCharacters
+      DS.IterateContainerSlots = old.IterateContainerSlots
+      DS.IterateInventory = old.IterateInventory
+      DS.GetCharacterName = old.GetCharacterName
+      DS.GetCharacterClass = old.GetCharacterClass
+
+      local seenNumeric, seenEnchanted = false, false
+      for _, e in ipairs(list) do
+        if e.itemID == 333 and e.location == "equipped" and e.count == 1 and e.slot == 1 then
+          seenNumeric = true
+        end
+        if e.itemID == 444 and e.location == "equipped" and e.count == 1 and e.slot == 2
+            and e.itemLink == "item:444:0:0:0:0:0:0:0:0:0:0:0:0" then
+          seenEnchanted = true
+        end
+      end
+      assert.is_true(seenNumeric)
+      assert.is_true(seenEnchanted)
     end)
   end)
 
@@ -236,6 +284,14 @@ describe("SearchData", function()
       SD.GetAllRecipes = oldGetAll
       _G.GetSpellInfo = oldGetSpellInfo
       _G.GetItemInfo = oldGetItemInfo
+    end)
+  end)
+
+  describe("_LocationSortKey", function()
+    it("orders bag before bank before equipped before mail", function()
+      assert.is_true(SD._LocationSortKey("bag") < SD._LocationSortKey("bank"))
+      assert.is_true(SD._LocationSortKey("bank") < SD._LocationSortKey("equipped"))
+      assert.is_true(SD._LocationSortKey("equipped") < SD._LocationSortKey("mail"))
     end)
   end)
 
