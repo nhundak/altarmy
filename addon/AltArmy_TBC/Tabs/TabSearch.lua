@@ -45,15 +45,19 @@ local function AccountHasMultipleRealms()
     return false
 end
 
--- Insert item link into chat (same as shift-clicking item in bags)
-local function InsertItemLinkIntoChat(itemLinkOrID)
-    local link = itemLinkOrID
-    if type(link) == "number" and GetItemInfo then
-        local _, itemLink = GetItemInfo(link)
-        link = itemLink
-    end
-    if type(link) == "string" and link ~= "" and ChatEdit_InsertLink then
-        ChatEdit_InsertLink(link)
+local ItemActions = AltArmy.ItemActions
+
+--- Route a left-click on an item result row: Ctrl previews in the Dressing Room, Shift links to chat.
+local function HandleItemRowClick(itemLinkOrID, button)
+    if not ItemActions then return end
+    local action = ItemActions.GetClickAction(
+        button,
+        IsShiftKeyDown and IsShiftKeyDown() or false,
+        IsControlKeyDown and IsControlKeyDown() or false)
+    if action == "preview" then
+        ItemActions.PreviewInDressingRoom(itemLinkOrID)
+    elseif action == "chatlink" then
+        ItemActions.InsertLinkIntoChat(itemLinkOrID)
     end
 end
 
@@ -566,10 +570,9 @@ local function createItemRow()
         if GameTooltip then GameTooltip:Hide() end
     end)
     row:SetScript("OnMouseUp", function(self, button)
-        if button ~= "LeftButton" or not IsShiftKeyDown() then return end
         local entry = self.entry
         if not entry then return end
-        InsertItemLinkIntoChat(entry.itemLink or entry.itemID)
+        HandleItemRowClick(entry.itemLink or entry.itemID, button)
     end)
     return row
 end

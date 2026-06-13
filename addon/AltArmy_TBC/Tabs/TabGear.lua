@@ -421,29 +421,19 @@ local function ApplyItemCellVisual(cell, item, gray)
     end
 end
 
---- Insert item link into chat (same as shift-clicking item in bags).
---- Prefers a fresh link from GetItemInfo(itemID) so stored/saved links don't insert as "()".
-local function InsertItemLinkIntoChat(itemLinkOrID)
-    if not ChatEdit_InsertLink then return end
-    local link = nil
-    local itemID = nil
-    if type(itemLinkOrID) == "number" then
-        itemID = itemLinkOrID
-    elseif type(itemLinkOrID) == "string" and itemLinkOrID ~= "" then
-        itemID = tonumber(itemLinkOrID:match("item:(%d+)"))
-    end
-    if itemID and GetItemInfo then
-        local _, freshLink = GetItemInfo(itemID)
-        if freshLink and freshLink ~= "" then
-            link = freshLink
-        end
-    end
-    if not link and type(itemLinkOrID) == "string" and itemLinkOrID ~= "" then
-        link = itemLinkOrID
-    end
-    -- Only insert if link looks like a valid item link (avoids blank "()" from bad/stale links)
-    if link and link:find("item:") and link:find("%[") then
-        ChatEdit_InsertLink(link)
+local ItemActions = AltArmy.ItemActions
+
+--- Route a left-click on an item cell: Ctrl previews in the Dressing Room, Shift links to chat.
+local function HandleItemCellClick(itemLinkOrID, button)
+    if not ItemActions then return end
+    local action = ItemActions.GetClickAction(
+        button,
+        IsShiftKeyDown and IsShiftKeyDown() or false,
+        IsControlKeyDown and IsControlKeyDown() or false)
+    if action == "preview" then
+        ItemActions.PreviewInDressingRoom(itemLinkOrID)
+    elseif action == "chatlink" then
+        ItemActions.InsertLinkIntoChat(itemLinkOrID)
     end
 end
 
@@ -805,8 +795,9 @@ local function GetColumnFrame(index)
             tex:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -ITEM_ICON_INSET, ITEM_ICON_INSET)
             cell.texture = tex
             cell:SetScript("OnMouseUp", function(self, button)
-                if button ~= "LeftButton" or not IsShiftKeyDown() then return end
-                InsertItemLinkIntoChat(self.itemLink or self.itemID)
+                local target = self.itemLink or self.itemID
+                if not target then return end
+                HandleItemCellClick(target, button)
             end)
             cell:SetScript("OnEnter", function(self)
                 if GameTooltip then

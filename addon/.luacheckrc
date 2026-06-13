@@ -121,6 +121,8 @@ read_globals = {
     "GetCursorPosition",
     "IsMouseButtonDown",
     "IsShiftKeyDown",
+    "IsControlKeyDown",
+    "DressUpItemLink",
     "RAID_CLASS_COLORS",
     "ITEM_QUALITY_COLORS",
     "CLASS_ICON_TCOORDS",

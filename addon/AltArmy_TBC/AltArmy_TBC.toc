@@ -31,6 +31,7 @@ Data\SearchData.lua
 ReputationFactionFilter.lua
 ReputationFactionSort.lua
 UI\CharacterPinHideList.lua
+UI\ItemActions.lua
 UI\GraphCore.lua
 Tabs\TabSummary.lua
 Tabs\TabGear.lua
