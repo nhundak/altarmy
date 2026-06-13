@@ -17,6 +17,11 @@ describe("AltArmy.Theme", function()
         function t:SetHeight() end
         function t:SetWidth(w) self._width = w end
         function t:SetSize(w, h) self._width = w self._height = h end
+        t._shown = false
+        function t:Show() self._shown = true end
+        function t:Hide() self._shown = false end
+        function t:SetShown(on) self._shown = on end
+        function t:IsShown() return self._shown end
         return t
     end
 
@@ -225,6 +230,41 @@ describe("AltArmy.Theme", function()
             assert.is_not_nil(f.altArmyHoverTint)
             Theme.SetHoverTint(f, true)
             assert.are.equal(Theme.HOVER_TINT_ALPHA, f.altArmyHoverTint._vertex[4])
+        end)
+    end)
+
+    describe("InstallSettingsButtonGlow", function()
+        it("creates a yellow square glow behind the icon", function()
+            local btn = makeStubFrame()
+            local glow = Theme.InstallSettingsButtonGlow(btn)
+            assert.is_not_nil(glow)
+            assert.is_not_nil(btn.glow)
+            assert.are.equal(Theme.COLORS.settingsGlow[1], glow._color[1])
+            assert.is_false(glow._shown)
+        end)
+    end)
+
+    describe("SkinSettingsIconButton", function()
+        it("shows yellow hover glow on enter when settings are not active", function()
+            local btn = makeStubFrame()
+            local icon = makeStubTexture()
+            Theme.SkinSettingsIconButton(btn)
+            assert.is_true(btn._settingsIconSkinned)
+            assert.is_not_nil(btn.hoverGlow)
+            btn._scripts.OnEnter(btn)
+            assert.is_true(btn.hoverGlow._shown)
+            btn._scripts.OnLeave(btn)
+            assert.is_false(btn.hoverGlow._shown)
+        end)
+
+        it("does not duplicate glow on hover when settings panel is already open", function()
+            local btn = makeStubFrame()
+            btn.glow = makeStubTexture()
+            btn.glow._shown = true
+            local icon = makeStubTexture()
+            Theme.SkinSettingsIconButton(btn)
+            btn._scripts.OnEnter(btn)
+            assert.is_false(btn.hoverGlow._shown)
         end)
     end)
 

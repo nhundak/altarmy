@@ -276,7 +276,7 @@ function Theme.SkinDangerButton(btn)
     end
 end
 
-function Theme.InstallHoverTint(target, layerOrBandHeight)
+function Theme.InstallHoverTint(target, layerOrBandHeight, bandCenter)
     if not target or target.altArmyHoverTint then return end
     local layer = "BACKGROUND"
     local bandHeight = nil
@@ -288,9 +288,14 @@ function Theme.InstallHoverTint(target, layerOrBandHeight)
     local t = target:CreateTexture(nil, layer)
     t:SetTexture(Theme.HOVER_TINT_BG)
     if bandHeight then
-        t:SetPoint("TOPLEFT", target, "TOPLEFT", 0, 0)
-        t:SetPoint("TOPRIGHT", target, "TOPRIGHT", 0, 0)
+        t:SetPoint("LEFT", target, "LEFT", 0, 0)
+        t:SetPoint("RIGHT", target, "RIGHT", 0, 0)
         t:SetHeight(bandHeight)
+        if bandCenter then
+            t:SetPoint("CENTER", target, "CENTER", 0, 0)
+        else
+            t:SetPoint("TOP", target, "TOP", 0, 0)
+        end
     else
         t:SetAllPoints(true)
     end
@@ -305,11 +310,55 @@ function Theme.SetHoverTint(target, on)
     end
 end
 
+--- Tab-strip settings gear: yellow square glow on hover (matches active settings state).
+function Theme.InstallSettingsButtonGlow(btn, key)
+    if not btn then return nil end
+    key = key or "glow"
+    if btn[key] then return btn[key] end
+    local glow = btn:CreateTexture(nil, "BACKGROUND")
+    glow:SetPoint("TOPLEFT", btn, "TOPLEFT", -3, 3)
+    glow:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 3, -3)
+    Theme.ApplySettingsGlow(glow)
+    glow:Hide()
+    btn[key] = glow
+    return glow
+end
+
+function Theme.SetSettingsButtonGlow(btn, on, key)
+    local glow = btn and btn[key or "glow"]
+    if glow and glow.SetShown then
+        glow:SetShown(on)
+    end
+end
+
+function Theme.SkinSettingsIconButton(btn)
+    if not btn or btn._settingsIconSkinned then return end
+    btn._settingsIconSkinned = true
+
+    Theme.InstallSettingsButtonGlow(btn, "hoverGlow")
+
+    local function setHoverGlow(on)
+        if btn.glow and btn.glow.IsShown and btn.glow:IsShown() then
+            return
+        end
+        Theme.SetSettingsButtonGlow(btn, on, "hoverGlow")
+    end
+
+    if btn.HookScript then
+        btn:HookScript("OnEnter", function()
+            setHoverGlow(true)
+        end)
+        btn:HookScript("OnLeave", function()
+            setHoverGlow(false)
+        end)
+    end
+end
+
 --- Wire OnEnter/OnLeave row highlight (Graphs Compare panel style).
 function Theme.BindInteractableHover(target, opts)
     if not target then return end
     opts = opts or {}
-    Theme.InstallHoverTint(target, opts.bandHeight or opts.layer)
+    Theme.InstallHoverTint(target, opts.bandHeight or opts.layer, opts.bandCenter)
     local function onEnter()
         Theme.SetHoverTint(target, true)
         if opts.onEnter then opts.onEnter(target) end

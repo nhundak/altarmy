@@ -230,6 +230,7 @@ local dims = {
 
 -- Faction name column offsets each row by (rowHeight - label line height) / 2; grid first row must match.
 local REP_FACTION_LABEL_TEXT_HEIGHT = 14
+local REP_FACTION_LABEL_HOVER_HEIGHT = REP_FACTION_LABEL_TEXT_HEIGHT + 4
 local function GetFirstRowCellVerticalOffset()
     return (dims.rowHeight - REP_FACTION_LABEL_TEXT_HEIGHT) / 2
 end
@@ -596,7 +597,10 @@ local factionLabelPool = {}
 local function GetFactionLabelRow(i)
     if not factionLabelPool[i] then
         local row = CreateFrame("Button", nil, factionHeaderContainer)
-        Theme.BindInteractableHover(row)
+        Theme.BindInteractableHover(row, {
+            bandHeight = REP_FACTION_LABEL_HOVER_HEIGHT,
+            bandCenter = true,
+        })
         if row.RegisterForClicks then
             row:RegisterForClicks("LeftButtonUp")
         end

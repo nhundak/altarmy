@@ -217,14 +217,6 @@ setActiveTab = function(tabName)
     UpdateSettingsButtonGlow()
 end
 
-local function HoverTintEnter(target)
-    Theme.SetHoverTint(target, true)
-end
-
-local function HoverTintLeave(target)
-    Theme.SetHoverTint(target, false)
-end
-
 local TAB_BTN_MIN_WIDTH = 72
 local tabNames = { "Summary", "Gear", "Reputation", "Cooldowns", "Progression" }
 tabStrip.buttons = {}
@@ -278,12 +270,7 @@ end)
 
 -- Glow texture for settings buttons when their panel is active (shown behind icon)
 local function addSettingsButtonGlow(btn)
-    local glow = btn:CreateTexture(nil, "BACKGROUND")
-    glow:SetPoint("TOPLEFT", btn, "TOPLEFT", -3, 3)
-    glow:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 3, -3)
-    Theme.ApplySettingsGlow(glow)
-    glow:Hide()
-    btn.glow = glow
+    Theme.InstallSettingsButtonGlow(btn, "glow")
 end
 
 UpdateSettingsButtonGlow = function()
@@ -305,23 +292,22 @@ UpdateSettingsButtonGlow = function()
     end
 end
 
+local function createTabSettingsButton(onClick)
+    local btn = CreateFrame("Button", nil, tabStrip)
+    btn:SetPoint("TOPRIGHT", tabStrip, "TOPRIGHT", 0, 0)
+    btn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
+    btn:Hide()
+    addSettingsButtonGlow(btn)
+    local icon = btn:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints(btn)
+    icon:SetTexture("Interface\\Icons\\Trade_Engineering")
+    Theme.SkinSettingsIconButton(btn)
+    btn:SetScript("OnClick", onClick)
+    return btn
+end
+
 -- Gear tab settings icon (top right of tab strip; visible only when Gear tab is active)
-local gearSettingsBtn = CreateFrame("Button", nil, tabStrip)
-gearSettingsBtn:SetPoint("TOPRIGHT", tabStrip, "TOPRIGHT", 0, 0)
-gearSettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
-gearSettingsBtn:Hide()
-addSettingsButtonGlow(gearSettingsBtn)
-local gearSettingsIcon = gearSettingsBtn:CreateTexture(nil, "ARTWORK")
-gearSettingsIcon:SetAllPoints(gearSettingsBtn)
-gearSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
-Theme.InstallHoverTint(gearSettingsBtn, "ARTWORK")
-gearSettingsBtn:SetScript("OnEnter", function(self)
-    HoverTintEnter(self)
-end)
-gearSettingsBtn:SetScript("OnLeave", function(self)
-    HoverTintLeave(self)
-end)
-gearSettingsBtn:SetScript("OnClick", function()
+local gearSettingsBtn = createTabSettingsButton(function()
     if AltArmy.TabFrames.Gear and AltArmy.TabFrames.Gear.ToggleGearSettings then
         AltArmy.TabFrames.Gear:ToggleGearSettings()
         UpdateSettingsButtonGlow()
@@ -330,22 +316,7 @@ end)
 tabStrip.gearSettingsBtn = gearSettingsBtn
 
 -- Summary tab settings icon (same position as Gear; visible only when Summary tab is active)
-local summarySettingsBtn = CreateFrame("Button", nil, tabStrip)
-summarySettingsBtn:SetPoint("TOPRIGHT", tabStrip, "TOPRIGHT", 0, 0)
-summarySettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
-summarySettingsBtn:Hide()
-addSettingsButtonGlow(summarySettingsBtn)
-local summarySettingsIcon = summarySettingsBtn:CreateTexture(nil, "ARTWORK")
-summarySettingsIcon:SetAllPoints(summarySettingsBtn)
-summarySettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
-Theme.InstallHoverTint(summarySettingsBtn, "ARTWORK")
-summarySettingsBtn:SetScript("OnEnter", function(self)
-    HoverTintEnter(self)
-end)
-summarySettingsBtn:SetScript("OnLeave", function(self)
-    HoverTintLeave(self)
-end)
-summarySettingsBtn:SetScript("OnClick", function()
+local summarySettingsBtn = createTabSettingsButton(function()
     if AltArmy.TabFrames.Summary and AltArmy.TabFrames.Summary.ToggleSummarySettings then
         AltArmy.TabFrames.Summary:ToggleSummarySettings()
         UpdateSettingsButtonGlow()
@@ -354,22 +325,7 @@ end)
 tabStrip.summarySettingsBtn = summarySettingsBtn
 
 -- Reputation tab settings icon (same position; visible only when Reputation tab is active)
-local reputationSettingsBtn = CreateFrame("Button", nil, tabStrip)
-reputationSettingsBtn:SetPoint("TOPRIGHT", tabStrip, "TOPRIGHT", 0, 0)
-reputationSettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
-reputationSettingsBtn:Hide()
-addSettingsButtonGlow(reputationSettingsBtn)
-local reputationSettingsIcon = reputationSettingsBtn:CreateTexture(nil, "ARTWORK")
-reputationSettingsIcon:SetAllPoints(reputationSettingsBtn)
-reputationSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
-Theme.InstallHoverTint(reputationSettingsBtn, "ARTWORK")
-reputationSettingsBtn:SetScript("OnEnter", function(self)
-    HoverTintEnter(self)
-end)
-reputationSettingsBtn:SetScript("OnLeave", function(self)
-    HoverTintLeave(self)
-end)
-reputationSettingsBtn:SetScript("OnClick", function()
+local reputationSettingsBtn = createTabSettingsButton(function()
     if AltArmy.TabFrames.Reputation and AltArmy.TabFrames.Reputation.ToggleReputationSettings then
         AltArmy.TabFrames.Reputation:ToggleReputationSettings()
         UpdateSettingsButtonGlow()
@@ -378,22 +334,7 @@ end)
 tabStrip.reputationSettingsBtn = reputationSettingsBtn
 
 -- Cooldowns tab settings icon — opens Interface > AddOns > AltArmy (same position as other tab gears).
-local cooldownSettingsBtn = CreateFrame("Button", nil, tabStrip)
-cooldownSettingsBtn:SetPoint("TOPRIGHT", tabStrip, "TOPRIGHT", 0, 0)
-cooldownSettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
-cooldownSettingsBtn:Hide()
-addSettingsButtonGlow(cooldownSettingsBtn)
-local cooldownSettingsIcon = cooldownSettingsBtn:CreateTexture(nil, "ARTWORK")
-cooldownSettingsIcon:SetAllPoints(cooldownSettingsBtn)
-cooldownSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
-Theme.InstallHoverTint(cooldownSettingsBtn, "ARTWORK")
-cooldownSettingsBtn:SetScript("OnEnter", function(self)
-    HoverTintEnter(self)
-end)
-cooldownSettingsBtn:SetScript("OnLeave", function(self)
-    HoverTintLeave(self)
-end)
-cooldownSettingsBtn:SetScript("OnClick", function()
+local cooldownSettingsBtn = createTabSettingsButton(function()
     if AltArmy.OpenInterfaceOptions then
         AltArmy.OpenInterfaceOptions("cooldowns")
     end
