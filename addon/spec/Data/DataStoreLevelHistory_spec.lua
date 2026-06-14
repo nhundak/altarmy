@@ -251,38 +251,30 @@ describe("DataStoreLevelHistory", function()
       assert.are.equal(1, DS._GetSuppressPlayedChatCount())
     end)
 
-    it("detaches TIME_PLAYED_MSG from default chat frames", function()
-      local unregistered = {}
-      _G.NUM_CHAT_WINDOWS = 2
-      _G.ChatFrame1 = {
-        UnregisterEvent = function(_, event)
-          unregistered[#unregistered + 1] = "ChatFrame1:" .. event
-        end,
-      }
-      _G.ChatFrame2 = {
-        UnregisterEvent = function(_, event)
-          unregistered[#unregistered + 1] = "ChatFrame2:" .. event
-        end,
-      }
-      _G.ChatTypeGroup = { SYSTEM = { "TIME_PLAYED_MSG", "OTHER" } }
+    it("suppresses chat output via ChatFrame_DisplayTimePlayed hook", function()
+      local displayed = false
+      _G.ChatFrame_DisplayTimePlayed = function()
+        displayed = true
+      end
       _G.RequestTimePlayed = function() end
 
       DS:RequestTimePlayedSilently()
+      assert.are.equal(1, DS._GetSuppressPlayedChatCount())
 
-      assert.is_true(DS._IsPlayedTimeDetachedFromChat())
-      assert.are.equal("ChatFrame1:TIME_PLAYED_MSG", unregistered[1])
-      assert.are.equal("ChatFrame2:TIME_PLAYED_MSG", unregistered[2])
-      assert.are.equal("OTHER", _G.ChatTypeGroup.SYSTEM[1])
+      _G.ChatFrame_DisplayTimePlayed(5000, 120)
+
+      assert.is_false(displayed)
+      assert.are.equal(0, DS._GetSuppressPlayedChatCount())
     end)
 
-    it("consumes suppress count in OnTimePlayedMessage when chat is detached", function()
+    it("OnTimePlayedMessage processes data without consuming suppress count", function()
       _G.RequestTimePlayed = function() end
       DS:RequestTimePlayedSilently()
       assert.are.equal(1, DS._GetSuppressPlayedChatCount())
 
       DS:OnTimePlayedMessage(5000, 120)
 
-      assert.are.equal(0, DS._GetSuppressPlayedChatCount())
+      assert.are.equal(1, DS._GetSuppressPlayedChatCount())
     end)
   end)
 

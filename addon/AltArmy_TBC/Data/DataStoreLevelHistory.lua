@@ -2,7 +2,6 @@
 -- Requires DataStore.lua (core) loaded first.
 -- luacheck: globals GetRealZoneText GetMoney GetXPExhaustion RequestTimePlayed C_Timer C_AddOns IsAddOnLoaded
 -- luacheck: globals UnitGUID UnitLevel UnitName GetRealmName RXPCTrackingData NITdatabase ChatFrame_DisplayTimePlayed
--- luacheck: globals NUM_CHAT_WINDOWS ChatTypeGroup
 
 if not AltArmy or not AltArmy.DataStore then return end
 
@@ -32,32 +31,6 @@ local suppressPlayedChatCount = 0
 local PLAYED_CHAT_SUPPRESS_RESET_DELAY = 3
 local hookedChatFrame_DisplayTimePlayed = nil
 local playedTimeChatHookInstalled = false
-local playedTimeDetachedFromChat = false
-
-local function DetachPlayedTimeFromChatFrames()
-    if playedTimeDetachedFromChat then return true end
-    if not NUM_CHAT_WINDOWS then return false end
-
-    for i = 1, NUM_CHAT_WINDOWS do
-        local chatFrame = _G["ChatFrame" .. i]
-        if chatFrame and chatFrame.UnregisterEvent then
-            chatFrame:UnregisterEvent("TIME_PLAYED_MSG")
-        end
-    end
-
-    if ChatTypeGroup and ChatTypeGroup.SYSTEM then
-        local systemGroup = ChatTypeGroup.SYSTEM
-        for index, eventName in ipairs(systemGroup) do
-            if eventName == "TIME_PLAYED_MSG" then
-                table.remove(systemGroup, index)
-                break
-            end
-        end
-    end
-
-    playedTimeDetachedFromChat = true
-    return true
-end
 
 local function InstallPlayedTimeChatSuppressor()
     if playedTimeChatHookInstalled then return true end
@@ -95,15 +68,10 @@ end
 
 function DS:RequestTimePlayedSilently()
     if not RequestTimePlayed then return end
-    DetachPlayedTimeFromChatFrames()
     InstallPlayedTimeChatSuppressor()
     suppressPlayedChatCount = suppressPlayedChatCount + 1
     reportPlayedTimeToChat = false
     RequestTimePlayed()
-end
-
-function DS._IsPlayedTimeDetachedFromChat()
-    return playedTimeDetachedFromChat
 end
 
 function DS._GetReportPlayedTimeToChat()
@@ -161,7 +129,8 @@ function DS._ResetLevelHistoryTestState()
     DS._playedBaseline = nil
     reportPlayedTimeToChat = true
     suppressPlayedChatCount = 0
-    playedTimeDetachedFromChat = false
+    playedTimeChatHookInstalled = false
+    hookedChatFrame_DisplayTimePlayed = nil
 end
 
 function DS._SetLevelHistoryTestRxpAddonEnabled(enabled)
@@ -508,16 +477,10 @@ function DS:RefinePlayedForLevel(char, level, authoritativePlayedTotal)
     return true
 end
 
-function DS:OnTimePlayedMessage(totalTimePlayed, timePlayedThisLevel)
+function DS:OnTimePlayedMessage(totalTimePlayed, _timePlayedThisLevel)
     if type(totalTimePlayed) ~= "number" then return end
 
     DS:UpdatePlayedBaseline(totalTimePlayed)
-
-    if suppressPlayedChatCount > 0 then
-        suppressPlayedChatCount = suppressPlayedChatCount - 1
-    elseif reportPlayedTimeToChat and hookedChatFrame_DisplayTimePlayed then
-        hookedChatFrame_DisplayTimePlayed(totalTimePlayed, timePlayedThisLevel)
-    end
 
     local pending = DS._pendingLevelUp
     if not pending or not pending.level then return end
@@ -1026,7 +989,6 @@ local playedTimeHookFrame = CreateFrame and CreateFrame("Frame")
 if playedTimeHookFrame then
     playedTimeHookFrame:RegisterEvent("PLAYER_LOGIN")
     playedTimeHookFrame:SetScript("OnEvent", function()
-        DetachPlayedTimeFromChatFrames()
         InstallPlayedTimeChatSuppressor()
     end)
 end
