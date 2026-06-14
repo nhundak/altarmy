@@ -30,21 +30,51 @@ local function LogCooldownScanDebug(msg)
     end
 end
 
---- Seconds left from GetTradeSkillCooldown / GetCraftCooldown / GetSpellCooldown-style returns.
---- When `duration` (b) > 0: standard start + duration - GetTime().
---- When b is nil or 0, TBC Classic commonly returns **seconds remaining** in `a` (not start time).
-local function CooldownRemainingSeconds(a, b, gt)
+--- WoW 2^32 ms clock offset (seconds) for reboot-corrupted GetSpellCooldown start times.
+local UINT32_OFFSET_SEC = 4294967296 / 1000
+
+--- Seconds left from GetSpellCooldown / GetActionCooldown (start, duration).
+local function CooldownRemainingSecondsFromSpellApi(a, b, gt, wall)
     gt = gt or 0
+    wall = wall or 0
     if type(a) ~= "number" or a < 0 then
         return 0
     end
-    if type(b) == "number" and b > 0 then
-        return math.max(0, a + b - gt)
+    if type(b) ~= "number" or b <= 0 then
+        return 0
     end
-    if not b or b == 0 then
-        return math.max(0, a)
+
+    local remaining
+    if a <= gt then
+        remaining = a + b - gt
+    elseif a <= UINT32_OFFSET_SEC then
+        -- Post-reboot corruption: start appears ahead of GetTime() in the 2^32 wrap range.
+        local startupTime = wall - gt
+        local cdTime = UINT32_OFFSET_SEC - a
+        local cdStartTime = startupTime - cdTime
+        local cdEndTime = cdStartTime + b
+        remaining = cdEndTime - wall
+    else
+        -- start >> GetTime() (e.g. long-uptime multi-day CD): duration is the reliable signal.
+        remaining = b
     end
-    return 0
+
+    return math.max(0, remaining)
+end
+
+--- Seconds left from GetTradeSkillCooldown / GetCraftCooldown (remaining, isDayCooldown).
+local function CooldownRemainingSecondsFromTradeSkillApi(a, _b)
+    if type(a) ~= "number" or a < 0 then
+        return 0
+    end
+    return a
+end
+
+local function CooldownRemainingSeconds(a, b, gt, wall, apiKind)
+    if apiKind == "tradeskill" then
+        return CooldownRemainingSecondsFromTradeSkillApi(a, b)
+    end
+    return CooldownRemainingSecondsFromSpellApi(a, b, gt, wall)
 end
 
 local function PrevExpiryUnix(char, spellId)
@@ -62,12 +92,14 @@ end
 --- Persist a scanned cooldown safely.
 --- Guard: zoning/loading can transiently return (0,0) for cooldown APIs even when not actually ready.
 --- If we already have a future expiry and the scan returns exactly (0,0), keep the existing expiry.
-local function PersistCooldownExpiry(char, spellId, a, b, gt, wall, logPrefix)
+--- @param apiKind string|nil "spell" (GetSpellCooldown) or "tradeskill" (GetTradeSkillCooldown / GetCraftCooldown)
+local function PersistCooldownExpiry(char, spellId, a, b, gt, wall, logPrefix, apiKind)
     if not char or not spellId then return false end
     gt = gt or (GetTime and GetTime() or 0)
     wall = wall or (time and time() or 0)
+    apiKind = apiKind or "spell"
 
-    local remaining = CooldownRemainingSeconds(a, b, gt)
+    local remaining = CooldownRemainingSeconds(a, b, gt, wall, apiKind)
     char.ProfCooldownExpiry = char.ProfCooldownExpiry or {}
 
     if remaining <= 0 then
@@ -94,6 +126,8 @@ end
 
 -- Exposed for unit tests (see spec/Data/DataStoreProfessions_spec.lua)
 DS._PersistCooldownExpiryForTest = PersistCooldownExpiry
+DS._CooldownRemainingSecondsFromSpellApiForTest = CooldownRemainingSecondsFromSpellApi
+DS._CooldownRemainingSecondsFromTradeSkillApiForTest = CooldownRemainingSecondsFromTradeSkillApi
 
 local SkillTypeToColor = { header = 0, optimal = 1, medium = 2, easy = 3, trivial = 4 }
 local SPELL_ID_FIRSTAID = 3273
@@ -776,7 +810,7 @@ function DS:TryScanTransmuteCooldownsFromSpellApi(preferredSpellId)
     local function consider(spellId)
         if not spellId or not CD.IsTrackedSpellId(spellId) then return end
         local a, b = GetSpellCooldown(spellId)
-        local rem = CooldownRemainingSeconds(a, b, gt)
+        local rem = CooldownRemainingSecondsFromSpellApi(a, b, gt, wall)
         if rem > bestRemaining then
             bestRemaining = rem
             bestSpellId = spellId
@@ -790,13 +824,14 @@ function DS:TryScanTransmuteCooldownsFromSpellApi(preferredSpellId)
 
     if bestSpellId then
         local a, b = GetSpellCooldown(bestSpellId)
-        PersistCooldownExpiry(char, bestSpellId, a, b, gt, wall, "TransmuteSpellApi")
-        if bestRemaining > 0 then
-            local expiresUnix = wall + math.ceil(bestRemaining)
+        PersistCooldownExpiry(char, bestSpellId, a, b, gt, wall, "TransmuteSpellApi", "spell")
+        local bestExp = char.ProfCooldownExpiry[bestSpellId]
+            and char.ProfCooldownExpiry[bestSpellId].expiresAtUnix
+        if bestExp and bestExp > wall then
             char.ProfCooldownExpiry = char.ProfCooldownExpiry or {}
             for _, sid in ipairs(CD.TRANSMUTE_SPELL_IDS) do
                 if CD.IsTrackedSpellId(sid) and select(1, CD.FindRecipeProfession(char, sid)) then
-                    char.ProfCooldownExpiry[sid] = { expiresAtUnix = expiresUnix }
+                    char.ProfCooldownExpiry[sid] = { expiresAtUnix = bestExp }
                 end
             end
         end
@@ -805,7 +840,7 @@ function DS:TryScanTransmuteCooldownsFromSpellApi(preferredSpellId)
             tostring(preferredSpellId),
             tostring(bestSpellId),
             bestRemaining,
-            tostring(char.ProfCooldownExpiry[bestSpellId] and char.ProfCooldownExpiry[bestSpellId].expiresAtUnix)
+            tostring(bestExp)
         ))
     end
 end
@@ -825,13 +860,13 @@ function DS:TryScanTrackedCooldownFromSpellApi(spellId)
     local a, b = GetSpellCooldown(spellId)
     local gt = GetTime and GetTime() or 0
     local wall = time and time() or 0
-    PersistCooldownExpiry(char, spellId, a, b, gt, wall, "SpellApi")
+    PersistCooldownExpiry(char, spellId, a, b, gt, wall, "SpellApi", "spell")
     LogCooldownScanDebug(string.format(
         "SpellApi spell=%d a=%s b=%s rem=%.1fs -> expUnix=%s",
         spellId,
         tostring(a),
         tostring(b),
-        CooldownRemainingSeconds(a, b, gt),
+        CooldownRemainingSecondsFromSpellApi(a, b, gt, wall),
         tostring(char.ProfCooldownExpiry[spellId] and char.ProfCooldownExpiry[spellId].expiresAtUnix)
     ))
 end
@@ -878,7 +913,7 @@ function DS:TryScanTrackedCooldownsFromActionBars()
     local debugPrinted = 0
     local function persistFromActionCooldown(spellId, slot)
         local a, b = GetActionCooldown(slot)
-        PersistCooldownExpiry(char, spellId, a, b, gt, wall, "ActionBar")
+        PersistCooldownExpiry(char, spellId, a, b, gt, wall, "ActionBar", "spell")
         scanned = scanned + 1
         LogCooldownScanDebug(string.format(
             "ActionBar slot=%d type=%s spell=%d a=%s b=%s rem=%.1fs expUnix=%s",
@@ -887,7 +922,7 @@ function DS:TryScanTrackedCooldownsFromActionBars()
             spellId,
             tostring(a),
             tostring(b),
-            CooldownRemainingSeconds(a, b, gt),
+            CooldownRemainingSecondsFromSpellApi(a, b, gt, wall),
             tostring(char.ProfCooldownExpiry[spellId] and char.ProfCooldownExpiry[spellId].expiresAtUnix)
         ))
     end
@@ -995,41 +1030,36 @@ function DS:ScanTradeSkillCooldownExpiry()
                         end
                         local gt = GetTime and GetTime() or 0
                         local wall = time and time() or 0
-                        local remaining = 0
-                        local branch = "none"
                         local a, b
                         if GetTradeSkillCooldown then
                             a, b = GetTradeSkillCooldown(i)
-                            if type(b) == "number" and b > 0 then
-                                branch = "start+duration"
-                            elseif type(a) == "number" and a >= 0 and (not b or b == 0) then
-                                branch = "remaining_only"
-                            end
-                            remaining = CooldownRemainingSeconds(a, b, gt)
                         end
-                        local expiresUnix
-                        if remaining <= 0 then
-                            expiresUnix = wall
-                        else
+                        local remaining = CooldownRemainingSecondsFromTradeSkillApi(a, b)
+                        local expiresUnix = wall
+                        if remaining > 0 then
                             expiresUnix = wall + math.ceil(remaining)
                         end
                         for _, recipeID in ipairs(trackedIds) do
-                            if remaining <= 0 then
-                                char.ProfCooldownExpiry[recipeID] = { expiresAtUnix = wall }
-                            else
-                                char.ProfCooldownExpiry[recipeID] = { expiresAtUnix = expiresUnix }
-                            end
+                            PersistCooldownExpiry(
+                                char,
+                                recipeID,
+                                a,
+                                b,
+                                gt,
+                                wall,
+                                "TradeSkill",
+                                "tradeskill"
+                            )
                         end
                         local linkShort = link and link:sub(1, math.min(48, #link)) or "(nil)"
                         LogCooldownScanDebug(string.format(
-                            " row=%d ids=%s name=%q a=%s b=%s gt=%.3f branch=%s rem=%.1fs -> expUnix=%s (%s)",
+                            " row=%d ids=%s name=%q a=%s b=%s gt=%.3f rem=%.1fs -> expUnix=%s (%s)",
                             i,
                             table.concat(trackedIds, ","),
                             skillName or "?",
                             tostring(a),
                             tostring(b),
                             gt,
-                            branch,
                             remaining,
                             tostring(expiresUnix),
                             remaining <= 0 and "READY" or "CD"
@@ -1070,29 +1100,17 @@ function DS:ScanCraftCooldownExpiry()
         local recipeID = RecipeIdFromEnchantLink(link)
         if recipeID and CD.IsTrackedSpellId(recipeID) then
             local a, b = GetCraftCooldown(i)
-            local branch = "none"
-            if type(b) == "number" and b > 0 then
-                branch = "start+duration"
-            elseif type(a) == "number" and a >= 0 and (not b or b == 0) then
-                branch = "remaining_only"
-            end
-            local remaining = CooldownRemainingSeconds(a, b, gt)
-            local expiresUnix
-            if remaining <= 0 then
-                char.ProfCooldownExpiry[recipeID] = { expiresAtUnix = wall }
-                expiresUnix = wall
-            else
-                expiresUnix = wall + math.ceil(remaining)
-                char.ProfCooldownExpiry[recipeID] = { expiresAtUnix = expiresUnix }
-            end
+            local remaining = CooldownRemainingSecondsFromTradeSkillApi(a, b)
+            PersistCooldownExpiry(char, recipeID, a, b, gt, wall, "Craft", "tradeskill")
+            local expiresUnix = char.ProfCooldownExpiry[recipeID]
+                and char.ProfCooldownExpiry[recipeID].expiresAtUnix
             LogCooldownScanDebug(string.format(
-                " craft row=%d enchantId=%d a=%s b=%s gt=%.3f %s rem=%.1fs expUnix=%s",
+                " craft row=%d enchantId=%d a=%s b=%s gt=%.3f rem=%.1fs expUnix=%s",
                 i,
                 recipeID,
                 tostring(a),
                 tostring(b),
                 gt,
-                branch,
                 remaining,
                 tostring(expiresUnix)
             ))

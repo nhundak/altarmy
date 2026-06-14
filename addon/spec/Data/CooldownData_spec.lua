@@ -125,6 +125,42 @@ describe("CooldownData", function()
         assert.is_nil(CD.GetTransmuteExpiryUnix({}))
     end)
 
+    it("FormatTimeRemaining shows Unscanned when remaining exceeds max profession CD", function()
+        local now = 1000
+        local expires = now + CD.MAX_PROF_COOLDOWN_SECONDS + 1
+        assert.are.equal("Unscanned", CD.FormatTimeRemaining(expires, now))
+    end)
+
+    it("FormatTimeRemaining shows time when remaining is within max profession CD", function()
+        local now = 1000
+        local expires = now + CD.MAX_PROF_COOLDOWN_SECONDS
+        assert.are_not.equal("Unscanned", CD.FormatTimeRemaining(expires, now))
+        assert.are_not.equal("Ready", CD.FormatTimeRemaining(expires, now))
+    end)
+
+    it("BuildRows treats over-cap expiry as unscanned", function()
+        local now = 1000
+        local char = {
+            name = "Tailor",
+            Professions = { Tailoring = { Recipes = { [36686] = { color = 1 } } } },
+            ProfCooldownExpiry = {
+                [36686] = { expiresAtUnix = now + CD.MAX_PROF_COOLDOWN_SECONDS + 999999 },
+            },
+        }
+        local ds = mockDS({ TestRealm = { T = char } })
+        local rows = CD.BuildRows(ds, AltArmyTBC_Options.cooldowns, now)
+        local shadowRow
+        for _, r in ipairs(rows) do
+            if r.categoryKey == "shadowcloth" and r.name == "Tailor" then
+                shadowRow = r
+                break
+            end
+        end
+        assert.is_not_nil(shadowRow)
+        assert.is_nil(shadowRow.expiresUnix)
+        assert.are.equal("Unscanned", shadowRow.timeText)
+    end)
+
     it("BuildRows transmute time uses shared expiry when only another transmute id was scanned", function()
         local char = {
             name = "T",

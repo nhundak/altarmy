@@ -13,6 +13,10 @@ local CD = AltArmy.CooldownData
 ---@field spellIds number[]|nil For single-mode or group membership.
 ---@field spellId number|nil Primary spell for single mode (same as spellIds[1]).
 
+--- Longest plausible tracked profession cooldown in TBC (~Shadowcloth 3d 20h).
+--- Saved values above this are shown as unscanned in the UI (see IsExpiryPlausible).
+CD.MAX_PROF_COOLDOWN_SECONDS = 4 * 86400
+
 CD.CATEGORY_ORDER = {
     "transmute",
     "spellcloth",
@@ -519,11 +523,31 @@ local function CategoryListVisible(categoryKey, options)
     return true
 end
 
+--- True when expiry is nil, ready, or within the longest tracked profession CD.
+function CD.IsExpiryPlausible(expiresUnix, now)
+    if expiresUnix == nil then
+        return false
+    end
+    now = now or (time and time() or 0)
+    if expiresUnix <= now then
+        return true
+    end
+    return (expiresUnix - now) <= CD.MAX_PROF_COOLDOWN_SECONDS
+end
+
+--- Expiry for UI rows/alerts; nil when missing or implausibly far in the future.
+function CD.ExpiryForDisplay(expiresUnix, now)
+    if CD.IsExpiryPlausible(expiresUnix, now) then
+        return expiresUnix
+    end
+    return nil
+end
+
 --- @param expiresUnix number|nil When spell cooldown ends (unix); nil = unknown / never scanned.
 --- @param now number unix time
 function CD.FormatTimeRemaining(expiresUnix, now)
     now = now or (time and time() or 0)
-    if expiresUnix == nil then
+    if not CD.IsExpiryPlausible(expiresUnix, now) then
         return "Unscanned"
     end
     if expiresUnix <= now then
@@ -601,9 +625,10 @@ function CD.BuildRows(DS, options, now)
                             and CD.RowMeetsSpecializationGate(catKey, char, catOpts.showOnlyIfSpecialization == true)
                         then
                             local spellId = CD.ResolveEffectiveSpellId(catKey, char, options)
-                            local expires = (catKey == "transmute")
+                            local rawExpires = (catKey == "transmute")
                                 and CD.GetTransmuteExpiryUnix(char)
                                 or CD.GetExpiryUnix(char, spellId)
+                            local expires = CD.ExpiryForDisplay(rawExpires, now)
                             local gsi = type(_G.GetSpellInfo) == "function" and _G.GetSpellInfo or nil
                             local title = cat.title
                             if catKey == "transmute" then

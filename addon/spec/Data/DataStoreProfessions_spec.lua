@@ -174,6 +174,56 @@ describe("DataStoreProfessions", function()
     end)
   end)
 
+  describe("CooldownRemainingSecondsFromSpellApi", function()
+    it("computes start+duration remaining for normal GetSpellCooldown values", function()
+      local rem = DS._CooldownRemainingSecondsFromSpellApiForTest(50, 3600, 100, 1000)
+      assert.are.equal(3550, rem)
+    end)
+
+    it("uses duration when start exceeds GetTime (corrupted multi-day CD)", function()
+      -- Repro: Mindfrell Shadowcloth — start >> gt inflated remaining by ~46 days.
+      local gt = 114269856
+      local duration = 331200
+      local start = gt + 3935573
+      local rem = DS._CooldownRemainingSecondsFromSpellApiForTest(start, duration, gt, 1781451396)
+      assert.are.equal(duration, rem)
+    end)
+
+    it("does not cap absurd remaining from spell cooldown math", function()
+      local rem = DS._CooldownRemainingSecondsFromSpellApiForTest(50, 5000000, 100, 1000)
+      assert.are.equal(4999950, rem)
+    end)
+  end)
+
+  describe("CooldownRemainingSecondsFromTradeSkillApi", function()
+    it("treats first return as seconds remaining", function()
+      assert.are.equal(331200, DS._CooldownRemainingSecondsFromTradeSkillApiForTest(331200, 0))
+    end)
+
+    it("ignores isDayCooldown flag in second return", function()
+      assert.are.equal(331200, DS._CooldownRemainingSecondsFromTradeSkillApiForTest(331200, 1))
+    end)
+  end)
+
+  describe("PersistCooldownExpiry tradeskill API", function()
+    it("does not overwrite future expiry when tradeskill scan returns (0,0)", function()
+      local char = { ProfCooldownExpiry = { [36686] = { expiresAtUnix = 5000 } } }
+      local changed = DS._PersistCooldownExpiryForTest(char, 36686, 0, 0, 50, 1000, "TradeSkill", "tradeskill")
+      assert.is_false(changed)
+      assert.are.equal(5000, char.ProfCooldownExpiry[36686].expiresAtUnix)
+    end)
+
+    it("persists shadowcloth duration from corrupted spell scan via duration fallback", function()
+      local wall = 1781451396
+      local gt = 114269856
+      local duration = 331200
+      local start = gt + 3935573
+      local char = {}
+      DS._PersistCooldownExpiryForTest(char, 36686, start, duration, gt, wall, "SpellApi", "spell")
+      assert.are.equal(wall + duration, char.ProfCooldownExpiry[36686].expiresAtUnix)
+    end)
+  end)
+
   describe("ScanCraftRecipes", function()
     it("calls GetCraftSkillLine with index 1 (client requires a positive index)", function()
       local oldTime = _G.time
