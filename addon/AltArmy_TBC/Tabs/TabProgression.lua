@@ -56,9 +56,7 @@ local HandleCompareSelectAllEnter
 local HandleCompareSelectAllLeave
 local UpdateSelectAllCheckbox
 
-local function CharKey(realm, name)
-    return (realm or "") .. "\\" .. (name or "")
-end
+local CharKey = AltArmy.CharKey
 
 local function EnsureSettings()
     AltArmyTBC_ProgressionSettings.selected = AltArmyTBC_ProgressionSettings.selected or {}
@@ -110,15 +108,15 @@ end
 
 local function IsSelected(realm, name)
     local s = EnsureSettings()
-    return s.selected[CharKey(realm, name)] == true
+    return s.selected[CharKey(name, realm)] == true
 end
 
 local function SetSelected(realm, name, on)
     local s = EnsureSettings()
     if on then
-        s.selected[CharKey(realm, name)] = true
+        s.selected[CharKey(name, realm)] = true
     else
-        s.selected[CharKey(realm, name)] = nil
+        s.selected[CharKey(name, realm)] = nil
     end
 end
 
@@ -155,7 +153,7 @@ end
 
 local function EntryKey(entry)
     if not entry then return "" end
-    return CharKey(entry.realm, entry.name)
+    return CharKey(entry.name, entry.realm)
 end
 
 local function GetCharactersToDraw()

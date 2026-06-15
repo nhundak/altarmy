@@ -5,30 +5,17 @@
 ]]
 
 describe("Gear display list showSelfFirst", function()
-    local function GetSortValue(entry, sortKey)
-        if sortKey == "Name" then return entry.name or "" end
-        if sortKey == "Level" then return tonumber(entry.level) or 0 end
-        if sortKey == "Avg Item Level" then return tonumber(entry.avgItemLevel) or 0 end
-        if sortKey == "Time Played" then return tonumber(entry.played) or 0 end
-        return 0
-    end
+    local CompareBySort
+    local CharKey
 
-    local function CompareBySort(entryA, entryB, primary, secondary)
-        local va = GetSortValue(entryA, primary)
-        local vb = GetSortValue(entryB, primary)
-        if primary == "Name" then
-            if va ~= vb then return va < vb end
-        else
-            if va ~= vb then return va > vb end
-        end
-        va = GetSortValue(entryA, secondary)
-        vb = GetSortValue(entryB, secondary)
-        if secondary == "Name" then
-            return va < vb
-        else
-            return va > vb
-        end
-    end
+    setup(function()
+        _G.AltArmy = _G.AltArmy or {}
+        package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+        require("CharKey")
+        require("CharacterSort")
+        CompareBySort = AltArmy.CharacterSort.CompareBySort
+        CharKey = AltArmy.CharKey
+    end)
 
     --- Mirror TabGear GetDisplayList split/sort (no hidden filter, realm filter, or item drop).
     local function buildDisplayList(visible, opts)
@@ -41,7 +28,7 @@ describe("Gear display list showSelfFirst", function()
         local charSettings = opts.charSettings or {}
 
         local function GetCharSetting(name, realm, key)
-            local c = charSettings[(realm or "") .. "\\" .. (name or "")]
+            local c = charSettings[CharKey(name, realm)]
             if not c then return false end
             return c[key] == true
         end

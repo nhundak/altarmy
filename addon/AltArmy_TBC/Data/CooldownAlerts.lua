@@ -26,21 +26,13 @@ local function categoryTitleFallback(key)
     return (c and c.title) or key or "?"
 end
 
+local CC = AltArmy.ClassColor
+
 local function classColorWrap(text, classFile)
-    if not text or text == "" then
-        text = "?"
+    if CC and CC.wrapName then
+        return CC.wrapName(text, classFile)
     end
-    local rc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-    if rc then
-        local hex = string.format(
-            "%02x%02x%02x",
-            math.floor(rc.r * 255),
-            math.floor(rc.g * 255),
-            math.floor(rc.b * 255)
-        )
-        return "|cff" .. hex .. text .. "|r"
-    end
-    return text
+    return text or "?"
 end
 
 --- Recipe / cooldown ready / name (and optional realm). No "AltArmy" prefix — used for center-screen.

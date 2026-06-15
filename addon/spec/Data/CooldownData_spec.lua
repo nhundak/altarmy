@@ -23,14 +23,24 @@ describe("CooldownData", function()
     end)
 
     local function mockDS(realmTable)
-        return {
+        local ds = {
             GetRealms = function()
                 return { TestRealm = true }
             end,
             GetCharacters = function(_self, realm)
                 return realmTable[realm] or {}
             end,
+            ForEachCharacter = function(self, fn)
+                for realm in pairs(self:GetRealms()) do
+                    for charName, charData in pairs(self:GetCharacters(realm)) do
+                        if fn(realm, charName, charData) == true then
+                            return
+                        end
+                    end
+                end
+            end,
         }
+        return ds
     end
 
     it("BuildRows omits hidden categories", function()

@@ -4,30 +4,13 @@
 if not AltArmy then return end
 
 local Theme = AltArmy.Theme
+local CC = AltArmy.ClassColor
+local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 local CHAR_LIST_ROW = 20
 local ROW_RIGHT_INSET = 120
 local CHAR_LIST_BOTTOM_INSET = 4
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 
-local function TruncateName(fontString, fullName, maxWidth)
-    if not fullName or fullName == "" then
-        fontString:SetText("?")
-        return "?"
-    end
-    fontString:SetText(fullName)
-    if fontString:GetStringWidth() <= maxWidth then
-        return fullName
-    end
-    for len = #fullName - 1, 1, -1 do
-        local truncated = fullName:sub(1, len) .. "..."
-        fontString:SetText(truncated)
-        if fontString:GetStringWidth() <= maxWidth then
-            return truncated
-        end
-    end
-    fontString:SetText("...")
-    return "..."
-end
 
 --- Create a scrollable character list with Pin/Hide checkboxes.
 --- @param parent Frame Parent (e.g. settings content frame).
@@ -258,9 +241,8 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
             local row = GetRow(i)
             row:Show()
             local r, g, b = 1, 0.82, 0
-            if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
-                local rc = RAID_CLASS_COLORS[entry.classFile]
-                r, g, b = rc.r, rc.g, rc.b
+            if CC and CC.getRGBOr then
+                r, g, b = CC.getRGBOr(entry.classFile, r, g, b)
             end
             local nameDisplayStr
             local tooltipDisplayStr
@@ -284,7 +266,8 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
             local nameW = row.nameText:GetWidth()
             local displayed = nameDisplayStr
             if nameW and nameW > 4 then
-                displayed = TruncateName(row.nameText, nameDisplayStr, nameW - 2)
+                displayed = TruncateFontString and TruncateFontString(row.nameText, nameDisplayStr, nameW - 2)
+                    or nameDisplayStr
             end
             if row.nameOverlay then
                 row.nameOverlay.fullNameDisplay = tooltipDisplayStr

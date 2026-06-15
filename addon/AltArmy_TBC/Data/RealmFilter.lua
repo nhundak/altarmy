@@ -87,20 +87,9 @@ end
 --- @return string WoW escape sequences for FontString / GameTooltip
 function RF.formatColoredCharacterNameRealm(name, realm, showRealmSuffix, classFile)
     name = name or ""
-    local namePart
-    local c = RAID_CLASS_COLORS and classFile and classFile ~= ""
-        and RAID_CLASS_COLORS[classFile]
-    if c then
-        namePart = string.format(
-            "|cff%02x%02x%02x%s|r",
-            math.floor(c.r * 255 + 0.5),
-            math.floor(c.g * 255 + 0.5),
-            math.floor(c.b * 255 + 0.5),
-            name
-        )
-    else
-        namePart = "|cffffffff" .. name .. "|r"
-    end
+    local CC = AltArmy.ClassColor
+    local namePart = CC and CC.formatName and CC.formatName(name, classFile)
+        or ("|cffffffff" .. name .. "|r")
     if showRealmSuffix and realm and realm ~= "" then
         return namePart .. "|cffaaaaaa — " .. realm .. "|r"
     end

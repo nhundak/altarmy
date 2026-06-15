@@ -69,6 +69,14 @@ function SD.InvalidateRecipesCache()
     _recipesCache = nil
 end
 
+function SD.NotifyContainerDataChanged()
+    SD.InvalidateContainerSlotsCache()
+end
+
+function SD.NotifyRecipesChanged()
+    SD.InvalidateRecipesCache()
+end
+
 function SD.ClearSearchCaches()
     _searchableTextCache = {}
     _containerSlotsCache = nil
@@ -112,12 +120,10 @@ SD._LocationSortKey = LocationSortKey
 local function BuildAllContainerSlots()
     local list = {}
     local DS = AltArmy.DataStore
-    if not DS or not DS.GetRealms or not DS.GetCharacters
-        or not DS.IterateContainerSlots or not DS.GetCharacterName then
+    if not DS or not DS.ForEachCharacter or not DS.IterateContainerSlots or not DS.GetCharacterName then
         return list
     end
-    for realm in pairs(DS:GetRealms()) do
-        for charName, charData in pairs(DS:GetCharacters(realm)) do
+    DS:ForEachCharacter(function(realm, charName, charData)
             if charData and DS.IterateContainerSlots then
                 local _, classFile = DS:GetCharacterClass(charData)
                 DS:IterateContainerSlots(charData, function(bagID, slot, itemID, count, link)
@@ -197,8 +203,7 @@ local function BuildAllContainerSlots()
                     return false
                 end)
             end
-        end
-    end
+    end)
     return list
 end
 
@@ -494,12 +499,11 @@ end
 local function BuildAllRecipes()
     local list = {}
     local DS = AltArmy.DataStore
-    if not DS or not DS.GetRealms or not DS.GetCharacters or not DS.GetCharacterName
+    if not DS or not DS.ForEachCharacter or not DS.GetCharacterName
         or not DS.GetCharacterClass or not DS.GetProfessions then
         return list
     end
-    for realm in pairs(DS:GetRealms()) do
-        for charName, charData in pairs(DS:GetCharacters(realm)) do
+    DS:ForEachCharacter(function(realm, charName, charData)
             if charData then
                 local professions = DS:GetProfessions(charData)
                 if professions then
@@ -529,8 +533,7 @@ local function BuildAllRecipes()
                     end
                 end
             end
-        end
-    end
+    end)
     return list
 end
 

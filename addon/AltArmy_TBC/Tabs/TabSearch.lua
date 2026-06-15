@@ -7,6 +7,8 @@ end
 
 local PAD = 4
 local Theme = AltArmy.Theme
+local CC = AltArmy.ClassColor
+local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 local SECTION_INSET = Theme.TAB_SECTION_INSET
 local ROW_HEIGHT = 18
 -- Right-side (Total column) icon size; match left-side row icon (WoW :0 default ~14)
@@ -92,44 +94,15 @@ local colOrder = { "Item", "Character", "Total" }
 local recipeColWidths = { Recipe = 325, Character = 170, Skill = 60 }  -- first col -5
 local recipeColOrder = { "Recipe", "Character", "Skill" }
 
---- Truncate name part only; suffix (e.g. " (Bags)") is never truncated. Sets cell to truncatedName + suffix.
---- @param cell FontString
---- @param namePartColored string Colored name (e.g. |cFFrrggbbName-Realm|r)
---- @param suffixText string|nil Optional suffix (e.g. |cFFFFFFFF (Bags)|r); if nil, truncate whole namePart.
---- @param maxTotalWidth number Cell width
 local function SetCharacterCellTruncated(cell, namePartColored, suffixText, maxTotalWidth)
-    local maxNameW = maxTotalWidth - 2
-    if suffixText and suffixText ~= "" then
-        cell:SetText(suffixText)
-        maxNameW = maxNameW - cell:GetStringWidth()
-        if maxNameW < 10 then maxNameW = 10 end
-    end
-    local prefix = namePartColored:match("^|c%x%x%x%x%x%x%x%x")
-    local visible
-    if prefix and #namePartColored >= 12 and namePartColored:sub(-2) == "|r" then
-        visible = namePartColored:sub(11, -3)
+    if TruncateFontString then
+        TruncateFontString(cell, namePartColored, maxTotalWidth, {
+            preserveColorCodes = true,
+            suffix = suffixText,
+        })
     else
-        prefix = ""
-        visible = namePartColored
+        cell:SetText((namePartColored or "") .. (suffixText or ""))
     end
-    if visible == "" then
-        cell:SetText((suffixText and suffixText or ""))
-        return
-    end
-    cell:SetText(prefix .. visible .. (prefix ~= "" and "|r" or ""))
-    if cell:GetStringWidth() <= maxNameW then
-        cell:SetText(prefix .. visible .. (prefix ~= "" and "|r" or "") .. (suffixText or ""))
-        return
-    end
-    for len = #visible - 1, 1, -1 do
-        local truncated = visible:sub(1, len) .. "..."
-        cell:SetText(prefix .. truncated .. (prefix ~= "" and "|r" or ""))
-        if cell:GetStringWidth() <= maxNameW then
-            cell:SetText(prefix .. truncated .. (prefix ~= "" and "|r" or "") .. (suffixText or ""))
-            return
-        end
-    end
-    cell:SetText(prefix .. "..." .. (prefix ~= "" and "|r" or "") .. (suffixText or ""))
 end
 
 -- Main tab content: bordered panel (same styling as settings panel).
@@ -652,12 +625,15 @@ local function fillItemRow(row, entry, showRealmSuffix)
         )
     else
         local r, g, b = 1, 0.82, 0
-        if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
-            local c = RAID_CLASS_COLORS[entry.classFile]
-            r, g, b = c.r, c.g, c.b
+        if CC and CC.getRGBOr then
+            r, g, b = CC.getRGBOr(entry.classFile, r, g, b)
         end
-        local R, G, B = math.floor(r * 255), math.floor(g * 255), math.floor(b * 255)
-        namePart = string.format("|cFF%02x%02x%02x%s|r", R, G, B, name)
+        namePart = CC and CC.formatHex and CC.formatHex(r, g, b, name)
+            or string.format(
+                "|cFF%02x%02x%02x%s|r",
+                math.floor(r * 255), math.floor(g * 255), math.floor(b * 255),
+                name
+            )
     end
     local suffixText = "|cffffffff (" .. locLabel .. ")|r"
     SetCharacterCellTruncated(row.cells.Character, namePart, suffixText, colWidths.Character or 160)
@@ -701,12 +677,15 @@ local function fillRecipeRow(row, entry, showRealmSuffix)
         namePart = RF.formatColoredCharacterNameRealm(name, entry.realm, showRealmSuffix, entry.classFile)
     else
         local r, g, b = 1, 0.82, 0
-        if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
-            local c = RAID_CLASS_COLORS[entry.classFile]
-            r, g, b = c.r, c.g, c.b
+        if CC and CC.getRGBOr then
+            r, g, b = CC.getRGBOr(entry.classFile, r, g, b)
         end
-        local R, G, B = math.floor(r * 255), math.floor(g * 255), math.floor(b * 255)
-        namePart = string.format("|cFF%02x%02x%02x%s|r", R, G, B, name)
+        namePart = CC and CC.formatHex and CC.formatHex(r, g, b, name)
+            or string.format(
+                "|cFF%02x%02x%02x%s|r",
+                math.floor(r * 255), math.floor(g * 255), math.floor(b * 255),
+                name
+            )
     end
     SetCharacterCellTruncated(row.cells.Character, namePart, nil, recipeColWidths.Character or 160)
     row.cells.Skill:SetText(tostring(entry.skillRank or 0))

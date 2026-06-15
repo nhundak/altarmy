@@ -7,10 +7,10 @@ local DS = AltArmy.DataStore
 local GetCurrentCharTable = DS._GetCurrentCharTable
 local DATA_VERSIONS = DS._DATA_VERSIONS
 
-local function InvalidateSearchContainerSlotsCache()
+local function notifyContainerDataChanged()
     local SD = AltArmy and AltArmy.SearchData
-    if SD and SD.InvalidateContainerSlotsCache then
-        SD.InvalidateContainerSlotsCache()
+    if SD and SD.NotifyContainerDataChanged then
+        SD.NotifyContainerDataChanged()
     end
 end
 
@@ -43,7 +43,7 @@ function DS:ScanEquipment(_self)
     char.lastUpdate = time()
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.equipment = DATA_VERSIONS.equipment
-    InvalidateSearchContainerSlotsCache()
+    notifyContainerDataChanged()
 end
 
 function DS:GetInventory(char)

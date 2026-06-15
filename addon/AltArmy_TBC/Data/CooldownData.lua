@@ -605,15 +605,14 @@ end
 function CD.BuildRows(DS, options, now)
     now = now or (time and time() or 0)
     local rows = {}
-    if not DS or not DS.GetRealms then return rows end
+    if not DS or not DS.ForEachCharacter then return rows end
 
     for _, catKey in ipairs(CD.CATEGORY_ORDER) do
         if CategoryListVisible(catKey, options) then
             local cat = CD.CATEGORIES[catKey]
             if cat then
                 local catOpts = options.categories and options.categories[catKey] or {}
-                for realm in pairs(DS:GetRealms()) do
-                    for charName, char in pairs(DS:GetCharacters(realm)) do
+                DS:ForEachCharacter(function(realm, charName, char)
                         local displayName = (char and char.name) or charName
                         local include = false
                         if catKey == "transmute" then
@@ -645,8 +644,7 @@ function CD.BuildRows(DS, options, now)
                                 timeText = CD.FormatTimeRemaining(expires, now),
                             }
                         end
-                    end
-                end
+                end)
             end
         end
     end

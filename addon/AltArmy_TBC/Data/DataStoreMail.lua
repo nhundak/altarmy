@@ -18,10 +18,10 @@ local GetSendMailItem = _G.GetSendMailItem
 local GetSendMailItemLink = _G.GetSendMailItemLink
 local GetSendMailMoney = _G.GetSendMailMoney
 
-local function InvalidateSearchContainerSlotsCache()
+local function notifyContainerDataChanged()
     local SD = AltArmy and AltArmy.SearchData
-    if SD and SD.InvalidateContainerSlotsCache then
-        SD.InvalidateContainerSlotsCache()
+    if SD and SD.NotifyContainerDataChanged then
+        SD.NotifyContainerDataChanged()
     end
 end
 
@@ -45,12 +45,6 @@ local function FindCharacterByName(realm, name)
         end
     end
     return nil
-end
-
-local function GetCurrentIdentity()
-    local name = UnitName and UnitName("player") or nil
-    local realm = GetRealmName and GetRealmName() or nil
-    return name, realm
 end
 
 local function GetMailTable(char, index)
@@ -78,7 +72,7 @@ function DS:ScanMailbox(_self)
         char.lastMailCheck = Now()
         char.dataVersions = char.dataVersions or {}
         char.dataVersions.mail = DATA_VERSIONS.mail
-        InvalidateSearchContainerSlotsCache()
+        notifyContainerDataChanged()
         return
     end
     if CheckInbox then CheckInbox() end
@@ -129,7 +123,7 @@ function DS:ScanMailbox(_self)
     char.lastUpdate = Now()
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.mail = DATA_VERSIONS.mail
-    InvalidateSearchContainerSlotsCache()
+    notifyContainerDataChanged()
 end
 
 function DS:GetNumMails(char)
@@ -215,7 +209,7 @@ function DS:SaveMailToCache(char, money, body, subject, sender, returned)
         daysLeft = MAIL_EXPIRY_DAYS,
         returned = returned or false,
     })
-    InvalidateSearchContainerSlotsCache()
+    notifyContainerDataChanged()
 end
 
 function DS:SaveMailAttachmentToCache(char, icon, itemID, link, count, sender, subject, returned)
@@ -233,7 +227,7 @@ function DS:SaveMailAttachmentToCache(char, icon, itemID, link, count, sender, s
         daysLeft = MAIL_EXPIRY_DAYS,
         returned = returned or false,
     })
-    InvalidateSearchContainerSlotsCache()
+    notifyContainerDataChanged()
 end
 
 -- ---------------------------------------------------------------------------
@@ -249,7 +243,7 @@ local function CacheSentMailToAlt(recipient, subject, body)
         recipientName = strsplit("-", recipient)
     end
 
-    local _playerName, realm = GetCurrentIdentity()
+    local _playerName, realm = DS:GetCurrentPlayerIdentity()
     if not realm or realm == "" then return end
 
     local targetChar = FindCharacterByName(realm, recipientName)
@@ -282,7 +276,7 @@ local function CacheReturnedMailToAlt(index)
         senderName = strsplit("-", mailSender)
     end
 
-    local _playerName, realm = GetCurrentIdentity()
+    local _playerName, realm = DS:GetCurrentPlayerIdentity()
     if not realm or realm == "" then return end
 
     local targetChar = FindCharacterByName(realm, senderName)

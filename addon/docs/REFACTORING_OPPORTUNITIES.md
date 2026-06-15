@@ -9,12 +9,12 @@ partly separated from UI (e.g. `ProgressionGraphLogic.lua`), and modules are coh
 main opportunities are **cross-cutting duplication** and a few **oversized files/functions**
 that mix concerns.
 
-> Status: findings only — none of these have been implemented yet. Line numbers are
+> Status: **§1 implemented** (June 2026). §2–§6 are still open. Line numbers in §2–§6 are
 > approximate and reflect the codebase at review time.
 
 ## Suggested order of attack
 
-1. **Quick utility extractions** (low risk, broad payoff) — shared helpers below.
+1. ~~**Quick utility extractions** (low risk, broad payoff) — shared helpers below.~~ **Done** (see §1).
 2. **Theme constants + tokens** — centralize magic numbers, adopt existing color helpers.
 3. **Shared UI factories** — scroll helpers, theme checkbox, scrollable grid + settings panel.
 4. **File splits** — `TabCooldowns`, `DataStore` deferred timers, `Options` sub-tabs.
@@ -22,29 +22,24 @@ that mix concerns.
 
 ---
 
-## 1. Top cross-cutting duplications (highest impact)
+## 1. Top cross-cutting duplications (highest impact) — **Done**
 
-Small helpers copy-pasted across many files. Cheapest, safest wins.
+Small helpers that were copy-pasted across many files. Extracted into shared modules; call
+sites migrated; unit tests added under `spec/Data/` and `spec/UI/`.
 
-| Helper | Copies | Where |
-|--------|--------|-------|
-| `TruncateName` (ellipsis via `GetStringWidth`) | 5 | `TabGear`, `TabReputation`, `TabSummary`, `TabSearch`, `CharacterPinHideList` |
-| `GetSortValue` / `CompareBySort` (character sort comparators) | 3 | `TabGear`, `TabReputation`, `ReputationFactionSort` |
-| Class-colored name formatting | 4–5 | `RealmFilter`, `CooldownAlerts`, `SummaryData`, `LevelProgressData`, `TabCooldowns` |
-| Player identity (`GetCurrentPlayerName`/`Realm`/`IsCurrentCharacter`) | 3–4 | `DataStore`, `DataStoreCharacter`, `DataStoreMail`, inlined in `SummaryData` |
-| "Iterate all characters" loop `for realm in pairs(DS:GetRealms())...` | 6+ | `SummaryData`, `SearchData`, `LevelProgressData`, `CooldownData`, `Options`, `TabCooldowns` |
-| Search cache invalidation wrapper | 3 | `DataStoreContainers`, `DataStoreEquipment`, `DataStoreMail` |
-| `CharKey` (with **inconsistent arg order**) | 3 | `TabGear`/`TabReputation` use `(name, realm)`; `TabProgression` uses `(realm, name)` |
+| Helper | Was (copies) | Resolution |
+|--------|--------------|------------|
+| `TruncateName` | 5 (`TabGear`, `TabReputation`, `TabSummary`, `TabSearch`, `CharacterPinHideList`) | [`UI/Text.lua`](../AltArmy_TBC/UI/Text.lua) — `AltArmy.Text.TruncateFontString(fs, text, maxWidth, opts)` |
+| `GetSortValue` / `CompareBySort` | 3 (`TabGear`, `TabReputation`, `ReputationFactionSort`) | [`Data/CharacterSort.lua`](../AltArmy_TBC/Data/CharacterSort.lua) — `AltArmy.CharacterSort` |
+| Class-colored name formatting | 4–5 inline + `RealmFilter` | [`Data/ClassColor.lua`](../AltArmy_TBC/Data/ClassColor.lua) — `getRGB`, `getRGBOr`, `formatName`, `formatHex`, `wrapName`; `RealmFilter.formatColoredCharacterNameRealm` delegates internally |
+| Player identity | 3–4 private/inlined | [`DataStore.lua`](../AltArmy_TBC/Data/DataStore.lua) — `GetCurrentPlayerName/Realm/Identity`, `IsCurrentCharacter` |
+| "Iterate all characters" loop | 6+ | `DS:ForEachCharacter(callback)` — used in `SummaryData`, `SearchData`, `CooldownData`, `Options`, `LevelProgressData` (debug). `TabCooldowns` realm-count loop left as-is. |
+| Search cache invalidation wrapper | 4 (`Containers`, `Equipment`, `Mail`, `Professions`) | [`SearchData.lua`](../AltArmy_TBC/Data/SearchData.lua) — `NotifyContainerDataChanged`, `NotifyRecipesChanged` |
+| `CharKey` (inconsistent arg order) | 4 tabs | [`Data/CharKey.lua`](../AltArmy_TBC/Data/CharKey.lua) — `AltArmy.CharKey(name, realm)`; `TabProgression` arg order fixed |
 
-**Suggestions:**
-
-- Add `UI/Text.lua` (or extend `Theme`) with `TruncateFontString(fs, text, maxWidth, opts)`.
-- Centralize `AltArmy.CharacterSort = { GetSortValue, CompareBySort }` and a single
-  `AltArmy.CharKey(name, realm)` — and fix the `TabProgression` arg-order mismatch, which is
-  a latent bug risk.
-- Add `AltArmy.ClassColor.formatName(name, classFile)` / `getRGB(classFile)`.
-- Export `DS.GetCurrentPlayerName/Realm/Identity/IsCurrentCharacter` once; add
-  `DS:ForEachCharacter(callback)` to replace the nested realm/char loops.
+**Tests:** `CharKey_spec`, `CharacterSort_spec`, `ClassColor_spec`, `Text_spec`; extended
+`DataStore_spec`; updated `GearDisplayList_spec`, `LevelProgressData_spec`,
+`CooldownData_spec`, `ReputationFactionSort_spec`.
 
 ---
 
@@ -95,7 +90,7 @@ The Tabs duplicate large, structural UI assemblies:
   anti-clobber guard in `PersistCooldownExpiry` (~65–93). Route all writes through one
   function. **This is the one finding that may be a latent bug, not just style — worth a
   closer look.**
-- **`CharKey` arg-order mismatch** (see §1) — verify `TabProgression` call sites.
+- ~~**`CharKey` arg-order mismatch** (see §1) — fixed: all tabs use `AltArmy.CharKey(name, realm)`.~~
 - **Theme tokens defined but unused:** `SetLabelColor`, `SetGroupHeaderColor`, `CreatePanel`,
   `ApplyDropdownBackground`, deprecated `StyleScrollThumb`. Meanwhile colors are hardcoded
   elsewhere (e.g. muted `0.5,0.5,0.5` in `CooldownOptions`, `Core`, `TabReputation`).

@@ -242,9 +242,8 @@ function LPD.DebugLogSelectorEligibility()
                 "WATCH %s: not present in SummaryData.GetCharacterList()",
                 watchName
             ))
-            if DS.GetRealms and DS.GetCharacters then
-                for realm in pairs(DS:GetRealms()) do
-                    for charName, charData in pairs(DS:GetCharacters(realm)) do
+            if DS.ForEachCharacter then
+                DS:ForEachCharacter(function(realm, charName, charData)
                         local storedName = DS:GetCharacterName(charData) or charName
                         if storedName:lower() == watchName then
                             local bucket, usableCount, rawCount, detail = LPD._ClassifySelectorBucket(storedName, realm)
@@ -261,8 +260,7 @@ function LPD.DebugLogSelectorEligibility()
                                 FormatMilestoneLevels(charData.levelHistory and charData.levelHistory.milestones)
                             ))
                         end
-                    end
-                end
+                end)
             end
         end
     end
@@ -378,9 +376,9 @@ end
 --- @param classFile string|nil
 --- @return number r, number g, number b
 function LPD.GetClassColor(classFile)
-    if classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile] then
-        local c = RAID_CLASS_COLORS[classFile]
-        return c.r, c.g, c.b
+    local CC = AltArmy.ClassColor
+    if CC and CC.getRGB then
+        return CC.getRGB(classFile)
     end
     return NEUTRAL_COLOR.r, NEUTRAL_COLOR.g, NEUTRAL_COLOR.b
 end

@@ -10,23 +10,11 @@ local DATA_VERSIONS = DS._DATA_VERSIONS
 local MAX_LEVEL = DS.MAX_LEVEL
 local MAX_LOGOUT_SENTINEL = 5000000000
 
-local function GetCurrentName()
-    if UnitName then
-        local name = UnitName("player")
-        if name and name ~= "" then return name end
-    end
-    return GetUnitName and GetUnitName("player") or ""
-end
-
-local function GetCurrentRealm()
-    return (GetRealmName and GetRealmName()) or ""
-end
-
 function DS:ScanCharacter(_self)
     local char = GetCurrentCharTable()
     if not char then return end
-    char.name = GetCurrentName()
-    char.realm = GetCurrentRealm()
+    char.name = DS:GetCurrentPlayerName()
+    char.realm = DS:GetCurrentPlayerRealm()
     char.level = (UnitLevel and UnitLevel("player")) or 0
     char.money = (GetMoney and GetMoney()) or 0
     char.lastUpdate = time()

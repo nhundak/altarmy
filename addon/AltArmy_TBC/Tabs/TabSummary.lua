@@ -34,6 +34,9 @@ local SECTION_GAP = Theme.SECTION_GAP
 local CLASS_ICON_SHEET = "Interface\\WorldStateFrame\\Icons-Classes"
 local ICON_SIZE = 16
 
+local CC = AltArmy.ClassColor
+local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
+
 local function SetNameIcon(icon, iconFallback, classFile)
     local tcoords = CLASS_ICON_TCOORDS and classFile and CLASS_ICON_TCOORDS[classFile]
     if tcoords then
@@ -44,9 +47,9 @@ local function SetNameIcon(icon, iconFallback, classFile)
     else
         icon:SetTexture(nil)
         icon:Hide()
-        if classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile] then
-            local c = RAID_CLASS_COLORS[classFile]
-            iconFallback:SetColorTexture(c.r, c.g, c.b, 0.9)
+        if CC and CC.getRGBOr then
+            local r, g, b = CC.getRGBOr(classFile, 0.5, 0.5, 0.5)
+            iconFallback:SetColorTexture(r, g, b, 0.9)
         else
             iconFallback:SetColorTexture(0.5, 0.5, 0.5, 0.9)
         end
@@ -72,29 +75,27 @@ local function GetSummarySettings()
     return s
 end
 
-local function SummaryCharKey(name, realm)
-    return (realm or "") .. "\\" .. (name or "")
-end
+local CharKey = AltArmy.CharKey
 
 local function GetSummaryCharSetting(name, realm, key)
     local s = GetSummarySettings()
-    local c = s.characters[SummaryCharKey(name, realm)]
+    local c = s.characters[CharKey(name, realm)]
     if not c then return false end
     return c[key] == true
 end
 
 local function SetSummaryCharSetting(name, realm, pin, hide)
     local s = GetSummarySettings()
-    local key = SummaryCharKey(name, realm)
+    local key = CharKey(name, realm)
     s.characters[key] = { pin = pin == true, hide = hide == true }
 end
 
 local summaryCharListRefresh = function() end  -- set below if CreateCharacterPinHideList is available
 
 local function isCurrentCharacter(entry)
-    local currentName = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
-    local currentRealm = GetRealmName and GetRealmName() or ""
-    return entry and (entry.name == currentName and entry.realm == currentRealm)
+    local DS = AltArmy.DataStore
+    return entry and DS and DS.IsCurrentCharacter
+        and DS:IsCurrentCharacter(entry.name, entry.realm)
 end
 
 -- Column definitions: Name, Level, RestXP, Money, Played, LastOnline, Warning
@@ -148,24 +149,6 @@ local columns = {
     },
 }
 local columnOrder = { "Name", "Level", "RestXP", "Money", "Played", "LastOnline", "Warning" }
-
---- Truncate name with "..." if it exceeds maxWidth; sets fontString text.
---- @return boolean|nil true if the name was truncated (caller may show tooltip with full name).
-local function TruncateName(fontString, fullName, maxWidth)
-    if not fullName or fullName == "" then
-        fontString:SetText("?")
-        return false
-    end
-    fontString:SetText(fullName)
-    if fontString:GetStringWidth() <= maxWidth then return false end
-    for len = #fullName - 1, 1, -1 do
-        local truncated = fullName:sub(1, len) .. "..."
-        fontString:SetText(truncated)
-        if fontString:GetStringWidth() <= maxWidth then return true end
-    end
-    fontString:SetText("...")
-    return true
-end
 
 -- Column display name -> sort key for Characters:Sort()
 local columnToSortKey = {
@@ -787,16 +770,21 @@ Update = function()
                             nameDisplayStr = col.GetText(entry)
                             cell:SetText(nameDisplayStr)
                             local classFile = entry.classFile
-                            if classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile] then
-                                local c = RAID_CLASS_COLORS[classFile]
-                                cell:SetTextColor(c.r, c.g, c.b, 1)
+                            if CC and CC.getRGBOr then
+                                local r, g, b = CC.getRGBOr(classFile, 1, 0.82, 0)
+                                cell:SetTextColor(r, g, b, 1)
                             else
                                 cell:SetTextColor(1, 0.82, 0, 1)
                             end
                         end
                         SetNameIcon(rowFrame.nameIcon, rowFrame.nameIconFallback, entry.classFile)
-                        local nameW = columns.Name and columns.Name.Width or (NAME_COL_BASE_WIDTH - WARNING_COL_WIDTH)
-                        local wasTruncated = TruncateName(cell, nameDisplayStr, nameW - ICON_SIZE - 4)
+                        local nameW = columns.Name and columns.Name.Width
+                            or (NAME_COL_BASE_WIDTH - WARNING_COL_WIDTH)
+                        local wasTruncated = TruncateFontString
+                            and TruncateFontString(
+                                cell, nameDisplayStr, nameW - ICON_SIZE - 4, { returnBoolean = true }
+                            )
+                            or false
                         local overlay = rowFrame.nameOverlay
                         if overlay then
                             overlay.fullNameDisplay = nameDisplayStr

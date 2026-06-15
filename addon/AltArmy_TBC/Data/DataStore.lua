@@ -110,6 +110,35 @@ function DS:GetCurrentCharacter()
     return GetCurrentCharTable()
 end
 
+function DS:GetCurrentPlayerName()
+    return GetCurrentName()
+end
+
+function DS:GetCurrentPlayerRealm()
+    return GetCurrentRealm()
+end
+
+function DS:GetCurrentPlayerIdentity()
+    return GetCurrentName(), GetCurrentRealm()
+end
+
+function DS:IsCurrentCharacter(name, realm)
+    if not name or not realm then return false end
+    return name == GetCurrentName() and realm == GetCurrentRealm()
+end
+
+--- Iterate all stored characters. fn(realm, charName, charData) — return true to stop early.
+function DS:ForEachCharacter(fn)
+    if not fn then return end
+    for realm in pairs(self:GetRealms()) do
+        for charName, charData in pairs(self:GetCharacters(realm)) do
+            if fn(realm, charName, charData) == true then
+                return
+            end
+        end
+    end
+end
+
 function DS:HasModuleData(char, moduleName)
     if not char or not moduleName then return false end
     local v = (char.dataVersions and char.dataVersions[moduleName]) or 0

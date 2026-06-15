@@ -205,6 +205,78 @@ describe("DataStore", function()
     end)
   end)
 
+  describe("GetCurrentPlayerIdentity", function()
+    it("returns name and realm from WoW APIs", function()
+      _G.UnitName = function() return "Alice" end
+      _G.GetRealmName = function() return "RealmA" end
+      local name, realm = DS:GetCurrentPlayerIdentity()
+      assert.are.equal("Alice", name)
+      assert.are.equal("RealmA", realm)
+    end)
+  end)
+
+  describe("IsCurrentCharacter", function()
+    before_each(function()
+      _G.UnitName = function() return "Alice" end
+      _G.GetRealmName = function() return "RealmA" end
+    end)
+
+    it("returns true for matching name and realm", function()
+      assert.is_true(DS:IsCurrentCharacter("Alice", "RealmA"))
+    end)
+
+    it("returns false for different name or realm", function()
+      assert.is_false(DS:IsCurrentCharacter("Bob", "RealmA"))
+      assert.is_false(DS:IsCurrentCharacter("Alice", "RealmB"))
+    end)
+
+    it("returns false when name or realm is nil", function()
+      assert.is_false(DS:IsCurrentCharacter(nil, "RealmA"))
+      assert.is_false(DS:IsCurrentCharacter("Alice", nil))
+    end)
+  end)
+
+  describe("ForEachCharacter", function()
+    it("visits every character", function()
+      _G.AltArmyTBC_Data = {
+        Characters = {
+          R1 = { Alice = { name = "Alice" }, Bob = { name = "Bob" } },
+          R2 = { Carol = { name = "Carol" } },
+        },
+      }
+      local seen = {}
+      DS:ForEachCharacter(function(realm, charName, charData)
+        seen[realm .. "/" .. charName] = charData
+      end)
+      assert.truthy(seen["R1/Alice"])
+      assert.truthy(seen["R1/Bob"])
+      assert.truthy(seen["R2/Carol"])
+    end)
+
+    it("stops early when callback returns true", function()
+      _G.AltArmyTBC_Data = {
+        Characters = {
+          R1 = { Alice = {}, Bob = {} },
+        },
+      }
+      local count = 0
+      DS:ForEachCharacter(function()
+        count = count + 1
+        return true
+      end)
+      assert.are.equal(1, count)
+    end)
+
+    it("does nothing when Characters is empty", function()
+      _G.AltArmyTBC_Data = { Characters = {} }
+      local count = 0
+      DS:ForEachCharacter(function()
+        count = count + 1
+      end)
+      assert.are.equal(0, count)
+    end)
+  end)
+
   describe("HasModuleData", function()
     it("returns false when char is nil", function()
       assert.is_false(DS:HasModuleData(nil, "character"))

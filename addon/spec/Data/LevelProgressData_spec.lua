@@ -38,6 +38,7 @@ describe("LevelProgressData", function()
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     require("DataStore")
     require("DataStoreLevelHistory")
+    require("ClassColor")
     require("LevelProgressData")
     DS = AltArmy.DataStore
     LPD = AltArmy.LevelProgressData

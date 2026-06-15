@@ -55,16 +55,13 @@ local function ItemLinkForChat(itemID)
     return string.format("[Item %s]", tostring(itemID))
 end
 
+local CC = AltArmy.ClassColor
+
 local function ColorNameByClass(name, classFile)
-    local base = name or "?"
-    local rc = RAID_CLASS_COLORS and classFile and RAID_CLASS_COLORS[classFile]
-    if rc and rc.r and rc.g and rc.b then
-        local r = math.floor(rc.r * 255 + 0.5)
-        local g = math.floor(rc.g * 255 + 0.5)
-        local b = math.floor(rc.b * 255 + 0.5)
-        return string.format("|cff%02x%02x%02x%s|r", r, g, b, base)
+    if CC and CC.formatName then
+        return CC.formatName(name, classFile)
     end
-    return base
+    return name or "?"
 end
 
 --- Chat: insufficient stockpile for target, then "You have:" lines per recipe reagent.
@@ -110,9 +107,10 @@ local function ChatNotEnoughStockpile(displayName, classFile, spellId, getItemCo
 end
 
 local function GetCurrentIdentity()
-    local name = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
-    local realm = (GetRealmName and GetRealmName()) or ""
-    return name, realm
+    if DS and DS.GetCurrentPlayerIdentity then
+        return DS:GetCurrentPlayerIdentity()
+    end
+    return "", ""
 end
 
 local function RecipeIconTexture(spellId, charTable)

@@ -7,6 +7,8 @@ local DS = AltArmy.DataStore
 local Theme = AltArmy.Theme
 local RepSort = AltArmy.ReputationFactionSort
 local SD = AltArmy.SummaryData
+local CC = AltArmy.ClassColor
+local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 local PAD = 4
 local SECTION_INSET = Theme.TAB_SECTION_INSET
 local SECTION_GAP = Theme.SECTION_GAP
@@ -47,9 +49,7 @@ local function GetReputationSettings()
     return s
 end
 
-local function CharKey(name, realm)
-    return (realm or "") .. "\\" .. (name or "")
-end
+local CharKey = AltArmy.CharKey
 
 local function GetCharSetting(name, realm, key)
     local s = GetReputationSettings()
@@ -64,30 +64,7 @@ local function SetCharSetting(name, realm, pin, hide)
     s.characters[key] = { pin = pin == true, hide = hide == true }
 end
 
-local function GetSortValue(entry, sortKey)
-    if sortKey == "Name" then return entry.name or "" end
-    if sortKey == "Level" then return tonumber(entry.level) or 0 end
-    if sortKey == "Avg Item Level" then return tonumber(entry.avgItemLevel) or 0 end
-    if sortKey == "Time Played" then return tonumber(entry.played) or 0 end
-    return 0
-end
-
-local function CompareBySort(entryA, entryB, primary, secondary)
-    local va = GetSortValue(entryA, primary)
-    local vb = GetSortValue(entryB, primary)
-    if primary == "Name" then
-        if va ~= vb then return va < vb end
-    else
-        if va ~= vb then return va > vb end
-    end
-    va = GetSortValue(entryA, secondary)
-    vb = GetSortValue(entryB, secondary)
-    if secondary == "Name" then
-        return va < vb
-    else
-        return va > vb
-    end
-end
+local CompareBySort = AltArmy.CharacterSort.CompareBySort
 
 -- Session-only: sort columns by reputation with this faction.
 -- Same row: high first -> low first -> off; other row: switch to that faction (high first).
@@ -108,8 +85,7 @@ local function GetDisplayList()
     if #rawList == 0 then return rawList end
 
     local settings = GetReputationSettings()
-    local currentName = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
-    local currentRealm = (GetRealmName and GetRealmName()) or ""
+    local currentRealm = DS and DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm() or ""
 
     local visible = {}
     for i = 1, #rawList do
@@ -144,7 +120,7 @@ local function GetDisplayList()
         local nonPinned = {}
         for i = 1, #visible do
             local e = visible[i]
-            local isSelf = (e.name == currentName and e.realm == currentRealm)
+            local isSelf = DS and DS.IsCurrentCharacter and DS:IsCurrentCharacter(e.name, e.realm)
             if isSelf then
                 selfEntry = e
             elseif GetCharSetting(e.name, e.realm, "pin") then
@@ -384,26 +360,6 @@ local gridContainer = CreateFrame("Frame", nil, horizontalScroll)
 gridContainer:SetPoint("TOPLEFT", horizontalScroll, "TOPLEFT", 0, 0)
 gridContainer:SetHeight(dims.scrollableGridHeight)
 horizontalScroll:SetScrollChild(gridContainer)
-
-local function TruncateName(fontString, fullName, maxWidth)
-    if not fullName or fullName == "" then
-        fontString:SetText("?")
-        return "?"
-    end
-    fontString:SetText(fullName)
-    if fontString:GetStringWidth() <= maxWidth then
-        return fullName
-    end
-    for len = #fullName - 1, 1, -1 do
-        local truncated = fullName:sub(1, len) .. "..."
-        fontString:SetText(truncated)
-        if fontString:GetStringWidth() <= maxWidth then
-            return truncated
-        end
-    end
-    fontString:SetText("...")
-    return "..."
-end
 
 -- Header column pool: same layout as TabGear (name row + message row; Reputation leaves message empty)
 local headerColumnPool = {}
@@ -650,9 +606,8 @@ end
 local function RepCellTooltipTitleClassColored(entry, factionName)
     local n = (entry and entry.name) or "?"
     local r, g, b = 1, 0.82, 0
-    if entry and entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
-        local c = RAID_CLASS_COLORS[entry.classFile]
-        r, g, b = c.r, c.g, c.b
+    if CC and CC.getRGBOr then
+        r, g, b = CC.getRGBOr(entry and entry.classFile, r, g, b)
     end
     local hex = string.format("|cFF%02x%02x%02x", math.floor(r * 255), math.floor(g * 255), math.floor(b * 255))
     return hex .. n .. "|r — " .. (factionName or "?")
@@ -698,7 +653,8 @@ local function UpdateGridWithOffset()
         else
             row.text:SetTextColor(0.9, 0.9, 0.9, 1)
         end
-        local shown = TruncateName(row.text, fr and fr.name or "?", nameMax)
+        local shown = TruncateFontString and TruncateFontString(row.text, fr and fr.name or "?", nameMax)
+            or (fr and fr.name or "?")
         if suffix ~= "" then
             row.text:SetText(shown .. suffix)
         end
@@ -713,9 +669,8 @@ local function UpdateGridWithOffset()
         headerCol:Show()
 
         local classR, classG, classB = 1, 0.82, 0
-        if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
-            local rc = RAID_CLASS_COLORS[entry.classFile]
-            classR, classG, classB = rc.r, rc.g, rc.b
+        if CC and CC.getRGBOr then
+            classR, classG, classB = CC.getRGBOr(entry.classFile, classR, classG, classB)
         end
         headerCol.reputationHeaderColumnIndex = c
         local displayName = entry.name or "?"
@@ -732,7 +687,12 @@ local function UpdateGridWithOffset()
         local baseHeaderMax = dims.columnWidth - 4
         local headerMax = (hdrSuffix ~= "") and (baseHeaderMax - 14) or baseHeaderMax
         headerCol.header:SetTextColor(classR, classG, classB, 1)
-        local shown = TruncateName(headerCol.header, displayName, headerMax)
+        local shown = displayName
+        if TruncateFontString then
+            shown = TruncateFontString(headerCol.header, displayName, headerMax)
+        else
+            headerCol.header:SetText(displayName)
+        end
         if hdrSuffix ~= "" then
             headerCol.header:SetText(shown .. hdrSuffix)
         end

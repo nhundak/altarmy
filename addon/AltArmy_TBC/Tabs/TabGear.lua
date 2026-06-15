@@ -5,6 +5,8 @@ if not frame then return end
 
 local DS = AltArmy.DataStore
 local Theme = AltArmy.Theme
+local CC = AltArmy.ClassColor
+local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 local PAD = 4
 local SECTION_INSET = Theme.TAB_SECTION_INSET
 local SECTION_GAP = Theme.SECTION_GAP
@@ -92,9 +94,7 @@ local function GetSpacingDimensions()
     return cell + rowGap, cell + colGap
 end
 
-local function CharKey(name, realm)
-    return (realm or "") .. "\\" .. (name or "")
-end
+local CharKey = AltArmy.CharKey
 
 local function GetCharSetting(name, realm, key)
     local s = GetGearSettings()
@@ -203,32 +203,7 @@ local function GetItemUseInfo(link)
     return reqLevel, subclass, nil
 end
 
---- Sort value for an entry by key (Name, Level, Avg Item Level, Time Played). Numeric = high first, Name = A–Z.
-local function GetSortValue(entry, sortKey)
-    if sortKey == "Name" then return entry.name or "" end
-    if sortKey == "Level" then return tonumber(entry.level) or 0 end
-    if sortKey == "Avg Item Level" then return tonumber(entry.avgItemLevel) or 0 end
-    if sortKey == "Time Played" then return tonumber(entry.played) or 0 end
-    return 0
-end
-
---- Compare two entries by primary then secondary sort (numeric high-first, string A–Z).
-local function CompareBySort(entryA, entryB, primary, secondary)
-    local va = GetSortValue(entryA, primary)
-    local vb = GetSortValue(entryB, primary)
-    if primary == "Name" then
-        if va ~= vb then return va < vb end
-    else
-        if va ~= vb then return va > vb end
-    end
-    va = GetSortValue(entryA, secondary)
-    vb = GetSortValue(entryB, secondary)
-    if secondary == "Name" then
-        return va < vb
-    else
-        return va > vb
-    end
-end
+local CompareBySort = AltArmy.CharacterSort.CompareBySort
 
 --- Build display list: filter hidden; order = self (if show self first) + pinned + non-pinned.
 --- Optionally re-sort by "who can use" when item dropped.
@@ -238,8 +213,7 @@ local function GetDisplayList()
     if #rawList == 0 then return rawList end
 
     local settings = GetGearSettings()
-    local currentName = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
-    local currentRealm = (GetRealmName and GetRealmName()) or ""
+    local currentRealm = DS and DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm() or ""
 
     -- Filter out hidden
     local visible = {}
@@ -260,7 +234,7 @@ local function GetDisplayList()
     local nonPinned = {}
     for i = 1, #visible do
         local e = visible[i]
-        local isSelf = (e.name == currentName and e.realm == currentRealm)
+        local isSelf = DS and DS.IsCurrentCharacter and DS:IsCurrentCharacter(e.name, e.realm)
         if isSelf and showSelfFirst then
             selfEntry = e
         elseif GetCharSetting(e.name, e.realm, "pin") then
@@ -643,27 +617,6 @@ gridContainer:SetPoint("TOPLEFT", horizontalScroll, "TOPLEFT", 0, 0)
 gridContainer:SetHeight(dims.scrollableGridHeight)
 horizontalScroll:SetScrollChild(gridContainer)
 
--- Truncate name with "..." if it exceeds maxWidth; sets fontString text and returns displayed string.
-local function TruncateName(fontString, fullName, maxWidth)
-    if not fullName or fullName == "" then
-        fontString:SetText("?")
-        return "?"
-    end
-    fontString:SetText(fullName)
-    if fontString:GetStringWidth() <= maxWidth then
-        return fullName
-    end
-    for len = #fullName - 1, 1, -1 do
-        local truncated = fullName:sub(1, len) .. "..."
-        fontString:SetText(truncated)
-        if fontString:GetStringWidth() <= maxWidth then
-            return truncated
-        end
-    end
-    fontString:SetText("...")
-    return "..."
-end
-
 -- Header column pool: name + message per character, in fixed header row (scrolls horizontally)
 local headerColumnPool = {}
 local function GetHeaderColumnFrame(index)
@@ -855,15 +808,16 @@ local function UpdateGridWithOffset()
         if gray then
             classR, classG, classB = 0.5, 0.5, 0.5
         else
-            if entry.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[entry.classFile] then
-                local rc = RAID_CLASS_COLORS[entry.classFile]
-                classR, classG, classB = rc.r, rc.g, rc.b
+            if CC and CC.getRGBOr then
+                classR, classG, classB = CC.getRGBOr(entry.classFile, classR, classG, classB)
             end
         end
         headerCol.classR, headerCol.classG, headerCol.classB = classR, classG, classB
         local displayName = entry.name or "?"
         headerCol.header:SetTextColor(classR, classG, classB, 1)
-        TruncateName(headerCol.header, displayName, dims.columnWidth - 4)
+        if TruncateFontString then
+            TruncateFontString(headerCol.header, displayName, dims.columnWidth - 4)
+        end
         headerCol.truncated = (headerCol.header:GetText() ~= displayName)
         local realmFilter = "all"
         local GRF = AltArmy.GlobalRealmFilter

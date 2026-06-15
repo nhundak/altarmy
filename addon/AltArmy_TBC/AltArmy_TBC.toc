@@ -7,7 +7,9 @@
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
 UI\Theme.lua
+UI\Text.lua
 Core.lua
+Data\CharKey.lua
 Data\Debug.lua
 Data\DataStore.lua
 Data\CooldownData.lua
@@ -25,10 +27,12 @@ Data\DataStoreMail.lua
 Data\DataStoreAuctions.lua
 Data\SummaryData.lua
 Data\RealmFilter.lua
+Data\ClassColor.lua
 Data\GlobalRealmFilter.lua
 Data\Characters.lua
 Data\SearchData.lua
 ReputationFactionFilter.lua
+Data\CharacterSort.lua
 ReputationFactionSort.lua
 UI\CharacterPinHideList.lua
 UI\ItemActions.lua

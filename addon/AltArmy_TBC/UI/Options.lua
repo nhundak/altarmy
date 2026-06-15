@@ -76,18 +76,8 @@ end
 -- square when tcoords are unavailable (e.g. unknown class).
 -- ---------------------------------------------------------------------------
 
--- Class color lookup (classFile -> r, g, b) — defined first so SetCharIcon can use it.
-local CLASS_COLORS = {
-    WARRIOR  = { 0.78, 0.61, 0.43 },
-    PALADIN  = { 0.96, 0.55, 0.73 },
-    HUNTER   = { 0.67, 0.83, 0.45 },
-    ROGUE    = { 1.00, 0.96, 0.41 },
-    PRIEST   = { 1.00, 1.00, 1.00 },
-    SHAMAN   = { 0.00, 0.44, 0.87 },
-    MAGE     = { 0.41, 0.80, 0.94 },
-    WARLOCK  = { 0.58, 0.51, 0.79 },
-    DRUID    = { 1.00, 0.49, 0.04 },
-}
+-- Class color lookup via AltArmy.ClassColor (classFile -> r, g, b).
+local CC = AltArmy.ClassColor
 
 local CLASS_ICON_SHEET = "Interface\\WorldStateFrame\\Icons-Classes"
 
@@ -101,9 +91,9 @@ local function SetCharIcon(icon, iconFallback, classFile)
     else
         icon:SetTexture(nil)
         icon:Hide()
-        local c = CLASS_COLORS[classFile]
-        if c then
-            iconFallback:SetColorTexture(c[1], c[2], c[3], 0.9)
+        if CC and CC.getRGBOr then
+            local r, g, b = CC.getRGBOr(classFile, 0.5, 0.5, 0.5)
+            iconFallback:SetColorTexture(r, g, b, 0.9)
         else
             iconFallback:SetColorTexture(0.5, 0.5, 0.5, 0.9)
         end
@@ -116,24 +106,21 @@ end
 -- ---------------------------------------------------------------------------
 
 local function IsCurrentCharacter(name, realm)
-    local curName = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
-    local curRealm = (GetRealmName and GetRealmName()) or ""
-    return name == curName and realm == curRealm
+    local DS = AltArmy.DataStore
+    return DS and DS.IsCurrentCharacter and DS:IsCurrentCharacter(name, realm)
 end
 
 local function GetSortedCharacters()
     local DS = AltArmy.DataStore
-    if not DS or not DS.GetRealms then return {} end
+    if not DS or not DS.ForEachCharacter then return {} end
     local list = {}
-    for realm in pairs(DS:GetRealms()) do
-        for charName, charData in pairs(DS:GetCharacters(realm)) do
-            list[#list + 1] = {
-                name      = charData.name or charName,
-                realm     = realm,
-                classFile = charData.classFile or "",
-            }
-        end
-    end
+    DS:ForEachCharacter(function(realm, charName, charData)
+        list[#list + 1] = {
+            name      = charData.name or charName,
+            realm     = realm,
+            classFile = charData.classFile or "",
+        }
+    end)
     table.sort(list, function(a, b)
         if a.name ~= b.name then return a.name < b.name end
         return a.realm < b.realm
@@ -638,12 +625,11 @@ local function RefreshCharacterList_impl()
                 entry.classFile
             ))
         else
-            local rc = RAID_CLASS_COLORS and entry.classFile and RAID_CLASS_COLORS[entry.classFile]
-            if rc then
-                row.label:SetTextColor(rc.r, rc.g, rc.b, 1)
-            else
-                row.label:SetTextColor(1, 1, 1, 1)
+            local r, g, b = 1, 1, 1
+            if CC and CC.getRGBOr then
+                r, g, b = CC.getRGBOr(entry.classFile, r, g, b)
             end
+            row.label:SetTextColor(r, g, b, 1)
             row.label:SetText((entry.name or "") .. " - " .. (entry.realm or ""))
         end
 

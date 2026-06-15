@@ -19,6 +19,7 @@ describe("ReputationFactionSort", function()
     package.path = package.path .. ";AltArmy_TBC/?.lua;AltArmy_TBC/Data/?.lua"
     require("DataStore")
     require("DataStoreReputations")
+    require("CharacterSort")
     assert(loadfile("AltArmy_TBC/ReputationFactionSort.lua"))()
     DS = AltArmy.DataStore
     RepSort = AltArmy.ReputationFactionSort

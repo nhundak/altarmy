@@ -85,17 +85,13 @@ end
 function AltArmy.SummaryData.GetCharacterList()
     local list = {}
     local DS = AltArmy.DataStore
-    if not DS or not DS.GetRealms or not DS.GetCharacters then
+    if not DS or not DS.ForEachCharacter then
         return list
     end
 
-    local currentRealm = GetRealmName and GetRealmName() or ""
-    local currentName = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
-
-    for realm in pairs(DS:GetRealms()) do
-        for charName, charData in pairs(DS:GetCharacters(realm)) do
+    DS:ForEachCharacter(function(realm, charName, charData)
             local name = DS:GetCharacterName(charData) or charName
-            local isCurrent = (name == currentName and realm == currentRealm)
+            local isCurrent = DS:IsCurrentCharacter(name, realm)
             local level = DS:GetCharacterLevel(charData) or 0
             -- Fractional level (level + xp progress) for display with one decimal, rounded down
             local xp = isCurrent and (UnitXP and UnitXP("player")) or charData.xp
@@ -151,8 +147,7 @@ function AltArmy.SummaryData.GetCharacterList()
                 equipmentCount = equipmentCount,
                 avgItemLevel = avgItemLevel,
             })
-        end
-    end
+    end)
     return list
 end
 
@@ -309,10 +304,10 @@ end
 function AltArmy.SummaryData.GetMissingDataTooltip(name, realm, classFile)
     local info = AltArmy.SummaryData.GetMissingDataInfo(name, realm)
     if not info or not info.hasMissing then return nil, nil end
+    local CC = AltArmy.ClassColor
     local r, g, b = 1, 0.82, 0
-    if classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile] then
-        local c = RAID_CLASS_COLORS[classFile]
-        r, g, b = c.r, c.g, c.b
+    if CC and CC.getRGBOr then
+        r, g, b = CC.getRGBOr(classFile, r, g, b)
     end
     local hex = string.format("|cFF%02x%02x%02x", math.floor(r * 255), math.floor(g * 255), math.floor(b * 255))
     local n = name or ""
