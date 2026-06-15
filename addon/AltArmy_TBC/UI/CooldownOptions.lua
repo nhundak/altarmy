@@ -18,32 +18,19 @@ local BLOCK_GAP = 18
 
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 
-local scroll = CreateFrame("ScrollFrame", "AltArmyTBC_CooldownOptionsScroll", host)
-scroll:SetPoint("TOPLEFT", host, "TOPLEFT", LEFT_INSET, -4)
-scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -SCROLL_GUTTER, 4)
-
-local scrollBar = CreateFrame("Slider", nil, panel)
-scrollBar:SetMinMaxValues(0, 0)
-scrollBar:SetValue(0)
-scrollBar:SetValueStep(20)
-Theme.AnchorVerticalScrollBar(scrollBar, panel, scroll)
-
-local scrollChild = CreateFrame("Frame", nil, scroll)
-scroll:SetScrollChild(scrollChild)
-
-scrollBar:SetScript("OnValueChanged", function(_, v)
-    scroll:SetVerticalScroll(v)
-end)
-
-scroll:SetScript("OnMouseWheel", function(_, delta)
-    local cur = scrollBar:GetValue()
-    local lo, hi = scrollBar:GetMinMaxValues()
-    scrollBar:SetValue(math.max(lo, math.min(hi, cur - delta * 40)))
-end)
-
-scroll:SetScript("OnSizeChanged", function(s, w)
-    scrollChild:SetWidth(math.max(1, w or s:GetWidth() or 1))
-end)
+local cooldownViewport = Theme.CreateVerticalScrollViewport({
+    name = "AltArmyTBC_CooldownOptionsScroll",
+    parent = host,
+    gutterEdge = panel,
+    anchorTop = { "TOPLEFT", host, "TOPLEFT", LEFT_INSET, -4 },
+    anchorBottom = { "BOTTOMRIGHT", panel, "BOTTOMRIGHT", -SCROLL_GUTTER, 4 },
+    wheelStep = 40,
+    valueStep = 20,
+    wheelOnChild = false,
+    wheelSource = "slider",
+    minScrollToShow = 1,
+})
+local scrollChild = cooldownViewport.child
 
 panel.cooldownWidgets = {}
 
@@ -286,17 +273,8 @@ end
 scrollChild:SetHeight(math.max(totalHeight + 24, 120))
 
 local function UpdateCooldownScrollRange()
-    local viewH = scroll:GetHeight()
-    local contentH = scrollChild:GetHeight()
-    if viewH <= 0 then return end
-    local maxScroll = math.max(0, contentH - viewH)
-    scrollBar:SetMinMaxValues(0, maxScroll)
-    scrollBar:SetShown(maxScroll > 1)
+    cooldownViewport:UpdateRange()
 end
-
-scroll:HookScript("OnSizeChanged", function()
-    UpdateCooldownScrollRange()
-end)
 
 local function RefreshCooldownOptionsFromVars()
     CD.EnsureCooldownOptions()

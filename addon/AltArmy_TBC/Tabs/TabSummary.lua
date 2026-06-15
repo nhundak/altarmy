@@ -345,67 +345,21 @@ totalsRow:SetPoint("BOTTOMLEFT", horizontalScrollChild, "BOTTOMLEFT", 0, 0)
 totalsRow:SetPoint("BOTTOMRIGHT", horizontalScrollChild, "BOTTOMRIGHT", 0, 0)
 
 -- Horizontal scroll bar at bottom of list area (like Gear tab)
-local horizontalScrollBar = CreateFrame("Slider", "AltArmyTBC_SummaryHorizontalScrollBar", tabContentInner)
-horizontalScrollBar:SetHeight(HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
-horizontalScrollBar:SetOrientation("HORIZONTAL")
-horizontalScrollBar:SetMinMaxValues(0, 0)
-horizontalScrollBar:SetValueStep(1)
-horizontalScrollBar:SetValue(0)
-horizontalScrollBar:EnableMouse(true)
-local lastHorizontalScrollValue = nil
-local horizontalBarDragging = false
-local horizontalDragStartX = 0
-local horizontalDragStartValue = 0
-local function ApplySummaryHorizontalScrollValue(value)
-    if not horizontalScroll then return end
-    lastHorizontalScrollValue = value
-    if horizontalScroll.UpdateScrollChildRect then
-        horizontalScroll:UpdateScrollChildRect()
-    end
-    horizontalScroll:SetHorizontalScroll(value)
-end
-local function SyncSummaryHorizontalScrollPosition()
-    if not (horizontalScroll and horizontalScrollBar) then return end
-    local value = horizontalScrollBar:GetValue()
-    if lastHorizontalScrollValue == value then return end
-    ApplySummaryHorizontalScrollValue(value)
-end
-horizontalScrollBar:SetScript("OnValueChanged", function(_, _value)
-    SyncSummaryHorizontalScrollPosition()
-end)
-horizontalScrollBar:SetScript("OnMouseDown", function(_, button)
-    if button ~= "LeftButton" then return end
-    horizontalBarDragging = true
-    horizontalDragStartX = select(1, GetCursorPosition())
-    horizontalDragStartValue = horizontalScrollBar:GetValue()
-end)
-horizontalScrollBar:SetScript("OnUpdate", function()
-    if not frame:IsShown() then return end
-    if horizontalBarDragging then
-        if not IsMouseButtonDown(1) then
-            horizontalBarDragging = false
-        else
-            local minVal, maxVal = horizontalScrollBar:GetMinMaxValues()
-            local barWidth = horizontalScrollBar:GetWidth()
-            if barWidth and barWidth > 0 and maxVal > minVal then
-                local scale = (horizontalScrollBar.GetEffectiveScale and horizontalScrollBar:GetEffectiveScale())
-                    or (UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
-                if scale <= 0 then scale = 1 end
-                local cursorX = select(1, GetCursorPosition()) / scale
-                local startX = horizontalDragStartX / scale
-                local deltaX = cursorX - startX
-                local value = horizontalDragStartValue + deltaX * (maxVal - minVal) / barWidth
-                value = math.max(minVal, math.min(maxVal, value))
-                horizontalScrollBar:SetValue(value)
-                ApplySummaryHorizontalScrollValue(value)
-            end
-        end
-    end
-end)
-Theme.SetupScrollBar(horizontalScrollBar, {
-    horizontal = true,
+local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
+    name = "AltArmyTBC_SummaryHorizontalScrollBar",
     thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
+    onScroll = function(value)
+        if not horizontalScroll then return end
+        if horizontalScroll.UpdateScrollChildRect then
+            horizontalScroll:UpdateScrollChildRect()
+        end
+        horizontalScroll:SetHorizontalScroll(value)
+    end,
+    isShown = function()
+        return frame:IsShown()
+    end,
 })
+local horizontalScrollBar = horizontalScrollApi.bar
 
 -- Summary settings panel (right 40% when visible; same layout as Gear tab)
 local SUMMARY_SETTINGS_SPLIT = 0.6
@@ -709,15 +663,14 @@ Update = function()
             end
             horizontalScrollChild:SetHeight(vh)
             local maxHorzScroll = math.max(0, totalColWidth - vw)
-            horizontalScrollBar:SetMinMaxValues(0, maxHorzScroll)
-            horizontalScrollBar:SetValueStep(1)
+            horizontalScrollApi:SetRange(0, maxHorzScroll)
             horizontalScrollBar:SetShown(maxHorzScroll > 0)
             local hVal = horizontalScrollBar:GetValue()
             if hVal > maxHorzScroll then
                 horizontalScrollBar:SetValue(maxHorzScroll)
-                ApplySummaryHorizontalScrollValue(maxHorzScroll)
+                horizontalScrollApi:Apply(maxHorzScroll)
             else
-                SyncSummaryHorizontalScrollPosition()
+                horizontalScrollApi:Sync()
             end
         end
     end

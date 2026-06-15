@@ -9,16 +9,18 @@ partly separated from UI (e.g. `ProgressionGraphLogic.lua`), and modules are coh
 main opportunities are **cross-cutting duplication** and a few **oversized files/functions**
 that mix concerns.
 
-> Status: **§1 implemented** (June 2026). §2–§6 are still open. Line numbers in §2–§6 are
+> Status: **§1 implemented** (June 2026). **§2 partial** — safe-wave UI factories done (June 2026).
+> §2 grid/sort-panel/virtual-list and §3–§6 are still open. Line numbers in §2–§6 are
 > approximate and reflect the codebase at review time.
 
 ## Suggested order of attack
 
 1. ~~**Quick utility extractions** (low risk, broad payoff) — shared helpers below.~~ **Done** (see §1).
-2. **Theme constants + tokens** — centralize magic numbers, adopt existing color helpers.
-3. **Shared UI factories** — scroll helpers, theme checkbox, scrollable grid + settings panel.
-4. **File splits** — `TabCooldowns`, `DataStore` deferred timers, `Options` sub-tabs.
-5. **Cleanup** — remove dead code; review the cooldown-expiry write path as a possible bug.
+3. ~~**Shared UI factories (safe wave)** — horizontal scrollbar, vertical scroll viewport, theme checkbox.~~ **Done** (see §2).
+4. **Shared UI factories (remaining)** — scrollable grid + sort settings panel + virtual list.
+5. **Theme constants + tokens** — centralize magic numbers, adopt existing color helpers.
+6. **File splits** — `TabCooldowns`, `DataStore` deferred timers, `Options` sub-tabs.
+7. **Cleanup** — remove dead code; review the cooldown-expiry write path as a possible bug.
 
 ---
 
@@ -45,27 +47,28 @@ sites migrated; unit tests added under `spec/Data/` and `spec/UI/`.
 
 ## 2. Repeated UI scaffolding (high impact, medium risk)
 
-The Tabs duplicate large, structural UI assemblies:
+The Tabs duplicate large, structural UI assemblies. **Safe wave (June 2026)** extracted three
+helpers into [`UI/Theme.lua`](../AltArmy_TBC/UI/Theme.lua); call sites migrated; tests in
+[`spec/UI/theme_spec.lua`](../spec/UI/theme_spec.lua).
 
-- **Scrollable character grid (~250–300 lines duplicated):** `TabGear` (~502–780) and
-  `TabReputation` (~252–550) are two skins of the same two-axis scroll grid (vertical scroll
-  child, fixed header row, horizontal scroll, scrollbars, wheel handlers).
-  → Extract `Theme.CreateScrollableGrid(opts)`.
-- **Character sort settings panel (~140 lines, near-verbatim):** `TabGear` (~1046–1249) vs
-  `TabReputation` (~983–1164) differ only in the saved-var key and refresh callback.
-  → `AltArmy.UI.CharacterSortSettingsPanel(frame, opts)`.
-- **Horizontal scrollbar + drag-to-scroll (~45 lines × 4):** `TabSummary`, `TabSearch`,
-  `TabGear`, `TabReputation`. Identical scale-aware cursor math.
-  → `Theme.CreateHorizontalScrollBar(parent, opts)`.
-- **Vertical scroll viewport (3 copies with drift):** `CharacterPinHideList`, `Options`,
-  `CooldownOptions` reimplement ScrollFrame+Slider+wheel with different wheel multipliers and
-  inconsistent resize clamping. → `Theme.CreateVerticalScrollViewport(opts)`.
-- **Theme checkbox construction (3×):** `Theme.CreateLabeledCheckbox`, plus two manual copies
-  in `CharacterPinHideList`; `TabProgression` uses raw `UICheckButtonTemplate`.
-  → `Theme.CreateThemeCheckbox(parent, size)`.
-- **Virtualized row list:** Reimplemented in `TabSearch`, `TabSummary`, `TabCooldowns`.
-  `TabSearch.UpdateVisibleRows` (~716–920) repeats the same block three times
-  (items/recipes/tooltip-only). → a generic `VirtualList` helper.
+| Item | Status | Resolution |
+|------|--------|------------|
+| **Horizontal scrollbar + drag-to-scroll** (~45 lines × 4) | **Done** | `Theme.CreateHorizontalScrollBar(parent, opts)` + `Theme.HorizontalDragValue` — adopted in `TabGear`, `TabReputation`, `TabSummary`, `TabSearch` |
+| **Vertical scroll viewport** (3 copies with drift) | **Done** | `Theme.CreateVerticalScrollViewport(opts)` + `Theme.ScrollMax` / `Theme.ClampScroll` — adopted in `CharacterPinHideList`, `Options` char list, `CooldownOptions`; unified clamp-on-range-shrink |
+| **Theme checkbox construction** (3×) | **Done** | `Theme.CreateThemeCheckbox(parent, size)` — `CreateLabeledCheckbox` refactored; adopted in `CharacterPinHideList` (pin/hide), `TabProgression` (replaces `UICheckButtonTemplate`) |
+| **Scrollable character grid** (~250–300 lines duplicated) | Open | `TabGear` / `TabReputation` two-axis scroll grid → `Theme.CreateScrollableGrid(opts)` |
+| **Character sort settings panel** (~140 lines) | Open | `TabGear` / `TabReputation` near-verbatim panel → `AltArmy.UI.CharacterSortSettingsPanel(frame, opts)` |
+| **Virtualized row list** | Open | `TabSearch`, `TabSummary`, `TabCooldowns` → generic `VirtualList` helper |
+
+**Still open (detail):**
+
+- **Scrollable character grid:** `TabGear` (~502–780) and `TabReputation` (~252–550) are two
+  skins of the same two-axis scroll grid (vertical scroll child, fixed header row, horizontal
+  scroll, scrollbars, wheel handlers).
+- **Character sort settings panel:** `TabGear` (~1046–1249) vs `TabReputation` (~983–1164)
+  differ mainly in saved-var key and refresh callback.
+- **Virtualized row list:** `TabSearch.UpdateVisibleRows` (~716–920) repeats the same block
+  three times (items/recipes/tooltip-only).
 
 ---
 

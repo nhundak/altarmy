@@ -506,36 +506,19 @@ charListFrame:SetPoint("RIGHT",   tabCharacters, "CENTER", -COL_GAP / 2, 0)
 charListFrame:SetHeight(LIST_HEIGHT)
 
 -- ScrollFrame clips the visible area; scrollChild holds all rows.
-local scrollFrame = CreateFrame("ScrollFrame", nil, charListFrame)
-scrollFrame:SetPoint("TOPLEFT",     charListFrame, "TOPLEFT",     4,                 -4)
-scrollFrame:SetPoint("BOTTOMRIGHT", charListFrame, "BOTTOMRIGHT", -SCROLL_GUTTER, 4)
-scrollFrame:EnableMouseWheel(true)
-
-local scrollChild = CreateFrame("Frame")
-scrollChild:SetWidth(1)
-scrollChild:SetHeight(1)
-scrollFrame:SetScrollChild(scrollChild)
-
-scrollFrame:SetScript("OnSizeChanged", function(_, w)
-    scrollChild:SetWidth(w)
-end)
-
--- Scrollbar
-local scrollBar = CreateFrame("Slider", nil, charListFrame)
-scrollBar:SetMinMaxValues(0, 0)
-scrollBar:SetValueStep(ROW_STRIDE)
-scrollBar:SetValue(0)
-Theme.AnchorVerticalScrollBar(scrollBar, charListFrame, scrollFrame)
-
-scrollBar:SetScript("OnValueChanged", function(_, value)
-    scrollFrame:SetVerticalScroll(value)
-end)
-
-scrollFrame:SetScript("OnMouseWheel", function(_, delta)
-    local cur = scrollBar:GetValue()
-    local lo, hi = scrollBar:GetMinMaxValues()
-    scrollBar:SetValue(math.max(lo, math.min(hi, cur - delta * ROW_STRIDE * 3)))
-end)
+local charListViewport = Theme.CreateVerticalScrollViewport({
+    parent = charListFrame,
+    gutterEdge = charListFrame,
+    anchorTop = { "TOPLEFT", charListFrame, "TOPLEFT", 4, -4 },
+    anchorBottom = { "BOTTOMRIGHT", charListFrame, "BOTTOMRIGHT", -SCROLL_GUTTER, 4 },
+    wheelStep = ROW_STRIDE * 3,
+    valueStep = ROW_STRIDE,
+    enableMouseWheel = true,
+    wheelOnChild = false,
+    wheelSource = "slider",
+    fallbackViewHeight = LIST_HEIGHT - 8,
+})
+local scrollChild = charListViewport.child
 
 -- Row pool — rows are Buttons parked under charListFrame when pooled.
 local rowPool    = {}
@@ -597,13 +580,7 @@ local function RefreshCharacterList_impl()
 
     local totalH = math.max(1, #chars * ROW_STRIDE)
     scrollChild:SetHeight(totalH)
-    local viewH = scrollFrame:GetHeight()
-    if viewH <= 0 then viewH = LIST_HEIGHT - 8 end
-    local maxScroll = math.max(0, totalH - viewH)
-    local prevScroll = scrollBar:GetValue()
-    scrollBar:SetMinMaxValues(0, maxScroll)
-    scrollBar:SetValue(math.min(prevScroll, maxScroll))
-    scrollBar:SetShown(maxScroll > 0)
+    charListViewport:UpdateRange()
 
     for i, entry in ipairs(chars) do
         local row = AcquireRow()

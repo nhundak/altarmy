@@ -26,62 +26,22 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
     -- Align scrollbar with section border (same as main tab listViewport + tabContentPanel).
     local gutterEdge = opts.gutterEdge or parent
 
-    local scroll = CreateFrame("ScrollFrame", nil, parent)
-    scroll:SetPoint("TOPLEFT", anchorBelow, "BOTTOMLEFT", 0, -8)
     local bottomInset = opts.bottomInset ~= nil and opts.bottomInset or CHAR_LIST_BOTTOM_INSET
+    local viewport = Theme.CreateVerticalScrollViewport({
+        parent = parent,
+        gutterEdge = gutterEdge,
+        wheelStep = CHAR_LIST_ROW * 2,
+        valueStep = CHAR_LIST_ROW,
+        enableMouse = true,
+        wheelSource = "scroll",
+        wheelOnChild = true,
+    })
+    local scroll = viewport.scroll
+    scroll:SetPoint("TOPLEFT", anchorBelow, "BOTTOMLEFT", 0, -8)
     scroll:SetPoint("BOTTOMRIGHT", gutterEdge, "BOTTOMRIGHT", -SCROLL_GUTTER, bottomInset)
-    scroll:EnableMouse(true)
-
-    local scrollBar = CreateFrame("Slider", nil, gutterEdge)
-    scrollBar:SetMinMaxValues(0, 0)
-    scrollBar:SetValueStep(CHAR_LIST_ROW)
-    scrollBar:SetValue(0)
-    scrollBar:EnableMouse(true)
-    Theme.AnchorVerticalScrollBar(scrollBar, gutterEdge, scroll)
+    local scrollBar = viewport.scrollBar
     scroll.scrollBar = scrollBar
-
-    local child = CreateFrame("Frame", nil, scroll)
-    child:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, 0)
-    child:SetWidth(1)
-    scroll:SetScrollChild(child)
-
-    local function UpdateScrollbar()
-        local viewH = scroll:GetHeight() or 0
-        local maxScroll = math.max(0, child:GetHeight() - viewH)
-        local cur = scroll:GetVerticalScroll()
-        scrollBar:SetMinMaxValues(0, maxScroll)
-        scrollBar:SetValueStep(CHAR_LIST_ROW)
-        if cur > maxScroll then
-            cur = maxScroll
-            scroll:SetVerticalScroll(cur)
-        end
-        scrollBar:SetValue(cur)
-        scrollBar:SetShown(maxScroll > 0)
-    end
-
-    local function ApplyScrollOffset(offset)
-        local maxScroll = math.max(0, child:GetHeight() - (scroll:GetHeight() or 0))
-        local value = math.max(0, math.min(maxScroll, offset))
-        scroll:SetVerticalScroll(value)
-        scrollBar:SetValue(value)
-    end
-
-    scrollBar:SetScript("OnValueChanged", function(_, value)
-        scroll:SetVerticalScroll(value)
-    end)
-
-    scroll:SetScript("OnMouseWheel", function(_, delta)
-        ApplyScrollOffset(scroll:GetVerticalScroll() - delta * CHAR_LIST_ROW * 2)
-    end)
-
-    child:SetScript("OnMouseWheel", function(_, delta)
-        ApplyScrollOffset(scroll:GetVerticalScroll() - delta * CHAR_LIST_ROW * 2)
-    end)
-
-    scroll:SetScript("OnSizeChanged", function()
-        child:SetWidth(scroll:GetWidth() or 350)
-        UpdateScrollbar()
-    end)
+    local child = viewport.child
 
     local rowPool = {}
     local function SetPinRegionHover(row, on)
@@ -112,16 +72,8 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
             row.pinRegion:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
             Theme.InstallHoverTint(row.pinRegion)
 
-            row.hideBtn = CreateFrame("CheckButton", nil, row)
+            row.hideBtn = Theme.CreateThemeCheckbox(row)
             row.hideBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-            row.hideBtn:SetSize(18, 18)
-            local hideBg = row.hideBtn:CreateTexture(nil, "BACKGROUND")
-            hideBg:SetAllPoints(row.hideBtn)
-            Theme.ApplyCheckboxBackground(hideBg)
-            row.hideBtn.tex = row.hideBtn:CreateTexture(nil, "OVERLAY")
-            row.hideBtn.tex:SetAllPoints(row.hideBtn)
-            row.hideBtn.tex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-            row.hideBtn:SetCheckedTexture(row.hideBtn.tex)
             row.hideLabel = row.hideBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             row.hideLabel:SetPoint("RIGHT", row.hideBtn, "LEFT", -2, 0)
             row.hideLabel:SetText("Hide")
@@ -140,16 +92,8 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
             row.nameText:SetJustifyH("LEFT")
             row.nameText:SetWordWrap(false)
 
-            row.pinBtn = CreateFrame("CheckButton", nil, row)
+            row.pinBtn = Theme.CreateThemeCheckbox(row)
             row.pinBtn:SetPoint("RIGHT", row, "RIGHT", -60, 0)
-            row.pinBtn:SetSize(18, 18)
-            local pinBg = row.pinBtn:CreateTexture(nil, "BACKGROUND")
-            pinBg:SetAllPoints(row.pinBtn)
-            Theme.ApplyCheckboxBackground(pinBg)
-            row.pinBtn.tex = row.pinBtn:CreateTexture(nil, "OVERLAY")
-            row.pinBtn.tex:SetAllPoints(row.pinBtn)
-            row.pinBtn.tex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-            row.pinBtn:SetCheckedTexture(row.pinBtn.tex)
             row.pinLabel = row.pinBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             row.pinLabel:SetPoint("RIGHT", row.pinBtn, "LEFT", -2, 0)
             row.pinLabel:SetText("Pin")
@@ -235,7 +179,7 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
         local n = #list
         child:SetWidth(scroll:GetWidth() or 350)
         child:SetHeight(math.max(1, n * CHAR_LIST_ROW))
-        UpdateScrollbar()
+        viewport:UpdateRange()
         for i = 1, n do
             local entry = list[i]
             local row = GetRow(i)

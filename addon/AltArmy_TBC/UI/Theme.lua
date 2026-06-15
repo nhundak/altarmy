@@ -616,6 +616,229 @@ function Theme.StyleHorizontalScrollBar(slider, opts)
     Theme.SetupScrollBar(slider, o)
 end
 
+--- Scale-aware horizontal drag math shared by tab horizontal scroll bars.
+function Theme.HorizontalDragValue(startValue, cursorPx, startPx, scale, barWidth, minVal, maxVal)
+    if not barWidth or barWidth <= 0 or not scale or scale <= 0 or maxVal <= minVal then
+        return startValue
+    end
+    local cursorX = cursorPx / scale
+    local startX = startPx / scale
+    local deltaX = cursorX - startX
+    local value = startValue + deltaX * (maxVal - minVal) / barWidth
+    return math.max(minVal, math.min(maxVal, value))
+end
+
+--- Horizontal scrollbar with manual scale-aware thumb drag (TBC Slider workaround).
+--- opts: name, thickness, onScroll(value), isShown() -> bool
+function Theme.CreateHorizontalScrollBar(parent, opts)
+    opts = opts or {}
+    local bar = CreateFrame("Slider", opts.name, parent)
+    bar:SetOrientation("HORIZONTAL")
+    bar:SetMinMaxValues(0, 0)
+    bar:SetValueStep(1)
+    bar:SetValue(0)
+    bar:EnableMouse(true)
+
+    local lastValue = nil
+    local dragging = false
+    local dragStartX = 0
+    local dragStartValue = 0
+
+    local function apply(value)
+        lastValue = value
+        if opts.onScroll then
+            opts.onScroll(value)
+        end
+    end
+
+    local function sync()
+        local value = bar:GetValue()
+        if lastValue == value then return end
+        apply(value)
+    end
+
+    bar:SetScript("OnValueChanged", function()
+        sync()
+    end)
+
+    bar:SetScript("OnMouseDown", function(_, button)
+        if button ~= "LeftButton" then return end
+        dragging = true
+        dragStartX = select(1, GetCursorPosition())
+        dragStartValue = bar:GetValue()
+    end)
+
+    bar:SetScript("OnUpdate", function()
+        if opts.isShown and not opts.isShown() then return end
+        if not dragging then return end
+        if not IsMouseButtonDown(1) then
+            dragging = false
+            return
+        end
+        local minVal, maxVal = bar:GetMinMaxValues()
+        local barWidth = bar:GetWidth()
+        if barWidth and barWidth > 0 and maxVal > minVal then
+            local scale = (bar.GetEffectiveScale and bar:GetEffectiveScale())
+                or (UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
+            if scale <= 0 then scale = 1 end
+            local cursorX = select(1, GetCursorPosition())
+            local value = Theme.HorizontalDragValue(
+                dragStartValue, cursorX, dragStartX, scale, barWidth, minVal, maxVal)
+            bar:SetValue(value)
+            apply(value)
+        end
+    end)
+
+    if opts.thickness then
+        bar:SetHeight(opts.thickness)
+    end
+    Theme.SetupScrollBar(bar, {
+        horizontal = true,
+        thickness = opts.thickness,
+    })
+
+    local api = {}
+    api.bar = bar
+
+    function api:SetRange(minVal, maxVal)
+        bar:SetMinMaxValues(minVal, maxVal)
+    end
+
+    function api:Apply(value)
+        apply(value)
+    end
+
+    function api:Sync()
+        sync()
+    end
+
+    function api:Reset()
+        bar:SetValue(0)
+        apply(0)
+    end
+
+    return api
+end
+
+--- Max vertical scroll offset from content and viewport heights.
+function Theme.ScrollMax(childHeight, viewHeight)
+    return math.max(0, (childHeight or 0) - (viewHeight or 0))
+end
+
+--- Clamp a scroll offset to [0, maxScroll].
+function Theme.ClampScroll(offset, maxScroll)
+    return math.max(0, math.min(maxScroll or 0, offset or 0))
+end
+
+--- Vertical ScrollFrame + Slider + wheel handler with unified range/clamp behavior.
+--- opts: parent, gutterEdge, name, anchorTop/anchorBottom tables {point, rel, relPoint, x, y},
+--- valueStep, wheelStep, wheelSource ("scroll"|"slider"), wheelOnChild, enableMouse, enableMouseWheel,
+--- syncChildWidth, fallbackViewHeight, minScrollToShow
+function Theme.CreateVerticalScrollViewport(opts)
+    opts = opts or {}
+    local parent = opts.parent
+    local gutterEdge = opts.gutterEdge or parent
+    local scroll = CreateFrame("ScrollFrame", opts.name, parent)
+
+    local function anchorFrame(frame, spec)
+        if spec then
+            frame:SetPoint(spec[1], spec[2], spec[3], spec[4], spec[5])
+        end
+    end
+    anchorFrame(scroll, opts.anchorTop)
+    anchorFrame(scroll, opts.anchorBottom)
+
+    if opts.enableMouse then
+        scroll:EnableMouse(true)
+    end
+    if opts.enableMouseWheel then
+        scroll:EnableMouseWheel(true)
+    end
+
+    local valueStep = opts.valueStep or Theme.CHAR_LIST_ROW_HEIGHT
+    local wheelStep = opts.wheelStep or (valueStep * 2)
+    local wheelSource = opts.wheelSource or "scroll"
+    local wheelOnChild = opts.wheelOnChild ~= false
+    local minScrollToShow = opts.minScrollToShow or 0
+
+    local scrollBar = CreateFrame("Slider", nil, gutterEdge)
+    scrollBar:SetMinMaxValues(0, 0)
+    scrollBar:SetValueStep(valueStep)
+    scrollBar:SetValue(0)
+    scrollBar:EnableMouse(true)
+    Theme.AnchorVerticalScrollBar(scrollBar, gutterEdge, scroll)
+
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, 0)
+    child:SetWidth(opts.childWidth or 1)
+    scroll:SetScrollChild(child)
+
+    local function viewHeight()
+        local h = scroll:GetHeight() or 0
+        if h <= 0 and opts.fallbackViewHeight then
+            return opts.fallbackViewHeight
+        end
+        return h
+    end
+
+    local function maxScroll()
+        return Theme.ScrollMax(child:GetHeight(), viewHeight())
+    end
+
+    local function setOffset(offset)
+        local maxVal = maxScroll()
+        local value = Theme.ClampScroll(offset, maxVal)
+        scroll:SetVerticalScroll(value)
+        scrollBar:SetValue(value)
+    end
+
+    local function updateRange()
+        local maxVal = maxScroll()
+        local cur = scroll:GetVerticalScroll()
+        cur = Theme.ClampScroll(cur, maxVal)
+        scroll:SetVerticalScroll(cur)
+        scrollBar:SetMinMaxValues(0, maxVal)
+        scrollBar:SetValueStep(valueStep)
+        scrollBar:SetValue(cur)
+        scrollBar:SetShown(maxVal > minScrollToShow)
+    end
+
+    scrollBar:SetScript("OnValueChanged", function(_, value)
+        scroll:SetVerticalScroll(value)
+    end)
+
+    local function onWheel(_, delta)
+        if wheelSource == "slider" then
+            local cur = scrollBar:GetValue()
+            local lo, hi = scrollBar:GetMinMaxValues()
+            scrollBar:SetValue(math.max(lo, math.min(hi, cur - delta * wheelStep)))
+        else
+            setOffset(scroll:GetVerticalScroll() - delta * wheelStep)
+        end
+    end
+
+    scroll:SetScript("OnMouseWheel", onWheel)
+    if wheelOnChild then
+        child:SetScript("OnMouseWheel", onWheel)
+    end
+
+    if opts.syncChildWidth ~= false then
+        scroll:SetScript("OnSizeChanged", function(s, w)
+            child:SetWidth(w or s:GetWidth() or 1)
+            updateRange()
+        end)
+    end
+
+    local api = {
+        scroll = scroll,
+        child = child,
+        scrollBar = scrollBar,
+        UpdateRange = updateRange,
+        SetOffset = setOffset,
+    }
+    return api
+end
+
 function Theme.ApplyCheckboxBackground(texture)
     if not texture then return end
     local bg = C.inputBg
@@ -624,6 +847,21 @@ end
 
 Theme.CHAR_LIST_CHECKBOX_SIZE = 18
 Theme.CHAR_LIST_ROW_HEIGHT = 20
+
+--- Themed checkbox chrome (background + check texture); callers own layout and labels.
+function Theme.CreateThemeCheckbox(parent, size)
+    local checkSize = size or Theme.CHAR_LIST_CHECKBOX_SIZE
+    local check = CreateFrame("CheckButton", nil, parent)
+    check:SetSize(checkSize, checkSize)
+    local checkBg = check:CreateTexture(nil, "BACKGROUND")
+    checkBg:SetAllPoints(check)
+    Theme.ApplyCheckboxBackground(checkBg)
+    local checkTex = check:CreateTexture(nil, "OVERLAY")
+    checkTex:SetAllPoints(check)
+    checkTex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    check:SetCheckedTexture(checkTex)
+    return check
+end
 
 --- Settings-row checkbox matching CharacterPinHideList (18px, hover band, label toggles).
 function Theme.CreateLabeledCheckbox(parent, opts)
@@ -646,16 +884,8 @@ function Theme.CreateLabeledCheckbox(parent, opts)
     hoverRegion:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
     Theme.InstallHoverTint(hoverRegion)
 
-    local check = CreateFrame("CheckButton", nil, row)
+    local check = Theme.CreateThemeCheckbox(row, checkSize)
     check:SetPoint("LEFT", row, "LEFT", 0, 0)
-    check:SetSize(checkSize, checkSize)
-    local checkBg = check:CreateTexture(nil, "BACKGROUND")
-    checkBg:SetAllPoints(check)
-    Theme.ApplyCheckboxBackground(checkBg)
-    local checkTex = check:CreateTexture(nil, "OVERLAY")
-    checkTex:SetAllPoints(check)
-    checkTex:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-    check:SetCheckedTexture(checkTex)
 
     local label = check:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetPoint("LEFT", check, "RIGHT", 2, 0)

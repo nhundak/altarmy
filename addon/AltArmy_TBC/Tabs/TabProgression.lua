@@ -11,9 +11,11 @@ local Theme = AltArmy.Theme
 local SELECTOR_WIDTH = 150
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 local X_LEVEL_LABEL_INTERVAL = 10
-local OPTIONS_PANEL_HEIGHT = 64
 local SECTION_GAP = Theme.SECTION_GAP
 local ROW_HEIGHT = 20
+local OPTION_ROW_HEIGHT = ROW_HEIGHT
+local OPTION_ROW_GAP = 0
+local OPTIONS_PANEL_HEIGHT = 6 + 3 * OPTION_ROW_HEIGHT + 2 * OPTION_ROW_GAP + 6
 local OUTLIER_INFO_ICON_SIZE = 14
 local SECTION_HEADER_HEIGHT = 18
 local INSUFFICIENT_SECTION_GAP = 10
@@ -291,14 +293,13 @@ Theme.ApplyBackdrop(optionsPanel, "section")
 
 local function CreateOptionRow(parent)
     local row = CreateFrame("Frame", nil, parent)
-    row:SetHeight(18)
+    row:SetHeight(OPTION_ROW_HEIGHT)
     row:EnableMouse(true)
 
     Theme.InstallHoverTint(row)
 
-    row.check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
-    row.check:SetPoint("LEFT", row, "LEFT", 0, 0)
-    row.check:SetSize(18, 18)
+    row.check = Theme.CreateThemeCheckbox(row)
+    row.check:SetPoint("LEFT", row, "LEFT", 2, 0)
 
     row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     row.label:SetPoint("LEFT", row.check, "RIGHT", 2, 0)
@@ -322,7 +323,7 @@ logRow.check:SetScript("OnClick", WireOptionRowCheck(
 ))
 
 local outlierRow = CreateOptionRow(optionsPanel)
-outlierRow:SetPoint("TOPLEFT", logRow, "BOTTOMLEFT", 0, 0)
+outlierRow:SetPoint("TOPLEFT", logRow, "BOTTOMLEFT", 0, -OPTION_ROW_GAP)
 outlierRow:SetPoint("RIGHT", optionsPanel, "RIGHT", -6, 0)
 outlierRow.label:SetText("Shrink Outliers")
 outlierRow.infoIcon = outlierRow:CreateTexture(nil, "ARTWORK")
@@ -341,7 +342,7 @@ outlierRow.check:SetScript("OnClick", WireOptionRowCheck(
 ))
 
 local rollingAverageRow = CreateOptionRow(optionsPanel)
-rollingAverageRow:SetPoint("TOPLEFT", outlierRow, "BOTTOMLEFT", 0, 0)
+rollingAverageRow:SetPoint("TOPLEFT", outlierRow, "BOTTOMLEFT", 0, -OPTION_ROW_GAP)
 rollingAverageRow:SetPoint("RIGHT", optionsPanel, "RIGHT", -6, 0)
 rollingAverageRow.label:SetText("Rolling Average")
 rollingAverageRow.check:SetChecked(EnsureSettings().rollingAverage == true)
@@ -441,9 +442,8 @@ local function GetSelectorRow(i)
 
         Theme.InstallHoverTint(row)
 
-        row.check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+        row.check = Theme.CreateThemeCheckbox(row)
         row.check:SetPoint("LEFT", row, "LEFT", 2, 0)
-        row.check:SetSize(18, 18)
 
         row.swatch = row:CreateTexture(nil, "ARTWORK")
         row.swatch:SetSize(10, 10)
@@ -518,9 +518,8 @@ local function EnsureSelectAllRow()
 
     Theme.InstallHoverTint(selectAllRow)
 
-    selectAllRow.check = CreateFrame("CheckButton", nil, selectAllRow, "UICheckButtonTemplate")
+    selectAllRow.check = Theme.CreateThemeCheckbox(selectAllRow)
     selectAllRow.check:SetPoint("LEFT", selectAllRow, "LEFT", 2, 0)
-    selectAllRow.check:SetSize(18, 18)
 
     selectAllRow.label = selectAllRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     selectAllRow.label:SetPoint("LEFT", selectAllRow.check, "RIGHT", 2, 0)

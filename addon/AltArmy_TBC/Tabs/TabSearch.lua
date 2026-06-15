@@ -147,67 +147,21 @@ searchScrollBar:EnableMouse(true)
 -- OnValueChanged set below after UpdateVisibleRows is defined
 
 -- Horizontal scroll bar at bottom of list area (like Summary tab)
-local horizontalScrollBar = CreateFrame("Slider", "AltArmyTBC_SearchHorizontalScrollBar", tabContentInner)
-horizontalScrollBar:SetHeight(HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
-horizontalScrollBar:SetOrientation("HORIZONTAL")
-horizontalScrollBar:SetMinMaxValues(0, 0)
-horizontalScrollBar:SetValueStep(1)
-horizontalScrollBar:SetValue(0)
-horizontalScrollBar:EnableMouse(true)
-local lastSearchHorizontalScrollValue = nil
-local searchHorizontalBarDragging = false
-local searchHorizontalDragStartX = 0
-local searchHorizontalDragStartValue = 0
-local function ApplySearchHorizontalScrollValue(value)
-    if not horizontalScroll then return end
-    lastSearchHorizontalScrollValue = value
-    if horizontalScroll.UpdateScrollChildRect then
-        horizontalScroll:UpdateScrollChildRect()
-    end
-    horizontalScroll:SetHorizontalScroll(value)
-end
-local function SyncSearchHorizontalScrollPosition()
-    if not (horizontalScroll and horizontalScrollBar) then return end
-    local value = horizontalScrollBar:GetValue()
-    if lastSearchHorizontalScrollValue == value then return end
-    ApplySearchHorizontalScrollValue(value)
-end
-horizontalScrollBar:SetScript("OnValueChanged", function(_, _value)
-    SyncSearchHorizontalScrollPosition()
-end)
-horizontalScrollBar:SetScript("OnMouseDown", function(_, button)
-    if button ~= "LeftButton" then return end
-    searchHorizontalBarDragging = true
-    searchHorizontalDragStartX = select(1, GetCursorPosition())
-    searchHorizontalDragStartValue = horizontalScrollBar:GetValue()
-end)
-horizontalScrollBar:SetScript("OnUpdate", function()
-    if not frame:IsShown() then return end
-    if searchHorizontalBarDragging then
-        if not IsMouseButtonDown(1) then
-            searchHorizontalBarDragging = false
-        else
-            local minVal, maxVal = horizontalScrollBar:GetMinMaxValues()
-            local barWidth = horizontalScrollBar:GetWidth()
-            if barWidth and barWidth > 0 and maxVal > minVal then
-                local scale = (horizontalScrollBar.GetEffectiveScale and horizontalScrollBar:GetEffectiveScale())
-                    or (UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
-                if scale <= 0 then scale = 1 end
-                local cursorX = select(1, GetCursorPosition()) / scale
-                local startX = searchHorizontalDragStartX / scale
-                local deltaX = cursorX - startX
-                local value = searchHorizontalDragStartValue + deltaX * (maxVal - minVal) / barWidth
-                value = math.max(minVal, math.min(maxVal, value))
-                horizontalScrollBar:SetValue(value)
-                ApplySearchHorizontalScrollValue(value)
-            end
-        end
-    end
-end)
-Theme.SetupScrollBar(horizontalScrollBar, {
-    horizontal = true,
+local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
+    name = "AltArmyTBC_SearchHorizontalScrollBar",
     thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
+    onScroll = function(value)
+        if not horizontalScroll then return end
+        if horizontalScroll.UpdateScrollChildRect then
+            horizontalScroll:UpdateScrollChildRect()
+        end
+        horizontalScroll:SetHorizontalScroll(value)
+    end,
+    isShown = function()
+        return frame:IsShown()
+    end,
 })
+local horizontalScrollBar = horizontalScrollApi.bar
 
 local function OnSearchScrollWheel(_, delta)
     if not searchScrollBar then return end
@@ -1049,15 +1003,14 @@ UpdateResults = function()
             end
             horizontalScrollChild:SetHeight(vh)
             local maxHorzScroll = math.max(0, totalColWidth - vw)
-            horizontalScrollBar:SetMinMaxValues(0, maxHorzScroll)
-            horizontalScrollBar:SetValueStep(1)
+            horizontalScrollApi:SetRange(0, maxHorzScroll)
             horizontalScrollBar:SetShown(maxHorzScroll > 0)
             local hVal = horizontalScrollBar:GetValue()
             if hVal > maxHorzScroll then
                 horizontalScrollBar:SetValue(maxHorzScroll)
-                ApplySearchHorizontalScrollValue(maxHorzScroll)
+                horizontalScrollApi:Apply(maxHorzScroll)
             else
-                SyncSearchHorizontalScrollPosition()
+                horizontalScrollApi:Sync()
             end
         end
     end

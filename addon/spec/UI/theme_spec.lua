@@ -51,17 +51,36 @@ describe("AltArmy.Theme", function()
         function f:HookScript(event, fn) self._scripts[event] = fn end
         function f:GetScript(event) return self._scripts[event] end
         function f:SetScript(event, fn) self._scripts[event] = fn end
-        function f:CreateTexture() return makeStubTexture() end
+        function f:CreateTexture(_, layer)
+            local tex = makeStubTexture()
+            tex._layer = layer
+            table.insert(f._textures, tex)
+            return tex
+        end
         function f:SetThumbTexture() end
         function f:GetWidth() return self._width or 14 end
         function f:GetHeight() return self._height or 20 end
         function f:SetSize(w, h) self._width = w self._height = h end
+        function f:SetWidth(w) self._width = w end
         function f:SetHeight(h) self._height = h end
         function f:GetFrameLevel() return self._frameLevel or 0 end
         function f:SetFrameLevel(level) self._frameLevel = level end
         function f:EnableMouse() end
         function f:SetPoint() end
-        function f:SetCheckedTexture() end
+        function f:SetCheckedTexture(tex) self._checkedTexture = tex end
+        function f:SetMinMaxValues(min, max) self._minVal = min self._maxVal = max end
+        function f:GetMinMaxValues() return self._minVal or 0, self._maxVal or 0 end
+        function f:SetValue(v) self._value = v end
+        function f:GetValue() return self._value or 0 end
+        function f:SetValueStep() end
+        function f:SetOrientation() end
+        function f:ClearAllPoints() end
+        function f:GetEffectiveScale() return self._scale or 1 end
+        function f:SetVerticalScroll(v) self._verticalScroll = v end
+        function f:GetVerticalScroll() return self._verticalScroll or 0 end
+        function f:SetScrollChild(c) self._scrollChild = c end
+        function f:GetScrollChild() return self._scrollChild end
+        function f:HookScript(event, fn) self._scripts[event] = fn end
         function f:GetChecked() return self._checked end
         function f:SetChecked(checked) self._checked = checked end
         function f:Click()
@@ -83,6 +102,8 @@ describe("AltArmy.Theme", function()
         function f:SetAlpha(a) self._alpha = a end
         function f:Show() self._shown = true end
         function f:Hide() self._shown = false end
+        function f:SetShown(on) self._shown = on end
+        function f:IsShown() return self._shown ~= false end
         function f:Enable() self._enabled = true end
         function f:Disable() self._enabled = false end
         function f:OnBackdropSizeChanged() end
@@ -350,6 +371,154 @@ describe("AltArmy.Theme", function()
             local parent = makeStubFrame()
             local sep = Theme.CreateSeparator(parent, 100)
             assert.are.equal(Theme.COLORS.sepLine[1], sep._color[1])
+        end)
+    end)
+
+    describe("ScrollMax and ClampScroll", function()
+        it("computes max scroll from child and viewport heights", function()
+            assert.are.equal(0, Theme.ScrollMax(100, 200))
+            assert.are.equal(50, Theme.ScrollMax(250, 200))
+        end)
+
+        it("clamps scroll offset to valid range", function()
+            assert.are.equal(0, Theme.ClampScroll(-10, 100))
+            assert.are.equal(100, Theme.ClampScroll(150, 100))
+            assert.are.equal(42, Theme.ClampScroll(42, 100))
+        end)
+    end)
+
+    describe("CreateVerticalScrollViewport", function()
+        it("scrolls by wheelStep on mouse wheel", function()
+            local parent = makeStubFrame()
+            parent._height = 100
+            local viewport = Theme.CreateVerticalScrollViewport({
+                parent = parent,
+                gutterEdge = parent,
+                wheelStep = 40,
+                valueStep = 20,
+                wheelSource = "scroll",
+            })
+            viewport.child._height = 300
+            viewport.scroll._height = 100
+            viewport:UpdateRange()
+            viewport.scroll._scripts.OnMouseWheel(viewport.scroll, -1)
+            assert.are.equal(40, viewport.scroll:GetVerticalScroll())
+            assert.are.equal(40, viewport.scrollBar:GetValue())
+        end)
+
+        it("clamps scroll position when range shrinks", function()
+            local parent = makeStubFrame()
+            local viewport = Theme.CreateVerticalScrollViewport({
+                parent = parent,
+                gutterEdge = parent,
+                wheelStep = 20,
+                valueStep = 20,
+            })
+            viewport.child._height = 500
+            viewport.scroll._height = 100
+            viewport.scroll:SetVerticalScroll(200)
+            viewport.scrollBar:SetValue(200)
+            viewport.child._height = 150
+            viewport:UpdateRange()
+            assert.are.equal(50, viewport.scroll:GetVerticalScroll())
+            assert.are.equal(50, viewport.scrollBar:GetValue())
+        end)
+
+        it("hides scrollbar when content fits", function()
+            local parent = makeStubFrame()
+            local viewport = Theme.CreateVerticalScrollViewport({
+                parent = parent,
+                gutterEdge = parent,
+            })
+            viewport.child._height = 50
+            viewport.scroll._height = 100
+            viewport:UpdateRange()
+            assert.is_false(viewport.scrollBar:IsShown())
+        end)
+    end)
+
+    describe("HorizontalDragValue", function()
+        it("maps cursor delta across bar width to scroll range", function()
+            assert.are.equal(50, Theme.HorizontalDragValue(0, 100, 0, 1, 200, 0, 100))
+        end)
+
+        it("accounts for UI scale", function()
+            assert.are.equal(25, Theme.HorizontalDragValue(0, 100, 0, 2, 200, 0, 100))
+        end)
+
+        it("clamps to min and max", function()
+            assert.are.equal(0, Theme.HorizontalDragValue(0, -500, 0, 1, 200, 0, 100))
+            assert.are.equal(100, Theme.HorizontalDragValue(0, 500, 0, 1, 200, 0, 100))
+        end)
+
+        it("returns start value when bar width or scale is invalid", function()
+            assert.are.equal(10, Theme.HorizontalDragValue(10, 200, 0, 1, 0, 0, 100))
+            assert.are.equal(10, Theme.HorizontalDragValue(10, 200, 0, 0, 200, 0, 100))
+        end)
+    end)
+
+    describe("CreateHorizontalScrollBar", function()
+        it("invokes onScroll via Sync when value changes", function()
+            local parent = makeStubFrame()
+            local scrolled = nil
+            local hbar = Theme.CreateHorizontalScrollBar(parent, {
+                thickness = 12,
+                onScroll = function(value)
+                    scrolled = value
+                end,
+                isShown = function() return true end,
+            })
+            hbar.bar:SetValue(42)
+            hbar:Sync()
+            assert.are.equal(42, scrolled)
+            hbar:Sync()
+            assert.are.equal(42, scrolled)
+        end)
+
+        it("Reset applies zero", function()
+            local parent = makeStubFrame()
+            local scrolled = nil
+            local hbar = Theme.CreateHorizontalScrollBar(parent, {
+                onScroll = function(value)
+                    scrolled = value
+                end,
+            })
+            hbar.bar:SetValue(50)
+            hbar:Reset()
+            assert.are.equal(0, hbar.bar:GetValue())
+            assert.are.equal(0, scrolled)
+        end)
+
+        it("SetRange updates slider min/max", function()
+            local parent = makeStubFrame()
+            local hbar = Theme.CreateHorizontalScrollBar(parent, {})
+            hbar:SetRange(0, 300)
+            local minVal, maxVal = hbar.bar:GetMinMaxValues()
+            assert.are.equal(0, minVal)
+            assert.are.equal(300, maxVal)
+        end)
+    end)
+
+    describe("CreateThemeCheckbox", function()
+        it("returns a themed CheckButton with background and checked textures", function()
+            local parent = makeStubFrame()
+            local check = Theme.CreateThemeCheckbox(parent)
+            assert.is_not_nil(check)
+            assert.are.equal(18, check._width)
+            assert.are.equal(18, check._height)
+            assert.are.equal(2, #check._textures)
+            assert.are.equal("BACKGROUND", check._textures[1]._layer)
+            assert.are.equal(Theme.COLORS.inputBg[1], check._textures[1]._color[1])
+            assert.are.equal("OVERLAY", check._textures[2]._layer)
+            assert.are.equal("Interface\\Buttons\\UI-CheckBox-Check", check._textures[2]._texture)
+            assert.are.equal(check._textures[2], check._checkedTexture)
+        end)
+
+        it("honors custom size", function()
+            local parent = makeStubFrame()
+            local check = Theme.CreateThemeCheckbox(parent, 22)
+            assert.are.equal(22, check._width)
+            assert.are.equal(22, check._height)
         end)
     end)
 

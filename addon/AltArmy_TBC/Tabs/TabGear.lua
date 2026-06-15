@@ -658,77 +658,29 @@ end
 local columnPool = {}
 
 -- Horizontal scroll bar: create after horizontalScroll/gridContainer exist so OnValueChanged sees them
-local horizontalScrollBar = CreateFrame("Slider", "AltArmyTBC_GearHorizontalScrollBar", tabContentInner)
+local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
+    name = "AltArmyTBC_GearHorizontalScrollBar",
+    thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
+    onScroll = function(value)
+        if not horizontalScroll then return end
+        if horizontalScroll.UpdateScrollChildRect then
+            horizontalScroll:UpdateScrollChildRect()
+        end
+        horizontalScroll:SetHorizontalScroll(value)
+        if headerHorizontalScroll then
+            if headerHorizontalScroll.UpdateScrollChildRect then
+                headerHorizontalScroll:UpdateScrollChildRect()
+            end
+            headerHorizontalScroll:SetHorizontalScroll(value)
+        end
+    end,
+    isShown = function()
+        return frame:IsShown()
+    end,
+})
+local horizontalScrollBar = horizontalScrollApi.bar
 horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", PAD, -4)
 horizontalScrollBar:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", 0, -4)
-horizontalScrollBar:SetHeight(HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2)
-horizontalScrollBar:SetOrientation("HORIZONTAL")
-horizontalScrollBar:SetMinMaxValues(0, 0)
-horizontalScrollBar:SetValueStep(1)
-horizontalScrollBar:SetValue(0)
-horizontalScrollBar:EnableMouse(true)
-local lastHorizontalScrollValue = nil
-local horizontalBarDragging = false
-local horizontalDragStartX = 0
-local horizontalDragStartValue = 0
-local function ApplyHorizontalScrollValue(value)
-    if not horizontalScroll then return end
-    lastHorizontalScrollValue = value
-    if horizontalScroll.UpdateScrollChildRect then
-        horizontalScroll:UpdateScrollChildRect()
-    end
-    horizontalScroll:SetHorizontalScroll(value)
-    if headerHorizontalScroll then
-        if headerHorizontalScroll.UpdateScrollChildRect then
-            headerHorizontalScroll:UpdateScrollChildRect()
-        end
-        headerHorizontalScroll:SetHorizontalScroll(value)
-    end
-end
-local function SyncHorizontalScrollPosition()
-    if not (horizontalScroll and horizontalScrollBar) then return end
-    local value = horizontalScrollBar:GetValue()
-    if lastHorizontalScrollValue == value then return end
-    ApplyHorizontalScrollValue(value)
-end
-horizontalScrollBar:SetScript("OnValueChanged", function(_, _value)
-    SyncHorizontalScrollPosition()
-end)
--- Manual drag: Slider often doesn't update value when thumb is dragged; track mouse and set value ourselves
-horizontalScrollBar:SetScript("OnMouseDown", function(_, button)
-    if button ~= "LeftButton" then return end
-    horizontalBarDragging = true
-    horizontalDragStartX = select(1, GetCursorPosition())
-    horizontalDragStartValue = horizontalScrollBar:GetValue()
-end)
-horizontalScrollBar:SetScript("OnUpdate", function()
-    if not frame:IsShown() then return end
-    if horizontalBarDragging then
-        if not IsMouseButtonDown(1) then
-            horizontalBarDragging = false
-        else
-            local minVal, maxVal = horizontalScrollBar:GetMinMaxValues()
-            local barWidth = horizontalScrollBar:GetWidth()
-            if barWidth and barWidth > 0 and maxVal > minVal then
-                local scale = (horizontalScrollBar.GetEffectiveScale and horizontalScrollBar:GetEffectiveScale())
-                    or (UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
-                if scale <= 0 then scale = 1 end
-                local cursorX = select(1, GetCursorPosition()) / scale
-                local startX = horizontalDragStartX / scale
-                local deltaX = cursorX - startX
-                local value = horizontalDragStartValue + deltaX * (maxVal - minVal) / barWidth
-                value = math.max(minVal, math.min(maxVal, value))
-                horizontalScrollBar:SetValue(value)
-                ApplyHorizontalScrollValue(value)
-            end
-        end
-    end
-end)
--- Visible track and thumb (TBC may lack SetBackdrop; thumb uses solid texture so it always shows)
-Theme.SetupScrollBar(horizontalScrollBar, {
-    horizontal = true,
-    thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
-})
 
 local function GetColumnFrame(index)
     if not columnPool[index] then
@@ -913,15 +865,9 @@ function frame:RefreshGrid(_self)
         end
         if horizontalScrollBar and horizontalScroll and gridContainer then
             local maxHorzScroll = math.max(0, gridContentWidth - gridViewWidth)
-            horizontalScrollBar:SetMinMaxValues(0, maxHorzScroll)
-            horizontalScrollBar:SetValueStep(1)
+            horizontalScrollApi:SetRange(0, maxHorzScroll)
             horizontalScrollBar:SetShown(maxHorzScroll > 0)
-            horizontalScrollBar:SetValue(0)
-            lastHorizontalScrollValue = 0
-            horizontalScroll:SetHorizontalScroll(0)
-            if headerHorizontalScroll then
-                headerHorizontalScroll:SetHorizontalScroll(0)
-            end
+            horizontalScrollApi:Reset()
         end
     end
 
