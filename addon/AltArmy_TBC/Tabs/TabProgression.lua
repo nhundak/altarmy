@@ -40,6 +40,7 @@ local currentRawYMin = 0
 local currentLogAxisYMin = nil
 local drawnKeys = {}
 local seriesGroups = {}
+local selectedColorByKey = {}
 
 local markerDotPool = { free = {} }
 local markerHitPool = { free = {} }
@@ -156,6 +157,25 @@ end
 local function EntryKey(entry)
     if not entry then return "" end
     return CharKey(entry.name, entry.realm)
+end
+
+-- Maps each selected character key to its color, applying same-class variations
+-- (exact / brighter / darker, cycling) so duplicate-class lines stay distinct.
+local function BuildSelectedColorByKey()
+    local selected = GetSelectedCharacters()
+    local classFiles = {}
+    for i, entry in ipairs(selected) do
+        classFiles[i] = entry.classFile
+    end
+
+    local variations = Logic.BuildClassVariationIndices(classFiles)
+    local map = {}
+    for i, entry in ipairs(selected) do
+        local r, g, b = LPD.GetClassColor(entry.classFile)
+        r, g, b = Logic.VaryColor(r, g, b, variations[i] or 0)
+        map[EntryKey(entry)] = { r = r, g = g, b = b }
+    end
+    return map
 end
 
 local function GetCharactersToDraw()
@@ -408,6 +428,21 @@ selectorChild:SetScript("OnMouseWheel", OnSelectorScrollWheel)
 local selectorRows = {}
 local insufficientRows = {}
 local selectAllRow = nil
+
+-- Recolors compare-row swatches from selectedColorByKey so selected same-class
+-- rows show their variation; unselected rows fall back to the exact class color.
+local function UpdateCompareSwatchColors()
+    for _, row in ipairs(selectorRows) do
+        if row:IsShown() and row.entry then
+            local r, g, b = LPD.GetClassColor(row.entry.classFile)
+            local varied = selectedColorByKey[EntryKey(row.entry)]
+            if varied then
+                r, g, b = varied.r, varied.g, varied.b
+            end
+            row.swatch:SetVertexColor(r, g, b, 1)
+        end
+    end
+end
 
 local insufficientHeader = selectorChild:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 insufficientHeader:SetText("Not enough data:")
@@ -812,6 +847,10 @@ local function PrepareCharGraphData(entry, drawable)
     end
     local drawPlan = Logic.BuildSeriesDrawPlan(markedPoints)
     local cr, cg, cb = LPD.GetClassColor(entry.classFile)
+    local varied = selectedColorByKey[EntryKey(entry)]
+    if varied then
+        cr, cg, cb = varied.r, varied.g, varied.b
+    end
     return {
         entry = entry,
         drawable = drawable,
@@ -932,6 +971,9 @@ RebuildGraph = function()
 
     ReleaseAllSeriesGroups()
     Core.ClearObjects()
+
+    selectedColorByKey = BuildSelectedColorByKey()
+    UpdateCompareSwatchColors()
 
     currentX, currentY = nil, nil
     currentRawYMax = 0
@@ -1185,6 +1227,9 @@ local function RefreshSelector()
             yOffset = yOffset + ROW_HEIGHT
         end
     end
+
+    selectedColorByKey = BuildSelectedColorByKey()
+    UpdateCompareSwatchColors()
 
     selectorChild:SetHeight(math.max(1, yOffset))
     UpdateSelectorScrollbar()

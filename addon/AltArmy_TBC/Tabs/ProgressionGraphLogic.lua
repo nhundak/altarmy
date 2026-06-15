@@ -19,6 +19,62 @@ Logic.OUTLIER_TOP_DURATION_COUNT = 10
 Logic.OUTLIER_TOP_MARGIN = 6
 Logic.ROLLING_AVERAGE_WINDOW = 5
 Logic.COMPARE_SELECT_ALL_MIN_COUNT = 4
+Logic.COLOR_VARIATION_CYCLE = 3
+Logic.COLOR_VARIATION_BRIGHTEN = 0.35
+Logic.COLOR_VARIATION_DARKEN = 0.6
+Logic.COLOR_VARIATION_DARKEN_LIGHT = 0.78
+Logic.COLOR_VARIATION_WHITE_THRESHOLD = 0.9
+
+--- Assigns a color-variation code (0=exact, 1, 2, cycling) to each entry based
+--- on its position within its own class, preserving input order.
+--- @param classFiles table array of class identifiers (strings)
+--- @return table array of variation codes parallel to classFiles
+function Logic.BuildClassVariationIndices(classFiles)
+    local counts = {}
+    local out = {}
+    for i = 1, #classFiles do
+        local cf = classFiles[i]
+        local n = counts[cf] or 0
+        out[i] = n % Logic.COLOR_VARIATION_CYCLE
+        counts[cf] = n + 1
+    end
+    return out
+end
+
+local function ChannelBrighten(c)
+    return c + (1 - c) * Logic.COLOR_VARIATION_BRIGHTEN
+end
+
+local function IsNearWhite(r, g, b)
+    local headroom = 1 - Logic.COLOR_VARIATION_WHITE_THRESHOLD
+    return (1 - r) < headroom and (1 - g) < headroom and (1 - b) < headroom
+end
+
+--- Returns a variation of the given color for a variation code.
+--- Code 0 returns the color unchanged. For normal colors code 1 brightens and
+--- code 2 darkens. For near-white colors (no brighten headroom) both codes return
+--- distinct darker shades so they stay visible and distinguishable.
+--- @param r number
+--- @param g number
+--- @param b number
+--- @param code number 0, 1, or 2
+--- @return number r, number g, number b
+function Logic.VaryColor(r, g, b, code)
+    if code == 0 then
+        return r, g, b
+    end
+
+    if IsNearWhite(r, g, b) then
+        local factor = (code == 1) and Logic.COLOR_VARIATION_DARKEN_LIGHT or Logic.COLOR_VARIATION_DARKEN
+        return r * factor, g * factor, b * factor
+    end
+
+    if code == 1 then
+        return ChannelBrighten(r), ChannelBrighten(g), ChannelBrighten(b)
+    end
+
+    return r * Logic.COLOR_VARIATION_DARKEN, g * Logic.COLOR_VARIATION_DARKEN, b * Logic.COLOR_VARIATION_DARKEN
+end
 
 function Logic.ShouldShowCompareSelectAll(characterCount)
     return characterCount > Logic.COMPARE_SELECT_ALL_MIN_COUNT
