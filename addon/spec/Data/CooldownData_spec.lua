@@ -323,6 +323,20 @@ describe("CooldownData", function()
         assert.are.equal(3, byId[22451].requiredToSend)
     end)
 
+    it("EvaluateAlerts includes classFile from character in alert rows", function()
+        local char = {
+            name = "Z",
+            classFile = "MAGE",
+            Professions = { Alchemy = { Recipes = { [29688] = { color = 1 } } } },
+            ProfCooldownExpiry = { [29688] = { expiresAtUnix = 500 } },
+        }
+        local ds = mockDS({ TestRealm = { Z = char } })
+        local state = {}
+        local alerts = CD.EvaluateAlerts(ds, AltArmyTBC_Options.cooldowns, 600, state)
+        assert.are.equal(1, #alerts)
+        assert.are.equal("MAGE", alerts[1].classFile)
+    end)
+
     it("EvaluateAlerts fires available once until cooldown resumes", function()
         local char = {
             name = "Z",

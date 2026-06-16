@@ -12,6 +12,7 @@ Core.lua
 Data\CharKey.lua
 Data\Debug.lua
 Data\DataStore.lua
+Data\ClassColor.lua
 Data\CooldownData.lua
 Data\StockpilePlan.lua
 Data\DataStoreCharacter.lua
@@ -27,7 +28,6 @@ Data\DataStoreMail.lua
 Data\DataStoreAuctions.lua
 Data\SummaryData.lua
 Data\RealmFilter.lua
-Data\ClassColor.lua
 Data\GlobalRealmFilter.lua
 Data\Characters.lua
 Data\SearchData.lua

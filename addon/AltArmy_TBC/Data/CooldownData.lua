@@ -639,6 +639,7 @@ function CD.BuildRows(DS, options, now)
                                 charKeyName = charName,
                                 name = displayName,
                                 realm = realm,
+                                classFile = char and char.classFile or nil,
                                 spellId = spellId,
                                 expiresUnix = expires,
                                 timeText = CD.FormatTimeRemaining(expires, now),
@@ -698,9 +699,9 @@ function CD.EvaluateAlerts(DS, options, now, stateMutate)
                         categoryTitle = row.categoryTitle,
                         name = row.name,
                         realm = row.realm,
-                        classFile = char and char.classFile or nil,
-                        spellId = row.spellId,
-                        kind = "available",
+                        classFile = row.classFile,
+                                        spellId = row.spellId,
+                                        kind = "available",
                         alertType = catOpts.alertType or "chat",
                     }
                 end
