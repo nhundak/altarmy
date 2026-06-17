@@ -16,7 +16,7 @@ local _recipesCache = nil
 local _itemNameCache = {}
 local _recipeNameCache = {}
 
---- Query timing debug. Enable: /altarmy debug on, then Interface > AddOns > AltArmy > Debug.
+--- Query timing debug. Enable: /altarmy debug on, then Interface > AddOns > AltArmy > Debug > search.
 --- Uses debugprofilestart/stop (high-resolution) because GetTime() only updates once per frame.
 local function SearchDebugEnabled()
     local Dbg = AltArmy and AltArmy.Debug
@@ -24,12 +24,9 @@ local function SearchDebugEnabled()
 end
 
 local function LogSearchDebug(msg)
-    if not SearchDebugEnabled() then
-        return
-    end
-    local text = "|cff00ccff[AltArmy:Search]|r " .. tostring(msg)
-    if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
-        DEFAULT_CHAT_FRAME:AddMessage(text)
+    local Dbg = AltArmy and AltArmy.Debug
+    if Dbg and Dbg.LogSearch then
+        Dbg.LogSearch(msg)
     end
 end
 
@@ -494,6 +491,15 @@ function SD.SearchWithLocationGroups(query, skipTooltip)
     return mainRows, tooltipOnlyRows
 end
 
+--- Whether recipeID is an alias (e.g. crafted item use spell), not the craft recipe itself.
+local function IsRecipeAliasId(recipeID, data)
+    if type(data) ~= "table" or not data.primaryRecipeID then
+        return false
+    end
+    return data.primaryRecipeID ~= recipeID
+end
+SD._IsRecipeAliasId = IsRecipeAliasId
+
 --- Build flat list of all known recipes across all characters.
 --- Each entry: { characterName, realm, classFile, professionName, skillRank, recipeID }.
 local function BuildAllRecipes()
@@ -513,7 +519,7 @@ local function BuildAllRecipes()
                         if prof and prof.Recipes then
                             local skillRank = prof.rank or 0
                             for recipeID, data in pairs(prof.Recipes) do
-                                if recipeID then
+                                if recipeID and not IsRecipeAliasId(recipeID, data) then
                                     local resultItemID
                                     if type(data) == "table" and data.resultItemID then
                                         resultItemID = data.resultItemID

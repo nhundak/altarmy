@@ -15,13 +15,16 @@ describe("SearchData", function()
     _G.UIParent = _G.UIParent or {}
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     require("DataStore")
-    require("DataStoreContainers")
-    require("DataStoreEquipment")
+    require("DataStoreProfessions")
     require("SearchData")
     SD = AltArmy.SearchData
   end)
 
   before_each(function()
+    _G.AltArmyTBC_Data.recipePrimaryIdsMigrated = nil
+    if AltArmy.DataStore then
+      AltArmy.DataStore.accountData = _G.AltArmyTBC_Data
+    end
     if SD and SD.ClearSearchCaches then
       SD.ClearSearchCaches()
     elseif SD and SD.ClearSearchableTextCache then
@@ -529,6 +532,52 @@ describe("SearchData", function()
       assert.are.equal(results[1].recipeID, 12345)
       assert.are.equal(results[2].recipeID, 67890)
     end)
+    it("excludes alias recipe ids (e.g. crafted item use spell)", function()
+      local DS = AltArmy.DataStore
+      local oldGetRealms = DS.GetRealms
+      local oldGetCharacters = DS.GetCharacters
+      local oldGetCharacterName = DS.GetCharacterName
+      local oldGetCharacterClass = DS.GetCharacterClass
+      local oldGetProfessions = DS.GetProfessions
+      local oldGetItemSpell = _G.GetItemSpell
+      local row = { color = 1, resultItemID = 9187, primaryRecipeID = 11449 }
+      DS.GetRealms = function() return { Realm1 = true } end
+      DS.GetCharacters = function()
+        return {
+          Char1 = {
+            name = "Char1",
+            Professions = {
+              Alchemy = {
+                rank = 300,
+                Recipes = {
+                  [11449] = row,
+                  [11334] = row, -- Agility buff spell alias
+                },
+              },
+            },
+          },
+        }
+      end
+      DS.GetCharacterName = function(_, char) return char and char.name or "" end
+      DS.GetCharacterClass = function(_, char)
+        return char and char.class or "", char and char.classFile or "MAGE"
+      end
+      DS.GetProfessions = function(_, char) return char and char.Professions or {} end
+      _G.GetItemSpell = function(itemID)
+        if itemID == 9187 then return "Agility", 11334 end
+        return nil
+      end
+      AltArmy.DataStore:MigrateRecipePrimaryIds()
+      local results = SD.GetAllRecipes()
+      DS.GetRealms = oldGetRealms
+      DS.GetCharacters = oldGetCharacters
+      DS.GetCharacterName = oldGetCharacterName
+      DS.GetCharacterClass = oldGetCharacterClass
+      DS.GetProfessions = oldGetProfessions
+      _G.GetItemSpell = oldGetItemSpell
+      assert.are.equal(#results, 1)
+      assert.are.equal(results[1].recipeID, 11449)
+    end)
   end)
 
   describe("SearchRecipes", function()
@@ -562,6 +611,128 @@ describe("SearchData", function()
       assert.are.equal(#results, 1)
       assert.are.equal(results[1].recipeID, 222)
       assert.are.equal(results[1].characterName, "B")
+    end)
+    it("does not return alias effect spells when both match query", function()
+      local DS = AltArmy.DataStore
+      local oldGetRealms = DS.GetRealms
+      local oldGetCharacters = DS.GetCharacters
+      local oldGetCharacterName = DS.GetCharacterName
+      local oldGetCharacterClass = DS.GetCharacterClass
+      local oldGetProfessions = DS.GetProfessions
+      local oldGetItemInfo = _G.GetItemInfo
+      local oldGetSpellInfo = _G.GetSpellInfo
+      local oldGetItemSpell = _G.GetItemSpell
+      local row = { color = 1, resultItemID = 9187, primaryRecipeID = 11449 }
+      DS.GetRealms = function() return { Realm1 = true } end
+      DS.GetCharacters = function()
+        return {
+          Char1 = {
+            name = "Char1",
+            Professions = {
+              Alchemy = {
+                rank = 300,
+                Recipes = {
+                  [11449] = row,
+                  [11334] = row,
+                },
+              },
+            },
+          },
+        }
+      end
+      DS.GetCharacterName = function(_, char) return char and char.name or "" end
+      DS.GetCharacterClass = function(_, char)
+        return char and char.class or "", char and char.classFile or "MAGE"
+      end
+      DS.GetProfessions = function(_, char) return char and char.Professions or {} end
+      _G.GetSpellInfo = function(id)
+        if id == 11449 then return "Elixir of Agility" end
+        if id == 11334 then return "Agility" end
+        return nil
+      end
+      _G.GetItemInfo = function() return nil end
+      _G.GetItemSpell = function(itemID)
+        if itemID == 9187 then return "Agility", 11334 end
+        return nil
+      end
+      AltArmy.DataStore:MigrateRecipePrimaryIds()
+      local results = SD.SearchRecipes("agility")
+      DS.GetRealms = oldGetRealms
+      DS.GetCharacters = oldGetCharacters
+      DS.GetCharacterName = oldGetCharacterName
+      DS.GetCharacterClass = oldGetCharacterClass
+      DS.GetProfessions = oldGetProfessions
+      _G.GetItemInfo = oldGetItemInfo
+      _G.GetSpellInfo = oldGetSpellInfo
+      _G.GetItemSpell = oldGetItemSpell
+      assert.are.equal(#results, 1)
+      assert.are.equal(results[1].recipeID, 11449)
+    end)
+    it("excludes split alias rows after remigrate debug", function()
+      local DS = AltArmy.DataStore
+      local oldGetCharacterName = DS.GetCharacterName
+      local oldGetCharacterClass = DS.GetCharacterClass
+      local oldGetProfessions = DS.GetProfessions
+      local oldGetItemInfo = _G.GetItemInfo
+      local oldGetSpellInfo = _G.GetSpellInfo
+      local oldGetItemSpell = _G.GetItemSpell
+      DS.accountData = _G.AltArmyTBC_Data
+      DS.GetCharacterName = function(_, char) return char and char.name or "" end
+      DS.GetCharacterClass = function(_, char)
+        return char and char.class or "", char and char.classFile or "MAGE"
+      end
+      DS.GetProfessions = function(_, char) return char and char.Professions or {} end
+      _G.AltArmyTBC_Data.recipePrimaryIdsMigrated = true
+      _G.AltArmyTBC_Data.Characters = {
+        Dreamscythe = {
+          felfrell = {
+            name = "felfrell",
+            Professions = {
+              Alchemy = {
+                rank = 373,
+                Recipes = {
+                  [11449] = { color = 1, primaryRecipeID = 11449, resultItemID = 8949 },
+                  [11328] = { color = 1, primaryRecipeID = 11328, resultItemID = 8949 },
+                },
+              },
+            },
+          },
+        },
+      }
+      _G.GetSpellInfo = function(id)
+        if id == 11449 then return "Elixir of Agility" end
+        if id == 11328 then return "Agility" end
+        return nil
+      end
+      _G.GetItemInfo = function() return nil end
+      _G.GetItemSpell = function(itemID)
+        if itemID == 8949 then return "Agility", 11328 end
+        return nil
+      end
+      SD.ClearSearchCaches()
+      local updated = DS:RemigrateRecipePrimaryIdsDebug()
+      assert.is_true(updated > 0)
+      local all = SD.GetAllRecipes()
+      assert.are.equal(1, #all)
+      local results = SD.SearchRecipes("agility")
+      DS.GetCharacterName = oldGetCharacterName
+      DS.GetCharacterClass = oldGetCharacterClass
+      DS.GetProfessions = oldGetProfessions
+      _G.GetItemInfo = oldGetItemInfo
+      _G.GetSpellInfo = oldGetSpellInfo
+      _G.GetItemSpell = oldGetItemSpell
+      assert.are.equal(1, #results)
+      assert.are.equal(11449, results[1].recipeID)
+    end)
+  end)
+
+  describe("_IsRecipeAliasId", function()
+    it("returns true when recipeID differs from primaryRecipeID", function()
+      assert.is_true(SD._IsRecipeAliasId(11334, { primaryRecipeID = 11449 }))
+      assert.is_false(SD._IsRecipeAliasId(11449, { primaryRecipeID = 11449 }))
+    end)
+    it("returns false when primaryRecipeID is missing", function()
+      assert.is_false(SD._IsRecipeAliasId(11334, { resultItemID = 9187 }))
     end)
   end)
 end)

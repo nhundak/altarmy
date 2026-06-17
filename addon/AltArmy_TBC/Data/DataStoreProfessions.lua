@@ -347,6 +347,171 @@ local function CollectRecipeIdsFromTradeSkillIndex(index)
     return ids
 end
 
+--- Pick the craft recipe id among alias keys sharing one prof.Recipes row (login migration).
+local function InferPrimaryRecipeId(row, ids)
+    if not row or not ids or #ids == 0 then
+        return nil
+    end
+    if row.primaryRecipeID then
+        return row.primaryRecipeID
+    end
+    if #ids == 1 then
+        return ids[1]
+    end
+
+    local exclude = {}
+    if row.resultItemID then
+        local effectSpell = SpellIdFromItem(row.resultItemID)
+        if effectSpell then
+            exclude[effectSpell] = true
+        end
+    end
+
+    local candidates = {}
+    for _, id in ipairs(ids) do
+        if not exclude[id] then
+            candidates[#candidates + 1] = id
+        end
+    end
+
+    if #candidates == 1 then
+        return candidates[1]
+    end
+
+    local pool = #candidates > 0 and candidates or ids
+    if GetSpellInfo then
+        table.sort(pool, function(a, b)
+            local na = GetSpellInfo(a) or ""
+            local nb = GetSpellInfo(b) or ""
+            if #na ~= #nb then
+                return #na > #nb
+            end
+            return a < b
+        end)
+        return pool[1]
+    end
+
+    table.sort(pool)
+    return pool[1]
+end
+DS._InferPrimaryRecipeIdForTest = InferPrimaryRecipeId
+
+local function MigrateOneProfessionRecipes(prof)
+    if not prof or not prof.Recipes then
+        return 0
+    end
+    local updated = 0
+
+    for recipeID, data in pairs(prof.Recipes) do
+        if type(data) == "number" then
+            prof.Recipes[recipeID] = { color = data, primaryRecipeID = recipeID }
+            updated = updated + 1
+        end
+    end
+
+    local rowToIds = {}
+    for recipeID, data in pairs(prof.Recipes) do
+        if type(data) == "table" and not data.primaryRecipeID then
+            local bucket = rowToIds[data]
+            if not bucket then
+                bucket = {}
+                rowToIds[data] = bucket
+            end
+            bucket[#bucket + 1] = recipeID
+        end
+    end
+    for row, ids in pairs(rowToIds) do
+        local primary = InferPrimaryRecipeId(row, ids)
+        if primary then
+            row.primaryRecipeID = primary
+            updated = updated + 1
+        end
+    end
+
+    local byResultItem = {}
+    for recipeID, data in pairs(prof.Recipes) do
+        if type(data) == "table" and data.resultItemID then
+            local bucket = byResultItem[data.resultItemID]
+            if not bucket then
+                bucket = {}
+                byResultItem[data.resultItemID] = bucket
+            end
+            bucket[#bucket + 1] = recipeID
+        end
+    end
+    for resultItemID, ids in pairs(byResultItem) do
+        if #ids > 1 then
+            local primary = InferPrimaryRecipeId({ resultItemID = resultItemID }, ids)
+            if primary then
+                local changed = false
+                for _, id in ipairs(ids) do
+                    local data = prof.Recipes[id]
+                    if data and data.primaryRecipeID ~= primary then
+                        data.primaryRecipeID = primary
+                        changed = true
+                    end
+                end
+                if changed then
+                    updated = updated + 1
+                end
+            end
+        end
+    end
+
+    for recipeID, data in pairs(prof.Recipes) do
+        if type(data) == "table" and not data.primaryRecipeID then
+            data.primaryRecipeID = recipeID
+            updated = updated + 1
+        end
+    end
+
+    return updated
+end
+DS._MigrateOneProfessionRecipesForTest = MigrateOneProfessionRecipes
+
+function DS:ResetRecipePrimaryIdsMigration()
+    local account = self.accountData or AltArmyTBC_Data
+    if not account then
+        return false
+    end
+    account.recipePrimaryIdsMigrated = nil
+    account.recipePrimaryIdsMigrationVersion = nil
+    return true
+end
+
+--- One-time account migration: backfill primaryRecipeID on stored recipe rows (search uses this only).
+function DS:MigrateRecipePrimaryIds()
+    local account = self.accountData or AltArmyTBC_Data
+    if not account then
+        return 0
+    end
+    if account.recipePrimaryIdsMigrated then
+        return 0
+    end
+
+    local updated = 0
+    self:ForEachCharacter(function(_, _, charData)
+        if not charData or not charData.Professions then
+            return
+        end
+        for _, prof in pairs(charData.Professions) do
+            updated = updated + MigrateOneProfessionRecipes(prof)
+        end
+    end)
+
+    account.recipePrimaryIdsMigrated = true
+    account.recipePrimaryIdsMigrationVersion = nil
+    if updated > 0 then
+        notifyRecipesChanged()
+    end
+    return updated
+end
+
+function DS:RemigrateRecipePrimaryIdsDebug()
+    self:ResetRecipePrimaryIdsMigration()
+    return self:MigrateRecipePrimaryIds()
+end
+
 --- Persist tailoring/alchemy specialization passives for cooldown option filters (current character).
 function DS:ScanCooldownSpecializations(char)
     if not char then return end
@@ -459,7 +624,7 @@ function DS:ScanRecipes()
                 end
             end
             if recipeID then
-                local row = { color = color, resultItemID = resultItemID }
+                local row = { color = color, resultItemID = resultItemID, primaryRecipeID = recipeID }
                 prof.Recipes[recipeID] = row
                 for _, rid in ipairs(CollectRecipeIdsFromTradeSkillIndex(i)) do
                     if rid and rid ~= recipeID then

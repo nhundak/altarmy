@@ -827,6 +827,23 @@ SlashCmdList.ALTARMY = function(msg)
         end
         return
     end
+    if lower == "debug remigrate recipes" then
+        local DS = AltArmy and AltArmy.DataStore
+        if not DS or not DS.RemigrateRecipePrimaryIdsDebug then
+            if AltArmy.Debug and AltArmy.Debug.NotifyChat then
+                AltArmy.Debug.NotifyChat("Recipe migration is unavailable.")
+            end
+            return
+        end
+        local updated = DS:RemigrateRecipePrimaryIdsDebug()
+        if AltArmy.Debug and AltArmy.Debug.NotifyChat then
+            AltArmy.Debug.NotifyChat(string.format(
+                "Recipe primaryRecipeID migration re-ran (%d profession recipe group(s) updated).",
+                updated
+            ))
+        end
+        return
+    end
     if AltArmy and AltArmy.MainFrame then
         AltArmy.MainFrame:Show()
     end

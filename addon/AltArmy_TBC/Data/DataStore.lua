@@ -341,6 +341,9 @@ frame:SetScript("OnEvent", function(_, event, ...)
         return
     end
     if event == "PLAYER_ALIVE" or event == "PLAYER_ENTERING_WORLD" then
+        if DS.MigrateRecipePrimaryIds then
+            DS:MigrateRecipePrimaryIds()
+        end
         if DS.ScanCharacter then DS:ScanCharacter() end
         if DS.RequestTimePlayedSilently then
             DS:RequestTimePlayedSilently()

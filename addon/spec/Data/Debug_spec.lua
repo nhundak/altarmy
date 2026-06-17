@@ -40,6 +40,22 @@ describe("AltArmy.Debug", function()
         assert.is_true(D.IsSearchEnabled())
     end)
 
+    it("LogSearch only emits when master and search are on", function()
+        local messages = {}
+        local oldNotify = D.NotifyChat
+        D.NotifyChat = function(msg)
+            messages[#messages + 1] = msg
+        end
+        D.LogSearch("hidden")
+        assert.are.equal(0, #messages)
+        D.SetEnabled(true)
+        D.SetSearchEnabled(true)
+        D.LogSearch("visible")
+        D.NotifyChat = oldNotify
+        assert.are.equal(1, #messages)
+        assert.matches("visible", messages[1])
+    end)
+
     it("IsCooldownsEnabled is false when cooldowns is on but master is off", function()
         AltArmyTBC_Options.debug.cooldowns = true
         assert.is_false(D.IsCooldownsEnabled())

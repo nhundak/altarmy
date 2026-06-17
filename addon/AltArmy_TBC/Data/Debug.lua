@@ -52,6 +52,13 @@ function D.SetSearchEnabled(on)
     AltArmyTBC_Options.debug.search = on == true
 end
 
+function D.LogSearch(msg)
+    if not D.IsSearchEnabled() then
+        return
+    end
+    D.NotifyChat("|cff00ccff[AltArmy:Search]|r " .. tostring(msg))
+end
+
 function D.IsCooldownsEnabled()
     local d = debugTable()
     return d.enabled == true and d.cooldowns == true

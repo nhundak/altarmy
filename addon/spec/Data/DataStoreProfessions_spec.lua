@@ -290,4 +290,199 @@ describe("DataStoreProfessions", function()
       assert.is_false(DS:IsRecipeKnown(char, "Mining", 999))
     end)
   end)
+
+  describe("MigrateRecipePrimaryIds", function()
+    before_each(function()
+      _G.AltArmyTBC_Data = {
+        Characters = {},
+        recipePrimaryIdsMigrated = nil,
+      }
+      DS.accountData = _G.AltArmyTBC_Data
+    end)
+
+    it("backfills primaryRecipeID and skips effect spell aliases", function()
+      local row = { color = 1, resultItemID = 9187 }
+      _G.AltArmyTBC_Data.Characters = {
+        Realm1 = {
+          Char1 = {
+            Professions = {
+              Alchemy = {
+                Recipes = {
+                  [11449] = row,
+                  [11334] = row,
+                },
+              },
+            },
+          },
+        },
+      }
+      _G.GetItemSpell = function(itemID)
+        if itemID == 9187 then return "Agility", 11334 end
+        return nil
+      end
+      _G.GetSpellInfo = function(id)
+        if id == 11449 then return "Elixir of Agility" end
+        if id == 11334 then return "Agility" end
+        return nil
+      end
+      local updated = DS:MigrateRecipePrimaryIds()
+      assert.is_true(updated > 0)
+      assert.are.equal(11449, row.primaryRecipeID)
+      assert.is_true(_G.AltArmyTBC_Data.recipePrimaryIdsMigrated)
+    end)
+
+    it("repairs split rows sharing resultItemID", function()
+      local rowCraft = { color = 1, primaryRecipeID = 11449, resultItemID = 8949 }
+      local rowEffect = { color = 1, primaryRecipeID = 11328, resultItemID = 8949 }
+      _G.AltArmyTBC_Data.Characters = {
+        Realm1 = {
+          Char1 = {
+            Professions = {
+              Alchemy = {
+                Recipes = {
+                  [11449] = rowCraft,
+                  [11328] = rowEffect,
+                },
+              },
+            },
+          },
+        },
+      }
+      _G.GetItemSpell = function(itemID)
+        if itemID == 8949 then return "Agility", 11328 end
+        return nil
+      end
+      _G.GetSpellInfo = function(id)
+        if id == 11449 then return "Elixir of Agility" end
+        if id == 11328 then return "Agility" end
+        return nil
+      end
+      local updated = DS:MigrateRecipePrimaryIds()
+      assert.is_true(updated > 0)
+      assert.are.equal(11449, rowCraft.primaryRecipeID)
+      assert.are.equal(11449, rowEffect.primaryRecipeID)
+    end)
+
+    it("converts numeric legacy recipe rows to tables", function()
+      _G.AltArmyTBC_Data.Characters = {
+        Realm1 = {
+          Char1 = {
+            Professions = {
+              Mining = { Recipes = { [12345] = 2 } },
+            },
+          },
+        },
+      }
+      DS:MigrateRecipePrimaryIds()
+      local row = _G.AltArmyTBC_Data.Characters.Realm1.Char1.Professions.Mining.Recipes[12345]
+      assert.are.same({ color = 2, primaryRecipeID = 12345 }, row)
+    end)
+
+    it("runs only once per account", function()
+      _G.AltArmyTBC_Data.Characters = {
+        Realm1 = {
+          Char1 = {
+            Professions = {
+              Alchemy = { Recipes = { [1] = { color = 1 } } },
+            },
+          },
+        },
+      }
+      DS:MigrateRecipePrimaryIds()
+      assert.is_true(_G.AltArmyTBC_Data.recipePrimaryIdsMigrated)
+      local row = _G.AltArmyTBC_Data.Characters.Realm1.Char1.Professions.Alchemy.Recipes[1]
+      row.primaryRecipeID = nil
+      assert.are.equal(0, DS:MigrateRecipePrimaryIds())
+      assert.is_nil(row.primaryRecipeID)
+    end)
+
+    it("runs when recipePrimaryIdsMigrated is unset", function()
+      local row = { color = 1 }
+      _G.AltArmyTBC_Data.Characters = {
+        Realm1 = {
+          Char1 = {
+            Professions = {
+              Alchemy = { Recipes = { [11449] = row } },
+            },
+          },
+        },
+      }
+      assert.is_nil(_G.AltArmyTBC_Data.recipePrimaryIdsMigrated)
+      local updated = DS:MigrateRecipePrimaryIds()
+      assert.is_true(updated > 0)
+      assert.are.equal(11449, row.primaryRecipeID)
+      assert.is_true(_G.AltArmyTBC_Data.recipePrimaryIdsMigrated)
+    end)
+
+    it("skips immediately when recipePrimaryIdsMigrated is already true", function()
+      local rowCraft = { color = 1, primaryRecipeID = 11449, resultItemID = 8949 }
+      local rowEffect = { color = 1, primaryRecipeID = 11328, resultItemID = 8949 }
+      _G.AltArmyTBC_Data.recipePrimaryIdsMigrated = true
+      _G.AltArmyTBC_Data.Characters = {
+        Realm1 = {
+          Char1 = {
+            Professions = {
+              Alchemy = {
+                Recipes = {
+                  [11449] = rowCraft,
+                  [11328] = rowEffect,
+                },
+              },
+            },
+          },
+        },
+      }
+      assert.are.equal(0, DS:MigrateRecipePrimaryIds())
+      assert.are.equal(11328, rowEffect.primaryRecipeID)
+    end)
+
+    it("RemigrateRecipePrimaryIdsDebug clears flag and re-runs migration", function()
+      local rowCraft = { color = 1, primaryRecipeID = 11449, resultItemID = 8949 }
+      local rowEffect = { color = 1, primaryRecipeID = 11328, resultItemID = 8949 }
+      _G.AltArmyTBC_Data.recipePrimaryIdsMigrated = true
+      _G.AltArmyTBC_Data.Characters = {
+        Realm1 = {
+          Char1 = {
+            Professions = {
+              Alchemy = {
+                Recipes = {
+                  [11449] = rowCraft,
+                  [11328] = rowEffect,
+                },
+              },
+            },
+          },
+        },
+      }
+      _G.GetItemSpell = function(itemID)
+        if itemID == 8949 then return "Agility", 11328 end
+        return nil
+      end
+      _G.GetSpellInfo = function(id)
+        if id == 11449 then return "Elixir of Agility" end
+        if id == 11328 then return "Agility" end
+        return nil
+      end
+      local updated = DS:RemigrateRecipePrimaryIdsDebug()
+      assert.is_true(updated > 0)
+      assert.are.equal(11449, rowEffect.primaryRecipeID)
+      assert.is_true(_G.AltArmyTBC_Data.recipePrimaryIdsMigrated)
+    end)
+
+    it("marks account migrated even when no recipe rows need changes", function()
+      local row = { color = 1, primaryRecipeID = 11449 }
+      _G.AltArmyTBC_Data.Characters = {
+        Realm1 = {
+          Char1 = {
+            Professions = {
+              Alchemy = { Recipes = { [11449] = row } },
+            },
+          },
+        },
+      }
+      assert.are.equal(0, DS:MigrateRecipePrimaryIds())
+      assert.is_true(_G.AltArmyTBC_Data.recipePrimaryIdsMigrated)
+      assert.are.equal(11449, row.primaryRecipeID)
+    end)
+  end)
 end)
