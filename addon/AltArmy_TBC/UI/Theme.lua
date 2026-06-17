@@ -877,11 +877,16 @@ function Theme.CreateLabeledCheckbox(parent, opts)
         row:SetPoint(opts.point or "TOPLEFT", parent, opts.relativePoint or "TOPLEFT", opts.x or 0, opts.y or 0)
     end
     row:SetHeight(rowHeight)
-    row:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+    local rightInset = opts.rightInset or 0
+    row:SetPoint("RIGHT", parent, "RIGHT", -rightInset, 0)
 
     local hoverRegion = CreateFrame("Frame", nil, row)
-    hoverRegion:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
-    hoverRegion:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+    if opts.fullWidthHover then
+        hoverRegion:SetAllPoints(row)
+    else
+        hoverRegion:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+        hoverRegion:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+    end
     Theme.InstallHoverTint(hoverRegion)
 
     local check = Theme.CreateThemeCheckbox(row, checkSize)
@@ -891,7 +896,9 @@ function Theme.CreateLabeledCheckbox(parent, opts)
     label:SetPoint("LEFT", check, "RIGHT", 2, 0)
     label:SetText(opts.text or "")
 
-    hoverRegion:SetPoint("RIGHT", label, "RIGHT", 4, 0)
+    if not opts.fullWidthHover then
+        hoverRegion:SetPoint("RIGHT", label, "RIGHT", 4, 0)
+    end
     hoverRegion:EnableMouse(true)
     hoverRegion:SetScript("OnEnter", function()
         Theme.SetHoverTint(hoverRegion, true)

@@ -10,6 +10,15 @@ local profKeyCache = {}
 
 local MAX_TBC_SKILL = 375
 
+local KNOWN_SOURCE_TYPES = {
+    trainer = true,
+    vendor = true,
+    quest = true,
+    drop = true,
+    reputation = true,
+    starter = true,
+}
+
 local function clearTable(t)
     for k in pairs(t) do
         t[k] = nil
@@ -65,6 +74,79 @@ function RCL.GetDifficultyColorHex(difficulty)
         return nil
     end
     return DIFFICULTY_HEX[difficulty]
+end
+
+local SOURCE_TYPE_ALIASES = {
+    world_drop = "drop",
+}
+
+local function normalizeSourceKey(raw)
+    if raw == nil then
+        return nil
+    end
+    local key = string.lower(tostring(raw))
+    if key == "" then
+        return nil
+    end
+    key = SOURCE_TYPE_ALIASES[key] or key
+    if KNOWN_SOURCE_TYPES[key] then
+        return key
+    end
+    return nil
+end
+
+function RCL.NormalizeRecipeSource(source)
+    if source == nil then
+        return nil
+    end
+    if type(source) == "table" then
+        return normalizeSourceKey(source.type)
+    end
+    if type(source) == "string" then
+        return normalizeSourceKey(source)
+    end
+    return nil
+end
+
+function RCL.NormalizeRecipeExpansion(expansion)
+    if expansion == nil then
+        return nil
+    end
+    if type(expansion) == "number" then
+        if expansion == 0 then
+            return "vanilla"
+        end
+        if expansion == 1 or expansion == 2 then
+            return "tbc"
+        end
+        return nil
+    end
+    local key = string.lower(tostring(expansion))
+    if key == "classic" or key == "vanilla" then
+        return "vanilla"
+    end
+    if key == "tbc" or key == "burning_crusade" or key == "burning crusade" then
+        return "tbc"
+    end
+    return nil
+end
+
+function RCL.GetReagentList(recipe)
+    local out = {}
+    if not recipe or not recipe.reagents then
+        return out
+    end
+    for _, reagent in ipairs(recipe.reagents) do
+        local itemId = tonumber(reagent.itemId)
+        if itemId then
+            local count = tonumber(reagent.count) or 1
+            if count <= 0 then
+                count = 1
+            end
+            out[#out + 1] = { itemId = itemId, count = count }
+        end
+    end
+    return out
 end
 
 function RCL.ResolveProfessionKey(professionName)
@@ -223,7 +305,19 @@ function RCL.EnrichEntry(entry)
     end
     entry.recipeSkillRequired = nil
     entry.difficulty = nil
+    entry.recipeSource = nil
+    entry.recipeExpansion = nil
+    entry.recipeReagents = nil
     local recipe = RCL.LookupRecipe(entry.professionName, entry.recipeID, entry.resultItemID)
+    if not recipe then
+        return entry
+    end
+    entry.recipeSource = RCL.NormalizeRecipeSource(recipe.source)
+    entry.recipeExpansion = RCL.NormalizeRecipeExpansion(recipe.expansion)
+    local reagents = RCL.GetReagentList(recipe)
+    if #reagents > 0 then
+        entry.recipeReagents = reagents
+    end
     local req = RCL.ExtractSkillRequired(recipe)
     if req then
         entry.recipeSkillRequired = req

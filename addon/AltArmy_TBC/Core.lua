@@ -299,8 +299,8 @@ UpdateSettingsButtonGlow = function()
             and AltArmy.TabFrames.Search:IsSearchSettingsShown()
         local filterActive = false
         local SS = AltArmy.SearchSettings
-        if SS and SS.IsRecipeLevelFilterActive then
-            filterActive = SS.IsRecipeLevelFilterActive()
+        if SS and SS.IsAnyRecipeFilterActive then
+            filterActive = SS.IsAnyRecipeFilterActive()
         end
         searchModeHandlers.searchSettingsBtn.glow:SetShown(settingsOpen or filterActive)
         if searchModeHandlers.searchFiltersActiveLabel then

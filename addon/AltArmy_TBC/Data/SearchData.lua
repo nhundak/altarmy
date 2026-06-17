@@ -654,6 +654,90 @@ local function FilterRecipesByLevel(results, filter)
 end
 SD._FilterRecipesByLevel = FilterRecipesByLevel
 
+local function CraftLibFiltersAvailable()
+    local RCL = AltArmy and AltArmy.RecipeCraftLib
+    return RCL and RCL.IsAvailable and RCL.IsAvailable()
+end
+
+local function FilterRecipesByDifficulty(results, filter)
+    if not results or not filter then
+        return results
+    end
+    local SS = AltArmy and AltArmy.SearchSettings
+    if SS and SS.IsDifficultyFilterActive and not SS.IsDifficultyFilterActive(filter) then
+        return results
+    end
+    if not CraftLibFiltersAvailable() then
+        return results
+    end
+    local out = {}
+    for _, entry in ipairs(results) do
+        local difficulty = entry.difficulty
+        if difficulty == nil or filter[difficulty] then
+            out[#out + 1] = entry
+        end
+    end
+    return out
+end
+SD._FilterRecipesByDifficulty = FilterRecipesByDifficulty
+
+local function FilterRecipesBySource(results, filter)
+    if not results or not filter then
+        return results
+    end
+    local SS = AltArmy and AltArmy.SearchSettings
+    if SS and SS.IsSourceFilterActive and not SS.IsSourceFilterActive(filter) then
+        return results
+    end
+    if not CraftLibFiltersAvailable() then
+        return results
+    end
+    local out = {}
+    for _, entry in ipairs(results) do
+        local sourceType = entry.recipeSource
+        if sourceType == nil or filter[sourceType] then
+            out[#out + 1] = entry
+        end
+    end
+    return out
+end
+SD._FilterRecipesBySource = FilterRecipesBySource
+
+local function FilterRecipesByProfession(results, filter)
+    if not results or not filter then
+        return results
+    end
+    local SS = AltArmy and AltArmy.SearchSettings
+    if SS and SS.IsProfessionFilterActive and not SS.IsProfessionFilterActive(filter) then
+        return results
+    end
+    local out = {}
+    for _, entry in ipairs(results) do
+        local professionKey = SS and SS.ResolveProfessionKey
+            and SS.ResolveProfessionKey(entry.professionName)
+        if professionKey == nil or filter[professionKey] then
+            out[#out + 1] = entry
+        end
+    end
+    return out
+end
+SD._FilterRecipesByProfession = FilterRecipesByProfession
+
+local function ApplyRecipeSearchFilters(results, settings)
+    if not results or not settings then
+        return results
+    end
+    results = FilterRecipesByProfession(results, settings.professionFilter)
+    if not CraftLibFiltersAvailable() then
+        return results
+    end
+    results = FilterRecipesByLevel(results, settings.recipeLevelFilter)
+    results = FilterRecipesByDifficulty(results, settings.difficultyFilter)
+    results = FilterRecipesBySource(results, settings.sourceFilter)
+    return results
+end
+SD._ApplyRecipeSearchFilters = ApplyRecipeSearchFilters
+
 function SD.SearchRecipes(query)
     if not query or (type(query) == "string" and query:match("^%s*$")) then
         return {}
@@ -669,8 +753,8 @@ function SD.SearchRecipes(query)
         EnrichRecipeEntry(results[i])
     end
     local SS = AltArmy and AltArmy.SearchSettings
-    if SS and SS.GetRecipeLevelFilter then
-        results = FilterRecipesByLevel(results, SS.GetRecipeLevelFilter())
+    if SS and SS.GetSearchSettings then
+        results = ApplyRecipeSearchFilters(results, SS.GetSearchSettings())
     end
     if debug then
         LogSearchDebug(string.format(

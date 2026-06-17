@@ -791,6 +791,150 @@ describe("SearchData", function()
     end)
   end)
 
+  describe("_FilterRecipesByDifficulty", function()
+    before_each(function()
+      _G.CraftLib = { IsReady = function() return true end }
+    end)
+    after_each(function()
+      _G.CraftLib = nil
+    end)
+
+    it("keeps rows with enabled difficulty and unknown difficulty", function()
+      local rows = {
+        { recipeID = 1, difficulty = "orange" },
+        { recipeID = 2, difficulty = "gray" },
+        { recipeID = 3, difficulty = nil },
+      }
+      local filtered = SD._FilterRecipesByDifficulty(rows, {
+        orange = true, yellow = true, green = true, gray = false,
+      })
+      assert.are.equal(2, #filtered)
+      assert.are.equal(1, filtered[1].recipeID)
+      assert.are.equal(3, filtered[2].recipeID)
+    end)
+  end)
+
+  describe("_FilterRecipesBySource", function()
+    before_each(function()
+      _G.CraftLib = { IsReady = function() return true end }
+    end)
+    after_each(function()
+      _G.CraftLib = nil
+    end)
+
+    it("keeps rows with enabled source and unknown source", function()
+      local rows = {
+        { recipeID = 1, recipeSource = "trainer" },
+        { recipeID = 2, recipeSource = "drop" },
+        { recipeID = 3, recipeSource = nil },
+      }
+      local filtered = SD._FilterRecipesBySource(rows, {
+        trainer = true, vendor = true, quest = true,
+        drop = false, reputation = true, starter = true,
+      })
+      assert.are.equal(2, #filtered)
+      assert.are.equal(1, filtered[1].recipeID)
+      assert.are.equal(3, filtered[2].recipeID)
+    end)
+  end)
+
+  describe("_FilterRecipesByProfession", function()
+    before_each(function()
+      _G.AltArmy = _G.AltArmy or {}
+      package.loaded["SearchSettings"] = nil
+      require("SearchSettings")
+      AltArmy.SearchSettings._ClearProfessionKeyCache()
+      _G.GetSpellInfo = function(spellId)
+        if spellId == 2259 then return "Alchemy" end
+        if spellId == 3908 then return "Tailoring" end
+        return nil
+      end
+    end)
+    after_each(function()
+      _G.GetSpellInfo = nil
+    end)
+
+    it("keeps rows with enabled professions and unknown professions", function()
+      local rows = {
+        { recipeID = 1, professionName = "Alchemy" },
+        { recipeID = 2, professionName = "Tailoring" },
+        { recipeID = 3, professionName = "Unknown" },
+      }
+      local filtered = SD._FilterRecipesByProfession(rows, {
+        alchemy = true,
+        blacksmithing = true,
+        cooking = true,
+        enchanting = true,
+        engineering = true,
+        firstAid = true,
+        jewelcrafting = true,
+        leatherworking = true,
+        mining = true,
+        poisons = true,
+        tailoring = false,
+      })
+      assert.are.equal(2, #filtered)
+      assert.are.equal(1, filtered[1].recipeID)
+      assert.are.equal(3, filtered[2].recipeID)
+    end)
+  end)
+
+  describe("_ApplyRecipeSearchFilters", function()
+    before_each(function()
+      _G.CraftLib = { IsReady = function() return true end }
+    end)
+    after_each(function()
+      _G.CraftLib = nil
+    end)
+
+    it("applies difficulty and source filters together", function()
+      local rows = {
+        { recipeID = 1, difficulty = "orange", recipeSource = "trainer" },
+        { recipeID = 2, difficulty = "gray", recipeSource = "trainer" },
+        { recipeID = 3, difficulty = "orange", recipeSource = "drop" },
+      }
+      local filtered = SD._ApplyRecipeSearchFilters(rows, {
+        recipeLevelFilter = { min = 0, max = 375 },
+        professionFilter = {
+          alchemy = true, blacksmithing = true, cooking = true, enchanting = true,
+          engineering = true, firstAid = true, jewelcrafting = true, leatherworking = true,
+          mining = true, poisons = true, tailoring = true,
+        },
+        difficultyFilter = { orange = true, yellow = true, green = true, gray = false },
+        sourceFilter = {
+          trainer = true, vendor = true, quest = true,
+          drop = false, reputation = true, starter = true,
+        },
+      })
+      assert.are.equal(1, #filtered)
+      assert.are.equal(1, filtered[1].recipeID)
+    end)
+
+    it("applies profession filter without CraftLib", function()
+      _G.CraftLib = nil
+      local rows = {
+        { recipeID = 1, professionName = "Alchemy" },
+        { recipeID = 2, professionName = "Tailoring" },
+      }
+      local filtered = SD._ApplyRecipeSearchFilters(rows, {
+        professionFilter = {
+          alchemy = true,
+          blacksmithing = true,
+          cooking = true,
+          enchanting = true,
+          engineering = true,
+          firstAid = true,
+          jewelcrafting = true,
+          leatherworking = true,
+          mining = true,
+          tailoring = false,
+        },
+      })
+      assert.are.equal(1, #filtered)
+      assert.are.equal(1, filtered[1].recipeID)
+    end)
+  end)
+
   describe("_IsRecipeAliasId", function()
     it("returns true when recipeID differs from primaryRecipeID", function()
       assert.is_true(SD._IsRecipeAliasId(11334, { primaryRecipeID = 11449 }))

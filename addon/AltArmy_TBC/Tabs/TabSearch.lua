@@ -145,12 +145,12 @@ local listViewport = CreateFrame("Frame", nil, tabContentInner)
 listViewport:SetClipsChildren(true)
 -- Points set in ApplySearchListLayout
 
-local HINT_NO_SEARCH_RESULTS = "No matching items or recipes\nwere found for your search."
+local HINT_NO_SEARCH_RESULTS_BOTH = "No matching items or recipes\nwere found for your search."
 local noResultsHint = tabContentInner:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 noResultsHint:SetPoint("CENTER", listViewport, "CENTER", 0, 0)
 noResultsHint:SetWidth(280)
 noResultsHint:SetJustifyH("CENTER")
-noResultsHint:SetText(HINT_NO_SEARCH_RESULTS)
+noResultsHint:SetText(HINT_NO_SEARCH_RESULTS_BOTH)
 noResultsHint:Hide()
 
 local horizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_SearchHorizontalScroll", listViewport)
@@ -442,6 +442,23 @@ local function CountSearchResults(categories)
     return nItems + nRecipes + nTooltipOnly
 end
 
+local function GetNoSearchResultsHintText(categories)
+    categories = categories or {}
+    local items = categories.Items and true or false
+    local recipes = categories.Recipes and true or false
+    if not items and not recipes then
+        return "Choose Items and/or Recipes above"
+    end
+    if items and recipes then
+        return HINT_NO_SEARCH_RESULTS_BOTH
+    end
+    if items then
+        return "No matching items\nwere found for your search."
+    end
+    return "No matching recipes\nwere found for your search."
+end
+frame.GetNoSearchResultsHintText = GetNoSearchResultsHintText
+
 local function ShouldShowNoSearchResultsHint(query, categories, resultCount, tooltipPending)
     if not query or query == "" then
         return false
@@ -463,6 +480,7 @@ local function UpdateNoResultsHint()
         CountSearchResults(categories),
         IsTooltipSearchPending())
     if show then
+        noResultsHint:SetText(GetNoSearchResultsHintText(categories))
         noResultsHint:Show()
     else
         noResultsHint:Hide()
@@ -1143,6 +1161,7 @@ local settingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 Theme.ApplyBackdrop(settingsPanel, "section")
 
 local applyRecipeLevelFilterRowLayout
+local SyncCraftFilterDropdowns
 
 local function ApplySettingsPanelLayout()
     local w = frame:GetWidth()
@@ -1157,6 +1176,9 @@ local function ApplySettingsPanelLayout()
     settingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
     if applyRecipeLevelFilterRowLayout then
         applyRecipeLevelFilterRowLayout()
+    end
+    if SyncCraftFilterDropdowns then
+        SyncCraftFilterDropdowns()
     end
 end
 
@@ -1209,9 +1231,12 @@ local function SetRecipeLevelHeaderColor(fontString)
 end
 
 local recipeLevelHeader = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-recipeLevelHeader:SetPoint("TOPLEFT", filterContent, "TOPLEFT", 0, 0)
 recipeLevelHeader:SetText("Recipe Level")
 SetRecipeLevelHeaderColor(recipeLevelHeader)
+
+local professionSectionAnchor = CreateFrame("Frame", nil, filterContent)
+professionSectionAnchor:SetSize(1, 1)
+professionSectionAnchor:SetPoint("TOPLEFT", filterContent, "TOPLEFT", 0, 0)
 
 local minLevelLabel = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 minLevelLabel:SetPoint("TOPLEFT", recipeLevelHeader, "BOTTOMLEFT", 0, -RECIPE_LEVEL_ROW_GAP)
@@ -1363,11 +1388,272 @@ UpdateRecipeLevelResetButtonVisibility = function()
     recipeLevelResetBtn:SetShown(filterActive)
 end
 
+local FILTER_SECTION_GAP = 12
+local FILTER_DROPDOWN_GAP = 4
+local FILTER_DROPDOWN_POPUP_PAD_LEFT = 8
+local FILTER_DROPDOWN_POPUP_PAD_TOP = 6
+local FILTER_DROPDOWN_POPUP_PAD_BOTTOM = 8
+local FILTER_DROPDOWN_POPUP_PAD_RIGHT = 8
+local FILTER_DROPDOWN_TEXT_INSET = 8
+local craftFilterWidgets = {}
+local craftFilterDropdowns = {}
+
+local function AddCraftFilterWidget(widget)
+    craftFilterWidgets[#craftFilterWidgets + 1] = widget
+end
+
+local function CloseCraftFilterDropdowns(exceptPopup)
+    for i = 1, #craftFilterDropdowns do
+        local popup = craftFilterDropdowns[i]
+        if popup and popup ~= exceptPopup and popup.Hide then
+            popup:Hide()
+        end
+    end
+end
+
+local function SetDropdownButtonSummary(btn, btnText, summary)
+    btn.fullSummaryText = summary
+    local maxW = (btn:GetWidth() or 0) - FILTER_DROPDOWN_TEXT_INSET
+    if maxW <= 0 then
+        btnText:SetText(summary)
+        btn.wasSummaryTruncated = false
+        return
+    end
+    if TruncateFontString then
+        btn.wasSummaryTruncated = TruncateFontString(btnText, summary, maxW, { returnBoolean = true })
+    else
+        btnText:SetText(summary)
+        btn.wasSummaryTruncated = false
+    end
+end
+
+local function CreateFilterSectionHeader(relativeTo, text, registerInCraftFilter)
+    local header = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    header:SetPoint("TOP", relativeTo, "BOTTOM", 0, -FILTER_SECTION_GAP)
+    header:SetPoint("LEFT", filterContent, "LEFT", 0, 0)
+    header:SetPoint("RIGHT", filterContent, "RIGHT", 0, 0)
+    header:SetJustifyH("LEFT")
+    header:SetText(text)
+    SetRecipeLevelHeaderColor(header)
+    if registerInCraftFilter ~= false then
+        AddCraftFilterWidget(header)
+    end
+    return header
+end
+
+local function CreateMultiSelectFilterDropdown(config)
+    local registerCraftFilterWidget = config.registerCraftFilterWidget ~= false
+    local header = CreateFilterSectionHeader(
+        config.relativeTo,
+        config.title,
+        registerCraftFilterWidget
+    )
+
+    local btn = CreateFrame("Button", nil, filterContent)
+    btn:SetHeight(SETTINGS_ROW_HEIGHT)
+    btn:SetPoint("TOP", header, "BOTTOM", 0, -FILTER_DROPDOWN_GAP)
+    btn:SetPoint("LEFT", filterContent, "LEFT", 0, 0)
+    btn:SetPoint("RIGHT", filterContent, "RIGHT", 0, 0)
+    Theme.SkinButton(btn)
+    if registerCraftFilterWidget then
+        AddCraftFilterWidget(btn)
+    end
+
+    local btnText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    btnText:SetPoint("LEFT", btn, "LEFT", 4, 0)
+    btnText:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+    btnText:SetJustifyH("LEFT")
+
+    if btn.HookScript then
+        btn:HookScript("OnEnter", function(self)
+            if self.wasSummaryTruncated and self.fullSummaryText and GameTooltip then
+                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+                GameTooltip:ClearLines()
+                GameTooltip:AddLine(self.fullSummaryText, 1, 1, 1, true)
+                GameTooltip:Show()
+            end
+        end)
+        btn:HookScript("OnLeave", function()
+            if GameTooltip then
+                GameTooltip:Hide()
+            end
+        end)
+    end
+
+    local popup = CreateFrame("Frame", nil, filterContent, "BackdropTemplate")
+    popup:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
+    popup:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, 0)
+    local rowHeight = Theme.CHAR_LIST_ROW_HEIGHT or 20
+    popup:SetHeight(
+        FILTER_DROPDOWN_POPUP_PAD_TOP
+            + #config.keys * rowHeight
+            + FILTER_DROPDOWN_POPUP_PAD_BOTTOM
+    )
+    popup:SetFrameLevel(filterContent:GetFrameLevel() + 100)
+    popup:Hide()
+    Theme.ApplyBackdrop(popup, "section")
+    craftFilterDropdowns[#craftFilterDropdowns + 1] = popup
+
+    local checks = {}
+    local prevRow
+    local RefreshDropdown
+    for idx, key in ipairs(config.keys) do
+        local rowOpts = {
+            text = (config.getRowLabel and config.getRowLabel(key)) or config.labels[key] or key,
+            fullWidthHover = true,
+            rightInset = FILTER_DROPDOWN_POPUP_PAD_RIGHT,
+            onClick = function(checked)
+                if config.setEnabled then
+                    config.setEnabled(key, checked)
+                end
+                RefreshDropdown()
+                RerunSearchIfActive()
+            end,
+        }
+        if idx == 1 then
+            rowOpts.point = "TOPLEFT"
+            rowOpts.relativeTo = popup
+            rowOpts.relativePoint = "TOPLEFT"
+            rowOpts.x = FILTER_DROPDOWN_POPUP_PAD_LEFT
+            rowOpts.y = -FILTER_DROPDOWN_POPUP_PAD_TOP
+        else
+            rowOpts.relativeTo = prevRow
+            rowOpts.relativePoint = "BOTTOMLEFT"
+            rowOpts.point = "TOPLEFT"
+            rowOpts.x = 0
+            rowOpts.y = 0
+        end
+        local row = Theme.CreateLabeledCheckbox(popup, rowOpts)
+        checks[key] = row.check
+        prevRow = row
+    end
+
+    local function RefreshDropdownImpl()
+        local filterMap = config.getFilter and config.getFilter() or {}
+        local summary = SS and SS.FormatMultiSelectFilterSummary
+            and SS.FormatMultiSelectFilterSummary(config.keys, config.labels, filterMap)
+            or ""
+        SetDropdownButtonSummary(btn, btnText, summary)
+        for key, check in pairs(checks) do
+            if check and check.SetChecked then
+                check:SetChecked(filterMap[key] ~= false)
+            end
+        end
+    end
+    RefreshDropdown = RefreshDropdownImpl
+
+    btn:SetScript("OnClick", function()
+        local show = not popup:IsShown()
+        CloseCraftFilterDropdowns(show and popup or nil)
+        popup:SetShown(show)
+    end)
+
+    RefreshDropdownImpl()
+    return btn, { popup = popup, refresh = RefreshDropdownImpl, header = header }
+end
+
+local professionDropdownBtn
+local professionDropdown
+professionDropdownBtn, professionDropdown = CreateMultiSelectFilterDropdown({
+    relativeTo = professionSectionAnchor,
+    title = "Professions",
+    keys = SS and SS.GetProfessionDropdownOrder and SS.GetProfessionDropdownOrder() or {},
+    labels = SS and SS.PROFESSION_LABELS or {},
+    registerCraftFilterWidget = false,
+    getFilter = function()
+        return SS and SS.GetProfessionFilter and SS.GetProfessionFilter() or {}
+    end,
+    setEnabled = function(key, checked)
+        if SS and SS.SetProfessionEnabled then
+            SS.SetProfessionEnabled(key, checked)
+        end
+    end,
+})
+
+recipeLevelHeader:SetPoint("TOPLEFT", professionDropdownBtn, "BOTTOMLEFT", 0, -FILTER_SECTION_GAP)
+
+local DIFFICULTY_LABELS = {
+    orange = "Orange",
+    yellow = "Yellow",
+    green = "Green",
+    gray = "Gray",
+}
+local DIFFICULTY_DROPDOWN_ORDER = { "gray", "green", "yellow", "orange" }
+
+local function ColoredDifficultyLabel(band)
+    local plain = DIFFICULTY_LABELS[band] or band
+    local recipeCraftLib = AltArmy.RecipeCraftLib
+    local hex = recipeCraftLib and recipeCraftLib.GetDifficultyColorHex
+        and recipeCraftLib.GetDifficultyColorHex(band)
+    if not hex then
+        return plain
+    end
+    return string.format("|c%s%s|r", hex, plain)
+end
+
+local SOURCE_LABELS = {
+    trainer = "Trainer",
+    vendor = "Vendor",
+    quest = "Quest",
+    drop = "Drop",
+    reputation = "Reputation",
+    starter = "Starter",
+}
+local SOURCE_DROPDOWN_ORDER = { "drop", "quest", "reputation", "starter", "trainer", "vendor" }
+
+local difficultyDropdownBtn
+local difficultyDropdown
+difficultyDropdownBtn, difficultyDropdown = CreateMultiSelectFilterDropdown({
+    relativeTo = minLevelLabel,
+    title = "Difficulty",
+    keys = DIFFICULTY_DROPDOWN_ORDER,
+    labels = DIFFICULTY_LABELS,
+    getRowLabel = ColoredDifficultyLabel,
+    getFilter = function()
+        return SS and SS.GetDifficultyFilter and SS.GetDifficultyFilter() or {}
+    end,
+    setEnabled = function(key, checked)
+        if SS and SS.SetDifficultyBandEnabled then
+            SS.SetDifficultyBandEnabled(key, checked)
+        end
+    end,
+})
+local _, sourceDropdown = CreateMultiSelectFilterDropdown({
+    relativeTo = difficultyDropdownBtn,
+    title = "Source",
+    keys = SOURCE_DROPDOWN_ORDER,
+    labels = SOURCE_LABELS,
+    getFilter = function()
+        return SS and SS.GetSourceFilter and SS.GetSourceFilter() or {}
+    end,
+    setEnabled = function(key, checked)
+        if SS and SS.SetSourceTypeEnabled then
+            SS.SetSourceTypeEnabled(key, checked)
+        end
+    end,
+})
+
+SyncCraftFilterDropdowns = function()
+    if professionDropdown and professionDropdown.refresh then
+        professionDropdown.refresh()
+    end
+    if difficultyDropdown and difficultyDropdown.refresh then
+        difficultyDropdown.refresh()
+    end
+    if sourceDropdown and sourceDropdown.refresh then
+        sourceDropdown.refresh()
+    end
+end
+
+settingsPanel:HookScript("OnHide", function()
+    CloseCraftFilterDropdowns()
+end)
+
 local CALLOUT_PAD = 8
 local CRAFTLIB_URL = "https://www.curseforge.com/wow/addons/craftlib"
 local craftLibCallout = CreateFrame("Frame", nil, filterContent, "BackdropTemplate")
 Theme.ApplyBackdrop(craftLibCallout, "section")
-craftLibCallout:SetPoint("TOPLEFT", filterContent, "TOPLEFT", 0, 0)
+craftLibCallout:SetPoint("TOPLEFT", professionDropdownBtn, "BOTTOMLEFT", 0, -FILTER_SECTION_GAP)
 craftLibCallout:SetPoint("TOPRIGHT", filterContent, "TOPRIGHT", 0, 0)
 craftLibCallout:SetHeight(132)
 
@@ -1399,7 +1685,7 @@ craftLibNoticeBody:SetText(
 local craftLibInstallLabel = craftLibCallout:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 craftLibInstallLabel:SetPoint("TOPLEFT", craftLibNoticeBody, "BOTTOMLEFT", 0, -10)
 craftLibInstallLabel:SetJustifyH("LEFT")
-craftLibInstallLabel:SetText("Install from CurseForge, then /reload:")
+craftLibInstallLabel:SetText("Install from CurseForge")
 Theme.SetLabelColor(craftLibInstallLabel)
 
 local craftLibUrlEdit = CreateFrame("EditBox", nil, craftLibCallout)
@@ -1449,6 +1735,15 @@ craftLibCallout:SetScript("OnShow", function(self)
     end)
 end)
 
+local function SetCraftFilterWidgetsShown(shown)
+    for i = 1, #craftFilterWidgets do
+        local widget = craftFilterWidgets[i]
+        if widget and widget.SetShown then
+            widget:SetShown(shown)
+        end
+    end
+end
+
 local function RefreshSearchSettingsControls()
     if applyRecipeLevelFilterRowLayout then
         applyRecipeLevelFilterRowLayout()
@@ -1458,19 +1753,32 @@ local function RefreshSearchSettingsControls()
     end
     local f = SS.GetRecipeLevelFilter()
     local craftLibReady = RCL and RCL.IsAvailable and RCL.IsAvailable()
+    SyncCraftFilterDropdowns()
+    if professionDropdown and professionDropdown.header then
+        professionDropdown.header:Show()
+        SetRecipeLevelHeaderColor(professionDropdown.header)
+    end
+    if professionDropdownBtn then
+        professionDropdownBtn:Show()
+    end
     if craftLibReady then
         recipeLevelHeader:Show()
         minLevelLabel:Show()
         minLevelEdit:Show()
         maxLevelLabel:Show()
         maxLevelEdit:Show()
+        SetCraftFilterWidgetsShown(true)
         craftLibCallout:Hide()
         suppressRecipeFilterTextChanged = true
         minLevelEdit:SetText(tostring(f.min or 0))
         maxLevelEdit:SetText(tostring(f.max or 375))
         suppressRecipeFilterTextChanged = false
         SetRecipeLevelHeaderColor(recipeLevelHeader)
-        UpdateRecipeLevelResetButtonVisibility()
+        SetRecipeLevelHeaderColor(difficultyDropdown and difficultyDropdown.header)
+        SetRecipeLevelHeaderColor(sourceDropdown and sourceDropdown.header)
+        if UpdateRecipeLevelResetButtonVisibility then
+            UpdateRecipeLevelResetButtonVisibility()
+        end
         if Theme.SetLabelColor then
             Theme.SetLabelColor(minLevelLabel)
             Theme.SetLabelColor(maxLevelLabel)
@@ -1482,6 +1790,8 @@ local function RefreshSearchSettingsControls()
         maxLevelLabel:Hide()
         maxLevelEdit:Hide()
         recipeLevelResetBtn:Hide()
+        SetCraftFilterWidgetsShown(false)
+        CloseCraftFilterDropdowns()
         craftLibCallout:Show()
     end
 end
