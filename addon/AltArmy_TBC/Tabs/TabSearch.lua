@@ -1132,20 +1132,32 @@ end
 
 -- Search settings panel: right 40% of frame when visible (list 60%, both full height).
 local GRID_SPLIT_FRACTION = 0.6
+local SEARCH_SETTINGS_WIDTH_TRIM = 60
 local SETTINGS_ROW_HEIGHT = 22
+local RECIPE_LEVEL_LABEL_GAP = 6
+local RECIPE_LEVEL_MIN_MAX_GAP = 12
+local RECIPE_LEVEL_RESET_GAP = 4
+local RECIPE_LEVEL_MIN_EDIT_WIDTH = 28
+local RECIPE_LEVEL_DEFAULT_EDIT_WIDTH = 40
 local settingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 Theme.ApplyBackdrop(settingsPanel, "section")
+
+local applyRecipeLevelFilterRowLayout
 
 local function ApplySettingsPanelLayout()
     local w = frame:GetWidth()
     if w <= 0 then
         return
     end
+    local settingsLeft = w * GRID_SPLIT_FRACTION + SECTION_GAP + SEARCH_SETTINGS_WIDTH_TRIM
     settingsPanel:ClearAllPoints()
-    settingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * GRID_SPLIT_FRACTION + SECTION_GAP, -SECTION_INSET)
-    settingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", w * GRID_SPLIT_FRACTION + SECTION_GAP, SECTION_INSET)
+    settingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", settingsLeft, -SECTION_INSET)
+    settingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", settingsLeft, SECTION_INSET)
     settingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SECTION_INSET, -SECTION_INSET)
     settingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+    if applyRecipeLevelFilterRowLayout then
+        applyRecipeLevelFilterRowLayout()
+    end
 end
 
 ApplySettingsPanelLayout()
@@ -1166,27 +1178,47 @@ filterContent:SetPoint("BOTTOMRIGHT", settingsContent, "BOTTOMRIGHT", 0, 0)
 local SS = AltArmy.SearchSettings
 local RCL = AltArmy.RecipeCraftLib
 
+local UpdateRecipeLevelResetButtonVisibility
+
 local function RerunSearchIfActive()
     if frame.lastQuery and frame.lastQuery ~= "" and frame.SearchWithQuery then
         frame:SearchWithQuery(frame.lastQuery)
     elseif frame.DoSearch then
         frame:DoSearch()
     end
+    if UpdateRecipeLevelResetButtonVisibility then
+        UpdateRecipeLevelResetButtonVisibility()
+    end
+    if AltArmy and AltArmy.UpdateSearchSettingsButtonGlow then
+        AltArmy.UpdateSearchSettingsButtonGlow()
+    end
+end
+
+local RECIPE_LEVEL_ROW_GAP = 10
+
+local function SetRecipeLevelHeaderColor(fontString)
+    if not fontString or not fontString.SetTextColor then
+        return
+    end
+    local value = Theme.COLORS and Theme.COLORS.value
+    if value then
+        fontString:SetTextColor(value[1], value[2], value[3], value[4])
+    else
+        fontString:SetTextColor(1, 1, 1, 1)
+    end
 end
 
 local recipeLevelHeader = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 recipeLevelHeader:SetPoint("TOPLEFT", filterContent, "TOPLEFT", 0, 0)
 recipeLevelHeader:SetText("Recipe Level")
-if Theme.SetLabelColor then
-    Theme.SetLabelColor(recipeLevelHeader)
-end
+SetRecipeLevelHeaderColor(recipeLevelHeader)
 
 local minLevelLabel = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-minLevelLabel:SetPoint("TOPLEFT", recipeLevelHeader, "BOTTOMLEFT", 0, -6)
+minLevelLabel:SetPoint("TOPLEFT", recipeLevelHeader, "BOTTOMLEFT", 0, -RECIPE_LEVEL_ROW_GAP)
 minLevelLabel:SetText("Min")
 
 local minLevelEdit = CreateFrame("EditBox", nil, filterContent)
-minLevelEdit:SetSize(52, SETTINGS_ROW_HEIGHT)
+minLevelEdit:SetSize(RECIPE_LEVEL_DEFAULT_EDIT_WIDTH, SETTINGS_ROW_HEIGHT)
 minLevelEdit:SetFontObject("GameFontHighlightSmall")
 minLevelEdit:SetAutoFocus(false)
 minLevelEdit:SetNumeric(true)
@@ -1196,12 +1228,39 @@ Theme.ApplyInputTextures(minLevelEdit)
 minLevelEdit:SetScript("OnEnterPressed", function(box)
     box:ClearFocus()
 end)
-minLevelEdit:SetScript("OnEditFocusLost", function(box)
-    if SS and SS.SetRecipeLevelFilterMin then
-        SS.SetRecipeLevelFilterMin(box:GetText())
+local suppressRecipeFilterTextChanged = false
+
+local function ApplyRecipeLevelFilterMin(box, normalizeDisplay)
+    if suppressRecipeFilterTextChanged or not SS or not SS.SetRecipeLevelFilterMin then
+        return
+    end
+    SS.SetRecipeLevelFilterMin(box:GetText())
+    if normalizeDisplay then
+        suppressRecipeFilterTextChanged = true
         box:SetText(tostring(SS.GetRecipeLevelFilter().min))
+        suppressRecipeFilterTextChanged = false
     end
     RerunSearchIfActive()
+end
+
+local function ApplyRecipeLevelFilterMax(box, normalizeDisplay)
+    if suppressRecipeFilterTextChanged or not SS or not SS.SetRecipeLevelFilterMax then
+        return
+    end
+    SS.SetRecipeLevelFilterMax(box:GetText())
+    if normalizeDisplay then
+        suppressRecipeFilterTextChanged = true
+        box:SetText(tostring(SS.GetRecipeLevelFilter().max))
+        suppressRecipeFilterTextChanged = false
+    end
+    RerunSearchIfActive()
+end
+
+minLevelEdit:SetScript("OnTextChanged", function(box)
+    ApplyRecipeLevelFilterMin(box, false)
+end)
+minLevelEdit:SetScript("OnEditFocusLost", function(box)
+    ApplyRecipeLevelFilterMin(box, true)
 end)
 
 local maxLevelLabel = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1210,7 +1269,7 @@ maxLevelLabel:SetPoint("TOP", minLevelLabel, "TOP", 0, 0)
 maxLevelLabel:SetText("Max")
 
 local maxLevelEdit = CreateFrame("EditBox", nil, filterContent)
-maxLevelEdit:SetSize(52, SETTINGS_ROW_HEIGHT)
+maxLevelEdit:SetSize(RECIPE_LEVEL_DEFAULT_EDIT_WIDTH, SETTINGS_ROW_HEIGHT)
 maxLevelEdit:SetFontObject("GameFontHighlightSmall")
 maxLevelEdit:SetAutoFocus(false)
 maxLevelEdit:SetNumeric(true)
@@ -1221,13 +1280,88 @@ Theme.ApplyInputTextures(maxLevelEdit)
 maxLevelEdit:SetScript("OnEnterPressed", function(box)
     box:ClearFocus()
 end)
-maxLevelEdit:SetScript("OnEditFocusLost", function(box)
-    if SS and SS.SetRecipeLevelFilterMax then
-        SS.SetRecipeLevelFilterMax(box:GetText())
-        box:SetText(tostring(SS.GetRecipeLevelFilter().max))
-    end
-    RerunSearchIfActive()
+maxLevelEdit:SetScript("OnTextChanged", function(box)
+    ApplyRecipeLevelFilterMax(box, false)
 end)
+maxLevelEdit:SetScript("OnEditFocusLost", function(box)
+    ApplyRecipeLevelFilterMax(box, true)
+end)
+
+local function ResetRecipeLevelFilterControls()
+    if not SS or not SS.ResetRecipeLevelFilter then
+        return
+    end
+    SS.ResetRecipeLevelFilter()
+    suppressRecipeFilterTextChanged = true
+    minLevelEdit:SetText(tostring(SS.MIN_RECIPE_LEVEL or 0))
+    maxLevelEdit:SetText(tostring(SS.MAX_RECIPE_LEVEL or 375))
+    suppressRecipeFilterTextChanged = false
+    minLevelEdit:ClearFocus()
+    maxLevelEdit:ClearFocus()
+    RerunSearchIfActive()
+end
+
+local recipeLevelResetBtn = CreateFrame("Button", nil, filterContent, "BackdropTemplate")
+recipeLevelResetBtn:SetSize(SETTINGS_ROW_HEIGHT, SETTINGS_ROW_HEIGHT)
+recipeLevelResetBtn:SetPoint("RIGHT", filterContent, "RIGHT", 0, 0)
+recipeLevelResetBtn:SetPoint("TOP", minLevelEdit, "TOP", 0, 0)
+Theme.ApplyBackdrop(recipeLevelResetBtn, "section")
+if Theme.InstallHoverTint then
+    Theme.InstallHoverTint(recipeLevelResetBtn)
+end
+local recipeLevelResetIcon = recipeLevelResetBtn:CreateTexture(nil, "ARTWORK")
+recipeLevelResetIcon:SetSize(14, 14)
+recipeLevelResetIcon:SetPoint("CENTER", recipeLevelResetBtn, "CENTER", 0, 0)
+recipeLevelResetIcon:SetTexture("Interface\\PaperDollInfoFrame\\UI-GearManager-Undo")
+recipeLevelResetBtn:SetScript("OnClick", ResetRecipeLevelFilterControls)
+
+applyRecipeLevelFilterRowLayout = function()
+    local rowWidth = filterContent:GetWidth()
+    if not rowWidth or rowWidth <= 0 then
+        return
+    end
+    local resetW = SETTINGS_ROW_HEIGHT
+    local minLabelW = minLevelLabel:GetStringWidth()
+    if not minLabelW or minLabelW <= 0 then
+        minLabelW = 18
+    end
+    local maxLabelW = maxLevelLabel:GetStringWidth()
+    if not maxLabelW or maxLabelW <= 0 then
+        maxLabelW = 22
+    end
+    local fixed = minLabelW + RECIPE_LEVEL_LABEL_GAP + RECIPE_LEVEL_MIN_MAX_GAP + maxLabelW
+        + RECIPE_LEVEL_LABEL_GAP + resetW + RECIPE_LEVEL_RESET_GAP
+    local editW = math.max(RECIPE_LEVEL_MIN_EDIT_WIDTH, math.floor((rowWidth - fixed) / 2 + 0.5))
+    minLevelEdit:SetWidth(editW)
+    maxLevelEdit:SetWidth(editW)
+end
+
+recipeLevelResetBtn:SetScript("OnEnter", function(self)
+    if Theme.SetHoverTint then
+        Theme.SetHoverTint(self, true)
+    end
+    if GameTooltip then
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+        GameTooltip:SetText("Reset recipe level filter (0–375)")
+        GameTooltip:Show()
+    end
+end)
+recipeLevelResetBtn:SetScript("OnLeave", function(self)
+    if Theme.SetHoverTint then
+        Theme.SetHoverTint(self, false)
+    end
+    if GameTooltip then
+        GameTooltip:Hide()
+    end
+end)
+
+UpdateRecipeLevelResetButtonVisibility = function()
+    if not recipeLevelResetBtn or not minLevelEdit or not minLevelEdit:IsShown() then
+        return
+    end
+    local filterActive = SS and SS.IsRecipeLevelFilterActive and SS.IsRecipeLevelFilterActive()
+    recipeLevelResetBtn:SetShown(filterActive)
+end
 
 local CALLOUT_PAD = 8
 local CRAFTLIB_URL = "https://www.curseforge.com/wow/addons/craftlib"
@@ -1316,6 +1450,9 @@ craftLibCallout:SetScript("OnShow", function(self)
 end)
 
 local function RefreshSearchSettingsControls()
+    if applyRecipeLevelFilterRowLayout then
+        applyRecipeLevelFilterRowLayout()
+    end
     if not SS or not SS.GetRecipeLevelFilter then
         return
     end
@@ -1328,10 +1465,13 @@ local function RefreshSearchSettingsControls()
         maxLevelLabel:Show()
         maxLevelEdit:Show()
         craftLibCallout:Hide()
+        suppressRecipeFilterTextChanged = true
         minLevelEdit:SetText(tostring(f.min or 0))
         maxLevelEdit:SetText(tostring(f.max or 375))
+        suppressRecipeFilterTextChanged = false
+        SetRecipeLevelHeaderColor(recipeLevelHeader)
+        UpdateRecipeLevelResetButtonVisibility()
         if Theme.SetLabelColor then
-            Theme.SetLabelColor(recipeLevelHeader)
             Theme.SetLabelColor(minLevelLabel)
             Theme.SetLabelColor(maxLevelLabel)
         end
@@ -1341,6 +1481,7 @@ local function RefreshSearchSettingsControls()
         minLevelEdit:Hide()
         maxLevelLabel:Hide()
         maxLevelEdit:Hide()
+        recipeLevelResetBtn:Hide()
         craftLibCallout:Show()
     end
 end

@@ -52,5 +52,12 @@ function SS.SetRecipeLevelFilterMax(maxLevel)
     SS.GetSearchSettings()
 end
 
+function SS.ResetRecipeLevelFilter()
+    local f = SS.GetRecipeLevelFilter()
+    f.min = MIN_RECIPE_LEVEL
+    f.max = MAX_RECIPE_LEVEL
+    SS.GetSearchSettings()
+end
+
 SS.MIN_RECIPE_LEVEL = MIN_RECIPE_LEVEL
 SS.MAX_RECIPE_LEVEL = MAX_RECIPE_LEVEL

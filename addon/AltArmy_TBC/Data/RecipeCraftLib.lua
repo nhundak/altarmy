@@ -8,21 +8,32 @@ local RCL = AltArmy.RecipeCraftLib
 local lookupCache = {}
 local profKeyCache = {}
 
+local MAX_TBC_SKILL = 375
+
 local function clearTable(t)
     for k in pairs(t) do
         t[k] = nil
     end
 end
 
+-- AARRGGBB (WoW |cAARRGGBB format)
 local DIFFICULTY_HEX = {
     orange = "ffff8040",
     yellow = "ffffff00",
-    green = "ff40c040",
+    green = "ff40ff40",
     gray = "ff808080",
 }
 
 local function CraftLibApi()
     return _G.CraftLib
+end
+
+local function SpellIdFromItem(itemId)
+    if not itemId or not GetItemSpell then
+        return nil
+    end
+    local _, spellId = GetItemSpell(itemId)
+    return spellId
 end
 
 function RCL.IsAvailable()
@@ -31,6 +42,22 @@ function RCL.IsAvailable()
         return false
     end
     return cl:IsReady() and true or false
+end
+
+function RCL.IsValidSkillRequired(value)
+    local n = tonumber(value)
+    return n ~= nil and n >= 1 and n <= MAX_TBC_SKILL
+end
+
+function RCL.ExtractSkillRequired(recipe)
+    if not recipe then
+        return nil
+    end
+    local req = tonumber(recipe.skillRequired)
+    if RCL.IsValidSkillRequired(req) then
+        return req
+    end
+    return nil
 end
 
 function RCL.GetDifficultyColorHex(difficulty)
@@ -73,28 +100,79 @@ function RCL.ResolveProfessionKey(professionName)
     return nil
 end
 
+local function LookupRecipeByItemId(CraftLib, itemId)
+    if not itemId then
+        return nil
+    end
+    local recipe = CraftLib:GetRecipeByItemId(itemId)
+    if recipe then
+        return recipe
+    end
+    local producers = CraftLib:GetRecipeByProduct(itemId)
+    if producers and producers[1] and producers[1].recipe then
+        return producers[1].recipe
+    end
+    return nil
+end
+
+local function LookupRecipeBySpellId(CraftLib, profKey, spellId)
+    if not spellId then
+        return nil
+    end
+    if profKey then
+        local recipe = CraftLib:GetRecipeBySpellId(profKey, spellId)
+        if recipe then
+            return recipe
+        end
+    end
+    for key in pairs(CraftLib:GetProfessions()) do
+        local recipe = CraftLib:GetRecipeBySpellId(key, spellId)
+        if recipe then
+            return recipe
+        end
+    end
+    return nil
+end
+
 local function LookupRecipeUncached(professionName, recipeID, resultItemID)
     if not RCL.IsAvailable() then
         return nil
     end
     local CraftLib = CraftLibApi()
     local profKey = RCL.ResolveProfessionKey(professionName)
-    if profKey and recipeID then
-        local recipe = CraftLib:GetRecipeBySpellId(profKey, recipeID)
+
+    if recipeID then
+        local recipe = LookupRecipeBySpellId(CraftLib, profKey, recipeID)
+        if recipe then
+            return recipe
+        end
+        local spellFromItem = SpellIdFromItem(recipeID)
+        if spellFromItem and spellFromItem ~= recipeID then
+            recipe = LookupRecipeBySpellId(CraftLib, profKey, spellFromItem)
+            if recipe then
+                return recipe
+            end
+        end
+        recipe = LookupRecipeByItemId(CraftLib, recipeID)
         if recipe then
             return recipe
         end
     end
-    if resultItemID then
-        local recipe = CraftLib:GetRecipeByItemId(resultItemID)
+
+    if resultItemID and resultItemID ~= recipeID then
+        local recipe = LookupRecipeByItemId(CraftLib, resultItemID)
         if recipe then
             return recipe
         end
-        local producers = CraftLib:GetRecipeByProduct(resultItemID)
-        if producers and producers[1] and producers[1].recipe then
-            return producers[1].recipe
+        local spellFromResult = SpellIdFromItem(resultItemID)
+        if spellFromResult then
+            recipe = LookupRecipeBySpellId(CraftLib, profKey, spellFromResult)
+            if recipe then
+                return recipe
+            end
         end
     end
+
     return nil
 end
 
@@ -102,7 +180,8 @@ function RCL.LookupRecipe(professionName, recipeID, resultItemID)
     if not recipeID then
         return nil
     end
-    local cacheKey = tostring(professionName or "") .. ":" .. tostring(recipeID)
+    local cacheKey = tostring(professionName or "") .. ":"
+        .. tostring(recipeID) .. ":" .. tostring(resultItemID or "")
     if lookupCache[cacheKey] ~= nil then
         if lookupCache[cacheKey] == false then
             return nil
@@ -142,9 +221,12 @@ function RCL.EnrichEntry(entry)
     if not entry or not RCL.IsAvailable() then
         return entry
     end
+    entry.recipeSkillRequired = nil
+    entry.difficulty = nil
     local recipe = RCL.LookupRecipe(entry.professionName, entry.recipeID, entry.resultItemID)
-    if recipe then
-        entry.recipeSkillRequired = recipe.skillRequired
+    local req = RCL.ExtractSkillRequired(recipe)
+    if req then
+        entry.recipeSkillRequired = req
         entry.difficulty = RCL.GetDifficulty(recipe, entry.skillRank or 0)
     end
     return entry
@@ -152,12 +234,13 @@ end
 
 --- Colored skill cell text: recipeRequired/playerSkill, or player skill only when unknown.
 function RCL.FormatSkillCell(recipeRequired, playerSkill, difficulty)
+    local req = tonumber(recipeRequired)
     local rank = tonumber(playerSkill) or 0
-    if not recipeRequired then
+    if not RCL.IsValidSkillRequired(req) then
         return tostring(rank)
     end
     local hex = RCL.GetDifficultyColorHex(difficulty) or "ffffffff"
-    return string.format("|cff%s%d|r/%d", hex, recipeRequired, rank)
+    return string.format("|c%s%d|r/%d", hex, req, rank)
 end
 
 function RCL.ClearCaches()

@@ -50,6 +50,12 @@ describe("SearchColumns", function()
         assert.are.equal(150, SC.SETTINGS_FIRST_COLUMN_SHRINK)
     end)
 
+    it("shrinks the character column when settings are open", function()
+        assert.are.equal(158, SC.GetItemColumnWidths(true).Character)
+        assert.are.equal(158, SC.GetRecipeColumnWidths(true).Character)
+        assert.are.equal(12, SC.SETTINGS_CHARACTER_COLUMN_SHRINK)
+    end)
+
     it("keeps columns aligned when settings are open", function()
         assert.is_true(SC.AreResultColumnsAlignedForSettings(true))
         assert.are.equal(SC.GetItemTableWidth(true), SC.GetRecipeTableWidth(true))

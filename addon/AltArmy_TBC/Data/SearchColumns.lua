@@ -12,6 +12,8 @@ SC.RECIPE_COLUMN_WIDTHS = { Recipe = 325, Character = 170, Skill = 72 }
 
 --- Pixels to subtract from Item/Recipe when the search settings panel is open.
 SC.SETTINGS_FIRST_COLUMN_SHRINK = 150
+--- Pixels to subtract from Character when the search settings panel is open.
+SC.SETTINGS_CHARACTER_COLUMN_SHRINK = 12
 
 local DEFAULT_COL_WIDTH = 80
 
@@ -29,7 +31,7 @@ function SC.GetItemColumnWidths(settingsOpen)
     end
     return {
         Item = SC.ITEM_COLUMN_WIDTHS.Item - SC.SETTINGS_FIRST_COLUMN_SHRINK,
-        Character = SC.ITEM_COLUMN_WIDTHS.Character,
+        Character = SC.ITEM_COLUMN_WIDTHS.Character - SC.SETTINGS_CHARACTER_COLUMN_SHRINK,
         Total = SC.ITEM_COLUMN_WIDTHS.Total,
     }
 end
@@ -40,7 +42,7 @@ function SC.GetRecipeColumnWidths(settingsOpen)
     end
     return {
         Recipe = SC.RECIPE_COLUMN_WIDTHS.Recipe - SC.SETTINGS_FIRST_COLUMN_SHRINK,
-        Character = SC.RECIPE_COLUMN_WIDTHS.Character,
+        Character = SC.RECIPE_COLUMN_WIDTHS.Character - SC.SETTINGS_CHARACTER_COLUMN_SHRINK,
         Skill = SC.RECIPE_COLUMN_WIDTHS.Skill,
     }
 end

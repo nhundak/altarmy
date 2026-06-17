@@ -295,9 +295,19 @@ UpdateSettingsButtonGlow = function()
     end
     if searchModeHandlers.searchSettingsBtn and searchModeHandlers.searchSettingsBtn:IsShown()
         and searchModeHandlers.searchSettingsBtn.glow then
-        local active = AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.IsSearchSettingsShown
+        local settingsOpen = AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.IsSearchSettingsShown
             and AltArmy.TabFrames.Search:IsSearchSettingsShown()
-        searchModeHandlers.searchSettingsBtn.glow:SetShown(active)
+        local filterActive = false
+        local SS = AltArmy.SearchSettings
+        if SS and SS.IsRecipeLevelFilterActive then
+            filterActive = SS.IsRecipeLevelFilterActive()
+        end
+        searchModeHandlers.searchSettingsBtn.glow:SetShown(settingsOpen or filterActive)
+        if searchModeHandlers.searchFiltersActiveLabel then
+            searchModeHandlers.searchFiltersActiveLabel:SetShown(filterActive)
+        end
+    elseif searchModeHandlers.searchFiltersActiveLabel then
+        searchModeHandlers.searchFiltersActiveLabel:Hide()
     end
 end
 
@@ -479,6 +489,16 @@ searchSettingsBtn:SetScript("OnClick", function()
     end
 end)
 searchModeHandlers.searchSettingsBtn = searchSettingsBtn
+
+local searchFiltersActiveLabel = searchResultsLabel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+searchFiltersActiveLabel:SetPoint("RIGHT", searchSettingsBtn, "LEFT", -6, 0)
+searchFiltersActiveLabel:SetJustifyH("RIGHT")
+searchFiltersActiveLabel:SetText("Filters Active")
+if Theme.SetTitleColor then
+    Theme.SetTitleColor(searchFiltersActiveLabel)
+end
+searchFiltersActiveLabel:Hide()
+searchModeHandlers.searchFiltersActiveLabel = searchFiltersActiveLabel
 
 local function exitSearchMode()
     searchResultsLabel:Hide()
