@@ -239,7 +239,7 @@ describe("DataStoreProfessions", function()
           error("Usage: GetCraftSkillLine(index)")
         end
         receivedIndex = index
-        return "Enchanting"
+        return "Poisons"
       end
       _G.GetNumCrafts = function()
         return 1
@@ -250,12 +250,42 @@ describe("DataStoreProfessions", function()
       _G.GetCraftRecipeLink = function()
         return "enchant:12345"
       end
+      _G.GetCraftDisplaySkillLine = function()
+        return "Poisons", 340, 375
+      end
       _G.time = function()
         return 0
       end
       DS:ScanCraftRecipes()
       _G.time = oldTime
       assert.are.equal(1, receivedIndex)
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.is_not_nil(char)
+      assert.are.equal(340, char.Professions.Poisons.rank)
+      assert.are.equal(375, char.Professions.Poisons.maxRank)
+    end)
+
+    it("updates trade skill rank from GetTradeSkillLine during ScanRecipes", function()
+      _G.UnitName = function()
+        return "TestPlayer"
+      end
+      _G.GetRealmName = function()
+        return "TestRealm"
+      end
+      _G.GetTradeSkillLine = function()
+        return "Alchemy", 360, 375
+      end
+      _G.GetNumTradeSkills = function()
+        return 0
+      end
+      _G.time = function()
+        return 0
+      end
+      DS:ScanRecipes()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.is_not_nil(char)
+      assert.are.equal(360, char.Professions.Alchemy.rank)
+      assert.are.equal(375, char.Professions.Alchemy.maxRank)
     end)
   end)
 

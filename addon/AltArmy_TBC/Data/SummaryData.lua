@@ -181,8 +181,66 @@ end
 -- Profession spell IDs (TBC) — localized skill names from GetSpellInfo match DataStore Professions keys.
 local SPELL_ID_ALCHEMY = 2259
 local SPELL_ID_TAILORING = 3908
+local SPELL_ID_POISONS = 2842
 local COOLDOWN_SPEC_SCAN_MIN_LEVEL = 60
 local COOLDOWN_SPEC_SCAN_MIN_PROF_RANK = 350
+local POISONS_UNLOCK_LEVEL = 20
+
+local function getPoisonsProfessionName()
+    if GetSpellInfo then
+        return GetSpellInfo(SPELL_ID_POISONS) or "Poisons"
+    end
+    return "Poisons"
+end
+
+local function characterHasPoisonsSkill(char, DS)
+    local poisonsName = getPoisonsProfessionName()
+    if char.Professions and char.Professions[poisonsName] then
+        return true
+    end
+    if DS and DS.GetNumRecipes and (DS:GetNumRecipes(char, poisonsName) or 0) > 0 then
+        return true
+    end
+    if IsSpellKnown then
+        local ok, known = pcall(IsSpellKnown, SPELL_ID_POISONS)
+        if ok and known then
+            return true
+        end
+    end
+    return false
+end
+
+local function needsPoisonsWindowScan(char, DS)
+    if not char or not DS or not DS.GetCharacterClass or not DS.GetCharacterLevel then
+        return false
+    end
+    local _, classFile = DS:GetCharacterClass(char)
+    if classFile ~= "ROGUE" then
+        return false
+    end
+    if not DS.HasModuleData or not DS:HasModuleData(char, "professions") then
+        return false
+    end
+    local level = tonumber(DS:GetCharacterLevel(char)) or 0
+    if math.floor(level) < POISONS_UNLOCK_LEVEL then
+        return false
+    end
+    if not characterHasPoisonsSkill(char, DS) then
+        return false
+    end
+    local poisonsName = getPoisonsProfessionName()
+    local prof = char.Professions and char.Professions[poisonsName]
+    local rank = prof and prof.rank or 0
+    local numRecipes = DS.GetNumRecipes and DS:GetNumRecipes(char, poisonsName) or 0
+    if rank > 0 and numRecipes > 0 then
+        return false
+    end
+    -- rank > 0 with no recipes is handled by the generic per-profession loop below.
+    if rank > 0 and numRecipes == 0 then
+        return false
+    end
+    return true
+end
 
 --- True after DataStoreProfessions:ScanCooldownSpecializations has written boolean flags (even if all false).
 local function hasPersistedCooldownSpecializations(char)
@@ -274,6 +332,21 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
                     table.insert(out.instructions, "* Open your " .. profName .. " window")
                 end
             end
+        end
+    end
+
+    if needsPoisonsWindowScan(char, DS) then
+        local poisonsName = getPoisonsProfessionName()
+        local line = "* Open your " .. poisonsName .. " window"
+        local dup = false
+        for _, existing in ipairs(out.instructions) do
+            if existing == line then
+                dup = true
+                break
+            end
+        end
+        if not dup then
+            table.insert(out.instructions, line)
         end
     end
 

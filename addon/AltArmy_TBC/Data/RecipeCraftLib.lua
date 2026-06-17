@@ -9,6 +9,28 @@ local lookupCache = {}
 local profKeyCache = {}
 
 local MAX_TBC_SKILL = 375
+local SPELL_ID_POISONS = 2842
+
+local function isPoisonsProfession(professionName)
+    if not professionName or professionName == "" then
+        return false
+    end
+    local SS = AltArmy and AltArmy.SearchSettings
+    if SS and SS.ResolveProfessionKey and SS.ResolveProfessionKey(professionName) == "poisons" then
+        return true
+    end
+    if GetSpellInfo then
+        local poisonsName = GetSpellInfo(SPELL_ID_POISONS)
+        if poisonsName and poisonsName == professionName then
+            local alchemyName = GetSpellInfo(2259)
+            if alchemyName and alchemyName == poisonsName then
+                return false
+            end
+            return true
+        end
+    end
+    return professionName == "Poisons"
+end
 
 local KNOWN_SOURCE_TYPES = {
     trainer = true,
@@ -65,6 +87,20 @@ function RCL.ExtractSkillRequired(recipe)
     local req = tonumber(recipe.skillRequired)
     if RCL.IsValidSkillRequired(req) then
         return req
+    end
+    local range = recipe.skillRange
+    if not range then
+        return nil
+    end
+    for _, key in ipairs({ "orange", "yellow", "green", "gray" }) do
+        local threshold = tonumber(range[key])
+        if RCL.IsValidSkillRequired(threshold) then
+            return threshold
+        end
+    end
+    -- CraftLib uses orange=0 for some recipes; 75 is the documented learn threshold.
+    if tonumber(range.orange) == 0 then
+        return 75
     end
     return nil
 end
@@ -220,6 +256,9 @@ local function LookupRecipeUncached(professionName, recipeID, resultItemID)
     if not RCL.IsAvailable() then
         return nil
     end
+    if isPoisonsProfession(professionName) then
+        return nil
+    end
     local CraftLib = CraftLibApi()
     local profKey = RCL.ResolveProfessionKey(professionName)
 
@@ -331,7 +370,10 @@ function RCL.FormatSkillCell(recipeRequired, playerSkill, difficulty)
     local req = tonumber(recipeRequired)
     local rank = tonumber(playerSkill) or 0
     if not RCL.IsValidSkillRequired(req) then
-        return tostring(rank)
+        if rank > 0 then
+            return tostring(rank)
+        end
+        return "—"
     end
     local hex = RCL.GetDifficultyColorHex(difficulty) or "ffffffff"
     return string.format("|c%s%d|r/%d", hex, req, rank)
@@ -343,3 +385,4 @@ function RCL.ClearCaches()
 end
 
 RCL._LookupRecipeUncached = LookupRecipeUncached
+RCL._IsPoisonsProfession = isPoisonsProfession

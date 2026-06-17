@@ -131,6 +131,20 @@ describe("RecipeCraftLib", function()
       assert.is_nil(RCL.ExtractSkillRequired({ id = 80240, skillRequired = 80240 }))
       assert.is_nil(RCL.ExtractSkillRequired({ id = 11449, skillRequired = nil }))
     end)
+
+    it("falls back to skillRange thresholds when skillRequired is invalid", function()
+      assert.are.equal(375, RCL.ExtractSkillRequired({
+        skillRequired = 0,
+        skillRange = { orange = 375, yellow = 390, green = 405, gray = 420 },
+      }))
+    end)
+
+    it("uses 75 when orange threshold is zero and no other band is valid", function()
+      assert.are.equal(75, RCL.ExtractSkillRequired({
+        skillRequired = nil,
+        skillRange = { orange = 0, yellow = 0, green = 0, gray = 0 },
+      }))
+    end)
   end)
 
   describe("NormalizeRecipeSource", function()
@@ -264,6 +278,42 @@ describe("RecipeCraftLib", function()
       assert.are.equal(1, #entry.recipeReagents)
       assert.are.equal(999, entry.recipeReagents[1].itemId)
     end)
+
+    it("skips CraftLib lookup for poisons to avoid item id collisions", function()
+      _G.GetSpellInfo = function(id)
+        if id == 2842 then return "Poisons" end
+        return nil
+      end
+      _G.CraftLib = {
+        IsReady = function() return true end,
+        GetProfessions = function()
+          return { tailoring = { id = 1, name = "Tailoring", recipes = {} } }
+        end,
+        GetRecipeBySpellId = function()
+          return nil
+        end,
+        GetRecipeByItemId = function(_, itemId)
+          if itemId == 5763 then
+            return {
+              id = 999,
+              skillRequired = 115,
+              skillRange = { orange = 115, yellow = 130, green = 145, gray = 160 },
+            }
+          end
+          return nil
+        end,
+        GetRecipeByProduct = function() return nil end,
+      }
+      local entry = {
+        professionName = "Poisons",
+        recipeID = 5763,
+        skillRank = 340,
+      }
+      RCL.EnrichEntry(entry)
+      assert.is_nil(entry.recipeSkillRequired)
+      assert.is_nil(entry.difficulty)
+      assert.is_nil(entry.recipeSource)
+    end)
   end)
 
   describe("GetDifficulty", function()
@@ -280,6 +330,7 @@ describe("RecipeCraftLib", function()
     it("returns player skill only when recipe level unknown", function()
       assert.are.equal("375", RCL.FormatSkillCell(nil, 375, nil))
       assert.are.equal("375", RCL.FormatSkillCell(80240, 375, "orange"))
+      assert.are.equal("—", RCL.FormatSkillCell(nil, 0, nil))
     end)
 
     it("returns colored recipe/player when recipe level known", function()

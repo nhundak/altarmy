@@ -134,6 +134,28 @@ local SPELL_ID_FIRSTAID = 3273
 local SPELL_ID_COOKING = 2550
 local SPELL_ID_FISHING = 7732
 
+local function NormalizeProfessionName(name)
+    if not name or name == "" or not GetSpellInfo then
+        return name
+    end
+    if name == "Secourisme" then
+        return GetSpellInfo(SPELL_ID_FIRSTAID) or name
+    end
+    return name
+end
+
+local function ApplyProfessionRank(prof, rank, maxRank)
+    if not prof then
+        return
+    end
+    if rank then
+        prof.rank = rank
+    end
+    if maxRank then
+        prof.maxRank = maxRank
+    end
+end
+
 --- Expand all category headers (used by delayed reagent retry; full scan uses snapshot/restore).
 local function ExpandAllTradeSkillHeaders()
     if not GetNumTradeSkills or not ExpandTradeSkillSubClass then return end
@@ -561,6 +583,7 @@ function DS:ScanProfessionLinks()
                     if skillName == "Secourisme" and GetSpellInfo then
                         skillName = GetSpellInfo(SPELL_ID_FIRSTAID) or skillName
                     end
+                    skillName = NormalizeProfessionName(skillName)
                     local prof = char.Professions[skillName]
                     if not prof then
                         prof = { rank = 0, maxRank = 0, Recipes = {} }
@@ -587,18 +610,17 @@ end
 function DS:ScanRecipes()
     local char = GetCurrentCharTable()
     if not char then return end
-    local tradeskillName = GetTradeSkillLine and GetTradeSkillLine()
+    local tradeskillName, currentLevel, maxLevel = GetTradeSkillLine()
     if not tradeskillName or tradeskillName == "" or tradeskillName == "UNKNOWN" then return end
-    if tradeskillName == "Secourisme" and GetSpellInfo then
-        tradeskillName = GetSpellInfo(SPELL_ID_FIRSTAID) or tradeskillName
-    end
-    local numTradeSkills = GetNumTradeSkills and GetNumTradeSkills()
-    if not numTradeSkills or numTradeSkills == 0 then return end
+    tradeskillName = NormalizeProfessionName(tradeskillName)
     local prof = char.Professions[tradeskillName]
     if not prof then
         prof = { rank = 0, maxRank = 0, Recipes = {} }
         char.Professions[tradeskillName] = prof
     end
+    ApplyProfessionRank(prof, currentLevel, maxLevel)
+    local numTradeSkills = GetNumTradeSkills and GetNumTradeSkills()
+    if not numTradeSkills or numTradeSkills == 0 then return end
     prof.Recipes = prof.Recipes or {}
     for k in pairs(prof.Recipes) do prof.Recipes[k] = nil end
     for i = 1, numTradeSkills do
@@ -654,6 +676,7 @@ function DS:ScanCraftRecipes()
     -- Classic client requires a positive index; omitting it errors: Usage: GetCraftSkillLine(index)
     local craftName = GetCraftSkillLine(1)
     if not craftName or craftName == "" then return end
+    craftName = NormalizeProfessionName(craftName)
     local numCrafts = GetNumCrafts()
     if not numCrafts or numCrafts == 0 then return end
     char.Professions = char.Professions or {}
@@ -661,6 +684,10 @@ function DS:ScanCraftRecipes()
     if not prof then
         prof = { rank = 0, maxRank = 0, Recipes = {} }
         char.Professions[craftName] = prof
+    end
+    if GetCraftDisplaySkillLine then
+        local _, rank, maxRank = GetCraftDisplaySkillLine()
+        ApplyProfessionRank(prof, rank, maxRank)
     end
     prof.Recipes = prof.Recipes or {}
     for k in pairs(prof.Recipes) do prof.Recipes[k] = nil end

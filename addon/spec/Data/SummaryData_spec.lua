@@ -331,6 +331,95 @@ describe("SummaryData", function()
       assert.is_true(found, "expected an instruction containing 'Alchemy'")
     end)
 
+    it("adds Open your Poisons window when poison skill rank was not captured", function()
+      local char = {
+        classFile = "ROGUE",
+        level = 70,
+        dataVersions = { character = 1, professions = 1 },
+        Professions = { Poisons = { rank = 0, maxRank = 375, Recipes = {} } },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.GetCharacterClass = function(_, c) return "", (c and c.classFile) or "" end
+      DS.HasModuleData = function(_, c, mod) return (c.dataVersions and c.dataVersions[mod]) == 1 end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local oldGi = _G.GetSpellInfo
+      _G.GetSpellInfo = function(id)
+        if id == 2842 then return "Poisons" end
+        return oldGi and oldGi(id)
+      end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      _G.GetSpellInfo = oldGi
+      assert.is_true(out.hasMissing)
+      local found = false
+      for _, line in ipairs(out.instructions) do
+        if line:find("Poisons") then found = true break end
+      end
+      assert.is_true(found, "expected an instruction containing 'Poisons'")
+    end)
+
+    it("does not duplicate poisons warning when rank is known but recipes are missing", function()
+      local char = {
+        classFile = "ROGUE",
+        level = 70,
+        dataVersions = { character = 1, professions = 1 },
+        Professions = { Poisons = { rank = 340, maxRank = 375, Recipes = {} } },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.GetCharacterClass = function(_, c) return "", (c and c.classFile) or "" end
+      DS.HasModuleData = function(_, c, mod) return (c.dataVersions and c.dataVersions[mod]) == 1 end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local oldGi = _G.GetSpellInfo
+      _G.GetSpellInfo = function(id)
+        if id == 2842 then return "Poisons" end
+        return oldGi and oldGi(id)
+      end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      _G.GetSpellInfo = oldGi
+      assert.is_true(out.hasMissing)
+      local count = 0
+      for _, line in ipairs(out.instructions) do
+        if line:find("Poisons") then count = count + 1 end
+      end
+      assert.are.equal(1, count)
+    end)
+
+    it("does not flag poisons for non-rogue characters", function()
+      local char = {
+        classFile = "WARRIOR",
+        level = 70,
+        dataVersions = { character = 1, professions = 1 },
+        Professions = { Poisons = { rank = 0, maxRank = 375, Recipes = {} } },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.GetCharacterClass = function(_, c) return "", (c and c.classFile) or "" end
+      DS.HasModuleData = function(_, c, mod) return (c.dataVersions and c.dataVersions[mod]) == 1 end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function() return 0 end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      local found = false
+      for _, line in ipairs(out.instructions) do
+        if line:find("Poisons") then found = true break end
+      end
+      assert.is_false(found)
+    end)
+
     it("flags reputation when data version is current but storage still has legacy scalars", function()
       local char = {
         dataVersions = {

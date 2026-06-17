@@ -1808,7 +1808,7 @@ local function ApplyTabContentLayout()
     if settingsPanel:IsShown() then
         tabContentPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -SECTION_GAP, SECTION_INSET)
     else
-        tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+    tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
     end
 end
 
@@ -1908,9 +1908,9 @@ local function ScheduleSearchUpdateAfterLayout()
 end
 
 local function RefreshSearchListAfterLayout()
-    ApplySearchListLayout()
+ApplySearchListLayout()
     ApplySearchColumnLayout()
-    UpdateResults()
+UpdateResults()
     ScheduleSearchUpdateAfterLayout()
 end
 
