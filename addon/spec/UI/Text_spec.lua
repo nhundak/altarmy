@@ -59,4 +59,20 @@ describe("Text", function()
     assert.is_true(text:find("|r", 1, true) ~= nil)
     assert.is_true(text:find("(Bags)", 1, true) ~= nil)
   end)
+
+  it("truncates item name but keeps icon prefix and count suffix", function()
+    local fs = mockFontString()
+    local iconPrefix = "|TInterface\\Icons\\INV_Misc_QuestionMark:0|t "
+    local countSuffix = " x1"
+    local name = "Archer's Shoulderpads of Agility"
+    Text.TruncateFontString(fs, name, 120, {
+      prefix = iconPrefix,
+      suffix = countSuffix,
+    })
+    local text = fs:GetText()
+    assert.is_true(text:sub(1, #iconPrefix) == iconPrefix)
+    assert.is_true(text:sub(-#countSuffix) == countSuffix)
+    assert.is_true(text:find("...", 1, true) ~= nil)
+    assert.is_false(text:find(name, 1, true) ~= nil)
+  end)
 end)

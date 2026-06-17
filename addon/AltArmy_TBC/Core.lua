@@ -214,6 +214,9 @@ setActiveTab = function(tabName)
             tabStrip.cooldownSettingsBtn:Hide()
         end
     end
+    if searchModeHandlers.searchSettingsBtn then
+        searchModeHandlers.searchSettingsBtn:Hide()
+    end
     UpdateSettingsButtonGlow()
 end
 
@@ -290,7 +293,15 @@ UpdateSettingsButtonGlow = function()
             and AltArmy.TabFrames.Reputation:IsReputationSettingsShown()
         tabStrip.reputationSettingsBtn.glow:SetShown(active)
     end
+    if searchModeHandlers.searchSettingsBtn and searchModeHandlers.searchSettingsBtn:IsShown()
+        and searchModeHandlers.searchSettingsBtn.glow then
+        local active = AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.IsSearchSettingsShown
+            and AltArmy.TabFrames.Search:IsSearchSettingsShown()
+        searchModeHandlers.searchSettingsBtn.glow:SetShown(active)
+    end
 end
+
+AltArmy.UpdateSearchSettingsButtonGlow = UpdateSettingsButtonGlow
 
 local function createTabSettingsButton(onClick)
     local btn = CreateFrame("Button", nil, tabStrip)
@@ -375,6 +386,10 @@ searchModeHandlers.enterSearchMode = function(trimmed)
     lastTab = AltArmy.CurrentTab
     strip:Hide()
     resultsLabel:Show()
+    local searchBtn = searchModeHandlers.searchSettingsBtn
+    if searchBtn then
+        searchBtn:Show()
+    end
     if itemsChk then itemsChk:SetChecked(AltArmy.SearchCategories.Items) end
     if recipesChk then recipesChk:SetChecked(AltArmy.SearchCategories.Recipes) end
     for name, tabFrame in pairs(AltArmy.TabFrames) do
@@ -448,8 +463,34 @@ local recipesLabel = recipesLabelFrame:CreateFontString(nil, "OVERLAY", "GameFon
 recipesLabel:SetPoint("LEFT", recipesLabelFrame, "LEFT", 0, 0)
 recipesLabel:SetText("Recipes")
 
+local searchSettingsBtn = CreateFrame("Button", nil, searchResultsLabel)
+searchSettingsBtn:SetPoint("TOPRIGHT", searchResultsLabel, "TOPRIGHT", 0, 0)
+searchSettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
+searchSettingsBtn:Hide()
+Theme.InstallSettingsButtonGlow(searchSettingsBtn, "glow")
+local searchSettingsIcon = searchSettingsBtn:CreateTexture(nil, "ARTWORK")
+searchSettingsIcon:SetAllPoints(searchSettingsBtn)
+searchSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
+Theme.SkinSettingsIconButton(searchSettingsBtn)
+searchSettingsBtn:SetScript("OnClick", function()
+    if AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.ToggleSearchSettings then
+        AltArmy.TabFrames.Search:ToggleSearchSettings()
+        UpdateSettingsButtonGlow()
+    end
+end)
+searchModeHandlers.searchSettingsBtn = searchSettingsBtn
+
 local function exitSearchMode()
     searchResultsLabel:Hide()
+    if searchSettingsBtn then
+        searchSettingsBtn:Hide()
+    end
+    if AltArmy.TabFrames.Search
+        and AltArmy.TabFrames.Search.IsSearchSettingsShown
+        and AltArmy.TabFrames.Search:IsSearchSettingsShown()
+        and AltArmy.TabFrames.Search.ToggleSearchSettings then
+        AltArmy.TabFrames.Search:ToggleSearchSettings()
+    end
     tabStrip:Show()
     if AltArmy.TabFrames.Search then AltArmy.TabFrames.Search:Hide() end
     if AltArmy.TabFrames[lastTab] then AltArmy.TabFrames[lastTab]:Show() end

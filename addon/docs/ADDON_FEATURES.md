@@ -8,7 +8,7 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 
 - Collects and persists character data automatically while you play.
 - Presents cross-character information in tabbed dashboards.
-- Supports item and recipe search across characters.
+- Supports item and recipe search across characters; optional CraftLib integration adds recipe skill levels and level filtering in search.
 - Tracks profession cooldown readiness and supports stockpile mailing workflows.
 - Provides configurable filters, sorting, pin/hide behavior, and alerts.
 

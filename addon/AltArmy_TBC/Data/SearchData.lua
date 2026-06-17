@@ -617,6 +617,43 @@ local function FilterAndSortRecipes(all, queryLower)
 end
 SD._FilterAndSortRecipes = FilterAndSortRecipes
 
+local function EnrichRecipeEntry(entry)
+    if not entry then
+        return entry
+    end
+    local RCL = AltArmy and AltArmy.RecipeCraftLib
+    if RCL and RCL.EnrichEntry then
+        RCL.EnrichEntry(entry)
+    end
+    return entry
+end
+SD._EnrichRecipeEntry = EnrichRecipeEntry
+
+local function FilterRecipesByLevel(results, filter)
+    if not results or not filter then
+        return results
+    end
+    local SS = AltArmy and AltArmy.SearchSettings
+    if SS and SS.IsRecipeLevelFilterActive and not SS.IsRecipeLevelFilterActive(filter) then
+        return results
+    end
+    local RCL = AltArmy and AltArmy.RecipeCraftLib
+    if not RCL or not RCL.IsAvailable or not RCL.IsAvailable() then
+        return results
+    end
+    local out = {}
+    for _, entry in ipairs(results) do
+        local req = entry.recipeSkillRequired
+        if req == nil then
+            out[#out + 1] = entry
+        elseif req >= filter.min and req <= filter.max then
+            out[#out + 1] = entry
+        end
+    end
+    return out
+end
+SD._FilterRecipesByLevel = FilterRecipesByLevel
+
 function SD.SearchRecipes(query)
     if not query or (type(query) == "string" and query:match("^%s*$")) then
         return {}
@@ -628,6 +665,13 @@ function SD.SearchRecipes(query)
     local all = SD.GetAllRecipes()
     local queryLower = type(query) == "string" and query:lower() or ""
     local results = FilterAndSortRecipes(all, queryLower)
+    for i = 1, #results do
+        EnrichRecipeEntry(results[i])
+    end
+    local SS = AltArmy and AltArmy.SearchSettings
+    if SS and SS.GetRecipeLevelFilter then
+        results = FilterRecipesByLevel(results, SS.GetRecipeLevelFilter())
+    end
     if debug then
         LogSearchDebug(string.format(
             "  recipes q=%q ms=%.2f scanned=%d hits=%d",

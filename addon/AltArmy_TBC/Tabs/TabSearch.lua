@@ -10,6 +10,7 @@ local Theme = AltArmy.Theme
 local CC = AltArmy.ClassColor
 local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 local SECTION_INSET = Theme.TAB_SECTION_INSET
+local SECTION_GAP = Theme.SECTION_GAP
 local ROW_HEIGHT = 18
 -- Right-side (Total column) icon size; match left-side row icon (WoW :0 default ~14)
 local OVERLAY_ICON_SIZE = 14
@@ -89,10 +90,28 @@ searchEdit:SetScript("OnEnterPressed", function(box)
 end)
 searchEdit:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
 
-local colWidths = { Item = 325, Character = 170, Total = 60 }  -- items table (first col -5 for total width)
-local colOrder = { "Item", "Character", "Total" }
-local recipeColWidths = { Recipe = 325, Character = 170, Skill = 60 }  -- first col -5
-local recipeColOrder = { "Recipe", "Character", "Skill" }
+local SearchColumns = AltArmy.SearchColumns
+local colOrder = SearchColumns and SearchColumns.ITEM_COLUMN_ORDER
+    or { "Item", "Character", "Total" }
+local recipeColOrder = SearchColumns and SearchColumns.RECIPE_COLUMN_ORDER
+    or { "Recipe", "Character", "Skill" }
+local colWidths = {}
+local recipeColWidths = {}
+
+local function SyncSearchColumnWidths(settingsOpen)
+    local item = SearchColumns and SearchColumns.GetItemColumnWidths(settingsOpen)
+        or { Item = 325, Character = 170, Total = 72 }
+    local recipe = SearchColumns and SearchColumns.GetRecipeColumnWidths(settingsOpen)
+        or { Recipe = 325, Character = 170, Skill = 72 }
+    for k, v in pairs(item) do
+        colWidths[k] = v
+    end
+    for k, v in pairs(recipe) do
+        recipeColWidths[k] = v
+    end
+end
+
+SyncSearchColumnWidths(false)
 
 local function SetCharacterCellTruncated(cell, namePartColored, suffixText, maxTotalWidth)
     if TruncateFontString then
@@ -102,6 +121,17 @@ local function SetCharacterCellTruncated(cell, namePartColored, suffixText, maxT
         })
     else
         cell:SetText((namePartColored or "") .. (suffixText or ""))
+    end
+end
+
+local function SetItemCellTruncated(cell, itemName, countSuffix, iconPrefix, maxTotalWidth)
+    if TruncateFontString then
+        TruncateFontString(cell, itemName, maxTotalWidth, {
+            prefix = iconPrefix or "",
+            suffix = countSuffix,
+        })
+    else
+        cell:SetText((iconPrefix or "") .. itemName .. countSuffix)
     end
 end
 
@@ -185,7 +215,8 @@ local function getRecipeColWidth()
     for _, colName in ipairs(recipeColOrder) do w = w + (recipeColWidths[colName] or 80) end
     return w
 end
-local totalColWidth = math.max(getTotalColWidth(), getRecipeColWidth())
+local totalColWidth = SearchColumns and SearchColumns.GetResultsTableWidth(false)
+    or math.max(getTotalColWidth(), getRecipeColWidth())
 
 -- Horizontal scroll child: holds the vertical scroll frame so the whole results area can scroll horizontally
 local horizontalScrollChild = CreateFrame("Frame", nil, horizontalScroll)
@@ -211,6 +242,7 @@ resultsArea:SetScript("OnMouseWheel", OnSearchScrollWheel)
 -- Items section header (created once, shown when items have results)
 local itemsHeaderRow = CreateFrame("Frame", nil, resultsArea)
 itemsHeaderRow:SetHeight(HEADER_HEIGHT)
+local itemsHeaderLabels = {}
 local ix = 0
 for _, colName in ipairs(colOrder) do
     local w = colWidths[colName] or 80
@@ -219,11 +251,13 @@ for _, colName in ipairs(colOrder) do
     label:SetWidth(w)
     label:SetJustifyH(colName == "Item" and "LEFT" or "RIGHT")
     label:SetText(colName)
+    itemsHeaderLabels[#itemsHeaderLabels + 1] = label
     ix = ix + w
 end
 -- Recipes section header
 local recipesHeaderRow = CreateFrame("Frame", nil, resultsArea)
 recipesHeaderRow:SetHeight(HEADER_HEIGHT)
+local recipesHeaderLabels = {}
 local rx = 0
 for _, colName in ipairs(recipeColOrder) do
     local w = recipeColWidths[colName] or 80
@@ -232,6 +266,7 @@ for _, colName in ipairs(recipeColOrder) do
     label:SetWidth(w)
     label:SetJustifyH(colName == "Recipe" and "LEFT" or "RIGHT")
     label:SetText(colName)
+    recipesHeaderLabels[#recipesHeaderLabels + 1] = label
     rx = rx + w
 end
 
@@ -239,6 +274,7 @@ end
 -- with the first column label replaced by the section title.
 local alsoInterestedHeaderRow = CreateFrame("Frame", nil, resultsArea)
 alsoInterestedHeaderRow:SetHeight(HEADER_HEIGHT)
+local alsoInterestedHeaderLabels = {}
 local aix = 0
 for _, colName in ipairs(colOrder) do
     local w = colWidths[colName] or 80
@@ -247,6 +283,7 @@ for _, colName in ipairs(colOrder) do
     label:SetWidth(w)
     label:SetJustifyH(colName == "Item" and "LEFT" or "RIGHT")
     label:SetText(colName == "Item" and "You may also be interested in:" or colName)
+    alsoInterestedHeaderLabels[#alsoInterestedHeaderLabels + 1] = label
     aix = aix + w
 end
 
@@ -474,7 +511,7 @@ local function createItemRow()
         cell:SetWidth(w)
         cell:SetJustifyH(colName == "Item" and "LEFT" or "RIGHT")
         cell:SetNonSpaceWrap(false)
-        if colName == "Character" then cell:SetWordWrap(false) end
+        if colName == "Item" or colName == "Character" then cell:SetWordWrap(false) end
         row.cells[colName] = cell
         cx = cx + w
     end
@@ -517,7 +554,7 @@ local function createRecipeRow()
         cell:SetWidth(w)
         cell:SetJustifyH(colName == "Recipe" and "LEFT" or "RIGHT")
         cell:SetNonSpaceWrap(false)
-        if colName == "Character" then cell:SetWordWrap(false) end
+        if colName == "Recipe" or colName == "Character" then cell:SetWordWrap(false) end
         row.cells[colName] = cell
         cx = cx + w
     end
@@ -556,13 +593,13 @@ local function fillItemRow(row, entry, showRealmSuffix)
     local count = entry.count or 1
     local itemText = (entry.itemName and entry.itemName ~= "") and entry.itemName
         or ("Item " .. (entry.itemID or ""))
-    local itemWithCount = itemText .. " x" .. tostring(count)
+    local countSuffix = " x" .. tostring(count)
+    local iconPrefix = ""
     if entry.itemLink and GetItemInfo and GetItemInfo(entry.itemLink) then
         local icon = select(10, GetItemInfo(entry.itemLink)) or "Interface\\Icons\\INV_Misc_QuestionMark"
-        row.cells.Item:SetText("|T" .. icon .. ":0|t " .. itemWithCount)
-    else
-        row.cells.Item:SetText(itemWithCount)
+        iconPrefix = "|T" .. icon .. ":0|t "
     end
+    SetItemCellTruncated(row.cells.Item, itemText, countSuffix, iconPrefix, colWidths.Item or 325)
     local locLabel = entry.location == "bank" and "Bank"
         or (entry.location == "mail" and "Mail")
         or (entry.location == "equipped" and "Equipped")
@@ -623,7 +660,8 @@ local function fillRecipeRow(row, entry, showRealmSuffix)
     if profName ~= "" then
         recipeName = profName .. ": " .. recipeName
     end
-    row.cells.Recipe:SetText(("|T%s:0|t "):format(iconPath) .. recipeName)
+    local iconPrefix = ("|T%s:0|t "):format(iconPath)
+    SetItemCellTruncated(row.cells.Recipe, recipeName, "", iconPrefix, recipeColWidths.Recipe or 325)
     local name = entry.characterName or ""
     local RF = AltArmy.RealmFilter
     local namePart
@@ -642,7 +680,14 @@ local function fillRecipeRow(row, entry, showRealmSuffix)
             )
     end
     SetCharacterCellTruncated(row.cells.Character, namePart, nil, recipeColWidths.Character or 160)
-    row.cells.Skill:SetText(tostring(entry.skillRank or 0))
+    local RCL = AltArmy and AltArmy.RecipeCraftLib
+    local skillText
+    if RCL and RCL.FormatSkillCell then
+        skillText = RCL.FormatSkillCell(entry.recipeSkillRequired, entry.skillRank, entry.difficulty)
+    else
+        skillText = tostring(entry.skillRank or 0)
+    end
+    row.cells.Skill:SetText(skillText)
 end
 
 -- Virtualized list: fill only rows in the visible range + buffer. Call after layout and on scroll.
@@ -666,7 +711,7 @@ UpdateVisibleRows = function()
         local itemsFirstRowY = -(HEADER_HEIGHT + HEADER_ROW_GAP)
 
         local totalColX = (colWidths.Item or 280) + (colWidths.Character or 160)
-        local totalColW = colWidths.Total or 70
+        local totalColW = colWidths.Total or 72
         local renderCount = lastRender - firstRender + 1
         for poolIdx = 1, ITEM_POOL_SIZE do
             local row = resultRows[poolIdx]
@@ -807,7 +852,7 @@ UpdateVisibleRows = function()
         local tooltipOnlyFirstRowY = -tooltipOnlySectionTop
 
         local totalColX = (colWidths.Item or 280) + (colWidths.Character or 160)
-        local totalColW = colWidths.Total or 70
+        local totalColW = colWidths.Total or 72
         local renderCount = lastRender - firstRender + 1
         for poolIdx = 1, TOOLTIP_ONLY_POOL_SIZE do
             local row = tooltipOnlyResultRows[poolIdx]
@@ -1085,11 +1130,240 @@ function frame.SearchWithQuery(_self, query)
     ScheduleTooltipSearch(q)
 end
 
--- List viewport and horizontal scroll bar layout.
-local function ApplySearchListLayout()
+-- Search settings panel: right 40% of frame when visible (list 60%, both full height).
+local GRID_SPLIT_FRACTION = 0.6
+local SETTINGS_ROW_HEIGHT = 22
+local settingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+Theme.ApplyBackdrop(settingsPanel, "section")
+
+local function ApplySettingsPanelLayout()
+    local w = frame:GetWidth()
+    if w <= 0 then
+        return
+    end
+    settingsPanel:ClearAllPoints()
+    settingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * GRID_SPLIT_FRACTION + SECTION_GAP, -SECTION_INSET)
+    settingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", w * GRID_SPLIT_FRACTION + SECTION_GAP, SECTION_INSET)
+    settingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SECTION_INSET, -SECTION_INSET)
+    settingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+end
+
+ApplySettingsPanelLayout()
+settingsPanel:Hide()
+
+local settingsContent = Theme.CreateSettingsPanelContent(settingsPanel)
+local searchSettingsTitle = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+searchSettingsTitle:SetPoint("TOPLEFT", settingsContent, "TOPLEFT", 0, 0)
+searchSettingsTitle:SetPoint("TOPRIGHT", settingsContent, "TOPRIGHT", 0, 0)
+searchSettingsTitle:SetJustifyH("LEFT")
+searchSettingsTitle:SetText("Search Settings")
+Theme.SetTitleColor(searchSettingsTitle)
+
+local filterContent = CreateFrame("Frame", nil, settingsContent)
+filterContent:SetPoint("TOPLEFT", searchSettingsTitle, "BOTTOMLEFT", 0, -8)
+filterContent:SetPoint("BOTTOMRIGHT", settingsContent, "BOTTOMRIGHT", 0, 0)
+
+local SS = AltArmy.SearchSettings
+local RCL = AltArmy.RecipeCraftLib
+
+local function RerunSearchIfActive()
+    if frame.lastQuery and frame.lastQuery ~= "" and frame.SearchWithQuery then
+        frame:SearchWithQuery(frame.lastQuery)
+    elseif frame.DoSearch then
+        frame:DoSearch()
+    end
+end
+
+local recipeLevelHeader = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+recipeLevelHeader:SetPoint("TOPLEFT", filterContent, "TOPLEFT", 0, 0)
+recipeLevelHeader:SetText("Recipe Level")
+if Theme.SetLabelColor then
+    Theme.SetLabelColor(recipeLevelHeader)
+end
+
+local minLevelLabel = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+minLevelLabel:SetPoint("TOPLEFT", recipeLevelHeader, "BOTTOMLEFT", 0, -6)
+minLevelLabel:SetText("Min")
+
+local minLevelEdit = CreateFrame("EditBox", nil, filterContent)
+minLevelEdit:SetSize(52, SETTINGS_ROW_HEIGHT)
+minLevelEdit:SetFontObject("GameFontHighlightSmall")
+minLevelEdit:SetAutoFocus(false)
+minLevelEdit:SetNumeric(true)
+minLevelEdit:SetJustifyH("CENTER")
+minLevelEdit:SetPoint("LEFT", minLevelLabel, "RIGHT", 6, -2)
+Theme.ApplyInputTextures(minLevelEdit)
+minLevelEdit:SetScript("OnEnterPressed", function(box)
+    box:ClearFocus()
+end)
+minLevelEdit:SetScript("OnEditFocusLost", function(box)
+    if SS and SS.SetRecipeLevelFilterMin then
+        SS.SetRecipeLevelFilterMin(box:GetText())
+        box:SetText(tostring(SS.GetRecipeLevelFilter().min))
+    end
+    RerunSearchIfActive()
+end)
+
+local maxLevelLabel = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+maxLevelLabel:SetPoint("LEFT", minLevelEdit, "RIGHT", 12, 0)
+maxLevelLabel:SetPoint("TOP", minLevelLabel, "TOP", 0, 0)
+maxLevelLabel:SetText("Max")
+
+local maxLevelEdit = CreateFrame("EditBox", nil, filterContent)
+maxLevelEdit:SetSize(52, SETTINGS_ROW_HEIGHT)
+maxLevelEdit:SetFontObject("GameFontHighlightSmall")
+maxLevelEdit:SetAutoFocus(false)
+maxLevelEdit:SetNumeric(true)
+maxLevelEdit:SetJustifyH("CENTER")
+maxLevelEdit:SetPoint("LEFT", maxLevelLabel, "RIGHT", 6, -2)
+maxLevelEdit:SetPoint("TOP", minLevelEdit, "TOP", 0, 0)
+Theme.ApplyInputTextures(maxLevelEdit)
+maxLevelEdit:SetScript("OnEnterPressed", function(box)
+    box:ClearFocus()
+end)
+maxLevelEdit:SetScript("OnEditFocusLost", function(box)
+    if SS and SS.SetRecipeLevelFilterMax then
+        SS.SetRecipeLevelFilterMax(box:GetText())
+        box:SetText(tostring(SS.GetRecipeLevelFilter().max))
+    end
+    RerunSearchIfActive()
+end)
+
+local CALLOUT_PAD = 8
+local CRAFTLIB_URL = "https://www.curseforge.com/wow/addons/craftlib"
+local craftLibCallout = CreateFrame("Frame", nil, filterContent, "BackdropTemplate")
+Theme.ApplyBackdrop(craftLibCallout, "section")
+craftLibCallout:SetPoint("TOPLEFT", filterContent, "TOPLEFT", 0, 0)
+craftLibCallout:SetPoint("TOPRIGHT", filterContent, "TOPRIGHT", 0, 0)
+craftLibCallout:SetHeight(132)
+
+local craftLibCalloutInner = Theme.CreatePanelInnerContent(craftLibCallout, CALLOUT_PAD)
+
+local craftLibNoticeIcon = craftLibCallout:CreateTexture(nil, "ARTWORK")
+craftLibNoticeIcon:SetSize(24, 24)
+craftLibNoticeIcon:SetPoint("TOPLEFT", craftLibCalloutInner, "TOPLEFT", 0, 0)
+craftLibNoticeIcon:SetTexture("Interface\\AddOns\\AltArmy_TBC\\Textures\\CraftLibIcon")
+
+local craftLibNoticeTitle = craftLibCallout:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+craftLibNoticeTitle:SetPoint("LEFT", craftLibNoticeIcon, "RIGHT", 8, 0)
+craftLibNoticeTitle:SetPoint("TOP", craftLibNoticeIcon, "TOP", 0, -2)
+craftLibNoticeTitle:SetPoint("RIGHT", craftLibCalloutInner, "RIGHT", 0, 0)
+craftLibNoticeTitle:SetJustifyH("LEFT")
+craftLibNoticeTitle:SetText("CraftLib")
+Theme.SetTitleColor(craftLibNoticeTitle)
+
+local craftLibNoticeBody = craftLibCallout:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+craftLibNoticeBody:SetPoint("TOPLEFT", craftLibNoticeIcon, "BOTTOMLEFT", 0, -8)
+craftLibNoticeBody:SetPoint("RIGHT", craftLibCalloutInner, "RIGHT", 0, 0)
+craftLibNoticeBody:SetJustifyH("LEFT")
+craftLibNoticeBody:SetWordWrap(true)
+Theme.SetLabelColor(craftLibNoticeBody)
+craftLibNoticeBody:SetText(
+    "Alt Army can do more advanced recipe filtering if you install the CraftLib addon"
+)
+
+local craftLibInstallLabel = craftLibCallout:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+craftLibInstallLabel:SetPoint("TOPLEFT", craftLibNoticeBody, "BOTTOMLEFT", 0, -10)
+craftLibInstallLabel:SetJustifyH("LEFT")
+craftLibInstallLabel:SetText("Install from CurseForge, then /reload:")
+Theme.SetLabelColor(craftLibInstallLabel)
+
+local craftLibUrlEdit = CreateFrame("EditBox", nil, craftLibCallout)
+craftLibUrlEdit:SetHeight(SETTINGS_ROW_HEIGHT)
+craftLibUrlEdit:SetPoint("TOPLEFT", craftLibInstallLabel, "BOTTOMLEFT", 0, -4)
+craftLibUrlEdit:SetPoint("RIGHT", craftLibCalloutInner, "RIGHT", 0, 0)
+craftLibUrlEdit:SetFontObject("GameFontHighlightSmall")
+craftLibUrlEdit:SetAutoFocus(false)
+craftLibUrlEdit:SetTextInsets(4, 4, 0, 0)
+craftLibUrlEdit:SetText(CRAFTLIB_URL)
+Theme.ApplyInputTextures(craftLibUrlEdit)
+craftLibUrlEdit:SetScript("OnEditFocusGained", function(box)
+    box:HighlightText()
+end)
+craftLibUrlEdit:SetScript("OnEditFocusLost", function(box)
+    box:HighlightText(0, 0)
+end)
+craftLibUrlEdit:SetScript("OnMouseUp", function(box)
+    box:SetFocus()
+    box:HighlightText()
+end)
+craftLibUrlEdit:SetScript("OnEscapePressed", function(box)
+    box:ClearFocus()
+end)
+craftLibUrlEdit:SetScript("OnEnterPressed", function(box)
+    box:ClearFocus()
+end)
+craftLibUrlEdit:SetScript("OnChar", function() end)
+craftLibUrlEdit:SetScript("OnTextChanged", function(box)
+    if box:GetText() ~= CRAFTLIB_URL then
+        box:SetText(CRAFTLIB_URL)
+    end
+end)
+
+local function SelectCraftLibUrlText()
+    if not craftLibUrlEdit or not craftLibUrlEdit.HighlightText then
+        return
+    end
+    craftLibUrlEdit:SetFocus()
+    craftLibUrlEdit:HighlightText()
+end
+
+craftLibCallout:SetScript("OnShow", function(self)
+    self:SetScript("OnUpdate", function(f)
+        f:SetScript("OnUpdate", nil)
+        SelectCraftLibUrlText()
+    end)
+end)
+
+local function RefreshSearchSettingsControls()
+    if not SS or not SS.GetRecipeLevelFilter then
+        return
+    end
+    local f = SS.GetRecipeLevelFilter()
+    local craftLibReady = RCL and RCL.IsAvailable and RCL.IsAvailable()
+    if craftLibReady then
+        recipeLevelHeader:Show()
+        minLevelLabel:Show()
+        minLevelEdit:Show()
+        maxLevelLabel:Show()
+        maxLevelEdit:Show()
+        craftLibCallout:Hide()
+        minLevelEdit:SetText(tostring(f.min or 0))
+        maxLevelEdit:SetText(tostring(f.max or 375))
+        if Theme.SetLabelColor then
+            Theme.SetLabelColor(recipeLevelHeader)
+            Theme.SetLabelColor(minLevelLabel)
+            Theme.SetLabelColor(maxLevelLabel)
+        end
+    else
+        recipeLevelHeader:Hide()
+        minLevelLabel:Hide()
+        minLevelEdit:Hide()
+        maxLevelLabel:Hide()
+        maxLevelEdit:Hide()
+        craftLibCallout:Show()
+    end
+end
+
+RefreshSearchSettingsControls()
+
+function frame:IsSearchSettingsShown()
+    return settingsPanel and settingsPanel:IsShown()
+end
+
+local function ApplyTabContentLayout()
     tabContentPanel:ClearAllPoints()
     tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
-    tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+    if settingsPanel:IsShown() then
+        tabContentPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -SECTION_GAP, SECTION_INSET)
+    else
+        tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+    end
+end
+
+-- List viewport and horizontal scroll bar layout.
+local function ApplySearchListLayout()
+    ApplyTabContentLayout()
     listViewport:ClearAllPoints()
     listViewport:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, -PAD)
     listViewport:SetPoint(
@@ -1106,17 +1380,115 @@ local function ApplySearchListLayout()
     end
 end
 
-frame:SetScript("OnSizeChanged", function()
+local function RelayoutSearchResultRow(row, order, widths)
+    if not row or not row.cells then
+        return
+    end
+    local cx = 0
+    for _, colName in ipairs(order) do
+        local w = widths[colName] or 80
+        local cell = row.cells[colName]
+        if cell then
+            cell:SetWidth(w)
+            cell:ClearAllPoints()
+            cell:SetPoint("TOPLEFT", row, "TOPLEFT", cx, 0)
+            cx = cx + w
+        end
+    end
+end
+
+local function LayoutSearchHeaderLabels(labels, headerRow, order, widths, labelTextForCol)
+    local x = 0
+    for i, colName in ipairs(order) do
+        local w = widths[colName] or 80
+        local label = labels[i]
+        if label then
+            label:SetWidth(w)
+            label:ClearAllPoints()
+            label:SetPoint("BOTTOMLEFT", headerRow, "BOTTOMLEFT", x, 0)
+            if labelTextForCol then
+                label:SetText(labelTextForCol(colName))
+            end
+        end
+        x = x + w
+    end
+end
+
+local function ApplySearchColumnLayout()
+    local settingsOpen = settingsPanel and settingsPanel:IsShown()
+    SyncSearchColumnWidths(settingsOpen)
+    totalColWidth = SearchColumns and SearchColumns.GetResultsTableWidth(settingsOpen)
+        or math.max(getTotalColWidth(), getRecipeColWidth())
+    if resultsArea then
+        resultsArea:SetWidth(totalColWidth)
+    end
+    if horizontalScrollChild then
+        horizontalScrollChild:SetWidth(totalColWidth)
+    end
+    LayoutSearchHeaderLabels(itemsHeaderLabels, itemsHeaderRow, colOrder, colWidths)
+    LayoutSearchHeaderLabels(recipesHeaderLabels, recipesHeaderRow, recipeColOrder, recipeColWidths)
+    LayoutSearchHeaderLabels(alsoInterestedHeaderLabels, alsoInterestedHeaderRow, colOrder, colWidths, function(colName)
+        return colName == "Item" and "You may also be interested in:" or colName
+    end)
+    for _, row in ipairs(resultRows) do
+        RelayoutSearchResultRow(row, colOrder, colWidths)
+    end
+    for _, row in ipairs(recipeRows) do
+        RelayoutSearchResultRow(row, recipeColOrder, recipeColWidths)
+    end
+    for _, row in ipairs(tooltipOnlyResultRows) do
+        RelayoutSearchResultRow(row, colOrder, colWidths)
+    end
+end
+
+local searchLayoutUpdateFrame = CreateFrame("Frame")
+local searchDeferredUpdatePending = false
+
+local function ScheduleSearchUpdateAfterLayout()
+    if searchDeferredUpdatePending then return end
+    searchDeferredUpdatePending = true
+    searchLayoutUpdateFrame:SetScript("OnUpdate", function(f)
+        f:SetScript("OnUpdate", nil)
+        searchDeferredUpdatePending = false
+        if frame and frame.IsVisible and frame:IsVisible() then
+            UpdateResults()
+        end
+    end)
+end
+
+local function RefreshSearchListAfterLayout()
     ApplySearchListLayout()
+    ApplySearchColumnLayout()
+    UpdateResults()
+    ScheduleSearchUpdateAfterLayout()
+end
+
+function frame:ToggleSearchSettings(_self)
+    local showSettings = not settingsPanel:IsShown()
+    settingsPanel:SetShown(showSettings)
+    if showSettings then
+        ApplySettingsPanelLayout()
+        RefreshSearchSettingsControls()
+    end
+    RefreshSearchListAfterLayout()
+    if AltArmy and AltArmy.UpdateSearchSettingsButtonGlow then
+        AltArmy.UpdateSearchSettingsButtonGlow()
+    end
+end
+
+frame:SetScript("OnSizeChanged", function()
+    if settingsPanel and settingsPanel:IsShown() then
+        ApplySettingsPanelLayout()
+    end
+    RefreshSearchListAfterLayout()
 end)
 
 -- Initial empty state: layout list viewport then build results (horizontal scroll range set in UpdateResults)
-ApplySearchListLayout()
-UpdateResults()
+RefreshSearchListAfterLayout()
 
 -- When tab is shown, refresh layout and scroll child rect (viewport may have been zero when hidden)
 frame:SetScript("OnShow", function()
-    ApplySearchListLayout()
+    RefreshSearchListAfterLayout()
     if scrollFrame and scrollFrame.UpdateScrollChildRect then
         scrollFrame:UpdateScrollChildRect()
     end

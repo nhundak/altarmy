@@ -4,6 +4,7 @@
 ## Version: 1.4.4
 ## Author: Nick Tower
 ## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings, AltArmyTBC_ProgressionSettings
+## OptionalDeps: CraftLib
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
 UI\Theme.lua
@@ -30,6 +31,9 @@ Data\SummaryData.lua
 Data\RealmFilter.lua
 Data\GlobalRealmFilter.lua
 Data\Characters.lua
+Data\RecipeCraftLib.lua
+Data\SearchSettings.lua
+Data\SearchColumns.lua
 Data\SearchData.lua
 ReputationFactionFilter.lua
 Data\CharacterSort.lua

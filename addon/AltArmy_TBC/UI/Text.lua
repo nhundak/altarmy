@@ -5,6 +5,14 @@ AltArmy.Text = AltArmy.Text or {}
 
 local Text = AltArmy.Text
 
+local function affixWidth(fontString, affix)
+    if not affix or affix == "" then
+        return 0
+    end
+    fontString:SetText(affix)
+    return fontString:GetStringWidth()
+end
+
 local function splitColoredText(fullName)
     local prefix = fullName:match("^|c%x%x%x%x%x%x%x%x")
     if prefix and #fullName >= 12 and fullName:sub(-2) == "|r" then
@@ -16,7 +24,8 @@ end
 --- Truncate text to fit maxWidth on a FontString.
 --- opts.returnBoolean — return whether truncated (TabSummary).
 --- opts.preserveColorCodes — keep |cff…|r wrapper while truncating visible portion (TabSearch).
---- opts.suffix — never truncated; appended after name (TabSearch location labels).
+--- opts.prefix — never truncated; prepended before name (TabSearch item icons).
+--- opts.suffix — never truncated; appended after name (TabSearch location labels, item counts).
 --- @param fontString FontString
 --- @param fullName string|nil
 --- @param maxWidth number
@@ -25,64 +34,87 @@ end
 function Text.TruncateFontString(fontString, fullName, maxWidth, opts)
     opts = opts or {}
     local returnBoolean = opts.returnBoolean == true
-    local suffix = opts.suffix
+    local affixPrefix = opts.prefix or ""
+    local suffix = opts.suffix or ""
     local preserveColorCodes = opts.preserveColorCodes == true
 
     if preserveColorCodes then
         local maxNameW = maxWidth - 2
-        if suffix and suffix ~= "" then
-            fontString:SetText(suffix)
-            maxNameW = maxNameW - fontString:GetStringWidth()
-            if maxNameW < 10 then maxNameW = 10 end
+        if affixPrefix ~= "" then
+            maxNameW = maxNameW - affixWidth(fontString, affixPrefix)
         end
-        local prefix, visible = splitColoredText(fullName or "")
+        if suffix ~= "" then
+            maxNameW = maxNameW - affixWidth(fontString, suffix)
+        end
+        if maxNameW < 10 then maxNameW = 10 end
+        local colorPrefix, visible = splitColoredText(fullName or "")
         if visible == "" then
-            fontString:SetText(suffix or "")
+            local emptyText = affixPrefix .. suffix
+            fontString:SetText(emptyText)
             if returnBoolean then return false end
-            return suffix or ""
+            return emptyText
         end
-        fontString:SetText(prefix .. visible .. (prefix ~= "" and "|r" or ""))
+        fontString:SetText(colorPrefix .. visible .. (colorPrefix ~= "" and "|r" or ""))
         if fontString:GetStringWidth() <= maxNameW then
-            local finalText = prefix .. visible .. (prefix ~= "" and "|r" or "") .. (suffix or "")
+            local finalText = affixPrefix .. colorPrefix .. visible
+                .. (colorPrefix ~= "" and "|r" or "") .. suffix
             fontString:SetText(finalText)
             if returnBoolean then return false end
             return finalText
         end
         for len = #visible - 1, 1, -1 do
             local truncated = visible:sub(1, len) .. "..."
-            fontString:SetText(prefix .. truncated .. (prefix ~= "" and "|r" or ""))
+            fontString:SetText(colorPrefix .. truncated .. (colorPrefix ~= "" and "|r" or ""))
             if fontString:GetStringWidth() <= maxNameW then
-                local finalText = prefix .. truncated .. (prefix ~= "" and "|r" or "") .. (suffix or "")
+                local finalText = affixPrefix .. colorPrefix .. truncated
+                    .. (colorPrefix ~= "" and "|r" or "") .. suffix
                 fontString:SetText(finalText)
                 if returnBoolean then return true end
                 return finalText
             end
         end
-        local finalText = prefix .. "..." .. (prefix ~= "" and "|r" or "") .. (suffix or "")
+        local finalText = affixPrefix .. colorPrefix .. "..."
+            .. (colorPrefix ~= "" and "|r" or "") .. suffix
         fontString:SetText(finalText)
         if returnBoolean then return true end
         return finalText
     end
 
     if not fullName or fullName == "" then
-        fontString:SetText("?")
+        local emptyText = affixPrefix .. "?" .. suffix
+        fontString:SetText(emptyText)
         if returnBoolean then return false end
-        return "?"
+        return emptyText
     end
+
+    local maxTextW = maxWidth - 2
+    if affixPrefix ~= "" then
+        maxTextW = maxTextW - affixWidth(fontString, affixPrefix)
+    end
+    if suffix ~= "" then
+        maxTextW = maxTextW - affixWidth(fontString, suffix)
+    end
+    if maxTextW < 10 then maxTextW = 10 end
+
     fontString:SetText(fullName)
-    if fontString:GetStringWidth() <= maxWidth then
+    if fontString:GetStringWidth() <= maxTextW then
+        local finalText = affixPrefix .. fullName .. suffix
+        fontString:SetText(finalText)
         if returnBoolean then return false end
-        return fullName
+        return finalText
     end
     for len = #fullName - 1, 1, -1 do
         local truncated = fullName:sub(1, len) .. "..."
         fontString:SetText(truncated)
-        if fontString:GetStringWidth() <= maxWidth then
+        if fontString:GetStringWidth() <= maxTextW then
+            local finalText = affixPrefix .. truncated .. suffix
+            fontString:SetText(finalText)
             if returnBoolean then return true end
-            return truncated
+            return finalText
         end
     end
-    fontString:SetText("...")
+    local finalText = affixPrefix .. "..." .. suffix
+    fontString:SetText(finalText)
     if returnBoolean then return true end
-    return "..."
+    return finalText
 end

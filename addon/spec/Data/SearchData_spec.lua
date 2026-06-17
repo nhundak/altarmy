@@ -16,6 +16,8 @@ describe("SearchData", function()
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     require("DataStore")
     require("DataStoreProfessions")
+    require("RecipeCraftLib")
+    require("SearchSettings")
     require("SearchData")
     SD = AltArmy.SearchData
   end)
@@ -723,6 +725,69 @@ describe("SearchData", function()
       _G.GetItemSpell = oldGetItemSpell
       assert.are.equal(1, #results)
       assert.are.equal(11449, results[1].recipeID)
+    end)
+  end)
+
+  describe("_FilterRecipesByLevel", function()
+    it("keeps rows in range and rows with nil recipeSkillRequired", function()
+      _G.CraftLib = { IsReady = function() return true end }
+      local rows = {
+        { recipeID = 1, recipeSkillRequired = 200 },
+        { recipeID = 2, recipeSkillRequired = 260 },
+        { recipeID = 3, recipeSkillRequired = nil },
+      }
+      local filtered = SD._FilterRecipesByLevel(rows, { min = 200, max = 250 })
+      _G.CraftLib = nil
+      assert.are.equal(2, #filtered)
+      assert.are.equal(1, filtered[1].recipeID)
+      assert.are.equal(3, filtered[2].recipeID)
+    end)
+
+    it("returns all rows when filter is full range 0-375", function()
+      local rows = { { recipeID = 1, recipeSkillRequired = 999 } }
+      local filtered = SD._FilterRecipesByLevel(rows, { min = 0, max = 375 })
+      assert.are.equal(1, #filtered)
+    end)
+  end)
+
+  describe("_EnrichRecipeEntry", function()
+    before_each(function()
+      _G.CraftLib = nil
+      if AltArmy.RecipeCraftLib and AltArmy.RecipeCraftLib.ClearCaches then
+        AltArmy.RecipeCraftLib.ClearCaches()
+      end
+    end)
+
+    it("adds recipeSkillRequired and difficulty when CraftLib resolves recipe", function()
+      _G.GetSpellInfo = function() return "Alchemy" end
+      _G.CraftLib = {
+        IsReady = function() return true end,
+        GetProfessions = function()
+          return { alchemy = { id = 1, name = "Alchemy", recipes = {} } }
+        end,
+        GetRecipeBySpellId = function(_, profKey, spellId)
+          if profKey == "alchemy" and spellId == 111 then
+            return {
+              id = 111,
+              skillRequired = 180,
+              skillRange = { yellow = 195, green = 210, gray = 225 },
+            }
+          end
+          return nil
+        end,
+        GetRecipeDifficulty = function(_, recipe, skill)
+          if skill < recipe.skillRange.yellow then return "orange" end
+          return "gray"
+        end,
+      }
+      local entry = {
+        professionName = "Alchemy",
+        recipeID = 111,
+        skillRank = 300,
+      }
+      SD._EnrichRecipeEntry(entry)
+      assert.are.equal(180, entry.recipeSkillRequired)
+      assert.are.equal("gray", entry.difficulty)
     end)
   end)
 
