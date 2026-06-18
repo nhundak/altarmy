@@ -30,12 +30,7 @@ function DS:ScanEquipment(_self)
     for slot = 1, NUM_EQUIPMENT_SLOTS do
         local link = GetInventoryItemLink("player", slot)
         if link then
-            if IsEnchanted(link) then
-                char.Inventory[slot] = link
-            else
-                local id = tonumber(link:match("item:(%d+)"))
-                char.Inventory[slot] = id
-            end
+            char.Inventory[slot] = link
         else
             char.Inventory[slot] = nil
         end

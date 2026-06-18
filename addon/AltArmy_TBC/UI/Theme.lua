@@ -934,7 +934,170 @@ function Theme.CreateLabeledCheckbox(parent, opts)
     return row
 end
 
+local SETTINGS_INFO_ICON_SIZE = 14
+
+--- Help icon on the right of a settings row; tooltip matches Graphs option rows (title + gray body).
+function Theme.AttachSettingsHelpIcon(row, tooltipOpts)
+    tooltipOpts = tooltipOpts or {}
+    local title = tooltipOpts.title or ""
+    local lines = tooltipOpts.lines or {}
+
+    local btn = CreateFrame("Button", nil, row)
+    btn:SetSize(SETTINGS_INFO_ICON_SIZE, SETTINGS_INFO_ICON_SIZE)
+    btn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    local tex = btn:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints(btn)
+    tex:SetTexture("Interface\\Common\\help-i")
+
+    if row.label then
+        row.label:ClearAllPoints()
+        row.label:SetPoint("LEFT", row.check, "RIGHT", 2, 0)
+        row.label:SetPoint("RIGHT", btn, "LEFT", -4, 0)
+        row.label:SetJustifyH("LEFT")
+    end
+
+    local tooltipAnchor = row
+
+    local function showTooltip()
+        if not GameTooltip or not tooltipAnchor then return end
+        GameTooltip:SetOwner(tooltipAnchor, "ANCHOR_NONE")
+        GameTooltip:ClearLines()
+        if title ~= "" then
+            GameTooltip:AddLine(title, 1, 1, 1, true)
+        end
+        for i = 1, #lines do
+            GameTooltip:AddLine(lines[i], 0.9, 0.9, 0.9, true)
+        end
+        GameTooltip:SetPoint("TOPLEFT", tooltipAnchor, "TOPRIGHT", 8, 0)
+        GameTooltip:Show()
+    end
+
+    local function hideTooltip()
+        if GameTooltip then GameTooltip:Hide() end
+    end
+
+    local function onTooltipEnter()
+        if row.hoverRegion then
+            Theme.SetHoverTint(row.hoverRegion, true)
+        end
+        showTooltip()
+    end
+
+    local function onTooltipLeave()
+        if row.hoverRegion then
+            Theme.SetHoverTint(row.hoverRegion, false)
+        end
+        hideTooltip()
+    end
+
+    btn:SetScript("OnEnter", onTooltipEnter)
+    btn:SetScript("OnLeave", onTooltipLeave)
+
+    if row.hoverRegion then
+        row.hoverRegion:HookScript("OnEnter", showTooltip)
+        row.hoverRegion:HookScript("OnLeave", hideTooltip)
+    end
+    if row.check then
+        row.check:HookScript("OnEnter", showTooltip)
+        row.check:HookScript("OnLeave", hideTooltip)
+    end
+
+    row.helpBtn = btn
+    return btn
+end
+
 function Theme.ApplyDropdownBackground(frame)
     if not frame then return end
     Theme.ApplyBackdrop(frame, "section")
 end
+
+local DROPDOWN_MENU_PAD_TOP = 2
+local DROPDOWN_MENU_PAD_SIDE = 2
+
+--- Single selectable row inside a custom dropdown popup (hover matches settings list rows).
+function Theme.CreateDropdownMenuItem(parent, opts)
+    opts = opts or {}
+    local rowHeight = opts.rowHeight or Theme.CHAR_LIST_ROW_HEIGHT or 20
+    local padTop = opts.padTop or DROPDOWN_MENU_PAD_TOP
+    local padSide = opts.padSide or DROPDOWN_MENU_PAD_SIDE
+    local idx = opts.index or 1
+
+    local btn = CreateFrame("Button", nil, parent)
+    btn:SetPoint("TOPLEFT", parent, "TOPLEFT", padSide, -padTop - (idx - 1) * rowHeight)
+    btn:SetPoint("LEFT", parent, "LEFT", padSide, 0)
+    btn:SetPoint("RIGHT", parent, "RIGHT", -padSide, 0)
+    btn:SetHeight(rowHeight - 2)
+
+    Theme.BindInteractableHover(btn)
+
+    local selBg = btn:CreateTexture(nil, "ARTWORK")
+    selBg:SetAllPoints(true)
+    selBg:SetColorTexture(C.rowSelected[1], C.rowSelected[2], C.rowSelected[3], C.rowSelected[4])
+    selBg:Hide()
+    btn.altArmyDropdownSelectedBg = selBg
+
+    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetPoint("LEFT", btn, "LEFT", 4, 0)
+    label:SetText(opts.text or "")
+    btn.label = label
+
+    function btn:SetDropdownSelected(on)
+        selBg:SetShown(on == true)
+    end
+    btn:SetDropdownSelected(opts.selected == true)
+
+    if opts.onClick then
+        btn:SetScript("OnClick", function(self)
+            opts.onClick(self)
+        end)
+    end
+
+    return btn
+end
+
+-- luacheck: globals UIDROPDOWNMENU_MENU_LEVEL UIDROPDOWNMENU_MAXLEVELS UIDROPDOWNMENU_MAXBUTTONS
+local hooksecurefunc = _G.hooksecurefunc
+
+local function SkinBlizzardDropdownListButton(button)
+    if not button or button._altArmyDropdownHover then return end
+    button._altArmyDropdownHover = true
+    Theme.InstallHoverTint(button)
+    local ht = button.GetHighlightTexture and button:GetHighlightTexture()
+    if ht and ht.SetAlpha then
+        ht:SetAlpha(0)
+    end
+    if button.HookScript then
+        button:HookScript("OnEnter", function()
+            Theme.SetHoverTint(button, true)
+        end)
+        button:HookScript("OnLeave", function()
+            Theme.SetHoverTint(button, false)
+        end)
+    end
+end
+
+local function SkinVisibleBlizzardDropdownButtons()
+    local maxLevel = UIDROPDOWNMENU_MAXLEVELS or 2
+    local maxButtons = UIDROPDOWNMENU_MAXBUTTONS or 32
+    for level = 1, maxLevel do
+        local listName = "DropDownList" .. level
+        for i = 1, maxButtons do
+            local button = _G[listName .. "Button" .. i]
+            if button and button.IsShown and button:IsShown() then
+                SkinBlizzardDropdownListButton(button)
+            end
+        end
+    end
+end
+
+--- Hover highlight on Blizzard UIDropDownMenu list rows (Options, Cooldowns, etc.).
+function Theme.InstallBlizzardDropdownListHover()
+    if Theme._blizzardDropdownHoverInstalled then return end
+    Theme._blizzardDropdownHoverInstalled = true
+    if not hooksecurefunc then return end
+    hooksecurefunc("UIDropDownMenu_AddButton", function()
+        SkinVisibleBlizzardDropdownButtons()
+    end)
+end
+
+Theme.InstallBlizzardDropdownListHover()

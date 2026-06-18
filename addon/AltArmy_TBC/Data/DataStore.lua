@@ -15,6 +15,7 @@ local DATA_VERSIONS = {
     character = 1,
     containers = 1,
     equipment = 1,
+    gearScores = 1,
     professions = 1,
     reputations = 2,
     mail = 1,

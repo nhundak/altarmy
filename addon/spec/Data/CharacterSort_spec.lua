@@ -47,4 +47,13 @@ describe("CharacterSort", function()
     assert.are.equal("", CS.GetSortValue({}, "Name"))
     assert.are.equal(0, CS.GetSortValue({}, "Level"))
   end)
+
+  it("sorts by gear score provider label from entry.scores", function()
+    local a = entry("Alice", 60, 100, 50)
+    local b = entry("Bob", 60, 100, 50)
+    a.scores = { ["Gear Score (TacoTip)"] = 1200 }
+    b.scores = { ["Gear Score (TacoTip)"] = 800 }
+    assert.is_true(CS.CompareBySort(a, b, "Gear Score (TacoTip)", "Name"))
+    assert.is_false(CS.CompareBySort(b, a, "Gear Score (TacoTip)", "Name"))
+  end)
 end)

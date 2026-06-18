@@ -308,6 +308,15 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
         end
     end
 
+    local GS = AltArmy and AltArmy.GearScore
+    if GS and GS.IsGearScoreTBCClassicAvailable and GS.IsGearScoreTBCClassicAvailable()
+        and DS.HasModuleData and not DS:HasModuleData(char, "gearScores") then
+        if not isCurrent and not addedLoginInstruction then
+            table.insert(out.instructions, "* Log in with this character")
+            addedLoginInstruction = true
+        end
+    end
+
     -- Reputation: stale data version and/or legacy scalar storage (pre-v2 snapshot rows)
     if DS.HasModuleData and DS:HasModuleData(char, "reputations") then
         local staleVersion = DS.NeedsRescan and DS:NeedsRescan(char, "reputations")

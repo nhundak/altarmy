@@ -90,9 +90,17 @@ describe("AltArmy.Theme", function()
         end
         function f:CreateFontString()
             return {
+                _shown = true,
+                _text = "",
                 SetTextColor = function() end,
-                SetText = function() end,
+                SetText = function(self, t) self._text = t end,
                 SetPoint = function() end,
+                SetWidth = function() end,
+                SetJustifyH = function() end,
+                Show = function(self) self._shown = true end,
+                Hide = function(self) self._shown = false end,
+                SetShown = function(self, on) self._shown = on end,
+                IsShown = function(self) return self._shown end,
             }
         end
         function f:GetFontString() return { SetTextColor = function() end } end
@@ -286,6 +294,41 @@ describe("AltArmy.Theme", function()
             Theme.SkinSettingsIconButton(btn)
             btn._scripts.OnEnter(btn)
             assert.is_false(btn.hoverGlow._shown)
+        end)
+    end)
+
+    describe("CreateDropdownMenuItem", function()
+        it("installs hover tint and wires enter/leave on dropdown rows", function()
+            local parent = makeStubFrame()
+            local btn = Theme.CreateDropdownMenuItem(parent, { index = 1, text = "Option" })
+            assert.is_not_nil(btn.altArmyHoverTint)
+            assert.is_not_nil(btn._scripts.OnEnter)
+            btn._scripts.OnEnter()
+            assert.are.equal(Theme.HOVER_TINT_ALPHA, btn.altArmyHoverTint._vertex[4])
+            btn._scripts.OnLeave()
+            assert.are.equal(0, btn.altArmyHoverTint._vertex[4])
+        end)
+
+        it("highlights the selected dropdown row", function()
+            local parent = makeStubFrame()
+            local btn = Theme.CreateDropdownMenuItem(parent, { index = 1, text = "Option", selected = true })
+            assert.is_not_nil(btn.altArmyDropdownSelectedBg)
+            assert.is_true(btn.altArmyDropdownSelectedBg._shown)
+            local c = btn.altArmyDropdownSelectedBg._color
+            assert.are.equal(Theme.COLORS.rowSelected[1], c[1])
+            assert.are.equal(Theme.COLORS.rowSelected[2], c[2])
+            assert.are.equal(Theme.COLORS.rowSelected[3], c[3])
+            assert.are.equal(Theme.COLORS.rowSelected[4], c[4])
+        end)
+
+        it("SetDropdownSelected toggles selected row highlight", function()
+            local parent = makeStubFrame()
+            local btn = Theme.CreateDropdownMenuItem(parent, { index = 1, text = "Option", selected = false })
+            assert.is_false(btn.altArmyDropdownSelectedBg._shown)
+            btn:SetDropdownSelected(true)
+            assert.is_true(btn.altArmyDropdownSelectedBg._shown)
+            btn:SetDropdownSelected(false)
+            assert.is_false(btn.altArmyDropdownSelectedBg._shown)
         end)
     end)
 
@@ -527,7 +570,7 @@ describe("AltArmy.Theme", function()
             local parent = makeStubFrame()
             local clicked = false
             local row = Theme.CreateLabeledCheckbox(parent, {
-                text = "Show self first",
+                text = "Pin current character",
                 onClick = function()
                     clicked = true
                 end,

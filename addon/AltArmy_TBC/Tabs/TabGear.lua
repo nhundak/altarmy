@@ -6,6 +6,8 @@ if not frame then return end
 local DS = AltArmy.DataStore
 local Theme = AltArmy.Theme
 local CC = AltArmy.ClassColor
+local GearScoreMod = AltArmy.GearScore
+local SD = AltArmy.SummaryData
 local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 local PAD = 4
 local SECTION_INSET = Theme.TAB_SECTION_INSET
@@ -13,6 +15,7 @@ local SECTION_GAP = Theme.SECTION_GAP
 local LEFT_PANEL_WIDTH = 120
 local LEFT_PANEL_VISIBLE = false  -- set true to show "Who can use this?" drop zone
 local MESSAGE_ROW_HEIGHT = 12
+local SETTINGS_ROW_HEIGHT = 22
 -- Base cell size was 28; icon size (medium 32px) + glow inset in dims.cellSize
 local NUM_EQUIPMENT_SLOTS = 19
 
@@ -55,19 +58,59 @@ local SLOT_ORDER = {
 local droppedItemLink = nil
 
 -- Gear settings persistence (AltArmyTBC_GearSettings)
-local SORT_OPTIONS = { "Name", "Level", "Avg Item Level", "Time Played" }
-local function SortOptionValid(val)
-    for _, o in ipairs(SORT_OPTIONS) do if o == val then return true end end
-    return false
+local DEFAULT_SCORE_PROVIDER = "level"
+local SLOT_LABEL_WIDTH = 98
+local SCORE_SORT_BTN_GAP = 2
+local SCORE_ROW_LAYOUT_TRIM = 4
+local SCORE_ROW_HEADER_BOTTOM_INSET = 6
+
+local function GetAvailableScoreProviders()
+    if GearScoreMod and GearScoreMod.RefreshProviders then
+        GearScoreMod.RefreshProviders("gear-tab")
+    end
+    if GearScoreMod and GearScoreMod.GetAvailableProviders then
+        return GearScoreMod.GetAvailableProviders()
+    end
+    return {}
 end
+
+local function ValidateScoreProvider(id)
+    local providers = GetAvailableScoreProviders()
+    for _, p in ipairs(providers) do
+        if p.id == id then return id end
+    end
+    if id == "gs_lite" then
+        for _, p in ipairs(providers) do
+            if p.id:sub(1, 3) == "gs:" then
+                return p.id
+            end
+        end
+    end
+    return DEFAULT_SCORE_PROVIDER
+end
+
 local function GetGearSettings()
     AltArmyTBC_GearSettings = AltArmyTBC_GearSettings or {}
     local s = AltArmyTBC_GearSettings
-    if not s.primarySort or not SortOptionValid(s.primarySort) then s.primarySort = "Time Played" end
-    if not s.secondarySort or not SortOptionValid(s.secondarySort) then s.secondarySort = "Name" end
     if s.showSelfFirst == nil then s.showSelfFirst = true end
+    if s.scoreSortDescending == nil then s.scoreSortDescending = true end
+    s.scoreProvider = ValidateScoreProvider(s.scoreProvider or DEFAULT_SCORE_PROVIDER)
     s.characters = s.characters or {}
     return s
+end
+
+local function GetSelectedScoreProvider()
+    local s = GetGearSettings()
+    return ValidateScoreProvider(s.scoreProvider or DEFAULT_SCORE_PROVIDER)
+end
+
+local function GetScoreProviderLabel(providerId)
+    if GearScoreMod and GearScoreMod.GetProviderShortLabel then
+        return GearScoreMod.GetProviderShortLabel(providerId)
+    end
+    local provider = GearScoreMod and GearScoreMod.GetProvider and GearScoreMod.GetProvider(providerId)
+    if provider then return provider.shortLabel or provider.label end
+    return "Level"
 end
 
 --- Fixed layout: Normal spacing (12px row/column gaps) and medium icons (32px).
@@ -92,6 +135,26 @@ local function GetSpacingDimensions()
     local rowGap, colGap = GetSpacingGaps()
     local cell = GetCellSizePx()
     return cell + rowGap, cell + colGap
+end
+
+local dims = {}
+
+local function GetScoreRowContentHeight()
+    local rh = dims.rowHeight or select(1, GetSpacingDimensions())
+    return math.floor(rh / 2)
+end
+
+local function GetScoreRowHeight()
+    return GetScoreRowContentHeight() - SCORE_ROW_LAYOUT_TRIM
+end
+
+local function GetScoreSortBtnSize()
+    return GetScoreRowContentHeight()
+end
+
+local function GetScrollableGridHeight()
+    local rh = dims.rowHeight or select(1, GetSpacingDimensions())
+    return NUM_EQUIPMENT_SLOTS * rh + PAD
 end
 
 local CharKey = AltArmy.CharKey
@@ -203,9 +266,53 @@ local function GetItemUseInfo(link)
     return reqLevel, subclass, nil
 end
 
-local CompareBySort = AltArmy.CharacterSort.CompareBySort
+local GetSortValue = AltArmy.CharacterSort.GetSortValue
 
---- Build display list: filter hidden; order = self (if show self first) + pinned + non-pinned.
+local function GetScoreSortKey(providerId)
+    if GearScoreMod and GearScoreMod.GetProvider then
+        local provider = GearScoreMod.GetProvider(providerId)
+        if provider then
+            return provider.sortLabel or provider.label
+        end
+    end
+    return "Level"
+end
+
+local function IsEntryScoreMissing(entry, providerId)
+    if not GearScoreMod or not GearScoreMod.IsScoreMissing then return false end
+    if not DS or not DS.GetCharacter then return false end
+    local char = DS:GetCharacter(entry.name, entry.realm)
+    return GearScoreMod.IsScoreMissing(char, providerId)
+end
+
+local function CompareBySelectedScore(entryA, entryB, providerId, descending)
+    local missingA = IsEntryScoreMissing(entryA, providerId)
+    local missingB = IsEntryScoreMissing(entryB, providerId)
+    if missingA ~= missingB then
+        return not missingA
+    end
+
+    local sortKey = GetScoreSortKey(providerId)
+    local va = GetSortValue(entryA, sortKey)
+    local vb = GetSortValue(entryB, sortKey)
+    if va ~= vb then
+        if descending then return va > vb else return va < vb end
+    end
+
+    local na = entryA.name or ""
+    local nb = entryB.name or ""
+    return na < nb
+end
+
+local function DecorateDisplayEntry(entry)
+    if not entry or not GearScoreMod or not GearScoreMod.DecorateEntry then return end
+    local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
+    if charData then
+        GearScoreMod.DecorateEntry(entry, charData)
+    end
+end
+
+--- Build display list: filter hidden; order = pinned (incl. current when pin-current) + non-pinned.
 --- Optionally re-sort by "who can use" when item dropped.
 local function GetDisplayList()
     if not AltArmy.Characters or not AltArmy.Characters.GetList then return {} end
@@ -214,41 +321,45 @@ local function GetDisplayList()
 
     local settings = GetGearSettings()
     local currentRealm = DS and DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm() or ""
+    local showSelfFirst = settings.showSelfFirst ~= false
 
-    -- Filter out hidden
+    -- Filter out hidden (pin-current-character overrides hide for the signed-in character)
     local visible = {}
     for i = 1, #rawList do
         local e = rawList[i]
-        if not GetCharSetting(e.name, e.realm, "hide") then
+        local isSelf = DS and DS.IsCurrentCharacter and DS:IsCurrentCharacter(e.name, e.realm)
+        local isHidden = GetCharSetting(e.name, e.realm, "hide")
+        if not isHidden or (showSelfFirst and isSelf) then
             visible[#visible + 1] = e
+            DecorateDisplayEntry(e)
         end
     end
 
-    local primary = settings.primarySort or "Time Played"
-    local secondary = settings.secondarySort or "Name"
-    local showSelfFirst = settings.showSelfFirst ~= false
+    local providerId = GetSelectedScoreProvider()
+    local descending = settings.scoreSortDescending ~= false
 
-    -- Split: self (when show self first), pinned, non-pinned
-    local selfEntry = nil
+    -- Split: pinned (manual pin or pin-current-character), non-pinned
     local pinned = {}
     local nonPinned = {}
     for i = 1, #visible do
         local e = visible[i]
         local isSelf = DS and DS.IsCurrentCharacter and DS:IsCurrentCharacter(e.name, e.realm)
-        if isSelf and showSelfFirst then
-            selfEntry = e
-        elseif GetCharSetting(e.name, e.realm, "pin") then
+        local isPinned = GetCharSetting(e.name, e.realm, "pin")
+        if isPinned or (showSelfFirst and isSelf) then
             pinned[#pinned + 1] = e
         else
             nonPinned[#nonPinned + 1] = e
         end
     end
 
-    table.sort(pinned, function(a, b) return CompareBySort(a, b, primary, secondary) end)
-    table.sort(nonPinned, function(a, b) return CompareBySort(a, b, primary, secondary) end)
+    table.sort(pinned, function(a, b)
+        return CompareBySelectedScore(a, b, providerId, descending)
+    end)
+    table.sort(nonPinned, function(a, b)
+        return CompareBySelectedScore(a, b, providerId, descending)
+    end)
 
     local list = {}
-    if showSelfFirst and selfEntry then list[#list + 1] = selfEntry end
     for i = 1, #pinned do list[#list + 1] = pinned[i] end
     for i = 1, #nonPinned do list[#list + 1] = nonPinned[i] end
 
@@ -475,16 +586,19 @@ end
 
 -- ---- Right panel: slot row headers + scrollable character columns ----
 local COLUMN_HEADER_HEIGHT_GEAR = 18
-local SLOT_LABEL_WIDTH = 80
+local SCORE_PROVIDER_DROPDOWN_WIDTH = 200
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
+
+local function GetPinnedHeaderHeight()
+    return FIXED_HEADER_ROW_HEIGHT + GetScoreRowHeight()
+end
 -- Layout dimensions from spacing + icon size
-local dims = {}
 do
     dims.cellSize = GetCellSizePx()
     local rh, cw = GetSpacingDimensions()
     dims.rowHeight, dims.columnWidth = rh, cw
-    dims.scrollableGridHeight = NUM_EQUIPMENT_SLOTS * dims.rowHeight + PAD
+    dims.scrollableGridHeight = GetScrollableGridHeight()
 end
 
 local rightPanel = CreateFrame("Frame", nil, tabContentInner)
@@ -513,7 +627,7 @@ verticalScroll:EnableMouse(true)
 local MIN_SCROLL_CHILD_WIDTH = 400
 local verticalScrollChild = CreateFrame("Frame", nil, verticalScroll)
 verticalScrollChild:SetPoint("TOPLEFT", verticalScroll, "TOPLEFT", 0, 0)
-verticalScrollChild:SetHeight(FIXED_HEADER_ROW_HEIGHT + dims.scrollableGridHeight)
+verticalScrollChild:SetHeight(GetPinnedHeaderHeight() + dims.scrollableGridHeight)
 verticalScrollChild:SetWidth(MIN_SCROLL_CHILD_WIDTH)
 verticalScrollChild:EnableMouse(true)
 verticalScroll:SetScrollChild(verticalScrollChild)
@@ -522,13 +636,13 @@ verticalScroll:SetScrollChild(verticalScrollChild)
 local scrollTopSpacer = CreateFrame("Frame", nil, verticalScrollChild)
 scrollTopSpacer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, 0)
 scrollTopSpacer:SetPoint("TOPRIGHT", verticalScrollChild, "TOPRIGHT", 0, 0)
-scrollTopSpacer:SetHeight(FIXED_HEADER_ROW_HEIGHT)
+scrollTopSpacer:SetHeight(GetPinnedHeaderHeight())
 
--- Fixed header row: overlays top of content area so names stay pinned; scrolls horizontally with grid
+-- Fixed header row: character names + score row pinned; scrolls horizontally with grid
 local fixedHeaderRow = CreateFrame("Frame", nil, contentArea)
 fixedHeaderRow:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 0, 0)
 fixedHeaderRow:SetPoint("TOPRIGHT", contentArea, "TOPRIGHT", 0, 0)
-fixedHeaderRow:SetHeight(FIXED_HEADER_ROW_HEIGHT)
+fixedHeaderRow:SetHeight(GetPinnedHeaderHeight())
 fixedHeaderRow:SetFrameLevel(contentArea:GetFrameLevel() + 20)
 -- Opaque background so scrolling content doesn't show through; extend slightly above, stop short at bottom
 local HEADER_BG_OVERHANG = 6
@@ -540,19 +654,23 @@ headerBg:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, HEADER_BG_OVERHANG)
 headerBg:SetPoint("TOPRIGHT", fixedHeaderRow, "TOPRIGHT", 0, HEADER_BG_OVERHANG)
 Theme.StyleGridHeader(headerBg)
 fixedHeaderRow:EnableMouse(true)
-local headerCornerCell = fixedHeaderRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-headerCornerCell:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, 0)
+local headerCornerColumn = CreateFrame("Frame", nil, fixedHeaderRow)
+headerCornerColumn:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, 0)
+headerCornerColumn:SetPoint("BOTTOMLEFT", fixedHeaderRow, "BOTTOMLEFT", 0, 0)
+headerCornerColumn:SetWidth(SLOT_LABEL_WIDTH)
+local headerCornerCell = headerCornerColumn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+headerCornerCell:SetPoint("TOPLEFT", headerCornerColumn, "TOPLEFT", 0, 0)
 headerCornerCell:SetWidth(SLOT_LABEL_WIDTH - 4)
 headerCornerCell:SetHeight(FIXED_HEADER_ROW_HEIGHT)
 headerCornerCell:SetJustifyH("LEFT")
 headerCornerCell:SetText("")
 local headerHorizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearHeaderHorizontalScroll", fixedHeaderRow)
-headerHorizontalScroll:SetPoint("TOPLEFT", headerCornerCell, "TOPRIGHT", 0, 0)
+headerHorizontalScroll:SetPoint("TOPLEFT", headerCornerColumn, "TOPRIGHT", 0, 0)
 headerHorizontalScroll:SetPoint("BOTTOMRIGHT", fixedHeaderRow, "BOTTOMRIGHT", 0, 0)
 headerHorizontalScroll:EnableMouse(true)
 local headerGridContainer = CreateFrame("Frame", nil, headerHorizontalScroll)
 headerGridContainer:SetPoint("TOPLEFT", headerHorizontalScroll, "TOPLEFT", 0, 0)
-headerGridContainer:SetHeight(FIXED_HEADER_ROW_HEIGHT)
+headerGridContainer:SetHeight(GetPinnedHeaderHeight())
 headerHorizontalScroll:SetScrollChild(headerGridContainer)
 
 -- Vertical scroll bar: custom (no template) so it doesn't conflict with horizontal; both bars under our control
@@ -580,11 +698,127 @@ end
 verticalScroll:SetScript("OnMouseWheel", OnGearScrollWheel)
 verticalScrollChild:SetScript("OnMouseWheel", OnGearScrollWheel)
 
--- Row headers (slot names) — below spacer so they scroll with rows; fixed header overlays spacer only
+-- Row headers (slot names) — below pinned header; scroll with equipment rows
 local slotHeaderContainer = CreateFrame("Frame", nil, verticalScrollChild)
-slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -FIXED_HEADER_ROW_HEIGHT)
+slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -GetPinnedHeaderHeight())
 slotHeaderContainer:SetPoint("BOTTOMLEFT", verticalScrollChild, "BOTTOMLEFT", 0, 0)
 slotHeaderContainer:SetWidth(SLOT_LABEL_WIDTH)
+
+-- Score row: pinned in header corner (provider selector + sort-direction button)
+local scoreSortBtn = CreateFrame("Button", nil, headerCornerColumn)
+scoreSortBtn:SetPoint("BOTTOMRIGHT", headerCornerColumn, "BOTTOMRIGHT", 0, SCORE_ROW_HEADER_BOTTOM_INSET)
+scoreSortBtn:SetSize(GetScoreSortBtnSize(), GetScoreSortBtnSize())
+Theme.SkinButton(scoreSortBtn)
+local scoreSortBtnText = scoreSortBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+scoreSortBtnText:SetPoint("CENTER", scoreSortBtn, "CENTER", 0, 0)
+scoreSortBtnText:SetJustifyH("CENTER")
+scoreSortBtnText:SetTextColor(1, 0.82, 0, 1)
+
+local function UpdateScoreSortButton()
+    local descending = GetGearSettings().scoreSortDescending ~= false
+    scoreSortBtnText:SetText(descending and ">" or "<")
+end
+
+scoreSortBtn:SetScript("OnClick", function()
+    local s = GetGearSettings()
+    s.scoreSortDescending = not s.scoreSortDescending
+    UpdateScoreSortButton()
+    if frame.RefreshGrid then frame:RefreshGrid() end
+end)
+UpdateScoreSortButton()
+
+local scoreProviderStaticLabel = headerCornerColumn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+scoreProviderStaticLabel:SetPoint("BOTTOMLEFT", headerCornerColumn, "BOTTOMLEFT", 4, SCORE_ROW_HEADER_BOTTOM_INSET)
+scoreProviderStaticLabel:SetPoint("BOTTOMRIGHT", scoreSortBtn, "BOTTOMLEFT", -SCORE_SORT_BTN_GAP, 0)
+scoreProviderStaticLabel:SetHeight(GetScoreRowContentHeight())
+scoreProviderStaticLabel:SetJustifyH("LEFT")
+scoreProviderStaticLabel:SetJustifyV("MIDDLE")
+scoreProviderStaticLabel:SetText("Level")
+
+local scoreProviderBtn = CreateFrame("Button", nil, headerCornerColumn)
+scoreProviderBtn:SetPoint("BOTTOMLEFT", headerCornerColumn, "BOTTOMLEFT", 0, SCORE_ROW_HEADER_BOTTOM_INSET)
+scoreProviderBtn:SetPoint("BOTTOMRIGHT", scoreSortBtn, "BOTTOMLEFT", -SCORE_SORT_BTN_GAP, 0)
+scoreProviderBtn:SetHeight(GetScoreRowContentHeight())
+scoreProviderBtn:Hide()
+Theme.SkinButton(scoreProviderBtn)
+local scoreProviderBtnText = scoreProviderBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+scoreProviderBtnText:SetPoint("LEFT", scoreProviderBtn, "LEFT", 4, 0)
+scoreProviderBtnText:SetPoint("RIGHT", scoreProviderBtn, "RIGHT", -2, 0)
+scoreProviderBtnText:SetJustifyH("LEFT")
+
+local scoreProviderDropdown = CreateFrame("Frame", nil, fixedHeaderRow, "BackdropTemplate")
+scoreProviderDropdown:SetPoint("TOPLEFT", scoreProviderBtn, "BOTTOMLEFT", 0, -2)
+scoreProviderDropdown:SetWidth(SCORE_PROVIDER_DROPDOWN_WIDTH)
+scoreProviderDropdown:SetFrameLevel(fixedHeaderRow:GetFrameLevel() + 100)
+scoreProviderDropdown:Hide()
+Theme.ApplyBackdrop(scoreProviderDropdown, "section")
+local scoreProviderDropdownButtons = {}
+
+local function UpdateScoreProviderControl()
+    local providers = GetAvailableScoreProviders()
+    local selectedId = GetSelectedScoreProvider()
+    local label = GetScoreProviderLabel(selectedId)
+    if #providers <= 1 then
+        scoreProviderStaticLabel:SetText(label)
+        scoreProviderStaticLabel:Show()
+        scoreProviderBtn:Hide()
+        scoreProviderDropdown:Hide()
+        return
+    end
+    scoreProviderStaticLabel:Hide()
+    scoreProviderBtn:Show()
+    scoreProviderBtnText:SetText(label)
+end
+
+local function UpdateScoreProviderDropdownSelection()
+    local selectedId = GetSelectedScoreProvider()
+    for i = 1, #scoreProviderDropdownButtons do
+        local b = scoreProviderDropdownButtons[i]
+        if b.SetDropdownSelected then
+            b:SetDropdownSelected(b.providerId == selectedId)
+        end
+    end
+end
+
+local function RebuildScoreProviderDropdown()
+    for i = 1, #scoreProviderDropdownButtons do
+        scoreProviderDropdownButtons[i]:Hide()
+        scoreProviderDropdownButtons[i]:SetParent(nil)
+    end
+    wipe(scoreProviderDropdownButtons)
+    local providers = GetAvailableScoreProviders()
+    if #providers <= 1 then
+        scoreProviderDropdown:Hide()
+        return
+    end
+    scoreProviderDropdown:SetHeight(#providers * SETTINGS_ROW_HEIGHT + 4)
+    scoreProviderDropdown:SetWidth(SCORE_PROVIDER_DROPDOWN_WIDTH)
+    for idx, provider in ipairs(providers) do
+        local b = Theme.CreateDropdownMenuItem(scoreProviderDropdown, {
+            index = idx,
+            rowHeight = SETTINGS_ROW_HEIGHT,
+            text = provider.label,
+            selected = provider.id == GetSelectedScoreProvider(),
+            onClick = function(self)
+                GetGearSettings().scoreProvider = self.providerId
+                UpdateScoreProviderDropdownSelection()
+                scoreProviderDropdown:Hide()
+                UpdateScoreProviderControl()
+                if frame.RefreshGrid then frame:RefreshGrid() end
+            end,
+        })
+        b.providerId = provider.id
+        scoreProviderDropdownButtons[idx] = b
+    end
+end
+
+scoreProviderBtn:SetScript("OnClick", function()
+    local show = not scoreProviderDropdown:IsShown()
+    if show then
+        UpdateScoreProviderDropdownSelection()
+    end
+    scoreProviderDropdown:SetShown(show)
+end)
 
 -- Slot labels: height dims.cellSize and vertically centered in each row (row height is dims.rowHeight)
 local SLOT_LABEL_ROW_OFFSET = (dims.rowHeight - dims.cellSize) / 2
@@ -598,7 +832,7 @@ for slot = 1, NUM_EQUIPMENT_SLOTS do
     label:SetJustifyV("MIDDLE")
     label:SetText(SLOT_NAMES[SLOT_ORDER[slot]] or ("Slot " .. slot))
     if slot == 1 then
-        label:SetPoint("TOP", slotHeaderContainer, "TOP", 0, -SLOT_LABEL_ROW_OFFSET + 2)
+        label:SetPoint("TOP", slotHeaderContainer, "TOP", 0, -SLOT_LABEL_ROW_OFFSET)
     else
         label:SetPoint("TOP", slotLabels[slot - 1], "TOP", 0, -dims.rowHeight)
     end
@@ -607,7 +841,7 @@ end
 
 -- Horizontal viewport: below spacer, same vertical start as slot labels
 local horizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearHorizontalScroll", verticalScrollChild)
-horizontalScroll:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", SLOT_LABEL_WIDTH, -FIXED_HEADER_ROW_HEIGHT)
+horizontalScroll:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", SLOT_LABEL_WIDTH, -GetPinnedHeaderHeight())
 horizontalScroll:SetPoint("BOTTOMRIGHT", verticalScrollChild, "BOTTOMRIGHT", 0, 0)
 horizontalScroll:EnableMouse(true)
 
@@ -622,7 +856,7 @@ local headerColumnPool = {}
 local function GetHeaderColumnFrame(index)
     if not headerColumnPool[index] then
         local col = CreateFrame("Frame", nil, headerGridContainer)
-        col:SetSize(dims.columnWidth, FIXED_HEADER_ROW_HEIGHT)
+        col:SetSize(dims.columnWidth, GetPinnedHeaderHeight())
         col:EnableMouse(true)
         col.header = col:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         col.header:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
@@ -638,6 +872,27 @@ local function GetHeaderColumnFrame(index)
         col.message:SetJustifyH("CENTER")
         col.message:SetWordWrap(true)
         col.message:SetNonSpaceWrap(true)
+        col.scoreText = col:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        col.scoreText:SetPoint("BOTTOMLEFT", col, "BOTTOMLEFT", 0, SCORE_ROW_HEADER_BOTTOM_INSET)
+        col.scoreText:SetPoint("BOTTOMRIGHT", col, "BOTTOMRIGHT", 0, SCORE_ROW_HEADER_BOTTOM_INSET)
+        col.scoreText:SetHeight(GetScoreRowContentHeight())
+        col.scoreText:SetJustifyH("CENTER")
+        col.scoreText:SetJustifyV("MIDDLE")
+        col.scoreHover = CreateFrame("Frame", nil, col)
+        col.scoreHover:SetPoint("BOTTOMLEFT", col, "BOTTOMLEFT", 0, SCORE_ROW_HEADER_BOTTOM_INSET)
+        col.scoreHover:SetPoint("BOTTOMRIGHT", col, "BOTTOMRIGHT", 0, SCORE_ROW_HEADER_BOTTOM_INSET)
+        col.scoreHover:SetHeight(GetScoreRowContentHeight())
+        col.scoreHover:EnableMouse(true)
+        col.scoreHover:SetScript("OnEnter", function(self)
+            local colFrame = self:GetParent()
+            local e = colFrame and colFrame.scoreMissingEntry
+            if e and SD and SD.PresentMissingDataTooltip then
+                SD.PresentMissingDataTooltip(self, "ANCHOR_BOTTOMLEFT", e.name, e.realm, e.classFile)
+            end
+        end)
+        col.scoreHover:SetScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+        end)
         col:SetScript("OnEnter", function(self)
             if self.tooltipText and self.tooltipText ~= "" and GameTooltip then
                 GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
@@ -722,8 +977,9 @@ local function GetColumnFrame(index)
                 if GameTooltip then GameTooltip:Hide() end
             end)
             local cellXOffset = (dims.columnWidth - dims.cellSize) / 2
+            local slotLabelRowOffset = (dims.rowHeight - dims.cellSize) / 2
             if slot == 1 then
-                cell:SetPoint("TOPLEFT", col, "TOPLEFT", cellXOffset, -2)
+                cell:SetPoint("TOPLEFT", col, "TOPLEFT", cellXOffset, -slotLabelRowOffset)
             else
                 cell:SetPoint("TOPLEFT", col.cells[slot - 1], "BOTTOMLEFT", 0, -(dims.rowHeight - dims.cellSize))
             end
@@ -808,6 +1064,50 @@ local function UpdateGridWithOffset()
             headerCol.message:Show()
         end
 
+        local providerId = GetSelectedScoreProvider()
+        local scoreMissing = GearScoreMod and GearScoreMod.IsScoreMissing
+            and GearScoreMod.IsScoreMissing(charData, providerId)
+        if headerCol.scoreText then
+            if scoreMissing then
+                headerCol.scoreText:SetText("!")
+                headerCol.scoreText:SetTextColor(1, 0.82, 0, 1)
+                headerCol.scoreMissingEntry = {
+                    name = entry.name or "",
+                    realm = entry.realm or "",
+                    classFile = entry.classFile,
+                }
+                if headerCol.scoreHover then
+                    headerCol.scoreHover:Show()
+                    headerCol.scoreHover:EnableMouse(true)
+                end
+            else
+                local scoreValue = GearScoreMod and GearScoreMod.GetDisplayScore
+                    and GearScoreMod.GetDisplayScore(entry, providerId) or 0
+                local scoreDisplay = GearScoreMod and GearScoreMod.FormatDisplayScore
+                    and GearScoreMod.FormatDisplayScore(providerId, scoreValue) or "0"
+                headerCol.scoreText:SetText(scoreDisplay)
+                headerCol.scoreMissingEntry = nil
+                if headerCol.scoreHover then
+                    headerCol.scoreHover:Hide()
+                    headerCol.scoreHover:EnableMouse(false)
+                end
+                if gray then
+                    headerCol.scoreText:SetTextColor(0.5, 0.5, 0.5, 1)
+                else
+                    local sr, sg, sb
+                    if GearScoreMod and GearScoreMod.GetDisplayScoreColor then
+                        sr, sg, sb = GearScoreMod.GetDisplayScoreColor(providerId, scoreValue)
+                    end
+                    if sr and sg and sb then
+                        headerCol.scoreText:SetTextColor(sr, sg, sb, 1)
+                    else
+                        headerCol.scoreText:SetTextColor(0.9, 0.9, 0.9, 1)
+                    end
+                end
+            end
+            headerCol.scoreText:Show()
+        end
+
         local col = GetColumnFrame(c)
         col:ClearAllPoints()
         col:SetPoint("TOPLEFT", gridContainer, "TOPLEFT", (c - 1) * dims.columnWidth + PAD - 4, 0)
@@ -857,7 +1157,7 @@ function frame:RefreshGrid(_self)
             headerGridContainer:SetWidth(math.max(0, gridContentWidth))
         end
         if verticalScrollBar then
-            local totalChildHeight = FIXED_HEADER_ROW_HEIGHT + dims.scrollableGridHeight
+            local totalChildHeight = GetPinnedHeaderHeight() + dims.scrollableGridHeight
             local maxVertScroll = math.max(0, totalChildHeight - viewHeight)
             verticalScrollBar:SetMinMaxValues(0, maxVertScroll)
             verticalScrollBar:SetValueStep(dims.rowHeight)
@@ -879,16 +1179,53 @@ local function ApplySpacing()
     dims.cellSize = GetCellSizePx()
     local rh, cw = GetSpacingDimensions()
     dims.rowHeight, dims.columnWidth = rh, cw
-    dims.scrollableGridHeight = NUM_EQUIPMENT_SLOTS * dims.rowHeight + PAD
+    dims.scrollableGridHeight = GetScrollableGridHeight()
 
     if verticalScrollChild then
-        verticalScrollChild:SetHeight(FIXED_HEADER_ROW_HEIGHT + dims.scrollableGridHeight)
+        verticalScrollChild:SetHeight(GetPinnedHeaderHeight() + dims.scrollableGridHeight)
     end
     if gridContainer then
         gridContainer:SetHeight(dims.scrollableGridHeight)
     end
+    if fixedHeaderRow then
+        fixedHeaderRow:SetHeight(GetPinnedHeaderHeight())
+    end
+    if scrollTopSpacer then
+        scrollTopSpacer:SetHeight(GetPinnedHeaderHeight())
+    end
+    if headerGridContainer then
+        headerGridContainer:SetHeight(GetPinnedHeaderHeight())
+    end
+    if slotHeaderContainer then
+        slotHeaderContainer:ClearAllPoints()
+        slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -GetPinnedHeaderHeight())
+        slotHeaderContainer:SetPoint("BOTTOMLEFT", verticalScrollChild, "BOTTOMLEFT", 0, 0)
+        slotHeaderContainer:SetWidth(SLOT_LABEL_WIDTH)
+    end
+    if headerCornerColumn then
+        headerCornerColumn:SetWidth(SLOT_LABEL_WIDTH)
+    end
+    if headerCornerCell then
+        headerCornerCell:SetWidth(SLOT_LABEL_WIDTH - 4)
+    end
+    if horizontalScroll then
+        horizontalScroll:ClearAllPoints()
+        horizontalScroll:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", SLOT_LABEL_WIDTH, -GetPinnedHeaderHeight())
+        horizontalScroll:SetPoint("BOTTOMRIGHT", verticalScrollChild, "BOTTOMRIGHT", 0, 0)
+    end
     if verticalScrollBar then
         verticalScrollBar:SetValueStep(dims.rowHeight)
+    end
+
+    if scoreProviderStaticLabel then
+        scoreProviderStaticLabel:SetHeight(GetScoreRowContentHeight())
+    end
+    if scoreProviderBtn then
+        scoreProviderBtn:SetHeight(GetScoreRowContentHeight())
+    end
+    if scoreSortBtn then
+        local btnSize = GetScoreSortBtnSize()
+        scoreSortBtn:SetSize(btnSize, btnSize)
     end
 
     if slotLabels and slotLabels[1] then
@@ -898,7 +1235,7 @@ local function ApplySpacing()
             slotLabels[slot]:ClearAllPoints()
             slotLabels[slot]:SetPoint("LEFT", slotHeaderContainer, "LEFT", 0, 0)
             if slot == 1 then
-                slotLabels[slot]:SetPoint("TOP", slotHeaderContainer, "TOP", 0, -slotLabelRowOffset + 2)
+                slotLabels[slot]:SetPoint("TOP", slotHeaderContainer, "TOP", 0, -slotLabelRowOffset)
             else
                 slotLabels[slot]:SetPoint("TOP", slotLabels[slot - 1], "TOP", 0, -dims.rowHeight)
             end
@@ -906,17 +1243,24 @@ local function ApplySpacing()
     end
 
     for _, col in pairs(headerColumnPool) do
-        col:SetSize(dims.columnWidth, FIXED_HEADER_ROW_HEIGHT)
+        col:SetSize(dims.columnWidth, GetPinnedHeaderHeight())
+        if col.scoreText then
+            col.scoreText:SetHeight(GetScoreRowContentHeight())
+        end
+        if col.scoreHover then
+            col.scoreHover:SetHeight(GetScoreRowContentHeight())
+        end
     end
     for _, col in pairs(columnPool) do
         col:SetSize(dims.columnWidth, dims.scrollableGridHeight)
         local cellXOffset = (dims.columnWidth - dims.cellSize) / 2
+        local slotLabelRowOffset = (dims.rowHeight - dims.cellSize) / 2
         for slot = 1, NUM_EQUIPMENT_SLOTS do
             local cell = col.cells[slot]
             cell:SetSize(dims.cellSize, dims.cellSize)
             cell:ClearAllPoints()
             if slot == 1 then
-                cell:SetPoint("TOPLEFT", col, "TOPLEFT", cellXOffset, -2)
+                cell:SetPoint("TOPLEFT", col, "TOPLEFT", cellXOffset, -slotLabelRowOffset)
             else
                 cell:SetPoint("TOPLEFT", col.cells[slot - 1], "BOTTOMLEFT", 0, -(dims.rowHeight - dims.cellSize))
             end
@@ -924,19 +1268,51 @@ local function ApplySpacing()
     end
 end
 
+local function RefreshGearTabControls()
+    RebuildScoreProviderDropdown()
+    UpdateScoreProviderControl()
+    UpdateScoreSortButton()
+end
+
 -- Apply layout when tab is shown (dims initialized at file load)
 frame:SetScript("OnShow", function()
     ApplySpacing()
+    RefreshGearTabControls()
+    if GearScoreMod and GearScoreMod.CaptureCurrentCharacterScore then
+        GearScoreMod.CaptureCurrentCharacterScore()
+    end
     frame:RefreshGrid()
 end)
 
+local function IsGearScoreAddonEvent(addonName)
+    if not addonName or addonName == "" then return false end
+    if addonName == "TacoTip" then return true end
+    if GearScoreMod and GearScoreMod.IsSupportedGearScoreAddon then
+        return GearScoreMod.IsSupportedGearScoreAddon(addonName)
+    end
+    return false
+end
+
 frame:RegisterEvent("PLAYER_LOGIN")
-frame:SetScript("OnEvent", function(_, event)
+frame:RegisterEvent("ADDON_LOADED")
+frame:SetScript("OnEvent", function(_, event, addonName)
     if event == "PLAYER_LOGIN" then
+        if GearScoreMod and GearScoreMod.RefreshProviders then
+            GearScoreMod.RefreshProviders("login")
+        end
         if AltArmy.Characters and AltArmy.Characters.InvalidateView then
             AltArmy.Characters:InvalidateView()
         end
         ApplySpacing()
+        RefreshGearTabControls()
+        if frame:IsShown() then
+            frame:RefreshGrid()
+        end
+    elseif event == "ADDON_LOADED" and IsGearScoreAddonEvent(addonName) then
+        if GearScoreMod and GearScoreMod.RefreshProviders then
+            GearScoreMod.RefreshProviders("addon-loaded:" .. tostring(addonName))
+        end
+        RefreshGearTabControls()
         if frame:IsShown() then
             frame:RefreshGrid()
         end
@@ -959,7 +1335,6 @@ end
 ApplySettingsPanelLayout()
 settingsPanel:Hide()
 
-local SETTINGS_ROW_HEIGHT = 22
 local settingsContent = Theme.CreateSettingsPanelContent(settingsPanel)
 local gearSettingsTitle = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 gearSettingsTitle:SetPoint("TOPLEFT", settingsContent, "TOPLEFT", 0, 0)
@@ -967,7 +1342,6 @@ gearSettingsTitle:SetPoint("TOPRIGHT", settingsContent, "TOPRIGHT", 0, 0)
 gearSettingsTitle:SetJustifyH("LEFT")
 gearSettingsTitle:SetText("Gear Settings")
 Theme.SetTitleColor(gearSettingsTitle)
-local primaryDropdown, secondaryDropdown  -- forward ref for dropdowns created below
 local gearCharListRefresh = function() end
 
 local sortingContent = CreateFrame("Frame", nil, settingsContent)
@@ -975,103 +1349,33 @@ sortingContent:SetPoint("TOPLEFT", gearSettingsTitle, "BOTTOMLEFT", 0, -8)
 sortingContent:SetPoint("BOTTOMRIGHT", settingsContent, "BOTTOMRIGHT", 0, 0)
 sortingContent:Show()
 
--- ---- Sort/Filter: Show self first, Primary/Secondary sort, Character list ----
+-- ---- Pin current character, Character list ----
 local showSelfFirstRow = Theme.CreateLabeledCheckbox(sortingContent, {
     point = "TOPLEFT",
     x = 0,
     y = 0,
-    text = "Show self first",
+    text = "Pin current character",
+    fullWidthHover = true,
     onClick = function(checked)
         GetGearSettings().showSelfFirst = checked
         if frame.RefreshGrid then frame:RefreshGrid() end
     end,
 })
+Theme.AttachSettingsHelpIcon(showSelfFirstRow, {
+    title = "Pin current character",
+    lines = {
+        "When enabled, your currently signed-in character is automatically pinned, "
+            .. "causing it to show ahead of all non-pinned characters.",
+        'This will override the "Hide" setting.',
+    },
+})
 local showSelfFirstCheck = showSelfFirstRow.check
-
--- Primary sort: full-width dropdown, collapsed shows "Primary Sort: Name"
-local btnPrimary = CreateFrame("Button", nil, sortingContent)
-btnPrimary:SetPoint("TOPLEFT", showSelfFirstRow, "BOTTOMLEFT", 0, -6)
-btnPrimary:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
-btnPrimary:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnPrimaryText = btnPrimary:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-btnPrimaryText:SetPoint("LEFT", btnPrimary, "LEFT", 4, 0)
-btnPrimaryText:SetPoint("RIGHT", btnPrimary, "RIGHT", -4, 0)
-btnPrimaryText:SetJustifyH("LEFT")
-Theme.SkinButton(btnPrimary)
-primaryDropdown = CreateFrame("Frame", nil, sortingContent, "BackdropTemplate")
-primaryDropdown:SetPoint("TOPLEFT", btnPrimary, "BOTTOMLEFT", 0, -2)
-primaryDropdown:SetPoint("TOPRIGHT", btnPrimary, "BOTTOMRIGHT", 0, 0)
-primaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
-primaryDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
-primaryDropdown:Hide()
-Theme.ApplyBackdrop(primaryDropdown, "section")
-for idx, opt in ipairs(SORT_OPTIONS) do
-    local b = CreateFrame("Button", nil, primaryDropdown)
-    b:SetPoint("TOPLEFT", primaryDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
-    b:SetPoint("LEFT", primaryDropdown, "LEFT", 2, 0)
-    b:SetPoint("RIGHT", primaryDropdown, "RIGHT", -2, 0)
-    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
-    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    t:SetPoint("LEFT", b, "LEFT", 4, 0)
-    t:SetText(opt)
-    b.option = opt
-    b:SetScript("OnClick", function()
-        GetGearSettings().primarySort = opt
-        primaryDropdown:Hide()
-        btnPrimaryText:SetText("Primary Sort: " .. opt)
-        if frame.RefreshGrid then frame:RefreshGrid() end
-        if gearCharListRefresh then gearCharListRefresh() end
-    end)
-end
-btnPrimary:SetScript("OnClick", function()
-    primaryDropdown:SetShown(not primaryDropdown:IsShown())
-    secondaryDropdown:Hide()
-end)
-
--- Secondary sort: full-width dropdown, collapsed shows "Secondary Sort: Name"
-local btnSecondary = CreateFrame("Button", nil, sortingContent)
-btnSecondary:SetPoint("TOPLEFT", btnPrimary, "BOTTOMLEFT", 0, -6)
-btnSecondary:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
-btnSecondary:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnSecondaryText = btnSecondary:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-btnSecondaryText:SetPoint("LEFT", btnSecondary, "LEFT", 4, 0)
-btnSecondaryText:SetPoint("RIGHT", btnSecondary, "RIGHT", -4, 0)
-btnSecondaryText:SetJustifyH("LEFT")
-Theme.SkinButton(btnSecondary)
-secondaryDropdown = CreateFrame("Frame", nil, sortingContent, "BackdropTemplate")
-secondaryDropdown:SetPoint("TOPLEFT", btnSecondary, "BOTTOMLEFT", 0, -2)
-secondaryDropdown:SetPoint("TOPRIGHT", btnSecondary, "BOTTOMRIGHT", 0, 0)
-secondaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
-secondaryDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
-secondaryDropdown:Hide()
-Theme.ApplyBackdrop(secondaryDropdown, "section")
-for idx, opt in ipairs(SORT_OPTIONS) do
-    local b = CreateFrame("Button", nil, secondaryDropdown)
-    b:SetPoint("TOPLEFT", secondaryDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
-    b:SetPoint("LEFT", secondaryDropdown, "LEFT", 2, 0)
-    b:SetPoint("RIGHT", secondaryDropdown, "RIGHT", -2, 0)
-    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
-    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    t:SetPoint("LEFT", b, "LEFT", 4, 0)
-    t:SetText(opt)
-    b.option = opt
-    b:SetScript("OnClick", function()
-        GetGearSettings().secondarySort = opt
-        secondaryDropdown:Hide()
-        btnSecondaryText:SetText("Secondary Sort: " .. opt)
-        if frame.RefreshGrid then frame:RefreshGrid() end
-        if gearCharListRefresh then gearCharListRefresh() end
-    end)
-end
-btnSecondary:SetScript("OnClick", function()
-    secondaryDropdown:SetShown(not secondaryDropdown:IsShown())
-    primaryDropdown:Hide()
-end)
+showSelfFirstCheck:SetChecked(GetGearSettings().showSelfFirst)
 
 -- Character list: Pin/Hide (reusable component from UI/CharacterPinHideList.lua)
 if AltArmy.CreateCharacterPinHideList then
     -- luacheck: push ignore 211
-    local _scroll, refresh = AltArmy.CreateCharacterPinHideList(sortingContent, btnSecondary, {
+    local _scroll, refresh = AltArmy.CreateCharacterPinHideList(sortingContent, showSelfFirstRow, {
         gutterEdge = settingsPanel,
         getSettings = GetGearSettings,
         getCharSetting = GetCharSetting,
@@ -1086,8 +1390,7 @@ end
 
 -- Close dropdowns when clicking outside
 settingsPanel:SetScript("OnHide", function()
-    primaryDropdown:Hide()
-    secondaryDropdown:Hide()
+    scoreProviderDropdown:Hide()
 end)
 
 function frame:IsGearSettingsShown()
@@ -1120,8 +1423,6 @@ function frame:ToggleGearSettings(_self)
 
     if showSettings then
         local s = GetGearSettings()
-        btnPrimaryText:SetText("Primary Sort: " .. s.primarySort)
-        btnSecondaryText:SetText("Secondary Sort: " .. s.secondarySort)
         showSelfFirstCheck:SetChecked(s.showSelfFirst)
         if AltArmy.Characters and AltArmy.Characters.InvalidateView then
             AltArmy.Characters:InvalidateView()

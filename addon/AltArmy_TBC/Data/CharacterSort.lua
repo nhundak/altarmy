@@ -11,6 +11,9 @@ function CS.GetSortValue(entry, sortKey)
     if sortKey == "Level" then return tonumber(entry.level) or 0 end
     if sortKey == "Avg Item Level" then return tonumber(entry.avgItemLevel) or 0 end
     if sortKey == "Time Played" then return tonumber(entry.played) or 0 end
+    if entry.scores and entry.scores[sortKey] ~= nil then
+        return tonumber(entry.scores[sortKey]) or 0
+    end
     return 0
 end
 

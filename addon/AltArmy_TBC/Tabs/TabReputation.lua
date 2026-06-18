@@ -86,18 +86,20 @@ local function GetDisplayList()
 
     local settings = GetReputationSettings()
     local currentRealm = DS and DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm() or ""
+    local showSelfFirst = settings.showSelfFirst ~= false
 
     local visible = {}
     for i = 1, #rawList do
         local e = rawList[i]
-        if not GetCharSetting(e.name, e.realm, "hide") then
+        local isSelf = DS and DS.IsCurrentCharacter and DS:IsCurrentCharacter(e.name, e.realm)
+        local isHidden = GetCharSetting(e.name, e.realm, "hide")
+        if not isHidden or (showSelfFirst and isSelf) then
             visible[#visible + 1] = e
         end
     end
 
     local primary = settings.primarySort or "Time Played"
     local secondary = settings.secondarySort or "Name"
-    local showSelfFirst = settings.showSelfFirst ~= false
 
     local function sortPair(a, b)
         if factionSortFactionID then
@@ -121,17 +123,17 @@ local function GetDisplayList()
         for i = 1, #visible do
             local e = visible[i]
             local isSelf = DS and DS.IsCurrentCharacter and DS:IsCurrentCharacter(e.name, e.realm)
-            if isSelf then
-                selfEntry = e
-            elseif GetCharSetting(e.name, e.realm, "pin") then
+            local isPinned = GetCharSetting(e.name, e.realm, "pin")
+            if isPinned or (showSelfFirst and isSelf) then
                 pinned[#pinned + 1] = e
+            elseif isSelf then
+                selfEntry = e
             else
                 nonPinned[#nonPinned + 1] = e
             end
         end
         table.sort(pinned, sortPair)
         table.sort(nonPinned, sortPair)
-        if showSelfFirst and selfEntry then list[#list + 1] = selfEntry end
         for i = 1, #pinned do list[#list + 1] = pinned[i] end
         for i = 1, #nonPinned do list[#list + 1] = nonPinned[i] end
         if not showSelfFirst and selfEntry then list[#list + 1] = selfEntry end
@@ -919,16 +921,27 @@ local sortingContent = CreateFrame("Frame", nil, settingsContent)
 sortingContent:SetPoint("TOPLEFT", repSettingsTitle, "BOTTOMLEFT", 0, -8)
 sortingContent:SetPoint("BOTTOMRIGHT", settingsContent, "BOTTOMRIGHT", 0, 0)
 
+local PIN_CURRENT_CHAR_HELP = {
+    title = "Pin current character",
+    lines = {
+        "When enabled, your currently signed-in character is automatically pinned, "
+            .. "causing it to show ahead of all non-pinned characters.",
+        'This will override the "Hide" setting.',
+    },
+}
+
 local showSelfFirstRow = Theme.CreateLabeledCheckbox(sortingContent, {
     point = "TOPLEFT",
     x = 0,
     y = 0,
-    text = "Show self first",
+    text = "Pin current character",
+    fullWidthHover = true,
     onClick = function(checked)
         GetReputationSettings().showSelfFirst = checked
         frame:RefreshGrid()
     end,
 })
+Theme.AttachSettingsHelpIcon(showSelfFirstRow, PIN_CURRENT_CHAR_HELP)
 local showSelfFirstCheck = showSelfFirstRow.check
 
 local btnPrimary = CreateFrame("Button", nil, sortingContent)
@@ -948,21 +961,18 @@ primaryDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
 primaryDropdown:Hide()
 Theme.ApplyBackdrop(primaryDropdown, "section")
 for idx, opt in ipairs(SORT_OPTIONS) do
-    local b = CreateFrame("Button", nil, primaryDropdown)
-    b:SetPoint("TOPLEFT", primaryDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
-    b:SetPoint("LEFT", primaryDropdown, "LEFT", 2, 0)
-    b:SetPoint("RIGHT", primaryDropdown, "RIGHT", -2, 0)
-    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
-    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    t:SetPoint("LEFT", b, "LEFT", 4, 0)
-    t:SetText(opt)
-    b:SetScript("OnClick", function()
-        GetReputationSettings().primarySort = opt
-        primaryDropdown:Hide()
-        btnPrimaryText:SetText("Primary Sort: " .. opt)
-        frame:RefreshGrid()
-        if repCharListRefresh then repCharListRefresh() end
-    end)
+    Theme.CreateDropdownMenuItem(primaryDropdown, {
+        index = idx,
+        rowHeight = SETTINGS_ROW_HEIGHT,
+        text = opt,
+        onClick = function()
+            GetReputationSettings().primarySort = opt
+            primaryDropdown:Hide()
+            btnPrimaryText:SetText("Primary Sort: " .. opt)
+            frame:RefreshGrid()
+            if repCharListRefresh then repCharListRefresh() end
+        end,
+    })
 end
 btnPrimary:SetScript("OnClick", function()
     primaryDropdown:SetShown(not primaryDropdown:IsShown())
@@ -986,21 +996,18 @@ secondaryDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
 secondaryDropdown:Hide()
 Theme.ApplyBackdrop(secondaryDropdown, "section")
 for idx, opt in ipairs(SORT_OPTIONS) do
-    local b = CreateFrame("Button", nil, secondaryDropdown)
-    b:SetPoint("TOPLEFT", secondaryDropdown, "TOPLEFT", 2, -2 - (idx - 1) * SETTINGS_ROW_HEIGHT)
-    b:SetPoint("LEFT", secondaryDropdown, "LEFT", 2, 0)
-    b:SetPoint("RIGHT", secondaryDropdown, "RIGHT", -2, 0)
-    b:SetHeight(SETTINGS_ROW_HEIGHT - 2)
-    local t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    t:SetPoint("LEFT", b, "LEFT", 4, 0)
-    t:SetText(opt)
-    b:SetScript("OnClick", function()
-        GetReputationSettings().secondarySort = opt
-        secondaryDropdown:Hide()
-        btnSecondaryText:SetText("Secondary Sort: " .. opt)
-        frame:RefreshGrid()
-        if repCharListRefresh then repCharListRefresh() end
-    end)
+    Theme.CreateDropdownMenuItem(secondaryDropdown, {
+        index = idx,
+        rowHeight = SETTINGS_ROW_HEIGHT,
+        text = opt,
+        onClick = function()
+            GetReputationSettings().secondarySort = opt
+            secondaryDropdown:Hide()
+            btnSecondaryText:SetText("Secondary Sort: " .. opt)
+            frame:RefreshGrid()
+            if repCharListRefresh then repCharListRefresh() end
+        end,
+    })
 end
 btnSecondary:SetScript("OnClick", function()
     secondaryDropdown:SetShown(not secondaryDropdown:IsShown())
