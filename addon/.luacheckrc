@@ -21,6 +21,7 @@ globals = {
     "AltArmyTBC_ReputationSettings",
     "AltArmyTBC_SummarySettings",
     "AltArmyTBC_SearchSettings",
+    "AltArmyTBC_GraphSettings",
     "AltArmyTBC_ProgressionSettings",
     "UISpecialFrames",
     "SLASH_ALTARMY1",

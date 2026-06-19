@@ -221,7 +221,7 @@ setActiveTab = function(tabName)
 end
 
 local TAB_BTN_MIN_WIDTH = 72
-local tabNames = { "Summary", "Gear", "Reputation", "Cooldowns", "Progression" }
+local tabNames = { "Summary", "Gear", "Reputation", "Cooldowns", "Graph" }
 tabStrip.buttons = {}
 local prevBtn = nil
 for _, tabName in ipairs(tabNames) do
@@ -237,7 +237,7 @@ for _, tabName in ipairs(tabNames) do
     -- Label (plain Button has no built-in text)
     local label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetPoint("CENTER", btn, "CENTER", 0, 0)
-    label:SetText(tabName == "Progression" and "Graphs" or tabName)
+    label:SetText(tabName == "Graph" and "Graphs" or tabName)
     btn.label = label
     Theme.SkinButton(btn, true)
     btn:SetScript("OnClick", function()

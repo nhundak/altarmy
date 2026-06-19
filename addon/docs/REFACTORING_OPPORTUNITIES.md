@@ -5,7 +5,7 @@ source (the `AltArmy_TBC/Data`, `AltArmy_TBC/Tabs`, and `AltArmy_TBC/UI` layers;
 bundled `Libs/` and the `busted/` test framework).
 
 The codebase is generally well-organized: `Theme.lua` provides a styling layer, logic is
-partly separated from UI (e.g. `ProgressionGraphLogic.lua`), and modules are cohesive. The
+partly separated from UI (e.g. `GraphLogic.lua`), and modules are cohesive. The
 main opportunities are **cross-cutting duplication** and a few **oversized files/functions**
 that mix concerns.
 
@@ -37,7 +37,7 @@ sites migrated; unit tests added under `spec/Data/` and `spec/UI/`.
 | Player identity | 3–4 private/inlined | [`DataStore.lua`](../AltArmy_TBC/Data/DataStore.lua) — `GetCurrentPlayerName/Realm/Identity`, `IsCurrentCharacter` |
 | "Iterate all characters" loop | 6+ | `DS:ForEachCharacter(callback)` — used in `SummaryData`, `SearchData`, `CooldownData`, `Options`, `LevelProgressData` (debug). `TabCooldowns` realm-count loop left as-is. |
 | Search cache invalidation wrapper | 4 (`Containers`, `Equipment`, `Mail`, `Professions`) | [`SearchData.lua`](../AltArmy_TBC/Data/SearchData.lua) — `NotifyContainerDataChanged`, `NotifyRecipesChanged` |
-| `CharKey` (inconsistent arg order) | 4 tabs | [`Data/CharKey.lua`](../AltArmy_TBC/Data/CharKey.lua) — `AltArmy.CharKey(name, realm)`; `TabProgression` arg order fixed |
+| `CharKey` (inconsistent arg order) | 4 tabs | [`Data/CharKey.lua`](../AltArmy_TBC/Data/CharKey.lua) — `AltArmy.CharKey(name, realm)`; `TabGraph` arg order fixed |
 
 **Tests:** `CharKey_spec`, `CharacterSort_spec`, `ClassColor_spec`, `Text_spec`; extended
 `DataStore_spec`; updated `GearDisplayList_spec`, `LevelProgressData_spec`,
@@ -55,7 +55,7 @@ helpers into [`UI/Theme.lua`](../AltArmy_TBC/UI/Theme.lua); call sites migrated;
 |------|--------|------------|
 | **Horizontal scrollbar + drag-to-scroll** (~45 lines × 4) | **Done** | `Theme.CreateHorizontalScrollBar(parent, opts)` + `Theme.HorizontalDragValue` — adopted in `TabGear`, `TabReputation`, `TabSummary`, `TabSearch` |
 | **Vertical scroll viewport** (3 copies with drift) | **Done** | `Theme.CreateVerticalScrollViewport(opts)` + `Theme.ScrollMax` / `Theme.ClampScroll` — adopted in `CharacterPinHideList`, `Options` char list, `CooldownOptions`; unified clamp-on-range-shrink |
-| **Theme checkbox construction** (3×) | **Done** | `Theme.CreateThemeCheckbox(parent, size)` — `CreateLabeledCheckbox` refactored; adopted in `CharacterPinHideList` (pin/hide), `TabProgression` (replaces `UICheckButtonTemplate`) |
+| **Theme checkbox construction** (3×) | **Done** | `Theme.CreateThemeCheckbox(parent, size)` — `CreateLabeledCheckbox` refactored; adopted in `CharacterPinHideList` (pin/hide), `TabGraph` (replaces `UICheckButtonTemplate`) |
 | **Scrollable character grid** (~250–300 lines duplicated) | Open | `TabGear` / `TabReputation` two-axis scroll grid → `Theme.CreateScrollableGrid(opts)` |
 | **Character sort settings panel** (~140 lines) | Open | `TabGear` / `TabReputation` near-verbatim panel → `AltArmy.UI.CharacterSortSettingsPanel(frame, opts)` |
 | **Virtualized row list** | Open | `TabSearch`, `TabSummary`, `TabCooldowns` → generic `VirtualList` helper |
@@ -77,7 +77,7 @@ helpers into [`UI/Theme.lua`](../AltArmy_TBC/UI/Theme.lua); call sites migrated;
 | File | Lines | Notes |
 |------|-------|-------|
 | `TabCooldowns.lua` | 1,639 | Mixes list UI with live bag/mail attach logic. `TryAdvanceAttachSeq` alone is ~290 lines (~1167–1456). Mail/stockpile action sequence (~700 lines) could move to a testable non-UI module. |
-| `TabProgression.lua` | 1,303 | Graph rendering (~678–1026) could move to a render module; compare-selector panel to its own module. |
+| `TabGraph.lua` | 1,303 | Graph rendering (~678–1026) could move to a render module; compare-selector panel to its own module. |
 | `TabReputation` / `TabGear` / `TabSearch` | ~1,166–1,251 | Shrink substantially once the shared grid/settings/scroll helpers (§2) are extracted. |
 | `DataStoreProfessions.lua` | 1,101 | Owns scanning, reagent capture, cooldown persistence, action-bar scans. Split into scan/reagents/cooldown submodules. |
 | `DataStoreLevelHistory.lua` | 1,063 | Mixes runtime recording with one-time Questie/RXP/NIT imports + migration. |

@@ -1,10 +1,10 @@
--- AltArmy TBC — Pure helpers for progression graph hover/highlight logic.
+-- AltArmy TBC — Pure helpers for graph hover/highlight logic.
 
 if not AltArmy then return end
 
-AltArmy.ProgressionGraphLogic = AltArmy.ProgressionGraphLogic or {}
+AltArmy.GraphLogic = AltArmy.GraphLogic or {}
 
-local Logic = AltArmy.ProgressionGraphLogic
+local Logic = AltArmy.GraphLogic
 
 Logic.FULL_LINE_ALPHA = 0.9
 Logic.FULL_DASH_ALPHA = 0.55
@@ -13,6 +13,27 @@ Logic.DIM_LINE_ALPHA = 0.22
 Logic.DIM_DASH_ALPHA = 0.14
 Logic.DIM_MARKER_ALPHA = 0.35
 Logic.LOG_AXIS_MAX_FLOOR_SECONDS = 300
+Logic.LOG_Y_MIN_TICK_SPACING_FRACTION = 0.12
+Logic.SECONDS_PER_DAY = 86400
+Logic.LINEAR_Y_TARGET_TICKS = 4
+Logic.LINEAR_Y_STEP_CANDIDATES = {
+    5, 10, 15, 30,
+    60, 120, 180, 300, 600, 900, 1800,
+    2700, 3600, 5400, 7200, 10800, 14400, 21600, 43200, 86400,
+}
+
+local function BuildLogYStepCandidates()
+    local candidates = {}
+    for _, value in ipairs(Logic.LINEAR_Y_STEP_CANDIDATES) do
+        candidates[#candidates + 1] = value
+    end
+    for exponent = 1, 8 do
+        candidates[#candidates + 1] = Logic.SECONDS_PER_DAY * (2 ^ exponent)
+    end
+    return candidates
+end
+
+Logic.LOG_Y_STEP_CANDIDATES = BuildLogYStepCandidates()
 Logic.OUTLIER_IQR_MULTIPLIER = 3
 Logic.OUTLIER_MEDIAN_MULTIPLIER = 5
 Logic.OUTLIER_TOP_DURATION_COUNT = 10
@@ -125,16 +146,74 @@ local function Log10(value)
     return math.log(value) / LOG10
 end
 
-function Logic.ComputeLinearYAxis(rawYMax)
+function Logic.ComputeLinearYGridTicks(yMin, yMax, targetCount)
+    targetCount = targetCount or Logic.LINEAR_Y_TARGET_TICKS
+    yMin = yMin or 0
+    yMax = math.max(yMin + 1, yMax or 1)
+    local range = yMax - yMin
+    local rawStep = range / targetCount
+    local minStep = rawStep * 0.85
+
+    local step = Logic.LINEAR_Y_STEP_CANDIDATES[#Logic.LINEAR_Y_STEP_CANDIDATES]
+    for _, candidate in ipairs(Logic.LINEAR_Y_STEP_CANDIDATES) do
+        if candidate >= minStep then
+            step = candidate
+            break
+        end
+    end
+
+    local top = math.ceil(yMax / step) * step
+    local ticks = {}
+    if yMin <= 0.001 then
+        ticks[#ticks + 1] = 0
+        local val = step
+        while val <= top + 0.001 do
+            ticks[#ticks + 1] = val
+            val = val + step
+        end
+        return ticks, top
+    end
+
+    local val = math.ceil(yMin / step) * step
+    while val <= top + 0.001 do
+        ticks[#ticks + 1] = val
+        val = val + step
+    end
+    return ticks, top
+end
+
+function Logic.ComputeLinearYAxis(rawYMax, targetTickCount)
     local yPad = math.max(1, math.floor(rawYMax * 0.08))
     local yMin = 0
-    local paddedYMax = rawYMax + yPad
+    local dataMax = math.max(1, rawYMax + yPad)
+    local gridTicks, top = Logic.ComputeLinearYGridTicks(yMin, dataMax, targetTickCount)
+    local paddedYMax = top
     local yRange = math.max(1, paddedYMax - yMin)
     return {
         yMin = yMin,
         paddedYMax = paddedYMax,
         yRange = yRange,
+        gridTicks = gridTicks,
     }
+end
+
+local function LargestDurationCandidateBelow(value)
+    local best = 1
+    for _, candidate in ipairs(Logic.LOG_Y_STEP_CANDIDATES) do
+        if candidate < value and candidate > best then
+            best = candidate
+        end
+    end
+    return math.max(1, best)
+end
+
+local function CeilingDurationCandidate(value)
+    for _, candidate in ipairs(Logic.LOG_Y_STEP_CANDIDATES) do
+        if candidate >= value then
+            return candidate
+        end
+    end
+    return value
 end
 
 function Logic.ComputeLogAxisFloor(rawYMin, ignoreMaxFloor)
@@ -142,25 +221,7 @@ function Logic.ComputeLogAxisFloor(rawYMin, ignoreMaxFloor)
         return 1
     end
 
-    local exp = math.floor(Log10(rawYMin))
-    local scale = 10 ^ exp
-    local best = 1
-
-    local function considerCandidates(multiplier)
-        for _, mult in ipairs({ 1, 2, 5 }) do
-            local candidate = mult * scale * multiplier
-            if candidate < rawYMin and candidate > best then
-                best = candidate
-            end
-        end
-    end
-
-    considerCandidates(1)
-    if best <= 1 then
-        considerCandidates(0.1)
-    end
-
-    best = math.max(1, best)
+    local best = LargestDurationCandidateBelow(rawYMin)
     if ignoreMaxFloor then
         return best
     end
@@ -169,18 +230,9 @@ end
 
 local function ComputeLogYGridTicks(yMin, paddedYMax)
     local gridTicks = {}
-    local seen = {}
-    local minExp = math.floor(Log10(yMin))
-    local maxExp = math.ceil(Log10(paddedYMax))
-
-    for exp = minExp, maxExp do
-        local scale = 10 ^ exp
-        for _, mult in ipairs({ 1, 2, 5 }) do
-            local val = mult * scale
-            if val >= yMin and val <= paddedYMax and not seen[val] then
-                gridTicks[#gridTicks + 1] = val
-                seen[val] = true
-            end
+    for _, val in ipairs(Logic.LOG_Y_STEP_CANDIDATES) do
+        if val >= yMin and val <= paddedYMax then
+            gridTicks[#gridTicks + 1] = val
         end
     end
 
@@ -191,10 +243,50 @@ local function ComputeLogYGridTicks(yMin, paddedYMax)
     return gridTicks
 end
 
+--- Greedy filter: keep the bottom tick, then each next tick only if it is far
+--- enough above the last kept tick on the log scale (fraction of axis height).
+--- @param ticks table array of second values in ascending order
+--- @param logMin number log10 of axis floor
+--- @param logMax number log10 of axis ceiling
+--- @param minSpacingFraction number minimum vertical gap as a 0–1 fraction
+--- @return table filtered ticks for display
+function Logic.FilterLogYGridTicks(ticks, logMin, logMax, minSpacingFraction)
+    if not ticks or #ticks == 0 then
+        return {}
+    end
+    if #ticks == 1 then
+        return { ticks[1] }
+    end
+
+    local logRange = logMax - logMin
+    if logRange <= 0 then
+        return { ticks[1] }
+    end
+
+    local function logFraction(val)
+        return (Log10(val) - logMin) / logRange
+    end
+
+    local filtered = { ticks[1] }
+    local lastKeptFrac = logFraction(ticks[1])
+
+    for i = 2, #ticks do
+        local val = ticks[i]
+        local frac = logFraction(val)
+        if frac - lastKeptFrac >= minSpacingFraction then
+            filtered[#filtered + 1] = val
+            lastKeptFrac = frac
+        end
+    end
+
+    return filtered
+end
+
 function Logic.ComputeLogYAxis(rawYMax, rawYMin, ignoreMaxFloor)
     local yPad = math.max(1, math.floor(rawYMax * 0.08))
-    local paddedYMax = math.max(1, rawYMax + yPad)
+    local dataMax = math.max(1, rawYMax + yPad)
     local yMin = Logic.ComputeLogAxisFloor(rawYMin, ignoreMaxFloor)
+    local paddedYMax = CeilingDurationCandidate(dataMax)
     local logMin = Log10(yMin)
     local logMax = Log10(paddedYMax)
 

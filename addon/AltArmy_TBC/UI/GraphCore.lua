@@ -11,6 +11,8 @@ Core.AXIS_COLOR = { r = 0.40, g = 0.36, b = 0.28, a = 0.70 }
 Core.GRID_COLOR = { r = 0.25, g = 0.23, b = 0.20, a = 0.25 }
 Core.Y_TICKS = 4
 Core.X_TICKS = 5
+Core.Y_TICK_LENGTH = 5
+Core.Y_LABEL_INSET = 3
 
 local Theme = AltArmy.Theme
 local TC = Theme and Theme.COLORS
@@ -279,6 +281,15 @@ function Core.RenderGridLines(parent, plotW, plotH, opts)
                     grid.r, grid.g, grid.b, grid.a)
             end
         end
+    elseif opts.linearYTicks and opts.yMin and opts.yRange and opts.yRange > 0 then
+        for _, val in ipairs(opts.linearYTicks) do
+            if val > opts.yMin + 0.001 then
+                local frac = (val - opts.yMin) / opts.yRange
+                local y = pad.bottom + frac * plotH
+                Core.CreateLine(parent, pad.left, y, pad.left + plotW, y, 1,
+                    grid.r, grid.g, grid.b, grid.a)
+            end
+        end
     else
         for i = 1, Core.Y_TICKS - 1 do
             local frac = i / Core.Y_TICKS
@@ -293,9 +304,11 @@ function Core.RenderGridLines(parent, plotW, plotH, opts)
         local interval = opts.xInterval
         local level = math.floor(opts.xMin / interval) * interval
         while level <= xMax + 0.001 do
-            local x = pad.left + plotW * ((level - opts.xMin) / opts.xRange)
-            Core.CreateLine(parent, x, pad.bottom, x, pad.bottom + plotH, 1,
-                grid.r, grid.g, grid.b, grid.a)
+            if level >= opts.xMin - 0.001 then
+                local x = pad.left + plotW * ((level - opts.xMin) / opts.xRange)
+                Core.CreateLine(parent, x, pad.bottom, x, pad.bottom + plotH, 1,
+                    grid.r, grid.g, grid.b, grid.a)
+            end
             level = level + interval
         end
     else
@@ -308,19 +321,60 @@ function Core.RenderGridLines(parent, plotW, plotH, opts)
     end
 end
 
-function Core.RenderAxes(parent, plotW, plotH)
+Core.Y_AXIS_BREAK_HEIGHT = 10
+Core.Y_AXIS_BREAK_AMPLITUDE = 3
+
+local function RenderYAxisWithBreak(parent, x, yBottom, yTop, thickness, ax, breakHeight, amplitude)
+    breakHeight = breakHeight or Core.Y_AXIS_BREAK_HEIGHT
+    amplitude = amplitude or Core.Y_AXIS_BREAK_AMPLITUDE
+    local yBreakTop = yBottom + breakHeight
+    if yTop <= yBreakTop + 0.001 then
+        Core.CreateLine(parent, x, yBottom, x, yTop, thickness, ax.r, ax.g, ax.b, ax.a)
+        return
+    end
+
+    Core.CreateLine(parent, x, yBreakTop, x, yTop, thickness, ax.r, ax.g, ax.b, ax.a)
+
+    local step = breakHeight / 4
+    local y = yBreakTop
+    local points = {
+        { x = x, y = y },
+        { x = x + amplitude, y = y - step },
+        { x = x - amplitude, y = y - step * 2 },
+        { x = x + amplitude, y = y - step * 3 },
+        { x = x, y = yBottom },
+    }
+    for i = 1, #points - 1 do
+        local fromPt = points[i]
+        local toPt = points[i + 1]
+        Core.CreateLine(parent, fromPt.x, fromPt.y, toPt.x, toPt.y, thickness,
+            ax.r, ax.g, ax.b, ax.a)
+    end
+end
+
+function Core.RenderAxes(parent, plotW, plotH, opts)
     local pad = Core.PADDING
     local ax = Core.AXIS_COLOR
+    opts = opts or {}
 
-    Core.CreateLine(parent, pad.left, pad.bottom, pad.left + plotW, pad.bottom, 2,
+    Core.CreateLine(parent, pad.left, pad.bottom, pad.left + plotW + 1, pad.bottom, 2,
         ax.r, ax.g, ax.b, ax.a)
-    Core.CreateLine(parent, pad.left, pad.bottom, pad.left, pad.bottom + plotH, 2,
-        ax.r, ax.g, ax.b, ax.a)
+
+    local yTop = pad.bottom + plotH
+    if opts.yAxisBreak then
+        RenderYAxisWithBreak(parent, pad.left, pad.bottom, yTop, 2, ax,
+            opts.yAxisBreakHeight, opts.yAxisBreakAmplitude)
+    else
+        Core.CreateLine(parent, pad.left, pad.bottom, pad.left, yTop, 2,
+            ax.r, ax.g, ax.b, ax.a)
+    end
 end
 
 function Core.RenderYLabels(parent, plotH, yMin, yRange, formatFunc, opts)
     local pad = Core.PADDING
     local ax = Core.AXIS_COLOR
+    local tickLen = Core.Y_TICK_LENGTH
+    local labelX = pad.left - Core.Y_LABEL_INSET
     formatFunc = formatFunc or function(v) return tostring(math.floor(v + 0.5)) end
     opts = opts or {}
 
@@ -331,14 +385,37 @@ function Core.RenderYLabels(parent, plotH, yMin, yRange, formatFunc, opts)
                 local logY = math.log(val) / math.log(10)
                 local frac = (logY - opts.logMin) / logRange
                 local y = pad.bottom + frac * plotH
+                local atBottomEdge = math.abs(y - pad.bottom) < 0.5
 
-                Core.CreateLine(parent, pad.left - 5, y, pad.left, y, 2, ax.r, ax.g, ax.b, ax.a)
+                if not atBottomEdge then
+                    Core.CreateLine(parent, pad.left, y, pad.left + tickLen, y, 2, ax.r, ax.g, ax.b, ax.a)
+                end
 
                 local fs = AcquireFontString(parent)
                 fs:ClearAllPoints()
+                fs:SetJustifyV("MIDDLE")
                 fs:SetText(formatFunc(val))
-                fs:SetPoint("RIGHT", parent, "BOTTOMLEFT", pad.left - 8, y - 5)
+                fs:SetPoint("RIGHT", parent, "BOTTOMLEFT", labelX, y)
             end
+        end
+        return
+    end
+
+    if opts.linearYTicks and opts.yMin and opts.yRange and opts.yRange > 0 then
+        for _, val in ipairs(opts.linearYTicks) do
+            local frac = (val - opts.yMin) / opts.yRange
+            local y = pad.bottom + frac * plotH
+            local atBottomEdge = math.abs(y - pad.bottom) < 0.5
+
+            if not atBottomEdge then
+                Core.CreateLine(parent, pad.left, y, pad.left + tickLen, y, 2, ax.r, ax.g, ax.b, ax.a)
+            end
+
+            local fs = AcquireFontString(parent)
+            fs:ClearAllPoints()
+            fs:SetJustifyV("MIDDLE")
+            fs:SetText(formatFunc(val))
+            fs:SetPoint("RIGHT", parent, "BOTTOMLEFT", labelX, y)
         end
         return
     end
@@ -348,12 +425,15 @@ function Core.RenderYLabels(parent, plotH, yMin, yRange, formatFunc, opts)
         local val = yMin + frac * yRange
         local y = pad.bottom + frac * plotH
 
-        Core.CreateLine(parent, pad.left - 5, y, pad.left, y, 2, ax.r, ax.g, ax.b, ax.a)
+        if frac > 0.0001 then
+            Core.CreateLine(parent, pad.left, y, pad.left + tickLen, y, 2, ax.r, ax.g, ax.b, ax.a)
+        end
 
         local fs = AcquireFontString(parent)
         fs:ClearAllPoints()
+        fs:SetJustifyV("MIDDLE")
         fs:SetText(formatFunc(val))
-        fs:SetPoint("RIGHT", parent, "BOTTOMLEFT", pad.left - 8, y - 5)
+        fs:SetPoint("RIGHT", parent, "BOTTOMLEFT", labelX, y)
     end
 end
 
@@ -367,7 +447,9 @@ function Core.RenderXLabels(parent, plotW, xMin, xRange, formatFunc)
         local val = xMin + frac * xRange
         local x = pad.left + frac * plotW
 
-        Core.CreateLine(parent, x, pad.bottom, x, pad.bottom + 5, 2, ax.r, ax.g, ax.b, ax.a)
+        if frac > 0.0001 then
+            Core.CreateLine(parent, x, pad.bottom, x, pad.bottom + 5, 2, ax.r, ax.g, ax.b, ax.a)
+        end
 
         local fs = AcquireFontString(parent)
         fs:ClearAllPoints()
@@ -385,14 +467,19 @@ function Core.RenderXLabelsAtInterval(parent, plotW, xMin, xRange, interval, for
 
     local level = math.floor(xMin / interval) * interval
     while level <= xMax + 0.001 do
-        local x = pad.left + plotW * ((level - xMin) / xRange)
+        if level >= xMin - 0.001 then
+            local x = pad.left + plotW * ((level - xMin) / xRange)
+            local atLeftEdge = math.abs(level - xMin) < 0.001
 
-        Core.CreateLine(parent, x, pad.bottom, x, pad.bottom + 5, 2, ax.r, ax.g, ax.b, ax.a)
+            if not atLeftEdge then
+                Core.CreateLine(parent, x, pad.bottom, x, pad.bottom + 5, 2, ax.r, ax.g, ax.b, ax.a)
+            end
 
-        local fs = AcquireFontString(parent)
-        fs:ClearAllPoints()
-        fs:SetText(formatFunc(level))
-        fs:SetPoint("TOP", parent, "BOTTOMLEFT", x, pad.bottom - 2)
+            local fs = AcquireFontString(parent)
+            fs:ClearAllPoints()
+            fs:SetText(formatFunc(level))
+            fs:SetPoint("TOP", parent, "BOTTOMLEFT", x, pad.bottom - 2)
+        end
 
         level = level + interval
     end
@@ -438,6 +525,46 @@ function Core.CreateTooltipBase(_parent, width, height)
 
     tooltip:Hide()
     return tooltip
+end
+
+--- Format seconds as a compact axis duration label (e.g. "1h 30m", "45m").
+function Core.FormatDurationAxis(seconds)
+    seconds = seconds or 0
+    if seconds <= 0 then
+        return "0s"
+    end
+    if seconds < 60 then
+        return string.format("%ds", math.floor(seconds + 0.5))
+    end
+
+    local totalMinutes = math.floor(seconds / 60 + 0.5)
+    if totalMinutes < 60 then
+        return string.format("%dm", totalMinutes)
+    end
+
+    if seconds >= 86400 then
+        local days = math.floor(seconds / 86400 + 0.5)
+        local hours = math.floor((seconds % 86400) / 3600 + 0.5)
+        if hours >= 24 then
+            days = days + 1
+            hours = 0
+        end
+        if hours == 0 then
+            return string.format("%dd", days)
+        end
+        return string.format("%dd %dh", days, hours)
+    end
+
+    local hours = math.floor(seconds / 3600)
+    local minutes = math.floor((seconds % 3600) / 60 + 0.5)
+    if minutes >= 60 then
+        hours = hours + 1
+        minutes = 0
+    end
+    if minutes == 0 then
+        return string.format("%dh", hours)
+    end
+    return string.format("%dh %dm", hours, minutes)
 end
 
 --- Format seconds as a compact duration label (e.g. "2h", "45m").

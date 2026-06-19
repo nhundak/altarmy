@@ -1,11 +1,11 @@
--- AltArmy TBC — Progression tab: time-per-level multi-character line graph.
+-- AltArmy TBC — Graphs tab: time-per-level multi-character line graph.
 
-local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Progression
+local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Graph
 if not frame then return end
 
 local LPD = AltArmy.LevelProgressData
 local Core = AltArmy.GraphCore
-local Logic = AltArmy.ProgressionGraphLogic
+local Logic = AltArmy.GraphLogic
 local Theme = AltArmy.Theme
 
 local SELECTOR_WIDTH = 150
@@ -27,7 +27,7 @@ local FULL_DASH_ALPHA = Logic.FULL_DASH_ALPHA
 local DIM_LINE_ALPHA = Logic.DIM_LINE_ALPHA
 local DIM_DASH_ALPHA = Logic.DIM_DASH_ALPHA
 
-AltArmyTBC_ProgressionSettings = AltArmyTBC_ProgressionSettings or {}
+AltArmyTBC_GraphSettings = AltArmyTBC_GraphSettings or AltArmyTBC_ProgressionSettings or {}
 
 local RF = AltArmy.RealmFilter
 local hoveredCompareEntry = nil
@@ -67,17 +67,17 @@ local UpdateSelectAllCheckbox
 local CharKey = AltArmy.CharKey
 
 local function EnsureSettings()
-    AltArmyTBC_ProgressionSettings.selected = AltArmyTBC_ProgressionSettings.selected or {}
-    if AltArmyTBC_ProgressionSettings.logarithmic == nil then
-        AltArmyTBC_ProgressionSettings.logarithmic = false
+    AltArmyTBC_GraphSettings.selected = AltArmyTBC_GraphSettings.selected or {}
+    if AltArmyTBC_GraphSettings.logarithmic == nil then
+        AltArmyTBC_GraphSettings.logarithmic = false
     end
-    if AltArmyTBC_ProgressionSettings.ignoreOutliers == nil then
-        AltArmyTBC_ProgressionSettings.ignoreOutliers = false
+    if AltArmyTBC_GraphSettings.ignoreOutliers == nil then
+        AltArmyTBC_GraphSettings.ignoreOutliers = false
     end
-    if AltArmyTBC_ProgressionSettings.rollingAverage == nil then
-        AltArmyTBC_ProgressionSettings.rollingAverage = false
+    if AltArmyTBC_GraphSettings.rollingAverage == nil then
+        AltArmyTBC_GraphSettings.rollingAverage = false
     end
-    return AltArmyTBC_ProgressionSettings
+    return AltArmyTBC_GraphSettings
 end
 
 local function IsLogarithmic()
@@ -210,6 +210,14 @@ local function GetCharactersToDraw()
     return out
 end
 
+local function ClearHoverPreviewState()
+    hoveredCompareEntry = nil
+    hoveredCompareSelectAll = false
+    hoveredLogarithmicPreview = false
+    hoveredOutliersPreview = false
+    hoveredRollingAveragePreview = false
+end
+
 local function SetRowHoverHighlight(row, on)
     Theme.SetHoverTint(row, on)
 end
@@ -285,9 +293,9 @@ local selectionOverlay = graphFrame:CreateTexture(nil, "OVERLAY")
 selectionOverlay:SetColorTexture(0.35, 0.65, 1, 0.22)
 selectionOverlay:Hide()
 
-local CURSOR_LINE_COLOR = { r = 0.45, g = 0.65, b = 0.85, a = 0.55 }
-local CURSOR_LINE_DASH = 4
-local CURSOR_LINE_GAP = 3
+local CURSOR_LINE_COLOR = { r = 0.45, g = 0.65, b = 0.85, a = 0.28 }
+local CURSOR_LINE_DASH = 3
+local CURSOR_LINE_GAP = 8
 local CURSOR_LINE_THICKNESS = 1
 local cursorLinePool = { free = {}, active = {} }
 local graphMouseOver = false
@@ -442,10 +450,19 @@ graphFrame:SetScript("OnMouseDown", function(_, button)
     if button ~= "LeftButton" or not currentX then
         return
     end
+    local hadHoverPreview = hoveredCompareEntry ~= nil
+        or hoveredCompareSelectAll
+        or hoveredLogarithmicPreview
+        or hoveredOutliersPreview
+        or hoveredRollingAveragePreview
+    ClearHoverPreviewState()
     dragStartLevel = CursorToLevel()
     isDragSelecting = true
     ReleaseCursorLine()
     UpdateSelectionOverlay(dragStartLevel, dragStartLevel)
+    if hadHoverPreview then
+        RebuildGraph()
+    end
 end)
 
 graphFrame:SetScript("OnEnter", function()
@@ -1257,18 +1274,27 @@ RebuildGraph = function()
         xInterval = xLabelInterval,
         xMin = xMin,
         xRange = xRange,
+        yMin = linearAxis.yMin,
+        yRange = linearAxis.yRange,
     }
     if logarithmic and logAxis then
-        gridOpts.logYTicks = logAxis.gridTicks
+        gridOpts.logYTicks = Logic.FilterLogYGridTicks(
+            logAxis.gridTicks,
+            logAxis.logMin,
+            logAxis.logMax,
+            Logic.LOG_Y_MIN_TICK_SPACING_FRACTION
+        )
         gridOpts.logMin = logAxis.logMin
         gridOpts.logMax = logAxis.logMax
+    else
+        gridOpts.linearYTicks = linearAxis.gridTicks
     end
 
     Core.RenderGridLines(graphFrame, plotW, plotH, gridOpts)
-    Core.RenderAxes(graphFrame, plotW, plotH)
+    Core.RenderAxes(graphFrame, plotW, plotH, logarithmic and { yAxisBreak = true } or nil)
     Core.RenderYLabels(graphFrame, plotH, linearAxis.yMin, linearAxis.yRange, function(v)
-        return Core.FormatDuration(v)
-    end, logarithmic and logAxis and gridOpts or nil)
+        return Core.FormatDurationAxis(v)
+    end, gridOpts)
     Core.RenderXLabelsAtInterval(graphFrame, plotW, xMin, xRange, xLabelInterval, function(v)
         return tostring(math.floor(v + 0.5))
     end)
@@ -1288,6 +1314,9 @@ RebuildGraph = function()
 end
 
 HandleCompareSelectAllEnter = function(row)
+    if isDragSelecting then
+        return
+    end
     SetRowHoverHighlight(row, true)
 
     if row.suppressHoverPreview then
@@ -1300,6 +1329,9 @@ HandleCompareSelectAllEnter = function(row)
 end
 
 HandleCompareSelectAllLeave = function(row)
+    if isDragSelecting then
+        return
+    end
     row.suppressHoverPreview = false
     hoveredCompareSelectAll = false
     SetRowHoverHighlight(row, false)
@@ -1307,6 +1339,9 @@ HandleCompareSelectAllLeave = function(row)
 end
 
 HandleCompareRowEnter = function(row, entry)
+    if isDragSelecting then
+        return
+    end
     SetRowHoverHighlight(row, true)
 
     if row.suppressHoverPreview then
@@ -1338,6 +1373,9 @@ HandleCompareRowEnter = function(row, entry)
 end
 
 HandleCompareRowLeave = function(row, entry)
+    if isDragSelecting then
+        return
+    end
     row.suppressHoverPreview = false
     hoveredCompareEntry = nil
     SetRowHoverHighlight(row, false)
@@ -1486,6 +1524,9 @@ end
 
 local function BindOptionRowHover(row, setPreview, getSuppress, clearSuppress, onHoverExtra)
     local function onEnter()
+        if isDragSelecting then
+            return
+        end
         SetRowHoverHighlight(row, true)
         if onHoverExtra then onHoverExtra(true) end
         if not getSuppress() then
@@ -1495,6 +1536,9 @@ local function BindOptionRowHover(row, setPreview, getSuppress, clearSuppress, o
     end
 
     local function onLeave()
+        if isDragSelecting then
+            return
+        end
         setPreview(false)
         clearSuppress()
         SetRowHoverHighlight(row, false)
@@ -1538,11 +1582,7 @@ end, function()
 end)
 
 frame:SetScript("OnHide", function()
-    hoveredCompareEntry = nil
-    hoveredCompareSelectAll = false
-    hoveredLogarithmicPreview = false
-    hoveredOutliersPreview = false
-    hoveredRollingAveragePreview = false
+    ClearHoverPreviewState()
     suppressLogarithmicHoverPreview = false
     suppressOutliersHoverPreview = false
     suppressRollingAverageHoverPreview = false

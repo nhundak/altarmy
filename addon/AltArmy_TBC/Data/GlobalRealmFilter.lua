@@ -1,4 +1,4 @@
--- AltArmy TBC — Single global realm filter for Summary/Gear/Reputation/Search/Cooldowns/Progression.
+-- AltArmy TBC — Single global realm filter for Summary/Gear/Reputation/Search/Cooldowns/Graphs.
 -- Saved under AltArmyTBC_Options.realmFilter ("all" | "currentRealm").
 -- Default: currentRealm. One-time migration: if realmFilter was never set, use "all" only
 -- when every legacy per-tab setting (Summary, Gear, Reputation, Search) was "all".

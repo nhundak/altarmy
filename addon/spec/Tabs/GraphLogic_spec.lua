@@ -1,17 +1,17 @@
 --[[
-  Unit tests for ProgressionGraphLogic.lua.
+  Unit tests for GraphLogic.lua.
   Run from project root: npm test
 ]]
 
-describe("ProgressionGraphLogic", function()
+describe("GraphLogic", function()
     local Logic
 
     setup(function()
         _G.AltArmy = _G.AltArmy or {}
         package.path = package.path .. ";AltArmy_TBC/Tabs/?.lua"
-        package.loaded["ProgressionGraphLogic"] = nil
-        require("ProgressionGraphLogic")
-        Logic = AltArmy.ProgressionGraphLogic
+        package.loaded["GraphLogic"] = nil
+        require("GraphLogic")
+        Logic = AltArmy.GraphLogic
     end)
 
     describe("Compare select all", function()
@@ -80,17 +80,38 @@ describe("ProgressionGraphLogic", function()
     end)
 
     describe("ComputeLinearYAxis", function()
-        it("pads the max value by 8 percent with a minimum pad of 1", function()
+        it("snaps the axis top to nice duration ticks with 8 percent padding", function()
             local axis = Logic.ComputeLinearYAxis(100)
             assert.are.equal(0, axis.yMin)
-            assert.are.equal(108, axis.paddedYMax)
-            assert.are.equal(108, axis.yRange)
+            assert.are.equal(120, axis.paddedYMax)
+            assert.are.equal(120, axis.yRange)
+            assert.are.same({ 0, 30, 60, 90, 120 }, axis.gridTicks)
         end)
 
         it("uses a minimum range of 1 when max is zero", function()
             local axis = Logic.ComputeLinearYAxis(0)
-            assert.are.equal(1, axis.paddedYMax)
-            assert.are.equal(1, axis.yRange)
+            assert.are.equal(5, axis.paddedYMax)
+            assert.are.same({ 0, 5 }, axis.gridTicks)
+        end)
+
+        it("uses 30 minute steps for multi-hour ranges", function()
+            local axis = Logic.ComputeLinearYAxis(7020)
+            assert.are.same({ 0, 1800, 3600, 5400, 7200, 9000 }, axis.gridTicks)
+            assert.are.equal(9000, axis.paddedYMax)
+        end)
+
+        it("uses 2 minute steps for ten-minute ranges", function()
+            local axis = Logic.ComputeLinearYAxis(500)
+            assert.are.same({ 0, 120, 240, 360, 480, 600 }, axis.gridTicks)
+            assert.are.equal(600, axis.paddedYMax)
+        end)
+    end)
+
+    describe("ComputeLinearYGridTicks", function()
+        it("always includes zero when the minimum is zero", function()
+            local ticks, top = Logic.ComputeLinearYGridTicks(0, 600, 4)
+            assert.are.equal(0, ticks[1])
+            assert.is_true(top >= 600)
         end)
     end)
 
@@ -100,10 +121,10 @@ describe("ProgressionGraphLogic", function()
             assert.are.equal(1, Logic.ComputeLogAxisFloor(1))
         end)
 
-        it("picks the largest 1-2-5 tick below the minimum", function()
+        it("picks the largest duration candidate below the minimum", function()
             assert.are.equal(5, Logic.ComputeLogAxisFloor(8))
-            assert.are.equal(20, Logic.ComputeLogAxisFloor(45))
-            assert.are.equal(200, Logic.ComputeLogAxisFloor(300))
+            assert.are.equal(30, Logic.ComputeLogAxisFloor(45))
+            assert.are.equal(180, Logic.ComputeLogAxisFloor(300))
         end)
 
         it("never returns a floor greater than 5 minutes", function()
@@ -112,28 +133,117 @@ describe("ProgressionGraphLogic", function()
         end)
 
         it("ignores the 5 minute cap when ignoreMaxFloor is set", function()
-            assert.are.equal(2000, Logic.ComputeLogAxisFloor(3600, true))
-            assert.are.equal(5000, Logic.ComputeLogAxisFloor(10000, true))
+            assert.are.equal(2700, Logic.ComputeLogAxisFloor(3600, true))
+            assert.are.equal(7200, Logic.ComputeLogAxisFloor(10000, true))
         end)
     end)
 
     describe("ComputeLogYAxis", function()
-        it("uses 1-2-5 ticks for grid lines and labels", function()
+        it("uses duration-friendly ticks for grid lines and labels", function()
             local axis = Logic.ComputeLogYAxis(5000, 300)
-            assert.are.equal(200, axis.yMin)
+            assert.are.equal(180, axis.yMin)
             assert.are.equal(5400, axis.paddedYMax)
-            assert.are.same({ 200, 500, 1000, 2000, 5000 }, axis.gridTicks)
+            assert.are.same({ 180, 300, 600, 900, 1800, 2700, 3600, 5400 }, axis.gridTicks)
         end)
 
         it("falls back to 1 second when all values are very small", function()
             local axis = Logic.ComputeLogYAxis(90, 8)
             assert.are.equal(5, axis.yMin)
-            assert.are.same({ 5, 10, 20, 50 }, axis.gridTicks)
+            assert.are.equal(120, axis.paddedYMax)
+            assert.are.same({ 5, 10, 15, 30, 60, 120 }, axis.gridTicks)
         end)
 
-        it("includes the next decade when padded max crosses it", function()
+        it("snaps the axis top to the next duration tick", function()
             local axis = Logic.ComputeLogYAxis(9500, 300)
-            assert.are.same({ 200, 500, 1000, 2000, 5000, 10000 }, axis.gridTicks)
+            assert.are.equal(10800, axis.paddedYMax)
+            assert.is_true(axis.gridTicks[#axis.gridTicks] <= axis.paddedYMax)
+        end)
+
+        it("includes power-of-two day ticks beyond 24 hours", function()
+            local oneDay = 86400
+            local twoDays = oneDay * 2
+            local fourDays = oneDay * 4
+            local axis = Logic.ComputeLogYAxis(twoDays + oneDay / 2, 3600, true)
+            assert.are.equal(fourDays, axis.paddedYMax)
+            local hasTick = {}
+            for _, tick in ipairs(axis.gridTicks) do
+                hasTick[tick] = true
+            end
+            assert.is_true(hasTick[oneDay])
+            assert.is_true(hasTick[twoDays])
+            assert.is_true(hasTick[fourDays])
+        end)
+
+        it("snaps the axis top up to 256 days", function()
+            local maxDays = 86400 * 256
+            local axis = Logic.ComputeLogYAxis(86400 * 200, 3600, true)
+            assert.are.equal(maxDays, axis.paddedYMax)
+            assert.are.equal(maxDays, axis.gridTicks[#axis.gridTicks])
+        end)
+    end)
+
+    describe("FilterLogYGridTicks", function()
+        local function logFraction(val, logMin, logMax)
+            local logRange = logMax - logMin
+            if logRange <= 0 then
+                return 0
+            end
+            return (math.log(val) / math.log(10) - logMin) / logRange
+        end
+
+        local function assertMinSpacing(ticks, logMin, logMax, minSpacing)
+            for i = 2, #ticks do
+                local spacing = logFraction(ticks[i], logMin, logMax) - logFraction(ticks[i - 1], logMin, logMax)
+                assert.is_true(
+                    spacing + 1e-9 >= minSpacing,
+                    string.format("ticks %s and %s are only %.3f apart", ticks[i - 1], ticks[i], spacing)
+                )
+            end
+        end
+
+        it("returns empty or single tick lists unchanged", function()
+            assert.are.same({}, Logic.FilterLogYGridTicks({}, 0, 1, 0.1))
+            assert.are.same({ 30 }, Logic.FilterLogYGridTicks({ 30 }, 1.47, 4.93, 0.1))
+        end)
+
+        it("always keeps the bottom tick", function()
+            local axis = Logic.ComputeLogYAxis(86400, 30, true)
+            local filtered = Logic.FilterLogYGridTicks(
+                axis.gridTicks, axis.logMin, axis.logMax, Logic.LOG_Y_MIN_TICK_SPACING_FRACTION
+            )
+            assert.are.equal(axis.gridTicks[1], filtered[1])
+        end)
+
+        it("skips ticks that crowd the bottom of a wide log scale", function()
+            local axis = Logic.ComputeLogYAxis(86400, 45, true)
+            local filtered = Logic.FilterLogYGridTicks(
+                axis.gridTicks, axis.logMin, axis.logMax, Logic.LOG_Y_MIN_TICK_SPACING_FRACTION
+            )
+            assert.is_true(#filtered < #axis.gridTicks)
+            local hasTick = {}
+            for _, tick in ipairs(filtered) do
+                hasTick[tick] = true
+            end
+            assert.are.equal(30, filtered[1])
+            assert.is_nil(hasTick[60], "1m should be skipped when too close to 30s")
+            assertMinSpacing(filtered, axis.logMin, axis.logMax, Logic.LOG_Y_MIN_TICK_SPACING_FRACTION)
+        end)
+
+        it("measures spacing from the last kept tick, not the previous candidate", function()
+            local logMin = math.log(30) / math.log(10)
+            local logMax = math.log(86400) / math.log(10)
+            local filtered = Logic.FilterLogYGridTicks(
+                { 30, 60, 120, 180, 300, 600 }, logMin, logMax, 0.12
+            )
+            assert.are.same({ 30, 120, 600 }, filtered)
+        end)
+
+        it("keeps all ticks when the range is narrow", function()
+            local axis = Logic.ComputeLogYAxis(90, 8)
+            local filtered = Logic.FilterLogYGridTicks(
+                axis.gridTicks, axis.logMin, axis.logMax, Logic.LOG_Y_MIN_TICK_SPACING_FRACTION
+            )
+            assert.are.same(axis.gridTicks, filtered)
         end)
     end)
 
@@ -155,10 +265,10 @@ describe("ProgressionGraphLogic", function()
             assert.are.equal(Logic.YToFraction(logAxis.yMin, logAxis, true), Logic.YToFraction(0, logAxis, true))
         end)
 
-        it("places the smallest data point near the axis", function()
+        it("places the smallest data point in the lower portion of the axis", function()
             local axis = Logic.ComputeLogYAxis(5000, 300)
             local minFraction = Logic.YToFraction(300, axis, true)
-            assert.is_true(minFraction < 0.15)
+            assert.is_true(minFraction < 0.2)
         end)
     end)
 

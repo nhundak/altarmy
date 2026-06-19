@@ -1,4 +1,4 @@
--- AltArmy TBC — Read-only accessors for level progression chart data.
+-- AltArmy TBC — Read-only accessors for level graph chart data.
 -- Requires DataStore.lua (core) loaded first.
 
 if not AltArmy or not AltArmy.DataStore then return end
@@ -14,7 +14,7 @@ LPD.AXIS_MIN_LEVEL = 0
 LPD.AXIS_MAX_LEVEL = (DS.MAX_LEVEL) or 70
 local FIRST_RECORDED_LEVEL = 1
 
-local PROGRESSION_DEBUG_PREFIX = "|cff00ccff[AltArmy:Progression]|r "
+local GRAPH_DEBUG_PREFIX = "|cff00ccff[AltArmy:Graph]|r "
 local WATCH_NAMES_LOWER = {
     -- frellbank = true,
     -- frellbanq = true,
@@ -125,16 +125,16 @@ local function HasAnyMilestone(milestones)
     return milestones and next(milestones) ~= nil
 end
 
-local function IsProgressionDebugEnabled()
+local function IsGraphDebugEnabled()
     local Dbg = AltArmy and AltArmy.Debug
     return Dbg and Dbg.IsLevelHistoryEnabled and Dbg.IsLevelHistoryEnabled()
 end
 
-local function LogProgressionDebug(msg)
-    if not IsProgressionDebugEnabled() then return end
+local function LogGraphDebug(msg)
+    if not IsGraphDebugEnabled() then return end
     local Dbg = AltArmy and AltArmy.Debug
     if Dbg and Dbg.NotifyChat then
-        Dbg.NotifyChat(PROGRESSION_DEBUG_PREFIX .. tostring(msg))
+        Dbg.NotifyChat(GRAPH_DEBUG_PREFIX .. tostring(msg))
     end
 end
 
@@ -201,13 +201,13 @@ function LPD._ClassifySelectorBucket(name, realm)
 end
 
 function LPD.DebugLogSelectorEligibility()
-    if not IsProgressionDebugEnabled() then return end
+    if not IsGraphDebugEnabled() then return end
 
-    LogProgressionDebug("Selector debug: scanning character list for compare / insufficient buckets")
+    LogGraphDebug("Selector debug: scanning character list for compare / insufficient buckets")
 
     local SD = AltArmy.SummaryData
     if not SD or not SD.GetCharacterList then
-        LogProgressionDebug("SummaryData.GetCharacterList unavailable")
+        LogGraphDebug("SummaryData.GetCharacterList unavailable")
         return
     end
 
@@ -223,7 +223,7 @@ function LPD.DebugLogSelectorEligibility()
                 char and char.levelHistory and char.levelHistory.milestones
             )
             local detailText = detail and (" detail=" .. detail) or ""
-            LogProgressionDebug(string.format(
+            LogGraphDebug(string.format(
                 "WATCH %s-%s: in SummaryData=yes bucket=%s%s usable=%d rawMilestones=%d levels=[%s]",
                 entry.name,
                 entry.realm or "?",
@@ -238,7 +238,7 @@ function LPD.DebugLogSelectorEligibility()
 
     for watchName in pairs(WATCH_NAMES_LOWER) do
         if not seenWatchNames[watchName] then
-            LogProgressionDebug(string.format(
+            LogGraphDebug(string.format(
                 "WATCH %s: not present in SummaryData.GetCharacterList()",
                 watchName
             ))
@@ -248,7 +248,7 @@ function LPD.DebugLogSelectorEligibility()
                         if storedName:lower() == watchName then
                             local bucket, usableCount, rawCount, detail = LPD._ClassifySelectorBucket(storedName, realm)
                             local detailText = detail and (" detail=" .. detail) or ""
-                            LogProgressionDebug(string.format(
+                            LogGraphDebug(string.format(
                                 "WATCH %s: DataStore %s@%s bucket=%s%s usable=%d raw=%d levels=[%s]",
                                 watchName,
                                 charName,
@@ -267,7 +267,7 @@ function LPD.DebugLogSelectorEligibility()
 
     local compareList = LPD.GetCharactersWithHistory()
     local insufficientList = LPD.GetCharactersWithInsufficientHistory()
-    LogProgressionDebug(string.format(
+    LogGraphDebug(string.format(
         "Selector totals: compare=%d insufficient=%d summaryEntries=%d",
         #compareList,
         #insufficientList,
@@ -339,7 +339,7 @@ function LPD.GetCharactersWithInsufficientHistory()
     return out
 end
 
---- Fixed horizontal axis domain for the progression chart.
+--- Fixed horizontal axis domain for the level graph.
 --- @return number minLevel, number maxLevel, number range
 function LPD.GetAxisRange()
     local minLevel = LPD.AXIS_MIN_LEVEL
