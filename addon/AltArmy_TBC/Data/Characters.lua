@@ -10,6 +10,23 @@ local characterList
 local view
 local isViewValid
 
+local MAX_LOGOUT_SENTINEL = 5000000000
+
+--- Minutes-since-online sort value: 0 for logged-in character, elapsed seconds otherwise.
+local function GetLastOnlineSortValue(entry)
+    local DS = AltArmy.DataStore
+    if entry and DS and DS.IsCurrentCharacter
+        and DS:IsCurrentCharacter(entry.name, entry.realm) then
+        return 0
+    end
+    local lo = entry and entry.lastOnline
+    if lo == nil or lo >= MAX_LOGOUT_SENTINEL then
+        return math.huge
+    end
+    local now = time and time() or 0
+    return now - lo
+end
+
 local function BuildList()
     characterList = characterList or {}
     wipe(characterList)
@@ -97,11 +114,8 @@ function ns:Sort(ascending, sortKey)
             end
             local va, vb
             if sortKey == "lastOnline" then
-                -- Current player has lastOnline = nil; treat as 0 for sort (top/bottom)
-                va = a.lastOnline
-                vb = b.lastOnline
-                if va == nil then va = 0 end
-                if vb == nil then vb = 0 end
+                va = GetLastOnlineSortValue(a)
+                vb = GetLastOnlineSortValue(b)
             else
                 va = tonumber(a[sortKey]) or 0
                 vb = tonumber(b[sortKey]) or 0

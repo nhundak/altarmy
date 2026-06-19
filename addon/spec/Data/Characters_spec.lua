@@ -67,19 +67,53 @@ describe("Characters", function()
       assert.are.equal(list[1].level, 2)
       assert.are.equal(list[2].level, 1)
     end)
-    it("treats lastOnline nil as 0 for sort", function()
+    it("sorts current character as most recently online ascending", function()
+      local now = 2000000
+      local oldTime = _G.time
+      _G.time = function() return now end
+      AltArmy.DataStore = AltArmy.DataStore or {}
+      AltArmy.DataStore.IsCurrentCharacter = function(_, name)
+        return name == "Online"
+      end
       AltArmy.SummaryData.GetCharacterList = function()
         return {
-          { name = "A", realm = "R", level = 1, lastOnline = 100 },
-          { name = "B", realm = "R", level = 1, lastOnline = nil },
+          { name = "Online", realm = "R", level = 1, lastOnline = now - 3600 },
+          { name = "Recent", realm = "R", level = 1, lastOnline = now - 300 },
+          { name = "Old", realm = "R", level = 1, lastOnline = now - 86400 },
         }
       end
       ns:InvalidateView()
       ns:GetList()
       ns:Sort(true, "lastOnline")
       local list = ns:GetList()
-      assert.are.equal(list[1].name, "B")
-      assert.are.equal(list[2].name, "A")
+      assert.are.equal(list[1].name, "Online")
+      assert.are.equal(list[2].name, "Recent")
+      assert.are.equal(list[3].name, "Old")
+      _G.time = oldTime
+    end)
+    it("sorts current character as most recently online descending", function()
+      local now = 2000000
+      local oldTime = _G.time
+      _G.time = function() return now end
+      AltArmy.DataStore = AltArmy.DataStore or {}
+      AltArmy.DataStore.IsCurrentCharacter = function(_, name)
+        return name == "Online"
+      end
+      AltArmy.SummaryData.GetCharacterList = function()
+        return {
+          { name = "Online", realm = "R", level = 1, lastOnline = now - 3600 },
+          { name = "Recent", realm = "R", level = 1, lastOnline = now - 300 },
+          { name = "Old", realm = "R", level = 1, lastOnline = now - 86400 },
+        }
+      end
+      ns:InvalidateView()
+      ns:GetList()
+      ns:Sort(false, "lastOnline")
+      local list = ns:GetList()
+      assert.are.equal(list[1].name, "Old")
+      assert.are.equal(list[2].name, "Recent")
+      assert.are.equal(list[3].name, "Online")
+      _G.time = oldTime
     end)
     it("sorts max-level characters last when sorting by restXp ascending", function()
       AltArmy.SummaryData.GetCharacterList = function()
