@@ -137,7 +137,7 @@ function Logic.ComputeLinearYAxis(rawYMax)
     }
 end
 
-function Logic.ComputeLogAxisFloor(rawYMin)
+function Logic.ComputeLogAxisFloor(rawYMin, ignoreMaxFloor)
     if not rawYMin or rawYMin <= 1 then
         return 1
     end
@@ -160,7 +160,11 @@ function Logic.ComputeLogAxisFloor(rawYMin)
         considerCandidates(0.1)
     end
 
-    return math.min(Logic.LOG_AXIS_MAX_FLOOR_SECONDS, math.max(1, best))
+    best = math.max(1, best)
+    if ignoreMaxFloor then
+        return best
+    end
+    return math.min(Logic.LOG_AXIS_MAX_FLOOR_SECONDS, best)
 end
 
 local function ComputeLogYGridTicks(yMin, paddedYMax)
@@ -187,10 +191,10 @@ local function ComputeLogYGridTicks(yMin, paddedYMax)
     return gridTicks
 end
 
-function Logic.ComputeLogYAxis(rawYMax, rawYMin)
+function Logic.ComputeLogYAxis(rawYMax, rawYMin, ignoreMaxFloor)
     local yPad = math.max(1, math.floor(rawYMax * 0.08))
     local paddedYMax = math.max(1, rawYMax + yPad)
-    local yMin = Logic.ComputeLogAxisFloor(rawYMin)
+    local yMin = Logic.ComputeLogAxisFloor(rawYMin, ignoreMaxFloor)
     local logMin = Log10(yMin)
     local logMax = Log10(paddedYMax)
 
@@ -458,17 +462,20 @@ function Logic.PlotSeriesPoint(pt, x, y, plotTopY)
     return x, y
 end
 
-function Logic.GetSeriesScaleBounds(points, ignoreOutliers)
+function Logic.GetSeriesScaleBounds(points, ignoreOutliers, minLevel, maxLevel)
     local yMax = 0
     local yMin = math.huge
+    local filterByLevel = minLevel ~= nil and maxLevel ~= nil
 
     for _, pt in ipairs(points) do
-        if not ignoreOutliers or not pt.isOutlier then
-            if pt.seconds and pt.seconds > 0 and pt.seconds < yMin then
-                yMin = pt.seconds
-            end
-            if pt.seconds and pt.seconds > yMax then
-                yMax = pt.seconds
+        if not filterByLevel or (pt.level >= minLevel and pt.level <= maxLevel) then
+            if not ignoreOutliers or not pt.isOutlier then
+                if pt.seconds and pt.seconds > 0 and pt.seconds < yMin then
+                    yMin = pt.seconds
+                end
+                if pt.seconds and pt.seconds > yMax then
+                    yMax = pt.seconds
+                end
             end
         end
     end
@@ -477,6 +484,117 @@ function Logic.GetSeriesScaleBounds(points, ignoreOutliers)
         yMin = 0
     end
     return yMin, yMax
+end
+
+function Logic.ChooseXLabelInterval(xRange)
+    if xRange <= 5 then
+        return 1
+    end
+    if xRange <= 12 then
+        return 2
+    end
+    if xRange <= 30 then
+        return 5
+    end
+    return 10
+end
+
+function Logic.NormalizeZoomRange(a, b, fullMin, fullMax, minSpan)
+    minSpan = minSpan or 2
+    local lo = math.floor(math.min(a, b) + 0.5)
+    local hi = math.floor(math.max(a, b) + 0.5)
+    lo = math.max(fullMin, lo)
+    hi = math.min(fullMax, hi)
+    if hi - lo < minSpan then
+        return nil
+    end
+    return lo, hi
+end
+
+local function CopyPointForClip(pt)
+    return {
+        level = pt.level,
+        seconds = pt.seconds,
+        fromLevel = pt.fromLevel,
+        toLevel = pt.toLevel,
+        totalSeconds = pt.totalSeconds,
+        spansGap = pt.spansGap,
+        isOutlier = pt.isOutlier,
+    }
+end
+
+local function InterpolatePointAtLevel(fromPt, toPt, level)
+    local levelSpan = toPt.level - fromPt.level
+    if levelSpan <= 0 then
+        return CopyPointForClip(fromPt)
+    end
+
+    local frac = (level - fromPt.level) / levelSpan
+    local seconds = fromPt.seconds + frac * (toPt.seconds - fromPt.seconds)
+    local copy = CopyPointForClip(fromPt)
+    copy.level = level
+    copy.seconds = seconds
+    return copy
+end
+
+local function ClipSegmentToRange(fromPt, toPt, minLevel, maxLevel)
+    local loLevel = fromPt.level
+    local hiLevel = toPt.level
+    if loLevel > hiLevel then
+        loLevel, hiLevel = hiLevel, loLevel
+        fromPt, toPt = toPt, fromPt
+    end
+
+    if hiLevel < minLevel or loLevel > maxLevel then
+        return nil
+    end
+
+    local clippedFrom = fromPt
+    local clippedTo = toPt
+
+    if clippedFrom.level < minLevel then
+        clippedFrom = InterpolatePointAtLevel(fromPt, toPt, minLevel)
+    end
+    if clippedTo.level > maxLevel then
+        clippedTo = InterpolatePointAtLevel(fromPt, toPt, maxLevel)
+    end
+
+    if clippedFrom.level == clippedTo.level and clippedFrom.seconds == clippedTo.seconds then
+        return nil
+    end
+
+    return clippedFrom, clippedTo
+end
+
+function Logic.ClipDrawPlanToRange(drawPlan, minLevel, maxLevel)
+    local clippedSegments = {}
+    local clippedMarkers = {}
+
+    for _, marker in ipairs(drawPlan.markers or {}) do
+        local pt = marker.pt
+        if pt and pt.level >= minLevel and pt.level <= maxLevel then
+            clippedMarkers[#clippedMarkers + 1] = { pt = pt }
+        end
+    end
+
+    for _, seg in ipairs(drawPlan.segments or {}) do
+        local fromPt = seg.from
+        local toPt = seg.to
+        if fromPt and toPt then
+            local clippedFrom, clippedTo = ClipSegmentToRange(fromPt, toPt, minLevel, maxLevel)
+            if clippedFrom and clippedTo then
+                clippedSegments[#clippedSegments + 1] = {
+                    style = seg.style,
+                    from = clippedFrom,
+                    to = clippedTo,
+                    isOutlierSpike = seg.isOutlierSpike,
+                    isOutlierReturn = seg.isOutlierReturn,
+                }
+            end
+        end
+    end
+
+    return { segments = clippedSegments, markers = clippedMarkers }
 end
 
 function Logic.YToFraction(y, axis, logarithmic)

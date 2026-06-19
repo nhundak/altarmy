@@ -10,7 +10,6 @@ local Theme = AltArmy.Theme
 
 local SELECTOR_WIDTH = 150
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
-local X_LEVEL_LABEL_INTERVAL = 10
 local SECTION_GAP = Theme.SECTION_GAP
 local ROW_HEIGHT = 20
 local OPTION_ROW_HEIGHT = ROW_HEIGHT
@@ -50,6 +49,12 @@ local hoveredRollingAveragePreview = false
 local suppressLogarithmicHoverPreview = false
 local suppressOutliersHoverPreview = false
 local suppressRollingAverageHoverPreview = false
+
+local ZOOM_MIN_SPAN = 2
+local zoomMinLevel = nil
+local zoomMaxLevel = nil
+local dragStartLevel = nil
+local isDragSelecting = false
 
 local RebuildGraph
 local ApplyHighlight
@@ -274,7 +279,203 @@ graphFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
 graphFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
 graphFrame:SetPoint("RIGHT", frame, "RIGHT", -SELECTOR_WIDTH - SECTION_GAP, 0)
 Theme.ApplyBackdrop(graphFrame, "graph")
-graphFrame:EnableMouse(false)
+graphFrame:EnableMouse(true)
+
+local selectionOverlay = graphFrame:CreateTexture(nil, "OVERLAY")
+selectionOverlay:SetColorTexture(0.35, 0.65, 1, 0.22)
+selectionOverlay:Hide()
+
+local CURSOR_LINE_COLOR = { r = 0.45, g = 0.65, b = 0.85, a = 0.55 }
+local CURSOR_LINE_DASH = 4
+local CURSOR_LINE_GAP = 3
+local CURSOR_LINE_THICKNESS = 1
+local cursorLinePool = { free = {}, active = {} }
+local graphMouseOver = false
+
+local function ReleaseCursorLine()
+    while #cursorLinePool.active > 0 do
+        local tex = table.remove(cursorLinePool.active)
+        tex:Hide()
+        table.insert(cursorLinePool.free, tex)
+    end
+end
+
+local function AcquireCursorLineSegment()
+    local tex = table.remove(cursorLinePool.free)
+    if not tex then
+        tex = graphFrame:CreateTexture(nil, "OVERLAY")
+    end
+    tex:Show()
+    cursorLinePool.active[#cursorLinePool.active + 1] = tex
+    return tex
+end
+
+local function CursorToPlotX()
+    local scale = graphFrame:GetEffectiveScale()
+    local left = graphFrame:GetLeft()
+    return select(1, GetCursorPosition()) / scale - left
+end
+
+local function UpdateCursorLine()
+    ReleaseCursorLine()
+    if not graphMouseOver or not currentX or isDragSelecting then
+        return
+    end
+
+    local plotW, plotH = Core.CalculatePlotDimensions(graphFrame)
+    local pad = Core.PADDING
+    local x = CursorToPlotX()
+    if x < pad.left or x > pad.left + plotW then
+        return
+    end
+
+    local yBottom = pad.bottom
+    local yTop = pad.bottom + plotH
+    local pos = yBottom
+    local c = CURSOR_LINE_COLOR
+    while pos < yTop do
+        local dashEnd = math.min(pos + CURSOR_LINE_DASH, yTop)
+        local height = dashEnd - pos
+        if height > 0 then
+            local tex = AcquireCursorLineSegment()
+            tex:SetColorTexture(c.r, c.g, c.b, c.a)
+            tex:ClearAllPoints()
+            tex:SetSize(CURSOR_LINE_THICKNESS, height)
+            tex:SetPoint(
+                "BOTTOMLEFT", graphFrame, "BOTTOMLEFT",
+                x - CURSOR_LINE_THICKNESS / 2, pos
+            )
+        end
+        pos = dashEnd + CURSOR_LINE_GAP
+    end
+end
+
+local function RefreshCursorLineAfterRebuild()
+    if graphMouseOver then
+        UpdateCursorLine()
+    else
+        ReleaseCursorLine()
+    end
+end
+
+local zoomResetBtn = CreateFrame("Button", nil, graphFrame, "BackdropTemplate")
+zoomResetBtn:SetSize(84, 22)
+zoomResetBtn:SetPoint("TOPLEFT", graphFrame, "TOPLEFT", Core.PADDING.left + 6, -8)
+zoomResetBtn:SetFrameLevel(graphFrame:GetFrameLevel() + 60)
+Theme.SkinButton(zoomResetBtn)
+local zoomResetBtnText = zoomResetBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+zoomResetBtnText:SetPoint("CENTER", zoomResetBtn, "CENTER", 0, 0)
+zoomResetBtnText:SetText("Reset Zoom")
+zoomResetBtn:Hide()
+
+local function IsZoomed()
+    return zoomMinLevel ~= nil and zoomMaxLevel ~= nil
+end
+
+local function GetEffectiveXRange()
+    if IsZoomed() then
+        return zoomMinLevel, zoomMaxLevel, zoomMaxLevel - zoomMinLevel
+    end
+    return LPD.GetAxisRange()
+end
+
+local function GetLevelBoundsForScale()
+    if IsZoomed() then
+        return zoomMinLevel, zoomMaxLevel
+    end
+    return nil, nil
+end
+
+local function ClearZoom()
+    zoomMinLevel = nil
+    zoomMaxLevel = nil
+    zoomResetBtn:Hide()
+end
+
+local function CursorToLevel()
+    local plotW = Core.CalculatePlotDimensions(graphFrame)
+    local xMin, _, xRange = GetEffectiveXRange()
+    local pad = Core.PADDING
+    local scale = graphFrame:GetEffectiveScale()
+    local left = graphFrame:GetLeft()
+    local cx = select(1, GetCursorPosition()) / scale - left
+    local level = xMin + ((cx - pad.left) / plotW) * xRange
+    return math.max(xMin, math.min(xMin + xRange, level))
+end
+
+local function UpdateSelectionOverlay(startLevel, endLevel)
+    local plotW, plotH = Core.CalculatePlotDimensions(graphFrame)
+    local xMin, _, xRange = GetEffectiveXRange()
+    local pad = Core.PADDING
+    local lo = math.max(xMin, math.min(startLevel, endLevel))
+    local hi = math.min(xMin + xRange, math.max(startLevel, endLevel))
+    local x1 = pad.left + plotW * ((lo - xMin) / xRange)
+    local x2 = pad.left + plotW * ((hi - xMin) / xRange)
+    selectionOverlay:ClearAllPoints()
+    selectionOverlay:SetPoint("BOTTOMLEFT", graphFrame, "BOTTOMLEFT", x1, pad.bottom)
+    selectionOverlay:SetPoint("TOPRIGHT", graphFrame, "BOTTOMLEFT", x2, pad.bottom + plotH)
+    selectionOverlay:Show()
+end
+
+local function FinalizeDragSelection()
+    if not isDragSelecting then
+        return
+    end
+    isDragSelecting = false
+    selectionOverlay:Hide()
+    local endLevel = CursorToLevel()
+    local fullMin, fullMax = LPD.AXIS_MIN_LEVEL, LPD.AXIS_MAX_LEVEL
+    local newMin, newMax = Logic.NormalizeZoomRange(
+        dragStartLevel, endLevel, fullMin, fullMax, ZOOM_MIN_SPAN
+    )
+    dragStartLevel = nil
+    if not newMin then
+        return
+    end
+    zoomMinLevel = newMin
+    zoomMaxLevel = newMax
+    zoomResetBtn:Show()
+    RebuildGraph()
+end
+
+graphFrame:SetScript("OnMouseDown", function(_, button)
+    if button ~= "LeftButton" or not currentX then
+        return
+    end
+    dragStartLevel = CursorToLevel()
+    isDragSelecting = true
+    ReleaseCursorLine()
+    UpdateSelectionOverlay(dragStartLevel, dragStartLevel)
+end)
+
+graphFrame:SetScript("OnEnter", function()
+    graphMouseOver = true
+    UpdateCursorLine()
+end)
+
+graphFrame:SetScript("OnLeave", function()
+    graphMouseOver = false
+    ReleaseCursorLine()
+end)
+
+graphFrame:SetScript("OnUpdate", function()
+    if isDragSelecting then
+        if not IsMouseButtonDown("LeftButton") then
+            FinalizeDragSelection()
+        else
+            UpdateSelectionOverlay(dragStartLevel, CursorToLevel())
+        end
+        return
+    end
+    if graphMouseOver then
+        UpdateCursorLine()
+    end
+end)
+
+zoomResetBtn:SetScript("OnClick", function()
+    ClearZoom()
+    RebuildGraph()
+end)
 
 local HINT_SELECT_CHARACTERS = "Select one or more characters on the right\nto compare time per level."
 local HINT_LEVEL_UP_PROGRESSION =
@@ -749,6 +950,9 @@ local function AcquireMarkerHit(px, py)
 end
 
 local function AddStyledObject(group, obj, r, g, b, fullAlpha, dimAlpha, useColorTexture)
+    if not obj then
+        return
+    end
     group.objects[#group.objects + 1] = {
         obj = obj,
         r = r,
@@ -761,6 +965,9 @@ local function AddStyledObject(group, obj, r, g, b, fullAlpha, dimAlpha, useColo
 end
 
 local function ApplyObjectAlpha(styled, dimOthers, isHovered)
+    if not styled.obj then
+        return
+    end
     local alpha = dimOthers and (isHovered and styled.fullAlpha or styled.dimAlpha) or styled.fullAlpha
     if styled.useColorTexture then
         styled.obj:SetColorTexture(styled.r, styled.g, styled.b, alpha)
@@ -799,7 +1006,9 @@ end
 local function ReleaseSeriesGroupResources(group)
     if not group then return end
     for _, styled in ipairs(group.objects) do
-        Core.ReleaseDrawnObject(styled.obj)
+        if styled.obj then
+            Core.ReleaseDrawnObject(styled.obj)
+        end
     end
     wipe(group.objects)
     for _, dot in ipairs(group.markerDots) do
@@ -832,7 +1041,7 @@ local function GetSeriesSecondsBounds(entry)
             IsIgnoreOutliers()
         )
     end
-    return Logic.GetSeriesScaleBounds(marked, true)
+    return Logic.GetSeriesScaleBounds(marked, true, GetLevelBoundsForScale())
 end
 
 local function PrepareCharGraphData(entry, drawable)
@@ -909,12 +1118,15 @@ local function DrawSeriesGroup(charData, X, Y, logarithmic, plotH)
     }
     local drawable = charData.drawable
     local drawPlan = charData.drawPlan
+    if IsZoomed() then
+        drawPlan = Logic.ClipDrawPlanToRange(drawPlan, zoomMinLevel, zoomMaxLevel)
+    end
     local r, g, b = charData.r, charData.g, charData.b
     local entry = charData.entry
     local firstMarker = drawPlan.markers[1]
     local plotTopY = Logic.ComputePlotTopY(plotH, Core.PADDING)
 
-    if drawable.leadingGap and firstMarker then
+    if drawable.leadingGap and firstMarker and (not IsZoomed() or zoomMinLevel <= LPD.AXIS_MIN_LEVEL) then
         DrawLeadingGap(group, drawable.leadingGap, firstMarker.pt, X, Y, logarithmic, r, g, b)
     end
 
@@ -984,12 +1196,14 @@ RebuildGraph = function()
     if #toDraw == 0 then
         graphHint:Show()
         UpdateEmptyGraphHint()
+        RefreshCursorLineAfterRebuild()
         return
     end
 
     local seriesByChar = {}
     local yMax = 0
     local yMin = math.huge
+    local scaleMinLevel, scaleMaxLevel = GetLevelBoundsForScale()
 
     for _, entry in ipairs(toDraw) do
         local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
@@ -997,7 +1211,9 @@ RebuildGraph = function()
         if #drawable.usable >= 1 then
             local charData = PrepareCharGraphData(entry, drawable)
             seriesByChar[#seriesByChar + 1] = charData
-            local scaleMin, scaleMax = Logic.GetSeriesScaleBounds(charData.markedPoints, true)
+            local scaleMin, scaleMax = Logic.GetSeriesScaleBounds(
+                charData.markedPoints, true, scaleMinLevel, scaleMaxLevel
+            )
             if scaleMin > 0 and scaleMin < yMin then yMin = scaleMin end
             if scaleMax > yMax then yMax = scaleMax end
         end
@@ -1010,18 +1226,20 @@ RebuildGraph = function()
     if #seriesByChar == 0 then
         graphHint:SetText("Selected characters have no\nusable level history.")
         graphHint:Show()
+        RefreshCursorLineAfterRebuild()
         return
     end
 
     graphHint:Hide()
 
-    local xMin, _, xRange = LPD.GetAxisRange()
+    local xMin, _, xRange = GetEffectiveXRange()
+    local xLabelInterval = Logic.ChooseXLabelInterval(xRange)
 
     currentRawYMax = yMax
     currentRawYMin = yMin
     local logarithmic = IsLogarithmic()
     local linearAxis = Logic.ComputeLinearYAxis(yMax)
-    local logAxis = logarithmic and Logic.ComputeLogYAxis(yMax, yMin) or nil
+    local logAxis = logarithmic and Logic.ComputeLogYAxis(yMax, yMin, IsZoomed()) or nil
     currentLogAxisYMin = logAxis and logAxis.yMin or nil
 
     local plotW, plotH = Core.CalculatePlotDimensions(graphFrame)
@@ -1036,7 +1254,7 @@ RebuildGraph = function()
     end
 
     local gridOpts = {
-        xInterval = X_LEVEL_LABEL_INTERVAL,
+        xInterval = xLabelInterval,
         xMin = xMin,
         xRange = xRange,
     }
@@ -1051,9 +1269,13 @@ RebuildGraph = function()
     Core.RenderYLabels(graphFrame, plotH, linearAxis.yMin, linearAxis.yRange, function(v)
         return Core.FormatDuration(v)
     end, logarithmic and logAxis and gridOpts or nil)
-    Core.RenderXLabelsAtInterval(graphFrame, plotW, xMin, xRange, X_LEVEL_LABEL_INTERVAL, function(v)
+    Core.RenderXLabelsAtInterval(graphFrame, plotW, xMin, xRange, xLabelInterval, function(v)
         return tostring(math.floor(v + 0.5))
     end)
+
+    if IsZoomed() then
+        zoomResetBtn:Show()
+    end
 
     for _, charData in ipairs(seriesByChar) do
         local group = DrawSeriesGroup(charData, currentX, currentY, logarithmic, plotH)
@@ -1062,6 +1284,7 @@ RebuildGraph = function()
     end
 
     ApplyHighlight()
+    RefreshCursorLineAfterRebuild()
 end
 
 HandleCompareSelectAllEnter = function(row)

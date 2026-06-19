@@ -110,6 +110,11 @@ describe("ProgressionGraphLogic", function()
             assert.are.equal(300, Logic.ComputeLogAxisFloor(3600))
             assert.are.equal(300, Logic.ComputeLogAxisFloor(10000))
         end)
+
+        it("ignores the 5 minute cap when ignoreMaxFloor is set", function()
+            assert.are.equal(2000, Logic.ComputeLogAxisFloor(3600, true))
+            assert.are.equal(5000, Logic.ComputeLogAxisFloor(10000, true))
+        end)
     end)
 
     describe("ComputeLogYAxis", function()
@@ -439,6 +444,111 @@ describe("ProgressionGraphLogic", function()
             local yMin, yMax = Logic.GetSeriesScaleBounds(points, true)
             assert.are.equal(100, yMin)
             assert.are.equal(100, yMax)
+        end)
+
+        it("limits bounds to points within an optional level range", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 500),
+                makePoint(30, 200),
+            }
+            local yMin, yMax = Logic.GetSeriesScaleBounds(points, false, 15, 25)
+            assert.are.equal(500, yMin)
+            assert.are.equal(500, yMax)
+        end)
+
+        it("ignores level bounds when min and max are nil", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 500),
+            }
+            local yMin, yMax = Logic.GetSeriesScaleBounds(points, false, nil, nil)
+            assert.are.equal(100, yMin)
+            assert.are.equal(500, yMax)
+        end)
+    end)
+
+    describe("ChooseXLabelInterval", function()
+        it("returns denser intervals for narrow zoom ranges", function()
+            assert.are.equal(1, Logic.ChooseXLabelInterval(5))
+            assert.are.equal(2, Logic.ChooseXLabelInterval(12))
+            assert.are.equal(5, Logic.ChooseXLabelInterval(30))
+            assert.are.equal(10, Logic.ChooseXLabelInterval(70))
+        end)
+    end)
+
+    describe("NormalizeZoomRange", function()
+        it("orders, snaps, and clamps the drag range", function()
+            local minLevel, maxLevel = Logic.NormalizeZoomRange(25.4, 12.6, 0, 70, 2)
+            assert.are.equal(13, minLevel)
+            assert.are.equal(25, maxLevel)
+        end)
+
+        it("returns nil when the span is below the minimum", function()
+            assert.is_nil(Logic.NormalizeZoomRange(10, 10.5, 0, 70, 2))
+        end)
+
+        it("clamps to the full axis range", function()
+            local minLevel, maxLevel = Logic.NormalizeZoomRange(-5, 80, 0, 70, 2)
+            assert.are.equal(0, minLevel)
+            assert.are.equal(70, maxLevel)
+        end)
+    end)
+
+    describe("ClipDrawPlanToRange", function()
+        it("drops markers outside the range", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 120),
+                makePoint(30, 140),
+            }
+            local plan = Logic.BuildSeriesDrawPlan(points)
+            local clipped = Logic.ClipDrawPlanToRange(plan, 15, 25)
+            assert.are.equal(1, #clipped.markers)
+            assert.are.equal(20, clipped.markers[1].pt.level)
+        end)
+
+        it("interpolates segment endpoints at range boundaries", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 200),
+                makePoint(30, 300),
+            }
+            local plan = Logic.BuildSeriesDrawPlan(points)
+            local clipped = Logic.ClipDrawPlanToRange(plan, 15, 25)
+            assert.are.equal(2, #clipped.segments)
+            assert.are.equal(15, clipped.segments[1].from.level)
+            assert.are.equal(150, clipped.segments[1].from.seconds)
+            assert.are.equal(20, clipped.segments[1].to.level)
+            assert.are.equal(200, clipped.segments[1].to.seconds)
+            assert.are.equal(20, clipped.segments[2].from.level)
+            assert.are.equal(200, clipped.segments[2].from.seconds)
+            assert.are.equal(25, clipped.segments[2].to.level)
+            assert.are.equal(250, clipped.segments[2].to.seconds)
+        end)
+
+        it("drops segments fully outside the range", function()
+            local points = {
+                makePoint(10, 100),
+                makePoint(20, 200),
+            }
+            local plan = Logic.BuildSeriesDrawPlan(points)
+            local clipped = Logic.ClipDrawPlanToRange(plan, 25, 35)
+            assert.are.equal(0, #clipped.segments)
+            assert.are.equal(0, #clipped.markers)
+        end)
+
+        it("drops segments that collapse to a single point after clipping", function()
+            local pt = makePoint(20, 200)
+            local plan = {
+                segments = {
+                    { style = "solid", from = pt, to = pt },
+                },
+                markers = { { pt = pt } },
+            }
+            local clipped = Logic.ClipDrawPlanToRange(plan, 15, 25)
+            assert.are.equal(0, #clipped.segments)
+            assert.are.equal(1, #clipped.markers)
         end)
     end)
 
