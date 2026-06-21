@@ -58,10 +58,14 @@ function RS.FactionHasDiscoveredRepForCharacter(DS, entry, factionID)
     return standing ~= nil
 end
 
-local CompareBySort = AltArmy.CharacterSort.CompareBySort
+local function DefaultTieBreak(entryA, entryB)
+    return (entryA.name or "") < (entryB.name or "")
+end
 
 --- Sort character rows by earned rep for factionID. Undiscovered always after discovered.
-function RS.CompareByFactionRep(DS, entryA, entryB, factionID, highFirst, primary, secondary)
+--- @param tieBreak function(a, b) -> boolean used when rep values are equal (defaults to name).
+function RS.CompareByFactionRep(DS, entryA, entryB, factionID, highFirst, tieBreak)
+    tieBreak = tieBreak or DefaultTieBreak
     local ga = GetReputationStorageSortGroupForEntry(DS, entryA)
     local gb = GetReputationStorageSortGroupForEntry(DS, entryB)
     if ga ~= gb then
@@ -81,7 +85,39 @@ function RS.CompareByFactionRep(DS, entryA, entryB, factionID, highFirst, primar
             return ea < eb
         end
     end
-    return CompareBySort(entryA, entryB, primary, secondary)
+    return tieBreak(entryA, entryB)
+end
+
+--- Build the displayed column order: pinned characters first (in the current sort order),
+--- then non-pinned (in the current sort order). When selfFirst is true, the current character
+--- is grouped with the pinned characters; when false, an unpinned self is appended last.
+--- @param visible table list of character entries (already filtered for hidden, etc.)
+--- @param isPinned function(entry) -> boolean
+--- @param isSelf function(entry) -> boolean
+--- @param selfFirst boolean treat the current character as pinned
+--- @param compare function(a, b) -> boolean comparator for the active sort
+function RS.BuildSortedDisplayList(visible, isPinned, isSelf, selfFirst, compare)
+    local selfEntry = nil
+    local pinned = {}
+    local nonPinned = {}
+    for i = 1, #visible do
+        local e = visible[i]
+        local self_ = isSelf(e) == true
+        if isPinned(e) == true or (selfFirst and self_) then
+            pinned[#pinned + 1] = e
+        elseif self_ then
+            selfEntry = e
+        else
+            nonPinned[#nonPinned + 1] = e
+        end
+    end
+    table.sort(pinned, compare)
+    table.sort(nonPinned, compare)
+    local list = {}
+    for i = 1, #pinned do list[#list + 1] = pinned[i] end
+    for i = 1, #nonPinned do list[#list + 1] = nonPinned[i] end
+    if not selfFirst and selfEntry then list[#list + 1] = selfEntry end
+    return list
 end
 
 --- Sort faction rows by the given character column. Undiscovered cells always after discovered.

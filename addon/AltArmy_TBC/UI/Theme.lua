@@ -276,7 +276,7 @@ function Theme.SkinDangerButton(btn)
     end
 end
 
-function Theme.InstallHoverTint(target, layerOrBandHeight, bandCenter)
+function Theme.InstallHoverTint(target, layerOrBandHeight, bandCenter, bandYOffset)
     if not target or target.altArmyHoverTint then return end
     local layer = "BACKGROUND"
     local bandHeight = nil
@@ -285,16 +285,17 @@ function Theme.InstallHoverTint(target, layerOrBandHeight, bandCenter)
     elseif type(layerOrBandHeight) == "number" then
         bandHeight = layerOrBandHeight
     end
+    bandYOffset = bandYOffset or 0
     local t = target:CreateTexture(nil, layer)
     t:SetTexture(Theme.HOVER_TINT_BG)
     if bandHeight then
-        t:SetPoint("LEFT", target, "LEFT", 0, 0)
-        t:SetPoint("RIGHT", target, "RIGHT", 0, 0)
+        t:SetPoint("LEFT", target, "LEFT", 0, bandYOffset)
+        t:SetPoint("RIGHT", target, "RIGHT", 0, bandYOffset)
         t:SetHeight(bandHeight)
         if bandCenter then
-            t:SetPoint("CENTER", target, "CENTER", 0, 0)
+            t:SetPoint("CENTER", target, "CENTER", 0, bandYOffset)
         else
-            t:SetPoint("TOP", target, "TOP", 0, 0)
+            t:SetPoint("TOP", target, "TOP", 0, bandYOffset)
         end
     else
         t:SetAllPoints(true)
@@ -358,7 +359,7 @@ end
 function Theme.BindInteractableHover(target, opts)
     if not target then return end
     opts = opts or {}
-    Theme.InstallHoverTint(target, opts.bandHeight or opts.layer, opts.bandCenter)
+    Theme.InstallHoverTint(target, opts.bandHeight or opts.layer, opts.bandCenter, opts.bandYOffset)
     local function onEnter()
         Theme.SetHoverTint(target, true)
         if opts.onEnter then opts.onEnter(target) end

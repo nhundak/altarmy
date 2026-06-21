@@ -40,6 +40,7 @@ ReputationFactionFilter.lua
 Data\CharacterSort.lua
 ReputationFactionSort.lua
 UI\CharacterPinHideList.lua
+UI\ScoreSortRow.lua
 UI\ItemActions.lua
 UI\GraphCore.lua
 Tabs\TabSummary.lua

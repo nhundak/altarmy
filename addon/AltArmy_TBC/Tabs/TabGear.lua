@@ -8,6 +8,7 @@ local Theme = AltArmy.Theme
 local CC = AltArmy.ClassColor
 local GearScoreMod = AltArmy.GearScore
 local SD = AltArmy.SummaryData
+local SSR = AltArmy.ScoreSortRow
 local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 local PAD = 4
 local SECTION_INSET = Theme.TAB_SECTION_INSET
@@ -65,28 +66,11 @@ local SCORE_ROW_LAYOUT_TRIM = 4
 local SCORE_ROW_HEADER_BOTTOM_INSET = 6
 
 local function GetAvailableScoreProviders()
-    if GearScoreMod and GearScoreMod.RefreshProviders then
-        GearScoreMod.RefreshProviders("gear-tab")
-    end
-    if GearScoreMod and GearScoreMod.GetAvailableProviders then
-        return GearScoreMod.GetAvailableProviders()
-    end
-    return {}
+    return SSR.GetAvailableProviders()
 end
 
 local function ValidateScoreProvider(id)
-    local providers = GetAvailableScoreProviders()
-    for _, p in ipairs(providers) do
-        if p.id == id then return id end
-    end
-    if id == "gs_lite" then
-        for _, p in ipairs(providers) do
-            if p.id:sub(1, 3) == "gs:" then
-                return p.id
-            end
-        end
-    end
-    return DEFAULT_SCORE_PROVIDER
+    return SSR.ValidateProvider(id)
 end
 
 local function GetGearSettings()
@@ -105,12 +89,7 @@ local function GetSelectedScoreProvider()
 end
 
 local function GetScoreProviderLabel(providerId)
-    if GearScoreMod and GearScoreMod.GetProviderShortLabel then
-        return GearScoreMod.GetProviderShortLabel(providerId)
-    end
-    local provider = GearScoreMod and GearScoreMod.GetProvider and GearScoreMod.GetProvider(providerId)
-    if provider then return provider.shortLabel or provider.label end
-    return "Level"
+    return SSR.GetProviderLabel(providerId)
 end
 
 --- Fixed layout: Normal spacing (12px row/column gaps) and medium icons (32px).
@@ -266,50 +245,12 @@ local function GetItemUseInfo(link)
     return reqLevel, subclass, nil
 end
 
-local GetSortValue = AltArmy.CharacterSort.GetSortValue
-
-local function GetScoreSortKey(providerId)
-    if GearScoreMod and GearScoreMod.GetProvider then
-        local provider = GearScoreMod.GetProvider(providerId)
-        if provider then
-            return provider.sortLabel or provider.label
-        end
-    end
-    return "Level"
-end
-
-local function IsEntryScoreMissing(entry, providerId)
-    if not GearScoreMod or not GearScoreMod.IsScoreMissing then return false end
-    if not DS or not DS.GetCharacter then return false end
-    local char = DS:GetCharacter(entry.name, entry.realm)
-    return GearScoreMod.IsScoreMissing(char, providerId)
-end
-
 local function CompareBySelectedScore(entryA, entryB, providerId, descending)
-    local missingA = IsEntryScoreMissing(entryA, providerId)
-    local missingB = IsEntryScoreMissing(entryB, providerId)
-    if missingA ~= missingB then
-        return not missingA
-    end
-
-    local sortKey = GetScoreSortKey(providerId)
-    local va = GetSortValue(entryA, sortKey)
-    local vb = GetSortValue(entryB, sortKey)
-    if va ~= vb then
-        if descending then return va > vb else return va < vb end
-    end
-
-    local na = entryA.name or ""
-    local nb = entryB.name or ""
-    return na < nb
+    return SSR.Compare(entryA, entryB, providerId, descending)
 end
 
 local function DecorateDisplayEntry(entry)
-    if not entry or not GearScoreMod or not GearScoreMod.DecorateEntry then return end
-    local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
-    if charData then
-        GearScoreMod.DecorateEntry(entry, charData)
-    end
+    SSR.DecorateEntry(entry)
 end
 
 --- Build display list: filter hidden; order = pinned (incl. current when pin-current) + non-pinned.

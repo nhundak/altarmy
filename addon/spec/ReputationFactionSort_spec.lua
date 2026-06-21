@@ -34,6 +34,11 @@ describe("ReputationFactionSort", function()
     return { name = name, realm = realm, played = played or 0 }
   end
 
+  -- Tie-break comparator used by the column-sort logic (by name here for determinism).
+  local function tieBreak(a, b)
+    return (a.name or "") < (b.name or "")
+  end
+
   it("ascending: discovered lower rep sorts before discovered higher rep", function()
     putChar("A", "R", {
       dataVersions = { reputations = 2 },
@@ -45,11 +50,11 @@ describe("ReputationFactionSort", function()
     })
     local a, b = entry("A", "R"), entry("B", "R")
     assert.is_true(
-      RepSort.CompareByFactionRep(DS, a, b, FID, false, "Time Played", "Name"),
+      RepSort.CompareByFactionRep(DS, a, b, FID, false, tieBreak),
       "A should come before B (lower rep first)"
     )
     assert.is_false(
-      RepSort.CompareByFactionRep(DS, b, a, FID, false, "Time Played", "Name"),
+      RepSort.CompareByFactionRep(DS, b, a, FID, false, tieBreak),
       "B should not come before A"
     )
   end)
@@ -65,12 +70,28 @@ describe("ReputationFactionSort", function()
     })
     local has, none = entry("Has", "R"), entry("None", "R")
     assert.is_true(
-      RepSort.CompareByFactionRep(DS, has, none, FID, false, "Time Played", "Name"),
+      RepSort.CompareByFactionRep(DS, has, none, FID, false, tieBreak),
       "discovered should sort before undiscovered in ascending mode"
     )
     assert.is_false(
-      RepSort.CompareByFactionRep(DS, none, has, FID, false, "Time Played", "Name"),
+      RepSort.CompareByFactionRep(DS, none, has, FID, false, tieBreak),
       "undiscovered should not sort before discovered"
+    )
+  end)
+
+  it("uses the provided tie-break comparator when rep values are equal", function()
+    putChar("Zed", "R", {
+      dataVersions = { reputations = 2 },
+      Reputations = { [FID] = { s = 5, e = 3000, b = 0, t = 1 } },
+    })
+    putChar("Abe", "R", {
+      dataVersions = { reputations = 2 },
+      Reputations = { [FID] = { s = 5, e = 3000, b = 0, t = 1 } },
+    })
+    local zed, abe = entry("Zed", "R"), entry("Abe", "R")
+    assert.is_true(
+      RepSort.CompareByFactionRep(DS, abe, zed, FID, true, tieBreak),
+      "equal rep should fall back to the tie-break comparator (Abe < Zed)"
     )
   end)
 

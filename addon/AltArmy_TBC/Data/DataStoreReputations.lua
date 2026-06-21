@@ -81,7 +81,40 @@ DS._GetReputationLimits = GetReputationLimits
 --- @param repEarned number
 --- @param nextLevel number
 --- @return string
+--- Abbreviate a reputation amount as "<n>k", rounded to the nearest 1k.
+local function FormatRepK(value)
+    local v = math.floor(tonumber(value) or 0)
+    local k = math.floor(v / 1000 + 0.5)
+    return tostring(k) .. "k"
+end
+
 function DS.FormatReputationProgressText(standing, repEarned, nextLevel)
+    local span = tonumber(nextLevel) or 0
+    local cur = math.floor(tonumber(repEarned) or 0)
+    if span > 0 then
+        return FormatRepK(cur) .. "/" .. FormatRepK(span)
+    end
+    if standing == "Exalted" then
+        return FormatRepK(cur) .. "/" .. FormatRepK(1000)
+    end
+    return "Max"
+end
+
+--- Percent-to-next-level text (e.g. "81%"), rate clamped to 0..100 and rounded to nearest 1%.
+--- A maxed Exalted faction (rounds to 100%) shows "Max" instead.
+function DS.FormatReputationPercentText(rate, standing)
+    local pct = tonumber(rate) or 0
+    if pct < 0 then pct = 0 end
+    if pct > 100 then pct = 100 end
+    local rounded = math.floor(pct + 0.5)
+    if standing == "Exalted" and rounded >= 100 then
+        return "Max"
+    end
+    return tostring(rounded) .. "%"
+end
+
+--- Exact (non-abbreviated) progress text for tooltips.
+function DS.FormatReputationProgressTextExact(standing, repEarned, nextLevel)
     local span = tonumber(nextLevel) or 0
     local cur = math.floor(tonumber(repEarned) or 0)
     if span > 0 then

@@ -6,13 +6,14 @@ if not frame then return end
 local DS = AltArmy.DataStore
 local Theme = AltArmy.Theme
 local RepSort = AltArmy.ReputationFactionSort
+local SSR = AltArmy.ScoreSortRow
 local SD = AltArmy.SummaryData
 local CC = AltArmy.ClassColor
 local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 local PAD = 4
 local SECTION_INSET = Theme.TAB_SECTION_INSET
 local SECTION_GAP = Theme.SECTION_GAP
-local FACTION_LABEL_WIDTH = 150
+local FACTION_LABEL_WIDTH = 120
 local REP_ROW_HEIGHT = 46
 local REP_BAR_HEIGHT = 20
 local REP_STANDING_ROW_HEIGHT = 12
@@ -26,25 +27,24 @@ local MESSAGE_ROW_HEIGHT = 12
 local COLUMN_HEADER_HEIGHT_GEAR = 18
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
-local COLUMN_WIDTH = 96
+-- Sorting row (provider selector + per-column value), mirrors the Gear tab's score row.
+local SCORE_ROW_HEIGHT = 20         -- extra header height for the sorting row (Gear: GetScoreRowHeight)
+local SCORE_ROW_CONTENT_HEIGHT = 24 -- control/value height (Gear: GetScoreRowContentHeight)
+local SCORE_ROW_BOTTOM_INSET = 6    -- (Gear: SCORE_ROW_HEADER_BOTTOM_INSET)
+local function GetHeaderHeight()
+    return FIXED_HEADER_ROW_HEIGHT + SCORE_ROW_HEIGHT
+end
+local COLUMN_WIDTH = 70
 local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
 local MIN_SCROLL_CHILD_WIDTH = 400
 local GRID_SPLIT_FRACTION = 0.6
 
-local SORT_OPTIONS = { "Name", "Level", "Avg Item Level", "Time Played" }
-local function SortOptionValid(val)
-    for _, o in ipairs(SORT_OPTIONS) do
-        if o == val then return true end
-    end
-    return false
-end
-
 local function GetReputationSettings()
     AltArmyTBC_ReputationSettings = AltArmyTBC_ReputationSettings or {}
     local s = AltArmyTBC_ReputationSettings
-    if not s.primarySort or not SortOptionValid(s.primarySort) then s.primarySort = "Time Played" end
-    if not s.secondarySort or not SortOptionValid(s.secondarySort) then s.secondarySort = "Name" end
     if s.showSelfFirst == nil then s.showSelfFirst = true end
+    if s.scoreSortDescending == nil then s.scoreSortDescending = true end
+    s.scoreProvider = SSR.ValidateProvider(s.scoreProvider or SSR.DEFAULT_PROVIDER)
     s.characters = s.characters or {}
     return s
 end
@@ -64,12 +64,25 @@ local function SetCharSetting(name, realm, pin, hide)
     s.characters[key] = { pin = pin == true, hide = hide == true }
 end
 
-local CompareBySort = AltArmy.CharacterSort.CompareBySort
-
 -- Session-only: sort columns by reputation with this faction.
--- Same row: high first -> low first -> off; other row: switch to that faction (high first).
+-- Clicking the active row toggles high-first <-> low-first; clicking another row switches to it.
 local factionSortFactionID = nil
 local factionSortHighFirst = true
+
+-- Toggle the faction-rep column sort: same faction flips direction (no reset); a new faction
+-- switches to it (high first). Used by both the faction row text and its sort button.
+local function ToggleFactionSort(fid)
+    if not fid then return end
+    if factionSortFactionID == fid then
+        factionSortHighFirst = not factionSortHighFirst
+    else
+        factionSortFactionID = fid
+        factionSortHighFirst = true
+    end
+    if frame.RefreshGrid then
+        frame:RefreshGrid()
+    end
+end
 
 -- Session-only: sort faction rows by this character's rep (column header click).
 -- Same column: high first -> low first -> off; other column: switch (high first).
@@ -95,49 +108,33 @@ local function GetDisplayList()
         local isHidden = GetCharSetting(e.name, e.realm, "hide")
         if not isHidden or (showSelfFirst and isSelf) then
             visible[#visible + 1] = e
+            SSR.DecorateEntry(e)
         end
     end
 
-    local primary = settings.primarySort or "Time Played"
-    local secondary = settings.secondarySort or "Name"
+    local providerId = settings.scoreProvider or SSR.DEFAULT_PROVIDER
+    local descending = settings.scoreSortDescending ~= false
+
+    local function scoreCompare(a, b)
+        return SSR.Compare(a, b, providerId, descending)
+    end
 
     local function sortPair(a, b)
         if factionSortFactionID then
-            return RepSort.CompareByFactionRep(DS, a, b, factionSortFactionID, factionSortHighFirst, primary,
-                secondary)
+            return RepSort.CompareByFactionRep(DS, a, b, factionSortFactionID, factionSortHighFirst, scoreCompare)
         end
-        return CompareBySort(a, b, primary, secondary)
+        return scoreCompare(a, b)
     end
 
-    local list = {}
-    if factionSortFactionID then
-        -- Faction sort: v2 rep rows left, v1 legacy scalars right; then rep value + tie-breakers
-        for i = 1, #visible do
-            list[i] = visible[i]
-        end
-        table.sort(list, sortPair)
-    else
-        local selfEntry = nil
-        local pinned = {}
-        local nonPinned = {}
-        for i = 1, #visible do
-            local e = visible[i]
-            local isSelf = DS and DS.IsCurrentCharacter and DS:IsCurrentCharacter(e.name, e.realm)
-            local isPinned = GetCharSetting(e.name, e.realm, "pin")
-            if isPinned or (showSelfFirst and isSelf) then
-                pinned[#pinned + 1] = e
-            elseif isSelf then
-                selfEntry = e
-            else
-                nonPinned[#nonPinned + 1] = e
-            end
-        end
-        table.sort(pinned, sortPair)
-        table.sort(nonPinned, sortPair)
-        for i = 1, #pinned do list[#list + 1] = pinned[i] end
-        for i = 1, #nonPinned do list[#list + 1] = nonPinned[i] end
-        if not showSelfFirst and selfEntry then list[#list + 1] = selfEntry end
+    -- Always group pinned characters first, then non-pinned, each in the active sort order.
+    -- This holds for every sort mode, including the faction-rep column sort.
+    local function isPinnedEntry(e)
+        return GetCharSetting(e.name, e.realm, "pin")
     end
+    local function isSelfEntry(e)
+        return DS and DS.IsCurrentCharacter and DS:IsCurrentCharacter(e.name, e.realm)
+    end
+    local list = RepSort.BuildSortedDisplayList(visible, isPinnedEntry, isSelfEntry, showSelfFirst, sortPair)
 
     local RF = AltArmy.RealmFilter
     local realmFilter = "all"
@@ -208,7 +205,9 @@ local dims = {
 
 -- Faction name column offsets each row by (rowHeight - label line height) / 2; grid first row must match.
 local REP_FACTION_LABEL_TEXT_HEIGHT = 14
-local REP_FACTION_LABEL_HOVER_HEIGHT = REP_FACTION_LABEL_TEXT_HEIGHT + 4
+local REP_FACTION_LABEL_HOVER_HEIGHT = REP_FACTION_LABEL_TEXT_HEIGHT + 8
+-- Match the score row's sort button size/appearance.
+local FACTION_SORT_BTN_SIZE = SCORE_ROW_CONTENT_HEIGHT
 local function GetFirstRowCellVerticalOffset()
     return (dims.rowHeight - REP_FACTION_LABEL_TEXT_HEIGHT) / 2
 end
@@ -234,7 +233,7 @@ verticalScroll:EnableMouse(true)
 
 local verticalScrollChild = CreateFrame("Frame", nil, verticalScroll)
 verticalScrollChild:SetPoint("TOPLEFT", verticalScroll, "TOPLEFT", 0, 0)
-verticalScrollChild:SetHeight(FIXED_HEADER_ROW_HEIGHT + dims.scrollableGridHeight)
+verticalScrollChild:SetHeight(GetHeaderHeight() + dims.scrollableGridHeight)
 verticalScrollChild:SetWidth(MIN_SCROLL_CHILD_WIDTH)
 verticalScrollChild:EnableMouse(true)
 verticalScroll:SetScrollChild(verticalScrollChild)
@@ -242,12 +241,12 @@ verticalScroll:SetScrollChild(verticalScrollChild)
 local scrollTopSpacer = CreateFrame("Frame", nil, verticalScrollChild)
 scrollTopSpacer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, 0)
 scrollTopSpacer:SetPoint("TOPRIGHT", verticalScrollChild, "TOPRIGHT", 0, 0)
-scrollTopSpacer:SetHeight(FIXED_HEADER_ROW_HEIGHT)
+scrollTopSpacer:SetHeight(GetHeaderHeight())
 
 local fixedHeaderRow = CreateFrame("Frame", nil, contentArea)
 fixedHeaderRow:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 0, 0)
 fixedHeaderRow:SetPoint("TOPRIGHT", contentArea, "TOPRIGHT", 0, 0)
-fixedHeaderRow:SetHeight(FIXED_HEADER_ROW_HEIGHT)
+fixedHeaderRow:SetHeight(GetHeaderHeight())
 fixedHeaderRow:SetFrameLevel(contentArea:GetFrameLevel() + 20)
 local HEADER_BG_OVERHANG = 6
 local HEADER_BG_BOTTOM_INSET = 6
@@ -262,13 +261,14 @@ fixedHeaderRow:EnableMouse(true)
 -- Faction name filter (styled like main window header search)
 local headerCornerFrame = CreateFrame("Frame", nil, fixedHeaderRow)
 headerCornerFrame:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, 0)
-headerCornerFrame:SetSize(FACTION_LABEL_WIDTH, FIXED_HEADER_ROW_HEIGHT)
+headerCornerFrame:SetSize(FACTION_LABEL_WIDTH, GetHeaderHeight())
 
 factionFilterEdit = CreateFrame("EditBox", "AltArmyTBC_ReputationFactionFilterEdit", headerCornerFrame)
 factionFilterEdit:SetHeight(20)
-local FACTION_FILTER_EDIT_Y = 6 -- nudge up vs visual center (font baseline / header band)
-factionFilterEdit:SetPoint("LEFT", headerCornerFrame, "LEFT", 2, FACTION_FILTER_EDIT_Y)
-factionFilterEdit:SetPoint("RIGHT", headerCornerFrame, "RIGHT", -2, FACTION_FILTER_EDIT_Y)
+-- Pin flush to the top of the header; the score-sort row occupies the bottom band of the corner.
+local FACTION_FILTER_EDIT_TOP_Y = 3
+factionFilterEdit:SetPoint("TOPLEFT", headerCornerFrame, "TOPLEFT", 2, FACTION_FILTER_EDIT_TOP_Y)
+factionFilterEdit:SetPoint("TOPRIGHT", headerCornerFrame, "TOPRIGHT", -2, FACTION_FILTER_EDIT_TOP_Y)
 factionFilterEdit:SetAutoFocus(false)
 factionFilterEdit:SetFontObject("GameFontHighlight")
 if factionFilterEdit.SetTextInsets then
@@ -317,13 +317,42 @@ factionFilterEdit:SetScript("OnEscapePressed", function(box)
     box:ClearFocus()
 end)
 
+-- Sorting row controls (provider selector + sort-direction) in the bottom band of the corner.
+local scoreSortControls = SSR.CreateCornerControls(headerCornerFrame, {
+    btnSize = SCORE_ROW_CONTENT_HEIGHT,
+    bottomInset = SCORE_ROW_BOTTOM_INSET,
+    dropdownParent = fixedHeaderRow,
+    dropdownWidth = 200,
+    getProviderId = function() return GetReputationSettings().scoreProvider end,
+    setProviderId = function(id) GetReputationSettings().scoreProvider = id end,
+    getDescending = function() return GetReputationSettings().scoreSortDescending ~= false end,
+    setDescending = function(v) GetReputationSettings().scoreSortDescending = v end,
+    -- Hide the direction button while a faction-rep sort is overriding the score sort.
+    isDirectionShown = function() return factionSortFactionID == nil end,
+    -- Clicking the score selector cancels the faction sort and returns to score sorting.
+    -- Re-activating always starts descending (don't reuse or toggle the previous direction).
+    -- Returning true consumes that first click so the dropdown menu does not also open.
+    onProviderActivate = function()
+        if factionSortFactionID ~= nil then
+            factionSortFactionID = nil
+            GetReputationSettings().scoreSortDescending = true
+            if frame.RefreshGrid then frame:RefreshGrid() end
+            return true
+        end
+        return false
+    end,
+    onChange = function()
+        if frame.RefreshGrid then frame:RefreshGrid() end
+    end,
+})
+
 local headerHorizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_ReputationHeaderHorizontalScroll", fixedHeaderRow)
 headerHorizontalScroll:SetPoint("TOPLEFT", headerCornerFrame, "TOPRIGHT", 0, 0)
 headerHorizontalScroll:SetPoint("BOTTOMRIGHT", fixedHeaderRow, "BOTTOMRIGHT", 0, 0)
 headerHorizontalScroll:EnableMouse(true)
 local headerGridContainer = CreateFrame("Frame", nil, headerHorizontalScroll)
 headerGridContainer:SetPoint("TOPLEFT", headerHorizontalScroll, "TOPLEFT", 0, 0)
-headerGridContainer:SetHeight(FIXED_HEADER_ROW_HEIGHT)
+headerGridContainer:SetHeight(GetHeaderHeight())
 headerHorizontalScroll:SetScrollChild(headerGridContainer)
 
 local verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_ReputationVerticalScrollBar", rightPanel)
@@ -349,12 +378,12 @@ verticalScroll:SetScript("OnMouseWheel", OnReputationScrollWheel)
 verticalScrollChild:SetScript("OnMouseWheel", OnReputationScrollWheel)
 
 local factionHeaderContainer = CreateFrame("Frame", nil, verticalScrollChild)
-factionHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -FIXED_HEADER_ROW_HEIGHT)
+factionHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -GetHeaderHeight())
 factionHeaderContainer:SetPoint("BOTTOMLEFT", verticalScrollChild, "BOTTOMLEFT", 0, 0)
 factionHeaderContainer:SetWidth(FACTION_LABEL_WIDTH)
 
 local horizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_ReputationHorizontalScroll", verticalScrollChild)
-horizontalScroll:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", FACTION_LABEL_WIDTH, -FIXED_HEADER_ROW_HEIGHT)
+horizontalScroll:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", FACTION_LABEL_WIDTH, -GetHeaderHeight())
 horizontalScroll:SetPoint("BOTTOMRIGHT", verticalScrollChild, "BOTTOMRIGHT", 0, 0)
 horizontalScroll:EnableMouse(true)
 
@@ -368,7 +397,7 @@ local headerColumnPool = {}
 local function GetHeaderColumnFrame(index)
     if not headerColumnPool[index] then
         local col = CreateFrame("Button", nil, headerGridContainer)
-        col:SetSize(dims.columnWidth, FIXED_HEADER_ROW_HEIGHT)
+        col:SetSize(dims.columnWidth, GetHeaderHeight())
         Theme.BindInteractableHover(col, {
             bandHeight = COLUMN_HEADER_HEIGHT_GEAR,
             onEnter = function(self)
@@ -401,6 +430,27 @@ local function GetHeaderColumnFrame(index)
         col.message:SetJustifyH("CENTER")
         col.message:SetWordWrap(true)
         col.message:SetNonSpaceWrap(true)
+        -- Sorting row: per-column value for the selected sort metric (bottom band).
+        col.scoreText = col:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        col.scoreText:SetPoint("BOTTOMLEFT", col, "BOTTOMLEFT", 0, SCORE_ROW_BOTTOM_INSET)
+        col.scoreText:SetPoint("BOTTOMRIGHT", col, "BOTTOMRIGHT", 0, SCORE_ROW_BOTTOM_INSET)
+        col.scoreText:SetHeight(SCORE_ROW_CONTENT_HEIGHT)
+        col.scoreText:SetJustifyH("CENTER")
+        col.scoreText:SetJustifyV("MIDDLE")
+        col.scoreHover = CreateFrame("Frame", nil, col)
+        col.scoreHover:SetPoint("BOTTOMLEFT", col, "BOTTOMLEFT", 0, SCORE_ROW_BOTTOM_INSET)
+        col.scoreHover:SetPoint("BOTTOMRIGHT", col, "BOTTOMRIGHT", 0, SCORE_ROW_BOTTOM_INSET)
+        col.scoreHover:SetHeight(SCORE_ROW_CONTENT_HEIGHT)
+        col.scoreHover:EnableMouse(false)
+        col.scoreHover:SetScript("OnEnter", function(self)
+            local e = self.scoreMissingEntry
+            if e and SD and SD.PresentMissingDataTooltip then
+                SD.PresentMissingDataTooltip(self, "ANCHOR_BOTTOMLEFT", e.name, e.realm, e.classFile)
+            end
+        end)
+        col.scoreHover:SetScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+        end)
         col:SetScript("OnMouseUp", OnReputationHeaderColumnClick)
         headerColumnPool[index] = col
     end
@@ -512,33 +562,35 @@ local function GetFactionLabelRow(i)
         Theme.BindInteractableHover(row, {
             bandHeight = REP_FACTION_LABEL_HOVER_HEIGHT,
             bandCenter = true,
+            bandYOffset = 2,
         })
         if row.RegisterForClicks then
             row:RegisterForClicks("LeftButtonUp")
         end
         row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.text:SetPoint("LEFT", row, "LEFT", 0, 0)
-        row.text:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.text:SetPoint("LEFT", row, "LEFT", 0, 2)
+        row.text:SetPoint("RIGHT", row, "RIGHT", 0, 2)
         row.text:SetJustifyH("LEFT")
         row.text:SetJustifyV("MIDDLE")
         row.text:SetWordWrap(false)
+        -- Sort direction button, shown only on the actively-sorted faction row.
+        row.sortBtn = CreateFrame("Button", nil, row)
+        row.sortBtn:SetSize(FACTION_SORT_BTN_SIZE, FACTION_SORT_BTN_SIZE)
+        row.sortBtn:SetPoint("RIGHT", row, "RIGHT", -2, 2)
+        Theme.SkinButton(row.sortBtn)
+        row.sortBtn.text = row.sortBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.sortBtn.text:SetPoint("CENTER", row.sortBtn, "CENTER", 0, 0)
+        row.sortBtn.text:SetTextColor(1, 0.82, 0, 1)
+        row.sortBtn:Hide()
+        if row.sortBtn.RegisterForClicks then
+            row.sortBtn:RegisterForClicks("LeftButtonUp")
+        end
+        row.sortBtn:SetScript("OnClick", function(self)
+            ToggleFactionSort(self:GetParent().factionID)
+        end)
         row:SetScript("OnMouseUp", function(self, button)
             if button ~= "LeftButton" then return end
-            local fid = self.factionID
-            if not fid then return end
-            if factionSortFactionID == fid then
-                if factionSortHighFirst then
-                    factionSortHighFirst = false
-                else
-                    factionSortFactionID = nil
-                end
-            else
-                factionSortFactionID = fid
-                factionSortHighFirst = true
-            end
-            if frame.RefreshGrid then
-                frame:RefreshGrid()
-            end
+            ToggleFactionSort(self.factionID)
         end)
         factionLabelPool[i] = row
     end
@@ -575,6 +627,7 @@ local function UpdateGridWithOffset()
     local numCols = #list
     local factionRows = GetDisplayFactionRows()
     local numRows = #factionRows
+    local scoreProviderId = GetReputationSettings().scoreProvider or SSR.DEFAULT_PROVIDER
 
     for idx, col in pairs(columnPool) do
         if idx > numCols then col:Hide() end
@@ -601,18 +654,21 @@ local function UpdateGridWithOffset()
         end
 
         local isSorted = fr and factionSortFactionID and factionSortFactionID == fr.factionID
-        local suffix = isSorted and (factionSortHighFirst and " >" or " <") or ""
         local baseMax = FACTION_LABEL_WIDTH - 6
-        local nameMax = (suffix ~= "") and (baseMax - 14) or baseMax
+        local nameMax = isSorted and (baseMax - (FACTION_SORT_BTN_SIZE + 4)) or baseMax
         if isSorted then
             row.text:SetTextColor(1, 0.82, 0, 1)
+            row.sortBtn.text:SetText(factionSortHighFirst and ">" or "<")
+            row.sortBtn:Show()
         else
             row.text:SetTextColor(0.9, 0.9, 0.9, 1)
+            row.sortBtn:Hide()
         end
-        local shown = TruncateFontString and TruncateFontString(row.text, fr and fr.name or "?", nameMax)
-            or (fr and fr.name or "?")
-        if suffix ~= "" then
-            row.text:SetText(shown .. suffix)
+        local name = (fr and fr.name) or "?"
+        if TruncateFontString then
+            TruncateFontString(row.text, name, nameMax)
+        else
+            row.text:SetText(name)
         end
         row:Show()
     end
@@ -679,6 +735,8 @@ local function UpdateGridWithOffset()
         headerCol.message:SetText("")
         headerCol.message:SetTextColor(0.9, 0.9, 0.9, 1)
         headerCol.message:Show()
+
+        SSR.ApplyColumnScore(headerCol.scoreText, headerCol.scoreHover, entry, scoreProviderId, false)
 
         local col = GetColumnFrame(c)
         col:ClearAllPoints()
@@ -754,8 +812,7 @@ local function UpdateGridWithOffset()
                     cell.standing:SetText(StandingDisplayText(standing))
                     local br, bgc, bb = DS.GetReputationBarColorsForStanding(standing)
                     cell.standing:SetTextColor(br, bgc, bb, 1)
-                    local progText = DS.FormatReputationProgressText(standing, repEarned, nextLevel)
-                    cell.progress:SetText(progText)
+                    cell.progress:SetText(DS.FormatReputationPercentText(rate, standing))
                     cell.progress:SetTextColor(0.92, 0.92, 0.92, 1)
                     cell.barFill:SetVertexColor(br, bgc, bb, 1)
                     local pct = tonumber(rate) or 0
@@ -769,7 +826,7 @@ local function UpdateGridWithOffset()
                     cell.tooltipTitle = RepCellTooltipTitleClassColored(entry, fname)
                     cell.tooltipLines = {
                         RepTooltipStandingLine(standing),
-                        "Progress: " .. progText,
+                        "Progress: " .. DS.FormatReputationProgressTextExact(standing, repEarned, nextLevel),
                     }
                 end
             end
@@ -790,6 +847,10 @@ function frame:RefreshGrid(_self)
         AltArmy.Characters:Sort(false, "level")
     end
 
+    if scoreSortControls and scoreSortControls.Update then
+        scoreSortControls:Update()
+    end
+
     if DS and DS.GetCurrentReputationFactionRows then
         lastFactionRows = DS:GetCurrentReputationFactionRows()
     else
@@ -801,7 +862,7 @@ function frame:RefreshGrid(_self)
     dims.scrollableGridHeight = math.max(dims.rowHeight + PAD, numRows * dims.rowHeight + PAD)
 
     if verticalScrollChild then
-        verticalScrollChild:SetHeight(FIXED_HEADER_ROW_HEIGHT + dims.scrollableGridHeight)
+        verticalScrollChild:SetHeight(GetHeaderHeight() + dims.scrollableGridHeight)
     end
     if gridContainer then
         gridContainer:SetHeight(dims.scrollableGridHeight)
@@ -841,7 +902,7 @@ function frame:RefreshGrid(_self)
             headerGridContainer:SetWidth(math.max(0, gridContentWidth))
         end
         if verticalScrollBar then
-            local totalChildHeight = FIXED_HEADER_ROW_HEIGHT + dims.scrollableGridHeight
+            local totalChildHeight = GetHeaderHeight() + dims.scrollableGridHeight
             local maxVertScroll = math.max(0, totalChildHeight - viewHeight)
             verticalScrollBar:SetMinMaxValues(0, maxVertScroll)
             verticalScrollBar:SetValueStep(dims.rowHeight)
@@ -905,7 +966,6 @@ end
 ApplySettingsPanelLayout()
 settingsPanel:Hide()
 
-local SETTINGS_ROW_HEIGHT = 22
 local settingsContent = Theme.CreateSettingsPanelContent(settingsPanel)
 local repSettingsTitle = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 repSettingsTitle:SetPoint("TOPLEFT", settingsContent, "TOPLEFT", 0, 0)
@@ -914,7 +974,6 @@ repSettingsTitle:SetJustifyH("LEFT")
 repSettingsTitle:SetText("Reputation Settings")
 Theme.SetTitleColor(repSettingsTitle)
 
-local primaryDropdown, secondaryDropdown
 local repCharListRefresh = function() end
 
 local sortingContent = CreateFrame("Frame", nil, settingsContent)
@@ -944,79 +1003,9 @@ local showSelfFirstRow = Theme.CreateLabeledCheckbox(sortingContent, {
 Theme.AttachSettingsHelpIcon(showSelfFirstRow, PIN_CURRENT_CHAR_HELP)
 local showSelfFirstCheck = showSelfFirstRow.check
 
-local btnPrimary = CreateFrame("Button", nil, sortingContent)
-btnPrimary:SetPoint("TOPLEFT", showSelfFirstRow, "BOTTOMLEFT", 0, -6)
-btnPrimary:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
-btnPrimary:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnPrimaryText = btnPrimary:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-btnPrimaryText:SetPoint("LEFT", btnPrimary, "LEFT", 4, 0)
-btnPrimaryText:SetPoint("RIGHT", btnPrimary, "RIGHT", -4, 0)
-btnPrimaryText:SetJustifyH("LEFT")
-Theme.SkinButton(btnPrimary)
-primaryDropdown = CreateFrame("Frame", nil, sortingContent, "BackdropTemplate")
-primaryDropdown:SetPoint("TOPLEFT", btnPrimary, "BOTTOMLEFT", 0, -2)
-primaryDropdown:SetPoint("TOPRIGHT", btnPrimary, "BOTTOMRIGHT", 0, 0)
-primaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
-primaryDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
-primaryDropdown:Hide()
-Theme.ApplyBackdrop(primaryDropdown, "section")
-for idx, opt in ipairs(SORT_OPTIONS) do
-    Theme.CreateDropdownMenuItem(primaryDropdown, {
-        index = idx,
-        rowHeight = SETTINGS_ROW_HEIGHT,
-        text = opt,
-        onClick = function()
-            GetReputationSettings().primarySort = opt
-            primaryDropdown:Hide()
-            btnPrimaryText:SetText("Primary Sort: " .. opt)
-            frame:RefreshGrid()
-            if repCharListRefresh then repCharListRefresh() end
-        end,
-    })
-end
-btnPrimary:SetScript("OnClick", function()
-    primaryDropdown:SetShown(not primaryDropdown:IsShown())
-    secondaryDropdown:Hide()
-end)
-
-local btnSecondary = CreateFrame("Button", nil, sortingContent)
-btnSecondary:SetPoint("TOPLEFT", btnPrimary, "BOTTOMLEFT", 0, -6)
-btnSecondary:SetPoint("TOPRIGHT", sortingContent, "TOPRIGHT", 0, 0)
-btnSecondary:SetHeight(SETTINGS_ROW_HEIGHT)
-local btnSecondaryText = btnSecondary:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-btnSecondaryText:SetPoint("LEFT", btnSecondary, "LEFT", 4, 0)
-btnSecondaryText:SetPoint("RIGHT", btnSecondary, "RIGHT", -4, 0)
-btnSecondaryText:SetJustifyH("LEFT")
-Theme.SkinButton(btnSecondary)
-secondaryDropdown = CreateFrame("Frame", nil, sortingContent, "BackdropTemplate")
-secondaryDropdown:SetPoint("TOPLEFT", btnSecondary, "BOTTOMLEFT", 0, -2)
-secondaryDropdown:SetPoint("TOPRIGHT", btnSecondary, "BOTTOMRIGHT", 0, 0)
-secondaryDropdown:SetHeight(#SORT_OPTIONS * SETTINGS_ROW_HEIGHT + 4)
-secondaryDropdown:SetFrameLevel(sortingContent:GetFrameLevel() + 100)
-secondaryDropdown:Hide()
-Theme.ApplyBackdrop(secondaryDropdown, "section")
-for idx, opt in ipairs(SORT_OPTIONS) do
-    Theme.CreateDropdownMenuItem(secondaryDropdown, {
-        index = idx,
-        rowHeight = SETTINGS_ROW_HEIGHT,
-        text = opt,
-        onClick = function()
-            GetReputationSettings().secondarySort = opt
-            secondaryDropdown:Hide()
-            btnSecondaryText:SetText("Secondary Sort: " .. opt)
-            frame:RefreshGrid()
-            if repCharListRefresh then repCharListRefresh() end
-        end,
-    })
-end
-btnSecondary:SetScript("OnClick", function()
-    secondaryDropdown:SetShown(not secondaryDropdown:IsShown())
-    primaryDropdown:Hide()
-end)
-
 if AltArmy.CreateCharacterPinHideList then
     -- luacheck: push ignore 211
-    local _scroll, refresh = AltArmy.CreateCharacterPinHideList(sortingContent, btnSecondary, {
+    local _scroll, refresh = AltArmy.CreateCharacterPinHideList(sortingContent, showSelfFirstRow, {
         gutterEdge = settingsPanel,
         getSettings = GetReputationSettings,
         getCharSetting = GetCharSetting,
@@ -1030,8 +1019,9 @@ if AltArmy.CreateCharacterPinHideList then
 end
 
 settingsPanel:SetScript("OnHide", function()
-    primaryDropdown:Hide()
-    secondaryDropdown:Hide()
+    if scoreSortControls and scoreSortControls.dropdown then
+        scoreSortControls.dropdown:Hide()
+    end
 end)
 
 function frame:IsReputationSettingsShown()
@@ -1056,8 +1046,6 @@ function frame:ToggleReputationSettings(_self)
     rightPanel:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", 0, 0)
     if showSettings then
         local s = GetReputationSettings()
-        btnPrimaryText:SetText("Primary Sort: " .. s.primarySort)
-        btnSecondaryText:SetText("Secondary Sort: " .. s.secondarySort)
         showSelfFirstCheck:SetChecked(s.showSelfFirst)
         if AltArmy.Characters and AltArmy.Characters.InvalidateView then
             AltArmy.Characters:InvalidateView()
