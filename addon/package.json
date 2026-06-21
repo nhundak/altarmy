@@ -1,6 +1,6 @@
 {
   "name": "altarmy-tbc",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "private": true,
   "description": "AltArmy — WoW TBC Classic addon (character summary, gear, search)",
   "scripts": {
