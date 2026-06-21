@@ -16,7 +16,7 @@ Theme.COLORS = {
     windowBorder  = { 0.45, 0.38, 0.22, 0.75 },
     -- In-tab panels: nearly opaque cards on top of the shell.
     panelBg       = { 0.08, 0.08, 0.10, 0.95 },
-    sectionBg     = { 0.10, 0.10, 0.12, 0.95 },
+    sectionBg     = { 0.08, 0.08, 0.10, 0.95 },
     graphBg       = { 0.08, 0.08, 0.10, 0.95 },
     dialogBg      = { 0.08, 0.08, 0.10, 0.97 },
     inputBg       = { 0.06, 0.06, 0.08, 1.00 },
@@ -53,7 +53,8 @@ Theme.COLORS = {
     rowSelected   = { 0.22, 0.20, 0.10, 0.60 },
     rowAccent     = { 0.55, 0.46, 0.22, 1.00 },
 
-    gridHeaderBg  = { 0.12, 0.12, 0.15, 1.00 },
+    -- Same RGB as sectionBg/graphBg; alpha 1 for opaque pinned overlays.
+    gridHeaderBg  = { 0.08, 0.08, 0.10, 1.00 },
     scrollTrack   = { 0.08, 0.08, 0.08, 0.80 },
     scrollThumb   = { 0.50, 0.50, 0.60, 1.00 },
 
