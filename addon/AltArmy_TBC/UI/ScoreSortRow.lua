@@ -107,7 +107,8 @@ end
 --- @param entry table display entry { name, realm, classFile }
 --- @param providerId string
 --- @param gray boolean dim the value (e.g. for offline / stale columns)
-function SSR.ApplyColumnScore(scoreText, scoreHover, entry, providerId, gray)
+--- @param opts table|nil optional; playedUnitStyle = "full" for word units on Time Played
+function SSR.ApplyColumnScore(scoreText, scoreHover, entry, providerId, gray, opts)
     if not scoreText then return end
     local GS = AltArmy.GearScore
     local DS = AltArmy.DataStore
@@ -128,7 +129,7 @@ function SSR.ApplyColumnScore(scoreText, scoreHover, entry, providerId, gray)
         end
     else
         local scoreValue = GS and GS.GetDisplayScore and GS.GetDisplayScore(entry, providerId) or 0
-        local scoreDisplay = GS and GS.FormatDisplayScore and GS.FormatDisplayScore(providerId, scoreValue) or "0"
+        local scoreDisplay = GS and GS.FormatDisplayScore and GS.FormatDisplayScore(providerId, scoreValue, opts) or "0"
         scoreText:SetText(scoreDisplay)
         if scoreHover then
             scoreHover.scoreMissingEntry = nil

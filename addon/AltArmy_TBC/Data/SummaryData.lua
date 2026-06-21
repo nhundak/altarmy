@@ -52,6 +52,32 @@ function AltArmy.SummaryData.GetTimeString(seconds)
     return table.concat(parts, " ")
 end
 
+--- Seconds to a single-unit played-time string (e.g. "4.0 d", "1.5 h"). Rounded to nearest 0.1.
+--- @param unitStyle string|nil "full" for words (days, hours, …); default abbreviated (d, h, …).
+function AltArmy.SummaryData.FormatPlayedSingleUnit(seconds, unitStyle)
+    seconds = tonumber(seconds) or 0
+    local unitKey
+    local value
+    if seconds >= 86400 then
+        value = seconds / 86400
+        unitKey = "d"
+    elseif seconds >= 3600 then
+        value = seconds / 3600
+        unitKey = "h"
+    elseif seconds >= 60 then
+        value = seconds / 60
+        unitKey = "m"
+    else
+        value = seconds
+        unitKey = "s"
+    end
+    local units = (unitStyle == "full")
+        and { d = "days", h = "hours", m = "mins", s = "secs" }
+        or { d = "d", h = "h", m = "m", s = "s" }
+    local rounded = math.floor(value * 10 + 0.5) / 10
+    return string.format("%.1f %s", rounded, units[unitKey])
+end
+
 --- Last online: timestamp (number), nil = current/Online, MAX_LOGOUT_SENTINEL = unknown.
 --- isCurrent: true if this is the logged-in character. Never shows seconds (days/hours/minutes only).
 function AltArmy.SummaryData.FormatLastOnline(lastLogout, isCurrent)

@@ -45,6 +45,22 @@ local ILVL_PROVIDER = {
     end,
 }
 
+local PLAYED_PROVIDER = {
+    id = "played",
+    label = "Time Played",
+    shortLabel = "Played",
+    sortLabel = "Time Played",
+    isAvailable = function()
+        return true
+    end,
+    scoreChar = function(char)
+        if DS and DS.GetPlayTime then
+            return DS:GetPlayTime(char)
+        end
+        return tonumber(char and char.played) or 0
+    end,
+}
+
 local GSTBC_PROVIDER_ID = "gs:GearScoreTBCClassic"
 local GSTBC_ADDON_NAME = "GearScoreTBCClassic"
 local GSTBC_SCORE_KEY = "GearScoreTBCClassic"
@@ -312,12 +328,14 @@ function GS.GetAvailableProviders()
     for i = 1, #dynamicProviders do
         list[#list + 1] = dynamicProviders[i]
     end
+    list[#list + 1] = PLAYED_PROVIDER
     return list
 end
 
 function GS.GetProvider(id)
     if id == "level" then return LEVEL_PROVIDER end
     if id == "ilvl" then return ILVL_PROVIDER end
+    if id == "played" then return PLAYED_PROVIDER end
     if #dynamicProviders == 0 then
         rebuildDynamicProviders("lazy")
     end
@@ -362,6 +380,7 @@ function GS.DecorateEntry(entry, char)
     entry.scores = entry.scores or {}
     entry.scores["Level"] = LEVEL_PROVIDER.scoreChar(char) or 0
     entry.scores["Avg Item Level"] = ILVL_PROVIDER.scoreChar(char) or 0
+    entry.scores["Time Played"] = PLAYED_PROVIDER.scoreChar(char) or 0
     for i = 1, #dynamicProviders do
         local p = dynamicProviders[i]
         local sortKey = p.sortLabel or p.label
@@ -379,8 +398,16 @@ function GS.GetDisplayScore(entry, providerId)
     return 0
 end
 
-function GS.FormatDisplayScore(providerId, value)
+function GS.FormatDisplayScore(providerId, value, opts)
+    opts = opts or {}
     if providerId == "ilvl" then
+        return tostring(math.floor(tonumber(value) or 0))
+    end
+    if providerId == "played" then
+        local SD = AltArmy.SummaryData
+        if SD and SD.FormatPlayedSingleUnit then
+            return SD.FormatPlayedSingleUnit(value, opts.playedUnitStyle)
+        end
         return tostring(math.floor(tonumber(value) or 0))
     end
     return tostring(math.floor(tonumber(value) or 0))

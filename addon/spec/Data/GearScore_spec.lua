@@ -88,6 +88,15 @@ describe("GearScore", function()
       assert.are.equal("ilvl", providers[2].id)
     end)
 
+    it("includes Time Played provider at the end of the list", function()
+      local providers = GS.GetAvailableProviders()
+      local last = providers[#providers]
+      assert.are.equal("played", last.id)
+      assert.are.equal("Time Played", last.label)
+      assert.are.equal("Time Played", last.sortLabel)
+      assert.are.equal("Played", last.shortLabel)
+    end)
+
     it("includes TacoTip provider when TT_GS is available", function()
       _G.TT_GS = {
         GetItemScore = function()
@@ -152,6 +161,22 @@ describe("GearScore", function()
       assert.is_nil(ids["gs:GearScoreClassic+"])
       assert.is_false(GS.IsSupportedGearScoreAddon("GearScoreClassic+"))
       assert.is_true(GS.IsSupportedGearScoreAddon("GearScoreTBCClassic"))
+    end)
+  end)
+
+  describe("ScoreCharacter played", function()
+    it("returns play time from DataStore", function()
+      local char = { played = 7200 }
+      assert.are.equal(7200, GS.ScoreCharacter("played", char))
+    end)
+  end)
+
+  describe("FormatDisplayScore played", function()
+    it("formats as single-unit played time", function()
+      package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+      require("SummaryData")
+      assert.are.equal("2.0 h", GS.FormatDisplayScore("played", 7200))
+      assert.are.equal("2.0 hours", GS.FormatDisplayScore("played", 7200, { playedUnitStyle = "full" }))
     end)
   end)
 

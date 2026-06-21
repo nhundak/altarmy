@@ -6,6 +6,7 @@
 describe("ScoreSortRow logic", function()
     local SSR
 
+    local providerDefs
     local fakeProviders
     local missingChars
 
@@ -15,9 +16,15 @@ describe("ScoreSortRow logic", function()
         require("CharKey")
         require("CharacterSort")
 
-        local providerDefs = {
+        providerDefs = {
             level = { id = "level", label = "Level", sortLabel = "Level", shortLabel = "Lvl" },
             ["gs:Foo"] = { id = "gs:Foo", label = "GearScore", sortLabel = "GearScore", shortLabel = "GS" },
+            played = {
+                id = "played",
+                label = "Time Played",
+                sortLabel = "Time Played",
+                shortLabel = "Played",
+            },
         }
         _G.AltArmy.GearScore = {
             RefreshProviders = function() end,
@@ -80,6 +87,13 @@ describe("ScoreSortRow logic", function()
             local a, b = entry("Alice", 10), entry("Bob", 99)
             assert.is_true(SSR.Compare(a, b, "level", true))
             assert.is_false(SSR.Compare(b, a, "level", true))
+        end)
+        it("sorts by Time Played when played provider selected", function()
+            fakeProviders = { { id = "level" }, { id = "played" } }
+            local a = { name = "Alice", realm = "R", played = 10000 }
+            local b = { name = "Bob", realm = "R", played = 5000 }
+            assert.is_true(SSR.Compare(a, b, "played", true))
+            assert.is_false(SSR.Compare(b, a, "played", true))
         end)
     end)
 end)

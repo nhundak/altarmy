@@ -740,7 +740,9 @@ local function PopulateHeaderColumn(c, entry, ctx)
     headerCol.message:SetTextColor(0.9, 0.9, 0.9, 1)
     headerCol.message:Show()
 
-    SSR.ApplyColumnScore(headerCol.scoreText, headerCol.scoreHover, entry, ctx.scoreProviderId, false)
+    SSR.ApplyColumnScore(headerCol.scoreText, headerCol.scoreHover, entry, ctx.scoreProviderId, false, {
+        playedUnitStyle = "full",
+    })
 end
 
 local function PopulateGridColumn(c, entry, factionRows, numRows, _ctx)
