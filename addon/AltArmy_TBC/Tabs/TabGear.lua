@@ -683,7 +683,7 @@ scoreProviderBtn:SetHeight(GetScoreRowContentHeight())
 scoreProviderBtn:Hide()
 Theme.SkinButton(scoreProviderBtn)
 local scoreProviderBtnText = scoreProviderBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-scoreProviderBtnText:SetPoint("LEFT", scoreProviderBtn, "LEFT", 4, 0)
+scoreProviderBtnText:SetPoint("LEFT", scoreProviderBtn, "LEFT", 6, 0)
 scoreProviderBtnText:SetPoint("RIGHT", scoreProviderBtn, "RIGHT", -2, 0)
 scoreProviderBtnText:SetJustifyH("LEFT")
 

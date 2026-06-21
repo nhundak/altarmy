@@ -6,6 +6,7 @@ if not frame then return end
 local DS = AltArmy.DataStore
 local Theme = AltArmy.Theme
 local RepSort = AltArmy.ReputationFactionSort
+local RGW = AltArmy.ReputationGridWindow
 local SSR = AltArmy.ScoreSortRow
 local SD = AltArmy.SummaryData
 local CC = AltArmy.ClassColor
@@ -35,6 +36,7 @@ local function GetHeaderHeight()
     return FIXED_HEADER_ROW_HEIGHT + SCORE_ROW_HEIGHT
 end
 local COLUMN_WIDTH = 70
+local REP_BAR_FULL_WIDTH = COLUMN_WIDTH - 12
 local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
 local MIN_SCROLL_CHILD_WIDTH = 400
 local GRID_SPLIT_FRACTION = 0.6
@@ -206,11 +208,15 @@ local dims = {
 -- Faction name column offsets each row by (rowHeight - label line height) / 2; grid first row must match.
 local REP_FACTION_LABEL_TEXT_HEIGHT = 14
 local REP_FACTION_LABEL_HOVER_HEIGHT = REP_FACTION_LABEL_TEXT_HEIGHT + 8
+local REP_FIRST_ROW_HEADER_GAP_TRIM = 12
 -- Match the score row's sort button size/appearance.
 local FACTION_SORT_BTN_SIZE = SCORE_ROW_CONTENT_HEIGHT
-local function GetFirstRowCellVerticalOffset()
-    return (dims.rowHeight - REP_FACTION_LABEL_TEXT_HEIGHT) / 2
+local function GetFirstRowLabelVerticalOffset()
+    local centered = (dims.rowHeight - REP_FACTION_LABEL_TEXT_HEIGHT) / 2
+    return math.max(0, centered - REP_FIRST_ROW_HEADER_GAP_TRIM)
 end
+-- Grid first row uses a tighter frame anchor than the label row; trim is applied via cell content padding.
+local REP_FIRST_ROW_CELL_Y = -2
 
 local tabContentPanel = Theme.CreateTabContentPanel(frame)
 tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
@@ -457,14 +463,24 @@ local function GetHeaderColumnFrame(index)
     return headerColumnPool[index]
 end
 
-local function CreateRepCell(col, rowH, colW)
+local function RepCellContentTopPad(isFirstRow)
+    local trim = isFirstRow and REP_FIRST_ROW_HEADER_GAP_TRIM or 0
+    return math.max(0, math.floor(REP_CELL_CONTENT_TOP_PAD + 0.5) + REP_CELL_CONTENT_SHIFT_DOWN - trim)
+end
+
+local function ApplyRepCellContentLayout(cell, isFirstRow)
+    local topPad = RepCellContentTopPad(isFirstRow)
+    cell.standing:ClearAllPoints()
+    cell.standing:SetPoint("TOPLEFT", cell, "TOPLEFT", 2, -topPad)
+    cell.standing:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -2, -topPad)
+end
+
+local function CreateRepCell(col, rowH, colW, isFirstRow)
     local cell = CreateFrame("Frame", nil, col)
     local innerW = colW - 8
     cell:SetSize(innerW, rowH)
     cell.standing = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    local topPad = math.floor(REP_CELL_CONTENT_TOP_PAD + 0.5) + REP_CELL_CONTENT_SHIFT_DOWN
-    cell.standing:SetPoint("TOPLEFT", cell, "TOPLEFT", 2, -topPad)
-    cell.standing:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -2, -topPad)
+    ApplyRepCellContentLayout(cell, isFirstRow == true)
     cell.standing:SetHeight(REP_STANDING_ROW_HEIGHT)
     cell.standing:SetJustifyH("CENTER")
     cell.standing:SetWordWrap(false)
@@ -526,26 +542,32 @@ end
 
 local function EnsureCell(col, rowIndex)
     if not col.cells[rowIndex] then
-        col.cells[rowIndex] = CreateRepCell(col, dims.rowHeight, dims.columnWidth)
+        col.cells[rowIndex] = CreateRepCell(col, dims.rowHeight, dims.columnWidth, rowIndex == 1)
     end
     return col.cells[rowIndex]
 end
+
+local ApplyColumnWindow
+local repGridScrollDragging = false
 
 local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
     name = "AltArmyTBC_ReputationHorizontalScrollBar",
     thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
     onScroll = function(value)
         if not horizontalScroll then return end
-        if horizontalScroll.UpdateScrollChildRect then
-            horizontalScroll:UpdateScrollChildRect()
-        end
-        horizontalScroll:SetHorizontalScroll(value)
+        local scrollVal = math.floor(value + 0.5)
+        horizontalScroll:SetHorizontalScroll(scrollVal)
         if headerHorizontalScroll then
-            if headerHorizontalScroll.UpdateScrollChildRect then
-                headerHorizontalScroll:UpdateScrollChildRect()
-            end
-            headerHorizontalScroll:SetHorizontalScroll(value)
+            headerHorizontalScroll:SetHorizontalScroll(scrollVal)
         end
+        ApplyColumnWindow(false)
+    end,
+    onDragStart = function()
+        repGridScrollDragging = true
+    end,
+    onDragEnd = function()
+        repGridScrollDragging = false
+        ApplyColumnWindow(true)
     end,
     isShown = function()
         return frame:IsShown()
@@ -621,21 +643,14 @@ local function RepCellTooltipTitleClassColored(entry, factionName)
     return hex .. n .. "|r — " .. (factionName or "?")
 end
 
-local function UpdateGridWithOffset()
-    if not AltArmy.Characters or not DS then return end
-    local list = GetDisplayList()
-    local numCols = #list
-    local factionRows = GetDisplayFactionRows()
-    local numRows = #factionRows
-    local scoreProviderId = GetReputationSettings().scoreProvider or SSR.DEFAULT_PROVIDER
+local COLUMN_WINDOW_BUFFER = 2
+local currentList = {}
+local currentFactionRows = {}
+local currentNumRows = 0
+local gridPopulateCtx = nil
+local shownFirst, shownLast = nil, nil
 
-    for idx, col in pairs(columnPool) do
-        if idx > numCols then col:Hide() end
-    end
-    for idx, col in pairs(headerColumnPool) do
-        if idx > numCols then col:Hide() end
-    end
-
+local function UpdateFactionLabels(factionRows, numRows)
     for _, lab in pairs(factionLabelPool) do
         lab:Hide()
     end
@@ -647,8 +662,7 @@ local function UpdateGridWithOffset()
         row:SetSize(FACTION_LABEL_WIDTH, dims.rowHeight)
         row:ClearAllPoints()
         if r == 1 then
-            local off = (dims.rowHeight - REP_FACTION_LABEL_TEXT_HEIGHT) / 2
-            row:SetPoint("TOPLEFT", factionHeaderContainer, "TOPLEFT", 0, -off)
+            row:SetPoint("TOPLEFT", factionHeaderContainer, "TOPLEFT", 0, -GetFirstRowLabelVerticalOffset())
         else
             row:SetPoint("TOPLEFT", factionLabelPool[r - 1], "BOTTOMLEFT", 0, 0)
         end
@@ -672,170 +686,219 @@ local function UpdateGridWithOffset()
         end
         row:Show()
     end
+end
 
-    for c = 1, numCols do
-        local entry = list[c]
-        local headerCol = GetHeaderColumnFrame(c)
-        headerCol:ClearAllPoints()
-        headerCol:SetPoint("TOPLEFT", headerGridContainer, "TOPLEFT", (c - 1) * dims.columnWidth + PAD, 0)
-        headerCol:Show()
+local function PopulateHeaderColumn(c, entry, ctx)
+    local headerCol = GetHeaderColumnFrame(c)
+    headerCol:ClearAllPoints()
+    headerCol:SetPoint("TOPLEFT", headerGridContainer, "TOPLEFT", (c - 1) * dims.columnWidth + PAD, 0)
 
-        local classR, classG, classB = 1, 0.82, 0
-        if CC and CC.getRGBOr then
-            classR, classG, classB = CC.getRGBOr(entry.classFile, classR, classG, classB)
-        end
-        headerCol.reputationHeaderColumnIndex = c
-        local displayName = entry.name or "?"
-        local isColSorted = columnSortName
-            and entry.name == columnSortName
-            and (entry.realm or "") == (columnSortRealm or "")
-        -- Column sort: same ^ / v as Summary headers; yellow name when active (faction rows use > / <).
-        if isColSorted then
-            classR, classG, classB = 1, 0.82, 0
-        end
-        headerCol.classR, headerCol.classG, headerCol.classB = classR, classG, classB
-        -- High rep first = descending = " v"; low first = ascending = " ^" (matches TabSummary.lua)
-        local hdrSuffix = isColSorted and (columnSortHighFirst and " v" or " ^") or ""
-        local baseHeaderMax = dims.columnWidth - 4
-        local headerMax = (hdrSuffix ~= "") and (baseHeaderMax - 14) or baseHeaderMax
-        headerCol.header:SetTextColor(classR, classG, classB, 1)
-        local shown = displayName
-        if TruncateFontString then
-            shown = TruncateFontString(headerCol.header, displayName, headerMax)
-        else
-            headerCol.header:SetText(displayName)
-        end
-        if hdrSuffix ~= "" then
-            headerCol.header:SetText(shown .. hdrSuffix)
-        end
-        headerCol.truncated = (shown ~= displayName)
-        local RF = AltArmy.RealmFilter
-        local realmFilter = "all"
-        local GRF = AltArmy.GlobalRealmFilter
-        if GRF and GRF.Get then
-            realmFilter = GRF.Get()
-        end
-        local showRealmSuffix = (realmFilter == "all")
-            and RF and RF.hasMultipleRealms and RF.hasMultipleRealms(list)
-        local hasRealm = entry.realm and entry.realm ~= ""
-        if headerCol.truncated or (showRealmSuffix and hasRealm) then
-            headerCol.tooltipText = RF and RF.formatColoredCharacterNameRealm
-                and RF.formatColoredCharacterNameRealm(
-                    entry.name or "?",
-                    entry.realm,
-                    showRealmSuffix,
-                    entry.classFile
-                )
-                or displayName
-        else
-            headerCol.tooltipText = nil
-        end
+    local classR, classG, classB = 1, 0.82, 0
+    if CC and CC.getRGBOr then
+        classR, classG, classB = CC.getRGBOr(entry.classFile, classR, classG, classB)
+    end
+    headerCol.reputationHeaderColumnIndex = c
+    local displayName = entry.name or "?"
+    local isColSorted = columnSortName
+        and entry.name == columnSortName
+        and (entry.realm or "") == (columnSortRealm or "")
+    if isColSorted then
+        classR, classG, classB = 1, 0.82, 0
+    end
+    headerCol.classR, headerCol.classG, headerCol.classB = classR, classG, classB
+    local hdrSuffix = isColSorted and (columnSortHighFirst and " v" or " ^") or ""
+    local baseHeaderMax = dims.columnWidth - 4
+    local headerMax = (hdrSuffix ~= "") and (baseHeaderMax - 14) or baseHeaderMax
+    headerCol.header:SetTextColor(classR, classG, classB, 1)
+    local shown = displayName
+    if TruncateFontString then
+        shown = TruncateFontString(headerCol.header, displayName, headerMax)
+    else
+        headerCol.header:SetText(displayName)
+    end
+    if hdrSuffix ~= "" then
+        headerCol.header:SetText(shown .. hdrSuffix)
+    end
+    headerCol.truncated = (shown ~= displayName)
+    local RF = ctx.RF
+    local showRealmSuffix = ctx.showRealmSuffix
+    local hasRealm = entry.realm and entry.realm ~= ""
+    if headerCol.truncated or (showRealmSuffix and hasRealm) then
+        headerCol.tooltipText = RF and RF.formatColoredCharacterNameRealm
+            and RF.formatColoredCharacterNameRealm(
+                entry.name or "?",
+                entry.realm,
+                showRealmSuffix,
+                entry.classFile
+            )
+            or displayName
+    else
+        headerCol.tooltipText = nil
+    end
 
-        -- Gear tab always shows the second row (empty when no fit message); match that layout
-        headerCol.message:SetText("")
-        headerCol.message:SetTextColor(0.9, 0.9, 0.9, 1)
-        headerCol.message:Show()
+    headerCol.message:SetText("")
+    headerCol.message:SetTextColor(0.9, 0.9, 0.9, 1)
+    headerCol.message:Show()
 
-        SSR.ApplyColumnScore(headerCol.scoreText, headerCol.scoreHover, entry, scoreProviderId, false)
+    SSR.ApplyColumnScore(headerCol.scoreText, headerCol.scoreHover, entry, ctx.scoreProviderId, false)
+end
 
-        local col = GetColumnFrame(c)
-        col:ClearAllPoints()
-        col:SetPoint("TOPLEFT", gridContainer, "TOPLEFT", (c - 1) * dims.columnWidth + PAD - 4, 0)
-        col:Show()
+local function PopulateGridColumn(c, entry, factionRows, numRows, _ctx)
+    local col = GetColumnFrame(c)
+    col:ClearAllPoints()
+    col:SetPoint("TOPLEFT", gridContainer, "TOPLEFT", (c - 1) * dims.columnWidth + PAD - 4, 0)
 
-        local charData = DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
-        local hasRep = charData and DS.HasModuleData and DS:HasModuleData(charData, "reputations")
+    local charData = DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
+    local hasRep = charData and DS.HasModuleData and DS:HasModuleData(charData, "reputations")
 
-        for r = 1, numRows do
-            local cell = EnsureCell(col, r)
-            cell:ClearAllPoints()
+    for r = 1, numRows do
+        local cell = EnsureCell(col, r)
+        cell:ClearAllPoints()
             if r == 1 then
-                cell:SetPoint("TOPLEFT", col, "TOPLEFT", 4, -2)
-            else
-                cell:SetPoint("TOPLEFT", col.cells[r - 1], "BOTTOMLEFT", 0, 0)
-            end
-            cell:Show()
-            cell.barBg:Show()
-            cell.barFill:Show()
-            cell.missingDataTooltipEntry = nil
+                cell:SetPoint("TOPLEFT", col, "TOPLEFT", 4, REP_FIRST_ROW_CELL_Y)
+        else
+            cell:SetPoint("TOPLEFT", col.cells[r - 1], "BOTTOMLEFT", 0, 0)
+        end
+        ApplyRepCellContentLayout(cell, r == 1)
+        cell:Show()
+        cell.barBg:Show()
+        cell.barFill:Show()
+        cell.missingDataTooltipEntry = nil
 
-            local factionID = factionRows[r] and factionRows[r].factionID
-            local fname = factionRows[r] and factionRows[r].name or "?"
-            cell.tooltipTitle = (entry.name or "?") .. " — " .. fname
-            cell.tooltipLines = nil
+        local factionID = factionRows[r] and factionRows[r].factionID
+        local fname = factionRows[r] and factionRows[r].name or "?"
+        cell.tooltipTitle = (entry.name or "?") .. " — " .. fname
+        cell.tooltipLines = nil
 
-            if not hasRep then
-                cell.standing:SetText("—")
-                cell.standing:SetTextColor(0.6, 0.6, 0.6, 1)
-                cell.progress:SetText("No data")
-                cell.progress:SetTextColor(0.55, 0.55, 0.55, 1)
-                cell.barFill:SetVertexColor(0.35, 0.35, 0.35, 1)
-                local bw = cell.barBg:GetWidth()
-                if bw and bw > 0 then cell.barFill:SetWidth(1) end
-                cell.tooltipLines = { "Reputation data not collected for this character." }
-            elseif not factionID then
-                cell.standing:SetText("—")
+        if not hasRep then
+            cell.standing:SetText("—")
+            cell.standing:SetTextColor(0.6, 0.6, 0.6, 1)
+            cell.progress:SetText("No data")
+            cell.progress:SetTextColor(0.55, 0.55, 0.55, 1)
+            cell.barFill:SetVertexColor(0.35, 0.35, 0.35, 1)
+            cell.barFill:SetWidth(RGW.BarFillWidth(0, REP_BAR_FULL_WIDTH))
+            cell.tooltipLines = { "Reputation data not collected for this character." }
+        elseif not factionID then
+            cell.standing:SetText("—")
+            cell.progress:SetText("")
+            cell.barFill:SetVertexColor(0.3, 0.3, 0.3, 1)
+            cell.barFill:SetWidth(RGW.BarFillWidth(0, REP_BAR_FULL_WIDTH))
+        else
+            local rawRep = charData.Reputations[factionID]
+            local isV1Legacy = type(rawRep) == "number"
+            local standing, repEarned, nextLevel, rate = DS:GetReputationInfo(charData, factionID)
+            if not standing then
+                cell.standing:SetText("")
+                cell.standing:SetTextColor(0.7, 0.7, 0.7, 1)
                 cell.progress:SetText("")
-                cell.barFill:SetVertexColor(0.3, 0.3, 0.3, 1)
-                local bw = cell.barBg:GetWidth()
-                if bw and bw > 0 then cell.barFill:SetWidth(1) end
+                cell.progress:SetTextColor(0.7, 0.7, 0.7, 1)
+                cell.barBg:Hide()
+                cell.barFill:Hide()
+                cell.tooltipTitle = RepCellTooltipTitleClassColored(entry, fname)
+                cell.tooltipLines = { "Not yet discovered" }
+            elseif isV1Legacy then
+                cell.standing:SetText("")
+                cell.standing:SetTextColor(0.92, 0.92, 0.92, 1)
+                cell.progress:SetText("(missing data)")
+                cell.progress:SetTextColor(MISSING_DATA_TEXT_R, MISSING_DATA_TEXT_G, MISSING_DATA_TEXT_B, 1)
+                cell.barBg:Hide()
+                cell.barFill:Hide()
+                cell.tooltipTitle = nil
+                cell.tooltipLines = nil
+                cell.missingDataTooltipEntry = {
+                    name = entry.name or "",
+                    realm = entry.realm or "",
+                    classFile = entry.classFile,
+                }
             else
-                local rawRep = charData.Reputations[factionID]
-                local isV1Legacy = type(rawRep) == "number"
-                local standing, repEarned, nextLevel, rate = DS:GetReputationInfo(charData, factionID)
-                if not standing then
-                    -- Faction not discovered on this character: no standing dash, no bar; tooltip only.
-                    cell.standing:SetText("")
-                    cell.standing:SetTextColor(0.7, 0.7, 0.7, 1)
-                    cell.progress:SetText("")
-                    cell.progress:SetTextColor(0.7, 0.7, 0.7, 1)
-                    cell.barBg:Hide()
-                    cell.barFill:Hide()
-                    cell.tooltipTitle = RepCellTooltipTitleClassColored(entry, fname)
-                    cell.tooltipLines = { "Not yet discovered" }
-                elseif isV1Legacy then
-                    -- Empty standing; "(missing data)" in the bar band (no bar fill).
-                    cell.standing:SetText("")
-                    cell.standing:SetTextColor(0.92, 0.92, 0.92, 1)
-                    cell.progress:SetText("(missing data)")
-                    cell.progress:SetTextColor(MISSING_DATA_TEXT_R, MISSING_DATA_TEXT_G, MISSING_DATA_TEXT_B, 1)
-                    cell.barBg:Hide()
-                    cell.barFill:Hide()
-                    cell.tooltipTitle = nil
-                    cell.tooltipLines = nil
-                    cell.missingDataTooltipEntry = {
-                        name = entry.name or "",
-                        realm = entry.realm or "",
-                        classFile = entry.classFile,
-                    }
-                else
-                    cell.standing:SetText(StandingDisplayText(standing))
-                    local br, bgc, bb = DS.GetReputationBarColorsForStanding(standing)
-                    cell.standing:SetTextColor(br, bgc, bb, 1)
-                    cell.progress:SetText(DS.FormatReputationPercentText(rate, standing))
-                    cell.progress:SetTextColor(0.92, 0.92, 0.92, 1)
-                    cell.barFill:SetVertexColor(br, bgc, bb, 1)
-                    local pct = tonumber(rate) or 0
-                    if pct < 0 then pct = 0 end
-                    if pct > 100 then pct = 100 end
-                    local bw = cell.barBg:GetWidth()
-                    if bw and bw > 0 then
-                        local fw = math.max(1, bw * pct / 100)
-                        cell.barFill:SetWidth(fw)
-                    end
-                    cell.tooltipTitle = RepCellTooltipTitleClassColored(entry, fname)
-                    cell.tooltipLines = {
-                        RepTooltipStandingLine(standing),
-                        "Progress: " .. DS.FormatReputationProgressTextExact(standing, repEarned, nextLevel),
-                    }
+                cell.standing:SetText(StandingDisplayText(standing))
+                local br, bgc, bb = DS.GetReputationBarColorsForStanding(standing)
+                cell.standing:SetTextColor(br, bgc, bb, 1)
+                cell.progress:SetText(DS.FormatReputationPercentText(rate, standing))
+                cell.progress:SetTextColor(0.92, 0.92, 0.92, 1)
+                cell.barFill:SetVertexColor(br, bgc, bb, 1)
+                local pct = tonumber(rate) or 0
+                cell.barFill:SetWidth(RGW.BarFillWidth(pct, REP_BAR_FULL_WIDTH))
+                cell.tooltipTitle = RepCellTooltipTitleClassColored(entry, fname)
+                cell.tooltipLines = {
+                    RepTooltipStandingLine(standing),
+                    "Progress: " .. DS.FormatReputationProgressTextExact(standing, repEarned, nextLevel),
+                }
+            end
+        end
+    end
+
+    for rr = numRows + 1, #(col.cells or {}) do
+        if col.cells[rr] then col.cells[rr]:Hide() end
+    end
+end
+
+ApplyColumnWindow = function(force)
+    if not horizontalScroll or not gridPopulateCtx then return end
+    local numCols = #currentList
+    local viewW = horizontalScroll:GetWidth() or 0
+    local offset = math.floor((horizontalScroll:GetHorizontalScroll() or 0) + 0.5)
+    local first, last = RGW.GetVisibleColumnRange(
+        offset, viewW, dims.columnWidth, numCols, COLUMN_WINDOW_BUFFER)
+
+    if force then
+        shownFirst, shownLast = nil, nil
+    elseif shownFirst and shownLast and first == shownFirst and last == shownLast then
+        return
+    end
+
+    -- While dragging, populate columns entering the window but defer hides until release.
+    -- Off-screen columns are clipped by the scroll frame; hiding mid-drag caused empty gaps.
+    if not repGridScrollDragging then
+        if shownFirst and shownLast then
+            for c = shownFirst, shownLast do
+                if c < first or c > last or c > numCols then
+                    local col = columnPool[c]
+                    if col then col:Hide() end
+                    local hdr = headerColumnPool[c]
+                    if hdr then hdr:Hide() end
                 end
             end
         end
-
-        for rr = numRows + 1, #(col.cells or {}) do
-            if col.cells[rr] then col.cells[rr]:Hide() end
+        for idx, col in pairs(columnPool) do
+            if idx > numCols then col:Hide() end
+        end
+        for idx, col in pairs(headerColumnPool) do
+            if idx > numCols then col:Hide() end
         end
     end
+
+    for c = first, last do
+        local entry = currentList[c]
+        if entry then
+            local needsPopulate = force or not shownFirst or c < shownFirst or c > shownLast
+            if needsPopulate then
+                PopulateHeaderColumn(c, entry, gridPopulateCtx)
+                PopulateGridColumn(c, entry, currentFactionRows, currentNumRows, gridPopulateCtx)
+            end
+            GetHeaderColumnFrame(c):Show()
+            GetColumnFrame(c):Show()
+        end
+    end
+
+    shownFirst, shownLast = first, last
+end
+
+local function BuildPopulateCtx(list)
+    local RF = AltArmy.RealmFilter
+    local realmFilter = "all"
+    local GRF = AltArmy.GlobalRealmFilter
+    if GRF and GRF.Get then
+        realmFilter = GRF.Get()
+    end
+    local showRealmSuffix = (realmFilter == "all")
+        and RF and RF.hasMultipleRealms and RF.hasMultipleRealms(list)
+    return {
+        scoreProviderId = GetReputationSettings().scoreProvider or SSR.DEFAULT_PROVIDER,
+        realmFilter = realmFilter,
+        showRealmSuffix = showRealmSuffix,
+        RF = RF,
+    }
 end
 
 function frame:RefreshGrid(_self)
@@ -856,10 +919,11 @@ function frame:RefreshGrid(_self)
     else
         lastFactionRows = {}
     end
-    local filterText = factionFilterEdit and factionFilterEdit:GetText() or ""
-    local factionRowsForLayout = FilterReputationFactionRows(lastFactionRows, filterText)
-    local numRows = #factionRowsForLayout
-    dims.scrollableGridHeight = math.max(dims.rowHeight + PAD, numRows * dims.rowHeight + PAD)
+    currentList = GetDisplayList()
+    currentFactionRows = GetDisplayFactionRows()
+    currentNumRows = #currentFactionRows
+    gridPopulateCtx = BuildPopulateCtx(currentList)
+    dims.scrollableGridHeight = math.max(dims.rowHeight + PAD, currentNumRows * dims.rowHeight + PAD)
 
     if verticalScrollChild then
         verticalScrollChild:SetHeight(GetHeaderHeight() + dims.scrollableGridHeight)
@@ -874,11 +938,12 @@ function frame:RefreshGrid(_self)
             cell:SetSize(dims.columnWidth - 8, dims.rowHeight)
             if r == 1 then
                 cell:ClearAllPoints()
-                cell:SetPoint("TOPLEFT", col, "TOPLEFT", 4, -GetFirstRowCellVerticalOffset())
+                cell:SetPoint("TOPLEFT", col, "TOPLEFT", 4, REP_FIRST_ROW_CELL_Y)
             else
                 cell:ClearAllPoints()
                 cell:SetPoint("TOPLEFT", col.cells[r - 1], "BOTTOMLEFT", 0, 0)
             end
+            ApplyRepCellContentLayout(cell, r == 1)
         end
     end
 
@@ -886,8 +951,7 @@ function frame:RefreshGrid(_self)
         lab:SetHeight(dims.rowHeight)
     end
 
-    local list = GetDisplayList()
-    local numCols = #list
+    local numCols = #currentList
     local viewWidth = verticalScroll and verticalScroll:GetWidth() or 0
     local viewHeight = verticalScroll and verticalScroll:GetHeight() or 0
     local gridContentWidth = numCols * dims.columnWidth + PAD
@@ -900,6 +964,12 @@ function frame:RefreshGrid(_self)
         end
         if headerGridContainer then
             headerGridContainer:SetWidth(math.max(0, gridContentWidth))
+        end
+        if horizontalScroll and horizontalScroll.UpdateScrollChildRect then
+            horizontalScroll:UpdateScrollChildRect()
+        end
+        if headerHorizontalScroll and headerHorizontalScroll.UpdateScrollChildRect then
+            headerHorizontalScroll:UpdateScrollChildRect()
         end
         if verticalScrollBar then
             local totalChildHeight = GetHeaderHeight() + dims.scrollableGridHeight
@@ -916,15 +986,8 @@ function frame:RefreshGrid(_self)
         end
     end
 
-    UpdateGridWithOffset()
-
-    -- Bar widths need layout after first show (barBg width is 0 until anchors resolve)
-    if gridContainer then
-        gridContainer:SetScript("OnUpdate", function(g)
-            g:SetScript("OnUpdate", nil)
-            UpdateGridWithOffset()
-        end)
-    end
+    UpdateFactionLabels(currentFactionRows, currentNumRows)
+    ApplyColumnWindow(true)
 end
 
 frame:SetScript("OnShow", function()

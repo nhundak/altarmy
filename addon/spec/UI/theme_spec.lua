@@ -70,7 +70,12 @@ describe("AltArmy.Theme", function()
         function f:SetCheckedTexture(tex) self._checkedTexture = tex end
         function f:SetMinMaxValues(min, max) self._minVal = min self._maxVal = max end
         function f:GetMinMaxValues() return self._minVal or 0, self._maxVal or 0 end
-        function f:SetValue(v) self._value = v end
+        function f:SetValue(v)
+            if self._value == v then return end
+            self._value = v
+            local fn = self._scripts and self._scripts["OnValueChanged"]
+            if fn then fn(self, v) end
+        end
         function f:GetValue() return self._value or 0 end
         function f:SetValueStep() end
         function f:SetOrientation() end
@@ -498,6 +503,11 @@ describe("AltArmy.Theme", function()
             assert.are.equal(10, Theme.HorizontalDragValue(10, 200, 0, 1, 0, 0, 100))
             assert.are.equal(10, Theme.HorizontalDragValue(10, 200, 0, 0, 200, 0, 100))
         end)
+
+        it("accounts for thumb length along the track", function()
+            -- travel = 200 - 24 = 176; cursor delta 88 -> 50% of range
+            assert.are.equal(50, Theme.HorizontalDragValue(0, 88, 0, 1, 200, 0, 100, 24))
+        end)
     end)
 
     describe("CreateHorizontalScrollBar", function()
@@ -539,6 +549,54 @@ describe("AltArmy.Theme", function()
             local minVal, maxVal = hbar.bar:GetMinMaxValues()
             assert.are.equal(0, minVal)
             assert.are.equal(300, maxVal)
+        end)
+
+        it("drag OnUpdate applies onScroll once per value change via OnValueChanged", function()
+            local parent = makeStubFrame()
+            local scrollCount = 0
+            local hbar = Theme.CreateHorizontalScrollBar(parent, {
+                onScroll = function()
+                    scrollCount = scrollCount + 1
+                end,
+                isShown = function() return true end,
+            })
+            hbar.bar._width = 200
+            hbar:SetRange(0, 100)
+            local onMouseDown = hbar.bar:GetScript("OnMouseDown")
+            local onUpdate = hbar.bar:GetScript("OnUpdate")
+            assert.is_nil(onUpdate)
+            _G.GetCursorPosition = function() return 0, 0 end
+            _G.IsMouseButtonDown = function() return true end
+            onMouseDown(hbar.bar, "LeftButton")
+            onUpdate = hbar.bar:GetScript("OnUpdate")
+            assert.is_not_nil(onUpdate)
+            _G.GetCursorPosition = function() return 50, 0 end
+            onUpdate(hbar.bar)
+            assert.are.equal(1, scrollCount)
+            onUpdate(hbar.bar)
+            assert.are.equal(1, scrollCount)
+        end)
+
+        it("invokes onDragEnd when mouse button is released after drag", function()
+            local parent = makeStubFrame()
+            parent._width = 200
+            local dragEnded = false
+            local hbar = Theme.CreateHorizontalScrollBar(parent, {
+                onDragEnd = function()
+                    dragEnded = true
+                end,
+                isShown = function() return true end,
+            })
+            hbar:SetRange(0, 100)
+            local onMouseDown = hbar.bar:GetScript("OnMouseDown")
+            _G.GetCursorPosition = function() return 0, 0 end
+            _G.IsMouseButtonDown = function() return true end
+            onMouseDown(hbar.bar, "LeftButton")
+            local onUpdate = hbar.bar:GetScript("OnUpdate")
+            _G.IsMouseButtonDown = function() return false end
+            onUpdate(hbar.bar)
+            assert.is_true(dragEnded)
+            assert.is_nil(hbar.bar:GetScript("OnUpdate"))
         end)
     end)
 

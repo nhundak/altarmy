@@ -618,14 +618,19 @@ function Theme.StyleHorizontalScrollBar(slider, opts)
 end
 
 --- Scale-aware horizontal drag math shared by tab horizontal scroll bars.
-function Theme.HorizontalDragValue(startValue, cursorPx, startPx, scale, barWidth, minVal, maxVal)
+--- thumbLength: knob size along the scroll axis; the thumb travels (barWidth - thumbLength).
+function Theme.HorizontalDragValue(startValue, cursorPx, startPx, scale, barWidth, minVal, maxVal, thumbLength)
     if not barWidth or barWidth <= 0 or not scale or scale <= 0 or maxVal <= minVal then
         return startValue
     end
     local cursorX = cursorPx / scale
     local startX = startPx / scale
     local deltaX = cursorX - startX
-    local value = startValue + deltaX * (maxVal - minVal) / barWidth
+    local travel = barWidth - (thumbLength or 0)
+    if travel <= 0 then
+        travel = barWidth
+    end
+    local value = startValue + deltaX * (maxVal - minVal) / travel
     return math.max(minVal, math.min(maxVal, value))
 end
 
@@ -640,6 +645,7 @@ function Theme.CreateHorizontalScrollBar(parent, opts)
     bar:SetValue(0)
     bar:EnableMouse(true)
 
+    local thumbLength = opts.thumbLength or Theme.SCROLL_THUMB_LENGTH
     local lastValue = nil
     local dragging = false
     local dragStartX = 0
@@ -658,6 +664,13 @@ function Theme.CreateHorizontalScrollBar(parent, opts)
         apply(value)
     end
 
+    local function stopDragging()
+        if not dragging then return end
+        dragging = false
+        bar:SetScript("OnUpdate", nil)
+        if opts.onDragEnd then opts.onDragEnd() end
+    end
+
     bar:SetScript("OnValueChanged", function()
         sync()
     end)
@@ -667,27 +680,28 @@ function Theme.CreateHorizontalScrollBar(parent, opts)
         dragging = true
         dragStartX = select(1, GetCursorPosition())
         dragStartValue = bar:GetValue()
-    end)
-
-    bar:SetScript("OnUpdate", function()
-        if opts.isShown and not opts.isShown() then return end
-        if not dragging then return end
-        if not IsMouseButtonDown(1) then
-            dragging = false
-            return
-        end
-        local minVal, maxVal = bar:GetMinMaxValues()
-        local barWidth = bar:GetWidth()
-        if barWidth and barWidth > 0 and maxVal > minVal then
-            local scale = (bar.GetEffectiveScale and bar:GetEffectiveScale())
-                or (UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
-            if scale <= 0 then scale = 1 end
-            local cursorX = select(1, GetCursorPosition())
-            local value = Theme.HorizontalDragValue(
-                dragStartValue, cursorX, dragStartX, scale, barWidth, minVal, maxVal)
-            bar:SetValue(value)
-            apply(value)
-        end
+        if opts.onDragStart then opts.onDragStart() end
+        bar:SetScript("OnUpdate", function()
+            if opts.isShown and not opts.isShown() then return end
+            if not dragging then return end
+            if not IsMouseButtonDown(1) then
+                stopDragging()
+                return
+            end
+            local minVal, maxVal = bar:GetMinMaxValues()
+            local barWidth = bar:GetWidth()
+            if barWidth and barWidth > 0 and maxVal > minVal then
+                local scale = (bar.GetEffectiveScale and bar:GetEffectiveScale())
+                    or (UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
+                if scale <= 0 then scale = 1 end
+                local cursorX = select(1, GetCursorPosition())
+                local value = Theme.HorizontalDragValue(
+                    dragStartValue, cursorX, dragStartX, scale, barWidth, minVal, maxVal, thumbLength)
+                if lastValue == nil or math.abs(value - lastValue) >= 0.5 then
+                    bar:SetValue(value)
+                end
+            end
+        end)
     end)
 
     if opts.thickness then
@@ -696,6 +710,7 @@ function Theme.CreateHorizontalScrollBar(parent, opts)
     Theme.SetupScrollBar(bar, {
         horizontal = true,
         thickness = opts.thickness,
+        thumbLength = thumbLength,
     })
 
     local api = {}

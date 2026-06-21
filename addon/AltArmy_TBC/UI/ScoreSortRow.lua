@@ -209,7 +209,7 @@ function SSR.CreateCornerControls(parent, opts)
     providerBtn:Hide()
     if Theme and Theme.SkinButton then Theme.SkinButton(providerBtn) end
     local providerBtnText = providerBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    providerBtnText:SetPoint("LEFT", providerBtn, "LEFT", 4, 0)
+    providerBtnText:SetPoint("LEFT", providerBtn, "LEFT", 6, 0)
     providerBtnText:SetPoint("RIGHT", providerBtn, "RIGHT", -2, 0)
     providerBtnText:SetJustifyH("LEFT")
 
