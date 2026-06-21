@@ -463,24 +463,24 @@ local function GetHeaderColumnFrame(index)
     return headerColumnPool[index]
 end
 
-local function RepCellContentTopPad(isFirstRow)
-    local trim = isFirstRow and REP_FIRST_ROW_HEADER_GAP_TRIM or 0
-    return math.max(0, math.floor(REP_CELL_CONTENT_TOP_PAD + 0.5) + REP_CELL_CONTENT_SHIFT_DOWN - trim)
+local function RepCellContentTopPad()
+    local base = math.floor(REP_CELL_CONTENT_TOP_PAD + 0.5) + REP_CELL_CONTENT_SHIFT_DOWN
+    return math.max(0, base - REP_FIRST_ROW_HEADER_GAP_TRIM)
 end
 
-local function ApplyRepCellContentLayout(cell, isFirstRow)
-    local topPad = RepCellContentTopPad(isFirstRow)
+local function ApplyRepCellContentLayout(cell)
+    local topPad = RepCellContentTopPad()
     cell.standing:ClearAllPoints()
     cell.standing:SetPoint("TOPLEFT", cell, "TOPLEFT", 2, -topPad)
     cell.standing:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -2, -topPad)
 end
 
-local function CreateRepCell(col, rowH, colW, isFirstRow)
+local function CreateRepCell(col, rowH, colW)
     local cell = CreateFrame("Frame", nil, col)
     local innerW = colW - 8
     cell:SetSize(innerW, rowH)
     cell.standing = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    ApplyRepCellContentLayout(cell, isFirstRow == true)
+    ApplyRepCellContentLayout(cell)
     cell.standing:SetHeight(REP_STANDING_ROW_HEIGHT)
     cell.standing:SetJustifyH("CENTER")
     cell.standing:SetWordWrap(false)
@@ -542,7 +542,7 @@ end
 
 local function EnsureCell(col, rowIndex)
     if not col.cells[rowIndex] then
-        col.cells[rowIndex] = CreateRepCell(col, dims.rowHeight, dims.columnWidth, rowIndex == 1)
+        col.cells[rowIndex] = CreateRepCell(col, dims.rowHeight, dims.columnWidth)
     end
     return col.cells[rowIndex]
 end
@@ -761,7 +761,7 @@ local function PopulateGridColumn(c, entry, factionRows, numRows, _ctx)
         else
             cell:SetPoint("TOPLEFT", col.cells[r - 1], "BOTTOMLEFT", 0, 0)
         end
-        ApplyRepCellContentLayout(cell, r == 1)
+        ApplyRepCellContentLayout(cell)
         cell:Show()
         cell.barBg:Show()
         cell.barFill:Show()
@@ -945,7 +945,7 @@ function frame:RefreshGrid(_self)
                 cell:ClearAllPoints()
                 cell:SetPoint("TOPLEFT", col.cells[r - 1], "BOTTOMLEFT", 0, 0)
             end
-            ApplyRepCellContentLayout(cell, r == 1)
+            ApplyRepCellContentLayout(cell)
         end
     end
 
