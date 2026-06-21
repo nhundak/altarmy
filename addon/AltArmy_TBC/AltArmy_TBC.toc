@@ -48,6 +48,7 @@ Tabs\TabSummary.lua
 Tabs\TabGear.lua
 Tabs\TabReputation.lua
 Tabs\TabCooldowns.lua
+Tabs\SearchStickyHeaders.lua
 Tabs\TabSearch.lua
 Tabs\GraphLogic.lua
 Tabs\TabGraph.lua

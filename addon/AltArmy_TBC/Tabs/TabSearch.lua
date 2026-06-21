@@ -232,6 +232,15 @@ scrollFrame:SetPoint("TOPLEFT", horizontalScrollChild, "TOPLEFT", 0, 0)
 scrollFrame:SetPoint("BOTTOMLEFT", horizontalScrollChild, "BOTTOMLEFT", 0, 0)
 scrollFrame:SetPoint("BOTTOMRIGHT", horizontalScrollChild, "BOTTOMRIGHT", 0, 0)
 
+local function StyleStickySearchHeader(headerRow)
+    headerRow:EnableMouse(true)
+    headerRow:SetScript("OnMouseWheel", OnSearchScrollWheel)
+    local headerBg = headerRow:CreateTexture(nil, "BACKGROUND")
+    headerBg:SetAllPoints(headerRow)
+    Theme.StyleGridHeader(headerBg)
+    headerRow:SetFrameLevel(scrollFrame:GetFrameLevel() + 20)
+end
+
 local resultsArea = CreateFrame("Frame", nil, scrollFrame)
 resultsArea:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
 resultsArea:SetWidth(totalColWidth)
@@ -239,9 +248,11 @@ resultsArea:SetHeight(ROW_HEIGHT)
 scrollFrame:SetScrollChild(resultsArea)
 resultsArea:SetScript("OnMouseWheel", OnSearchScrollWheel)
 
--- Items section header (created once, shown when items have results)
-local itemsHeaderRow = CreateFrame("Frame", nil, resultsArea)
+-- Items section header (sticky overlay on horizontalScrollChild; shown when items have results)
+local itemsHeaderRow = CreateFrame("Frame", nil, horizontalScrollChild)
 itemsHeaderRow:SetHeight(HEADER_HEIGHT)
+StyleStickySearchHeader(itemsHeaderRow)
+itemsHeaderRow:Hide()
 local itemsHeaderLabels = {}
 local ix = 0
 for _, colName in ipairs(colOrder) do
@@ -255,8 +266,10 @@ for _, colName in ipairs(colOrder) do
     ix = ix + w
 end
 -- Recipes section header
-local recipesHeaderRow = CreateFrame("Frame", nil, resultsArea)
+local recipesHeaderRow = CreateFrame("Frame", nil, horizontalScrollChild)
 recipesHeaderRow:SetHeight(HEADER_HEIGHT)
+StyleStickySearchHeader(recipesHeaderRow)
+recipesHeaderRow:Hide()
 local recipesHeaderLabels = {}
 local rx = 0
 for _, colName in ipairs(recipeColOrder) do
@@ -272,8 +285,10 @@ end
 
 -- "You may also be interested in:" section header: same columns as items (Item/Character/Total),
 -- with the first column label replaced by the section title.
-local alsoInterestedHeaderRow = CreateFrame("Frame", nil, resultsArea)
+local alsoInterestedHeaderRow = CreateFrame("Frame", nil, horizontalScrollChild)
 alsoInterestedHeaderRow:SetHeight(HEADER_HEIGHT)
+StyleStickySearchHeader(alsoInterestedHeaderRow)
+alsoInterestedHeaderRow:Hide()
 local alsoInterestedHeaderLabels = {}
 local aix = 0
 for _, colName in ipairs(colOrder) do
@@ -286,6 +301,13 @@ for _, colName in ipairs(colOrder) do
     alsoInterestedHeaderLabels[#alsoInterestedHeaderLabels + 1] = label
     aix = aix + w
 end
+
+local scrollTopFade = Theme.CreatePinnedHeaderScrollFade({
+    headerFrame = itemsHeaderRow,
+    scrollFrame = scrollFrame,
+    scrollBar = searchScrollBar,
+})
+local stickyHeaderFadeFrame = scrollTopFade.frame
 
 -- Result rows (pool) for items
 local resultRows = {}
@@ -708,6 +730,74 @@ local function fillRecipeRow(row, entry, showRealmSuffix)
     row.cells.Skill:SetText(skillText)
 end
 
+local function UpdateStickyHeaderFade(headerRows, stickyTops, scrollValue)
+    if not stickyHeaderFadeFrame then
+        return
+    end
+
+    if scrollValue <= 0 or #headerRows == 0 then
+        stickyHeaderFadeFrame:Hide()
+        return
+    end
+
+    local pinnedHeader = nil
+    for i = #headerRows, 1, -1 do
+        if stickyTops[i] == 0 then
+            pinnedHeader = headerRows[i]
+            break
+        end
+    end
+
+    if not pinnedHeader then
+        stickyHeaderFadeFrame:Hide()
+        return
+    end
+
+    local topOverlap = 0
+    stickyHeaderFadeFrame:ClearAllPoints()
+    stickyHeaderFadeFrame:SetPoint("TOPLEFT", pinnedHeader, "BOTTOMLEFT", 0, topOverlap)
+    stickyHeaderFadeFrame:SetPoint("TOPRIGHT", pinnedHeader, "BOTTOMRIGHT", 0, topOverlap)
+    stickyHeaderFadeFrame:SetFrameLevel(pinnedHeader:GetFrameLevel() + 50)
+    stickyHeaderFadeFrame:Show()
+end
+
+local function UpdateStickyHeaders()
+    local StickyMod = AltArmy.SearchStickyHeaders
+    if not StickyMod or not horizontalScrollChild then
+        return
+    end
+
+    local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
+    local nItems = categories.Items and #itemList or 0
+    local nRecipes = categories.Recipes and #recipeList or 0
+    local nTooltipOnly = #tooltipOnlyItemList
+
+    local headerTops = StickyMod.ComputeSectionHeaderTops(
+        nItems, nRecipes, nTooltipOnly, HEADER_HEIGHT, HEADER_ROW_GAP, ROW_HEIGHT)
+    local scrollValue = searchScrollBar and searchScrollBar:GetValue() or 0
+    local stickyTops = StickyMod.ComputeStickyTops(headerTops, scrollValue, HEADER_HEIGHT)
+
+    local headerRows = {}
+    if nItems > 0 then
+        headerRows[#headerRows + 1] = itemsHeaderRow
+    end
+    if nRecipes > 0 then
+        headerRows[#headerRows + 1] = recipesHeaderRow
+    end
+    if nTooltipOnly > 0 then
+        headerRows[#headerRows + 1] = alsoInterestedHeaderRow
+    end
+
+    for i, headerRow in ipairs(headerRows) do
+        local stickyTop = stickyTops[i] or 0
+        headerRow:ClearAllPoints()
+        headerRow:SetPoint("TOPLEFT", horizontalScrollChild, "TOPLEFT", 0, -stickyTop)
+        headerRow:SetPoint("TOPRIGHT", horizontalScrollChild, "TOPRIGHT", 0, -stickyTop)
+    end
+
+    UpdateStickyHeaderFade(headerRows, stickyTops, scrollValue)
+end
+
 -- Virtualized list: fill only rows in the visible range + buffer. Call after layout and on scroll.
 UpdateVisibleRows = function()
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
@@ -946,6 +1036,8 @@ UpdateVisibleRows = function()
             if tooltipOnlyGroupOverlayPool[idx] then tooltipOnlyGroupOverlayPool[idx]:Hide() end
         end
     end
+
+    UpdateStickyHeaders()
 end
 
 -- Wire scroll to refresh visible rows (must be after UpdateVisibleRows is defined)
@@ -959,15 +1051,10 @@ UpdateResults = function()
     local nItems = categories.Items and #itemList or 0
     local nRecipes = categories.Recipes and #recipeList or 0
     local contentHeight = 0
-    local currentY = 0
 
     -- Items section: layout header, build groups, set content height (virtualized rows in UpdateVisibleRows)
     if nItems > 0 then
-        itemsHeaderRow:ClearAllPoints()
-        itemsHeaderRow:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, currentY)
-        itemsHeaderRow:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, currentY)
         itemsHeaderRow:Show()
-        currentY = currentY - HEADER_HEIGHT - HEADER_ROW_GAP
         contentHeight = contentHeight + HEADER_HEIGHT + HEADER_ROW_GAP
 
         -- Group consecutive rows by item (itemID + itemName); store for UpdateVisibleRows
@@ -988,7 +1075,6 @@ UpdateResults = function()
         end
 
         contentHeight = contentHeight + nItems * ROW_HEIGHT
-        currentY = currentY - nItems * ROW_HEIGHT
     else
         itemsHeaderRow:Hide()
         itemGroups = {}
@@ -996,13 +1082,9 @@ UpdateResults = function()
 
     -- Recipes section: layout header and content height (virtualized rows in UpdateVisibleRows)
     if nRecipes > 0 then
-        recipesHeaderRow:ClearAllPoints()
-        recipesHeaderRow:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, currentY)
-        recipesHeaderRow:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, currentY)
         recipesHeaderRow:Show()
         contentHeight = contentHeight + HEADER_HEIGHT + HEADER_ROW_GAP
         contentHeight = contentHeight + nRecipes * ROW_HEIGHT
-        currentY = currentY - HEADER_HEIGHT - HEADER_ROW_GAP - nRecipes * ROW_HEIGHT
     else
         recipesHeaderRow:Hide()
     end
@@ -1010,9 +1092,6 @@ UpdateResults = function()
     -- "You may also be interested in:" section: tooltip-only matches shown after Items and Recipes
     local nTooltipOnly = #tooltipOnlyItemList
     if nTooltipOnly > 0 then
-        alsoInterestedHeaderRow:ClearAllPoints()
-        alsoInterestedHeaderRow:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, currentY)
-        alsoInterestedHeaderRow:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, currentY)
         alsoInterestedHeaderRow:Show()
         contentHeight = contentHeight + HEADER_HEIGHT + HEADER_ROW_GAP
 
