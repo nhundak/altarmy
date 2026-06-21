@@ -25,6 +25,9 @@ describe("Summary sort settings persistence", function()
         if s.sortAscending == nil then
             s.sortAscending = true
         end
+        if s.showSelfFirst == nil then
+            s.showSelfFirst = false
+        end
         s.characters = s.characters or {}
         return s
     end
@@ -76,6 +79,25 @@ describe("Summary sort settings persistence", function()
             _G.AltArmyTBC_SummarySettings = { sortKey = "money", sortAscending = true }
             local s = GetSummarySettings()
             assert.is_true(s.sortAscending)
+        end)
+    end)
+
+    describe("showSelfFirst default", function()
+        it("defaults to false when settings are empty", function()
+            local s = GetSummarySettings()
+            assert.is_false(s.showSelfFirst)
+        end)
+
+        it("preserves true when explicitly set", function()
+            _G.AltArmyTBC_SummarySettings = { showSelfFirst = true }
+            local s = GetSummarySettings()
+            assert.is_true(s.showSelfFirst)
+        end)
+
+        it("preserves false when explicitly set", function()
+            _G.AltArmyTBC_SummarySettings = { showSelfFirst = false }
+            local s = GetSummarySettings()
+            assert.is_false(s.showSelfFirst)
         end)
     end)
 

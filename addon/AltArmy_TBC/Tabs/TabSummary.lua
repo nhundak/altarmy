@@ -71,6 +71,9 @@ local function GetSummarySettings()
     if s.sortAscending == nil then
         s.sortAscending = true
     end
+    if s.showSelfFirst == nil then
+        s.showSelfFirst = false
+    end
     s.characters = s.characters or {}
     return s
 end
@@ -384,11 +387,38 @@ summarySettingsTitle:SetPoint("TOPRIGHT", summarySettingsContent, "TOPRIGHT", 0,
 summarySettingsTitle:SetJustifyH("LEFT")
 summarySettingsTitle:SetText("Summary Settings")
 Theme.SetTitleColor(summarySettingsTitle)
+
+local sortingContent = CreateFrame("Frame", nil, summarySettingsContent)
+sortingContent:SetPoint("TOPLEFT", summarySettingsTitle, "BOTTOMLEFT", 0, -8)
+sortingContent:SetPoint("BOTTOMRIGHT", summarySettingsContent, "BOTTOMRIGHT", 0, 0)
+
+local showSelfFirstRow = Theme.CreateLabeledCheckbox(sortingContent, {
+    point = "TOPLEFT",
+    x = 0,
+    y = 0,
+    text = "Pin current character",
+    fullWidthHover = true,
+    onClick = function(checked)
+        GetSummarySettings().showSelfFirst = checked
+        Update()
+    end,
+})
+Theme.AttachSettingsHelpIcon(showSelfFirstRow, {
+    title = "Pin current character",
+    lines = {
+        "When enabled, your current character is automatically pinned, "
+            .. "causing it to show ahead of non-pinned characters.",
+        'This will override the "Hide" setting.',
+    },
+})
+local showSelfFirstCheck = showSelfFirstRow.check
+showSelfFirstCheck:SetChecked(GetSummarySettings().showSelfFirst)
+
 -- Character list: Pin/Hide (reusable component, same as Gear tab)
 if AltArmy.CreateCharacterPinHideList then
     -- luacheck: push ignore 211
-    local _scroll, refresh = AltArmy.CreateCharacterPinHideList(summarySettingsContent,
-        summarySettingsTitle, {
+    local _scroll, refresh = AltArmy.CreateCharacterPinHideList(sortingContent,
+        showSelfFirstRow, {
             gutterEdge = summarySettingsPanel,
             getSettings = GetSummarySettings,
             getCharSetting = GetSummaryCharSetting,
@@ -479,6 +509,7 @@ function frame:ToggleSummarySettings(_self)
     summarySettingsPanel:SetShown(showSettings)
     if showSettings then
         ApplySummarySettingsPanelLayout()
+        showSelfFirstCheck:SetChecked(GetSummarySettings().showSelfFirst)
         if summaryCharListRefresh then summaryCharListRefresh() end
     end
     ApplySummaryListLayout()
@@ -603,12 +634,15 @@ Update = function()
         filtered = rawList
     end
     -- Filter hidden; order: pinned first (keep sort), then non-pinned
+    local showSelfFirst = GetSummarySettings().showSelfFirst == true
     local list = {}
     local pinned, rest = {}, {}
     for i = 1, #filtered do
         local e = filtered[i]
-        if not GetSummaryCharSetting(e.name, e.realm, "hide") then
-            if GetSummaryCharSetting(e.name, e.realm, "pin") then
+        local isHidden = GetSummaryCharSetting(e.name, e.realm, "hide")
+        if not isHidden or (showSelfFirst and isCurrentCharacter(e)) then
+            if GetSummaryCharSetting(e.name, e.realm, "pin")
+                or (showSelfFirst and isCurrentCharacter(e)) then
                 pinned[#pinned + 1] = e
             else
                 rest[#rest + 1] = e

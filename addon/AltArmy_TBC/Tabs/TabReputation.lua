@@ -1048,8 +1048,8 @@ sortingContent:SetPoint("BOTTOMRIGHT", settingsContent, "BOTTOMRIGHT", 0, 0)
 local PIN_CURRENT_CHAR_HELP = {
     title = "Pin current character",
     lines = {
-        "When enabled, your currently signed-in character is automatically pinned, "
-            .. "causing it to show ahead of all non-pinned characters.",
+        "When enabled, your current character is automatically pinned, "
+            .. "causing it to show ahead of non-pinned characters.",
         'This will override the "Hide" setting.',
     },
 }
