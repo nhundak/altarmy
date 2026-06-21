@@ -268,6 +268,7 @@ fixedHeaderRow:EnableMouse(true)
 local headerCornerFrame = CreateFrame("Frame", nil, fixedHeaderRow)
 headerCornerFrame:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, 0)
 headerCornerFrame:SetSize(FACTION_LABEL_WIDTH, GetHeaderHeight())
+Theme.ApplyGridLabelColumnBackground(headerCornerFrame)
 
 factionFilterEdit = CreateFrame("EditBox", "AltArmyTBC_ReputationFactionFilterEdit", headerCornerFrame)
 factionFilterEdit:SetHeight(20)
@@ -367,9 +368,17 @@ verticalScrollBar:SetValueStep(dims.rowHeight)
 verticalScrollBar:SetValue(0)
 verticalScrollBar:EnableMouse(true)
 Theme.AnchorVerticalScrollBar(verticalScrollBar, tabContentPanel, contentArea)
+local scrollTopFade
 verticalScrollBar:SetScript("OnValueChanged", function(_, value)
     verticalScroll:SetVerticalScroll(value)
+    if scrollTopFade then scrollTopFade:Update() end
 end)
+
+scrollTopFade = Theme.CreatePinnedHeaderScrollFade({
+    headerFrame = fixedHeaderRow,
+    scrollFrame = verticalScroll,
+    scrollBar = verticalScrollBar,
+})
 
 local function OnReputationScrollWheel(_, delta)
     if not verticalScrollBar then return end
@@ -379,6 +388,7 @@ local function OnReputationScrollWheel(_, delta)
     newVal = math.max(minVal, math.min(maxVal, newVal))
     verticalScrollBar:SetValue(newVal)
     verticalScroll:SetVerticalScroll(newVal)
+    if scrollTopFade then scrollTopFade:Update() end
 end
 verticalScroll:SetScript("OnMouseWheel", OnReputationScrollWheel)
 verticalScrollChild:SetScript("OnMouseWheel", OnReputationScrollWheel)
@@ -387,6 +397,7 @@ local factionHeaderContainer = CreateFrame("Frame", nil, verticalScrollChild)
 factionHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -GetHeaderHeight())
 factionHeaderContainer:SetPoint("BOTTOMLEFT", verticalScrollChild, "BOTTOMLEFT", 0, 0)
 factionHeaderContainer:SetWidth(FACTION_LABEL_WIDTH)
+Theme.ApplyGridLabelColumnBackground(factionHeaderContainer)
 
 local horizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_ReputationHorizontalScroll", verticalScrollChild)
 horizontalScroll:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", FACTION_LABEL_WIDTH, -GetHeaderHeight())
@@ -550,6 +561,8 @@ end
 local ApplyColumnWindow
 local repGridScrollDragging = false
 
+local scrollGridLeftFade
+local scrollHeaderLeftFade
 local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
     name = "AltArmyTBC_ReputationHorizontalScrollBar",
     thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
@@ -561,6 +574,8 @@ local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
             headerHorizontalScroll:SetHorizontalScroll(scrollVal)
         end
         ApplyColumnWindow(false)
+        if scrollGridLeftFade then scrollGridLeftFade:Update() end
+        if scrollHeaderLeftFade then scrollHeaderLeftFade:Update() end
     end,
     onDragStart = function()
         repGridScrollDragging = true
@@ -576,6 +591,17 @@ local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
 local horizontalScrollBar = horizontalScrollApi.bar
 horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", PAD, -4)
 horizontalScrollBar:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", 0, -4)
+
+scrollGridLeftFade = Theme.CreatePinnedHorizontalScrollFade({
+    anchorScrollFrame = horizontalScroll,
+    scrollFrame = horizontalScroll,
+    scrollBar = horizontalScrollBar,
+})
+scrollHeaderLeftFade = Theme.CreatePinnedHorizontalScrollFade({
+    anchorScrollFrame = headerHorizontalScroll,
+    scrollFrame = horizontalScroll,
+    scrollBar = horizontalScrollBar,
+})
 
 local factionLabelPool = {}
 local function GetFactionLabelRow(i)
@@ -976,20 +1002,33 @@ function frame:RefreshGrid(_self)
         if verticalScrollBar then
             local totalChildHeight = GetHeaderHeight() + dims.scrollableGridHeight
             local maxVertScroll = math.max(0, totalChildHeight - viewHeight)
+            local savedVert = verticalScrollBar:GetValue() or 0
             verticalScrollBar:SetMinMaxValues(0, maxVertScroll)
             verticalScrollBar:SetValueStep(dims.rowHeight)
             verticalScrollBar:SetStepsPerPage(10)
+            local vertScroll = Theme.ClampScroll(savedVert, maxVertScroll)
+            verticalScrollBar:SetValue(vertScroll)
+            verticalScroll:SetVerticalScroll(vertScroll)
         end
         if horizontalScrollBar and horizontalScroll and gridContainer then
             local maxHorzScroll = math.max(0, gridContentWidth - gridViewWidth)
             horizontalScrollApi:SetRange(0, maxHorzScroll)
             horizontalScrollBar:SetShown(maxHorzScroll > 0)
-            horizontalScrollApi:Reset()
+            horizontalScrollApi:Restore(maxHorzScroll)
         end
     end
 
     UpdateFactionLabels(currentFactionRows, currentNumRows)
     ApplyColumnWindow(true)
+    if scrollTopFade then
+        scrollTopFade:Update()
+    end
+    if scrollGridLeftFade then
+        scrollGridLeftFade:Update()
+    end
+    if scrollHeaderLeftFade then
+        scrollHeaderLeftFade:Update()
+    end
 end
 
 frame:SetScript("OnShow", function()

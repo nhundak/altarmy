@@ -10,8 +10,21 @@ describe("AltArmy.Theme", function()
     local function makeStubTexture()
         local t = { _color = nil, _vertex = nil, _texture = nil }
         function t:SetColorTexture(r, g, b, a) self._color = { r, g, b, a } end
-        function t:SetVertexColor(r, g, b, a) self._vertex = { r, g, b, a } end
         function t:SetTexture(tex) self._texture = tex end
+        function t:SetTexCoord(a, b, c, d, e, f, g, h)
+            self._texCoord = { a, b, c, d, e, f, g, h }
+        end
+        function t:SetGradientAlpha(orientation, sr, sg, sb, sa, er, eg, eb, ea)
+            self._gradientAlpha = {
+                orientation = orientation,
+                start = { sr, sg, sb, sa },
+                ["end"] = { er, eg, eb, ea },
+            }
+        end
+        function t:SetGradient(orientation, minColor, maxColor)
+            self._gradient = { orientation = orientation, minColor = minColor, maxColor = maxColor }
+        end
+        function t:SetVertexColor(r, g, b, a) self._vertex = { r, g, b, a } end
         function t:SetAllPoints() end
         function t:SetPoint() end
         function t:SetHeight() end
@@ -485,6 +498,91 @@ describe("AltArmy.Theme", function()
         end)
     end)
 
+    describe("CreatePinnedHeaderScrollFade", function()
+        it("creates a texture fade anchored below the pinned header", function()
+            local viewport = makeStubFrame()
+            local header = makeStubFrame()
+            header._frameLevel = 20
+            header.GetParent = function() return viewport end
+            local fade = Theme.CreatePinnedHeaderScrollFade({
+                headerFrame = header,
+            })
+            assert.is_not_nil(fade.frame)
+            assert.are.equal(70, fade.frame:GetFrameLevel())
+            assert.are.equal(1, #fade.frame._textures)
+            local tex = fade.frame._textures[1]
+            assert.are.equal("Interface\\AddOns\\AltArmy_TBC\\Textures\\ScrollFade", tex._texture)
+            assert.is_not_nil(tex._vertex)
+            assert.are.equal(1, tex._vertex[4])
+        end)
+
+        it("hides the fade at scroll offset zero and shows it when scrolled", function()
+            local viewport = makeStubFrame()
+            local header = makeStubFrame()
+            header.GetParent = function() return viewport end
+            local scroll = makeStubFrame()
+            scroll._verticalScroll = 0
+            local fade = Theme.CreatePinnedHeaderScrollFade({
+                headerFrame = header,
+                scrollFrame = scroll,
+            })
+            fade:Update()
+            assert.is_false(fade.frame:IsShown())
+            scroll._verticalScroll = 40
+            fade:Update()
+            assert.is_true(fade.frame:IsShown())
+        end)
+
+        it("prefers scroll bar value for visibility", function()
+            local viewport = makeStubFrame()
+            local header = makeStubFrame()
+            header.GetParent = function() return viewport end
+            local scrollBar = makeStubFrame()
+            scrollBar._value = 12
+            local fade = Theme.CreatePinnedHeaderScrollFade({
+                headerFrame = header,
+                scrollBar = scrollBar,
+            })
+            fade:Update()
+            assert.is_true(fade.frame:IsShown())
+        end)
+    end)
+
+    describe("CreatePinnedHorizontalScrollFade", function()
+        it("creates a vertical strip on the left edge of a horizontal scroll viewport", function()
+            local parent = makeStubFrame()
+            local scroll = makeStubFrame()
+            scroll._frameLevel = 10
+            scroll.GetParent = function() return parent end
+            local fade = Theme.CreatePinnedHorizontalScrollFade({
+                anchorScrollFrame = scroll,
+            })
+            assert.is_not_nil(fade.frame)
+            assert.are.equal(60, fade.frame:GetFrameLevel())
+            assert.are.equal(Theme.PINNED_HORIZONTAL_SCROLL_FADE_WIDTH, fade.frame:GetWidth())
+            local tex = fade.frame._textures[1]
+            assert.are.equal("Interface\\AddOns\\AltArmy_TBC\\Textures\\ScrollFade", tex._texture)
+            assert.are.same({ 0, 0, 0, 0, 1, 1, 1, 1 }, tex._texCoord)
+        end)
+
+        it("shows the fade when horizontal scroll offset is greater than zero", function()
+            local parent = makeStubFrame()
+            local scroll = makeStubFrame()
+            scroll.GetParent = function() return parent end
+            scroll._horizontalScroll = 0
+            function scroll:GetHorizontalScroll() return self._horizontalScroll end
+            local fade = Theme.CreatePinnedHorizontalScrollFade({
+                anchorScrollFrame = scroll,
+                scrollFrame = scroll,
+            })
+            fade:Update()
+            assert.is_false(fade.frame:IsShown())
+            scroll._horizontalScroll = 24
+            fade:Update()
+            assert.is_true(fade.frame:IsShown())
+        end)
+    end)
+
     describe("HorizontalDragValue", function()
         it("maps cursor delta across bar width to scroll range", function()
             assert.are.equal(50, Theme.HorizontalDragValue(0, 100, 0, 1, 200, 0, 100))
@@ -540,6 +638,21 @@ describe("AltArmy.Theme", function()
             hbar:Reset()
             assert.are.equal(0, hbar.bar:GetValue())
             assert.are.equal(0, scrolled)
+        end)
+
+        it("Restore clamps and reapplies saved scroll offset", function()
+            local parent = makeStubFrame()
+            local scrolled = nil
+            local hbar = Theme.CreateHorizontalScrollBar(parent, {
+                onScroll = function(value)
+                    scrolled = value
+                end,
+            })
+            hbar.bar:SetValue(120)
+            hbar:SetRange(0, 80)
+            hbar:Restore(80)
+            assert.are.equal(80, hbar.bar:GetValue())
+            assert.are.equal(80, scrolled)
         end)
 
         it("SetRange updates slider min/max", function()

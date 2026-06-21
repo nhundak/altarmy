@@ -518,6 +518,137 @@ function Theme.StyleGridHeader(texture)
     texture:SetColorTexture(hdr[1], hdr[2], hdr[3], hdr[4])
 end
 
+--- Opaque gridHeaderBg fill for a pinned row/column label area (Gear slots, Reputation factions).
+function Theme.ApplyGridLabelColumnBackground(frame)
+    if not frame then return nil end
+    if not frame.altArmyLabelColBg then
+        local bg = frame:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints(frame)
+        frame.altArmyLabelColBg = bg
+    end
+    Theme.StyleGridHeader(frame.altArmyLabelColBg)
+    return frame.altArmyLabelColBg
+end
+
+Theme.PINNED_HEADER_SCROLL_FADE_HEIGHT = 20
+Theme.PINNED_HORIZONTAL_SCROLL_FADE_WIDTH = 20
+-- Matches TabGear / TabReputation HEADER_BG_BOTTOM_INSET (header bg stops above frame bottom).
+Theme.GRID_HEADER_BG_BOTTOM_INSET = 6
+local SCROLL_FADE_TEX = "Interface\\AddOns\\AltArmy_TBC\\Textures\\ScrollFade"
+
+local function ApplyScrollFadeTexture(fadeFrame, color, orientation)
+    if not fadeFrame or not color then return end
+    local tex = fadeFrame:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints(fadeFrame)
+    tex:SetTexture(SCROLL_FADE_TEX)
+    if orientation == "horizontal" then
+        -- ScrollFade.tga is opaque at the top (v=0), transparent at the bottom (v=1).
+        -- Map left edge to opaque, right edge to transparent.
+        tex:SetTexCoord(0, 0, 0, 0, 1, 1, 1, 1)
+    end
+    tex:SetVertexColor(color[1], color[2], color[3], color[4] or 1)
+end
+
+--- Gradient strip just below a pinned grid header; visible when vertical scroll offset > 0.
+--- opts: headerFrame, scrollFrame, scrollBar, height, colorKey (Theme.COLORS key, default gridHeaderBg)
+function Theme.CreatePinnedHeaderScrollFade(opts)
+    opts = opts or {}
+    local headerFrame = opts.headerFrame
+    if not headerFrame then return { frame = nil, Update = function() end } end
+
+    local height = opts.height or Theme.PINNED_HEADER_SCROLL_FADE_HEIGHT
+    local colorKey = opts.colorKey or "gridHeaderBg"
+    local fadeColor = C[colorKey] or C.gridHeaderBg
+    local topOverlap = opts.headerBottomInset
+    if topOverlap == nil then
+        topOverlap = Theme.GRID_HEADER_BG_BOTTOM_INSET
+    end
+
+    -- Sibling overlay in the scroll viewport; sits just above scrolling content, below header chrome.
+    local viewport = headerFrame.GetParent and headerFrame:GetParent() or headerFrame
+    local headerLevel = headerFrame.GetFrameLevel and headerFrame:GetFrameLevel() or 0
+    local fadeFrame = CreateFrame("Frame", nil, viewport)
+    -- Align with the visible bottom of StyleGridHeader bg, not the header frame bottom.
+    fadeFrame:SetPoint("TOPLEFT", headerFrame, "BOTTOMLEFT", 0, topOverlap)
+    fadeFrame:SetPoint("TOPRIGHT", headerFrame, "BOTTOMRIGHT", 0, topOverlap)
+    fadeFrame:SetHeight(height)
+    fadeFrame:SetFrameLevel(headerLevel + 50)
+    fadeFrame:EnableMouse(false)
+    ApplyScrollFadeTexture(fadeFrame, fadeColor)
+    fadeFrame:Hide()
+
+    local scrollFrame = opts.scrollFrame
+    local scrollBar = opts.scrollBar
+
+    local function getScrollOffset()
+        if scrollBar and scrollBar.GetValue then
+            return scrollBar:GetValue() or 0
+        end
+        if scrollFrame and scrollFrame.GetVerticalScroll then
+            return scrollFrame:GetVerticalScroll() or 0
+        end
+        return 0
+    end
+
+    local function update()
+        if getScrollOffset() > 0 then
+            fadeFrame:Show()
+        else
+            fadeFrame:Hide()
+        end
+    end
+
+    update()
+    return { frame = fadeFrame, Update = update }
+end
+
+--- Vertical gradient strip on the left edge of a horizontally scrolling viewport; visible when scroll offset > 0.
+--- opts: anchorScrollFrame, scrollFrame, scrollBar, width, colorKey
+function Theme.CreatePinnedHorizontalScrollFade(opts)
+    opts = opts or {}
+    local anchorScrollFrame = opts.anchorScrollFrame
+    if not anchorScrollFrame then return { frame = nil, Update = function() end } end
+
+    local width = opts.width or Theme.PINNED_HORIZONTAL_SCROLL_FADE_WIDTH
+    local colorKey = opts.colorKey or "gridHeaderBg"
+    local fadeColor = C[colorKey] or C.gridHeaderBg
+
+    local parent = anchorScrollFrame.GetParent and anchorScrollFrame:GetParent() or anchorScrollFrame
+    local scrollLevel = anchorScrollFrame.GetFrameLevel and anchorScrollFrame:GetFrameLevel() or 0
+    local fadeFrame = CreateFrame("Frame", nil, parent)
+    fadeFrame:SetPoint("TOPLEFT", anchorScrollFrame, "TOPLEFT", 0, 0)
+    fadeFrame:SetPoint("BOTTOMLEFT", anchorScrollFrame, "BOTTOMLEFT", 0, 0)
+    fadeFrame:SetWidth(width)
+    fadeFrame:SetFrameLevel(scrollLevel + 50)
+    fadeFrame:EnableMouse(false)
+    ApplyScrollFadeTexture(fadeFrame, fadeColor, "horizontal")
+    fadeFrame:Hide()
+
+    local scrollFrame = opts.scrollFrame or anchorScrollFrame
+    local scrollBar = opts.scrollBar
+
+    local function getScrollOffset()
+        if scrollBar and scrollBar.GetValue then
+            return scrollBar:GetValue() or 0
+        end
+        if scrollFrame and scrollFrame.GetHorizontalScroll then
+            return scrollFrame:GetHorizontalScroll() or 0
+        end
+        return 0
+    end
+
+    local function update()
+        if getScrollOffset() > 0 then
+            fadeFrame:Show()
+        else
+            fadeFrame:Hide()
+        end
+    end
+
+    update()
+    return { frame = fadeFrame, Update = update }
+end
+
 Theme.SETTINGS_PANEL_PADDING = 8
 Theme.TAB_CONTENT_PADDING = 8
 -- Section panels sit flush on the tab frame; Core CONTENT_INSET (8px) is the window-edge gutter.
@@ -731,6 +862,13 @@ function Theme.CreateHorizontalScrollBar(parent, opts)
     function api:Reset()
         bar:SetValue(0)
         apply(0)
+    end
+
+    --- Reapply clamped bar value and onScroll after range/layout changes (preserves scroll on tab revisit).
+    function api:Restore(maxVal)
+        local v = Theme.ClampScroll(bar:GetValue() or 0, maxVal)
+        bar:SetValue(v)
+        apply(v)
     end
 
     return api

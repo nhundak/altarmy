@@ -599,6 +599,7 @@ local headerCornerColumn = CreateFrame("Frame", nil, fixedHeaderRow)
 headerCornerColumn:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, 0)
 headerCornerColumn:SetPoint("BOTTOMLEFT", fixedHeaderRow, "BOTTOMLEFT", 0, 0)
 headerCornerColumn:SetWidth(SLOT_LABEL_WIDTH)
+Theme.ApplyGridLabelColumnBackground(headerCornerColumn)
 local headerCornerCell = headerCornerColumn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 headerCornerCell:SetPoint("TOPLEFT", headerCornerColumn, "TOPLEFT", 0, 0)
 headerCornerCell:SetWidth(SLOT_LABEL_WIDTH - 4)
@@ -621,9 +622,17 @@ verticalScrollBar:SetValueStep(dims.rowHeight)
 verticalScrollBar:SetValue(0)
 verticalScrollBar:EnableMouse(true)
 Theme.AnchorVerticalScrollBar(verticalScrollBar, tabContentPanel, contentArea)
+local scrollTopFade
 verticalScrollBar:SetScript("OnValueChanged", function(_, value)
     verticalScroll:SetVerticalScroll(value)
+    if scrollTopFade then scrollTopFade:Update() end
 end)
+
+scrollTopFade = Theme.CreatePinnedHeaderScrollFade({
+    headerFrame = fixedHeaderRow,
+    scrollFrame = verticalScroll,
+    scrollBar = verticalScrollBar,
+})
 
 -- Mouse wheel: scroll the gear list when hovering over the scroll area (frame or scroll child)
 local function OnGearScrollWheel(_, delta)
@@ -635,6 +644,7 @@ local function OnGearScrollWheel(_, delta)
     newVal = math.max(minVal, math.min(maxVal, newVal))
     verticalScrollBar:SetValue(newVal)
     verticalScroll:SetVerticalScroll(newVal)
+    if scrollTopFade then scrollTopFade:Update() end
 end
 verticalScroll:SetScript("OnMouseWheel", OnGearScrollWheel)
 verticalScrollChild:SetScript("OnMouseWheel", OnGearScrollWheel)
@@ -644,6 +654,7 @@ local slotHeaderContainer = CreateFrame("Frame", nil, verticalScrollChild)
 slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -GetPinnedHeaderHeight())
 slotHeaderContainer:SetPoint("BOTTOMLEFT", verticalScrollChild, "BOTTOMLEFT", 0, 0)
 slotHeaderContainer:SetWidth(SLOT_LABEL_WIDTH)
+Theme.ApplyGridLabelColumnBackground(slotHeaderContainer)
 
 -- Score row: pinned in header corner (provider selector + sort-direction button)
 local scoreSortBtn = CreateFrame("Button", nil, headerCornerColumn)
@@ -854,6 +865,8 @@ end
 local columnPool = {}
 
 -- Horizontal scroll bar: create after horizontalScroll/gridContainer exist so OnValueChanged sees them
+local scrollGridLeftFade
+local scrollHeaderLeftFade
 local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
     name = "AltArmyTBC_GearHorizontalScrollBar",
     thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
@@ -869,6 +882,8 @@ local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
             end
             headerHorizontalScroll:SetHorizontalScroll(value)
         end
+        if scrollGridLeftFade then scrollGridLeftFade:Update() end
+        if scrollHeaderLeftFade then scrollHeaderLeftFade:Update() end
     end,
     isShown = function()
         return frame:IsShown()
@@ -877,6 +892,17 @@ local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
 local horizontalScrollBar = horizontalScrollApi.bar
 horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", PAD, -4)
 horizontalScrollBar:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", 0, -4)
+
+scrollGridLeftFade = Theme.CreatePinnedHorizontalScrollFade({
+    anchorScrollFrame = horizontalScroll,
+    scrollFrame = horizontalScroll,
+    scrollBar = horizontalScrollBar,
+})
+scrollHeaderLeftFade = Theme.CreatePinnedHorizontalScrollFade({
+    anchorScrollFrame = headerHorizontalScroll,
+    scrollFrame = horizontalScroll,
+    scrollBar = horizontalScrollBar,
+})
 
 local function GetColumnFrame(index)
     if not columnPool[index] then
@@ -1100,19 +1126,32 @@ function frame:RefreshGrid(_self)
         if verticalScrollBar then
             local totalChildHeight = GetPinnedHeaderHeight() + dims.scrollableGridHeight
             local maxVertScroll = math.max(0, totalChildHeight - viewHeight)
+            local savedVert = verticalScrollBar:GetValue() or 0
             verticalScrollBar:SetMinMaxValues(0, maxVertScroll)
             verticalScrollBar:SetValueStep(dims.rowHeight)
             verticalScrollBar:SetStepsPerPage(10)
+            local vertScroll = Theme.ClampScroll(savedVert, maxVertScroll)
+            verticalScrollBar:SetValue(vertScroll)
+            verticalScroll:SetVerticalScroll(vertScroll)
         end
         if horizontalScrollBar and horizontalScroll and gridContainer then
             local maxHorzScroll = math.max(0, gridContentWidth - gridViewWidth)
             horizontalScrollApi:SetRange(0, maxHorzScroll)
             horizontalScrollBar:SetShown(maxHorzScroll > 0)
-            horizontalScrollApi:Reset()
+            horizontalScrollApi:Restore(maxHorzScroll)
         end
     end
 
     UpdateGridWithOffset()
+    if scrollTopFade then
+        scrollTopFade:Update()
+    end
+    if scrollGridLeftFade then
+        scrollGridLeftFade:Update()
+    end
+    if scrollHeaderLeftFade then
+        scrollHeaderLeftFade:Update()
+    end
 end
 
 --- Reapply fixed layout dimensions (medium icons, normal spacing).
