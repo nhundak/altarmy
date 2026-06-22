@@ -1002,6 +1002,7 @@ end
 
 Theme.CHAR_LIST_CHECKBOX_SIZE = 18
 Theme.CHAR_LIST_ROW_HEIGHT = 20
+Theme.OPTIONS_DROPDOWN_ROW_HEIGHT = Theme.CHAR_LIST_ROW_HEIGHT + 4
 
 --- Themed checkbox chrome (background + check texture); callers own layout and labels.
 function Theme.CreateThemeCheckbox(parent, size)
@@ -1208,6 +1209,173 @@ function Theme.CreateDropdownMenuItem(parent, opts)
     end
 
     return btn
+end
+
+Theme._openSingleSelectDropdowns = Theme._openSingleSelectDropdowns or {}
+
+function Theme.CloseSingleSelectDropdowns(exceptPopup)
+    for popup in pairs(Theme._openSingleSelectDropdowns) do
+        if popup ~= exceptPopup and popup.Hide then
+            popup:Hide()
+        end
+    end
+end
+
+--- Custom single-select dropdown (Gear / Reputation / Search settings style).
+--- opts.parent, opts.width, opts.rowHeight, opts.dropdownParent
+--- opts.point/relativeTo/relativePoint/x/y — anchor the trigger button
+--- opts.entries or opts.getEntries() -> { { id, label }, ... }
+--- opts.getSelectedId(), opts.onSelect(id, entry)
+function Theme.CreateSingleSelectDropdown(opts)
+    opts = opts or {}
+    local parent = opts.parent
+    if not parent then return nil end
+
+    local rowHeight = opts.rowHeight or Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or Theme.CHAR_LIST_ROW_HEIGHT or 20
+    local width = opts.width or 340
+    local dropdownParent = opts.dropdownParent or parent
+
+    local btn = CreateFrame("Button", nil, parent)
+    if opts.relativeTo then
+        btn:SetPoint(opts.point or "TOPLEFT", opts.relativeTo, opts.relativePoint or "TOPLEFT",
+            opts.x or 0, opts.y or 0)
+    else
+        btn:SetPoint(opts.point or "TOPLEFT", parent, opts.relativePoint or "TOPLEFT", opts.x or 0, opts.y or 0)
+    end
+    btn:SetSize(width, rowHeight)
+    Theme.SkinButton(btn)
+
+    local btnText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    btnText:SetPoint("LEFT", btn, "LEFT", 6, 0)
+    btnText:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
+    btnText:SetJustifyH("LEFT")
+
+    local popup = CreateFrame("Frame", nil, dropdownParent, "BackdropTemplate")
+    popup:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
+    popup:SetWidth(width)
+    popup:SetFrameLevel((dropdownParent.GetFrameLevel and dropdownParent:GetFrameLevel() or 0) + 100)
+    popup:Hide()
+    Theme.ApplyBackdrop(popup, "section")
+
+    popup:HookScript("OnHide", function()
+        Theme._openSingleSelectDropdowns[popup] = nil
+    end)
+
+    local itemButtons = {}
+    local enabled = true
+
+    local function resolveEntries()
+        if opts.getEntries then
+            return opts.getEntries() or {}
+        end
+        return opts.entries or {}
+    end
+
+    local function labelForId(id, entries)
+        for i = 1, #entries do
+            if entries[i].id == id then
+                return entries[i].label or tostring(id)
+            end
+        end
+        return tostring(id or "")
+    end
+
+    local function setButtonMuted(muted)
+        if muted then
+            btnText:SetTextColor(0.5, 0.5, 0.5)
+        else
+            btnText:SetTextColor(1, 1, 1)
+        end
+    end
+
+    local function closePopup()
+        popup:Hide()
+    end
+
+    local function updateSelection()
+        local selectedId = opts.getSelectedId and opts.getSelectedId()
+        for i = 1, #itemButtons do
+            local b = itemButtons[i]
+            if b.SetDropdownSelected then
+                b:SetDropdownSelected(b.entryId == selectedId)
+            end
+        end
+    end
+
+    local function rebuildItems()
+        for i = 1, #itemButtons do
+            itemButtons[i]:Hide()
+            itemButtons[i]:SetParent(nil)
+        end
+        for i = #itemButtons, 1, -1 do
+            itemButtons[i] = nil
+        end
+
+        local entries = resolveEntries()
+        popup:SetHeight(#entries * rowHeight + 4)
+        for idx, entry in ipairs(entries) do
+            local b = Theme.CreateDropdownMenuItem(popup, {
+                index = idx,
+                rowHeight = rowHeight,
+                text = entry.label or entry.id,
+                selected = opts.getSelectedId and opts.getSelectedId() == entry.id,
+                onClick = function(self)
+                    closePopup()
+                    if opts.onSelect then
+                        opts.onSelect(self.entryId, entry)
+                    end
+                    btnText:SetText(labelForId(self.entryId, resolveEntries()))
+                    updateSelection()
+                end,
+            })
+            b.entryId = entry.id
+            itemButtons[idx] = b
+        end
+    end
+
+    local api = {
+        button = btn,
+        popup = popup,
+        label = btnText,
+    }
+
+    function api:Update()
+        rebuildItems()
+        local selectedId = opts.getSelectedId and opts.getSelectedId()
+        btnText:SetText(labelForId(selectedId, resolveEntries()))
+        updateSelection()
+    end
+
+    function api:SetEnabled(on)
+        enabled = on ~= false
+        if enabled then
+            btn:Enable()
+            setButtonMuted(false)
+        else
+            btn:Disable()
+            closePopup()
+            setButtonMuted(true)
+        end
+    end
+
+    function api:Close()
+        closePopup()
+    end
+
+    btn:SetScript("OnClick", function()
+        if not enabled or not btn:IsEnabled() then return end
+        local show = not popup:IsShown()
+        if show then
+            Theme.CloseSingleSelectDropdowns(popup)
+            api:Update()
+            updateSelection()
+            Theme._openSingleSelectDropdowns[popup] = true
+        end
+        popup:SetShown(show)
+    end)
+
+    api:Update()
+    return api
 end
 
 -- luacheck: globals UIDROPDOWNMENU_MENU_LEVEL UIDROPDOWNMENU_MAXLEVELS UIDROPDOWNMENU_MAXBUTTONS

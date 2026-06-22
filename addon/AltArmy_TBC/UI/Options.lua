@@ -26,6 +26,9 @@ local function ensureDefaults()
     if AltArmy and AltArmy.CooldownData and AltArmy.CooldownData.EnsureCooldownOptions then
         AltArmy.CooldownData.EnsureCooldownOptions()
     end
+    if AltArmy and AltArmy.GearUpgrade and AltArmy.GearUpgrade.EnsureGearUpgradeOptions then
+        AltArmy.GearUpgrade.EnsureGearUpgradeOptions()
+    end
     if AltArmy and AltArmy.Debug and AltArmy.Debug.Ensure then
         AltArmy.Debug.Ensure()
     end
@@ -133,6 +136,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local panel = CreateFrame("Frame")
+AltArmy.OptionsPanel = panel
 panel.name = "AltArmy"
 
 panel.okay = function()
@@ -164,6 +168,9 @@ panel.default = function()
     if panel.RefreshCooldownOptionsFromVars then
         panel.RefreshCooldownOptionsFromVars()
     end
+    if panel.RefreshGearUpgradeOptionsFromVars then
+        panel.RefreshGearUpgradeOptionsFromVars()
+    end
 end
 panel.refresh = function()
     ensureDefaults()
@@ -175,6 +182,9 @@ panel.refresh = function()
     end
     if panel.RefreshCooldownOptionsFromVars then
         panel.RefreshCooldownOptionsFromVars()
+    end
+    if panel.RefreshGearUpgradeOptionsFromVars then
+        panel.RefreshGearUpgradeOptionsFromVars()
     end
 end
 
@@ -191,22 +201,24 @@ local LEFT_INSET = 16
 local COL_GAP    = 20
 
 -- ---------------------------------------------------------------------------
--- Tab strip (General / Characters / Cooldowns / Debug)
+-- Tab strip (General / Characters / Gear / Cooldowns / Debug)
 -- ---------------------------------------------------------------------------
 
 local TAB_BAR_Y = -42
 local TAB_CONTENT_TOP = -72
-local TAB_BTN_W = 120
+local TAB_BTN_W = 96
 local TAB_BTN_H = 22
 
 local tabGeneral = CreateFrame("Frame", nil, panel)
 local tabCharacters = CreateFrame("Frame", nil, panel)
 local tabCooldowns = CreateFrame("Frame", nil, panel)
+local tabGearUpgrades = CreateFrame("Frame", nil, panel)
 local tabDebug = CreateFrame("Frame", nil, panel)
 tabGeneral:SetPoint("TOPLEFT", panel, "TOPLEFT", LEFT_INSET, TAB_CONTENT_TOP)
 tabGeneral:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -16, 12)
 tabCharacters:SetAllPoints(tabGeneral)
 tabCooldowns:SetAllPoints(tabGeneral)
+tabGearUpgrades:SetAllPoints(tabGeneral)
 tabDebug:SetAllPoints(tabGeneral)
 
 local tabButtons = {}
@@ -220,12 +232,24 @@ local function SetActiveOptionsTab(which)
     tabGeneral:SetShown(which == "general")
     tabCharacters:SetShown(which == "characters")
     tabCooldowns:SetShown(which == "cooldowns")
+    tabGearUpgrades:SetShown(which == "gearUpgrades")
     tabDebug:SetShown(which == "debug")
     for id, btn in pairs(tabButtons) do
         if btn and btn.SetSelected then
             btn:SetSelected(id == which)
         elseif btn and btn.SetAlpha then
             btn:SetAlpha(id == which and 1 or 0.55)
+        end
+    end
+    if which == "gearUpgrades" then
+        if AltArmy.BuildGearUpgradeOptionsUI then
+            AltArmy.BuildGearUpgradeOptionsUI(panel)
+        end
+        if panel.UpdateGearUpgradeScrollRange then
+            panel.UpdateGearUpgradeScrollRange()
+        end
+        if panel.RefreshGearUpgradeOptionsFromVars then
+            panel.RefreshGearUpgradeOptionsFromVars()
         end
     end
     if which == "debug" and RefreshDebugCheckboxes then
@@ -237,8 +261,14 @@ local tabBar = CreateFrame("Frame", nil, panel)
 tabBar:SetPoint("TOPLEFT", panel, "TOPLEFT", LEFT_INSET, TAB_BAR_Y)
 tabBar:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, TAB_BAR_Y)
 tabBar:SetHeight(TAB_BTN_H)
-local tabIds = { "general", "characters", "cooldowns" }
-local tabLabels = { general = "General", characters = "Characters", cooldowns = "Cooldowns", debug = "Debug" }
+local tabIds = { "general", "characters", "gearUpgrades", "cooldowns" }
+local tabLabels = {
+    general = "General",
+    characters = "Characters",
+    gearUpgrades = "Gear",
+    cooldowns = "Cooldowns",
+    debug = "Debug",
+}
 for i, id in ipairs(tabIds) do
     local b = CreateFrame("Button", nil, tabBar, "UIPanelButtonTemplate")
     b:SetSize(TAB_BTN_W, TAB_BTN_H)
@@ -254,7 +284,7 @@ end
 do
     local b = CreateFrame("Button", nil, tabBar, "UIPanelButtonTemplate")
     b:SetSize(TAB_BTN_W, TAB_BTN_H)
-    b:SetPoint("TOPLEFT", tabBar, "TOPLEFT", 3 * (TAB_BTN_W + 4), 0)
+    b:SetPoint("TOPLEFT", tabBar, "TOPLEFT", 4 * (TAB_BTN_W + 4), 0)
     b:SetText("Debug")
     Theme.SkinButton(b, true)
     b:SetScript("OnClick", function()
@@ -420,54 +450,53 @@ local REALM_FILTER_MENU = {
     { value = "all",          label = "Show characters from all realms" },
 }
 
-local realmFilterDD = CreateFrame("Frame", "AltArmyTBC_RealmFilterDD", tabGeneral, "UIDropDownMenuTemplate")
-realmFilterDD:SetPoint("TOPLEFT", minimapCheckbox, "BOTTOMLEFT", -16, -14)
+local function realmFilterEntries()
+    local out = {}
+    for i = 1, #REALM_FILTER_MENU do
+        local entry = REALM_FILTER_MENU[i]
+        out[i] = { id = entry.value, label = entry.label }
+    end
+    return out
+end
+
+local realmFilterDropdown = Theme.CreateSingleSelectDropdown({
+    parent = tabGeneral,
+    point = "TOPLEFT",
+    relativeTo = minimapCheckbox,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -14,
+    width = 340,
+    dropdownParent = tabGeneral,
+    getEntries = realmFilterEntries,
+    getSelectedId = function()
+        local G = AltArmy.GlobalRealmFilter
+        if G and G.Get then
+            G.Ensure()
+            return G.Get()
+        end
+        return "all"
+    end,
+    onSelect = function(id)
+        local G = AltArmy.GlobalRealmFilter
+        if G and G.Set then
+            G.Set(id)
+        end
+    end,
+})
 
 local function RefreshRealmFilterDropdown()
-    if not realmFilterDD or not UIDropDownMenu_SetText then return end
-    local G = AltArmy.GlobalRealmFilter
-    if not G or not G.Get then return end
-    G.Ensure()
-    local v = G.Get()
-    local text = REALM_FILTER_MENU[1].label
-    for i = 1, #REALM_FILTER_MENU do
-        if REALM_FILTER_MENU[i].value == v then
-            text = REALM_FILTER_MENU[i].label
-            break
-        end
+    if realmFilterDropdown and realmFilterDropdown.Update then
+        realmFilterDropdown:Update()
     end
-    UIDropDownMenu_SetText(realmFilterDD, text)
 end
 
-local function InitRealmFilterDropdown(dropdown)
-    if not UIDropDownMenu_Initialize then return end
-    UIDropDownMenu_SetWidth(dropdown, 340)
-    UIDropDownMenu_Initialize(dropdown, function()
-        if UIDropDownMenu_ClearMenu then
-            UIDropDownMenu_ClearMenu(dropdown)
-        end
-        local G = AltArmy.GlobalRealmFilter
-        if not G or not G.Set then return end
-        for i = 1, #REALM_FILTER_MENU do
-            local entry = REALM_FILTER_MENU[i]
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = entry.label
-            info.func = function()
-                G.Set(entry.value)
-                UIDropDownMenu_SetText(dropdown, entry.label)
-            end
-            UIDropDownMenu_AddButton(info)
-        end
-    end)
-end
-
-InitRealmFilterDropdown(realmFilterDD)
 RefreshRealmFilterDropdown()
-panel.realmFilterDropdown = realmFilterDD
+panel.realmFilterDropdown = realmFilterDropdown
 panel.RefreshRealmFilterDropdown = RefreshRealmFilterDropdown
 
 local generalHint = tabGeneral:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-generalHint:SetPoint("TOPLEFT", realmFilterDD, "BOTTOMLEFT", 16, -10)
+generalHint:SetPoint("TOPLEFT", realmFilterDropdown.button, "BOTTOMLEFT", 0, -10)
 generalHint:SetWidth(520)
 generalHint:SetJustifyH("LEFT")
 generalHint:SetText(
@@ -476,6 +505,7 @@ generalHint:SetText(
 
 -- Host frame for UI/CooldownOptions.lua (loaded after this file)
 panel.tabCooldownsHost = tabCooldowns
+panel.tabGearUpgradesHost = tabGearUpgrades
 
 -- ---------------------------------------------------------------------------
 -- Selection state
@@ -703,7 +733,7 @@ local function optionsHostIsOpen()
 end
 
 local function scheduleApplyOptionsTab(tabId)
-    if tabId ~= "characters" and tabId ~= "cooldowns" and tabId ~= "debug" then
+    if tabId ~= "characters" and tabId ~= "cooldowns" and tabId ~= "gearUpgrades" and tabId ~= "debug" then
         return
     end
     if tabId == "debug" and AltArmy.Debug and not AltArmy.Debug.IsEnabled() then
@@ -720,6 +750,14 @@ local function scheduleApplyOptionsTab(tabId)
             SetActiveOptionsTab(self.tabId)
             if self.tabId == "cooldowns" and panel.RefreshCooldownOptionsFromVars then
                 panel.RefreshCooldownOptionsFromVars()
+            end
+            if self.tabId == "gearUpgrades" then
+                if AltArmy.BuildGearUpgradeOptionsUI then
+                    AltArmy.BuildGearUpgradeOptionsUI(panel)
+                end
+                if panel.RefreshGearUpgradeOptionsFromVars then
+                    panel.RefreshGearUpgradeOptionsFromVars()
+                end
             end
             if self.tabId == "debug" and panel.RefreshDebugCheckboxes then
                 panel.RefreshDebugCheckboxes()
@@ -844,6 +882,16 @@ SlashCmdList.ALTARMY = function(msg)
         end
         return
     end
+    local debugItemLink = trimmed:match("^[Dd]ebug [Ii]tem%s+(.+)$")
+    if debugItemLink then
+        local GA = AltArmy and AltArmy.GearUpgradeAlerts
+        if GA and GA.SimulateSelfLoot then
+            GA.SimulateSelfLoot(debugItemLink)
+        elseif AltArmy.Debug and AltArmy.Debug.NotifyChat then
+            AltArmy.Debug.NotifyChat("Gear upgrade alerts are unavailable.")
+        end
+        return
+    end
     if AltArmy and AltArmy.MainFrame then
         AltArmy.MainFrame:Show()
     end
@@ -858,7 +906,7 @@ function AltArmy.OpenInterfaceOptions(initialTab)
     elseif InterfaceOptionsFrame_OpenToCategory then
         InterfaceOptionsFrame_OpenToCategory(panel)
     end
-    if initialTab == "characters" or initialTab == "cooldowns"
+    if initialTab == "characters" or initialTab == "cooldowns" or initialTab == "gearUpgrades"
         or (initialTab == "debug" and AltArmy.Debug and AltArmy.Debug.IsEnabled()) then
         scheduleApplyOptionsTab(initialTab)
     elseif panel:IsShown() and optionsHostIsOpen() then

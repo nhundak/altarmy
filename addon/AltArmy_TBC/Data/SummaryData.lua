@@ -404,14 +404,8 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
     return out
 end
 
---- Title (with |c-colored name) and instruction lines for the Summary warning tooltip. nil if nothing missing.
---- @param name string
---- @param realm string
---- @param classFile string|nil
---- @return string|nil title, table|nil instructions
-function AltArmy.SummaryData.GetMissingDataTooltip(name, realm, classFile)
-    local info = AltArmy.SummaryData.GetMissingDataInfo(name, realm)
-    if not info or not info.hasMissing then return nil, nil end
+--- Title (with |c-colored name) for missing-data tooltips.
+local function buildMissingDataTitle(name, classFile)
     local CC = AltArmy.ClassColor
     local r, g, b = 1, 0.82, 0
     if CC and CC.getRGBOr then
@@ -419,17 +413,11 @@ function AltArmy.SummaryData.GetMissingDataTooltip(name, realm, classFile)
     end
     local hex = string.format("|cFF%02x%02x%02x", math.floor(r * 255), math.floor(g * 255), math.floor(b * 255))
     local n = name or ""
-    local titlePrefix = "Some data for " .. hex .. n .. "|r"
-    local title = titlePrefix .. " has not been gathered yet."
-    return title, info.instructions
+    return "Some data for " .. hex .. n .. "|r has not been gathered yet."
 end
 
---- Same GameTooltip presentation as the Summary warning column (white title, gold instructions).
---- @return boolean true if a tooltip was shown
-function AltArmy.SummaryData.PresentMissingDataTooltip(owner, anchor, name, realm, classFile)
-    if not owner or not GameTooltip then return false end
-    local title, lines = AltArmy.SummaryData.GetMissingDataTooltip(name, realm, classFile)
-    if not title or not lines then return false end
+local function showInstructionsTooltip(owner, anchor, title, lines)
+    if not owner or not GameTooltip or not title or not lines then return false end
     GameTooltip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
     GameTooltip:ClearLines()
     GameTooltip:AddLine(title, 1, 1, 1, true)
@@ -438,4 +426,57 @@ function AltArmy.SummaryData.PresentMissingDataTooltip(owner, anchor, name, real
     end
     GameTooltip:Show()
     return true
+end
+
+--- @param name string
+--- @param realm string
+--- @param classFile string|nil
+--- @return string|nil title, table|nil instructions
+function AltArmy.SummaryData.GetMissingDataTooltip(name, realm, classFile)
+    local info = AltArmy.SummaryData.GetMissingDataInfo(name, realm)
+    if not info or not info.hasMissing then return nil, nil end
+    return buildMissingDataTitle(name, classFile), info.instructions
+end
+
+--- Same GameTooltip presentation as the Summary warning column (white title, gold instructions).
+--- @return boolean true if a tooltip was shown
+function AltArmy.SummaryData.PresentMissingDataTooltip(owner, anchor, name, realm, classFile)
+    local title, lines = AltArmy.SummaryData.GetMissingDataTooltip(name, realm, classFile)
+    return showInstructionsTooltip(owner, anchor, title, lines)
+end
+
+--- Whether talent/spec data is missing for this character.
+function AltArmy.SummaryData.GetTalentSpecMissingInfo(name, realm)
+    local DS = AltArmy.DataStore
+    local DT = AltArmy.DataStoreTalents
+    local out = { hasMissing = false, instructions = {} }
+    if not DS or not DS.GetCharacter then return out end
+    local char = DS:GetCharacter(name, realm)
+    if not char then return out end
+    if DT and DT.HasTalentData and DT.HasTalentData(char) then
+        return out
+    end
+
+    local currentName = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
+    local currentRealm = GetRealmName and GetRealmName() or ""
+    local isCurrent = (name == currentName and realm == currentRealm)
+
+    out.hasMissing = true
+    if isCurrent then
+        table.insert(out.instructions, "* Open your Talents window")
+    else
+        table.insert(out.instructions, "* Log in with this character")
+    end
+    return out
+end
+
+function AltArmy.SummaryData.GetTalentSpecMissingTooltip(name, realm, classFile)
+    local info = AltArmy.SummaryData.GetTalentSpecMissingInfo(name, realm)
+    if not info or not info.hasMissing then return nil, nil end
+    return buildMissingDataTitle(name, classFile), info.instructions
+end
+
+function AltArmy.SummaryData.PresentTalentSpecMissingTooltip(owner, anchor, name, realm, classFile)
+    local title, lines = AltArmy.SummaryData.GetTalentSpecMissingTooltip(name, realm, classFile)
+    return showInstructionsTooltip(owner, anchor, title, lines)
 end

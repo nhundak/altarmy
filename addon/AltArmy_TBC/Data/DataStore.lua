@@ -22,6 +22,7 @@ local DATA_VERSIONS = {
     auctions = 1,
     currencies = 1,
     levelHistory = 1,
+    talents = 1,
 }
 
 AltArmyTBC_Data = AltArmyTBC_Data or {}

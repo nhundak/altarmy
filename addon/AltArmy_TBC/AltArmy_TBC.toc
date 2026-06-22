@@ -17,14 +17,18 @@ Data\ClassColor.lua
 Data\CooldownData.lua
 Data\StockpilePlan.lua
 Data\DataStoreCharacter.lua
+Data\DataStoreTalents.lua
 Data\DataStoreLevelHistory.lua
 Data\LevelProgressData.lua
 Data\DataStoreContainers.lua
 Data\DataStoreEquipment.lua
+Data\ItemUsability.lua
 Data\GearScore.lua
+Data\GearUpgrade.lua
 Data\DataStoreCurrencies.lua
 Data\DataStoreProfessions.lua
 Data\CooldownAlerts.lua
+Data\GearUpgradeAlerts.lua
 Data\DataStoreReputations.lua
 Data\DataStoreMail.lua
 Data\DataStoreAuctions.lua
@@ -60,3 +64,4 @@ UI\MinimapSavedVars.lua
 UI\Minimap.lua
 UI\Options.lua
 UI\CooldownOptions.lua
+UI\GearUpgradeOptions.lua

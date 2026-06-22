@@ -773,4 +773,57 @@ describe("SummaryData", function()
       assert.truthy(#lines > 0)
     end)
   end)
+
+  describe("GetTalentSpecMissingInfo", function()
+    local DS
+    local DT
+
+    before_each(function()
+      DS = _G.AltArmy.DataStore
+      DT = _G.AltArmy.DataStoreTalents
+      if not DS then
+        _G.AltArmy.DataStore = {}
+        DS = _G.AltArmy.DataStore
+      end
+      if not DT then
+        _G.AltArmy.DataStoreTalents = {}
+        DT = _G.AltArmy.DataStoreTalents
+      end
+      _G.UnitName = function() return "Me" end
+      _G.GetRealmName = function() return "Realm1" end
+    end)
+
+    it("returns no missing when talent data exists", function()
+      DS.GetCharacter = function() return { talents = { tabs = { 0, 0, 21 } } } end
+      DT.HasTalentData = function(char) return char and char.talents ~= nil end
+      local out = SD.GetTalentSpecMissingInfo("Bob", "Realm1")
+      assert.is_false(out.hasMissing)
+      assert.are.same({}, out.instructions)
+    end)
+
+    it("returns log-in instruction for another character", function()
+      DS.GetCharacter = function() return { classFile = "MAGE" } end
+      DT.HasTalentData = function() return false end
+      local out = SD.GetTalentSpecMissingInfo("Bob", "Realm1")
+      assert.is_true(out.hasMissing)
+      assert.are.same({ "* Log in with this character" }, out.instructions)
+    end)
+
+    it("returns talents window instruction for current character", function()
+      DS.GetCharacter = function() return { classFile = "MAGE" } end
+      DT.HasTalentData = function() return false end
+      local out = SD.GetTalentSpecMissingInfo("Me", "Realm1")
+      assert.is_true(out.hasMissing)
+      assert.are.same({ "* Open your Talents window" }, out.instructions)
+    end)
+
+    it("uses same title format as other missing-data tooltips", function()
+      DS.GetCharacter = function() return { classFile = "MAGE" } end
+      DT.HasTalentData = function() return false end
+      local title, lines = SD.GetTalentSpecMissingTooltip("Bob", "Realm1", "MAGE")
+      assert.truthy(title:find("Some data for"))
+      assert.truthy(title:find("has not been gathered yet"))
+      assert.are.same({ "* Log in with this character" }, lines)
+    end)
+  end)
 end)

@@ -132,6 +132,8 @@ describe("AltArmy.Theme", function()
         function f:IsShown() return self._shown ~= false end
         function f:Enable() self._enabled = true end
         function f:Disable() self._enabled = false end
+        function f:IsEnabled() return self._enabled ~= false end
+        function f:SetParent() end
         function f:OnBackdropSizeChanged() end
         table.insert(framesCreated, f)
         return f
@@ -356,6 +358,69 @@ describe("AltArmy.Theme", function()
             assert.is_true(btn.altArmyDropdownSelectedBg._shown)
             btn:SetDropdownSelected(false)
             assert.is_false(btn.altArmyDropdownSelectedBg._shown)
+        end)
+    end)
+
+    describe("CreateSingleSelectDropdown", function()
+        it("shows selected entry label on the trigger button", function()
+            local parent = makeStubFrame()
+            local selected = "all"
+            local dd = Theme.CreateSingleSelectDropdown({
+                parent = parent,
+                width = 200,
+                entries = {
+                    { id = "all", label = "All realms" },
+                    { id = "current", label = "Current realm" },
+                },
+                getSelectedId = function() return selected end,
+                onSelect = function(id) selected = id end,
+            })
+            assert.is_not_nil(dd)
+            assert.are.equal("All realms", dd.label._text)
+            selected = "current"
+            dd:Update()
+            assert.are.equal("Current realm", dd.label._text)
+        end)
+
+        it("calls onSelect and closes popup when an item is chosen", function()
+            local parent = makeStubFrame()
+            local selected = "chat"
+            local dd = Theme.CreateSingleSelectDropdown({
+                parent = parent,
+                entries = {
+                    { id = "chat", label = "Chat message" },
+                    { id = "both", label = "Both" },
+                },
+                getSelectedId = function() return selected end,
+                onSelect = function(id) selected = id end,
+            })
+            dd.popup:Show()
+            assert.is_true(dd.popup:IsShown())
+            local bothItem
+            for i = 1, #framesCreated do
+                local f = framesCreated[i]
+                if f.entryId == "both" and f._scripts and f._scripts.OnClick then
+                    bothItem = f
+                    break
+                end
+            end
+            assert.is_not_nil(bothItem)
+            bothItem._scripts.OnClick(bothItem)
+            assert.are.equal("both", selected)
+            assert.is_false(dd.popup:IsShown())
+        end)
+
+        it("SetEnabled disables the trigger and closes the popup", function()
+            local parent = makeStubFrame()
+            local dd = Theme.CreateSingleSelectDropdown({
+                parent = parent,
+                entries = { { id = "a", label = "A" } },
+                getSelectedId = function() return "a" end,
+            })
+            dd.popup:Show()
+            dd:SetEnabled(false)
+            assert.is_false(dd.button:IsEnabled())
+            assert.is_false(dd.popup:IsShown())
         end)
     end)
 

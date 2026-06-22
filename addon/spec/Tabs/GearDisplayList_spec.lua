@@ -194,3 +194,132 @@ describe("Gear display list showSelfFirst", function()
         assert.are.equal("Alice", list[1].name)
     end)
 end)
+
+describe("Gear display list focus mode", function()
+    local GU
+    local IU
+    local DS
+
+    local SLOT_ORDER = {
+        16, 17, 18,
+        1, 2, 3, 5,
+        15,
+        9, 10,
+        6, 7, 8,
+        11, 12, 13, 14,
+        4, 19,
+    }
+
+    local function mockGetItemInfo(item)
+        local id = tonumber(tostring(item):match("item:(%d+)"))
+        local items = {
+            [10] = { "Old Helm", nil, 2, 20, 20, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
+            [11] = { "New Helm", nil, 3, 35, 35, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
+            [12] = { "Ring", nil, 3, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+        }
+        local info = items[id]
+        if not info then return end
+        local link = "|cff|Hitem:" .. tostring(id) .. ":0|h[" .. info[1] .. "]|h|r"
+        return info[1], link, info[3], info[4], info[5], info[6], info[7], nil, info[9]
+    end
+
+    setup(function()
+        _G.AltArmy = _G.AltArmy or {}
+        _G.AltArmyTBC_Data = {
+            Characters = {
+                RealmA = {
+                    Upgrader = {
+                        name = "Upgrader",
+                        classFile = "MAGE",
+                        level = 60,
+                        Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+                    },
+                    Usable = {
+                        name = "Usable",
+                        classFile = "MAGE",
+                        level = 60,
+                        Inventory = { [1] = "|Hitem:11:0|h[New Helm]|h" },
+                    },
+                    WrongClass = {
+                        name = "WrongClass",
+                        classFile = "WARRIOR",
+                        level = 60,
+                        Inventory = {},
+                    },
+                },
+            },
+        }
+        _G.GetItemInfo = mockGetItemInfo
+        _G.GetItemStats = function() return {} end
+        _G.CreateFrame = _G.CreateFrame or function()
+            return { SetScript = function() end, RegisterEvent = function() end }
+        end
+        _G.UIParent = _G.UIParent or {}
+        package.loaded["DataStore"] = nil
+        package.loaded["ItemUsability"] = nil
+        package.loaded["DataStoreTalents"] = nil
+        package.loaded["GearUpgrade"] = nil
+        require("DataStore")
+        require("DataStoreEquipment")
+        require("ItemUsability")
+        require("DataStoreTalents")
+        require("GearUpgrade")
+        DS = AltArmy.DataStore
+        DS.accountData = _G.AltArmyTBC_Data
+        IU = AltArmy.ItemUsability
+        GU = AltArmy.GearUpgrade
+    end)
+
+    --- Mirror TabGear focus sort (lines 240-253).
+    local function sortByFocusTier(list, itemLink, upgradeOpts)
+        local copy = {}
+        for i = 1, #list do copy[i] = list[i] end
+        table.sort(copy, function(a, b)
+            local charA = DS:GetCharacter(a.name, a.realm)
+            local charB = DS:GetCharacter(b.name, b.realm)
+            local ta = GU.GetFocusTier(a, charA, itemLink, upgradeOpts)
+            local tb = GU.GetFocusTier(b, charB, itemLink, upgradeOpts)
+            if ta ~= tb then return ta < tb end
+            return (a.name or "") < (b.name or "")
+        end)
+        return copy
+    end
+
+    --- Mirror TabGear IsDisplaySlotVisible (lines 267-272).
+    local function isDisplaySlotVisible(displayIdx, itemLink)
+        local slots = IU.GetInventorySlotsForItem(itemLink)
+        if not slots or #slots == 0 then return true end
+        local focused = {}
+        for i = 1, #slots do focused[slots[i]] = true end
+        local invSlot = SLOT_ORDER[displayIdx]
+        return focused[invSlot] == true
+    end
+
+    it("sorts columns by focus tier: upgrade, usable, cannot use", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local entries = {
+            { name = "LowLevel", realm = "RealmA", classFile = "MAGE", level = 10 },
+            { name = "Usable", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        assert.are.equal("Upgrader", sorted[1].name)
+        assert.are.equal("Usable", sorted[2].name)
+        assert.are.equal("LowLevel", sorted[3].name)
+    end)
+
+    it("filters display rows to focused item inventory slots", function()
+        local headLink = "|Hitem:11:0|h[New Helm]|h"
+        local ringLink = "|Hitem:12:0|h[Ring]|h"
+        local headRowIdx
+        local ringRowIdx
+        for i = 1, #SLOT_ORDER do
+            if SLOT_ORDER[i] == 1 then headRowIdx = i end
+            if SLOT_ORDER[i] == 11 then ringRowIdx = i end
+        end
+        assert.is_true(isDisplaySlotVisible(headRowIdx, headLink))
+        assert.is_false(isDisplaySlotVisible(ringRowIdx, headLink))
+        assert.is_true(isDisplaySlotVisible(ringRowIdx, ringLink))
+        assert.is_false(isDisplaySlotVisible(headRowIdx, ringLink))
+    end)
+end)

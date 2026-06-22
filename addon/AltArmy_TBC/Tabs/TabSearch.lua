@@ -1469,11 +1469,11 @@ end
 
 local FILTER_SECTION_GAP = 12
 local FILTER_DROPDOWN_GAP = 4
-local FILTER_DROPDOWN_POPUP_PAD_LEFT = 8
+local FILTER_DROPDOWN_POPUP_PAD_LEFT = 10
 local FILTER_DROPDOWN_POPUP_PAD_TOP = 6
 local FILTER_DROPDOWN_POPUP_PAD_BOTTOM = 8
 local FILTER_DROPDOWN_POPUP_PAD_RIGHT = 8
-local FILTER_DROPDOWN_TEXT_INSET = 8
+local FILTER_DROPDOWN_TEXT_INSET = 10
 local craftFilterWidgets = {}
 local craftFilterDropdowns = {}
 
@@ -1529,7 +1529,8 @@ local function CreateMultiSelectFilterDropdown(config)
     )
 
     local btn = CreateFrame("Button", nil, filterContent)
-    btn:SetHeight(SETTINGS_ROW_HEIGHT)
+    local dropdownRowHeight = Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or (Theme.CHAR_LIST_ROW_HEIGHT or 20) + 4
+    btn:SetHeight(SETTINGS_ROW_HEIGHT + 4)
     btn:SetPoint("TOP", header, "BOTTOM", 0, -FILTER_DROPDOWN_GAP)
     btn:SetPoint("LEFT", filterContent, "LEFT", 0, 0)
     btn:SetPoint("RIGHT", filterContent, "RIGHT", 0, 0)
@@ -1539,7 +1540,7 @@ local function CreateMultiSelectFilterDropdown(config)
     end
 
     local btnText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    btnText:SetPoint("LEFT", btn, "LEFT", 4, 0)
+    btnText:SetPoint("LEFT", btn, "LEFT", 6, 0)
     btnText:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
     btnText:SetJustifyH("LEFT")
 
@@ -1562,7 +1563,7 @@ local function CreateMultiSelectFilterDropdown(config)
     local popup = CreateFrame("Frame", nil, filterContent, "BackdropTemplate")
     popup:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
     popup:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, 0)
-    local rowHeight = Theme.CHAR_LIST_ROW_HEIGHT or 20
+    local rowHeight = dropdownRowHeight
     popup:SetHeight(
         FILTER_DROPDOWN_POPUP_PAD_TOP
             + #config.keys * rowHeight
@@ -1578,6 +1579,7 @@ local function CreateMultiSelectFilterDropdown(config)
     local RefreshDropdown
     for idx, key in ipairs(config.keys) do
         local rowOpts = {
+            rowHeight = dropdownRowHeight,
             text = (config.getRowLabel and config.getRowLabel(key)) or config.labels[key] or key,
             fullWidthHover = true,
             rightInset = FILTER_DROPDOWN_POPUP_PAD_RIGHT,

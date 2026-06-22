@@ -22,6 +22,7 @@ local CONTENT_INSET = 8
 local HEADER_TOTAL_OFFSET = 40  -- CONTENT_INSET + header section + gap before tab strip
 
 local setActiveTab -- forward-declare so header search scripts can call it
+local exitSearchMode -- forward-declare; OpenGearTabFocused uses it when frame already visible
 local UpdateSettingsButtonGlow -- forward-declare; defined after settings buttons exist
 local searchModeHandlers = {}  -- enterSearchMode impl registered later (avoids nil if load errors)
 local function enterSearchMode(trimmed)
@@ -29,6 +30,8 @@ local function enterSearchMode(trimmed)
     if fn then fn(trimmed) end
 end
 local lastTab = "Summary"
+local pendingOpenTab = nil
+local pendingGearFocusLink = nil
 
 -- Create main frame
 local main = CreateFrame("Frame", "AltArmyTBC_MainFrame", UIParent)
@@ -154,6 +157,27 @@ headerSearchEdit:SetScript("OnEditFocusLost", updateSearchPlaceholderVisibility)
 -- OnTextChanged registered below after enterSearchMode/exitSearchMode are defined
 
 -- Expose for clearing header search and switching to Summary (e.g. from other code)
+function AltArmy.OpenGearTabFocused(itemLink)
+    pendingOpenTab = "Gear"
+    pendingGearFocusLink = itemLink
+    lastTab = "Gear"
+    if not AltArmy.MainFrame or not AltArmy.MainFrame.Show then return end
+    if AltArmy.MainFrame.IsShown and AltArmy.MainFrame:IsShown() then
+        pendingOpenTab = nil
+        pendingGearFocusLink = nil
+        if headerSearchEdit and headerSearchEdit.SetText then
+            headerSearchEdit:SetText("")
+        end
+        exitSearchMode()
+        local gearFrame = AltArmy.TabFrames and AltArmy.TabFrames.Gear
+        if gearFrame and gearFrame.FocusItem and itemLink then
+            gearFrame:FocusItem(itemLink)
+        end
+        return
+    end
+    AltArmy.MainFrame:Show()
+end
+
 function AltArmy.SwitchToSummaryTab()
     lastTab = "Summary"
     if headerSearchEdit and headerSearchEdit.SetText then
@@ -500,7 +524,7 @@ end
 searchFiltersActiveLabel:Hide()
 searchModeHandlers.searchFiltersActiveLabel = searchFiltersActiveLabel
 
-local function exitSearchMode()
+exitSearchMode = function()
     searchResultsLabel:Hide()
     if searchSettingsBtn then
         searchSettingsBtn:Hide()
@@ -534,9 +558,19 @@ headerSearchEdit:SetScript("OnTextChanged", applySearchBoxState)
 updateSearchPlaceholderVisibility()
 
 main:SetScript("OnShow", function()
-    lastTab = "Summary"
+    local openTab = pendingOpenTab or "Summary"
+    pendingOpenTab = nil
+    lastTab = openTab
     if headerSearchEdit and headerSearchEdit.SetText then
         headerSearchEdit:SetText("")
     end
     exitSearchMode()
+    if openTab == "Gear" and pendingGearFocusLink then
+        local gearFrame = AltArmy.TabFrames and AltArmy.TabFrames.Gear
+        local link = pendingGearFocusLink
+        pendingGearFocusLink = nil
+        if gearFrame and gearFrame.FocusItem then
+            gearFrame:FocusItem(link)
+        end
+    end
 end)

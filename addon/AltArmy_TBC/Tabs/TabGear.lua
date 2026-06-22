@@ -9,6 +9,8 @@ local CC = AltArmy.ClassColor
 local GearScoreMod = AltArmy.GearScore
 local SD = AltArmy.SummaryData
 local SSR = AltArmy.ScoreSortRow
+local IU = AltArmy.ItemUsability
+local GU = AltArmy.GearUpgrade
 local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 local PAD = 4
 local SECTION_INSET = Theme.TAB_SECTION_INSET
@@ -64,6 +66,8 @@ local SLOT_LABEL_WIDTH = 98
 local SCORE_SORT_BTN_GAP = 2
 local SCORE_ROW_LAYOUT_TRIM = 4
 local SCORE_ROW_HEADER_BOTTOM_INSET = 6
+local ITEM_CHECK_BTN_TOP_OFFSET = 4
+local ITEM_CHECK_BTN_BOTTOM_GAP = 0
 
 local function GetAvailableScoreProviders()
     return SSR.GetAvailableProviders()
@@ -131,10 +135,44 @@ local function GetScoreSortBtnSize()
     return GetScoreRowContentHeight()
 end
 
+local function GetFocusedSlotSet()
+    if not droppedItemLink or not IU or not IU.GetInventorySlotsForItem then return nil end
+    local slots = IU.GetInventorySlotsForItem(droppedItemLink)
+    if not slots or #slots == 0 then return nil end
+    local set = {}
+    for i = 1, #slots do
+        set[slots[i]] = true
+    end
+    return set
+end
+
+local function IsDisplaySlotVisible(displayIdx)
+    local focused = GetFocusedSlotSet()
+    if not focused then return true end
+    local invSlot = SLOT_ORDER[displayIdx]
+    return focused[invSlot] == true
+end
+
+local function GetVisibleDisplaySlots()
+    local out = {}
+    for slot = 1, NUM_EQUIPMENT_SLOTS do
+        if IsDisplaySlotVisible(slot) then
+            out[#out + 1] = slot
+        end
+    end
+    return out
+end
+
 local function GetScrollableGridHeight()
     local rh = dims.rowHeight or select(1, GetSpacingDimensions())
-    return NUM_EQUIPMENT_SLOTS * rh + PAD
+    local visibleCount = #GetVisibleDisplaySlots()
+    if visibleCount <= 0 then
+        visibleCount = NUM_EQUIPMENT_SLOTS
+    end
+    return visibleCount * rh + PAD
 end
+
+local LayoutVisibleGridRows
 
 local CharKey = AltArmy.CharKey
 
@@ -151,98 +189,19 @@ local function SetCharSetting(name, realm, pin, hide)
     s.characters[key] = { pin = pin == true, hide = hide == true }
 end
 
---- True if this class can ever wear this armor subclass (TBC rules). subclass = "Cloth"|"Leather"|"Mail"|"Plate".
 local function CanClassEverUseArmor(classFile, subclass)
-    if not subclass or subclass == "" then return true end
-    classFile = (classFile or ""):upper()
-    subclass = subclass:lower()
-    if subclass == "cloth" then return true end
-    if subclass == "leather" then
-        return classFile ~= "MAGE" and classFile ~= "PRIEST" and classFile ~= "WARLOCK"
-    end
-    if subclass == "mail" then
-        return classFile == "HUNTER" or classFile == "SHAMAN" or classFile == "WARRIOR" or classFile == "PALADIN"
-    end
-    if subclass == "plate" then
-        return classFile == "WARRIOR" or classFile == "PALADIN"
-    end
-    return true
+    return IU and IU.CanClassEverUseArmor(classFile, subclass) or true
 end
 
--- TBC class weapon proficiencies (GetItemInfo weapon subclass: "One-Handed Axes", "Daggers", "Staves", etc.)
--- Subclass strings normalized to lowercase for comparison.
-local WEAPON_PROFICIENCIES = {
-    WARRIOR = {
-        ["one-handed axes"] = true, ["two-handed axes"] = true,
-        ["one-handed maces"] = true, ["two-handed maces"] = true,
-        ["one-handed swords"] = true, ["two-handed swords"] = true,
-        ["daggers"] = true, ["fist weapons"] = true, ["polearms"] = true, ["staves"] = true,
-        ["bows"] = true, ["crossbows"] = true, ["guns"] = true, ["thrown"] = true,
-        -- no wands
-    },
-    PALADIN = {
-        ["one-handed axes"] = true, ["two-handed axes"] = true,
-        ["one-handed maces"] = true, ["two-handed maces"] = true,
-        ["one-handed swords"] = true, ["two-handed swords"] = true,
-    },
-    HUNTER = {
-        ["one-handed axes"] = true, ["two-handed axes"] = true,
-        ["one-handed swords"] = true, ["two-handed swords"] = true,
-        ["polearms"] = true, ["staves"] = true, ["daggers"] = true,
-        ["bows"] = true, ["crossbows"] = true, ["guns"] = true,
-    },
-    ROGUE = {
-        ["daggers"] = true, ["fist weapons"] = true,
-        ["one-handed swords"] = true, ["one-handed maces"] = true,
-        ["bows"] = true, ["crossbows"] = true, ["guns"] = true, ["thrown"] = true,
-    },
-    DRUID = {
-        ["daggers"] = true, ["fist weapons"] = true, ["staves"] = true, ["one-handed maces"] = true,
-    },
-    SHAMAN = {
-        ["one-handed axes"] = true, ["two-handed axes"] = true,
-        ["one-handed maces"] = true, ["two-handed maces"] = true,
-        ["daggers"] = true, ["fist weapons"] = true, ["staves"] = true,
-    },
-    MAGE = {
-        ["daggers"] = true, ["one-handed swords"] = true, ["staves"] = true, ["wands"] = true,
-    },
-    PRIEST = {
-        ["daggers"] = true, ["one-handed maces"] = true, ["staves"] = true, ["wands"] = true,
-    },
-    WARLOCK = {
-        ["daggers"] = true, ["one-handed swords"] = true, ["staves"] = true, ["wands"] = true,
-    },
-}
-
---- True if this class can ever use this weapon subclass (TBC rules).
---- subclass = GetItemInfo subclass e.g. "One-Handed Swords".
 local function CanClassEverUseWeapon(classFile, weaponSubclass)
-    if not weaponSubclass or weaponSubclass == "" then return true end
-    local key = weaponSubclass:lower()
-    if key == "fishing pole" then return true end
-    classFile = (classFile or ""):upper()
-    local prof = WEAPON_PROFICIENCIES[classFile]
-    if not prof then return true end
-    return prof[key] == true
+    return IU and IU.CanClassEverUseWeapon(classFile, weaponSubclass) or true
 end
 
---- Get item info for "who can use" sort. Returns reqLevel, armorSubclass (or nil), weaponSubclass (or nil).
 local function GetItemUseInfo(link)
-    if not link or not GetItemInfo then return nil, nil, nil end
-    local name, _, _, _, reqLevel, itemClass, subclass = GetItemInfo(link)
-    if not name then return nil, nil, nil end
-    reqLevel = tonumber(reqLevel) or 0
-    local ic = itemClass and itemClass:lower() or ""
-    -- Armor: subclass = "Cloth", "Leather", "Mail", "Plate"
-    if ic == "armor" or ic == "armour" then
-        return reqLevel, subclass, nil
+    if IU and IU.GetItemUseInfo then
+        return IU.GetItemUseInfo(link)
     end
-    -- Weapon: subclass = "One-Handed Axes", "Daggers", "Staves", etc.
-    if ic == "weapon" then
-        return reqLevel, nil, subclass
-    end
-    return reqLevel, subclass, nil
+    return nil, nil, nil
 end
 
 local function CompareBySelectedScore(entryA, entryB, providerId, descending)
@@ -314,45 +273,34 @@ local function GetDisplayList()
         list = RF.filterListByRealm(list, realmFilter, currentRealm)
     end
 
-    -- When item dropped, re-sort by "who can use" then level/name (overrides column order for fit)
+    -- When item focused, sort: upgrades first, then usable, then cannot use.
     if not droppedItemLink then return list end
-    local reqLevel, armorSubclass, weaponSubclass = GetItemUseInfo(droppedItemLink)
-    if reqLevel == nil and armorSubclass == nil and weaponSubclass == nil then return list end
-    reqLevel = reqLevel or 0
-
-    local function score(entry)
-        local classFile = (entry.classFile or ""):upper()
-        local charLevel = math.floor(tonumber(entry.level) or 0)
-        local canUseArmor = CanClassEverUseArmor(classFile, armorSubclass)
-        local canUseWeapon = CanClassEverUseWeapon(classFile, weaponSubclass)
-        if not canUseArmor or not canUseWeapon then
-            return 999999, charLevel, entry.name or ""
-        end
-        local levelDelta = math.abs(charLevel - reqLevel)
-        return levelDelta, -charLevel, entry.name or ""
-    end
-
+    local upgradeOpts = GU and GU.GetOptions and GU.GetOptions() or {}
     local copy = {}
     for i = 1, #list do copy[i] = list[i] end
     table.sort(copy, function(a, b)
-        local sa, lva, na = score(a)
-        local sb, lvb, nb = score(b)
-        if sa ~= sb then return sa < sb end
-        if lva ~= lvb then return lva > lvb end
-        return na < nb
+        local charA = DS and DS.GetCharacter and DS:GetCharacter(a.name, a.realm)
+        local charB = DS and DS.GetCharacter and DS:GetCharacter(b.name, b.realm)
+        local ta = GU and GU.GetFocusTier and GU.GetFocusTier(a, charA, droppedItemLink, upgradeOpts) or 3
+        local tb = GU and GU.GetFocusTier and GU.GetFocusTier(b, charB, droppedItemLink, upgradeOpts) or 3
+        if ta ~= tb then return ta < tb end
+        return (a.name or "") < (b.name or "")
     end)
     return copy
+end
+
+local function GetFocusTierForEntry(entry)
+    if not droppedItemLink or not GU or not GU.GetFocusTier then return nil end
+    local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
+    local opts = GU.GetOptions and GU.GetOptions() or {}
+    return GU.GetFocusTier(entry, charData, droppedItemLink, opts)
 end
 
 --- True if this entry can never equip the current dropped item (for graying).
 local function CanNeverUseCurrentItem(entry)
     if not droppedItemLink then return false end
-    local _, armorSubclass, weaponSubclass = GetItemUseInfo(droppedItemLink)
-    if armorSubclass and armorSubclass ~= "" then
-        if not CanClassEverUseArmor(entry.classFile, armorSubclass) then return true end
-    end
-    if weaponSubclass and weaponSubclass ~= "" then
-        if not CanClassEverUseWeapon(entry.classFile, weaponSubclass) then return true end
+    if IU and IU.CanNeverUseItem then
+        return IU.CanNeverUseItem(entry.classFile, droppedItemLink)
     end
     return false
 end
@@ -381,6 +329,9 @@ local function GetFitMessage(entry)
     end
 
     local delta = charLevel - reqLevel
+    if droppedItemLink and GetFocusTierForEntry(entry) == 1 then
+        return "Upgrade!", "green"
+    end
     if delta > 0 then
         return delta == 1 and "1 level ahead" or (delta .. " levels ahead"), "orange"
     elseif delta < 0 then
@@ -606,6 +557,32 @@ headerCornerCell:SetWidth(SLOT_LABEL_WIDTH - 4)
 headerCornerCell:SetHeight(FIXED_HEADER_ROW_HEIGHT)
 headerCornerCell:SetJustifyH("LEFT")
 headerCornerCell:SetText("")
+
+local itemCheckBtn = CreateFrame("Button", nil, headerCornerColumn)
+Theme.SkinButton(itemCheckBtn)
+local itemCheckBtnText = itemCheckBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+itemCheckBtnText:SetPoint("LEFT", itemCheckBtn, "LEFT", 4, 0)
+itemCheckBtnText:SetPoint("RIGHT", itemCheckBtn, "RIGHT", -4, 0)
+itemCheckBtnText:SetJustifyH("CENTER")
+itemCheckBtnText:SetWordWrap(false)
+itemCheckBtnText:SetTextColor(1, 1, 1, 1)
+itemCheckBtnText:SetText("Item Check")
+
+local itemCheckModeActive = false
+local itemCheckPanel
+local enterItemCheckMode
+local exitItemCheckMode
+
+local function updateItemCheckButtonLabel()
+    if droppedItemLink then
+        itemCheckBtnText:SetText("Clear selection")
+    elseif itemCheckModeActive then
+        itemCheckBtnText:SetText("Cancel")
+    else
+        itemCheckBtnText:SetText("Item Check")
+    end
+end
+
 local headerHorizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearHeaderHorizontalScroll", fixedHeaderRow)
 headerHorizontalScroll:SetPoint("TOPLEFT", headerCornerColumn, "TOPRIGHT", 0, 0)
 headerHorizontalScroll:SetPoint("BOTTOMRIGHT", fixedHeaderRow, "BOTTOMRIGHT", 0, 0)
@@ -678,6 +655,15 @@ scoreSortBtn:SetScript("OnClick", function()
     if frame.RefreshGrid then frame:RefreshGrid() end
 end)
 UpdateScoreSortButton()
+
+local function LayoutItemCheckButton()
+    if not itemCheckBtn or not scoreSortBtn or not headerCornerColumn then return end
+    itemCheckBtn:ClearAllPoints()
+    itemCheckBtn:SetPoint("TOPLEFT", headerCornerColumn, "TOPLEFT", 0, ITEM_CHECK_BTN_TOP_OFFSET)
+    itemCheckBtn:SetPoint("TOPRIGHT", headerCornerColumn, "TOPRIGHT", 0, ITEM_CHECK_BTN_TOP_OFFSET)
+    itemCheckBtn:SetPoint("BOTTOM", scoreSortBtn, "TOP", 0, -ITEM_CHECK_BTN_BOTTOM_GAP)
+end
+LayoutItemCheckButton()
 
 local scoreProviderStaticLabel = headerCornerColumn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 scoreProviderStaticLabel:SetPoint("BOTTOMLEFT", headerCornerColumn, "BOTTOMLEFT", 4, SCORE_ROW_HEADER_BOTTOM_INSET)
@@ -845,6 +831,12 @@ local function GetHeaderColumnFrame(index)
         col.scoreHover:SetScript("OnLeave", function()
             if GameTooltip then GameTooltip:Hide() end
         end)
+        local upgradeHighlight = col:CreateTexture(nil, "BORDER")
+        upgradeHighlight:SetPoint("TOPLEFT", col.header, "TOPLEFT", -2, 2)
+        upgradeHighlight:SetPoint("BOTTOMRIGHT", col.header, "BOTTOMRIGHT", 2, -2)
+        upgradeHighlight:SetColorTexture(0.2, 0.9, 0.2, 0.35)
+        upgradeHighlight:Hide()
+        col.upgradeHighlight = upgradeHighlight
         col:SetScript("OnEnter", function(self)
             if self.tooltipText and self.tooltipText ~= "" and GameTooltip then
                 GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
@@ -904,6 +896,209 @@ scrollHeaderLeftFade = Theme.CreatePinnedHorizontalScrollFade({
     scrollBar = horizontalScrollBar,
 })
 
+-- Item Check inline mode: replaces grid body with drop UI while keeping the pinned header.
+itemCheckPanel = CreateFrame("Frame", nil, contentArea)
+itemCheckPanel:SetPoint("TOPLEFT", fixedHeaderRow, "BOTTOMLEFT", 0, 0)
+itemCheckPanel:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", 0, 0)
+itemCheckPanel:SetFrameLevel(contentArea:GetFrameLevel() + 10)
+itemCheckPanel:EnableMouse(true)
+itemCheckPanel:Hide()
+
+local ITEM_CHECK_STACK_WIDTH = 420
+local ITEM_CHECK_STACK_HEIGHT = 180
+
+local itemCheckStack = CreateFrame("Frame", nil, itemCheckPanel)
+itemCheckStack:SetSize(ITEM_CHECK_STACK_WIDTH, ITEM_CHECK_STACK_HEIGHT)
+itemCheckStack:SetPoint("CENTER", itemCheckPanel, "CENTER", 0, 0)
+
+local itemCheckMessage = itemCheckStack:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+itemCheckMessage:SetPoint("TOP", itemCheckStack, "TOP", 0, 0)
+itemCheckMessage:SetWidth(ITEM_CHECK_STACK_WIDTH)
+itemCheckMessage:SetJustifyH("CENTER")
+itemCheckMessage:SetWordWrap(true)
+itemCheckMessage:SetText(
+    "Drop an item to see which characters can equip it\nand who it would be an upgrade for.")
+if Theme.SetLabelColor then
+    Theme.SetLabelColor(itemCheckMessage)
+end
+
+local itemCheckDrop = CreateFrame("Frame", nil, itemCheckStack, "BackdropTemplate")
+itemCheckDrop:SetSize(44, 44)
+itemCheckDrop:SetPoint("TOP", itemCheckMessage, "BOTTOM", 0, -14)
+itemCheckDrop:SetPoint("LEFT", itemCheckStack, "LEFT", (ITEM_CHECK_STACK_WIDTH - 44) / 2, 0)
+itemCheckDrop:EnableMouse(true)
+
+local itemCheckDropGlow = itemCheckDrop:CreateTexture(nil, "BACKGROUND")
+itemCheckDropGlow:SetPoint("TOPLEFT", itemCheckDrop, "TOPLEFT", -5, 5)
+itemCheckDropGlow:SetPoint("BOTTOMRIGHT", itemCheckDrop, "BOTTOMRIGHT", 5, -5)
+if Theme.ApplySettingsGlow then
+    Theme.ApplySettingsGlow(itemCheckDropGlow)
+end
+itemCheckDropGlow:Hide()
+
+Theme.ApplyBackdrop(itemCheckDrop, "section")
+
+local itemCheckDropHover = itemCheckDrop:CreateTexture(nil, "BACKGROUND")
+itemCheckDropHover:SetAllPoints(true)
+itemCheckDropHover:SetTexture(Theme.HOVER_TINT_BG or "Interface\\Tooltips\\UI-Tooltip-Background")
+itemCheckDropHover:SetVertexColor(0.82, 0.68, 0.22, 0)
+
+local function setItemCheckDropHighlighted(on)
+    if on then
+        itemCheckDropGlow:Show()
+        itemCheckDropHover:SetVertexColor(0.82, 0.68, 0.22, 0.45)
+        local colors = Theme.COLORS
+        if colors and itemCheckDrop.SetBackdropColor then
+            local bg = colors.btnHoverBg
+            local border = colors.btnActiveBorder
+            itemCheckDrop:SetBackdropColor(bg[1], bg[2], bg[3], bg[4])
+            itemCheckDrop:SetBackdropBorderColor(border[1], border[2], border[3], border[4])
+        end
+    else
+        itemCheckDropGlow:Hide()
+        itemCheckDropHover:SetVertexColor(0.82, 0.68, 0.22, 0)
+        Theme.ApplyBackdrop(itemCheckDrop, "section")
+    end
+end
+
+itemCheckDrop:SetScript("OnEnter", function()
+    setItemCheckDropHighlighted(true)
+end)
+itemCheckDrop:SetScript("OnLeave", function()
+    setItemCheckDropHighlighted(false)
+end)
+
+local itemCheckDropIcon = itemCheckDrop:CreateTexture(nil, "OVERLAY")
+itemCheckDropIcon:SetSize(32, 32)
+itemCheckDropIcon:SetPoint("CENTER", itemCheckDrop, "CENTER", 0, 0)
+itemCheckDropIcon:Hide()
+
+local itemCheckCancel = CreateFrame("Button", nil, itemCheckStack)
+itemCheckCancel:SetSize(72, SETTINGS_ROW_HEIGHT)
+itemCheckCancel:SetPoint("TOP", itemCheckDrop, "BOTTOM", 0, -14)
+itemCheckCancel:SetPoint("LEFT", itemCheckStack, "LEFT", (ITEM_CHECK_STACK_WIDTH - 72) / 2, 0)
+Theme.SkinButton(itemCheckCancel)
+
+local itemCheckCancelText = itemCheckCancel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+itemCheckCancelText:SetPoint("CENTER", itemCheckCancel, "CENTER", 0, 0)
+itemCheckCancelText:SetTextColor(1, 1, 1, 1)
+itemCheckCancelText:SetText("Cancel")
+
+local itemCheckError = itemCheckStack:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+itemCheckError:SetPoint("TOP", itemCheckCancel, "BOTTOM", 0, -10)
+itemCheckError:SetWidth(ITEM_CHECK_STACK_WIDTH)
+itemCheckError:SetJustifyH("CENTER")
+itemCheckError:SetWordWrap(true)
+itemCheckError:SetTextColor(1, 0.4, 0.3, 1)
+itemCheckError:Hide()
+
+local function clearItemCheckError()
+    itemCheckError:SetText("")
+    itemCheckError:Hide()
+end
+
+local function showItemCheckError(msg)
+    itemCheckError:SetText(msg or "")
+    itemCheckError:Show()
+end
+
+local function resetItemCheckDrop()
+    itemCheckDropIcon:Hide()
+    clearItemCheckError()
+end
+
+local function applyItemCheckDrop(itemLink)
+    droppedItemLink = itemLink
+    exitItemCheckMode()
+    updateItemCheckButtonLabel()
+    if frame.RefreshGrid then frame:RefreshGrid() end
+end
+
+local function tryAcceptItemCheckDrop()
+    if not GetCursorInfo then return false end
+    local infoType, _, itemLink = GetCursorInfo()
+    if infoType ~= "item" or not itemLink then return false end
+    if ClearCursor then ClearCursor() end
+
+    local ok, errMsg = true, nil
+    if IU and IU.ValidateItemCheckDrop then
+        ok, errMsg = IU.ValidateItemCheckDrop(itemLink)
+    end
+    if not ok then
+        itemCheckDropIcon:Hide()
+        showItemCheckError(errMsg)
+        return false
+    end
+
+    applyItemCheckDrop(itemLink)
+    return true
+end
+
+itemCheckDrop:SetScript("OnReceiveDrag", tryAcceptItemCheckDrop)
+itemCheckDrop:SetScript("OnMouseUp", function(_, button)
+    if button == "RightButton" then
+        resetItemCheckDrop()
+        return
+    end
+    tryAcceptItemCheckDrop()
+end)
+
+itemCheckCancel:SetScript("OnClick", function()
+    exitItemCheckMode()
+end)
+
+function enterItemCheckMode()
+    itemCheckModeActive = true
+    resetItemCheckDrop()
+    if itemCheckPanel then itemCheckPanel:Show() end
+    if slotHeaderContainer then slotHeaderContainer:Hide() end
+    if horizontalScroll then horizontalScroll:Hide() end
+    if verticalScrollBar then verticalScrollBar:Hide() end
+    if horizontalScrollBar then horizontalScrollBar:Hide() end
+    if verticalScroll then verticalScroll:EnableMouse(false) end
+    updateItemCheckButtonLabel()
+end
+
+function exitItemCheckMode()
+    itemCheckModeActive = false
+    resetItemCheckDrop()
+    if itemCheckPanel then itemCheckPanel:Hide() end
+    if slotHeaderContainer then slotHeaderContainer:Show() end
+    if horizontalScroll then horizontalScroll:Show() end
+    if verticalScrollBar then verticalScrollBar:Show() end
+    if horizontalScrollBar then horizontalScrollBar:Show() end
+    if verticalScroll then verticalScroll:EnableMouse(true) end
+    updateItemCheckButtonLabel()
+end
+
+itemCheckBtn:SetScript("OnClick", function()
+    if droppedItemLink then
+        droppedItemLink = nil
+        updateItemCheckButtonLabel()
+        if frame.RefreshGrid then frame:RefreshGrid() end
+        return
+    end
+    if itemCheckModeActive then
+        exitItemCheckMode()
+        return
+    end
+    enterItemCheckMode()
+end)
+
+function frame:FocusItem(link)
+    if not link or link == "" then return end
+    if itemCheckModeActive then exitItemCheckMode() end
+    droppedItemLink = link
+    updateItemCheckButtonLabel()
+    if self.RefreshGrid then self:RefreshGrid() end
+end
+
+function frame:ClearFocus()
+    droppedItemLink = nil
+    updateItemCheckButtonLabel()
+    if self.RefreshGrid then self:RefreshGrid() end
+end
+
 local function GetColumnFrame(index)
     if not columnPool[index] then
         local col = CreateFrame("Frame", nil, gridContainer)
@@ -957,6 +1152,52 @@ local function GetColumnFrame(index)
     return columnPool[index]
 end
 
+LayoutVisibleGridRows = function()
+    if not slotLabels or not slotLabels[1] then return end
+    local visible = GetVisibleDisplaySlots()
+    local slotLabelRowOffset = (dims.rowHeight - dims.cellSize) / 2
+    local cellXOffset = (dims.columnWidth - dims.cellSize) / 2
+
+    for slot = 1, NUM_EQUIPMENT_SLOTS do
+        if slotLabels[slot] then
+            slotLabels[slot]:SetShown(false)
+        end
+    end
+
+    for row = 1, #visible do
+        local slot = visible[row]
+        local label = slotLabels[slot]
+        label:SetShown(true)
+        label:SetHeight(dims.cellSize)
+        label:ClearAllPoints()
+        label:SetPoint("LEFT", slotHeaderContainer, "LEFT", 0, 0)
+        if row == 1 then
+            label:SetPoint("TOP", slotHeaderContainer, "TOP", 0, -slotLabelRowOffset)
+        else
+            label:SetPoint("TOP", slotLabels[visible[row - 1]], "TOP", 0, -dims.rowHeight)
+        end
+    end
+
+    for _, col in pairs(columnPool) do
+        for row = 1, #visible do
+            local slot = visible[row]
+            local cell = col.cells[slot]
+            cell:SetSize(dims.cellSize, dims.cellSize)
+            cell:ClearAllPoints()
+            if row == 1 then
+                cell:SetPoint("TOPLEFT", col, "TOPLEFT", cellXOffset, -slotLabelRowOffset)
+            else
+                cell:SetPoint(
+                    "TOPLEFT",
+                    col.cells[visible[row - 1]],
+                    "BOTTOMLEFT",
+                    0,
+                    -(dims.rowHeight - dims.cellSize))
+            end
+        end
+    end
+end
+
 local function UpdateGridWithOffset()
     if not AltArmy.Characters then return end
     local list = GetDisplayList()
@@ -975,6 +1216,15 @@ local function UpdateGridWithOffset()
         headerCol:ClearAllPoints()
         headerCol:SetPoint("TOPLEFT", headerGridContainer, "TOPLEFT", (c - 1) * dims.columnWidth + PAD, 0)
         headerCol:Show()
+
+        local focusTier = GetFocusTierForEntry(entry)
+        if headerCol.upgradeHighlight then
+            if focusTier == 1 then
+                headerCol.upgradeHighlight:Show()
+            else
+                headerCol.upgradeHighlight:Hide()
+            end
+        end
 
         local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
         local RF = AltArmy.RealmFilter
@@ -1016,12 +1266,17 @@ local function UpdateGridWithOffset()
         end
 
         local fitMsg, fitColor = GetFitMessage(entry)
-        if fitMsg and fitMsg ~= "" then
+        if droppedItemLink then
+            headerCol.message:SetText("")
+            headerCol.message:Hide()
+        elseif fitMsg and fitMsg ~= "" then
             headerCol.message:SetText(fitMsg)
             if fitColor == "red" then
                 headerCol.message:SetTextColor(1, 0.3, 0.3, 1)
             elseif fitColor == "orange" then
                 headerCol.message:SetTextColor(1, 0.6, 0.2, 1)
+            elseif fitColor == "green" then
+                headerCol.message:SetTextColor(0.2, 1, 0.2, 1)
             else
                 headerCol.message:SetTextColor(0.9, 0.9, 0.9, 1)
             end
@@ -1082,6 +1337,9 @@ local function UpdateGridWithOffset()
 
         for slot = 1, NUM_EQUIPMENT_SLOTS do
             local cell = col.cells[slot]
+            if not IsDisplaySlotVisible(slot) then
+                cell:Hide()
+            else
             local item = charData and DS.GetInventoryItem and DS:GetInventoryItem(charData, SLOT_ORDER[slot])
             if type(item) == "string" then
                 cell.itemLink = item
@@ -1094,6 +1352,8 @@ local function UpdateGridWithOffset()
                 cell.itemID = nil
             end
             ApplyItemCellVisual(cell, item, gray)
+            cell:Show()
+            end
         end
     end
 end
@@ -1109,6 +1369,18 @@ function frame:RefreshGrid(_self)
 
     local list = GetDisplayList()
     local numCols = #list
+    dims.scrollableGridHeight = GetScrollableGridHeight()
+    if verticalScrollChild then
+        verticalScrollChild:SetHeight(GetPinnedHeaderHeight() + dims.scrollableGridHeight)
+    end
+    if gridContainer then
+        gridContainer:SetHeight(dims.scrollableGridHeight)
+    end
+    for _, col in pairs(columnPool) do
+        col:SetHeight(dims.scrollableGridHeight)
+    end
+    LayoutVisibleGridRows()
+
     local viewWidth = verticalScroll and verticalScroll:GetWidth() or 0
     local viewHeight = verticalScroll and verticalScroll:GetHeight() or 0
     local gridContentWidth = numCols * dims.columnWidth + PAD
@@ -1207,20 +1479,7 @@ local function ApplySpacing()
         local btnSize = GetScoreSortBtnSize()
         scoreSortBtn:SetSize(btnSize, btnSize)
     end
-
-    if slotLabels and slotLabels[1] then
-        local slotLabelRowOffset = (dims.rowHeight - dims.cellSize) / 2
-        for slot = 1, NUM_EQUIPMENT_SLOTS do
-            slotLabels[slot]:SetHeight(dims.cellSize)
-            slotLabels[slot]:ClearAllPoints()
-            slotLabels[slot]:SetPoint("LEFT", slotHeaderContainer, "LEFT", 0, 0)
-            if slot == 1 then
-                slotLabels[slot]:SetPoint("TOP", slotHeaderContainer, "TOP", 0, -slotLabelRowOffset)
-            else
-                slotLabels[slot]:SetPoint("TOP", slotLabels[slot - 1], "TOP", 0, -dims.rowHeight)
-            end
-        end
-    end
+    LayoutItemCheckButton()
 
     for _, col in pairs(headerColumnPool) do
         col:SetSize(dims.columnWidth, GetPinnedHeaderHeight())
@@ -1233,19 +1492,9 @@ local function ApplySpacing()
     end
     for _, col in pairs(columnPool) do
         col:SetSize(dims.columnWidth, dims.scrollableGridHeight)
-        local cellXOffset = (dims.columnWidth - dims.cellSize) / 2
-        local slotLabelRowOffset = (dims.rowHeight - dims.cellSize) / 2
-        for slot = 1, NUM_EQUIPMENT_SLOTS do
-            local cell = col.cells[slot]
-            cell:SetSize(dims.cellSize, dims.cellSize)
-            cell:ClearAllPoints()
-            if slot == 1 then
-                cell:SetPoint("TOPLEFT", col, "TOPLEFT", cellXOffset, -slotLabelRowOffset)
-            else
-                cell:SetPoint("TOPLEFT", col.cells[slot - 1], "BOTTOMLEFT", 0, -(dims.rowHeight - dims.cellSize))
-            end
-        end
     end
+
+    LayoutVisibleGridRows()
 end
 
 local function RefreshGearTabControls()
@@ -1255,6 +1504,11 @@ local function RefreshGearTabControls()
 end
 
 -- Apply layout when tab is shown (dims initialized at file load)
+frame:HookScript("OnHide", function()
+    if itemCheckModeActive then
+        exitItemCheckMode()
+    end
+end)
 frame:SetScript("OnShow", function()
     ApplySpacing()
     RefreshGearTabControls()

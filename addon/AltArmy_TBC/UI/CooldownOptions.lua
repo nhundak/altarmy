@@ -1,6 +1,5 @@
 -- AltArmy TBC — Cooldown options (Interface > AddOns > AltArmy > Cooldowns tab).
 -- Loaded after UI/Options.lua (see .toc); parents to AltArmy.OptionsPanel.tabCooldownsHost.
--- luacheck: globals UIDropDownMenu_EnableDropDown UIDropDownMenu_DisableDropDown
 
 if not AltArmy then return end
 
@@ -95,12 +94,8 @@ local function RefreshDependentEnabled(key)
         if not alertOn then w.alertSpecChk:SetChecked(false) end
         SetCheckboxCaptionMuted(w.alertSpecLbl, not alertOn)
     end
-    if w.typeDrop then
-        if alertOn and UIDropDownMenu_EnableDropDown then
-            UIDropDownMenu_EnableDropDown(w.typeDrop)
-        elseif not alertOn and UIDropDownMenu_DisableDropDown then
-            UIDropDownMenu_DisableDropDown(w.typeDrop)
-        end
+    if w.typeDrop and w.typeDrop.SetEnabled then
+        w.typeDrop:SetEnabled(alertOn)
     end
     if w.typeLabel then
         SetCheckboxCaptionMuted(w.typeLabel, not alertOn)
@@ -181,24 +176,30 @@ for _, key in ipairs(CD.CATEGORY_ORDER) do
     typeLabel:SetPoint("TOPLEFT", alertChk, "BOTTOMLEFT", 24, -8)
     typeLabel:SetText("Alert type")
 
-    local typeDrop = CreateFrame("Frame", "AltArmyTBC_CDAlertType_" .. key, block, "UIDropDownMenuTemplate")
-    typeDrop:SetPoint("LEFT", typeLabel, "RIGHT", 12, -4)
-    UIDropDownMenu_SetWidth(typeDrop, 160)
-    UIDropDownMenu_Initialize(typeDrop, function()
-        if UIDropDownMenu_ClearMenu then
-            UIDropDownMenu_ClearMenu(typeDrop)
-        end
-        for _, opt in ipairs({ "chat", "raidWarning", "both" }) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = ALERT_TYPE_LABELS[opt] or opt
-            info.func = function()
-                AltArmyTBC_Options.cooldowns.categories[key].alertType = opt
-                UIDropDownMenu_SetText(typeDrop, ALERT_TYPE_LABELS[opt] or opt)
-                SaveCategory(key)
-            end
-            UIDropDownMenu_AddButton(info)
-        end
-    end)
+    local alertTypeEntries = {
+        { id = "chat", label = ALERT_TYPE_LABELS.chat },
+        { id = "raidWarning", label = ALERT_TYPE_LABELS.raidWarning },
+        { id = "both", label = ALERT_TYPE_LABELS.both },
+    }
+    local typeDrop = Theme.CreateSingleSelectDropdown({
+        parent = block,
+        point = "LEFT",
+        relativeTo = typeLabel,
+        relativePoint = "RIGHT",
+        x = 12,
+        y = 0,
+        width = 160,
+        dropdownParent = scrollChild,
+        entries = alertTypeEntries,
+        getSelectedId = function()
+            CD.EnsureCooldownOptions()
+            return AltArmyTBC_Options.cooldowns.categories[key].alertType or "chat"
+        end,
+        onSelect = function(id)
+            AltArmyTBC_Options.cooldowns.categories[key].alertType = id
+            SaveCategory(key)
+        end,
+    })
 
     local remindChk = CreateFrame("CheckButton", nil, block, "InterfaceOptionsCheckButtonTemplate")
     remindChk:SetPoint("TOPLEFT", typeLabel, "BOTTOMLEFT", -24, -10)
@@ -289,9 +290,8 @@ local function RefreshCooldownOptionsFromVars()
             if w.alertSpecChk then
                 w.alertSpecChk:SetChecked(cat.alertOnlyIfSpecialization == true)
             end
-            local at = cat.alertType or "chat"
-            if UIDropDownMenu_SetText and w.typeDrop then
-                UIDropDownMenu_SetText(w.typeDrop, ALERT_TYPE_LABELS[at] or ALERT_TYPE_LABELS.chat)
+            if w.typeDrop and w.typeDrop.Update then
+                w.typeDrop:Update()
             end
             w.remindChk:SetChecked(cat.remindMe == true)
             w.remindEdit:SetText(tostring(cat.remindEveryMinutes or 30))

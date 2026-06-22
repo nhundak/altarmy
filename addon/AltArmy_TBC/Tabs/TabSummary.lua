@@ -24,6 +24,7 @@ local HEADER_HEIGHT = 20
 local TOTALS_ROW_HEIGHT = 18
 local PAD = 4
 local WARNING_COL_WIDTH = 20
+local TALENT_COL_WIDTH = 20
 local NAME_COL_BASE_WIDTH = 179 -- +30 vs original 149 to fill 640px frame content width
 
 local SD = AltArmy.SummaryData
@@ -104,7 +105,7 @@ end
 -- Column definitions: Name, Level, RestXP, Money, Played, LastOnline, Warning
 local columns = {
     Name = {
-        Width = NAME_COL_BASE_WIDTH - WARNING_COL_WIDTH,
+        Width = NAME_COL_BASE_WIDTH - WARNING_COL_WIDTH - TALENT_COL_WIDTH,
         GetText = function(entry) return entry.name or "" end,
         JustifyH = "LEFT",
     },
@@ -150,8 +151,12 @@ local columns = {
         Width = WARNING_COL_WIDTH,
         headerLabel = "",
     },
+    TalentSpec = {
+        Width = TALENT_COL_WIDTH,
+        headerLabel = "",
+    },
 }
-local columnOrder = { "Name", "Level", "RestXP", "Money", "Played", "LastOnline", "Warning" }
+local columnOrder = { "Name", "Level", "RestXP", "Money", "Played", "LastOnline", "TalentSpec", "Warning" }
 
 -- Column display name -> sort key for Characters:Sort()
 local columnToSortKey = {
@@ -239,7 +244,7 @@ for _, colName in ipairs(columnOrder) do
     local col = columns[colName]
     local w = col and col.Width or 100
     local cn = colName
-    if cn == "Warning" then
+    if cn == "Warning" or cn == "TalentSpec" then
         local headerFrame = CreateFrame("Frame", nil, headerRow)
         headerFrame:SetPoint("LEFT", headerRow, "LEFT", x, 0)
         headerFrame:SetSize(w, HEADER_HEIGHT)
@@ -545,28 +550,38 @@ for i = 1, ROW_POOL_SIZE do
     for _, colName in ipairs(columnOrder) do
         local col = columns[colName]
         local w = col and col.Width or 100
-        if colName == "Warning" then
-            local warningFrame = CreateFrame("Frame", nil, row)
-            warningFrame:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
-            warningFrame:SetSize(w, ROW_HEIGHT)
-            warningFrame:EnableMouse(true)
-            local mark = warningFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        if colName == "Warning" or colName == "TalentSpec" then
+            local iconFrame = CreateFrame("Frame", nil, row)
+            iconFrame:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
+            iconFrame:SetSize(w, ROW_HEIGHT)
+            iconFrame:EnableMouse(true)
+            local mark = iconFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             mark:SetText("!")
-            mark:SetPoint("CENTER", warningFrame, "CENTER", 0, 0)
+            mark:SetPoint("CENTER", iconFrame, "CENTER", 0, 0)
             mark:SetTextColor(1, 0.82, 0, 1)
-            warningFrame.mark = mark
+            iconFrame.mark = mark
             mark:Hide()
-            warningFrame:SetScript("OnEnter", function(self)
-                if not GameTooltip then return end
-                local e = self.missingDataTooltipEntry
-                if e and SD and SD.PresentMissingDataTooltip then
-                    SD.PresentMissingDataTooltip(self, "ANCHOR_BOTTOMLEFT", e.name, e.realm, e.classFile)
-                end
-            end)
-            warningFrame:SetScript("OnLeave", function()
+            if colName == "Warning" then
+                iconFrame:SetScript("OnEnter", function(self)
+                    if not GameTooltip then return end
+                    local e = self.missingDataTooltipEntry
+                    if e and SD and SD.PresentMissingDataTooltip then
+                        SD.PresentMissingDataTooltip(self, "ANCHOR_BOTTOMLEFT", e.name, e.realm, e.classFile)
+                    end
+                end)
+            else
+                iconFrame:SetScript("OnEnter", function(self)
+                    if not GameTooltip then return end
+                    local e = self.talentSpecTooltipEntry
+                    if e and SD and SD.PresentTalentSpecMissingTooltip then
+                        SD.PresentTalentSpecMissingTooltip(self, "ANCHOR_BOTTOMLEFT", e.name, e.realm, e.classFile)
+                    end
+                end)
+            end
+            iconFrame:SetScript("OnLeave", function()
                 if GameTooltip then GameTooltip:Hide() end
             end)
-            row.cells[colName] = warningFrame
+            row.cells[colName] = iconFrame
         elseif colName == "Name" then
             local nameIcon = row:CreateTexture(nil, "ARTWORK")
             nameIcon:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
@@ -720,7 +735,26 @@ Update = function()
                 for _, colName in ipairs(columnOrder) do
                 local col = columns[colName]
                 local cell = rowFrame.cells[colName]
-                if colName == "Warning" then
+                if colName == "TalentSpec" then
+                    local info = { hasMissing = false }
+                    if SD and SD.GetTalentSpecMissingInfo then
+                        local result = SD.GetTalentSpecMissingInfo(entry.name, entry.realm)
+                        if result then info = result end
+                    end
+                    if info.hasMissing and cell and cell.mark then
+                        cell.mark:Show()
+                        cell.talentSpecTooltipEntry = {
+                            name = entry.name or "",
+                            realm = entry.realm or "",
+                            classFile = entry.classFile,
+                        }
+                    else
+                        if cell then
+                            if cell.mark then cell.mark:Hide() end
+                            cell.talentSpecTooltipEntry = nil
+                        end
+                    end
+                elseif colName == "Warning" then
                     local info = { hasMissing = false, instructions = {} }
                     if SD and SD.GetMissingDataInfo then
                         local result = SD.GetMissingDataInfo(entry.name, entry.realm)
@@ -788,6 +822,11 @@ Update = function()
                 if warningCell then
                     if warningCell.mark then warningCell.mark:Hide() end
                     warningCell.missingDataTooltipEntry = nil
+                end
+                local talentCell = rowFrame.cells and rowFrame.cells["TalentSpec"]
+                if talentCell then
+                    if talentCell.mark then talentCell.mark:Hide() end
+                    talentCell.talentSpecTooltipEntry = nil
                 end
                 if rowFrame.nameOverlay then
                     rowFrame.nameOverlay.fullNameDisplay = nil
