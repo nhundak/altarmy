@@ -11,6 +11,10 @@ describe("ItemUsability", function()
         return CC.wrapName(name, classFile)
     end
 
+    local function warningText(warning)
+        return IU.GetEquipWarningText(warning)
+    end
+
     local function mockGetItemInfo(item)
         local id = type(item) == "number" and item
             or tonumber(tostring(item):match("item:(%d+)"))
@@ -23,6 +27,7 @@ describe("ItemUsability", function()
             [6] = { "Wand", nil, 2, 5, 5, "Weapon", "Wands", nil, "INVTYPE_RANGEDRIGHT" },
             [7] = { "Shield", nil, 2, 10, 10, "Armor", "Shields", nil, "INVTYPE_SHIELD" },
             [8] = { "Health Potion", nil, 1, 1, 1, "Consumable", nil, nil, nil },
+            [9] = { "Epic Helm", nil, 4, 70, 60, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
         }
         local info = items[id]
         if not info then return end
@@ -111,6 +116,24 @@ describe("ItemUsability", function()
         assert.is_nil(weapon)
     end)
 
+    it("GetItemUseInfo uses minLevel not itemLevel when they differ", function()
+        local req = IU.GetItemUseInfo("|Hitem:9:0|h[Epic Helm]|h")
+        assert.are.equal(60, req)
+        assert.are.equal(60, IU.GetItemMinLevel("|Hitem:9:0|h[Epic Helm]|h"))
+    end)
+
+    it("GetEquipWarnings uses minLevel not itemLevel for level requirement", function()
+        _G.IsUsableItem = nil
+        local warnings = IU.GetEquipWarnings("MAGE", 65, "Alt", "|Hitem:9:0|h[Epic Helm]|h")
+        assert.are.equal(0, #warnings)
+        warnings = IU.GetEquipWarnings("MAGE", 55, "Alt", "|Hitem:9:0|h[Epic Helm]|h")
+        assert.are.equal(1, #warnings)
+        assert.are.equal(
+            coloredName("Alt", "MAGE") .. " must gain 5 levels to equip this (requires level 60)",
+            warningText(warnings[1]))
+        assert.are.equal(IU.EQUIP_WARNING_KIND.LEVEL, warnings[1].kind)
+    end)
+
     it("GetProficiencySkillName maps plate armor", function()
         assert.are.equal("Plate Armor", IU.GetProficiencySkillName("Armor", "Plate"))
     end)
@@ -176,7 +199,8 @@ describe("ItemUsability", function()
         local iu = AltArmy.ItemUsability
         local warnings = iu.GetEquipWarnings("MAGE", 60, "Alt", "|Hitem:1:0|h[Cloth Hood]|h")
         assert.are.equal(1, #warnings)
-        assert.are.equal("This item is soulbound", warnings[1])
+        assert.are.equal("This item is soulbound", warningText(warnings[1]))
+        assert.are.equal(IU.EQUIP_WARNING_KIND.SOULBOUND, warnings[1].kind)
         _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
             GetText = function() return "" end,
         }
@@ -189,13 +213,34 @@ describe("ItemUsability", function()
         assert.is_false(IU.RequiresTrainerProficiency("MAGE", "Cloth", "Armor"))
     end)
 
+    it("GetEquipWarnings uses item level suffix when item level exceeds training level", function()
+        _G.IsUsableItem = nil
+        local oldGetItemInfo = _G.GetItemInfo
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 2 then
+                return "Plate Helm", "|Hitem:2:0|h[Plate Helm]|h", 3, 35, 45,
+                    "Armor", "Plate", nil, "INVTYPE_HEAD"
+            end
+            return oldGetItemInfo(item)
+        end
+        local warnings = IU.GetEquipWarnings("PALADIN", 38, "Tome", "|Hitem:2:0|h[Plate Helm]|h")
+        _G.GetItemInfo = oldGetItemInfo
+        assert.are.equal(1, #warnings)
+        assert.are.equal(
+            coloredName("Tome", "PALADIN") .. " must gain 7 levels to equip this (requires level 45)",
+            warningText(warnings[1]))
+    end)
+
     it("GetEquipWarnings includes level requirement for selected character", function()
         _G.IsUsableItem = nil
         local warnings = IU.GetEquipWarnings("PALADIN", 35, "Tome", "|Hitem:2:0|h[Plate Helm]|h")
         assert.are.equal(1, #warnings)
         assert.are.equal(
-            coloredName("Tome", "PALADIN") .. " must reach level 40 to equip this",
-            warnings[1])
+            coloredName("Tome", "PALADIN") .. " must gain 5 levels to equip this (requires plate armor skill)",
+            warningText(warnings[1]))
+        assert.are.equal(IU.EQUIP_WARNING_KIND.LEVEL, warnings[1].kind)
     end)
 
     it("GetEquipWarnings includes proficiency training when skill is missing", function()
@@ -208,7 +253,8 @@ describe("ItemUsability", function()
         assert.are.equal(1, #warnings)
         assert.are.equal(
             coloredName("Tome", "PALADIN") .. " must train Plate Armor to equip this",
-            warnings[1])
+            warningText(warnings[1]))
+        assert.are.equal(IU.EQUIP_WARNING_KIND.TRAINING, warnings[1].kind)
     end)
 
     it("GetEquipWarnings omits training when current character can use the item", function()
@@ -251,7 +297,8 @@ describe("ItemUsability", function()
         assert.are.equal(1, #warnings)
         assert.are.equal(
             coloredName("Merlin", "MAGE") .. " can never equip this (Plate Armor)",
-            warnings[1])
+            warningText(warnings[1]))
+        assert.are.equal(IU.EQUIP_WARNING_KIND.NEVER, warnings[1].kind)
     end)
 
     it("GetEquipWarnings omits level warnings when the character can never equip", function()
@@ -260,7 +307,8 @@ describe("ItemUsability", function()
         assert.are.equal(1, #warnings)
         assert.are.equal(
             coloredName("Merlin", "MAGE") .. " can never equip this (Plate Armor)",
-            warnings[1])
+            warningText(warnings[1]))
+        assert.are.equal(IU.EQUIP_WARNING_KIND.NEVER, warnings[1].kind)
     end)
 
     it("GetEquipWarnings can return soulbound and never-equip messages together", function()
@@ -288,10 +336,12 @@ describe("ItemUsability", function()
             GetText = function() return "" end,
         }
         assert.are.equal(2, #warnings)
-        assert.are.equal("This item is soulbound", warnings[1])
+        assert.are.equal("This item is soulbound", warningText(warnings[1]))
+        assert.are.equal(IU.EQUIP_WARNING_KIND.SOULBOUND, warnings[1].kind)
         assert.are.equal(
             coloredName("Merlin", "MAGE") .. " can never equip this (Plate Armor)",
-            warnings[2])
+            warningText(warnings[2]))
+        assert.are.equal(IU.EQUIP_WARNING_KIND.NEVER, warnings[2].kind)
     end)
 
     it("GetEquipWarnings can return multiple messages", function()
@@ -320,9 +370,11 @@ describe("ItemUsability", function()
             GetText = function() return "" end,
         }
         assert.are.equal(2, #warnings)
-        assert.are.equal("This item is soulbound", warnings[1])
+        assert.are.equal("This item is soulbound", warningText(warnings[1]))
+        assert.are.equal(IU.EQUIP_WARNING_KIND.SOULBOUND, warnings[1].kind)
         assert.are.equal(
-            coloredName("Tome", "PALADIN") .. " must reach level 40 to equip this",
-            warnings[2])
+            coloredName("Tome", "PALADIN") .. " must gain 5 levels to equip this (requires plate armor skill)",
+            warningText(warnings[2]))
+        assert.are.equal(IU.EQUIP_WARNING_KIND.LEVEL, warnings[2].kind)
     end)
 end)

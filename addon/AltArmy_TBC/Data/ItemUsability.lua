@@ -84,6 +84,20 @@ local function normalizeClassFile(classFile)
     return (classFile or ""):upper()
 end
 
+--- Parse GetItemInfo: returns itemLevel (iLvl), minLevel (required to equip).
+local function getItemInfoLevels(link)
+    if not link or not GetItemInfo then return nil, nil end
+    local name, _, _, itemLevel, minLevel = GetItemInfo(link)
+    if not name then return nil, nil end
+    return tonumber(itemLevel) or 0, tonumber(minLevel) or 0
+end
+
+--- Required character level to equip (item min level, not iLvl).
+function IU.GetItemMinLevel(link)
+    local _, minLevel = getItemInfoLevels(link)
+    return minLevel
+end
+
 --- True if this class can ever wear this armor subclass.
 function IU.CanClassEverUseArmor(classFile, subclass)
     if not subclass or subclass == "" then return true end
@@ -117,9 +131,9 @@ end
 --- Parse item link for reqLevel, armor subclass, weapon subclass.
 function IU.GetItemUseInfo(link)
     if not link or not GetItemInfo then return nil, nil, nil end
-    local name, _, _, reqLevel, _, itemClass, subclass = GetItemInfo(link)
+    local name, _, _, _, minLevel, itemClass, subclass = GetItemInfo(link)
     if not name then return nil, nil, nil end
-    reqLevel = tonumber(reqLevel) or 0
+    local reqLevel = tonumber(minLevel) or 0
     local ic = itemClass and itemClass:lower() or ""
     if ic == "armor" or ic == "armour" then
         if subclass == "Shields" then
@@ -185,9 +199,9 @@ end
 --- max(item reqLevel, proficiency train level).
 function IU.EffectiveRequiredLevel(classFile, link)
     if not link or not GetItemInfo then return 999 end
-    local name, _, _, reqLevel, _, itemClass, subclass = GetItemInfo(link)
+    local name, _, _, _, minLevel, itemClass, subclass = GetItemInfo(link)
     if not name then return 999 end
-    reqLevel = tonumber(reqLevel) or 0
+    local reqLevel = tonumber(minLevel) or 0
     classFile = normalizeClassFile(classFile)
     local ic = itemClass and itemClass:lower() or ""
     if ic == "armor" or ic == "armour" then
@@ -316,9 +330,9 @@ end
 --- True when character is high enough to train but has not learned armor proficiency.
 function IU.NeedsProficiencyTraining(classFile, charLevel, link, charData)
     if not link or not GetItemInfo then return false end
-    local name, _, _, reqLevel, _, itemClass, subclass = GetItemInfo(link)
+    local name, _, _, _, minLevel, itemClass, subclass = GetItemInfo(link)
     if not name then return false end
-    reqLevel = tonumber(reqLevel) or 0
+    local reqLevel = tonumber(minLevel) or 0
     classFile = normalizeClassFile(classFile)
     charLevel = math.floor(tonumber(charLevel) or 0)
     local ic = itemClass and itemClass:lower() or ""
@@ -341,6 +355,29 @@ local function formatWarningCharName(name, classFile)
     return name or "?"
 end
 
+local function formatLevelsToGainPhrase(count)
+    count = math.floor(tonumber(count) or 0)
+    if count == 1 then return "1 level" end
+    return tostring(count) .. " levels"
+end
+
+local function formatLevelRequirementWarning(coloredName, charLevel, effective, link, classFile)
+    local levelsToGain = effective - charLevel
+    local _, _, _, _, _, itemClass, subclass = GetItemInfo(link)
+    local trainLevel = IU.MinLevelToTrainProficiency(classFile, subclass, itemClass)
+    local suffix
+    if IU.RequiresTrainerProficiency(classFile, subclass, itemClass)
+        and effective == trainLevel
+        and charLevel < trainLevel then
+        local skill = IU.GetProficiencySkillName(itemClass, subclass):lower()
+        suffix = "(requires " .. skill .. " skill)"
+    else
+        suffix = "(requires level " .. tostring(effective) .. ")"
+    end
+    return coloredName .. " must gain " .. formatLevelsToGainPhrase(levelsToGain)
+        .. " to equip this " .. suffix
+end
+
 --- Skill name for items the class can never equip (armor/weapon proficiency).
 function IU.GetNeverEquipSkillName(classFile, link)
     if not link or not GetItemInfo then return "the required skill" end
@@ -360,6 +397,27 @@ function IU.GetNeverEquipSkillName(classFile, link)
     return IU.GetProficiencySkillName(itemClass, subclass)
 end
 
+IU.EQUIP_WARNING_KIND = {
+    SOULBOUND = "soulbound",
+    NEVER = "never",
+    LEVEL = "level",
+    TRAINING = "training",
+}
+
+local function addEquipWarning(warnings, text, kind)
+    warnings[#warnings + 1] = { text = text, kind = kind }
+end
+
+function IU.GetEquipWarningText(warning)
+    if type(warning) == "table" then return warning.text end
+    return warning
+end
+
+function IU.GetEquipWarningKind(warning)
+    if type(warning) == "table" then return warning.kind end
+    return nil
+end
+
 --- Warning lines for compare panel (soulbound, level, proficiency).
 function IU.GetEquipWarnings(classFile, charLevel, charName, link, charData)
     local warnings = {}
@@ -369,28 +427,36 @@ function IU.GetEquipWarnings(classFile, charLevel, charName, link, charData)
     classFile = normalizeClassFile(classFile)
 
     if IU.IsBindOnPickup(link) then
-        warnings[#warnings + 1] = "This item is soulbound"
+        addEquipWarning(warnings, "This item is soulbound", IU.EQUIP_WARNING_KIND.SOULBOUND)
     end
 
     if IU.CanNeverUseItem(classFile, link) then
         local skill = IU.GetNeverEquipSkillName(classFile, link)
         local coloredName = formatWarningCharName(charName, classFile)
-        warnings[#warnings + 1] = coloredName .. " can never equip this (" .. skill .. ")"
+        addEquipWarning(
+            warnings,
+            coloredName .. " can never equip this (" .. skill .. ")",
+            IU.EQUIP_WARNING_KIND.NEVER)
         return warnings
     end
 
     local effective = IU.EffectiveRequiredLevel(classFile, link)
     if effective < 999 and charLevel < effective then
         local coloredName = formatWarningCharName(charName, classFile)
-        warnings[#warnings + 1] = coloredName .. " must reach level "
-            .. tostring(effective) .. " to equip this"
+        addEquipWarning(
+            warnings,
+            formatLevelRequirementWarning(coloredName, charLevel, effective, link, classFile),
+            IU.EQUIP_WARNING_KIND.LEVEL)
     end
 
     if IU.NeedsProficiencyTraining(classFile, charLevel, link, charData) then
         local _, _, _, _, _, itemClass, subclass = GetItemInfo(link)
         local skill = IU.GetProficiencySkillName(itemClass, subclass)
         local coloredName = formatWarningCharName(charName, classFile)
-        warnings[#warnings + 1] = coloredName .. " must train " .. skill .. " to equip this"
+        addEquipWarning(
+            warnings,
+            coloredName .. " must train " .. skill .. " to equip this",
+            IU.EQUIP_WARNING_KIND.TRAINING)
     end
 
     return warnings

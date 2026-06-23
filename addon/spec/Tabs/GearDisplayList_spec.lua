@@ -280,21 +280,30 @@ describe("Gear display list focus mode", function()
         GU = AltArmy.GearUpgrade
     end)
 
-    --- Mirror TabGear focus sort (lines 240-253).
+    --- Mirror TabGear focus sort.
     local function sortByFocusTier(list, itemLink, upgradeOpts)
+        local slots = IU.GetInventorySlotsForItem(itemLink) or {}
+        local upgradeMaxDelta
+        for i = 1, #list do
+            local charData = DS:GetCharacter(list[i].name, list[i].realm)
+            for s = 1, #slots do
+                local delta = GU.GetSlotCompareDelta(charData, itemLink, slots[s], upgradeOpts) or 0
+                if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
+                    upgradeMaxDelta = delta
+                end
+            end
+        end
         local copy = {}
         for i = 1, #list do copy[i] = list[i] end
         table.sort(copy, function(a, b)
             local charA = DS:GetCharacter(a.name, a.realm)
             local charB = DS:GetCharacter(b.name, b.realm)
-            local ta = GU.GetFocusTier(a, charA, itemLink, upgradeOpts)
-            local tb = GU.GetFocusTier(b, charB, itemLink, upgradeOpts)
+            local ta = GU.GetFocusTier(a, charA, itemLink, upgradeOpts, upgradeMaxDelta)
+            local tb = GU.GetFocusTier(b, charB, itemLink, upgradeOpts, upgradeMaxDelta)
             if ta ~= tb then return ta < tb end
-            if ta == 1 then
-                local da = GU.GetFocusUpgradeDelta(a, charA, itemLink, upgradeOpts) or 0
-                local db = GU.GetFocusUpgradeDelta(b, charB, itemLink, upgradeOpts) or 0
-                if da ~= db then return da > db end
-            end
+            local da = GU.GetFocusUpgradeDelta(a, charA, itemLink, upgradeOpts, upgradeMaxDelta) or 0
+            local db = GU.GetFocusUpgradeDelta(b, charB, itemLink, upgradeOpts, upgradeMaxDelta) or 0
+            if da ~= db then return da > db end
             return (a.name or "") < (b.name or "")
         end)
         return copy
@@ -310,14 +319,52 @@ describe("Gear display list focus mode", function()
         return focused[invSlot] == true
     end
 
-    --- Mirror TabGear PickBestCompareKey: first column after focus sort is the best match.
-    local function pickBestCompareKey(list)
-        if not list or #list == 0 then return nil end
-        local e = list[1]
-        return CharKey(e.name, e.realm)
+    --- Mirror TabGear GetFocusedInventorySlots.
+    local function getFocusedInventorySlots(itemLink)
+        local slots = IU.GetInventorySlotsForItem(itemLink)
+        if not slots or #slots == 0 then return {} end
+        return slots
     end
 
-    it("sorts columns by focus tier: upgrade, usable, cannot use", function()
+    --- Mirror TabGear PickBestCompareSelection (in-range upgrade/sidegrade only).
+    local function pickBestCompareSelection(list, itemLink, upgradeOpts)
+        if not list or #list == 0 or not itemLink then return nil, nil end
+        local slots = getFocusedInventorySlots(itemLink)
+        if #slots == 0 then return nil, nil end
+        local upgradeMaxDelta
+        for i = 1, #list do
+            local charData = DS:GetCharacter(list[i].name, list[i].realm)
+            for s = 1, #slots do
+                local delta = GU.GetSlotCompareDelta(charData, itemLink, slots[s], upgradeOpts) or 0
+                if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
+                    upgradeMaxDelta = delta
+                end
+            end
+        end
+        local bestKey, bestSlot, bestDelta = nil, nil, 0
+        for i = 1, #list do
+            local e = list[i]
+            local charData = DS:GetCharacter(e.name, e.realm)
+            for s = 1, #slots do
+                local invSlot = slots[s]
+                local info = GU.ClassifyFocusSlot(e, charData, itemLink, invSlot, upgradeOpts, upgradeMaxDelta)
+                if info
+                    and (info.category == GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE
+                        or info.category == GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE)
+                    and info.delta > bestDelta then
+                    bestDelta = info.delta
+                    bestKey = CharKey(e.name, e.realm)
+                    bestSlot = invSlot
+                end
+            end
+        end
+        if bestKey and bestSlot then
+            return bestKey, bestSlot
+        end
+        return nil, nil
+    end
+
+    it("sorts columns by focus tier: upgrade, beyond-level upgrade, then neutral", function()
         local itemLink = "|Hitem:11:0|h[New Helm]|h"
         local entries = {
             { name = "LowLevel", realm = "RealmA", classFile = "MAGE", level = 10 },
@@ -326,8 +373,8 @@ describe("Gear display list focus mode", function()
         }
         local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
         assert.are.equal("Upgrader", sorted[1].name)
-        assert.are.equal("Usable", sorted[2].name)
-        assert.are.equal("LowLevel", sorted[3].name)
+        assert.are.equal("LowLevel", sorted[2].name)
+        assert.are.equal("Usable", sorted[3].name)
     end)
 
     it("sorts upgrade columns by biggest upgrade first", function()
@@ -342,14 +389,14 @@ describe("Gear display list focus mode", function()
         assert.are.equal(15, GU.GetFocusUpgradeDelta(sorted[1], DS:GetCharacter("Upgrader", "RealmA"), itemLink, {
             technique = "ilvl",
             levelsAhead = 0,
-        }))
+        }, 15))
         assert.are.equal(3, GU.GetFocusUpgradeDelta(sorted[2], DS:GetCharacter("SmallUpgrader", "RealmA"), itemLink, {
             technique = "ilvl",
             levelsAhead = 0,
-        }))
+        }, 15))
     end)
 
-    it("picks the first focus-sorted character as best compare match", function()
+    it("auto-selects the best upgrade character when one exists", function()
         local itemLink = "|Hitem:11:0|h[New Helm]|h"
         local entries = {
             { name = "SmallUpgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
@@ -357,7 +404,19 @@ describe("Gear display list focus mode", function()
             { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
         }
         local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
-        assert.are.equal(CharKey("Upgrader", "RealmA"), pickBestCompareKey(sorted))
+        local key, slot = pickBestCompareSelection(sorted, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        assert.are.equal(CharKey("Upgrader", "RealmA"), key)
+        assert.are.equal(1, slot)
+    end)
+
+    it("does not auto-select when no character has an upgrade or sidegrade", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local entries = {
+            { name = "Usable", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local key, slot = pickBestCompareSelection(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        assert.is_nil(key)
+        assert.is_nil(slot)
     end)
 
     it("filters display rows to focused item inventory slots", function()

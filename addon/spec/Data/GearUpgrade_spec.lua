@@ -210,4 +210,185 @@ describe("GearUpgrade", function()
         assert.are.equal(10, slot11)
         assert.are.equal(20, slot12)
     end)
+
+    it("GetSlotCompareDelta is negative for downgrades", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        char.Inventory[1] = "|Hitem:11:0|h[New Helm]|h"
+        local worseLink = "|Hitem:10:0|h[Old Helm]|h"
+        local delta = GU.GetSlotCompareDelta(char, worseLink, 1, { technique = "ilvl" })
+        assert.is_true(delta < 0)
+        char.Inventory[1] = "|Hitem:10:0|h[Old Helm]|h"
+    end)
+
+    it("GetSlotCompareDelta treats zero-score item vs equipped gear as downgrade", function()
+        local oldGetItemInfo = _G.GetItemInfo
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 99 then
+                return "Useless Helm", "|Hitem:99:0|h[Useless Helm]|h", 0, 1, 1,
+                    "Armor", "Cloth", nil, "INVTYPE_HEAD"
+            end
+            return oldGetItemInfo(item)
+        end
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 99 then return {} end
+            return oldGetItemStats(link)
+        end
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local entry = { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local uselessLink = "|Hitem:99:0|h[Useless Helm]|h"
+        local delta = GU.GetSlotCompareDelta(char, uselessLink, 1, { technique = "custom" })
+        assert.is_true(delta < 0)
+        local verdict = GU.GetFocusVerdictForSlot(entry, char, uselessLink, 1, {
+            technique = "custom",
+            levelsAhead = 5,
+        }, 15)
+        assert.are.equal("Downgrade", verdict.label)
+        _G.GetItemInfo = oldGetItemInfo
+        _G.GetItemStats = oldGetItemStats
+    end)
+
+    it("GetFocusCellBadgeKind returns unusable for equippable worse item", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        char.Inventory[1] = "|Hitem:11:0|h[New Helm]|h"
+        local entry = { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local worseLink = "|Hitem:10:0|h[Old Helm]|h"
+        local kind = GU.GetFocusCellBadgeKind(entry, char, worseLink, 1, {
+            technique = "ilvl",
+            levelsAhead = 5,
+        }, 15)
+        char.Inventory[1] = "|Hitem:10:0|h[Old Helm]|h"
+        assert.are.equal("unusable", kind)
+    end)
+
+    it("GetFocusCellBadgeKind returns white plus when upgrade is beyond level threshold", function()
+        _G.AltArmyTBC_Data.Characters.TestRealm.LowLevel = {
+            name = "LowLevel",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 28,
+            Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        local char = DS:GetCharacter("LowLevel", "TestRealm")
+        local entry = { name = "LowLevel", realm = "TestRealm", classFile = "MAGE", level = 28 }
+        local newLink = "|Hitem:11:0|h[New Helm]|h"
+        local kind = GU.GetFocusCellBadgeKind(entry, char, newLink, 1, {
+            technique = "ilvl",
+            levelsAhead = 5,
+        }, 15)
+        assert.are.equal("upgradeFuture", kind)
+    end)
+
+    it("GetFocusCellBadgeKind returns upgrade for equippable clear upgrades", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local entry = { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local newLink = "|Hitem:11:0|h[New Helm]|h"
+        local kind = GU.GetFocusCellBadgeKind(entry, char, newLink, 1, {
+            technique = "ilvl",
+            levelsAhead = 5,
+        }, 15)
+        assert.are.equal("upgrade", kind)
+    end)
+
+    it("GetFocusVerdictForSlot returns colored verdict labels", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local entry = { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local newLink = "|Hitem:11:0|h[New Helm]|h"
+        local verdict = GU.GetFocusVerdictForSlot(entry, char, newLink, 1, {
+            technique = "ilvl",
+            levelsAhead = 5,
+        }, 15)
+        assert.are.equal("Upgrade", verdict.label)
+        assert.are.equal(0.2, verdict.r)
+    end)
+
+    it("GetFocusVerdictForSlot returns Downgrade for worse items", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        char.Inventory[1] = "|Hitem:11:0|h[New Helm]|h"
+        local entry = { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local worseLink = "|Hitem:10:0|h[Old Helm]|h"
+        local verdict = GU.GetFocusVerdictForSlot(entry, char, worseLink, 1, {
+            technique = "ilvl",
+            levelsAhead = 5,
+        }, 15)
+        char.Inventory[1] = "|Hitem:10:0|h[Old Helm]|h"
+        assert.are.equal("Downgrade", verdict.label)
+    end)
+
+    it("BuildFocusSlotDebugLines reports classification and delta", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local entry = { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local newLink = "|Hitem:11:0|h[New Helm]|h"
+        local lines = GU.BuildFocusSlotDebugLines(entry, char, newLink, 1, {
+            technique = "ilvl",
+            levelsAhead = 5,
+        }, 15, { sessionTechnique = "custom" })
+        local text = table.concat(lines, "\n")
+        assert.matches("Focus compare selection", text)
+        assert.matches("Grid scores:", text)
+        assert.matches("ClassifyFocusSlot:", text)
+        assert.matches("MISMATCH", text)
+        assert.matches("Verdict:", text)
+    end)
+
+    it("GetFocusCellBadgeKind returns unusable for never-equip classes", function()
+        local oldGetItemInfo = _G.GetItemInfo
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 99 then
+                return "Plate Helm", "|Hitem:99:0|h[Plate Helm]|h", 3, 60, 60,
+                    "Armor", "Plate", nil, "INVTYPE_HEAD"
+            end
+            return oldGetItemInfo(item)
+        end
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local entry = { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local plateLink = "|Hitem:99:0|h[Plate Helm]|h"
+        local info = GU.ClassifyFocusSlot(entry, char, plateLink, 1, { technique = "ilvl" }, 15)
+        _G.GetItemInfo = oldGetItemInfo
+        assert.are.equal("unusable", info.badge)
+        assert.are.equal(GU.FOCUS_CATEGORY.NEVER, info.category)
+        assert.is_true(info.dimmed)
+    end)
+
+    it("SummarizeFocusCharacter uses best ring slot for sort tier", function()
+        _G.AltArmyTBC_Data.Characters.TestRealm.RingAlt = {
+            name = "RingAlt",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 60,
+            Inventory = {
+                [11] = "|Hitem:22:0|h[Ring One]|h",
+                [12] = "|Hitem:21:0|h[Ring Two]|h",
+            },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        local oldGetItemInfo = _G.GetItemInfo
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            local items = {
+                [20] = { "New Ring", nil, 3, 50, 50, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+                [21] = { "Ring Two", nil, 2, 30, 30, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+                [22] = { "Ring One", nil, 2, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+            }
+            local info = items[id]
+            if not info then return oldGetItemInfo(item) end
+            local link = "|cff|Hitem:" .. tostring(id) .. ":0|h[" .. info[1] .. "]|h|r"
+            return info[1], link, info[3], info[4], info[5], info[6], info[7], nil, info[9]
+        end
+        local char = DS:GetCharacter("RingAlt", "TestRealm")
+        local entry = { name = "RingAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local ringLink = "|Hitem:20:0|h[New Ring]|h"
+        local summary = GU.SummarizeFocusEntry(entry, char, ringLink, { technique = "ilvl" }, 20)
+        _G.GetItemInfo = oldGetItemInfo
+        assert.are.equal(1, summary.sortTier)
+        assert.are.equal(20, summary.sortDelta)
+        assert.is_false(summary.dimmed)
+    end)
 end)

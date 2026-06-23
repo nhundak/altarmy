@@ -1,6 +1,6 @@
 --[[
   Unit tests for Gear tab focus-mode column visuals (upgrade highlight + fade).
-  Mirrors logic from TabGear.lua.
+  Mirrors logic from TabGear.lua and GearUpgrade.lua.
 ]]
 
 describe("Gear focus visuals", function()
@@ -14,10 +14,10 @@ describe("Gear focus visuals", function()
         return "minor"
     end
 
-    local function getFocusColumnAlpha(focusTier, isSelected)
+    local function getFocusColumnAlpha(shouldDim, isSelected)
         if isSelected then return 1 end
-        if focusTier == 1 then return 1 end
-        return FOCUS_FADE_ALPHA
+        if shouldDim then return FOCUS_FADE_ALPHA end
+        return 1
     end
 
     it("uses green bucket for clear upgrades", function()
@@ -34,26 +34,34 @@ describe("Gear focus visuals", function()
         assert.is_nil(getUpgradeHighlightKind(nil, 15))
     end)
 
-    it("fades usable and cannot-use columns in focus mode", function()
-        assert.are.equal(1, getFocusColumnAlpha(1))
-        assert.are.equal(FOCUS_FADE_ALPHA, getFocusColumnAlpha(2))
-        assert.are.equal(FOCUS_FADE_ALPHA, getFocusColumnAlpha(3))
+    it("dims never-equip, beyond-level, and downgrade columns", function()
+        assert.are.equal(FOCUS_FADE_ALPHA, getFocusColumnAlpha(true))
+        assert.are.equal(1, getFocusColumnAlpha(false))
     end)
 
     it("restores full opacity for the selected compare column", function()
-        assert.are.equal(1, getFocusColumnAlpha(2, true))
-        assert.are.equal(1, getFocusColumnAlpha(3, true))
+        assert.are.equal(1, getFocusColumnAlpha(true, true))
+        assert.are.equal(1, getFocusColumnAlpha(false, true))
     end)
 
-    local UPGRADE_BADGE_TEXT = { clear = "+", minor = "~" }
+    local UPGRADE_BADGE_TEXT = {
+        upgrade = "+",
+        sidegrade = "~",
+        upgradeFuture = "+",
+        sidegradeFuture = "~",
+        unusable = "x",
+    }
 
     local function getHeaderUpgradeBadgeText(kind)
         return kind and UPGRADE_BADGE_TEXT[kind] or nil
     end
 
-    it("maps upgrade kinds to header badge glyphs", function()
-        assert.are.equal("+", getHeaderUpgradeBadgeText("clear"))
-        assert.are.equal("~", getHeaderUpgradeBadgeText("minor"))
+    it("maps focus badge kinds to glyphs", function()
+        assert.are.equal("+", getHeaderUpgradeBadgeText("upgrade"))
+        assert.are.equal("~", getHeaderUpgradeBadgeText("sidegrade"))
+        assert.are.equal("+", getHeaderUpgradeBadgeText("upgradeFuture"))
+        assert.are.equal("~", getHeaderUpgradeBadgeText("sidegradeFuture"))
+        assert.are.equal("x", getHeaderUpgradeBadgeText("unusable"))
         assert.is_nil(getHeaderUpgradeBadgeText(nil))
     end)
 

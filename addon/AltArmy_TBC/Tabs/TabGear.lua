@@ -71,23 +71,45 @@ local sessionCompareTechnique = nil
 
 local COMPARE_ROW_HEIGHT = 14
 local COMPARE_SECTION_GAP = 6
+local COMPARE_STAT_ROW_INDENT = 8
+local COMPARE_WARNING_COLOR_BLOCKING = { 1, 0.4, 0.3 }
+local COMPARE_WARNING_COLOR_CAUTION = { 1, 0.82, 0 }
 local COMPARE_DROPDOWN_ROW = 24
 local COMPARE_PANEL_PAD = 8
 local COMPARE_PANEL_MIN_HEIGHT = 100
 local COMPARE_ALGO_DROPDOWN_WIDTH = 220
-local COMPARE_ICON_SIZE = 36
-local COMPARE_ITEMS_ROW_HEIGHT = 40
+local COMPARE_FOCUS_DROP_SIZE = 44
+local COMPARE_FOCUS_TITLE_GAP = 6
+local COMPARE_FOCUS_HEADER_HEIGHT = COMPARE_FOCUS_DROP_SIZE + 8
+local COMPARE_ITEMS_ROW_HEIGHT = COMPARE_FOCUS_HEADER_HEIGHT
 local COMPARE_OPTIONS_SECTION_HEIGHT = 72
 local COMPARE_HOVER_COLOR = { 0.82, 0.68, 0.22, 0.32 }
 local CLEAR_UPGRADE_RATIO = 0.5
 local UPGRADE_BADGE_COLORS = {
-    clear = { 0.2, 1, 0.2 },
-    minor = { 0.9, 0.78, 0.12 },
+    upgrade = { 0.2, 1, 0.2 },
+    sidegrade = { 0.9, 0.78, 0.12 },
+    upgradeFuture = { 1, 1, 1 },
+    sidegradeFuture = { 1, 1, 1 },
+    unusable = { 1, 0.45, 0.2 },
 }
 local UPGRADE_BADGE_TEXT = {
-    clear = "+",
-    minor = "~",
+    upgrade = "+",
+    sidegrade = "~",
+    upgradeFuture = "+",
+    sidegradeFuture = "~",
+    unusable = "x",
 }
+local UPGRADE_BADGE_FONT_OBJECT = "GameFontNormalSmall"
+local UPGRADE_BADGE_FONT_SCALE = 2
+
+local function applyUpgradeBadgeFont(fontString)
+    if not fontString then return end
+    fontString:SetFontObject(UPGRADE_BADGE_FONT_OBJECT)
+    local font, size, flags = fontString:GetFont()
+    if font and size then
+        fontString:SetFont(font, size * UPGRADE_BADGE_FONT_SCALE, flags)
+    end
+end
 local SELECTED_NEUTRAL_HIGHLIGHT = { 0.82, 0.68, 0.22, 0.42 }
 local FOCUS_FADE_ALPHA = 0.45
 local FOCUS_GRID_HEIGHT_SLACK = 2
@@ -140,6 +162,9 @@ end
 
 local ITEM_GLOW_ALPHA = 0.4
 local ITEM_ICON_INSET = 2
+-- CENTER→TOPRIGHT: negative x = left, negative y = down
+local UPGRADE_BADGE_OFFSET_X = -(ITEM_ICON_INSET + 4)
+local UPGRADE_BADGE_OFFSET_Y = -(ITEM_ICON_INSET + 4)
 
 --- Cell frame size: icon plus inset on each side for rarity glow ring.
 function GearTab.GetCellSizePx()
@@ -248,33 +273,73 @@ function GearTab.ClearCompareSelection()
     sessionCompareTechnique = nil
 end
 
---- Best (character, inventory slot) for auto-select after focus.
+--- Best (character, inventory slot) for auto-select after focus; nil when no in-range upgrade.
 function GearTab.PickBestCompareSelection(list)
     if not list or #list == 0 or not droppedItemLink then return nil, nil end
     local slots = GearTab.GetFocusedInventorySlots()
     if #slots == 0 then return nil, nil end
     local focusOpts = GU and GU.GetOptions and GU.GetOptions() or {}
-    local bestKey, bestSlot, bestDelta = nil, nil, -1
+    local upgradeMaxDelta = GearTab.ComputeFocusUpgradeMaxDelta(list, slots, focusOpts)
+    local bestKey, bestSlot, bestDelta = nil, nil, 0
+    local inRangeUpgrade = GU and GU.FOCUS_CATEGORY
     for i = 1, #list do
         local e = list[i]
         local charData = DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm)
-        if GU and GU.GetFocusUpgradeDeltaForSlot then
-            for s = 1, #slots do
-                local invSlot = slots[s]
-                local delta = GU.GetFocusUpgradeDeltaForSlot(e, charData, droppedItemLink, invSlot, focusOpts) or 0
-                if delta > bestDelta then
-                    bestDelta = delta
-                    bestKey = CharKey(e.name, e.realm)
-                    bestSlot = invSlot
-                end
+        for s = 1, #slots do
+            local invSlot = slots[s]
+            local info = GU and GU.ClassifyFocusSlot
+                and GU.ClassifyFocusSlot(e, charData, droppedItemLink, invSlot, focusOpts, upgradeMaxDelta)
+            if info and inRangeUpgrade
+                and (info.category == inRangeUpgrade.UPGRADE_IN_RANGE
+                    or info.category == inRangeUpgrade.SIDEGRADE_IN_RANGE)
+                and info.delta > bestDelta then
+                bestDelta = info.delta
+                bestKey = CharKey(e.name, e.realm)
+                bestSlot = invSlot
             end
         end
     end
     if bestKey and bestSlot then
         return bestKey, bestSlot
     end
-    local e = list[1]
-    return CharKey(e.name, e.realm), slots[1]
+    return nil, nil
+end
+
+function GearTab.ComputeFocusUpgradeMaxDelta(list, slots, focusOpts)
+    if not list or not slots or not droppedItemLink or not GU or not GU.GetSlotCompareDelta then
+        return nil
+    end
+    local upgradeMaxDelta
+    for i = 1, #list do
+        local e = list[i]
+        local charData = DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm)
+        for s = 1, #slots do
+            local delta = GU.GetSlotCompareDelta(
+                charData, droppedItemLink, slots[s], focusOpts) or 0
+            if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
+                upgradeMaxDelta = delta
+            end
+        end
+    end
+    return upgradeMaxDelta
+end
+
+function GearTab.FormatCompareFocusTitle()
+    return "Upgrade check for"
+end
+
+function GearTab.FormatCompareFocusVsLabel()
+    return "vs"
+end
+
+function GearTab.FormatCompareEmptyHintText()
+    return "This isn't a clear upgrade for any of your characters."
+        .. "\nClick an item above to compare anyway"
+end
+
+function GearTab.FormatCompareEmptyStateText(_itemLink)
+    return GearTab.FormatCompareFocusTitle()
+        .. "\n" .. GearTab.FormatCompareEmptyHintText()
 end
 
 --- First visible column after focus sort (upgrade tier, then biggest delta).
@@ -317,17 +382,42 @@ function GearTab.GetSelectedCompareEntry(list)
     return nil
 end
 
+function GearTab.GetCompareWarningColor(warning)
+    local caution = COMPARE_WARNING_COLOR_CAUTION
+    local blocking = COMPARE_WARNING_COLOR_BLOCKING
+    local kind = IU and IU.GetEquipWarningKind and IU.GetEquipWarningKind(warning)
+    if kind == IU.EQUIP_WARNING_KIND.LEVEL or kind == IU.EQUIP_WARNING_KIND.TRAINING then
+        return caution[1], caution[2], caution[3]
+    end
+    if kind == IU.EQUIP_WARNING_KIND.NEVER then
+        return blocking[1], blocking[2], blocking[3]
+    end
+    local text = IU and IU.GetEquipWarningText and IU.GetEquipWarningText(warning) or warning
+    if type(text) == "string" then
+        if text:find("must gain ", 1, true) or text:find("must train ", 1, true) then
+            return caution[1], caution[2], caution[3]
+        end
+        if text:find("can never equip this", 1, true) then
+            return blocking[1], blocking[2], blocking[3]
+        end
+    end
+    return blocking[1], blocking[2], blocking[3]
+end
+
 function GearTab.GetCompareWarnings(entry, itemLink, charData)
     if not entry or not itemLink or not IU or not IU.GetEquipWarnings then return {} end
     return IU.GetEquipWarnings(entry.classFile, entry.level, entry.name, itemLink, charData)
 end
 
-function GearTab.EstimateComparePanelHeight(comparison, warningCount)
+function GearTab.EstimateComparePanelHeight(comparison, warningCount, hasVerdict)
     if not comparison then return 0 end
     local leftH = COMPARE_ITEMS_ROW_HEIGHT + 8
     warningCount = tonumber(warningCount) or 0
     if warningCount > 0 then
         leftH = leftH + warningCount * COMPARE_ROW_HEIGHT + (warningCount - 1) * 2 + 4
+    end
+    if hasVerdict then
+        leftH = leftH + COMPARE_ROW_HEIGHT + 4
     end
     local sections = comparison.sections or {}
     for s = 1, #sections do
@@ -436,20 +526,24 @@ function GearTab.GetDisplayList()
         list = RF.filterListByRealm(list, realmFilter, currentRealm)
     end
 
-    -- When item focused, sort: upgrades first, then usable, then cannot use.
+    -- When item focused, sort by focus category then upgrade magnitude.
     if not droppedItemLink then return list end
     local upgradeOpts = GU and GU.GetOptions and GU.GetOptions() or {}
+    local focusSlots = GearTab.GetFocusedInventorySlots()
+    local upgradeMaxDelta = GearTab.ComputeFocusUpgradeMaxDelta(list, focusSlots, upgradeOpts)
     local copy = {}
     for i = 1, #list do copy[i] = list[i] end
     table.sort(copy, function(a, b)
         local charA = DS and DS.GetCharacter and DS:GetCharacter(a.name, a.realm)
         local charB = DS and DS.GetCharacter and DS:GetCharacter(b.name, b.realm)
-        local ta = GU and GU.GetFocusTier and GU.GetFocusTier(a, charA, droppedItemLink, upgradeOpts) or 3
-        local tb = GU and GU.GetFocusTier and GU.GetFocusTier(b, charB, droppedItemLink, upgradeOpts) or 3
+        local ta = GU and GU.GetFocusTier
+            and GU.GetFocusTier(a, charA, droppedItemLink, upgradeOpts, upgradeMaxDelta) or 5
+        local tb = GU and GU.GetFocusTier
+            and GU.GetFocusTier(b, charB, droppedItemLink, upgradeOpts, upgradeMaxDelta) or 5
         if ta ~= tb then return ta < tb end
-        if ta == 1 and GU and GU.GetFocusUpgradeDelta then
-            local da = GU.GetFocusUpgradeDelta(a, charA, droppedItemLink, upgradeOpts) or 0
-            local db = GU.GetFocusUpgradeDelta(b, charB, droppedItemLink, upgradeOpts) or 0
+        if GU and GU.GetFocusUpgradeDelta then
+            local da = GU.GetFocusUpgradeDelta(a, charA, droppedItemLink, upgradeOpts, upgradeMaxDelta) or 0
+            local db = GU.GetFocusUpgradeDelta(b, charB, droppedItemLink, upgradeOpts, upgradeMaxDelta) or 0
             if da ~= db then return da > db end
         end
         return (a.name or "") < (b.name or "")
@@ -457,11 +551,18 @@ function GearTab.GetDisplayList()
     return copy
 end
 
-function GearTab.GetFocusTierForEntry(entry)
-    if not droppedItemLink or not GU or not GU.GetFocusTier then return nil end
+function GearTab.GetFocusSummaryForEntry(entry, upgradeMaxDelta)
+    if not droppedItemLink or not GU or not GU.SummarizeFocusEntry then return nil end
     local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
     local opts = GU.GetOptions and GU.GetOptions() or {}
-    return GU.GetFocusTier(entry, charData, droppedItemLink, opts)
+    return GU.SummarizeFocusEntry(entry, charData, droppedItemLink, opts, upgradeMaxDelta)
+end
+
+function GearTab.GetFocusColumnDimmed(entry, upgradeMaxDelta)
+    if not droppedItemLink or not GU or not GU.GetFocusColumnDimmed then return false end
+    local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
+    local opts = GU.GetOptions and GU.GetOptions() or {}
+    return GU.GetFocusColumnDimmed(entry, charData, droppedItemLink, opts, upgradeMaxDelta)
 end
 
 function GearTab.getUpgradeHighlightHorizontalInset()
@@ -475,17 +576,20 @@ function GearTab.getUpgradeHighlightBelowHeaderExtent()
 end
 
 function GearTab.getUpgradeHighlightKind(delta, maxDelta)
+    if GU and GU.GetUpgradeHighlightKind then
+        return GU.GetUpgradeHighlightKind(delta, maxDelta)
+    end
     if not delta or delta <= 0 then return nil end
     if not maxDelta or maxDelta <= 0 then return "clear" end
     if delta >= maxDelta * CLEAR_UPGRADE_RATIO then return "clear" end
     return "minor"
 end
 
-function GearTab.getFocusColumnAlpha(focusTier, isSelected)
+function GearTab.getFocusColumnAlpha(shouldDim, isSelected)
     if isSelected then return 1 end
     if not droppedItemLink then return 1 end
-    if focusTier == 1 then return 1 end
-    return FOCUS_FADE_ALPHA
+    if shouldDim then return FOCUS_FADE_ALPHA end
+    return 1
 end
 
 function GearTab.GetFirstFocusedColumnSlot()
@@ -615,9 +719,19 @@ function GearTab.GetFitMessage(entry)
         end
     end
 
-    local delta = charLevel - reqLevel
-    if droppedItemLink and GearTab.GetFocusTierForEntry(entry) == 1 then
-        return "Upgrade!", "green"
+    local effective = IU and IU.EffectiveRequiredLevel
+        and IU.EffectiveRequiredLevel(classFile, droppedItemLink) or reqLevel
+    if effective >= 999 then
+        effective = reqLevel
+    end
+    local delta = charLevel - effective
+    local summary = GearTab.GetFocusSummaryForEntry(entry)
+    if summary and summary.category and GU and GU.FOCUS_CATEGORY then
+        local cat = summary.category
+        if cat == GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE
+            or cat == GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE then
+            return "Upgrade!", "green"
+        end
     end
     if delta > 0 then
         return delta == 1 and "1 level ahead" or (delta .. " levels ahead"), "orange"
@@ -847,7 +961,7 @@ itemCheckBtnText:SetPoint("RIGHT", itemCheckBtn, "RIGHT", -4, 0)
 itemCheckBtnText:SetJustifyH("CENTER")
 itemCheckBtnText:SetWordWrap(false)
 itemCheckBtnText:SetTextColor(1, 1, 1, 1)
-itemCheckBtnText:SetText("Compare Item")
+itemCheckBtnText:SetText("Upgrade check")
 
 local itemCheckModeActive = false
 
@@ -855,7 +969,7 @@ function GearTab.updateItemCheckButtonLabel()
     if droppedItemLink or itemCheckModeActive then
         itemCheckBtnText:SetText("Go back")
     else
-        itemCheckBtnText:SetText("Compare Item")
+        itemCheckBtnText:SetText("Upgrade check")
     end
 end
 
@@ -1464,54 +1578,212 @@ local compareSettingsInner = Theme.CreatePanelInnerContent(compareSettingsSectio
 local compareItemsRow = CreateFrame("Frame", nil, compareStatsInner)
 compareItemsRow:SetPoint("TOPLEFT", compareStatsInner, "TOPLEFT", 0, 0)
 compareItemsRow:SetPoint("TOPRIGHT", compareStatsInner, "TOPRIGHT", 0, 0)
-compareItemsRow:SetHeight(COMPARE_ITEMS_ROW_HEIGHT)
+compareItemsRow:SetHeight(COMPARE_FOCUS_HEADER_HEIGHT)
 
-local function createCompareItemIcon(parent)
-    local box = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    box:SetSize(COMPARE_ICON_SIZE, COMPARE_ICON_SIZE)
-    Theme.ApplyBackdrop(box, "section")
-    local tex = box:CreateTexture(nil, "ARTWORK")
-    tex:SetPoint("TOPLEFT", box, "TOPLEFT", ITEM_ICON_INSET, -ITEM_ICON_INSET)
-    tex:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -ITEM_ICON_INSET, ITEM_ICON_INSET)
-    box.texture = tex
-    box:EnableMouse(true)
-    box:SetScript("OnEnter", function(self)
-        if not GameTooltip then return end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        if self.itemLink and self.itemLink ~= "" then
-            GameTooltip:SetHyperlink(self.itemLink)
-        else
-            GameTooltip:ClearLines()
-            GameTooltip:AddLine("Empty slot", 1, 1, 1)
-        end
-        GameTooltip:Show()
-    end)
-    box:SetScript("OnLeave", function()
-        if GameTooltip then GameTooltip:Hide() end
-    end)
-    return box
+local compareFocusRow = CreateFrame("Frame", nil, compareItemsRow)
+compareFocusRow:SetHeight(COMPARE_FOCUS_HEADER_HEIGHT)
+compareFocusRow:SetPoint("CENTER", compareItemsRow, "CENTER", 0, 0)
+
+local compareFocusTitle = compareFocusRow:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+compareFocusTitle:SetJustifyH("RIGHT")
+compareFocusTitle:SetText(GearTab.FormatCompareFocusTitle())
+if Theme.SetLabelColor then
+    Theme.SetLabelColor(compareFocusTitle)
 end
 
-local compareEquippedIcon = createCompareItemIcon(compareItemsRow)
-compareEquippedIcon:SetPoint("LEFT", compareItemsRow, "LEFT", 0, 0)
+local compareFocusDrop = CreateFrame("Frame", nil, compareFocusRow, "BackdropTemplate")
+compareFocusDrop:SetSize(COMPARE_FOCUS_DROP_SIZE, COMPARE_FOCUS_DROP_SIZE)
+compareFocusDrop:EnableMouse(true)
+Theme.ApplyBackdrop(compareFocusDrop, "section")
 
-local COMPARE_ARROW_TEX = "Interface\\AddOns\\AltArmy_TBC\\Textures\\CompareArrow"
-local COMPARE_ARROW_SIZE = 20
+local compareFocusDropGlow = compareFocusDrop:CreateTexture(nil, "BACKGROUND")
+compareFocusDropGlow:SetPoint("TOPLEFT", compareFocusDrop, "TOPLEFT", -5, 5)
+compareFocusDropGlow:SetPoint("BOTTOMRIGHT", compareFocusDrop, "BOTTOMRIGHT", 5, -5)
+if Theme.ApplySettingsGlow then
+    Theme.ApplySettingsGlow(compareFocusDropGlow)
+end
+compareFocusDropGlow:Hide()
 
-local compareArrow = compareItemsRow:CreateTexture(nil, "OVERLAY")
-compareArrow:SetSize(COMPARE_ARROW_SIZE, COMPARE_ARROW_SIZE)
-compareArrow:SetTexture(COMPARE_ARROW_TEX)
-compareArrow:SetVertexColor(1, 1, 1, 1)
-compareArrow:SetPoint("LEFT", compareEquippedIcon, "RIGHT", 6, 0)
-compareArrow:SetPoint("TOP", compareEquippedIcon, "TOP", 0, 0)
-compareArrow:SetPoint("BOTTOM", compareEquippedIcon, "BOTTOM", 0, 0)
-compareArrow:SetWidth(COMPARE_ARROW_SIZE)
+local compareFocusDropHover = compareFocusDrop:CreateTexture(nil, "BACKGROUND")
+compareFocusDropHover:SetAllPoints(true)
+compareFocusDropHover:SetTexture(Theme.HOVER_TINT_BG or "Interface\\Tooltips\\UI-Tooltip-Background")
+compareFocusDropHover:SetVertexColor(0.82, 0.68, 0.22, 0)
 
-local compareFocusedIcon = createCompareItemIcon(compareItemsRow)
-compareFocusedIcon:SetPoint("LEFT", compareArrow, "RIGHT", 8, 0)
+function GearTab.setCompareFocusDropHighlighted(on)
+    if on then
+        compareFocusDropGlow:Show()
+        compareFocusDropHover:SetVertexColor(0.82, 0.68, 0.22, 0.45)
+        local colors = Theme.COLORS
+        if colors and compareFocusDrop.SetBackdropColor then
+            local bg = colors.btnHoverBg
+            local border = colors.btnActiveBorder
+            compareFocusDrop:SetBackdropColor(bg[1], bg[2], bg[3], bg[4])
+            compareFocusDrop:SetBackdropBorderColor(border[1], border[2], border[3], border[4])
+        end
+    else
+        compareFocusDropGlow:Hide()
+        compareFocusDropHover:SetVertexColor(0.82, 0.68, 0.22, 0)
+        Theme.ApplyBackdrop(compareFocusDrop, "section")
+    end
+end
+
+compareFocusDrop:SetScript("OnEnter", function(self)
+    GearTab.setCompareFocusDropHighlighted(true)
+    if not GameTooltip then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    if droppedItemLink and droppedItemLink ~= "" then
+        GameTooltip:SetHyperlink(droppedItemLink)
+    else
+        GameTooltip:ClearLines()
+        GameTooltip:AddLine("Drop an item to check upgrades", 1, 1, 1)
+    end
+    GameTooltip:Show()
+end)
+compareFocusDrop:SetScript("OnLeave", function()
+    GearTab.setCompareFocusDropHighlighted(false)
+    if GameTooltip then GameTooltip:Hide() end
+end)
+
+local compareFocusDropIcon = compareFocusDrop:CreateTexture(nil, "OVERLAY")
+compareFocusDropIcon:SetSize(32, 32)
+compareFocusDropIcon:SetPoint("CENTER", compareFocusDrop, "CENTER", 0, 0)
+compareFocusDropIcon:Hide()
+
+local compareFocusVs = compareFocusRow:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+compareFocusVs:SetText(GearTab.FormatCompareFocusVsLabel())
+if Theme.SetLabelColor then
+    Theme.SetLabelColor(compareFocusVs)
+end
+compareFocusVs:Hide()
+
+local compareFocusEquipped = CreateFrame("Frame", nil, compareFocusRow, "BackdropTemplate")
+compareFocusEquipped:SetSize(COMPARE_FOCUS_DROP_SIZE, COMPARE_FOCUS_DROP_SIZE)
+compareFocusEquipped:EnableMouse(true)
+Theme.ApplyBackdrop(compareFocusEquipped, "section")
+compareFocusEquipped:Hide()
+
+local compareFocusEquippedIcon = compareFocusEquipped:CreateTexture(nil, "ARTWORK")
+compareFocusEquippedIcon:SetPoint("TOPLEFT", compareFocusEquipped, "TOPLEFT", ITEM_ICON_INSET, -ITEM_ICON_INSET)
+compareFocusEquippedIcon:SetPoint("BOTTOMRIGHT", compareFocusEquipped, "BOTTOMRIGHT", -ITEM_ICON_INSET, ITEM_ICON_INSET)
+compareFocusEquipped.texture = compareFocusEquippedIcon
+
+compareFocusEquipped:SetScript("OnEnter", function(self)
+    if not GameTooltip then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    if self.itemLink and self.itemLink ~= "" then
+        GameTooltip:SetHyperlink(self.itemLink)
+    else
+        GameTooltip:ClearLines()
+        GameTooltip:AddLine("Empty slot", 1, 1, 1)
+    end
+    GameTooltip:Show()
+end)
+compareFocusEquipped:SetScript("OnLeave", function()
+    if GameTooltip then GameTooltip:Hide() end
+end)
+
+local compareFocusError = compareItemsRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+compareFocusError:SetPoint("TOP", compareItemsRow, "BOTTOM", 0, -2)
+compareFocusError:SetPoint("LEFT", compareItemsRow, "LEFT", 8, 0)
+compareFocusError:SetPoint("RIGHT", compareItemsRow, "RIGHT", -8, 0)
+compareFocusError:SetJustifyH("CENTER")
+compareFocusError:SetWordWrap(true)
+compareFocusError:SetTextColor(1, 0.4, 0.3, 1)
+compareFocusError:Hide()
+
+function GearTab.clearCompareFocusError()
+    if compareFocusError then
+        compareFocusError:SetText("")
+        compareFocusError:Hide()
+    end
+end
+
+function GearTab.showCompareFocusError(msg)
+    if compareFocusError then
+        compareFocusError:SetText(msg or "")
+        compareFocusError:Show()
+    end
+end
+
+function GearTab.updateCompareFocusDrop(itemLink)
+    if not compareFocusDropIcon then return end
+    if itemLink then
+        local tex = GearTab.GetItemTexture(itemLink)
+        if tex then
+            compareFocusDropIcon:SetTexture(tex)
+            compareFocusDropIcon:Show()
+        else
+            compareFocusDropIcon:Hide()
+        end
+    else
+        compareFocusDropIcon:Hide()
+    end
+    GearTab.clearCompareFocusError()
+end
+
+function GearTab.tryAcceptCompareFocusDrop()
+    local itemLink = GearTab.getCursorItemLink()
+    if not itemLink then return false end
+
+    local ok, errMsg = true, nil
+    if IU and IU.ValidateItemCheckDrop then
+        ok, errMsg = IU.ValidateItemCheckDrop(itemLink)
+    end
+    if not ok then
+        GearTab.updateCompareFocusDrop(droppedItemLink)
+        GearTab.showCompareFocusError(errMsg)
+        return false
+    end
+
+    if ClearCursor then ClearCursor() end
+    GearTab.ApplyFocusedItem(itemLink, { manual = true })
+    GearTab.updateCompareFocusDrop(itemLink)
+    GearTab.updateItemCheckButtonLabel()
+    if frame.RefreshGrid then frame:RefreshGrid() end
+    return true
+end
+
+compareFocusDrop:SetScript("OnReceiveDrag", GearTab.tryAcceptCompareFocusDrop)
+compareFocusDrop:SetScript("OnMouseUp", function(_, button)
+    if button == "RightButton" then
+        droppedItemLink = nil
+        GearTab.ClearCompareSelection()
+        GearTab.updateCompareFocusDrop(nil)
+        GearTab.updateItemCheckButtonLabel()
+        if frame.RefreshGrid then frame:RefreshGrid() end
+        return
+    end
+    GearTab.tryAcceptCompareFocusDrop()
+end)
+
+local compareEmptyHintArea = CreateFrame("Frame", nil, compareStatsInner)
+compareEmptyHintArea:SetPoint("TOPLEFT", compareItemsRow, "BOTTOMLEFT", 0, 0)
+compareEmptyHintArea:SetPoint("BOTTOMRIGHT", compareStatsInner, "BOTTOMRIGHT", 0, 0)
+compareEmptyHintArea:Hide()
+
+local compareEmptyHint = compareEmptyHintArea:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+compareEmptyHint:SetPoint("LEFT", compareEmptyHintArea, "LEFT", 12, 0)
+compareEmptyHint:SetPoint("RIGHT", compareEmptyHintArea, "RIGHT", -12, 0)
+compareEmptyHint:SetPoint("CENTER", compareEmptyHintArea, "CENTER", 0, 0)
+compareEmptyHint:SetJustifyH("CENTER")
+compareEmptyHint:SetJustifyV("MIDDLE")
+compareEmptyHint:SetWordWrap(true)
+compareEmptyHint:Hide()
 
 local compareWarningContainer = CreateFrame("Frame", nil, compareStatsInner)
 local compareWarningRows = {}
+
+local compareVerdictRow = CreateFrame("Frame", nil, compareStatsInner)
+compareVerdictRow:SetHeight(COMPARE_ROW_HEIGHT)
+compareVerdictRow:Hide()
+local compareVerdictPrefix = compareVerdictRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+compareVerdictPrefix:SetPoint("LEFT", compareVerdictRow, "LEFT", 0, 0)
+compareVerdictPrefix:SetJustifyH("LEFT")
+compareVerdictPrefix:SetText("Verdict: ")
+local compareVerdictLabel = compareVerdictRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+compareVerdictLabel:SetPoint("LEFT", compareVerdictPrefix, "RIGHT", 0, 0)
+compareVerdictLabel:SetPoint("RIGHT", compareVerdictRow, "RIGHT", 0, 0)
+compareVerdictLabel:SetJustifyH("LEFT")
 
 local compareOptionsSection = CreateFrame("Frame", nil, compareSettingsInner)
 compareOptionsSection:SetPoint("TOPLEFT", compareSettingsInner, "TOPLEFT", 0, 0)
@@ -1520,7 +1792,7 @@ compareOptionsSection:SetPoint("BOTTOMRIGHT", compareSettingsInner, "BOTTOMRIGHT
 
 local compareAlgoLabel = compareOptionsSection:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 compareAlgoLabel:SetPoint("TOPLEFT", compareOptionsSection, "TOPLEFT", 0, 0)
-compareAlgoLabel:SetText("Comparison algorithm")
+compareAlgoLabel:SetText("Comparison technique")
 
 local compareAlgoBtn = CreateFrame("Button", nil, compareOptionsSection)
 compareAlgoBtn:SetPoint("TOP", compareAlgoLabel, "BOTTOM", 0, -4)
@@ -1535,7 +1807,7 @@ compareAlgoBtnText:SetJustifyH("LEFT")
 
 local compareLevelsLabel = compareOptionsSection:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 compareLevelsLabel:SetPoint("TOPLEFT", compareAlgoBtn, "BOTTOMLEFT", 0, -8)
-compareLevelsLabel:SetText("Max character level distance")
+compareLevelsLabel:SetText("Level look-ahead")
 
 local compareLevelsEdit = CreateFrame("EditBox", nil, compareOptionsSection)
 compareLevelsEdit:SetPoint("TOPLEFT", compareLevelsLabel, "BOTTOMLEFT", 0, -4)
@@ -1546,13 +1818,26 @@ compareLevelsEdit:SetNumeric(true)
 compareLevelsEdit:SetJustifyH("CENTER")
 Theme.ApplyInputTextures(compareLevelsEdit)
 
+local function syncCompareLevelsEditFromOptions()
+    if not compareLevelsEdit or not GU or not GU.GetOptions then return end
+    if compareLevelsEdit.HasFocus and compareLevelsEdit:HasFocus() then return end
+    local levelsAhead = GU.GetOptions().levelsAhead
+    compareLevelsEdit:SetText(tostring(levelsAhead ~= nil and levelsAhead or 5))
+end
+
 local function saveCompareLevelsAhead()
     if not GU or not GU.EnsureGearUpgradeOptions then return end
     local n = tonumber(compareLevelsEdit:GetText()) or 0
-    GU.EnsureGearUpgradeOptions().levelsAhead = math.max(0, math.floor(n))
+    local newVal = math.max(0, math.floor(n))
+    local opts = GU.EnsureGearUpgradeOptions()
+    if opts.levelsAhead == newVal then return end
+    opts.levelsAhead = newVal
     if frame.RefreshGrid then frame:RefreshGrid() end
 end
 
+compareLevelsEdit:SetScript("OnTextChanged", function()
+    saveCompareLevelsAhead()
+end)
 compareLevelsEdit:SetScript("OnEnterPressed", function(box)
     box:ClearFocus()
     saveCompareLevelsAhead()
@@ -1570,6 +1855,101 @@ local compareAlgoDropdownButtons = {}
 local compareStatContainer = CreateFrame("Frame", nil, compareStatsInner)
 local compareStatRows = {}
 
+function GearTab.updateCompareFocusEquipped(itemLink)
+    if not compareFocusEquipped then return end
+    GearTab.SetCompareItemIcon(compareFocusEquipped, itemLink)
+end
+
+function GearTab.GetSelectedEquippedCompareLink(list, technique)
+    if not GearTab.HasCompareSelection() or not GC or not GC.GetEquippedCompareItem then return nil end
+    local entry = GearTab.GetSelectedCompareEntry(list)
+    if not entry or not droppedItemLink then return nil end
+    local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
+    if not charData then return nil end
+    return GC.GetEquippedCompareItem(charData, droppedItemLink, {
+        technique = technique or GearTab.GetSessionCompareTechnique(),
+        slot = selectedCompareSlot,
+    })
+end
+
+function GearTab.LayoutCompareFocusInline(showCompareTarget)
+    if not compareFocusTitle or not compareFocusDrop or not compareFocusRow then return end
+    local gap = COMPARE_FOCUS_TITLE_GAP
+    compareFocusTitle:ClearAllPoints()
+    compareFocusDrop:ClearAllPoints()
+    compareFocusTitle:SetPoint("LEFT", compareFocusRow, "LEFT", 0, 0)
+    compareFocusTitle:SetPoint("CENTER", compareFocusRow, "CENTER", 0, 0)
+    compareFocusDrop:SetPoint("LEFT", compareFocusTitle, "RIGHT", gap, 0)
+    compareFocusDrop:SetPoint("CENTER", compareFocusTitle, "CENTER", 0, 0)
+
+    local rowW = (compareFocusTitle:GetStringWidth() or 0) + gap + COMPARE_FOCUS_DROP_SIZE
+    if showCompareTarget and compareFocusVs and compareFocusEquipped then
+        compareFocusVs:Show()
+        compareFocusEquipped:Show()
+        compareFocusVs:ClearAllPoints()
+        compareFocusEquipped:ClearAllPoints()
+        compareFocusVs:SetPoint("LEFT", compareFocusDrop, "RIGHT", gap, 0)
+        compareFocusVs:SetPoint("CENTER", compareFocusDrop, "CENTER", 0, 0)
+        compareFocusEquipped:SetPoint("LEFT", compareFocusVs, "RIGHT", gap, 0)
+        compareFocusEquipped:SetPoint("CENTER", compareFocusDrop, "CENTER", 0, 0)
+        rowW = rowW + gap + (compareFocusVs:GetStringWidth() or 0)
+            + gap + COMPARE_FOCUS_DROP_SIZE
+    elseif compareFocusVs and compareFocusEquipped then
+        compareFocusVs:Hide()
+        compareFocusEquipped:Hide()
+    end
+    compareFocusRow:SetWidth(rowW)
+    compareFocusRow:SetPoint("CENTER", compareItemsRow, "CENTER", 0, 0)
+end
+
+function GearTab.UpdateCompareFocusHeader(itemLink, equippedLink)
+    if compareFocusTitle then
+        compareFocusTitle:SetText(GearTab.FormatCompareFocusTitle())
+    end
+    if compareFocusVs then
+        compareFocusVs:SetText(GearTab.FormatCompareFocusVsLabel())
+    end
+    local showCompareTarget = GearTab.HasCompareSelection()
+    GearTab.updateCompareFocusDrop(itemLink)
+    if showCompareTarget then
+        GearTab.updateCompareFocusEquipped(equippedLink)
+    else
+        GearTab.updateCompareFocusEquipped(nil)
+    end
+    GearTab.LayoutCompareFocusInline(showCompareTarget)
+    if compareItemsRow then compareItemsRow:Show() end
+end
+
+GearTab.LayoutCompareFocusInline(false)
+
+function GearTab.ShowCompareEmptyHint()
+    if compareEmptyHint then
+        compareEmptyHint:SetText(GearTab.FormatCompareEmptyHintText())
+        compareEmptyHint:Show()
+    end
+    if compareEmptyHintArea then compareEmptyHintArea:Show() end
+    if compareWarningContainer then compareWarningContainer:Hide() end
+    if compareVerdictRow then compareVerdictRow:Hide() end
+    if compareStatContainer then compareStatContainer:Hide() end
+    GearTab.HideCompareWarningRows()
+    GearTab.HideCompareStatRows()
+end
+
+function GearTab.HideCompareEmptyHint()
+    if compareEmptyHint then compareEmptyHint:Hide() end
+    if compareEmptyHintArea then compareEmptyHintArea:Hide() end
+    if compareStatContainer then compareStatContainer:Show() end
+end
+
+function GearTab.ShowCompareEmptyState(itemLink, equippedLink)
+    GearTab.UpdateCompareFocusHeader(itemLink, equippedLink)
+    GearTab.ShowCompareEmptyHint()
+end
+
+function GearTab.HideCompareEmptyState()
+    GearTab.HideCompareEmptyHint()
+end
+
 function GearTab.HideCompareWarningRows()
     for i = 1, #compareWarningRows do
         compareWarningRows[i]:Hide()
@@ -1583,23 +1963,42 @@ function GearTab.GetCompareWarningRow(index)
         row:SetPoint("RIGHT", compareWarningContainer, "RIGHT", 0, 0)
         row:SetHeight(COMPARE_ROW_HEIGHT)
         row:SetJustifyH("LEFT")
-        row:SetTextColor(1, 0.4, 0.3, 1)
         compareWarningRows[index] = row
     end
     return compareWarningRows[index]
 end
 
-function GearTab.LayoutComparePanelSections(warnings)
+function GearTab.LayoutComparePanelSections(warnings, verdict)
     local anchor = compareItemsRow
     GearTab.HideCompareWarningRows()
+
+    if compareVerdictRow then
+        compareVerdictRow:ClearAllPoints()
+        if verdict and verdict.label then
+            compareVerdictPrefix:SetText("Verdict: ")
+            compareVerdictLabel:SetText(verdict.label)
+            compareVerdictLabel:SetTextColor(verdict.r or 1, verdict.g or 1, verdict.b or 1, 1)
+            compareVerdictRow:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
+            compareVerdictRow:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -4)
+            compareVerdictRow:Show()
+            anchor = compareVerdictRow
+        else
+            compareVerdictRow:Hide()
+        end
+    end
+
     local warningCount = warnings and #warnings or 0
     compareWarningContainer:ClearAllPoints()
     if warningCount > 0 then
         compareWarningContainer:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
         compareWarningContainer:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -4)
         for i = 1, warningCount do
+            local warning = warnings[i]
             local row = GearTab.GetCompareWarningRow(i)
-            row:SetText(warnings[i])
+            local text = IU and IU.GetEquipWarningText and IU.GetEquipWarningText(warning) or warning
+            row:SetText(text)
+            local wr, wg, wb = GearTab.GetCompareWarningColor(warning)
+            row:SetTextColor(wr, wg, wb, 1)
             row:ClearAllPoints()
             if i == 1 then
                 row:SetPoint("TOPLEFT", compareWarningContainer, "TOPLEFT", 0, 0)
@@ -1753,8 +2152,7 @@ end
 
 function GearTab.GetGearLayoutMode()
     if itemCheckModeActive then return "item_check" end
-    if droppedItemLink and GearTab.HasCompareSelection() then return "focus_compare" end
-    if droppedItemLink then return "focus" end
+    if droppedItemLink then return "focus_compare" end
     return "normal"
 end
 
@@ -1800,13 +2198,6 @@ function GearTab.LayoutGearPanels()
         if gridHost then gridHost:Show() end
 
         GearTab.LayoutCompareBottomPanels(gearMainSection, areaLeft, areaRight)
-    elseif mode == "focus" then
-        gearMainSection:Show()
-        gearMainSection:ClearAllPoints()
-        gearMainSection:SetPoint("TOPLEFT", areaLeft, "TOPLEFT", 0, 0)
-        gearMainSection:SetPoint("TOPRIGHT", areaRight, "TOPRIGHT", 0, 0)
-        gearMainSection:SetHeight(GearTab.GetGearMainSectionHeight())
-        if gridHost then gridHost:Show() end
     else
         gearMainSection:Show()
         gearMainSection:ClearAllPoints()
@@ -1838,40 +2229,66 @@ end
 
 function GearTab.UpdateComparePanel(list)
     GearTab.HideCompareStatRows()
-    if not droppedItemLink or not GearTab.HasCompareSelection() or not GC then
+    if not droppedItemLink then
         if compareAlgoDropdown then compareAlgoDropdown:Hide() end
+        if compareItemsRow then compareItemsRow:Hide() end
+        GearTab.HideCompareEmptyHint()
         return
     end
+
+    syncCompareLevelsEditFromOptions()
+    GearTab.RebuildCompareTechniqueDropdown()
+    local technique = GearTab.GetSessionCompareTechnique()
+    local provider = GU.GetProvider(GU.GetEffectiveTechnique(technique))
+    compareAlgoBtnText:SetText(provider and GU.GetProviderDisplayLabel(provider) or technique)
+
+    local equippedLink = GearTab.GetSelectedEquippedCompareLink(list, technique)
+    GearTab.UpdateCompareFocusHeader(droppedItemLink, equippedLink)
+
+    if not GearTab.HasCompareSelection() or not GC then
+        if compareAlgoDropdown then compareAlgoDropdown:Hide() end
+        GearTab.ShowCompareEmptyHint()
+        return
+    end
+
+    GearTab.HideCompareEmptyState()
     local entry = GearTab.GetSelectedCompareEntry(list)
     if not entry then
         GearTab.ClearCompareSelection()
+        GearTab.ShowCompareEmptyHint()
         return
     end
     local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
     if not charData then return end
 
-    local technique = GearTab.GetSessionCompareTechnique()
-    local equippedLink = GC.GetEquippedCompareItem(charData, droppedItemLink, {
+    equippedLink = equippedLink or GC.GetEquippedCompareItem(charData, droppedItemLink, {
         technique = technique,
         slot = selectedCompareSlot,
     })
     local comparison = GC.BuildComparison(droppedItemLink, equippedLink, technique, charData)
     if not comparison then return end
 
-    GearTab.SetCompareItemIcon(compareFocusedIcon, droppedItemLink)
-    GearTab.SetCompareItemIcon(compareEquippedIcon, equippedLink)
-
     local compareWarnings = GearTab.GetCompareWarnings(entry, droppedItemLink, charData)
-    GearTab.LayoutComparePanelSections(compareWarnings)
-
-    if GU and GU.GetOptions then
-        local levelsAhead = GU.GetOptions().levelsAhead
-        compareLevelsEdit:SetText(tostring(levelsAhead ~= nil and levelsAhead or 5))
+    local focusOpts = GU and GU.GetOptions and GU.GetOptions() or {}
+    local upgradeMaxDelta = GearTab.ComputeFocusUpgradeMaxDelta(
+        list, GearTab.GetFocusedInventorySlots(), focusOpts)
+    local verdict = GU and GU.GetFocusVerdictForSlot
+        and GU.GetFocusVerdictForSlot(
+            entry, charData, droppedItemLink, selectedCompareSlot, focusOpts, upgradeMaxDelta)
+    if GU and GU.LogFocusSlotDebug then
+        GU.LogFocusSlotDebug(
+            entry,
+            charData,
+            droppedItemLink,
+            selectedCompareSlot,
+            focusOpts,
+            upgradeMaxDelta,
+            {
+                sessionTechnique = technique,
+                equippedCompareLink = equippedLink,
+            })
     end
-
-    GearTab.RebuildCompareTechniqueDropdown()
-    local provider = GU.GetProvider(GU.GetEffectiveTechnique(technique))
-    compareAlgoBtnText:SetText(provider and GU.GetProviderDisplayLabel(provider) or technique)
+    GearTab.LayoutComparePanelSections(compareWarnings, verdict)
 
     local rowIndex = 0
     local sections = comparison.sections or {}
@@ -1913,8 +2330,9 @@ function GearTab.UpdateComparePanel(list)
             end
             line:SetTextColor(dr, dg, db, 1)
             line:ClearAllPoints()
-            line:SetPoint("TOPLEFT", compareStatRows[rowIndex - 1], "BOTTOMLEFT", 8, -2)
-            line:SetPoint("TOPRIGHT", compareStatRows[rowIndex - 1], "BOTTOMRIGHT", 0, -2)
+            line:SetPoint("TOPLEFT", compareStatRows[rowIndex - 1], "BOTTOMLEFT", 0, -2)
+            line:SetPoint("LEFT", compareStatContainer, "LEFT", COMPARE_STAT_ROW_INDENT, 0)
+            line:SetPoint("RIGHT", compareStatContainer, "RIGHT", 0, 0)
             line:Show()
         end
     end
@@ -2035,8 +2453,9 @@ function GearTab.GetColumnFrame(index)
                 COMPARE_HOVER_COLOR[4])
             cell.compareHover:Hide()
             cell.upgradeBadge = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            cell.upgradeBadge:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -1, -1)
-            cell.upgradeBadge:SetJustifyH("RIGHT")
+            applyUpgradeBadgeFont(cell.upgradeBadge)
+            cell.upgradeBadge:SetPoint("CENTER", cell, "TOPRIGHT", UPGRADE_BADGE_OFFSET_X, UPGRADE_BADGE_OFFSET_Y)
+            cell.upgradeBadge:SetJustifyH("CENTER")
             cell.upgradeBadge:Hide()
             cell:SetScript("OnMouseUp", function(self, button)
                 local colFrame = self:GetParent()
@@ -2158,25 +2577,12 @@ function GearTab.UpdateGridWithOffset()
     end
 
     local upgradeMaxDelta
-    local upgradeDeltaByCell = {}
-    local visibleSlots = GearTab.GetVisibleDisplaySlots()
-    if droppedItemLink and GU and GU.GetFocusUpgradeDeltaForSlot then
-        local focusOpts = GU.GetOptions and GU.GetOptions() or {}
-        for i = 1, numCols do
-            local e = list[i]
-            local charData = DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm)
-            local charKey = CharKey(e.name, e.realm)
-            for row = 1, #visibleSlots do
-                local invSlot = SLOT_ORDER[visibleSlots[row]]
-                local delta = GU.GetFocusUpgradeDeltaForSlot(
-                    e, charData, droppedItemLink, invSlot, focusOpts) or 0
-                local cellKey = GearTab.MakeCompareCellKey(charKey, invSlot)
-                upgradeDeltaByCell[cellKey] = delta
-                if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
-                    upgradeMaxDelta = delta
-                end
-            end
-        end
+    local focusOpts = GU and GU.GetOptions and GU.GetOptions() or {}
+    if droppedItemLink and GU and GU.GetSlotCompareDelta then
+        upgradeMaxDelta = GearTab.ComputeFocusUpgradeMaxDelta(
+            list,
+            GearTab.GetFocusedInventorySlots(),
+            focusOpts)
     end
 
     for c = 1, numCols do
@@ -2186,10 +2592,10 @@ function GearTab.UpdateGridWithOffset()
         headerCol:SetPoint("TOPLEFT", headerGridContainer, "TOPLEFT", (c - 1) * dims.columnWidth + PAD - 4, 0)
         headerCol:Show()
 
-        local focusTier = GearTab.GetFocusTierForEntry(entry)
         local compareKey = CharKey(entry.name, entry.realm)
+        local columnDimmed = GearTab.GetFocusColumnDimmed(entry, upgradeMaxDelta)
         local columnAlpha = GearTab.getFocusColumnAlpha(
-            focusTier,
+            columnDimmed,
             selectedCompareKey == compareKey)
         headerCol.compareKey = compareKey
 
@@ -2233,10 +2639,9 @@ function GearTab.UpdateGridWithOffset()
                 cell:Show()
 
                 if droppedItemLink then
-                    local cellKey = GearTab.MakeCompareCellKey(compareKey, invSlot)
-                    local cellDelta = upgradeDeltaByCell[cellKey] or 0
-                    local cellKind = focusTier == 1
-                        and GearTab.getUpgradeHighlightKind(cellDelta, upgradeMaxDelta)
+                    local cellKind = GU and GU.GetFocusCellBadgeKind
+                        and GU.GetFocusCellBadgeKind(
+                            entry, charData, droppedItemLink, invSlot, focusOpts, upgradeMaxDelta)
                         or nil
                     local selected = GearTab.IsCompareCellSelected(compareKey, invSlot)
                     GearTab.layoutCellUpgradeBadge(cell, cellKind)
@@ -2665,7 +3070,7 @@ frame:SetScript("OnSizeChanged", function()
         GearTab.ApplyGearLayoutHostBounds()
         GearTab.LayoutGearPanels()
         if frame.RefreshGrid then frame:RefreshGrid() end
-    elseif GearTab.GetGearLayoutMode() == "focus_compare" then
+    elseif droppedItemLink then
         GearTab.LayoutGearPanels()
     end
 end)

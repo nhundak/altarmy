@@ -12,6 +12,14 @@ local function IU()
     return AltArmy.ItemUsability
 end
 
+local DEFAULT_LEVELS_AHEAD = 5
+
+local function resolveLevelsAhead(value)
+    local n = tonumber(value)
+    if n == nil then return DEFAULT_LEVELS_AHEAD end
+    return math.max(0, math.floor(n))
+end
+
 local STAT_ALIASES = {
     ["ITEM_MOD_STRENGTH_SHORT"] = "str",
     ["ITEM_MOD_AGILITY_SHORT"] = "agi",
@@ -316,22 +324,39 @@ function GU.CompareItems(newLink, oldLink, technique, classFile, specKey)
     return newScore > oldScore
 end
 
+--- Signed score delta for focused item vs equipped item in one slot.
+function GU.GetSlotCompareDelta(char, itemLink, invSlot, opts)
+    opts = opts or {}
+    if not char or not itemLink or not invSlot then return 0 end
+    local DS = AltArmy.DataStore
+    if not DS or not DS.GetInventoryItem then return 0 end
+    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+    local classFile = char.classFile or ""
+    local specKey = getSpecKey(char)
+    local newScore = scoreItem(itemLink, technique, classFile, specKey)
+    local equipped = DS:GetInventoryItem(char, invSlot)
+    local eqLink = resolveItemLink(equipped)
+    if not eqLink then
+        if newScore > 0 then return newScore end
+        return 0
+    end
+    return newScore - scoreItem(eqLink, technique, classFile, specKey)
+end
+
 local function upgradeDeltaInSlots(char, newLink, technique, classFile, specKey, slots)
     local DS = AltArmy.DataStore
     if not DS or not DS.GetInventoryItem then return 0 end
     local newScore = scoreItem(newLink, technique, classFile, specKey)
-    if newScore <= 0 then return 0 end
 
     local bestDelta = 0
     local hasEquipped = false
+    local opts = { technique = technique }
     for i = 1, #slots do
         local slot = slots[i]
         local equipped = DS:GetInventoryItem(char, slot)
-        local eqLink = resolveItemLink(equipped)
-        if eqLink then
+        if resolveItemLink(equipped) then
             hasEquipped = true
-            local oldScore = scoreItem(eqLink, technique, classFile, specKey)
-            local delta = newScore - oldScore
+            local delta = GU.GetSlotCompareDelta(char, newLink, slot, opts)
             if delta > bestDelta then
                 bestDelta = delta
             end
@@ -353,10 +378,398 @@ function GU.GetSlotUpgradeDelta(char, itemLink, invSlot, opts)
     return upgradeDeltaInSlots(char, itemLink, technique, classFile, specKey, { invSlot })
 end
 
---- Upgrade magnitude for one slot in focus mode (0 when character is not tier 1).
-function GU.GetFocusUpgradeDeltaForSlot(entry, charData, itemLink, invSlot, opts)
-    if GU.GetFocusTier(entry, charData, itemLink, opts) ~= 1 then return 0 end
-    return GU.GetSlotUpgradeDelta(charData, itemLink, invSlot, opts)
+local CLEAR_UPGRADE_RATIO = 0.5
+
+GU.FOCUS_CATEGORY = {
+    NEVER = 1,
+    UPGRADE_IN_RANGE = 2,
+    UPGRADE_BEYOND = 3,
+    SIDEGRADE_IN_RANGE = 4,
+    SIDEGRADE_BEYOND = 5,
+    DOWNGRADE = 6,
+}
+
+local FOCUS_CATEGORY_SORT_TIER = {
+    [GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE] = 1,
+    [GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE] = 2,
+    [GU.FOCUS_CATEGORY.UPGRADE_BEYOND] = 3,
+    [GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND] = 4,
+    [GU.FOCUS_CATEGORY.NEVER] = 5,
+    [GU.FOCUS_CATEGORY.DOWNGRADE] = 6,
+}
+
+local FOCUS_CATEGORY_DIMMED = {
+    [GU.FOCUS_CATEGORY.NEVER] = true,
+    [GU.FOCUS_CATEGORY.UPGRADE_BEYOND] = true,
+    [GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND] = true,
+    [GU.FOCUS_CATEGORY.DOWNGRADE] = true,
+}
+
+local FOCUS_CATEGORY_BADGE = {
+    [GU.FOCUS_CATEGORY.NEVER] = "unusable",
+    [GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE] = "upgrade",
+    [GU.FOCUS_CATEGORY.UPGRADE_BEYOND] = "upgradeFuture",
+    [GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE] = "sidegrade",
+    [GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND] = "sidegradeFuture",
+    [GU.FOCUS_CATEGORY.DOWNGRADE] = "unusable",
+}
+
+local FOCUS_VERDICT = {
+    [GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE] = { label = "Upgrade", r = 0.2, g = 1, b = 0.2 },
+    [GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE] = { label = "Sidegrade", r = 0.9, g = 0.78, b = 0.12 },
+    [GU.FOCUS_CATEGORY.UPGRADE_BEYOND] = { label = "Eventual upgrade", r = 1, g = 1, b = 1 },
+    [GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND] = { label = "Eventual sidegrade", r = 1, g = 1, b = 1 },
+    [GU.FOCUS_CATEGORY.DOWNGRADE] = { label = "Downgrade", r = 1, g = 0.45, b = 0.2 },
+    [GU.FOCUS_CATEGORY.NEVER] = { label = "Unusable", r = 1, g = 0.45, b = 0.2 },
+}
+
+local function focusSortTierForCategory(category)
+    if not category then return 5 end
+    return FOCUS_CATEGORY_SORT_TIER[category] or 5
+end
+
+--- clear (+) vs minor (~) among positive upgrade deltas.
+function GU.GetUpgradeHighlightKind(delta, maxDelta)
+    if not delta or delta <= 0 then return nil end
+    if not maxDelta or maxDelta <= 0 then return "clear" end
+    if delta >= maxDelta * CLEAR_UPGRADE_RATIO then return "clear" end
+    return "minor"
+end
+
+--- Classify one inventory slot for focus-mode badges and sorting.
+function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
+    opts = opts or {}
+    if not entry or not itemLink or not invSlot then return nil end
+    local iu = IU()
+    if not iu then return nil end
+    local classFile = entry.classFile or (charData and charData.classFile) or ""
+    if iu.CanNeverUseItem(classFile, itemLink) then
+        return {
+            category = GU.FOCUS_CATEGORY.NEVER,
+            badge = FOCUS_CATEGORY_BADGE[GU.FOCUS_CATEGORY.NEVER],
+            delta = 0,
+            dimmed = true,
+        }
+    end
+
+    local level = entry.level or (charData and charData.level) or 0
+    local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
+    local inRange, _, reason = iu.IsEquippableWithin(classFile, level, itemLink, levelsAhead)
+    local rawDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts)
+
+    if not inRange and reason ~= "level" then
+        return {
+            category = GU.FOCUS_CATEGORY.NEVER,
+            badge = FOCUS_CATEGORY_BADGE[GU.FOCUS_CATEGORY.NEVER],
+            delta = 0,
+            dimmed = true,
+        }
+    end
+
+    if rawDelta < 0 then
+        return {
+            category = GU.FOCUS_CATEGORY.DOWNGRADE,
+            badge = FOCUS_CATEGORY_BADGE[GU.FOCUS_CATEGORY.DOWNGRADE],
+            delta = rawDelta,
+            dimmed = true,
+        }
+    end
+
+    if rawDelta > 0 then
+        local kind = GU.GetUpgradeHighlightKind(rawDelta, upgradeMaxDelta)
+        local category
+        if kind == "clear" then
+            category = inRange and GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE
+                or GU.FOCUS_CATEGORY.UPGRADE_BEYOND
+        elseif kind == "minor" then
+            category = inRange and GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE
+                or GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND
+        end
+        if category then
+            return {
+                category = category,
+                badge = FOCUS_CATEGORY_BADGE[category],
+                delta = rawDelta,
+                dimmed = FOCUS_CATEGORY_DIMMED[category] == true,
+            }
+        end
+    end
+
+    return nil
+end
+
+--- Summarize a character across one or more inventory slots (rings/trinkets use best upgrade).
+function GU.SummarizeFocusCharacter(entry, charData, itemLink, slots, opts, upgradeMaxDelta)
+    slots = slots or {}
+    local bestPositive
+    local hasNever = false
+    local worstDowngrade = 0
+
+    for i = 1, #slots do
+        local info = GU.ClassifyFocusSlot(
+            entry, charData, itemLink, slots[i], opts, upgradeMaxDelta)
+        if info then
+            if info.category == GU.FOCUS_CATEGORY.NEVER then
+                hasNever = true
+            elseif info.category == GU.FOCUS_CATEGORY.DOWNGRADE then
+                if info.delta < worstDowngrade then
+                    worstDowngrade = info.delta
+                end
+            elseif info.delta and info.delta > 0
+                and (not bestPositive or info.delta > bestPositive.delta) then
+                bestPositive = info
+            end
+        end
+    end
+
+    if bestPositive then
+        return {
+            sortTier = focusSortTierForCategory(bestPositive.category),
+            category = bestPositive.category,
+            sortDelta = bestPositive.delta,
+            dimmed = bestPositive.dimmed,
+        }
+    end
+    if hasNever then
+        return {
+            sortTier = 5,
+            category = GU.FOCUS_CATEGORY.NEVER,
+            sortDelta = 0,
+            dimmed = true,
+        }
+    end
+    if worstDowngrade < 0 then
+        return {
+            sortTier = 5,
+            category = GU.FOCUS_CATEGORY.DOWNGRADE,
+            sortDelta = math.abs(worstDowngrade),
+            dimmed = true,
+        }
+    end
+    return {
+        sortTier = 5,
+        category = nil,
+        sortDelta = 0,
+        dimmed = false,
+    }
+end
+
+function GU.GetFocusInventorySlots(itemLink)
+    local iu = IU()
+    if not iu or not iu.GetInventorySlotsForItem or not itemLink then return {} end
+    return iu.GetInventorySlotsForItem(itemLink) or {}
+end
+
+function GU.SummarizeFocusEntry(entry, charData, itemLink, opts, upgradeMaxDelta)
+    local slots = GU.GetFocusInventorySlots(itemLink)
+    return GU.SummarizeFocusCharacter(entry, charData, itemLink, slots, opts, upgradeMaxDelta)
+end
+
+--- Per-cell badge in focus mode.
+function GU.GetFocusCellBadgeKind(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
+    local info = GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
+    return info and info.badge or nil
+end
+
+--- Compare-panel verdict for one selected slot; nil when no classification.
+function GU.GetFocusVerdictForSlot(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
+    local info = GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
+    if not info or not info.category then return nil end
+    local verdict = FOCUS_VERDICT[info.category]
+    if not verdict then return nil end
+    return {
+        label = verdict.label,
+        r = verdict.r,
+        g = verdict.g,
+        b = verdict.b,
+    }
+end
+
+local FOCUS_CATEGORY_DEBUG = {
+    [GU.FOCUS_CATEGORY.NEVER] = "NEVER",
+    [GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE] = "UPGRADE_IN_RANGE",
+    [GU.FOCUS_CATEGORY.UPGRADE_BEYOND] = "UPGRADE_BEYOND",
+    [GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE] = "SIDEGRADE_IN_RANGE",
+    [GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND] = "SIDEGRADE_BEYOND",
+    [GU.FOCUS_CATEGORY.DOWNGRADE] = "DOWNGRADE",
+}
+
+local function focusDebugItemLabel(itemOrLink)
+    if itemOrLink == nil then return "(none)" end
+    if type(itemOrLink) == "number" then
+        local name = GetItemInfo and select(1, GetItemInfo(itemOrLink))
+        return string.format("itemID %s (%s)", tostring(itemOrLink), name or "?")
+    end
+    if type(itemOrLink) == "string" then
+        local name = GetItemInfo and select(1, GetItemInfo(itemOrLink))
+        if name and name ~= "" then return name end
+        local bracket = itemOrLink:match("%[(.-)%]")
+        if bracket then return bracket end
+        return itemOrLink
+    end
+    return tostring(itemOrLink)
+end
+
+local function focusDebugCategoryName(category)
+    if category == nil then return "(nil)" end
+    return FOCUS_CATEGORY_DEBUG[category] or tostring(category)
+end
+
+--- Diagnostic lines for focus-mode compare selection (verdict / badge path).
+function GU.BuildFocusSlotDebugLines(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta, debugCtx)
+    debugCtx = debugCtx or {}
+    opts = opts or {}
+    local lines = {}
+    lines[#lines + 1] = "--- Focus compare selection ---"
+
+    local charName = entry and entry.name or "?"
+    local realm = entry and entry.realm or "?"
+    lines[#lines + 1] = string.format(
+        "  Character: %s @ %s (slot %s)",
+        tostring(charName),
+        tostring(realm),
+        tostring(invSlot or "?"))
+
+    if not entry or not itemLink or not invSlot then
+        lines[#lines + 1] = "  Missing entry, focused item, or inventory slot."
+        return lines
+    end
+
+    local classFile = entry.classFile or (charData and charData.classFile) or ""
+    local level = entry.level or (charData and charData.level) or 0
+    local specKey = getSpecKey(charData)
+    lines[#lines + 1] = string.format(
+        "  Class/level/spec: %s / %s / %s",
+        tostring(classFile),
+        tostring(level),
+        tostring(specKey))
+
+    lines[#lines + 1] = string.format("  Focused item: %s", focusDebugItemLabel(itemLink))
+
+    local DS = AltArmy.DataStore
+    local equippedRaw
+    if DS and DS.GetInventoryItem and charData then
+        equippedRaw = DS:GetInventoryItem(charData, invSlot)
+    end
+    local eqLink = GU.ResolveItemLink(equippedRaw)
+    lines[#lines + 1] = string.format(
+        "  Equipped: %s (raw: %s)",
+        focusDebugItemLabel(eqLink),
+        focusDebugItemLabel(equippedRaw))
+
+    local focusTechnique = GU.GetEffectiveTechnique(opts.technique or "custom")
+    local sessionTechnique = debugCtx.sessionTechnique
+        and GU.GetEffectiveTechnique(debugCtx.sessionTechnique)
+        or nil
+    lines[#lines + 1] = string.format("  Verdict/grid technique: %s", tostring(focusTechnique))
+    if sessionTechnique and sessionTechnique ~= focusTechnique then
+        lines[#lines + 1] = string.format(
+            "  Compare panel technique: %s  (MISMATCH — stats use panel, verdict uses grid)",
+            tostring(sessionTechnique))
+    elseif sessionTechnique then
+        lines[#lines + 1] = string.format("  Compare panel technique: %s", tostring(sessionTechnique))
+    end
+
+    lines[#lines + 1] = string.format("  levelsAhead: %s", tostring(resolveLevelsAhead(opts.levelsAhead)))
+    lines[#lines + 1] = string.format("  upgradeMaxDelta: %s", tostring(upgradeMaxDelta))
+
+    local iu = IU()
+    if iu then
+        local never = iu.CanNeverUseItem(classFile, itemLink)
+        lines[#lines + 1] = string.format("  CanNeverUseItem: %s", tostring(never))
+        local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
+        local inRange, _, reason = iu.IsEquippableWithin(classFile, level, itemLink, levelsAhead)
+        lines[#lines + 1] = string.format(
+            "  IsEquippableWithin: inRange=%s reason=%s",
+            tostring(inRange),
+            tostring(reason or "(none)"))
+    end
+
+    local newScoreFocus = GU.ScoreItem(itemLink, focusTechnique, classFile, specKey)
+    local oldScoreFocus = eqLink and GU.ScoreItem(eqLink, focusTechnique, classFile, specKey) or 0
+    local rawDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts)
+    lines[#lines + 1] = string.format(
+        "  Grid scores: new=%s old=%s delta=%s",
+        tostring(newScoreFocus),
+        tostring(oldScoreFocus),
+        tostring(rawDelta))
+
+    if sessionTechnique and sessionTechnique ~= focusTechnique then
+        local newScoreSession = GU.ScoreItem(itemLink, sessionTechnique, classFile, specKey)
+        local oldScoreSession = eqLink and GU.ScoreItem(eqLink, sessionTechnique, classFile, specKey) or 0
+        local sessionOpts = { technique = debugCtx.sessionTechnique }
+        local sessionDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, sessionOpts)
+        lines[#lines + 1] = string.format(
+            "  Panel scores: new=%s old=%s delta=%s",
+            tostring(newScoreSession),
+            tostring(oldScoreSession),
+            tostring(sessionDelta))
+    end
+
+    if rawDelta > 0 then
+        local kind = GU.GetUpgradeHighlightKind(rawDelta, upgradeMaxDelta)
+        lines[#lines + 1] = string.format("  Upgrade highlight kind: %s", tostring(kind or "(nil)"))
+    end
+
+    local info = GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
+    if info then
+        lines[#lines + 1] = string.format(
+            "  ClassifyFocusSlot: category=%s badge=%s delta=%s dimmed=%s",
+            focusDebugCategoryName(info.category),
+            tostring(info.badge or "(nil)"),
+            tostring(info.delta),
+            tostring(info.dimmed))
+    else
+        lines[#lines + 1] = "  ClassifyFocusSlot: (nil) — no category; verdict hidden"
+        if rawDelta == 0 then
+            lines[#lines + 1] = "  Hint: grid delta is 0 (equal scores, or useless item vs empty slot)."
+        end
+    end
+
+    local verdict = GU.GetFocusVerdictForSlot(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
+    if verdict then
+        lines[#lines + 1] = string.format("  Verdict: %s", tostring(verdict.label))
+    else
+        lines[#lines + 1] = "  Verdict: (hidden)"
+    end
+
+    if debugCtx.equippedCompareLink and debugCtx.equippedCompareLink ~= eqLink then
+        lines[#lines + 1] = string.format(
+            "  Panel equipped link: %s (differs from grid slot inventory)",
+            focusDebugItemLabel(debugCtx.equippedCompareLink))
+    end
+
+    return lines
+end
+
+function GU.LogFocusSlotDebug(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta, debugCtx)
+    local D = AltArmy.Debug
+    if not D or not D.IsItemComparisonEnabled or not D.IsItemComparisonEnabled() then
+        return
+    end
+    local lines = GU.BuildFocusSlotDebugLines(
+        entry, charData, itemLink, invSlot, opts, upgradeMaxDelta, debugCtx)
+    if #lines > 0 and D.LogItemComparison then
+        D.LogItemComparison(lines)
+    end
+end
+
+function GU.GetFocusColumnDimmed(entry, charData, itemLink, opts, upgradeMaxDelta)
+    local summary = GU.SummarizeFocusEntry(entry, charData, itemLink, opts, upgradeMaxDelta)
+    return summary.dimmed == true
+end
+
+--- Upgrade magnitude for one slot in focus mode (positive upgrade delta only).
+function GU.GetFocusUpgradeDeltaForSlot(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
+    local info = GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
+    if not info or not info.delta or info.delta <= 0 then return 0 end
+    if info.category == GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE
+        or info.category == GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE
+        or info.category == GU.FOCUS_CATEGORY.UPGRADE_BEYOND
+        or info.category == GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND then
+        return info.delta
+    end
+    return 0
 end
 
 local function bestUpgradeInSlots(char, newLink, technique, classFile, specKey, slots)
@@ -368,14 +781,6 @@ local function charMatchesRealm(_char, realm, _name, realmFilter, currentRealm)
         return false
     end
     return true
-end
-
-local DEFAULT_LEVELS_AHEAD = 5
-
-local function resolveLevelsAhead(value)
-    local n = tonumber(value)
-    if n == nil then return DEFAULT_LEVELS_AHEAD end
-    return math.max(0, math.floor(n))
 end
 
 function GU.EvaluateForAllAlts(itemLink, opts)
@@ -442,27 +847,16 @@ function GU.GetCharacterUpgradeDelta(char, itemLink, opts)
     return upgradeDeltaInSlots(char, itemLink, technique, classFile, specKey, slots)
 end
 
---- Upgrade magnitude for focus-mode sort and highlight (0 when not an upgrade).
-function GU.GetFocusUpgradeDelta(entry, charData, itemLink, opts)
-    if GU.GetFocusTier(entry, charData, itemLink, opts) ~= 1 then return 0 end
-    return GU.GetCharacterUpgradeDelta(charData, itemLink, opts)
+--- Upgrade magnitude for focus-mode sort (best positive delta across item slots).
+function GU.GetFocusUpgradeDelta(entry, charData, itemLink, opts, upgradeMaxDelta)
+    local summary = GU.SummarizeFocusEntry(entry, charData, itemLink, opts, upgradeMaxDelta)
+    return summary.sortDelta or 0
 end
 
---- Tier for focus-mode column sort: 1=upgrade, 2=usable, 3=cannot use.
-function GU.GetFocusTier(entry, charData, itemLink, opts)
-    if not entry or not itemLink then return 3 end
-    local classFile = entry.classFile or (charData and charData.classFile) or ""
-    if IU() and IU().CanNeverUseItem(classFile, itemLink) then
-        return 3
-    end
-    local level = entry.level or (charData and charData.level) or 0
-    local levelsAhead = resolveLevelsAhead(opts and opts.levelsAhead)
-    local ok = IU() and IU().IsEquippableWithin(classFile, level, itemLink, levelsAhead)
-    if not ok then return 3 end
-    if charData and GU.EvaluateForCharacter(charData, itemLink, opts) then
-        return 1
-    end
-    return 2
+--- Sort tier for focus-mode column sort (1=best … 5=never/downgrade/neutral).
+function GU.GetFocusTier(entry, charData, itemLink, opts, upgradeMaxDelta)
+    local summary = GU.SummarizeFocusEntry(entry, charData, itemLink, opts, upgradeMaxDelta)
+    return summary.sortTier or 5
 end
 
 function GU.EnsureGearUpgradeOptions()
