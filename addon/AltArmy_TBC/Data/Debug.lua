@@ -30,6 +30,9 @@ function D.Ensure()
     if d.levelHistory == nil then
         d.levelHistory = false
     end
+    if d.itemComparison == nil then
+        d.itemComparison = false
+    end
 end
 
 function D.IsEnabled()
@@ -77,6 +80,31 @@ end
 function D.SetLevelHistoryEnabled(on)
     D.Ensure()
     AltArmyTBC_Options.debug.levelHistory = on == true
+end
+
+function D.IsItemComparisonEnabled()
+    local d = debugTable()
+    return d.enabled == true and d.itemComparison == true
+end
+
+function D.SetItemComparisonEnabled(on)
+    D.Ensure()
+    AltArmyTBC_Options.debug.itemComparison = on == true
+end
+
+function D.LogItemComparison(msgs)
+    if not D.IsItemComparisonEnabled() then
+        return
+    end
+    if type(msgs) == "string" then
+        msgs = { msgs }
+    end
+    if type(msgs) ~= "table" then
+        return
+    end
+    for i = 1, #msgs do
+        D.NotifyChat("|cff00ccff[AltArmy:Compare]|r " .. tostring(msgs[i]))
+    end
 end
 
 function D.NotifyChat(msg)

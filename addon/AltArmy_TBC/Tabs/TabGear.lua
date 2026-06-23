@@ -63,28 +63,42 @@ local SLOT_ORDER = {
 -- State: dropped item link (nil = use default sort by level)
 local droppedItemLink = nil
 local selectedCompareKey = nil
+local selectedCompareSlot = nil
 local hoveredCompareKey = nil
+local compareHoverRefs = {}
 local sessionCompareTechnique = nil
-local comparePanelHeight = 0
 
 local COMPARE_ROW_HEIGHT = 14
 local COMPARE_SECTION_GAP = 6
-local COMPARE_TITLE_HEIGHT = 18
 local COMPARE_DROPDOWN_ROW = 24
 local COMPARE_PANEL_PAD = 8
 local COMPARE_PANEL_MIN_HEIGHT = 100
 local COMPARE_ALGO_DROPDOWN_WIDTH = 220
-local SELECTION_OUTLINE_WIDTH = 2
+local COMPARE_ICON_SIZE = 36
+local COMPARE_ITEMS_ROW_HEIGHT = 40
+local COMPARE_OPTIONS_SECTION_HEIGHT = 72
 local COMPARE_HOVER_COLOR = { 0.82, 0.68, 0.22, 0.32 }
+local CLEAR_UPGRADE_RATIO = 0.5
+local UPGRADE_BADGE_COLORS = {
+    clear = { 0.2, 1, 0.2 },
+    minor = { 0.9, 0.78, 0.12 },
+}
+local UPGRADE_BADGE_TEXT = {
+    clear = "+",
+    minor = "~",
+}
+local SELECTED_NEUTRAL_HIGHLIGHT = { 0.82, 0.68, 0.22, 0.42 }
+local FOCUS_FADE_ALPHA = 0.45
+local FOCUS_GRID_HEIGHT_SLACK = 2
 
 -- Gear settings persistence (AltArmyTBC_GearSettings)
 local DEFAULT_SCORE_PROVIDER = "level"
-local SLOT_LABEL_WIDTH = 98
+local SLOT_LABEL_WIDTH = 120
 local SCORE_SORT_BTN_GAP = 2
 local SCORE_ROW_LAYOUT_TRIM = 4
 local SCORE_ROW_HEADER_BOTTOM_INSET = 6
 local UPGRADE_HIGHLIGHT_COLUMN_INSET = 2
-local ITEM_CHECK_BTN_TOP_OFFSET = 4
+local ITEM_CHECK_BTN_TOP_OFFSET = 0
 local ITEM_CHECK_BTN_BOTTOM_GAP = 0
 
 function GearTab.GetAvailableScoreProviders()
@@ -165,6 +179,30 @@ function GearTab.GetFocusedSlotSet()
     return set
 end
 
+function GearTab.GetFocusedInventorySlots()
+    if not droppedItemLink or not IU or not IU.GetInventorySlotsForItem then return {} end
+    return IU.GetInventorySlotsForItem(droppedItemLink) or {}
+end
+
+function GearTab.IsMultiSlotFocus()
+    return #GearTab.GetFocusedInventorySlots() > 1
+end
+
+function GearTab.MakeCompareCellKey(charKey, invSlot)
+    if not charKey or not invSlot then return nil end
+    return charKey .. "#" .. tostring(invSlot)
+end
+
+function GearTab.IsCompareCellSelected(charKey, invSlot)
+    if not selectedCompareKey or charKey ~= selectedCompareKey then return false end
+    if not selectedCompareSlot or not invSlot then return false end
+    return selectedCompareSlot == invSlot
+end
+
+function GearTab.HasCompareSelection()
+    return selectedCompareKey ~= nil and selectedCompareSlot ~= nil
+end
+
 function GearTab.IsDisplaySlotVisible(displayIdx)
     local focused = GearTab.GetFocusedSlotSet()
     if not focused then return true end
@@ -188,7 +226,11 @@ function GearTab.GetScrollableGridHeight()
     if visibleCount <= 0 then
         visibleCount = NUM_EQUIPMENT_SLOTS
     end
-    return visibleCount * rh + PAD
+    local h = visibleCount * rh + PAD
+    if droppedItemLink then
+        h = h + FOCUS_GRID_HEIGHT_SLACK
+    end
+    return h
 end
 
 function GearTab.GetSessionCompareTechnique()
@@ -199,9 +241,68 @@ end
 
 function GearTab.ClearCompareSelection()
     selectedCompareKey = nil
+    selectedCompareSlot = nil
+    hoveredCompareKey = nil
+    wipe(compareHoverRefs)
+    sessionCompareTechnique = nil
+end
+
+--- Best (character, inventory slot) for auto-select after focus.
+function GearTab.PickBestCompareSelection(list)
+    if not list or #list == 0 or not droppedItemLink then return nil, nil end
+    local slots = GearTab.GetFocusedInventorySlots()
+    if #slots == 0 then return nil, nil end
+    local focusOpts = GU and GU.GetOptions and GU.GetOptions() or {}
+    local bestKey, bestSlot, bestDelta = nil, nil, -1
+    for i = 1, #list do
+        local e = list[i]
+        local charData = DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm)
+        if GU and GU.GetFocusUpgradeDeltaForSlot then
+            for s = 1, #slots do
+                local invSlot = slots[s]
+                local delta = GU.GetFocusUpgradeDeltaForSlot(e, charData, droppedItemLink, invSlot, focusOpts) or 0
+                if delta > bestDelta then
+                    bestDelta = delta
+                    bestKey = CharKey(e.name, e.realm)
+                    bestSlot = invSlot
+                end
+            end
+        end
+    end
+    if bestKey and bestSlot then
+        return bestKey, bestSlot
+    end
+    local e = list[1]
+    return CharKey(e.name, e.realm), slots[1]
+end
+
+--- First visible column after focus sort (upgrade tier, then biggest delta).
+function GearTab.PickBestCompareKey(list)
+    return (GearTab.PickBestCompareSelection(list))
+end
+
+function GearTab.IsFocusedItemSoulbound()
+    return droppedItemLink
+        and IU
+        and IU.IsBindOnPickup
+        and IU.IsBindOnPickup(droppedItemLink)
+end
+
+function GearTab.ApplyFocusedItem(itemLink, opts)
+    opts = opts or {}
+    droppedItemLink = itemLink
     hoveredCompareKey = nil
     sessionCompareTechnique = nil
-    comparePanelHeight = 0
+    local soulbound = GearTab.IsFocusedItemSoulbound()
+    if soulbound and not opts.manual then
+        selectedCompareKey = nil
+        selectedCompareSlot = nil
+    else
+        selectedCompareKey, selectedCompareSlot = GearTab.PickBestCompareSelection(GearTab.GetDisplayList())
+    end
+    if GC and GC.LogItemComparisonDebug then
+        GC.LogItemComparisonDebug(itemLink)
+    end
 end
 
 function GearTab.GetSelectedCompareEntry(list)
@@ -215,19 +316,26 @@ function GearTab.GetSelectedCompareEntry(list)
     return nil
 end
 
-function GearTab.EstimateComparePanelHeight(comparison, showDropdown)
+function GearTab.GetCompareWarnings(entry, itemLink)
+    if not entry or not itemLink or not IU or not IU.GetEquipWarnings then return {} end
+    return IU.GetEquipWarnings(entry.classFile, entry.level, entry.name, itemLink)
+end
+
+function GearTab.EstimateComparePanelHeight(comparison, warningCount)
     if not comparison then return 0 end
-    local h = COMPARE_PANEL_PAD * 2 + COMPARE_TITLE_HEIGHT + 14
-    if showDropdown then
-        h = h + COMPARE_DROPDOWN_ROW
+    local leftH = COMPARE_ITEMS_ROW_HEIGHT + 8
+    warningCount = tonumber(warningCount) or 0
+    if warningCount > 0 then
+        leftH = leftH + warningCount * COMPARE_ROW_HEIGHT + (warningCount - 1) * 2 + 4
     end
     local sections = comparison.sections or {}
     for s = 1, #sections do
         local section = sections[s]
-        h = h + COMPARE_SECTION_GAP + COMPARE_ROW_HEIGHT
-        h = h + #(section.rows or {}) * COMPARE_ROW_HEIGHT
+        leftH = leftH + COMPARE_SECTION_GAP + COMPARE_ROW_HEIGHT
+        leftH = leftH + #(section.rows or {}) * COMPARE_ROW_HEIGHT
     end
-    return math.max(COMPARE_PANEL_MIN_HEIGHT, h)
+    local contentH = math.max(leftH, COMPARE_OPTIONS_SECTION_HEIGHT)
+    return math.max(COMPARE_PANEL_MIN_HEIGHT, COMPARE_PANEL_PAD * 2 + contentH)
 end
 
 function GearTab.GetCharSetting(name, realm, key)
@@ -365,94 +473,113 @@ function GearTab.getUpgradeHighlightBelowHeaderExtent()
     return (rh - cell) / 2 + cell
 end
 
-function GearTab.getUpgradeHighlightColor(delta, minDelta, maxDelta)
-    if not delta or delta <= 0 then
-        return 0.45, 0.85, 0.45, 0.22
-    end
-    local t = 1
-    if minDelta and maxDelta and maxDelta > minDelta then
-        t = (delta - minDelta) / (maxDelta - minDelta)
-    end
-    local r = 0.55 - t * 0.35
-    local g = 0.82 + t * 0.08
-    local b = 0.55 - t * 0.35
-    local a = 0.18 + t * 0.25
-    return r, g, b, a
+function GearTab.getUpgradeHighlightKind(delta, maxDelta)
+    if not delta or delta <= 0 then return nil end
+    if not maxDelta or maxDelta <= 0 then return "clear" end
+    if delta >= maxDelta * CLEAR_UPGRADE_RATIO then return "clear" end
+    return "minor"
 end
 
-function GearTab.layoutUpgradeHighlight(headerCol, show, delta, minDelta, maxDelta)
-    if not headerCol or not headerCol.upgradeHighlight then return end
-    local tex = headerCol.upgradeHighlight
-    if not show then
-        tex:Hide()
+function GearTab.getFocusColumnAlpha(focusTier, isSelected)
+    if isSelected then return 1 end
+    if not droppedItemLink then return 1 end
+    if focusTier == 1 then return 1 end
+    return FOCUS_FADE_ALPHA
+end
+
+function GearTab.GetFirstFocusedColumnSlot()
+    local visible = GearTab.GetVisibleDisplaySlots()
+    if #visible > 0 then
+        return SLOT_ORDER[visible[1]]
+    end
+    local slots = GearTab.GetFocusedInventorySlots()
+    return slots[1]
+end
+
+function GearTab.SelectCompareCell(charKey, invSlot)
+    if not charKey or not invSlot then return end
+    if GearTab.IsCompareCellSelected(charKey, invSlot) then
+        GearTab.ClearCompareSelection()
+    else
+        selectedCompareKey = charKey
+        selectedCompareSlot = invSlot
+    end
+    if frame.RefreshGrid then frame:RefreshGrid() end
+end
+
+function GearTab.SelectCompareCharacter(key)
+    if not key then return end
+    local invSlot = GearTab.GetFirstFocusedColumnSlot()
+    if invSlot then
+        GearTab.SelectCompareCell(key, invSlot)
+    end
+end
+
+local function resolveColumnHighlightColor(_kind, selected)
+    if not selected then return nil end
+    return SELECTED_NEUTRAL_HIGHLIGHT
+end
+
+local function layoutCellFillTexture(tex, cell, hInset, r, g, b, a)
+    if not tex or not cell then
+        if tex then tex:Hide() end
         return
     end
-    local hInset = GearTab.getUpgradeHighlightHorizontalInset()
-    local extendBelow = GearTab.getUpgradeHighlightBelowHeaderExtent()
-    local r, g, b, a = GearTab.getUpgradeHighlightColor(delta, minDelta, maxDelta)
     tex:SetColorTexture(r, g, b, a)
     tex:ClearAllPoints()
-    tex:SetPoint("TOPLEFT", headerCol.header, "TOPLEFT", hInset, 1)
-    tex:SetPoint("BOTTOMRIGHT", headerCol, "BOTTOMRIGHT", -hInset, -extendBelow)
+    tex:SetPoint("TOPLEFT", cell, "TOPLEFT", -hInset, hInset)
+    tex:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", hInset, -hInset)
     tex:Show()
 end
 
-function GearTab.layoutSelectionOutline(headerCol, show)
-    local o = headerCol and headerCol.selectionOutline
-    if not o then return end
+function GearTab.layoutCellUpgradeBadge(cell, kind)
+    if not cell or not cell.upgradeBadge then return end
+    local badge = cell.upgradeBadge
+    if not kind then
+        badge:Hide()
+        return
+    end
+    local colors = UPGRADE_BADGE_COLORS[kind]
+    local text = UPGRADE_BADGE_TEXT[kind]
+    if not colors or not text then
+        badge:Hide()
+        return
+    end
+    badge:SetText(text)
+    badge:SetTextColor(colors[1], colors[2], colors[3], 1)
+    badge:Show()
+end
+
+function GearTab.layoutCellFocusHighlight(cell, _kind, selected)
+    if not cell or not cell.focusHighlight then return end
+    local colors = resolveColumnHighlightColor(nil, selected)
+    if not colors then
+        cell.focusHighlight:Hide()
+        return
+    end
+    local hInset = GearTab.getUpgradeHighlightHorizontalInset()
+    layoutCellFillTexture(
+        cell.focusHighlight, cell, hInset,
+        colors[1], colors[2], colors[3], colors[4])
+end
+
+function GearTab.layoutCellCompareHover(cell, show)
+    if not cell or not cell.compareHover then return end
     if not show then
-        for _, tex in pairs(o) do tex:Hide() end
+        cell.compareHover:Hide()
         return
     end
     local hInset = GearTab.getUpgradeHighlightHorizontalInset()
-    local extendBelow = GearTab.getUpgradeHighlightBelowHeaderExtent()
-    local outInset = math.max(0, hInset - SELECTION_OUTLINE_WIDTH)
-    local outExtend = extendBelow + SELECTION_OUTLINE_WIDTH
-    local w = SELECTION_OUTLINE_WIDTH
-
-    o.top:ClearAllPoints()
-    o.top:SetPoint("TOPLEFT", headerCol.header, "TOPLEFT", outInset, 1 + SELECTION_OUTLINE_WIDTH)
-    o.top:SetPoint("TOPRIGHT", headerCol, "TOPRIGHT", -outInset, 1 + SELECTION_OUTLINE_WIDTH)
-    o.top:SetHeight(w)
-    o.top:Show()
-
-    o.bottom:ClearAllPoints()
-    o.bottom:SetPoint("BOTTOMLEFT", headerCol, "BOTTOMLEFT", outInset, -outExtend)
-    o.bottom:SetPoint("BOTTOMRIGHT", headerCol, "BOTTOMRIGHT", -outInset, -outExtend)
-    o.bottom:SetHeight(w)
-    o.bottom:Show()
-
-    o.left:ClearAllPoints()
-    o.left:SetPoint("TOPLEFT", headerCol.header, "TOPLEFT", outInset, 1)
-    o.left:SetPoint("BOTTOMLEFT", headerCol, "BOTTOMLEFT", outInset, -outExtend)
-    o.left:SetWidth(w)
-    o.left:Show()
-
-    o.right:ClearAllPoints()
-    o.right:SetPoint("TOPRIGHT", headerCol, "TOPRIGHT", -outInset, 1)
-    o.right:SetPoint("BOTTOMRIGHT", headerCol, "BOTTOMRIGHT", -outInset, -outExtend)
-    o.right:SetWidth(w)
-    o.right:Show()
+    local r, g, b, a = COMPARE_HOVER_COLOR[1], COMPARE_HOVER_COLOR[2], COMPARE_HOVER_COLOR[3], COMPARE_HOVER_COLOR[4]
+    layoutCellFillTexture(cell.compareHover, cell, hInset, r, g, b, a)
 end
 
-function GearTab.layoutCompareHover(headerCol, show)
-    if not headerCol or not headerCol.compareHover then return end
-    local tex = headerCol.compareHover
-    if not show or not droppedItemLink then
-        tex:Hide()
-        return
+function GearTab.layoutSelectionOutline(_headerCol, gridCol, _focusCells, _show)
+    local function hideOutline(o)
+        if not o then return end
+        for _, tex in pairs(o) do tex:Hide() end
     end
-    local hInset = GearTab.getUpgradeHighlightHorizontalInset()
-    local extendBelow = GearTab.getUpgradeHighlightBelowHeaderExtent()
-    tex:SetColorTexture(
-        COMPARE_HOVER_COLOR[1],
-        COMPARE_HOVER_COLOR[2],
-        COMPARE_HOVER_COLOR[3],
-        COMPARE_HOVER_COLOR[4])
-    tex:ClearAllPoints()
-    tex:SetPoint("TOPLEFT", headerCol.header, "TOPLEFT", hInset, 1)
-    tex:SetPoint("BOTTOMRIGHT", headerCol, "BOTTOMRIGHT", -hInset, -extendBelow)
-    tex:Show()
+    hideOutline(gridCol and gridCol.selectionOutline)
 end
 
 --- True if this entry can never equip the current dropped item (for graying).
@@ -508,6 +635,19 @@ function GearTab.GetItemTexture(itemIDOrLink)
     return texture
 end
 
+function GearTab.SetCompareItemIcon(iconFrame, itemLink)
+    if not iconFrame then return end
+    iconFrame.itemLink = itemLink
+    local texPath = itemLink and GearTab.GetItemTexture(itemLink)
+    if texPath and iconFrame.texture then
+        iconFrame.texture:SetTexture(texPath)
+        iconFrame.texture:SetVertexColor(1, 1, 1, 1)
+        iconFrame.texture:Show()
+    elseif iconFrame.texture then
+        iconFrame.texture:Hide()
+    end
+end
+
 --- Item quality from GetItemInfo (0=poor, 1=common, 2=uncommon, 3=rare, 4=epic, 5=legendary).
 function GearTab.GetItemQuality(itemIDOrLink)
     if not itemIDOrLink or not GetItemInfo then return nil end
@@ -528,15 +668,16 @@ function GearTab.GetQualityGlowColor(quality)
     return 1, 0.5, 0
 end
 
-function GearTab.ApplyItemCellVisual(cell, item, gray)
+function GearTab.ApplyItemCellVisual(cell, item, gray, alpha)
+    local fade = alpha or 1
     local texPath = GearTab.GetItemTexture(item)
     if texPath then
         cell.texture:SetTexture(texPath)
         cell.texture:Show()
         if gray then
-            cell.texture:SetVertexColor(0.5, 0.5, 0.5, 1)
+            cell.texture:SetVertexColor(0.5, 0.5, 0.5, fade)
         else
-            cell.texture:SetVertexColor(1, 1, 1, 1)
+            cell.texture:SetVertexColor(fade, fade, fade, fade)
         end
     else
         cell.texture:SetTexture(nil)
@@ -545,11 +686,11 @@ function GearTab.ApplyItemCellVisual(cell, item, gray)
 
     local gr, gg, gb = GearTab.GetQualityGlowColor(GearTab.GetItemQuality(item))
     if gr and texPath and cell.glow then
-        cell.glow:SetColorTexture(gr, gg, gb, ITEM_GLOW_ALPHA)
+        cell.glow:SetColorTexture(gr, gg, gb, ITEM_GLOW_ALPHA * fade)
         if gray then
-            cell.glow:SetVertexColor(0.5, 0.5, 0.5, 1)
+            cell.glow:SetVertexColor(0.5, 0.5, 0.5, fade)
         else
-            cell.glow:SetVertexColor(1, 1, 1, 1)
+            cell.glow:SetVertexColor(fade, fade, fade, fade)
         end
         cell.glow:Show()
     elseif cell.glow then
@@ -573,16 +714,22 @@ function GearTab.HandleItemCellClick(itemLinkOrID, button)
     end
 end
 
--- ---- Tab content panel (bordered; same styling as settings panel) ----
-local tabContentPanel = Theme.CreateTabContentPanel(frame)
-tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
-tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
-local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)
+-- ---- Gear layout host (transparent; section panels sit inside with gaps like Graphs tab) ----
+local gearLayoutHost = CreateFrame("Frame", nil, frame)
+gearLayoutHost:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+gearLayoutHost:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+
+local gearMainSection
+local itemCheckSection
+local compareStatsSection
+local compareSettingsSection
+local gridHost
+local settingsPanel
 
 -- ---- Left panel ----
-local leftPanel = CreateFrame("Frame", nil, tabContentInner)
-leftPanel:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
-leftPanel:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", 0, 0)
+local leftPanel = CreateFrame("Frame", nil, gearLayoutHost)
+leftPanel:SetPoint("TOPLEFT", gearLayoutHost, "TOPLEFT", 0, 0)
+leftPanel:SetPoint("BOTTOMLEFT", gearLayoutHost, "BOTTOMLEFT", 0, 0)
 leftPanel:SetWidth(LEFT_PANEL_WIDTH)
 
 local labelWho = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -604,7 +751,7 @@ function GearTab.tryAcceptCursorItem()
     if not GetCursorInfo then return end
     local infoType, _, itemLink = GetCursorInfo()
     if infoType == "item" and itemLink then
-        droppedItemLink = itemLink
+        GearTab.ApplyFocusedItem(itemLink, { manual = true })
         if ClearCursor then ClearCursor() end
         local tex = GearTab.GetItemTexture(itemLink)
         if tex then
@@ -652,57 +799,31 @@ do
     dims.scrollableGridHeight = GearTab.GetScrollableGridHeight()
 end
 
-local rightPanel = CreateFrame("Frame", nil, tabContentInner)
+local rightPanel = CreateFrame("Frame", nil, gearLayoutHost)
 if LEFT_PANEL_VISIBLE then
     rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", PAD, 0)
 else
-    rightPanel:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
+    rightPanel:SetPoint("TOPLEFT", gearLayoutHost, "TOPLEFT", 0, 0)
 end
-rightPanel:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", 0, 0)
+rightPanel:SetPoint("BOTTOMRIGHT", gearLayoutHost, "BOTTOMRIGHT", 0, 0)
 
 local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
 
--- Content area: full height except scroll bars; fixed header will sit at top of this
-local contentArea = CreateFrame("Frame", nil, rightPanel)
-contentArea:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 0, -PAD)
-contentArea:SetPoint("BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER,
-    HORIZONTAL_SCROLL_BAR_HEIGHT)
+gearMainSection = Theme.CreateTabContentPanel(rightPanel)
+local gearMainInner = Theme.CreatePanelInnerContent(gearMainSection)
+gearMainInner:SetClipsChildren(true)
 
--- Vertical scroll: full content area; scroll child has spacer at top so header can overlay
-local verticalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearVerticalScroll", contentArea)
-verticalScroll:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 0, 0)
-verticalScroll:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", 0, 0)
-verticalScroll:EnableMouse(true)
+function GearTab.GetHorizontalScrollChromeHeight()
+    return HORIZONTAL_SCROLL_BAR_HEIGHT
+end
 
--- Scroll child: spacer at top (header overlays it) + slot labels + cell grid
-local MIN_SCROLL_CHILD_WIDTH = 400
-local verticalScrollChild = CreateFrame("Frame", nil, verticalScroll)
-verticalScrollChild:SetPoint("TOPLEFT", verticalScroll, "TOPLEFT", 0, 0)
-verticalScrollChild:SetHeight(GearTab.GetPinnedHeaderHeight() + dims.scrollableGridHeight)
-verticalScrollChild:SetWidth(MIN_SCROLL_CHILD_WIDTH)
-verticalScrollChild:EnableMouse(true)
-verticalScroll:SetScrollChild(verticalScrollChild)
-
--- Spacer at top of scroll child so first row of content sits below where header will overlay
-local scrollTopSpacer = CreateFrame("Frame", nil, verticalScrollChild)
-scrollTopSpacer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, 0)
-scrollTopSpacer:SetPoint("TOPRIGHT", verticalScrollChild, "TOPRIGHT", 0, 0)
-scrollTopSpacer:SetHeight(GearTab.GetPinnedHeaderHeight())
-
--- Fixed header row: character names + score row pinned; scrolls horizontally with grid
-local fixedHeaderRow = CreateFrame("Frame", nil, contentArea)
-fixedHeaderRow:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 0, 0)
-fixedHeaderRow:SetPoint("TOPRIGHT", contentArea, "TOPRIGHT", 0, 0)
+-- Fixed header row: character names + score row; scrolls horizontally with grid
+local fixedHeaderRow = CreateFrame("Frame", nil, gearMainInner)
+fixedHeaderRow:SetPoint("TOPLEFT", gearMainInner, "TOPLEFT", 0, 0)
+fixedHeaderRow:SetPoint("TOPRIGHT", gearMainInner, "TOPRIGHT", 0, 0)
 fixedHeaderRow:SetHeight(GearTab.GetPinnedHeaderHeight())
-fixedHeaderRow:SetFrameLevel(contentArea:GetFrameLevel() + 20)
--- Opaque background so scrolling content doesn't show through; extend slightly above, stop short at bottom
-local HEADER_BG_OVERHANG = 6
-local HEADER_BG_BOTTOM_INSET = 6
 local headerBg = fixedHeaderRow:CreateTexture(nil, "BACKGROUND")
-headerBg:SetPoint("BOTTOMLEFT", fixedHeaderRow, "BOTTOMLEFT", 0, HEADER_BG_BOTTOM_INSET)
-headerBg:SetPoint("BOTTOMRIGHT", fixedHeaderRow, "BOTTOMRIGHT", 0, HEADER_BG_BOTTOM_INSET)
-headerBg:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, HEADER_BG_OVERHANG)
-headerBg:SetPoint("TOPRIGHT", fixedHeaderRow, "TOPRIGHT", 0, HEADER_BG_OVERHANG)
+headerBg:SetAllPoints(true)
 Theme.StyleGridHeader(headerBg)
 fixedHeaderRow:EnableMouse(true)
 local headerCornerColumn = CreateFrame("Frame", nil, fixedHeaderRow)
@@ -725,18 +846,15 @@ itemCheckBtnText:SetPoint("RIGHT", itemCheckBtn, "RIGHT", -4, 0)
 itemCheckBtnText:SetJustifyH("CENTER")
 itemCheckBtnText:SetWordWrap(false)
 itemCheckBtnText:SetTextColor(1, 1, 1, 1)
-itemCheckBtnText:SetText("Item Check")
+itemCheckBtnText:SetText("Compare Item")
 
 local itemCheckModeActive = false
-local itemCheckPanel
 
 function GearTab.updateItemCheckButtonLabel()
-    if droppedItemLink then
-        itemCheckBtnText:SetText("Clear selection")
-    elseif itemCheckModeActive then
-        itemCheckBtnText:SetText("Cancel")
+    if droppedItemLink or itemCheckModeActive then
+        itemCheckBtnText:SetText("Go back")
     else
-        itemCheckBtnText:SetText("Item Check")
+        itemCheckBtnText:SetText("Compare Item")
     end
 end
 
@@ -749,24 +867,53 @@ headerGridContainer:SetPoint("TOPLEFT", headerHorizontalScroll, "TOPLEFT", 0, 0)
 headerGridContainer:SetHeight(GearTab.GetPinnedHeaderHeight())
 headerHorizontalScroll:SetScrollChild(headerGridContainer)
 
+gridHost = CreateFrame("Frame", nil, gearMainInner)
+gridHost:SetClipsChildren(true)
+local horizontalScrollBar
+
+function GearTab.LayoutGridHost()
+    local chromeH = GearTab.GetHorizontalScrollChromeHeight()
+    gridHost:ClearAllPoints()
+    gridHost:SetPoint("TOPLEFT", fixedHeaderRow, "BOTTOMLEFT", 0, 0)
+    gridHost:SetPoint("TOPRIGHT", gearMainInner, "TOPRIGHT", 0, 0)
+    gridHost:SetPoint("BOTTOMLEFT", gearMainInner, "BOTTOMLEFT", 0, 0)
+    gridHost:SetPoint("BOTTOMRIGHT", gearMainInner, "BOTTOMRIGHT", 0, chromeH)
+    if horizontalScrollBar then
+        horizontalScrollBar:ClearAllPoints()
+        horizontalScrollBar:SetPoint("BOTTOMLEFT", gearMainInner, "BOTTOMLEFT", 0, 0)
+        horizontalScrollBar:SetPoint("BOTTOMRIGHT", gearMainInner, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
+        horizontalScrollBar:SetFrameLevel(gearMainInner:GetFrameLevel() + 30)
+        horizontalScrollBar:EnableMouse(true)
+    end
+end
+
+GearTab.LayoutGridHost()
+
+-- Vertical scroll: grid area below pinned header
+local verticalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearVerticalScroll", gridHost)
+verticalScroll:SetPoint("TOPLEFT", gridHost, "TOPLEFT", 0, 0)
+verticalScroll:SetPoint("BOTTOMRIGHT", gridHost, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
+verticalScroll:EnableMouse(true)
+
+local MIN_SCROLL_CHILD_WIDTH = 400
+local verticalScrollChild = CreateFrame("Frame", nil, verticalScroll)
+verticalScrollChild:SetPoint("TOPLEFT", verticalScroll, "TOPLEFT", 0, 0)
+verticalScrollChild:SetHeight(dims.scrollableGridHeight)
+verticalScrollChild:SetWidth(MIN_SCROLL_CHILD_WIDTH)
+verticalScrollChild:EnableMouse(true)
+verticalScroll:SetScrollChild(verticalScrollChild)
+
 -- Vertical scroll bar: custom (no template) so it doesn't conflict with horizontal; both bars under our control
-local verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_GearVerticalScrollBar", rightPanel)
+local verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_GearVerticalScrollBar", gridHost)
 verticalScrollBar:SetMinMaxValues(0, 0)
 verticalScrollBar:SetValueStep(dims.rowHeight)
 verticalScrollBar:SetValue(0)
 verticalScrollBar:EnableMouse(true)
-Theme.AnchorVerticalScrollBar(verticalScrollBar, tabContentPanel, contentArea)
-local scrollTopFade
+Theme.AnchorVerticalScrollBar(verticalScrollBar, gearMainSection, verticalScroll)
+
 verticalScrollBar:SetScript("OnValueChanged", function(_, value)
     verticalScroll:SetVerticalScroll(value)
-    if scrollTopFade then scrollTopFade:Update() end
 end)
-
-scrollTopFade = Theme.CreatePinnedHeaderScrollFade({
-    headerFrame = fixedHeaderRow,
-    scrollFrame = verticalScroll,
-    scrollBar = verticalScrollBar,
-})
 
 -- Mouse wheel: scroll the gear list when hovering over the scroll area (frame or scroll child)
 function GearTab.OnGearScrollWheel(_, delta)
@@ -778,14 +925,13 @@ function GearTab.OnGearScrollWheel(_, delta)
     newVal = math.max(minVal, math.min(maxVal, newVal))
     verticalScrollBar:SetValue(newVal)
     verticalScroll:SetVerticalScroll(newVal)
-    if scrollTopFade then scrollTopFade:Update() end
 end
 verticalScroll:SetScript("OnMouseWheel", GearTab.OnGearScrollWheel)
 verticalScrollChild:SetScript("OnMouseWheel", GearTab.OnGearScrollWheel)
 
--- Row headers (slot names) — below pinned header; scroll with equipment rows
+-- Row headers (slot names); scroll with equipment rows
 local slotHeaderContainer = CreateFrame("Frame", nil, verticalScrollChild)
-slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -GearTab.GetPinnedHeaderHeight())
+slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, 0)
 slotHeaderContainer:SetHeight(dims.scrollableGridHeight)
 slotHeaderContainer:SetWidth(SLOT_LABEL_WIDTH)
 Theme.ApplyGridLabelColumnBackground(slotHeaderContainer)
@@ -803,6 +949,9 @@ scoreSortBtnText:SetTextColor(1, 0.82, 0, 1)
 function GearTab.UpdateScoreSortButton()
     local descending = GearTab.GetGearSettings().scoreSortDescending ~= false
     scoreSortBtnText:SetText(descending and ">" or "<")
+    if GearTab.ApplyScoreSortLayout then
+        GearTab.ApplyScoreSortLayout()
+    end
 end
 
 scoreSortBtn:SetScript("OnClick", function()
@@ -840,6 +989,22 @@ local scoreProviderBtnText = scoreProviderBtn:CreateFontString(nil, "OVERLAY", "
 scoreProviderBtnText:SetPoint("LEFT", scoreProviderBtn, "LEFT", 6, 0)
 scoreProviderBtnText:SetPoint("RIGHT", scoreProviderBtn, "RIGHT", -2, 0)
 scoreProviderBtnText:SetJustifyH("LEFT")
+
+function GearTab.ApplyScoreSortLayout()
+    -- Hide direction toggle while focus/comparison mode overrides score sorting (like faction sort on Rep tab).
+    local showDirection = not droppedItemLink
+    if scoreSortBtn then
+        scoreSortBtn:SetShown(showDirection)
+    end
+    local bottomInset = SCORE_ROW_HEADER_BOTTOM_INSET
+    if showDirection then
+        scoreProviderStaticLabel:SetPoint("BOTTOMRIGHT", scoreSortBtn, "BOTTOMLEFT", -SCORE_SORT_BTN_GAP, 0)
+        scoreProviderBtn:SetPoint("BOTTOMRIGHT", scoreSortBtn, "BOTTOMLEFT", -SCORE_SORT_BTN_GAP, 0)
+    else
+        scoreProviderStaticLabel:SetPoint("BOTTOMRIGHT", headerCornerColumn, "BOTTOMRIGHT", -2, bottomInset)
+        scoreProviderBtn:SetPoint("BOTTOMRIGHT", headerCornerColumn, "BOTTOMRIGHT", 0, bottomInset)
+    end
+end
 
 local scoreProviderDropdown = CreateFrame("Frame", nil, fixedHeaderRow, "BackdropTemplate")
 scoreProviderDropdown:SetPoint("TOPLEFT", scoreProviderBtn, "BOTTOMLEFT", 0, -2)
@@ -934,10 +1099,10 @@ for slot = 1, NUM_EQUIPMENT_SLOTS do
     slotLabels[slot] = label
 end
 
--- Horizontal viewport: below spacer, same vertical start as slot labels
+-- Horizontal viewport: same vertical start as slot labels
 local horizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearHorizontalScroll", verticalScrollChild)
-horizontalScroll:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", SLOT_LABEL_WIDTH, -GearTab.GetPinnedHeaderHeight())
-horizontalScroll:SetPoint("TOPRIGHT", verticalScrollChild, "TOPRIGHT", 0, -GearTab.GetPinnedHeaderHeight())
+horizontalScroll:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", SLOT_LABEL_WIDTH, 0)
+horizontalScroll:SetPoint("TOPRIGHT", verticalScrollChild, "TOPRIGHT", 0, 0)
 horizontalScroll:SetHeight(dims.scrollableGridHeight)
 horizontalScroll:EnableMouse(true)
 
@@ -949,6 +1114,64 @@ horizontalScroll:SetScrollChild(gridContainer)
 
 -- Header column pool: name + message per character, in fixed header row (scrolls horizontally)
 local headerColumnPool = {}
+-- Pool of character column frames (cells only; reused)
+local columnPool = {}
+
+function GearTab.RefreshCompareHover()
+    for _, col in pairs(columnPool) do
+        if col:IsShown() and col.compareKey then
+            for slot = 1, NUM_EQUIPMENT_SLOTS do
+                local cell = col.cells[slot]
+                if cell and cell:IsShown() and cell.isFocusCompareCell and cell.inventorySlot then
+                    local cellKey = GearTab.MakeCompareCellKey(col.compareKey, cell.inventorySlot)
+                    local show = droppedItemLink
+                        and hoveredCompareKey == cellKey
+                        and not GearTab.IsCompareCellSelected(col.compareKey, cell.inventorySlot)
+                    GearTab.layoutCellCompareHover(cell, show)
+                end
+            end
+        end
+    end
+end
+
+function GearTab.AddCompareHover(key)
+    if not key then return end
+    compareHoverRefs[key] = (compareHoverRefs[key] or 0) + 1
+    if hoveredCompareKey ~= key then
+        hoveredCompareKey = key
+        GearTab.RefreshCompareHover()
+    end
+end
+
+function GearTab.RemoveCompareHover(key)
+    if not key then return end
+    local n = (compareHoverRefs[key] or 0) - 1
+    if n <= 0 then
+        compareHoverRefs[key] = nil
+    else
+        compareHoverRefs[key] = n
+    end
+    local function apply()
+        local active = nil
+        for k, count in pairs(compareHoverRefs) do
+            if count > 0 then
+                active = k
+                break
+            end
+        end
+        if active ~= hoveredCompareKey then
+            hoveredCompareKey = active
+            GearTab.RefreshCompareHover()
+        end
+    end
+    local ctimer = _G.C_Timer
+    if ctimer and ctimer.After then
+        ctimer.After(0, apply)
+    else
+        apply()
+    end
+end
+
 function GearTab.GetHeaderColumnFrame(index)
     if not headerColumnPool[index] then
         local col = CreateFrame("Frame", nil, headerGridContainer)
@@ -989,18 +1212,6 @@ function GearTab.GetHeaderColumnFrame(index)
         col.scoreHover:SetScript("OnLeave", function()
             if GameTooltip then GameTooltip:Hide() end
         end)
-        local upgradeHighlight = col:CreateTexture(nil, "BACKGROUND")
-        upgradeHighlight:SetColorTexture(0.2, 0.9, 0.2, 0.35)
-        upgradeHighlight:Hide()
-        col.upgradeHighlight = upgradeHighlight
-        local compareHover = col:CreateTexture(nil, "BACKGROUND", nil, 1)
-        compareHover:SetColorTexture(
-            COMPARE_HOVER_COLOR[1],
-            COMPARE_HOVER_COLOR[2],
-            COMPARE_HOVER_COLOR[3],
-            COMPARE_HOVER_COLOR[4])
-        compareHover:Hide()
-        col.compareHover = compareHover
         col.selectionOutline = {}
         local function makeOutlineEdge(key)
             local tex = col:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -1013,55 +1224,43 @@ function GearTab.GetHeaderColumnFrame(index)
         makeOutlineEdge("left")
         makeOutlineEdge("right")
         col:SetScript("OnEnter", function(self)
-            if droppedItemLink then
-                hoveredCompareKey = self.compareKey
-                GearTab.layoutCompareHover(self, true)
-            end
-            if self.tooltipText and self.tooltipText ~= "" and GameTooltip then
+            if not GameTooltip then return end
+            local show = false
+            if self.tooltipText and self.tooltipText ~= "" then
                 GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
                 GameTooltip:ClearLines()
                 GameTooltip:AddLine(self.tooltipText, 1, 1, 1)
-                if droppedItemLink then
-                    GameTooltip:AddLine("Click to compare", 0.7, 0.7, 0.7)
+                show = true
+            end
+            if droppedItemLink and self.compareKey then
+                if not show then
+                    GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+                    GameTooltip:ClearLines()
                 end
-                GameTooltip:Show()
-            elseif droppedItemLink and GameTooltip then
-                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-                GameTooltip:ClearLines()
-                GameTooltip:AddLine("Click to compare", 1, 0.82, 0)
-                GameTooltip:Show()
+                GameTooltip:AddLine("Click to compare", 0.7, 0.7, 0.7)
+                show = true
             end
+            if show then GameTooltip:Show() end
         end)
-        col:SetScript("OnLeave", function(self)
-            if hoveredCompareKey == self.compareKey then
-                hoveredCompareKey = nil
-            end
-            GearTab.layoutCompareHover(self, false)
+        col:SetScript("OnLeave", function()
             if GameTooltip then GameTooltip:Hide() end
         end)
         col:SetScript("OnMouseUp", function(self, button)
-            if button ~= "LeftButton" or not droppedItemLink then return end
-            local key = self.compareKey
-            if not key then return end
-            if selectedCompareKey == key then
-                GearTab.ClearCompareSelection()
-            else
-                selectedCompareKey = key
-            end
-            if frame.RefreshGrid then frame:RefreshGrid() end
+            if button ~= "LeftButton" or not droppedItemLink or not self.compareKey then return end
+            local shift = IsShiftKeyDown and IsShiftKeyDown()
+            local ctrl = IsControlKeyDown and IsControlKeyDown()
+            if shift or ctrl then return end
+            GearTab.SelectCompareCharacter(self.compareKey)
         end)
         headerColumnPool[index] = col
     end
     return headerColumnPool[index]
 end
 
--- Pool of character column frames (cells only; reused)
-local columnPool = {}
-
 -- Horizontal scroll bar: create after horizontalScroll/gridContainer exist so OnValueChanged sees them
 local scrollGridLeftFade
 local scrollHeaderLeftFade
-local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
+local horizontalScrollApi = Theme.CreateHorizontalScrollBar(gearMainInner, {
     name = "AltArmyTBC_GearHorizontalScrollBar",
     thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
     onScroll = function(value)
@@ -1083,9 +1282,8 @@ local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
         return frame:IsShown()
     end,
 })
-local horizontalScrollBar = horizontalScrollApi.bar
-horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", PAD, -4)
-horizontalScrollBar:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", 0, -4)
+horizontalScrollBar = horizontalScrollApi.bar
+GearTab.LayoutGridHost()
 
 scrollGridLeftFade = Theme.CreatePinnedHorizontalScrollFade({
     anchorScrollFrame = horizontalScroll,
@@ -1098,20 +1296,18 @@ scrollHeaderLeftFade = Theme.CreatePinnedHorizontalScrollFade({
     scrollBar = horizontalScrollBar,
 })
 
--- Item Check inline mode: replaces grid body with drop UI while keeping the pinned header.
-itemCheckPanel = CreateFrame("Frame", nil, contentArea)
-itemCheckPanel:SetPoint("TOPLEFT", fixedHeaderRow, "BOTTOMLEFT", 0, 0)
-itemCheckPanel:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", 0, 0)
-itemCheckPanel:SetFrameLevel(contentArea:GetFrameLevel() + 10)
-itemCheckPanel:EnableMouse(true)
-itemCheckPanel:Hide()
+-- Item Check mode: header panel + instructions panel below.
+itemCheckSection = Theme.CreateTabContentPanel(rightPanel)
+itemCheckSection:Hide()
+local itemCheckInner = Theme.CreatePanelInnerContent(itemCheckSection)
+itemCheckInner:EnableMouse(true)
 
 local ITEM_CHECK_STACK_WIDTH = 420
 local ITEM_CHECK_STACK_HEIGHT = 180
 
-local itemCheckStack = CreateFrame("Frame", nil, itemCheckPanel)
+local itemCheckStack = CreateFrame("Frame", nil, itemCheckInner)
 itemCheckStack:SetSize(ITEM_CHECK_STACK_WIDTH, ITEM_CHECK_STACK_HEIGHT)
-itemCheckStack:SetPoint("CENTER", itemCheckPanel, "CENTER", 0, 0)
+itemCheckStack:SetPoint("CENTER", itemCheckInner, "CENTER", 0, 0)
 
 local itemCheckMessage = itemCheckStack:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 itemCheckMessage:SetPoint("TOP", itemCheckStack, "TOP", 0, 0)
@@ -1184,7 +1380,7 @@ Theme.SkinButton(itemCheckCancel)
 local itemCheckCancelText = itemCheckCancel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 itemCheckCancelText:SetPoint("CENTER", itemCheckCancel, "CENTER", 0, 0)
 itemCheckCancelText:SetTextColor(1, 1, 1, 1)
-itemCheckCancelText:SetText("Cancel")
+itemCheckCancelText:SetText("Go back")
 
 local itemCheckError = itemCheckStack:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 itemCheckError:SetPoint("TOP", itemCheckCancel, "BOTTOM", 0, -10)
@@ -1217,8 +1413,7 @@ function GearTab.getCursorItemLink()
 end
 
 function GearTab.applyItemCheckDrop(itemLink)
-    GearTab.ClearCompareSelection()
-    droppedItemLink = itemLink
+    GearTab.ApplyFocusedItem(itemLink, { manual = true })
     GearTab.exitItemCheckMode()
     GearTab.updateItemCheckButtonLabel()
     if frame.RefreshGrid then frame:RefreshGrid() end
@@ -1256,46 +1451,178 @@ itemCheckCancel:SetScript("OnClick", function()
     GearTab.exitItemCheckMode()
 end)
 
--- Character comparison panel (split view below focused slot grid)
-local comparePanel = CreateFrame("Frame", nil, verticalScrollChild)
-comparePanel:Hide()
-Theme.ApplyGridLabelColumnBackground(comparePanel)
+-- Character comparison panels (split view below focused slot grid)
+compareStatsSection = Theme.CreateTabContentPanel(rightPanel)
+compareStatsSection:Hide()
+local compareStatsInner = Theme.CreatePanelInnerContent(compareStatsSection)
 
-local compareTitle = comparePanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-compareTitle:SetPoint("TOPLEFT", comparePanel, "TOPLEFT", COMPARE_PANEL_PAD, -COMPARE_PANEL_PAD)
-compareTitle:SetPoint("TOPRIGHT", comparePanel, "TOPRIGHT", -COMPARE_PANEL_PAD, -COMPARE_PANEL_PAD)
-compareTitle:SetHeight(COMPARE_TITLE_HEIGHT)
-compareTitle:SetJustifyH("LEFT")
-compareTitle:SetWordWrap(true)
+compareSettingsSection = Theme.CreateTabContentPanel(rightPanel)
+compareSettingsSection:Hide()
+local compareSettingsInner = Theme.CreatePanelInnerContent(compareSettingsSection)
 
-local compareSummary = comparePanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-compareSummary:SetPoint("TOPLEFT", compareTitle, "BOTTOMLEFT", 0, -4)
-compareSummary:SetPoint("TOPRIGHT", compareTitle, "BOTTOMRIGHT", 0, -4)
-compareSummary:SetHeight(COMPARE_ROW_HEIGHT)
-compareSummary:SetJustifyH("LEFT")
+local compareItemsRow = CreateFrame("Frame", nil, compareStatsInner)
+compareItemsRow:SetPoint("TOPLEFT", compareStatsInner, "TOPLEFT", 0, 0)
+compareItemsRow:SetPoint("TOPRIGHT", compareStatsInner, "TOPRIGHT", 0, 0)
+compareItemsRow:SetHeight(COMPARE_ITEMS_ROW_HEIGHT)
 
-local compareAlgoBtn = CreateFrame("Button", nil, comparePanel)
-compareAlgoBtn:SetPoint("TOPLEFT", compareSummary, "BOTTOMLEFT", 0, -6)
-compareAlgoBtn:SetSize(COMPARE_ALGO_DROPDOWN_WIDTH, COMPARE_DROPDOWN_ROW - 4)
-compareAlgoBtn:Hide()
+local function createCompareItemIcon(parent)
+    local box = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    box:SetSize(COMPARE_ICON_SIZE, COMPARE_ICON_SIZE)
+    Theme.ApplyBackdrop(box, "section")
+    local tex = box:CreateTexture(nil, "ARTWORK")
+    tex:SetPoint("TOPLEFT", box, "TOPLEFT", ITEM_ICON_INSET, -ITEM_ICON_INSET)
+    tex:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -ITEM_ICON_INSET, ITEM_ICON_INSET)
+    box.texture = tex
+    box:EnableMouse(true)
+    box:SetScript("OnEnter", function(self)
+        if not GameTooltip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self.itemLink and self.itemLink ~= "" then
+            GameTooltip:SetHyperlink(self.itemLink)
+        else
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine("Empty slot", 1, 1, 1)
+        end
+        GameTooltip:Show()
+    end)
+    box:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    return box
+end
+
+local compareEquippedIcon = createCompareItemIcon(compareItemsRow)
+compareEquippedIcon:SetPoint("LEFT", compareItemsRow, "LEFT", 0, 0)
+
+local COMPARE_ARROW_SIZE = 20
+
+local compareArrow = compareItemsRow:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+compareArrow:SetWidth(COMPARE_ARROW_SIZE)
+compareArrow:SetJustifyH("CENTER")
+compareArrow:SetJustifyV("MIDDLE")
+compareArrow:SetText("|TInterface\\Buttons\\UI-SpellbookIcon-NextPage-Up:"
+    .. COMPARE_ARROW_SIZE .. ":" .. COMPARE_ARROW_SIZE .. "|t")
+compareArrow:SetPoint("LEFT", compareEquippedIcon, "RIGHT", 8, 0)
+compareArrow:SetPoint("TOP", compareEquippedIcon, "TOP", 0, 0)
+compareArrow:SetPoint("BOTTOM", compareEquippedIcon, "BOTTOM", 0, 0)
+
+local compareFocusedIcon = createCompareItemIcon(compareItemsRow)
+compareFocusedIcon:SetPoint("LEFT", compareArrow, "RIGHT", 8, 0)
+
+local compareWarningContainer = CreateFrame("Frame", nil, compareStatsInner)
+local compareWarningRows = {}
+
+local compareOptionsSection = CreateFrame("Frame", nil, compareSettingsInner)
+compareOptionsSection:SetPoint("TOPLEFT", compareSettingsInner, "TOPLEFT", 0, 0)
+compareOptionsSection:SetPoint("TOPRIGHT", compareSettingsInner, "TOPRIGHT", 0, 0)
+compareOptionsSection:SetPoint("BOTTOMRIGHT", compareSettingsInner, "BOTTOMRIGHT", 0, 0)
+
+local compareAlgoLabel = compareOptionsSection:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+compareAlgoLabel:SetPoint("TOPLEFT", compareOptionsSection, "TOPLEFT", 0, 0)
+compareAlgoLabel:SetText("Comparison algorithm")
+
+local compareAlgoBtn = CreateFrame("Button", nil, compareOptionsSection)
+compareAlgoBtn:SetPoint("TOP", compareAlgoLabel, "BOTTOM", 0, -4)
+compareAlgoBtn:SetPoint("LEFT", compareOptionsSection, "LEFT", 0, 0)
+compareAlgoBtn:SetPoint("RIGHT", compareOptionsSection, "RIGHT", 0, 0)
+compareAlgoBtn:SetHeight(COMPARE_DROPDOWN_ROW - 4)
 Theme.SkinButton(compareAlgoBtn)
 local compareAlgoBtnText = compareAlgoBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 compareAlgoBtnText:SetPoint("LEFT", compareAlgoBtn, "LEFT", 6, 0)
 compareAlgoBtnText:SetPoint("RIGHT", compareAlgoBtn, "RIGHT", -2, 0)
 compareAlgoBtnText:SetJustifyH("LEFT")
 
-local compareAlgoDropdown = CreateFrame("Frame", nil, comparePanel, "BackdropTemplate")
+local compareLevelsLabel = compareOptionsSection:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+compareLevelsLabel:SetPoint("TOPLEFT", compareAlgoBtn, "BOTTOMLEFT", 0, -8)
+compareLevelsLabel:SetText("Consider items equippable within this many levels")
+
+local compareLevelsEdit = CreateFrame("EditBox", nil, compareOptionsSection)
+compareLevelsEdit:SetPoint("TOPLEFT", compareLevelsLabel, "BOTTOMLEFT", 0, -4)
+compareLevelsEdit:SetSize(44, 20)
+compareLevelsEdit:SetFontObject("GameFontHighlightSmall")
+compareLevelsEdit:SetAutoFocus(false)
+compareLevelsEdit:SetNumeric(true)
+compareLevelsEdit:SetJustifyH("CENTER")
+Theme.ApplyInputTextures(compareLevelsEdit)
+
+local function saveCompareLevelsAhead()
+    if not GU or not GU.EnsureGearUpgradeOptions then return end
+    local n = tonumber(compareLevelsEdit:GetText()) or 0
+    GU.EnsureGearUpgradeOptions().levelsAhead = math.max(0, math.floor(n))
+    if frame.RefreshGrid then frame:RefreshGrid() end
+end
+
+compareLevelsEdit:SetScript("OnEnterPressed", function(box)
+    box:ClearFocus()
+    saveCompareLevelsAhead()
+end)
+compareLevelsEdit:SetScript("OnEditFocusLost", saveCompareLevelsAhead)
+
+local compareAlgoDropdown = CreateFrame("Frame", nil, compareSettingsSection, "BackdropTemplate")
 compareAlgoDropdown:SetPoint("TOPLEFT", compareAlgoBtn, "BOTTOMLEFT", 0, -2)
 compareAlgoDropdown:SetWidth(COMPARE_ALGO_DROPDOWN_WIDTH)
-compareAlgoDropdown:SetFrameLevel(comparePanel:GetFrameLevel() + 100)
+compareAlgoDropdown:SetFrameLevel(compareSettingsSection:GetFrameLevel() + 100)
 compareAlgoDropdown:Hide()
 Theme.ApplyBackdrop(compareAlgoDropdown, "section")
 local compareAlgoDropdownButtons = {}
 
-local compareStatContainer = CreateFrame("Frame", nil, comparePanel)
-compareStatContainer:SetPoint("TOPLEFT", compareAlgoBtn, "BOTTOMLEFT", 0, -4)
-compareStatContainer:SetPoint("BOTTOMRIGHT", comparePanel, "BOTTOMRIGHT", -COMPARE_PANEL_PAD, COMPARE_PANEL_PAD)
+local compareStatContainer = CreateFrame("Frame", nil, compareStatsInner)
 local compareStatRows = {}
+
+function GearTab.HideCompareWarningRows()
+    for i = 1, #compareWarningRows do
+        compareWarningRows[i]:Hide()
+    end
+end
+
+function GearTab.GetCompareWarningRow(index)
+    if not compareWarningRows[index] then
+        local row = compareWarningContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row:SetPoint("LEFT", compareWarningContainer, "LEFT", 0, 0)
+        row:SetPoint("RIGHT", compareWarningContainer, "RIGHT", 0, 0)
+        row:SetHeight(COMPARE_ROW_HEIGHT)
+        row:SetJustifyH("LEFT")
+        row:SetTextColor(1, 0.4, 0.3, 1)
+        compareWarningRows[index] = row
+    end
+    return compareWarningRows[index]
+end
+
+function GearTab.LayoutComparePanelSections(warnings)
+    local anchor = compareItemsRow
+    GearTab.HideCompareWarningRows()
+    local warningCount = warnings and #warnings or 0
+    compareWarningContainer:ClearAllPoints()
+    if warningCount > 0 then
+        compareWarningContainer:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
+        compareWarningContainer:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -4)
+        for i = 1, warningCount do
+            local row = GearTab.GetCompareWarningRow(i)
+            row:SetText(warnings[i])
+            row:ClearAllPoints()
+            if i == 1 then
+                row:SetPoint("TOPLEFT", compareWarningContainer, "TOPLEFT", 0, 0)
+                row:SetPoint("TOPRIGHT", compareWarningContainer, "TOPRIGHT", 0, 0)
+            else
+                local prev = compareWarningRows[i - 1]
+                row:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -2)
+                row:SetPoint("TOPRIGHT", prev, "BOTTOMRIGHT", 0, -2)
+            end
+            row:Show()
+        end
+        compareWarningContainer:SetHeight(
+            warningCount * COMPARE_ROW_HEIGHT + math.max(0, warningCount - 1) * 2)
+        compareWarningContainer:Show()
+        anchor = compareWarningContainer
+    else
+        compareWarningContainer:SetHeight(0)
+        compareWarningContainer:Hide()
+    end
+
+    compareStatContainer:ClearAllPoints()
+    compareStatContainer:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -8)
+    compareStatContainer:SetPoint("BOTTOMRIGHT", compareStatsInner, "BOTTOMRIGHT", 0, 0)
+end
 
 function GearTab.HideCompareStatRows()
     for i = 1, #compareStatRows do
@@ -1349,6 +1676,12 @@ function GearTab.RebuildCompareTechniqueDropdown()
         compareAlgoDropdown:Hide()
         return
     end
+    local dropdownWidth = compareAlgoBtn:GetWidth()
+    if dropdownWidth and dropdownWidth > 0 then
+        compareAlgoDropdown:SetWidth(dropdownWidth)
+    else
+        compareAlgoDropdown:SetWidth(COMPARE_ALGO_DROPDOWN_WIDTH)
+    end
     compareAlgoDropdown:SetHeight(#techniques * SETTINGS_ROW_HEIGHT + 4)
     for idx, provider in ipairs(techniques) do
         local b = Theme.CreateDropdownMenuItem(compareAlgoDropdown, {
@@ -1374,51 +1707,128 @@ compareAlgoBtn:SetScript("OnClick", function()
     compareAlgoDropdown:SetShown(show)
 end)
 
+function GearTab.ShouldHideCompareSettingsSection()
+    return GearTab.GetGearLayoutMode() == "focus_compare"
+        and settingsPanel
+        and settingsPanel:IsShown()
+end
+
+function GearTab.ApplyGearLayoutHostBounds()
+    gearLayoutHost:ClearAllPoints()
+    gearLayoutHost:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+    if settingsPanel and settingsPanel:IsShown() then
+        gearLayoutHost:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -SECTION_GAP, 0)
+    else
+        gearLayoutHost:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+    end
+end
+
+function GearTab.GetGearLayoutMode()
+    if itemCheckModeActive then return "item_check" end
+    if droppedItemLink and GearTab.HasCompareSelection() then return "focus_compare" end
+    if droppedItemLink then return "focus" end
+    return "normal"
+end
+
+function GearTab.GetGearMainSectionHeight()
+    local innerPad = Theme.TAB_CONTENT_PADDING or 8
+    local gridH = dims.scrollableGridHeight or GearTab.GetScrollableGridHeight()
+    if itemCheckModeActive then
+        return GearTab.GetPinnedHeaderHeight() + innerPad * 2
+    end
+    local chromeH = GearTab.GetHorizontalScrollChromeHeight()
+    return GearTab.GetPinnedHeaderHeight() + gridH + chromeH + innerPad * 2
+end
+
+function GearTab.LayoutGearPanels()
+    GearTab.ApplyGearLayoutHostBounds()
+    local mode = GearTab.GetGearLayoutMode()
+    local areaLeft = rightPanel
+    local areaRight = rightPanel
+
+    gearMainSection:Hide()
+    itemCheckSection:Hide()
+    compareStatsSection:Hide()
+    compareSettingsSection:Hide()
+
+    if mode == "item_check" then
+        gearMainSection:Show()
+        gearMainSection:ClearAllPoints()
+        gearMainSection:SetPoint("TOPLEFT", areaLeft, "TOPLEFT", 0, 0)
+        gearMainSection:SetPoint("TOPRIGHT", areaRight, "TOPRIGHT", 0, 0)
+        gearMainSection:SetHeight(GearTab.GetGearMainSectionHeight())
+        if gridHost then gridHost:Hide() end
+
+        itemCheckSection:Show()
+        itemCheckSection:ClearAllPoints()
+        itemCheckSection:SetPoint("TOPLEFT", gearMainSection, "BOTTOMLEFT", 0, -SECTION_GAP)
+        itemCheckSection:SetPoint("BOTTOMRIGHT", areaRight, "BOTTOMRIGHT", 0, 0)
+    elseif mode == "focus_compare" then
+        gearMainSection:Show()
+        gearMainSection:ClearAllPoints()
+        gearMainSection:SetPoint("TOPLEFT", areaLeft, "TOPLEFT", 0, 0)
+        gearMainSection:SetPoint("TOPRIGHT", areaRight, "TOPRIGHT", 0, 0)
+        gearMainSection:SetHeight(GearTab.GetGearMainSectionHeight())
+        if gridHost then gridHost:Show() end
+
+        local halfGap = SECTION_GAP / 2
+        local hideCompareSettings = GearTab.ShouldHideCompareSettingsSection()
+        compareStatsSection:Show()
+        compareStatsSection:ClearAllPoints()
+        compareStatsSection:SetPoint("TOPLEFT", gearMainSection, "BOTTOMLEFT", 0, -SECTION_GAP)
+        compareStatsSection:SetPoint("BOTTOMLEFT", areaLeft, "BOTTOMLEFT", 0, 0)
+        if hideCompareSettings then
+            compareStatsSection:SetPoint("BOTTOMRIGHT", areaRight, "BOTTOMRIGHT", 0, 0)
+            if compareAlgoDropdown then compareAlgoDropdown:Hide() end
+        else
+            compareStatsSection:SetPoint("RIGHT", areaRight, "CENTER", -halfGap, 0)
+
+            compareSettingsSection:Show()
+            compareSettingsSection:ClearAllPoints()
+            compareSettingsSection:SetPoint("TOPRIGHT", gearMainSection, "BOTTOMRIGHT", 0, -SECTION_GAP)
+            compareSettingsSection:SetPoint("BOTTOMRIGHT", areaRight, "BOTTOMRIGHT", 0, 0)
+            compareSettingsSection:SetPoint("LEFT", areaRight, "CENTER", halfGap, 0)
+        end
+    elseif mode == "focus" then
+        gearMainSection:Show()
+        gearMainSection:ClearAllPoints()
+        gearMainSection:SetPoint("TOPLEFT", areaLeft, "TOPLEFT", 0, 0)
+        gearMainSection:SetPoint("TOPRIGHT", areaRight, "TOPRIGHT", 0, 0)
+        gearMainSection:SetHeight(GearTab.GetGearMainSectionHeight())
+        if gridHost then gridHost:Show() end
+    else
+        gearMainSection:Show()
+        gearMainSection:ClearAllPoints()
+        gearMainSection:SetPoint("TOPLEFT", areaLeft, "TOPLEFT", 0, 0)
+        gearMainSection:SetPoint("BOTTOMRIGHT", areaRight, "BOTTOMRIGHT", 0, 0)
+        if gridHost then gridHost:Show() end
+    end
+end
+
+GearTab.LayoutGearPanels()
+
 function GearTab.LayoutScrollArea()
     local gridH = dims.scrollableGridHeight or GearTab.GetScrollableGridHeight()
+    GearTab.LayoutGridHost()
     if horizontalScroll then
         horizontalScroll:SetHeight(gridH)
     end
     if slotHeaderContainer then
         slotHeaderContainer:ClearAllPoints()
-        slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -GearTab.GetPinnedHeaderHeight())
+        slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, 0)
         slotHeaderContainer:SetHeight(gridH)
         slotHeaderContainer:SetWidth(SLOT_LABEL_WIDTH)
     end
-    local compareH = comparePanelHeight or 0
-    if comparePanel then
-        if compareH > 0 and selectedCompareKey and droppedItemLink then
-            comparePanel:SetHeight(compareH)
-            comparePanel:ClearAllPoints()
-            comparePanel:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0,
-                -(GearTab.GetPinnedHeaderHeight() + gridH))
-            comparePanel:SetPoint("TOPRIGHT", verticalScrollChild, "TOPRIGHT", 0,
-                -(GearTab.GetPinnedHeaderHeight() + gridH))
-            comparePanel:Show()
-            if compareStatContainer then
-                compareStatContainer:ClearAllPoints()
-                if compareAlgoBtn:IsShown() then
-                    compareStatContainer:SetPoint("TOPLEFT", compareAlgoBtn, "BOTTOMLEFT", 0, -4)
-                else
-                    compareStatContainer:SetPoint("TOPLEFT", compareSummary, "BOTTOMLEFT", 0, -8)
-                end
-                compareStatContainer:SetPoint("BOTTOMRIGHT", comparePanel, "BOTTOMRIGHT",
-                    -COMPARE_PANEL_PAD, COMPARE_PANEL_PAD)
-            end
-        else
-            comparePanel:Hide()
-        end
-    end
     if verticalScrollChild then
-        verticalScrollChild:SetHeight(GearTab.GetPinnedHeaderHeight() + gridH + compareH)
+        verticalScrollChild:SetHeight(gridH)
     end
+    GearTab.LayoutGearPanels()
 end
 
 function GearTab.UpdateComparePanel(list)
     GearTab.HideCompareStatRows()
-    comparePanelHeight = 0
-    if not droppedItemLink or not selectedCompareKey or not GC then
-        if compareAlgoBtn then compareAlgoBtn:Hide() end
+    if not droppedItemLink or not GearTab.HasCompareSelection() or not GC then
+        if compareAlgoDropdown then compareAlgoDropdown:Hide() end
         return
     end
     local entry = GearTab.GetSelectedCompareEntry(list)
@@ -1430,39 +1840,27 @@ function GearTab.UpdateComparePanel(list)
     if not charData then return end
 
     local technique = GearTab.GetSessionCompareTechnique()
-    local equippedLink = GC.GetEquippedCompareItem(charData, droppedItemLink, { technique = technique })
+    local equippedLink = GC.GetEquippedCompareItem(charData, droppedItemLink, {
+        technique = technique,
+        slot = selectedCompareSlot,
+    })
     local comparison = GC.BuildComparison(droppedItemLink, equippedLink, technique, charData)
     if not comparison then return end
 
-    compareTitle:SetText(string.format(
-        "Comparing %s with %s",
-        comparison.focusedName or "?",
-        comparison.equippedName or "(empty)"))
+    GearTab.SetCompareItemIcon(compareFocusedIcon, droppedItemLink)
+    GearTab.SetCompareItemIcon(compareEquippedIcon, equippedLink)
 
-    local summary = comparison.summary or {}
-    compareSummary:SetText(string.format(
-        "Total: %s vs %s (%s)",
-        GearTab.FormatCompareNumber(summary.newTotal),
-        GearTab.FormatCompareNumber(summary.oldTotal),
-        GearTab.FormatCompareDelta(summary.delta or 0)))
-    local sr, sg, sb = 0.9, 0.9, 0.9
-    if (summary.delta or 0) > 0 then
-        sr, sg, sb = 0.2, 1, 0.2
-    elseif (summary.delta or 0) < 0 then
-        sr, sg, sb = 1, 0.4, 0.3
-    end
-    compareSummary:SetTextColor(sr, sg, sb, 1)
+    local compareWarnings = GearTab.GetCompareWarnings(entry, droppedItemLink)
+    GearTab.LayoutComparePanelSections(compareWarnings)
 
-    local techniques = GC.GetAvailableComparisonTechniques()
-    if #techniques > 1 then
-        GearTab.RebuildCompareTechniqueDropdown()
-        compareAlgoBtn:Show()
-        local provider = GU.GetProvider(GU.GetEffectiveTechnique(technique))
-        compareAlgoBtnText:SetText(provider and GU.GetProviderDisplayLabel(provider) or technique)
-    else
-        compareAlgoBtn:Hide()
-        compareAlgoDropdown:Hide()
+    if GU and GU.GetOptions then
+        local levelsAhead = GU.GetOptions().levelsAhead
+        compareLevelsEdit:SetText(tostring(levelsAhead ~= nil and levelsAhead or 5))
     end
+
+    GearTab.RebuildCompareTechniqueDropdown()
+    local provider = GU.GetProvider(GU.GetEffectiveTechnique(technique))
+    compareAlgoBtnText:SetText(provider and GU.GetProviderDisplayLabel(provider) or technique)
 
     local rowIndex = 0
     local sections = comparison.sections or {}
@@ -1510,7 +1908,6 @@ function GearTab.UpdateComparePanel(list)
         end
     end
 
-    comparePanelHeight = GearTab.EstimateComparePanelHeight(comparison, #techniques > 1)
     for i = rowIndex + 1, #compareStatRows do
         compareStatRows[i]:Hide()
     end
@@ -1519,8 +1916,6 @@ end
 function GearTab.enterItemCheckMode()
     itemCheckModeActive = true
     GearTab.resetItemCheckDrop()
-    if itemCheckPanel then itemCheckPanel:Show() end
-    if comparePanel then comparePanel:Hide() end
     if compareAlgoDropdown then compareAlgoDropdown:Hide() end
     if slotHeaderContainer then slotHeaderContainer:Hide() end
     if horizontalScroll then horizontalScroll:Hide() end
@@ -1528,18 +1923,19 @@ function GearTab.enterItemCheckMode()
     if horizontalScrollBar then horizontalScrollBar:Hide() end
     if verticalScroll then verticalScroll:EnableMouse(false) end
     GearTab.updateItemCheckButtonLabel()
+    GearTab.LayoutGearPanels()
 end
 
 function GearTab.exitItemCheckMode()
     itemCheckModeActive = false
     GearTab.resetItemCheckDrop()
-    if itemCheckPanel then itemCheckPanel:Hide() end
     if slotHeaderContainer then slotHeaderContainer:Show() end
     if horizontalScroll then horizontalScroll:Show() end
     if verticalScrollBar then verticalScrollBar:Show() end
     if horizontalScrollBar then horizontalScrollBar:Show() end
     if verticalScroll then verticalScroll:EnableMouse(true) end
     GearTab.updateItemCheckButtonLabel()
+    GearTab.LayoutGearPanels()
 end
 
 itemCheckBtn:SetScript("OnClick", function()
@@ -1575,8 +1971,7 @@ end)
 function frame:FocusItem(link)
     if not link or link == "" then return end
     if itemCheckModeActive then GearTab.exitItemCheckMode() end
-    GearTab.ClearCompareSelection()
-    droppedItemLink = link
+    GearTab.ApplyFocusedItem(link)
     GearTab.updateItemCheckButtonLabel()
     if self.RefreshGrid then self:RefreshGrid() end
 end
@@ -1592,6 +1987,20 @@ function GearTab.GetColumnFrame(index)
     if not columnPool[index] then
         local col = CreateFrame("Frame", nil, gridContainer)
         col:SetSize(dims.columnWidth, dims.scrollableGridHeight)
+        local upgradeHighlight = col:CreateTexture(nil, "BACKGROUND", nil, -2)
+        upgradeHighlight:Hide()
+        col.upgradeHighlight = upgradeHighlight
+        col.selectionOutline = {}
+        local function makeOutlineEdge(key)
+            local tex = col:CreateTexture(nil, "OVERLAY", nil, 7)
+            tex:SetColorTexture(1, 1, 1, 0.95)
+            tex:Hide()
+            col.selectionOutline[key] = tex
+        end
+        makeOutlineEdge("top")
+        makeOutlineEdge("bottom")
+        makeOutlineEdge("left")
+        makeOutlineEdge("right")
         col.cells = {}
         for slot = 1, NUM_EQUIPMENT_SLOTS do
             local cell = CreateFrame("Frame", nil, col)
@@ -1605,12 +2014,41 @@ function GearTab.GetColumnFrame(index)
             tex:SetPoint("TOPLEFT", cell, "TOPLEFT", ITEM_ICON_INSET, -ITEM_ICON_INSET)
             tex:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -ITEM_ICON_INSET, ITEM_ICON_INSET)
             cell.texture = tex
+            cell.focusHighlight = cell:CreateTexture(nil, "BACKGROUND", nil, -2)
+            cell.focusHighlight:Hide()
+            cell.compareHover = cell:CreateTexture(nil, "BACKGROUND", nil, -1)
+            cell.compareHover:SetColorTexture(
+                COMPARE_HOVER_COLOR[1],
+                COMPARE_HOVER_COLOR[2],
+                COMPARE_HOVER_COLOR[3],
+                COMPARE_HOVER_COLOR[4])
+            cell.compareHover:Hide()
+            cell.upgradeBadge = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            cell.upgradeBadge:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -1, -1)
+            cell.upgradeBadge:SetJustifyH("RIGHT")
+            cell.upgradeBadge:Hide()
             cell:SetScript("OnMouseUp", function(self, button)
+                local colFrame = self:GetParent()
+                if droppedItemLink and button == "LeftButton" and colFrame and colFrame.compareKey
+                    and self.isFocusCompareCell and self.inventorySlot then
+                    local shift = IsShiftKeyDown and IsShiftKeyDown()
+                    local ctrl = IsControlKeyDown and IsControlKeyDown()
+                    if not shift and not ctrl then
+                        GearTab.SelectCompareCell(colFrame.compareKey, self.inventorySlot)
+                        return
+                    end
+                end
                 local target = self.itemLink or self.itemID
                 if not target then return end
                 GearTab.HandleItemCellClick(target, button)
             end)
             cell:SetScript("OnEnter", function(self)
+                local colFrame = self:GetParent()
+                if droppedItemLink and colFrame and colFrame.compareKey
+                    and self.isFocusCompareCell and self.inventorySlot then
+                    GearTab.AddCompareHover(
+                        GearTab.MakeCompareCellKey(colFrame.compareKey, self.inventorySlot))
+                end
                 if GameTooltip then
                     GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
                     if self.itemLink and self.itemLink ~= "" then
@@ -1621,10 +2059,19 @@ function GearTab.GetColumnFrame(index)
                         GameTooltip:Hide()
                         return
                     end
+                    if droppedItemLink and self.isFocusCompareCell then
+                        GameTooltip:AddLine("Click to compare", 0.7, 0.7, 0.7)
+                    end
                     GameTooltip:Show()
                 end
             end)
-            cell:SetScript("OnLeave", function()
+            cell:SetScript("OnLeave", function(self)
+                local colFrame = self:GetParent()
+                if droppedItemLink and colFrame and colFrame.compareKey
+                    and self.isFocusCompareCell and self.inventorySlot then
+                    GearTab.RemoveCompareHover(
+                        GearTab.MakeCompareCellKey(colFrame.compareKey, self.inventorySlot))
+                end
                 if GameTooltip then GameTooltip:Hide() end
             end)
             local cellXOffset = (dims.columnWidth - dims.cellSize) / 2
@@ -1699,19 +2146,24 @@ function GearTab.UpdateGridWithOffset()
         if idx > numCols then col:Hide() end
     end
 
-    local upgradeMinDelta, upgradeMaxDelta
-    local upgradeDeltaByKey = {}
-    if droppedItemLink and GU and GU.GetFocusUpgradeDelta then
+    local upgradeMaxDelta
+    local upgradeDeltaByCell = {}
+    local visibleSlots = GearTab.GetVisibleDisplaySlots()
+    if droppedItemLink and GU and GU.GetFocusUpgradeDeltaForSlot then
         local focusOpts = GU.GetOptions and GU.GetOptions() or {}
         for i = 1, numCols do
             local e = list[i]
             local charData = DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm)
-            local delta = GU.GetFocusUpgradeDelta(e, charData, droppedItemLink, focusOpts) or 0
-            if delta > 0 then
-                local key = CharKey(e.name, e.realm)
-                upgradeDeltaByKey[key] = delta
-                if not upgradeMinDelta or delta < upgradeMinDelta then upgradeMinDelta = delta end
-                if not upgradeMaxDelta or delta > upgradeMaxDelta then upgradeMaxDelta = delta end
+            local charKey = CharKey(e.name, e.realm)
+            for row = 1, #visibleSlots do
+                local invSlot = SLOT_ORDER[visibleSlots[row]]
+                local delta = GU.GetFocusUpgradeDeltaForSlot(
+                    e, charData, droppedItemLink, invSlot, focusOpts) or 0
+                local cellKey = GearTab.MakeCompareCellKey(charKey, invSlot)
+                upgradeDeltaByCell[cellKey] = delta
+                if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
+                    upgradeMaxDelta = delta
+                end
             end
         end
     end
@@ -1724,16 +2176,76 @@ function GearTab.UpdateGridWithOffset()
         headerCol:Show()
 
         local focusTier = GearTab.GetFocusTierForEntry(entry)
-        local upgradeDelta = upgradeDeltaByKey[CharKey(entry.name, entry.realm)] or 0
-        GearTab.layoutUpgradeHighlight(headerCol, focusTier == 1, upgradeDelta, upgradeMinDelta, upgradeMaxDelta)
-        headerCol.compareKey = CharKey(entry.name, entry.realm)
-        GearTab.layoutSelectionOutline(headerCol, selectedCompareKey == headerCol.compareKey)
-        GearTab.layoutCompareHover(headerCol, droppedItemLink and hoveredCompareKey == headerCol.compareKey)
+        local compareKey = CharKey(entry.name, entry.realm)
+        local columnAlpha = GearTab.getFocusColumnAlpha(
+            focusTier,
+            selectedCompareKey == compareKey)
+        headerCol.compareKey = compareKey
+
+        local col = GearTab.GetColumnFrame(c)
+        col.compareKey = compareKey
+        col:ClearAllPoints()
+        col:SetPoint("TOPLEFT", gridContainer, "TOPLEFT", (c - 1) * dims.columnWidth + PAD - 4, 0)
+        col:Show()
+
+        if col.upgradeHighlight then col.upgradeHighlight:Hide() end
 
         local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
+        local gray = GearTab.CanNeverUseCurrentItem(entry)
+        for slot = 1, NUM_EQUIPMENT_SLOTS do
+            local cell = col.cells[slot]
+            cell.isFocusCompareCell = false
+            cell.inventorySlot = nil
+            if not GearTab.IsDisplaySlotVisible(slot) then
+                cell:Hide()
+                GearTab.layoutCellUpgradeBadge(cell, nil)
+                GearTab.layoutCellFocusHighlight(cell, nil, false)
+                GearTab.layoutCellCompareHover(cell, false)
+            else
+                local invSlot = SLOT_ORDER[slot]
+                cell.inventorySlot = invSlot
+                if droppedItemLink then
+                    cell.isFocusCompareCell = true
+                end
+                local item = charData and DS.GetInventoryItem and DS:GetInventoryItem(charData, invSlot)
+                if type(item) == "string" then
+                    cell.itemLink = item
+                    cell.itemID = nil
+                elseif type(item) == "number" then
+                    cell.itemLink = nil
+                    cell.itemID = item
+                else
+                    cell.itemLink = nil
+                    cell.itemID = nil
+                end
+                GearTab.ApplyItemCellVisual(cell, item, gray, columnAlpha)
+                cell:Show()
+
+                if droppedItemLink then
+                    local cellKey = GearTab.MakeCompareCellKey(compareKey, invSlot)
+                    local cellDelta = upgradeDeltaByCell[cellKey] or 0
+                    local cellKind = focusTier == 1
+                        and GearTab.getUpgradeHighlightKind(cellDelta, upgradeMaxDelta)
+                        or nil
+                    local selected = GearTab.IsCompareCellSelected(compareKey, invSlot)
+                    GearTab.layoutCellUpgradeBadge(cell, cellKind)
+                    GearTab.layoutCellFocusHighlight(cell, cellKind, selected)
+                    local hoverKey = GearTab.MakeCompareCellKey(compareKey, invSlot)
+                    GearTab.layoutCellCompareHover(
+                        cell,
+                        hoveredCompareKey == hoverKey and not selected)
+                else
+                    GearTab.layoutCellUpgradeBadge(cell, nil)
+                    GearTab.layoutCellFocusHighlight(cell, nil, false)
+                    GearTab.layoutCellCompareHover(cell, false)
+                end
+            end
+        end
+
+        GearTab.layoutSelectionOutline(headerCol, col, nil, false)
+
         local RF = AltArmy.RealmFilter
         local classR, classG, classB = 1, 0.82, 0
-        local gray = GearTab.CanNeverUseCurrentItem(entry)
         if gray then
             classR, classG, classB = 0.5, 0.5, 0.5
         else
@@ -1743,7 +2255,7 @@ function GearTab.UpdateGridWithOffset()
         end
         headerCol.classR, headerCol.classG, headerCol.classB = classR, classG, classB
         local displayName = entry.name or "?"
-        headerCol.header:SetTextColor(classR, classG, classB, 1)
+        headerCol.header:SetTextColor(classR, classG, classB, columnAlpha)
         if TruncateFontString then
             TruncateFontString(headerCol.header, displayName, dims.columnWidth - 4)
         end
@@ -1796,7 +2308,7 @@ function GearTab.UpdateGridWithOffset()
         if headerCol.scoreText then
             if scoreMissing then
                 headerCol.scoreText:SetText("!")
-                headerCol.scoreText:SetTextColor(1, 0.82, 0, 1)
+                headerCol.scoreText:SetTextColor(1, 0.82, 0, columnAlpha)
                 headerCol.scoreMissingEntry = {
                     name = entry.name or "",
                     realm = entry.realm or "",
@@ -1818,46 +2330,20 @@ function GearTab.UpdateGridWithOffset()
                     headerCol.scoreHover:EnableMouse(false)
                 end
                 if gray then
-                    headerCol.scoreText:SetTextColor(0.5, 0.5, 0.5, 1)
+                    headerCol.scoreText:SetTextColor(0.5, 0.5, 0.5, columnAlpha)
                 else
                     local sr, sg, sb
                     if GearScoreMod and GearScoreMod.GetDisplayScoreColor then
                         sr, sg, sb = GearScoreMod.GetDisplayScoreColor(providerId, scoreValue)
                     end
                     if sr and sg and sb then
-                        headerCol.scoreText:SetTextColor(sr, sg, sb, 1)
+                        headerCol.scoreText:SetTextColor(sr, sg, sb, columnAlpha)
                     else
-                        headerCol.scoreText:SetTextColor(0.9, 0.9, 0.9, 1)
+                        headerCol.scoreText:SetTextColor(0.9, 0.9, 0.9, columnAlpha)
                     end
                 end
             end
             headerCol.scoreText:Show()
-        end
-
-        local col = GearTab.GetColumnFrame(c)
-        col:ClearAllPoints()
-        col:SetPoint("TOPLEFT", gridContainer, "TOPLEFT", (c - 1) * dims.columnWidth + PAD - 4, 0)
-        col:Show()
-
-        for slot = 1, NUM_EQUIPMENT_SLOTS do
-            local cell = col.cells[slot]
-            if not GearTab.IsDisplaySlotVisible(slot) then
-                cell:Hide()
-            else
-            local item = charData and DS.GetInventoryItem and DS:GetInventoryItem(charData, SLOT_ORDER[slot])
-            if type(item) == "string" then
-                cell.itemLink = item
-                cell.itemID = nil
-            elseif type(item) == "number" then
-                cell.itemLink = nil
-                cell.itemID = item
-            else
-                cell.itemLink = nil
-                cell.itemID = nil
-            end
-            GearTab.ApplyItemCellVisual(cell, item, gray)
-            cell:Show()
-            end
         end
     end
 end
@@ -1870,6 +2356,8 @@ function frame:RefreshGrid(_self)
     if AltArmy.Characters.Sort then
         AltArmy.Characters:Sort(false, "level")
     end
+
+    GearTab.UpdateScoreSortButton()
 
     local list = GearTab.GetDisplayList()
     local numCols = #list
@@ -1899,14 +2387,19 @@ function frame:RefreshGrid(_self)
             headerGridContainer:SetWidth(math.max(0, gridContentWidth))
         end
         if verticalScrollBar then
-            local totalChildHeight = GearTab.GetPinnedHeaderHeight()
-                + dims.scrollableGridHeight + (comparePanelHeight or 0)
+            local totalChildHeight = dims.scrollableGridHeight
             local maxVertScroll = math.max(0, totalChildHeight - viewHeight)
             local savedVert = verticalScrollBar:GetValue() or 0
             verticalScrollBar:SetMinMaxValues(0, maxVertScroll)
             verticalScrollBar:SetValueStep(dims.rowHeight)
             verticalScrollBar:SetStepsPerPage(10)
             local vertScroll = Theme.ClampScroll(savedVert, maxVertScroll)
+            if droppedItemLink then
+                vertScroll = 0
+                verticalScrollBar:Hide()
+            else
+                verticalScrollBar:SetShown(maxVertScroll > 0)
+            end
             verticalScrollBar:SetValue(vertScroll)
             verticalScroll:SetVerticalScroll(vertScroll)
         end
@@ -1919,9 +2412,6 @@ function frame:RefreshGrid(_self)
     end
 
     GearTab.UpdateGridWithOffset()
-    if scrollTopFade then
-        scrollTopFade:Update()
-    end
     if scrollGridLeftFade then
         scrollGridLeftFade:Update()
     end
@@ -1940,21 +2430,19 @@ function GearTab.ApplySpacing()
     if verticalScrollChild then
         GearTab.LayoutScrollArea()
     end
+    GearTab.LayoutGridHost()
     if gridContainer then
         gridContainer:SetHeight(dims.scrollableGridHeight)
     end
     if fixedHeaderRow then
         fixedHeaderRow:SetHeight(GearTab.GetPinnedHeaderHeight())
     end
-    if scrollTopSpacer then
-        scrollTopSpacer:SetHeight(GearTab.GetPinnedHeaderHeight())
-    end
     if headerGridContainer then
         headerGridContainer:SetHeight(GearTab.GetPinnedHeaderHeight())
     end
     if slotHeaderContainer then
         slotHeaderContainer:ClearAllPoints()
-        slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -GearTab.GetPinnedHeaderHeight())
+        slotHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, 0)
         slotHeaderContainer:SetHeight(dims.scrollableGridHeight)
         slotHeaderContainer:SetWidth(SLOT_LABEL_WIDTH)
     end
@@ -1966,9 +2454,8 @@ function GearTab.ApplySpacing()
     end
     if horizontalScroll then
         horizontalScroll:ClearAllPoints()
-        horizontalScroll:SetPoint(
-            "TOPLEFT", verticalScrollChild, "TOPLEFT", SLOT_LABEL_WIDTH, -GearTab.GetPinnedHeaderHeight())
-        horizontalScroll:SetPoint("TOPRIGHT", verticalScrollChild, "TOPRIGHT", 0, -GearTab.GetPinnedHeaderHeight())
+        horizontalScroll:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", SLOT_LABEL_WIDTH, 0)
+        horizontalScroll:SetPoint("TOPRIGHT", verticalScrollChild, "TOPRIGHT", 0, 0)
         horizontalScroll:SetHeight(dims.scrollableGridHeight)
     end
     if verticalScrollBar then
@@ -2062,7 +2549,7 @@ end)
 
 -- ---- Gear settings panel: right 40% of frame when visible (grid 60%, both full height) ----
 local GRID_SPLIT_FRACTION = 0.6  -- grid gets 60%, settings gets 40%
-local settingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+settingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 Theme.ApplyBackdrop(settingsPanel, "section")
 function GearTab.ApplySettingsPanelLayout()
     local w = frame:GetWidth()
@@ -2146,21 +2633,8 @@ function frame:ToggleGearSettings(_self)
         GearTab.ApplySettingsPanelLayout()
     end
 
-    -- Resize tab content: full width when settings closed, left 60% when settings open
-    tabContentPanel:ClearAllPoints()
-    tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
-    if showSettings then
-        tabContentPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -SECTION_GAP, 0)
-    else
-        tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
-    end
-    rightPanel:ClearAllPoints()
-    if LEFT_PANEL_VISIBLE then
-        rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", PAD, 0)
-    else
-        rightPanel:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
-    end
-    rightPanel:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", 0, 0)
+    GearTab.ApplyGearLayoutHostBounds()
+    GearTab.LayoutGearPanels()
 
     if showSettings then
         local s = GearTab.GetGearSettings()
@@ -2178,16 +2652,8 @@ end
 frame:SetScript("OnSizeChanged", function()
     if settingsPanel and settingsPanel:IsShown() then
         GearTab.ApplySettingsPanelLayout()
-        tabContentPanel:ClearAllPoints()
-        tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
-        tabContentPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -SECTION_GAP, 0)
-        rightPanel:ClearAllPoints()
-        if LEFT_PANEL_VISIBLE then
-            rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", PAD, 0)
-        else
-            rightPanel:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
-        end
-        rightPanel:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", 0, 0)
+        GearTab.ApplyGearLayoutHostBounds()
+        GearTab.LayoutGearPanels()
         if frame.RefreshGrid then frame:RefreshGrid() end
     end
 end)

@@ -23,10 +23,12 @@ describe("AltArmy.Debug", function()
         assert.is_false(D.IsSearchEnabled())
         assert.is_false(D.IsCooldownsEnabled())
         assert.is_false(D.IsLevelHistoryEnabled())
+        assert.is_false(D.IsItemComparisonEnabled())
         assert.is_false(AltArmyTBC_Options.debug.enabled)
         assert.is_false(AltArmyTBC_Options.debug.search)
         assert.is_false(AltArmyTBC_Options.debug.cooldowns)
         assert.is_false(AltArmyTBC_Options.debug.levelHistory)
+        assert.is_false(AltArmyTBC_Options.debug.itemComparison)
     end)
 
     it("IsSearchEnabled is false when search is on but master is off", function()
@@ -76,6 +78,29 @@ describe("AltArmy.Debug", function()
         D.SetEnabled(true)
         D.SetLevelHistoryEnabled(true)
         assert.is_true(D.IsLevelHistoryEnabled())
+    end)
+
+    it("IsItemComparisonEnabled is true when master and itemComparison are on", function()
+        D.SetEnabled(true)
+        D.SetItemComparisonEnabled(true)
+        assert.is_true(D.IsItemComparisonEnabled())
+    end)
+
+    it("LogItemComparison only emits when master and itemComparison are on", function()
+        local messages = {}
+        local oldNotify = D.NotifyChat
+        D.NotifyChat = function(msg)
+            messages[#messages + 1] = msg
+        end
+        D.LogItemComparison({ "hidden" })
+        assert.are.equal(0, #messages)
+        D.SetEnabled(true)
+        D.SetItemComparisonEnabled(true)
+        D.LogItemComparison({ "visible" })
+        D.NotifyChat = oldNotify
+        assert.are.equal(1, #messages)
+        assert.matches("visible", messages[1])
+        assert.matches("Compare", messages[1])
     end)
 
     it("SetEnabled(false) does not clear search or cooldowns flags", function()

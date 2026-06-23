@@ -263,6 +263,91 @@ function IU.GetProficiencySkillName(itemClass, subclass)
     return subclass
 end
 
+--- True when character is high enough to train but has not learned armor proficiency.
+function IU.NeedsProficiencyTraining(classFile, charLevel, link)
+    if not link or not GetItemInfo then return false end
+    local name, _, _, reqLevel, _, itemClass, subclass = GetItemInfo(link)
+    if not name then return false end
+    reqLevel = tonumber(reqLevel) or 0
+    classFile = normalizeClassFile(classFile)
+    charLevel = math.floor(tonumber(charLevel) or 0)
+    local ic = itemClass and itemClass:lower() or ""
+    if ic ~= "armor" and ic ~= "armour" then return false end
+    if not subclass or subclass == "" or subclass == "Shields" then return false end
+    if not IU.CanClassEverUseArmor(classFile, subclass) then return false end
+
+    local trainLevel = IU.MinLevelToTrainProficiency(classFile, subclass, itemClass)
+    if charLevel < trainLevel or charLevel < reqLevel then return false end
+
+    if _G.IsUsableItem then
+        return _G.IsUsableItem(link) == false
+    end
+    return false
+end
+
+local function formatWarningCharName(name, classFile)
+    local CC = AltArmy.ClassColor
+    if CC and CC.wrapName then
+        return CC.wrapName(name, classFile)
+    end
+    return name or "?"
+end
+
+--- Skill name for items the class can never equip (armor/weapon proficiency).
+function IU.GetNeverEquipSkillName(classFile, link)
+    if not link or not GetItemInfo then return "the required skill" end
+    local _, armorSubclass, weaponSubclass = IU.GetItemUseInfo(link)
+    local _, _, _, _, _, itemClass, subclass = GetItemInfo(link)
+    classFile = normalizeClassFile(classFile)
+    if armorSubclass and armorSubclass ~= "" and armorSubclass ~= "Shields" then
+        if not IU.CanClassEverUseArmor(classFile, armorSubclass) then
+            return IU.GetProficiencySkillName(itemClass or "Armor", armorSubclass)
+        end
+    end
+    if weaponSubclass and weaponSubclass ~= "" then
+        if not IU.CanClassEverUseWeapon(classFile, weaponSubclass) then
+            return IU.GetProficiencySkillName(itemClass or "Weapon", weaponSubclass)
+        end
+    end
+    return IU.GetProficiencySkillName(itemClass, subclass)
+end
+
+--- Warning lines for compare panel (soulbound, level, proficiency).
+function IU.GetEquipWarnings(classFile, charLevel, charName, link)
+    local warnings = {}
+    if not link then return warnings end
+    charName = charName or "?"
+    charLevel = math.floor(tonumber(charLevel) or 0)
+    classFile = normalizeClassFile(classFile)
+
+    if IU.IsBindOnPickup(link) then
+        warnings[#warnings + 1] = "This item is soulbound"
+    end
+
+    if IU.CanNeverUseItem(classFile, link) then
+        local skill = IU.GetNeverEquipSkillName(classFile, link)
+        local coloredName = formatWarningCharName(charName, classFile)
+        warnings[#warnings + 1] = coloredName .. " can never equip this (" .. skill .. ")"
+        return warnings
+    end
+
+    local effective = IU.EffectiveRequiredLevel(classFile, link)
+    if effective < 999 and charLevel < effective then
+        local coloredName = formatWarningCharName(charName, classFile)
+        warnings[#warnings + 1] = coloredName .. " must reach level "
+            .. tostring(effective) .. " to equip this"
+    end
+
+    if IU.NeedsProficiencyTraining(classFile, charLevel, link) then
+        local _, _, _, _, _, itemClass, subclass = GetItemInfo(link)
+        local skill = IU.GetProficiencySkillName(itemClass, subclass)
+        local coloredName = formatWarningCharName(charName, classFile)
+        warnings[#warnings + 1] = coloredName .. " must train " .. skill .. " to equip this"
+    end
+
+    return warnings
+end
+
 --- Whether class can never equip the item (for graying columns).
 function IU.CanNeverUseItem(classFile, link)
     if not link then return false end
@@ -304,7 +389,7 @@ function IU.IsBindOnPickup(link)
         local line = _G["AltArmyTBC_ItemUsabilityScanTooltipTextLeft" .. i]
         if line and line.GetText then
             local text = line:GetText() or ""
-            if text:find("Binds when picked up") or text:find("Quest Item") then
+            if text:find("Binds when picked up") or text:find("Quest Item") or text:find("Soulbound") then
                 return true
             end
         end
@@ -327,9 +412,6 @@ function IU.ValidateItemCheckDrop(link)
     local slots = IU.GetInventorySlotsForItem(link)
     if not slots or #slots == 0 then
         return false, "This item cannot be equipped."
-    end
-    if IU.IsBindOnPickup(link) then
-        return false, "Soulbound items cannot be checked."
     end
     return true, nil
 end

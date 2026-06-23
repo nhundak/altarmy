@@ -199,6 +199,7 @@ describe("Gear display list focus mode", function()
     local GU
     local IU
     local DS
+    local CharKey
 
     local SLOT_ORDER = {
         16, 17, 18,
@@ -271,7 +272,9 @@ describe("Gear display list focus mode", function()
         require("ItemUsability")
         require("DataStoreTalents")
         require("GearUpgrade")
+        require("CharKey")
         DS = AltArmy.DataStore
+        CharKey = AltArmy.CharKey
         DS.accountData = _G.AltArmyTBC_Data
         IU = AltArmy.ItemUsability
         GU = AltArmy.GearUpgrade
@@ -307,6 +310,13 @@ describe("Gear display list focus mode", function()
         return focused[invSlot] == true
     end
 
+    --- Mirror TabGear PickBestCompareKey: first column after focus sort is the best match.
+    local function pickBestCompareKey(list)
+        if not list or #list == 0 then return nil end
+        local e = list[1]
+        return CharKey(e.name, e.realm)
+    end
+
     it("sorts columns by focus tier: upgrade, usable, cannot use", function()
         local itemLink = "|Hitem:11:0|h[New Helm]|h"
         local entries = {
@@ -339,6 +349,17 @@ describe("Gear display list focus mode", function()
         }))
     end)
 
+    it("picks the first focus-sorted character as best compare match", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local entries = {
+            { name = "SmallUpgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Usable", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        assert.are.equal(CharKey("Upgrader", "RealmA"), pickBestCompareKey(sorted))
+    end)
+
     it("filters display rows to focused item inventory slots", function()
         local headLink = "|Hitem:11:0|h[New Helm]|h"
         local ringLink = "|Hitem:12:0|h[Ring]|h"
@@ -352,5 +373,27 @@ describe("Gear display list focus mode", function()
         assert.is_false(isDisplaySlotVisible(ringRowIdx, headLink))
         assert.is_true(isDisplaySlotVisible(ringRowIdx, ringLink))
         assert.is_false(isDisplaySlotVisible(headRowIdx, ringLink))
+    end)
+
+    --- Mirror TabGear GetFirstFocusedColumnSlot: topmost visible compare row.
+    local function getFirstFocusedColumnSlot(itemLink)
+        local visible = {}
+        for slot = 1, #SLOT_ORDER do
+            if isDisplaySlotVisible(slot, itemLink) then
+                visible[#visible + 1] = slot
+            end
+        end
+        if #visible > 0 then
+            return SLOT_ORDER[visible[1]]
+        end
+        local slots = IU.GetInventorySlotsForItem(itemLink)
+        return slots[1]
+    end
+
+    it("picks the topmost visible slot for header compare selection", function()
+        local ringLink = "|Hitem:12:0|h[Ring]|h"
+        assert.are.equal(11, getFirstFocusedColumnSlot(ringLink))
+        local headLink = "|Hitem:11:0|h[New Helm]|h"
+        assert.are.equal(1, getFirstFocusedColumnSlot(headLink))
     end)
 end)

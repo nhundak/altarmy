@@ -343,6 +343,22 @@ local function upgradeDeltaInSlots(char, newLink, technique, classFile, specKey,
     return bestDelta
 end
 
+--- Upgrade delta for one inventory slot (focused item vs equipped item in that slot).
+function GU.GetSlotUpgradeDelta(char, itemLink, invSlot, opts)
+    opts = opts or {}
+    if not char or not itemLink or not invSlot then return 0 end
+    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+    local classFile = char.classFile or ""
+    local specKey = getSpecKey(char)
+    return upgradeDeltaInSlots(char, itemLink, technique, classFile, specKey, { invSlot })
+end
+
+--- Upgrade magnitude for one slot in focus mode (0 when character is not tier 1).
+function GU.GetFocusUpgradeDeltaForSlot(entry, charData, itemLink, invSlot, opts)
+    if GU.GetFocusTier(entry, charData, itemLink, opts) ~= 1 then return 0 end
+    return GU.GetSlotUpgradeDelta(charData, itemLink, invSlot, opts)
+end
+
 local function bestUpgradeInSlots(char, newLink, technique, classFile, specKey, slots)
     return upgradeDeltaInSlots(char, newLink, technique, classFile, specKey, slots) > 0
 end

@@ -5,6 +5,11 @@
 
 describe("ItemUsability", function()
     local IU
+    local CC
+
+    local function coloredName(name, classFile)
+        return CC.wrapName(name, classFile)
+    end
 
     local function mockGetItemInfo(item)
         local id = type(item) == "number" and item
@@ -27,8 +32,15 @@ describe("ItemUsability", function()
 
     setup(function()
         _G.AltArmy = _G.AltArmy or {}
+        _G.RAID_CLASS_COLORS = _G.RAID_CLASS_COLORS or {
+            PALADIN = { r = 0.96, g = 0.55, b = 0.73 },
+            MAGE = { r = 0.41, g = 0.8, b = 0.94 },
+        }
         _G.GetItemInfo = mockGetItemInfo
         package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+        package.loaded["ClassColor"] = nil
+        require("ClassColor")
+        CC = AltArmy.ClassColor
         package.loaded["ItemUsability"] = nil
         require("ItemUsability")
         IU = AltArmy.ItemUsability
@@ -119,7 +131,31 @@ describe("ItemUsability", function()
         assert.are.equal("This item cannot be equipped.", err)
     end)
 
-    it("ValidateItemCheckDrop rejects soulbound items", function()
+    it("ValidateItemCheckDrop accepts soulbound equippable items", function()
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return {
+                    SetOwner = function() end,
+                    ClearLines = function() end,
+                    SetHyperlink = function() end,
+                    NumLines = function() return 1 end,
+                }
+            end
+            return {}
+        end
+        _G.UIParent = _G.UIParent or {}
+        _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
+            GetText = function() return "Soulbound" end,
+        }
+        package.loaded["ItemUsability"] = nil
+        require("ItemUsability")
+        local iu = AltArmy.ItemUsability
+        local ok, err = iu.ValidateItemCheckDrop("|Hitem:1:0|h[Cloth Hood]|h")
+        assert.is_true(ok)
+        assert.is_nil(err)
+    end)
+
+    it("GetEquipWarnings includes soulbound message", function()
         _G.CreateFrame = function(frameType)
             if frameType == "GameTooltip" then
                 return {
@@ -138,8 +174,114 @@ describe("ItemUsability", function()
         package.loaded["ItemUsability"] = nil
         require("ItemUsability")
         local iu = AltArmy.ItemUsability
-        local ok, err = iu.ValidateItemCheckDrop("|Hitem:1:0|h[Cloth Hood]|h")
-        assert.is_false(ok)
-        assert.are.equal("Soulbound items cannot be checked.", err)
+        local warnings = iu.GetEquipWarnings("MAGE", 60, "Alt", "|Hitem:1:0|h[Cloth Hood]|h")
+        assert.are.equal(1, #warnings)
+        assert.are.equal("This item is soulbound", warnings[1])
+        _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
+            GetText = function() return "" end,
+        }
+    end)
+
+    it("GetEquipWarnings includes level requirement for selected character", function()
+        _G.IsUsableItem = nil
+        local warnings = IU.GetEquipWarnings("PALADIN", 35, "Tome", "|Hitem:2:0|h[Plate Helm]|h")
+        assert.are.equal(1, #warnings)
+        assert.are.equal(
+            coloredName("Tome", "PALADIN") .. " must reach level 40 to equip this",
+            warnings[1])
+    end)
+
+    it("GetEquipWarnings includes proficiency training", function()
+        _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
+            GetText = function() return "" end,
+        }
+        _G.IsUsableItem = function() return false end
+        local warnings = IU.GetEquipWarnings("PALADIN", 60, "Tome", "|Hitem:2:0|h[Plate Helm]|h")
+        _G.IsUsableItem = nil
+        assert.are.equal(1, #warnings)
+        assert.are.equal(
+            coloredName("Tome", "PALADIN") .. " must train Plate Armor to equip this",
+            warnings[1])
+    end)
+
+    it("GetEquipWarnings reports class proficiency the character can never learn", function()
+        _G.IsUsableItem = nil
+        local warnings = IU.GetEquipWarnings("MAGE", 60, "Merlin", "|Hitem:2:0|h[Plate Helm]|h")
+        assert.are.equal(1, #warnings)
+        assert.are.equal(
+            coloredName("Merlin", "MAGE") .. " can never equip this (Plate Armor)",
+            warnings[1])
+    end)
+
+    it("GetEquipWarnings omits level warnings when the character can never equip", function()
+        _G.IsUsableItem = nil
+        local warnings = IU.GetEquipWarnings("MAGE", 10, "Merlin", "|Hitem:2:0|h[Plate Helm]|h")
+        assert.are.equal(1, #warnings)
+        assert.are.equal(
+            coloredName("Merlin", "MAGE") .. " can never equip this (Plate Armor)",
+            warnings[1])
+    end)
+
+    it("GetEquipWarnings can return soulbound and never-equip messages together", function()
+        _G.IsUsableItem = nil
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return {
+                    SetOwner = function() end,
+                    ClearLines = function() end,
+                    SetHyperlink = function() end,
+                    NumLines = function() return 1 end,
+                }
+            end
+            return {}
+        end
+        _G.UIParent = _G.UIParent or {}
+        _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
+            GetText = function() return "Soulbound" end,
+        }
+        package.loaded["ItemUsability"] = nil
+        require("ItemUsability")
+        local iu = AltArmy.ItemUsability
+        local warnings = iu.GetEquipWarnings("MAGE", 60, "Merlin", "|Hitem:2:0|h[Plate Helm]|h")
+        _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
+            GetText = function() return "" end,
+        }
+        assert.are.equal(2, #warnings)
+        assert.are.equal("This item is soulbound", warnings[1])
+        assert.are.equal(
+            coloredName("Merlin", "MAGE") .. " can never equip this (Plate Armor)",
+            warnings[2])
+    end)
+
+    it("GetEquipWarnings can return multiple messages", function()
+        _G.IsUsableItem = function() return false end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return {
+                    SetOwner = function() end,
+                    ClearLines = function() end,
+                    SetHyperlink = function() end,
+                    NumLines = function() return 1 end,
+                }
+            end
+            return {}
+        end
+        _G.UIParent = _G.UIParent or {}
+        _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
+            GetText = function() return "Soulbound" end,
+        }
+        package.loaded["ItemUsability"] = nil
+        require("ItemUsability")
+        local iu = AltArmy.ItemUsability
+        local warnings = iu.GetEquipWarnings("PALADIN", 35, "Tome", "|Hitem:2:0|h[Plate Helm]|h")
+        _G.IsUsableItem = nil
+        _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
+            GetText = function() return "" end,
+        }
+        assert.are.equal(2, #warnings)
+        assert.are.equal("This item is soulbound", warnings[1])
+        assert.are.equal(
+            coloredName("Tome", "PALADIN") .. " must reach level 40 to equip this",
+            warnings[2])
     end)
 end)

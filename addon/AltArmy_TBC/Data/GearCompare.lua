@@ -248,6 +248,12 @@ function GC.GetEquippedCompareItem(char, focusedLink, opts)
     local DS = AltArmy.DataStore
     if not DS or not DS.GetInventoryItem then return nil, slots[1] end
 
+    if opts.slot then
+        local equipped = DS:GetInventoryItem(char, opts.slot)
+        local eqLink = GU.ResolveItemLink(equipped)
+        return eqLink, opts.slot
+    end
+
     local newScore = GU.ScoreItem(focusedLink, technique, classFile, specKey)
     local bestSlot = slots[1]
     local bestLink = nil
@@ -320,4 +326,150 @@ function GC.BuildComparison(focusedLink, equippedLink, technique, charData)
         summary = buildSummary(focusedLink, equippedLink, technique, classFile, specKey),
         sections = sections,
     }
+end
+
+local function formatDebugNumber(value)
+    local n = tonumber(value) or 0
+    if math.floor(n) == n then
+        return tostring(n)
+    end
+    return string.format("%.1f", n)
+end
+
+local function charMatchesRealmFilter(realm, realmFilter, currentRealm)
+    if realmFilter == "currentRealm" and currentRealm and realm ~= currentRealm then
+        return false
+    end
+    return true
+end
+
+local function collectEquippableCharacters(itemLink, levelsAhead)
+    local DS = AltArmy.DataStore
+    if not DS or not DS.ForEachCharacter or not itemLink then return {} end
+    local slots = IU() and IU().GetInventorySlotsForItem(itemLink) or {}
+    if #slots == 0 then return {} end
+
+    local realmFilter = "all"
+    local GRF = AltArmy.GlobalRealmFilter
+    if GRF and GRF.Get then realmFilter = GRF.Get() end
+    local currentRealm = DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm() or ""
+
+    local out = {}
+    DS:ForEachCharacter(function(realm, charName, charData)
+        if not charMatchesRealmFilter(realm, realmFilter, currentRealm) then
+            return
+        end
+        local classFile = charData.classFile or ""
+        local level = (DS.GetCharacterLevel and DS:GetCharacterLevel(charData))
+            or tonumber(charData.level) or 0
+        local equippable = IU() and IU().IsEquippableWithin(classFile, level, itemLink, levelsAhead)
+        if not equippable then return end
+        out[#out + 1] = {
+            name = charData.name or charName,
+            realm = realm,
+            charData = charData,
+        }
+    end)
+    table.sort(out, function(a, b)
+        if a.realm ~= b.realm then return (a.realm or "") < (b.realm or "") end
+        return (a.name or "") < (b.name or "")
+    end)
+    return out
+end
+
+local function formatComparisonRow(row)
+    if row.weightedDelta ~= nil then
+        return string.format(
+            "      %s: %s → %s (Δ%s, weighted Δ%s)",
+            row.label or "?",
+            formatDebugNumber(row.oldValue),
+            formatDebugNumber(row.newValue),
+            formatDebugNumber(row.delta),
+            formatDebugNumber(row.weightedDelta))
+    end
+    return string.format(
+        "      %s: %s → %s (Δ%s)",
+        row.label or "?",
+        formatDebugNumber(row.oldValue),
+        formatDebugNumber(row.newValue),
+        formatDebugNumber(row.delta))
+end
+
+--- Chat lines comparing one item across every gear technique (for debug logging).
+function GC.BuildItemComparisonDebugReport(itemLink)
+    local lines = {}
+    if not itemLink or not GU then return lines end
+
+    local opts = GU.GetOptions and GU.GetOptions() or {}
+    local levelsAhead = tonumber(opts.levelsAhead)
+    if levelsAhead == nil then levelsAhead = 5 end
+    levelsAhead = math.max(0, math.floor(levelsAhead))
+
+    lines[#lines + 1] = string.format("Item: %s", getItemName(itemLink))
+
+    local characters = collectEquippableCharacters(itemLink, levelsAhead)
+    if #characters == 0 then
+        lines[#lines + 1] = "No equippable alts for this item."
+    end
+
+    local providers = GU.GetProviders and GU.GetProviders() or {}
+    for i = 1, #providers do
+        local provider = providers[i]
+        lines[#lines + 1] = string.format("[%s]", provider.label or provider.id or "?")
+        if provider.IsAvailable and not provider.IsAvailable() then
+            lines[#lines + 1] = "  (not installed — skipped)"
+        elseif #characters == 0 then
+            lines[#lines + 1] = "  (no equippable alts)"
+        else
+            local technique = provider.id or "custom"
+            for c = 1, #characters do
+                local entry = characters[c]
+                local charData = entry.charData
+                local equippedLink = GC.GetEquippedCompareItem(charData, itemLink, { technique = technique })
+                local comparison = GC.BuildComparison(itemLink, equippedLink, technique, charData)
+                if comparison then
+                    local summary = comparison.summary or {}
+                    local isUpgrade = GU.EvaluateForCharacter(charData, itemLink, {
+                        technique = technique,
+                        levelsAhead = levelsAhead,
+                    })
+                    local tag = isUpgrade and "upgrade" or "not upgrade"
+                    lines[#lines + 1] = string.format(
+                        "  %s-%s: %s → %s | total %s → %s (Δ%s) [%s]",
+                        entry.name or "?",
+                        entry.realm or "?",
+                        comparison.equippedName or "(empty)",
+                        comparison.focusedName or "?",
+                        formatDebugNumber(summary.oldTotal),
+                        formatDebugNumber(summary.newTotal),
+                        formatDebugNumber(summary.delta),
+                        tag)
+                    local sections = comparison.sections or {}
+                    for s = 1, #sections do
+                        local section = sections[s]
+                        if section.title and section.title ~= "" then
+                            lines[#lines + 1] = "    " .. section.title .. ":"
+                        end
+                        local rows = section.rows or {}
+                        for r = 1, #rows do
+                            lines[#lines + 1] = formatComparisonRow(rows[r])
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return lines
+end
+
+function GC.LogItemComparisonDebug(itemLink)
+    local D = AltArmy.Debug
+    if not D or not D.IsItemComparisonEnabled or not D.IsItemComparisonEnabled() then
+        return
+    end
+    local lines = GC.BuildItemComparisonDebugReport(itemLink)
+    if #lines == 0 then return end
+    if D.LogItemComparison then
+        D.LogItemComparison(lines)
+    end
 end

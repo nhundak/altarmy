@@ -175,4 +175,39 @@ describe("GearUpgrade", function()
         local delta = GU.GetFocusUpgradeDelta(entry, char, worseLink, { technique = "ilvl" })
         assert.are.equal(0, delta)
     end)
+
+    it("GetSlotUpgradeDelta compares one inventory slot at a time", function()
+        _G.AltArmyTBC_Data.Characters.TestRealm.RingAlt = {
+            name = "RingAlt",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 60,
+            Inventory = {
+                [11] = "|Hitem:22:0|h[Ring One]|h",
+                [12] = "|Hitem:21:0|h[Ring Two]|h",
+            },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        local oldGetItemInfo = _G.GetItemInfo
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            local items = {
+                [20] = { "New Ring", nil, 3, 50, 50, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+                [21] = { "Ring Two", nil, 2, 30, 30, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+                [22] = { "Ring One", nil, 2, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+            }
+            local info = items[id]
+            if not info then return oldGetItemInfo(item) end
+            local link = "|cff|Hitem:" .. tostring(id) .. ":0|h[" .. info[1] .. "]|h|r"
+            return info[1], link, info[3], info[4], info[5], info[6], info[7], nil, info[9]
+        end
+        local char = DS:GetCharacter("RingAlt", "TestRealm")
+        local ringLink = "|Hitem:20:0|h[New Ring]|h"
+        local slot11 = GU.GetSlotUpgradeDelta(char, ringLink, 11, { technique = "ilvl" })
+        local slot12 = GU.GetSlotUpgradeDelta(char, ringLink, 12, { technique = "ilvl" })
+        _G.GetItemInfo = oldGetItemInfo
+        assert.are.equal(10, slot11)
+        assert.are.equal(20, slot12)
+    end)
 end)

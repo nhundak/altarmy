@@ -10,6 +10,7 @@ local GA = AltArmy.GearUpgradeAlerts
 local ALTARMY_GOLD = "|cfffecc00"
 local IU = AltArmy.ItemUsability
 local GU = AltArmy.GearUpgrade
+local GC = AltArmy.GearCompare
 local CC = AltArmy.ClassColor
 
 local function postChat(line)
@@ -78,6 +79,12 @@ local function isSelfLootMessage(msg)
         or msg:find("^You create:") ~= nil
 end
 
+local function maybeLogItemComparison(itemLink)
+    if GC and GC.LogItemComparisonDebug then
+        GC.LogItemComparisonDebug(itemLink)
+    end
+end
+
 function GA.AnnounceLootUpgrade(itemLink)
     if not optionsEnabled() or not itemLink or not GU or not GU.EvaluateForAllAlts then
         return false, "disabled"
@@ -121,6 +128,7 @@ function GA.SimulateSelfLoot(rawInput)
             .. "Usage: /altarmy debug item {shift-click item}")
         return false
     end
+    maybeLogItemComparison(link)
     local ok, reason = GA.AnnounceLootUpgrade(link)
     if ok then return true end
     if reason == "disabled" then
@@ -279,6 +287,7 @@ alertFrame:SetScript("OnEvent", function(_, event, arg1)
         if not isSelfLootMessage(msg) then return end
         local link = extractItemLink(msg)
         if link then
+            maybeLogItemComparison(link)
             GA.AnnounceLootUpgrade(link)
         end
     elseif event == "PLAYER_LEVEL_UP" then

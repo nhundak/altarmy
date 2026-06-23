@@ -358,11 +358,32 @@ debugLevelHistoryHint:SetWidth(520)
 debugLevelHistoryHint:SetJustifyH("LEFT")
 debugLevelHistoryHint:SetText("Logs level history import checks, decisions, and stored milestone summaries.")
 
+local debugItemComparisonCheckbox = CreateFrame("CheckButton", nil, tabDebug, "InterfaceOptionsCheckButtonTemplate")
+debugItemComparisonCheckbox:SetPoint("TOPLEFT", debugLevelHistoryHint, "BOTTOMLEFT", 0, -16)
+debugItemComparisonCheckbox:SetScript("OnClick", function(self)
+    if AltArmy.Debug and AltArmy.Debug.SetItemComparisonEnabled then
+        AltArmy.Debug.SetItemComparisonEnabled(self:GetChecked())
+    end
+end)
+panel.debugItemComparisonCheckbox = debugItemComparisonCheckbox
+
+local debugItemComparisonLabel = debugItemComparisonCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+debugItemComparisonLabel:SetPoint("LEFT", debugItemComparisonCheckbox, "RIGHT", 4, 0)
+debugItemComparisonLabel:SetText("Item comparison details")
+AltArmy.WireCheckboxLabelClick(debugItemComparisonCheckbox, debugItemComparisonLabel)
+
+local debugItemComparisonHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+debugItemComparisonHint:SetPoint("TOPLEFT", debugItemComparisonCheckbox, "BOTTOMLEFT", 0, -8)
+debugItemComparisonHint:SetWidth(520)
+debugItemComparisonHint:SetJustifyH("LEFT")
+debugItemComparisonHint:SetText(
+    "Logs every comparison algorithm for each equippable alt when you loot an item or run /altarmy debug item.")
+
 local deleteAllHistoryConfirmPending = false
 
 local debugDeleteAllHistoryBtn = CreateFrame("Button", nil, tabDebug, "UIPanelButtonTemplate")
 debugDeleteAllHistoryBtn:SetSize(160, 22)
-debugDeleteAllHistoryBtn:SetPoint("TOPLEFT", debugLevelHistoryHint, "BOTTOMLEFT", 0, -12)
+debugDeleteAllHistoryBtn:SetPoint("TOPLEFT", debugItemComparisonHint, "BOTTOMLEFT", 0, -12)
 debugDeleteAllHistoryBtn:SetText("Delete all history")
 Theme.SkinDangerButton(debugDeleteAllHistoryBtn)
 panel.debugDeleteAllHistoryBtn = debugDeleteAllHistoryBtn
@@ -402,6 +423,9 @@ function RefreshDebugCheckboxes()
     end
     if panel.debugLevelHistoryCheckbox then
         panel.debugLevelHistoryCheckbox:SetChecked(d.levelHistory == true)
+    end
+    if panel.debugItemComparisonCheckbox then
+        panel.debugItemComparisonCheckbox:SetChecked(d.itemComparison == true)
     end
     ResetDeleteAllHistoryButton()
 end

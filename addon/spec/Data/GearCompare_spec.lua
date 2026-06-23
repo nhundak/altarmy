@@ -13,6 +13,9 @@ describe("GearCompare", function()
         local items = {
             [10] = { "Old Helm", nil, 2, 20, 20, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
             [11] = { "New Helm", nil, 3, 35, 35, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
+            [20] = { "New Ring", nil, 3, 50, 50, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+            [21] = { "Ring Two", nil, 2, 30, 30, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+            [22] = { "Ring One", nil, 2, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
         }
         local info = items[id]
         if not info then return end
@@ -52,6 +55,17 @@ describe("GearCompare", function()
                         Inventory = {},
                         talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
                     },
+                    RingAlt = {
+                        name = "RingAlt",
+                        realm = "TestRealm",
+                        classFile = "MAGE",
+                        level = 60,
+                        Inventory = {
+                            [11] = "|Hitem:22:0|h[Ring One]|h",
+                            [12] = "|Hitem:21:0|h[Ring Two]|h",
+                        },
+                        talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+                    },
                 },
             },
         }
@@ -85,6 +99,16 @@ describe("GearCompare", function()
         })
         assert.are.equal("|Hitem:10:0|h[Old Helm]|h", link)
         assert.are.equal(1, slot)
+    end)
+
+    it("GetEquippedCompareItem honors explicit inventory slot", function()
+        local char = DS:GetCharacter("RingAlt", "TestRealm")
+        local link, slot = GC.GetEquippedCompareItem(char, "|Hitem:20:0|h[New Ring]|h", {
+            technique = "ilvl",
+            slot = 12,
+        })
+        assert.are.equal("|Hitem:21:0|h[Ring Two]|h", link)
+        assert.are.equal(12, slot)
     end)
 
     it("GetEquippedCompareItem returns nil link for empty slot", function()
@@ -139,5 +163,17 @@ describe("GearCompare", function()
         assert.is_true(ids.custom)
         assert.is_nil(ids.ilvl)
         assert.is_nil(ids.gearscore)
+    end)
+
+    it("BuildItemComparisonDebugReport lists all providers and character summaries", function()
+        local lines = GC.BuildItemComparisonDebugReport("|Hitem:11:0|h[New Helm]|h")
+        assert.is_true(#lines > 0)
+        local text = table.concat(lines, "\n")
+        assert.matches("New Helm", text)
+        assert.matches("%[Alt Army%]", text)
+        assert.matches("%[Item Level%]", text)
+        assert.matches("MageAlt", text)
+        assert.matches("upgrade", text)
+        assert.matches("Intellect", text)
     end)
 end)
