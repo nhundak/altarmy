@@ -6,26 +6,7 @@ AltArmy.GearCompare = AltArmy.GearCompare or {}
 
 local GC = AltArmy.GearCompare
 local GU = AltArmy.GearUpgrade
-
-local STAT_ALIASES = {
-    ["ITEM_MOD_STRENGTH_SHORT"] = "str",
-    ["ITEM_MOD_AGILITY_SHORT"] = "agi",
-    ["ITEM_MOD_STAMINA_SHORT"] = "sta",
-    ["ITEM_MOD_INTELLECT_SHORT"] = "int",
-    ["ITEM_MOD_SPIRIT_SHORT"] = "spi",
-    ["ITEM_MOD_SPELL_DAMAGE_DONE_SHORT"] = "sp",
-    ["ITEM_MOD_SPELL_HEALING_DONE_SHORT"] = "heal",
-    ["ITEM_MOD_HIT_RATING_SHORT"] = "hit",
-    ["ITEM_MOD_CRIT_RATING_SHORT"] = "crit",
-    ["ITEM_MOD_ATTACK_POWER_SHORT"] = "ap",
-    ["ITEM_MOD_RANGED_ATTACK_POWER_SHORT"] = "rap",
-    ["ITEM_MOD_DEFENSE_SKILL_RATING_SHORT"] = "def",
-    ["ITEM_MOD_DODGE_RATING_SHORT"] = "dodge",
-    ["ITEM_MOD_PARRY_RATING_SHORT"] = "parry",
-    ["ITEM_MOD_BLOCK_RATING_SHORT"] = "block",
-    ["ITEM_MOD_BLOCK_VALUE_SHORT"] = "blockval",
-    ["ITEM_MOD_MANA_REGENERATION_SHORT"] = "mp5",
-}
+local ItemStats = AltArmy.ItemStats
 
 local STAT_LABELS = {
     str = "Strength",
@@ -57,19 +38,14 @@ local function getItemName(link)
     return name or "?"
 end
 
-local function normalizeStats(stats)
-    local out = {}
-    if not stats then return out end
-    for statKey, value in pairs(stats) do
-        local short = STAT_ALIASES[statKey] or statKey
-        out[short] = (out[short] or 0) + (tonumber(value) or 0)
-    end
-    return out
-end
-
 local function getRawStats(link)
-    if not link or not GetItemStats then return {} end
-    return normalizeStats(GetItemStats(link))
+    if ItemStats and ItemStats.GetNormalized then
+        return ItemStats.GetNormalized(link)
+    end
+    if GU.GetNormalizedItemStats then
+        return GU.GetNormalizedItemStats(link)
+    end
+    return {}
 end
 
 local function buildSummary(newLink, oldLink, technique, classFile, specKey)
@@ -243,8 +219,7 @@ function GC.GetEquippedCompareItem(char, focusedLink, opts)
     if #slots == 0 then return nil, nil end
 
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local classFile = char.classFile or ""
-    local specKey = GU.GetSpecKey(char)
+    local classFile, specKey = GU.ResolveCompareContext(char, opts.entry)
     local DS = AltArmy.DataStore
     if not DS or not DS.GetInventoryItem then return nil, slots[1] end
 
@@ -300,11 +275,10 @@ function GC.GetAvailableComparisonTechniques()
     return out
 end
 
-function GC.BuildComparison(focusedLink, equippedLink, technique, charData)
+function GC.BuildComparison(focusedLink, equippedLink, technique, charData, entry)
     if not focusedLink then return nil end
     technique = GU.GetEffectiveTechnique(technique or "custom")
-    local classFile = charData and charData.classFile or ""
-    local specKey = charData and GU.GetSpecKey(charData) or "unknown"
+    local classFile, specKey = GU.ResolveCompareContext(charData, entry)
     local provider = GU.GetProvider(technique)
     local sections
 
@@ -425,8 +399,11 @@ function GC.BuildItemComparisonDebugReport(itemLink)
             for c = 1, #characters do
                 local entry = characters[c]
                 local charData = entry.charData
-                local equippedLink = GC.GetEquippedCompareItem(charData, itemLink, { technique = technique })
-                local comparison = GC.BuildComparison(itemLink, equippedLink, technique, charData)
+                local equippedLink = GC.GetEquippedCompareItem(charData, itemLink, {
+                    technique = technique,
+                    entry = entry,
+                })
+                local comparison = GC.BuildComparison(itemLink, equippedLink, technique, charData, entry)
                 if comparison then
                     local summary = comparison.summary or {}
                     local isUpgrade = GU.EvaluateForCharacter(charData, itemLink, {

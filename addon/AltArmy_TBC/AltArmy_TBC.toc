@@ -24,6 +24,7 @@ Data\DataStoreContainers.lua
 Data\DataStoreEquipment.lua
 Data\ItemUsability.lua
 Data\GearScore.lua
+Data\ItemStats.lua
 Data\GearUpgrade.lua
 Data\GearCompare.lua
 Data\DataStoreCurrencies.lua

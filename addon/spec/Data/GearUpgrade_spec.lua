@@ -71,6 +71,11 @@ describe("GearUpgrade", function()
         require("ItemUsability")
         package.loaded["DataStoreTalents"] = nil
         require("DataStoreTalents")
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
         package.loaded["GearUpgrade"] = nil
         require("GearUpgrade")
         GU = AltArmy.GearUpgrade
@@ -79,6 +84,13 @@ describe("GearUpgrade", function()
     it("ScoreItemCustom sums stat weights", function()
         local score = GU.ScoreItemCustom("|Hitem:11:0|h[New Helm]|h", "MAGE", "frost")
         assert.is_true(score > 0)
+    end)
+
+    it("GetNormalizedItemStats delegates to ItemStats", function()
+        local link = "|Hitem:11:0|h[New Helm]|h"
+        local stats = GU.GetNormalizedItemStats(link)
+        assert.are.equal(20, stats.int)
+        assert.are.equal(10, stats.sta)
     end)
 
     it("CompareItems ilvl detects upgrade", function()
@@ -251,6 +263,106 @@ describe("GearUpgrade", function()
         _G.GetItemStats = oldGetItemStats
     end)
 
+    it("GetSlotCompareDelta uses entry classFile and enhancement weights for shamans", function()
+        local oldGetItemInfo = _G.GetItemInfo
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 98 then
+                return "Monkey Greaves", "|Hitem:98:0|h[Monkey Greaves]|h", 0, 15, 15,
+                    "Armor", "Mail", nil, "INVTYPE_FEET"
+            end
+            if id == 97 then
+                return "Veteran Boots", "|Hitem:97:0|h[Veteran Boots]|h", 3, 45, 45,
+                    "Armor", "Mail", nil, "INVTYPE_FEET"
+            end
+            return oldGetItemInfo(item)
+        end
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 98 then
+                return {
+                    ["ITEM_MOD_AGILITY_SHORT"] = 8,
+                    ["ITEM_MOD_STAMINA_SHORT"] = 8,
+                }
+            end
+            if id == 97 then
+                return {
+                    ["ITEM_MOD_AGILITY_SHORT"] = 12,
+                    ["ITEM_MOD_STAMINA_SHORT"] = 12,
+                }
+            end
+            return oldGetItemStats(link)
+        end
+        local char = {
+            classFile = "",
+            Inventory = { [8] = "|Hitem:97:0|h[Veteran Boots]|h" },
+        }
+        local entry = {
+            name = "Totem",
+            realm = "TestRealm",
+            classFile = "SHAMAN",
+            level = 60,
+        }
+        local classFile, specKey = GU.ResolveCompareContext(char, entry)
+        assert.are.equal("SHAMAN", classFile)
+        assert.are.equal("enhancement", specKey)
+        local monkeyLink = "|Hitem:98:0|h[Monkey Greaves]|h"
+        local delta = GU.GetSlotCompareDelta(char, monkeyLink, 8, { technique = "custom" }, entry)
+        assert.is_true(delta < 0)
+        local verdict = GU.GetFocusVerdictForSlot(entry, char, monkeyLink, 8, {
+            technique = "custom",
+            levelsAhead = 5,
+        }, 15)
+        assert.are.equal("Downgrade", verdict.label)
+        _G.GetItemInfo = oldGetItemInfo
+        _G.GetItemStats = oldGetItemStats
+    end)
+
+    it("GetFocusCellBadgeKind returns unusable for equippable worse item", function()
+        local oldGetItemInfo = _G.GetItemInfo
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 98 then
+                return "Crappy Boots", "|Hitem:98:0|h[Crappy Boots]|h", 0, 30, 30,
+                    "Armor", "Cloth", nil, "INVTYPE_FEET"
+            end
+            if id == 97 then
+                return "Veteran Boots", "|Hitem:97:0|h[Veteran Boots]|h", 0, 30, 30,
+                    "Armor", "Cloth", nil, "INVTYPE_FEET"
+            end
+            return oldGetItemInfo(item)
+        end
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 98 or id == 97 then return {} end
+            return oldGetItemStats(link)
+        end
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        char.Inventory[8] = "|Hitem:97:0|h[Veteran Boots]|h"
+        local entry = { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 20 }
+        local crappyLink = "|Hitem:98:0|h[Crappy Boots]|h"
+        local info = GU.ClassifyFocusSlot(entry, char, crappyLink, 8, {
+            technique = "custom",
+            levelsAhead = 5,
+        }, 15)
+        assert.are.equal(GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND, info.category)
+        local verdict = GU.GetFocusVerdictForSlot(entry, char, crappyLink, 8, {
+            technique = "custom",
+            levelsAhead = 5,
+        }, 15)
+        assert.are.equal("Eventual sidegrade", verdict.label)
+        char.Inventory[8] = nil
+        _G.GetItemInfo = oldGetItemInfo
+        _G.GetItemStats = oldGetItemStats
+    end)
+
     it("GetFocusCellBadgeKind returns unusable for equippable worse item", function()
         local char = DS:GetCharacter("MageAlt", "TestRealm")
         char.Inventory[1] = "|Hitem:11:0|h[New Helm]|h"
@@ -354,6 +466,68 @@ describe("GearUpgrade", function()
         assert.are.equal("unusable", info.badge)
         assert.are.equal(GU.FOCUS_CATEGORY.NEVER, info.category)
         assert.is_true(info.dimmed)
+    end)
+
+    it("focus sort tier ranks eventual upgrades before in-range sidegrades", function()
+        _G.AltArmyTBC_Data.Characters.TestRealm.LowLevel = {
+            name = "LowLevel",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 28,
+            Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        _G.AltArmyTBC_Data.Characters.TestRealm.SidegradeAlt = {
+            name = "SidegradeAlt",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 60,
+            Inventory = { [1] = "|Hitem:13:0|h[Newer Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        local oldGetItemInfo = _G.GetItemInfo
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            local items = {
+                [10] = { "Old Helm", nil, 2, 20, 20, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
+                [11] = { "New Helm", nil, 3, 35, 35, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
+                [13] = { "Newer Helm", nil, 3, 32, 32, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
+            }
+            local info = items[id]
+            if not info then return oldGetItemInfo(item) end
+            local link = "|cff|Hitem:" .. tostring(id) .. ":0|h[" .. info[1] .. "]|h|r"
+            return info[1], link, info[3], info[4], info[5], info[6], info[7], nil, info[9]
+        end
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 11 then
+                return { ["ITEM_MOD_INTELLECT_SHORT"] = 20, ["ITEM_MOD_STAMINA_SHORT"] = 10 }
+            end
+            if id == 13 then
+                return { ["ITEM_MOD_INTELLECT_SHORT"] = 17, ["ITEM_MOD_STAMINA_SHORT"] = 8 }
+            end
+            if id == 10 then
+                return { ["ITEM_MOD_INTELLECT_SHORT"] = 5, ["ITEM_MOD_STAMINA_SHORT"] = 5 }
+            end
+            return oldGetItemStats(link)
+        end
+        local opts = { technique = "ilvl", levelsAhead = 5 }
+        local newLink = "|Hitem:11:0|h[New Helm]|h"
+        local eventualEntry = { name = "LowLevel", realm = "TestRealm", classFile = "MAGE", level = 28 }
+        local sidegradeEntry = { name = "SidegradeAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local eventualTier = GU.GetFocusTier(
+            eventualEntry, DS:GetCharacter("LowLevel", "TestRealm"), newLink, opts, 15)
+        local sidegradeTier = GU.GetFocusTier(
+            sidegradeEntry, DS:GetCharacter("SidegradeAlt", "TestRealm"), newLink, opts, 15)
+        assert.is_true(eventualTier < sidegradeTier)
+        assert.are.equal(GU.FOCUS_CATEGORY.UPGRADE_BEYOND,
+            GU.SummarizeFocusEntry(eventualEntry, DS:GetCharacter("LowLevel", "TestRealm"), newLink, opts, 15).category)
+        assert.are.equal(GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE,
+            GU.SummarizeFocusEntry(sidegradeEntry, DS:GetCharacter("SidegradeAlt", "TestRealm"), newLink, opts, 15).category)
+        _G.GetItemInfo = oldGetItemInfo
+        _G.GetItemStats = oldGetItemStats
     end)
 
     it("SummarizeFocusCharacter uses best ring slot for sort tier", function()

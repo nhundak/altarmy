@@ -85,6 +85,11 @@ describe("GearCompare", function()
         require("ItemUsability")
         package.loaded["DataStoreTalents"] = nil
         require("DataStoreTalents")
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
         package.loaded["GearUpgrade"] = nil
         require("GearUpgrade")
         package.loaded["GearCompare"] = nil

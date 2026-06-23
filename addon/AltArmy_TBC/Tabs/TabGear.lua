@@ -14,6 +14,7 @@ local SSR = AltArmy.ScoreSortRow
 local IU = AltArmy.ItemUsability
 local GU = AltArmy.GearUpgrade
 local GC = AltArmy.GearCompare
+local ItemStats = AltArmy.ItemStats
 local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 local PAD = 4
 local SECTION_INSET = Theme.TAB_SECTION_INSET
@@ -165,6 +166,7 @@ local ITEM_ICON_INSET = 2
 -- CENTER→TOPRIGHT: negative x = left, negative y = down
 local UPGRADE_BADGE_OFFSET_X = -(ITEM_ICON_INSET + 4)
 local UPGRADE_BADGE_OFFSET_Y = -(ITEM_ICON_INSET + 4)
+local UPGRADE_BADGE_SIDEGRADE_Y_EXTRA = -10
 
 --- Cell frame size: icon plus inset on each side for rarity glow ring.
 function GearTab.GetCellSizePx()
@@ -315,7 +317,7 @@ function GearTab.ComputeFocusUpgradeMaxDelta(list, slots, focusOpts)
         local charData = DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm)
         for s = 1, #slots do
             local delta = GU.GetSlotCompareDelta(
-                charData, droppedItemLink, slots[s], focusOpts) or 0
+                charData, droppedItemLink, slots[s], focusOpts, e) or 0
             if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
                 upgradeMaxDelta = delta
             end
@@ -650,6 +652,12 @@ function GearTab.layoutCellUpgradeBadge(cell, kind)
         badge:Hide()
         return
     end
+    local offsetY = UPGRADE_BADGE_OFFSET_Y
+    if kind == "sidegrade" or kind == "sidegradeFuture" then
+        offsetY = offsetY + UPGRADE_BADGE_SIDEGRADE_Y_EXTRA
+    end
+    badge:ClearAllPoints()
+    badge:SetPoint("CENTER", cell, "TOPRIGHT", UPGRADE_BADGE_OFFSET_X, offsetY)
     badge:SetText(text)
     badge:SetTextColor(colors[1], colors[2], colors[3], 1)
     badge:Show()
@@ -1869,6 +1877,7 @@ function GearTab.GetSelectedEquippedCompareLink(list, technique)
     return GC.GetEquippedCompareItem(charData, droppedItemLink, {
         technique = technique or GearTab.GetSessionCompareTechnique(),
         slot = selectedCompareSlot,
+        entry = entry,
     })
 end
 
@@ -2264,8 +2273,9 @@ function GearTab.UpdateComparePanel(list)
     equippedLink = equippedLink or GC.GetEquippedCompareItem(charData, droppedItemLink, {
         technique = technique,
         slot = selectedCompareSlot,
+        entry = entry,
     })
-    local comparison = GC.BuildComparison(droppedItemLink, equippedLink, technique, charData)
+    local comparison = GC.BuildComparison(droppedItemLink, equippedLink, technique, charData, entry)
     if not comparison then return end
 
     local compareWarnings = GearTab.GetCompareWarnings(entry, droppedItemLink, charData)
@@ -2927,6 +2937,17 @@ frame:SetScript("OnShow", function()
     end
     frame:RefreshGrid()
 end)
+
+if ItemStats and ItemStats.SetOnUpdated then
+    ItemStats.SetOnUpdated(function(itemId)
+        if not droppedItemLink then return end
+        local linkId = tonumber(tostring(droppedItemLink):match("item:(%d+)"))
+        if linkId ~= itemId then return end
+        if frame.RefreshGrid then
+            frame:RefreshGrid()
+        end
+    end)
+end
 
 function GearTab.IsGearScoreAddonEvent(addonName)
     if not addonName or addonName == "" then return false end

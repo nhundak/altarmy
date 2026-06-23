@@ -248,6 +248,12 @@ describe("Gear display list focus mode", function()
                         level = 60,
                         Inventory = { [1] = "|Hitem:11:0|h[New Helm]|h" },
                     },
+                    LowLevel = {
+                        name = "LowLevel",
+                        classFile = "MAGE",
+                        level = 10,
+                        Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+                    },
                     WrongClass = {
                         name = "WrongClass",
                         classFile = "WARRIOR",
@@ -287,7 +293,7 @@ describe("Gear display list focus mode", function()
         for i = 1, #list do
             local charData = DS:GetCharacter(list[i].name, list[i].realm)
             for s = 1, #slots do
-                local delta = GU.GetSlotCompareDelta(charData, itemLink, slots[s], upgradeOpts) or 0
+                local delta = GU.GetSlotCompareDelta(charData, itemLink, slots[s], upgradeOpts, list[i]) or 0
                 if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
                     upgradeMaxDelta = delta
                 end
@@ -335,7 +341,7 @@ describe("Gear display list focus mode", function()
         for i = 1, #list do
             local charData = DS:GetCharacter(list[i].name, list[i].realm)
             for s = 1, #slots do
-                local delta = GU.GetSlotCompareDelta(charData, itemLink, slots[s], upgradeOpts) or 0
+                local delta = GU.GetSlotCompareDelta(charData, itemLink, slots[s], upgradeOpts, list[i]) or 0
                 if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
                     upgradeMaxDelta = delta
                 end
@@ -364,7 +370,7 @@ describe("Gear display list focus mode", function()
         return nil, nil
     end
 
-    it("sorts columns by focus tier: upgrade, beyond-level upgrade, then neutral", function()
+    it("sorts columns by focus tier: upgrade, eventual upgrade, sidegrade, then neutral", function()
         local itemLink = "|Hitem:11:0|h[New Helm]|h"
         local entries = {
             { name = "LowLevel", realm = "RealmA", classFile = "MAGE", level = 10 },

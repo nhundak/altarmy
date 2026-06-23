@@ -65,6 +65,25 @@ describe("Gear focus visuals", function()
         assert.is_nil(getHeaderUpgradeBadgeText(nil))
     end)
 
+    local ITEM_ICON_INSET = 2
+    local UPGRADE_BADGE_OFFSET_Y = -(ITEM_ICON_INSET + 4)
+    local UPGRADE_BADGE_SIDEGRADE_Y_EXTRA = -10
+
+    local function getUpgradeBadgeOffsetY(kind)
+        local y = UPGRADE_BADGE_OFFSET_Y
+        if kind == "sidegrade" or kind == "sidegradeFuture" then
+            y = y + UPGRADE_BADGE_SIDEGRADE_Y_EXTRA
+        end
+        return y
+    end
+
+    it("offsets sidegrade badge glyphs 10px lower than upgrade badges", function()
+        assert.are.equal(UPGRADE_BADGE_OFFSET_Y, getUpgradeBadgeOffsetY("upgrade"))
+        assert.are.equal(UPGRADE_BADGE_OFFSET_Y, getUpgradeBadgeOffsetY("upgradeFuture"))
+        assert.are.equal(UPGRADE_BADGE_OFFSET_Y + UPGRADE_BADGE_SIDEGRADE_Y_EXTRA, getUpgradeBadgeOffsetY("sidegrade"))
+        assert.are.equal(UPGRADE_BADGE_OFFSET_Y + UPGRADE_BADGE_SIDEGRADE_Y_EXTRA, getUpgradeBadgeOffsetY("sidegradeFuture"))
+    end)
+
     local FOCUS_GRID_HEIGHT_SLACK = 2
     local PAD = 4
 

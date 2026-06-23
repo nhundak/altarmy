@@ -1,5 +1,5 @@
 -- AltArmy TBC — Gear upgrade comparison engine.
--- Requires DataStore, ItemUsability, DataStoreTalents, GearScore (optional).
+-- Requires DataStore, ItemUsability, DataStoreTalents, ItemStats, GearScore (optional).
 -- luacheck: globals GetItemInfo GetItemStats PawnGetItemValue PawnGetScaleName
 
 AltArmy = AltArmy or {}
@@ -7,6 +7,10 @@ AltArmy.GearUpgrade = AltArmy.GearUpgrade or {}
 
 local GU = AltArmy.GearUpgrade
 local DT = AltArmy.DataStoreTalents
+
+local function IS()
+    return AltArmy.ItemStats
+end
 
 local function IU()
     return AltArmy.ItemUsability
@@ -19,26 +23,6 @@ local function resolveLevelsAhead(value)
     if n == nil then return DEFAULT_LEVELS_AHEAD end
     return math.max(0, math.floor(n))
 end
-
-local STAT_ALIASES = {
-    ["ITEM_MOD_STRENGTH_SHORT"] = "str",
-    ["ITEM_MOD_AGILITY_SHORT"] = "agi",
-    ["ITEM_MOD_STAMINA_SHORT"] = "sta",
-    ["ITEM_MOD_INTELLECT_SHORT"] = "int",
-    ["ITEM_MOD_SPIRIT_SHORT"] = "spi",
-    ["ITEM_MOD_SPELL_DAMAGE_DONE_SHORT"] = "sp",
-    ["ITEM_MOD_SPELL_HEALING_DONE_SHORT"] = "heal",
-    ["ITEM_MOD_HIT_RATING_SHORT"] = "hit",
-    ["ITEM_MOD_CRIT_RATING_SHORT"] = "crit",
-    ["ITEM_MOD_ATTACK_POWER_SHORT"] = "ap",
-    ["ITEM_MOD_RANGED_ATTACK_POWER_SHORT"] = "rap",
-    ["ITEM_MOD_DEFENSE_SKILL_RATING_SHORT"] = "def",
-    ["ITEM_MOD_DODGE_RATING_SHORT"] = "dodge",
-    ["ITEM_MOD_PARRY_RATING_SHORT"] = "parry",
-    ["ITEM_MOD_BLOCK_RATING_SHORT"] = "block",
-    ["ITEM_MOD_BLOCK_VALUE_SHORT"] = "blockval",
-    ["ITEM_MOD_MANA_REGENERATION_SHORT"] = "mp5",
-}
 
 -- Simplified TBC stat weights per class/spec (custom Pawn-style).
 local WEIGHTS = {
@@ -220,11 +204,62 @@ local function getItemLevel(link)
     return tonumber(iLevel) or 0
 end
 
+local function normalizeClassFile(classFile)
+    return (classFile or ""):upper()
+end
+
+local function normalizeItemStats(link)
+    local itemStats = IS()
+    if itemStats and itemStats.GetNormalized then
+        return itemStats.GetNormalized(link) or {}
+    end
+    return {}
+end
+
+function GU.GetNormalizedItemStats(link)
+    return normalizeItemStats(link)
+end
+
+local function resolveCompareClassFile(char, entry)
+    if entry and entry.classFile and entry.classFile ~= "" then
+        return normalizeClassFile(entry.classFile)
+    end
+    if char and char.classFile and char.classFile ~= "" then
+        return normalizeClassFile(char.classFile)
+    end
+    return ""
+end
+
+--- Custom gear compare uses leveling spec unless talent data picks a primary spec.
+local function resolveGearCompareSpecKey(char, classFile)
+    classFile = normalizeClassFile(classFile)
+    if DT and DT.ResolveSpecKey and char then
+        local specKey, known = DT.ResolveSpecKey(char)
+        if known and specKey and specKey ~= "unknown" then
+            return specKey
+        end
+    end
+    if DT and DT.GetLevelingSpecKey then
+        return DT.GetLevelingSpecKey(classFile)
+    end
+    return "unknown"
+end
+
+local function resolveCompareContext(char, entry)
+    local classFile = resolveCompareClassFile(char, entry)
+    local specKey = resolveGearCompareSpecKey(char, classFile)
+    return classFile, specKey
+end
+
+function GU.ResolveCompareContext(char, entry)
+    return resolveCompareContext(char, entry)
+end
+
 local function getSpecKey(char)
     if DT and DT.ResolveSpecKey then
-        return DT.ResolveSpecKey(char)
+        return select(1, DT.ResolveSpecKey(char)) or "unknown"
     end
-    return "unknown", false
+    return "unknown"
 end
 
 function GU.GetSpecKey(char)
@@ -247,17 +282,15 @@ function GU.GetWeights(classFile, specKey)
 end
 
 function GU.ScoreItemCustom(link, classFile, specKey)
-    if not link or not GetItemStats then return 0 end
-    local stats = GetItemStats(link)
-    if not stats then return 0 end
+    if not link then return 0 end
     local weights = getWeights(classFile, specKey)
     if not weights then return 0 end
+    local stats = normalizeItemStats(link)
     local total = 0
-    for statKey, value in pairs(stats) do
-        local short = STAT_ALIASES[statKey] or statKey
+    for short, value in pairs(stats) do
         local w = weights[short]
         if w then
-            total = total + (tonumber(value) or 0) * w
+            total = total + value * w
         end
     end
     return total
@@ -325,14 +358,13 @@ function GU.CompareItems(newLink, oldLink, technique, classFile, specKey)
 end
 
 --- Signed score delta for focused item vs equipped item in one slot.
-function GU.GetSlotCompareDelta(char, itemLink, invSlot, opts)
+function GU.GetSlotCompareDelta(char, itemLink, invSlot, opts, entry)
     opts = opts or {}
     if not char or not itemLink or not invSlot then return 0 end
     local DS = AltArmy.DataStore
     if not DS or not DS.GetInventoryItem then return 0 end
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local classFile = char.classFile or ""
-    local specKey = getSpecKey(char)
+    local classFile, specKey = resolveCompareContext(char, entry)
     local newScore = scoreItem(itemLink, technique, classFile, specKey)
     local equipped = DS:GetInventoryItem(char, invSlot)
     local eqLink = resolveItemLink(equipped)
@@ -343,9 +375,10 @@ function GU.GetSlotCompareDelta(char, itemLink, invSlot, opts)
     return newScore - scoreItem(eqLink, technique, classFile, specKey)
 end
 
-local function upgradeDeltaInSlots(char, newLink, technique, classFile, specKey, slots)
+local function upgradeDeltaInSlots(char, newLink, technique, slots, entry)
     local DS = AltArmy.DataStore
     if not DS or not DS.GetInventoryItem then return 0 end
+    local classFile, specKey = resolveCompareContext(char, entry)
     local newScore = scoreItem(newLink, technique, classFile, specKey)
 
     local bestDelta = 0
@@ -356,7 +389,7 @@ local function upgradeDeltaInSlots(char, newLink, technique, classFile, specKey,
         local equipped = DS:GetInventoryItem(char, slot)
         if resolveItemLink(equipped) then
             hasEquipped = true
-            local delta = GU.GetSlotCompareDelta(char, newLink, slot, opts)
+            local delta = GU.GetSlotCompareDelta(char, newLink, slot, opts, entry)
             if delta > bestDelta then
                 bestDelta = delta
             end
@@ -369,13 +402,11 @@ local function upgradeDeltaInSlots(char, newLink, technique, classFile, specKey,
 end
 
 --- Upgrade delta for one inventory slot (focused item vs equipped item in that slot).
-function GU.GetSlotUpgradeDelta(char, itemLink, invSlot, opts)
+function GU.GetSlotUpgradeDelta(char, itemLink, invSlot, opts, entry)
     opts = opts or {}
     if not char or not itemLink or not invSlot then return 0 end
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local classFile = char.classFile or ""
-    local specKey = getSpecKey(char)
-    return upgradeDeltaInSlots(char, itemLink, technique, classFile, specKey, { invSlot })
+    return upgradeDeltaInSlots(char, itemLink, technique, { invSlot }, entry)
 end
 
 local CLEAR_UPGRADE_RATIO = 0.5
@@ -391,8 +422,8 @@ GU.FOCUS_CATEGORY = {
 
 local FOCUS_CATEGORY_SORT_TIER = {
     [GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE] = 1,
-    [GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE] = 2,
-    [GU.FOCUS_CATEGORY.UPGRADE_BEYOND] = 3,
+    [GU.FOCUS_CATEGORY.UPGRADE_BEYOND] = 2,
+    [GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE] = 3,
     [GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND] = 4,
     [GU.FOCUS_CATEGORY.NEVER] = 5,
     [GU.FOCUS_CATEGORY.DOWNGRADE] = 6,
@@ -455,7 +486,7 @@ function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeM
     local level = entry.level or (charData and charData.level) or 0
     local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
     local inRange, _, reason = iu.IsEquippableWithin(classFile, level, itemLink, levelsAhead)
-    local rawDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts)
+    local rawDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts, entry)
 
     if not inRange and reason ~= "level" then
         return {
@@ -495,6 +526,25 @@ function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeM
         end
     end
 
+    if rawDelta == 0 then
+        if not inRange and reason == "level" then
+            return {
+                category = GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND,
+                badge = FOCUS_CATEGORY_BADGE[GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND],
+                delta = 0,
+                dimmed = true,
+            }
+        end
+        if inRange then
+            return {
+                category = GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE,
+                badge = FOCUS_CATEGORY_BADGE[GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE],
+                delta = 0,
+                dimmed = false,
+            }
+        end
+    end
+
     return nil
 end
 
@@ -502,6 +552,7 @@ end
 function GU.SummarizeFocusCharacter(entry, charData, itemLink, slots, opts, upgradeMaxDelta)
     slots = slots or {}
     local bestPositive
+    local bestSidegrade
     local hasNever = false
     local worstDowngrade = 0
 
@@ -518,6 +569,14 @@ function GU.SummarizeFocusCharacter(entry, charData, itemLink, slots, opts, upgr
             elseif info.delta and info.delta > 0
                 and (not bestPositive or info.delta > bestPositive.delta) then
                 bestPositive = info
+            elseif (info.category == GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE
+                    or info.category == GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND)
+                and info.delta == 0 then
+                if not bestSidegrade
+                    or focusSortTierForCategory(info.category)
+                        < focusSortTierForCategory(bestSidegrade.category) then
+                    bestSidegrade = info
+                end
             end
         end
     end
@@ -528,6 +587,14 @@ function GU.SummarizeFocusCharacter(entry, charData, itemLink, slots, opts, upgr
             category = bestPositive.category,
             sortDelta = bestPositive.delta,
             dimmed = bestPositive.dimmed,
+        }
+    end
+    if bestSidegrade then
+        return {
+            sortTier = focusSortTierForCategory(bestSidegrade.category),
+            category = bestSidegrade.category,
+            sortDelta = 0,
+            dimmed = bestSidegrade.dimmed,
         }
     end
     if hasNever then
@@ -635,9 +702,8 @@ function GU.BuildFocusSlotDebugLines(entry, charData, itemLink, invSlot, opts, u
         return lines
     end
 
-    local classFile = entry.classFile or (charData and charData.classFile) or ""
+    local classFile, specKey = resolveCompareContext(charData, entry)
     local level = entry.level or (charData and charData.level) or 0
-    local specKey = getSpecKey(charData)
     lines[#lines + 1] = string.format(
         "  Class/level/spec: %s / %s / %s",
         tostring(classFile),
@@ -687,18 +753,44 @@ function GU.BuildFocusSlotDebugLines(entry, charData, itemLink, invSlot, opts, u
 
     local newScoreFocus = GU.ScoreItem(itemLink, focusTechnique, classFile, specKey)
     local oldScoreFocus = eqLink and GU.ScoreItem(eqLink, focusTechnique, classFile, specKey) or 0
-    local rawDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts)
+    local rawDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts, entry)
     lines[#lines + 1] = string.format(
         "  Grid scores: new=%s old=%s delta=%s",
         tostring(newScoreFocus),
         tostring(oldScoreFocus),
         tostring(rawDelta))
 
+    local itemStats = IS()
+    if itemStats then
+        local focusStats = GU.GetNormalizedItemStats(itemLink)
+        lines[#lines + 1] = string.format(
+            "  Focused statSource: %s  parsed: %s",
+            tostring(itemStats.GetSource and itemStats.GetSource(itemLink) or "?"),
+            itemStats.FormatNormalizedForDebug
+                and itemStats.FormatNormalizedForDebug(focusStats) or "?")
+        if eqLink then
+            local eqStats = GU.GetNormalizedItemStats(eqLink)
+            lines[#lines + 1] = string.format(
+                "  Equipped statSource: %s  parsed: %s",
+                tostring(itemStats.GetSource and itemStats.GetSource(eqLink) or "?"),
+                itemStats.FormatNormalizedForDebug
+                    and itemStats.FormatNormalizedForDebug(eqStats) or "?")
+        end
+        local focusSource = itemStats.GetSource and itemStats.GetSource(itemLink) or ""
+        if focusSource == "tooltip" or focusSource == "none" or focusSource == "pending" then
+            local tipLines = itemStats.GetTooltipLines and itemStats.GetTooltipLines(itemLink) or {}
+            local maxLines = math.min(#tipLines, 6)
+            for i = 1, maxLines do
+                lines[#lines + 1] = string.format("  tooltip[%d]: %s", i, tostring(tipLines[i]))
+            end
+        end
+    end
+
     if sessionTechnique and sessionTechnique ~= focusTechnique then
         local newScoreSession = GU.ScoreItem(itemLink, sessionTechnique, classFile, specKey)
         local oldScoreSession = eqLink and GU.ScoreItem(eqLink, sessionTechnique, classFile, specKey) or 0
         local sessionOpts = { technique = debugCtx.sessionTechnique }
-        local sessionDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, sessionOpts)
+        local sessionDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, sessionOpts, entry)
         lines[#lines + 1] = string.format(
             "  Panel scores: new=%s old=%s delta=%s",
             tostring(newScoreSession),
@@ -722,7 +814,7 @@ function GU.BuildFocusSlotDebugLines(entry, charData, itemLink, invSlot, opts, u
     else
         lines[#lines + 1] = "  ClassifyFocusSlot: (nil) — no category; verdict hidden"
         if rawDelta == 0 then
-            lines[#lines + 1] = "  Hint: grid delta is 0 (equal scores, or useless item vs empty slot)."
+            lines[#lines + 1] = "  Hint: grid delta is 0 after compare scoring."
         end
     end
 
@@ -772,8 +864,8 @@ function GU.GetFocusUpgradeDeltaForSlot(entry, charData, itemLink, invSlot, opts
     return 0
 end
 
-local function bestUpgradeInSlots(char, newLink, technique, classFile, specKey, slots)
-    return upgradeDeltaInSlots(char, newLink, technique, classFile, specKey, slots) > 0
+local function bestUpgradeInSlots(char, newLink, technique, slots, entry)
+    return upgradeDeltaInSlots(char, newLink, technique, slots, entry) > 0
 end
 
 local function charMatchesRealm(_char, realm, _name, realmFilter, currentRealm)
@@ -808,8 +900,13 @@ function GU.EvaluateForAllAlts(itemLink, opts)
         local equippable = IU() and IU().IsEquippableWithin(classFile, level, itemLink, levelsAhead)
         if not equippable then return end
         local equippableNow = level >= (IU().EffectiveRequiredLevel(classFile, itemLink) or 999)
-        local specKey = getSpecKey(charData)
-        local isUpgrade = bestUpgradeInSlots(charData, itemLink, technique, classFile, specKey, slots)
+        local entry = {
+            name = charData.name or charName,
+            realm = realm,
+            classFile = classFile,
+            level = level,
+        }
+        local isUpgrade = bestUpgradeInSlots(charData, itemLink, technique, slots, entry)
         if isUpgrade then
             matches[#matches + 1] = {
                 name = charData.name or charName,
@@ -828,23 +925,19 @@ function GU.EvaluateForCharacter(char, itemLink, opts)
     opts = opts or {}
     if not char or not itemLink then return false end
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local classFile = char.classFile or ""
-    local specKey = getSpecKey(char)
     local slots = IU() and IU().GetInventorySlotsForItem(itemLink) or {}
     if #slots == 0 then return false end
-    return bestUpgradeInSlots(char, itemLink, technique, classFile, specKey, slots)
+    return bestUpgradeInSlots(char, itemLink, technique, slots, nil)
 end
 
 --- Raw upgrade magnitude for one character (technique-specific score delta).
-function GU.GetCharacterUpgradeDelta(char, itemLink, opts)
+function GU.GetCharacterUpgradeDelta(char, itemLink, opts, entry)
     opts = opts or {}
     if not char or not itemLink then return 0 end
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local classFile = char.classFile or ""
-    local specKey = getSpecKey(char)
     local slots = IU() and IU().GetInventorySlotsForItem(itemLink) or {}
     if #slots == 0 then return 0 end
-    return upgradeDeltaInSlots(char, itemLink, technique, classFile, specKey, slots)
+    return upgradeDeltaInSlots(char, itemLink, technique, slots, entry)
 end
 
 --- Upgrade magnitude for focus-mode sort (best positive delta across item slots).
