@@ -53,6 +53,19 @@ describe("Gear compare panel height", function()
         assert.are.equal(COMPARE_ROW_HEIGHT + 2, withTwo - withOne)
     end)
 
+    local GRID_SPLIT_FRACTION = 0.6
+    local SECTION_GAP = 4
+
+    local function getSettingsColumnLeftX(frameWidth)
+        if frameWidth <= 0 then return 0 end
+        return frameWidth * GRID_SPLIT_FRACTION + SECTION_GAP
+    end
+
+    it("aligns compare settings column with gear settings width", function()
+        assert.are.equal(604, getSettingsColumnLeftX(1000))
+        assert.are.equal(0, getSettingsColumnLeftX(0))
+    end)
+
     local function shouldHideCompareSettingsSection(layoutMode, gearSettingsOpen)
         return layoutMode == "focus_compare" and gearSettingsOpen
     end

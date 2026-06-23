@@ -182,6 +182,13 @@ describe("ItemUsability", function()
         }
     end)
 
+    it("RequiresTrainerProficiency is true only for plate and class mail", function()
+        assert.is_true(IU.RequiresTrainerProficiency("PALADIN", "Plate", "Armor"))
+        assert.is_true(IU.RequiresTrainerProficiency("HUNTER", "Mail", "Armor"))
+        assert.is_false(IU.RequiresTrainerProficiency("PALADIN", "Mail", "Armor"))
+        assert.is_false(IU.RequiresTrainerProficiency("MAGE", "Cloth", "Armor"))
+    end)
+
     it("GetEquipWarnings includes level requirement for selected character", function()
         _G.IsUsableItem = nil
         local warnings = IU.GetEquipWarnings("PALADIN", 35, "Tome", "|Hitem:2:0|h[Plate Helm]|h")
@@ -191,17 +198,51 @@ describe("ItemUsability", function()
             warnings[1])
     end)
 
-    it("GetEquipWarnings includes proficiency training", function()
+    it("GetEquipWarnings includes proficiency training when skill is missing", function()
         _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
             GetText = function() return "" end,
         }
         _G.IsUsableItem = function() return false end
-        local warnings = IU.GetEquipWarnings("PALADIN", 60, "Tome", "|Hitem:2:0|h[Plate Helm]|h")
+        local warnings = IU.GetEquipWarnings("PALADIN", 60, "Tome", "|Hitem:2:0|h[Plate Helm]|h", nil)
         _G.IsUsableItem = nil
         assert.are.equal(1, #warnings)
         assert.are.equal(
             coloredName("Tome", "PALADIN") .. " must train Plate Armor to equip this",
             warnings[1])
+    end)
+
+    it("GetEquipWarnings omits training when current character can use the item", function()
+        _G.IsUsableItem = function() return true end
+        _G.UnitName = function() return "Tome" end
+        _G.UnitClass = function() return "Paladin", "PALADIN" end
+        local warnings = IU.GetEquipWarnings(
+            "PALADIN",
+            60,
+            "Tome",
+            "|Hitem:2:0|h[Plate Helm]|h",
+            { name = "Tome", classFile = "PALADIN" })
+        _G.IsUsableItem = nil
+        _G.UnitName = nil
+        _G.UnitClass = nil
+        assert.are.equal(0, #warnings)
+    end)
+
+    it("GetEquipWarnings omits training when alt wears that armor type", function()
+        local charData = {
+            name = "Tome",
+            classFile = "PALADIN",
+            Inventory = { [1] = "|Hitem:2:0|h[Plate Helm]|h" },
+        }
+        local warnings = IU.GetEquipWarnings(
+            "PALADIN", 60, "Tome", "|Hitem:2:0|h[Plate Helm]|h", charData)
+        assert.are.equal(0, #warnings)
+    end)
+
+    it("GetEquipWarnings never shows training for cloth armor", function()
+        _G.IsUsableItem = function() return false end
+        local warnings = IU.GetEquipWarnings("MAGE", 60, "Merlin", "|Hitem:1:0|h[Cloth Hood]|h", nil)
+        _G.IsUsableItem = nil
+        assert.are.equal(0, #warnings)
     end)
 
     it("GetEquipWarnings reports class proficiency the character can never learn", function()

@@ -18,6 +18,7 @@ local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 local PAD = 4
 local SECTION_INSET = Theme.TAB_SECTION_INSET
 local SECTION_GAP = Theme.SECTION_GAP
+local GRID_SPLIT_FRACTION = 0.6 -- grid/compare stats get 60%; settings columns get 40%
 local LEFT_PANEL_WIDTH = 120
 local LEFT_PANEL_VISIBLE = false  -- set true to show "Who can use this?" drop zone
 local MESSAGE_ROW_HEIGHT = 12
@@ -316,9 +317,9 @@ function GearTab.GetSelectedCompareEntry(list)
     return nil
 end
 
-function GearTab.GetCompareWarnings(entry, itemLink)
+function GearTab.GetCompareWarnings(entry, itemLink, charData)
     if not entry or not itemLink or not IU or not IU.GetEquipWarnings then return {} end
-    return IU.GetEquipWarnings(entry.classFile, entry.level, entry.name, itemLink)
+    return IU.GetEquipWarnings(entry.classFile, entry.level, entry.name, itemLink, charData)
 end
 
 function GearTab.EstimateComparePanelHeight(comparison, warningCount)
@@ -1494,17 +1495,17 @@ end
 local compareEquippedIcon = createCompareItemIcon(compareItemsRow)
 compareEquippedIcon:SetPoint("LEFT", compareItemsRow, "LEFT", 0, 0)
 
+local COMPARE_ARROW_TEX = "Interface\\AddOns\\AltArmy_TBC\\Textures\\CompareArrow"
 local COMPARE_ARROW_SIZE = 20
 
-local compareArrow = compareItemsRow:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-compareArrow:SetWidth(COMPARE_ARROW_SIZE)
-compareArrow:SetJustifyH("CENTER")
-compareArrow:SetJustifyV("MIDDLE")
-compareArrow:SetText("|TInterface\\Buttons\\UI-SpellbookIcon-NextPage-Up:"
-    .. COMPARE_ARROW_SIZE .. ":" .. COMPARE_ARROW_SIZE .. "|t")
-compareArrow:SetPoint("LEFT", compareEquippedIcon, "RIGHT", 8, 0)
+local compareArrow = compareItemsRow:CreateTexture(nil, "OVERLAY")
+compareArrow:SetSize(COMPARE_ARROW_SIZE, COMPARE_ARROW_SIZE)
+compareArrow:SetTexture(COMPARE_ARROW_TEX)
+compareArrow:SetVertexColor(1, 1, 1, 1)
+compareArrow:SetPoint("LEFT", compareEquippedIcon, "RIGHT", 6, 0)
 compareArrow:SetPoint("TOP", compareEquippedIcon, "TOP", 0, 0)
 compareArrow:SetPoint("BOTTOM", compareEquippedIcon, "BOTTOM", 0, 0)
+compareArrow:SetWidth(COMPARE_ARROW_SIZE)
 
 local compareFocusedIcon = createCompareItemIcon(compareItemsRow)
 compareFocusedIcon:SetPoint("LEFT", compareArrow, "RIGHT", 8, 0)
@@ -1534,7 +1535,7 @@ compareAlgoBtnText:SetJustifyH("LEFT")
 
 local compareLevelsLabel = compareOptionsSection:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 compareLevelsLabel:SetPoint("TOPLEFT", compareAlgoBtn, "BOTTOMLEFT", 0, -8)
-compareLevelsLabel:SetText("Consider items equippable within this many levels")
+compareLevelsLabel:SetText("Max character level distance")
 
 local compareLevelsEdit = CreateFrame("EditBox", nil, compareOptionsSection)
 compareLevelsEdit:SetPoint("TOPLEFT", compareLevelsLabel, "BOTTOMLEFT", 0, -4)
@@ -1713,6 +1714,33 @@ function GearTab.ShouldHideCompareSettingsSection()
         and settingsPanel:IsShown()
 end
 
+function GearTab.GetSettingsColumnLeftX()
+    local w = frame:GetWidth()
+    if w <= 0 then return 0 end
+    return w * GRID_SPLIT_FRACTION + SECTION_GAP
+end
+
+function GearTab.LayoutCompareBottomPanels(mainSection, areaLeft, areaRight)
+    local hideCompareSettings = GearTab.ShouldHideCompareSettingsSection()
+    compareStatsSection:Show()
+    compareStatsSection:ClearAllPoints()
+    compareStatsSection:SetPoint("TOPLEFT", mainSection, "BOTTOMLEFT", 0, -SECTION_GAP)
+    compareStatsSection:SetPoint("BOTTOMLEFT", areaLeft, "BOTTOMLEFT", 0, 0)
+    if hideCompareSettings then
+        compareStatsSection:SetPoint("BOTTOMRIGHT", areaRight, "BOTTOMRIGHT", 0, 0)
+        if compareAlgoDropdown then compareAlgoDropdown:Hide() end
+        return
+    end
+
+    compareSettingsSection:Show()
+    compareSettingsSection:ClearAllPoints()
+    compareSettingsSection:SetPoint("TOPRIGHT", mainSection, "BOTTOMRIGHT", 0, -SECTION_GAP)
+    compareSettingsSection:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+    compareSettingsSection:SetPoint("LEFT", frame, "LEFT", GearTab.GetSettingsColumnLeftX(), 0)
+
+    compareStatsSection:SetPoint("RIGHT", compareSettingsSection, "LEFT", -SECTION_GAP, 0)
+end
+
 function GearTab.ApplyGearLayoutHostBounds()
     gearLayoutHost:ClearAllPoints()
     gearLayoutHost:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
@@ -1771,24 +1799,7 @@ function GearTab.LayoutGearPanels()
         gearMainSection:SetHeight(GearTab.GetGearMainSectionHeight())
         if gridHost then gridHost:Show() end
 
-        local halfGap = SECTION_GAP / 2
-        local hideCompareSettings = GearTab.ShouldHideCompareSettingsSection()
-        compareStatsSection:Show()
-        compareStatsSection:ClearAllPoints()
-        compareStatsSection:SetPoint("TOPLEFT", gearMainSection, "BOTTOMLEFT", 0, -SECTION_GAP)
-        compareStatsSection:SetPoint("BOTTOMLEFT", areaLeft, "BOTTOMLEFT", 0, 0)
-        if hideCompareSettings then
-            compareStatsSection:SetPoint("BOTTOMRIGHT", areaRight, "BOTTOMRIGHT", 0, 0)
-            if compareAlgoDropdown then compareAlgoDropdown:Hide() end
-        else
-            compareStatsSection:SetPoint("RIGHT", areaRight, "CENTER", -halfGap, 0)
-
-            compareSettingsSection:Show()
-            compareSettingsSection:ClearAllPoints()
-            compareSettingsSection:SetPoint("TOPRIGHT", gearMainSection, "BOTTOMRIGHT", 0, -SECTION_GAP)
-            compareSettingsSection:SetPoint("BOTTOMRIGHT", areaRight, "BOTTOMRIGHT", 0, 0)
-            compareSettingsSection:SetPoint("LEFT", areaRight, "CENTER", halfGap, 0)
-        end
+        GearTab.LayoutCompareBottomPanels(gearMainSection, areaLeft, areaRight)
     elseif mode == "focus" then
         gearMainSection:Show()
         gearMainSection:ClearAllPoints()
@@ -1850,7 +1861,7 @@ function GearTab.UpdateComparePanel(list)
     GearTab.SetCompareItemIcon(compareFocusedIcon, droppedItemLink)
     GearTab.SetCompareItemIcon(compareEquippedIcon, equippedLink)
 
-    local compareWarnings = GearTab.GetCompareWarnings(entry, droppedItemLink)
+    local compareWarnings = GearTab.GetCompareWarnings(entry, droppedItemLink, charData)
     GearTab.LayoutComparePanelSections(compareWarnings)
 
     if GU and GU.GetOptions then
@@ -2548,7 +2559,6 @@ frame:SetScript("OnEvent", function(_, event, addonName)
 end)
 
 -- ---- Gear settings panel: right 40% of frame when visible (grid 60%, both full height) ----
-local GRID_SPLIT_FRACTION = 0.6  -- grid gets 60%, settings gets 40%
 settingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 Theme.ApplyBackdrop(settingsPanel, "section")
 function GearTab.ApplySettingsPanelLayout()
@@ -2655,5 +2665,7 @@ frame:SetScript("OnSizeChanged", function()
         GearTab.ApplyGearLayoutHostBounds()
         GearTab.LayoutGearPanels()
         if frame.RefreshGrid then frame:RefreshGrid() end
+    elseif GearTab.GetGearLayoutMode() == "focus_compare" then
+        GearTab.LayoutGearPanels()
     end
 end)

@@ -263,8 +263,58 @@ function IU.GetProficiencySkillName(itemClass, subclass)
     return subclass
 end
 
+--- True when this armor type must be learned from a trainer (plate/mail at 40).
+function IU.RequiresTrainerProficiency(classFile, subclass, itemClass)
+    if not subclass or subclass == "" then return false end
+    return IU.MinLevelToTrainProficiency(classFile, subclass, itemClass) == ARMOR_SPEC_LEVEL
+end
+
+--- True if character has any equipped item of this armor subclass.
+function IU.CharHasEquippedArmorSubclass(charData, subclass)
+    if not charData or not charData.Inventory or not subclass or not GetItemInfo then
+        return false
+    end
+    local target = subclass:lower()
+    for _, item in pairs(charData.Inventory) do
+        if type(item) == "string" then
+            local name, _, _, _, _, itemClass, itemSubclass = GetItemInfo(item)
+            if name then
+                local ic = itemClass and itemClass:lower() or ""
+                if (ic == "armor" or ic == "armour")
+                    and itemSubclass
+                    and itemSubclass:lower() == target then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function isCurrentCharacter(classFile, charData)
+    if not charData or not UnitClass or not UnitName then return false end
+    local playerName = UnitName("player")
+    if not playerName or playerName ~= charData.name then return false end
+    local _, currentClass = UnitClass("player")
+    return normalizeClassFile(classFile) == normalizeClassFile(currentClass)
+end
+
+--- True when character already knows an armor proficiency that requires training.
+function IU.HasLearnedArmorProficiency(classFile, subclass, itemClass, charData, link)
+    if not IU.RequiresTrainerProficiency(classFile, subclass, itemClass) then
+        return true
+    end
+    if IU.CharHasEquippedArmorSubclass(charData, subclass) then
+        return true
+    end
+    if isCurrentCharacter(classFile, charData) and link and _G.IsUsableItem then
+        return _G.IsUsableItem(link) == true
+    end
+    return false
+end
+
 --- True when character is high enough to train but has not learned armor proficiency.
-function IU.NeedsProficiencyTraining(classFile, charLevel, link)
+function IU.NeedsProficiencyTraining(classFile, charLevel, link, charData)
     if not link or not GetItemInfo then return false end
     local name, _, _, reqLevel, _, itemClass, subclass = GetItemInfo(link)
     if not name then return false end
@@ -275,14 +325,12 @@ function IU.NeedsProficiencyTraining(classFile, charLevel, link)
     if ic ~= "armor" and ic ~= "armour" then return false end
     if not subclass or subclass == "" or subclass == "Shields" then return false end
     if not IU.CanClassEverUseArmor(classFile, subclass) then return false end
+    if not IU.RequiresTrainerProficiency(classFile, subclass, itemClass) then return false end
 
     local trainLevel = IU.MinLevelToTrainProficiency(classFile, subclass, itemClass)
     if charLevel < trainLevel or charLevel < reqLevel then return false end
 
-    if _G.IsUsableItem then
-        return _G.IsUsableItem(link) == false
-    end
-    return false
+    return not IU.HasLearnedArmorProficiency(classFile, subclass, itemClass, charData, link)
 end
 
 local function formatWarningCharName(name, classFile)
@@ -313,7 +361,7 @@ function IU.GetNeverEquipSkillName(classFile, link)
 end
 
 --- Warning lines for compare panel (soulbound, level, proficiency).
-function IU.GetEquipWarnings(classFile, charLevel, charName, link)
+function IU.GetEquipWarnings(classFile, charLevel, charName, link, charData)
     local warnings = {}
     if not link then return warnings end
     charName = charName or "?"
@@ -338,7 +386,7 @@ function IU.GetEquipWarnings(classFile, charLevel, charName, link)
             .. tostring(effective) .. " to equip this"
     end
 
-    if IU.NeedsProficiencyTraining(classFile, charLevel, link) then
+    if IU.NeedsProficiencyTraining(classFile, charLevel, link, charData) then
         local _, _, _, _, _, itemClass, subclass = GetItemInfo(link)
         local skill = IU.GetProficiencySkillName(itemClass, subclass)
         local coloredName = formatWarningCharName(charName, classFile)
