@@ -216,6 +216,7 @@ describe("Gear display list focus mode", function()
             [10] = { "Old Helm", nil, 2, 20, 20, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
             [11] = { "New Helm", nil, 3, 35, 35, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
             [12] = { "Ring", nil, 3, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+            [13] = { "Newer Helm", nil, 3, 32, 32, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
         }
         local info = items[id]
         if not info then return end
@@ -233,6 +234,12 @@ describe("Gear display list focus mode", function()
                         classFile = "MAGE",
                         level = 60,
                         Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+                    },
+                    SmallUpgrader = {
+                        name = "SmallUpgrader",
+                        classFile = "MAGE",
+                        level = 60,
+                        Inventory = { [1] = "|Hitem:13:0|h[Newer Helm]|h" },
                     },
                     Usable = {
                         name = "Usable",
@@ -280,6 +287,11 @@ describe("Gear display list focus mode", function()
             local ta = GU.GetFocusTier(a, charA, itemLink, upgradeOpts)
             local tb = GU.GetFocusTier(b, charB, itemLink, upgradeOpts)
             if ta ~= tb then return ta < tb end
+            if ta == 1 then
+                local da = GU.GetFocusUpgradeDelta(a, charA, itemLink, upgradeOpts) or 0
+                local db = GU.GetFocusUpgradeDelta(b, charB, itemLink, upgradeOpts) or 0
+                if da ~= db then return da > db end
+            end
             return (a.name or "") < (b.name or "")
         end)
         return copy
@@ -306,6 +318,25 @@ describe("Gear display list focus mode", function()
         assert.are.equal("Upgrader", sorted[1].name)
         assert.are.equal("Usable", sorted[2].name)
         assert.are.equal("LowLevel", sorted[3].name)
+    end)
+
+    it("sorts upgrade columns by biggest upgrade first", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local entries = {
+            { name = "SmallUpgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        assert.are.equal("Upgrader", sorted[1].name)
+        assert.are.equal("SmallUpgrader", sorted[2].name)
+        assert.are.equal(15, GU.GetFocusUpgradeDelta(sorted[1], DS:GetCharacter("Upgrader", "RealmA"), itemLink, {
+            technique = "ilvl",
+            levelsAhead = 0,
+        }))
+        assert.are.equal(3, GU.GetFocusUpgradeDelta(sorted[2], DS:GetCharacter("SmallUpgrader", "RealmA"), itemLink, {
+            technique = "ilvl",
+            levelsAhead = 0,
+        }))
     end)
 
     it("filters display rows to focused item inventory slots", function()

@@ -219,6 +219,10 @@ local function getSpecKey(char)
     return "unknown", false
 end
 
+function GU.GetSpecKey(char)
+    return getSpecKey(char)
+end
+
 local function getWeights(classFile, specKey)
     classFile = (classFile or ""):upper()
     local byClass = WEIGHTS[classFile]
@@ -228,6 +232,10 @@ local function getWeights(classFile, specKey)
         return byClass[DT.GetLevelingSpecKey(classFile)]
     end
     return nil
+end
+
+function GU.GetWeights(classFile, specKey)
+    return getWeights(classFile, specKey)
 end
 
 function GU.ScoreItemCustom(link, classFile, specKey)
@@ -291,6 +299,14 @@ local function scoreItem(link, technique, classFile, specKey)
     return GU.ScoreItemCustom(link, classFile, specKey)
 end
 
+function GU.ResolveItemLink(item)
+    return resolveItemLink(item)
+end
+
+function GU.ScoreItem(link, technique, classFile, specKey)
+    return scoreItem(link, technique, classFile, specKey)
+end
+
 function GU.CompareItems(newLink, oldLink, technique, classFile, specKey)
     local newScore = scoreItem(newLink, technique, classFile, specKey)
     local oldScore = oldLink and scoreItem(oldLink, technique, classFile, specKey) or 0
@@ -300,14 +316,13 @@ function GU.CompareItems(newLink, oldLink, technique, classFile, specKey)
     return newScore > oldScore
 end
 
-local function newScorePositive(link, technique, classFile, specKey)
-    return scoreItem(link, technique, classFile, specKey) > 0
-end
-
-local function bestUpgradeInSlots(char, newLink, technique, classFile, specKey, slots)
+local function upgradeDeltaInSlots(char, newLink, technique, classFile, specKey, slots)
     local DS = AltArmy.DataStore
-    if not DS or not DS.GetInventoryItem then return false end
-    local isUpgrade = false
+    if not DS or not DS.GetInventoryItem then return 0 end
+    local newScore = scoreItem(newLink, technique, classFile, specKey)
+    if newScore <= 0 then return 0 end
+
+    local bestDelta = 0
     local hasEquipped = false
     for i = 1, #slots do
         local slot = slots[i]
@@ -315,15 +330,21 @@ local function bestUpgradeInSlots(char, newLink, technique, classFile, specKey, 
         local eqLink = resolveItemLink(equipped)
         if eqLink then
             hasEquipped = true
-            if GU.CompareItems(newLink, eqLink, technique, classFile, specKey) then
-                isUpgrade = true
+            local oldScore = scoreItem(eqLink, technique, classFile, specKey)
+            local delta = newScore - oldScore
+            if delta > bestDelta then
+                bestDelta = delta
             end
         end
     end
     if not hasEquipped then
-        return newScorePositive(newLink, technique, classFile, specKey)
+        return newScore
     end
-    return isUpgrade
+    return bestDelta
+end
+
+local function bestUpgradeInSlots(char, newLink, technique, classFile, specKey, slots)
+    return upgradeDeltaInSlots(char, newLink, technique, classFile, specKey, slots) > 0
 end
 
 local function charMatchesRealm(_char, realm, _name, realmFilter, currentRealm)
@@ -391,6 +412,24 @@ function GU.EvaluateForCharacter(char, itemLink, opts)
     local slots = IU() and IU().GetInventorySlotsForItem(itemLink) or {}
     if #slots == 0 then return false end
     return bestUpgradeInSlots(char, itemLink, technique, classFile, specKey, slots)
+end
+
+--- Raw upgrade magnitude for one character (technique-specific score delta).
+function GU.GetCharacterUpgradeDelta(char, itemLink, opts)
+    opts = opts or {}
+    if not char or not itemLink then return 0 end
+    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+    local classFile = char.classFile or ""
+    local specKey = getSpecKey(char)
+    local slots = IU() and IU().GetInventorySlotsForItem(itemLink) or {}
+    if #slots == 0 then return 0 end
+    return upgradeDeltaInSlots(char, itemLink, technique, classFile, specKey, slots)
+end
+
+--- Upgrade magnitude for focus-mode sort and highlight (0 when not an upgrade).
+function GU.GetFocusUpgradeDelta(entry, charData, itemLink, opts)
+    if GU.GetFocusTier(entry, charData, itemLink, opts) ~= 1 then return 0 end
+    return GU.GetCharacterUpgradeDelta(charData, itemLink, opts)
 end
 
 --- Tier for focus-mode column sort: 1=upgrade, 2=usable, 3=cannot use.

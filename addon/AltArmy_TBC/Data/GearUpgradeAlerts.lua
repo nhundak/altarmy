@@ -1,6 +1,6 @@
 -- AltArmy TBC — Gear upgrade chat alerts (loot + level-up).
 -- luacheck: globals DEFAULT_CHAT_FRAME GetItemInfo IsUsableItem UnitName
--- luacheck: globals GetContainerItemLink GetContainerNumSlots hooksecurefunc SetItemRef
+-- luacheck: globals GetContainerItemLink GetContainerNumSlots SetItemRef ChatFrame_OnHyperlinkClick
 
 if not AltArmy then return end
 
@@ -36,7 +36,26 @@ local function formatUpgradeLink(itemLink)
             label = "View upgrade: " .. name
         end
     end
-    return "|Haltarmy:upgrade:" .. tostring(itemId) .. "|h[" .. label .. "]|h"
+    return "|cfffecc00|Haltarmy:upgrade:" .. tostring(itemId) .. "|h[" .. label .. "]|h|r"
+end
+
+local function parseUpgradeItemId(link)
+    if not link then return nil end
+    local lower = link:lower()
+    return tonumber(lower:match("^altarmy:upgrade:(%d+)$")
+        or lower:match("altarmy:upgrade:(%d+)"))
+end
+
+local function resolveItemLinkForUpgrade(itemId)
+    itemId = tonumber(itemId)
+    if not itemId then return nil end
+    if GetItemInfo then
+        local _, cached = GetItemInfo(itemId)
+        if cached and cached ~= "" then
+            return cached
+        end
+    end
+    return "item:" .. tostring(itemId)
 end
 
 local function optionsEnabled()
@@ -204,24 +223,58 @@ end
 
 function GA.HandleSetItemRef(link, button)
     if button and button ~= "LeftButton" then return false end
-    if not link then return false end
-    local itemId = link:match("^altarmy:upgrade:(%d+)$")
+    local itemId = parseUpgradeItemId(link)
     if not itemId then return false end
-    if GetItemInfo then
-        local _, itemLink = GetItemInfo(tonumber(itemId))
-        if itemLink and AltArmy.OpenGearTabFocused then
-            AltArmy.OpenGearTabFocused(itemLink)
-            return true
-        end
+    local itemLink = resolveItemLinkForUpgrade(itemId)
+    if itemLink and AltArmy.OpenGearTabFocused then
+        AltArmy.OpenGearTabFocused(itemLink)
+        return true
     end
     return false
+end
+
+local wrappedSetItemRef
+local wrappedChatFrame_OnHyperlinkClick
+
+--- Intercept custom links before Blizzard/NovaInstanceTracker call SetHyperlink on them.
+local function installUpgradeLinkInterceptors()
+    if SetItemRef then
+        local inner = SetItemRef
+        if inner ~= wrappedSetItemRef then
+            local function wrapper(link, text, button, chatFrame)
+                if GA.HandleSetItemRef(link, button) then
+                    return
+                end
+                return inner(link, text, button, chatFrame)
+            end
+            wrappedSetItemRef = wrapper
+            SetItemRef = wrapper
+        end
+    end
+
+    if ChatFrame_OnHyperlinkClick then
+        local inner = ChatFrame_OnHyperlinkClick
+        if inner ~= wrappedChatFrame_OnHyperlinkClick then
+            local function wrapper(self, link, text, button)
+                if GA.HandleSetItemRef(link, button) then
+                    return
+                end
+                return inner(self, link, text, button)
+            end
+            wrappedChatFrame_OnHyperlinkClick = wrapper
+            ChatFrame_OnHyperlinkClick = wrapper
+        end
+    end
 end
 
 local alertFrame = CreateFrame("Frame", "AltArmyTBC_GearUpgradeAlertFrame", UIParent)
 alertFrame:RegisterEvent("CHAT_MSG_LOOT")
 alertFrame:RegisterEvent("PLAYER_LEVEL_UP")
+alertFrame:RegisterEvent("ADDON_LOADED")
 alertFrame:SetScript("OnEvent", function(_, event, arg1)
-    if event == "CHAT_MSG_LOOT" then
+    if event == "ADDON_LOADED" then
+        installUpgradeLinkInterceptors()
+    elseif event == "CHAT_MSG_LOOT" then
         local msg = arg1
         if not isSelfLootMessage(msg) then return end
         local link = extractItemLink(msg)
@@ -234,8 +287,4 @@ alertFrame:SetScript("OnEvent", function(_, event, arg1)
     end
 end)
 
-if hooksecurefunc and SetItemRef then
-    hooksecurefunc("SetItemRef", function(link, _, button)
-        GA.HandleSetItemRef(link, button)
-    end)
-end
+installUpgradeLinkInterceptors()

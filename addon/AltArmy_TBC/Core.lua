@@ -169,6 +169,7 @@ function AltArmy.OpenGearTabFocused(itemLink)
             headerSearchEdit:SetText("")
         end
         exitSearchMode()
+        setActiveTab("Gear")
         local gearFrame = AltArmy.TabFrames and AltArmy.TabFrames.Gear
         if gearFrame and gearFrame.FocusItem and itemLink then
             gearFrame:FocusItem(itemLink)
@@ -565,6 +566,9 @@ main:SetScript("OnShow", function()
         headerSearchEdit:SetText("")
     end
     exitSearchMode()
+    if openTab == "Gear" then
+        setActiveTab("Gear")
+    end
     if openTab == "Gear" and pendingGearFocusLink then
         local gearFrame = AltArmy.TabFrames and AltArmy.TabFrames.Gear
         local link = pendingGearFocusLink

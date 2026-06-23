@@ -159,4 +159,20 @@ describe("GearUpgrade", function()
     it("GetEffectiveTechnique falls back to custom when pawn unavailable", function()
         assert.are.equal("custom", GU.GetEffectiveTechnique("pawn"))
     end)
+
+    it("GetCharacterUpgradeDelta returns score difference for ilvl technique", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local delta = GU.GetCharacterUpgradeDelta(char, "|Hitem:11:0|h[New Helm]|h", {
+            technique = "ilvl",
+        })
+        assert.are.equal(15, delta)
+    end)
+
+    it("GetFocusUpgradeDelta is zero for non-upgrade characters", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local entry = { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local worseLink = "|Hitem:10:0|h[Old Helm]|h"
+        local delta = GU.GetFocusUpgradeDelta(entry, char, worseLink, { technique = "ilvl" })
+        assert.are.equal(0, delta)
+    end)
 end)
