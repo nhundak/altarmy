@@ -13,6 +13,7 @@ describe("ItemStats", function()
             [10] = { "Old Helm", nil, 2, 20, 20, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
             [11] = { "New Helm", nil, 3, 35, 35, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
             [99] = { "Monkey Greaves", nil, 2, 43, 43, "Armor", "Mail", nil, "INVTYPE_FEET" },
+            [50] = { "Sparkling Wand", nil, 2, 25, 25, "Weapon", "Wand", nil, "INVTYPE_RANGEDRIGHT" },
         }
         local info = items[id]
         if not info then return end
@@ -27,6 +28,9 @@ describe("ItemStats", function()
         end
         if id == 10 then
             return { ["ITEM_MOD_INTELLECT_SHORT"] = 5, ["ITEM_MOD_STAMINA_SHORT"] = 5 }
+        end
+        if id == 50 then
+            return { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 15.5, ["ITEM_MOD_INTELLECT_SHORT"] = 5 }
         end
         return {}
     end
@@ -86,7 +90,6 @@ describe("ItemStats", function()
             return { SetScript = function() end, RegisterEvent = function() end }
         end
         _G.UIParent = _G.UIParent or {}
-        _G.PawnGetItemData = nil
         package.loaded["ItemStats"] = nil
         require("ItemStats")
         IS = AltArmy.ItemStats
@@ -94,18 +97,26 @@ describe("ItemStats", function()
         IS.SetOnUpdated(nil)
     end)
 
-    it("GetNormalized uses Pawn when available", function()
-        _G.PawnGetItemData = function(link)
-            if link:find("item:99") then
-                return { Stats = { Agility = 10, Stamina = 10 } }
+    before_each(function()
+        _G.GetItemInfo = mockGetItemInfo
+        _G.GetItemStats = mockGetItemStats
+        _G.CreateFrame = _G.CreateFrame or function(frameType, name)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({})
             end
+            if frameType == "Frame" then
+                return {
+                    RegisterEvent = function() end,
+                    SetScript = function() end,
+                }
+            end
+            return { SetScript = function() end, RegisterEvent = function() end }
         end
-        local link = "|Hitem:99:0|h[Monkey Greaves]|h"
-        local stats = IS.GetNormalized(link)
-        assert.are.equal(10, stats.agi)
-        assert.are.equal(10, stats.sta)
-        assert.are.equal("pawn", IS.GetSource(link))
-        _G.PawnGetItemData = nil
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+        IS.SetOnUpdated(nil)
     end)
 
     it("GetNormalized uses GetItemStats API", function()
@@ -113,6 +124,117 @@ describe("ItemStats", function()
         assert.are.equal(20, stats.int)
         assert.are.equal(10, stats.sta)
         assert.are.equal("api", IS.GetSource("|Hitem:11:0|h[New Helm]|h"))
+    end)
+
+    it("GetNormalized parses wand damage per second from API as ranged_dps", function()
+        local stats = IS.GetNormalized("|Hitem:50:0|h[Wand]|h")
+        assert.are.equal(15.5, stats.ranged_dps)
+        assert.is_nil(stats.dps)
+        assert.are.equal(5, stats.int)
+    end)
+
+    it("GetNormalized merges weapon DPS from tooltip when API returns other stats", function()
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 60 then
+                return { ["ITEM_MOD_STRENGTH_SHORT"] = 20 }
+            end
+            return mockGetItemStats(link)
+        end
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 60 then
+                return "War Axe", "|Hitem:60:0|h[War Axe]|h", 3, 60, 60,
+                    "Weapon", "Axe", nil, "INVTYPE_WEAPON"
+            end
+            return mockGetItemInfo(item)
+        end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "+20 Strength",
+                    "52.5 damage per second",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:60:0|h[War Axe]|h")
+        assert.are.equal(20, stats.str)
+        assert.are.equal(52.5, stats.melee_dps)
+    end)
+
+    it("GetNormalized splits spell and physical hit rating from API", function()
+        _G.GetItemStats = function()
+            return {
+                ["ITEM_MOD_HIT_RATING_SHORT"] = 10,
+                ["ITEM_MOD_HIT_SPELL_RATING_SHORT"] = 12,
+            }
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:11:0|h[New Helm]|h")
+        assert.are.equal(10, stats.hit)
+        assert.are.equal(12, stats.spell_hit)
+    end)
+
+    it("GetNormalized parses fire spell damage from tooltip", function()
+        _G.GetItemStats = function() return {} end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "+15 Intellect",
+                    "Equip: Increases damage done by Fire spells and effects by up to 42.",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:11:0|h[New Helm]|h")
+        assert.are.equal(42, stats.fire_sp)
+    end)
+
+    it("GetNormalized parses wand damage per second from tooltip as ranged_dps", function()
+        _G.GetItemStats = function() return {} end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "+5 Intellect",
+                    "15.5 damage per second",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:50:0|h[Wand]|h")
+        assert.are.equal(15.5, stats.ranged_dps)
+        assert.are.equal(5, stats.int)
+        assert.are.equal("tooltip", IS.GetSource("|Hitem:50:0|h[Wand]|h"))
     end)
 
     it("GetNormalized parses color-coded tooltip lines", function()
@@ -175,6 +297,74 @@ describe("ItemStats", function()
         _G.GetItemInfo = oldGetItemInfo
     end)
 
+    it("GetNormalized maps RESISTANCE0_NAME to armor", function()
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 99 then
+                return { ["RESISTANCE0_NAME"] = 181, ["ITEM_MOD_STAMINA_SHORT"] = 10 }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:99:0|h[Greaves]|h")
+        assert.are.equal(181, stats.armor)
+        assert.are.equal(10, stats.sta)
+    end)
+
+    it("GetNormalized maps legacy spell damage keys to sp", function()
+        _G.GetItemStats = function()
+            return { ["ITEM_MOD_SPELL_DAMAGE"] = 42, ["ITEM_MOD_SPELL_DAMAGE_DONE"] = 10 }
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:50:0|h[Wand]|h")
+        assert.are.equal(52, stats.sp)
+    end)
+
+    it("GetDisplayLabel returns friendly names for normalized keys", function()
+        assert.are.equal("Armor", IS.GetDisplayLabel("armor"))
+        assert.are.equal("Spell Damage", IS.GetDisplayLabel("sp"))
+        assert.are.equal("Spell Damage", IS.GetDisplayLabel("ITEM_MOD_SPELL_DAMAGE"))
+        assert.are.equal("Armor", IS.GetDisplayLabel("RESISTANCE0_NAME"))
+    end)
+
+    it("GetDisplayLabel falls back to WoW global strings for unmapped keys", function()
+        _G.ITEM_MOD_FOO_SHORT = "Bar Stat"
+        assert.are.equal("Bar Stat", IS.GetDisplayLabel("ITEM_MOD_FOO_SHORT"))
+        _G.ITEM_MOD_FOO_SHORT = nil
+    end)
+
+    it("GetNormalized parses armor from tooltip", function()
+        _G.GetItemStats = function() return {} end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "+10 Agility",
+                    "+10 Stamina",
+                    "181 Armor",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:99:0|h[Monkey Greaves]|h")
+        assert.are.equal(181, stats.armor)
+    end)
+
     it("GetNormalized parses green suffix item when API is empty", function()
         _G.GetItemStats = function() return {} end
         _G.CreateFrame = function(frameType)
@@ -199,6 +389,7 @@ describe("ItemStats", function()
         local stats = IS.GetNormalized(link)
         assert.are.equal(10, stats.agi)
         assert.are.equal(10, stats.sta)
+        assert.are.equal(181, stats.armor)
         assert.are.equal("tooltip", IS.GetSource(link))
     end)
 end)

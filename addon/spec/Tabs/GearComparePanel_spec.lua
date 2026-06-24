@@ -13,24 +13,54 @@ describe("Gear compare panel height", function()
     local COMPARE_WARNING_COLOR_BLOCKING = { 1, 0.4, 0.3 }
     local COMPARE_WARNING_COLOR_CAUTION = { 1, 0.82, 0 }
 
-    local function getCompareWarningColor(warning)
+    local COMPARE_WARNING_KIND = {
+        MISSING_SPEC = "missing_spec",
+        UNPICKED_SPEC = "unpicked_spec",
+    }
+
+    local function getCompareWarningSeverity(warning)
+        if type(warning) == "table"
+            and (warning.kind == COMPARE_WARNING_KIND.MISSING_SPEC
+                or warning.kind == COMPARE_WARNING_KIND.UNPICKED_SPEC) then
+            return "caution"
+        end
         local kind = type(warning) == "table" and warning.kind or nil
         if kind == IU_EQUIP_WARNING_KIND.LEVEL or kind == IU_EQUIP_WARNING_KIND.TRAINING then
-            return COMPARE_WARNING_COLOR_CAUTION[1], COMPARE_WARNING_COLOR_CAUTION[2], COMPARE_WARNING_COLOR_CAUTION[3]
+            return "caution"
         end
         if kind == IU_EQUIP_WARNING_KIND.NEVER then
-            return COMPARE_WARNING_COLOR_BLOCKING[1], COMPARE_WARNING_COLOR_BLOCKING[2], COMPARE_WARNING_COLOR_BLOCKING[3]
+            return "blocking"
         end
         local text = type(warning) == "table" and warning.text or warning
         if type(text) == "string" then
             if text:find("must gain ", 1, true) or text:find("must train ", 1, true) then
-                return COMPARE_WARNING_COLOR_CAUTION[1], COMPARE_WARNING_COLOR_CAUTION[2], COMPARE_WARNING_COLOR_CAUTION[3]
+                return "caution"
             end
             if text:find("can never equip this", 1, true) then
-                return COMPARE_WARNING_COLOR_BLOCKING[1], COMPARE_WARNING_COLOR_BLOCKING[2], COMPARE_WARNING_COLOR_BLOCKING[3]
+                return "blocking"
             end
         end
+        return "blocking"
+    end
+
+    local function getCompareWarningColor(warning)
+        if getCompareWarningSeverity(warning) == "caution" then
+            return COMPARE_WARNING_COLOR_CAUTION[1], COMPARE_WARNING_COLOR_CAUTION[2], COMPARE_WARNING_COLOR_CAUTION[3]
+        end
         return COMPARE_WARNING_COLOR_BLOCKING[1], COMPARE_WARNING_COLOR_BLOCKING[2], COMPARE_WARNING_COLOR_BLOCKING[3]
+    end
+
+    local function sortCompareWarnings(warnings)
+        if not warnings or #warnings < 2 then return warnings end
+        table.sort(warnings, function(a, b)
+            local aBlocking = getCompareWarningSeverity(a) == "blocking"
+            local bBlocking = getCompareWarningSeverity(b) == "blocking"
+            if aBlocking ~= bBlocking then
+                return aBlocking
+            end
+            return false
+        end)
+        return warnings
     end
 
     local COMPARE_ROW_HEIGHT = 14
@@ -54,7 +84,10 @@ describe("Gear compare panel height", function()
         for s = 1, #sections do
             local section = sections[s]
             leftH = leftH + COMPARE_SECTION_GAP + COMPARE_ROW_HEIGHT
-            leftH = leftH + #(section.rows or {}) * COMPARE_ROW_HEIGHT
+        local rowCount = #(section.rows or {})
+        if rowCount > 0 then
+            leftH = leftH + rowCount * COMPARE_ROW_HEIGHT
+        end
         end
         local contentH = math.max(leftH, COMPARE_OPTIONS_SECTION_HEIGHT)
         return math.max(COMPARE_PANEL_MIN_HEIGHT, COMPARE_PANEL_PAD * 2 + contentH)
@@ -94,61 +127,139 @@ describe("Gear compare panel height", function()
         assert.are.equal(COMPARE_ROW_HEIGHT + 4, withVerdict - without)
     end)
 
-    local GRID_SPLIT_FRACTION = 0.6
-    local SECTION_GAP = 4
-
-    local function getSettingsColumnLeftX(frameWidth)
-        if frameWidth <= 0 then return 0 end
-        return frameWidth * GRID_SPLIT_FRACTION + SECTION_GAP
+    local function formatCompareChooseCharacterHintText()
+        return "Choose a character above to compare against"
     end
 
-    it("aligns compare settings column with gear settings width", function()
-        assert.are.equal(604, getSettingsColumnLeftX(1000))
-        assert.are.equal(0, getSettingsColumnLeftX(0))
-    end)
-
-    local function shouldHideCompareSettingsSection(layoutMode, gearSettingsOpen)
-        return layoutMode == "focus_compare" and gearSettingsOpen
-    end
-
-    it("hides compare settings panel when gear settings is open in compare mode", function()
-        assert.is_true(shouldHideCompareSettingsSection("focus_compare", true))
-        assert.is_false(shouldHideCompareSettingsSection("focus_compare", false))
-        assert.is_false(shouldHideCompareSettingsSection("normal", true))
-    end)
-
-    local function formatCompareFocusTitle()
-        return "Upgrade check for"
-    end
-
-    local function formatCompareEmptyHintText()
+    local function formatCompareNoUpgradeHintText()
         return "This isn't a clear upgrade for any of your characters."
             .. "\nClick an item above to compare anyway"
     end
 
-    local function formatCompareEmptyStateText()
-        return formatCompareFocusTitle() .. "\n" .. formatCompareEmptyHintText()
+    local function formatCompareEmptyHintText(hasUpgradeOrEventual)
+        if hasUpgradeOrEventual then
+            return formatCompareChooseCharacterHintText()
+        end
+        return formatCompareNoUpgradeHintText()
     end
 
-    it("formats compare focus title", function()
-        assert.are.equal("Upgrade check for", formatCompareFocusTitle())
+    local function formatCompareEmptyStateText(hasUpgradeOrEventual)
+        return formatCompareEmptyHintText(hasUpgradeOrEventual)
+    end
+
+    local function formatItemCheckDropMessage()
+        return "Drop an item to see who can use it as an upgrade"
+    end
+
+    local function formatGearTabLevelingDisclaimer()
+        return "This tool is optimized for leveling characters, and will be inaccurate for end-game BiS determinations"
+    end
+
+    it("formats item check drop message", function()
+        assert.are.equal(
+            "Drop an item to see who can use it as an upgrade",
+            formatItemCheckDropMessage())
     end)
 
-    it("formats compare empty hint message", function()
-        local text = formatCompareEmptyHintText()
+    it("formats gear tab leveling disclaimer", function()
+        local text = formatGearTabLevelingDisclaimer()
+        assert.matches("leveling characters", text)
+        assert.matches("BiS", text)
+    end)
+
+    it("formats choose-character hint when upgrades exist", function()
+        local text = formatCompareEmptyHintText(true)
+        assert.are.equal("Choose a character above to compare against", text)
+    end)
+
+    it("formats no-upgrade hint when no upgrades exist", function()
+        local text = formatCompareEmptyHintText(false)
         assert.matches("isn't a clear upgrade", text)
         assert.matches("Click an item above", text)
     end)
 
-    it("combines focus title and empty hint for legacy formatter", function()
-        local text = formatCompareEmptyStateText()
-        assert.matches("Upgrade check for", text)
-        assert.matches("isn't a clear upgrade", text)
+    it("empty state text matches choose-character hint", function()
+        local text = formatCompareEmptyStateText(true)
+        assert.are.equal(formatCompareChooseCharacterHintText(), text)
+    end)
+
+    it("empty state text matches no-upgrade hint", function()
+        local text = formatCompareEmptyStateText(false)
+        assert.are.equal(formatCompareNoUpgradeHintText(), text)
+    end)
+
+    it("colors compare deltas green, red, and yellow", function()
+        local function getCompareDeltaColor(delta)
+            delta = tonumber(delta) or 0
+            if delta > 0 then return 0.2, 1, 0.2 end
+            if delta < 0 then return 1, 0.4, 0.3 end
+            return 1, 0.82, 0
+        end
+        local upR, upG = getCompareDeltaColor(5)
+        assert.are.equal(0.2, upR)
+        assert.are.equal(1, upG)
+        local downR, downG = getCompareDeltaColor(-3)
+        assert.are.equal(1, downR)
+        assert.are.equal(0.4, downG)
+        local flatR, flatG = getCompareDeltaColor(0)
+        assert.are.equal(1, flatR)
+        assert.are.equal(0.82, flatG)
+    end)
+
+    it("computes compare stat scroll content height from row count", function()
+        local COMPARE_ROW_HEIGHT = 14
+        local function getCompareStatContentHeight(rowCount)
+            rowCount = tonumber(rowCount) or 0
+            if rowCount <= 0 then return 0 end
+            return rowCount * COMPARE_ROW_HEIGHT + (rowCount - 1) * 2
+        end
+        assert.are.equal(0, getCompareStatContentHeight(0))
+        assert.are.equal(14, getCompareStatContentHeight(1))
+        assert.are.equal(30, getCompareStatContentHeight(2))
+        assert.are.equal(158, getCompareStatContentHeight(10))
+    end)
+
+    it("uses matching content inset from the panel split on both sides", function()
+        local COMPARE_PANEL_SPLIT_GAP = 8
+        local COMPARE_STAT_ROW_INDENT = 8
+        local function insetFromCenter(isLeftSide)
+            return COMPARE_PANEL_SPLIT_GAP / 2 + COMPARE_STAT_ROW_INDENT
+        end
+        assert.are.equal(insetFromCenter(true), insetFromCenter(false))
+    end)
+
+    it("formats compare stat weight multipliers", function()
+        local function formatCompareNumber(n)
+            n = tonumber(n) or 0
+            if math.floor(n) == n then return tostring(n) end
+            return string.format("%.1f", n)
+        end
+        local function formatCompareWeight(weight)
+            if weight == nil then return "" end
+            weight = tonumber(weight) or 0
+            if weight <= 0 then return "0" end
+            return formatCompareNumber(weight)
+        end
+        local function getCompareWeightColor(weight)
+            weight = tonumber(weight) or 0
+            if weight <= 0 then return 0.5, 0.5, 0.5 end
+            return 0.82, 0.68, 0.22
+        end
+        assert.are.equal("", formatCompareWeight(nil))
+        assert.are.equal("0", formatCompareWeight(0))
+        assert.are.equal("0.8", formatCompareWeight(0.8))
+        assert.are.equal("1", formatCompareWeight(1))
+        local wr, wg, wb = getCompareWeightColor(0.8)
+        assert.are.equal(0.82, wr)
+        assert.are.equal(0.68, wg)
+        assert.are.equal(0.22, wb)
+        local zr = getCompareWeightColor(0)
+        assert.are.equal(0.5, zr)
     end)
 
     it("uses yellow for level and training warnings, red for never-equip", function()
         local levelR, levelG = getCompareWarningColor({
-            text = "Alt must gain 5 levels to equip this (requires level 40)",
+            text = "Alt must gain 5 levels to equip this",
             kind = IU_EQUIP_WARNING_KIND.LEVEL,
         })
         assert.are.equal(1, levelR)
@@ -167,5 +278,21 @@ describe("Gear compare panel height", function()
         })
         assert.are.equal(1, neverR)
         assert.are.equal(0.4, neverG)
+    end)
+
+    it("sorts blocking warnings before caution warnings", function()
+        local warnings = {
+            { text = "Alt must gain 5 levels to equip this", kind = IU_EQUIP_WARNING_KIND.LEVEL },
+            { text = "This item is soulbound", kind = IU_EQUIP_WARNING_KIND.SOULBOUND },
+            { text = "Alt must train Plate Armor to equip this", kind = IU_EQUIP_WARNING_KIND.TRAINING },
+            { text = "Alt can never equip this (Plate Armor)", kind = IU_EQUIP_WARNING_KIND.NEVER },
+        }
+        sortCompareWarnings(warnings)
+        for i = 1, 2 do
+            assert.are.equal("blocking", getCompareWarningSeverity(warnings[i]))
+        end
+        for i = 3, 4 do
+            assert.are.equal("caution", getCompareWarningSeverity(warnings[i]))
+        end
     end)
 end)

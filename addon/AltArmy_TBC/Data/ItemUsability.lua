@@ -80,6 +80,16 @@ local INVTYPE_TO_SLOTS = {
     INVTYPE_TABARD = { 19 },
 }
 
+-- Weapon types that show both main-hand and off-hand grid rows in focus mode.
+local WEAPON_PAIR_DISPLAY_TYPES = {
+    INVTYPE_WEAPON = true,
+    INVTYPE_WEAPONMAINHAND = true,
+    INVTYPE_2HWEAPON = true,
+    INVTYPE_WEAPONOFFHAND = true,
+}
+
+local MAIN_AND_OFF_HAND_SLOTS = { 16, 17 }
+
 local function normalizeClassFile(classFile)
     return (classFile or ""):upper()
 end
@@ -161,6 +171,18 @@ function IU.GetInventorySlotsForItem(link)
         out[i] = slots[i]
     end
     return out
+end
+
+--- Inventory slots to show in the gear grid when an item is focused (may be wider than equip slots).
+function IU.GetFocusDisplaySlotsForItem(link)
+    local slots = IU.GetInventorySlotsForItem(link)
+    if not slots or #slots == 0 then return {} end
+    if not link or not GetItemInfo then return slots end
+    local equipLoc = select(9, GetItemInfo(link))
+    if WEAPON_PAIR_DISPLAY_TYPES[equipLoc] then
+        return { MAIN_AND_OFF_HAND_SLOTS[1], MAIN_AND_OFF_HAND_SLOTS[2] }
+    end
+    return slots
 end
 
 --- Level at which the class can train this armor/weapon proficiency.
@@ -365,17 +387,16 @@ local function formatLevelRequirementWarning(coloredName, charLevel, effective, 
     local levelsToGain = effective - charLevel
     local _, _, _, _, _, itemClass, subclass = GetItemInfo(link)
     local trainLevel = IU.MinLevelToTrainProficiency(classFile, subclass, itemClass)
-    local suffix
-    if IU.RequiresTrainerProficiency(classFile, subclass, itemClass)
+    local needsTrainingLevel = IU.RequiresTrainerProficiency(classFile, subclass, itemClass)
         and effective == trainLevel
-        and charLevel < trainLevel then
-        local skill = IU.GetProficiencySkillName(itemClass, subclass):lower()
-        suffix = "(requires " .. skill .. " skill)"
-    else
-        suffix = "(requires level " .. tostring(effective) .. ")"
+        and charLevel < trainLevel
+    if needsTrainingLevel then
+        local skill = IU.GetProficiencySkillName(itemClass, subclass)
+        return coloredName .. " must gain " .. formatLevelsToGainPhrase(levelsToGain)
+            .. " and train " .. skill .. " to equip this"
     end
     return coloredName .. " must gain " .. formatLevelsToGainPhrase(levelsToGain)
-        .. " to equip this " .. suffix
+        .. " to equip this"
 end
 
 --- Skill name for items the class can never equip (armor/weapon proficiency).

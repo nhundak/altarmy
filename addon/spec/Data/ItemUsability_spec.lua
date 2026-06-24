@@ -28,6 +28,9 @@ describe("ItemUsability", function()
             [7] = { "Shield", nil, 2, 10, 10, "Armor", "Shields", nil, "INVTYPE_SHIELD" },
             [8] = { "Health Potion", nil, 1, 1, 1, "Consumable", nil, nil, nil },
             [9] = { "Epic Helm", nil, 4, 70, 60, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
+            [10] = { "One-Hand Axe", nil, 3, 10, 10, "Weapon", "One-Handed Axes", nil, "INVTYPE_WEAPON" },
+            [11] = { "Two-Hand Sword", nil, 3, 30, 30, "Weapon", "Two-Handed Swords", nil, "INVTYPE_2HWEAPON" },
+            [12] = { "Offhand Dagger", nil, 3, 15, 15, "Weapon", "Daggers", nil, "INVTYPE_WEAPONOFFHAND" },
         }
         local info = items[id]
         if not info then return end
@@ -59,6 +62,19 @@ describe("ItemUsability", function()
     it("maps INVTYPE_WEAPONMAINHAND to slot 16", function()
         local slots = IU.GetInventorySlotsForItem("|Hitem:5:0|h[Sword]|h")
         assert.are.same({ 16 }, slots)
+    end)
+
+    it("GetFocusDisplaySlotsForItem expands weapon focus to main and off hand rows", function()
+        assert.are.same({ 16, 17 }, IU.GetFocusDisplaySlotsForItem("|Hitem:5:0|h[Sword]|h"))
+        assert.are.same({ 16, 17 }, IU.GetFocusDisplaySlotsForItem("|Hitem:10:0|h[One-Hand Axe]|h"))
+        assert.are.same({ 16, 17 }, IU.GetFocusDisplaySlotsForItem("|Hitem:11:0|h[Two-Hand Sword]|h"))
+        assert.are.same({ 16, 17 }, IU.GetFocusDisplaySlotsForItem("|Hitem:12:0|h[Offhand Dagger]|h"))
+    end)
+
+    it("GetFocusDisplaySlotsForItem leaves non-weapon slots unchanged", function()
+        assert.are.same({ 11, 12 }, IU.GetFocusDisplaySlotsForItem("|Hitem:4:0|h[Ring]|h"))
+        assert.are.same({ 17 }, IU.GetFocusDisplaySlotsForItem("|Hitem:7:0|h[Shield]|h"))
+        assert.are.same({ 1 }, IU.GetFocusDisplaySlotsForItem("|Hitem:1:0|h[Cloth Hood]|h"))
     end)
 
     it("CanClassEverUseArmor blocks mage from leather", function()
@@ -129,7 +145,7 @@ describe("ItemUsability", function()
         warnings = IU.GetEquipWarnings("MAGE", 55, "Alt", "|Hitem:9:0|h[Epic Helm]|h")
         assert.are.equal(1, #warnings)
         assert.are.equal(
-            coloredName("Alt", "MAGE") .. " must gain 5 levels to equip this (requires level 60)",
+            coloredName("Alt", "MAGE") .. " must gain 5 levels to equip this",
             warningText(warnings[1]))
         assert.are.equal(IU.EQUIP_WARNING_KIND.LEVEL, warnings[1].kind)
     end)
@@ -229,7 +245,7 @@ describe("ItemUsability", function()
         _G.GetItemInfo = oldGetItemInfo
         assert.are.equal(1, #warnings)
         assert.are.equal(
-            coloredName("Tome", "PALADIN") .. " must gain 7 levels to equip this (requires level 45)",
+            coloredName("Tome", "PALADIN") .. " must gain 7 levels to equip this",
             warningText(warnings[1]))
     end)
 
@@ -238,7 +254,7 @@ describe("ItemUsability", function()
         local warnings = IU.GetEquipWarnings("PALADIN", 35, "Tome", "|Hitem:2:0|h[Plate Helm]|h")
         assert.are.equal(1, #warnings)
         assert.are.equal(
-            coloredName("Tome", "PALADIN") .. " must gain 5 levels to equip this (requires plate armor skill)",
+            coloredName("Tome", "PALADIN") .. " must gain 5 levels and train Plate Armor to equip this",
             warningText(warnings[1]))
         assert.are.equal(IU.EQUIP_WARNING_KIND.LEVEL, warnings[1].kind)
     end)
@@ -373,7 +389,7 @@ describe("ItemUsability", function()
         assert.are.equal("This item is soulbound", warningText(warnings[1]))
         assert.are.equal(IU.EQUIP_WARNING_KIND.SOULBOUND, warnings[1].kind)
         assert.are.equal(
-            coloredName("Tome", "PALADIN") .. " must gain 5 levels to equip this (requires plate armor skill)",
+            coloredName("Tome", "PALADIN") .. " must gain 5 levels and train Plate Armor to equip this",
             warningText(warnings[2]))
         assert.are.equal(IU.EQUIP_WARNING_KIND.LEVEL, warnings[2].kind)
     end)

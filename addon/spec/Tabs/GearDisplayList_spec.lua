@@ -218,6 +218,7 @@ describe("Gear display list focus mode", function()
             [11] = { "New Helm", nil, 3, 35, 35, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
             [12] = { "Ring", nil, 3, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
             [13] = { "Newer Helm", nil, 3, 32, 32, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
+            [14] = { "Sword", nil, 3, 10, 10, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPONMAINHAND" },
         }
         local info = items[id]
         if not info then return end
@@ -315,9 +316,9 @@ describe("Gear display list focus mode", function()
         return copy
     end
 
-    --- Mirror TabGear IsDisplaySlotVisible (lines 267-272).
+    --- Mirror TabGear IsDisplaySlotVisible (uses focus display slots for row filtering).
     local function isDisplaySlotVisible(displayIdx, itemLink)
-        local slots = IU.GetInventorySlotsForItem(itemLink)
+        local slots = IU.GetFocusDisplaySlotsForItem(itemLink)
         if not slots or #slots == 0 then return true end
         local focused = {}
         for i = 1, #slots do focused[slots[i]] = true end
@@ -438,6 +439,21 @@ describe("Gear display list focus mode", function()
         assert.is_false(isDisplaySlotVisible(ringRowIdx, headLink))
         assert.is_true(isDisplaySlotVisible(ringRowIdx, ringLink))
         assert.is_false(isDisplaySlotVisible(headRowIdx, ringLink))
+    end)
+
+    it("shows main hand and off hand rows when a weapon is focused", function()
+        local swordLink = "|Hitem:14:0|h[Sword]|h"
+        local mainHandRowIdx
+        local offHandRowIdx
+        local headRowIdx
+        for i = 1, #SLOT_ORDER do
+            if SLOT_ORDER[i] == 16 then mainHandRowIdx = i end
+            if SLOT_ORDER[i] == 17 then offHandRowIdx = i end
+            if SLOT_ORDER[i] == 1 then headRowIdx = i end
+        end
+        assert.is_true(isDisplaySlotVisible(mainHandRowIdx, swordLink))
+        assert.is_true(isDisplaySlotVisible(offHandRowIdx, swordLink))
+        assert.is_false(isDisplaySlotVisible(headRowIdx, swordLink))
     end)
 
     --- Mirror TabGear GetFirstFocusedColumnSlot: topmost visible compare row.

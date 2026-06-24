@@ -14,6 +14,9 @@ describe("GearUpgrade", function()
             [10] = { "Old Helm", nil, 2, 20, 20, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
             [11] = { "New Helm", nil, 3, 35, 35, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
             [12] = { "Ring", nil, 3, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+            [50] = { "Sparkling Wand", nil, 2, 25, 25, "Weapon", "Wand", nil, "INVTYPE_RANGEDRIGHT" },
+            [80] = { "Heal Ring", nil, 3, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+            [81] = { "Dmg Ring", nil, 3, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
         }
         local info = items[id]
         if not info then return end
@@ -29,10 +32,17 @@ describe("GearUpgrade", function()
         if id == 10 then
             return { ["ITEM_MOD_INTELLECT_SHORT"] = 5, ["ITEM_MOD_STAMINA_SHORT"] = 5 }
         end
+        if id == 50 then
+            return { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 15.5, ["ITEM_MOD_INTELLECT_SHORT"] = 5 }
+        end
+        if id == 51 then
+            return { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 12.0, ["ITEM_MOD_INTELLECT_SHORT"] = 5 }
+        end
         return {}
     end
 
     setup(function()
+        package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
         _G.AltArmy = _G.AltArmy or {}
         _G.AltArmyTBC_Data = {
             Characters = {
@@ -60,6 +70,12 @@ describe("GearUpgrade", function()
         _G.AltArmy.GlobalRealmFilter = {
             Get = function() return "all" end,
         }
+        _G.RAID_CLASS_COLORS = _G.RAID_CLASS_COLORS or {
+            SHAMAN = { r = 0, g = 0.44, b = 0.87 },
+            MAGE = { r = 0.41, g = 0.8, b = 0.94 },
+        }
+        package.loaded["ClassColor"] = nil
+        require("ClassColor")
         package.loaded["DataStore"] = nil
         package.loaded["ItemUsability"] = nil
         require("DataStore")
@@ -76,6 +92,10 @@ describe("GearUpgrade", function()
         if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
             AltArmy.ItemStats.ClearCache()
         end
+        package.loaded["PawnScale"] = nil
+        require("PawnScale")
+        package.loaded["PawnScales"] = nil
+        require("PawnScales")
         package.loaded["GearUpgrade"] = nil
         require("GearUpgrade")
         GU = AltArmy.GearUpgrade
@@ -84,6 +104,224 @@ describe("GearUpgrade", function()
     it("ScoreItemCustom sums stat weights", function()
         local score = GU.ScoreItemCustom("|Hitem:11:0|h[New Helm]|h", "MAGE", "frost")
         assert.is_true(score > 0)
+    end)
+
+    it("FormatCompareSpecWarningText describes assumed spec with class-colored name", function()
+        local text = GU.FormatCompareSpecWarningText("Totem", "Enhancement", "SHAMAN")
+        assert.is_true(text:find("|cff", 1, true) ~= nil)
+        assert.is_true(text:find("Totem", 1, true) ~= nil)
+        assert.matches("spec is unknown%. Assuming Enhancement", text)
+    end)
+
+    it("GetCompareSpecWarning when talent data is missing", function()
+        AltArmy.SummaryData = {
+            GetTalentSpecMissingInfo = function(name)
+                if name == "NoTalents" then
+                    return { hasMissing = true, instructions = { "* Log in with this character" } }
+                end
+                return { hasMissing = false, instructions = {} }
+            end,
+        }
+        local char = { classFile = "SHAMAN" }
+        local entry = {
+            name = "NoTalents",
+            realm = "TestRealm",
+            classFile = "SHAMAN",
+            level = 60,
+        }
+        local warning = GU.GetCompareSpecWarning(entry, char)
+        assert.is_truthy(warning)
+        assert.are.equal("missing_spec", warning.kind)
+        assert.matches("NoTalents", warning.text)
+        assert.matches("spec is unknown", warning.text)
+        assert.matches("Enhancement", warning.text)
+        assert.are.equal("Enhancement", warning.assumedSpec)
+    end)
+
+    it("GetCompareSpecWarning is nil when talent data shows a picked spec", function()
+        AltArmy.SummaryData = {
+            GetTalentSpecMissingInfo = function()
+                return { hasMissing = false, instructions = {} }
+            end,
+        }
+        local char = {
+            classFile = "MAGE",
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        local entry = { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        assert.is_nil(GU.GetCompareSpecWarning(entry, char))
+    end)
+
+    it("GetCompareSpecWarning uses unpicked message when talents scanned but no points spent", function()
+        AltArmy.SummaryData = {
+            GetTalentSpecMissingInfo = function()
+                return { hasMissing = false, instructions = {} }
+            end,
+        }
+        local char = {
+            classFile = "SHAMAN",
+            talents = { tabs = { 0, 0, 0 }, primary = nil, specKey = nil },
+        }
+        local entry = {
+            name = "FreshSixty",
+            realm = "TestRealm",
+            classFile = "SHAMAN",
+            level = 60,
+        }
+        local warning = GU.GetCompareSpecWarning(entry, char)
+        assert.is_truthy(warning)
+        assert.are.equal("unpicked_spec", warning.kind)
+        assert.matches("hasn't picked a spec yet", warning.text)
+        assert.is_nil(warning.text:match("spec is unknown"))
+        assert.matches("FreshSixty", warning.text)
+        assert.matches("Enhancement", warning.text)
+    end)
+
+    it("GetCompareSpecWarning uses unpicked message for low-level characters with talent data", function()
+        local char = {
+            classFile = "MAGE",
+            talents = { tabs = { 0, 0, 0 }, primary = nil, specKey = nil },
+        }
+        local entry = { name = "Lowbie", realm = "TestRealm", classFile = "MAGE", level = 8 }
+        local warning = GU.GetCompareSpecWarning(entry, char)
+        assert.are.equal("unpicked_spec", warning.kind)
+        assert.matches("hasn't picked a spec yet", warning.text)
+    end)
+
+    it("ScoreItemCustom weights wand ranged_dps for hunters", function()
+        local better = GU.ScoreItemCustom("|Hitem:50:0|h[Sparkling Wand]|h", "HUNTER", "beast")
+        local worse = GU.ScoreItemCustom("|Hitem:51:0|h[Old Wand]|h", "HUNTER", "beast")
+        assert.is_true(better > worse)
+        assert.is_true(GU.CompareItems(
+            "|Hitem:50:0|h[Sparkling Wand]|h",
+            "|Hitem:51:0|h[Old Wand]|h",
+            "custom",
+            "HUNTER",
+            "beast"))
+    end)
+
+    it("ScoreItemCustom values hunter ranged_dps heavily", function()
+        local bowLink = "|Hitem:70:0|h[Bow]|h"
+        local weakBowLink = "|Hitem:71:0|h[Weak Bow]|h"
+        local oldGetItemInfo = _G.GetItemInfo
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 70 then
+                return "Strong Bow", bowLink, 3, 60, 60, "Weapon", "Bow", nil, "INVTYPE_RANGED"
+            end
+            if id == 71 then
+                return "Weak Bow", weakBowLink, 2, 40, 40, "Weapon", "Bow", nil, "INVTYPE_RANGED"
+            end
+            return oldGetItemInfo(item)
+        end
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 70 then
+                return { ["ITEM_MOD_AGILITY_SHORT"] = 10, ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 50 }
+            end
+            if id == 71 then
+                return { ["ITEM_MOD_AGILITY_SHORT"] = 10, ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 40 }
+            end
+            return oldGetItemStats(link)
+        end
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+        local strong = GU.ScoreItemCustom(bowLink, "HUNTER", "beast")
+        local weak = GU.ScoreItemCustom(weakBowLink, "HUNTER", "beast")
+        _G.GetItemInfo = oldGetItemInfo
+        _G.GetItemStats = oldGetItemStats
+        assert.is_true(strong > weak)
+        assert.is_true((strong - weak) > 20)
+    end)
+
+    it("ScoreItemCustom scores priest holy healing not spell damage", function()
+        local healItem = "|Hitem:80:0|h[Heal Ring]|h"
+        local dmgItem = "|Hitem:81:0|h[Dmg Ring]|h"
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 80 then
+                return { ["ITEM_MOD_INTELLECT_SHORT"] = 10, ["ITEM_MOD_SPELL_HEALING_DONE"] = 50 }
+            end
+            if id == 81 then
+                return { ["ITEM_MOD_INTELLECT_SHORT"] = 10, ["ITEM_MOD_SPELL_DAMAGE_DONE"] = 50 }
+            end
+            return oldGetItemStats(link)
+        end
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+        local healScore = GU.ScoreItemCustom(healItem, "PRIEST", "holy")
+        local dmgScore = GU.ScoreItemCustom(dmgItem, "PRIEST", "holy")
+        _G.GetItemStats = oldGetItemStats
+        assert.is_true(healScore > dmgScore)
+    end)
+
+    it("ScoreItemCustom scores fire mage fire spell damage", function()
+        local fireItem = "|Hitem:82:0|h[Fire Staff]|h"
+        local frostItem = "|Hitem:83:0|h[Frost Staff]|h"
+        local oldGetItemStats = _G.GetItemStats
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return {
+                    SetOwner = function() end,
+                    ClearLines = function() end,
+                    SetHyperlink = function() end,
+                    GetRegions = function() return end,
+                    NumLines = function() return 0 end,
+                    GetName = function() return "AltArmyTBC_ItemStatsScanTooltip" end,
+                }
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 82 then
+                return { ["ITEM_MOD_INTELLECT_SHORT"] = 10 }
+            end
+            if id == 83 then
+                return { ["ITEM_MOD_INTELLECT_SHORT"] = 10 }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        AltArmy.ItemStats.ClearCache()
+        local IS = AltArmy.ItemStats
+        local oldGetNormalized = IS.GetNormalized
+        IS.GetNormalized = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 82 then return { int = 10, fire_sp = 40, sp = 10 } end
+            if id == 83 then return { int = 10, frost_sp = 40, sp = 10 } end
+            return oldGetNormalized(link)
+        end
+        local fireScore = GU.ScoreItemCustom(fireItem, "MAGE", "fire")
+        local frostScore = GU.ScoreItemCustom(frostItem, "MAGE", "fire")
+        IS.GetNormalized = oldGetNormalized
+        _G.GetItemStats = oldGetItemStats
+        assert.is_true(fireScore > frostScore)
+    end)
+
+    it("GetWeights returns weebly-derived weights for all classes", function()
+        local classes = {
+            "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST",
+            "SHAMAN", "MAGE", "WARLOCK", "DRUID",
+        }
+        for i = 1, #classes do
+            local classFile = classes[i]
+            local w = GU.GetWeights(classFile, "unknown")
+            assert.is_truthy(w, classFile .. " should have leveling weights")
+            assert.is_true(next(w) ~= nil)
+        end
+        local hunter = GU.GetWeights("HUNTER", "beast")
+        assert.are.equal(2.4, hunter.ranged_dps)
+        assert.are.equal(1, hunter.agi)
     end)
 
     it("GetNormalizedItemStats delegates to ItemStats", function()
@@ -121,23 +359,21 @@ describe("GearUpgrade", function()
         assert.are.equal(5, opts.levelsAhead)
     end)
 
-    it("EnsureGearUpgradeOptions preserves explicit values", function()
+    it("EnsureGearUpgradeOptions preserves enabled and levelsAhead", function()
         _G.AltArmyTBC_Options = {
             gearUpgrades = { enabled = false, technique = "ilvl", levelsAhead = 0 },
         }
         local opts = GU.EnsureGearUpgradeOptions()
         assert.is_false(opts.enabled)
-        assert.are.equal("ilvl", opts.technique)
+        assert.are.equal("custom", opts.technique)
         assert.are.equal(0, opts.levelsAhead)
     end)
 
     it("GetProviders lists techniques in display order", function()
         local providers = GU.GetProviders()
         assert.are.equal("custom", providers[1].id)
-        assert.are.equal("pawn", providers[2].id)
-        assert.are.equal("sgj", providers[3].id)
-        assert.are.equal("ilvl", providers[4].id)
-        assert.are.equal("gearscore", providers[5].id)
+        assert.are.equal("ilvl", providers[2].id)
+        assert.are.equal("gearscore", providers[3].id)
     end)
 
     it("GetProviderDisplayLabel marks not-recommended techniques", function()
@@ -150,26 +386,32 @@ describe("GearUpgrade", function()
             GU.GetProviderDisplayLabel(GU.GetProvider("gearscore")))
     end)
 
-    it("GetProviderDisplayLabel marks unavailable addon techniques as not installed", function()
-        assert.are.equal(
-            "Pawn |cffaaaaaa(not installed)|r",
-            GU.GetProviderDisplayLabel(GU.GetProvider("pawn")))
-        assert.are.equal(
-            "Sharpie's Gear Judge |cffaaaaaa(not installed)|r",
-            GU.GetProviderDisplayLabel(GU.GetProvider("sgj")))
-    end)
-
     it("GetProviders lists all techniques", function()
         local providers = GU.GetProviders()
         local ids = {}
         for i = 1, #providers do ids[providers[i].id] = true end
         assert.is_true(ids.ilvl)
         assert.is_true(ids.custom)
-        assert.is_true(ids.pawn)
+        assert.is_true(ids.gearscore)
     end)
 
-    it("GetEffectiveTechnique falls back to custom when pawn unavailable", function()
+    it("GetEffectiveTechnique migrates removed pawn and sgj to custom", function()
         assert.are.equal("custom", GU.GetEffectiveTechnique("pawn"))
+        assert.are.equal("custom", GU.GetEffectiveTechnique("sgj"))
+    end)
+
+    it("EnsureGearUpgradeOptions always uses custom comparison technique", function()
+        _G.AltArmyTBC_Options = {
+            gearUpgrades = { enabled = true, technique = "pawn", levelsAhead = 5 },
+        }
+        local opts = GU.EnsureGearUpgradeOptions()
+        assert.are.equal("custom", opts.technique)
+        _G.AltArmyTBC_Options.gearUpgrades.technique = "sgj"
+        opts = GU.EnsureGearUpgradeOptions()
+        assert.are.equal("custom", opts.technique)
+        _G.AltArmyTBC_Options.gearUpgrades.technique = "ilvl"
+        opts = GU.EnsureGearUpgradeOptions()
+        assert.are.equal("custom", opts.technique)
     end)
 
     it("GetCharacterUpgradeDelta returns score difference for ilvl technique", function()
@@ -404,6 +646,50 @@ describe("GearUpgrade", function()
             levelsAhead = 5,
         }, 15)
         assert.are.equal("upgrade", kind)
+    end)
+
+    it("HasAnyFocusUpgradeOrEventual is true when a character has a clear upgrade", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local entries = {
+            { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 },
+        }
+        assert.is_true(GU.HasAnyFocusUpgradeOrEventual(entries, itemLink, {
+            technique = "ilvl",
+            levelsAhead = 5,
+        }))
+    end)
+
+    it("HasAnyFocusUpgradeOrEventual is true for eventual upgrades", function()
+        _G.AltArmyTBC_Data.Characters.TestRealm.LowLevel = {
+            name = "LowLevel",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 28,
+            Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local entries = {
+            { name = "LowLevel", realm = "TestRealm", classFile = "MAGE", level = 28 },
+        }
+        assert.is_true(GU.HasAnyFocusUpgradeOrEventual(entries, itemLink, {
+            technique = "ilvl",
+            levelsAhead = 5,
+        }))
+    end)
+
+    it("HasAnyFocusUpgradeOrEventual is false when no character has an upgrade", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        char.Inventory[1] = "|Hitem:11:0|h[New Helm]|h"
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local entries = {
+            { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 },
+        }
+        assert.is_false(GU.HasAnyFocusUpgradeOrEventual(entries, itemLink, {
+            technique = "ilvl",
+            levelsAhead = 5,
+        }))
+        char.Inventory[1] = "|Hitem:10:0|h[Old Helm]|h"
     end)
 
     it("GetFocusVerdictForSlot returns colored verdict labels", function()

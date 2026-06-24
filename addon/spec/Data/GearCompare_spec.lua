@@ -35,6 +35,7 @@ describe("GearCompare", function()
     end
 
     setup(function()
+        package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
         _G.AltArmy = _G.AltArmy or {}
         _G.AltArmyTBC_Data = {
             Characters = {
@@ -90,6 +91,10 @@ describe("GearCompare", function()
         if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
             AltArmy.ItemStats.ClearCache()
         end
+        package.loaded["PawnScale"] = nil
+        require("PawnScale")
+        package.loaded["PawnScales"] = nil
+        require("PawnScales")
         package.loaded["GearUpgrade"] = nil
         require("GearUpgrade")
         package.loaded["GearCompare"] = nil
@@ -125,7 +130,7 @@ describe("GearCompare", function()
         assert.are.equal(1, slot)
     end)
 
-    it("BuildComparison custom includes weighted stat rows and summary", function()
+    it("BuildComparison custom uses Stat comparison section with changing stats", function()
         local char = DS:GetCharacter("MageAlt", "TestRealm")
         local focused = "|Hitem:11:0|h[New Helm]|h"
         local equipped = "|Hitem:10:0|h[Old Helm]|h"
@@ -134,9 +139,91 @@ describe("GearCompare", function()
         assert.are.equal("Old Helm", result.equippedName)
         assert.are.equal("custom", result.techniqueId)
         assert.is_true(result.summary.delta > 0)
-        assert.is_true(#result.sections >= 1)
+        assert.are.equal("Stat comparison", result.sections[1].title)
         local rows = result.sections[1].rows
-        assert.is_true(#rows >= 1)
+        assert.are.equal(2, #rows)
+        assert.are.equal("Stamina", rows[1].label)
+        assert.is_false(rows[1].unimportant)
+        assert.are.equal(0.5, rows[1].weight)
+        assert.are.equal("Intellect", rows[2].label)
+        assert.is_false(rows[2].unimportant)
+        assert.are.equal(0.37, rows[2].weight)
+    end)
+
+    it("BuildComparison includes zero-weight changing stats marked unimportant", function()
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 11 then
+                return {
+                    ["ITEM_MOD_INTELLECT_SHORT"] = 20,
+                    ["ITEM_MOD_STAMINA_SHORT"] = 10,
+                    ["ITEM_MOD_STRENGTH_SHORT"] = 8,
+                }
+            end
+            if id == 10 then
+                return {
+                    ["ITEM_MOD_INTELLECT_SHORT"] = 5,
+                    ["ITEM_MOD_STAMINA_SHORT"] = 5,
+                }
+            end
+            return {}
+        end
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local result = GC.BuildComparison(
+            "|Hitem:11:0|h[New Helm]|h",
+            "|Hitem:10:0|h[Old Helm]|h",
+            "custom",
+            char)
+        _G.GetItemStats = oldGetItemStats
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+        local rows = result.sections[1].rows
+        assert.are.equal(3, #rows)
+        assert.are.equal("Stamina", rows[1].label)
+        assert.are.equal("Intellect", rows[2].label)
+        assert.are.equal("Strength", rows[3].label)
+        assert.is_true(rows[3].unimportant)
+        assert.are.equal(0, rows[3].weight)
+    end)
+
+    it("BuildComparison omits stats that do not change", function()
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 11 then
+                return {
+                    ["ITEM_MOD_INTELLECT_SHORT"] = 20,
+                    ["ITEM_MOD_STAMINA_SHORT"] = 10,
+                }
+            end
+            if id == 10 then
+                return {
+                    ["ITEM_MOD_INTELLECT_SHORT"] = 5,
+                    ["ITEM_MOD_STAMINA_SHORT"] = 10,
+                }
+            end
+            return {}
+        end
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local result = GC.BuildComparison(
+            "|Hitem:11:0|h[New Helm]|h",
+            "|Hitem:10:0|h[Old Helm]|h",
+            "custom",
+            char)
+        _G.GetItemStats = oldGetItemStats
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+        assert.are.equal(1, #result.sections[1].rows)
+        assert.are.equal("Intellect", result.sections[1].rows[1].label)
     end)
 
     it("BuildComparison ilvl returns item level summary", function()
@@ -161,15 +248,6 @@ describe("GearCompare", function()
         assert.are.equal("(empty)", result.equippedName)
     end)
 
-    it("GetAvailableComparisonTechniques includes custom but excludes ilvl and gearscore", function()
-        local techniques = GC.GetAvailableComparisonTechniques()
-        local ids = {}
-        for i = 1, #techniques do ids[techniques[i].id] = true end
-        assert.is_true(ids.custom)
-        assert.is_nil(ids.ilvl)
-        assert.is_nil(ids.gearscore)
-    end)
-
     it("BuildItemComparisonDebugReport lists all providers and character summaries", function()
         local lines = GC.BuildItemComparisonDebugReport("|Hitem:11:0|h[New Helm]|h")
         assert.is_true(#lines > 0)
@@ -179,6 +257,6 @@ describe("GearCompare", function()
         assert.matches("%[Item Level%]", text)
         assert.matches("MageAlt", text)
         assert.matches("upgrade", text)
-        assert.matches("Intellect", text)
+        assert.matches("Stat comparison", text)
     end)
 end)

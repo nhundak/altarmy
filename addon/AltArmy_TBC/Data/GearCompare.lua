@@ -1,5 +1,5 @@
 -- AltArmy TBC — Item comparison for Gear tab character selection.
--- luacheck: globals GetItemInfo GetItemStats PawnGetItemValue PawnGetItemData PawnGetSingleValueFromItem PawnCommon
+-- luacheck: globals GetItemInfo GetItemStats
 
 AltArmy = AltArmy or {}
 AltArmy.GearCompare = AltArmy.GearCompare or {}
@@ -8,25 +8,12 @@ local GC = AltArmy.GearCompare
 local GU = AltArmy.GearUpgrade
 local ItemStats = AltArmy.ItemStats
 
-local STAT_LABELS = {
-    str = "Strength",
-    agi = "Agility",
-    sta = "Stamina",
-    int = "Intellect",
-    spi = "Spirit",
-    sp = "Spell Damage",
-    heal = "Healing",
-    hit = "Hit Rating",
-    crit = "Crit Rating",
-    ap = "Attack Power",
-    rap = "Ranged AP",
-    def = "Defense",
-    dodge = "Dodge",
-    parry = "Parry",
-    block = "Block",
-    blockval = "Block Value",
-    mp5 = "Mana Regen",
-}
+local function getStatLabel(key)
+    if ItemStats and ItemStats.GetDisplayLabel then
+        return ItemStats.GetDisplayLabel(key)
+    end
+    return key
+end
 
 local function IU()
     return AltArmy.ItemUsability
@@ -58,40 +45,53 @@ local function buildSummary(newLink, oldLink, technique, classFile, specKey)
     }
 end
 
-local function buildWeightedRows(newLink, oldLink, classFile, specKey)
-    local weights = GU.GetWeights and GU.GetWeights(classFile, specKey)
-    if not weights then return {} end
+local function statWeightForKey(weights, key)
+    if not weights then return 0 end
+    local w = weights[key]
+    if not w or w <= 0 then return 0 end
+    return w
+end
+
+local function compareStatComparisonRows(a, b)
+    local wa = a.weight or 0
+    local wb = b.weight or 0
+    local aImportant = wa > 0
+    local bImportant = wb > 0
+    if aImportant and bImportant then
+        if wa ~= wb then return wa > wb end
+        return (a.label or "") < (b.label or "")
+    end
+    if aImportant then return true end
+    if bImportant then return false end
+    return (a.label or "") < (b.label or "")
+end
+
+local function buildStatComparisonRows(newLink, oldLink, classFile, specKey)
+    local weights = GU.GetWeights and GU.GetWeights(classFile, specKey) or {}
     local newStats = getRawStats(newLink)
     local oldStats = oldLink and getRawStats(oldLink) or {}
     local seen = {}
-    local keys = {}
-    for k in pairs(newStats) do
-        if weights[k] then
-            seen[k] = true
-            keys[#keys + 1] = k
-        end
-    end
-    for k in pairs(oldStats) do
-        if weights[k] and not seen[k] then
-            seen[k] = true
-            keys[#keys + 1] = k
-        end
-    end
-    table.sort(keys)
+    for k in pairs(newStats) do seen[k] = true end
+    for k in pairs(oldStats) do seen[k] = true end
+
     local rows = {}
-    for i = 1, #keys do
-        local key = keys[i]
+    for key in pairs(seen) do
         local newVal = newStats[key] or 0
         local oldVal = oldStats[key] or 0
-        local w = weights[key] or 0
-        rows[#rows + 1] = {
-            label = STAT_LABELS[key] or key,
-            newValue = newVal,
-            oldValue = oldVal,
-            delta = newVal - oldVal,
-            weightedDelta = (newVal - oldVal) * w,
-        }
+        if newVal ~= oldVal then
+            local w = statWeightForKey(weights, key)
+            rows[#rows + 1] = {
+                label = getStatLabel(key),
+                newValue = newVal,
+                oldValue = oldVal,
+                delta = newVal - oldVal,
+                weight = w,
+                unimportant = w <= 0,
+                weightedDelta = (newVal - oldVal) * w,
+            }
+        end
     end
+    table.sort(rows, compareStatComparisonRows)
     return rows
 end
 
@@ -116,7 +116,7 @@ local function buildRawStatRows(newLink, oldLink)
         local newVal = newStats[key] or 0
         local oldVal = oldStats[key] or 0
         rows[#rows + 1] = {
-            label = STAT_LABELS[key] or key,
+            label = getStatLabel(key),
             newValue = newVal,
             oldValue = oldVal,
             delta = newVal - oldVal,
@@ -128,62 +128,10 @@ end
 local function buildCustomComparison(newLink, oldLink, classFile, specKey)
     local sections = {
         {
-            title = "Weighted stats",
-            rows = buildWeightedRows(newLink, oldLink, classFile, specKey),
+            title = "Stat comparison",
+            rows = buildStatComparisonRows(newLink, oldLink, classFile, specKey),
         },
     }
-    return sections
-end
-
-local function buildPawnComparison(newLink, oldLink, classFile, specKey)
-    if type(_G.PawnGetItemData) == "function" and type(_G.PawnGetSingleValueFromItem) == "function" then
-        local newItem = _G.PawnGetItemData(newLink)
-        local oldItem = oldLink and _G.PawnGetItemData(oldLink) or nil
-        if newItem and newItem.Stats and (not oldLink or (oldItem and oldItem.Stats)) then
-            local scaleName
-            if type(_G.PawnGetScaleName) == "function" then
-                scaleName = _G.PawnGetScaleName()
-            end
-            if scaleName and _G.PawnCommon and _G.PawnCommon.Scales and _G.PawnCommon.Scales[scaleName] then
-                local scaleValues = _G.PawnCommon.Scales[scaleName].Values or {}
-                local newStats = newItem.Stats or {}
-                local oldStats = oldItem and oldItem.Stats or {}
-                local keys = {}
-                for statName, weight in pairs(scaleValues) do
-                    if tonumber(weight) and weight > 0 and (newStats[statName] or oldStats[statName]) then
-                        keys[#keys + 1] = statName
-                    end
-                end
-                table.sort(keys)
-                if #keys > 0 then
-                    local rows = {}
-                    for i = 1, #keys do
-                        local statName = keys[i]
-                        local newVal = newStats[statName] or 0
-                        local oldVal = oldStats[statName] or 0
-                        local w = scaleValues[statName] or 0
-                        rows[#rows + 1] = {
-                            label = statName,
-                            newValue = newVal,
-                            oldValue = oldVal,
-                            delta = newVal - oldVal,
-                            weightedDelta = (newVal - oldVal) * w,
-                        }
-                    end
-                    return {
-                        {
-                            title = "Pawn weighted stats",
-                            rows = rows,
-                        },
-                    }
-                end
-            end
-        end
-    end
-    local sections = buildCustomComparison(newLink, oldLink, classFile, specKey)
-    if sections[1] then
-        sections[1].title = "Weighted stats (Pawn unavailable; Alt Army fallback)"
-    end
     return sections
 end
 
@@ -257,24 +205,6 @@ function GC.GetEquippedCompareItem(char, focusedLink, opts)
     return bestLink, bestSlot
 end
 
-local COMPARE_DROPDOWN_EXCLUDED = {
-    ilvl = true,
-    gearscore = true,
-}
-
-function GC.GetAvailableComparisonTechniques()
-    local out = {}
-    local providers = GU.GetProviders()
-    for i = 1, #providers do
-        local p = providers[i]
-        if not COMPARE_DROPDOWN_EXCLUDED[p.id]
-            and p.IsAvailable and p.IsAvailable() then
-            out[#out + 1] = p
-        end
-    end
-    return out
-end
-
 function GC.BuildComparison(focusedLink, equippedLink, technique, charData, entry)
     if not focusedLink then return nil end
     technique = GU.GetEffectiveTechnique(technique or "custom")
@@ -284,9 +214,7 @@ function GC.BuildComparison(focusedLink, equippedLink, technique, charData, entr
 
     if technique == "custom" then
         sections = buildCustomComparison(focusedLink, equippedLink, classFile, specKey)
-    elseif technique == "pawn" then
-        sections = buildPawnComparison(focusedLink, equippedLink, classFile, specKey)
-    elseif technique == "ilvl" or technique == "sgj" or technique == "gearscore" then
+    elseif technique == "ilvl" or technique == "gearscore" then
         sections = buildScoreOnlyComparison(focusedLink, equippedLink, classFile, specKey, technique)
     else
         sections = buildCustomComparison(focusedLink, equippedLink, classFile, specKey)

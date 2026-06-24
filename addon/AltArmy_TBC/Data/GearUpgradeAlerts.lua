@@ -27,9 +27,46 @@ local function classColorName(name, classFile)
     return name or "?"
 end
 
+local function formatUpgradeNameList(matches)
+    if not matches or #matches == 0 then return "" end
+    local names = {}
+    for i = 1, #matches do
+        local m = matches[i]
+        names[#names + 1] = classColorName(m.name, m.classFile)
+    end
+    if #names <= 3 then
+        return table.concat(names, ", ")
+    end
+    local others = #names - 2
+    return names[1] .. ", " .. names[2] .. ", and " .. tostring(others) .. " others"
+end
+
+local UPGRADE_LINK_PREFIX = "altarmy:upgrade:"
+
+local function extractItemPayload(itemLink)
+    if not itemLink then return nil end
+    return itemLink:match("|H(item:[^|]+)|") or itemLink:match("^(item:[^|]+)")
+end
+
+local function payloadToUsableLink(payload)
+    if not payload or payload == "" then return nil end
+    if GetItemInfo then
+        local _, link = GetItemInfo(payload)
+        if link and link ~= "" then
+            return link
+        end
+        local wrapped = "|H" .. payload .. "|h"
+        local _, wrappedLink = GetItemInfo(wrapped)
+        if wrappedLink and wrappedLink ~= "" then
+            return wrappedLink
+        end
+    end
+    return "|H" .. payload .. "|h[item]|h"
+end
+
 local function formatUpgradeLink(itemLink)
-    local itemId = tonumber(itemLink and itemLink:match("item:(%d+)"))
-    if not itemId then return itemLink end
+    local payload = extractItemPayload(itemLink)
+    if not payload then return itemLink end
     local label = "View in AltArmy"
     if GetItemInfo then
         local name = GetItemInfo(itemLink)
@@ -37,14 +74,7 @@ local function formatUpgradeLink(itemLink)
             label = "View upgrade: " .. name
         end
     end
-    return "|cfffecc00|Haltarmy:upgrade:" .. tostring(itemId) .. "|h[" .. label .. "]|h|r"
-end
-
-local function parseUpgradeItemId(link)
-    if not link then return nil end
-    local lower = link:lower()
-    return tonumber(lower:match("^altarmy:upgrade:(%d+)$")
-        or lower:match("altarmy:upgrade:(%d+)"))
+    return "|cfffecc00|H" .. UPGRADE_LINK_PREFIX .. payload .. "|h[" .. label .. "]|h|r"
 end
 
 local function resolveItemLinkForUpgrade(itemId)
@@ -57,6 +87,22 @@ local function resolveItemLinkForUpgrade(itemId)
         end
     end
     return "item:" .. tostring(itemId)
+end
+
+local function parseUpgradeLink(link)
+    if not link then return nil end
+    local prefixLower = UPGRADE_LINK_PREFIX:lower()
+    local lower = link:lower()
+    if lower:sub(1, #prefixLower) ~= prefixLower then return nil end
+    local payload = link:sub(#prefixLower + 1)
+    if payload:match("^item:") then
+        return payloadToUsableLink(payload)
+    end
+    local itemId = tonumber(payload)
+    if itemId then
+        return resolveItemLinkForUpgrade(itemId)
+    end
+    return nil
 end
 
 local function optionsEnabled()
@@ -97,20 +143,14 @@ function GA.AnnounceLootUpgrade(itemLink)
     })
     if not matches or #matches == 0 then return false, "no_matches" end
 
-    local names = {}
-    for i = 1, #matches do
-        local m = matches[i]
-        names[#names + 1] = classColorName(m.name, m.classFile)
-    end
-    local nameList = table.concat(names, ", ")
+    local nameList = formatUpgradeNameList(matches)
     local actionLink = formatUpgradeLink(itemLink)
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
     local techniqueNote = ""
     if technique ~= (opts.technique or "custom") then
         techniqueNote = " (using built-in comparison; selected addon not installed)"
     end
-    postChat(ALTARMY_GOLD .. "AltArmy|r Upgrade for " .. nameList .. ": " .. (itemLink or "?")
-        .. " " .. actionLink .. techniqueNote)
+    postChat(ALTARMY_GOLD .. "AltArmy|r Upgrade for " .. nameList .. ": " .. actionLink .. techniqueNote)
     pcall(function()
         if PlaySound then PlaySound("TellMessage", "Master") end
     end)
@@ -231,10 +271,9 @@ end
 
 function GA.HandleSetItemRef(link, button)
     if button and button ~= "LeftButton" then return false end
-    local itemId = parseUpgradeItemId(link)
-    if not itemId then return false end
-    local itemLink = resolveItemLinkForUpgrade(itemId)
-    if itemLink and AltArmy.OpenGearTabFocused then
+    local itemLink = parseUpgradeLink(link)
+    if not itemLink then return false end
+    if AltArmy.OpenGearTabFocused then
         AltArmy.OpenGearTabFocused(itemLink)
         return true
     end

@@ -1,6 +1,6 @@
 -- AltArmy TBC — Item stat extraction for gear compare/scoring.
--- Priority: Pawn API → GetItemStats → tooltip regex (Pawn-modeled).
--- luacheck: globals GetItemInfo GetItemStats PawnGetItemData UIParent CreateFrame
+-- Priority: GetItemStats → tooltip regex parsing.
+-- luacheck: globals GetItemInfo GetItemStats UIParent CreateFrame
 
 AltArmy = AltArmy or {}
 AltArmy.ItemStats = AltArmy.ItemStats or {}
@@ -8,44 +8,158 @@ AltArmy.ItemStats = AltArmy.ItemStats or {}
 local IS = AltArmy.ItemStats
 
 IS.STAT_ALIASES = {
+    -- Primary attributes
     ["ITEM_MOD_STRENGTH_SHORT"] = "str",
+    ["ITEM_MOD_STRENGTH"] = "str",
     ["ITEM_MOD_AGILITY_SHORT"] = "agi",
+    ["ITEM_MOD_AGILITY"] = "agi",
     ["ITEM_MOD_STAMINA_SHORT"] = "sta",
+    ["ITEM_MOD_STAMINA"] = "sta",
     ["ITEM_MOD_INTELLECT_SHORT"] = "int",
+    ["ITEM_MOD_INTELLECT"] = "int",
     ["ITEM_MOD_SPIRIT_SHORT"] = "spi",
+    ["ITEM_MOD_SPIRIT"] = "spi",
+    -- Armor and resistances (GetItemStats uses RESISTANCE*_NAME keys)
+    ["RESISTANCE0_NAME"] = "armor",
+    ["RESISTANCE1_NAME"] = "holy_res",
+    ["RESISTANCE2_NAME"] = "fire_res",
+    ["RESISTANCE3_NAME"] = "nature_res",
+    ["RESISTANCE4_NAME"] = "frost_res",
+    ["RESISTANCE5_NAME"] = "shadow_res",
+    ["RESISTANCE6_NAME"] = "arcane_res",
+    ["ITEM_MOD_EXTRA_ARMOR_SHORT"] = "bonus_armor",
+    ["ITEM_MOD_EXTRA_ARMOR"] = "bonus_armor",
+    -- Spell power / damage / healing
     ["ITEM_MOD_SPELL_DAMAGE_DONE_SHORT"] = "sp",
+    ["ITEM_MOD_SPELL_DAMAGE_DONE"] = "sp",
+    ["ITEM_MOD_SPELL_DAMAGE"] = "sp",
+    ["ITEM_MOD_SPELL_POWER_SHORT"] = "sp",
+    ["ITEM_MOD_SPELL_POWER"] = "sp",
     ["ITEM_MOD_SPELL_HEALING_DONE_SHORT"] = "heal",
+    ["ITEM_MOD_SPELL_HEALING_DONE"] = "heal",
+    -- Hit / crit (physical vs spell)
     ["ITEM_MOD_HIT_RATING_SHORT"] = "hit",
+    ["ITEM_MOD_HIT_RATING"] = "hit",
+    ["ITEM_MOD_HIT_MELEE_RATING_SHORT"] = "hit",
+    ["ITEM_MOD_HIT_MELEE_RATING"] = "hit",
+    ["ITEM_MOD_HIT_RANGED_RATING_SHORT"] = "hit",
+    ["ITEM_MOD_HIT_RANGED_RATING"] = "hit",
+    ["ITEM_MOD_HIT_SPELL_RATING_SHORT"] = "spell_hit",
+    ["ITEM_MOD_HIT_SPELL_RATING"] = "spell_hit",
     ["ITEM_MOD_CRIT_RATING_SHORT"] = "crit",
+    ["ITEM_MOD_CRIT_RATING"] = "crit",
+    ["ITEM_MOD_CRIT_MELEE_RATING_SHORT"] = "crit",
+    ["ITEM_MOD_CRIT_MELEE_RATING"] = "crit",
+    ["ITEM_MOD_CRIT_RANGED_RATING_SHORT"] = "crit",
+    ["ITEM_MOD_CRIT_RANGED_RATING"] = "crit",
+    ["ITEM_MOD_CRIT_SPELL_RATING_SHORT"] = "spell_crit",
+    ["ITEM_MOD_CRIT_SPELL_RATING"] = "spell_crit",
+    -- Attack power / weapon
     ["ITEM_MOD_ATTACK_POWER_SHORT"] = "ap",
+    ["ITEM_MOD_ATTACK_POWER"] = "ap",
+    ["ITEM_MOD_MELEE_ATTACK_POWER_SHORT"] = "ap",
     ["ITEM_MOD_RANGED_ATTACK_POWER_SHORT"] = "rap",
+    ["ITEM_MOD_RANGED_ATTACK_POWER"] = "rap",
+    ["ITEM_MOD_FERAL_ATTACK_POWER_SHORT"] = "feral_ap",
+    ["ITEM_MOD_FERAL_ATTACK_POWER"] = "feral_ap",
+    ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = "dps",
+    -- Tank / avoidance
     ["ITEM_MOD_DEFENSE_SKILL_RATING_SHORT"] = "def",
+    ["ITEM_MOD_DEFENSE_SKILL_RATING"] = "def",
     ["ITEM_MOD_DODGE_RATING_SHORT"] = "dodge",
+    ["ITEM_MOD_DODGE_RATING"] = "dodge",
     ["ITEM_MOD_PARRY_RATING_SHORT"] = "parry",
+    ["ITEM_MOD_PARRY_RATING"] = "parry",
     ["ITEM_MOD_BLOCK_RATING_SHORT"] = "block",
+    ["ITEM_MOD_BLOCK_RATING"] = "block",
     ["ITEM_MOD_BLOCK_VALUE_SHORT"] = "blockval",
+    ["ITEM_MOD_BLOCK_VALUE"] = "blockval",
+    -- Regeneration
     ["ITEM_MOD_MANA_REGENERATION_SHORT"] = "mp5",
+    ["ITEM_MOD_MANA_REGENERATION"] = "mp5",
+    ["ITEM_MOD_POWER_REGEN0_SHORT"] = "mp5",
+    ["ITEM_MOD_HEALTH_REGEN_SHORT"] = "health_regen",
+    ["ITEM_MOD_HEALTH_REGENERATION_SHORT"] = "health_regen",
+    ["ITEM_MOD_HEALTH_REGEN"] = "health_regen",
+    ["ITEM_MOD_HEALTH_REGENERATION"] = "health_regen",
+    -- Health / mana (uncommon on gear but returned by GetItemStats)
+    ["ITEM_MOD_HEALTH_SHORT"] = "health",
+    ["ITEM_MOD_HEALTH"] = "health",
+    ["ITEM_MOD_MANA_SHORT"] = "mana",
+    ["ITEM_MOD_MANA"] = "mana",
+    -- TBC-adjacent ratings that may appear on later patches / edge items
+    ["ITEM_MOD_RESILIENCE_RATING_SHORT"] = "resilience",
+    ["ITEM_MOD_RESILIENCE_RATING"] = "resilience",
+    ["ITEM_MOD_EXPERTISE_RATING_SHORT"] = "expertise",
+    ["ITEM_MOD_EXPERTISE_RATING"] = "expertise",
+    ["ITEM_MOD_ARMOR_PENETRATION_RATING_SHORT"] = "armor_pen",
+    ["ITEM_MOD_ARMOR_PENETRATION_RATING"] = "armor_pen",
+    ["ITEM_MOD_SPELL_PENETRATION_SHORT"] = "spell_pen",
+    ["ITEM_MOD_SPELL_PENETRATION"] = "spell_pen",
+    ["ITEM_MOD_HASTE_RATING_SHORT"] = "haste",
+    ["ITEM_MOD_HASTE_RATING"] = "haste",
+    ["ITEM_MOD_HASTE_MELEE_RATING_SHORT"] = "haste",
+    ["ITEM_MOD_HASTE_MELEE_RATING"] = "haste",
+    ["ITEM_MOD_HASTE_RANGED_RATING_SHORT"] = "haste",
+    ["ITEM_MOD_HASTE_RANGED_RATING"] = "haste",
+    ["ITEM_MOD_HASTE_SPELL_RATING_SHORT"] = "spell_haste",
+    ["ITEM_MOD_HASTE_SPELL_RATING"] = "spell_haste",
+    -- Per-school spell damage (tooltip-only keys)
+    ["ALTARMY_FIRE_SPELL"] = "fire_sp",
+    ["ALTARMY_FROST_SPELL"] = "frost_sp",
+    ["ALTARMY_ARCANE_SPELL"] = "arcane_sp",
+    ["ALTARMY_SHADOW_SPELL"] = "shadow_sp",
+    ["ALTARMY_NATURE_SPELL"] = "nature_sp",
+    ["ALTARMY_HOLY_SPELL"] = "holy_sp",
 }
 
-local PAWN_STAT_TO_SHORT = {
-    Strength = "str",
-    Agility = "agi",
-    Stamina = "sta",
-    Intellect = "int",
-    Spirit = "spi",
-    SpellDamage = "sp",
-    SpellPower = "sp",
-    Healing = "heal",
-    HitRating = "hit",
-    CritRating = "crit",
-    Ap = "ap",
-    Rap = "rap",
-    DefenseRating = "def",
-    DodgeRating = "dodge",
-    ParryRating = "parry",
-    BlockRating = "block",
-    BlockValue = "blockval",
-    Mp5 = "mp5",
+-- English display labels for normalized stat keys (compare panel, debug).
+IS.STAT_LABELS = {
+    str = "Strength",
+    agi = "Agility",
+    sta = "Stamina",
+    int = "Intellect",
+    spi = "Spirit",
+    armor = "Armor",
+    bonus_armor = "Bonus Armor",
+    holy_res = "Holy Resistance",
+    fire_res = "Fire Resistance",
+    nature_res = "Nature Resistance",
+    frost_res = "Frost Resistance",
+    shadow_res = "Shadow Resistance",
+    arcane_res = "Arcane Resistance",
+    sp = "Spell Damage",
+    heal = "Healing",
+    hit = "Hit Rating",
+    crit = "Crit Rating",
+    spell_hit = "Spell Hit Rating",
+    spell_crit = "Spell Crit Rating",
+    spell_haste = "Spell Haste Rating",
+    fire_sp = "Fire Spell Damage",
+    frost_sp = "Frost Spell Damage",
+    arcane_sp = "Arcane Spell Damage",
+    shadow_sp = "Shadow Spell Damage",
+    nature_sp = "Nature Spell Damage",
+    holy_sp = "Holy Spell Damage",
+    ap = "Attack Power",
+    rap = "Ranged AP",
+    feral_ap = "Attack Power In Forms",
+    melee_dps = "Melee DPS",
+    ranged_dps = "Ranged DPS",
+    def = "Defense",
+    dodge = "Dodge",
+    parry = "Parry",
+    block = "Block",
+    blockval = "Block Value",
+    mp5 = "Mana Regen",
+    health_regen = "Health Regen",
+    health = "Health",
+    mana = "Mana",
+    resilience = "Resilience",
+    expertise = "Expertise",
+    armor_pen = "Armor Penetration",
+    spell_pen = "Spell Penetration",
+    haste = "Haste",
 }
 
 local PRIMARY_STAT_DEFS = {
@@ -63,8 +177,21 @@ local EQUIP_STAT_PATTERNS = {
     { "^Equip: Increases ranged attack power by (%d+)%.$", "ITEM_MOD_RANGED_ATTACK_POWER_SHORT" },
     { "^%+(%d+) Hit Rating$", "ITEM_MOD_HIT_RATING_SHORT" },
     { "^%+(%d+) Critical Strike Rating$", "ITEM_MOD_CRIT_RATING_SHORT" },
-    { "^%+(%d+) Spell Hit Rating$", "ITEM_MOD_HIT_RATING_SHORT" },
-    { "^%+(%d+) Spell Critical Strike Rating$", "ITEM_MOD_CRIT_RATING_SHORT" },
+    { "^%+(%d+) Spell Hit Rating$", "ITEM_MOD_HIT_SPELL_RATING_SHORT" },
+    { "^%+(%d+) Spell Critical Strike Rating$", "ITEM_MOD_CRIT_SPELL_RATING_SHORT" },
+    { "^%+(%d+) Spell Haste Rating$", "ITEM_MOD_HASTE_SPELL_RATING_SHORT" },
+    { "^Equip: Increases damage done by Fire spells and effects by up to (%d+)%.$",
+        "ALTARMY_FIRE_SPELL" },
+    { "^Equip: Increases damage done by Frost spells and effects by up to (%d+)%.$",
+        "ALTARMY_FROST_SPELL" },
+    { "^Equip: Increases damage done by Arcane spells and effects by up to (%d+)%.$",
+        "ALTARMY_ARCANE_SPELL" },
+    { "^Equip: Increases damage done by Shadow spells and effects by up to (%d+)%.$",
+        "ALTARMY_SHADOW_SPELL" },
+    { "^Equip: Increases damage done by Nature spells and effects by up to (%d+)%.$",
+        "ALTARMY_NATURE_SPELL" },
+    { "^Equip: Increases damage done by Holy spells and effects by up to (%d+)%.$",
+        "ALTARMY_HOLY_SPELL" },
     { "^%+(%d+) Defense Rating$", "ITEM_MOD_DEFENSE_SKILL_RATING_SHORT" },
     { "^%+(%d+) Dodge Rating$", "ITEM_MOD_DODGE_RATING_SHORT" },
     { "^%+(%d+) Parry Rating$", "ITEM_MOD_PARRY_RATING_SHORT" },
@@ -73,7 +200,61 @@ local EQUIP_STAT_PATTERNS = {
     { "^%+(%d+) Healing Spells$", "ITEM_MOD_SPELL_HEALING_DONE_SHORT" },
     { "^%+(%d+) Damage and Healing Spells$", "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT" },
     { "^Equip: Restores (%d+) mana per 5 sec%.$", "ITEM_MOD_MANA_REGENERATION_SHORT" },
+    { "^(%d+%.?%d*) damage per second$", "ITEM_MOD_DAMAGE_PER_SECOND_SHORT" },
+    { "^(%d+) Armor$", "RESISTANCE0_NAME" },
 }
+
+local TOOLTIP_ONLY_STAT_KEYS = {
+    ITEM_MOD_DAMAGE_PER_SECOND_SHORT = true,
+    ITEM_MOD_DAMAGE_PER_SECOND = true,
+    ALTARMY_FIRE_SPELL = true,
+    ALTARMY_FROST_SPELL = true,
+    ALTARMY_ARCANE_SPELL = true,
+    ALTARMY_SHADOW_SPELL = true,
+    ALTARMY_NATURE_SPELL = true,
+    ALTARMY_HOLY_SPELL = true,
+}
+
+local RANGED_WEAPON_SUBCLASSES = {
+    Bow = true,
+    Gun = true,
+    Crossbow = true,
+    Wand = true,
+    Thrown = true,
+}
+
+local function isTooltipOnlyStatKey(apiKey)
+    return TOOLTIP_ONLY_STAT_KEYS[apiKey] == true
+end
+
+local function resolveWeaponDpsKey(link)
+    if not link or not GetItemInfo then return "melee_dps" end
+    local _, _, _, _, _, _, subclass, _, equipSlot = GetItemInfo(link)
+    if subclass and RANGED_WEAPON_SUBCLASSES[subclass] then
+        return "ranged_dps"
+    end
+    if equipSlot == "INVTYPE_RANGED" or equipSlot == "INVTYPE_RANGEDRIGHT" then
+        return "ranged_dps"
+    end
+    return "melee_dps"
+end
+
+local function mergeTooltipSupplement(apiRaw, tooltipRaw)
+    local merged = {}
+    if apiRaw then
+        for k, v in pairs(apiRaw) do
+            merged[k] = v
+        end
+    end
+    local hasApi = apiRaw and next(apiRaw) ~= nil
+    if not tooltipRaw then return merged end
+    for k, v in pairs(tooltipRaw) do
+        if isTooltipOnlyStatKey(k) or not hasApi then
+            merged[k] = (merged[k] or 0) + (tonumber(v) or 0)
+        end
+    end
+    return merged
+end
 
 local cache = {}
 local pendingIds = {}
@@ -117,11 +298,47 @@ local function parseItemId(link)
     return tonumber(tostring(link):match("item:(%d+)"))
 end
 
-local function normalizeRawStats(raw)
+local function resolveGlobalStringLabel(name)
+    local g = _G[name]
+    if type(g) ~= "string" or g == "" or g == name then return nil end
+    if g:find("%%") then
+        if not name:match("_SHORT$") then
+            return resolveGlobalStringLabel(name .. "_SHORT")
+        end
+        return nil
+    end
+    return g
+end
+
+function IS.GetDisplayLabel(key)
+    if not key then return "?" end
+    local shortKey = IS.STAT_ALIASES[key] or key
+    if IS.STAT_LABELS[shortKey] then
+        return IS.STAT_LABELS[shortKey]
+    end
+    local globalLabel = resolveGlobalStringLabel(key)
+    if globalLabel then return globalLabel end
+    if shortKey ~= key then
+        for apiKey, mappedShort in pairs(IS.STAT_ALIASES) do
+            if mappedShort == shortKey then
+                globalLabel = resolveGlobalStringLabel(apiKey)
+                if globalLabel then return globalLabel end
+            end
+        end
+    end
+    return key
+end
+
+local function normalizeRawStats(raw, link)
     local out = {}
     if not raw then return out end
+    local dpsKey = resolveWeaponDpsKey(link)
     for statKey, value in pairs(raw) do
         local short = IS.STAT_ALIASES[statKey] or statKey
+        if statKey == "ITEM_MOD_DAMAGE_PER_SECOND_SHORT"
+            or statKey == "ITEM_MOD_DAMAGE_PER_SECOND" then
+            short = dpsKey
+        end
         out[short] = (out[short] or 0) + (tonumber(value) or 0)
     end
     return out
@@ -247,22 +464,6 @@ local function parseTooltipToRaw(link)
     return raw, strippedLines, incomplete
 end
 
-local function fetchFromPawn(link)
-    if type(_G.PawnGetItemData) ~= "function" then return nil end
-    local item = _G.PawnGetItemData(link)
-    if not item or not item.Stats or not next(item.Stats) then return nil end
-    local normalized = {}
-    for pawnName, value in pairs(item.Stats) do
-        local short = PAWN_STAT_TO_SHORT[pawnName]
-        local n = tonumber(value)
-        if short and n then
-            normalized[short] = (normalized[short] or 0) + n
-        end
-    end
-    if not next(normalized) then return nil end
-    return normalized, "pawn", {}
-end
-
 local function fetchFromApi(link)
     if not GetItemStats then return nil end
     local stats = GetItemStats(link)
@@ -344,11 +545,6 @@ function IS.GetTooltipLines(link)
 end
 
 local function fetchStats(link)
-    local pawnNorm, pawnSource, pawnMeta = fetchFromPawn(link)
-    if pawnNorm then
-        return pawnNorm, pawnSource, pawnMeta
-    end
-
     if GetItemInfo then
         local name = GetItemInfo(link)
         if not name then
@@ -357,14 +553,21 @@ local function fetchStats(link)
         end
     end
 
-    local apiRaw, apiSource = fetchFromApi(link)
-    if apiRaw then
-        return normalizeRawStats(apiRaw), apiSource, {}
-    end
-
+    local apiRaw = fetchFromApi(link)
     local tooltipRaw, tooltipLines, incomplete = parseTooltipToRaw(link)
-    if next(tooltipRaw) then
-        return normalizeRawStats(tooltipRaw), "tooltip", { tooltipLines = tooltipLines }
+    local mergedRaw = mergeTooltipSupplement(apiRaw, tooltipRaw)
+
+    if next(mergedRaw) then
+        local source = apiRaw and "api" or "tooltip"
+        if apiRaw and tooltipRaw and next(tooltipRaw) then
+            for k in pairs(tooltipRaw) do
+                if isTooltipOnlyStatKey(k) and mergedRaw[k] then
+                    source = "api"
+                    break
+                end
+            end
+        end
+        return normalizeRawStats(mergedRaw, link), source, { tooltipLines = tooltipLines }
     end
     if incomplete then
         queuePending(parseItemId(link))

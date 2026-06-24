@@ -1,12 +1,13 @@
 -- AltArmy TBC — Gear upgrade comparison engine.
 -- Requires DataStore, ItemUsability, DataStoreTalents, ItemStats, GearScore (optional).
--- luacheck: globals GetItemInfo GetItemStats PawnGetItemValue PawnGetScaleName
+-- luacheck: globals GetItemInfo GetItemStats
 
 AltArmy = AltArmy or {}
 AltArmy.GearUpgrade = AltArmy.GearUpgrade or {}
 
 local GU = AltArmy.GearUpgrade
 local DT = AltArmy.DataStoreTalents
+local CC = AltArmy.ClassColor
 
 local function IS()
     return AltArmy.ItemStats
@@ -24,54 +25,22 @@ local function resolveLevelsAhead(value)
     return math.max(0, math.floor(n))
 end
 
--- Simplified TBC stat weights per class/spec (custom Pawn-style).
-local WEIGHTS = {
-    MAGE = {
-        frost = { int = 1.0, spi = 0.5, sta = 0.3, sp = 0.8, crit = 0.6, hit = 0.7 },
-        fire = { int = 1.0, spi = 0.4, sta = 0.3, sp = 0.9, crit = 0.7, hit = 0.7 },
-        arcane = { int = 1.0, spi = 0.5, sta = 0.3, sp = 0.85, crit = 0.65, hit = 0.7 },
-    },
-    PRIEST = {
-        shadow = { int = 1.0, spi = 0.6, sta = 0.4, sp = 0.9, crit = 0.5, hit = 0.7 },
-        holy = { int = 0.8, spi = 1.0, sta = 0.5, heal = 1.0, mp5 = 0.8 },
-        discipline = { int = 0.7, spi = 1.0, sta = 0.6, heal = 0.9, mp5 = 0.7 },
-    },
-    WARLOCK = {
-        affliction = { int = 1.0, spi = 0.7, sta = 0.5, sp = 0.9, hit = 0.75, crit = 0.5 },
-        demonology = { int = 1.0, spi = 0.6, sta = 0.6, sp = 0.85, hit = 0.7 },
-        destruction = { int = 1.0, spi = 0.5, sta = 0.4, sp = 1.0, crit = 0.7, hit = 0.75 },
-    },
-    WARRIOR = {
-        fury = { str = 1.0, agi = 0.3, sta = 0.5, ap = 0.9, crit = 0.6, hit = 0.7 },
-        arms = { str = 1.0, agi = 0.2, sta = 0.5, ap = 0.85, crit = 0.65, hit = 0.75 },
-        protection = { sta = 1.0, str = 0.5, agi = 0.2, def = 0.9, dodge = 0.7, parry = 0.7, block = 0.6 },
-    },
-    PALADIN = {
-        retribution = { str = 1.0, sta = 0.5, sp = 0.4, crit = 0.6, hit = 0.7 },
-        holy = { int = 0.8, spi = 1.0, sta = 0.5, heal = 1.0, mp5 = 0.8 },
-        protection = { sta = 1.0, str = 0.4, def = 0.9, dodge = 0.7, block = 0.7 },
-    },
-    HUNTER = {
-        beast = { agi = 1.0, sta = 0.5, ap = 0.8, rap = 0.9, crit = 0.7, hit = 0.75 },
-        marksmanship = { agi = 1.0, sta = 0.5, rap = 1.0, crit = 0.75, hit = 0.8 },
-        survival = { agi = 1.0, sta = 0.6, ap = 0.7, crit = 0.65, hit = 0.75 },
-    },
-    ROGUE = {
-        combat = { agi = 1.0, str = 0.3, sta = 0.4, ap = 0.9, crit = 0.8, hit = 0.75 },
-        assassination = { agi = 1.0, str = 0.2, sta = 0.4, ap = 0.85, crit = 0.75, hit = 0.75 },
-        subtlety = { agi = 1.0, str = 0.25, sta = 0.4, ap = 0.8, crit = 0.7, hit = 0.7 },
-    },
-    SHAMAN = {
-        elemental = { int = 1.0, spi = 0.5, sta = 0.4, sp = 0.9, hit = 0.75, crit = 0.6 },
-        enhancement = { str = 0.8, agi = 0.6, sta = 0.5, ap = 0.9, crit = 0.7, hit = 0.75 },
-        restoration = { int = 0.8, spi = 1.0, sta = 0.5, heal = 1.0, mp5 = 0.8 },
-    },
-    DRUID = {
-        feral = { agi = 1.0, str = 0.6, sta = 0.5, ap = 0.85, crit = 0.7, hit = 0.7 },
-        balance = { int = 1.0, spi = 0.5, sta = 0.4, sp = 0.9, hit = 0.75, crit = 0.6 },
-        restoration = { int = 0.8, spi = 1.0, sta = 0.5, heal = 1.0, mp5 = 0.8 },
-    },
-}
+local function buildWeightsFromPawnScales()
+    local out = {}
+    local PS = AltArmy.PawnScales
+    local raw = PS and PS.RAW
+    if not raw then return out end
+    for classFile, bySpec in pairs(raw) do
+        out[classFile] = {}
+        for specKey, pawnValues in pairs(bySpec) do
+            out[classFile][specKey] = GU.PawnScaleToWeights(pawnValues)
+        end
+    end
+    return out
+end
+
+-- TBC stat weights per class/spec (weebly EJ/MaxDPS-derived, via PawnScale translator).
+local WEIGHTS = buildWeightsFromPawnScales()
 
 local PROVIDERS = {
     {
@@ -81,35 +50,6 @@ local PROVIDERS = {
         installInfo = nil,
         warningSpecAgnostic = false,
         IsAvailable = function() return true end,
-    },
-    {
-        id = "pawn",
-        label = "Pawn",
-        isAddon = true,
-        installInfo = {
-            name = "Pawn",
-            url = "https://www.curseforge.com/wow/addons/pawn",
-            text = "Install Pawn from CurseForge to compare gear using its stat-weight scales.",
-        },
-        warningSpecAgnostic = false,
-        IsAvailable = function()
-            return type(_G.PawnGetItemValue) == "function"
-        end,
-    },
-    {
-        id = "sgj",
-        label = "Sharpie's Gear Judge",
-        isAddon = true,
-        installInfo = {
-            name = "Sharpie's Gear Judge",
-            url = "https://www.curseforge.com/wow/addons/sharpies-gear-judge",
-            text = "Install Sharpie's Gear Judge from CurseForge to compare gear using its scoring engine.",
-        },
-        warningSpecAgnostic = false,
-        IsAvailable = function()
-            return type(_G.SGJ_GetItemScore) == "function"
-                or (type(_G.SGJ) == "table" and type(_G.SGJ.GetItemScore) == "function")
-        end,
     },
     {
         id = "ilvl",
@@ -177,6 +117,9 @@ function GU.GetProviderDisplayLabel(provider)
 end
 
 function GU.GetEffectiveTechnique(requested)
+    if requested == "pawn" or requested == "sgj" then
+        return "custom"
+    end
     local p = providerById[requested]
     if p and p.IsAvailable() then
         return requested
@@ -255,6 +198,109 @@ function GU.ResolveCompareContext(char, entry)
     return resolveCompareContext(char, entry)
 end
 
+function GU.FormatSpecDisplayName(specKey)
+    if not specKey or specKey == "" or specKey == "unknown" then
+        return "Unknown"
+    end
+    return specKey:sub(1, 1):upper() .. specKey:sub(2)
+end
+
+local function formatCompareCharName(charName, classFile)
+    if CC and CC.formatName then
+        return CC.formatName(charName, classFile)
+    end
+    return charName or "?"
+end
+
+function GU.FormatCompareSpecWarningText(charName, assumedSpec, classFile)
+    return string.format(
+        "%s's spec is unknown. Assuming %s",
+        formatCompareCharName(charName, classFile),
+        assumedSpec or "Unknown")
+end
+
+function GU.FormatCompareUnpickedSpecWarningText(charName, assumedSpec, classFile)
+    return string.format(
+        "%s hasn't picked a spec yet. Assuming %s",
+        formatCompareCharName(charName, classFile),
+        assumedSpec or "Unknown")
+end
+
+local TALENT_SPEC_MIN_LEVEL = 10
+
+local function getCompareCharacterLevel(entry, charData)
+    local level = tonumber(entry and entry.level) or tonumber(charData and charData.level)
+    return level or 0
+end
+
+local function charHasPickedSpec(charData)
+    if not DT or not DT.ResolveSpecKey then return false end
+    local _, known = DT.ResolveSpecKey(charData)
+    return known == true
+end
+
+local function charNeedsUnpickedSpecWarning(charData, entry)
+    if not DT or not DT.HasTalentData or not DT.HasTalentData(charData) then
+        return false
+    end
+    if getCompareCharacterLevel(entry, charData) < TALENT_SPEC_MIN_LEVEL then
+        return true
+    end
+    local primary = charData.talents and charData.talents.primary
+    return not primary or primary <= 0
+end
+
+--- Compare-panel warning when spec is unknown (missing scan vs not picked yet).
+function GU.GetCompareSpecWarning(entry, charData)
+    if not entry or not charData then return nil end
+    if charHasPickedSpec(charData) then return nil end
+
+    local _, specKey = resolveCompareContext(charData, entry)
+    local assumedSpec = GU.FormatSpecDisplayName(specKey)
+    local charName = entry.name or "?"
+    local warningBase = {
+        charName = charName,
+        realm = entry.realm or "",
+        classFile = entry.classFile or charData.classFile,
+        assumedSpec = assumedSpec,
+    }
+
+    local missingData = false
+    if DT and DT.HasTalentData and not DT.HasTalentData(charData) then
+        local SD = AltArmy.SummaryData
+        if SD and SD.GetTalentSpecMissingInfo then
+            local info = SD.GetTalentSpecMissingInfo(entry.name, entry.realm)
+            missingData = info and info.hasMissing
+        else
+            missingData = true
+        end
+    end
+
+    if missingData then
+        return {
+            kind = "missing_spec",
+            text = GU.FormatCompareSpecWarningText(charName, assumedSpec, warningBase.classFile),
+            charName = warningBase.charName,
+            realm = warningBase.realm,
+            classFile = warningBase.classFile,
+            assumedSpec = assumedSpec,
+        }
+    end
+
+    if charNeedsUnpickedSpecWarning(charData, entry) then
+        return {
+            kind = "unpicked_spec",
+            text = GU.FormatCompareUnpickedSpecWarningText(charName, assumedSpec, warningBase.classFile),
+            charName = warningBase.charName,
+            realm = warningBase.realm,
+            classFile = warningBase.classFile,
+            assumedSpec = assumedSpec,
+        }
+    end
+
+    return nil
+end
+
 local function getSpecKey(char)
     if DT and DT.ResolveSpecKey then
         return select(1, DT.ResolveSpecKey(char)) or "unknown"
@@ -296,22 +342,6 @@ function GU.ScoreItemCustom(link, classFile, specKey)
     return total
 end
 
-local function scoreItemPawn(link)
-    if type(_G.PawnGetItemValue) ~= "function" then return nil end
-    return tonumber(_G.PawnGetItemValue(link))
-end
-
-local function scoreItemSgj(link)
-    if type(_G.SGJ_GetItemScore) == "function" then
-        return tonumber(_G.SGJ_GetItemScore(link))
-    end
-    local sgj = _G.SGJ
-    if type(sgj) == "table" and type(sgj.GetItemScore) == "function" then
-        return tonumber(sgj.GetItemScore(link))
-    end
-    return nil
-end
-
 local function scoreItemGearScore(link)
     local TT = _G.TT_GS
     if TT and type(TT.GetItemScore) == "function" then
@@ -327,12 +357,6 @@ local function scoreItem(link, technique, classFile, specKey)
     end
     if technique == "custom" then
         return GU.ScoreItemCustom(link, classFile, specKey)
-    end
-    if technique == "pawn" then
-        return scoreItemPawn(link) or GU.ScoreItemCustom(link, classFile, specKey)
-    end
-    if technique == "sgj" then
-        return scoreItemSgj(link) or GU.ScoreItemCustom(link, classFile, specKey)
     end
     if technique == "gearscore" then
         return scoreItemGearScore(link) or getItemLevel(link)
@@ -864,6 +888,40 @@ function GU.GetFocusUpgradeDeltaForSlot(entry, charData, itemLink, invSlot, opts
     return 0
 end
 
+--- True when any character has a clear or eventual upgrade for the focused item.
+function GU.HasAnyFocusUpgradeOrEventual(list, itemLink, opts)
+    if not list or not itemLink or #list == 0 then return false end
+    local slots = GU.GetFocusInventorySlots(itemLink)
+    if #slots == 0 then return false end
+    opts = opts or {}
+    local DS = AltArmy.DataStore
+    local upgradeMaxDelta
+    for i = 1, #list do
+        local e = list[i]
+        local charData = DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm)
+        for s = 1, #slots do
+            local delta = GU.GetSlotCompareDelta(charData, itemLink, slots[s], opts, e) or 0
+            if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
+                upgradeMaxDelta = delta
+            end
+        end
+    end
+    local upgradeCat = GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE
+    local eventualCat = GU.FOCUS_CATEGORY.UPGRADE_BEYOND
+    for i = 1, #list do
+        local e = list[i]
+        local charData = DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm)
+        for s = 1, #slots do
+            local info = GU.ClassifyFocusSlot(
+                e, charData, itemLink, slots[s], opts, upgradeMaxDelta)
+            if info and (info.category == upgradeCat or info.category == eventualCat) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 local function bestUpgradeInSlots(char, newLink, technique, slots, entry)
     return upgradeDeltaInSlots(char, newLink, technique, slots, entry) > 0
 end
@@ -958,7 +1016,7 @@ function GU.EnsureGearUpgradeOptions()
     root.gearUpgrades = root.gearUpgrades or {}
     local gu = root.gearUpgrades
     if gu.enabled == nil then gu.enabled = true end
-    if gu.technique == nil then gu.technique = "custom" end
+    gu.technique = "custom"
     gu.levelsAhead = resolveLevelsAhead(gu.levelsAhead)
     return gu
 end
