@@ -143,15 +143,11 @@ local function buildCustomComparison(newLink, oldLink, classFile, specKey, opts)
     local rows = buildStatComparisonRows(newLink, oldLink, classFile, specKey)
     local summary = buildSummary(newLink, oldLink, "custom", classFile, specKey)
     rows[#rows + 1] = {
-        label = "Weighted sum",
+        label = "Weighted",
         delta = summary.delta,
+        percent = weightedPercentValue(summary, opts.upgradeMaxDelta),
         hideWeight = true,
-    }
-    rows[#rows + 1] = {
-        label = "Weighted percent",
-        delta = weightedPercentValue(summary, opts.upgradeMaxDelta),
-        hideWeight = true,
-        formatAsPercent = true,
+        formatAsWeightedChange = true,
     }
     local sections = {
         {

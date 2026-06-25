@@ -327,6 +327,17 @@ describe("Gear display list focus mode", function()
         return slots
     end
 
+    --- Mirror TabGear PickInitialCompareSelection.
+    local function pickInitialCompareSelection(list, itemLink, upgradeOpts, firstSlot)
+        firstSlot = firstSlot or 1
+        if not GU.HasAnyFocusUpgradeOrEventual(list, itemLink, upgradeOpts) then
+            return nil, nil
+        end
+        if not list or #list == 0 or not itemLink then return nil, nil end
+        local e = list[1]
+        return CharKey(e.name, e.realm), firstSlot
+    end
+
     --- Mirror TabGear PickBestCompareSelection (in-range upgrade/sidegrade only).
     local function pickBestCompareSelection(list, itemLink, upgradeOpts)
         if not list or #list == 0 or not itemLink then return nil, nil end
@@ -414,7 +425,7 @@ describe("Gear display list focus mode", function()
         }, 15))
     end)
 
-    it("auto-selects the best upgrade character when one exists", function()
+    it("auto-selects the first sorted character when an upgrade or eventual upgrade exists", function()
         local itemLink = "|Hitem:11:0|h[New Helm]|h"
         local entries = {
             { name = "SmallUpgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
@@ -422,19 +433,59 @@ describe("Gear display list focus mode", function()
             { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
         }
         local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
-        local key, slot = pickBestCompareSelection(sorted, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        local key, slot = pickInitialCompareSelection(sorted, itemLink, { technique = "ilvl", levelsAhead = 0 })
         assert.are.equal(CharKey("Upgrader", "RealmA"), key)
         assert.are.equal(1, slot)
     end)
 
-    it("does not auto-select when no character has an upgrade or sidegrade", function()
-        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+    it("does not auto-select when no character has a comparable focus result", function()
+        local itemLink = "|Hitem:10:0|h[Old Helm]|h"
         local entries = {
             { name = "Usable", realm = "RealmA", classFile = "MAGE", level = 60 },
         }
-        local key, slot = pickBestCompareSelection(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        local key, slot = pickInitialCompareSelection(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
         assert.is_nil(key)
         assert.is_nil(slot)
+    end)
+
+    it("auto-selects for in-range sidegrade characters", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        _G.AltArmyTBC_Data.Characters.RealmA.SidegradeOnly = {
+            name = "SidegradeOnly",
+            classFile = "MAGE",
+            level = 60,
+            Inventory = { [1] = "|Hitem:11:0|h[New Helm]|h" },
+        }
+        local sidegradeEntries = {
+            { name = "SidegradeOnly", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local sorted = sortByFocusTier(sidegradeEntries, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        local key, slot = pickInitialCompareSelection(sorted, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        assert.are.equal(CharKey("SidegradeOnly", "RealmA"), key)
+        assert.are.equal(1, slot)
+    end)
+
+    it("auto-selects first sorted character for eventual upgrade only", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local entries = {
+            { name = "LowLevel", realm = "RealmA", classFile = "MAGE", level = 10 },
+        }
+        local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        local key, slot = pickInitialCompareSelection(sorted, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        assert.are.equal(CharKey("LowLevel", "RealmA"), key)
+        assert.are.equal(1, slot)
+    end)
+
+    it("pickBestCompareSelection still prefers biggest in-range upgrade", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local entries = {
+            { name = "SmallUpgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        local key, slot = pickBestCompareSelection(sorted, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        assert.are.equal(CharKey("Upgrader", "RealmA"), key)
+        assert.are.equal(1, slot)
     end)
 
     it("filters display rows to focused item inventory slots", function()

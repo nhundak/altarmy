@@ -50,15 +50,28 @@ describe("Gear compare panel height", function()
         return COMPARE_WARNING_COLOR_BLOCKING[1], COMPARE_WARNING_COLOR_BLOCKING[2], COMPARE_WARNING_COLOR_BLOCKING[3]
     end
 
+    local function isCompareSpecAssumptionWarning(warning)
+        return type(warning) == "table"
+            and (warning.kind == COMPARE_WARNING_KIND.MISSING_SPEC
+                or warning.kind == COMPARE_WARNING_KIND.UNPICKED_SPEC)
+    end
+
     local function sortCompareWarnings(warnings)
         if not warnings or #warnings < 2 then return warnings end
         table.sort(warnings, function(a, b)
+            local aSpec = isCompareSpecAssumptionWarning(a)
+            local bSpec = isCompareSpecAssumptionWarning(b)
+            if aSpec ~= bSpec then
+                return not aSpec
+            end
             local aBlocking = getCompareWarningSeverity(a) == "blocking"
             local bBlocking = getCompareWarningSeverity(b) == "blocking"
             if aBlocking ~= bBlocking then
                 return aBlocking
             end
-            return false
+            local aKind = type(a) == "table" and a.kind or ""
+            local bKind = type(b) == "table" and b.kind or ""
+            return aKind < bKind
         end)
         return warnings
     end
@@ -151,20 +164,10 @@ describe("Gear compare panel height", function()
         return "Drop an item to see who can use it as an upgrade"
     end
 
-    local function formatGearTabLevelingDisclaimer()
-        return "This tool is optimized for leveling characters, and will be inaccurate for end-game BiS determinations"
-    end
-
     it("formats item check drop message", function()
         assert.are.equal(
             "Drop an item to see who can use it as an upgrade",
             formatItemCheckDropMessage())
-    end)
-
-    it("formats gear tab leveling disclaimer", function()
-        local text = formatGearTabLevelingDisclaimer()
-        assert.matches("leveling characters", text)
-        assert.matches("BiS", text)
     end)
 
     it("formats choose-character hint when upgrades exist", function()
@@ -237,24 +240,128 @@ describe("Gear compare panel height", function()
         local function formatCompareWeight(weight)
             if weight == nil then return "" end
             weight = tonumber(weight) or 0
-            if weight <= 0 then return "0" end
-            return formatCompareNumber(weight)
+            if weight < 0.005 then return "x0" end
+            if weight < 0.05 then
+                return "x" .. string.format("%.2f", weight)
+            end
+            return "x" .. formatCompareNumber(weight)
         end
         local function getCompareWeightColor(weight)
             weight = tonumber(weight) or 0
-            if weight <= 0 then return 0.5, 0.5, 0.5 end
+            if weight < 0.005 then return 0.5, 0.5, 0.5 end
             return 0.82, 0.68, 0.22
         end
         assert.are.equal("", formatCompareWeight(nil))
-        assert.are.equal("0", formatCompareWeight(0))
-        assert.are.equal("0.8", formatCompareWeight(0.8))
-        assert.are.equal("1", formatCompareWeight(1))
+        assert.are.equal("x0", formatCompareWeight(0))
+        assert.are.equal("x0", formatCompareWeight(0.004))
+        assert.are.equal("x0.01", formatCompareWeight(0.01))
+        assert.are.equal("x0.04", formatCompareWeight(0.037))
+        assert.are.equal("x0.8", formatCompareWeight(0.8))
+        assert.are.equal("x1", formatCompareWeight(1))
         local wr, wg, wb = getCompareWeightColor(0.8)
         assert.are.equal(0.82, wr)
         assert.are.equal(0.68, wg)
         assert.are.equal(0.22, wb)
         local zr = getCompareWeightColor(0)
         assert.are.equal(0.5, zr)
+        local tinyR = getCompareWeightColor(0.002)
+        assert.are.equal(0.5, tinyR)
+        local smallR = getCompareWeightColor(0.01)
+        assert.are.equal(0.82, smallR)
+    end)
+
+    it("formats weighted change as delta with percent in parentheses", function()
+        local function formatCompareNumber(n)
+            n = tonumber(n) or 0
+            if math.floor(n) == n then return tostring(n) end
+            return string.format("%.1f", n)
+        end
+        local function formatCompareDelta(n)
+            local s = formatCompareNumber(n)
+            if n > 0 then return "+" .. s end
+            return s
+        end
+        local function formatComparePercentInParens(percent)
+            percent = tonumber(percent) or 0
+            if percent < 0 then
+                return "(" .. formatCompareDelta(percent) .. "%)"
+            end
+            return "(" .. formatCompareNumber(percent) .. "%)"
+        end
+        local function formatCompareWeightedChange(delta, percent)
+            return formatCompareDelta(delta) .. " " .. formatComparePercentInParens(percent)
+        end
+        assert.are.equal("+1.4 (8.1%)", formatCompareWeightedChange(1.4, 8.1))
+        assert.are.equal("-1.4 (-8.1%)", formatCompareWeightedChange(-1.4, -8.1))
+        assert.are.equal("0 (0%)", formatCompareWeightedChange(0, 0))
+    end)
+
+    it("uses gold label and delta color for weighted summary row", function()
+        local function getCompareWeightColor(weight)
+            weight = tonumber(weight) or 0
+            if weight <= 0 then return 0.5, 0.5, 0.5 end
+            return 0.82, 0.68, 0.22
+        end
+        local function getCompareDeltaColor(delta)
+            delta = tonumber(delta) or 0
+            if delta > 0 then return 0.2, 1, 0.2 end
+            if delta < 0 then return 1, 0.4, 0.3 end
+            return 1, 0.82, 0
+        end
+        local function nameColorForRow(data)
+            if data.formatAsWeightedChange then
+                return getCompareWeightColor(1)
+            end
+            return 1, 1, 1
+        end
+        local function deltaColorForRow(data)
+            return getCompareDeltaColor(data.delta)
+        end
+        local nr, ng, nb = nameColorForRow({ formatAsWeightedChange = true })
+        assert.are.equal(0.82, nr)
+        assert.are.equal(0.68, ng)
+        assert.are.equal(0.22, nb)
+        local dr, dg, db = deltaColorForRow({ formatAsWeightedChange = true, delta = 5 })
+        assert.are.equal(0.2, dr)
+        assert.are.equal(1, dg)
+        local downR = deltaColorForRow({ formatAsWeightedChange = true, delta = -3 })
+        assert.are.equal(1, downR)
+    end)
+
+    it("uses fixed column widths for weighted summary row", function()
+        local COMPARE_STAT_ROW_INDENT = 8
+        local COMPARE_STAT_COL_NAME = 110
+        local COMPARE_STAT_COL_DELTA = 52
+        local COMPARE_STAT_COL_WEIGHT = 40
+        local COMPARE_STAT_COL_WEIGHTED_NAME = 60
+        local COMPARE_STAT_COL_WEIGHTED_DELTA = 102
+        local function layoutCompareStatRowColumns(data)
+            local indent = COMPARE_STAT_ROW_INDENT
+            if data.formatAsWeightedChange then
+                return {
+                    nameLeft = indent,
+                    nameWidth = COMPARE_STAT_COL_WEIGHTED_NAME,
+                    deltaLeft = indent + COMPARE_STAT_COL_WEIGHTED_NAME,
+                    deltaWidth = COMPARE_STAT_COL_WEIGHTED_DELTA,
+                    weightWidth = 0,
+                }
+            end
+            local left = indent
+            return {
+                nameLeft = left,
+                nameWidth = COMPARE_STAT_COL_NAME,
+                deltaLeft = left + COMPARE_STAT_COL_NAME,
+                deltaWidth = COMPARE_STAT_COL_DELTA,
+                weightWidth = COMPARE_STAT_COL_WEIGHT,
+            }
+        end
+        local weighted = layoutCompareStatRowColumns({ formatAsWeightedChange = true })
+        local normal = layoutCompareStatRowColumns({})
+        assert.are.equal(60, weighted.nameWidth)
+        assert.are.equal(102, weighted.deltaWidth)
+        assert.are.equal(68, weighted.deltaLeft)
+        assert.are.equal(110, normal.nameWidth)
+        assert.are.equal(52, normal.deltaWidth)
     end)
 
     it("uses yellow for level and training warnings, red for never-equip", function()
@@ -294,5 +401,19 @@ describe("Gear compare panel height", function()
         for i = 3, 4 do
             assert.are.equal("caution", getCompareWarningSeverity(warnings[i]))
         end
+    end)
+
+    it("sorts spec assumption warnings to the bottom", function()
+        local warnings = {
+            { kind = COMPARE_WARNING_KIND.MISSING_SPEC, text = "spec missing" },
+            { kind = IU_EQUIP_WARNING_KIND.LEVEL, text = "Alt must gain 5 levels to equip this" },
+            { kind = COMPARE_WARNING_KIND.UNPICKED_SPEC, text = "spec unpicked" },
+            { kind = IU_EQUIP_WARNING_KIND.NEVER, text = "Alt can never equip this (Plate Armor)" },
+        }
+        sortCompareWarnings(warnings)
+        assert.are.equal(IU_EQUIP_WARNING_KIND.NEVER, warnings[1].kind)
+        assert.are.equal(IU_EQUIP_WARNING_KIND.LEVEL, warnings[2].kind)
+        assert.are.equal(COMPARE_WARNING_KIND.MISSING_SPEC, warnings[3].kind)
+        assert.are.equal(COMPARE_WARNING_KIND.UNPICKED_SPEC, warnings[4].kind)
     end)
 end)

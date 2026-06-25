@@ -751,10 +751,24 @@ describe("GearUpgrade", function()
         }))
     end)
 
-    it("HasAnyFocusUpgradeOrEventual is false when no character has an upgrade", function()
+    it("HasAnyFocusUpgradeOrEventual is true for in-range sidegrades", function()
         local char = DS:GetCharacter("MageAlt", "TestRealm")
         char.Inventory[1] = "|Hitem:11:0|h[New Helm]|h"
         local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local entries = {
+            { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 },
+        }
+        assert.is_true(GU.HasAnyFocusUpgradeOrEventual(entries, itemLink, {
+            technique = "ilvl",
+            levelsAhead = 5,
+        }))
+        char.Inventory[1] = "|Hitem:10:0|h[Old Helm]|h"
+    end)
+
+    it("HasAnyFocusUpgradeOrEventual is false when no character has a comparable focus result", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        char.Inventory[1] = "|Hitem:11:0|h[New Helm]|h"
+        local itemLink = "|Hitem:10:0|h[Old Helm]|h"
         local entries = {
             { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 },
         }

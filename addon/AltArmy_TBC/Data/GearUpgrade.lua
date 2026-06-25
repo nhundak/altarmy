@@ -903,7 +903,7 @@ function GU.GetFocusUpgradeDeltaForSlot(entry, charData, itemLink, invSlot, opts
     return 0
 end
 
---- True when any character has a clear or eventual upgrade for the focused item.
+--- True when any character has upgrade, eventual upgrade, or in-range sidegrade.
 function GU.HasAnyFocusUpgradeOrEventual(list, itemLink, opts)
     if not list or not itemLink or #list == 0 then return false end
     local slots = GU.GetFocusInventorySlots(itemLink)
@@ -921,15 +921,18 @@ function GU.HasAnyFocusUpgradeOrEventual(list, itemLink, opts)
             end
         end
     end
-    local upgradeCat = GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE
-    local eventualCat = GU.FOCUS_CATEGORY.UPGRADE_BEYOND
+    local compareCategories = {
+        [GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE] = true,
+        [GU.FOCUS_CATEGORY.UPGRADE_BEYOND] = true,
+        [GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE] = true,
+    }
     for i = 1, #list do
         local e = list[i]
         local charData = DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm)
         for s = 1, #slots do
             local info = GU.ClassifyFocusSlot(
                 e, charData, itemLink, slots[s], opts, upgradeMaxDelta)
-            if info and (info.category == upgradeCat or info.category == eventualCat) then
+            if info and compareCategories[info.category] then
                 return true
             end
         end

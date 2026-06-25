@@ -392,4 +392,38 @@ describe("ItemStats", function()
         assert.are.equal(181, stats.armor)
         assert.are.equal("tooltip", IS.GetSource(link))
     end)
+
+    it("GetNormalized merges suffix stats from tooltip when API returns armor only", function()
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 99 then
+                return { ["RESISTANCE0_NAME"] = 181 }
+            end
+            return {}
+        end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "+10 Agility",
+                    "+10 Stamina",
+                    "181 Armor",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local link = "|Hitem:99:0|h[Warmonger's Greaves of the Monkey]|h"
+        local stats = IS.GetNormalized(link)
+        assert.are.equal(10, stats.agi)
+        assert.are.equal(10, stats.sta)
+        assert.are.equal(181, stats.armor)
+        assert.are.equal("api", IS.GetSource(link))
+    end)
 end)

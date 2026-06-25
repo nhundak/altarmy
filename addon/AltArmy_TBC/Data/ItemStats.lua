@@ -249,7 +249,8 @@ local function mergeTooltipSupplement(apiRaw, tooltipRaw)
     local hasApi = apiRaw and next(apiRaw) ~= nil
     if not tooltipRaw then return merged end
     for k, v in pairs(tooltipRaw) do
-        if isTooltipOnlyStatKey(k) or not hasApi then
+        -- API often omits random suffix stats on green items; merge those from tooltip.
+        if isTooltipOnlyStatKey(k) or not hasApi or merged[k] == nil then
             merged[k] = (merged[k] or 0) + (tonumber(v) or 0)
         end
     end

@@ -68,20 +68,28 @@ describe("Gear focus visuals", function()
     local ITEM_ICON_INSET = 2
     local UPGRADE_BADGE_OFFSET_Y = -(ITEM_ICON_INSET + 4)
     local UPGRADE_BADGE_SIDEGRADE_Y_EXTRA = -10
+    local UPGRADE_BADGE_UPGRADE_Y_ADJUST = -2
+    local UPGRADE_BADGE_SIDEGRADE_Y_ADJUST = 2
 
     local function getUpgradeBadgeOffsetY(kind)
         local y = UPGRADE_BADGE_OFFSET_Y
-        if kind == "sidegrade" or kind == "sidegradeFuture" then
-            y = y + UPGRADE_BADGE_SIDEGRADE_Y_EXTRA
+        if kind == "upgrade" or kind == "upgradeFuture" then
+            y = y + UPGRADE_BADGE_UPGRADE_Y_ADJUST
+        elseif kind == "sidegrade" or kind == "sidegradeFuture" then
+            y = y + UPGRADE_BADGE_SIDEGRADE_Y_EXTRA + UPGRADE_BADGE_SIDEGRADE_Y_ADJUST
         end
         return y
     end
 
-    it("offsets sidegrade badge glyphs 10px lower than upgrade badges", function()
-        assert.are.equal(UPGRADE_BADGE_OFFSET_Y, getUpgradeBadgeOffsetY("upgrade"))
-        assert.are.equal(UPGRADE_BADGE_OFFSET_Y, getUpgradeBadgeOffsetY("upgradeFuture"))
-        assert.are.equal(UPGRADE_BADGE_OFFSET_Y + UPGRADE_BADGE_SIDEGRADE_Y_EXTRA, getUpgradeBadgeOffsetY("sidegrade"))
-        assert.are.equal(UPGRADE_BADGE_OFFSET_Y + UPGRADE_BADGE_SIDEGRADE_Y_EXTRA, getUpgradeBadgeOffsetY("sidegradeFuture"))
+    it("offsets upgrade and sidegrade badge glyphs separately", function()
+        assert.are.equal(UPGRADE_BADGE_OFFSET_Y + UPGRADE_BADGE_UPGRADE_Y_ADJUST, getUpgradeBadgeOffsetY("upgrade"))
+        assert.are.equal(UPGRADE_BADGE_OFFSET_Y + UPGRADE_BADGE_UPGRADE_Y_ADJUST, getUpgradeBadgeOffsetY("upgradeFuture"))
+        assert.are.equal(
+            UPGRADE_BADGE_OFFSET_Y + UPGRADE_BADGE_SIDEGRADE_Y_EXTRA + UPGRADE_BADGE_SIDEGRADE_Y_ADJUST,
+            getUpgradeBadgeOffsetY("sidegrade"))
+        assert.are.equal(
+            UPGRADE_BADGE_OFFSET_Y + UPGRADE_BADGE_SIDEGRADE_Y_EXTRA + UPGRADE_BADGE_SIDEGRADE_Y_ADJUST,
+            getUpgradeBadgeOffsetY("sidegradeFuture"))
     end)
 
     local FOCUS_GRID_HEIGHT_SLACK = 2
