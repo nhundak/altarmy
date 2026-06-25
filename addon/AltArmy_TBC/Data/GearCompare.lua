@@ -125,11 +125,38 @@ local function buildRawStatRows(newLink, oldLink)
     return rows
 end
 
-local function buildCustomComparison(newLink, oldLink, classFile, specKey)
+local function weightedPercentValue(summary, upgradeMaxDelta)
+    local delta = summary.delta or 0
+    if upgradeMaxDelta and upgradeMaxDelta > 0 then
+        return delta / upgradeMaxDelta * 100
+    end
+    local oldTotal = summary.oldTotal or 0
+    if oldTotal > 0 then
+        return delta / oldTotal * 100
+    end
+    if delta > 0 then return 100 end
+    return 0
+end
+
+local function buildCustomComparison(newLink, oldLink, classFile, specKey, opts)
+    opts = opts or {}
+    local rows = buildStatComparisonRows(newLink, oldLink, classFile, specKey)
+    local summary = buildSummary(newLink, oldLink, "custom", classFile, specKey)
+    rows[#rows + 1] = {
+        label = "Weighted sum",
+        delta = summary.delta,
+        hideWeight = true,
+    }
+    rows[#rows + 1] = {
+        label = "Weighted percent",
+        delta = weightedPercentValue(summary, opts.upgradeMaxDelta),
+        hideWeight = true,
+        formatAsPercent = true,
+    }
     local sections = {
         {
             title = "Stat comparison",
-            rows = buildStatComparisonRows(newLink, oldLink, classFile, specKey),
+            rows = rows,
         },
     }
     return sections
@@ -205,19 +232,20 @@ function GC.GetEquippedCompareItem(char, focusedLink, opts)
     return bestLink, bestSlot
 end
 
-function GC.BuildComparison(focusedLink, equippedLink, technique, charData, entry)
+function GC.BuildComparison(focusedLink, equippedLink, technique, charData, entry, opts)
     if not focusedLink then return nil end
+    opts = opts or {}
     technique = GU.GetEffectiveTechnique(technique or "custom")
     local classFile, specKey = GU.ResolveCompareContext(charData, entry)
     local provider = GU.GetProvider(technique)
     local sections
 
     if technique == "custom" then
-        sections = buildCustomComparison(focusedLink, equippedLink, classFile, specKey)
+        sections = buildCustomComparison(focusedLink, equippedLink, classFile, specKey, opts)
     elseif technique == "ilvl" or technique == "gearscore" then
         sections = buildScoreOnlyComparison(focusedLink, equippedLink, classFile, specKey, technique)
     else
-        sections = buildCustomComparison(focusedLink, equippedLink, classFile, specKey)
+        sections = buildCustomComparison(focusedLink, equippedLink, classFile, specKey, opts)
     end
 
     return {

@@ -97,7 +97,6 @@ local COMPARE_FOCUS_HEADER_HEIGHT = COMPARE_FOCUS_DROP_SIZE + 8
 local COMPARE_ITEMS_ROW_HEIGHT = COMPARE_FOCUS_HEADER_HEIGHT
 local GEAR_TAB_DISCLAIMER_HEIGHT = 24
 local COMPARE_HOVER_COLOR = { 0.82, 0.68, 0.22, 0.32 }
-local CLEAR_UPGRADE_RATIO = 0.5
 local UPGRADE_BADGE_COLORS = {
     upgrade = { 0.2, 1, 0.2 },
     sidegrade = { 0.9, 0.78, 0.12 },
@@ -641,15 +640,9 @@ function GearTab.GetDisplayList()
     table.sort(copy, function(a, b)
         local charA = DS and DS.GetCharacter and DS:GetCharacter(a.name, a.realm)
         local charB = DS and DS.GetCharacter and DS:GetCharacter(b.name, b.realm)
-        local ta = GU and GU.GetFocusTier
-            and GU.GetFocusTier(a, charA, droppedItemLink, upgradeOpts, upgradeMaxDelta) or 5
-        local tb = GU and GU.GetFocusTier
-            and GU.GetFocusTier(b, charB, droppedItemLink, upgradeOpts, upgradeMaxDelta) or 5
-        if ta ~= tb then return ta < tb end
-        if GU and GU.GetFocusUpgradeDelta then
-            local da = GU.GetFocusUpgradeDelta(a, charA, droppedItemLink, upgradeOpts, upgradeMaxDelta) or 0
-            local db = GU.GetFocusUpgradeDelta(b, charB, droppedItemLink, upgradeOpts, upgradeMaxDelta) or 0
-            if da ~= db then return da > db end
+        if GU and GU.CompareFocusEntries then
+            return GU.CompareFocusEntries(
+                a, b, charA, charB, droppedItemLink, upgradeOpts, upgradeMaxDelta)
         end
         return (a.name or "") < (b.name or "")
     end)
@@ -682,12 +675,9 @@ end
 
 function GearTab.getUpgradeHighlightKind(delta, maxDelta)
     if GU and GU.GetUpgradeHighlightKind then
-        return GU.GetUpgradeHighlightKind(delta, maxDelta)
+        return GU.GetUpgradeHighlightKind(delta, maxDelta, GU.GetOptions and GU.GetOptions())
     end
-    if not delta or delta <= 0 then return nil end
-    if not maxDelta or maxDelta <= 0 then return "clear" end
-    if delta >= maxDelta * CLEAR_UPGRADE_RATIO then return "clear" end
-    return "minor"
+    return nil
 end
 
 function GearTab.getFocusColumnAlpha(shouldDim, isSelected)
@@ -2241,6 +2231,12 @@ function GearTab.FormatCompareDelta(n)
     return s
 end
 
+function GearTab.FormatComparePercent(n)
+    local s = GearTab.FormatCompareNumber(n)
+    if n > 0 then return "+" .. s .. "%" end
+    return s .. "%"
+end
+
 function GearTab.GetCompareDeltaColor(delta)
     delta = tonumber(delta) or 0
     if delta > 0 then return 0.2, 1, 0.2 end
@@ -2265,13 +2261,21 @@ function GearTab.SetCompareStatDataRow(rowCells, data)
     rowCells.name:SetText(data.label or "?")
     rowCells.name:SetTextColor(1, 1, 1, 1)
     local delta = data.delta or 0
-    rowCells.delta:SetText(GearTab.FormatCompareDelta(delta))
+    if data.formatAsPercent then
+        rowCells.delta:SetText(GearTab.FormatComparePercent(delta))
+    else
+        rowCells.delta:SetText(GearTab.FormatCompareDelta(delta))
+    end
     local dr, dg, db = GearTab.GetCompareDeltaColor(delta)
     rowCells.delta:SetTextColor(dr, dg, db, 1)
     if rowCells.weight then
-        rowCells.weight:SetText(GearTab.FormatCompareWeight(data.weight))
-        local wr, wg, wb = GearTab.GetCompareWeightColor(data.weight)
-        rowCells.weight:SetTextColor(wr, wg, wb, 1)
+        if data.hideWeight then
+            rowCells.weight:SetText("")
+        else
+            rowCells.weight:SetText(GearTab.FormatCompareWeight(data.weight))
+            local wr, wg, wb = GearTab.GetCompareWeightColor(data.weight)
+            rowCells.weight:SetTextColor(wr, wg, wb, 1)
+        end
     end
 end
 
@@ -2473,13 +2477,15 @@ function GearTab.UpdateComparePanel(list)
         slot = selectedCompareSlot,
         entry = entry,
     })
-    local comparison = GC.BuildComparison(droppedItemLink, equippedLink, technique, charData, entry)
-    if not comparison then return end
-
-    local compareWarnings = GearTab.GetCompareWarnings(entry, droppedItemLink, charData)
     local focusOpts = GU and GU.GetOptions and GU.GetOptions() or {}
     local upgradeMaxDelta = GearTab.ComputeFocusUpgradeMaxDelta(
         list, GearTab.GetFocusedInventorySlots(), focusOpts)
+    local comparison = GC.BuildComparison(
+        droppedItemLink, equippedLink, technique, charData, entry,
+        { upgradeMaxDelta = upgradeMaxDelta })
+    if not comparison then return end
+
+    local compareWarnings = GearTab.GetCompareWarnings(entry, droppedItemLink, charData)
     local verdict = GU and GU.GetFocusVerdictForSlot
         and GU.GetFocusVerdictForSlot(
             entry, charData, droppedItemLink, selectedCompareSlot, focusOpts, upgradeMaxDelta)

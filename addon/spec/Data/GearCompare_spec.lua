@@ -141,13 +141,33 @@ describe("GearCompare", function()
         assert.is_true(result.summary.delta > 0)
         assert.are.equal("Stat comparison", result.sections[1].title)
         local rows = result.sections[1].rows
-        assert.are.equal(2, #rows)
+        assert.are.equal(4, #rows)
         assert.are.equal("Stamina", rows[1].label)
         assert.is_false(rows[1].unimportant)
         assert.are.equal(0.5, rows[1].weight)
         assert.are.equal("Intellect", rows[2].label)
         assert.is_false(rows[2].unimportant)
         assert.are.equal(0.37, rows[2].weight)
+        assert.are.equal("Weighted sum", rows[3].label)
+        assert.are.equal(result.summary.delta, rows[3].delta)
+        assert.is_true(rows[3].hideWeight)
+        assert.are.equal("Weighted percent", rows[4].label)
+        assert.is_true(rows[4].formatAsPercent)
+        assert.is_true(rows[4].hideWeight)
+        local expectedPercent = result.summary.delta / result.summary.oldTotal * 100
+        assert.are.equal(expectedPercent, rows[4].delta)
+    end)
+
+    it("BuildComparison weighted percent uses upgradeMaxDelta when provided", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local focused = "|Hitem:11:0|h[New Helm]|h"
+        local equipped = "|Hitem:10:0|h[Old Helm]|h"
+        local result = GC.BuildComparison(focused, equipped, "custom", char, nil, {
+            upgradeMaxDelta = 15,
+        })
+        local rows = result.sections[1].rows
+        assert.are.equal("Weighted percent", rows[#rows].label)
+        assert.are.equal(result.summary.delta / 15 * 100, rows[#rows].delta)
     end)
 
     it("BuildComparison includes zero-weight changing stats marked unimportant", function()
@@ -183,12 +203,17 @@ describe("GearCompare", function()
             AltArmy.ItemStats.ClearCache()
         end
         local rows = result.sections[1].rows
-        assert.are.equal(3, #rows)
+        assert.are.equal(5, #rows)
         assert.are.equal("Stamina", rows[1].label)
         assert.are.equal("Intellect", rows[2].label)
         assert.are.equal("Strength", rows[3].label)
         assert.is_true(rows[3].unimportant)
         assert.are.equal(0, rows[3].weight)
+        assert.are.equal("Weighted sum", rows[4].label)
+        assert.are.equal(result.summary.delta, rows[4].delta)
+        assert.is_true(rows[4].hideWeight)
+        assert.are.equal("Weighted percent", rows[5].label)
+        assert.is_true(rows[5].formatAsPercent)
     end)
 
     it("BuildComparison omits stats that do not change", function()
@@ -222,8 +247,11 @@ describe("GearCompare", function()
         if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
             AltArmy.ItemStats.ClearCache()
         end
-        assert.are.equal(1, #result.sections[1].rows)
+        assert.are.equal(3, #result.sections[1].rows)
         assert.are.equal("Intellect", result.sections[1].rows[1].label)
+        assert.are.equal("Weighted sum", result.sections[1].rows[2].label)
+        assert.are.equal(result.summary.delta, result.sections[1].rows[2].delta)
+        assert.are.equal("Weighted percent", result.sections[1].rows[3].label)
     end)
 
     it("BuildComparison ilvl returns item level summary", function()

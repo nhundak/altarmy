@@ -13,6 +13,7 @@ describe("GearUpgrade", function()
         local items = {
             [10] = { "Old Helm", nil, 2, 20, 20, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
             [11] = { "New Helm", nil, 3, 35, 35, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
+            [13] = { "Newer Helm", nil, 3, 32, 32, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
             [12] = { "Ring", nil, 3, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
             [50] = { "Sparkling Wand", nil, 2, 25, 25, "Weapon", "Wand", nil, "INVTYPE_RANGEDRIGHT" },
             [80] = { "Heal Ring", nil, 3, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
@@ -31,6 +32,9 @@ describe("GearUpgrade", function()
         end
         if id == 10 then
             return { ["ITEM_MOD_INTELLECT_SHORT"] = 5, ["ITEM_MOD_STAMINA_SHORT"] = 5 }
+        end
+        if id == 13 then
+            return { ["ITEM_MOD_INTELLECT_SHORT"] = 17, ["ITEM_MOD_STAMINA_SHORT"] = 8 }
         end
         if id == 50 then
             return { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 15.5, ["ITEM_MOD_INTELLECT_SHORT"] = 5 }
@@ -351,12 +355,81 @@ describe("GearUpgrade", function()
         assert.is_true(matches[1].isUpgrade)
     end)
 
+    it("EvaluateForAllAlts matches gear tab: only in-range clear upgrades", function()
+        _G.AltArmyTBC_Data.Characters.TestRealm.LowLevel = {
+            name = "LowLevel",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 28,
+            Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        _G.AltArmyTBC_Data.Characters.TestRealm.SidegradeAlt = {
+            name = "SidegradeAlt",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 60,
+            Inventory = { [1] = "|Hitem:13:0|h[Newer Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        local oldGetItemInfo = _G.GetItemInfo
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            local items = {
+                [10] = { "Old Helm", nil, 2, 20, 20, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
+                [11] = { "New Helm", nil, 3, 35, 35, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
+                [13] = { "Newer Helm", nil, 3, 32, 32, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
+            }
+            local info = items[id]
+            if not info then return oldGetItemInfo(item) end
+            local link = "|cff|Hitem:" .. tostring(id) .. ":0|h[" .. info[1] .. "]|h|r"
+            return info[1], link, info[3], info[4], info[5], info[6], info[7], nil, info[9]
+        end
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 11 then
+                return { ["ITEM_MOD_INTELLECT_SHORT"] = 20, ["ITEM_MOD_STAMINA_SHORT"] = 10 }
+            end
+            if id == 13 then
+                return { ["ITEM_MOD_INTELLECT_SHORT"] = 17, ["ITEM_MOD_STAMINA_SHORT"] = 8 }
+            end
+            if id == 10 then
+                return { ["ITEM_MOD_INTELLECT_SHORT"] = 5, ["ITEM_MOD_STAMINA_SHORT"] = 5 }
+            end
+            return oldGetItemStats(link)
+        end
+        local matches = GU.EvaluateForAllAlts("|Hitem:11:0|h[New Helm]|h", {
+            technique = "ilvl",
+            levelsAhead = 5,
+        })
+        assert.are.equal(2, #matches)
+        local names = { [matches[1].name] = true, [matches[2].name] = true }
+        assert.is_true(names.MageAlt)
+        assert.is_true(names.SidegradeAlt)
+        _G.GetItemInfo = oldGetItemInfo
+        _G.GetItemStats = oldGetItemStats
+    end)
+
     it("EnsureGearUpgradeOptions applies defaults", function()
         _G.AltArmyTBC_Options = {}
         local opts = GU.EnsureGearUpgradeOptions()
         assert.is_true(opts.enabled)
         assert.are.equal("custom", opts.technique)
         assert.are.equal(5, opts.levelsAhead)
+        assert.are.equal(10, opts.upgradeThresholdPercent)
+    end)
+
+    it("GetUpgradeHighlightKind uses upgradeThresholdPercent from opts", function()
+        assert.are.equal("minor", GU.GetUpgradeHighlightKind(3, 15, { upgradeThresholdPercent = 50 }))
+        assert.are.equal("clear", GU.GetUpgradeHighlightKind(3, 15, { upgradeThresholdPercent = 10 }))
+    end)
+
+    it("ResolveUpgradeThresholdPercent clamps to 0-100", function()
+        assert.are.equal(10, GU.ResolveUpgradeThresholdPercent(nil))
+        assert.are.equal(0, GU.ResolveUpgradeThresholdPercent(-10))
+        assert.are.equal(100, GU.ResolveUpgradeThresholdPercent(150))
     end)
 
     it("EnsureGearUpgradeOptions preserves enabled and levelsAhead", function()
@@ -807,13 +880,142 @@ describe("GearUpgrade", function()
             eventualEntry, DS:GetCharacter("LowLevel", "TestRealm"), newLink, opts, 15)
         local sidegradeTier = GU.GetFocusTier(
             sidegradeEntry, DS:GetCharacter("SidegradeAlt", "TestRealm"), newLink, opts, 15)
-        assert.is_true(eventualTier < sidegradeTier)
+        assert.is_true(sidegradeTier < eventualTier)
         assert.are.equal(GU.FOCUS_CATEGORY.UPGRADE_BEYOND,
             GU.SummarizeFocusEntry(eventualEntry, DS:GetCharacter("LowLevel", "TestRealm"), newLink, opts, 15).category)
-        assert.are.equal(GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE,
+        assert.are.equal(GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE,
             GU.SummarizeFocusEntry(sidegradeEntry, DS:GetCharacter("SidegradeAlt", "TestRealm"), newLink, opts, 15).category)
         _G.GetItemInfo = oldGetItemInfo
         _G.GetItemStats = oldGetItemStats
+    end)
+
+    it("CompareFocusEntries ranks sidegrades before eventual upgrades", function()
+        _G.AltArmyTBC_Data.Characters.TestRealm.LowLevel = {
+            name = "LowLevel",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 10,
+            Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        _G.AltArmyTBC_Data.Characters.TestRealm.SidegradeAlt = {
+            name = "SidegradeAlt",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 60,
+            Inventory = { [1] = "|Hitem:11:0|h[New Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        local opts = { technique = "ilvl", levelsAhead = 0 }
+        local newLink = "|Hitem:11:0|h[New Helm]|h"
+        local eventualEntry = { name = "LowLevel", realm = "TestRealm", classFile = "MAGE", level = 10 }
+        local sidegradeEntry = { name = "SidegradeAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local eventualChar = DS:GetCharacter("LowLevel", "TestRealm")
+        local sidegradeChar = DS:GetCharacter("SidegradeAlt", "TestRealm")
+        assert.is_true(GU.CompareFocusEntries(
+            sidegradeEntry, eventualEntry, sidegradeChar, eventualChar, newLink, opts, 15))
+        assert.are.equal(2, GU.GetFocusCompareSortTier(sidegradeEntry, sidegradeChar, newLink, opts, 15))
+        assert.are.equal(3, GU.GetFocusCompareSortTier(eventualEntry, eventualChar, newLink, opts, 15))
+    end)
+
+    it("CompareFocusEntries ranks downgrades before unusable", function()
+        local oldGetItemInfo = _G.GetItemInfo
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 99 then
+                return "Plate Helm", "|Hitem:99:0|h[Plate Helm]|h", 3, 50, 50,
+                    "Armor", "Plate", nil, "INVTYPE_HEAD"
+            end
+            if id == 100 then
+                return "Better Plate Helm", "|Hitem:100:0|h[Better Plate Helm]|h", 3, 60, 60,
+                    "Armor", "Plate", nil, "INVTYPE_HEAD"
+            end
+            return oldGetItemInfo(item)
+        end
+        _G.AltArmyTBC_Data.Characters.TestRealm.WarriorAlt = {
+            name = "WarriorAlt",
+            realm = "TestRealm",
+            classFile = "WARRIOR",
+            level = 60,
+            Inventory = { [1] = "|Hitem:100:0|h[Better Plate Helm]|h" },
+            talents = { tabs = { 0, 21, 0 }, primary = 2, specKey = "fury" },
+        }
+        local opts = { technique = "ilvl", levelsAhead = 0 }
+        local plateLink = "|Hitem:99:0|h[Plate Helm]|h"
+        local downgradeEntry = { name = "WarriorAlt", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+        local unusableEntry = { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local downgradeChar = DS:GetCharacter("WarriorAlt", "TestRealm")
+        local unusableChar = DS:GetCharacter("MageAlt", "TestRealm")
+        assert.is_true(GU.CompareFocusEntries(
+            downgradeEntry, unusableEntry, downgradeChar, unusableChar, plateLink, opts, 10))
+        assert.are.equal(5, GU.GetFocusCompareSortTier(
+            downgradeEntry, downgradeChar, plateLink, opts, 10))
+        assert.are.equal(6, GU.GetFocusCompareSortTier(
+            unusableEntry, unusableChar, plateLink, opts, 10))
+        _G.GetItemInfo = oldGetItemInfo
+    end)
+
+    it("CompareFocusEntries puts sub-max-level before max-level within same tier", function()
+        _G.AltArmyTBC_Data.Characters.TestRealm.SubMax = {
+            name = "SubMax",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 60,
+            Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        _G.AltArmyTBC_Data.Characters.TestRealm.AtMax = {
+            name = "AtMax",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 70,
+            Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        local opts = { technique = "ilvl", levelsAhead = 0 }
+        local newLink = "|Hitem:11:0|h[New Helm]|h"
+        local subMax = { name = "SubMax", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local maxLevel = { name = "AtMax", realm = "TestRealm", classFile = "MAGE", level = 70 }
+        assert.is_true(GU.CompareFocusEntries(
+            subMax, maxLevel,
+            DS:GetCharacter("SubMax", "TestRealm"),
+            DS:GetCharacter("AtMax", "TestRealm"),
+            newLink, opts, 15))
+        assert.is_true(GU.IsMaxLevelCharacter(maxLevel, DS:GetCharacter("AtMax", "TestRealm")))
+        assert.is_false(GU.IsMaxLevelCharacter(subMax, DS:GetCharacter("SubMax", "TestRealm")))
+    end)
+
+    it("CompareFocusEntries sorts by upgrade percent then levels until equippable", function()
+        _G.AltArmyTBC_Data.Characters.TestRealm.BigUpgrader = {
+            name = "BigUpgrader",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 60,
+            Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        _G.AltArmyTBC_Data.Characters.TestRealm.SmallUpgrader = {
+            name = "SmallUpgrader",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 60,
+            Inventory = { [1] = "|Hitem:13:0|h[Newer Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        local opts = { technique = "ilvl", levelsAhead = 0 }
+        local newLink = "|Hitem:11:0|h[New Helm]|h"
+        local big = { name = "BigUpgrader", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local small = { name = "SmallUpgrader", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        assert.is_true(GU.CompareFocusEntries(
+            big, small,
+            DS:GetCharacter("BigUpgrader", "TestRealm"),
+            DS:GetCharacter("SmallUpgrader", "TestRealm"),
+            newLink, opts, 15))
+        assert.is_true(GU.GetFocusUpgradePercent(
+            big, DS:GetCharacter("BigUpgrader", "TestRealm"), newLink, opts, 15) >
+            GU.GetFocusUpgradePercent(
+                small, DS:GetCharacter("SmallUpgrader", "TestRealm"), newLink, opts, 15))
     end)
 
     it("SummarizeFocusCharacter uses best ring slot for sort tier", function()

@@ -287,7 +287,7 @@ describe("Gear display list focus mode", function()
         GU = AltArmy.GearUpgrade
     end)
 
-    --- Mirror TabGear focus sort.
+    --- Mirror TabGear focus sort (uses GU.CompareFocusEntries).
     local function sortByFocusTier(list, itemLink, upgradeOpts)
         local slots = IU.GetInventorySlotsForItem(itemLink) or {}
         local upgradeMaxDelta
@@ -305,13 +305,7 @@ describe("Gear display list focus mode", function()
         table.sort(copy, function(a, b)
             local charA = DS:GetCharacter(a.name, a.realm)
             local charB = DS:GetCharacter(b.name, b.realm)
-            local ta = GU.GetFocusTier(a, charA, itemLink, upgradeOpts, upgradeMaxDelta)
-            local tb = GU.GetFocusTier(b, charB, itemLink, upgradeOpts, upgradeMaxDelta)
-            if ta ~= tb then return ta < tb end
-            local da = GU.GetFocusUpgradeDelta(a, charA, itemLink, upgradeOpts, upgradeMaxDelta) or 0
-            local db = GU.GetFocusUpgradeDelta(b, charB, itemLink, upgradeOpts, upgradeMaxDelta) or 0
-            if da ~= db then return da > db end
-            return (a.name or "") < (b.name or "")
+            return GU.CompareFocusEntries(a, b, charA, charB, itemLink, upgradeOpts, upgradeMaxDelta)
         end)
         return copy
     end
@@ -371,7 +365,7 @@ describe("Gear display list focus mode", function()
         return nil, nil
     end
 
-    it("sorts columns by focus tier: upgrade, eventual upgrade, sidegrade, then neutral", function()
+    it("sorts columns by focus tier: upgrade, sidegrade, eventual upgrade, then neutral", function()
         local itemLink = "|Hitem:11:0|h[New Helm]|h"
         local entries = {
             { name = "LowLevel", realm = "RealmA", classFile = "MAGE", level = 10 },
@@ -380,8 +374,25 @@ describe("Gear display list focus mode", function()
         }
         local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
         assert.are.equal("Upgrader", sorted[1].name)
-        assert.are.equal("LowLevel", sorted[2].name)
-        assert.are.equal("Usable", sorted[3].name)
+        assert.are.equal("Usable", sorted[2].name)
+        assert.are.equal("LowLevel", sorted[3].name)
+    end)
+
+    it("sorts sub-max-level characters before max-level within the same tier", function()
+        _G.AltArmyTBC_Data.Characters.RealmA.MaxUpgrader = {
+            name = "MaxUpgrader",
+            classFile = "MAGE",
+            level = 70,
+            Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+        }
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local entries = {
+            { name = "MaxUpgrader", realm = "RealmA", classFile = "MAGE", level = 70 },
+            { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        assert.are.equal("Upgrader", sorted[1].name)
+        assert.are.equal("MaxUpgrader", sorted[2].name)
     end)
 
     it("sorts upgrade columns by biggest upgrade first", function()

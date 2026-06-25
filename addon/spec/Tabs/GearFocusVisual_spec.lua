@@ -4,7 +4,7 @@
 ]]
 
 describe("Gear focus visuals", function()
-    local CLEAR_UPGRADE_RATIO = 0.5
+    local CLEAR_UPGRADE_RATIO = 0.10
     local FOCUS_FADE_ALPHA = 0.45
 
     local function getUpgradeHighlightKind(delta, maxDelta)
@@ -26,7 +26,7 @@ describe("Gear focus visuals", function()
     end)
 
     it("uses yellow bucket for minor upgrades", function()
-        assert.are.equal("minor", getUpgradeHighlightKind(3, 15))
+        assert.are.equal("minor", getUpgradeHighlightKind(0.5, 15))
     end)
 
     it("returns nil highlight for non-upgrades", function()

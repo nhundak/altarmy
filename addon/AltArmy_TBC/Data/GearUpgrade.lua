@@ -18,11 +18,27 @@ local function IU()
 end
 
 local DEFAULT_LEVELS_AHEAD = 5
+local DEFAULT_UPGRADE_THRESHOLD_PERCENT = 10
 
 local function resolveLevelsAhead(value)
     local n = tonumber(value)
     if n == nil then return DEFAULT_LEVELS_AHEAD end
     return math.max(0, math.floor(n))
+end
+
+function GU.ResolveUpgradeThresholdPercent(value)
+    local n = tonumber(value)
+    if n == nil then return DEFAULT_UPGRADE_THRESHOLD_PERCENT end
+    return math.max(0, math.min(100, n))
+end
+
+function GU.GetUpgradeThresholdRatio(opts)
+    opts = opts or {}
+    local pct = opts.upgradeThresholdPercent
+    if pct == nil and GU.GetOptions then
+        pct = GU.GetOptions().upgradeThresholdPercent
+    end
+    return GU.ResolveUpgradeThresholdPercent(pct) / 100
 end
 
 local function buildWeightsFromPawnScales()
@@ -433,8 +449,6 @@ function GU.GetSlotUpgradeDelta(char, itemLink, invSlot, opts, entry)
     return upgradeDeltaInSlots(char, itemLink, technique, { invSlot }, entry)
 end
 
-local CLEAR_UPGRADE_RATIO = 0.5
-
 GU.FOCUS_CATEGORY = {
     NEVER = 1,
     UPGRADE_IN_RANGE = 2,
@@ -484,10 +498,11 @@ local function focusSortTierForCategory(category)
 end
 
 --- clear (+) vs minor (~) among positive upgrade deltas.
-function GU.GetUpgradeHighlightKind(delta, maxDelta)
+function GU.GetUpgradeHighlightKind(delta, maxDelta, opts)
     if not delta or delta <= 0 then return nil end
     if not maxDelta or maxDelta <= 0 then return "clear" end
-    if delta >= maxDelta * CLEAR_UPGRADE_RATIO then return "clear" end
+    local ratio = GU.GetUpgradeThresholdRatio(opts)
+    if delta >= maxDelta * ratio then return "clear" end
     return "minor"
 end
 
@@ -531,7 +546,7 @@ function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeM
     end
 
     if rawDelta > 0 then
-        local kind = GU.GetUpgradeHighlightKind(rawDelta, upgradeMaxDelta)
+        local kind = GU.GetUpgradeHighlightKind(rawDelta, upgradeMaxDelta, opts)
         local category
         if kind == "clear" then
             category = inRange and GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE
@@ -823,7 +838,7 @@ function GU.BuildFocusSlotDebugLines(entry, charData, itemLink, invSlot, opts, u
     end
 
     if rawDelta > 0 then
-        local kind = GU.GetUpgradeHighlightKind(rawDelta, upgradeMaxDelta)
+        local kind = GU.GetUpgradeHighlightKind(rawDelta, upgradeMaxDelta, opts)
         lines[#lines + 1] = string.format("  Upgrade highlight kind: %s", tostring(kind or "(nil)"))
     end
 
@@ -922,10 +937,6 @@ function GU.HasAnyFocusUpgradeOrEventual(list, itemLink, opts)
     return false
 end
 
-local function bestUpgradeInSlots(char, newLink, technique, slots, entry)
-    return upgradeDeltaInSlots(char, newLink, technique, slots, entry) > 0
-end
-
 local function charMatchesRealm(_char, realm, _name, realmFilter, currentRealm)
     if realmFilter == "currentRealm" and currentRealm and realm ~= currentRealm then
         return false
@@ -933,21 +944,54 @@ local function charMatchesRealm(_char, realm, _name, realmFilter, currentRealm)
     return true
 end
 
+--- Max positive slot delta across entries (gear tab focus comparison).
+function GU.ComputeUpgradeMaxDeltaForEntries(entries, itemLink, opts)
+    if not entries or not itemLink then return nil end
+    local slots = GU.GetFocusInventorySlots(itemLink)
+    if #slots == 0 then return nil end
+    opts = opts or {}
+    local DS = AltArmy.DataStore
+    local upgradeMaxDelta
+    for i = 1, #entries do
+        local e = entries[i]
+        local charData = e.charData
+            or (DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm))
+        for s = 1, #slots do
+            local delta = GU.GetSlotCompareDelta(charData, itemLink, slots[s], opts, e) or 0
+            if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
+                upgradeMaxDelta = delta
+            end
+        end
+    end
+    return upgradeMaxDelta
+end
+
+--- True when any slot is classified as UPGRADE_IN_RANGE (gear tab green upgrade badge).
+function GU.HasFocusUpgradeInRange(entry, charData, itemLink, opts, upgradeMaxDelta)
+    local slots = GU.GetFocusInventorySlots(itemLink)
+    if #slots == 0 then return false end
+    for i = 1, #slots do
+        local info = GU.ClassifyFocusSlot(entry, charData, itemLink, slots[i], opts, upgradeMaxDelta)
+        if info and info.category == GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE then
+            return true
+        end
+    end
+    return false
+end
+
 function GU.EvaluateForAllAlts(itemLink, opts)
     opts = opts or {}
     local DS = AltArmy.DataStore
     if not DS or not DS.ForEachCharacter or not itemLink then return {} end
-    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
-    local slots = IU() and IU().GetInventorySlotsForItem(itemLink) or {}
+    local slots = GU.GetFocusInventorySlots(itemLink)
     if #slots == 0 then return {} end
 
     local realmFilter = "all"
     local GRF = AltArmy.GlobalRealmFilter
-  if GRF and GRF.Get then realmFilter = GRF.Get() end
+    if GRF and GRF.Get then realmFilter = GRF.Get() end
     local currentRealm = DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm() or ""
 
-    local matches = {}
+    local entries = {}
     DS:ForEachCharacter(function(realm, charName, charData)
         if not charMatchesRealm(charData, realm, charName, realmFilter, currentRealm) then
             return
@@ -955,26 +999,30 @@ function GU.EvaluateForAllAlts(itemLink, opts)
         local classFile = charData.classFile or ""
         local level = (DS.GetCharacterLevel and DS:GetCharacterLevel(charData))
             or tonumber(charData.level) or 0
-        local equippable = IU() and IU().IsEquippableWithin(classFile, level, itemLink, levelsAhead)
-        if not equippable then return end
-        local equippableNow = level >= (IU().EffectiveRequiredLevel(classFile, itemLink) or 999)
-        local entry = {
+        entries[#entries + 1] = {
             name = charData.name or charName,
             realm = realm,
             classFile = classFile,
             level = level,
+            charData = charData,
         }
-        local isUpgrade = bestUpgradeInSlots(charData, itemLink, technique, slots, entry)
-        if isUpgrade then
+    end)
+
+    local upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForEntries(entries, itemLink, opts)
+    local matches = {}
+    for i = 1, #entries do
+        local e = entries[i]
+        if GU.HasFocusUpgradeInRange(e, e.charData, itemLink, opts, upgradeMaxDelta) then
+            local equippableNow = e.level >= (IU().EffectiveRequiredLevel(e.classFile, itemLink) or 999)
             matches[#matches + 1] = {
-                name = charData.name or charName,
-                realm = realm,
-                classFile = classFile,
+                name = e.name,
+                realm = e.realm,
+                classFile = e.classFile,
                 isUpgrade = true,
                 equippableNow = equippableNow,
             }
         end
-    end)
+    end
     return matches
 end
 
@@ -982,10 +1030,25 @@ end
 function GU.EvaluateForCharacter(char, itemLink, opts)
     opts = opts or {}
     if not char or not itemLink then return false end
-    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local slots = IU() and IU().GetInventorySlotsForItem(itemLink) or {}
+    local slots = GU.GetFocusInventorySlots(itemLink)
     if #slots == 0 then return false end
-    return bestUpgradeInSlots(char, itemLink, technique, slots, nil)
+    local DS = AltArmy.DataStore
+    local entry = {
+        name = char.name,
+        realm = char.realm,
+        classFile = char.classFile or "",
+        level = (DS and DS.GetCharacterLevel and DS:GetCharacterLevel(char))
+            or tonumber(char.level) or 0,
+    }
+    local entries = { {
+        name = entry.name,
+        realm = entry.realm,
+        classFile = entry.classFile,
+        level = entry.level,
+        charData = char,
+    } }
+    local upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForEntries(entries, itemLink, opts)
+    return GU.HasFocusUpgradeInRange(entry, char, itemLink, opts, upgradeMaxDelta)
 end
 
 --- Raw upgrade magnitude for one character (technique-specific score delta).
@@ -1004,6 +1067,80 @@ function GU.GetFocusUpgradeDelta(entry, charData, itemLink, opts, upgradeMaxDelt
     return summary.sortDelta or 0
 end
 
+local FOCUS_COMPARE_SORT_TIER = {
+    [GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE] = 1,
+    [GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE] = 2,
+    [GU.FOCUS_CATEGORY.UPGRADE_BEYOND] = 3,
+    [GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND] = 4,
+    [GU.FOCUS_CATEGORY.DOWNGRADE] = 5,
+    [GU.FOCUS_CATEGORY.NEVER] = 6,
+}
+
+local function focusCompareSortTierForCategory(category)
+    if not category then return 6 end
+    return FOCUS_COMPARE_SORT_TIER[category] or 6
+end
+
+--- Display-list sort tier: upgrade, sidegrade, eventual upgrade, eventual sidegrade, downgrade, unusable.
+function GU.GetFocusCompareSortTier(entry, charData, itemLink, opts, upgradeMaxDelta)
+    local summary = GU.SummarizeFocusEntry(entry, charData, itemLink, opts, upgradeMaxDelta)
+    return focusCompareSortTierForCategory(summary and summary.category)
+end
+
+function GU.IsMaxLevelCharacter(entry, charData)
+    local DS = AltArmy.DataStore
+    local maxLevel = (DS and DS.MAX_LEVEL) or 70
+    local level = entry and entry.level or (charData and charData.level) or 0
+    if DS and DS.GetCharacterLevel and charData then
+        level = DS:GetCharacterLevel(charData) or level
+    end
+    return math.floor(tonumber(level) or 0) >= maxLevel
+end
+
+function GU.GetLevelsUntilEquippable(entry, charData, itemLink)
+    local iu = IU()
+    if not iu or not itemLink then return 999 end
+    local classFile = entry and entry.classFile or (charData and charData.classFile) or ""
+    local level = entry and entry.level or (charData and charData.level) or 0
+    local DS = AltArmy.DataStore
+    if DS and DS.GetCharacterLevel and charData then
+        level = DS:GetCharacterLevel(charData) or level
+    end
+    local effective = iu.EffectiveRequiredLevel(classFile, itemLink) or 999
+    if effective >= 999 then return 999 end
+    level = math.floor(tonumber(level) or 0)
+    if level >= effective then return 0 end
+    return effective - level
+end
+
+--- Upgrade size as a percent of the best positive delta in the comparison grid.
+function GU.GetFocusUpgradePercent(entry, charData, itemLink, opts, upgradeMaxDelta)
+    local delta = GU.GetFocusUpgradeDelta(entry, charData, itemLink, opts, upgradeMaxDelta) or 0
+    if delta <= 0 or not upgradeMaxDelta or upgradeMaxDelta <= 0 then return 0 end
+    return delta / upgradeMaxDelta * 100
+end
+
+--- True when entry a should appear before entry b in the focus comparison column list.
+function GU.CompareFocusEntries(a, b, charA, charB, itemLink, opts, upgradeMaxDelta)
+    local ta = GU.GetFocusCompareSortTier(a, charA, itemLink, opts, upgradeMaxDelta)
+    local tb = GU.GetFocusCompareSortTier(b, charB, itemLink, opts, upgradeMaxDelta)
+    if ta ~= tb then return ta < tb end
+
+    local maxA = GU.IsMaxLevelCharacter(a, charA)
+    local maxB = GU.IsMaxLevelCharacter(b, charB)
+    if maxA ~= maxB then return not maxA end
+
+    local pa = GU.GetFocusUpgradePercent(a, charA, itemLink, opts, upgradeMaxDelta)
+    local pb = GU.GetFocusUpgradePercent(b, charB, itemLink, opts, upgradeMaxDelta)
+    if pa ~= pb then return pa > pb end
+
+    local la = GU.GetLevelsUntilEquippable(a, charA, itemLink)
+    local lb = GU.GetLevelsUntilEquippable(b, charB, itemLink)
+    if la ~= lb then return la < lb end
+
+    return (a.name or "") < (b.name or "")
+end
+
 --- Sort tier for focus-mode column sort (1=best … 5=never/downgrade/neutral).
 function GU.GetFocusTier(entry, charData, itemLink, opts, upgradeMaxDelta)
     local summary = GU.SummarizeFocusEntry(entry, charData, itemLink, opts, upgradeMaxDelta)
@@ -1018,6 +1155,7 @@ function GU.EnsureGearUpgradeOptions()
     if gu.enabled == nil then gu.enabled = true end
     gu.technique = "custom"
     gu.levelsAhead = resolveLevelsAhead(gu.levelsAhead)
+    gu.upgradeThresholdPercent = GU.ResolveUpgradeThresholdPercent(gu.upgradeThresholdPercent)
     return gu
 end
 

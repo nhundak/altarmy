@@ -95,7 +95,33 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     end)
     levelsEdit:SetScript("OnEditFocusLost", saveLevelsAhead)
 
-    scrollChild:SetHeight(120)
+    local thresholdLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    thresholdLabel:SetPoint("TOPLEFT", levelsEdit, "BOTTOMLEFT", 0, -14)
+    thresholdLabel:SetText("Upgrade threshold (%)")
+
+    local thresholdEdit = CreateFrame("EditBox", nil, scrollChild)
+    thresholdEdit:SetPoint("TOPLEFT", thresholdLabel, "BOTTOMLEFT", 0, -4)
+    thresholdEdit:SetSize(44, 20)
+    thresholdEdit:SetFontObject("GameFontHighlightSmall")
+    thresholdEdit:SetAutoFocus(false)
+    thresholdEdit:SetNumeric(true)
+    thresholdEdit:SetJustifyH("CENTER")
+    Theme.ApplyInputTextures(thresholdEdit)
+
+    local function saveUpgradeThreshold()
+        local n = tonumber(thresholdEdit:GetText()) or 0
+        GU.EnsureGearUpgradeOptions().upgradeThresholdPercent =
+            GU.ResolveUpgradeThresholdPercent(n)
+        thresholdEdit:SetText(tostring(GU.GetOptions().upgradeThresholdPercent))
+    end
+
+    thresholdEdit:SetScript("OnEnterPressed", function(box)
+        box:ClearFocus()
+        saveUpgradeThreshold()
+    end)
+    thresholdEdit:SetScript("OnEditFocusLost", saveUpgradeThreshold)
+
+    scrollChild:SetHeight(160)
 
     local function UpdateGearUpgradeScrollRange()
         viewport:UpdateRange()
@@ -106,6 +132,7 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
         local opts = GU.GetOptions()
         enabledChk:SetChecked(opts.enabled ~= false)
         levelsEdit:SetText(tostring(opts.levelsAhead))
+        thresholdEdit:SetText(tostring(opts.upgradeThresholdPercent))
         UpdateGearUpgradeScrollRange()
     end
 
