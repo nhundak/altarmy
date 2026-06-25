@@ -93,7 +93,7 @@ describe("GearUpgradeAlerts", function()
         require("GearUpgradeAlerts")
         GA = AltArmy.GearUpgradeAlerts
         openedLink = nil
-        SetItemRef("altarmy:upgrade:11", "View upgrade", "LeftButton")
+        SetItemRef("altarmy:upgrade:11", "View details", "LeftButton")
         assert.is_false(innerCalled)
         assert.are.equal("|Hitem:11:0|h[New Helm]|h", openedLink)
 
@@ -131,15 +131,16 @@ describe("GearUpgradeAlerts", function()
             GA = AltArmy.GearUpgradeAlerts
         end
 
-        it("omits the item link and includes the view upgrade link", function()
+        it("includes the item link, character names, and view details link", function()
             loadWithMocks(function()
                 return { { name = "MageAlt", classFile = "MAGE" } }
             end)
-            local ok = GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+            local itemLink = "|Hitem:11:0|h[New Helm]|h"
+            local ok = GA.AnnounceLootUpgrade(itemLink)
             assert.is_true(ok)
-            assert.matches("Upgrade for MageAlt:", chatLines[1])
-            assert.matches("View upgrade:", chatLines[1])
-            assert.is_nil(chatLines[1]:match("|Hitem:11:0|h%[New Helm%]|h"))
+            assert.is_not_nil(chatLines[1]:find(itemLink, 1, true))
+            assert.matches("is an upgrade for MageAlt:", chatLines[1])
+            assert.matches("%[View details%]", chatLines[1])
         end)
 
         it("lists every alt name when three or fewer match", function()
@@ -151,7 +152,7 @@ describe("GearUpgradeAlerts", function()
                 }
             end)
             GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
-            assert.matches("Upgrade for Alpha, Bravo, Charlie:", chatLines[1])
+            assert.matches("is an upgrade for Alpha, Bravo, Charlie:", chatLines[1])
         end)
 
         it("summarizes four or more alts as two names plus others", function()
@@ -165,7 +166,195 @@ describe("GearUpgradeAlerts", function()
                 }
             end)
             GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
-            assert.matches("Upgrade for Alpha, Bravo, and 3 others:", chatLines[1])
+            assert.matches("is an upgrade for Alpha, Bravo, and 3 others:", chatLines[1])
+        end)
+    end)
+
+    describe("AnnounceLevelUpUpgrades", function()
+        local chatLines
+        local helmLink = "|Hitem:11:0|h[New Helm]|h"
+
+        local function loadWithMocks(overrides)
+            overrides = overrides or {}
+            chatLines = {}
+            _G.DEFAULT_CHAT_FRAME = {
+                AddMessage = function(_, line)
+                    chatLines[#chatLines + 1] = line
+                end,
+            }
+            _G.GetContainerNumSlots = overrides.getContainerNumSlots or function() return 0 end
+            _G.GetContainerItemLink = overrides.getContainerItemLink
+            AltArmy.DataStore = {
+                GetCurrentCharacter = function()
+                    return overrides.char or { classFile = "MAGE", name = "MageAlt" }
+                end,
+                ScanBags = function() end,
+                IterateBagSlots = overrides.iterateBagSlots,
+                IterateBankSlots = overrides.iterateBankSlots,
+                GetNumMails = overrides.getNumMails or function() return 0 end,
+                GetMailInfo = overrides.getMailInfo,
+                BANK_CONTAINER = -1,
+                MIN_BANK_BAG_ID = 5,
+                MAX_BANK_BAG_ID = 11,
+            }
+            AltArmy.GearUpgrade = {
+                GetOptions = function()
+                    local enabled = overrides.enabled
+                    if enabled == nil then enabled = true end
+                    return { enabled = enabled, technique = "custom", levelsAhead = 5 }
+                end,
+                EvaluateForCharacter = overrides.evaluateForCharacter or function()
+                    return true
+                end,
+            }
+            AltArmy.ItemUsability = {
+                IsBindOnPickup = function() return false end,
+                NeedsProficiencyTraining = function() return false end,
+                EffectiveRequiredLevel = overrides.effectiveRequiredLevel or function(_, link)
+                    if link == helmLink then return 40 end
+                    return 999
+                end,
+            }
+            package.loaded["GearUpgradeAlerts"] = nil
+            require("GearUpgradeAlerts")
+            GA = AltArmy.GearUpgradeAlerts
+        end
+
+        it("announces equippable bag upgrades at the new level", function()
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 11, 1, helmLink)
+                end,
+            })
+            GA.AnnounceLevelUpUpgrades(40)
+            assert.are.equal(1, #chatLines)
+            assert.matches("Congratulations! You can now equip ", chatLines[1])
+            assert.is_not_nil(chatLines[1]:find(helmLink, 1, true))
+            assert.is_nil(chatLines[1]:match("%(bank%)"))
+            assert.is_nil(chatLines[1]:match("%(mail%)"))
+        end)
+
+        it("appends bank reminder when the upgrade is in the bank", function()
+            loadWithMocks({
+                iterateBankSlots = function(_, _char, cb)
+                    cb(-1, 1, 11, 1, helmLink)
+                end,
+            })
+            GA.AnnounceLevelUpUpgrades(40)
+            assert.matches("%(bank%)", chatLines[1])
+        end)
+
+        it("appends mailbox reminder when the upgrade is in mail", function()
+            loadWithMocks({
+                getNumMails = function() return 1 end,
+                getMailInfo = function()
+                    return nil, 1, helmLink
+                end,
+            })
+            GA.AnnounceLevelUpUpgrades(40)
+            assert.matches("%(mail%)", chatLines[1])
+        end)
+
+        it("skips items that are not upgrades", function()
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 11, 1, helmLink)
+                end,
+                evaluateForCharacter = function() return false end,
+            })
+            GA.AnnounceLevelUpUpgrades(40)
+            assert.are.equal(0, #chatLines)
+        end)
+
+        it("skips items whose required level does not match the new level", function()
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 11, 1, helmLink)
+                end,
+                effectiveRequiredLevel = function() return 41 end,
+            })
+            GA.AnnounceLevelUpUpgrades(40)
+            assert.are.equal(0, #chatLines)
+        end)
+
+        it("evaluates upgrades at the simulated new level", function()
+            local seenLevel
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 11, 1, helmLink)
+                end,
+                effectiveRequiredLevel = function() return 67 end,
+                evaluateForCharacter = function(_, _, opts)
+                    seenLevel = opts.level
+                    return opts.level == 67
+                end,
+            })
+            GA.AnnounceLevelUpUpgrades(67)
+            assert.are.equal(67, seenLevel)
+            assert.are.equal(1, #chatLines)
+        end)
+
+        it("SimulateLevelUp runs the level-up upgrade scan", function()
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 11, 1, helmLink)
+                end,
+                effectiveRequiredLevel = function(_, link)
+                    if link == helmLink then return 61 end
+                    return 999
+                end,
+            })
+            local ok = GA.SimulateLevelUp(61)
+            assert.is_true(ok)
+            assert.are.equal(1, #chatLines)
+            assert.is_not_nil(chatLines[1]:find(helmLink, 1, true))
+        end)
+
+        it("SimulateLevelUp reports invalid level usage", function()
+            loadWithMocks()
+            local ok = GA.SimulateLevelUp("abc")
+            assert.is_false(ok)
+            assert.matches("Usage: /altarmy debug levelup", chatLines[1])
+        end)
+
+        it("does not announce level-up upgrades when notifications are disabled", function()
+            loadWithMocks({
+                enabled = false,
+                getContainerNumSlots = function() return 1 end,
+                getContainerItemLink = function(_, slot)
+                    if slot == 1 then return helmLink end
+                end,
+            })
+            GA.AnnounceLevelUpUpgrades(40)
+            assert.are.equal(0, #chatLines)
+        end)
+
+        it("SimulateLevelUp reports disabled notifications", function()
+            loadWithMocks({ enabled = false })
+            local ok = GA.SimulateLevelUp(40)
+            assert.is_false(ok)
+            assert.matches("disabled in options", chatLines[1])
+        end)
+    end)
+
+    describe("FormatLevelUpEquipMessage", function()
+        it("adds location reminders only for bank or mail", function()
+            local link = "|Hitem:11:0|h[New Helm]|h"
+            assert.are.equal(
+                "Congratulations! You can now equip " .. link,
+                GA.FormatLevelUpEquipMessage(link, { bag = true }))
+            assert.are.equal(
+                "Congratulations! You can now equip " .. link .. " (bank)",
+                GA.FormatLevelUpEquipMessage(link, { bank = true }))
+            assert.are.equal(
+                "Congratulations! You can now equip " .. link,
+                GA.FormatLevelUpEquipMessage(link, { bag = true, bank = true }))
+            assert.are.equal(
+                "Congratulations! You can now equip " .. link .. " (mail)",
+                GA.FormatLevelUpEquipMessage(link, { mail = true }))
+            assert.are.equal(
+                "Congratulations! You can now equip " .. link .. " (mail)",
+                GA.FormatLevelUpEquipMessage(link, { bank = true, mail = true }))
         end)
     end)
 end)

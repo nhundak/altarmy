@@ -159,4 +159,50 @@ describe("DataStoreContainers", function()
       assert.are.equal("link1", calls[1].link)
     end)
   end)
+
+  describe("IterateBankSlots", function()
+    it("invokes callback only for bank containers", function()
+      local char = {
+        Containers = {
+          [0] = { items = { [1] = { itemID = 100, count = 2 } }, links = { [1] = "bag" } },
+          [-1] = { items = { [1] = { itemID = 200, count = 1 } }, links = { [1] = "bank" } },
+          ["5"] = { items = { [1] = { itemID = 300, count = 1 } }, links = { [1] = "bank5" } },
+        },
+      }
+      local calls = {}
+      DS:IterateBankSlots(char, function(bagID, slot, itemID, count, link)
+        table.insert(calls, { bagID = bagID, slot = slot, itemID = itemID, count = count, link = link })
+        return false
+      end)
+      assert.are.equal(2, #calls)
+      assert.are.equal(-1, calls[1].bagID)
+      assert.are.equal(200, calls[1].itemID)
+      assert.are.equal("bank", calls[1].link)
+      assert.are.equal(5, calls[2].bagID)
+      assert.are.equal(300, calls[2].itemID)
+    end)
+  end)
+
+  describe("ScanBank", function()
+    it("preserves saved bank slots when the bank is closed", function()
+      _G.UnitName = function() return "Banker" end
+      _G.GetRealmName = function() return "TestRealm" end
+      _G.GetContainerNumSlots = function(bagID)
+        if bagID == -1 then return 28 end
+        return 0
+      end
+      _G.GetContainerItemLink = function() return nil end
+      DS.IsBankOpen = function() return false end
+      local char = DS:GetCurrentCharacter()
+      char.Containers = {
+        [-1] = {
+          items = { [1] = { itemID = 100, count = 1 } },
+          links = { [1] = "|Hitem:100:0|h[Bank Item]|h" },
+        },
+      }
+      DS:ScanBank()
+      assert.are.equal(100, char.Containers[-1].items[1].itemID)
+      assert.are.equal("|Hitem:100:0|h[Bank Item]|h", char.Containers[-1].links[1])
+    end)
+  end)
 end)

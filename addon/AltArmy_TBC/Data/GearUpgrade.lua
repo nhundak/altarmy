@@ -41,6 +41,66 @@ function GU.GetUpgradeThresholdRatio(opts)
     return GU.ResolveUpgradeThresholdPercent(pct) / 100
 end
 
+--- Weighted percent change for compare panel and focus verdict (matches GearCompare).
+function GU.GetWeightedChangePercent(delta, oldTotal, upgradeMaxDelta)
+    delta = tonumber(delta) or 0
+    if upgradeMaxDelta and upgradeMaxDelta > 0 then
+        return delta / upgradeMaxDelta * 100
+    end
+    oldTotal = tonumber(oldTotal) or 0
+    if oldTotal > 0 then
+        return delta / oldTotal * 100
+    end
+    if delta > 0 then return 100 end
+    return 0
+end
+
+local WEIGHTED_CHANGE_COLOR_GREEN = { 0.2, 1, 0.2 }
+local WEIGHTED_CHANGE_COLOR_RED = { 1, 0.4, 0.3 }
+local WEIGHTED_CHANGE_COLOR_YELLOW = { 1, 0.82, 0 }
+
+local function lerpChannel(from, to, t)
+    return from + (to - from) * t
+end
+
+local function colorComponents(color)
+    return color[1], color[2], color[3]
+end
+
+--- Compare-panel weighted row color from change percent and upgrade threshold.
+function GU.GetWeightedChangeColor(percent, opts)
+    percent = tonumber(percent) or 0
+    opts = opts or {}
+    local threshold = GU.ResolveUpgradeThresholdPercent(opts.upgradeThresholdPercent)
+    if threshold <= 0 then
+        if percent > 0 then return colorComponents(WEIGHTED_CHANGE_COLOR_GREEN) end
+        if percent < 0 then return colorComponents(WEIGHTED_CHANGE_COLOR_RED) end
+        return colorComponents(WEIGHTED_CHANGE_COLOR_YELLOW)
+    end
+
+    if percent >= threshold then
+        return colorComponents(WEIGHTED_CHANGE_COLOR_GREEN)
+    end
+    if percent <= -threshold then
+        return colorComponents(WEIGHTED_CHANGE_COLOR_RED)
+    end
+    if percent == 0 then
+        return colorComponents(WEIGHTED_CHANGE_COLOR_YELLOW)
+    end
+
+    if percent > 0 then
+        local t = percent / threshold
+        return lerpChannel(WEIGHTED_CHANGE_COLOR_YELLOW[1], WEIGHTED_CHANGE_COLOR_GREEN[1], t),
+            lerpChannel(WEIGHTED_CHANGE_COLOR_YELLOW[2], WEIGHTED_CHANGE_COLOR_GREEN[2], t),
+            lerpChannel(WEIGHTED_CHANGE_COLOR_YELLOW[3], WEIGHTED_CHANGE_COLOR_GREEN[3], t)
+    end
+
+    local t = (percent + threshold) / threshold
+    return lerpChannel(WEIGHTED_CHANGE_COLOR_RED[1], WEIGHTED_CHANGE_COLOR_YELLOW[1], t),
+        lerpChannel(WEIGHTED_CHANGE_COLOR_RED[2], WEIGHTED_CHANGE_COLOR_YELLOW[2], t),
+        lerpChannel(WEIGHTED_CHANGE_COLOR_RED[3], WEIGHTED_CHANGE_COLOR_YELLOW[3], t)
+end
+
 local function buildWeightsFromPawnScales()
     local out = {}
     local PS = AltArmy.PawnScales
@@ -537,6 +597,29 @@ function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeM
     end
 
     if rawDelta < 0 then
+        local oldScore = 0
+        local DS = AltArmy.DataStore
+        if DS and DS.GetInventoryItem then
+            local equipped = DS:GetInventoryItem(charData, invSlot)
+            local eqLink = resolveItemLink(equipped)
+            if eqLink then
+                local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+                local compareClass, specKey = resolveCompareContext(charData, entry)
+                oldScore = scoreItem(eqLink, technique, compareClass, specKey) or 0
+            end
+        end
+        local weightedPercent = GU.GetWeightedChangePercent(rawDelta, oldScore, upgradeMaxDelta)
+        local threshold = GU.GetUpgradeThresholdRatio(opts) * 100
+        if weightedPercent > -threshold then
+            local category = inRange and GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE
+                or GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND
+            return {
+                category = category,
+                badge = FOCUS_CATEGORY_BADGE[category],
+                delta = rawDelta,
+                dimmed = FOCUS_CATEGORY_DIMMED[category] == true,
+            }
+        end
         return {
             category = GU.FOCUS_CATEGORY.DOWNGRADE,
             badge = FOCUS_CATEGORY_BADGE[GU.FOCUS_CATEGORY.DOWNGRADE],
@@ -608,9 +691,8 @@ function GU.SummarizeFocusCharacter(entry, charData, itemLink, slots, opts, upgr
             elseif info.delta and info.delta > 0
                 and (not bestPositive or info.delta > bestPositive.delta) then
                 bestPositive = info
-            elseif (info.category == GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE
-                    or info.category == GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND)
-                and info.delta == 0 then
+            elseif info.category == GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE
+                or info.category == GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND then
                 if not bestSidegrade
                     or focusSortTierForCategory(info.category)
                         < focusSortTierForCategory(bestSidegrade.category) then
@@ -1021,27 +1103,42 @@ function GU.EvaluateForAllAlts(itemLink, opts)
                 name = e.name,
                 realm = e.realm,
                 classFile = e.classFile,
+                level = e.level,
+                charData = e.charData,
                 isUpgrade = true,
                 equippableNow = equippableNow,
             }
         end
     end
+    if #matches > 1 and GU.CompareFocusEntries then
+        table.sort(matches, function(a, b)
+            return GU.CompareFocusEntries(
+                a, b, a.charData, b.charData, itemLink, opts, upgradeMaxDelta)
+        end)
+    end
     return matches
 end
 
 --- Evaluate upgrade for a single character (level-up scan, focus mode).
+--- opts.level — evaluate as if the character were this level (level-up notifications).
 function GU.EvaluateForCharacter(char, itemLink, opts)
     opts = opts or {}
     if not char or not itemLink then return false end
     local slots = GU.GetFocusInventorySlots(itemLink)
     if #slots == 0 then return false end
     local DS = AltArmy.DataStore
+    local level = opts.level
+    if level == nil then
+        level = (DS and DS.GetCharacterLevel and DS:GetCharacterLevel(char))
+            or tonumber(char.level) or 0
+    else
+        level = math.floor(tonumber(level) or 0)
+    end
     local entry = {
         name = char.name,
         realm = char.realm,
         classFile = char.classFile or "",
-        level = (DS and DS.GetCharacterLevel and DS:GetCharacterLevel(char))
-            or tonumber(char.level) or 0,
+        level = level,
     }
     local entries = { {
         name = entry.name,

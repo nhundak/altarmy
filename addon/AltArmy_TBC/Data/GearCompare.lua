@@ -126,6 +126,9 @@ local function buildRawStatRows(newLink, oldLink)
 end
 
 local function weightedPercentValue(summary, upgradeMaxDelta)
+    if GU and GU.GetWeightedChangePercent then
+        return GU.GetWeightedChangePercent(summary.delta, summary.oldTotal, upgradeMaxDelta)
+    end
     local delta = summary.delta or 0
     if upgradeMaxDelta and upgradeMaxDelta > 0 then
         return delta / upgradeMaxDelta * 100

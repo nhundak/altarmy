@@ -44,6 +44,57 @@ describe("Gear focus visuals", function()
         assert.are.equal(1, getFocusColumnAlpha(false, true))
     end)
 
+    it("shows header name highlight when compare column is selected", function()
+        local UPGRADE_HIGHLIGHT_COLUMN_INSET = 2
+        local SELECTED_CELL_HIGHLIGHT_INSET = UPGRADE_HIGHLIGHT_COLUMN_INSET + 2
+        local ITEM_ICON_INSET = 2
+        local ICON_SIZE = 32
+        local function getSelectedHighlightWidth()
+            local cellSize = ICON_SIZE + 2 * ITEM_ICON_INSET
+            return cellSize + 2 * SELECTED_CELL_HIGHLIGHT_INSET
+        end
+        local function shouldShowHeaderSelectionHighlight(droppedItemLink, selectedKey, compareKey)
+            return droppedItemLink ~= nil and selectedKey == compareKey
+        end
+        assert.is_true(shouldShowHeaderSelectionHighlight(
+            "|Hitem:1|h", "Realm\\Bob", "Realm\\Bob"))
+        assert.is_false(shouldShowHeaderSelectionHighlight(
+            "|Hitem:1|h", "Realm\\Bob", "Realm\\Alice"))
+        assert.is_false(shouldShowHeaderSelectionHighlight(
+            nil, "Realm\\Bob", "Realm\\Bob"))
+        assert.are.equal(4, SELECTED_CELL_HIGHLIGHT_INSET)
+        assert.are.equal(44, getSelectedHighlightWidth())
+    end)
+
+    it("includes character name in header tooltip whenever tooltip is shown", function()
+        local function resolveHeaderTooltipText(droppedItemLink, truncated, showRealmSuffix, hasRealm, formattedName)
+            if droppedItemLink or truncated or (showRealmSuffix and hasRealm) then
+                return formattedName
+            end
+            return nil
+        end
+        local name = "Bob-Thunderlord"
+        assert.are.equal(name, resolveHeaderTooltipText("|Hitem:1|h", false, false, false, name))
+        assert.are.equal(name, resolveHeaderTooltipText(nil, true, false, false, name))
+        assert.are.equal(name, resolveHeaderTooltipText(nil, false, true, true, name))
+        assert.is_nil(resolveHeaderTooltipText(nil, false, false, false, name))
+        assert.is_nil(resolveHeaderTooltipText(nil, false, true, false, name))
+    end)
+
+    it("formats compare click hint with focused item name", function()
+        local function formatCompareClickHint(itemName)
+            if itemName and itemName ~= "" then
+                return "Click to compare with " .. itemName
+            end
+            return "Click to compare"
+        end
+        assert.are.equal(
+            "Click to compare with Fel Iron Plate Helm",
+            formatCompareClickHint("Fel Iron Plate Helm"))
+        assert.are.equal("Click to compare", formatCompareClickHint(nil))
+        assert.are.equal("Click to compare", formatCompareClickHint(""))
+    end)
+
     local UPGRADE_BADGE_TEXT = {
         upgrade = "+",
         sidegrade = "~",

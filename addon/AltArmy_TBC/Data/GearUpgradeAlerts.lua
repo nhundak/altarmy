@@ -67,14 +67,11 @@ end
 local function formatUpgradeLink(itemLink)
     local payload = extractItemPayload(itemLink)
     if not payload then return itemLink end
-    local label = "View in AltArmy"
-    if GetItemInfo then
-        local name = GetItemInfo(itemLink)
-        if name and name ~= "" then
-            label = "View upgrade: " .. name
-        end
-    end
-    return "|cfffecc00|H" .. UPGRADE_LINK_PREFIX .. payload .. "|h[" .. label .. "]|h|r"
+    return "|cfffecc00|H" .. UPGRADE_LINK_PREFIX .. payload .. "|h[View details]|h|r"
+end
+
+function GA.FormatLootUpgradeMessage(itemLink, nameList, actionLink)
+    return (itemLink or "?") .. " is an upgrade for " .. nameList .. ": " .. actionLink
 end
 
 local function resolveItemLinkForUpgrade(itemId)
@@ -150,7 +147,8 @@ function GA.AnnounceLootUpgrade(itemLink)
     if technique ~= (opts.technique or "custom") then
         techniqueNote = " (using built-in comparison; selected addon not installed)"
     end
-    postChat(ALTARMY_GOLD .. "AltArmy|r Upgrade for " .. nameList .. ": " .. actionLink .. techniqueNote)
+    postChat(ALTARMY_GOLD .. "AltArmy|r "
+        .. GA.FormatLootUpgradeMessage(itemLink, nameList, actionLink) .. techniqueNote)
     pcall(function()
         if PlaySound then PlaySound("TellMessage", "Master") end
     end)
@@ -181,6 +179,22 @@ function GA.SimulateSelfLoot(rawInput)
     return false
 end
 
+--- Debug: run the same upgrade check as PLAYER_LEVEL_UP.
+function GA.SimulateLevelUp(rawLevel)
+    local newLevel = tonumber(rawLevel)
+    if not newLevel or newLevel < 1 then
+        postChat(ALTARMY_GOLD .. "AltArmy|r debug: invalid level. "
+            .. "Usage: /altarmy debug levelup {level}")
+        return false
+    end
+    if not optionsEnabled() then
+        postChat(ALTARMY_GOLD .. "AltArmy|r debug: gear upgrade notifications are disabled in options.")
+        return false
+    end
+    GA.AnnounceLevelUpUpgrades(newLevel)
+    return true
+end
+
 local function resolveOwnedLink(itemId, storedLink)
     if storedLink and storedLink:find("item:") then
         return storedLink
@@ -195,16 +209,43 @@ local function resolveOwnedLink(itemId, storedLink)
     return nil
 end
 
-local function needsTraining(link)
-    if not link or not IsUsableItem then return false end
-    local usable = IsUsableItem(link)
-    return usable == false
-end
-
 local function trainingSkillName(link)
     if not link or not GetItemInfo or not IU then return "the required skill" end
     local _, _, _, _, _, itemClass, subclass = GetItemInfo(link)
     return IU.GetProficiencySkillName(itemClass, subclass)
+end
+
+function GA.FormatLevelUpEquipMessage(link, locations)
+    locations = locations or {}
+    local msg = "Congratulations! You can now equip " .. (link or "?")
+    if locations.mail then
+        msg = msg .. " (mail)"
+    elseif locations.bank and not locations.bag then
+        msg = msg .. " (bank)"
+    end
+    return msg
+end
+
+local function noteLevelUpCandidate(candidates, candidateOrder, link, location)
+    if not candidates[link] then
+        candidates[link] = { link = link, bag = false, bank = false, mail = false }
+        candidateOrder[#candidateOrder + 1] = link
+    end
+    if location == "bag" then
+        candidates[link].bag = true
+    elseif location == "bank" then
+        candidates[link].bank = true
+    elseif location == "mail" then
+        candidates[link].mail = true
+    end
+end
+
+local function considerLevelUpCandidate(candidates, candidateOrder, link, location, classFile, newLevel)
+    if not link then return end
+    if IU and IU.IsBindOnPickup and IU.IsBindOnPickup(link) then return end
+    local eff = IU and IU.EffectiveRequiredLevel(classFile, link) or 999
+    if eff ~= newLevel then return end
+    noteLevelUpCandidate(candidates, candidateOrder, link, location)
 end
 
 function GA.AnnounceLevelUpUpgrades(newLevel)
@@ -214,34 +255,36 @@ function GA.AnnounceLevelUpUpgrades(newLevel)
     local char = DS:GetCurrentCharacter()
     if not char then return end
     if DS.ScanBags then DS:ScanBags() end
-    if DS.ScanBank then DS:ScanBank() end
 
     local opts = GU.GetOptions()
     local classFile = char.classFile or ""
-    local seen = {}
     local candidates = {}
+    local candidateOrder = {}
 
-    local function consider(link)
-        if not link or seen[link] then return end
-        if IU and IU.IsBindOnPickup and IU.IsBindOnPickup(link) then return end
-        local eff = IU and IU.EffectiveRequiredLevel(classFile, link) or 999
-        if eff ~= newLevel then return end
-        seen[link] = true
-        candidates[#candidates + 1] = link
+    local function considerSavedContainerSlot(itemId, link, location)
+        considerLevelUpCandidate(
+            candidates, candidateOrder,
+            resolveOwnedLink(itemId, link), location, classFile, newLevel)
     end
 
-    if GetContainerNumSlots and GetContainerItemLink then
+    if DS.IterateBagSlots then
+        DS:IterateBagSlots(char, function(_, _, itemId, _, link)
+            considerSavedContainerSlot(itemId, link, "bag")
+        end)
+    elseif GetContainerNumSlots and GetContainerItemLink then
         for bag = 0, 4 do
             local slots = GetContainerNumSlots(bag) or 0
             for slot = 1, slots do
-                consider(GetContainerItemLink(bag, slot))
+                considerLevelUpCandidate(
+                    candidates, candidateOrder,
+                    GetContainerItemLink(bag, slot), "bag", classFile, newLevel)
             end
         end
     end
 
-    if DS.IterateContainerSlots then
-        DS:IterateContainerSlots(char, function(_, _, itemId, _, link)
-            consider(resolveOwnedLink(itemId, link))
+    if DS.IterateBankSlots then
+        DS:IterateBankSlots(char, function(_, _, itemId, _, link)
+            considerSavedContainerSlot(itemId, link, "bank")
         end)
     end
 
@@ -249,19 +292,22 @@ function GA.AnnounceLevelUpUpgrades(newLevel)
     for i = 1, numMails do
         if DS.GetMailInfo then
             local _, _, link = DS:GetMailInfo(char, i)
-            consider(link)
+            considerLevelUpCandidate(
+                candidates, candidateOrder, link, "mail", classFile, newLevel)
         end
     end
 
-    for i = 1, #candidates do
-        local link = candidates[i]
+    for i = 1, #candidateOrder do
+        local candidate = candidates[candidateOrder[i]]
+        local link = candidate.link
         if GU.EvaluateForCharacter(char, link, {
             technique = opts.technique,
             levelsAhead = 0,
+            level = newLevel,
         }) then
-            postChat(ALTARMY_GOLD .. "AltArmy|r Congratulations! You can now use "
-                .. (link or "?") .. ", which appears to be an upgrade for you.")
-            if needsTraining(link) then
+            postChat(ALTARMY_GOLD .. "AltArmy|r "
+                .. GA.FormatLevelUpEquipMessage(link, candidate))
+            if IU and IU.NeedsProficiencyTraining(classFile, newLevel, link, char) then
                 postChat(ALTARMY_GOLD .. "AltArmy|r Note that you must train "
                     .. trainingSkillName(link) .. " before you can equip this.")
             end

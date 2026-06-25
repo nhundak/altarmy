@@ -405,11 +405,60 @@ describe("GearUpgrade", function()
             levelsAhead = 5,
         })
         assert.are.equal(2, #matches)
-        local names = { [matches[1].name] = true, [matches[2].name] = true }
-        assert.is_true(names.MageAlt)
-        assert.is_true(names.SidegradeAlt)
+        local names = {}
+        for i = 1, #matches do names[i] = matches[i].name end
+        assert.are.equal("MageAlt", names[1])
+        assert.are.equal("SidegradeAlt", names[2])
         _G.GetItemInfo = oldGetItemInfo
         _G.GetItemStats = oldGetItemStats
+    end)
+
+    it("EvaluateForAllAlts sorts matches in gear tab focus order", function()
+        _G.AltArmyTBC_Data.Characters.TestRealm = {
+            MageAlt = {
+                name = "MageAlt",
+                realm = "TestRealm",
+                classFile = "MAGE",
+                level = 60,
+                Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+                talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+            },
+            SmallUpgrader = {
+                name = "SmallUpgrader",
+                realm = "TestRealm",
+                classFile = "MAGE",
+                level = 60,
+                Inventory = { [1] = "|Hitem:13:0|h[Newer Helm]|h" },
+                talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+            },
+            BigUpgrader = {
+                name = "BigUpgrader",
+                realm = "TestRealm",
+                classFile = "MAGE",
+                level = 60,
+                Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+                talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+            },
+        }
+        local matches = GU.EvaluateForAllAlts("|Hitem:11:0|h[New Helm]|h", {
+            technique = "ilvl",
+            levelsAhead = 0,
+        })
+        local names = {}
+        for i = 1, #matches do names[i] = matches[i].name end
+        assert.are.equal(3, #names)
+        assert.are.equal("BigUpgrader", names[1])
+        assert.are.equal("MageAlt", names[2])
+        assert.are.equal("SmallUpgrader", names[3])
+    end)
+
+    it("EvaluateForCharacter uses opts.level override for level-up scans", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local link = "|Hitem:11:0|h[New Helm]|h"
+        local opts = { technique = "ilvl", levelsAhead = 0 }
+        assert.is_true(GU.EvaluateForCharacter(char, link, { technique = "ilvl", levelsAhead = 0, level = 60 }))
+        assert.is_false(GU.EvaluateForCharacter(char, link, { technique = "ilvl", levelsAhead = 0, level = 28 }))
+        assert.is_true(GU.EvaluateForCharacter(char, link, opts))
     end)
 
     it("EnsureGearUpgradeOptions applies defaults", function()
@@ -424,6 +473,30 @@ describe("GearUpgrade", function()
     it("GetUpgradeHighlightKind uses upgradeThresholdPercent from opts", function()
         assert.are.equal("minor", GU.GetUpgradeHighlightKind(3, 15, { upgradeThresholdPercent = 50 }))
         assert.are.equal("clear", GU.GetUpgradeHighlightKind(3, 15, { upgradeThresholdPercent = 10 }))
+    end)
+
+    it("GetWeightedChangeColor uses threshold bands and smooth blends", function()
+        local opts = { upgradeThresholdPercent = 10 }
+        local gr, gg, gb = GU.GetWeightedChangeColor(10, opts)
+        assert.are.equal(0.2, gr)
+        assert.are.equal(1, gg)
+        assert.are.equal(0.2, gb)
+        local rr, rg, rb = GU.GetWeightedChangeColor(-10, opts)
+        assert.are.equal(1, rr)
+        assert.are.equal(0.4, rg)
+        assert.are.equal(0.3, rb)
+        local yr, yg, yb = GU.GetWeightedChangeColor(0, opts)
+        assert.are.equal(1, yr)
+        assert.are.equal(0.82, yg)
+        assert.are.equal(0, yb)
+        local midUpR, midUpG, midUpB = GU.GetWeightedChangeColor(5, opts)
+        assert.is_true(math.abs(0.6 - midUpR) < 0.001)
+        assert.is_true(math.abs(0.91 - midUpG) < 0.001)
+        assert.is_true(math.abs(0.1 - midUpB) < 0.001)
+        local midDownR, midDownG, midDownB = GU.GetWeightedChangeColor(-5, opts)
+        assert.is_true(math.abs(1 - midDownR) < 0.001)
+        assert.is_true(math.abs(0.61 - midDownG) < 0.001)
+        assert.is_true(math.abs(0.15 - midDownB) < 0.001)
     end)
 
     it("ResolveUpgradeThresholdPercent clamps to 0-100", function()
@@ -802,6 +875,25 @@ describe("GearUpgrade", function()
         }, 15)
         char.Inventory[1] = "|Hitem:10:0|h[Old Helm]|h"
         assert.are.equal("Downgrade", verdict.label)
+    end)
+
+    it("GetFocusVerdictForSlot returns Sidegrade for minor weighted downgrades", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        char.Inventory[1] = "|Hitem:11:0|h[New Helm]|h"
+        local entry = { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local slightlyWorseLink = "|Hitem:13:0|h[Newer Helm]|h"
+        local verdict = GU.GetFocusVerdictForSlot(entry, char, slightlyWorseLink, 1, {
+            technique = "ilvl",
+            levelsAhead = 5,
+        }, 100)
+        char.Inventory[1] = "|Hitem:10:0|h[Old Helm]|h"
+        assert.are.equal("Sidegrade", verdict.label)
+    end)
+
+    it("GetWeightedChangePercent matches compare panel formula", function()
+        assert.are.equal(-3, GU.GetWeightedChangePercent(-3, 35, 100))
+        assert.are.equal(-20, GU.GetWeightedChangePercent(-3, 35, 15))
+        assert.are.equal(-100, GU.GetWeightedChangePercent(-35, 35, nil))
     end)
 
     it("BuildFocusSlotDebugLines reports classification and delta", function()

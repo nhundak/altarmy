@@ -383,18 +383,8 @@ local function formatLevelsToGainPhrase(count)
     return tostring(count) .. " levels"
 end
 
-local function formatLevelRequirementWarning(coloredName, charLevel, effective, link, classFile)
+local function formatLevelRequirementWarning(coloredName, charLevel, effective)
     local levelsToGain = effective - charLevel
-    local _, _, _, _, _, itemClass, subclass = GetItemInfo(link)
-    local trainLevel = IU.MinLevelToTrainProficiency(classFile, subclass, itemClass)
-    local needsTrainingLevel = IU.RequiresTrainerProficiency(classFile, subclass, itemClass)
-        and effective == trainLevel
-        and charLevel < trainLevel
-    if needsTrainingLevel then
-        local skill = IU.GetProficiencySkillName(itemClass, subclass)
-        return coloredName .. " must gain " .. formatLevelsToGainPhrase(levelsToGain)
-            .. " and train " .. skill .. " to equip this"
-    end
     return coloredName .. " must gain " .. formatLevelsToGainPhrase(levelsToGain)
         .. " to equip this"
 end
@@ -466,7 +456,7 @@ function IU.GetEquipWarnings(classFile, charLevel, charName, link, charData)
         local coloredName = formatWarningCharName(charName, classFile)
         addEquipWarning(
             warnings,
-            formatLevelRequirementWarning(coloredName, charLevel, effective, link, classFile),
+            formatLevelRequirementWarning(coloredName, charLevel, effective),
             IU.EQUIP_WARNING_KIND.LEVEL)
     end
 

@@ -77,6 +77,7 @@ local hoveredCompareKey = nil
 local compareHoverRefs = {}
 
 local COMPARE_ROW_HEIGHT = 14
+local COMPARE_ROW_GAP = 2
 local COMPARE_SECTION_GAP = 6
 local COMPARE_STAT_ROW_INDENT = 8 -- content inset from the panel split on both sides
 local COMPARE_STAT_COL_NAME = 110
@@ -361,6 +362,30 @@ function GearTab.FormatCompareFocusVsLabel()
     return "vs"
 end
 
+function GearTab.FormatCompareVerdictPrefix(charName, classFile)
+    local namePart = charName or "?"
+    if CC and CC.formatName then
+        namePart = CC.formatName(charName, classFile)
+    end
+    return "Verdict for " .. namePart .. ": "
+end
+
+function GearTab.GetCompareFocusItemName(itemLink)
+    itemLink = itemLink or droppedItemLink
+    if not itemLink or not GetItemInfo then return nil end
+    local name = GetItemInfo(itemLink)
+    if name and name ~= "" then return name end
+    return nil
+end
+
+function GearTab.FormatCompareClickHint(itemLink)
+    local name = GearTab.GetCompareFocusItemName(itemLink)
+    if name then
+        return "Click to compare with " .. name
+    end
+    return "Click to compare"
+end
+
 function GearTab.FormatItemCheckDropMessage()
     return "Drop an item to see who can use it as an upgrade"
 end
@@ -368,7 +393,7 @@ end
 function GearTab.GetCompareStatContentHeight(rowCount)
     rowCount = tonumber(rowCount) or 0
     if rowCount <= 0 then return 0 end
-    return rowCount * COMPARE_ROW_HEIGHT + (rowCount - 1) * 2
+    return rowCount * COMPARE_ROW_HEIGHT + (rowCount - 1) * COMPARE_ROW_GAP
 end
 
 function GearTab.HasAnyUpgradeOrEventualUpgrade(list)
@@ -523,11 +548,9 @@ function GearTab.EstimateComparePanelHeight(comparison, warningCount, hasVerdict
     if not comparison then return 0 end
     local leftH = COMPARE_ITEMS_ROW_HEIGHT + 8
     warningCount = tonumber(warningCount) or 0
-    if warningCount > 0 then
-        leftH = leftH + warningCount * COMPARE_ROW_HEIGHT + (warningCount - 1) * 2 + 4
-    end
-    if hasVerdict then
-        leftH = leftH + COMPARE_ROW_HEIGHT + 4
+    local leftRowCount = (hasVerdict and 1 or 0) + warningCount
+    if leftRowCount > 0 then
+        leftH = leftH + GearTab.GetCompareStatContentHeight(leftRowCount)
     end
     local sections = comparison.sections or {}
     for s = 1, #sections do
@@ -676,6 +699,10 @@ function GearTab.getUpgradeHighlightHorizontalInset()
     return UPGRADE_HIGHLIGHT_COLUMN_INSET
 end
 
+function GearTab.getSelectedHighlightWidth()
+    return GearTab.GetCellSizePx() + 2 * SELECTED_CELL_HIGHLIGHT_INSET
+end
+
 function GearTab.getUpgradeHighlightBelowHeaderExtent()
     local rh = dims.rowHeight or select(1, GearTab.GetSpacingDimensions())
     local cell = dims.cellSize or GearTab.GetCellSizePx()
@@ -778,6 +805,25 @@ function GearTab.layoutCellFocusHighlight(cell, _kind, selected)
     layoutCellFillTexture(
         cell.focusHighlight, cell, hInset,
         colors[1], colors[2], colors[3], colors[4])
+end
+
+function GearTab.layoutHeaderSelectionHighlight(headerCol, selected)
+    if not headerCol or not headerCol.headerSelectionHighlight or not headerCol.header then return end
+    local tex = headerCol.headerSelectionHighlight
+    if not selected then
+        tex:Hide()
+        return
+    end
+    local colors = SELECTED_NEUTRAL_HIGHLIGHT
+    local hInset = SELECTED_CELL_HIGHLIGHT_INSET
+    local highlightWidth = GearTab.getSelectedHighlightWidth()
+    local headerHeight = headerCol.header:GetHeight() or 0
+    if headerHeight <= 0 then headerHeight = 18 end
+    tex:SetColorTexture(colors[1], colors[2], colors[3], colors[4])
+    tex:ClearAllPoints()
+    tex:SetSize(highlightWidth, headerHeight + 2 * hInset)
+    tex:SetPoint("CENTER", headerCol.header, "CENTER", 0, 0)
+    tex:Show()
 end
 
 function GearTab.layoutCellCompareHover(cell, show)
@@ -1479,6 +1525,8 @@ function GearTab.GetHeaderColumnFrame(index)
         col.header:SetHeight(COLUMN_HEADER_HEIGHT_GEAR)
         col.header:SetJustifyH("CENTER")
         col.header:SetWordWrap(false)
+        col.headerSelectionHighlight = col:CreateTexture(nil, "BACKGROUND", nil, -1)
+        col.headerSelectionHighlight:Hide()
         col.message = col:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         col.message:SetPoint("TOP", col.header, "BOTTOM", 0, 0)
         col.message:SetPoint("LEFT", col, "LEFT", 0, 0)
@@ -1533,7 +1581,7 @@ function GearTab.GetHeaderColumnFrame(index)
                     GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
                     GameTooltip:ClearLines()
                 end
-                GameTooltip:AddLine("Click to compare", 0.7, 0.7, 0.7)
+                GameTooltip:AddLine(GearTab.FormatCompareClickHint(), 0.7, 0.7, 0.7)
                 show = true
             end
             if show then GameTooltip:Show() end
@@ -1951,7 +1999,7 @@ compareVerdictRow:SetHeight(COMPARE_ROW_HEIGHT)
 compareVerdictRow:Hide()
 local compareVerdictPrefix = compareVerdictRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 compareVerdictPrefix:SetJustifyH("RIGHT")
-compareVerdictPrefix:SetText("Verdict: ")
+compareVerdictPrefix:SetText("Verdict for ")
 local compareVerdictLabel = compareVerdictRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 compareVerdictLabel:SetPoint("RIGHT", compareVerdictRow, "RIGHT", 0, 0)
 compareVerdictLabel:SetJustifyH("RIGHT")
@@ -1967,8 +2015,8 @@ compareStatScrollApi = Theme.CreateVerticalScrollViewport({
     name = "AltArmyTBC_CompareStatScroll",
     anchorTop = { "TOPLEFT", compareRightPanel, "TOPLEFT", 0, 0 },
     anchorBottom = { "BOTTOMRIGHT", compareRightPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, 0 },
-    valueStep = COMPARE_ROW_HEIGHT + 2,
-    wheelStep = (COMPARE_ROW_HEIGHT + 2) * 2,
+    valueStep = COMPARE_ROW_HEIGHT + COMPARE_ROW_GAP,
+    wheelStep = (COMPARE_ROW_HEIGHT + COMPARE_ROW_GAP) * 2,
     enableMouse = true,
     enableMouseWheel = true,
 })
@@ -2109,7 +2157,7 @@ function GearTab.LayoutComparePanelBody()
     GearTab.RelayoutCompareStatRowColumns()
 end
 
-function GearTab.LayoutComparePanelSections(warnings, verdict)
+function GearTab.LayoutComparePanelSections(warnings, verdict, entry)
     GearTab.LayoutComparePanelBody()
     local anchor = compareLeftPanel
     GearTab.HideCompareWarningRows()
@@ -2117,7 +2165,10 @@ function GearTab.LayoutComparePanelSections(warnings, verdict)
     if compareVerdictRow then
         compareVerdictRow:ClearAllPoints()
         if verdict and verdict.label then
-            compareVerdictPrefix:SetText("Verdict: ")
+            local charName = entry and entry.name or "?"
+            local classFile = entry and entry.classFile or nil
+            compareVerdictPrefix:SetText(
+                GearTab.FormatCompareVerdictPrefix(charName, classFile))
             compareVerdictLabel:SetText(verdict.label)
             compareVerdictLabel:SetTextColor(verdict.r or 1, verdict.g or 1, verdict.b or 1, 1)
             compareVerdictRow:SetPoint("TOPLEFT", compareLeftPanel, "TOPLEFT", 0, 0)
@@ -2136,8 +2187,8 @@ function GearTab.LayoutComparePanelSections(warnings, verdict)
             compareWarningContainer:SetPoint("TOPLEFT", compareLeftPanel, "TOPLEFT", 0, 0)
             compareWarningContainer:SetPoint("TOPRIGHT", compareLeftPanel, "TOPRIGHT", -COMPARE_STAT_ROW_INDENT, 0)
         else
-            compareWarningContainer:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
-            compareWarningContainer:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -4)
+            compareWarningContainer:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -COMPARE_ROW_GAP)
+            compareWarningContainer:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -COMPARE_ROW_GAP)
         end
         for i = 1, warningCount do
             local warning = warnings[i]
@@ -2161,13 +2212,13 @@ function GearTab.LayoutComparePanelSections(warnings, verdict)
                 row:SetPoint("TOPRIGHT", compareWarningContainer, "TOPRIGHT", 0, 0)
             else
                 local prev = compareWarningRows[i - 1]
-                row:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -2)
-                row:SetPoint("TOPRIGHT", prev, "BOTTOMRIGHT", 0, -2)
+                row:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -COMPARE_ROW_GAP)
+                row:SetPoint("TOPRIGHT", prev, "BOTTOMRIGHT", 0, -COMPARE_ROW_GAP)
             end
             row:Show()
         end
         compareWarningContainer:SetHeight(
-            warningCount * COMPARE_ROW_HEIGHT + math.max(0, warningCount - 1) * 2)
+            GearTab.GetCompareStatContentHeight(warningCount))
         compareWarningContainer:Show()
     else
         compareWarningContainer:SetHeight(0)
@@ -2321,6 +2372,13 @@ function GearTab.GetCompareDeltaColor(delta)
     return 1, 0.82, 0
 end
 
+function GearTab.GetCompareWeightedChangeColor(percent, opts)
+    if GU and GU.GetWeightedChangeColor then
+        return GU.GetWeightedChangeColor(percent, opts)
+    end
+    return GearTab.GetCompareDeltaColor(percent)
+end
+
 function GearTab.FormatCompareWeight(weight)
     if weight == nil then return "" end
     weight = tonumber(weight) or 0
@@ -2353,7 +2411,13 @@ function GearTab.SetCompareStatDataRow(rowCells, data)
     else
         rowCells.delta:SetText(GearTab.FormatCompareDelta(delta))
     end
-    local dr, dg, db = GearTab.GetCompareDeltaColor(delta)
+    local dr, dg, db
+    if data.formatAsWeightedChange then
+        local upgradeOpts = GU and GU.GetOptions and GU.GetOptions() or {}
+        dr, dg, db = GearTab.GetCompareWeightedChangeColor(data.percent, upgradeOpts)
+    else
+        dr, dg, db = GearTab.GetCompareDeltaColor(delta)
+    end
     rowCells.delta:SetTextColor(dr, dg, db, 1)
     if rowCells.weight then
         if data.hideWeight then
@@ -2372,7 +2436,7 @@ function GearTab.LayoutCompareStatDataRow(rowCells, anchorRow)
     if not anchorRow then
         rowCells.frame:SetPoint("TOPLEFT", compareStatContainer, "TOPLEFT", 0, 0)
     else
-        rowCells.frame:SetPoint("TOPLEFT", anchorRow, "BOTTOMLEFT", 0, -2)
+        rowCells.frame:SetPoint("TOPLEFT", anchorRow, "BOTTOMLEFT", 0, -COMPARE_ROW_GAP)
     end
     rowCells.frame:SetPoint("TOPRIGHT", compareStatContainer, "TOPRIGHT", 0, 0)
     rowCells.frame:Show()
@@ -2556,7 +2620,7 @@ function GearTab.UpdateComparePanel(list)
                 equippedCompareLink = equippedLink,
             })
     end
-    GearTab.LayoutComparePanelSections(compareWarnings, verdict)
+    GearTab.LayoutComparePanelSections(compareWarnings, verdict, entry)
     GearTab.PopulateCompareStatRows(comparison.sections)
 end
 
@@ -2708,7 +2772,7 @@ function GearTab.GetColumnFrame(index)
                         return
                     end
                     if droppedItemLink and self.isFocusCompareCell then
-                        GameTooltip:AddLine("Click to compare", 0.7, 0.7, 0.7)
+                        GameTooltip:AddLine(GearTab.FormatCompareClickHint(), 0.7, 0.7, 0.7)
                     end
                     GameTooltip:Show()
                 end
@@ -2816,6 +2880,8 @@ function GearTab.UpdateGridWithOffset()
             columnDimmed,
             selectedCompareKey == compareKey)
         headerCol.compareKey = compareKey
+        local headerSelected = droppedItemLink and selectedCompareKey == compareKey
+        GearTab.layoutHeaderSelectionHighlight(headerCol, headerSelected)
 
         local col = GearTab.GetColumnFrame(c)
         col.compareKey = compareKey
@@ -2902,15 +2968,16 @@ function GearTab.UpdateGridWithOffset()
         local showRealmSuffix = (realmFilter == "all")
             and RF and RF.hasMultipleRealms and RF.hasMultipleRealms(list)
         local hasRealm = entry.realm and entry.realm ~= ""
-        if headerCol.truncated or (showRealmSuffix and hasRealm) then
-            headerCol.tooltipText = RF and RF.formatColoredCharacterNameRealm
-                and RF.formatColoredCharacterNameRealm(
-                    entry.name or "?",
-                    entry.realm,
-                    showRealmSuffix,
-                    entry.classFile
-                )
-                or displayName
+        local formattedName = RF and RF.formatColoredCharacterNameRealm
+            and RF.formatColoredCharacterNameRealm(
+                entry.name or "?",
+                entry.realm,
+                showRealmSuffix,
+                entry.classFile
+            )
+            or displayName
+        if droppedItemLink or headerCol.truncated or (showRealmSuffix and hasRealm) then
+            headerCol.tooltipText = formattedName
         else
             headerCol.tooltipText = nil
         end

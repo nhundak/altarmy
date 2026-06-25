@@ -77,21 +77,26 @@ describe("Gear compare panel height", function()
     end
 
     local COMPARE_ROW_HEIGHT = 14
+    local COMPARE_ROW_GAP = 2
     local COMPARE_SECTION_GAP = 6
     local COMPARE_PANEL_PAD = 8
     local COMPARE_PANEL_MIN_HEIGHT = 100
     local COMPARE_ITEMS_ROW_HEIGHT = 52
     local COMPARE_OPTIONS_SECTION_HEIGHT = 72
 
+    local function compareStackedRowsHeight(rowCount)
+        rowCount = tonumber(rowCount) or 0
+        if rowCount <= 0 then return 0 end
+        return rowCount * COMPARE_ROW_HEIGHT + (rowCount - 1) * COMPARE_ROW_GAP
+    end
+
     local function estimateComparePanelHeight(comparison, warningCount, hasVerdict)
         if not comparison then return 0 end
         local leftH = COMPARE_ITEMS_ROW_HEIGHT + 8
         warningCount = tonumber(warningCount) or 0
-        if warningCount > 0 then
-            leftH = leftH + warningCount * COMPARE_ROW_HEIGHT + (warningCount - 1) * 2 + 4
-        end
-        if hasVerdict then
-            leftH = leftH + COMPARE_ROW_HEIGHT + 4
+        local leftRowCount = (hasVerdict and 1 or 0) + warningCount
+        if leftRowCount > 0 then
+            leftH = leftH + compareStackedRowsHeight(leftRowCount)
         end
         local sections = comparison.sections or {}
         for s = 1, #sections do
@@ -127,8 +132,8 @@ describe("Gear compare panel height", function()
         local without = estimateComparePanelHeight(comparison, 0, false)
         local withOne = estimateComparePanelHeight(comparison, 1, false)
         local withTwo = estimateComparePanelHeight(comparison, 2, false)
-        assert.are.equal(COMPARE_ROW_HEIGHT + 4, withOne - without)
-        assert.are.equal(COMPARE_ROW_HEIGHT + 2, withTwo - withOne)
+        assert.are.equal(compareStackedRowsHeight(1), withOne - without)
+        assert.are.equal(COMPARE_ROW_HEIGHT + COMPARE_ROW_GAP, withTwo - withOne)
     end)
 
     it("includes verdict row in left column height", function()
@@ -137,7 +142,7 @@ describe("Gear compare panel height", function()
         }
         local without = estimateComparePanelHeight(comparison, 0, false)
         local withVerdict = estimateComparePanelHeight(comparison, 0, true)
-        assert.are.equal(COMPARE_ROW_HEIGHT + 4, withVerdict - without)
+        assert.are.equal(compareStackedRowsHeight(1), withVerdict - without)
     end)
 
     local function formatCompareChooseCharacterHintText()
@@ -210,16 +215,39 @@ describe("Gear compare panel height", function()
     end)
 
     it("computes compare stat scroll content height from row count", function()
-        local COMPARE_ROW_HEIGHT = 14
         local function getCompareStatContentHeight(rowCount)
-            rowCount = tonumber(rowCount) or 0
-            if rowCount <= 0 then return 0 end
-            return rowCount * COMPARE_ROW_HEIGHT + (rowCount - 1) * 2
+            return compareStackedRowsHeight(rowCount)
         end
         assert.are.equal(0, getCompareStatContentHeight(0))
         assert.are.equal(14, getCompareStatContentHeight(1))
         assert.are.equal(30, getCompareStatContentHeight(2))
         assert.are.equal(158, getCompareStatContentHeight(10))
+    end)
+
+    it("formats compare verdict prefix with class-colored character name", function()
+        local function formatCompareVerdictPrefix(charName, classFile)
+            local function formatName(name, cf)
+                if cf == "MAGE" then
+                    return string.format("|cff%02x%02x%02x%s|r", 105, 204, 240, name)
+                end
+                return name
+            end
+            return "Verdict for " .. formatName(charName, classFile) .. ": "
+        end
+        local prefix = formatCompareVerdictPrefix("MageAlt", "MAGE")
+        assert.matches("^Verdict for ", prefix)
+        assert.matches("MageAlt", prefix)
+        assert.matches(": $", prefix)
+        assert.matches("|cff69ccf0MageAlt|r", prefix)
+    end)
+
+    it("stacks verdict plus warnings with the same height formula as stat rows", function()
+        local comparison = {
+            sections = { { title = "Stats", rows = { { label = "a" } } } },
+        }
+        local base = estimateComparePanelHeight(comparison, 0, false)
+        local stacked = estimateComparePanelHeight(comparison, 2, true)
+        assert.are.equal(compareStackedRowsHeight(3), stacked - base)
     end)
 
     it("uses matching content inset from the panel split on both sides", function()
@@ -296,7 +324,7 @@ describe("Gear compare panel height", function()
         assert.are.equal("0 (0%)", formatCompareWeightedChange(0, 0))
     end)
 
-    it("uses gold label and delta color for weighted summary row", function()
+    it("uses gold label and threshold-based delta color for weighted summary row", function()
         local function getCompareWeightColor(weight)
             weight = tonumber(weight) or 0
             if weight <= 0 then return 0.5, 0.5, 0.5 end
@@ -308,6 +336,39 @@ describe("Gear compare panel height", function()
             if delta < 0 then return 1, 0.4, 0.3 end
             return 1, 0.82, 0
         end
+        local WEIGHTED_CHANGE_COLOR_GREEN = { 0.2, 1, 0.2 }
+        local WEIGHTED_CHANGE_COLOR_RED = { 1, 0.4, 0.3 }
+        local WEIGHTED_CHANGE_COLOR_YELLOW = { 1, 0.82, 0 }
+        local function lerpChannel(from, to, t)
+            return from + (to - from) * t
+        end
+        local function getCompareWeightedChangeColor(percent, opts)
+            percent = tonumber(percent) or 0
+            opts = opts or {}
+            local threshold = tonumber(opts.upgradeThresholdPercent) or 10
+            if percent >= threshold then
+                return WEIGHTED_CHANGE_COLOR_GREEN[1], WEIGHTED_CHANGE_COLOR_GREEN[2],
+                    WEIGHTED_CHANGE_COLOR_GREEN[3]
+            end
+            if percent <= -threshold then
+                return WEIGHTED_CHANGE_COLOR_RED[1], WEIGHTED_CHANGE_COLOR_RED[2],
+                    WEIGHTED_CHANGE_COLOR_RED[3]
+            end
+            if percent == 0 then
+                return WEIGHTED_CHANGE_COLOR_YELLOW[1], WEIGHTED_CHANGE_COLOR_YELLOW[2],
+                    WEIGHTED_CHANGE_COLOR_YELLOW[3]
+            end
+            if percent > 0 then
+                local t = percent / threshold
+                return lerpChannel(WEIGHTED_CHANGE_COLOR_YELLOW[1], WEIGHTED_CHANGE_COLOR_GREEN[1], t),
+                    lerpChannel(WEIGHTED_CHANGE_COLOR_YELLOW[2], WEIGHTED_CHANGE_COLOR_GREEN[2], t),
+                    lerpChannel(WEIGHTED_CHANGE_COLOR_YELLOW[3], WEIGHTED_CHANGE_COLOR_GREEN[3], t)
+            end
+            local t = (percent + threshold) / threshold
+            return lerpChannel(WEIGHTED_CHANGE_COLOR_RED[1], WEIGHTED_CHANGE_COLOR_YELLOW[1], t),
+                lerpChannel(WEIGHTED_CHANGE_COLOR_RED[2], WEIGHTED_CHANGE_COLOR_YELLOW[2], t),
+                lerpChannel(WEIGHTED_CHANGE_COLOR_RED[3], WEIGHTED_CHANGE_COLOR_YELLOW[3], t)
+        end
         local function nameColorForRow(data)
             if data.formatAsWeightedChange then
                 return getCompareWeightColor(1)
@@ -315,17 +376,30 @@ describe("Gear compare panel height", function()
             return 1, 1, 1
         end
         local function deltaColorForRow(data)
+            if data.formatAsWeightedChange then
+                return getCompareWeightedChangeColor(data.percent, { upgradeThresholdPercent = 10 })
+            end
             return getCompareDeltaColor(data.delta)
         end
         local nr, ng, nb = nameColorForRow({ formatAsWeightedChange = true })
         assert.are.equal(0.82, nr)
         assert.are.equal(0.68, ng)
         assert.are.equal(0.22, nb)
-        local dr, dg, db = deltaColorForRow({ formatAsWeightedChange = true, delta = 5 })
-        assert.are.equal(0.2, dr)
-        assert.are.equal(1, dg)
-        local downR = deltaColorForRow({ formatAsWeightedChange = true, delta = -3 })
-        assert.are.equal(1, downR)
+        local dr, dg, db = deltaColorForRow({
+            formatAsWeightedChange = true,
+            delta = 1.4,
+            percent = 8.1,
+        })
+        assert.is_true(math.abs(0.352 - dr) < 0.001)
+        assert.is_true(math.abs(0.9658 - dg) < 0.001)
+        assert.is_true(math.abs(0.162 - db) < 0.001)
+        local downR, downG = deltaColorForRow({
+            formatAsWeightedChange = true,
+            delta = -1.4,
+            percent = -8.1,
+        })
+        assert.is_true(math.abs(1 - downR) < 0.001)
+        assert.is_true(math.abs(0.4798 - downG) < 0.001)
     end)
 
     it("uses fixed column widths for weighted summary row", function()

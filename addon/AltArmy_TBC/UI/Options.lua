@@ -906,6 +906,16 @@ SlashCmdList.ALTARMY = function(msg)
         end
         return
     end
+    local debugLevelUp = trimmed:match("^[Dd]ebug [Ll]evelup%s+(%d+)$")
+    if debugLevelUp then
+        local GA = AltArmy and AltArmy.GearUpgradeAlerts
+        if GA and GA.SimulateLevelUp then
+            GA.SimulateLevelUp(tonumber(debugLevelUp))
+        elseif AltArmy.Debug and AltArmy.Debug.NotifyChat then
+            AltArmy.Debug.NotifyChat("Gear upgrade alerts are unavailable.")
+        end
+        return
+    end
     local debugItemLink = trimmed:match("^[Dd]ebug [Ii]tem%s+(.+)$")
     if debugItemLink then
         local GA = AltArmy and AltArmy.GearUpgradeAlerts

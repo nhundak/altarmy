@@ -215,6 +215,11 @@ local isMailOpen = false
 local isAuctionHouseOpen = false
 local lastReputationScan = 0
 local isBankOpen = false
+
+function DS:IsBankOpen()
+    return isBankOpen
+end
+
 local REPUTATION_SCAN_THROTTLE = 3
 local BAG_SCAN_DELAY = 3
 local TRADE_SKILL_SCAN_DELAY = 0.5

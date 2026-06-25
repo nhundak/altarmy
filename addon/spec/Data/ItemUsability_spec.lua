@@ -254,7 +254,7 @@ describe("ItemUsability", function()
         local warnings = IU.GetEquipWarnings("PALADIN", 35, "Tome", "|Hitem:2:0|h[Plate Helm]|h")
         assert.are.equal(1, #warnings)
         assert.are.equal(
-            coloredName("Tome", "PALADIN") .. " must gain 5 levels and train Plate Armor to equip this",
+            coloredName("Tome", "PALADIN") .. " must gain 5 levels to equip this",
             warningText(warnings[1]))
         assert.are.equal(IU.EQUIP_WARNING_KIND.LEVEL, warnings[1].kind)
     end)
@@ -389,7 +389,7 @@ describe("ItemUsability", function()
         assert.are.equal("This item is soulbound", warningText(warnings[1]))
         assert.are.equal(IU.EQUIP_WARNING_KIND.SOULBOUND, warnings[1].kind)
         assert.are.equal(
-            coloredName("Tome", "PALADIN") .. " must gain 5 levels and train Plate Armor to equip this",
+            coloredName("Tome", "PALADIN") .. " must gain 5 levels to equip this",
             warningText(warnings[2]))
         assert.are.equal(IU.EQUIP_WARNING_KIND.LEVEL, warnings[2].kind)
     end)

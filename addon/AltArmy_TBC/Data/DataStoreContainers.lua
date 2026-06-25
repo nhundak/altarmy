@@ -112,6 +112,9 @@ function DS:ScanBags()
 end
 
 function DS:ScanBank()
+    if self.IsBankOpen and not self:IsBankOpen() then
+        return
+    end
     local char = GetCurrentCharTable()
     if not char then return end
     if GetNumSlots(BANK_CONTAINER) and GetNumSlots(BANK_CONTAINER) > 0 then
@@ -233,7 +236,30 @@ function DS:IterateBagSlots(char, callback)
     if not char or not char.Containers or not callback then return end
     local maxBagId = self.NUM_BAG_SLOTS or NUM_BAG_SLOTS or 4
     for bagID, bag in pairs(char.Containers) do
-        if type(bagID) == "number" and bagID >= 0 and bagID <= maxBagId then
+        bagID = tonumber(bagID)
+        if bagID and bagID >= 0 and bagID <= maxBagId then
+            if bag and bag.items then
+                for slot, slotData in pairs(bag.items) do
+                    if slotData and slotData.itemID then
+                        local link = (bag.links and bag.links[slot]) or nil
+                        if callback(bagID, slot, slotData.itemID, slotData.count or 1, link) then
+                            return
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+function DS:IterateBankSlots(char, callback)
+    if not char or not char.Containers or not callback then return end
+    local bankContainer = self.BANK_CONTAINER or BANK_CONTAINER
+    local minBank = self.MIN_BANK_BAG_ID or MIN_BANK_BAG_ID
+    local maxBank = self.MAX_BANK_BAG_ID or MAX_BANK_BAG_ID
+    for bagID, bag in pairs(char.Containers) do
+        bagID = tonumber(bagID)
+        if bagID and (bagID == bankContainer or (bagID >= minBank and bagID <= maxBank)) then
             if bag and bag.items then
                 for slot, slotData in pairs(bag.items) do
                     if slotData and slotData.itemID then
