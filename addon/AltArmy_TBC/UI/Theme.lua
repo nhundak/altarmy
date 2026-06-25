@@ -1063,7 +1063,7 @@ function Theme.CreateLabeledCheckbox(parent, opts)
         Theme.SetHoverTint(hoverRegion, false)
     end)
     hoverRegion:SetScript("OnMouseUp", function(_, button)
-        if button == "LeftButton" then
+        if button == "LeftButton" and check:IsEnabled() then
             check:Click()
         end
     end)

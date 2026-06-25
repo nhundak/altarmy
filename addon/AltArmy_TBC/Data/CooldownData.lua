@@ -198,14 +198,9 @@ function CD.EnsureCooldownOptions()
         if cat.alertWhenAvailable == nil then cat.alertWhenAvailable = true end
         if cat.showOnlyIfSpecialization == nil then cat.showOnlyIfSpecialization = false end
         if cat.alertOnlyIfSpecialization == nil then cat.alertOnlyIfSpecialization = false end
-        if cat.alertType ~= "chat" and cat.alertType ~= "raidWarning" and cat.alertType ~= "both" then
-            cat.alertType = "chat"
-        end
-        if cat.remindMe == nil then cat.remindMe = false end
-        local rm = tonumber(cat.remindEveryMinutes)
-        if not rm or rm < 1 then
-            cat.remindEveryMinutes = 30
-        end
+        cat.alertType = nil
+        cat.remindMe = nil
+        cat.remindEveryMinutes = nil
     end
     local sk = cd.listSortKey
     if sk ~= "recipe" and sk ~= "character" and sk ~= "mats" and sk ~= "time" then
@@ -662,8 +657,8 @@ function CD.BuildRows(DS, options, now)
 end
 
 --- Alert evaluation: returns list of fired alerts
---- { categoryKey, categoryTitle, name, realm, classFile, spellId, kind, alertType }
---- kind = "available" only (reminder cadence via remindMe + remindEveryMinutes).
+--- { categoryKey, categoryTitle, name, realm, classFile, spellId, kind }
+--- kind = "available" only; each ready transition fires at most once until the cooldown is used again.
 --- stateMutate: lastAvailAlertAt unix per row key — cleared when cooldown no longer ready
 function CD.EvaluateAlerts(DS, options, now, stateMutate)
     local results = {}
@@ -684,15 +679,7 @@ function CD.EvaluateAlerts(DS, options, now, stateMutate)
             local key = (row.realm or "") .. "\0" .. (row.name or "") .. "\0" .. catKey
 
             if exp ~= nil and exp <= now then
-                local lastAt = stateMutate.lastAvailAlertAt[key]
-                local periodSec = math.max(60, (tonumber(catOpts.remindEveryMinutes) or 30) * 60)
-                local shouldFire = false
-                if not lastAt then
-                    shouldFire = true
-                elseif catOpts.remindMe == true and (now - lastAt) >= periodSec then
-                    shouldFire = true
-                end
-                if shouldFire then
+                if not stateMutate.lastAvailAlertAt[key] then
                     stateMutate.lastAvailAlertAt[key] = now
                     results[#results + 1] = {
                         categoryKey = catKey,
@@ -700,9 +687,8 @@ function CD.EvaluateAlerts(DS, options, now, stateMutate)
                         name = row.name,
                         realm = row.realm,
                         classFile = row.classFile,
-                                        spellId = row.spellId,
-                                        kind = "available",
-                        alertType = catOpts.alertType or "chat",
+                        spellId = row.spellId,
+                        kind = "available",
                     }
                 end
             else

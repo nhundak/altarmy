@@ -1,7 +1,5 @@
--- AltArmy TBC — Cooldown availability alerts (chat + optional on-screen banner + sound).
--- Uses CooldownData.EvaluateAlerts. Chat lines are prefixed with gold "AltArmy"; center-screen uses the body only.
--- "raidWarning" uses RaidNotice_AddMessage(RaidWarningFrame): local only, not raid/party chat.
--- luacheck: globals RaidWarningFrame RaidNotice_AddMessage GetRealmName RAID_CLASS_COLORS
+-- AltArmy TBC — Cooldown availability alerts (chat + sound).
+-- Uses CooldownData.EvaluateAlerts. Chat lines are prefixed with gold "AltArmy".
 
 if not AltArmy then return end
 
@@ -35,7 +33,7 @@ local function classColorWrap(text, classFile)
     return text or "?"
 end
 
---- Recipe / cooldown ready / name (and optional realm). No "AltArmy" prefix — used for center-screen.
+--- Recipe / cooldown ready / name (and optional realm).
 --- @param r table alert row from CooldownData.EvaluateAlerts
 --- @param showAllRealms boolean append (realm) when true
 local function formatAlertBody(r, showAllRealms)
@@ -51,26 +49,10 @@ local function formatAlertBody(r, showAllRealms)
     return msg
 end
 
---- Classic RaidNotice_AddMessage requires colorInfo; RaidNotice_SetSlot applies it after SetText.
---- Use white so |cff…|r segments (class-colored name) stay accurate.
-local function raidNoticeBaseColor()
-    return { r = 1, g = 1, b = 1 }
-end
-
---- @param chatLine string|nil full line for DEFAULT_CHAT_FRAME (includes gold "AltArmy" when used)
---- @param raidLine string|nil line for RaidWarningFrame (body only; no "AltArmy")
-local function sendCooldownAlert(chatLine, raidLine, alertType)
-    local at = alertType or "chat"
-    if at == "raidWarning" or at == "both" then
-        if raidLine and raidLine ~= "" and RaidNotice_AddMessage and RaidWarningFrame then
-            RaidNotice_AddMessage(RaidWarningFrame, raidLine, raidNoticeBaseColor())
-        end
-    end
-    if at == "chat" or at == "both" then
-        local chat = _G.DEFAULT_CHAT_FRAME
-        if chatLine and chatLine ~= "" and chat and chat.AddMessage then
-            chat:AddMessage(chatLine)
-        end
+local function sendCooldownAlert(chatLine)
+    local chat = _G.DEFAULT_CHAT_FRAME
+    if chatLine and chatLine ~= "" and chat and chat.AddMessage then
+        chat:AddMessage(chatLine)
     end
 end
 
@@ -78,8 +60,7 @@ local function announceBatch(alerts, showAllRealms)
     if not alerts or #alerts == 0 then return end
     for _, r in ipairs(alerts) do
         local body = formatAlertBody(r, showAllRealms == true)
-        local chatLine = ALTARMY_GOLD .. "AltArmy|r " .. body
-        sendCooldownAlert(chatLine, body, r.alertType)
+        sendCooldownAlert(ALTARMY_GOLD .. "AltArmy|r " .. body)
     end
     pcall(function()
         if PlaySound then

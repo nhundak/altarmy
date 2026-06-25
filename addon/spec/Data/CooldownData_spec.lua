@@ -396,14 +396,17 @@ describe("CooldownData", function()
         assert.is_true(found)
     end)
 
-    it("EnsureCooldownOptions sets specialization and alert defaults", function()
+    it("EnsureCooldownOptions sets specialization defaults and clears legacy alert options", function()
+        AltArmyTBC_Options.cooldowns.categories.spellcloth.alertType = "raidWarning"
+        AltArmyTBC_Options.cooldowns.categories.spellcloth.remindMe = true
+        AltArmyTBC_Options.cooldowns.categories.spellcloth.remindEveryMinutes = 15
         CD.EnsureCooldownOptions()
         local c = AltArmyTBC_Options.cooldowns.categories.spellcloth
         assert.is_false(c.showOnlyIfSpecialization)
         assert.is_false(c.alertOnlyIfSpecialization)
-        assert.are.equal("chat", c.alertType)
-        assert.is_false(c.remindMe)
-        assert.are.equal(30, c.remindEveryMinutes)
+        assert.is_nil(c.alertType)
+        assert.is_nil(c.remindMe)
+        assert.is_nil(c.remindEveryMinutes)
     end)
 
     it("BuildRows omits spellcloth when showOnlyIfSpecialization without persisted spec", function()
@@ -433,37 +436,6 @@ describe("CooldownData", function()
             if r.categoryKey == "spellcloth" then found = true end
         end
         assert.is_true(found)
-    end)
-
-    it("EvaluateAlerts carries alertType from options", function()
-        local char = {
-            name = "Z",
-            Professions = { Alchemy = { Recipes = { [29688] = { color = 1 } } } },
-            ProfCooldownExpiry = { [29688] = { expiresAtUnix = 500 } },
-        }
-        local ds = mockDS({ TestRealm = { Z = char } })
-        AltArmyTBC_Options.cooldowns.categories.transmute.alertType = "raidWarning"
-        local state = {}
-        local a1 = CD.EvaluateAlerts(ds, AltArmyTBC_Options.cooldowns, 600, state)
-        assert.are.equal(1, #a1)
-        assert.are.equal("raidWarning", a1[1].alertType)
-    end)
-
-    it("EvaluateAlerts repeats when remindMe and interval elapsed", function()
-        local char = {
-            name = "Z",
-            Professions = { Alchemy = { Recipes = { [29688] = { color = 1 } } } },
-            ProfCooldownExpiry = { [29688] = { expiresAtUnix = 500 } },
-        }
-        local ds = mockDS({ TestRealm = { Z = char } })
-        local cat = AltArmyTBC_Options.cooldowns.categories.transmute
-        cat.remindMe = true
-        cat.remindEveryMinutes = 1
-        local state = {}
-        local a1 = CD.EvaluateAlerts(ds, AltArmyTBC_Options.cooldowns, 600, state)
-        assert.are.equal(1, #a1)
-        local a2 = CD.EvaluateAlerts(ds, AltArmyTBC_Options.cooldowns, 661, state)
-        assert.are.equal(1, #a2)
     end)
 
     it("CollectAccountKnownTransmuteSpellIds dedupes", function()

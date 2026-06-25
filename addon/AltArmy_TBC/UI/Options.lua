@@ -298,92 +298,71 @@ end
 -- Debug tab
 -- ---------------------------------------------------------------------------
 
-local debugSearchCheckbox = CreateFrame("CheckButton", nil, tabDebug, "InterfaceOptionsCheckButtonTemplate")
-debugSearchCheckbox:SetPoint("TOPLEFT", tabDebug, "TOPLEFT", 0, 0)
-debugSearchCheckbox:SetScript("OnClick", function(self)
-    if AltArmy.Debug and AltArmy.Debug.SetSearchEnabled then
-        AltArmy.Debug.SetSearchEnabled(self:GetChecked())
-    end
-end)
-panel.debugSearchCheckbox = debugSearchCheckbox
-
-local debugSearchLabel = debugSearchCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-debugSearchLabel:SetPoint("LEFT", debugSearchCheckbox, "RIGHT", 4, 0)
-debugSearchLabel:SetText("Search query timing")
-AltArmy.WireCheckboxLabelClick(debugSearchCheckbox, debugSearchLabel)
+local debugSearchRow = Theme.CreateLabeledCheckbox(tabDebug, {
+    point = "TOPLEFT",
+    relativeTo = tabDebug,
+    relativePoint = "TOPLEFT",
+    x = 0,
+    y = 0,
+    text = "Search query timing",
+    fullWidthHover = true,
+    onClick = function(checked)
+        if AltArmy.Debug and AltArmy.Debug.SetSearchEnabled then
+            AltArmy.Debug.SetSearchEnabled(checked)
+        end
+    end,
+})
+panel.debugSearchCheckbox = debugSearchRow.check
 
 local debugSearchHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-debugSearchHint:SetPoint("TOPLEFT", debugSearchCheckbox, "BOTTOMLEFT", 0, -8)
+debugSearchHint:SetPoint("TOPLEFT", debugSearchRow, "BOTTOMLEFT", 0, -8)
 debugSearchHint:SetWidth(520)
 debugSearchHint:SetJustifyH("LEFT")
 debugSearchHint:SetText("Logs search pipeline timing in chat when using the Search tab.")
 
-local debugCooldownsCheckbox = CreateFrame("CheckButton", nil, tabDebug, "InterfaceOptionsCheckButtonTemplate")
-debugCooldownsCheckbox:SetPoint("TOPLEFT", debugSearchHint, "BOTTOMLEFT", 0, -16)
-debugCooldownsCheckbox:SetScript("OnClick", function(self)
-    if AltArmy.Debug and AltArmy.Debug.SetCooldownsEnabled then
-        AltArmy.Debug.SetCooldownsEnabled(self:GetChecked())
-    end
-end)
-panel.debugCooldownsCheckbox = debugCooldownsCheckbox
-
-local debugCooldownsLabel = debugCooldownsCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-debugCooldownsLabel:SetPoint("LEFT", debugCooldownsCheckbox, "RIGHT", 4, 0)
-debugCooldownsLabel:SetText("Profession cooldown scans")
-AltArmy.WireCheckboxLabelClick(debugCooldownsCheckbox, debugCooldownsLabel)
+local debugCooldownsRow = Theme.CreateLabeledCheckbox(tabDebug, {
+    point = "TOPLEFT",
+    relativeTo = debugSearchHint,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -16,
+    text = "Profession cooldown scans",
+    fullWidthHover = true,
+    onClick = function(checked)
+        if AltArmy.Debug and AltArmy.Debug.SetCooldownsEnabled then
+            AltArmy.Debug.SetCooldownsEnabled(checked)
+        end
+    end,
+})
+panel.debugCooldownsCheckbox = debugCooldownsRow.check
 
 local debugCooldownsHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-debugCooldownsHint:SetPoint("TOPLEFT", debugCooldownsCheckbox, "BOTTOMLEFT", 0, -8)
+debugCooldownsHint:SetPoint("TOPLEFT", debugCooldownsRow, "BOTTOMLEFT", 0, -8)
 debugCooldownsHint:SetWidth(520)
 debugCooldownsHint:SetJustifyH("LEFT")
 debugCooldownsHint:SetText("Logs cooldown persistence when opening profession windows (e.g. Tailoring).")
 
-local debugLevelHistoryCheckbox = CreateFrame("CheckButton", nil, tabDebug, "InterfaceOptionsCheckButtonTemplate")
-debugLevelHistoryCheckbox:SetPoint("TOPLEFT", debugCooldownsHint, "BOTTOMLEFT", 0, -16)
-debugLevelHistoryCheckbox:SetScript("OnClick", function(self)
-    if AltArmy.Debug and AltArmy.Debug.SetLevelHistoryEnabled then
-        AltArmy.Debug.SetLevelHistoryEnabled(self:GetChecked())
-    end
-end)
-panel.debugLevelHistoryCheckbox = debugLevelHistoryCheckbox
-
-local debugLevelHistoryLabel = debugLevelHistoryCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-debugLevelHistoryLabel:SetPoint("LEFT", debugLevelHistoryCheckbox, "RIGHT", 4, 0)
-debugLevelHistoryLabel:SetText("Level history tracking")
-AltArmy.WireCheckboxLabelClick(debugLevelHistoryCheckbox, debugLevelHistoryLabel)
-
-local debugLevelHistoryHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-debugLevelHistoryHint:SetPoint("TOPLEFT", debugLevelHistoryCheckbox, "BOTTOMLEFT", 0, -8)
-debugLevelHistoryHint:SetWidth(520)
-debugLevelHistoryHint:SetJustifyH("LEFT")
-debugLevelHistoryHint:SetText("Logs level history import checks, decisions, and stored milestone summaries.")
-
-local debugItemComparisonCheckbox = CreateFrame("CheckButton", nil, tabDebug, "InterfaceOptionsCheckButtonTemplate")
-debugItemComparisonCheckbox:SetPoint("TOPLEFT", debugLevelHistoryHint, "BOTTOMLEFT", 0, -16)
-debugItemComparisonCheckbox:SetScript("OnClick", function(self)
-    if AltArmy.Debug and AltArmy.Debug.SetItemComparisonEnabled then
-        AltArmy.Debug.SetItemComparisonEnabled(self:GetChecked())
-    end
-end)
-panel.debugItemComparisonCheckbox = debugItemComparisonCheckbox
-
-local debugItemComparisonLabel = debugItemComparisonCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-debugItemComparisonLabel:SetPoint("LEFT", debugItemComparisonCheckbox, "RIGHT", 4, 0)
-debugItemComparisonLabel:SetText("Item comparison details")
-AltArmy.WireCheckboxLabelClick(debugItemComparisonCheckbox, debugItemComparisonLabel)
-
-local debugItemComparisonHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-debugItemComparisonHint:SetPoint("TOPLEFT", debugItemComparisonCheckbox, "BOTTOMLEFT", 0, -8)
-debugItemComparisonHint:SetWidth(520)
-debugItemComparisonHint:SetJustifyH("LEFT")
-debugItemComparisonHint:SetText(
-    "Logs every comparison algorithm for each equippable alt when you loot an item or run /altarmy debug item.")
+local debugLevelHistoryRow = Theme.CreateLabeledCheckbox(tabDebug, {
+    point = "TOPLEFT",
+    relativeTo = debugCooldownsHint,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -16,
+    text = "Level history tracking",
+    fullWidthHover = true,
+    onClick = function(checked)
+        if AltArmy.Debug and AltArmy.Debug.SetLevelHistoryEnabled then
+            AltArmy.Debug.SetLevelHistoryEnabled(checked)
+        end
+    end,
+})
+panel.debugLevelHistoryCheckbox = debugLevelHistoryRow.check
 
 local deleteAllHistoryConfirmPending = false
 
 local debugDeleteAllHistoryBtn = CreateFrame("Button", nil, tabDebug, "UIPanelButtonTemplate")
 debugDeleteAllHistoryBtn:SetSize(160, 22)
-debugDeleteAllHistoryBtn:SetPoint("TOPLEFT", debugItemComparisonHint, "BOTTOMLEFT", 0, -12)
+debugDeleteAllHistoryBtn:SetPoint("TOPLEFT", debugLevelHistoryRow, "BOTTOMLEFT", 0, -12)
 debugDeleteAllHistoryBtn:SetText("Delete all history")
 Theme.SkinDangerButton(debugDeleteAllHistoryBtn)
 panel.debugDeleteAllHistoryBtn = debugDeleteAllHistoryBtn
@@ -409,6 +388,35 @@ debugDeleteAllHistoryBtn:SetScript("OnClick", function(self)
         self:SetText("Really Delete?")
     end
 end)
+
+local debugLevelHistoryHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+debugLevelHistoryHint:SetPoint("TOPLEFT", debugDeleteAllHistoryBtn, "BOTTOMLEFT", 0, -12)
+debugLevelHistoryHint:SetWidth(520)
+debugLevelHistoryHint:SetJustifyH("LEFT")
+debugLevelHistoryHint:SetText("Logs level history import checks, decisions, and stored milestone summaries.")
+
+local debugItemComparisonRow = Theme.CreateLabeledCheckbox(tabDebug, {
+    point = "TOPLEFT",
+    relativeTo = debugLevelHistoryHint,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -16,
+    text = "Item comparison details",
+    fullWidthHover = true,
+    onClick = function(checked)
+        if AltArmy.Debug and AltArmy.Debug.SetItemComparisonEnabled then
+            AltArmy.Debug.SetItemComparisonEnabled(checked)
+        end
+    end,
+})
+panel.debugItemComparisonCheckbox = debugItemComparisonRow.check
+
+local debugItemComparisonHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+debugItemComparisonHint:SetPoint("TOPLEFT", debugItemComparisonRow, "BOTTOMLEFT", 0, -8)
+debugItemComparisonHint:SetWidth(520)
+debugItemComparisonHint:SetJustifyH("LEFT")
+debugItemComparisonHint:SetText(
+    "Logs every comparison algorithm for each equippable alt when you loot an item or run /altarmy debug item.")
 
 function RefreshDebugCheckboxes()
     local D = AltArmy and AltArmy.Debug
@@ -452,22 +460,23 @@ RefreshDebugTabVisibility()
 -- General tab
 -- ---------------------------------------------------------------------------
 
-local minimapCheckbox = CreateFrame("CheckButton", nil, tabGeneral, "InterfaceOptionsCheckButtonTemplate")
-minimapCheckbox:SetPoint("TOPLEFT", tabGeneral, "TOPLEFT", 0, 0)
-minimapCheckbox:SetScript("OnClick", function(self)
-    local show = self:GetChecked()
-    AltArmyTBC_Options.showMinimapButton = show
-    if AltArmyTBC_Options.minimap then
-        AltArmyTBC_Options.minimap.hide = not show
-    end
-    applyMinimapOption()
-end)
-panel.minimapCheckbox = minimapCheckbox
-
-local minimapLabel = minimapCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-minimapLabel:SetPoint("LEFT", minimapCheckbox, "RIGHT", 4, 0)
-minimapLabel:SetText("Show Minimap Button")
-AltArmy.WireCheckboxLabelClick(minimapCheckbox, minimapLabel)
+local minimapRow = Theme.CreateLabeledCheckbox(tabGeneral, {
+    point = "TOPLEFT",
+    relativeTo = tabGeneral,
+    relativePoint = "TOPLEFT",
+    x = 0,
+    y = 0,
+    text = "Show Minimap Button",
+    fullWidthHover = true,
+    onClick = function(checked)
+        AltArmyTBC_Options.showMinimapButton = checked
+        if AltArmyTBC_Options.minimap then
+            AltArmyTBC_Options.minimap.hide = not checked
+        end
+        applyMinimapOption()
+    end,
+})
+panel.minimapCheckbox = minimapRow.check
 
 local REALM_FILTER_MENU = {
     { value = "currentRealm", label = "Show characters from current realm" },
@@ -486,7 +495,7 @@ end
 local realmFilterDropdown = Theme.CreateSingleSelectDropdown({
     parent = tabGeneral,
     point = "TOPLEFT",
-    relativeTo = minimapCheckbox,
+    relativeTo = minimapRow,
     relativePoint = "BOTTOMLEFT",
     x = 0,
     y = -14,
