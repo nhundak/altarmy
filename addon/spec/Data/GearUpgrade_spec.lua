@@ -105,6 +105,24 @@ describe("GearUpgrade", function()
         package.loaded["GearUpgrade"] = nil
         require("GearUpgrade")
         GU = AltArmy.GearUpgrade
+        if GU.ResetFocusPass then
+            GU.ResetFocusPass()
+        end
+        if AltArmy.ItemUsability and AltArmy.ItemUsability.ClearCache then
+            AltArmy.ItemUsability.ClearCache()
+        end
+    end)
+
+    before_each(function()
+        if GU and GU.ResetFocusPass then
+            GU.ResetFocusPass()
+        end
+        if AltArmy.ItemUsability and AltArmy.ItemUsability.ClearCache then
+            AltArmy.ItemUsability.ClearCache()
+        end
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
     end)
 
     it("ScoreItemCustom sums stat weights", function()
@@ -301,15 +319,19 @@ describe("GearUpgrade", function()
         AltArmy.ItemStats.ClearCache()
         local IS = AltArmy.ItemStats
         local oldGetNormalized = IS.GetNormalized
-        IS.GetNormalized = function(link)
+        local oldGetNormalizedRef = IS.GetNormalizedRef
+        local function mockNormalized(link)
             local id = tonumber(tostring(link):match("item:(%d+)"))
             if id == 82 then return { int = 10, fire_sp = 40, sp = 10 } end
             if id == 83 then return { int = 10, frost_sp = 40, sp = 10 } end
             return oldGetNormalized(link)
         end
+        IS.GetNormalized = mockNormalized
+        IS.GetNormalizedRef = mockNormalized
         local fireScore = GU.ScoreItemCustom(fireItem, "MAGE", "fire")
         local frostScore = GU.ScoreItemCustom(frostItem, "MAGE", "fire")
         IS.GetNormalized = oldGetNormalized
+        IS.GetNormalizedRef = oldGetNormalizedRef
         _G.GetItemStats = oldGetItemStats
         assert.is_true(fireScore > frostScore)
     end)
@@ -1302,6 +1324,12 @@ describe("GearUpgrade", function()
             _G.GetItemInfo = weaponGetItemInfo
         end)
 
+        before_each(function()
+            if GU and GU.ResetFocusPass then
+                GU.ResetFocusPass()
+            end
+        end)
+
         it("IsWeaponPairItem is true for main-hand weapon types", function()
             assert.is_true(GU.IsWeaponPairItem("|Hitem:205:0|h[New 1H]|h"))
             assert.is_true(GU.IsWeaponPairItem("|Hitem:203:0|h[Big 2H]|h"))
@@ -1498,6 +1526,65 @@ describe("GearUpgrade", function()
             assert.are.equal(2, #result.equippedLinks)
             assert.are.equal("|Hitem:207:0|h[Bag 1H]|h", result.equippedLinks[1])
             assert.are.equal("|Hitem:202:0|h[Weak OH]|h", result.equippedLinks[2])
+        end)
+
+        it("FindBestStoredItemForSlot memoizes within a focus pass", function()
+            local char = setupWarriorDualWield()
+            local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local getItemInfoCalls = 0
+            local oldGetItemInfo = _G.GetItemInfo
+            _G.GetItemInfo = function(item)
+                getItemInfoCalls = getItemInfoCalls + 1
+                return weaponGetItemInfo(item)
+            end
+            GU.ResetFocusPass()
+            local opts = { technique = "ilvl" }
+            local link1 = select(1, GU.FindBestStoredItemForSlot(char, OFF, opts, entry))
+            local callsAfterFirst = getItemInfoCalls
+            local link2 = select(1, GU.FindBestStoredItemForSlot(char, OFF, opts, entry))
+            _G.GetItemInfo = oldGetItemInfo
+            assert.is_not_nil(link1)
+            assert.are.equal(link1, link2)
+            assert.are.equal(callsAfterFirst, getItemInfoCalls)
+            GU.ResetFocusPass()
+        end)
+
+        it("GetWeaponConfigDelta memoizes within a focus pass", function()
+            local char = setupRogueTwoHand()
+            local entry = { name = "Rogue2H", realm = "TestRealm", classFile = "ROGUE", level = 60 }
+            local getItemInfoCalls = 0
+            local oldGetItemInfo = _G.GetItemInfo
+            _G.GetItemInfo = function(item)
+                getItemInfoCalls = getItemInfoCalls + 1
+                return weaponGetItemInfo(item)
+            end
+            GU.ResetFocusPass()
+            local opts = { technique = "ilvl", compareSlot = MAIN }
+            local delta1 = GU.GetWeaponConfigDelta(char, "|Hitem:205:0|h[New 1H]|h", opts, entry)
+            local callsAfterFirst = getItemInfoCalls
+            local delta2 = GU.GetWeaponConfigDelta(char, "|Hitem:205:0|h[New 1H]|h", opts, entry)
+            _G.GetItemInfo = oldGetItemInfo
+            assert.are.equal(delta1, delta2)
+            assert.are.equal(callsAfterFirst, getItemInfoCalls)
+            GU.ResetFocusPass()
+        end)
+
+        it("scoreItem memoizes within a focus pass", function()
+            local link = "|Hitem:11:0|h[New Helm]|h"
+            GU.ResetFocusPass()
+            local getItemStatsCalls = 0
+            local oldGetItemStats = _G.GetItemStats
+            _G.GetItemStats = function(itemLink)
+                getItemStatsCalls = getItemStatsCalls + 1
+                return oldGetItemStats(itemLink)
+            end
+            local score1 = GU.ScoreItem(link, "custom", "MAGE", "frost")
+            local callsAfterFirst = getItemStatsCalls
+            local score2 = GU.ScoreItem(link, "custom", "MAGE", "frost")
+            _G.GetItemStats = oldGetItemStats
+            assert.are.equal(score1, score2)
+            assert.are.equal(callsAfterFirst, getItemStatsCalls)
+            GU.ResetFocusPass()
         end)
     end)
 end)

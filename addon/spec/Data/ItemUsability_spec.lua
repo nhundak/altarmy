@@ -53,6 +53,15 @@ describe("ItemUsability", function()
         package.loaded["ItemUsability"] = nil
         require("ItemUsability")
         IU = AltArmy.ItemUsability
+        if IU.ClearCache then
+            IU.ClearCache()
+        end
+    end)
+
+    before_each(function()
+        if IU and IU.ClearCache then
+            IU.ClearCache()
+        end
     end)
 
     it("maps INVTYPE_FINGER to finger slots", function()
@@ -335,6 +344,9 @@ describe("ItemUsability", function()
         end
         local warnings = IU.GetEquipWarnings("PALADIN", 38, "Tome", "|Hitem:2:0|h[Plate Helm]|h")
         _G.GetItemInfo = oldGetItemInfo
+        if IU.ClearCache then
+            IU.ClearCache()
+        end
         assert.are.equal(1, #warnings)
         assert.are.equal(
             coloredName("Tome", "PALADIN") .. " must gain 7 levels to equip this",
@@ -484,5 +496,58 @@ describe("ItemUsability", function()
             coloredName("Tome", "PALADIN") .. " must gain 5 levels to equip this",
             warningText(warnings[2]))
         assert.are.equal(IU.EQUIP_WARNING_KIND.LEVEL, warnings[2].kind)
+    end)
+
+    describe("per-link cache", function()
+        local getItemInfoCalls
+
+        local function countingGetItemInfo(item)
+            getItemInfoCalls = getItemInfoCalls + 1
+            return mockGetItemInfo(item)
+        end
+
+        before_each(function()
+            getItemInfoCalls = 0
+            _G.GetItemInfo = countingGetItemInfo
+            if IU.ClearCache then
+                IU.ClearCache()
+            end
+        end)
+
+        it("GetWeaponRole caches resolved links", function()
+            local link = "|Hitem:5:0|h[Sword]|h"
+            assert.are.equal("onehand", IU.GetWeaponRole(link))
+            assert.are.equal("onehand", IU.GetWeaponRole(link))
+            assert.are.equal(2, getItemInfoCalls)
+        end)
+
+        it("GetInventorySlotsForItem caches resolved links", function()
+            local link = "|Hitem:4:0|h[Ring]|h"
+            assert.are.same({ 11, 12 }, IU.GetInventorySlotsForItem(link))
+            assert.are.same({ 11, 12 }, IU.GetInventorySlotsForItem(link))
+            assert.are.equal(2, getItemInfoCalls)
+        end)
+
+        it("EffectiveRequiredLevel caches per class and link", function()
+            local link = "|Hitem:5:0|h[Sword]|h"
+            assert.are.equal(10, IU.EffectiveRequiredLevel("WARRIOR", link))
+            assert.are.equal(10, IU.EffectiveRequiredLevel("WARRIOR", link))
+            assert.are.equal(1, getItemInfoCalls)
+        end)
+
+        it("CanNeverUseItem caches per class and link", function()
+            local link = "|Hitem:6:0|h[Wand]|h"
+            assert.is_true(IU.CanNeverUseItem("WARRIOR", link))
+            assert.is_true(IU.CanNeverUseItem("WARRIOR", link))
+            assert.are.equal(1, getItemInfoCalls)
+        end)
+
+        it("ClearCache forces re-resolution", function()
+            local link = "|Hitem:5:0|h[Sword]|h"
+            IU.GetWeaponRole(link)
+            IU.ClearCache()
+            IU.GetWeaponRole(link)
+            assert.are.equal(4, getItemInfoCalls)
+        end)
     end)
 end)

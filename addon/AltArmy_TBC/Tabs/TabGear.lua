@@ -3363,6 +3363,9 @@ end
 
 function frame:RefreshGrid(_self)
     if not AltArmy.Characters then return end
+    if GU and GU.ResetFocusPass then
+        GU.ResetFocusPass()
+    end
     if AltArmy.Characters.InvalidateView then
         AltArmy.Characters:InvalidateView()
     end

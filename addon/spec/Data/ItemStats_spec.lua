@@ -126,6 +126,15 @@ describe("ItemStats", function()
         assert.are.equal("api", IS.GetSource("|Hitem:11:0|h[New Helm]|h"))
     end)
 
+    it("GetNormalizedRef returns cached table without copying", function()
+        local link = "|Hitem:11:0|h[New Helm]|h"
+        local first = IS.GetNormalizedRef(link)
+        local second = IS.GetNormalizedRef(link)
+        assert.is_not_nil(first)
+        assert.are.equal(first, second)
+        assert.are.equal(20, first.int)
+    end)
+
     it("GetNormalized parses wand damage per second from API as ranged_dps", function()
         local stats = IS.GetNormalized("|Hitem:50:0|h[Wand]|h")
         assert.are.equal(15.5, stats.ranged_dps)

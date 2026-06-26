@@ -20,6 +20,55 @@ end
 local DEFAULT_LEVELS_AHEAD = 5
 local DEFAULT_UPGRADE_THRESHOLD_PERCENT = 10
 
+local scoreMemo = {}
+local storedItemMemo = {}
+local bagRoleMemo = {}
+local slotDeltaMemo = {}
+local weaponConfigMemo = {}
+
+function GU.ResetFocusPass()
+    scoreMemo = {}
+    storedItemMemo = {}
+    bagRoleMemo = {}
+    slotDeltaMemo = {}
+    weaponConfigMemo = {}
+end
+
+local function charKeyFromChar(char, entry)
+    local name = (entry and entry.name) or (char and char.name) or ""
+    local realm = (entry and entry.realm) or (char and char.realm) or ""
+    return name .. "-" .. realm
+end
+
+local function storedItemsFingerprint(char)
+    local parts = {}
+    local containers = char and char.Containers
+    if containers then
+        for bagID, bag in pairs(containers) do
+            local links = bag and bag.links
+            if links then
+                for slot, link in pairs(links) do
+                    parts[#parts + 1] = tostring(bagID) .. ":" .. tostring(slot)
+                        .. "=" .. tostring(link)
+                end
+            end
+        end
+    end
+    if char and char.Mails then
+        for i, mail in ipairs(char.Mails) do
+            parts[#parts + 1] = "mail:" .. tostring(i) .. "="
+                .. tostring(mail and (mail.link or mail.itemID))
+        end
+    end
+    table.sort(parts)
+    return table.concat(parts, "|")
+end
+
+local function scoreMemoKey(link, technique, classFile, specKey)
+    return tostring(link) .. "\0" .. tostring(technique)
+        .. "\0" .. tostring(classFile) .. "\0" .. tostring(specKey)
+end
+
 local function resolveLevelsAhead(value)
     local n = tonumber(value)
     if n == nil then return DEFAULT_LEVELS_AHEAD end
@@ -235,6 +284,14 @@ local function normalizeItemStats(link)
     return {}
 end
 
+local function normalizeItemStatsRef(link)
+    local itemStats = IS()
+    if itemStats and itemStats.GetNormalizedRef then
+        return itemStats.GetNormalizedRef(link) or {}
+    end
+    return normalizeItemStats(link)
+end
+
 function GU.GetNormalizedItemStats(link)
     return normalizeItemStats(link)
 end
@@ -407,7 +464,7 @@ function GU.ScoreItemCustom(link, classFile, specKey)
     if not link then return 0 end
     local weights = getWeights(classFile, specKey)
     if not weights then return 0 end
-    local stats = normalizeItemStats(link)
+    local stats = normalizeItemStatsRef(link)
     local total = 0
     for short, value in pairs(stats) do
         local w = weights[short]
@@ -428,16 +485,21 @@ end
 
 local function scoreItem(link, technique, classFile, specKey)
     if not link then return 0 end
+    local key = scoreMemoKey(link, technique, classFile, specKey)
+    local cached = scoreMemo[key]
+    if cached ~= nil then return cached end
+    local score
     if technique == "ilvl" then
-        return getItemLevel(link)
+        score = getItemLevel(link)
+    elseif technique == "custom" then
+        score = GU.ScoreItemCustom(link, classFile, specKey)
+    elseif technique == "gearscore" then
+        score = scoreItemGearScore(link) or getItemLevel(link)
+    else
+        score = GU.ScoreItemCustom(link, classFile, specKey)
     end
-    if technique == "custom" then
-        return GU.ScoreItemCustom(link, classFile, specKey)
-    end
-    if technique == "gearscore" then
-        return scoreItemGearScore(link) or getItemLevel(link)
-    end
-    return GU.ScoreItemCustom(link, classFile, specKey)
+    scoreMemo[key] = score
+    return score
 end
 
 function GU.ResolveItemLink(item)
@@ -492,18 +554,26 @@ end
 function GU.GetSlotCompareDelta(char, itemLink, invSlot, opts, entry)
     opts = opts or {}
     if not char or not itemLink or not invSlot then return 0 end
-    local DS = AltArmy.DataStore
-    if not DS or not DS.GetInventoryItem then return 0 end
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+    local DS = AltArmy.DataStore
+    local equipped = DS and DS.GetInventoryItem and DS:GetInventoryItem(char, invSlot)
+    local eqLink = resolveItemLink(equipped)
+    local memoKey = charKeyFromChar(char, entry) .. "\0" .. tostring(invSlot)
+        .. "\0" .. tostring(itemLink) .. "\0" .. technique
+        .. "\0" .. tostring(eqLink or "")
+    local cached = slotDeltaMemo[memoKey]
+    if cached ~= nil then return cached end
+    if not DS or not DS.GetInventoryItem then return 0 end
     local classFile, specKey = resolveCompareContext(char, entry)
     local newScore = scoreItem(itemLink, technique, classFile, specKey)
-    local equipped = DS:GetInventoryItem(char, invSlot)
-    local eqLink = resolveItemLink(equipped)
+    local delta
     if not eqLink then
-        if newScore > 0 then return newScore end
-        return 0
+        delta = newScore > 0 and newScore or 0
+    else
+        delta = newScore - scoreItem(eqLink, technique, classFile, specKey)
     end
-    return newScore - scoreItem(eqLink, technique, classFile, specKey)
+    slotDeltaMemo[memoKey] = delta
+    return delta
 end
 
 local MAIN_HAND_SLOT = 16
@@ -546,6 +616,14 @@ function GU.FindBestBagItemForRole(char, role, opts, entry)
     local classFile, specKey = resolveCompareContext(char, entry)
     local level = tonumber(entry and entry.level) or tonumber(char.level) or 0
     local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
+    local memoKey = charKeyFromChar(char, entry) .. "\0" .. tostring(role)
+        .. "\0" .. technique .. "\0" .. classFile .. "\0" .. specKey
+        .. "\0" .. tostring(level) .. "\0" .. tostring(levelsAhead)
+        .. "\0" .. storedItemsFingerprint(char)
+    local cached = bagRoleMemo[memoKey]
+    if cached then
+        return cached.link, cached.score
+    end
     local containers = char.Containers
     if not containers then return nil, 0 end
 
@@ -571,6 +649,7 @@ function GU.FindBestBagItemForRole(char, role, opts, entry)
             end
         end
     end
+    bagRoleMemo[memoKey] = { link = bestLink, score = bestScore }
     return bestLink, bestScore
 end
 
@@ -643,6 +722,14 @@ function GU.FindBestStoredItemForSlot(char, targetSlot, opts, entry)
     local classFile, specKey = resolveCompareContext(char, entry)
     local level = tonumber(entry and entry.level) or tonumber(char.level) or 0
     local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
+    local memoKey = charKeyFromChar(char, entry) .. "\0" .. tostring(targetSlot)
+        .. "\0" .. technique .. "\0" .. classFile .. "\0" .. specKey
+        .. "\0" .. tostring(level) .. "\0" .. tostring(levelsAhead)
+        .. "\0" .. storedItemsFingerprint(char)
+    local cached = storedItemMemo[memoKey]
+    if cached then
+        return cached.link, cached.score
+    end
 
     local bestLink
     local bestScore = 0
@@ -669,6 +756,7 @@ function GU.FindBestStoredItemForSlot(char, targetSlot, opts, entry)
             return false
         end)
     end
+    storedItemMemo[memoKey] = { link = bestLink, score = bestScore }
     return bestLink, bestScore
 end
 
@@ -943,7 +1031,19 @@ function GU.GetWeaponConfigDelta(char, itemLink, opts, entry)
     local itemRole = iu.GetWeaponRole(itemLink)
     if not itemRole or itemRole == "ranged" then return 0, nil end
 
+    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
     local compareSlot = resolveWeaponCompareSlot(opts)
+    local mh = getEquippedLink(char, MAIN_HAND_SLOT)
+    local oh = getEquippedLink(char, OFF_HAND_SLOT)
+    local memoKey = charKeyFromChar(char, entry) .. "\0" .. tostring(itemLink)
+        .. "\0" .. technique .. "\0" .. tostring(compareSlot or "auto")
+        .. "\0" .. tostring(mh or "") .. "\0" .. tostring(oh or "")
+        .. "\0" .. storedItemsFingerprint(char)
+    local cached = weaponConfigMemo[memoKey]
+    if cached then
+        return cached.delta, cached.info
+    end
+
     local result
     if compareSlot then
         result = GU.BuildSelectionLoadoutCompare(char, itemLink, compareSlot, opts, entry)
@@ -952,7 +1052,10 @@ function GU.GetWeaponConfigDelta(char, itemLink, opts, entry)
         compareSlot = result and result.compareSlot
     end
     if not result then return 0, nil end
-    return result.delta or 0, selectionInfoFromCompare(result, compareSlot)
+    local delta = result.delta or 0
+    local info = selectionInfoFromCompare(result, compareSlot)
+    weaponConfigMemo[memoKey] = { delta = delta, info = info }
+    return delta, info
 end
 
 --- Item links for each side of a weapon loadout stat/compare breakdown.
@@ -1057,7 +1160,7 @@ function GU.FormatDeducedWeaponLoadoutHint(link, char)
     end
     local charName = formatCompareCharName(char and char.name, char and char.classFile)
     return string.format(
-        "%s is the best item we could find among %s's items, to help compare against a 2-hander",
+        "%s is the best item we could find among %s's items, to improve the comparison against a 2-hander",
         itemName,
         charName)
 end

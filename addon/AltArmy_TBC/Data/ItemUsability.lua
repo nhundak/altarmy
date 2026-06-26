@@ -114,6 +114,59 @@ local function normalizeClassFile(classFile)
     return (classFile or ""):upper()
 end
 
+local weaponRoleCache = {}
+local inventorySlotsCache = {}
+local effectiveLevelCache = {}
+local canNeverUseCache = {}
+local pendingFrame
+
+local function classLinkKey(classFile, link)
+    return normalizeClassFile(classFile) .. "\0" .. tostring(link)
+end
+
+local function invalidateCachesForItemId(itemId)
+    itemId = tonumber(itemId)
+    if not itemId then return end
+    local needle = "item:" .. tostring(itemId)
+    for link in pairs(weaponRoleCache) do
+        if link:find(needle, 1, true) then
+            weaponRoleCache[link] = nil
+        end
+    end
+    for link in pairs(inventorySlotsCache) do
+        if link:find(needle, 1, true) then
+            inventorySlotsCache[link] = nil
+        end
+    end
+    for key in pairs(effectiveLevelCache) do
+        if key:find(needle, 1, true) then
+            effectiveLevelCache[key] = nil
+        end
+    end
+    for key in pairs(canNeverUseCache) do
+        if key:find(needle, 1, true) then
+            canNeverUseCache[key] = nil
+        end
+    end
+end
+
+local function ensurePendingFrame()
+    if pendingFrame or not CreateFrame then return end
+    pendingFrame = CreateFrame("Frame")
+    if not pendingFrame.RegisterEvent then return end
+    pendingFrame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    pendingFrame:SetScript("OnEvent", function(_, _, itemId)
+        invalidateCachesForItemId(itemId)
+    end)
+end
+
+function IU.ClearCache()
+    weaponRoleCache = {}
+    inventorySlotsCache = {}
+    effectiveLevelCache = {}
+    canNeverUseCache = {}
+end
+
 --- True for WoW weapon subclass strings for fishing poles (singular or plural).
 function IU.IsFishingPoleSubclass(weaponSubclass)
     if not weaponSubclass or weaponSubclass == "" then return false end
@@ -187,15 +240,29 @@ end
 --- Inventory slot IDs for an item link, or empty table.
 function IU.GetInventorySlotsForItem(link)
     if not link or not GetItemInfo then return {} end
+    local cached = inventorySlotsCache[link]
+    if cached then
+        local out = {}
+        for i = 1, #cached do
+            out[i] = cached[i]
+        end
+        return out
+    end
     local name = GetItemInfo(link)
     if not name then return {} end
     local equipLoc = select(9, GetItemInfo(link))
     if not equipLoc then return {} end
     local slots = INVTYPE_TO_SLOTS[equipLoc]
     if not slots then return {} end
-    local out = {}
+    local stored = {}
     for i = 1, #slots do
-        out[i] = slots[i]
+        stored[i] = slots[i]
+    end
+    inventorySlotsCache[link] = stored
+    ensurePendingFrame()
+    local out = {}
+    for i = 1, #stored do
+        out[i] = stored[i]
     end
     return out
 end
@@ -203,11 +270,16 @@ end
 --- Weapon role for loadout comparison: twohand, onehand, offhand, ranged, or nil.
 function IU.GetWeaponRole(link)
     if not link or not GetItemInfo then return nil end
+    local cached = weaponRoleCache[link]
+    if cached ~= nil then return cached end
     local name = GetItemInfo(link)
     if not name then return nil end
     local equipLoc = select(9, GetItemInfo(link))
     if not equipLoc then return nil end
-    return EQUIPLOC_TO_WEAPON_ROLE[equipLoc]
+    local role = EQUIPLOC_TO_WEAPON_ROLE[equipLoc]
+    weaponRoleCache[link] = role
+    ensurePendingFrame()
+    return role
 end
 
 --- True when class/spec can dual-wield one-handed weapons (TBC rules).
@@ -266,31 +338,40 @@ end
 --- max(item reqLevel, proficiency train level).
 function IU.EffectiveRequiredLevel(classFile, link)
     if not link or not GetItemInfo then return 999 end
+    local cacheKey = classLinkKey(classFile, link)
+    local cached = effectiveLevelCache[cacheKey]
+    if cached ~= nil then return cached end
     local name, _, _, _, minLevel, itemClass, subclass = GetItemInfo(link)
     if not name then return 999 end
     local reqLevel = tonumber(minLevel) or 0
     classFile = normalizeClassFile(classFile)
     local ic = itemClass and itemClass:lower() or ""
+    local effective
     if ic == "armor" or ic == "armour" then
         if subclass == "Shields" then
             if not IU.CanClassEverUseWeapon(classFile, "Shields") then
-                return 999
+                effective = 999
+            else
+                effective = reqLevel
             end
-            return reqLevel
+        elseif not IU.CanClassEverUseArmor(classFile, subclass) then
+            effective = 999
+        else
+            local train = IU.MinLevelToTrainProficiency(classFile, subclass, itemClass)
+            effective = math.max(reqLevel, train)
         end
-        if not IU.CanClassEverUseArmor(classFile, subclass) then
-            return 999
-        end
-        local train = IU.MinLevelToTrainProficiency(classFile, subclass, itemClass)
-        return math.max(reqLevel, train)
-    end
-    if ic == "weapon" then
+    elseif ic == "weapon" then
         if not IU.CanClassEverUseWeapon(classFile, subclass) then
-            return 999
+            effective = 999
+        else
+            effective = reqLevel
         end
-        return reqLevel
+    else
+        effective = reqLevel
     end
-    return reqLevel
+    effectiveLevelCache[cacheKey] = effective
+    ensurePendingFrame()
+    return effective
 end
 
 --- Whether character can equip within levelsAhead levels.
@@ -562,21 +643,31 @@ end
 --- Whether class can never equip the item (for graying columns).
 function IU.CanNeverUseItem(classFile, link)
     if not link then return false end
+    local cacheKey = classLinkKey(classFile, link)
+    local cached = canNeverUseCache[cacheKey]
+    if cached ~= nil then return cached end
     local _, armorSubclass, weaponSubclass = IU.GetItemUseInfo(link)
     classFile = normalizeClassFile(classFile)
+    local never = false
     if armorSubclass and armorSubclass ~= "" and armorSubclass ~= "Shields" then
         if not IU.CanClassEverUseArmor(classFile, armorSubclass) then
-            return true
+            never = true
         end
     end
-    if weaponSubclass and weaponSubclass ~= "" then
+    if not never and weaponSubclass and weaponSubclass ~= "" then
         if not IU.CanClassEverUseWeapon(classFile, weaponSubclass) then
-            return true
+            never = true
         end
     end
-    local eff = IU.EffectiveRequiredLevel(classFile, link)
-    if eff >= 999 then return true end
-    return false
+    if not never then
+        local eff = IU.EffectiveRequiredLevel(classFile, link)
+        if eff >= 999 then
+            never = true
+        end
+    end
+    canNeverUseCache[cacheKey] = never
+    ensurePendingFrame()
+    return never
 end
 
 local scanTooltip

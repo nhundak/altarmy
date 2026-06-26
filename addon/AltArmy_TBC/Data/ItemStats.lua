@@ -740,6 +740,18 @@ function IS.GetNormalized(link)
     return copyTable(normalized)
 end
 
+--- Read-only cached normalized stats; do not mutate the returned table.
+function IS.GetNormalizedRef(link)
+    if not link then return nil end
+    local entry = cache[link]
+    if entry and entry.complete ~= false then
+        return entry.normalized
+    end
+    IS.GetNormalized(link)
+    entry = cache[link]
+    return entry and entry.normalized or nil
+end
+
 --- Structured parse snapshot for debug dumps (API, tooltip, merge, normalized).
 function IS.CollectParseSnapshot(link, opts)
     if not link then return nil end
