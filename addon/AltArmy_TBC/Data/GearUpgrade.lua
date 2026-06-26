@@ -506,9 +506,440 @@ function GU.GetSlotCompareDelta(char, itemLink, invSlot, opts, entry)
     return newScore - scoreItem(eqLink, technique, classFile, specKey)
 end
 
+local MAIN_HAND_SLOT = 16
+local OFF_HAND_SLOT = 17
+
+local function getEquippedLink(char, invSlot)
+    local DS = AltArmy.DataStore
+    if not DS or not DS.GetInventoryItem then return nil end
+    return resolveItemLink(DS:GetInventoryItem(char, invSlot))
+end
+
+local function scoreForLink(link, technique, classFile, specKey)
+    if not link then return 0 end
+    return scoreItem(link, technique, classFile, specKey)
+end
+
+--- True for weapons that occupy the main-hand + off-hand loadout pair.
+function GU.IsWeaponPairItem(itemLink)
+    local iu = IU()
+    if not iu or not iu.GetWeaponRole then return false end
+    local role = iu.GetWeaponRole(itemLink)
+    return role == "twohand" or role == "onehand" or role == "offhand"
+end
+
+--- Weighted score of equipped main-hand plus off-hand (empty slots count as 0).
+function GU.GetEquippedLoadoutValue(char, technique, classFile, specKey)
+    local mh = getEquippedLink(char, MAIN_HAND_SLOT)
+    local oh = getEquippedLink(char, OFF_HAND_SLOT)
+    return scoreForLink(mh, technique, classFile, specKey)
+        + scoreForLink(oh, technique, classFile, specKey)
+end
+
+--- Best usable bag/bank item matching a weapon role for this character.
+function GU.FindBestBagItemForRole(char, role, opts, entry)
+    opts = opts or {}
+    if not char or not role then return nil, 0 end
+    local iu = IU()
+    if not iu or not iu.GetWeaponRole then return nil, 0 end
+    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+    local classFile, specKey = resolveCompareContext(char, entry)
+    local level = tonumber(entry and entry.level) or tonumber(char.level) or 0
+    local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
+    local containers = char.Containers
+    if not containers then return nil, 0 end
+
+    local bestLink
+    local bestScore = 0
+    for _, bag in pairs(containers) do
+        local links = bag and bag.links
+        if links then
+            for _, link in pairs(links) do
+                if link and iu.GetWeaponRole(link) == role then
+                    if not iu.CanNeverUseItem(classFile, link) then
+                        local equippable = iu.IsEquippableWithin(
+                            classFile, level, link, levelsAhead)
+                        if equippable then
+                            local itemScore = scoreItem(link, technique, classFile, specKey)
+                            if itemScore > bestScore then
+                                bestScore = itemScore
+                                bestLink = link
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return bestLink, bestScore
+end
+
+local function findBestOffHandFill(char, canDualWield, opts, entry)
+    local fillLink, fillScore = GU.FindBestBagItemForRole(char, "offhand", opts, entry)
+    if canDualWield then
+        local oneHandLink, oneHandScore = GU.FindBestBagItemForRole(
+            char, "onehand", opts, entry)
+        if oneHandScore > fillScore then
+            return oneHandLink, oneHandScore
+        end
+    end
+    return fillLink, fillScore
+end
+
+--- Loadout-aware weapon delta vs equipped main-hand + off-hand configuration.
+function GU.GetWeaponConfigDelta(char, itemLink, opts, entry)
+    opts = opts or {}
+    if not char or not itemLink then return 0, nil end
+    local iu = IU()
+    if not iu or not iu.GetWeaponRole then return 0, nil end
+    local itemRole = iu.GetWeaponRole(itemLink)
+    if not itemRole or itemRole == "ranged" then return 0, nil end
+
+    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+    local classFile, specKey = resolveCompareContext(char, entry)
+    local canDualWield = iu.CanClassDualWield(classFile, specKey)
+
+    local mhLink = getEquippedLink(char, MAIN_HAND_SLOT)
+    local ohLink = getEquippedLink(char, OFF_HAND_SLOT)
+    local mhRole = mhLink and iu.GetWeaponRole(mhLink)
+
+    local currentValue = GU.GetEquippedLoadoutValue(char, technique, classFile, specKey)
+    local newScore = scoreItem(itemLink, technique, classFile, specKey)
+
+    local candidateValue = 0
+    local config = "unknown"
+    local targetSlot = MAIN_HAND_SLOT
+    local offHandLink
+    local mainHandLink
+
+    if itemRole == "twohand" then
+        candidateValue = newScore
+        config = "twohand"
+        targetSlot = MAIN_HAND_SLOT
+    elseif itemRole == "onehand" then
+        if mhRole == "twohand" then
+            local fillLink, fillScore = findBestOffHandFill(char, canDualWield, opts, entry)
+            offHandLink = fillLink
+            candidateValue = newScore + fillScore
+            config = canDualWield and "dualwield" or "onehand_shield"
+            targetSlot = MAIN_HAND_SLOT
+        elseif canDualWield and mhLink and ohLink then
+            local mhScore = scoreForLink(mhLink, technique, classFile, specKey)
+            local ohScore = scoreForLink(ohLink, technique, classFile, specKey)
+            if ohScore <= mhScore then
+                candidateValue = mhScore + newScore
+                targetSlot = OFF_HAND_SLOT
+            else
+                candidateValue = newScore + ohScore
+                targetSlot = MAIN_HAND_SLOT
+            end
+            config = "dualwield"
+        else
+            local ohScore = scoreForLink(ohLink, technique, classFile, specKey)
+            if ohScore == 0 then
+                local fillLink, fillScore = findBestOffHandFill(char, false, opts, entry)
+                ohScore = fillScore
+                offHandLink = fillLink
+            end
+            candidateValue = newScore + ohScore
+            config = ohLink and "onehand_shield" or "onehand_offhand"
+            targetSlot = MAIN_HAND_SLOT
+        end
+    elseif itemRole == "offhand" then
+        if mhRole == "twohand" then
+            local bagMainLink, bagMainScore = GU.FindBestBagItemForRole(char, "onehand", opts, entry)
+            mainHandLink = bagMainLink
+            candidateValue = newScore + bagMainScore
+            offHandLink = itemLink
+            config = "dualwield"
+            targetSlot = OFF_HAND_SLOT
+        else
+            candidateValue = scoreForLink(mhLink, technique, classFile, specKey) + newScore
+            config = "offhand"
+            targetSlot = OFF_HAND_SLOT
+        end
+    end
+
+    local delta = candidateValue - currentValue
+    return delta, {
+        config = config,
+        targetSlot = targetSlot,
+        currentValue = currentValue,
+        candidateValue = candidateValue,
+        offHandLink = offHandLink,
+        mainHandLink = mainHandLink,
+    }
+end
+
+--- Item links for each side of a weapon loadout stat/compare breakdown.
+function GU.GetWeaponLoadoutCompareLinks(char, focusedLink, opts, entry)
+    if not char or not focusedLink or not GU.IsWeaponPairItem(focusedLink) then
+        return nil
+    end
+    local iu = IU()
+    if not iu or not iu.GetWeaponRole then return nil end
+    local _, info = GU.GetWeaponConfigDelta(char, focusedLink, opts, entry)
+    if not info then return nil end
+
+    local technique = GU.GetEffectiveTechnique(opts and opts.technique or "custom")
+    local classFile, specKey = resolveCompareContext(char, entry)
+    local canDualWield = iu.CanClassDualWield(classFile, specKey)
+    local itemRole = iu.GetWeaponRole(focusedLink)
+
+    local mhLink = getEquippedLink(char, MAIN_HAND_SLOT)
+    local ohLink = getEquippedLink(char, OFF_HAND_SLOT)
+    local mhRole = mhLink and iu.GetWeaponRole(mhLink)
+
+    local equippedLinks = {}
+    if mhRole == "twohand" then
+        equippedLinks[1] = mhLink
+    elseif mhLink and ohLink then
+        equippedLinks[1] = mhLink
+        equippedLinks[2] = ohLink
+    elseif mhLink then
+        equippedLinks[1] = mhLink
+    end
+
+    local candidateLinks = {}
+    if itemRole == "twohand" then
+        candidateLinks[1] = focusedLink
+    elseif itemRole == "onehand" then
+        if mhRole == "twohand" then
+            candidateLinks[1] = focusedLink
+            if info.offHandLink then
+                candidateLinks[2] = info.offHandLink
+            end
+        elseif canDualWield and mhLink and ohLink then
+            local mhScore = scoreForLink(mhLink, technique, classFile, specKey)
+            local ohScore = scoreForLink(ohLink, technique, classFile, specKey)
+            if ohScore <= mhScore then
+                candidateLinks[1] = mhLink
+                candidateLinks[2] = focusedLink
+            else
+                candidateLinks[1] = focusedLink
+                candidateLinks[2] = ohLink
+            end
+        else
+            candidateLinks[1] = focusedLink
+            if info.offHandLink then
+                candidateLinks[2] = info.offHandLink
+            elseif ohLink then
+                candidateLinks[2] = ohLink
+            end
+        end
+    elseif itemRole == "offhand" then
+        if info.mainHandLink then
+            candidateLinks[1] = info.mainHandLink
+            candidateLinks[2] = focusedLink
+        else
+            candidateLinks[1] = mhLink
+            candidateLinks[2] = focusedLink
+        end
+    end
+
+    return {
+        candidateLinks = candidateLinks,
+        equippedLinks = equippedLinks,
+        info = info,
+    }
+end
+
+local function linksReferToSameItem(a, b)
+    if not a or not b then return false end
+    if a == b then return true end
+    local idA = tonumber(a:match("item:(%d+)"))
+    local idB = tonumber(b:match("item:(%d+)"))
+    return idA and idB and idA == idB
+end
+
+local function weaponLoadoutStorageLocation(bagID)
+    local DS = AltArmy.DataStore
+    bagID = tonumber(bagID)
+    if not bagID then return "bag" end
+    local bankContainer = (DS and DS.BANK_CONTAINER) or -1
+    local minBank = (DS and DS.MIN_BANK_BAG_ID) or 5
+    local maxBank = (DS and DS.MAX_BANK_BAG_ID) or 11
+    if bagID == bankContainer or (bagID >= minBank and bagID <= maxBank) then
+        return "bank"
+    end
+    return "bag"
+end
+
+--- True when link is equipped in main-hand or off-hand.
+function GU.IsWeaponLoadoutItemEquipped(char, link)
+    if not char or not link then return false end
+    for _, slot in ipairs({ MAIN_HAND_SLOT, OFF_HAND_SLOT }) do
+        if linksReferToSameItem(getEquippedLink(char, slot), link) then
+            return true
+        end
+    end
+    return false
+end
+
+--- Bag/bank location for a stored item link (nil if not in last container scan).
+function GU.FindWeaponLoadoutItemStorage(char, link)
+    if not char or not link then return nil end
+    local targetId = tonumber(link:match("item:(%d+)"))
+    local DS = AltArmy.DataStore
+
+    if DS and DS.IterateContainerSlots then
+        local found
+        DS:IterateContainerSlots(char, function(bagID, slot, itemID, _count, bagLink)
+            if linksReferToSameItem(bagLink, link)
+                or (targetId and itemID == targetId) then
+                found = {
+                    location = weaponLoadoutStorageLocation(bagID),
+                    bagID = tonumber(bagID),
+                    slot = slot,
+                }
+                return true
+            end
+            return false
+        end)
+        if found then return found end
+    end
+
+    local containers = char.Containers
+    if not containers then return nil end
+    for bagID, bag in pairs(containers) do
+        local links = bag and bag.links
+        if links then
+            for slot, bagLink in pairs(links) do
+                if linksReferToSameItem(bagLink, link) then
+                    return {
+                        location = weaponLoadoutStorageLocation(bagID),
+                        bagID = tonumber(bagID),
+                        slot = slot,
+                    }
+                end
+            end
+        end
+    end
+    return nil
+end
+
+--- Tooltip text for a non-equipped loadout item inferred from bags/bank.
+function GU.FormatDeducedWeaponLoadoutHint(link, char, fillRole)
+    if not link then return nil end
+    local itemName = "This item"
+    if GetItemInfo then
+        local name = GetItemInfo(link)
+        if name and name ~= "" then
+            itemName = name
+        end
+    end
+    local why
+    if fillRole == "mainhand" then
+        why = string.format(
+            "%s was included as the best main-hand weapon from bags or bank for this comparison.",
+            itemName)
+    elseif fillRole == "offhand" then
+        why = string.format(
+            "%s was included as the best off-hand weapon from bags or bank for this comparison.",
+            itemName)
+    else
+        why = string.format(
+            "%s was included from bags or bank for this weapon loadout comparison.",
+            itemName)
+    end
+    local storage = GU.FindWeaponLoadoutItemStorage(char, link)
+    local where
+    if storage then
+        if storage.location == "bank" then
+            where = "Found in the bank (last scan)."
+        else
+            where = "Found in bags (last scan)."
+        end
+    else
+        where = "Not found in the last bag/bank scan for this character."
+    end
+    return why .. "\n" .. where
+end
+
+local function deducedLoadoutHintForLink(link, focusedLink, char, fillRole)
+    if linksReferToSameItem(link, focusedLink) then return nil end
+    if GU.IsWeaponLoadoutItemEquipped(char, link) then return nil end
+    return GU.FormatDeducedWeaponLoadoutHint(link, char, fillRole)
+end
+
+--- Item links for compare header when a weapon loadout spans multiple slots.
+--- Returns nil when only one item per side (no extra icons needed).
+function GU.BuildWeaponLoadoutHeaderLinks(focusedLink, char, opts, entry)
+    if not focusedLink or not char or not GU.IsWeaponPairItem(focusedLink) then
+        return nil
+    end
+    local iu = IU()
+    if not iu or not iu.GetWeaponRole then return nil end
+
+    local _, info = GU.GetWeaponConfigDelta(char, focusedLink, opts, entry)
+    if not info then return nil end
+
+    local itemRole = iu.GetWeaponRole(focusedLink)
+    local focusedLinks = {}
+    local focusedHints = {}
+    if itemRole == "offhand" and info.mainHandLink then
+        focusedLinks[#focusedLinks + 1] = info.mainHandLink
+        focusedHints[#focusedLinks] = deducedLoadoutHintForLink(
+            info.mainHandLink, focusedLink, char, "mainhand")
+    end
+    focusedLinks[#focusedLinks + 1] = focusedLink
+    if itemRole == "onehand" and info.offHandLink then
+        focusedLinks[#focusedLinks + 1] = info.offHandLink
+        focusedHints[#focusedLinks] = deducedLoadoutHintForLink(
+            info.offHandLink, focusedLink, char, "offhand")
+    end
+
+    local equippedLinks = {}
+    local equippedHints = {}
+    local mhLink = getEquippedLink(char, MAIN_HAND_SLOT)
+    local ohLink = getEquippedLink(char, OFF_HAND_SLOT)
+    local mhRole = mhLink and iu.GetWeaponRole(mhLink)
+    if mhLink then
+        if mhRole == "twohand" then
+            equippedLinks[1] = mhLink
+        elseif ohLink then
+            equippedLinks[1] = mhLink
+            equippedLinks[2] = ohLink
+        else
+            equippedLinks[1] = mhLink
+        end
+    end
+
+    if #focusedLinks <= 1 and #equippedLinks <= 1 then
+        return nil
+    end
+    for i, link in ipairs(equippedLinks) do
+        equippedHints[i] = deducedLoadoutHintForLink(link, focusedLink, char, nil)
+    end
+    return {
+        focusedLinks = focusedLinks,
+        equippedLinks = equippedLinks,
+        focusedHints = focusedHints,
+        equippedHints = equippedHints,
+    }
+end
+
+--- Signed focus delta for one slot (loadout-aware for weapon pairs).
+function GU.GetFocusSlotDelta(charData, itemLink, invSlot, opts, entry)
+    opts = opts or {}
+    if not charData or not itemLink or not invSlot then return 0 end
+    if GU.IsWeaponPairItem(itemLink) then
+        local delta, configInfo = GU.GetWeaponConfigDelta(charData, itemLink, opts, entry)
+        if not configInfo or invSlot ~= configInfo.targetSlot then
+            return 0
+        end
+        return delta or 0
+    end
+    return GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts, entry)
+end
+
 local function upgradeDeltaInSlots(char, newLink, technique, slots, entry)
     local DS = AltArmy.DataStore
     if not DS or not DS.GetInventoryItem then return 0 end
+    if GU.IsWeaponPairItem(newLink) then
+        local delta = GU.GetWeaponConfigDelta(char, newLink, { technique = technique }, entry)
+        return delta or 0
+    end
     local classFile, specKey = resolveCompareContext(char, entry)
     local newScore = scoreItem(newLink, technique, classFile, specKey)
 
@@ -597,6 +1028,17 @@ function GU.GetUpgradeHighlightKind(delta, maxDelta, opts)
     return "minor"
 end
 
+--- Inventory slot used for focus verdict/badges (loadout target slot for weapons).
+function GU.ResolveFocusCompareSlot(charData, itemLink, invSlot, opts, entry)
+    if GU.IsWeaponPairItem(itemLink) and charData then
+        local _, info = GU.GetWeaponConfigDelta(charData, itemLink, opts, entry)
+        if info and info.targetSlot then
+            return info.targetSlot
+        end
+    end
+    return invSlot
+end
+
 --- Classify one inventory slot for focus-mode badges and sorting.
 function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
     opts = opts or {}
@@ -616,7 +1058,19 @@ function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeM
     local level = entry.level or (charData and charData.level) or 0
     local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
     local inRange, _, reason = iu.IsEquippableWithin(classFile, level, itemLink, levelsAhead)
-    local rawDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts, entry)
+
+    local rawDelta
+    local loadoutOldScore
+    if GU.IsWeaponPairItem(itemLink) then
+        local configDelta, configInfo = GU.GetWeaponConfigDelta(charData, itemLink, opts, entry)
+        if configInfo and invSlot ~= configInfo.targetSlot then
+            return nil
+        end
+        rawDelta = configDelta or 0
+        loadoutOldScore = configInfo and configInfo.currentValue or 0
+    else
+        rawDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts, entry)
+    end
 
     if not inRange and reason ~= "level" then
         return {
@@ -628,15 +1082,17 @@ function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeM
     end
 
     if rawDelta < 0 then
-        local oldScore = 0
-        local DS = AltArmy.DataStore
-        if DS and DS.GetInventoryItem then
-            local equipped = DS:GetInventoryItem(charData, invSlot)
-            local eqLink = resolveItemLink(equipped)
-            if eqLink then
-                local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-                local compareClass, specKey = resolveCompareContext(charData, entry)
-                oldScore = scoreItem(eqLink, technique, compareClass, specKey) or 0
+        local oldScore = loadoutOldScore or 0
+        if not loadoutOldScore then
+            local DS = AltArmy.DataStore
+            if DS and DS.GetInventoryItem then
+                local equipped = DS:GetInventoryItem(charData, invSlot)
+                local eqLink = resolveItemLink(equipped)
+                if eqLink then
+                    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+                    local compareClass, specKey = resolveCompareContext(charData, entry)
+                    oldScore = scoreItem(eqLink, technique, compareClass, specKey) or 0
+                end
             end
         end
         local weightedPercent = GU.GetWeightedChangePercent(rawDelta, oldScore, upgradeMaxDelta)
@@ -704,6 +1160,12 @@ end
 --- Summarize a character across one or more inventory slots (rings/trinkets use best upgrade).
 function GU.SummarizeFocusCharacter(entry, charData, itemLink, slots, opts, upgradeMaxDelta)
     slots = slots or {}
+    if GU.IsWeaponPairItem(itemLink) and charData then
+        local compareSlot = GU.ResolveFocusCompareSlot(charData, itemLink, slots[1], opts, entry)
+        if compareSlot then
+            slots = { compareSlot }
+        end
+    end
     local bestPositive
     local bestSidegrade
     local hasNever = false
@@ -792,6 +1254,8 @@ end
 
 --- Compare-panel verdict for one selected slot; nil when no classification.
 function GU.GetFocusVerdictForSlot(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
+    invSlot = GU.ResolveFocusCompareSlot(charData, itemLink, invSlot, opts, entry)
+    if not invSlot then return nil end
     local info = GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
     if not info or not info.category then return nil end
     local verdict = FOCUS_VERDICT[info.category]
@@ -903,14 +1367,34 @@ function GU.BuildFocusSlotDebugLines(entry, charData, itemLink, invSlot, opts, u
             tostring(reason or "(none)"))
     end
 
+    if GU.IsWeaponPairItem(itemLink) then
+        local loadoutDelta, configInfo = GU.GetWeaponConfigDelta(charData, itemLink, opts, entry)
+        if configInfo then
+            lines[#lines + 1] = string.format("  Weapon loadout config: %s", tostring(configInfo.config))
+            lines[#lines + 1] = string.format(
+                "  Weapon loadout values: current=%s candidate=%s delta=%s targetSlot=%s",
+                tostring(configInfo.currentValue),
+                tostring(configInfo.candidateValue),
+                tostring(loadoutDelta),
+                tostring(configInfo.targetSlot))
+            if configInfo.offHandLink then
+                lines[#lines + 1] = string.format(
+                    "  Weapon loadout off-hand fill: %s",
+                    focusDebugItemLabel(configInfo.offHandLink))
+            end
+        end
+    end
+
     local newScoreFocus = GU.ScoreItem(itemLink, focusTechnique, classFile, specKey)
     local oldScoreFocus = eqLink and GU.ScoreItem(eqLink, focusTechnique, classFile, specKey) or 0
-    local rawDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts, entry)
+    local rawDelta = GU.GetFocusSlotDelta(charData, itemLink, invSlot, opts, entry)
+    local slotDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts, entry)
     lines[#lines + 1] = string.format(
-        "  Grid scores: new=%s old=%s delta=%s",
+        "  Grid scores: new=%s old=%s delta=%s (slot-only=%s)",
         tostring(newScoreFocus),
         tostring(oldScoreFocus),
-        tostring(rawDelta))
+        tostring(rawDelta),
+        tostring(slotDelta))
 
     local itemStats = IS()
     if itemStats then
@@ -1035,10 +1519,17 @@ function GU.HasAnyFocusUpgradeOrEventual(list, itemLink, opts)
     for i = 1, #list do
         local e = list[i]
         local charData = DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm)
-        for s = 1, #slots do
-            local delta = GU.GetSlotCompareDelta(charData, itemLink, slots[s], opts, e) or 0
+        if GU.IsWeaponPairItem(itemLink) then
+            local delta = GU.GetWeaponConfigDelta(charData, itemLink, opts, e) or 0
             if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
                 upgradeMaxDelta = delta
+            end
+        else
+            for s = 1, #slots do
+                local delta = GU.GetSlotCompareDelta(charData, itemLink, slots[s], opts, e) or 0
+                if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
+                    upgradeMaxDelta = delta
+                end
             end
         end
     end
@@ -1080,10 +1571,17 @@ function GU.ComputeUpgradeMaxDeltaForEntries(entries, itemLink, opts)
         local e = entries[i]
         local charData = e.charData
             or (DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm))
-        for s = 1, #slots do
-            local delta = GU.GetSlotCompareDelta(charData, itemLink, slots[s], opts, e) or 0
+        if GU.IsWeaponPairItem(itemLink) then
+            local delta = GU.GetWeaponConfigDelta(charData, itemLink, opts, e) or 0
             if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
                 upgradeMaxDelta = delta
+            end
+        else
+            for s = 1, #slots do
+                local delta = GU.GetSlotCompareDelta(charData, itemLink, slots[s], opts, e) or 0
+                if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
+                    upgradeMaxDelta = delta
+                end
             end
         end
     end

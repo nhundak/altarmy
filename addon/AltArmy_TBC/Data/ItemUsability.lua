@@ -93,6 +93,23 @@ local WEAPON_PAIR_DISPLAY_TYPES = {
 
 local MAIN_AND_OFF_HAND_SLOTS = { 16, 17 }
 
+local EQUIPLOC_TO_WEAPON_ROLE = {
+    INVTYPE_2HWEAPON = "twohand",
+    INVTYPE_RANGED = "ranged",
+    INVTYPE_RANGEDRIGHT = "ranged",
+    INVTYPE_WEAPON = "onehand",
+    INVTYPE_WEAPONMAINHAND = "onehand",
+    INVTYPE_WEAPONOFFHAND = "offhand",
+    INVTYPE_SHIELD = "offhand",
+    INVTYPE_HOLDABLE = "offhand",
+}
+
+local DUAL_WIELD_CLASS = {
+    WARRIOR = true,
+    ROGUE = true,
+    HUNTER = true,
+}
+
 local function normalizeClassFile(classFile)
     return (classFile or ""):upper()
 end
@@ -181,6 +198,24 @@ function IU.GetInventorySlotsForItem(link)
         out[i] = slots[i]
     end
     return out
+end
+
+--- Weapon role for loadout comparison: twohand, onehand, offhand, ranged, or nil.
+function IU.GetWeaponRole(link)
+    if not link or not GetItemInfo then return nil end
+    local name = GetItemInfo(link)
+    if not name then return nil end
+    local equipLoc = select(9, GetItemInfo(link))
+    if not equipLoc then return nil end
+    return EQUIPLOC_TO_WEAPON_ROLE[equipLoc]
+end
+
+--- True when class/spec can dual-wield one-handed weapons (TBC rules).
+function IU.CanClassDualWield(classFile, specKey)
+    classFile = normalizeClassFile(classFile)
+    if DUAL_WIELD_CLASS[classFile] then return true end
+    if classFile == "SHAMAN" and specKey == "enhancement" then return true end
+    return false
 end
 
 --- Inventory slots to show in the gear grid when an item is focused (may be wider than equip slots).

@@ -339,4 +339,201 @@ describe("GearCompare", function()
         assert.are.equal(1, saved)
         assert.are.equal("MageAlt", AltArmyTBC_Options.debug.comparePanelDumps[1].character.name)
     end)
+
+    it("BuildComparison includes weapon loadout row and note for 2H vs dual-wield", function()
+        local oldGetItemInfo = _G.GetItemInfo
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            local items = {
+                [201] = { "Weak MH", nil, 2, 30, 30, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+                [202] = { "Weak OH", nil, 2, 25, 25, "Weapon", "Daggers", nil, "INVTYPE_WEAPONOFFHAND" },
+                [203] = { "Big 2H", nil, 3, 60, 60, "Weapon", "Two-Handed Swords", nil, "INVTYPE_2HWEAPON" },
+            }
+            local info = items[id]
+            if info then
+                local link = "|cff|Hitem:" .. tostring(id) .. ":0|h[" .. info[1] .. "]|h|r"
+                return info[1], link, info[3], info[4], info[5], info[6], info[7], nil, info[9]
+            end
+            return oldGetItemInfo(item)
+        end
+        _G.AltArmyTBC_Data.Characters.TestRealm.WarriorDW = {
+            name = "WarriorDW",
+            realm = "TestRealm",
+            classFile = "WARRIOR",
+            level = 60,
+            Inventory = {
+                [16] = "|Hitem:201:0|h[Weak MH]|h",
+                [17] = "|Hitem:202:0|h[Weak OH]|h",
+            },
+            talents = { tabs = { 0, 21, 0 }, primary = 2, specKey = "fury" },
+        }
+        local char = DS:GetCharacter("WarriorDW", "TestRealm")
+        local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+        local result = GC.BuildComparison(
+            "|Hitem:203:0|h[Big 2H]|h",
+            "|Hitem:201:0|h[Weak MH]|h",
+            "ilvl",
+            char,
+            entry)
+        _G.GetItemInfo = oldGetItemInfo
+        assert.are.equal(5, result.summary.delta)
+        assert.are.equal(55, result.summary.oldTotal)
+        assert.are.equal(60, result.summary.newTotal)
+        local rows = result.sections[1].rows
+        assert.are.equal(60, rows[1].newValue)
+        assert.are.equal(55, rows[1].oldValue)
+    end)
+
+    it("BuildComparison custom sums stats across weapon loadout items", function()
+        local oldGetItemInfo = _G.GetItemInfo
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            local items = {
+                [204] = { "Small 2H", nil, 2, 50, 50, "Weapon", "Two-Handed Swords", nil, "INVTYPE_2HWEAPON" },
+                [205] = { "New 1H", nil, 3, 40, 40, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+                [206] = { "Bag OH", nil, 2, 22, 22, "Weapon", "Daggers", nil, "INVTYPE_WEAPONOFFHAND" },
+                [207] = { "Bag 1H", nil, 2, 28, 28, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+            }
+            local info = items[id]
+            if info then
+                local link = "|cff|Hitem:" .. tostring(id) .. ":0|h[" .. info[1] .. "]|h|r"
+                return info[1], link, info[3], info[4], info[5], info[6], info[7], nil, info[9]
+            end
+            return oldGetItemInfo(item)
+        end
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 204 then
+                return { ["ITEM_MOD_STAMINA_SHORT"] = 50 }
+            end
+            if id == 205 then
+                return { ["ITEM_MOD_STAMINA_SHORT"] = 10 }
+            end
+            if id == 207 then
+                return { ["ITEM_MOD_STAMINA_SHORT"] = 8 }
+            end
+            return oldGetItemStats(link)
+        end
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+        _G.AltArmyTBC_Data.Characters.TestRealm.Warrior2H = {
+            name = "Warrior2H",
+            realm = "TestRealm",
+            classFile = "WARRIOR",
+            level = 60,
+            Inventory = {
+                [16] = "|Hitem:204:0|h[Small 2H]|h",
+            },
+            Containers = {
+                [0] = {
+                    links = {
+                        [1] = "|Hitem:206:0|h[Bag OH]|h",
+                        [2] = "|Hitem:207:0|h[Bag 1H]|h",
+                    },
+                },
+            },
+            talents = { tabs = { 0, 21, 0 }, primary = 2, specKey = "fury" },
+        }
+        local char = DS:GetCharacter("Warrior2H", "TestRealm")
+        local entry = { name = "Warrior2H", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+        local result = GC.BuildComparison(
+            "|Hitem:205:0|h[New 1H]|h",
+            "|Hitem:204:0|h[Small 2H]|h",
+            "custom",
+            char,
+            entry)
+        _G.GetItemInfo = oldGetItemInfo
+        _G.GetItemStats = oldGetItemStats
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+        local rows = result.sections[1].rows
+        local staminaRow
+        for i = 1, #rows do
+            if rows[i].label == "Stamina" then
+                staminaRow = rows[i]
+                break
+            end
+        end
+        assert.is_not_nil(staminaRow)
+        assert.are.equal(18, staminaRow.newValue)
+        assert.are.equal(50, staminaRow.oldValue)
+        assert.are.equal(-32, staminaRow.delta)
+    end)
+
+    it("BuildComparison custom sums equipped dual-wield stats vs 2H", function()
+        local oldGetItemInfo = _G.GetItemInfo
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            local items = {
+                [201] = { "Weak MH", nil, 2, 30, 30, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+                [202] = { "Weak OH", nil, 2, 25, 25, "Weapon", "Daggers", nil, "INVTYPE_WEAPONOFFHAND" },
+                [203] = { "Big 2H", nil, 3, 60, 60, "Weapon", "Two-Handed Swords", nil, "INVTYPE_2HWEAPON" },
+            }
+            local info = items[id]
+            if info then
+                local link = "|cff|Hitem:" .. tostring(id) .. ":0|h[" .. info[1] .. "]|h|r"
+                return info[1], link, info[3], info[4], info[5], info[6], info[7], nil, info[9]
+            end
+            return oldGetItemInfo(item)
+        end
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 201 then
+                return { ["ITEM_MOD_STRENGTH_SHORT"] = 12 }
+            end
+            if id == 202 then
+                return { ["ITEM_MOD_STRENGTH_SHORT"] = 8 }
+            end
+            if id == 203 then
+                return { ["ITEM_MOD_STRENGTH_SHORT"] = 25 }
+            end
+            return oldGetItemStats(link)
+        end
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+        _G.AltArmyTBC_Data.Characters.TestRealm.WarriorDW = {
+            name = "WarriorDW",
+            realm = "TestRealm",
+            classFile = "WARRIOR",
+            level = 60,
+            Inventory = {
+                [16] = "|Hitem:201:0|h[Weak MH]|h",
+                [17] = "|Hitem:202:0|h[Weak OH]|h",
+            },
+            talents = { tabs = { 0, 21, 0 }, primary = 2, specKey = "fury" },
+        }
+        local char = DS:GetCharacter("WarriorDW", "TestRealm")
+        local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+        local result = GC.BuildComparison(
+            "|Hitem:203:0|h[Big 2H]|h",
+            "|Hitem:201:0|h[Weak MH]|h",
+            "custom",
+            char,
+            entry)
+        _G.GetItemInfo = oldGetItemInfo
+        _G.GetItemStats = oldGetItemStats
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+        local rows = result.sections[1].rows
+        local strengthRow
+        for i = 1, #rows do
+            if rows[i].label == "Strength" then
+                strengthRow = rows[i]
+                break
+            end
+        end
+        assert.is_not_nil(strengthRow)
+        assert.are.equal(25, strengthRow.newValue)
+        assert.are.equal(20, strengthRow.oldValue)
+        assert.are.equal(5, strengthRow.delta)
+    end)
 end)

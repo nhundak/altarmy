@@ -35,13 +35,121 @@ local function getRawStats(link)
     return {}
 end
 
-local function buildSummary(newLink, oldLink, technique, classFile, specKey)
+local function sumRawStatsForLinks(links)
+    local totals = {}
+    if not links then return totals end
+    for i = 1, #links do
+        local stats = getRawStats(links[i])
+        for key, value in pairs(stats) do
+            totals[key] = (totals[key] or 0) + (tonumber(value) or 0)
+        end
+    end
+    return totals
+end
+
+local function resolveLoadoutStatSides(newLink, oldLink, charData, entry, opts)
+    if not charData or not newLink
+        or not GU.IsWeaponPairItem or not GU.IsWeaponPairItem(newLink)
+        or not GU.GetWeaponLoadoutCompareLinks then
+        return getRawStats(newLink), oldLink and getRawStats(oldLink) or {}
+    end
+    local compareOpts = {}
+    if opts then
+        for k, v in pairs(opts) do
+            compareOpts[k] = v
+        end
+    end
+    local loadout = GU.GetWeaponLoadoutCompareLinks(charData, newLink, compareOpts, entry)
+    if not loadout then
+        return getRawStats(newLink), oldLink and getRawStats(oldLink) or {}
+    end
+    return sumRawStatsForLinks(loadout.candidateLinks),
+        sumRawStatsForLinks(loadout.equippedLinks)
+end
+
+local function buildSummary(newLink, oldLink, technique, classFile, specKey, charData, entry, opts)
+    opts = opts or {}
+    if GU.IsWeaponPairItem and GU.IsWeaponPairItem(newLink) and charData then
+        local compareOpts = {}
+        for k, v in pairs(opts) do
+            compareOpts[k] = v
+        end
+        if compareOpts.technique == nil then
+            compareOpts.technique = technique
+        end
+        local delta, info = GU.GetWeaponConfigDelta(charData, newLink, compareOpts, entry)
+        if info then
+            return {
+                newTotal = info.candidateValue or 0,
+                oldTotal = info.currentValue or 0,
+                delta = delta or 0,
+                weaponLoadout = info,
+            }
+        end
+    end
     local newTotal = GU.ScoreItem(newLink, technique, classFile, specKey) or 0
     local oldTotal = oldLink and (GU.ScoreItem(oldLink, technique, classFile, specKey) or 0) or 0
     return {
         newTotal = newTotal,
         oldTotal = oldTotal,
         delta = newTotal - oldTotal,
+    }
+end
+
+local WEAPON_LOADOUT_CAVEAT = "Compares your full main-hand + off-hand setup. "
+    .. "Stat weights ignore weapon speed and dual-wield penalties."
+
+local function getItemNameFromLink(link)
+    if not link then return nil end
+    return getItemName(link)
+end
+
+local function weightedPercentValue(summary, upgradeMaxDelta)
+    if GU and GU.GetWeightedChangePercent then
+        return GU.GetWeightedChangePercent(summary.delta, summary.oldTotal, upgradeMaxDelta)
+    end
+    local delta = summary.delta or 0
+    if upgradeMaxDelta and upgradeMaxDelta > 0 then
+        return delta / upgradeMaxDelta * 100
+    end
+    local oldTotal = summary.oldTotal or 0
+    if oldTotal > 0 then
+        return delta / oldTotal * 100
+    end
+    if delta > 0 then return 100 end
+    return 0
+end
+
+local function buildWeaponLoadoutNote(info)
+    if not info then return WEAPON_LOADOUT_CAVEAT end
+    local note = WEAPON_LOADOUT_CAVEAT
+    if info.offHandLink then
+        local fillName = getItemNameFromLink(info.offHandLink)
+        if fillName and fillName ~= "?" then
+            note = note .. " Includes " .. fillName .. " from bags."
+        end
+    end
+    return note
+end
+
+local function buildWeaponLoadoutRow(charData, entry, focusedLink, opts, upgradeMaxDelta)
+    if not GU.IsWeaponPairItem or not GU.IsWeaponPairItem(focusedLink) or not charData then
+        return nil
+    end
+    local delta, info = GU.GetWeaponConfigDelta(charData, focusedLink, opts, entry)
+    if not info then return nil end
+    local summary = {
+        delta = delta or 0,
+        oldTotal = info.currentValue or 0,
+    }
+    return {
+        label = "Weapon loadout",
+        delta = summary.delta,
+        percent = info.currentValue and info.currentValue > 0
+            and weightedPercentValue(summary, upgradeMaxDelta) or nil,
+        hideWeight = true,
+        formatAsWeightedChange = true,
+        weaponLoadout = info,
     }
 end
 
@@ -66,10 +174,9 @@ local function compareStatComparisonRows(a, b)
     return (a.label or "") < (b.label or "")
 end
 
-local function buildStatComparisonRows(newLink, oldLink, classFile, specKey)
+local function buildStatComparisonRows(newLink, oldLink, classFile, specKey, charData, entry, opts)
     local weights = GU.GetWeights and GU.GetWeights(classFile, specKey) or {}
-    local newStats = getRawStats(newLink)
-    local oldStats = oldLink and getRawStats(oldLink) or {}
+    local newStats, oldStats = resolveLoadoutStatSides(newLink, oldLink, charData, entry, opts)
     local seen = {}
     for k in pairs(newStats) do seen[k] = true end
     for k in pairs(oldStats) do seen[k] = true end
@@ -95,9 +202,8 @@ local function buildStatComparisonRows(newLink, oldLink, classFile, specKey)
     return rows
 end
 
-local function buildRawStatRows(newLink, oldLink)
-    local newStats = getRawStats(newLink)
-    local oldStats = oldLink and getRawStats(oldLink) or {}
+local function buildRawStatRows(newLink, oldLink, charData, entry, opts)
+    local newStats, oldStats = resolveLoadoutStatSides(newLink, oldLink, charData, entry, opts)
     local seen = {}
     local keys = {}
     for k in pairs(newStats) do
@@ -125,45 +231,40 @@ local function buildRawStatRows(newLink, oldLink)
     return rows
 end
 
-local function weightedPercentValue(summary, upgradeMaxDelta)
-    if GU and GU.GetWeightedChangePercent then
-        return GU.GetWeightedChangePercent(summary.delta, summary.oldTotal, upgradeMaxDelta)
-    end
-    local delta = summary.delta or 0
-    if upgradeMaxDelta and upgradeMaxDelta > 0 then
-        return delta / upgradeMaxDelta * 100
-    end
-    local oldTotal = summary.oldTotal or 0
-    if oldTotal > 0 then
-        return delta / oldTotal * 100
-    end
-    if delta > 0 then return 100 end
-    return 0
-end
-
-local function buildCustomComparison(newLink, oldLink, classFile, specKey, opts)
+local function buildCustomComparison(newLink, oldLink, classFile, specKey, opts, charData, entry)
     opts = opts or {}
-    local rows = buildStatComparisonRows(newLink, oldLink, classFile, specKey)
-    local summary = buildSummary(newLink, oldLink, "custom", classFile, specKey)
-    rows[#rows + 1] = {
-        label = "Weighted",
-        delta = summary.delta,
-        percent = oldLink and weightedPercentValue(summary, opts.upgradeMaxDelta) or nil,
-        hideWeight = true,
-        formatAsWeightedChange = true,
-    }
+    local rows = buildStatComparisonRows(newLink, oldLink, classFile, specKey, charData, entry, opts)
+    local summary = buildSummary(newLink, oldLink, "custom", classFile, specKey, charData, entry, opts)
+    local loadoutRow = buildWeaponLoadoutRow(charData, entry, newLink, opts, opts.upgradeMaxDelta)
+    if loadoutRow then
+        rows[#rows + 1] = loadoutRow
+    else
+        rows[#rows + 1] = {
+            label = "Weighted",
+            delta = summary.delta,
+            percent = oldLink and weightedPercentValue(summary, opts.upgradeMaxDelta) or nil,
+            hideWeight = true,
+            formatAsWeightedChange = true,
+        }
+    end
     local sections = {
         {
             title = "Stat comparison",
             rows = rows,
         },
     }
-    return sections
+    local result = {
+        sections = sections,
+    }
+    if summary.weaponLoadout then
+        result.weaponLoadoutNote = buildWeaponLoadoutNote(summary.weaponLoadout)
+    end
+    return result
 end
 
-local function buildScoreOnlyComparison(newLink, oldLink, classFile, specKey, technique)
+local function buildScoreOnlyComparison(newLink, oldLink, classFile, specKey, technique, charData, entry, opts)
     local sections = {}
-    local rawRows = buildRawStatRows(newLink, oldLink)
+    local rawRows = buildRawStatRows(newLink, oldLink, charData, entry, opts)
     if #rawRows > 0 then
         sections[#sections + 1] = {
             title = "Raw stats",
@@ -171,19 +272,25 @@ local function buildScoreOnlyComparison(newLink, oldLink, classFile, specKey, te
         }
     end
     if technique == "ilvl" then
+        local summary = buildSummary(newLink, oldLink, technique, classFile, specKey, charData, entry, opts)
         sections[#sections + 1] = {
             title = "Item level",
             rows = {
                 {
                     label = "Item Level",
-                    newValue = GU.ScoreItem(newLink, "ilvl", classFile, specKey),
-                    oldValue = oldLink and GU.ScoreItem(oldLink, "ilvl", classFile, specKey) or 0,
-                    delta = buildSummary(newLink, oldLink, "ilvl", classFile, specKey).delta,
+                    newValue = summary.newTotal,
+                    oldValue = summary.oldTotal,
+                    delta = summary.delta,
                 },
             },
         }
     end
-    return sections
+    local result = { sections = sections }
+    local summary = buildSummary(newLink, oldLink, technique, classFile, specKey, charData, entry, opts)
+    if summary.weaponLoadout then
+        result.weaponLoadoutNote = buildWeaponLoadoutNote(summary.weaponLoadout)
+    end
+    return result
 end
 
 function GC.GetEquippedCompareItem(char, focusedLink, opts)
@@ -201,6 +308,14 @@ function GC.GetEquippedCompareItem(char, focusedLink, opts)
         local equipped = DS:GetInventoryItem(char, opts.slot)
         local eqLink = GU.ResolveItemLink(equipped)
         return eqLink, opts.slot
+    end
+
+    if GU.IsWeaponPairItem and GU.IsWeaponPairItem(focusedLink) then
+        local _, configInfo = GU.GetWeaponConfigDelta(char, focusedLink, opts, opts.entry)
+        local targetSlot = configInfo and configInfo.targetSlot or slots[1]
+        local equipped = DS:GetInventoryItem(char, targetSlot)
+        local eqLink = GU.ResolveItemLink(equipped)
+        return eqLink, targetSlot
     end
 
     local newScore = GU.ScoreItem(focusedLink, technique, classFile, specKey)
@@ -237,23 +352,29 @@ function GC.BuildComparison(focusedLink, equippedLink, technique, charData, entr
     technique = GU.GetEffectiveTechnique(technique or "custom")
     local classFile, specKey = GU.ResolveCompareContext(charData, entry)
     local provider = GU.GetProvider(technique)
-    local sections
+    local built
 
     if technique == "custom" then
-        sections = buildCustomComparison(focusedLink, equippedLink, classFile, specKey, opts)
+        built = buildCustomComparison(focusedLink, equippedLink, classFile, specKey, opts, charData, entry)
     elseif technique == "ilvl" or technique == "gearscore" then
-        sections = buildScoreOnlyComparison(focusedLink, equippedLink, classFile, specKey, technique)
+        built = buildScoreOnlyComparison(
+            focusedLink, equippedLink, classFile, specKey, technique, charData, entry, opts)
     else
-        sections = buildCustomComparison(focusedLink, equippedLink, classFile, specKey, opts)
+        built = buildCustomComparison(focusedLink, equippedLink, classFile, specKey, opts, charData, entry)
     end
+
+    local sections = built.sections or built
+    local summary = buildSummary(
+        focusedLink, equippedLink, technique, classFile, specKey, charData, entry, opts)
 
     return {
         focusedName = getItemName(focusedLink),
         equippedName = equippedLink and getItemName(equippedLink) or "(empty)",
         techniqueId = technique,
         techniqueLabel = provider and GU.GetProviderDisplayLabel(provider) or technique,
-        summary = buildSummary(focusedLink, equippedLink, technique, classFile, specKey),
+        summary = summary,
         sections = sections,
+        weaponLoadoutNote = built.weaponLoadoutNote,
     }
 end
 

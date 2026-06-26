@@ -1159,4 +1159,300 @@ describe("GearUpgrade", function()
         assert.are.equal(20, summary.sortDelta)
         assert.is_false(summary.dimmed)
     end)
+
+    describe("weapon loadout comparison", function()
+        local MAIN = 16
+        local OFF = 17
+
+        local function weaponGetItemInfo(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            local items = {
+                [201] = { "Weak MH", nil, 2, 30, 30, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+                [202] = { "Weak OH", nil, 2, 25, 25, "Weapon", "Daggers", nil, "INVTYPE_WEAPONOFFHAND" },
+                [203] = { "Big 2H", nil, 3, 60, 60, "Weapon", "Two-Handed Swords", nil, "INVTYPE_2HWEAPON" },
+                [204] = { "Small 2H", nil, 2, 50, 50, "Weapon", "Two-Handed Swords", nil, "INVTYPE_2HWEAPON" },
+                [205] = { "New 1H", nil, 3, 40, 40, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+                [206] = { "Bag OH", nil, 2, 22, 22, "Weapon", "Daggers", nil, "INVTYPE_WEAPONOFFHAND" },
+                [207] = { "Bag 1H", nil, 2, 28, 28, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+                [208] = { "Shield", nil, 2, 20, 20, "Armor", "Shields", nil, "INVTYPE_SHIELD" },
+                [209] = { "Better 1H", nil, 3, 35, 35, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+            }
+            local info = items[id]
+            if not info then return mockGetItemInfo(item) end
+            local link = "|cff|Hitem:" .. tostring(id) .. ":0|h[" .. info[1] .. "]|h|r"
+            return info[1], link, info[3], info[4], info[5], info[6], info[7], nil, info[9]
+        end
+
+        local function setupWarriorDualWield()
+            _G.AltArmyTBC_Data.Characters.TestRealm.WarriorDW = {
+                name = "WarriorDW",
+                realm = "TestRealm",
+                classFile = "WARRIOR",
+                level = 60,
+                Inventory = {
+                    [MAIN] = "|Hitem:201:0|h[Weak MH]|h",
+                    [OFF] = "|Hitem:202:0|h[Weak OH]|h",
+                },
+                Containers = {
+                    [0] = {
+                        links = {
+                            [1] = "|Hitem:206:0|h[Bag OH]|h",
+                            [2] = "|Hitem:207:0|h[Bag 1H]|h",
+                        },
+                    },
+                },
+                talents = { tabs = { 0, 21, 0 }, primary = 2, specKey = "fury" },
+            }
+            return DS:GetCharacter("WarriorDW", "TestRealm")
+        end
+
+        local function setupWarriorTwoHand()
+            _G.AltArmyTBC_Data.Characters.TestRealm.Warrior2H = {
+                name = "Warrior2H",
+                realm = "TestRealm",
+                classFile = "WARRIOR",
+                level = 60,
+                Inventory = {
+                    [MAIN] = "|Hitem:204:0|h[Small 2H]|h",
+                },
+                Containers = {
+                    [0] = {
+                        links = {
+                            [1] = "|Hitem:206:0|h[Bag OH]|h",
+                            [2] = "|Hitem:207:0|h[Bag 1H]|h",
+                        },
+                    },
+                },
+                talents = { tabs = { 0, 21, 0 }, primary = 2, specKey = "fury" },
+            }
+            return DS:GetCharacter("Warrior2H", "TestRealm")
+        end
+
+        local function setupRogueDualWield()
+            _G.AltArmyTBC_Data.Characters.TestRealm.RogueDW = {
+                name = "RogueDW",
+                realm = "TestRealm",
+                classFile = "ROGUE",
+                level = 60,
+                Inventory = {
+                    [MAIN] = "|Hitem:201:0|h[Weak MH]|h",
+                    [OFF] = "|Hitem:202:0|h[Weak OH]|h",
+                },
+                Containers = {
+                    [0] = {
+                        links = {
+                            [1] = "|Hitem:206:0|h[Bag OH]|h",
+                            [2] = "|Hitem:207:0|h[Bag 1H]|h",
+                        },
+                    },
+                },
+                talents = { tabs = { 21, 0, 0 }, primary = 1, specKey = "combat" },
+            }
+            return DS:GetCharacter("RogueDW", "TestRealm")
+        end
+
+        local function setupRogueTwoHand()
+            _G.AltArmyTBC_Data.Characters.TestRealm.Rogue2H = {
+                name = "Rogue2H",
+                realm = "TestRealm",
+                classFile = "ROGUE",
+                level = 60,
+                Inventory = {
+                    [MAIN] = "|Hitem:204:0|h[Small 2H]|h",
+                },
+                Containers = {
+                    [0] = {
+                        links = {
+                            [1] = "|Hitem:206:0|h[Bag OH]|h",
+                            [2] = "|Hitem:207:0|h[Bag 1H]|h",
+                        },
+                    },
+                },
+                talents = { tabs = { 21, 0, 0 }, primary = 1, specKey = "combat" },
+            }
+            return DS:GetCharacter("Rogue2H", "TestRealm")
+        end
+
+        local function setupPaladinTwoHand()
+            _G.AltArmyTBC_Data.Characters.TestRealm.Paladin2H = {
+                name = "Paladin2H",
+                realm = "TestRealm",
+                classFile = "PALADIN",
+                level = 60,
+                Inventory = {
+                    [MAIN] = "|Hitem:204:0|h[Small 2H]|h",
+                },
+                Containers = {
+                    [0] = {
+                        links = {
+                            [1] = "|Hitem:208:0|h[Shield]|h",
+                            [2] = "|Hitem:207:0|h[Bag 1H]|h",
+                        },
+                    },
+                },
+                talents = { tabs = { 0, 21, 0 }, primary = 2, specKey = "retribution" },
+            }
+            return DS:GetCharacter("Paladin2H", "TestRealm")
+        end
+
+        setup(function()
+            _G.GetItemInfo = weaponGetItemInfo
+        end)
+
+        it("IsWeaponPairItem is true for main-hand weapon types", function()
+            assert.is_true(GU.IsWeaponPairItem("|Hitem:205:0|h[New 1H]|h"))
+            assert.is_true(GU.IsWeaponPairItem("|Hitem:203:0|h[Big 2H]|h"))
+            assert.is_true(GU.IsWeaponPairItem("|Hitem:208:0|h[Shield]|h"))
+            assert.is_false(GU.IsWeaponPairItem("|Hitem:11:0|h[New Helm]|h"))
+        end)
+
+        it("GetEquippedLoadoutValue sums main and off hand scores", function()
+            local char = setupRogueDualWield()
+            local val = GU.GetEquippedLoadoutValue(char, "ilvl", "ROGUE", "combat")
+            assert.are.equal(55, val)
+        end)
+
+        it("2H vs dual-wield uses loadout delta not per-slot best", function()
+            local char = setupWarriorDualWield()
+            local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local delta, info = GU.GetWeaponConfigDelta(char, "|Hitem:203:0|h[Big 2H]|h", {
+                technique = "ilvl",
+            }, entry)
+            assert.are.equal(5, delta)
+            assert.are.equal(55, info.currentValue)
+            assert.are.equal(60, info.candidateValue)
+            assert.are.equal("twohand", info.config)
+            assert.are.equal(MAIN, info.targetSlot)
+            local perSlot = GU.GetSlotCompareDelta(char, "|Hitem:203:0|h[Big 2H]|h", MAIN, {
+                technique = "ilvl",
+            }, entry)
+            assert.are.equal(30, perSlot)
+        end)
+
+        it("2H vs 2H compares loadout values", function()
+            local char = setupRogueTwoHand()
+            local entry = { name = "Rogue2H", realm = "TestRealm", classFile = "ROGUE", level = 60 }
+            local delta = GU.GetWeaponConfigDelta(char, "|Hitem:203:0|h[Big 2H]|h", {
+                technique = "ilvl",
+            }, entry)
+            assert.are.equal(10, delta)
+        end)
+
+        it("1H vs 2H dual-wield class fills off-hand from bags", function()
+            local char = setupRogueTwoHand()
+            local entry = { name = "Rogue2H", realm = "TestRealm", classFile = "ROGUE", level = 60 }
+            local delta, info = GU.GetWeaponConfigDelta(char, "|Hitem:205:0|h[New 1H]|h", {
+                technique = "ilvl",
+            }, entry)
+            assert.are.equal(18, delta)
+            assert.are.equal(68, info.candidateValue)
+            assert.is_not_nil(info.offHandLink)
+        end)
+
+        it("1H vs 2H non-dual-wield class uses shield from bags", function()
+            local char = setupPaladinTwoHand()
+            local entry = { name = "Paladin2H", realm = "TestRealm", classFile = "PALADIN", level = 60 }
+            local delta, info = GU.GetWeaponConfigDelta(char, "|Hitem:205:0|h[New 1H]|h", {
+                technique = "ilvl",
+            }, entry)
+            assert.are.equal(10, delta)
+            assert.are.equal(60, info.candidateValue)
+        end)
+
+        it("1H vs dual-wield replaces weaker hand", function()
+            local char = setupRogueDualWield()
+            local entry = { name = "RogueDW", realm = "TestRealm", classFile = "ROGUE", level = 60 }
+            local delta, info = GU.GetWeaponConfigDelta(char, "|Hitem:209:0|h[Better 1H]|h", {
+                technique = "ilvl",
+            }, entry)
+            assert.are.equal(10, delta)
+            assert.are.equal(OFF, info.targetSlot)
+            assert.are.equal("dualwield", info.config)
+        end)
+
+        it("FindBestBagItemForRole returns highest scoring usable item", function()
+            local char = setupRogueTwoHand()
+            local entry = { name = "Rogue2H", realm = "TestRealm", classFile = "ROGUE", level = 60 }
+            local link, score = GU.FindBestBagItemForRole(char, "onehand", {
+                technique = "ilvl",
+            }, entry)
+            assert.are.equal("|Hitem:207:0|h[Bag 1H]|h", link)
+            assert.are.equal(28, score)
+        end)
+
+        it("ClassifyFocusSlot uses loadout delta on target slot only", function()
+            local char = setupWarriorDualWield()
+            local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
+            local link = "|Hitem:203:0|h[Big 2H]|h"
+            local mainInfo = GU.ClassifyFocusSlot(entry, char, link, MAIN, opts, 5)
+            local offInfo = GU.ClassifyFocusSlot(entry, char, link, OFF, opts, 5)
+            assert.are.equal(5, mainInfo.delta)
+            assert.is_nil(offInfo)
+        end)
+
+        it("GetFocusVerdictForSlot uses loadout verdict on non-target weapon slot", function()
+            local char = setupWarriorDualWield()
+            local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
+            local link = "|Hitem:203:0|h[Big 2H]|h"
+            local verdict = GU.GetFocusVerdictForSlot(entry, char, link, OFF, opts, 5)
+            assert.are.equal("Upgrade", verdict.label)
+        end)
+
+        it("SummarizeFocusEntry uses loadout delta for 1H vs 2H", function()
+            local char = setupWarriorTwoHand()
+            local entry = { name = "Warrior2H", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
+            local summary = GU.SummarizeFocusEntry(entry, char, "|Hitem:205:0|h[New 1H]|h", opts, 18)
+            assert.are.equal(GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE, summary.category)
+            assert.are.equal(18, summary.sortDelta)
+        end)
+
+        it("BuildWeaponLoadoutHeaderLinks adds equipped off-hand for 2H vs dual-wield", function()
+            local char = setupWarriorDualWield()
+            local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local header = GU.BuildWeaponLoadoutHeaderLinks("|Hitem:203:0|h[Big 2H]|h", char, {
+                technique = "ilvl",
+            }, entry)
+            assert.is_not_nil(header)
+            assert.are.equal(1, #header.focusedLinks)
+            assert.are.equal("|Hitem:203:0|h[Big 2H]|h", header.focusedLinks[1])
+            assert.are.equal(2, #header.equippedLinks)
+            assert.are.equal("|Hitem:201:0|h[Weak MH]|h", header.equippedLinks[1])
+            assert.are.equal("|Hitem:202:0|h[Weak OH]|h", header.equippedLinks[2])
+        end)
+
+        it("BuildWeaponLoadoutHeaderLinks adds bag off-hand for 1H vs 2H", function()
+            local char = setupWarriorTwoHand()
+            local entry = { name = "Warrior2H", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local header = GU.BuildWeaponLoadoutHeaderLinks("|Hitem:205:0|h[New 1H]|h", char, {
+                technique = "ilvl",
+            }, entry)
+            assert.is_not_nil(header)
+            assert.are.equal(2, #header.focusedLinks)
+            assert.are.equal("|Hitem:205:0|h[New 1H]|h", header.focusedLinks[1])
+            assert.are.equal("|Hitem:207:0|h[Bag 1H]|h", header.focusedLinks[2])
+            assert.are.equal(1, #header.equippedLinks)
+            assert.are.equal("|Hitem:204:0|h[Small 2H]|h", header.equippedLinks[1])
+            assert.is_nil(header.focusedHints[1])
+            assert.is_not_nil(header.focusedHints[2])
+            assert.is_true(header.focusedHints[2]:find("off-hand", 1, true) ~= nil)
+            assert.is_true(header.focusedHints[2]:find("bags", 1, true) ~= nil)
+            assert.is_nil(header.equippedHints[1])
+        end)
+
+        it("BuildWeaponLoadoutHeaderLinks omits hints for equipped loadout icons", function()
+            local char = setupWarriorDualWield()
+            local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local header = GU.BuildWeaponLoadoutHeaderLinks("|Hitem:203:0|h[Big 2H]|h", char, {
+                technique = "ilvl",
+            }, entry)
+            assert.is_not_nil(header)
+            assert.is_nil(header.focusedHints[1])
+            assert.is_nil(header.equippedHints[1])
+            assert.is_nil(header.equippedHints[2])
+        end)
+    end)
 end)

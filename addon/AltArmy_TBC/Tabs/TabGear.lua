@@ -92,6 +92,7 @@ local COMPARE_WARNING_COLOR_CAUTION = { 1, 0.82, 0 }
 GearTab.COMPARE_WARNING_KIND = {
     MISSING_SPEC = "missing_spec",
     UNPICKED_SPEC = "unpicked_spec",
+    WEAPON_LOADOUT = "weapon_loadout",
 }
 local COMPARE_PANEL_PAD = 8
 local COMPARE_PANEL_MIN_HEIGHT = 100
@@ -372,23 +373,11 @@ function GearTab.PickBestCompareSelection(list)
     return nil, nil
 end
 
-function GearTab.ComputeFocusUpgradeMaxDelta(list, slots, focusOpts)
-    if not list or not slots or not droppedItemLink or not GU or not GU.GetSlotCompareDelta then
+function GearTab.ComputeFocusUpgradeMaxDelta(list, _slots, focusOpts)
+    if not list or not droppedItemLink or not GU or not GU.ComputeUpgradeMaxDeltaForEntries then
         return nil
     end
-    local upgradeMaxDelta
-    for i = 1, #list do
-        local e = list[i]
-        local charData = DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm)
-        for s = 1, #slots do
-            local delta = GU.GetSlotCompareDelta(
-                charData, droppedItemLink, slots[s], focusOpts, e) or 0
-            if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
-                upgradeMaxDelta = delta
-            end
-        end
-    end
-    return upgradeMaxDelta
+    return GU.ComputeUpgradeMaxDeltaForEntries(list, droppedItemLink, focusOpts)
 end
 
 function GearTab.FormatCompareFocusVsLabel()
@@ -508,6 +497,10 @@ end
 
 function GearTab.GetCompareWarningSeverity(warning)
     if GearTab.IsCompareSpecAssumptionWarning(warning) then
+        return "caution"
+    end
+    if type(warning) == "table"
+        and warning.kind == GearTab.COMPARE_WARNING_KIND.WEAPON_LOADOUT then
         return "caution"
     end
     local kind = IU and IU.GetEquipWarningKind and IU.GetEquipWarningKind(warning)
@@ -1931,6 +1924,132 @@ compareFocusEquipped:SetScript("OnLeave", function()
     if GameTooltip then GameTooltip:Hide() end
 end)
 
+local COMPARE_HEADER_EXTRA_MAX = 2
+local compareFocusExtraIcons = {}
+local compareEquippedExtraIcons = {}
+local DEDUCED_HINT_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+
+local function attachCompareHeaderDeducedHint(iconFrame)
+    if iconFrame.deducedHint then return iconFrame.deducedHint end
+    local hint = CreateFrame("Button", nil, iconFrame)
+    hint:SetSize(14, 14)
+    hint:SetPoint("TOPRIGHT", iconFrame, "TOPRIGHT", 3, 3)
+    local tex = hint:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints()
+    tex:SetTexture(DEDUCED_HINT_ICON)
+    hint:SetScript("OnEnter", function(self)
+        if not GameTooltip or not self.hintText or self.hintText == "" then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(self.hintText, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    hint:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    hint:Hide()
+    iconFrame.deducedHint = hint
+    return hint
+end
+
+function GearTab.SetCompareHeaderDeducedHint(iconFrame, hintText)
+    if not iconFrame then return end
+    local hint = attachCompareHeaderDeducedHint(iconFrame)
+    if hintText and hintText ~= "" then
+        hint.hintText = hintText
+        hint:Show()
+    else
+        hint.hintText = nil
+        hint:Hide()
+    end
+end
+
+local function createCompareHeaderIconFrame(parent)
+    local iconFrame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    iconFrame:SetSize(COMPARE_FOCUS_DROP_SIZE, COMPARE_FOCUS_DROP_SIZE)
+    iconFrame:EnableMouse(true)
+    Theme.ApplyBackdrop(iconFrame, "section")
+    local icon = iconFrame:CreateTexture(nil, "ARTWORK")
+    icon:SetPoint("TOPLEFT", iconFrame, "TOPLEFT", ITEM_ICON_INSET, -ITEM_ICON_INSET)
+    icon:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", -ITEM_ICON_INSET, ITEM_ICON_INSET)
+    iconFrame.texture = icon
+    iconFrame:SetScript("OnEnter", function(self)
+        if not GameTooltip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self.itemLink and self.itemLink ~= "" then
+            GameTooltip:SetHyperlink(self.itemLink)
+        end
+        GameTooltip:Show()
+    end)
+    iconFrame:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    iconFrame:Hide()
+    return iconFrame
+end
+
+local function ensureCompareHeaderExtraFrame(pool, index, parent)
+    if not pool[index] then
+        pool[index] = createCompareHeaderIconFrame(parent)
+    end
+    return pool[index]
+end
+
+function GearTab.HideCompareHeaderExtras()
+    for i = 1, #compareFocusExtraIcons do
+        compareFocusExtraIcons[i]:Hide()
+        GearTab.SetCompareHeaderDeducedHint(compareFocusExtraIcons[i], nil)
+    end
+    for i = 1, #compareEquippedExtraIcons do
+        compareEquippedExtraIcons[i]:Hide()
+        GearTab.SetCompareHeaderDeducedHint(compareEquippedExtraIcons[i], nil)
+    end
+    GearTab.SetCompareHeaderDeducedHint(compareFocusDrop, nil)
+    GearTab.SetCompareHeaderDeducedHint(compareFocusEquipped, nil)
+end
+
+function GearTab.ApplyCompareFocusHeaderLoadout(loadoutHeader)
+    if not loadoutHeader then
+        GearTab.HideCompareHeaderExtras()
+        return
+    end
+    local focused = loadoutHeader.focusedLinks or {}
+    local equipped = loadoutHeader.equippedLinks or {}
+    local focusedHints = loadoutHeader.focusedHints or {}
+    local equippedHints = loadoutHeader.equippedHints or {}
+
+    if focused[1] then
+        GearTab.updateCompareFocusDrop(focused[1])
+        GearTab.SetCompareHeaderDeducedHint(compareFocusDrop, focusedHints[1])
+    end
+    for i = 1, COMPARE_HEADER_EXTRA_MAX do
+        local extraFrame = ensureCompareHeaderExtraFrame(compareFocusExtraIcons, i, compareFocusRow)
+        local link = focused[i + 1]
+        if link then
+            GearTab.SetCompareItemIcon(extraFrame, link)
+            GearTab.SetCompareHeaderDeducedHint(extraFrame, focusedHints[i + 1])
+            extraFrame:Show()
+        else
+            GearTab.SetCompareHeaderDeducedHint(extraFrame, nil)
+            extraFrame:Hide()
+        end
+    end
+
+    GearTab.updateCompareFocusEquipped(equipped[1])
+    GearTab.SetCompareHeaderDeducedHint(compareFocusEquipped, equippedHints[1])
+    for i = 1, COMPARE_HEADER_EXTRA_MAX do
+        local extraFrame = ensureCompareHeaderExtraFrame(compareEquippedExtraIcons, i, compareFocusRow)
+        local link = equipped[i + 1]
+        if link then
+            GearTab.SetCompareItemIcon(extraFrame, link)
+            GearTab.SetCompareHeaderDeducedHint(extraFrame, equippedHints[i + 1])
+            extraFrame:Show()
+        else
+            GearTab.SetCompareHeaderDeducedHint(extraFrame, nil)
+            extraFrame:Hide()
+        end
+    end
+end
+
 local compareFocusError = compareItemsRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 compareFocusError:SetPoint("TOP", compareItemsRow, "BOTTOM", 0, -2)
 compareFocusError:SetPoint("LEFT", compareItemsRow, "LEFT", 8, 0)
@@ -2150,44 +2269,81 @@ function GearTab.GetSelectedEquippedCompareLink(list, technique)
     })
 end
 
-function GearTab.LayoutCompareFocusInline(showCompareTarget)
+function GearTab.LayoutCompareFocusInline(showCompareTarget, loadoutHeader)
     if not compareFocusDrop or not compareFocusRow then return end
     local gap = COMPARE_FOCUS_TITLE_GAP
     compareFocusDrop:ClearAllPoints()
     compareFocusDrop:SetPoint("LEFT", compareFocusRow, "LEFT", 0, 0)
 
     local rowW = COMPARE_FOCUS_DROP_SIZE
+    local focusAnchor = compareFocusDrop
+    local focusExtraCount = 0
+    if loadoutHeader and loadoutHeader.focusedLinks then
+        focusExtraCount = math.max(0, #loadoutHeader.focusedLinks - 1)
+    end
+    for i = 1, COMPARE_HEADER_EXTRA_MAX do
+        local extraFrame = compareFocusExtraIcons[i]
+        if extraFrame then
+            extraFrame:ClearAllPoints()
+            if i <= focusExtraCount and extraFrame:IsShown() then
+                extraFrame:SetPoint("LEFT", focusAnchor, "RIGHT", gap, 0)
+                focusAnchor = extraFrame
+                rowW = rowW + gap + COMPARE_FOCUS_DROP_SIZE
+            end
+        end
+    end
+
     if showCompareTarget and compareFocusVs and compareFocusEquipped then
         compareFocusVs:Show()
         compareFocusEquipped:Show()
         compareFocusVs:ClearAllPoints()
         compareFocusEquipped:ClearAllPoints()
-        compareFocusVs:SetPoint("LEFT", compareFocusDrop, "RIGHT", gap, 0)
-        compareFocusVs:SetPoint("CENTER", compareFocusDrop, "CENTER", 0, 0)
+        compareFocusVs:SetPoint("LEFT", focusAnchor, "RIGHT", gap, 0)
         compareFocusEquipped:SetPoint("LEFT", compareFocusVs, "RIGHT", gap, 0)
-        compareFocusEquipped:SetPoint("CENTER", compareFocusDrop, "CENTER", 0, 0)
-        rowW = rowW + gap + (compareFocusVs:GetStringWidth() or 0)
-            + gap + COMPARE_FOCUS_DROP_SIZE
+        rowW = rowW + gap + (compareFocusVs:GetStringWidth() or 0) + gap + COMPARE_FOCUS_DROP_SIZE
+
+        local equipAnchor = compareFocusEquipped
+        local equipExtraCount = 0
+        if loadoutHeader and loadoutHeader.equippedLinks then
+            equipExtraCount = math.max(0, #loadoutHeader.equippedLinks - 1)
+        end
+        for i = 1, COMPARE_HEADER_EXTRA_MAX do
+            local extraFrame = compareEquippedExtraIcons[i]
+            if extraFrame then
+                extraFrame:ClearAllPoints()
+                if i <= equipExtraCount and extraFrame:IsShown() then
+                    extraFrame:SetPoint("LEFT", equipAnchor, "RIGHT", gap, 0)
+                    equipAnchor = extraFrame
+                    rowW = rowW + gap + COMPARE_FOCUS_DROP_SIZE
+                end
+            end
+        end
     elseif compareFocusVs and compareFocusEquipped then
         compareFocusVs:Hide()
         compareFocusEquipped:Hide()
+        GearTab.HideCompareHeaderExtras()
     end
     compareFocusRow:SetWidth(rowW)
     compareFocusRow:SetPoint("CENTER", compareItemsRow, "CENTER", 0, 0)
 end
 
-function GearTab.UpdateCompareFocusHeader(itemLink, equippedLink)
+function GearTab.UpdateCompareFocusHeader(itemLink, equippedLink, loadoutHeader)
     if compareFocusVs then
         compareFocusVs:SetText(GearTab.FormatCompareFocusVsLabel())
     end
     local showCompareTarget = GearTab.HasCompareSelection()
-    GearTab.updateCompareFocusDrop(itemLink)
-    if showCompareTarget then
-        GearTab.updateCompareFocusEquipped(equippedLink)
+    if loadoutHeader then
+        GearTab.ApplyCompareFocusHeaderLoadout(loadoutHeader)
     else
-        GearTab.updateCompareFocusEquipped(nil)
+        GearTab.HideCompareHeaderExtras()
+        GearTab.updateCompareFocusDrop(itemLink)
+        if showCompareTarget then
+            GearTab.updateCompareFocusEquipped(equippedLink)
+        else
+            GearTab.updateCompareFocusEquipped(nil)
+        end
     end
-    GearTab.LayoutCompareFocusInline(showCompareTarget)
+    GearTab.LayoutCompareFocusInline(showCompareTarget, loadoutHeader)
     GearTab.LayoutComparePanelBody()
     if compareItemsRow then compareItemsRow:Show() end
 end
@@ -2696,9 +2852,9 @@ function GearTab.UpdateComparePanel(list)
 
     local technique = GearTab.GetSessionCompareTechnique()
     local equippedLink = GearTab.GetSelectedEquippedCompareLink(list, technique)
-    GearTab.UpdateCompareFocusHeader(droppedItemLink, equippedLink)
 
     if not GearTab.HasCompareSelection() or not GC then
+        GearTab.UpdateCompareFocusHeader(droppedItemLink, equippedLink)
         GearTab.ShowCompareEmptyHint(list)
         return
     end
@@ -2722,6 +2878,9 @@ function GearTab.UpdateComparePanel(list)
     if not comparison then return end
 
     local compareWarnings = GearTab.GetCompareWarnings(entry, droppedItemLink, charData)
+    local loadoutHeader = GU and GU.BuildWeaponLoadoutHeaderLinks
+        and GU.BuildWeaponLoadoutHeaderLinks(droppedItemLink, charData, focusOpts, entry)
+    GearTab.UpdateCompareFocusHeader(droppedItemLink, equippedLink, loadoutHeader)
     local verdict = GU and GU.GetFocusVerdictForSlot
         and GU.GetFocusVerdictForSlot(
             entry, charData, droppedItemLink, selectedCompareSlot, focusOpts, upgradeMaxDelta)
@@ -2988,7 +3147,7 @@ function GearTab.UpdateGridWithOffset()
 
     local upgradeMaxDelta
     local focusOpts = GU and GU.GetOptions and GU.GetOptions() or {}
-    if droppedItemLink and GU and GU.GetSlotCompareDelta then
+    if droppedItemLink and GU and GU.ComputeUpgradeMaxDeltaForEntries then
         upgradeMaxDelta = GearTab.ComputeFocusUpgradeMaxDelta(
             list,
             GearTab.GetFocusedInventorySlots(),
