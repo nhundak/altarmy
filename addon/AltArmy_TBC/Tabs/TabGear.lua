@@ -73,6 +73,19 @@ end
 
 local selectedCompareKey = nil
 local selectedCompareSlot = nil
+
+local function copyFocusOpts(compareSlot)
+    local opts = {}
+    if GU and GU.GetOptions then
+        for k, v in pairs(GU.GetOptions() or {}) do
+            opts[k] = v
+        end
+    end
+    if compareSlot then
+        opts.compareSlot = compareSlot
+    end
+    return opts
+end
 local hoveredCompareKey = nil
 local compareHoverRefs = {}
 local comparePanelContext = nil
@@ -271,7 +284,7 @@ function GearTab.CollectComparePanelContext(list)
         slot = selectedCompareSlot,
         entry = entry,
     })
-    local focusOpts = GU and GU.GetOptions and GU.GetOptions() or {}
+    local focusOpts = copyFocusOpts(selectedCompareSlot)
     local upgradeMaxDelta = GearTab.ComputeFocusUpgradeMaxDelta(
         list, GearTab.GetFocusedInventorySlots(), focusOpts)
     return {
@@ -2870,11 +2883,14 @@ function GearTab.UpdateComparePanel(list)
     local charData = ctx.charData
     technique = ctx.technique
     equippedLink = ctx.equippedLink
-    local focusOpts = ctx.focusOpts
+    local focusOpts = copyFocusOpts(selectedCompareSlot)
     local upgradeMaxDelta = ctx.upgradeMaxDelta
     local comparison = GC.BuildComparison(
         droppedItemLink, equippedLink, technique, charData, entry,
-        { upgradeMaxDelta = upgradeMaxDelta })
+        {
+            upgradeMaxDelta = upgradeMaxDelta,
+            compareSlot = selectedCompareSlot,
+        })
     if not comparison then return end
 
     local compareWarnings = GearTab.GetCompareWarnings(entry, droppedItemLink, charData)

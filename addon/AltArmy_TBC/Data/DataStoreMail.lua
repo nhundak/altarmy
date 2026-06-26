@@ -169,6 +169,24 @@ function DS:GetMailItemCount(char, itemID)
     return count
 end
 
+--- Iterate mail attachment rows that have item links (Mails + MailCache).
+--- Callback(link, itemID, count) — return true to stop.
+function DS:IterateMailItemLinks(char, callback)
+    if not char or not callback then return end
+    local function scan(rows)
+        for _, v in ipairs(rows or {}) do
+            if v and v.itemID and v.link and v.link ~= "" then
+                if callback(v.link, v.itemID, v.count or 1) then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+    if scan(char.Mails) then return end
+    scan(char.MailCache)
+end
+
 function DS:GetMailboxLastVisit(char)
     if not char then return 0 end
     return char.lastMailCheck or 0

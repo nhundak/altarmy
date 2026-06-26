@@ -574,19 +574,367 @@ function GU.FindBestBagItemForRole(char, role, opts, entry)
     return bestLink, bestScore
 end
 
-local function findBestOffHandFill(char, canDualWield, opts, entry)
-    local fillLink, fillScore = GU.FindBestBagItemForRole(char, "offhand", opts, entry)
-    if canDualWield then
-        local oneHandLink, oneHandScore = GU.FindBestBagItemForRole(
-            char, "onehand", opts, entry)
-        if oneHandScore > fillScore then
-            return oneHandLink, oneHandScore
-        end
-    end
-    return fillLink, fillScore
+local function otherWeaponSlot(slot)
+    if slot == MAIN_HAND_SLOT then return OFF_HAND_SLOT end
+    return MAIN_HAND_SLOT
 end
 
---- Loadout-aware weapon delta vs equipped main-hand + off-hand configuration.
+local function isSingleHandSelectedRole(role)
+    return role == "onehand" or role == "offhand"
+end
+
+local function scoreLoadoutLinks(mhLink, ohLink, technique, classFile, specKey)
+    return scoreForLink(mhLink, technique, classFile, specKey)
+        + scoreForLink(ohLink, technique, classFile, specKey)
+end
+
+local function loadoutLinksFromSlots(mhLink, ohLink)
+    local links = {}
+    if mhLink then links[#links + 1] = mhLink end
+    if ohLink then links[#links + 1] = ohLink end
+    return links
+end
+
+local function canEquipLinkInWeaponSlot(link, targetSlot, classFile, specKey)
+    local iu = IU()
+    if not iu or not link or not targetSlot then return false end
+    local slots = iu.GetInventorySlotsForItem(link) or {}
+    for i = 1, #slots do
+        if slots[i] == targetSlot then return true end
+    end
+    if targetSlot == OFF_HAND_SLOT and iu.CanClassDualWield(classFile, specKey) then
+        local role = iu.GetWeaponRole(link)
+        if role == "onehand" and GetItemInfo then
+            local equipLoc = select(9, GetItemInfo(link))
+            if equipLoc and equipLoc ~= "INVTYPE_WEAPONMAINHAND" then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function considerStoredLinkForSlot(
+    link, targetSlot, classFile, specKey, level, levelsAhead, technique, bestLink, bestScore)
+    if not canEquipLinkInWeaponSlot(link, targetSlot, classFile, specKey) then
+        return bestLink, bestScore
+    end
+    local iu = IU()
+    if not iu or iu.CanNeverUseItem(classFile, link) then
+        return bestLink, bestScore
+    end
+    if not iu.IsEquippableWithin(classFile, level, link, levelsAhead) then
+        return bestLink, bestScore
+    end
+    local itemScore = scoreItem(link, technique, classFile, specKey)
+    if itemScore > bestScore then
+        return link, itemScore
+    end
+    return bestLink, bestScore
+end
+
+--- Best bags/bank/mail item equippable in a weapon slot for this character.
+function GU.FindBestStoredItemForSlot(char, targetSlot, opts, entry)
+    opts = opts or {}
+    if not char or not targetSlot then return nil, 0 end
+    local iu = IU()
+    if not iu then return nil, 0 end
+    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+    local classFile, specKey = resolveCompareContext(char, entry)
+    local level = tonumber(entry and entry.level) or tonumber(char.level) or 0
+    local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
+
+    local bestLink
+    local bestScore = 0
+    local containers = char.Containers
+    if containers then
+        for _, bag in pairs(containers) do
+            local links = bag and bag.links
+            if links then
+                for _, link in pairs(links) do
+                    bestLink, bestScore = considerStoredLinkForSlot(
+                        link, targetSlot, classFile, specKey, level, levelsAhead,
+                        technique, bestLink, bestScore)
+                end
+            end
+        end
+    end
+
+    local DS = AltArmy.DataStore
+    if DS and DS.IterateMailItemLinks then
+        DS:IterateMailItemLinks(char, function(link)
+            bestLink, bestScore = considerStoredLinkForSlot(
+                link, targetSlot, classFile, specKey, level, levelsAhead,
+                technique, bestLink, bestScore)
+            return false
+        end)
+    end
+    return bestLink, bestScore
+end
+
+local function makeDeducedEntry(link, side, slot, fillRole)
+    return {
+        link = link,
+        side = side,
+        slot = slot,
+        fillRole = fillRole,
+    }
+end
+
+local function fillRoleForSlot(slot)
+    if slot == MAIN_HAND_SLOT then return "mainhand" end
+    return "offhand"
+end
+
+local function finalizeSelectionCompare(
+    candidateMH, candidateOH, equippedMH, equippedOH,
+    mode, deducedLinks, technique, classFile, specKey)
+    local candidateValue = scoreLoadoutLinks(candidateMH, candidateOH, technique, classFile, specKey)
+    local equippedValue = scoreLoadoutLinks(equippedMH, equippedOH, technique, classFile, specKey)
+    return {
+        candidateLinks = loadoutLinksFromSlots(candidateMH, candidateOH),
+        equippedLinks = loadoutLinksFromSlots(equippedMH, equippedOH),
+        candidateMH = candidateMH,
+        candidateOH = candidateOH,
+        equippedMH = equippedMH,
+        equippedOH = equippedOH,
+        candidateValue = candidateValue,
+        equippedValue = equippedValue,
+        delta = candidateValue - equippedValue,
+        deducedLinks = deducedLinks or {},
+        mode = mode,
+    }
+end
+
+local function buildOnehandFocusCompare(
+    char, focusedLink, selectedSlot, selectedLink, selectedRole, opts, entry,
+    technique, classFile, specKey)
+    local deducedLinks = {}
+    if selectedRole == "twohand" then
+        local deduced = select(1, GU.FindBestStoredItemForSlot(
+            char, OFF_HAND_SLOT, opts, entry))
+        if deduced then
+            deducedLinks[#deducedLinks + 1] = makeDeducedEntry(
+                deduced, "candidate", OFF_HAND_SLOT, "offhand")
+            return finalizeSelectionCompare(
+                focusedLink, deduced, selectedLink, nil,
+                "paired_candidate", deducedLinks, technique, classFile, specKey)
+        end
+        return finalizeSelectionCompare(
+            focusedLink, nil, selectedLink, nil,
+            "one_v_one", deducedLinks, technique, classFile, specKey)
+    end
+    if isSingleHandSelectedRole(selectedRole) then
+        local candidateMH, candidateOH, equippedMH, equippedOH
+        if selectedSlot == MAIN_HAND_SLOT then
+            candidateMH, equippedMH = focusedLink, selectedLink
+        else
+            candidateOH, equippedOH = focusedLink, selectedLink
+        end
+        return finalizeSelectionCompare(
+            candidateMH, candidateOH, equippedMH, equippedOH,
+            "one_v_one", deducedLinks, technique, classFile, specKey)
+    end
+    local candidateMH, candidateOH
+    if selectedSlot == MAIN_HAND_SLOT then
+        candidateMH = focusedLink
+    else
+        candidateOH = focusedLink
+    end
+    return finalizeSelectionCompare(
+        candidateMH, candidateOH, nil, nil,
+        "one_v_one", deducedLinks, technique, classFile, specKey)
+end
+
+local function buildTwohandFocusCompare(
+    char, focusedLink, selectedSlot, selectedLink, selectedRole, opts, entry,
+    technique, classFile, specKey)
+    local deducedLinks = {}
+    if selectedRole == "twohand" then
+        return finalizeSelectionCompare(
+            focusedLink, nil, selectedLink, nil,
+            "one_v_one", deducedLinks, technique, classFile, specKey)
+    end
+    if not selectedLink then
+        local otherSlot = otherWeaponSlot(selectedSlot)
+        local otherLink = getEquippedLink(char, otherSlot)
+        local deduced = select(1, GU.FindBestStoredItemForSlot(
+            char, selectedSlot, opts, entry))
+        local equippedMH, equippedOH
+        if selectedSlot == MAIN_HAND_SLOT then
+            equippedMH = deduced
+            equippedOH = otherLink
+        else
+            equippedMH = otherLink
+            equippedOH = deduced
+        end
+        if deduced then
+            deducedLinks[#deducedLinks + 1] = makeDeducedEntry(
+                deduced, "equipped", selectedSlot, fillRoleForSlot(selectedSlot))
+        end
+        return finalizeSelectionCompare(
+            focusedLink, nil, equippedMH, equippedOH,
+            "empty_2h", deducedLinks, technique, classFile, specKey)
+    end
+    if isSingleHandSelectedRole(selectedRole) then
+        local otherSlot = otherWeaponSlot(selectedSlot)
+        local otherLink = getEquippedLink(char, otherSlot)
+        local equippedMH, equippedOH
+        if selectedSlot == MAIN_HAND_SLOT then
+            equippedMH = selectedLink
+            if otherLink then
+                equippedOH = otherLink
+            else
+                local deduced = select(1, GU.FindBestStoredItemForSlot(
+                    char, OFF_HAND_SLOT, opts, entry))
+                equippedOH = deduced
+                if deduced then
+                    deducedLinks[#deducedLinks + 1] = makeDeducedEntry(
+                        deduced, "equipped", OFF_HAND_SLOT, "offhand")
+                end
+            end
+        else
+            equippedOH = selectedLink
+            if otherLink then
+                equippedMH = otherLink
+            else
+                local deduced = select(1, GU.FindBestStoredItemForSlot(
+                    char, MAIN_HAND_SLOT, opts, entry))
+                equippedMH = deduced
+                if deduced then
+                    deducedLinks[#deducedLinks + 1] = makeDeducedEntry(
+                        deduced, "equipped", MAIN_HAND_SLOT, "mainhand")
+                end
+            end
+        end
+        local mode = #deducedLinks > 0 and "paired_equipped" or "one_v_one"
+        return finalizeSelectionCompare(
+            focusedLink, nil, equippedMH, equippedOH,
+            mode, deducedLinks, technique, classFile, specKey)
+    end
+    return finalizeSelectionCompare(
+        focusedLink, nil, nil, nil,
+        "one_v_one", deducedLinks, technique, classFile, specKey)
+end
+
+local function buildOffhandFocusCompare(
+    char, focusedLink, selectedSlot, selectedLink, selectedRole, opts, entry,
+    technique, classFile, specKey)
+    local deducedLinks = {}
+    if selectedRole == "twohand" then
+        local deduced = select(1, GU.FindBestStoredItemForSlot(
+            char, MAIN_HAND_SLOT, opts, entry))
+        if deduced then
+            deducedLinks[#deducedLinks + 1] = makeDeducedEntry(
+                deduced, "candidate", MAIN_HAND_SLOT, "mainhand")
+            return finalizeSelectionCompare(
+                deduced, focusedLink, selectedLink, nil,
+                "paired_candidate", deducedLinks, technique, classFile, specKey)
+        end
+        return finalizeSelectionCompare(
+            nil, focusedLink, selectedLink, nil,
+            "one_v_one", deducedLinks, technique, classFile, specKey)
+    end
+    if isSingleHandSelectedRole(selectedRole) then
+        local candidateMH = nil
+        local candidateOH = focusedLink
+        local equippedMH, equippedOH
+        if selectedSlot == MAIN_HAND_SLOT then
+            equippedMH = selectedLink
+        else
+            equippedOH = selectedLink
+        end
+        return finalizeSelectionCompare(
+            candidateMH, candidateOH, equippedMH, equippedOH,
+            "one_v_one", deducedLinks, technique, classFile, specKey)
+    end
+    return finalizeSelectionCompare(
+        nil, focusedLink, nil, nil,
+        "one_v_one", deducedLinks, technique, classFile, specKey)
+end
+
+--- Selection-driven weapon loadout compare for one focused item and grid slot.
+function GU.BuildSelectionLoadoutCompare(char, focusedLink, selectedSlot, opts, entry)
+    opts = opts or {}
+    if not char or not focusedLink or not selectedSlot then return nil end
+    local iu = IU()
+    if not iu or not iu.GetWeaponRole then return nil end
+    local focusRole = iu.GetWeaponRole(focusedLink)
+    if not focusRole or focusRole == "ranged" then return nil end
+
+    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+    local classFile, specKey = resolveCompareContext(char, entry)
+    local selectedLink = getEquippedLink(char, selectedSlot)
+    local selectedRole = selectedLink and iu.GetWeaponRole(selectedLink) or nil
+
+    if focusRole == "twohand" then
+        return buildTwohandFocusCompare(
+            char, focusedLink, selectedSlot, selectedLink, selectedRole,
+            opts, entry, technique, classFile, specKey)
+    end
+    if focusRole == "offhand" then
+        return buildOffhandFocusCompare(
+            char, focusedLink, selectedSlot, selectedLink, selectedRole,
+            opts, entry, technique, classFile, specKey)
+    end
+    return buildOnehandFocusCompare(
+        char, focusedLink, selectedSlot, selectedLink, selectedRole,
+        opts, entry, technique, classFile, specKey)
+end
+
+local function selectionInfoFromCompare(result, compareSlot)
+    if not result then return nil end
+    local offHandLink = result.candidateOH
+    local mainHandLink = result.candidateMH
+    for i = 1, #(result.deducedLinks or {}) do
+        local deduced = result.deducedLinks[i]
+        if deduced.side == "candidate" then
+            if deduced.slot == OFF_HAND_SLOT then
+                offHandLink = deduced.link
+            elseif deduced.slot == MAIN_HAND_SLOT then
+                mainHandLink = deduced.link
+            end
+        end
+    end
+    return {
+        config = result.mode,
+        targetSlot = compareSlot,
+        currentValue = result.equippedValue,
+        candidateValue = result.candidateValue,
+        offHandLink = offHandLink,
+        mainHandLink = mainHandLink,
+        selection = result,
+    }
+end
+
+local function resolveWeaponCompareSlot(opts)
+    return opts and (opts.compareSlot or opts.slot) or nil
+end
+
+local function bestSelectionCompareAcrossSlots(char, focusedLink, opts, entry)
+    local bestResult
+    local bestDelta
+    local bestSlot
+    for _, slot in ipairs({ MAIN_HAND_SLOT, OFF_HAND_SLOT }) do
+        local slotOpts = {}
+        for k, v in pairs(opts or {}) do
+            slotOpts[k] = v
+        end
+        slotOpts.compareSlot = slot
+        local result = GU.BuildSelectionLoadoutCompare(char, focusedLink, slot, slotOpts, entry)
+        if result and (not bestDelta or (result.delta or 0) > bestDelta) then
+            bestDelta = result.delta
+            bestResult = result
+            bestSlot = slot
+        end
+    end
+    if bestResult then
+        bestResult.compareSlot = bestSlot
+    end
+    return bestResult
+end
+
+--- Loadout-aware weapon delta vs equipped configuration for a selected grid slot.
 function GU.GetWeaponConfigDelta(char, itemLink, opts, entry)
     opts = opts or {}
     if not char or not itemLink then return 0, nil end
@@ -595,80 +943,16 @@ function GU.GetWeaponConfigDelta(char, itemLink, opts, entry)
     local itemRole = iu.GetWeaponRole(itemLink)
     if not itemRole or itemRole == "ranged" then return 0, nil end
 
-    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local classFile, specKey = resolveCompareContext(char, entry)
-    local canDualWield = iu.CanClassDualWield(classFile, specKey)
-
-    local mhLink = getEquippedLink(char, MAIN_HAND_SLOT)
-    local ohLink = getEquippedLink(char, OFF_HAND_SLOT)
-    local mhRole = mhLink and iu.GetWeaponRole(mhLink)
-
-    local currentValue = GU.GetEquippedLoadoutValue(char, technique, classFile, specKey)
-    local newScore = scoreItem(itemLink, technique, classFile, specKey)
-
-    local candidateValue = 0
-    local config = "unknown"
-    local targetSlot = MAIN_HAND_SLOT
-    local offHandLink
-    local mainHandLink
-
-    if itemRole == "twohand" then
-        candidateValue = newScore
-        config = "twohand"
-        targetSlot = MAIN_HAND_SLOT
-    elseif itemRole == "onehand" then
-        if mhRole == "twohand" then
-            local fillLink, fillScore = findBestOffHandFill(char, canDualWield, opts, entry)
-            offHandLink = fillLink
-            candidateValue = newScore + fillScore
-            config = canDualWield and "dualwield" or "onehand_shield"
-            targetSlot = MAIN_HAND_SLOT
-        elseif canDualWield and mhLink and ohLink then
-            local mhScore = scoreForLink(mhLink, technique, classFile, specKey)
-            local ohScore = scoreForLink(ohLink, technique, classFile, specKey)
-            if ohScore <= mhScore then
-                candidateValue = mhScore + newScore
-                targetSlot = OFF_HAND_SLOT
-            else
-                candidateValue = newScore + ohScore
-                targetSlot = MAIN_HAND_SLOT
-            end
-            config = "dualwield"
-        else
-            local ohScore = scoreForLink(ohLink, technique, classFile, specKey)
-            if ohScore == 0 then
-                local fillLink, fillScore = findBestOffHandFill(char, false, opts, entry)
-                ohScore = fillScore
-                offHandLink = fillLink
-            end
-            candidateValue = newScore + ohScore
-            config = ohLink and "onehand_shield" or "onehand_offhand"
-            targetSlot = MAIN_HAND_SLOT
-        end
-    elseif itemRole == "offhand" then
-        if mhRole == "twohand" then
-            local bagMainLink, bagMainScore = GU.FindBestBagItemForRole(char, "onehand", opts, entry)
-            mainHandLink = bagMainLink
-            candidateValue = newScore + bagMainScore
-            offHandLink = itemLink
-            config = "dualwield"
-            targetSlot = OFF_HAND_SLOT
-        else
-            candidateValue = scoreForLink(mhLink, technique, classFile, specKey) + newScore
-            config = "offhand"
-            targetSlot = OFF_HAND_SLOT
-        end
+    local compareSlot = resolveWeaponCompareSlot(opts)
+    local result
+    if compareSlot then
+        result = GU.BuildSelectionLoadoutCompare(char, itemLink, compareSlot, opts, entry)
+    else
+        result = bestSelectionCompareAcrossSlots(char, itemLink, opts, entry)
+        compareSlot = result and result.compareSlot
     end
-
-    local delta = candidateValue - currentValue
-    return delta, {
-        config = config,
-        targetSlot = targetSlot,
-        currentValue = currentValue,
-        candidateValue = candidateValue,
-        offHandLink = offHandLink,
-        mainHandLink = mainHandLink,
-    }
+    if not result then return 0, nil end
+    return result.delta or 0, selectionInfoFromCompare(result, compareSlot)
 end
 
 --- Item links for each side of a weapon loadout stat/compare breakdown.
@@ -676,71 +960,14 @@ function GU.GetWeaponLoadoutCompareLinks(char, focusedLink, opts, entry)
     if not char or not focusedLink or not GU.IsWeaponPairItem(focusedLink) then
         return nil
     end
-    local iu = IU()
-    if not iu or not iu.GetWeaponRole then return nil end
-    local _, info = GU.GetWeaponConfigDelta(char, focusedLink, opts, entry)
-    if not info then return nil end
-
-    local technique = GU.GetEffectiveTechnique(opts and opts.technique or "custom")
-    local classFile, specKey = resolveCompareContext(char, entry)
-    local canDualWield = iu.CanClassDualWield(classFile, specKey)
-    local itemRole = iu.GetWeaponRole(focusedLink)
-
-    local mhLink = getEquippedLink(char, MAIN_HAND_SLOT)
-    local ohLink = getEquippedLink(char, OFF_HAND_SLOT)
-    local mhRole = mhLink and iu.GetWeaponRole(mhLink)
-
-    local equippedLinks = {}
-    if mhRole == "twohand" then
-        equippedLinks[1] = mhLink
-    elseif mhLink and ohLink then
-        equippedLinks[1] = mhLink
-        equippedLinks[2] = ohLink
-    elseif mhLink then
-        equippedLinks[1] = mhLink
-    end
-
-    local candidateLinks = {}
-    if itemRole == "twohand" then
-        candidateLinks[1] = focusedLink
-    elseif itemRole == "onehand" then
-        if mhRole == "twohand" then
-            candidateLinks[1] = focusedLink
-            if info.offHandLink then
-                candidateLinks[2] = info.offHandLink
-            end
-        elseif canDualWield and mhLink and ohLink then
-            local mhScore = scoreForLink(mhLink, technique, classFile, specKey)
-            local ohScore = scoreForLink(ohLink, technique, classFile, specKey)
-            if ohScore <= mhScore then
-                candidateLinks[1] = mhLink
-                candidateLinks[2] = focusedLink
-            else
-                candidateLinks[1] = focusedLink
-                candidateLinks[2] = ohLink
-            end
-        else
-            candidateLinks[1] = focusedLink
-            if info.offHandLink then
-                candidateLinks[2] = info.offHandLink
-            elseif ohLink then
-                candidateLinks[2] = ohLink
-            end
-        end
-    elseif itemRole == "offhand" then
-        if info.mainHandLink then
-            candidateLinks[1] = info.mainHandLink
-            candidateLinks[2] = focusedLink
-        else
-            candidateLinks[1] = mhLink
-            candidateLinks[2] = focusedLink
-        end
-    end
-
+    local compareSlot = resolveWeaponCompareSlot(opts)
+    if not compareSlot then return nil end
+    local result = GU.BuildSelectionLoadoutCompare(char, focusedLink, compareSlot, opts, entry)
+    if not result then return nil end
     return {
-        candidateLinks = candidateLinks,
-        equippedLinks = equippedLinks,
-        info = info,
+        candidateLinks = result.candidateLinks,
+        equippedLinks = result.equippedLinks,
+        selection = result,
     }
 end
 
@@ -818,8 +1045,8 @@ function GU.FindWeaponLoadoutItemStorage(char, link)
     return nil
 end
 
---- Tooltip text for a non-equipped loadout item inferred from bags/bank.
-function GU.FormatDeducedWeaponLoadoutHint(link, char, fillRole)
+--- Tooltip text for a non-equipped loadout item inferred from bags/bank/mail.
+function GU.FormatDeducedWeaponLoadoutHint(link, char)
     if not link then return nil end
     local itemName = "This item"
     if GetItemInfo then
@@ -828,38 +1055,17 @@ function GU.FormatDeducedWeaponLoadoutHint(link, char, fillRole)
             itemName = name
         end
     end
-    local why
-    if fillRole == "mainhand" then
-        why = string.format(
-            "%s was included as the best main-hand weapon from bags or bank for this comparison.",
-            itemName)
-    elseif fillRole == "offhand" then
-        why = string.format(
-            "%s was included as the best off-hand weapon from bags or bank for this comparison.",
-            itemName)
-    else
-        why = string.format(
-            "%s was included from bags or bank for this weapon loadout comparison.",
-            itemName)
-    end
-    local storage = GU.FindWeaponLoadoutItemStorage(char, link)
-    local where
-    if storage then
-        if storage.location == "bank" then
-            where = "Found in the bank (last scan)."
-        else
-            where = "Found in bags (last scan)."
-        end
-    else
-        where = "Not found in the last bag/bank scan for this character."
-    end
-    return why .. "\n" .. where
+    local charName = formatCompareCharName(char and char.name, char and char.classFile)
+    return string.format(
+        "%s is the best item we could find among %s's items, to help compare against a 2-hander",
+        itemName,
+        charName)
 end
 
-local function deducedLoadoutHintForLink(link, focusedLink, char, fillRole)
+local function deducedLoadoutHintForLink(link, focusedLink, char)
     if linksReferToSameItem(link, focusedLink) then return nil end
     if GU.IsWeaponLoadoutItemEquipped(char, link) then return nil end
-    return GU.FormatDeducedWeaponLoadoutHint(link, char, fillRole)
+    return GU.FormatDeducedWeaponLoadoutHint(link, char)
 end
 
 --- Item links for compare header when a weapon loadout spans multiple slots.
@@ -868,48 +1074,43 @@ function GU.BuildWeaponLoadoutHeaderLinks(focusedLink, char, opts, entry)
     if not focusedLink or not char or not GU.IsWeaponPairItem(focusedLink) then
         return nil
     end
-    local iu = IU()
-    if not iu or not iu.GetWeaponRole then return nil end
+    local compareSlot = resolveWeaponCompareSlot(opts)
+    if not compareSlot then return nil end
+    local result = GU.BuildSelectionLoadoutCompare(char, focusedLink, compareSlot, opts, entry)
+    if not result then return nil end
 
-    local _, info = GU.GetWeaponConfigDelta(char, focusedLink, opts, entry)
-    if not info then return nil end
-
-    local itemRole = iu.GetWeaponRole(focusedLink)
-    local focusedLinks = {}
-    local focusedHints = {}
-    if itemRole == "offhand" and info.mainHandLink then
-        focusedLinks[#focusedLinks + 1] = info.mainHandLink
-        focusedHints[#focusedLinks] = deducedLoadoutHintForLink(
-            info.mainHandLink, focusedLink, char, "mainhand")
-    end
-    focusedLinks[#focusedLinks + 1] = focusedLink
-    if itemRole == "onehand" and info.offHandLink then
-        focusedLinks[#focusedLinks + 1] = info.offHandLink
-        focusedHints[#focusedLinks] = deducedLoadoutHintForLink(
-            info.offHandLink, focusedLink, char, "offhand")
-    end
-
-    local equippedLinks = {}
-    local equippedHints = {}
-    local mhLink = getEquippedLink(char, MAIN_HAND_SLOT)
-    local ohLink = getEquippedLink(char, OFF_HAND_SLOT)
-    local mhRole = mhLink and iu.GetWeaponRole(mhLink)
-    if mhLink then
-        if mhRole == "twohand" then
-            equippedLinks[1] = mhLink
-        elseif ohLink then
-            equippedLinks[1] = mhLink
-            equippedLinks[2] = ohLink
-        else
-            equippedLinks[1] = mhLink
-        end
-    end
-
+    local focusedLinks = result.candidateLinks or {}
+    local equippedLinks = result.equippedLinks or {}
     if #focusedLinks <= 1 and #equippedLinks <= 1 then
         return nil
     end
-    for i, link in ipairs(equippedLinks) do
-        equippedHints[i] = deducedLoadoutHintForLink(link, focusedLink, char, nil)
+
+    local focusedHints = {}
+    local equippedHints = {}
+    for i = 1, #focusedLinks do
+        local link = focusedLinks[i]
+        if linksReferToSameItem(link, focusedLink) then
+            focusedHints[i] = nil
+        else
+            for _, deduced in ipairs(result.deducedLinks or {}) do
+                if deduced.side == "candidate" and linksReferToSameItem(deduced.link, link) then
+                    focusedHints[i] = deducedLoadoutHintForLink(
+                        link, focusedLink, char)
+                    break
+                end
+            end
+        end
+    end
+    for i = 1, #equippedLinks do
+        local link = equippedLinks[i]
+        local hint
+        for _, deduced in ipairs(result.deducedLinks or {}) do
+            if deduced.side == "equipped" and linksReferToSameItem(deduced.link, link) then
+                hint = deducedLoadoutHintForLink(link, focusedLink, char)
+                break
+            end
+        end
+        equippedHints[i] = hint
     end
     return {
         focusedLinks = focusedLinks,
@@ -919,15 +1120,22 @@ function GU.BuildWeaponLoadoutHeaderLinks(focusedLink, char, opts, entry)
     }
 end
 
+local function focusOptsForSlot(opts, invSlot)
+    local compareOpts = {}
+    for k, v in pairs(opts or {}) do
+        compareOpts[k] = v
+    end
+    compareOpts.compareSlot = invSlot
+    return compareOpts
+end
+
 --- Signed focus delta for one slot (loadout-aware for weapon pairs).
 function GU.GetFocusSlotDelta(charData, itemLink, invSlot, opts, entry)
     opts = opts or {}
     if not charData or not itemLink or not invSlot then return 0 end
     if GU.IsWeaponPairItem(itemLink) then
-        local delta, configInfo = GU.GetWeaponConfigDelta(charData, itemLink, opts, entry)
-        if not configInfo or invSlot ~= configInfo.targetSlot then
-            return 0
-        end
+        local delta = GU.GetWeaponConfigDelta(
+            charData, itemLink, focusOptsForSlot(opts, invSlot), entry)
         return delta or 0
     end
     return GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts, entry)
@@ -937,8 +1145,15 @@ local function upgradeDeltaInSlots(char, newLink, technique, slots, entry)
     local DS = AltArmy.DataStore
     if not DS or not DS.GetInventoryItem then return 0 end
     if GU.IsWeaponPairItem(newLink) then
-        local delta = GU.GetWeaponConfigDelta(char, newLink, { technique = technique }, entry)
-        return delta or 0
+        local bestDelta = 0
+        for _, slot in ipairs({ MAIN_HAND_SLOT, OFF_HAND_SLOT }) do
+            local delta = GU.GetWeaponConfigDelta(
+                char, newLink, { technique = technique, compareSlot = slot }, entry) or 0
+            if delta > bestDelta then
+                bestDelta = delta
+            end
+        end
+        return bestDelta
     end
     local classFile, specKey = resolveCompareContext(char, entry)
     local newScore = scoreItem(newLink, technique, classFile, specKey)
@@ -1028,14 +1243,8 @@ function GU.GetUpgradeHighlightKind(delta, maxDelta, opts)
     return "minor"
 end
 
---- Inventory slot used for focus verdict/badges (loadout target slot for weapons).
-function GU.ResolveFocusCompareSlot(charData, itemLink, invSlot, opts, entry)
-    if GU.IsWeaponPairItem(itemLink) and charData then
-        local _, info = GU.GetWeaponConfigDelta(charData, itemLink, opts, entry)
-        if info and info.targetSlot then
-            return info.targetSlot
-        end
-    end
+--- Inventory slot used for focus verdict/badges (the selected grid cell).
+function GU.ResolveFocusCompareSlot(_charData, _itemLink, invSlot, _opts, _entry)
     return invSlot
 end
 
@@ -1062,10 +1271,9 @@ function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeM
     local rawDelta
     local loadoutOldScore
     if GU.IsWeaponPairItem(itemLink) then
-        local configDelta, configInfo = GU.GetWeaponConfigDelta(charData, itemLink, opts, entry)
-        if configInfo and invSlot ~= configInfo.targetSlot then
-            return nil
-        end
+        local slotOpts = focusOptsForSlot(opts, invSlot)
+        local configDelta, configInfo = GU.GetWeaponConfigDelta(
+            charData, itemLink, slotOpts, entry)
         rawDelta = configDelta or 0
         loadoutOldScore = configInfo and configInfo.currentValue or 0
     else
@@ -1160,12 +1368,6 @@ end
 --- Summarize a character across one or more inventory slots (rings/trinkets use best upgrade).
 function GU.SummarizeFocusCharacter(entry, charData, itemLink, slots, opts, upgradeMaxDelta)
     slots = slots or {}
-    if GU.IsWeaponPairItem(itemLink) and charData then
-        local compareSlot = GU.ResolveFocusCompareSlot(charData, itemLink, slots[1], opts, entry)
-        if compareSlot then
-            slots = { compareSlot }
-        end
-    end
     local bestPositive
     local bestSidegrade
     local hasNever = false
@@ -1368,19 +1570,25 @@ function GU.BuildFocusSlotDebugLines(entry, charData, itemLink, invSlot, opts, u
     end
 
     if GU.IsWeaponPairItem(itemLink) then
-        local loadoutDelta, configInfo = GU.GetWeaponConfigDelta(charData, itemLink, opts, entry)
+        local slotOpts = focusOptsForSlot(opts, invSlot)
+        local loadoutDelta, configInfo = GU.GetWeaponConfigDelta(charData, itemLink, slotOpts, entry)
         if configInfo then
-            lines[#lines + 1] = string.format("  Weapon loadout config: %s", tostring(configInfo.config))
+            lines[#lines + 1] = string.format("  Selection compare mode: %s", tostring(configInfo.config))
             lines[#lines + 1] = string.format(
-                "  Weapon loadout values: current=%s candidate=%s delta=%s targetSlot=%s",
+                "  Selection values: equipped=%s candidate=%s delta=%s compareSlot=%s",
                 tostring(configInfo.currentValue),
                 tostring(configInfo.candidateValue),
                 tostring(loadoutDelta),
                 tostring(configInfo.targetSlot))
-            if configInfo.offHandLink then
-                lines[#lines + 1] = string.format(
-                    "  Weapon loadout off-hand fill: %s",
-                    focusDebugItemLabel(configInfo.offHandLink))
+            local selection = configInfo.selection
+            if selection then
+                for _, deduced in ipairs(selection.deducedLinks or {}) do
+                    lines[#lines + 1] = string.format(
+                        "  Deduced %s: %s (slot %s)",
+                        tostring(deduced.side),
+                        focusDebugItemLabel(deduced.link),
+                        tostring(deduced.slot))
+                end
             end
         end
     end
@@ -1520,9 +1728,12 @@ function GU.HasAnyFocusUpgradeOrEventual(list, itemLink, opts)
         local e = list[i]
         local charData = DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm)
         if GU.IsWeaponPairItem(itemLink) then
-            local delta = GU.GetWeaponConfigDelta(charData, itemLink, opts, e) or 0
-            if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
-                upgradeMaxDelta = delta
+            for _, slot in ipairs({ MAIN_HAND_SLOT, OFF_HAND_SLOT }) do
+                local slotOpts = focusOptsForSlot(opts, slot)
+                local delta = GU.GetWeaponConfigDelta(charData, itemLink, slotOpts, e) or 0
+                if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
+                    upgradeMaxDelta = delta
+                end
             end
         else
             for s = 1, #slots do
@@ -1572,9 +1783,12 @@ function GU.ComputeUpgradeMaxDeltaForEntries(entries, itemLink, opts)
         local charData = e.charData
             or (DS and DS.GetCharacter and DS:GetCharacter(e.name, e.realm))
         if GU.IsWeaponPairItem(itemLink) then
-            local delta = GU.GetWeaponConfigDelta(charData, itemLink, opts, e) or 0
-            if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
-                upgradeMaxDelta = delta
+            for _, slot in ipairs({ MAIN_HAND_SLOT, OFF_HAND_SLOT }) do
+                local slotOpts = focusOptsForSlot(opts, slot)
+                local delta = GU.GetWeaponConfigDelta(charData, itemLink, slotOpts, e) or 0
+                if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
+                    upgradeMaxDelta = delta
+                end
             end
         else
             for s = 1, #slots do

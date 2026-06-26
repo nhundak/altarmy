@@ -375,7 +375,8 @@ describe("GearCompare", function()
             "|Hitem:201:0|h[Weak MH]|h",
             "ilvl",
             char,
-            entry)
+            entry,
+            { compareSlot = 16 })
         _G.GetItemInfo = oldGetItemInfo
         assert.are.equal(5, result.summary.delta)
         assert.are.equal(55, result.summary.oldTotal)
@@ -445,7 +446,8 @@ describe("GearCompare", function()
             "|Hitem:204:0|h[Small 2H]|h",
             "custom",
             char,
-            entry)
+            entry,
+            { compareSlot = 16 })
         _G.GetItemInfo = oldGetItemInfo
         _G.GetItemStats = oldGetItemStats
         if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
@@ -517,7 +519,8 @@ describe("GearCompare", function()
             "|Hitem:201:0|h[Weak MH]|h",
             "custom",
             char,
-            entry)
+            entry,
+            { compareSlot = 16 })
         _G.GetItemInfo = oldGetItemInfo
         _G.GetItemStats = oldGetItemStats
         if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then

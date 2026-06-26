@@ -289,17 +289,7 @@ describe("Gear display list focus mode", function()
 
     --- Mirror TabGear focus sort (uses GU.CompareFocusEntries).
     local function sortByFocusTier(list, itemLink, upgradeOpts)
-        local slots = IU.GetInventorySlotsForItem(itemLink) or {}
-        local upgradeMaxDelta
-        for i = 1, #list do
-            local charData = DS:GetCharacter(list[i].name, list[i].realm)
-            for s = 1, #slots do
-                local delta = GU.GetSlotCompareDelta(charData, itemLink, slots[s], upgradeOpts, list[i]) or 0
-                if delta > 0 and (not upgradeMaxDelta or delta > upgradeMaxDelta) then
-                    upgradeMaxDelta = delta
-                end
-            end
-        end
+        local upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForEntries(list, itemLink, upgradeOpts)
         local copy = {}
         for i = 1, #list do copy[i] = list[i] end
         table.sort(copy, function(a, b)

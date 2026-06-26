@@ -84,6 +84,8 @@ describe("GearUpgrade", function()
         package.loaded["ItemUsability"] = nil
         require("DataStore")
         require("DataStoreEquipment")
+        package.loaded["DataStoreMail"] = nil
+        require("DataStoreMail")
         DS = AltArmy.DataStore
         DS.accountData = _G.AltArmyTBC_Data
         AltArmy.DB = _G.AltArmyTBC_Data
@@ -1313,16 +1315,17 @@ describe("GearUpgrade", function()
             assert.are.equal(55, val)
         end)
 
-        it("2H vs dual-wield uses loadout delta not per-slot best", function()
+        it("2H vs dual-wield uses selection loadout when MH is selected", function()
             local char = setupWarriorDualWield()
             local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
             local delta, info = GU.GetWeaponConfigDelta(char, "|Hitem:203:0|h[Big 2H]|h", {
                 technique = "ilvl",
+                compareSlot = MAIN,
             }, entry)
             assert.are.equal(5, delta)
             assert.are.equal(55, info.currentValue)
             assert.are.equal(60, info.candidateValue)
-            assert.are.equal("twohand", info.config)
+            assert.are.equal("one_v_one", info.config)
             assert.are.equal(MAIN, info.targetSlot)
             local perSlot = GU.GetSlotCompareDelta(char, "|Hitem:203:0|h[Big 2H]|h", MAIN, {
                 technique = "ilvl",
@@ -1330,45 +1333,50 @@ describe("GearUpgrade", function()
             assert.are.equal(30, perSlot)
         end)
 
-        it("2H vs 2H compares loadout values", function()
+        it("2H vs 2H compares 1v1 when MH is selected", function()
             local char = setupRogueTwoHand()
             local entry = { name = "Rogue2H", realm = "TestRealm", classFile = "ROGUE", level = 60 }
             local delta = GU.GetWeaponConfigDelta(char, "|Hitem:203:0|h[Big 2H]|h", {
                 technique = "ilvl",
+                compareSlot = MAIN,
             }, entry)
             assert.are.equal(10, delta)
         end)
 
-        it("1H vs 2H dual-wield class fills off-hand from bags", function()
+        it("1H vs selected 2H pairs off-hand from bags", function()
             local char = setupRogueTwoHand()
             local entry = { name = "Rogue2H", realm = "TestRealm", classFile = "ROGUE", level = 60 }
             local delta, info = GU.GetWeaponConfigDelta(char, "|Hitem:205:0|h[New 1H]|h", {
                 technique = "ilvl",
+                compareSlot = MAIN,
             }, entry)
             assert.are.equal(18, delta)
             assert.are.equal(68, info.candidateValue)
             assert.is_not_nil(info.offHandLink)
+            assert.are.equal("paired_candidate", info.config)
         end)
 
-        it("1H vs 2H non-dual-wield class uses shield from bags", function()
+        it("1H vs selected 2H non-dual-wield class uses shield from bags", function()
             local char = setupPaladinTwoHand()
             local entry = { name = "Paladin2H", realm = "TestRealm", classFile = "PALADIN", level = 60 }
             local delta, info = GU.GetWeaponConfigDelta(char, "|Hitem:205:0|h[New 1H]|h", {
                 technique = "ilvl",
+                compareSlot = MAIN,
             }, entry)
             assert.are.equal(10, delta)
             assert.are.equal(60, info.candidateValue)
         end)
 
-        it("1H vs dual-wield replaces weaker hand", function()
+        it("1H vs selected 1H compares 1v1 not full loadout", function()
             local char = setupRogueDualWield()
             local entry = { name = "RogueDW", realm = "TestRealm", classFile = "ROGUE", level = 60 }
             local delta, info = GU.GetWeaponConfigDelta(char, "|Hitem:209:0|h[Better 1H]|h", {
                 technique = "ilvl",
+                compareSlot = OFF,
             }, entry)
             assert.are.equal(10, delta)
             assert.are.equal(OFF, info.targetSlot)
-            assert.are.equal("dualwield", info.config)
+            assert.are.equal("one_v_one", info.config)
         end)
 
         it("FindBestBagItemForRole returns highest scoring usable item", function()
@@ -1381,7 +1389,7 @@ describe("GearUpgrade", function()
             assert.are.equal(28, score)
         end)
 
-        it("ClassifyFocusSlot uses loadout delta on target slot only", function()
+        it("ClassifyFocusSlot differs per selected weapon cell", function()
             local char = setupWarriorDualWield()
             local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
             local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
@@ -1389,10 +1397,10 @@ describe("GearUpgrade", function()
             local mainInfo = GU.ClassifyFocusSlot(entry, char, link, MAIN, opts, 5)
             local offInfo = GU.ClassifyFocusSlot(entry, char, link, OFF, opts, 5)
             assert.are.equal(5, mainInfo.delta)
-            assert.is_nil(offInfo)
+            assert.are.equal(5, offInfo.delta)
         end)
 
-        it("GetFocusVerdictForSlot uses loadout verdict on non-target weapon slot", function()
+        it("GetFocusVerdictForSlot uses selected slot for 2H focus", function()
             local char = setupWarriorDualWield()
             local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
             local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
@@ -1401,10 +1409,15 @@ describe("GearUpgrade", function()
             assert.are.equal("Upgrade", verdict.label)
         end)
 
-        it("SummarizeFocusEntry uses loadout delta for 1H vs 2H", function()
+        it("SummarizeFocusEntry uses loadout delta for 1H vs selected 2H", function()
             local char = setupWarriorTwoHand()
             local entry = { name = "Warrior2H", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
-            local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
+            local opts = {
+                technique = "ilvl",
+                levelsAhead = 0,
+                upgradeThresholdPercent = 10,
+                compareSlot = MAIN,
+            }
             local summary = GU.SummarizeFocusEntry(entry, char, "|Hitem:205:0|h[New 1H]|h", opts, 18)
             assert.are.equal(GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE, summary.category)
             assert.are.equal(18, summary.sortDelta)
@@ -1415,6 +1428,7 @@ describe("GearUpgrade", function()
             local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
             local header = GU.BuildWeaponLoadoutHeaderLinks("|Hitem:203:0|h[Big 2H]|h", char, {
                 technique = "ilvl",
+                compareSlot = MAIN,
             }, entry)
             assert.is_not_nil(header)
             assert.are.equal(1, #header.focusedLinks)
@@ -1429,6 +1443,7 @@ describe("GearUpgrade", function()
             local entry = { name = "Warrior2H", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
             local header = GU.BuildWeaponLoadoutHeaderLinks("|Hitem:205:0|h[New 1H]|h", char, {
                 technique = "ilvl",
+                compareSlot = MAIN,
             }, entry)
             assert.is_not_nil(header)
             assert.are.equal(2, #header.focusedLinks)
@@ -1438,8 +1453,9 @@ describe("GearUpgrade", function()
             assert.are.equal("|Hitem:204:0|h[Small 2H]|h", header.equippedLinks[1])
             assert.is_nil(header.focusedHints[1])
             assert.is_not_nil(header.focusedHints[2])
-            assert.is_true(header.focusedHints[2]:find("off-hand", 1, true) ~= nil)
-            assert.is_true(header.focusedHints[2]:find("bags", 1, true) ~= nil)
+            assert.is_true(header.focusedHints[2]:find("best item we could find", 1, true) ~= nil)
+            assert.is_true(header.focusedHints[2]:find("2-hander", 1, true) ~= nil)
+            assert.is_true(header.focusedHints[2]:find("Warrior2H", 1, true) ~= nil)
             assert.is_nil(header.equippedHints[1])
         end)
 
@@ -1448,11 +1464,40 @@ describe("GearUpgrade", function()
             local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
             local header = GU.BuildWeaponLoadoutHeaderLinks("|Hitem:203:0|h[Big 2H]|h", char, {
                 technique = "ilvl",
+                compareSlot = MAIN,
             }, entry)
             assert.is_not_nil(header)
             assert.is_nil(header.focusedHints[1])
             assert.is_nil(header.equippedHints[1])
             assert.is_nil(header.equippedHints[2])
+        end)
+
+        it("BuildSelectionLoadoutCompare uses mail item as deduced partner", function()
+            local char = setupWarriorTwoHand()
+            char.Containers = {}
+            char.Mails = {
+                { link = "|Hitem:206:0|h[Bag OH]|h", itemID = 206 },
+            }
+            local entry = { name = "Warrior2H", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local result = GU.BuildSelectionLoadoutCompare(char, "|Hitem:205:0|h[New 1H]|h", MAIN, {
+                technique = "ilvl",
+            }, entry)
+            assert.are.equal("paired_candidate", result.mode)
+            assert.are.equal(2, #result.candidateLinks)
+            assert.are.equal("|Hitem:206:0|h[Bag OH]|h", result.candidateLinks[2])
+        end)
+
+        it("BuildSelectionLoadoutCompare 2H focus empty MH uses deduced MH from bags", function()
+            local char = setupWarriorDualWield()
+            char.Inventory[MAIN] = nil
+            local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local result = GU.BuildSelectionLoadoutCompare(char, "|Hitem:203:0|h[Big 2H]|h", MAIN, {
+                technique = "ilvl",
+            }, entry)
+            assert.are.equal("empty_2h", result.mode)
+            assert.are.equal(2, #result.equippedLinks)
+            assert.are.equal("|Hitem:207:0|h[Bag 1H]|h", result.equippedLinks[1])
+            assert.are.equal("|Hitem:202:0|h[Weak OH]|h", result.equippedLinks[2])
         end)
     end)
 end)
