@@ -16,11 +16,13 @@ local WEAPON_PROFICIENCIES = {
         ["one-handed swords"] = true, ["two-handed swords"] = true,
         ["daggers"] = true, ["fist weapons"] = true, ["polearms"] = true, ["staves"] = true,
         ["bows"] = true, ["crossbows"] = true, ["guns"] = true, ["thrown"] = true,
+        ["shields"] = true,
     },
     PALADIN = {
         ["one-handed axes"] = true, ["two-handed axes"] = true,
         ["one-handed maces"] = true, ["two-handed maces"] = true,
         ["one-handed swords"] = true, ["two-handed swords"] = true,
+        ["shields"] = true,
     },
     HUNTER = {
         ["one-handed axes"] = true, ["two-handed axes"] = true,
@@ -40,6 +42,7 @@ local WEAPON_PROFICIENCIES = {
         ["one-handed axes"] = true, ["two-handed axes"] = true,
         ["one-handed maces"] = true, ["two-handed maces"] = true,
         ["daggers"] = true, ["fist weapons"] = true, ["staves"] = true,
+        ["shields"] = true,
     },
     MAGE = {
         ["daggers"] = true, ["one-handed swords"] = true, ["staves"] = true, ["wands"] = true,
@@ -94,6 +97,13 @@ local function normalizeClassFile(classFile)
     return (classFile or ""):upper()
 end
 
+--- True for WoW weapon subclass strings for fishing poles (singular or plural).
+function IU.IsFishingPoleSubclass(weaponSubclass)
+    if not weaponSubclass or weaponSubclass == "" then return false end
+    local key = weaponSubclass:lower()
+    return key == "fishing pole" or key == "fishing poles"
+end
+
 --- Parse GetItemInfo: returns itemLevel (iLvl), minLevel (required to equip).
 local function getItemInfoLevels(link)
     if not link or not GetItemInfo then return nil, nil end
@@ -130,8 +140,8 @@ end
 --- True if this class can ever use this weapon subclass.
 function IU.CanClassEverUseWeapon(classFile, weaponSubclass)
     if not weaponSubclass or weaponSubclass == "" then return true end
+    if IU.IsFishingPoleSubclass(weaponSubclass) then return true end
     local key = weaponSubclass:lower()
-    if key == "fishing pole" then return true end
     classFile = normalizeClassFile(classFile)
     local prof = WEAPON_PROFICIENCIES[classFile]
     if not prof then return true end
@@ -296,6 +306,9 @@ function IU.GetProficiencySkillName(itemClass, subclass)
         if sub == "cloth" then return "Cloth Armor" end
         if sub == "shields" then return "Shields" end
     end
+    if IU.IsFishingPoleSubclass(subclass) then
+        return "Fishing"
+    end
     return subclass
 end
 
@@ -367,6 +380,36 @@ function IU.NeedsProficiencyTraining(classFile, charLevel, link, charData)
     if charLevel < trainLevel or charLevel < reqLevel then return false end
 
     return not IU.HasLearnedArmorProficiency(classFile, subclass, itemClass, charData, link)
+end
+
+local function charHasFishingSkill(charData, classFile, link)
+    if charData and charData.Professions then
+        for profName, prof in pairs(charData.Professions) do
+            if profName:lower() == "fishing" and (tonumber(prof.rank) or 0) > 0 then
+                return true
+            end
+        end
+    end
+    if isCurrentCharacter(classFile, charData) and link and _G.IsUsableItem then
+        return _G.IsUsableItem(link) == true
+    end
+    return false
+end
+
+--- True when character meets item level but has not learned Fishing.
+function IU.NeedsFishingTraining(classFile, charLevel, link, charData)
+    if not link or not GetItemInfo then return false end
+    local name, _, _, _, minLevel, itemClass, subclass = GetItemInfo(link)
+    if not name then return false end
+    local ic = itemClass and itemClass:lower() or ""
+    if ic ~= "weapon" then return false end
+    if not IU.IsFishingPoleSubclass(subclass) then return false end
+    charLevel = math.floor(tonumber(charLevel) or 0)
+    local reqLevel = tonumber(minLevel) or 0
+    if charLevel < reqLevel then return false end
+    classFile = normalizeClassFile(classFile)
+    if charHasFishingSkill(charData, classFile, link) then return false end
+    return true
 end
 
 local function formatWarningCharName(name, classFile)
@@ -467,6 +510,14 @@ function IU.GetEquipWarnings(classFile, charLevel, charName, link, charData)
         addEquipWarning(
             warnings,
             coloredName .. " must train " .. skill .. " to equip this",
+            IU.EQUIP_WARNING_KIND.TRAINING)
+    end
+
+    if IU.NeedsFishingTraining(classFile, charLevel, link, charData) then
+        local coloredName = formatWarningCharName(charName, classFile)
+        addEquipWarning(
+            warnings,
+            coloredName .. " must train Fishing to equip this",
             IU.EQUIP_WARNING_KIND.TRAINING)
     end
 

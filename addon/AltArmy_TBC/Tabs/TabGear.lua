@@ -75,6 +75,7 @@ local selectedCompareKey = nil
 local selectedCompareSlot = nil
 local hoveredCompareKey = nil
 local compareHoverRefs = {}
+local comparePanelContext = nil
 
 local COMPARE_ROW_HEIGHT = 14
 local COMPARE_ROW_GAP = 2
@@ -253,6 +254,37 @@ function GearTab.HasCompareSelection()
     return selectedCompareKey ~= nil and selectedCompareSlot ~= nil
 end
 
+function GearTab.CollectComparePanelContext(list)
+    list = list or GearTab.GetDisplayList()
+    if not droppedItemLink or not GearTab.HasCompareSelection() or not GC then
+        return nil
+    end
+    local entry = GearTab.GetSelectedCompareEntry(list)
+    if not entry then return nil end
+    local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
+    if not charData then return nil end
+    local technique = GearTab.GetSessionCompareTechnique()
+    local equippedLink = GearTab.GetSelectedEquippedCompareLink(list, technique)
+    equippedLink = equippedLink or GC.GetEquippedCompareItem(charData, droppedItemLink, {
+        technique = technique,
+        slot = selectedCompareSlot,
+        entry = entry,
+    })
+    local focusOpts = GU and GU.GetOptions and GU.GetOptions() or {}
+    local upgradeMaxDelta = GearTab.ComputeFocusUpgradeMaxDelta(
+        list, GearTab.GetFocusedInventorySlots(), focusOpts)
+    return {
+        focusedLink = droppedItemLink,
+        equippedLink = equippedLink,
+        technique = technique,
+        charData = charData,
+        entry = entry,
+        invSlot = selectedCompareSlot,
+        upgradeMaxDelta = upgradeMaxDelta,
+        focusOpts = focusOpts,
+    }
+end
+
 function GearTab.IsDisplaySlotVisible(displayIdx)
     local focused = GearTab.GetFocusedSlotSet()
     if not focused then return true end
@@ -293,6 +325,7 @@ function GearTab.ClearCompareSelection()
     selectedCompareSlot = nil
     hoveredCompareKey = nil
     wipe(compareHoverRefs)
+    comparePanelContext = nil
 end
 
 --- Auto-select after focus: first sorted column when any clear/eventual upgrade exists.
@@ -2005,6 +2038,79 @@ compareVerdictLabel:SetPoint("RIGHT", compareVerdictRow, "RIGHT", 0, 0)
 compareVerdictLabel:SetJustifyH("RIGHT")
 compareVerdictPrefix:SetPoint("RIGHT", compareVerdictLabel, "LEFT", 0, 0)
 
+local compareDumpRow = CreateFrame("Frame", nil, compareLeftPanel)
+compareDumpRow:SetHeight(SETTINGS_ROW_HEIGHT)
+compareDumpRow:Hide()
+
+local compareDumpBtn = CreateFrame("Button", nil, compareDumpRow)
+compareDumpBtn:SetSize(52, SETTINGS_ROW_HEIGHT)
+compareDumpBtn:SetPoint("TOPRIGHT", compareDumpRow, "TOPRIGHT", 0, 0)
+if Theme.SkinButton then
+    Theme.SkinButton(compareDumpBtn)
+end
+local compareDumpLabel = compareDumpBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+compareDumpLabel:SetPoint("CENTER", compareDumpBtn, "CENTER", 0, 0)
+compareDumpLabel:SetTextColor(1, 1, 1, 1)
+compareDumpLabel:SetText("Dump")
+compareDumpBtn:SetScript("OnClick", function()
+    GearTab.DumpComparePanelDebug()
+end)
+
+function GearTab.DumpComparePanelDebug()
+    local D = AltArmy and AltArmy.Debug
+    if not D or not D.IsEnabled or not D.IsEnabled() then
+        if D and D.NotifyChat then
+            D.NotifyChat("Enable debug first: /altarmy debug on")
+        end
+        return
+    end
+    local ctx = comparePanelContext or GearTab.CollectComparePanelContext()
+    if not ctx then
+        if D.NotifyChat then
+            D.NotifyChat("Focus an item and select a character column to compare first.")
+        end
+        return
+    end
+    if not GC or not GC.SaveComparePanelDump then return end
+    local saved = GC.SaveComparePanelDump(
+        ctx.focusedLink,
+        ctx.equippedLink,
+        ctx.technique,
+        ctx.charData,
+        ctx.entry,
+        {
+            invSlot = ctx.invSlot,
+            upgradeMaxDelta = ctx.upgradeMaxDelta,
+            focusOpts = ctx.focusOpts,
+            forceRefresh = true,
+        })
+    if not saved then return end
+    if D.NotifyCompareDumpSaved then
+        D.NotifyCompareDumpSaved(saved, saved)
+    end
+end
+
+frame.DumpComparePanelDebug = function()
+    GearTab.DumpComparePanelDebug()
+end
+
+function GearTab.LayoutCompareDumpRow(anchorBelow)
+    if not compareDumpRow then return end
+    compareDumpRow:ClearAllPoints()
+    local D = AltArmy and AltArmy.Debug
+    if not (D and D.IsEnabled and D.IsEnabled()) then
+        compareDumpRow:Hide()
+        return
+    end
+    local ref = anchorBelow or compareLeftPanel
+    local refTopLeft = anchorBelow and "BOTTOMLEFT" or "TOPLEFT"
+    local refTopRight = anchorBelow and "BOTTOMRIGHT" or "TOPRIGHT"
+    local y = anchorBelow and -COMPARE_ROW_GAP or 0
+    compareDumpRow:SetPoint("TOPLEFT", ref, refTopLeft, 0, y)
+    compareDumpRow:SetPoint("TOPRIGHT", ref, refTopRight, -COMPARE_STAT_ROW_INDENT, y)
+    compareDumpRow:Show()
+end
+
 local compareStatScrollApi
 local compareStatScroll
 local compareStatScrollBar
@@ -2098,6 +2204,7 @@ function GearTab.ShowCompareEmptyHint(list)
     if compareEmptyHintArea then compareEmptyHintArea:Show() end
     if compareWarningContainer then compareWarningContainer:Hide() end
     if compareVerdictRow then compareVerdictRow:Hide() end
+    if compareDumpRow then compareDumpRow:Hide() end
     if compareStatScroll then compareStatScroll:Hide() end
     if compareStatScrollBar then compareStatScrollBar:Hide() end
     GearTab.HideCompareWarningRows()
@@ -2224,6 +2331,14 @@ function GearTab.LayoutComparePanelSections(warnings, verdict, entry)
         compareWarningContainer:SetHeight(0)
         compareWarningContainer:Hide()
     end
+
+    local dumpAnchor
+    if warningCount > 0 then
+        dumpAnchor = compareWarningRows[warningCount]
+    elseif anchor ~= compareLeftPanel then
+        dumpAnchor = anchor
+    end
+    GearTab.LayoutCompareDumpRow(dumpAnchor)
 end
 
 function GearTab.UpdateCompareStatScroll(rowCount)
@@ -2362,7 +2477,9 @@ function GearTab.FormatComparePercentInParens(percent)
 end
 
 function GearTab.FormatCompareWeightedChange(delta, percent)
-    return GearTab.FormatCompareDelta(delta) .. " " .. GearTab.FormatComparePercentInParens(percent)
+    local text = GearTab.FormatCompareDelta(delta)
+    if percent == nil then return text end
+    return text .. " " .. GearTab.FormatComparePercentInParens(percent)
 end
 
 function GearTab.GetCompareDeltaColor(delta)
@@ -2414,7 +2531,11 @@ function GearTab.SetCompareStatDataRow(rowCells, data)
     local dr, dg, db
     if data.formatAsWeightedChange then
         local upgradeOpts = GU and GU.GetOptions and GU.GetOptions() or {}
-        dr, dg, db = GearTab.GetCompareWeightedChangeColor(data.percent, upgradeOpts)
+        if data.percent == nil then
+            dr, dg, db = GearTab.GetCompareDeltaColor(delta)
+        else
+            dr, dg, db = GearTab.GetCompareWeightedChangeColor(data.percent, upgradeOpts)
+        end
     else
         dr, dg, db = GearTab.GetCompareDeltaColor(delta)
     end
@@ -2565,6 +2686,8 @@ end
 
 function GearTab.UpdateComparePanel(list)
     GearTab.HideCompareStatRows()
+    comparePanelContext = nil
+    if compareDumpRow then compareDumpRow:Hide() end
     if not droppedItemLink then
         if compareItemsRow then compareItemsRow:Hide() end
         GearTab.HideCompareEmptyHint()
@@ -2581,23 +2704,18 @@ function GearTab.UpdateComparePanel(list)
     end
 
     GearTab.HideCompareEmptyState()
-    local entry = GearTab.GetSelectedCompareEntry(list)
-    if not entry then
+    local ctx = GearTab.CollectComparePanelContext(list)
+    if not ctx then
         GearTab.ClearCompareSelection()
         GearTab.ShowCompareEmptyHint(list)
         return
     end
-    local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
-    if not charData then return end
-
-    equippedLink = equippedLink or GC.GetEquippedCompareItem(charData, droppedItemLink, {
-        technique = technique,
-        slot = selectedCompareSlot,
-        entry = entry,
-    })
-    local focusOpts = GU and GU.GetOptions and GU.GetOptions() or {}
-    local upgradeMaxDelta = GearTab.ComputeFocusUpgradeMaxDelta(
-        list, GearTab.GetFocusedInventorySlots(), focusOpts)
+    local entry = ctx.entry
+    local charData = ctx.charData
+    technique = ctx.technique
+    equippedLink = ctx.equippedLink
+    local focusOpts = ctx.focusOpts
+    local upgradeMaxDelta = ctx.upgradeMaxDelta
     local comparison = GC.BuildComparison(
         droppedItemLink, equippedLink, technique, charData, entry,
         { upgradeMaxDelta = upgradeMaxDelta })
@@ -2622,6 +2740,16 @@ function GearTab.UpdateComparePanel(list)
     end
     GearTab.LayoutComparePanelSections(compareWarnings, verdict, entry)
     GearTab.PopulateCompareStatRows(comparison.sections)
+    comparePanelContext = ctx
+    local itemStats = AltArmy.ItemStats
+    local debugMod = AltArmy.Debug
+    if itemStats and itemStats.LogStatParseDebug
+        and debugMod and debugMod.IsItemStatsEnabled and debugMod.IsItemStatsEnabled() then
+        itemStats.LogStatParseDebug(droppedItemLink)
+        if equippedLink then
+            itemStats.LogStatParseDebug(equippedLink)
+        end
+    end
 end
 
 function GearTab.enterItemCheckMode()

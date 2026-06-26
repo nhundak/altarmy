@@ -33,6 +33,9 @@ function D.Ensure()
     if d.itemComparison == nil then
         d.itemComparison = false
     end
+    if d.itemStats == nil then
+        d.itemStats = false
+    end
 end
 
 function D.IsEnabled()
@@ -107,11 +110,67 @@ function D.LogItemComparison(msgs)
     end
 end
 
+function D.IsItemStatsEnabled()
+    local d = debugTable()
+    return d.enabled == true and d.itemStats == true
+end
+
+function D.SetItemStatsEnabled(on)
+    D.Ensure()
+    AltArmyTBC_Options.debug.itemStats = on == true
+end
+
+function D.LogItemStats(msgs)
+    if not D.IsItemStatsEnabled() then
+        return
+    end
+    if type(msgs) == "string" then
+        msgs = { msgs }
+    end
+    if type(msgs) ~= "table" then
+        return
+    end
+    for i = 1, #msgs do
+        D.NotifyChat("|cff00ccff[AltArmy:ItemStats]|r " .. tostring(msgs[i]))
+    end
+end
+
 function D.NotifyChat(msg)
     local text = tostring(msg)
     if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
         DEFAULT_CHAT_FRAME:AddMessage(text)
     end
+end
+
+D.MAX_COMPARE_PANEL_DUMPS = 20
+
+local function ensureComparePanelDumps()
+    D.Ensure()
+    local d = AltArmyTBC_Options.debug
+    if type(d.comparePanelDumps) ~= "table" then
+        d.comparePanelDumps = {}
+    end
+    return d.comparePanelDumps
+end
+
+function D.AppendComparePanelDump(payload)
+    if type(payload) ~= "table" then
+        return nil
+    end
+    local dumps = ensureComparePanelDumps()
+    dumps[#dumps + 1] = payload
+    while #dumps > D.MAX_COMPARE_PANEL_DUMPS do
+        table.remove(dumps, 1)
+    end
+    return #dumps
+end
+
+function D.NotifyCompareDumpSaved(index, total)
+    D.NotifyChat(string.format(
+        "|cff00ccff[AltArmy:Debug]|r Compare dump #%d saved (%d in buffer). "
+            .. "/reload, then open WTF/.../SavedVariables/AltArmy_TBC.lua",
+        tonumber(index) or 0,
+        tonumber(total) or 0))
 end
 
 D.Ensure()

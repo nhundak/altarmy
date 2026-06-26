@@ -148,7 +148,7 @@ local function buildCustomComparison(newLink, oldLink, classFile, specKey, opts)
     rows[#rows + 1] = {
         label = "Weighted",
         delta = summary.delta,
-        percent = weightedPercentValue(summary, opts.upgradeMaxDelta),
+        percent = oldLink and weightedPercentValue(summary, opts.upgradeMaxDelta) or nil,
         hideWeight = true,
         formatAsWeightedChange = true,
     }
@@ -336,6 +336,14 @@ function GC.BuildItemComparisonDebugReport(itemLink)
 
     lines[#lines + 1] = string.format("Item: %s", getItemName(itemLink))
 
+    local itemStats = AltArmy.ItemStats
+    if itemStats and itemStats.BuildStatParseDebugLines then
+        local statLines = itemStats.BuildStatParseDebugLines(itemLink)
+        for i = 1, #statLines do
+            lines[#lines + 1] = statLines[i]
+        end
+    end
+
     local characters = collectEquippableCharacters(itemLink, levelsAhead)
     if #characters == 0 then
         lines[#lines + 1] = "No equippable alts for this item."
@@ -404,4 +412,88 @@ function GC.LogItemComparisonDebug(itemLink)
     if D.LogItemComparison then
         D.LogItemComparison(lines)
     end
+    local itemStats = AltArmy.ItemStats
+    if itemStats and itemStats.LogStatParseDebug then
+        itemStats.LogStatParseDebug(itemLink)
+    end
+end
+
+local COMPARE_DUMP_VERSION = 1
+
+local function copyShallowTable(tbl)
+    if type(tbl) ~= "table" then return tbl end
+    local out = {}
+    for k, v in pairs(tbl) do
+        out[k] = v
+    end
+    return out
+end
+
+local function buildItemDump(link, classFile, specKey, technique, forceRefresh)
+    if not link then return nil end
+    local snapshot = ItemStats and ItemStats.CollectParseSnapshot
+        and ItemStats.CollectParseSnapshot(link, { forceRefresh = forceRefresh })
+    return {
+        link = link,
+        name = getItemName(link),
+        cacheSource = ItemStats and ItemStats.GetSource and ItemStats.GetSource(link) or nil,
+        parseSnapshot = snapshot,
+        scoreBreakdown = GU and GU.BuildScoreBreakdown
+            and GU.BuildScoreBreakdown(link, technique, classFile, specKey) or nil,
+    }
+end
+
+--- Structured compare-panel payload for SavedVariables debug dumps.
+function GC.BuildComparePanelDump(focusedLink, equippedLink, technique, charData, entry, opts)
+    if not focusedLink then return nil end
+    opts = opts or {}
+    technique = GU.GetEffectiveTechnique(technique or "custom")
+    local classFile, specKey = GU.ResolveCompareContext(charData, entry)
+    local comparison = GC.BuildComparison(focusedLink, equippedLink, technique, charData, entry, opts)
+    if not comparison then return nil end
+
+    local summary = comparison.summary or {}
+    local forceRefresh = opts.forceRefresh ~= false
+    local weights = GU.GetWeights and GU.GetWeights(classFile, specKey) or {}
+
+    return {
+        version = COMPARE_DUMP_VERSION,
+        timestamp = opts.timestamp or (time and time() or 0),
+        character = {
+            name = entry and entry.name or (charData and charData.name),
+            realm = entry and entry.realm or (charData and charData.realm),
+            classFile = classFile,
+            specKey = specKey,
+            level = charData and tonumber(charData.level) or nil,
+        },
+        context = {
+            invSlot = opts.invSlot,
+            techniqueId = technique,
+            techniqueLabel = comparison.techniqueLabel,
+            upgradeMaxDelta = opts.upgradeMaxDelta,
+            upgradeThresholdPercent = opts.focusOpts
+                and tonumber(opts.focusOpts.upgradeThresholdPercent) or nil,
+            weightedChangePercent = weightedPercentValue(summary, opts.upgradeMaxDelta),
+        },
+        items = {
+            focused = buildItemDump(focusedLink, classFile, specKey, technique, forceRefresh),
+            equipped = equippedLink
+                and buildItemDump(equippedLink, classFile, specKey, technique, forceRefresh)
+                or nil,
+        },
+        comparison = comparison,
+        weights = copyShallowTable(weights),
+    }
+end
+
+function GC.SaveComparePanelDump(focusedLink, equippedLink, technique, charData, entry, opts)
+    local D = AltArmy.Debug
+    if not D or not D.IsEnabled or not D.IsEnabled() then
+        return nil
+    end
+    local payload = GC.BuildComparePanelDump(
+        focusedLink, equippedLink, technique, charData, entry, opts)
+    if not payload then return nil end
+    if not D.AppendComparePanelDump then return nil end
+    return D.AppendComparePanelDump(payload)
 end

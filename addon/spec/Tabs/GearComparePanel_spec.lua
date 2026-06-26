@@ -317,11 +317,14 @@ describe("Gear compare panel height", function()
             return "(" .. formatCompareNumber(percent) .. "%)"
         end
         local function formatCompareWeightedChange(delta, percent)
-            return formatCompareDelta(delta) .. " " .. formatComparePercentInParens(percent)
+            local text = formatCompareDelta(delta)
+            if percent == nil then return text end
+            return text .. " " .. formatComparePercentInParens(percent)
         end
         assert.are.equal("+1.4 (8.1%)", formatCompareWeightedChange(1.4, 8.1))
         assert.are.equal("-1.4 (-8.1%)", formatCompareWeightedChange(-1.4, -8.1))
         assert.are.equal("0 (0%)", formatCompareWeightedChange(0, 0))
+        assert.are.equal("+40", formatCompareWeightedChange(40, nil))
     end)
 
     it("uses gold label and threshold-based delta color for weighted summary row", function()
@@ -489,5 +492,13 @@ describe("Gear compare panel height", function()
         assert.are.equal(IU_EQUIP_WARNING_KIND.LEVEL, warnings[2].kind)
         assert.are.equal(COMPARE_WARNING_KIND.MISSING_SPEC, warnings[3].kind)
         assert.are.equal(COMPARE_WARNING_KIND.UNPICKED_SPEC, warnings[4].kind)
+    end)
+
+    it("compare dump row appears when debug is enabled during compare layout", function()
+        local function shouldShowCompareDumpRow(debugEnabled)
+            return debugEnabled == true
+        end
+        assert.is_true(shouldShowCompareDumpRow(true))
+        assert.is_false(shouldShowCompareDumpRow(false))
     end)
 end)

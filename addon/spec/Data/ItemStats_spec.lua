@@ -393,6 +393,147 @@ describe("ItemStats", function()
         assert.are.equal("tooltip", IS.GetSource(link))
     end)
 
+    it("GetNormalized parses +Healing tooltip line for physician suffix items", function()
+        _G.GetItemStats = function() return {} end
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 100 then
+                return "Feralfen Hood of the Physician", "|Hitem:100:0|h[Feralfen Hood of the Physician]|h",
+                    3, 85, 85, "Armor", "Leather", nil, "INVTYPE_HEAD"
+            end
+            return mockGetItemInfo(item)
+        end
+        _G.ITEM_MOD_SPELL_HEALING_DONE_SHORT = "Healing"
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "+36 Stamina",
+                    "+24 Intellect",
+                    "+53 Healing",
+                    "100 Armor",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local link = "|Hitem:100:0|h[Feralfen Hood of the Physician]|h"
+        local stats = IS.GetNormalized(link)
+        assert.are.equal(36, stats.sta)
+        assert.are.equal(24, stats.int)
+        assert.are.equal(53, stats.heal)
+        assert.are.equal(100, stats.armor)
+        assert.are.equal("tooltip", IS.GetSource(link))
+    end)
+
+    it("GetNormalized replaces API -1 healing sentinel with tooltip value", function()
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 100 then
+                return {
+                    ["RESISTANCE0_NAME"] = 100,
+                    ["ITEM_MOD_STAMINA_SHORT"] = 36,
+                    ["ITEM_MOD_INTELLECT_SHORT"] = 24,
+                    ["ITEM_MOD_SPELL_HEALING_DONE"] = -1,
+                }
+            end
+            return {}
+        end
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 100 then
+                return "Feralfen Hood of the Physician", "|Hitem:100:0|h[Feralfen Hood of the Physician]|h",
+                    3, 85, 85, "Armor", "Leather", nil, "INVTYPE_HEAD"
+            end
+            return mockGetItemInfo(item)
+        end
+        _G.ITEM_MOD_SPELL_HEALING_DONE_SHORT = "Healing"
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "+36 Stamina",
+                    "+24 Intellect",
+                    "+53 Healing",
+                    "100 Armor",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local link = "|Hitem:100:0|h[Feralfen Hood of the Physician]|h"
+        local stats = IS.GetNormalized(link)
+        assert.are.equal(36, stats.sta)
+        assert.are.equal(24, stats.int)
+        assert.are.equal(53, stats.heal)
+        assert.are.equal(100, stats.armor)
+    end)
+
+    it("GetNormalized parses +Healing when global SHORT is Bonus Healing", function()
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 100 then
+                return {
+                    ["RESISTANCE0_NAME"] = 100,
+                    ["ITEM_MOD_STAMINA_SHORT"] = 36,
+                    ["ITEM_MOD_INTELLECT_SHORT"] = 24,
+                    ["ITEM_MOD_SPELL_HEALING_DONE"] = -1,
+                }
+            end
+            return {}
+        end
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 100 then
+                return "Feralfen Hood of the Physician", "|Hitem:100:0|h[Feralfen Hood of the Physician]|h",
+                    3, 85, 85, "Armor", "Cloth", nil, "INVTYPE_HEAD"
+            end
+            return mockGetItemInfo(item)
+        end
+        _G.ITEM_MOD_SPELL_HEALING_DONE_SHORT = "Bonus Healing"
+        _G.ITEM_MOD_SPELL_HEALING_DONE = "Increases healing done by magical spells and effects by up to %s."
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "100 Armor",
+                    "+36 Stamina",
+                    "+24 Intellect",
+                    "+53 Healing",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local link = "|Hitem:100:0|h[Feralfen Hood of the Physician]|h"
+        local stats = IS.GetNormalized(link)
+        assert.are.equal(53, stats.heal)
+        assert.are.equal(36, stats.sta)
+        assert.are.equal(24, stats.int)
+        assert.are.equal(100, stats.armor)
+    end)
+
     it("GetNormalized merges suffix stats from tooltip when API returns armor only", function()
         _G.GetItemStats = function(link)
             local id = tonumber(tostring(link):match("item:(%d+)"))
@@ -425,5 +566,54 @@ describe("ItemStats", function()
         assert.are.equal(10, stats.sta)
         assert.are.equal(181, stats.armor)
         assert.are.equal("api", IS.GetSource(link))
+    end)
+
+    it("BuildStatParseDebugLines reports api, tooltip, and healing parse details", function()
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 100 then
+                return {
+                    ["RESISTANCE0_NAME"] = 100,
+                    ["ITEM_MOD_SPELL_HEALING_DONE"] = -1,
+                }
+            end
+            return {}
+        end
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 100 then
+                return "Feralfen Hood of the Physician", "|Hitem:100:0|h[Feralfen Hood of the Physician]|h",
+                    3, 85, 85, "Armor", "Leather", nil, "INVTYPE_HEAD"
+            end
+            return mockGetItemInfo(item)
+        end
+        _G.ITEM_MOD_SPELL_HEALING_DONE_SHORT = "Healing"
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "+53 Healing",
+                    "100 Armor",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local link = "|Hitem:100:0|h[Feralfen Hood of the Physician]|h"
+        IS.GetNormalized(link)
+        local lines = IS.BuildStatParseDebugLines(link)
+        local text = table.concat(lines, "\n")
+        assert.is_true(text:find("GetItemStats:", 1, true) ~= nil)
+        assert.is_true(text:find("ITEM_MOD_SPELL_HEALING_DONE=-1", 1, true) ~= nil)
+        assert.is_true(text:find("+53 Healing [parsed]", 1, true) ~= nil)
+        assert.is_true(text:find("healing keys:", 1, true) ~= nil)
+        assert.is_true(text:find("normalized heal=53", 1, true) ~= nil)
     end)
 end)

@@ -29,6 +29,7 @@ describe("AltArmy.Debug", function()
         assert.is_false(AltArmyTBC_Options.debug.cooldowns)
         assert.is_false(AltArmyTBC_Options.debug.levelHistory)
         assert.is_false(AltArmyTBC_Options.debug.itemComparison)
+        assert.is_false(AltArmyTBC_Options.debug.itemStats)
     end)
 
     it("IsSearchEnabled is false when search is on but master is off", function()
@@ -103,6 +104,29 @@ describe("AltArmy.Debug", function()
         assert.matches("Compare", messages[1])
     end)
 
+    it("IsItemStatsEnabled is true when master and itemStats are on", function()
+        D.SetEnabled(true)
+        D.SetItemStatsEnabled(true)
+        assert.is_true(D.IsItemStatsEnabled())
+    end)
+
+    it("LogItemStats only emits when master and itemStats are on", function()
+        local messages = {}
+        local oldNotify = D.NotifyChat
+        D.NotifyChat = function(msg)
+            messages[#messages + 1] = msg
+        end
+        D.LogItemStats({ "hidden" })
+        assert.are.equal(0, #messages)
+        D.SetEnabled(true)
+        D.SetItemStatsEnabled(true)
+        D.LogItemStats({ "visible" })
+        D.NotifyChat = oldNotify
+        assert.are.equal(1, #messages)
+        assert.matches("visible", messages[1])
+        assert.matches("ItemStats", messages[1])
+    end)
+
     it("SetEnabled(false) does not clear search or cooldowns flags", function()
         D.SetEnabled(true)
         D.SetSearchEnabled(true)
@@ -118,5 +142,22 @@ describe("AltArmy.Debug", function()
         D.SetSearchEnabled(true)
         assert.is_true(AltArmyTBC_Options.debug.enabled)
         assert.is_true(AltArmyTBC_Options.debug.search)
+    end)
+
+    it("AppendComparePanelDump stores payloads in comparePanelDumps", function()
+        local payload = { version = 1, character = { name = "MageAlt" } }
+        local index = D.AppendComparePanelDump(payload)
+        assert.are.equal(1, index)
+        assert.are.same(payload, AltArmyTBC_Options.debug.comparePanelDumps[1])
+    end)
+
+    it("AppendComparePanelDump keeps only the newest MAX_COMPARE_PANEL_DUMPS entries", function()
+        for i = 1, D.MAX_COMPARE_PANEL_DUMPS + 3 do
+            D.AppendComparePanelDump({ version = 1, index = i })
+        end
+        local dumps = AltArmyTBC_Options.debug.comparePanelDumps
+        assert.are.equal(D.MAX_COMPARE_PANEL_DUMPS, #dumps)
+        assert.are.equal(4, dumps[1].index)
+        assert.are.equal(D.MAX_COMPARE_PANEL_DUMPS + 3, dumps[#dumps].index)
     end)
 end)

@@ -31,6 +31,7 @@ describe("ItemUsability", function()
             [10] = { "One-Hand Axe", nil, 3, 10, 10, "Weapon", "One-Handed Axes", nil, "INVTYPE_WEAPON" },
             [11] = { "Two-Hand Sword", nil, 3, 30, 30, "Weapon", "Two-Handed Swords", nil, "INVTYPE_2HWEAPON" },
             [12] = { "Offhand Dagger", nil, 3, 15, 15, "Weapon", "Daggers", nil, "INVTYPE_WEAPONOFFHAND" },
+            [13] = { "Fishing Pole", nil, 2, 10, 10, "Weapon", "Fishing Poles", nil, "INVTYPE_2HWEAPON" },
         }
         local info = items[id]
         if not info then return end
@@ -89,6 +90,74 @@ describe("ItemUsability", function()
     it("CanClassEverUseWeapon blocks warrior from wands", function()
         assert.is_false(IU.CanClassEverUseWeapon("WARRIOR", "Wands"))
         assert.is_true(IU.CanClassEverUseWeapon("MAGE", "Wands"))
+    end)
+
+    it("CanClassEverUseWeapon allows shield classes to use shields", function()
+        assert.is_true(IU.CanClassEverUseWeapon("WARRIOR", "Shields"))
+        assert.is_true(IU.CanClassEverUseWeapon("PALADIN", "Shields"))
+        assert.is_true(IU.CanClassEverUseWeapon("SHAMAN", "Shields"))
+        assert.is_false(IU.CanClassEverUseWeapon("MAGE", "Shields"))
+        assert.is_false(IU.CanClassEverUseWeapon("ROGUE", "Shields"))
+    end)
+
+    it("GetItemUseInfo classifies shields as weapon subclass", function()
+        local req, armor, weapon = IU.GetItemUseInfo("|Hitem:7:0|h[Shield]|h")
+        assert.are.equal(10, req)
+        assert.is_nil(armor)
+        assert.are.equal("Shields", weapon)
+    end)
+
+    it("CanNeverUseItem allows paladin to equip shields", function()
+        assert.is_false(IU.CanNeverUseItem("PALADIN", "|Hitem:7:0|h[Shield]|h"))
+        assert.is_true(IU.CanNeverUseItem("MAGE", "|Hitem:7:0|h[Shield]|h"))
+    end)
+
+    it("EffectiveRequiredLevel for shields uses item min level only", function()
+        assert.are.equal(10, IU.EffectiveRequiredLevel("PALADIN", "|Hitem:7:0|h[Shield]|h"))
+        assert.are.equal(999, IU.EffectiveRequiredLevel("MAGE", "|Hitem:7:0|h[Shield]|h"))
+    end)
+
+    it("CanClassEverUseWeapon allows all classes to use fishing poles", function()
+        assert.is_true(IU.CanClassEverUseWeapon("MAGE", "Fishing Poles"))
+        assert.is_true(IU.CanClassEverUseWeapon("WARRIOR", "Fishing Pole"))
+        assert.is_true(IU.IsFishingPoleSubclass("Fishing Poles"))
+    end)
+
+    it("CanNeverUseItem allows any class to equip fishing poles", function()
+        assert.is_false(IU.CanNeverUseItem("MAGE", "|Hitem:13:0|h[Fishing Pole]|h"))
+        assert.is_false(IU.CanNeverUseItem("ROGUE", "|Hitem:13:0|h[Fishing Pole]|h"))
+    end)
+
+    it("GetEquipWarnings includes fishing training when skill is missing", function()
+        _G.IsUsableItem = nil
+        local warnings = IU.GetEquipWarnings("MAGE", 60, "Alt", "|Hitem:13:0|h[Fishing Pole]|h", nil)
+        assert.are.equal(1, #warnings)
+        assert.are.equal(
+            coloredName("Alt", "MAGE") .. " must train Fishing to equip this",
+            warningText(warnings[1]))
+        assert.are.equal(IU.EQUIP_WARNING_KIND.TRAINING, warnings[1].kind)
+    end)
+
+    it("GetEquipWarnings omits fishing training when character knows Fishing", function()
+        local charData = {
+            name = "Alt",
+            classFile = "MAGE",
+            Professions = { Fishing = { rank = 1, maxRank = 75 } },
+        }
+        local warnings = IU.GetEquipWarnings(
+            "MAGE", 60, "Alt", "|Hitem:13:0|h[Fishing Pole]|h", charData)
+        assert.are.equal(0, #warnings)
+    end)
+
+    it("GetEquipWarnings omits fishing training when character is below item level", function()
+        _G.IsUsableItem = nil
+        local warnings = IU.GetEquipWarnings("MAGE", 5, "Alt", "|Hitem:13:0|h[Fishing Pole]|h", nil)
+        assert.are.equal(1, #warnings)
+        assert.are.equal(IU.EQUIP_WARNING_KIND.LEVEL, warnings[1].kind)
+    end)
+
+    it("GetProficiencySkillName maps fishing poles to Fishing", function()
+        assert.are.equal("Fishing", IU.GetProficiencySkillName("Weapon", "Fishing Poles"))
     end)
 
     it("MinLevelToTrainProficiency returns 40 for paladin plate", function()

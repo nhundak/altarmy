@@ -270,6 +270,10 @@ describe("GearCompare", function()
             "custom",
             char)
         assert.are.equal("(empty)", result.equippedName)
+        local rows = result.sections[1].rows
+        local weighted = rows[#rows]
+        assert.are.equal("Weighted", weighted.label)
+        assert.is_nil(weighted.percent)
     end)
 
     it("BuildItemComparisonDebugReport lists all providers and character summaries", function()
@@ -282,5 +286,57 @@ describe("GearCompare", function()
         assert.matches("MageAlt", text)
         assert.matches("upgrade", text)
         assert.matches("Stat comparison", text)
+    end)
+
+    it("BuildComparePanelDump captures items, weights, and comparison context", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local focused = "|Hitem:11:0|h[New Helm]|h"
+        local equipped = "|Hitem:10:0|h[Old Helm]|h"
+        local dump = GC.BuildComparePanelDump(focused, equipped, "custom", char, {
+            name = "MageAlt",
+            realm = "TestRealm",
+        }, {
+            invSlot = 1,
+            upgradeMaxDelta = 15,
+            timestamp = 12345,
+        })
+        assert.are.equal(1, dump.version)
+        assert.are.equal(12345, dump.timestamp)
+        assert.are.equal("MageAlt", dump.character.name)
+        assert.are.equal("TestRealm", dump.character.realm)
+        assert.are.equal("MAGE", dump.character.classFile)
+        assert.are.equal(1, dump.context.invSlot)
+        assert.are.equal(15, dump.context.upgradeMaxDelta)
+        assert.are.equal("New Helm", dump.items.focused.name)
+        assert.are.equal("Old Helm", dump.items.equipped.name)
+        assert.is_table(dump.items.focused.parseSnapshot)
+        assert.is_table(dump.items.focused.scoreBreakdown)
+        assert.is_true(dump.items.focused.scoreBreakdown.total > 0)
+        assert.is_table(dump.weights)
+        assert.is_table(dump.comparison.sections)
+    end)
+
+    it("SaveComparePanelDump appends only when debug master switch is on", function()
+        package.loaded["Debug"] = nil
+        require("Debug")
+        _G.AltArmyTBC_Options = { debug = { enabled = false, comparePanelDumps = {} } }
+        AltArmy.Debug.Ensure()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local saved = GC.SaveComparePanelDump(
+            "|Hitem:11:0|h[New Helm]|h",
+            "|Hitem:10:0|h[Old Helm]|h",
+            "custom",
+            char,
+            { name = "MageAlt", realm = "TestRealm" })
+        assert.is_nil(saved)
+        AltArmy.Debug.SetEnabled(true)
+        saved = GC.SaveComparePanelDump(
+            "|Hitem:11:0|h[New Helm]|h",
+            "|Hitem:10:0|h[Old Helm]|h",
+            "custom",
+            char,
+            { name = "MageAlt", realm = "TestRealm" })
+        assert.are.equal(1, saved)
+        assert.are.equal("MageAlt", AltArmyTBC_Options.debug.comparePanelDumps[1].character.name)
     end)
 end)

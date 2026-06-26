@@ -170,6 +170,14 @@ local PRIMARY_STAT_DEFS = {
     { apiKey = "ITEM_MOD_SPIRIT_SHORT", label = "Spirit" },
 }
 
+-- Healing tooltip labels vary by client/patch and by addon overrides of
+-- ITEM_MOD_SPELL_HEALING_DONE_SHORT (e.g. "Bonus Healing" vs "Healing").
+local HEALING_TOOLTIP_LABELS = {
+    "Healing",
+    "Bonus Healing",
+    "Healing Spells",
+}
+
 local EQUIP_STAT_PATTERNS = {
     { "^Equip: %+(%d+) Attack Power%.$", "ITEM_MOD_ATTACK_POWER_SHORT" },
     { "^Equip: Increases attack power by (%d+)%.$", "ITEM_MOD_ATTACK_POWER_SHORT" },
@@ -197,7 +205,6 @@ local EQUIP_STAT_PATTERNS = {
     { "^%+(%d+) Parry Rating$", "ITEM_MOD_PARRY_RATING_SHORT" },
     { "^Equip: Increases damage and healing done by magical spells and effects by up to (%d+)%.$",
         "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT" },
-    { "^%+(%d+) Healing Spells$", "ITEM_MOD_SPELL_HEALING_DONE_SHORT" },
     { "^%+(%d+) Damage and Healing Spells$", "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT" },
     { "^Equip: Restores (%d+) mana per 5 sec%.$", "ITEM_MOD_MANA_REGENERATION_SHORT" },
     { "^(%d+%.?%d*) damage per second$", "ITEM_MOD_DAMAGE_PER_SECOND_SHORT" },
@@ -239,7 +246,41 @@ local function resolveWeaponDpsKey(link)
     return "melee_dps"
 end
 
+local function isInvalidApiStatValue(value)
+    local n = tonumber(value)
+    return n ~= nil and n < 0
+end
+
+local function canonicalizeRawStatKey(key)
+    if type(key) ~= "string" or key:match("_SHORT$") then
+        return key
+    end
+    local shortKey = key .. "_SHORT"
+    if IS.STAT_ALIASES[shortKey] then
+        return shortKey
+    end
+    return key
+end
+
+local function canonicalizeRawStats(raw)
+    local out = {}
+    if not raw then return out end
+    for k, v in pairs(raw) do
+        local canon = canonicalizeRawStatKey(k)
+        if out[canon] == nil then
+            out[canon] = v
+        elseif isInvalidApiStatValue(out[canon]) and not isInvalidApiStatValue(v) then
+            out[canon] = v
+        elseif not isInvalidApiStatValue(v) then
+            out[canon] = (tonumber(out[canon]) or 0) + (tonumber(v) or 0)
+        end
+    end
+    return out
+end
+
 local function mergeTooltipSupplement(apiRaw, tooltipRaw)
+    apiRaw = canonicalizeRawStats(apiRaw)
+    tooltipRaw = canonicalizeRawStats(tooltipRaw)
     local merged = {}
     if apiRaw then
         for k, v in pairs(apiRaw) do
@@ -250,8 +291,15 @@ local function mergeTooltipSupplement(apiRaw, tooltipRaw)
     if not tooltipRaw then return merged end
     for k, v in pairs(tooltipRaw) do
         -- API often omits random suffix stats on green items; merge those from tooltip.
-        if isTooltipOnlyStatKey(k) or not hasApi or merged[k] == nil then
-            merged[k] = (merged[k] or 0) + (tonumber(v) or 0)
+        -- Random suffix stats can also appear as -1 sentinels from GetItemStats.
+        local useTooltip = isTooltipOnlyStatKey(k) or not hasApi or merged[k] == nil
+            or isInvalidApiStatValue(merged[k])
+        if useTooltip then
+            if isInvalidApiStatValue(merged[k]) then
+                merged[k] = tonumber(v) or 0
+            else
+                merged[k] = (merged[k] or 0) + (tonumber(v) or 0)
+            end
         end
     end
     return merged
@@ -277,14 +325,32 @@ local function escapePattern(s)
     return (s:gsub("([%(%)%.%+%-%*%?%[%]%^%$%%])", "%%%1"))
 end
 
+local function addTooltipLabelPattern(patterns, seen, label, apiKey)
+    if not label or label == "" or seen[label] then return end
+    if label:find("%%", 1, true) then return end
+    seen[label] = true
+    patterns[#patterns + 1] = {
+        pattern = "^%+?(%d+) " .. escapePattern(label) .. "$",
+        apiKey = apiKey,
+    }
+end
+
 local function buildTooltipPatterns()
     if tooltipPatterns then return tooltipPatterns end
     local patterns = {}
+    local seenLabels = {}
     for i = 1, #PRIMARY_STAT_DEFS do
         local def = PRIMARY_STAT_DEFS[i]
         local label = _G[def.apiKey] or def.label
-        local pat = "^%+?(%d+) " .. escapePattern(label) .. "$"
-        patterns[#patterns + 1] = { pattern = pat, apiKey = def.apiKey }
+        addTooltipLabelPattern(patterns, seenLabels, label, def.apiKey)
+    end
+    local healingApiKey = "ITEM_MOD_SPELL_HEALING_DONE_SHORT"
+    for i = 1, #HEALING_TOOLTIP_LABELS do
+        addTooltipLabelPattern(patterns, seenLabels, HEALING_TOOLTIP_LABELS[i], healingApiKey)
+    end
+    local healingGlobal = _G[healingApiKey]
+    if type(healingGlobal) == "string" then
+        addTooltipLabelPattern(patterns, seenLabels, healingGlobal, healingApiKey)
     end
     for i = 1, #EQUIP_STAT_PATTERNS do
         local row = EQUIP_STAT_PATTERNS[i]
@@ -505,6 +571,67 @@ local function queuePending(itemId)
     ensurePendingFrame()
 end
 
+local function formatRawTable(raw)
+    if not raw or next(raw) == nil then return "(empty)" end
+    local keys = {}
+    for k in pairs(raw) do
+        keys[#keys + 1] = k
+    end
+    table.sort(keys)
+    local parts = {}
+    for i = 1, #keys do
+        local k = keys[i]
+        parts[#parts + 1] = string.format("%s=%s", k, tostring(raw[k]))
+    end
+    return table.concat(parts, ", ")
+end
+
+local function describeHealingGlobals()
+    local short = _G.ITEM_MOD_SPELL_HEALING_DONE_SHORT
+    local full = _G.ITEM_MOD_SPELL_HEALING_DONE
+    return {
+        short = type(short) == "string" and short or "(nil)",
+        full = type(full) == "string" and full or "(nil)",
+    }
+end
+
+local function describeHealingPatternMatches(text)
+    local patterns = buildTooltipPatterns()
+    local matches = {}
+    for i = 1, #patterns do
+        local row = patterns[i]
+        if row.apiKey:find("HEALING", 1, true) then
+            local amount = text:match(row.pattern)
+            matches[#matches + 1] = string.format(
+                "%s => %s",
+                row.pattern,
+                amount and ("matched " .. amount .. " as " .. row.apiKey) or "no match")
+        end
+    end
+    return matches
+end
+
+local function collectFreshParseSnapshot(link)
+    local itemName
+    if GetItemInfo then
+        itemName = GetItemInfo(link)
+    end
+    local apiRaw = fetchFromApi(link) or {}
+    local tooltipRaw, tooltipLines, incomplete = parseTooltipToRaw(link)
+    local mergedRaw = mergeTooltipSupplement(apiRaw, tooltipRaw)
+    local normalized = normalizeRawStats(mergedRaw, link)
+    return {
+        itemName = itemName,
+        itemId = parseItemId(link),
+        apiRaw = copyTable(apiRaw),
+        tooltipRaw = copyTable(tooltipRaw),
+        mergedRaw = copyTable(mergedRaw),
+        normalized = copyTable(normalized),
+        tooltipLines = copyTable(tooltipLines),
+        incomplete = incomplete,
+    }
+end
+
 local function storeCache(link, normalized, source, meta)
     meta = meta or {}
     cache[link] = {
@@ -513,6 +640,7 @@ local function storeCache(link, normalized, source, meta)
         tooltipLines = meta.tooltipLines,
         itemId = parseItemId(link),
         complete = source ~= "pending",
+        parseSnapshot = meta.parseSnapshot,
     }
 end
 
@@ -558,6 +686,16 @@ local function fetchStats(link)
     local tooltipRaw, tooltipLines, incomplete = parseTooltipToRaw(link)
     local mergedRaw = mergeTooltipSupplement(apiRaw, tooltipRaw)
 
+    local parseSnapshot = {
+        itemName = GetItemInfo and GetItemInfo(link) or nil,
+        itemId = parseItemId(link),
+        apiRaw = copyTable(apiRaw or {}),
+        tooltipRaw = copyTable(tooltipRaw or {}),
+        mergedRaw = copyTable(mergedRaw),
+        incomplete = incomplete,
+        tooltipLines = copyTable(tooltipLines),
+    }
+
     if next(mergedRaw) then
         local source = apiRaw and "api" or "tooltip"
         if apiRaw and tooltipRaw and next(tooltipRaw) then
@@ -568,14 +706,27 @@ local function fetchStats(link)
                 end
             end
         end
-        return normalizeRawStats(mergedRaw, link), source, { tooltipLines = tooltipLines }
+        local normalized = normalizeRawStats(mergedRaw, link)
+        parseSnapshot.normalized = copyTable(normalized)
+        return normalized, source, {
+            tooltipLines = tooltipLines,
+            parseSnapshot = parseSnapshot,
+        }
     end
     if incomplete then
         queuePending(parseItemId(link))
-        return {}, "pending", { tooltipLines = tooltipLines }
+        parseSnapshot.normalized = {}
+        return {}, "pending", {
+            tooltipLines = tooltipLines,
+            parseSnapshot = parseSnapshot,
+        }
     end
 
-    return {}, "none", { tooltipLines = tooltipLines }
+    parseSnapshot.normalized = {}
+    return {}, "none", {
+        tooltipLines = tooltipLines,
+        parseSnapshot = parseSnapshot,
+    }
 end
 
 function IS.GetNormalized(link)
@@ -587,6 +738,33 @@ function IS.GetNormalized(link)
     local normalized, source, meta = fetchStats(link)
     storeCache(link, normalized, source, meta)
     return copyTable(normalized)
+end
+
+--- Structured parse snapshot for debug dumps (API, tooltip, merge, normalized).
+function IS.CollectParseSnapshot(link, opts)
+    if not link then return nil end
+    opts = opts or {}
+    if opts.forceRefresh then
+        return collectFreshParseSnapshot(link)
+    end
+    local entry = cache[link]
+    if entry and entry.parseSnapshot then
+        local snap = copyTable(entry.parseSnapshot)
+        if entry.tooltipLines and not snap.tooltipLines then
+            snap.tooltipLines = copyTable(entry.tooltipLines)
+        end
+        return snap
+    end
+    IS.GetNormalized(link)
+    entry = cache[link]
+    if entry and entry.parseSnapshot then
+        local snap = copyTable(entry.parseSnapshot)
+        if entry.tooltipLines and not snap.tooltipLines then
+            snap.tooltipLines = copyTable(entry.tooltipLines)
+        end
+        return snap
+    end
+    return collectFreshParseSnapshot(link)
 end
 
 function IS.FormatNormalizedForDebug(stats)
@@ -602,4 +780,97 @@ function IS.FormatNormalizedForDebug(stats)
         parts[#parts + 1] = string.format("%s=%s", k, tostring(stats[k]))
     end
     return table.concat(parts, " ")
+end
+
+--- Chat lines for diagnosing tooltip/API stat parsing (enable Debug > Item stat parsing).
+function IS.BuildStatParseDebugLines(link, opts)
+    opts = opts or {}
+    local lines = {}
+    if not link then
+        lines[#lines + 1] = "No item link."
+        return lines
+    end
+
+    local cached = cache[link]
+    local snapshot = (not opts.forceRefresh and cached and cached.parseSnapshot) or nil
+    if not snapshot then
+        snapshot = collectFreshParseSnapshot(link)
+    elseif snapshot.tooltipLines == nil and cached and cached.tooltipLines then
+        snapshot.tooltipLines = copyTable(cached.tooltipLines)
+    end
+
+    local itemLabel = snapshot.itemName or "?"
+    lines[#lines + 1] = string.format(
+        "Item: %s (id=%s)",
+        itemLabel,
+        tostring(snapshot.itemId or "?"))
+    lines[#lines + 1] = string.format("  link: %s", tostring(link))
+    if cached then
+        lines[#lines + 1] = string.format(
+            "  cache: source=%s complete=%s normalized=%s",
+            tostring(cached.source or "?"),
+            tostring(cached.complete),
+            IS.FormatNormalizedForDebug(cached.normalized))
+    else
+        lines[#lines + 1] = "  cache: (miss)"
+    end
+
+    local globals = describeHealingGlobals()
+    lines[#lines + 1] = string.format(
+        "  healing globals: SHORT=%q FULL=%q",
+        globals.short,
+        globals.full)
+
+    lines[#lines + 1] = "  GetItemStats: " .. formatRawTable(snapshot.apiRaw)
+    lines[#lines + 1] = "  tooltip parsed: " .. formatRawTable(snapshot.tooltipRaw)
+    lines[#lines + 1] = "  merged raw: " .. formatRawTable(snapshot.mergedRaw)
+    lines[#lines + 1] = string.format(
+        "  normalized: %s",
+        IS.FormatNormalizedForDebug(snapshot.normalized))
+    lines[#lines + 1] = string.format(
+        "  tooltip incomplete=%s lineCount=%s",
+        tostring(snapshot.incomplete),
+        tostring(snapshot.tooltipLines and #snapshot.tooltipLines or 0))
+
+    local tipLines = snapshot.tooltipLines or {}
+    for i = 1, #tipLines do
+        local line = tostring(tipLines[i])
+        local parsed = parseLineToRaw(normalizeTooltipLine(line), {})
+        local suffix = parsed and " [parsed]" or " [unparsed]"
+        lines[#lines + 1] = string.format("  tooltip[%d]: %s%s", i, line, suffix)
+        if not parsed and line:find("Heal", 1, true) then
+            local healingMatches = describeHealingPatternMatches(normalizeTooltipLine(line))
+            for m = 1, #healingMatches do
+                lines[#lines + 1] = "    healing pattern: " .. healingMatches[m]
+            end
+        end
+    end
+
+    local apiHeal = snapshot.apiRaw.ITEM_MOD_SPELL_HEALING_DONE
+        or snapshot.apiRaw.ITEM_MOD_SPELL_HEALING_DONE_SHORT
+    local tipHeal = snapshot.tooltipRaw.ITEM_MOD_SPELL_HEALING_DONE
+        or snapshot.tooltipRaw.ITEM_MOD_SPELL_HEALING_DONE_SHORT
+    if apiHeal ~= nil or tipHeal ~= nil then
+        lines[#lines + 1] = string.format(
+            "  healing keys: api DONE=%s api SHORT=%s tooltip DONE=%s tooltip SHORT=%s normalized heal=%s",
+            tostring(snapshot.apiRaw.ITEM_MOD_SPELL_HEALING_DONE),
+            tostring(snapshot.apiRaw.ITEM_MOD_SPELL_HEALING_DONE_SHORT),
+            tostring(snapshot.tooltipRaw.ITEM_MOD_SPELL_HEALING_DONE),
+            tostring(snapshot.tooltipRaw.ITEM_MOD_SPELL_HEALING_DONE_SHORT),
+            tostring(snapshot.normalized and snapshot.normalized.heal))
+    end
+
+    return lines
+end
+
+function IS.LogStatParseDebug(link, opts)
+    local D = AltArmy.Debug
+    if not D or not D.IsItemStatsEnabled or not D.IsItemStatsEnabled() then
+        return
+    end
+    local lines = IS.BuildStatParseDebugLines(link, opts)
+    if #lines == 0 then return end
+    if D.LogItemStats then
+        D.LogItemStats(lines)
+    end
 end

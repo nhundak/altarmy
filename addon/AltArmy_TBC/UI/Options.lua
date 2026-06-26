@@ -418,6 +418,29 @@ debugItemComparisonHint:SetJustifyH("LEFT")
 debugItemComparisonHint:SetText(
     "Logs every comparison algorithm for each equippable alt when you loot an item or run /altarmy debug item.")
 
+local debugItemStatsRow = Theme.CreateLabeledCheckbox(tabDebug, {
+    point = "TOPLEFT",
+    relativeTo = debugItemComparisonHint,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -16,
+    text = "Item stat parsing details",
+    fullWidthHover = true,
+    onClick = function(checked)
+        if AltArmy.Debug and AltArmy.Debug.SetItemStatsEnabled then
+            AltArmy.Debug.SetItemStatsEnabled(checked)
+        end
+    end,
+})
+panel.debugItemStatsCheckbox = debugItemStatsRow.check
+
+local debugItemStatsHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+debugItemStatsHint:SetPoint("TOPLEFT", debugItemStatsRow, "BOTTOMLEFT", 0, -8)
+debugItemStatsHint:SetWidth(520)
+debugItemStatsHint:SetJustifyH("LEFT")
+debugItemStatsHint:SetText(
+    "Logs API vs tooltip stat parsing when comparing items. Use /altarmy debug stats with an item on the cursor.")
+
 function RefreshDebugCheckboxes()
     local D = AltArmy and AltArmy.Debug
     if not D or not D.Ensure then return end
@@ -434,6 +457,9 @@ function RefreshDebugCheckboxes()
     end
     if panel.debugItemComparisonCheckbox then
         panel.debugItemComparisonCheckbox:SetChecked(d.itemComparison == true)
+    end
+    if panel.debugItemStatsCheckbox then
+        panel.debugItemStatsCheckbox:SetChecked(d.itemStats == true)
     end
     ResetDeleteAllHistoryButton()
 end
@@ -884,6 +910,10 @@ SlashCmdList.ALTARMY = function(msg)
         if panel.RefreshDebugTabVisibility then
             panel.RefreshDebugTabVisibility()
         end
+        local gearFrame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Gear
+        if gearFrame and gearFrame.RefreshGrid then
+            gearFrame:RefreshGrid()
+        end
         return
     end
     if lower == "debug off" then
@@ -895,6 +925,10 @@ SlashCmdList.ALTARMY = function(msg)
         end
         if panel.RefreshDebugTabVisibility then
             panel.RefreshDebugTabVisibility()
+        end
+        local gearFrame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Gear
+        if gearFrame and gearFrame.RefreshGrid then
+            gearFrame:RefreshGrid()
         end
         return
     end
@@ -933,6 +967,48 @@ SlashCmdList.ALTARMY = function(msg)
         elseif AltArmy.Debug and AltArmy.Debug.NotifyChat then
             AltArmy.Debug.NotifyChat("Gear upgrade alerts are unavailable.")
         end
+        return
+    end
+    if lower == "debug dump" or lower == "debug dumpcompare" then
+        local gearFrame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Gear
+        if gearFrame and gearFrame.DumpComparePanelDebug then
+            gearFrame:DumpComparePanelDebug()
+        elseif AltArmy.Debug and AltArmy.Debug.NotifyChat then
+            AltArmy.Debug.NotifyChat("Open the Gear tab with a focused item and compare selection.")
+        end
+        return
+    end
+    local debugStatsLink = trimmed:match("^[Dd]ebug [Ss]tats%s+(.+)$")
+    if not debugStatsLink and lower == "debug stats" then
+        if GetCursorInfo then
+            local infoType, _, itemLink = GetCursorInfo()
+            if infoType == "item" and itemLink then
+                debugStatsLink = itemLink
+            end
+        end
+    end
+    if debugStatsLink or lower == "debug stats" then
+        local IS = AltArmy and AltArmy.ItemStats
+        local D = AltArmy and AltArmy.Debug
+        if not IS or not IS.LogStatParseDebug then
+            if D and D.NotifyChat then
+                D.NotifyChat("Item stat parsing is unavailable.")
+            end
+            return
+        end
+        if not D or not D.IsItemStatsEnabled or not D.IsItemStatsEnabled() then
+            if D and D.NotifyChat then
+                D.NotifyChat("Enable Debug > Item stat parsing first (/altarmy debug on).")
+            end
+            return
+        end
+        if not debugStatsLink then
+            if D and D.NotifyChat then
+                D.NotifyChat("Put an item on the cursor or pass an item link: /altarmy debug stats <link>")
+            end
+            return
+        end
+        IS.LogStatParseDebug(debugStatsLink, { forceRefresh = true })
         return
     end
     if AltArmy and AltArmy.MainFrame then

@@ -448,6 +448,37 @@ function GU.ScoreItem(link, technique, classFile, specKey)
     return scoreItem(link, technique, classFile, specKey)
 end
 
+--- Per-stat weighted score breakdown for debug dumps.
+function GU.BuildScoreBreakdown(link, technique, classFile, specKey)
+    if not link then return nil end
+    technique = GU.GetEffectiveTechnique(technique or "custom")
+    local weights = getWeights(classFile, specKey)
+    local stats = normalizeItemStats(link)
+    local contributions = {}
+    local weightedSum = 0
+    for key, value in pairs(stats) do
+        local statValue = tonumber(value) or 0
+        local weight = weights and tonumber(weights[key]) or 0
+        local contribution = statValue * weight
+        weightedSum = weightedSum + contribution
+        contributions[#contributions + 1] = {
+            key = key,
+            statValue = statValue,
+            weight = weight,
+            contribution = contribution,
+        }
+    end
+    table.sort(contributions, function(a, b)
+        return (a.key or "") < (b.key or "")
+    end)
+    return {
+        technique = technique,
+        total = scoreItem(link, technique, classFile, specKey),
+        weightedSum = weightedSum,
+        contributions = contributions,
+    }
+end
+
 function GU.CompareItems(newLink, oldLink, technique, classFile, specKey)
     local newScore = scoreItem(newLink, technique, classFile, specKey)
     local oldScore = oldLink and scoreItem(oldLink, technique, classFile, specKey) or 0
@@ -964,6 +995,14 @@ function GU.LogFocusSlotDebug(entry, charData, itemLink, invSlot, opts, upgradeM
         entry, charData, itemLink, invSlot, opts, upgradeMaxDelta, debugCtx)
     if #lines > 0 and D.LogItemComparison then
         D.LogItemComparison(lines)
+    end
+    local itemStats = IS()
+    if itemStats and itemStats.LogStatParseDebug then
+        itemStats.LogStatParseDebug(itemLink)
+        local eqLink = debugCtx and debugCtx.equippedCompareLink
+        if eqLink then
+            itemStats.LogStatParseDebug(eqLink)
+        end
     end
 end
 
