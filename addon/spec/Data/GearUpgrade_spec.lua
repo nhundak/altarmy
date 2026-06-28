@@ -488,7 +488,8 @@ describe("GearUpgrade", function()
     it("EnsureGearUpgradeOptions applies defaults", function()
         _G.AltArmyTBC_Options = {}
         local opts = GU.EnsureGearUpgradeOptions()
-        assert.is_true(opts.enabled)
+        assert.is_true(opts.notifyCurrentCharacter)
+        assert.is_true(opts.notifyOtherCharacters)
         assert.are.equal("custom", opts.technique)
         assert.are.equal(5, opts.levelsAhead)
         assert.are.equal(10, opts.upgradeThresholdPercent)
@@ -529,14 +530,29 @@ describe("GearUpgrade", function()
         assert.are.equal(100, GU.ResolveUpgradeThresholdPercent(150))
     end)
 
-    it("EnsureGearUpgradeOptions preserves enabled and levelsAhead", function()
+    it("EnsureGearUpgradeOptions migrates legacy enabled to both notification toggles", function()
         _G.AltArmyTBC_Options = {
             gearUpgrades = { enabled = false, technique = "ilvl", levelsAhead = 0 },
         }
         local opts = GU.EnsureGearUpgradeOptions()
-        assert.is_false(opts.enabled)
+        assert.is_false(opts.notifyCurrentCharacter)
+        assert.is_false(opts.notifyOtherCharacters)
         assert.are.equal("custom", opts.technique)
         assert.are.equal(0, opts.levelsAhead)
+    end)
+
+    it("EnsureGearUpgradeOptions preserves explicit notification toggles", function()
+        _G.AltArmyTBC_Options = {
+            gearUpgrades = {
+                notifyCurrentCharacter = true,
+                notifyOtherCharacters = false,
+                levelsAhead = 3,
+            },
+        }
+        local opts = GU.EnsureGearUpgradeOptions()
+        assert.is_true(opts.notifyCurrentCharacter)
+        assert.is_false(opts.notifyOtherCharacters)
+        assert.are.equal(3, opts.levelsAhead)
     end)
 
     it("GetProviders lists techniques in display order", function()

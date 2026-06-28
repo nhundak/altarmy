@@ -113,12 +113,22 @@ describe("GearUpgradeAlerts", function()
             }
             AltArmy.GearUpgrade = {
                 GetOptions = function()
-                    return { enabled = true, technique = "custom", levelsAhead = 5 }
+                    return {
+                        notifyCurrentCharacter = true,
+                        notifyOtherCharacters = true,
+                        technique = "custom",
+                        levelsAhead = 5,
+                    }
                 end,
                 GetEffectiveTechnique = function(technique)
                     return technique
                 end,
                 EvaluateForAllAlts = evaluateFn,
+            }
+            AltArmy.DataStore = {
+                IsCurrentCharacter = function(_, name)
+                    return name == "MageAlt"
+                end,
             }
             AltArmy.ItemUsability = {
                 IsBindOnPickup = function() return false end,
@@ -133,13 +143,13 @@ describe("GearUpgradeAlerts", function()
 
         it("includes the item link, character names, and view details link", function()
             loadWithMocks(function()
-                return { { name = "MageAlt", classFile = "MAGE" } }
+                return { { name = "Bravo", classFile = "PRIEST" } }
             end)
             local itemLink = "|Hitem:11:0|h[New Helm]|h"
             local ok = GA.AnnounceLootUpgrade(itemLink)
             assert.is_true(ok)
             assert.is_not_nil(chatLines[1]:find(itemLink, 1, true))
-            assert.matches("is an upgrade for MageAlt:", chatLines[1])
+            assert.matches("is an upgrade for Bravo:", chatLines[1])
             assert.matches("%[View details%]", chatLines[1])
         end)
 
@@ -188,6 +198,9 @@ describe("GearUpgradeAlerts", function()
                 GetCurrentCharacter = function()
                     return overrides.char or { classFile = "MAGE", name = "MageAlt" }
                 end,
+                IsCurrentCharacter = function(_, name)
+                    return name == "MageAlt"
+                end,
                 ScanBags = function() end,
                 IterateBagSlots = overrides.iterateBagSlots,
                 IterateBankSlots = overrides.iterateBankSlots,
@@ -199,12 +212,22 @@ describe("GearUpgradeAlerts", function()
             }
             AltArmy.GearUpgrade = {
                 GetOptions = function()
-                    local enabled = overrides.enabled
-                    if enabled == nil then enabled = true end
-                    return { enabled = enabled, technique = "custom", levelsAhead = 5 }
+                    local notifyCurrent = overrides.notifyCurrentCharacter
+                    if notifyCurrent == nil then notifyCurrent = true end
+                    local notifyOther = overrides.notifyOtherCharacters
+                    if notifyOther == nil then notifyOther = true end
+                    return {
+                        notifyCurrentCharacter = notifyCurrent,
+                        notifyOtherCharacters = notifyOther,
+                        technique = "custom",
+                        levelsAhead = 5,
+                    }
                 end,
                 EvaluateForCharacter = overrides.evaluateForCharacter or function()
                     return true
+                end,
+                GetEffectiveTechnique = function(technique)
+                    return technique
                 end,
             }
             AltArmy.ItemUsability = {
@@ -317,9 +340,9 @@ describe("GearUpgradeAlerts", function()
             assert.matches("Usage: /altarmy debug levelup", chatLines[1])
         end)
 
-        it("does not announce level-up upgrades when notifications are disabled", function()
+        it("does not announce level-up upgrades when current-character notifications are disabled", function()
             loadWithMocks({
-                enabled = false,
+                notifyCurrentCharacter = false,
                 getContainerNumSlots = function() return 1 end,
                 getContainerItemLink = function(_, slot)
                     if slot == 1 then return helmLink end
@@ -329,11 +352,46 @@ describe("GearUpgradeAlerts", function()
             assert.are.equal(0, #chatLines)
         end)
 
-        it("SimulateLevelUp reports disabled notifications", function()
-            loadWithMocks({ enabled = false })
+        it("SimulateLevelUp reports disabled current-character notifications", function()
+            loadWithMocks({ notifyCurrentCharacter = false })
             local ok = GA.SimulateLevelUp(40)
             assert.is_false(ok)
             assert.matches("disabled in options", chatLines[1])
+        end)
+
+        it("does not announce loot upgrades when other-character notifications are disabled", function()
+            loadWithMocks({
+                notifyOtherCharacters = false,
+            })
+            AltArmy.GearUpgrade.EvaluateForAllAlts = function()
+                return { { name = "Bravo", classFile = "PRIEST" } }
+            end
+            local ok = GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+            assert.is_false(ok)
+            assert.are.equal(0, #chatLines)
+        end)
+
+        it("excludes the current character from loot upgrade announcements", function()
+            loadWithMocks({})
+            AltArmy.GearUpgrade.EvaluateForAllAlts = function()
+                return {
+                    { name = "MageAlt", classFile = "MAGE" },
+                    { name = "Bravo", classFile = "PRIEST" },
+                }
+            end
+            GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+            assert.matches("is an upgrade for Bravo:", chatLines[1])
+            assert.is_nil(chatLines[1]:match("MageAlt"))
+        end)
+
+        it("skips loot announcements when only the current character matches", function()
+            loadWithMocks({})
+            AltArmy.GearUpgrade.EvaluateForAllAlts = function()
+                return { { name = "MageAlt", classFile = "MAGE" } }
+            end
+            local ok = GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+            assert.is_false(ok)
+            assert.are.equal(0, #chatLines)
         end)
     end)
 

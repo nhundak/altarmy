@@ -57,22 +57,36 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     })
     local scrollChild = viewport.child
 
-    local enabledRow = Theme.CreateLabeledCheckbox(scrollChild, {
+    local currentCharRow = Theme.CreateLabeledCheckbox(scrollChild, {
         point = "TOPLEFT",
         relativeTo = scrollChild,
         relativePoint = "TOPLEFT",
         x = 0,
         y = 0,
-        text = "Enable gear upgrade notifications",
+        text = "Upgrade notifications for current character",
         fullWidthHover = true,
         onClick = function(checked)
-            GU.EnsureGearUpgradeOptions().enabled = checked
+            GU.EnsureGearUpgradeOptions().notifyCurrentCharacter = checked
         end,
     })
-    local enabledChk = enabledRow.check
+    local currentCharChk = currentCharRow.check
+
+    local otherCharRow = Theme.CreateLabeledCheckbox(scrollChild, {
+        point = "TOPLEFT",
+        relativeTo = currentCharRow,
+        relativePoint = "BOTTOMLEFT",
+        x = 0,
+        y = -8,
+        text = "Upgrade notification for other characters",
+        fullWidthHover = true,
+        onClick = function(checked)
+            GU.EnsureGearUpgradeOptions().notifyOtherCharacters = checked
+        end,
+    })
+    local otherCharChk = otherCharRow.check
 
     local levelsLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    levelsLabel:SetPoint("TOPLEFT", enabledRow, "BOTTOMLEFT", 0, -14)
+    levelsLabel:SetPoint("TOPLEFT", otherCharRow, "BOTTOMLEFT", 0, -14)
     levelsLabel:SetText("Level look-ahead")
 
     local levelsEdit = CreateFrame("EditBox", nil, scrollChild)
@@ -121,7 +135,7 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     end)
     thresholdEdit:SetScript("OnEditFocusLost", saveUpgradeThreshold)
 
-    scrollChild:SetHeight(160)
+    scrollChild:SetHeight(188)
 
     local function UpdateGearUpgradeScrollRange()
         viewport:UpdateRange()
@@ -130,7 +144,8 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     local function RefreshGearUpgradeOptionsFromVars()
         GU.EnsureGearUpgradeOptions()
         local opts = GU.GetOptions()
-        enabledChk:SetChecked(opts.enabled ~= false)
+        currentCharChk:SetChecked(opts.notifyCurrentCharacter ~= false)
+        otherCharChk:SetChecked(opts.notifyOtherCharacters ~= false)
         levelsEdit:SetText(tostring(opts.levelsAhead))
         thresholdEdit:SetText(tostring(opts.upgradeThresholdPercent))
         UpdateGearUpgradeScrollRange()

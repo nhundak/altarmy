@@ -102,10 +102,30 @@ local function parseUpgradeLink(link)
     return nil
 end
 
-local function optionsEnabled()
+local function notifyCurrentCharacterEnabled()
     if not GU or not GU.GetOptions then return false end
     local opts = GU.GetOptions()
-    return opts.enabled ~= false
+    return opts.notifyCurrentCharacter ~= false
+end
+
+local function notifyOtherCharactersEnabled()
+    if not GU or not GU.GetOptions then return false end
+    local opts = GU.GetOptions()
+    return opts.notifyOtherCharacters ~= false
+end
+
+local function filterOtherCharacterMatches(matches)
+    if not matches or #matches == 0 then return {} end
+    local DS = AltArmy.DataStore
+    if not DS or not DS.IsCurrentCharacter then return matches end
+    local filtered = {}
+    for i = 1, #matches do
+        local m = matches[i]
+        if not DS:IsCurrentCharacter(m.name, m.realm) then
+            filtered[#filtered + 1] = m
+        end
+    end
+    return filtered
 end
 
 local function extractItemLink(msg)
@@ -129,7 +149,7 @@ local function maybeLogItemComparison(itemLink)
 end
 
 function GA.AnnounceLootUpgrade(itemLink)
-    if not optionsEnabled() or not itemLink or not GU or not GU.EvaluateForAllAlts then
+    if not notifyOtherCharactersEnabled() or not itemLink or not GU or not GU.EvaluateForAllAlts then
         return false, "disabled"
     end
     if IU and IU.IsBindOnPickup and IU.IsBindOnPickup(itemLink) then return false, "bop" end
@@ -138,6 +158,7 @@ function GA.AnnounceLootUpgrade(itemLink)
         technique = opts.technique,
         levelsAhead = opts.levelsAhead,
     })
+    matches = filterOtherCharacterMatches(matches)
     if not matches or #matches == 0 then return false, "no_matches" end
 
     local nameList = formatUpgradeNameList(matches)
@@ -170,7 +191,8 @@ function GA.SimulateSelfLoot(rawInput)
     local ok, reason = GA.AnnounceLootUpgrade(link)
     if ok then return true end
     if reason == "disabled" then
-        postChat(ALTARMY_GOLD .. "AltArmy|r debug: gear upgrade notifications are disabled in options.")
+        postChat(ALTARMY_GOLD .. "AltArmy|r debug: gear upgrade notifications for other characters "
+            .. "are disabled in options.")
     elseif reason == "bop" then
         postChat(ALTARMY_GOLD .. "AltArmy|r debug: skipped (bind-on-pickup or quest item).")
     elseif reason == "no_matches" then
@@ -187,8 +209,9 @@ function GA.SimulateLevelUp(rawLevel)
             .. "Usage: /altarmy debug levelup {level}")
         return false
     end
-    if not optionsEnabled() then
-        postChat(ALTARMY_GOLD .. "AltArmy|r debug: gear upgrade notifications are disabled in options.")
+    if not notifyCurrentCharacterEnabled() then
+        postChat(ALTARMY_GOLD .. "AltArmy|r debug: gear upgrade notifications for the current character "
+            .. "are disabled in options.")
         return false
     end
     GA.AnnounceLevelUpUpgrades(newLevel)
@@ -249,7 +272,7 @@ local function considerLevelUpCandidate(candidates, candidateOrder, link, locati
 end
 
 function GA.AnnounceLevelUpUpgrades(newLevel)
-    if not optionsEnabled() or not newLevel or not GU then return end
+    if not notifyCurrentCharacterEnabled() or not newLevel or not GU then return end
     local DS = AltArmy.DataStore
     if not DS or not DS.GetCurrentCharacter then return end
     local char = DS:GetCurrentCharacter()

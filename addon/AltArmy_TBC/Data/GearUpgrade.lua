@@ -2106,7 +2106,14 @@ function GU.EnsureGearUpgradeOptions()
     local root = _G.AltArmyTBC_Options
     root.gearUpgrades = root.gearUpgrades or {}
     local gu = root.gearUpgrades
-    if gu.enabled == nil then gu.enabled = true end
+    if gu.notifyCurrentCharacter == nil and gu.notifyOtherCharacters == nil then
+        local legacy = gu.enabled
+        if legacy == nil then legacy = true end
+        gu.notifyCurrentCharacter = legacy
+        gu.notifyOtherCharacters = legacy
+    end
+    if gu.notifyCurrentCharacter == nil then gu.notifyCurrentCharacter = true end
+    if gu.notifyOtherCharacters == nil then gu.notifyOtherCharacters = true end
     gu.technique = "custom"
     gu.levelsAhead = resolveLevelsAhead(gu.levelsAhead)
     gu.upgradeThresholdPercent = GU.ResolveUpgradeThresholdPercent(gu.upgradeThresholdPercent)
