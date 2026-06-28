@@ -90,8 +90,15 @@ function RF.formatColoredCharacterNameRealm(name, realm, showRealmSuffix, classF
     local CC = AltArmy.ClassColor
     local namePart = CC and CC.formatName and CC.formatName(name, classFile)
         or ("|cffffffff" .. name .. "|r")
+    local result
     if showRealmSuffix and realm and realm ~= "" then
-        return namePart .. "|cffaaaaaa — " .. realm .. "|r"
+        result = namePart .. "|cffaaaaaa — " .. realm .. "|r"
+    else
+        result = namePart
     end
-    return namePart
+    local BA = AltArmy.BankAlt
+    if BA and BA.Is and BA.Is(name, realm) and BA.IconMarkup then
+        return BA.IconMarkup() .. " " .. result
+    end
+    return result
 end

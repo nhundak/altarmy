@@ -102,6 +102,10 @@ describe("GearUpgrade", function()
         require("PawnScale")
         package.loaded["PawnScales"] = nil
         require("PawnScales")
+        package.loaded["CharKey"] = nil
+        require("CharKey")
+        package.loaded["BankAlt"] = nil
+        require("BankAlt")
         package.loaded["GearUpgrade"] = nil
         require("GearUpgrade")
         GU = AltArmy.GearUpgrade
@@ -119,6 +123,9 @@ describe("GearUpgrade", function()
         end
         if AltArmy.ItemUsability and AltArmy.ItemUsability.ClearCache then
             AltArmy.ItemUsability.ClearCache()
+        end
+        if AltArmy.BankAlt then
+            _G.AltArmyTBC_Options.bankAlts = {}
         end
         if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
             AltArmy.ItemStats.ClearCache()
@@ -377,6 +384,15 @@ describe("GearUpgrade", function()
         assert.are.equal(1, #matches)
         assert.are.equal("MageAlt", matches[1].name)
         assert.is_true(matches[1].isUpgrade)
+    end)
+
+    it("EvaluateForAllAlts skips bank alts", function()
+        AltArmy.BankAlt.Set("MageAlt", "TestRealm", true)
+        local matches = GU.EvaluateForAllAlts("|Hitem:11:0|h[New Helm]|h", {
+            technique = "ilvl",
+            levelsAhead = 0,
+        })
+        assert.are.equal(0, #matches)
     end)
 
     it("EvaluateForAllAlts matches gear tab: only in-range clear upgrades", function()

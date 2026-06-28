@@ -243,6 +243,22 @@ describe("GearUpgradeAlerts", function()
             GA = AltArmy.GearUpgradeAlerts
         end
 
+        it("skips level-up announcements for bank alts", function()
+            require("CharKey")
+            package.loaded["BankAlt"] = nil
+            require("BankAlt")
+            AltArmy.BankAlt.Set("MageAlt", "TestRealm", true)
+            loadWithMocks({
+                char = { classFile = "MAGE", name = "MageAlt", realm = "TestRealm" },
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 11, 1, helmLink)
+                end,
+            })
+            AltArmy.DataStore.GetCurrentPlayerRealm = function() return "TestRealm" end
+            GA.AnnounceLevelUpUpgrades(40)
+            assert.are.equal(0, #chatLines)
+        end)
+
         it("announces equippable bag upgrades at the new level", function()
             loadWithMocks({
                 iterateBagSlots = function(_, _char, cb)

@@ -58,6 +58,22 @@ describe("CooldownData", function()
         assert.is_false(found)
     end)
 
+    it("BuildRows includes bank alts", function()
+        CD.ResetCooldownOptionsToDefaults()
+        require("CharKey")
+        package.loaded["BankAlt"] = nil
+        require("BankAlt")
+        AltArmy.BankAlt.Set("Banker", "TestRealm", true)
+        local char = {
+            name = "Banker",
+            Professions = { Alchemy = { Recipes = { [29688] = { color = 1 } } } },
+        }
+        local ds = mockDS({ TestRealm = { Banker = char } })
+        local rows = CD.BuildRows(ds, AltArmyTBC_Options.cooldowns, 1000)
+        assert.is_true(#rows >= 1)
+        assert.are.equal("Banker", rows[1].name)
+    end)
+
     it("BuildRows includes transmute when recipe in set", function()
         local char = {
             name = "T",

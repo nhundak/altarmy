@@ -409,6 +409,10 @@ local function collectEquippableCharacters(itemLink, levelsAhead)
         if not charMatchesRealmFilter(realm, realmFilter, currentRealm) then
             return
         end
+        local BA = AltArmy.BankAlt
+        if BA and BA.Is and BA.Is(charData.name or charName, realm) then
+            return
+        end
         local classFile = charData.classFile or ""
         local level = (DS.GetCharacterLevel and DS:GetCharacterLevel(charData))
             or tonumber(charData.level) or 0

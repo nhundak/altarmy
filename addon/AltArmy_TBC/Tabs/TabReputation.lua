@@ -107,7 +107,9 @@ local function GetDisplayList()
     for i = 1, #rawList do
         local e = rawList[i]
         local isSelf = DS and DS.IsCurrentCharacter and DS:IsCurrentCharacter(e.name, e.realm)
-        local isHidden = GetCharSetting(e.name, e.realm, "hide")
+        local BA = AltArmy.BankAlt
+        local isBankAlt = BA and BA.Is and BA.Is(e.name, e.realm)
+        local isHidden = GetCharSetting(e.name, e.realm, "hide") or isBankAlt
         if not isHidden or (showSelfFirst and isSelf) then
             visible[#visible + 1] = e
             SSR.DecorateEntry(e)

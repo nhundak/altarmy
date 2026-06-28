@@ -277,6 +277,12 @@ function GA.AnnounceLevelUpUpgrades(newLevel)
     if not DS or not DS.GetCurrentCharacter then return end
     local char = DS:GetCurrentCharacter()
     if not char then return end
+    local BA = AltArmy.BankAlt
+    if BA and BA.Is then
+        local realm = char.realm or (DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm()) or ""
+        local name = char.name or ""
+        if BA.Is(name, realm) then return end
+    end
     if DS.ScanBags then DS:ScanBags() end
 
     local opts = GU.GetOptions()

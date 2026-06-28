@@ -23,6 +23,9 @@ local function ensureDefaults()
     if AltArmy and AltArmy.GlobalRealmFilter and AltArmy.GlobalRealmFilter.Ensure then
         AltArmy.GlobalRealmFilter.Ensure()
     end
+    if AltArmy and AltArmy.BankAlt and AltArmy.BankAlt.Ensure then
+        AltArmy.BankAlt.Ensure()
+    end
     if AltArmy and AltArmy.CooldownData and AltArmy.CooldownData.EnsureCooldownOptions then
         AltArmy.CooldownData.EnsureCooldownOptions()
     end
@@ -729,11 +732,57 @@ charSettingPrompt:SetPoint("TOPLEFT", tabCharacters, "TOP", COL_GAP / 2, 0)
 charSettingPrompt:SetText("Choose a character to begin")
 charSettingPrompt:Show()
 
+local BANK_ALT_HELP = {
+    title = "Bank alt",
+    lines = {
+        "Hidden from the Gear and Reputation tabs.",
+        "Never flagged for gear upgrades or shown in item comparisons.",
+        "Still appears in Summary, Cooldowns, Graphs, and Search.",
+    },
+}
+
+local function RefreshBankAltDependents()
+    if AltArmy.Characters and AltArmy.Characters.InvalidateView then
+        AltArmy.Characters:InvalidateView()
+    end
+    RefreshCharacterList()
+    local gearFrame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Gear
+    if gearFrame and gearFrame.RefreshGrid then
+        gearFrame:RefreshGrid()
+    end
+    local repFrame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Reputation
+    if repFrame and repFrame.RefreshGrid then
+        repFrame:RefreshGrid()
+    end
+end
+
+local bankAltRow = Theme.CreateLabeledCheckbox(tabCharacters, {
+    point = "TOPLEFT",
+    relativeTo = charListFrame,
+    relativePoint = "TOPRIGHT",
+    x = COL_GAP,
+    y = 0,
+    text = "Bank alt",
+    fullWidthHover = true,
+    rightInset = 16,
+    onClick = function(checked)
+        if not selectedEntry then return end
+        local BA = AltArmy.BankAlt
+        if BA and BA.Set then
+            BA.Set(selectedEntry.name, selectedEntry.realm, checked)
+        end
+        RefreshBankAltDependents()
+    end,
+})
+Theme.AttachSettingsHelpIcon(bankAltRow, BANK_ALT_HELP)
+local bankAltCheck = bankAltRow.check
+bankAltRow:Hide()
+
 -- Delete button shown whenever any character is selected;
 -- disabled with "Can't delete self" when the current character is selected.
 local charSettingDeleteBtn = CreateFrame("Button", nil, tabCharacters, "UIPanelButtonTemplate")
 charSettingDeleteBtn:SetSize(160, 22)
-charSettingDeleteBtn:SetPoint("TOPLEFT", tabCharacters, "TOP", COL_GAP / 2, 0)
+charSettingDeleteBtn:SetPoint("BOTTOMLEFT", charListFrame, "BOTTOMRIGHT", COL_GAP, 0)
 charSettingDeleteBtn:SetText("Delete Data")
 charSettingDeleteBtn:Hide()
 Theme.SkinDangerButton(charSettingDeleteBtn)
@@ -760,9 +809,18 @@ UpdateCharSettings = function()
     local isSelf = hasSelection
         and IsCurrentCharacter(selectedEntry.name, selectedEntry.realm)
     charSettingPrompt:SetShown(not hasSelection)
+    bankAltRow:SetShown(hasSelection)
     charSettingDeleteBtn:SetShown(hasSelection)
     -- Reset confirm state whenever the selection changes
     deleteConfirmPending = false
+    if hasSelection then
+        local BA = AltArmy.BankAlt
+        if bankAltCheck and BA and BA.Is then
+            bankAltCheck:SetChecked(BA.Is(selectedEntry.name, selectedEntry.realm))
+        end
+    elseif bankAltCheck then
+        bankAltCheck:SetChecked(false)
+    end
     if isSelf then
         charSettingDeleteBtn:SetText("Can't delete self")
         charSettingDeleteBtn:Disable()

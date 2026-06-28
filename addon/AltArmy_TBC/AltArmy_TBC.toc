@@ -11,6 +11,7 @@ UI\Theme.lua
 UI\Text.lua
 Core.lua
 Data\CharKey.lua
+Data\BankAlt.lua
 Data\Debug.lua
 Data\DataStore.lua
 Data\ClassColor.lua

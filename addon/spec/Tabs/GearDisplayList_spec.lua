@@ -43,6 +43,10 @@ describe("Gear display list showSelfFirst", function()
             return c[key] == true
         end
 
+        local function IsBankAlt(name, realm)
+            return opts.bankAlts and opts.bankAlts[CharKey(name, realm)] == true
+        end
+
         local filtered = visible
         if inputList then
             filtered = {}
@@ -50,6 +54,7 @@ describe("Gear display list showSelfFirst", function()
                 local e = inputList[i]
                 local isSelf = (e.name == currentName and e.realm == currentRealm)
                 local isHidden = GetCharSetting(e.name, e.realm, "hide")
+                    or IsBankAlt(e.name, e.realm)
                 if not isHidden or (showSelfFirst and isSelf) then
                     filtered[#filtered + 1] = e
                 end
@@ -188,6 +193,60 @@ describe("Gear display list showSelfFirst", function()
             inputList = chars,
             charSettings = {
                 ["RealmA\\Me"] = { hide = true },
+            },
+        })
+        assert.are.equal(1, #list)
+        assert.are.equal("Alice", list[1].name)
+    end)
+
+    it("excludes bank alts from the grid", function()
+        local chars = {
+            { name = "Alice", realm = "RealmA", played = 100 },
+            { name = "Banker", realm = "RealmA", played = 10 },
+            { name = "Bob", realm = "RealmA", played = 75 },
+        }
+        local list = buildDisplayList(chars, {
+            showSelfFirst = false,
+            inputList = chars,
+            bankAlts = {
+                ["RealmA\\Banker"] = true,
+            },
+        })
+        assert.are.equal(2, #list)
+        assert.are.equal("Alice", list[1].name)
+        assert.are.equal("Bob", list[2].name)
+    end)
+
+    it("shows bank alt current character when pin current character is enabled", function()
+        local chars = {
+            { name = "Alice", realm = "RealmA", played = 100 },
+            { name = "Me", realm = "RealmA", played = 10 },
+            { name = "Bob", realm = "RealmA", played = 75 },
+        }
+        local list = buildDisplayList(chars, {
+            showSelfFirst = true,
+            inputList = chars,
+            bankAlts = {
+                ["RealmA\\Me"] = true,
+            },
+        })
+        assert.are.equal(3, #list)
+        assert.are.equal("Me", list[1].name)
+    end)
+
+    it("bank alt hide is not overrideable by pin", function()
+        local chars = {
+            { name = "Banker", realm = "RealmA", played = 10 },
+            { name = "Alice", realm = "RealmA", played = 100 },
+        }
+        local list = buildDisplayList(chars, {
+            showSelfFirst = false,
+            inputList = chars,
+            bankAlts = {
+                ["RealmA\\Banker"] = true,
+            },
+            charSettings = {
+                ["RealmA\\Banker"] = { pin = true },
             },
         })
         assert.are.equal(1, #list)

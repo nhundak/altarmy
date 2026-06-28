@@ -124,4 +124,17 @@ describe("Summary display list showSelfFirst", function()
         assert.are.equal("Bob", list[2].name)
         assert.are.equal("Alice", list[3].name)
     end)
+
+    it("includes bank alts in the summary list", function()
+        local chars = {
+            { name = "Alice", realm = "RealmA" },
+            { name = "Banker", realm = "RealmA" },
+            { name = "Bob", realm = "RealmA" },
+        }
+        local list = buildDisplayList(chars, {
+            showSelfFirst = false,
+        })
+        assert.are.equal(3, #list)
+        assert.are.equal("Banker", list[2].name)
+    end)
 end)
