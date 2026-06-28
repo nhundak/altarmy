@@ -1,0 +1,15 @@
+---
+description: Locate gear compare debug dumps (comparePanelDumps) and analyze ItemStats/GearCompare issues
+alwaysApply: false
+---
+
+When debugging gear compare, item stat parsing, or compare panel dumps:
+
+1. Read `.cursor/local.json` for `wowSavedVariables` (see `.cursor/local.json.example` if missing).
+2. Run `npm run dump:sync` to copy SavedVariables into `debug/compare-dump-source/AltArmy_TBC.lua`.
+3. Read the **last** entry in `AltArmyTBC_Options.debug.comparePanelDumps`.
+4. Use [docs/COMPARE_PANEL_DEBUG_DUMP.md](../docs/COMPARE_PANEL_DEBUG_DUMP.md) for field meanings.
+
+Do not run broad filesystem searches under the user home directory; use the configured path or the synced copy.
+
+For full workflow details, follow the project skill at `.cursor/skills/debug-compare-dump/SKILL.md`.

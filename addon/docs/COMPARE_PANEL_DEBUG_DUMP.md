@@ -12,7 +12,7 @@ WoW addons cannot write arbitrary files. Dumps are appended to **SavedVariables*
 4. Run `/reload` (or log out).
 5. Open the SavedVariables file on disk (path below).
 
-The newest dumps are at the end of `AltArmyTBC_Options.debug.comparePanelDumps`. The buffer keeps the last **20** entries.
+Each Dump replaces the previous snapshot: `comparePanelDumps` keeps only the **latest** entry (`MAX_COMPARE_PANEL_DUMPS = 1`).
 
 ## File location (Windows)
 
@@ -21,6 +21,18 @@ The newest dumps are at the end of `AltArmyTBC_Options.debug.comparePanelDumps`.
 ```
 
 The client folder name (`_classic_`, `_anniversary_`, etc.) depends on your install. Search for `AltArmy_TBC.lua` under `WTF` if unsure.
+
+### Machine-specific path (for you and for AI agents)
+
+Copy `.cursor/local.json.example` to `.cursor/local.json` (gitignored) and set `wowSavedVariables` to your full path.
+
+Sync a workspace copy for debugging without hunting the WoW install:
+
+```bash
+npm run dump:sync
+```
+
+Output: `debug/compare-dump-source/AltArmy_TBC.lua`. Agents should read that file or follow `.cursor/skills/debug-compare-dump/SKILL.md`.
 
 Look for a block like:
 
@@ -153,8 +165,8 @@ Full weight table for the resolved `classFile` + `specKey` (normalized stat key 
 
 1. Reproduce the wrong verdict or stat row in-game.
 2. Click **Dump** with the same character column selected.
-3. `/reload` and open `AltArmy_TBC.lua`.
-4. Copy the last `comparePanelDumps` entry into a test fixture or inspect in-editor.
+3. `/reload`, then run `npm run dump:sync` (or open `AltArmy_TBC.lua` from `wowSavedVariables` in `.cursor/local.json`).
+4. Copy the last `comparePanelDumps` entry into `spec/fixtures/compare-dumps/` or inspect `debug/compare-dump-source/AltArmy_TBC.lua`.
 5. Focus on:
    - Wrong `normalized` → fix `ItemStats` parsing/normalization.
    - Right stats, wrong score → fix `weights` or `BuildScoreBreakdown`.

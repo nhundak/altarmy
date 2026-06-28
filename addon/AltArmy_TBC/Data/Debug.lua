@@ -142,7 +142,7 @@ function D.NotifyChat(msg)
     end
 end
 
-D.MAX_COMPARE_PANEL_DUMPS = 20
+D.MAX_COMPARE_PANEL_DUMPS = 1
 
 local function ensureComparePanelDumps()
     D.Ensure()

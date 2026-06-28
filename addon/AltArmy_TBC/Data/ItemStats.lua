@@ -178,6 +178,27 @@ local HEALING_TOOLTIP_LABELS = {
     "Healing Spells",
 }
 
+-- Combined spell damage + healing on random suffix greens (e.g. "of the Sorcerer").
+local COMBINED_SPELL_DAMAGE_HEAL_KEYS = {
+    "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT",
+    "ITEM_MOD_SPELL_HEALING_DONE_SHORT",
+}
+
+local COMBINED_SPELL_TOOLTIP_LABELS = {
+    "Spell Damage and Healing",
+}
+
+-- Per-school spell damage labels vary by client and addon tooltip reformatting
+-- (e.g. "+59 Shadow Damage" vs equip-effect wording).
+local SCHOOL_SPELL_TOOLTIP_DEFS = {
+    { apiKey = "ALTARMY_FIRE_SPELL", labels = { "Fire Damage", "Fire Spell Damage" } },
+    { apiKey = "ALTARMY_FROST_SPELL", labels = { "Frost Damage", "Frost Spell Damage" } },
+    { apiKey = "ALTARMY_ARCANE_SPELL", labels = { "Arcane Damage", "Arcane Spell Damage" } },
+    { apiKey = "ALTARMY_SHADOW_SPELL", labels = { "Shadow Damage", "Shadow Spell Damage" } },
+    { apiKey = "ALTARMY_NATURE_SPELL", labels = { "Nature Damage", "Nature Spell Damage" } },
+    { apiKey = "ALTARMY_HOLY_SPELL", labels = { "Holy Damage", "Holy Spell Damage" } },
+}
+
 local EQUIP_STAT_PATTERNS = {
     { "^Equip: %+(%d+) Attack Power%.$", "ITEM_MOD_ATTACK_POWER_SHORT" },
     { "^Equip: Increases attack power by (%d+)%.$", "ITEM_MOD_ATTACK_POWER_SHORT" },
@@ -204,8 +225,9 @@ local EQUIP_STAT_PATTERNS = {
     { "^%+(%d+) Dodge Rating$", "ITEM_MOD_DODGE_RATING_SHORT" },
     { "^%+(%d+) Parry Rating$", "ITEM_MOD_PARRY_RATING_SHORT" },
     { "^Equip: Increases damage and healing done by magical spells and effects by up to (%d+)%.$",
-        "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT" },
-    { "^%+(%d+) Damage and Healing Spells$", "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT" },
+        COMBINED_SPELL_DAMAGE_HEAL_KEYS },
+    { "^%+(%d+) Damage and Healing Spells$", COMBINED_SPELL_DAMAGE_HEAL_KEYS },
+    { "^%+(%d+) Spell Damage and Healing$", COMBINED_SPELL_DAMAGE_HEAL_KEYS },
     { "^Equip: Restores (%d+) mana per 5 sec%.$", "ITEM_MOD_MANA_REGENERATION_SHORT" },
     { "^(%d+%.?%d*) damage per second$", "ITEM_MOD_DAMAGE_PER_SECOND_SHORT" },
     { "^(%d+) Armor$", "RESISTANCE0_NAME" },
@@ -305,6 +327,42 @@ local function mergeTooltipSupplement(apiRaw, tooltipRaw)
     return merged
 end
 
+-- TBC unified spell power: API may expose SPELL_POWER while tooltip uses SPELL_DAMAGE_DONE.
+local UNIFIED_SPELL_STAT_KEYS = {
+    "ITEM_MOD_SPELL_POWER_SHORT",
+    "ITEM_MOD_SPELL_POWER",
+    "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT",
+    "ITEM_MOD_SPELL_DAMAGE_DONE",
+}
+
+local function finalizeMergedSpellStats(merged)
+    if not merged then return end
+    local best = nil
+    for i = 1, #UNIFIED_SPELL_STAT_KEYS do
+        local key = UNIFIED_SPELL_STAT_KEYS[i]
+        local value = merged[key]
+        if value ~= nil and not isInvalidApiStatValue(value) then
+            local n = tonumber(value) or 0
+            if best == nil or n > best then
+                best = n
+            end
+        end
+    end
+    if best == nil then
+        for i = 1, #UNIFIED_SPELL_STAT_KEYS do
+            local key = UNIFIED_SPELL_STAT_KEYS[i]
+            if isInvalidApiStatValue(merged[key]) then
+                merged[key] = nil
+            end
+        end
+        return
+    end
+    merged["ITEM_MOD_SPELL_POWER_SHORT"] = best
+    merged["ITEM_MOD_SPELL_DAMAGE_DONE_SHORT"] = nil
+    merged["ITEM_MOD_SPELL_DAMAGE_DONE"] = nil
+    merged["ITEM_MOD_SPELL_POWER"] = nil
+end
+
 local cache = {}
 local pendingIds = {}
 local onUpdatedCallback
@@ -351,6 +409,21 @@ local function buildTooltipPatterns()
     local healingGlobal = _G[healingApiKey]
     if type(healingGlobal) == "string" then
         addTooltipLabelPattern(patterns, seenLabels, healingGlobal, healingApiKey)
+    end
+    for i = 1, #COMBINED_SPELL_TOOLTIP_LABELS do
+        addTooltipLabelPattern(
+            patterns, seenLabels, COMBINED_SPELL_TOOLTIP_LABELS[i], COMBINED_SPELL_DAMAGE_HEAL_KEYS)
+    end
+    local spellPowerGlobal = _G.ITEM_MOD_SPELL_POWER_SHORT
+    if type(spellPowerGlobal) == "string" then
+        addTooltipLabelPattern(
+            patterns, seenLabels, spellPowerGlobal, COMBINED_SPELL_DAMAGE_HEAL_KEYS)
+    end
+    for i = 1, #SCHOOL_SPELL_TOOLTIP_DEFS do
+        local def = SCHOOL_SPELL_TOOLTIP_DEFS[i]
+        for j = 1, #def.labels do
+            addTooltipLabelPattern(patterns, seenLabels, def.labels[j], def.apiKey)
+        end
     end
     for i = 1, #EQUIP_STAT_PATTERNS do
         local row = EQUIP_STAT_PATTERNS[i]
@@ -406,7 +479,9 @@ local function normalizeRawStats(raw, link)
             or statKey == "ITEM_MOD_DAMAGE_PER_SECOND" then
             short = dpsKey
         end
-        out[short] = (out[short] or 0) + (tonumber(value) or 0)
+        if not isInvalidApiStatValue(value) then
+            out[short] = (out[short] or 0) + (tonumber(value) or 0)
+        end
     end
     return out
 end
@@ -488,6 +563,20 @@ local function collectTooltipLines(tooltip)
     return lines
 end
 
+local function applyRawStat(rawOut, apiKey, value)
+    rawOut[apiKey] = (rawOut[apiKey] or 0) + value
+end
+
+local function applyRawStatKeys(rawOut, apiKeys, value)
+    if type(apiKeys) == "string" then
+        applyRawStat(rawOut, apiKeys, value)
+        return
+    end
+    for i = 1, #apiKeys do
+        applyRawStat(rawOut, apiKeys[i], value)
+    end
+end
+
 local function parseLineToRaw(text, rawOut)
     local patterns = buildTooltipPatterns()
     for i = 1, #patterns do
@@ -496,7 +585,7 @@ local function parseLineToRaw(text, rawOut)
         if amount then
             local n = tonumber(amount) or tonumber((amount:gsub(",", ".", 1)))
             if n then
-                rawOut[row.apiKey] = (rawOut[row.apiKey] or 0) + n
+                applyRawStatKeys(rawOut, row.apiKey, n)
                 return true
             end
         end
@@ -619,6 +708,7 @@ local function collectFreshParseSnapshot(link)
     local apiRaw = fetchFromApi(link) or {}
     local tooltipRaw, tooltipLines, incomplete = parseTooltipToRaw(link)
     local mergedRaw = mergeTooltipSupplement(apiRaw, tooltipRaw)
+    finalizeMergedSpellStats(mergedRaw)
     local normalized = normalizeRawStats(mergedRaw, link)
     return {
         itemName = itemName,
@@ -630,6 +720,19 @@ local function collectFreshParseSnapshot(link)
         tooltipLines = copyTable(tooltipLines),
         incomplete = incomplete,
     }
+end
+
+local function resolveStatsSource(apiRaw, tooltipRaw, mergedRaw)
+    local source = apiRaw and next(apiRaw) and "api" or "tooltip"
+    if apiRaw and next(apiRaw) and tooltipRaw and next(tooltipRaw) then
+        for k in pairs(tooltipRaw) do
+            if isTooltipOnlyStatKey(k) and mergedRaw[k] then
+                source = "api"
+                break
+            end
+        end
+    end
+    return source
 end
 
 local function storeCache(link, normalized, source, meta)
@@ -685,6 +788,7 @@ local function fetchStats(link)
     local apiRaw = fetchFromApi(link)
     local tooltipRaw, tooltipLines, incomplete = parseTooltipToRaw(link)
     local mergedRaw = mergeTooltipSupplement(apiRaw, tooltipRaw)
+    finalizeMergedSpellStats(mergedRaw)
 
     local parseSnapshot = {
         itemName = GetItemInfo and GetItemInfo(link) or nil,
@@ -697,15 +801,7 @@ local function fetchStats(link)
     }
 
     if next(mergedRaw) then
-        local source = apiRaw and "api" or "tooltip"
-        if apiRaw and tooltipRaw and next(tooltipRaw) then
-            for k in pairs(tooltipRaw) do
-                if isTooltipOnlyStatKey(k) and mergedRaw[k] then
-                    source = "api"
-                    break
-                end
-            end
-        end
+        local source = resolveStatsSource(apiRaw, tooltipRaw, mergedRaw)
         local normalized = normalizeRawStats(mergedRaw, link)
         parseSnapshot.normalized = copyTable(normalized)
         return normalized, source, {
@@ -757,7 +853,15 @@ function IS.CollectParseSnapshot(link, opts)
     if not link then return nil end
     opts = opts or {}
     if opts.forceRefresh then
-        return collectFreshParseSnapshot(link)
+        local snap = collectFreshParseSnapshot(link)
+        if snap.normalized and next(snap.normalized) then
+            storeCache(link, snap.normalized, resolveStatsSource(
+                snap.apiRaw, snap.tooltipRaw, snap.mergedRaw), {
+                tooltipLines = snap.tooltipLines,
+                parseSnapshot = snap,
+            })
+        end
+        return snap
     end
     local entry = cache[link]
     if entry and entry.parseSnapshot then

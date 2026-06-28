@@ -1,3 +1,5 @@
+.cursor/local.json
+debug/compare-dump-source/AltArmy_TBC.lua
 luacheck-src
 busted-2.1.1
 busted.zip

@@ -221,6 +221,53 @@ describe("ItemStats", function()
         assert.are.equal(42, stats.fire_sp)
     end)
 
+    it("GetNormalized parses +Shadow Damage tooltip line from addon reformatted stats", function()
+        _G.GetItemStats = function() return {} end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "81 Armor",
+                    "+59 Shadow Damage",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:11:0|h[Archmage Belt of Shadow Wrath]|h")
+        assert.are.equal(81, stats.armor)
+        assert.are.equal(59, stats.shadow_sp)
+    end)
+
+    it("GetNormalized parses +Shadow Spell Damage tooltip line", function()
+        _G.GetItemStats = function() return {} end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "81 Armor",
+                    "+58 Shadow Spell Damage",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:11:0|h[Archmage Belt of Shadow Wrath]|h")
+        assert.are.equal(58, stats.shadow_sp)
+    end)
+
     it("GetNormalized parses wand damage per second from tooltip as ranged_dps", function()
         _G.GetItemStats = function() return {} end
         _G.CreateFrame = function(frameType)
@@ -624,5 +671,157 @@ describe("ItemStats", function()
         assert.is_true(text:find("+53 Healing [parsed]", 1, true) ~= nil)
         assert.is_true(text:find("healing keys:", 1, true) ~= nil)
         assert.is_true(text:find("normalized heal=53", 1, true) ~= nil)
+    end)
+
+    it("GetNormalized maps combined damage and healing equip line to sp and heal", function()
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 22108 then
+                return {
+                    ["RESISTANCE0_NAME"] = 79,
+                    ["ITEM_MOD_INTELLECT_SHORT"] = 12,
+                    ["ITEM_MOD_STRENGTH_SHORT"] = 6,
+                    ["ITEM_MOD_STAMINA_SHORT"] = 6,
+                    ["ITEM_MOD_AGILITY_SHORT"] = 6,
+                    ["ITEM_MOD_SPIRIT_SHORT"] = 5,
+                    ["ITEM_MOD_SPELL_POWER"] = 4,
+                }
+            end
+            return {}
+        end
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 22108 then
+                return "Feralheart Bracers", "|Hitem:22108:0|h[Feralheart Bracers]|h",
+                    3, 85, 85, "Armor", "Leather", nil, "INVTYPE_WRIST"
+            end
+            return mockGetItemInfo(item)
+        end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "Feralheart Bracers",
+                    "79 Armor",
+                    "+6 Strength",
+                    "+6 Agility",
+                    "+6 Stamina",
+                    "+12 Intellect",
+                    "+5 Spirit",
+                    "Equip: Increases damage and healing done by magical spells and effects by up to 5.",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local link = "|Hitem:22108:0|h[Feralheart Bracers]|h"
+        local stats = IS.GetNormalized(link)
+        assert.are.equal(5, stats.sp)
+        assert.are.equal(5, stats.heal)
+        assert.are.equal(12, stats.int)
+    end)
+
+    it("CollectParseSnapshot forceRefresh updates normalized cache", function()
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 22108 then
+                return {
+                    ["ITEM_MOD_INTELLECT_SHORT"] = 12,
+                    ["ITEM_MOD_SPELL_POWER"] = 4,
+                }
+            end
+            return {}
+        end
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 22108 then
+                return "Feralheart Bracers", "|Hitem:22108:0|h[Feralheart Bracers]|h",
+                    3, 85, 85, "Armor", "Leather", nil, "INVTYPE_WRIST"
+            end
+            return mockGetItemInfo(item)
+        end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "+12 Intellect",
+                    "Equip: Increases damage and healing done by magical spells and effects by up to 5.",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local link = "|Hitem:22108:0|h[Feralheart Bracers]|h"
+        IS.GetNormalized(link)
+
+        local snap = IS.CollectParseSnapshot(link, { forceRefresh = true })
+        local refreshed = IS.GetNormalized(link)
+        assert.are.equal(5, refreshed.sp)
+        assert.are.equal(5, refreshed.heal)
+        assert.are.equal(snap.normalized.sp, refreshed.sp)
+        assert.are.equal(snap.normalized.heal, refreshed.heal)
+    end)
+
+    it("GetNormalized parses +Spell Damage and Healing when API spell power is -1", function()
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 24648 then
+                return {
+                    ["RESISTANCE0_NAME"] = 81,
+                    ["ITEM_MOD_INTELLECT_SHORT"] = 18,
+                    ["ITEM_MOD_STAMINA_SHORT"] = 28,
+                    ["ITEM_MOD_SPELL_POWER"] = -1,
+                }
+            end
+            return {}
+        end
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 24648 then
+                return "Astralaan Gloves of the Sorcerer",
+                    "|Hitem:24648:0|h[Astralaan Gloves of the Sorcerer]|h",
+                    2, 85, 85, "Armor", "Cloth", nil, "INVTYPE_HAND"
+            end
+            return mockGetItemInfo(item)
+        end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "81 Armor",
+                    "+28 Stamina",
+                    "+18 Intellect",
+                    "+22 Spell Damage and Healing",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local link = "|Hitem:24648:0|h[Astralaan Gloves of the Sorcerer]|h"
+        local stats = IS.GetNormalized(link)
+        assert.are.equal(22, stats.sp)
+        assert.are.equal(22, stats.heal)
+        assert.are.equal(18, stats.int)
     end)
 end)
