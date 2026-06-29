@@ -549,7 +549,7 @@ end
 
 function Logic.PlotSeriesPoint(pt, x, y, plotTopY)
     if pt.isOutlier then
-        return x, plotTopY
+        return x, math.min(y, plotTopY)
     end
     return x, y
 end

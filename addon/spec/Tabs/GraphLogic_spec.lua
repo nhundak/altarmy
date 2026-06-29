@@ -536,6 +536,14 @@ describe("GraphLogic", function()
             assert.are.equal(400, y)
         end)
 
+        it("does not move outliers above their natural y when plot scale is large", function()
+            local pt = makePoint(20, 8000)
+            pt.isOutlier = true
+            local x, y = Logic.PlotSeriesPoint(pt, 120, 200, 400)
+            assert.are.equal(120, x)
+            assert.are.equal(200, y)
+        end)
+
         it("keeps normal points at their true y position", function()
             local pt = makePoint(20, 120)
             local x, y = Logic.PlotSeriesPoint(pt, 120, 180, 400)
