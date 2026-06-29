@@ -1925,9 +1925,8 @@ function GU.EvaluateForAllAlts(itemLink, opts)
     local slots = GU.GetFocusInventorySlots(itemLink)
     if #slots == 0 then return {} end
 
-    local realmFilter = "all"
-    local GRF = AltArmy.GlobalRealmFilter
-    if GRF and GRF.Get then realmFilter = GRF.Get() end
+    -- Loot upgrade alerts only compare alts on the current realm (ignore GlobalRealmFilter).
+    local realmFilter = "currentRealm"
     local currentRealm = DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm() or ""
 
     local entries = {}

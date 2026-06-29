@@ -386,6 +386,29 @@ describe("GearUpgrade", function()
         assert.is_true(matches[1].isUpgrade)
     end)
 
+    it("EvaluateForAllAlts ignores GlobalRealmFilter and only matches current realm", function()
+        _G.AltArmyTBC_Data.Characters.OtherRealm = {
+            OtherMage = {
+                name = "OtherMage",
+                realm = "OtherRealm",
+                classFile = "MAGE",
+                level = 60,
+                Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+                talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+            },
+        }
+        _G.AltArmy.GlobalRealmFilter = {
+            Get = function() return "all" end,
+        }
+        local matches = GU.EvaluateForAllAlts("|Hitem:11:0|h[New Helm]|h", {
+            technique = "ilvl",
+            levelsAhead = 0,
+        })
+        assert.are.equal(1, #matches)
+        assert.are.equal("MageAlt", matches[1].name)
+        assert.are.equal("TestRealm", matches[1].realm)
+    end)
+
     it("EvaluateForAllAlts skips bank alts", function()
         AltArmy.BankAlt.Set("MageAlt", "TestRealm", true)
         local matches = GU.EvaluateForAllAlts("|Hitem:11:0|h[New Helm]|h", {
