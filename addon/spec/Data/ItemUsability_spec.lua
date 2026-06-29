@@ -32,6 +32,10 @@ describe("ItemUsability", function()
             [11] = { "Two-Hand Sword", nil, 3, 30, 30, "Weapon", "Two-Handed Swords", nil, "INVTYPE_2HWEAPON" },
             [12] = { "Offhand Dagger", nil, 3, 15, 15, "Weapon", "Daggers", nil, "INVTYPE_WEAPONOFFHAND" },
             [13] = { "Fishing Pole", nil, 2, 10, 10, "Weapon", "Fishing Poles", nil, "INVTYPE_2HWEAPON" },
+            [15] = { "Halberd", nil, 3, 10, 10, "Weapon", "Polearms", nil, "INVTYPE_2HWEAPON" },
+            [16] = { "Heavy Mace", nil, 3, 10, 10, "Weapon", "Two-Handed Maces", nil, "INVTYPE_2HWEAPON" },
+            [17] = { "Throwing Knife", nil, 2, 10, 10, "Weapon", "Thrown", nil, "INVTYPE_THROWN" },
+            [18] = { "Claw", nil, 3, 10, 10, "Weapon", "Fist Weapons", nil, "INVTYPE_WEAPON" },
         }
         local info = items[id]
         if not info then return end
@@ -130,6 +134,33 @@ describe("ItemUsability", function()
         assert.is_true(IU.CanClassEverUseWeapon("SHAMAN", "Shields"))
         assert.is_false(IU.CanClassEverUseWeapon("MAGE", "Shields"))
         assert.is_false(IU.CanClassEverUseWeapon("ROGUE", "Shields"))
+    end)
+
+    it("CanClassEverUseWeapon allows paladins to use polearms", function()
+        assert.is_true(IU.CanClassEverUseWeapon("PALADIN", "Polearms"))
+        assert.is_false(IU.CanNeverUseItem("PALADIN", "|Hitem:15:0|h[Halberd]|h"))
+    end)
+
+    it("EffectiveRequiredLevel gates polearm classes until level 20", function()
+        assert.are.equal(20, IU.MinLevelToTrainProficiency("PALADIN", "Polearms", "Weapon"))
+        assert.are.equal(20, IU.MinLevelToTrainProficiency("WARRIOR", "Polearms", "Weapon"))
+        assert.are.equal(20, IU.MinLevelToTrainProficiency("HUNTER", "Polearms", "Weapon"))
+        assert.are.equal(20, IU.EffectiveRequiredLevel("PALADIN", "|Hitem:15:0|h[Halberd]|h"))
+        assert.are.equal(20, IU.EffectiveRequiredLevel("WARRIOR", "|Hitem:15:0|h[Halberd]|h"))
+        assert.are.equal(20, IU.EffectiveRequiredLevel("HUNTER", "|Hitem:15:0|h[Halberd]|h"))
+    end)
+
+    it("CanClassEverUseWeapon allows druid two-handed maces", function()
+        assert.is_true(IU.CanClassEverUseWeapon("DRUID", "Two-Handed Maces"))
+        assert.is_false(IU.CanNeverUseItem("DRUID", "|Hitem:16:0|h[Heavy Mace]|h"))
+        assert.is_false(IU.CanClassEverUseWeapon("DRUID", "Polearms"))
+    end)
+
+    it("CanClassEverUseWeapon allows hunter thrown and fist weapons", function()
+        assert.is_true(IU.CanClassEverUseWeapon("HUNTER", "Thrown"))
+        assert.is_true(IU.CanClassEverUseWeapon("HUNTER", "Fist Weapons"))
+        assert.is_false(IU.CanNeverUseItem("HUNTER", "|Hitem:17:0|h[Throwing Knife]|h"))
+        assert.is_false(IU.CanNeverUseItem("HUNTER", "|Hitem:18:0|h[Claw]|h"))
     end)
 
     it("GetItemUseInfo classifies shields as weapon subclass", function()
@@ -316,8 +347,83 @@ describe("ItemUsability", function()
         local iu = AltArmy.ItemUsability
         local warnings = iu.GetEquipWarnings("MAGE", 60, "Alt", "|Hitem:1:0|h[Cloth Hood]|h")
         assert.are.equal(1, #warnings)
-        assert.are.equal("This item is soulbound", warningText(warnings[1]))
+        assert.are.equal(
+            "Cloth Hood is soulbound to " .. coloredName("Alt", "MAGE"),
+            warningText(warnings[1]))
         assert.are.equal(IU.EQUIP_WARNING_KIND.SOULBOUND, warnings[1].kind)
+        _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
+            GetText = function() return "" end,
+        }
+    end)
+
+    it("GetEquipWarnings soulbound message uses current character name when available", function()
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return {
+                    SetOwner = function() end,
+                    ClearLines = function() end,
+                    SetHyperlink = function() end,
+                    NumLines = function() return 1 end,
+                }
+            end
+            return {}
+        end
+        _G.UIParent = _G.UIParent or {}
+        _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
+            GetText = function() return "Binds when picked up" end,
+        }
+        _G.AltArmy = _G.AltArmy or {}
+        local savedDS = _G.AltArmy.DataStore
+        _G.AltArmy.DataStore = {
+            GetCurrentCharacter = function()
+                return { name = "Hero", classFile = "WARRIOR" }
+            end,
+        }
+        package.loaded["ItemUsability"] = nil
+        require("ItemUsability")
+        local iu = AltArmy.ItemUsability
+        local warnings = iu.GetEquipWarnings("MAGE", 60, "Alt", "|Hitem:1:0|h[Cloth Hood]|h")
+        assert.are.equal(1, #warnings)
+        assert.are.equal(
+            "Cloth Hood is soulbound to " .. coloredName("Hero", "WARRIOR"),
+            warningText(warnings[1]))
+        _G.AltArmy.DataStore = savedDS
+        _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
+            GetText = function() return "" end,
+        }
+    end)
+
+    it("GetEquipWarnings soulbound message uses This item when name exceeds 30 characters", function()
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return {
+                    SetOwner = function() end,
+                    ClearLines = function() end,
+                    SetHyperlink = function() end,
+                    NumLines = function() return 1 end,
+                }
+            end
+            return {}
+        end
+        _G.UIParent = _G.UIParent or {}
+        _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
+            GetText = function() return "Binds when picked up" end,
+        }
+        local longName = string.rep("A", 31)
+        _G.GetItemInfo = function(item)
+            if tostring(item):find("item:14:") or item == 14 then
+                return longName, "|Hitem:14:0|h[" .. longName .. "]|h"
+            end
+            return mockGetItemInfo(item)
+        end
+        package.loaded["ItemUsability"] = nil
+        require("ItemUsability")
+        local iu = AltArmy.ItemUsability
+        local warnings = iu.GetEquipWarnings("MAGE", 60, "Alt", "|Hitem:14:0|h[Long]|h")
+        assert.are.equal(
+            "This item is soulbound to " .. coloredName("Alt", "MAGE"),
+            warningText(warnings[1]))
+        _G.GetItemInfo = mockGetItemInfo
         _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
             GetText = function() return "" end,
         }
@@ -456,7 +562,9 @@ describe("ItemUsability", function()
             GetText = function() return "" end,
         }
         assert.are.equal(2, #warnings)
-        assert.are.equal("This item is soulbound", warningText(warnings[1]))
+        assert.are.equal(
+            "Plate Helm is soulbound to " .. coloredName("Merlin", "MAGE"),
+            warningText(warnings[1]))
         assert.are.equal(IU.EQUIP_WARNING_KIND.SOULBOUND, warnings[1].kind)
         assert.are.equal(
             coloredName("Merlin", "MAGE") .. " can never equip this (Plate Armor)",
@@ -490,7 +598,9 @@ describe("ItemUsability", function()
             GetText = function() return "" end,
         }
         assert.are.equal(2, #warnings)
-        assert.are.equal("This item is soulbound", warningText(warnings[1]))
+        assert.are.equal(
+            "Plate Helm is soulbound to " .. coloredName("Tome", "PALADIN"),
+            warningText(warnings[1]))
         assert.are.equal(IU.EQUIP_WARNING_KIND.SOULBOUND, warnings[1].kind)
         assert.are.equal(
             coloredName("Tome", "PALADIN") .. " must gain 5 levels to equip this",

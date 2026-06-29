@@ -1,6 +1,8 @@
--- AltArmy TBC — Gear upgrade chat alerts (loot + level-up).
+-- AltArmy TBC — Gear upgrade chat alerts (loot + level-up + quest rewards).
 -- luacheck: globals DEFAULT_CHAT_FRAME GetItemInfo IsUsableItem UnitName
 -- luacheck: globals GetContainerItemLink GetContainerNumSlots SetItemRef ChatFrame_OnHyperlinkClick
+-- luacheck: globals GetQuestItemLink GetNumQuestRewards GetNumQuestChoices QUEST_COMPLETE QUEST_FINISHED
+-- luacheck: globals GetTitleText GetTime
 
 if not AltArmy then return end
 
@@ -48,6 +50,19 @@ local function extractItemPayload(itemLink)
     return itemLink:match("|H(item:[^|]+)|") or itemLink:match("^(item:[^|]+)")
 end
 
+local function extractItemId(itemLink)
+    local payload = extractItemPayload(itemLink)
+    if not payload then return nil end
+    return tonumber(payload:match("^item:(%d+)"))
+end
+
+local lootUpgradeSuppressedIds = {}
+local questLootSuppressUntil = {}
+local QUEST_REWARD_ANNOUNCE_DEBOUNCE_SEC = 1.0
+local QUEST_LOOT_SUPPRESS_TTL_SEC = 3.0
+local QUEST_FINISHED_SUPPRESS_CLEAR_DELAY_SEC = 1.0
+local questRewardAnnounceDebounce = nil
+
 local function payloadToUsableLink(payload)
     if not payload or payload == "" then return nil end
     if GetItemInfo then
@@ -70,8 +85,29 @@ local function formatUpgradeLink(itemLink)
     return "|cfffecc00|H" .. UPGRADE_LINK_PREFIX .. payload .. "|h[View details]|h|r"
 end
 
+local function formatMessageItemLink(itemLink)
+    if not itemLink or itemLink == "" then return "?" end
+    if itemLink:find("|r$") then return itemLink end
+    return itemLink .. "|r"
+end
+
 function GA.FormatLootUpgradeMessage(itemLink, nameList, actionLink)
-    return (itemLink or "?") .. " is an upgrade for " .. nameList .. ": " .. actionLink
+    return formatMessageItemLink(itemLink)
+        .. " is an upgrade for " .. nameList .. ": " .. actionLink
+end
+
+function GA.FormatQuestMinorUpgradeMessage(itemLink, nameList, actionLink)
+    return formatMessageItemLink(itemLink)
+        .. " is a minor upgrade for " .. nameList .. ": " .. actionLink
+end
+
+function GA.FormatQuestBestUpgradeMessage(itemLink, nameList, actionLink)
+    return formatMessageItemLink(itemLink)
+        .. " is the best upgrade for " .. nameList .. ": " .. actionLink
+end
+
+function GA.FormatQuestNoUpgradeMessage(nameList)
+    return "None of these rewards are an upgrade for " .. nameList
 end
 
 local function resolveItemLinkForUpgrade(itemId)
@@ -128,6 +164,71 @@ local function filterOtherCharacterMatches(matches)
     return filtered
 end
 
+local function buildCurrentCharacterDisplayMatch(char, DS)
+    if not char then return nil end
+    local level = (DS and DS.GetCharacterLevel and DS:GetCharacterLevel(char))
+        or tonumber(char.level) or 0
+    local realm = char.realm or (DS and DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm()) or ""
+    return {
+        name = char.name or "",
+        realm = realm,
+        classFile = char.classFile or "",
+        level = level,
+    }
+end
+
+local function buildCurrentCharacterMatch(itemLink, evalOpts)
+    if not GU or not GU.EvaluateForCharacter then return nil end
+    local DS = AltArmy.DataStore
+    if not DS or not DS.GetCurrentCharacter then return nil end
+    local char = DS:GetCurrentCharacter()
+    if not char then return nil end
+    local BA = AltArmy.BankAlt
+    if BA and BA.Is then
+        local realm = char.realm or (DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm()) or ""
+        if BA.Is(char.name or "", realm) then return nil end
+    end
+    if not GU.EvaluateForCharacter(char, itemLink, evalOpts) then return nil end
+    local level = (DS.GetCharacterLevel and DS:GetCharacterLevel(char))
+        or tonumber(char.level) or 0
+    local realm = char.realm or (DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm()) or ""
+    return {
+        name = char.name or "",
+        realm = realm,
+        classFile = char.classFile or "",
+        level = level,
+        isUpgrade = true,
+    }
+end
+
+local function collectLootUpgradeMatches(itemLink, currentEnabled, otherEnabled, evalOpts)
+    local isBop = IU and IU.IsBindOnPickup and IU.IsBindOnPickup(itemLink)
+
+    if isBop then
+        if not currentEnabled then return nil, "bop" end
+        local match = buildCurrentCharacterMatch(itemLink, evalOpts)
+        if not match then return {}, "no_matches" end
+        return { match }
+    end
+
+    local matches = {}
+    if currentEnabled and otherEnabled then
+        if GU.EvaluateForAllAlts then
+            matches = GU.EvaluateForAllAlts(itemLink, evalOpts) or {}
+        end
+    elseif otherEnabled then
+        if GU.EvaluateForAllAlts then
+            matches = filterOtherCharacterMatches(GU.EvaluateForAllAlts(itemLink, evalOpts) or {})
+        end
+    elseif currentEnabled then
+        local match = buildCurrentCharacterMatch(itemLink, evalOpts)
+        if match then matches = { match } end
+    end
+
+    if #matches == 0 then return {}, "no_matches" end
+    return matches
+end
+
 local function extractItemLink(msg)
     if not msg then return nil end
     return msg:match("(|c.-|Hitem:.-|h[^|]*|h)")
@@ -148,19 +249,108 @@ local function maybeLogItemComparison(itemLink)
     end
 end
 
-function GA.AnnounceLootUpgrade(itemLink)
-    if not notifyOtherCharactersEnabled() or not itemLink or not GU or not GU.EvaluateForAllAlts then
-        return false, "disabled"
+function GA.ShouldSuppressLootUpgrade(itemLink)
+    local itemId = extractItemId(itemLink)
+    if not itemId then return false end
+    if lootUpgradeSuppressedIds[itemId] then return true end
+    local suppressUntil = questLootSuppressUntil[itemId]
+    if suppressUntil and GetTime and GetTime() < suppressUntil then
+        return true
     end
-    if IU and IU.IsBindOnPickup and IU.IsBindOnPickup(itemLink) then return false, "bop" end
-    local opts = GU.GetOptions()
-    local matches = GU.EvaluateForAllAlts(itemLink, {
-        technique = opts.technique,
-        levelsAhead = opts.levelsAhead,
-    })
-    matches = filterOtherCharacterMatches(matches)
-    if not matches or #matches == 0 then return false, "no_matches" end
+    return false
+end
 
+function GA.ConsumeLootUpgradeSuppression(itemLink)
+    local itemId = extractItemId(itemLink)
+    if itemId then
+        lootUpgradeSuppressedIds[itemId] = nil
+        questLootSuppressUntil[itemId] = nil
+    end
+end
+
+function GA.ClearQuestLootUpgradeSuppression()
+    lootUpgradeSuppressedIds = {}
+end
+
+function GA.ClearQuestLootSuppressExpiry()
+    questLootSuppressUntil = {}
+end
+
+function GA.BuildQuestRewardAnnounceKey()
+    local parts = {}
+    if GetTitleText then
+        local title = GetTitleText()
+        if title and title ~= "" then
+            parts[#parts + 1] = title
+        end
+    end
+    local links = GA.CollectQuestRewardLinks()
+    local ids = {}
+    for i = 1, #links do
+        local itemId = extractItemId(links[i])
+        if itemId then ids[#ids + 1] = itemId end
+    end
+    table.sort(ids)
+    for i = 1, #ids do
+        parts[#parts + 1] = tostring(ids[i])
+    end
+    if #parts == 0 then return nil end
+    return table.concat(parts, ":")
+end
+
+function GA.ShouldSkipQuestRewardDebounce(key)
+    if not key or not questRewardAnnounceDebounce then return false end
+    if questRewardAnnounceDebounce.key ~= key then return false end
+    local now = GetTime and GetTime() or 0
+    return (now - questRewardAnnounceDebounce.at) < QUEST_REWARD_ANNOUNCE_DEBOUNCE_SEC
+end
+
+function GA.MarkQuestRewardAnnounced(key)
+    if not key then return end
+    local now = GetTime and GetTime() or 0
+    questRewardAnnounceDebounce = { key = key, at = now }
+end
+
+function GA.ClearQuestRewardAnnounceDebounce()
+    questRewardAnnounceDebounce = nil
+end
+
+local function markLootUpgradeSuppressed(itemLink)
+    local itemId = extractItemId(itemLink)
+    if itemId then
+        lootUpgradeSuppressedIds[itemId] = true
+        if GetTime then
+            questLootSuppressUntil[itemId] = GetTime() + QUEST_LOOT_SUPPRESS_TTL_SEC
+        end
+    end
+end
+
+function GA.CollectQuestRewardLinks()
+    local links = {}
+    local seenIds = {}
+    local function addLink(link)
+        if not link or link == "" then return end
+        local itemId = extractItemId(link)
+        if not itemId or seenIds[itemId] then return end
+        seenIds[itemId] = true
+        links[#links + 1] = link
+    end
+    if GetNumQuestRewards and GetQuestItemLink then
+        local numRewards = GetNumQuestRewards() or 0
+        for i = 1, numRewards do
+            addLink(GetQuestItemLink("reward", i))
+        end
+    end
+    if GetNumQuestChoices and GetQuestItemLink then
+        local numChoices = GetNumQuestChoices() or 0
+        for i = 1, numChoices do
+            addLink(GetQuestItemLink("choice", i))
+        end
+    end
+    return links
+end
+
+local function postLootUpgradeAnnouncement(itemLink, matches, opts)
     local nameList = formatUpgradeNameList(matches)
     local actionLink = formatUpgradeLink(itemLink)
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
@@ -173,6 +363,217 @@ function GA.AnnounceLootUpgrade(itemLink)
     pcall(function()
         if PlaySound then PlaySound("TellMessage", "Master") end
     end)
+end
+
+local function postQuestRewardAnnouncement(itemLink, match, opts, kind)
+    local nameList = formatUpgradeNameList({ match })
+    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+    local techniqueNote = ""
+    if technique ~= (opts.technique or "custom") then
+        techniqueNote = " (using built-in comparison; selected addon not installed)"
+    end
+    local body
+    local actionLink = formatUpgradeLink(itemLink)
+    if kind == "minor" then
+        body = GA.FormatQuestMinorUpgradeMessage(itemLink, nameList, actionLink)
+    elseif kind == "best" then
+        body = GA.FormatQuestBestUpgradeMessage(itemLink, nameList, actionLink)
+    else
+        body = GA.FormatLootUpgradeMessage(itemLink, nameList, actionLink)
+    end
+    postChat(ALTARMY_GOLD .. "AltArmy|r " .. body .. techniqueNote)
+    pcall(function()
+        if PlaySound then PlaySound("TellMessage", "Master") end
+    end)
+end
+
+local function postQuestNoUpgradeAnnouncement(match, opts)
+    local nameList = formatUpgradeNameList({ match })
+    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+    local techniqueNote = ""
+    if technique ~= (opts.technique or "custom") then
+        techniqueNote = " (using built-in comparison; selected addon not installed)"
+    end
+    postChat(ALTARMY_GOLD .. "AltArmy|r "
+        .. GA.FormatQuestNoUpgradeMessage(nameList) .. techniqueNote)
+    pcall(function()
+        if PlaySound then PlaySound("TellMessage", "Master") end
+    end)
+end
+
+local function questRewardUpgradeDelta(char, itemLink, evalOpts)
+    if GU and GU.GetCharacterUpgradeDelta then
+        return GU.GetCharacterUpgradeDelta(char, itemLink, evalOpts) or 0
+    end
+    return 0
+end
+
+function GA.IsQuestRewardEquippableForCharacter(char, link, evalOpts)
+    if not IU or not char or not link then return false end
+    local slots = IU.GetInventorySlotsForItem and IU.GetInventorySlotsForItem(link) or {}
+    if #slots == 0 then return false end
+    local classFile = char.classFile or ""
+    local level = tonumber(char.level) or 0
+    local DS = AltArmy.DataStore
+    if DS and DS.GetCharacterLevel then
+        level = DS:GetCharacterLevel(char) or level
+    end
+    local levelsAhead = evalOpts and evalOpts.levelsAhead or 0
+    if not IU.IsEquippableWithin then return false end
+    local equippable = IU.IsEquippableWithin(classFile, level, link, levelsAhead)
+    return equippable == true
+end
+
+local function questRewardClearUpgrade(char, link, evalOpts, opts)
+    if not GU or not GU.GetUpgradeHighlightKind then return false end
+    local delta = questRewardUpgradeDelta(char, link, evalOpts)
+    if delta <= 0 then return false end
+    local upgradeMaxDelta
+    if GU.ComputeUpgradeMaxDeltaForCurrentRealm then
+        upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForCurrentRealm(link, evalOpts)
+    end
+    return GU.GetUpgradeHighlightKind(delta, upgradeMaxDelta, opts) == "clear"
+end
+
+local function collectEquippableQuestRewardLinks(char, links, evalOpts)
+    local equippable = {}
+    for i = 1, #links do
+        local link = links[i]
+        if GA.IsQuestRewardEquippableForCharacter(char, link, evalOpts) then
+            equippable[#equippable + 1] = link
+        end
+    end
+    return equippable
+end
+
+function GA.AnnounceQuestRewardUpgrades()
+    if not notifyCurrentCharacterEnabled() or not GU then return end
+    local announceKey = GA.BuildQuestRewardAnnounceKey()
+    if announceKey and GA.ShouldSkipQuestRewardDebounce(announceKey) then
+        return
+    end
+    local DS = AltArmy.DataStore
+    if not DS or not DS.GetCurrentCharacter then return end
+    local char = DS:GetCurrentCharacter()
+    if not char then return end
+    local BA = AltArmy.BankAlt
+    if BA and BA.Is then
+        local realm = char.realm or (DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm()) or ""
+        if BA.Is(char.name or "", realm) then return end
+    end
+
+    local opts = GU.GetOptions() or {}
+    local evalOpts = {
+        technique = opts.technique,
+        levelsAhead = opts.levelsAhead,
+    }
+    local displayMatch = buildCurrentCharacterDisplayMatch(char, DS)
+    if not displayMatch then return end
+
+    local links = GA.CollectQuestRewardLinks()
+    if #links == 0 then return end
+
+    links = collectEquippableQuestRewardLinks(char, links, evalOpts)
+    if #links == 0 then return end
+
+    local candidates = {}
+    for i = 1, #links do
+        local link = links[i]
+        maybeLogItemComparison(link)
+        local delta = questRewardUpgradeDelta(char, link, evalOpts)
+        local isClearUpgrade = questRewardClearUpgrade(char, link, evalOpts, opts)
+        candidates[#candidates + 1] = {
+            link = link,
+            delta = delta,
+            isClearUpgrade = isClearUpgrade,
+        }
+    end
+
+    local best
+    for i = 1, #candidates do
+        local candidate = candidates[i]
+        if not best or candidate.delta > best.delta then
+            best = candidate
+        end
+    end
+    if not best then return end
+
+    if best.delta <= 0 then
+        postQuestNoUpgradeAnnouncement(displayMatch, opts)
+        if announceKey then
+            GA.MarkQuestRewardAnnounced(announceKey)
+        end
+        return
+    end
+
+    local clearUpgrades = {}
+    for i = 1, #candidates do
+        local candidate = candidates[i]
+        if candidate.delta > 0 and candidate.isClearUpgrade then
+            clearUpgrades[#clearUpgrades + 1] = candidate
+        end
+    end
+    table.sort(clearUpgrades, function(a, b)
+        if a.delta ~= b.delta then
+            return a.delta > b.delta
+        end
+        return (extractItemId(a.link) or 0) < (extractItemId(b.link) or 0)
+    end)
+
+    if #clearUpgrades > 0 then
+        for i = 1, #clearUpgrades do
+            local kind = "clear"
+            if #clearUpgrades > 1 and i == 1 then
+                kind = "best"
+            end
+            postQuestRewardAnnouncement(clearUpgrades[i].link, displayMatch, opts, kind)
+            markLootUpgradeSuppressed(clearUpgrades[i].link)
+        end
+    else
+        postQuestRewardAnnouncement(best.link, displayMatch, opts, "minor")
+        markLootUpgradeSuppressed(best.link)
+    end
+    if announceKey then
+        GA.MarkQuestRewardAnnounced(announceKey)
+    end
+end
+
+function GA.OnQuestFinished()
+    GA.ClearQuestRewardAnnounceDebounce()
+    local function clearStaleSuppressions()
+        GA.ClearQuestLootUpgradeSuppression()
+    end
+    local ctimer = _G.C_Timer
+    if ctimer and ctimer.After then
+        ctimer.After(QUEST_FINISHED_SUPPRESS_CLEAR_DELAY_SEC, clearStaleSuppressions)
+    else
+        clearStaleSuppressions()
+    end
+end
+
+function GA.AnnounceLootUpgrade(itemLink)
+    if GA.ShouldSuppressLootUpgrade(itemLink) then
+        GA.ConsumeLootUpgradeSuppression(itemLink)
+        return false, "suppressed"
+    end
+    if not itemLink or not GU then return false, "disabled" end
+    local currentEnabled = notifyCurrentCharacterEnabled()
+    local otherEnabled = notifyOtherCharactersEnabled()
+    if not currentEnabled and not otherEnabled then
+        return false, "disabled"
+    end
+
+    local opts = GU.GetOptions() or {}
+    local evalOpts = {
+        technique = opts.technique,
+        levelsAhead = opts.levelsAhead,
+    }
+    local matches, reason = collectLootUpgradeMatches(
+        itemLink, currentEnabled, otherEnabled, evalOpts)
+    if reason == "bop" then return false, "bop" end
+    if not matches or #matches == 0 then return false, reason or "no_matches" end
+
+    postLootUpgradeAnnouncement(itemLink, matches, opts)
     return true
 end
 
@@ -191,12 +592,12 @@ function GA.SimulateSelfLoot(rawInput)
     local ok, reason = GA.AnnounceLootUpgrade(link)
     if ok then return true end
     if reason == "disabled" then
-        postChat(ALTARMY_GOLD .. "AltArmy|r debug: gear upgrade notifications for other characters "
-            .. "are disabled in options.")
+        postChat(ALTARMY_GOLD .. "AltArmy|r debug: gear upgrade notifications are disabled in options.")
     elseif reason == "bop" then
-        postChat(ALTARMY_GOLD .. "AltArmy|r debug: skipped (bind-on-pickup or quest item).")
+        postChat(ALTARMY_GOLD .. "AltArmy|r debug: skipped (bind-on-pickup; "
+            .. "current-character notifications are disabled).")
     elseif reason == "no_matches" then
-        postChat(ALTARMY_GOLD .. "AltArmy|r debug: no alt upgrade matches for this item.")
+        postChat(ALTARMY_GOLD .. "AltArmy|r debug: no upgrade matches for this item.")
     end
     return false
 end
@@ -392,6 +793,8 @@ end
 local alertFrame = CreateFrame("Frame", "AltArmyTBC_GearUpgradeAlertFrame", UIParent)
 alertFrame:RegisterEvent("CHAT_MSG_LOOT")
 alertFrame:RegisterEvent("PLAYER_LEVEL_UP")
+alertFrame:RegisterEvent("QUEST_COMPLETE")
+alertFrame:RegisterEvent("QUEST_FINISHED")
 alertFrame:RegisterEvent("ADDON_LOADED")
 alertFrame:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then
@@ -407,6 +810,15 @@ alertFrame:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "PLAYER_LEVEL_UP" then
         local newLevel = tonumber(arg1) or (UnitLevel and UnitLevel("player"))
         GA.AnnounceLevelUpUpgrades(newLevel)
+    elseif event == "QUEST_COMPLETE" then
+        local ctimer = _G.C_Timer
+        if ctimer and ctimer.After then
+            ctimer.After(0, GA.AnnounceQuestRewardUpgrades)
+        else
+            GA.AnnounceQuestRewardUpgrades()
+        end
+    elseif event == "QUEST_FINISHED" then
+        GA.OnQuestFinished()
     end
 end)
 

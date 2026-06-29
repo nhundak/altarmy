@@ -1873,6 +1873,40 @@ local function charMatchesRealm(_char, realm, _name, realmFilter, currentRealm)
     return true
 end
 
+--- Focus compare entries for all alts on the current realm (loot alerts, quest rewards).
+function GU.BuildFocusEntriesForCurrentRealm()
+    local DS = AltArmy.DataStore
+    if not DS or not DS.ForEachCharacter then return {} end
+    local realmFilter = "currentRealm"
+    local currentRealm = DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm() or ""
+    local entries = {}
+    DS:ForEachCharacter(function(realm, charName, charData)
+        if not charMatchesRealm(charData, realm, charName, realmFilter, currentRealm) then
+            return
+        end
+        local BA = AltArmy.BankAlt
+        if BA and BA.Is and BA.Is(charData.name or charName, realm) then
+            return
+        end
+        local classFile = charData.classFile or ""
+        local level = (DS.GetCharacterLevel and DS:GetCharacterLevel(charData))
+            or tonumber(charData.level) or 0
+        entries[#entries + 1] = {
+            name = charData.name or charName,
+            realm = realm,
+            classFile = classFile,
+            level = level,
+            charData = charData,
+        }
+    end)
+    return entries
+end
+
+function GU.ComputeUpgradeMaxDeltaForCurrentRealm(itemLink, opts)
+    local entries = GU.BuildFocusEntriesForCurrentRealm()
+    return GU.ComputeUpgradeMaxDeltaForEntries(entries, itemLink, opts)
+end
+
 --- Max positive slot delta across entries (gear tab focus comparison).
 function GU.ComputeUpgradeMaxDeltaForEntries(entries, itemLink, opts)
     if not entries or not itemLink then return nil end
@@ -1920,36 +1954,11 @@ end
 
 function GU.EvaluateForAllAlts(itemLink, opts)
     opts = opts or {}
-    local DS = AltArmy.DataStore
-    if not DS or not DS.ForEachCharacter or not itemLink then return {} end
+    if not itemLink then return {} end
     local slots = GU.GetFocusInventorySlots(itemLink)
     if #slots == 0 then return {} end
 
-    -- Loot upgrade alerts only compare alts on the current realm (ignore GlobalRealmFilter).
-    local realmFilter = "currentRealm"
-    local currentRealm = DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm() or ""
-
-    local entries = {}
-    DS:ForEachCharacter(function(realm, charName, charData)
-        if not charMatchesRealm(charData, realm, charName, realmFilter, currentRealm) then
-            return
-        end
-        local BA = AltArmy.BankAlt
-        if BA and BA.Is and BA.Is(charData.name or charName, realm) then
-            return
-        end
-        local classFile = charData.classFile or ""
-        local level = (DS.GetCharacterLevel and DS:GetCharacterLevel(charData))
-            or tonumber(charData.level) or 0
-        entries[#entries + 1] = {
-            name = charData.name or charName,
-            realm = realm,
-            classFile = classFile,
-            level = level,
-            charData = charData,
-        }
-    end)
-
+    local entries = GU.BuildFocusEntriesForCurrentRealm()
     local upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForEntries(entries, itemLink, opts)
     local matches = {}
     for i = 1, #entries do

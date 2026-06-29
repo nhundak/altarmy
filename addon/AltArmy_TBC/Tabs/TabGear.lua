@@ -89,6 +89,7 @@ end
 local hoveredCompareKey = nil
 local compareHoverRefs = {}
 local comparePanelContext = nil
+local soulboundCompareRecheckFrame = nil
 
 local COMPARE_ROW_HEIGHT = 14
 local COMPARE_ROW_GAP = 2
@@ -354,6 +355,24 @@ function GearTab.PickInitialCompareSelection(list)
     return CharKey(e.name, e.realm), slot
 end
 
+--- Auto-select current character for soulbound focus items.
+function GearTab.PickCurrentCharacterCompareSelection(list)
+    if not list or #list == 0 then return nil, nil end
+    if not DS or not DS.IsCurrentCharacter then return nil, nil end
+    local currentEntry
+    for i = 1, #list do
+        local e = list[i]
+        if DS:IsCurrentCharacter(e.name, e.realm) then
+            currentEntry = e
+            break
+        end
+    end
+    if not currentEntry then return nil, nil end
+    local slot = GearTab.GetFirstFocusedColumnSlot()
+    if not slot then return nil, nil end
+    return CharKey(currentEntry.name, currentEntry.realm), slot
+end
+
 --- Best (character, inventory slot) for in-range upgrade/sidegrade; used by loot alerts.
 function GearTab.PickBestCompareSelection(list)
     if not list or #list == 0 or not droppedItemLink then return nil, nil end
@@ -472,20 +491,58 @@ function GearTab.IsFocusedItemSoulbound()
         and IU.IsBindOnPickup(droppedItemLink)
 end
 
-function GearTab.ApplyFocusedItem(itemLink, opts)
-    opts = opts or {}
+local soulboundCompareRecheckToken = 0
+
+function GearTab.ApplyFocusCompareSelection()
+    if GearTab.IsFocusedItemSoulbound() then
+        selectedCompareKey, selectedCompareSlot = GearTab.PickCurrentCharacterCompareSelection(
+            GearTab.GetDisplayList())
+        return
+    end
+    selectedCompareKey, selectedCompareSlot = GearTab.PickInitialCompareSelection(GearTab.GetDisplayList())
+end
+
+function GearTab.ScheduleSoulboundCompareRecheck(itemLink)
+    soulboundCompareRecheckToken = soulboundCompareRecheckToken + 1
+    local token = soulboundCompareRecheckToken
+    local function tryRecheck()
+        if token ~= soulboundCompareRecheckToken then return end
+        if droppedItemLink ~= itemLink then return end
+        if not GearTab.IsFocusedItemSoulbound() then return end
+        local key, slot = GearTab.PickCurrentCharacterCompareSelection(GearTab.GetDisplayList())
+        if not key then return end
+        if selectedCompareKey == key and selectedCompareSlot == slot then return end
+        selectedCompareKey, selectedCompareSlot = key, slot
+        if frame.RefreshGrid then frame:RefreshGrid() end
+    end
+    local ctimer = _G.C_Timer
+    if ctimer and ctimer.After then
+        ctimer.After(0, tryRecheck)
+    else
+        tryRecheck()
+    end
+    local itemId = tonumber(itemLink and itemLink:match("item:(%d+)"))
+    if not itemId or not CreateFrame then return end
+    if not soulboundCompareRecheckFrame then
+        soulboundCompareRecheckFrame = CreateFrame("Frame")
+    end
+    soulboundCompareRecheckFrame:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
+    soulboundCompareRecheckFrame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    soulboundCompareRecheckFrame:SetScript("OnEvent", function(self, _, receivedId)
+        if tonumber(receivedId) ~= itemId then return end
+        self:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
+        tryRecheck()
+    end)
+end
+
+function GearTab.ApplyFocusedItem(itemLink, _opts)
     if droppedItemLink ~= itemLink then
         resetGridHorizontalScrollOnRefresh = true
     end
     droppedItemLink = itemLink
     hoveredCompareKey = nil
-    local soulbound = GearTab.IsFocusedItemSoulbound()
-    if soulbound and not opts.manual then
-        selectedCompareKey = nil
-        selectedCompareSlot = nil
-    else
-        selectedCompareKey, selectedCompareSlot = GearTab.PickInitialCompareSelection(GearTab.GetDisplayList())
-    end
+    GearTab.ApplyFocusCompareSelection()
+    GearTab.ScheduleSoulboundCompareRecheck(itemLink)
     if GC and GC.LogItemComparisonDebug then
         GC.LogItemComparisonDebug(itemLink)
     end
@@ -508,7 +565,12 @@ function GearTab.IsCompareSpecAssumptionWarning(warning)
             or warning.kind == GearTab.COMPARE_WARNING_KIND.UNPICKED_SPEC)
 end
 
-function GearTab.GetCompareWarningSeverity(warning)
+local function isCompareEntryCurrentCharacter(entry)
+    if not entry or not DS or not DS.IsCurrentCharacter then return false end
+    return DS:IsCurrentCharacter(entry.name, entry.realm)
+end
+
+function GearTab.GetCompareWarningSeverity(warning, entry)
     if GearTab.IsCompareSpecAssumptionWarning(warning) then
         return "caution"
     end
@@ -517,6 +579,12 @@ function GearTab.GetCompareWarningSeverity(warning)
         return "caution"
     end
     local kind = IU and IU.GetEquipWarningKind and IU.GetEquipWarningKind(warning)
+    if kind == IU.EQUIP_WARNING_KIND.SOULBOUND then
+        if isCompareEntryCurrentCharacter(entry) then
+            return "caution"
+        end
+        return "blocking"
+    end
     if kind == IU.EQUIP_WARNING_KIND.LEVEL or kind == IU.EQUIP_WARNING_KIND.TRAINING then
         return "caution"
     end
@@ -535,16 +603,16 @@ function GearTab.GetCompareWarningSeverity(warning)
     return "blocking"
 end
 
-function GearTab.GetCompareWarningColor(warning)
+function GearTab.GetCompareWarningColor(warning, entry)
     local caution = COMPARE_WARNING_COLOR_CAUTION
     local blocking = COMPARE_WARNING_COLOR_BLOCKING
-    if GearTab.GetCompareWarningSeverity(warning) == "caution" then
+    if GearTab.GetCompareWarningSeverity(warning, entry) == "caution" then
         return caution[1], caution[2], caution[3]
     end
     return blocking[1], blocking[2], blocking[3]
 end
 
-function GearTab.SortCompareWarnings(warnings)
+function GearTab.SortCompareWarnings(warnings, entry)
     if not warnings or #warnings < 2 then return warnings end
     table.sort(warnings, function(a, b)
         local aSpec = GearTab.IsCompareSpecAssumptionWarning(a)
@@ -552,8 +620,8 @@ function GearTab.SortCompareWarnings(warnings)
         if aSpec ~= bSpec then
             return not aSpec
         end
-        local aBlocking = GearTab.GetCompareWarningSeverity(a) == "blocking"
-        local bBlocking = GearTab.GetCompareWarningSeverity(b) == "blocking"
+        local aBlocking = GearTab.GetCompareWarningSeverity(a, entry) == "blocking"
+        local bBlocking = GearTab.GetCompareWarningSeverity(b, entry) == "blocking"
         if aBlocking ~= bBlocking then
             return aBlocking
         end
@@ -579,7 +647,7 @@ function GearTab.GetCompareWarnings(entry, itemLink, charData)
             warnings[#warnings + 1] = equipWarnings[i]
         end
     end
-    GearTab.SortCompareWarnings(warnings)
+    GearTab.SortCompareWarnings(warnings, entry)
     return warnings
 end
 
@@ -884,15 +952,6 @@ function GearTab.layoutSelectionOutline(_headerCol, gridCol, _focusCells, _show)
         for _, tex in pairs(o) do tex:Hide() end
     end
     hideOutline(gridCol and gridCol.selectionOutline)
-end
-
---- True if this entry can never equip the current dropped item (for graying).
-function GearTab.CanNeverUseCurrentItem(entry)
-    if not droppedItemLink then return false end
-    if IU and IU.CanNeverUseItem then
-        return IU.CanNeverUseItem(entry.classFile, droppedItemLink)
-    end
-    return false
 end
 
 --- Brief fit message for column: nil or "", or "Can not wear plate" / "10 levels ahead" etc.
@@ -2482,7 +2541,7 @@ function GearTab.LayoutComparePanelSections(warnings, verdict, entry)
                 text = IU and IU.GetEquipWarningText and IU.GetEquipWarningText(warning) or warning
             end
             row.label:SetText(text)
-            local wr, wg, wb = GearTab.GetCompareWarningColor(warning)
+            local wr, wg, wb = GearTab.GetCompareWarningColor(warning, entry)
             row.label:SetTextColor(wr, wg, wb, 1)
             row:ClearAllPoints()
             if i == 1 then
@@ -3197,7 +3256,6 @@ function GearTab.UpdateGridWithOffset()
         if col.upgradeHighlight then col.upgradeHighlight:Hide() end
 
         local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
-        local gray = GearTab.CanNeverUseCurrentItem(entry)
         for slot = 1, NUM_EQUIPMENT_SLOTS do
             local cell = col.cells[slot]
             cell.isFocusCompareCell = false
@@ -3224,7 +3282,7 @@ function GearTab.UpdateGridWithOffset()
                     cell.itemLink = nil
                     cell.itemID = nil
                 end
-                GearTab.ApplyItemCellVisual(cell, item, gray, columnAlpha)
+                GearTab.ApplyItemCellVisual(cell, item, false, columnAlpha)
                 cell:Show()
 
                 if droppedItemLink then
@@ -3251,12 +3309,8 @@ function GearTab.UpdateGridWithOffset()
 
         local RF = AltArmy.RealmFilter
         local classR, classG, classB = 1, 0.82, 0
-        if gray then
-            classR, classG, classB = 0.5, 0.5, 0.5
-        else
-            if CC and CC.getRGBOr then
-                classR, classG, classB = CC.getRGBOr(entry.classFile, classR, classG, classB)
-            end
+        if CC and CC.getRGBOr then
+            classR, classG, classB = CC.getRGBOr(entry.classFile, classR, classG, classB)
         end
         headerCol.classR, headerCol.classG, headerCol.classB = classR, classG, classB
         local displayName = entry.name or "?"
@@ -3343,18 +3397,14 @@ function GearTab.UpdateGridWithOffset()
                         headerCol.scoreHover:Hide()
                         headerCol.scoreHover:EnableMouse(false)
                     end
-                    if gray then
-                        headerCol.scoreText:SetTextColor(0.5, 0.5, 0.5, columnAlpha)
+                    local sr, sg, sb
+                    if GearScoreMod and GearScoreMod.GetDisplayScoreColor then
+                        sr, sg, sb = GearScoreMod.GetDisplayScoreColor(providerId, scoreValue)
+                    end
+                    if sr and sg and sb then
+                        headerCol.scoreText:SetTextColor(sr, sg, sb, columnAlpha)
                     else
-                        local sr, sg, sb
-                        if GearScoreMod and GearScoreMod.GetDisplayScoreColor then
-                            sr, sg, sb = GearScoreMod.GetDisplayScoreColor(providerId, scoreValue)
-                        end
-                        if sr and sg and sb then
-                            headerCol.scoreText:SetTextColor(sr, sg, sb, columnAlpha)
-                        else
-                            headerCol.scoreText:SetTextColor(0.9, 0.9, 0.9, columnAlpha)
-                        end
+                        headerCol.scoreText:SetTextColor(0.9, 0.9, 0.9, columnAlpha)
                     end
                 end
                 headerCol.scoreText:Show()

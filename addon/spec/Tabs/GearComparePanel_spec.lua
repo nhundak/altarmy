@@ -18,13 +18,23 @@ describe("Gear compare panel height", function()
         UNPICKED_SPEC = "unpicked_spec",
     }
 
-    local function getCompareWarningSeverity(warning)
+    local function isCompareEntryCurrentCharacter(entry)
+        return type(entry) == "table" and entry.isCurrent == true
+    end
+
+    local function getCompareWarningSeverity(warning, entry)
         if type(warning) == "table"
             and (warning.kind == COMPARE_WARNING_KIND.MISSING_SPEC
                 or warning.kind == COMPARE_WARNING_KIND.UNPICKED_SPEC) then
             return "caution"
         end
         local kind = type(warning) == "table" and warning.kind or nil
+        if kind == IU_EQUIP_WARNING_KIND.SOULBOUND then
+            if isCompareEntryCurrentCharacter(entry) then
+                return "caution"
+            end
+            return "blocking"
+        end
         if kind == IU_EQUIP_WARNING_KIND.LEVEL or kind == IU_EQUIP_WARNING_KIND.TRAINING then
             return "caution"
         end
@@ -43,8 +53,8 @@ describe("Gear compare panel height", function()
         return "blocking"
     end
 
-    local function getCompareWarningColor(warning)
-        if getCompareWarningSeverity(warning) == "caution" then
+    local function getCompareWarningColor(warning, entry)
+        if getCompareWarningSeverity(warning, entry) == "caution" then
             return COMPARE_WARNING_COLOR_CAUTION[1], COMPARE_WARNING_COLOR_CAUTION[2], COMPARE_WARNING_COLOR_CAUTION[3]
         end
         return COMPARE_WARNING_COLOR_BLOCKING[1], COMPARE_WARNING_COLOR_BLOCKING[2], COMPARE_WARNING_COLOR_BLOCKING[3]
@@ -56,7 +66,7 @@ describe("Gear compare panel height", function()
                 or warning.kind == COMPARE_WARNING_KIND.UNPICKED_SPEC)
     end
 
-    local function sortCompareWarnings(warnings)
+    local function sortCompareWarnings(warnings, entry)
         if not warnings or #warnings < 2 then return warnings end
         table.sort(warnings, function(a, b)
             local aSpec = isCompareSpecAssumptionWarning(a)
@@ -64,8 +74,8 @@ describe("Gear compare panel height", function()
             if aSpec ~= bSpec then
                 return not aSpec
             end
-            local aBlocking = getCompareWarningSeverity(a) == "blocking"
-            local bBlocking = getCompareWarningSeverity(b) == "blocking"
+            local aBlocking = getCompareWarningSeverity(a, entry) == "blocking"
+            local bBlocking = getCompareWarningSeverity(b, entry) == "blocking"
             if aBlocking ~= bBlocking then
                 return aBlocking
             end
@@ -464,6 +474,20 @@ describe("Gear compare panel height", function()
         assert.are.equal(0.4, neverG)
     end)
 
+    it("uses yellow for soulbound on current character, red on alts", function()
+        local warning = {
+            text = "This item is soulbound",
+            kind = IU_EQUIP_WARNING_KIND.SOULBOUND,
+        }
+        local altR, altG = getCompareWarningColor(warning, { isCurrent = false })
+        assert.are.equal(1, altR)
+        assert.are.equal(0.4, altG)
+
+        local selfR, selfG = getCompareWarningColor(warning, { isCurrent = true })
+        assert.are.equal(1, selfR)
+        assert.are.equal(0.82, selfG)
+    end)
+
     it("sorts blocking warnings before caution warnings", function()
         local warnings = {
             { text = "Alt must gain 5 levels to equip this", kind = IU_EQUIP_WARNING_KIND.LEVEL },
@@ -478,6 +502,18 @@ describe("Gear compare panel height", function()
         for i = 3, 4 do
             assert.are.equal("caution", getCompareWarningSeverity(warnings[i]))
         end
+    end)
+
+    it("sorts current-character soulbound with other caution warnings", function()
+        local warnings = {
+            { text = "This item is soulbound", kind = IU_EQUIP_WARNING_KIND.SOULBOUND },
+            { text = "Alt can never equip this (Plate Armor)", kind = IU_EQUIP_WARNING_KIND.NEVER },
+            { text = "Alt must gain 5 levels to equip this", kind = IU_EQUIP_WARNING_KIND.LEVEL },
+        }
+        sortCompareWarnings(warnings, { isCurrent = true })
+        assert.are.equal(IU_EQUIP_WARNING_KIND.NEVER, warnings[1].kind)
+        assert.are.equal(IU_EQUIP_WARNING_KIND.LEVEL, warnings[2].kind)
+        assert.are.equal(IU_EQUIP_WARNING_KIND.SOULBOUND, warnings[3].kind)
     end)
 
     it("sorts spec assumption warnings to the bottom", function()

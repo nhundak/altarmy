@@ -7,6 +7,7 @@ AltArmy.ItemUsability = AltArmy.ItemUsability or {}
 local IU = AltArmy.ItemUsability
 
 local ARMOR_SPEC_LEVEL = 40
+local POLEARM_TRAIN_LEVEL = 20
 
 -- TBC class weapon proficiencies (subclass strings normalized to lowercase).
 local WEAPON_PROFICIENCIES = {
@@ -22,13 +23,15 @@ local WEAPON_PROFICIENCIES = {
         ["one-handed axes"] = true, ["two-handed axes"] = true,
         ["one-handed maces"] = true, ["two-handed maces"] = true,
         ["one-handed swords"] = true, ["two-handed swords"] = true,
+        ["polearms"] = true,
         ["shields"] = true,
     },
     HUNTER = {
         ["one-handed axes"] = true, ["two-handed axes"] = true,
         ["one-handed swords"] = true, ["two-handed swords"] = true,
         ["polearms"] = true, ["staves"] = true, ["daggers"] = true,
-        ["bows"] = true, ["crossbows"] = true, ["guns"] = true,
+        ["fist weapons"] = true,
+        ["bows"] = true, ["crossbows"] = true, ["guns"] = true, ["thrown"] = true,
     },
     ROGUE = {
         ["daggers"] = true, ["fist weapons"] = true,
@@ -36,7 +39,8 @@ local WEAPON_PROFICIENCIES = {
         ["bows"] = true, ["crossbows"] = true, ["guns"] = true, ["thrown"] = true,
     },
     DRUID = {
-        ["daggers"] = true, ["fist weapons"] = true, ["staves"] = true, ["one-handed maces"] = true,
+        ["daggers"] = true, ["fist weapons"] = true, ["staves"] = true,
+        ["one-handed maces"] = true, ["two-handed maces"] = true,
     },
     SHAMAN = {
         ["one-handed axes"] = true, ["two-handed axes"] = true,
@@ -327,6 +331,10 @@ function IU.MinLevelToTrainProficiency(classFile, subclass, itemClass)
         return 1
     end
     if ic == "weapon" then
+        local sub = subclass:lower()
+        if sub == "polearms" and IU.CanClassEverUseWeapon(classFile, subclass) then
+            return POLEARM_TRAIN_LEVEL
+        end
         if IU.CanClassEverUseWeapon(classFile, subclass) then
             return 1
         end
@@ -364,7 +372,8 @@ function IU.EffectiveRequiredLevel(classFile, link)
         if not IU.CanClassEverUseWeapon(classFile, subclass) then
             effective = 999
         else
-            effective = reqLevel
+            local train = IU.MinLevelToTrainProficiency(classFile, subclass, itemClass)
+            effective = math.max(reqLevel, train)
         end
     else
         effective = reqLevel
@@ -536,6 +545,32 @@ local function formatWarningCharName(name, classFile)
     return name or "?"
 end
 
+local function getSoulboundOwnerNameAndClass(fallbackName, fallbackClass)
+    local DS = AltArmy and AltArmy.DataStore
+    if DS and DS.GetCurrentCharacter then
+        local char = DS:GetCurrentCharacter()
+        if char and char.name then
+            return char.name, char.classFile or fallbackClass
+        end
+    end
+    return fallbackName, fallbackClass
+end
+
+local SOULBOUND_ITEM_NAME_MAX = 30
+
+local function soulboundWarningItemLabel(link)
+    if not link or not GetItemInfo then return "This item" end
+    local name = GetItemInfo(link)
+    if not name or name == "" or #name > SOULBOUND_ITEM_NAME_MAX then
+        return "This item"
+    end
+    return name
+end
+
+local function formatSoulboundWarning(link, coloredOwnerName)
+    return soulboundWarningItemLabel(link) .. " is soulbound to " .. coloredOwnerName
+end
+
 local function formatLevelsToGainPhrase(count)
     count = math.floor(tonumber(count) or 0)
     if count == 1 then return "1 level" end
@@ -597,7 +632,12 @@ function IU.GetEquipWarnings(classFile, charLevel, charName, link, charData)
     classFile = normalizeClassFile(classFile)
 
     if IU.IsBindOnPickup(link) then
-        addEquipWarning(warnings, "This item is soulbound", IU.EQUIP_WARNING_KIND.SOULBOUND)
+        local ownerName, ownerClass = getSoulboundOwnerNameAndClass(charName, classFile)
+        local coloredName = formatWarningCharName(ownerName, ownerClass)
+        addEquipWarning(
+            warnings,
+            formatSoulboundWarning(link, coloredName),
+            IU.EQUIP_WARNING_KIND.SOULBOUND)
     end
 
     if IU.CanNeverUseItem(classFile, link) then

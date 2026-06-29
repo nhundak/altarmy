@@ -104,18 +104,23 @@ describe("GearUpgradeAlerts", function()
     describe("AnnounceLootUpgrade", function()
         local chatLines
 
-        local function loadWithMocks(evaluateFn)
+        local function loadWithMocks(overrides)
+            overrides = overrides or {}
             chatLines = {}
             _G.DEFAULT_CHAT_FRAME = {
                 AddMessage = function(_, line)
                     chatLines[#chatLines + 1] = line
                 end,
             }
+            local notifyCurrent = overrides.notifyCurrentCharacter
+            if notifyCurrent == nil then notifyCurrent = true end
+            local notifyOther = overrides.notifyOtherCharacters
+            if notifyOther == nil then notifyOther = true end
             AltArmy.GearUpgrade = {
                 GetOptions = function()
                     return {
-                        notifyCurrentCharacter = true,
-                        notifyOtherCharacters = true,
+                        notifyCurrentCharacter = notifyCurrent,
+                        notifyOtherCharacters = notifyOther,
                         technique = "custom",
                         levelsAhead = 5,
                     }
@@ -123,15 +128,25 @@ describe("GearUpgradeAlerts", function()
                 GetEffectiveTechnique = function(technique)
                     return technique
                 end,
-                EvaluateForAllAlts = evaluateFn,
+                EvaluateForAllAlts = overrides.evaluateForAllAlts or function()
+                    return {}
+                end,
+                EvaluateForCharacter = overrides.evaluateForCharacter or function()
+                    return false
+                end,
             }
             AltArmy.DataStore = {
+                GetCurrentCharacter = overrides.getCurrentCharacter or function()
+                    return { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+                end,
+                GetCurrentPlayerRealm = function() return "TestRealm" end,
+                GetCharacterLevel = function(_, char) return char and char.level or 0 end,
                 IsCurrentCharacter = function(_, name)
                     return name == "MageAlt"
                 end,
             }
             AltArmy.ItemUsability = {
-                IsBindOnPickup = function() return false end,
+                IsBindOnPickup = overrides.isBindOnPickup or function() return false end,
             }
             AltArmy.ClassColor = {
                 wrapName = function(name) return name end,
@@ -142,9 +157,11 @@ describe("GearUpgradeAlerts", function()
         end
 
         it("includes the item link, character names, and view details link", function()
-            loadWithMocks(function()
-                return { { name = "Bravo", classFile = "PRIEST" } }
-            end)
+            loadWithMocks({
+                evaluateForAllAlts = function()
+                    return { { name = "Bravo", classFile = "PRIEST" } }
+                end,
+            })
             local itemLink = "|Hitem:11:0|h[New Helm]|h"
             local ok = GA.AnnounceLootUpgrade(itemLink)
             assert.is_true(ok)
@@ -154,29 +171,118 @@ describe("GearUpgradeAlerts", function()
         end)
 
         it("lists every alt name when three or fewer match", function()
-            loadWithMocks(function()
-                return {
-                    { name = "Alpha", classFile = "MAGE" },
-                    { name = "Bravo", classFile = "PRIEST" },
-                    { name = "Charlie", classFile = "WARLOCK" },
-                }
-            end)
+            loadWithMocks({
+                evaluateForAllAlts = function()
+                    return {
+                        { name = "Alpha", classFile = "MAGE" },
+                        { name = "Bravo", classFile = "PRIEST" },
+                        { name = "Charlie", classFile = "WARLOCK" },
+                    }
+                end,
+            })
             GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
             assert.matches("is an upgrade for Alpha, Bravo, Charlie:", chatLines[1])
         end)
 
         it("summarizes four or more alts as two names plus others", function()
-            loadWithMocks(function()
-                return {
-                    { name = "Alpha", classFile = "MAGE" },
-                    { name = "Bravo", classFile = "PRIEST" },
-                    { name = "Charlie", classFile = "WARLOCK" },
-                    { name = "Delta", classFile = "HUNTER" },
-                    { name = "Echo", classFile = "ROGUE" },
-                }
-            end)
+            loadWithMocks({
+                evaluateForAllAlts = function()
+                    return {
+                        { name = "Alpha", classFile = "MAGE" },
+                        { name = "Bravo", classFile = "PRIEST" },
+                        { name = "Charlie", classFile = "WARLOCK" },
+                        { name = "Delta", classFile = "HUNTER" },
+                        { name = "Echo", classFile = "ROGUE" },
+                    }
+                end,
+            })
             GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
             assert.matches("is an upgrade for Alpha, Bravo, and 3 others:", chatLines[1])
+        end)
+
+        it("announces bind-on-pickup loot upgrades for the current character when enabled", function()
+            loadWithMocks({
+                isBindOnPickup = function() return true end,
+                evaluateForCharacter = function() return true end,
+            })
+            local ok = GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+            assert.is_true(ok)
+            assert.matches("is an upgrade for MageAlt:", chatLines[1])
+        end)
+
+        it("skips bind-on-pickup loot when current-character notifications are disabled", function()
+            loadWithMocks({
+                notifyCurrentCharacter = false,
+                isBindOnPickup = function() return true end,
+            })
+            local ok = GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+            assert.is_false(ok)
+            assert.are.equal(0, #chatLines)
+        end)
+
+        it("does not check other characters for bind-on-pickup loot", function()
+            local evaluatedAllAlts = false
+            loadWithMocks({
+                isBindOnPickup = function() return true end,
+                evaluateForCharacter = function() return true end,
+                evaluateForAllAlts = function()
+                    evaluatedAllAlts = true
+                    return { { name = "Bravo", classFile = "PRIEST" } }
+                end,
+            })
+            GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+            assert.is_false(evaluatedAllAlts)
+        end)
+
+        it("announces when only the current character matches and current notifications are enabled", function()
+            loadWithMocks({
+                notifyOtherCharacters = false,
+                evaluateForCharacter = function() return true end,
+            })
+            local ok = GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+            assert.is_true(ok)
+            assert.matches("is an upgrade for MageAlt:", chatLines[1])
+        end)
+
+        it("does not announce loot upgrades when other-character notifications are disabled and current does not match", function()
+            loadWithMocks({
+                notifyOtherCharacters = false,
+                evaluateForCharacter = function() return false end,
+            })
+            AltArmy.GearUpgrade.EvaluateForAllAlts = function()
+                return { { name = "Bravo", classFile = "PRIEST" } }
+            end
+            local ok = GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+            assert.is_false(ok)
+            assert.are.equal(0, #chatLines)
+        end)
+
+        it("excludes the current character when only other-character notifications are enabled", function()
+            loadWithMocks({
+                notifyCurrentCharacter = false,
+                evaluateForAllAlts = function()
+                    return {
+                        { name = "MageAlt", classFile = "MAGE" },
+                        { name = "Bravo", classFile = "PRIEST" },
+                    }
+                end,
+            })
+            GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+            assert.matches("is an upgrade for Bravo:", chatLines[1])
+            assert.is_nil(chatLines[1]:match("MageAlt"))
+        end)
+
+        it("includes the current character when both notification toggles are enabled", function()
+            loadWithMocks({
+                evaluateForAllAlts = function()
+                    return {
+                        { name = "MageAlt", classFile = "MAGE" },
+                        { name = "Bravo", classFile = "PRIEST" },
+                    }
+                end,
+            })
+            GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+            assert.matches("is an upgrade for MageAlt, Bravo:", chatLines[1])
         end)
     end)
 
@@ -374,40 +480,374 @@ describe("GearUpgradeAlerts", function()
             assert.is_false(ok)
             assert.matches("disabled in options", chatLines[1])
         end)
+    end)
 
-        it("does not announce loot upgrades when other-character notifications are disabled", function()
+    describe("CollectQuestRewardLinks", function()
+        it("collects reward and choice links without duplicates", function()
+            package.loaded["GearUpgradeAlerts"] = nil
+            require("GearUpgradeAlerts")
+            GA = AltArmy.GearUpgradeAlerts
+            _G.GetNumQuestRewards = function() return 1 end
+            _G.GetNumQuestChoices = function() return 2 end
+            _G.GetQuestItemLink = function(kind, index)
+                if kind == "reward" and index == 1 then
+                    return "|Hitem:11:0|h[Reward]|h"
+                end
+                if kind == "choice" and index == 1 then
+                    return "|Hitem:22:0|h[Choice A]|h"
+                end
+                if kind == "choice" and index == 2 then
+                    return "|Hitem:11:0|h[Reward]|h"
+                end
+            end
+            local links = GA.CollectQuestRewardLinks()
+            assert.are.equal(2, #links)
+            assert.is_not_nil(links[1]:find("item:11", 1, true))
+            assert.is_not_nil(links[2]:find("item:22", 1, true))
+        end)
+
+        it("returns empty list when quest APIs are missing", function()
+            package.loaded["GearUpgradeAlerts"] = nil
+            require("GearUpgradeAlerts")
+            GA = AltArmy.GearUpgradeAlerts
+            _G.GetNumQuestRewards = nil
+            _G.GetNumQuestChoices = nil
+            _G.GetQuestItemLink = nil
+            assert.are.same({}, GA.CollectQuestRewardLinks())
+        end)
+    end)
+
+    describe("AnnounceQuestRewardUpgrades", function()
+        local chatLines
+        local linkA = "|Hitem:11:0|h[Choice A]|h"
+        local linkB = "|Hitem:22:0|h[Choice B]|h"
+
+        local function loadWithMocks(overrides)
+            overrides = overrides or {}
+            chatLines = {}
+            _G.DEFAULT_CHAT_FRAME = {
+                AddMessage = function(_, line)
+                    chatLines[#chatLines + 1] = line
+                end,
+            }
+            if not AltArmy.BankAlt then
+                package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+                require("CharKey")
+                package.loaded["BankAlt"] = nil
+                require("BankAlt")
+            end
+            _G.AltArmyTBC_Options = _G.AltArmyTBC_Options or {}
+            AltArmy.BankAlt.Set("MageAlt", "TestRealm", false)
+            local notifyCurrent = overrides.notifyCurrentCharacter
+            if notifyCurrent == nil then notifyCurrent = true end
+            local evaluatedAllAlts = false
+            AltArmy.GearUpgrade = {
+                GetOptions = function()
+                    return {
+                        notifyCurrentCharacter = notifyCurrent,
+                        notifyOtherCharacters = overrides.notifyOtherCharacters ~= false,
+                        technique = "custom",
+                        levelsAhead = 5,
+                        upgradeThresholdPercent = overrides.upgradeThresholdPercent or 10,
+                    }
+                end,
+                GetEffectiveTechnique = function(technique)
+                    return technique
+                end,
+                EvaluateForCharacter = overrides.evaluateForCharacter or function(_, link)
+                    return link == linkA or link == linkB
+                end,
+                EvaluateForAllAlts = function()
+                    evaluatedAllAlts = true
+                    return {}
+                end,
+                GetCharacterUpgradeDelta = overrides.getCharacterUpgradeDelta or function(_, link)
+                    if link == linkA then return 10 end
+                    if link == linkB then return 50 end
+                    return 0
+                end,
+                ComputeUpgradeMaxDeltaForCurrentRealm =
+                    overrides.computeUpgradeMaxDeltaForCurrentRealm or function() return 100 end,
+                GetUpgradeHighlightKind = overrides.getUpgradeHighlightKind or function(delta, maxDelta, opts)
+                    local threshold = ((opts and opts.upgradeThresholdPercent) or 10) / 100
+                    if not delta or delta <= 0 then return nil end
+                    if not maxDelta or maxDelta <= 0 then return "clear" end
+                    if delta >= maxDelta * threshold then return "clear" end
+                    return "minor"
+                end,
+            }
+            AltArmy.DataStore = {
+                GetCurrentCharacter = function()
+                    return { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+                end,
+                GetCurrentPlayerRealm = function() return "TestRealm" end,
+                GetCharacterLevel = function(_, char) return char and char.level or 0 end,
+            }
+            AltArmy.ItemUsability = {
+                IsBindOnPickup = function() return false end,
+                GetInventorySlotsForItem = overrides.getInventorySlotsForItem or function() return { 1 } end,
+                IsEquippableWithin = overrides.isEquippableWithin or function() return true, 0, nil end,
+            }
+            AltArmy.ClassColor = {
+                wrapName = function(name) return name end,
+            }
+            _G.GetNumQuestRewards = overrides.getNumQuestRewards or function() return 0 end
+            _G.GetNumQuestChoices = overrides.getNumQuestChoices or function() return 2 end
+            _G.GetQuestItemLink = overrides.getQuestItemLink or function(_, index)
+                if index == 1 then return linkA end
+                if index == 2 then return linkB end
+            end
+            local mockTime = overrides.mockTime or 1000
+            _G.GetTime = overrides.getTime or function() return mockTime end
+            _G.GetTitleText = overrides.getTitleText or function() return "Test Quest" end
+            package.loaded["GearUpgradeAlerts"] = nil
+            require("GearUpgradeAlerts")
+            GA = AltArmy.GearUpgradeAlerts
+            return { evaluatedAllAlts = function() return evaluatedAllAlts end }
+        end
+
+        it("announces the best quest reward upgrade when multiple rewards match", function()
             loadWithMocks({
-                notifyOtherCharacters = false,
+                getNumQuestRewards = function() return 1 end,
+                getQuestItemLink = function(kind, index)
+                    if kind == "reward" and index == 1 then
+                        return "|Hitem:33:0|h[Reward]|h"
+                    end
+                    if kind == "choice" and index == 1 then return linkA end
+                end,
+                getNumQuestChoices = function() return 1 end,
+                evaluateForCharacter = function() return true end,
+                getCharacterUpgradeDelta = function(_, link)
+                    if link:find("item:33", 1, true) then return 5 end
+                    if link == linkA then return 10 end
+                    return 0
+                end,
             })
-            AltArmy.GearUpgrade.EvaluateForAllAlts = function()
-                return { { name = "Bravo", classFile = "PRIEST" } }
-            end
-            local ok = GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
-            assert.is_false(ok)
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(1, #chatLines)
+            assert.is_not_nil(chatLines[1]:find(linkA, 1, true))
+            assert.matches("is an upgrade for MageAlt:", chatLines[1])
+        end)
+
+        it("does not announce when current-character notifications are disabled", function()
+            loadWithMocks({ notifyCurrentCharacter = false })
+            GA.AnnounceQuestRewardUpgrades()
             assert.are.equal(0, #chatLines)
         end)
 
-        it("excludes the current character from loot upgrade announcements", function()
-            loadWithMocks({})
-            AltArmy.GearUpgrade.EvaluateForAllAlts = function()
-                return {
-                    { name = "MageAlt", classFile = "MAGE" },
-                    { name = "Bravo", classFile = "PRIEST" },
-                }
-            end
-            GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
-            assert.matches("is an upgrade for Bravo:", chatLines[1])
-            assert.is_nil(chatLines[1]:match("MageAlt"))
+        it("does not check other characters", function()
+            local ctx = loadWithMocks({ notifyOtherCharacters = true })
+            GA.AnnounceQuestRewardUpgrades()
+            assert.is_false(ctx.evaluatedAllAlts())
         end)
 
-        it("skips loot announcements when only the current character matches", function()
-            loadWithMocks({})
-            AltArmy.GearUpgrade.EvaluateForAllAlts = function()
-                return { { name = "MageAlt", classFile = "MAGE" } }
-            end
-            local ok = GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
-            assert.is_false(ok)
+        it("announces all clear quest reward upgrades with the best first", function()
+            loadWithMocks()
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(2, #chatLines)
+            assert.is_not_nil(chatLines[1]:find(linkB, 1, true))
+            assert.matches("is the best upgrade for MageAlt:", chatLines[1])
+            assert.is_not_nil(chatLines[2]:find(linkA, 1, true))
+            assert.matches("is an upgrade for MageAlt:", chatLines[2])
+        end)
+
+        it("uses standard upgrade wording for a single clear quest reward", function()
+            loadWithMocks({
+                getNumQuestChoices = function() return 1 end,
+                getQuestItemLink = function(_, index)
+                    if index == 1 then return linkB end
+                end,
+                getCharacterUpgradeDelta = function(_, link)
+                    if link == linkB then return 50 end
+                    return 0
+                end,
+            })
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(1, #chatLines)
+            assert.matches("is an upgrade for MageAlt:", chatLines[1])
+            assert.is_nil(chatLines[1]:match("is the best upgrade"))
+        end)
+
+        it("announces a clear upgrade when the reward meets the realm-wide threshold", function()
+            loadWithMocks({
+                computeUpgradeMaxDeltaForCurrentRealm = function() return 100 end,
+                getCharacterUpgradeDelta = function(_, link)
+                    if link == linkA then return 8 end
+                    if link == linkB then return 15 end
+                    return 0
+                end,
+            })
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(1, #chatLines)
+            assert.is_not_nil(chatLines[1]:find(linkB, 1, true))
+            assert.matches("is an upgrade for MageAlt:", chatLines[1])
+        end)
+
+        it("announces a minor upgrade for the best positive reward below threshold", function()
+            loadWithMocks({
+                computeUpgradeMaxDeltaForCurrentRealm = function() return 100 end,
+                getCharacterUpgradeDelta = function(_, link)
+                    if link == linkA then return 8 end
+                    if link == linkB then return 5 end
+                    return 0
+                end,
+            })
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(1, #chatLines)
+            assert.is_not_nil(chatLines[1]:find(linkA, 1, true))
+            assert.matches("is a minor upgrade for MageAlt:", chatLines[1])
+        end)
+
+        it("announces when no equippable quest rewards are upgrades for the current character", function()
+            loadWithMocks({
+                evaluateForCharacter = function() return false end,
+                getCharacterUpgradeDelta = function(_, link)
+                    if link == linkA then return -5 end
+                    if link == linkB then return -2 end
+                    return 0
+                end,
+            })
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(1, #chatLines)
+            assert.matches("None of these rewards are an upgrade for MageAlt", chatLines[1])
+            assert.is_false(GA.ShouldSuppressLootUpgrade(linkA))
+            assert.is_false(GA.ShouldSuppressLootUpgrade(linkB))
+        end)
+
+        it("skips quest reward checks when no rewards are equippable", function()
+            loadWithMocks({
+                getInventorySlotsForItem = function() return {} end,
+                isEquippableWithin = function() return false end,
+            })
+            GA.AnnounceQuestRewardUpgrades()
             assert.are.equal(0, #chatLines)
+        end)
+
+        it("only evaluates equippable quest rewards", function()
+            loadWithMocks({
+                getNumQuestChoices = function() return 2 end,
+                evaluateForCharacter = function() return true end,
+                getCharacterUpgradeDelta = function(_, link)
+                    if link == linkA then return 100 end
+                    if link == linkB then return 5 end
+                    return 0
+                end,
+                getInventorySlotsForItem = function(link)
+                    if link == linkB then return { 1 } end
+                    return {}
+                end,
+                isEquippableWithin = function(_, _, link)
+                    return link == linkB, 0, nil
+                end,
+            })
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(1, #chatLines)
+            assert.is_not_nil(chatLines[1]:find(linkB, 1, true))
+            assert.is_nil(chatLines[1]:find(linkA, 1, true))
+        end)
+
+        it("suppresses duplicate loot announcements for announced quest rewards", function()
+            loadWithMocks({
+                getNumQuestChoices = function() return 1 end,
+                getQuestItemLink = function(_, index)
+                    if index == 1 then return linkA end
+                end,
+                evaluateForCharacter = function(_, link)
+                    return link == linkA
+                end,
+            })
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(1, #chatLines)
+            assert.is_true(GA.ShouldSuppressLootUpgrade(linkA))
+            local ok = GA.AnnounceLootUpgrade(linkA)
+            assert.is_false(ok)
+            assert.are.equal(1, #chatLines)
+            assert.is_false(GA.ShouldSuppressLootUpgrade(linkA))
+        end)
+
+        it("suppresses loot after quest finished clears the immediate suppression table", function()
+            local mockTime = 1000
+            loadWithMocks({
+                getNumQuestChoices = function() return 1 end,
+                getQuestItemLink = function(_, index)
+                    if index == 1 then return linkA end
+                end,
+                getTime = function() return mockTime end,
+            })
+            GA.AnnounceQuestRewardUpgrades()
+            GA.ClearQuestLootUpgradeSuppression()
+            assert.is_true(GA.ShouldSuppressLootUpgrade(linkA))
+            local ok = GA.AnnounceLootUpgrade(linkA)
+            assert.is_false(ok)
+            assert.are.equal(1, #chatLines)
+            mockTime = 1004
+            assert.is_false(GA.ShouldSuppressLootUpgrade(linkA))
+        end)
+
+        it("clears unchosen suppressions on quest finished", function()
+            local mockTime = 1000
+            loadWithMocks({
+                getNumQuestChoices = function() return 2 end,
+                notifyOtherCharacters = false,
+                getTime = function() return mockTime end,
+            })
+            GA.AnnounceQuestRewardUpgrades()
+            assert.is_true(GA.ShouldSuppressLootUpgrade(linkA))
+            assert.is_true(GA.ShouldSuppressLootUpgrade(linkB))
+            GA.ClearQuestLootUpgradeSuppression()
+            mockTime = 1004
+            assert.is_false(GA.ShouldSuppressLootUpgrade(linkA))
+            assert.is_false(GA.ShouldSuppressLootUpgrade(linkB))
+            local ok = GA.AnnounceLootUpgrade(linkB)
+            assert.is_true(ok)
+            assert.are.equal(3, #chatLines)
+        end)
+
+        it("debounces rapid duplicate quest reward announcements", function()
+            loadWithMocks()
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(2, #chatLines)
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(2, #chatLines)
+        end)
+
+        it("announces quest rewards again after debounce expires", function()
+            local mockTime = 1000
+            loadWithMocks({
+                getTime = function() return mockTime end,
+            })
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(2, #chatLines)
+            mockTime = 1002
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(4, #chatLines)
+        end)
+
+        it("announces quest rewards again after quest finished clears debounce", function()
+            loadWithMocks()
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(2, #chatLines)
+            GA.OnQuestFinished()
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(4, #chatLines)
+        end)
+    end)
+
+    describe("FormatQuestRewardMessages", function()
+        it("formats minor, best, and no-upgrade quest messages", function()
+            assert.matches("is a minor upgrade for Bravo:", GA.FormatQuestMinorUpgradeMessage(
+                "|Hitem:11:0|h[New Helm]|h", "Bravo", "[View details]"))
+            assert.matches("is the best upgrade for Bravo:", GA.FormatQuestBestUpgradeMessage(
+                "|Hitem:11:0|h[New Helm]|h", "Bravo", "[View details]"))
+            assert.are.equal(
+                "None of these rewards are an upgrade for MageAlt",
+                GA.FormatQuestNoUpgradeMessage("MageAlt"))
+        end)
+
+        it("FormatLootUpgradeMessage resets item link color before plain text", function()
+            local coloredLink = "|cffa335ee|Hitem:11:0|h[Epic Helm]|h"
+            local msg = GA.FormatLootUpgradeMessage(coloredLink, "MageAlt", "[View details]")
+            assert.matches("|r is an upgrade for MageAlt:", msg)
         end)
     end)
 

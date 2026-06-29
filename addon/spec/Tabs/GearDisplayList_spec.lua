@@ -387,6 +387,30 @@ describe("Gear display list focus mode", function()
         return CharKey(e.name, e.realm), firstSlot
     end
 
+    --- Mirror TabGear PickCurrentCharacterCompareSelection.
+    local function pickCurrentCharacterCompareSelection(list, currentName, currentRealm, firstSlot)
+        firstSlot = firstSlot or 1
+        if not list or #list == 0 or not currentName or not currentRealm then
+            return nil, nil
+        end
+        for i = 1, #list do
+            local e = list[i]
+            if e.name == currentName and e.realm == currentRealm then
+                return CharKey(e.name, e.realm), firstSlot
+            end
+        end
+        return nil, nil
+    end
+
+    --- Mirror TabGear ApplyFocusCompareSelection soulbound policy.
+    local function applyFocusCompareSelection(list, itemLink, upgradeOpts, soulbound, currentName, currentRealm)
+        local firstSlot = 1
+        if soulbound then
+            return pickCurrentCharacterCompareSelection(list, currentName, currentRealm, firstSlot)
+        end
+        return pickInitialCompareSelection(list, itemLink, upgradeOpts, firstSlot)
+    end
+
     --- Mirror TabGear PickBestCompareSelection (in-range upgrade/sidegrade only).
     local function pickBestCompareSelection(list, itemLink, upgradeOpts)
         if not list or #list == 0 or not itemLink then return nil, nil end
@@ -483,6 +507,64 @@ describe("Gear display list focus mode", function()
         }
         local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
         local key, slot = pickInitialCompareSelection(sorted, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        assert.are.equal(CharKey("Upgrader", "RealmA"), key)
+        assert.are.equal(1, slot)
+    end)
+
+    it("auto-selects current character for soulbound focus even when another alt is a bigger upgrade", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local entries = {
+            { name = "SmallUpgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Me", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        assert.are.equal("Upgrader", sorted[1].name)
+        local key, slot = pickCurrentCharacterCompareSelection(sorted, "Me", "RealmA", 1)
+        assert.are.equal(CharKey("Me", "RealmA"), key)
+        assert.are.equal(1, slot)
+    end)
+
+    it("auto-selects current character for soulbound focus even when another alt sorts first", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local entries = {
+            { name = "SmallUpgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Me", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        local bestKey = pickInitialCompareSelection(sorted, itemLink, { technique = "ilvl", levelsAhead = 0 })
+        assert.are.equal(CharKey("Upgrader", "RealmA"), bestKey)
+        local key, slot = pickCurrentCharacterCompareSelection(sorted, "Me", "RealmA", 1)
+        assert.are.equal(CharKey("Me", "RealmA"), key)
+        assert.are.not_equal(bestKey, key)
+        assert.are.equal(1, slot)
+    end)
+
+    it("applyFocusCompareSelection picks current character for soulbound regardless of manual drop", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local upgradeOpts = { technique = "ilvl", levelsAhead = 0 }
+        local entries = {
+            { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Me", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local sorted = sortByFocusTier(entries, itemLink, upgradeOpts)
+        local key, slot = applyFocusCompareSelection(
+            sorted, itemLink, upgradeOpts, true, "Me", "RealmA")
+        assert.are.equal(CharKey("Me", "RealmA"), key)
+        assert.are.equal(1, slot)
+    end)
+
+    it("applyFocusCompareSelection picks best upgrade for non-soulbound focus", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local upgradeOpts = { technique = "ilvl", levelsAhead = 0 }
+        local entries = {
+            { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Me", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local sorted = sortByFocusTier(entries, itemLink, upgradeOpts)
+        local key, slot = applyFocusCompareSelection(
+            sorted, itemLink, upgradeOpts, false, "Me", "RealmA")
         assert.are.equal(CharKey("Upgrader", "RealmA"), key)
         assert.are.equal(1, slot)
     end)

@@ -44,6 +44,19 @@ describe("Gear focus visuals", function()
         assert.are.equal(1, getFocusColumnAlpha(false, true))
     end)
 
+    it("keeps class color on dimmed columns instead of forcing grayscale", function()
+        local function headerNameColor(useGrayscale, classR, classG, classB)
+            if useGrayscale then
+                return 0.5, 0.5, 0.5
+            end
+            return classR, classG, classB
+        end
+        local r, g, b = headerNameColor(false, 0.96, 0.55, 0.73)
+        assert.are.equal(0.96, r)
+        assert.are.equal(0.55, g)
+        assert.are.equal(0.73, b)
+    end)
+
     it("shows header name highlight when compare column is selected", function()
         local UPGRADE_HIGHLIGHT_COLUMN_INSET = 2
         local SELECTED_CELL_HIGHLIGHT_INSET = UPGRADE_HIGHLIGHT_COLUMN_INSET + 2
