@@ -636,8 +636,14 @@ frame:SetScript("OnEvent", function(_, event, ...)
         local char = GetCurrentCharTable()
         if char and totalTimePlayed and type(totalTimePlayed) == "number" then
             char.played = totalTimePlayed
+            if type(timePlayedThisLevel) == "number" then
+                char.playedThisLevel = timePlayedThisLevel
+            end
             if DS.OnTimePlayedMessage then
                 DS:OnTimePlayedMessage(totalTimePlayed, timePlayedThisLevel)
+            end
+            if AltArmy.BankAltDetect and AltArmy.BankAltDetect.TryPromptForCurrentCharacter then
+                AltArmy.BankAltDetect.TryPromptForCurrentCharacter()
             end
         end
         return

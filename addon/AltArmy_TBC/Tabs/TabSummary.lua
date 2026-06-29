@@ -425,6 +425,7 @@ if AltArmy.CreateCharacterPinHideList then
     local _scroll, refresh = AltArmy.CreateCharacterPinHideList(sortingContent,
         showSelfFirstRow, {
             gutterEdge = summarySettingsPanel,
+            splitBankAlts = false,
             getSettings = GetSummarySettings,
             getCharSetting = GetSummaryCharSetting,
             setCharSetting = SetSummaryCharSetting,

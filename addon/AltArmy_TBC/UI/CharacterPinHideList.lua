@@ -26,6 +26,7 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
     local getCharSetting = opts.getCharSetting or function() return false end
     local setCharSetting = opts.setCharSetting or function() end
     local onChange = opts.onChange or function() end
+    local splitBankAlts = opts.splitBankAlts ~= false
     -- Align scrollbar with section border (same as main tab listViewport + tabContentPanel).
     local gutterEdge = opts.gutterEdge or parent
 
@@ -173,6 +174,13 @@ function AltArmy.CreateCharacterPinHideList(parent, anchorBelow, opts)
     end
 
     local function buildDisplayRows(list)
+        if not splitBankAlts then
+            local rows = {}
+            for i = 1, #list do
+                rows[#rows + 1] = { kind = "char", entry = list[i], isBankAlt = false }
+            end
+            return rows
+        end
         local regular, bank = partitionByBankAlt(list)
         local rows = {}
         for i = 1, #regular do

@@ -735,9 +735,9 @@ charSettingPrompt:Show()
 local BANK_ALT_HELP = {
     title = "Bank alt",
     lines = {
-        "Hidden from the Gear and Reputation tabs.",
-        "Never flagged for gear upgrades or shown in item comparisons.",
-        "Still appears in Summary, Cooldowns, Graphs, and Search.",
+        "Hidden in Gear and Reputation tabs",
+        "Skipped for gear upgrade checks",
+        "Still appears in Summary, Cooldowns, Graphs, and Search",
     },
 }
 
@@ -1024,6 +1024,20 @@ SlashCmdList.ALTARMY = function(msg)
             GA.SimulateSelfLoot(debugItemLink)
         elseif AltArmy.Debug and AltArmy.Debug.NotifyChat then
             AltArmy.Debug.NotifyChat("Gear upgrade alerts are unavailable.")
+        end
+        return
+    end
+    if lower == "debug bankdetect" then
+        local dialog = AltArmy and AltArmy.BankAltSuggestDialog
+        if dialog and dialog.ShowDebug then
+            if not dialog.ShowDebug() then
+                local D = AltArmy and AltArmy.Debug
+                if D and D.NotifyChat then
+                    D.NotifyChat("Bank alt detection dialog is unavailable.")
+                end
+            end
+        elseif AltArmy.Debug and AltArmy.Debug.NotifyChat then
+            AltArmy.Debug.NotifyChat("Bank alt detection dialog is unavailable.")
         end
         return
     end
