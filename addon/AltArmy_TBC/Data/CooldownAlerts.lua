@@ -1,5 +1,5 @@
 -- AltArmy TBC — Cooldown availability alerts (chat + sound).
--- Uses CooldownData.EvaluateAlerts. Chat lines are prefixed with gold "AltArmy".
+-- Uses CooldownData.EvaluateAlerts. Chat lines are prefixed with gold "Alt Army".
 
 if not AltArmy then return end
 
@@ -60,7 +60,7 @@ local function announceBatch(alerts, showAllRealms)
     if not alerts or #alerts == 0 then return end
     for _, r in ipairs(alerts) do
         local body = formatAlertBody(r, showAllRealms == true)
-        sendCooldownAlert(ALTARMY_GOLD .. "AltArmy|r " .. body)
+        sendCooldownAlert(ALTARMY_GOLD .. "Alt Army|r " .. body)
     end
     pcall(function()
         if PlaySound then

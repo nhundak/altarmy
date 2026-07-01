@@ -62,7 +62,7 @@ function D.LogSearch(msg)
     if not D.IsSearchEnabled() then
         return
     end
-    D.NotifyChat("|cff00ccff[AltArmy:Search]|r " .. tostring(msg))
+    D.NotifyChat("|cff00ccff[Alt Army:Search]|r " .. tostring(msg))
 end
 
 function D.IsCooldownsEnabled()
@@ -106,7 +106,7 @@ function D.LogItemComparison(msgs)
         return
     end
     for i = 1, #msgs do
-        D.NotifyChat("|cff00ccff[AltArmy:Compare]|r " .. tostring(msgs[i]))
+        D.NotifyChat("|cff00ccff[Alt Army:Compare]|r " .. tostring(msgs[i]))
     end
 end
 
@@ -131,7 +131,7 @@ function D.LogItemStats(msgs)
         return
     end
     for i = 1, #msgs do
-        D.NotifyChat("|cff00ccff[AltArmy:ItemStats]|r " .. tostring(msgs[i]))
+        D.NotifyChat("|cff00ccff[Alt Army:ItemStats]|r " .. tostring(msgs[i]))
     end
 end
 
@@ -167,7 +167,7 @@ end
 
 function D.NotifyCompareDumpSaved(index, total)
     D.NotifyChat(string.format(
-        "|cff00ccff[AltArmy:Debug]|r Compare dump #%d saved (%d in buffer). "
+        "|cff00ccff[Alt Army:Debug]|r Compare dump #%d saved (%d in buffer). "
             .. "/reload, then open WTF/.../SavedVariables/AltArmy_TBC.lua",
         tonumber(index) or 0,
         tonumber(total) or 0))

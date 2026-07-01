@@ -346,7 +346,7 @@ local function postLootUpgradeAnnouncement(itemLink, matches, opts)
     if technique ~= (opts.technique or "custom") then
         techniqueNote = " (using built-in comparison; selected addon not installed)"
     end
-    postChat(ALTARMY_GOLD .. "AltArmy|r "
+    postChat(ALTARMY_GOLD .. "Alt Army|r "
         .. GA.FormatLootUpgradeMessage(itemLink, nameList, actionLink) .. techniqueNote)
     pcall(function()
         if PlaySound then PlaySound("TellMessage", "Master") end
@@ -369,7 +369,7 @@ local function postQuestRewardAnnouncement(itemLink, match, opts, kind)
     else
         body = GA.FormatLootUpgradeMessage(itemLink, nameList, actionLink)
     end
-    postChat(ALTARMY_GOLD .. "AltArmy|r " .. body .. techniqueNote)
+    postChat(ALTARMY_GOLD .. "Alt Army|r " .. body .. techniqueNote)
     pcall(function()
         if PlaySound then PlaySound("TellMessage", "Master") end
     end)
@@ -382,7 +382,7 @@ local function postQuestNoUpgradeAnnouncement(match, opts)
     if technique ~= (opts.technique or "custom") then
         techniqueNote = " (using built-in comparison; selected addon not installed)"
     end
-    postChat(ALTARMY_GOLD .. "AltArmy|r "
+    postChat(ALTARMY_GOLD .. "Alt Army|r "
         .. GA.FormatQuestNoUpgradeMessage(nameList) .. techniqueNote)
     pcall(function()
         if PlaySound then PlaySound("TellMessage", "Master") end
@@ -566,7 +566,7 @@ function GA.SimulateSelfLoot(rawInput)
         link = rawInput:match("^%s*(.-)%s*$")
     end
     if not link or link == "" then
-        postChat(ALTARMY_GOLD .. "AltArmy|r debug: could not parse item link. "
+        postChat(ALTARMY_GOLD .. "Alt Army|r debug: could not parse item link. "
             .. "Usage: /altarmy debug item {shift-click item}")
         return false
     end
@@ -574,12 +574,12 @@ function GA.SimulateSelfLoot(rawInput)
     local ok, reason = GA.AnnounceLootUpgrade(link)
     if ok then return true end
     if reason == "disabled" then
-        postChat(ALTARMY_GOLD .. "AltArmy|r debug: gear upgrade notifications are disabled in options.")
+        postChat(ALTARMY_GOLD .. "Alt Army|r debug: gear upgrade notifications are disabled in options.")
     elseif reason == "bop" then
-        postChat(ALTARMY_GOLD .. "AltArmy|r debug: skipped (bind-on-pickup; "
+        postChat(ALTARMY_GOLD .. "Alt Army|r debug: skipped (bind-on-pickup; "
             .. "current-character notifications are disabled).")
     elseif reason == "no_matches" then
-        postChat(ALTARMY_GOLD .. "AltArmy|r debug: no upgrade matches for this item.")
+        postChat(ALTARMY_GOLD .. "Alt Army|r debug: no upgrade matches for this item.")
     end
     return false
 end
@@ -588,12 +588,12 @@ end
 function GA.SimulateLevelUp(rawLevel)
     local newLevel = tonumber(rawLevel)
     if not newLevel or newLevel < 1 then
-        postChat(ALTARMY_GOLD .. "AltArmy|r debug: invalid level. "
+        postChat(ALTARMY_GOLD .. "Alt Army|r debug: invalid level. "
             .. "Usage: /altarmy debug levelup {level}")
         return false
     end
     if not notifyCurrentCharacterEnabled() then
-        postChat(ALTARMY_GOLD .. "AltArmy|r debug: gear upgrade notifications for the current character "
+        postChat(ALTARMY_GOLD .. "Alt Army|r debug: gear upgrade notifications for the current character "
             .. "are disabled in options.")
         return false
     end
@@ -717,10 +717,10 @@ function GA.AnnounceLevelUpUpgrades(newLevel)
             levelsAhead = 0,
             level = newLevel,
         }) then
-            postChat(ALTARMY_GOLD .. "AltArmy|r "
+            postChat(ALTARMY_GOLD .. "Alt Army|r "
                 .. GA.FormatLevelUpEquipMessage(link, candidate))
             if IU and IU.NeedsProficiencyTraining(classFile, newLevel, link, char) then
-                postChat(ALTARMY_GOLD .. "AltArmy|r Note that you must train "
+                postChat(ALTARMY_GOLD .. "Alt Army|r Note that you must train "
                     .. trainingSkillName(link) .. " before you can equip this.")
             end
         end

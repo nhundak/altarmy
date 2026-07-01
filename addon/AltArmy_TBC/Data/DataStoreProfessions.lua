@@ -24,7 +24,7 @@ local function LogCooldownScanDebug(msg)
     if not CooldownsDebugEnabled() then
         return
     end
-    local text = "|cff00ccff[AltArmy:CD]|r " .. tostring(msg)
+    local text = "|cff00ccff[Alt Army:CD]|r " .. tostring(msg)
     if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
         DEFAULT_CHAT_FRAME:AddMessage(text)
     end

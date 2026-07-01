@@ -36,7 +36,7 @@ end
 local function ChatInfo(msg)
     local chat = _G.DEFAULT_CHAT_FRAME
     if chat and chat.AddMessage and msg and msg ~= "" then
-        chat:AddMessage(string.format("|cfffecc00AltArmy|r %s", msg))
+        chat:AddMessage(string.format("|cfffecc00Alt Army|r %s", msg))
     end
 end
 

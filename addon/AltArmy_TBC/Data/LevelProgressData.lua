@@ -14,7 +14,7 @@ LPD.AXIS_MIN_LEVEL = 0
 LPD.AXIS_MAX_LEVEL = (DS.MAX_LEVEL) or 70
 local FIRST_RECORDED_LEVEL = 1
 
-local GRAPH_DEBUG_PREFIX = "|cff00ccff[AltArmy:Graph]|r "
+local GRAPH_DEBUG_PREFIX = "|cff00ccff[Alt Army:Graph]|r "
 local WATCH_NAMES_LOWER = {
     -- frellbank = true,
     -- frellbanq = true,

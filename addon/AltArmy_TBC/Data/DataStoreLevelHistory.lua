@@ -23,7 +23,7 @@ local RXP_ADDON_NAMES = { "RXPGuides", "RXPGuides_TBC" }
 local RXP_BACKFILL_RETRY_DELAY = 3
 local RXP_BACKFILL_MAX_RETRIES = 5
 
-local LEVEL_HISTORY_DEBUG_PREFIX = "|cff00ccff[AltArmy:LevelHistory]|r "
+local LEVEL_HISTORY_DEBUG_PREFIX = "|cff00ccff[Alt Army:LevelHistory]|r "
 
 -- Silence /played chat spam from internal RequestTimePlayed calls (RXP-style hook).
 local reportPlayedTimeToChat = true
