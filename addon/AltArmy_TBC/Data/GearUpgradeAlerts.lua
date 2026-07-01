@@ -1,7 +1,7 @@
 -- AltArmy TBC — Gear upgrade chat alerts (loot + level-up + quest rewards).
 -- luacheck: globals DEFAULT_CHAT_FRAME GetItemInfo IsUsableItem UnitName
 -- luacheck: globals GetContainerItemLink GetContainerNumSlots SetItemRef ChatFrame_OnHyperlinkClick
--- luacheck: globals GetQuestItemLink GetNumQuestRewards GetNumQuestChoices QUEST_COMPLETE QUEST_FINISHED
+-- luacheck: globals GetQuestItemLink GetNumQuestRewards GetNumQuestChoices QUEST_COMPLETE
 -- luacheck: globals GetTitleText GetTime
 
 if not AltArmy then return end
@@ -56,11 +56,12 @@ local function extractItemId(itemLink)
     return tonumber(payload:match("^item:(%d+)"))
 end
 
+-- Loot-alert suppression for items already announced in the quest reward window.
+-- Keyed by item id. A flag is set when a reward is announced, checked (and consumed)
+-- by the loot scan, and otherwise persists until the next PLAYER_ENTERING_WORLD. No
+-- timers are involved, so a slow loot delivery cannot outrace the suppression.
 local lootUpgradeSuppressedIds = {}
-local questLootSuppressUntil = {}
 local QUEST_REWARD_ANNOUNCE_DEBOUNCE_SEC = 1.0
-local QUEST_LOOT_SUPPRESS_TTL_SEC = 3.0
-local QUEST_FINISHED_SUPPRESS_CLEAR_DELAY_SEC = 1.0
 local questRewardAnnounceDebounce = nil
 
 local function payloadToUsableLink(payload)
@@ -252,28 +253,18 @@ end
 function GA.ShouldSuppressLootUpgrade(itemLink)
     local itemId = extractItemId(itemLink)
     if not itemId then return false end
-    if lootUpgradeSuppressedIds[itemId] then return true end
-    local suppressUntil = questLootSuppressUntil[itemId]
-    if suppressUntil and GetTime and GetTime() < suppressUntil then
-        return true
-    end
-    return false
+    return lootUpgradeSuppressedIds[itemId] == true
 end
 
 function GA.ConsumeLootUpgradeSuppression(itemLink)
     local itemId = extractItemId(itemLink)
     if itemId then
         lootUpgradeSuppressedIds[itemId] = nil
-        questLootSuppressUntil[itemId] = nil
     end
 end
 
 function GA.ClearQuestLootUpgradeSuppression()
     lootUpgradeSuppressedIds = {}
-end
-
-function GA.ClearQuestLootSuppressExpiry()
-    questLootSuppressUntil = {}
 end
 
 function GA.BuildQuestRewardAnnounceKey()
@@ -319,9 +310,6 @@ local function markLootUpgradeSuppressed(itemLink)
     local itemId = extractItemId(itemLink)
     if itemId then
         lootUpgradeSuppressedIds[itemId] = true
-        if GetTime then
-            questLootSuppressUntil[itemId] = GetTime() + QUEST_LOOT_SUPPRESS_TTL_SEC
-        end
     end
 end
 
@@ -538,17 +526,11 @@ function GA.AnnounceQuestRewardUpgrades()
     end
 end
 
-function GA.OnQuestFinished()
+--- Reset per-session suppression/debounce state. Called on PLAYER_ENTERING_WORLD so
+--- stale flags (e.g. from an unchosen quest reward) cannot silence a genuine later drop.
+function GA.OnEnteringWorld()
+    GA.ClearQuestLootUpgradeSuppression()
     GA.ClearQuestRewardAnnounceDebounce()
-    local function clearStaleSuppressions()
-        GA.ClearQuestLootUpgradeSuppression()
-    end
-    local ctimer = _G.C_Timer
-    if ctimer and ctimer.After then
-        ctimer.After(QUEST_FINISHED_SUPPRESS_CLEAR_DELAY_SEC, clearStaleSuppressions)
-    else
-        clearStaleSuppressions()
-    end
 end
 
 function GA.AnnounceLootUpgrade(itemLink)
@@ -794,7 +776,7 @@ local alertFrame = CreateFrame("Frame", "AltArmyTBC_GearUpgradeAlertFrame", UIPa
 alertFrame:RegisterEvent("CHAT_MSG_LOOT")
 alertFrame:RegisterEvent("PLAYER_LEVEL_UP")
 alertFrame:RegisterEvent("QUEST_COMPLETE")
-alertFrame:RegisterEvent("QUEST_FINISHED")
+alertFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 alertFrame:RegisterEvent("ADDON_LOADED")
 alertFrame:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then
@@ -817,8 +799,8 @@ alertFrame:SetScript("OnEvent", function(_, event, arg1)
         else
             GA.AnnounceQuestRewardUpgrades()
         end
-    elseif event == "QUEST_FINISHED" then
-        GA.OnQuestFinished()
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        GA.OnEnteringWorld()
     end
 end)
 

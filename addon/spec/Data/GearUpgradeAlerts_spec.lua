@@ -765,7 +765,7 @@ describe("GearUpgradeAlerts", function()
             assert.is_false(GA.ShouldSuppressLootUpgrade(linkA))
         end)
 
-        it("suppresses loot after quest finished clears the immediate suppression table", function()
+        it("keeps suppressing loot until consumed, regardless of elapsed time", function()
             local mockTime = 1000
             loadWithMocks({
                 getNumQuestChoices = function() return 1 end,
@@ -775,27 +775,26 @@ describe("GearUpgradeAlerts", function()
                 getTime = function() return mockTime end,
             })
             GA.AnnounceQuestRewardUpgrades()
-            GA.ClearQuestLootUpgradeSuppression()
+            assert.is_true(GA.ShouldSuppressLootUpgrade(linkA))
+            -- A large time jump must not expire the flag: suppression no longer uses a TTL.
+            mockTime = 100000
             assert.is_true(GA.ShouldSuppressLootUpgrade(linkA))
             local ok = GA.AnnounceLootUpgrade(linkA)
             assert.is_false(ok)
             assert.are.equal(1, #chatLines)
-            mockTime = 1004
+            -- The flag is consumed by the suppressed loot, so a later drop announces again.
             assert.is_false(GA.ShouldSuppressLootUpgrade(linkA))
         end)
 
-        it("clears unchosen suppressions on quest finished", function()
-            local mockTime = 1000
+        it("clears all suppressions when entering the world", function()
             loadWithMocks({
                 getNumQuestChoices = function() return 2 end,
                 notifyOtherCharacters = false,
-                getTime = function() return mockTime end,
             })
             GA.AnnounceQuestRewardUpgrades()
             assert.is_true(GA.ShouldSuppressLootUpgrade(linkA))
             assert.is_true(GA.ShouldSuppressLootUpgrade(linkB))
             GA.ClearQuestLootUpgradeSuppression()
-            mockTime = 1004
             assert.is_false(GA.ShouldSuppressLootUpgrade(linkA))
             assert.is_false(GA.ShouldSuppressLootUpgrade(linkB))
             local ok = GA.AnnounceLootUpgrade(linkB)
@@ -819,15 +818,6 @@ describe("GearUpgradeAlerts", function()
             GA.AnnounceQuestRewardUpgrades()
             assert.are.equal(2, #chatLines)
             mockTime = 1002
-            GA.AnnounceQuestRewardUpgrades()
-            assert.are.equal(4, #chatLines)
-        end)
-
-        it("announces quest rewards again after quest finished clears debounce", function()
-            loadWithMocks()
-            GA.AnnounceQuestRewardUpgrades()
-            assert.are.equal(2, #chatLines)
-            GA.OnQuestFinished()
             GA.AnnounceQuestRewardUpgrades()
             assert.are.equal(4, #chatLines)
         end)
