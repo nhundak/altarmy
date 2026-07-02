@@ -2,7 +2,7 @@
 -- luacheck: globals DEFAULT_CHAT_FRAME GetItemInfo IsUsableItem UnitName
 -- luacheck: globals GetContainerItemLink GetContainerNumSlots SetItemRef ChatFrame_OnHyperlinkClick
 -- luacheck: globals GetQuestItemLink GetNumQuestRewards GetNumQuestChoices QUEST_COMPLETE
--- luacheck: globals GetTitleText GetTime
+-- luacheck: globals GetTitleText GetTime C_Timer
 
 if not AltArmy then return end
 
@@ -63,6 +63,8 @@ end
 local lootUpgradeSuppressedIds = {}
 local QUEST_REWARD_ANNOUNCE_DEBOUNCE_SEC = 1.0
 local questRewardAnnounceDebounce = nil
+GA.LEVEL_UP_UPGRADE_ANNOUNCE_DELAY_SEC = 0.5
+local levelUpUpgradeAnnounceGeneration = 0
 
 local function payloadToUsableLink(payload)
     if not payload or payload == "" then return nil end
@@ -306,6 +308,25 @@ function GA.ClearQuestRewardAnnounceDebounce()
     questRewardAnnounceDebounce = nil
 end
 
+function GA.CancelLevelUpUpgradeAnnouncement()
+    levelUpUpgradeAnnounceGeneration = levelUpUpgradeAnnounceGeneration + 1
+end
+
+function GA.ScheduleLevelUpUpgradeAnnouncement(newLevel)
+    if not newLevel then return end
+    GA.CancelLevelUpUpgradeAnnouncement()
+    local generation = levelUpUpgradeAnnounceGeneration
+    local ctimer = _G.C_Timer
+    if ctimer and ctimer.After then
+        ctimer.After(GA.LEVEL_UP_UPGRADE_ANNOUNCE_DELAY_SEC, function()
+            if generation ~= levelUpUpgradeAnnounceGeneration then return end
+            GA.AnnounceLevelUpUpgrades(newLevel)
+        end)
+    else
+        GA.AnnounceLevelUpUpgrades(newLevel)
+    end
+end
+
 local function markLootUpgradeSuppressed(itemLink)
     local itemId = extractItemId(itemLink)
     if itemId then
@@ -531,6 +552,7 @@ end
 function GA.OnEnteringWorld()
     GA.ClearQuestLootUpgradeSuppression()
     GA.ClearQuestRewardAnnounceDebounce()
+    GA.CancelLevelUpUpgradeAnnouncement()
 end
 
 function GA.AnnounceLootUpgrade(itemLink)
@@ -791,7 +813,7 @@ alertFrame:SetScript("OnEvent", function(_, event, arg1)
         end
     elseif event == "PLAYER_LEVEL_UP" then
         local newLevel = tonumber(arg1) or (UnitLevel and UnitLevel("player"))
-        GA.AnnounceLevelUpUpgrades(newLevel)
+        GA.ScheduleLevelUpUpgradeAnnouncement(newLevel)
     elseif event == "QUEST_COMPLETE" then
         local ctimer = _G.C_Timer
         if ctimer and ctimer.After then

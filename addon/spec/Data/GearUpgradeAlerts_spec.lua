@@ -480,6 +480,65 @@ describe("GearUpgradeAlerts", function()
             assert.is_false(ok)
             assert.matches("disabled in options", chatLines[1])
         end)
+
+        it("ScheduleLevelUpUpgradeAnnouncement defers chat until the timer fires", function()
+            local scheduled = {}
+            _G.C_Timer = {
+                After = function(delay, fn)
+                    scheduled[#scheduled + 1] = { delay = delay, fn = fn }
+                end,
+            }
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 11, 1, helmLink)
+                end,
+            })
+            GA.ScheduleLevelUpUpgradeAnnouncement(40)
+            assert.are.equal(0, #chatLines)
+            assert.are.equal(1, #scheduled)
+            assert.are.equal(GA.LEVEL_UP_UPGRADE_ANNOUNCE_DELAY_SEC, scheduled[1].delay)
+            scheduled[1].fn()
+            assert.are.equal(1, #chatLines)
+            _G.C_Timer = nil
+        end)
+
+        it("ScheduleLevelUpUpgradeAnnouncement cancels a pending timer", function()
+            local scheduled = {}
+            _G.C_Timer = {
+                After = function(_, fn)
+                    scheduled[#scheduled + 1] = fn
+                end,
+            }
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 11, 1, helmLink)
+                end,
+            })
+            GA.ScheduleLevelUpUpgradeAnnouncement(40)
+            GA.CancelLevelUpUpgradeAnnouncement()
+            scheduled[1]()
+            assert.are.equal(0, #chatLines)
+            _G.C_Timer = nil
+        end)
+
+        it("OnEnteringWorld cancels a pending level-up announcement", function()
+            local scheduled = {}
+            _G.C_Timer = {
+                After = function(_, fn)
+                    scheduled[#scheduled + 1] = fn
+                end,
+            }
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 11, 1, helmLink)
+                end,
+            })
+            GA.ScheduleLevelUpUpgradeAnnouncement(40)
+            GA.OnEnteringWorld()
+            scheduled[1]()
+            assert.are.equal(0, #chatLines)
+            _G.C_Timer = nil
+        end)
     end)
 
     describe("CollectQuestRewardLinks", function()
