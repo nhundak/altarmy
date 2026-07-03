@@ -1464,6 +1464,31 @@ describe("GearUpgrade", function()
             assert.are.equal("one_v_one", info.config)
         end)
 
+        it("GetCharacterUpgradeDelta uses loadout comparison for 2H vs dual-wield", function()
+            local char = setupWarriorDualWield()
+            local delta = GU.GetCharacterUpgradeDelta(char, "|Hitem:203:0|h[Big 2H]|h", {
+                technique = "ilvl",
+            })
+            assert.are.equal(5, delta)
+        end)
+
+        it("GetCharacterUpgradeDelta uses loadout comparison for 1H vs selected 2H", function()
+            local char = setupWarriorTwoHand()
+            local delta = GU.GetCharacterUpgradeDelta(char, "|Hitem:205:0|h[New 1H]|h", {
+                technique = "ilvl",
+            })
+            assert.are.equal(18, delta)
+        end)
+
+        it("GetWeaponConfigDelta auto-select ignores empty off-hand main-hand compare", function()
+            local char = setupWarriorTwoHand()
+            local entry = { name = "Warrior2H", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local delta = GU.GetWeaponConfigDelta(char, "|Hitem:205:0|h[New 1H]|h", {
+                technique = "ilvl",
+            }, entry)
+            assert.are.equal(18, delta)
+        end)
+
         it("FindBestBagItemForRole returns highest scoring usable item", function()
             local char = setupRogueTwoHand()
             local entry = { name = "Rogue2H", realm = "TestRealm", classFile = "ROGUE", level = 60 }

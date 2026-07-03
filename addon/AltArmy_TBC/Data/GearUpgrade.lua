@@ -999,6 +999,23 @@ local function resolveWeaponCompareSlot(opts)
     return opts and (opts.compareSlot or opts.slot) or nil
 end
 
+local function isValidWeaponCompareResult(result, focusedLink, compareSlot)
+    if not result then return false end
+    if result.mode ~= "one_v_one" then return true end
+    if result.equippedMH or result.equippedOH then return true end
+    if compareSlot ~= OFF_HAND_SLOT then return true end
+    local iu = IU()
+    if not iu or not iu.GetWeaponRole or not focusedLink then return true end
+    if iu.GetWeaponRole(focusedLink) ~= "onehand" then return true end
+    if GetItemInfo then
+        local equipLoc = select(9, GetItemInfo(focusedLink))
+        if equipLoc == "INVTYPE_WEAPON" then
+            return false
+        end
+    end
+    return true
+end
+
 local function bestSelectionCompareAcrossSlots(char, focusedLink, opts, entry)
     local bestResult
     local bestDelta
@@ -1010,7 +1027,9 @@ local function bestSelectionCompareAcrossSlots(char, focusedLink, opts, entry)
         end
         slotOpts.compareSlot = slot
         local result = GU.BuildSelectionLoadoutCompare(char, focusedLink, slot, slotOpts, entry)
-        if result and (not bestDelta or (result.delta or 0) > bestDelta) then
+        if result
+            and isValidWeaponCompareResult(result, focusedLink, slot)
+            and (not bestDelta or (result.delta or 0) > bestDelta) then
             bestDelta = result.delta
             bestResult = result
             bestSlot = slot
@@ -1244,26 +1263,19 @@ function GU.GetFocusSlotDelta(charData, itemLink, invSlot, opts, entry)
     return GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts, entry)
 end
 
-local function upgradeDeltaInSlots(char, newLink, technique, slots, entry)
+local function upgradeDeltaInSlots(char, newLink, opts, slots, entry)
+    opts = opts or {}
     local DS = AltArmy.DataStore
     if not DS or not DS.GetInventoryItem then return 0 end
     if GU.IsWeaponPairItem(newLink) then
-        local bestDelta = 0
-        for _, slot in ipairs({ MAIN_HAND_SLOT, OFF_HAND_SLOT }) do
-            local delta = GU.GetWeaponConfigDelta(
-                char, newLink, { technique = technique, compareSlot = slot }, entry) or 0
-            if delta > bestDelta then
-                bestDelta = delta
-            end
-        end
-        return bestDelta
+        return GU.GetWeaponConfigDelta(char, newLink, opts, entry) or 0
     end
+    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
     local classFile, specKey = resolveCompareContext(char, entry)
     local newScore = scoreItem(newLink, technique, classFile, specKey)
 
     local bestDelta = 0
     local hasEquipped = false
-    local opts = { technique = technique }
     for i = 1, #slots do
         local slot = slots[i]
         local equipped = DS:GetInventoryItem(char, slot)
@@ -1285,8 +1297,11 @@ end
 function GU.GetSlotUpgradeDelta(char, itemLink, invSlot, opts, entry)
     opts = opts or {}
     if not char or not itemLink or not invSlot then return 0 end
-    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    return upgradeDeltaInSlots(char, itemLink, technique, { invSlot }, entry)
+    if GU.IsWeaponPairItem(itemLink) then
+        return GU.GetWeaponConfigDelta(
+            char, itemLink, focusOptsForSlot(opts, invSlot), entry) or 0
+    end
+    return upgradeDeltaInSlots(char, itemLink, opts, { invSlot }, entry)
 end
 
 GU.FOCUS_CATEGORY = {
@@ -2021,10 +2036,9 @@ end
 function GU.GetCharacterUpgradeDelta(char, itemLink, opts, entry)
     opts = opts or {}
     if not char or not itemLink then return 0 end
-    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
     local slots = IU() and IU().GetInventorySlotsForItem(itemLink) or {}
     if #slots == 0 then return 0 end
-    return upgradeDeltaInSlots(char, itemLink, technique, slots, entry)
+    return upgradeDeltaInSlots(char, itemLink, opts, slots, entry)
 end
 
 --- Upgrade magnitude for focus-mode sort (best positive delta across item slots).

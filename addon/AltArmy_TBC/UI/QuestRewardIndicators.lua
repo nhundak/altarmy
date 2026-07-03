@@ -19,7 +19,9 @@ local UPGRADE_BADGE_FONT_OBJECT = "GameFontNormalSmall"
 local UPGRADE_BADGE_FONT_SCALE = 2
 local ICON_SIZE = 16
 local ICON_OFFSET_X = -3
-local ICON_OFFSET_Y = 3
+local UPGRADE_ICON_OFFSET_X = -1
+local UPGRADE_ICON_OFFSET_Y = 2
+local VENDOR_ICON_OFFSET_Y = 4
 local MINOR_UPGRADE_OFFSET_Y = -6
 
 local turnInOverlays = {}
@@ -291,7 +293,7 @@ local function resolveQuestLogRewardButton(unifiedIndex)
     return nil
 end
 
-local function showOverlayOnButton(overlay, button, point, itemLink, offsetY)
+local function showOverlayOnButton(overlay, button, point, itemLink, offsetY, offsetX)
     if not overlay or not button or not button.IsShown or not button:IsShown() then
         if overlay then overlay:Hide() end
         return
@@ -300,7 +302,7 @@ local function showOverlayOnButton(overlay, button, point, itemLink, offsetY)
         overlay.itemLink = itemLink
     end
     overlay:ClearAllPoints()
-    overlay:SetPoint(point, button, point, ICON_OFFSET_X, offsetY or ICON_OFFSET_Y)
+    overlay:SetPoint(point, button, point, offsetX or ICON_OFFSET_X, offsetY or UPGRADE_ICON_OFFSET_Y)
     overlay:SetParent(button)
     overlay:Show()
 end
@@ -333,16 +335,17 @@ local function applyIndicators(surfaceKey, parentFrame, resolveButton, collectEn
                 overlays.upgrade.upgradeBadge,
                 result.bestUpgradeHighlightKind)
         end
-        local upgradeOffsetY = ICON_OFFSET_Y
+        local upgradeOffsetY = UPGRADE_ICON_OFFSET_Y
         if result.bestUpgradeHighlightKind == "minor" then
-            upgradeOffsetY = ICON_OFFSET_Y + MINOR_UPGRADE_OFFSET_Y
+            upgradeOffsetY = UPGRADE_ICON_OFFSET_Y + MINOR_UPGRADE_OFFSET_Y
         end
         showOverlayOnButton(
             overlays.upgrade,
             resolveButton(result.bestUpgradeUnifiedIndex),
             "TOPRIGHT",
             findEntryLink(entries, result.bestUpgradeUnifiedIndex),
-            upgradeOffsetY)
+            upgradeOffsetY,
+            UPGRADE_ICON_OFFSET_X)
     else
         overlays.upgrade:Hide()
     end
@@ -351,7 +354,9 @@ local function applyIndicators(surfaceKey, parentFrame, resolveButton, collectEn
         showOverlayOnButton(
             overlays.vendor,
             resolveButton(result.bestVendorUnifiedIndex),
-            "BOTTOMRIGHT")
+            "BOTTOMRIGHT",
+            nil,
+            VENDOR_ICON_OFFSET_Y)
     else
         overlays.vendor:Hide()
     end
