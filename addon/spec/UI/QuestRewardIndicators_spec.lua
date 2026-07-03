@@ -25,6 +25,7 @@ describe("QuestRewardIndicators", function()
 
     before_each(function()
         _G.AltArmyTBC_Options = {}
+        _G.RXPGuides = nil
     end)
 
     it("EvaluateRewardIndicators returns highlight kind for best upgrade", function()
@@ -105,6 +106,25 @@ describe("QuestRewardIndicators", function()
         })
         assert.is_nil(result.bestUpgradeUnifiedIndex)
         assert.are.equal(1, result.bestVendorUnifiedIndex)
+    end)
+
+    it("EvaluateRewardIndicators skips vendor when RXP gold recommendation is on", function()
+        package.loaded["RestedXpIntegration"] = nil
+        require("RestedXpIntegration")
+        _G.RXPGuides = {
+            settings = {
+                profile = { enableQuestChoiceGoldRecommendation = true },
+            },
+        }
+        local result = QRI.EvaluateRewardIndicators({
+            { unifiedIndex = 1, itemId = 100, sellPrice = 50, delta = 5, equippable = true },
+            { unifiedIndex = 2, itemId = 200, sellPrice = 200, delta = 0, equippable = true },
+        }, {
+            showQuestRewardUpgradeIndicator = true,
+            showQuestRewardVendorIndicator = true,
+        })
+        assert.are.equal(1, result.bestUpgradeUnifiedIndex)
+        assert.is_nil(result.bestVendorUnifiedIndex)
     end)
 
     it("EvaluateRewardIndicators honors indicator toggles", function()

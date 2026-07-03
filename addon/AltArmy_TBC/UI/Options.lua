@@ -1041,6 +1041,20 @@ SlashCmdList.ALTARMY = function(msg)
         end
         return
     end
+    if lower == "debug rxpquestconflict" then
+        local dialog = AltArmy and AltArmy.RestedXpQuestRewardConflictDialog
+        if dialog and dialog.ShowDebug then
+            if not dialog.ShowDebug() then
+                local D = AltArmy and AltArmy.Debug
+                if D and D.NotifyChat then
+                    D.NotifyChat("RestedXP quest reward conflict dialog is unavailable.")
+                end
+            end
+        elseif AltArmy.Debug and AltArmy.Debug.NotifyChat then
+            AltArmy.Debug.NotifyChat("RestedXP quest reward conflict dialog is unavailable.")
+        end
+        return
+    end
     if lower == "debug dump" or lower == "debug dumpcompare" then
         local gearFrame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Gear
         if gearFrame and gearFrame.DumpComparePanelDebug then

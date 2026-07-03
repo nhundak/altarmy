@@ -35,6 +35,8 @@ Data\DataStoreCurrencies.lua
 Data\DataStoreProfessions.lua
 Data\CooldownAlerts.lua
 Data\GearUpgradeAlerts.lua
+Data\RestedXpIntegration.lua
+Data\RestedXpQuestRewardConflict.lua
 Data\DataStoreReputations.lua
 Data\DataStoreMail.lua
 Data\DataStoreAuctions.lua
@@ -69,6 +71,8 @@ Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
 UI\MinimapSavedVars.lua
 UI\Minimap.lua
 UI\BankAltSuggestDialog.lua
+UI\OnboardingDialogQueue.lua
+UI\RestedXpQuestRewardConflictDialog.lua
 UI\Options.lua
 UI\CooldownOptions.lua
 UI\QuestRewardIndicators.lua

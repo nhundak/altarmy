@@ -193,6 +193,11 @@ read_globals = {
     "QUEST_COMPLETE",
     "hooksecurefunc",
     "C_Timer",
+    "C_AddOns",
+    "IsAddOnLoaded",
+    "RXPGuides",
+    "RXPSettings",
+    "RXPCSettings",
 }
 
 -- Busted spec files: test globals and assert extensions (e.g. assert.truthy)

@@ -131,7 +131,7 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
         relativePoint = "BOTTOMLEFT",
         x = 0,
         y = -8,
-        text = "Notify me when a non-soulbound loot is an upgrade for any of my characters",
+        text = "Notify me when non-soulbound loot is an upgrade for any of my characters",
         fullWidthHover = true,
         onClick = function(checked)
             GU.EnsureGearUpgradeOptions().notifyOtherCharacters = checked

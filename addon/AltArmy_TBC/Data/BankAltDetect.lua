@@ -173,15 +173,9 @@ function BD.Evaluate(char, DS, opts)
 end
 
 function BD.TryPromptForCurrentCharacter()
-    local DS = AltArmy.DataStore
-    if not DS or not DS.GetCurrentCharacter then return end
-    local char = DS:GetCurrentCharacter()
-    if not char then return end
-    local result = BD.Evaluate(char, DS, { isCurrent = true })
-    if not result.shouldPrompt then return end
-    local dialog = AltArmy.BankAltSuggestDialog
-    if dialog and dialog.Show then
-        dialog.Show(result)
+    local queue = AltArmy.OnboardingDialogQueue
+    if queue and queue.RequestProcess then
+        queue.RequestProcess()
     end
 end
 

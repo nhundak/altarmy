@@ -182,6 +182,16 @@ function QRI.EvaluateRewardIndicators(entries, opts)
     local bestUpgrade
     local bestVendor
 
+    local showVendor = opts.showQuestRewardVendorIndicator ~= false
+    if showVendor then
+        local RXI = AltArmy.RestedXpIntegration
+        if RXI and RXI.IsLoaded and RXI.IsLoaded()
+            and RXI.IsQuestRewardGoldRecommendationEnabled
+            and RXI.IsQuestRewardGoldRecommendationEnabled() == true then
+            showVendor = false
+        end
+    end
+
     if opts.showQuestRewardUpgradeIndicator ~= false then
         for i = 1, #entries do
             local entry = entries[i]
@@ -196,7 +206,7 @@ function QRI.EvaluateRewardIndicators(entries, opts)
         end
     end
 
-    if opts.showQuestRewardVendorIndicator ~= false then
+    if showVendor then
         for i = 1, #entries do
             local entry = entries[i]
             local sellPrice = entry.sellPrice or 0

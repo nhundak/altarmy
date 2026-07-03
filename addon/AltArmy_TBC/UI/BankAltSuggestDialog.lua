@@ -97,7 +97,8 @@ footnote:SetPoint("BOTTOMRIGHT", bodyInner, "BOTTOMRIGHT", 0, 0)
 footnote:SetJustifyH("CENTER")
 footnote:SetWordWrap(true)
 footnote:SetTextColor(0.55, 0.55, 0.55, 1)
-footnote:SetText("This message will only show once but you can make changes later in Options")
+footnote:SetText(AltArmy.Text and AltArmy.Text.ONBOARDING_DISMISS_FOOTNOTE
+    or "This message will only show once but you can make changes later in Options")
 
 local btnYes = CreateFrame("Button", nil, bodyInner, "UIPanelButtonTemplate")
 btnYes:SetSize(168, 24)
@@ -112,6 +113,7 @@ btnNo:SetText("No, this is not a bank alt")
 Theme.SkinButton(btnNo)
 
 local currentResult
+local onDismissCallback
 
 local function dismissWithoutMarking()
     if currentResult and BD and BD.Dismiss then
@@ -122,6 +124,11 @@ end
 local function hideDialog()
     dialog:Hide()
     currentResult = nil
+    local callback = onDismissCallback
+    onDismissCallback = nil
+    if callback then
+        callback()
+    end
 end
 
 local function onYes()
@@ -146,9 +153,10 @@ closeBtn:SetScript("OnClick", onNo)
 
 AltArmy.BankAltSuggestDialog = AltArmy.BankAltSuggestDialog or {}
 
-function AltArmy.BankAltSuggestDialog.Show(result)
+function AltArmy.BankAltSuggestDialog.Show(result, onDismiss)
     if not result then return end
     currentResult = result
+    onDismissCallback = onDismiss
     dialog:Show()
 end
 

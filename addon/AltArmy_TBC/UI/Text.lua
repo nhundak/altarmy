@@ -5,6 +5,9 @@ AltArmy.Text = AltArmy.Text or {}
 
 local Text = AltArmy.Text
 
+Text.ONBOARDING_DISMISS_FOOTNOTE =
+    "This message will only show once but you can make changes later in Options"
+
 local function affixWidth(fontString, affix)
     if not affix or affix == "" then
         return 0
