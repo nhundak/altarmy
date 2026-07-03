@@ -29,6 +29,8 @@ describe("RestedXpQuestRewardConflict", function()
 
     before_each(function()
         _G.AltArmyTBC_Options = {}
+        _G.RXPData = nil
+        _G.RXPSettings = nil
         _G.RXPGuides = {
             settings = {
                 profile = {
@@ -69,10 +71,21 @@ describe("RestedXpQuestRewardConflict", function()
         assert.is_true(RC.ShouldPrompt())
     end)
 
-    it("ChooseAltArmy disables RXP upgrade and price overlays and dismisses", function()
+    it("ChooseAltArmy disables RXP upgrade and price overlays on all profiles and dismisses", function()
+        _G.RXPSettings = {
+            profiles = {
+                Default = _G.RXPGuides.settings.profile,
+                ["Alt - Realm"] = {
+                    enableQuestChoiceRecommendation = true,
+                    enableQuestChoiceGoldRecommendation = true,
+                },
+            },
+        }
         RC.ChooseAltArmy()
         assert.is_false(_G.RXPGuides.settings.profile.enableQuestChoiceRecommendation)
         assert.is_false(_G.RXPGuides.settings.profile.enableQuestChoiceGoldRecommendation)
+        assert.is_false(_G.RXPSettings.profiles["Alt - Realm"].enableQuestChoiceRecommendation)
+        assert.is_false(_G.RXPSettings.profiles["Alt - Realm"].enableQuestChoiceGoldRecommendation)
         assert.is_true(AltArmyTBC_Options.restedXpQuestRewardConflictDismissed)
         assert.is_not_false(AltArmyTBC_Options.gearUpgrades.showQuestRewardUpgradeIndicator)
         assert.is_not_false(AltArmyTBC_Options.gearUpgrades.showQuestRewardVendorIndicator)

@@ -1,5 +1,5 @@
 -- AltArmy TBC — RestedXP (RXPGuides) integration helpers.
--- luacheck: globals C_AddOns IsAddOnLoaded RXPGuides RXPSettings RXPCSettings C_Timer
+-- luacheck: globals C_AddOns IsAddOnLoaded RXPGuides RXPSettings RXPCSettings RXPData C_Timer
 -- luacheck: globals LibStub UnitName GetRealmName
 
 if not AltArmy then return end
@@ -129,6 +129,40 @@ function RXI.IsQuestRewardGoldRecommendationEnabled()
     local profile = RXI.GetProfile()
     if not profile then return nil end
     return readProfileFlag(profile, "enableQuestChoiceGoldRecommendation")
+end
+
+local QUEST_REWARD_PROFILE_KEYS = {
+    "enableQuestChoiceRecommendation",
+    "enableQuestChoiceGoldRecommendation",
+}
+
+local function applyQuestRewardFlagsToProfile(profile, enabled)
+    if type(profile) ~= "table" then return end
+    for i = 1, #QUEST_REWARD_PROFILE_KEYS do
+        profile[QUEST_REWARD_PROFILE_KEYS[i]] = enabled == true
+    end
+end
+
+function RXI.SetQuestRewardRecommendationsOnAllProfiles(enabled)
+    local updated = false
+    local rxpSettings = rawget(_G, "RXPSettings")
+    if rxpSettings and type(rxpSettings.profiles) == "table" then
+        for _, profile in pairs(rxpSettings.profiles) do
+            applyQuestRewardFlagsToProfile(profile, enabled)
+            updated = true
+        end
+    end
+    local rxpData = rawget(_G, "RXPData")
+    if rxpData and type(rxpData.defaultProfile) == "table" then
+        applyQuestRewardFlagsToProfile(rxpData.defaultProfile.profile, enabled)
+        updated = true
+    end
+    local activeProfile = RXI.GetProfile()
+    if activeProfile then
+        applyQuestRewardFlagsToProfile(activeProfile, enabled)
+        updated = true
+    end
+    return updated
 end
 
 function RXI.SetQuestRewardUpgradeRecommendationEnabled(enabled)

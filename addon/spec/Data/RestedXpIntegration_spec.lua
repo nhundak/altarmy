@@ -149,6 +149,40 @@ describe("RestedXpIntegration", function()
         assert.is_false(_G.RXPGuides.settings.profile.enableQuestChoiceGoldRecommendation)
     end)
 
+    it("SetQuestRewardRecommendationsOnAllProfiles updates every RXPSettings profile", function()
+        local activeProfile = {
+            enableQuestChoiceRecommendation = true,
+            enableQuestChoiceGoldRecommendation = true,
+        }
+        _G.RXPGuides = {
+            settings = { profile = activeProfile },
+        }
+        _G.RXPSettings = {
+            profiles = {
+                Default = activeProfile,
+                ["Alt - Realm"] = {
+                    enableQuestChoiceRecommendation = true,
+                    enableQuestChoiceGoldRecommendation = nil,
+                },
+            },
+        }
+        _G.RXPData = {
+            defaultProfile = {
+                profile = {
+                    enableQuestChoiceRecommendation = nil,
+                    enableQuestChoiceGoldRecommendation = true,
+                },
+            },
+        }
+        assert.is_true(RXI.SetQuestRewardRecommendationsOnAllProfiles(false))
+        assert.is_false(_G.RXPSettings.profiles.Default.enableQuestChoiceRecommendation)
+        assert.is_false(_G.RXPSettings.profiles.Default.enableQuestChoiceGoldRecommendation)
+        assert.is_false(_G.RXPSettings.profiles["Alt - Realm"].enableQuestChoiceRecommendation)
+        assert.is_false(_G.RXPSettings.profiles["Alt - Realm"].enableQuestChoiceGoldRecommendation)
+        assert.is_false(_G.RXPData.defaultProfile.profile.enableQuestChoiceRecommendation)
+        assert.is_false(_G.RXPData.defaultProfile.profile.enableQuestChoiceGoldRecommendation)
+    end)
+
     it("GetLogoTexturePath prefers loaded addon name", function()
         _G.C_AddOns = {
             IsAddOnLoaded = function(name)

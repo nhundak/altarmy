@@ -55,11 +55,8 @@ function RC.ShouldPrompt(opts)
 end
 
 function RC.ChooseAltArmy()
-    if RXI and RXI.SetQuestRewardUpgradeRecommendationEnabled then
-        RXI.SetQuestRewardUpgradeRecommendationEnabled(false)
-    end
-    if RXI and RXI.SetQuestRewardGoldRecommendationEnabled then
-        RXI.SetQuestRewardGoldRecommendationEnabled(false)
+    if RXI and RXI.SetQuestRewardRecommendationsOnAllProfiles then
+        RXI.SetQuestRewardRecommendationsOnAllProfiles(false)
     end
     RC.Dismiss()
     refreshIndicators()
