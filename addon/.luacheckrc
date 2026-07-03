@@ -178,6 +178,21 @@ read_globals = {
     "FACTION_BAR_COLORS",
     -- Optional addon APIs
     "CraftLib",
+    -- Quest reward UI
+    "QuestInfoRewardsFrame",
+    "QuestInfoFrame",
+    "QuestInfo_GetRewardButton",
+    "QuestLogDetailScrollFrame",
+    "SelectQuestLogEntry",
+    "GetQuestLogItemLink",
+    "GetNumQuestLogChoices",
+    "GetNumQuestLogRewards",
+    "GetQuestItemLink",
+    "GetNumQuestChoices",
+    "GetNumQuestRewards",
+    "QUEST_COMPLETE",
+    "hooksecurefunc",
+    "C_Timer",
 }
 
 -- Busted spec files: test globals and assert extensions (e.g. assert.truthy)

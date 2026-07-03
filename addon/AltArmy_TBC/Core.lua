@@ -44,9 +44,6 @@ if main.SetToplevel then
 end
 main:SetMovable(true)
 main:SetClampedToScreen(true)
-main:RegisterForDrag("LeftButton")
-main:SetScript("OnDragStart", function(f) f:StartMoving() end)
-main:SetScript("OnDragStop", function(f) f:StopMovingOrSizing() end)
 main:EnableMouse(true)
 main:HookScript("OnShow", function(f)
     if f.Raise then
@@ -69,7 +66,14 @@ local headerPanel = CreateFrame("Frame", nil, main, "BackdropTemplate")
 headerPanel:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
 headerPanel:SetPoint("TOPRIGHT", main, "TOPRIGHT", -CONTENT_INSET, -CONTENT_INSET)
 headerPanel:SetHeight(HEADER_PANEL_HEIGHT)
-headerPanel:EnableMouse(false)
+headerPanel:EnableMouse(true)
+headerPanel:RegisterForDrag("LeftButton")
+headerPanel:SetScript("OnDragStart", function()
+    main:StartMoving()
+end)
+headerPanel:SetScript("OnDragStop", function()
+    main:StopMovingOrSizing()
+end)
 Theme.ApplyBackdrop(headerPanel, "section")
 
 -- Title (vertically centered in header)
@@ -156,6 +160,16 @@ headerSearchEdit:SetScript("OnEditFocusGained", updateSearchPlaceholderVisibilit
 headerSearchEdit:SetScript("OnEditFocusLost", updateSearchPlaceholderVisibility)
 -- OnTextChanged registered below after enterSearchMode/exitSearchMode are defined
 
+local function itemLinksReferToSameItem(a, b)
+    if not a or not b then return false end
+    if a == b then return true end
+    local function itemId(link)
+        return tonumber(tostring(link):match("item:(%d+)"))
+    end
+    local idA, idB = itemId(a), itemId(b)
+    return idA ~= nil and idA == idB
+end
+
 -- Expose for clearing header search and switching to Summary (e.g. from other code)
 function AltArmy.OpenGearTabFocused(itemLink)
     pendingOpenTab = "Gear"
@@ -163,6 +177,17 @@ function AltArmy.OpenGearTabFocused(itemLink)
     lastTab = "Gear"
     if not AltArmy.MainFrame or not AltArmy.MainFrame.Show then return end
     if AltArmy.MainFrame.IsShown and AltArmy.MainFrame:IsShown() then
+        local gearFrame = AltArmy.TabFrames and AltArmy.TabFrames.Gear
+        if AltArmy.CurrentTab == "Gear"
+            and gearFrame
+            and gearFrame.GetFocusedItemLink
+            and itemLink
+            and itemLinksReferToSameItem(gearFrame:GetFocusedItemLink(), itemLink) then
+            pendingOpenTab = nil
+            pendingGearFocusLink = nil
+            AltArmy.MainFrame:Hide()
+            return
+        end
         pendingOpenTab = nil
         pendingGearFocusLink = nil
         if headerSearchEdit and headerSearchEdit.SetText then
@@ -170,7 +195,6 @@ function AltArmy.OpenGearTabFocused(itemLink)
         end
         exitSearchMode()
         setActiveTab("Gear")
-        local gearFrame = AltArmy.TabFrames and AltArmy.TabFrames.Gear
         if gearFrame and gearFrame.FocusItem and itemLink then
             gearFrame:FocusItem(itemLink)
         end

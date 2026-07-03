@@ -2126,6 +2126,8 @@ function GU.EnsureGearUpgradeOptions()
     end
     if gu.notifyCurrentCharacter == nil then gu.notifyCurrentCharacter = true end
     if gu.notifyOtherCharacters == nil then gu.notifyOtherCharacters = true end
+    if gu.showQuestRewardUpgradeIndicator == nil then gu.showQuestRewardUpgradeIndicator = true end
+    if gu.showQuestRewardVendorIndicator == nil then gu.showQuestRewardVendorIndicator = true end
     gu.technique = "custom"
     gu.levelsAhead = resolveLevelsAhead(gu.levelsAhead)
     gu.upgradeThresholdPercent = GU.ResolveUpgradeThresholdPercent(gu.upgradeThresholdPercent)

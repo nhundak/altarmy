@@ -54,6 +54,10 @@ describe("Gear compare panel height", function()
     end
 
     local function getCompareWarningColor(warning, entry)
+        local kind = type(warning) == "table" and warning.kind or nil
+        if kind == IU_EQUIP_WARNING_KIND.SOULBOUND and isCompareEntryCurrentCharacter(entry) then
+            return 1, 1, 1
+        end
         if getCompareWarningSeverity(warning, entry) == "caution" then
             return COMPARE_WARNING_COLOR_CAUTION[1], COMPARE_WARNING_COLOR_CAUTION[2], COMPARE_WARNING_COLOR_CAUTION[3]
         end
@@ -474,7 +478,7 @@ describe("Gear compare panel height", function()
         assert.are.equal(0.4, neverG)
     end)
 
-    it("uses yellow for soulbound on current character, red on alts", function()
+    it("uses white for soulbound on current character, red on alts", function()
         local warning = {
             text = "This item is soulbound",
             kind = IU_EQUIP_WARNING_KIND.SOULBOUND,
@@ -483,9 +487,10 @@ describe("Gear compare panel height", function()
         assert.are.equal(1, altR)
         assert.are.equal(0.4, altG)
 
-        local selfR, selfG = getCompareWarningColor(warning, { isCurrent = true })
+        local selfR, selfG, selfB = getCompareWarningColor(warning, { isCurrent = true })
         assert.are.equal(1, selfR)
-        assert.are.equal(0.82, selfG)
+        assert.are.equal(1, selfG)
+        assert.are.equal(1, selfB)
     end)
 
     it("sorts blocking warnings before caution warnings", function()

@@ -24,6 +24,22 @@ local function hookHostShow(panel)
     end)
 end
 
+local function createSectionLabel(parent, anchorTo, text)
+    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    label:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", 0, -14)
+    label:SetJustifyH("LEFT")
+    label:SetText(text)
+    Theme.SetTitleColor(label)
+    return label
+end
+
+local function refreshQuestRewardIndicators()
+    local QRI = AltArmy.QuestRewardIndicators
+    if QRI and QRI.Refresh then
+        QRI.Refresh()
+    end
+end
+
 function AltArmy.BuildGearUpgradeOptionsUI(panel)
     panel = panel or AltArmy.OptionsPanel
     if not panel or not panel.tabGearUpgradesHost then return false end
@@ -57,13 +73,19 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     })
     local scrollChild = viewport.child
 
+    local currentCharSection = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    currentCharSection:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, 0)
+    currentCharSection:SetJustifyH("LEFT")
+    currentCharSection:SetText("Current Character")
+    Theme.SetTitleColor(currentCharSection)
+
     local currentCharRow = Theme.CreateLabeledCheckbox(scrollChild, {
         point = "TOPLEFT",
-        relativeTo = scrollChild,
-        relativePoint = "TOPLEFT",
+        relativeTo = currentCharSection,
+        relativePoint = "BOTTOMLEFT",
         x = 0,
-        y = 0,
-        text = "Upgrade notifications for current character",
+        y = -8,
+        text = "Notify me when a quest reward or soulbound loot is an upgrade",
         fullWidthHover = true,
         onClick = function(checked)
             GU.EnsureGearUpgradeOptions().notifyCurrentCharacter = checked
@@ -71,13 +93,45 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     })
     local currentCharChk = currentCharRow.check
 
-    local otherCharRow = Theme.CreateLabeledCheckbox(scrollChild, {
+    local showUpgradeRow = Theme.CreateLabeledCheckbox(scrollChild, {
         point = "TOPLEFT",
         relativeTo = currentCharRow,
         relativePoint = "BOTTOMLEFT",
         x = 0,
         y = -8,
-        text = "Upgrade notification for other characters",
+        text = "Show best upgrade indicator in quest rewards",
+        fullWidthHover = true,
+        onClick = function(checked)
+            GU.EnsureGearUpgradeOptions().showQuestRewardUpgradeIndicator = checked
+            refreshQuestRewardIndicators()
+        end,
+    })
+    local showUpgradeChk = showUpgradeRow.check
+
+    local showVendorRow = Theme.CreateLabeledCheckbox(scrollChild, {
+        point = "TOPLEFT",
+        relativeTo = showUpgradeRow,
+        relativePoint = "BOTTOMLEFT",
+        x = 0,
+        y = -8,
+        text = "Show best vendor price indicator in quest rewards",
+        fullWidthHover = true,
+        onClick = function(checked)
+            GU.EnsureGearUpgradeOptions().showQuestRewardVendorIndicator = checked
+            refreshQuestRewardIndicators()
+        end,
+    })
+    local showVendorChk = showVendorRow.check
+
+    local otherCharSection = createSectionLabel(scrollChild, showVendorRow, "Other characters")
+
+    local otherCharRow = Theme.CreateLabeledCheckbox(scrollChild, {
+        point = "TOPLEFT",
+        relativeTo = otherCharSection,
+        relativePoint = "BOTTOMLEFT",
+        x = 0,
+        y = -8,
+        text = "Notify me when a non-soulbound loot is an upgrade for any of my characters",
         fullWidthHover = true,
         onClick = function(checked)
             GU.EnsureGearUpgradeOptions().notifyOtherCharacters = checked
@@ -85,8 +139,10 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     })
     local otherCharChk = otherCharRow.check
 
-    local levelsLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    levelsLabel:SetPoint("TOPLEFT", otherCharRow, "BOTTOMLEFT", 0, -14)
+    local comparisonSection = createSectionLabel(scrollChild, otherCharRow, "Comparison settings")
+
+    local levelsLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    levelsLabel:SetPoint("TOPLEFT", comparisonSection, "BOTTOMLEFT", 0, -10)
     levelsLabel:SetText("Level look-ahead")
 
     local levelsEdit = CreateFrame("EditBox", nil, scrollChild)
@@ -109,7 +165,7 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     end)
     levelsEdit:SetScript("OnEditFocusLost", saveLevelsAhead)
 
-    local thresholdLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local thresholdLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     thresholdLabel:SetPoint("TOPLEFT", levelsEdit, "BOTTOMLEFT", 0, -14)
     thresholdLabel:SetText("Upgrade threshold (%)")
 
@@ -135,7 +191,7 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     end)
     thresholdEdit:SetScript("OnEditFocusLost", saveUpgradeThreshold)
 
-    scrollChild:SetHeight(188)
+    scrollChild:SetHeight(320)
 
     local function UpdateGearUpgradeScrollRange()
         viewport:UpdateRange()
@@ -145,6 +201,8 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
         GU.EnsureGearUpgradeOptions()
         local opts = GU.GetOptions()
         currentCharChk:SetChecked(opts.notifyCurrentCharacter ~= false)
+        showUpgradeChk:SetChecked(opts.showQuestRewardUpgradeIndicator ~= false)
+        showVendorChk:SetChecked(opts.showQuestRewardVendorIndicator ~= false)
         otherCharChk:SetChecked(opts.notifyOtherCharacters ~= false)
         levelsEdit:SetText(tostring(opts.levelsAhead))
         thresholdEdit:SetText(tostring(opts.upgradeThresholdPercent))

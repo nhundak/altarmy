@@ -71,4 +71,5 @@ UI\Minimap.lua
 UI\BankAltSuggestDialog.lua
 UI\Options.lua
 UI\CooldownOptions.lua
+UI\QuestRewardIndicators.lua
 UI\GearUpgradeOptions.lua

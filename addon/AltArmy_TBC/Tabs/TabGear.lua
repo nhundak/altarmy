@@ -604,6 +604,10 @@ function GearTab.GetCompareWarningSeverity(warning, entry)
 end
 
 function GearTab.GetCompareWarningColor(warning, entry)
+    local kind = IU and IU.GetEquipWarningKind and IU.GetEquipWarningKind(warning)
+    if kind == IU.EQUIP_WARNING_KIND.SOULBOUND and isCompareEntryCurrentCharacter(entry) then
+        return 1, 1, 1
+    end
     local caution = COMPARE_WARNING_COLOR_CAUTION
     local blocking = COMPARE_WARNING_COLOR_BLOCKING
     if GearTab.GetCompareWarningSeverity(warning, entry) == "caution" then
@@ -3049,6 +3053,10 @@ function frame:FocusItem(link)
     GearTab.ApplyFocusedItem(link)
     GearTab.updateItemCheckButtonLabel()
     if self.RefreshGrid then self:RefreshGrid() end
+end
+
+function frame:GetFocusedItemLink()
+    return droppedItemLink
 end
 
 function frame:ClearFocus()
