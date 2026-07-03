@@ -905,23 +905,42 @@ local function buildTwohandFocusCompare(
         "one_v_one", deducedLinks, technique, classFile, specKey)
 end
 
+local function compareOffhandFocusVsTwohand(
+    char, focusedLink, equippedTwohandLink, opts, entry,
+    technique, classFile, specKey, deducedLinks)
+    deducedLinks = deducedLinks or {}
+    local deduced = select(1, GU.FindBestStoredItemForSlot(
+        char, MAIN_HAND_SLOT, opts, entry))
+    if deduced then
+        deducedLinks[#deducedLinks + 1] = makeDeducedEntry(
+            deduced, "candidate", MAIN_HAND_SLOT, "mainhand")
+        return finalizeSelectionCompare(
+            deduced, focusedLink, equippedTwohandLink, nil,
+            "paired_candidate", deducedLinks, technique, classFile, specKey)
+    end
+    return finalizeSelectionCompare(
+        nil, focusedLink, equippedTwohandLink, nil,
+        "one_v_one", deducedLinks, technique, classFile, specKey)
+end
+
 local function buildOffhandFocusCompare(
     char, focusedLink, selectedSlot, selectedLink, selectedRole, opts, entry,
     technique, classFile, specKey)
     local deducedLinks = {}
     if selectedRole == "twohand" then
-        local deduced = select(1, GU.FindBestStoredItemForSlot(
-            char, MAIN_HAND_SLOT, opts, entry))
-        if deduced then
-            deducedLinks[#deducedLinks + 1] = makeDeducedEntry(
-                deduced, "candidate", MAIN_HAND_SLOT, "mainhand")
-            return finalizeSelectionCompare(
-                deduced, focusedLink, selectedLink, nil,
-                "paired_candidate", deducedLinks, technique, classFile, specKey)
+        return compareOffhandFocusVsTwohand(
+            char, focusedLink, selectedLink, opts, entry,
+            technique, classFile, specKey, deducedLinks)
+    end
+    if selectedSlot == OFF_HAND_SLOT and not selectedLink then
+        local mhLink = getEquippedLink(char, MAIN_HAND_SLOT)
+        local iu = IU()
+        local mhRole = mhLink and iu and iu.GetWeaponRole and iu.GetWeaponRole(mhLink) or nil
+        if mhRole == "twohand" then
+            return compareOffhandFocusVsTwohand(
+                char, focusedLink, mhLink, opts, entry,
+                technique, classFile, specKey, deducedLinks)
         end
-        return finalizeSelectionCompare(
-            nil, focusedLink, selectedLink, nil,
-            "one_v_one", deducedLinks, technique, classFile, specKey)
     end
     if isSingleHandSelectedRole(selectedRole) then
         local candidateMH = nil

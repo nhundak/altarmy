@@ -28,13 +28,24 @@ local turnInOverlays = {}
 local questLogOverlays = {}
 local hooksInstalled = false
 local UPGRADE_HIT_SIZE = 22
-local UPGRADE_TOOLTIP_TEXT = "Compare using Alt Army"
+local UPGRADE_TOOLTIP_TITLE = "Best upgrade for you"
+local UPGRADE_TOOLTIP_HINT = "Click to view details"
+local UPGRADE_TOOLTIP_HINT_COLOR = { 0.7, 0.7, 0.7 }
 
 local function showUpgradeTooltip(owner)
     if not GameTooltip or not owner then return end
     GameTooltip:SetOwner(owner, "ANCHOR_NONE")
     GameTooltip:ClearLines()
-    GameTooltip:AddLine(UPGRADE_TOOLTIP_TEXT, 1, 1, 1)
+    GameTooltip:AddLine(UPGRADE_TOOLTIP_TITLE, 1, 1, 1)
+    GameTooltip:AddLine(
+        UPGRADE_TOOLTIP_HINT,
+        UPGRADE_TOOLTIP_HINT_COLOR[1],
+        UPGRADE_TOOLTIP_HINT_COLOR[2],
+        UPGRADE_TOOLTIP_HINT_COLOR[3])
+    local hintLine = _G[GameTooltip:GetName() .. "TextLeft" .. GameTooltip:NumLines()]
+    if hintLine and hintLine.SetFontObject and GameFontDisableSmall then
+        hintLine:SetFontObject(GameFontDisableSmall)
+    end
     GameTooltip:SetPoint("BOTTOMLEFT", owner, "TOPLEFT", 0, 4)
     GameTooltip:Show()
 end

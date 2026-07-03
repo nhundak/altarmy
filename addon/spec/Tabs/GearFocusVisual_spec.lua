@@ -39,6 +39,25 @@ describe("Gear focus visuals", function()
         assert.are.equal(1, getFocusColumnAlpha(false))
     end)
 
+    --- Mirror TabGear.GetFocusColumnDimmed soulbound policy.
+    local function getFocusColumnDimmed(entry, soulbound, isCurrent, baseDimmed)
+        if soulbound and not isCurrent then return true end
+        return baseDimmed == true
+    end
+
+    it("dims non-current characters when the focused item is soulbound", function()
+        assert.is_true(getFocusColumnDimmed({ name = "Alt" }, true, false, false))
+        assert.is_false(getFocusColumnDimmed({ name = "Me" }, true, true, false))
+    end)
+
+    it("still dims current character for downgrade or unusable when soulbound", function()
+        assert.is_true(getFocusColumnDimmed({ name = "Me" }, true, true, true))
+    end)
+
+    it("does not soulbound-dim when the focused item is not soulbound", function()
+        assert.is_false(getFocusColumnDimmed({ name = "Alt" }, false, false, false))
+    end)
+
     it("restores full opacity for the selected compare column", function()
         assert.are.equal(1, getFocusColumnAlpha(true, true))
         assert.are.equal(1, getFocusColumnAlpha(false, true))

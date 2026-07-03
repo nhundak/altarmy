@@ -41,6 +41,7 @@ read_globals = {
     "GameFontNormalLarge",
     "GameFontHighlight",
     "GameFontDisable",
+    "GameFontDisableSmall",
     -- Unit & player
     "UnitName",
     "GetUnitName",

@@ -347,11 +347,17 @@ describe("Gear display list focus mode", function()
     end)
 
     --- Mirror TabGear focus sort (uses GU.CompareFocusEntries).
-    local function sortByFocusTier(list, itemLink, upgradeOpts)
+    local function sortByFocusTier(list, itemLink, upgradeOpts, sortOpts)
+        sortOpts = sortOpts or {}
         local upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForEntries(list, itemLink, upgradeOpts)
         local copy = {}
         for i = 1, #list do copy[i] = list[i] end
         table.sort(copy, function(a, b)
+            if sortOpts.soulbound then
+                local aSelf = (a.name == sortOpts.currentName and a.realm == sortOpts.currentRealm)
+                local bSelf = (b.name == sortOpts.currentName and b.realm == sortOpts.currentRealm)
+                if aSelf ~= bSelf then return aSelf end
+            end
             local charA = DS:GetCharacter(a.name, a.realm)
             local charB = DS:GetCharacter(b.name, b.realm)
             return GU.CompareFocusEntries(a, b, charA, charB, itemLink, upgradeOpts, upgradeMaxDelta)
@@ -511,15 +517,38 @@ describe("Gear display list focus mode", function()
         assert.are.equal(1, slot)
     end)
 
-    it("auto-selects current character for soulbound focus even when another alt is a bigger upgrade", function()
+    it("sorts current character first for soulbound focus before upgrade tier", function()
         local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local upgradeOpts = { technique = "ilvl", levelsAhead = 0 }
         local entries = {
             { name = "SmallUpgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
             { name = "Me", realm = "RealmA", classFile = "MAGE", level = 60 },
             { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
         }
-        local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
-        assert.are.equal("Upgrader", sorted[1].name)
+        local sorted = sortByFocusTier(entries, itemLink, upgradeOpts, {
+            soulbound = true,
+            currentName = "Me",
+            currentRealm = "RealmA",
+        })
+        assert.are.equal("Me", sorted[1].name)
+        assert.are.equal("Upgrader", sorted[2].name)
+        assert.are.equal("SmallUpgrader", sorted[3].name)
+    end)
+
+    it("auto-selects current character for soulbound focus even when another alt is a bigger upgrade", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local upgradeOpts = { technique = "ilvl", levelsAhead = 0 }
+        local entries = {
+            { name = "SmallUpgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Me", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local sorted = sortByFocusTier(entries, itemLink, upgradeOpts, {
+            soulbound = true,
+            currentName = "Me",
+            currentRealm = "RealmA",
+        })
+        assert.are.equal("Me", sorted[1].name)
         local key, slot = pickCurrentCharacterCompareSelection(sorted, "Me", "RealmA", 1)
         assert.are.equal(CharKey("Me", "RealmA"), key)
         assert.are.equal(1, slot)
@@ -527,17 +556,22 @@ describe("Gear display list focus mode", function()
 
     it("auto-selects current character for soulbound focus even when another alt sorts first", function()
         local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local upgradeOpts = { technique = "ilvl", levelsAhead = 0 }
         local entries = {
             { name = "SmallUpgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
             { name = "Me", realm = "RealmA", classFile = "MAGE", level = 60 },
             { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
         }
-        local sorted = sortByFocusTier(entries, itemLink, { technique = "ilvl", levelsAhead = 0 })
-        local bestKey = pickInitialCompareSelection(sorted, itemLink, { technique = "ilvl", levelsAhead = 0 })
-        assert.are.equal(CharKey("Upgrader", "RealmA"), bestKey)
+        local sorted = sortByFocusTier(entries, itemLink, upgradeOpts, {
+            soulbound = true,
+            currentName = "Me",
+            currentRealm = "RealmA",
+        })
+        local bestKey = pickInitialCompareSelection(sorted, itemLink, upgradeOpts)
+        assert.are.equal(CharKey("Me", "RealmA"), bestKey)
         local key, slot = pickCurrentCharacterCompareSelection(sorted, "Me", "RealmA", 1)
         assert.are.equal(CharKey("Me", "RealmA"), key)
-        assert.are.not_equal(bestKey, key)
+        assert.are.equal(bestKey, key)
         assert.are.equal(1, slot)
     end)
 
@@ -605,6 +639,34 @@ describe("Gear display list focus mode", function()
         local key, slot = pickInitialCompareSelection(sorted, itemLink, { technique = "ilvl", levelsAhead = 0 })
         assert.are.equal(CharKey("LowLevel", "RealmA"), key)
         assert.are.equal(1, slot)
+    end)
+
+    --- Mirror TabGear.GetFocusColumnDimmed (incl. soulbound policy).
+    local function getFocusColumnDimmed(list, entry, itemLink, upgradeOpts, sortOpts)
+        sortOpts = sortOpts or {}
+        if sortOpts.soulbound then
+            local isSelf = (entry.name == sortOpts.currentName and entry.realm == sortOpts.currentRealm)
+            if not isSelf then return true end
+        end
+        local upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForEntries(list, itemLink, upgradeOpts)
+        local charData = DS:GetCharacter(entry.name, entry.realm)
+        return GU.GetFocusColumnDimmed(entry, charData, itemLink, upgradeOpts, upgradeMaxDelta)
+    end
+
+    it("dims alt upgrade columns when focused item is soulbound", function()
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+        local upgradeOpts = { technique = "ilvl", levelsAhead = 0 }
+        local entries = {
+            { name = "Upgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+            { name = "Me", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local upgrader = entries[1]
+        assert.is_false(getFocusColumnDimmed(entries, upgrader, itemLink, upgradeOpts))
+        assert.is_true(getFocusColumnDimmed(entries, upgrader, itemLink, upgradeOpts, {
+            soulbound = true,
+            currentName = "Me",
+            currentRealm = "RealmA",
+        }))
     end)
 
     it("pickBestCompareSelection still prefers biggest in-range upgrade", function()

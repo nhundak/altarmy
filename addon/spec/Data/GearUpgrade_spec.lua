@@ -1489,6 +1489,65 @@ describe("GearUpgrade", function()
             assert.are.equal(18, delta)
         end)
 
+        it("shield vs selected 2H pairs main-hand from bags when off-hand is selected", function()
+            local char = setupPaladinTwoHand()
+            local entry = { name = "Paladin2H", realm = "TestRealm", classFile = "PALADIN", level = 60 }
+            local delta, info = GU.GetWeaponConfigDelta(char, "|Hitem:208:0|h[Shield]|h", {
+                technique = "ilvl",
+                compareSlot = OFF,
+            }, entry)
+            assert.are.equal(-2, delta)
+            assert.are.equal(50, info.currentValue)
+            assert.are.equal(48, info.candidateValue)
+            assert.are.equal("paired_candidate", info.config)
+            assert.are.equal("|Hitem:207:0|h[Bag 1H]|h", info.mainHandLink)
+        end)
+
+        it("GetWeaponConfigDelta auto-select uses loadout compare for shield vs 2H", function()
+            local char = setupPaladinTwoHand()
+            local entry = { name = "Paladin2H", realm = "TestRealm", classFile = "PALADIN", level = 60 }
+            local delta = GU.GetWeaponConfigDelta(char, "|Hitem:208:0|h[Shield]|h", {
+                technique = "ilvl",
+            }, entry)
+            assert.are.equal(-2, delta)
+        end)
+
+        it("GetCharacterUpgradeDelta uses loadout comparison for shield vs 2H", function()
+            local char = setupPaladinTwoHand()
+            local delta = GU.GetCharacterUpgradeDelta(char, "|Hitem:208:0|h[Shield]|h", {
+                technique = "ilvl",
+            })
+            assert.are.equal(-2, delta)
+        end)
+
+        it("shield vs 2H without bag 1H compares shield against 2H only", function()
+            _G.AltArmyTBC_Data.Characters.TestRealm.Paladin2HNo1H = {
+                name = "Paladin2HNo1H",
+                realm = "TestRealm",
+                classFile = "PALADIN",
+                level = 60,
+                Inventory = {
+                    [MAIN] = "|Hitem:204:0|h[Small 2H]|h",
+                },
+                Containers = {
+                    [0] = {
+                        links = {
+                            [1] = "|Hitem:208:0|h[Shield]|h",
+                        },
+                    },
+                },
+                talents = { tabs = { 0, 21, 0 }, primary = 2, specKey = "retribution" },
+            }
+            local char = DS:GetCharacter("Paladin2HNo1H", "TestRealm")
+            local entry = { name = "Paladin2HNo1H", realm = "TestRealm", classFile = "PALADIN", level = 60 }
+            local delta, info = GU.GetWeaponConfigDelta(char, "|Hitem:208:0|h[Shield]|h", {
+                technique = "ilvl",
+                compareSlot = OFF,
+            }, entry)
+            assert.are.equal(-30, delta)
+            assert.are.equal("one_v_one", info.config)
+        end)
+
         it("FindBestBagItemForRole returns highest scoring usable item", function()
             local char = setupRogueTwoHand()
             local entry = { name = "Rogue2H", realm = "TestRealm", classFile = "ROGUE", level = 60 }

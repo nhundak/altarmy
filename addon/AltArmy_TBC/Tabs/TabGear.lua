@@ -783,6 +783,11 @@ function GearTab.GetDisplayList()
     local copy = {}
     for i = 1, #list do copy[i] = list[i] end
     table.sort(copy, function(a, b)
+        if GearTab.IsFocusedItemSoulbound() then
+            local aSelf = DS and DS.IsCurrentCharacter and DS:IsCurrentCharacter(a.name, a.realm)
+            local bSelf = DS and DS.IsCurrentCharacter and DS:IsCurrentCharacter(b.name, b.realm)
+            if aSelf ~= bSelf then return aSelf end
+        end
         local charA = DS and DS.GetCharacter and DS:GetCharacter(a.name, a.realm)
         local charB = DS and DS.GetCharacter and DS:GetCharacter(b.name, b.realm)
         if GU and GU.CompareFocusEntries then
@@ -803,6 +808,11 @@ end
 
 function GearTab.GetFocusColumnDimmed(entry, upgradeMaxDelta)
     if not droppedItemLink or not GU or not GU.GetFocusColumnDimmed then return false end
+    if GearTab.IsFocusedItemSoulbound() then
+        if DS and DS.IsCurrentCharacter and not DS:IsCurrentCharacter(entry.name, entry.realm) then
+            return true
+        end
+    end
     local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
     local opts = GU.GetOptions and GU.GetOptions() or {}
     return GU.GetFocusColumnDimmed(entry, charData, droppedItemLink, opts, upgradeMaxDelta)

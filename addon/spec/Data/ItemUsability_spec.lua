@@ -36,6 +36,7 @@ describe("ItemUsability", function()
             [16] = { "Heavy Mace", nil, 3, 10, 10, "Weapon", "Two-Handed Maces", nil, "INVTYPE_2HWEAPON" },
             [17] = { "Throwing Knife", nil, 2, 10, 10, "Weapon", "Thrown", nil, "INVTYPE_THROWN" },
             [18] = { "Claw", nil, 3, 10, 10, "Weapon", "Fist Weapons", nil, "INVTYPE_WEAPON" },
+            [19] = { "Tome", nil, 2, 10, 10, "Miscellaneous", nil, nil, "INVTYPE_HOLDABLE" },
         }
         local info = items[id]
         if not info then return end
@@ -83,11 +84,12 @@ describe("ItemUsability", function()
         assert.are.same({ 16, 17 }, IU.GetFocusDisplaySlotsForItem("|Hitem:10:0|h[One-Hand Axe]|h"))
         assert.are.same({ 16, 17 }, IU.GetFocusDisplaySlotsForItem("|Hitem:11:0|h[Two-Hand Sword]|h"))
         assert.are.same({ 16, 17 }, IU.GetFocusDisplaySlotsForItem("|Hitem:12:0|h[Offhand Dagger]|h"))
+        assert.are.same({ 16, 17 }, IU.GetFocusDisplaySlotsForItem("|Hitem:7:0|h[Shield]|h"))
+        assert.are.same({ 16, 17 }, IU.GetFocusDisplaySlotsForItem("|Hitem:19:0|h[Tome]|h"))
     end)
 
     it("GetFocusDisplaySlotsForItem leaves non-weapon slots unchanged", function()
         assert.are.same({ 11, 12 }, IU.GetFocusDisplaySlotsForItem("|Hitem:4:0|h[Ring]|h"))
-        assert.are.same({ 17 }, IU.GetFocusDisplaySlotsForItem("|Hitem:7:0|h[Shield]|h"))
         assert.are.same({ 1 }, IU.GetFocusDisplaySlotsForItem("|Hitem:1:0|h[Cloth Hood]|h"))
     end)
 
