@@ -159,12 +159,21 @@ describe("SummaryData", function()
 
   describe("GetMissingDataInfo", function()
     local DS
+    local DT
 
     before_each(function()
       DS = _G.AltArmy.DataStore
       if not DS then
         _G.AltArmy.DataStore = {}
         DS = _G.AltArmy.DataStore
+      end
+      DT = _G.AltArmy.DataStoreTalents
+      if not DT then
+        _G.AltArmy.DataStoreTalents = {}
+        DT = _G.AltArmy.DataStoreTalents
+      end
+      DT.HasTalentData = function(char)
+        return char and char.talents and char.talents.tabs ~= nil
       end
       -- Default: reputation storage is current (no stale-format warning)
       DS.NeedsRescan = function()
@@ -184,6 +193,7 @@ describe("SummaryData", function()
     it("returns no missing when all modules have data", function()
       local char = {
         level = 70,
+        talents = { tabs = { 0, 0, 21 } },
         dataVersions = {
           character = 1, containers = 1, equipment = 1, professions = 1,
           reputations = 2, mail = 1, auctions = 1, currencies = 1,
@@ -538,6 +548,7 @@ describe("SummaryData", function()
     it("does not flag cooldown specialization when snapshot already exists", function()
       local char = {
         level = 70,
+        talents = { tabs = { 0, 0, 21 } },
         dataVersions = {
           character = 1, containers = 1, equipment = 1, professions = 1,
           reputations = 2, mail = 1, auctions = 1, currencies = 1,
@@ -585,6 +596,7 @@ describe("SummaryData", function()
     it("does not flag cooldown specialization below level 60", function()
       local char = {
         level = 59,
+        talents = { tabs = { 0, 0, 21 } },
         dataVersions = {
           character = 1, containers = 1, equipment = 1, professions = 1,
           reputations = 2, mail = 1, auctions = 1, currencies = 1,
@@ -673,6 +685,7 @@ describe("SummaryData", function()
     it("does not flag missing gearScores when GearScoreTBCClassic addon is disabled", function()
       local char = {
         level = 70,
+        talents = { tabs = { 0, 0, 21 } },
         dataVersions = {
           character = 1, containers = 1, equipment = 1, professions = 1,
           reputations = 2, mail = 1, auctions = 1, currencies = 1,
@@ -707,6 +720,150 @@ describe("SummaryData", function()
       _G.AltArmy.GearScore = oldGS
       assert.is_false(out.hasMissing)
     end)
+
+    it("returns no talent instruction when talent data exists", function()
+      local char = {
+        level = 70,
+        talents = { tabs = { 0, 0, 21 } },
+        dataVersions = {
+          character = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
+        cooldownSpecs = {
+          masterTransmutation = false,
+          spellfireTailor = false,
+          shadoweaveTailor = false,
+          moonclothTailor = false,
+        },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      assert.is_false(out.hasMissing)
+      for _, line in ipairs(out.instructions) do
+        assert.is_false(line:find("Talents", 1, true) ~= nil)
+      end
+    end)
+
+    it("adds Open your Talents window for current character without talent data", function()
+      local char = {
+        level = 70,
+        dataVersions = {
+          character = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
+        cooldownSpecs = {
+          masterTransmutation = false,
+          spellfireTailor = false,
+          shadoweaveTailor = false,
+          moonclothTailor = false,
+        },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Bob" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_true(out.hasMissing)
+      local found = false
+      for _, line in ipairs(out.instructions) do
+        if line:find("Talents", 1, true) then found = true break end
+      end
+      assert.is_true(found, "expected Talents window instruction for current character")
+    end)
+
+    it("adds Log in with this character for alt without talent data", function()
+      local char = {
+        level = 70,
+        dataVersions = {
+          character = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
+        cooldownSpecs = {
+          masterTransmutation = false,
+          spellfireTailor = false,
+          shadoweaveTailor = false,
+          moonclothTailor = false,
+        },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Alice" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_true(out.hasMissing)
+      local loginCount = 0
+      for _, line in ipairs(out.instructions) do
+        if line:find("Log in with this character", 1, true) then
+          loginCount = loginCount + 1
+        end
+      end
+      assert.are.equal(1, loginCount, "expected exactly one log-in instruction for alt")
+    end)
+
+    it("dedupes Log in with this character when alt is missing modules and talents", function()
+      local char = { dataVersions = { character = 1 } }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.HasModuleData = function(_, c, mod) return (c.dataVersions and c.dataVersions[mod]) == 1 end
+      DS.GetProfessions = function(_, _c) return {} end
+      DS.GetNumRecipes = function() return 0 end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Alice" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_true(out.hasMissing)
+      local loginCount = 0
+      for _, line in ipairs(out.instructions) do
+        if line:find("Log in with this character", 1, true) then
+          loginCount = loginCount + 1
+        end
+      end
+      assert.are.equal(1, loginCount, "expected single deduped log-in instruction")
+    end)
   end)
 
   describe("GetMissingDataTooltip", function()
@@ -726,6 +883,7 @@ describe("SummaryData", function()
     it("returns nil when nothing missing", function()
       local char = {
         level = 70,
+        talents = { tabs = { 0, 0, 21 } },
         dataVersions = {
           character = 1, containers = 1, equipment = 1, professions = 1,
           reputations = 2, mail = 1, auctions = 1, currencies = 1,

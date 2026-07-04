@@ -307,6 +307,34 @@ local function needsCooldownSpecializationScan(char, DS)
     return tailoringOrAlchemyAtLeastRank(char, COOLDOWN_SPEC_SCAN_MIN_PROF_RANK)
 end
 
+local function resolveIsCurrentChar(name, realm)
+    local currentName = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
+    local currentRealm = GetRealmName and GetRealmName() or ""
+    return (name == currentName and realm == currentRealm)
+end
+
+local function addUniqueInstruction(out, line)
+    if not out or not line or line == "" then return end
+    for _, existing in ipairs(out.instructions) do
+        if existing == line then
+            return
+        end
+    end
+    table.insert(out.instructions, line)
+end
+
+local function appendTalentMissingInstructions(out, char, isCurrent)
+    local DT = AltArmy.DataStoreTalents
+    if DT and DT.HasTalentData and DT.HasTalentData(char) then
+        return
+    end
+    if isCurrent then
+        addUniqueInstruction(out, "* Open your Talents window")
+    else
+        addUniqueInstruction(out, "* Log in with this character")
+    end
+end
+
 --- Returns whether a character is missing any gathered data and a list of instructions for the tooltip.
 --- @param name string Character name
 --- @param realm string Realm name
@@ -318,18 +346,14 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
     local char = DS:GetCharacter(name, realm)
     if not char then return out end
 
-    local currentName = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
-    local currentRealm = GetRealmName and GetRealmName() or ""
-    local isCurrent = (name == currentName and realm == currentRealm)
-    local addedLoginInstruction = false
+    local isCurrent = resolveIsCurrentChar(name, realm)
 
     for moduleName, instruction in pairs(MODULE_INSTRUCTIONS) do
         if not (DS.HasModuleData and DS:HasModuleData(char, moduleName)) then
             if isCurrent then
-                table.insert(out.instructions, instruction)
-            elseif not addedLoginInstruction then
-                table.insert(out.instructions, "* Log in with this character")
-                addedLoginInstruction = true
+                addUniqueInstruction(out, instruction)
+            else
+                addUniqueInstruction(out, "* Log in with this character")
             end
         end
     end
@@ -337,9 +361,8 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
     local GS = AltArmy and AltArmy.GearScore
     if GS and GS.IsGearScoreTBCClassicAvailable and GS.IsGearScoreTBCClassicAvailable()
         and DS.HasModuleData and not DS:HasModuleData(char, "gearScores") then
-        if not isCurrent and not addedLoginInstruction then
-            table.insert(out.instructions, "* Log in with this character")
-            addedLoginInstruction = true
+        if not isCurrent then
+            addUniqueInstruction(out, "* Log in with this character")
         end
     end
 
@@ -349,9 +372,9 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
         local legacyScalars = charHasLegacyReputationScalars(char)
         if staleVersion or legacyScalars then
             if isCurrent then
-                table.insert(out.instructions, "* /reload or log in again to refresh reputation data")
-            elseif not addedLoginInstruction then
-                table.insert(out.instructions, "* Log in with this character")
+                addUniqueInstruction(out, "* /reload or log in again to refresh reputation data")
+            else
+                addUniqueInstruction(out, "* Log in with this character")
             end
         end
     end
@@ -364,7 +387,7 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
             if not PROFESSIONS_NO_WARNING[profName] then
                 local rank = (prof and prof.rank) or 0
                 if rank > 0 and DS:GetNumRecipes(char, profName) == 0 then
-                    table.insert(out.instructions, "* Open your " .. profName .. " window")
+                    addUniqueInstruction(out, "* Open your " .. profName .. " window")
                 end
             end
         end
@@ -372,33 +395,15 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
 
     if needsPoisonsWindowScan(char, DS) then
         local poisonsName = getPoisonsProfessionName()
-        local line = "* Open your " .. poisonsName .. " window"
-        local dup = false
-        for _, existing in ipairs(out.instructions) do
-            if existing == line then
-                dup = true
-                break
-            end
-        end
-        if not dup then
-            table.insert(out.instructions, line)
-        end
+        addUniqueInstruction(out, "* Open your " .. poisonsName .. " window")
     end
 
     -- Cooldown specialization passives (Master of Transmutation, Spellfire, etc.): filled on login scan.
     if needsCooldownSpecializationScan(char, DS) then
-        local loginMsg = "* Log in with this character"
-        local dup = false
-        for _, line in ipairs(out.instructions) do
-            if line == loginMsg then
-                dup = true
-                break
-            end
-        end
-        if not dup then
-            table.insert(out.instructions, loginMsg)
-        end
+        addUniqueInstruction(out, "* Log in with this character")
     end
+
+    appendTalentMissingInstructions(out, char, isCurrent)
 
     out.hasMissing = #out.instructions > 0
     return out
@@ -447,26 +452,15 @@ end
 
 --- Whether talent/spec data is missing for this character.
 function AltArmy.SummaryData.GetTalentSpecMissingInfo(name, realm)
-    local DS = AltArmy.DataStore
-    local DT = AltArmy.DataStoreTalents
     local out = { hasMissing = false, instructions = {} }
+    local DS = AltArmy.DataStore
     if not DS or not DS.GetCharacter then return out end
     local char = DS:GetCharacter(name, realm)
     if not char then return out end
-    if DT and DT.HasTalentData and DT.HasTalentData(char) then
-        return out
-    end
 
-    local currentName = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
-    local currentRealm = GetRealmName and GetRealmName() or ""
-    local isCurrent = (name == currentName and realm == currentRealm)
-
-    out.hasMissing = true
-    if isCurrent then
-        table.insert(out.instructions, "* Open your Talents window")
-    else
-        table.insert(out.instructions, "* Log in with this character")
-    end
+    local isCurrent = resolveIsCurrentChar(name, realm)
+    appendTalentMissingInstructions(out, char, isCurrent)
+    out.hasMissing = #out.instructions > 0
     return out
 end
 

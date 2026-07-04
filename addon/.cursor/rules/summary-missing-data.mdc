@@ -1,0 +1,17 @@
+---
+description: Summary tab missing-data warnings — one mark, one tooltip, unified aggregator
+globs: AltArmy_TBC/Tabs/TabSummary.lua,AltArmy_TBC/Data/SummaryData.lua,spec/Data/SummaryData_spec.lua
+alwaysApply: false
+---
+
+When editing Summary missing-data warnings:
+
+- Summary shows **one** gold `!` per row in the **Warning** column only (`TabSummary.lua`).
+- **One** tooltip via `PresentMissingDataTooltip`; title format: `Some data for <name> has not been gathered yet.`
+- All conditions aggregate in `GetMissingDataInfo` (`SummaryData.lua`); insert instructions with `addUniqueInstruction` (de-duped list).
+- Warnings are **expected after version upgrades** until users log in and gather data; new conditions belong in `GetMissingDataInfo`, not new Summary columns.
+- Do **not** add a second Summary column or separate tooltip pipeline for a subset of missing data.
+- `GetTalentSpecMissingInfo` is for Gear compare only — not Summary UI.
+- Gear/Reputation tab gear-score `!` marks (`ScoreSortRow.lua`) are a separate system.
+
+Full architecture, anti-patterns, and add-condition checklist: `.cursor/skills/summary-missing-data/SKILL.md`.
