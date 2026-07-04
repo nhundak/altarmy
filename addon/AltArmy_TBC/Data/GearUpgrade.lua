@@ -1209,6 +1209,33 @@ local function deducedLoadoutHintForLink(link, focusedLink, char)
     return GU.FormatDeducedWeaponLoadoutHint(link, char)
 end
 
+local function reorderHeaderLinksWithFocusFirst(links, hints, focusedLink)
+    if #links <= 1 then return links, hints end
+    local focusIdx
+    for i = 1, #links do
+        if linksReferToSameItem(links[i], focusedLink) then
+            focusIdx = i
+            break
+        end
+    end
+    if not focusIdx or focusIdx == 1 then
+        return links, hints
+    end
+    local reorderedLinks = {}
+    local reorderedHints = {}
+    reorderedLinks[1] = links[focusIdx]
+    reorderedHints[1] = hints[focusIdx]
+    local writeIdx = 2
+    for i = 1, #links do
+        if i ~= focusIdx then
+            reorderedLinks[writeIdx] = links[i]
+            reorderedHints[writeIdx] = hints[i]
+            writeIdx = writeIdx + 1
+        end
+    end
+    return reorderedLinks, reorderedHints
+end
+
 --- Item links for compare header when a weapon loadout spans multiple slots.
 --- Returns nil when only one item per side (no extra icons needed).
 function GU.BuildWeaponLoadoutHeaderLinks(focusedLink, char, opts, entry)
@@ -1253,6 +1280,8 @@ function GU.BuildWeaponLoadoutHeaderLinks(focusedLink, char, opts, entry)
         end
         equippedHints[i] = hint
     end
+    focusedLinks, focusedHints = reorderHeaderLinksWithFocusFirst(
+        focusedLinks, focusedHints, focusedLink)
     return {
         focusedLinks = focusedLinks,
         equippedLinks = equippedLinks,

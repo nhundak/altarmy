@@ -1628,6 +1628,22 @@ describe("GearUpgrade", function()
             assert.is_nil(header.equippedHints[1])
         end)
 
+        it("BuildWeaponLoadoutHeaderLinks puts focused shield first when pairing deduced main-hand", function()
+            local char = setupPaladinTwoHand()
+            local entry = { name = "Paladin2H", realm = "TestRealm", classFile = "PALADIN", level = 60 }
+            local header = GU.BuildWeaponLoadoutHeaderLinks("|Hitem:208:0|h[Shield]|h", char, {
+                technique = "ilvl",
+                compareSlot = OFF,
+            }, entry)
+            assert.is_not_nil(header)
+            assert.are.equal(2, #header.focusedLinks)
+            assert.are.equal("|Hitem:208:0|h[Shield]|h", header.focusedLinks[1])
+            assert.are.equal("|Hitem:207:0|h[Bag 1H]|h", header.focusedLinks[2])
+            assert.is_nil(header.focusedHints[1])
+            assert.is_not_nil(header.focusedHints[2])
+            assert.is_true(header.focusedHints[2]:find("best item we could find", 1, true) ~= nil)
+        end)
+
         it("BuildWeaponLoadoutHeaderLinks omits hints for equipped loadout icons", function()
             local char = setupWarriorDualWield()
             local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
