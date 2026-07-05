@@ -1625,6 +1625,43 @@ function GU.SummarizeFocusCharacter(entry, charData, itemLink, slots, opts, upgr
     }
 end
 
+--- Best inventory slot to compare for one character (rings, trinkets, weapon hands).
+function GU.GetBestFocusCompareSlot(entry, charData, itemLink, slots, opts, upgradeMaxDelta)
+    slots = slots or {}
+    if #slots == 0 then return nil end
+    if #slots == 1 then return slots[1] end
+
+    local bestPositiveSlot
+    local bestPositive
+    local bestSidegradeSlot
+    local bestSidegrade
+
+    for i = 1, #slots do
+        local invSlot = slots[i]
+        local info = GU.ClassifyFocusSlot(
+            entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
+        if info then
+            if info.delta and info.delta > 0
+                and (not bestPositive or info.delta > bestPositive.delta) then
+                bestPositive = info
+                bestPositiveSlot = invSlot
+            elseif info.category == GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE
+                or info.category == GU.FOCUS_CATEGORY.SIDEGRADE_BEYOND then
+                if not bestSidegrade
+                    or focusSortTierForCategory(info.category)
+                        < focusSortTierForCategory(bestSidegrade.category) then
+                    bestSidegrade = info
+                    bestSidegradeSlot = invSlot
+                end
+            end
+        end
+    end
+
+    if bestPositiveSlot then return bestPositiveSlot end
+    if bestSidegradeSlot then return bestSidegradeSlot end
+    return slots[1]
+end
+
 function GU.GetFocusInventorySlots(itemLink)
     local iu = IU()
     if not iu or not iu.GetInventorySlotsForItem or not itemLink then return {} end

@@ -159,7 +159,9 @@ function GSD.SaveReceived(sender, presence, guild, realm)
         entry.faction = c.faction
         entry.level = c.level or 0
         entry.itemLevel = c.itemLevel or 0
-        entry.guildName = guild
+        if guild then
+            entry.guildName = guild
+        end
         entry.main = effectiveMain
         entry.displayName = presence.displayName
         entry.isMain = (effectiveMain ~= nil and c.name == effectiveMain)

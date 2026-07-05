@@ -134,6 +134,49 @@ describe("GuildShareComm helpers", function()
     end)
   end)
 
+  describe("_FormatMsgType", function()
+    it("includes a human-readable label for known message types", function()
+      assert.are.equal("P (presence)", Comm._FormatMsgType("P"))
+      assert.are.equal("PR (presence reply)", Comm._FormatMsgType("PR"))
+      assert.are.equal("RQ (recipe request)", Comm._FormatMsgType("RQ"))
+      assert.are.equal("RC (recipes)", Comm._FormatMsgType("RC"))
+    end)
+
+    it("returns unknown types unchanged", function()
+      assert.are.equal("??", Comm._FormatMsgType("??"))
+    end)
+  end)
+
+  describe("_ShouldRespondToRecipeRequest", function()
+    local flagOn, sharingEnabled
+
+    before_each(function()
+      flagOn = true
+      sharingEnabled = true
+      AltArmy.Debug = {
+        IsGuildShareEnabled = function() return flagOn end,
+      }
+      AltArmy.GuildShareSettings = {
+        IsSharingEnabled = function() return sharingEnabled end,
+      }
+    end)
+
+    it("is true when the feature flag is off", function()
+      flagOn = false
+      sharingEnabled = false
+      assert.is_true(Comm._ShouldRespondToRecipeRequest())
+    end)
+
+    it("is false when the feature flag is on and sharing is disabled", function()
+      sharingEnabled = false
+      assert.is_false(Comm._ShouldRespondToRecipeRequest())
+    end)
+
+    it("is true when the feature flag is on and sharing is enabled", function()
+      assert.is_true(Comm._ShouldRespondToRecipeRequest())
+    end)
+  end)
+
   describe("_IsInboundAllowed", function()
     local flagOn
 
@@ -218,11 +261,11 @@ describe("GuildShareComm helpers", function()
       assert.are.equal("Alice", saved.received.sender)
     end)
 
-    it("skips NotifyDataChanged when presence matches stored data", function()
+    it("skips SaveReceived and NotifyDataChanged when presence matches stored data", function()
       presenceMatches = true
       Comm._DispatchReceivedMessage("P", { chars = { { name = "Alice" } } }, "Alice")
       assert.are.equal(0, notifyCount)
-      assert.truthy(saved.received)
+      assert.is_nil(saved.received)
     end)
 
     it("calls NotifyDataChanged when presence changed", function()
@@ -233,6 +276,8 @@ describe("GuildShareComm helpers", function()
 
     it("handles RQ when receive flag is off by selecting all-guilded characters", function()
       local flagOn = true
+      local rcBuilt = false
+      AltArmy.DataStore = {}
       AltArmy.Debug.IsGuildShareEnabled = function() return flagOn end
       AltArmy.GuildShareSettings.GetAllGuildedCharacters = function()
         return { { name = "Alice", char = { name = "Alice", Professions = {} } } }
@@ -240,10 +285,42 @@ describe("GuildShareComm helpers", function()
       AltArmy.GuildShareSettings.GetShareableCharacters = function()
         return {}
       end
+      AltArmy.GuildShareSettings.IsSharingEnabled = function() return false end
+      AltArmy.GuildShareProtocol.BuildRecipes = function(name, realm)
+        rcBuilt = true
+        return { v = 1, name = name, realm = realm, profs = {} }
+      end
       flagOn = false
-      Comm._DispatchReceivedMessage("RQ", { name = "Alice", realm = "R" }, "Bob")
-      -- handleRecipeRequest runs without error; BuildRecipes path exercised via protocol mock.
+      Comm._DispatchReceivedMessage("RQ", { name = "Alice", realm = "R" }, "Alice")
+      assert.is_true(rcBuilt)
       assert.is_nil(saved.received)
+    end)
+
+    it("does not build RC for RQ when flag is on and sharing is disabled", function()
+      local rcBuilt = false
+      AltArmy.DataStore = {}
+      AltArmy.GuildShareSettings.IsSharingEnabled = function() return false end
+      AltArmy.GuildShareProtocol.BuildRecipes = function(name, realm)
+        rcBuilt = true
+        return { v = 1, name = name, realm = realm, profs = {} }
+      end
+      Comm._DispatchReceivedMessage("RQ", { name = "Alice", realm = "R" }, "Alice")
+      assert.is_false(rcBuilt)
+    end)
+
+    it("builds RC for RQ when flag is on, sharing enabled, and character is shareable", function()
+      local rcBuilt = false
+      AltArmy.DataStore = {}
+      AltArmy.GuildShareSettings.IsSharingEnabled = function() return true end
+      AltArmy.GuildShareSettings.GetShareableCharacters = function()
+        return { { name = "Alice", char = { name = "Alice", Professions = {} } } }
+      end
+      AltArmy.GuildShareProtocol.BuildRecipes = function(name, realm)
+        rcBuilt = true
+        return { v = 1, name = name, realm = realm, profs = {} }
+      end
+      Comm._DispatchReceivedMessage("RQ", { name = "Alice", realm = "R" }, "Alice")
+      assert.is_true(rcBuilt)
     end)
   end)
 
@@ -329,6 +406,62 @@ describe("GuildShareComm helpers", function()
       assert.is_true(ok)
       assert.truthy(saved.recipes)
       assert.are.equal("AAtestmain", saved.recipes.payload.name)
+    end)
+  end)
+
+  describe("unchanged presence (integration)", function()
+    local GSD, P
+    local NOW = 1700000000
+
+    local function presence(main, chars)
+      return { v = 1, main = main, displayName = main, chars = chars }
+    end
+
+    local function charEntry(name, profs)
+      return { name = name, realm = "R", classFile = "MAGE", faction = "Alliance", level = 70, profs = profs or {} }
+    end
+
+    setup(function()
+      _G.time = function() return NOW end
+      require("GuildShareProtocol")
+      require("GuildShareData")
+      GSD = AltArmy.GuildShareData
+      P = AltArmy.GuildShareProtocol
+    end)
+
+    before_each(function()
+      _G.AltArmyTBC_GuildData = nil
+      GSD._Ensure()
+      _G.UnitName = function() return "Bob" end
+      _G.GetGuildInfo = function() return "MyGuild" end
+      _G.GetRealmName = function() return "R" end
+      AltArmy.Debug = {
+        IsGuildShareEnabled = function() return true end,
+        LogGuildShare = function() end,
+      }
+      AltArmy.GuildShareSettings = {
+        GetShareableCharacters = function() return {} end,
+        GetAllGuildedCharacters = function() return {} end,
+        ResolvePresenceMainAndDisplay = function() return nil, nil end,
+      }
+    end)
+
+    it("does not re-save when presence matches stored data", function()
+      local rv = P.HashRecipeIDs({ 100, 200 })
+      local msg = P.ParsePresence(presence("Peer", {
+        charEntry("Peer", { { key = "tailoring", rank = 375, count = 2, rv = rv } }),
+        charEntry("PeerAlt"),
+      }))
+      GSD.SaveReceived("Alice", msg, "MyGuild", "R")
+      GSD.SaveRecipes("R", { v = 1, name = "Peer", profs = { { key = "tailoring", ids = { 100, 200 } } } })
+      assert.are.equal(2, #GSD.GetGuildMembers("MyGuild"))
+
+      _G.GetGuildInfo = function() return nil end
+      Comm._DispatchReceivedMessage("P", msg, "Alice")
+
+      assert.are.equal(2, #GSD.GetGuildMembers("MyGuild"))
+      assert.are.equal("MyGuild", GSD.GetCharacter("Peer", "R").guildName)
+      assert.truthy(GSD.GetCharacter("Peer", "R").Professions.tailoring.Recipes[100])
     end)
   end)
 end)

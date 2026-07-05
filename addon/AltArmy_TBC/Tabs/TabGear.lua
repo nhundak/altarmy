@@ -344,16 +344,29 @@ function GearTab.ClearCompareSelection()
     comparePanelContext = nil
 end
 
+function GearTab.PickBestCompareSlotForEntry(entry, list)
+    local slots = GearTab.GetFocusedInventorySlots()
+    if #slots == 0 then return nil end
+    if not entry then return slots[1] end
+    local focusOpts = GU and GU.GetOptions and GU.GetOptions() or {}
+    local upgradeMaxDelta = GearTab.ComputeFocusUpgradeMaxDelta(list, slots, focusOpts)
+    local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
+    local slot = GU and GU.GetBestFocusCompareSlot
+        and GU.GetBestFocusCompareSlot(
+            entry, charData, droppedItemLink, slots, focusOpts, upgradeMaxDelta)
+        or slots[1]
+    return GearTab.ResolveEquippableCompareSlot(entry, slot)
+end
+
 --- Auto-select after focus: first sorted column when any clear/eventual upgrade exists.
 function GearTab.PickInitialCompareSelection(list)
     if not GearTab.HasAnyUpgradeOrEventualUpgrade(list) then
         return nil, nil
     end
     if not list or #list == 0 then return nil, nil end
-    local slot = GearTab.GetFirstFocusedColumnSlot()
-    if not slot then return nil, nil end
     local e = list[1]
-    slot = GearTab.ResolveEquippableCompareSlot(e, slot)
+    local slot = GearTab.PickBestCompareSlotForEntry(e, list)
+    if not slot then return nil, nil end
     return CharKey(e.name, e.realm), slot
 end
 
@@ -370,9 +383,8 @@ function GearTab.PickCurrentCharacterCompareSelection(list)
         end
     end
     if not currentEntry then return nil, nil end
-    local slot = GearTab.GetFirstFocusedColumnSlot()
+    local slot = GearTab.PickBestCompareSlotForEntry(currentEntry, list)
     if not slot then return nil, nil end
-    slot = GearTab.ResolveEquippableCompareSlot(currentEntry, slot)
     return CharKey(currentEntry.name, currentEntry.realm), slot
 end
 
@@ -905,7 +917,8 @@ end
 
 function GearTab.SelectCompareCharacter(key)
     if not key then return end
-    local invSlot = GearTab.GetFirstFocusedColumnSlot()
+    local entry = GearTab.GetCompareEntryByKey(key)
+    local invSlot = GearTab.PickBestCompareSlotForEntry(entry, GearTab.GetDisplayList())
     if invSlot then
         GearTab.SelectCompareCell(key, invSlot)
     end

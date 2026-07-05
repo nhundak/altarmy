@@ -2,7 +2,8 @@
 -- Broadcasts a privacy-limited presence over the GUILD channel and pulls recipe lists
 -- on demand. Sending is ALWAYS active (subject to the send-set below); receiving + UI
 -- are gated behind the guildShare feature flag, except that inbound RQ (recipe requests)
--- are always answered so send-only clients can still honor recipe pull requests.
+-- are always processed: flag-off clients always reply with RC; flag-on clients reply only
+-- when guild sharing is enabled in Options.
 --
 -- Send-set inversion (see GuildShareSettings):
 --   flag OFF -> GetAllGuildedCharacters() (ignore the user's settings; lets the developer
@@ -22,6 +23,23 @@ local MSG_PRESENCE = "P"       -- initial presence broadcast
 local MSG_PRESENCE_REPLY = "PR" -- whispered reply to a broadcast (no further reply)
 local MSG_REQ_RECIPES = "RQ"   -- request recipe list for a character
 local MSG_RECIPES = "RC"       -- recipe list reply
+
+local MSG_LABELS = {
+    [MSG_PRESENCE] = "presence",
+    [MSG_PRESENCE_REPLY] = "presence reply",
+    [MSG_REQ_RECIPES] = "recipe request",
+    [MSG_RECIPES] = "recipes",
+}
+
+--- Human-readable log label for a wire message type, e.g. "P (presence)".
+local function formatMsgType(msgType)
+    local label = MSG_LABELS[msgType]
+    if label then
+        return string.format("%s (%s)", msgType, label)
+    end
+    return tostring(msgType)
+end
+Comm._FormatMsgType = formatMsgType
 
 local BROADCAST_THROTTLE = 10          -- seconds between guild broadcasts
 local STALE_MAX_AGE = 60 * 60 * 24 * 14 -- prune received data older than 14 days
@@ -46,6 +64,15 @@ local function isInboundAllowed(msgType)
     return isReceiveEnabled()
 end
 Comm._IsInboundAllowed = isInboundAllowed
+
+--- True when this client should send RC in response to an inbound RQ.
+function Comm._ShouldRespondToRecipeRequest()
+    if not isReceiveEnabled() then
+        return true
+    end
+    local GSS = AltArmy.GuildShareSettings
+    return GSS and GSS.IsSharingEnabled and GSS.IsSharingEnabled() == true
+end
 
 --- Verbose traffic logging (gated by the standalone guildShareVerbose debug flag).
 local function log(msg)
@@ -205,7 +232,7 @@ local function send(msgType, payload, distribution, target)
     local data = serialize(msgType, payload)
     if not data then return end
     log(string.format("SEND %s -> %s%s (%d bytes)",
-        msgType, distribution, target and (":" .. target) or "", #data))
+        formatMsgType(msgType), distribution, target and (":" .. target) or "", #data))
     pcall(function()
         commObj:SendCommMessage(PREFIX, data, distribution, target)
     end)
@@ -361,9 +388,11 @@ local function handleRecipeRequest(payload, sender)
     local P = AltArmy.GuildShareProtocol
     local DS = AltArmy.DataStore
     if not P or not DS or type(payload) ~= "table" then return end
+    if not Comm._ShouldRespondToRecipeRequest() then return end
     local guild = currentGuild()
     local realm = payload.realm or currentRealm()
-    local chars = Comm._SelectShareChars(isReceiveEnabled(), guild, realm)
+    local flagOn = isReceiveEnabled()
+    local chars = Comm._SelectShareChars(flagOn, guild, realm)
     local ownedAndShared
     for _, entry in ipairs(chars) do
         if entry.name == payload.name then
@@ -385,13 +414,14 @@ local function handlePresence(payload, sender, isReply)
     local realm = currentRealm()
     local unchanged = GSD.PresenceMatchesStored
         and GSD.PresenceMatchesStored(sender, parsed, realm)
-    GSD.SaveReceived(sender, parsed, guild, realm)
-    if not unchanged then
-        Comm.NotifyDataChanged()
+    if unchanged then
+        return
     end
+    GSD.SaveReceived(sender, parsed, guild, realm)
+    Comm.NotifyDataChanged()
     requestMissingRecipes(parsed, sender, realm)
     -- Announce/reply handshake: reply to an initial broadcast (not to a reply) so we don't loop.
-    if not isReply and sender ~= playerName() and not unchanged then
+    if not isReply and sender ~= playerName() then
         local mine = buildMyPresence(guild, realm)
         if mine then
             send(MSG_PRESENCE_REPLY, mine, "WHISPER", sender)
@@ -415,7 +445,7 @@ end
 function Comm._DispatchReceivedMessage(msgType, payload, rawSender)
     local sender = normalizeSender(rawSender)
     if isLocalSender(sender) then return end
-    log(string.format("RECV %s from %s", msgType, tostring(sender)))
+    log(string.format("RECV %s from %s", formatMsgType(msgType), tostring(sender)))
     if msgType == MSG_PRESENCE then
         handlePresence(payload, sender, false)
     elseif msgType == MSG_PRESENCE_REPLY then
@@ -469,7 +499,10 @@ if frame then
     frame:RegisterEvent("GUILD_ROSTER_UPDATE")
     frame:RegisterEvent("PLAYER_GUILD_UPDATE")
     frame:SetScript("OnEvent", function(_, event)
-        if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
+        if event == "PLAYER_LOGIN" then
+            Comm.Init()
+            knownGuild = currentGuild()
+        elseif event == "PLAYER_ENTERING_WORLD" then
             Comm.Init()
             knownGuild = currentGuild()
             resetRosterOnlineBaseline()

@@ -692,6 +692,42 @@ describe("GearUpgrade", function()
         assert.are.equal(20, slot12)
     end)
 
+    it("GetBestFocusCompareSlot picks the ring with the biggest upgrade", function()
+        _G.AltArmyTBC_Data.Characters.TestRealm.RingAlt = {
+            name = "RingAlt",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 60,
+            Inventory = {
+                [11] = "|Hitem:22:0|h[Ring One]|h",
+                [12] = "|Hitem:21:0|h[Ring Two]|h",
+            },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        local oldGetItemInfo = _G.GetItemInfo
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            local items = {
+                [20] = { "New Ring", nil, 3, 50, 50, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+                [21] = { "Ring Two", nil, 2, 30, 30, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+                [22] = { "Ring One", nil, 2, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+            }
+            local info = items[id]
+            if not info then return oldGetItemInfo(item) end
+            local link = "|cff|Hitem:" .. tostring(id) .. ":0|h[" .. info[1] .. "]|h|r"
+            return info[1], link, info[3], info[4], info[5], info[6], info[7], nil, info[9]
+        end
+        local char = DS:GetCharacter("RingAlt", "TestRealm")
+        local entry = { name = "RingAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+        local ringLink = "|Hitem:20:0|h[New Ring]|h"
+        local opts = { technique = "ilvl", levelsAhead = 0 }
+        local upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForEntries({ entry }, ringLink, opts)
+        local slot = GU.GetBestFocusCompareSlot(entry, char, ringLink, { 11, 12 }, opts, upgradeMaxDelta)
+        _G.GetItemInfo = oldGetItemInfo
+        assert.are.equal(12, slot)
+    end)
+
     it("GetSlotCompareDelta is negative for downgrades", function()
         local char = DS:GetCharacter("MageAlt", "TestRealm")
         char.Inventory[1] = "|Hitem:11:0|h[New Helm]|h"
@@ -1807,6 +1843,15 @@ describe("GearUpgrade", function()
                 local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
                 assert.is_nil(GU.GetFocusCellBadgeKind(entry, char, mhOnlyLink, OFF, opts, 20))
                 assert.is_nil(GU.GetFocusVerdictForSlot(entry, char, mhOnlyLink, OFF, opts, 20))
+            end)
+
+            it("GetBestFocusCompareSlot picks main-hand for a main-hand-only weapon", function()
+                local char = setupMageMainHand()
+                local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
+                local upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForEntries({ entry }, mhOnlyLink, opts)
+                local slot = GU.GetBestFocusCompareSlot(
+                    entry, char, mhOnlyLink, { MAIN, OFF }, opts, upgradeMaxDelta)
+                assert.are.equal(MAIN, slot)
             end)
         end)
 

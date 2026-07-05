@@ -278,6 +278,9 @@ describe("Gear display list focus mode", function()
             [12] = { "Ring", nil, 3, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
             [13] = { "Newer Helm", nil, 3, 32, 32, "Armor", "Cloth", nil, "INVTYPE_HEAD" },
             [14] = { "Sword", nil, 3, 10, 10, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPONMAINHAND" },
+            [15] = { "Weak Ring 1", nil, 2, 35, 35, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+            [16] = { "Weak Ring 2", nil, 2, 25, 25, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+            [17] = { "New Ring", nil, 3, 50, 50, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
         }
         local info = items[id]
         if not info then return end
@@ -319,6 +322,15 @@ describe("Gear display list focus mode", function()
                         classFile = "WARRIOR",
                         level = 60,
                         Inventory = {},
+                    },
+                    RingUpgrader = {
+                        name = "RingUpgrader",
+                        classFile = "MAGE",
+                        level = 60,
+                        Inventory = {
+                            [11] = "|Hitem:15:0|h[Weak Ring 1]|h",
+                            [12] = "|Hitem:16:0|h[Weak Ring 2]|h",
+                        },
                     },
                 },
             },
@@ -382,27 +394,41 @@ describe("Gear display list focus mode", function()
         return slots
     end
 
+    --- Mirror TabGear PickBestCompareSlotForEntry.
+    local function pickBestCompareSlotForEntry(entry, list, itemLink, upgradeOpts)
+        local slots = getFocusedInventorySlots(itemLink)
+        if #slots == 0 then return nil end
+        if not entry then return slots[1] end
+        local upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForEntries(list, itemLink, upgradeOpts)
+        local charData = DS:GetCharacter(entry.name, entry.realm)
+        local slot = GU.GetBestFocusCompareSlot(
+            entry, charData, itemLink, slots, upgradeOpts, upgradeMaxDelta) or slots[1]
+        return slot
+    end
+
     --- Mirror TabGear PickInitialCompareSelection.
-    local function pickInitialCompareSelection(list, itemLink, upgradeOpts, firstSlot)
-        firstSlot = firstSlot or 1
+    local function pickInitialCompareSelection(list, itemLink, upgradeOpts)
         if not GU.HasAnyFocusUpgradeOrEventual(list, itemLink, upgradeOpts) then
             return nil, nil
         end
         if not list or #list == 0 or not itemLink then return nil, nil end
         local e = list[1]
-        return CharKey(e.name, e.realm), firstSlot
+        local slot = pickBestCompareSlotForEntry(e, list, itemLink, upgradeOpts)
+        if not slot then return nil, nil end
+        return CharKey(e.name, e.realm), slot
     end
 
     --- Mirror TabGear PickCurrentCharacterCompareSelection.
-    local function pickCurrentCharacterCompareSelection(list, currentName, currentRealm, firstSlot)
-        firstSlot = firstSlot or 1
+    local function pickCurrentCharacterCompareSelection(list, currentName, currentRealm, itemLink, upgradeOpts)
         if not list or #list == 0 or not currentName or not currentRealm then
             return nil, nil
         end
         for i = 1, #list do
             local e = list[i]
             if e.name == currentName and e.realm == currentRealm then
-                return CharKey(e.name, e.realm), firstSlot
+                local slot = pickBestCompareSlotForEntry(e, list, itemLink, upgradeOpts)
+                if not slot then return nil, nil end
+                return CharKey(e.name, e.realm), slot
             end
         end
         return nil, nil
@@ -410,11 +436,11 @@ describe("Gear display list focus mode", function()
 
     --- Mirror TabGear ApplyFocusCompareSelection soulbound policy.
     local function applyFocusCompareSelection(list, itemLink, upgradeOpts, soulbound, currentName, currentRealm)
-        local firstSlot = 1
         if soulbound then
-            return pickCurrentCharacterCompareSelection(list, currentName, currentRealm, firstSlot)
+            return pickCurrentCharacterCompareSelection(
+                list, currentName, currentRealm, itemLink, upgradeOpts)
         end
-        return pickInitialCompareSelection(list, itemLink, upgradeOpts, firstSlot)
+        return pickInitialCompareSelection(list, itemLink, upgradeOpts)
     end
 
     --- Mirror TabGear PickBestCompareSelection (in-range upgrade/sidegrade only).
@@ -549,7 +575,8 @@ describe("Gear display list focus mode", function()
             currentRealm = "RealmA",
         })
         assert.are.equal("Me", sorted[1].name)
-        local key, slot = pickCurrentCharacterCompareSelection(sorted, "Me", "RealmA", 1)
+        local key, slot = pickCurrentCharacterCompareSelection(
+            sorted, "Me", "RealmA", itemLink, upgradeOpts)
         assert.are.equal(CharKey("Me", "RealmA"), key)
         assert.are.equal(1, slot)
     end)
@@ -569,7 +596,8 @@ describe("Gear display list focus mode", function()
         })
         local bestKey = pickInitialCompareSelection(sorted, itemLink, upgradeOpts)
         assert.are.equal(CharKey("Me", "RealmA"), bestKey)
-        local key, slot = pickCurrentCharacterCompareSelection(sorted, "Me", "RealmA", 1)
+        local key, slot = pickCurrentCharacterCompareSelection(
+            sorted, "Me", "RealmA", itemLink, upgradeOpts)
         assert.are.equal(CharKey("Me", "RealmA"), key)
         assert.are.equal(bestKey, key)
         assert.are.equal(1, slot)
@@ -731,5 +759,17 @@ describe("Gear display list focus mode", function()
         assert.are.equal(11, getFirstFocusedColumnSlot(ringLink))
         local headLink = "|Hitem:11:0|h[New Helm]|h"
         assert.are.equal(1, getFirstFocusedColumnSlot(headLink))
+    end)
+
+    it("auto-selects the ring finger with the biggest upgrade for the best character", function()
+        local itemLink = "|Hitem:17:0|h[New Ring]|h"
+        local upgradeOpts = { technique = "ilvl", levelsAhead = 0 }
+        local entries = {
+            { name = "RingUpgrader", realm = "RealmA", classFile = "MAGE", level = 60 },
+        }
+        local sorted = sortByFocusTier(entries, itemLink, upgradeOpts)
+        local key, slot = pickInitialCompareSelection(sorted, itemLink, upgradeOpts)
+        assert.are.equal(CharKey("RingUpgrader", "RealmA"), key)
+        assert.are.equal(12, slot)
     end)
 end)
