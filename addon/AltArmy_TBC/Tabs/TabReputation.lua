@@ -26,6 +26,7 @@ local MISSING_DATA_TEXT_R, MISSING_DATA_TEXT_G, MISSING_DATA_TEXT_B = 0.78, 0.68
 -- Match TabGear header: name row + message row (Reputation uses only one text line, centered in full height)
 local MESSAGE_ROW_HEIGHT = 12
 local COLUMN_HEADER_HEIGHT_GEAR = 18
+local COLUMN_HEADER_NAME_Y_OFFSET = 1
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
 -- Sorting row (provider selector + per-column value), mirrors the Gear tab's score row.
@@ -435,8 +436,8 @@ local function GetHeaderColumnFrame(index)
             col:RegisterForClicks("LeftButtonUp")
         end
         col.header = col:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        col.header:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
-        col.header:SetPoint("TOPRIGHT", col, "TOPRIGHT", 0, 0)
+        col.header:SetPoint("TOPLEFT", col, "TOPLEFT", 0, COLUMN_HEADER_NAME_Y_OFFSET)
+        col.header:SetPoint("TOPRIGHT", col, "TOPRIGHT", 0, COLUMN_HEADER_NAME_Y_OFFSET)
         col.header:SetHeight(COLUMN_HEADER_HEIGHT_GEAR)
         col.header:SetJustifyH("CENTER")
         col.header:SetJustifyV("MIDDLE")

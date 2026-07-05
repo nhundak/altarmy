@@ -152,10 +152,11 @@ local SCORE_ROW_LAYOUT_TRIM = 4
 local SCORE_ROW_HEADER_BOTTOM_INSET = 6
 local UPGRADE_HIGHLIGHT_COLUMN_INSET = 2
 local SELECTED_CELL_HIGHLIGHT_INSET = UPGRADE_HIGHLIGHT_COLUMN_INSET + 2
-local ITEM_CHECK_BTN_TOP_OFFSET = 2
+local ITEM_CHECK_BTN_TOP_OFFSET = 6
+local HEADER_TOP_INSET = 4
 local ITEM_CHECK_BTN_HEIGHT = 22
 local ITEM_CHECK_COMPACT_SECTION_PAD = 4
-local ITEM_CHECK_WAITING_HEADER_HEIGHT = 26
+local ITEM_CHECK_WAITING_HEADER_HEIGHT = 30
 
 function GearTab.ShouldHideMessageHeader()
     return itemCheckModeActive and droppedItemLink == nil
@@ -1172,6 +1173,7 @@ end
 
 -- ---- Right panel: slot row headers + scrollable character columns ----
 local COLUMN_HEADER_HEIGHT_GEAR = 18
+local COLUMN_HEADER_NAME_Y_OFFSET = 1
 local SCORE_PROVIDER_DROPDOWN_WIDTH = 200
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
@@ -1216,12 +1218,17 @@ function GearTab.GetHorizontalScrollChromeHeight()
 end
 
 -- Fixed header row: character names + score row; scrolls horizontally with grid
+local HEADER_BG_OVERHANG = 6
+local HEADER_BG_BOTTOM_INSET = 6
 local fixedHeaderRow = CreateFrame("Frame", nil, gearMainInner)
-fixedHeaderRow:SetPoint("TOPLEFT", gearMainInner, "TOPLEFT", 0, 0)
-fixedHeaderRow:SetPoint("TOPRIGHT", gearMainInner, "TOPRIGHT", 0, 0)
+fixedHeaderRow:SetPoint("TOPLEFT", gearMainInner, "TOPLEFT", 0, -HEADER_TOP_INSET)
+fixedHeaderRow:SetPoint("TOPRIGHT", gearMainSection, "TOPRIGHT", -SCROLL_GUTTER, 0)
 fixedHeaderRow:SetHeight(GearTab.GetPinnedHeaderHeight())
 local headerBg = fixedHeaderRow:CreateTexture(nil, "BACKGROUND")
-headerBg:SetAllPoints(true)
+headerBg:SetPoint("BOTTOMLEFT", fixedHeaderRow, "BOTTOMLEFT", 0, HEADER_BG_BOTTOM_INSET)
+headerBg:SetPoint("BOTTOMRIGHT", fixedHeaderRow, "BOTTOMRIGHT", 0, HEADER_BG_BOTTOM_INSET)
+headerBg:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, HEADER_BG_OVERHANG)
+headerBg:SetPoint("TOPRIGHT", fixedHeaderRow, "TOPRIGHT", 0, HEADER_BG_OVERHANG)
 Theme.StyleGridHeader(headerBg)
 fixedHeaderRow:EnableMouse(true)
 local headerCornerColumn = CreateFrame("Frame", nil, fixedHeaderRow)
@@ -1267,29 +1274,40 @@ headerHorizontalScroll:SetScrollChild(headerGridContainer)
 gridHost = CreateFrame("Frame", nil, gearMainInner)
 gridHost:SetClipsChildren(true)
 local horizontalScrollBar
+local verticalScroll
+local verticalScrollBar
+local scrollTopFade
+
+function GearTab.LayoutVerticalScrollBar()
+    if not verticalScrollBar or not verticalScroll or not fixedHeaderRow then return end
+    Theme.AnchorVerticalScrollBar(verticalScrollBar, gearMainSection, verticalScroll)
+    -- Extend track upward over the pinned header (Reputation spans contentArea including header).
+    verticalScrollBar:SetPoint("TOPLEFT", fixedHeaderRow, "TOPRIGHT", Theme.SCROLL_BAR_GAP, 0)
+end
 
 function GearTab.LayoutGridHost()
     local chromeH = GearTab.GetHorizontalScrollChromeHeight()
     gridHost:ClearAllPoints()
     gridHost:SetPoint("TOPLEFT", fixedHeaderRow, "BOTTOMLEFT", 0, 0)
-    gridHost:SetPoint("TOPRIGHT", gearMainInner, "TOPRIGHT", 0, 0)
+    gridHost:SetPoint("TOPRIGHT", gearMainSection, "TOPRIGHT", -SCROLL_GUTTER, 0)
     gridHost:SetPoint("BOTTOMLEFT", gearMainInner, "BOTTOMLEFT", 0, 0)
-    gridHost:SetPoint("BOTTOMRIGHT", gearMainInner, "BOTTOMRIGHT", 0, chromeH)
+    gridHost:SetPoint("BOTTOMRIGHT", gearMainSection, "BOTTOMRIGHT", -SCROLL_GUTTER, chromeH)
     if horizontalScrollBar then
         horizontalScrollBar:ClearAllPoints()
-        horizontalScrollBar:SetPoint("BOTTOMLEFT", gearMainInner, "BOTTOMLEFT", 0, 0)
-        horizontalScrollBar:SetPoint("BOTTOMRIGHT", gearMainInner, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
-        horizontalScrollBar:SetFrameLevel(gearMainInner:GetFrameLevel() + 30)
+        horizontalScrollBar:SetPoint("BOTTOMLEFT", gearMainInner, "BOTTOMLEFT", PAD, -4)
+        horizontalScrollBar:SetPoint("BOTTOMRIGHT", gearMainSection, "BOTTOMRIGHT", -SCROLL_GUTTER, -4)
+        horizontalScrollBar:SetFrameLevel(gearMainSection:GetFrameLevel() + 30)
         horizontalScrollBar:EnableMouse(true)
     end
+    GearTab.LayoutVerticalScrollBar()
 end
 
 GearTab.LayoutGridHost()
 
 -- Vertical scroll: grid area below pinned header
-local verticalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearVerticalScroll", gridHost)
+verticalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_GearVerticalScroll", gridHost)
 verticalScroll:SetPoint("TOPLEFT", gridHost, "TOPLEFT", 0, 0)
-verticalScroll:SetPoint("BOTTOMRIGHT", gridHost, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
+verticalScroll:SetPoint("BOTTOMRIGHT", gridHost, "BOTTOMRIGHT", 0, 0)
 verticalScroll:EnableMouse(true)
 
 local MIN_SCROLL_CHILD_WIDTH = 400
@@ -1301,16 +1319,23 @@ verticalScrollChild:EnableMouse(true)
 verticalScroll:SetScrollChild(verticalScrollChild)
 
 -- Vertical scroll bar: custom (no template) so it doesn't conflict with horizontal; both bars under our control
-local verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_GearVerticalScrollBar", gridHost)
+verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_GearVerticalScrollBar", gearMainSection)
 verticalScrollBar:SetMinMaxValues(0, 0)
 verticalScrollBar:SetValueStep(dims.rowHeight)
 verticalScrollBar:SetValue(0)
 verticalScrollBar:EnableMouse(true)
-Theme.AnchorVerticalScrollBar(verticalScrollBar, gearMainSection, verticalScroll)
+GearTab.LayoutVerticalScrollBar()
 
 verticalScrollBar:SetScript("OnValueChanged", function(_, value)
     verticalScroll:SetVerticalScroll(value)
+    if scrollTopFade then scrollTopFade:Update() end
 end)
+
+scrollTopFade = Theme.CreatePinnedHeaderScrollFade({
+    headerFrame = fixedHeaderRow,
+    scrollFrame = verticalScroll,
+    scrollBar = verticalScrollBar,
+})
 
 -- Mouse wheel: scroll the gear list when hovering over the scroll area (frame or scroll child)
 function GearTab.OnGearScrollWheel(_, delta)
@@ -1322,6 +1347,7 @@ function GearTab.OnGearScrollWheel(_, delta)
     newVal = math.max(minVal, math.min(maxVal, newVal))
     verticalScrollBar:SetValue(newVal)
     verticalScroll:SetVerticalScroll(newVal)
+    if scrollTopFade then scrollTopFade:Update() end
 end
 verticalScroll:SetScript("OnMouseWheel", GearTab.OnGearScrollWheel)
 verticalScrollChild:SetScript("OnMouseWheel", GearTab.OnGearScrollWheel)
@@ -1366,7 +1392,8 @@ function GearTab.LayoutItemCheckButton()
     itemCheckBtn:ClearAllPoints()
     itemCheckBtn:SetSize(SLOT_LABEL_WIDTH, btnH)
     -- Sit in the section padding above gearMainInner so a small upward offset is not clipped.
-    itemCheckBtn:SetPoint("TOPLEFT", gearMainSection, "TOPLEFT", innerPad, -(innerPad - ITEM_CHECK_BTN_TOP_OFFSET))
+    itemCheckBtn:SetPoint("TOPLEFT", gearMainSection, "TOPLEFT", innerPad,
+        -(innerPad - ITEM_CHECK_BTN_TOP_OFFSET + HEADER_TOP_INSET + 2))
 end
 GearTab.LayoutItemCheckButton()
 
@@ -1634,8 +1661,8 @@ function GearTab.GetHeaderColumnFrame(index)
         col:SetSize(dims.columnWidth, GearTab.GetPinnedHeaderHeight())
         col:EnableMouse(true)
         col.header = col:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        col.header:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
-        col.header:SetPoint("TOPRIGHT", col, "TOPRIGHT", 0, 0)
+        col.header:SetPoint("TOPLEFT", col, "TOPLEFT", 0, COLUMN_HEADER_NAME_Y_OFFSET)
+        col.header:SetPoint("TOPRIGHT", col, "TOPRIGHT", 0, COLUMN_HEADER_NAME_Y_OFFSET)
         col.header:SetHeight(COLUMN_HEADER_HEIGHT_GEAR)
         col.header:SetJustifyH("CENTER")
         col.header:SetWordWrap(false)
@@ -1718,7 +1745,7 @@ end
 -- Horizontal scroll bar: create after horizontalScroll/gridContainer exist so OnValueChanged sees them
 local scrollGridLeftFade
 local scrollHeaderLeftFade
-local horizontalScrollApi = Theme.CreateHorizontalScrollBar(gearMainInner, {
+local horizontalScrollApi = Theme.CreateHorizontalScrollBar(gearMainSection, {
     name = "AltArmyTBC_GearHorizontalScrollBar",
     thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
     onScroll = function(value)
