@@ -155,4 +155,49 @@ describe("GuildShareSettings", function()
       assert.is_nil(names.Bank2)
     end)
   end)
+
+  describe("ResolvePresenceMainAndDisplay", function()
+    local function charEntry(name, level)
+      return { name = name, realm = "R", char = { name = name, level = level or 0 } }
+    end
+
+    before_each(function()
+      AltArmy.GuildShareOnboarding = {
+        PickDefaultMain = function(candidates)
+          local best
+          for _, c in ipairs(candidates or {}) do
+            if not best or (c.char.level or 0) > (best.char.level or 0) then
+              best = c
+            end
+          end
+          return best and best.name or nil
+        end,
+      }
+    end)
+
+    it("returns saved main and display name when both are set", function()
+      GSS.SetMain("R", "SavedMain")
+      GSS.SetDisplayName("R", "Chief")
+      local main, display = GSS.ResolvePresenceMainAndDisplay({
+        charEntry("Alt", 40), charEntry("SavedMain", 70),
+      }, "R")
+      assert.are.equal("SavedMain", main)
+      assert.are.equal("Chief", display)
+    end)
+
+    it("guesses main and uses the main name as display when both are unknown", function()
+      local main, display = GSS.ResolvePresenceMainAndDisplay({
+        charEntry("Alt", 40), charEntry("Topchar", 70),
+      }, "R")
+      assert.are.equal("Topchar", main)
+      assert.are.equal("Topchar", display)
+    end)
+
+    it("uses the main name as display when main is saved but display is not", function()
+      GSS.SetMain("R", "SavedMain")
+      local main, display = GSS.ResolvePresenceMainAndDisplay({ charEntry("SavedMain", 70) }, "R")
+      assert.are.equal("SavedMain", main)
+      assert.are.equal("SavedMain", display)
+    end)
+  end)
 end)

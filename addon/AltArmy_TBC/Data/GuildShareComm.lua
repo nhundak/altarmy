@@ -210,7 +210,8 @@ local function buildMyPresence(guild, realm)
     if not P or not GSS then return nil end
     local chars = Comm._SelectShareChars(isReceiveEnabled(), guild, realm)
     if #chars == 0 then return nil end
-    return P.BuildPresence(chars, GSS.GetMain(realm), GSS.GetDisplayName(realm))
+    local mainName, displayName = GSS.ResolvePresenceMainAndDisplay(chars, realm)
+    return P.BuildPresence(chars, mainName, displayName)
 end
 
 function Comm.Broadcast(force)

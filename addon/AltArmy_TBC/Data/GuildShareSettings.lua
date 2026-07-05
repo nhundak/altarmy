@@ -105,6 +105,44 @@ function GSS.SetDisplayName(realm, name)
     ensure().displayNames[realm or currentRealm()] = GSS.NormalizeDisplayName(name)
 end
 
+--- Main + display name for a presence broadcast. Saved settings win when present; otherwise
+--- guess main from `chars` using the onboarding rank (level, gear score, item level, name)
+--- and fall back to the main character's name as the display name.
+function GSS.ResolvePresenceMainAndDisplay(chars, realm)
+    realm = realm or currentRealm()
+    local mainName = GSS.GetMain(realm)
+    local displayName = GSS.GetDisplayName(realm)
+    if not mainName and chars and #chars > 0 then
+        local candidates = {}
+        for _, entry in ipairs(chars) do
+            candidates[#candidates + 1] = { name = entry.name, char = entry.char }
+        end
+        local GSO = AltArmy.GuildShareOnboarding
+        if GSO and GSO.PickDefaultMain then
+            mainName = GSO.PickDefaultMain(candidates)
+        end
+        if not mainName then
+            local best
+            for _, entry in ipairs(chars) do
+                local level = (entry.char and entry.char.level) or 0
+                if not best then
+                    best = entry
+                else
+                    local bl = (best.char and best.char.level) or 0
+                    if level > bl or (level == bl and (entry.name or "") < (best.name or "")) then
+                        best = entry
+                    end
+                end
+            end
+            mainName = best and best.name or nil
+        end
+    end
+    if not displayName and mainName then
+        displayName = mainName
+    end
+    return mainName, displayName
+end
+
 -- *** Onboarding completion (per realm) ***
 
 function GSS.IsOnboardingCompleted(realm)
