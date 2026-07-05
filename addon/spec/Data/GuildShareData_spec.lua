@@ -106,6 +106,79 @@ describe("GuildShareData", function()
     end)
   end)
 
+  describe("PresenceMatchesStored", function()
+    local function parsed(main, chars)
+      return P.ParsePresence(presence(main, chars))
+    end
+
+    it("returns false when no prior data exists", function()
+      assert.is_false(GSD.PresenceMatchesStored("Peer", parsed("Main", { charEntry("Main") }), "R"))
+    end)
+
+    it("returns true when presence matches stored data", function()
+      local msg = parsed("Main", {
+        charEntry("Main", { { key = "tailoring", name = "Tailoring", rank = 375, count = 2, rv = 42 } }),
+        charEntry("Alt", {}),
+      })
+      GSD.SaveReceived("Peer", msg, "G", "R")
+      assert.is_true(GSD.PresenceMatchesStored("Peer", msg, "R"))
+    end)
+
+    it("returns false when level changes", function()
+      local msg = parsed("Main", { charEntry("Main") })
+      GSD.SaveReceived("Peer", msg, "G", "R")
+      local changed = P.ParsePresence(presence("Main", {
+        { name = "Main", realm = "R", classFile = "MAGE", faction = "Alliance", level = 71, profs = {} },
+      }))
+      assert.is_false(GSD.PresenceMatchesStored("Peer", changed, "R"))
+    end)
+
+    it("returns false when rv changes", function()
+      local rv1 = P.HashRecipeIDs({ 100, 200 })
+      local rv2 = P.HashRecipeIDs({ 100, 200, 300 })
+      local msg = parsed("Main", {
+        charEntry("Main", { { key = "tailoring", rank = 375, count = 2, rv = rv1 } }),
+      })
+      GSD.SaveReceived("Peer", msg, "G", "R")
+      local changed = P.ParsePresence(presence("Main", {
+        charEntry("Main", { { key = "tailoring", rank = 375, count = 3, rv = rv2 } }),
+      }))
+      assert.is_false(GSD.PresenceMatchesStored("Peer", changed, "R"))
+    end)
+
+    it("returns false when main changes", function()
+      local msg = parsed("Main", { charEntry("Main"), charEntry("Alt") })
+      GSD.SaveReceived("Peer", msg, "G", "R")
+      local changed = parsed("Alt", { charEntry("Main"), charEntry("Alt") })
+      assert.is_false(GSD.PresenceMatchesStored("Peer", changed, "R"))
+    end)
+
+    it("returns false when displayName changes", function()
+      local msg = P.ParsePresence({ v = 1, main = "Main", displayName = "OldName", chars = { charEntry("Main") } })
+      GSD.SaveReceived("Peer", msg, "G", "R")
+      local changed = P.ParsePresence({ v = 1, main = "Main", displayName = "NewName", chars = { charEntry("Main") } })
+      assert.is_false(GSD.PresenceMatchesStored("Peer", changed, "R"))
+    end)
+
+    it("returns false when spec changes", function()
+      local msg = parsed("Main", {
+        charEntry("Main", { { key = "tailoring", rank = 375, spec = "Spellfire" } }),
+      })
+      GSD.SaveReceived("Peer", msg, "G", "R")
+      local changed = parsed("Main", {
+        charEntry("Main", { { key = "tailoring", rank = 375, spec = "Shadoweave" } }),
+      })
+      assert.is_false(GSD.PresenceMatchesStored("Peer", changed, "R"))
+    end)
+
+    it("returns false when a new char appears in presence", function()
+      local msg = parsed("Main", { charEntry("Main") })
+      GSD.SaveReceived("Peer", msg, "G", "R")
+      local changed = parsed("Main", { charEntry("Main"), charEntry("NewAlt") })
+      assert.is_false(GSD.PresenceMatchesStored("Peer", changed, "R"))
+    end)
+  end)
+
   describe("recipe pull tracking", function()
     it("flags professions as needing recipes until SaveRecipes fills them", function()
       local msg = presence("Main", {
@@ -135,6 +208,64 @@ describe("GuildShareData", function()
         charEntry("Main", { { key = "tailoring", rank = 375, count = 3, rv = P.HashRecipeIDs({ 100, 200, 300 }) } }),
       })), "G", "R")
       assert.are.same({ "tailoring" }, GSD.GetProfessionsNeedingRecipes("Main", "R"))
+    end)
+
+    it("returns empty within backoff after MarkRecipesRequested", function()
+      local msg = presence("Main", {
+        charEntry("Main", { { key = "tailoring", rank = 375, count = 2,
+          rv = P.HashRecipeIDs({ 100, 200 }) } }),
+      })
+      GSD.SaveReceived("Main", P.ParsePresence(msg), "G", "R")
+      GSD.MarkRecipesRequested("Main", "R", { "tailoring" }, NOW)
+      assert.are.same({}, GSD.GetProfessionsNeedingRecipes("Main", "R", NOW + 100))
+    end)
+
+    it("returns prof again after backoff expires", function()
+      local msg = presence("Main", {
+        charEntry("Main", { { key = "tailoring", rank = 375, count = 2,
+          rv = P.HashRecipeIDs({ 100, 200 }) } }),
+      })
+      GSD.SaveReceived("Main", P.ParsePresence(msg), "G", "R")
+      GSD.MarkRecipesRequested("Main", "R", { "tailoring" }, NOW)
+      assert.are.same({ "tailoring" }, GSD.GetProfessionsNeedingRecipes("Main", "R", NOW + 3601))
+    end)
+
+    it("ignores backoff when rv changes", function()
+      local rv1 = P.HashRecipeIDs({ 100, 200 })
+      GSD.SaveReceived("Main", P.ParsePresence(presence("Main", {
+        charEntry("Main", { { key = "tailoring", rank = 375, count = 2, rv = rv1 } }),
+      })), "G", "R")
+      GSD.MarkRecipesRequested("Main", "R", { "tailoring" }, NOW)
+      GSD.SaveReceived("Main", P.ParsePresence(presence("Main", {
+        charEntry("Main", { { key = "tailoring", rank = 375, count = 3,
+          rv = P.HashRecipeIDs({ 100, 200, 300 }) } }),
+      })), "G", "R")
+      assert.are.same({ "tailoring" }, GSD.GetProfessionsNeedingRecipes("Main", "R", NOW + 100))
+    end)
+
+    it("preserves recipesRequestedAt when rv is unchanged on SaveReceived", function()
+      local rv = P.HashRecipeIDs({ 100, 200 })
+      GSD.SaveReceived("Main", P.ParsePresence(presence("Main", {
+        charEntry("Main", { { key = "tailoring", rank = 375, count = 2, rv = rv } }),
+      })), "G", "R")
+      GSD.MarkRecipesRequested("Main", "R", { "tailoring" }, NOW)
+      GSD.SaveReceived("Main", P.ParsePresence(presence("Main", {
+        charEntry("Main", { { key = "tailoring", rank = 375, count = 2, rv = rv } }),
+      })), "G", "R")
+      assert.are.equal(NOW, GSD.GetCharacter("Main", "R").Professions.tailoring.recipesRequestedAt)
+    end)
+
+    it("clears recipesRequestedAt when rv changes on SaveReceived", function()
+      GSD.SaveReceived("Main", P.ParsePresence(presence("Main", {
+        charEntry("Main", { { key = "tailoring", rank = 375, count = 2,
+          rv = P.HashRecipeIDs({ 100, 200 }) } }),
+      })), "G", "R")
+      GSD.MarkRecipesRequested("Main", "R", { "tailoring" }, NOW)
+      GSD.SaveReceived("Main", P.ParsePresence(presence("Main", {
+        charEntry("Main", { { key = "tailoring", rank = 375, count = 3,
+          rv = P.HashRecipeIDs({ 100, 200, 300 }) } }),
+      })), "G", "R")
+      assert.is_nil(GSD.GetCharacter("Main", "R").Professions.tailoring.recipesRequestedAt)
     end)
   end)
 

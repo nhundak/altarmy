@@ -86,6 +86,61 @@ local function defaultReceivedMain(chars)
 end
 GSD._DefaultReceivedMain = defaultReceivedMain
 
+GSD.RECIPE_REQUEST_BACKOFF_SEC = 3600
+
+local function profSummaryMatches(storedProf, parsedProf)
+    if not storedProf or not parsedProf then return false end
+    return storedProf.rank == (parsedProf.rank or 0)
+        and storedProf.count == (parsedProf.count or 0)
+        and storedProf.rv == (parsedProf.rv or 0)
+        and storedProf.spec == parsedProf.spec
+end
+
+local function charPresenceMatches(stored, parsedChar)
+    if not stored or not parsedChar then return false end
+    if stored.classFile ~= parsedChar.classFile then return false end
+    if stored.faction ~= parsedChar.faction then return false end
+    if stored.level ~= (parsedChar.level or 0) then return false end
+    if stored.itemLevel ~= (parsedChar.itemLevel or 0) then return false end
+
+    local storedProfs = stored.Professions or {}
+    local parsedProfs = parsedChar.profs or {}
+    if #parsedProfs ~= 0 then
+        local seen = {}
+        for _, pr in ipairs(parsedProfs) do
+            if not profSummaryMatches(storedProfs[pr.key], pr) then
+                return false
+            end
+            seen[pr.key] = true
+        end
+        for key in pairs(storedProfs) do
+            if not seen[key] then return false end
+        end
+    elseif next(storedProfs) ~= nil then
+        return false
+    end
+    return true
+end
+GSD._CharPresenceMatches = charPresenceMatches
+
+--- True when an inbound (parsed) presence matches what is already stored for its chars.
+function GSD.PresenceMatchesStored(_sender, presence, realm)
+    if not presence or type(presence.chars) ~= "table" or #presence.chars == 0 then
+        return false
+    end
+    realm = realm or "?"
+    local effectiveMain = presence.main or defaultReceivedMain(presence.chars)
+    local displayName = presence.displayName
+    for _, c in ipairs(presence.chars) do
+        local stored = GSD.GetCharacter(c.name, realm)
+        if not stored then return false end
+        if stored.main ~= effectiveMain then return false end
+        if stored.displayName ~= displayName then return false end
+        if not charPresenceMatches(stored, c) then return false end
+    end
+    return true
+end
+
 --- Store an inbound (already parsed) presence for a guild on a realm.
 --- Preserves previously pulled recipes when the advertised version is unchanged.
 function GSD.SaveReceived(sender, presence, guild, realm)
@@ -126,6 +181,9 @@ function GSD.SaveReceived(sender, presence, guild, realm)
             if prev and prev.Recipes and prev.recipesRv == prof.rv then
                 prof.Recipes = prev.Recipes
                 prof.recipesRv = prev.recipesRv
+            end
+            if prev and prev.rv == prof.rv and prev.recipesRequestedAt then
+                prof.recipesRequestedAt = prev.recipesRequestedAt
             end
             newProfs[pr.key] = prof
         end
@@ -280,17 +338,37 @@ function GSD.GetRecipesFor(name, realm)
 end
 
 --- Profession keys for a character whose recipe lists still need to be pulled.
-function GSD.GetProfessionsNeedingRecipes(name, realm)
+function GSD.GetProfessionsNeedingRecipes(name, realm, nowTs)
+    nowTs = nowTs or now()
     local out = {}
     local entry = GSD.GetCharacter(name, realm)
     if not entry or not entry.Professions then return out end
+    local backoff = GSD.RECIPE_REQUEST_BACKOFF_SEC or 3600
     for key, prof in pairs(entry.Professions) do
         if not prof.Recipes or prof.recipesRv ~= prof.rv then
-            out[#out + 1] = key
+            local requestedAt = prof.recipesRequestedAt
+            local inBackoff = requestedAt and (nowTs - requestedAt) < backoff
+            if not inBackoff then
+                out[#out + 1] = key
+            end
         end
     end
     table.sort(out)
     return out
+end
+
+--- Record that recipe lists were requested for the given profession keys.
+function GSD.MarkRecipesRequested(name, realm, profKeys, nowTs)
+    if type(profKeys) ~= "table" or #profKeys == 0 then return end
+    local entry = GSD.GetCharacter(name, realm)
+    if not entry or not entry.Professions then return end
+    nowTs = nowTs or now()
+    for _, key in ipairs(profKeys) do
+        local prof = entry.Professions[key]
+        if prof then
+            prof.recipesRequestedAt = nowTs
+        end
+    end
 end
 
 -- *** Purging ***

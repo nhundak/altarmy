@@ -123,6 +123,15 @@ describe("GuildTabData", function()
         "Tailoring " .. EM_DASH .. " Spellfire |cff808080(375)|r, Alchemy |cff808080(300)|r",
         GTD.FormatProfessions(m))
     end)
+
+    it("highlights matching substrings in profession names and specializations", function()
+      local m = member({ name = "A", profs = {
+        { key = "alchemy", name = "Alchemy", rank = 375, spec = "Transmute" },
+      } })
+      assert.are.equal(
+        "|cff00ff00Alch|r" .. "emy " .. EM_DASH .. " Transmute |cff808080(375)|r",
+        GTD.FormatProfessions(m, "alch"))
+    end)
   end)
 
   describe("GroupMembersByMain", function()
@@ -192,28 +201,90 @@ describe("GuildTabData", function()
     it("returns all groups when the query is empty", function()
       assert.are.equal(2, #GTD.FilterGroups(groups, ""))
       assert.are.equal(2, #GTD.FilterGroups(groups, nil))
+      assert.are.equal(2, #GTD.FilterGroups(groups, "  "))
     end)
 
-    it("matches on the preferred name", function()
+    it("matches on the preferred name and includes all characters in the group", function()
       local out = GTD.FilterGroups(groups, "topdog")
       assert.are.equal(1, #out)
       assert.are.equal("TopDog", out[1].preferredName)
+      assert.are.equal(2, #out[1].members)
+      assert.are.equal(2, out[1].characterCount)
     end)
 
-    it("matches on the main character name", function()
+    it("matches on the main character name and includes all characters in the group", function()
       local out = GTD.FilterGroups(groups, "bossman")
       assert.are.equal(1, #out)
       assert.are.equal("TopDog", out[1].preferredName)
+      assert.are.equal(2, #out[1].members)
+      assert.are.equal(2, out[1].characterCount)
     end)
 
-    it("matches on an alt character name", function()
+    it("matches on an alt character name and omits non-matching characters", function()
       local out = GTD.FilterGroups(groups, "sidekick")
       assert.are.equal(1, #out)
       assert.are.equal("TopDog", out[1].preferredName)
+      assert.are.equal(1, #out[1].members)
+      assert.are.equal("Sidekick", out[1].members[1].name)
     end)
 
     it("returns nothing when no group matches", function()
       assert.are.equal(0, #GTD.FilterGroups(groups, "nobody"))
+    end)
+
+    it("updates characterCount to the number of visible members", function()
+      local out = GTD.FilterGroups(groups, "sidekick")
+      assert.are.equal(1, out[1].characterCount)
+    end)
+
+    it("matches on a character profession name and omits non-matching characters", function()
+      local profGroups = GTD.GroupMembersByMain({
+        member({ name = "Bossman", main = "Bossman", isMain = true, displayName = "TopDog", profs = {
+          { key = "alchemy", name = "Alchemy", rank = 375, spec = "Transmute" },
+        } }),
+        member({ name = "Sidekick", main = "Bossman" }),
+      })
+      local out = GTD.FilterGroups(profGroups, "alch")
+      assert.are.equal(1, #out)
+      assert.are.equal(1, #out[1].members)
+      assert.are.equal("Bossman", out[1].members[1].name)
+    end)
+
+    it("matches on a profession specialization", function()
+      local profGroups = GTD.GroupMembersByMain({
+        member({ name = "Crafter", main = "Crafter", isMain = true, profs = {
+          { key = "alchemy", name = "Alchemy", rank = 375, spec = "Transmute" },
+        } }),
+      })
+      local out = GTD.FilterGroups(profGroups, "trans")
+      assert.are.equal(1, #out)
+      assert.are.equal("Crafter", out[1].members[1].name)
+    end)
+  end)
+
+  describe("FormatTextWithSearchHighlight", function()
+    local GREEN = "|cff00ff00"
+
+    it("returns plain text when the query is empty", function()
+      assert.are.equal("Mindfrell", GTD.FormatTextWithSearchHighlight("Mindfrell", "MAGE", ""))
+    end)
+
+    it("highlights the matching substring in bright green with class-colored prefix", function()
+      local function fakeFormat(text)
+        return "<MAGE>" .. text
+      end
+      local out = GTD.FormatTextWithSearchHighlight("Mindfrell", "MAGE", "frell", fakeFormat)
+      assert.are.equal("<MAGE>Mind" .. GREEN .. "frell|r", out)
+    end)
+
+    it("is case-insensitive while preserving original casing", function()
+      local out = GTD.FormatTextWithSearchHighlight("Mindfrell", nil, "FRELL")
+      assert.are.equal("Mind" .. GREEN .. "frell|r", out)
+    end)
+
+    it("highlights every non-overlapping match", function()
+      local out = GTD.FormatTextWithSearchHighlight("banana", nil, "an")
+      assert.are.equal("b" .. GREEN .. "an|r" .. GREEN .. "an|r" .. "a", out)
     end)
   end)
 
@@ -248,6 +319,15 @@ describe("GuildTabData", function()
       assert.are.equal("Chief", seen.name)
       assert.are.equal("MAGE", seen.classFile)
     end)
+
+    it("highlights the matching portion of the preferred name", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Main", main = "Main", isMain = true, displayName = "Mindfrell", classFile = "MAGE" }),
+      })
+      assert.are.equal(
+        "Mind|cff00ff00frell|r 1 character",
+        GTD.FormatMainRowLabel(groups[1], plainFormatName, "frell"))
+    end)
   end)
 
   describe("FormatCharacterName", function()
@@ -255,6 +335,12 @@ describe("GuildTabData", function()
       local m = member({ name = "Mage", classFile = "MAGE", level = 70 })
       assert.are.equal("Mage |cff808080(level 70)|r",
         GTD.FormatCharacterName(m, plainFormatName))
+    end)
+
+    it("highlights the matching portion of the character name", function()
+      local m = member({ name = "Mindfrell", classFile = "MAGE", level = 70 })
+      local out = GTD.FormatCharacterName(m, plainFormatName, "frell")
+      assert.are.equal("Mind|cff00ff00frell|r |cff808080(level 70)|r", out)
     end)
 
     it("floors fractional levels", function()

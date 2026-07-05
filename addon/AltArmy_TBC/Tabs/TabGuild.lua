@@ -1,7 +1,7 @@
 -- AltArmy TBC — Guild tab: guildmates shared via guild data sharing, grouped by main.
 -- Always present when the guildShare feature flag is on (button visibility handled in Core.lua).
 -- Layout:
---   * fixed header: guild name + tabard (left), "Search for guild members" field (right)
+--   * fixed header: guild name + tabard (left), search field aligned with main header search (right)
 --   * scroll body: one row per main (preferred name + character count), expandable to reveal
 --     each character (class-colored name, gray level, primary professions)
 -- Two content states, driven by the user's OWN sharing setting (not the feature flag):
@@ -28,8 +28,7 @@ local CHAR_INDENT = 24
 local PROF_COLUMN = 180
 local NAME_COLUMN_GAP = 8
 local TABARD_SIZE = 24
-local SEARCH_WIDTH = 200
-local SEARCH_PLACEHOLDER = "Search for guild members"
+local SEARCH_PLACEHOLDER = "Search for characters or professions"
 
 local function currentGuild()
     if GetGuildInfo then
@@ -46,8 +45,38 @@ end
 
 -- Session-only expand state, keyed by group main character name.
 local expandedMains = {}
--- Current search text (trimmed lower handled by GuildTabData.FilterGroups).
+-- Snapshot of expand state before search began; restored when the search box is cleared.
+local savedExpandedMains = nil
+-- Current search text (trimmed lower handled by GuildTabData.NormalizeSearchQuery).
 local searchText = ""
+
+local function copyExpandState(src)
+    local out = {}
+    for key, value in pairs(src or {}) do
+        if value then out[key] = true end
+    end
+    return out
+end
+
+local function normalizedSearchText()
+    return GTD.NormalizeSearchQuery(searchText)
+end
+
+local function applySearchExpansion(groups)
+    if normalizedSearchText() == "" then
+        if savedExpandedMains ~= nil then
+            expandedMains = copyExpandState(savedExpandedMains)
+            savedExpandedMains = nil
+        end
+        return
+    end
+    if savedExpandedMains == nil then
+        savedExpandedMains = copyExpandState(expandedMains)
+    end
+    for _, g in ipairs(groups) do
+        expandedMains[g.main] = true
+    end
+end
 
 -- *** Layout: panel + message state ***
 
@@ -134,16 +163,37 @@ local function updateTabard()
     tabardFrame:Hide()
 end
 
--- Search field (right side of header)
+-- Search field: same width and left edge as the main header search (Core.lua).
+local headerSearchRef = _G.AltArmyTBC_HeaderSearchEdit
 local searchEdit = CreateFrame("EditBox", "AltArmyTBC_GuildSearchEdit", header)
-searchEdit:SetSize(SEARCH_WIDTH, 20)
-searchEdit:SetPoint("RIGHT", header, "RIGHT", -2, 0)
+if headerSearchRef then
+    searchEdit:SetPoint("LEFT", headerSearchRef, "LEFT", 0, 0)
+    searchEdit:SetPoint("RIGHT", headerSearchRef, "RIGHT", 0, 0)
+else
+    searchEdit:SetSize(288, 20)
+    searchEdit:SetPoint("RIGHT", header, "RIGHT", -20, 0)
+end
+searchEdit:SetHeight(20)
+searchEdit:SetPoint("TOP", header, "TOP", 0, -6)
 searchEdit:SetAutoFocus(false)
 searchEdit:SetFontObject("GameFontHighlight")
 if searchEdit.SetTextInsets then
     searchEdit:SetTextInsets(6, 6, 0, 0)
 end
 Theme.ApplyInputTextures(searchEdit)
+
+local searchClearBtn = CreateFrame("Button", nil, header)
+searchClearBtn:SetPoint("RIGHT", searchEdit, "LEFT", -2, 0)
+searchClearBtn:SetSize(18, 18)
+searchClearBtn:Hide()
+local searchClearLabel = searchClearBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+searchClearLabel:SetPoint("CENTER", searchClearBtn, "CENTER", 0, 0)
+searchClearLabel:SetText("X")
+searchClearBtn:SetHighlightFontObject("GameFontNormal")
+searchClearBtn:SetScript("OnClick", function()
+    searchEdit:SetText("")
+    searchEdit:SetFocus()
+end)
 
 if searchEdit.SetPlaceholderText then
     searchEdit:SetPlaceholderText(SEARCH_PLACEHOLDER)
@@ -166,6 +216,16 @@ local function updateSearchPlaceholderVisibility()
         hint:Show()
     else
         hint:Hide()
+    end
+end
+
+local function updateSearchClearVisibility()
+    local text = searchEdit:GetText()
+    local trimmed = text and text:match("^%s*(.-)%s*$") or ""
+    if trimmed == "" then
+        searchClearBtn:Hide()
+    else
+        searchClearBtn:Show()
     end
 end
 
@@ -266,11 +326,12 @@ local function showMessage(text, withButton)
     optionsBtn:SetShown(withButton and true or false)
 end
 
-local function layoutList(groups)
+local function layoutList(groups, query)
     local mainIndex = 0
     local charIndex = 0
     local y = 0
     local width = math.max(1, (scrollChild:GetWidth() or listViewport:GetWidth() or 1))
+    local activeQuery = GTD.NormalizeSearchQuery(query)
 
     for _, g in ipairs(groups) do
         mainIndex = mainIndex + 1
@@ -279,11 +340,11 @@ local function layoutList(groups)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -y)
         row:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", 0, -y)
-        row.label:SetText(GTD.FormatMainRowLabel(g, formatName))
+        row.label:SetText(GTD.FormatMainRowLabel(g, formatName, activeQuery ~= "" and activeQuery or nil))
         row.groupMain = g.main
         row:SetScript("OnClick", function()
             expandedMains[g.main] = not expandedMains[g.main]
-            layoutList(groups)
+            layoutList(groups, query)
         end)
         y = y + MAIN_ROW_HEIGHT
 
@@ -294,8 +355,10 @@ local function layoutList(groups)
                 charRow:ClearAllPoints()
                 charRow:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", CHAR_INDENT, -y)
                 charRow:SetPoint("RIGHT", scrollChild, "RIGHT", 0, 0)
-                charRow.nameFS:SetText(GTD.FormatCharacterName(m, formatName))
-                charRow.profFS:SetText(GTD.FormatProfessions(m))
+                charRow.nameFS:SetText(GTD.FormatCharacterName(
+                    m, formatName, activeQuery ~= "" and activeQuery or nil))
+                charRow.profFS:SetText(GTD.FormatProfessions(
+                    m, activeQuery ~= "" and activeQuery or nil))
                 y = y + CHAR_ROW_HEIGHT
             end
         end
@@ -337,6 +400,7 @@ local function refresh()
     local members = (GSD and GSD.GetGuildMembersForDisplay(guild, realm)) or {}
     local groups = GTD.GroupMembersByMain(members)
     local filtered = GTD.FilterGroups(groups, searchText)
+    applySearchExpansion(filtered)
 
     if #filtered == 0 then
         hideMainRowsFrom(1)
@@ -354,13 +418,14 @@ local function refresh()
     end
 
     emptyText:Hide()
-    layoutList(filtered)
+    layoutList(filtered, searchText)
 end
 
 searchEdit:SetScript("OnTextChanged", function(box)
     local text = box:GetText() or ""
     searchText = text
     updateSearchPlaceholderVisibility()
+    updateSearchClearVisibility()
     refresh()
 end)
 searchEdit:SetScript("OnEditFocusGained", updateSearchPlaceholderVisibility)
@@ -370,6 +435,7 @@ searchEdit:SetScript("OnEscapePressed", function(box)
     box:SetText("")
     box:ClearFocus()
 end)
+updateSearchClearVisibility()
 
 -- Refresh the tabard when guild identity changes while the tab is visible.
 local tabardEvents = CreateFrame("Frame")

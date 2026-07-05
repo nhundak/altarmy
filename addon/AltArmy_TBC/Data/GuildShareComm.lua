@@ -1,7 +1,8 @@
 -- AltArmy TBC — Guild data sharing: comm layer (AceComm/AceSerializer wiring).
 -- Broadcasts a privacy-limited presence over the GUILD channel and pulls recipe lists
 -- on demand. Sending is ALWAYS active (subject to the send-set below); receiving + UI
--- are gated behind the guildShare feature flag.
+-- are gated behind the guildShare feature flag, except that inbound RQ (recipe requests)
+-- are always answered so send-only clients can still honor recipe pull requests.
 --
 -- Send-set inversion (see GuildShareSettings):
 --   flag OFF -> GetAllGuildedCharacters() (ignore the user's settings; lets the developer
@@ -38,6 +39,13 @@ local function isReceiveEnabled()
     local D = AltArmy.Debug
     return D and D.IsGuildShareEnabled and D.IsGuildShareEnabled() == true
 end
+
+--- True when an inbound message type may be processed (RQ is always allowed).
+local function isInboundAllowed(msgType)
+    if msgType == MSG_REQ_RECIPES then return true end
+    return isReceiveEnabled()
+end
+Comm._IsInboundAllowed = isInboundAllowed
 
 --- Verbose traffic logging (gated by the standalone guildShareVerbose debug flag).
 local function log(msg)
@@ -341,6 +349,9 @@ local function requestMissingRecipes(presence, sender, realm)
         local needed = GSD.GetProfessionsNeedingRecipes(c.name, realm)
         if #needed > 0 then
             send(MSG_REQ_RECIPES, { name = c.name, realm = realm }, "WHISPER", sender)
+            if GSD.MarkRecipesRequested then
+                GSD.MarkRecipesRequested(c.name, realm, needed)
+            end
         end
     end
 end
@@ -372,11 +383,15 @@ local function handlePresence(payload, sender, isReply)
     if not parsed then return end
     local guild = currentGuild()
     local realm = currentRealm()
+    local unchanged = GSD.PresenceMatchesStored
+        and GSD.PresenceMatchesStored(sender, parsed, realm)
     GSD.SaveReceived(sender, parsed, guild, realm)
-    Comm.NotifyDataChanged()
+    if not unchanged then
+        Comm.NotifyDataChanged()
+    end
     requestMissingRecipes(parsed, sender, realm)
     -- Announce/reply handshake: reply to an initial broadcast (not to a reply) so we don't loop.
-    if not isReply and sender ~= playerName() then
+    if not isReply and sender ~= playerName() and not unchanged then
         local mine = buildMyPresence(guild, realm)
         if mine then
             send(MSG_PRESENCE_REPLY, mine, "WHISPER", sender)
@@ -395,7 +410,8 @@ local function handleRecipes(payload)
 end
 
 --- Raw AceComm receive callback. All work is wrapped in pcall so a malformed message
---- can never surface an error, and inbound is ignored entirely when the flag is off.
+--- can never surface an error. Inbound is ignored when the flag is off, except RQ
+--- which send-only clients still answer with RC.
 function Comm._DispatchReceivedMessage(msgType, payload, rawSender)
     local sender = normalizeSender(rawSender)
     if isLocalSender(sender) then return end
@@ -412,7 +428,6 @@ function Comm._DispatchReceivedMessage(msgType, payload, rawSender)
 end
 
 local function onCommReceived(_prefix, message, _distribution, rawSender)
-    if not isReceiveEnabled() then return end
     if not commObj then return end
     pcall(function()
         local ok, msgType, payload = commObj:Deserialize(message)
@@ -420,6 +435,7 @@ local function onCommReceived(_prefix, message, _distribution, rawSender)
             log(string.format("RECV (undecodable) from %s", tostring(rawSender)))
             return
         end
+        if not isInboundAllowed(msgType) then return end
         Comm._DispatchReceivedMessage(msgType, payload, rawSender)
     end)
 end
