@@ -693,6 +693,23 @@ local function canEquipLinkInWeaponSlot(link, targetSlot, classFile, specKey)
     return false
 end
 
+--- True when the focused weapon item is relevant to a given weapon grid row/slot.
+--- Two-handers occupy both hands, so both weapon rows stay relevant. Single-hand
+--- items (main-hand-only, off-hand-only, dual-wield one-handers) are only relevant
+--- to the hand(s) they can actually be equipped in. Non-weapon slots/items are
+--- unrestricted so callers can pass any slot safely.
+function GU.CanEquipFocusItemInWeaponSlot(char, itemLink, invSlot, entry)
+    if not itemLink or not invSlot then return true end
+    if invSlot ~= MAIN_HAND_SLOT and invSlot ~= OFF_HAND_SLOT then return true end
+    local iu = IU()
+    if not iu or not iu.GetWeaponRole then return true end
+    local role = iu.GetWeaponRole(itemLink)
+    if not role then return true end
+    if role == "twohand" then return true end
+    local classFile, specKey = resolveCompareContext(char, entry)
+    return canEquipLinkInWeaponSlot(itemLink, invSlot, classFile, specKey)
+end
+
 local function considerStoredLinkForSlot(
     link, targetSlot, classFile, specKey, level, levelsAhead, technique, bestLink, bestScore)
     if not canEquipLinkInWeaponSlot(link, targetSlot, classFile, specKey) then
@@ -1045,7 +1062,9 @@ local function bestSelectionCompareAcrossSlots(char, focusedLink, opts, entry)
             slotOpts[k] = v
         end
         slotOpts.compareSlot = slot
-        local result = GU.BuildSelectionLoadoutCompare(char, focusedLink, slot, slotOpts, entry)
+        local result = GU.CanEquipFocusItemInWeaponSlot(char, focusedLink, slot, entry)
+            and GU.BuildSelectionLoadoutCompare(char, focusedLink, slot, slotOpts, entry)
+            or nil
         if result
             and isValidWeaponCompareResult(result, focusedLink, slot)
             and (not bestDelta or (result.delta or 0) > bestDelta) then
@@ -1420,6 +1439,9 @@ function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeM
     if not entry or not itemLink or not invSlot then return nil end
     local iu = IU()
     if not iu then return nil end
+    if not GU.CanEquipFocusItemInWeaponSlot(charData, itemLink, invSlot, entry) then
+        return nil
+    end
     local classFile = entry.classFile or (charData and charData.classFile) or ""
     if iu.CanNeverUseItem(classFile, itemLink) then
         return {

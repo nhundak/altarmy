@@ -1258,6 +1258,9 @@ describe("GearUpgrade", function()
                 [207] = { "Bag 1H", nil, 2, 28, 28, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
                 [208] = { "Shield", nil, 2, 20, 20, "Armor", "Shields", nil, "INVTYPE_SHIELD" },
                 [209] = { "Better 1H", nil, 3, 35, 35, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+                [210] = { "MH Only", nil, 3, 40, 40, "Weapon", "Daggers", nil, "INVTYPE_WEAPONMAINHAND" },
+                [211] = { "Strong MH", nil, 3, 60, 60, "Weapon", "Daggers", nil, "INVTYPE_WEAPONMAINHAND" },
+                [212] = { "Held OH", nil, 2, 20, 20, "Armor", "Miscellaneous", nil, "INVTYPE_HOLDABLE" },
             }
             local info = items[id]
             if not info then return mockGetItemInfo(item) end
@@ -1375,6 +1378,24 @@ describe("GearUpgrade", function()
                 talents = { tabs = { 0, 21, 0 }, primary = 2, specKey = "retribution" },
             }
             return DS:GetCharacter("Paladin2H", "TestRealm")
+        end
+
+        local function setupMageMainHand()
+            _G.AltArmyTBC_Data.Characters.TestRealm.MageMH = {
+                name = "MageMH",
+                realm = "TestRealm",
+                classFile = "MAGE",
+                level = 60,
+                Inventory = {
+                    [MAIN] = "|Hitem:211:0|h[Strong MH]|h",
+                    [OFF] = "|Hitem:212:0|h[Held OH]|h",
+                },
+                Containers = {
+                    [0] = { links = {} },
+                },
+                talents = { tabs = { 21, 0, 0 }, primary = 1, specKey = "arcane" },
+            }
+            return DS:GetCharacter("MageMH", "TestRealm")
         end
 
         setup(function()
@@ -1724,6 +1745,93 @@ describe("GearUpgrade", function()
             assert.are.equal(delta1, delta2)
             assert.are.equal(callsAfterFirst, getItemInfoCalls)
             GU.ResetFocusPass()
+        end)
+
+        describe("main-hand-only weapon cannot be considered for off-hand", function()
+            local entry = { name = "MageMH", realm = "TestRealm", classFile = "MAGE", level = 60 }
+            local mhOnlyLink = "|Hitem:210:0|h[MH Only]|h"
+
+            it("CanEquipFocusItemInWeaponSlot rejects off-hand, allows main-hand", function()
+                local char = setupMageMainHand()
+                assert.is_true(GU.CanEquipFocusItemInWeaponSlot(char, mhOnlyLink, MAIN, entry))
+                assert.is_false(GU.CanEquipFocusItemInWeaponSlot(char, mhOnlyLink, OFF, entry))
+            end)
+
+            it("CanEquipFocusItemInWeaponSlot rejects off-hand even for dual-wield class", function()
+                local warrior = setupWarriorDualWield()
+                local wEntry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+                assert.is_false(
+                    GU.CanEquipFocusItemInWeaponSlot(warrior, mhOnlyLink, OFF, wEntry))
+                -- Generic one-hander is still allowed in off-hand for dual-wield class.
+                assert.is_true(
+                    GU.CanEquipFocusItemInWeaponSlot(warrior, "|Hitem:205:0|h[New 1H]|h", OFF, wEntry))
+            end)
+
+            it("two-hand weapon is still relevant to both weapon rows", function()
+                local warrior = setupWarriorDualWield()
+                local wEntry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+                assert.is_true(
+                    GU.CanEquipFocusItemInWeaponSlot(warrior, "|Hitem:203:0|h[Big 2H]|h", MAIN, wEntry))
+                assert.is_true(
+                    GU.CanEquipFocusItemInWeaponSlot(warrior, "|Hitem:203:0|h[Big 2H]|h", OFF, wEntry))
+            end)
+
+            it("GetWeaponConfigDelta auto-select compares main-hand only, not off-hand", function()
+                local char = setupMageMainHand()
+                local delta, info = GU.GetWeaponConfigDelta(char, mhOnlyLink, {
+                    technique = "ilvl",
+                }, entry)
+                assert.are.equal(-20, delta)
+                assert.are.equal(MAIN, info.targetSlot)
+            end)
+
+            it("GetCharacterUpgradeDelta is a downgrade, not a false off-hand upgrade", function()
+                local char = setupMageMainHand()
+                local delta = GU.GetCharacterUpgradeDelta(char, mhOnlyLink, {
+                    technique = "ilvl",
+                }, entry)
+                assert.are.equal(-20, delta)
+            end)
+
+            it("ClassifyFocusSlot returns nil for off-hand and downgrade for main-hand", function()
+                local char = setupMageMainHand()
+                local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
+                local mainInfo = GU.ClassifyFocusSlot(entry, char, mhOnlyLink, MAIN, opts, 20)
+                local offInfo = GU.ClassifyFocusSlot(entry, char, mhOnlyLink, OFF, opts, 20)
+                assert.are.equal(GU.FOCUS_CATEGORY.DOWNGRADE, mainInfo.category)
+                assert.is_nil(offInfo)
+            end)
+
+            it("GetFocusCellBadgeKind and GetFocusVerdictForSlot are nil for off-hand", function()
+                local char = setupMageMainHand()
+                local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
+                assert.is_nil(GU.GetFocusCellBadgeKind(entry, char, mhOnlyLink, OFF, opts, 20))
+                assert.is_nil(GU.GetFocusVerdictForSlot(entry, char, mhOnlyLink, OFF, opts, 20))
+            end)
+        end)
+
+        describe("off-hand-only item cannot be considered for main-hand", function()
+            local entry = { name = "MageMH", realm = "TestRealm", classFile = "MAGE", level = 60 }
+
+            it("CanEquipFocusItemInWeaponSlot rejects main-hand for a shield/holdable", function()
+                local char = setupMageMainHand()
+                local shieldLink = "|Hitem:208:0|h[Shield]|h"
+                local heldLink = "|Hitem:212:0|h[Held OH]|h"
+                assert.is_false(GU.CanEquipFocusItemInWeaponSlot(char, shieldLink, MAIN, entry))
+                assert.is_true(GU.CanEquipFocusItemInWeaponSlot(char, shieldLink, OFF, entry))
+                assert.is_false(GU.CanEquipFocusItemInWeaponSlot(char, heldLink, MAIN, entry))
+                assert.is_true(GU.CanEquipFocusItemInWeaponSlot(char, heldLink, OFF, entry))
+            end)
+
+            it("ClassifyFocusSlot returns nil for main-hand of an off-hand-only item", function()
+                local char = setupMageMainHand()
+                local heldLink = "|Hitem:212:0|h[Held OH]|h"
+                local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
+                local mainInfo = GU.ClassifyFocusSlot(entry, char, heldLink, MAIN, opts, 20)
+                local offInfo = GU.ClassifyFocusSlot(entry, char, heldLink, OFF, opts, 20)
+                assert.is_nil(mainInfo)
+                assert.is_not_nil(offInfo)
+            end)
         end)
 
         it("scoreItem memoizes within a focus pass", function()

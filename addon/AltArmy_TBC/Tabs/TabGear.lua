@@ -353,6 +353,7 @@ function GearTab.PickInitialCompareSelection(list)
     local slot = GearTab.GetFirstFocusedColumnSlot()
     if not slot then return nil, nil end
     local e = list[1]
+    slot = GearTab.ResolveEquippableCompareSlot(e, slot)
     return CharKey(e.name, e.realm), slot
 end
 
@@ -371,6 +372,7 @@ function GearTab.PickCurrentCharacterCompareSelection(list)
     if not currentEntry then return nil, nil end
     local slot = GearTab.GetFirstFocusedColumnSlot()
     if not slot then return nil, nil end
+    slot = GearTab.ResolveEquippableCompareSlot(currentEntry, slot)
     return CharKey(currentEntry.name, currentEntry.realm), slot
 end
 
@@ -856,8 +858,42 @@ function GearTab.GetFirstFocusedColumnSlot()
     return slots[1]
 end
 
+local OTHER_WEAPON_HAND = { [16] = 17, [17] = 16 }
+
+--- Redirect a weapon-hand slot to the hand the focused item can actually occupy for
+--- this character. Off-hand-only items (shields, held-in-off-hand) resolve to the
+--- off-hand even when the main-hand row is targeted, and main-hand-only weapons
+--- resolve to the main hand. Non-weapon slots and equippable slots pass through.
+function GearTab.ResolveEquippableCompareSlot(entry, invSlot)
+    if not droppedItemLink or not invSlot or not entry then return invSlot end
+    if not GU or not GU.CanEquipFocusItemInWeaponSlot then return invSlot end
+    local otherHand = OTHER_WEAPON_HAND[invSlot]
+    if not otherHand then return invSlot end
+    local charData = DS and DS.GetCharacter and DS:GetCharacter(entry.name, entry.realm)
+    if GU.CanEquipFocusItemInWeaponSlot(charData, droppedItemLink, invSlot, entry) then
+        return invSlot
+    end
+    if GU.CanEquipFocusItemInWeaponSlot(charData, droppedItemLink, otherHand, entry) then
+        return otherHand
+    end
+    return invSlot
+end
+
+function GearTab.GetCompareEntryByKey(key)
+    if not key then return nil end
+    local list = GearTab.GetDisplayList()
+    if not list then return nil end
+    for i = 1, #list do
+        local e = list[i]
+        if CharKey(e.name, e.realm) == key then return e end
+    end
+    return nil
+end
+
 function GearTab.SelectCompareCell(charKey, invSlot)
     if not charKey or not invSlot then return end
+    invSlot = GearTab.ResolveEquippableCompareSlot(
+        GearTab.GetCompareEntryByKey(charKey), invSlot)
     if GearTab.IsCompareCellSelected(charKey, invSlot) then
         GearTab.ClearCompareSelection()
     else
