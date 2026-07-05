@@ -102,7 +102,20 @@ function SS.GetSearchSettings()
     s.difficultyFilter = normalizeBooleanMap(s.difficultyFilter, SS.DIFFICULTY_BANDS, true)
     s.sourceFilter = normalizeBooleanMap(s.sourceFilter, SS.SOURCE_TYPES, true)
     s.professionFilter = normalizeBooleanMap(s.professionFilter, SS.PROFESSION_KEYS, true)
+    if s.includeGuildmates == nil then
+        s.includeGuildmates = true
+    end
     return s
+end
+
+--- Whether guildmate-shared recipes are merged into recipe search results (default true).
+--- Only takes effect when the guildShare feature flag is on.
+function SS.IsIncludeGuildmatesEnabled()
+    return SS.GetSearchSettings().includeGuildmates == true
+end
+
+function SS.SetIncludeGuildmatesEnabled(on)
+    SS.GetSearchSettings().includeGuildmates = on == true
 end
 
 function SS.GetProfessionDropdownOrder()

@@ -25,6 +25,15 @@ describe("SearchSettings", function()
     assert.is_false(SS.IsRecipeLevelFilterActive(f))
   end)
 
+  it("include guildmates defaults to enabled and toggles", function()
+    assert.is_true(SS.IsIncludeGuildmatesEnabled())
+    SS.SetIncludeGuildmatesEnabled(false)
+    assert.is_false(SS.IsIncludeGuildmatesEnabled())
+    assert.is_false(AltArmyTBC_SearchSettings.includeGuildmates)
+    SS.SetIncludeGuildmatesEnabled(true)
+    assert.is_true(SS.IsIncludeGuildmatesEnabled())
+  end)
+
   it("clamps min and max to 0-375", function()
     _G.AltArmyTBC_SearchSettings = {
       recipeLevelFilter = { min = -5, max = 999 },

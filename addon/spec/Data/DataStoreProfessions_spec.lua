@@ -44,6 +44,29 @@ describe("DataStoreProfessions", function()
     end)
   end)
 
+  describe("ResolveSpecializationLabel", function()
+    it("returns the label of the first known specialization spell", function()
+      local knows = function(id) return id == 28677 end -- Master of Elixirs
+      assert.are.equal("Elixir", DS.ResolveSpecializationLabel("alchemy", knows))
+    end)
+
+    it("prefers the more specific specialization listed first", function()
+      -- Knows both Weaponsmith (general) and Master Swordsmith (specific) -> Swordsmith wins.
+      local knows = function(id) return id == 17041 or id == 9787 end
+      assert.are.equal("Swordsmith", DS.ResolveSpecializationLabel("blacksmithing", knows))
+    end)
+
+    it("returns nil when no specialization spell is known", function()
+      assert.is_nil(DS.ResolveSpecializationLabel("alchemy", function() return false end))
+    end)
+
+    it("returns nil for professions without specializations or bad args", function()
+      assert.is_nil(DS.ResolveSpecializationLabel("mining", function() return true end))
+      assert.is_nil(DS.ResolveSpecializationLabel(nil, function() return true end))
+      assert.is_nil(DS.ResolveSpecializationLabel("alchemy", nil))
+    end)
+  end)
+
   describe("GetProfession1 / GetProfession2", function()
     it("returns 0, 0, nil when char nil", function()
       local r, m, n = DS:GetProfession1(nil)

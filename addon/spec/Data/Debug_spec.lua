@@ -24,12 +24,58 @@ describe("AltArmy.Debug", function()
         assert.is_false(D.IsCooldownsEnabled())
         assert.is_false(D.IsLevelHistoryEnabled())
         assert.is_false(D.IsItemComparisonEnabled())
+        assert.is_false(D.IsGuildShareEnabled())
         assert.is_false(AltArmyTBC_Options.debug.enabled)
         assert.is_false(AltArmyTBC_Options.debug.search)
         assert.is_false(AltArmyTBC_Options.debug.cooldowns)
         assert.is_false(AltArmyTBC_Options.debug.levelHistory)
         assert.is_false(AltArmyTBC_Options.debug.itemComparison)
         assert.is_false(AltArmyTBC_Options.debug.itemStats)
+        assert.is_false(AltArmyTBC_Options.debug.guildShare)
+    end)
+
+    it("IsGuildShareEnabled returns the raw flag, NOT requiring master enabled", function()
+        -- Unlike the other debug flags, guild share is a standalone feature flag:
+        -- it must be true when guildShare is set even if the master debug switch is off.
+        assert.is_false(D.IsEnabled())
+        D.SetGuildShareEnabled(true)
+        assert.is_true(D.IsGuildShareEnabled())
+        assert.is_true(AltArmyTBC_Options.debug.guildShare)
+    end)
+
+    it("SetGuildShareEnabled(false) turns the flag off", function()
+        D.SetGuildShareEnabled(true)
+        assert.is_true(D.IsGuildShareEnabled())
+        D.SetGuildShareEnabled(false)
+        assert.is_false(D.IsGuildShareEnabled())
+        assert.is_false(AltArmyTBC_Options.debug.guildShare)
+    end)
+
+    it("guildShareVerbose defaults false and is standalone (not requiring master enabled)", function()
+        assert.is_false(D.IsGuildShareVerbose())
+        assert.is_false(AltArmyTBC_Options.debug.guildShareVerbose)
+        D.SetGuildShareVerbose(true)
+        assert.is_true(D.IsGuildShareVerbose())
+        D.SetGuildShareVerbose(false)
+        assert.is_false(D.IsGuildShareVerbose())
+    end)
+
+    it("LogGuildShare only emits to chat when verbose is on", function()
+        local messages = {}
+        local original = D.NotifyChat
+        D.NotifyChat = function(m) messages[#messages + 1] = m end
+
+        D.SetGuildShareVerbose(false)
+        D.LogGuildShare("hidden")
+        assert.are.equal(0, #messages)
+
+        D.SetGuildShareVerbose(true)
+        D.LogGuildShare("visible")
+        assert.are.equal(1, #messages)
+        assert.matches("visible", messages[1])
+        assert.matches("GuildShare", messages[1])
+
+        D.NotifyChat = original
     end)
 
     it("IsSearchEnabled is false when search is on but master is off", function()

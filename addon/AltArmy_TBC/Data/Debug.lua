@@ -36,6 +36,12 @@ function D.Ensure()
     if d.itemStats == nil then
         d.itemStats = false
     end
+    if d.guildShare == nil then
+        d.guildShare = false
+    end
+    if d.guildShareVerbose == nil then
+        d.guildShareVerbose = false
+    end
 end
 
 function D.IsEnabled()
@@ -133,6 +139,40 @@ function D.LogItemStats(msgs)
     for i = 1, #msgs do
         D.NotifyChat("|cff00ccff[Alt Army:ItemStats]|r " .. tostring(msgs[i]))
     end
+end
+
+--- Guild data sharing feature flag. Unlike the other debug flags this is a standalone
+--- feature gate: it returns the raw value and does NOT require the master debug switch,
+--- so it can be flipped on its own (and later hardcoded to true once the feature ships).
+--- Gates RECEIVE + UI, and inverts the SEND behavior (see GuildShareComm).
+function D.IsGuildShareEnabled()
+    D.Ensure()
+    return AltArmyTBC_Options.debug.guildShare == true
+end
+
+function D.SetGuildShareEnabled(on)
+    D.Ensure()
+    AltArmyTBC_Options.debug.guildShare = on == true
+end
+
+--- Verbose guild-share traffic logging. Standalone (does NOT require master enabled) so it can
+--- be toggled while the feature flag is either off (watch the force-broadcast) or on (watch
+--- opt-in sends + inbound). Independent of IsGuildShareEnabled so both paths can be observed.
+function D.IsGuildShareVerbose()
+    D.Ensure()
+    return AltArmyTBC_Options.debug.guildShareVerbose == true
+end
+
+function D.SetGuildShareVerbose(on)
+    D.Ensure()
+    AltArmyTBC_Options.debug.guildShareVerbose = on == true
+end
+
+function D.LogGuildShare(msg)
+    if not D.IsGuildShareVerbose() then
+        return
+    end
+    D.NotifyChat("|cff00ccff[Alt Army:GuildShare]|r " .. tostring(msg))
 end
 
 function D.NotifyChat(msg)

@@ -534,6 +534,66 @@ function DS:RemigrateRecipePrimaryIdsDebug()
     return self:MigrateRecipePrimaryIds()
 end
 
+-- TBC crafting-profession specializations: profession key -> ordered { spellId, label }.
+-- Order matters: the FIRST known spell wins, so list more specific specializations before
+-- the general ones (e.g. Master Swordsmith before Weaponsmith). Labels are English; profession
+-- names shown alongside them stay locale-safe (resolved via SearchSettings profession keys).
+DS.PROFESSION_SPECIALIZATIONS = {
+    alchemy = {
+        { spellId = 28672, label = "Transmute" },
+        { spellId = 28677, label = "Elixir" },
+        { spellId = 28675, label = "Potion" },
+    },
+    blacksmithing = {
+        { spellId = 17041, label = "Swordsmith" },
+        { spellId = 17040, label = "Hammersmith" },
+        { spellId = 17039, label = "Axesmith" },
+        { spellId = 9788, label = "Armorsmith" },
+        { spellId = 9787, label = "Weaponsmith" },
+    },
+    leatherworking = {
+        { spellId = 10657, label = "Dragonscale" },
+        { spellId = 10659, label = "Elemental" },
+        { spellId = 10661, label = "Tribal" },
+    },
+    engineering = {
+        { spellId = 20219, label = "Gnomish" },
+        { spellId = 20222, label = "Goblin" },
+    },
+    tailoring = {
+        { spellId = 26797, label = "Spellfire" },
+        { spellId = 26801, label = "Shadoweave" },
+        { spellId = 26798, label = "Mooncloth" },
+    },
+}
+
+--- Specialization label for a profession key, using `knowsFn(spellId) -> bool`; nil when none.
+--- Pure (no globals) so it is unit-testable; the live scan passes an IsSpellKnown wrapper.
+function DS.ResolveSpecializationLabel(professionKey, knowsFn)
+    local specs = professionKey and DS.PROFESSION_SPECIALIZATIONS[professionKey]
+    if not specs or type(knowsFn) ~= "function" then return nil end
+    for _, spec in ipairs(specs) do
+        if knowsFn(spec.spellId) then return spec.label end
+    end
+    return nil
+end
+
+--- Persist each crafting profession's learned specialization label (current character only).
+function DS:ScanProfessionSpecializations(char)
+    if not char or not char.Professions then return end
+    local SS = AltArmy and AltArmy.SearchSettings
+    local resolveKey = SS and SS.ResolveProfessionKey
+    local function knows(spellId)
+        if not spellId or not _G.IsSpellKnown then return false end
+        local ok, known = pcall(_G.IsSpellKnown, spellId)
+        return ok and known and true or false
+    end
+    for profName, prof in pairs(char.Professions) do
+        local key = resolveKey and resolveKey(profName) or nil
+        prof.specialization = DS.ResolveSpecializationLabel(key, knows)
+    end
+end
+
 --- Persist tailoring/alchemy specialization passives for cooldown option filters (current character).
 function DS:ScanCooldownSpecializations(char)
     if not char then return end
@@ -605,6 +665,7 @@ function DS:ScanProfessionLinks()
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.professions = DATA_VERSIONS.professions
     self:ScanCooldownSpecializations(char)
+    self:ScanProfessionSpecializations(char)
 end
 
 function DS:ScanRecipes()
@@ -662,6 +723,7 @@ function DS:ScanRecipes()
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.professions = DATA_VERSIONS.professions
     self:ScanCooldownSpecializations(char)
+    self:ScanProfessionSpecializations(char)
     notifyRecipesChanged()
 end
 

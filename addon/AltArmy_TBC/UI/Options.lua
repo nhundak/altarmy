@@ -258,6 +258,9 @@ local function SetActiveOptionsTab(which)
     if which == "debug" and RefreshDebugCheckboxes then
         RefreshDebugCheckboxes()
     end
+    if which == "general" and panel.RefreshGuildSharingControls then
+        panel.RefreshGuildSharingControls()
+    end
 end
 
 local tabBar = CreateFrame("Frame", nil, panel)
@@ -444,6 +447,60 @@ debugItemStatsHint:SetJustifyH("LEFT")
 debugItemStatsHint:SetText(
     "Logs API vs tooltip stat parsing when comparing items. Use /altarmy debug stats with an item on the cursor.")
 
+local debugGuildShareRow = Theme.CreateLabeledCheckbox(tabDebug, {
+    point = "TOPLEFT",
+    relativeTo = debugItemStatsHint,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -16,
+    text = "Guild data sharing (feature flag)",
+    fullWidthHover = true,
+    onClick = function(checked)
+        if AltArmy.Debug and AltArmy.Debug.SetGuildShareEnabled then
+            AltArmy.Debug.SetGuildShareEnabled(checked)
+        end
+        if AltArmy.UpdateGuildTabVisibility then
+            AltArmy.UpdateGuildTabVisibility()
+        end
+        if panel.RefreshGuildSharingControls then
+            panel.RefreshGuildSharingControls()
+        end
+    end,
+})
+panel.debugGuildShareCheckbox = debugGuildShareRow.check
+
+local debugGuildShareHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+debugGuildShareHint:SetPoint("TOPLEFT", debugGuildShareRow, "BOTTOMLEFT", 0, -8)
+debugGuildShareHint:SetWidth(520)
+debugGuildShareHint:SetJustifyH("LEFT")
+debugGuildShareHint:SetText(
+    "Enables receiving guild data and the Guild tab/UI. When off, the addon still broadcasts your"
+    .. " guilded characters (for testing) but ignores anything it receives.")
+
+local debugGuildShareVerboseRow = Theme.CreateLabeledCheckbox(tabDebug, {
+    point = "TOPLEFT",
+    relativeTo = debugGuildShareHint,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -16,
+    text = "Guild sharing traffic (verbose)",
+    fullWidthHover = true,
+    onClick = function(checked)
+        if AltArmy.Debug and AltArmy.Debug.SetGuildShareVerbose then
+            AltArmy.Debug.SetGuildShareVerbose(checked)
+        end
+    end,
+})
+panel.debugGuildShareVerboseCheckbox = debugGuildShareVerboseRow.check
+
+local debugGuildShareVerboseHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+debugGuildShareVerboseHint:SetPoint("TOPLEFT", debugGuildShareVerboseRow, "BOTTOMLEFT", 0, -8)
+debugGuildShareVerboseHint:SetWidth(520)
+debugGuildShareVerboseHint:SetJustifyH("LEFT")
+debugGuildShareVerboseHint:SetText(
+    "Prints every guild-share message sent/received to chat. Works regardless of the feature flag,"
+    .. " so you can watch broadcasts even while receiving is off.")
+
 function RefreshDebugCheckboxes()
     local D = AltArmy and AltArmy.Debug
     if not D or not D.Ensure then return end
@@ -463,6 +520,12 @@ function RefreshDebugCheckboxes()
     end
     if panel.debugItemStatsCheckbox then
         panel.debugItemStatsCheckbox:SetChecked(d.itemStats == true)
+    end
+    if panel.debugGuildShareCheckbox then
+        panel.debugGuildShareCheckbox:SetChecked(d.guildShare == true)
+    end
+    if panel.debugGuildShareVerboseCheckbox then
+        panel.debugGuildShareVerboseCheckbox:SetChecked(d.guildShareVerbose == true)
     end
     ResetDeleteAllHistoryButton()
 end
@@ -564,6 +627,72 @@ generalHint:SetJustifyH("LEFT")
 generalHint:SetText(
     "Realm filter applies to Summary, Gear, Reputation, Search, Cooldowns, and Graphs tabs."
 )
+
+-- Guild sharing settings (only shown when the guildShare feature flag is on).
+local guildSharingHeader = tabGeneral:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+guildSharingHeader:SetPoint("TOPLEFT", generalHint, "BOTTOMLEFT", 0, -20)
+guildSharingHeader:SetText("Guild Sharing")
+Theme.SetTitleColor(guildSharingHeader)
+
+local guildShareEnableRow = Theme.CreateLabeledCheckbox(tabGeneral, {
+    point = "TOPLEFT",
+    relativeTo = guildSharingHeader,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -8,
+    text = "Share my characters with my guild",
+    fullWidthHover = true,
+    onClick = function(checked)
+        local GSS = AltArmy.GuildShareSettings
+        if GSS then GSS.SetSharingEnabled(checked) end
+        if AltArmy.RefreshGuildTab then AltArmy.RefreshGuildTab() end
+        local Comm = AltArmy.GuildShareComm
+        if Comm and Comm.Broadcast then Comm.Broadcast(true) end
+    end,
+})
+panel.guildShareEnableCheckbox = guildShareEnableRow.check
+
+local guildChatInsertRow = Theme.CreateLabeledCheckbox(tabGeneral, {
+    point = "TOPLEFT",
+    relativeTo = guildShareEnableRow,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -8,
+    text = "Show a guildmate's main name in guild chat",
+    fullWidthHover = true,
+    onClick = function(checked)
+        local GSS = AltArmy.GuildShareSettings
+        if GSS then GSS.SetChatInsertionEnabled(checked) end
+    end,
+})
+panel.guildChatInsertCheckbox = guildChatInsertRow.check
+
+local guildSharingHint = tabGeneral:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+guildSharingHint:SetPoint("TOPLEFT", guildChatInsertRow, "BOTTOMLEFT", 0, -8)
+guildSharingHint:SetWidth(520)
+guildSharingHint:SetJustifyH("LEFT")
+guildSharingHint:SetText(
+    "Only levels, classes, and professions are shared with guildmates who also use Alt Army"
+    .. " — never items, gold, or other private data. Choose your main from the Guild tab.")
+
+local function RefreshGuildSharingControls()
+    local D = AltArmy.Debug
+    local flagOn = D and D.IsGuildShareEnabled and D.IsGuildShareEnabled()
+    local shown = flagOn and true or false
+    guildSharingHeader:SetShown(shown)
+    guildShareEnableRow:SetShown(shown)
+    guildChatInsertRow:SetShown(shown)
+    guildSharingHint:SetShown(shown)
+    if shown then
+        local GSS = AltArmy.GuildShareSettings
+        if GSS then
+            guildShareEnableRow.check:SetChecked(GSS.IsSharingEnabled())
+            guildChatInsertRow.check:SetChecked(GSS.IsChatInsertionEnabled())
+        end
+    end
+end
+panel.RefreshGuildSharingControls = RefreshGuildSharingControls
+RefreshGuildSharingControls()
 
 -- Host frame for UI/CooldownOptions.lua (loaded after this file)
 panel.tabCooldownsHost = tabCooldowns
@@ -1095,6 +1224,27 @@ SlashCmdList.ALTARMY = function(msg)
             return
         end
         IS.LogStatParseDebug(debugStatsLink, { forceRefresh = true })
+        return
+    end
+    if lower == "debug guildshare test" then
+        local Comm = AltArmy and AltArmy.GuildShareComm
+        local D = AltArmy and AltArmy.Debug
+        if not Comm or not Comm.InjectTestPresence then
+            if D and D.NotifyChat then D.NotifyChat("Guild sharing is unavailable.") end
+            return
+        end
+        local ok, reason = Comm.InjectTestPresence()
+        if D and D.NotifyChat then
+            if ok then
+                D.NotifyChat("Injected synthetic guildmates. Recipes show in Search (with a (guild) tag);"
+                    .. " the Guild tab lists them when you are in a guild with sharing enabled.")
+            elseif reason == "flag-off" then
+                D.NotifyChat("Enable the guildShare feature flag first"
+                    .. " (Options > Debug > Guild data sharing).")
+            else
+                D.NotifyChat("Test injection failed (" .. tostring(reason) .. ").")
+            end
+        end
         return
     end
     if AltArmy and AltArmy.MainFrame then

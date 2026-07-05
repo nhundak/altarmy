@@ -44,6 +44,8 @@ function DS:ScanCharacter(_self)
     else
         char.faction = ""
     end
+    -- Guild membership (needed by guild data sharing; nil = not in a guild).
+    DS:ScanGuildMembership()
     if GetMoney then
         char.money = GetMoney()
     end
@@ -66,6 +68,18 @@ function DS:ScanCharacter(_self)
     char.dataVersions.character = DATA_VERSIONS.character
     if DS.ClaimOrphanLevelHistory then
         DS:ClaimOrphanLevelHistory(char.name, char.realm, char)
+    end
+end
+
+--- Refresh stored guild membership for the current character (join/leave/promote).
+function DS:ScanGuildMembership(_self)
+    local char = GetCurrentCharTable()
+    if not char then return end
+    char.dataVersions = char.dataVersions or {}
+    if GetGuildInfo then
+        local guildName = GetGuildInfo("player")
+        char.guildName = (guildName ~= "" and guildName) or nil
+        char.dataVersions.guildMembership = DATA_VERSIONS.guildMembership
     end
 end
 
@@ -103,6 +117,11 @@ end
 
 function DS:GetCharacterFaction(char)
     return (char and char.faction) or ""
+end
+
+--- Guild name for a character, or nil when the character is not in a guild.
+function DS:GetCharacterGuild(char)
+    return char and char.guildName or nil
 end
 
 function DS:GetStoredRestXp(char)

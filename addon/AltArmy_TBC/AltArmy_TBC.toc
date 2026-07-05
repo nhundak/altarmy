@@ -3,7 +3,7 @@
 ## Notes: Alt management: character summary, gear and reputation grids, per-character containers, cross-character item search. TBC Classic.
 ## Version: 1.6.11
 ## Author: Nick Tower
-## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings, AltArmyTBC_GraphSettings
+## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings, AltArmyTBC_GraphSettings, AltArmyTBC_GuildData, AltArmyTBC_SharingSettings
 ## OptionalDeps: CraftLib, TacoTip, GearScoreTBCClassic, RXPGuides, RXPGuides_TBC, NovaInstanceTracker, Questie
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
@@ -48,6 +48,12 @@ Data\RecipeCraftLib.lua
 Data\SearchSettings.lua
 Data\SearchColumns.lua
 Data\SearchData.lua
+Data\GuildShareSettings.lua
+Data\GuildShareProtocol.lua
+Data\GuildShareData.lua
+Data\GuildShareComm.lua
+Data\GuildTabData.lua
+Data\GuildChatMainName.lua
 ReputationFactionFilter.lua
 Data\CharacterSort.lua
 ReputationFactionSort.lua
@@ -64,14 +70,19 @@ Tabs\SearchStickyHeaders.lua
 Tabs\TabSearch.lua
 Tabs\GraphLogic.lua
 Tabs\TabGraph.lua
+Tabs\TabGuild.lua
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\AceComm-3.0\ChatThrottleLib.lua
+Libs\AceSerializer-3.0\AceSerializer-3.0.lua
+Libs\AceComm-3.0\AceComm-3.0.lua
 Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
 Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
 UI\MinimapSavedVars.lua
 UI\Minimap.lua
 UI\BankAltSuggestDialog.lua
 UI\OnboardingDialogQueue.lua
+UI\GuildShareOnboarding.lua
 UI\RestedXpQuestRewardConflictDialog.lua
 UI\Options.lua
 UI\CooldownOptions.lua

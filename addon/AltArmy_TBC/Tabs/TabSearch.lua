@@ -719,7 +719,8 @@ local function fillRecipeRow(row, entry, showRealmSuffix)
                 name
             )
     end
-    SetCharacterCellTruncated(row.cells.Character, namePart, nil, recipeColWidths.Character or 160)
+    local charSuffix = entry.isGuild and "|cff8ab4f8 (guild)|r" or nil
+    SetCharacterCellTruncated(row.cells.Character, namePart, charSuffix, recipeColWidths.Character or 160)
     local RCL = AltArmy and AltArmy.RecipeCraftLib
     local skillText
     if RCL and RCL.FormatSkillCell then
@@ -1292,6 +1293,35 @@ local function RerunSearchIfActive()
     end
     if AltArmy and AltArmy.UpdateSearchSettingsButtonGlow then
         AltArmy.UpdateSearchSettingsButtonGlow()
+    end
+end
+
+-- "Include guildmates" toggle: only meaningful when the guildShare feature flag is on.
+-- Anchored to the bottom of the settings panel so it never disturbs the top-anchored filters.
+local includeGuildRow
+if SS and SS.IsIncludeGuildmatesEnabled then
+    includeGuildRow = Theme.CreateLabeledCheckbox(settingsContent, {
+        text = "Include guildmates",
+        point = "BOTTOMLEFT",
+        relativeTo = settingsContent,
+        relativePoint = "BOTTOMLEFT",
+        x = 0,
+        y = 0,
+        onClick = function(checked)
+            SS.SetIncludeGuildmatesEnabled(checked)
+            RerunSearchIfActive()
+        end,
+    })
+    includeGuildRow:Hide()
+end
+
+local function RefreshIncludeGuildRow()
+    if not includeGuildRow then return end
+    local D = AltArmy.Debug
+    local flagOn = D and D.IsGuildShareEnabled and D.IsGuildShareEnabled()
+    includeGuildRow:SetShown(flagOn and true or false)
+    if flagOn and includeGuildRow.check then
+        includeGuildRow.check:SetChecked(SS.IsIncludeGuildmatesEnabled())
     end
 end
 
@@ -1875,6 +1905,7 @@ local function RefreshSearchSettingsControls()
         CloseCraftFilterDropdowns()
         craftLibCallout:Show()
     end
+    RefreshIncludeGuildRow()
 end
 
 RefreshSearchSettingsControls()

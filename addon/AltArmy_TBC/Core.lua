@@ -270,7 +270,9 @@ setActiveTab = function(tabName)
 end
 
 local TAB_BTN_MIN_WIDTH = 72
-local tabNames = { "Summary", "Gear", "Reputation", "Cooldowns", "Graph" }
+-- "Guild" is always created but its button is only shown when the guildShare feature flag is on
+-- (see updateGuildTabVisibility). It is kept last so hiding it never leaves a gap in the strip.
+local tabNames = { "Summary", "Gear", "Reputation", "Cooldowns", "Graph", "Guild" }
 tabStrip.buttons = {}
 local prevBtn = nil
 for _, tabName in ipairs(tabNames) do
@@ -295,6 +297,20 @@ for _, tabName in ipairs(tabNames) do
     prevBtn = btn
     tabStrip.buttons[tabName] = btn
 end
+
+-- Guild tab: only visible when the guildShare feature flag is on. Debug.lua loads after Core,
+-- so we evaluate the flag lazily (on frame show / when the flag is toggled) rather than at load.
+local function updateGuildTabVisibility()
+    local btn = tabStrip.buttons["Guild"]
+    if not btn then return end
+    local on = AltArmy.Debug and AltArmy.Debug.IsGuildShareEnabled and AltArmy.Debug.IsGuildShareEnabled()
+    btn:SetShown(on and true or false)
+    if not on and AltArmy.CurrentTab == "Guild" then
+        setActiveTab("Summary")
+    end
+end
+AltArmy.UpdateGuildTabVisibility = updateGuildTabVisibility
+updateGuildTabVisibility()
 
 -- Gear tab: clicking the tab again while settings are open switches back to the gear grid
 tabStrip.buttons["Gear"]:SetScript("OnClick", function()
@@ -583,6 +599,7 @@ headerSearchEdit:SetScript("OnTextChanged", applySearchBoxState)
 updateSearchPlaceholderVisibility()
 
 main:SetScript("OnShow", function()
+    updateGuildTabVisibility()
     local openTab = pendingOpenTab or "Summary"
     pendingOpenTab = nil
     lastTab = openTab

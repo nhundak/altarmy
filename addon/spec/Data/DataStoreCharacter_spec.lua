@@ -122,5 +122,73 @@ describe("DataStoreCharacter", function()
       assert.are.equal("Alliance", DS:GetCharacterFaction({ faction = "Alliance" }))
       assert.are.equal("", DS:GetCharacterFaction(nil))
     end)
+    it("GetCharacterGuild returns guildName or nil", function()
+      assert.are.equal("The Guild", DS:GetCharacterGuild({ guildName = "The Guild" }))
+      assert.is_nil(DS:GetCharacterGuild({}))
+      assert.is_nil(DS:GetCharacterGuild(nil))
+    end)
+  end)
+
+  describe("ScanCharacter guild capture", function()
+    local function stubUnitGlobals()
+      _G.UnitName = function() return "Scanner" end
+      _G.GetRealmName = function() return "Faerlina" end
+      _G.UnitLevel = function() return 42 end
+      _G.GetMoney = function() return 0 end
+      _G.UnitClass = function() return "Mage", "MAGE" end
+      _G.UnitRace = function() return "Gnome", "GNOME" end
+      _G.UnitSex = function() return 2 end
+      _G.UnitFactionGroup = function() return "Alliance" end
+      _G.UnitXP = function() return 0 end
+      _G.UnitXPMax = function() return 100 end
+      _G.GetXPExhaustion = function() return 0 end
+      _G.time = function() return 1700000000 end
+    end
+
+    before_each(function()
+      AltArmyTBC_Data.Characters = {}
+      stubUnitGlobals()
+    end)
+
+    it("stores the current guild name from GetGuildInfo", function()
+      _G.GetGuildInfo = function(unit)
+        if unit == "player" then return "Knights of Faerlina" end
+      end
+      DS:ScanCharacter()
+      local char = AltArmyTBC_Data.Characters.Faerlina.Scanner
+      assert.are.equal("Knights of Faerlina", char.guildName)
+      assert.are.equal(1, char.dataVersions.guildMembership)
+    end)
+
+    it("clears the guild name when not in a guild", function()
+      AltArmyTBC_Data.Characters.Faerlina = {
+        Scanner = { name = "Scanner", realm = "Faerlina", guildName = "Old Guild" },
+      }
+      _G.GetGuildInfo = function() return nil end
+      DS:ScanCharacter()
+      assert.is_nil(AltArmyTBC_Data.Characters.Faerlina.Scanner.guildName)
+      assert.are.equal(1, AltArmyTBC_Data.Characters.Faerlina.Scanner.dataVersions.guildMembership)
+    end)
+  end)
+
+  describe("ScanGuildMembership", function()
+    before_each(function()
+      AltArmyTBC_Data.Characters = {}
+      _G.UnitName = function() return "Scanner" end
+      _G.GetRealmName = function() return "Faerlina" end
+    end)
+
+    it("updates guildName and guildMembership without a full character scan", function()
+      AltArmyTBC_Data.Characters.Faerlina = {
+        Scanner = { name = "Scanner", realm = "Faerlina", level = 10, money = 999 },
+      }
+      _G.GetGuildInfo = function() return "Knights of Faerlina" end
+      DS:ScanGuildMembership()
+      local char = AltArmyTBC_Data.Characters.Faerlina.Scanner
+      assert.are.equal("Knights of Faerlina", char.guildName)
+      assert.are.equal(1, char.dataVersions.guildMembership)
+      assert.are.equal(10, char.level)
+      assert.are.equal(999, char.money)
+    end)
   end)
 end)

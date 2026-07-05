@@ -195,7 +195,7 @@ describe("SummaryData", function()
         level = 70,
         talents = { tabs = { 0, 0, 21 } },
         dataVersions = {
-          character = 1, containers = 1, equipment = 1, professions = 1,
+          character = 1, guildMembership = 1, containers = 1, equipment = 1, professions = 1,
           reputations = 2, mail = 1, auctions = 1, currencies = 1,
         },
         Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
@@ -863,6 +863,126 @@ describe("SummaryData", function()
         end
       end
       assert.are.equal(1, loginCount, "expected single deduped log-in instruction")
+    end)
+
+    it("flags missing guild membership for current character (needs relog/reload)", function()
+      local char = {
+        dataVersions = {
+          character = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
+        talents = { tabs = { 0, 0, 21 } },
+        cooldownSpecs = {
+          masterTransmutation = false,
+          spellfireTailor = false,
+          shadoweaveTailor = false,
+          moonclothTailor = false,
+        },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.NeedsRescan = function(_, c, mod)
+        return mod == "guildMembership"
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Bob" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_true(out.hasMissing)
+      local found = false
+      for _, line in ipairs(out.instructions) do
+        if line:find("guild", 1, true) then found = true break end
+      end
+      assert.is_true(found, "expected guild refresh instruction for current character")
+    end)
+
+    it("flags missing guild membership for alts", function()
+      local char = {
+        dataVersions = { character = 1, guildMembership = 0 },
+        Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
+        talents = { tabs = { 0, 0, 21 } },
+        cooldownSpecs = {
+          masterTransmutation = false,
+          spellfireTailor = false,
+          shadoweaveTailor = false,
+          moonclothTailor = false,
+        },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.HasModuleData = function(_, c, mod)
+        if mod == "guildMembership" then return false end
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.NeedsRescan = function(_, _c, mod)
+        return mod == "guildMembership"
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Alice" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_true(out.hasMissing)
+      local found = false
+      for _, line in ipairs(out.instructions) do
+        if line:find("Log in with this character", 1, true) then found = true break end
+      end
+      assert.is_true(found, "expected log-in instruction for alt missing guild data")
+    end)
+
+    it("does not flag guildless characters after guild membership has been scanned", function()
+      local char = {
+        guildName = nil,
+        dataVersions = {
+          character = 1, guildMembership = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
+        talents = { tabs = { 0, 0, 21 } },
+        cooldownSpecs = {
+          masterTransmutation = false,
+          spellfireTailor = false,
+          shadoweaveTailor = false,
+          moonclothTailor = false,
+        },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.NeedsRescan = function() return false end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local out = SD.GetMissingDataInfo("Alice", "Realm1")
+      assert.is_false(out.hasMissing)
     end)
   end)
 

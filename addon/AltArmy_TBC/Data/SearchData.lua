@@ -502,11 +502,59 @@ SD._IsRecipeAliasId = IsRecipeAliasId
 
 --- Build flat list of all known recipes across all characters.
 --- Each entry: { characterName, realm, classFile, professionName, skillRank, recipeID }.
+--- Whether guildmate-shared recipes should be merged into recipe results:
+--- requires the guildShare feature flag AND the "Include guildmates" search toggle.
+local function ShouldIncludeGuildRecipes()
+    local D = AltArmy.Debug
+    if not (D and D.IsGuildShareEnabled and D.IsGuildShareEnabled()) then
+        return false
+    end
+    local SS = AltArmy.SearchSettings
+    if SS and SS.IsIncludeGuildmatesEnabled then
+        return SS.IsIncludeGuildmatesEnabled()
+    end
+    return true
+end
+
+--- Append recipes shared by guildmates (from GuildShareData) into the recipe list,
+--- tagged isGuild = true with the guildmate's identity. Only primary (non-alias) ids.
+local function AppendGuildRecipes(list)
+    if not ShouldIncludeGuildRecipes() then return end
+    local data = _G.AltArmyTBC_GuildData
+    if not data or type(data.chars) ~= "table" then return end
+    for realm, chars in pairs(data.chars) do
+        for _, entry in pairs(chars) do
+            if type(entry) == "table" and entry.Professions then
+                for _, prof in pairs(entry.Professions) do
+                    if prof.Recipes then
+                        for recipeID, rdata in pairs(prof.Recipes) do
+                            if recipeID and not IsRecipeAliasId(recipeID, rdata) then
+                                table.insert(list, {
+                                    characterName = entry.name,
+                                    guildDisplayName = entry.displayName or entry.name,
+                                    realm = realm,
+                                    classFile = entry.classFile,
+                                    professionName = prof.name or prof.key,
+                                    professionKey = prof.key,
+                                    skillRank = prof.rank or 0,
+                                    recipeID = recipeID,
+                                    isGuild = true,
+                                })
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 local function BuildAllRecipes()
     local list = {}
     local DS = AltArmy.DataStore
     if not DS or not DS.ForEachCharacter or not DS.GetCharacterName
         or not DS.GetCharacterClass or not DS.GetProfessions then
+        AppendGuildRecipes(list)
         return list
     end
     DS:ForEachCharacter(function(realm, charName, charData)
@@ -540,6 +588,7 @@ local function BuildAllRecipes()
                 end
             end
     end)
+    AppendGuildRecipes(list)
     return list
 end
 
@@ -713,8 +762,12 @@ local function FilterRecipesByProfession(results, filter)
     end
     local out = {}
     for _, entry in ipairs(results) do
-        local professionKey = SS and SS.ResolveProfessionKey
-            and SS.ResolveProfessionKey(entry.professionName)
+        -- Guild entries already carry a locale-safe profession key; fall back to resolving
+        -- from the (localized) profession name for locally scanned recipes.
+        local professionKey = entry.professionKey
+        if professionKey == nil and SS and SS.ResolveProfessionKey then
+            professionKey = SS.ResolveProfessionKey(entry.professionName)
+        end
         if professionKey == nil or filter[professionKey] then
             out[#out + 1] = entry
         end

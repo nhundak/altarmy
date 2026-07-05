@@ -1,0 +1,266 @@
+--[[
+  Unit tests for GuildTabData.lua (pure grouping / sorting / filtering / formatting for
+  the Guild tab). No frames; the TabGuild UI wiring is exercised in-game.
+  Run from project root: npm test
+]]
+
+describe("GuildTabData", function()
+  local GTD
+
+  -- Class-color-free formatter so format tests don't depend on RAID_CLASS_COLORS.
+  local function plainFormatName(name)
+    return name or "?"
+  end
+
+  local function profMap(list)
+    local out = {}
+    for _, p in ipairs(list or {}) do
+      out[p.key] = { key = p.key, name = p.name or p.key, rank = p.rank or 0, spec = p.spec }
+    end
+    return out
+  end
+
+  local EM_DASH = "\226\128\148"
+
+  local function member(opts)
+    return {
+      name = opts.name,
+      realm = opts.realm or "R",
+      classFile = opts.classFile,
+      level = opts.level or 0,
+      main = opts.main,
+      displayName = opts.displayName,
+      isMain = opts.isMain or false,
+      Professions = profMap(opts.profs),
+    }
+  end
+
+  setup(function()
+    _G.AltArmy = _G.AltArmy or {}
+    package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+    require("GuildTabData")
+    GTD = AltArmy.GuildTabData
+    assert.truthy(GTD)
+  end)
+
+  describe("GetPrimaryProfessions", function()
+    it("returns only crafting professions with rank, highest skill first", function()
+      local m = member({ name = "A", profs = {
+        { key = "tailoring", name = "Tailoring", rank = 375 },
+        { key = "alchemy", name = "Alchemy", rank = 300 },
+        { key = "cooking", name = "Cooking", rank = 300 },
+        { key = "firstAid", name = "First Aid", rank = 300 },
+        { key = "mining", name = "Mining", rank = 300 },
+      } })
+      assert.are.same(
+        { { name = "Tailoring", rank = 375 }, { name = "Alchemy", rank = 300 } },
+        GTD.GetPrimaryProfessions(m))
+    end)
+
+    it("breaks skill-rank ties alphabetically by name", function()
+      local m = member({ name = "A", profs = {
+        { key = "tailoring", name = "Tailoring", rank = 300 },
+        { key = "alchemy", name = "Alchemy", rank = 300 },
+        { key = "engineering", name = "Engineering", rank = 375 },
+      } })
+      assert.are.same({
+        { name = "Engineering", rank = 375 },
+        { name = "Alchemy", rank = 300 },
+        { name = "Tailoring", rank = 300 },
+      }, GTD.GetPrimaryProfessions(m))
+    end)
+
+    it("excludes professions with zero rank", function()
+      local m = member({ name = "A", profs = {
+        { key = "tailoring", name = "Tailoring", rank = 0 },
+        { key = "alchemy", name = "Alchemy", rank = 1 },
+      } })
+      assert.are.same({ { name = "Alchemy", rank = 1 } }, GTD.GetPrimaryProfessions(m))
+    end)
+
+    it("excludes poisons", function()
+      local m = member({ name = "A", profs = {
+        { key = "poisons", name = "Poisons", rank = 300 },
+        { key = "alchemy", name = "Alchemy", rank = 300 },
+      } })
+      assert.are.same({ { name = "Alchemy", rank = 300 } }, GTD.GetPrimaryProfessions(m))
+    end)
+
+    it("includes the specialization label when present", function()
+      local m = member({ name = "A", profs = {
+        { key = "alchemy", name = "Alchemy", rank = 375, spec = "Transmute" },
+      } })
+      assert.are.same({ { name = "Alchemy", rank = 375, spec = "Transmute" } },
+        GTD.GetPrimaryProfessions(m))
+    end)
+
+    it("returns empty when there are no professions", function()
+      assert.are.same({}, GTD.GetPrimaryProfessions(member({ name = "A" })))
+    end)
+  end)
+
+  describe("FormatProfessions", function()
+    it("lists each profession with its skill level in gray parentheses", function()
+      local m = member({ name = "A", profs = {
+        { key = "tailoring", name = "Tailoring", rank = 375 },
+        { key = "alchemy", name = "Alchemy", rank = 300 },
+      } })
+      assert.are.equal(
+        "Tailoring |cff808080(375)|r, Alchemy |cff808080(300)|r",
+        GTD.FormatProfessions(m))
+    end)
+
+    it("returns an empty string when there are no primary professions", function()
+      assert.are.equal("", GTD.FormatProfessions(member({ name = "A" })))
+    end)
+
+    it("shows the specialization after an em dash (white) before the gray skill level", function()
+      local m = member({ name = "A", profs = {
+        { key = "tailoring", name = "Tailoring", rank = 375, spec = "Spellfire" },
+        { key = "alchemy", name = "Alchemy", rank = 300 },
+      } })
+      assert.are.equal(
+        "Tailoring " .. EM_DASH .. " Spellfire |cff808080(375)|r, Alchemy |cff808080(300)|r",
+        GTD.FormatProfessions(m))
+    end)
+  end)
+
+  describe("GroupMembersByMain", function()
+    it("groups alts under their main with preferred name and character count", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Mainman", main = "Mainman", isMain = true, displayName = "Bossman",
+          classFile = "MAGE", level = 70 }),
+        member({ name = "Altchar", main = "Mainman", level = 40, classFile = "WARRIOR" }),
+      })
+      assert.are.equal(1, #groups)
+      assert.are.equal("Bossman", groups[1].preferredName)
+      assert.are.equal("Mainman", groups[1].main)
+      assert.are.equal(2, groups[1].characterCount)
+      assert.are.equal("MAGE", groups[1].classFile)
+    end)
+
+    it("falls back to the main character name when no display name is set", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Solo", main = "Solo", isMain = true }),
+      })
+      assert.are.equal("Solo", groups[1].preferredName)
+    end)
+
+    it("uses the character's own name as the group key when no main is set", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Loner", level = 12 }),
+      })
+      assert.are.equal(1, #groups)
+      assert.are.equal("Loner", groups[1].preferredName)
+    end)
+
+    it("sorts groups alphabetically by preferred name, case-insensitively", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "zed", main = "zed", isMain = true, displayName = "zed" }),
+        member({ name = "Alice", main = "Alice", isMain = true, displayName = "alice" }),
+        member({ name = "Bob", main = "Bob", isMain = true, displayName = "Bob" }),
+      })
+      assert.are.equal("alice", groups[1].preferredName)
+      assert.are.equal("Bob", groups[2].preferredName)
+      assert.are.equal("zed", groups[3].preferredName)
+    end)
+
+    it("sorts members within a group by level descending, then name ascending", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Mid", main = "Main", level = 40 }),
+        member({ name = "Main", main = "Main", isMain = true, level = 70 }),
+        member({ name = "Aaa", main = "Main", level = 40 }),
+        member({ name = "Low", main = "Main", level = 10 }),
+      })
+      local names = {}
+      for _, m in ipairs(groups[1].members) do names[#names + 1] = m.name end
+      assert.are.same({ "Main", "Aaa", "Mid", "Low" }, names)
+    end)
+  end)
+
+  describe("FilterGroups", function()
+    local groups
+
+    before_each(function()
+      groups = GTD.GroupMembersByMain({
+        member({ name = "Bossman", main = "Bossman", isMain = true, displayName = "TopDog" }),
+        member({ name = "Sidekick", main = "Bossman" }),
+        member({ name = "Loner", main = "Loner", isMain = true, displayName = "Loner" }),
+      })
+    end)
+
+    it("returns all groups when the query is empty", function()
+      assert.are.equal(2, #GTD.FilterGroups(groups, ""))
+      assert.are.equal(2, #GTD.FilterGroups(groups, nil))
+    end)
+
+    it("matches on the preferred name", function()
+      local out = GTD.FilterGroups(groups, "topdog")
+      assert.are.equal(1, #out)
+      assert.are.equal("TopDog", out[1].preferredName)
+    end)
+
+    it("matches on the main character name", function()
+      local out = GTD.FilterGroups(groups, "bossman")
+      assert.are.equal(1, #out)
+      assert.are.equal("TopDog", out[1].preferredName)
+    end)
+
+    it("matches on an alt character name", function()
+      local out = GTD.FilterGroups(groups, "sidekick")
+      assert.are.equal(1, #out)
+      assert.are.equal("TopDog", out[1].preferredName)
+    end)
+
+    it("returns nothing when no group matches", function()
+      assert.are.equal(0, #GTD.FilterGroups(groups, "nobody"))
+    end)
+  end)
+
+  describe("FormatMainRowLabel", function()
+    it("shows the preferred name and pluralized character count", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Main", main = "Main", isMain = true, displayName = "Chief" }),
+        member({ name = "Alt", main = "Main" }),
+      })
+      assert.are.equal("Chief 2 characters", GTD.FormatMainRowLabel(groups[1]))
+    end)
+
+    it("uses the singular form for a single character", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Solo", main = "Solo", isMain = true, displayName = "Solo" }),
+      })
+      assert.are.equal("Solo 1 character", GTD.FormatMainRowLabel(groups[1]))
+    end)
+
+    it("colors the preferred name via formatName while leaving the count plain", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Main", main = "Main", isMain = true, displayName = "Chief", classFile = "MAGE" }),
+        member({ name = "Alt", main = "Main" }),
+      })
+      local seen = {}
+      local function fakeFormat(name, classFile)
+        seen.name, seen.classFile = name, classFile
+        return "<" .. classFile .. ">" .. name
+      end
+      assert.are.equal("<MAGE>Chief 2 characters",
+        GTD.FormatMainRowLabel(groups[1], fakeFormat))
+      assert.are.equal("Chief", seen.name)
+      assert.are.equal("MAGE", seen.classFile)
+    end)
+  end)
+
+  describe("FormatCharacterName", function()
+    it("includes the class-colored name and gray level", function()
+      local m = member({ name = "Mage", classFile = "MAGE", level = 70 })
+      assert.are.equal("Mage |cff808080(level 70)|r",
+        GTD.FormatCharacterName(m, plainFormatName))
+    end)
+
+    it("floors fractional levels", function()
+      local m = member({ name = "Odd", level = 42.9 })
+      local text = GTD.FormatCharacterName(m, plainFormatName)
+      assert.truthy(text:find("(level 42)", 1, true))
+    end)
+  end)
+end)

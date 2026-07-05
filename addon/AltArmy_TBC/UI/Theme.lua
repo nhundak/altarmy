@@ -1003,6 +1003,7 @@ end
 Theme.CHAR_LIST_CHECKBOX_SIZE = 18
 Theme.CHAR_LIST_ROW_HEIGHT = 20
 Theme.OPTIONS_DROPDOWN_ROW_HEIGHT = Theme.CHAR_LIST_ROW_HEIGHT + 4
+Theme.DROPDOWN_MAX_VISIBLE_ROWS = 8
 
 --- Themed checkbox chrome (background + check texture); callers own layout and labels.
 function Theme.CreateThemeCheckbox(parent, size)
@@ -1223,6 +1224,7 @@ end
 
 --- Custom single-select dropdown (Gear / Reputation / Search settings style).
 --- opts.parent, opts.width, opts.rowHeight, opts.dropdownParent
+--- opts.maxVisibleRows — cap visible rows before scrolling (default Theme.DROPDOWN_MAX_VISIBLE_ROWS)
 --- opts.point/relativeTo/relativePoint/x/y — anchor the trigger button
 --- opts.entries or opts.getEntries() -> { { id, label }, ... }
 --- opts.getSelectedId(), opts.onSelect(id, entry)
@@ -1234,6 +1236,17 @@ function Theme.CreateSingleSelectDropdown(opts)
     local rowHeight = opts.rowHeight or Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or Theme.CHAR_LIST_ROW_HEIGHT or 20
     local width = opts.width or 340
     local dropdownParent = opts.dropdownParent or parent
+    local maxVisibleRows = opts.maxVisibleRows or Theme.DROPDOWN_MAX_VISIBLE_ROWS or 8
+    local popupPadTop = DROPDOWN_MENU_PAD_TOP
+    local popupPadBottom = 2
+    local popupPadSide = DROPDOWN_MENU_PAD_SIDE
+    local scrollPadTop = popupPadTop + 2
+
+    local function popupHeightForCount(count)
+        local visibleRows = math.min(count, maxVisibleRows)
+        if visibleRows < 1 then visibleRows = 1 end
+        return visibleRows * rowHeight + popupPadTop + popupPadBottom
+    end
 
     local btn = CreateFrame("Button", nil, parent)
     if opts.relativeTo then
@@ -1260,6 +1273,25 @@ function Theme.CreateSingleSelectDropdown(opts)
     popup:HookScript("OnHide", function()
         Theme._openSingleSelectDropdowns[popup] = nil
     end)
+
+    local listHost = CreateFrame("Frame", nil, popup)
+    listHost:SetPoint("TOPLEFT", popup, "TOPLEFT", popupPadSide, -popupPadTop)
+    listHost:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -popupPadSide, popupPadBottom)
+
+    local listViewport = Theme.CreateVerticalScrollViewport({
+        parent = popup,
+        gutterEdge = popup,
+        anchorTop = { "TOPLEFT", popup, "TOPLEFT", popupPadSide, -scrollPadTop },
+        anchorBottom = {
+            "BOTTOMRIGHT", popup, "BOTTOMRIGHT", -Theme.VerticalScrollBarGutter(), popupPadBottom,
+        },
+        valueStep = rowHeight,
+        wheelStep = rowHeight,
+        enableMouseWheel = true,
+        enableMouse = true,
+        minScrollToShow = 0,
+    })
+    listViewport.scroll:Hide()
 
     local itemButtons = {}
     local enabled = true
@@ -1312,9 +1344,24 @@ function Theme.CreateSingleSelectDropdown(opts)
         end
 
         local entries = resolveEntries()
-        popup:SetHeight(#entries * rowHeight + 4)
+        local count = #entries
+        local useScroll = count > maxVisibleRows
+        popup:SetHeight(popupHeightForCount(count))
+
+        local host
+        if useScroll then
+            listHost:Hide()
+            listViewport.scroll:Show()
+            host = listViewport.child
+            host:SetHeight(popupPadTop + count * rowHeight + popupPadBottom)
+        else
+            listViewport.scroll:Hide()
+            listHost:Show()
+            host = listHost
+        end
+
         for idx, entry in ipairs(entries) do
-            local b = Theme.CreateDropdownMenuItem(popup, {
+            local b = Theme.CreateDropdownMenuItem(host, {
                 index = idx,
                 rowHeight = rowHeight,
                 text = entry.label or entry.id,
@@ -1331,12 +1378,19 @@ function Theme.CreateSingleSelectDropdown(opts)
             b.entryId = entry.id
             itemButtons[idx] = b
         end
+
+        if useScroll then
+            listViewport.SetOffset(0)
+            listViewport.UpdateRange()
+        end
     end
 
     local api = {
         button = btn,
         popup = popup,
         label = btnText,
+        listViewport = listViewport,
+        scrollBar = listViewport.scrollBar,
     }
 
     function api:Update()
@@ -1369,6 +1423,9 @@ function Theme.CreateSingleSelectDropdown(opts)
             Theme.CloseSingleSelectDropdowns(popup)
             api:Update()
             updateSelection()
+            if listViewport.scroll:IsShown() then
+                listViewport.UpdateRange()
+            end
             Theme._openSingleSelectDropdowns[popup] = true
         end
         popup:SetShown(show)

@@ -1,0 +1,329 @@
+-- AltArmy TBC — Guild data sharing: received guildmate data store.
+-- Persists to AltArmyTBC_GuildData, kept fully separate from AltArmyTBC_Data so guild
+-- data never contaminates account data and can be wiped independently.
+-- Structure: AltArmyTBC_GuildData.chars[realm][charName] = { identity + main + Professions }.
+
+if not AltArmy then return end
+
+AltArmy.GuildShareData = AltArmy.GuildShareData or {}
+local GSD = AltArmy.GuildShareData
+
+local function now()
+    return (time and time()) or 0
+end
+
+local function ensure()
+    _G.AltArmyTBC_GuildData = _G.AltArmyTBC_GuildData or {}
+    local d = _G.AltArmyTBC_GuildData
+    d.chars = d.chars or {}
+    return d
+end
+GSD._Ensure = ensure
+
+local function realmTable(realm, create)
+    local d = ensure()
+    if not d.chars[realm] and create then
+        d.chars[realm] = {}
+    end
+    return d.chars[realm]
+end
+
+--- Pick an implicit main from a candidate list ({ name, char }) so a person's characters
+--- still group together when no main was declared. Reuses the onboarding ranking when the UI
+--- helper is loaded; otherwise ranks by level, then item level, then name. `opts` (optional)
+--- overrides the stat accessors — used for received data whose stats live on the char entry.
+local function pickMain(candidates, opts)
+    if #candidates == 0 then return nil end
+    local GSO = AltArmy.GuildShareOnboarding
+    if GSO and GSO.PickDefaultMain then
+        local pick = GSO.PickDefaultMain(candidates, opts)
+        if pick then return pick end
+    end
+    local getLevel = (opts and opts.getLevel) or function(c) return (c and c.level) or 0 end
+    local getItemLevel = (opts and opts.getItemLevel)
+        or function(c) return (c and c.itemLevel) or 0 end
+    local best
+    for _, cand in ipairs(candidates) do
+        if not best then
+            best = cand
+        else
+            local bl, cl = getLevel(best.char), getLevel(cand.char)
+            local bi, ci = getItemLevel(best.char), getItemLevel(cand.char)
+            local better = cl > bl
+                or (cl == bl and ci > bi)
+                or (cl == bl and ci == bi and (cand.name or "") < (best.name or ""))
+            if better then best = cand end
+        end
+    end
+    return best and best.name or nil
+end
+
+--- Implicit main for the local account (chars are DataStore tables ranked by the onboarding
+--- accessors: level, gear score, item level, name).
+local function defaultLocalMain(entries)
+    local candidates = {}
+    for _, e in ipairs(entries) do
+        candidates[#candidates + 1] = { name = e.name, char = e.char }
+    end
+    return pickMain(candidates, nil)
+end
+GSD._DefaultLocalMain = defaultLocalMain
+
+-- Received chars carry only level + item level (no local gear-score provider); rank on those.
+local RECEIVED_MAIN_OPTS = {
+    getLevel = function(c) return (c and c.level) or 0 end,
+    getGearScore = function() return 0 end,
+    getItemLevel = function(c) return (c and c.itemLevel) or 0 end,
+}
+
+--- Implicit main for a received presence that didn't declare one (chars are payload entries).
+local function defaultReceivedMain(chars)
+    local candidates = {}
+    for _, c in ipairs(chars or {}) do
+        candidates[#candidates + 1] = { name = c.name, char = c }
+    end
+    return pickMain(candidates, RECEIVED_MAIN_OPTS)
+end
+GSD._DefaultReceivedMain = defaultReceivedMain
+
+--- Store an inbound (already parsed) presence for a guild on a realm.
+--- Preserves previously pulled recipes when the advertised version is unchanged.
+function GSD.SaveReceived(sender, presence, guild, realm)
+    if not presence or type(presence.chars) ~= "table" then return end
+    realm = realm or "?"
+    local rt = realmTable(realm, true)
+    local ts = now()
+    -- Honor a sender-declared main; otherwise guess one so their alts still group together.
+    local effectiveMain = presence.main or defaultReceivedMain(presence.chars)
+    for _, c in ipairs(presence.chars) do
+        local existing = rt[c.name]
+        local entry = existing or {}
+        entry.name = c.name
+        entry.realm = realm
+        entry.classFile = c.classFile
+        entry.faction = c.faction
+        entry.level = c.level or 0
+        entry.itemLevel = c.itemLevel or 0
+        entry.guildName = guild
+        entry.main = effectiveMain
+        entry.displayName = presence.displayName
+        entry.isMain = (effectiveMain ~= nil and c.name == effectiveMain)
+        entry.source = sender
+        entry.receivedAt = ts
+
+        -- Merge profession summaries; drop stale recipes when the advertised version changed.
+        local newProfs = {}
+        for _, pr in ipairs(c.profs or {}) do
+            local prev = entry.Professions and entry.Professions[pr.key]
+            local prof = {
+                key = pr.key,
+                name = pr.name or pr.key,
+                rank = pr.rank or 0,
+                count = pr.count or 0,
+                rv = pr.rv or 0,
+                spec = pr.spec,
+            }
+            if prev and prev.Recipes and prev.recipesRv == prof.rv then
+                prof.Recipes = prev.Recipes
+                prof.recipesRv = prev.recipesRv
+            end
+            newProfs[pr.key] = prof
+        end
+        entry.Professions = newProfs
+        rt[c.name] = entry
+    end
+end
+
+--- Store a pulled recipe payload; reconstructs a minimal Recipes map ({ [id] = { primaryRecipeID = id } }).
+function GSD.SaveRecipes(realm, payload)
+    if not payload or not payload.name or type(payload.profs) ~= "table" then return end
+    local rt = realmTable(realm, false)
+    local entry = rt and rt[payload.name]
+    if not entry then return end
+    entry.Professions = entry.Professions or {}
+    local P = AltArmy.GuildShareProtocol
+    for _, pr in ipairs(payload.profs) do
+        local prof = entry.Professions[pr.key]
+        if not prof then
+            prof = { key = pr.key, name = pr.key, rank = 0, count = 0, rv = 0 }
+            entry.Professions[pr.key] = prof
+        end
+        local recipes = {}
+        for _, id in ipairs(pr.ids or {}) do
+            recipes[id] = { primaryRecipeID = id }
+        end
+        prof.Recipes = recipes
+        prof.count = #(pr.ids or {})
+        prof.recipesRv = P and P.HashRecipeIDs(pr.ids or {}) or 0
+    end
+end
+
+-- *** Getters ***
+
+function GSD.GetCharacter(name, realm)
+    local rt = realmTable(realm, false)
+    return rt and rt[name] or nil
+end
+
+--- All stored characters in a guild (across realms), as a flat list.
+function GSD.GetGuildMembers(guild)
+    local out = {}
+    local d = ensure()
+    for _, rt in pairs(d.chars) do
+        for _, entry in pairs(rt) do
+            if entry.guildName == guild then
+                out[#out + 1] = entry
+            end
+        end
+    end
+    return out
+end
+
+local function professionsFromChar(char)
+    local profs = {}
+    local P = AltArmy.GuildShareProtocol
+    if not P or not P.BuildProfessionSummaries then return profs end
+    for _, pr in ipairs(P.BuildProfessionSummaries(char)) do
+        profs[pr.key] = {
+            key = pr.key,
+            name = pr.name or pr.key,
+            rank = pr.rank or 0,
+            count = pr.count or 0,
+            rv = pr.rv or 0,
+            spec = pr.spec,
+        }
+    end
+    return profs
+end
+
+--- Build a guild-tab member entry from local account data (not received over comm).
+function GSD.BuildLocalMemberEntry(name, realm, char, guild, mainName, displayName)
+    local charName = (char and char.name) or name
+    return {
+        name = charName,
+        realm = realm,
+        classFile = char and char.classFile or "",
+        faction = char and char.faction or "",
+        level = (char and char.level) or 0,
+        guildName = guild,
+        main = mainName,
+        displayName = displayName,
+        isMain = (mainName ~= nil and charName == mainName),
+        source = "local",
+        Professions = professionsFromChar(char),
+    }
+end
+
+--- Account characters in `guild` on `realm` formatted for the guild tab.
+function GSD.GetLocalGuildMembers(guild, realm)
+    local out = {}
+    if not guild then return out end
+    local GSS = AltArmy.GuildShareSettings
+    if GSS and GSS._CurrentRealm and not realm then
+        realm = GSS._CurrentRealm()
+    end
+    realm = realm or ""
+    local displayName = GSS and GSS.GetDisplayName and GSS.GetDisplayName(realm) or nil
+    local entries = (GSS and GSS.GetAllGuildedCharacters
+        and GSS.GetAllGuildedCharacters(guild, realm)) or {}
+    -- Without an explicit main, group everyone under an implicit default main.
+    local mainName = (GSS and GSS.GetMain and GSS.GetMain(realm)) or defaultLocalMain(entries)
+    for _, entry in ipairs(entries) do
+        out[#out + 1] = GSD.BuildLocalMemberEntry(
+            entry.name, entry.realm, entry.char, guild, mainName, displayName)
+    end
+    return out
+end
+
+local function memberKey(entry)
+    return (entry.realm or "") .. "\0" .. (entry.name or "")
+end
+
+--- Received guildmates plus local account characters (local wins on name+realm conflict).
+function GSD.GetGuildMembersForDisplay(guild, realm)
+    local byKey = {}
+    for _, entry in ipairs(GSD.GetGuildMembers(guild)) do
+        byKey[memberKey(entry)] = entry
+    end
+    for _, entry in ipairs(GSD.GetLocalGuildMembers(guild, realm)) do
+        byKey[memberKey(entry)] = entry
+    end
+    local out = {}
+    for _, entry in pairs(byKey) do
+        out[#out + 1] = entry
+    end
+    return out
+end
+
+--- Resolve an alt to its main. A main resolves to itself. Unknown characters return nil.
+function GSD.GetMainOf(name, realm)
+    -- If a realm is supplied, use it; otherwise search all realms.
+    local function fromEntry(entry)
+        if not entry then return nil end
+        return entry.main or entry.name
+    end
+    if realm then
+        return fromEntry(GSD.GetCharacter(name, realm))
+    end
+    local d = ensure()
+    for _, rt in pairs(d.chars) do
+        local hit = fromEntry(rt[name])
+        if hit then return hit end
+    end
+    return nil
+end
+
+--- Professions map for a stored character (each prof may carry a Recipes map once pulled).
+function GSD.GetRecipesFor(name, realm)
+    local entry = GSD.GetCharacter(name, realm)
+    return entry and entry.Professions or {}
+end
+
+--- Profession keys for a character whose recipe lists still need to be pulled.
+function GSD.GetProfessionsNeedingRecipes(name, realm)
+    local out = {}
+    local entry = GSD.GetCharacter(name, realm)
+    if not entry or not entry.Professions then return out end
+    for key, prof in pairs(entry.Professions) do
+        if not prof.Recipes or prof.recipesRv ~= prof.rv then
+            out[#out + 1] = key
+        end
+    end
+    table.sort(out)
+    return out
+end
+
+-- *** Purging ***
+
+function GSD.PurgeGuild(guild)
+    local d = ensure()
+    for _, rt in pairs(d.chars) do
+        for name, entry in pairs(rt) do
+            if entry.guildName == guild then
+                rt[name] = nil
+            end
+        end
+    end
+end
+
+--- Remove entries older than maxAgeSeconds. Returns the number removed.
+function GSD.PurgeStale(maxAgeSeconds, nowTs)
+    nowTs = nowTs or now()
+    local removed = 0
+    local d = ensure()
+    for _, rt in pairs(d.chars) do
+        for name, entry in pairs(rt) do
+            local ts = entry.receivedAt or 0
+            if (nowTs - ts) > maxAgeSeconds then
+                rt[name] = nil
+                removed = removed + 1
+            end
+        end
+    end
+    return removed
+end
+
+function GSD.PurgeAll()
+    local d = ensure()
+    d.chars = {}
+end

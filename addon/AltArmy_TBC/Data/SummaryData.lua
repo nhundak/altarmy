@@ -323,6 +323,23 @@ local function addUniqueInstruction(out, line)
     table.insert(out.instructions, line)
 end
 
+local function needsGuildMembershipScan(char, DS)
+    if not char or not DS then return false end
+    if not DS.HasModuleData or not DS:HasModuleData(char, "character") then
+        return false
+    end
+    return DS.NeedsRescan and DS:NeedsRescan(char, "guildMembership")
+end
+
+local function appendGuildMembershipMissingInstructions(out, char, DS, isCurrent)
+    if not needsGuildMembershipScan(char, DS) then return end
+    if isCurrent then
+        addUniqueInstruction(out, "* /reload or log in again to refresh guild data")
+    else
+        addUniqueInstruction(out, "* Log in with this character")
+    end
+end
+
 local function appendTalentMissingInstructions(out, char, isCurrent)
     local DT = AltArmy.DataStoreTalents
     if DT and DT.HasTalentData and DT.HasTalentData(char) then
@@ -403,6 +420,7 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
         addUniqueInstruction(out, "* Log in with this character")
     end
 
+    appendGuildMembershipMissingInstructions(out, char, DS, isCurrent)
     appendTalentMissingInstructions(out, char, isCurrent)
 
     out.hasMissing = #out.instructions > 0

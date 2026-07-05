@@ -582,6 +582,78 @@ describe("SearchData", function()
     end)
   end)
 
+  describe("GetAllRecipes guild merge", function()
+    local DS, restore
+
+    before_each(function()
+      DS = AltArmy.DataStore
+      require("Debug")
+      require("GuildShareProtocol")
+      require("GuildShareData")
+      restore = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        GetProfessions = DS.GetProfessions,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+      }
+      -- No local characters, so any results come purely from guild data.
+      DS.GetRealms = function() return {} end
+      DS.GetCharacters = function() return {} end
+      DS.GetProfessions = function() return {} end
+      DS.GetCharacterName = function(_, c) return c and c.name or "" end
+      DS.GetCharacterClass = function() return "", "MAGE" end
+      _G.AltArmyTBC_GuildData = {
+        chars = {
+          R = {
+            Bob = {
+              name = "Bob", realm = "R", classFile = "MAGE", guildName = "G", displayName = "Bobby",
+              Professions = {
+                tailoring = {
+                  key = "tailoring", name = "Tailoring", rank = 375,
+                  Recipes = { [100] = { primaryRecipeID = 100 }, [200] = { primaryRecipeID = 200 } },
+                },
+              },
+            },
+          },
+        },
+      }
+      AltArmy.Debug.SetGuildShareEnabled(true)
+      AltArmy.SearchSettings.SetIncludeGuildmatesEnabled(true)
+      SD.NotifyRecipesChanged()
+    end)
+
+    after_each(function()
+      for k, v in pairs(restore) do DS[k] = v end
+      AltArmy.Debug.SetGuildShareEnabled(false)
+      _G.AltArmyTBC_GuildData = nil
+      SD.NotifyRecipesChanged()
+    end)
+
+    it("includes guild recipes tagged isGuild when flag and toggle are on", function()
+      local results = SD.GetAllRecipes()
+      assert.are.equal(2, #results)
+      for _, r in ipairs(results) do
+        assert.is_true(r.isGuild)
+        assert.are.equal("Bob", r.characterName)
+        assert.are.equal("tailoring", r.professionKey)
+      end
+    end)
+
+    it("excludes guild recipes when the feature flag is off", function()
+      AltArmy.Debug.SetGuildShareEnabled(false)
+      SD.NotifyRecipesChanged()
+      assert.are.equal(0, #SD.GetAllRecipes())
+    end)
+
+    it("excludes guild recipes when the include-guildmates toggle is off", function()
+      AltArmy.SearchSettings.SetIncludeGuildmatesEnabled(false)
+      SD.NotifyRecipesChanged()
+      assert.are.equal(0, #SD.GetAllRecipes())
+      AltArmy.SearchSettings.SetIncludeGuildmatesEnabled(true)
+    end)
+  end)
+
   describe("SearchRecipes", function()
     it("returns empty for nil or whitespace query", function()
       local old = SD.GetAllRecipes

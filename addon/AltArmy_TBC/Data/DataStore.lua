@@ -13,6 +13,7 @@ DS.MAX_LEVEL = 70
 
 local DATA_VERSIONS = {
     character = 1,
+    guildMembership = 1,
     containers = 1,
     equipment = 1,
     gearScores = 1,
@@ -184,6 +185,7 @@ frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("VARIABLES_LOADED")
 frame:RegisterEvent("PLAYER_ALIVE")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+frame:RegisterEvent("PLAYER_GUILD_UPDATE")
 frame:RegisterEvent("PLAYER_LOGOUT")
 frame:RegisterEvent("PLAYER_MONEY")
 frame:RegisterEvent("PLAYER_XP_UPDATE")
@@ -218,6 +220,32 @@ local isBankOpen = false
 
 function DS:IsBankOpen()
     return isBankOpen
+end
+
+--- Called on PLAYER_GUILD_UPDATE to keep guild membership current without a relog.
+--- WoW can fire this event twice for a single join/leave; skip when nothing changed.
+function DS:HandlePlayerGuildUpdate()
+    local char = GetCurrentCharTable()
+    if not char then return end
+    local prevGuild = char.guildName
+    local liveGuild
+    if GetGuildInfo then
+        local g = GetGuildInfo("player")
+        liveGuild = (g ~= "" and g) or nil
+    end
+    if liveGuild == prevGuild and DS.HasModuleData and DS:HasModuleData(char, "guildMembership") then
+        return
+    end
+    local D = AltArmy and AltArmy.Debug
+    -- TEMP: remove once guild join/leave refresh is verified in-game.
+    if D and D.NotifyChat then
+        D.NotifyChat(
+            "|cff00ccff[Alt Army:GuildShare]|r TEMP: PLAYER_GUILD_UPDATE"
+                .. " — refreshing guild membership in DataStore")
+    end
+    if DS.ScanGuildMembership then
+        DS:ScanGuildMembership()
+    end
 end
 
 local REPUTATION_SCAN_THROTTLE = 3
@@ -589,6 +617,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
             char.lastLogout = time()
             char.lastUpdate = time()
         end
+        return
+    end
+    if event == "PLAYER_GUILD_UPDATE" then
+        if DS.HandlePlayerGuildUpdate then DS:HandlePlayerGuildUpdate() end
         return
     end
     if event == "PLAYER_MONEY" then

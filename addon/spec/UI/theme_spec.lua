@@ -79,6 +79,7 @@ describe("AltArmy.Theme", function()
         function f:GetFrameLevel() return self._frameLevel or 0 end
         function f:SetFrameLevel(level) self._frameLevel = level end
         function f:EnableMouse() end
+        function f:EnableMouseWheel() end
         function f:SetPoint() end
         function f:SetCheckedTexture(tex) self._checkedTexture = tex end
         function f:SetMinMaxValues(min, max) self._minVal = min self._maxVal = max end
@@ -421,6 +422,47 @@ describe("AltArmy.Theme", function()
             dd:SetEnabled(false)
             assert.is_false(dd.button:IsEnabled())
             assert.is_false(dd.popup:IsShown())
+        end)
+
+        it("does not scroll when entries fit within maxVisibleRows", function()
+            local parent = makeStubFrame()
+            local rowHeight = 24
+            local entries = {}
+            for i = 1, 12 do
+                entries[i] = { id = tostring(i), label = "Row " .. i }
+            end
+            local dd = Theme.CreateSingleSelectDropdown({
+                parent = parent,
+                rowHeight = rowHeight,
+                maxVisibleRows = 12,
+                entries = entries,
+                getSelectedId = function() return "1" end,
+            })
+            dd.listViewport.scroll._height = dd.popup:GetHeight()
+            dd.listViewport.UpdateRange()
+            assert.are.equal(12 * rowHeight + 4, dd.popup:GetHeight())
+            assert.is_false(dd.scrollBar:IsShown())
+        end)
+
+        it("shows a scrollbar when entries exceed maxVisibleRows", function()
+            local parent = makeStubFrame()
+            local rowHeight = 24
+            local entries = {}
+            for i = 1, 15 do
+                entries[i] = { id = tostring(i), label = "Row " .. i }
+            end
+            local dd = Theme.CreateSingleSelectDropdown({
+                parent = parent,
+                rowHeight = rowHeight,
+                maxVisibleRows = 12,
+                entries = entries,
+                getSelectedId = function() return "1" end,
+            })
+            dd.listViewport.scroll._height = dd.popup:GetHeight()
+            dd.listViewport.UpdateRange()
+            assert.are.equal(12 * rowHeight + 4, dd.popup:GetHeight())
+            assert.is_true(dd.scrollBar:IsShown())
+            assert.is_true((dd.listViewport.child:GetHeight() or 0) > dd.popup:GetHeight())
         end)
     end)
 
