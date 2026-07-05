@@ -236,13 +236,6 @@ function DS:HandlePlayerGuildUpdate()
     if liveGuild == prevGuild and DS.HasModuleData and DS:HasModuleData(char, "guildMembership") then
         return
     end
-    local D = AltArmy and AltArmy.Debug
-    -- TEMP: remove once guild join/leave refresh is verified in-game.
-    if D and D.NotifyChat then
-        D.NotifyChat(
-            "|cff00ccff[Alt Army:GuildShare]|r TEMP: PLAYER_GUILD_UPDATE"
-                .. " — refreshing guild membership in DataStore")
-    end
     if DS.ScanGuildMembership then
         DS:ScanGuildMembership()
     end

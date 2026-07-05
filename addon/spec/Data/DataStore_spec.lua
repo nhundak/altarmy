@@ -402,17 +402,13 @@ describe("DataStore", function()
   end)
 
   describe("HandlePlayerGuildUpdate", function()
-    local logged, scanned
+    local scanned
 
     before_each(function()
-      logged = nil
       scanned = false
       _G.UnitName = function() return "Alice" end
       _G.GetRealmName = function() return "R1" end
       AltArmyTBC_Data.Characters = { R1 = { Alice = {} } }
-      AltArmy.Debug = {
-        NotifyChat = function(msg) logged = msg end,
-      }
       DS.ScanGuildMembership = function()
         scanned = true
         AltArmyTBC_Data.Characters.R1.Alice.guildName = "My Guild"
@@ -420,12 +416,10 @@ describe("DataStore", function()
       end
     end)
 
-    it("logs and refreshes guild membership when it changed", function()
+    it("refreshes guild membership when it changed", function()
       _G.GetGuildInfo = function() return "My Guild" end
       DS:HandlePlayerGuildUpdate()
       assert.is_true(scanned)
-      assert.matches("PLAYER_GUILD_UPDATE", logged or "")
-      assert.matches("guild membership", logged or "")
     end)
 
     it("skips duplicate events when guild membership is already current", function()
@@ -436,7 +430,6 @@ describe("DataStore", function()
       _G.GetGuildInfo = function() return "My Guild" end
       DS:HandlePlayerGuildUpdate()
       assert.is_false(scanned)
-      assert.is_nil(logged)
     end)
   end)
 end)
