@@ -616,6 +616,23 @@ function DS:ScanCooldownSpecializations(char)
     cs.moonclothTailor = knows(ids.moonclothTailor)
 end
 
+--- Remove stored professions absent from the live skill-line scan.
+--- Skips pruning until profession categories are present (skill data can load late at login).
+local function PruneDroppedProfessions(char, currentNames, skillLinesReady)
+    if not char or not char.Professions or not skillLinesReady or not currentNames then
+        return false
+    end
+    local removed = false
+    for profName in pairs(char.Professions) do
+        if not currentNames[profName] then
+            char.Professions[profName] = nil
+            removed = true
+        end
+    end
+    return removed
+end
+DS._PruneDroppedProfessionsForTest = PruneDroppedProfessions
+
 function DS:ScanProfessionLinks()
     local char = GetCurrentCharTable()
     if not char then return end
@@ -630,11 +647,16 @@ function DS:ScanProfessionLinks()
         end
     end
     local category
+    local currentNames = {}
+    local skillLinesReady = false
     for i = 1, GetNumSkillLines() do
         local skillName, isHeader, _, rank, _, _, maxRank = GetSkillLineInfo(i)
         if not skillName then break end
         if isHeader then
             category = skillName
+            if category == "Professions" or category == "Secondary Skills" then
+                skillLinesReady = true
+            end
         else
             if category and skillName then
                 local isPrimary = (category == "Professions")
@@ -644,6 +666,7 @@ function DS:ScanProfessionLinks()
                         skillName = GetSpellInfo(SPELL_ID_FIRSTAID) or skillName
                     end
                     skillName = NormalizeProfessionName(skillName)
+                    currentNames[skillName] = true
                     local prof = char.Professions[skillName]
                     if not prof then
                         prof = { rank = 0, maxRank = 0, Recipes = {} }
@@ -660,6 +683,9 @@ function DS:ScanProfessionLinks()
                 end
             end
         end
+    end
+    if PruneDroppedProfessions(char, currentNames, skillLinesReady) then
+        notifyRecipesChanged()
     end
     char.lastUpdate = time()
     char.dataVersions = char.dataVersions or {}

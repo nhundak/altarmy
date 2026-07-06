@@ -538,4 +538,102 @@ describe("DataStoreProfessions", function()
       assert.are.equal(11449, row.primaryRecipeID)
     end)
   end)
+
+  describe("ScanProfessionLinks", function()
+    local function mockPlayer(name, realm)
+      _G.UnitName = function()
+        return name
+      end
+      _G.GetRealmName = function()
+        return realm
+      end
+      _G.GetSpellInfo = function(id)
+        if id == 3273 then return "First Aid" end
+        return nil
+      end
+      _G.time = function()
+        return 0
+      end
+      _G.ExpandSkillHeader = function() end
+    end
+
+    local function mockSkillLines(lines)
+      _G.GetNumSkillLines = function()
+        return #lines
+      end
+      _G.GetSkillLineInfo = function(i)
+        local row = lines[i]
+        if not row then return nil end
+        return row.name, row.isHeader, nil, row.rank, nil, nil, row.maxRank
+      end
+    end
+
+    before_each(function()
+      _G.AltArmyTBC_Data = { Characters = {} }
+      DS.accountData = _G.AltArmyTBC_Data
+      mockPlayer("TestPlayer", "TestRealm")
+    end)
+
+    it("removes professions no longer present in skill lines", function()
+      _G.AltArmyTBC_Data.Characters.TestRealm = {
+        TestPlayer = {
+          Prof1 = "Alchemy",
+          Prof2 = "Herbalism",
+          Professions = {
+            Alchemy = { rank = 350, maxRank = 375, Recipes = { [1] = { color = 1 } } },
+            Herbalism = { rank = 300, maxRank = 375, Recipes = {} },
+            Tailoring = { rank = 375, maxRank = 375, Recipes = { [2] = { color = 1 } } },
+          },
+        },
+      }
+      mockSkillLines({
+        { name = "Professions", isHeader = true },
+        { name = "Alchemy", isHeader = false, rank = 350, maxRank = 375 },
+        { name = "Herbalism", isHeader = false, rank = 300, maxRank = 375 },
+      })
+      DS:ScanProfessionLinks()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.is_not_nil(char.Professions.Alchemy)
+      assert.is_not_nil(char.Professions.Herbalism)
+      assert.is_nil(char.Professions.Tailoring)
+      assert.are.equal("Alchemy", char.Prof1)
+      assert.are.equal("Herbalism", char.Prof2)
+    end)
+
+    it("clears stale primary professions when the character has none trained", function()
+      _G.AltArmyTBC_Data.Characters.TestRealm = {
+        TestPlayer = {
+          Prof1 = "Tailoring",
+          Professions = {
+            Tailoring = { rank = 375, maxRank = 375, Recipes = { [1] = { color = 1 } } },
+          },
+        },
+      }
+      mockSkillLines({
+        { name = "Professions", isHeader = true },
+      })
+      DS:ScanProfessionLinks()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.is_nil(char.Prof1)
+      assert.is_nil(char.Prof2)
+      assert.is_nil(char.Professions.Tailoring)
+    end)
+
+    it("does not prune when profession skill categories are not loaded yet", function()
+      _G.AltArmyTBC_Data.Characters.TestRealm = {
+        TestPlayer = {
+          Professions = {
+            Alchemy = { rank = 350, maxRank = 375, Recipes = {} },
+          },
+        },
+      }
+      mockSkillLines({
+        { name = "Weapon Skills", isHeader = true },
+        { name = "Axes", isHeader = false, rank = 300, maxRank = 300 },
+      })
+      DS:ScanProfessionLinks()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.is_not_nil(char.Professions.Alchemy)
+    end)
+  end)
 end)
