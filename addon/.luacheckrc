@@ -205,6 +205,7 @@ read_globals = {
     "GetNumQuestRewards",
     "QUEST_COMPLETE",
     "hooksecurefunc",
+    "EventRegistry",
     "C_Timer",
     "C_AddOns",
     "IsAddOnLoaded",

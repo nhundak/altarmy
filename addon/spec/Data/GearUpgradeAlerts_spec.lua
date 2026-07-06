@@ -43,6 +43,12 @@ describe("GearUpgradeAlerts", function()
         openedLink = nil
     end)
 
+    it("HandleSetItemRef opens gear tab for addon upgrade links", function()
+        local ok = GA.HandleSetItemRef("addon:AltArmy:upgrade:11", "LeftButton")
+        assert.is_true(ok)
+        assert.are.equal("|Hitem:11:0|h[New Helm]|h", openedLink)
+    end)
+
     it("HandleSetItemRef opens gear tab for altarmy upgrade links", function()
         local ok = GA.HandleSetItemRef("altarmy:upgrade:11", "LeftButton")
         assert.is_true(ok)
@@ -84,21 +90,52 @@ describe("GearUpgradeAlerts", function()
         assert.is_nil(openedLink)
     end)
 
-    it("SetItemRef wrapper intercepts altarmy links before inner handler", function()
+    it("installUpgradeLinkInterceptors registers EventRegistry without replacing SetItemRef", function()
         local innerCalled = false
+        local registryCalls = {}
         _G.SetItemRef = function()
             innerCalled = true
         end
+        _G.EventRegistry = {
+            RegisterCallback = function(_, eventName, handler, owner)
+                registryCalls[#registryCalls + 1] = { eventName, handler, owner }
+            end,
+        }
+        if GA then GA._upgradeLinkInterceptorsInstalled = nil end
         package.loaded["GearUpgradeAlerts"] = nil
         require("GearUpgradeAlerts")
         GA = AltArmy.GearUpgradeAlerts
         openedLink = nil
-        SetItemRef("altarmy:upgrade:11", "View details", "LeftButton")
-        assert.is_false(innerCalled)
+        assert.are.equal(1, #registryCalls)
+        assert.are.equal("SetItemRef", registryCalls[1][1])
+        assert.are.equal(GA, registryCalls[1][3])
+        registryCalls[1][2](GA, "altarmy:upgrade:11", "View details", "LeftButton")
         assert.are.equal("|Hitem:11:0|h[New Helm]|h", openedLink)
+        assert.is_false(innerCalled)
+        _G.EventRegistry = nil
+    end)
 
+    it("installUpgradeLinkInterceptors uses hooksecurefunc without replacing SetItemRef", function()
+        local innerCalled = false
+        local hookInstalled = false
+        _G.SetItemRef = function()
+            innerCalled = true
+        end
+        _G.EventRegistry = nil
+        _G.hooksecurefunc = function(name, fn)
+            hookInstalled = true
+            assert.are.equal("SetItemRef", name)
+            fn("altarmy:upgrade:11", "View details", "LeftButton")
+        end
+        if GA then GA._upgradeLinkInterceptorsInstalled = nil end
+        package.loaded["GearUpgradeAlerts"] = nil
+        require("GearUpgradeAlerts")
+        GA = AltArmy.GearUpgradeAlerts
+        openedLink = nil
+        assert.is_true(hookInstalled)
         SetItemRef("item:11", "item", "LeftButton")
         assert.is_true(innerCalled)
+        _G.hooksecurefunc = nil
     end)
 
     describe("AnnounceLootUpgrade", function()
@@ -377,6 +414,49 @@ describe("GearUpgradeAlerts", function()
             assert.is_not_nil(chatLines[1]:find(helmLink, 1, true))
             assert.is_nil(chatLines[1]:match("%(bank%)"))
             assert.is_nil(chatLines[1]:match("%(mail%)"))
+        end)
+
+        it("announces multiple upgrades in a single chat message", function()
+            local chestLink = "|Hitem:22:0|h[New Chest]|h"
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 11, 1, helmLink)
+                    cb(0, 2, 22, 1, chestLink)
+                end,
+                effectiveRequiredLevel = function(_, link)
+                    if link == helmLink or link == chestLink then return 40 end
+                    return 999
+                end,
+            })
+            GA.AnnounceLevelUpUpgrades(40)
+            assert.are.equal(1, #chatLines)
+            assert.matches(" and ", chatLines[1])
+            assert.is_not_nil(chatLines[1]:find(helmLink, 1, true))
+            assert.is_not_nil(chatLines[1]:find(chestLink, 1, true))
+        end)
+
+        it("summarizes three or more upgrades in one chat message", function()
+            local chestLink = "|Hitem:22:0|h[New Chest]|h"
+            local bootsLink = "|Hitem:33:0|h[New Boots]|h"
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 11, 1, helmLink)
+                    cb(0, 2, 22, 1, chestLink)
+                    cb(0, 3, 33, 1, bootsLink)
+                end,
+                effectiveRequiredLevel = function(_, link)
+                    if link == helmLink or link == chestLink or link == bootsLink then
+                        return 40
+                    end
+                    return 999
+                end,
+            })
+            GA.AnnounceLevelUpUpgrades(40)
+            assert.are.equal(1, #chatLines)
+            assert.matches("1 other upgrade", chatLines[1])
+            assert.is_not_nil(chatLines[1]:find(helmLink, 1, true))
+            assert.is_not_nil(chatLines[1]:find(chestLink, 1, true))
+            assert.is_nil(chatLines[1]:find(bootsLink, 1, true))
         end)
 
         it("appends bank reminder when the upgrade is in the bank", function()
@@ -901,23 +981,57 @@ describe("GearUpgradeAlerts", function()
     end)
 
     describe("FormatLevelUpEquipMessage", function()
+        local helmLink = "|Hitem:11:0|h[New Helm]|h"
+        local chestLink = "|Hitem:22:0|h[New Chest]|h"
+        local bootsLink = "|Hitem:33:0|h[New Boots]|h"
+        local glovesLink = "|Hitem:44:0|h[New Gloves]|h"
+
         it("adds location reminders only for bank or mail", function()
-            local link = "|Hitem:11:0|h[New Helm]|h"
             assert.are.equal(
-                "Congratulations! You can now equip " .. link,
-                GA.FormatLevelUpEquipMessage(link, { bag = true }))
+                "Congratulations! You can now equip " .. helmLink,
+                GA.FormatLevelUpEquipMessage({ { link = helmLink, bag = true } }))
             assert.are.equal(
-                "Congratulations! You can now equip " .. link .. " (bank)",
-                GA.FormatLevelUpEquipMessage(link, { bank = true }))
+                "Congratulations! You can now equip " .. helmLink .. " (bank)",
+                GA.FormatLevelUpEquipMessage({ { link = helmLink, bank = true } }))
             assert.are.equal(
-                "Congratulations! You can now equip " .. link,
-                GA.FormatLevelUpEquipMessage(link, { bag = true, bank = true }))
+                "Congratulations! You can now equip " .. helmLink,
+                GA.FormatLevelUpEquipMessage({ { link = helmLink, bag = true, bank = true } }))
             assert.are.equal(
-                "Congratulations! You can now equip " .. link .. " (mail)",
-                GA.FormatLevelUpEquipMessage(link, { mail = true }))
+                "Congratulations! You can now equip " .. helmLink .. " (mail)",
+                GA.FormatLevelUpEquipMessage({ { link = helmLink, mail = true } }))
             assert.are.equal(
-                "Congratulations! You can now equip " .. link .. " (mail)",
-                GA.FormatLevelUpEquipMessage(link, { bank = true, mail = true }))
+                "Congratulations! You can now equip " .. helmLink .. " (mail)",
+                GA.FormatLevelUpEquipMessage({ { link = helmLink, bank = true, mail = true } }))
+        end)
+
+        it("joins two upgrades with and", function()
+            assert.are.equal(
+                "Congratulations! You can now equip "
+                    .. helmLink .. " and " .. chestLink,
+                GA.FormatLevelUpEquipMessage({
+                    { link = helmLink, bag = true },
+                    { link = chestLink, bag = true },
+                }))
+        end)
+
+        it("summarizes three or more upgrades", function()
+            assert.are.equal(
+                "Congratulations! You can now equip "
+                    .. helmLink .. ", " .. chestLink .. ", and 1 other upgrade",
+                GA.FormatLevelUpEquipMessage({
+                    { link = helmLink, bag = true },
+                    { link = chestLink, bag = true },
+                    { link = bootsLink, bag = true },
+                }))
+            assert.are.equal(
+                "Congratulations! You can now equip "
+                    .. helmLink .. ", " .. chestLink .. ", and 2 other upgrades",
+                GA.FormatLevelUpEquipMessage({
+                    { link = helmLink, bag = true },
+                    { link = chestLink, bag = true },
+                    { link = bootsLink, bag = true },
+                    { link = glovesLink, bag = true },
+                }))
         end)
     end)
 end)

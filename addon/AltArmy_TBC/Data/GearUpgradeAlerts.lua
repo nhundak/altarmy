@@ -1,6 +1,7 @@
 -- AltArmy TBC — Gear upgrade chat alerts (loot + level-up + quest rewards).
 -- luacheck: globals DEFAULT_CHAT_FRAME GetItemInfo IsUsableItem UnitName
 -- luacheck: globals GetContainerItemLink GetContainerNumSlots SetItemRef ChatFrame_OnHyperlinkClick
+-- luacheck: globals EventRegistry hooksecurefunc
 -- luacheck: globals GetQuestItemLink GetNumQuestRewards GetNumQuestChoices QUEST_COMPLETE
 -- luacheck: globals GetTitleText GetTime C_Timer
 
@@ -43,7 +44,9 @@ local function formatUpgradeNameList(matches)
     return names[1] .. ", " .. names[2] .. ", and " .. tostring(others) .. " others"
 end
 
-local UPGRADE_LINK_PREFIX = "altarmy:upgrade:"
+-- Blizzard's addon link type is ignored by default SetItemRef and handled via EventRegistry.
+local UPGRADE_LINK_PREFIX = "addon:AltArmy:upgrade:"
+local LEGACY_UPGRADE_LINK_PREFIX = "altarmy:upgrade:"
 
 local function extractItemPayload(itemLink)
     if not itemLink then return nil end
@@ -125,12 +128,21 @@ local function resolveItemLinkForUpgrade(itemId)
     return "item:" .. tostring(itemId)
 end
 
-local function parseUpgradeLink(link)
+local function upgradeLinkPayload(link)
     if not link then return nil end
-    local prefixLower = UPGRADE_LINK_PREFIX:lower()
     local lower = link:lower()
-    if lower:sub(1, #prefixLower) ~= prefixLower then return nil end
-    local payload = link:sub(#prefixLower + 1)
+    for _, prefix in ipairs({ UPGRADE_LINK_PREFIX, LEGACY_UPGRADE_LINK_PREFIX }) do
+        local prefixLower = prefix:lower()
+        if lower:sub(1, #prefixLower) == prefixLower then
+            return link:sub(#prefixLower + 1)
+        end
+    end
+    return nil
+end
+
+local function parseUpgradeLink(link)
+    local payload = upgradeLinkPayload(link)
+    if not payload then return nil end
     if payload:match("^item:") then
         return payloadToUsableLink(payload)
     end
@@ -643,15 +655,45 @@ local function trainingSkillName(link)
     return IU.GetProficiencySkillName(itemClass, subclass)
 end
 
-function GA.FormatLevelUpEquipMessage(link, locations)
+local function formatLevelUpItemFragment(link, locations)
     locations = locations or {}
-    local msg = "Congratulations! You can now equip " .. (link or "?")
+    local fragment = link or "?"
     if locations.mail then
-        msg = msg .. " (mail)"
+        fragment = fragment .. " (mail)"
     elseif locations.bank and not locations.bag then
-        msg = msg .. " (bank)"
+        fragment = fragment .. " (bank)"
     end
-    return msg
+    return fragment
+end
+
+function GA.FormatLevelUpEquipMessage(candidates)
+    if not candidates or #candidates == 0 then return "" end
+    local count = #candidates
+    if count == 1 then
+        local candidate = candidates[1]
+        return "Congratulations! You can now equip "
+            .. formatLevelUpItemFragment(candidate.link, candidate)
+    end
+    if count == 2 then
+        local first = candidates[1]
+        local second = candidates[2]
+        return "Congratulations! You can now equip "
+            .. formatLevelUpItemFragment(first.link, first)
+            .. " and "
+            .. formatLevelUpItemFragment(second.link, second)
+    end
+    local first = candidates[1]
+    local second = candidates[2]
+    local others = count - 2
+    local otherWord = others == 1 and "upgrade" or "upgrades"
+    return "Congratulations! You can now equip "
+        .. formatLevelUpItemFragment(first.link, first)
+        .. ", "
+        .. formatLevelUpItemFragment(second.link, second)
+        .. ", and "
+        .. tostring(others)
+        .. " other "
+        .. otherWord
 end
 
 local function noteLevelUpCandidate(candidates, candidateOrder, link, location)
@@ -731,6 +773,7 @@ function GA.AnnounceLevelUpUpgrades(newLevel)
         end
     end
 
+    local upgrades = {}
     for i = 1, #candidateOrder do
         local candidate = candidates[candidateOrder[i]]
         local link = candidate.link
@@ -739,12 +782,18 @@ function GA.AnnounceLevelUpUpgrades(newLevel)
             levelsAhead = 0,
             level = newLevel,
         }) then
-            postChat(ALTARMY_GOLD .. "Alt Army|r "
-                .. GA.FormatLevelUpEquipMessage(link, candidate))
-            if IU and IU.NeedsProficiencyTraining(classFile, newLevel, link, char) then
-                postChat(ALTARMY_GOLD .. "Alt Army|r Note that you must train "
-                    .. trainingSkillName(link) .. " before you can equip this.")
-            end
+            upgrades[#upgrades + 1] = candidate
+        end
+    end
+    if #upgrades == 0 then return end
+
+    postChat(ALTARMY_GOLD .. "Alt Army|r "
+        .. GA.FormatLevelUpEquipMessage(upgrades))
+    for i = 1, #upgrades do
+        local link = upgrades[i].link
+        if IU and IU.NeedsProficiencyTraining(classFile, newLevel, link, char) then
+            postChat(ALTARMY_GOLD .. "Alt Army|r Note that you must train "
+                .. trainingSkillName(link) .. " before you can equip this.")
         end
     end
 end
@@ -760,36 +809,28 @@ function GA.HandleSetItemRef(link, button)
     return false
 end
 
-local wrappedSetItemRef
-local wrappedChatFrame_OnHyperlinkClick
+local function onUpgradeSetItemRef(_, link, _, button)
+    GA.HandleSetItemRef(link, button)
+end
 
---- Intercept custom links before Blizzard/NovaInstanceTracker call SetHyperlink on them.
+--- Handle upgrade chat links without replacing SetItemRef (that taints player link menus).
 local function installUpgradeLinkInterceptors()
-    if SetItemRef then
-        local inner = SetItemRef
-        if inner ~= wrappedSetItemRef then
-            local function wrapper(link, text, button, chatFrame)
-                if GA.HandleSetItemRef(link, button) then
-                    return
-                end
-                return inner(link, text, button, chatFrame)
-            end
-            wrappedSetItemRef = wrapper
-            SetItemRef = wrapper
-        end
+    if GA._upgradeLinkInterceptorsInstalled then return end
+    GA._upgradeLinkInterceptorsInstalled = true
+
+    if EventRegistry and EventRegistry.RegisterCallback then
+        EventRegistry:RegisterCallback("SetItemRef", onUpgradeSetItemRef, GA)
+        return
     end
 
-    if ChatFrame_OnHyperlinkClick then
-        local inner = ChatFrame_OnHyperlinkClick
-        if inner ~= wrappedChatFrame_OnHyperlinkClick then
-            local function wrapper(self, link, text, button)
-                if GA.HandleSetItemRef(link, button) then
-                    return
-                end
-                return inner(self, link, text, button)
-            end
-            wrappedChatFrame_OnHyperlinkClick = wrapper
-            ChatFrame_OnHyperlinkClick = wrapper
+    if hooksecurefunc then
+        hooksecurefunc("SetItemRef", function(link, _, _, button)
+            GA.HandleSetItemRef(link, button)
+        end)
+        if ChatFrame_OnHyperlinkClick then
+            hooksecurefunc("ChatFrame_OnHyperlinkClick", function(_, link, _, button)
+                GA.HandleSetItemRef(link, button)
+            end)
         end
     end
 end
