@@ -464,4 +464,63 @@ describe("GuildShareComm helpers", function()
       assert.truthy(GSD.GetCharacter("Peer", "R").Professions.tailoring.Recipes[100])
     end)
   end)
+
+  describe("IsGuildMemberOnline", function()
+    before_each(function()
+      _G.IsInGuild = function() return true end
+      _G.UnitName = function() return "Bob" end
+    end)
+
+    it("returns true when the member is online in the guild roster", function()
+      _G.GetNumGuildMembers = function() return 1 end
+      _G.GetGuildRosterInfo = function()
+        return "Alice", nil, nil, nil, nil, nil, nil, nil, true
+      end
+      assert.is_true(Comm.IsGuildMemberOnline("Alice"))
+    end)
+
+    it("returns false when the member is offline", function()
+      _G.GetNumGuildMembers = function() return 1 end
+      _G.GetGuildRosterInfo = function()
+        return "Alice", nil, nil, nil, nil, nil, nil, nil, false
+      end
+      assert.is_false(Comm.IsGuildMemberOnline("Alice"))
+    end)
+  end)
+
+  describe("RequestRecipesForCharacter", function()
+    before_each(function()
+      _G.IsInGuild = function() return true end
+      _G.UnitName = function() return "Bob" end
+      _G.GetNumGuildMembers = function() return 1 end
+      _G.GetGuildRosterInfo = function()
+        return "Alice", nil, nil, nil, nil, nil, nil, nil, true
+      end
+    end)
+
+    it("marks recipes requested when sender is online and recipes are needed", function()
+      local marked
+      AltArmy.GuildShareData = {
+        GetProfessionsNeedingRecipes = function() return { "tailoring" } end,
+        MarkRecipesRequested = function(name, realm, keys)
+          marked = { name = name, realm = realm, keys = keys }
+        end,
+      }
+      assert.is_true(Comm.RequestRecipesForCharacter("Alt", "R", "Alice"))
+      assert.are.same({ name = "Alt", realm = "R", keys = { "tailoring" } }, marked)
+    end)
+
+    it("does nothing when sender is offline", function()
+      _G.GetGuildRosterInfo = function()
+        return "Alice", nil, nil, nil, nil, nil, nil, nil, false
+      end
+      local marked = false
+      AltArmy.GuildShareData = {
+        GetProfessionsNeedingRecipes = function() return { "tailoring" } end,
+        MarkRecipesRequested = function() marked = true end,
+      }
+      assert.is_false(Comm.RequestRecipesForCharacter("Alt", "R", "Alice"))
+      assert.is_false(marked)
+    end)
+  end)
 end)

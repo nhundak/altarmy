@@ -31,6 +31,7 @@ describe("GuildTabData", function()
       main = opts.main,
       displayName = opts.displayName,
       isMain = opts.isMain or false,
+      source = opts.source,
       Professions = profMap(opts.profs),
     }
   end
@@ -53,7 +54,10 @@ describe("GuildTabData", function()
         { key = "mining", name = "Mining", rank = 300 },
       } })
       assert.are.same(
-        { { name = "Tailoring", rank = 375 }, { name = "Alchemy", rank = 300 } },
+        {
+          { key = "tailoring", name = "Tailoring", rank = 375 },
+          { key = "alchemy", name = "Alchemy", rank = 300 },
+        },
         GTD.GetPrimaryProfessions(m))
     end)
 
@@ -64,9 +68,9 @@ describe("GuildTabData", function()
         { key = "engineering", name = "Engineering", rank = 375 },
       } })
       assert.are.same({
-        { name = "Engineering", rank = 375 },
-        { name = "Alchemy", rank = 300 },
-        { name = "Tailoring", rank = 300 },
+        { key = "engineering", name = "Engineering", rank = 375 },
+        { key = "alchemy", name = "Alchemy", rank = 300 },
+        { key = "tailoring", name = "Tailoring", rank = 300 },
       }, GTD.GetPrimaryProfessions(m))
     end)
 
@@ -75,7 +79,7 @@ describe("GuildTabData", function()
         { key = "tailoring", name = "Tailoring", rank = 0 },
         { key = "alchemy", name = "Alchemy", rank = 1 },
       } })
-      assert.are.same({ { name = "Alchemy", rank = 1 } }, GTD.GetPrimaryProfessions(m))
+      assert.are.same({ { key = "alchemy", name = "Alchemy", rank = 1 } }, GTD.GetPrimaryProfessions(m))
     end)
 
     it("excludes poisons", function()
@@ -83,14 +87,14 @@ describe("GuildTabData", function()
         { key = "poisons", name = "Poisons", rank = 300 },
         { key = "alchemy", name = "Alchemy", rank = 300 },
       } })
-      assert.are.same({ { name = "Alchemy", rank = 300 } }, GTD.GetPrimaryProfessions(m))
+      assert.are.same({ { key = "alchemy", name = "Alchemy", rank = 300 } }, GTD.GetPrimaryProfessions(m))
     end)
 
     it("includes the specialization label when present", function()
       local m = member({ name = "A", profs = {
         { key = "alchemy", name = "Alchemy", rank = 375, spec = "Transmute" },
       } })
-      assert.are.same({ { name = "Alchemy", rank = 375, spec = "Transmute" } },
+      assert.are.same({ { key = "alchemy", name = "Alchemy", rank = 375, spec = "Transmute" } },
         GTD.GetPrimaryProfessions(m))
     end)
 
@@ -327,6 +331,142 @@ describe("GuildTabData", function()
       assert.are.equal(
         "Mind|cff00ff00frell|r 1 character",
         GTD.FormatMainRowLabel(groups[1], plainFormatName, "frell"))
+    end)
+  end)
+
+  describe("GetStoredCharacter", function()
+    it("reads from DataStore for local entries", function()
+      local savedDS = AltArmy.DataStore
+      local charData = { name = "Local", Professions = { tailoring = { rank = 300 } } }
+      AltArmy.DataStore = {
+        GetCharacters = function(_, realm)
+          if realm == "R" then return { Local = charData } end
+          return {}
+        end,
+      }
+      local entry = member({ name = "Local", realm = "R", source = "local" })
+      assert.are.same(charData, GTD.GetStoredCharacter(entry))
+      AltArmy.DataStore = savedDS
+    end)
+
+    it("reads from GuildShareData for remote entries", function()
+      local savedGSD = AltArmy.GuildShareData
+      local stored = { name = "Remote", Professions = {} }
+      AltArmy.GuildShareData = {
+        GetCharacter = function(name, realm)
+          if name == "Remote" and realm == "R" then return stored end
+          return nil
+        end,
+      }
+      local entry = member({ name = "Remote", realm = "R", source = "Peer" })
+      assert.are.same(stored, GTD.GetStoredCharacter(entry))
+      AltArmy.GuildShareData = savedGSD
+    end)
+  end)
+
+  describe("GetProfessionRecipes", function()
+    before_each(function()
+      package.loaded["GuildShareProtocol"] = nil
+      require("GuildShareProtocol")
+    end)
+
+    it("returns primary recipe ids sorted, excluding aliases", function()
+      local entry = member({
+        name = "A",
+        profs = {
+          { key = "alchemy", name = "Alchemy", rank = 300 },
+        },
+      })
+      entry.Professions.alchemy.Recipes = {
+        [11449] = { primaryRecipeID = 11449, resultItemID = 9187 },
+        [11334] = { primaryRecipeID = 11449 },
+      }
+      assert.are.same({
+        { recipeID = 11449, resultItemID = 9187 },
+      }, GTD.GetProfessionRecipes(entry, "alchemy"))
+    end)
+
+    it("returns empty when profession is missing", function()
+      assert.are.same({}, GTD.GetProfessionRecipes(member({ name = "A" }), "alchemy"))
+    end)
+
+    it("reads recipes from DataStore for local entries", function()
+      local savedDS = AltArmy.DataStore
+      AltArmy.DataStore = {
+        GetCharacters = function(_, realm)
+          if realm == "R" then
+            return {
+              Local = {
+                Professions = {
+                  tailoring = {
+                    Recipes = {
+                      [12045] = { primaryRecipeID = 12045 },
+                      [12046] = { primaryRecipeID = 12046 },
+                    },
+                  },
+                },
+              },
+            }
+          end
+          return {}
+        end,
+      }
+      local entry = member({ name = "Local", realm = "R", source = "local" })
+      assert.are.same({
+        { recipeID = 12045 },
+        { recipeID = 12046 },
+      }, GTD.GetProfessionRecipes(entry, "tailoring"))
+      AltArmy.DataStore = savedDS
+    end)
+  end)
+
+  describe("FormatCharacterTitle", function()
+    it("returns class-colored name via formatName", function()
+      local m = member({ name = "Mage", classFile = "MAGE" })
+      assert.are.equal("Mage", GTD.FormatCharacterTitle(m, plainFormatName))
+    end)
+  end)
+
+  describe("FormatNoProfessionsMessage", function()
+    it("embeds the class-colored character name", function()
+      local m = member({ name = "Newbie", classFile = "WARRIOR" })
+      assert.are.equal("Newbie has not picked professions yet",
+        GTD.FormatNoProfessionsMessage(m, plainFormatName))
+    end)
+  end)
+
+  describe("CollectAccountGuilds", function()
+    it("returns sorted unique guild names from account characters", function()
+      local savedDS = AltArmy.DataStore
+      AltArmy.DataStore = {
+        ForEachCharacter = function(_, fn)
+          fn("R1", "A", { guildName = "Zeta Guild" })
+          fn("R1", "B", { guildName = "Alpha Guild" })
+          fn("R2", "C", { guildName = "Alpha Guild" })
+          fn("R2", "D", { guildName = nil })
+        end,
+      }
+      assert.are.same({ "Alpha Guild", "Zeta Guild" }, GTD.CollectAccountGuilds())
+      AltArmy.DataStore = savedDS
+    end)
+
+    it("returns empty when DataStore is unavailable", function()
+      local savedDS = AltArmy.DataStore
+      AltArmy.DataStore = nil
+      assert.are.same({}, GTD.CollectAccountGuilds())
+      AltArmy.DataStore = savedDS
+    end)
+  end)
+
+  describe("GetAutoBrowseGuild", function()
+    it("returns the sole guild when there is exactly one", function()
+      assert.are.equal("Only Guild", GTD.GetAutoBrowseGuild({ "Only Guild" }))
+    end)
+
+    it("returns nil when there are zero or multiple guilds", function()
+      assert.is_nil(GTD.GetAutoBrowseGuild({}))
+      assert.is_nil(GTD.GetAutoBrowseGuild({ "A", "B" }))
+      assert.is_nil(GTD.GetAutoBrowseGuild(nil))
     end)
   end)
 

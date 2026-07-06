@@ -295,18 +295,39 @@ function GSD.GetLocalGuildMembers(guild, realm)
     return out
 end
 
+--- Account characters in `guild` across every stored realm (for browsing when not guilded).
+function GSD.GetLocalGuildMembersAllRealms(guild)
+    local out = {}
+    if not guild then return out end
+    local DS = AltArmy.DataStore
+    if not DS or not DS.GetRealms then return out end
+    for realm in pairs(DS:GetRealms()) do
+        for _, entry in ipairs(GSD.GetLocalGuildMembers(guild, realm)) do
+            out[#out + 1] = entry
+        end
+    end
+    return out
+end
+
 local function memberKey(entry)
     return (entry.realm or "") .. "\0" .. (entry.name or "")
 end
 
 --- Received guildmates plus local account characters (local wins on name+realm conflict).
-function GSD.GetGuildMembersForDisplay(guild, realm)
+--- When `allLocalRealms` is true, merges local account characters from every realm.
+function GSD.GetGuildMembersForDisplay(guild, realm, allLocalRealms)
     local byKey = {}
     for _, entry in ipairs(GSD.GetGuildMembers(guild)) do
         byKey[memberKey(entry)] = entry
     end
-    for _, entry in ipairs(GSD.GetLocalGuildMembers(guild, realm)) do
-        byKey[memberKey(entry)] = entry
+    if allLocalRealms then
+        for _, entry in ipairs(GSD.GetLocalGuildMembersAllRealms(guild)) do
+            byKey[memberKey(entry)] = entry
+        end
+    else
+        for _, entry in ipairs(GSD.GetLocalGuildMembers(guild, realm)) do
+            byKey[memberKey(entry)] = entry
+        end
     end
     local out = {}
     for _, entry in pairs(byKey) do

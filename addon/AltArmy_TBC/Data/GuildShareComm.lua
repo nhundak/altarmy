@@ -182,6 +182,13 @@ local function collectOnlineGuildMembers()
     return out
 end
 
+--- True when a guildmate (normalized short name) is online in the roster.
+function Comm.IsGuildMemberOnline(name)
+    name = normalizeSender(name)
+    if name == "" then return false end
+    return collectOnlineGuildMembers()[name] == true
+end
+
 local function resetRosterOnlineBaseline()
     knownOnlineMembers = {}
     rosterBaselinePending = true
@@ -236,6 +243,23 @@ local function send(msgType, payload, distribution, target)
     pcall(function()
         commObj:SendCommMessage(PREFIX, data, distribution, target)
     end)
+end
+
+--- On-demand recipe pull for one character; whispers `sender` when they are online and recipes are missing.
+--- Returns true when a request was sent.
+function Comm.RequestRecipesForCharacter(name, realm, sender)
+    if not name or not sender or sender == "" then return false end
+    sender = normalizeSender(sender)
+    if not Comm.IsGuildMemberOnline(sender) then return false end
+    local GSD = AltArmy.GuildShareData
+    if not GSD or not GSD.GetProfessionsNeedingRecipes then return false end
+    local needed = GSD.GetProfessionsNeedingRecipes(name, realm)
+    if #needed == 0 then return false end
+    send(MSG_REQ_RECIPES, { name = name, realm = realm }, "WHISPER", sender)
+    if GSD.MarkRecipesRequested then
+        GSD.MarkRecipesRequested(name, realm, needed)
+    end
+    return true
 end
 
 --- Build my presence payload for the given guild/realm (respecting the flag-branched set).
@@ -370,16 +394,8 @@ end
 
 --- After storing a peer's presence, request recipe lists for any professions we lack.
 local function requestMissingRecipes(presence, sender, realm)
-    local GSD = AltArmy.GuildShareData
-    if not GSD then return end
     for _, c in ipairs(presence.chars or {}) do
-        local needed = GSD.GetProfessionsNeedingRecipes(c.name, realm)
-        if #needed > 0 then
-            send(MSG_REQ_RECIPES, { name = c.name, realm = realm }, "WHISPER", sender)
-            if GSD.MarkRecipesRequested then
-                GSD.MarkRecipesRequested(c.name, realm, needed)
-            end
-        end
+        Comm.RequestRecipesForCharacter(c.name, realm, sender)
     end
 end
 

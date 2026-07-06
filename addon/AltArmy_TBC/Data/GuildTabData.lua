@@ -79,7 +79,7 @@ GTD.PRIMARY_PROFESSION_KEYS = {
     tailoring = true,
 }
 
---- A character's primary crafting professions (rank > 0), each { name, rank, spec }, sorted by
+--- A character's primary crafting professions (rank > 0), each { key, name, rank, spec }, sorted by
 --- highest skill rank first, then alphabetically by name for ties.
 function GTD.GetPrimaryProfessions(entry)
     local out = {}
@@ -87,7 +87,12 @@ function GTD.GetPrimaryProfessions(entry)
     if type(profs) ~= "table" then return out end
     for key, prof in pairs(profs) do
         if GTD.PRIMARY_PROFESSION_KEYS[key] and (prof.rank or 0) > 0 then
-            out[#out + 1] = { name = prof.name or key, rank = prof.rank or 0, spec = prof.spec }
+            out[#out + 1] = {
+                key = key,
+                name = prof.name or key,
+                rank = prof.rank or 0,
+                spec = prof.spec,
+            }
         end
     end
     table.sort(out, function(a, b)
@@ -95,6 +100,112 @@ function GTD.GetPrimaryProfessions(entry)
         return a.name:lower() < b.name:lower()
     end)
     return out
+end
+
+local function findProfessionByKey(char, profKey)
+    if not char or type(char.Professions) ~= "table" or not profKey then return nil end
+    local prof = char.Professions[profKey]
+    if prof then return prof end
+    local SS = AltArmy.SearchSettings
+    local label = SS and SS.PROFESSION_LABELS and SS.PROFESSION_LABELS[profKey]
+    if label and char.Professions[label] then
+        return char.Professions[label]
+    end
+    for name, p in pairs(char.Professions) do
+        local key = (SS and SS.ResolveProfessionKey and SS.ResolveProfessionKey(name)) or name
+        if key == profKey then return p end
+    end
+    return nil
+end
+
+local function buildRecipeList(prof)
+    local P = AltArmy.GuildShareProtocol
+    local ids = (P and P.GetPrimaryRecipeIDs and P.GetPrimaryRecipeIDs(prof)) or {}
+    local out = {}
+    local recipes = prof and prof.Recipes or {}
+    for _, id in ipairs(ids) do
+        local data = recipes[id]
+        local resultItemID
+        if type(data) == "table" and data.resultItemID then
+            resultItemID = data.resultItemID
+        end
+        out[#out + 1] = { recipeID = id, resultItemID = resultItemID }
+    end
+    return out
+end
+
+--- Resolve full character data for recipe lookup (DataStore for local, GuildShareData otherwise).
+function GTD.GetStoredCharacter(entry)
+    if not entry or not entry.name then return nil end
+    if entry.source == "local" then
+        local DS = AltArmy.DataStore
+        if DS and DS.GetCharacters then
+            local chars = DS:GetCharacters(entry.realm)
+            return chars and chars[entry.name] or nil
+        end
+        return nil
+    end
+    local GSD = AltArmy.GuildShareData
+    return GSD and GSD.GetCharacter and GSD.GetCharacter(entry.name, entry.realm) or nil
+end
+
+--- Primary (non-alias) recipes for one profession, sorted by recipe id.
+function GTD.GetProfessionRecipes(entry, profKey)
+    if not entry or not profKey or profKey == "" then return {} end
+    local char = GTD.GetStoredCharacter(entry)
+    local prof
+    if char then
+        prof = findProfessionByKey(char, profKey)
+    end
+    if not prof and entry.Professions then
+        prof = entry.Professions[profKey]
+    end
+    if not prof then return {} end
+    return buildRecipeList(prof)
+end
+
+local function formatNamePart(entry, formatName)
+    local name = entry.name or "?"
+    if formatName then
+        return formatName(name, entry.classFile)
+    end
+    local CC = AltArmy.ClassColor
+    return (CC and CC.formatName and CC.formatName(name, entry.classFile)) or name
+end
+
+--- Class-colored character name for detail headers (no level suffix).
+function GTD.FormatCharacterTitle(entry, formatName)
+    return formatNamePart(entry, formatName)
+end
+
+--- Message when a character has no primary crafting professions.
+function GTD.FormatNoProfessionsMessage(entry, formatName)
+    return formatNamePart(entry, formatName) .. " has not picked professions yet"
+end
+
+--- Sorted unique guild names from account characters that have a guild set.
+function GTD.CollectAccountGuilds()
+    local seen = {}
+    local out = {}
+    local DS = AltArmy.DataStore
+    if not DS or not DS.ForEachCharacter then return out end
+    DS:ForEachCharacter(function(_, _, charData)
+        local guild = charData and charData.guildName
+        if guild and guild ~= "" and not seen[guild] then
+            seen[guild] = true
+            out[#out + 1] = guild
+        end
+    end)
+    table.sort(out, function(a, b)
+        return a:lower() < b:lower()
+    end)
+    return out
+end
+
+--- When the account has exactly one guild, return it for automatic browse selection.
+function GTD.GetAutoBrowseGuild(guilds)
+    if type(guilds) ~= "table" or #guilds ~= 1 then return nil end
+    return guilds[1]
 end
 
 --- Group a flat member list by main character, producing sorted groups.

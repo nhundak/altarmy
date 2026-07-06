@@ -4,6 +4,7 @@
 --   * fixed header: guild name + tabard (left), search field aligned with main header search (right)
 --   * scroll body: one row per main (preferred name + character count), expandable to reveal
 --     each character (class-colored name, gray level, primary professions)
+--   * recipe detail: Back + character title, profession tabs, scrollable recipe list
 -- Two content states, driven by the user's OWN sharing setting (not the feature flag):
 --   * sharing enabled  -> the header + list above
 --   * sharing disabled -> a message plus a link to open the sharing options.
@@ -19,10 +20,15 @@ local PAD = Theme.TAB_CONTENT_PADDING
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 
 local HEADER_HEIGHT = 32
+local RECIPE_TITLE_HEIGHT = 32
+local PROF_TAB_HEIGHT = 26
+local PROF_TAB_GAP = 4
+local RECIPE_ROW_HEIGHT = 18
 local MAIN_ROW_HEIGHT = 20
 local CHAR_ROW_HEIGHT = 18
 local GROUP_GAP = 4
 local CHAR_INDENT = 24
+local GRAY = "|cff808080"
 -- Professions column starts this far right of the character name column's left edge, so
 -- every character's professions share one left edge regardless of name/level width.
 local PROF_COLUMN = 180
@@ -49,6 +55,79 @@ local expandedMains = {}
 local savedExpandedMains = nil
 -- Current search text (trimmed lower handled by GuildTabData.NormalizeSearchQuery).
 local searchText = ""
+-- Recipe detail view state (session-only).
+local selectedCharacter = nil
+local selectedCharacterKey = nil
+local selectedProfIndex = 1
+-- When the current character is not guilded, browse a guild from account alts.
+local selectedBrowseGuild = nil
+
+local function activeGuild()
+    local g = currentGuild()
+    if g then return g end
+    return selectedBrowseGuild
+end
+
+local function isBrowsingWithoutGuild()
+    return not currentGuild() and selectedBrowseGuild ~= nil
+end
+
+local function shouldShowGuildPicker()
+    if currentGuild() or selectedBrowseGuild then return false end
+    return #(GTD.CollectAccountGuilds()) > 1
+end
+
+local function shouldShowBrowseBackButton()
+    return isBrowsingWithoutGuild() and #(GTD.CollectAccountGuilds()) > 1
+end
+
+local function memberKey(entry)
+    return (entry.realm or "") .. "\0" .. (entry.name or "")
+end
+
+local function GetRecipeLink(recipeID)
+    if not recipeID then return nil end
+    if _G.GetSpellLink then
+        local link = _G.GetSpellLink(recipeID)
+        if link and link ~= "" then return link end
+    end
+    if GetItemInfo then
+        local _, link = GetItemInfo(recipeID)
+        if link and link ~= "" then return link end
+    end
+    return nil
+end
+
+local function resolveRecipeDisplay(recipeID, resultItemID)
+    local recipeName = "Recipe " .. tostring(recipeID or "?")
+    local iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
+    if GetSpellInfo and recipeID then
+        local name = GetSpellInfo(recipeID)
+        if name then recipeName = name end
+    end
+    if recipeName == ("Recipe " .. tostring(recipeID or "?")) and GetItemInfo and recipeID then
+        local name = GetItemInfo(recipeID)
+        if name then recipeName = name end
+    end
+    if resultItemID and GetItemInfo then
+        local _, _, _, _, _, _, _, _, _, resultIcon = GetItemInfo(resultItemID)
+        if resultIcon then iconPath = resultIcon end
+    end
+    if not resultItemID and GetItemInfo and recipeID then
+        local _, _, _, _, _, _, _, _, _, icon = GetItemInfo(recipeID)
+        if icon then iconPath = icon end
+    end
+    if not resultItemID and GetSpellInfo and recipeID then
+        local _, _, spellIcon = GetSpellInfo(recipeID)
+        if spellIcon then iconPath = spellIcon end
+    end
+    return recipeName, iconPath
+end
+
+local showRecipeView
+local showGuildList
+local layoutRecipeView
+local refresh
 
 local function copyExpandState(src)
     local out = {}
@@ -139,7 +218,7 @@ local tabardBorder = tabardFrame:CreateTexture(nil, "OVERLAY")
 tabardBorder:SetAllPoints(tabardFrame)
 
 local function updateTabard()
-    if not (IsInGuild and IsInGuild()) then
+    if not currentGuild() or isBrowsingWithoutGuild() then
         tabardFrame:Hide()
         return
     end
@@ -229,6 +308,88 @@ local function updateSearchClearVisibility()
     end
 end
 
+-- Recipe detail header chrome (Back + title + profession tabs).
+local guildBackBtn = CreateFrame("Button", nil, header)
+guildBackBtn:SetSize(52, 22)
+guildBackBtn:SetPoint("LEFT", header, "LEFT", 2, 0)
+guildBackBtn:Hide()
+Theme.SkinButton(guildBackBtn)
+local guildBackBtnLabel = guildBackBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+guildBackBtnLabel:SetPoint("CENTER", guildBackBtn, "CENTER", 0, 0)
+guildBackBtnLabel:SetText("Back")
+
+local backBtn = CreateFrame("Button", nil, header)
+backBtn:SetSize(52, 22)
+backBtn:SetPoint("LEFT", header, "LEFT", 2, 0)
+backBtn:Hide()
+Theme.SkinButton(backBtn)
+local backBtnLabel = backBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+backBtnLabel:SetPoint("CENTER", backBtn, "CENTER", 0, 0)
+backBtnLabel:SetText("Back")
+
+local recipeTitleFS = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+recipeTitleFS:SetPoint("LEFT", backBtn, "RIGHT", 8, 0)
+recipeTitleFS:SetPoint("RIGHT", header, "RIGHT", -8, 0)
+recipeTitleFS:SetJustifyH("LEFT")
+recipeTitleFS:Hide()
+
+local profTabStrip = CreateFrame("Frame", nil, header)
+profTabStrip:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -2)
+profTabStrip:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, -2)
+profTabStrip:SetHeight(PROF_TAB_HEIGHT)
+profTabStrip:Hide()
+
+local function updateGuildHeaderForListMode()
+    if shouldShowGuildPicker() then
+        guildBackBtn:Hide()
+        guildNameText:ClearAllPoints()
+        guildNameText:SetPoint("LEFT", header, "LEFT", 2, 0)
+        guildNameText:SetText("Select a guild")
+        Theme.SetTitleColor(guildNameText)
+        guildNameText:Show()
+        searchEdit:Hide()
+        searchClearBtn:Hide()
+        tabardFrame:Hide()
+        return
+    end
+    if isBrowsingWithoutGuild() and shouldShowBrowseBackButton() then
+        guildBackBtn:Show()
+        guildNameText:ClearAllPoints()
+        guildNameText:SetPoint("LEFT", guildBackBtn, "RIGHT", 8, 0)
+        guildNameText:SetText(selectedBrowseGuild or "")
+        Theme.SetTitleColor(guildNameText)
+        guildNameText:Show()
+        searchEdit:Show()
+        updateSearchClearVisibility()
+        tabardFrame:Hide()
+        return
+    end
+    guildBackBtn:Hide()
+    guildNameText:ClearAllPoints()
+    guildNameText:SetPoint("LEFT", header, "LEFT", 2, 0)
+    guildNameText:SetText(activeGuild() or "")
+    Theme.SetTitleColor(guildNameText)
+    guildNameText:Show()
+    searchEdit:Show()
+    updateSearchClearVisibility()
+    updateTabard()
+end
+
+local function setListHeaderVisible(visible)
+    if visible then
+        updateGuildHeaderForListMode()
+    else
+        guildNameText:Hide()
+        guildBackBtn:Hide()
+        searchEdit:Hide()
+        searchClearBtn:Hide()
+        tabardFrame:Hide()
+    end
+    backBtn:SetShown(not visible)
+    recipeTitleFS:SetShown(not visible)
+    profTabStrip:SetShown(not visible)
+end
+
 -- Scroll body below the header
 local listViewport = CreateFrame("Frame", nil, listView)
 listViewport:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
@@ -255,6 +416,46 @@ emptyText:SetPoint("TOP", listViewport, "TOP", 0, -40)
 emptyText:SetWidth(360)
 emptyText:SetJustifyH("CENTER")
 emptyText:Hide()
+
+-- Recipe detail body (below header / profession tabs).
+local recipeBody = CreateFrame("Frame", nil, listView)
+recipeBody:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
+recipeBody:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, PAD)
+recipeBody:Hide()
+
+local recipeViewportFrame = CreateFrame("Frame", nil, recipeBody)
+recipeViewportFrame:SetAllPoints(recipeBody)
+
+local recipeViewport = Theme.CreateVerticalScrollViewport({
+    parent = recipeViewportFrame,
+    gutterEdge = recipeBody,
+    anchorTop = { "TOPLEFT", recipeViewportFrame, "TOPLEFT", 0, 0 },
+    anchorBottom = { "BOTTOMRIGHT", recipeViewportFrame, "BOTTOMRIGHT", 0, 0 },
+    enableMouseWheel = true,
+    valueStep = RECIPE_ROW_HEIGHT,
+})
+local recipeScrollChild = recipeViewport.child
+
+local RECIPE_WHEEL_STEP = RECIPE_ROW_HEIGHT * 3
+local function forwardRecipeWheel(_, delta)
+    recipeViewport.SetOffset(recipeViewport.scroll:GetVerticalScroll() - delta * RECIPE_WHEEL_STEP)
+end
+
+local noProfText = recipeBody:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+noProfText:SetPoint("CENTER", recipeBody, "CENTER", 0, 0)
+noProfText:SetWidth(360)
+noProfText:SetJustifyH("CENTER")
+noProfText:Hide()
+
+local loadingText = recipeBody:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+loadingText:SetPoint("CENTER", recipeBody, "CENTER", 0, 0)
+loadingText:SetWidth(360)
+loadingText:SetJustifyH("CENTER")
+loadingText:SetText("Loading recipes…")
+loadingText:Hide()
+
+local profTabPool = {}
+local recipeRowPool = {}
 
 -- *** Row pools ***
 
@@ -285,8 +486,13 @@ end
 local function acquireCharRow(index)
     local row = charRowPool[index]
     if not row then
-        row = CreateFrame("Frame", nil, scrollChild)
+        row = CreateFrame("Button", nil, scrollChild)
         row:SetHeight(CHAR_ROW_HEIGHT)
+        Theme.InstallHoverTint(row)
+        row:EnableMouseWheel(true)
+        row:SetScript("OnMouseWheel", forwardWheel)
+        row:SetScript("OnEnter", function() Theme.SetHoverTint(row, true) end)
+        row:SetScript("OnLeave", function() Theme.SetHoverTint(row, false) end)
         local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         nameFS:SetPoint("LEFT", row, "LEFT", 0, 0)
         nameFS:SetPoint("RIGHT", row, "LEFT", PROF_COLUMN - NAME_COLUMN_GAP, 0)
@@ -317,9 +523,274 @@ local function hideCharRowsFrom(index)
     end
 end
 
+local guildPickerRowPool = {}
+
+local function hideGuildPickerRowsFrom(index)
+    for i = index, #guildPickerRowPool do
+        if guildPickerRowPool[i] then guildPickerRowPool[i]:Hide() end
+    end
+end
+
+local function acquireGuildPickerRow(index)
+    local row = guildPickerRowPool[index]
+    if not row then
+        row = CreateFrame("Button", nil, scrollChild)
+        row:SetHeight(MAIN_ROW_HEIGHT)
+        Theme.InstallHoverTint(row)
+        row:EnableMouseWheel(true)
+        row:SetScript("OnMouseWheel", forwardWheel)
+        row:SetScript("OnEnter", function() Theme.SetHoverTint(row, true) end)
+        row:SetScript("OnLeave", function() Theme.SetHoverTint(row, false) end)
+        local label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        label:SetPoint("LEFT", row, "LEFT", 4, 0)
+        label:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        label:SetJustifyH("LEFT")
+        row.label = label
+        guildPickerRowPool[index] = row
+    end
+    row:Show()
+    return row
+end
+
+local function layoutGuildPicker(guilds)
+    hideMainRowsFrom(1)
+    hideCharRowsFrom(1)
+    emptyText:Hide()
+    local y = 0
+    local width = math.max(1, (scrollChild:GetWidth() or listViewport:GetWidth() or 1))
+    for i, guild in ipairs(guilds) do
+        local row = acquireGuildPickerRow(i)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -y)
+        row:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", 0, -y)
+        row.label:SetText(guild)
+        row:SetScript("OnClick", function()
+            selectedBrowseGuild = guild
+            refresh()
+        end)
+        y = y + MAIN_ROW_HEIGHT
+    end
+    hideGuildPickerRowsFrom(#guilds + 1)
+    scrollChild:SetWidth(width)
+    scrollChild:SetHeight(math.max(1, y))
+    if viewport.UpdateRange then viewport.UpdateRange() end
+end
+
+local function hideRecipeRowsFrom(index)
+    for i = index, #recipeRowPool do
+        if recipeRowPool[i] then recipeRowPool[i]:Hide() end
+    end
+end
+
+local function hideProfTabsFrom(index)
+    for i = index, #profTabPool do
+        if profTabPool[i] then profTabPool[i]:Hide() end
+    end
+end
+
+local function isLoadingRecipes(entry, profKey)
+    if not entry or entry.source == "local" or not entry.source then return false end
+    local Comm = AltArmy.GuildShareComm
+    if not Comm or not Comm.IsGuildMemberOnline or not Comm.IsGuildMemberOnline(entry.source) then
+        return false
+    end
+    local prof = entry.Professions and entry.Professions[profKey]
+    if not prof then return false end
+    if prof.Recipes and prof.recipesRv == prof.rv then return false end
+    return (prof.rv or 0) ~= 0 or (prof.count or 0) > 0
+end
+
+local function acquireRecipeRow(index)
+    local row = recipeRowPool[index]
+    if not row then
+        row = CreateFrame("Frame", nil, recipeScrollChild)
+        row:SetHeight(RECIPE_ROW_HEIGHT)
+        row:EnableMouse(true)
+        row:EnableMouseWheel(true)
+        row:SetScript("OnMouseWheel", forwardRecipeWheel)
+        local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("LEFT", row, "LEFT", 4, 0)
+        label:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        label:SetJustifyH("LEFT")
+        label:SetWordWrap(false)
+        row.label = label
+        row:SetScript("OnEnter", function(self)
+            local recipeID = self.recipeID
+            if not recipeID or not GameTooltip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+            local link = GetRecipeLink(recipeID)
+            if link then
+                GameTooltip:SetHyperlink(link)
+            else
+                GameTooltip:SetText("Recipe " .. tostring(recipeID))
+            end
+            GameTooltip:Show()
+        end)
+        row:SetScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+        end)
+        row:SetScript("OnMouseUp", function(self, button)
+            if button ~= "LeftButton" or not IsShiftKeyDown() then return end
+            local link = GetRecipeLink(self.recipeID)
+            if link and ChatEdit_InsertLink then
+                ChatEdit_InsertLink(link)
+            end
+        end)
+        recipeRowPool[index] = row
+    end
+    row:Show()
+    return row
+end
+
+local function sortRecipesByName(recipes)
+    local sorted = {}
+    for i = 1, #recipes do sorted[i] = recipes[i] end
+    table.sort(sorted, function(a, b)
+        local nameA = select(1, resolveRecipeDisplay(a.recipeID, a.resultItemID))
+        local nameB = select(1, resolveRecipeDisplay(b.recipeID, b.resultItemID))
+        nameA = (nameA or ""):lower()
+        nameB = (nameB or ""):lower()
+        if nameA ~= nameB then return nameA < nameB end
+        return (a.recipeID or 0) < (b.recipeID or 0)
+    end)
+    return sorted
+end
+
+layoutRecipeView = function(entry)
+    if not entry then return end
+    local profs = GTD.GetPrimaryProfessions(entry)
+    if selectedProfIndex < 1 or selectedProfIndex > #profs then
+        selectedProfIndex = 1
+    end
+
+    local level = math.floor(tonumber(entry.level) or 0)
+    recipeTitleFS:SetText(GTD.FormatCharacterTitle(entry, formatName)
+        .. " " .. GRAY .. "(level " .. level .. ")|r")
+
+    noProfText:Hide()
+    loadingText:Hide()
+    recipeViewportFrame:Hide()
+    hideRecipeRowsFrom(1)
+    hideProfTabsFrom(1)
+
+    recipeBody:ClearAllPoints()
+    recipeBody:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, PAD)
+
+    if #profs == 0 then
+        profTabStrip:Hide()
+        header:SetHeight(RECIPE_TITLE_HEIGHT)
+        recipeBody:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
+        noProfText:SetText(GTD.FormatNoProfessionsMessage(entry, formatName))
+        noProfText:Show()
+        return
+    end
+
+    header:SetHeight(RECIPE_TITLE_HEIGHT)
+    profTabStrip:Show()
+    recipeBody:SetPoint("TOPLEFT", profTabStrip, "BOTTOMLEFT", 0, -PAD)
+
+    local tabX = 0
+    for i, prof in ipairs(profs) do
+        local tab = profTabPool[i]
+        if not tab then
+            tab = CreateFrame("Button", nil, profTabStrip)
+            tab:SetHeight(PROF_TAB_HEIGHT - 4)
+            Theme.SkinButton(tab, true)
+            local tabLabel = tab:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            tabLabel:SetPoint("CENTER", tab, "CENTER", 0, 0)
+            tab.label = tabLabel
+            profTabPool[i] = tab
+        end
+        tab:ClearAllPoints()
+        tab:SetPoint("LEFT", profTabStrip, "LEFT", tabX, 0)
+        local labelText = prof.name or prof.key or "?"
+        tab.label:SetText(labelText)
+        local textWidth = tab.label:GetStringWidth() or 40
+        tab:SetWidth(math.max(64, textWidth + 16))
+        tab:SetSelected(i == selectedProfIndex)
+        tab:Show()
+        tab:SetScript("OnClick", function()
+            selectedProfIndex = i
+            layoutRecipeView(selectedCharacter)
+        end)
+        tabX = tabX + tab:GetWidth() + PROF_TAB_GAP
+    end
+    hideProfTabsFrom(#profs + 1)
+
+    local selectedProf = profs[selectedProfIndex]
+    local profKey = selectedProf and selectedProf.key
+    if isLoadingRecipes(entry, profKey) then
+        loadingText:Show()
+        return
+    end
+
+    local recipes = sortRecipesByName(GTD.GetProfessionRecipes(entry, profKey))
+    recipeViewportFrame:Show()
+    local y = 0
+    local width = math.max(1, (recipeScrollChild:GetWidth() or recipeBody:GetWidth() or 1))
+    for i, recipe in ipairs(recipes) do
+        local row = acquireRecipeRow(i)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", recipeScrollChild, "TOPLEFT", 0, -y)
+        row:SetPoint("TOPRIGHT", recipeScrollChild, "TOPRIGHT", 0, -y)
+        row.recipeID = recipe.recipeID
+        local recipeName, iconPath = resolveRecipeDisplay(recipe.recipeID, recipe.resultItemID)
+        row.label:SetText(("|T%s:0|t %s"):format(iconPath, recipeName))
+        y = y + RECIPE_ROW_HEIGHT
+    end
+    hideRecipeRowsFrom(#recipes + 1)
+    recipeScrollChild:SetWidth(width)
+    recipeScrollChild:SetHeight(math.max(1, y))
+    if recipeViewport.UpdateRange then recipeViewport.UpdateRange() end
+    recipeViewport.SetOffset(0)
+end
+
+showGuildList = function()
+    selectedCharacter = nil
+    selectedCharacterKey = nil
+    selectedProfIndex = 1
+    header:SetHeight(HEADER_HEIGHT)
+    setListHeaderVisible(true)
+    listViewport:Show()
+    recipeBody:Hide()
+    profTabStrip:Hide()
+end
+
+showRecipeView = function(entry)
+    selectedCharacter = entry
+    selectedCharacterKey = memberKey(entry)
+    selectedProfIndex = 1
+    setListHeaderVisible(false)
+    listViewport:Hide()
+    emptyText:Hide()
+    recipeBody:Show()
+    if entry.source and entry.source ~= "local" then
+        local Comm = AltArmy.GuildShareComm
+        if Comm and Comm.RequestRecipesForCharacter then
+            Comm.RequestRecipesForCharacter(entry.name, entry.realm, entry.source)
+        end
+    end
+    layoutRecipeView(entry)
+end
+
+backBtn:SetScript("OnClick", function()
+    showGuildList()
+    refresh()
+end)
+
+guildBackBtn:SetScript("OnClick", function()
+    selectedBrowseGuild = nil
+    selectedCharacter = nil
+    selectedCharacterKey = nil
+    refresh()
+end)
+
 -- *** Refresh ***
 
 local function showMessage(text, withButton)
+    selectedCharacter = nil
+    selectedCharacterKey = nil
+    selectedBrowseGuild = nil
     listView:Hide()
     messageView:Show()
     messageText:SetText(text)
@@ -327,6 +798,7 @@ local function showMessage(text, withButton)
 end
 
 local function layoutList(groups, query)
+    hideGuildPickerRowsFrom(1)
     local mainIndex = 0
     local charIndex = 0
     local y = 0
@@ -359,6 +831,10 @@ local function layoutList(groups, query)
                     m, formatName, activeQuery ~= "" and activeQuery or nil))
                 charRow.profFS:SetText(GTD.FormatProfessions(
                     m, activeQuery ~= "" and activeQuery or nil))
+                charRow.memberEntry = m
+                charRow:SetScript("OnClick", function()
+                    showRecipeView(m)
+                end)
                 y = y + CHAR_ROW_HEIGHT
             end
         end
@@ -372,32 +848,76 @@ local function layoutList(groups, query)
     if viewport.UpdateRange then viewport.UpdateRange() end
 end
 
-local function refresh()
+local function refreshImpl()
     if not frame:IsShown() then return end
     local GSS = AltArmy.GuildShareSettings
     local GSD = AltArmy.GuildShareData
 
     if not GSS or not GSS.IsSharingEnabled() then
+        selectedCharacter = nil
+        selectedCharacterKey = nil
+        selectedBrowseGuild = nil
         showMessage("Guild sharing is disabled.\n\nEnable it to see the professions and characters"
             .. " your guildmates are sharing, and to share your own.", true)
         return
     end
 
-    local guild = currentGuild()
+    if currentGuild() then
+        selectedBrowseGuild = nil
+    elseif not selectedBrowseGuild then
+        local autoBrowse = GTD.GetAutoBrowseGuild(GTD.CollectAccountGuilds())
+        if autoBrowse then
+            selectedBrowseGuild = autoBrowse
+        end
+    end
+
+    local guild = activeGuild()
     if not guild then
+        selectedCharacter = nil
+        selectedCharacterKey = nil
+        if shouldShowGuildPicker() then
+            messageView:Hide()
+            listView:Show()
+            showGuildList()
+            updateSearchPlaceholderVisibility()
+            layoutGuildPicker(GTD.CollectAccountGuilds())
+            return
+        end
         showMessage("You are not in a guild.", false)
         return
     end
 
     messageView:Hide()
     listView:Show()
-    guildNameText:SetText(guild)
-    updateTabard()
-    updateSearchPlaceholderVisibility()
 
     local realm = (GSS._CurrentRealm and GSS._CurrentRealm())
         or (GetRealmName and GetRealmName()) or ""
-    local members = (GSD and GSD.GetGuildMembersForDisplay(guild, realm)) or {}
+    local browseAllRealms = isBrowsingWithoutGuild()
+    local members = (GSD and GSD.GetGuildMembersForDisplay(guild, realm, browseAllRealms)) or {}
+
+    if selectedCharacterKey then
+        local resolved
+        for _, entry in ipairs(members) do
+            if memberKey(entry) == selectedCharacterKey then
+                resolved = entry
+                break
+            end
+        end
+        selectedCharacter = resolved or selectedCharacter
+        if selectedCharacter then
+            setListHeaderVisible(false)
+            listViewport:Hide()
+            emptyText:Hide()
+            recipeBody:Show()
+            layoutRecipeView(selectedCharacter)
+            return
+        end
+        selectedCharacterKey = nil
+    end
+
+    showGuildList()
+    updateSearchPlaceholderVisibility()
+
     local groups = GTD.GroupMembersByMain(members)
     local filtered = GTD.FilterGroups(groups, searchText)
     applySearchExpansion(filtered)
@@ -420,6 +940,7 @@ local function refresh()
     emptyText:Hide()
     layoutList(filtered, searchText)
 end
+refresh = refreshImpl
 
 searchEdit:SetScript("OnTextChanged", function(box)
     local text = box:GetText() or ""
