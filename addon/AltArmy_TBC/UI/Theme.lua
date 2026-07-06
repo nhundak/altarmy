@@ -1123,7 +1123,22 @@ function Theme.AttachSettingsHelpIcon(row, tooltipOpts)
             GameTooltip:AddLine(title, 1, 1, 1, true)
         end
         for i = 1, #lines do
-            GameTooltip:AddLine(lines[i], 0.9, 0.9, 0.9, true)
+            local line = lines[i]
+            local text
+            local r, g, b = 0.9, 0.9, 0.9
+            if type(line) == "table" then
+                text = line.text or ""
+                if line.heading then
+                    r, g, b = 1, 1, 1
+                else
+                    r, g, b = 0.75, 0.75, 0.75
+                end
+            else
+                text = line
+            end
+            if text ~= "" then
+                GameTooltip:AddLine(text, r, g, b, true)
+            end
         end
         GameTooltip:SetPoint("TOPLEFT", tooltipAnchor, "TOPRIGHT", 8, 0)
         GameTooltip:Show()
@@ -1433,6 +1448,305 @@ function Theme.CreateSingleSelectDropdown(opts)
 
     api:Update()
     return api
+end
+
+Theme._openMultiSelectCheckboxDropdowns = Theme._openMultiSelectCheckboxDropdowns or {}
+
+function Theme.CloseMultiSelectCheckboxDropdowns(exceptPopup)
+    for popup in pairs(Theme._openMultiSelectCheckboxDropdowns) do
+        if popup ~= exceptPopup and popup.Hide then
+            popup:Hide()
+        end
+    end
+end
+
+local MULTI_SELECT_DROPDOWN_POPUP_PAD_TOP = 4
+local MULTI_SELECT_DROPDOWN_POPUP_PAD_BOTTOM = 4
+local MULTI_SELECT_DROPDOWN_POPUP_PAD_LEFT = 4
+local MULTI_SELECT_DROPDOWN_POPUP_PAD_RIGHT = 8
+local MULTI_SELECT_DROPDOWN_TEXT_INSET = 10
+
+--- Multi-select settings dropdown with checkbox rows (Search settings style).
+function Theme.CreateMultiSelectCheckboxDropdown(config)
+    config = config or {}
+    local parent = config.parent
+    if not parent then return nil end
+
+    local rowHeight = config.rowHeight or Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or Theme.CHAR_LIST_ROW_HEIGHT or 20
+    local dropdownParent = config.dropdownParent or parent
+    local keys = config.keys or {}
+    local labels = config.labels or {}
+
+    local header
+    if config.title and config.title ~= "" then
+        header = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        header:SetPoint("TOP", config.relativeTo, config.relativePoint or "BOTTOMLEFT", config.x or 0, config.y or -8)
+        header:SetPoint("LEFT", parent, "LEFT", config.leftInset or 0, 0)
+        header:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+        header:SetJustifyH("LEFT")
+        header:SetText(config.title)
+    end
+
+    local btn = CreateFrame("Button", nil, parent)
+    btn:SetHeight(rowHeight + 4)
+    if config.sameLine and config.relativeTo then
+        btn:SetPoint("TOP", config.relativeTo, "TOP", 0, 0)
+        btn:SetPoint("BOTTOM", config.relativeTo, "BOTTOM", 0, 0)
+        btn:SetPoint("LEFT", parent, "LEFT", config.leftInset or 0, 0)
+        btn:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+    elseif header then
+        btn:SetPoint("TOP", header, "BOTTOM", 0, -4)
+        btn:SetPoint("LEFT", parent, "LEFT", config.leftInset or 0, 0)
+        btn:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+    else
+        btn:SetPoint("TOP", config.relativeTo, config.relativePoint or "BOTTOMLEFT", config.x or 0, config.y or -4)
+        btn:SetPoint("LEFT", parent, "LEFT", config.leftInset or 0, 0)
+        btn:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+    end
+    Theme.SkinButton(btn)
+
+    local btnText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    btnText:SetPoint("LEFT", btn, "LEFT", 6, 0)
+    btnText:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+    btnText:SetJustifyH("LEFT")
+
+    local popup = CreateFrame("Frame", nil, dropdownParent, "BackdropTemplate")
+    popup:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
+    popup:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, 0)
+    popup:SetHeight(
+        MULTI_SELECT_DROPDOWN_POPUP_PAD_TOP
+            + #keys * rowHeight
+            + MULTI_SELECT_DROPDOWN_POPUP_PAD_BOTTOM
+    )
+    popup:SetFrameLevel((dropdownParent:GetFrameLevel() or 0) + 100)
+    popup:Hide()
+    Theme.ApplyBackdrop(popup, "section")
+    Theme._openMultiSelectCheckboxDropdowns[popup] = true
+
+    local checks = {}
+    local rows = {}
+    local prevRow
+    local enabled = true
+
+    local function rowLabelText(key)
+        if config.getRowLabel then
+            return config.getRowLabel(key)
+        end
+        return labels[key] or key
+    end
+
+    local function setButtonSummary(summary)
+        btn.fullSummaryText = summary
+        local maxW = (btn:GetWidth() or 0) - MULTI_SELECT_DROPDOWN_TEXT_INSET
+        if maxW <= 0 then
+            btnText:SetText(summary)
+            btn.wasSummaryTruncated = false
+            return
+        end
+        local Text = AltArmy.Text
+        if Text and Text.TruncateFontString then
+            btn.wasSummaryTruncated = Text.TruncateFontString(btnText, summary, maxW, { returnBoolean = true })
+        else
+            btnText:SetText(summary)
+            btn.wasSummaryTruncated = false
+        end
+    end
+
+    local function setButtonMuted(muted)
+        if muted then
+            btnText:SetTextColor(0.5, 0.5, 0.5)
+        else
+            btnText:SetTextColor(1, 1, 1)
+        end
+    end
+
+    local function refreshDropdown()
+        local filterMap = config.getFilter and config.getFilter() or {}
+        local summary
+        if not enabled and config.formatSummaryDisabled then
+            summary = config.formatSummaryDisabled(keys, labels, filterMap)
+        elseif config.formatSummary then
+            summary = config.formatSummary(keys, labels, filterMap)
+        else
+            summary = table.concat(keys, ", ")
+        end
+        setButtonSummary(summary)
+        setButtonMuted(not enabled)
+        for key, check in pairs(checks) do
+            if check and check.SetChecked then
+                check:SetChecked(filterMap[key] ~= false)
+            end
+            local row = rows[key]
+            if row and row.label and row.label.SetText then
+                row.label:SetText(rowLabelText(key))
+            end
+        end
+    end
+
+    for idx, key in ipairs(keys) do
+        local rowOpts = {
+            rowHeight = rowHeight,
+            text = rowLabelText(key),
+            fullWidthHover = true,
+            rightInset = MULTI_SELECT_DROPDOWN_POPUP_PAD_RIGHT,
+            onClick = function(checked)
+                if config.setEnabled then
+                    config.setEnabled(key, checked)
+                end
+                refreshDropdown()
+                if config.onChange then
+                    config.onChange(key, checked)
+                end
+            end,
+        }
+        if idx == 1 then
+            rowOpts.point = "TOPLEFT"
+            rowOpts.relativeTo = popup
+            rowOpts.relativePoint = "TOPLEFT"
+            rowOpts.x = MULTI_SELECT_DROPDOWN_POPUP_PAD_LEFT
+            rowOpts.y = -MULTI_SELECT_DROPDOWN_POPUP_PAD_TOP
+        else
+            rowOpts.relativeTo = prevRow
+            rowOpts.relativePoint = "BOTTOMLEFT"
+            rowOpts.point = "TOPLEFT"
+            rowOpts.x = 0
+            rowOpts.y = 0
+        end
+        local row = Theme.CreateLabeledCheckbox(popup, rowOpts)
+        checks[key] = row.check
+        rows[key] = row
+        prevRow = row
+    end
+
+    if btn.HookScript then
+        btn:HookScript("OnEnter", function(self)
+            if self.wasSummaryTruncated and self.fullSummaryText and GameTooltip then
+                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+                GameTooltip:ClearLines()
+                GameTooltip:AddLine(self.fullSummaryText, 1, 1, 1, true)
+                GameTooltip:Show()
+            end
+        end)
+        btn:HookScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+        end)
+    end
+
+    btn:SetScript("OnClick", function()
+        if not enabled or not btn:IsEnabled() then return end
+        local show = not popup:IsShown()
+        Theme.CloseMultiSelectCheckboxDropdowns(show and popup or nil)
+        Theme.CloseSingleSelectDropdowns(nil)
+        popup:SetShown(show)
+    end)
+
+    local api = {
+        button = btn,
+        popup = popup,
+        header = header,
+        refresh = refreshDropdown,
+    }
+
+    function api:SetEnabled(on)
+        enabled = on ~= false
+        if enabled then
+            btn:Enable()
+            setButtonMuted(false)
+        else
+            btn:Disable()
+            popup:Hide()
+            setButtonMuted(true)
+        end
+        refreshDropdown()
+    end
+
+    function api:Close()
+        popup:Hide()
+    end
+
+    refreshDropdown()
+    return api
+end
+
+--- Collapsible settings section with a clickable header and optional body frame.
+function Theme.CreateCollapsibleSection(parent, opts)
+    opts = opts or {}
+    local rowHeight = opts.rowHeight or Theme.CHAR_LIST_ROW_HEIGHT or 20
+    local expanded = opts.defaultExpanded == true
+
+    local header = CreateFrame("Button", nil, parent)
+    header:SetHeight(rowHeight)
+    if opts.relativeTo then
+        header:SetPoint(opts.point or "TOPLEFT", opts.relativeTo, opts.relativePoint or "BOTTOMLEFT",
+            opts.x or 0, opts.y or -8)
+    else
+        header:SetPoint(opts.point or "TOPLEFT", parent, opts.relativePoint or "TOPLEFT", opts.x or 0, opts.y or 0)
+    end
+    header:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+    Theme.BindInteractableHover(header)
+
+    local chevron = header:CreateTexture(nil, "ARTWORK")
+    chevron:SetSize(12, 12)
+    chevron:SetPoint("LEFT", header, "LEFT", 0, 0)
+    chevron:SetTexture("Interface\\Buttons\\UI-PlusButton-UP")
+
+    local label = header:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetPoint("LEFT", chevron, "RIGHT", 4, 0)
+    label:SetPoint("RIGHT", header, "RIGHT", 0, 0)
+    label:SetJustifyH("LEFT")
+    label:SetText(opts.text or "")
+
+    local body = CreateFrame("Frame", nil, parent)
+    body:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
+    body:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+    body:Hide()
+
+    local function updateChevron()
+        if expanded then
+            chevron:SetTexture("Interface\\Buttons\\UI-MinusButton-UP")
+        else
+            chevron:SetTexture("Interface\\Buttons\\UI-PlusButton-UP")
+        end
+    end
+
+    local function setExpanded(on, silent)
+        expanded = on == true
+        if expanded then
+            body:Show()
+        else
+            body:Hide()
+        end
+        updateChevron()
+        if not silent and opts.onToggle then
+            opts.onToggle(expanded)
+        end
+    end
+
+    header:SetScript("OnClick", function()
+        setExpanded(not expanded)
+    end)
+
+    updateChevron()
+    if expanded then
+        body:Show()
+    end
+
+    return {
+        header = header,
+        body = body,
+        label = label,
+        SetExpanded = setExpanded,
+        IsExpanded = function() return expanded end,
+        SetShown = function(on)
+            if on ~= false then
+                header:Show()
+                if expanded then body:Show() end
+            else
+                header:Hide()
+                body:Hide()
+            end
+        end,
+    }
 end
 
 -- luacheck: globals UIDROPDOWNMENU_MENU_LEVEL UIDROPDOWNMENU_MAXLEVELS UIDROPDOWNMENU_MAXBUTTONS

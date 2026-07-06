@@ -20,6 +20,28 @@ local LIST_ITEM_GAP = 4
 local BULLET_TEXT_COLOR = { 0.54, 0.71, 0.97, 1 } -- soft blue accent (matches guild source tags)
 local MUTED_TEXT_COLOR = { 0.75, 0.75, 0.75, 1 }
 
+GSO.SHARED_HEADING = "What is shared:"
+GSO.SHARED_BULLET = "• Character names, levels, classes, professions, and recipes"
+GSO.NOT_SHARED_HEADING = "What is not shared:"
+GSO.NOT_SHARED_BULLET = "• Everything else"
+GSO.NOT_SHARED_EXAMPLE =
+    "Eg, no gear, inventory, gold, playtime, cooldowns, or favorite ice cream"
+
+--- Tooltip body for the Options share checkbox.
+function GSO.GetSharingDisclosureTooltip()
+    return {
+        lines = {
+            { text = GSO.SHARED_HEADING, heading = true },
+            { text = "Character names, levels, classes, professions, and recipes" },
+            { text = "Who it is shared with:", heading = true },
+            {
+                text = "Characters in a guild are shared with that guild."
+                    .. " Characters with no guild are not shared, unless you set up an exception.",
+            },
+        },
+    }
+end
+
 local CC = AltArmy.ClassColor
 
 local function currentRealm()
@@ -281,7 +303,7 @@ local function buildDialog()
     sharedHeading:SetPoint("RIGHT", bodyInner, "RIGHT", 0, 0)
     sharedHeading:SetJustifyH("LEFT")
     sharedHeading:SetWordWrap(true)
-    sharedHeading:SetText("What is shared:")
+    sharedHeading:SetText(GSO.SHARED_HEADING)
 
     local sharedBullet = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     sharedBullet:SetPoint("TOPLEFT", sharedHeading, "BOTTOMLEFT", 0, -LIST_ITEM_GAP)
@@ -290,14 +312,14 @@ local function buildDialog()
     sharedBullet:SetWordWrap(true)
     sharedBullet:SetTextColor(
         BULLET_TEXT_COLOR[1], BULLET_TEXT_COLOR[2], BULLET_TEXT_COLOR[3], BULLET_TEXT_COLOR[4])
-    sharedBullet:SetText("• Character names, levels, classes, professions, and recipes")
+    sharedBullet:SetText(GSO.SHARED_BULLET)
 
     local notSharedHeading = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     notSharedHeading:SetPoint("TOPLEFT", sharedBullet, "BOTTOMLEFT", 0, -SECTION_GAP)
     notSharedHeading:SetPoint("RIGHT", bodyInner, "RIGHT", 0, 0)
     notSharedHeading:SetJustifyH("LEFT")
     notSharedHeading:SetWordWrap(true)
-    notSharedHeading:SetText("What is not shared:")
+    notSharedHeading:SetText(GSO.NOT_SHARED_HEADING)
 
     local notSharedBullet = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     notSharedBullet:SetPoint("TOPLEFT", notSharedHeading, "BOTTOMLEFT", 0, -LIST_ITEM_GAP)
@@ -306,7 +328,7 @@ local function buildDialog()
     notSharedBullet:SetWordWrap(true)
     notSharedBullet:SetTextColor(
         BULLET_TEXT_COLOR[1], BULLET_TEXT_COLOR[2], BULLET_TEXT_COLOR[3], BULLET_TEXT_COLOR[4])
-    notSharedBullet:SetText("• Everything else")
+    notSharedBullet:SetText(GSO.NOT_SHARED_BULLET)
 
     local notSharedEg = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     notSharedEg:SetPoint("TOPLEFT", notSharedBullet, "BOTTOMLEFT", 0, -LIST_ITEM_GAP)
@@ -314,8 +336,7 @@ local function buildDialog()
     notSharedEg:SetJustifyH("LEFT")
     notSharedEg:SetWordWrap(true)
     notSharedEg:SetTextColor(MUTED_TEXT_COLOR[1], MUTED_TEXT_COLOR[2], MUTED_TEXT_COLOR[3], MUTED_TEXT_COLOR[4])
-    notSharedEg:SetText(
-        "Eg, no gear, inventory, gold, playtime, cooldowns, or favorite ice cream")
+    notSharedEg:SetText(GSO.NOT_SHARED_EXAMPLE)
 
     local mainLabel = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     mainLabel:SetPoint("TOPLEFT", notSharedEg, "BOTTOMLEFT", 0, -SECTION_GAP)

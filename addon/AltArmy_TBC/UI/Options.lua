@@ -261,6 +261,9 @@ local function SetActiveOptionsTab(which)
     if which == "general" and panel.RefreshGuildSharingControls then
         panel.RefreshGuildSharingControls()
     end
+    if which == "characters" and panel.RefreshCharGuildShareDropdown then
+        panel.RefreshCharGuildShareDropdown()
+    end
 end
 
 local tabBar = CreateFrame("Frame", nil, panel)
@@ -629,70 +632,367 @@ generalHint:SetText(
 )
 
 -- Guild sharing settings (only shown when the guildShare feature flag is on).
-local guildSharingHeader = tabGeneral:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-guildSharingHeader:SetPoint("TOPLEFT", generalHint, "BOTTOMLEFT", 0, -20)
-guildSharingHeader:SetText("Guild Sharing")
+local GUILD_SHARING_ROW_GAP = 16
+
+local function setGuildSharingCheckboxCaptionMuted(fontString, muted)
+    if not fontString then return end
+    if muted then
+        fontString:SetTextColor(0.5, 0.5, 0.5)
+    else
+        fontString:SetTextColor(1, 1, 1)
+    end
+end
+
+local function setGuildSharingCheckboxEnabled(row, enabled)
+    if not row then return end
+    if enabled then
+        row.check:Enable()
+        if row.hoverRegion then row.hoverRegion:EnableMouse(true) end
+        setGuildSharingCheckboxCaptionMuted(row.label, false)
+    else
+        row.check:Disable()
+        if row.hoverRegion then row.hoverRegion:EnableMouse(false) end
+        setGuildSharingCheckboxCaptionMuted(row.label, true)
+    end
+end
+
+local refreshGuildSharingDependentControls
+
+local guildSharingBlock = CreateFrame("Frame", nil, tabGeneral)
+guildSharingBlock:SetPoint("TOPLEFT", generalHint, "BOTTOMLEFT", 0, -20)
+guildSharingBlock:SetPoint("RIGHT", tabGeneral, "RIGHT", 0, 0)
+
+local guildSharingHeader = guildSharingBlock:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+guildSharingHeader:SetPoint("TOPLEFT", guildSharingBlock, "TOPLEFT", 0, 0)
+guildSharingHeader:SetText("Guild")
 Theme.SetTitleColor(guildSharingHeader)
 
-local guildShareEnableRow = Theme.CreateLabeledCheckbox(tabGeneral, {
+local GUILD_SHARING_HALF_GAP = 8
+
+--- Split a row into left/right halves. Never anchor TOPLEFT to CENTER — CENTER includes
+--- vertical midpoint and drops the right column by ~half the row height.
+local function anchorGuildSharingLeftHalf(frame, parent, gap)
+    gap = gap or GUILD_SHARING_HALF_GAP
+    frame:ClearAllPoints()
+    frame:SetPoint("TOP", parent, "TOP", 0, 0)
+    frame:SetPoint("BOTTOM", parent, "BOTTOM", 0, 0)
+    frame:SetPoint("LEFT", parent, "LEFT", 0, 0)
+    frame:SetPoint("RIGHT", parent, "CENTER", -gap, 0)
+end
+
+local function anchorGuildSharingRightHalf(frame, parent, gap)
+    gap = gap or GUILD_SHARING_HALF_GAP
+    frame:ClearAllPoints()
+    frame:SetPoint("TOP", parent, "TOP", 0, 0)
+    frame:SetPoint("BOTTOM", parent, "BOTTOM", 0, 0)
+    frame:SetPoint("LEFT", parent, "CENTER", gap, 0)
+    frame:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+end
+
+local function anchorGuildSharingLeftCaption(fontString, parent, gap)
+    gap = gap or GUILD_SHARING_HALF_GAP
+    fontString:ClearAllPoints()
+    fontString:SetPoint("TOP", parent, "TOP", 0, 0)
+    fontString:SetPoint("LEFT", parent, "LEFT", 0, 0)
+    fontString:SetPoint("RIGHT", parent, "CENTER", -gap, 0)
+end
+
+local function anchorGuildSharingRightCaption(fontString, parent, gap)
+    gap = gap or GUILD_SHARING_HALF_GAP
+    fontString:ClearAllPoints()
+    fontString:SetPoint("TOP", parent, "TOP", 0, 0)
+    fontString:SetPoint("LEFT", parent, "CENTER", gap, 0)
+    fontString:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+end
+
+local guildShareTopRow = CreateFrame("Frame", nil, guildSharingBlock)
+guildShareTopRow:SetPoint("TOPLEFT", guildSharingHeader, "BOTTOMLEFT", 0, -8)
+guildShareTopRow:SetPoint("RIGHT", guildSharingBlock, "RIGHT", 0, 0)
+guildShareTopRow:SetHeight(22)
+
+local guildShareEnableColumn = CreateFrame("Frame", nil, guildShareTopRow)
+anchorGuildSharingLeftHalf(guildShareEnableColumn, guildShareTopRow)
+
+local guildShareEnableRow = Theme.CreateLabeledCheckbox(guildShareEnableColumn, {
     point = "TOPLEFT",
-    relativeTo = guildSharingHeader,
-    relativePoint = "BOTTOMLEFT",
+    relativeTo = guildShareEnableColumn,
+    relativePoint = "TOPLEFT",
     x = 0,
-    y = -8,
-    text = "Share my characters with my guild",
+    y = 0,
+    text = "Share my characters with their guild",
     fullWidthHover = true,
+    rightInset = 0,
     onClick = function(checked)
         local GSS = AltArmy.GuildShareSettings
-        if GSS then GSS.SetSharingEnabled(checked) end
+        if GSS then
+            GSS.SetSharingEnabled(checked)
+            if checked and GSS.EnsureDefaultMainIfMissing then
+                GSS.EnsureDefaultMainIfMissing()
+            end
+        end
         if AltArmy.RefreshGuildTab then AltArmy.RefreshGuildTab() end
+        if refreshGuildSharingDependentControls then refreshGuildSharingDependentControls() end
+        if panel.RefreshCharGuildShareDropdown then panel.RefreshCharGuildShareDropdown() end
         local Comm = AltArmy.GuildShareComm
         if Comm and Comm.Broadcast then Comm.Broadcast(true) end
     end,
 })
 panel.guildShareEnableCheckbox = guildShareEnableRow.check
+do
+    local GSO = AltArmy.GuildShareOnboarding
+    if GSO and GSO.GetSharingDisclosureTooltip and Theme.AttachSettingsHelpIcon then
+        Theme.AttachSettingsHelpIcon(guildShareEnableRow, GSO.GetSharingDisclosureTooltip())
+    end
+end
 
-local guildChatInsertRow = Theme.CreateLabeledCheckbox(tabGeneral, {
+local guildManageExceptionsBtn = CreateFrame("Button", nil, guildSharingBlock, "UIPanelButtonTemplate")
+guildManageExceptionsBtn:SetSize(140, 22)
+guildManageExceptionsBtn:SetPoint("LEFT", guildShareTopRow, "CENTER", GUILD_SHARING_HALF_GAP, 0)
+guildManageExceptionsBtn:SetPoint("TOP", guildShareTopRow, "TOP", 0, 0)
+guildManageExceptionsBtn:SetText("Manage exceptions")
+Theme.SkinButton(guildManageExceptionsBtn)
+guildManageExceptionsBtn:SetScript("OnClick", function()
+    SetActiveOptionsTab("characters")
+end)
+
+local guildSharingTail = CreateFrame("Frame", nil, guildSharingBlock)
+guildSharingTail:SetPoint("RIGHT", guildSharingBlock, "RIGHT", 0, 0)
+
+local layoutGuildSharingTail
+local GUILD_IDENTITY_CONTROL_HEIGHT = 22
+local GUILD_IDENTITY_LABEL_HEIGHT = 14
+local GUILD_IDENTITY_CONTROL_GAP = 2
+local GUILD_IDENTITY_ROW_HEIGHT = GUILD_IDENTITY_LABEL_HEIGHT
+    + GUILD_IDENTITY_CONTROL_GAP + GUILD_IDENTITY_CONTROL_HEIGHT
+local GUILD_CHAT_ROW_HEIGHT = Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or 24
+
+local guildIdentityRow = CreateFrame("Frame", nil, guildSharingTail)
+guildIdentityRow:SetPoint("TOPLEFT", guildSharingTail, "TOPLEFT", 0, 0)
+guildIdentityRow:SetPoint("RIGHT", guildSharingTail, "RIGHT", 0, 0)
+guildIdentityRow:SetHeight(GUILD_IDENTITY_ROW_HEIGHT)
+
+local guildIdentityLabelRow = CreateFrame("Frame", nil, guildIdentityRow)
+guildIdentityLabelRow:SetPoint("TOPLEFT", guildIdentityRow, "TOPLEFT", 0, 0)
+guildIdentityLabelRow:SetPoint("RIGHT", guildIdentityRow, "RIGHT", 0, 0)
+guildIdentityLabelRow:SetHeight(GUILD_IDENTITY_LABEL_HEIGHT)
+
+local guildMainLabel = guildIdentityLabelRow:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+anchorGuildSharingLeftCaption(guildMainLabel, guildIdentityLabelRow)
+guildMainLabel:SetJustifyH("LEFT")
+guildMainLabel:SetWordWrap(true)
+guildMainLabel:SetText("What is your main character?")
+
+local guildDisplayLabel = guildIdentityLabelRow:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+anchorGuildSharingRightCaption(guildDisplayLabel, guildIdentityLabelRow)
+guildDisplayLabel:SetJustifyH("LEFT")
+guildDisplayLabel:SetWordWrap(true)
+guildDisplayLabel:SetText("What should people call you?")
+
+local guildIdentityControlRow = CreateFrame("Frame", nil, guildIdentityRow)
+guildIdentityControlRow:SetPoint("TOPLEFT", guildIdentityLabelRow, "BOTTOMLEFT", 0, -GUILD_IDENTITY_CONTROL_GAP)
+guildIdentityControlRow:SetPoint("RIGHT", guildIdentityRow, "RIGHT", 0, 0)
+guildIdentityControlRow:SetHeight(GUILD_IDENTITY_CONTROL_HEIGHT)
+
+local guildMainControlColumn = CreateFrame("Frame", nil, guildIdentityControlRow)
+anchorGuildSharingLeftHalf(guildMainControlColumn, guildIdentityControlRow)
+
+local guildDisplayControlColumn = CreateFrame("Frame", nil, guildIdentityControlRow)
+anchorGuildSharingRightHalf(guildDisplayControlColumn, guildIdentityControlRow)
+
+local guildDisplayEdit
+local guildChatChannelsDropdown
+
+local guildMainDropdown = Theme.CreateSingleSelectDropdown({
+    parent = guildMainControlColumn,
+    dropdownParent = panel,
+    rowHeight = GUILD_IDENTITY_CONTROL_HEIGHT,
     point = "TOPLEFT",
-    relativeTo = guildShareEnableRow,
-    relativePoint = "BOTTOMLEFT",
+    relativePoint = "TOPLEFT",
+    getEntries = function()
+        local GSO = AltArmy.GuildShareOnboarding
+        local GSS = AltArmy.GuildShareSettings
+        local DS = AltArmy.DataStore
+        if not GSO or not GSO.BuildRealmCharEntries or not DS or not DS.GetCharacters then
+            return {}
+        end
+        local realm = GSS and GSS._CurrentRealm and GSS._CurrentRealm() or ""
+        return GSO.BuildRealmCharEntries(DS:GetCharacters(realm) or {})
+    end,
+    getSelectedId = function()
+        local GSS = AltArmy.GuildShareSettings
+        return GSS and GSS.GetMain and GSS.GetMain() or nil
+    end,
+    onSelect = function(id)
+        local GSS = AltArmy.GuildShareSettings
+        if GSS and GSS.SetMain then GSS.SetMain(nil, id) end
+        if id then
+            if guildDisplayEdit then
+                guildDisplayEdit:SetText(id)
+            end
+            if GSS and GSS.SetDisplayName then
+                GSS.SetDisplayName(nil, id)
+            end
+        end
+        if AltArmy.RefreshGuildTab then AltArmy.RefreshGuildTab() end
+        local Comm = AltArmy.GuildShareComm
+        if Comm and Comm.Broadcast then Comm.Broadcast(true) end
+    end,
+})
+guildMainDropdown.button:ClearAllPoints()
+guildMainDropdown.button:SetPoint("TOPLEFT", guildMainControlColumn, "TOPLEFT", 0, 0)
+guildMainDropdown.button:SetPoint("BOTTOMRIGHT", guildMainControlColumn, "BOTTOMRIGHT", 0, 0)
+guildMainDropdown.popup:ClearAllPoints()
+guildMainDropdown.popup:SetPoint("TOPLEFT", guildMainDropdown.button, "BOTTOMLEFT", 0, -2)
+guildMainDropdown.popup:SetPoint("TOPRIGHT", guildMainDropdown.button, "BOTTOMRIGHT", 0, -2)
+
+guildDisplayEdit = CreateFrame("EditBox", nil, guildDisplayControlColumn)
+guildDisplayEdit:SetPoint("TOPLEFT", guildDisplayControlColumn, "TOPLEFT", 0, 0)
+guildDisplayEdit:SetPoint("BOTTOMRIGHT", guildDisplayControlColumn, "BOTTOMRIGHT", 0, 0)
+guildDisplayEdit:SetFontObject("GameFontHighlight")
+guildDisplayEdit:SetAutoFocus(false)
+guildDisplayEdit:SetTextInsets(6, 6, 0, 0)
+local guildDisplayMaxLen = AltArmy.GuildShareSettings
+    and AltArmy.GuildShareSettings.DISPLAY_NAME_MAX_LENGTH
+if guildDisplayEdit.SetMaxLetters and guildDisplayMaxLen then
+    guildDisplayEdit:SetMaxLetters(guildDisplayMaxLen)
+end
+Theme.ApplyInputTextures(guildDisplayEdit)
+guildDisplayEdit:SetScript("OnEnterPressed", function(box) box:ClearFocus() end)
+guildDisplayEdit:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
+guildDisplayEdit:SetScript("OnEditFocusLost", function(box)
+    local GSS = AltArmy.GuildShareSettings
+    if GSS and GSS.SetDisplayName then
+        GSS.SetDisplayName(nil, box:GetText() or nil)
+    end
+    if AltArmy.RefreshGuildTab then AltArmy.RefreshGuildTab() end
+    local Comm = AltArmy.GuildShareComm
+    if Comm and Comm.Broadcast then Comm.Broadcast(true) end
+end)
+
+local guildChatRow = CreateFrame("Frame", nil, guildSharingTail)
+guildChatRow:SetPoint("TOPLEFT", guildIdentityRow, "BOTTOMLEFT", 0, -GUILD_SHARING_ROW_GAP)
+guildChatRow:SetPoint("RIGHT", guildSharingTail, "RIGHT", 0, 0)
+guildChatRow:SetHeight(GUILD_CHAT_ROW_HEIGHT + 4)
+
+local guildChatLeftColumn = CreateFrame("Frame", nil, guildChatRow)
+anchorGuildSharingLeftHalf(guildChatLeftColumn, guildChatRow)
+
+local guildChatRightColumn = CreateFrame("Frame", nil, guildChatRow)
+anchorGuildSharingRightHalf(guildChatRightColumn, guildChatRow)
+
+local guildChatInsertRow = Theme.CreateLabeledCheckbox(guildChatLeftColumn, {
+    point = "TOPLEFT",
+    relativeTo = guildChatLeftColumn,
+    relativePoint = "TOPLEFT",
     x = 0,
-    y = -8,
-    text = "Show a guildmate's main name in guild chat",
+    y = 0,
+    text = "Show guildmate mains in chat",
     fullWidthHover = true,
     onClick = function(checked)
         local GSS = AltArmy.GuildShareSettings
         if GSS then GSS.SetChatInsertionEnabled(checked) end
+        if refreshGuildSharingDependentControls then refreshGuildSharingDependentControls() end
     end,
 })
 panel.guildChatInsertCheckbox = guildChatInsertRow.check
 
-local guildSharingHint = tabGeneral:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-guildSharingHint:SetPoint("TOPLEFT", guildChatInsertRow, "BOTTOMLEFT", 0, -8)
-guildSharingHint:SetWidth(520)
-guildSharingHint:SetJustifyH("LEFT")
-guildSharingHint:SetText(
-    "Only levels, classes, and professions are shared with guildmates who also use Alt Army"
-    .. " — never items, gold, or other private data. Choose your main from the Guild tab.")
+guildChatChannelsDropdown = Theme.CreateMultiSelectCheckboxDropdown({
+    parent = guildChatRightColumn,
+    dropdownParent = panel,
+    relativeTo = guildChatInsertRow,
+    sameLine = true,
+    keys = (AltArmy.GuildShareSettings and AltArmy.GuildShareSettings.CHAT_INSERTION_CHANNEL_ORDER) or {},
+    labels = (AltArmy.GuildShareSettings and AltArmy.GuildShareSettings.CHAT_INSERTION_CHANNEL_LABELS) or {},
+    getRowLabel = function(key)
+        local GSS = AltArmy.GuildShareSettings
+        if GSS and GSS.FormatChatInsertionChannelColoredLabel then
+            return GSS.FormatChatInsertionChannelColoredLabel(key)
+        end
+        local labels = GSS and GSS.CHAT_INSERTION_CHANNEL_LABELS
+        return labels and labels[key] or key
+    end,
+    getFilter = function()
+        local GSS = AltArmy.GuildShareSettings
+        return GSS and GSS.GetChatInsertionChannels and GSS.GetChatInsertionChannels() or {}
+    end,
+    setEnabled = function(key, checked)
+        local GSS = AltArmy.GuildShareSettings
+        if GSS and GSS.SetChatInsertionChannelEnabled then
+            GSS.SetChatInsertionChannelEnabled(key, checked)
+        end
+    end,
+    formatSummary = function(keys, labels, filter)
+        local GSS = AltArmy.GuildShareSettings
+        if GSS and GSS.FormatChatInsertionChannelSummary then
+            return GSS.FormatChatInsertionChannelSummary(keys, labels, filter)
+        end
+        return ""
+    end,
+    formatSummaryDisabled = function(keys, labels, filter)
+        filter = filter or {}
+        local selected = {}
+        for _, key in ipairs(keys) do
+            if filter[key] ~= false then
+                selected[#selected + 1] = labels[key] or key
+            end
+        end
+        if #selected == 0 then
+            return "None"
+        end
+        return table.concat(selected, ", ")
+    end,
+})
+
+function refreshGuildSharingDependentControls()
+    local GSS = AltArmy.GuildShareSettings
+    local sharingOn = GSS and GSS.IsSharingEnabled and GSS.IsSharingEnabled() == true
+    local chatOn = GSS and GSS.IsChatInsertionEnabled and GSS.IsChatInsertionEnabled() == true
+    setGuildSharingCheckboxEnabled(guildChatInsertRow, sharingOn)
+    if guildChatChannelsDropdown and guildChatChannelsDropdown.SetEnabled then
+        guildChatChannelsDropdown:SetEnabled(sharingOn and chatOn)
+    end
+end
+
+refreshGuildSharingDependentControls()
+
+function layoutGuildSharingTail()
+    guildSharingTail:ClearAllPoints()
+    guildSharingTail:SetPoint("TOPLEFT", guildShareTopRow, "BOTTOMLEFT", 0, -GUILD_SHARING_ROW_GAP)
+    guildSharingTail:SetPoint("RIGHT", guildSharingBlock, "RIGHT", 0, 0)
+end
 
 local function RefreshGuildSharingControls()
     local D = AltArmy.Debug
     local flagOn = D and D.IsGuildShareEnabled and D.IsGuildShareEnabled()
     local shown = flagOn and true or false
-    guildSharingHeader:SetShown(shown)
-    guildShareEnableRow:SetShown(shown)
-    guildChatInsertRow:SetShown(shown)
-    guildSharingHint:SetShown(shown)
+    if shown then
+        guildSharingBlock:Show()
+    else
+        guildSharingBlock:Hide()
+    end
     if shown then
         local GSS = AltArmy.GuildShareSettings
         if GSS then
             guildShareEnableRow.check:SetChecked(GSS.IsSharingEnabled())
             guildChatInsertRow.check:SetChecked(GSS.IsChatInsertionEnabled())
+            local mainName = GSS.GetMain and GSS.GetMain() or nil
+            if guildMainDropdown and guildMainDropdown.Update then
+                guildMainDropdown:Update()
+            end
+            if guildDisplayEdit then
+                guildDisplayEdit:SetText(GSS.GetDisplayName and (GSS.GetDisplayName() or mainName or "") or "")
+            end
+            if guildChatChannelsDropdown then
+                guildChatChannelsDropdown:refresh()
+            end
+            if refreshGuildSharingDependentControls then refreshGuildSharingDependentControls() end
         end
+        if panel.RefreshCharGuildShareDropdown then panel.RefreshCharGuildShareDropdown() end
+        layoutGuildSharingTail()
     end
 end
 panel.RefreshGuildSharingControls = RefreshGuildSharingControls
-RefreshGuildSharingControls()
+layoutGuildSharingTail()
 
 -- Host frame for UI/CooldownOptions.lua (loaded after this file)
 panel.tabCooldownsHost = tabCooldowns
@@ -885,6 +1185,61 @@ local function RefreshBankAltDependents()
     end
 end
 
+local function isGuildShareOptionsEnabled()
+    local D = AltArmy and AltArmy.Debug
+    return D and D.IsGuildShareEnabled and D.IsGuildShareEnabled()
+end
+
+local charGuildShareLabel = tabCharacters:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+charGuildShareLabel:SetPoint("TOPLEFT", charListFrame, "TOPRIGHT", COL_GAP, 0)
+charGuildShareLabel:SetPoint("RIGHT", tabCharacters, "RIGHT", -16, 0)
+charGuildShareLabel:SetJustifyH("LEFT")
+charGuildShareLabel:SetText("Guild data sharing")
+charGuildShareLabel:Hide()
+
+local charGuildShareDropdown = Theme.CreateSingleSelectDropdown({
+    parent = tabCharacters,
+    dropdownParent = panel,
+    relativeTo = charGuildShareLabel,
+    relativePoint = "BOTTOMLEFT",
+    y = -4,
+    getEntries = function()
+        local GSS = AltArmy.GuildShareSettings
+        return GSS and GSS.GetCharacterShareModeEntries and GSS.GetCharacterShareModeEntries() or {}
+    end,
+    getSelectedId = function()
+        if not selectedEntry then return "default" end
+        local GSS = AltArmy.GuildShareSettings
+        return GSS and GSS.GetCharacterShareMode(selectedEntry.name, selectedEntry.realm) or "default"
+    end,
+    onSelect = function(mode)
+        if not selectedEntry then return end
+        local GSS = AltArmy.GuildShareSettings
+        local guildName = GSS and GSS._CurrentGuild and GSS._CurrentGuild() or nil
+        if mode == "share" and not guildName then return end
+        if GSS and GSS.SetCharacterShareMode then
+            GSS.SetCharacterShareMode(selectedEntry.name, selectedEntry.realm, mode)
+        end
+        if AltArmy.RefreshGuildTab then AltArmy.RefreshGuildTab() end
+        local Comm = AltArmy.GuildShareComm
+        if Comm and Comm.Broadcast then Comm.Broadcast(true) end
+    end,
+})
+charGuildShareDropdown.button:ClearAllPoints()
+charGuildShareDropdown.button:SetPoint("TOPLEFT", charGuildShareLabel, "BOTTOMLEFT", 0, -4)
+charGuildShareDropdown.button:SetPoint("RIGHT", tabCharacters, "RIGHT", -16, 0)
+charGuildShareDropdown.button:Hide()
+charGuildShareDropdown.popup:ClearAllPoints()
+charGuildShareDropdown.popup:SetPoint("TOPLEFT", charGuildShareDropdown.button, "BOTTOMLEFT", 0, -2)
+charGuildShareDropdown.popup:SetPoint("TOPRIGHT", charGuildShareDropdown.button, "BOTTOMRIGHT", 0, -2)
+
+local function RefreshCharGuildShareDropdown()
+    if charGuildShareDropdown and charGuildShareDropdown.Update then
+        charGuildShareDropdown:Update()
+    end
+end
+panel.RefreshCharGuildShareDropdown = RefreshCharGuildShareDropdown
+
 local bankAltRow = Theme.CreateLabeledCheckbox(tabCharacters, {
     point = "TOPLEFT",
     relativeTo = charListFrame,
@@ -906,6 +1261,16 @@ local bankAltRow = Theme.CreateLabeledCheckbox(tabCharacters, {
 Theme.AttachSettingsHelpIcon(bankAltRow, BANK_ALT_HELP)
 local bankAltCheck = bankAltRow.check
 bankAltRow:Hide()
+
+local function layoutCharSettingRows()
+    bankAltRow:ClearAllPoints()
+    if charGuildShareLabel:IsShown() then
+        bankAltRow:SetPoint("TOPLEFT", charGuildShareDropdown.button, "BOTTOMLEFT", 0, -12)
+    else
+        bankAltRow:SetPoint("TOPLEFT", charListFrame, "TOPRIGHT", COL_GAP, 0)
+    end
+    bankAltRow:SetPoint("RIGHT", tabCharacters, "RIGHT", -16, 0)
+end
 
 -- Delete button shown whenever any character is selected;
 -- disabled with "Can't delete self" when the current character is selected.
@@ -937,7 +1302,16 @@ UpdateCharSettings = function()
     local hasSelection = selectedEntry ~= nil
     local isSelf = hasSelection
         and IsCurrentCharacter(selectedEntry.name, selectedEntry.realm)
+    local showGuildShare = hasSelection and isGuildShareOptionsEnabled()
     charSettingPrompt:SetShown(not hasSelection)
+    charGuildShareLabel:SetShown(showGuildShare)
+    if charGuildShareDropdown and charGuildShareDropdown.button then
+        charGuildShareDropdown.button:SetShown(showGuildShare)
+    end
+    if showGuildShare then
+        RefreshCharGuildShareDropdown()
+    end
+    layoutCharSettingRows()
     bankAltRow:SetShown(hasSelection)
     charSettingDeleteBtn:SetShown(hasSelection)
     -- Reset confirm state whenever the selection changes
@@ -1036,6 +1410,9 @@ panel:HookScript("OnShow", function()
     if panel.RefreshRealmFilterDropdown then
         panel.RefreshRealmFilterDropdown()
     end
+    if panel.RefreshGuildSharingControls then
+        panel.RefreshGuildSharingControls()
+    end
 end)
 
 -- ---------------------------------------------------------------------------
@@ -1075,6 +1452,9 @@ reg:SetScript("OnEvent", function(_, event)
         end
         if panel.RefreshDebugCheckboxes then
             panel.RefreshDebugCheckboxes()
+        end
+        if panel.RefreshGuildSharingControls then
+            panel.RefreshGuildSharingControls()
         end
     end
 end)

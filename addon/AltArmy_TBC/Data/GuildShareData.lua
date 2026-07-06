@@ -225,6 +225,19 @@ function GSD.GetCharacter(name, realm)
     return rt and rt[name] or nil
 end
 
+--- Find a stored character by name. When realm is omitted, searches all realms.
+function GSD.FindCharacter(name, realm)
+    if realm then
+        return GSD.GetCharacter(name, realm)
+    end
+    local d = ensure()
+    for _, rt in pairs(d.chars) do
+        local hit = rt[name]
+        if hit then return hit end
+    end
+    return nil
+end
+
 --- All stored characters in a guild (across realms), as a flat list.
 function GSD.GetGuildMembers(guild)
     local out = {}

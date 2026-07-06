@@ -40,6 +40,13 @@ describe("GuildShareSettings", function()
     it("chat insertion defaults to enabled", function()
       assert.is_true(GSS.IsChatInsertionEnabled())
     end)
+    it("chat insertion channels default to all enabled", function()
+      local channels = GSS.GetChatInsertionChannels()
+      assert.is_true(channels.guild)
+      assert.is_true(channels.party)
+      assert.is_true(channels.raid)
+      assert.is_true(channels.whisper)
+    end)
     it("main, display name, opt-out, onboarding default to empty/false", function()
       assert.is_nil(GSS.GetMain("R"))
       assert.is_nil(GSS.GetDisplayName("R"))
@@ -153,6 +160,119 @@ describe("GuildShareSettings", function()
       assert.is_true(names.Main)
       assert.is_true(names.Bank)
       assert.is_nil(names.Bank2)
+    end)
+  end)
+
+  describe("chat insertion channels", function()
+    it("SetChatInsertionChannelEnabled toggles individual channels", function()
+      GSS.SetChatInsertionChannelEnabled("party", false)
+      assert.is_false(GSS.IsChatInsertionChannelEnabled("party"))
+      assert.is_true(GSS.IsChatInsertionChannelEnabled("guild"))
+    end)
+
+    it("FormatChatInsertionChannelSummary lists every enabled channel", function()
+      local summary = GSS.FormatChatInsertionChannelSummary(
+        GSS.CHAT_INSERTION_CHANNEL_ORDER,
+        GSS.CHAT_INSERTION_CHANNEL_LABELS,
+        GSS.GetChatInsertionChannels()
+      )
+      assert.is_true(summary:find("Guild", 1, true) ~= nil, summary)
+      assert.is_true(summary:find("Party", 1, true) ~= nil, summary)
+      assert.is_true(summary:find("Raid", 1, true) ~= nil, summary)
+      assert.is_true(summary:find("Whisper", 1, true) ~= nil, summary)
+    end)
+
+    it("FormatChatInsertionChannelSummary lists enabled channel labels", function()
+      GSS.SetChatInsertionChannelEnabled("guild", true)
+      GSS.SetChatInsertionChannelEnabled("party", false)
+      GSS.SetChatInsertionChannelEnabled("raid", false)
+      GSS.SetChatInsertionChannelEnabled("whisper", true)
+      local summary = GSS.FormatChatInsertionChannelSummary(
+        GSS.CHAT_INSERTION_CHANNEL_ORDER,
+        GSS.CHAT_INSERTION_CHANNEL_LABELS,
+        GSS.GetChatInsertionChannels()
+      )
+      assert.is_true(summary:find("Guild", 1, true) ~= nil, summary)
+      assert.is_true(summary:find("Whisper", 1, true) ~= nil, summary)
+      assert.is_nil(summary:find("Party", 1, true))
+    end)
+  end)
+
+  describe("EnsureDefaultMainIfMissing", function()
+    it("sets the top-ranked character when no main is saved", function()
+      setChars("R", {
+        Alt = { name = "Alt", realm = "R", level = 40, classFile = "MAGE" },
+        Main = { name = "Main", realm = "R", level = 70, classFile = "WARRIOR" },
+      })
+      AltArmy.GuildShareOnboarding = AltArmy.GuildShareOnboarding or {}
+      local GSO = AltArmy.GuildShareOnboarding
+      local origBuild = GSO.BuildRealmCharEntries
+      GSO.BuildRealmCharEntries = function(chars)
+        return {
+          { id = "Main", label = "Main" },
+          { id = "Alt", label = "Alt" },
+        }
+      end
+      local picked = GSS.EnsureDefaultMainIfMissing("R")
+      GSO.BuildRealmCharEntries = origBuild
+      assert.are.equal("Main", picked)
+      assert.are.equal("Main", GSS.GetMain("R"))
+    end)
+  end)
+
+  describe("character share mode", function()
+    before_each(function()
+      _G.GetGuildInfo = function() return "G" end
+    end)
+
+    it("defaults to default when no overrides are set", function()
+      assert.are.equal("default", GSS.GetCharacterShareMode("Bob", "R"))
+    end)
+
+    it("returns dont_share when opted out", function()
+      GSS.SetCharacterOptedOut("Bob", "R", true)
+      assert.are.equal("dont_share", GSS.GetCharacterShareMode("Bob", "R"))
+    end)
+
+    it("returns share when a non-guilded character is opted in", function()
+      setChars("R", { Bank = { name = "Bank", realm = "R" } })
+      GSS.SetNonGuildedOptIn("Bank", "R", "G")
+      assert.are.equal("share", GSS.GetCharacterShareMode("Bank", "R"))
+    end)
+
+    it("SetCharacterShareMode default clears overrides", function()
+      GSS.SetCharacterOptedOut("Bob", "R", true)
+      GSS.SetCharacterShareMode("Bob", "R", "default")
+      assert.are.equal("default", GSS.GetCharacterShareMode("Bob", "R"))
+    end)
+
+    it("SetCharacterShareMode dont_share opts out guilded characters", function()
+      setChars("R", { Alt = { name = "Alt", realm = "R", guildName = "G" } })
+      GSS.SetCharacterShareMode("Alt", "R", "dont_share")
+      assert.is_true(GSS.IsCharacterOptedOut("Alt", "R"))
+    end)
+
+    it("SetCharacterShareMode share opts in non-guilded characters to current guild", function()
+      setChars("R", { Bank = { name = "Bank", realm = "R" } })
+      GSS.SetCharacterShareMode("Bank", "R", "share")
+      assert.are.equal("G", GSS.GetNonGuildedOptInGuild("Bank", "R"))
+    end)
+
+    it("GetCharacterShareModeDefaultLabel reflects global sharing", function()
+      GSS.SetSharingEnabled(true)
+      assert.are.equal("Use global setting (share)", GSS.GetCharacterShareModeDefaultLabel())
+      GSS.SetSharingEnabled(false)
+      assert.are.equal("Use global setting (don't share)", GSS.GetCharacterShareModeDefaultLabel())
+    end)
+
+    it("GetCharacterShareModeEntries includes dynamic default label", function()
+      GSS.SetSharingEnabled(true)
+      local entries = GSS.GetCharacterShareModeEntries()
+      assert.are.equal(3, #entries)
+      assert.are.equal("default", entries[1].id)
+      assert.are.equal("Use global setting (share)", entries[1].label)
+      assert.are.equal("Always share", entries[2].label)
+      assert.are.equal("Never share", entries[3].label)
     end)
   end)
 

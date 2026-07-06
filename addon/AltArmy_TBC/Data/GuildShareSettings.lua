@@ -21,6 +21,12 @@ local function ensure()
     s.optOut = s.optOut or {}
     s.nonGuildedOptIn = s.nonGuildedOptIn or {}
     s.onboardingCompleted = s.onboardingCompleted or {}
+    s.chatInsertionChannels = s.chatInsertionChannels or {}
+    local channels = s.chatInsertionChannels
+    if channels.guild == nil then channels.guild = true end
+    if channels.party == nil then channels.party = true end
+    if channels.raid == nil then channels.raid = true end
+    if channels.whisper == nil then channels.whisper = true end
     return s
 end
 GSS._Ensure = ensure
@@ -72,6 +78,81 @@ end
 
 function GSS.SetChatInsertionEnabled(on)
     ensure().chatInsertion = on == true
+end
+
+GSS.CHAT_INSERTION_CHANNEL_ORDER = { "guild", "party", "raid", "whisper" }
+GSS.CHAT_INSERTION_CHANNEL_LABELS = {
+    guild = "Guild",
+    party = "Party",
+    raid = "Raid",
+    whisper = "Whisper",
+}
+
+function GSS.GetChatInsertionChannels()
+    local s = ensure()
+    return s.chatInsertionChannels
+end
+
+function GSS.IsChatInsertionChannelEnabled(key)
+    local channels = GSS.GetChatInsertionChannels()
+    return channels[key] ~= false
+end
+
+function GSS.SetChatInsertionChannelEnabled(key, on)
+    ensure().chatInsertionChannels[key] = on ~= false
+end
+
+--- Comma-separated enabled labels with chat colors. Returns "None" when nothing is enabled.
+function GSS.FormatChatInsertionChannelColoredLabel(key, labelMap)
+    labelMap = labelMap or GSS.CHAT_INSERTION_CHANNEL_LABELS
+    local label = labelMap[key] or key
+    local color = GSS.CHAT_INSERTION_CHANNEL_COLORS and GSS.CHAT_INSERTION_CHANNEL_COLORS[key]
+    local CC = AltArmy.ClassColor
+    if color and CC and CC.formatHex then
+        return CC.formatHex(color[1], color[2], color[3], label)
+    end
+    return label
+end
+
+function GSS.FormatChatInsertionChannelSummary(keys, labelMap, filter)
+    filter = filter or {}
+    local selected = {}
+    for _, key in ipairs(keys) do
+        if filter[key] ~= false then
+            selected[#selected + 1] = GSS.FormatChatInsertionChannelColoredLabel(key, labelMap)
+        end
+    end
+    if #selected == 0 then
+        return "None"
+    end
+    return table.concat(selected, ", ")
+end
+
+GSS.CHAT_INSERTION_CHANNEL_COLORS = {
+    guild = { 0.063, 0.816, 0.063 },
+    party = { 0.651, 0.816, 1.0 },
+    raid = { 1.0, 0.498, 0.0 },
+    whisper = { 1.0, 0.502, 1.0 },
+}
+
+--- Pick the top-ranked character as main when none is saved yet.
+function GSS.EnsureDefaultMainIfMissing(realm)
+    realm = realm or currentRealm()
+    local existing = GSS.GetMain(realm)
+    if existing then return existing end
+    local GSO = AltArmy.GuildShareOnboarding
+    local DS = AltArmy.DataStore
+    if not GSO or not GSO.BuildRealmCharEntries or not DS or not DS.GetCharacters then
+        return nil
+    end
+    local entries = GSO.BuildRealmCharEntries(DS:GetCharacters(realm) or {})
+    local top = entries[1]
+    if not top or not top.id then return nil end
+    GSS.SetMain(realm, top.id)
+    if not GSS.GetDisplayName(realm) then
+        GSS.SetDisplayName(realm, top.id)
+    end
+    return top.id
 end
 
 -- *** Main selection + display name (per realm) ***
@@ -183,6 +264,56 @@ function GSS.SetNonGuildedOptIn(name, realm, guild)
     local s = ensure()
     s.nonGuildedOptIn[realm] = s.nonGuildedOptIn[realm] or {}
     s.nonGuildedOptIn[realm][name] = guild
+end
+
+-- *** Per-character share mode (tri-state UI) ***
+
+GSS.CHARACTER_SHARE_MODE_LABELS = {
+    share = "Always share",
+    dont_share = "Never share",
+}
+
+function GSS.GetCharacterShareModeDefaultLabel()
+    if GSS.IsSharingEnabled() then
+        return "Use global setting (share)"
+    end
+    return "Use global setting (don't share)"
+end
+
+function GSS.GetCharacterShareModeEntries()
+    local labels = GSS.CHARACTER_SHARE_MODE_LABELS
+    return {
+        { id = "default", label = GSS.GetCharacterShareModeDefaultLabel() },
+        { id = "share", label = labels.share },
+        { id = "dont_share", label = labels.dont_share },
+    }
+end
+
+function GSS.GetCharacterShareMode(name, realm)
+    if GSS.IsCharacterOptedOut(name, realm) then
+        return "dont_share"
+    end
+    if GSS.IsNonGuildedOptedIn(name, realm) then
+        return "share"
+    end
+    return "default"
+end
+
+function GSS.SetCharacterShareMode(name, realm, mode)
+    realm = realm or currentRealm()
+    if mode == "share" then
+        GSS.SetCharacterOptedOut(name, realm, false)
+        local guild = currentGuild()
+        if guild then
+            GSS.SetNonGuildedOptIn(name, realm, guild)
+        end
+    elseif mode == "dont_share" then
+        GSS.SetCharacterOptedOut(name, realm, true)
+        GSS.SetNonGuildedOptIn(name, realm, nil)
+    else
+        GSS.SetCharacterOptedOut(name, realm, false)
+        GSS.SetNonGuildedOptIn(name, realm, nil)
+    end
 end
 
 -- *** Send-set resolvers ***
