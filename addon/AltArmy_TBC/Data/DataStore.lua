@@ -566,10 +566,14 @@ frame:SetScript("OnEvent", function(_, event, ...)
         local bagID = a1
         local numBagSlots = DS.NUM_BAG_SLOTS or 4
         local bankContainer = DS.BANK_CONTAINER or -1
+        local keyringContainer = DS.KEYRING_CONTAINER or -2
         local minBankBagId = DS.MIN_BANK_BAG_ID or 5
         local maxBankBagId = DS.MAX_BANK_BAG_ID or 11
         if type(bagID) == "number" then
             if bagID >= 0 and bagID <= numBagSlots then
+                if DS.ScanContainer then DS:ScanContainer(char, bagID) end
+                if DS.ScanBags then DS:ScanBags() end
+            elseif bagID == keyringContainer then
                 if DS.ScanContainer then DS:ScanContainer(char, bagID) end
                 if DS.ScanBags then DS:ScanBags() end
             elseif isBankOpen and (bagID == bankContainer or (bagID >= minBankBagId and bagID <= maxBankBagId)) then

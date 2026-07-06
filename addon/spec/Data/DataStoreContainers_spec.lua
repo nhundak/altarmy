@@ -93,6 +93,15 @@ describe("DataStoreContainers", function()
       }
       assert.are.equal(5, DS:GetBagItemCount(char, 100))
     end)
+    it("includes keyring container", function()
+      local char = {
+        Containers = {
+          [0] = { items = { [1] = { itemID = 100, count = 1 } } },
+          [-2] = { items = { [1] = { itemID = 100, count = 4 } } },
+        },
+      }
+      assert.are.equal(5, DS:GetBagItemCount(char, 100))
+    end)
   end)
 
   describe("IterateContainerSlots", function()
@@ -146,6 +155,7 @@ describe("DataStoreContainers", function()
         Containers = {
           [0] = { items = { [1] = { itemID = 100, count = 2 } }, links = { [1] = "link1" } },
           [-1] = { items = { [1] = { itemID = 200, count = 1 } }, links = { [1] = "bank" } },
+          [-2] = { items = { [1] = { itemID = 300, count = 1 } }, links = { [1] = "key" } },
         },
       }
       local calls = {}
@@ -153,10 +163,12 @@ describe("DataStoreContainers", function()
         table.insert(calls, { bagID = bagID, slot = slot, itemID = itemID, count = count, link = link })
         return false
       end)
-      assert.are.equal(1, #calls)
+      assert.are.equal(2, #calls)
       assert.are.equal(0, calls[1].bagID)
       assert.are.equal(100, calls[1].itemID)
       assert.are.equal("link1", calls[1].link)
+      assert.are.equal(-2, calls[2].bagID)
+      assert.are.equal(300, calls[2].itemID)
     end)
   end)
 
@@ -180,6 +192,35 @@ describe("DataStoreContainers", function()
       assert.are.equal("bank", calls[1].link)
       assert.are.equal(5, calls[2].bagID)
       assert.are.equal(300, calls[2].itemID)
+    end)
+  end)
+
+  describe("ScanBags keyring", function()
+    it("records keyring slots in char.Containers", function()
+      _G.UnitName = function() return "KeyringTest" end
+      _G.GetRealmName = function() return "TestRealm" end
+      _G.GetContainerNumSlots = function(bagID)
+        if bagID == 0 then return 16 end
+        if bagID == -2 then return 32 end
+        return 0
+      end
+      _G.GetContainerItemLink = function(bagID, slot)
+        if bagID == -2 and slot == 1 then return "|Hitem:12345:0|h[Test Key]|h" end
+        return nil
+      end
+      _G.GetContainerItemInfo = function(bagID, slot)
+        if bagID == -2 and slot == 1 then return "Test Key", 1 end
+        return nil
+      end
+      _G.time = function() return 12345 end
+
+      local char = DS:GetCurrentCharacter()
+      char.Containers = {}
+      DS:ScanBags()
+
+      assert.truthy(char.Containers[-2])
+      assert.are.equal(12345, char.Containers[-2].items[1].itemID)
+      assert.are.equal("|Hitem:12345:0|h[Test Key]|h", char.Containers[-2].links[1])
     end)
   end)
 

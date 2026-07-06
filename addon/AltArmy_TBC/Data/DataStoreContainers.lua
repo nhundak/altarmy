@@ -18,12 +18,21 @@ local NUM_BAG_SLOTS = NUM_BAG_SLOTS or 4
 local MIN_BANK_BAG_ID = 5
 local MAX_BANK_BAG_ID = 11
 local BANK_CONTAINER = -1
+local KEYRING_CONTAINER = -2
 local BACKPACK_FALLBACK_SLOTS = 16
 
 DS.NUM_BAG_SLOTS = NUM_BAG_SLOTS
 DS.BANK_CONTAINER = BANK_CONTAINER
+DS.KEYRING_CONTAINER = KEYRING_CONTAINER
 DS.MIN_BANK_BAG_ID = MIN_BANK_BAG_ID
 DS.MAX_BANK_BAG_ID = MAX_BANK_BAG_ID
+
+local function IsPlayerCarriedBagID(bagID)
+    if type(bagID) ~= "number" then return false end
+    if bagID == KEYRING_CONTAINER then return true end
+    return bagID >= 0 and bagID <= NUM_BAG_SLOTS
+end
+DS._IsPlayerCarriedBagID = IsPlayerCarriedBagID
 
 local function GetNumSlots(bagID)
     if C_Container and C_Container.GetContainerNumSlots then
@@ -94,6 +103,10 @@ function DS:ScanBags()
         if numSlots and numSlots > 0 then
             ScanContainer(char, bagID, numSlots)
         end
+    end
+    local keyringSlots = GetNumSlots(KEYRING_CONTAINER)
+    if keyringSlots and keyringSlots > 0 then
+        ScanContainer(char, KEYRING_CONTAINER, keyringSlots)
     end
     local totalSlots, freeSlots = 0, 0
     local getFree = (C_Container and C_Container.GetContainerNumFreeSlots) or GetContainerNumFreeSlots
@@ -191,9 +204,8 @@ end
 function DS:GetBagItemCount(char, itemID)
     if not char or not char.Containers or not itemID then return 0 end
     local total = 0
-    local maxBagId = self.NUM_BAG_SLOTS or NUM_BAG_SLOTS or 4
     for bagID, bag in pairs(char.Containers) do
-        if type(bagID) == "number" and bagID >= 0 and bagID <= maxBagId then
+        if IsPlayerCarriedBagID(tonumber(bagID)) then
             if bag and bag.items then
                 for _, slotData in pairs(bag.items) do
                     if slotData and slotData.itemID == itemID then
@@ -234,10 +246,9 @@ end
 
 function DS:IterateBagSlots(char, callback)
     if not char or not char.Containers or not callback then return end
-    local maxBagId = self.NUM_BAG_SLOTS or NUM_BAG_SLOTS or 4
     for bagID, bag in pairs(char.Containers) do
         bagID = tonumber(bagID)
-        if bagID and bagID >= 0 and bagID <= maxBagId then
+        if bagID and IsPlayerCarriedBagID(bagID) then
             if bag and bag.items then
                 for slot, slotData in pairs(bag.items) do
                     if slotData and slotData.itemID then

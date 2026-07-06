@@ -5,6 +5,7 @@ AltArmy.SearchData = AltArmy.SearchData or {}
 
 local SD = AltArmy.SearchData
 local BANK_CONTAINER = -1
+local KEYRING_CONTAINER = -2
 local MIN_BANK_BAG_ID = 5
 local MAX_BANK_BAG_ID = 11
 
@@ -94,8 +95,11 @@ end)
 -- info to every tooltip). Only Blizzard's native tooltip lines are populated here.
 local _scanTooltip = CreateFrame("GameTooltip", "AltArmyTBC_ScanTooltip", UIParent, "GameTooltipTemplate")
 
---- Determine location string from bagID: "bag" for 0-4, "bank" for -1 or 5-11.
+--- Determine location string from bagID: "bag" for 0-4, "keyring" for -2, "bank" for -1 or 5-11.
 local function LocationFromBagID(bagID)
+    if bagID == KEYRING_CONTAINER then
+        return "keyring"
+    end
     if bagID == BANK_CONTAINER or (bagID >= MIN_BANK_BAG_ID and bagID <= MAX_BANK_BAG_ID) then
         return "bank"
     end
@@ -105,9 +109,10 @@ SD._LocationFromBagID = LocationFromBagID
 
 local function LocationSortKey(location)
     if location == "bag" then return 1 end
-    if location == "bank" then return 2 end
-    if location == "equipped" then return 3 end
-    if location == "mail" then return 4 end
+    if location == "keyring" then return 2 end
+    if location == "bank" then return 3 end
+    if location == "equipped" then return 4 end
+    if location == "mail" then return 5 end
     return 99
 end
 SD._LocationSortKey = LocationSortKey
