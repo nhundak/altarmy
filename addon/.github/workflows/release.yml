@@ -1,5 +1,6 @@
 # CurseForge Release — build addon zip and upload via API
-# Requires: CURSEFORGE_API_TOKEN (secret), CURSEFORGE_PROJECT_ID, CURSEFORGE_DISPLAY_NAME, CURSEFORGE_GAME_VERSIONS (vars)
+# Requires: CURSEFORGE_API_TOKEN (secret), CURSEFORGE_PROJECT_ID, CURSEFORGE_DISPLAY_NAME
+# CURSEFORGE_GAME_VERSIONS: CurseForge game version ID for TBC Classic 2.5.6 (Interface 20506)
 
 name: CurseForge Release
 
@@ -20,6 +21,7 @@ on:
 
 env:
   CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
+  CURSEFORGE_GAME_VERSIONS: "16533"
 
 jobs:
   release:
@@ -74,7 +76,7 @@ jobs:
             echo "See repository for changes." > CHANGELOG.txt
             CHANGELOG_FILE="CHANGELOG.txt"
           fi
-          GAME_VERSIONS_JSON=$(echo "${{ vars.CURSEFORGE_GAME_VERSIONS }}" | jq -R 'split(",") | map(gsub(" "; "") | tonumber)')
+          GAME_VERSIONS_JSON=$(echo "$CURSEFORGE_GAME_VERSIONS" | jq -R 'split(",") | map(gsub(" "; "") | tonumber)')
           API_URL="https://wow.curseforge.com/api/projects/${{ vars.CURSEFORGE_PROJECT_ID }}/upload-file"
           echo "Uploading to: $API_URL"
           METADATA=$(jq -n \

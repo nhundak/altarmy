@@ -16,7 +16,7 @@ This plan covers two ways to deploy: **CurseForge webhook (simplest)** and **Git
    - Save it securely; you’ll use it in GitHub (secret or webhook URL).
 
 3. **Game version**
-   - Your TOC uses `## Interface: 20502` (TBC Classic). Use the matching **Game Version** ID(s) from CurseForge — see **Where to get game version IDs** below.
+   - Your TOC uses `## Interface: 20506` (TBC Classic 2.5.6). Use the matching **Game Version** ID(s) from CurseForge — see **Where to get game version IDs** below.
 
 ---
 
@@ -35,7 +35,7 @@ CurseForge’s website doesn’t show numeric version IDs when you upload a file
 
    That returns JSON: an array of objects with `id`, `name`, `slug`, and sometimes `gameVersionTypeID`. Each object is one selectable “game version” (e.g. a WoW or WoW Classic patch).
 
-3. Find the row(s) that match **TBC Classic** (or “Burning Crusade Classic” / whatever CurseForge calls it for Interface 20502). Use the **`id`** value(s).
+3. Find the row(s) that match **TBC Classic** (or “Burning Crusade Classic” / whatever CurseForge calls it for Interface 20506). Use the **`id`** value(s).
 4. For **CURSEFORGE_GAME_VERSIONS** in GitHub, enter those IDs as a comma-separated list, e.g. `1234,5678` (no spaces, or spaces are fine — the workflow trims them).
 
 **Optional — pretty-print to find TBC:**  
@@ -103,7 +103,7 @@ You build the zip in GitHub Actions and upload it via the CurseForge upload API.
    - **Variables (same place):**
      - `CURSEFORGE_PROJECT_ID`: CurseForge project ID.
      - `CURSEFORGE_DISPLAY_NAME`: e.g. `AltArmy TBC` (used in “display name” of the file).
-     - `CURSEFORGE_GAME_VERSIONS`: comma-separated list of CurseForge game version IDs for TBC Classic (e.g. `1234,5678` — get IDs from CurseForge).
+     - `CURSEFORGE_GAME_VERSIONS`: comma-separated list of CurseForge game version IDs for TBC Classic (e.g. `16533` for 2.5.6 — get IDs from CurseForge). Set in `.github/workflows/release.yml` `env`.
 
 2. **Add workflow file**
    - Create `.github/workflows/release.yml` (or `curseforge-release.yml`).
@@ -142,8 +142,7 @@ The workflow **`.github/workflows/release.yml`** is in place. Do the following t
    - **New repository secret:** Name `CURSEFORGE_API_TOKEN`, value = your CurseForge API token.
    - **New repository variable:** Name `CURSEFORGE_PROJECT_ID`, value = CurseForge project ID (numeric).
    - **New repository variable:** Name `CURSEFORGE_DISPLAY_NAME`, value = e.g. `AltArmy TBC` (used as the file display name).
-   - **New repository variable:** Name **exactly** `CURSEFORGE_GAME_VERSIONS` (no commas or spaces in the name). Value = comma-separated game version IDs, e.g. `8660` or `8660,8924,9049,14300`.  
-     GitHub only allows letters, numbers, and underscores in secret/variable **names**; the comma-separated list is the **value**. See **Where to get game version IDs** above for how to get the IDs.
+   - **Workflow env:** In `.github/workflows/release.yml`, set `CURSEFORGE_GAME_VERSIONS` to the CurseForge game version ID for the current TBC patch (e.g. `16533` for 2.5.6). See **Where to get game version IDs** above for how to get the IDs.
 
 2. **Optional:** Add **`CHANGELOG.txt`** in the repo root. If present, its contents are sent as the file changelog; otherwise the workflow uses *"See repository for changes."*.
 
@@ -167,7 +166,7 @@ The workflow **`.github/workflows/release.yml`** is in place. Do the following t
 
 - [ ] CurseForge project created; Project ID noted.
 - [ ] CurseForge API token created and stored safely.
-- [ ] Game version ID(s) for TBC Classic (Interface 20502) noted from CurseForge.
+- [ ] Game version ID(s) for TBC Classic (Interface 20506) noted from CurseForge.
 - [ ] **Option A:** `pkgmeta.yaml` added; webhook added on GitHub; test push/tag.
 - [x] **Option B:** `.github/workflows/release.yml` added (zip includes only `AltArmy_TBC/`).
 - [ ] **Option B:** Secrets and variables set in GitHub; run workflow once (e.g. manually) to verify.
