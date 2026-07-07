@@ -23,6 +23,7 @@ local MUTED_TEXT_COLOR = { 0.75, 0.75, 0.75, 1 }
 GSO.SHARED_HEADING = "What is shared:"
 GSO.SHARED_BULLET = "• Character names, levels, classes, professions, and recipes"
 GSO.NOT_SHARED_HEADING = "What is not shared:"
+GSO.NOT_SHARED_LIST = "Everything else: gear, inventory, gold, playtime, cooldowns, favorite ice cream, etc"
 GSO.NOT_SHARED_BULLET = "• Everything else"
 GSO.NOT_SHARED_EXAMPLE =
     "Eg, no gear, inventory, gold, playtime, cooldowns, or favorite ice cream"
@@ -33,6 +34,8 @@ function GSO.GetSharingDisclosureTooltip()
         lines = {
             { text = GSO.SHARED_HEADING, heading = true },
             { text = "Character names, levels, classes, professions, and recipes" },
+            { text = GSO.NOT_SHARED_HEADING, heading = true },
+            { text = GSO.NOT_SHARED_LIST },
             { text = "Who it is shared with:", heading = true },
             {
                 text = "Characters in a guild are shared with that guild."

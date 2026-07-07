@@ -465,6 +465,9 @@ local debugGuildShareRow = Theme.CreateLabeledCheckbox(tabDebug, {
         if AltArmy.UpdateGuildTabVisibility then
             AltArmy.UpdateGuildTabVisibility()
         end
+        if AltArmy.RefreshSearchCategoryBar then
+            AltArmy.RefreshSearchCategoryBar()
+        end
         if panel.RefreshGuildSharingControls then
             panel.RefreshGuildSharingControls()
         end
@@ -719,7 +722,7 @@ local guildShareEnableRow = Theme.CreateLabeledCheckbox(guildShareEnableColumn, 
     relativePoint = "TOPLEFT",
     x = 0,
     y = 0,
-    text = "Share my characters with their guild",
+    text = "Share my characters with my guild",
     fullWidthHover = true,
     rightInset = 0,
     onClick = function(checked)
@@ -731,6 +734,7 @@ local guildShareEnableRow = Theme.CreateLabeledCheckbox(guildShareEnableColumn, 
             end
         end
         if AltArmy.RefreshGuildTab then AltArmy.RefreshGuildTab() end
+        if AltArmy.RefreshSearchCategoryBar then AltArmy.RefreshSearchCategoryBar() end
         if refreshGuildSharingDependentControls then refreshGuildSharingDependentControls() end
         if panel.RefreshCharGuildShareDropdown then panel.RefreshCharGuildShareDropdown() end
         local Comm = AltArmy.GuildShareComm

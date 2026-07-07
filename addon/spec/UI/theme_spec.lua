@@ -852,6 +852,47 @@ describe("AltArmy.Theme", function()
         end)
     end)
 
+    describe("EditBox placeholder helpers", function()
+        local function makeStubEditBox()
+            local box = makeStubFrame()
+            box._text = ""
+            box._focused = false
+            function box:GetText() return self._text end
+            function box:SetText(text) self._text = text or "" end
+            function box:HasFocus() return self._focused end
+            function box:SetFocus() self._focused = true end
+            function box:ClearFocus() self._focused = false end
+            return box
+        end
+
+        it("shows the fallback hint when the field is empty, even while focused", function()
+            local box = makeStubEditBox()
+            Theme.SetupEditBoxPlaceholder(box, "Search here")
+            box:SetFocus()
+            Theme.UpdateEditBoxPlaceholderVisibility(box)
+            assert.is_true(box.altArmyPlaceholderHint:IsShown())
+        end)
+
+        it("hides the fallback hint when the field has text", function()
+            local box = makeStubEditBox()
+            Theme.SetupEditBoxPlaceholder(box, "Search here")
+            box:SetText("abc")
+            Theme.UpdateEditBoxPlaceholderVisibility(box)
+            assert.is_false(box.altArmyPlaceholderHint:IsShown())
+        end)
+
+        it("restores the fallback hint after ClearEditBoxText", function()
+            local box = makeStubEditBox()
+            Theme.SetupEditBoxPlaceholder(box, "Search here")
+            box:SetText("abc")
+            box:SetFocus()
+            Theme.ClearEditBoxText(box)
+            assert.are.equal("", box:GetText())
+            assert.is_false(box:HasFocus())
+            assert.is_true(box.altArmyPlaceholderHint:IsShown())
+        end)
+    end)
+
     describe("CreateLabeledCheckbox", function()
         it("uses character-list checkbox size and hover region", function()
             local parent = makeStubFrame()

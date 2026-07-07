@@ -27,6 +27,9 @@ if not SD or not SD.SearchWithLocationGroups or not SD.SearchRecipes then
     return
 end
 
+local GTD = AltArmy.GuildTabData
+local RF = AltArmy.RealmFilter
+
 local function GlobalRealmFilterValue()
     local G = AltArmy.GlobalRealmFilter
     if G and G.Get then
@@ -129,10 +132,35 @@ local function SetItemCellTruncated(cell, itemName, countSuffix, iconPrefix, max
         TruncateFontString(cell, itemName, maxTotalWidth, {
             prefix = iconPrefix or "",
             suffix = countSuffix,
+            preserveColorCodes = itemName:find("|c", 1, true) ~= nil,
         })
     else
         cell:SetText((iconPrefix or "") .. itemName .. countSuffix)
     end
+end
+
+local function buildCharacterNamePart(entry, showRealmSuffix)
+    local name = entry.characterName or ""
+    if RF and RF.formatColoredCharacterNameRealm then
+        return RF.formatColoredCharacterNameRealm(name, entry.realm, showRealmSuffix, entry.classFile)
+    end
+    local r, g, b = 1, 0.82, 0
+    if CC and CC.getRGBOr then
+        r, g, b = CC.getRGBOr(entry.classFile, r, g, b)
+    end
+    return CC and CC.formatHex and CC.formatHex(r, g, b, name)
+        or string.format(
+            "|cFF%02x%02x%02x%s|r",
+            math.floor(r * 255), math.floor(g * 255), math.floor(b * 255),
+            name
+        )
+end
+
+local function maybeHighlightSearchText(text, highlightSearch, query)
+    if highlightSearch and query and query ~= "" and GTD and GTD.FormatTextWithSearchHighlight then
+        return GTD.FormatTextWithSearchHighlight(text, nil, query)
+    end
+    return text
 end
 
 -- Main tab content: bordered panel (same styling as settings panel).
@@ -333,7 +361,6 @@ local tooltipChunkState = nil
 local tooltipChunkGeneration = 0
 
 local function ApplyTooltipOnlyRealmFilter(rows)
-    local RF = AltArmy.RealmFilter
     local currentRealm = (GetRealmName and GetRealmName()) or ""
     if RF and RF.filterListByRealm then
         return RF.filterListByRealm(rows or {}, GlobalRealmFilterValue(), currentRealm)
@@ -627,12 +654,16 @@ local function createRecipeRow()
     return row
 end
 
-local function fillItemRow(row, entry, showRealmSuffix)
+local function fillItemRow(row, entry, showRealmSuffix, rowOpts)
     if not row or not entry then return end
+    rowOpts = rowOpts or {}
+    local highlightSearch = rowOpts.highlightSearch ~= false
+    local searchQuery = rowOpts.searchQuery
     row.entry = entry
     local count = entry.count or 1
     local itemText = (entry.itemName and entry.itemName ~= "") and entry.itemName
         or ("Item " .. (entry.itemID or ""))
+    itemText = maybeHighlightSearchText(itemText, highlightSearch, searchQuery)
     local countSuffix = " x" .. tostring(count)
     local iconPrefix = ""
     if entry.itemLink and GetItemInfo and GetItemInfo(entry.itemLink) then
@@ -645,35 +676,17 @@ local function fillItemRow(row, entry, showRealmSuffix)
         or (entry.location == "equipped" and "Equipped")
         or (entry.location == "keyring" and "Keyring")
         or "Bags"
-    local name = entry.characterName or ""
-    local RF = AltArmy.RealmFilter
-    local namePart
-    if RF and RF.formatColoredCharacterNameRealm then
-        namePart = RF.formatColoredCharacterNameRealm(
-            name,
-            entry.realm,
-            showRealmSuffix,
-            entry.classFile
-        )
-    else
-        local r, g, b = 1, 0.82, 0
-        if CC and CC.getRGBOr then
-            r, g, b = CC.getRGBOr(entry.classFile, r, g, b)
-        end
-        namePart = CC and CC.formatHex and CC.formatHex(r, g, b, name)
-            or string.format(
-                "|cFF%02x%02x%02x%s|r",
-                math.floor(r * 255), math.floor(g * 255), math.floor(b * 255),
-                name
-            )
-    end
+    local namePart = buildCharacterNamePart(entry, showRealmSuffix)
     local suffixText = "|cffffffff (" .. locLabel .. ")|r"
     SetCharacterCellTruncated(row.cells.Character, namePart, suffixText, colWidths.Character or 160)
     row.cells.Total:SetText("")
 end
 
-local function fillRecipeRow(row, entry, showRealmSuffix)
+local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
     if not row or not entry then return end
+    rowOpts = rowOpts or {}
+    local highlightSearch = rowOpts.highlightSearch ~= false
+    local searchQuery = rowOpts.searchQuery
     row.entry = entry
     local recipeName = "Recipe " .. tostring(entry.recipeID or "?")
     local iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -701,26 +714,11 @@ local function fillRecipeRow(row, entry, showRealmSuffix)
     if profName ~= "" then
         recipeName = profName .. ": " .. recipeName
     end
+    recipeName = maybeHighlightSearchText(recipeName, highlightSearch, searchQuery)
     local iconPrefix = ("|T%s:0|t "):format(iconPath)
     SetItemCellTruncated(row.cells.Recipe, recipeName, "", iconPrefix, recipeColWidths.Recipe or 325)
-    local name = entry.characterName or ""
-    local RF = AltArmy.RealmFilter
-    local namePart
-    if RF and RF.formatColoredCharacterNameRealm then
-        namePart = RF.formatColoredCharacterNameRealm(name, entry.realm, showRealmSuffix, entry.classFile)
-    else
-        local r, g, b = 1, 0.82, 0
-        if CC and CC.getRGBOr then
-            r, g, b = CC.getRGBOr(entry.classFile, r, g, b)
-        end
-        namePart = CC and CC.formatHex and CC.formatHex(r, g, b, name)
-            or string.format(
-                "|cFF%02x%02x%02x%s|r",
-                math.floor(r * 255), math.floor(g * 255), math.floor(b * 255),
-                name
-            )
-    end
-    local charSuffix = entry.isGuild and "|cff8ab4f8 (guild)|r" or nil
+    local namePart = buildCharacterNamePart(entry, showRealmSuffix)
+    local charSuffix = entry.isGuild and "|cff8ab4f8 (Guild)|r" or nil
     SetCharacterCellTruncated(row.cells.Character, namePart, charSuffix, recipeColWidths.Character or 160)
     local RCL = AltArmy and AltArmy.RecipeCraftLib
     local skillText
@@ -810,6 +808,9 @@ UpdateVisibleRows = function()
     local scrollValue = searchScrollBar and searchScrollBar:GetValue() or 0
     local viewHeight = scrollFrame:GetHeight()
     local itemsSectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
+    local searchQuery = frame.lastQuery or ""
+    local highlightRowOpts = { searchQuery = searchQuery, highlightSearch = true }
+    local tooltipOnlyRowOpts = { highlightSearch = false }
 
     -- Items: visible range and render range (with buffer)
     if nItems > 0 then
@@ -837,7 +838,7 @@ UpdateVisibleRows = function()
                 row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
                 row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
                 row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - ROW_HEIGHT)
-                fillItemRow(row, entry, showRealmSuffix)
+                fillItemRow(row, entry, showRealmSuffix, highlightRowOpts)
                 row:Show()
                 row.dataIndex = dataIndex
             else
@@ -927,7 +928,7 @@ UpdateVisibleRows = function()
                 row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
                 row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
                 row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - ROW_HEIGHT)
-                fillRecipeRow(row, entry, showRealmSuffix)
+                fillRecipeRow(row, entry, showRealmSuffix, highlightRowOpts)
                 row:Show()
             else
                 row:Hide()
@@ -978,7 +979,7 @@ UpdateVisibleRows = function()
                 row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
                 row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
                 row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - ROW_HEIGHT)
-                fillItemRow(row, entry, showRealmSuffix)
+                fillItemRow(row, entry, showRealmSuffix, tooltipOnlyRowOpts)
                 row:Show()
                 row.dataIndex = dataIndex
             else
@@ -1168,6 +1169,7 @@ function frame.DoSearch()
         query = searchEdit:GetText()
     end
     if query and query:match("^%s*$") then query = "" end
+    frame.lastQuery = query or ""
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     if categories.Items and query ~= "" then
         -- Skip tooltip scan for the immediate response; tooltip results arrive after debounce.
@@ -1179,7 +1181,6 @@ function frame.DoSearch()
         tooltipOnlyItemList = {}
     end
     recipeList = (categories.Recipes and query ~= "") and (SD.SearchRecipes(query) or {}) or {}
-    local RF = AltArmy.RealmFilter
     local currentRealm = (GetRealmName and GetRealmName()) or ""
     if RF and RF.filterListByRealm then
         local rf = GlobalRealmFilterValue()
@@ -1213,7 +1214,6 @@ function frame.SearchWithQuery(_self, query)
         end
         recipeList = categories.Recipes and (SD.SearchRecipes(q) or {}) or {}
     end
-    local RF = AltArmy.RealmFilter
     local currentRealm = (GetRealmName and GetRealmName()) or ""
     if RF and RF.filterListByRealm then
         local rf = GlobalRealmFilterValue()
@@ -1294,35 +1294,6 @@ local function RerunSearchIfActive()
     end
     if AltArmy and AltArmy.UpdateSearchSettingsButtonGlow then
         AltArmy.UpdateSearchSettingsButtonGlow()
-    end
-end
-
--- "Include guildmates" toggle: only meaningful when the guildShare feature flag is on.
--- Anchored to the bottom of the settings panel so it never disturbs the top-anchored filters.
-local includeGuildRow
-if SS and SS.IsIncludeGuildmatesEnabled then
-    includeGuildRow = Theme.CreateLabeledCheckbox(settingsContent, {
-        text = "Include guildmates",
-        point = "BOTTOMLEFT",
-        relativeTo = settingsContent,
-        relativePoint = "BOTTOMLEFT",
-        x = 0,
-        y = 0,
-        onClick = function(checked)
-            SS.SetIncludeGuildmatesEnabled(checked)
-            RerunSearchIfActive()
-        end,
-    })
-    includeGuildRow:Hide()
-end
-
-local function RefreshIncludeGuildRow()
-    if not includeGuildRow then return end
-    local D = AltArmy.Debug
-    local flagOn = D and D.IsGuildShareEnabled and D.IsGuildShareEnabled()
-    includeGuildRow:SetShown(flagOn and true or false)
-    if flagOn and includeGuildRow.check then
-        includeGuildRow.check:SetChecked(SS.IsIncludeGuildmatesEnabled())
     end
 end
 
@@ -1761,91 +1732,11 @@ settingsPanel:HookScript("OnHide", function()
     CloseCraftFilterDropdowns()
 end)
 
-local CALLOUT_PAD = 8
-local CRAFTLIB_URL = "https://www.curseforge.com/wow/addons/craftlib"
-local craftLibCallout = CreateFrame("Frame", nil, filterContent, "BackdropTemplate")
-Theme.ApplyBackdrop(craftLibCallout, "section")
+local craftLibCallout = Theme.CreateCraftLibInstallCallout(filterContent, {
+    bodyText = "Alt Army can do more advanced recipe filtering if you install the CraftLib addon",
+})
 craftLibCallout:SetPoint("TOPLEFT", professionDropdownBtn, "BOTTOMLEFT", 0, -FILTER_SECTION_GAP)
 craftLibCallout:SetPoint("TOPRIGHT", filterContent, "TOPRIGHT", 0, 0)
-craftLibCallout:SetHeight(132)
-
-local craftLibCalloutInner = Theme.CreatePanelInnerContent(craftLibCallout, CALLOUT_PAD)
-
-local craftLibNoticeIcon = craftLibCallout:CreateTexture(nil, "ARTWORK")
-craftLibNoticeIcon:SetSize(24, 24)
-craftLibNoticeIcon:SetPoint("TOPLEFT", craftLibCalloutInner, "TOPLEFT", 0, 0)
-craftLibNoticeIcon:SetTexture("Interface\\AddOns\\AltArmy_TBC\\Textures\\CraftLibIcon")
-
-local craftLibNoticeTitle = craftLibCallout:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-craftLibNoticeTitle:SetPoint("LEFT", craftLibNoticeIcon, "RIGHT", 8, 0)
-craftLibNoticeTitle:SetPoint("TOP", craftLibNoticeIcon, "TOP", 0, -2)
-craftLibNoticeTitle:SetPoint("RIGHT", craftLibCalloutInner, "RIGHT", 0, 0)
-craftLibNoticeTitle:SetJustifyH("LEFT")
-craftLibNoticeTitle:SetText("CraftLib")
-Theme.SetTitleColor(craftLibNoticeTitle)
-
-local craftLibNoticeBody = craftLibCallout:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-craftLibNoticeBody:SetPoint("TOPLEFT", craftLibNoticeIcon, "BOTTOMLEFT", 0, -8)
-craftLibNoticeBody:SetPoint("RIGHT", craftLibCalloutInner, "RIGHT", 0, 0)
-craftLibNoticeBody:SetJustifyH("LEFT")
-craftLibNoticeBody:SetWordWrap(true)
-Theme.SetLabelColor(craftLibNoticeBody)
-craftLibNoticeBody:SetText(
-    "Alt Army can do more advanced recipe filtering if you install the CraftLib addon"
-)
-
-local craftLibInstallLabel = craftLibCallout:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-craftLibInstallLabel:SetPoint("TOPLEFT", craftLibNoticeBody, "BOTTOMLEFT", 0, -10)
-craftLibInstallLabel:SetJustifyH("LEFT")
-craftLibInstallLabel:SetText("Install from CurseForge")
-Theme.SetLabelColor(craftLibInstallLabel)
-
-local craftLibUrlEdit = CreateFrame("EditBox", nil, craftLibCallout)
-craftLibUrlEdit:SetHeight(SETTINGS_ROW_HEIGHT)
-craftLibUrlEdit:SetPoint("TOPLEFT", craftLibInstallLabel, "BOTTOMLEFT", 0, -4)
-craftLibUrlEdit:SetPoint("RIGHT", craftLibCalloutInner, "RIGHT", 0, 0)
-craftLibUrlEdit:SetFontObject("GameFontHighlightSmall")
-craftLibUrlEdit:SetAutoFocus(false)
-craftLibUrlEdit:SetTextInsets(4, 4, 0, 0)
-craftLibUrlEdit:SetText(CRAFTLIB_URL)
-Theme.ApplyInputTextures(craftLibUrlEdit)
-craftLibUrlEdit:SetScript("OnEditFocusGained", function(box)
-    box:HighlightText()
-end)
-craftLibUrlEdit:SetScript("OnEditFocusLost", function(box)
-    box:HighlightText(0, 0)
-end)
-craftLibUrlEdit:SetScript("OnMouseUp", function(box)
-    box:SetFocus()
-    box:HighlightText()
-end)
-craftLibUrlEdit:SetScript("OnEscapePressed", function(box)
-    box:ClearFocus()
-end)
-craftLibUrlEdit:SetScript("OnEnterPressed", function(box)
-    box:ClearFocus()
-end)
-craftLibUrlEdit:SetScript("OnChar", function() end)
-craftLibUrlEdit:SetScript("OnTextChanged", function(box)
-    if box:GetText() ~= CRAFTLIB_URL then
-        box:SetText(CRAFTLIB_URL)
-    end
-end)
-
-local function SelectCraftLibUrlText()
-    if not craftLibUrlEdit or not craftLibUrlEdit.HighlightText then
-        return
-    end
-    craftLibUrlEdit:SetFocus()
-    craftLibUrlEdit:HighlightText()
-end
-
-craftLibCallout:SetScript("OnShow", function(self)
-    self:SetScript("OnUpdate", function(f)
-        f:SetScript("OnUpdate", nil)
-        SelectCraftLibUrlText()
-    end)
-end)
 
 local function SetCraftFilterWidgetsShown(shown)
     for i = 1, #craftFilterWidgets do
@@ -1906,7 +1797,6 @@ local function RefreshSearchSettingsControls()
         CloseCraftFilterDropdowns()
         craftLibCallout:Show()
     end
-    RefreshIncludeGuildRow()
 end
 
 RefreshSearchSettingsControls()

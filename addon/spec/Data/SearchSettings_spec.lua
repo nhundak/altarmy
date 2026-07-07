@@ -34,6 +34,20 @@ describe("SearchSettings", function()
     assert.is_true(SS.IsIncludeGuildmatesEnabled())
   end)
 
+  it("treats WoW checkbox GetChecked() value 1 as enabled", function()
+    SS.SetIncludeGuildmatesEnabled(1)
+    assert.is_true(SS.IsIncludeGuildmatesEnabled())
+    SS.SetIncludeGuildmatesEnabled(nil)
+    assert.is_false(SS.IsIncludeGuildmatesEnabled())
+  end)
+
+  it("ShouldShowIncludeGuildmatesToggle requires flag, guilded characters, and sharing", function()
+    assert.is_false(SS.ShouldShowIncludeGuildmatesToggle(false, true, true))
+    assert.is_false(SS.ShouldShowIncludeGuildmatesToggle(true, false, true))
+    assert.is_false(SS.ShouldShowIncludeGuildmatesToggle(true, true, false))
+    assert.is_true(SS.ShouldShowIncludeGuildmatesToggle(true, true, true))
+  end)
+
   it("clamps min and max to 0-375", function()
     _G.AltArmyTBC_SearchSettings = {
       recipeLevelFilter = { min = -5, max = 999 },

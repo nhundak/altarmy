@@ -600,6 +600,7 @@ describe("SearchData", function()
         GetProfessions = DS.GetProfessions,
         GetCharacterName = DS.GetCharacterName,
         GetCharacterClass = DS.GetCharacterClass,
+        ForEachCharacter = DS.ForEachCharacter,
       }
       -- No local characters, so any results come purely from guild data.
       DS.GetRealms = function() return {} end
@@ -624,12 +625,25 @@ describe("SearchData", function()
       }
       AltArmy.Debug.SetGuildShareEnabled(true)
       AltArmy.SearchSettings.SetIncludeGuildmatesEnabled(true)
+      package.loaded["GuildShareSettings"] = nil
+      package.loaded["GuildTabData"] = nil
+      require("GuildShareSettings")
+      require("GuildTabData")
+      AltArmy.GuildShareSettings.SetSharingEnabled(true)
+      AltArmy.DataStore.ForEachCharacter = function(_, fn)
+        fn("R", "Local", { guildName = "G" })
+      end
       SD.NotifyRecipesChanged()
     end)
 
     after_each(function()
-      for k, v in pairs(restore) do DS[k] = v end
+      for k, v in pairs(restore) do
+        if v ~= nil then DS[k] = v end
+      end
       AltArmy.Debug.SetGuildShareEnabled(false)
+      if AltArmy.GuildShareSettings and AltArmy.GuildShareSettings.SetSharingEnabled then
+        AltArmy.GuildShareSettings.SetSharingEnabled(false)
+      end
       _G.AltArmyTBC_GuildData = nil
       SD.NotifyRecipesChanged()
     end)
@@ -651,10 +665,17 @@ describe("SearchData", function()
     end)
 
     it("excludes guild recipes when the include-guildmates toggle is off", function()
+      assert.are.equal(2, #SD.GetAllRecipes())
       AltArmy.SearchSettings.SetIncludeGuildmatesEnabled(false)
-      SD.NotifyRecipesChanged()
       assert.are.equal(0, #SD.GetAllRecipes())
       AltArmy.SearchSettings.SetIncludeGuildmatesEnabled(true)
+      assert.are.equal(2, #SD.GetAllRecipes())
+    end)
+
+    it("excludes guild recipes when guild sharing is disabled", function()
+      AltArmy.GuildShareSettings.SetSharingEnabled(false)
+      SD.NotifyRecipesChanged()
+      assert.are.equal(0, #SD.GetAllRecipes())
     end)
   end)
 

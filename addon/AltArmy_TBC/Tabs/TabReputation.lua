@@ -287,44 +287,21 @@ end
 Theme.ApplyInputTextures(factionFilterEdit)
 
 local FACTION_FILTER_PLACEHOLDER = "Filter faction"
-if factionFilterEdit.SetPlaceholderText then
-    factionFilterEdit:SetPlaceholderText(FACTION_FILTER_PLACEHOLDER)
-else
-    local factionFilterHint = factionFilterEdit:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    factionFilterHint:SetPoint("LEFT", factionFilterEdit, "LEFT", 4, 0)
-    factionFilterHint:SetPoint("RIGHT", factionFilterEdit, "RIGHT", -4, 0)
-    factionFilterHint:SetJustifyH("LEFT")
-    factionFilterHint:SetText(FACTION_FILTER_PLACEHOLDER)
-    factionFilterHint:SetTextColor(0.5, 0.5, 0.5, 1)
-    factionFilterEdit.factionFilterHint = factionFilterHint
-end
+Theme.SetupEditBoxPlaceholder(factionFilterEdit, FACTION_FILTER_PLACEHOLDER, { leftInset = 4, rightInset = 4 })
 
-local function updateFactionFilterPlaceholderVisibility()
-    local hint = factionFilterEdit.factionFilterHint
-    if not hint then return end
-    local text = factionFilterEdit:GetText()
-    local trimmed = text and text:match("^%s*(.-)%s*$") or ""
-    local hasFocus = factionFilterEdit:HasFocus()
-    if trimmed == "" and not hasFocus then
-        hint:Show()
-    else
-        hint:Hide()
-    end
-end
-
-factionFilterEdit:SetScript("OnTextChanged", function()
-    updateFactionFilterPlaceholderVisibility()
+Theme.BindEditBoxPlaceholderHandlers(factionFilterEdit, function()
     if frame.RefreshGrid then
         frame:RefreshGrid()
     end
 end)
-factionFilterEdit:SetScript("OnEditFocusGained", updateFactionFilterPlaceholderVisibility)
-factionFilterEdit:SetScript("OnEditFocusLost", updateFactionFilterPlaceholderVisibility)
 factionFilterEdit:SetScript("OnEnterPressed", function(box)
     box:ClearFocus()
 end)
 factionFilterEdit:SetScript("OnEscapePressed", function(box)
-    box:ClearFocus()
+    Theme.ClearEditBoxText(box)
+    if frame.RefreshGrid then
+        frame:RefreshGrid()
+    end
 end)
 
 -- Sorting row controls (provider selector + sort-direction) in the bottom band of the corner.

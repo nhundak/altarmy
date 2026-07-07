@@ -114,8 +114,41 @@ function SS.IsIncludeGuildmatesEnabled()
     return SS.GetSearchSettings().includeGuildmates == true
 end
 
+local function isCheckboxChecked(on)
+    return on == true or on == 1
+end
+
 function SS.SetIncludeGuildmatesEnabled(on)
-    SS.GetSearchSettings().includeGuildmates = on == true
+    SS.GetSearchSettings().includeGuildmates = isCheckboxChecked(on)
+    local SD = AltArmy and AltArmy.SearchData
+    if SD and SD.NotifyRecipesChanged then
+        SD.NotifyRecipesChanged()
+    end
+end
+
+--- Whether the search-mode "Include guildmates" checkbox should be shown.
+function SS.ShouldShowIncludeGuildmatesToggle(guildShareFlagOn, hasGuildedCharacters, sharingEnabled)
+    if not guildShareFlagOn then return false end
+    if not hasGuildedCharacters then return false end
+    if not sharingEnabled then return false end
+    return true
+end
+
+--- Live evaluation using current addon state (UI visibility + guild recipe eligibility).
+function SS.CanShowIncludeGuildmatesToggle()
+    local D = AltArmy and AltArmy.Debug
+    local flagOn = D and D.IsGuildShareEnabled and D.IsGuildShareEnabled() or false
+    local hasGuild = false
+    local GTD = AltArmy and AltArmy.GuildTabData
+    if GTD and GTD.CollectAccountGuilds then
+        hasGuild = #(GTD.CollectAccountGuilds()) > 0
+    end
+    local sharingOn = false
+    local GSS = AltArmy and AltArmy.GuildShareSettings
+    if GSS and GSS.IsSharingEnabled then
+        sharingOn = GSS.IsSharingEnabled()
+    end
+    return SS.ShouldShowIncludeGuildmatesToggle(flagOn, hasGuild, sharingOn)
 end
 
 function SS.GetProfessionDropdownOrder()

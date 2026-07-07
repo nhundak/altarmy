@@ -292,6 +292,41 @@ describe("GuildTabData", function()
     end)
   end)
 
+  describe("FormatMainRowName", function()
+    it("returns the preferred name", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Main", main = "Main", isMain = true, displayName = "Chief" }),
+      })
+      assert.are.equal("Chief", GTD.FormatMainRowName(groups[1]))
+    end)
+
+    it("highlights the matching portion of the preferred name", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Main", main = "Main", isMain = true, displayName = "Mindfrell", classFile = "MAGE" }),
+      })
+      assert.are.equal(
+        "Mind|cff00ff00frell|r",
+        GTD.FormatMainRowName(groups[1], plainFormatName, "frell"))
+    end)
+  end)
+
+  describe("FormatMainRowCount", function()
+    it("pluralizes the character count", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Main", main = "Main", isMain = true, displayName = "Chief" }),
+        member({ name = "Alt", main = "Main" }),
+      })
+      assert.are.equal("2 characters", GTD.FormatMainRowCount(groups[1]))
+    end)
+
+    it("uses the singular form for a single character", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Solo", main = "Solo", isMain = true, displayName = "Solo" }),
+      })
+      assert.are.equal("1 character", GTD.FormatMainRowCount(groups[1]))
+    end)
+  end)
+
   describe("FormatMainRowLabel", function()
     it("shows the preferred name and pluralized character count", function()
       local groups = GTD.GroupMembersByMain({
@@ -467,6 +502,159 @@ describe("GuildTabData", function()
       assert.is_nil(GTD.GetAutoBrowseGuild({}))
       assert.is_nil(GTD.GetAutoBrowseGuild({ "A", "B" }))
       assert.is_nil(GTD.GetAutoBrowseGuild(nil))
+    end)
+  end)
+
+  describe("FormatRecipeSearchPlaceholder", function()
+    it("uses the character name in plain text", function()
+      assert.are.equal("Search for recipes on Mindfrell", GTD.FormatRecipeSearchPlaceholder("Mindfrell"))
+    end)
+
+    it("falls back when the name is missing", function()
+      assert.are.equal("Search for recipes on this character", GTD.FormatRecipeSearchPlaceholder(nil))
+    end)
+  end)
+
+  describe("FilterRecipesBySearch", function()
+    local recipes = {
+      { recipeID = 1, name = "Bolt of Silk Cloth" },
+      { recipeID = 2, name = "Mooncloth" },
+    }
+
+    it("returns all recipes when the query is empty", function()
+      assert.are.same(recipes, GTD.FilterRecipesBySearch(recipes, "", function(r) return r.name end))
+    end)
+
+    it("filters by case-insensitive substring on the resolved name", function()
+      local out = GTD.FilterRecipesBySearch(recipes, "moon", function(r) return r.name end)
+      assert.are.same({ { recipeID = 2, name = "Mooncloth" } }, out)
+    end)
+  end)
+
+  describe("FormatRecipeSkillCell", function()
+    local savedRCL
+
+    before_each(function()
+      savedRCL = AltArmy.RecipeCraftLib
+    end)
+
+    after_each(function()
+      AltArmy.RecipeCraftLib = savedRCL
+    end)
+
+    it("delegates to RecipeCraftLib when available", function()
+      AltArmy.RecipeCraftLib = {
+        EnrichEntry = function(entry)
+          entry.recipeSkillRequired = 180
+          entry.difficulty = "yellow"
+        end,
+        FormatSkillCell = function(req, rank, difficulty)
+          return string.format("%d/%d/%s", req, rank, difficulty)
+        end,
+      }
+      local text = GTD.FormatRecipeSkillCell(
+        { recipeID = 26751, resultItemID = 21842 },
+        "Tailoring",
+        375
+      )
+      assert.are.equal("180/375/yellow", text)
+    end)
+
+    it("falls back to skill rank when RecipeCraftLib is unavailable", function()
+      AltArmy.RecipeCraftLib = nil
+      assert.are.equal("300", GTD.FormatRecipeSkillCell({ recipeID = 1 }, "Alchemy", 300))
+    end)
+
+    it("shows em dash when skill rank is zero and CraftLib is unavailable", function()
+      AltArmy.RecipeCraftLib = {
+        EnrichEntry = function() end,
+        FormatSkillCell = function()
+          return "—"
+        end,
+      }
+      assert.are.equal("—", GTD.FormatRecipeSkillCell({ recipeID = 1 }, "Alchemy", 0))
+    end)
+  end)
+
+  describe("SortRecipes", function()
+    local savedRCL
+    local recipes = {
+      { recipeID = 1, name = "Zebra Cloth" },
+      { recipeID = 2, name = "Alpha Bolt" },
+      { recipeID = 3, name = "Mooncloth" },
+    }
+    local function nameOf(r)
+      return r.name
+    end
+
+    before_each(function()
+      savedRCL = AltArmy.RecipeCraftLib
+    end)
+
+    after_each(function()
+      AltArmy.RecipeCraftLib = savedRCL
+    end)
+
+    it("sorts by recipe name ascending", function()
+      local out = GTD.SortRecipes(recipes, "recipe", true, { getRecipeName = nameOf })
+      assert.are.equal(2, out[1].recipeID)
+      assert.are.equal(3, out[2].recipeID)
+      assert.are.equal(1, out[3].recipeID)
+    end)
+
+    it("sorts by recipe name descending", function()
+      local out = GTD.SortRecipes(recipes, "recipe", false, { getRecipeName = nameOf })
+      assert.are.equal(1, out[1].recipeID)
+      assert.are.equal(3, out[2].recipeID)
+      assert.are.equal(2, out[3].recipeID)
+    end)
+
+    it("sorts by required skill ascending with name tiebreaker", function()
+      AltArmy.RecipeCraftLib = {
+        EnrichEntry = function(entry)
+          if entry.recipeID == 1 then
+            entry.recipeSkillRequired = 300
+            entry.difficulty = "orange"
+          elseif entry.recipeID == 2 then
+            entry.recipeSkillRequired = 150
+            entry.difficulty = "yellow"
+          elseif entry.recipeID == 3 then
+            entry.recipeSkillRequired = 300
+            entry.difficulty = "green"
+          end
+        end,
+      }
+      local out = GTD.SortRecipes(recipes, "skill", true, {
+        professionName = "Tailoring",
+        skillRank = 375,
+        getRecipeName = nameOf,
+      })
+      assert.are.equal(2, out[1].recipeID)
+      assert.are.equal(1, out[2].recipeID)
+      assert.are.equal(3, out[3].recipeID)
+    end)
+
+    it("places recipes without required skill last when ascending", function()
+      AltArmy.RecipeCraftLib = {
+        EnrichEntry = function(entry)
+          if entry.recipeID == 1 then
+            entry.recipeSkillRequired = nil
+          elseif entry.recipeID == 2 then
+            entry.recipeSkillRequired = 100
+          end
+        end,
+      }
+      local two = {
+        { recipeID = 1, name = "Unknown" },
+        { recipeID = 2, name = "Known" },
+      }
+      local out = GTD.SortRecipes(two, "skill", true, {
+        professionName = "Alchemy",
+        skillRank = 300,
+        getRecipeName = nameOf,
+      })
+      assert.are.equal(2, out[1].recipeID)
+      assert.are.equal(1, out[2].recipeID)
     end)
   end)
 

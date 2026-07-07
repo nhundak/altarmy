@@ -85,6 +85,7 @@ Theme.SetTitleColor(title)
 -- Close button (vertically centered like title)
 local closeBtn = CreateFrame("Button", nil, headerPanel, "UIPanelCloseButton")
 closeBtn:SetPoint("RIGHT", headerPanel, "RIGHT", 2, 0)
+_G.AltArmyTBC_HeaderCloseButton = closeBtn
 closeBtn:SetScript("OnClick", function()
     main:Hide()
 end)
@@ -98,39 +99,14 @@ headerSearchEdit:SetFontObject("GameFontHighlight")
 if headerSearchEdit.SetTextInsets then
     headerSearchEdit:SetTextInsets(6, 6, 0, 0)
 end
-if headerSearchEdit.SetPlaceholderText then
-    headerSearchEdit:SetPlaceholderText("Search for items or recipes")
-else
-    -- Fallback for clients without SetPlaceholderText (e.g. TBC Classic): gray hint label
-    local searchPlaceholderHint = headerSearchEdit:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    searchPlaceholderHint:SetPoint("LEFT", headerSearchEdit, "LEFT", 6, 0)
-    searchPlaceholderHint:SetPoint("RIGHT", headerSearchEdit, "RIGHT", -6, 0)
-    searchPlaceholderHint:SetJustifyH("LEFT")
-    searchPlaceholderHint:SetText("Search for items or recipes")
-    searchPlaceholderHint:SetTextColor(0.5, 0.5, 0.5, 1)
-    headerSearchEdit.searchPlaceholderHint = searchPlaceholderHint
-end
-
-local function updateSearchPlaceholderVisibility()
-    local hint = headerSearchEdit.searchPlaceholderHint
-    if not hint then return end
-    local text = headerSearchEdit:GetText()
-    local trimmed = text and text:match("^%s*(.-)%s*$") or ""
-    local hasFocus = headerSearchEdit:HasFocus()
-    if trimmed == "" and not hasFocus then
-        hint:Show()
-    else
-        hint:Hide()
-    end
-end
+Theme.SetupEditBoxPlaceholder(headerSearchEdit, "Search for items or recipes")
 
 -- Clear (X) button at start of input; only visible when there is text
 local headerSearchClearBtn = CreateFrame("Button", nil, headerPanel)
 headerSearchClearBtn:SetPoint("RIGHT", headerSearchEdit, "LEFT", -2, 0)
 headerSearchClearBtn:SetSize(18, 18)
 headerSearchClearBtn:SetScript("OnClick", function()
-    headerSearchEdit:SetText("")
-    headerSearchEdit:SetFocus()
+    Theme.ClearEditBoxText(headerSearchEdit)
 end)
 headerSearchClearBtn:Hide()
 local clearBtnLabel = headerSearchClearBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -156,8 +132,6 @@ end)
 headerSearchEdit:SetScript("OnEscapePressed", function(box)
     box:ClearFocus()
 end)
-headerSearchEdit:SetScript("OnEditFocusGained", updateSearchPlaceholderVisibility)
-headerSearchEdit:SetScript("OnEditFocusLost", updateSearchPlaceholderVisibility)
 -- OnTextChanged registered below after enterSearchMode/exitSearchMode are defined
 
 local function itemLinksReferToSameItem(a, b)
@@ -467,6 +441,7 @@ searchModeHandlers.enterSearchMode = function(trimmed)
     end
     if itemsChk then itemsChk:SetChecked(AltArmy.SearchCategories.Items) end
     if recipesChk then recipesChk:SetChecked(AltArmy.SearchCategories.Recipes) end
+    if AltArmy.RefreshSearchCategoryBar then AltArmy.RefreshSearchCategoryBar() end
     for name, tabFrame in pairs(AltArmy.TabFrames) do
         if name ~= "Search" then
             tabFrame:Hide()
@@ -538,6 +513,45 @@ local recipesLabel = recipesLabelFrame:CreateFontString(nil, "OVERLAY", "GameFon
 recipesLabel:SetPoint("LEFT", recipesLabelFrame, "LEFT", 0, 0)
 recipesLabel:SetText("Recipes")
 
+local includeGuildCheck = CreateFrame("CheckButton", nil, searchResultsLabel, "UICheckButtonTemplate")
+searchModeHandlers.includeGuildCheck = includeGuildCheck
+includeGuildCheck:SetScript("OnClick", function() end)
+includeGuildCheck:SetPoint("LEFT", recipesLabelFrame, "RIGHT", gap, 0)
+includeGuildCheck:SetScript("OnClick", function()
+    local SS = AltArmy.SearchSettings
+    if SS and SS.SetIncludeGuildmatesEnabled then
+        SS.SetIncludeGuildmatesEnabled(includeGuildCheck:GetChecked())
+    end
+    refreshSearchIfActive()
+end)
+local includeGuildLabelFrame = CreateFrame("Button", nil, searchResultsLabel)
+includeGuildLabelFrame:SetPoint("LEFT", includeGuildCheck, "RIGHT", 2, 0)
+includeGuildLabelFrame:SetSize(130, TAB_HEIGHT)
+includeGuildLabelFrame:EnableMouse(true)
+includeGuildLabelFrame:SetScript("OnClick", function()
+    includeGuildCheck:Click()
+end)
+local includeGuildLabel = includeGuildLabelFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+includeGuildLabel:SetPoint("LEFT", includeGuildLabelFrame, "LEFT", 0, 0)
+includeGuildLabel:SetText("Include guildmates")
+includeGuildCheck:Hide()
+includeGuildLabelFrame:Hide()
+
+local function refreshIncludeGuildmatesCheck()
+    if not includeGuildCheck then return end
+    local SS = AltArmy.SearchSettings
+    local show = SS and SS.CanShowIncludeGuildmatesToggle and SS.CanShowIncludeGuildmatesToggle()
+    includeGuildCheck:SetShown(show)
+    includeGuildLabelFrame:SetShown(show)
+    if show and SS.IsIncludeGuildmatesEnabled then
+        includeGuildCheck:SetChecked(SS.IsIncludeGuildmatesEnabled())
+    end
+end
+
+function AltArmy.RefreshSearchCategoryBar()
+    refreshIncludeGuildmatesCheck()
+end
+
 local searchSettingsBtn = CreateFrame("Button", nil, searchResultsLabel)
 searchSettingsBtn:SetPoint("TOPRIGHT", searchResultsLabel, "TOPRIGHT", 0, 0)
 searchSettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
@@ -585,7 +599,7 @@ end
 local function applySearchBoxState()
     local query = headerSearchEdit:GetText()
     local trimmed = query and query:match("^%s*(.-)%s*$") or ""
-    updateSearchPlaceholderVisibility()
+    Theme.UpdateEditBoxPlaceholderVisibility(headerSearchEdit)
     if trimmed == "" then
         exitSearchMode()
         headerSearchClearBtn:Hide()
@@ -596,7 +610,13 @@ local function applySearchBoxState()
 end
 
 headerSearchEdit:SetScript("OnTextChanged", applySearchBoxState)
-updateSearchPlaceholderVisibility()
+headerSearchEdit:SetScript("OnEditFocusGained", function(self)
+    Theme.UpdateEditBoxPlaceholderVisibility(self)
+end)
+headerSearchEdit:SetScript("OnEditFocusLost", function(self)
+    Theme.UpdateEditBoxPlaceholderVisibility(self)
+end)
+Theme.UpdateEditBoxPlaceholderVisibility(headerSearchEdit)
 
 main:SetScript("OnShow", function()
     updateGuildTabVisibility()

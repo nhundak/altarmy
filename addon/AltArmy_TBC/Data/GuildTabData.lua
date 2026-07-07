@@ -17,6 +17,31 @@ function GTD.NormalizeSearchQuery(query)
     return trimmed:lower()
 end
 
+--- Placeholder for the per-character recipe search field in the Guild tab (plain name, not class-colored).
+function GTD.FormatRecipeSearchPlaceholder(characterName)
+    local name = characterName
+    if not name or name == "" then
+        name = "this character"
+    end
+    return "Search for recipes on " .. name
+end
+
+--- Filter recipe rows by case-insensitive substring on resolved recipe name.
+function GTD.FilterRecipesBySearch(recipes, query, getRecipeName)
+    local q = GTD.NormalizeSearchQuery(query)
+    if q == "" then
+        return recipes or {}
+    end
+    local out = {}
+    for _, recipe in ipairs(recipes or {}) do
+        local name = getRecipeName and getRecipeName(recipe) or ""
+        if (name or ""):lower():find(q, 1, true) then
+            out[#out + 1] = recipe
+        end
+    end
+    return out
+end
+
 --- Highlight every case-insensitive substring match in bright green; other segments use
 --- `formatSegment(text, classFile)` when supplied (typically class-colored name text).
 function GTD.FormatTextWithSearchHighlight(text, classFile, query, formatSegment)
@@ -147,6 +172,97 @@ function GTD.GetStoredCharacter(entry)
     end
     local GSD = AltArmy.GuildShareData
     return GSD and GSD.GetCharacter and GSD.GetCharacter(entry.name, entry.realm) or nil
+end
+
+--- Enrich a guild-tab recipe row with optional CraftLib skill metadata (mutates entry).
+function GTD.EnrichRecipeEntry(recipe, professionName, skillRank)
+    local entry = {
+        recipeID = recipe and recipe.recipeID,
+        resultItemID = recipe and recipe.resultItemID,
+        professionName = professionName,
+        skillRank = skillRank or 0,
+    }
+    local RCL = AltArmy and AltArmy.RecipeCraftLib
+    if RCL and RCL.EnrichEntry then
+        RCL.EnrichEntry(entry)
+    end
+    return entry
+end
+
+--- Skill column text for a recipe row (same formatting as Search recipe results).
+function GTD.FormatRecipeSkillCell(recipe, professionName, skillRank)
+    local entry = GTD.EnrichRecipeEntry(recipe, professionName, skillRank)
+    local RCL = AltArmy and AltArmy.RecipeCraftLib
+    if RCL and RCL.FormatSkillCell then
+        return RCL.FormatSkillCell(entry.recipeSkillRequired, entry.skillRank, entry.difficulty)
+    end
+    return tostring(entry.skillRank or 0)
+end
+
+local DIFFICULTY_SORT_ORDER = { orange = 1, yellow = 2, green = 3, gray = 4 }
+
+local function cmpValues(a, b)
+    if a < b then return -1 end
+    if a > b then return 1 end
+    return 0
+end
+
+local function recipeNameLower(recipe, getRecipeName)
+    if getRecipeName then
+        return (getRecipeName(recipe) or ""):lower()
+    end
+    return ""
+end
+
+--- Sort recipe rows for the guild recipe list (`sortKey`: "recipe" or "skill").
+function GTD.SortRecipes(recipes, sortKey, ascending, opts)
+    local out = {}
+    for i = 1, #(recipes or {}) do
+        out[i] = recipes[i]
+    end
+    if #out < 2 then
+        return out
+    end
+    opts = opts or {}
+    local profName = opts.professionName
+    local skillRank = opts.skillRank or 0
+    local getRecipeName = opts.getRecipeName
+    local key = sortKey == "skill" and "skill" or "recipe"
+
+    table.sort(out, function(a, b)
+        local cmp = 0
+        if key == "skill" then
+            local entryA = GTD.EnrichRecipeEntry(a, profName, skillRank)
+            local entryB = GTD.EnrichRecipeEntry(b, profName, skillRank)
+            local reqA = entryA.recipeSkillRequired
+            local reqB = entryB.recipeSkillRequired
+            if reqA == nil and reqB == nil then
+                cmp = 0
+            elseif reqA == nil then
+                cmp = 1
+            elseif reqB == nil then
+                cmp = -1
+            else
+                cmp = cmpValues(reqA, reqB)
+                if cmp == 0 then
+                    local ordA = DIFFICULTY_SORT_ORDER[entryA.difficulty] or 99
+                    local ordB = DIFFICULTY_SORT_ORDER[entryB.difficulty] or 99
+                    cmp = cmpValues(ordA, ordB)
+                end
+            end
+        end
+        if cmp == 0 then
+            cmp = cmpValues(recipeNameLower(a, getRecipeName), recipeNameLower(b, getRecipeName))
+        end
+        if cmp == 0 then
+            cmp = cmpValues(a.recipeID or 0, b.recipeID or 0)
+        end
+        if not ascending then
+            cmp = -cmp
+        end
+        return cmp < 0
+    end)
+    return out
 end
 
 --- Primary (non-alias) recipes for one profession, sorted by recipe id.
@@ -284,19 +400,31 @@ function GTD.FilterGroups(groups, query)
     return out
 end
 
+--- Preferred name for a main group row (class-colored when formatName is supplied).
+--- Optional `query` highlights matching substrings in the preferred name.
+function GTD.FormatMainRowName(group, formatName, query)
+    local name = group.preferredName or group.main or "?"
+    if query and GTD.NormalizeSearchQuery(query) ~= "" then
+        return GTD.FormatTextWithSearchHighlight(name, group.classFile, query, formatName)
+    end
+    if formatName then
+        return formatName(name, group.classFile)
+    end
+    return name
+end
+
+--- Character-count suffix for a main group row (plain text).
+function GTD.FormatMainRowCount(group)
+    local count = group.characterCount or #(group.members or {})
+    local noun = count == 1 and "character" or "characters"
+    return count .. " " .. noun
+end
+
 --- Main-row label: "{preferred name} -- {N} character(s)". When `formatName` is supplied
 --- the preferred name is colored (by the main's class); the count suffix stays plain.
 --- Optional `query` highlights matching substrings in the preferred name.
 function GTD.FormatMainRowLabel(group, formatName, query)
-    local count = group.characterCount or #(group.members or {})
-    local noun = count == 1 and "character" or "characters"
-    local name = group.preferredName or group.main or "?"
-    if query and GTD.NormalizeSearchQuery(query) ~= "" then
-        name = GTD.FormatTextWithSearchHighlight(name, group.classFile, query, formatName)
-    elseif formatName then
-        name = formatName(name, group.classFile)
-    end
-    return name .. " " .. count .. " " .. noun
+    return GTD.FormatMainRowName(group, formatName, query) .. " " .. GTD.FormatMainRowCount(group)
 end
 
 --- Character name column: class-colored name + gray "(level N)".

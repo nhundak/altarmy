@@ -709,6 +709,88 @@ function Theme.ApplyInputTextures(editBox)
     editBox.altArmyInputBorder:SetColorTexture(ibr[1], ibr[2], ibr[3], ibr[4])
 end
 
+local PLACEHOLDER_HINT_KEY = "altArmyPlaceholderHint"
+
+local function trimmedEditBoxText(editBox)
+    local text = editBox and editBox.GetText and editBox:GetText()
+    return text and text:match("^%s*(.-)%s*$") or ""
+end
+
+--- Native SetPlaceholderText when available; otherwise a gray hint FontString child.
+function Theme.SetupEditBoxPlaceholder(editBox, placeholderText, options)
+    if not editBox then return end
+    options = options or {}
+    local leftInset = options.leftInset or 6
+    local rightInset = options.rightInset or 6
+    if editBox.SetPlaceholderText then
+        editBox:SetPlaceholderText(placeholderText or "")
+        return
+    end
+    local hint = editBox[PLACEHOLDER_HINT_KEY]
+    if not hint then
+        hint = editBox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        hint:SetPoint("LEFT", editBox, "LEFT", leftInset, 0)
+        hint:SetPoint("RIGHT", editBox, "RIGHT", -rightInset, 0)
+        hint:SetJustifyH("LEFT")
+        hint:SetTextColor(0.5, 0.5, 0.5, 1)
+        editBox[PLACEHOLDER_HINT_KEY] = hint
+    end
+    hint:SetText(placeholderText or "")
+    Theme.UpdateEditBoxPlaceholderVisibility(editBox)
+end
+
+function Theme.SetEditBoxPlaceholderText(editBox, placeholderText)
+    if not editBox then return end
+    if editBox.SetPlaceholderText then
+        editBox:SetPlaceholderText(placeholderText or "")
+        return
+    end
+    local hint = editBox[PLACEHOLDER_HINT_KEY]
+    if hint then
+        hint:SetText(placeholderText or "")
+    end
+    Theme.UpdateEditBoxPlaceholderVisibility(editBox)
+end
+
+--- Show the fallback placeholder whenever the field is empty (including while focused).
+function Theme.UpdateEditBoxPlaceholderVisibility(editBox)
+    local hint = editBox and editBox[PLACEHOLDER_HINT_KEY]
+    if not hint then return end
+    if trimmedEditBoxText(editBox) == "" then
+        hint:Show()
+    else
+        hint:Hide()
+    end
+end
+
+function Theme.ClearEditBoxText(editBox)
+    if not editBox then return end
+    if editBox.SetText then
+        editBox:SetText("")
+    end
+    if editBox.ClearFocus then
+        editBox:ClearFocus()
+    end
+    Theme.UpdateEditBoxPlaceholderVisibility(editBox)
+end
+
+--- Wire placeholder refresh on text/focus changes. onTextChanged(editBox, isUserInput) optional.
+function Theme.BindEditBoxPlaceholderHandlers(editBox, onTextChanged)
+    if not editBox then return end
+    editBox:SetScript("OnTextChanged", function(self, isUserInput)
+        Theme.UpdateEditBoxPlaceholderVisibility(self)
+        if onTextChanged then
+            onTextChanged(self, isUserInput)
+        end
+    end)
+    editBox:SetScript("OnEditFocusGained", function(self)
+        Theme.UpdateEditBoxPlaceholderVisibility(self)
+    end)
+    editBox:SetScript("OnEditFocusLost", function(self)
+        Theme.UpdateEditBoxPlaceholderVisibility(self)
+    end)
+end
+
 function Theme.SetTitleColor(fontString)
     if fontString and fontString.SetTextColor then
         local t = C.title
@@ -1092,6 +1174,29 @@ function Theme.CreateLabeledCheckbox(parent, opts)
 end
 
 local SETTINGS_INFO_ICON_SIZE = 14
+Theme.SETTINGS_TOOLTIP_SECTION_GAP_REM = 0.5
+
+local settingsTooltipGapFont
+
+local function getSettingsTooltipGapFont()
+    if settingsTooltipGapFont then
+        return settingsTooltipGapFont
+    end
+    local baseFont = _G.GameFontHighlightSmall
+    local fontPath, fontSize, flags = "Fonts\\FRIZQT__.TTF", 12, ""
+    if baseFont and baseFont.GetFont then
+        fontPath, fontSize, flags = baseFont:GetFont()
+    end
+    fontSize = fontSize or 12
+    local gapSize = math.max(1, math.floor(fontSize * Theme.SETTINGS_TOOLTIP_SECTION_GAP_REM + 0.5))
+    settingsTooltipGapFont = _G.CreateFont("AltArmy_SettingsTooltipGapFont")
+    settingsTooltipGapFont:SetFont(fontPath or "Fonts\\FRIZQT__.TTF", gapSize, flags or "")
+    return settingsTooltipGapFont
+end
+
+local function addSettingsTooltipSectionGap(tooltip)
+    tooltip:AddLine(" ", 0, 0, 0, true, getSettingsTooltipGapFont())
+end
 
 --- Help icon on the right of a settings row; tooltip matches Graphs option rows (title + gray body).
 function Theme.AttachSettingsHelpIcon(row, tooltipOpts)
@@ -1122,23 +1227,30 @@ function Theme.AttachSettingsHelpIcon(row, tooltipOpts)
         if title ~= "" then
             GameTooltip:AddLine(title, 1, 1, 1, true)
         end
+        local prevWasBody = false
         for i = 1, #lines do
             local line = lines[i]
             local text
             local r, g, b = 0.9, 0.9, 0.9
+            local isHeading = false
             if type(line) == "table" then
                 text = line.text or ""
                 if line.heading then
                     r, g, b = 1, 1, 1
+                    isHeading = true
                 else
                     r, g, b = 0.75, 0.75, 0.75
                 end
             else
                 text = line
             end
+            if isHeading and prevWasBody then
+                addSettingsTooltipSectionGap(GameTooltip)
+            end
             if text ~= "" then
                 GameTooltip:AddLine(text, r, g, b, true)
             end
+            prevWasBody = text ~= "" and not isHeading
         end
         GameTooltip:SetPoint("TOPLEFT", tooltipAnchor, "TOPRIGHT", 8, 0)
         GameTooltip:Show()
@@ -1747,5 +1859,103 @@ function Theme.CreateCollapsibleSection(parent, opts)
             end
         end,
     }
+end
+
+Theme.CRAFTLIB_INSTALL_URL = "https://www.curseforge.com/wow/addons/craftlib"
+
+--- CraftLib install callout (Search settings / Guild recipe list).
+--- opts.bodyText — optional override for the description paragraph.
+--- opts.height — panel height (default 132).
+--- opts.padding — inner padding (default 8).
+function Theme.CreateCraftLibInstallCallout(parent, opts)
+    opts = opts or {}
+    local padding = opts.padding or 8
+    local height = opts.height or 132
+    local bodyText = opts.bodyText
+        or "Alt Army can do more advanced recipe filtering if you install the CraftLib addon"
+    local urlRowHeight = opts.urlRowHeight or 22
+
+    local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    Theme.ApplyBackdrop(frame, "section")
+    frame:SetHeight(height)
+
+    local inner = Theme.CreatePanelInnerContent(frame, padding)
+
+    local icon = frame:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(24, 24)
+    icon:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, 0)
+    icon:SetTexture("Interface\\AddOns\\AltArmy_TBC\\Textures\\CraftLibIcon")
+
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+    title:SetPoint("TOP", icon, "TOP", 0, -2)
+    title:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
+    title:SetJustifyH("LEFT")
+    title:SetText("CraftLib")
+    Theme.SetTitleColor(title)
+
+    local body = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    body:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -8)
+    body:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
+    body:SetJustifyH("LEFT")
+    body:SetWordWrap(true)
+    Theme.SetLabelColor(body)
+    body:SetText(bodyText)
+
+    local installLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    installLabel:SetPoint("TOPLEFT", body, "BOTTOMLEFT", 0, -10)
+    installLabel:SetJustifyH("LEFT")
+    installLabel:SetText("Install from CurseForge")
+    Theme.SetLabelColor(installLabel)
+
+    local urlEdit = CreateFrame("EditBox", nil, frame)
+    urlEdit:SetHeight(urlRowHeight)
+    urlEdit:SetPoint("TOPLEFT", installLabel, "BOTTOMLEFT", 0, -4)
+    urlEdit:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
+    urlEdit:SetFontObject("GameFontHighlightSmall")
+    urlEdit:SetAutoFocus(false)
+    urlEdit:SetTextInsets(4, 4, 0, 0)
+    urlEdit:SetText(Theme.CRAFTLIB_INSTALL_URL)
+    Theme.ApplyInputTextures(urlEdit)
+    urlEdit:SetScript("OnEditFocusGained", function(box)
+        box:HighlightText()
+    end)
+    urlEdit:SetScript("OnEditFocusLost", function(box)
+        box:HighlightText(0, 0)
+    end)
+    urlEdit:SetScript("OnMouseUp", function(box)
+        box:SetFocus()
+        box:HighlightText()
+    end)
+    urlEdit:SetScript("OnEscapePressed", function(box)
+        box:ClearFocus()
+    end)
+    urlEdit:SetScript("OnEnterPressed", function(box)
+        box:ClearFocus()
+    end)
+    urlEdit:SetScript("OnChar", function() end)
+    urlEdit:SetScript("OnTextChanged", function(box)
+        if box:GetText() ~= Theme.CRAFTLIB_INSTALL_URL then
+            box:SetText(Theme.CRAFTLIB_INSTALL_URL)
+        end
+    end)
+
+    function frame.SelectInstallUrl()
+        if not urlEdit or not urlEdit.HighlightText then
+            return
+        end
+        urlEdit:SetFocus()
+        urlEdit:HighlightText()
+    end
+
+    frame:HookScript("OnShow", function(self)
+        self:SetScript("OnUpdate", function(f)
+            f:SetScript("OnUpdate", nil)
+            frame.SelectInstallUrl()
+        end)
+    end)
+
+    frame.urlEdit = urlEdit
+    return frame
 end
 

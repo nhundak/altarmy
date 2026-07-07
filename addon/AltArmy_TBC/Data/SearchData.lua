@@ -510,11 +510,10 @@ SD._IsRecipeAliasId = IsRecipeAliasId
 --- Whether guildmate-shared recipes should be merged into recipe results:
 --- requires the guildShare feature flag AND the "Include guildmates" search toggle.
 local function ShouldIncludeGuildRecipes()
-    local D = AltArmy.Debug
-    if not (D and D.IsGuildShareEnabled and D.IsGuildShareEnabled()) then
+    local SS = AltArmy and AltArmy.SearchSettings
+    if SS and SS.CanShowIncludeGuildmatesToggle and not SS.CanShowIncludeGuildmatesToggle() then
         return false
     end
-    local SS = AltArmy.SearchSettings
     if SS and SS.IsIncludeGuildmatesEnabled then
         return SS.IsIncludeGuildmatesEnabled()
     end

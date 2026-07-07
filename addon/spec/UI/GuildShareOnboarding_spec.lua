@@ -126,6 +126,20 @@ describe("GuildShareOnboarding", function()
     end)
   end)
 
+  describe("GetSharingDisclosureTooltip", function()
+    it("includes shared, not shared, and audience sections", function()
+      local tip = GSO.GetSharingDisclosureTooltip()
+      assert.are.equal(6, #tip.lines)
+      assert.is_true(tip.lines[1].heading)
+      assert.are.equal(GSO.SHARED_HEADING, tip.lines[1].text)
+      assert.is_true(tip.lines[3].heading)
+      assert.are.equal(GSO.NOT_SHARED_HEADING, tip.lines[3].text)
+      assert.are.equal(GSO.NOT_SHARED_LIST, tip.lines[4].text)
+      assert.is_true(tip.lines[5].heading)
+      assert.matches("guild", tip.lines[6].text:lower())
+    end)
+  end)
+
   describe("BuildRealmCharEntries", function()
     local opts = {
       getLevel = function(char) return char.level or 0 end,
