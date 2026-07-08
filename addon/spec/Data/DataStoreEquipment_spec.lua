@@ -51,4 +51,57 @@ describe("DataStoreEquipment", function()
       assert.are.equal(1, DS:GetInventoryItemCount(char, 100))
     end)
   end)
+
+  describe("ScanEquipment", function()
+    local oldGetInventoryItemLink, oldUnitName, oldGetRealmName, oldTime
+
+    before_each(function()
+      oldGetInventoryItemLink = _G.GetInventoryItemLink
+      oldUnitName = _G.UnitName
+      oldGetRealmName = _G.GetRealmName
+      oldTime = _G.time
+      _G.UnitName = function() return "EquipTest" end
+      _G.GetRealmName = function() return "TestRealm" end
+      _G.time = function() return 99999 end
+    end)
+
+    after_each(function()
+      _G.GetInventoryItemLink = oldGetInventoryItemLink
+      _G.UnitName = oldUnitName
+      _G.GetRealmName = oldGetRealmName
+      _G.time = oldTime
+    end)
+
+    it("does not clear Inventory when every equipment slot returns nil", function()
+      local char = DS:GetCurrentCharacter()
+      char.Inventory = {
+        [1] = "|Hitem:100:0|h[Kept Helmet]|h",
+        [16] = "|Hitem:200:0|h[Kept Sword]|h",
+      }
+      char.dataVersions = { equipment = 1 }
+      char.lastUpdate = 1
+
+      _G.GetInventoryItemLink = function() return nil end
+      DS:ScanEquipment()
+
+      assert.are.equal("|Hitem:100:0|h[Kept Helmet]|h", char.Inventory[1])
+      assert.are.equal("|Hitem:200:0|h[Kept Sword]|h", char.Inventory[16])
+      assert.are.equal(1, char.lastUpdate)
+    end)
+
+    it("updates Inventory when at least one slot has a link", function()
+      local char = DS:GetCurrentCharacter()
+      char.Inventory = { [1] = "|Hitem:100:0|h[Old Helmet]|h" }
+
+      _G.GetInventoryItemLink = function(_, slot)
+        if slot == 1 then return "|Hitem:111:0|h[New Helmet]|h" end
+        return nil
+      end
+      DS:ScanEquipment()
+
+      assert.are.equal("|Hitem:111:0|h[New Helmet]|h", char.Inventory[1])
+      assert.is_nil(char.Inventory[16])
+      assert.are.equal(99999, char.lastUpdate)
+    end)
+  end)
 end)

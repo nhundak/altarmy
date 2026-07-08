@@ -432,4 +432,82 @@ describe("DataStore", function()
       assert.is_false(scanned)
     end)
   end)
+
+  describe("equipment scan delay on login", function()
+    local frames
+    local eventHandler
+    local equipmentScanCount
+
+    local function reloadDataStoreWithFrames()
+      frames = {}
+      eventHandler = nil
+      _G.CreateFrame = function()
+        local f = {
+          RegisterEvent = function() end,
+          SetScript = function(self, script, handler)
+            if script == "OnEvent" then
+              eventHandler = handler
+            elseif script == "OnUpdate" then
+              self._onUpdate = handler
+            end
+          end,
+        }
+        frames[#frames + 1] = f
+        return f
+      end
+      package.loaded["DataStore"] = nil
+      package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+      require("DataStore")
+      DS = AltArmy.DataStore
+    end
+
+    before_each(function()
+      equipmentScanCount = 0
+      _G.UnitName = function() return "Alice" end
+      _G.GetRealmName = function() return "R1" end
+      _G.AltArmyTBC_Data = { Characters = { R1 = { Alice = {} } } }
+      reloadDataStoreWithFrames()
+      DS.ScanEquipment = function()
+        equipmentScanCount = equipmentScanCount + 1
+      end
+      DS.ScanCharacter = function() end
+      DS.RequestTimePlayedSilently = function() end
+      DS.ScanProfessionLinks = function() end
+      DS.ScanReputations = function() end
+      DS.ScanBags = function() end
+      DS.TryScanTrackedCooldownsFromActionBars = function() end
+      DS.RunLevelHistoryBackfill = function() end
+    end)
+
+    it("does not scan equipment immediately on PLAYER_ENTERING_WORLD", function()
+      assert.is_function(eventHandler)
+      eventHandler(nil, "PLAYER_ENTERING_WORLD")
+      assert.are.equal(0, equipmentScanCount)
+    end)
+
+    it("scans equipment after EQUIPMENT_SCAN_DELAY on PLAYER_ENTERING_WORLD", function()
+      eventHandler(nil, "PLAYER_ENTERING_WORLD")
+      assert.are.equal(0, equipmentScanCount)
+
+      local active = {}
+      for _, f in ipairs(frames) do
+        if f._onUpdate then
+          active[#active + 1] = f
+        end
+      end
+      assert.is_true(#active > 0, "expected delayed OnUpdate frame(s)")
+
+      for _, f in ipairs(active) do
+        f:_onUpdate(2.9)
+      end
+      assert.are.equal(0, equipmentScanCount)
+
+      for _, f in ipairs(active) do
+        if f._onUpdate then
+          f:_onUpdate(0.2)
+        end
+      end
+      assert.are.equal(1, equipmentScanCount)
+    end)
+  end)
 end)

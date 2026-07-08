@@ -26,15 +26,21 @@ DS._IsEnchanted = IsEnchanted
 function DS:ScanEquipment(_self)
     local char = GetCurrentCharTable()
     if not char or not GetInventoryItemLink then return end
-    char.Inventory = char.Inventory or {}
+    -- Snapshot first: at login/loadscreen GetInventoryItemLink can return nil for every
+    -- slot before item data is ready. Never replace stored gear with that empty read.
+    local scanned = {}
+    local anyLink = false
     for slot = 1, NUM_EQUIPMENT_SLOTS do
         local link = GetInventoryItemLink("player", slot)
         if link then
-            char.Inventory[slot] = link
-        else
-            char.Inventory[slot] = nil
+            scanned[slot] = link
+            anyLink = true
         end
     end
+    if not anyLink then
+        return
+    end
+    char.Inventory = scanned
     char.lastUpdate = time()
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.equipment = DATA_VERSIONS.equipment

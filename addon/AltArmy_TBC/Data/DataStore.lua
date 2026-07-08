@@ -243,6 +243,8 @@ end
 
 local REPUTATION_SCAN_THROTTLE = 3
 local BAG_SCAN_DELAY = 3
+--- Equipment links can be nil on PEW/ALIVE before item cache is ready (same class of bug as bags).
+local EQUIPMENT_SCAN_DELAY = 3
 local TRADE_SKILL_SCAN_DELAY = 0.5
 --- Deferred reagent-only retry (Cooldowns RecipeReagents); avoids TRADE_SKILL_UPDATE loops.
 local TRADE_SKILL_REAGENT_RETRY_DELAY = 1.25
@@ -251,6 +253,10 @@ local CRAFT_REAGENT_RETRY_DELAY = 1.25
 local bagScanFrame = CreateFrame("Frame", nil, UIParent)
 bagScanFrame:SetScript("OnUpdate", nil)
 bagScanFrame.elapsed = 0
+
+local equipmentScanFrame = CreateFrame("Frame", nil, UIParent)
+equipmentScanFrame:SetScript("OnUpdate", nil)
+equipmentScanFrame.elapsed = 0
 
 -- Run professions + reputations again after delay (skill/faction data can load late)
 local LATE_SCAN_DELAY = 2
@@ -380,7 +386,6 @@ frame:SetScript("OnEvent", function(_, event, ...)
         end
         local char = GetCurrentCharTable()
         if char then
-            if DS.ScanEquipment then DS:ScanEquipment() end
             if GetNumSkillLines and GetSkillLineInfo and DS.ScanProfessionLinks then
                 DS:ScanProfessionLinks()
             end
@@ -402,6 +407,15 @@ frame:SetScript("OnEvent", function(_, event, ...)
                             DS:ScanReputations()
                         end
                     end
+                end
+            end)
+            -- Equipment: delay only — early PEW links are often all nil and would wipe Inventory
+            equipmentScanFrame.elapsed = 0
+            equipmentScanFrame:SetScript("OnUpdate", function(f, elapsed)
+                f.elapsed = f.elapsed + elapsed
+                if f.elapsed >= EQUIPMENT_SCAN_DELAY then
+                    f:SetScript("OnUpdate", nil)
+                    if DS.ScanEquipment then DS:ScanEquipment() end
                 end
             end)
             -- Bags: run once now (if ready) and again after delay to catch late-loaded data
