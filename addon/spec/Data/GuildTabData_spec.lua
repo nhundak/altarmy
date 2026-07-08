@@ -576,6 +576,49 @@ describe("GuildTabData", function()
     end)
   end)
 
+  describe("EnrichRecipeEntry", function()
+    local savedRCL
+
+    before_each(function()
+      savedRCL = AltArmy.RecipeCraftLib
+    end)
+
+    after_each(function()
+      AltArmy.RecipeCraftLib = savedRCL
+    end)
+
+    it("surfaces CraftLib-backfilled resultItemID for guild recipe rows", function()
+      AltArmy.RecipeCraftLib = {
+        EnrichEntry = function(entry)
+          if not entry.resultItemID then
+            entry.resultItemID = 6370
+          end
+        end,
+      }
+      local enriched = GTD.EnrichRecipeEntry({ recipeID = 7837 }, "Alchemy", 300)
+      assert.are.equal(7837, enriched.recipeID)
+      assert.are.equal(6370, enriched.resultItemID)
+      assert.are.equal("Alchemy", enriched.professionName)
+      assert.are.equal(300, enriched.skillRank)
+    end)
+
+    it("preserves an existing resultItemID", function()
+      AltArmy.RecipeCraftLib = {
+        EnrichEntry = function(entry)
+          if not entry.resultItemID then
+            entry.resultItemID = 6370
+          end
+        end,
+      }
+      local enriched = GTD.EnrichRecipeEntry(
+        { recipeID = 7837, resultItemID = 9999 },
+        "Alchemy",
+        300
+      )
+      assert.are.equal(9999, enriched.resultItemID)
+    end)
+  end)
+
   describe("SortRecipes", function()
     local savedRCL
     local recipes = {

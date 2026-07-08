@@ -279,6 +279,66 @@ describe("RecipeCraftLib", function()
       assert.are.equal(999, entry.recipeReagents[1].itemId)
     end)
 
+    it("backfills resultItemID from CraftLib itemId when missing", function()
+      _G.GetSpellInfo = function() return "Alchemy" end
+      _G.CraftLib = {
+        IsReady = function() return true end,
+        GetProfessions = function()
+          return { alchemy = { id = 1, name = "Alchemy", recipes = {} } }
+        end,
+        GetRecipeBySpellId = function(_, profKey, spellId)
+          if profKey == "alchemy" and spellId == 7837 then
+            return {
+              id = 7837,
+              itemId = 6370,
+              skillRequired = 80,
+            }
+          end
+          return nil
+        end,
+        GetRecipeByItemId = function() return nil end,
+        GetRecipeByProduct = function() return nil end,
+      }
+      local entry = {
+        professionName = "Alchemy",
+        recipeID = 7837,
+        skillRank = 300,
+        isGuild = true,
+      }
+      RCL.EnrichEntry(entry)
+      assert.are.equal(6370, entry.resultItemID)
+    end)
+
+    it("does not overwrite an existing resultItemID", function()
+      _G.GetSpellInfo = function() return "Alchemy" end
+      _G.CraftLib = {
+        IsReady = function() return true end,
+        GetProfessions = function()
+          return { alchemy = { id = 1, name = "Alchemy", recipes = {} } }
+        end,
+        GetRecipeBySpellId = function(_, profKey, spellId)
+          if profKey == "alchemy" and spellId == 7837 then
+            return {
+              id = 7837,
+              itemId = 6370,
+              skillRequired = 80,
+            }
+          end
+          return nil
+        end,
+        GetRecipeByItemId = function() return nil end,
+        GetRecipeByProduct = function() return nil end,
+      }
+      local entry = {
+        professionName = "Alchemy",
+        recipeID = 7837,
+        skillRank = 300,
+        resultItemID = 9999,
+      }
+      RCL.EnrichEntry(entry)
+      assert.are.equal(9999, entry.resultItemID)
+    end)
+
     it("skips CraftLib lookup for poisons to avoid item id collisions", function()
       _G.GetSpellInfo = function(id)
         if id == 2842 then return "Poisons" end

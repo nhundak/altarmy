@@ -1,9 +1,10 @@
--- AltArmy TBC — Gear upgrade chat alerts (loot + level-up + quest rewards).
+-- AltArmy TBC — Gear upgrade chat alerts (loot + rolls + level-up + quest rewards).
 -- luacheck: globals DEFAULT_CHAT_FRAME GetItemInfo IsUsableItem UnitName
 -- luacheck: globals GetContainerItemLink GetContainerNumSlots SetItemRef ChatFrame_OnHyperlinkClick
 -- luacheck: globals EventRegistry hooksecurefunc
 -- luacheck: globals GetQuestItemLink GetNumQuestRewards GetNumQuestChoices QUEST_COMPLETE
 -- luacheck: globals GetTitleText GetTime C_Timer
+-- luacheck: globals GetLootRollItemLink START_LOOT_ROLL
 
 if not AltArmy then return end
 
@@ -59,10 +60,11 @@ local function extractItemId(itemLink)
     return tonumber(payload:match("^item:(%d+)"))
 end
 
--- Loot-alert suppression for items already announced in the quest reward window.
--- Keyed by item id. A flag is set when a reward is announced, checked (and consumed)
--- by the loot scan, and otherwise persists until the next PLAYER_ENTERING_WORLD. No
--- timers are involved, so a slow loot delivery cannot outrace the suppression.
+-- Loot-alert suppression for items already announced (quest reward window or
+-- Need/Greed roll). Keyed by item id. A flag is set when an item is announced,
+-- checked (and consumed) by the loot scan, and otherwise persists until the
+-- next PLAYER_ENTERING_WORLD. No timers are involved, so a slow loot delivery
+-- cannot outrace the suppression.
 local lootUpgradeSuppressedIds = {}
 local QUEST_REWARD_ANNOUNCE_DEBOUNCE_SEC = 1.0
 local questRewardAnnounceDebounce = nil
@@ -593,6 +595,24 @@ function GA.AnnounceLootUpgrade(itemLink)
     return true
 end
 
+--- Announce upgrades for an item shown in the Need/Greed roll UI.
+--- Accepts an item link or a rollID (resolved via GetLootRollItemLink).
+--- On success, marks the item so a subsequent self-loot of the same id is suppressed.
+function GA.AnnounceLootRollUpgrade(itemLinkOrRollId)
+    local itemLink = itemLinkOrRollId
+    if type(itemLinkOrRollId) == "number" then
+        if not GetLootRollItemLink then return false, "disabled" end
+        itemLink = GetLootRollItemLink(itemLinkOrRollId)
+    end
+    if not itemLink or itemLink == "" then return false, "disabled" end
+
+    local ok, reason = GA.AnnounceLootUpgrade(itemLink)
+    if ok then
+        markLootUpgradeSuppressed(itemLink)
+    end
+    return ok, reason
+end
+
 --- Debug: run the same upgrade check as self-loot (CHAT_MSG_LOOT).
 function GA.SimulateSelfLoot(rawInput)
     local link = extractItemLink(rawInput)
@@ -837,6 +857,7 @@ end
 
 local alertFrame = CreateFrame("Frame", "AltArmyTBC_GearUpgradeAlertFrame", UIParent)
 alertFrame:RegisterEvent("CHAT_MSG_LOOT")
+alertFrame:RegisterEvent("START_LOOT_ROLL")
 alertFrame:RegisterEvent("PLAYER_LEVEL_UP")
 alertFrame:RegisterEvent("QUEST_COMPLETE")
 alertFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -852,6 +873,8 @@ alertFrame:SetScript("OnEvent", function(_, event, arg1)
             maybeLogItemComparison(link)
             GA.AnnounceLootUpgrade(link)
         end
+    elseif event == "START_LOOT_ROLL" then
+        GA.AnnounceLootRollUpgrade(arg1)
     elseif event == "PLAYER_LEVEL_UP" then
         local newLevel = tonumber(arg1) or (UnitLevel and UnitLevel("player"))
         GA.ScheduleLevelUpUpgradeAnnouncement(newLevel)

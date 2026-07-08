@@ -323,6 +323,151 @@ describe("GearUpgradeAlerts", function()
         end)
     end)
 
+    describe("AnnounceLootRollUpgrade", function()
+        local chatLines
+        local itemLink = "|Hitem:11:0|h[New Helm]|h"
+
+        local function loadWithMocks(overrides)
+            overrides = overrides or {}
+            chatLines = {}
+            _G.DEFAULT_CHAT_FRAME = {
+                AddMessage = function(_, line)
+                    chatLines[#chatLines + 1] = line
+                end,
+            }
+            local notifyCurrent = overrides.notifyCurrentCharacter
+            if notifyCurrent == nil then notifyCurrent = true end
+            local notifyOther = overrides.notifyOtherCharacters
+            if notifyOther == nil then notifyOther = true end
+            AltArmy.GearUpgrade = {
+                GetOptions = function()
+                    return {
+                        notifyCurrentCharacter = notifyCurrent,
+                        notifyOtherCharacters = notifyOther,
+                        technique = "custom",
+                        levelsAhead = 5,
+                    }
+                end,
+                GetEffectiveTechnique = function(technique)
+                    return technique
+                end,
+                EvaluateForAllAlts = overrides.evaluateForAllAlts or function()
+                    return {}
+                end,
+                EvaluateForCharacter = overrides.evaluateForCharacter or function()
+                    return false
+                end,
+            }
+            AltArmy.DataStore = {
+                GetCurrentCharacter = overrides.getCurrentCharacter or function()
+                    return { name = "MageAlt", realm = "TestRealm", classFile = "MAGE", level = 60 }
+                end,
+                GetCurrentPlayerRealm = function() return "TestRealm" end,
+                GetCharacterLevel = function(_, char) return char and char.level or 0 end,
+                IsCurrentCharacter = function(_, name)
+                    return name == "MageAlt"
+                end,
+            }
+            AltArmy.ItemUsability = {
+                IsBindOnPickup = overrides.isBindOnPickup or function() return false end,
+            }
+            AltArmy.ClassColor = {
+                wrapName = function(name) return name end,
+            }
+            _G.GetLootRollItemLink = overrides.getLootRollItemLink
+            package.loaded["GearUpgradeAlerts"] = nil
+            require("GearUpgradeAlerts")
+            GA = AltArmy.GearUpgradeAlerts
+        end
+
+        it("announces non-BoP roll upgrades using the loot upgrade message", function()
+            loadWithMocks({
+                evaluateForAllAlts = function()
+                    return { { name = "Bravo", classFile = "PRIEST" } }
+                end,
+            })
+            local ok = GA.AnnounceLootRollUpgrade(itemLink)
+            assert.is_true(ok)
+            assert.are.equal(1, #chatLines)
+            assert.matches("is an upgrade for Bravo:", chatLines[1])
+            assert.matches("%[View details%]", chatLines[1])
+        end)
+
+        it("announces BoP roll upgrades for the current character when enabled", function()
+            loadWithMocks({
+                isBindOnPickup = function() return true end,
+                evaluateForCharacter = function() return true end,
+            })
+            local ok = GA.AnnounceLootRollUpgrade(itemLink)
+            assert.is_true(ok)
+            assert.matches("is an upgrade for MageAlt:", chatLines[1])
+        end)
+
+        it("skips BoP rolls when current-character notifications are disabled", function()
+            loadWithMocks({
+                notifyCurrentCharacter = false,
+                isBindOnPickup = function() return true end,
+                evaluateForCharacter = function() return true end,
+            })
+            local ok = GA.AnnounceLootRollUpgrade(itemLink)
+            assert.is_false(ok)
+            assert.are.equal(0, #chatLines)
+            assert.is_false(GA.ShouldSuppressLootUpgrade(itemLink))
+        end)
+
+        it("suppresses the self-loot announce after a successful roll announce", function()
+            loadWithMocks({
+                evaluateForAllAlts = function()
+                    return { { name = "Bravo", classFile = "PRIEST" } }
+                end,
+            })
+            assert.is_true(GA.AnnounceLootRollUpgrade(itemLink))
+            assert.is_true(GA.ShouldSuppressLootUpgrade(itemLink))
+            local ok = GA.AnnounceLootUpgrade(itemLink)
+            assert.is_false(ok)
+            assert.are.equal(1, #chatLines)
+            assert.is_false(GA.ShouldSuppressLootUpgrade(itemLink))
+        end)
+
+        it("does not suppress loot when the roll announce finds no matches", function()
+            loadWithMocks({
+                evaluateForAllAlts = function() return {} end,
+                evaluateForCharacter = function() return false end,
+            })
+            local ok = GA.AnnounceLootRollUpgrade(itemLink)
+            assert.is_false(ok)
+            assert.are.equal(0, #chatLines)
+            assert.is_false(GA.ShouldSuppressLootUpgrade(itemLink))
+        end)
+
+        it("resolves the item from a roll ID via GetLootRollItemLink", function()
+            loadWithMocks({
+                getLootRollItemLink = function(rollId)
+                    if rollId == 42 then return itemLink end
+                end,
+                evaluateForAllAlts = function()
+                    return { { name = "Bravo", classFile = "PRIEST" } }
+                end,
+            })
+            local ok = GA.AnnounceLootRollUpgrade(42)
+            assert.is_true(ok)
+            assert.matches("is an upgrade for Bravo:", chatLines[1])
+            assert.is_true(GA.ShouldSuppressLootUpgrade(itemLink))
+        end)
+
+        it("clears roll suppression when entering the world", function()
+            loadWithMocks({
+                evaluateForAllAlts = function()
+                    return { { name = "Bravo", classFile = "PRIEST" } }
+                end,
+            })
+            GA.AnnounceLootRollUpgrade(itemLink)
+            assert.is_true(GA.ShouldSuppressLootUpgrade(itemLink))
+            GA.OnEnteringWorld()
+            assert.is_false(GA.ShouldSuppressLootUpgrade(itemLink))
+        end)
+    end)
+
     describe("AnnounceLevelUpUpgrades", function()
         local chatLines
         local helmLink = "|Hitem:11:0|h[New Helm]|h"

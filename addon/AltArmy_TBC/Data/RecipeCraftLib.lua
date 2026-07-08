@@ -357,6 +357,12 @@ function RCL.EnrichEntry(entry)
     if #reagents > 0 then
         entry.recipeReagents = reagents
     end
+    if not entry.resultItemID then
+        local productId = tonumber(recipe.itemId)
+        if productId then
+            entry.resultItemID = productId
+        end
+    end
     local req = RCL.ExtractSkillRequired(recipe)
     if req then
         entry.recipeSkillRequired = req

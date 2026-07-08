@@ -946,11 +946,18 @@ layoutRecipeView = function(entry)
         row:SetPoint("TOPRIGHT", recipeScrollChild, "TOPRIGHT", 0, -y)
         row.recipeID = recipe.recipeID
         layoutRecipeRowColumns(row, showSkillCol)
-        local recipeName, iconPath = resolveRecipeDisplay(recipe.recipeID, recipe.resultItemID)
+        local enriched = GTD.EnrichRecipeEntry(recipe, profName, skillRank)
+        local recipeName, iconPath = resolveRecipeDisplay(enriched.recipeID, enriched.resultItemID)
         local highlightedName = GTD.FormatTextWithSearchHighlight(recipeName, nil, recipeSearchText)
         row.label:SetText(("|T%s:0|t %s"):format(iconPath, highlightedName))
         if showSkillCol then
-            row.skillCell:SetText(GTD.FormatRecipeSkillCell(recipe, profName, skillRank))
+            local RCL = AltArmy and AltArmy.RecipeCraftLib
+            if RCL and RCL.FormatSkillCell then
+                row.skillCell:SetText(RCL.FormatSkillCell(
+                    enriched.recipeSkillRequired, enriched.skillRank, enriched.difficulty))
+            else
+                row.skillCell:SetText(GTD.FormatRecipeSkillCell(recipe, profName, skillRank))
+            end
         end
         y = y + RECIPE_ROW_HEIGHT
     end

@@ -664,6 +664,9 @@ local function FilterAndSortRecipes(all, queryLower)
         local na = a.recipeNameLower or ""
         local nb = b.recipeNameLower or ""
         if na ~= nb then return na < nb end
+        local aGuild = a.isGuild and true or false
+        local bGuild = b.isGuild and true or false
+        if aGuild ~= bGuild then return not aGuild end
         return (a.characterName or "") < (b.characterName or "")
     end)
     return results

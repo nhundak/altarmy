@@ -711,6 +711,78 @@ describe("SearchData", function()
       assert.are.equal(results[1].recipeID, 222)
       assert.are.equal(results[1].characterName, "B")
     end)
+
+    it("lists own characters before guildmates for the same recipe name", function()
+      local oldGetAll = SD.GetAllRecipes
+      local oldGetItemInfo = _G.GetItemInfo
+      local oldGetSpellInfo = _G.GetSpellInfo
+      SD.GetAllRecipes = function()
+        return {
+          {
+            characterName = "Zebra",
+            realm = "R",
+            professionName = "Alchemy",
+            skillRank = 300,
+            recipeID = 111,
+            isGuild = true,
+          },
+          {
+            characterName = "Alice",
+            realm = "R",
+            professionName = "Alchemy",
+            skillRank = 250,
+            recipeID = 111,
+            isGuild = true,
+          },
+          {
+            characterName = "MageAlt",
+            realm = "R",
+            professionName = "Alchemy",
+            skillRank = 375,
+            recipeID = 111,
+          },
+          {
+            characterName = "PriestAlt",
+            realm = "R",
+            professionName = "Alchemy",
+            skillRank = 200,
+            recipeID = 111,
+          },
+          {
+            characterName = "OtherRecipeOwner",
+            realm = "R",
+            professionName = "Alchemy",
+            skillRank = 100,
+            recipeID = 222,
+            isGuild = true,
+          },
+        }
+      end
+      _G.GetItemInfo = function(id)
+        if id == 111 then return "Minor Healing Potion", nil, nil, nil, nil, nil, nil, nil, nil, "icon1" end
+        if id == 222 then return "Super Mana Potion", nil, nil, nil, nil, nil, nil, nil, nil, "icon2" end
+        return nil
+      end
+      _G.GetSpellInfo = function() return nil end
+      local results = SD.SearchRecipes("potion")
+      SD.GetAllRecipes = oldGetAll
+      _G.GetItemInfo = oldGetItemInfo
+      _G.GetSpellInfo = oldGetSpellInfo
+      assert.are.equal(5, #results)
+      -- Same recipe: own chars (alpha by name), then guildmates (alpha by name).
+      assert.are.equal("MageAlt", results[1].characterName)
+      assert.is_nil(results[1].isGuild)
+      assert.are.equal("PriestAlt", results[2].characterName)
+      assert.is_nil(results[2].isGuild)
+      assert.are.equal("Alice", results[3].characterName)
+      assert.is_true(results[3].isGuild)
+      assert.are.equal("Zebra", results[4].characterName)
+      assert.is_true(results[4].isGuild)
+      -- Different recipe name still sorts after (mana after healing).
+      assert.are.equal(222, results[5].recipeID)
+      assert.are.equal("OtherRecipeOwner", results[5].characterName)
+    end)
+
     it("does not return alias effect spells when both match query", function()
       local DS = AltArmy.DataStore
       local oldGetRealms = DS.GetRealms
