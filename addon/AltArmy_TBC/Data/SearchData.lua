@@ -673,6 +673,168 @@ local function FilterAndSortRecipes(all, queryLower)
 end
 SD._FilterAndSortRecipes = FilterAndSortRecipes
 
+local DIFFICULTY_SORT_ORDER = { orange = 1, yellow = 2, green = 3, gray = 4 }
+
+local function cmpValues(a, b)
+    if a < b then return -1 end
+    if a > b then return 1 end
+    return 0
+end
+
+local function characterSortKey(entry)
+    return ((entry.characterName or "") .. "\0" .. (entry.realm or "")):lower()
+end
+
+local function buildItemGroupTotals(list)
+    local totals = {}
+    for _, row in ipairs(list) do
+        local key = (row.itemID or 0) .. "\t" .. (row.itemName or "")
+        totals[key] = (totals[key] or 0) + (row.count or 1)
+    end
+    return totals
+end
+
+--- Sort item search rows by column (`sortKey`: "Item", "Character", or "Total").
+function SD.SortItemResults(list, sortKey, ascending)
+    if not list or #list < 2 or not sortKey then
+        return list
+    end
+    local out = {}
+    for i = 1, #list do
+        out[i] = list[i]
+    end
+    local itemTotals = sortKey == "Total" and buildItemGroupTotals(out) or nil
+
+    table.sort(out, function(a, b)
+        local cmp = 0
+        if sortKey == "Item" then
+            cmp = cmpValues((a.itemName or ""):lower(), (b.itemName or ""):lower())
+            if cmp == 0 then
+                cmp = cmpValues(a.itemID or 0, b.itemID or 0)
+            end
+        elseif sortKey == "Character" then
+            cmp = cmpValues(characterSortKey(a), characterSortKey(b))
+        elseif sortKey == "Total" then
+            local keyA = (a.itemID or 0) .. "\t" .. (a.itemName or "")
+            local keyB = (b.itemID or 0) .. "\t" .. (b.itemName or "")
+            cmp = cmpValues(itemTotals[keyA] or 0, itemTotals[keyB] or 0)
+        end
+        if cmp == 0 then
+            cmp = cmpValues((a.itemName or ""):lower(), (b.itemName or ""):lower())
+        end
+        if cmp == 0 then
+            cmp = cmpValues(characterSortKey(a), characterSortKey(b))
+        end
+        if cmp == 0 then
+            cmp = cmpValues(LocationSortKey(a.location or "bag"), LocationSortKey(b.location or "bag"))
+        end
+        if not ascending then
+            cmp = -cmp
+        end
+        return cmp < 0
+    end)
+    return out
+end
+
+local function recipeSortName(entry)
+    local nameLower = entry.recipeNameLower or ""
+    return ((entry.professionName or ""):lower() .. "\0" .. nameLower)
+end
+
+local function applySortDirection(cmp, ascending)
+    if not ascending then
+        return -cmp
+    end
+    return cmp
+end
+
+local function compareRequiredSkill(a, b, ascending)
+    local reqA = a.recipeSkillRequired
+    local reqB = b.recipeSkillRequired
+    if reqA == nil and reqB == nil then
+        return 0
+    end
+    if reqA == nil then
+        return 1
+    end
+    if reqB == nil then
+        return -1
+    end
+    local cmp = applySortDirection(cmpValues(reqA, reqB), ascending)
+    if cmp ~= 0 then
+        return cmp
+    end
+    local ordA = DIFFICULTY_SORT_ORDER[a.difficulty] or 99
+    local ordB = DIFFICULTY_SORT_ORDER[b.difficulty] or 99
+    return applySortDirection(cmpValues(ordA, ordB), ascending)
+end
+
+local function compareGuildAffiliation(a, b)
+    local aGuild = a.isGuild and true or false
+    local bGuild = b.isGuild and true or false
+    if aGuild == bGuild then
+        return 0
+    end
+    return aGuild and 1 or -1
+end
+
+local function compareCharacterName(a, b)
+    return cmpValues((a.characterName or ""):lower(), (b.characterName or ""):lower())
+end
+
+--- Sort recipe search rows by column (`sortKey`: "Recipe", "Character", or "Skill").
+--- Skill uses required recipe level when CraftLib is available, otherwise character skill rank.
+--- Recipe/Skill tie-breakers: own characters, then guildmates, then character name A-Z.
+function SD.SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
+    if not list or #list < 2 or not sortKey then
+        return list
+    end
+    local out = {}
+    for i = 1, #list do
+        out[i] = list[i]
+    end
+    local useRequiredSkill = sortKey == "Skill" and craftLibAvailable
+    local useGuildTiebreak = sortKey == "Recipe" or sortKey == "Skill"
+
+    table.sort(out, function(a, b)
+        local cmp = 0
+        if sortKey == "Recipe" then
+            cmp = applySortDirection(cmpValues(recipeSortName(a), recipeSortName(b)), ascending)
+        elseif sortKey == "Character" then
+            cmp = applySortDirection(compareCharacterName(a, b), ascending)
+            if cmp == 0 then
+                cmp = compareGuildAffiliation(a, b)
+            end
+        elseif sortKey == "Skill" then
+            if useRequiredSkill then
+                cmp = compareRequiredSkill(a, b, ascending)
+            else
+                cmp = applySortDirection(cmpValues(a.skillRank or 0, b.skillRank or 0), ascending)
+            end
+        end
+        if cmp ~= 0 then
+            return cmp < 0
+        end
+        if useGuildTiebreak then
+            cmp = compareGuildAffiliation(a, b)
+            if cmp ~= 0 then
+                return cmp < 0
+            end
+            cmp = compareCharacterName(a, b)
+            if cmp ~= 0 then
+                return cmp < 0
+            end
+            return (a.recipeID or 0) < (b.recipeID or 0)
+        end
+        cmp = cmpValues(recipeSortName(a), recipeSortName(b))
+        if cmp ~= 0 then
+            return applySortDirection(cmp, ascending) < 0
+        end
+        return (a.recipeID or 0) < (b.recipeID or 0)
+    end)
+    return out
+end
+
 local function EnrichRecipeEntry(entry)
     if not entry then
         return entry

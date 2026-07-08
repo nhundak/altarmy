@@ -108,6 +108,8 @@ read_globals = {
     "GetContainerNumFreeSlots",
     "GetInventoryItemLink",
     "GetItemInfo",
+    "GetItemIcon",
+    "GetItemInfoInstant",
     "GetItemSpell",
     "GetTradeSkillLine",
     "GetTradeSkillSelectionIndex",

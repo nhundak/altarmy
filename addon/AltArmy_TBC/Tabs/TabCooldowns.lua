@@ -219,11 +219,7 @@ local function UpdateHeaderSortIndicators()
         local btn = headerButtons and headerButtons[sk]
         if btn and btn.label then
             local base = SORT_HEADER_LABEL[sk]
-            local label = base
-            if sk == currentSortKey then
-                label = base .. (sortAscending and " ^" or " v")
-            end
-            btn.label:SetText(label)
+            btn.label:SetText(Theme.FormatSortHeaderLabel(base, sk == currentSortKey, sortAscending))
         end
     end
 end

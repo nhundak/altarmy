@@ -524,6 +524,20 @@ describe("AltArmy.Theme", function()
         end)
     end)
 
+    describe("sort header arrows", function()
+        it("returns the base label when the column is not sorted", function()
+            assert.are.equal("Item", Theme.FormatSortHeaderLabel("Item", false, true))
+        end)
+
+        it("appends ^ when sorted ascending", function()
+            assert.are.equal("Recipe ^", Theme.FormatSortHeaderLabel("Recipe", true, true))
+        end)
+
+        it("appends v when sorted descending", function()
+            assert.are.equal("Skill v", Theme.FormatSortHeaderLabel("Skill", true, false))
+        end)
+    end)
+
     describe("CreateTabContentPanel", function()
         it("creates a section-backed panel for tab content", function()
             local parent = makeStubFrame()

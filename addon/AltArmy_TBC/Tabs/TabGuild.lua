@@ -104,35 +104,40 @@ local function GetRecipeLink(recipeID)
 end
 
 local function resolveRecipeDisplay(recipeID, resultItemID)
-    local recipeName = "Recipe " .. tostring(recipeID or "?")
-    local iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
-    if GetSpellInfo and recipeID then
-        local name = GetSpellInfo(recipeID)
-        if name then recipeName = name end
-    end
-    if recipeName == ("Recipe " .. tostring(recipeID or "?")) and GetItemInfo and recipeID then
-        local name = GetItemInfo(recipeID)
-        if name then recipeName = name end
-    end
-    if resultItemID and GetItemInfo then
-        local _, _, _, _, _, _, _, _, _, resultIcon = GetItemInfo(resultItemID)
-        if resultIcon then iconPath = resultIcon end
-    end
-    if not resultItemID and GetItemInfo and recipeID then
-        local _, _, _, _, _, _, _, _, _, icon = GetItemInfo(recipeID)
-        if icon then iconPath = icon end
-    end
-    if not resultItemID and GetSpellInfo and recipeID then
-        local _, _, spellIcon = GetSpellInfo(recipeID)
-        if spellIcon then iconPath = spellIcon end
-    end
-    return recipeName, iconPath
+    return GTD.ResolveRecipeDisplay(recipeID, resultItemID)
 end
 
 local showRecipeView
 local showGuildList
 local layoutRecipeView
 local refresh
+
+-- Item ids whose icons were missing on last layout; refreshed when GET_ITEM_INFO_RECEIVED fires.
+local pendingRecipeIconIds = {}
+local recipeIconEvents
+
+local function clearPendingRecipeIcons()
+    for k in pairs(pendingRecipeIconIds) do
+        pendingRecipeIconIds[k] = nil
+    end
+end
+
+local function trackPendingRecipeIcon(itemID)
+    if not itemID then return end
+    pendingRecipeIconIds[itemID] = true
+    if not recipeIconEvents and CreateFrame then
+        recipeIconEvents = CreateFrame("Frame")
+        recipeIconEvents:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+        recipeIconEvents:SetScript("OnEvent", function(_, _, itemId)
+            itemId = tonumber(itemId)
+            if not itemId or not pendingRecipeIconIds[itemId] then return end
+            pendingRecipeIconIds[itemId] = nil
+            if selectedCharacter then
+                layoutRecipeView(selectedCharacter)
+            end
+        end)
+    end
+end
 
 local function copyExpandState(src)
     local out = {}
@@ -538,11 +543,7 @@ local function updateRecipeHeaderSortIndicators()
     for key, btn in pairs(recipeHeaderButtons) do
         if btn.label then
             local base = RECIPE_HEADER_LABEL[key] or key
-            local label = base
-            if key == recipeSortKey then
-                label = base .. (recipeSortAscending and " v" or " ^")
-            end
-            btn.label:SetText(label)
+            btn.label:SetText(Theme.FormatSortHeaderLabel(base, key == recipeSortKey, recipeSortAscending))
         end
     end
 end
@@ -837,6 +838,7 @@ end
 
 layoutRecipeView = function(entry)
     if not entry then return end
+    clearPendingRecipeIcons()
     updateRecipeSearchPlaceholder(entry)
     local profs = GTD.GetPrimaryProfessions(entry)
     if selectedProfIndex < 1 or selectedProfIndex > #profs then
@@ -947,7 +949,8 @@ layoutRecipeView = function(entry)
         row.recipeID = recipe.recipeID
         layoutRecipeRowColumns(row, showSkillCol)
         local enriched = GTD.EnrichRecipeEntry(recipe, profName, skillRank)
-        local recipeName, iconPath = resolveRecipeDisplay(enriched.recipeID, enriched.resultItemID)
+        local recipeName, iconPath, pendingItemID = resolveRecipeDisplay(enriched.recipeID, enriched.resultItemID)
+        trackPendingRecipeIcon(pendingItemID)
         local highlightedName = GTD.FormatTextWithSearchHighlight(recipeName, nil, recipeSearchText)
         row.label:SetText(("|T%s:0|t %s"):format(iconPath, highlightedName))
         if showSkillCol then
@@ -972,6 +975,7 @@ showGuildList = function()
     selectedCharacter = nil
     selectedCharacterKey = nil
     selectedProfIndex = 1
+    clearPendingRecipeIcons()
     clearRecipeSearch()
     header:SetHeight(HEADER_HEIGHT)
     setListHeaderVisible(true)
@@ -986,6 +990,7 @@ showRecipeView = function(entry)
     selectedCharacter = entry
     selectedCharacterKey = memberKey(entry)
     selectedProfIndex = 1
+    recipeSortKey, recipeSortAscending = GTD.GetDefaultRecipeSort(isCraftLibAvailable())
     clearRecipeSearch()
     setListHeaderVisible(false)
     listViewport:Hide()

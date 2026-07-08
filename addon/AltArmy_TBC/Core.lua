@@ -474,6 +474,7 @@ local function refreshSearchIfActive()
     end
 end
 local gap = 12
+local updateGuildmateRecipesControlEnabled
 local itemsCheck = CreateFrame("CheckButton", nil, searchResultsLabel, "UICheckButtonTemplate")
 searchModeHandlers.itemsCheck = itemsCheck
 itemsCheck:SetScript("OnClick", function() end)  -- set before any GetScript("OnClick") from template
@@ -500,6 +501,7 @@ recipesCheck:SetPoint("LEFT", itemsLabelFrame, "RIGHT", gap, 0)
 recipesCheck:SetChecked(AltArmy.SearchCategories.Recipes)
 recipesCheck:SetScript("OnClick", function()
     AltArmy.SearchCategories.Recipes = recipesCheck:GetChecked()
+    updateGuildmateRecipesControlEnabled()
     refreshSearchIfActive()
 end)
 local recipesLabelFrame = CreateFrame("Button", nil, searchResultsLabel)
@@ -533,9 +535,32 @@ includeGuildLabelFrame:SetScript("OnClick", function()
 end)
 local includeGuildLabel = includeGuildLabelFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 includeGuildLabel:SetPoint("LEFT", includeGuildLabelFrame, "LEFT", 0, 0)
-includeGuildLabel:SetText("Include guildmates")
+includeGuildLabel:SetText("Guildmate recipes")
 includeGuildCheck:Hide()
 includeGuildLabelFrame:Hide()
+
+local function setGuildmateRecipesCaptionMuted(muted)
+    if not includeGuildLabel then return end
+    if muted then
+        includeGuildLabel:SetTextColor(0.5, 0.5, 0.5)
+    else
+        includeGuildLabel:SetTextColor(1, 1, 1)
+    end
+end
+
+updateGuildmateRecipesControlEnabled = function()
+    if not includeGuildCheck or not includeGuildLabelFrame then return end
+    local recipesEnabled = AltArmy.SearchCategories.Recipes and true or false
+    if recipesEnabled then
+        includeGuildCheck:Enable()
+        includeGuildLabelFrame:EnableMouse(true)
+        setGuildmateRecipesCaptionMuted(false)
+    else
+        includeGuildCheck:Disable()
+        includeGuildLabelFrame:EnableMouse(false)
+        setGuildmateRecipesCaptionMuted(true)
+    end
+end
 
 local function refreshIncludeGuildmatesCheck()
     if not includeGuildCheck then return end
@@ -546,6 +571,7 @@ local function refreshIncludeGuildmatesCheck()
     if show and SS.IsIncludeGuildmatesEnabled then
         includeGuildCheck:SetChecked(SS.IsIncludeGuildmatesEnabled())
     end
+    updateGuildmateRecipesControlEnabled()
 end
 
 function AltArmy.RefreshSearchCategoryBar()

@@ -1104,6 +1104,159 @@ describe("SearchData", function()
     end)
   end)
 
+  describe("SortItemResults", function()
+    local rows = {
+      { itemID = 1, itemName = "Zebra Cloth", characterName = "Bob", realm = "R", location = "bag", count = 2 },
+      { itemID = 2, itemName = "Alpha Bolt", characterName = "Alice", realm = "R", location = "bank", count = 5 },
+      { itemID = 1, itemName = "Zebra Cloth", characterName = "Alice", realm = "R", location = "bank", count = 3 },
+    }
+
+    it("returns the list unchanged when sortKey is nil", function()
+      assert.are.same(rows, SD.SortItemResults(rows, nil, true))
+    end)
+
+    it("sorts by item name ascending", function()
+      local out = SD.SortItemResults(rows, "Item", true)
+      assert.are.equal(2, out[1].itemID)
+      assert.are.equal(1, out[2].itemID)
+      assert.are.equal("bank", out[2].location)
+      assert.are.equal(1, out[3].itemID)
+      assert.are.equal("bag", out[3].location)
+    end)
+
+    it("sorts by character name ascending", function()
+      local out = SD.SortItemResults(rows, "Character", true)
+      assert.are.equal("Alice", out[1].characterName)
+      assert.are.equal("Alice", out[2].characterName)
+      assert.are.equal("Bob", out[3].characterName)
+    end)
+
+    it("sorts by grouped item total descending", function()
+      local out = SD.SortItemResults(rows, "Total", false)
+      assert.are.equal(1, out[1].itemID)
+      assert.are.equal(1, out[2].itemID)
+      assert.are.equal(2, out[3].itemID)
+    end)
+  end)
+
+  describe("SortRecipeResults", function()
+    local rows = {
+      {
+        characterName = "Zebra",
+        recipeID = 1,
+        recipeNameLower = "zebra cloth",
+        professionName = "Tailoring",
+        skillRank = 300,
+        isGuild = true,
+      },
+      {
+        characterName = "Alice",
+        recipeID = 2,
+        recipeNameLower = "alpha bolt",
+        professionName = "Tailoring",
+        skillRank = 375,
+        recipeSkillRequired = 250,
+        difficulty = "yellow",
+      },
+      {
+        characterName = "Bob",
+        recipeID = 3,
+        recipeNameLower = "mooncloth",
+        professionName = "Tailoring",
+        skillRank = 200,
+        recipeSkillRequired = 300,
+        difficulty = "orange",
+      },
+    }
+
+    it("sorts by recipe name ascending", function()
+      local out = SD.SortRecipeResults(rows, "Recipe", true, true)
+      assert.are.equal(2, out[1].recipeID)
+      assert.are.equal(3, out[2].recipeID)
+      assert.are.equal(1, out[3].recipeID)
+    end)
+
+    it("sorts by character name ascending", function()
+      local out = SD.SortRecipeResults(rows, "Character", true, true)
+      assert.are.equal("Alice", out[1].characterName)
+      assert.are.equal("Bob", out[2].characterName)
+      assert.are.equal("Zebra", out[3].characterName)
+    end)
+
+    it("sorts by required skill descending when CraftLib is available", function()
+      local out = SD.SortRecipeResults(rows, "Skill", false, true)
+      assert.are.equal(3, out[1].recipeID)
+      assert.are.equal(2, out[2].recipeID)
+      assert.are.equal(1, out[3].recipeID)
+    end)
+
+    it("sorts by character skill rank when CraftLib is unavailable", function()
+      local out = SD.SortRecipeResults(rows, "Skill", false, false)
+      assert.are.equal(2, out[1].recipeID)
+      assert.are.equal(1, out[2].recipeID)
+      assert.are.equal(3, out[3].recipeID)
+    end)
+
+    it("lists own characters before guildmates when recipe names tie", function()
+      local tied = {
+        {
+          characterName = "Zebra",
+          recipeID = 1,
+          recipeNameLower = "bolt",
+          professionName = "Tailoring",
+          isGuild = true,
+        },
+        {
+          characterName = "Alice",
+          recipeID = 1,
+          recipeNameLower = "bolt",
+          professionName = "Tailoring",
+        },
+        {
+          characterName = "Bob",
+          recipeID = 1,
+          recipeNameLower = "bolt",
+          professionName = "Tailoring",
+        },
+      }
+      local out = SD.SortRecipeResults(tied, "Recipe", true, true)
+      assert.are.equal("Alice", out[1].characterName)
+      assert.are.equal("Bob", out[2].characterName)
+      assert.are.equal("Zebra", out[3].characterName)
+    end)
+
+    it("lists own characters before guildmates when required skill ties", function()
+      local tied = {
+        {
+          characterName = "Zebra",
+          recipeID = 1,
+          recipeNameLower = "alpha",
+          professionName = "Tailoring",
+          recipeSkillRequired = 300,
+          isGuild = true,
+        },
+        {
+          characterName = "Alice",
+          recipeID = 2,
+          recipeNameLower = "beta",
+          professionName = "Tailoring",
+          recipeSkillRequired = 300,
+        },
+        {
+          characterName = "Bob",
+          recipeID = 3,
+          recipeNameLower = "gamma",
+          professionName = "Tailoring",
+          recipeSkillRequired = 300,
+        },
+      }
+      local out = SD.SortRecipeResults(tied, "Skill", false, true)
+      assert.are.equal("Alice", out[1].characterName)
+      assert.are.equal("Bob", out[2].characterName)
+      assert.are.equal("Zebra", out[3].characterName)
+    end)
+  end)
+
   describe("_IsRecipeAliasId", function()
     it("returns true when recipeID differs from primaryRecipeID", function()
       assert.is_true(SD._IsRecipeAliasId(11334, { primaryRecipeID = 11449 }))

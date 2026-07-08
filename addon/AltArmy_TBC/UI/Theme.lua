@@ -519,6 +519,22 @@ function Theme.StyleGridHeader(texture)
     texture:SetColorTexture(hdr[1], hdr[2], hdr[3], hdr[4])
 end
 
+--- Ascending/descending suffix for a sorted grid column header (^ = low→high, v = high→low).
+function Theme.GetSortArrowSuffix(ascending)
+    return ascending and " ^" or " v"
+end
+
+--- Append a sort-direction indicator when `isSorted`; otherwise return the base label unchanged.
+function Theme.FormatSortHeaderLabel(baseLabel, isSorted, ascending)
+    if not baseLabel then
+        return ""
+    end
+    if not isSorted then
+        return baseLabel
+    end
+    return baseLabel .. Theme.GetSortArrowSuffix(ascending)
+end
+
 --- Opaque gridHeaderBg fill for a pinned row/column label area (Gear slots, Reputation factions).
 function Theme.ApplyGridLabelColumnBackground(frame)
     if not frame then return nil end

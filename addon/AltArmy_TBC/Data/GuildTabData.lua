@@ -189,6 +189,68 @@ function GTD.EnrichRecipeEntry(recipe, professionName, skillRank)
     return entry
 end
 
+local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+
+--- Prefer icons that do not require the item cache (GetItemIcon / GetItemInfoInstant).
+local function resolveItemIcon(itemID)
+    if not itemID then return nil end
+    if GetItemIcon then
+        local icon = GetItemIcon(itemID)
+        if icon then return icon end
+    end
+    if GetItemInfoInstant then
+        local _, _, _, _, icon = GetItemInfoInstant(itemID)
+        if icon then return icon end
+    end
+    if GetItemInfo then
+        local _, _, _, _, _, _, _, _, _, icon = GetItemInfo(itemID)
+        if icon then return icon end
+    end
+    return nil
+end
+
+--- Resolve recipe display name and icon for guild-tab rows.
+--- Returns recipeName, iconPath, pendingItemID (item id to watch via GET_ITEM_INFO_RECEIVED, or nil).
+function GTD.ResolveRecipeDisplay(recipeID, resultItemID)
+    local recipeName = "Recipe " .. tostring(recipeID or "?")
+    local iconPath = QUESTION_MARK_ICON
+    local pendingItemID = nil
+
+    if GetSpellInfo and recipeID then
+        local name = GetSpellInfo(recipeID)
+        if name then recipeName = name end
+    end
+    if recipeName == ("Recipe " .. tostring(recipeID or "?")) and GetItemInfo and recipeID then
+        local name = GetItemInfo(recipeID)
+        if name then recipeName = name end
+    end
+
+    if resultItemID then
+        local icon = resolveItemIcon(resultItemID)
+        if icon then
+            iconPath = icon
+        else
+            pendingItemID = resultItemID
+        end
+    elseif recipeID then
+        local icon = resolveItemIcon(recipeID)
+        if icon then
+            iconPath = icon
+        elseif GetSpellInfo then
+            local _, _, spellIcon = GetSpellInfo(recipeID)
+            if spellIcon then
+                iconPath = spellIcon
+            else
+                pendingItemID = recipeID
+            end
+        else
+            pendingItemID = recipeID
+        end
+    end
+
+    return recipeName, iconPath, pendingItemID
+end
+
 --- Skill column text for a recipe row (same formatting as Search recipe results).
 function GTD.FormatRecipeSkillCell(recipe, professionName, skillRank)
     local entry = GTD.EnrichRecipeEntry(recipe, professionName, skillRank)
@@ -212,6 +274,15 @@ local function recipeNameLower(recipe, getRecipeName)
         return (getRecipeName(recipe) or ""):lower()
     end
     return ""
+end
+
+--- Default recipe list sort when opening a character's recipes.
+--- With CraftLib: required skill descending (highest first). Otherwise: name ascending.
+function GTD.GetDefaultRecipeSort(craftLibAvailable)
+    if craftLibAvailable then
+        return "skill", false
+    end
+    return "recipe", true
 end
 
 --- Sort recipe rows for the guild recipe list (`sortKey`: "recipe" or "skill").

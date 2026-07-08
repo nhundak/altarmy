@@ -712,7 +712,7 @@ local function PopulateHeaderColumn(c, entry, ctx)
         classR, classG, classB = 1, 0.82, 0
     end
     headerCol.classR, headerCol.classG, headerCol.classB = classR, classG, classB
-    local hdrSuffix = isColSorted and (columnSortHighFirst and " v" or " ^") or ""
+    local hdrSuffix = isColSorted and Theme.GetSortArrowSuffix(not columnSortHighFirst) or ""
     local baseHeaderMax = dims.columnWidth - 4
     local headerMax = (hdrSuffix ~= "") and (baseHeaderMax - 14) or baseHeaderMax
     headerCol.header:SetTextColor(classR, classG, classB, 1)

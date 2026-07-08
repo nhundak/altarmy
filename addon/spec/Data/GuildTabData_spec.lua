@@ -619,6 +619,127 @@ describe("GuildTabData", function()
     end)
   end)
 
+  describe("ResolveRecipeDisplay", function()
+    local savedGetItemInfo
+    local savedGetItemIcon
+    local savedGetItemInfoInstant
+    local savedGetSpellInfo
+
+    before_each(function()
+      savedGetItemInfo = _G.GetItemInfo
+      savedGetItemIcon = _G.GetItemIcon
+      savedGetItemInfoInstant = _G.GetItemInfoInstant
+      savedGetSpellInfo = _G.GetSpellInfo
+      _G.GetItemInfo = nil
+      _G.GetItemIcon = nil
+      _G.GetItemInfoInstant = nil
+      _G.GetSpellInfo = nil
+    end)
+
+    after_each(function()
+      _G.GetItemInfo = savedGetItemInfo
+      _G.GetItemIcon = savedGetItemIcon
+      _G.GetItemInfoInstant = savedGetItemInfoInstant
+      _G.GetSpellInfo = savedGetSpellInfo
+    end)
+
+    it("uses GetItemIcon for result item when GetItemInfo has not cached yet", function()
+      _G.GetSpellInfo = function(id)
+        if id == 100 then return "Bolt of Silk" end
+      end
+      _G.GetItemInfo = function()
+        return nil
+      end
+      _G.GetItemIcon = function(id)
+        if id == 4306 then return 132905 end
+      end
+      local name, icon = GTD.ResolveRecipeDisplay(100, 4306)
+      assert.are.equal("Bolt of Silk", name)
+      assert.are.equal(132905, icon)
+    end)
+
+    it("falls back to GetItemInfoInstant icon when GetItemIcon is absent", function()
+      _G.GetSpellInfo = function(id)
+        if id == 100 then return "Bolt of Silk" end
+      end
+      _G.GetItemInfo = function() return nil end
+      _G.GetItemInfoInstant = function(id)
+        if id == 4306 then
+          return 4306, "Tradeskill", "Cloth", "", 132905, 7, 5
+        end
+      end
+      local name, icon = GTD.ResolveRecipeDisplay(100, 4306)
+      assert.are.equal("Bolt of Silk", name)
+      assert.are.equal(132905, icon)
+    end)
+
+    it("uses GetItemInfo icon when the item is already cached", function()
+      _G.GetSpellInfo = function(id)
+        if id == 100 then return "Bolt of Silk" end
+      end
+      _G.GetItemInfo = function(id)
+        if id == 4306 then
+          return "Silk Cloth", nil, nil, nil, nil, nil, nil, nil, nil, "Interface\\Icons\\INV_Fabric_Silk_01"
+        end
+      end
+      local name, icon = GTD.ResolveRecipeDisplay(100, 4306)
+      assert.are.equal("Bolt of Silk", name)
+      assert.are.equal("Interface\\Icons\\INV_Fabric_Silk_01", icon)
+    end)
+
+    it("falls back to spell icon when no result item is known", function()
+      _G.GetSpellInfo = function(id)
+        if id == 100 then return "Bolt of Silk", nil, "Interface\\Icons\\Spell_Nature_Dryad" end
+      end
+      local name, icon = GTD.ResolveRecipeDisplay(100, nil)
+      assert.are.equal("Bolt of Silk", name)
+      assert.are.equal("Interface\\Icons\\Spell_Nature_Dryad", icon)
+    end)
+
+    it("returns question-mark icon when nothing resolves", function()
+      local name, icon = GTD.ResolveRecipeDisplay(999, 888)
+      assert.are.equal("Recipe 999", name)
+      assert.are.equal("Interface\\Icons\\INV_Misc_QuestionMark", icon)
+    end)
+
+    it("reports whether an unresolved item id should be watched for cache arrival", function()
+      _G.GetSpellInfo = function(id)
+        if id == 100 then return "Bolt of Silk" end
+      end
+      _G.GetItemInfo = function() return nil end
+      local name, icon, pendingItemID = GTD.ResolveRecipeDisplay(100, 4306)
+      assert.are.equal("Bolt of Silk", name)
+      assert.are.equal("Interface\\Icons\\INV_Misc_QuestionMark", icon)
+      assert.are.equal(4306, pendingItemID)
+    end)
+
+    it("does not mark pending when an instant icon is already available", function()
+      _G.GetSpellInfo = function(id)
+        if id == 100 then return "Bolt of Silk" end
+      end
+      _G.GetItemIcon = function(id)
+        if id == 4306 then return 132905 end
+      end
+      local _, icon, pendingItemID = GTD.ResolveRecipeDisplay(100, 4306)
+      assert.are.equal(132905, icon)
+      assert.is_nil(pendingItemID)
+    end)
+  end)
+
+  describe("GetDefaultRecipeSort", function()
+    it("defaults to name ascending when CraftLib is unavailable", function()
+      local sortKey, ascending = GTD.GetDefaultRecipeSort(false)
+      assert.are.equal("recipe", sortKey)
+      assert.is_true(ascending)
+    end)
+
+    it("defaults to required skill descending when CraftLib is available", function()
+      local sortKey, ascending = GTD.GetDefaultRecipeSort(true)
+      assert.are.equal("skill", sortKey)
+      assert.is_false(ascending)
+    end)
+  end)
+
   describe("SortRecipes", function()
     local savedRCL
     local recipes = {
@@ -675,6 +796,31 @@ describe("GuildTabData", function()
       assert.are.equal(2, out[1].recipeID)
       assert.are.equal(1, out[2].recipeID)
       assert.are.equal(3, out[3].recipeID)
+    end)
+
+    it("sorts by required skill descending with name tiebreaker", function()
+      AltArmy.RecipeCraftLib = {
+        EnrichEntry = function(entry)
+          if entry.recipeID == 1 then
+            entry.recipeSkillRequired = 300
+            entry.difficulty = "orange"
+          elseif entry.recipeID == 2 then
+            entry.recipeSkillRequired = 150
+            entry.difficulty = "yellow"
+          elseif entry.recipeID == 3 then
+            entry.recipeSkillRequired = 300
+            entry.difficulty = "green"
+          end
+        end,
+      }
+      local out = GTD.SortRecipes(recipes, "skill", false, {
+        professionName = "Tailoring",
+        skillRank = 375,
+        getRecipeName = nameOf,
+      })
+      assert.are.equal(3, out[1].recipeID)
+      assert.are.equal(1, out[2].recipeID)
+      assert.are.equal(2, out[3].recipeID)
     end)
 
     it("places recipes without required skill last when ascending", function()

@@ -276,40 +276,65 @@ resultsArea:SetHeight(ROW_HEIGHT)
 scrollFrame:SetScrollChild(resultsArea)
 resultsArea:SetScript("OnMouseWheel", OnSearchScrollWheel)
 
+-- Result list state (declared before section headers; header clicks update sort and refresh).
+local resultRows = {}
+local itemList = {}
+local recipeList = {}
+local recipeRows = {}
+local itemGroups = {}
+local tooltipOnlyItemList = {}
+local tooltipOnlyItemGroups = {}
+local tooltipOnlyResultRows = {}
+local UpdateVisibleRows
+local UpdateResults
+local RefreshSearchHeaderSortLabels
+
+local sectionSort = {
+    items = { key = "Item", ascending = true },
+    recipes = { key = "Recipe", ascending = true },
+    tooltip = { key = "Item", ascending = true },
+}
+
+local function resetSectionSorts()
+    sectionSort.items.key = "Item"
+    sectionSort.items.ascending = true
+    sectionSort.recipes.key = "Recipe"
+    sectionSort.recipes.ascending = true
+    sectionSort.tooltip.key = "Item"
+    sectionSort.tooltip.ascending = true
+end
+
+local function isCraftLibAvailable()
+    local RCL = AltArmy and AltArmy.RecipeCraftLib
+    return RCL and RCL.IsAvailable and RCL.IsAvailable() or false
+end
+
+local function applySectionSorts()
+    if sectionSort.items.key then
+        itemList = SD.SortItemResults(itemList, sectionSort.items.key, sectionSort.items.ascending)
+    end
+    if sectionSort.recipes.key then
+        recipeList = SD.SortRecipeResults(
+            recipeList, sectionSort.recipes.key, sectionSort.recipes.ascending, isCraftLibAvailable())
+    end
+    if sectionSort.tooltip.key then
+        tooltipOnlyItemList = SD.SortItemResults(
+            tooltipOnlyItemList, sectionSort.tooltip.key, sectionSort.tooltip.ascending)
+    end
+end
+
 -- Items section header (sticky overlay on horizontalScrollChild; shown when items have results)
 local itemsHeaderRow = CreateFrame("Frame", nil, horizontalScrollChild)
 itemsHeaderRow:SetHeight(HEADER_HEIGHT)
 StyleStickySearchHeader(itemsHeaderRow)
 itemsHeaderRow:Hide()
-local itemsHeaderLabels = {}
-local ix = 0
-for _, colName in ipairs(colOrder) do
-    local w = colWidths[colName] or 80
-    local label = itemsHeaderRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    label:SetPoint("BOTTOMLEFT", itemsHeaderRow, "BOTTOMLEFT", ix, 0)
-    label:SetWidth(w)
-    label:SetJustifyH(colName == "Item" and "LEFT" or "RIGHT")
-    label:SetText(colName)
-    itemsHeaderLabels[#itemsHeaderLabels + 1] = label
-    ix = ix + w
-end
+local itemsHeaderButtons = {}
 -- Recipes section header
 local recipesHeaderRow = CreateFrame("Frame", nil, horizontalScrollChild)
 recipesHeaderRow:SetHeight(HEADER_HEIGHT)
 StyleStickySearchHeader(recipesHeaderRow)
 recipesHeaderRow:Hide()
-local recipesHeaderLabels = {}
-local rx = 0
-for _, colName in ipairs(recipeColOrder) do
-    local w = recipeColWidths[colName] or 80
-    local label = recipesHeaderRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    label:SetPoint("BOTTOMLEFT", recipesHeaderRow, "BOTTOMLEFT", rx, 0)
-    label:SetWidth(w)
-    label:SetJustifyH(colName == "Recipe" and "LEFT" or "RIGHT")
-    label:SetText(colName)
-    recipesHeaderLabels[#recipesHeaderLabels + 1] = label
-    rx = rx + w
-end
+local recipesHeaderButtons = {}
 
 -- "You may also be interested in:" section header: same columns as items (Item/Character/Total),
 -- with the first column label replaced by the section title.
@@ -317,18 +342,48 @@ local alsoInterestedHeaderRow = CreateFrame("Frame", nil, horizontalScrollChild)
 alsoInterestedHeaderRow:SetHeight(HEADER_HEIGHT)
 StyleStickySearchHeader(alsoInterestedHeaderRow)
 alsoInterestedHeaderRow:Hide()
-local alsoInterestedHeaderLabels = {}
-local aix = 0
-for _, colName in ipairs(colOrder) do
-    local w = colWidths[colName] or 80
-    local label = alsoInterestedHeaderRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    label:SetPoint("BOTTOMLEFT", alsoInterestedHeaderRow, "BOTTOMLEFT", aix, 0)
-    label:SetWidth(w)
-    label:SetJustifyH(colName == "Item" and "LEFT" or "RIGHT")
-    label:SetText(colName == "Item" and "You may also be interested in:" or colName)
-    alsoInterestedHeaderLabels[#alsoInterestedHeaderLabels + 1] = label
-    aix = aix + w
+local alsoInterestedHeaderButtons = {}
+
+local function defaultAscendingForSortKey(sortKey)
+    return sortKey ~= "Skill"
 end
+
+local function createSearchHeaderButton(headerRow, sectionId, colName, justifyLeft)
+    local btn = CreateFrame("Button", nil, headerRow)
+    btn:SetHeight(HEADER_HEIGHT)
+    btn:EnableMouse(true)
+    btn:RegisterForClicks("LeftButtonUp")
+    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    label:SetPoint("LEFT", btn, "LEFT", 0, 0)
+    label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
+    label:SetJustifyH(justifyLeft and "LEFT" or "RIGHT")
+    btn.label = label
+    btn.colName = colName
+    Theme.BindInteractableHover(btn)
+    local clickCol = colName
+    btn:SetScript("OnClick", function()
+        local sortState = sectionSort[sectionId]
+        if sortState.key == clickCol then
+            sortState.ascending = not sortState.ascending
+        else
+            sortState.key = clickCol
+            sortState.ascending = defaultAscendingForSortKey(clickCol)
+        end
+        UpdateResults()
+    end)
+    return btn
+end
+
+local function initSearchSectionHeader(headerRow, sectionId, columnOrder, buttonsByCol)
+    for _, colName in ipairs(columnOrder) do
+        local justifyLeft = colName == "Item" or colName == "Recipe"
+        buttonsByCol[colName] = createSearchHeaderButton(headerRow, sectionId, colName, justifyLeft)
+    end
+end
+
+initSearchSectionHeader(itemsHeaderRow, "items", colOrder, itemsHeaderButtons)
+initSearchSectionHeader(recipesHeaderRow, "recipes", recipeColOrder, recipesHeaderButtons)
+initSearchSectionHeader(alsoInterestedHeaderRow, "tooltip", colOrder, alsoInterestedHeaderButtons)
 
 local scrollTopFade = Theme.CreatePinnedHeaderScrollFade({
     headerFrame = itemsHeaderRow,
@@ -336,18 +391,6 @@ local scrollTopFade = Theme.CreatePinnedHeaderScrollFade({
     scrollBar = searchScrollBar,
 })
 local stickyHeaderFadeFrame = scrollTopFade.frame
-
--- Result rows (pool) for items
-local resultRows = {}
-local itemList = {}
-local recipeList = {}
-local recipeRows = {}
-local itemGroups = {}  -- built in UpdateResults, used by UpdateVisibleRows for overlays
-local tooltipOnlyItemList = {}
-local tooltipOnlyItemGroups = {}
-local tooltipOnlyResultRows = {}
-local UpdateVisibleRows  -- forward-declare for scroll bar script
-local UpdateResults      -- forward-declare for debounce callback
 
 -- Debounce for tooltip-only search: main results (ID/name/link) appear immediately;
 -- tooltip scan runs after the user stops typing for TOOLTIP_DEBOUNCE_SECS seconds.
@@ -1050,6 +1093,7 @@ searchScrollBar:SetScript("OnValueChanged", function(_, value)
 end)
 
 UpdateResults = function()
+    applySectionSorts()
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     local nItems = categories.Items and #itemList or 0
     local nRecipes = categories.Recipes and #recipeList or 0
@@ -1159,6 +1203,7 @@ UpdateResults = function()
             end
         end
     end
+    RefreshSearchHeaderSortLabels()
     UpdateVisibleRows()
     UpdateNoResultsHint()
 end
@@ -1170,6 +1215,7 @@ function frame.DoSearch()
     end
     if query and query:match("^%s*$") then query = "" end
     frame.lastQuery = query or ""
+    resetSectionSorts()
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     if categories.Items and query ~= "" then
         -- Skip tooltip scan for the immediate response; tooltip results arrive after debounce.
@@ -1197,6 +1243,7 @@ end
 function frame.SearchWithQuery(_self, query)
     local q = (query and type(query) == "string") and query:match("^%s*(.-)%s*$") or ""
     frame.lastQuery = q
+    resetSectionSorts()
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     if q == "" then
         itemList = {}
@@ -1851,21 +1898,33 @@ local function RelayoutSearchResultRow(row, order, widths)
     end
 end
 
-local function LayoutSearchHeaderLabels(labels, headerRow, order, widths, labelTextForCol)
+local function LayoutSearchHeaderButtons(buttonsByCol, headerRow, order, widths, sortState, labelTextForCol)
     local x = 0
-    for i, colName in ipairs(order) do
+    for _, colName in ipairs(order) do
         local w = widths[colName] or 80
-        local label = labels[i]
-        if label then
-            label:SetWidth(w)
-            label:ClearAllPoints()
-            label:SetPoint("BOTTOMLEFT", headerRow, "BOTTOMLEFT", x, 0)
-            if labelTextForCol then
-                label:SetText(labelTextForCol(colName))
-            end
+        local btn = buttonsByCol[colName]
+        if btn then
+            btn:ClearAllPoints()
+            btn:SetPoint("BOTTOMLEFT", headerRow, "BOTTOMLEFT", x, 0)
+            btn:SetWidth(w)
+            btn:SetHeight(HEADER_HEIGHT)
+            local base = labelTextForCol and labelTextForCol(colName) or colName
+            btn.label:SetText(Theme.FormatSortHeaderLabel(base, sortState and sortState.key == colName,
+                sortState and sortState.ascending))
         end
         x = x + w
     end
+end
+
+RefreshSearchHeaderSortLabels = function()
+    LayoutSearchHeaderButtons(itemsHeaderButtons, itemsHeaderRow, colOrder, colWidths, sectionSort.items)
+    LayoutSearchHeaderButtons(
+        recipesHeaderButtons, recipesHeaderRow, recipeColOrder, recipeColWidths, sectionSort.recipes)
+    LayoutSearchHeaderButtons(
+        alsoInterestedHeaderButtons, alsoInterestedHeaderRow, colOrder, colWidths, sectionSort.tooltip,
+        function(colName)
+            return colName == "Item" and "You may also be interested in:" or colName
+        end)
 end
 
 local function ApplySearchColumnLayout()
@@ -1879,11 +1938,7 @@ local function ApplySearchColumnLayout()
     if horizontalScrollChild then
         horizontalScrollChild:SetWidth(totalColWidth)
     end
-    LayoutSearchHeaderLabels(itemsHeaderLabels, itemsHeaderRow, colOrder, colWidths)
-    LayoutSearchHeaderLabels(recipesHeaderLabels, recipesHeaderRow, recipeColOrder, recipeColWidths)
-    LayoutSearchHeaderLabels(alsoInterestedHeaderLabels, alsoInterestedHeaderRow, colOrder, colWidths, function(colName)
-        return colName == "Item" and "You may also be interested in:" or colName
-    end)
+    RefreshSearchHeaderSortLabels()
     for _, row in ipairs(resultRows) do
         RelayoutSearchResultRow(row, colOrder, colWidths)
     end

@@ -126,7 +126,7 @@ function SS.SetIncludeGuildmatesEnabled(on)
     end
 end
 
---- Whether the search-mode "Include guildmates" checkbox should be shown.
+--- Whether the search-mode "Guildmate recipes" checkbox should be shown.
 function SS.ShouldShowIncludeGuildmatesToggle(guildShareFlagOn, hasGuildedCharacters, sharingEnabled)
     if not guildShareFlagOn then return false end
     if not hasGuildedCharacters then return false end
