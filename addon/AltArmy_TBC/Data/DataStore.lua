@@ -310,6 +310,9 @@ frame:SetScript("OnEvent", function(_, event, ...)
         local char = GetCurrentCharTable()
         if char then
             CD.RecordSuccessfulTransmuteCast(char, spellId)
+            if CD.RecordSuccessfulSphereCast then
+                CD.RecordSuccessfulSphereCast(char, spellId)
+            end
             cooldownAfterCastFrame.pendingSpellId = spellId
             cooldownAfterCastFrame.elapsed = 0
             cooldownAfterCastFrame:SetScript("OnUpdate", function(f, elapsed)
@@ -318,8 +321,14 @@ frame:SetScript("OnEvent", function(_, event, ...)
                     f:SetScript("OnUpdate", nil)
                     local sid = f.pendingSpellId
                     f.pendingSpellId = nil
-                    if sid and DS.TryScanTransmuteCooldownsFromSpellApi then
+                    if sid and CD.IsTransmuteSpellId and CD.IsTransmuteSpellId(sid)
+                        and DS.TryScanTransmuteCooldownsFromSpellApi
+                    then
                         DS:TryScanTransmuteCooldownsFromSpellApi(sid)
+                    elseif sid and CD.IsSphereSpellId and CD.IsSphereSpellId(sid)
+                        and DS.TryScanSphereCooldownsFromSpellApi
+                    then
+                        DS:TryScanSphereCooldownsFromSpellApi(sid)
                     elseif sid and DS.TryScanTrackedCooldownFromSpellApi then
                         DS:TryScanTrackedCooldownFromSpellApi(sid)
                     end
@@ -349,6 +358,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
                     and DS.TryScanTransmuteCooldownsFromSpellApi
                 then
                     DS:TryScanTransmuteCooldownsFromSpellApi(sid)
+                elseif sid and CD.IsSphereSpellId and CD.IsSphereSpellId(sid)
+                    and DS.TryScanSphereCooldownsFromSpellApi
+                then
+                    DS:TryScanSphereCooldownsFromSpellApi(sid)
                 elseif sid and DS.TryScanTrackedCooldownFromSpellApi then
                     DS:TryScanTrackedCooldownFromSpellApi(sid)
                 end

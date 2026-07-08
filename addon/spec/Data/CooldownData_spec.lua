@@ -18,7 +18,8 @@ describe("CooldownData", function()
         -- Same structure as in-game: filled when tradeskill/craft APIs run (see DataStoreProfessions).
         _G.AltArmyTBC_Data.RecipeReagents = {
             [29688] = { { 22452, 1 }, { 21885, 1 }, { 21884, 1 }, { 22451, 1 } },
-            [45765] = { { 22450, 1 } },
+            [28028] = { { 22450, 2 } },
+            [28027] = { { 22449, 4 } },
         }
     end)
 
@@ -253,18 +254,14 @@ describe("CooldownData", function()
         end
     end)
 
-    it("CharacterHasReagents respects counts", function()
+    it("CharacterHasReagents respects counts for sphere recipes", function()
         local char = {}
-        local function count(_ch, itemId)
-            if itemId == 22450 then return 3 end
-            return 0
-        end
-        local ok = CD.CharacterHasReagents(char, 45765, count)
-        assert.is_true(ok)
-        local bad = CD.CharacterHasReagents(char, 45765, function()
-            return 0
-        end)
-        assert.is_false(bad)
+        assert.is_true(CD.CharacterHasReagents(char, 28028, function(_ch, itemId)
+            return itemId == 22450 and 2 or 0
+        end))
+        assert.is_true(CD.CharacterHasReagents(char, 28027, function(_ch, itemId)
+            return itemId == 22449 and 4 or 0
+        end))
     end)
 
     it("EnsureCooldownOptions sets list sort key and ascending flag", function()
@@ -379,20 +376,163 @@ describe("CooldownData", function()
         assert.is_true(seen[32766])
     end)
 
-    it("IsTrackedSpellId recognizes void shatter spell id", function()
-        assert.is_true(CD.IsTrackedSpellId(45765))
+    it("IsTrackedSpellId recognizes void and prismatic sphere spell ids", function()
+        assert.is_true(CD.IsTrackedSpellId(28028))
+        assert.is_true(CD.IsTrackedSpellId(28027))
+        assert.is_false(CD.IsTrackedSpellId(45765))
         assert.is_false(CD.IsTrackedSpellId(33358))
     end)
 
-    it("CATEGORY_ORDER places brilliant_glass before void_shatter", function()
-        local brilliantIdx, voidIdx = nil, nil
+    it("ResolveSphereSpellForCharacter prefers void sphere then prismatic sphere", function()
+        local voidOnly = {
+            Professions = { Enchanting = { Recipes = { [28028] = {} } } },
+        }
+        assert.are.equal(28028, CD.ResolveSphereSpellForCharacter(voidOnly))
+
+        local prismaticOnly = {
+            Professions = { Enchanting = { Recipes = { [28027] = {} } } },
+        }
+        assert.are.equal(28027, CD.ResolveSphereSpellForCharacter(prismaticOnly))
+
+        local both = {
+            Professions = { Enchanting = { Recipes = { [28028] = {}, [28027] = {} } } },
+        }
+        assert.are.equal(28028, CD.ResolveSphereSpellForCharacter(both))
+    end)
+
+    it("ResolveSphereSpellForCharacter prefers last cast before automatic fallback", function()
+        local char = {
+            lastSphere = { spellId = 28027 },
+            Professions = { Enchanting = { Recipes = { [28028] = {}, [28027] = {} } } },
+        }
+        assert.are.equal(28027, CD.ResolveSphereSpellForCharacter(char))
+    end)
+
+    it("GetSphereExpiryUnix uses max expiry across sphere spell ids", function()
+        local char = {
+            ProfCooldownExpiry = {
+                [28028] = { expiresAtUnix = 500 },
+                [28027] = { expiresAtUnix = 900 },
+            },
+        }
+        assert.are.equal(900, CD.GetSphereExpiryUnix(char))
+        assert.is_nil(CD.GetSphereExpiryUnix({}))
+    end)
+
+    it("RecordSuccessfulSphereCast saves known sphere spell ids", function()
+        local char = {}
+        CD.RecordSuccessfulSphereCast(char, 28027)
+        assert.are.equal(28027, char.lastSphere and char.lastSphere.spellId)
+    end)
+
+    it("RecordSuccessfulSphereCast ignores non-sphere spells", function()
+        local char = {}
+        CD.RecordSuccessfulSphereCast(char, 999999)
+        assert.is_nil(char.lastSphere)
+    end)
+
+    it("BuildRows includes void sphere group when either enchanting recipe known", function()
+        local oldGi = _G.GetSpellInfo
+        _G.GetSpellInfo = function(spellId)
+            if spellId == 28027 then return "Prismatic Sphere" end
+            return oldGi and oldGi(spellId)
+        end
+        local char = {
+            name = "Enchanter",
+            Professions = { Enchanting = { Recipes = { [28027] = { color = 1 } } } },
+            ProfCooldownExpiry = { [28027] = { expiresAtUnix = 5000 } },
+        }
+        local ds = mockDS({ TestRealm = { E = char } })
+        local rows = CD.BuildRows(ds, AltArmyTBC_Options.cooldowns, 1000)
+        _G.GetSpellInfo = oldGi
+        local found = false
+        for _, r in ipairs(rows) do
+            if r.categoryKey == "void_sphere" and r.name == "Enchanter" then
+                found = true
+                assert.are.equal(28027, r.spellId)
+                assert.are.equal(5000, r.expiresUnix)
+                assert.are.equal("Prismatic Sphere", r.categoryTitle)
+            end
+        end
+        assert.is_true(found)
+    end)
+
+    it("BuildRows sphere time uses shared expiry when only the other sphere id was scanned", function()
+        local oldGi = _G.GetSpellInfo
+        _G.GetSpellInfo = function(spellId)
+            if spellId == 28028 then return "Void Sphere" end
+            return oldGi and oldGi(spellId)
+        end
+        local char = {
+            name = "Enchanter",
+            lastSphere = { spellId = 28028 },
+            Professions = { Enchanting = { Recipes = { [28028] = {}, [28027] = {} } } },
+            ProfCooldownExpiry = { [28027] = { expiresAtUnix = 5000 } },
+        }
+        local ds = mockDS({ TestRealm = { E = char } })
+        local rows = CD.BuildRows(ds, AltArmyTBC_Options.cooldowns, 1000)
+        _G.GetSpellInfo = oldGi
+        local sphereRow
+        for _, r in ipairs(rows) do
+            if r.categoryKey == "void_sphere" and r.name == "Enchanter" then
+                sphereRow = r
+                break
+            end
+        end
+        assert.is_not_nil(sphereRow)
+        assert.are.equal(28028, sphereRow.spellId)
+        assert.are.equal(5000, sphereRow.expiresUnix)
+        assert.are.equal("Void Sphere", sphereRow.categoryTitle)
+    end)
+
+    it("BuildRows omits void sphere when hidden in options", function()
+        AltArmyTBC_Options.cooldowns.categories.void_sphere.showInUI = false
+        local char = {
+            name = "Enchanter",
+            Professions = { Enchanting = { Recipes = { [28028] = { color = 1 } } } },
+        }
+        local ds = mockDS({ TestRealm = { E = char } })
+        local rows = CD.BuildRows(ds, AltArmyTBC_Options.cooldowns, 1000)
+        for _, r in ipairs(rows) do
+            assert.are_not.equal("void_sphere", r.categoryKey)
+        end
+    end)
+
+    it("CharacterHasReagents for void sphere requires two void crystals", function()
+        local char = {}
+        assert.is_true(CD.CharacterHasReagents(char, 28028, function(_ch, itemId)
+            return itemId == 22450 and 2 or 0
+        end))
+        assert.is_false(CD.CharacterHasReagents(char, 28028, function(_ch, itemId)
+            return itemId == 22450 and 1 or 0
+        end))
+    end)
+
+    it("EnsureCooldownOptions creates void_sphere category defaults", function()
+        CD.EnsureCooldownOptions()
+        local c = AltArmyTBC_Options.cooldowns.categories.void_sphere
+        assert.is_not_nil(c)
+        assert.is_true(c.showInUI)
+        assert.is_true(c.alertWhenAvailable)
+        assert.is_false(c.showOnlyIfSpecialization)
+        assert.is_false(c.alertOnlyIfSpecialization)
+    end)
+
+    it("CATEGORIES void_sphere uses combined options label", function()
+        assert.are.equal("Void Sphere / Prismatic Sphere", CD.CATEGORIES.void_sphere.title)
+        assert.are.equal("group", CD.CATEGORIES.void_sphere.mode)
+    end)
+
+    it("CATEGORY_ORDER places brilliant_glass before void_sphere", function()
+        local brilliantIdx, voidSphereIdx = nil, nil
         for i, key in ipairs(CD.CATEGORY_ORDER) do
             if key == "brilliant_glass" then brilliantIdx = i end
-            if key == "void_shatter" then voidIdx = i end
+            if key == "void_sphere" then voidSphereIdx = i end
         end
         assert.is_not_nil(brilliantIdx)
-        assert.is_not_nil(voidIdx)
-        assert.is_true(brilliantIdx < voidIdx)
+        assert.is_not_nil(voidSphereIdx)
+        assert.is_true(brilliantIdx < voidSphereIdx)
+        assert.is_nil(CD.CATEGORIES.void_shatter)
     end)
 
     it("BuildRows includes brilliant glass when Jewelcrafting recipe known", function()

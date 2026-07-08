@@ -33,8 +33,10 @@ local SECTION_GAP = Theme.SECTION_GAP
 
 local CLASS_ICON_SHEET = "Interface\\WorldStateFrame\\Icons-Classes"
 local ICON_SIZE = 16
+local BANK_ICON_SIZE = 16
 
 local CC = AltArmy.ClassColor
+local BA = AltArmy.BankAlt
 local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 
 local function SetNameIcon(icon, iconFallback, classFile)
@@ -607,6 +609,29 @@ for i = 1, ROW_POOL_SIZE do
         if GameTooltip then GameTooltip:Hide() end
     end)
     row.nameOverlay = nameOverlay
+
+    local bankAltIcon = row:CreateTexture(nil, "ARTWORK")
+    bankAltIcon:SetSize(BANK_ICON_SIZE, BANK_ICON_SIZE)
+    bankAltIcon:SetTexture(BA and BA.ICON_TEXTURE or "Interface\\MINIMAP\\TRACKING\\Banker")
+    bankAltIcon:Hide()
+    row.bankAltIcon = bankAltIcon
+
+    local bankAltHit = CreateFrame("Frame", nil, row)
+    bankAltHit:SetAllPoints(bankAltIcon)
+    bankAltHit:EnableMouse(true)
+    bankAltHit:Hide()
+    bankAltHit:SetFrameLevel(row:GetFrameLevel() + 3)
+    bankAltHit:SetScript("OnEnter", function(self)
+        local e = self.tooltipEntry
+        if e and BA and BA.PresentTooltip then
+            BA.PresentTooltip(self, "ANCHOR_BOTTOMLEFT", e.name, e.realm, e.classFile)
+        end
+    end)
+    bankAltHit:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    row.bankAltHit = bankAltHit
+
     rowPool[i] = row
     prevRow = row
 end
@@ -741,13 +766,15 @@ Update = function()
                     if colName == "Name" then
                         local showRealmSuffix = (realmFilter == "all")
                             and RF and RF.hasMultipleRealms and RF.hasMultipleRealms(list)
+                        local isBankAlt = BA and BA.Is and BA.Is(entry.name, entry.realm)
                         local nameDisplayStr
                         if RF and RF.formatColoredCharacterNameRealm then
                             nameDisplayStr = RF.formatColoredCharacterNameRealm(
                                 entry.name or "",
                                 entry.realm,
                                 showRealmSuffix,
-                                entry.classFile
+                                entry.classFile,
+                                not isBankAlt
                             )
                             cell:SetText(nameDisplayStr)
                             cell:SetTextColor(1, 1, 1, 1)
@@ -763,11 +790,38 @@ Update = function()
                             end
                         end
                         SetNameIcon(rowFrame.nameIcon, rowFrame.nameIconFallback, entry.classFile)
-                        local nameW = columns.Name and columns.Name.Width
+                        local nameColW = columns.Name and columns.Name.Width
                             or (NAME_COL_BASE_WIDTH - WARNING_COL_WIDTH)
+                        local nameTextLeft = ICON_SIZE + 2
+                        if isBankAlt then
+                            nameTextLeft = nameTextLeft + BANK_ICON_SIZE + 2
+                            if rowFrame.bankAltIcon then
+                                rowFrame.bankAltIcon:ClearAllPoints()
+                                rowFrame.bankAltIcon:SetPoint("LEFT", rowFrame, "LEFT", ICON_SIZE + 2, 0)
+                                rowFrame.bankAltIcon:Show()
+                            end
+                            if rowFrame.bankAltHit then
+                                rowFrame.bankAltHit.tooltipEntry = {
+                                    name = entry.name or "",
+                                    realm = entry.realm or "",
+                                    classFile = entry.classFile,
+                                }
+                                rowFrame.bankAltHit:Show()
+                            end
+                        else
+                            if rowFrame.bankAltIcon then rowFrame.bankAltIcon:Hide() end
+                            if rowFrame.bankAltHit then
+                                rowFrame.bankAltHit.tooltipEntry = nil
+                                rowFrame.bankAltHit:Hide()
+                            end
+                        end
+                        cell:ClearAllPoints()
+                        cell:SetPoint("LEFT", rowFrame, "LEFT", nameTextLeft, 0)
+                        cell:SetWidth(nameColW - nameTextLeft)
+                        local nameW = nameColW
                         local wasTruncated = TruncateFontString
                             and TruncateFontString(
-                                cell, nameDisplayStr, nameW - ICON_SIZE - 4, { returnBoolean = true }
+                                cell, nameDisplayStr, nameW - nameTextLeft - 2, { returnBoolean = true }
                             )
                             or false
                         local overlay = rowFrame.nameOverlay
@@ -790,6 +844,11 @@ Update = function()
                 if rowFrame.nameOverlay then
                     rowFrame.nameOverlay.fullNameDisplay = nil
                     rowFrame.nameOverlay.wasTruncated = nil
+                end
+                if rowFrame.bankAltIcon then rowFrame.bankAltIcon:Hide() end
+                if rowFrame.bankAltHit then
+                    rowFrame.bankAltHit.tooltipEntry = nil
+                    rowFrame.bankAltHit:Hide()
                 end
                 rowFrame:Hide()
             end

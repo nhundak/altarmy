@@ -7,6 +7,7 @@ AltArmy.BankAlt = AltArmy.BankAlt or {}
 local B = AltArmy.BankAlt
 
 local BANK_ICON = "Interface\\MINIMAP\\TRACKING\\Banker"
+B.ICON_TEXTURE = BANK_ICON
 
 local function charKey(name, realm)
     return AltArmy.CharKey(name, realm)
@@ -44,6 +45,32 @@ end
 --- @return string
 function B.IconMarkup()
     return "|T" .. BANK_ICON .. ":0|t"
+end
+
+--- Tooltip line: class-colored name + " is a bank alt".
+--- @param name string|nil
+--- @param classFile string|nil
+--- @return string
+function B.GetTooltipText(name, classFile)
+    local CC = AltArmy.ClassColor
+    local coloredName = CC and CC.formatName and CC.formatName(name, classFile)
+        or ("|cffffffff" .. (name or "?") .. "|r")
+    return coloredName .. " is a bank alt"
+end
+
+--- @param owner Frame
+--- @param anchor string|nil
+--- @param name string|nil
+--- @param realm string|nil
+--- @param classFile string|nil
+--- @return boolean true if tooltip was shown
+function B.PresentTooltip(owner, anchor, name, realm, classFile)
+    if not owner or not B.Is(name, realm) or not GameTooltip then return false end
+    GameTooltip:SetOwner(owner, anchor or "ANCHOR_BOTTOMLEFT")
+    GameTooltip:ClearLines()
+    GameTooltip:AddLine(B.GetTooltipText(name, classFile), 1, 1, 1, true)
+    GameTooltip:Show()
+    return true
 end
 
 B.Ensure()

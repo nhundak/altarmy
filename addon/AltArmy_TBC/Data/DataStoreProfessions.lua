@@ -1125,6 +1125,59 @@ function DS:TryScanTransmuteCooldownsFromSpellApi(preferredSpellId)
     end
 end
 
+--- Void / Prismatic spheres share one cooldown; scan all sphere spells and mirror expiry.
+function DS:TryScanSphereCooldownsFromSpellApi(preferredSpellId)
+    local CD = AltArmy and AltArmy.CooldownData
+    if not CD or not CD.SPHERE_SPELL_IDS or not CD.IsTrackedSpellId then return end
+    local GetSpellCooldown = _G.GetSpellCooldown
+    if not GetSpellCooldown then return end
+
+    local char = GetCurrentCharTable()
+    if not char then return end
+
+    local gt = GetTime and GetTime() or 0
+    local wall = time and time() or 0
+    local bestRemaining = 0
+    local bestSpellId = preferredSpellId
+
+    local function consider(spellId)
+        if not spellId or not CD.IsTrackedSpellId(spellId) then return end
+        local a, b = GetSpellCooldown(spellId)
+        local rem = CooldownRemainingSecondsFromSpellApi(a, b, gt, wall)
+        if rem > bestRemaining then
+            bestRemaining = rem
+            bestSpellId = spellId
+        end
+    end
+
+    consider(preferredSpellId)
+    for _, sid in ipairs(CD.SPHERE_SPELL_IDS) do
+        consider(sid)
+    end
+
+    if bestSpellId then
+        local a, b = GetSpellCooldown(bestSpellId)
+        PersistCooldownExpiry(char, bestSpellId, a, b, gt, wall, "SphereSpellApi", "spell")
+        local bestExp = char.ProfCooldownExpiry[bestSpellId]
+            and char.ProfCooldownExpiry[bestSpellId].expiresAtUnix
+        if bestExp and bestExp > wall then
+            char.ProfCooldownExpiry = char.ProfCooldownExpiry or {}
+            for _, sid in ipairs(CD.SPHERE_SPELL_IDS) do
+                if CD.IsTrackedSpellId(sid) and select(1, CD.FindRecipeProfession(char, sid)) then
+                    char.ProfCooldownExpiry[sid] = { expiresAtUnix = bestExp }
+                end
+            end
+        end
+        LogCooldownScanDebug(string.format(
+            "SphereSpellApi preferred=%s best=%s rem=%.1fs expUnix=%s",
+            tostring(preferredSpellId),
+            tostring(bestSpellId),
+            bestRemaining,
+            tostring(bestExp)
+        ))
+    end
+end
+
 --- Persist expiry for one tracked spell by reading GetSpellCooldown(spellId).
 --- Intended to be called right after a successful cast / use.
 function DS:TryScanTrackedCooldownFromSpellApi(spellId)

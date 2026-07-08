@@ -146,5 +146,27 @@ describe("RealmFilter", function()
       assert.truthy(s:find("|cffffffffBob|r"))
       assert.truthy(s:find(" — Beta"))
     end)
+
+    it("prepends bank icon for bank alts by default", function()
+      package.loaded["BankAlt"] = nil
+      require("CharKey")
+      require("BankAlt")
+      _G.AltArmyTBC_Options = {}
+      AltArmy.BankAlt.Set("Ada", "Alpha", true)
+      local s = RF.formatColoredCharacterNameRealm("Ada", "Alpha", false, "MAGE")
+      assert.truthy(s:find("|T.-|t"))
+      assert.truthy(s:find("Ada"))
+    end)
+
+    it("omits bank icon when includeBankIcon is false", function()
+      package.loaded["BankAlt"] = nil
+      require("CharKey")
+      require("BankAlt")
+      _G.AltArmyTBC_Options = {}
+      AltArmy.BankAlt.Set("Ada", "Alpha", true)
+      local s = RF.formatColoredCharacterNameRealm("Ada", "Alpha", false, "MAGE", false)
+      assert.is_nil(s:find("|T"))
+      assert.truthy(s:find("Ada"))
+    end)
   end)
 end)

@@ -84,8 +84,9 @@ end
 --- @param realm string|nil
 --- @param showRealmSuffix boolean
 --- @param classFile string|nil e.g. "MAGE"
+--- @param includeBankIcon boolean|nil default true; when false, omit inline bank icon markup
 --- @return string WoW escape sequences for FontString / GameTooltip
-function RF.formatColoredCharacterNameRealm(name, realm, showRealmSuffix, classFile)
+function RF.formatColoredCharacterNameRealm(name, realm, showRealmSuffix, classFile, includeBankIcon)
     name = name or ""
     local CC = AltArmy.ClassColor
     local namePart = CC and CC.formatName and CC.formatName(name, classFile)
@@ -97,7 +98,7 @@ function RF.formatColoredCharacterNameRealm(name, realm, showRealmSuffix, classF
         result = namePart
     end
     local BA = AltArmy.BankAlt
-    if BA and BA.Is and BA.Is(name, realm) and BA.IconMarkup then
+    if includeBankIcon ~= false and BA and BA.Is and BA.Is(name, realm) and BA.IconMarkup then
         return BA.IconMarkup() .. " " .. result
     end
     return result

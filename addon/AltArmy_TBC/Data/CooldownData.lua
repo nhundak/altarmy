@@ -23,7 +23,19 @@ CD.CATEGORY_ORDER = {
     "shadowcloth",
     "primal_mooncloth",
     "brilliant_glass",
-    "void_shatter",
+    "void_sphere",
+}
+
+-- TBC enchanting sphere crafts share one cooldown (2 days).
+CD.SPHERE_SPELL_IDS = {
+    28028, -- Void Sphere
+    28027, -- Prismatic Sphere
+}
+
+--- Prefer Void Sphere when both are known (unless last cast says otherwise).
+CD.SPHERE_AUTOMATIC_FALLBACK_SPELL_IDS = {
+    28028, -- Void Sphere
+    28027, -- Prismatic Sphere
 }
 
 -- TBC: transmute spells (alchemy). Used for category membership + effective recipe resolution.
@@ -53,6 +65,7 @@ local function KeySet(list)
 end
 
 CD.TRANSMUTE_SPELL_SET = KeySet(CD.TRANSMUTE_SPELL_IDS)
+CD.SPHERE_SPELL_SET = KeySet(CD.SPHERE_SPELL_IDS)
 
 -- TBC profession specialization passive spell IDs (for cooldown UI / alerts).
 CD.COOLDOWN_SPEC_SPELL_IDS = {
@@ -105,12 +118,11 @@ CD.CATEGORIES = {
         spellId = 47280,
         spellIds = { 47280 },
     },
-    void_shatter = {
-        key = "void_shatter",
-        title = "Void Shatter",
-        mode = "single",
-        spellId = 45765,
-        spellIds = { 45765 },
+    void_sphere = {
+        key = "void_sphere",
+        title = "Void Sphere / Prismatic Sphere",
+        mode = "group",
+        spellIds = CD.SPHERE_SPELL_IDS,
     },
 }
 
@@ -307,6 +319,36 @@ function CD.RecordSuccessfulTransmuteCast(char, spellId)
     char.lastTransmute = { spellId = spellId }
 end
 
+function CD.IsSphereSpellId(spellId)
+    return spellId and CD.SPHERE_SPELL_SET[spellId] == true
+end
+
+--- Called when the player completes a sphere craft (combat log / cast success).
+function CD.RecordSuccessfulSphereCast(char, spellId)
+    if not char or type(spellId) ~= "number" then return end
+    if not CD.IsSphereSpellId(spellId) then return end
+    char.lastSphere = { spellId = spellId }
+end
+
+--- Effective sphere spell for cooldown rows:
+--- 1) last successful sphere craft when still known,
+--- 2) Void Sphere then Prismatic Sphere when known.
+--- nil = do not show sphere row.
+function CD.ResolveSphereSpellForCharacter(char)
+    if not char then return nil end
+    local last = char.lastSphere
+    local lastId = type(last) == "table" and type(last.spellId) == "number" and last.spellId or nil
+    if lastId and select(1, CD.FindRecipeProfession(char, lastId)) then
+        return lastId
+    end
+    for _, sid in ipairs(CD.SPHERE_AUTOMATIC_FALLBACK_SPELL_IDS) do
+        if select(1, CD.FindRecipeProfession(char, sid)) then
+            return sid
+        end
+    end
+    return nil
+end
+
 --- Effective transmute spell for cooldown rows:
 --- 1) last successful transmute when still known,
 --- 2) Primal Might then Arcanite when known.
@@ -344,12 +386,29 @@ function CD.TransmuteCategoryDisplayTitle(spellId, getSpellInfoFn)
     return name
 end
 
+--- Short label for the Recipe column when category is void_sphere (from effective spell name).
+function CD.SphereCategoryDisplayTitle(spellId, getSpellInfoFn)
+    local fallback = (CD.CATEGORIES.void_sphere and CD.CATEGORIES.void_sphere.title)
+        or "Void Sphere / Prismatic Sphere"
+    if not spellId or type(getSpellInfoFn) ~= "function" then
+        return fallback
+    end
+    local name = getSpellInfoFn(spellId)
+    if type(name) ~= "string" or name == "" then
+        return fallback
+    end
+    return name
+end
+
 --- Per-category spell used for mats / tooltip.
 function CD.ResolveEffectiveSpellId(categoryKey, char, _options)
     local cat = CD.CATEGORIES[categoryKey]
     if not cat then return nil end
     if categoryKey == "transmute" then
         return CD.ResolveTransmuteSpellForCharacter(char)
+    end
+    if categoryKey == "void_sphere" then
+        return CD.ResolveSphereSpellForCharacter(char)
     end
     if cat.mode == "single" and cat.spellId then
         return cat.spellId
@@ -593,6 +652,19 @@ function CD.GetTransmuteExpiryUnix(char)
     return best
 end
 
+--- Void / Prismatic spheres share one cooldown; expiry may be stored under either spell id.
+function CD.GetSphereExpiryUnix(char)
+    if not char then return nil end
+    local best = nil
+    for _, sid in ipairs(CD.SPHERE_SPELL_IDS) do
+        local exp = CD.GetExpiryUnix(char, sid)
+        if exp ~= nil and (best == nil or exp > best) then
+            best = exp
+        end
+    end
+    return best
+end
+
 --- @param DS table AltArmy.DataStore
 --- @param options table AltArmyTBC_Options.cooldowns shape
 --- @param now number|nil unix
@@ -612,6 +684,8 @@ function CD.BuildRows(DS, options, now)
                         local include = false
                         if catKey == "transmute" then
                             include = CD.ResolveTransmuteSpellForCharacter(char) ~= nil
+                        elseif catKey == "void_sphere" then
+                            include = CD.ResolveSphereSpellForCharacter(char) ~= nil
                         elseif cat.mode == "single" and cat.spellId then
                             include = select(1, CD.FindRecipeProfession(char, cat.spellId))
                         end
@@ -619,14 +693,21 @@ function CD.BuildRows(DS, options, now)
                             and CD.RowMeetsSpecializationGate(catKey, char, catOpts.showOnlyIfSpecialization == true)
                         then
                             local spellId = CD.ResolveEffectiveSpellId(catKey, char, options)
-                            local rawExpires = (catKey == "transmute")
-                                and CD.GetTransmuteExpiryUnix(char)
-                                or CD.GetExpiryUnix(char, spellId)
+                            local rawExpires
+                            if catKey == "transmute" then
+                                rawExpires = CD.GetTransmuteExpiryUnix(char)
+                            elseif catKey == "void_sphere" then
+                                rawExpires = CD.GetSphereExpiryUnix(char)
+                            else
+                                rawExpires = CD.GetExpiryUnix(char, spellId)
+                            end
                             local expires = CD.ExpiryForDisplay(rawExpires, now)
                             local gsi = type(_G.GetSpellInfo) == "function" and _G.GetSpellInfo or nil
                             local title = cat.title
                             if catKey == "transmute" then
                                 title = CD.TransmuteCategoryDisplayTitle(spellId, gsi)
+                            elseif catKey == "void_sphere" then
+                                title = CD.SphereCategoryDisplayTitle(spellId, gsi)
                             end
                             rows[#rows + 1] = {
                                 categoryKey = catKey,
