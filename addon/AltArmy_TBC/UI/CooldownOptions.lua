@@ -13,7 +13,7 @@ if not CD then return end
 local Theme = AltArmy.Theme
 
 local LEFT_INSET = 0
-local BLOCK_GAP = 18
+local BLOCK_GAP = 9
 
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 
@@ -106,9 +106,10 @@ for _, key in ipairs(CD.CATEGORY_ORDER) do
     local block = CreateFrame("Frame", nil, scrollChild)
     block:SetWidth(520)
 
-    local titleFs = block:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    titleFs:SetPoint("TOPLEFT", block, "TOPLEFT", 0, 0)
-    titleFs:SetText(title)
+    local titleFs = Theme.CreateOptionsSectionLabel(block, {
+        text = title,
+        y = 0,
+    })
 
     local showRow = Theme.CreateLabeledCheckbox(block, {
         point = "TOPLEFT",

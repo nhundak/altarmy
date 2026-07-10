@@ -107,11 +107,16 @@ describe("AltArmy.Theme", function()
                 self._scripts.OnClick(self)
             end
         end
-        function f:CreateFontString()
+        function f:CreateFontString(_, layer, template)
             return {
                 _shown = true,
                 _text = "",
-                SetTextColor = function() end,
+                _layer = layer,
+                _template = template,
+                _textColorCalls = 0,
+                SetTextColor = function(self)
+                    self._textColorCalls = (self._textColorCalls or 0) + 1
+                end,
                 SetText = function(self, t) self._text = t end,
                 SetPoint = function() end,
                 SetWidth = function() end,
@@ -904,6 +909,20 @@ describe("AltArmy.Theme", function()
             assert.are.equal("", box:GetText())
             assert.is_false(box:HasFocus())
             assert.is_true(box.altArmyPlaceholderHint:IsShown())
+        end)
+    end)
+
+    describe("CreateOptionsSectionLabel", function()
+        it("uses GameFontNormal without custom title color", function()
+            local parent = makeStubFrame()
+            local anchor = makeStubFrame()
+            local label = Theme.CreateOptionsSectionLabel(parent, {
+                relativeTo = anchor,
+                text = "Transmute",
+            })
+            assert.are.equal("GameFontNormal", label._template)
+            assert.are.equal("Transmute", label._text)
+            assert.are.equal(0, label._textColorCalls)
         end)
     end)
 

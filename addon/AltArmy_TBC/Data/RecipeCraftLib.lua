@@ -68,6 +68,10 @@ local function SpellIdFromItem(itemId)
 end
 
 function RCL.IsAvailable()
+    local D = AltArmy and AltArmy.Debug
+    if D and D.IsPretendCraftLibNotInstalled and D.IsPretendCraftLibNotInstalled() then
+        return false
+    end
     local cl = CraftLibApi()
     if not cl or type(cl.IsReady) ~= "function" then
         return false

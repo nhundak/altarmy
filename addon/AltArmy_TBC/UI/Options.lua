@@ -507,6 +507,33 @@ debugGuildShareVerboseHint:SetText(
     "Prints every guild-share message sent/received to chat. Works regardless of the feature flag,"
     .. " so you can watch broadcasts even while receiving is off.")
 
+local debugPretendCraftLibRow = Theme.CreateLabeledCheckbox(tabDebug, {
+    point = "TOPLEFT",
+    relativeTo = debugGuildShareVerboseHint,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -16,
+    text = "Pretend Craftlib isn't installed",
+    fullWidthHover = true,
+    onClick = function(checked)
+        if AltArmy.Debug and AltArmy.Debug.SetPretendCraftLibNotInstalled then
+            AltArmy.Debug.SetPretendCraftLibNotInstalled(checked)
+        end
+        if AltArmy.Debug and AltArmy.Debug.RefreshCraftLibDependentUi then
+            AltArmy.Debug.RefreshCraftLibDependentUi()
+        end
+    end,
+})
+panel.debugPretendCraftLibCheckbox = debugPretendCraftLibRow.check
+
+local debugPretendCraftLibHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+debugPretendCraftLibHint:SetPoint("TOPLEFT", debugPretendCraftLibRow, "BOTTOMLEFT", 0, -8)
+debugPretendCraftLibHint:SetWidth(520)
+debugPretendCraftLibHint:SetJustifyH("LEFT")
+debugPretendCraftLibHint:SetText(
+    "Hides CraftLib-only search filters and guild recipe skill columns even when CraftLib is loaded."
+    .. " Toggle with /altarmy craftlib toggle.")
+
 function RefreshDebugCheckboxes()
     local D = AltArmy and AltArmy.Debug
     if not D or not D.Ensure then return end
@@ -532,6 +559,9 @@ function RefreshDebugCheckboxes()
     end
     if panel.debugGuildShareVerboseCheckbox then
         panel.debugGuildShareVerboseCheckbox:SetChecked(d.guildShareVerbose == true)
+    end
+    if panel.debugPretendCraftLibCheckbox then
+        panel.debugPretendCraftLibCheckbox:SetChecked(d.pretendCraftLibNotInstalled == true)
     end
     ResetDeleteAllHistoryButton()
 end
@@ -665,10 +695,11 @@ local guildSharingBlock = CreateFrame("Frame", nil, tabGeneral)
 guildSharingBlock:SetPoint("TOPLEFT", generalHint, "BOTTOMLEFT", 0, -20)
 guildSharingBlock:SetPoint("RIGHT", tabGeneral, "RIGHT", 0, 0)
 
-local guildSharingHeader = guildSharingBlock:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-guildSharingHeader:SetPoint("TOPLEFT", guildSharingBlock, "TOPLEFT", 0, 0)
-guildSharingHeader:SetText("Guild")
-Theme.SetTitleColor(guildSharingHeader)
+local guildSharingHeader = Theme.CreateOptionsSectionLabel(guildSharingBlock, {
+    text = "Guild",
+    layer = "ARTWORK",
+    y = 0,
+})
 
 local GUILD_SHARING_HALF_GAP = 8
 
@@ -1628,6 +1659,30 @@ SlashCmdList.ALTARMY = function(msg)
             else
                 D.NotifyChat("Test injection failed (" .. tostring(reason) .. ").")
             end
+        end
+        return
+    end
+    if lower == "craftlib toggle" then
+        local D = AltArmy and AltArmy.Debug
+        if not D or not D.TogglePretendCraftLibNotInstalled then
+            if D and D.NotifyChat then
+                D.NotifyChat("CraftLib pretend mode is unavailable.")
+            end
+            return
+        end
+        local on = D.TogglePretendCraftLibNotInstalled()
+        if D.NotifyChat then
+            if on then
+                D.NotifyChat("Pretending CraftLib is not installed.")
+            else
+                D.NotifyChat("CraftLib pretend mode off.")
+            end
+        end
+        if panel.RefreshDebugCheckboxes then
+            panel.RefreshDebugCheckboxes()
+        end
+        if D.RefreshCraftLibDependentUi then
+            D.RefreshCraftLibDependentUi()
         end
         return
     end

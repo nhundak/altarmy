@@ -42,6 +42,9 @@ function D.Ensure()
     if d.guildShareVerbose == nil then
         d.guildShareVerbose = false
     end
+    if d.pretendCraftLibNotInstalled == nil then
+        d.pretendCraftLibNotInstalled = false
+    end
 end
 
 function D.IsEnabled()
@@ -173,6 +176,35 @@ function D.LogGuildShare(msg)
         return
     end
     D.NotifyChat("|cff00ccff[Alt Army:GuildShare]|r " .. tostring(msg))
+end
+
+--- When true, RecipeCraftLib.IsAvailable() returns false so CraftLib-dependent UI behaves
+--- as if CraftLib were not installed. Standalone flag (does not require master debug on).
+function D.IsPretendCraftLibNotInstalled()
+    D.Ensure()
+    return AltArmyTBC_Options.debug.pretendCraftLibNotInstalled == true
+end
+
+function D.SetPretendCraftLibNotInstalled(on)
+    D.Ensure()
+    AltArmyTBC_Options.debug.pretendCraftLibNotInstalled = on == true
+end
+
+function D.TogglePretendCraftLibNotInstalled()
+    D.SetPretendCraftLibNotInstalled(not D.IsPretendCraftLibNotInstalled())
+    return D.IsPretendCraftLibNotInstalled()
+end
+
+function D.RefreshCraftLibDependentUi()
+    if AltArmy.RefreshGuildTab then
+        pcall(AltArmy.RefreshGuildTab)
+    end
+    local searchFrame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Search
+    if searchFrame and searchFrame.DoSearch then
+        pcall(function()
+            searchFrame:DoSearch()
+        end)
+    end
 end
 
 function D.NotifyChat(msg)

@@ -24,15 +24,6 @@ local function hookHostShow(panel)
     end)
 end
 
-local function createSectionLabel(parent, anchorTo, text)
-    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    label:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", 0, -14)
-    label:SetJustifyH("LEFT")
-    label:SetText(text)
-    Theme.SetTitleColor(label)
-    return label
-end
-
 local function refreshQuestRewardIndicators()
     local QRI = AltArmy.QuestRewardIndicators
     if QRI and QRI.Refresh then
@@ -73,11 +64,11 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     })
     local scrollChild = viewport.child
 
-    local currentCharSection = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    currentCharSection:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, 0)
-    currentCharSection:SetJustifyH("LEFT")
-    currentCharSection:SetText("Current Character")
-    Theme.SetTitleColor(currentCharSection)
+    local currentCharSection = Theme.CreateOptionsSectionLabel(scrollChild, {
+        text = "Current Character",
+        justifyH = "LEFT",
+        y = 0,
+    })
 
     local currentCharRow = Theme.CreateLabeledCheckbox(scrollChild, {
         point = "TOPLEFT",
@@ -123,7 +114,11 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     })
     local showVendorChk = showVendorRow.check
 
-    local otherCharSection = createSectionLabel(scrollChild, showVendorRow, "Other characters")
+    local otherCharSection = Theme.CreateOptionsSectionLabel(scrollChild, {
+        relativeTo = showVendorRow,
+        text = "Other characters",
+        justifyH = "LEFT",
+    })
 
     local otherCharRow = Theme.CreateLabeledCheckbox(scrollChild, {
         point = "TOPLEFT",
@@ -139,7 +134,11 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     })
     local otherCharChk = otherCharRow.check
 
-    local comparisonSection = createSectionLabel(scrollChild, otherCharRow, "Comparison settings")
+    local comparisonSection = Theme.CreateOptionsSectionLabel(scrollChild, {
+        relativeTo = otherCharRow,
+        text = "Comparison settings",
+        justifyH = "LEFT",
+    })
 
     local levelsLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     levelsLabel:SetPoint("TOPLEFT", comparisonSection, "BOTTOMLEFT", 0, -10)

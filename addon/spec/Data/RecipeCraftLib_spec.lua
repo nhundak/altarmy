@@ -9,12 +9,17 @@ describe("RecipeCraftLib", function()
   setup(function()
     _G.AltArmy = _G.AltArmy or {}
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+    require("Debug")
     require("RecipeCraftLib")
     RCL = AltArmy.RecipeCraftLib
   end)
 
   before_each(function()
     _G.CraftLib = nil
+    _G.AltArmyTBC_Options = {}
+    if AltArmy.Debug and AltArmy.Debug.Ensure then
+      AltArmy.Debug.Ensure()
+    end
     if RCL and RCL.ClearCaches then
       RCL.ClearCaches()
     end
@@ -31,6 +36,15 @@ describe("RecipeCraftLib", function()
         GetProfessions = function() return {} end,
       }
       assert.is_true(RCL.IsAvailable())
+    end)
+
+    it("returns false when debug pretend-CraftLib flag is on", function()
+      AltArmy.Debug.SetPretendCraftLibNotInstalled(true)
+      _G.CraftLib = {
+        IsReady = function() return true end,
+        GetProfessions = function() return {} end,
+      }
+      assert.is_false(RCL.IsAvailable())
     end)
   end)
 

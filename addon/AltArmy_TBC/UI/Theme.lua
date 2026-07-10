@@ -1118,6 +1118,23 @@ function Theme.CreateThemeCheckbox(parent, size)
     return check
 end
 
+--- Options panel section heading (e.g. Cooldowns "Transmute", Gear "Current Character").
+function Theme.CreateOptionsSectionLabel(parent, opts)
+    opts = opts or {}
+    local label = parent:CreateFontString(nil, opts.layer or "OVERLAY", "GameFontNormal")
+    if opts.relativeTo then
+        label:SetPoint(opts.point or "TOPLEFT", opts.relativeTo, opts.relativePoint or "BOTTOMLEFT",
+            opts.x or 0, opts.y or -14)
+    else
+        label:SetPoint(opts.point or "TOPLEFT", parent, opts.relativePoint or "TOPLEFT", opts.x or 0, opts.y or 0)
+    end
+    if opts.justifyH then
+        label:SetJustifyH(opts.justifyH)
+    end
+    label:SetText(opts.text or "")
+    return label
+end
+
 --- Settings-row checkbox matching CharacterPinHideList (18px, hover band, label toggles).
 function Theme.CreateLabeledCheckbox(parent, opts)
     opts = opts or {}
