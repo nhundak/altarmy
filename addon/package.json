@@ -1,13 +1,13 @@
 {
-  "name": "altarmy-tbc",
-  "version": "1.7.7",
-  "private": true,
-  "description": "AltArmy — WoW TBC Classic addon (character summary, gear, search)",
-  "scripts": {
-    "typecheck": "node -e \"process.exit(0)\"",
-    "check": "node scripts/run-luacheck.js AltArmy_TBC",
-    "lint": "node scripts/run-luacheck.js AltArmy_TBC",
-    "test": "node scripts/run-busted.js",
-    "dump:sync": "node scripts/sync-compare-dump.js"
-  }
+	"name": "altarmy-tbc",
+	"version": "1.7.8",
+	"private": true,
+	"description": "AltArmy — WoW TBC Classic addon (character summary, gear, search)",
+	"scripts": {
+		"typecheck": "node -e \"process.exit(0)\"",
+		"check": "node scripts/run-luacheck.js AltArmy_TBC",
+		"lint": "node scripts/run-luacheck.js AltArmy_TBC",
+		"test": "node scripts/run-busted.js",
+		"dump:sync": "node scripts/sync-compare-dump.js"
+	}
 }
