@@ -1,7 +1,9 @@
 .cursor/local.json
 debug/compare-dump-source/AltArmy_TBC.lua
 luacheck-src
+.lua51
 busted-2.1.1
+busted-2.1.1-tmp
 busted.zip
 say.zip
 luassert.zip

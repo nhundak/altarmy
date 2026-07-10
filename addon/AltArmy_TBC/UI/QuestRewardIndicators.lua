@@ -190,10 +190,29 @@ function QRI.CollectQuestLogRewardEntries()
     return collectRewardLinks(GetNumQuestLogChoices, GetNumQuestLogRewards, GetQuestLogItemLink)
 end
 
+local function entriesIncludeChoices(entries)
+    for i = 1, #entries do
+        if entries[i].kind == "choice" then
+            return true
+        end
+    end
+    return false
+end
+
+--- When the quest offers a choice, only compare among choice items.
+--- Guaranteed rewards (kind == "reward") are excluded from upgrade/vendor icons.
+local function isComparableRewardEntry(entry, choicesExist)
+    if not choicesExist then
+        return true
+    end
+    return entry.kind == "choice"
+end
+
 function QRI.EvaluateRewardIndicators(entries, opts)
     opts = opts or {}
     local bestUpgrade
     local bestVendor
+    local choicesExist = entriesIncludeChoices(entries)
 
     local showVendor = opts.showQuestRewardVendorIndicator ~= false
     if showVendor then
@@ -208,7 +227,8 @@ function QRI.EvaluateRewardIndicators(entries, opts)
     if opts.showQuestRewardUpgradeIndicator ~= false then
         for i = 1, #entries do
             local entry = entries[i]
-            if entry.equippable and (entry.delta or 0) > 0 then
+            if isComparableRewardEntry(entry, choicesExist)
+                and entry.equippable and (entry.delta or 0) > 0 then
                 if not bestUpgrade
                     or entry.delta > bestUpgrade.delta
                     or (entry.delta == bestUpgrade.delta
@@ -222,13 +242,15 @@ function QRI.EvaluateRewardIndicators(entries, opts)
     if showVendor then
         for i = 1, #entries do
             local entry = entries[i]
-            local sellPrice = entry.sellPrice or 0
-            if sellPrice > 0 then
-                if not bestVendor
-                    or sellPrice > bestVendor.sellPrice
-                    or (sellPrice == bestVendor.sellPrice
-                        and (entry.itemId or 0) < (bestVendor.itemId or 0)) then
-                    bestVendor = entry
+            if isComparableRewardEntry(entry, choicesExist) then
+                local sellPrice = entry.sellPrice or 0
+                if sellPrice > 0 then
+                    if not bestVendor
+                        or sellPrice > bestVendor.sellPrice
+                        or (sellPrice == bestVendor.sellPrice
+                            and (entry.itemId or 0) < (bestVendor.itemId or 0)) then
+                        bestVendor = entry
+                    end
                 end
             end
         end

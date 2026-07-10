@@ -62,9 +62,34 @@ describe("QuestRewardIndicators", function()
 
     it("EvaluateRewardIndicators picks best upgrade and vendor indices", function()
         local result = QRI.EvaluateRewardIndicators({
-            { unifiedIndex = 1, itemId = 100, sellPrice = 50, delta = 5, equippable = true },
-            { unifiedIndex = 2, itemId = 200, sellPrice = 200, delta = 10, equippable = true },
-            { unifiedIndex = 3, itemId = 300, sellPrice = 150, delta = 0, equippable = true },
+            { unifiedIndex = 1, kind = "choice", itemId = 100, sellPrice = 50, delta = 5, equippable = true },
+            { unifiedIndex = 2, kind = "choice", itemId = 200, sellPrice = 200, delta = 10, equippable = true },
+            { unifiedIndex = 3, kind = "choice", itemId = 300, sellPrice = 150, delta = 0, equippable = true },
+        }, {
+            showQuestRewardUpgradeIndicator = true,
+            showQuestRewardVendorIndicator = true,
+        })
+        assert.are.equal(2, result.bestUpgradeUnifiedIndex)
+        assert.are.equal(2, result.bestVendorUnifiedIndex)
+    end)
+
+    it("EvaluateRewardIndicators ignores guaranteed rewards when choices exist", function()
+        local result = QRI.EvaluateRewardIndicators({
+            { unifiedIndex = 1, kind = "choice", itemId = 100, sellPrice = 50, delta = 5, equippable = true, highlightKind = "clear" },
+            { unifiedIndex = 2, kind = "choice", itemId = 200, sellPrice = 80, delta = 8, equippable = true, highlightKind = "clear" },
+            { unifiedIndex = 3, kind = "reward", itemId = 300, sellPrice = 500, delta = 50, equippable = true, highlightKind = "clear" },
+        }, {
+            showQuestRewardUpgradeIndicator = true,
+            showQuestRewardVendorIndicator = true,
+        })
+        assert.are.equal(2, result.bestUpgradeUnifiedIndex)
+        assert.are.equal(2, result.bestVendorUnifiedIndex)
+    end)
+
+    it("EvaluateRewardIndicators still compares guaranteed rewards when there are no choices", function()
+        local result = QRI.EvaluateRewardIndicators({
+            { unifiedIndex = 1, kind = "reward", itemId = 100, sellPrice = 50, delta = 5, equippable = true },
+            { unifiedIndex = 2, kind = "reward", itemId = 200, sellPrice = 200, delta = 10, equippable = true },
         }, {
             showQuestRewardUpgradeIndicator = true,
             showQuestRewardVendorIndicator = true,

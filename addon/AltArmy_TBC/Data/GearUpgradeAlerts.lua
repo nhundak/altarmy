@@ -358,16 +358,21 @@ function GA.CollectQuestRewardLinks()
         seenIds[itemId] = true
         links[#links + 1] = link
     end
+    -- When the player must choose among rewards, only evaluate those choices.
+    -- Guaranteed rewards are always received and should not drive upgrade alerts.
+    local numChoices = (GetNumQuestChoices and GetNumQuestChoices()) or 0
+    if numChoices > 0 then
+        if GetQuestItemLink then
+            for i = 1, numChoices do
+                addLink(GetQuestItemLink("choice", i))
+            end
+        end
+        return links
+    end
     if GetNumQuestRewards and GetQuestItemLink then
         local numRewards = GetNumQuestRewards() or 0
         for i = 1, numRewards do
             addLink(GetQuestItemLink("reward", i))
-        end
-    end
-    if GetNumQuestChoices and GetQuestItemLink then
-        local numChoices = GetNumQuestChoices() or 0
-        for i = 1, numChoices do
-            addLink(GetQuestItemLink("choice", i))
         end
     end
     return links

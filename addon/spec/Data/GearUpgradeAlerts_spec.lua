@@ -767,7 +767,7 @@ describe("GearUpgradeAlerts", function()
     end)
 
     describe("CollectQuestRewardLinks", function()
-        it("collects reward and choice links without duplicates", function()
+        it("collects only choice links when choices exist", function()
             package.loaded["GearUpgradeAlerts"] = nil
             require("GearUpgradeAlerts")
             GA = AltArmy.GearUpgradeAlerts
@@ -781,7 +781,27 @@ describe("GearUpgradeAlerts", function()
                     return "|Hitem:22:0|h[Choice A]|h"
                 end
                 if kind == "choice" and index == 2 then
-                    return "|Hitem:11:0|h[Reward]|h"
+                    return "|Hitem:33:0|h[Choice B]|h"
+                end
+            end
+            local links = GA.CollectQuestRewardLinks()
+            assert.are.equal(2, #links)
+            assert.is_not_nil(links[1]:find("item:22", 1, true))
+            assert.is_not_nil(links[2]:find("item:33", 1, true))
+        end)
+
+        it("collects guaranteed reward links when there are no choices", function()
+            package.loaded["GearUpgradeAlerts"] = nil
+            require("GearUpgradeAlerts")
+            GA = AltArmy.GearUpgradeAlerts
+            _G.GetNumQuestRewards = function() return 2 end
+            _G.GetNumQuestChoices = function() return 0 end
+            _G.GetQuestItemLink = function(kind, index)
+                if kind == "reward" and index == 1 then
+                    return "|Hitem:11:0|h[Reward A]|h"
+                end
+                if kind == "reward" and index == 2 then
+                    return "|Hitem:22:0|h[Reward B]|h"
                 end
             end
             local links = GA.CollectQuestRewardLinks()
@@ -910,6 +930,31 @@ describe("GearUpgradeAlerts", function()
             GA.AnnounceQuestRewardUpgrades()
             assert.are.equal(1, #chatLines)
             assert.is_not_nil(chatLines[1]:find(linkA, 1, true))
+            assert.matches("is an upgrade for MageAlt:", chatLines[1])
+        end)
+
+        it("does not alert on guaranteed rewards when choices exist", function()
+            local linkReward = "|Hitem:33:0|h[Guaranteed]|h"
+            loadWithMocks({
+                getNumQuestRewards = function() return 1 end,
+                getNumQuestChoices = function() return 2 end,
+                getQuestItemLink = function(kind, index)
+                    if kind == "reward" and index == 1 then return linkReward end
+                    if kind == "choice" and index == 1 then return linkA end
+                    if kind == "choice" and index == 2 then return linkB end
+                end,
+                evaluateForCharacter = function() return true end,
+                getCharacterUpgradeDelta = function(_, link)
+                    if link == linkReward then return 100 end
+                    if link == linkA then return 10 end
+                    if link == linkB then return 5 end
+                    return 0
+                end,
+            })
+            GA.AnnounceQuestRewardUpgrades()
+            assert.are.equal(1, #chatLines)
+            assert.is_not_nil(chatLines[1]:find(linkA, 1, true))
+            assert.is_nil(chatLines[1]:find(linkReward, 1, true))
             assert.matches("is an upgrade for MageAlt:", chatLines[1])
         end)
 
