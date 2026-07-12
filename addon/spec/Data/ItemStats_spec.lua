@@ -824,4 +824,200 @@ describe("ItemStats", function()
         assert.are.equal(22, stats.heal)
         assert.are.equal(18, stats.int)
     end)
+
+    -- Staff of the Four Golden Coins: form-only AP is exposed by the client as
+    -- ITEM_MOD_MELEE_ATTACK_POWER_SHORT, which must not count as generic ap.
+    it("GetNormalized maps form-only attack power to feral_ap, not ap", function()
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 25622 then
+                return {
+                    ["ITEM_MOD_STRENGTH_SHORT"] = 25,
+                    ["ITEM_MOD_MELEE_ATTACK_POWER_SHORT"] = 213,
+                    ["ITEM_MOD_STAMINA_SHORT"] = 37,
+                    ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 57.5,
+                    ["ITEM_MOD_AGILITY_SHORT"] = 24,
+                }
+            end
+            return {}
+        end
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 25622 then
+                return "Staff of the Four Golden Coins",
+                    "|Hitem:25622:0|h[Staff of the Four Golden Coins]|h",
+                    2, 100, 100, "Weapon", "Staves", nil, "INVTYPE_2HWEAPON"
+            end
+            return mockGetItemInfo(item)
+        end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "Staff of the Four Golden Coins",
+                    "Two-Hand",
+                    "Staff",
+                    "156 - 258 Damage",
+                    "Speed 3.60",
+                    "(57.5 damage per second)",
+                    "+25 Strength",
+                    "+24 Agility",
+                    "+37 Stamina",
+                    "Equip: Increases attack power by 214 in Cat, Bear, Dire Bear, and Moonkin forms only.",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local link = "|Hitem:25622:0|h[Staff of the Four Golden Coins]|h"
+        local stats = IS.GetNormalized(link)
+        assert.is_nil(stats.ap)
+        assert.are.equal(214, stats.feral_ap)
+        assert.are.equal(25, stats.str)
+        assert.are.equal(24, stats.agi)
+        assert.are.equal(37, stats.sta)
+    end)
+
+    it("GetNormalized keeps generic attack power as ap", function()
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 31733 then
+                return {
+                    ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 51.84,
+                    ["ITEM_MOD_ATTACK_POWER_SHORT"] = 13,
+                    ["ITEM_MOD_CRIT_RATING"] = 8,
+                    ["ITEM_MOD_HIT_RATING"] = 7,
+                }
+            end
+            return {}
+        end
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 31733 then
+                return "Akuno's Blade", "|Hitem:31733:0|h[Akuno's Blade]|h",
+                    2, 100, 100, "Weapon", "Dagger", nil, "INVTYPE_WEAPON"
+            end
+            return mockGetItemInfo(item)
+        end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "Akuno's Blade",
+                    "Equip: Improves hit rating by 7.",
+                    "Equip: Improves critical strike rating by 8.",
+                    "Equip: Increases attack power by 14.",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local link = "|Hitem:31733:0|h[Akuno's Blade]|h"
+        local stats = IS.GetNormalized(link)
+        assert.are.equal(13, stats.ap)
+        assert.is_nil(stats.feral_ap)
+    end)
+
+    it("GetNormalized remaps API melee AP to feral_ap without tooltip", function()
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 25622 then
+                return {
+                    ["ITEM_MOD_MELEE_ATTACK_POWER_SHORT"] = 213,
+                    ["ITEM_MOD_STRENGTH_SHORT"] = 25,
+                }
+            end
+            return {}
+        end
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 25622 then
+                return "Staff of the Four Golden Coins",
+                    "|Hitem:25622:0|h[Staff of the Four Golden Coins]|h",
+                    2, 100, 100, "Weapon", "Staves", nil, "INVTYPE_2HWEAPON"
+            end
+            return mockGetItemInfo(item)
+        end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "Staff of the Four Golden Coins",
+                    "+25 Strength",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local link = "|Hitem:25622:0|h[Staff of the Four Golden Coins]|h"
+        local stats = IS.GetNormalized(link)
+        assert.is_nil(stats.ap)
+        assert.are.equal(213, stats.feral_ap)
+    end)
+
+    it("GetNormalized remaps form-only API attack power when labeled as ATTACK_POWER", function()
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 25622 then
+                return {
+                    ["ITEM_MOD_ATTACK_POWER_SHORT"] = 213,
+                    ["ITEM_MOD_STRENGTH_SHORT"] = 25,
+                }
+            end
+            return {}
+        end
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 25622 then
+                return "Staff of the Four Golden Coins",
+                    "|Hitem:25622:0|h[Staff of the Four Golden Coins]|h",
+                    2, 100, 100, "Weapon", "Staves", nil, "INVTYPE_2HWEAPON"
+            end
+            return mockGetItemInfo(item)
+        end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "Staff of the Four Golden Coins",
+                    "+25 Strength",
+                    "Equip: Increases attack power by 214 in Cat, Bear, Dire Bear, and Moonkin forms only.",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local link = "|Hitem:25622:0|h[Staff of the Four Golden Coins]|h"
+        local stats = IS.GetNormalized(link)
+        assert.is_nil(stats.ap)
+        assert.are.equal(214, stats.feral_ap)
+    end)
 end)

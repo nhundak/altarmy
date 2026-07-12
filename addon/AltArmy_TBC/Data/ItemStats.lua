@@ -57,7 +57,9 @@ IS.STAT_ALIASES = {
     -- Attack power / weapon
     ["ITEM_MOD_ATTACK_POWER_SHORT"] = "ap",
     ["ITEM_MOD_ATTACK_POWER"] = "ap",
-    ["ITEM_MOD_MELEE_ATTACK_POWER_SHORT"] = "ap",
+    -- TBC Classic GetItemStats often exposes form-only AP as MELEE_ATTACK_POWER.
+    ["ITEM_MOD_MELEE_ATTACK_POWER_SHORT"] = "feral_ap",
+    ["ITEM_MOD_MELEE_ATTACK_POWER"] = "feral_ap",
     ["ITEM_MOD_RANGED_ATTACK_POWER_SHORT"] = "rap",
     ["ITEM_MOD_RANGED_ATTACK_POWER"] = "rap",
     ["ITEM_MOD_FERAL_ATTACK_POWER_SHORT"] = "feral_ap",
@@ -200,6 +202,11 @@ local SCHOOL_SPELL_TOOLTIP_DEFS = {
 }
 
 local EQUIP_STAT_PATTERNS = {
+    -- Form-only AP must be matched before the generic AP patterns below.
+    { "^Equip: Increases attack power by (%d+) in Cat, Bear, Dire Bear, and Moonkin forms only%.$",
+        "ITEM_MOD_FERAL_ATTACK_POWER_SHORT" },
+    { "^Equip: %+(%d+) Attack Power in Cat, Bear, Dire Bear, and Moonkin forms only%.$",
+        "ITEM_MOD_FERAL_ATTACK_POWER_SHORT" },
     { "^Equip: %+(%d+) Attack Power%.$", "ITEM_MOD_ATTACK_POWER_SHORT" },
     { "^Equip: Increases attack power by (%d+)%.$", "ITEM_MOD_ATTACK_POWER_SHORT" },
     { "^Equip: %+(%d+) Ranged Attack Power%.$", "ITEM_MOD_RANGED_ATTACK_POWER_SHORT" },
@@ -361,6 +368,75 @@ local function finalizeMergedSpellStats(merged)
     merged["ITEM_MOD_SPELL_DAMAGE_DONE_SHORT"] = nil
     merged["ITEM_MOD_SPELL_DAMAGE_DONE"] = nil
     merged["ITEM_MOD_SPELL_POWER"] = nil
+end
+
+local FERAL_AP_KEYS = {
+    "ITEM_MOD_FERAL_ATTACK_POWER_SHORT",
+    "ITEM_MOD_FERAL_ATTACK_POWER",
+    "ITEM_MOD_MELEE_ATTACK_POWER_SHORT",
+    "ITEM_MOD_MELEE_ATTACK_POWER",
+}
+
+local GENERIC_AP_KEYS = {
+    "ITEM_MOD_ATTACK_POWER_SHORT",
+    "ITEM_MOD_ATTACK_POWER",
+}
+
+local function rawStatValue(raw, keys)
+    if not raw then return nil end
+    local best = nil
+    for i = 1, #keys do
+        local n = tonumber(raw[keys[i]])
+        if n ~= nil and not isInvalidApiStatValue(n) then
+            if best == nil or n > best then
+                best = n
+            end
+        end
+    end
+    return best
+end
+
+local function clearRawStatKeys(raw, keys)
+    for i = 1, #keys do
+        raw[keys[i]] = nil
+    end
+end
+
+-- Form-only AP ("in Cat, Bear, Dire Bear, and Moonkin forms only") must score as
+-- feral_ap. GetItemStats may label it MELEE_ATTACK_POWER or even ATTACK_POWER.
+local function finalizeMergedFeralAttackPower(merged, tooltipRaw)
+    if not merged then return end
+    tooltipRaw = canonicalizeRawStats(tooltipRaw)
+    local tooltipFeral = rawStatValue(tooltipRaw, {
+        "ITEM_MOD_FERAL_ATTACK_POWER_SHORT",
+        "ITEM_MOD_FERAL_ATTACK_POWER",
+    })
+    local feral = rawStatValue(merged, FERAL_AP_KEYS) or 0
+    if tooltipFeral and tooltipFeral > feral then
+        feral = tooltipFeral
+    end
+
+    clearRawStatKeys(merged, {
+        "ITEM_MOD_MELEE_ATTACK_POWER_SHORT",
+        "ITEM_MOD_MELEE_ATTACK_POWER",
+        "ITEM_MOD_FERAL_ATTACK_POWER",
+    })
+
+    if tooltipFeral then
+        local tooltipGenericAp = rawStatValue(tooltipRaw, GENERIC_AP_KEYS)
+        local mergedAp = rawStatValue(merged, GENERIC_AP_KEYS)
+        -- When tooltip only reports form AP, drop API generic AP that duplicates it
+        -- (GetItemStats is often off by one from the tooltip value).
+        if not tooltipGenericAp and mergedAp and math.abs(mergedAp - tooltipFeral) <= 1 then
+            clearRawStatKeys(merged, GENERIC_AP_KEYS)
+        end
+    end
+
+    if feral > 0 then
+        merged["ITEM_MOD_FERAL_ATTACK_POWER_SHORT"] = feral
+    else
+        merged["ITEM_MOD_FERAL_ATTACK_POWER_SHORT"] = nil
+    end
 end
 
 local cache = {}
@@ -709,6 +785,7 @@ local function collectFreshParseSnapshot(link)
     local tooltipRaw, tooltipLines, incomplete = parseTooltipToRaw(link)
     local mergedRaw = mergeTooltipSupplement(apiRaw, tooltipRaw)
     finalizeMergedSpellStats(mergedRaw)
+    finalizeMergedFeralAttackPower(mergedRaw, tooltipRaw)
     local normalized = normalizeRawStats(mergedRaw, link)
     return {
         itemName = itemName,
@@ -789,6 +866,7 @@ local function fetchStats(link)
     local tooltipRaw, tooltipLines, incomplete = parseTooltipToRaw(link)
     local mergedRaw = mergeTooltipSupplement(apiRaw, tooltipRaw)
     finalizeMergedSpellStats(mergedRaw)
+    finalizeMergedFeralAttackPower(mergedRaw, tooltipRaw)
 
     local parseSnapshot = {
         itemName = GetItemInfo and GetItemInfo(link) or nil,
