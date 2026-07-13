@@ -622,10 +622,66 @@ exitSearchMode = function()
     setActiveTab(lastTab)
 end
 
+--- Show Guild character recipe view from a search recipe row; Back returns to search.
+--- Optional professionKey/professionName select the matching profession tab.
+--- Optional recipeID focuses/scrolls to that recipe row.
+function AltArmy.OpenGuildCharacterFromSearch(characterName, realm, professionKey, professionName, recipeID)
+    local Nav = AltArmy.SearchGuildNav
+    if not Nav or not Nav.ResolveGuildMember then return false end
+    local entry = Nav.ResolveGuildMember(characterName, realm)
+    if not entry then return false end
+    local guildFrame = AltArmy.TabFrames and AltArmy.TabFrames.Guild
+    if not guildFrame or not guildFrame.ShowCharacterFromSearch then return false end
+
+    Nav.Begin()
+    searchResultsLabel:Hide()
+    if searchSettingsBtn then
+        searchSettingsBtn:Hide()
+    end
+    if AltArmy.TabFrames.Search then
+        AltArmy.TabFrames.Search:Hide()
+    end
+    guildFrame:ShowCharacterFromSearch(entry, professionKey, professionName, recipeID)
+    return true
+end
+
+--- Called by Guild Back when the character view was opened from search.
+function AltArmy.ReturnToSearchFromGuildCharacter()
+    local Nav = AltArmy.SearchGuildNav
+    if Nav then Nav.End() end
+    local guildFrame = AltArmy.TabFrames and AltArmy.TabFrames.Guild
+    if guildFrame and guildFrame.ClearSearchDrillIn then
+        guildFrame:ClearSearchDrillIn()
+    elseif guildFrame then
+        guildFrame:Hide()
+    end
+    local query = headerSearchEdit and headerSearchEdit:GetText() or ""
+    local trimmed = query:match("^%s*(.-)%s*$") or ""
+    if trimmed == "" then
+        exitSearchMode()
+        if headerSearchClearBtn then headerSearchClearBtn:Hide() end
+    else
+        if headerSearchClearBtn then headerSearchClearBtn:Show() end
+        enterSearchMode(trimmed)
+    end
+end
+
 local function applySearchBoxState()
     local query = headerSearchEdit:GetText()
     local trimmed = query and query:match("^%s*(.-)%s*$") or ""
     Theme.UpdateEditBoxPlaceholderVisibility(headerSearchEdit)
+
+    local Nav = AltArmy.SearchGuildNav
+    local navAction = Nav and Nav.OnHeaderSearchTextChanged and Nav.OnHeaderSearchTextChanged(trimmed) or "ignore"
+    if navAction ~= "ignore" then
+        local guildFrame = AltArmy.TabFrames and AltArmy.TabFrames.Guild
+        if guildFrame and guildFrame.ClearSearchDrillIn then
+            guildFrame:ClearSearchDrillIn()
+        elseif guildFrame then
+            guildFrame:Hide()
+        end
+    end
+
     if trimmed == "" then
         exitSearchMode()
         headerSearchClearBtn:Hide()

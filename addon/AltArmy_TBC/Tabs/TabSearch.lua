@@ -668,6 +668,65 @@ local function createRecipeRow()
         row.cells[colName] = cell
         cx = cx + w
     end
+    -- Clickable guildmate name overlay (Character column, full row height).
+    local charBtn = CreateFrame("Button", nil, row)
+    charBtn:SetPoint("TOP", row, "TOP", 0, 0)
+    charBtn:SetPoint("BOTTOM", row, "BOTTOM", 0, 0)
+    charBtn:SetPoint("LEFT", row.cells.Character, "LEFT", 0, 0)
+    charBtn:SetPoint("RIGHT", row.cells.Character, "RIGHT", 0, 0)
+    charBtn:SetFrameLevel(row:GetFrameLevel() + 2)
+    charBtn:Hide()
+    charBtn:RegisterForClicks("LeftButtonUp")
+    charBtn:SetScript("OnClick", function(self)
+        local entry = self:GetParent().entry
+        local Nav = AltArmy.SearchGuildNav
+        if not Nav or not Nav.IsGuildRecipeCharacterClickable
+            or not Nav.IsGuildRecipeCharacterClickable(entry) then
+            return
+        end
+        if AltArmy.OpenGuildCharacterFromSearch then
+            AltArmy.OpenGuildCharacterFromSearch(
+                entry.characterName,
+                entry.realm,
+                entry.professionKey,
+                entry.professionName,
+                entry.recipeID)
+        end
+    end)
+    Theme.BindInteractableHover(charBtn, {
+        onEnter = function(self)
+            local entry = self:GetParent().entry
+            if not entry or not GameTooltip then return end
+            local Nav = AltArmy.SearchGuildNav
+            local lines = Nav and Nav.GetGuildCharacterHoverTooltipLines
+                and Nav.GetGuildCharacterHoverTooltipLines(entry.characterName, entry.realm)
+            if not lines or not lines[1] then return end
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine(lines[1], 1, 1, 1, true)
+            if lines[2] then
+                GameTooltip:AddLine(lines[2], 1, 1, 1, true)
+            end
+            if lines[3] then
+                if lines.presenceOnline then
+                    local g = Theme.COLORS and Theme.COLORS.green
+                    GameTooltip:AddLine(
+                        lines[3],
+                        (g and g[1]) or 0.20,
+                        (g and g[2]) or 0.85,
+                        (g and g[3]) or 0.35,
+                        true)
+                else
+                    GameTooltip:AddLine(lines[3], 0.9, 0.9, 0.9, true)
+                end
+            end
+            GameTooltip:Show()
+        end,
+        onLeave = function()
+            if GameTooltip then GameTooltip:Hide() end
+        end,
+    })
+    row.characterBtn = charBtn
     row:SetScript("OnEnter", function(self)
         local entry = self.entry
         if not entry then return end
@@ -763,6 +822,12 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
     local namePart = buildCharacterNamePart(entry, showRealmSuffix)
     local charSuffix = entry.isGuild and "|cff8ab4f8 (Guild)|r" or nil
     SetCharacterCellTruncated(row.cells.Character, namePart, charSuffix, recipeColWidths.Character or 160)
+    local Nav = AltArmy.SearchGuildNav
+    local clickable = Nav and Nav.IsGuildRecipeCharacterClickable
+        and Nav.IsGuildRecipeCharacterClickable(entry)
+    if row.characterBtn then
+        row.characterBtn:SetShown(clickable and true or false)
+    end
     local RCL = AltArmy and AltArmy.RecipeCraftLib
     local skillText
     if RCL and RCL.FormatSkillCell then

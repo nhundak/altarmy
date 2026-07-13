@@ -620,6 +620,207 @@ describe("GuildTabData", function()
       end)
     end)
 
+    describe("GetGroupMostRecentOnlineDetail", function()
+      it("returns which member is the most recent and their status", function()
+        local groups = GTD.GroupMembersByMain({
+          member({ name = "Main", main = "Main", isMain = true, displayName = "Chief" }),
+          member({ name = "Alt", main = "Main" }),
+        })
+        local roster = {
+          main = { online = false, years = 0, months = 0, days = 4, hours = 0 },
+          alt = { online = true },
+        }
+        local detail = GTD.GetGroupMostRecentOnlineDetail(groups[1], roster)
+        assert.are.equal("Alt", detail.memberName)
+        assert.is_true(detail.status.online)
+      end)
+
+      it("returns nil when nothing is in the roster", function()
+        local groups = GTD.GroupMembersByMain({
+          member({ name = "Ghost", main = "Ghost", isMain = true, displayName = "Ghost" }),
+        })
+        assert.is_nil(GTD.GetGroupMostRecentOnlineDetail(groups[1], {}))
+      end)
+    end)
+
+    describe("FormatGroupPresenceTooltipLine", function()
+      it("returns nil when detail is missing", function()
+        assert.is_nil(GTD.FormatGroupPresenceTooltipLine("Bob", nil))
+      end)
+
+      it("returns Online when the hovered character is online", function()
+        assert.are.equal(
+          "Online",
+          GTD.FormatGroupPresenceTooltipLine("Bob", {
+            memberName = "Bob",
+            status = { online = true },
+          })
+        )
+      end)
+
+      it("notes when another character is the online presence", function()
+        assert.are.equal(
+          "Online (as Alice)",
+          GTD.FormatGroupPresenceTooltipLine("Bob", {
+            memberName = "Alice",
+            classFile = "WARRIOR",
+            status = { online = true },
+          }, plainFormatName)
+        )
+      end)
+
+      it("class-colors the other character name in the as-clause", function()
+        assert.are.equal(
+          "Online (as [Alice])",
+          GTD.FormatGroupPresenceTooltipLine("Bob", {
+            memberName = "Alice",
+            classFile = "WARRIOR",
+            status = { online = true },
+          }, function(name) return "[" .. name .. "]" end)
+        )
+      end)
+
+      it("formats last seen and notes a different character when applicable", function()
+        assert.are.equal(
+          "Last seen 5h ago",
+          GTD.FormatGroupPresenceTooltipLine("Bob", {
+            memberName = "Bob",
+            status = { online = false, years = 0, months = 0, days = 0, hours = 5 },
+          }, plainFormatName)
+        )
+        assert.are.equal(
+          "Last seen 2d ago (as Alice)",
+          GTD.FormatGroupPresenceTooltipLine("Bob", {
+            memberName = "Alice",
+            status = { online = false, years = 0, months = 0, days = 2, hours = 0 },
+          }, plainFormatName)
+        )
+      end)
+    end)
+
+    describe("BuildGuildCharacterHoverTooltipLines", function()
+      it("builds title and level lines with class-colored name", function()
+        local lines = GTD.BuildGuildCharacterHoverTooltipLines({
+          name = "Bob",
+          preferredName = "Chief",
+          classFile = "MAGE",
+          level = 70,
+          formatName = function(name) return "[" .. name .. "]" end,
+          classDisplayName = "Mage",
+        })
+        assert.are.equal("[Bob] (Chief)", lines[1])
+        assert.are.equal("Level 70 Mage", lines[2])
+        assert.is_nil(lines[3])
+      end)
+
+      it("omits preferred name when it matches the character name", function()
+        local lines = GTD.BuildGuildCharacterHoverTooltipLines({
+          name = "Bob",
+          preferredName = "bob",
+          classFile = "MAGE",
+          level = 70,
+          formatName = plainFormatName,
+          classDisplayName = "Mage",
+        })
+        assert.are.equal("Bob", lines[1])
+        assert.are.equal("Level 70 Mage", lines[2])
+      end)
+
+      it("appends a presence line when roster detail is available", function()
+        local lines = GTD.BuildGuildCharacterHoverTooltipLines({
+          name = "Bob",
+          preferredName = "Chief",
+          classFile = "MAGE",
+          level = 70,
+          formatName = plainFormatName,
+          classDisplayName = "Mage",
+          presenceDetail = {
+            memberName = "Alice",
+            status = { online = true },
+          },
+        })
+        assert.are.equal("Bob (Chief)", lines[1])
+        assert.are.equal("Level 70 Mage", lines[2])
+        assert.are.equal("Online (as Alice)", lines[3])
+        assert.is_true(lines.presenceOnline)
+      end)
+
+      it("marks presenceOnline false when last seen", function()
+        local lines = GTD.BuildGuildCharacterHoverTooltipLines({
+          name = "Bob",
+          preferredName = "Bob",
+          classFile = "MAGE",
+          level = 70,
+          formatName = plainFormatName,
+          classDisplayName = "Mage",
+          presenceDetail = {
+            memberName = "Bob",
+            status = { online = false, years = 0, months = 0, days = 0, hours = 5 },
+          },
+        })
+        assert.are.equal("Last seen 5h ago", lines[3])
+        assert.is_false(lines.presenceOnline)
+      end)
+    end)
+
+    describe("ResolveOnlineWhisperTarget", function()
+      it("returns nil when nobody in the group is online", function()
+        local entry = member({ name = "Bob", main = "Main", displayName = "Chief" })
+        local members = {
+          member({ name = "Main", main = "Main", isMain = true, displayName = "Chief" }),
+          entry,
+        }
+        local roster = {
+          bob = { online = false, years = 0, months = 0, days = 0, hours = 5 },
+          main = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+        }
+        assert.is_nil(GTD.ResolveOnlineWhisperTarget(entry, roster, members))
+      end)
+
+      it("returns the online character even when viewing a different alt", function()
+        local entry = member({ name = "Bob", main = "Main", displayName = "Chief" })
+        local members = {
+          member({ name = "Alice", main = "Main", isMain = true, displayName = "Chief" }),
+          entry,
+        }
+        local roster = {
+          bob = { online = false, years = 0, months = 0, days = 0, hours = 5 },
+          alice = { online = true },
+        }
+        assert.are.equal("Alice", GTD.ResolveOnlineWhisperTarget(entry, roster, members))
+      end)
+
+      it("returns the viewed character when they are the online one", function()
+        local entry = member({ name = "Bob", main = "Main", displayName = "Chief" })
+        local members = {
+          member({ name = "Alice", main = "Main", isMain = true, displayName = "Chief" }),
+          entry,
+        }
+        local roster = {
+          bob = { online = true },
+          alice = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+        }
+        assert.are.equal("Bob", GTD.ResolveOnlineWhisperTarget(entry, roster, members))
+      end)
+    end)
+
+    describe("character recipe title level suffix", function()
+      it("formats full and short level suffixes", function()
+        assert.are.equal(" (level 70)", GTD.FormatCharacterLevelSuffix(70, "full"))
+        assert.are.equal(" (70)", GTD.FormatCharacterLevelSuffix(70, "short"))
+        assert.are.equal(
+          " |cff808080(level 70)|r",
+          GTD.FormatCharacterLevelSuffix(70, "full", "|cff808080")
+        )
+      end)
+
+      it("chooses full, short, or ellipsis mode from fit flags", function()
+        assert.are.equal("full", GTD.ChooseCharacterTitleLevelMode(true, true))
+        assert.are.equal("short", GTD.ChooseCharacterTitleLevelMode(false, true))
+        assert.are.equal("ellipsis", GTD.ChooseCharacterTitleLevelMode(false, false))
+      end)
+    end)
+
     describe("BuildRosterLastOnlineMap", function()
       it("returns an empty map when not in a guild", function()
         local map = GTD.BuildRosterLastOnlineMap({
@@ -902,6 +1103,22 @@ describe("GuildTabData", function()
       local m = member({ name = "Newbie", classFile = "WARRIOR" })
       assert.are.equal("Newbie has not picked professions yet",
         GTD.FormatNoProfessionsMessage(m, plainFormatName))
+    end)
+  end)
+
+  describe("FormatNoProfessionRecipesMessage", function()
+    it("embeds the class-colored name and profession", function()
+      local m = member({ name = "Bob", classFile = "MAGE" })
+      assert.are.equal(
+        "Bob hasn't trained any Tailoring recipes yet",
+        GTD.FormatNoProfessionRecipesMessage(m, "Tailoring", plainFormatName))
+    end)
+
+    it("falls back when profession name is missing", function()
+      local m = member({ name = "Bob", classFile = "MAGE" })
+      assert.are.equal(
+        "Bob hasn't trained any profession recipes yet",
+        GTD.FormatNoProfessionRecipesMessage(m, nil, plainFormatName))
     end)
   end)
 

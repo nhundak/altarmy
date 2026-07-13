@@ -477,6 +477,18 @@ local function show(done)
     dialog:Show()
 end
 
+--- Open the guild-share onboarding dialog (used by the onboarding queue).
+function GSO.Show(done)
+    show(done)
+end
+
+--- Debug: force-show the onboarding dialog even if already completed.
+--- @return boolean
+function GSO.ShowDebug()
+    GSO.Show()
+    return true
+end
+
 local function shouldPrompt()
     local D = AltArmy.Debug
     if not (D and D.IsGuildShareEnabled and D.IsGuildShareEnabled()) then return false end

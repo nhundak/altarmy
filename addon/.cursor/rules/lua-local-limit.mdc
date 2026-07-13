@@ -1,0 +1,22 @@
+---
+description: Avoid Lua 5.1's 200 local variables per function limit in addon scripts
+globs: AltArmy_TBC/**/*.lua
+alwaysApply: false
+---
+
+# Lua 5.1 local variable limit
+
+WoW TBC uses **Lua 5.1**, which allows at most **200 local variables per function** (the file's main chunk counts as one function). Exceeding it fails at load with:
+
+`main function has more than 200 local variables`
+
+## When editing large UI files (`Tabs/Tab*.lua`, especially `TabGuild.lua` / `TabGear.lua` / `TabSearch.lua`)
+
+- Prefer packing related constants or session state into **one table** (`local UI = { ... }`, `local state = { ... }`) instead of many top-level `local`s.
+- Prefer small helper modules under `Data/` for pure logic rather than growing a tab file's main-chunk locals.
+- Nested `do ... end` blocks do **not** reset the limit; only a **new function** gets a fresh 200.
+- Forward declarations (`local foo` then `foo = function...`) still count as locals.
+
+## If the warning appears
+
+Count top-level locals, then reduce by grouping constants/state into tables (or extracting helpers) until comfortably under 200 (leave headroom for future edits).

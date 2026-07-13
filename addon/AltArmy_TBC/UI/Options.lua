@@ -1670,6 +1670,20 @@ SlashCmdList.ALTARMY = function(msg)
         IS.LogStatParseDebug(debugStatsLink, { forceRefresh = true })
         return
     end
+    if lower == "debug guildshare onboard" or lower == "debug guildshare onboarding" then
+        local GSO = AltArmy and AltArmy.GuildShareOnboarding
+        local D = AltArmy and AltArmy.Debug
+        if GSO and GSO.ShowDebug then
+            if not GSO.ShowDebug() then
+                if D and D.NotifyChat then
+                    D.NotifyChat("Guild share onboarding dialog is unavailable.")
+                end
+            end
+        elseif D and D.NotifyChat then
+            D.NotifyChat("Guild share onboarding dialog is unavailable.")
+        end
+        return
+    end
     if lower == "debug guildshare test" then
         local Comm = AltArmy and AltArmy.GuildShareComm
         local D = AltArmy and AltArmy.Debug

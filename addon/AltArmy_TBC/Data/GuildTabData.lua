@@ -382,6 +382,16 @@ function GTD.FormatNoProfessionsMessage(entry, formatName)
     return formatNamePart(entry, formatName) .. " has not picked professions yet"
 end
 
+--- Empty-state copy when a profession is known but its recipe list is empty.
+function GTD.FormatNoProfessionRecipesMessage(entry, professionName, formatName)
+    local prof = professionName
+    if not prof or prof == "" then
+        prof = "profession"
+    end
+    return formatNamePart(entry, formatName)
+        .. " hasn't trained any " .. prof .. " recipes yet"
+end
+
 --- Sorted unique guild names from account characters that have a guild set.
 function GTD.CollectAccountGuilds()
     local seen = {}
@@ -803,6 +813,183 @@ function GTD.GetGroupLastOnlineStatus(group, rosterByName)
         end
     end
     return GTD.PickMostRecentRosterStatus(statuses)
+end
+
+--- Like GetGroupLastOnlineStatus, but also reports which member produced the status.
+--- Returns `{ status, memberName, classFile }` or nil.
+function GTD.GetGroupMostRecentOnlineDetail(group, rosterByName)
+    if not group or type(rosterByName) ~= "table" then return nil end
+    local best
+    local bestMember
+    local bestHours
+    for _, member in ipairs(group.members or {}) do
+        local key = GTD.NormalizeRosterName(member.name)
+        if key and key ~= "" then
+            local status = rosterByName[key]
+            if status then
+                if status.online then
+                    return {
+                        status = { online = true },
+                        memberName = member.name,
+                        classFile = member.classFile,
+                    }
+                end
+                local hours = GTD.RosterOfflineHours(status)
+                if not bestHours or hours < bestHours then
+                    bestHours = hours
+                    best = status
+                    bestMember = member
+                end
+            end
+        end
+    end
+    if best and bestMember then
+        return {
+            status = best,
+            memberName = bestMember.name,
+            classFile = bestMember.classFile,
+        }
+    end
+    return nil
+end
+
+--- Tooltip presence line for a hovered guild character, or nil when roster info is missing.
+--- When the most recent presence belongs to a different alt, appends " (as Name)" with
+--- Name class-colored via formatName / ClassColor when classFile is available on detail.
+function GTD.FormatGroupPresenceTooltipLine(hoveredName, detail, formatName)
+    if not detail or not detail.status then
+        return nil
+    end
+    local line
+    if detail.status.online then
+        line = "Online"
+    else
+        local ago = GTD.FormatRosterLastOnline(detail.status)
+        if not ago or ago == "" then
+            return nil
+        end
+        line = "Last seen " .. ago
+    end
+    local hoverKey = GTD.NormalizeRosterName(hoveredName)
+    local memberKey = GTD.NormalizeRosterName(detail.memberName)
+    if memberKey and hoverKey and memberKey ~= hoverKey and detail.memberName and detail.memberName ~= "" then
+        local asName = detail.memberName
+        if formatName then
+            asName = formatName(detail.memberName, detail.classFile)
+        else
+            local CC = AltArmy.ClassColor
+            if CC and CC.formatName then
+                asName = CC.formatName(detail.memberName, detail.classFile)
+            end
+        end
+        line = line .. " (as " .. asName .. ")"
+    end
+    return line
+end
+
+--- Localized / display class name for tooltip copy.
+function GTD.FormatClassDisplayName(classFile)
+    if not classFile or classFile == "" then
+        return "Unknown"
+    end
+    local male = _G.LOCALIZED_CLASS_NAMES_MALE
+    if male and male[classFile] then
+        return male[classFile]
+    end
+    local female = _G.LOCALIZED_CLASS_NAMES_FEMALE
+    if female and female[classFile] then
+        return female[classFile]
+    end
+    return classFile:sub(1, 1):upper() .. classFile:sub(2):lower()
+end
+
+--- Lines for a search-result guildmate name tooltip.
+--- opts: name, preferredName, classFile, level, presenceDetail?, formatName?, classDisplayName?
+--- Returns `{ line1, line2, line3? }` (line3 omitted when presence is unknown).
+--- Preferred name is omitted from line1 when it matches the character name.
+function GTD.BuildGuildCharacterHoverTooltipLines(opts)
+    opts = opts or {}
+    local name = opts.name or "?"
+    local preferred = opts.preferredName or name
+    local formatName = opts.formatName
+    local CC = AltArmy.ClassColor
+    local colored
+    if formatName then
+        colored = formatName(name, opts.classFile)
+    elseif CC and CC.formatName then
+        colored = CC.formatName(name, opts.classFile)
+    else
+        colored = name
+    end
+    local line1 = colored
+    if preferred ~= "" and preferred:lower() ~= name:lower() then
+        line1 = colored .. " (" .. preferred .. ")"
+    end
+    local className = opts.classDisplayName or GTD.FormatClassDisplayName(opts.classFile)
+    local level = math.floor(tonumber(opts.level) or 0)
+    local line2 = "Level " .. level .. " " .. className
+    local line3 = GTD.FormatGroupPresenceTooltipLine(name, opts.presenceDetail, formatName)
+    if line3 then
+        return {
+            line1,
+            line2,
+            line3,
+            presenceOnline = opts.presenceDetail
+                and opts.presenceDetail.status
+                and opts.presenceDetail.status.online
+                and true
+                or false,
+        }
+    end
+    return { line1, line2 }
+end
+
+--- Gray level suffix for the guild character recipe title: "(level N)" or "(N)".
+function GTD.FormatCharacterLevelSuffix(level, mode, grayPrefix)
+    local n = math.floor(tonumber(level) or 0)
+    local inner = (mode == "short") and tostring(n) or ("level " .. n)
+    local body = "(" .. inner .. ")"
+    if grayPrefix and grayPrefix ~= "" then
+        return " " .. grayPrefix .. body .. "|r"
+    end
+    return " " .. body
+end
+
+--- Which title form fits: "full" ((level N)), "short" ((N)), or "ellipsis" (truncate name + short).
+--- fitsFull / fitsShort are booleans from the caller's width measurements.
+function GTD.ChooseCharacterTitleLevelMode(fitsFull, fitsShort)
+    if fitsFull then return "full" end
+    if fitsShort then return "short" end
+    return "ellipsis"
+end
+
+--- Name to whisper when someone in the viewed character's group is online.
+--- Prefer the character currently playing (online roster member); nil when none are online.
+function GTD.ResolveOnlineWhisperTarget(entry, rosterByName, members)
+    if not entry or not entry.name then
+        return nil
+    end
+    local group
+    if type(members) == "table" and GTD.GroupMembersByMain then
+        local groups = GTD.GroupMembersByMain(members)
+        for _, g in ipairs(groups or {}) do
+            for _, m in ipairs(g.members or {}) do
+                if m.name == entry.name then
+                    group = g
+                    break
+                end
+            end
+            if group then break end
+        end
+    end
+    if not group then
+        group = { members = { entry }, main = entry.main or entry.name }
+    end
+    local detail = GTD.GetGroupMostRecentOnlineDetail(group, rosterByName or {})
+    if detail and detail.status and detail.status.online and detail.memberName then
+        return detail.memberName
+    end
+    return nil
 end
 
 --- Build short-name -> last-online status from guild roster APIs.

@@ -161,4 +161,20 @@ describe("GuildShareOnboarding", function()
       assert.matches("808080", entries[1].label)
     end)
   end)
+
+  describe("ShowDebug", function()
+    it("opens the onboarding dialog via Show and returns true", function()
+      assert.is_function(GSO.Show)
+      assert.is_function(GSO.ShowDebug)
+      local shown = false
+      local originalShow = GSO.Show
+      GSO.Show = function()
+        shown = true
+      end
+      local ok = GSO.ShowDebug()
+      GSO.Show = originalShow
+      assert.is_true(ok)
+      assert.is_true(shown)
+    end)
+  end)
 end)

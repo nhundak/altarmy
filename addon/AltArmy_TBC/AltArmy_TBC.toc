@@ -48,6 +48,7 @@ Data\RecipeCraftLib.lua
 Data\SearchSettings.lua
 Data\SearchColumns.lua
 Data\SearchData.lua
+Data\SearchGuildNav.lua
 Data\GuildShareSettings.lua
 Data\GuildShareProtocol.lua
 Data\GuildShareData.lua

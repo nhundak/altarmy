@@ -20,39 +20,42 @@ local SECTION_INSET = Theme.TAB_SECTION_INSET
 local SECTION_GAP = Theme.SECTION_GAP
 local PAD = Theme.TAB_CONTENT_PADDING
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
-local GRID_SPLIT_FRACTION = 0.6
-
-local HEADER_HEIGHT = 32
-local RECIPE_TITLE_HEIGHT = 32
-local PROF_TAB_HEIGHT = 26
-local PROF_TAB_GAP = 4
-local RECIPE_ROW_HEIGHT = 18
-local RECIPE_SKILL_COL_WIDTH = 72
-local RECIPE_COL_HEADER_HEIGHT = 18
-local MAIN_ROW_HEIGHT = 20
-local CHAR_ROW_HEIGHT = 18
-local GROUP_GAP = 4
-local CHAR_INDENT = 12
-local LIST_COL_HEADER_HEIGHT = 18
-local GRAY = "|cff808080"
--- Second column (group character count, character professions) shares one left edge.
-local SECOND_COLUMN = 180
-local NAME_COLUMN_GAP = 8
--- Third column on main rows: most recent last-online across the group's characters.
-local LAST_ONLINE_COLUMN_WIDTH = 72
-local OLD_DATA_ICON_WIDTH = 14
-local SETTINGS_ICON_WIDTH = 18
-local PIN_ICON_SIZE = 14
-local PIN_ICON_GAP = 2
-local MAIN_STAR_ICON_SIZE = 12
-local MAIN_STAR_ICON_GAP = 2
-local RIGHT_ICON_GAP = 2
+-- Layout metrics packed to stay under Lua 5.1's 200-local / function limit.
+local UI = {
+    GRID_SPLIT_FRACTION = 0.6,
+    HEADER_HEIGHT = 32,
+    RECIPE_TITLE_HEIGHT = 32,
+    PROF_TAB_HEIGHT = 26,
+    PROF_TAB_GAP = 4,
+    RECIPE_ROW_HEIGHT = 18,
+    RECIPE_SKILL_COL_WIDTH = 72,
+    RECIPE_COL_HEADER_HEIGHT = 18,
+    -- Match TabCooldowns row height (18) and flush row packing (no inter-group gap).
+    MAIN_ROW_HEIGHT = 18,
+    CHAR_ROW_HEIGHT = 18,
+    GROUP_GAP = 0,
+    CHAR_INDENT = 12,
+    LIST_COL_HEADER_HEIGHT = 18,
+    GRAY = "|cff808080",
+    -- Second column (group character count, character professions) shares one left edge.
+    SECOND_COLUMN = 180,
+    NAME_COLUMN_GAP = 8,
+    -- Third column on main rows: most recent last-online across the group's characters.
+    LAST_ONLINE_COLUMN_WIDTH = 72,
+    OLD_DATA_ICON_WIDTH = 14,
+    SETTINGS_ICON_WIDTH = 18,
+    PIN_ICON_SIZE = 14,
+    PIN_ICON_GAP = 2,
+    MAIN_STAR_ICON_SIZE = 12,
+    MAIN_STAR_ICON_GAP = 2,
+    RIGHT_ICON_GAP = 2,
+    LEFT_ICON_PAD = 4,
+    TABARD_SIZE = 24,
+    SEARCH_PLACEHOLDER = "Search for characters or professions",
+    MAIN_STAR_TEXTURE = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_1",
+}
 -- Right edge reserves space for the settings gear only (old-data warning lives on the left).
-local RIGHT_TRAILING_RESERVE = SETTINGS_ICON_WIDTH + RIGHT_ICON_GAP + 4
-local LEFT_ICON_PAD = 4
-local TABARD_SIZE = 24
-local SEARCH_PLACEHOLDER = "Search for characters or professions"
-local MAIN_STAR_TEXTURE = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_1"
+UI.RIGHT_TRAILING_RESERVE = UI.SETTINGS_ICON_WIDTH + UI.RIGHT_ICON_GAP + 4
 
 local function currentGuild()
     if GetGuildInfo then
@@ -81,6 +84,9 @@ local selectedCharacterKey = nil
 local selectedProfIndex = 1
 local recipeSortKey = "recipe"
 local recipeSortAscending = true
+-- Focused recipe when opened from search (green border + scroll-into-view once).
+local focusRecipeID = nil
+local focusScrollPending = false
 -- Guild list column sort (session-only). Defaults applied when guild lookup mode changes.
 local listSortKey = "name"
 local listSortAscending = true
@@ -144,6 +150,9 @@ local showRecipeView
 local showGuildList
 local layoutRecipeView
 local refresh
+local clearRecipeFocus
+local applyRecipeFocus
+local updateWhisperButton
 
 -- Item ids whose icons were missing on last layout; refreshed when GET_ITEM_INFO_RECEIVED fires.
 local pendingRecipeIconIds = {}
@@ -240,8 +249,9 @@ ApplyGroupSettingsPanelLayout = function()
     local w = frame:GetWidth()
     if w <= 0 then return end
     groupSettingsPanel:ClearAllPoints()
-    groupSettingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * GRID_SPLIT_FRACTION + SECTION_GAP, -SECTION_INSET)
-    groupSettingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", w * GRID_SPLIT_FRACTION + SECTION_GAP, SECTION_INSET)
+    local settingsLeft = w * UI.GRID_SPLIT_FRACTION + SECTION_GAP
+    groupSettingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", settingsLeft, -SECTION_INSET)
+    groupSettingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", settingsLeft, SECTION_INSET)
     groupSettingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SECTION_INSET, -SECTION_INSET)
     groupSettingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 end
@@ -522,7 +532,7 @@ listView:Hide()
 local header = CreateFrame("Frame", nil, listView)
 header:SetPoint("TOPLEFT", listView, "TOPLEFT", 0, 0)
 header:SetPoint("TOPRIGHT", listView, "TOPRIGHT", 0, 0)
-header:SetHeight(HEADER_HEIGHT)
+header:SetHeight(UI.HEADER_HEIGHT)
 header:SetFrameLevel(listView:GetFrameLevel() + 5)
 
 local guildNameText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -532,7 +542,7 @@ Theme.SetTitleColor(guildNameText)
 
 -- Guild tabard: three stacked textures composed by SetLargeGuildTabardTextures.
 local tabardFrame = CreateFrame("Frame", nil, header)
-tabardFrame:SetSize(TABARD_SIZE, TABARD_SIZE)
+tabardFrame:SetSize(UI.TABARD_SIZE, UI.TABARD_SIZE)
 tabardFrame:SetPoint("LEFT", guildNameText, "RIGHT", 6, 0)
 tabardFrame:Hide()
 local tabardBackground = tabardFrame:CreateTexture(nil, "BACKGROUND")
@@ -607,7 +617,7 @@ searchClearBtn:SetScript("OnClick", function()
     Theme.ClearEditBoxText(searchEdit)
 end)
 
-Theme.SetupEditBoxPlaceholder(searchEdit, SEARCH_PLACEHOLDER)
+Theme.SetupEditBoxPlaceholder(searchEdit, UI.SEARCH_PLACEHOLDER)
 
 local function updateSearchClearVisibility()
     local text = searchEdit:GetText()
@@ -656,12 +666,23 @@ local function updateRecipeSearchClearVisibility()
     else
         recipeSearchClearBtn:Show()
     end
+    if selectedCharacter and updateWhisperButton then
+        updateWhisperButton(selectedCharacter)
+    end
 end
 
 local function clearRecipeSearch()
     recipeSearchText = ""
     Theme.ClearEditBoxText(recipeSearchEdit)
     updateRecipeSearchClearVisibility()
+end
+
+local suppressRecipeSearchLayout = false
+
+local function clearRecipeSearchQuiet()
+    suppressRecipeSearchLayout = true
+    clearRecipeSearch()
+    suppressRecipeSearchLayout = false
 end
 
 -- Recipe detail header chrome (Back + title + profession tabs).
@@ -683,16 +704,128 @@ local backBtnLabel = backBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight
 backBtnLabel:SetPoint("CENTER", backBtn, "CENTER", 0, 0)
 backBtnLabel:SetText("Back")
 
+local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
+
 local recipeTitleFS = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 recipeTitleFS:SetPoint("LEFT", backBtn, "RIGHT", 8, 0)
 recipeTitleFS:SetPoint("RIGHT", recipeSearchClearBtn, "LEFT", -8, 0)
 recipeTitleFS:SetJustifyH("LEFT")
+recipeTitleFS:SetWordWrap(false)
 recipeTitleFS:Hide()
+
+local whisperBtn = CreateFrame("Button", nil, header)
+whisperBtn:SetHeight(22)
+whisperBtn:Hide()
+Theme.SkinButton(whisperBtn)
+local whisperBtnLabel = whisperBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+whisperBtnLabel:SetPoint("CENTER", whisperBtn, "CENTER", 0, 0)
+whisperBtnLabel:SetText("Whisper")
+whisperBtn:SetWidth(math.max(64, (whisperBtnLabel:GetStringWidth() or 40) + 16))
+whisperBtn:SetScript("OnClick", function(self)
+    local target = self.whisperTarget
+    if not target or target == "" then return end
+    if _G.ChatFrame_SendTell then
+        _G.ChatFrame_SendTell(target)
+    elseif _G.ChatFrame_OpenChat then
+        _G.ChatFrame_OpenChat("/w " .. target .. " ")
+    end
+end)
+
+--- Right edge reserved for the recipe search clear button (when shown) or the search box.
+local function recipeSearchLeftGuard()
+    if recipeSearchClearBtn:IsShown() then
+        return recipeSearchClearBtn, "LEFT"
+    end
+    return recipeSearchEdit, "LEFT"
+end
+
+local function anchorWhisperFlushRight()
+    local guard, point = recipeSearchLeftGuard()
+    whisperBtn:ClearAllPoints()
+    whisperBtn:SetPoint("RIGHT", guard, point, -8, 0)
+end
+
+local function anchorRecipeTitleTo(rightFrame)
+    recipeTitleFS:ClearAllPoints()
+    recipeTitleFS:SetPoint("LEFT", backBtn, "RIGHT", 8, 0)
+    recipeTitleFS:SetPoint("RIGHT", rightFrame, "LEFT", -8, 0)
+end
+
+local function recipeTitleMaxWidth()
+    local left = backBtn:GetRight() or 0
+    local rightFrame = whisperBtn:IsShown() and whisperBtn or select(1, recipeSearchLeftGuard())
+    local right = rightFrame and rightFrame:GetLeft() or 0
+    return math.max(0, right - left - 16)
+end
+
+local function applyRecipeTitleText(entry)
+    if not entry then
+        recipeTitleFS:SetText("")
+        return
+    end
+    local nameColored = GTD.FormatCharacterTitle(entry, formatName)
+    local level = math.floor(tonumber(entry.level) or 0)
+    local fullSuffix = GTD.FormatCharacterLevelSuffix(level, "full", UI.GRAY)
+    local shortSuffix = GTD.FormatCharacterLevelSuffix(level, "short", UI.GRAY)
+    local maxW = recipeTitleMaxWidth()
+
+    recipeTitleFS:SetText(nameColored .. fullSuffix)
+    local fitsFull = maxW <= 0 or (recipeTitleFS:GetStringWidth() or 0) <= maxW
+    recipeTitleFS:SetText(nameColored .. shortSuffix)
+    local fitsShort = maxW <= 0 or (recipeTitleFS:GetStringWidth() or 0) <= maxW
+    local mode = GTD.ChooseCharacterTitleLevelMode(fitsFull, fitsShort)
+
+    if mode == "full" then
+        recipeTitleFS:SetText(nameColored .. fullSuffix)
+    elseif mode == "short" then
+        recipeTitleFS:SetText(nameColored .. shortSuffix)
+    elseif TruncateFontString then
+        TruncateFontString(recipeTitleFS, nameColored, maxW, {
+            preserveColorCodes = true,
+            suffix = shortSuffix,
+        })
+    else
+        recipeTitleFS:SetText(nameColored .. shortSuffix)
+    end
+end
+
+updateWhisperButton = function(entry)
+    whisperBtn.whisperTarget = nil
+    if not entry then
+        whisperBtn:Hide()
+        anchorRecipeTitleTo(select(1, recipeSearchLeftGuard()))
+        applyRecipeTitleText(nil)
+        return
+    end
+    local rosterByName = (GTD.BuildRosterLastOnlineMap and GTD.BuildRosterLastOnlineMap()) or {}
+    local members
+    local GSD = AltArmy.GuildShareData
+    if entry.guildName and GSD and GSD.GetGuildMembersForDisplay then
+        members = GSD.GetGuildMembersForDisplay(entry.guildName, entry.realm, true)
+    end
+    local target = GTD.ResolveOnlineWhisperTarget and GTD.ResolveOnlineWhisperTarget(entry, rosterByName, members)
+    if target then
+        whisperBtn.whisperTarget = target
+        whisperBtn:Show()
+        anchorWhisperFlushRight()
+        anchorRecipeTitleTo(whisperBtn)
+    else
+        whisperBtn:Hide()
+        anchorRecipeTitleTo(select(1, recipeSearchLeftGuard()))
+    end
+    applyRecipeTitleText(entry)
+end
+
+header:SetScript("OnSizeChanged", function()
+    if selectedCharacter and recipeTitleFS:IsShown() then
+        updateWhisperButton(selectedCharacter)
+    end
+end)
 
 local profTabStrip = CreateFrame("Frame", nil, header)
 profTabStrip:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -2)
 profTabStrip:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, -2)
-profTabStrip:SetHeight(PROF_TAB_HEIGHT)
+profTabStrip:SetHeight(UI.PROF_TAB_HEIGHT)
 profTabStrip:Hide()
 
 local function isCraftLibAvailable()
@@ -701,7 +834,7 @@ local function isCraftLibAvailable()
 end
 
 local craftLibRecommendBtn = CreateFrame("Button", nil, profTabStrip)
-craftLibRecommendBtn:SetHeight(PROF_TAB_HEIGHT - 4)
+craftLibRecommendBtn:SetHeight(UI.PROF_TAB_HEIGHT - 4)
 craftLibRecommendBtn:SetPoint("TOPRIGHT", profTabStrip, "TOPRIGHT", 0, 0)
 Theme.SkinButton(craftLibRecommendBtn, true)
 Theme.BindInteractableHover(craftLibRecommendBtn)
@@ -745,7 +878,7 @@ local function layoutRecipeRowColumns(row, showSkillCol)
     row.label:ClearAllPoints()
     row.label:SetPoint("LEFT", row, "LEFT", 4, 0)
     if showSkillCol then
-        row.label:SetPoint("RIGHT", row, "RIGHT", -(RECIPE_SKILL_COL_WIDTH + 4), 0)
+        row.label:SetPoint("RIGHT", row, "RIGHT", -(UI.RECIPE_SKILL_COL_WIDTH + 4), 0)
         row.skillCell:Show()
     else
         row.label:SetPoint("RIGHT", row, "RIGHT", -4, 0)
@@ -806,6 +939,8 @@ local function setListHeaderVisible(visible)
         updateGuildHeaderForListMode()
         recipeSearchEdit:Hide()
         recipeSearchClearBtn:Hide()
+        whisperBtn:Hide()
+        anchorRecipeTitleTo(recipeSearchClearBtn)
     else
         guildNameText:Hide()
         guildBackBtn:Hide()
@@ -818,12 +953,15 @@ local function setListHeaderVisible(visible)
     end
     backBtn:SetShown(not visible)
     recipeTitleFS:SetShown(not visible)
+    if visible then
+        whisperBtn:Hide()
+    end
     profTabStrip:SetShown(not visible)
 end
 
 -- Scroll body below the guild header and fixed column headers.
 local listColHeader = CreateFrame("Frame", nil, listView)
-listColHeader:SetHeight(LIST_COL_HEADER_HEIGHT)
+listColHeader:SetHeight(UI.LIST_COL_HEADER_HEIGHT)
 listColHeader:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
 listColHeader:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", -SCROLL_GUTTER, -PAD)
 listColHeader:Hide()
@@ -862,14 +1000,14 @@ end
 
 local function createListHeaderButton(sortKey, justifyH, anchorFn)
     local btn = CreateFrame("Button", nil, listColHeader)
-    btn:SetHeight(LIST_COL_HEADER_HEIGHT)
+    btn:SetHeight(UI.LIST_COL_HEADER_HEIGHT)
     btn:EnableMouse(true)
     btn:RegisterForClicks("LeftButtonUp")
     anchorFn(btn)
     local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     label:SetPoint("LEFT", btn, "LEFT", 0, 0)
     label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
-    label:SetHeight(LIST_COL_HEADER_HEIGHT)
+    label:SetHeight(UI.LIST_COL_HEADER_HEIGHT)
     label:SetJustifyH(justifyH or "LEFT")
     label:SetWordWrap(false)
     btn.label = label
@@ -891,16 +1029,16 @@ local function createListHeaderButton(sortKey, justifyH, anchorFn)
 end
 
 createListHeaderButton("online", "RIGHT", function(btn)
-    btn:SetPoint("RIGHT", listColHeader, "RIGHT", -RIGHT_TRAILING_RESERVE, 0)
-    btn:SetWidth(LAST_ONLINE_COLUMN_WIDTH)
+    btn:SetPoint("RIGHT", listColHeader, "RIGHT", -UI.RIGHT_TRAILING_RESERVE, 0)
+    btn:SetWidth(UI.LAST_ONLINE_COLUMN_WIDTH)
 end)
 createListHeaderButton("name", "LEFT", function(btn)
     btn:SetPoint("LEFT", listColHeader, "LEFT", 4, 0)
-    btn:SetPoint("RIGHT", listColHeader, "LEFT", SECOND_COLUMN - NAME_COLUMN_GAP, 0)
+    btn:SetPoint("RIGHT", listColHeader, "LEFT", UI.SECOND_COLUMN - UI.NAME_COLUMN_GAP, 0)
 end)
 createListHeaderButton("characterCount", "LEFT", function(btn)
-    btn:SetPoint("LEFT", listColHeader, "LEFT", SECOND_COLUMN, 0)
-    btn:SetPoint("RIGHT", listHeaderButtons.online, "LEFT", -NAME_COLUMN_GAP, 0)
+    btn:SetPoint("LEFT", listColHeader, "LEFT", UI.SECOND_COLUMN, 0)
+    btn:SetPoint("RIGHT", listHeaderButtons.online, "LEFT", -UI.NAME_COLUMN_GAP, 0)
 end)
 updateListHeaderSortIndicators()
 
@@ -923,11 +1061,11 @@ local viewport = Theme.CreateVerticalScrollViewport({
     anchorTop = { "TOPLEFT", listViewport, "TOPLEFT", 0, 0 },
     anchorBottom = { "BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, 0 },
     enableMouseWheel = true,
-    valueStep = MAIN_ROW_HEIGHT,
+    valueStep = UI.MAIN_ROW_HEIGHT,
 })
 local scrollChild = viewport.child
 
-local WHEEL_STEP = MAIN_ROW_HEIGHT * 3
+local WHEEL_STEP = UI.MAIN_ROW_HEIGHT * 3
 local function forwardWheel(_, delta)
     viewport.SetOffset(viewport.scroll:GetVerticalScroll() - delta * WHEEL_STEP)
 end
@@ -949,7 +1087,7 @@ local recipeViewportFrame = CreateFrame("Frame", nil, recipeBody)
 recipeViewportFrame:Hide()
 
 local recipeColHeader = CreateFrame("Frame", nil, recipeBody)
-recipeColHeader:SetHeight(RECIPE_COL_HEADER_HEIGHT)
+recipeColHeader:SetHeight(UI.RECIPE_COL_HEADER_HEIGHT)
 recipeColHeader:SetPoint("TOPLEFT", recipeBody, "TOPLEFT", 0, 0)
 recipeColHeader:SetPoint("TOPRIGHT", recipeBody, "TOPRIGHT", 0, 0)
 recipeColHeader:Hide()
@@ -968,14 +1106,14 @@ end
 
 local function createRecipeHeaderButton(sortKey, anchorFn)
     local btn = CreateFrame("Button", nil, recipeColHeader)
-    btn:SetHeight(RECIPE_COL_HEADER_HEIGHT)
+    btn:SetHeight(UI.RECIPE_COL_HEADER_HEIGHT)
     btn:EnableMouse(true)
     btn:RegisterForClicks("LeftButtonUp")
     anchorFn(btn)
     local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     label:SetPoint("LEFT", btn, "LEFT", 0, 0)
     label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
-    label:SetHeight(RECIPE_COL_HEADER_HEIGHT)
+    label:SetHeight(UI.RECIPE_COL_HEADER_HEIGHT)
     label:SetJustifyH(sortKey == "skill" and "RIGHT" or "LEFT")
     btn.label = label
     Theme.BindInteractableHover(btn)
@@ -989,6 +1127,7 @@ local function createRecipeHeaderButton(sortKey, anchorFn)
         end
         updateRecipeHeaderSortIndicators()
         if selectedCharacter then
+            clearRecipeFocus()
             layoutRecipeView(selectedCharacter)
         end
     end)
@@ -998,11 +1137,11 @@ end
 
 createRecipeHeaderButton("recipe", function(btn)
     btn:SetPoint("TOPLEFT", recipeColHeader, "TOPLEFT", 4, 0)
-    btn:SetPoint("TOPRIGHT", recipeColHeader, "TOPRIGHT", -(RECIPE_SKILL_COL_WIDTH + 4), 0)
+    btn:SetPoint("TOPRIGHT", recipeColHeader, "TOPRIGHT", -(UI.RECIPE_SKILL_COL_WIDTH + 4), 0)
 end)
 createRecipeHeaderButton("skill", function(btn)
     btn:SetPoint("TOPRIGHT", recipeColHeader, "TOPRIGHT", -4, 0)
-    btn:SetWidth(RECIPE_SKILL_COL_WIDTH)
+    btn:SetWidth(UI.RECIPE_SKILL_COL_WIDTH)
 end)
 updateRecipeHeaderSortIndicators()
 
@@ -1016,7 +1155,7 @@ local function applyRecipeSkillColumnLayout(showSkillCol)
         recipeHeader:ClearAllPoints()
         recipeHeader:SetPoint("TOPLEFT", recipeColHeader, "TOPLEFT", 4, 0)
         if showSkillCol then
-            recipeHeader:SetPoint("TOPRIGHT", recipeColHeader, "TOPRIGHT", -(RECIPE_SKILL_COL_WIDTH + 4), 0)
+            recipeHeader:SetPoint("TOPRIGHT", recipeColHeader, "TOPRIGHT", -(UI.RECIPE_SKILL_COL_WIDTH + 4), 0)
         else
             recipeHeader:SetPoint("TOPRIGHT", recipeColHeader, "TOPRIGHT", -4, 0)
         end
@@ -1032,11 +1171,11 @@ local recipeViewport = Theme.CreateVerticalScrollViewport({
     anchorTop = { "TOPLEFT", recipeViewportFrame, "TOPLEFT", 0, 0 },
     anchorBottom = { "BOTTOMRIGHT", recipeViewportFrame, "BOTTOMRIGHT", 0, 0 },
     enableMouseWheel = true,
-    valueStep = RECIPE_ROW_HEIGHT,
+    valueStep = UI.RECIPE_ROW_HEIGHT,
 })
 local recipeScrollChild = recipeViewport.child
 
-local RECIPE_WHEEL_STEP = RECIPE_ROW_HEIGHT * 3
+local RECIPE_WHEEL_STEP = UI.RECIPE_ROW_HEIGHT * 3
 local function forwardRecipeWheel(_, delta)
     recipeViewport.SetOffset(recipeViewport.scroll:GetVerticalScroll() - delta * RECIPE_WHEEL_STEP)
 end
@@ -1134,11 +1273,11 @@ applyListColumnLayout = function()
     end
     if countBtn then
         countBtn:ClearAllPoints()
-        countBtn:SetPoint("LEFT", listColHeader, "LEFT", SECOND_COLUMN, 0)
+        countBtn:SetPoint("LEFT", listColHeader, "LEFT", UI.SECOND_COLUMN, 0)
         if showOnline and onlineBtn then
-            countBtn:SetPoint("RIGHT", onlineBtn, "LEFT", -NAME_COLUMN_GAP, 0)
+            countBtn:SetPoint("RIGHT", onlineBtn, "LEFT", -UI.NAME_COLUMN_GAP, 0)
         else
-            countBtn:SetPoint("RIGHT", listColHeader, "RIGHT", -RIGHT_TRAILING_RESERVE, 0)
+            countBtn:SetPoint("RIGHT", listColHeader, "RIGHT", -UI.RIGHT_TRAILING_RESERVE, 0)
         end
     end
     for i = 1, #mainRowPool do
@@ -1148,13 +1287,13 @@ applyListColumnLayout = function()
                 row.lastOnlineFS:SetShown(showOnline)
             end
             row.countFS:ClearAllPoints()
-            row.countFS:SetPoint("LEFT", row, "LEFT", SECOND_COLUMN, 0)
+            row.countFS:SetPoint("LEFT", row, "LEFT", UI.SECOND_COLUMN, 0)
             if showOnline and row.lastOnlineFS then
-                row.countFS:SetPoint("RIGHT", row.lastOnlineFS, "LEFT", -NAME_COLUMN_GAP, 0)
+                row.countFS:SetPoint("RIGHT", row.lastOnlineFS, "LEFT", -UI.NAME_COLUMN_GAP, 0)
             elseif row.settingsBtn then
-                row.countFS:SetPoint("RIGHT", row.settingsBtn, "LEFT", -NAME_COLUMN_GAP, 0)
+                row.countFS:SetPoint("RIGHT", row.settingsBtn, "LEFT", -UI.NAME_COLUMN_GAP, 0)
             else
-                row.countFS:SetPoint("RIGHT", row, "RIGHT", -RIGHT_TRAILING_RESERVE, 0)
+                row.countFS:SetPoint("RIGHT", row, "RIGHT", -UI.RIGHT_TRAILING_RESERVE, 0)
             end
         end
     end
@@ -1165,11 +1304,11 @@ applyListColumnLayout = function()
                 row.lastOnlineFS:SetShown(showOnline)
             end
             row.profFS:ClearAllPoints()
-            row.profFS:SetPoint("LEFT", row, "LEFT", SECOND_COLUMN, 0)
+            row.profFS:SetPoint("LEFT", row, "LEFT", UI.SECOND_COLUMN, 0)
             if showOnline and row.lastOnlineFS then
-                row.profFS:SetPoint("RIGHT", row.lastOnlineFS, "LEFT", -NAME_COLUMN_GAP, 0)
+                row.profFS:SetPoint("RIGHT", row.lastOnlineFS, "LEFT", -UI.NAME_COLUMN_GAP, 0)
             else
-                row.profFS:SetPoint("RIGHT", row, "RIGHT", -RIGHT_TRAILING_RESERVE, 0)
+                row.profFS:SetPoint("RIGHT", row, "RIGHT", -UI.RIGHT_TRAILING_RESERVE, 0)
             end
         end
     end
@@ -1179,13 +1318,13 @@ end
 local function layoutMainRowLeftIcons(row, showOld, pinned)
     local leftAnchor = row
     local leftPoint = "LEFT"
-    local leftX = LEFT_ICON_PAD
+    local leftX = UI.LEFT_ICON_PAD
 
     if row.oldDataIcon then
         row.oldDataIcon.showOldDataTooltip = showOld and true or false
         if showOld then
             row.oldDataIcon:ClearAllPoints()
-            row.oldDataIcon:SetPoint("LEFT", row, "LEFT", LEFT_ICON_PAD, 0)
+            row.oldDataIcon:SetPoint("LEFT", row, "LEFT", UI.LEFT_ICON_PAD, 0)
             row.oldDataIcon:EnableMouse(true)
             row.oldDataIcon:Show()
             if row.oldDataIcon.mark then
@@ -1193,7 +1332,7 @@ local function layoutMainRowLeftIcons(row, showOld, pinned)
             end
             leftAnchor = row.oldDataIcon
             leftPoint = "RIGHT"
-            leftX = PIN_ICON_GAP
+            leftX = UI.PIN_ICON_GAP
         else
             row.oldDataIcon:EnableMouse(false)
             row.oldDataIcon:Hide()
@@ -1210,7 +1349,7 @@ local function layoutMainRowLeftIcons(row, showOld, pinned)
             row.pinIcon:Show()
             leftAnchor = row.pinIcon
             leftPoint = "RIGHT"
-            leftX = PIN_ICON_GAP
+            leftX = UI.PIN_ICON_GAP
         else
             row.pinIcon:Hide()
         end
@@ -1219,7 +1358,7 @@ local function layoutMainRowLeftIcons(row, showOld, pinned)
     if row.nameFS then
         row.nameFS:ClearAllPoints()
         row.nameFS:SetPoint("LEFT", leftAnchor, leftPoint, leftX, 0)
-        row.nameFS:SetPoint("RIGHT", row, "LEFT", SECOND_COLUMN - NAME_COLUMN_GAP, 0)
+        row.nameFS:SetPoint("RIGHT", row, "LEFT", UI.SECOND_COLUMN - UI.NAME_COLUMN_GAP, 0)
     end
 end
 
@@ -1227,18 +1366,18 @@ end
 local function layoutCharRowLeftIcons(row, showMainStar)
     local leftAnchor = row
     local leftPoint = "LEFT"
-    local leftX = CHAR_INDENT
+    local leftX = UI.CHAR_INDENT
 
     if row.mainStarIcon then
         row.mainStarIcon.showMainStarTooltip = showMainStar and true or false
         if showMainStar then
             row.mainStarIcon:ClearAllPoints()
-            row.mainStarIcon:SetPoint("LEFT", row, "LEFT", CHAR_INDENT, 0)
+            row.mainStarIcon:SetPoint("LEFT", row, "LEFT", UI.CHAR_INDENT, 0)
             row.mainStarIcon:EnableMouse(true)
             row.mainStarIcon:Show()
             leftAnchor = row.mainStarIcon
             leftPoint = "RIGHT"
-            leftX = MAIN_STAR_ICON_GAP
+            leftX = UI.MAIN_STAR_ICON_GAP
         else
             row.mainStarIcon:EnableMouse(false)
             row.mainStarIcon:Hide()
@@ -1248,7 +1387,7 @@ local function layoutCharRowLeftIcons(row, showMainStar)
     if row.nameFS then
         row.nameFS:ClearAllPoints()
         row.nameFS:SetPoint("LEFT", leftAnchor, leftPoint, leftX, 0)
-        row.nameFS:SetPoint("RIGHT", row, "LEFT", SECOND_COLUMN - NAME_COLUMN_GAP, 0)
+        row.nameFS:SetPoint("RIGHT", row, "LEFT", UI.SECOND_COLUMN - UI.NAME_COLUMN_GAP, 0)
     end
 end
 
@@ -1256,7 +1395,7 @@ local function acquireMainRow(index)
     local row = mainRowPool[index]
     if not row then
         row = CreateFrame("Button", nil, scrollChild)
-        row:SetHeight(MAIN_ROW_HEIGHT)
+        row:SetHeight(UI.MAIN_ROW_HEIGHT)
         Theme.InstallHoverTint(row)
         -- Keep hover tint off the settings icon so it does not brighten on row hover.
         if row.altArmyHoverTint then
@@ -1264,7 +1403,7 @@ local function acquireMainRow(index)
             tint:ClearAllPoints()
             tint:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
             tint:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
-            tint:SetPoint("RIGHT", row, "RIGHT", -RIGHT_TRAILING_RESERVE, 0)
+            tint:SetPoint("RIGHT", row, "RIGHT", -UI.RIGHT_TRAILING_RESERVE, 0)
         end
         row:EnableMouseWheel(true)
         row:SetScript("OnMouseWheel", forwardWheel)
@@ -1327,7 +1466,7 @@ local function acquireMainRow(index)
 
         -- Far-left stale warning; only participates in layout when shown (see layoutMainRowLeftIcons).
         local oldDataIcon = CreateFrame("Frame", nil, row)
-        oldDataIcon:SetSize(OLD_DATA_ICON_WIDTH, MAIN_ROW_HEIGHT)
+        oldDataIcon:SetSize(UI.OLD_DATA_ICON_WIDTH, UI.MAIN_ROW_HEIGHT)
         oldDataIcon:EnableMouse(false)
         oldDataIcon:Hide()
         local mark = oldDataIcon:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1357,7 +1496,7 @@ local function acquireMainRow(index)
         row.oldDataIcon = oldDataIcon
 
         local settingsBtn = CreateFrame("Button", nil, row)
-        settingsBtn:SetSize(SETTINGS_ICON_WIDTH, SETTINGS_ICON_WIDTH)
+        settingsBtn:SetSize(UI.SETTINGS_ICON_WIDTH, UI.SETTINGS_ICON_WIDTH)
         settingsBtn:SetPoint("RIGHT", row, "RIGHT", -4, 0)
         settingsBtn:RegisterForClicks("LeftButtonUp")
         local settingsIcon = settingsBtn:CreateTexture(nil, "ARTWORK")
@@ -1395,26 +1534,26 @@ local function acquireMainRow(index)
         row.settingsBtn = settingsBtn
 
         local pinIcon = row:CreateTexture(nil, "ARTWORK")
-        pinIcon:SetSize(PIN_ICON_SIZE, PIN_ICON_SIZE)
+        pinIcon:SetSize(UI.PIN_ICON_SIZE, UI.PIN_ICON_SIZE)
         pinIcon:SetTexture("Interface\\AddOns\\AltArmy_TBC\\Media\\PushPin")
         pinIcon:Hide()
         row.pinIcon = pinIcon
 
         local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        nameFS:SetPoint("LEFT", row, "LEFT", LEFT_ICON_PAD, 0)
-        nameFS:SetPoint("RIGHT", row, "LEFT", SECOND_COLUMN - NAME_COLUMN_GAP, 0)
+        nameFS:SetPoint("LEFT", row, "LEFT", UI.LEFT_ICON_PAD, 0)
+        nameFS:SetPoint("RIGHT", row, "LEFT", UI.SECOND_COLUMN - UI.NAME_COLUMN_GAP, 0)
         nameFS:SetJustifyH("LEFT")
         nameFS:SetWordWrap(false)
         row.nameFS = nameFS
         local lastOnlineFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         lastOnlineFS:SetPoint("RIGHT", settingsBtn, "LEFT", -2, 0)
-        lastOnlineFS:SetWidth(LAST_ONLINE_COLUMN_WIDTH)
+        lastOnlineFS:SetWidth(UI.LAST_ONLINE_COLUMN_WIDTH)
         lastOnlineFS:SetJustifyH("RIGHT")
         lastOnlineFS:SetWordWrap(false)
         row.lastOnlineFS = lastOnlineFS
         local countFS = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        countFS:SetPoint("LEFT", row, "LEFT", SECOND_COLUMN, 0)
-        countFS:SetPoint("RIGHT", lastOnlineFS, "LEFT", -NAME_COLUMN_GAP, 0)
+        countFS:SetPoint("LEFT", row, "LEFT", UI.SECOND_COLUMN, 0)
+        countFS:SetPoint("RIGHT", lastOnlineFS, "LEFT", -UI.NAME_COLUMN_GAP, 0)
         countFS:SetJustifyH("LEFT")
         countFS:SetWordWrap(false)
         row.countFS = countFS
@@ -1428,7 +1567,7 @@ local function acquireCharRow(index)
     local row = charRowPool[index]
     if not row then
         row = CreateFrame("Button", nil, scrollChild)
-        row:SetHeight(CHAR_ROW_HEIGHT)
+        row:SetHeight(UI.CHAR_ROW_HEIGHT)
         Theme.InstallHoverTint(row)
         row:EnableMouseWheel(true)
         row:SetScript("OnMouseWheel", forwardWheel)
@@ -1436,13 +1575,13 @@ local function acquireCharRow(index)
         row:SetScript("OnLeave", function() Theme.SetHoverTint(row, false) end)
 
         local mainStarIcon = CreateFrame("Frame", nil, row)
-        mainStarIcon:SetSize(MAIN_STAR_ICON_SIZE, CHAR_ROW_HEIGHT)
+        mainStarIcon:SetSize(UI.MAIN_STAR_ICON_SIZE, UI.CHAR_ROW_HEIGHT)
         mainStarIcon:EnableMouse(false)
         mainStarIcon:Hide()
         local starTex = mainStarIcon:CreateTexture(nil, "ARTWORK")
-        starTex:SetSize(MAIN_STAR_ICON_SIZE, MAIN_STAR_ICON_SIZE)
+        starTex:SetSize(UI.MAIN_STAR_ICON_SIZE, UI.MAIN_STAR_ICON_SIZE)
         starTex:SetPoint("CENTER", mainStarIcon, "CENTER", 0, 0)
-        starTex:SetTexture(MAIN_STAR_TEXTURE)
+        starTex:SetTexture(UI.MAIN_STAR_TEXTURE)
         mainStarIcon.tex = starTex
         mainStarIcon:SetScript("OnEnter", function(self)
             Theme.SetHoverTint(row, true)
@@ -1459,20 +1598,20 @@ local function acquireCharRow(index)
         row.mainStarIcon = mainStarIcon
 
         local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        nameFS:SetPoint("LEFT", row, "LEFT", CHAR_INDENT, 0)
-        nameFS:SetPoint("RIGHT", row, "LEFT", SECOND_COLUMN - NAME_COLUMN_GAP, 0)
+        nameFS:SetPoint("LEFT", row, "LEFT", UI.CHAR_INDENT, 0)
+        nameFS:SetPoint("RIGHT", row, "LEFT", UI.SECOND_COLUMN - UI.NAME_COLUMN_GAP, 0)
         nameFS:SetJustifyH("LEFT")
         nameFS:SetWordWrap(false)
         row.nameFS = nameFS
         local lastOnlineFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        lastOnlineFS:SetPoint("RIGHT", row, "RIGHT", -RIGHT_TRAILING_RESERVE, 0)
-        lastOnlineFS:SetWidth(LAST_ONLINE_COLUMN_WIDTH)
+        lastOnlineFS:SetPoint("RIGHT", row, "RIGHT", -UI.RIGHT_TRAILING_RESERVE, 0)
+        lastOnlineFS:SetWidth(UI.LAST_ONLINE_COLUMN_WIDTH)
         lastOnlineFS:SetJustifyH("RIGHT")
         lastOnlineFS:SetWordWrap(false)
         row.lastOnlineFS = lastOnlineFS
         local profFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        profFS:SetPoint("LEFT", row, "LEFT", SECOND_COLUMN, 0)
-        profFS:SetPoint("RIGHT", lastOnlineFS, "LEFT", -NAME_COLUMN_GAP, 0)
+        profFS:SetPoint("LEFT", row, "LEFT", UI.SECOND_COLUMN, 0)
+        profFS:SetPoint("RIGHT", lastOnlineFS, "LEFT", -UI.NAME_COLUMN_GAP, 0)
         profFS:SetJustifyH("LEFT")
         profFS:SetWordWrap(false)
         row.profFS = profFS
@@ -1512,7 +1651,7 @@ local function acquireGuildPickerRow(index)
     local row = guildPickerRowPool[index]
     if not row then
         row = CreateFrame("Button", nil, scrollChild)
-        row:SetHeight(MAIN_ROW_HEIGHT)
+        row:SetHeight(UI.MAIN_ROW_HEIGHT)
         Theme.InstallHoverTint(row)
         row:EnableMouseWheel(true)
         row:SetScript("OnMouseWheel", forwardWheel)
@@ -1547,7 +1686,7 @@ local function layoutGuildPicker(guilds)
             selectedBrowseGuild = guild
             refresh()
         end)
-        y = y + MAIN_ROW_HEIGHT
+        y = y + UI.MAIN_ROW_HEIGHT
     end
     hideGuildPickerRowsFrom(#guilds + 1)
     scrollChild:SetWidth(width)
@@ -1567,6 +1706,175 @@ local function hideProfTabsFrom(index)
     end
 end
 
+local FOCUS_BORDER_COLOR = (Theme.COLORS and Theme.COLORS.green) or { 0.20, 0.85, 0.35, 1 }
+local RECIPE_FOCUS_SCROLL_DURATION = 0.28
+local recipeFocusAnim = CreateFrame("Frame")
+-- Preferred profession for search drill-in (re-applied when profs arrive after load).
+local focusProfessionKey = nil
+local focusProfessionName = nil
+-- Skip the automatic OnShow refresh while opening from search (avoids list flash + races).
+local suppressGuildOnShowRefresh = false
+
+local function stopRecipeFocusScroll()
+    recipeFocusAnim:SetScript("OnUpdate", nil)
+end
+
+local function clearRecipeFocusBorders()
+    for i = 1, #recipeRowPool do
+        local row = recipeRowPool[i]
+        if row and row.focusBorder then
+            row.focusBorder:Hide()
+        end
+    end
+end
+
+clearRecipeFocus = function()
+    stopRecipeFocusScroll()
+    clearRecipeFocusBorders()
+    focusRecipeID = nil
+    focusScrollPending = false
+    focusProfessionKey = nil
+    focusProfessionName = nil
+end
+
+local function ensureRecipeFocusBorder(row)
+    if not row or row.focusBorder then return end
+    local border = CreateFrame("Frame", nil, row)
+    border:SetAllPoints(row)
+    border:SetFrameLevel(row:GetFrameLevel() + 5)
+    local r = FOCUS_BORDER_COLOR[1] or 0.2
+    local g = FOCUS_BORDER_COLOR[2] or 0.85
+    local b = FOCUS_BORDER_COLOR[3] or 0.35
+    local a = FOCUS_BORDER_COLOR[4] or 1
+    local top = border:CreateTexture(nil, "OVERLAY")
+    top:SetColorTexture(r, g, b, a)
+    top:SetHeight(1)
+    top:SetPoint("TOPLEFT", border, "TOPLEFT", 0, 0)
+    top:SetPoint("TOPRIGHT", border, "TOPRIGHT", 0, 0)
+    local bottom = border:CreateTexture(nil, "OVERLAY")
+    bottom:SetColorTexture(r, g, b, a)
+    bottom:SetHeight(1)
+    bottom:SetPoint("BOTTOMLEFT", border, "BOTTOMLEFT", 0, 0)
+    bottom:SetPoint("BOTTOMRIGHT", border, "BOTTOMRIGHT", 0, 0)
+    local left = border:CreateTexture(nil, "OVERLAY")
+    left:SetColorTexture(r, g, b, a)
+    left:SetWidth(1)
+    left:SetPoint("TOPLEFT", border, "TOPLEFT", 0, 0)
+    left:SetPoint("BOTTOMLEFT", border, "BOTTOMLEFT", 0, 0)
+    local right = border:CreateTexture(nil, "OVERLAY")
+    right:SetColorTexture(r, g, b, a)
+    right:SetWidth(1)
+    right:SetPoint("TOPRIGHT", border, "TOPRIGHT", 0, 0)
+    right:SetPoint("BOTTOMRIGHT", border, "BOTTOMRIGHT", 0, 0)
+    border:Hide()
+    row.focusBorder = border
+end
+
+local function smoothScrollRecipeListTo(targetOffset)
+    stopRecipeFocusScroll()
+    local start = recipeViewport.scroll:GetVerticalScroll() or 0
+    if math.abs(start - targetOffset) < 0.5 then
+        recipeViewport.SetOffset(targetOffset)
+        return
+    end
+    local elapsed = 0
+    recipeFocusAnim:SetScript("OnUpdate", function(_, dt)
+        elapsed = elapsed + (dt or 0)
+        local t = elapsed / RECIPE_FOCUS_SCROLL_DURATION
+        if t >= 1 then
+            recipeViewport.SetOffset(targetOffset)
+            stopRecipeFocusScroll()
+            return
+        end
+        -- Cubic ease-in-out
+        local eased
+        if t < 0.5 then
+            eased = 4 * t * t * t
+        else
+            local u = -2 * t + 2
+            eased = 1 - (u * u * u) / 2
+        end
+        recipeViewport.SetOffset(start + (targetOffset - start) * eased)
+    end)
+end
+
+--- Apply green border + deferred scroll until the viewport has a real height.
+--- Retries across frames (and across later layouts) while focusScrollPending is set.
+applyRecipeFocus = function(recipes)
+    if not focusRecipeID then
+        clearRecipeFocusBorders()
+        recipeViewport.SetOffset(0)
+        return
+    end
+
+    local Nav = AltArmy.SearchGuildNav
+    local idx = Nav and Nav.FindRecipeRowIndex and Nav.FindRecipeRowIndex(recipes, focusRecipeID)
+
+    local function findRow()
+        if idx and recipeRowPool[idx] and recipeRowPool[idx].recipeID then
+            local row = recipeRowPool[idx]
+            local id = row.recipeID
+            if id == focusRecipeID or tonumber(id) == tonumber(focusRecipeID) then
+                return row, idx
+            end
+        end
+        for i = 1, #recipeRowPool do
+            local row = recipeRowPool[i]
+            if row and row:IsShown() and row.recipeID then
+                local id = row.recipeID
+                if id == focusRecipeID or tonumber(id) == tonumber(focusRecipeID) then
+                    return row, i
+                end
+            end
+        end
+        return nil, nil
+    end
+
+    local row, rowIndex = findRow()
+    if not row then
+        -- Recipes may still be loading; keep focusScrollPending for a later layout.
+        return
+    end
+
+    clearRecipeFocusBorders()
+    ensureRecipeFocusBorder(row)
+    row.focusBorder:Show()
+
+    if not focusScrollPending then
+        return
+    end
+
+    local attempts = 0
+    stopRecipeFocusScroll()
+    recipeFocusAnim:SetScript("OnUpdate", function(f)
+        attempts = attempts + 1
+        local liveRow, liveIndex = findRow()
+        if liveRow then
+            clearRecipeFocusBorders()
+            ensureRecipeFocusBorder(liveRow)
+            liveRow.focusBorder:Show()
+            rowIndex = liveIndex
+        end
+        local viewH = recipeViewport.scroll:GetHeight() or 0
+        local contentH = recipeScrollChild:GetHeight() or 0
+        if (not liveRow or viewH <= 0) and attempts < 60 then
+            return
+        end
+        f:SetScript("OnUpdate", nil)
+        focusScrollPending = false
+        if not liveRow or viewH <= 0 or not rowIndex then
+            return
+        end
+        recipeViewport.SetOffset(0)
+        local rowTop = (rowIndex - 1) * UI.RECIPE_ROW_HEIGHT
+        local target = Nav.ScrollOffsetToRevealRow
+            and Nav.ScrollOffsetToRevealRow(rowTop, UI.RECIPE_ROW_HEIGHT, viewH, 0, contentH)
+        if target then
+            smoothScrollRecipeListTo(target)
+        end
+    end)
+end
+
 local function isLoadingRecipes(entry, profKey)
     if not entry or entry.source == "local" or not entry.source then return false end
     local Comm = AltArmy.GuildShareComm
@@ -1583,19 +1891,19 @@ local function acquireRecipeRow(index)
     local row = recipeRowPool[index]
     if not row then
         row = CreateFrame("Frame", nil, recipeScrollChild)
-        row:SetHeight(RECIPE_ROW_HEIGHT)
+        row:SetHeight(UI.RECIPE_ROW_HEIGHT)
         row:EnableMouse(true)
         row:EnableMouseWheel(true)
         row:SetScript("OnMouseWheel", forwardRecipeWheel)
         local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         label:SetPoint("LEFT", row, "LEFT", 4, 0)
-        label:SetPoint("RIGHT", row, "RIGHT", -(RECIPE_SKILL_COL_WIDTH + 4), 0)
+        label:SetPoint("RIGHT", row, "RIGHT", -(UI.RECIPE_SKILL_COL_WIDTH + 4), 0)
         label:SetJustifyH("LEFT")
         label:SetWordWrap(false)
         row.label = label
         local skillCell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         skillCell:SetPoint("RIGHT", row, "RIGHT", -4, 0)
-        skillCell:SetWidth(RECIPE_SKILL_COL_WIDTH)
+        skillCell:SetWidth(UI.RECIPE_SKILL_COL_WIDTH)
         skillCell:SetJustifyH("RIGHT")
         row.skillCell = skillCell
         row:SetScript("OnEnter", function(self)
@@ -1631,13 +1939,18 @@ layoutRecipeView = function(entry)
     clearPendingRecipeIcons()
     updateRecipeSearchPlaceholder(entry)
     local profs = GTD.GetPrimaryProfessions(entry)
+    -- Re-resolve preferred profession while search focus is still pending (profs may load late).
+    if focusScrollPending and (focusProfessionKey or focusProfessionName) then
+        local Nav = AltArmy.SearchGuildNav
+        if Nav and Nav.FindProfessionIndex then
+            selectedProfIndex = Nav.FindProfessionIndex(profs, focusProfessionKey, focusProfessionName)
+        end
+    end
     if selectedProfIndex < 1 or selectedProfIndex > #profs then
         selectedProfIndex = 1
     end
 
-    local level = math.floor(tonumber(entry.level) or 0)
-    recipeTitleFS:SetText(GTD.FormatCharacterTitle(entry, formatName)
-        .. " " .. GRAY .. "(level " .. level .. ")|r")
+    updateWhisperButton(entry)
 
     noProfText:Hide()
     loadingText:Hide()
@@ -1653,14 +1966,14 @@ layoutRecipeView = function(entry)
         profTabStrip:Hide()
         craftLibRecommendBtn:Hide()
         craftLibRecommendPanel:Hide()
-        header:SetHeight(RECIPE_TITLE_HEIGHT)
+        header:SetHeight(UI.RECIPE_TITLE_HEIGHT)
         recipeBody:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
         noProfText:SetText(GTD.FormatNoProfessionsMessage(entry, formatName))
         noProfText:Show()
         return
     end
 
-    header:SetHeight(RECIPE_TITLE_HEIGHT)
+    header:SetHeight(UI.RECIPE_TITLE_HEIGHT)
     profTabStrip:Show()
     updateCraftLibRecommendUi()
     recipeBody:SetPoint("TOPLEFT", profTabStrip, "BOTTOMLEFT", 0, -PAD)
@@ -1671,7 +1984,7 @@ layoutRecipeView = function(entry)
         local tab = profTabPool[i]
         if not tab then
             tab = CreateFrame("Button", nil, profTabStrip)
-            tab:SetHeight(PROF_TAB_HEIGHT - 4)
+            tab:SetHeight(UI.PROF_TAB_HEIGHT - 4)
             Theme.SkinButton(tab, true)
             local tabLabel = tab:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             tabLabel:SetPoint("CENTER", tab, "CENTER", 0, 0)
@@ -1693,21 +2006,57 @@ layoutRecipeView = function(entry)
         tab:SetSelected(i == selectedProfIndex)
         tab:Show()
         tab:SetScript("OnClick", function()
+            clearRecipeFocus()
             selectedProfIndex = i
             layoutRecipeView(selectedCharacter)
         end)
-        tabX = tabX + tab:GetWidth() + PROF_TAB_GAP
+        tabX = tabX + tab:GetWidth() + UI.PROF_TAB_GAP
     end
     hideProfTabsFrom(#profs + 1)
 
     local selectedProf = profs[selectedProfIndex]
     local profKey = selectedProf and selectedProf.key
-    if isLoadingRecipes(entry, profKey) then
+    local recipesPending = isLoadingRecipes(entry, profKey)
+    local allRecipes = GTD.GetProfessionRecipes(entry, profKey)
+    if recipesPending and #allRecipes == 0 then
         loadingText:Show()
+        -- Keep retrying focus once recipes finish loading (RefreshGuildTab also re-layouts).
+        if focusRecipeID and focusScrollPending then
+            stopRecipeFocusScroll()
+            local attempts = 0
+            recipeFocusAnim:SetScript("OnUpdate", function(f)
+                attempts = attempts + 1
+                if not focusRecipeID or not focusScrollPending then
+                    f:SetScript("OnUpdate", nil)
+                    return
+                end
+                if attempts > 120 then
+                    f:SetScript("OnUpdate", nil)
+                    return
+                end
+                if selectedCharacter and (
+                    not isLoadingRecipes(selectedCharacter, profKey)
+                    or #(GTD.GetProfessionRecipes(selectedCharacter, profKey)) > 0
+                ) then
+                    f:SetScript("OnUpdate", nil)
+                    layoutRecipeView(selectedCharacter)
+                end
+            end)
+        end
+        return
+    end
+    loadingText:Hide()
+
+    if #allRecipes == 0 then
+        recipeColHeader:Hide()
+        recipeViewportFrame:Hide()
+        hideRecipeRowsFrom(1)
+        noProfText:SetText(GTD.FormatNoProfessionRecipesMessage(
+            entry, selectedProf and selectedProf.name, formatName))
+        noProfText:Show()
         return
     end
 
-    local allRecipes = GTD.GetProfessionRecipes(entry, profKey)
     local filteredRecipes = GTD.FilterRecipesBySearch(allRecipes, recipeSearchText, function(recipe)
         return select(1, resolveRecipeDisplay(recipe.recipeID, recipe.resultItemID))
     end)
@@ -1752,22 +2101,23 @@ layoutRecipeView = function(entry)
                 row.skillCell:SetText(GTD.FormatRecipeSkillCell(recipe, profName, skillRank))
             end
         end
-        y = y + RECIPE_ROW_HEIGHT
+        y = y + UI.RECIPE_ROW_HEIGHT
     end
     hideRecipeRowsFrom(#recipes + 1)
     recipeScrollChild:SetWidth(width)
     recipeScrollChild:SetHeight(math.max(1, y))
     if recipeViewport.UpdateRange then recipeViewport.UpdateRange() end
-    recipeViewport.SetOffset(0)
+    applyRecipeFocus(recipes)
 end
 
 showGuildList = function()
+    clearRecipeFocus()
     selectedCharacter = nil
     selectedCharacterKey = nil
     selectedProfIndex = 1
     clearPendingRecipeIcons()
     clearRecipeSearch()
-    header:SetHeight(HEADER_HEIGHT)
+    header:SetHeight(UI.HEADER_HEIGHT)
     setListHeaderVisible(true)
     listColHeader:Show()
     anchorListViewportBelowColHeader()
@@ -1778,13 +2128,27 @@ showGuildList = function()
     craftLibRecommendPanel:Hide()
 end
 
-showRecipeView = function(entry)
+showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredRecipeID)
     closeGroupSettings()
     selectedCharacter = entry
     selectedCharacterKey = memberKey(entry)
     selectedProfIndex = 1
+    local Nav = AltArmy.SearchGuildNav
+    if (preferredProfKey or preferredProfName) and Nav and Nav.FindProfessionIndex then
+        selectedProfIndex = Nav.FindProfessionIndex(
+            GTD.GetPrimaryProfessions(entry), preferredProfKey, preferredProfName)
+    end
     recipeSortKey, recipeSortAscending = GTD.GetDefaultRecipeSort(isCraftLibAvailable())
-    clearRecipeSearch()
+    -- Quiet clear so OnTextChanged does not layout/wipe focus mid-open.
+    clearRecipeSearchQuiet()
+    if preferredRecipeID then
+        focusRecipeID = preferredRecipeID
+        focusScrollPending = true
+        focusProfessionKey = preferredProfKey
+        focusProfessionName = preferredProfName
+    else
+        clearRecipeFocus()
+    end
     setListHeaderVisible(false)
     listColHeader:Hide()
     listViewport:Hide()
@@ -1799,7 +2163,31 @@ showRecipeView = function(entry)
     layoutRecipeView(entry)
 end
 
+--- Open character recipe detail from search; Back returns via SearchGuildNav / Core.
+function frame:ShowCharacterFromSearch(entry, professionKey, professionName, recipeID)
+    if not entry then return end
+    messageView:Hide()
+    listView:Show()
+    -- Show first so viewport sizes exist; suppress OnShow refresh which would race list layout.
+    suppressGuildOnShowRefresh = true
+    self:Show()
+    suppressGuildOnShowRefresh = false
+    showRecipeView(entry, professionKey, professionName, recipeID)
+end
+
+--- Leave search drill-in without switching to the guild member list as the active destination.
+function frame:ClearSearchDrillIn()
+    showGuildList()
+    self:Hide()
+end
+
 backBtn:SetScript("OnClick", function()
+    local Nav = AltArmy.SearchGuildNav
+    if Nav and Nav.ShouldBackReturnToSearch and Nav.ShouldBackReturnToSearch()
+        and AltArmy.ReturnToSearchFromGuildCharacter then
+        AltArmy.ReturnToSearchFromGuildCharacter()
+        return
+    end
     showGuildList()
     refresh()
 end)
@@ -1869,7 +2257,7 @@ local function layoutList(groups, query, rosterByName, forceHoverMain)
             expandedMains[g.main] = not expandedMains[g.main]
             layoutList(groups, query, rosterByName, g.main)
         end)
-        y = y + MAIN_ROW_HEIGHT
+        y = y + UI.MAIN_ROW_HEIGHT
 
         if isExpanded then
             for _, m in ipairs(g.members) do
@@ -1893,10 +2281,10 @@ local function layoutList(groups, query, rosterByName, forceHoverMain)
                 charRow:SetScript("OnClick", function()
                     showRecipeView(m)
                 end)
-                y = y + CHAR_ROW_HEIGHT
+                y = y + UI.CHAR_ROW_HEIGHT
             end
         end
-        y = y + GROUP_GAP
+        y = y + UI.GROUP_GAP
     end
 
     hideMainRowsFrom(mainIndex + 1)
@@ -2078,9 +2466,16 @@ recipeSearchEdit:SetScript("OnTextChanged", function(box)
     recipeSearchText = box:GetText() or ""
     Theme.UpdateEditBoxPlaceholderVisibility(recipeSearchEdit)
     updateRecipeSearchClearVisibility()
-    if selectedCharacter then
-        layoutRecipeView(selectedCharacter)
+    if suppressRecipeSearchLayout or not selectedCharacter then
+        return
     end
+    -- Programmatic clears / Show of this field during search→character open must not
+    -- wipe recipe focus. Only user-typed filter text dismisses the highlight.
+    local trimmed = recipeSearchText:match("^%s*(.-)%s*$") or ""
+    if trimmed ~= "" then
+        clearRecipeFocus()
+    end
+    layoutRecipeView(selectedCharacter)
 end)
 recipeSearchEdit:SetScript("OnEditFocusGained", function(self)
     Theme.UpdateEditBoxPlaceholderVisibility(self)
@@ -2116,6 +2511,9 @@ end)
 
 AltArmy.RefreshGuildTab = refresh
 frame:SetScript("OnShow", function()
+    if suppressGuildOnShowRefresh then
+        return
+    end
     ensureGuildRosterIncludesOffline()
     refresh()
 end)
