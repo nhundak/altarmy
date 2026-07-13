@@ -1,7 +1,8 @@
 -- AltArmy TBC — Guild tab: pure grouping / sorting / filtering / formatting helpers.
 -- No frames or comm; consumes the flat member list from GuildShareData.GetGuildMembersForDisplay
 -- and produces the main-grouped, sorted, filtered view the Guild tab UI renders.
--- Also provides guild-roster last-online helpers (BuildRosterLastOnlineMap / FormatRosterLastOnline).
+-- Also provides guild-roster last-online helpers
+-- (BuildRosterLastOnlineMap / FormatRosterLastOnline / GetDefaultListSort).
 
 if not AltArmy then return end
 
@@ -284,6 +285,16 @@ function GTD.GetDefaultRecipeSort(craftLibAvailable)
         return "skill", false
     end
     return "recipe", true
+end
+
+--- Default guild list sort.
+--- When roster last-online can be looked up (player is in that guild): online ascending
+--- (most recently online first). Otherwise: name ascending.
+function GTD.GetDefaultListSort(canLookupOnline)
+    if canLookupOnline then
+        return "online", true
+    end
+    return "name", true
 end
 
 --- Sort recipe rows for the guild recipe list (`sortKey`: "recipe" or "skill").
@@ -741,8 +752,14 @@ function GTD.RosterOfflineHours(status)
 end
 
 --- Display string for a roster last-online status. Empty when status is missing.
-function GTD.FormatRosterLastOnline(status)
-    if not status then return "" end
+--- When `opts.showUnknownWhenMissing` is set, missing status returns gray "Unknown".
+function GTD.FormatRosterLastOnline(status, opts)
+    if not status then
+        if opts and opts.showUnknownWhenMissing then
+            return GRAY .. "Unknown|r"
+        end
+        return ""
+    end
     if status.online then return "Online" end
     local years = status.years or 0
     local months = status.months or 0

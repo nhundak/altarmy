@@ -4,6 +4,7 @@
 	"private": true,
 	"description": "AltArmy — WoW TBC Classic addon (character summary, gear, search)",
 	"scripts": {
+		"setup:dev": "node scripts/setup-dev-tools.js",
 		"typecheck": "node -e \"process.exit(0)\"",
 		"check": "node scripts/run-luacheck.js AltArmy_TBC",
 		"lint": "node scripts/run-luacheck.js AltArmy_TBC",

@@ -81,9 +81,11 @@ local selectedCharacterKey = nil
 local selectedProfIndex = 1
 local recipeSortKey = "recipe"
 local recipeSortAscending = true
--- Guild list column sort (session-only).
+-- Guild list column sort (session-only). Defaults applied when guild lookup mode changes.
 local listSortKey = "name"
 local listSortAscending = true
+-- Tracks whether the current default was applied for in-guild roster lookup capability.
+local listSortCanLookupOnline = nil
 -- When the current character is not guilded, browse a guild from account alts.
 local selectedBrowseGuild = nil
 -- Group settings side panel (session-only).
@@ -842,6 +844,22 @@ local function updateListHeaderSortIndicators()
     end
 end
 
+--- Apply default column sort when switching between in-guild and browse-without-guild modes.
+local function ensureDefaultListSort(canLookupOnline)
+    if listSortCanLookupOnline == canLookupOnline then
+        return
+    end
+    listSortCanLookupOnline = canLookupOnline
+    if GTD.GetDefaultListSort then
+        listSortKey, listSortAscending = GTD.GetDefaultListSort(canLookupOnline)
+    elseif canLookupOnline then
+        listSortKey, listSortAscending = "online", true
+    else
+        listSortKey, listSortAscending = "name", true
+    end
+    updateListHeaderSortIndicators()
+end
+
 local function createListHeaderButton(sortKey, justifyH, anchorFn)
     local btn = CreateFrame("Button", nil, listColHeader)
     btn:SetHeight(LIST_COL_HEADER_HEIGHT)
@@ -1077,15 +1095,13 @@ local function syncMainRowHoverFromMouse()
     end
     for i = 1, #mainRowPool do
         local row = mainRowPool[i]
-        if not row then
-            -- skip
-        elseif row == hoveredRow then
+        if row and row == hoveredRow then
             local focus = GetMouseFocus and GetMouseFocus()
             row.settingsBtnHovered = (row.settingsBtn and focus == row.settingsBtn) and true or false
             if row.setMainRowHover then
                 row.setMainRowHover(true)
             end
-        elseif row.clearMainRowHoverState then
+        elseif row and row.clearMainRowHoverState then
             row.clearMainRowHoverState()
         end
     end
@@ -1826,6 +1842,10 @@ local function layoutList(groups, query, rosterByName, forceHoverMain)
     local width = math.max(1, (scrollChild:GetWidth() or listViewport:GetWidth() or 1))
     local activeQuery = GTD.NormalizeSearchQuery(query)
     rosterByName = rosterByName or {}
+    local lastOnlineOpts = nil
+    if not currentGuild() then
+        lastOnlineOpts = { showUnknownWhenMissing = true }
+    end
 
     for _, g in ipairs(groups) do
         mainIndex = mainIndex + 1
@@ -1841,7 +1861,7 @@ local function layoutList(groups, query, rosterByName, forceHoverMain)
         if row.lastOnlineFS then
             local status = GTD.GetGroupLastOnlineStatus and GTD.GetGroupLastOnlineStatus(g, rosterByName)
             row.lastOnlineFS:SetText(
-                (GTD.FormatRosterLastOnline and GTD.FormatRosterLastOnline(status)) or "")
+                (GTD.FormatRosterLastOnline and GTD.FormatRosterLastOnline(status, lastOnlineOpts)) or "")
         end
         row.groupMain = g.main
         row.settingsGroup = g
@@ -1867,7 +1887,7 @@ local function layoutList(groups, query, rosterByName, forceHoverMain)
                     local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(m.name)
                     local status = key and rosterByName[key] or nil
                     charRow.lastOnlineFS:SetText(
-                        (GTD.FormatRosterLastOnline and GTD.FormatRosterLastOnline(status)) or "")
+                        (GTD.FormatRosterLastOnline and GTD.FormatRosterLastOnline(status, lastOnlineOpts)) or "")
                 end
                 charRow.memberEntry = m
                 charRow:SetScript("OnClick", function()
@@ -1896,11 +1916,9 @@ local function layoutList(groups, query, rosterByName, forceHoverMain)
         end
         for i = 1, #mainRowPool do
             local row = mainRowPool[i]
-            if not row then
-                -- skip
-            elseif row == forced and row.setMainRowHover then
+            if row and row == forced and row.setMainRowHover then
                 row.setMainRowHover(true)
-            elseif row.clearMainRowHoverState then
+            elseif row and row.clearMainRowHoverState then
                 row.clearMainRowHoverState()
             end
         end
@@ -1992,7 +2010,9 @@ local function refreshImpl()
     applySearchExpansion(filtered)
 
     local rosterByName = {}
-    if currentGuild() and GTD.BuildRosterLastOnlineMap then
+    local canLookupOnline = currentGuild() and true or false
+    ensureDefaultListSort(canLookupOnline)
+    if canLookupOnline and GTD.BuildRosterLastOnlineMap then
         rosterByName = GTD.BuildRosterLastOnlineMap()
     end
     if GTD.SortGroups then

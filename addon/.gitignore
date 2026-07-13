@@ -2,6 +2,7 @@
 debug/compare-dump-source/AltArmy_TBC.lua
 luacheck-src
 .lua51
+.setup-dev-tmp
 busted-2.1.1
 busted-2.1.1-tmp
 busted.zip

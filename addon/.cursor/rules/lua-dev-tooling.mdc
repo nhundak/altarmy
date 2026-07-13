@@ -1,0 +1,13 @@
+---
+description: Use project Lua tooling via npm scripts; never hunt system Lua installs
+alwaysApply: true
+---
+
+# Lua test and lint tooling
+
+When running unit tests or luacheck:
+
+- Use `npm test` and `npm run check` / `npm run lint` from the repo root.
+- Do **not** search for system Lua, invent `LUA_51_PATH`, shim `luajit` as `lua.exe`, or poke Homebrew/LuaRocks unless `npm` scripts fail with a clear missing-tool message.
+- If Lua 5.1 / busted / luacheck are missing, run `npm run setup:dev` once, then retry.
+- Runners auto-resolve `<repo>/.lua51/bin` (and Windows Lua for Windows defaults). No per-session env exports are required when that tree exists.

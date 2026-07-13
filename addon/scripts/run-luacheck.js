@@ -1,19 +1,36 @@
 #!/usr/bin/env node
 "use strict";
 /**
- * Run luacheck from source using Lua 5.1 (Lua for Windows).
- * Requires: Lua 5.1 at "C:\\Program Files (x86)\\Lua\\5.1" (or LUA_51_PATH env).
- * Luacheck source in ./luacheck-src, argparse in ./luacheck-src/argparse.lua.
+ * Run luacheck from source using Lua 5.1.
+ * Requires luacheck-src/ (see npm run setup:dev).
+ * Lua is resolved via scripts/resolve-lua51.js.
  */
+const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
+const { resolveLua51, missingLua51Message } = require("./resolve-lua51");
 
 const root = path.resolve(__dirname, "..");
-const lua51Path = process.env.LUA_51_PATH || "C:\\Program Files (x86)\\Lua\\5.1";
-const luaExe = path.join(lua51Path, "lua.exe");
 const luacheckSrc = path.join(root, "luacheck-src");
 const srcPath = path.join(luacheckSrc, "src");
 const binScript = path.join(luacheckSrc, "bin", "luacheck.lua");
+const args = process.argv.slice(2);
+const target = args.length ? args.join(" ") : "AltArmy_TBC";
+
+function fail(msg) {
+  console.error(msg);
+  process.exit(1);
+}
+
+const resolved = resolveLua51(root);
+if (!resolved) {
+  fail(missingLua51Message(root));
+}
+if (!fs.existsSync(binScript)) {
+  fail(
+    `Luacheck source missing at ${binScript}.\nRun \`npm run setup:dev\` to download it.`
+  );
+}
 
 const packagePath = [
   path.join(srcPath, "?.lua"),
@@ -23,13 +40,10 @@ const packagePath = [
   .join(";")
   .replace(/\\/g, "/");
 
-const args = process.argv.slice(2);
-const target = args.length ? args.join(" ") : "AltArmy_TBC";
-
 try {
   execSync(
-    `"${luaExe}" -e "package.path='${packagePath};'..package.path" "${binScript}" -q ${target}`,
-    { cwd: root, stdio: "inherit", shell: true }
+    `"${resolved.luaExe}" -e "package.path='${packagePath};'..package.path" "${binScript}" -q ${target}`,
+    { cwd: root, stdio: "inherit", shell: true, env: resolved.env }
   );
 } catch (e) {
   process.exit(e.status || 1);

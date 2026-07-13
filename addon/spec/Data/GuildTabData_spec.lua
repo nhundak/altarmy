@@ -530,6 +530,12 @@ describe("GuildTabData", function()
         assert.are.equal("", GTD.FormatRosterLastOnline(nil))
       end)
 
+      it("returns gray Unknown when status is missing and showUnknownWhenMissing", function()
+        assert.are.equal("|cff808080Unknown|r", GTD.FormatRosterLastOnline(nil, {
+          showUnknownWhenMissing = true,
+        }))
+      end)
+
       it("returns Online when the character is online", function()
         assert.are.equal("Online", GTD.FormatRosterLastOnline({ online = true }))
       end)
@@ -1166,6 +1172,20 @@ describe("GuildTabData", function()
       local sortKey, ascending = GTD.GetDefaultRecipeSort(true)
       assert.are.equal("skill", sortKey)
       assert.is_false(ascending)
+    end)
+  end)
+
+  describe("GetDefaultListSort", function()
+    it("defaults to online ascending when roster last-online can be looked up", function()
+      local sortKey, ascending = GTD.GetDefaultListSort(true)
+      assert.are.equal("online", sortKey)
+      assert.is_true(ascending)
+    end)
+
+    it("defaults to name ascending when roster last-online cannot be looked up", function()
+      local sortKey, ascending = GTD.GetDefaultListSort(false)
+      assert.are.equal("name", sortKey)
+      assert.is_true(ascending)
     end)
   end)
 

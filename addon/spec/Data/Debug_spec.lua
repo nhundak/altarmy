@@ -207,9 +207,9 @@ describe("AltArmy.Debug", function()
     end)
 
     it("TogglePretendCraftLibNotInstalled flips the saved flag", function()
-        assert.is_false(D.TogglePretendCraftLibNotInstalled())
-        assert.is_true(D.IsPretendCraftLibNotInstalled())
         assert.is_true(D.TogglePretendCraftLibNotInstalled())
+        assert.is_true(D.IsPretendCraftLibNotInstalled())
+        assert.is_false(D.TogglePretendCraftLibNotInstalled())
         assert.is_false(D.IsPretendCraftLibNotInstalled())
     end)
 
