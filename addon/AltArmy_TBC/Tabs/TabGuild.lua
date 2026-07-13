@@ -1800,10 +1800,14 @@ end
 
 --- Apply green border + deferred scroll until the viewport has a real height.
 --- Retries across frames (and across later layouts) while focusScrollPending is set.
-applyRecipeFocus = function(recipes)
+--- preserveScroll: when true and there is no focused recipe, leave the current offset alone
+--- (guild presence refreshes rebuild the row tables without changing recipe IDs).
+applyRecipeFocus = function(recipes, preserveScroll)
     if not focusRecipeID then
         clearRecipeFocusBorders()
-        recipeViewport.SetOffset(0)
+        if not preserveScroll then
+            recipeViewport.SetOffset(0)
+        end
         return
     end
 
@@ -2052,7 +2056,7 @@ layoutRecipeView = function(entry)
         recipeViewportFrame:Hide()
         hideRecipeRowsFrom(1)
         noProfText:SetText(GTD.FormatNoProfessionRecipesMessage(
-            entry, selectedProf and selectedProf.name, formatName))
+            entry, formatName))
         noProfText:Show()
         return
     end
@@ -2072,6 +2076,8 @@ layoutRecipeView = function(entry)
             return select(1, resolveRecipeDisplay(recipe.recipeID, recipe.resultItemID))
         end,
     })
+    local preserveScroll = GTD.AreRecipeListsEqual(recipeViewport._lastRecipes, recipes)
+    recipeViewport._lastRecipes = recipes
     applyRecipeSkillColumnLayout(showSkillCol)
     recipeColHeader:Show()
     updateRecipeHeaderSortIndicators()
@@ -2107,7 +2113,7 @@ layoutRecipeView = function(entry)
     recipeScrollChild:SetWidth(width)
     recipeScrollChild:SetHeight(math.max(1, y))
     if recipeViewport.UpdateRange then recipeViewport.UpdateRange() end
-    applyRecipeFocus(recipes)
+    applyRecipeFocus(recipes, preserveScroll)
 end
 
 showGuildList = function()
@@ -2115,6 +2121,7 @@ showGuildList = function()
     selectedCharacter = nil
     selectedCharacterKey = nil
     selectedProfIndex = 1
+    recipeViewport._lastRecipes = nil
     clearPendingRecipeIcons()
     clearRecipeSearch()
     header:SetHeight(UI.HEADER_HEIGHT)
@@ -2133,6 +2140,7 @@ showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredR
     selectedCharacter = entry
     selectedCharacterKey = memberKey(entry)
     selectedProfIndex = 1
+    recipeViewport._lastRecipes = nil
     local Nav = AltArmy.SearchGuildNav
     if (preferredProfKey or preferredProfName) and Nav and Nav.FindProfessionIndex then
         selectedProfIndex = Nav.FindProfessionIndex(

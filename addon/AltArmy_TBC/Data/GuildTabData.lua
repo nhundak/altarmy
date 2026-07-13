@@ -44,6 +44,23 @@ function GTD.FilterRecipesBySearch(recipes, query, getRecipeName)
     return out
 end
 
+--- True when both lists have the same ordered recipeIDs (content equality, not table identity).
+--- Used to preserve guild recipe-list scroll across refreshes that rebuild row tables.
+function GTD.AreRecipeListsEqual(a, b)
+    if a == b then return true end
+    if type(a) ~= "table" or type(b) ~= "table" then return false end
+    if #a ~= #b then return false end
+    for i = 1, #a do
+        local ai, bi = a[i], b[i]
+        if type(ai) ~= "table" or type(bi) ~= "table" then return false end
+        local idA, idB = ai.recipeID, bi.recipeID
+        if idA ~= idB and tonumber(idA) ~= tonumber(idB) then
+            return false
+        end
+    end
+    return true
+end
+
 --- Highlight every case-insensitive substring match in bright green; other segments use
 --- `formatSegment(text, classFile)` when supplied (typically class-colored name text).
 function GTD.FormatTextWithSearchHighlight(text, classFile, query, formatSegment)
@@ -383,13 +400,8 @@ function GTD.FormatNoProfessionsMessage(entry, formatName)
 end
 
 --- Empty-state copy when a profession is known but its recipe list is empty.
-function GTD.FormatNoProfessionRecipesMessage(entry, professionName, formatName)
-    local prof = professionName
-    if not prof or prof == "" then
-        prof = "profession"
-    end
-    return formatNamePart(entry, formatName)
-        .. " hasn't trained any " .. prof .. " recipes yet"
+function GTD.FormatNoProfessionRecipesMessage(entry, formatName)
+    return "No recipes known for " .. formatNamePart(entry, formatName)
 end
 
 --- Sorted unique guild names from account characters that have a guild set.

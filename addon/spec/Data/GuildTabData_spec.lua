@@ -1107,18 +1107,11 @@ describe("GuildTabData", function()
   end)
 
   describe("FormatNoProfessionRecipesMessage", function()
-    it("embeds the class-colored name and profession", function()
+    it("embeds the class-colored character name", function()
       local m = member({ name = "Bob", classFile = "MAGE" })
       assert.are.equal(
-        "Bob hasn't trained any Tailoring recipes yet",
-        GTD.FormatNoProfessionRecipesMessage(m, "Tailoring", plainFormatName))
-    end)
-
-    it("falls back when profession name is missing", function()
-      local m = member({ name = "Bob", classFile = "MAGE" })
-      assert.are.equal(
-        "Bob hasn't trained any profession recipes yet",
-        GTD.FormatNoProfessionRecipesMessage(m, nil, plainFormatName))
+        "No recipes known for Bob",
+        GTD.FormatNoProfessionRecipesMessage(m, plainFormatName))
     end)
   end)
 
@@ -1180,6 +1173,57 @@ describe("GuildTabData", function()
     it("filters by case-insensitive substring on the resolved name", function()
       local out = GTD.FilterRecipesBySearch(recipes, "moon", function(r) return r.name end)
       assert.are.same({ { recipeID = 2, name = "Mooncloth" } }, out)
+    end)
+  end)
+
+  describe("AreRecipeListsEqual", function()
+    it("returns true for the same table reference", function()
+      local recipes = { { recipeID = 1 } }
+      assert.is_true(GTD.AreRecipeListsEqual(recipes, recipes))
+    end)
+
+    it("returns true when ordered recipeIDs match despite different table references", function()
+      local a = { { recipeID = 10, resultItemID = 1 }, { recipeID = 20 } }
+      local b = { { recipeID = 10, resultItemID = 99 }, { recipeID = 20, name = "x" } }
+      assert.is_true(GTD.AreRecipeListsEqual(a, b))
+    end)
+
+    it("treats numeric-string recipeIDs as equal to numbers", function()
+      assert.is_true(GTD.AreRecipeListsEqual(
+        { { recipeID = 42 } },
+        { { recipeID = "42" } }
+      ))
+    end)
+
+    it("returns false when lengths differ", function()
+      assert.is_false(GTD.AreRecipeListsEqual(
+        { { recipeID = 1 } },
+        { { recipeID = 1 }, { recipeID = 2 } }
+      ))
+    end)
+
+    it("returns false when order differs", function()
+      assert.is_false(GTD.AreRecipeListsEqual(
+        { { recipeID = 1 }, { recipeID = 2 } },
+        { { recipeID = 2 }, { recipeID = 1 } }
+      ))
+    end)
+
+    it("returns false when a recipeID differs", function()
+      assert.is_false(GTD.AreRecipeListsEqual(
+        { { recipeID = 1 } },
+        { { recipeID = 2 } }
+      ))
+    end)
+
+    it("returns false for nil or non-table inputs", function()
+      assert.is_false(GTD.AreRecipeListsEqual(nil, {}))
+      assert.is_false(GTD.AreRecipeListsEqual({}, nil))
+      assert.is_false(GTD.AreRecipeListsEqual("x", {}))
+    end)
+
+    it("returns true for two empty lists", function()
+      assert.is_true(GTD.AreRecipeListsEqual({}, {}))
     end)
   end)
 
