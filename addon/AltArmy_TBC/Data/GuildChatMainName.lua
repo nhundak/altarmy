@@ -30,15 +30,21 @@ local function stripRealm(name)
     return name:match("^[^%-]+") or name
 end
 
-function GCM.Transform(sender, message, getMain, getMainClass)
+--- Annotate when sender is an alt of `getMain(sender)`. Optional `getLabel(sender, main)`
+--- supplies the bracket text (override → preferred → main); defaults to main.
+function GCM.Transform(sender, message, getMain, getMainClass, getLabel)
     if not sender or not getMain then return message end
     local senderKey = stripRealm(sender)
     local main = getMain(sender)
     if not main or main == "" or main == senderKey then
         return message
     end
+    local label = (getLabel and getLabel(sender, main)) or main
+    if not label or label == "" then
+        label = main
+    end
     local classFile = getMainClass and getMainClass(sender, main) or nil
-    return GCM.FormatMainPrefix(main, classFile) .. (message or "")
+    return GCM.FormatMainPrefix(label, classFile) .. (message or "")
 end
 
 --- Returns a modified message when annotation applies, or nil to leave it untouched.
@@ -61,6 +67,17 @@ function GCM.FilterMessage(message, author, channelKey)
     end, function(_, main)
         local mainEntry = GSD.FindCharacter and GSD.FindCharacter(main, senderEntry and senderEntry.realm)
         return mainEntry and mainEntry.classFile or nil
+    end, function(_, main)
+        local realm = senderEntry and senderEntry.realm
+        local override = GSS.GetGroupOverrideName and GSS.GetGroupOverrideName(main, realm) or nil
+        if override and override ~= "" then
+            return override
+        end
+        local mainEntry = GSD.FindCharacter and GSD.FindCharacter(main, realm) or nil
+        if mainEntry and mainEntry.displayName and mainEntry.displayName ~= "" then
+            return mainEntry.displayName
+        end
+        return main
     end)
     if result ~= message then
         return result

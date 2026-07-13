@@ -790,6 +790,18 @@ function Theme.ClearEditBoxText(editBox)
     Theme.UpdateEditBoxPlaceholderVisibility(editBox)
 end
 
+--- Set EditBox text and reset the cursor to the start.
+--- WoW leaves the cursor at the end after SetText; when the box was sized while hidden
+--- that scrolls the value out of view, so the field looks empty and later typing appends.
+function Theme.SetEditBoxText(editBox, text)
+    if not editBox or not editBox.SetText then return end
+    editBox:SetText(text or "")
+    if editBox.SetCursorPosition then
+        editBox:SetCursorPosition(0)
+    end
+    Theme.UpdateEditBoxPlaceholderVisibility(editBox)
+end
+
 --- Wire placeholder refresh on text/focus changes. onTextChanged(editBox, isUserInput) optional.
 function Theme.BindEditBoxPlaceholderHandlers(editBox, onTextChanged)
     if not editBox then return end

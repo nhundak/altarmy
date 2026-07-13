@@ -859,10 +859,14 @@ local guildMainDropdown = Theme.CreateSingleSelectDropdown({
     end,
     onSelect = function(id)
         local GSS = AltArmy.GuildShareSettings
+        local oldMain = GSS and GSS.GetMain and GSS.GetMain() or nil
+        local oldDisplay = GSS and GSS.GetDisplayName and GSS.GetDisplayName() or nil
         if GSS and GSS.SetMain then GSS.SetMain(nil, id) end
-        if id then
-            if guildDisplayEdit then
-                guildDisplayEdit:SetText(id)
+        local syncDisplay = not GSS or not GSS.ShouldSyncDisplayNameWithMain
+            or GSS.ShouldSyncDisplayNameWithMain(oldMain, oldDisplay)
+        if id and syncDisplay then
+            if guildDisplayEdit and Theme.SetEditBoxText then
+                Theme.SetEditBoxText(guildDisplayEdit, id)
             end
             if GSS and GSS.SetDisplayName then
                 GSS.SetDisplayName(nil, id)
@@ -894,14 +898,32 @@ end
 Theme.ApplyInputTextures(guildDisplayEdit)
 guildDisplayEdit:SetScript("OnEnterPressed", function(box) box:ClearFocus() end)
 guildDisplayEdit:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
-guildDisplayEdit:SetScript("OnEditFocusLost", function(box)
+local function applyGuildDisplayNameFromEdit(box, broadcast)
     local GSS = AltArmy.GuildShareSettings
-    if GSS and GSS.SetDisplayName then
-        GSS.SetDisplayName(nil, box:GetText() or nil)
+    if not (GSS and GSS.SetDisplayName) then return end
+    local text = box:GetText() or ""
+    local nextName = GSS.NormalizeDisplayName and GSS.NormalizeDisplayName(text) or text
+    local prevName = GSS.GetDisplayName and GSS.GetDisplayName() or nil
+    if nextName == prevName then
+        if broadcast then
+            local Comm = AltArmy.GuildShareComm
+            if Comm and Comm.Broadcast then Comm.Broadcast(true) end
+        end
+        return
     end
+    GSS.SetDisplayName(nil, text)
     if AltArmy.RefreshGuildTab then AltArmy.RefreshGuildTab() end
-    local Comm = AltArmy.GuildShareComm
-    if Comm and Comm.Broadcast then Comm.Broadcast(true) end
+    if broadcast then
+        local Comm = AltArmy.GuildShareComm
+        if Comm and Comm.Broadcast then Comm.Broadcast(true) end
+    end
+end
+guildDisplayEdit:SetScript("OnTextChanged", function(box, userInput)
+    if userInput == false then return end
+    applyGuildDisplayNameFromEdit(box, false)
+end)
+guildDisplayEdit:SetScript("OnEditFocusLost", function(box)
+    applyGuildDisplayNameFromEdit(box, true)
 end)
 
 local guildChatRow = CreateFrame("Frame", nil, guildSharingTail)
@@ -1014,8 +1036,15 @@ local function RefreshGuildSharingControls()
             if guildMainDropdown and guildMainDropdown.Update then
                 guildMainDropdown:Update()
             end
-            if guildDisplayEdit then
-                guildDisplayEdit:SetText(GSS.GetDisplayName and (GSS.GetDisplayName() or mainName or "") or "")
+            if guildDisplayEdit and not (guildDisplayEdit.HasFocus and guildDisplayEdit:HasFocus()) then
+                local displayText = GSS.GetDisplayName and (GSS.GetDisplayName() or mainName or "") or ""
+                if guildDisplayEdit:GetText() ~= displayText then
+                    if Theme.SetEditBoxText then
+                        Theme.SetEditBoxText(guildDisplayEdit, displayText)
+                    else
+                        guildDisplayEdit:SetText(displayText)
+                    end
+                end
             end
             if guildChatChannelsDropdown then
                 guildChatChannelsDropdown:refresh()

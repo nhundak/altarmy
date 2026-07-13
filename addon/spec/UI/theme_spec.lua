@@ -910,6 +910,22 @@ describe("AltArmy.Theme", function()
             assert.is_false(box:HasFocus())
             assert.is_true(box.altArmyPlaceholderHint:IsShown())
         end)
+
+        it("SetEditBoxText replaces text and resets cursor so the value is visible on load", function()
+            local box = makeStubEditBox()
+            box._cursor = 99
+            function box:SetCursorPosition(pos) self._cursor = pos end
+            function box:GetCursorPosition() return self._cursor end
+            Theme.SetEditBoxText(box, "Frell")
+            assert.are.equal("Frell", box:GetText())
+            assert.are.equal(0, box:GetCursorPosition())
+        end)
+
+        it("SetEditBoxText tolerates EditBoxes without SetCursorPosition", function()
+            local box = makeStubEditBox()
+            Theme.SetEditBoxText(box, "Frell")
+            assert.are.equal("Frell", box:GetText())
+        end)
     end)
 
     describe("CreateOptionsSectionLabel", function()

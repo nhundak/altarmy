@@ -2,8 +2,9 @@
 -- Always present when the guildShare feature flag is on (button visibility handled in Core.lua).
 -- Layout:
 --   * fixed header: guild name + tabard (left), search field aligned with main header search (right, extended to close)
---   * scroll body: one row per main (preferred name + character count), expandable to reveal
---     each character (class-colored name, gray level, primary professions)
+--   * scroll body: fixed Name / Character Count / Online column headers (click to sort), then
+--     one row per main (preferred name + character count + last online), expandable to reveal
+--     each character (class-colored name, gray level, primary professions, last online)
 --   * recipe detail: Back + character title, profession tabs, recipe search (top right), scrollable recipe list
 -- Two content states, driven by the user's OWN sharing setting (not the feature flag):
 --   * sharing enabled  -> the header + list above
@@ -16,8 +17,10 @@ local Theme = AltArmy.Theme
 local CC = AltArmy.ClassColor
 local GTD = AltArmy.GuildTabData
 local SECTION_INSET = Theme.TAB_SECTION_INSET
+local SECTION_GAP = Theme.SECTION_GAP
 local PAD = Theme.TAB_CONTENT_PADDING
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
+local GRID_SPLIT_FRACTION = 0.6
 
 local HEADER_HEIGHT = 32
 local RECIPE_TITLE_HEIGHT = 32
@@ -30,12 +33,26 @@ local MAIN_ROW_HEIGHT = 20
 local CHAR_ROW_HEIGHT = 18
 local GROUP_GAP = 4
 local CHAR_INDENT = 12
+local LIST_COL_HEADER_HEIGHT = 18
 local GRAY = "|cff808080"
 -- Second column (group character count, character professions) shares one left edge.
 local SECOND_COLUMN = 180
 local NAME_COLUMN_GAP = 8
+-- Third column on main rows: most recent last-online across the group's characters.
+local LAST_ONLINE_COLUMN_WIDTH = 72
+local OLD_DATA_ICON_WIDTH = 14
+local SETTINGS_ICON_WIDTH = 18
+local PIN_ICON_SIZE = 14
+local PIN_ICON_GAP = 2
+local MAIN_STAR_ICON_SIZE = 12
+local MAIN_STAR_ICON_GAP = 2
+local RIGHT_ICON_GAP = 2
+-- Right edge reserves space for the settings gear only (old-data warning lives on the left).
+local RIGHT_TRAILING_RESERVE = SETTINGS_ICON_WIDTH + RIGHT_ICON_GAP + 4
+local LEFT_ICON_PAD = 4
 local TABARD_SIZE = 24
 local SEARCH_PLACEHOLDER = "Search for characters or professions"
+local MAIN_STAR_TEXTURE = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_1"
 
 local function currentGuild()
     if GetGuildInfo then
@@ -64,8 +81,22 @@ local selectedCharacterKey = nil
 local selectedProfIndex = 1
 local recipeSortKey = "recipe"
 local recipeSortAscending = true
+-- Guild list column sort (session-only).
+local listSortKey = "name"
+local listSortAscending = true
 -- When the current character is not guilded, browse a guild from account alts.
 local selectedBrowseGuild = nil
+-- Group settings side panel (session-only).
+local selectedSettingsGroup = nil
+local deleteConfirmPending = false
+local openGroupSettings
+local closeGroupSettings
+local updateGroupSettingsPanel
+local ApplyGroupSettingsPanelLayout
+local isGroupSettingsShown
+local updateGuildHeaderForListMode
+local applyListColumnLayout
+local syncMainRowSettingsIcons
 
 local function activeGuild()
     local g = currentGuild()
@@ -167,12 +198,294 @@ local function applySearchExpansion(groups)
     end
 end
 
+local function groupPrefsRealm(group)
+    for _, m in ipairs((group and group.members) or {}) do
+        if m.realm and m.realm ~= "" then
+            return m.realm
+        end
+    end
+    if group and group.prefsRealm and group.prefsRealm ~= "" then
+        return group.prefsRealm
+    end
+    local GSS = AltArmy.GuildShareSettings
+    return (GSS and GSS._CurrentRealm and GSS._CurrentRealm())
+        or (GetRealmName and GetRealmName())
+        or ""
+end
+
+local function applyGroupUiPrefs(groups)
+    local GSS = AltArmy.GuildShareSettings
+    if not GSS then return end
+    for _, g in ipairs(groups or {}) do
+        local realm = groupPrefsRealm(g)
+        g.prefsRealm = realm
+        g.overrideName = (GSS.GetGroupOverrideName and GSS.GetGroupOverrideName(g.main, realm)) or nil
+        g.pinned = (GSS.IsGroupPinned and GSS.IsGroupPinned(g.main, realm)) and true or false
+    end
+end
+
 -- *** Layout: panel + message state ***
 
 local panel = Theme.CreateTabContentPanel(frame)
 panel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
 panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 local inner = Theme.CreatePanelInnerContent(panel)
+
+-- Group settings side panel (60% list / 40% settings when open).
+local groupSettingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+Theme.ApplyBackdrop(groupSettingsPanel, "section")
+ApplyGroupSettingsPanelLayout = function()
+    local w = frame:GetWidth()
+    if w <= 0 then return end
+    groupSettingsPanel:ClearAllPoints()
+    groupSettingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", w * GRID_SPLIT_FRACTION + SECTION_GAP, -SECTION_INSET)
+    groupSettingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", w * GRID_SPLIT_FRACTION + SECTION_GAP, SECTION_INSET)
+    groupSettingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SECTION_INSET, -SECTION_INSET)
+    groupSettingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+end
+ApplyGroupSettingsPanelLayout()
+groupSettingsPanel:Hide()
+
+local groupSettingsContent = Theme.CreateSettingsPanelContent(groupSettingsPanel)
+local groupSettingsTitle = groupSettingsContent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+groupSettingsTitle:SetPoint("TOPLEFT", groupSettingsContent, "TOPLEFT", 0, 0)
+groupSettingsTitle:SetPoint("TOPRIGHT", groupSettingsContent, "TOPRIGHT", 0, 0)
+groupSettingsTitle:SetJustifyH("LEFT")
+groupSettingsTitle:SetText("Settings")
+Theme.SetTitleColor(groupSettingsTitle)
+
+local function formatGroupSettingsTitle(group)
+    local displayName = GTD.ResolveGroupDisplayName(group)
+    local coloredName = formatName(displayName, group and group.classFile)
+    local suffix = " settings"
+    local t = Theme.COLORS and Theme.COLORS.title
+    if t and CC and CC.formatHex then
+        suffix = CC.formatHex(t[1], t[2], t[3], suffix)
+    end
+    return coloredName .. suffix
+end
+
+local function setGroupSettingsTitle(group)
+    if not group then
+        groupSettingsTitle:SetText("Settings")
+        Theme.SetTitleColor(groupSettingsTitle)
+        return
+    end
+    groupSettingsTitle:SetText(formatGroupSettingsTitle(group))
+    -- White base so embedded class/title color codes render as authored.
+    groupSettingsTitle:SetTextColor(1, 1, 1, 1)
+end
+
+local groupSettingsBody = CreateFrame("Frame", nil, groupSettingsContent)
+groupSettingsBody:SetPoint("TOPLEFT", groupSettingsTitle, "BOTTOMLEFT", 0, -8)
+groupSettingsBody:SetPoint("BOTTOMRIGHT", groupSettingsContent, "BOTTOMRIGHT", 0, 0)
+
+local groupPinRow = Theme.CreateLabeledCheckbox(groupSettingsBody, {
+    point = "TOPLEFT",
+    x = 0,
+    y = 0,
+    text = "Pin",
+    fullWidthHover = true,
+    onClick = function(checked)
+        if not selectedSettingsGroup then return end
+        local GSS = AltArmy.GuildShareSettings
+        local realm = groupPrefsRealm(selectedSettingsGroup)
+        if GSS and GSS.SetGroupPinned then
+            GSS.SetGroupPinned(selectedSettingsGroup.main, realm, checked)
+        end
+        selectedSettingsGroup.pinned = checked and true or false
+        if refresh then refresh() end
+    end,
+})
+
+local overrideLabel = Theme.CreateOptionsSectionLabel(groupSettingsBody, {
+    point = "TOPLEFT",
+    relativeTo = groupPinRow,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -14,
+    text = "Override name in my UI",
+})
+
+local overrideResetBtn = CreateFrame("Button", nil, groupSettingsBody, "UIPanelButtonTemplate")
+overrideResetBtn:SetSize(56, 22)
+overrideResetBtn:SetPoint("TOP", overrideLabel, "BOTTOM", 0, -4)
+overrideResetBtn:SetPoint("RIGHT", groupSettingsBody, "RIGHT", 0, 0)
+overrideResetBtn:SetText("Reset")
+Theme.SkinButton(overrideResetBtn)
+
+local overrideEdit = CreateFrame("EditBox", nil, groupSettingsBody)
+overrideEdit:SetPoint("TOPLEFT", overrideLabel, "BOTTOMLEFT", 0, -4)
+overrideEdit:SetPoint("RIGHT", overrideResetBtn, "LEFT", -6, 0)
+overrideEdit:SetHeight(22)
+overrideEdit:SetFontObject("GameFontHighlight")
+overrideEdit:SetAutoFocus(false)
+overrideEdit:SetTextInsets(6, 6, 0, 0)
+local overrideMaxLen = AltArmy.GuildShareSettings and AltArmy.GuildShareSettings.DISPLAY_NAME_MAX_LENGTH
+if overrideEdit.SetMaxLetters and overrideMaxLen then
+    overrideEdit:SetMaxLetters(overrideMaxLen)
+end
+Theme.ApplyInputTextures(overrideEdit)
+overrideEdit:SetScript("OnEnterPressed", function(box) box:ClearFocus() end)
+overrideEdit:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
+local function applyOverrideFromEdit(box)
+    if not selectedSettingsGroup then return end
+    local GSS = AltArmy.GuildShareSettings
+    local realm = groupPrefsRealm(selectedSettingsGroup)
+    local text = box:GetText() or ""
+    if GSS and GSS.SetGroupOverrideName then
+        GSS.SetGroupOverrideName(selectedSettingsGroup.main, realm, text)
+    end
+    local newOverride = (GSS and GSS.GetGroupOverrideName
+        and GSS.GetGroupOverrideName(selectedSettingsGroup.main, realm)) or nil
+    if newOverride == selectedSettingsGroup.overrideName then
+        return
+    end
+    selectedSettingsGroup.overrideName = newOverride
+    setGroupSettingsTitle(selectedSettingsGroup)
+    if refresh then refresh() end
+end
+overrideEdit:SetScript("OnTextChanged", function(box)
+    applyOverrideFromEdit(box)
+end)
+overrideEdit:SetScript("OnEditFocusLost", function(box)
+    applyOverrideFromEdit(box)
+end)
+overrideResetBtn:SetScript("OnClick", function()
+    if Theme.ClearEditBoxText then
+        Theme.ClearEditBoxText(overrideEdit)
+    else
+        overrideEdit:SetText("")
+        if overrideEdit.ClearFocus then
+            overrideEdit:ClearFocus()
+        end
+    end
+    applyOverrideFromEdit(overrideEdit)
+end)
+
+local groupDeleteBtn = CreateFrame("Button", nil, groupSettingsBody, "UIPanelButtonTemplate")
+groupDeleteBtn:SetHeight(22)
+groupDeleteBtn:SetPoint("BOTTOMLEFT", groupSettingsBody, "BOTTOMLEFT", 0, 0)
+groupDeleteBtn:SetPoint("BOTTOMRIGHT", groupSettingsBody, "BOTTOMRIGHT", 0, 0)
+groupDeleteBtn:SetText("Delete")
+Theme.SkinDangerButton(groupDeleteBtn)
+groupDeleteBtn:SetScript("OnClick", function(self)
+    if not selectedSettingsGroup then return end
+    if deleteConfirmPending then
+        deleteConfirmPending = false
+        local main = selectedSettingsGroup.main
+        local realm = groupPrefsRealm(selectedSettingsGroup)
+        local GSD = AltArmy.GuildShareData
+        local GSS = AltArmy.GuildShareSettings
+        if GSD and GSD.RemoveGroup then
+            GSD.RemoveGroup(main, realm)
+        end
+        if GSS and GSS.ClearGroupUiPrefs then
+            GSS.ClearGroupUiPrefs(main, realm)
+        end
+        closeGroupSettings()
+        local Comm = AltArmy.GuildShareComm
+        if Comm and Comm.NotifyDataChanged then
+            Comm.NotifyDataChanged()
+        elseif refresh then
+            refresh()
+        end
+    else
+        deleteConfirmPending = true
+        self:SetText("Really delete?")
+    end
+end)
+
+isGroupSettingsShown = function()
+    return groupSettingsPanel:IsShown()
+end
+
+local function applyMainPanelLayout()
+    panel:ClearAllPoints()
+    panel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+    if isGroupSettingsShown() then
+        panel:SetPoint("BOTTOMRIGHT", groupSettingsPanel, "BOTTOMLEFT", -SECTION_GAP, 0)
+    else
+        panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+    end
+end
+
+closeGroupSettings = function()
+    selectedSettingsGroup = nil
+    deleteConfirmPending = false
+    groupDeleteBtn:SetText("Delete")
+    groupSettingsPanel:Hide()
+    applyMainPanelLayout()
+    if updateGuildHeaderForListMode then
+        updateGuildHeaderForListMode()
+    end
+    if applyListColumnLayout then
+        applyListColumnLayout()
+    end
+    if syncMainRowSettingsIcons then
+        syncMainRowSettingsIcons()
+    end
+end
+
+updateGroupSettingsPanel = function()
+    if not selectedSettingsGroup then return end
+    setGroupSettingsTitle(selectedSettingsGroup)
+    if groupPinRow.check then
+        groupPinRow.check:SetChecked(selectedSettingsGroup.pinned and true or false)
+    end
+    local override = selectedSettingsGroup.overrideName or ""
+    if overrideEdit:GetText() ~= override then
+        if Theme.SetEditBoxText then
+            Theme.SetEditBoxText(overrideEdit, override)
+        else
+            overrideEdit:SetText(override)
+        end
+    end
+    local GSS = AltArmy.GuildShareSettings
+    local ownMain = GSS and GSS.GetMain and GSS.GetMain(groupPrefsRealm(selectedSettingsGroup)) or nil
+    local isOwn = GTD.IsOwnGroup and GTD.IsOwnGroup(selectedSettingsGroup, ownMain)
+    if isOwn then
+        groupDeleteBtn:Hide()
+        deleteConfirmPending = false
+        groupDeleteBtn:SetText("Delete")
+    else
+        groupDeleteBtn:Show()
+        if not deleteConfirmPending then
+            groupDeleteBtn:SetText("Delete")
+        end
+    end
+end
+
+openGroupSettings = function(group)
+    if not group then return end
+    if selectedSettingsGroup and selectedSettingsGroup.main == group.main and isGroupSettingsShown() then
+        closeGroupSettings()
+        return
+    end
+    selectedSettingsGroup = group
+    deleteConfirmPending = false
+    groupDeleteBtn:SetText("Delete")
+    ApplyGroupSettingsPanelLayout()
+    groupSettingsPanel:Show()
+    applyMainPanelLayout()
+    updateGroupSettingsPanel()
+    if updateGuildHeaderForListMode then
+        updateGuildHeaderForListMode()
+    end
+    if applyListColumnLayout then
+        applyListColumnLayout()
+    end
+    if syncMainRowSettingsIcons then
+        syncMainRowSettingsIcons()
+    end
+end
+
+frame:HookScript("OnSizeChanged", function()
+    if isGroupSettingsShown() then
+        ApplyGroupSettingsPanelLayout()
+        applyMainPanelLayout()
+    end
+end)
 
 -- Disabled / no-guild message state
 local messageView = CreateFrame("Frame", nil, inner)
@@ -438,7 +751,7 @@ local function layoutRecipeRowColumns(row, showSkillCol)
     end
 end
 
-local function updateGuildHeaderForListMode()
+updateGuildHeaderForListMode = function()
     if shouldShowGuildPicker() then
         guildBackBtn:Hide()
         guildNameText:ClearAllPoints()
@@ -458,8 +771,14 @@ local function updateGuildHeaderForListMode()
         guildNameText:SetText(selectedBrowseGuild or "")
         Theme.SetTitleColor(guildNameText)
         guildNameText:Show()
-        searchEdit:Show()
-        updateSearchClearVisibility()
+        if isGroupSettingsShown and isGroupSettingsShown() then
+            searchEdit:Hide()
+            searchClearBtn:Hide()
+            if searchEdit.ClearFocus then searchEdit:ClearFocus() end
+        else
+            searchEdit:Show()
+            updateSearchClearVisibility()
+        end
         tabardFrame:Hide()
         return
     end
@@ -469,8 +788,14 @@ local function updateGuildHeaderForListMode()
     guildNameText:SetText(activeGuild() or "")
     Theme.SetTitleColor(guildNameText)
     guildNameText:Show()
-    searchEdit:Show()
-    updateSearchClearVisibility()
+    if isGroupSettingsShown and isGroupSettingsShown() then
+        searchEdit:Hide()
+        searchClearBtn:Hide()
+        if searchEdit.ClearFocus then searchEdit:ClearFocus() end
+    else
+        searchEdit:Show()
+        updateSearchClearVisibility()
+    end
     updateTabard()
 end
 
@@ -494,10 +819,85 @@ local function setListHeaderVisible(visible)
     profTabStrip:SetShown(not visible)
 end
 
--- Scroll body below the header
+-- Scroll body below the guild header and fixed column headers.
+local listColHeader = CreateFrame("Frame", nil, listView)
+listColHeader:SetHeight(LIST_COL_HEADER_HEIGHT)
+listColHeader:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
+listColHeader:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", -SCROLL_GUTTER, -PAD)
+listColHeader:Hide()
+
+local LIST_HEADER_LABEL = {
+    name = "Name",
+    characterCount = "Character Count",
+    online = "Online",
+}
+local listHeaderButtons = {}
+
+local function updateListHeaderSortIndicators()
+    for key, btn in pairs(listHeaderButtons) do
+        if btn.label then
+            local base = LIST_HEADER_LABEL[key] or key
+            btn.label:SetText(Theme.FormatSortHeaderLabel(base, key == listSortKey, listSortAscending))
+        end
+    end
+end
+
+local function createListHeaderButton(sortKey, justifyH, anchorFn)
+    local btn = CreateFrame("Button", nil, listColHeader)
+    btn:SetHeight(LIST_COL_HEADER_HEIGHT)
+    btn:EnableMouse(true)
+    btn:RegisterForClicks("LeftButtonUp")
+    anchorFn(btn)
+    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    label:SetPoint("LEFT", btn, "LEFT", 0, 0)
+    label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
+    label:SetHeight(LIST_COL_HEADER_HEIGHT)
+    label:SetJustifyH(justifyH or "LEFT")
+    label:SetWordWrap(false)
+    btn.label = label
+    Theme.BindInteractableHover(btn)
+    local sortKeyForClick = sortKey
+    btn:SetScript("OnClick", function()
+        if listSortKey == sortKeyForClick then
+            listSortAscending = not listSortAscending
+        else
+            listSortKey = sortKeyForClick
+            -- Character count: first click highest→lowest; other columns: A→Z / least→most.
+            listSortAscending = sortKeyForClick ~= "characterCount"
+        end
+        updateListHeaderSortIndicators()
+        refresh()
+    end)
+    listHeaderButtons[sortKey] = btn
+    return btn
+end
+
+createListHeaderButton("online", "RIGHT", function(btn)
+    btn:SetPoint("RIGHT", listColHeader, "RIGHT", -RIGHT_TRAILING_RESERVE, 0)
+    btn:SetWidth(LAST_ONLINE_COLUMN_WIDTH)
+end)
+createListHeaderButton("name", "LEFT", function(btn)
+    btn:SetPoint("LEFT", listColHeader, "LEFT", 4, 0)
+    btn:SetPoint("RIGHT", listColHeader, "LEFT", SECOND_COLUMN - NAME_COLUMN_GAP, 0)
+end)
+createListHeaderButton("characterCount", "LEFT", function(btn)
+    btn:SetPoint("LEFT", listColHeader, "LEFT", SECOND_COLUMN, 0)
+    btn:SetPoint("RIGHT", listHeaderButtons.online, "LEFT", -NAME_COLUMN_GAP, 0)
+end)
+updateListHeaderSortIndicators()
+
 local listViewport = CreateFrame("Frame", nil, listView)
-listViewport:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
-listViewport:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, PAD)
+local function anchorListViewportBelowColHeader()
+    listViewport:ClearAllPoints()
+    listViewport:SetPoint("TOPLEFT", listColHeader, "BOTTOMLEFT", 0, -2)
+    listViewport:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, PAD)
+end
+local function anchorListViewportBelowGuildHeader()
+    listViewport:ClearAllPoints()
+    listViewport:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
+    listViewport:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, PAD)
+end
+anchorListViewportBelowColHeader()
 
 local viewport = Theme.CreateVerticalScrollViewport({
     parent = listViewport,
@@ -643,6 +1043,198 @@ local recipeRowPool = {}
 
 local mainRowPool = {}
 local charRowPool = {}
+-- Repositioning frames during layout fires OnLeave; ignore those and resync after layout.
+local suppressMainRowHoverEvents = false
+
+local function isMainRowSettingsActive(row)
+    return selectedSettingsGroup
+        and isGroupSettingsShown
+        and isGroupSettingsShown()
+        and row
+        and row.settingsGroup
+        and selectedSettingsGroup.main == row.settingsGroup.main
+end
+
+local function mainRowIsUnderMouse(row)
+    if not row or not row:IsShown() then
+        return false
+    end
+    if MouseIsOver then
+        return MouseIsOver(row) and true or false
+    end
+    local focus = GetMouseFocus and GetMouseFocus()
+    return focus == row or (row.settingsBtn and focus == row.settingsBtn) or false
+end
+
+local function syncMainRowHoverFromMouse()
+    local hoveredRow = nil
+    for i = 1, #mainRowPool do
+        local row = mainRowPool[i]
+        if mainRowIsUnderMouse(row) then
+            hoveredRow = row
+            break
+        end
+    end
+    for i = 1, #mainRowPool do
+        local row = mainRowPool[i]
+        if not row then
+            -- skip
+        elseif row == hoveredRow then
+            local focus = GetMouseFocus and GetMouseFocus()
+            row.settingsBtnHovered = (row.settingsBtn and focus == row.settingsBtn) and true or false
+            if row.setMainRowHover then
+                row.setMainRowHover(true)
+            end
+        elseif row.clearMainRowHoverState then
+            row.clearMainRowHoverState()
+        end
+    end
+end
+
+syncMainRowSettingsIcons = function()
+    for i = 1, #mainRowPool do
+        local row = mainRowPool[i]
+        if row and row.updateSettingsBtnVisibility then
+            row.updateSettingsBtnVisibility()
+        elseif row and row.settingsBtn then
+            local active = isMainRowSettingsActive(row)
+            Theme.SetSettingsButtonGlow(row.settingsBtn, active, "glow")
+            Theme.SetSettingsButtonGlow(row.settingsBtn, false, "hoverGlow")
+            if active or row.rowHovered or row.settingsBtnHovered then
+                row.settingsBtn:Show()
+            else
+                row.settingsBtn:Hide()
+            end
+        end
+    end
+end
+
+applyListColumnLayout = function()
+    local showOnline = not (isGroupSettingsShown and isGroupSettingsShown())
+    local onlineBtn = listHeaderButtons.online
+    local countBtn = listHeaderButtons.characterCount
+    if onlineBtn then
+        onlineBtn:SetShown(showOnline)
+    end
+    if countBtn then
+        countBtn:ClearAllPoints()
+        countBtn:SetPoint("LEFT", listColHeader, "LEFT", SECOND_COLUMN, 0)
+        if showOnline and onlineBtn then
+            countBtn:SetPoint("RIGHT", onlineBtn, "LEFT", -NAME_COLUMN_GAP, 0)
+        else
+            countBtn:SetPoint("RIGHT", listColHeader, "RIGHT", -RIGHT_TRAILING_RESERVE, 0)
+        end
+    end
+    for i = 1, #mainRowPool do
+        local row = mainRowPool[i]
+        if row and row.countFS then
+            if row.lastOnlineFS then
+                row.lastOnlineFS:SetShown(showOnline)
+            end
+            row.countFS:ClearAllPoints()
+            row.countFS:SetPoint("LEFT", row, "LEFT", SECOND_COLUMN, 0)
+            if showOnline and row.lastOnlineFS then
+                row.countFS:SetPoint("RIGHT", row.lastOnlineFS, "LEFT", -NAME_COLUMN_GAP, 0)
+            elseif row.settingsBtn then
+                row.countFS:SetPoint("RIGHT", row.settingsBtn, "LEFT", -NAME_COLUMN_GAP, 0)
+            else
+                row.countFS:SetPoint("RIGHT", row, "RIGHT", -RIGHT_TRAILING_RESERVE, 0)
+            end
+        end
+    end
+    for i = 1, #charRowPool do
+        local row = charRowPool[i]
+        if row and row.profFS then
+            if row.lastOnlineFS then
+                row.lastOnlineFS:SetShown(showOnline)
+            end
+            row.profFS:ClearAllPoints()
+            row.profFS:SetPoint("LEFT", row, "LEFT", SECOND_COLUMN, 0)
+            if showOnline and row.lastOnlineFS then
+                row.profFS:SetPoint("RIGHT", row.lastOnlineFS, "LEFT", -NAME_COLUMN_GAP, 0)
+            else
+                row.profFS:SetPoint("RIGHT", row, "RIGHT", -RIGHT_TRAILING_RESERVE, 0)
+            end
+        end
+    end
+end
+
+-- Left chain: [!] [pin] name. Warning/pin only consume space when visible.
+local function layoutMainRowLeftIcons(row, showOld, pinned)
+    local leftAnchor = row
+    local leftPoint = "LEFT"
+    local leftX = LEFT_ICON_PAD
+
+    if row.oldDataIcon then
+        row.oldDataIcon.showOldDataTooltip = showOld and true or false
+        if showOld then
+            row.oldDataIcon:ClearAllPoints()
+            row.oldDataIcon:SetPoint("LEFT", row, "LEFT", LEFT_ICON_PAD, 0)
+            row.oldDataIcon:EnableMouse(true)
+            row.oldDataIcon:Show()
+            if row.oldDataIcon.mark then
+                row.oldDataIcon.mark:Show()
+            end
+            leftAnchor = row.oldDataIcon
+            leftPoint = "RIGHT"
+            leftX = PIN_ICON_GAP
+        else
+            row.oldDataIcon:EnableMouse(false)
+            row.oldDataIcon:Hide()
+            if row.oldDataIcon.mark then
+                row.oldDataIcon.mark:Hide()
+            end
+        end
+    end
+
+    if row.pinIcon then
+        if pinned then
+            row.pinIcon:ClearAllPoints()
+            row.pinIcon:SetPoint("LEFT", leftAnchor, leftPoint, leftX, 0)
+            row.pinIcon:Show()
+            leftAnchor = row.pinIcon
+            leftPoint = "RIGHT"
+            leftX = PIN_ICON_GAP
+        else
+            row.pinIcon:Hide()
+        end
+    end
+
+    if row.nameFS then
+        row.nameFS:ClearAllPoints()
+        row.nameFS:SetPoint("LEFT", leftAnchor, leftPoint, leftX, 0)
+        row.nameFS:SetPoint("RIGHT", row, "LEFT", SECOND_COLUMN - NAME_COLUMN_GAP, 0)
+    end
+end
+
+-- Left chain for character rows: [star?] name. Star only when the main was explicitly set.
+local function layoutCharRowLeftIcons(row, showMainStar)
+    local leftAnchor = row
+    local leftPoint = "LEFT"
+    local leftX = CHAR_INDENT
+
+    if row.mainStarIcon then
+        row.mainStarIcon.showMainStarTooltip = showMainStar and true or false
+        if showMainStar then
+            row.mainStarIcon:ClearAllPoints()
+            row.mainStarIcon:SetPoint("LEFT", row, "LEFT", CHAR_INDENT, 0)
+            row.mainStarIcon:EnableMouse(true)
+            row.mainStarIcon:Show()
+            leftAnchor = row.mainStarIcon
+            leftPoint = "RIGHT"
+            leftX = MAIN_STAR_ICON_GAP
+        else
+            row.mainStarIcon:EnableMouse(false)
+            row.mainStarIcon:Hide()
+        end
+    end
+
+    if row.nameFS then
+        row.nameFS:ClearAllPoints()
+        row.nameFS:SetPoint("LEFT", leftAnchor, leftPoint, leftX, 0)
+        row.nameFS:SetPoint("RIGHT", row, "LEFT", SECOND_COLUMN - NAME_COLUMN_GAP, 0)
+    end
+end
 
 local function acquireMainRow(index)
     local row = mainRowPool[index]
@@ -650,19 +1242,163 @@ local function acquireMainRow(index)
         row = CreateFrame("Button", nil, scrollChild)
         row:SetHeight(MAIN_ROW_HEIGHT)
         Theme.InstallHoverTint(row)
+        -- Keep hover tint off the settings icon so it does not brighten on row hover.
+        if row.altArmyHoverTint then
+            local tint = row.altArmyHoverTint
+            tint:ClearAllPoints()
+            tint:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+            tint:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+            tint:SetPoint("RIGHT", row, "RIGHT", -RIGHT_TRAILING_RESERVE, 0)
+        end
         row:EnableMouseWheel(true)
         row:SetScript("OnMouseWheel", forwardWheel)
-        row:SetScript("OnEnter", function() Theme.SetHoverTint(row, true) end)
-        row:SetScript("OnLeave", function() Theme.SetHoverTint(row, false) end)
+
+        local function updateSettingsBtnVisibility()
+            if not row.settingsBtn then return end
+            local active = isMainRowSettingsActive(row)
+            Theme.SetSettingsButtonGlow(row.settingsBtn, active, "glow")
+            if not active then
+                Theme.SetSettingsButtonGlow(row.settingsBtn, row.settingsBtnHovered and true or false, "hoverGlow")
+            else
+                Theme.SetSettingsButtonGlow(row.settingsBtn, false, "hoverGlow")
+            end
+            if active or row.rowHovered or row.settingsBtnHovered then
+                row.settingsBtn:Show()
+            else
+                row.settingsBtn:Hide()
+            end
+        end
+        row.updateSettingsBtnVisibility = updateSettingsBtnVisibility
+
+        local function clearMainRowHoverState()
+            row.rowHovered = false
+            row.settingsBtnHovered = false
+            Theme.SetHoverTint(row, false)
+            updateSettingsBtnVisibility()
+        end
+
+        local function setMainRowHover(on)
+            Theme.SetHoverTint(row, on)
+            row.rowHovered = on and true or false
+            if not on then
+                row.settingsBtnHovered = false
+            end
+            updateSettingsBtnVisibility()
+        end
+        row.setMainRowHover = setMainRowHover
+        row.clearMainRowHoverState = clearMainRowHoverState
+
+        row:SetScript("OnEnter", function()
+            -- Moving between rows can skip OnLeave on the previous row; clear others.
+            for i = 1, #mainRowPool do
+                local other = mainRowPool[i]
+                if other and other ~= row and other.clearMainRowHoverState then
+                    other.clearMainRowHoverState()
+                end
+            end
+            setMainRowHover(true)
+        end)
+        row:SetScript("OnLeave", function()
+            if suppressMainRowHoverEvents then
+                return
+            end
+            -- Entering the settings child fires row OnLeave first; ignore that transition.
+            if GetMouseFocus and GetMouseFocus() == row.settingsBtn then
+                return
+            end
+            setMainRowHover(false)
+        end)
+
+        -- Far-left stale warning; only participates in layout when shown (see layoutMainRowLeftIcons).
+        local oldDataIcon = CreateFrame("Frame", nil, row)
+        oldDataIcon:SetSize(OLD_DATA_ICON_WIDTH, MAIN_ROW_HEIGHT)
+        oldDataIcon:EnableMouse(false)
+        oldDataIcon:Hide()
+        local mark = oldDataIcon:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        mark:SetText("!")
+        mark:SetPoint("CENTER", oldDataIcon, "CENTER", 0, 0)
+        mark:SetTextColor(1, 0.82, 0, 1)
+        oldDataIcon.mark = mark
+        oldDataIcon:SetScript("OnEnter", function(self)
+            setMainRowHover(true)
+            if not self.showOldDataTooltip or not GameTooltip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine("Shared data is outdated", 1, 1, 1)
+            GameTooltip:AddLine(GTD.GetOldDataTooltipText(), 1, 0.82, 0, true)
+            GameTooltip:Show()
+        end)
+        oldDataIcon:SetScript("OnLeave", function()
+            if suppressMainRowHoverEvents then
+                return
+            end
+            if GetMouseFocus and GetMouseFocus() == row.settingsBtn then
+                return
+            end
+            setMainRowHover(false)
+            if GameTooltip then GameTooltip:Hide() end
+        end)
+        row.oldDataIcon = oldDataIcon
+
+        local settingsBtn = CreateFrame("Button", nil, row)
+        settingsBtn:SetSize(SETTINGS_ICON_WIDTH, SETTINGS_ICON_WIDTH)
+        settingsBtn:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        settingsBtn:RegisterForClicks("LeftButtonUp")
+        local settingsIcon = settingsBtn:CreateTexture(nil, "ARTWORK")
+        settingsIcon:SetAllPoints(settingsBtn)
+        settingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
+        settingsBtn.icon = settingsIcon
+        Theme.SkinSettingsIconButton(settingsBtn)
+        Theme.InstallSettingsButtonGlow(settingsBtn, "glow")
+        settingsBtn:Hide()
+        settingsBtn:SetScript("OnEnter", function()
+            row.settingsBtnHovered = true
+            Theme.SetHoverTint(row, true)
+            updateSettingsBtnVisibility()
+        end)
+        settingsBtn:SetScript("OnLeave", function()
+            if suppressMainRowHoverEvents then
+                return
+            end
+            row.settingsBtnHovered = false
+            local focus = GetMouseFocus and GetMouseFocus()
+            if focus == row then
+                row.rowHovered = true
+                Theme.SetHoverTint(row, true)
+            else
+                row.rowHovered = false
+                Theme.SetHoverTint(row, false)
+            end
+            updateSettingsBtnVisibility()
+        end)
+        settingsBtn:SetScript("OnClick", function()
+            if row.settingsGroup then
+                openGroupSettings(row.settingsGroup)
+            end
+        end)
+        row.settingsBtn = settingsBtn
+
+        local pinIcon = row:CreateTexture(nil, "ARTWORK")
+        pinIcon:SetSize(PIN_ICON_SIZE, PIN_ICON_SIZE)
+        pinIcon:SetTexture("Interface\\AddOns\\AltArmy_TBC\\Media\\PushPin")
+        pinIcon:Hide()
+        row.pinIcon = pinIcon
+
         local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        nameFS:SetPoint("LEFT", row, "LEFT", 4, 0)
+        nameFS:SetPoint("LEFT", row, "LEFT", LEFT_ICON_PAD, 0)
         nameFS:SetPoint("RIGHT", row, "LEFT", SECOND_COLUMN - NAME_COLUMN_GAP, 0)
         nameFS:SetJustifyH("LEFT")
         nameFS:SetWordWrap(false)
         row.nameFS = nameFS
+        local lastOnlineFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        lastOnlineFS:SetPoint("RIGHT", settingsBtn, "LEFT", -2, 0)
+        lastOnlineFS:SetWidth(LAST_ONLINE_COLUMN_WIDTH)
+        lastOnlineFS:SetJustifyH("RIGHT")
+        lastOnlineFS:SetWordWrap(false)
+        row.lastOnlineFS = lastOnlineFS
         local countFS = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         countFS:SetPoint("LEFT", row, "LEFT", SECOND_COLUMN, 0)
-        countFS:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        countFS:SetPoint("RIGHT", lastOnlineFS, "LEFT", -NAME_COLUMN_GAP, 0)
         countFS:SetJustifyH("LEFT")
         countFS:SetWordWrap(false)
         row.countFS = countFS
@@ -682,15 +1418,45 @@ local function acquireCharRow(index)
         row:SetScript("OnMouseWheel", forwardWheel)
         row:SetScript("OnEnter", function() Theme.SetHoverTint(row, true) end)
         row:SetScript("OnLeave", function() Theme.SetHoverTint(row, false) end)
+
+        local mainStarIcon = CreateFrame("Frame", nil, row)
+        mainStarIcon:SetSize(MAIN_STAR_ICON_SIZE, CHAR_ROW_HEIGHT)
+        mainStarIcon:EnableMouse(false)
+        mainStarIcon:Hide()
+        local starTex = mainStarIcon:CreateTexture(nil, "ARTWORK")
+        starTex:SetSize(MAIN_STAR_ICON_SIZE, MAIN_STAR_ICON_SIZE)
+        starTex:SetPoint("CENTER", mainStarIcon, "CENTER", 0, 0)
+        starTex:SetTexture(MAIN_STAR_TEXTURE)
+        mainStarIcon.tex = starTex
+        mainStarIcon:SetScript("OnEnter", function(self)
+            Theme.SetHoverTint(row, true)
+            if not self.showMainStarTooltip or not GameTooltip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine(GTD.FormatMainStarTooltip(), 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        mainStarIcon:SetScript("OnLeave", function()
+            Theme.SetHoverTint(row, false)
+            if GameTooltip then GameTooltip:Hide() end
+        end)
+        row.mainStarIcon = mainStarIcon
+
         local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         nameFS:SetPoint("LEFT", row, "LEFT", CHAR_INDENT, 0)
         nameFS:SetPoint("RIGHT", row, "LEFT", SECOND_COLUMN - NAME_COLUMN_GAP, 0)
         nameFS:SetJustifyH("LEFT")
         nameFS:SetWordWrap(false)
         row.nameFS = nameFS
+        local lastOnlineFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        lastOnlineFS:SetPoint("RIGHT", row, "RIGHT", -RIGHT_TRAILING_RESERVE, 0)
+        lastOnlineFS:SetWidth(LAST_ONLINE_COLUMN_WIDTH)
+        lastOnlineFS:SetJustifyH("RIGHT")
+        lastOnlineFS:SetWordWrap(false)
+        row.lastOnlineFS = lastOnlineFS
         local profFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         profFS:SetPoint("LEFT", row, "LEFT", SECOND_COLUMN, 0)
-        profFS:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        profFS:SetPoint("RIGHT", lastOnlineFS, "LEFT", -NAME_COLUMN_GAP, 0)
         profFS:SetJustifyH("LEFT")
         profFS:SetWordWrap(false)
         row.profFS = profFS
@@ -702,7 +1468,13 @@ end
 
 local function hideMainRowsFrom(index)
     for i = index, #mainRowPool do
-        if mainRowPool[i] then mainRowPool[i]:Hide() end
+        local row = mainRowPool[i]
+        if row then
+            if row.clearMainRowHoverState then
+                row.clearMainRowHoverState()
+            end
+            row:Hide()
+        end
     end
 end
 
@@ -744,6 +1516,8 @@ end
 local function layoutGuildPicker(guilds)
     hideMainRowsFrom(1)
     hideCharRowsFrom(1)
+    listColHeader:Hide()
+    anchorListViewportBelowGuildHeader()
     emptyText:Hide()
     local y = 0
     local width = math.max(1, (scrollChild:GetWidth() or listViewport:GetWidth() or 1))
@@ -979,6 +1753,8 @@ showGuildList = function()
     clearRecipeSearch()
     header:SetHeight(HEADER_HEIGHT)
     setListHeaderVisible(true)
+    listColHeader:Show()
+    anchorListViewportBelowColHeader()
     listViewport:Show()
     recipeBody:Hide()
     profTabStrip:Hide()
@@ -987,12 +1763,14 @@ showGuildList = function()
 end
 
 showRecipeView = function(entry)
+    closeGroupSettings()
     selectedCharacter = entry
     selectedCharacterKey = memberKey(entry)
     selectedProfIndex = 1
     recipeSortKey, recipeSortAscending = GTD.GetDefaultRecipeSort(isCraftLibAvailable())
     clearRecipeSearch()
     setListHeaderVisible(false)
+    listColHeader:Hide()
     listViewport:Hide()
     emptyText:Hide()
     recipeBody:Show()
@@ -1020,6 +1798,7 @@ end)
 -- *** Refresh ***
 
 local function showMessage(text, withButton)
+    closeGroupSettings()
     selectedCharacter = nil
     selectedCharacterKey = nil
     selectedBrowseGuild = nil
@@ -1029,13 +1808,24 @@ local function showMessage(text, withButton)
     optionsBtn:SetShown(withButton and true or false)
 end
 
-local function layoutList(groups, query)
+local function ensureGuildRosterIncludesOffline()
+    if SetGuildRosterShowOffline then
+        pcall(SetGuildRosterShowOffline, true)
+    end
+    if GuildRoster then
+        pcall(GuildRoster)
+    end
+end
+
+local function layoutList(groups, query, rosterByName, forceHoverMain)
+    suppressMainRowHoverEvents = true
     hideGuildPickerRowsFrom(1)
     local mainIndex = 0
     local charIndex = 0
     local y = 0
     local width = math.max(1, (scrollChild:GetWidth() or listViewport:GetWidth() or 1))
     local activeQuery = GTD.NormalizeSearchQuery(query)
+    rosterByName = rosterByName or {}
 
     for _, g in ipairs(groups) do
         mainIndex = mainIndex + 1
@@ -1045,11 +1835,19 @@ local function layoutList(groups, query)
         row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -y)
         row:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", 0, -y)
         row.nameFS:SetText(GTD.FormatMainRowName(g, formatName, activeQuery ~= "" and activeQuery or nil))
+        local isOld = GTD.GroupHasOldData and GTD.GroupHasOldData(g)
+        layoutMainRowLeftIcons(row, isOld and true or false, g.pinned and true or false)
         row.countFS:SetText(GTD.FormatMainRowCount(g))
+        if row.lastOnlineFS then
+            local status = GTD.GetGroupLastOnlineStatus and GTD.GetGroupLastOnlineStatus(g, rosterByName)
+            row.lastOnlineFS:SetText(
+                (GTD.FormatRosterLastOnline and GTD.FormatRosterLastOnline(status)) or "")
+        end
         row.groupMain = g.main
+        row.settingsGroup = g
         row:SetScript("OnClick", function()
             expandedMains[g.main] = not expandedMains[g.main]
-            layoutList(groups, query)
+            layoutList(groups, query, rosterByName, g.main)
         end)
         y = y + MAIN_ROW_HEIGHT
 
@@ -1062,8 +1860,15 @@ local function layoutList(groups, query)
                 charRow:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", 0, -y)
                 charRow.nameFS:SetText(GTD.FormatCharacterName(
                     m, formatName, activeQuery ~= "" and activeQuery or nil))
+                layoutCharRowLeftIcons(charRow, GTD.IsExplicitMain(m))
                 charRow.profFS:SetText(GTD.FormatProfessions(
                     m, activeQuery ~= "" and activeQuery or nil))
+                if charRow.lastOnlineFS then
+                    local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(m.name)
+                    local status = key and rosterByName[key] or nil
+                    charRow.lastOnlineFS:SetText(
+                        (GTD.FormatRosterLastOnline and GTD.FormatRosterLastOnline(status)) or "")
+                end
                 charRow.memberEntry = m
                 charRow:SetScript("OnClick", function()
                     showRecipeView(m)
@@ -1076,6 +1881,35 @@ local function layoutList(groups, query)
 
     hideMainRowsFrom(mainIndex + 1)
     hideCharRowsFrom(charIndex + 1)
+    if applyListColumnLayout then
+        applyListColumnLayout()
+    end
+    suppressMainRowHoverEvents = false
+    if forceHoverMain then
+        local forced = nil
+        for i = 1, #mainRowPool do
+            local row = mainRowPool[i]
+            if row and row:IsShown() and row.groupMain == forceHoverMain then
+                forced = row
+                break
+            end
+        end
+        for i = 1, #mainRowPool do
+            local row = mainRowPool[i]
+            if not row then
+                -- skip
+            elseif row == forced and row.setMainRowHover then
+                row.setMainRowHover(true)
+            elseif row.clearMainRowHoverState then
+                row.clearMainRowHoverState()
+            end
+        end
+    else
+        syncMainRowHoverFromMouse()
+    end
+    if syncMainRowSettingsIcons then
+        syncMainRowSettingsIcons()
+    end
     scrollChild:SetWidth(width)
     scrollChild:SetHeight(math.max(1, y))
     if viewport.UpdateRange then viewport.UpdateRange() end
@@ -1139,6 +1973,7 @@ local function refreshImpl()
         selectedCharacter = resolved or selectedCharacter
         if selectedCharacter then
             setListHeaderVisible(false)
+            listColHeader:Hide()
             listViewport:Hide()
             emptyText:Hide()
             recipeBody:Show()
@@ -1152,8 +1987,33 @@ local function refreshImpl()
     Theme.UpdateEditBoxPlaceholderVisibility(searchEdit)
 
     local groups = GTD.GroupMembersByMain(members)
+    applyGroupUiPrefs(groups)
     local filtered = GTD.FilterGroups(groups, searchText)
     applySearchExpansion(filtered)
+
+    local rosterByName = {}
+    if currentGuild() and GTD.BuildRosterLastOnlineMap then
+        rosterByName = GTD.BuildRosterLastOnlineMap()
+    end
+    if GTD.SortGroups then
+        filtered = GTD.SortGroups(filtered, listSortKey, listSortAscending, rosterByName)
+    end
+
+    if selectedSettingsGroup then
+        local stillPresent
+        for _, g in ipairs(filtered) do
+            if g.main == selectedSettingsGroup.main then
+                stillPresent = g
+                break
+            end
+        end
+        if stillPresent then
+            selectedSettingsGroup = stillPresent
+            updateGroupSettingsPanel()
+        else
+            closeGroupSettings()
+        end
+    end
 
     if #filtered == 0 then
         hideMainRowsFrom(1)
@@ -1171,7 +2031,7 @@ local function refreshImpl()
     end
 
     emptyText:Hide()
-    layoutList(filtered, searchText)
+    layoutList(filtered, searchText, rosterByName)
 end
 refresh = refreshImpl
 
@@ -1225,5 +2085,20 @@ tabardEvents:SetScript("OnEvent", function()
     end
 end)
 
+-- Roster last-online updates asynchronously after GuildRoster(); refresh when data arrives.
+local rosterEvents = CreateFrame("Frame")
+rosterEvents:RegisterEvent("GUILD_ROSTER_UPDATE")
+rosterEvents:SetScript("OnEvent", function()
+    if frame:IsShown() then
+        refresh()
+    end
+end)
+
 AltArmy.RefreshGuildTab = refresh
-frame:SetScript("OnShow", refresh)
+frame:SetScript("OnShow", function()
+    ensureGuildRosterIncludesOffline()
+    refresh()
+end)
+frame:HookScript("OnHide", function()
+    closeGroupSettings()
+end)

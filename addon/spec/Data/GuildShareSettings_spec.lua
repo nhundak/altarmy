@@ -78,6 +78,21 @@ describe("GuildShareSettings", function()
       assert.is_nil(GSS.NormalizeDisplayName(nil))
       assert.is_nil(GSS.NormalizeDisplayName(""))
     end)
+    it("ShouldSyncDisplayNameWithMain when preferred still matches main (case-insensitive)", function()
+      assert.is_true(GSS.ShouldSyncDisplayNameWithMain("Bob", "Bob"))
+      assert.is_true(GSS.ShouldSyncDisplayNameWithMain("Bob", "bob"))
+      assert.is_true(GSS.ShouldSyncDisplayNameWithMain("BOB", "Bob"))
+    end)
+    it("ShouldSyncDisplayNameWithMain when preferred is empty (nothing custom to keep)", function()
+      assert.is_true(GSS.ShouldSyncDisplayNameWithMain("Bob", nil))
+      assert.is_true(GSS.ShouldSyncDisplayNameWithMain("Bob", ""))
+      assert.is_true(GSS.ShouldSyncDisplayNameWithMain(nil, nil))
+    end)
+    it("ShouldSyncDisplayNameWithMain is false when preferred differs from main", function()
+      assert.is_false(GSS.ShouldSyncDisplayNameWithMain("Bob", "Chief"))
+      assert.is_false(GSS.ShouldSyncDisplayNameWithMain("Bob", "Bobby"))
+      assert.is_false(GSS.ShouldSyncDisplayNameWithMain(nil, "Chief"))
+    end)
     it("SetCharacterOptedOut", function()
       GSS.SetCharacterOptedOut("Bob", "R", true)
       assert.is_true(GSS.IsCharacterOptedOut("Bob", "R"))
@@ -281,20 +296,6 @@ describe("GuildShareSettings", function()
       return { name = name, realm = "R", char = { name = name, level = level or 0 } }
     end
 
-    before_each(function()
-      AltArmy.GuildShareOnboarding = {
-        PickDefaultMain = function(candidates)
-          local best
-          for _, c in ipairs(candidates or {}) do
-            if not best or (c.char.level or 0) > (best.char.level or 0) then
-              best = c
-            end
-          end
-          return best and best.name or nil
-        end,
-      }
-    end)
-
     it("returns saved main and display name when both are set", function()
       GSS.SetMain("R", "SavedMain")
       GSS.SetDisplayName("R", "Chief")
@@ -305,12 +306,21 @@ describe("GuildShareSettings", function()
       assert.are.equal("Chief", display)
     end)
 
-    it("guesses main and uses the main name as display when both are unknown", function()
+    it("leaves main and display nil when neither is saved (receivers guess the main)", function()
       local main, display = GSS.ResolvePresenceMainAndDisplay({
         charEntry("Alt", 40), charEntry("Topchar", 70),
       }, "R")
-      assert.are.equal("Topchar", main)
-      assert.are.equal("Topchar", display)
+      assert.is_nil(main)
+      assert.is_nil(display)
+    end)
+
+    it("sends a saved display name even when main is unset", function()
+      GSS.SetDisplayName("R", "Chief")
+      local main, display = GSS.ResolvePresenceMainAndDisplay({
+        charEntry("Alt", 40), charEntry("Topchar", 70),
+      }, "R")
+      assert.is_nil(main)
+      assert.are.equal("Chief", display)
     end)
 
     it("uses the main name as display when main is saved but display is not", function()
@@ -318,6 +328,49 @@ describe("GuildShareSettings", function()
       local main, display = GSS.ResolvePresenceMainAndDisplay({ charEntry("SavedMain", 70) }, "R")
       assert.are.equal("SavedMain", main)
       assert.are.equal("SavedMain", display)
+    end)
+  end)
+
+  describe("group UI prefs", function()
+    it("pin defaults to false", function()
+      assert.is_false(GSS.IsGroupPinned("Mainman", "R"))
+    end)
+
+    it("SetGroupPinned persists per realm and main", function()
+      GSS.SetGroupPinned("Mainman", "R", true)
+      assert.is_true(GSS.IsGroupPinned("Mainman", "R"))
+      assert.is_false(GSS.IsGroupPinned("Other", "R"))
+      assert.is_false(GSS.IsGroupPinned("Mainman", "OtherRealm"))
+      GSS.SetGroupPinned("Mainman", "R", false)
+      assert.is_false(GSS.IsGroupPinned("Mainman", "R"))
+    end)
+
+    it("override name defaults to nil", function()
+      assert.is_nil(GSS.GetGroupOverrideName("Mainman", "R"))
+    end)
+
+    it("SetGroupOverrideName persists and truncates like display names", function()
+      GSS.SetGroupOverrideName("Mainman", "R", "Buddy")
+      assert.are.equal("Buddy", GSS.GetGroupOverrideName("Mainman", "R"))
+      local longName = string.rep("y", GSS.DISPLAY_NAME_MAX_LENGTH + 5)
+      GSS.SetGroupOverrideName("Mainman", "R", longName)
+      assert.are.equal(string.rep("y", GSS.DISPLAY_NAME_MAX_LENGTH), GSS.GetGroupOverrideName("Mainman", "R"))
+    end)
+
+    it("SetGroupOverrideName clears when empty", function()
+      GSS.SetGroupOverrideName("Mainman", "R", "Buddy")
+      GSS.SetGroupOverrideName("Mainman", "R", "")
+      assert.is_nil(GSS.GetGroupOverrideName("Mainman", "R"))
+    end)
+
+    it("ClearGroupUiPrefs removes pin and override for that group", function()
+      GSS.SetGroupPinned("Mainman", "R", true)
+      GSS.SetGroupOverrideName("Mainman", "R", "Buddy")
+      GSS.SetGroupPinned("Other", "R", true)
+      GSS.ClearGroupUiPrefs("Mainman", "R")
+      assert.is_false(GSS.IsGroupPinned("Mainman", "R"))
+      assert.is_nil(GSS.GetGroupOverrideName("Mainman", "R"))
+      assert.is_true(GSS.IsGroupPinned("Other", "R"))
     end)
   end)
 end)

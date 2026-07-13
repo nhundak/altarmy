@@ -1,6 +1,7 @@
 -- AltArmy TBC — Guild tab: pure grouping / sorting / filtering / formatting helpers.
 -- No frames or comm; consumes the flat member list from GuildShareData.GetGuildMembersForDisplay
 -- and produces the main-grouped, sorted, filtered view the Guild tab UI renders.
+-- Also provides guild-roster last-online helpers (BuildRosterLastOnlineMap / FormatRosterLastOnline).
 
 if not AltArmy then return end
 
@@ -434,9 +435,67 @@ function GTD.GroupMembersByMain(members)
     return order
 end
 
+-- Age at which received guildmate data is flagged as outdated in the Guild tab (not purged).
+GTD.OLD_DATA_AGE_SEC = 60 * 60 * 24 * 14
+
+--- True when a received (non-local) member's data is at least OLD_DATA_AGE_SEC old.
+function GTD.IsMemberDataOld(member, nowTs, maxAgeSec)
+    if not member or member.source == "local" then return false end
+    local receivedAt = member.receivedAt
+    if type(receivedAt) ~= "number" then return false end
+    nowTs = nowTs or ((time and time()) or 0)
+    maxAgeSec = maxAgeSec or GTD.OLD_DATA_AGE_SEC
+    return (nowTs - receivedAt) >= maxAgeSec
+end
+
+--- True when any member in the group has outdated received data.
+function GTD.GroupHasOldData(group, nowTs, maxAgeSec)
+    if not group then return false end
+    for _, m in ipairs(group.members or {}) do
+        if GTD.IsMemberDataOld(m, nowTs, maxAgeSec) then
+            return true
+        end
+    end
+    return false
+end
+
+--- Tooltip body for the Guild tab old-data warning icon.
+function GTD.GetOldDataTooltipText()
+    return "This data is more than 14 days old. The guildmate has not shared an update recently."
+end
+
+--- True when this character is the player's explicitly marked main (not a deduced grouping main).
+function GTD.IsExplicitMain(member)
+    return member ~= nil and member.isMain == true and member.mainDeclared == true
+end
+
+--- Tooltip for the Guild tab character-row main star.
+function GTD.FormatMainStarTooltip()
+    return "Main Character"
+end
+
+--- Display label for a main group: override → preferredName → main.
+--- Optional `getOverride(group)` supplies an override when `group.overrideName` is unset.
+function GTD.ResolveGroupDisplayName(group, getOverride)
+    if not group then return "?" end
+    local override = group.overrideName
+    if (not override or override == "") and getOverride then
+        override = getOverride(group)
+    end
+    if type(override) == "string" and override ~= "" then
+        return override
+    end
+    return group.preferredName or group.main or "?"
+end
+
+--- True when `group.main` is the player's configured main.
+function GTD.IsOwnGroup(group, ownMain)
+    return group ~= nil and type(ownMain) == "string" and ownMain ~= "" and group.main == ownMain
+end
+
 --- Filter groups by a search query (empty/nil returns all groups unchanged).
---- Omits groups with no match on preferred name, main name, any character name, or profession.
---- When preferred or main name matches, all characters in the group are shown; otherwise only
+--- Omits groups with no match on override/preferred/main name, any character name, or profession.
+--- When preferred, override, or main name matches, all characters in the group are shown; otherwise only
 --- characters matching on name or profession are included.
 function GTD.FilterGroups(groups, query)
     local q = GTD.NormalizeSearchQuery(query)
@@ -444,8 +503,9 @@ function GTD.FilterGroups(groups, query)
     local out = {}
     for _, g in ipairs(groups or {}) do
         local preferredMatch = nameMatchesQuery(g.preferredName, q)
+        local overrideMatch = nameMatchesQuery(g.overrideName, q)
         local mainMatch = nameMatchesQuery(g.main, q)
-        local groupNameMatch = preferredMatch or mainMatch
+        local groupNameMatch = preferredMatch or overrideMatch or mainMatch
         local matchedMembers = {}
         if groupNameMatch then
             for _, m in ipairs(g.members or {}) do
@@ -462,6 +522,9 @@ function GTD.FilterGroups(groups, query)
             out[#out + 1] = {
                 main = g.main,
                 preferredName = g.preferredName,
+                overrideName = g.overrideName,
+                pinned = g.pinned,
+                prefsRealm = g.prefsRealm,
                 classFile = g.classFile,
                 members = matchedMembers,
                 characterCount = #matchedMembers,
@@ -471,10 +534,10 @@ function GTD.FilterGroups(groups, query)
     return out
 end
 
---- Preferred name for a main group row (class-colored when formatName is supplied).
---- Optional `query` highlights matching substrings in the preferred name.
+--- Preferred/override name for a main group row (class-colored when formatName is supplied).
+--- Optional `query` highlights matching substrings in the display name.
 function GTD.FormatMainRowName(group, formatName, query)
-    local name = group.preferredName or group.main or "?"
+    local name = GTD.ResolveGroupDisplayName(group)
     if query and GTD.NormalizeSearchQuery(query) ~= "" then
         return GTD.FormatTextWithSearchHighlight(name, group.classFile, query, formatName)
     end
@@ -513,6 +576,255 @@ function GTD.FormatCharacterName(entry, formatName, query)
     end
     local level = math.floor(tonumber(entry.level) or 0)
     return namePart .. " " .. GRAY .. "(level " .. level .. ")|r"
+end
+
+--- Comparable online-sort value for a roster status.
+--- Online is always 0 (least time). Offline uses years→months→days→hours so order matches
+--- the displayed unit buckets. Unknown/missing is a large sentinel (most time).
+GTD.ROSTER_ONLINE_SORT_UNKNOWN = 2000000000
+GTD.ROSTER_ONLINE_SORT_OFFLINE_BASE = 1000000000
+
+function GTD.RosterStatusSortValue(status)
+    if not status then
+        return GTD.ROSTER_ONLINE_SORT_UNKNOWN
+    end
+    if status.online then
+        return 0
+    end
+    local years = status.years or 0
+    local months = status.months or 0
+    local days = status.days or 0
+    local hours = status.hours or 0
+    return GTD.ROSTER_ONLINE_SORT_OFFLINE_BASE
+        + years * 1000000
+        + months * 10000
+        + days * 100
+        + hours
+end
+
+--- Comparable online-sort value for a main group (most recent member status).
+function GTD.GroupOnlineSortValue(group, rosterByName)
+    return GTD.RosterStatusSortValue(GTD.GetGroupLastOnlineStatus(group, rosterByName or {}))
+end
+
+--- Comparable online-sort value for one character entry.
+function GTD.MemberOnlineSortValue(member, rosterByName)
+    if not member or type(rosterByName) ~= "table" then
+        return GTD.ROSTER_ONLINE_SORT_UNKNOWN
+    end
+    local key = GTD.NormalizeRosterName(member.name)
+    if not key then
+        return GTD.ROSTER_ONLINE_SORT_UNKNOWN
+    end
+    return GTD.RosterStatusSortValue(rosterByName[key])
+end
+
+local function copyGroupWithMembers(group, members)
+    return {
+        main = group.main,
+        preferredName = group.preferredName,
+        overrideName = group.overrideName,
+        pinned = group.pinned,
+        prefsRealm = group.prefsRealm,
+        classFile = group.classFile,
+        characterCount = group.characterCount or #(members or {}),
+        members = members,
+    }
+end
+
+local function sortMembersForList(members, sortKey, ascending, rosterByName)
+    local out = {}
+    for i = 1, #(members or {}) do
+        out[i] = members[i]
+    end
+    if #out < 2 then
+        return out
+    end
+    local asc = ascending ~= false
+    if sortKey == "online" then
+        table.sort(out, function(a, b)
+            local va = GTD.MemberOnlineSortValue(a, rosterByName)
+            local vb = GTD.MemberOnlineSortValue(b, rosterByName)
+            if va ~= vb then
+                if asc then return va < vb end
+                return va > vb
+            end
+            local na, nb = (a.name or ""):lower(), (b.name or ""):lower()
+            if na ~= nb then return na < nb end
+            return (a.name or "") < (b.name or "")
+        end)
+        return out
+    end
+    -- Default character order: highest level first, then name.
+    table.sort(out, function(a, b)
+        local la, lb = a.level or 0, b.level or 0
+        if la ~= lb then return la > lb end
+        return (a.name or "") < (b.name or "")
+    end)
+    return out
+end
+
+--- Sort main groups for the guild list (`sortKey`: "name", "characterCount", or "online").
+--- Optional `rosterByName` is required for meaningful "online" sorting.
+--- Returns a new list; does not mutate `groups`. Name is the stable tie-breaker (always A→Z).
+--- Pinned groups (`group.pinned`) always sort above unpinned; column sort applies within each bucket.
+--- When sorting by online, members within each group are also ordered by last online.
+function GTD.SortGroups(groups, sortKey, ascending, rosterByName)
+    local out = {}
+    for i = 1, #(groups or {}) do
+        out[i] = groups[i]
+    end
+    if #out == 0 then
+        return out
+    end
+    local key = sortKey
+    if key ~= "characterCount" and key ~= "online" then
+        key = "name"
+    end
+    local asc = ascending ~= false
+    rosterByName = rosterByName or {}
+
+    if #out >= 2 then
+        table.sort(out, function(a, b)
+            local aPinned = a.pinned and true or false
+            local bPinned = b.pinned and true or false
+            if aPinned ~= bPinned then
+                return aPinned
+            end
+            local va, vb
+            if key == "characterCount" then
+                va = a.characterCount or #(a.members or {})
+                vb = b.characterCount or #(b.members or {})
+            elseif key == "online" then
+                va = GTD.GroupOnlineSortValue(a, rosterByName)
+                vb = GTD.GroupOnlineSortValue(b, rosterByName)
+            else
+                va = (GTD.ResolveGroupDisplayName(a)):lower()
+                vb = (GTD.ResolveGroupDisplayName(b)):lower()
+            end
+            if va ~= vb then
+                if asc then return va < vb end
+                return va > vb
+            end
+            local na = (GTD.ResolveGroupDisplayName(a)):lower()
+            local nb = (GTD.ResolveGroupDisplayName(b)):lower()
+            if na ~= nb then
+                return na < nb
+            end
+            return (a.main or "") < (b.main or "")
+        end)
+    end
+
+    for i = 1, #out do
+        local g = out[i]
+        out[i] = copyGroupWithMembers(g, sortMembersForList(g.members, key, asc, rosterByName))
+    end
+    return out
+end
+
+--- Strip a realm suffix and lowercase a guild-roster or character name.
+function GTD.NormalizeRosterName(name)
+    if type(name) ~= "string" then return nil end
+    local short = name:match("^[^%-]+") or name
+    return short:lower()
+end
+
+--- Comparable offline duration in hours (approximate months as 30.5 days).
+--- Online / missing status returns 0.
+function GTD.RosterOfflineHours(status)
+    if not status or status.online then return 0 end
+    local years = status.years or 0
+    local months = status.months or 0
+    local days = status.days or 0
+    local hours = status.hours or 0
+    return (((years * 12) + months) * 30.5 + days) * 24 + hours
+end
+
+--- Display string for a roster last-online status. Empty when status is missing.
+function GTD.FormatRosterLastOnline(status)
+    if not status then return "" end
+    if status.online then return "Online" end
+    local years = status.years or 0
+    local months = status.months or 0
+    local days = status.days or 0
+    local hours = status.hours or 0
+    if years > 0 then return years .. "y ago" end
+    if months > 0 then return months .. "mo ago" end
+    if days > 0 then return days .. "d ago" end
+    if hours > 0 then return hours .. "h ago" end
+    return "< 1h ago"
+end
+
+--- Most recent status among a list: any online wins; otherwise shortest offline duration.
+function GTD.PickMostRecentRosterStatus(statuses)
+    if type(statuses) ~= "table" then return nil end
+    local best
+    local bestHours
+    for _, status in ipairs(statuses) do
+        if status then
+            if status.online then
+                return { online = true }
+            end
+            local hours = GTD.RosterOfflineHours(status)
+            if not bestHours or hours < bestHours then
+                bestHours = hours
+                best = status
+            end
+        end
+    end
+    return best
+end
+
+--- Most recent last-online status for a main group, looking up each member in `rosterByName`.
+function GTD.GetGroupLastOnlineStatus(group, rosterByName)
+    if not group or type(rosterByName) ~= "table" then return nil end
+    local statuses = {}
+    for _, member in ipairs(group.members or {}) do
+        local key = GTD.NormalizeRosterName(member.name)
+        if key and key ~= "" then
+            statuses[#statuses + 1] = rosterByName[key]
+        end
+    end
+    return GTD.PickMostRecentRosterStatus(statuses)
+end
+
+--- Build short-name -> last-online status from guild roster APIs.
+--- `api` may override: isInGuild, getNumGuildMembers, getGuildRosterInfo,
+--- getGuildRosterLastOnline, normalizeName (defaults to live WoW globals / NormalizeRosterName).
+function GTD.BuildRosterLastOnlineMap(api)
+    api = api or {}
+    local isInGuild = api.isInGuild or IsInGuild
+    local getNum = api.getNumGuildMembers or GetNumGuildMembers
+    local getInfo = api.getGuildRosterInfo or GetGuildRosterInfo
+    local getLast = api.getGuildRosterLastOnline or GetGuildRosterLastOnline
+    local normalize = api.normalizeName or GTD.NormalizeRosterName
+
+    local out = {}
+    if not isInGuild or not isInGuild() then return out end
+    if not getNum or not getInfo then return out end
+    local n = getNum()
+    if type(n) ~= "number" or n < 1 then return out end
+    for i = 1, n do
+        local name, _, _, _, _, _, _, _, online = getInfo(i)
+        local key = normalize(name)
+        if key and key ~= "" then
+            if online then
+                out[key] = { online = true }
+            elseif getLast then
+                local years, months, days, hours = getLast(i)
+                out[key] = {
+                    online = false,
+                    years = years or 0,
+                    months = months or 0,
+                    days = days or 0,
+                    hours = hours or 0,
+                }
+            else
+                out[key] = { online = false, years = 0, months = 0, days = 0, hours = 0 }
+            end
+        end
+    end
+    return out
 end
 
 --- Professions column: "Name — Spec (rank), ..." with the specialization (when present) after

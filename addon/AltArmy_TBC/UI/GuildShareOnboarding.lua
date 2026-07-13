@@ -363,9 +363,18 @@ local function buildDialog()
         getEntries = realmCharEntries,
         getSelectedId = function() return selectedMain end,
         onSelect = function(id)
+            local previousMain = selectedMain
+            local previousDisplay = displayNameEdit and displayNameEdit:GetText() or nil
             selectedMain = id
-            if displayNameEdit and id then
-                displayNameEdit:SetText(id)
+            local GSS = AltArmy.GuildShareSettings
+            local syncDisplay = not GSS or not GSS.ShouldSyncDisplayNameWithMain
+                or GSS.ShouldSyncDisplayNameWithMain(previousMain, previousDisplay)
+            if displayNameEdit and id and syncDisplay then
+                if Theme.SetEditBoxText then
+                    Theme.SetEditBoxText(displayNameEdit, id)
+                else
+                    displayNameEdit:SetText(id)
+                end
             end
         end,
     })
@@ -458,10 +467,11 @@ local function show(done)
     if mainDropdown and mainDropdown.Update then mainDropdown:Update() end
     if displayNameEdit then
         local savedDisplay = GSS and GSS.GetDisplayName(realm)
-        if savedDisplay and savedDisplay ~= "" then
-            displayNameEdit:SetText(savedDisplay)
+        local text = (savedDisplay and savedDisplay ~= "" and savedDisplay) or (selectedMain or "")
+        if Theme.SetEditBoxText then
+            Theme.SetEditBoxText(displayNameEdit, text)
         else
-            displayNameEdit:SetText(selectedMain or "")
+            displayNameEdit:SetText(text)
         end
     end
     dialog:Show()

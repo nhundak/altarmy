@@ -31,7 +31,9 @@ describe("GuildTabData", function()
       main = opts.main,
       displayName = opts.displayName,
       isMain = opts.isMain or false,
+      mainDeclared = opts.mainDeclared,
       source = opts.source,
+      receivedAt = opts.receivedAt,
       Professions = profMap(opts.profs),
     }
   end
@@ -191,6 +193,77 @@ describe("GuildTabData", function()
     end)
   end)
 
+  describe("old received data", function()
+    local DAY = 60 * 60 * 24
+    local NOW = 1700000000
+
+    it("exposes a 14-day UI warning age", function()
+      assert.are.equal(14 * DAY, GTD.OLD_DATA_AGE_SEC)
+    end)
+
+    it("IsMemberDataOld is false for local account members", function()
+      local m = member({ name = "Me", source = "local", receivedAt = NOW - 30 * DAY })
+      assert.is_false(GTD.IsMemberDataOld(m, NOW))
+    end)
+
+    it("IsMemberDataOld is false when receivedAt is missing", function()
+      local m = member({ name = "Peer", source = "Peer" })
+      assert.is_false(GTD.IsMemberDataOld(m, NOW))
+    end)
+
+    it("IsMemberDataOld is false when data is fresher than the warning age", function()
+      local m = member({
+        name = "Peer", source = "Peer", receivedAt = NOW - (GTD.OLD_DATA_AGE_SEC - DAY),
+      })
+      assert.is_false(GTD.IsMemberDataOld(m, NOW))
+    end)
+
+    it("IsMemberDataOld is true when data is at or past the warning age", function()
+      local m = member({
+        name = "Peer", source = "Peer", receivedAt = NOW - GTD.OLD_DATA_AGE_SEC,
+      })
+      assert.is_true(GTD.IsMemberDataOld(m, NOW))
+      assert.is_true(GTD.IsMemberDataOld(
+        member({ name = "Peer", source = "Peer", receivedAt = NOW - (20 * DAY) }),
+        NOW))
+    end)
+
+    it("GroupHasOldData is true when any received member is old", function()
+      local groups = GTD.GroupMembersByMain({
+        member({
+          name = "Main", main = "Main", isMain = true, source = "Main",
+          receivedAt = NOW - (20 * DAY),
+        }),
+        member({
+          name = "Alt", main = "Main", source = "Main",
+          receivedAt = NOW - (20 * DAY),
+        }),
+      })
+      assert.is_true(GTD.GroupHasOldData(groups[1], NOW))
+    end)
+
+    it("GroupHasOldData is false for fresh received groups and local-only groups", function()
+      local fresh = GTD.GroupMembersByMain({
+        member({
+          name = "Fresh", main = "Fresh", isMain = true, source = "Fresh",
+          receivedAt = NOW - DAY,
+        }),
+      })
+      assert.is_false(GTD.GroupHasOldData(fresh[1], NOW))
+
+      local localOnly = GTD.GroupMembersByMain({
+        member({ name = "Me", main = "Me", isMain = true, source = "local" }),
+      })
+      assert.is_false(GTD.GroupHasOldData(localOnly[1], NOW))
+    end)
+
+    it("GetOldDataTooltipText explains that shared data is outdated", function()
+      local text = GTD.GetOldDataTooltipText()
+      assert.is_true(type(text) == "string" and #text > 0)
+      assert.truthy(text:find("14", 1, true))
+    end)
+  end)
+
   describe("FilterGroups", function()
     local groups
 
@@ -214,6 +287,23 @@ describe("GuildTabData", function()
       assert.are.equal("TopDog", out[1].preferredName)
       assert.are.equal(2, #out[1].members)
       assert.are.equal(2, out[1].characterCount)
+    end)
+
+    it("matches on overrideName and includes all characters in the group", function()
+      local target
+      for _, g in ipairs(groups) do
+        if g.main == "Bossman" then
+          target = g
+          break
+        end
+      end
+      assert.truthy(target)
+      target.overrideName = "Nickname"
+      local out = GTD.FilterGroups(groups, "nick")
+      assert.are.equal(1, #out)
+      assert.are.equal("Bossman", out[1].main)
+      assert.are.equal(2, #out[1].members)
+      assert.are.equal("Nickname", out[1].overrideName)
     end)
 
     it("matches on the main character name and includes all characters in the group", function()
@@ -308,6 +398,42 @@ describe("GuildTabData", function()
         "Mind|cff00ff00frell|r",
         GTD.FormatMainRowName(groups[1], plainFormatName, "frell"))
     end)
+
+    it("prefers overrideName over preferredName", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Main", main = "Main", isMain = true, displayName = "Chief" }),
+      })
+      groups[1].overrideName = "Buddy"
+      assert.are.equal("Buddy", GTD.FormatMainRowName(groups[1]))
+    end)
+  end)
+
+  describe("ResolveGroupDisplayName", function()
+    it("prefers override, then preferredName, then main", function()
+      assert.are.equal("Buddy", GTD.ResolveGroupDisplayName({
+        main = "Main", preferredName = "Chief", overrideName = "Buddy",
+      }))
+      assert.are.equal("Chief", GTD.ResolveGroupDisplayName({
+        main = "Main", preferredName = "Chief",
+      }))
+      assert.are.equal("Main", GTD.ResolveGroupDisplayName({ main = "Main" }))
+      assert.are.equal("?", GTD.ResolveGroupDisplayName({}))
+    end)
+
+    it("accepts an optional getOverride callback", function()
+      local name = GTD.ResolveGroupDisplayName(
+        { main = "Main", preferredName = "Chief" },
+        function(group) return group.main == "Main" and "FromCb" or nil end)
+      assert.are.equal("FromCb", name)
+    end)
+  end)
+
+  describe("IsOwnGroup", function()
+    it("is true when group main matches the player's main", function()
+      assert.is_true(GTD.IsOwnGroup({ main = "Me" }, "Me"))
+      assert.is_false(GTD.IsOwnGroup({ main = "Me" }, "Other"))
+      assert.is_false(GTD.IsOwnGroup({ main = "Me" }, nil))
+    end)
   end)
 
   describe("FormatMainRowCount", function()
@@ -366,6 +492,309 @@ describe("GuildTabData", function()
       assert.are.equal(
         "Mind|cff00ff00frell|r 1 character",
         GTD.FormatMainRowLabel(groups[1], plainFormatName, "frell"))
+    end)
+  end)
+
+  describe("roster last online", function()
+    describe("NormalizeRosterName", function()
+      it("strips a realm suffix and lowercases", function()
+        assert.are.equal("alice", GTD.NormalizeRosterName("Alice-EmeraldDream"))
+      end)
+
+      it("returns the short name lowercased", function()
+        assert.are.equal("bob", GTD.NormalizeRosterName("Bob"))
+      end)
+
+      it("returns nil for non-strings", function()
+        assert.is_nil(GTD.NormalizeRosterName(nil))
+        assert.is_nil(GTD.NormalizeRosterName(12))
+      end)
+    end)
+
+    describe("RosterOfflineHours", function()
+      it("returns 0 for online or missing status", function()
+        assert.are.equal(0, GTD.RosterOfflineHours({ online = true }))
+        assert.are.equal(0, GTD.RosterOfflineHours(nil))
+      end)
+
+      it("converts years/months/days/hours into comparable hours", function()
+        local hours = GTD.RosterOfflineHours({
+          online = false, years = 0, months = 1, days = 2, hours = 3,
+        })
+        assert.are.equal(((1 * 30.5) + 2) * 24 + 3, hours)
+      end)
+    end)
+
+    describe("FormatRosterLastOnline", function()
+      it("returns empty string when status is missing", function()
+        assert.are.equal("", GTD.FormatRosterLastOnline(nil))
+      end)
+
+      it("returns Online when the character is online", function()
+        assert.are.equal("Online", GTD.FormatRosterLastOnline({ online = true }))
+      end)
+
+      it("formats the largest non-zero unit", function()
+        assert.are.equal("2y ago", GTD.FormatRosterLastOnline({
+          online = false, years = 2, months = 3, days = 4, hours = 5,
+        }))
+        assert.are.equal("3mo ago", GTD.FormatRosterLastOnline({
+          online = false, years = 0, months = 3, days = 4, hours = 5,
+        }))
+        assert.are.equal("4d ago", GTD.FormatRosterLastOnline({
+          online = false, years = 0, months = 0, days = 4, hours = 5,
+        }))
+        assert.are.equal("5h ago", GTD.FormatRosterLastOnline({
+          online = false, years = 0, months = 0, days = 0, hours = 5,
+        }))
+      end)
+
+      it("returns < 1h ago when offline duration is under an hour", function()
+        assert.are.equal("< 1h ago", GTD.FormatRosterLastOnline({
+          online = false, years = 0, months = 0, days = 0, hours = 0,
+        }))
+      end)
+    end)
+
+    describe("PickMostRecentRosterStatus", function()
+      it("returns Online when any status is online", function()
+        local status = GTD.PickMostRecentRosterStatus({
+          { online = false, years = 0, months = 0, days = 5, hours = 0 },
+          { online = true },
+          { online = false, years = 0, months = 0, days = 1, hours = 0 },
+        })
+        assert.are.same({ online = true }, status)
+      end)
+
+      it("picks the shortest offline duration", function()
+        local status = GTD.PickMostRecentRosterStatus({
+          { online = false, years = 0, months = 0, days = 5, hours = 0 },
+          { online = false, years = 0, months = 0, days = 1, hours = 2 },
+          { online = false, years = 0, months = 0, days = 3, hours = 0 },
+        })
+        assert.are.same({
+          online = false, years = 0, months = 0, days = 1, hours = 2,
+        }, status)
+      end)
+
+      it("ignores nil statuses and returns nil when none remain", function()
+        assert.is_nil(GTD.PickMostRecentRosterStatus({ nil, nil }))
+        assert.is_nil(GTD.PickMostRecentRosterStatus(nil))
+      end)
+    end)
+
+    describe("GetGroupLastOnlineStatus", function()
+      it("aggregates the most recent status across group members", function()
+        local groups = GTD.GroupMembersByMain({
+          member({ name = "Main", main = "Main", isMain = true, displayName = "Chief" }),
+          member({ name = "Alt", main = "Main" }),
+        })
+        local roster = {
+          main = { online = false, years = 0, months = 0, days = 4, hours = 0 },
+          alt = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+        }
+        assert.are.same(roster.alt, GTD.GetGroupLastOnlineStatus(groups[1], roster))
+      end)
+
+      it("matches roster names that include a realm suffix", function()
+        local groups = GTD.GroupMembersByMain({
+          member({ name = "Alice", main = "Alice", isMain = true, displayName = "Alice" }),
+        })
+        local roster = {
+          alice = { online = true },
+        }
+        assert.are.same({ online = true }, GTD.GetGroupLastOnlineStatus(groups[1], roster))
+      end)
+
+      it("returns nil when no group members appear in the roster", function()
+        local groups = GTD.GroupMembersByMain({
+          member({ name = "Ghost", main = "Ghost", isMain = true, displayName = "Ghost" }),
+        })
+        assert.is_nil(GTD.GetGroupLastOnlineStatus(groups[1], {}))
+      end)
+    end)
+
+    describe("BuildRosterLastOnlineMap", function()
+      it("returns an empty map when not in a guild", function()
+        local map = GTD.BuildRosterLastOnlineMap({
+          isInGuild = function() return false end,
+          getNumGuildMembers = function() return 3 end,
+        })
+        assert.are.same({}, map)
+      end)
+
+      it("maps online and offline members by short name", function()
+        local roster = {
+          [1] = { name = "Alice-Realm", online = true },
+          [2] = { name = "Bob", online = false, years = 0, months = 0, days = 2, hours = 4 },
+        }
+        local map = GTD.BuildRosterLastOnlineMap({
+          isInGuild = function() return true end,
+          getNumGuildMembers = function() return 2 end,
+          getGuildRosterInfo = function(i)
+            local e = roster[i]
+            return e.name, nil, nil, nil, nil, nil, nil, nil, e.online
+          end,
+          getGuildRosterLastOnline = function(i)
+            local e = roster[i]
+            return e.years, e.months, e.days, e.hours
+          end,
+        })
+        assert.are.same({
+          alice = { online = true },
+          bob = { online = false, years = 0, months = 0, days = 2, hours = 4 },
+        }, map)
+      end)
+    end)
+  end)
+
+  describe("SortGroups", function()
+    local function grouped(members)
+      return GTD.GroupMembersByMain(members)
+    end
+
+    it("sorts by preferred name ascending by default", function()
+      local groups = grouped({
+        member({ name = "Zed", main = "Zed", isMain = true, displayName = "Zed" }),
+        member({ name = "Amy", main = "Amy", isMain = true, displayName = "Amy" }),
+        member({ name = "Bob", main = "Bob", isMain = true, displayName = "Bob" }),
+      })
+      local sorted = GTD.SortGroups(groups, "name", true)
+      assert.are.equal("Amy", sorted[1].preferredName)
+      assert.are.equal("Bob", sorted[2].preferredName)
+      assert.are.equal("Zed", sorted[3].preferredName)
+    end)
+
+    it("sorts by preferred name descending", function()
+      local groups = grouped({
+        member({ name = "Zed", main = "Zed", isMain = true, displayName = "Zed" }),
+        member({ name = "Amy", main = "Amy", isMain = true, displayName = "Amy" }),
+      })
+      local sorted = GTD.SortGroups(groups, "name", false)
+      assert.are.equal("Zed", sorted[1].preferredName)
+      assert.are.equal("Amy", sorted[2].preferredName)
+    end)
+
+    it("sorts by character count", function()
+      local groups = grouped({
+        member({ name = "Solo", main = "Solo", isMain = true, displayName = "Solo" }),
+        member({ name = "Main", main = "Main", isMain = true, displayName = "Duo" }),
+        member({ name = "Alt", main = "Main" }),
+      })
+      local asc = GTD.SortGroups(groups, "characterCount", true)
+      assert.are.equal("Solo", asc[1].preferredName)
+      assert.are.equal("Duo", asc[2].preferredName)
+      local desc = GTD.SortGroups(groups, "characterCount", false)
+      assert.are.equal("Duo", desc[1].preferredName)
+      assert.are.equal("Solo", desc[2].preferredName)
+    end)
+
+    it("sorts online as least time, then hours, days, months, years", function()
+      local groups = grouped({
+        member({ name = "Old", main = "Old", isMain = true, displayName = "Old" }),
+        member({ name = "Live", main = "Live", isMain = true, displayName = "Live" }),
+        member({ name = "Recent", main = "Recent", isMain = true, displayName = "Recent" }),
+        member({ name = "DayOld", main = "DayOld", isMain = true, displayName = "DayOld" }),
+        member({ name = "Gone", main = "Gone", isMain = true, displayName = "Gone" }),
+      })
+      local roster = {
+        live = { online = true },
+        recent = { online = false, years = 0, months = 0, days = 0, hours = 2 },
+        dayold = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+        old = { online = false, years = 0, months = 0, days = 10, hours = 0 },
+      }
+      local sorted = GTD.SortGroups(groups, "online", true, roster)
+      assert.are.equal("Live", sorted[1].preferredName)
+      assert.are.equal("Recent", sorted[2].preferredName)
+      assert.are.equal("DayOld", sorted[3].preferredName)
+      assert.are.equal("Old", sorted[4].preferredName)
+      assert.are.equal("Gone", sorted[5].preferredName)
+    end)
+
+    it("sorts online descending from most time to least, with online last", function()
+      local groups = grouped({
+        member({ name = "Old", main = "Old", isMain = true, displayName = "Old" }),
+        member({ name = "Live", main = "Live", isMain = true, displayName = "Live" }),
+        member({ name = "Recent", main = "Recent", isMain = true, displayName = "Recent" }),
+        member({ name = "Gone", main = "Gone", isMain = true, displayName = "Gone" }),
+      })
+      local roster = {
+        live = { online = true },
+        recent = { online = false, years = 0, months = 0, days = 0, hours = 2 },
+        old = { online = false, years = 0, months = 0, days = 10, hours = 0 },
+      }
+      local sorted = GTD.SortGroups(groups, "online", false, roster)
+      assert.are.equal("Gone", sorted[1].preferredName)
+      assert.are.equal("Old", sorted[2].preferredName)
+      assert.are.equal("Recent", sorted[3].preferredName)
+      assert.are.equal("Live", sorted[4].preferredName)
+    end)
+
+    it("matches roster names case-insensitively when sorting by online", function()
+      local groups = grouped({
+        member({ name = "Live", main = "Live", isMain = true, displayName = "Live" }),
+        member({ name = "Old", main = "Old", isMain = true, displayName = "Old" }),
+      })
+      local roster = {
+        live = { online = true },
+        old = { online = false, years = 0, months = 0, days = 3, hours = 0 },
+      }
+      local sorted = GTD.SortGroups(groups, "online", true, roster)
+      assert.are.equal("Live", sorted[1].preferredName)
+      assert.are.equal("Old", sorted[2].preferredName)
+    end)
+
+    it("sorts members within a group by online when sorting by online", function()
+      local groups = grouped({
+        member({ name = "Main", main = "Main", isMain = true, displayName = "Chief", level = 70 }),
+        member({ name = "Alt", main = "Main", level = 60 }),
+      })
+      local roster = {
+        main = { online = false, years = 0, months = 0, days = 5, hours = 0 },
+        alt = { online = true },
+      }
+      local sorted = GTD.SortGroups(groups, "online", true, roster)
+      assert.are.equal("Alt", sorted[1].members[1].name)
+      assert.are.equal("Main", sorted[1].members[2].name)
+    end)
+
+    it("ties break by preferred name ascending even when online sort is descending", function()
+      local groups = grouped({
+        member({ name = "B", main = "B", isMain = true, displayName = "B" }),
+        member({ name = "A", main = "A", isMain = true, displayName = "A" }),
+      })
+      local roster = {
+        a = { online = true },
+        b = { online = true },
+      }
+      local sorted = GTD.SortGroups(groups, "online", false, roster)
+      assert.are.equal("A", sorted[1].preferredName)
+      assert.are.equal("B", sorted[2].preferredName)
+    end)
+
+    it("does not mutate the input list", function()
+      local groups = grouped({
+        member({ name = "Zed", main = "Zed", isMain = true, displayName = "Zed" }),
+        member({ name = "Amy", main = "Amy", isMain = true, displayName = "Amy" }),
+      })
+      local first = groups[1].preferredName
+      GTD.SortGroups(groups, "name", true)
+      assert.are.equal(first, groups[1].preferredName)
+    end)
+
+    it("sorts pinned groups before unpinned while preserving name order within each bucket", function()
+      local groups = grouped({
+        member({ name = "Zed", main = "Zed", isMain = true, displayName = "Zed" }),
+        member({ name = "Amy", main = "Amy", isMain = true, displayName = "Amy" }),
+        member({ name = "Bob", main = "Bob", isMain = true, displayName = "Bob" }),
+      })
+      -- GroupMembersByMain orders Amy, Bob, Zed; pin Bob and Zed.
+      groups[2].pinned = true
+      groups[3].pinned = true
+      local sorted = GTD.SortGroups(groups, "name", true)
+      assert.are.equal("Bob", sorted[1].preferredName)
+      assert.are.equal("Zed", sorted[2].preferredName)
+      assert.are.equal("Amy", sorted[3].preferredName)
     end)
   end)
 
@@ -844,6 +1273,19 @@ describe("GuildTabData", function()
       })
       assert.are.equal(2, out[1].recipeID)
       assert.are.equal(1, out[2].recipeID)
+    end)
+  end)
+
+  describe("explicit main star", function()
+    it("IsExplicitMain is true only for declared mains", function()
+      assert.is_true(GTD.IsExplicitMain(member({ name = "Main", isMain = true, mainDeclared = true })))
+      assert.is_false(GTD.IsExplicitMain(member({ name = "Main", isMain = true, mainDeclared = false })))
+      assert.is_false(GTD.IsExplicitMain(member({ name = "Alt", isMain = false, mainDeclared = true })))
+      assert.is_false(GTD.IsExplicitMain(nil))
+    end)
+
+    it("FormatMainStarTooltip returns Main Character", function()
+      assert.are.equal("Main Character", GTD.FormatMainStarTooltip())
     end)
   end)
 

@@ -103,4 +103,77 @@ describe("GuildChatMainName", function()
     local _, count = out:gsub("Boss", "Boss")
     assert.are.equal(1, count)
   end)
+
+  it("uses getLabel for the bracket text when provided", function()
+    local out = GCM.Transform(
+      "Alt",
+      "hello",
+      mains({ Alt = "Mainman" }),
+      nil,
+      function() return "Buddy" end)
+    assert.is_true(out:find("Buddy", 1, true) ~= nil, out)
+    assert.is_false(out:find("Mainman", 1, true) ~= nil, out)
+  end)
+
+  it("still skips annotation when sender is the main even if getLabel differs", function()
+    local out = GCM.Transform(
+      "Mainman",
+      "hello",
+      mains({ Mainman = "Mainman" }),
+      nil,
+      function() return "Buddy" end)
+    assert.are.equal("hello", out)
+  end)
+
+  describe("FilterMessage display label", function()
+    local savedDebug
+    local savedGSS
+    local savedGSD
+
+    setup(function()
+      savedDebug = AltArmy.Debug
+      savedGSS = AltArmy.GuildShareSettings
+      savedGSD = AltArmy.GuildShareData
+      AltArmy.Debug = { IsGuildShareEnabled = function() return true end }
+      AltArmy.GuildShareSettings = {
+        IsChatInsertionEnabled = function() return true end,
+        IsChatInsertionChannelEnabled = function() return true end,
+        GetGroupOverrideName = function(main, realm)
+          if main == "Mainman" and realm == "R" then return "Buddy" end
+          return nil
+        end,
+      }
+      AltArmy.GuildShareData = {
+        GetMainOf = function() return "Mainman" end,
+        FindCharacter = function(name)
+          if name == "Alt" then
+            return { realm = "R", classFile = "WARRIOR", main = "Mainman", displayName = "Chief" }
+          end
+          if name == "Mainman" then
+            return { realm = "R", classFile = "MAGE", main = "Mainman", displayName = "Chief" }
+          end
+          return nil
+        end,
+      }
+    end)
+
+    teardown(function()
+      AltArmy.Debug = savedDebug
+      AltArmy.GuildShareSettings = savedGSS
+      AltArmy.GuildShareData = savedGSD
+    end)
+
+    it("prefers override name in the chat bracket", function()
+      local out = GCM.FilterMessage("hello", "Alt", "guild")
+      assert.is_true(out and out:find("Buddy", 1, true) ~= nil, out)
+      assert.is_false(out:find("Mainman", 1, true) ~= nil, out)
+      assert.is_false(out:find("Chief", 1, true) ~= nil, out)
+    end)
+
+    it("falls back to displayName when no override", function()
+      AltArmy.GuildShareSettings.GetGroupOverrideName = function() return nil end
+      local out = GCM.FilterMessage("hello", "Alt", "guild")
+      assert.is_true(out and out:find("Chief", 1, true) ~= nil, out)
+    end)
+  end)
 end)

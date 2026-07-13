@@ -130,11 +130,13 @@ function GSD.PresenceMatchesStored(_sender, presence, realm)
     end
     realm = realm or "?"
     local effectiveMain = presence.main or defaultReceivedMain(presence.chars)
+    local mainDeclared = presence.main ~= nil
     local displayName = presence.displayName
     for _, c in ipairs(presence.chars) do
         local stored = GSD.GetCharacter(c.name, realm)
         if not stored then return false end
         if stored.main ~= effectiveMain then return false end
+        if (stored.mainDeclared == true) ~= mainDeclared then return false end
         if stored.displayName ~= displayName then return false end
         if not charPresenceMatches(stored, c) then return false end
     end
@@ -149,6 +151,7 @@ function GSD.SaveReceived(sender, presence, guild, realm)
     local rt = realmTable(realm, true)
     local ts = now()
     -- Honor a sender-declared main; otherwise guess one so their alts still group together.
+    local mainDeclared = presence.main ~= nil
     local effectiveMain = presence.main or defaultReceivedMain(presence.chars)
     for _, c in ipairs(presence.chars) do
         local existing = rt[c.name]
@@ -165,6 +168,7 @@ function GSD.SaveReceived(sender, presence, guild, realm)
         entry.main = effectiveMain
         entry.displayName = presence.displayName
         entry.isMain = (effectiveMain ~= nil and c.name == effectiveMain)
+        entry.mainDeclared = mainDeclared
         entry.source = sender
         entry.receivedAt = ts
 
@@ -270,7 +274,8 @@ local function professionsFromChar(char)
 end
 
 --- Build a guild-tab member entry from local account data (not received over comm).
-function GSD.BuildLocalMemberEntry(name, realm, char, guild, mainName, displayName)
+--- `mainDeclared` is true when `mainName` came from the player's saved main setting.
+function GSD.BuildLocalMemberEntry(name, realm, char, guild, mainName, displayName, mainDeclared)
     local charName = (char and char.name) or name
     return {
         name = charName,
@@ -282,6 +287,7 @@ function GSD.BuildLocalMemberEntry(name, realm, char, guild, mainName, displayNa
         main = mainName,
         displayName = displayName,
         isMain = (mainName ~= nil and charName == mainName),
+        mainDeclared = mainDeclared and true or false,
         source = "local",
         Professions = professionsFromChar(char),
     }
@@ -300,10 +306,12 @@ function GSD.GetLocalGuildMembers(guild, realm)
     local entries = (GSS and GSS.GetAllGuildedCharacters
         and GSS.GetAllGuildedCharacters(guild, realm)) or {}
     -- Without an explicit main, group everyone under an implicit default main.
-    local mainName = (GSS and GSS.GetMain and GSS.GetMain(realm)) or defaultLocalMain(entries)
+    local savedMain = GSS and GSS.GetMain and GSS.GetMain(realm) or nil
+    local mainDeclared = savedMain ~= nil
+    local mainName = savedMain or defaultLocalMain(entries)
     for _, entry in ipairs(entries) do
         out[#out + 1] = GSD.BuildLocalMemberEntry(
-            entry.name, entry.realm, entry.char, guild, mainName, displayName)
+            entry.name, entry.realm, entry.char, guild, mainName, displayName, mainDeclared)
     end
     return out
 end
@@ -440,4 +448,30 @@ end
 function GSD.PurgeAll()
     local d = ensure()
     d.chars = {}
+end
+
+--- Remove every stored character whose effective main equals `main`.
+--- When `realm` is set, only that realm is searched. Returns the number removed.
+function GSD.RemoveGroup(main, realm)
+    if type(main) ~= "string" or main == "" then return 0 end
+    local removed = 0
+    local d = ensure()
+    local function purgeRealmTable(rt)
+        if not rt then return end
+        for name, entry in pairs(rt) do
+            local entryMain = (entry and (entry.main or entry.name)) or name
+            if entryMain == main then
+                rt[name] = nil
+                removed = removed + 1
+            end
+        end
+    end
+    if realm then
+        purgeRealmTable(d.chars[realm])
+    else
+        for _, rt in pairs(d.chars) do
+            purgeRealmTable(rt)
+        end
+    end
+    return removed
 end

@@ -21,6 +21,7 @@ local function ensure()
     s.optOut = s.optOut or {}
     s.nonGuildedOptIn = s.nonGuildedOptIn or {}
     s.onboardingCompleted = s.onboardingCompleted or {}
+    s.groupUiPrefs = s.groupUiPrefs or {}
     s.chatInsertionChannels = s.chatInsertionChannels or {}
     local channels = s.chatInsertionChannels
     if channels.guild == nil then channels.guild = true end
@@ -167,6 +168,19 @@ end
 
 GSS.DISPLAY_NAME_MAX_LENGTH = 20
 
+--- Whether changing main should also update the preferred/display name.
+--- Sync when the preferred name is empty, or still matches the old main
+--- (case-insensitive). Keep a custom preferred name otherwise.
+function GSS.ShouldSyncDisplayNameWithMain(oldMain, oldDisplayName)
+    if type(oldDisplayName) ~= "string" or oldDisplayName == "" then
+        return true
+    end
+    if type(oldMain) ~= "string" or oldMain == "" then
+        return false
+    end
+    return oldMain:lower() == oldDisplayName:lower()
+end
+
 --- Trim a display name to the allowed length, or nil when empty/absent.
 function GSS.NormalizeDisplayName(name)
     if type(name) ~= "string" or name == "" then
@@ -186,38 +200,87 @@ function GSS.SetDisplayName(realm, name)
     ensure().displayNames[realm or currentRealm()] = GSS.NormalizeDisplayName(name)
 end
 
---- Main + display name for a presence broadcast. Saved settings win when present; otherwise
---- guess main from `chars` using the onboarding rank (level, gear score, item level, name)
---- and fall back to the main character's name as the display name.
-function GSS.ResolvePresenceMainAndDisplay(chars, realm)
+-- *** Per-group local UI prefs (Guild tab pin / override name) ***
+
+local function groupUiEntry(main, realm, create)
+    if type(main) ~= "string" or main == "" then return nil end
+    realm = realm or currentRealm()
+    local byRealm = ensure().groupUiPrefs[realm]
+    if not byRealm then
+        if not create then return nil end
+        byRealm = {}
+        ensure().groupUiPrefs[realm] = byRealm
+    end
+    local entry = byRealm[main]
+    if not entry then
+        if not create then return nil end
+        entry = {}
+        byRealm[main] = entry
+    end
+    return entry
+end
+
+function GSS.IsGroupPinned(main, realm)
+    local entry = groupUiEntry(main, realm, false)
+    return entry ~= nil and entry.pin == true
+end
+
+function GSS.SetGroupPinned(main, realm, pinned)
+    if type(main) ~= "string" or main == "" then return end
+    realm = realm or currentRealm()
+    if pinned then
+        local entry = groupUiEntry(main, realm, true)
+        entry.pin = true
+    else
+        local entry = groupUiEntry(main, realm, false)
+        if not entry then return end
+        entry.pin = nil
+        if not entry.overrideName then
+            ensure().groupUiPrefs[realm][main] = nil
+        end
+    end
+end
+
+function GSS.GetGroupOverrideName(main, realm)
+    local entry = groupUiEntry(main, realm, false)
+    if not entry then return nil end
+    return GSS.NormalizeDisplayName(entry.overrideName)
+end
+
+function GSS.SetGroupOverrideName(main, realm, name)
+    if type(main) ~= "string" or main == "" then return end
+    realm = realm or currentRealm()
+    local normalized = GSS.NormalizeDisplayName(name)
+    if normalized then
+        local entry = groupUiEntry(main, realm, true)
+        entry.overrideName = normalized
+    else
+        local entry = groupUiEntry(main, realm, false)
+        if not entry then return end
+        entry.overrideName = nil
+        if not entry.pin then
+            ensure().groupUiPrefs[realm][main] = nil
+        end
+    end
+end
+
+function GSS.ClearGroupUiPrefs(main, realm)
+    if type(main) ~= "string" or main == "" then return end
+    realm = realm or currentRealm()
+    local byRealm = ensure().groupUiPrefs[realm]
+    if byRealm then
+        byRealm[main] = nil
+    end
+end
+
+--- Main + display name for a presence broadcast.
+--- Only an explicitly saved main is sent (receivers guess when nil so grouping still works).
+--- Display falls back to the saved main name when the player has not set a preferred name.
+--- `chars` is unused; kept for call-site compatibility.
+function GSS.ResolvePresenceMainAndDisplay(_chars, realm)
     realm = realm or currentRealm()
     local mainName = GSS.GetMain(realm)
     local displayName = GSS.GetDisplayName(realm)
-    if not mainName and chars and #chars > 0 then
-        local candidates = {}
-        for _, entry in ipairs(chars) do
-            candidates[#candidates + 1] = { name = entry.name, char = entry.char }
-        end
-        local GSO = AltArmy.GuildShareOnboarding
-        if GSO and GSO.PickDefaultMain then
-            mainName = GSO.PickDefaultMain(candidates)
-        end
-        if not mainName then
-            local best
-            for _, entry in ipairs(chars) do
-                local level = (entry.char and entry.char.level) or 0
-                if not best then
-                    best = entry
-                else
-                    local bl = (best.char and best.char.level) or 0
-                    if level > bl or (level == bl and (entry.name or "") < (best.name or "")) then
-                        best = entry
-                    end
-                end
-            end
-            mainName = best and best.name or nil
-        end
-    end
     if not displayName and mainName then
         displayName = mainName
     end

@@ -69,8 +69,10 @@ describe("GuildShareData", function()
       local low = GSD.GetCharacter("Lowgear", "R")
       assert.are.equal("Topgear", top.main)
       assert.is_true(top.isMain)
+      assert.is_false(top.mainDeclared)
       assert.are.equal("Topgear", low.main)
       assert.is_false(low.isMain)
+      assert.is_false(low.mainDeclared)
       assert.are.equal("Topgear", GSD.GetCharacter("Leveler", "R").main)
     end)
 
@@ -85,8 +87,10 @@ describe("GuildShareData", function()
       local declared = GSD.GetCharacter("Declared", "R")
       assert.are.equal("Declared", declared.main)
       assert.is_true(declared.isMain)
+      assert.is_true(declared.mainDeclared)
       assert.are.equal(150, GSD.GetCharacter("Beefy", "R").itemLevel)
       assert.is_false(GSD.GetCharacter("Beefy", "R").isMain)
+      assert.is_true(GSD.GetCharacter("Beefy", "R").mainDeclared)
     end)
 
     it("stores a received profession specialization", function()
@@ -167,6 +171,24 @@ describe("GuildShareData", function()
       GSD.SaveReceived("Peer", msg, "G", "R")
       local changed = P.ParsePresence({ v = 1, main = "Main", displayName = "NewName", chars = { charEntry("Main") } })
       assert.is_false(GSD.PresenceMatchesStored("Peer", changed, "R"))
+    end)
+
+    it("returns false when mainDeclared changes even if the effective main name matches", function()
+      local declared = P.ParsePresence({
+        v = 1, main = "Topgear", chars = {
+          { name = "Topgear", classFile = "MAGE", level = 70, itemLevel = 145, profs = {} },
+          { name = "Lowgear", classFile = "MAGE", level = 70, itemLevel = 100, profs = {} },
+        },
+      })
+      GSD.SaveReceived("Peer", declared, "G", "R")
+      assert.is_true(GSD.GetCharacter("Topgear", "R").mainDeclared)
+      local deduced = P.ParsePresence({
+        v = 1, main = nil, chars = {
+          { name = "Topgear", classFile = "MAGE", level = 70, itemLevel = 145, profs = {} },
+          { name = "Lowgear", classFile = "MAGE", level = 70, itemLevel = 100, profs = {} },
+        },
+      })
+      assert.is_false(GSD.PresenceMatchesStored("Peer", deduced, "R"))
     end)
 
     it("returns false when spec changes", function()
@@ -306,10 +328,12 @@ describe("GuildShareData", function()
       end
       assert.are.equal("local", main.source)
       assert.is_true(main.isMain)
+      assert.is_true(main.mainDeclared)
       assert.are.equal("MainDisplay", main.displayName)
       assert.truthy(main.Professions.Tailoring)
       assert.are.equal(375, main.Professions.Tailoring.rank)
       assert.is_false(alt.isMain)
+      assert.is_true(alt.mainDeclared)
     end)
 
     it("GetGuildMembersForDisplay merges received data with local account characters", function()
@@ -335,6 +359,7 @@ describe("GuildShareData", function()
         local key = m.main or "<nil>"
         mains[key] = (mains[key] or 0) + 1
         if m.isMain then isMainCount = isMainCount + 1 end
+        assert.is_false(m.mainDeclared)
       end
       -- Highest-level character (Main, 70) becomes the implicit main for the whole group.
       assert.are.equal(2, mains["Main"])
@@ -377,6 +402,29 @@ describe("GuildShareData", function()
       local removed = GSD.PurgeStale(100, NOW + 50)
       assert.are.equal(0, removed)
       assert.are.equal(1, #GSD.GetGuildMembers("G"))
+    end)
+
+    it("RemoveGroup removes all characters under that main", function()
+      GSD.SaveReceived("Main", P.ParsePresence(presence("Main", {
+        charEntry("Main"), charEntry("Alt"),
+      })), "G", "R")
+      GSD.SaveReceived("Other", P.ParsePresence(presence("Other", {
+        charEntry("Other"),
+      })), "G", "R")
+      local removed = GSD.RemoveGroup("Main", "R")
+      assert.are.equal(2, removed)
+      local remaining = GSD.GetGuildMembers("G")
+      assert.are.equal(1, #remaining)
+      assert.are.equal("Other", remaining[1].name)
+    end)
+
+    it("RemoveGroup with no realm searches all realms", function()
+      GSD.SaveReceived("Main", P.ParsePresence(presence("Main", {
+        charEntry("Main"),
+      })), "G", "R")
+      local removed = GSD.RemoveGroup("Main")
+      assert.are.equal(1, removed)
+      assert.are.equal(0, #GSD.GetGuildMembers("G"))
     end)
   end)
 end)

@@ -42,7 +42,9 @@ end
 Comm._FormatMsgType = formatMsgType
 
 local BROADCAST_THROTTLE = 10          -- seconds between guild broadcasts
-local STALE_MAX_AGE = 60 * 60 * 24 * 14 -- prune received data older than 14 days
+-- Prune received data older than 60 days (14+ day data stays but is flagged in the Guild tab).
+Comm.STALE_MAX_AGE = 60 * 60 * 24 * 60
+local STALE_MAX_AGE = Comm.STALE_MAX_AGE
 
 local commObj            -- table embedded with AceComm-3.0 + AceSerializer-3.0
 local initialized = false
