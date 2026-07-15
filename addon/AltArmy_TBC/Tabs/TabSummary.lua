@@ -33,11 +33,50 @@ local SECTION_GAP = Theme.SECTION_GAP
 
 local CLASS_ICON_SHEET = "Interface\\WorldStateFrame\\Icons-Classes"
 local ICON_SIZE = 16
-local BANK_ICON_SIZE = 16
+local STATUS_ICON_SIZE = 16
+local STATUS_ICON_GAP = 2
+local MAIN_STAR_TEXTURE = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_1"
 
 local CC = AltArmy.ClassColor
 local BA = AltArmy.BankAlt
+local GTD = AltArmy.GuildTabData
 local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
+
+local function openOptionsForMainCharacter()
+    if AltArmy.OpenInterfaceOptions then
+        AltArmy.OpenInterfaceOptions("general", { flash = "main" })
+    end
+end
+
+local function openOptionsForBankAlt(name, realm)
+    if AltArmy.OpenInterfaceOptions then
+        AltArmy.OpenInterfaceOptions("characters", {
+            name = name,
+            realm = realm,
+            flash = "bankAlt",
+        })
+    end
+end
+
+local function hideStatusIcon(icon, hit)
+    if icon then icon:Hide() end
+    if hit then
+        hit.tooltipEntry = nil
+        hit:Hide()
+    end
+end
+
+local function showStatusIcon(row, icon, hit, x, tooltipEntry)
+    if icon then
+        icon:ClearAllPoints()
+        icon:SetPoint("LEFT", row, "LEFT", x, 0)
+        icon:Show()
+    end
+    if hit then
+        hit.tooltipEntry = tooltipEntry
+        hit:Show()
+    end
+end
 
 local function SetNameIcon(icon, iconFallback, classFile)
     local tcoords = CLASS_ICON_TCOORDS and classFile and CLASS_ICON_TCOORDS[classFile]
@@ -620,7 +659,7 @@ for i = 1, ROW_POOL_SIZE do
     row.nameOverlay = nameOverlay
 
     local bankAltIcon = row:CreateTexture(nil, "ARTWORK")
-    bankAltIcon:SetSize(BANK_ICON_SIZE, BANK_ICON_SIZE)
+    bankAltIcon:SetSize(STATUS_ICON_SIZE, STATUS_ICON_SIZE)
     bankAltIcon:SetTexture(BA and BA.ICON_TEXTURE or "Interface\\MINIMAP\\TRACKING\\Banker")
     bankAltIcon:Hide()
     row.bankAltIcon = bankAltIcon
@@ -639,7 +678,47 @@ for i = 1, ROW_POOL_SIZE do
     bankAltHit:SetScript("OnLeave", function()
         if GameTooltip then GameTooltip:Hide() end
     end)
+    bankAltHit:SetScript("OnMouseUp", function(self, button)
+        if button ~= "LeftButton" then return end
+        local e = self.tooltipEntry
+        if e then
+            openOptionsForBankAlt(e.name, e.realm)
+        end
+    end)
     row.bankAltHit = bankAltHit
+
+    local mainStarIcon = row:CreateTexture(nil, "ARTWORK")
+    mainStarIcon:SetSize(STATUS_ICON_SIZE, STATUS_ICON_SIZE)
+    mainStarIcon:SetTexture(MAIN_STAR_TEXTURE)
+    mainStarIcon:Hide()
+    row.mainStarIcon = mainStarIcon
+
+    local mainStarHit = CreateFrame("Frame", nil, row)
+    mainStarHit:SetAllPoints(mainStarIcon)
+    mainStarHit:EnableMouse(true)
+    mainStarHit:Hide()
+    mainStarHit:SetFrameLevel(row:GetFrameLevel() + 3)
+    mainStarHit:SetScript("OnEnter", function(self)
+        if not self.showTooltip then return end
+        local e = self.tooltipEntry
+        if GTD and GTD.PresentMainStarTooltip then
+            GTD.PresentMainStarTooltip(self, "ANCHOR_BOTTOMLEFT", {
+                name = e and e.name,
+                classFile = e and e.classFile,
+                isOwn = true,
+                showConfigureHint = true,
+            })
+        end
+    end)
+    mainStarHit:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    mainStarHit:SetScript("OnMouseUp", function(_, button)
+        if button == "LeftButton" then
+            openOptionsForMainCharacter()
+        end
+    end)
+    row.mainStarHit = mainStarHit
 
     rowPool[i] = row
     prevRow = row
@@ -801,29 +880,36 @@ Update = function()
                         SetNameIcon(rowFrame.nameIcon, rowFrame.nameIconFallback, entry.classFile)
                         local nameColW = columns.Name and columns.Name.Width
                             or (NAME_COL_BASE_WIDTH - WARNING_COL_WIDTH)
-                        local nameTextLeft = ICON_SIZE + 2
-                        if isBankAlt then
-                            nameTextLeft = nameTextLeft + BANK_ICON_SIZE + 2
-                            if rowFrame.bankAltIcon then
-                                rowFrame.bankAltIcon:ClearAllPoints()
-                                rowFrame.bankAltIcon:SetPoint("LEFT", rowFrame, "LEFT", ICON_SIZE + 2, 0)
-                                rowFrame.bankAltIcon:Show()
-                            end
-                            if rowFrame.bankAltHit then
-                                rowFrame.bankAltHit.tooltipEntry = {
-                                    name = entry.name or "",
-                                    realm = entry.realm or "",
-                                    classFile = entry.classFile,
-                                }
-                                rowFrame.bankAltHit:Show()
+                        local GSS = AltArmy.GuildShareSettings
+                        local isMain = GSS and GSS.IsConfiguredMain
+                            and GSS.IsConfiguredMain(entry.name, entry.realm)
+                        local layout = SD.GetNameStatusIconLayout(
+                            ICON_SIZE, STATUS_ICON_SIZE, STATUS_ICON_GAP, isMain, isBankAlt
+                        )
+                        if isMain then
+                            showStatusIcon(rowFrame, rowFrame.mainStarIcon, rowFrame.mainStarHit, layout.mainX, {
+                                name = entry.name or "",
+                                classFile = entry.classFile,
+                            })
+                            if rowFrame.mainStarHit then
+                                rowFrame.mainStarHit.showTooltip = true
                             end
                         else
-                            if rowFrame.bankAltIcon then rowFrame.bankAltIcon:Hide() end
-                            if rowFrame.bankAltHit then
-                                rowFrame.bankAltHit.tooltipEntry = nil
-                                rowFrame.bankAltHit:Hide()
+                            hideStatusIcon(rowFrame.mainStarIcon, rowFrame.mainStarHit)
+                            if rowFrame.mainStarHit then
+                                rowFrame.mainStarHit.showTooltip = false
                             end
                         end
+                        if isBankAlt then
+                            showStatusIcon(rowFrame, rowFrame.bankAltIcon, rowFrame.bankAltHit, layout.bankX, {
+                                name = entry.name or "",
+                                realm = entry.realm or "",
+                                classFile = entry.classFile,
+                            })
+                        else
+                            hideStatusIcon(rowFrame.bankAltIcon, rowFrame.bankAltHit)
+                        end
+                        local nameTextLeft = layout.nameTextLeft
                         cell:ClearAllPoints()
                         cell:SetPoint("LEFT", rowFrame, "LEFT", nameTextLeft, 0)
                         cell:SetWidth(nameColW - nameTextLeft)
@@ -854,11 +940,11 @@ Update = function()
                     rowFrame.nameOverlay.fullNameDisplay = nil
                     rowFrame.nameOverlay.wasTruncated = nil
                 end
-                if rowFrame.bankAltIcon then rowFrame.bankAltIcon:Hide() end
-                if rowFrame.bankAltHit then
-                    rowFrame.bankAltHit.tooltipEntry = nil
-                    rowFrame.bankAltHit:Hide()
+                hideStatusIcon(rowFrame.mainStarIcon, rowFrame.mainStarHit)
+                if rowFrame.mainStarHit then
+                    rowFrame.mainStarHit.showTooltip = false
                 end
+                hideStatusIcon(rowFrame.bankAltIcon, rowFrame.bankAltHit)
                 rowFrame:Hide()
             end
         end

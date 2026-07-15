@@ -852,6 +852,66 @@ function Theme.ApplySettingsGlow(texture)
     texture:SetColorTexture(g[1], g[2], g[3], g[4])
 end
 
+--- Alpha for a pulsing attention highlight. Returns nil when `elapsed >= duration`.
+function Theme.AttentionFlashAlpha(elapsed, duration, pulses)
+    duration = duration or 2
+    pulses = pulses or 3
+    if not elapsed or elapsed < 0 or elapsed >= duration or duration <= 0 then
+        return nil
+    end
+    local t = (elapsed / duration) * pulses * math.pi * 2
+    return 0.35 + 0.65 * math.abs(math.sin(t))
+end
+
+--- Flash a yellow bordered highlight around `frame` to draw attention (e.g. options deep-link).
+--- opts: duration (seconds), pulses, pad (pixels outside the frame)
+function Theme.FlashAttentionHighlight(frame, opts)
+    if not frame then return end
+    opts = opts or {}
+    local duration = opts.duration or 2.0
+    local pulses = opts.pulses or 3
+    local pad = opts.pad or 4
+
+    local hl = frame.altArmyAttentionHighlight
+    if not hl then
+        hl = CreateFrame("Frame", nil, frame)
+        hl:EnableMouse(false)
+        if Theme.ApplyBackdrop then
+            Theme.ApplyBackdrop(hl, "tooltip")
+        end
+        local g = C.settingsGlow
+        if hl.SetBackdropBorderColor then
+            hl:SetBackdropBorderColor(g[1], g[2], g[3], 1)
+        end
+        if hl.SetBackdropColor then
+            hl:SetBackdropColor(g[1], g[2], g[3], 0.12)
+        end
+        frame.altArmyAttentionHighlight = hl
+    end
+
+    local level = (frame.GetFrameLevel and frame:GetFrameLevel()) or 0
+    if hl.SetFrameLevel then
+        hl:SetFrameLevel(level + 20)
+    end
+    hl:ClearAllPoints()
+    hl:SetPoint("TOPLEFT", frame, "TOPLEFT", -pad, pad)
+    hl:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", pad, -pad)
+    hl:SetAlpha(1)
+    hl:Show()
+
+    local elapsed = 0
+    hl:SetScript("OnUpdate", function(self, dt)
+        elapsed = elapsed + (dt or 0)
+        local alpha = Theme.AttentionFlashAlpha(elapsed, duration, pulses)
+        if not alpha then
+            self:SetScript("OnUpdate", nil)
+            self:Hide()
+            return
+        end
+        self:SetAlpha(alpha)
+    end)
+end
+
 function Theme.StyleHorizontalScrollBar(slider, opts)
     if not slider then return end
     local o = opts or {}
@@ -1908,17 +1968,39 @@ end
 
 Theme.CRAFTLIB_INSTALL_URL = "https://www.curseforge.com/wow/addons/craftlib"
 
+--- Soft blue accent used for callout bullet lists (matches GuildShareOnboarding).
+Theme.BULLET_TEXT_COLOR = { 0.54, 0.71, 0.97, 1 }
+
 --- CraftLib install callout (Search settings / Guild recipe list).
---- opts.bodyText — optional override for the description paragraph.
---- opts.height — panel height (default 132).
+--- opts.bodyText — optional gray description paragraph (used when introText is nil).
+--- opts.introText — optional white intro line (e.g. "Install the CraftLib addon to see:").
+--- opts.bulletLines — optional list of bullet body strings (shown in soft blue with "• ").
+--- opts.height — panel height (default fits content; ~132 without bullets).
 --- opts.padding — inner padding (default 8).
 function Theme.CreateCraftLibInstallCallout(parent, opts)
     opts = opts or {}
     local padding = opts.padding or 8
-    local height = opts.height or 132
+    local bulletLines = opts.bulletLines
+    local hasBullets = type(bulletLines) == "table" and #bulletLines > 0
+    local introText = opts.introText
     local bodyText = opts.bodyText
         or "Alt Army can do more advanced recipe filtering if you install the CraftLib addon"
     local urlRowHeight = opts.urlRowHeight or 22
+    local bulletColor = Theme.BULLET_TEXT_COLOR
+    -- GameFontHighlightSmall line height used to size the panel to its content.
+    local lineH = 12
+    local height = opts.height
+    if not height then
+        if hasBullets then
+            local n = #bulletLines
+            -- pad + icon + gaps + intro + bullets + install + url + pad
+            height = padding * 2 + 24 + 6 + lineH + 4
+                + (lineH * n) + (2 * math.max(0, n - 1))
+                + 6 + lineH + 4 + urlRowHeight
+        else
+            height = 132
+        end
+    end
 
     local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     Theme.ApplyBackdrop(frame, "section")
@@ -1939,19 +2021,45 @@ function Theme.CreateCraftLibInstallCallout(parent, opts)
     title:SetText("CraftLib")
     Theme.SetTitleColor(title)
 
-    local body = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    body:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -8)
-    body:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
-    body:SetJustifyH("LEFT")
-    body:SetWordWrap(true)
-    Theme.SetLabelColor(body)
-    body:SetText(bodyText)
+    local contentBottom
+    if introText or hasBullets then
+        local intro = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        intro:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -6)
+        intro:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
+        intro:SetJustifyH("LEFT")
+        intro:SetWordWrap(true)
+        intro:SetTextColor(1, 1, 1, 1)
+        intro:SetText(introText or bodyText)
+        contentBottom = intro
+
+        if hasBullets then
+            for i = 1, #bulletLines do
+                local bullet = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                bullet:SetPoint("TOPLEFT", contentBottom, "BOTTOMLEFT", 0, i == 1 and -4 or -2)
+                bullet:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
+                bullet:SetJustifyH("LEFT")
+                bullet:SetWordWrap(true)
+                bullet:SetTextColor(bulletColor[1], bulletColor[2], bulletColor[3], bulletColor[4])
+                bullet:SetText("• " .. tostring(bulletLines[i]))
+                contentBottom = bullet
+            end
+        end
+    else
+        local body = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        body:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -8)
+        body:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
+        body:SetJustifyH("LEFT")
+        body:SetWordWrap(true)
+        Theme.SetLabelColor(body)
+        body:SetText(bodyText)
+        contentBottom = body
+    end
 
     local installLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    installLabel:SetPoint("TOPLEFT", body, "BOTTOMLEFT", 0, -10)
+    installLabel:SetPoint("TOPLEFT", contentBottom, "BOTTOMLEFT", 0, -6)
     installLabel:SetJustifyH("LEFT")
     installLabel:SetText("Install from CurseForge")
-    Theme.SetLabelColor(installLabel)
+    installLabel:SetTextColor(1, 1, 1, 1)
 
     local urlEdit = CreateFrame("EditBox", nil, frame)
     urlEdit:SetHeight(urlRowHeight)

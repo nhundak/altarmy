@@ -1389,11 +1389,17 @@ HandleCompareRowLeave = function(row, entry)
 end
 
 local function FormatCharacterLabel(entry, showRealmSuffix)
-    local labelText = entry.name or "?"
-    if showRealmSuffix and entry.realm and entry.realm ~= "" then
-        labelText = labelText .. "-" .. entry.realm
+    local name = (entry and entry.name) or "?"
+    local realm = entry and entry.realm
+    local classFile = entry and entry.classFile
+    if RF and RF.formatColoredCharacterNameRealm then
+        -- omit inline bank icon; Graphs selector has no separate bank column
+        return RF.formatColoredCharacterNameRealm(name, realm, showRealmSuffix, classFile, false)
     end
-    return labelText
+    if showRealmSuffix and realm and realm ~= "" then
+        return name .. " — " .. realm
+    end
+    return name
 end
 
 local function RefreshSelector()
@@ -1444,7 +1450,8 @@ local function RefreshSelector()
         local r, g, b = LPD.GetClassColor(entry.classFile)
         row.swatch:SetVertexColor(r, g, b, 1)
         row.label:SetText(FormatCharacterLabel(entry, showRealmSuffix))
-        row.label:SetTextColor(r, g, b, 1)
+        -- White so class/gray realm escape codes from FormatCharacterLabel render correctly
+        row.label:SetTextColor(1, 1, 1, 1)
 
         row.check:SetChecked(IsSelected(entry.realm, entry.name))
         row.check:SetScript("OnClick", function(self)
@@ -1483,7 +1490,7 @@ local function RefreshSelector()
             local r, g, b = LPD.GetClassColor(entry.classFile)
             row.swatch:SetVertexColor(r, g, b, 0.45)
             row.label:SetText(FormatCharacterLabel(entry, showRealmSuffix))
-            row.label:SetTextColor(r, g, b, 0.55)
+            row.label:SetTextColor(1, 1, 1, 0.55)
 
             yOffset = yOffset + ROW_HEIGHT
         end

@@ -209,6 +209,7 @@ searchScrollBar:EnableMouse(true)
 -- OnValueChanged set below after UpdateVisibleRows is defined
 
 -- Horizontal scroll bar at bottom of list area (like Summary tab)
+local UpdateStickyHeaders
 local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
     name = "AltArmyTBC_SearchHorizontalScrollBar",
     thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
@@ -218,6 +219,9 @@ local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
             horizontalScroll:UpdateScrollChildRect()
         end
         horizontalScroll:SetHorizontalScroll(value)
+        if UpdateStickyHeaders then
+            UpdateStickyHeaders()
+        end
     end,
     isShown = function()
         return frame:IsShown()
@@ -257,10 +261,12 @@ horizontalScrollChild:SetHeight(1)
 horizontalScrollChild:SetWidth(totalColWidth)
 horizontalScroll:SetScrollChild(horizontalScrollChild)
 
--- Reparent scroll frame into horizontal scroll child so it scrolls with the grid
+-- Reparent scroll frame into horizontal scroll child so it scrolls with the grid.
+-- Inset 2px from the top so row text cannot draw into the seam above the sticky header
+-- (ScrollFrame clips its child; a full-bleed top edge lets 1–2px of text peek through).
 scrollFrame:ClearAllPoints()
 scrollFrame:SetParent(horizontalScrollChild)
-scrollFrame:SetPoint("TOPLEFT", horizontalScrollChild, "TOPLEFT", 0, 0)
+scrollFrame:SetPoint("TOPLEFT", horizontalScrollChild, "TOPLEFT", 0, -2)
 scrollFrame:SetPoint("BOTTOMLEFT", horizontalScrollChild, "BOTTOMLEFT", 0, 0)
 scrollFrame:SetPoint("BOTTOMRIGHT", horizontalScrollChild, "BOTTOMRIGHT", 0, 0)
 
@@ -268,10 +274,27 @@ local function StyleStickySearchHeader(headerRow)
     headerRow:EnableMouse(true)
     headerRow:SetScript("OnMouseWheel", OnSearchScrollWheel)
     local headerBg = headerRow:CreateTexture(nil, "BACKGROUND")
-    headerBg:SetAllPoints(headerRow)
+    -- Overhang above the header frame seals the viewport top edge under the sticky header.
+    headerBg:SetPoint("TOPLEFT", headerRow, "TOPLEFT", 0, 2)
+    headerBg:SetPoint("TOPRIGHT", headerRow, "TOPRIGHT", 0, 2)
+    headerBg:SetPoint("BOTTOMLEFT", headerRow, "BOTTOMLEFT", 0, 0)
+    headerBg:SetPoint("BOTTOMRIGHT", headerRow, "BOTTOMRIGHT", 0, 0)
     Theme.StyleGridHeader(headerBg)
-    headerRow:SetFrameLevel(scrollFrame:GetFrameLevel() + 20)
+    -- Draw above nested scroll frames so row text cannot peek at the viewport seam.
+    headerRow:SetFrameLevel((listViewport:GetFrameLevel() or 0) + 40)
 end
+
+-- Viewport-fixed strip covering the top seam when a section header is pinned.
+local stickyHeaderTopSeal = CreateFrame("Frame", nil, listViewport)
+stickyHeaderTopSeal:SetHeight(2)
+stickyHeaderTopSeal:SetPoint("TOPLEFT", listViewport, "TOPLEFT", 0, 0)
+stickyHeaderTopSeal:SetPoint("TOPRIGHT", listViewport, "TOPRIGHT", 0, 0)
+stickyHeaderTopSeal:SetFrameLevel((listViewport:GetFrameLevel() or 0) + 45)
+local stickyHeaderTopSealBg = stickyHeaderTopSeal:CreateTexture(nil, "BACKGROUND")
+stickyHeaderTopSealBg:SetAllPoints(stickyHeaderTopSeal)
+Theme.StyleGridHeader(stickyHeaderTopSealBg)
+stickyHeaderTopSeal:EnableMouse(false)
+stickyHeaderTopSeal:Hide()
 
 local resultsArea = CreateFrame("Frame", nil, scrollFrame)
 resultsArea:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
@@ -327,14 +350,15 @@ local function applySectionSorts()
     end
 end
 
--- Items section header (sticky overlay on horizontalScrollChild; shown when items have results)
-local itemsHeaderRow = CreateFrame("Frame", nil, horizontalScrollChild)
+-- Sticky section headers overlay the clipping viewport (not the nested scroll-child),
+-- so they seal the top edge above scrolling row text. X is synced to horizontal scroll.
+local itemsHeaderRow = CreateFrame("Frame", nil, listViewport)
 itemsHeaderRow:SetHeight(HEADER_HEIGHT)
 StyleStickySearchHeader(itemsHeaderRow)
 itemsHeaderRow:Hide()
 local itemsHeaderButtons = {}
 -- Recipes section header
-local recipesHeaderRow = CreateFrame("Frame", nil, horizontalScrollChild)
+local recipesHeaderRow = CreateFrame("Frame", nil, listViewport)
 recipesHeaderRow:SetHeight(HEADER_HEIGHT)
 StyleStickySearchHeader(recipesHeaderRow)
 recipesHeaderRow:Hide()
@@ -342,7 +366,7 @@ local recipesHeaderButtons = {}
 
 -- "You may also be interested in:" section header: same columns as items (Item/Character/Total),
 -- with the first column label replaced by the section title.
-local alsoInterestedHeaderRow = CreateFrame("Frame", nil, horizontalScrollChild)
+local alsoInterestedHeaderRow = CreateFrame("Frame", nil, listViewport)
 alsoInterestedHeaderRow:SetHeight(HEADER_HEIGHT)
 StyleStickySearchHeader(alsoInterestedHeaderRow)
 alsoInterestedHeaderRow:Hide()
@@ -877,9 +901,9 @@ local function UpdateStickyHeaderFade(headerRows, stickyTops, scrollValue)
     stickyHeaderFadeFrame:Show()
 end
 
-local function UpdateStickyHeaders()
+UpdateStickyHeaders = function()
     local StickyMod = AltArmy.SearchStickyHeaders
-    if not StickyMod or not horizontalScrollChild then
+    if not StickyMod or not listViewport then
         return
     end
 
@@ -904,11 +928,22 @@ local function UpdateStickyHeaders()
         headerRows[#headerRows + 1] = alsoInterestedHeaderRow
     end
 
+    local hScroll = (horizontalScroll and horizontalScroll.GetHorizontalScroll
+        and horizontalScroll:GetHorizontalScroll()) or 0
+    local headerWidth = totalColWidth or 0
+    local hasPinnedHeader = false
     for i, headerRow in ipairs(headerRows) do
         local stickyTop = stickyTops[i] or 0
+        if stickyTop == 0 then
+            hasPinnedHeader = true
+        end
         headerRow:ClearAllPoints()
-        headerRow:SetPoint("TOPLEFT", horizontalScrollChild, "TOPLEFT", 0, -stickyTop)
-        headerRow:SetPoint("TOPRIGHT", horizontalScrollChild, "TOPRIGHT", 0, -stickyTop)
+        headerRow:SetPoint("TOPLEFT", listViewport, "TOPLEFT", -hScroll, -stickyTop)
+        headerRow:SetWidth(headerWidth)
+    end
+
+    if stickyHeaderTopSeal then
+        stickyHeaderTopSeal:SetShown(hasPinnedHeader)
     end
 
     UpdateStickyHeaderFade(headerRows, stickyTops, scrollValue)
@@ -1815,7 +1850,13 @@ settingsPanel:HookScript("OnHide", function()
 end)
 
 local craftLibCallout = Theme.CreateCraftLibInstallCallout(filterContent, {
-    bodyText = "Alt Army can do more advanced recipe filtering if you install the CraftLib addon",
+    introText = "Install CraftLib addon to see:",
+    bulletLines = {
+        "Advanced filtering options",
+        "Recipe skill requirements",
+        "Color coded difficulty",
+        "All recipe icons",
+    },
 })
 craftLibCallout:SetPoint("TOPLEFT", professionDropdownBtn, "BOTTOMLEFT", 0, -FILTER_SECTION_GAP)
 craftLibCallout:SetPoint("TOPRIGHT", filterContent, "TOPRIGHT", 0, 0)

@@ -495,9 +495,38 @@ function GTD.IsExplicitMain(member)
     return member ~= nil and member.isMain == true and member.mainDeclared == true
 end
 
---- Tooltip for the Guild tab character-row main star.
-function GTD.FormatMainStarTooltip()
-    return "Main Character"
+--- Tooltip for the main-character star.
+--- `isOwn == false` → "their"; otherwise "your".
+--- @param name string|nil
+--- @param classFile string|nil
+--- @param isOwn boolean|nil
+--- @return string
+function GTD.FormatMainStarTooltip(name, classFile, isOwn)
+    local CC = AltArmy.ClassColor
+    local coloredName = CC and CC.formatName and CC.formatName(name, classFile)
+        or ("|cffffffff" .. (name or "?") .. "|r")
+    if isOwn == false then
+        return coloredName .. " is their main character"
+    end
+    return coloredName .. " is your main character"
+end
+
+--- Present main-star tooltip. opts: name, classFile, isOwn, showConfigureHint
+--- @return boolean true if tooltip was shown
+function GTD.PresentMainStarTooltip(owner, anchor, opts)
+    if not owner or not GameTooltip then return false end
+    opts = opts or {}
+    GameTooltip:SetOwner(owner, anchor or "ANCHOR_BOTTOMLEFT")
+    GameTooltip:ClearLines()
+    GameTooltip:AddLine(
+        GTD.FormatMainStarTooltip(opts.name, opts.classFile, opts.isOwn),
+        1, 1, 1, true
+    )
+    if opts.showConfigureHint then
+        GameTooltip:AddLine("Click to configure", 0.5, 0.5, 0.5, true)
+    end
+    GameTooltip:Show()
+    return true
 end
 
 --- Display label for a main group: override → preferredName → main.

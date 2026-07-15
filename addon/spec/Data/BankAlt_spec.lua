@@ -70,18 +70,18 @@ describe("BankAlt", function()
 
     describe("PresentTooltip", function()
         local owner
-        local shown
+        local lines
 
         before_each(function()
-            shown = nil
+            lines = {}
             owner = { anchor = nil }
             _G.GameTooltip = {
                 SetOwner = function(_, frame, anchor)
                     owner.anchor = anchor
                 end,
                 ClearLines = function() end,
-                AddLine = function(_, text)
-                    shown = text
+                AddLine = function(_, text, r, g, b)
+                    lines[#lines + 1] = { text = text, r = r, g = g, b = b }
                 end,
                 Show = function() end,
                 Hide = function() end,
@@ -96,14 +96,24 @@ describe("BankAlt", function()
         it("shows tooltip only for bank alts", function()
             B.Set("Banker", "RealmA", true)
             assert.is_true(B.PresentTooltip(owner, "ANCHOR_BOTTOMLEFT", "Banker", "RealmA", "WARRIOR"))
-            assert.truthy(shown:find("Banker"))
-            assert.truthy(shown:find(" is a bank alt"))
+            assert.truthy(lines[1].text:find("Banker"))
+            assert.truthy(lines[1].text:find(" is a bank alt"))
             assert.are.equal("ANCHOR_BOTTOMLEFT", owner.anchor)
+        end)
+
+        it("adds a gray Click to configure hint", function()
+            B.Set("Banker", "RealmA", true)
+            assert.is_true(B.PresentTooltip(owner, "ANCHOR_BOTTOMLEFT", "Banker", "RealmA", "WARRIOR"))
+            assert.are.equal(2, #lines)
+            assert.are.equal("Click to configure", lines[2].text)
+            assert.are.equal(0.5, lines[2].r)
+            assert.are.equal(0.5, lines[2].g)
+            assert.are.equal(0.5, lines[2].b)
         end)
 
         it("returns false when character is not a bank alt", function()
             assert.is_false(B.PresentTooltip(owner, "ANCHOR_BOTTOMLEFT", "Alice", "RealmA", "WARRIOR"))
-            assert.is_nil(shown)
+            assert.are.equal(0, #lines)
         end)
     end)
 end)

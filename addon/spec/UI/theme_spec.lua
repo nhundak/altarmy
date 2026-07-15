@@ -46,11 +46,13 @@ describe("AltArmy.Theme", function()
             _backdropBorderColor = nil,
             _children = {},
             _textures = {},
+            _fontStrings = {},
             _alpha = 1,
             _shown = true,
             _enabled = true,
             _selected = false,
             _skinned = false,
+            _text = "",
             Left = { SetAlpha = function() end },
             Right = { SetAlpha = function() end },
             Middle = { SetAlpha = function() end },
@@ -108,24 +110,28 @@ describe("AltArmy.Theme", function()
             end
         end
         function f:CreateFontString(_, layer, template)
-            return {
+            local fs = {
                 _shown = true,
                 _text = "",
                 _layer = layer,
                 _template = template,
                 _textColorCalls = 0,
-                SetTextColor = function(self)
+                SetTextColor = function(self, r, g, b, a)
+                    self._textColor = { r, g, b, a }
                     self._textColorCalls = (self._textColorCalls or 0) + 1
                 end,
                 SetText = function(self, t) self._text = t end,
                 SetPoint = function() end,
                 SetWidth = function() end,
                 SetJustifyH = function() end,
+                SetWordWrap = function(self, on) self._wordWrap = on end,
                 Show = function(self) self._shown = true end,
                 Hide = function(self) self._shown = false end,
                 SetShown = function(self, on) self._shown = on end,
                 IsShown = function(self) return self._shown end,
             }
+            table.insert(f._fontStrings, fs)
+            return fs
         end
         function f:GetFontString() return { SetTextColor = function() end } end
         function f:GetNormalTexture() return nil end
@@ -141,6 +147,14 @@ describe("AltArmy.Theme", function()
         function f:IsEnabled() return self._enabled ~= false end
         function f:SetParent() end
         function f:OnBackdropSizeChanged() end
+        function f:SetAutoFocus() end
+        function f:SetTextInsets() end
+        function f:SetFontObject() end
+        function f:HighlightText() end
+        function f:SetFocus() end
+        function f:ClearFocus() end
+        function f:GetText() return self._text or "" end
+        function f:SetText(t) self._text = t or "" end
         table.insert(framesCreated, f)
         return f
     end
@@ -305,6 +319,35 @@ describe("AltArmy.Theme", function()
             assert.is_not_nil(btn.glow)
             assert.are.equal(Theme.COLORS.settingsGlow[1], glow._color[1])
             assert.is_false(glow._shown)
+        end)
+    end)
+
+    describe("AttentionFlashAlpha", function()
+        it("returns nil when the flash duration is complete", function()
+            assert.is_nil(Theme.AttentionFlashAlpha(2, 2, 3))
+            assert.is_nil(Theme.AttentionFlashAlpha(2.1, 2, 3))
+        end)
+
+        it("pulses between low and high alpha within the duration", function()
+            local a0 = Theme.AttentionFlashAlpha(0, 2, 3)
+            local aMid = Theme.AttentionFlashAlpha(1 / 6, 2, 3)
+            assert.is_true(a0 >= 0.35 and a0 <= 1)
+            assert.is_true(aMid > a0)
+        end)
+    end)
+
+    describe("FlashAttentionHighlight", function()
+        it("creates a bordered highlight and hides it when the pulse ends", function()
+            local target = makeStubFrame()
+            Theme.FlashAttentionHighlight(target, { duration = 0.5, pulses = 2, pad = 3 })
+            local hl = target.altArmyAttentionHighlight
+            assert.is_not_nil(hl)
+            assert.is_not_nil(hl._backdropBorderColor)
+            assert.is_true(hl._shown)
+            assert.is_not_nil(hl._scripts.OnUpdate)
+            hl._scripts.OnUpdate(hl, 0.6)
+            assert.is_false(hl._shown)
+            assert.is_nil(hl._scripts.OnUpdate)
         end)
     end)
 
@@ -939,6 +982,65 @@ describe("AltArmy.Theme", function()
             assert.are.equal("GameFontNormal", label._template)
             assert.are.equal("Transmute", label._text)
             assert.are.equal(0, label._textColorCalls)
+        end)
+    end)
+
+    describe("CreateCraftLibInstallCallout", function()
+        local function textsByValue(frame, value)
+            local matches = {}
+            for _, fs in ipairs(frame._fontStrings or {}) do
+                if fs._text == value then
+                    table.insert(matches, fs)
+                end
+            end
+            return matches
+        end
+
+        it("renders gray body text and CurseForge install label by default", function()
+            local parent = makeStubFrame()
+            local callout = Theme.CreateCraftLibInstallCallout(parent, {
+                bodyText = "Install CraftLib for filters",
+            })
+            local body = textsByValue(callout, "Install CraftLib for filters")[1]
+            local install = textsByValue(callout, "Install from CurseForge")[1]
+            assert.is_not_nil(body)
+            assert.is_not_nil(install)
+            assert.are.same(Theme.COLORS.label, body._textColor)
+            assert.are.same({ 1, 1, 1, 1 }, install._textColor)
+            assert.are.equal(Theme.CRAFTLIB_INSTALL_URL, callout.urlEdit:GetText())
+        end)
+
+        it("renders white intro and blue bullet lines when provided", function()
+            local parent = makeStubFrame()
+            local callout = Theme.CreateCraftLibInstallCallout(parent, {
+                introText = "Install CraftLib addon to see:",
+                bulletLines = {
+                    "Advanced filtering options",
+                    "Recipe skill requirements",
+                    "Color coded difficulty",
+                    "All recipe icons",
+                },
+            })
+            local intro = textsByValue(callout, "Install CraftLib addon to see:")[1]
+            local bullet1 = textsByValue(callout, "• Advanced filtering options")[1]
+            local bullet2 = textsByValue(callout, "• Recipe skill requirements")[1]
+            local bullet3 = textsByValue(callout, "• Color coded difficulty")[1]
+            local bullet4 = textsByValue(callout, "• All recipe icons")[1]
+            local install = textsByValue(callout, "Install from CurseForge")[1]
+            assert.is_not_nil(intro)
+            assert.is_not_nil(bullet1)
+            assert.is_not_nil(bullet2)
+            assert.is_not_nil(bullet3)
+            assert.is_not_nil(bullet4)
+            assert.is_not_nil(install)
+            assert.are.same({ 1, 1, 1, 1 }, intro._textColor)
+            assert.are.same({ 0.54, 0.71, 0.97, 1 }, bullet1._textColor)
+            assert.are.same({ 0.54, 0.71, 0.97, 1 }, bullet2._textColor)
+            assert.are.same({ 0.54, 0.71, 0.97, 1 }, bullet3._textColor)
+            assert.are.same({ 0.54, 0.71, 0.97, 1 }, bullet4._textColor)
+            assert.are.same({ 1, 1, 1, 1 }, install._textColor)
+            -- pad*2 + icon + gaps + intro + 4 bullets + install + url
+            assert.are.equal(160, callout._height)
         end)
     end)
 

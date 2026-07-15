@@ -162,6 +162,15 @@ function GSS.GetMain(realm)
     return ensure().mains[realm or currentRealm()]
 end
 
+--- True when `name` is this realm's explicitly saved main (Options / guild share).
+function GSS.IsConfiguredMain(name, realm)
+    if type(name) ~= "string" or name == "" then
+        return false
+    end
+    local main = GSS.GetMain(realm)
+    return type(main) == "string" and main ~= "" and main == name
+end
+
 function GSS.SetMain(realm, name)
     ensure().mains[realm or currentRealm()] = name
 end

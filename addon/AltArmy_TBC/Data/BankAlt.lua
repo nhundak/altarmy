@@ -69,6 +69,7 @@ function B.PresentTooltip(owner, anchor, name, realm, classFile)
     GameTooltip:SetOwner(owner, anchor or "ANCHOR_BOTTOMLEFT")
     GameTooltip:ClearLines()
     GameTooltip:AddLine(B.GetTooltipText(name, classFile), 1, 1, 1, true)
+    GameTooltip:AddLine("Click to configure", 0.5, 0.5, 0.5, true)
     GameTooltip:Show()
     return true
 end

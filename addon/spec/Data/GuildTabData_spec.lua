@@ -1594,6 +1594,16 @@ describe("GuildTabData", function()
   end)
 
   describe("explicit main star", function()
+    setup(function()
+      _G.RAID_CLASS_COLORS = _G.RAID_CLASS_COLORS or {
+        MAGE = { r = 0.41, g = 0.8, b = 0.94 },
+        WARRIOR = { r = 0.78, g = 0.61, b = 0.43 },
+      }
+      package.loaded["ClassColor"] = nil
+      package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+      require("ClassColor")
+    end)
+
     it("IsExplicitMain is true only for declared mains", function()
       assert.is_true(GTD.IsExplicitMain(member({ name = "Main", isMain = true, mainDeclared = true })))
       assert.is_false(GTD.IsExplicitMain(member({ name = "Main", isMain = true, mainDeclared = false })))
@@ -1601,8 +1611,62 @@ describe("GuildTabData", function()
       assert.is_false(GTD.IsExplicitMain(nil))
     end)
 
-    it("FormatMainStarTooltip returns Main Character", function()
-      assert.are.equal("Main Character", GTD.FormatMainStarTooltip())
+    it("FormatMainStarTooltip uses your for own characters", function()
+      local text = GTD.FormatMainStarTooltip("Alice", "MAGE", true)
+      assert.truthy(text:find("|cff"))
+      assert.truthy(text:find("Alice"))
+      assert.truthy(text:find(" is your main character$"))
+    end)
+
+    it("FormatMainStarTooltip uses their for other players' characters", function()
+      local text = GTD.FormatMainStarTooltip("Bob", "WARRIOR", false)
+      assert.truthy(text:find("Bob"))
+      assert.truthy(text:find(" is their main character$"))
+    end)
+
+    it("PresentMainStarTooltip shows title and gray Click to configure hint", function()
+      local lines = {}
+      local owner = {}
+      _G.GameTooltip = {
+        SetOwner = function() end,
+        ClearLines = function() end,
+        AddLine = function(_, text, r, g, b)
+          lines[#lines + 1] = { text = text, r = r, g = g, b = b }
+        end,
+        Show = function() end,
+      }
+      assert.is_true(GTD.PresentMainStarTooltip(owner, "ANCHOR_BOTTOMLEFT", {
+        name = "Alice",
+        classFile = "MAGE",
+        isOwn = true,
+        showConfigureHint = true,
+      }))
+      assert.truthy(lines[1].text:find("Alice"))
+      assert.truthy(lines[1].text:find(" is your main character"))
+      assert.are.equal(1, lines[1].r)
+      assert.are.equal("Click to configure", lines[2].text)
+      assert.are.equal(0.5, lines[2].r)
+      assert.are.equal(0.5, lines[2].g)
+      assert.are.equal(0.5, lines[2].b)
+    end)
+
+    it("PresentMainStarTooltip omits configure hint when not requested", function()
+      local lines = {}
+      _G.GameTooltip = {
+        SetOwner = function() end,
+        ClearLines = function() end,
+        AddLine = function(_, text)
+          lines[#lines + 1] = text
+        end,
+        Show = function() end,
+      }
+      assert.is_true(GTD.PresentMainStarTooltip({}, "ANCHOR_BOTTOMLEFT", {
+        name = "Bob",
+        classFile = "WARRIOR",
+        isOwn = false,
+      }))
+      assert.are.equal(1, #lines)
+      assert.truthy(lines[1]:find(" is their main character"))
     end)
   end)
 

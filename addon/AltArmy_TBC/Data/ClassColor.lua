@@ -68,3 +68,20 @@ function CC.wrapName(text, classFile)
     end
     return text
 end
+
+--- Class-colored name plus an optional suffix (e.g. " options"), optionally title-colored.
+--- @param name string|nil
+--- @param classFile string|nil
+--- @param suffix string|nil
+--- @param suffixRgb table|nil { r, g, b } or { r, g, b, a }
+--- @return string
+function CC.formatNameWithSuffix(name, classFile, suffix, suffixRgb)
+    local coloredName = CC.formatName(name, classFile)
+    if not suffix or suffix == "" then
+        return coloredName
+    end
+    if suffixRgb and suffixRgb[1] and CC.formatHex then
+        return coloredName .. CC.formatHex(suffixRgb[1], suffixRgb[2], suffixRgb[3], suffix)
+    end
+    return coloredName .. suffix
+end

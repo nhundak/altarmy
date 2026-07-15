@@ -884,6 +884,11 @@ guildMainDropdown.popup:ClearAllPoints()
 guildMainDropdown.popup:SetPoint("TOPLEFT", guildMainDropdown.button, "BOTTOMLEFT", 0, -2)
 guildMainDropdown.popup:SetPoint("TOPRIGHT", guildMainDropdown.button, "BOTTOMRIGHT", 0, -2)
 
+-- Hit region covering the main-character label + dropdown for attention flashes.
+local guildMainFocusRegion = CreateFrame("Frame", nil, guildIdentityRow)
+guildMainFocusRegion:EnableMouse(false)
+anchorGuildSharingLeftHalf(guildMainFocusRegion, guildIdentityRow)
+
 guildDisplayEdit = CreateFrame("EditBox", nil, guildDisplayControlColumn)
 guildDisplayEdit:SetPoint("TOPLEFT", guildDisplayControlColumn, "TOPLEFT", 0, 0)
 guildDisplayEdit:SetPoint("BOTTOMRIGHT", guildDisplayControlColumn, "BOTTOMRIGHT", 0, 0)
@@ -943,7 +948,7 @@ local guildChatInsertRow = Theme.CreateLabeledCheckbox(guildChatLeftColumn, {
     relativePoint = "TOPLEFT",
     x = 0,
     y = 0,
-    text = "Show guildmate mains in chat / online alerts",
+    text = "Show guildmate mains in chat",
     fullWidthHover = true,
     onClick = function(checked)
         local GSS = AltArmy.GuildShareSettings
@@ -1066,12 +1071,31 @@ panel.tabGearUpgradesHost = tabGearUpgrades
 -- Selection state
 -- ---------------------------------------------------------------------------
 
-local selectedEntry        = nil   -- { name, realm } or nil
+local selectedEntry        = nil   -- { name, realm, classFile } or nil
 local deleteConfirmPending = false
 
 -- Forward declarations
 local RefreshCharacterList
 local UpdateCharSettings
+
+local function ResolveCharacterClassFile(name, realm)
+    local DS = AltArmy.DataStore
+    if not DS or not DS.GetCharacter then return nil end
+    local charData = DS:GetCharacter(name, realm)
+    return charData and charData.classFile or nil
+end
+
+local function SelectCharacterEntry(name, realm, classFile)
+    if not name or not realm then
+        selectedEntry = nil
+        return
+    end
+    selectedEntry = {
+        name = name,
+        realm = realm,
+        classFile = classFile or ResolveCharacterClassFile(name, realm),
+    }
+end
 
 -- ---------------------------------------------------------------------------
 -- Character scroll list (left column)
@@ -1205,8 +1229,9 @@ local function RefreshCharacterList_impl()
         -- Click: select this character and update the right pane
         local capName  = entry.name
         local capRealm = entry.realm
+        local capClass = entry.classFile
         row:SetScript("OnClick", function()
-            selectedEntry = { name = capName, realm = capRealm }
+            SelectCharacterEntry(capName, capRealm, capClass)
             UpdateCharSettings()
             RefreshCharacterList()
         end)
@@ -1224,6 +1249,32 @@ local charSettingPrompt = tabCharacters:CreateFontString(nil, "ARTWORK", "GameFo
 charSettingPrompt:SetPoint("TOPLEFT", tabCharacters, "TOP", COL_GAP / 2, 0)
 charSettingPrompt:SetText("Choose a character to begin")
 charSettingPrompt:Show()
+
+-- "{Name} options" shown when a character is selected (name is class-colored).
+local charSettingHeader = tabCharacters:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+charSettingHeader:SetPoint("TOPLEFT", tabCharacters, "TOP", COL_GAP / 2, 0)
+charSettingHeader:SetPoint("RIGHT", tabCharacters, "RIGHT", -16, 0)
+charSettingHeader:SetJustifyH("LEFT")
+charSettingHeader:Hide()
+
+local function formatCharSettingHeader(entry)
+    local titleRgb = Theme.COLORS and Theme.COLORS.title
+    if CC and CC.formatNameWithSuffix then
+        return CC.formatNameWithSuffix(entry.name, entry.classFile, " options", titleRgb)
+    end
+    return (entry.name or "?") .. " options"
+end
+
+local function setCharSettingHeader(entry)
+    if not entry then
+        charSettingHeader:Hide()
+        return
+    end
+    charSettingHeader:SetText(formatCharSettingHeader(entry))
+    -- White base so embedded class/title color codes render as authored.
+    charSettingHeader:SetTextColor(1, 1, 1, 1)
+    charSettingHeader:Show()
+end
 
 local BANK_ALT_HELP = {
     title = "Bank alt",
@@ -1255,7 +1306,7 @@ local function isGuildShareOptionsEnabled()
 end
 
 local charGuildShareLabel = tabCharacters:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-charGuildShareLabel:SetPoint("TOPLEFT", charListFrame, "TOPRIGHT", COL_GAP, 0)
+charGuildShareLabel:SetPoint("TOPLEFT", charSettingHeader, "BOTTOMLEFT", 0, -12)
 charGuildShareLabel:SetPoint("RIGHT", tabCharacters, "RIGHT", -16, 0)
 charGuildShareLabel:SetJustifyH("LEFT")
 charGuildShareLabel:SetText("Guild data sharing")
@@ -1306,10 +1357,10 @@ panel.RefreshCharGuildShareDropdown = RefreshCharGuildShareDropdown
 
 local bankAltRow = Theme.CreateLabeledCheckbox(tabCharacters, {
     point = "TOPLEFT",
-    relativeTo = charListFrame,
-    relativePoint = "TOPRIGHT",
-    x = COL_GAP,
-    y = 0,
+    relativeTo = charSettingHeader,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -12,
     text = "Bank alt",
     fullWidthHover = true,
     rightInset = 16,
@@ -1331,7 +1382,7 @@ local function layoutCharSettingRows()
     if charGuildShareLabel:IsShown() then
         bankAltRow:SetPoint("TOPLEFT", charGuildShareDropdown.button, "BOTTOMLEFT", 0, -12)
     else
-        bankAltRow:SetPoint("TOPLEFT", charListFrame, "TOPRIGHT", COL_GAP, 0)
+        bankAltRow:SetPoint("TOPLEFT", charSettingHeader, "BOTTOMLEFT", 0, -12)
     end
     bankAltRow:SetPoint("RIGHT", tabCharacters, "RIGHT", -16, 0)
 end
@@ -1368,6 +1419,7 @@ UpdateCharSettings = function()
         and IsCurrentCharacter(selectedEntry.name, selectedEntry.realm)
     local showGuildShare = hasSelection and isGuildShareOptionsEnabled()
     charSettingPrompt:SetShown(not hasSelection)
+    setCharSettingHeader(selectedEntry)
     charGuildShareLabel:SetShown(showGuildShare)
     if charGuildShareDropdown and charGuildShareDropdown.button then
         charGuildShareDropdown.button:SetShown(showGuildShare)
@@ -1408,6 +1460,8 @@ SetActiveOptionsTab("general")
 local tabApplyFrame = CreateFrame("Frame", nil, panel)
 tabApplyFrame:Hide()
 
+local pendingOptionsFocus = nil
+
 local function optionsHostIsOpen()
     local iof = _G.InterfaceOptionsFrame
     if not iof or not iof.IsShown then
@@ -1416,41 +1470,58 @@ local function optionsHostIsOpen()
     return iof:IsShown()
 end
 
-local function scheduleApplyOptionsTab(tabId)
-    if tabId ~= "characters" and tabId ~= "cooldowns" and tabId ~= "gearUpgrades" and tabId ~= "debug" then
-        return
-    end
+local function applyOptionsFocus(focus)
+    if not focus then return end
+    local tabId = focus.tab or "general"
     if tabId == "debug" and AltArmy.Debug and not AltArmy.Debug.IsEnabled() then
-        return
+        tabId = "general"
     end
+    SetActiveOptionsTab(tabId)
+    if tabId == "cooldowns" and panel.RefreshCooldownOptionsFromVars then
+        panel.RefreshCooldownOptionsFromVars()
+    end
+    if tabId == "gearUpgrades" then
+        if AltArmy.BuildGearUpgradeOptionsUI then
+            AltArmy.BuildGearUpgradeOptionsUI(panel)
+        end
+        if panel.RefreshGearUpgradeOptionsFromVars then
+            panel.RefreshGearUpgradeOptionsFromVars()
+        end
+    end
+    if tabId == "debug" and panel.RefreshDebugCheckboxes then
+        panel.RefreshDebugCheckboxes()
+    end
+    if focus.name and focus.realm then
+        SelectCharacterEntry(focus.name, focus.realm, focus.classFile)
+        UpdateCharSettings()
+        RefreshCharacterList()
+    end
+    if focus.flash == "main" and Theme.FlashAttentionHighlight and guildMainFocusRegion then
+        Theme.FlashAttentionHighlight(guildMainFocusRegion)
+    elseif focus.flash == "bankAlt" and Theme.FlashAttentionHighlight and bankAltRow then
+        Theme.FlashAttentionHighlight(bankAltRow)
+    end
+end
+
+local function scheduleApplyOptionsFocus(focus)
+    if not focus then return end
+    pendingOptionsFocus = focus
     tabApplyFrame:SetScript("OnUpdate", nil)
     tabApplyFrame:Hide()
-    tabApplyFrame.tabId = tabId
     tabApplyFrame.attempts = 0
     tabApplyFrame:Show()
     tabApplyFrame:SetScript("OnUpdate", function(self)
         self.attempts = self.attempts + 1
         if panel:IsShown() and optionsHostIsOpen() then
-            SetActiveOptionsTab(self.tabId)
-            if self.tabId == "cooldowns" and panel.RefreshCooldownOptionsFromVars then
-                panel.RefreshCooldownOptionsFromVars()
-            end
-            if self.tabId == "gearUpgrades" then
-                if AltArmy.BuildGearUpgradeOptionsUI then
-                    AltArmy.BuildGearUpgradeOptionsUI(panel)
-                end
-                if panel.RefreshGearUpgradeOptionsFromVars then
-                    panel.RefreshGearUpgradeOptionsFromVars()
-                end
-            end
-            if self.tabId == "debug" and panel.RefreshDebugCheckboxes then
-                panel.RefreshDebugCheckboxes()
-            end
+            local toApply = pendingOptionsFocus
+            pendingOptionsFocus = nil
+            applyOptionsFocus(toApply)
             self:SetScript("OnUpdate", nil)
             self:Hide()
             return
         end
         if self.attempts > 300 then
+            pendingOptionsFocus = nil
             self:SetScript("OnUpdate", nil)
             self:Hide()
         end
@@ -1460,6 +1531,7 @@ end
 panel:SetScript("OnHide", function()
     selectedEntry        = nil
     deleteConfirmPending = false
+    pendingOptionsFocus  = nil
     tabApplyFrame:SetScript("OnUpdate", nil)
     tabApplyFrame:Hide()
     UpdateCharSettings()
@@ -1737,16 +1809,27 @@ end
 AltArmy.OptionsPanel = panel
 
 --- @param initialTab string|nil "general" (default), "characters", "cooldowns", or "debug"
-function AltArmy.OpenInterfaceOptions(initialTab)
+--- @param opts table|nil { name, realm, flash = "main"|"bankAlt" }
+function AltArmy.OpenInterfaceOptions(initialTab, opts)
+    opts = opts or {}
+    local tab = initialTab or "general"
+    if tab == "debug" and not (AltArmy.Debug and AltArmy.Debug.IsEnabled()) then
+        tab = "general"
+    end
+    local focus = {
+        tab = tab,
+        name = opts.name,
+        realm = opts.realm,
+        flash = opts.flash,
+    }
     if Settings and Settings.OpenToCategory and panel.altArmySettingsCategory then
         Settings.OpenToCategory(panel.altArmySettingsCategory:GetID())
     elseif InterfaceOptionsFrame_OpenToCategory then
         InterfaceOptionsFrame_OpenToCategory(panel)
     end
-    if initialTab == "characters" or initialTab == "cooldowns" or initialTab == "gearUpgrades"
-        or (initialTab == "debug" and AltArmy.Debug and AltArmy.Debug.IsEnabled()) then
-        scheduleApplyOptionsTab(initialTab)
-    elseif panel:IsShown() and optionsHostIsOpen() then
-        SetActiveOptionsTab("general")
+    if panel:IsShown() and optionsHostIsOpen() then
+        applyOptionsFocus(focus)
+    else
+        scheduleApplyOptionsFocus(focus)
     end
 end

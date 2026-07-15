@@ -65,4 +65,27 @@ describe("ClassColor", function()
       assert.is_true(out:find("|cff", 1, true) ~= nil)
     end)
   end)
+
+  describe("formatNameWithSuffix", function()
+    it("appends a title-colored suffix after the class-colored name", function()
+      local out = CC.formatNameWithSuffix("Alice", "WARRIOR", " options", { 0.85, 0.78, 0.42 })
+      assert.is_true(out:find("Alice", 1, true) ~= nil)
+      assert.is_true(out:find(" options", 1, true) ~= nil)
+      -- Class-colored name segment, then title-colored suffix segment.
+      assert.is_true(out:find("|cff", 1, true) ~= nil)
+      assert.is_true(out:find("|r options", 1, true) == nil) -- suffix has its own color wrap
+      local nameEnd = out:find("|r", 1, true)
+      assert.is_truthy(nameEnd)
+      local suffixPart = out:sub(nameEnd + 2)
+      assert.is_true(suffixPart:find("|cff", 1, true) ~= nil)
+      assert.is_true(suffixPart:find(" options", 1, true) ~= nil)
+    end)
+
+    it("leaves suffix uncolored when suffixRgb is nil", function()
+      assert.are.equal(
+        CC.formatName("Bob", nil) .. " options",
+        CC.formatNameWithSuffix("Bob", nil, " options", nil)
+      )
+    end)
+  end)
 end)

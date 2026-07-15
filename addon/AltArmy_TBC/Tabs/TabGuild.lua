@@ -844,8 +844,12 @@ craftLibRecommendLabel:SetText("Recommended: CraftLib")
 craftLibRecommendBtn:Hide()
 
 local craftLibRecommendPanel = Theme.CreateCraftLibInstallCallout(listView, {
-    bodyText = "Install the CraftLib addon to see recipe skill requirements "
-        .. "and color-coded difficulty in the recipe list.",
+    introText = "Install the CraftLib addon to see:",
+    bulletLines = {
+        "Recipe skill requirements",
+        "Color coded difficulty",
+        "All recipe icons",
+    },
 })
 craftLibRecommendPanel:SetWidth(300)
 craftLibRecommendPanel:SetPoint("TOPRIGHT", craftLibRecommendBtn, "BOTTOMRIGHT", 0, -4)
@@ -1597,7 +1601,7 @@ local function acquireMainRow(index)
         lastOnlineFS:SetJustifyH("RIGHT")
         lastOnlineFS:SetWordWrap(false)
         row.lastOnlineFS = lastOnlineFS
-        local countFS = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        local countFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         countFS:SetPoint("LEFT", row, "LEFT", UI.SECOND_COLUMN, 0)
         countFS:SetPoint("RIGHT", lastOnlineFS, "LEFT", -UI.NAME_COLUMN_GAP, 0)
         countFS:SetJustifyH("LEFT")
@@ -1631,15 +1635,29 @@ local function acquireCharRow(index)
         mainStarIcon.tex = starTex
         mainStarIcon:SetScript("OnEnter", function(self)
             Theme.SetHoverTint(row, true)
-            if not self.showMainStarTooltip or not GameTooltip then return end
-            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-            GameTooltip:ClearLines()
-            GameTooltip:AddLine(GTD.FormatMainStarTooltip(), 1, 1, 1, true)
-            GameTooltip:Show()
+            if not self.showMainStarTooltip then return end
+            local m = row.memberEntry
+            local isOwn = not m or m.source == "local" or not m.source
+            if GTD.PresentMainStarTooltip then
+                GTD.PresentMainStarTooltip(self, "ANCHOR_BOTTOMLEFT", {
+                    name = m and m.name,
+                    classFile = m and m.classFile,
+                    isOwn = isOwn,
+                    showConfigureHint = isOwn,
+                })
+            end
         end)
         mainStarIcon:SetScript("OnLeave", function()
             Theme.SetHoverTint(row, false)
             if GameTooltip then GameTooltip:Hide() end
+        end)
+        mainStarIcon:SetScript("OnMouseUp", function(_, button)
+            if button ~= "LeftButton" then return end
+            local m = row.memberEntry
+            local isOwn = not m or m.source == "local" or not m.source
+            if isOwn and AltArmy.OpenInterfaceOptions then
+                AltArmy.OpenInterfaceOptions("general", { flash = "main" })
+            end
         end)
         row.mainStarIcon = mainStarIcon
 
