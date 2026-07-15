@@ -10,7 +10,7 @@ local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 -- Match TabSearch.lua result rows (items / recipes): row height, fonts, flush columns, icon scale.
 local ROW_HEIGHT = 18
 local HEADER_HEIGHT = 18
-local HEADER_ROW_GAP = 6 -- TabSearch.lua section headers use this gap above first row
+local HEADER_ROW_GAP = 3 -- TabSearch.lua section headers use this gap above first row
 local MAT_ICON_SIZE = 14 -- TabSearch OVERLAY_ICON_SIZE (inline "|Tpath:0|t" uses ~14px height)
 local REFRESH_INTERVAL = 1
 local TIP_ROW_HEIGHT = 16
@@ -311,8 +311,20 @@ Theme.AnchorVerticalScrollBar(scrollBar, tabContentPanel, listViewport)
 local scrollChild = CreateFrame("Frame", nil, scroll)
 scroll:SetScrollChild(scrollChild)
 
+-- Gradient under the pinned header when the list is scrolled (Gear / Summary pattern).
+headerRow:SetFrameLevel((tabContentInner:GetFrameLevel() or 0) + 10)
+local cooldownHeaderFade = Theme.CreatePinnedHeaderScrollFade({
+    headerFrame = headerRow,
+    scrollFrame = scroll,
+    scrollBar = scrollBar,
+    headerBottomInset = 2,
+})
+
 scrollBar:SetScript("OnValueChanged", function(_, v)
     scroll:SetVerticalScroll(v)
+    if cooldownHeaderFade then
+        cooldownHeaderFade:Update()
+    end
 end)
 
 scroll:SetScript("OnMouseWheel", function(_, delta)
@@ -1612,6 +1624,9 @@ RefreshList = function()
     local maxScroll = math.max(0, totalH - viewH)
     scrollBar:SetMinMaxValues(0, maxScroll)
     scrollBar:SetShown(maxScroll > 1)
+    if cooldownHeaderFade then
+        cooldownHeaderFade:Update()
+    end
 end
 
 frame.RefreshCooldownList = RefreshList

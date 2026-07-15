@@ -7,7 +7,7 @@ describe("SearchStickyHeaders", function()
     local Sticky
 
     local HEADER_HEIGHT = 18
-    local HEADER_ROW_GAP = 6
+    local HEADER_ROW_GAP = 3
     local ROW_HEIGHT = 18
 
     setup(function()

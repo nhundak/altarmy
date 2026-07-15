@@ -334,21 +334,14 @@ function GTD.SortRecipes(recipes, sortKey, ascending, opts)
         if key == "skill" then
             local entryA = GTD.EnrichRecipeEntry(a, profName, skillRank)
             local entryB = GTD.EnrichRecipeEntry(b, profName, skillRank)
-            local reqA = entryA.recipeSkillRequired
-            local reqB = entryB.recipeSkillRequired
-            if reqA == nil and reqB == nil then
-                cmp = 0
-            elseif reqA == nil then
-                cmp = 1
-            elseif reqB == nil then
-                cmp = -1
-            else
-                cmp = cmpValues(reqA, reqB)
-                if cmp == 0 then
-                    local ordA = DIFFICULTY_SORT_ORDER[entryA.difficulty] or 99
-                    local ordB = DIFFICULTY_SORT_ORDER[entryB.difficulty] or 99
-                    cmp = cmpValues(ordA, ordB)
-                end
+            -- Unknown required skill sorts as 0 (not as "very high").
+            local reqA = entryA.recipeSkillRequired or 0
+            local reqB = entryB.recipeSkillRequired or 0
+            cmp = cmpValues(reqA, reqB)
+            if cmp == 0 then
+                local ordA = DIFFICULTY_SORT_ORDER[entryA.difficulty] or 99
+                local ordB = DIFFICULTY_SORT_ORDER[entryB.difficulty] or 99
+                cmp = cmpValues(ordA, ordB)
             end
         end
         if cmp == 0 then
@@ -569,15 +562,21 @@ end
 
 --- Preferred/override name for a main group row (class-colored when formatName is supplied).
 --- Optional `query` highlights matching substrings in the display name.
-function GTD.FormatMainRowName(group, formatName, query)
+--- Main-row display name (class-colored). When `isOwn`, appends gray " (you)".
+function GTD.FormatMainRowName(group, formatName, query, isOwn)
     local name = GTD.ResolveGroupDisplayName(group)
+    local text
     if query and GTD.NormalizeSearchQuery(query) ~= "" then
-        return GTD.FormatTextWithSearchHighlight(name, group.classFile, query, formatName)
+        text = GTD.FormatTextWithSearchHighlight(name, group.classFile, query, formatName)
+    elseif formatName then
+        text = formatName(name, group.classFile)
+    else
+        text = name
     end
-    if formatName then
-        return formatName(name, group.classFile)
+    if isOwn then
+        text = text .. " " .. GRAY .. "(you)|r"
     end
-    return name
+    return text
 end
 
 --- Character-count suffix for a main group row (plain text).
@@ -976,9 +975,13 @@ function GTD.ChooseCharacterTitleLevelMode(fitsFull, fitsShort)
 end
 
 --- Name to whisper when someone in the viewed character's group is online.
---- Prefer the character currently playing (online roster member); nil when none are online.
+--- Prefer the character currently playing (online roster member); nil when none are online
+--- or when viewing one of the player's own (local) characters.
 function GTD.ResolveOnlineWhisperTarget(entry, rosterByName, members)
     if not entry or not entry.name then
+        return nil
+    end
+    if entry.source == "local" then
         return nil
     end
     local group

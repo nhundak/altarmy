@@ -9,6 +9,7 @@
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
 UI\Theme.lua
 UI\Text.lua
+UI\VirtualList.lua
 Core.lua
 Data\CharKey.lua
 Data\BankAlt.lua

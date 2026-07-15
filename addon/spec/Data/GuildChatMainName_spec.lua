@@ -176,4 +176,116 @@ describe("GuildChatMainName", function()
       assert.is_true(out and out:find("Chief", 1, true) ~= nil, out)
     end)
   end)
+
+  describe("online/offline system messages", function()
+    local ONLINE = "|Hplayer:Allystie|h[Allystie]|h has come online."
+    local OFFLINE = "Allystie has gone offline."
+
+    setup(function()
+      _G.ERR_FRIEND_ONLINE_SS = "|Hplayer:%s|h[%s]|h has come online."
+      _G.ERR_FRIEND_OFFLINE_S = "%s has gone offline."
+    end)
+
+    it("ParseOnlineOffline extracts the name from an online message", function()
+      local name, kind = GCM.ParseOnlineOffline(ONLINE)
+      assert.are.equal("Allystie", name)
+      assert.are.equal("online", kind)
+    end)
+
+    it("ParseOnlineOffline extracts the name from an offline message", function()
+      local name, kind = GCM.ParseOnlineOffline(OFFLINE)
+      assert.are.equal("Allystie", name)
+      assert.are.equal("offline", kind)
+    end)
+
+    it("ParseOnlineOffline returns nil for unrelated system text", function()
+      assert.is_nil(GCM.ParseOnlineOffline("You receive loot: [Foo]."))
+    end)
+
+    it("inserts the main after the character name on online", function()
+      local out = GCM.TransformOnlineOffline(ONLINE, mains({ Allystie = "Treebus" }))
+      assert.is_true(out:find("|Hplayer:Allystie|h%[Allystie%]|h %[.-Treebus.-] has come online%.$", 1) ~= nil, out)
+    end)
+
+    it("inserts the main after the character name on offline", function()
+      local out = GCM.TransformOnlineOffline(OFFLINE, mains({ Allystie = "Treebus" }))
+      assert.is_true(out:find("^Allystie %[.-Treebus.-] has gone offline%.$", 1) ~= nil, out)
+    end)
+
+    it("colors the main name with the main character class", function()
+      local out = GCM.TransformOnlineOffline(
+        ONLINE,
+        mains({ Allystie = "Treebus" }),
+        mainClasses({ Treebus = "MAGE" })
+      )
+      assert.is_true(out:find("|cff", 1, true) ~= nil, out)
+      assert.is_true(out:find("Treebus", 1, true) ~= nil)
+      assert.is_false(out:find("808080", 1, true) ~= nil, "should not use gray")
+    end)
+
+    it("leaves online/offline unchanged when the character is their own main", function()
+      assert.are.equal(ONLINE, GCM.TransformOnlineOffline(ONLINE, mains({ Allystie = "Allystie" })))
+      assert.are.equal(OFFLINE, GCM.TransformOnlineOffline(OFFLINE, mains({ Allystie = "Allystie" })))
+    end)
+
+    it("leaves online/offline unchanged when the character is unknown", function()
+      assert.are.equal(ONLINE, GCM.TransformOnlineOffline(ONLINE, mains({})))
+    end)
+
+    it("uses getLabel for the bracket text when provided", function()
+      local out = GCM.TransformOnlineOffline(
+        OFFLINE,
+        mains({ Allystie = "Treebus" }),
+        nil,
+        function() return "Buddy" end)
+      assert.is_true(out:find("Buddy", 1, true) ~= nil, out)
+      assert.is_false(out:find("Treebus", 1, true) ~= nil, out)
+    end)
+
+    describe("FilterSystemMessage gating", function()
+      local savedDebug
+      local savedGSS
+
+      setup(function()
+        savedDebug = AltArmy.Debug
+        savedGSS = AltArmy.GuildShareSettings
+        AltArmy.Debug = { IsGuildShareEnabled = function() return true end }
+        AltArmy.GuildShareSettings = {
+          IsChatInsertionEnabled = function() return true end,
+        }
+        AltArmy.GuildShareData = {
+          GetMainOf = function() return "Treebus" end,
+          FindCharacter = function(name)
+            if name == "Allystie" then
+              return { realm = "R", classFile = "WARRIOR", main = "Treebus" }
+            end
+            if name == "Treebus" then
+              return { realm = "R", classFile = "MAGE", main = "Treebus", displayName = "Treebus" }
+            end
+            return nil
+          end,
+        }
+      end)
+
+      teardown(function()
+        AltArmy.Debug = savedDebug
+        AltArmy.GuildShareSettings = savedGSS
+        AltArmy.GuildShareData = nil
+      end)
+
+      it("annotates when chat insertion is enabled", function()
+        local out = GCM.FilterSystemMessage(ONLINE)
+        assert.is_true(out and out:find("Treebus", 1, true) ~= nil, out)
+      end)
+
+      it("returns nil when chat insertion is disabled", function()
+        AltArmy.GuildShareSettings.IsChatInsertionEnabled = function() return false end
+        assert.is_nil(GCM.FilterSystemMessage(ONLINE))
+      end)
+
+      it("returns nil for non online/offline system text", function()
+        assert.is_nil(GCM.FilterSystemMessage("You receive loot: [Foo]."))
+      end)
+    end)
+  end)
 end)

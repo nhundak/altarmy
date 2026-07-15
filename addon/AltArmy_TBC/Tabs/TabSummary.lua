@@ -332,6 +332,7 @@ headerRow:SetParent(horizontalScrollChild)
 headerRow:SetPoint("TOPLEFT", horizontalScrollChild, "TOPLEFT", 0, 0)
 headerRow:SetPoint("TOPRIGHT", horizontalScrollChild, "TOPRIGHT", 0, 0)
 headerRow:SetHeight(HEADER_HEIGHT)
+headerRow:SetFrameLevel((horizontalScrollChild:GetFrameLevel() or 0) + 10)
 
 -- Reparent vertical scroll frame into horizontal scroll child
 scrollFrame:ClearAllPoints()
@@ -339,6 +340,14 @@ scrollFrame:SetParent(horizontalScrollChild)
 scrollFrame:SetPoint("TOPLEFT", horizontalScrollChild, "TOPLEFT", 0, -HEADER_HEIGHT)
 scrollFrame:SetPoint("BOTTOMLEFT", horizontalScrollChild, "BOTTOMLEFT", 0, TOTALS_ROW_HEIGHT)
 scrollFrame:SetPoint("BOTTOMRIGHT", horizontalScrollChild, "BOTTOMRIGHT", 0, TOTALS_ROW_HEIGHT)
+
+-- Gradient under the pinned header when the list is scrolled (Gear / Search pattern).
+local summaryHeaderFade = Theme.CreatePinnedHeaderScrollFade({
+    headerFrame = headerRow,
+    scrollFrame = scrollFrame,
+    scrollBar = scrollBar,
+    headerBottomInset = 0,
+})
 
 -- Reparent totals row into horizontal scroll child
 totalsRow:ClearAllPoints()
@@ -875,6 +884,10 @@ Update = function()
                 cell:SetText("")
             end
         end
+    end
+
+    if summaryHeaderFade then
+        summaryHeaderFade:Update()
     end
 end
 

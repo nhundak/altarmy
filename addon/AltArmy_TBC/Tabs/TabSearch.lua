@@ -9,13 +9,14 @@ local PAD = 4
 local Theme = AltArmy.Theme
 local CC = AltArmy.ClassColor
 local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
+local VirtualList = AltArmy.VirtualList
 local SECTION_INSET = Theme.TAB_SECTION_INSET
 local SECTION_GAP = Theme.SECTION_GAP
 local ROW_HEIGHT = 18
 -- Right-side (Total column) icon size; match left-side row icon (WoW :0 default ~14)
 local OVERLAY_ICON_SIZE = 14
 local HEADER_HEIGHT = 18
-local HEADER_ROW_GAP = 6  -- space between section header and first data row
+local HEADER_ROW_GAP = 3  -- space between section header and first data row
 -- Virtualized list: only render rows near the viewport
 local ROW_BUFFER = 3   -- extra rows above/below viewport to render
 local ITEM_POOL_SIZE = 32
@@ -24,6 +25,9 @@ local TOOLTIP_ONLY_POOL_SIZE = 32
 
 local SD = AltArmy.SearchData
 if not SD or not SD.SearchWithLocationGroups or not SD.SearchRecipes then
+    return
+end
+if not VirtualList or not VirtualList.GetRenderRange then
     return
 end
 
@@ -103,9 +107,9 @@ local recipeColWidths = {}
 
 local function SyncSearchColumnWidths(settingsOpen)
     local item = SearchColumns and SearchColumns.GetItemColumnWidths(settingsOpen)
-        or { Item = 325, Character = 170, Total = 72 }
+        or { Item = 354, Character = 170, Total = 72 }
     local recipe = SearchColumns and SearchColumns.GetRecipeColumnWidths(settingsOpen)
-        or { Recipe = 325, Character = 170, Skill = 72 }
+        or { Recipe = 354, Character = 170, Skill = 72 }
     for k, v in pairs(item) do
         colWidths[k] = v
     end
@@ -619,6 +623,8 @@ local function createItemRow()
         local cell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         cell:SetPoint("TOPLEFT", row, "TOPLEFT", cx, 0)
         cell:SetWidth(w)
+        cell:SetHeight(ROW_HEIGHT)
+        cell:SetJustifyV("MIDDLE")
         cell:SetJustifyH(colName == "Item" and "LEFT" or "RIGHT")
         cell:SetNonSpaceWrap(false)
         if colName == "Item" or colName == "Character" then cell:SetWordWrap(false) end
@@ -662,6 +668,8 @@ local function createRecipeRow()
         local cell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         cell:SetPoint("TOPLEFT", row, "TOPLEFT", cx, 0)
         cell:SetWidth(w)
+        cell:SetHeight(ROW_HEIGHT)
+        cell:SetJustifyV("MIDDLE")
         cell:SetJustifyH(colName == "Recipe" and "LEFT" or "RIGHT")
         cell:SetNonSpaceWrap(false)
         if colName == "Recipe" or colName == "Character" then cell:SetWordWrap(false) end
@@ -772,7 +780,7 @@ local function fillItemRow(row, entry, showRealmSuffix, rowOpts)
         local icon = select(10, GetItemInfo(entry.itemLink)) or "Interface\\Icons\\INV_Misc_QuestionMark"
         iconPrefix = "|T" .. icon .. ":0|t "
     end
-    SetItemCellTruncated(row.cells.Item, itemText, countSuffix, iconPrefix, colWidths.Item or 325)
+    SetItemCellTruncated(row.cells.Item, itemText, countSuffix, iconPrefix, colWidths.Item or 354)
     local locLabel = entry.location == "bank" and "Bank"
         or (entry.location == "mail" and "Mail")
         or (entry.location == "equipped" and "Equipped")
@@ -818,7 +826,7 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
     end
     recipeName = maybeHighlightSearchText(recipeName, highlightSearch, searchQuery)
     local iconPrefix = ("|T%s:0|t "):format(iconPath)
-    SetItemCellTruncated(row.cells.Recipe, recipeName, "", iconPrefix, recipeColWidths.Recipe or 325)
+    SetItemCellTruncated(row.cells.Recipe, recipeName, "", iconPrefix, recipeColWidths.Recipe or 354)
     local namePart = buildCharacterNamePart(entry, showRealmSuffix)
     local charSuffix = entry.isGuild and "|cff8ab4f8 (Guild)|r" or nil
     SetCharacterCellTruncated(row.cells.Character, namePart, charSuffix, recipeColWidths.Character or 160)
@@ -906,6 +914,48 @@ local function UpdateStickyHeaders()
     UpdateStickyHeaderFade(headerRows, stickyTops, scrollValue)
 end
 
+-- Place a Total-column group overlay spanning pool rows [firstPoolIdx, lastPoolIdx].
+local function placeGroupOverlay(overlay, rows, firstPoolIdx, lastPoolIdx, totalColX, totalColW, firstEntry, groupTotal)
+    local firstRowFrame = rows[firstPoolIdx]
+    local lastRowFrame = rows[lastPoolIdx]
+    if not firstRowFrame or not lastRowFrame or not firstRowFrame:IsShown() or not lastRowFrame:IsShown() then
+        return
+    end
+    overlay:ClearAllPoints()
+    overlay:SetPoint("TOPLEFT", firstRowFrame, "TOPLEFT", totalColX, 2)
+    overlay:SetPoint("BOTTOMLEFT", lastRowFrame, "BOTTOMLEFT", totalColX, 2)
+    overlay:SetPoint("TOPRIGHT", firstRowFrame, "TOPLEFT", totalColX + totalColW, 2)
+    overlay:SetPoint("BOTTOMRIGHT", lastRowFrame, "BOTTOMLEFT", totalColX + totalColW, 2)
+    overlay.icon:ClearAllPoints()
+    overlay.icon:SetPoint("CENTER", overlay, "RIGHT", -2 - OVERLAY_ICON_SIZE / 2, 0)
+    local iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
+    if firstEntry and firstEntry.itemLink and GetItemInfo then
+        local _, _, _, _, _, _, _, _, _, tex = GetItemInfo(firstEntry.itemLink)
+        if tex then iconPath = tex end
+    end
+    overlay.icon:SetTexture(iconPath)
+    overlay.icon:Show()
+    overlay.total:ClearAllPoints()
+    overlay.total:SetPoint("RIGHT", overlay.icon, "LEFT", -3, 0)
+    overlay.total:SetPoint("CENTER", overlay, "CENTER", 0, 0)
+    overlay.total:SetWidth(math.max(1, totalColW - OVERLAY_ICON_SIZE - 2))
+    overlay.total:SetText(tostring(groupTotal))
+    overlay:Show()
+end
+
+local function hideUnusedOverlays(pool, usedCount)
+    for idx = usedCount + 1, #pool do
+        if pool[idx] then pool[idx]:Hide() end
+    end
+end
+
+local function positionPooledRow(row, rowY)
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
+    row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
+    row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - ROW_HEIGHT)
+end
+
 -- Virtualized list: fill only rows in the visible range + buffer. Call after layout and on scroll.
 UpdateVisibleRows = function()
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
@@ -921,91 +971,55 @@ UpdateVisibleRows = function()
     local tooltipOnlyRowOpts = { highlightSearch = false }
 
     -- Items: visible range and render range (with buffer)
-    if nItems > 0 then
-        local firstVisible = math.max(1, math.floor((scrollValue - itemsSectionTop) / ROW_HEIGHT) + 1)
-        if scrollValue < itemsSectionTop then firstVisible = 1 end
-        local lastVisible = math.min(nItems, math.floor((scrollValue + viewHeight - itemsSectionTop) / ROW_HEIGHT))
-        local firstRender = math.max(1, firstVisible - ROW_BUFFER)
-        local lastRender = math.min(nItems, lastVisible + ROW_BUFFER)
-        local itemsFirstRowY = -(HEADER_HEIGHT + HEADER_ROW_GAP)
-
+    local itemsRange = VirtualList.GetRenderRange(
+        scrollValue, viewHeight, itemsSectionTop, ROW_HEIGHT, nItems, ROW_BUFFER)
+    if itemsRange then
+        local firstRender = itemsRange.firstRender
+        local lastRender = itemsRange.lastRender
         local totalColX = (colWidths.Item or 280) + (colWidths.Character or 160)
         local totalColW = colWidths.Total or 72
-        local renderCount = lastRender - firstRender + 1
-        for poolIdx = 1, ITEM_POOL_SIZE do
-            local row = resultRows[poolIdx]
-            if not row then
-                row = createItemRow()
-                resultRows[poolIdx] = row
-            end
-            if poolIdx <= renderCount then
-                local dataIndex = firstRender + poolIdx - 1
+        VirtualList.ForEachPoolSlot(ITEM_POOL_SIZE, firstRender, itemsRange.renderCount,
+            function(poolIdx, dataIndex)
+                local row = resultRows[poolIdx]
+                if not row then
+                    row = createItemRow()
+                    resultRows[poolIdx] = row
+                end
                 local entry = itemList[dataIndex]
-                local rowY = itemsFirstRowY - (dataIndex - 1) * ROW_HEIGHT
-                row:ClearAllPoints()
-                row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
-                row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
-                row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - ROW_HEIGHT)
+                local rowY = VirtualList.RowTopOffset(itemsSectionTop, dataIndex, ROW_HEIGHT)
+                positionPooledRow(row, rowY)
                 fillItemRow(row, entry, showRealmSuffix, highlightRowOpts)
                 row:Show()
                 row.dataIndex = dataIndex
-            else
-                row:Hide()
-                row.entry = nil
-                row.dataIndex = nil
-            end
-        end
+            end,
+            function(poolIdx)
+                local row = resultRows[poolIdx]
+                if row then
+                    row:Hide()
+                    row.entry = nil
+                    row.dataIndex = nil
+                end
+            end)
 
-        -- Group overlays: only for groups that intersect [firstRender, lastRender]
         local overlayIdx = 0
         for _, group in ipairs(itemGroups) do
-            local gEnd = group.start + group.count - 1
-            if gEnd >= firstRender and group.start <= lastRender then
+            local span = VirtualList.GroupPoolSpan(group, firstRender, lastRender)
+            if span then
                 overlayIdx = overlayIdx + 1
-                local overlay = getGroupOverlay(overlayIdx)
-                local groupStart = math.max(group.start, firstRender)
-                local groupEnd = math.min(gEnd, lastRender)
-                local firstPoolIdx = groupStart - firstRender + 1
-                local lastPoolIdx = groupEnd - firstRender + 1
-                local firstRowFrame = resultRows[firstPoolIdx]
-                local lastRowFrame = resultRows[lastPoolIdx]
-                if firstRowFrame and lastRowFrame and firstRowFrame:IsShown() and lastRowFrame:IsShown() then
-                    overlay:ClearAllPoints()
-                    overlay:SetPoint("TOPLEFT", firstRowFrame, "TOPLEFT", totalColX, 2)
-                    overlay:SetPoint("BOTTOMLEFT", lastRowFrame, "BOTTOMLEFT", totalColX, 2)
-                    overlay:SetPoint("TOPRIGHT", firstRowFrame, "TOPLEFT", totalColX + totalColW, 2)
-                    overlay:SetPoint("BOTTOMRIGHT", lastRowFrame, "BOTTOMLEFT", totalColX + totalColW, 2)
-                    overlay.icon:ClearAllPoints()
-                    overlay.icon:SetPoint("CENTER", overlay, "RIGHT", -2 - OVERLAY_ICON_SIZE / 2, 0)
-                    local firstEntry = itemList[group.start]
-                    local iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
-                    if firstEntry and firstEntry.itemLink and GetItemInfo then
-                        local _, _, _, _, _, _, _, _, _, tex = GetItemInfo(firstEntry.itemLink)
-                        if tex then iconPath = tex end
-                    end
-                    overlay.icon:SetTexture(iconPath)
-                    overlay.icon:Show()
-                    overlay.total:ClearAllPoints()
-                    overlay.total:SetPoint("RIGHT", overlay.icon, "LEFT", -3, 0)
-                    overlay.total:SetPoint("CENTER", overlay, "CENTER", 0, 0)
-                    overlay.total:SetWidth(math.max(1, totalColW - OVERLAY_ICON_SIZE - 2))
-                    overlay.total:SetText(tostring(group.total))
-                    overlay:Show()
-                end
+                placeGroupOverlay(
+                    getGroupOverlay(overlayIdx), resultRows,
+                    span.firstPoolIdx, span.lastPoolIdx,
+                    totalColX, totalColW, itemList[group.start], group.total)
             end
         end
-        for idx = overlayIdx + 1, #groupOverlayPool do
-            if groupOverlayPool[idx] then groupOverlayPool[idx]:Hide() end
-        end
+        hideUnusedOverlays(groupOverlayPool, overlayIdx)
     else
         for _, row in ipairs(resultRows) do
             row:Hide()
             row.entry = nil
             row.dataIndex = nil
         end
-        for idx = 1, #groupOverlayPool do
-            if groupOverlayPool[idx] then groupOverlayPool[idx]:Hide() end
-        end
+        hideUnusedOverlays(groupOverlayPool, 0)
     end
 
     -- Recipes: visible range and render range
@@ -1013,36 +1027,29 @@ UpdateVisibleRows = function()
     if nItems == 0 then
         recipesSectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
     end
-    if nRecipes > 0 then
-        local firstVisible = math.max(1, math.floor((scrollValue - recipesSectionTop) / ROW_HEIGHT) + 1)
-        if scrollValue < recipesSectionTop then firstVisible = 1 end
-        local lastVisible = math.min(nRecipes, math.floor((scrollValue + viewHeight - recipesSectionTop) / ROW_HEIGHT))
-        local firstRender = math.max(1, firstVisible - ROW_BUFFER)
-        local lastRender = math.min(nRecipes, lastVisible + ROW_BUFFER)
-        local recipesFirstRowY = -recipesSectionTop
-
-        local renderCount = lastRender - firstRender + 1
-        for poolIdx = 1, RECIPE_POOL_SIZE do
-            local row = recipeRows[poolIdx]
-            if not row then
-                row = createRecipeRow()
-                recipeRows[poolIdx] = row
-            end
-            if poolIdx <= renderCount then
-                local dataIndex = firstRender + poolIdx - 1
+    local recipesRange = VirtualList.GetRenderRange(
+        scrollValue, viewHeight, recipesSectionTop, ROW_HEIGHT, nRecipes, ROW_BUFFER)
+    if recipesRange then
+        VirtualList.ForEachPoolSlot(RECIPE_POOL_SIZE, recipesRange.firstRender, recipesRange.renderCount,
+            function(poolIdx, dataIndex)
+                local row = recipeRows[poolIdx]
+                if not row then
+                    row = createRecipeRow()
+                    recipeRows[poolIdx] = row
+                end
                 local entry = recipeList[dataIndex]
-                local rowY = recipesFirstRowY - (dataIndex - 1) * ROW_HEIGHT
-                row:ClearAllPoints()
-                row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
-                row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
-                row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - ROW_HEIGHT)
+                local rowY = VirtualList.RowTopOffset(recipesSectionTop, dataIndex, ROW_HEIGHT)
+                positionPooledRow(row, rowY)
                 fillRecipeRow(row, entry, showRealmSuffix, highlightRowOpts)
                 row:Show()
-            else
-                row:Hide()
-                row.entry = nil
-            end
-        end
+            end,
+            function(poolIdx)
+                local row = recipeRows[poolIdx]
+                if row then
+                    row:Hide()
+                    row.entry = nil
+                end
+            end)
     else
         for _, row in ipairs(recipeRows) do
             row:Hide()
@@ -1052,100 +1059,63 @@ UpdateVisibleRows = function()
 
     -- "You may also be interested in:" tooltip-only section
     local nTooltipOnly = #tooltipOnlyItemList
-    if nTooltipOnly > 0 then
-        local tooltipOnlySectionTop
-        if nRecipes > 0 then
-            tooltipOnlySectionTop = recipesSectionTop + nRecipes * ROW_HEIGHT + HEADER_HEIGHT + HEADER_ROW_GAP
-        elseif nItems > 0 then
-            tooltipOnlySectionTop = itemsSectionTop + nItems * ROW_HEIGHT + HEADER_HEIGHT + HEADER_ROW_GAP
-        else
-            tooltipOnlySectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
-        end
-
-        local firstVisible = math.max(1, math.floor((scrollValue - tooltipOnlySectionTop) / ROW_HEIGHT) + 1)
-        if scrollValue < tooltipOnlySectionTop then firstVisible = 1 end
-        local lastVisible = math.min(nTooltipOnly,
-            math.floor((scrollValue + viewHeight - tooltipOnlySectionTop) / ROW_HEIGHT))
-        local firstRender = math.max(1, firstVisible - ROW_BUFFER)
-        local lastRender = math.min(nTooltipOnly, lastVisible + ROW_BUFFER)
-        local tooltipOnlyFirstRowY = -tooltipOnlySectionTop
-
+    local tooltipOnlySectionTop
+    if nRecipes > 0 then
+        tooltipOnlySectionTop = recipesSectionTop + nRecipes * ROW_HEIGHT + HEADER_HEIGHT + HEADER_ROW_GAP
+    elseif nItems > 0 then
+        tooltipOnlySectionTop = itemsSectionTop + nItems * ROW_HEIGHT + HEADER_HEIGHT + HEADER_ROW_GAP
+    else
+        tooltipOnlySectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
+    end
+    local tooltipOnlyRange = VirtualList.GetRenderRange(
+        scrollValue, viewHeight, tooltipOnlySectionTop, ROW_HEIGHT, nTooltipOnly, ROW_BUFFER)
+    if tooltipOnlyRange then
+        local firstRender = tooltipOnlyRange.firstRender
+        local lastRender = tooltipOnlyRange.lastRender
         local totalColX = (colWidths.Item or 280) + (colWidths.Character or 160)
         local totalColW = colWidths.Total or 72
-        local renderCount = lastRender - firstRender + 1
-        for poolIdx = 1, TOOLTIP_ONLY_POOL_SIZE do
-            local row = tooltipOnlyResultRows[poolIdx]
-            if not row then
-                row = createItemRow()
-                tooltipOnlyResultRows[poolIdx] = row
-            end
-            if poolIdx <= renderCount then
-                local dataIndex = firstRender + poolIdx - 1
+        VirtualList.ForEachPoolSlot(TOOLTIP_ONLY_POOL_SIZE, firstRender, tooltipOnlyRange.renderCount,
+            function(poolIdx, dataIndex)
+                local row = tooltipOnlyResultRows[poolIdx]
+                if not row then
+                    row = createItemRow()
+                    tooltipOnlyResultRows[poolIdx] = row
+                end
                 local entry = tooltipOnlyItemList[dataIndex]
-                local rowY = tooltipOnlyFirstRowY - (dataIndex - 1) * ROW_HEIGHT
-                row:ClearAllPoints()
-                row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
-                row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
-                row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - ROW_HEIGHT)
+                local rowY = VirtualList.RowTopOffset(tooltipOnlySectionTop, dataIndex, ROW_HEIGHT)
+                positionPooledRow(row, rowY)
                 fillItemRow(row, entry, showRealmSuffix, tooltipOnlyRowOpts)
                 row:Show()
                 row.dataIndex = dataIndex
-            else
-                row:Hide()
-                row.entry = nil
-                row.dataIndex = nil
-            end
-        end
+            end,
+            function(poolIdx)
+                local row = tooltipOnlyResultRows[poolIdx]
+                if row then
+                    row:Hide()
+                    row.entry = nil
+                    row.dataIndex = nil
+                end
+            end)
 
         local overlayIdx = 0
         for _, group in ipairs(tooltipOnlyItemGroups) do
-            local gEnd = group.start + group.count - 1
-            if gEnd >= firstRender and group.start <= lastRender then
+            local span = VirtualList.GroupPoolSpan(group, firstRender, lastRender)
+            if span then
                 overlayIdx = overlayIdx + 1
-                local overlay = getTooltipOnlyGroupOverlay(overlayIdx)
-                local groupStart = math.max(group.start, firstRender)
-                local groupEnd = math.min(gEnd, lastRender)
-                local firstPoolIdx = groupStart - firstRender + 1
-                local lastPoolIdx = groupEnd - firstRender + 1
-                local firstRowFrame = tooltipOnlyResultRows[firstPoolIdx]
-                local lastRowFrame = tooltipOnlyResultRows[lastPoolIdx]
-                if firstRowFrame and lastRowFrame and firstRowFrame:IsShown() and lastRowFrame:IsShown() then
-                    overlay:ClearAllPoints()
-                    overlay:SetPoint("TOPLEFT", firstRowFrame, "TOPLEFT", totalColX, 2)
-                    overlay:SetPoint("BOTTOMLEFT", lastRowFrame, "BOTTOMLEFT", totalColX, 2)
-                    overlay:SetPoint("TOPRIGHT", firstRowFrame, "TOPLEFT", totalColX + totalColW, 2)
-                    overlay:SetPoint("BOTTOMRIGHT", lastRowFrame, "BOTTOMLEFT", totalColX + totalColW, 2)
-                    overlay.icon:ClearAllPoints()
-                    overlay.icon:SetPoint("CENTER", overlay, "RIGHT", -2 - OVERLAY_ICON_SIZE / 2, 0)
-                    local firstEntry = tooltipOnlyItemList[group.start]
-                    local iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
-                    if firstEntry and firstEntry.itemLink and GetItemInfo then
-                        local _, _, _, _, _, _, _, _, _, tex = GetItemInfo(firstEntry.itemLink)
-                        if tex then iconPath = tex end
-                    end
-                    overlay.icon:SetTexture(iconPath)
-                    overlay.icon:Show()
-                    overlay.total:ClearAllPoints()
-                    overlay.total:SetPoint("RIGHT", overlay.icon, "LEFT", -3, 0)
-                    overlay.total:SetPoint("CENTER", overlay, "CENTER", 0, 0)
-                    overlay.total:SetWidth(math.max(1, totalColW - OVERLAY_ICON_SIZE - 2))
-                    overlay.total:SetText(tostring(group.total))
-                    overlay:Show()
-                end
+                placeGroupOverlay(
+                    getTooltipOnlyGroupOverlay(overlayIdx), tooltipOnlyResultRows,
+                    span.firstPoolIdx, span.lastPoolIdx,
+                    totalColX, totalColW, tooltipOnlyItemList[group.start], group.total)
             end
         end
-        for idx = overlayIdx + 1, #tooltipOnlyGroupOverlayPool do
-            if tooltipOnlyGroupOverlayPool[idx] then tooltipOnlyGroupOverlayPool[idx]:Hide() end
-        end
+        hideUnusedOverlays(tooltipOnlyGroupOverlayPool, overlayIdx)
     else
         for _, row in ipairs(tooltipOnlyResultRows) do
             row:Hide()
             row.entry = nil
             row.dataIndex = nil
         end
-        for idx = 1, #tooltipOnlyGroupOverlayPool do
-            if tooltipOnlyGroupOverlayPool[idx] then tooltipOnlyGroupOverlayPool[idx]:Hide() end
-        end
+        hideUnusedOverlays(tooltipOnlyGroupOverlayPool, 0)
     end
 
     UpdateStickyHeaders()
@@ -1928,12 +1898,14 @@ local function ApplyTabContentLayout()
 end
 
 -- List viewport and horizontal scroll bar layout.
+-- Columns are sized to the viewport, so horizontal scroll is unused; do not reserve
+-- HORIZONTAL_SCROLL_BAR_HEIGHT (Summary only reserves that strip when columns overflow).
 local function ApplySearchListLayout()
     ApplyTabContentLayout()
     listViewport:ClearAllPoints()
     listViewport:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, -PAD)
     listViewport:SetPoint(
-        "BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, HORIZONTAL_SCROLL_BAR_HEIGHT)
+        "BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, PAD)
     horizontalScrollBar:ClearAllPoints()
     horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", PAD, -4)
     horizontalScrollBar:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, -4)

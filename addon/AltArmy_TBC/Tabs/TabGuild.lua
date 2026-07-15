@@ -1043,15 +1043,17 @@ end)
 updateListHeaderSortIndicators()
 
 local listViewport = CreateFrame("Frame", nil, listView)
+-- No horizontal scroll bar on this list; pin to the inner content bottom (panel padding
+-- already provides the bronze-border gutter — do not reserve an extra PAD strip).
 local function anchorListViewportBelowColHeader()
     listViewport:ClearAllPoints()
     listViewport:SetPoint("TOPLEFT", listColHeader, "BOTTOMLEFT", 0, -2)
-    listViewport:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, PAD)
+    listViewport:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
 end
 local function anchorListViewportBelowGuildHeader()
     listViewport:ClearAllPoints()
     listViewport:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
-    listViewport:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, PAD)
+    listViewport:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
 end
 anchorListViewportBelowColHeader()
 
@@ -1064,6 +1066,33 @@ local viewport = Theme.CreateVerticalScrollViewport({
     valueStep = UI.MAIN_ROW_HEIGHT,
 })
 local scrollChild = viewport.child
+
+-- Gradient under the Name / Character Count / Online header when the list is scrolled.
+listColHeader:SetFrameLevel((listView:GetFrameLevel() or 0) + 10)
+local listHeaderFade = Theme.CreatePinnedHeaderScrollFade({
+    headerFrame = listColHeader,
+    scrollFrame = viewport.scroll,
+    scrollBar = viewport.scrollBar,
+    headerBottomInset = 0,
+})
+if viewport.scrollBar then
+    viewport.scrollBar:HookScript("OnValueChanged", function()
+        if listHeaderFade then
+            listHeaderFade:Update()
+        end
+    end)
+end
+
+local function updateListHeaderFade()
+    if not listHeaderFade then
+        return
+    end
+    if listColHeader:IsShown() then
+        listHeaderFade:Update()
+    elseif listHeaderFade.frame then
+        listHeaderFade.frame:Hide()
+    end
+end
 
 local WHEEL_STEP = UI.MAIN_ROW_HEIGHT * 3
 local function forwardWheel(_, delta)
@@ -1080,7 +1109,7 @@ emptyText:Hide()
 -- Recipe detail body (below header / profession tabs).
 local recipeBody = CreateFrame("Frame", nil, listView)
 recipeBody:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
-recipeBody:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, PAD)
+recipeBody:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
 recipeBody:Hide()
 
 local recipeViewportFrame = CreateFrame("Frame", nil, recipeBody)
@@ -1174,6 +1203,23 @@ local recipeViewport = Theme.CreateVerticalScrollViewport({
     valueStep = UI.RECIPE_ROW_HEIGHT,
 })
 local recipeScrollChild = recipeViewport.child
+
+-- Gradient under the recipe column header when the list is scrolled (Gear / Search pattern).
+recipeColHeader:SetFrameLevel((recipeBody:GetFrameLevel() or 0) + 10)
+local recipeHeaderFade = Theme.CreatePinnedHeaderScrollFade({
+    headerFrame = recipeColHeader,
+    scrollFrame = recipeViewport.scroll,
+    scrollBar = recipeViewport.scrollBar,
+    -- Pull fade up so it meets the header edge (avoids a 1–2px seam).
+    headerBottomInset = 2,
+})
+if recipeViewport.scrollBar then
+    recipeViewport.scrollBar:HookScript("OnValueChanged", function()
+        if recipeHeaderFade then
+            recipeHeaderFade:Update()
+        end
+    end)
+end
 
 local RECIPE_WHEEL_STEP = UI.RECIPE_ROW_HEIGHT * 3
 local function forwardRecipeWheel(_, delta)
@@ -1692,6 +1738,7 @@ local function layoutGuildPicker(guilds)
     scrollChild:SetWidth(width)
     scrollChild:SetHeight(math.max(1, y))
     if viewport.UpdateRange then viewport.UpdateRange() end
+    updateListHeaderFade()
 end
 
 local function hideRecipeRowsFrom(index)
@@ -1960,11 +2007,14 @@ layoutRecipeView = function(entry)
     loadingText:Hide()
     recipeViewportFrame:Hide()
     recipeColHeader:Hide()
+    if recipeHeaderFade and recipeHeaderFade.frame then
+        recipeHeaderFade.frame:Hide()
+    end
     hideRecipeRowsFrom(1)
     hideProfTabsFrom(1)
 
     recipeBody:ClearAllPoints()
-    recipeBody:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, PAD)
+    recipeBody:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
 
     if #profs == 0 then
         profTabStrip:Hide()
@@ -2113,6 +2163,9 @@ layoutRecipeView = function(entry)
     recipeScrollChild:SetWidth(width)
     recipeScrollChild:SetHeight(math.max(1, y))
     if recipeViewport.UpdateRange then recipeViewport.UpdateRange() end
+    if recipeHeaderFade then
+        recipeHeaderFade:Update()
+    end
     applyRecipeFocus(recipes, preserveScroll)
 end
 
@@ -2133,6 +2186,7 @@ showGuildList = function()
     profTabStrip:Hide()
     craftLibRecommendBtn:Hide()
     craftLibRecommendPanel:Hide()
+    updateListHeaderFade()
 end
 
 showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredRecipeID)
@@ -2161,6 +2215,7 @@ showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredR
     listColHeader:Hide()
     listViewport:Hide()
     emptyText:Hide()
+    updateListHeaderFade()
     recipeBody:Show()
     if entry.source and entry.source ~= "local" then
         local Comm = AltArmy.GuildShareComm
@@ -2243,6 +2298,7 @@ local function layoutList(groups, query, rosterByName, forceHoverMain)
         lastOnlineOpts = { showUnknownWhenMissing = true }
     end
 
+    local GSS = AltArmy.GuildShareSettings
     for _, g in ipairs(groups) do
         mainIndex = mainIndex + 1
         local isExpanded = expandedMains[g.main] and true or false
@@ -2250,7 +2306,10 @@ local function layoutList(groups, query, rosterByName, forceHoverMain)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -y)
         row:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", 0, -y)
-        row.nameFS:SetText(GTD.FormatMainRowName(g, formatName, activeQuery ~= "" and activeQuery or nil))
+        local ownMain = GSS and GSS.GetMain and GSS.GetMain(groupPrefsRealm(g)) or nil
+        local isOwn = GTD.IsOwnGroup and GTD.IsOwnGroup(g, ownMain)
+        row.nameFS:SetText(GTD.FormatMainRowName(
+            g, formatName, activeQuery ~= "" and activeQuery or nil, isOwn))
         local isOld = GTD.GroupHasOldData and GTD.GroupHasOldData(g)
         layoutMainRowLeftIcons(row, isOld and true or false, g.pinned and true or false)
         row.countFS:SetText(GTD.FormatMainRowCount(g))
@@ -2327,6 +2386,7 @@ local function layoutList(groups, query, rosterByName, forceHoverMain)
     scrollChild:SetWidth(width)
     scrollChild:SetHeight(math.max(1, y))
     if viewport.UpdateRange then viewport.UpdateRange() end
+    updateListHeaderFade()
 end
 
 local function refreshImpl()
@@ -2390,6 +2450,7 @@ local function refreshImpl()
             listColHeader:Hide()
             listViewport:Hide()
             emptyText:Hide()
+            updateListHeaderFade()
             recipeBody:Show()
             layoutRecipeView(selectedCharacter)
             return
@@ -2436,6 +2497,7 @@ local function refreshImpl()
         hideCharRowsFrom(1)
         scrollChild:SetHeight(1)
         if viewport.UpdateRange then viewport.UpdateRange() end
+        updateListHeaderFade()
         if #members == 0 then
             emptyText:SetText("No guild data received yet.\n\n"
                 .. "Data is exchanged as guildmates using Alt Army log in.")

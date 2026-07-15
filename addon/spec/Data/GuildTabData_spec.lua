@@ -406,6 +406,16 @@ describe("GuildTabData", function()
       groups[1].overrideName = "Buddy"
       assert.are.equal("Buddy", GTD.FormatMainRowName(groups[1]))
     end)
+
+    it("appends gray (you) when the group is the player's own", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Main", main = "Main", isMain = true, displayName = "Chief", classFile = "MAGE" }),
+      })
+      assert.are.equal(
+        "Chief |cff808080(you)|r",
+        GTD.FormatMainRowName(groups[1], plainFormatName, nil, true))
+      assert.are.equal("Chief", GTD.FormatMainRowName(groups[1], plainFormatName, nil, false))
+    end)
   end)
 
   describe("ResolveGroupDisplayName", function()
@@ -801,6 +811,19 @@ describe("GuildTabData", function()
           alice = { online = false, years = 0, months = 0, days = 1, hours = 0 },
         }
         assert.are.equal("Bob", GTD.ResolveOnlineWhisperTarget(entry, roster, members))
+      end)
+
+      it("returns nil for the player's own (local) characters", function()
+        local entry = member({ name = "MyAlt", main = "MyMain", source = "local" })
+        local members = {
+          member({ name = "MyMain", main = "MyMain", isMain = true, source = "local" }),
+          entry,
+        }
+        local roster = {
+          myalt = { online = true },
+          mymain = { online = true },
+        }
+        assert.is_nil(GTD.ResolveOnlineWhisperTarget(entry, roster, members))
       end)
     end)
 
@@ -1533,27 +1556,40 @@ describe("GuildTabData", function()
       assert.are.equal(2, out[3].recipeID)
     end)
 
-    it("places recipes without required skill last when ascending", function()
+    it("treats missing required skill as 0 when sorting by skill", function()
       AltArmy.RecipeCraftLib = {
         EnrichEntry = function(entry)
           if entry.recipeID == 1 then
             entry.recipeSkillRequired = nil
           elseif entry.recipeID == 2 then
             entry.recipeSkillRequired = 100
+          elseif entry.recipeID == 3 then
+            entry.recipeSkillRequired = 50
           end
         end,
       }
-      local two = {
+      local three = {
         { recipeID = 1, name = "Unknown" },
-        { recipeID = 2, name = "Known" },
+        { recipeID = 2, name = "High" },
+        { recipeID = 3, name = "Low" },
       }
-      local out = GTD.SortRecipes(two, "skill", true, {
+      local ascending = GTD.SortRecipes(three, "skill", true, {
         professionName = "Alchemy",
         skillRank = 300,
         getRecipeName = nameOf,
       })
-      assert.are.equal(2, out[1].recipeID)
-      assert.are.equal(1, out[2].recipeID)
+      assert.are.equal(1, ascending[1].recipeID)
+      assert.are.equal(3, ascending[2].recipeID)
+      assert.are.equal(2, ascending[3].recipeID)
+
+      local descending = GTD.SortRecipes(three, "skill", false, {
+        professionName = "Alchemy",
+        skillRank = 300,
+        getRecipeName = nameOf,
+      })
+      assert.are.equal(2, descending[1].recipeID)
+      assert.are.equal(3, descending[2].recipeID)
+      assert.are.equal(1, descending[3].recipeID)
     end)
   end)
 

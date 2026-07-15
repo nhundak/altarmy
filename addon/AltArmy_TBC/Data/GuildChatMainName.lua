@@ -1,7 +1,8 @@
 -- AltArmy TBC — Guild data sharing: guild-chat main-name insertion.
 -- Annotates chat messages from an alt with the poster's self-declared main, so you can
--- tell who is behind an unfamiliar alt name. Pure Transform is unit-tested; chat filters
--- are installed once and gated at call time by the feature flag + the user's settings.
+-- tell who is behind an unfamiliar alt name. Also annotates guildmate online/offline
+-- system messages the same way. Pure Transform is unit-tested; chat filters are installed
+-- once and gated at call time by the feature flag + the user's settings.
 
 if not AltArmy then return end
 
@@ -14,6 +15,9 @@ GCM.CHANNEL_EVENTS = {
     raid = { "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER" },
     whisper = { "CHAT_MSG_WHISPER" },
 }
+
+local ONLINE_FALLBACK = "|Hplayer:%s|h[%s]|h has come online."
+local OFFLINE_FALLBACK = "%s has gone offline."
 
 --- Pure annotation. getMain(sender) -> main name (or nil). getMainClass(sender, main) -> classFile
 --- (optional). Prefixes the main in class color when the sender is a known alt of a different main;
@@ -47,29 +51,87 @@ function GCM.Transform(sender, message, getMain, getMainClass, getLabel)
     return GCM.FormatMainPrefix(label, classFile) .. (message or "")
 end
 
---- Returns a modified message when annotation applies, or nil to leave it untouched.
---- Gated here (rather than by install/uninstall) so toggling takes effect immediately.
-function GCM.FilterMessage(message, author, channelKey)
-    local D = AltArmy.Debug
-    if not (D and D.IsGuildShareEnabled and D.IsGuildShareEnabled()) then return nil end
-    local GSS = AltArmy.GuildShareSettings
-    if not (GSS and GSS.IsChatInsertionEnabled and GSS.IsChatInsertionEnabled()) then return nil end
-    if channelKey and GSS.IsChatInsertionChannelEnabled
-        and not GSS.IsChatInsertionChannelEnabled(channelKey) then
+--- Turn a printf-style global string into a Lua pattern with (.+) captures for each %s.
+local function formatToPattern(fmt)
+    local escaped = fmt:gsub("([%^%$%(%)%.%[%]%*%+%-%?])", "%%%1")
+    return "^" .. escaped:gsub("%%s", "(.+)") .. "$"
+end
+
+local function onlinePattern()
+    return formatToPattern(_G.ERR_FRIEND_ONLINE_SS or ONLINE_FALLBACK)
+end
+
+local function offlinePattern()
+    return formatToPattern(_G.ERR_FRIEND_OFFLINE_S or OFFLINE_FALLBACK)
+end
+
+--- Parse an online/offline system message. Returns name, "online"|"offline", or nil.
+function GCM.ParseOnlineOffline(message)
+    if type(message) ~= "string" then return nil end
+    local name1 = message:match(onlinePattern())
+    if name1 then
+        return stripRealm(name1), "online"
+    end
+    local name = message:match(offlinePattern())
+    if name then
+        return stripRealm(name), "offline"
+    end
+    return nil
+end
+
+--- Resolve label + class for an alt sender. Returns label, classFile, or nil if no annotation.
+local function resolveAnnotation(sender, getMain, getMainClass, getLabel)
+    if not sender or not getMain then return nil end
+    local senderKey = stripRealm(sender)
+    local main = getMain(sender)
+    if not main or main == "" or main == senderKey then
         return nil
     end
+    local label = (getLabel and getLabel(sender, main)) or main
+    if not label or label == "" then
+        label = main
+    end
+    local classFile = getMainClass and getMainClass(sender, main) or nil
+    return label, classFile
+end
+
+--- Insert class-colored main after the character name in an online/offline system message.
+function GCM.TransformOnlineOffline(message, getMain, getMainClass, getLabel)
+    local name, kind = GCM.ParseOnlineOffline(message)
+    if not name then return message end
+    local label, classFile = resolveAnnotation(name, getMain, getMainClass, getLabel)
+    if not label then return message end
+    local prefix = GCM.FormatMainPrefix(label, classFile)
+    if kind == "online" then
+        -- "|Hplayer:Name|h[Name]|h has come online." → insert after the closing |h
+        local linkEnd = message:find("|h ", 1, true)
+        if not linkEnd then return message end
+        -- linkEnd points at start of "|h "; keep "|h" then insert " [Main] " before the rest
+        local before = message:sub(1, linkEnd + 1) -- includes "|h"
+        local after = message:sub(linkEnd + 3) -- after "|h "
+        return before .. " " .. prefix .. after
+    end
+    -- offline: "Name has gone offline." → "Name [Main] has gone offline."
+    local rest = message:match("^[^%s]+%s+(.+)$")
+    if not rest then return message end
+    return name .. " " .. prefix .. rest
+end
+
+--- Shared GuildShareData resolvers used by both chat and system-message filters.
+local function buildResolvers(author)
     local GSD = AltArmy.GuildShareData
+    local GSS = AltArmy.GuildShareSettings
     if not GSD or not GSD.GetMainOf then return nil end
     local senderName = stripRealm(author)
     local senderEntry = GSD.FindCharacter and GSD.FindCharacter(senderName) or nil
-    local result = GCM.Transform(author, message, function(s)
+    return function(s)
         return GSD.GetMainOf(stripRealm(s))
     end, function(_, main)
         local mainEntry = GSD.FindCharacter and GSD.FindCharacter(main, senderEntry and senderEntry.realm)
         return mainEntry and mainEntry.classFile or nil
     end, function(_, main)
         local realm = senderEntry and senderEntry.realm
-        local override = GSS.GetGroupOverrideName and GSS.GetGroupOverrideName(main, realm) or nil
+        local override = GSS and GSS.GetGroupOverrideName and GSS.GetGroupOverrideName(main, realm) or nil
         if override and override ~= "" then
             return override
         end
@@ -78,7 +140,43 @@ function GCM.FilterMessage(message, author, channelKey)
             return mainEntry.displayName
         end
         return main
-    end)
+    end
+end
+
+local function chatInsertionAllowed()
+    local D = AltArmy.Debug
+    if not (D and D.IsGuildShareEnabled and D.IsGuildShareEnabled()) then return false end
+    local GSS = AltArmy.GuildShareSettings
+    if not (GSS and GSS.IsChatInsertionEnabled and GSS.IsChatInsertionEnabled()) then return false end
+    return true
+end
+
+--- Returns a modified message when annotation applies, or nil to leave it untouched.
+--- Gated here (rather than by install/uninstall) so toggling takes effect immediately.
+function GCM.FilterMessage(message, author, channelKey)
+    if not chatInsertionAllowed() then return nil end
+    local GSS = AltArmy.GuildShareSettings
+    if channelKey and GSS.IsChatInsertionChannelEnabled
+        and not GSS.IsChatInsertionChannelEnabled(channelKey) then
+        return nil
+    end
+    local getMain, getMainClass, getLabel = buildResolvers(author)
+    if not getMain then return nil end
+    local result = GCM.Transform(author, message, getMain, getMainClass, getLabel)
+    if result ~= message then
+        return result
+    end
+    return nil
+end
+
+--- Annotate online/offline system messages when chat insertion is enabled.
+function GCM.FilterSystemMessage(message)
+    if not chatInsertionAllowed() then return nil end
+    local name = GCM.ParseOnlineOffline(message)
+    if not name then return nil end
+    local getMain, getMainClass, getLabel = buildResolvers(name)
+    if not getMain then return nil end
+    local result = GCM.TransformOnlineOffline(message, getMain, getMainClass, getLabel)
     if result ~= message then
         return result
     end
@@ -100,4 +198,14 @@ for channelKey, events in pairs(GCM.CHANNEL_EVENTS) do
     for _, eventName in ipairs(events) do
         installChatFilter(channelKey, eventName)
     end
+end
+
+if ChatFrame_AddMessageEventFilter then
+    ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, msg, ...)
+        local newMsg = GCM.FilterSystemMessage(msg)
+        if newMsg then
+            return false, newMsg, ...
+        end
+        return false
+    end)
 end
