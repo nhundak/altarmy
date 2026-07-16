@@ -33,6 +33,7 @@ describe("GuildShareSettings", function()
     AltArmy.DB = _G.AltArmyTBC_Data
     _G.ChatTypeInfo = nil
     _G.SetChatColorNameByClass = nil
+    _G.SetCVar = nil
   end)
 
   describe("defaults", function()
@@ -194,6 +195,24 @@ describe("GuildShareSettings", function()
       GSS.SetChatInsertionClassColorEnabled(true)
       assert.is_true(GSS.IsChatInsertionClassColorEnabled())
     end)
+    it("SetChatInsertionClassColorEnabled(true) clears Blizzard chatClassColorOverride", function()
+      local calls = {}
+      _G.SetCVar = function(name, value)
+        calls[#calls + 1] = { name = name, value = value }
+      end
+      GSS.SetChatInsertionClassColorEnabled(true)
+      assert.equals(1, #calls)
+      assert.equals("chatClassColorOverride", calls[1].name)
+      assert.equals("0", calls[1].value)
+    end)
+    it("SetChatInsertionClassColorEnabled(false) does not change chatClassColorOverride", function()
+      local calls = {}
+      _G.SetCVar = function(name, value)
+        calls[#calls + 1] = { name = name, value = value }
+      end
+      GSS.SetChatInsertionClassColorEnabled(false)
+      assert.equals(0, #calls)
+    end)
     it("SetChatInsertionClassColorEnabled syncs Blizzard class color for enabled channels", function()
       local calls = {}
       _G.SetChatColorNameByClass = function(chatType, on)
@@ -254,6 +273,56 @@ describe("GuildShareSettings", function()
       for _, c in ipairs(calls) do byType[c.chatType] = c.on end
       assert.is_true(byType.PARTY)
       assert.is_true(byType.PARTY_LEADER)
+    end)
+    it("ApplyStoredChatClassColorToBlizzard no-ops when setting is unset", function()
+      local cvarCalls = {}
+      local chatCalls = {}
+      _G.SetCVar = function(name, value)
+        cvarCalls[#cvarCalls + 1] = { name = name, value = value }
+      end
+      _G.SetChatColorNameByClass = function(chatType, on)
+        chatCalls[#chatCalls + 1] = { chatType = chatType, on = on }
+      end
+      assert.is_false(GSS.ApplyStoredChatClassColorToBlizzard())
+      assert.equals(0, #cvarCalls)
+      assert.equals(0, #chatCalls)
+      assert.is_nil(AltArmyTBC_SharingSettings.chatInsertionClassColor)
+    end)
+    it("ApplyStoredChatClassColorToBlizzard syncs when setting is true", function()
+      local cvarCalls = {}
+      local chatCalls = {}
+      _G.SetCVar = function(name, value)
+        cvarCalls[#cvarCalls + 1] = { name = name, value = value }
+      end
+      _G.SetChatColorNameByClass = function(chatType, on)
+        chatCalls[#chatCalls + 1] = { chatType = chatType, on = on }
+      end
+      _G.AltArmyTBC_SharingSettings = { chatInsertionClassColor = true, chatInsertionChannels = {} }
+      assert.is_true(GSS.ApplyStoredChatClassColorToBlizzard())
+      assert.equals(1, #cvarCalls)
+      assert.equals("chatClassColorOverride", cvarCalls[1].name)
+      assert.equals("0", cvarCalls[1].value)
+      assert.is_true(#chatCalls > 0)
+      local byType = {}
+      for _, c in ipairs(chatCalls) do byType[c.chatType] = c.on end
+      assert.is_true(byType.GUILD)
+    end)
+    it("ApplyStoredChatClassColorToBlizzard syncs off without clearing override CVar", function()
+      local cvarCalls = {}
+      local chatCalls = {}
+      _G.SetCVar = function(name, value)
+        cvarCalls[#cvarCalls + 1] = { name = name, value = value }
+      end
+      _G.SetChatColorNameByClass = function(chatType, on)
+        chatCalls[#chatCalls + 1] = { chatType = chatType, on = on }
+      end
+      _G.AltArmyTBC_SharingSettings = { chatInsertionClassColor = false, chatInsertionChannels = {} }
+      assert.is_true(GSS.ApplyStoredChatClassColorToBlizzard())
+      assert.equals(0, #cvarCalls)
+      assert.is_true(#chatCalls > 0)
+      local byType = {}
+      for _, c in ipairs(chatCalls) do byType[c.chatType] = c.on end
+      assert.is_false(byType.GUILD)
     end)
   end)
 

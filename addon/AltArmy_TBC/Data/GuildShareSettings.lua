@@ -187,6 +187,23 @@ function GSS.SyncBlizzardChatClassColors()
     end
 end
 
+--- Apply stored AltArmy class-color prefs to Blizzard (per-character chat flags + override CVar).
+--- No-ops when chatInsertionClassColor has never been chosen (still nil), so first login
+--- can still default from Blizzard without overwriting other characters' chat settings.
+--- @return boolean true if Blizzard was synced
+function GSS.ApplyStoredChatClassColorToBlizzard()
+    local s = ensure()
+    if s.chatInsertionClassColor == nil then
+        return false
+    end
+    -- Classic: chatClassColorOverride "0" allows per-channel class colors; "1" forces them off.
+    if s.chatInsertionClassColor == true and type(_G.SetCVar) == "function" then
+        _G.SetCVar("chatClassColorOverride", "0")
+    end
+    GSS.SyncBlizzardChatClassColors()
+    return true
+end
+
 function GSS.IsChatInsertionClassColorEnabled()
     local s = ensure()
     if s.chatInsertionClassColor == nil then
@@ -197,7 +214,7 @@ end
 
 function GSS.SetChatInsertionClassColorEnabled(on)
     ensure().chatInsertionClassColor = on == true
-    GSS.SyncBlizzardChatClassColors()
+    GSS.ApplyStoredChatClassColorToBlizzard()
 end
 
 function GSS.GetChatInsertionChannels()
@@ -544,4 +561,16 @@ function GSS.GetShareableCharacters(guild, realm)
         end
     end
     return out
+end
+
+-- Per-character Blizzard chat class-color flags; re-apply account prefs on each login.
+local loginFrame = CreateFrame and CreateFrame("Frame")
+if loginFrame then
+    loginFrame:RegisterEvent("PLAYER_LOGIN")
+    loginFrame:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_LOGIN" then
+            loginFrame:UnregisterEvent("PLAYER_LOGIN")
+            GSS.ApplyStoredChatClassColorToBlizzard()
+        end
+    end)
 end
