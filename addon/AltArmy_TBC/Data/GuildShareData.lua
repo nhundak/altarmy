@@ -103,6 +103,13 @@ local function charPresenceMatches(stored, parsedChar)
     if stored.level ~= (parsedChar.level or 0) then return false end
     if stored.itemLevel ~= (parsedChar.itemLevel or 0) then return false end
 
+    -- Slim v2 presence: identity + checksum; profession card may still be pending.
+    if parsedChar.ch ~= nil then
+        if stored.ch ~= parsedChar.ch then return false end
+        if stored.needsProfessionCard then return false end
+        return true
+    end
+
     local storedProfs = stored.Professions or {}
     local parsedProfs = parsedChar.profs or {}
     if #parsedProfs ~= 0 then
@@ -122,6 +129,30 @@ local function charPresenceMatches(stored, parsedChar)
     return true
 end
 GSD._CharPresenceMatches = charPresenceMatches
+
+local function mergeProfessionSummaries(entry, profList)
+    local newProfs = {}
+    for _, pr in ipairs(profList or {}) do
+        local prev = entry.Professions and entry.Professions[pr.key]
+        local prof = {
+            key = pr.key,
+            name = pr.name or pr.key,
+            rank = pr.rank or 0,
+            count = pr.count or 0,
+            rv = pr.rv or 0,
+            spec = pr.spec,
+        }
+        if prev and prev.Recipes and prev.recipesRv == prof.rv then
+            prof.Recipes = prev.Recipes
+            prof.recipesRv = prev.recipesRv
+        end
+        if prev and prev.rv == prof.rv and prev.recipesRequestedAt then
+            prof.recipesRequestedAt = prev.recipesRequestedAt
+        end
+        newProfs[pr.key] = prof
+    end
+    entry.Professions = newProfs
+end
 
 --- True when an inbound (parsed) presence matches what is already stored for its chars.
 --- Empty presence matches only when this sender has no stored characters on the realm
@@ -167,6 +198,8 @@ end
 
 --- Store an inbound (already parsed) presence for a guild on a realm.
 --- Preserves previously pulled recipes when the advertised version is unchanged.
+--- Slim v2 chars carry `ch` only: keep Professions when checksum matches, otherwise clear
+--- and mark needsProfessionCard for a follow-up CQ.
 --- Characters previously received from `sender` that are absent from this presence
 --- (including an empty char list after opt-out) are removed.
 function GSD.SaveReceived(sender, presence, guild, realm)
@@ -197,28 +230,30 @@ function GSD.SaveReceived(sender, presence, guild, realm)
         entry.source = sender
         entry.receivedAt = ts
 
-        -- Merge profession summaries; drop stale recipes when the advertised version changed.
-        local newProfs = {}
-        for _, pr in ipairs(c.profs or {}) do
-            local prev = entry.Professions and entry.Professions[pr.key]
-            local prof = {
-                key = pr.key,
-                name = pr.name or pr.key,
-                rank = pr.rank or 0,
-                count = pr.count or 0,
-                rv = pr.rv or 0,
-                spec = pr.spec,
-            }
-            if prev and prev.Recipes and prev.recipesRv == prof.rv then
-                prof.Recipes = prev.Recipes
-                prof.recipesRv = prev.recipesRv
+        local hasProfs = type(c.profs) == "table" and #c.profs > 0
+        if hasProfs then
+            mergeProfessionSummaries(entry, c.profs)
+            if c.ch ~= nil then
+                entry.ch = c.ch
             end
-            if prev and prev.rv == prof.rv and prev.recipesRequestedAt then
-                prof.recipesRequestedAt = prev.recipesRequestedAt
+            entry.needsProfessionCard = false
+        elseif c.ch ~= nil then
+            local keepProfs = (entry.ch == c.ch)
+                and type(entry.Professions) == "table"
+                and next(entry.Professions) ~= nil
+            entry.ch = c.ch
+            if keepProfs then
+                entry.needsProfessionCard = false
+            else
+                entry.Professions = {}
+                entry.needsProfessionCard = true
             end
-            newProfs[pr.key] = prof
+        else
+            -- Legacy empty-profs char: store empty profession map.
+            mergeProfessionSummaries(entry, c.profs or {})
+            entry.needsProfessionCard = false
         end
-        entry.Professions = newProfs
+
         rt[c.name] = entry
         keep[c.name] = true
     end
@@ -229,6 +264,43 @@ function GSD.SaveReceived(sender, presence, guild, realm)
             end
         end
     end
+end
+
+--- Characters from a (parsed) presence that still need a whispered profession card.
+function GSD.CharsNeedingProfessionCard(presence, realm)
+    local out = {}
+    if not presence or type(presence.chars) ~= "table" then return out end
+    realm = realm or "?"
+    for _, c in ipairs(presence.chars) do
+        if c and c.name then
+            local stored = GSD.GetCharacter(c.name, realm)
+            if stored and stored.needsProfessionCard then
+                out[#out + 1] = { name = c.name, realm = realm }
+            end
+        end
+    end
+    return out
+end
+
+--- Merge an inbound CC profession card into the stored character.
+function GSD.SaveCharCard(sender, card, guild, realm)
+    if not card or not card.name then return end
+    realm = realm or card.realm or "?"
+    local rt = realmTable(realm, true)
+    local entry = rt[card.name] or {}
+    entry.name = card.name
+    entry.realm = realm
+    if card.classFile then entry.classFile = card.classFile end
+    if card.faction then entry.faction = card.faction end
+    entry.level = card.level or entry.level or 0
+    entry.itemLevel = card.itemLevel or entry.itemLevel or 0
+    if guild then entry.guildName = guild end
+    if sender then entry.source = sender end
+    entry.receivedAt = now()
+    if card.ch ~= nil then entry.ch = card.ch end
+    mergeProfessionSummaries(entry, card.profs or {})
+    entry.needsProfessionCard = false
+    rt[card.name] = entry
 end
 
 --- Store a pulled recipe payload; reconstructs a minimal Recipes map ({ [id] = { primaryRecipeID = id } }).

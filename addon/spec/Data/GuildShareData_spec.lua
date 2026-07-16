@@ -261,6 +261,84 @@ describe("GuildShareData", function()
     end)
   end)
 
+  describe("slim v2 presence + char cards", function()
+    local function slimPresence(main, chars)
+      return { v = 2, main = main, displayName = main and (main .. "!"), chars = chars }
+    end
+
+    local function slimChar(name, ch, overrides)
+      local c = {
+        name = name, realm = "R", classFile = "MAGE", faction = "Alliance",
+        level = 70, itemLevel = 100, ch = ch,
+      }
+      for k, v in pairs(overrides or {}) do c[k] = v end
+      return c
+    end
+
+    it("marks chars as needing a profession card on first slim save", function()
+      local msg = P.ParsePresence(slimPresence("Main", { slimChar("Main", 42) }))
+      GSD.SaveReceived("Peer", msg, "G", "R")
+      local stored = GSD.GetCharacter("Main", "R")
+      assert.are.equal(42, stored.ch)
+      assert.is_true(stored.needsProfessionCard)
+      assert.are.same({}, stored.Professions)
+      local needing = GSD.CharsNeedingProfessionCard(msg, "R")
+      assert.are.equal(1, #needing)
+      assert.are.equal("Main", needing[1].name)
+    end)
+
+    it("preserves professions when slim checksum is unchanged", function()
+      local msg = P.ParsePresence(slimPresence("Main", { slimChar("Main", 42) }))
+      GSD.SaveReceived("Peer", msg, "G", "R")
+      GSD.SaveCharCard("Peer", {
+        v = 2, name = "Main", realm = "R", classFile = "MAGE", faction = "Alliance",
+        level = 70, itemLevel = 100, ch = 42,
+        profs = { { key = "tailoring", name = "Tailoring", rank = 375, count = 2, rv = 9 } },
+      }, "G", "R")
+      assert.is_false(GSD.GetCharacter("Main", "R").needsProfessionCard)
+      assert.are.equal(375, GSD.GetCharacter("Main", "R").Professions.tailoring.rank)
+
+      GSD.SaveReceived("Peer", msg, "G", "R")
+      assert.is_false(GSD.GetCharacter("Main", "R").needsProfessionCard)
+      assert.are.equal(375, GSD.GetCharacter("Main", "R").Professions.tailoring.rank)
+      assert.are.equal(0, #GSD.CharsNeedingProfessionCard(msg, "R"))
+      assert.is_true(GSD.PresenceMatchesStored("Peer", msg, "R"))
+    end)
+
+    it("clears professions and re-requests card when checksum changes", function()
+      local first = P.ParsePresence(slimPresence("Main", { slimChar("Main", 42) }))
+      GSD.SaveReceived("Peer", first, "G", "R")
+      GSD.SaveCharCard("Peer", {
+        v = 2, name = "Main", realm = "R", ch = 42,
+        profs = { { key = "tailoring", name = "Tailoring", rank = 375, count = 1, rv = 1 } },
+      }, "G", "R")
+
+      local second = P.ParsePresence(slimPresence("Main", { slimChar("Main", 99) }))
+      GSD.SaveReceived("Peer", second, "G", "R")
+      local stored = GSD.GetCharacter("Main", "R")
+      assert.are.equal(99, stored.ch)
+      assert.is_true(stored.needsProfessionCard)
+      assert.is_nil(stored.Professions.tailoring)
+      assert.is_false(GSD.PresenceMatchesStored("Peer", second, "R"))
+    end)
+
+    it("SaveCharCard merges recipes when rv is unchanged", function()
+      local rv = P.HashRecipeIDs({ 100, 200 })
+      local msg = P.ParsePresence(slimPresence("Main", { slimChar("Main", 42) }))
+      GSD.SaveReceived("Peer", msg, "G", "R")
+      GSD.SaveCharCard("Peer", {
+        v = 2, name = "Main", realm = "R", ch = 42,
+        profs = { { key = "tailoring", name = "Tailoring", rank = 375, count = 2, rv = rv } },
+      }, "G", "R")
+      GSD.SaveRecipes("R", { v = 1, name = "Main", profs = { { key = "tailoring", ids = { 100, 200 } } } })
+      GSD.SaveCharCard("Peer", {
+        v = 2, name = "Main", realm = "R", ch = 42,
+        profs = { { key = "tailoring", name = "Tailoring", rank = 375, count = 2, rv = rv } },
+      }, "G", "R")
+      assert.truthy(GSD.GetCharacter("Main", "R").Professions.tailoring.Recipes[100])
+    end)
+  end)
+
   describe("recipe pull tracking", function()
     it("flags professions as needing recipes until SaveRecipes fills them", function()
       local msg = presence("Main", {

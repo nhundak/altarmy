@@ -349,6 +349,8 @@ describe("GuildShareComm helpers", function()
       assert.are.equal("PR (presence reply)", Comm._FormatMsgType("PR"))
       assert.are.equal("RQ (recipe request)", Comm._FormatMsgType("RQ"))
       assert.are.equal("RC (recipes)", Comm._FormatMsgType("RC"))
+      assert.are.equal("CQ (char card request)", Comm._FormatMsgType("CQ"))
+      assert.are.equal("CC (char card)", Comm._FormatMsgType("CC"))
     end)
 
     it("returns unknown types unchanged", function()
@@ -443,16 +445,18 @@ describe("GuildShareComm helpers", function()
       }
     end)
 
-    it("allows RQ regardless of the feature flag", function()
+    it("allows RQ and CQ regardless of the feature flag", function()
       flagOn = false
       assert.is_true(Comm._IsInboundAllowed("RQ"))
+      assert.is_true(Comm._IsInboundAllowed("CQ"))
     end)
 
-    it("blocks P, PR, and RC when the feature flag is off", function()
+    it("blocks P, PR, RC, and CC when the feature flag is off", function()
       flagOn = false
       assert.is_false(Comm._IsInboundAllowed("P"))
       assert.is_false(Comm._IsInboundAllowed("PR"))
       assert.is_false(Comm._IsInboundAllowed("RC"))
+      assert.is_false(Comm._IsInboundAllowed("CC"))
     end)
 
     it("allows all message types when the feature flag is on", function()
@@ -460,6 +464,8 @@ describe("GuildShareComm helpers", function()
       assert.is_true(Comm._IsInboundAllowed("PR"))
       assert.is_true(Comm._IsInboundAllowed("RQ"))
       assert.is_true(Comm._IsInboundAllowed("RC"))
+      assert.is_true(Comm._IsInboundAllowed("CQ"))
+      assert.is_true(Comm._IsInboundAllowed("CC"))
     end)
   end)
 
@@ -638,6 +644,91 @@ describe("GuildShareComm helpers", function()
       end
       Comm._DispatchReceivedMessage("RQ", { name = "Alice", realm = "R" }, "Alice")
       assert.is_true(rcBuilt)
+    end)
+
+    it("whispers CQ for slim presence chars that need a profession card", function()
+      local sent = {}
+      local realOnline = Comm.IsGuildMemberOnline
+      Comm.IsGuildMemberOnline = function() return true end
+      AltArmy.GuildShareProtocol.ParsePresence = function(msg) return msg end
+      AltArmy.GuildShareProtocol.BuildCharCardRequest = function(name, realm)
+        return { v = 2, name = name, realm = realm }
+      end
+      AltArmy.GuildShareData.CharsNeedingProfessionCard = function()
+        return { { name = "Alice", realm = "R" } }
+      end
+      Comm._TestHookSend = function(msgType, payload, distribution, target)
+        sent[#sent + 1] = {
+          msgType = msgType, payload = payload, distribution = distribution, target = target,
+        }
+      end
+      Comm._DispatchReceivedMessage("P", {
+        v = 2, chars = { { name = "Alice", ch = 1 } },
+      }, "Alice")
+      Comm._TestHookSend = nil
+      Comm.IsGuildMemberOnline = realOnline
+      local cq
+      for _, s in ipairs(sent) do
+        if s.msgType == "CQ" then cq = s end
+      end
+      assert.truthy(cq)
+      assert.are.equal("WHISPER", cq.distribution)
+      assert.are.equal("Alice", cq.target)
+      assert.are.equal("Alice", cq.payload.name)
+    end)
+
+    it("does not whisper CQ for legacy fat v1 presence", function()
+      local sent = {}
+      local realOnline = Comm.IsGuildMemberOnline
+      Comm.IsGuildMemberOnline = function() return true end
+      AltArmy.GuildShareProtocol.ParsePresence = function(msg) return msg end
+      AltArmy.GuildShareData.CharsNeedingProfessionCard = function()
+        return {}
+      end
+      Comm._TestHookSend = function(msgType, payload, distribution, target)
+        sent[#sent + 1] = { msgType = msgType }
+      end
+      Comm._DispatchReceivedMessage("P", {
+        v = 1, chars = { { name = "Alice", profs = { { key = "tailoring", rank = 1 } } } },
+      }, "Alice")
+      Comm._TestHookSend = nil
+      Comm.IsGuildMemberOnline = realOnline
+      for _, s in ipairs(sent) do
+        assert.are_not.equal("CQ", s.msgType)
+      end
+    end)
+
+    it("builds CC for CQ when flag is on, sharing enabled, and character is shareable", function()
+      local ccBuilt = false
+      AltArmy.GuildShareSettings.IsSharingEnabled = function() return true end
+      AltArmy.GuildShareSettings.GetShareableCharacters = function()
+        return { { name = "Alice", char = { name = "Alice", classFile = "MAGE", Professions = {} } } }
+      end
+      AltArmy.GuildShareProtocol.ParseCharCardRequest = function(msg) return msg end
+      AltArmy.GuildShareProtocol.BuildCharCard = function(name, realm)
+        ccBuilt = true
+        return { v = 2, name = name, realm = realm, ch = 1, profs = {} }
+      end
+      Comm._DispatchReceivedMessage("CQ", { v = 2, name = "Alice", realm = "R" }, "Peer")
+      assert.is_true(ccBuilt)
+    end)
+
+    it("saves CC and notifies data changed", function()
+      local savedCard
+      AltArmy.GuildShareProtocol.ParseCharCard = function(msg) return msg end
+      AltArmy.GuildShareData.SaveCharCard = function(sender, card)
+        savedCard = { sender = sender, card = card }
+      end
+      local realOnline = Comm.IsGuildMemberOnline
+      Comm.IsGuildMemberOnline = function() return false end
+      Comm._DispatchReceivedMessage("CC", {
+        v = 2, name = "Alice", realm = "R", ch = 1, profs = {},
+      }, "Peer")
+      Comm.IsGuildMemberOnline = realOnline
+      assert.truthy(savedCard)
+      assert.are.equal("Peer", savedCard.sender)
+      assert.are.equal("Alice", savedCard.card.name)
+      assert.are.equal(1, notifyCount)
     end)
   end)
 

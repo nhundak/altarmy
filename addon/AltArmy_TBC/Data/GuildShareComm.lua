@@ -2,9 +2,9 @@
 -- luacheck: globals C_Timer
 -- Broadcasts a privacy-limited presence over the GUILD channel and pulls recipe lists
 -- on demand. Sending is ALWAYS active (subject to the send-set below); receiving + UI
--- are gated behind the guildShare feature flag, except that inbound RQ (recipe requests)
--- are always processed: flag-off clients always reply with RC; flag-on clients reply only
--- when guild sharing is enabled in Options.
+-- are gated behind the guildShare feature flag, except that inbound RQ/CQ (recipe / char-card
+-- requests) are always processed: flag-off clients always reply with RC/CC; flag-on clients
+-- reply only when guild sharing is enabled in Options.
 -- ScheduleBroadcast is a trailing-edge debounce (timer resets on each call). Options/
 -- onboarding use 5s; profession/recipe scans use PROFESSION_BROADCAST_DEBOUNCE_SEC so
 -- long craft casts (e.g. 8s bandages) do not each complete the quiet window mid-session.
@@ -30,12 +30,16 @@ local MSG_PRESENCE = "P"       -- initial presence broadcast
 local MSG_PRESENCE_REPLY = "PR" -- whispered reply to a broadcast (no further reply)
 local MSG_REQ_RECIPES = "RQ"   -- request recipe list for a character
 local MSG_RECIPES = "RC"       -- recipe list reply
+local MSG_REQ_CHAR_CARD = "CQ" -- request profession card for one character
+local MSG_CHAR_CARD = "CC"     -- profession card reply
 
 local MSG_LABELS = {
     [MSG_PRESENCE] = "presence",
     [MSG_PRESENCE_REPLY] = "presence reply",
     [MSG_REQ_RECIPES] = "recipe request",
     [MSG_RECIPES] = "recipes",
+    [MSG_REQ_CHAR_CARD] = "char card request",
+    [MSG_CHAR_CARD] = "char card",
 }
 
 --- Human-readable log label for a wire message type, e.g. "P (presence)".
@@ -137,9 +141,9 @@ local function isReceiveEnabled()
     return D and D.IsGuildShareEnabled and D.IsGuildShareEnabled() == true
 end
 
---- True when an inbound message type may be processed (RQ is always allowed).
+--- True when an inbound message type may be processed (RQ/CQ always allowed).
 local function isInboundAllowed(msgType)
-    if msgType == MSG_REQ_RECIPES then return true end
+    if msgType == MSG_REQ_RECIPES or msgType == MSG_REQ_CHAR_CARD then return true end
     return isReceiveEnabled()
 end
 Comm._IsInboundAllowed = isInboundAllowed
@@ -151,6 +155,11 @@ function Comm._ShouldRespondToRecipeRequest()
     end
     local GSS = AltArmy.GuildShareSettings
     return GSS and GSS.IsSharingEnabled and GSS.IsSharingEnabled() == true
+end
+
+--- True when this client should send CC in response to an inbound CQ.
+function Comm._ShouldRespondToCharCardRequest()
+    return Comm._ShouldRespondToRecipeRequest()
 end
 
 --- Verbose traffic logging (gated by the standalone guildShareVerbose debug flag).
@@ -339,6 +348,18 @@ function Comm.RequestRecipesForCharacter(name, realm, sender)
     return true
 end
 
+--- On-demand profession-card pull for one character (slim v2 presence follow-up).
+--- Returns true when a request was sent.
+function Comm.RequestCharCard(name, realm, sender)
+    if not name or not sender or sender == "" then return false end
+    sender = normalizeSender(sender)
+    if not Comm.IsGuildMemberOnline(sender) then return false end
+    local P = AltArmy.GuildShareProtocol
+    if not P or not P.BuildCharCardRequest then return false end
+    send(MSG_REQ_CHAR_CARD, P.BuildCharCardRequest(name, realm), "WHISPER", sender)
+    return true
+end
+
 --- Build my presence payload for the given guild/realm (respecting the flag-branched set).
 local function buildMyPresence(guild, realm)
     local GSS = AltArmy.GuildShareSettings
@@ -499,6 +520,16 @@ local function requestMissingRecipes(presence, sender, realm)
     end
 end
 
+--- After storing slim presence, whisper CQ for characters still missing profession cards.
+local function requestMissingCharCards(presence, sender, realm)
+    local GSD = AltArmy.GuildShareData
+    if not GSD or not GSD.CharsNeedingProfessionCard then return end
+    local needing = GSD.CharsNeedingProfessionCard(presence, realm)
+    for _, entry in ipairs(needing) do
+        Comm.RequestCharCard(entry.name, entry.realm or realm, sender)
+    end
+end
+
 --- Reply to a recipe request: only for characters we actually own and are sharing.
 local function handleRecipeRequest(payload, sender)
     local P = AltArmy.GuildShareProtocol
@@ -518,6 +549,28 @@ local function handleRecipeRequest(payload, sender)
     end
     if not ownedAndShared then return end
     send(MSG_RECIPES, P.BuildRecipes(payload.name, realm, ownedAndShared), "WHISPER", sender)
+end
+
+--- Reply to a char-card request: only for characters we actually own and are sharing.
+local function handleCharCardRequest(payload, sender)
+    local P = AltArmy.GuildShareProtocol
+    if not P or not P.ParseCharCardRequest or not P.BuildCharCard then return end
+    if not Comm._ShouldRespondToCharCardRequest() then return end
+    local parsed = P.ParseCharCardRequest(payload)
+    if not parsed then return end
+    local guild = currentGuild()
+    local realm = parsed.realm or currentRealm()
+    local flagOn = isReceiveEnabled()
+    local chars = Comm._SelectShareChars(flagOn, guild, realm)
+    local ownedAndShared
+    for _, entry in ipairs(chars) do
+        if entry.name == parsed.name then
+            ownedAndShared = entry.char
+            break
+        end
+    end
+    if not ownedAndShared then return end
+    send(MSG_CHAR_CARD, P.BuildCharCard(parsed.name, realm, ownedAndShared), "WHISPER", sender)
 end
 
 local function whisperPresenceReply(sender, guild, realm)
@@ -548,11 +601,25 @@ local function handlePresence(payload, sender, isReply)
     end
     GSD.SaveReceived(sender, parsed, guild, realm)
     Comm.NotifyDataChanged()
+    requestMissingCharCards(parsed, sender, realm)
     requestMissingRecipes(parsed, sender, realm)
     -- Announce/reply handshake: reply to an initial broadcast (not to a reply) so we don't loop.
     if not isReply and sender ~= playerName() then
         whisperPresenceReply(sender, guild, realm)
     end
+end
+
+local function handleCharCard(payload, sender)
+    local P = AltArmy.GuildShareProtocol
+    local GSD = AltArmy.GuildShareData
+    if not P or not GSD or not P.ParseCharCard or not GSD.SaveCharCard then return end
+    local parsed = P.ParseCharCard(payload)
+    if not parsed then return end
+    local guild = currentGuild()
+    local realm = parsed.realm or currentRealm()
+    GSD.SaveCharCard(sender, parsed, guild, realm)
+    Comm.NotifyDataChanged()
+    Comm.RequestRecipesForCharacter(parsed.name, realm, sender)
 end
 
 local function handleRecipes(payload)
@@ -566,8 +633,8 @@ local function handleRecipes(payload)
 end
 
 --- Raw AceComm receive callback. All work is wrapped in pcall so a malformed message
---- can never surface an error. Inbound is ignored when the flag is off, except RQ
---- which send-only clients still answer with RC.
+--- can never surface an error. Inbound is ignored when the flag is off, except RQ/CQ
+--- which send-only clients still answer with RC/CC.
 function Comm._DispatchReceivedMessage(msgType, payload, rawSender)
     local sender = normalizeSender(rawSender)
     if isLocalSender(sender) then return end
@@ -580,6 +647,10 @@ function Comm._DispatchReceivedMessage(msgType, payload, rawSender)
         handleRecipeRequest(payload, sender)
     elseif msgType == MSG_RECIPES then
         handleRecipes(payload)
+    elseif msgType == MSG_REQ_CHAR_CARD then
+        handleCharCardRequest(payload, sender)
+    elseif msgType == MSG_CHAR_CARD then
+        handleCharCard(payload, sender)
     end
 end
 
