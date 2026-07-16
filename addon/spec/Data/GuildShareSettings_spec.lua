@@ -31,6 +31,8 @@ describe("GuildShareSettings", function()
     _G.AltArmyTBC_Data = { Characters = {} }
     AltArmy.DataStore.accountData = _G.AltArmyTBC_Data
     AltArmy.DB = _G.AltArmyTBC_Data
+    _G.ChatTypeInfo = nil
+    _G.SetChatColorNameByClass = nil
   end)
 
   describe("defaults", function()
@@ -73,11 +75,43 @@ describe("GuildShareSettings", function()
     it("chat insertion defaults to enabled", function()
       assert.is_true(GSS.IsChatInsertionEnabled())
     end)
+    it("chat insertion class color defaults from Blizzard channel majority", function()
+      _G.ChatTypeInfo = {
+        SAY = { colorNameByClass = true },
+        YELL = { colorNameByClass = true },
+        EMOTE = { colorNameByClass = true },
+        GUILD = { colorNameByClass = true },
+        PARTY = { colorNameByClass = false },
+        RAID = { colorNameByClass = false },
+        INSTANCE_CHAT = { colorNameByClass = false },
+        WHISPER = { colorNameByClass = false },
+      }
+      assert.is_true(GSS.ShouldDefaultChatInsertionClassColorEnabled())
+      assert.is_true(GSS.IsChatInsertionClassColorEnabled())
+
+      _G.AltArmyTBC_SharingSettings = nil
+      _G.ChatTypeInfo = {
+        SAY = { colorNameByClass = true },
+        YELL = { colorNameByClass = true },
+        EMOTE = { colorNameByClass = true },
+        GUILD = { colorNameByClass = false },
+        PARTY = { colorNameByClass = false },
+        RAID = { colorNameByClass = false },
+        INSTANCE_CHAT = { colorNameByClass = false },
+        WHISPER = { colorNameByClass = false },
+      }
+      assert.is_false(GSS.ShouldDefaultChatInsertionClassColorEnabled())
+      assert.is_false(GSS.IsChatInsertionClassColorEnabled())
+    end)
     it("chat insertion channels default to all enabled", function()
       local channels = GSS.GetChatInsertionChannels()
+      assert.is_true(channels.say)
+      assert.is_true(channels.yell)
+      assert.is_true(channels.emote)
       assert.is_true(channels.guild)
       assert.is_true(channels.party)
       assert.is_true(channels.raid)
+      assert.is_true(channels.battleground)
       assert.is_true(channels.whisper)
     end)
     it("main, display name, opt-out, onboarding default to empty/false", function()
@@ -153,6 +187,73 @@ describe("GuildShareSettings", function()
       assert.is_false(GSS.IsChatInsertionEnabled())
       GSS.SetOnboardingCompleted("R", true)
       assert.is_true(GSS.IsOnboardingCompleted("R"))
+    end)
+    it("SetChatInsertionClassColorEnabled", function()
+      GSS.SetChatInsertionClassColorEnabled(false)
+      assert.is_false(GSS.IsChatInsertionClassColorEnabled())
+      GSS.SetChatInsertionClassColorEnabled(true)
+      assert.is_true(GSS.IsChatInsertionClassColorEnabled())
+    end)
+    it("SetChatInsertionClassColorEnabled syncs Blizzard class color for enabled channels", function()
+      local calls = {}
+      _G.SetChatColorNameByClass = function(chatType, on)
+        calls[#calls + 1] = { chatType = chatType, on = on }
+      end
+      _G.ChatTypeInfo = {
+        GUILD = {}, PARTY = {}, PARTY_LEADER = {},
+        RAID = {}, RAID_LEADER = {}, WHISPER = {},
+      }
+      GSS.SetChatInsertionClassColorEnabled(true)
+      local byType = {}
+      for _, c in ipairs(calls) do byType[c.chatType] = c.on end
+      assert.is_true(byType.SAY)
+      assert.is_true(byType.YELL)
+      assert.is_true(byType.EMOTE)
+      assert.is_true(byType.GUILD)
+      assert.is_true(byType.PARTY)
+      assert.is_true(byType.PARTY_LEADER)
+      assert.is_true(byType.RAID)
+      assert.is_true(byType.RAID_LEADER)
+      assert.is_true(byType.INSTANCE_CHAT)
+      assert.is_true(byType.INSTANCE_CHAT_LEADER)
+      assert.is_true(byType.BATTLEGROUND)
+      assert.is_true(byType.BATTLEGROUND_LEADER)
+      assert.is_true(byType.WHISPER)
+
+      calls = {}
+      GSS.SetChatInsertionClassColorEnabled(false)
+      byType = {}
+      for _, c in ipairs(calls) do byType[c.chatType] = c.on end
+      assert.is_false(byType.SAY)
+      assert.is_false(byType.YELL)
+      assert.is_false(byType.EMOTE)
+      assert.is_false(byType.INSTANCE_CHAT)
+      assert.is_false(byType.GUILD)
+      assert.is_false(byType.PARTY)
+      assert.is_false(byType.WHISPER)
+    end)
+    it("disables Blizzard class color for channels turned off in the dropdown", function()
+      local calls = {}
+      _G.SetChatColorNameByClass = function(chatType, on)
+        calls[#calls + 1] = { chatType = chatType, on = on }
+      end
+      GSS.SetChatInsertionClassColorEnabled(true)
+      calls = {}
+      GSS.SetChatInsertionChannelEnabled("party", false)
+      local byType = {}
+      for _, c in ipairs(calls) do byType[c.chatType] = c.on end
+      assert.is_false(byType.PARTY)
+      assert.is_false(byType.PARTY_LEADER)
+      assert.is_true(byType.SAY)
+      assert.is_true(byType.GUILD)
+      assert.is_true(byType.WHISPER)
+
+      calls = {}
+      GSS.SetChatInsertionChannelEnabled("party", true)
+      byType = {}
+      for _, c in ipairs(calls) do byType[c.chatType] = c.on end
+      assert.is_true(byType.PARTY)
+      assert.is_true(byType.PARTY_LEADER)
     end)
   end)
 

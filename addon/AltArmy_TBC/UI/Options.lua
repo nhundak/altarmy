@@ -551,12 +551,18 @@ RefreshDebugTabVisibility()
 -- General tab
 -- ---------------------------------------------------------------------------
 
+local generalSectionHeader = Theme.CreateOptionsSectionLabel(tabGeneral, {
+    text = "General",
+    justifyH = "LEFT",
+    y = 0,
+})
+
 local minimapRow = Theme.CreateLabeledCheckbox(tabGeneral, {
     point = "TOPLEFT",
-    relativeTo = tabGeneral,
-    relativePoint = "TOPLEFT",
+    relativeTo = generalSectionHeader,
+    relativePoint = "BOTTOMLEFT",
     x = 0,
-    y = 0,
+    y = -8,
     text = "Show Minimap Button",
     fullWidthHover = true,
     onClick = function(checked)
@@ -570,8 +576,8 @@ local minimapRow = Theme.CreateLabeledCheckbox(tabGeneral, {
 panel.minimapCheckbox = minimapRow.check
 
 local REALM_FILTER_MENU = {
-    { value = "currentRealm", label = "Show characters from current realm" },
-    { value = "all",          label = "Show characters from all realms" },
+    { value = "currentRealm", label = "View characters on current realm only" },
+    { value = "all",          label = "View characters on all realms at once" },
 }
 
 local function realmFilterEntries()
@@ -583,14 +589,26 @@ local function realmFilterEntries()
     return out
 end
 
+local REALM_FILTER_ROW_HEIGHT = Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or 24
+local realmFilterRow = CreateFrame("Frame", nil, tabGeneral)
+realmFilterRow:SetPoint("TOPLEFT", minimapRow, "BOTTOMLEFT", 0, -14)
+realmFilterRow:SetPoint("RIGHT", tabGeneral, "RIGHT", 0, 0)
+realmFilterRow:SetHeight(REALM_FILTER_ROW_HEIGHT)
+
+local realmFilterColumn = CreateFrame("Frame", nil, realmFilterRow)
+realmFilterColumn:SetPoint("TOP", realmFilterRow, "TOP", 0, 0)
+realmFilterColumn:SetPoint("BOTTOM", realmFilterRow, "BOTTOM", 0, 0)
+realmFilterColumn:SetPoint("LEFT", realmFilterRow, "LEFT", 0, 0)
+realmFilterColumn:SetPoint("RIGHT", realmFilterRow, "CENTER", -8, 0)
+
 local realmFilterDropdown = Theme.CreateSingleSelectDropdown({
-    parent = tabGeneral,
+    parent = realmFilterColumn,
     point = "TOPLEFT",
-    relativeTo = minimapRow,
-    relativePoint = "BOTTOMLEFT",
+    relativeTo = realmFilterColumn,
+    relativePoint = "TOPLEFT",
     x = 0,
-    y = -14,
-    width = 340,
+    y = 0,
+    rowHeight = REALM_FILTER_ROW_HEIGHT,
     dropdownParent = tabGeneral,
     getEntries = realmFilterEntries,
     getSelectedId = function()
@@ -608,6 +626,12 @@ local realmFilterDropdown = Theme.CreateSingleSelectDropdown({
         end
     end,
 })
+realmFilterDropdown.button:ClearAllPoints()
+realmFilterDropdown.button:SetPoint("TOPLEFT", realmFilterColumn, "TOPLEFT", 0, 0)
+realmFilterDropdown.button:SetPoint("BOTTOMRIGHT", realmFilterColumn, "BOTTOMRIGHT", 0, 0)
+realmFilterDropdown.popup:ClearAllPoints()
+realmFilterDropdown.popup:SetPoint("TOPLEFT", realmFilterDropdown.button, "BOTTOMLEFT", 0, -2)
+realmFilterDropdown.popup:SetPoint("TOPRIGHT", realmFilterDropdown.button, "BOTTOMRIGHT", 0, -2)
 
 local function RefreshRealmFilterDropdown()
     if realmFilterDropdown and realmFilterDropdown.Update then
@@ -618,14 +642,6 @@ end
 RefreshRealmFilterDropdown()
 panel.realmFilterDropdown = realmFilterDropdown
 panel.RefreshRealmFilterDropdown = RefreshRealmFilterDropdown
-
-local generalHint = tabGeneral:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-generalHint:SetPoint("TOPLEFT", realmFilterDropdown.button, "BOTTOMLEFT", 0, -10)
-generalHint:SetWidth(520)
-generalHint:SetJustifyH("LEFT")
-generalHint:SetText(
-    "Realm filter applies to Summary, Gear, Reputation, Search, Cooldowns, and Graphs tabs."
-)
 
 -- Guild sharing settings (only shown when the guildShare feature flag is on).
 local GUILD_SHARING_ROW_GAP = 16
@@ -715,7 +731,7 @@ end
 local refreshGuildSharingDependentControls
 
 local guildSharingBlock = CreateFrame("Frame", nil, tabGeneral)
-guildSharingBlock:SetPoint("TOPLEFT", generalHint, "BOTTOMLEFT", 0, -20)
+guildSharingBlock:SetPoint("TOPLEFT", realmFilterRow, "BOTTOMLEFT", 0, -20)
 guildSharingBlock:SetPoint("RIGHT", tabGeneral, "RIGHT", 0, 0)
 
 local guildSharingHeader = Theme.CreateOptionsSectionLabel(guildSharingBlock, {
@@ -829,7 +845,11 @@ local GUILD_IDENTITY_LABEL_HEIGHT = 14
 local GUILD_IDENTITY_CONTROL_GAP = 2
 local GUILD_IDENTITY_ROW_HEIGHT = GUILD_IDENTITY_LABEL_HEIGHT
     + GUILD_IDENTITY_CONTROL_GAP + GUILD_IDENTITY_CONTROL_HEIGHT
-local GUILD_CHAT_ROW_HEIGHT = Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or 24
+local GUILD_CHAT_CHECK_ROW_HEIGHT = Theme.CHAR_LIST_ROW_HEIGHT or 20
+local GUILD_CHAT_CHANNELS_LABEL_HEIGHT = GUILD_IDENTITY_LABEL_HEIGHT
+local GUILD_CHAT_CHANNELS_CONTROL_HEIGHT = Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or 24
+local GUILD_CHAT_CHANNELS_ROW_HEIGHT = GUILD_CHAT_CHANNELS_LABEL_HEIGHT
+    + GUILD_IDENTITY_CONTROL_GAP + GUILD_CHAT_CHANNELS_CONTROL_HEIGHT
 
 local guildIdentityRow = CreateFrame("Frame", nil, guildSharingTail)
 guildIdentityRow:SetPoint("TOPLEFT", guildSharingTail, "TOPLEFT", 0, 0)
@@ -961,16 +981,25 @@ guildDisplayEdit:SetScript("OnEditFocusLost", function(box)
     applyGuildDisplayNameFromEdit(box, true)
 end)
 
-local guildChatRow = CreateFrame("Frame", nil, guildSharingTail)
-guildChatRow:SetPoint("TOPLEFT", guildIdentityRow, "BOTTOMLEFT", 0, -GUILD_SHARING_ROW_GAP)
-guildChatRow:SetPoint("RIGHT", guildSharingTail, "RIGHT", 0, 0)
-guildChatRow:SetHeight(GUILD_CHAT_ROW_HEIGHT + 4)
+local guildChatHeader = Theme.CreateOptionsSectionLabel(guildSharingTail, {
+    relativeTo = guildIdentityRow,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -GUILD_SHARING_ROW_GAP,
+    text = "Chat",
+    justifyH = "LEFT",
+})
 
-local guildChatLeftColumn = CreateFrame("Frame", nil, guildChatRow)
-anchorGuildSharingLeftHalf(guildChatLeftColumn, guildChatRow)
+local guildChatChecksRow = CreateFrame("Frame", nil, guildSharingTail)
+guildChatChecksRow:SetPoint("TOPLEFT", guildChatHeader, "BOTTOMLEFT", 0, -8)
+guildChatChecksRow:SetPoint("RIGHT", guildSharingTail, "RIGHT", 0, 0)
+guildChatChecksRow:SetHeight(GUILD_CHAT_CHECK_ROW_HEIGHT + 4)
 
-local guildChatRightColumn = CreateFrame("Frame", nil, guildChatRow)
-anchorGuildSharingRightHalf(guildChatRightColumn, guildChatRow)
+local guildChatLeftColumn = CreateFrame("Frame", nil, guildChatChecksRow)
+anchorGuildSharingLeftHalf(guildChatLeftColumn, guildChatChecksRow)
+
+local guildChatRightColumn = CreateFrame("Frame", nil, guildChatChecksRow)
+anchorGuildSharingRightHalf(guildChatRightColumn, guildChatChecksRow)
 
 local guildChatInsertRow = Theme.CreateLabeledCheckbox(guildChatLeftColumn, {
     point = "TOPLEFT",
@@ -994,11 +1023,57 @@ attachSharingRequiredTooltip(guildChatInsertRow.check, function()
     return guildChatInsertRow._sharingRequiredTooltip == true
 end)
 
+local guildChatClassColorRow = Theme.CreateLabeledCheckbox(guildChatRightColumn, {
+    point = "TOPLEFT",
+    relativeTo = guildChatRightColumn,
+    relativePoint = "TOPLEFT",
+    x = 0,
+    y = 0,
+    text = "Color character names by class color",
+    fullWidthHover = true,
+    onClick = function(checked)
+        local GSS = AltArmy.GuildShareSettings
+        if GSS and GSS.SetChatInsertionClassColorEnabled then
+            GSS.SetChatInsertionClassColorEnabled(checked)
+        end
+    end,
+})
+panel.guildChatClassColorCheckbox = guildChatClassColorRow.check
+
+local guildChatChannelsRow = CreateFrame("Frame", nil, guildSharingTail)
+guildChatChannelsRow:SetPoint("TOPLEFT", guildChatChecksRow, "BOTTOMLEFT", 0, -GUILD_SHARING_ROW_GAP)
+guildChatChannelsRow:SetPoint("RIGHT", guildSharingTail, "RIGHT", 0, 0)
+guildChatChannelsRow:SetHeight(GUILD_CHAT_CHANNELS_ROW_HEIGHT)
+
+local guildChatChannelsLabelRow = CreateFrame("Frame", nil, guildChatChannelsRow)
+guildChatChannelsLabelRow:SetPoint("TOPLEFT", guildChatChannelsRow, "TOPLEFT", 0, 0)
+guildChatChannelsLabelRow:SetPoint("RIGHT", guildChatChannelsRow, "RIGHT", 0, 0)
+guildChatChannelsLabelRow:SetHeight(GUILD_CHAT_CHANNELS_LABEL_HEIGHT)
+
+local guildChatChannelsLabel = guildChatChannelsLabelRow:CreateFontString(
+    nil, "ARTWORK", "GameFontHighlightSmall")
+anchorGuildSharingLeftCaption(guildChatChannelsLabel, guildChatChannelsLabelRow)
+guildChatChannelsLabel:SetJustifyH("LEFT")
+guildChatChannelsLabel:SetWordWrap(true)
+guildChatChannelsLabel:SetText("Which channels?")
+
+local guildChatChannelsControlRow = CreateFrame("Frame", nil, guildChatChannelsRow)
+guildChatChannelsControlRow:SetPoint(
+    "TOPLEFT", guildChatChannelsLabelRow, "BOTTOMLEFT", 0, -GUILD_IDENTITY_CONTROL_GAP)
+guildChatChannelsControlRow:SetPoint("RIGHT", guildChatChannelsRow, "RIGHT", 0, 0)
+guildChatChannelsControlRow:SetHeight(GUILD_CHAT_CHANNELS_CONTROL_HEIGHT)
+
+local guildChatChannelsColumn = CreateFrame("Frame", nil, guildChatChannelsControlRow)
+anchorGuildSharingLeftHalf(guildChatChannelsColumn, guildChatChannelsControlRow)
+
 guildChatChannelsDropdown = Theme.CreateMultiSelectCheckboxDropdown({
-    parent = guildChatRightColumn,
+    parent = guildChatChannelsColumn,
     dropdownParent = panel,
-    relativeTo = guildChatInsertRow,
-    sameLine = true,
+    rowHeight = GUILD_CHAT_CHANNELS_CONTROL_HEIGHT,
+    relativeTo = guildChatChannelsColumn,
+    relativePoint = "TOPLEFT",
+    x = 0,
+    y = 0,
     keys = (AltArmy.GuildShareSettings and AltArmy.GuildShareSettings.CHAT_INSERTION_CHANNEL_ORDER) or {},
     labels = (AltArmy.GuildShareSettings and AltArmy.GuildShareSettings.CHAT_INSERTION_CHANNEL_LABELS) or {},
     getRowLabel = function(key)
@@ -1040,6 +1115,11 @@ guildChatChannelsDropdown = Theme.CreateMultiSelectCheckboxDropdown({
         return table.concat(selected, ", ")
     end,
 })
+if guildChatChannelsDropdown and guildChatChannelsDropdown.button then
+    guildChatChannelsDropdown.button:ClearAllPoints()
+    guildChatChannelsDropdown.button:SetPoint("TOPLEFT", guildChatChannelsColumn, "TOPLEFT", 0, 0)
+    guildChatChannelsDropdown.button:SetPoint("BOTTOMRIGHT", guildChatChannelsColumn, "BOTTOMRIGHT", 0, 0)
+end
 
 local guildChatChannelsSharingOverlay = guildChatChannelsDropdown
     and guildChatChannelsDropdown.button
@@ -1051,6 +1131,8 @@ function refreshGuildSharingDependentControls()
     local chatOn = GSS and GSS.IsChatInsertionEnabled and GSS.IsChatInsertionEnabled() == true
     -- Dependent controls only usable while sharing is on.
     setGuildSharingCheckboxEnabled(guildChatInsertRow, sharingOn)
+    -- Class-color checkbox needs both sharing and chat insertion.
+    setGuildSharingCheckboxEnabled(guildChatClassColorRow, sharingOn and chatOn)
     if guildChatChannelsDropdown and guildChatChannelsDropdown.SetEnabled then
         guildChatChannelsDropdown:SetEnabled(sharingOn and chatOn)
     end
@@ -1098,6 +1180,10 @@ local function RefreshGuildSharingControls()
         if GSS then
             guildShareEnableRow.check:SetChecked(GSS.IsSharingEnabled())
             guildChatInsertRow.check:SetChecked(GSS.IsChatInsertionEnabled())
+            if guildChatClassColorRow and guildChatClassColorRow.check
+                and GSS.IsChatInsertionClassColorEnabled then
+                guildChatClassColorRow.check:SetChecked(GSS.IsChatInsertionClassColorEnabled())
+            end
             local mainName = GSS.GetMain and GSS.GetMain() or nil
             if guildMainDropdown and guildMainDropdown.Update then
                 guildMainDropdown:Update()

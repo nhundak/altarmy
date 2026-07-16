@@ -45,6 +45,18 @@ describe("GuildChatMainName", function()
     assert.is_false(out:find("808080", 1, true) ~= nil, "should not use gray")
   end)
 
+  it("omits class color when colorByClass is false", function()
+    local out = GCM.Transform(
+      "Alt",
+      "hello",
+      mains({ Alt = "Mainman" }),
+      mainClasses({ Mainman = "MAGE" }),
+      nil,
+      false
+    )
+    assert.are.equal("[Mainman] hello", out)
+  end)
+
   it("leaves the message unchanged when the sender is their own main", function()
     assert.are.equal("hello", GCM.Transform("Mainman", "hello", mains({ Mainman = "Mainman" })))
   end)
@@ -88,6 +100,12 @@ describe("GuildChatMainName", function()
     it("annotates when the channel is enabled", function()
       local out = GCM.FilterMessage("hello", "Alt", "guild")
       assert.is_true(out and out:find("Mainman", 1, true) ~= nil, out)
+    end)
+
+    it("omits class color when chat insertion class color is disabled", function()
+      AltArmy.GuildShareSettings.IsChatInsertionClassColorEnabled = function() return false end
+      local out = GCM.FilterMessage("hello", "Alt", "guild")
+      assert.are.equal("[Mainman] hello", out)
     end)
 
     it("returns nil when guild sharing is opted out", function()
@@ -228,6 +246,17 @@ describe("GuildChatMainName", function()
       assert.is_true(out:find("|cff", 1, true) ~= nil, out)
       assert.is_true(out:find("Treebus", 1, true) ~= nil)
       assert.is_false(out:find("808080", 1, true) ~= nil, "should not use gray")
+    end)
+
+    it("omits class color when colorByClass is false", function()
+      local out = GCM.TransformOnlineOffline(
+        OFFLINE,
+        mains({ Allystie = "Treebus" }),
+        mainClasses({ Treebus = "MAGE" }),
+        nil,
+        false
+      )
+      assert.are.equal("Allystie [Treebus] has gone offline.", out)
     end)
 
     it("leaves online/offline unchanged when the character is their own main", function()

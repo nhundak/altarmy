@@ -16,6 +16,7 @@ local function ensure()
     local s = _G.AltArmyTBC_SharingSettings
     if s.enabled == nil then s.enabled = false end
     if s.chatInsertion == nil then s.chatInsertion = true end
+    -- chatInsertionClassColor stays nil until first read; defaulted from Blizzard then.
     s.mains = s.mains or {}
     s.displayNames = s.displayNames or {}
     s.optOut = s.optOut or {}
@@ -24,9 +25,13 @@ local function ensure()
     s.groupUiPrefs = s.groupUiPrefs or {}
     s.chatInsertionChannels = s.chatInsertionChannels or {}
     local channels = s.chatInsertionChannels
+    if channels.say == nil then channels.say = true end
+    if channels.yell == nil then channels.yell = true end
+    if channels.emote == nil then channels.emote = true end
     if channels.guild == nil then channels.guild = true end
     if channels.party == nil then channels.party = true end
     if channels.raid == nil then channels.raid = true end
+    if channels.battleground == nil then channels.battleground = true end
     if channels.whisper == nil then channels.whisper = true end
     return s
 end
@@ -101,13 +106,99 @@ function GSS.SetChatInsertionEnabled(on)
     ensure().chatInsertion = on == true
 end
 
-GSS.CHAT_INSERTION_CHANNEL_ORDER = { "guild", "party", "raid", "whisper" }
+GSS.CHAT_INSERTION_CHANNEL_ORDER = {
+    "say", "yell", "emote", "guild", "party", "raid", "battleground", "whisper",
+}
 GSS.CHAT_INSERTION_CHANNEL_LABELS = {
+    say = "Say",
+    yell = "Yell",
+    emote = "Emote",
     guild = "Guild",
     party = "Party",
     raid = "Raid",
+    battleground = "Battleground",
     whisper = "Whisper",
 }
+
+--- Blizzard chat types synced for each dropdown channel key.
+GSS.CHAT_INSERTION_CHANNEL_CHAT_TYPES = {
+    say = { "SAY" },
+    yell = { "YELL" },
+    emote = { "EMOTE" },
+    guild = { "GUILD" },
+    party = { "PARTY", "PARTY_LEADER" },
+    raid = { "RAID", "RAID_LEADER" },
+    -- Modern Classic uses INSTANCE_CHAT; older TBC builds used BATTLEGROUND.
+    battleground = {
+        "INSTANCE_CHAT", "INSTANCE_CHAT_LEADER",
+        "BATTLEGROUND", "BATTLEGROUND_LEADER",
+    },
+    whisper = { "WHISPER" },
+}
+
+local function blizzardChatTypeClassColorOn(chatType)
+    local info = _G.ChatTypeInfo and _G.ChatTypeInfo[chatType]
+    if not info then return false end
+    return info.colorNameByClass == true or info.colorNameByClass == 1
+end
+
+--- True when Blizzard has class-colored names on for this dropdown channel key.
+function GSS.IsBlizzardChatClassColorEnabled(key)
+    local types = GSS.CHAT_INSERTION_CHANNEL_CHAT_TYPES[key]
+    if not types or not types[1] then return false end
+    return blizzardChatTypeClassColorOn(types[1])
+end
+
+--- Default checkbox on when ≥50% of listed channels already use Blizzard class colors.
+function GSS.ShouldDefaultChatInsertionClassColorEnabled()
+    local keys = GSS.CHAT_INSERTION_CHANNEL_ORDER
+    local total = #keys
+    if total == 0 then return false end
+    local onCount = 0
+    for _, key in ipairs(keys) do
+        if GSS.IsBlizzardChatClassColorEnabled(key) then
+            onCount = onCount + 1
+        end
+    end
+    return (onCount / total) >= 0.5
+end
+
+function GSS.ApplyBlizzardChatClassColorForChannel(key, on)
+    local types = GSS.CHAT_INSERTION_CHANNEL_CHAT_TYPES[key]
+    local setter = _G.SetChatColorNameByClass
+    if not types or type(setter) ~= "function" then return end
+    local enabled = on == true
+    for _, chatType in ipairs(types) do
+        setter(chatType, enabled)
+        local info = _G.ChatTypeInfo and _G.ChatTypeInfo[chatType]
+        if info then
+            info.colorNameByClass = enabled
+        end
+    end
+end
+
+--- Sync Blizzard Class Color: on only when our global class-color setting is on
+--- and that channel is enabled in the dropdown.
+function GSS.SyncBlizzardChatClassColors()
+    local classOn = GSS.IsChatInsertionClassColorEnabled()
+    for _, key in ipairs(GSS.CHAT_INSERTION_CHANNEL_ORDER) do
+        local channelOn = GSS.IsChatInsertionChannelEnabled(key)
+        GSS.ApplyBlizzardChatClassColorForChannel(key, classOn and channelOn)
+    end
+end
+
+function GSS.IsChatInsertionClassColorEnabled()
+    local s = ensure()
+    if s.chatInsertionClassColor == nil then
+        s.chatInsertionClassColor = GSS.ShouldDefaultChatInsertionClassColorEnabled()
+    end
+    return s.chatInsertionClassColor == true
+end
+
+function GSS.SetChatInsertionClassColorEnabled(on)
+    ensure().chatInsertionClassColor = on == true
+    GSS.SyncBlizzardChatClassColors()
+end
 
 function GSS.GetChatInsertionChannels()
     local s = ensure()
@@ -121,6 +212,7 @@ end
 
 function GSS.SetChatInsertionChannelEnabled(key, on)
     ensure().chatInsertionChannels[key] = on ~= false
+    GSS.SyncBlizzardChatClassColors()
 end
 
 --- Comma-separated enabled labels with chat colors. Returns "None" when nothing is enabled.
@@ -150,9 +242,13 @@ function GSS.FormatChatInsertionChannelSummary(keys, labelMap, filter)
 end
 
 GSS.CHAT_INSERTION_CHANNEL_COLORS = {
+    say = { 1.0, 1.0, 1.0 },
+    yell = { 1.0, 0.25, 0.25 },
+    emote = { 1.0, 0.5, 0.25 },
     guild = { 0.063, 0.816, 0.063 },
     party = { 0.651, 0.816, 1.0 },
     raid = { 1.0, 0.498, 0.0 },
+    battleground = { 1.0, 0.7, 0.0 },
     whisper = { 1.0, 0.502, 1.0 },
 }
 
