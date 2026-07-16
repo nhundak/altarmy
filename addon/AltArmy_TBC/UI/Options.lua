@@ -1078,6 +1078,9 @@ guildChatChannelsDropdown = Theme.CreateMultiSelectCheckboxDropdown({
     labels = (AltArmy.GuildShareSettings and AltArmy.GuildShareSettings.CHAT_INSERTION_CHANNEL_LABELS) or {},
     getRowLabel = function(key)
         local GSS = AltArmy.GuildShareSettings
+        if GSS and GSS.FormatChatInsertionChannelDetailLabel then
+            return GSS.FormatChatInsertionChannelDetailLabel(key)
+        end
         if GSS and GSS.FormatChatInsertionChannelColoredLabel then
             return GSS.FormatChatInsertionChannelColoredLabel(key)
         end

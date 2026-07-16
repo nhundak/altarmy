@@ -125,7 +125,7 @@ GSS.CHAT_INSERTION_CHANNEL_CHAT_TYPES = {
     say = { "SAY" },
     yell = { "YELL" },
     emote = { "EMOTE" },
-    guild = { "GUILD" },
+    guild = { "GUILD", "OFFICER" },
     party = { "PARTY", "PARTY_LEADER" },
     raid = { "RAID", "RAID_LEADER" },
     -- Modern Classic uses INSTANCE_CHAT; older TBC builds used BATTLEGROUND.
@@ -232,11 +232,42 @@ function GSS.SetChatInsertionChannelEnabled(key, on)
     GSS.SyncBlizzardChatClassColors()
 end
 
---- Comma-separated enabled labels with chat colors. Returns "None" when nothing is enabled.
-function GSS.FormatChatInsertionChannelColoredLabel(key, labelMap)
-    labelMap = labelMap or GSS.CHAT_INSERTION_CHANNEL_LABELS
-    local label = labelMap[key] or key
-    local color = GSS.CHAT_INSERTION_CHANNEL_COLORS and GSS.CHAT_INSERTION_CHANNEL_COLORS[key]
+-- Blizzard default chat colors (Chat Settings / ChangeChatColor), as 0–1 floats.
+GSS.CHAT_INSERTION_CHANNEL_COLORS = {
+    say = { 255 / 255, 255 / 255, 255 / 255 },
+    yell = { 255 / 255, 64 / 255, 64 / 255 },
+    emote = { 255 / 255, 128 / 255, 64 / 255 },
+    guild = { 64 / 255, 255 / 255, 64 / 255 },
+    officer = { 64 / 255, 192 / 255, 64 / 255 },
+    party = { 170 / 255, 170 / 255, 255 / 255 },
+    partyLeader = { 118 / 255, 200 / 255, 255 / 255 },
+    raid = { 255 / 255, 127 / 255, 0 / 255 },
+    raidLeader = { 255 / 255, 72 / 255, 9 / 255 },
+    battleground = { 255 / 255, 127 / 255, 0 / 255 },
+    -- Classic/TBC uses INSTANCE_CHAT_LEADER (same red as RAID_LEADER), not the
+    -- old WotLK BATTLEGROUND_LEADER peach (255, 219, 183).
+    battlegroundLeader = { 255 / 255, 72 / 255, 9 / 255 },
+    whisper = { 255 / 255, 128 / 255, 255 / 255 },
+}
+
+--- Checkbox-row segments: each option may cover multiple Blizzard chat channels.
+--- Entries are { label, colorKey } where colorKey indexes CHAT_INSERTION_CHANNEL_COLORS.
+GSS.CHAT_INSERTION_CHANNEL_DETAIL_SEGMENTS = {
+    say = { { "Say", "say" } },
+    yell = { { "Yell", "yell" } },
+    emote = { { "Emote", "emote" } },
+    guild = { { "Guild", "guild" }, { "Officer", "officer" } },
+    party = { { "Party", "party" }, { "Party Leader", "partyLeader" } },
+    raid = { { "Raid", "raid" }, { "Raid Leader", "raidLeader" } },
+    battleground = {
+        { "Battleground", "battleground" },
+        { "Battleground Leader", "battlegroundLeader" },
+    },
+    whisper = { { "Whisper", "whisper" } },
+}
+
+local function colorizeChannelLabel(label, colorKey)
+    local color = GSS.CHAT_INSERTION_CHANNEL_COLORS and GSS.CHAT_INSERTION_CHANNEL_COLORS[colorKey]
     local CC = AltArmy.ClassColor
     if color and CC and CC.formatHex then
         return CC.formatHex(color[1], color[2], color[3], label)
@@ -244,6 +275,28 @@ function GSS.FormatChatInsertionChannelColoredLabel(key, labelMap)
     return label
 end
 
+--- Short single-word label with chat color (summary row).
+function GSS.FormatChatInsertionChannelColoredLabel(key, labelMap)
+    labelMap = labelMap or GSS.CHAT_INSERTION_CHANNEL_LABELS
+    local label = labelMap[key] or key
+    return colorizeChannelLabel(label, key)
+end
+
+--- Full checkbox-row label listing every affected channel, each colored.
+function GSS.FormatChatInsertionChannelDetailLabel(key)
+    local segments = GSS.CHAT_INSERTION_CHANNEL_DETAIL_SEGMENTS
+        and GSS.CHAT_INSERTION_CHANNEL_DETAIL_SEGMENTS[key]
+    if not segments or not segments[1] then
+        return GSS.FormatChatInsertionChannelColoredLabel(key)
+    end
+    local parts = {}
+    for i, seg in ipairs(segments) do
+        parts[i] = colorizeChannelLabel(seg[1], seg[2])
+    end
+    return table.concat(parts, " / ")
+end
+
+--- Comma-separated enabled short labels with chat colors. Returns "None" when nothing is enabled.
 function GSS.FormatChatInsertionChannelSummary(keys, labelMap, filter)
     filter = filter or {}
     local selected = {}
@@ -257,17 +310,6 @@ function GSS.FormatChatInsertionChannelSummary(keys, labelMap, filter)
     end
     return table.concat(selected, ", ")
 end
-
-GSS.CHAT_INSERTION_CHANNEL_COLORS = {
-    say = { 1.0, 1.0, 1.0 },
-    yell = { 1.0, 0.25, 0.25 },
-    emote = { 1.0, 0.5, 0.25 },
-    guild = { 0.063, 0.816, 0.063 },
-    party = { 0.651, 0.816, 1.0 },
-    raid = { 1.0, 0.498, 0.0 },
-    battleground = { 1.0, 0.7, 0.0 },
-    whisper = { 1.0, 0.502, 1.0 },
-}
 
 --- Pick the top-ranked character as main when none is saved yet.
 function GSS.EnsureDefaultMainIfMissing(realm)

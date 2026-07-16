@@ -229,6 +229,7 @@ describe("GuildShareSettings", function()
       assert.is_true(byType.YELL)
       assert.is_true(byType.EMOTE)
       assert.is_true(byType.GUILD)
+      assert.is_true(byType.OFFICER)
       assert.is_true(byType.PARTY)
       assert.is_true(byType.PARTY_LEADER)
       assert.is_true(byType.RAID)
@@ -422,6 +423,80 @@ describe("GuildShareSettings", function()
       assert.is_true(summary:find("Guild", 1, true) ~= nil, summary)
       assert.is_true(summary:find("Whisper", 1, true) ~= nil, summary)
       assert.is_nil(summary:find("Party", 1, true))
+    end)
+
+    it("FormatChatInsertionChannelSummary keeps short single-word labels", function()
+      local summary = GSS.FormatChatInsertionChannelSummary(
+        { "guild", "party" },
+        GSS.CHAT_INSERTION_CHANNEL_LABELS,
+        { guild = true, party = true }
+      )
+      assert.is_nil(summary:find("Officer", 1, true), summary)
+      assert.is_nil(summary:find("Party Leader", 1, true), summary)
+      assert.is_nil(summary:find(" / ", 1, true), summary)
+      assert.is_true(summary:find("Guild", 1, true) ~= nil, summary)
+      assert.is_true(summary:find("Party", 1, true) ~= nil, summary)
+    end)
+
+    it("FormatChatInsertionChannelDetailLabel lists all affected channels", function()
+      local function stripColor(s)
+        return (tostring(s):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+      end
+      assert.equals("Guild / Officer", stripColor(GSS.FormatChatInsertionChannelDetailLabel("guild")))
+      assert.equals("Party / Party Leader", stripColor(GSS.FormatChatInsertionChannelDetailLabel("party")))
+      assert.equals("Raid / Raid Leader", stripColor(GSS.FormatChatInsertionChannelDetailLabel("raid")))
+      assert.equals(
+        "Battleground / Battleground Leader",
+        stripColor(GSS.FormatChatInsertionChannelDetailLabel("battleground"))
+      )
+      assert.equals("Say", stripColor(GSS.FormatChatInsertionChannelDetailLabel("say")))
+    end)
+
+    it("FormatChatInsertionChannelDetailLabel colors each channel word", function()
+      package.loaded["ClassColor"] = nil
+      require("ClassColor")
+      local CC = AltArmy.ClassColor
+      local guildColor = GSS.CHAT_INSERTION_CHANNEL_COLORS.guild
+      local officerColor = GSS.CHAT_INSERTION_CHANNEL_COLORS.officer
+      local expected = CC.formatHex(guildColor[1], guildColor[2], guildColor[3], "Guild")
+        .. " / "
+        .. CC.formatHex(officerColor[1], officerColor[2], officerColor[3], "Officer")
+      assert.equals(expected, GSS.FormatChatInsertionChannelDetailLabel("guild"))
+    end)
+
+    it("CHAT_INSERTION_CHANNEL_COLORS match Blizzard defaults", function()
+      local function assertRgb(key, r, g, b)
+        local c = GSS.CHAT_INSERTION_CHANNEL_COLORS[key]
+        assert.truthy(c, key)
+        assert.is_true(math.abs(c[1] - r) < 1e-6, key .. " r")
+        assert.is_true(math.abs(c[2] - g) < 1e-6, key .. " g")
+        assert.is_true(math.abs(c[3] - b) < 1e-6, key .. " b")
+      end
+      assertRgb("say", 1, 1, 1)
+      assertRgb("yell", 255 / 255, 64 / 255, 64 / 255)
+      assertRgb("emote", 255 / 255, 128 / 255, 64 / 255)
+      assertRgb("guild", 64 / 255, 255 / 255, 64 / 255)
+      assertRgb("officer", 64 / 255, 192 / 255, 64 / 255)
+      assertRgb("party", 170 / 255, 170 / 255, 255 / 255)
+      assertRgb("partyLeader", 118 / 255, 200 / 255, 255 / 255)
+      assertRgb("raid", 255 / 255, 127 / 255, 0)
+      assertRgb("raidLeader", 255 / 255, 72 / 255, 9 / 255)
+      assertRgb("battleground", 255 / 255, 127 / 255, 0)
+      assertRgb("battlegroundLeader", 255 / 255, 72 / 255, 9 / 255)
+      assertRgb("whisper", 255 / 255, 128 / 255, 255 / 255)
+    end)
+
+    it("FormatChatInsertionChannelDetailLabel uses distinct leader colors", function()
+      package.loaded["ClassColor"] = nil
+      require("ClassColor")
+      local CC = AltArmy.ClassColor
+      local colors = GSS.CHAT_INSERTION_CHANNEL_COLORS
+      local expected = CC.formatHex(colors.party[1], colors.party[2], colors.party[3], "Party")
+        .. " / "
+        .. CC.formatHex(
+          colors.partyLeader[1], colors.partyLeader[2], colors.partyLeader[3], "Party Leader"
+        )
+      assert.equals(expected, GSS.FormatChatInsertionChannelDetailLabel("party"))
     end)
   end)
 

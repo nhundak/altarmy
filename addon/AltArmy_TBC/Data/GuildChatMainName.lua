@@ -13,8 +13,8 @@ GCM.CHANNEL_EVENTS = {
     say = { "CHAT_MSG_SAY" },
     yell = { "CHAT_MSG_YELL" },
     emote = { "CHAT_MSG_EMOTE", "CHAT_MSG_TEXT_EMOTE" },
-    guild = { "CHAT_MSG_GUILD" },
-    party = { "CHAT_MSG_PARTY" },
+    guild = { "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER" },
+    party = { "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER" },
     raid = { "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER" },
     -- Modern Classic uses INSTANCE_CHAT; older TBC builds used BATTLEGROUND.
     battleground = {
