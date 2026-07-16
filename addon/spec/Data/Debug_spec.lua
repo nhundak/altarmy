@@ -208,4 +208,21 @@ describe("AltArmy.Debug", function()
         assert.are.equal(4, dumps[1].index)
         assert.are.equal(D.MAX_COMPARE_PANEL_DUMPS + 3, dumps[#dumps].index)
     end)
+
+    it("AppendGuildShareUndecodableDump stores payloads in guildShareUndecodableDumps", function()
+        local payload = { version = 1, sender = "Orfinam", message = "^1^SP^T" }
+        local index = D.AppendGuildShareUndecodableDump(payload)
+        assert.are.equal(1, index)
+        assert.are.same(payload, AltArmyTBC_Options.debug.guildShareUndecodableDumps[1])
+    end)
+
+    it("AppendGuildShareUndecodableDump keeps only the newest MAX_GUILD_SHARE_UNDECODABLE_DUMPS entries", function()
+        for i = 1, D.MAX_GUILD_SHARE_UNDECODABLE_DUMPS + 3 do
+            D.AppendGuildShareUndecodableDump({ version = 1, index = i })
+        end
+        local dumps = AltArmyTBC_Options.debug.guildShareUndecodableDumps
+        assert.are.equal(D.MAX_GUILD_SHARE_UNDECODABLE_DUMPS, #dumps)
+        assert.are.equal(4, dumps[1].index)
+        assert.are.equal(D.MAX_GUILD_SHARE_UNDECODABLE_DUMPS + 3, dumps[#dumps].index)
+    end)
 end)

@@ -31,8 +31,7 @@ function readLocalConfig() {
   return src;
 }
 
-function countCompareDumps(text) {
-  const marker = '["comparePanelDumps"]';
+function countDumpEntries(text, marker) {
   const idx = text.indexOf(marker);
   if (idx === -1) return 0;
   const slice = text.slice(idx);
@@ -51,10 +50,14 @@ fs.mkdirSync(outDir, { recursive: true });
 fs.copyFileSync(src, outFile);
 
 const text = fs.readFileSync(outFile, "utf8");
-const dumpCount = countCompareDumps(text);
+const dumpCount = countDumpEntries(text, '["comparePanelDumps"]');
+const guildUndecodableCount = countDumpEntries(text, '["guildShareUndecodableDumps"]');
 console.log("Synced:", outFile);
 console.log("Source:", src);
 console.log("comparePanelDumps entries (approx):", dumpCount);
-if (dumpCount === 0) {
-  console.warn("No comparePanelDumps found — enable debug and click Dump in the compare panel first.");
+console.log("guildShareUndecodableDumps entries (approx):", guildUndecodableCount);
+if (dumpCount === 0 && guildUndecodableCount === 0) {
+  console.warn(
+    "No dumps found — compare: debug on → Dump; guild share: verbose on + wait for undecodable → /reload."
+  );
 }

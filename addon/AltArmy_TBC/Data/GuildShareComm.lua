@@ -63,24 +63,56 @@ local function messageHead(message)
     return head
 end
 
+local function undecodableReason(deserializeOk, firstValue)
+    if not deserializeOk then
+        return tostring(firstValue)
+    end
+    return "msgType=" .. type(firstValue)
+end
+
 --- Verbose log line when AceSerializer cannot decode an inbound guild-share message.
 function Comm._FormatUndecodableRecvLog(prefix, message, distribution, rawSender, deserializeOk, firstValue)
     local bytes = (type(message) == "string") and #message or 0
-    local reason
-    if not deserializeOk then
-        reason = tostring(firstValue)
-    else
-        reason = "msgType=" .. type(firstValue)
-    end
     return string.format(
         "recv (undecodable) from %s prefix=%s dist=%s bytes=%d reason=%s head=%s",
         tostring(rawSender),
         tostring(prefix),
         tostring(distribution),
         bytes,
-        reason,
+        undecodableReason(deserializeOk, firstValue),
         messageHead(message)
     )
+end
+
+--- SavedVariables payload for the latest undecodable inbound message (full wire body).
+function Comm._BuildUndecodableDump(prefix, message, distribution, rawSender, deserializeOk, firstValue)
+    local msg = (type(message) == "string") and message or ""
+    return {
+        version = 1,
+        timestamp = (time and time()) or 0,
+        prefix = tostring(prefix),
+        distribution = tostring(distribution),
+        sender = tostring(rawSender),
+        bytes = #msg,
+        deserializeOk = deserializeOk and true or false,
+        reason = undecodableReason(deserializeOk, firstValue),
+        head = messageHead(message),
+        message = msg,
+    }
+end
+
+local function saveUndecodableDump(prefix, message, distribution, rawSender, deserializeOk, firstValue)
+    local D = AltArmy.Debug
+    if not D or not D.AppendGuildShareUndecodableDump then return end
+    local payload = Comm._BuildUndecodableDump(
+        prefix, message, distribution, rawSender, deserializeOk, firstValue
+    )
+    local index = D.AppendGuildShareUndecodableDump(payload)
+    -- Chat tip only when verbose logging is on (dump itself always saved, last one kept).
+    if index and D.IsGuildShareVerbose and D.IsGuildShareVerbose()
+        and D.NotifyGuildShareUndecodableDumpSaved then
+        D.NotifyGuildShareUndecodableDumpSaved(index, index)
+    end
 end
 
 local BROADCAST_THROTTLE = 10          -- seconds between guild broadcasts
@@ -557,6 +589,7 @@ local function onCommReceived(prefix, message, distribution, rawSender)
         local ok, msgType, payload = commObj:Deserialize(message)
         if not ok or type(msgType) ~= "string" then
             log(Comm._FormatUndecodableRecvLog(prefix, message, distribution, rawSender, ok, msgType))
+            saveUndecodableDump(prefix, message, distribution, rawSender, ok, msgType)
             return
         end
         if not isInboundAllowed(msgType) then return end

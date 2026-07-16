@@ -383,6 +383,26 @@ describe("GuildShareComm helpers", function()
     end)
   end)
 
+  describe("_BuildUndecodableDump", function()
+    it("captures the full raw message plus receive metadata", function()
+      local msg = "^1^SP^T^Schars^T^N1^T^SclassFile^SPALADIN^t^t^^"
+      local dump = Comm._BuildUndecodableDump(
+        "AltArmyGS", msg, "GUILD", "Orfinam", false,
+        "Invalid AceSerializer control code '^t'"
+      )
+      assert.are.equal(1, dump.version)
+      assert.are.equal("AltArmyGS", dump.prefix)
+      assert.are.equal("GUILD", dump.distribution)
+      assert.are.equal("Orfinam", dump.sender)
+      assert.are.equal(#msg, dump.bytes)
+      assert.are.equal(msg, dump.message)
+      assert.is_false(dump.deserializeOk)
+      assert.are.equal("Invalid AceSerializer control code '^t'", dump.reason)
+      assert.truthy(dump.head:find("^1^SP", 1, true))
+      assert.truthy(dump.timestamp)
+    end)
+  end)
+
   describe("_ShouldRespondToRecipeRequest", function()
     local flagOn, sharingEnabled
 

@@ -204,6 +204,7 @@ function D.NotifyChat(msg)
 end
 
 D.MAX_COMPARE_PANEL_DUMPS = 1
+D.MAX_GUILD_SHARE_UNDECODABLE_DUMPS = 1
 
 local function ensureComparePanelDumps()
     D.Ensure()
@@ -212,6 +213,15 @@ local function ensureComparePanelDumps()
         d.comparePanelDumps = {}
     end
     return d.comparePanelDumps
+end
+
+local function ensureGuildShareUndecodableDumps()
+    D.Ensure()
+    local d = AltArmyTBC_Options.debug
+    if type(d.guildShareUndecodableDumps) ~= "table" then
+        d.guildShareUndecodableDumps = {}
+    end
+    return d.guildShareUndecodableDumps
 end
 
 function D.AppendComparePanelDump(payload)
@@ -226,10 +236,30 @@ function D.AppendComparePanelDump(payload)
     return #dumps
 end
 
+function D.AppendGuildShareUndecodableDump(payload)
+    if type(payload) ~= "table" then
+        return nil
+    end
+    local dumps = ensureGuildShareUndecodableDumps()
+    dumps[#dumps + 1] = payload
+    while #dumps > D.MAX_GUILD_SHARE_UNDECODABLE_DUMPS do
+        table.remove(dumps, 1)
+    end
+    return #dumps
+end
+
 function D.NotifyCompareDumpSaved(index, total)
     D.NotifyChat(string.format(
         "|cff00ccff[Alt Army:Debug]|r Compare dump #%d saved (%d in buffer). "
             .. "/reload, then open WTF/.../SavedVariables/AltArmy_TBC.lua",
+        tonumber(index) or 0,
+        tonumber(total) or 0))
+end
+
+function D.NotifyGuildShareUndecodableDumpSaved(index, total)
+    D.NotifyChat(string.format(
+        "|cff00ccff[Alt Army:GuildShare]|r Undecodable dump #%d saved (%d in buffer). "
+            .. "/reload, then npm run dump:sync (guildShareUndecodableDumps).",
         tonumber(index) or 0,
         tonumber(total) or 0))
 end
