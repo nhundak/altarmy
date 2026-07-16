@@ -195,7 +195,7 @@ describe("GuildShareSettings", function()
       GSS.SetChatInsertionClassColorEnabled(true)
       assert.is_true(GSS.IsChatInsertionClassColorEnabled())
     end)
-    it("SetChatInsertionClassColorEnabled(true) clears Blizzard chatClassColorOverride", function()
+    it("SetChatInsertionClassColorEnabled(true) sets chatClassColorOverride to respect per-channel", function()
       local calls = {}
       _G.SetCVar = function(name, value)
         calls[#calls + 1] = { name = name, value = value }
@@ -203,7 +203,7 @@ describe("GuildShareSettings", function()
       GSS.SetChatInsertionClassColorEnabled(true)
       assert.equals(1, #calls)
       assert.equals("chatClassColorOverride", calls[1].name)
-      assert.equals("0", calls[1].value)
+      assert.equals("2", calls[1].value)
     end)
     it("SetChatInsertionClassColorEnabled(false) does not change chatClassColorOverride", function()
       local calls = {}
@@ -302,7 +302,7 @@ describe("GuildShareSettings", function()
       assert.is_true(GSS.ApplyStoredChatClassColorToBlizzard())
       assert.equals(1, #cvarCalls)
       assert.equals("chatClassColorOverride", cvarCalls[1].name)
-      assert.equals("0", cvarCalls[1].value)
+      assert.equals("2", cvarCalls[1].value)
       assert.is_true(#chatCalls > 0)
       local byType = {}
       for _, c in ipairs(chatCalls) do byType[c.chatType] = c.on end

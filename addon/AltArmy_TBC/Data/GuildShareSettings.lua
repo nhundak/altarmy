@@ -196,9 +196,9 @@ function GSS.ApplyStoredChatClassColorToBlizzard()
     if s.chatInsertionClassColor == nil then
         return false
     end
-    -- Classic: chatClassColorOverride "0" allows per-channel class colors; "1" forces them off.
+    -- Classic: "2" respects per-channel class colors; "0" forces all; "1" forces off.
     if s.chatInsertionClassColor == true and type(_G.SetCVar) == "function" then
-        _G.SetCVar("chatClassColorOverride", "0")
+        _G.SetCVar("chatClassColorOverride", "2")
     end
     GSS.SyncBlizzardChatClassColors()
     return true
