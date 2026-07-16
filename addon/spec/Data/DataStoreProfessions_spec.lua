@@ -614,11 +614,16 @@ describe("DataStoreProfessions", function()
       end
     end
 
+    local lastScheduleDelay
+
     before_each(function()
       scheduleCount = 0
+      lastScheduleDelay = nil
       AltArmy.GuildShareComm = {
-        ScheduleBroadcast = function()
+        PROFESSION_BROADCAST_DEBOUNCE_SEC = 30,
+        ScheduleBroadcast = function(delay)
           scheduleCount = scheduleCount + 1
+          lastScheduleDelay = delay
         end,
       }
       _G.AltArmyTBC_Data = { Characters = {} }
@@ -630,13 +635,14 @@ describe("DataStoreProfessions", function()
       AltArmy.GuildShareComm = nil
     end)
 
-    it("schedules a guild-share presence broadcast after scanning profession links", function()
+    it("schedules a longer quiet-period guild-share broadcast after profession link scans", function()
       mockSkillLines({
         { name = "Professions", isHeader = true },
         { name = "Alchemy", isHeader = false, rank = 1, maxRank = 75 },
       })
       DS:ScanProfessionLinks()
       assert.are.equal(1, scheduleCount)
+      assert.are.equal(30, lastScheduleDelay)
     end)
 
     it("removes professions no longer present in skill lines", function()

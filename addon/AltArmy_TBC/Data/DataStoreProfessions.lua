@@ -10,7 +10,9 @@ local DATA_VERSIONS = DS._DATA_VERSIONS
 local function scheduleGuildShareBroadcast()
     local Comm = AltArmy and AltArmy.GuildShareComm
     if Comm and Comm.ScheduleBroadcast then
-        Comm.ScheduleBroadcast()
+        -- Longer quiet period than Options edits: craft casts often exceed 5s, so a 5s
+        -- trailing debounce would still fire once per skill-up during a crafting session.
+        Comm.ScheduleBroadcast(Comm.PROFESSION_BROADCAST_DEBOUNCE_SEC)
     end
 end
 

@@ -5,10 +5,11 @@
 -- are gated behind the guildShare feature flag, except that inbound RQ (recipe requests)
 -- are always processed: flag-off clients always reply with RC; flag-on clients reply only
 -- when guild sharing is enabled in Options.
--- ScheduleBroadcast (5s debounce) covers Options/onboarding edits plus level-up and
--- profession/recipe scans. Login/reload and guild join/leave Broadcast immediately.
--- Login/reload presence carries login=true so peers whisper a PR reply even when the
--- newcomer's data is already stored (zone transitions do not broadcast).
+-- ScheduleBroadcast is a trailing-edge debounce (timer resets on each call). Options/
+-- onboarding use 5s; profession/recipe scans use PROFESSION_BROADCAST_DEBOUNCE_SEC so
+-- long craft casts (e.g. 8s bandages) do not each complete the quiet window mid-session.
+-- Login/reload and guild join/leave Broadcast immediately. Login/reload presence carries
+-- login=true so peers whisper a PR reply even when data is already stored.
 --
 -- Send-set inversion (see GuildShareSettings):
 --   flag OFF -> GetAllGuildedCharacters() (ignore the user's settings; lets the developer
@@ -85,6 +86,8 @@ end
 local BROADCAST_THROTTLE = 10          -- seconds between guild broadcasts
 -- Debounce window for Options/onboarding settings changes (coalesce rapid toggles).
 Comm.SETTINGS_BROADCAST_DEBOUNCE_SEC = 5
+-- Longer than typical craft cast times so skill-ups during a crafting session coalesce.
+Comm.PROFESSION_BROADCAST_DEBOUNCE_SEC = 30
 -- Prune received data older than 60 days (14+ day data stays but is flagged in the Guild tab).
 Comm.STALE_MAX_AGE = 60 * 60 * 24 * 60
 local STALE_MAX_AGE = Comm.STALE_MAX_AGE
@@ -331,12 +334,13 @@ function Comm.CancelScheduledBroadcast()
     settingsBroadcastGeneration = settingsBroadcastGeneration + 1
 end
 
---- Schedule a forced presence broadcast after SETTINGS_BROADCAST_DEBOUNCE_SEC.
---- Repeated calls reset the timer so rapid Options/onboarding edits coalesce.
-function Comm.ScheduleBroadcast()
+--- Schedule a forced presence broadcast after a quiet period (trailing-edge debounce).
+--- Repeated calls reset the timer. delaySec defaults to SETTINGS_BROADCAST_DEBOUNCE_SEC;
+--- pass PROFESSION_BROADCAST_DEBOUNCE_SEC for skill/recipe scans.
+function Comm.ScheduleBroadcast(delaySec)
     Comm.CancelScheduledBroadcast()
     local generation = settingsBroadcastGeneration
-    local delay = Comm.SETTINGS_BROADCAST_DEBOUNCE_SEC
+    local delay = delaySec or Comm.SETTINGS_BROADCAST_DEBOUNCE_SEC
     local ctimer = _G.C_Timer
     if ctimer and ctimer.After then
         ctimer.After(delay, function()
