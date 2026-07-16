@@ -606,6 +606,14 @@ function GU.GetEquippedLoadoutValue(char, technique, classFile, specKey)
         + scoreForLink(oh, technique, classFile, specKey)
 end
 
+local function isFishingPoleLink(iu, link)
+    if not iu or not link or not iu.GetItemUseInfo or not iu.IsFishingPoleSubclass then
+        return false
+    end
+    local _, _, weaponSubclass = iu.GetItemUseInfo(link)
+    return iu.IsFishingPoleSubclass(weaponSubclass)
+end
+
 --- Best usable bag/bank item matching a weapon role for this character.
 function GU.FindBestBagItemForRole(char, role, opts, entry)
     opts = opts or {}
@@ -633,7 +641,7 @@ function GU.FindBestBagItemForRole(char, role, opts, entry)
         local links = bag and bag.links
         if links then
             for _, link in pairs(links) do
-                if link and iu.GetWeaponRole(link) == role then
+                if link and iu.GetWeaponRole(link) == role and not isFishingPoleLink(iu, link) then
                     if not iu.CanNeverUseItem(classFile, link) then
                         local equippable = iu.IsEquippableWithin(
                             classFile, level, link, levelsAhead)
@@ -717,6 +725,11 @@ local function considerStoredLinkForSlot(
     end
     local iu = IU()
     if not iu or iu.CanNeverUseItem(classFile, link) then
+        return bestLink, bestScore
+    end
+    -- Fishing poles are 2H main-hand items every class can equip; never use them as
+    -- deduced weapon-pair partners (1H/OH loadouts vs a 2H).
+    if isFishingPoleLink(iu, link) then
         return bestLink, bestScore
     end
     if not iu.IsEquippableWithin(classFile, level, link, levelsAhead) then

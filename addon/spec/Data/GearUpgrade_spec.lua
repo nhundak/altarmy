@@ -1297,6 +1297,7 @@ describe("GearUpgrade", function()
                 [210] = { "MH Only", nil, 3, 40, 40, "Weapon", "Daggers", nil, "INVTYPE_WEAPONMAINHAND" },
                 [211] = { "Strong MH", nil, 3, 60, 60, "Weapon", "Daggers", nil, "INVTYPE_WEAPONMAINHAND" },
                 [212] = { "Held OH", nil, 2, 20, 20, "Armor", "Miscellaneous", nil, "INVTYPE_HOLDABLE" },
+                [213] = { "Fishing Pole", nil, 3, 70, 1, "Weapon", "Fishing Poles", nil, "INVTYPE_2HWEAPON" },
             }
             local info = items[id]
             if not info then return mockGetItemInfo(item) end
@@ -1727,6 +1728,25 @@ describe("GearUpgrade", function()
             assert.are.equal("paired_candidate", result.mode)
             assert.are.equal(2, #result.candidateLinks)
             assert.are.equal("|Hitem:206:0|h[Bag OH]|h", result.candidateLinks[2])
+        end)
+
+        it("BuildSelectionLoadoutCompare never deduces a fishing pole as MH partner", function()
+            local char = setupPaladinTwoHand()
+            char.Containers = {
+                [0] = {
+                    links = {
+                        [1] = "|Hitem:213:0|h[Fishing Pole]|h",
+                        [2] = "|Hitem:207:0|h[Bag 1H]|h",
+                    },
+                },
+            }
+            local entry = { name = "Paladin2H", realm = "TestRealm", classFile = "PALADIN", level = 60 }
+            local result = GU.BuildSelectionLoadoutCompare(char, "|Hitem:208:0|h[Shield]|h", OFF, {
+                technique = "ilvl",
+            }, entry)
+            assert.are.equal("paired_candidate", result.mode)
+            assert.are.equal("|Hitem:207:0|h[Bag 1H]|h", result.candidateLinks[1])
+            assert.are.equal("|Hitem:208:0|h[Shield]|h", result.candidateLinks[2])
         end)
 
         it("BuildSelectionLoadoutCompare 2H focus empty MH uses deduced MH from bags", function()
