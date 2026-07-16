@@ -248,6 +248,21 @@ describe("DataStoreProfessions", function()
   end)
 
   describe("ScanCraftRecipes", function()
+    local scheduleCount
+
+    before_each(function()
+      scheduleCount = 0
+      AltArmy.GuildShareComm = {
+        ScheduleBroadcast = function()
+          scheduleCount = scheduleCount + 1
+        end,
+      }
+    end)
+
+    after_each(function()
+      AltArmy.GuildShareComm = nil
+    end)
+
     it("calls GetCraftSkillLine with index 1 (client requires a positive index)", function()
       local oldTime = _G.time
       _G.UnitName = function()
@@ -288,6 +303,19 @@ describe("DataStoreProfessions", function()
       assert.are.equal(375, char.Professions.Poisons.maxRank)
     end)
 
+    it("schedules a guild-share presence broadcast after scanning craft recipes", function()
+      _G.UnitName = function() return "TestPlayer" end
+      _G.GetRealmName = function() return "TestRealm" end
+      _G.GetCraftSkillLine = function() return "Enchanting" end
+      _G.GetNumCrafts = function() return 1 end
+      _G.GetCraftInfo = function() return nil, nil, "optimal" end
+      _G.GetCraftRecipeLink = function() return "enchant:7411" end
+      _G.GetCraftDisplaySkillLine = function() return "Enchanting", 1, 75 end
+      _G.time = function() return 0 end
+      DS:ScanCraftRecipes()
+      assert.are.equal(1, scheduleCount)
+    end)
+
     it("updates trade skill rank from GetTradeSkillLine during ScanRecipes", function()
       _G.UnitName = function()
         return "TestPlayer"
@@ -309,6 +337,22 @@ describe("DataStoreProfessions", function()
       assert.is_not_nil(char)
       assert.are.equal(360, char.Professions.Alchemy.rank)
       assert.are.equal(375, char.Professions.Alchemy.maxRank)
+    end)
+
+    it("schedules a guild-share presence broadcast after scanning trade-skill recipes", function()
+      _G.UnitName = function() return "TestPlayer" end
+      _G.GetRealmName = function() return "TestRealm" end
+      _G.GetTradeSkillLine = function() return "Alchemy", 1, 75 end
+      _G.GetNumTradeSkills = function() return 1 end
+      _G.GetTradeSkillInfo = function() return "Minor Healing Potion", "optimal" end
+      _G.GetTradeSkillRecipeLink = function()
+        return "|Hitem:118:0:0:0:0:0:0:0|h[Minor Healing Potion]|h"
+      end
+      _G.GetTradeSkillItemLink = function() return nil end
+      _G.GetTradeSkillNumReagents = function() return 0 end
+      _G.time = function() return 0 end
+      DS:ScanRecipes()
+      assert.are.equal(1, scheduleCount)
     end)
   end)
 
@@ -540,6 +584,8 @@ describe("DataStoreProfessions", function()
   end)
 
   describe("ScanProfessionLinks", function()
+    local scheduleCount
+
     local function mockPlayer(name, realm)
       _G.UnitName = function()
         return name
@@ -569,9 +615,28 @@ describe("DataStoreProfessions", function()
     end
 
     before_each(function()
+      scheduleCount = 0
+      AltArmy.GuildShareComm = {
+        ScheduleBroadcast = function()
+          scheduleCount = scheduleCount + 1
+        end,
+      }
       _G.AltArmyTBC_Data = { Characters = {} }
       DS.accountData = _G.AltArmyTBC_Data
       mockPlayer("TestPlayer", "TestRealm")
+    end)
+
+    after_each(function()
+      AltArmy.GuildShareComm = nil
+    end)
+
+    it("schedules a guild-share presence broadcast after scanning profession links", function()
+      mockSkillLines({
+        { name = "Professions", isHeader = true },
+        { name = "Alchemy", isHeader = false, rank = 1, maxRank = 75 },
+      })
+      DS:ScanProfessionLinks()
+      assert.are.equal(1, scheduleCount)
     end)
 
     it("removes professions no longer present in skill lines", function()

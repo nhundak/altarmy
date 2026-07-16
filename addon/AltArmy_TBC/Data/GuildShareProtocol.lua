@@ -146,6 +146,8 @@ function P.ParsePresence(msg)
         v = P.VERSION,
         main = isNonEmptyString(msg.main) and msg.main or nil,
         displayName = displayName,
+        -- Login announces ask peers to whisper their presence even when data is unchanged.
+        login = msg.login == true or nil,
         chars = {},
     }
     for _, c in ipairs(msg.chars) do

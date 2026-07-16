@@ -142,6 +142,18 @@ describe("GuildShareProtocol", function()
       assert.are.equal(128, parsed.chars[1].itemLevel)
       assert.are.equal(0, parsed.chars[2].itemLevel)
     end)
+    it("carries the login announce flag when true, omits it otherwise", function()
+      local withLogin = P.ParsePresence({
+        v = 1, login = true, main = "Bob",
+        chars = { { name = "Bob", classFile = "MAGE", level = 70, profs = {} } },
+      })
+      assert.is_true(withLogin.login)
+      local without = P.ParsePresence({
+        v = 1, main = "Bob",
+        chars = { { name = "Bob", classFile = "MAGE", level = 70, profs = {} } },
+      })
+      assert.is_nil(without.login)
+    end)
     it("rejects non-tables and wrong versions", function()
       assert.is_nil(P.ParsePresence(nil))
       assert.is_nil(P.ParsePresence("nope"))

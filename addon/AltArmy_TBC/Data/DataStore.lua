@@ -685,6 +685,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
         if DS.BeginPendingLevelUp then
             DS:BeginPendingLevelUp(newLevel or (char and char.level))
         end
+        local Comm = AltArmy and AltArmy.GuildShareComm
+        if Comm and Comm.ScheduleBroadcast then
+            Comm.ScheduleBroadcast()
+        end
         return
     end
     if event == "TIME_PLAYED_MSG" then

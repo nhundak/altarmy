@@ -433,6 +433,55 @@ describe("DataStore", function()
     end)
   end)
 
+  describe("PLAYER_LEVEL_UP guild share broadcast", function()
+    local eventHandler
+    local scheduleCount
+
+    local function reloadDataStoreWithFrames()
+      eventHandler = nil
+      _G.CreateFrame = function()
+        return {
+          RegisterEvent = function() end,
+          SetScript = function(_, script, handler)
+            if script == "OnEvent" then
+              eventHandler = handler
+            end
+          end,
+        }
+      end
+      package.loaded["DataStore"] = nil
+      package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+      require("DataStore")
+      DS = AltArmy.DataStore
+    end
+
+    before_each(function()
+      scheduleCount = 0
+      AltArmy.GuildShareComm = {
+        ScheduleBroadcast = function()
+          scheduleCount = scheduleCount + 1
+        end,
+      }
+      _G.UnitName = function() return "Alice" end
+      _G.GetRealmName = function() return "R1" end
+      _G.UnitLevel = function() return 41 end
+      _G.AltArmyTBC_Data = { Characters = { R1 = { Alice = { level = 40 } } } }
+      reloadDataStoreWithFrames()
+      DS.BeginPendingLevelUp = function() end
+    end)
+
+    after_each(function()
+      AltArmy.GuildShareComm = nil
+    end)
+
+    it("schedules a debounced presence broadcast on level up", function()
+      assert.is_function(eventHandler)
+      eventHandler(nil, "PLAYER_LEVEL_UP", 41)
+      assert.are.equal(1, scheduleCount)
+      assert.are.equal(41, _G.AltArmyTBC_Data.Characters.R1.Alice.level)
+    end)
+  end)
+
   describe("equipment scan delay on login", function()
     local frames
     local eventHandler

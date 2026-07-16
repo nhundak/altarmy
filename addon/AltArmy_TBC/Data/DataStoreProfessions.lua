@@ -7,11 +7,20 @@ local DS = AltArmy.DataStore
 local GetCurrentCharTable = DS._GetCurrentCharTable
 local DATA_VERSIONS = DS._DATA_VERSIONS
 
+local function scheduleGuildShareBroadcast()
+    local Comm = AltArmy and AltArmy.GuildShareComm
+    if Comm and Comm.ScheduleBroadcast then
+        Comm.ScheduleBroadcast()
+    end
+end
+
 local function notifyRecipesChanged()
     local SD = AltArmy and AltArmy.SearchData
     if SD and SD.NotifyRecipesChanged then
         SD.NotifyRecipesChanged()
     end
+    -- Presence includes profession ranks + recipe count/hash; coalesce with settings edits.
+    scheduleGuildShareBroadcast()
 end
 
 --- Chat debug for cooldown persistence. Enable: /altarmy debug on, then AltArmy > Debug > cooldown scans.
@@ -649,6 +658,7 @@ function DS:ScanProfessionLinks()
     local category
     local currentNames = {}
     local skillLinesReady = false
+    local presenceChanged = false
     for i = 1, GetNumSkillLines() do
         local skillName, isHeader, _, rank, _, _, maxRank = GetSkillLineInfo(i)
         if not skillName then break end
@@ -668,12 +678,17 @@ function DS:ScanProfessionLinks()
                     skillName = NormalizeProfessionName(skillName)
                     currentNames[skillName] = true
                     local prof = char.Professions[skillName]
+                    local newRank = rank or 0
+                    local newMaxRank = maxRank or 0
                     if not prof then
                         prof = { rank = 0, maxRank = 0, Recipes = {} }
                         char.Professions[skillName] = prof
+                        presenceChanged = true
+                    elseif (prof.rank or 0) ~= newRank or (prof.maxRank or 0) ~= newMaxRank then
+                        presenceChanged = true
                     end
-                    prof.rank = rank or 0
-                    prof.maxRank = maxRank or 0
+                    prof.rank = newRank
+                    prof.maxRank = newMaxRank
                     if isPrimary then prof.isPrimary = true end
                     if isSecondary then prof.isSecondary = true end
                     if isPrimary then
@@ -686,6 +701,9 @@ function DS:ScanProfessionLinks()
     end
     if PruneDroppedProfessions(char, currentNames, skillLinesReady) then
         notifyRecipesChanged()
+    elseif presenceChanged then
+        -- Learn/rank changes affect presence even when the recipe cache is unchanged.
+        scheduleGuildShareBroadcast()
     end
     char.lastUpdate = time()
     char.dataVersions = char.dataVersions or {}

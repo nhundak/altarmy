@@ -1,9 +1,14 @@
 -- AltArmy TBC — Guild data sharing: comm layer (AceComm/AceSerializer wiring).
+-- luacheck: globals C_Timer
 -- Broadcasts a privacy-limited presence over the GUILD channel and pulls recipe lists
 -- on demand. Sending is ALWAYS active (subject to the send-set below); receiving + UI
 -- are gated behind the guildShare feature flag, except that inbound RQ (recipe requests)
 -- are always processed: flag-off clients always reply with RC; flag-on clients reply only
 -- when guild sharing is enabled in Options.
+-- ScheduleBroadcast (5s debounce) covers Options/onboarding edits plus level-up and
+-- profession/recipe scans. Login/reload and guild join/leave Broadcast immediately.
+-- Login/reload presence carries login=true so peers whisper a PR reply even when the
+-- newcomer's data is already stored (zone transitions do not broadcast).
 --
 -- Send-set inversion (see GuildShareSettings):
 --   flag OFF -> GetAllGuildedCharacters() (ignore the user's settings; lets the developer
@@ -78,6 +83,8 @@ function Comm._FormatUndecodableRecvLog(prefix, message, distribution, rawSender
 end
 
 local BROADCAST_THROTTLE = 10          -- seconds between guild broadcasts
+-- Debounce window for Options/onboarding settings changes (coalesce rapid toggles).
+Comm.SETTINGS_BROADCAST_DEBOUNCE_SEC = 5
 -- Prune received data older than 60 days (14+ day data stays but is flagged in the Guild tab).
 Comm.STALE_MAX_AGE = 60 * 60 * 24 * 60
 local STALE_MAX_AGE = Comm.STALE_MAX_AGE
@@ -85,9 +92,8 @@ local STALE_MAX_AGE = Comm.STALE_MAX_AGE
 local commObj            -- table embedded with AceComm-3.0 + AceSerializer-3.0
 local initialized = false
 local lastBroadcast = 0
+local settingsBroadcastGeneration = 0
 local knownGuild        -- last observed guild name, to detect gkick/gquit/gjoin
-local knownOnlineMembers = {} -- guildmate name -> true (excludes self); roster baseline
-local rosterBaselinePending = true
 
 -- *** Small helpers (some exposed for unit tests) ***
 
@@ -185,33 +191,26 @@ function Comm._PresenceForShareChars(flagOn, chars, mainName, displayName)
     return P.BuildPresence(chars, mainName, displayName)
 end
 
---- True when `curr` contains an online guildmate who was not online in `prev`.
-function Comm._HasNewlyOnlineGuildmate(prev, curr)
-    if type(curr) ~= "table" then return false end
-    prev = prev or {}
-    for name in pairs(curr) do
-        if not prev[name] then return true end
-    end
-    return false
-end
-
---- Whether a GUILD_ROSTER_UPDATE should trigger a throttled broadcast.
-function Comm._ShouldBroadcastOnRosterUpdate(prev, curr, baselinePending)
-    if baselinePending then return false end
-    return Comm._HasNewlyOnlineGuildmate(prev, curr)
-end
-
 --- True when the player's guild membership changed (nil and name are distinct states).
 function Comm._GuildMembershipChanged(prevGuild, newGuild)
     return prevGuild ~= newGuild
 end
 
-local function guildRosterLooksUnloaded()
-    if not (IsInGuild and IsInGuild()) then return false end
-    if not GetNumGuildMembers then return false end
-    return GetNumGuildMembers() == 0
+--- Whether PLAYER_ENTERING_WORLD should broadcast (login/reload only; not zone transitions).
+function Comm._ShouldBroadcastOnEnteringWorld(isInitialLogin, isReloadingUi)
+    return isInitialLogin == true or isReloadingUi == true
 end
-Comm._GuildRosterLooksUnloaded = guildRosterLooksUnloaded
+
+--- Stamp or clear the login announce flag on a presence payload.
+function Comm._WithLoginAnnounce(presence, isLoginAnnounce)
+    if not presence then return nil end
+    if isLoginAnnounce then
+        presence.login = true
+    else
+        presence.login = nil
+    end
+    return presence
+end
 
 local function collectOnlineGuildMembers()
     local out = {}
@@ -238,27 +237,6 @@ function Comm.IsGuildMemberOnline(name)
     return collectOnlineGuildMembers()[name] == true
 end
 
-local function resetRosterOnlineBaseline()
-    knownOnlineMembers = {}
-    rosterBaselinePending = true
-end
-
-local function handleGuildRosterUpdate()
-    local curr = collectOnlineGuildMembers()
-    if rosterBaselinePending then
-        knownOnlineMembers = curr
-        if guildRosterLooksUnloaded() then
-            return
-        end
-        rosterBaselinePending = false
-        return
-    end
-    if Comm._ShouldBroadcastOnRosterUpdate(knownOnlineMembers, curr, false) then
-        Comm.Broadcast(false)
-    end
-    knownOnlineMembers = curr
-end
-
 local function handlePlayerGuildUpdate()
     local newGuild = currentGuild()
     if not Comm._GuildMembershipChanged(knownGuild, newGuild) then
@@ -272,7 +250,6 @@ local function handlePlayerGuildUpdate()
         Comm.NotifyDataChanged()
     end
     knownGuild = newGuild
-    resetRosterOnlineBaseline()
     Comm.Broadcast(true)
 end
 Comm._HandlePlayerGuildUpdate = handlePlayerGuildUpdate
@@ -285,6 +262,11 @@ local function serialize(msgType, payload)
 end
 
 local function send(msgType, payload, distribution, target)
+    -- Unit-test hook: capture outbound messages without AceComm.
+    if Comm._TestHookSend then
+        Comm._TestHookSend(msgType, payload, distribution, target)
+        return
+    end
     local data = serialize(msgType, payload)
     if not data then return end
     log(string.format("SEND %s -> %s%s (%d bytes)",
@@ -324,21 +306,46 @@ local function buildMyPresence(guild, realm)
     return Comm._PresenceForShareChars(flagOn, chars, mainName, displayName)
 end
 
-function Comm.Broadcast(force)
-    if not commObj then return end
+--- Broadcast presence to the guild. When isLoginAnnounce is true, peers whisper a PR
+--- reply even if they already have our data (covers newcomers who missed prior sends).
+function Comm.Broadcast(force, isLoginAnnounce)
+    if not Comm._TestHookSend and not commObj then return end
     if not (IsInGuild and IsInGuild()) then return end
     local nowTs = (GetTime and GetTime()) or 0
     if not force and (nowTs - lastBroadcast) < BROADCAST_THROTTLE then return end
     local guild = currentGuild()
     local realm = currentRealm()
-    local presence = buildMyPresence(guild, realm)
+    local presence = Comm._WithLoginAnnounce(buildMyPresence(guild, realm), isLoginAnnounce)
     if not presence then
         return
     end
     lastBroadcast = nowTs
-    log(string.format("broadcasting presence: %d character(s) to guild '%s' (flag %s)",
-        #presence.chars, tostring(guild), isReceiveEnabled() and "on/opt-in" or "off/all-guilded"))
+    log(string.format("broadcasting presence: %d character(s) to guild '%s' (flag %s%s)",
+        #presence.chars, tostring(guild), isReceiveEnabled() and "on/opt-in" or "off/all-guilded",
+        isLoginAnnounce and ", login announce" or ""))
     send(MSG_PRESENCE, presence, "GUILD")
+end
+
+--- Cancel a pending settings-driven presence broadcast.
+function Comm.CancelScheduledBroadcast()
+    settingsBroadcastGeneration = settingsBroadcastGeneration + 1
+end
+
+--- Schedule a forced presence broadcast after SETTINGS_BROADCAST_DEBOUNCE_SEC.
+--- Repeated calls reset the timer so rapid Options/onboarding edits coalesce.
+function Comm.ScheduleBroadcast()
+    Comm.CancelScheduledBroadcast()
+    local generation = settingsBroadcastGeneration
+    local delay = Comm.SETTINGS_BROADCAST_DEBOUNCE_SEC
+    local ctimer = _G.C_Timer
+    if ctimer and ctimer.After then
+        ctimer.After(delay, function()
+            if generation ~= settingsBroadcastGeneration then return end
+            Comm.Broadcast(true)
+        end)
+    else
+        Comm.Broadcast(true)
+    end
 end
 
 -- *** Receiving (gated by the feature flag) ***
@@ -463,6 +470,13 @@ local function handleRecipeRequest(payload, sender)
     send(MSG_RECIPES, P.BuildRecipes(payload.name, realm, ownedAndShared), "WHISPER", sender)
 end
 
+local function whisperPresenceReply(sender, guild, realm)
+    local mine = buildMyPresence(guild, realm)
+    if mine then
+        send(MSG_PRESENCE_REPLY, mine, "WHISPER", sender)
+    end
+end
+
 local function handlePresence(payload, sender, isReply)
     local P = AltArmy.GuildShareProtocol
     local GSD = AltArmy.GuildShareData
@@ -471,9 +485,15 @@ local function handlePresence(payload, sender, isReply)
     if not parsed then return end
     local guild = currentGuild()
     local realm = currentRealm()
+    local isLoginAnnounce = parsed.login == true
     local unchanged = GSD.PresenceMatchesStored
         and GSD.PresenceMatchesStored(sender, parsed, realm)
     if unchanged then
+        -- Login announces still get a whispered PR so the newcomer receives our presence
+        -- even though their data is already stored (they missed our last guild broadcast).
+        if not isReply and isLoginAnnounce then
+            whisperPresenceReply(sender, guild, realm)
+        end
         return
     end
     GSD.SaveReceived(sender, parsed, guild, realm)
@@ -481,10 +501,7 @@ local function handlePresence(payload, sender, isReply)
     requestMissingRecipes(parsed, sender, realm)
     -- Announce/reply handshake: reply to an initial broadcast (not to a reply) so we don't loop.
     if not isReply and sender ~= playerName() then
-        local mine = buildMyPresence(guild, realm)
-        if mine then
-            send(MSG_PRESENCE_REPLY, mine, "WHISPER", sender)
-        end
+        whisperPresenceReply(sender, guild, realm)
     end
 end
 
@@ -555,22 +572,20 @@ local frame = CreateFrame and CreateFrame("Frame")
 if frame then
     frame:RegisterEvent("PLAYER_LOGIN")
     frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    frame:RegisterEvent("GUILD_ROSTER_UPDATE")
     frame:RegisterEvent("PLAYER_GUILD_UPDATE")
-    frame:SetScript("OnEvent", function(_, event)
+    frame:SetScript("OnEvent", function(_, event, ...)
         if event == "PLAYER_LOGIN" then
             Comm.Init()
             knownGuild = currentGuild()
         elseif event == "PLAYER_ENTERING_WORLD" then
+            local isInitialLogin, isReloadingUi = ...
             Comm.Init()
             knownGuild = currentGuild()
-            resetRosterOnlineBaseline()
-            if IsInGuild and IsInGuild() then
+            if Comm._ShouldBroadcastOnEnteringWorld(isInitialLogin, isReloadingUi)
+                and IsInGuild and IsInGuild() then
                 if GuildRoster then pcall(GuildRoster) end
-                Comm.Broadcast(true)
+                Comm.Broadcast(true, true)
             end
-        elseif event == "GUILD_ROSTER_UPDATE" then
-            handleGuildRosterUpdate()
         elseif event == "PLAYER_GUILD_UPDATE" then
             handlePlayerGuildUpdate()
         end

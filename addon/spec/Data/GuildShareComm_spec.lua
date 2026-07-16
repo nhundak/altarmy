@@ -83,31 +83,91 @@ describe("GuildShareComm helpers", function()
     end)
   end)
 
-  describe("_HasNewlyOnlineGuildmate", function()
-    it("returns true when someone newly appears online", function()
-      assert.is_true(Comm._HasNewlyOnlineGuildmate({ Alice = true }, { Alice = true, Bob = true }))
+  describe("_WithLoginAnnounce", function()
+    it("stamps login=true on a presence when announcing login", function()
+      local presence = { v = 1, chars = {} }
+      local out = Comm._WithLoginAnnounce(presence, true)
+      assert.are.equal(presence, out)
+      assert.is_true(out.login)
     end)
 
-    it("returns false when someone goes offline", function()
-      assert.is_false(Comm._HasNewlyOnlineGuildmate({ Alice = true, Bob = true }, { Alice = true }))
+    it("leaves presence unchanged when not a login announce", function()
+      local presence = { v = 1, chars = {}, login = true }
+      local out = Comm._WithLoginAnnounce(presence, false)
+      assert.is_nil(out.login)
     end)
 
-    it("returns false when the online set is unchanged", function()
-      assert.is_false(Comm._HasNewlyOnlineGuildmate({ Alice = true }, { Alice = true }))
+    it("returns nil unchanged", function()
+      assert.is_nil(Comm._WithLoginAnnounce(nil, true))
     end)
   end)
 
-  describe("_ShouldBroadcastOnRosterUpdate", function()
-    it("does not broadcast while establishing the first roster baseline", function()
-      assert.is_false(Comm._ShouldBroadcastOnRosterUpdate({}, { Alice = true }, true))
+  describe("_ShouldBroadcastOnEnteringWorld", function()
+    it("broadcasts on initial login", function()
+      assert.is_true(Comm._ShouldBroadcastOnEnteringWorld(true, false))
     end)
 
-    it("broadcasts when a guildmate comes online after the baseline", function()
-      assert.is_true(Comm._ShouldBroadcastOnRosterUpdate({ Alice = true }, { Alice = true, Bob = true }, false))
+    it("broadcasts on UI reload", function()
+      assert.is_true(Comm._ShouldBroadcastOnEnteringWorld(false, true))
     end)
 
-    it("does not broadcast when a guildmate goes offline", function()
-      assert.is_false(Comm._ShouldBroadcastOnRosterUpdate({ Alice = true, Bob = true }, { Alice = true }, false))
+    it("does not broadcast on zone transitions", function()
+      assert.is_false(Comm._ShouldBroadcastOnEnteringWorld(false, false))
+      assert.is_false(Comm._ShouldBroadcastOnEnteringWorld(nil, nil))
+    end)
+  end)
+
+  describe("ScheduleBroadcast", function()
+    local scheduled, broadcastCount, realBroadcast
+
+    before_each(function()
+      scheduled = {}
+      broadcastCount = 0
+      realBroadcast = Comm.Broadcast
+      Comm.Broadcast = function() broadcastCount = broadcastCount + 1 end
+      _G.C_Timer = {
+        After = function(delay, fn)
+          scheduled[#scheduled + 1] = { delay = delay, fn = fn }
+        end,
+      }
+      if Comm.CancelScheduledBroadcast then
+        Comm.CancelScheduledBroadcast()
+      end
+    end)
+
+    after_each(function()
+      Comm.Broadcast = realBroadcast
+      _G.C_Timer = nil
+      if Comm.CancelScheduledBroadcast then
+        Comm.CancelScheduledBroadcast()
+      end
+    end)
+
+    it("debounces settings broadcasts for 5 seconds", function()
+      assert.are.equal(5, Comm.SETTINGS_BROADCAST_DEBOUNCE_SEC)
+      Comm.ScheduleBroadcast()
+      assert.are.equal(0, broadcastCount)
+      assert.are.equal(1, #scheduled)
+      assert.are.equal(5, scheduled[1].delay)
+      scheduled[1].fn()
+      assert.are.equal(1, broadcastCount)
+    end)
+
+    it("resets the debounce window when called again before it fires", function()
+      Comm.ScheduleBroadcast()
+      Comm.ScheduleBroadcast()
+      assert.are.equal(2, #scheduled)
+      scheduled[1].fn()
+      assert.are.equal(0, broadcastCount, "cancelled first timer must not broadcast")
+      scheduled[2].fn()
+      assert.are.equal(1, broadcastCount)
+    end)
+
+    it("CancelScheduledBroadcast prevents a pending timer from broadcasting", function()
+      Comm.ScheduleBroadcast()
+      Comm.CancelScheduledBroadcast()
+      scheduled[1].fn()
+      assert.are.equal(0, broadcastCount)
     end)
   end)
 
@@ -336,6 +396,64 @@ describe("GuildShareComm helpers", function()
       presenceMatches = false
       Comm._DispatchReceivedMessage("P", { chars = { { name = "Alice" } } }, "Alice")
       assert.are.equal(1, notifyCount)
+    end)
+
+    it("whispers a presence reply to a login announce even when stored data matches", function()
+      presenceMatches = true
+      AltArmy.GuildShareSettings.GetShareableCharacters = function()
+        return { { name = "Bob", realm = "R", char = { name = "Bob", Professions = {} } } }
+      end
+      AltArmy.GuildShareSettings.ResolvePresenceMainAndDisplay = function()
+        return "Bob", "Bobby"
+      end
+      local sent = {}
+      Comm._TestHookSend = function(msgType, payload, distribution, target)
+        sent[#sent + 1] = {
+          msgType = msgType, payload = payload, distribution = distribution, target = target,
+        }
+      end
+      Comm._DispatchReceivedMessage("P", {
+        v = 1, login = true, chars = { { name = "Alice" } },
+      }, "Alice")
+      Comm._TestHookSend = nil
+      assert.are.equal(0, notifyCount)
+      assert.is_nil(saved.received)
+      assert.are.equal(1, #sent)
+      assert.are.equal("PR", sent[1].msgType)
+      assert.are.equal("WHISPER", sent[1].distribution)
+      assert.are.equal("Alice", sent[1].target)
+    end)
+
+    it("does not whisper a presence reply for an unchanged non-login broadcast", function()
+      local sent = {}
+      presenceMatches = true
+      AltArmy.GuildShareSettings.GetShareableCharacters = function()
+        return { { name = "Bob", realm = "R", char = { name = "Bob", Professions = {} } } }
+      end
+      Comm._TestHookSend = function(msgType, payload, distribution, target)
+        sent[#sent + 1] = { msgType = msgType, distribution = distribution, target = target }
+      end
+      Comm._DispatchReceivedMessage("P", {
+        v = 1, chars = { { name = "Alice" } },
+      }, "Alice")
+      Comm._TestHookSend = nil
+      assert.are.equal(0, #sent)
+    end)
+
+    it("does not whisper a presence reply to a PR even when login is set", function()
+      local sent = {}
+      presenceMatches = true
+      AltArmy.GuildShareSettings.GetShareableCharacters = function()
+        return { { name = "Bob", realm = "R", char = { name = "Bob", Professions = {} } } }
+      end
+      Comm._TestHookSend = function(msgType, payload, distribution, target)
+        sent[#sent + 1] = { msgType = msgType }
+      end
+      Comm._DispatchReceivedMessage("PR", {
+        v = 1, login = true, chars = { { name = "Alice" } },
+      }, "Alice")
+      Comm._TestHookSend = nil
+      assert.are.equal(0, #sent)
     end)
 
     it("handles RQ when receive flag is off by selecting all-guilded characters", function()

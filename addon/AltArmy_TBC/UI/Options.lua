@@ -792,7 +792,7 @@ local guildShareEnableRow = Theme.CreateLabeledCheckbox(guildShareEnableColumn, 
         if refreshGuildSharingDependentControls then refreshGuildSharingDependentControls() end
         if panel.RefreshCharGuildShareDropdown then panel.RefreshCharGuildShareDropdown() end
         local Comm = AltArmy.GuildShareComm
-        if Comm and Comm.Broadcast then Comm.Broadcast(true) end
+        if Comm and Comm.ScheduleBroadcast then Comm.ScheduleBroadcast() end
     end,
 })
 panel.guildShareEnableCheckbox = guildShareEnableRow.check
@@ -904,7 +904,7 @@ local guildMainDropdown = Theme.CreateSingleSelectDropdown({
         end
         if AltArmy.RefreshGuildTab then AltArmy.RefreshGuildTab() end
         local Comm = AltArmy.GuildShareComm
-        if Comm and Comm.Broadcast then Comm.Broadcast(true) end
+        if Comm and Comm.ScheduleBroadcast then Comm.ScheduleBroadcast() end
     end,
 })
 guildMainDropdown.button:ClearAllPoints()
@@ -942,7 +942,7 @@ local function applyGuildDisplayNameFromEdit(box, broadcast)
     if nextName == prevName then
         if broadcast then
             local Comm = AltArmy.GuildShareComm
-            if Comm and Comm.Broadcast then Comm.Broadcast(true) end
+            if Comm and Comm.ScheduleBroadcast then Comm.ScheduleBroadcast() end
         end
         return
     end
@@ -950,7 +950,7 @@ local function applyGuildDisplayNameFromEdit(box, broadcast)
     if AltArmy.RefreshGuildTab then AltArmy.RefreshGuildTab() end
     if broadcast then
         local Comm = AltArmy.GuildShareComm
-        if Comm and Comm.Broadcast then Comm.Broadcast(true) end
+        if Comm and Comm.ScheduleBroadcast then Comm.ScheduleBroadcast() end
     end
 end
 guildDisplayEdit:SetScript("OnTextChanged", function(box, userInput)
@@ -1398,7 +1398,7 @@ local charGuildShareDropdown = Theme.CreateSingleSelectDropdown({
         end
         if AltArmy.RefreshGuildTab then AltArmy.RefreshGuildTab() end
         local Comm = AltArmy.GuildShareComm
-        if Comm and Comm.Broadcast then Comm.Broadcast(true) end
+        if Comm and Comm.ScheduleBroadcast then Comm.ScheduleBroadcast() end
     end,
 })
 charGuildShareDropdown.button:ClearAllPoints()

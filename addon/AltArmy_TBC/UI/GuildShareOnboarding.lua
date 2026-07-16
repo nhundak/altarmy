@@ -449,7 +449,7 @@ local function buildDialog()
         end
         if AltArmy.RefreshGuildTab then AltArmy.RefreshGuildTab() end
         local Comm = AltArmy.GuildShareComm
-        if Comm and Comm.Broadcast then Comm.Broadcast(true) end
+        if Comm and Comm.ScheduleBroadcast then Comm.ScheduleBroadcast() end
         finish()
     end
 
