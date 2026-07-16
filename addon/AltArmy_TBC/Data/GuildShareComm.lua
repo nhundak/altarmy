@@ -42,6 +42,41 @@ local function formatMsgType(msgType)
 end
 Comm._FormatMsgType = formatMsgType
 
+local UNDECODABLE_HEAD_LEN = 48
+
+--- Safe short preview of a raw AceComm payload for chat debug logs.
+local function messageHead(message)
+    if type(message) ~= "string" then
+        return string.format("<%s>", type(message))
+    end
+    local head = message:sub(1, UNDECODABLE_HEAD_LEN)
+    head = head:gsub("[%c]", ".")
+    if #message > UNDECODABLE_HEAD_LEN then
+        head = head .. "..."
+    end
+    return head
+end
+
+--- Verbose log line when AceSerializer cannot decode an inbound guild-share message.
+function Comm._FormatUndecodableRecvLog(prefix, message, distribution, rawSender, deserializeOk, firstValue)
+    local bytes = (type(message) == "string") and #message or 0
+    local reason
+    if not deserializeOk then
+        reason = tostring(firstValue)
+    else
+        reason = "msgType=" .. type(firstValue)
+    end
+    return string.format(
+        "recv (undecodable) from %s prefix=%s dist=%s bytes=%d reason=%s head=%s",
+        tostring(rawSender),
+        tostring(prefix),
+        tostring(distribution),
+        bytes,
+        reason,
+        messageHead(message)
+    )
+end
+
 local BROADCAST_THROTTLE = 10          -- seconds between guild broadcasts
 -- Prune received data older than 60 days (14+ day data stays but is flagged in the Guild tab).
 Comm.STALE_MAX_AGE = 60 * 60 * 24 * 60
@@ -481,12 +516,12 @@ function Comm._DispatchReceivedMessage(msgType, payload, rawSender)
     end
 end
 
-local function onCommReceived(_prefix, message, _distribution, rawSender)
+local function onCommReceived(prefix, message, distribution, rawSender)
     if not commObj then return end
     pcall(function()
         local ok, msgType, payload = commObj:Deserialize(message)
         if not ok or type(msgType) ~= "string" then
-            log(string.format("RECV (undecodable) from %s", tostring(rawSender)))
+            log(Comm._FormatUndecodableRecvLog(prefix, message, distribution, rawSender, ok, msgType))
             return
         end
         if not isInboundAllowed(msgType) then return end

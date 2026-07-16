@@ -181,6 +181,33 @@ describe("GuildShareComm helpers", function()
     end)
   end)
 
+  describe("_FormatUndecodableRecvLog", function()
+    it("includes prefix, distribution, byte length, deserialize reason, and message head", function()
+      local msg = "not-ace-serializer-payload"
+      local line = Comm._FormatUndecodableRecvLog(
+        "AltArmyGS", msg, "GUILD", "Orfiman", false, "Supplied data is not AceSerializer data (rev 1)"
+      )
+      assert.truthy(line:find("recv %(undecodable%) from Orfiman", 1, false))
+      assert.truthy(line:find("prefix=AltArmyGS", 1, true))
+      assert.truthy(line:find("dist=GUILD", 1, true))
+      assert.truthy(line:find("bytes=" .. #msg, 1, true))
+      assert.truthy(line:find("reason=Supplied data is not AceSerializer data (rev 1)", 1, true))
+      assert.truthy(line:find("head=not-ace-serializer-payload", 1, true))
+    end)
+
+    it("truncates a long message head and reports msgType type when deserialize ok but type wrong", function()
+      local msg = string.rep("x", 80)
+      local line = Comm._FormatUndecodableRecvLog(
+        "AltArmyGS", msg, "WHISPER", "Bob", true, 42
+      )
+      assert.truthy(line:find("dist=WHISPER", 1, true))
+      assert.truthy(line:find("bytes=80", 1, true))
+      assert.truthy(line:find("reason=msgType=number", 1, true))
+      assert.truthy(line:find("head=" .. string.rep("x", 48) .. "...", 1, true))
+      assert.is_nil(line:find(string.rep("x", 49), 1, true))
+    end)
+  end)
+
   describe("_ShouldRespondToRecipeRequest", function()
     local flagOn, sharingEnabled
 
