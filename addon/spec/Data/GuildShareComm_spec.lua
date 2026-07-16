@@ -117,6 +117,17 @@ describe("GuildShareComm helpers", function()
     end)
   end)
 
+  describe("_ShouldSendGuildBroadcast", function()
+    it("requires IsInGuild and a non-empty guild name", function()
+      assert.is_true(Comm._ShouldSendGuildBroadcast(true, "Reign of Error"))
+      assert.is_false(Comm._ShouldSendGuildBroadcast(true, nil),
+        "IsInGuild can be true before GetGuildInfo is ready; do not send")
+      assert.is_false(Comm._ShouldSendGuildBroadcast(true, ""))
+      assert.is_false(Comm._ShouldSendGuildBroadcast(false, "G"))
+      assert.is_false(Comm._ShouldSendGuildBroadcast(false, nil))
+    end)
+  end)
+
   describe("ScheduleBroadcast", function()
     local scheduled, broadcastCount, realBroadcast
 
@@ -204,18 +215,34 @@ describe("GuildShareComm helpers", function()
   end)
 
   describe("_HandlePlayerGuildUpdate", function()
-    local broadcastCount, purged
+    local broadcastCount, lastLoginAnnounce, purged, realBroadcast
 
     before_each(function()
       broadcastCount = 0
+      lastLoginAnnounce = nil
       purged = nil
-      _G.IsInGuild = function() return true end
-      _G.GetGuildInfo = function() return "NewGuild" end
+      realBroadcast = Comm.Broadcast
       AltArmy.GuildShareData = {
         PurgeGuild = function(g) purged = g end,
       }
-      Comm.Broadcast = function() broadcastCount = broadcastCount + 1 end
+      Comm.Broadcast = function(_, isLoginAnnounce)
+        broadcastCount = broadcastCount + 1
+        lastLoginAnnounce = isLoginAnnounce == true
+      end
       Comm.NotifyDataChanged = function() end
+      -- Sync module knownGuild to nil so tests do not depend on order.
+      _G.IsInGuild = function() return false end
+      _G.GetGuildInfo = function() return nil end
+      Comm._HandlePlayerGuildUpdate()
+      broadcastCount = 0
+      lastLoginAnnounce = nil
+      purged = nil
+      _G.IsInGuild = function() return true end
+      _G.GetGuildInfo = function() return "NewGuild" end
+    end)
+
+    after_each(function()
+      Comm.Broadcast = realBroadcast
     end)
 
     it("broadcasts once when guild membership changes", function()
@@ -223,6 +250,75 @@ describe("GuildShareComm helpers", function()
       assert.are.equal(1, broadcastCount)
       Comm._HandlePlayerGuildUpdate()
       assert.are.equal(1, broadcastCount, "duplicate PLAYER_GUILD_UPDATE should not rebroadcast")
+    end)
+
+    it("login-announces when guild name becomes available (login race)", function()
+      -- Simulate PEW having set knownGuild=nil because GetGuildInfo was not ready yet.
+      _G.GetGuildInfo = function() return nil end
+      Comm._HandlePlayerGuildUpdate()
+      assert.are.equal(0, broadcastCount)
+      _G.GetGuildInfo = function() return "Reign of Error" end
+      Comm._HandlePlayerGuildUpdate()
+      assert.are.equal(1, broadcastCount)
+      assert.is_true(lastLoginAnnounce)
+    end)
+
+    it("does not broadcast when leaving a guild", function()
+      Comm._HandlePlayerGuildUpdate()
+      assert.are.equal(1, broadcastCount)
+      _G.GetGuildInfo = function() return nil end
+      _G.IsInGuild = function() return false end
+      Comm._HandlePlayerGuildUpdate()
+      assert.are.equal(1, broadcastCount, "leave must not send a GUILD clear")
+      assert.are.equal("NewGuild", purged)
+    end)
+  end)
+
+  describe("Broadcast guild gate", function()
+    local sent
+
+    before_each(function()
+      sent = {}
+      Comm._TestHookSend = function(msgType, payload, distribution)
+        sent[#sent + 1] = { msgType = msgType, payload = payload, distribution = distribution }
+      end
+      AltArmy.Debug = {
+        IsGuildShareEnabled = function() return true end,
+        LogGuildShare = function() end,
+      }
+      AltArmy.GuildShareSettings = {
+        GetShareableCharacters = function() return {} end,
+        GetAllGuildedCharacters = function() return {} end,
+        ResolvePresenceMainAndDisplay = function() return nil, nil end,
+      }
+      AltArmy.GuildShareProtocol = {
+        BuildPresence = function(chars, main, displayName)
+          return { v = 1, main = main, displayName = displayName, chars = chars or {} }
+        end,
+      }
+      _G.GetRealmName = function() return "R" end
+      _G.GetTime = function() return 100 end
+    end)
+
+    after_each(function()
+      Comm._TestHookSend = nil
+    end)
+
+    it("does not send when IsInGuild is true but guild name is nil", function()
+      _G.IsInGuild = function() return true end
+      _G.GetGuildInfo = function() return nil end
+      Comm.Broadcast(true, true)
+      assert.are.equal(0, #sent)
+    end)
+
+    it("sends when both IsInGuild and guild name are available", function()
+      _G.IsInGuild = function() return true end
+      _G.GetGuildInfo = function() return "Reign of Error" end
+      Comm.Broadcast(true, true)
+      assert.are.equal(1, #sent)
+      assert.are.equal("P", sent[1].msgType)
+      assert.are.equal("GUILD", sent[1].distribution)
+      assert.is_true(sent[1].payload.login)
     end)
   end)
 

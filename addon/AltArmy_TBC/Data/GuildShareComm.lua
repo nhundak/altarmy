@@ -204,6 +204,13 @@ function Comm._ShouldBroadcastOnEnteringWorld(isInitialLogin, isReloadingUi)
     return isInitialLogin == true or isReloadingUi == true
 end
 
+--- True when it is safe to send on the GUILD channel.
+--- IsInGuild can be true briefly at login before GetGuildInfo returns a name; sending then
+--- builds an empty opt-in presence and clears peers. Require a real guild name.
+function Comm._ShouldSendGuildBroadcast(isInGuild, guildName)
+    return isInGuild == true and type(guildName) == "string" and guildName ~= ""
+end
+
 --- Stamp or clear the login announce flag on a presence payload.
 function Comm._WithLoginAnnounce(presence, isLoginAnnounce)
     if not presence then return nil end
@@ -253,7 +260,11 @@ local function handlePlayerGuildUpdate()
         Comm.NotifyDataChanged()
     end
     knownGuild = newGuild
-    Comm.Broadcast(true)
+    -- Join / guild info becoming available (common login race): login-announce so peers
+    -- whisper PR. Leave (newGuild nil): do not send — Broadcast also refuses nil guild.
+    if newGuild then
+        Comm.Broadcast(true, true)
+    end
 end
 Comm._HandlePlayerGuildUpdate = handlePlayerGuildUpdate
 
@@ -313,10 +324,13 @@ end
 --- reply even if they already have our data (covers newcomers who missed prior sends).
 function Comm.Broadcast(force, isLoginAnnounce)
     if not Comm._TestHookSend and not commObj then return end
-    if not (IsInGuild and IsInGuild()) then return end
+    local inGuild = IsInGuild and IsInGuild() == true
+    local guild = currentGuild()
+    if not Comm._ShouldSendGuildBroadcast(inGuild, guild) then
+        return
+    end
     local nowTs = (GetTime and GetTime()) or 0
     if not force and (nowTs - lastBroadcast) < BROADCAST_THROTTLE then return end
-    local guild = currentGuild()
     local realm = currentRealm()
     local presence = Comm._WithLoginAnnounce(buildMyPresence(guild, realm), isLoginAnnounce)
     if not presence then
@@ -585,9 +599,10 @@ if frame then
             local isInitialLogin, isReloadingUi = ...
             Comm.Init()
             knownGuild = currentGuild()
-            if Comm._ShouldBroadcastOnEnteringWorld(isInitialLogin, isReloadingUi)
-                and IsInGuild and IsInGuild() then
+            if Comm._ShouldBroadcastOnEnteringWorld(isInitialLogin, isReloadingUi) then
                 if GuildRoster then pcall(GuildRoster) end
+                -- Broadcast no-ops until GetGuildInfo is ready; PLAYER_GUILD_UPDATE
+                -- then login-announces when the name becomes available.
                 Comm.Broadcast(true, true)
             end
         elseif event == "PLAYER_GUILD_UPDATE" then
