@@ -7,8 +7,9 @@
 --
 -- Send-set inversion (see GuildShareSettings):
 --   flag OFF -> GetAllGuildedCharacters() (ignore the user's settings; lets the developer
---               collect data from flag-off guildmates)
---   flag ON  -> GetShareableCharacters() (opt-in, defaults to none)
+--               collect data from flag-off guildmates). Empty set => no send.
+--   flag ON  -> GetShareableCharacters() (opt-in, defaults to none). Empty set => still
+--               send an empty presence so peers clear previously received characters.
 --
 -- Libs are acquired lazily inside Init() (called on login) so this file's position in the
 -- .toc relative to the Ace3 libs does not matter.
@@ -128,14 +129,25 @@ function Comm._SelectShareChars(flagOn, guild, realm)
     return GSS.GetAllGuildedCharacters(guild, realm)
 end
 
---- Verbose log line when a broadcast would run but sending is blocked by user settings.
---- Only when the guildShare feature flag is ON (opt-in send path) and sharing is disabled.
---- Other empty-send cases (no guilded characters, all opted out, etc.) are silent.
-function Comm._BroadcastSkippedLogMessage(flagOn, sharingEnabled)
-    if flagOn and sharingEnabled == false then
-        return "broadcast skipped: sharing disabled (enable in Options > General)"
-    end
+--- Legacy helper: sharing-disabled no longer skips the wire send (an empty presence is
+--- broadcast instead so peers can clear). Kept for tests / call sites; always returns nil.
+function Comm._BroadcastSkippedLogMessage(_flagOn, _sharingEnabled)
     return nil
+end
+
+--- Build a presence payload for the selected share set.
+--- Flag ON + empty set => empty presence (opt-out clear). Flag OFF + empty => nil (no send).
+function Comm._PresenceForShareChars(flagOn, chars, mainName, displayName)
+    local P = AltArmy.GuildShareProtocol
+    if not P or type(P.BuildPresence) ~= "function" then return nil end
+    chars = chars or {}
+    if #chars == 0 then
+        if flagOn then
+            return P.BuildPresence({}, nil, nil)
+        end
+        return nil
+    end
+    return P.BuildPresence(chars, mainName, displayName)
 end
 
 --- True when `curr` contains an online guildmate who was not online in `prev`.
@@ -266,13 +278,15 @@ end
 
 --- Build my presence payload for the given guild/realm (respecting the flag-branched set).
 local function buildMyPresence(guild, realm)
-    local P = AltArmy.GuildShareProtocol
     local GSS = AltArmy.GuildShareSettings
-    if not P or not GSS then return nil end
-    local chars = Comm._SelectShareChars(isReceiveEnabled(), guild, realm)
-    if #chars == 0 then return nil end
-    local mainName, displayName = GSS.ResolvePresenceMainAndDisplay(chars, realm)
-    return P.BuildPresence(chars, mainName, displayName)
+    if not GSS then return nil end
+    local flagOn = isReceiveEnabled()
+    local chars = Comm._SelectShareChars(flagOn, guild, realm)
+    local mainName, displayName
+    if #chars > 0 and GSS.ResolvePresenceMainAndDisplay then
+        mainName, displayName = GSS.ResolvePresenceMainAndDisplay(chars, realm)
+    end
+    return Comm._PresenceForShareChars(flagOn, chars, mainName, displayName)
 end
 
 function Comm.Broadcast(force)
@@ -280,18 +294,10 @@ function Comm.Broadcast(force)
     if not (IsInGuild and IsInGuild()) then return end
     local nowTs = (GetTime and GetTime()) or 0
     if not force and (nowTs - lastBroadcast) < BROADCAST_THROTTLE then return end
-    local flagOn = isReceiveEnabled()
-    local GSS = AltArmy.GuildShareSettings
-    local sharingEnabled = GSS and GSS.IsSharingEnabled and GSS.IsSharingEnabled()
     local guild = currentGuild()
     local realm = currentRealm()
     local presence = buildMyPresence(guild, realm)
     if not presence then
-        local skipMsg = Comm._BroadcastSkippedLogMessage(flagOn, sharingEnabled)
-        if skipMsg then
-            log(skipMsg)
-            lastBroadcast = nowTs
-        end
         return
     end
     lastBroadcast = nowTs

@@ -81,6 +81,9 @@ function DS:ScanGuildMembership(_self)
         char.guildName = (guildName ~= "" and guildName) or nil
         char.dataVersions.guildMembership = DATA_VERSIONS.guildMembership
     end
+    if AltArmy.UpdateGuildTabVisibility then
+        AltArmy.UpdateGuildTabVisibility()
+    end
 end
 
 function DS:GetCharacterName(char)

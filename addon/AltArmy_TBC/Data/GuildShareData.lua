@@ -124,15 +124,29 @@ end
 GSD._CharPresenceMatches = charPresenceMatches
 
 --- True when an inbound (parsed) presence matches what is already stored for its chars.
-function GSD.PresenceMatchesStored(_sender, presence, realm)
-    if not presence or type(presence.chars) ~= "table" or #presence.chars == 0 then
+--- Empty presence matches only when this sender has no stored characters on the realm
+--- (peers use empty presence to clear after opting out of sharing).
+function GSD.PresenceMatchesStored(sender, presence, realm)
+    if not presence or type(presence.chars) ~= "table" then
         return false
     end
     realm = realm or "?"
+    local rt = realmTable(realm, false)
+    if #presence.chars == 0 then
+        if not rt or not sender then return true end
+        for _, entry in pairs(rt) do
+            if entry and entry.source == sender then
+                return false
+            end
+        end
+        return true
+    end
     local effectiveMain = presence.main or defaultReceivedMain(presence.chars)
     local mainDeclared = presence.main ~= nil
     local displayName = presence.displayName
+    local inPresence = {}
     for _, c in ipairs(presence.chars) do
+        inPresence[c.name] = true
         local stored = GSD.GetCharacter(c.name, realm)
         if not stored then return false end
         if stored.main ~= effectiveMain then return false end
@@ -140,11 +154,21 @@ function GSD.PresenceMatchesStored(_sender, presence, realm)
         if stored.displayName ~= displayName then return false end
         if not charPresenceMatches(stored, c) then return false end
     end
+    -- A char previously shared by this sender but omitted from the new presence is a change.
+    if rt and sender then
+        for name, entry in pairs(rt) do
+            if entry and entry.source == sender and not inPresence[name] then
+                return false
+            end
+        end
+    end
     return true
 end
 
 --- Store an inbound (already parsed) presence for a guild on a realm.
 --- Preserves previously pulled recipes when the advertised version is unchanged.
+--- Characters previously received from `sender` that are absent from this presence
+--- (including an empty char list after opt-out) are removed.
 function GSD.SaveReceived(sender, presence, guild, realm)
     if not presence or type(presence.chars) ~= "table" then return end
     realm = realm or "?"
@@ -153,6 +177,7 @@ function GSD.SaveReceived(sender, presence, guild, realm)
     -- Honor a sender-declared main; otherwise guess one so their alts still group together.
     local mainDeclared = presence.main ~= nil
     local effectiveMain = presence.main or defaultReceivedMain(presence.chars)
+    local keep = {}
     for _, c in ipairs(presence.chars) do
         local existing = rt[c.name]
         local entry = existing or {}
@@ -195,6 +220,14 @@ function GSD.SaveReceived(sender, presence, guild, realm)
         end
         entry.Professions = newProfs
         rt[c.name] = entry
+        keep[c.name] = true
+    end
+    if sender then
+        for name, entry in pairs(rt) do
+            if entry and entry.source == sender and not keep[name] then
+                rt[name] = nil
+            end
+        end
     end
 end
 

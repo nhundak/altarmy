@@ -397,7 +397,27 @@ function GTD.FormatNoProfessionRecipesMessage(entry, formatName)
     return "No recipes known for " .. formatNamePart(entry, formatName)
 end
 
---- Sorted unique guild names from account characters that have a guild set.
+--- Sorted unique guild names from characters on `realm` that have a guild set.
+function GTD.CollectGuildsOnRealm(realm)
+    local seen = {}
+    local out = {}
+    if not realm or realm == "" then return out end
+    local DS = AltArmy.DataStore
+    if not DS or not DS.GetCharacters then return out end
+    for _, charData in pairs(DS:GetCharacters(realm) or {}) do
+        local guild = charData and charData.guildName
+        if guild and guild ~= "" and not seen[guild] then
+            seen[guild] = true
+            out[#out + 1] = guild
+        end
+    end
+    table.sort(out, function(a, b)
+        return a:lower() < b:lower()
+    end)
+    return out
+end
+
+--- Sorted unique guild names from all account characters that have a guild set.
 function GTD.CollectAccountGuilds()
     local seen = {}
     local out = {}
@@ -414,6 +434,34 @@ function GTD.CollectAccountGuilds()
         return a:lower() < b:lower()
     end)
     return out
+end
+
+--- True when any stored character on `realm` has a guild membership.
+function GTD.HasGuildedCharactersOnRealm(realm)
+    return #(GTD.CollectGuildsOnRealm(realm)) > 0
+end
+
+--- Guild tab button visibility: feature flag on and at least one guilded character
+--- on the current realm.
+function GTD.ShouldShowGuildTab(guildShareFlagOn, hasGuildedCharacters)
+    if not guildShareFlagOn then return false end
+    if not hasGuildedCharacters then return false end
+    return true
+end
+
+--- Live evaluation using current addon state (current realm only).
+function GTD.CanShowGuildTab()
+    local D = AltArmy and AltArmy.Debug
+    local flagOn = D and D.IsGuildShareEnabled and D.IsGuildShareEnabled() or false
+    local realm
+    local DS = AltArmy and AltArmy.DataStore
+    if DS and DS.GetCurrentPlayerRealm then
+        realm = DS:GetCurrentPlayerRealm()
+    end
+    if not realm or realm == "" then
+        realm = (GetRealmName and GetRealmName()) or ""
+    end
+    return GTD.ShouldShowGuildTab(flagOn, GTD.HasGuildedCharactersOnRealm(realm))
 end
 
 --- When the account has exactly one guild, return it for automatic browse selection.

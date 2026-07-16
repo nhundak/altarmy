@@ -140,8 +140,16 @@ function SS.CanShowIncludeGuildmatesToggle()
     local flagOn = D and D.IsGuildShareEnabled and D.IsGuildShareEnabled() or false
     local hasGuild = false
     local GTD = AltArmy and AltArmy.GuildTabData
-    if GTD and GTD.CollectAccountGuilds then
-        hasGuild = #(GTD.CollectAccountGuilds()) > 0
+    if GTD and GTD.HasGuildedCharactersOnRealm then
+        local realm
+        local DS = AltArmy and AltArmy.DataStore
+        if DS and DS.GetCurrentPlayerRealm then
+            realm = DS:GetCurrentPlayerRealm()
+        end
+        if not realm or realm == "" then
+            realm = (GetRealmName and GetRealmName()) or ""
+        end
+        hasGuild = GTD.HasGuildedCharactersOnRealm(realm)
     end
     local sharingOn = false
     local GSS = AltArmy and AltArmy.GuildShareSettings

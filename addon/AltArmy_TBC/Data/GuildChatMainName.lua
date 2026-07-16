@@ -2,7 +2,7 @@
 -- Annotates chat messages from an alt with the poster's self-declared main, so you can
 -- tell who is behind an unfamiliar alt name. Also annotates guildmate online/offline
 -- system messages the same way. Pure Transform is unit-tested; chat filters are installed
--- once and gated at call time by the feature flag + the user's settings.
+-- once and gated at call time by the feature flag, sharing opt-in, and chat settings.
 
 if not AltArmy then return end
 
@@ -147,7 +147,9 @@ local function chatInsertionAllowed()
     local D = AltArmy.Debug
     if not (D and D.IsGuildShareEnabled and D.IsGuildShareEnabled()) then return false end
     local GSS = AltArmy.GuildShareSettings
-    if not (GSS and GSS.IsChatInsertionEnabled and GSS.IsChatInsertionEnabled()) then return false end
+    -- Opt-out of guild sharing also disables chat main-name insertion.
+    if not (GSS and GSS.IsSharingEnabled and GSS.IsSharingEnabled()) then return false end
+    if not (GSS.IsChatInsertionEnabled and GSS.IsChatInsertionEnabled()) then return false end
     return true
 end
 

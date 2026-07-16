@@ -1161,6 +1161,64 @@ describe("GuildTabData", function()
     end)
   end)
 
+  describe("CollectGuildsOnRealm", function()
+    it("returns sorted unique guild names for characters on that realm only", function()
+      local savedDS = AltArmy.DataStore
+      AltArmy.DataStore = {
+        GetCharacters = function(_, realm)
+          if realm == "R1" then
+            return {
+              A = { guildName = "Zeta Guild" },
+              B = { guildName = "Alpha Guild" },
+            }
+          end
+          if realm == "R2" then
+            return {
+              C = { guildName = "Other Realm Guild" },
+              D = { guildName = nil },
+            }
+          end
+          return {}
+        end,
+      }
+      assert.are.same({ "Alpha Guild", "Zeta Guild" }, GTD.CollectGuildsOnRealm("R1"))
+      assert.are.same({ "Other Realm Guild" }, GTD.CollectGuildsOnRealm("R2"))
+      assert.are.same({}, GTD.CollectGuildsOnRealm("Missing"))
+      assert.are.same({}, GTD.CollectGuildsOnRealm(nil))
+      AltArmy.DataStore = savedDS
+    end)
+  end)
+
+  describe("ShouldShowGuildTab", function()
+    it("requires the guildShare feature flag and at least one guilded character", function()
+      assert.is_false(GTD.ShouldShowGuildTab(false, true))
+      assert.is_false(GTD.ShouldShowGuildTab(true, false))
+      assert.is_false(GTD.ShouldShowGuildTab(false, false))
+      assert.is_true(GTD.ShouldShowGuildTab(true, true))
+    end)
+  end)
+
+  describe("HasGuildedCharactersOnRealm", function()
+    it("is true only when a character on that realm has a guild", function()
+      local savedDS = AltArmy.DataStore
+      AltArmy.DataStore = {
+        GetCharacters = function(_, realm)
+          if realm == "Current" then
+            return { Unguilded = { guildName = nil } }
+          end
+          if realm == "Other" then
+            return { Guilded = { guildName = "Other Guild" } }
+          end
+          return {}
+        end,
+      }
+      assert.is_false(GTD.HasGuildedCharactersOnRealm("Current"))
+      assert.is_true(GTD.HasGuildedCharactersOnRealm("Other"))
+      assert.is_false(GTD.HasGuildedCharactersOnRealm(nil))
+      AltArmy.DataStore = savedDS
+    end)
+  end)
+
   describe("GetAutoBrowseGuild", function()
     it("returns the sole guild when there is exactly one", function()
       assert.are.equal("Only Guild", GTD.GetAutoBrowseGuild({ "Only Guild" }))

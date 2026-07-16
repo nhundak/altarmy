@@ -481,7 +481,8 @@ debugGuildShareHint:SetWidth(520)
 debugGuildShareHint:SetJustifyH("LEFT")
 debugGuildShareHint:SetText(
     "Enables receiving guild data and the Guild tab/UI. When off, the addon still broadcasts your"
-    .. " guilded characters (for testing) but ignores anything it receives.")
+    .. " guilded characters (for testing) but ignores anything it receives. When on with sharing"
+    .. " disabled, an empty presence is sent so guildmates clear your previously shared characters.")
 
 local debugGuildShareVerboseRow = Theme.CreateLabeledCheckbox(tabDebug, {
     point = "TOPLEFT",
@@ -676,17 +677,77 @@ local function setGuildSharingCheckboxCaptionMuted(fontString, muted)
     end
 end
 
+local function showSharingRequiredTooltip(owner, opts)
+    local GSS = AltArmy.GuildShareSettings
+    if GSS and GSS.PresentSharingRequiredTooltip then
+        GSS.PresentSharingRequiredTooltip(owner, "ANCHOR_RIGHT", opts)
+        return
+    end
+    if not GameTooltip or not owner then return end
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:SetText(
+        (GSS and GSS.SHARING_REQUIRED_CONTROL_TOOLTIP)
+            or "Turn on guild sharing to enable this option.",
+        1, 1, 1, 1, true)
+    GameTooltip:Show()
+end
+
+local function hideSharingRequiredTooltip()
+    if GameTooltip then GameTooltip:Hide() end
+end
+
+--- Keep mouse enabled while disabled so a "turn on sharing" tooltip can still show.
 local function setGuildSharingCheckboxEnabled(row, enabled)
     if not row then return end
+    row._sharingRequiredTooltip = not enabled
     if enabled then
         row.check:Enable()
-        if row.hoverRegion then row.hoverRegion:EnableMouse(true) end
         setGuildSharingCheckboxCaptionMuted(row.label, false)
     else
         row.check:Disable()
-        if row.hoverRegion then row.hoverRegion:EnableMouse(false) end
         setGuildSharingCheckboxCaptionMuted(row.label, true)
     end
+    if row.hoverRegion then row.hoverRegion:EnableMouse(true) end
+end
+
+local function attachSharingRequiredTooltip(frame, isActive)
+    if not frame or not frame.HookScript then return end
+    frame:HookScript("OnEnter", function(self)
+        if isActive and isActive() then
+            showSharingRequiredTooltip(self)
+        end
+    end)
+    frame:HookScript("OnLeave", function()
+        hideSharingRequiredTooltip()
+    end)
+end
+
+--- Overlay so disabled buttons (which may not receive OnEnter) still show the tooltip.
+--- opts: showConfigureHint (boolean), onClick (function).
+local function createSharingRequiredHoverOverlay(anchor, opts)
+    if not anchor then return nil end
+    opts = opts or {}
+    local overlay = CreateFrame("Frame", nil, anchor:GetParent() or anchor)
+    overlay:SetAllPoints(anchor)
+    overlay:SetFrameLevel((anchor.GetFrameLevel and anchor:GetFrameLevel() or 0) + 5)
+    overlay:EnableMouse(true)
+    overlay:Hide()
+    overlay:SetScript("OnEnter", function(self)
+        showSharingRequiredTooltip(self, {
+            showConfigureHint = opts.showConfigureHint == true,
+        })
+    end)
+    overlay:SetScript("OnLeave", function()
+        hideSharingRequiredTooltip()
+    end)
+    if opts.onClick then
+        overlay:SetScript("OnMouseUp", function(_, button)
+            if button ~= "LeftButton" then return end
+            hideSharingRequiredTooltip()
+            opts.onClick()
+        end)
+    end
+    return overlay
 end
 
 local refreshGuildSharingDependentControls
@@ -780,6 +841,11 @@ do
     end
 end
 
+-- Hit region covering the share checkbox for attention flashes from Characters tab.
+local guildShareEnableFocusRegion = CreateFrame("Frame", nil, guildShareTopRow)
+guildShareEnableFocusRegion:EnableMouse(false)
+anchorGuildSharingLeftHalf(guildShareEnableFocusRegion, guildShareTopRow)
+
 local guildManageExceptionsBtn = CreateFrame("Button", nil, guildSharingBlock, "UIPanelButtonTemplate")
 guildManageExceptionsBtn:SetSize(140, 22)
 guildManageExceptionsBtn:SetPoint("LEFT", guildShareTopRow, "CENTER", GUILD_SHARING_HALF_GAP, 0)
@@ -787,8 +853,10 @@ guildManageExceptionsBtn:SetPoint("TOP", guildShareTopRow, "TOP", 0, 0)
 guildManageExceptionsBtn:SetText("Manage exceptions")
 Theme.SkinButton(guildManageExceptionsBtn)
 guildManageExceptionsBtn:SetScript("OnClick", function()
+    if not guildManageExceptionsBtn:IsEnabled() then return end
     SetActiveOptionsTab("characters")
 end)
+local guildManageExceptionsSharingOverlay = createSharingRequiredHoverOverlay(guildManageExceptionsBtn)
 
 local guildSharingTail = CreateFrame("Frame", nil, guildSharingBlock)
 guildSharingTail:SetPoint("RIGHT", guildSharingBlock, "RIGHT", 0, 0)
@@ -957,6 +1025,12 @@ local guildChatInsertRow = Theme.CreateLabeledCheckbox(guildChatLeftColumn, {
     end,
 })
 panel.guildChatInsertCheckbox = guildChatInsertRow.check
+attachSharingRequiredTooltip(guildChatInsertRow.hoverRegion, function()
+    return guildChatInsertRow._sharingRequiredTooltip == true
+end)
+attachSharingRequiredTooltip(guildChatInsertRow.check, function()
+    return guildChatInsertRow._sharingRequiredTooltip == true
+end)
 
 guildChatChannelsDropdown = Theme.CreateMultiSelectCheckboxDropdown({
     parent = guildChatRightColumn,
@@ -1005,13 +1079,38 @@ guildChatChannelsDropdown = Theme.CreateMultiSelectCheckboxDropdown({
     end,
 })
 
+local guildChatChannelsSharingOverlay = guildChatChannelsDropdown
+    and guildChatChannelsDropdown.button
+    and createSharingRequiredHoverOverlay(guildChatChannelsDropdown.button)
+
 function refreshGuildSharingDependentControls()
     local GSS = AltArmy.GuildShareSettings
     local sharingOn = GSS and GSS.IsSharingEnabled and GSS.IsSharingEnabled() == true
     local chatOn = GSS and GSS.IsChatInsertionEnabled and GSS.IsChatInsertionEnabled() == true
+    -- Dependent controls only usable while sharing is on.
     setGuildSharingCheckboxEnabled(guildChatInsertRow, sharingOn)
     if guildChatChannelsDropdown and guildChatChannelsDropdown.SetEnabled then
         guildChatChannelsDropdown:SetEnabled(sharingOn and chatOn)
+    end
+    if guildManageExceptionsBtn then
+        if sharingOn then
+            guildManageExceptionsBtn:Enable()
+        else
+            guildManageExceptionsBtn:Disable()
+        end
+    end
+    if guildManageExceptionsSharingOverlay then
+        guildManageExceptionsSharingOverlay:SetShown(not sharingOn)
+    end
+    if guildChatChannelsSharingOverlay then
+        -- Overlay only while sharing is off (disabled buttons may not receive OnEnter).
+        guildChatChannelsSharingOverlay:SetShown(not sharingOn)
+    end
+    if sharingOn then
+        hideSharingRequiredTooltip()
+    end
+    if panel.RefreshCharGuildShareDropdown then
+        panel.RefreshCharGuildShareDropdown()
     end
 end
 
@@ -1347,11 +1446,29 @@ charGuildShareDropdown.button:Hide()
 charGuildShareDropdown.popup:ClearAllPoints()
 charGuildShareDropdown.popup:SetPoint("TOPLEFT", charGuildShareDropdown.button, "BOTTOMLEFT", 0, -2)
 charGuildShareDropdown.popup:SetPoint("TOPRIGHT", charGuildShareDropdown.button, "BOTTOMRIGHT", 0, -2)
+local charGuildShareSharingOverlay = createSharingRequiredHoverOverlay(charGuildShareDropdown.button, {
+    showConfigureHint = true,
+    onClick = function()
+        if AltArmy.OpenInterfaceOptions then
+            AltArmy.OpenInterfaceOptions("general", { flash = "guildShare" })
+        end
+    end,
+})
 
 local function RefreshCharGuildShareDropdown()
     if charGuildShareDropdown and charGuildShareDropdown.Update then
         charGuildShareDropdown:Update()
     end
+    local GSS = AltArmy.GuildShareSettings
+    local sharingOn = GSS and GSS.IsSharingEnabled and GSS.IsSharingEnabled() == true
+    if charGuildShareDropdown and charGuildShareDropdown.SetEnabled then
+        charGuildShareDropdown:SetEnabled(sharingOn)
+    end
+    local shown = charGuildShareDropdown.button and charGuildShareDropdown.button:IsShown()
+    if charGuildShareSharingOverlay then
+        charGuildShareSharingOverlay:SetShown(shown and not sharingOn)
+    end
+    setGuildSharingCheckboxCaptionMuted(charGuildShareLabel, shown and not sharingOn)
 end
 panel.RefreshCharGuildShareDropdown = RefreshCharGuildShareDropdown
 
@@ -1500,6 +1617,8 @@ local function applyOptionsFocus(focus)
         Theme.FlashAttentionHighlight(guildMainFocusRegion)
     elseif focus.flash == "bankAlt" and Theme.FlashAttentionHighlight and bankAltRow then
         Theme.FlashAttentionHighlight(bankAltRow)
+    elseif focus.flash == "guildShare" and Theme.FlashAttentionHighlight and guildShareEnableFocusRegion then
+        Theme.FlashAttentionHighlight(guildShareEnableFocusRegion)
     end
 end
 
@@ -1809,7 +1928,7 @@ end
 AltArmy.OptionsPanel = panel
 
 --- @param initialTab string|nil "general" (default), "characters", "cooldowns", or "debug"
---- @param opts table|nil { name, realm, flash = "main"|"bankAlt" }
+--- @param opts table|nil { name, realm, flash = "main"|"bankAlt"|"guildShare" }
 function AltArmy.OpenInterfaceOptions(initialTab, opts)
     opts = opts or {}
     local tab = initialTab or "general"

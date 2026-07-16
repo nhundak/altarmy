@@ -63,6 +63,26 @@ end
 
 -- *** Master enable ***
 
+--- Tooltip for Options controls that are disabled until guild sharing is turned on.
+GSS.SHARING_REQUIRED_CONTROL_TOOLTIP =
+    "Turn on guild sharing to enable this option."
+GSS.SHARING_REQUIRED_CONFIGURE_HINT = "Click to configure"
+
+--- Present the sharing-required tooltip. opts.showConfigureHint adds a gray configure line.
+--- @return boolean
+function GSS.PresentSharingRequiredTooltip(owner, anchor, opts)
+    if not owner or not GameTooltip then return false end
+    opts = opts or {}
+    GameTooltip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
+    GameTooltip:ClearLines()
+    GameTooltip:AddLine(GSS.SHARING_REQUIRED_CONTROL_TOOLTIP, 1, 1, 1, true)
+    if opts.showConfigureHint then
+        GameTooltip:AddLine(GSS.SHARING_REQUIRED_CONFIGURE_HINT, 0.5, 0.5, 0.5, true)
+    end
+    GameTooltip:Show()
+    return true
+end
+
 function GSS.IsSharingEnabled()
     return ensure().enabled == true
 end

@@ -45,13 +45,41 @@ describe("GuildShareComm helpers", function()
   end)
 
   describe("_BroadcastSkippedLogMessage", function()
-    it("returns a message only when the feature flag is on and sharing is disabled", function()
+    it("never skips for sharing-disabled: empty opt-out presence is sent instead", function()
       assert.is_nil(Comm._BroadcastSkippedLogMessage(false, false))
       assert.is_nil(Comm._BroadcastSkippedLogMessage(false, true))
       assert.is_nil(Comm._BroadcastSkippedLogMessage(true, true))
-      local msg = Comm._BroadcastSkippedLogMessage(true, false)
-      assert.truthy(msg)
-      assert.matches("sharing disabled", msg)
+      assert.is_nil(Comm._BroadcastSkippedLogMessage(true, false))
+    end)
+  end)
+
+  describe("_PresenceForShareChars", function()
+    before_each(function()
+      package.loaded["GuildShareProtocol"] = nil
+      require("GuildShareProtocol")
+    end)
+
+    it("builds an empty presence when the flag is ON and the share set is empty", function()
+      local presence = Comm._PresenceForShareChars(true, {})
+      assert.truthy(presence)
+      assert.are.equal(0, #presence.chars)
+    end)
+
+    it("returns nil when the flag is OFF and the share set is empty", function()
+      assert.is_nil(Comm._PresenceForShareChars(false, {}))
+    end)
+
+    it("builds a normal presence when characters are present", function()
+      local char = {
+        name = "Main", classFile = "MAGE", faction = "Alliance", level = 70, Professions = {},
+      }
+      local presence = Comm._PresenceForShareChars(true, {
+        { name = "Main", realm = "R", char = char },
+      }, "Main", "Display")
+      assert.truthy(presence)
+      assert.are.equal(1, #presence.chars)
+      assert.are.equal("Main", presence.main)
+      assert.are.equal("Display", presence.displayName)
     end)
   end)
 
@@ -228,6 +256,9 @@ describe("GuildShareComm helpers", function()
       AltArmy.GuildShareProtocol = {
         ParsePresence = function(msg) return msg end,
         ParseRecipes = function(msg) return msg end,
+        BuildPresence = function(chars, main, displayName)
+          return { v = 1, main = main, displayName = displayName, chars = chars or {} }
+        end,
         BuildRecipes = function(name, realm, char)
           return { v = 1, name = name, realm = realm, profs = {} }
         end,
@@ -429,6 +460,8 @@ describe("GuildShareComm helpers", function()
 
     setup(function()
       _G.time = function() return NOW end
+      package.loaded["GuildShareProtocol"] = nil
+      package.loaded["GuildShareData"] = nil
       require("GuildShareProtocol")
       require("GuildShareData")
       GSD = AltArmy.GuildShareData
@@ -438,6 +471,9 @@ describe("GuildShareComm helpers", function()
     before_each(function()
       _G.AltArmyTBC_GuildData = nil
       GSD._Ensure()
+      -- Restore real protocol/data after other describes may have stubbed them.
+      AltArmy.GuildShareProtocol = P
+      AltArmy.GuildShareData = GSD
       _G.UnitName = function() return "Bob" end
       _G.GetGuildInfo = function() return "MyGuild" end
       _G.GetRealmName = function() return "R" end

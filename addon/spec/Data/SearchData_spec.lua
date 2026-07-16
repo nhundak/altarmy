@@ -601,13 +601,20 @@ describe("SearchData", function()
         GetCharacterName = DS.GetCharacterName,
         GetCharacterClass = DS.GetCharacterClass,
         ForEachCharacter = DS.ForEachCharacter,
+        GetCurrentPlayerRealm = DS.GetCurrentPlayerRealm,
       }
-      -- No local characters, so any results come purely from guild data.
-      DS.GetRealms = function() return {} end
-      DS.GetCharacters = function() return {} end
+      -- No local profession data; guild-toggle eligibility still needs a guilded char on realm.
+      DS.GetRealms = function() return { R = true } end
+      DS.GetCharacters = function(_, realm)
+        if realm == "R" then
+          return { Local = { guildName = "G" } }
+        end
+        return {}
+      end
       DS.GetProfessions = function() return {} end
       DS.GetCharacterName = function(_, c) return c and c.name or "" end
       DS.GetCharacterClass = function() return "", "MAGE" end
+      DS.GetCurrentPlayerRealm = function() return "R" end
       _G.AltArmyTBC_GuildData = {
         chars = {
           R = {

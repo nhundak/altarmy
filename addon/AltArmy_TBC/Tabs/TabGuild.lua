@@ -65,6 +65,23 @@ local function currentGuild()
     return nil
 end
 
+local function currentRealm()
+    local GSS = AltArmy.GuildShareSettings
+    if GSS and GSS._CurrentRealm then
+        local r = GSS._CurrentRealm()
+        if r and r ~= "" then return r end
+    end
+    return (GetRealmName and GetRealmName()) or ""
+end
+
+--- Guilds owned by account characters on the current realm (picker / auto-browse).
+local function collectCurrentRealmGuilds()
+    if GTD.CollectGuildsOnRealm then
+        return GTD.CollectGuildsOnRealm(currentRealm())
+    end
+    return GTD.CollectAccountGuilds and GTD.CollectAccountGuilds() or {}
+end
+
 local function formatName(name, classFile)
     if CC and CC.formatName then return CC.formatName(name, classFile) end
     return name or "?"
@@ -118,11 +135,11 @@ end
 
 local function shouldShowGuildPicker()
     if currentGuild() or selectedBrowseGuild then return false end
-    return #(GTD.CollectAccountGuilds()) > 1
+    return #(collectCurrentRealmGuilds()) > 1
 end
 
 local function shouldShowBrowseBackButton()
-    return isBrowsingWithoutGuild() and #(GTD.CollectAccountGuilds()) > 1
+    return isBrowsingWithoutGuild() and #(collectCurrentRealmGuilds()) > 1
 end
 
 local function memberKey(entry)
@@ -2424,7 +2441,7 @@ local function refreshImpl()
     if currentGuild() then
         selectedBrowseGuild = nil
     elseif not selectedBrowseGuild then
-        local autoBrowse = GTD.GetAutoBrowseGuild(GTD.CollectAccountGuilds())
+        local autoBrowse = GTD.GetAutoBrowseGuild(collectCurrentRealmGuilds())
         if autoBrowse then
             selectedBrowseGuild = autoBrowse
         end
@@ -2439,7 +2456,7 @@ local function refreshImpl()
             listView:Show()
             showGuildList()
             Theme.UpdateEditBoxPlaceholderVisibility(searchEdit)
-            layoutGuildPicker(GTD.CollectAccountGuilds())
+            layoutGuildPicker(collectCurrentRealmGuilds())
             return
         end
         showMessage("You are not in a guild.", false)
@@ -2449,8 +2466,7 @@ local function refreshImpl()
     messageView:Hide()
     listView:Show()
 
-    local realm = (GSS._CurrentRealm and GSS._CurrentRealm())
-        or (GetRealmName and GetRealmName()) or ""
+    local realm = currentRealm()
     local browseAllRealms = isBrowsingWithoutGuild()
     local members = (GSD and GSD.GetGuildMembersForDisplay(guild, realm, browseAllRealms)) or {}
 

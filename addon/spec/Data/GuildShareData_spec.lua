@@ -208,6 +208,57 @@ describe("GuildShareData", function()
       local changed = parsed("Main", { charEntry("Main"), charEntry("NewAlt") })
       assert.is_false(GSD.PresenceMatchesStored("Peer", changed, "R"))
     end)
+
+    it("returns false when a previously stored char from this sender is missing", function()
+      local msg = parsed("Main", { charEntry("Main"), charEntry("Alt") })
+      GSD.SaveReceived("Peer", msg, "G", "R")
+      local reduced = parsed("Main", { charEntry("Main") })
+      assert.is_false(GSD.PresenceMatchesStored("Peer", reduced, "R"))
+    end)
+
+    it("returns true for empty presence when nothing is stored from that sender", function()
+      assert.is_true(GSD.PresenceMatchesStored("Peer", parsed("Main", {}), "R"))
+      GSD.SaveReceived("Other", parsed("Other", { charEntry("Other") }), "G", "R")
+      assert.is_true(GSD.PresenceMatchesStored("Peer", parsed("Main", {}), "R"))
+    end)
+
+    it("returns false for empty presence when that sender still has stored chars", function()
+      GSD.SaveReceived("Peer", parsed("Main", { charEntry("Main") }), "G", "R")
+      assert.is_false(GSD.PresenceMatchesStored("Peer", parsed("Main", {}), "R"))
+    end)
+  end)
+
+  describe("SaveReceived clear-by-source", function()
+    it("removes all chars from a sender when they advertise an empty presence", function()
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("Main", {
+        charEntry("Main"), charEntry("Alt"),
+      })), "G", "R")
+      assert.truthy(GSD.GetCharacter("Main", "R"))
+      assert.truthy(GSD.GetCharacter("Alt", "R"))
+
+      GSD.SaveReceived("Peer", P.ParsePresence({ v = 1, chars = {} }), "G", "R")
+      assert.is_nil(GSD.GetCharacter("Main", "R"))
+      assert.is_nil(GSD.GetCharacter("Alt", "R"))
+    end)
+
+    it("does not remove chars stored from a different sender", function()
+      GSD.SaveReceived("Alice", P.ParsePresence(presence("Alice", { charEntry("Alice") })), "G", "R")
+      GSD.SaveReceived("Bob", P.ParsePresence(presence("Bob", { charEntry("Bob") })), "G", "R")
+
+      GSD.SaveReceived("Alice", P.ParsePresence({ v = 1, chars = {} }), "G", "R")
+      assert.is_nil(GSD.GetCharacter("Alice", "R"))
+      assert.truthy(GSD.GetCharacter("Bob", "R"))
+      assert.are.equal("Bob", GSD.GetCharacter("Bob", "R").source)
+    end)
+
+    it("removes only chars dropped from a non-empty presence for that sender", function()
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("Main", {
+        charEntry("Main"), charEntry("Alt"),
+      })), "G", "R")
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("Main", { charEntry("Main") })), "G", "R")
+      assert.truthy(GSD.GetCharacter("Main", "R"))
+      assert.is_nil(GSD.GetCharacter("Alt", "R"))
+    end)
   end)
 
   describe("recipe pull tracking", function()

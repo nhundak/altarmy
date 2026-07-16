@@ -245,7 +245,8 @@ end
 
 local TAB_BTN_MIN_WIDTH = 72
 -- "Guild" is always created but its button is only shown when the guildShare feature flag is on
--- (see updateGuildTabVisibility). It is kept last so hiding it never leaves a gap in the strip.
+-- and at least one character on the current realm is in a guild (see updateGuildTabVisibility).
+-- It is kept last so hiding it never leaves a gap in the strip.
 local tabNames = { "Summary", "Gear", "Reputation", "Cooldowns", "Graph", "Guild" }
 tabStrip.buttons = {}
 local prevBtn = nil
@@ -272,12 +273,14 @@ for _, tabName in ipairs(tabNames) do
     tabStrip.buttons[tabName] = btn
 end
 
--- Guild tab: only visible when the guildShare feature flag is on. Debug.lua loads after Core,
--- so we evaluate the flag lazily (on frame show / when the flag is toggled) rather than at load.
+-- Guild tab: only visible when the guildShare feature flag is on and the current realm has at
+-- least one guilded character. Debug.lua / DataStore load after Core, so we evaluate lazily (on
+-- frame show / when the flag or guild membership changes) rather than at load.
 local function updateGuildTabVisibility()
     local btn = tabStrip.buttons["Guild"]
     if not btn then return end
-    local on = AltArmy.Debug and AltArmy.Debug.IsGuildShareEnabled and AltArmy.Debug.IsGuildShareEnabled()
+    local GTD = AltArmy.GuildTabData
+    local on = GTD and GTD.CanShowGuildTab and GTD.CanShowGuildTab()
     btn:SetShown(on and true or false)
     if not on and AltArmy.CurrentTab == "Guild" then
         setActiveTab("Summary")

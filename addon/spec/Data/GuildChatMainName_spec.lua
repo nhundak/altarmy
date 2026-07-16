@@ -65,6 +65,7 @@ describe("GuildChatMainName", function()
       savedGSS = AltArmy.GuildShareSettings
       AltArmy.Debug = { IsGuildShareEnabled = function() return true end }
       AltArmy.GuildShareSettings = {
+        IsSharingEnabled = function() return true end,
         IsChatInsertionEnabled = function() return true end,
         IsChatInsertionChannelEnabled = function(key) return key == "guild" end,
       }
@@ -87,6 +88,11 @@ describe("GuildChatMainName", function()
     it("annotates when the channel is enabled", function()
       local out = GCM.FilterMessage("hello", "Alt", "guild")
       assert.is_true(out and out:find("Mainman", 1, true) ~= nil, out)
+    end)
+
+    it("returns nil when guild sharing is opted out", function()
+      AltArmy.GuildShareSettings.IsSharingEnabled = function() return false end
+      assert.is_nil(GCM.FilterMessage("hello", "Alt", "guild"))
     end)
   end)
 
@@ -136,6 +142,7 @@ describe("GuildChatMainName", function()
       savedGSD = AltArmy.GuildShareData
       AltArmy.Debug = { IsGuildShareEnabled = function() return true end }
       AltArmy.GuildShareSettings = {
+        IsSharingEnabled = function() return true end,
         IsChatInsertionEnabled = function() return true end,
         IsChatInsertionChannelEnabled = function() return true end,
         GetGroupOverrideName = function(main, realm)
@@ -251,6 +258,7 @@ describe("GuildChatMainName", function()
         savedGSS = AltArmy.GuildShareSettings
         AltArmy.Debug = { IsGuildShareEnabled = function() return true end }
         AltArmy.GuildShareSettings = {
+          IsSharingEnabled = function() return true end,
           IsChatInsertionEnabled = function() return true end,
         }
         AltArmy.GuildShareData = {
@@ -280,6 +288,11 @@ describe("GuildChatMainName", function()
 
       it("returns nil when chat insertion is disabled", function()
         AltArmy.GuildShareSettings.IsChatInsertionEnabled = function() return false end
+        assert.is_nil(GCM.FilterSystemMessage(ONLINE))
+      end)
+
+      it("returns nil when guild sharing is opted out", function()
+        AltArmy.GuildShareSettings.IsSharingEnabled = function() return false end
         assert.is_nil(GCM.FilterSystemMessage(ONLINE))
       end)
 

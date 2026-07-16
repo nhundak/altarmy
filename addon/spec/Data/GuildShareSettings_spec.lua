@@ -37,6 +37,39 @@ describe("GuildShareSettings", function()
     it("sharing is disabled by default (opt-in)", function()
       assert.is_false(GSS.IsSharingEnabled())
     end)
+    it("exposes a tooltip for controls that require sharing to be on", function()
+      assert.truthy(GSS.SHARING_REQUIRED_CONTROL_TOOLTIP)
+      assert.matches("guild sharing", GSS.SHARING_REQUIRED_CONTROL_TOOLTIP:lower())
+    end)
+
+    it("PresentSharingRequiredTooltip can include a gray Click to configure hint", function()
+      local lines = {}
+      local owner = {}
+      _G.GameTooltip = {
+        SetOwner = function(_, o, anchor)
+          owner.frame = o
+          owner.anchor = anchor
+        end,
+        ClearLines = function() lines = {} end,
+        AddLine = function(_, text, r, g, b)
+          lines[#lines + 1] = { text = text, r = r, g = g, b = b }
+        end,
+        Show = function() end,
+      }
+      assert.is_true(GSS.PresentSharingRequiredTooltip({}, "ANCHOR_RIGHT", {
+        showConfigureHint = true,
+      }))
+      assert.are.equal(2, #lines)
+      assert.are.equal(GSS.SHARING_REQUIRED_CONTROL_TOOLTIP, lines[1].text)
+      assert.are.equal("Click to configure", lines[2].text)
+      assert.are.equal(0.5, lines[2].r)
+      assert.are.equal(0.5, lines[2].g)
+      assert.are.equal(0.5, lines[2].b)
+
+      assert.is_true(GSS.PresentSharingRequiredTooltip({}, "ANCHOR_RIGHT", {}))
+      assert.are.equal(1, #lines)
+      assert.are.equal(GSS.SHARING_REQUIRED_CONTROL_TOOLTIP, lines[1].text)
+    end)
     it("chat insertion defaults to enabled", function()
       assert.is_true(GSS.IsChatInsertionEnabled())
     end)
