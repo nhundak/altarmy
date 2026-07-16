@@ -450,43 +450,9 @@ debugItemStatsHint:SetJustifyH("LEFT")
 debugItemStatsHint:SetText(
     "Logs API vs tooltip stat parsing when comparing items. Use /altarmy debug stats with an item on the cursor.")
 
-local debugGuildShareRow = Theme.CreateLabeledCheckbox(tabDebug, {
-    point = "TOPLEFT",
-    relativeTo = debugItemStatsHint,
-    relativePoint = "BOTTOMLEFT",
-    x = 0,
-    y = -16,
-    text = "Guild data sharing (feature flag)",
-    fullWidthHover = true,
-    onClick = function(checked)
-        if AltArmy.Debug and AltArmy.Debug.SetGuildShareEnabled then
-            AltArmy.Debug.SetGuildShareEnabled(checked)
-        end
-        if AltArmy.UpdateGuildTabVisibility then
-            AltArmy.UpdateGuildTabVisibility()
-        end
-        if AltArmy.RefreshSearchCategoryBar then
-            AltArmy.RefreshSearchCategoryBar()
-        end
-        if panel.RefreshGuildSharingControls then
-            panel.RefreshGuildSharingControls()
-        end
-    end,
-})
-panel.debugGuildShareCheckbox = debugGuildShareRow.check
-
-local debugGuildShareHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-debugGuildShareHint:SetPoint("TOPLEFT", debugGuildShareRow, "BOTTOMLEFT", 0, -8)
-debugGuildShareHint:SetWidth(520)
-debugGuildShareHint:SetJustifyH("LEFT")
-debugGuildShareHint:SetText(
-    "Enables receiving guild data and the Guild tab/UI. When off, the addon still broadcasts your"
-    .. " guilded characters (for testing) but ignores anything it receives. When on with sharing"
-    .. " disabled, an empty presence is sent so guildmates clear your previously shared characters.")
-
 local debugGuildShareVerboseRow = Theme.CreateLabeledCheckbox(tabDebug, {
     point = "TOPLEFT",
-    relativeTo = debugGuildShareHint,
+    relativeTo = debugItemStatsHint,
     relativePoint = "BOTTOMLEFT",
     x = 0,
     y = -16,
@@ -505,8 +471,7 @@ debugGuildShareVerboseHint:SetPoint("TOPLEFT", debugGuildShareVerboseRow, "BOTTO
 debugGuildShareVerboseHint:SetWidth(520)
 debugGuildShareVerboseHint:SetJustifyH("LEFT")
 debugGuildShareVerboseHint:SetText(
-    "Prints every guild-share message sent/received to chat. Works regardless of the feature flag,"
-    .. " so you can watch broadcasts even while receiving is off.")
+    "Prints every guild-share message sent/received to chat.")
 
 local debugPretendCraftLibRow = Theme.CreateLabeledCheckbox(tabDebug, {
     point = "TOPLEFT",
@@ -554,9 +519,6 @@ function RefreshDebugCheckboxes()
     end
     if panel.debugItemStatsCheckbox then
         panel.debugItemStatsCheckbox:SetChecked(d.itemStats == true)
-    end
-    if panel.debugGuildShareCheckbox then
-        panel.debugGuildShareCheckbox:SetChecked(d.guildShare == true)
     end
     if panel.debugGuildShareVerboseCheckbox then
         panel.debugGuildShareVerboseCheckbox:SetChecked(d.guildShareVerbose == true)
@@ -1887,9 +1849,6 @@ SlashCmdList.ALTARMY = function(msg)
             if ok then
                 D.NotifyChat("Injected synthetic guildmates. Recipes show in Search (with a (guild) tag);"
                     .. " the Guild tab lists them when you are in a guild with sharing enabled.")
-            elseif reason == "flag-off" then
-                D.NotifyChat("Enable the guildShare feature flag first"
-                    .. " (Options > Debug > Guild data sharing).")
             else
                 D.NotifyChat("Test injection failed (" .. tostring(reason) .. ").")
             end

@@ -630,7 +630,6 @@ describe("SearchData", function()
           },
         },
       }
-      AltArmy.Debug.SetGuildShareEnabled(true)
       AltArmy.SearchSettings.SetIncludeGuildmatesEnabled(true)
       package.loaded["GuildShareSettings"] = nil
       package.loaded["GuildTabData"] = nil
@@ -647,7 +646,6 @@ describe("SearchData", function()
       for k, v in pairs(restore) do
         if v ~= nil then DS[k] = v end
       end
-      AltArmy.Debug.SetGuildShareEnabled(false)
       if AltArmy.GuildShareSettings and AltArmy.GuildShareSettings.SetSharingEnabled then
         AltArmy.GuildShareSettings.SetSharingEnabled(false)
       end
@@ -666,9 +664,11 @@ describe("SearchData", function()
     end)
 
     it("excludes guild recipes when the feature flag is off", function()
-      AltArmy.Debug.SetGuildShareEnabled(false)
+      local saved = AltArmy.Debug.IsGuildShareEnabled
+      AltArmy.Debug.IsGuildShareEnabled = function() return false end
       SD.NotifyRecipesChanged()
       assert.are.equal(0, #SD.GetAllRecipes())
+      AltArmy.Debug.IsGuildShareEnabled = saved
     end)
 
     it("excludes guild recipes when the include-guildmates toggle is off", function()

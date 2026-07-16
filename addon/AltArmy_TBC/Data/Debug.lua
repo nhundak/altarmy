@@ -36,12 +36,11 @@ function D.Ensure()
     if d.itemStats == nil then
         d.itemStats = false
     end
-    if d.guildShare == nil then
-        d.guildShare = false
-    end
     if d.guildShareVerbose == nil then
         d.guildShareVerbose = false
     end
+    -- Legacy SavedVariables key from when guild share was a debug toggle; no longer read.
+    d.guildShare = nil
     if d.pretendCraftLibNotInstalled == nil then
         d.pretendCraftLibNotInstalled = false
     end
@@ -144,23 +143,13 @@ function D.LogItemStats(msgs)
     end
 end
 
---- Guild data sharing feature flag. Unlike the other debug flags this is a standalone
---- feature gate: it returns the raw value and does NOT require the master debug switch,
---- so it can be flipped on its own (and later hardcoded to true once the feature ships).
---- Gates RECEIVE + UI, and inverts the SEND behavior (see GuildShareComm).
+--- Guild data sharing is shipped on. Call sites and tests may still stub this for flag-off paths.
+--- Gates RECEIVE + UI, and selects the opt-in SEND set (see GuildShareComm).
 function D.IsGuildShareEnabled()
-    D.Ensure()
-    return AltArmyTBC_Options.debug.guildShare == true
+    return true
 end
 
-function D.SetGuildShareEnabled(on)
-    D.Ensure()
-    AltArmyTBC_Options.debug.guildShare = on == true
-end
-
---- Verbose guild-share traffic logging. Standalone (does NOT require master enabled) so it can
---- be toggled while the feature flag is either off (watch the force-broadcast) or on (watch
---- opt-in sends + inbound). Independent of IsGuildShareEnabled so both paths can be observed.
+--- Verbose guild-share traffic logging. Standalone (does NOT require master enabled).
 function D.IsGuildShareVerbose()
     D.Ensure()
     return AltArmyTBC_Options.debug.guildShareVerbose == true
