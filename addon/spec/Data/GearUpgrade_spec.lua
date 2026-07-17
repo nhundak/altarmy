@@ -1298,6 +1298,8 @@ describe("GearUpgrade", function()
                 [211] = { "Strong MH", nil, 3, 60, 60, "Weapon", "Daggers", nil, "INVTYPE_WEAPONMAINHAND" },
                 [212] = { "Held OH", nil, 2, 20, 20, "Armor", "Miscellaneous", nil, "INVTYPE_HOLDABLE" },
                 [213] = { "Fishing Pole", nil, 3, 70, 1, "Weapon", "Fishing Poles", nil, "INVTYPE_2HWEAPON" },
+                [214] = { "Ahead OH", nil, 3, 50, 64, "Weapon", "Daggers", nil, "INVTYPE_WEAPONOFFHAND" },
+                [215] = { "Ahead 1H", nil, 3, 55, 64, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
             }
             local info = items[id]
             if not info then return mockGetItemInfo(item) end
@@ -1728,6 +1730,43 @@ describe("GearUpgrade", function()
             assert.are.equal("paired_candidate", result.mode)
             assert.are.equal(2, #result.candidateLinks)
             assert.are.equal("|Hitem:206:0|h[Bag OH]|h", result.candidateLinks[2])
+        end)
+
+        it("BuildSelectionLoadoutCompare deduced partner ignores levelsAhead", function()
+            local char = setupWarriorTwoHand()
+            char.Containers = {
+                [0] = {
+                    links = {
+                        [1] = "|Hitem:214:0|h[Ahead OH]|h",
+                        [2] = "|Hitem:206:0|h[Bag OH]|h",
+                    },
+                },
+            }
+            local entry = { name = "Warrior2H", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local result = GU.BuildSelectionLoadoutCompare(char, "|Hitem:205:0|h[New 1H]|h", MAIN, {
+                technique = "ilvl",
+                levelsAhead = 5,
+            }, entry)
+            assert.are.equal("paired_candidate", result.mode)
+            assert.are.equal("|Hitem:206:0|h[Bag OH]|h", result.candidateLinks[2])
+        end)
+
+        it("BuildSelectionLoadoutCompare skips deduced partner that is not yet usable", function()
+            local char = setupWarriorTwoHand()
+            char.Containers = {
+                [0] = {
+                    links = {
+                        [1] = "|Hitem:214:0|h[Ahead OH]|h",
+                    },
+                },
+            }
+            local entry = { name = "Warrior2H", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local result = GU.BuildSelectionLoadoutCompare(char, "|Hitem:205:0|h[New 1H]|h", MAIN, {
+                technique = "ilvl",
+                levelsAhead = 5,
+            }, entry)
+            assert.are.equal("one_v_one", result.mode)
+            assert.are.equal(1, #result.candidateLinks)
         end)
 
         it("BuildSelectionLoadoutCompare never deduces a fishing pole as MH partner", function()

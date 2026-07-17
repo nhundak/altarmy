@@ -790,6 +790,14 @@ function GU.FindBestStoredItemForSlot(char, targetSlot, opts, entry)
     return bestLink, bestScore
 end
 
+--- Deduced weapon-pair partners must already be usable (no levelsAhead window).
+local function findBestDeducedPartner(char, targetSlot, opts, entry)
+    return GU.FindBestStoredItemForSlot(char, targetSlot, {
+        technique = opts and opts.technique,
+        levelsAhead = 0,
+    }, entry)
+end
+
 local function makeDeducedEntry(link, side, slot, fillRole)
     return {
         link = link,
@@ -829,7 +837,7 @@ local function buildOnehandFocusCompare(
     technique, classFile, specKey)
     local deducedLinks = {}
     if selectedRole == "twohand" then
-        local deduced = select(1, GU.FindBestStoredItemForSlot(
+        local deduced = select(1, findBestDeducedPartner(
             char, OFF_HAND_SLOT, opts, entry))
         if deduced then
             deducedLinks[#deducedLinks + 1] = makeDeducedEntry(
@@ -876,7 +884,7 @@ local function buildTwohandFocusCompare(
     if not selectedLink then
         local otherSlot = otherWeaponSlot(selectedSlot)
         local otherLink = getEquippedLink(char, otherSlot)
-        local deduced = select(1, GU.FindBestStoredItemForSlot(
+        local deduced = select(1, findBestDeducedPartner(
             char, selectedSlot, opts, entry))
         local equippedMH, equippedOH
         if selectedSlot == MAIN_HAND_SLOT then
@@ -903,7 +911,7 @@ local function buildTwohandFocusCompare(
             if otherLink then
                 equippedOH = otherLink
             else
-                local deduced = select(1, GU.FindBestStoredItemForSlot(
+                local deduced = select(1, findBestDeducedPartner(
                     char, OFF_HAND_SLOT, opts, entry))
                 equippedOH = deduced
                 if deduced then
@@ -916,7 +924,7 @@ local function buildTwohandFocusCompare(
             if otherLink then
                 equippedMH = otherLink
             else
-                local deduced = select(1, GU.FindBestStoredItemForSlot(
+                local deduced = select(1, findBestDeducedPartner(
                     char, MAIN_HAND_SLOT, opts, entry))
                 equippedMH = deduced
                 if deduced then
@@ -939,7 +947,7 @@ local function compareOffhandFocusVsTwohand(
     char, focusedLink, equippedTwohandLink, opts, entry,
     technique, classFile, specKey, deducedLinks)
     deducedLinks = deducedLinks or {}
-    local deduced = select(1, GU.FindBestStoredItemForSlot(
+    local deduced = select(1, findBestDeducedPartner(
         char, MAIN_HAND_SLOT, opts, entry))
     if deduced then
         deducedLinks[#deducedLinks + 1] = makeDeducedEntry(

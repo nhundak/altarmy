@@ -1969,6 +1969,16 @@ SlashCmdList.ALTARMY = function(msg)
         end
         return
     end
+    if lower == "networth" or lower:match("^networth%s+") then
+        local NW = AltArmy and AltArmy.NetWorth
+        local scaleArg = lower:match("^networth%s+(.+)$")
+        if NW and NW.PrintSummaryFromArg then
+            NW.PrintSummaryFromArg(scaleArg)
+        elseif AltArmy.Debug and AltArmy.Debug.NotifyChat then
+            AltArmy.Debug.NotifyChat("Net worth is unavailable.")
+        end
+        return
+    end
     if AltArmy and AltArmy.MainFrame then
         AltArmy.MainFrame:Show()
     end

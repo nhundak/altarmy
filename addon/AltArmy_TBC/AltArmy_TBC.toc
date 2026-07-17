@@ -4,7 +4,7 @@
 ## Version: 1.8.6
 ## Author: Nick Tower
 ## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings, AltArmyTBC_GraphSettings, AltArmyTBC_GuildData, AltArmyTBC_SharingSettings
-## OptionalDeps: CraftLib, TacoTip, GearScoreTBCClassic, RXPGuides, RXPGuides_TBC, NovaInstanceTracker, Questie
+## OptionalDeps: Auctionator, CraftLib, TacoTip, GearScoreTBCClassic, RXPGuides, RXPGuides_TBC, NovaInstanceTracker, Questie
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
 UI\Theme.lua
@@ -49,6 +49,7 @@ Data\RecipeCraftLib.lua
 Data\SearchSettings.lua
 Data\SearchColumns.lua
 Data\SearchData.lua
+Data\NetWorth.lua
 Data\SearchGuildNav.lua
 Data\GuildShareSettings.lua
 Data\GuildShareProtocol.lua
