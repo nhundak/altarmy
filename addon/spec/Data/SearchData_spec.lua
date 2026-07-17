@@ -1637,6 +1637,51 @@ describe("SearchData", function()
       assert.are.equal(1, #byID[2])
     end)
 
+    it("BuildRecipesByID sorts each bucket own-before-guild then character name", function()
+      local byID = SD._BuildRecipesByID({
+        { recipeID = 1, characterName = "Zebra", isGuild = true },
+        { recipeID = 1, characterName = "Bob" },
+        { recipeID = 1, characterName = "Alice" },
+        { recipeID = 1, characterName = "Mage", isGuild = true },
+        { recipeID = 2, characterName = "Zed" },
+      })
+      local rows = byID[1]
+      assert.are.equal(4, #rows)
+      assert.are.equal("Alice", rows[1].characterName)
+      assert.is_nil(rows[1].isGuild)
+      assert.are.equal("Bob", rows[2].characterName)
+      assert.are.equal("Mage", rows[3].characterName)
+      assert.is_true(rows[3].isGuild)
+      assert.are.equal("Zebra", rows[4].characterName)
+      assert.is_true(rows[4].isGuild)
+    end)
+
+    it("ExpandSortedRecipeIds appends pre-sorted buckets without reordering characters", function()
+      local byID = {
+        [10] = {
+          { recipeID = 10, characterName = "A" },
+          { recipeID = 10, characterName = "B" },
+        },
+        [20] = {
+          { recipeID = 20, characterName = "Z" },
+        },
+      }
+      local uniqueList = {
+        { id = 20, nameLower = "alpha" },
+        { id = 10, nameLower = "beta" },
+      }
+      local results = {}
+      SD._ExpandSortedRecipeIds(results, uniqueList, byID)
+      assert.are.equal(3, #results)
+      assert.are.equal(20, results[1].recipeID)
+      assert.are.equal("Z", results[1].characterName)
+      assert.are.equal("alpha", results[1].recipeNameLower)
+      assert.are.equal(10, results[2].recipeID)
+      assert.are.equal("A", results[2].characterName)
+      assert.are.equal("B", results[3].characterName)
+      assert.are.equal("beta", results[3].recipeNameLower)
+    end)
+
     it("suffix array binary search finds mid-string and prefix ranges", function()
       local arr = SD._BuildSuffixArray({
         [10] = "minor healing potion",

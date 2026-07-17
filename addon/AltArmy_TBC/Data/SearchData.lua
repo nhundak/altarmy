@@ -282,7 +282,33 @@ local function BuildSlotsByItemID(list)
 end
 SD._BuildSlotsByItemID = BuildSlotsByItemID
 
+--- Own characters before guildmates, then character name A-Z (within one recipe ID).
+local function CompareRecipeRowsWithinId(a, b)
+    local aGuild = a.isGuild and true or false
+    local bGuild = b.isGuild and true or false
+    if aGuild ~= bGuild then
+        return not aGuild
+    end
+    local ca = a.characterName or ""
+    local cb = b.characterName or ""
+    if ca ~= cb then
+        return ca < cb
+    end
+    return false
+end
+SD._CompareRecipeRowsWithinId = CompareRecipeRowsWithinId
+
+local function SortRecipeIdBuckets(byID)
+    for _, rows in pairs(byID or {}) do
+        if #rows > 1 then
+            table.sort(rows, CompareRecipeRowsWithinId)
+        end
+    end
+    return byID
+end
+
 --- Build recipeID -> { entry, ... } from a flat recipe list.
+--- Each bucket is sorted once (own before guild, then character) for fast expand.
 local function BuildRecipesByID(list)
     local byID = {}
     for i = 1, #(list or {}) do
@@ -297,7 +323,7 @@ local function BuildRecipesByID(list)
             bucket[#bucket + 1] = entry
         end
     end
-    return byID
+    return SortRecipeIdBuckets(byID)
 end
 SD._BuildRecipesByID = BuildRecipesByID
 
@@ -1399,21 +1425,6 @@ local function EnsureGuildRecipeSuffixArray()
     return FinishGuildRecipeSuffixArraySync()
 end
 
---- Own characters before guildmates, then character name A-Z (within one recipe ID).
-local function CompareRecipeRowsWithinId(a, b)
-    local aGuild = a.isGuild and true or false
-    local bGuild = b.isGuild and true or false
-    if aGuild ~= bGuild then
-        return not aGuild
-    end
-    local ca = a.characterName or ""
-    local cb = b.characterName or ""
-    if ca ~= cb then
-        return ca < cb
-    end
-    return false
-end
-
 local function SortUniqueRecipeIdList(uniqueList)
     table.sort(uniqueList, function(a, b)
         local na = a.nameLower or ""
@@ -1425,26 +1436,16 @@ local function SortUniqueRecipeIdList(uniqueList)
     end)
 end
 
---- Append byID rows for each unique ID in order; sort characters within each ID.
-local function ExpandSortedRecipeIds(results, uniqueList, byID, seen)
+--- Append byID rows for each unique ID in order.
+--- Expects each byID[id] bucket to already be sorted (see BuildRecipesByID / SortRecipeIdBuckets).
+local function ExpandSortedRecipeIds(results, uniqueList, byID)
     for i = 1, #uniqueList do
         local u = uniqueList[i]
         local rows = byID and byID[u.id]
         if rows then
-            local bucket = {}
+            local nameLower = u.nameLower
             for j = 1, #rows do
                 local entry = rows[j]
-                if entry and not seen[entry] then
-                    bucket[#bucket + 1] = entry
-                end
-            end
-            if #bucket > 1 then
-                table.sort(bucket, CompareRecipeRowsWithinId)
-            end
-            local nameLower = u.nameLower
-            for j = 1, #bucket do
-                local entry = bucket[j]
-                seen[entry] = true
                 entry.recipeNameLower = nameLower
                 results[#results + 1] = entry
             end
@@ -1453,7 +1454,6 @@ local function ExpandSortedRecipeIds(results, uniqueList, byID, seen)
 end
 SD._SortUniqueRecipeIdList = SortUniqueRecipeIdList
 SD._ExpandSortedRecipeIds = ExpandSortedRecipeIds
-SD._CompareRecipeRowsWithinId = CompareRecipeRowsWithinId
 
 --- Search recipes by name (partial, case-insensitive). Uses ID index + suffix array when available.
 --- Sorts unique recipe IDs by name, then expands character rows (O(U log U + R) vs O(R log R)).
@@ -1461,7 +1461,6 @@ SD._CompareRecipeRowsWithinId = CompareRecipeRowsWithinId
 --- When `timings` is provided, records lookup/sort/expand phase ms (requires profiler already started).
 local function FilterAndSortRecipes(all, queryLower, byID, ensureSuffix, timings)
     local results = {}
-    local seen = {}
     if byID and ensureSuffix then
         local ids = LookupSuffixArrayIds(ensureSuffix(), queryLower)
         ProfileMark(timings, "lookup")
@@ -1474,7 +1473,7 @@ local function FilterAndSortRecipes(all, queryLower, byID, ensureSuffix, timings
         end
         SortUniqueRecipeIdList(uniqueList)
         ProfileMark(timings, "sort")
-        ExpandSortedRecipeIds(results, uniqueList, byID, seen)
+        ExpandSortedRecipeIds(results, uniqueList, byID)
         ProfileMark(timings, "expand")
     else
         if timings then
@@ -1495,9 +1494,10 @@ local function FilterAndSortRecipes(all, queryLower, byID, ensureSuffix, timings
                 bucket[#bucket + 1] = entry
             end
         end
+        SortRecipeIdBuckets(matchedByID)
         SortUniqueRecipeIdList(uniqueList)
         ProfileMark(timings, "sort")
-        ExpandSortedRecipeIds(results, uniqueList, matchedByID, seen)
+        ExpandSortedRecipeIds(results, uniqueList, matchedByID)
         ProfileMark(timings, "expand")
     end
     return results
