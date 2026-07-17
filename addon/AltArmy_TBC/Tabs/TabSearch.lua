@@ -866,6 +866,10 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
     local highlightSearch = rowOpts.highlightSearch ~= false
     local searchQuery = rowOpts.searchQuery
     row.entry = entry
+    -- Viewport-only CraftLib enrich (search defers this unless filters need it).
+    if SD._EnrichRecipeEntry then
+        SD._EnrichRecipeEntry(entry)
+    end
     local recipeName = "Recipe " .. tostring(entry.recipeID or "?")
     local iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
     if GetSpellInfo and entry.recipeID then

@@ -85,6 +85,25 @@ local function SearchProfileElapsedMs()
     return 0
 end
 
+--- Record elapsed ms since last SearchProfileStart into timings[key], accumulate total, restart profiler.
+local function ProfileMark(timings, key)
+    if not timings then
+        return
+    end
+    local ms = SearchProfileElapsedMs()
+    timings[key] = ms
+    timings.total = (timings.total or 0) + ms
+    SearchProfileStart()
+end
+
+local function FormatPhaseMs(timings, key)
+    local v = timings and timings[key]
+    if type(v) ~= "number" then
+        return 0
+    end
+    return v
+end
+
 --- Log index-build timing when search debug is on. Restarts the profiler after logging
 --- so nested callers (search) can still measure their own work afterward.
 local function LogIndexBuild(kind, ms, detail)
@@ -734,7 +753,7 @@ local function AppendIndexedRows(dest, rows, seen)
     end
 end
 
-local function FilterContainerSlots(all, queryLower, queryID, skipTooltip)
+local function FilterContainerSlots(all, queryLower, queryID, skipTooltip, timings)
     local mainResults = {}
     local tooltipOnlyResults = {}
     local seen = {}
@@ -768,6 +787,7 @@ local function FilterContainerSlots(all, queryLower, queryID, skipTooltip)
 
     if queryLower then
         local ids = LookupSuffixArrayIds(suffixArr, queryLower)
+        ProfileMark(timings, "lookup")
         for itemID in pairs(ids) do
             matchedIds[itemID] = true
             AppendIndexedRows(mainResults, byID[itemID], seen)
@@ -782,6 +802,10 @@ local function FilterContainerSlots(all, queryLower, queryID, skipTooltip)
                 end
             end
         end
+        ProfileMark(timings, "expand")
+    elseif timings then
+        timings.lookup = 0
+        timings.expand = 0
     end
 
     if queryLower and not skipTooltip then
@@ -795,6 +819,7 @@ local function FilterContainerSlots(all, queryLower, queryID, skipTooltip)
                 end
             end
         end
+        ProfileMark(timings, "tooltip")
     end
     return mainResults, tooltipOnlyResults
 end
@@ -824,19 +849,19 @@ function SD._IsMainSearchMatch(entry, queryLower, queryID)
     return false
 end
 
-local function SearchContainerSlots(query, skipTooltip)
+local function SearchContainerSlots(query, skipTooltip, timings)
     local all = SD.GetAllContainerSlots()
     local queryLower, queryID = ParseItemSearchQuery(query)
-    local mainResults, tooltipOnlyResults = FilterContainerSlots(all, queryLower, queryID, skipTooltip)
+    local mainResults, tooltipOnlyResults = FilterContainerSlots(all, queryLower, queryID, skipTooltip, timings)
     return mainResults, tooltipOnlyResults, #all, all
 end
 SD._SearchContainerSlots = SearchContainerSlots
 
-function SD.Search(query, skipTooltip)
+function SD.Search(query, skipTooltip, timings)
     if not query or (type(query) == "string" and query:match("^%s*$")) then
         return {}, {}
     end
-    local mainResults, tooltipOnlyResults = SearchContainerSlots(query, skipTooltip)
+    local mainResults, tooltipOnlyResults = SearchContainerSlots(query, skipTooltip, timings)
     return mainResults, tooltipOnlyResults
 end
 
@@ -938,21 +963,26 @@ function SD.SearchWithLocationGroups(query, skipTooltip)
         return {}, {}
     end
     local debug = SearchDebugEnabled()
+    local timings = debug and { total = 0 } or nil
     if debug then
         SearchProfileStart()
     end
     local queryLower = type(query) == "string" and query:lower() or ""
-    local mainResults, tooltipOnlyResults = SD.Search(query, skipTooltip)
+    local mainResults, tooltipOnlyResults = SD.Search(query, skipTooltip, timings)
     local mainRows = AggregateAndSort(mainResults, queryLower)
     local tooltipOnlyRows = AggregateAndSort(tooltipOnlyResults, queryLower)
+    ProfileMark(timings, "aggregate")
     if debug then
         LogSearchDebug(string.format(
-            "  items q=%q ms=%.2f mainRows=%d tooltipRows=%d skipTooltip=%s",
+            "  items q=%q ms=%.2f mainRows=%d tooltipRows=%d skipTooltip=%s lookup=%.2f expand=%.2f aggregate=%.2f",
             SearchQueryLabel(query),
-            SearchProfileElapsedMs(),
+            FormatPhaseMs(timings, "total"),
             #mainRows,
             #tooltipOnlyRows,
-            tostring(skipTooltip and true or false)
+            tostring(skipTooltip and true or false),
+            FormatPhaseMs(timings, "lookup"),
+            FormatPhaseMs(timings, "expand"),
+            FormatPhaseMs(timings, "aggregate")
         ))
     end
     return mainRows, tooltipOnlyRows
@@ -1183,45 +1213,107 @@ local function EnsureGuildRecipeSuffixArray()
     return FinishGuildRecipeSuffixArraySync()
 end
 
---- Search recipes by name (partial, case-insensitive). Uses ID index + suffix array when available.
---- `all` is the flat list (for sort payload); `byID` / `ensureSuffix` optional for indexed path.
-local function FilterAndSortRecipes(all, queryLower, byID, ensureSuffix)
-    local results = {}
-    local seen = {}
-    if byID and ensureSuffix then
-        local ids = LookupSuffixArrayIds(ensureSuffix(), queryLower)
-        for recipeID in pairs(ids) do
-            local rows = byID[recipeID]
-            if rows then
-                local nameLower = GetCachedRecipeNameLower(recipeID)
-                for i = 1, #rows do
-                    local entry = rows[i]
-                    if entry and not seen[entry] then
-                        seen[entry] = true
-                        entry.recipeNameLower = nameLower
-                        results[#results + 1] = entry
-                    end
+--- Own characters before guildmates, then character name A-Z (within one recipe ID).
+local function CompareRecipeRowsWithinId(a, b)
+    local aGuild = a.isGuild and true or false
+    local bGuild = b.isGuild and true or false
+    if aGuild ~= bGuild then
+        return not aGuild
+    end
+    local ca = a.characterName or ""
+    local cb = b.characterName or ""
+    if ca ~= cb then
+        return ca < cb
+    end
+    return false
+end
+
+local function SortUniqueRecipeIdList(uniqueList)
+    table.sort(uniqueList, function(a, b)
+        local na = a.nameLower or ""
+        local nb = b.nameLower or ""
+        if na ~= nb then
+            return na < nb
+        end
+        return (a.id or 0) < (b.id or 0)
+    end)
+end
+
+--- Append byID rows for each unique ID in order; sort characters within each ID.
+local function ExpandSortedRecipeIds(results, uniqueList, byID, seen)
+    for i = 1, #uniqueList do
+        local u = uniqueList[i]
+        local rows = byID and byID[u.id]
+        if rows then
+            local bucket = {}
+            for j = 1, #rows do
+                local entry = rows[j]
+                if entry and not seen[entry] then
+                    bucket[#bucket + 1] = entry
                 end
             end
-        end
-    else
-        for _, entry in ipairs(all or {}) do
-            local nameLower = GetCachedRecipeNameLower(entry.recipeID)
-            if nameLower and nameLower:find(queryLower, 1, true) then
+            if #bucket > 1 then
+                table.sort(bucket, CompareRecipeRowsWithinId)
+            end
+            local nameLower = u.nameLower
+            for j = 1, #bucket do
+                local entry = bucket[j]
+                seen[entry] = true
                 entry.recipeNameLower = nameLower
                 results[#results + 1] = entry
             end
         end
     end
-    table.sort(results, function(a, b)
-        local na = a.recipeNameLower or ""
-        local nb = b.recipeNameLower or ""
-        if na ~= nb then return na < nb end
-        local aGuild = a.isGuild and true or false
-        local bGuild = b.isGuild and true or false
-        if aGuild ~= bGuild then return not aGuild end
-        return (a.characterName or "") < (b.characterName or "")
-    end)
+end
+SD._SortUniqueRecipeIdList = SortUniqueRecipeIdList
+SD._ExpandSortedRecipeIds = ExpandSortedRecipeIds
+SD._CompareRecipeRowsWithinId = CompareRecipeRowsWithinId
+
+--- Search recipes by name (partial, case-insensitive). Uses ID index + suffix array when available.
+--- Sorts unique recipe IDs by name, then expands character rows (O(U log U + R) vs O(R log R)).
+--- Full merged list is sorted once in the UI via SortRecipeResults after local+guild merge.
+--- When `timings` is provided, records lookup/sort/expand phase ms (requires profiler already started).
+local function FilterAndSortRecipes(all, queryLower, byID, ensureSuffix, timings)
+    local results = {}
+    local seen = {}
+    if byID and ensureSuffix then
+        local ids = LookupSuffixArrayIds(ensureSuffix(), queryLower)
+        ProfileMark(timings, "lookup")
+        local uniqueList = {}
+        for recipeID in pairs(ids) do
+            local nameLower = GetCachedRecipeNameLower(recipeID)
+            if nameLower then
+                uniqueList[#uniqueList + 1] = { id = recipeID, nameLower = nameLower }
+            end
+        end
+        SortUniqueRecipeIdList(uniqueList)
+        ProfileMark(timings, "sort")
+        ExpandSortedRecipeIds(results, uniqueList, byID, seen)
+        ProfileMark(timings, "expand")
+    else
+        if timings then
+            timings.lookup = 0
+        end
+        local uniqueList = {}
+        local matchedByID = {}
+        for _, entry in ipairs(all or {}) do
+            local nameLower = GetCachedRecipeNameLower(entry.recipeID)
+            if nameLower and nameLower:find(queryLower, 1, true) then
+                local id = entry.recipeID
+                local bucket = matchedByID[id]
+                if not bucket then
+                    bucket = {}
+                    matchedByID[id] = bucket
+                    uniqueList[#uniqueList + 1] = { id = id, nameLower = nameLower }
+                end
+                bucket[#bucket + 1] = entry
+            end
+        end
+        SortUniqueRecipeIdList(uniqueList)
+        ProfileMark(timings, "sort")
+        ExpandSortedRecipeIds(results, uniqueList, matchedByID, seen)
+        ProfileMark(timings, "expand")
+    end
     return results
 end
 SD._FilterAndSortRecipes = FilterAndSortRecipes
@@ -1890,6 +1982,60 @@ local function compareGuildAffiliation(a, b)
     return aGuild and 1 or -1
 end
 
+--- Sort by recipe (profession+name): sort unique recipe IDs, then expand rows
+--- (own before guild, then character). O(U log U + R) instead of O(R log R).
+local function SortRecipeResultsByRecipe(list, ascending)
+    local groupsById = {}
+    local groups = {}
+    for i = 1, #list do
+        local row = list[i]
+        local id = row.recipeID or 0
+        local g = groupsById[id]
+        if not g then
+            g = {
+                id = id,
+                key = recipeSortName(row),
+                rows = {},
+            }
+            groupsById[id] = g
+            groups[#groups + 1] = g
+        end
+        g.rows[#g.rows + 1] = row
+    end
+    table.sort(groups, function(a, b)
+        if a.key ~= b.key then
+            if ascending then
+                return a.key < b.key
+            end
+            return a.key > b.key
+        end
+        return a.id < b.id
+    end)
+    local out = {}
+    for i = 1, #groups do
+        local rows = groups[i].rows
+        if #rows > 1 then
+            table.sort(rows, function(a, b)
+                local aGuild = a.isGuild and true or false
+                local bGuild = b.isGuild and true or false
+                if aGuild ~= bGuild then
+                    return not aGuild
+                end
+                local ca = (a.characterName or ""):lower()
+                local cb = (b.characterName or ""):lower()
+                if ca ~= cb then
+                    return ca < cb
+                end
+                return (a.recipeID or 0) < (b.recipeID or 0)
+            end)
+        end
+        for j = 1, #rows do
+            out[#out + 1] = rows[j]
+        end
+    end
+    return out
+end
+
 --- Sort recipe search rows by column (`sortKey`: "Recipe", "Character", or "Skill").
 --- Skill uses required recipe level when CraftLib is available, otherwise character skill rank.
 --- Recipe/Skill tie-breakers: own characters, then guildmates, then character name A-Z.
@@ -1897,12 +2043,20 @@ function SD.SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
     if not list or #list < 2 or not sortKey then
         return list
     end
+    if sortKey == "Recipe" then
+        return SortRecipeResultsByRecipe(list, ascending ~= false)
+    end
     local out = {}
     for i = 1, #list do
         out[i] = list[i]
     end
     local useRequiredSkill = sortKey == "Skill" and craftLibAvailable
-    local useGuildTiebreak = sortKey == "Recipe" or sortKey == "Skill"
+    if useRequiredSkill then
+        for i = 1, #out do
+            SD._EnrichRecipeEntry(out[i])
+        end
+    end
+    local useGuildTiebreak = sortKey == "Skill"
     local recipeNameKeys = {}
     local characterNameKeys = {}
     for i = 1, #out do
@@ -1913,9 +2067,7 @@ function SD.SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
 
     table.sort(out, function(a, b)
         local cmp = 0
-        if sortKey == "Recipe" then
-            cmp = applySortDirection(cmpValues(recipeNameKeys[a], recipeNameKeys[b]), ascending)
-        elseif sortKey == "Character" then
+        if sortKey == "Character" then
             cmp = applySortDirection(cmpValues(characterNameKeys[a], characterNameKeys[b]), ascending)
             if cmp == 0 then
                 cmp = compareGuildAffiliation(a, b)
@@ -1954,13 +2106,48 @@ local function EnrichRecipeEntry(entry)
     if not entry then
         return entry
     end
+    if entry._aaCraftEnriched then
+        return entry
+    end
     local RCL = AltArmy and AltArmy.RecipeCraftLib
     if RCL and RCL.EnrichEntry then
         RCL.EnrichEntry(entry)
     end
+    entry._aaCraftEnriched = true
     return entry
 end
 SD._EnrichRecipeEntry = EnrichRecipeEntry
+
+--- True when search settings require CraftLib fields on every hit (level/difficulty/source).
+--- Profession filter does not need enrichment.
+local function NeedsCraftLibEnrichForFilters(settings)
+    if not settings then
+        return false
+    end
+    local SS = AltArmy and AltArmy.SearchSettings
+    if not SS then
+        return false
+    end
+    if SS.IsRecipeLevelFilterActive and SS.IsRecipeLevelFilterActive(settings.recipeLevelFilter) then
+        return true
+    end
+    if SS.IsDifficultyFilterActive and SS.IsDifficultyFilterActive(settings.difficultyFilter) then
+        return true
+    end
+    if SS.IsSourceFilterActive and SS.IsSourceFilterActive(settings.sourceFilter) then
+        return true
+    end
+    return false
+end
+SD._NeedsCraftLibEnrichForFilters = NeedsCraftLibEnrichForFilters
+
+local function EnrichRecipeList(list)
+    for i = 1, #(list or {}) do
+        EnrichRecipeEntry(list[i])
+    end
+    return list
+end
+SD._EnrichRecipeList = EnrichRecipeList
 
 local function FilterRecipesByLevel(results, filter)
     if not results or not filter then
@@ -2080,26 +2267,36 @@ function SD.SearchRecipes(query)
         return {}
     end
     local debug = SearchDebugEnabled()
+    local timings = debug and { total = 0 } or nil
     if debug then
         SearchProfileStart()
     end
     local all = SD.GetAllRecipes()
     local queryLower = type(query) == "string" and query:lower() or ""
-    local results = FilterAndSortRecipes(all, queryLower, _localRecipesByID, EnsureLocalRecipeSuffixArray)
-    for i = 1, #results do
-        EnrichRecipeEntry(results[i])
-    end
+    local results = FilterAndSortRecipes(all, queryLower, _localRecipesByID, EnsureLocalRecipeSuffixArray, timings)
     local SS = AltArmy and AltArmy.SearchSettings
-    if SS and SS.GetSearchSettings then
-        results = ApplyRecipeSearchFilters(results, SS.GetSearchSettings())
+    local settings = SS and SS.GetSearchSettings and SS.GetSearchSettings() or nil
+    -- Defer CraftLib enrich to viewport paint unless filters need recipeSkillRequired/difficulty/source.
+    if NeedsCraftLibEnrichForFilters(settings) then
+        EnrichRecipeList(results)
     end
+    ProfileMark(timings, "enrich")
+    if settings then
+        results = ApplyRecipeSearchFilters(results, settings)
+    end
+    ProfileMark(timings, "filter")
     if debug then
         LogSearchDebug(string.format(
-            "  recipes q=%q ms=%.2f scanned=%d hits=%d",
+            "  recipes q=%q ms=%.2f scanned=%d hits=%d lookup=%.2f expand=%.2f sort=%.2f enrich=%.2f filter=%.2f",
             SearchQueryLabel(query),
-            SearchProfileElapsedMs(),
+            FormatPhaseMs(timings, "total"),
             #all,
-            #results
+            #results,
+            FormatPhaseMs(timings, "lookup"),
+            FormatPhaseMs(timings, "expand"),
+            FormatPhaseMs(timings, "sort"),
+            FormatPhaseMs(timings, "enrich"),
+            FormatPhaseMs(timings, "filter")
         ))
     end
     return results
@@ -2111,26 +2308,35 @@ function SD.SearchGuildRecipes(query)
         return {}
     end
     local debug = SearchDebugEnabled()
+    local timings = debug and { total = 0 } or nil
     if debug then
         SearchProfileStart()
     end
     local all = SD.GetAllGuildRecipes()
     local queryLower = type(query) == "string" and query:lower() or ""
-    local results = FilterAndSortRecipes(all, queryLower, _guildRecipesByID, EnsureGuildRecipeSuffixArray)
-    for i = 1, #results do
-        EnrichRecipeEntry(results[i])
-    end
+    local results = FilterAndSortRecipes(all, queryLower, _guildRecipesByID, EnsureGuildRecipeSuffixArray, timings)
     local SS = AltArmy and AltArmy.SearchSettings
-    if SS and SS.GetSearchSettings then
-        results = ApplyRecipeSearchFilters(results, SS.GetSearchSettings())
+    local settings = SS and SS.GetSearchSettings and SS.GetSearchSettings() or nil
+    if NeedsCraftLibEnrichForFilters(settings) then
+        EnrichRecipeList(results)
     end
+    ProfileMark(timings, "enrich")
+    if settings then
+        results = ApplyRecipeSearchFilters(results, settings)
+    end
+    ProfileMark(timings, "filter")
     if debug then
         LogSearchDebug(string.format(
-            "  guildRecipes q=%q ms=%.2f scanned=%d hits=%d",
+            "  guildRecipes q=%q ms=%.2f scanned=%d hits=%d lookup=%.2f expand=%.2f sort=%.2f enrich=%.2f filter=%.2f",
             SearchQueryLabel(query),
-            SearchProfileElapsedMs(),
+            FormatPhaseMs(timings, "total"),
             #all,
-            #results
+            #results,
+            FormatPhaseMs(timings, "lookup"),
+            FormatPhaseMs(timings, "expand"),
+            FormatPhaseMs(timings, "sort"),
+            FormatPhaseMs(timings, "enrich"),
+            FormatPhaseMs(timings, "filter")
         ))
     end
     return results

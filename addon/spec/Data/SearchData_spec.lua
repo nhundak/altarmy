@@ -1000,6 +1000,119 @@ describe("SearchData", function()
       assert.are.equal(180, entry.recipeSkillRequired)
       assert.are.equal("gray", entry.difficulty)
     end)
+
+    it("is idempotent and skips CraftLib on second call", function()
+      local calls = 0
+      local saved = AltArmy.RecipeCraftLib
+      AltArmy.RecipeCraftLib = {
+        IsAvailable = function() return true end,
+        EnrichEntry = function(entry)
+          calls = calls + 1
+          entry.recipeSkillRequired = 100
+          entry.difficulty = "orange"
+          return entry
+        end,
+      }
+      local entry = { recipeID = 1, professionName = "Alchemy", skillRank = 50 }
+      SD._EnrichRecipeEntry(entry)
+      SD._EnrichRecipeEntry(entry)
+      AltArmy.RecipeCraftLib = saved
+      assert.are.equal(1, calls)
+      assert.are.equal(100, entry.recipeSkillRequired)
+    end)
+  end)
+
+  describe("deferred recipe enrich", function()
+    local function stubCraftEnrichCounter()
+      local calls = { n = 0 }
+      local saved = AltArmy.RecipeCraftLib
+      AltArmy.RecipeCraftLib = {
+        IsAvailable = function() return true end,
+        EnrichEntry = function(entry)
+          calls.n = calls.n + 1
+          entry.recipeSkillRequired = 150
+          entry.difficulty = "yellow"
+          entry.recipeSource = "trainer"
+          return entry
+        end,
+      }
+      return calls, saved
+    end
+
+    it("NeedsCraftLibEnrichForFilters is false when filters are defaults", function()
+      local SS = AltArmy.SearchSettings
+      SS.ResetAllRecipeFilters()
+      assert.is_false(SD._NeedsCraftLibEnrichForFilters(SS.GetSearchSettings()))
+    end)
+
+    it("NeedsCraftLibEnrichForFilters is true when difficulty filter is narrowed", function()
+      local SS = AltArmy.SearchSettings
+      SS.ResetAllRecipeFilters()
+      SS.SetDifficultyBandEnabled("gray", false)
+      assert.is_true(SD._NeedsCraftLibEnrichForFilters(SS.GetSearchSettings()))
+      SS.ResetAllRecipeFilters()
+    end)
+
+    it("SearchRecipes skips bulk enrich when CraftLib filters are inactive", function()
+      local SS = AltArmy.SearchSettings
+      SS.ResetAllRecipeFilters()
+      local calls, savedRCL = stubCraftEnrichCounter()
+      local oldGetAll = SD.GetAllRecipes
+      SD.GetAllRecipes = function()
+        return {
+          { characterName = "A", realm = "R", professionName = "Alchemy", skillRank = 300, recipeID = 1 },
+          { characterName = "B", realm = "R", professionName = "Alchemy", skillRank = 200, recipeID = 1 },
+        }
+      end
+      local oldGetSpellInfo = _G.GetSpellInfo
+      _G.GetSpellInfo = function() return "Test Potion" end
+
+      local results = SD.SearchRecipes("potion")
+      SD.GetAllRecipes = oldGetAll
+      _G.GetSpellInfo = oldGetSpellInfo
+      AltArmy.RecipeCraftLib = savedRCL
+
+      assert.are.equal(2, #results)
+      assert.are.equal(0, calls.n)
+      assert.is_nil(results[1].recipeSkillRequired)
+    end)
+
+    it("SearchRecipes bulk-enriches when a CraftLib filter is active", function()
+      local SS = AltArmy.SearchSettings
+      SS.ResetAllRecipeFilters()
+      SS.SetDifficultyBandEnabled("gray", false)
+      local calls, savedRCL = stubCraftEnrichCounter()
+      local oldGetAll = SD.GetAllRecipes
+      SD.GetAllRecipes = function()
+        return {
+          { characterName = "A", realm = "R", professionName = "Alchemy", skillRank = 300, recipeID = 1 },
+        }
+      end
+      local oldGetSpellInfo = _G.GetSpellInfo
+      _G.GetSpellInfo = function() return "Test Potion" end
+
+      local results = SD.SearchRecipes("potion")
+      SD.GetAllRecipes = oldGetAll
+      _G.GetSpellInfo = oldGetSpellInfo
+      AltArmy.RecipeCraftLib = savedRCL
+      SS.ResetAllRecipeFilters()
+
+      assert.are.equal(1, #results)
+      assert.are.equal(1, calls.n)
+      assert.are.equal(150, results[1].recipeSkillRequired)
+    end)
+
+    it("SortRecipeResults enriches before Skill sort when CraftLib is available", function()
+      local calls, savedRCL = stubCraftEnrichCounter()
+      local rows = {
+        { characterName = "A", professionName = "Alchemy", recipeID = 1, skillRank = 300, recipeNameLower = "a" },
+        { characterName = "B", professionName = "Alchemy", recipeID = 2, skillRank = 100, recipeNameLower = "b" },
+      }
+      local out = SD.SortRecipeResults(rows, "Skill", true, true)
+      AltArmy.RecipeCraftLib = savedRCL
+      assert.are.equal(2, calls.n)
+      assert.are.equal(150, out[1].recipeSkillRequired)
+    end)
   end)
 
   describe("_FilterRecipesByDifficulty", function()
@@ -1265,6 +1378,24 @@ describe("SearchData", function()
       assert.are.equal("Alice", out[1].characterName)
       assert.are.equal("Bob", out[2].characterName)
       assert.are.equal("Zebra", out[3].characterName)
+    end)
+
+    it("keeps same recipeID rows contiguous when sorting by Recipe", function()
+      local rows = {
+        { characterName = "Z", recipeID = 2, recipeNameLower = "beta", professionName = "Alchemy", isGuild = true },
+        { characterName = "A", recipeID = 1, recipeNameLower = "alpha", professionName = "Alchemy" },
+        { characterName = "B", recipeID = 2, recipeNameLower = "beta", professionName = "Alchemy" },
+        { characterName = "C", recipeID = 1, recipeNameLower = "alpha", professionName = "Alchemy", isGuild = true },
+      }
+      local out = SD.SortRecipeResults(rows, "Recipe", true, true)
+      assert.are.equal(1, out[1].recipeID)
+      assert.are.equal("A", out[1].characterName)
+      assert.are.equal(1, out[2].recipeID)
+      assert.are.equal("C", out[2].characterName)
+      assert.are.equal(2, out[3].recipeID)
+      assert.are.equal("B", out[3].characterName)
+      assert.are.equal(2, out[4].recipeID)
+      assert.are.equal("Z", out[4].characterName)
     end)
 
     it("lists own characters before guildmates when required skill ties", function()
@@ -1544,6 +1675,38 @@ describe("SearchData", function()
       assert.are.equal(2, #results)
       assert.are.equal(50, results[1].recipeID)
       assert.are.equal(50, results[2].recipeID)
+    end)
+
+    it("FilterAndSortRecipes orders by unique recipe name then expands characters", function()
+      local list = {
+        { characterName = "Zed", realm = "R", professionName = "Alchemy", skillRank = 1, recipeID = 10 },
+        { characterName = "Amy", realm = "R", professionName = "Alchemy", skillRank = 1, recipeID = 20 },
+        { characterName = "Bob", realm = "R", professionName = "Alchemy", skillRank = 1, recipeID = 10 },
+        { characterName = "Cy", realm = "R", professionName = "Alchemy", skillRank = 1, recipeID = 20 },
+      }
+      local oldGetSpellInfo = _G.GetSpellInfo
+      _G.GetSpellInfo = function(id)
+        if id == 10 then return "Zebra Elixir" end
+        if id == 20 then return "Alpha Tonic" end
+        return nil
+      end
+      local byID = SD._BuildRecipesByID(list)
+      local arr = SD._BuildSuffixArray({
+        [10] = "zebra elixir",
+        [20] = "alpha tonic",
+      })
+      local results = SD._FilterAndSortRecipes(list, "a", byID, function() return arr end)
+      _G.GetSpellInfo = oldGetSpellInfo
+      -- Alpha Tonic (20) before Zebra Elixir (10); within each ID, characters A-Z.
+      assert.are.equal(4, #results)
+      assert.are.equal(20, results[1].recipeID)
+      assert.are.equal("Amy", results[1].characterName)
+      assert.are.equal(20, results[2].recipeID)
+      assert.are.equal("Cy", results[2].characterName)
+      assert.are.equal(10, results[3].recipeID)
+      assert.are.equal("Bob", results[3].characterName)
+      assert.are.equal(10, results[4].recipeID)
+      assert.are.equal("Zed", results[4].characterName)
     end)
 
     it("invalidates recipe suffix path after NotifyRecipesChanged", function()
@@ -1858,6 +2021,163 @@ describe("SearchData", function()
       assert.is_truthy(joined:find("prewarm itemSuffix", 1, true))
       assert.is_truthy(joined:find("prewarm localRecipeSuffix", 1, true))
       assert.is_truthy(joined:find("index prewarm done", 1, true))
+    end)
+  end)
+
+  describe("search phase debug logging", function()
+    local function withSearchDebug(fn)
+      local logs = {}
+      local prevDebug = AltArmy.Debug
+      AltArmy.Debug = {
+        IsSearchEnabled = function() return true end,
+        LogSearch = function(msg) logs[#logs + 1] = msg end,
+      }
+      local oldStart, oldStop = _G.debugprofilestart, _G.debugprofilestop
+      local tick = 0
+      _G.debugprofilestart = function() end
+      _G.debugprofilestop = function()
+        tick = tick + 1
+        return tick * 0.5
+      end
+      local ok, err = pcall(fn, logs)
+      _G.debugprofilestart = oldStart
+      _G.debugprofilestop = oldStop
+      AltArmy.Debug = prevDebug
+      if not ok then error(err) end
+      return logs
+    end
+
+    it("logs lookup/expand/sort/enrich/filter phases for SearchRecipes", function()
+      local oldGetAll = SD.GetAllRecipes
+      SD.GetAllRecipes = function()
+        return {
+          { characterName = "Alice", realm = "R", professionName = "Alchemy", skillRank = 300, recipeID = 1, recipeName = "Minor Healing Potion" },
+          { characterName = "Bob", realm = "R", professionName = "Alchemy", skillRank = 1, recipeID = 2, recipeName = "Elixir of Giants" },
+        }
+      end
+      local oldGetSpellInfo = _G.GetSpellInfo
+      _G.GetSpellInfo = function(id)
+        if id == 1 then return "Minor Healing Potion" end
+        if id == 2 then return "Elixir of Giants" end
+        return nil
+      end
+
+      local logs = withSearchDebug(function()
+        SD.ClearSearchCaches()
+        SD.SearchRecipes("elixir")
+      end)
+
+      SD.GetAllRecipes = oldGetAll
+      _G.GetSpellInfo = oldGetSpellInfo
+
+      local recipeLog = nil
+      for _, msg in ipairs(logs) do
+        if type(msg) == "string" and msg:find("recipes q=", 1, true) then
+          recipeLog = msg
+          break
+        end
+      end
+      assert.is_truthy(recipeLog, "expected recipes timing log")
+      assert.is_truthy(recipeLog:find("lookup=", 1, true), recipeLog)
+      assert.is_truthy(recipeLog:find("expand=", 1, true), recipeLog)
+      assert.is_truthy(recipeLog:find("sort=", 1, true), recipeLog)
+      assert.is_truthy(recipeLog:find("enrich=", 1, true), recipeLog)
+      assert.is_truthy(recipeLog:find("filter=", 1, true), recipeLog)
+    end)
+
+    it("logs lookup/expand/sort/enrich/filter phases for SearchGuildRecipes", function()
+      local oldGetAll = SD.GetAllGuildRecipes
+      SD.GetAllGuildRecipes = function()
+        return {
+          { characterName = "G1", realm = "R", professionName = "Alchemy", skillRank = 300, recipeID = 1, recipeName = "Minor Healing Potion", isGuild = true },
+        }
+      end
+      local oldGetSpellInfo = _G.GetSpellInfo
+      _G.GetSpellInfo = function(id)
+        if id == 1 then return "Minor Healing Potion" end
+        return nil
+      end
+      local SS = AltArmy.SearchSettings
+      local oldCan = SS and SS.CanShowIncludeGuildmatesToggle
+      local oldInc = SS and SS.IsIncludeGuildmatesEnabled
+      if SS then
+        SS.CanShowIncludeGuildmatesToggle = function() return true end
+        SS.IsIncludeGuildmatesEnabled = function() return true end
+      end
+
+      local logs = withSearchDebug(function()
+        SD.ClearSearchCaches()
+        SD.SearchGuildRecipes("healing")
+      end)
+
+      SD.GetAllGuildRecipes = oldGetAll
+      _G.GetSpellInfo = oldGetSpellInfo
+      if SS then
+        SS.CanShowIncludeGuildmatesToggle = oldCan
+        SS.IsIncludeGuildmatesEnabled = oldInc
+      end
+
+      local guildLog = nil
+      for _, msg in ipairs(logs) do
+        if type(msg) == "string" and msg:find("guildRecipes q=", 1, true) then
+          guildLog = msg
+          break
+        end
+      end
+      assert.is_truthy(guildLog, "expected guildRecipes timing log")
+      assert.is_truthy(guildLog:find("lookup=", 1, true), guildLog)
+      assert.is_truthy(guildLog:find("expand=", 1, true), guildLog)
+      assert.is_truthy(guildLog:find("sort=", 1, true), guildLog)
+      assert.is_truthy(guildLog:find("enrich=", 1, true), guildLog)
+      assert.is_truthy(guildLog:find("filter=", 1, true), guildLog)
+    end)
+
+    it("logs lookup/expand/aggregate phases for SearchWithLocationGroups", function()
+      local DS = AltArmy.DataStore
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        IterateContainerSlots = DS.IterateContainerSlots,
+        IterateInventory = DS.IterateInventory,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+      }
+      DS.GetRealms = function() return { R = true } end
+      DS.GetCharacters = function()
+        return { Alice = { name = "Alice" } }
+      end
+      DS.IterateContainerSlots = function(_, _char, cb)
+        cb(0, 1, 111, 1, "item:111")
+      end
+      DS.IterateInventory = function() end
+      DS.GetCharacterName = function(_, c) return c and c.name or "" end
+      DS.GetCharacterClass = function() return "", "MAGE" end
+      local oldGetItemInfo = _G.GetItemInfo
+      _G.GetItemInfo = function(id)
+        if id == 111 or id == "item:111" then return "Minor Healing Potion" end
+        return nil
+      end
+
+      local logs = withSearchDebug(function()
+        SD.ClearSearchCaches()
+        SD.SearchWithLocationGroups("potion", true)
+      end)
+
+      for k, v in pairs(old) do DS[k] = v end
+      _G.GetItemInfo = oldGetItemInfo
+      SD.ClearSearchCaches()
+
+      local itemLog = nil
+      for _, msg in ipairs(logs) do
+        if type(msg) == "string" and msg:find("items q=", 1, true) then
+          itemLog = msg
+          break
+        end
+      end
+      assert.is_truthy(itemLog, "expected items timing log")
+      assert.is_truthy(itemLog:find("lookup=", 1, true), itemLog)
+      assert.is_truthy(itemLog:find("expand=", 1, true), itemLog)
+      assert.is_truthy(itemLog:find("aggregate=", 1, true), itemLog)
     end)
   end)
 end)
