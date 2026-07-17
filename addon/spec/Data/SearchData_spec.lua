@@ -339,6 +339,136 @@ describe("SearchData", function()
     end)
   end)
 
+  describe("_AggregateAndSort", function()
+    it("sums counts for the same item/character/location", function()
+      local out = SD._AggregateAndSort({
+        { itemID = 1, itemName = "Cloth", characterName = "A", realm = "R", location = "bag", count = 2 },
+        { itemID = 1, itemName = "Cloth", characterName = "A", realm = "R", location = "bag", count = 3 },
+      }, "cloth")
+      assert.are.equal(1, #out)
+      assert.are.equal(5, out[1].count)
+      assert.are.equal("bag", out[1].location)
+    end)
+
+    it("orders by match score then name, keeping item rows contiguous", function()
+      local out = SD._AggregateAndSort({
+        { itemID = 2, itemName = "Super Potion", characterName = "Z", realm = "R", location = "bag", count = 1 },
+        { itemID = 1, itemName = "Potion", characterName = "B", realm = "R", location = "bank", count = 1 },
+        { itemID = 1, itemName = "Potion", characterName = "A", realm = "R", location = "bag", count = 5 },
+        { itemID = 3, itemName = "Alpha Bolt", characterName = "C", realm = "R", location = "bag", count = 1 },
+      }, "potion")
+      -- Exact "potion" (score 3) before contains "super potion" (1); alpha bolt also contains? "potion" in alpha bolt? no.
+      -- Alpha Bolt score 0, Potion exact 3, Super Potion contains 1.
+      assert.are.equal(1, out[1].itemID)
+      assert.are.equal("A", out[1].characterName)
+      assert.are.equal("bag", out[1].location)
+      assert.are.equal(1, out[2].itemID)
+      assert.are.equal("B", out[2].characterName)
+      assert.are.equal(2, out[3].itemID)
+      assert.are.equal(3, out[4].itemID)
+    end)
+
+    it("within an item, higher charTotal then bag before bank", function()
+      local out = SD._AggregateAndSort({
+        { itemID = 1, itemName = "Runecloth", characterName = "A", realm = "R", location = "bank", count = 10 },
+        { itemID = 1, itemName = "Runecloth", characterName = "A", realm = "R", location = "bag", count = 1 },
+        { itemID = 1, itemName = "Runecloth", characterName = "B", realm = "R", location = "bag", count = 2 },
+      }, "rune")
+      -- A charTotal=11, B charTotal=2; A's bag before A's bank
+      assert.are.equal("A", out[1].characterName)
+      assert.are.equal("bag", out[1].location)
+      assert.are.equal("A", out[2].characterName)
+      assert.are.equal("bank", out[2].location)
+      assert.are.equal("B", out[3].characterName)
+    end)
+
+    it("does not leave temporary sort fields on rows", function()
+      local out = SD._AggregateAndSort({
+        { itemID = 1, itemName = "Foo", characterName = "A", realm = "R", location = "bag", count = 1 },
+      }, "foo")
+      assert.is_nil(out[1].charTotal)
+      assert.is_nil(out[1].matchScore)
+      assert.is_nil(out[1].nameLower)
+    end)
+  end)
+
+  describe("item aggregate group cache", function()
+    local function stubSlots()
+      local DS = AltArmy.DataStore
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        IterateContainerSlots = DS.IterateContainerSlots,
+        IterateInventory = DS.IterateInventory,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+      }
+      DS.GetRealms = function() return { R = true } end
+      DS.GetCharacters = function()
+        return { Alice = { name = "Alice" } }
+      end
+      DS.IterateContainerSlots = function(_, _char, cb)
+        cb(0, 1, 111, 2, "item:111")
+        cb(-1, 1, 111, 3, "item:111")
+      end
+      DS.IterateInventory = function() end
+      DS.GetCharacterName = function(_, c) return c and c.name or "" end
+      DS.GetCharacterClass = function() return "", "MAGE" end
+      local oldGetItemInfo = _G.GetItemInfo
+      _G.GetItemInfo = function(id)
+        if id == 111 or id == "item:111" then return "Minor Healing Potion" end
+        return nil
+      end
+      return old, oldGetItemInfo
+    end
+
+    local function restoreSlots(old, oldGetItemInfo)
+      local DS = AltArmy.DataStore
+      for k, v in pairs(old) do DS[k] = v end
+      _G.GetItemInfo = oldGetItemInfo
+      SD.ClearSearchCaches()
+    end
+
+    it("EnsureItemAggregateGroup builds and reuses the same cache table", function()
+      local old, oldGetItemInfo = stubSlots()
+      SD.ClearSearchCaches()
+      assert.is_truthy(SD._EnsureItemAggregateGroup)
+      local first = SD._EnsureItemAggregateGroup()
+      local second = SD._EnsureItemAggregateGroup()
+      assert.are.equal(first, second)
+      assert.is_truthy(first[111])
+      assert.are.equal("minor healing potion", first[111].nameLower)
+      restoreSlots(old, oldGetItemInfo)
+    end)
+
+    it("NotifyContainerDataChanged clears the aggregate group cache", function()
+      local old, oldGetItemInfo = stubSlots()
+      SD.ClearSearchCaches()
+      SD._EnsureItemAggregateGroup()
+      assert.is_truthy(SD._GetItemAggregateGroupForTests())
+      SD.NotifyContainerDataChanged()
+      assert.is_nil(SD._GetItemAggregateGroupForTests())
+      restoreSlots(old, oldGetItemInfo)
+    end)
+
+    it("prewarm builds the aggregate group after item suffix sort", function()
+      local old, oldGetItemInfo = stubSlots()
+      SD.ClearSearchCaches()
+      AltArmy.MainFrame = { IsShown = function() return true end }
+      SD.StartIndexPrewarm()
+      local guard = 0
+      while SD.IsIndexPrewarmRunning() and guard < 5000 do
+        SD._PrewarmStep()
+        guard = guard + 1
+      end
+      assert.is_truthy(SD._GetItemAggregateGroupForTests(), "expected aggregate group after prewarm")
+      assert.is_truthy(SD._GetItemAggregateGroupForTests()[111])
+      SD.StopIndexPrewarm()
+      AltArmy.MainFrame = nil
+      restoreSlots(old, oldGetItemInfo)
+    end)
+  end)
+
   describe("Search", function()
     it("returns empty for nil query", function()
       local old = SD.GetAllContainerSlots
@@ -2178,6 +2308,9 @@ describe("SearchData", function()
       assert.is_truthy(itemLog:find("lookup=", 1, true), itemLog)
       assert.is_truthy(itemLog:find("expand=", 1, true), itemLog)
       assert.is_truthy(itemLog:find("aggregate=", 1, true), itemLog)
+      assert.is_truthy(itemLog:find("aggGroup=", 1, true), itemLog)
+      assert.is_truthy(itemLog:find("aggScore=", 1, true), itemLog)
+      assert.is_truthy(itemLog:find("aggSort=", 1, true), itemLog)
     end)
   end)
 end)

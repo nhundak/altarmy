@@ -23,6 +23,7 @@ local _guildRecipesByID = nil
 local _guildRecipeSuffixArray = nil
 local _itemNameCache = {}
 local _recipeNameCache = {}
+local _itemAggregateGroup = nil
 
 -- Background index prewarm (chunked OnUpdate). Packed into one table for the local limit.
 local PREWARM_NAME_CHUNK = 200
@@ -96,6 +97,17 @@ local function ProfileMark(timings, key)
     SearchProfileStart()
 end
 
+--- Like ProfileMark, but adds to an existing timings[key] (for phases run more than once).
+local function ProfileAdd(timings, key)
+    if not timings then
+        return
+    end
+    local ms = SearchProfileElapsedMs()
+    timings[key] = (timings[key] or 0) + ms
+    timings.total = (timings.total or 0) + ms
+    SearchProfileStart()
+end
+
 local function FormatPhaseMs(timings, key)
     local v = timings and timings[key]
     if type(v) ~= "number" then
@@ -148,6 +160,7 @@ function SD.InvalidateContainerSlotsCache()
     _containerSlotsCache = nil
     _slotsByItemID = nil
     _itemSuffixArray = nil
+    _itemAggregateGroup = nil
     if SchedulePrewarmRestart then
         SchedulePrewarmRestart()
     end
@@ -186,6 +199,7 @@ function SD.ClearSearchCaches()
     _containerSlotsCache = nil
     _slotsByItemID = nil
     _itemSuffixArray = nil
+    _itemAggregateGroup = nil
     _localRecipesCache = nil
     _localRecipesByID = nil
     _localRecipeSuffixArray = nil
@@ -613,6 +627,7 @@ function SD.GetAllContainerSlots()
     _containerSlotsCache = BuildAllContainerSlots()
     _slotsByItemID = BuildSlotsByItemID(_containerSlotsCache)
     _itemSuffixArray = nil
+    _itemAggregateGroup = nil
     if debug then
         LogIndexBuild("containerSlots", SearchProfileElapsedMs(), string.format(
             "slots=%d uniqueItems=%d",
@@ -827,7 +842,12 @@ SD._FilterContainerSlots = FilterContainerSlots
 
 function SD._EnsureItemName(entry)
     if not entry then return nil end
-    entry.itemName = entry.itemName or GetCachedItemName(entry.itemID, entry.itemLink)
+    if not entry.itemName then
+        entry.itemName = GetCachedItemName(entry.itemID, entry.itemLink)
+    end
+    if entry.itemName and not entry.itemNameLower then
+        entry.itemNameLower = entry.itemName:lower()
+    end
     return entry.itemName
 end
 
@@ -893,64 +913,217 @@ function SD.SearchGroupedByCharacter(query)
 end
 
 --- Name match score: exact=3, prefix=2, contains=1 (for sort).
-local function GetNameMatchScore(itemName, queryLower)
-    if not itemName or not queryLower or queryLower == "" then return 0 end
-    local nameLower = itemName:lower()
-    if nameLower == queryLower then return 3 end
-    if nameLower:sub(1, #queryLower) == queryLower then return 2 end
-    if nameLower:find(queryLower, 1, true) then return 1 end
+local function GetNameMatchScoreFromLower(nameLower, queryLower)
+    if not nameLower or not queryLower or queryLower == "" then
+        return 0
+    end
+    if nameLower == queryLower then
+        return 3
+    end
+    if nameLower:sub(1, #queryLower) == queryLower then
+        return 2
+    end
+    if nameLower:find(queryLower, 1, true) then
+        return 1
+    end
     return 0
+end
+
+local function GetNameMatchScore(itemName, queryLower)
+    if not itemName or not queryLower or queryLower == "" then
+        return 0
+    end
+    return GetNameMatchScoreFromLower(itemName:lower(), queryLower)
 end
 SD._GetNameMatchScore = GetNameMatchScore
 
---- Aggregate a flat list of search entries by (itemID, characterName, realm, location).
---- Returns an aggregated and sorted list.
-local function AggregateAndSort(raw, queryLower)
-    local byKey = {}
-    local charTotals = {}
-    for _, entry in ipairs(raw) do
-        local key = (entry.itemID or 0) .. "\t" .. (entry.characterName or "") .. "\t" .. (entry.realm or "")
-            .. "\t" .. (entry.location or "bag")
-        if not byKey[key] then
-            byKey[key] = {
-                itemID = entry.itemID,
+local function EnsureNestedMap(parent, key)
+    local child = parent[key]
+    if not child then
+        child = {}
+        parent[key] = child
+    end
+    return child
+end
+
+--- Build query-independent item -> character/location group map from a flat slot list.
+--- Does not set matchScore (query-specific).
+local function BuildItemAggregateGroupFromList(list)
+    local byItem = {}
+    for i = 1, #(list or {}) do
+        local entry = list[i]
+        local itemID = entry.itemID or 0
+        local item = byItem[itemID]
+        if not item then
+            if not entry.itemName then
+                SD._EnsureItemName(entry)
+            elseif not entry.itemNameLower and entry.itemName then
+                entry.itemNameLower = entry.itemName:lower()
+            end
+            local itemName = entry.itemName
+            local nameLower = entry.itemNameLower
+                or (itemName and itemName:lower())
+                or ""
+            item = {
+                itemID = itemID,
+                itemName = itemName,
                 itemLink = entry.itemLink,
-                itemName = entry.itemName,
-                characterName = entry.characterName,
-                realm = entry.realm,
-                location = entry.location or "bag",
-                count = 0,
-                classFile = entry.classFile,
+                nameLower = nameLower,
+                chars = {},
             }
+            byItem[itemID] = item
+        elseif not item.itemLink and entry.itemLink then
+            item.itemLink = entry.itemLink
         end
-        byKey[key].count = byKey[key].count + (entry.count or 1)
 
-        local charKey = (entry.itemID or 0) .. "\t" .. (entry.characterName or "") .. "\t" .. (entry.realm or "")
-        charTotals[charKey] = (charTotals[charKey] or 0) + (entry.count or 1)
+        local realm = entry.realm or ""
+        local charName = entry.characterName or ""
+        local realmMap = EnsureNestedMap(item.chars, realm)
+        local ch = realmMap[charName]
+        if not ch then
+            ch = {
+                classFile = entry.classFile,
+                total = 0,
+                locs = {},
+            }
+            realmMap[charName] = ch
+        end
+
+        local loc = entry.location or "bag"
+        local locRow = ch.locs[loc]
+        local count = entry.count or 1
+        if not locRow then
+            locRow = {
+                itemID = itemID,
+                itemLink = entry.itemLink or item.itemLink,
+                itemName = item.itemName,
+                characterName = charName,
+                realm = realm,
+                location = loc,
+                locKey = LocationSortKey(loc),
+                count = 0,
+                classFile = entry.classFile or ch.classFile,
+            }
+            ch.locs[loc] = locRow
+        end
+        locRow.count = locRow.count + count
+        ch.total = ch.total + count
+    end
+    return byItem
+end
+
+local function EnsureItemAggregateGroup()
+    if _itemAggregateGroup then
+        return _itemAggregateGroup
+    end
+    local debug = SearchDebugEnabled()
+    if debug then
+        SearchProfileStart()
+    end
+    local all = SD.GetAllContainerSlots()
+    for i = 1, #(all or {}) do
+        SD._EnsureItemName(all[i])
+    end
+    _itemAggregateGroup = BuildItemAggregateGroupFromList(all)
+    if debug then
+        LogIndexBuild("itemAggregateGroup", SearchProfileElapsedMs(), string.format(
+            "uniqueItems=%d", CountMapKeys(_itemAggregateGroup)))
+    end
+    return _itemAggregateGroup
+end
+SD._EnsureItemAggregateGroup = EnsureItemAggregateGroup
+
+function SD._GetItemAggregateGroupForTests()
+    return _itemAggregateGroup
+end
+
+--- Aggregate a flat list of search entries by (itemID, characterName, realm, location).
+--- Uses the cached full-inventory group when available (built at prewarm / first ensure);
+--- falls back to grouping `raw` when the cache does not cover those item IDs (unit tests).
+--- When `timings` is set, accumulates aggGroup / aggScore / aggSort / aggCleanup ms.
+local function AggregateAndSort(raw, queryLower, timings)
+    local matchedIds = {}
+    local nRaw = #(raw or {})
+    for i = 1, nRaw do
+        matchedIds[raw[i].itemID or 0] = true
     end
 
-    local list = {}
-    for _, row in pairs(byKey) do
-        local charKey = (row.itemID or 0) .. "\t" .. (row.characterName or "") .. "\t" .. (row.realm or "")
-        row.charTotal = charTotals[charKey] or 0
-        row.matchScore = GetNameMatchScore(row.itemName, queryLower)
-        table.insert(list, row)
+    local byItem = _itemAggregateGroup
+    if not byItem then
+        -- Prefer building the full cache when container slots exist; otherwise group raw only.
+        local all = _containerSlotsCache
+        if all and #all > 0 then
+            byItem = EnsureItemAggregateGroup()
+        end
     end
 
-    table.sort(list, function(a, b)
-        if a.matchScore ~= b.matchScore then return a.matchScore > b.matchScore end
-        local na, nb = (a.itemName or ""):lower(), (b.itemName or ""):lower()
-        if na ~= nb then return na < nb end
-        if a.charTotal ~= b.charTotal then return a.charTotal > b.charTotal end
-        local la, lb = LocationSortKey(a.location or "bag"), LocationSortKey(b.location or "bag")
-        if la ~= lb then return la < lb end
-        return (a.location or "bag") < (b.location or "bag")
+    local items = {}
+    if byItem then
+        for itemID in pairs(matchedIds) do
+            local item = byItem[itemID]
+            if item then
+                items[#items + 1] = item
+            end
+        end
+    end
+
+    if #items == 0 and nRaw > 0 then
+        byItem = BuildItemAggregateGroupFromList(raw)
+        for _, item in pairs(byItem) do
+            items[#items + 1] = item
+        end
+    end
+    ProfileAdd(timings, "aggGroup")
+
+    for i = 1, #items do
+        local item = items[i]
+        item.matchScore = GetNameMatchScoreFromLower(item.nameLower, queryLower)
+    end
+    ProfileAdd(timings, "aggScore")
+
+    table.sort(items, function(a, b)
+        if a.matchScore ~= b.matchScore then
+            return a.matchScore > b.matchScore
+        end
+        if a.nameLower ~= b.nameLower then
+            return a.nameLower < b.nameLower
+        end
+        return (a.itemID or 0) < (b.itemID or 0)
     end)
 
-    for _, row in ipairs(list) do
-        row.charTotal = nil
-        row.matchScore = nil
+    local list = {}
+    for i = 1, #items do
+        local item = items[i]
+        local rows = {}
+        for _, realmMap in pairs(item.chars) do
+            for _, ch in pairs(realmMap) do
+                for _, locRow in pairs(ch.locs) do
+                    locRow.charTotal = ch.total
+                    rows[#rows + 1] = locRow
+                end
+            end
+        end
+        if #rows > 1 then
+            table.sort(rows, function(a, b)
+                if a.charTotal ~= b.charTotal then
+                    return a.charTotal > b.charTotal
+                end
+                if a.locKey ~= b.locKey then
+                    return a.locKey < b.locKey
+                end
+                return (a.location or "") < (b.location or "")
+            end)
+        end
+        for j = 1, #rows do
+            list[#list + 1] = rows[j]
+        end
     end
+    ProfileAdd(timings, "aggSort")
+
+    for i = 1, #list do
+        list[i].charTotal = nil
+    end
+    ProfileAdd(timings, "aggCleanup")
     return list
 end
 SD._AggregateAndSort = AggregateAndSort
@@ -964,17 +1137,26 @@ function SD.SearchWithLocationGroups(query, skipTooltip)
     end
     local debug = SearchDebugEnabled()
     local timings = debug and { total = 0 } or nil
+    -- Build/reuse query-independent group outside search timing (prewarm usually already did this).
+    EnsureItemAggregateGroup()
     if debug then
         SearchProfileStart()
     end
     local queryLower = type(query) == "string" and query:lower() or ""
     local mainResults, tooltipOnlyResults = SD.Search(query, skipTooltip, timings)
-    local mainRows = AggregateAndSort(mainResults, queryLower)
-    local tooltipOnlyRows = AggregateAndSort(tooltipOnlyResults, queryLower)
-    ProfileMark(timings, "aggregate")
+    local mainRows = AggregateAndSort(mainResults, queryLower, timings)
+    local tooltipOnlyRows = AggregateAndSort(tooltipOnlyResults, queryLower, timings)
+    if timings then
+        timings.aggregate = FormatPhaseMs(timings, "aggGroup")
+            + FormatPhaseMs(timings, "aggScore")
+            + FormatPhaseMs(timings, "aggSort")
+            + FormatPhaseMs(timings, "aggCleanup")
+    end
     if debug then
         LogSearchDebug(string.format(
-            "  items q=%q ms=%.2f mainRows=%d tooltipRows=%d skipTooltip=%s lookup=%.2f expand=%.2f aggregate=%.2f",
+            "  items q=%q ms=%.2f mainRows=%d tooltipRows=%d skipTooltip=%s"
+                .. " lookup=%.2f expand=%.2f aggregate=%.2f"
+                .. " aggGroup=%.2f aggScore=%.2f aggSort=%.2f aggCleanup=%.2f",
             SearchQueryLabel(query),
             FormatPhaseMs(timings, "total"),
             #mainRows,
@@ -982,7 +1164,11 @@ function SD.SearchWithLocationGroups(query, skipTooltip)
             tostring(skipTooltip and true or false),
             FormatPhaseMs(timings, "lookup"),
             FormatPhaseMs(timings, "expand"),
-            FormatPhaseMs(timings, "aggregate")
+            FormatPhaseMs(timings, "aggregate"),
+            FormatPhaseMs(timings, "aggGroup"),
+            FormatPhaseMs(timings, "aggScore"),
+            FormatPhaseMs(timings, "aggSort"),
+            FormatPhaseMs(timings, "aggCleanup")
         ))
     end
     return mainRows, tooltipOnlyRows
@@ -1628,6 +1814,8 @@ local function PrewarmAdvancePhase()
         if not _itemSuffixArray then
             _prewarm.phase = "itemNames"
             BeginNameCollection(_slotsByItemID)
+        elseif not _itemAggregateGroup then
+            _prewarm.phase = "itemAggGroup"
         elseif not _localRecipeSuffixArray then
             _prewarm.phase = "localSlots"
         elseif ShouldIncludeGuildRecipes() and not _guildRecipeSuffixArray then
@@ -1641,6 +1829,16 @@ local function PrewarmAdvancePhase()
     elseif phase == "itemSuffixes" then
         _prewarm.phase = "itemSort"
     elseif phase == "itemSort" then
+        if not _itemAggregateGroup then
+            _prewarm.phase = "itemAggGroup"
+        elseif not _localRecipeSuffixArray then
+            _prewarm.phase = "localSlots"
+        elseif ShouldIncludeGuildRecipes() and not _guildRecipeSuffixArray then
+            _prewarm.phase = "guildSlots"
+        else
+            FinishIndexPrewarm()
+        end
+    elseif phase == "itemAggGroup" then
         if not _localRecipeSuffixArray then
             _prewarm.phase = "localSlots"
         elseif ShouldIncludeGuildRecipes() and not _guildRecipeSuffixArray then
@@ -1743,6 +1941,9 @@ local function PrewarmStep()
         PrewarmChunkedSortStep("prewarm itemSuffix", function(arr)
             _itemSuffixArray = arr
         end)
+    elseif phase == "itemAggGroup" then
+        EnsureItemAggregateGroup()
+        PrewarmAdvancePhase()
     elseif phase == "localSlots" then
         SD.GetAllRecipes()
         PrewarmAdvancePhase()
@@ -1789,7 +1990,7 @@ local function PrewarmOnUpdate()
 end
 
 StartIndexPrewarm = function()
-    if _itemSuffixArray and _localRecipeSuffixArray
+    if _itemSuffixArray and _itemAggregateGroup and _localRecipeSuffixArray
         and (not ShouldIncludeGuildRecipes() or _guildRecipeSuffixArray) then
         return
     end
@@ -1804,6 +2005,8 @@ StartIndexPrewarm = function()
     end
     if not _itemSuffixArray then
         _prewarm.phase = "slots"
+    elseif not _itemAggregateGroup then
+        _prewarm.phase = "itemAggGroup"
     elseif not _localRecipeSuffixArray then
         _prewarm.phase = "localSlots"
     elseif ShouldIncludeGuildRecipes() and not _guildRecipeSuffixArray then
