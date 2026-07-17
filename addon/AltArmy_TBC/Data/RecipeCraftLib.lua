@@ -342,6 +342,7 @@ function RCL.GetDifficulty(recipe, playerSkill)
 end
 
 --- Enrich a search recipe entry with CraftLib metadata (mutates entry).
+--- Does not populate recipeReagents (unused by Search/Guild UI; avoids alloc on large result sets).
 function RCL.EnrichEntry(entry)
     if not entry or not RCL.IsAvailable() then
         return entry
@@ -357,10 +358,6 @@ function RCL.EnrichEntry(entry)
     end
     entry.recipeSource = RCL.NormalizeRecipeSource(recipe.source)
     entry.recipeExpansion = RCL.NormalizeRecipeExpansion(recipe.expansion)
-    local reagents = RCL.GetReagentList(recipe)
-    if #reagents > 0 then
-        entry.recipeReagents = reagents
-    end
     if not entry.resultItemID then
         local productId = tonumber(recipe.itemId)
         if productId then

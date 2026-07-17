@@ -607,7 +607,7 @@ end
 
 -- Per-character Blizzard chat class-color flags; re-apply account prefs on each login.
 local loginFrame = CreateFrame and CreateFrame("Frame")
-if loginFrame then
+if loginFrame and loginFrame.RegisterEvent then
     loginFrame:RegisterEvent("PLAYER_LOGIN")
     loginFrame:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_LOGIN" then

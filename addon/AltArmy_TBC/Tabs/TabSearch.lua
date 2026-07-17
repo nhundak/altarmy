@@ -307,6 +307,7 @@ resultsArea:SetScript("OnMouseWheel", OnSearchScrollWheel)
 local resultRows = {}
 local itemList = {}
 local recipeList = {}
+local localRecipeList = {}
 local recipeRows = {}
 local itemGroups = {}
 local tooltipOnlyItemList = {}
@@ -420,9 +421,9 @@ local scrollTopFade = Theme.CreatePinnedHeaderScrollFade({
 })
 local stickyHeaderFadeFrame = scrollTopFade.frame
 
--- Debounce for tooltip-only search: main results (ID/name/link) appear immediately;
--- tooltip scan runs after the user stops typing for TOOLTIP_DEBOUNCE_SECS seconds.
-local TOOLTIP_DEBOUNCE_SECS = 0.4
+-- Debounce for tooltip-only search: main results appear immediately.
+-- Delay: 1 char → 0.4s; 2 chars → 0.1s; 3+ → start chunked scan immediately.
+-- Guild recipes always merge in the same frame as local recipe results.
 local TOOLTIP_CHUNK_SIZE = 80
 local tooltipDebounceFrame = CreateFrame("Frame")
 local tooltipDebounceRemaining = 0
@@ -432,6 +433,14 @@ local tooltipChunkState = nil
 local tooltipChunkGeneration = 0
 
 local function ApplyTooltipOnlyRealmFilter(rows)
+    local currentRealm = (GetRealmName and GetRealmName()) or ""
+    if RF and RF.filterListByRealm then
+        return RF.filterListByRealm(rows or {}, GlobalRealmFilterValue(), currentRealm)
+    end
+    return rows or {}
+end
+
+local function ApplyRecipeRealmFilter(rows)
     local currentRealm = (GetRealmName and GetRealmName()) or ""
     if RF and RF.filterListByRealm then
         return RF.filterListByRealm(rows or {}, GlobalRealmFilterValue(), currentRealm)
@@ -538,13 +547,18 @@ end
 local function ScheduleTooltipSearch(query)
     tooltipChunkGeneration = tooltipChunkGeneration + 1
     StopTooltipChunkSearch()
+    tooltipDebounceQuery = nil
+    tooltipDebounceFrame:SetScript("OnUpdate", nil)
     if not query or query == "" then
-        tooltipDebounceQuery = nil
-        tooltipDebounceFrame:SetScript("OnUpdate", nil)
+        return
+    end
+    local delay = (SD.GetSearchTailDebounceSecs and SD.GetSearchTailDebounceSecs(query)) or 0.4
+    if delay <= 0 then
+        StartTooltipChunkSearch(query)
         return
     end
     tooltipDebounceQuery = query
-    tooltipDebounceRemaining = TOOLTIP_DEBOUNCE_SECS
+    tooltipDebounceRemaining = delay
     tooltipDebounceFrame:SetScript("OnUpdate", tooltipDebounceOnUpdate)
 end
 
@@ -553,6 +567,36 @@ local function IsTooltipSearchPending()
         return true
     end
     return tooltipChunkState ~= nil
+end
+
+--- Merge guild recipe hits into recipeList in the same frame as local results (no layout).
+local function MergeGuildRecipesNow(query)
+    if not query or query == "" then
+        return
+    end
+    local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
+    if not categories.Recipes then
+        return
+    end
+    if not SD.SearchGuildRecipes then
+        return
+    end
+    local guildHits = ApplyRecipeRealmFilter(SD.SearchGuildRecipes(query) or {})
+    if SD.MergeRecipeSearchResults then
+        recipeList = SD.MergeRecipeSearchResults(localRecipeList, guildHits)
+    else
+        recipeList = {}
+        for i = 1, #localRecipeList do
+            recipeList[i] = localRecipeList[i]
+        end
+        for i = 1, #guildHits do
+            recipeList[#recipeList + 1] = guildHits[i]
+        end
+    end
+end
+
+local function ScheduleGuildRecipeSearch(query)
+    MergeGuildRecipesNow(query)
 end
 
 local function CountSearchResults(categories)
@@ -1296,13 +1340,20 @@ function frame.DoSearch()
         itemList = {}
         tooltipOnlyItemList = {}
     end
-    recipeList = (categories.Recipes and query ~= "") and (SD.SearchRecipes(query) or {}) or {}
+    if categories.Recipes and query ~= "" then
+        localRecipeList = SD.SearchRecipes(query) or {}
+    else
+        localRecipeList = {}
+    end
+    recipeList = localRecipeList
     local currentRealm = (GetRealmName and GetRealmName()) or ""
     if RF and RF.filterListByRealm then
         local rf = GlobalRealmFilterValue()
         itemList = RF.filterListByRealm(itemList, rf, currentRealm)
-        recipeList = RF.filterListByRealm(recipeList, rf, currentRealm)
+        localRecipeList = RF.filterListByRealm(localRecipeList, rf, currentRealm)
+        recipeList = localRecipeList
     end
+    ScheduleGuildRecipeSearch(query)
     UpdateResults()
     if searchScrollBar then searchScrollBar:SetValue(0) end
     scrollFrame:SetVerticalScroll(0)
@@ -1318,6 +1369,7 @@ function frame.SearchWithQuery(_self, query)
     if q == "" then
         itemList = {}
         tooltipOnlyItemList = {}
+        localRecipeList = {}
         recipeList = {}
     else
         if categories.Items then
@@ -1329,14 +1381,21 @@ function frame.SearchWithQuery(_self, query)
             itemList = {}
             tooltipOnlyItemList = {}
         end
-        recipeList = categories.Recipes and (SD.SearchRecipes(q) or {}) or {}
+        if categories.Recipes then
+            localRecipeList = SD.SearchRecipes(q) or {}
+        else
+            localRecipeList = {}
+        end
+        recipeList = localRecipeList
     end
     local currentRealm = (GetRealmName and GetRealmName()) or ""
     if RF and RF.filterListByRealm then
         local rf = GlobalRealmFilterValue()
         itemList = RF.filterListByRealm(itemList, rf, currentRealm)
-        recipeList = RF.filterListByRealm(recipeList, rf, currentRealm)
+        localRecipeList = RF.filterListByRealm(localRecipeList, rf, currentRealm)
+        recipeList = localRecipeList
     end
+    ScheduleGuildRecipeSearch(q)
     UpdateResults()
     if searchScrollBar then searchScrollBar:SetValue(0) end
     scrollFrame:SetVerticalScroll(0)

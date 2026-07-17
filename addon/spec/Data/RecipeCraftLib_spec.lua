@@ -252,7 +252,7 @@ describe("RecipeCraftLib", function()
       assert.is_nil(entry.difficulty)
     end)
 
-    it("sets source expansion and reagents when recipe resolves", function()
+    it("sets source expansion and skill when recipe resolves (no reagents)", function()
       _G.GetSpellInfo = function() return "Alchemy" end
       _G.CraftLib = {
         IsReady = function() return true end,
@@ -289,8 +289,7 @@ describe("RecipeCraftLib", function()
       assert.are.equal("green", entry.difficulty)
       assert.are.equal("trainer", entry.recipeSource)
       assert.are.equal("tbc", entry.recipeExpansion)
-      assert.are.equal(1, #entry.recipeReagents)
-      assert.are.equal(999, entry.recipeReagents[1].itemId)
+      assert.is_nil(entry.recipeReagents)
     end)
 
     it("backfills resultItemID from CraftLib itemId when missing", function()

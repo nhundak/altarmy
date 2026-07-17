@@ -389,7 +389,7 @@ end
 
 --- Message when a character has no primary crafting professions.
 function GTD.FormatNoProfessionsMessage(entry, formatName)
-    return formatNamePart(entry, formatName) .. " has not picked professions yet"
+    return "No known professions for " .. formatNamePart(entry, formatName)
 end
 
 --- Empty-state copy when a profession is known but its recipe list is empty.

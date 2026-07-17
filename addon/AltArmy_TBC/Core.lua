@@ -723,4 +723,15 @@ main:SetScript("OnShow", function()
             gearFrame:FocusItem(link)
         end
     end
+    local SD = AltArmy.SearchData
+    if SD and SD.StartIndexPrewarm then
+        SD.StartIndexPrewarm()
+    end
+end)
+
+main:HookScript("OnHide", function()
+    local SD = AltArmy.SearchData
+    if SD and SD.StopIndexPrewarm then
+        SD.StopIndexPrewarm()
+    end
 end)

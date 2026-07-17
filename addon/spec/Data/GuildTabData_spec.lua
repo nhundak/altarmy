@@ -1124,7 +1124,7 @@ describe("GuildTabData", function()
   describe("FormatNoProfessionsMessage", function()
     it("embeds the class-colored character name", function()
       local m = member({ name = "Newbie", classFile = "WARRIOR" })
-      assert.are.equal("Newbie has not picked professions yet",
+      assert.are.equal("No known professions for Newbie",
         GTD.FormatNoProfessionsMessage(m, plainFormatName))
     end)
   end)

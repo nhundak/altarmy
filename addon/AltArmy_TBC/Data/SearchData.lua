@@ -13,9 +13,50 @@ local MAX_BANK_BAG_ID = 11
 -- Cleared on PLAYER_LOGOUT so it doesn't carry state across sessions.
 local _searchableTextCache = {}
 local _containerSlotsCache = nil
-local _recipesCache = nil
+local _slotsByItemID = nil
+local _itemSuffixArray = nil
+local _localRecipesCache = nil
+local _localRecipesByID = nil
+local _localRecipeSuffixArray = nil
+local _guildRecipesCache = nil
+local _guildRecipesByID = nil
+local _guildRecipeSuffixArray = nil
 local _itemNameCache = {}
 local _recipeNameCache = {}
+
+-- Background index prewarm (chunked OnUpdate). Packed into one table for the local limit.
+local PREWARM_NAME_CHUNK = 200
+local PREWARM_SUFFIX_ENTRY_BUDGET = 2000
+local PREWARM_SORT_RUN = 200
+local PREWARM_SORT_ENTRY_BUDGET = 2000
+local PREWARM_RESTART_DEBOUNCE_SEC = 0.5
+local _prewarmFrame = CreateFrame("Frame")
+local _prewarmRestartFrame = CreateFrame("Frame")
+local _prewarm = {
+    generation = 0,
+    running = false,
+    phase = nil,
+    nameList = nil,
+    nameIndex = 1,
+    charOffset = 1,
+    suffixArr = nil,
+    idKeys = nil,
+    idKeyIndex = 1,
+    restartRemaining = 0,
+    wallStart = 0,
+    sortState = nil,
+    sortNameCount = 0,
+    sortSuffixCount = 0,
+    sortWallStart = 0,
+}
+
+-- Forward declarations (assigned after Ensure* helpers exist).
+local StartIndexPrewarm
+local StopIndexPrewarm
+local SchedulePrewarmRestart
+local FinishItemSuffixArraySync
+local FinishLocalRecipeSuffixArraySync
+local FinishGuildRecipeSuffixArraySync
 
 --- Query timing debug. Enable: /altarmy debug on, then Interface > AddOns > AltArmy > Debug > search.
 --- Uses debugprofilestart/stop (high-resolution) because GetTime() only updates once per frame.
@@ -44,6 +85,28 @@ local function SearchProfileElapsedMs()
     return 0
 end
 
+--- Log index-build timing when search debug is on. Restarts the profiler after logging
+--- so nested callers (search) can still measure their own work afterward.
+local function LogIndexBuild(kind, ms, detail)
+    if not SearchDebugEnabled() then
+        return
+    end
+    if detail and detail ~= "" then
+        LogSearchDebug(string.format("  index %s ms=%.2f %s", kind, ms, detail))
+    else
+        LogSearchDebug(string.format("  index %s ms=%.2f", kind, ms))
+    end
+    SearchProfileStart()
+end
+
+local function CountMapKeys(t)
+    local n = 0
+    for _ in pairs(t or {}) do
+        n = n + 1
+    end
+    return n
+end
+
 --- @param query string|number
 local function SearchQueryLabel(query)
     if type(query) == "string" then
@@ -60,11 +123,30 @@ function SD.ClearSearchableTextCache()
 end
 
 function SD.InvalidateContainerSlotsCache()
+    if StopIndexPrewarm then
+        StopIndexPrewarm()
+    end
     _containerSlotsCache = nil
+    _slotsByItemID = nil
+    _itemSuffixArray = nil
+    if SchedulePrewarmRestart then
+        SchedulePrewarmRestart()
+    end
 end
 
 function SD.InvalidateRecipesCache()
-    _recipesCache = nil
+    if StopIndexPrewarm then
+        StopIndexPrewarm()
+    end
+    _localRecipesCache = nil
+    _localRecipesByID = nil
+    _localRecipeSuffixArray = nil
+    _guildRecipesCache = nil
+    _guildRecipesByID = nil
+    _guildRecipeSuffixArray = nil
+    if SchedulePrewarmRestart then
+        SchedulePrewarmRestart()
+    end
 end
 
 function SD.NotifyContainerDataChanged()
@@ -76,11 +158,42 @@ function SD.NotifyRecipesChanged()
 end
 
 function SD.ClearSearchCaches()
+    if StopIndexPrewarm then
+        StopIndexPrewarm()
+    end
+    _prewarmRestartFrame:SetScript("OnUpdate", nil)
+    _prewarm.restartRemaining = 0
     _searchableTextCache = {}
     _containerSlotsCache = nil
-    _recipesCache = nil
+    _slotsByItemID = nil
+    _itemSuffixArray = nil
+    _localRecipesCache = nil
+    _localRecipesByID = nil
+    _localRecipeSuffixArray = nil
+    _guildRecipesCache = nil
+    _guildRecipesByID = nil
+    _guildRecipeSuffixArray = nil
     _itemNameCache = {}
     _recipeNameCache = {}
+end
+
+--- Debounce delay (seconds) for tooltip-only search tail.
+--- 1 char → 0.4s; 2 chars → 0.1s; 3+ → 0 (start chunked scan immediately).
+--- Guild recipes are always searched synchronously with local recipes.
+--- @param trimmedQuery string|nil already trimmed query text
+--- @return number delay in seconds (0 = run immediately in the same call)
+function SD.GetSearchTailDebounceSecs(trimmedQuery)
+    if not trimmedQuery or trimmedQuery == "" then
+        return 0
+    end
+    local len = #trimmedQuery
+    if len <= 1 then
+        return 0.4
+    end
+    if len == 2 then
+        return 0.1
+    end
+    return 0
 end
 
 local _cacheEventFrame = CreateFrame("Frame")
@@ -116,6 +229,267 @@ local function LocationSortKey(location)
     return 99
 end
 SD._LocationSortKey = LocationSortKey
+
+--- Build itemID -> { entry, ... } from a flat slot list.
+local function BuildSlotsByItemID(list)
+    local byID = {}
+    for i = 1, #(list or {}) do
+        local entry = list[i]
+        local id = entry and entry.itemID
+        if id then
+            local bucket = byID[id]
+            if not bucket then
+                bucket = {}
+                byID[id] = bucket
+            end
+            bucket[#bucket + 1] = entry
+        end
+    end
+    return byID
+end
+SD._BuildSlotsByItemID = BuildSlotsByItemID
+
+--- Build recipeID -> { entry, ... } from a flat recipe list.
+local function BuildRecipesByID(list)
+    local byID = {}
+    for i = 1, #(list or {}) do
+        local entry = list[i]
+        local id = entry and entry.recipeID
+        if id then
+            local bucket = byID[id]
+            if not bucket then
+                bucket = {}
+                byID[id] = bucket
+            end
+            bucket[#bucket + 1] = entry
+        end
+    end
+    return byID
+end
+SD._BuildRecipesByID = BuildRecipesByID
+
+--- Append suffixes for one name into arr, starting at startChar (1-based).
+--- Stops after maxEntries new entries. Returns nextChar (or #nameLower+1 when done) and count added.
+local function AppendSuffixesForName(arr, nameLower, id, startChar, maxEntries)
+    if type(nameLower) ~= "string" or nameLower == "" or not id then
+        return 1, 0
+    end
+    local n = #nameLower
+    local added = 0
+    local i = startChar or 1
+    while i <= n and added < maxEntries do
+        arr[#arr + 1] = { suffix = nameLower:sub(i), id = id }
+        added = added + 1
+        i = i + 1
+    end
+    return i, added
+end
+SD._AppendSuffixesForName = AppendSuffixesForName
+
+local function SortSuffixArray(arr)
+    table.sort(arr, function(a, b)
+        if a.suffix ~= b.suffix then
+            return a.suffix < b.suffix
+        end
+        return (a.id or 0) < (b.id or 0)
+    end)
+end
+SD._SortSuffixArray = SortSuffixArray
+
+local function SuffixEntryLess(a, b)
+    if a.suffix ~= b.suffix then
+        return a.suffix < b.suffix
+    end
+    return (a.id or 0) < (b.id or 0)
+end
+
+--- Sort inclusive range [lo, hi] via a temporary table (Lua 5.1 has no ranged table.sort).
+local function SortSuffixRun(arr, lo, hi)
+    if lo >= hi then
+        return
+    end
+    local tmp = {}
+    for i = lo, hi do
+        tmp[#tmp + 1] = arr[i]
+    end
+    table.sort(tmp, SuffixEntryLess)
+    for i = 1, #tmp do
+        arr[lo + i - 1] = tmp[i]
+    end
+end
+
+--- Merge sorted runs [left, mid] and [mid+1, right] in place using tmp scratch.
+local function MergeSuffixRuns(arr, left, mid, right, tmp)
+    local i, j, k = left, mid + 1, 1
+    while i <= mid and j <= right do
+        if SuffixEntryLess(arr[i], arr[j]) then
+            tmp[k] = arr[i]
+            i = i + 1
+        else
+            tmp[k] = arr[j]
+            j = j + 1
+        end
+        k = k + 1
+    end
+    while i <= mid do
+        tmp[k] = arr[i]
+        i = i + 1
+        k = k + 1
+    end
+    while j <= right do
+        tmp[k] = arr[j]
+        j = j + 1
+        k = k + 1
+    end
+    for t = 1, k - 1 do
+        arr[left + t - 1] = tmp[t]
+    end
+end
+
+--- Begin a resumable bottom-up sort (runs of PREWARM_SORT_RUN, then merge).
+--- @return table state
+local function BeginChunkedSuffixSort(arr)
+    return {
+        arr = arr or {},
+        phase = "runs",
+        runPos = 1,
+        width = PREWARM_SORT_RUN,
+        mergePos = 1,
+        tmp = {},
+        done = false,
+    }
+end
+SD._BeginChunkedSuffixSort = BeginChunkedSuffixSort
+SD._PREWARM_SORT_RUN = PREWARM_SORT_RUN
+
+--- Advance chunked sort by about PREWARM_SORT_ENTRY_BUDGET entries.
+--- @return boolean done
+local function ChunkedSuffixSortStep(state)
+    if not state or state.done then
+        return true
+    end
+    local arr = state.arr
+    local n = #arr
+    if n <= 1 then
+        state.done = true
+        return true
+    end
+    local budget = PREWARM_SORT_ENTRY_BUDGET
+
+    if state.phase == "runs" then
+        while budget > 0 and state.runPos <= n do
+            local lo = state.runPos
+            local hi = math.min(lo + PREWARM_SORT_RUN - 1, n)
+            SortSuffixRun(arr, lo, hi)
+            budget = budget - (hi - lo + 1)
+            state.runPos = hi + 1
+        end
+        if state.runPos <= n then
+            return false
+        end
+        if n <= PREWARM_SORT_RUN then
+            state.done = true
+            return true
+        end
+        state.phase = "merge"
+        state.width = PREWARM_SORT_RUN
+        state.mergePos = 1
+    end
+
+    while budget > 0 and state.width < n do
+        local left = state.mergePos
+        if left > n then
+            state.width = state.width * 2
+            state.mergePos = 1
+        else
+            local mid = math.min(left + state.width - 1, n)
+            local right = math.min(left + state.width * 2 - 1, n)
+            if mid < right then
+                MergeSuffixRuns(arr, left, mid, right, state.tmp)
+                budget = budget - (right - left + 1)
+            end
+            state.mergePos = left + state.width * 2
+        end
+    end
+
+    if state.width >= n then
+        state.done = true
+        return true
+    end
+    return false
+end
+SD._ChunkedSuffixSortStep = ChunkedSuffixSortStep
+
+--- Build suffix array from map id -> nameLower. Entries: { suffix = string, id = number }.
+local function BuildSuffixArray(idToNameLower)
+    local debug = SearchDebugEnabled()
+    if debug then
+        SearchProfileStart()
+    end
+    local arr = {}
+    local nameCount = 0
+    for id, nameLower in pairs(idToNameLower or {}) do
+        nameCount = nameCount + 1
+        AppendSuffixesForName(arr, nameLower, id, 1, math.huge)
+    end
+    SortSuffixArray(arr)
+    if debug then
+        LogIndexBuild("suffixArray", SearchProfileElapsedMs(), string.format(
+            "names=%d suffixes=%d", nameCount, #arr))
+    end
+    return arr
+end
+SD._BuildSuffixArray = BuildSuffixArray
+
+local function SuffixHasPrefix(suffix, prefix)
+    local plen = #prefix
+    return #suffix >= plen and suffix:sub(1, plen) == prefix
+end
+
+--- First index where arr[i].suffix >= query (1-based); #arr+1 if none.
+local function SuffixArrayLowerBound(arr, query)
+    local lo, hi = 1, #arr + 1
+    while lo < hi do
+        local mid = math.floor((lo + hi) / 2)
+        if arr[mid].suffix < query then
+            lo = mid + 1
+        else
+            hi = mid
+        end
+    end
+    return lo
+end
+
+--- First index >= startIdx where suffix does not have query as prefix.
+local function SuffixArrayUpperBound(arr, query, startIdx)
+    local lo, hi = startIdx, #arr + 1
+    while lo < hi do
+        local mid = math.floor((lo + hi) / 2)
+        if SuffixHasPrefix(arr[mid].suffix, query) then
+            lo = mid + 1
+        else
+            hi = mid
+        end
+    end
+    return lo
+end
+
+--- Returns set map id -> true for IDs whose name contains queryLower as substring.
+local function LookupSuffixArrayIds(arr, queryLower)
+    local ids = {}
+    if not arr or not queryLower or queryLower == "" then
+        return ids
+    end
+    local lo = SuffixArrayLowerBound(arr, queryLower)
+    local hi = SuffixArrayUpperBound(arr, queryLower, lo)
+    for i = lo, hi - 1 do
+        ids[arr[i].id] = true
+    end
+    return ids
+end
+SD._LookupSuffixArrayIds = LookupSuffixArrayIds
+SD._SuffixArrayLowerBound = SuffixArrayLowerBound
+SD._SuffixArrayUpperBound = SuffixArrayUpperBound
 
 --- Build flat list of all container slots across all characters.
 --- Each entry: { characterName, realm, itemID, itemLink, count, location, bagID, slot }.
@@ -213,8 +587,28 @@ function SD.GetAllContainerSlots()
     if _containerSlotsCache then
         return _containerSlotsCache
     end
+    local debug = SearchDebugEnabled()
+    if debug then
+        SearchProfileStart()
+    end
     _containerSlotsCache = BuildAllContainerSlots()
+    _slotsByItemID = BuildSlotsByItemID(_containerSlotsCache)
+    _itemSuffixArray = nil
+    if debug then
+        LogIndexBuild("containerSlots", SearchProfileElapsedMs(), string.format(
+            "slots=%d uniqueItems=%d",
+            #_containerSlotsCache,
+            CountMapKeys(_slotsByItemID)))
+    end
     return _containerSlotsCache
+end
+
+local function GetSlotsByItemID()
+    if _slotsByItemID then
+        return _slotsByItemID
+    end
+    SD.GetAllContainerSlots()
+    return _slotsByItemID or {}
 end
 
 --- Get item name from itemID or link (for search). Returns nil if not cached.
@@ -318,19 +712,87 @@ local function ParseItemSearchQuery(query)
 end
 SD._ParseItemSearchQuery = ParseItemSearchQuery
 
+--- Lazy: suffix array needs resolved item names (GetItemInfo may be cold at bag-scan time).
+local function EnsureItemSuffixArray()
+    if _itemSuffixArray then
+        return _itemSuffixArray
+    end
+    return FinishItemSuffixArraySync()
+end
+
+local function AppendIndexedRows(dest, rows, seen)
+    if not rows then
+        return
+    end
+    for i = 1, #rows do
+        local entry = rows[i]
+        if entry and not seen[entry] then
+            seen[entry] = true
+            SD._EnsureItemName(entry)
+            dest[#dest + 1] = entry
+        end
+    end
+end
+
 local function FilterContainerSlots(all, queryLower, queryID, skipTooltip)
     local mainResults = {}
     local tooltipOnlyResults = {}
-    for _, entry in ipairs(all) do
-        local mainMatch = SD._IsMainSearchMatch(entry, queryLower, queryID)
-        if mainMatch then
-            SD._EnsureItemName(entry)
-            table.insert(mainResults, entry)
-        elseif queryLower and not skipTooltip then
-            local searchableText = SD._GetSearchableTextForItem(entry.itemID, entry.itemLink)
-            if searchableText and searchableText:find(queryLower, 1, true) then
-                SD._EnsureItemName(entry)
-                table.insert(tooltipOnlyResults, entry)
+    local seen = {}
+    local byID
+    local suffixArr
+    if _slotsByItemID and _containerSlotsCache and all == _containerSlotsCache then
+        byID = _slotsByItemID
+        if queryLower then
+            suffixArr = EnsureItemSuffixArray()
+        end
+    else
+        byID = BuildSlotsByItemID(all)
+        if queryLower then
+            local names = {}
+            for itemID, rows in pairs(byID) do
+                local entry = rows[1]
+                local nameLower = GetCachedItemNameLower(itemID, entry and entry.itemLink)
+                if nameLower then
+                    names[itemID] = nameLower
+                end
+            end
+            suffixArr = BuildSuffixArray(names)
+        end
+    end
+    local matchedIds = {}
+
+    if queryID ~= nil then
+        matchedIds[queryID] = true
+        AppendIndexedRows(mainResults, byID[queryID], seen)
+    end
+
+    if queryLower then
+        local ids = LookupSuffixArrayIds(suffixArr, queryLower)
+        for itemID in pairs(ids) do
+            matchedIds[itemID] = true
+            AppendIndexedRows(mainResults, byID[itemID], seen)
+        end
+        -- Link-only fallback for IDs not matched by name (preserves prior :find on itemLink).
+        for itemID, rows in pairs(byID) do
+            if not matchedIds[itemID] then
+                local entry = rows[1]
+                if entry and entry.itemLink and entry.itemLink:lower():find(queryLower, 1, true) then
+                    matchedIds[itemID] = true
+                    AppendIndexedRows(mainResults, rows, seen)
+                end
+            end
+        end
+    end
+
+    if queryLower and not skipTooltip then
+        for i = 1, #(all or {}) do
+            local entry = all[i]
+            if entry and not seen[entry] then
+                local searchableText = SD._GetSearchableTextForItem(entry.itemID, entry.itemLink)
+                if searchableText and searchableText:find(queryLower, 1, true) then
+                    SD._EnsureItemName(entry)
+                    tooltipOnlyResults[#tooltipOnlyResults + 1] = entry
+                end
             end
         end
     end
@@ -522,8 +984,8 @@ end
 
 --- Append recipes shared by guildmates (from GuildShareData) into the recipe list,
 --- tagged isGuild = true with the guildmate's identity. Only primary (non-alias) ids.
+--- Caller must check ShouldIncludeGuildRecipes before calling.
 local function AppendGuildRecipes(list)
-    if not ShouldIncludeGuildRecipes() then return end
     local data = _G.AltArmyTBC_GuildData
     if not data or type(data.chars) ~= "table" then return end
     for realm, chars in pairs(data.chars) do
@@ -553,12 +1015,11 @@ local function AppendGuildRecipes(list)
     end
 end
 
-local function BuildAllRecipes()
+local function BuildLocalRecipes()
     local list = {}
     local DS = AltArmy.DataStore
     if not DS or not DS.ForEachCharacter or not DS.GetCharacterName
         or not DS.GetCharacterClass or not DS.GetProfessions then
-        AppendGuildRecipes(list)
         return list
     end
     DS:ForEachCharacter(function(realm, charName, charData)
@@ -592,16 +1053,58 @@ local function BuildAllRecipes()
                 end
             end
     end)
+    return list
+end
+
+local function BuildGuildRecipes()
+    local list = {}
     AppendGuildRecipes(list)
     return list
 end
 
+--- Own-character recipes only (sync search path).
 function SD.GetAllRecipes()
-    if _recipesCache then
-        return _recipesCache
+    if _localRecipesCache then
+        return _localRecipesCache
     end
-    _recipesCache = BuildAllRecipes()
-    return _recipesCache
+    local debug = SearchDebugEnabled()
+    if debug then
+        SearchProfileStart()
+    end
+    _localRecipesCache = BuildLocalRecipes()
+    _localRecipesByID = BuildRecipesByID(_localRecipesCache)
+    _localRecipeSuffixArray = nil
+    if debug then
+        LogIndexBuild("localRecipes", SearchProfileElapsedMs(), string.format(
+            "rows=%d uniqueRecipes=%d",
+            #_localRecipesCache,
+            CountMapKeys(_localRecipesByID)))
+    end
+    return _localRecipesCache
+end
+
+--- Guildmate-shared recipes only (deferred search path). Empty when include-guildmates is off.
+function SD.GetAllGuildRecipes()
+    if not ShouldIncludeGuildRecipes() then
+        return {}
+    end
+    if _guildRecipesCache then
+        return _guildRecipesCache
+    end
+    local debug = SearchDebugEnabled()
+    if debug then
+        SearchProfileStart()
+    end
+    _guildRecipesCache = BuildGuildRecipes()
+    _guildRecipesByID = BuildRecipesByID(_guildRecipesCache)
+    _guildRecipeSuffixArray = nil
+    if debug then
+        LogIndexBuild("guildRecipes", SearchProfileElapsedMs(), string.format(
+            "rows=%d uniqueRecipes=%d",
+            #_guildRecipesCache,
+            CountMapKeys(_guildRecipesByID)))
+    end
+    return _guildRecipesCache
 end
 
 --- Get recipe name from recipeID (spell first, then item). Returns nil if not resolved.
@@ -650,14 +1153,64 @@ local function GetCachedRecipeNameLower(recipeID)
     return nil
 end
 
---- Search recipes by name (partial, case-insensitive). Returns list of matching entries.
-local function FilterAndSortRecipes(all, queryLower)
+local function EnsureRecipeSuffixArray(byID, cachedArr, setCached)
+    if cachedArr then
+        return cachedArr
+    end
+    local names = {}
+    for recipeID, _ in pairs(byID or {}) do
+        local nameLower = GetCachedRecipeNameLower(recipeID)
+        if nameLower then
+            names[recipeID] = nameLower
+        end
+    end
+    local arr = BuildSuffixArray(names)
+    setCached(arr)
+    return arr
+end
+
+local function EnsureLocalRecipeSuffixArray()
+    if _localRecipeSuffixArray then
+        return _localRecipeSuffixArray
+    end
+    return FinishLocalRecipeSuffixArraySync()
+end
+
+local function EnsureGuildRecipeSuffixArray()
+    if _guildRecipeSuffixArray then
+        return _guildRecipeSuffixArray
+    end
+    return FinishGuildRecipeSuffixArraySync()
+end
+
+--- Search recipes by name (partial, case-insensitive). Uses ID index + suffix array when available.
+--- `all` is the flat list (for sort payload); `byID` / `ensureSuffix` optional for indexed path.
+local function FilterAndSortRecipes(all, queryLower, byID, ensureSuffix)
     local results = {}
-    for _, entry in ipairs(all) do
-        local nameLower = GetCachedRecipeNameLower(entry.recipeID)
-        if nameLower and nameLower:find(queryLower, 1, true) then
-            entry.recipeNameLower = nameLower
-            table.insert(results, entry)
+    local seen = {}
+    if byID and ensureSuffix then
+        local ids = LookupSuffixArrayIds(ensureSuffix(), queryLower)
+        for recipeID in pairs(ids) do
+            local rows = byID[recipeID]
+            if rows then
+                local nameLower = GetCachedRecipeNameLower(recipeID)
+                for i = 1, #rows do
+                    local entry = rows[i]
+                    if entry and not seen[entry] then
+                        seen[entry] = true
+                        entry.recipeNameLower = nameLower
+                        results[#results + 1] = entry
+                    end
+                end
+            end
+        end
+    else
+        for _, entry in ipairs(all or {}) do
+            local nameLower = GetCachedRecipeNameLower(entry.recipeID)
+            if nameLower and nameLower:find(queryLower, 1, true) then
+                entry.recipeNameLower = nameLower
+                results[#results + 1] = entry
+            end
         end
     end
     table.sort(results, function(a, b)
@@ -672,6 +1225,550 @@ local function FilterAndSortRecipes(all, queryLower)
     return results
 end
 SD._FilterAndSortRecipes = FilterAndSortRecipes
+
+------------------------------------------------------------------------
+-- Chunked index prewarm (started when AltArmy.MainFrame opens)
+------------------------------------------------------------------------
+
+local function MainFrameIsShown()
+    local main = AltArmy and AltArmy.MainFrame
+    return main and main.IsShown and main:IsShown()
+end
+
+local function ResetPrewarmWorkState()
+    _prewarm.nameList = nil
+    _prewarm.nameIndex = 1
+    _prewarm.charOffset = 1
+    _prewarm.suffixArr = nil
+    _prewarm.idKeys = nil
+    _prewarm.idKeyIndex = 1
+    _prewarm.sortState = nil
+    _prewarm.sortNameCount = 0
+    _prewarm.sortSuffixCount = 0
+    _prewarm.sortWallStart = 0
+    _prewarm.sortChunkMsMax = 0
+end
+
+StopIndexPrewarm = function()
+    _prewarmFrame:SetScript("OnUpdate", nil)
+    _prewarm.running = false
+    _prewarm.phase = nil
+    _prewarm.wallStart = 0
+    ResetPrewarmWorkState()
+end
+
+--- Stop prewarm after a successful run and log wall time when search debug is on.
+local function FinishIndexPrewarm()
+    if SearchDebugEnabled() and _prewarm.running then
+        local wallSec = ((GetTime and GetTime()) or 0) - (_prewarm.wallStart or 0)
+        LogSearchDebug(string.format("  index prewarm done wallSec=%.2f", wallSec))
+    end
+    StopIndexPrewarm()
+end
+
+local function CollectIdKeys(byID)
+    local keys = {}
+    for id in pairs(byID or {}) do
+        keys[#keys + 1] = id
+    end
+    return keys
+end
+
+local function BeginNameCollection(byID)
+    _prewarm.idKeys = CollectIdKeys(byID)
+    _prewarm.idKeyIndex = 1
+    _prewarm.nameList = {}
+end
+
+local function ChunkCollectItemNames()
+    local byID = _slotsByItemID or {}
+    local keys = _prewarm.idKeys
+    local list = _prewarm.nameList
+    local processed = 0
+    while processed < PREWARM_NAME_CHUNK and _prewarm.idKeyIndex <= #keys do
+        local itemID = keys[_prewarm.idKeyIndex]
+        _prewarm.idKeyIndex = _prewarm.idKeyIndex + 1
+        processed = processed + 1
+        local rows = byID[itemID]
+        local entry = rows and rows[1]
+        local nameLower = GetCachedItemNameLower(itemID, entry and entry.itemLink)
+        if nameLower then
+            list[#list + 1] = { id = itemID, nameLower = nameLower }
+        end
+    end
+    return _prewarm.idKeyIndex > #keys
+end
+
+local function ChunkCollectRecipeNames()
+    local keys = _prewarm.idKeys
+    local list = _prewarm.nameList
+    local processed = 0
+    while processed < PREWARM_NAME_CHUNK and _prewarm.idKeyIndex <= #keys do
+        local recipeID = keys[_prewarm.idKeyIndex]
+        _prewarm.idKeyIndex = _prewarm.idKeyIndex + 1
+        processed = processed + 1
+        local nameLower = GetCachedRecipeNameLower(recipeID)
+        if nameLower then
+            list[#list + 1] = { id = recipeID, nameLower = nameLower }
+        end
+    end
+    return _prewarm.idKeyIndex > #keys
+end
+
+local function BeginSuffixAppend()
+    _prewarm.suffixArr = _prewarm.suffixArr or {}
+    _prewarm.nameIndex = 1
+    _prewarm.charOffset = 1
+end
+
+local function ChunkAppendSuffixes()
+    local list = _prewarm.nameList or {}
+    local arr = _prewarm.suffixArr
+    local budget = PREWARM_SUFFIX_ENTRY_BUDGET
+    while budget > 0 and _prewarm.nameIndex <= #list do
+        local entry = list[_prewarm.nameIndex]
+        local nextChar, added = AppendSuffixesForName(
+            arr, entry.nameLower, entry.id, _prewarm.charOffset, budget)
+        budget = budget - added
+        if nextChar > #entry.nameLower then
+            _prewarm.nameIndex = _prewarm.nameIndex + 1
+            _prewarm.charOffset = 1
+        else
+            _prewarm.charOffset = nextChar
+        end
+    end
+    return _prewarm.nameIndex > #list
+end
+
+local function FinishSuffixesFromNameList(nameList, startIndex, startChar, existingArr)
+    local debug = SearchDebugEnabled()
+    if debug then
+        SearchProfileStart()
+    end
+    local arr = existingArr or {}
+    local ni = startIndex or 1
+    local co = startChar or 1
+    while ni <= #(nameList or {}) do
+        local entry = nameList[ni]
+        AppendSuffixesForName(arr, entry.nameLower, entry.id, co, math.huge)
+        ni = ni + 1
+        co = 1
+    end
+    SortSuffixArray(arr)
+    if debug then
+        LogIndexBuild("suffixArraySyncFinish", SearchProfileElapsedMs(), string.format(
+            "names=%d suffixes=%d", #(nameList or {}), #arr))
+    end
+    return arr
+end
+
+FinishItemSuffixArraySync = function()
+    if _itemSuffixArray then
+        return _itemSuffixArray
+    end
+    local phase = _prewarm.phase
+    local nameList = _prewarm.nameList
+    local nameIndex = _prewarm.nameIndex
+    local charOffset = _prewarm.charOffset
+    local suffixArr = _prewarm.suffixArr
+    local idKeys = _prewarm.idKeys
+    local idKeyIndex = _prewarm.idKeyIndex
+    local wasItemPrewarm = _prewarm.running and phase and phase:find("^item")
+    StopIndexPrewarm()
+
+    if wasItemPrewarm and (phase == "itemNames" or phase == "itemSuffixes" or phase == "itemSort") then
+        nameList = nameList or {}
+        if phase == "itemNames" and idKeys then
+            local byID = _slotsByItemID or GetSlotsByItemID()
+            for i = idKeyIndex, #idKeys do
+                local itemID = idKeys[i]
+                local rows = byID[itemID]
+                local entry = rows and rows[1]
+                local nameLower = GetCachedItemNameLower(itemID, entry and entry.itemLink)
+                if nameLower then
+                    nameList[#nameList + 1] = { id = itemID, nameLower = nameLower }
+                end
+            end
+            nameIndex = 1
+            charOffset = 1
+            suffixArr = {}
+        end
+        if phase == "itemSort" and suffixArr then
+            local debug = SearchDebugEnabled()
+            if debug then
+                SearchProfileStart()
+            end
+            SortSuffixArray(suffixArr)
+            _itemSuffixArray = suffixArr
+            if debug then
+                LogIndexBuild("suffixArraySyncSort", SearchProfileElapsedMs(), string.format(
+                    "suffixes=%d", #suffixArr))
+            end
+        else
+            _itemSuffixArray = FinishSuffixesFromNameList(nameList, nameIndex, charOffset, suffixArr)
+        end
+    else
+        local byID = GetSlotsByItemID()
+        local names = {}
+        for itemID, rows in pairs(byID) do
+            local entry = rows[1]
+            local nameLower = GetCachedItemNameLower(itemID, entry and entry.itemLink)
+            if nameLower then
+                names[itemID] = nameLower
+            end
+        end
+        _itemSuffixArray = BuildSuffixArray(names)
+    end
+    if MainFrameIsShown() then
+        StartIndexPrewarm()
+    end
+    return _itemSuffixArray
+end
+
+FinishLocalRecipeSuffixArraySync = function()
+    if _localRecipeSuffixArray then
+        return _localRecipeSuffixArray
+    end
+    if not _localRecipesByID then
+        SD.GetAllRecipes()
+    end
+    local phase = _prewarm.phase
+    local nameList = _prewarm.nameList
+    local nameIndex = _prewarm.nameIndex
+    local charOffset = _prewarm.charOffset
+    local suffixArr = _prewarm.suffixArr
+    local idKeys = _prewarm.idKeys
+    local idKeyIndex = _prewarm.idKeyIndex
+    local wasLocalPrewarm = _prewarm.running and phase and phase:find("^local")
+    StopIndexPrewarm()
+
+    if wasLocalPrewarm and (phase == "localNames" or phase == "localSuffixes" or phase == "localSort") then
+        nameList = nameList or {}
+        if phase == "localNames" and idKeys then
+            for i = idKeyIndex, #idKeys do
+                local recipeID = idKeys[i]
+                local nameLower = GetCachedRecipeNameLower(recipeID)
+                if nameLower then
+                    nameList[#nameList + 1] = { id = recipeID, nameLower = nameLower }
+                end
+            end
+            nameIndex = 1
+            charOffset = 1
+            suffixArr = {}
+        end
+        if phase == "localSort" and suffixArr then
+            local debug = SearchDebugEnabled()
+            if debug then
+                SearchProfileStart()
+            end
+            SortSuffixArray(suffixArr)
+            _localRecipeSuffixArray = suffixArr
+            if debug then
+                LogIndexBuild("suffixArraySyncSort", SearchProfileElapsedMs(), string.format(
+                    "suffixes=%d", #suffixArr))
+            end
+        else
+            _localRecipeSuffixArray = FinishSuffixesFromNameList(nameList, nameIndex, charOffset, suffixArr)
+        end
+    else
+        EnsureRecipeSuffixArray(_localRecipesByID, nil, function(arr)
+            _localRecipeSuffixArray = arr
+        end)
+    end
+    if MainFrameIsShown() then
+        StartIndexPrewarm()
+    end
+    return _localRecipeSuffixArray
+end
+
+FinishGuildRecipeSuffixArraySync = function()
+    if _guildRecipeSuffixArray then
+        return _guildRecipeSuffixArray
+    end
+    if not ShouldIncludeGuildRecipes() then
+        _guildRecipeSuffixArray = {}
+        return _guildRecipeSuffixArray
+    end
+    if not _guildRecipesByID then
+        SD.GetAllGuildRecipes()
+    end
+    local phase = _prewarm.phase
+    local nameList = _prewarm.nameList
+    local nameIndex = _prewarm.nameIndex
+    local charOffset = _prewarm.charOffset
+    local suffixArr = _prewarm.suffixArr
+    local idKeys = _prewarm.idKeys
+    local idKeyIndex = _prewarm.idKeyIndex
+    local wasGuildPrewarm = _prewarm.running and phase and phase:find("^guild")
+    StopIndexPrewarm()
+
+    if wasGuildPrewarm and (phase == "guildNames" or phase == "guildSuffixes" or phase == "guildSort") then
+        nameList = nameList or {}
+        if phase == "guildNames" and idKeys then
+            for i = idKeyIndex, #idKeys do
+                local recipeID = idKeys[i]
+                local nameLower = GetCachedRecipeNameLower(recipeID)
+                if nameLower then
+                    nameList[#nameList + 1] = { id = recipeID, nameLower = nameLower }
+                end
+            end
+            nameIndex = 1
+            charOffset = 1
+            suffixArr = {}
+        end
+        if phase == "guildSort" and suffixArr then
+            local debug = SearchDebugEnabled()
+            if debug then
+                SearchProfileStart()
+            end
+            SortSuffixArray(suffixArr)
+            _guildRecipeSuffixArray = suffixArr
+            if debug then
+                LogIndexBuild("suffixArraySyncSort", SearchProfileElapsedMs(), string.format(
+                    "suffixes=%d", #suffixArr))
+            end
+        else
+            _guildRecipeSuffixArray = FinishSuffixesFromNameList(nameList, nameIndex, charOffset, suffixArr)
+        end
+    else
+        EnsureRecipeSuffixArray(_guildRecipesByID, nil, function(arr)
+            _guildRecipeSuffixArray = arr
+        end)
+    end
+    if MainFrameIsShown() then
+        StartIndexPrewarm()
+    end
+    return _guildRecipeSuffixArray
+end
+
+local function PrewarmAdvancePhase()
+    local phase = _prewarm.phase
+    if phase == "slots" then
+        if not _itemSuffixArray then
+            _prewarm.phase = "itemNames"
+            BeginNameCollection(_slotsByItemID)
+        elseif not _localRecipeSuffixArray then
+            _prewarm.phase = "localSlots"
+        elseif ShouldIncludeGuildRecipes() and not _guildRecipeSuffixArray then
+            _prewarm.phase = "guildSlots"
+        else
+            FinishIndexPrewarm()
+        end
+    elseif phase == "itemNames" then
+        _prewarm.phase = "itemSuffixes"
+        BeginSuffixAppend()
+    elseif phase == "itemSuffixes" then
+        _prewarm.phase = "itemSort"
+    elseif phase == "itemSort" then
+        if not _localRecipeSuffixArray then
+            _prewarm.phase = "localSlots"
+        elseif ShouldIncludeGuildRecipes() and not _guildRecipeSuffixArray then
+            _prewarm.phase = "guildSlots"
+        else
+            FinishIndexPrewarm()
+        end
+    elseif phase == "localSlots" then
+        if not _localRecipeSuffixArray then
+            _prewarm.phase = "localNames"
+            BeginNameCollection(_localRecipesByID)
+        elseif ShouldIncludeGuildRecipes() and not _guildRecipeSuffixArray then
+            _prewarm.phase = "guildSlots"
+        else
+            FinishIndexPrewarm()
+        end
+    elseif phase == "localNames" then
+        _prewarm.phase = "localSuffixes"
+        BeginSuffixAppend()
+    elseif phase == "localSuffixes" then
+        _prewarm.phase = "localSort"
+    elseif phase == "localSort" then
+        if ShouldIncludeGuildRecipes() and not _guildRecipeSuffixArray then
+            _prewarm.phase = "guildSlots"
+        else
+            FinishIndexPrewarm()
+        end
+    elseif phase == "guildSlots" then
+        if not _guildRecipeSuffixArray then
+            _prewarm.phase = "guildNames"
+            BeginNameCollection(_guildRecipesByID)
+        else
+            FinishIndexPrewarm()
+        end
+    elseif phase == "guildNames" then
+        _prewarm.phase = "guildSuffixes"
+        BeginSuffixAppend()
+    elseif phase == "guildSuffixes" then
+        _prewarm.phase = "guildSort"
+    elseif phase == "guildSort" then
+        FinishIndexPrewarm()
+    else
+        StopIndexPrewarm()
+    end
+end
+
+--- Run one chunk of the current *Sort phase. Returns true when the sort finished this step.
+local function PrewarmChunkedSortStep(logKind, assignResult)
+    if not _prewarm.sortState then
+        _prewarm.sortNameCount = #(_prewarm.nameList or {})
+        _prewarm.sortSuffixCount = #(_prewarm.suffixArr or {})
+        _prewarm.sortWallStart = (GetTime and GetTime()) or 0
+        _prewarm.sortChunkMsMax = 0
+        _prewarm.sortState = BeginChunkedSuffixSort(_prewarm.suffixArr or {})
+    end
+    local debug = SearchDebugEnabled()
+    if debug then
+        SearchProfileStart()
+    end
+    local done = ChunkedSuffixSortStep(_prewarm.sortState)
+    if debug then
+        local ms = SearchProfileElapsedMs()
+        if ms > (_prewarm.sortChunkMsMax or 0) then
+            _prewarm.sortChunkMsMax = ms
+        end
+    end
+    if not done then
+        return false
+    end
+    assignResult(_prewarm.suffixArr or {})
+    if debug then
+        local wallSec = ((GetTime and GetTime()) or 0) - (_prewarm.sortWallStart or 0)
+        LogSearchDebug(string.format(
+            "  index %s done wallSec=%.2f chunkMsMax=%.2f names=%d suffixes=%d",
+            logKind, wallSec, _prewarm.sortChunkMsMax or 0,
+            _prewarm.sortNameCount, _prewarm.sortSuffixCount))
+    end
+    ResetPrewarmWorkState()
+    PrewarmAdvancePhase()
+    return true
+end
+
+local function PrewarmStep()
+    if not _prewarm.running then
+        return false
+    end
+    local phase = _prewarm.phase
+    if phase == "slots" then
+        SD.GetAllContainerSlots()
+        PrewarmAdvancePhase()
+    elseif phase == "itemNames" then
+        if ChunkCollectItemNames() then
+            PrewarmAdvancePhase()
+        end
+    elseif phase == "itemSuffixes" then
+        if ChunkAppendSuffixes() then
+            PrewarmAdvancePhase()
+        end
+    elseif phase == "itemSort" then
+        PrewarmChunkedSortStep("prewarm itemSuffix", function(arr)
+            _itemSuffixArray = arr
+        end)
+    elseif phase == "localSlots" then
+        SD.GetAllRecipes()
+        PrewarmAdvancePhase()
+    elseif phase == "localNames" then
+        if ChunkCollectRecipeNames() then
+            PrewarmAdvancePhase()
+        end
+    elseif phase == "localSuffixes" then
+        if ChunkAppendSuffixes() then
+            PrewarmAdvancePhase()
+        end
+    elseif phase == "localSort" then
+        PrewarmChunkedSortStep("prewarm localRecipeSuffix", function(arr)
+            _localRecipeSuffixArray = arr
+        end)
+    elseif phase == "guildSlots" then
+        SD.GetAllGuildRecipes()
+        PrewarmAdvancePhase()
+    elseif phase == "guildNames" then
+        if ChunkCollectRecipeNames() then
+            PrewarmAdvancePhase()
+        end
+    elseif phase == "guildSuffixes" then
+        if ChunkAppendSuffixes() then
+            PrewarmAdvancePhase()
+        end
+    elseif phase == "guildSort" then
+        PrewarmChunkedSortStep("prewarm guildRecipeSuffix", function(arr)
+            _guildRecipeSuffixArray = arr
+        end)
+    else
+        StopIndexPrewarm()
+    end
+    return _prewarm.running
+end
+SD._PrewarmStep = PrewarmStep
+
+local function PrewarmOnUpdate()
+    if not _prewarm.running then
+        _prewarmFrame:SetScript("OnUpdate", nil)
+        return
+    end
+    PrewarmStep()
+end
+
+StartIndexPrewarm = function()
+    if _itemSuffixArray and _localRecipeSuffixArray
+        and (not ShouldIncludeGuildRecipes() or _guildRecipeSuffixArray) then
+        return
+    end
+    _prewarmRestartFrame:SetScript("OnUpdate", nil)
+    _prewarm.restartRemaining = 0
+    StopIndexPrewarm()
+    _prewarm.generation = _prewarm.generation + 1
+    _prewarm.running = true
+    _prewarm.wallStart = (GetTime and GetTime()) or 0
+    if SearchDebugEnabled() then
+        LogSearchDebug("  index prewarm start")
+    end
+    if not _itemSuffixArray then
+        _prewarm.phase = "slots"
+    elseif not _localRecipeSuffixArray then
+        _prewarm.phase = "localSlots"
+    elseif ShouldIncludeGuildRecipes() and not _guildRecipeSuffixArray then
+        _prewarm.phase = "guildSlots"
+    else
+        _prewarm.running = false
+        return
+    end
+    _prewarmFrame:SetScript("OnUpdate", PrewarmOnUpdate)
+end
+
+SchedulePrewarmRestart = function()
+    if not MainFrameIsShown() then
+        return
+    end
+    _prewarm.restartRemaining = PREWARM_RESTART_DEBOUNCE_SEC
+    _prewarmRestartFrame:SetScript("OnUpdate", function(_, elapsed)
+        _prewarm.restartRemaining = _prewarm.restartRemaining - elapsed
+        if _prewarm.restartRemaining <= 0 then
+            _prewarmRestartFrame:SetScript("OnUpdate", nil)
+            if MainFrameIsShown() then
+                StartIndexPrewarm()
+            end
+        end
+    end)
+end
+
+function SD.StartIndexPrewarm()
+    StartIndexPrewarm()
+end
+
+function SD.StopIndexPrewarm()
+    StopIndexPrewarm()
+end
+
+function SD.IsIndexPrewarmRunning()
+    return _prewarm.running and true or false
+end
+
+function SD._GetItemSuffixArrayForTests()
+    return _itemSuffixArray
+end
+
+function SD._GetLocalRecipeSuffixArrayForTests()
+    return _localRecipeSuffixArray
+end
 
 local DIFFICULTY_SORT_ORDER = { orange = 1, yellow = 2, green = 3, gray = 4 }
 
@@ -704,26 +1801,33 @@ function SD.SortItemResults(list, sortKey, ascending)
         out[i] = list[i]
     end
     local itemTotals = sortKey == "Total" and buildItemGroupTotals(out) or nil
+    local nameKeys = {}
+    local charKeys = {}
+    for i = 1, #out do
+        local row = out[i]
+        nameKeys[row] = (row.itemName or ""):lower()
+        charKeys[row] = characterSortKey(row)
+    end
 
     table.sort(out, function(a, b)
         local cmp = 0
         if sortKey == "Item" then
-            cmp = cmpValues((a.itemName or ""):lower(), (b.itemName or ""):lower())
+            cmp = cmpValues(nameKeys[a], nameKeys[b])
             if cmp == 0 then
                 cmp = cmpValues(a.itemID or 0, b.itemID or 0)
             end
         elseif sortKey == "Character" then
-            cmp = cmpValues(characterSortKey(a), characterSortKey(b))
+            cmp = cmpValues(charKeys[a], charKeys[b])
         elseif sortKey == "Total" then
             local keyA = (a.itemID or 0) .. "\t" .. (a.itemName or "")
             local keyB = (b.itemID or 0) .. "\t" .. (b.itemName or "")
             cmp = cmpValues(itemTotals[keyA] or 0, itemTotals[keyB] or 0)
         end
         if cmp == 0 then
-            cmp = cmpValues((a.itemName or ""):lower(), (b.itemName or ""):lower())
+            cmp = cmpValues(nameKeys[a], nameKeys[b])
         end
         if cmp == 0 then
-            cmp = cmpValues(characterSortKey(a), characterSortKey(b))
+            cmp = cmpValues(charKeys[a], charKeys[b])
         end
         if cmp == 0 then
             cmp = cmpValues(LocationSortKey(a.location or "bag"), LocationSortKey(b.location or "bag"))
@@ -778,10 +1882,6 @@ local function compareGuildAffiliation(a, b)
     return aGuild and 1 or -1
 end
 
-local function compareCharacterName(a, b)
-    return cmpValues((a.characterName or ""):lower(), (b.characterName or ""):lower())
-end
-
 --- Sort recipe search rows by column (`sortKey`: "Recipe", "Character", or "Skill").
 --- Skill uses required recipe level when CraftLib is available, otherwise character skill rank.
 --- Recipe/Skill tie-breakers: own characters, then guildmates, then character name A-Z.
@@ -795,13 +1895,20 @@ function SD.SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
     end
     local useRequiredSkill = sortKey == "Skill" and craftLibAvailable
     local useGuildTiebreak = sortKey == "Recipe" or sortKey == "Skill"
+    local recipeNameKeys = {}
+    local characterNameKeys = {}
+    for i = 1, #out do
+        local row = out[i]
+        recipeNameKeys[row] = recipeSortName(row)
+        characterNameKeys[row] = (row.characterName or ""):lower()
+    end
 
     table.sort(out, function(a, b)
         local cmp = 0
         if sortKey == "Recipe" then
-            cmp = applySortDirection(cmpValues(recipeSortName(a), recipeSortName(b)), ascending)
+            cmp = applySortDirection(cmpValues(recipeNameKeys[a], recipeNameKeys[b]), ascending)
         elseif sortKey == "Character" then
-            cmp = applySortDirection(compareCharacterName(a, b), ascending)
+            cmp = applySortDirection(cmpValues(characterNameKeys[a], characterNameKeys[b]), ascending)
             if cmp == 0 then
                 cmp = compareGuildAffiliation(a, b)
             end
@@ -820,13 +1927,13 @@ function SD.SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
             if cmp ~= 0 then
                 return cmp < 0
             end
-            cmp = compareCharacterName(a, b)
+            cmp = cmpValues(characterNameKeys[a], characterNameKeys[b])
             if cmp ~= 0 then
                 return cmp < 0
             end
             return (a.recipeID or 0) < (b.recipeID or 0)
         end
-        cmp = cmpValues(recipeSortName(a), recipeSortName(b))
+        cmp = cmpValues(recipeNameKeys[a], recipeNameKeys[b])
         if cmp ~= 0 then
             return applySortDirection(cmp, ascending) < 0
         end
@@ -970,7 +2077,7 @@ function SD.SearchRecipes(query)
     end
     local all = SD.GetAllRecipes()
     local queryLower = type(query) == "string" and query:lower() or ""
-    local results = FilterAndSortRecipes(all, queryLower)
+    local results = FilterAndSortRecipes(all, queryLower, _localRecipesByID, EnsureLocalRecipeSuffixArray)
     for i = 1, #results do
         EnrichRecipeEntry(results[i])
     end
@@ -988,4 +2095,54 @@ function SD.SearchRecipes(query)
         ))
     end
     return results
+end
+
+--- Guildmate recipe search (deferred path). Same enrich/filter pipeline as SearchRecipes.
+function SD.SearchGuildRecipes(query)
+    if not query or (type(query) == "string" and query:match("^%s*$")) then
+        return {}
+    end
+    local debug = SearchDebugEnabled()
+    if debug then
+        SearchProfileStart()
+    end
+    local all = SD.GetAllGuildRecipes()
+    local queryLower = type(query) == "string" and query:lower() or ""
+    local results = FilterAndSortRecipes(all, queryLower, _guildRecipesByID, EnsureGuildRecipeSuffixArray)
+    for i = 1, #results do
+        EnrichRecipeEntry(results[i])
+    end
+    local SS = AltArmy and AltArmy.SearchSettings
+    if SS and SS.GetSearchSettings then
+        results = ApplyRecipeSearchFilters(results, SS.GetSearchSettings())
+    end
+    if debug then
+        LogSearchDebug(string.format(
+            "  guildRecipes q=%q ms=%.2f scanned=%d hits=%d",
+            SearchQueryLabel(query),
+            SearchProfileElapsedMs(),
+            #all,
+            #results
+        ))
+    end
+    return results
+end
+
+--- Append guild recipe rows onto a local result list (does not re-sort).
+function SD.MergeRecipeSearchResults(localList, guildList)
+    local out = {}
+    local n = 0
+    if localList then
+        for i = 1, #localList do
+            n = n + 1
+            out[n] = localList[i]
+        end
+    end
+    if guildList then
+        for i = 1, #guildList do
+            n = n + 1
+            out[n] = guildList[i]
+        end
+    end
+    return out
 end

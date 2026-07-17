@@ -586,7 +586,7 @@ describe("SearchData", function()
     end)
   end)
 
-  describe("GetAllRecipes guild merge", function()
+  describe("GetAllGuildRecipes", function()
     local DS, restore
 
     before_each(function()
@@ -653,10 +653,11 @@ describe("SearchData", function()
       SD.NotifyRecipesChanged()
     end)
 
-    it("includes guild recipes tagged isGuild when flag and toggle are on", function()
-      local results = SD.GetAllRecipes()
-      assert.are.equal(2, #results)
-      for _, r in ipairs(results) do
+    it("keeps GetAllRecipes local-only (no guild rows)", function()
+      assert.are.equal(0, #SD.GetAllRecipes())
+      local guild = SD.GetAllGuildRecipes()
+      assert.are.equal(2, #guild)
+      for _, r in ipairs(guild) do
         assert.is_true(r.isGuild)
         assert.are.equal("Bob", r.characterName)
         assert.are.equal("tailoring", r.professionKey)
@@ -667,22 +668,22 @@ describe("SearchData", function()
       local saved = AltArmy.Debug.IsGuildShareEnabled
       AltArmy.Debug.IsGuildShareEnabled = function() return false end
       SD.NotifyRecipesChanged()
-      assert.are.equal(0, #SD.GetAllRecipes())
+      assert.are.equal(0, #SD.GetAllGuildRecipes())
       AltArmy.Debug.IsGuildShareEnabled = saved
     end)
 
     it("excludes guild recipes when the include-guildmates toggle is off", function()
-      assert.are.equal(2, #SD.GetAllRecipes())
+      assert.are.equal(2, #SD.GetAllGuildRecipes())
       AltArmy.SearchSettings.SetIncludeGuildmatesEnabled(false)
-      assert.are.equal(0, #SD.GetAllRecipes())
+      assert.are.equal(0, #SD.GetAllGuildRecipes())
       AltArmy.SearchSettings.SetIncludeGuildmatesEnabled(true)
-      assert.are.equal(2, #SD.GetAllRecipes())
+      assert.are.equal(2, #SD.GetAllGuildRecipes())
     end)
 
     it("excludes guild recipes when guild sharing is disabled", function()
       AltArmy.GuildShareSettings.SetSharingEnabled(false)
       SD.NotifyRecipesChanged()
-      assert.are.equal(0, #SD.GetAllRecipes())
+      assert.are.equal(0, #SD.GetAllGuildRecipes())
     end)
   end)
 
@@ -719,60 +720,55 @@ describe("SearchData", function()
       assert.are.equal(results[1].characterName, "B")
     end)
 
-    it("lists own characters before guildmates for the same recipe name", function()
-      local oldGetAll = SD.GetAllRecipes
+    it("lists own characters before guildmates when FilterAndSortRecipes merges both", function()
       local oldGetItemInfo = _G.GetItemInfo
       local oldGetSpellInfo = _G.GetSpellInfo
-      SD.GetAllRecipes = function()
-        return {
-          {
-            characterName = "Zebra",
-            realm = "R",
-            professionName = "Alchemy",
-            skillRank = 300,
-            recipeID = 111,
-            isGuild = true,
-          },
-          {
-            characterName = "Alice",
-            realm = "R",
-            professionName = "Alchemy",
-            skillRank = 250,
-            recipeID = 111,
-            isGuild = true,
-          },
-          {
-            characterName = "MageAlt",
-            realm = "R",
-            professionName = "Alchemy",
-            skillRank = 375,
-            recipeID = 111,
-          },
-          {
-            characterName = "PriestAlt",
-            realm = "R",
-            professionName = "Alchemy",
-            skillRank = 200,
-            recipeID = 111,
-          },
-          {
-            characterName = "OtherRecipeOwner",
-            realm = "R",
-            professionName = "Alchemy",
-            skillRank = 100,
-            recipeID = 222,
-            isGuild = true,
-          },
-        }
-      end
       _G.GetItemInfo = function(id)
         if id == 111 then return "Minor Healing Potion", nil, nil, nil, nil, nil, nil, nil, nil, "icon1" end
         if id == 222 then return "Super Mana Potion", nil, nil, nil, nil, nil, nil, nil, nil, "icon2" end
         return nil
       end
       _G.GetSpellInfo = function() return nil end
-      local results = SD.SearchRecipes("potion")
-      SD.GetAllRecipes = oldGetAll
+      local results = SD._FilterAndSortRecipes({
+        {
+          characterName = "Zebra",
+          realm = "R",
+          professionName = "Alchemy",
+          skillRank = 300,
+          recipeID = 111,
+          isGuild = true,
+        },
+        {
+          characterName = "Alice",
+          realm = "R",
+          professionName = "Alchemy",
+          skillRank = 250,
+          recipeID = 111,
+          isGuild = true,
+        },
+        {
+          characterName = "MageAlt",
+          realm = "R",
+          professionName = "Alchemy",
+          skillRank = 375,
+          recipeID = 111,
+        },
+        {
+          characterName = "PriestAlt",
+          realm = "R",
+          professionName = "Alchemy",
+          skillRank = 200,
+          recipeID = 111,
+        },
+        {
+          characterName = "OtherRecipeOwner",
+          realm = "R",
+          professionName = "Alchemy",
+          skillRank = 100,
+          recipeID = 222,
+          isGuild = true,
+        },
+      }, "potion")
       _G.GetItemInfo = oldGetItemInfo
       _G.GetSpellInfo = oldGetSpellInfo
       assert.are.equal(5, #results)
@@ -788,6 +784,45 @@ describe("SearchData", function()
       -- Different recipe name still sorts after (mana after healing).
       assert.are.equal(222, results[5].recipeID)
       assert.are.equal("OtherRecipeOwner", results[5].characterName)
+    end)
+
+    it("SearchRecipes returns only local rows; SearchGuildRecipes returns guild rows", function()
+      local oldGetAll = SD.GetAllRecipes
+      local oldGetGuild = SD.GetAllGuildRecipes
+      local oldGetItemInfo = _G.GetItemInfo
+      local oldGetSpellInfo = _G.GetSpellInfo
+      SD.GetAllRecipes = function()
+        return {
+          { characterName = "Local", realm = "R", professionName = "Alchemy", skillRank = 300, recipeID = 111 },
+        }
+      end
+      SD.GetAllGuildRecipes = function()
+        return {
+          {
+            characterName = "Bob",
+            realm = "R",
+            professionName = "Alchemy",
+            skillRank = 200,
+            recipeID = 111,
+            isGuild = true,
+          },
+        }
+      end
+      _G.GetItemInfo = function(id)
+        if id == 111 then return "Minor Healing Potion" end
+        return nil
+      end
+      _G.GetSpellInfo = function() return nil end
+      local localResults = SD.SearchRecipes("potion")
+      local guildResults = SD.SearchGuildRecipes("potion")
+      SD.GetAllRecipes = oldGetAll
+      SD.GetAllGuildRecipes = oldGetGuild
+      _G.GetItemInfo = oldGetItemInfo
+      _G.GetSpellInfo = oldGetSpellInfo
+      assert.are.equal(1, #localResults)
+      assert.is_nil(localResults[1].isGuild)
+      assert.are.equal(1, #guildResults)
+      assert.is_true(guildResults[1].isGuild)
     end)
 
     it("does not return alias effect spells when both match query", function()
@@ -1271,6 +1306,525 @@ describe("SearchData", function()
     end)
     it("returns false when primaryRecipeID is missing", function()
       assert.is_false(SD._IsRecipeAliasId(11334, { resultItemID = 9187 }))
+    end)
+  end)
+
+  describe("GetSearchTailDebounceSecs", function()
+    it("returns 0 for empty query", function()
+      assert.are.equal(0, SD.GetSearchTailDebounceSecs(nil))
+      assert.are.equal(0, SD.GetSearchTailDebounceSecs(""))
+    end)
+    it("uses 0.4s debounce for 1-character queries", function()
+      assert.are.equal(0.4, SD.GetSearchTailDebounceSecs("a"))
+    end)
+    it("uses 0.1s debounce for 2-character queries", function()
+      assert.are.equal(0.1, SD.GetSearchTailDebounceSecs("ab"))
+    end)
+    it("runs synchronously (0 delay) for 3+ character queries", function()
+      assert.are.equal(0, SD.GetSearchTailDebounceSecs("abc"))
+      assert.are.equal(0, SD.GetSearchTailDebounceSecs("abcd"))
+      assert.are.equal(0, SD.GetSearchTailDebounceSecs("healing potion"))
+    end)
+  end)
+
+  describe("search indexes and suffix array", function()
+    local function stubTwoCharsSameItem()
+      local DS = AltArmy.DataStore
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        IterateContainerSlots = DS.IterateContainerSlots,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+        IterateInventory = DS.IterateInventory,
+      }
+      DS.GetRealms = function() return { R1 = true } end
+      DS.GetCharacters = function()
+        return {
+          Alice = { name = "Alice" },
+          Bob = { name = "Bob" },
+        }
+      end
+      DS.IterateContainerSlots = function(_, char, cb)
+        if char.name == "Alice" then
+          cb(0, 1, 111, 2, "item:111")
+        elseif char.name == "Bob" then
+          cb(0, 1, 111, 5, "item:111")
+          cb(0, 2, 222, 1, "item:222")
+        end
+      end
+      DS.GetCharacterName = function(_, char) return char and char.name or "" end
+      DS.GetCharacterClass = function() return "", "MAGE" end
+      DS.IterateInventory = function() end
+      return old
+    end
+
+    local function restoreDS(old)
+      local DS = AltArmy.DataStore
+      for k, v in pairs(old) do
+        DS[k] = v
+      end
+    end
+
+    it("BuildSlotsByItemID groups duplicate itemIDs", function()
+      local byID = SD._BuildSlotsByItemID({
+        { itemID = 1, characterName = "A" },
+        { itemID = 1, characterName = "B" },
+        { itemID = 2, characterName = "C" },
+      })
+      assert.are.equal(2, #byID[1])
+      assert.are.equal(1, #byID[2])
+    end)
+
+    it("suffix array binary search finds mid-string and prefix ranges", function()
+      local arr = SD._BuildSuffixArray({
+        [10] = "minor healing potion",
+        [20] = "super mana potion",
+      })
+      local potionIds = SD._LookupSuffixArrayIds(arr, "otion")
+      assert.is_true(potionIds[10])
+      assert.is_true(potionIds[20])
+      local minorIds = SD._LookupSuffixArrayIds(arr, "minor")
+      assert.is_true(minorIds[10])
+      assert.is_nil(minorIds[20])
+      local none = SD._LookupSuffixArrayIds(arr, "zzzz")
+      assert.is_nil(next(none))
+    end)
+
+    it("chunked suffix sort finishes across multiple steps and matches full sort", function()
+      assert.is_truthy(SD._BeginChunkedSuffixSort)
+      assert.is_truthy(SD._ChunkedSuffixSortStep)
+      assert.are.equal(200, SD._PREWARM_SORT_RUN)
+
+      local arr = {}
+      for i = 500, 1, -1 do
+        arr[#arr + 1] = { suffix = string.format("name%04d", i), id = i }
+        arr[#arr + 1] = { suffix = string.format("ame%04d", i), id = i }
+        arr[#arr + 1] = { suffix = string.format("me%04d", i), id = i }
+      end
+      local expected = {}
+      for i = 1, #arr do
+        expected[i] = { suffix = arr[i].suffix, id = arr[i].id }
+      end
+      SD._SortSuffixArray(expected)
+
+      local state = SD._BeginChunkedSuffixSort(arr)
+      local steps = 0
+      local done = false
+      while not done and steps < 5000 do
+        done = SD._ChunkedSuffixSortStep(state)
+        steps = steps + 1
+      end
+      assert.is_true(done, "chunked sort did not finish")
+      assert.is_true(steps > 1, "expected multi-step sort for large array, got " .. tostring(steps))
+      assert.are.equal(#expected, #arr)
+      for i = 1, #expected do
+        assert.are.equal(expected[i].suffix, arr[i].suffix)
+        assert.are.equal(expected[i].id, arr[i].id)
+      end
+    end)
+
+    it("chunked suffix sort handles empty and tiny arrays in one step", function()
+      local emptyState = SD._BeginChunkedSuffixSort({})
+      assert.is_true(SD._ChunkedSuffixSortStep(emptyState))
+
+      local tiny = {
+        { suffix = "b", id = 2 },
+        { suffix = "a", id = 1 },
+      }
+      local tinyState = SD._BeginChunkedSuffixSort(tiny)
+      assert.is_true(SD._ChunkedSuffixSortStep(tinyState))
+      assert.are.equal("a", tiny[1].suffix)
+      assert.are.equal("b", tiny[2].suffix)
+    end)
+
+    it("Search by item ID returns all characters with that item", function()
+      local old = stubTwoCharsSameItem()
+      local oldGetItemInfo = _G.GetItemInfo
+      _G.GetItemInfo = function(id)
+        if id == 111 or id == "item:111" then return "Netherweave Cloth" end
+        if id == 222 or id == "item:222" then return "Runecloth" end
+        return nil
+      end
+      SD.NotifyContainerDataChanged()
+      local results = SD.Search(111, true)
+      restoreDS(old)
+      _G.GetItemInfo = oldGetItemInfo
+      assert.are.equal(2, #results)
+      local names = {}
+      for _, r in ipairs(results) do
+        names[r.characterName] = true
+        assert.are.equal(111, r.itemID)
+      end
+      assert.is_true(names.Alice)
+      assert.is_true(names.Bob)
+    end)
+
+    it("Search by mid-string name expands to all stacks of matching itemIDs", function()
+      local old = stubTwoCharsSameItem()
+      local oldGetItemInfo = _G.GetItemInfo
+      _G.GetItemInfo = function(id)
+        if id == 111 or id == "item:111" then return "Minor Healing Potion" end
+        if id == 222 or id == "item:222" then return "Runecloth" end
+        return nil
+      end
+      SD.NotifyContainerDataChanged()
+      local results = SD.Search("otion", true)
+      restoreDS(old)
+      _G.GetItemInfo = oldGetItemInfo
+      assert.are.equal(2, #results)
+      for _, r in ipairs(results) do
+        assert.are.equal(111, r.itemID)
+      end
+    end)
+
+    it("Search by prefix name still matches", function()
+      local old = stubTwoCharsSameItem()
+      local oldGetItemInfo = _G.GetItemInfo
+      _G.GetItemInfo = function(id)
+        if id == 111 or id == "item:111" then return "Minor Healing Potion" end
+        if id == 222 or id == "item:222" then return "Runecloth" end
+        return nil
+      end
+      SD.NotifyContainerDataChanged()
+      local results = SD.Search("minor", true)
+      restoreDS(old)
+      _G.GetItemInfo = oldGetItemInfo
+      assert.are.equal(2, #results)
+    end)
+
+    it("invalidates item index after NotifyContainerDataChanged", function()
+      local old = stubTwoCharsSameItem()
+      local oldGetItemInfo = _G.GetItemInfo
+      _G.GetItemInfo = function(id)
+        if id == 111 or id == "item:111" then return "Cloth" end
+        if id == 222 or id == "item:222" then return "Runecloth" end
+        return nil
+      end
+      SD.NotifyContainerDataChanged()
+      assert.are.equal(2, #SD.Search(111, true))
+      local DS = AltArmy.DataStore
+      DS.IterateContainerSlots = function(_, char, cb)
+        if char.name == "Alice" then
+          cb(0, 1, 111, 1, "item:111")
+        end
+      end
+      SD.NotifyContainerDataChanged()
+      local results = SD.Search(111, true)
+      restoreDS(old)
+      _G.GetItemInfo = oldGetItemInfo
+      assert.are.equal(1, #results)
+      assert.are.equal("Alice", results[1].characterName)
+    end)
+
+    it("SearchRecipes expands one recipeID to multiple characters via index", function()
+      local oldGetAll = SD.GetAllRecipes
+      local oldGetSpellInfo = _G.GetSpellInfo
+      local oldGetItemInfo = _G.GetItemInfo
+      -- Use real index path: stub Build via GetAllRecipes replacement that still sets indexes
+      -- by calling through a temporary list + _FilterAndSortRecipes with byID.
+      local list = {
+        { characterName = "A", realm = "R", professionName = "Alchemy", skillRank = 1, recipeID = 50 },
+        { characterName = "B", realm = "R", professionName = "Alchemy", skillRank = 1, recipeID = 50 },
+        { characterName = "C", realm = "R", professionName = "Alchemy", skillRank = 1, recipeID = 99 },
+      }
+      _G.GetSpellInfo = function(id)
+        if id == 50 then return "Elixir of Healing" end
+        if id == 99 then return "Transmute" end
+        return nil
+      end
+      _G.GetItemInfo = function() return nil end
+      local byID = SD._BuildRecipesByID(list)
+      local names = { [50] = "elixir of healing", [99] = "transmute" }
+      local arr = SD._BuildSuffixArray(names)
+      local results = SD._FilterAndSortRecipes(list, "elixir", byID, function() return arr end)
+      SD.GetAllRecipes = oldGetAll
+      _G.GetSpellInfo = oldGetSpellInfo
+      _G.GetItemInfo = oldGetItemInfo
+      assert.are.equal(2, #results)
+      assert.are.equal(50, results[1].recipeID)
+      assert.are.equal(50, results[2].recipeID)
+    end)
+
+    it("invalidates recipe suffix path after NotifyRecipesChanged", function()
+      local DS = AltArmy.DataStore
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+        GetProfessions = DS.GetProfessions,
+        ForEachCharacter = DS.ForEachCharacter,
+      }
+      DS.GetRealms = function() return { R = true } end
+      DS.GetCharacters = function()
+        return {
+          Char1 = {
+            name = "Char1",
+            Professions = {
+              Alchemy = { rank = 300, Recipes = { [50] = 1 } },
+            },
+          },
+        }
+      end
+      DS.GetCharacterName = function(_, c) return c and c.name or "" end
+      DS.GetCharacterClass = function() return "", "MAGE" end
+      DS.GetProfessions = function(_, c) return c and c.Professions or {} end
+      local oldGetSpellInfo = _G.GetSpellInfo
+      _G.GetSpellInfo = function(id)
+        if id == 50 then return "Test Potion" end
+        if id == 60 then return "Other Spell" end
+        return nil
+      end
+      SD.NotifyRecipesChanged()
+      assert.are.equal(1, #SD.SearchRecipes("potion"))
+      DS.GetCharacters = function()
+        return {
+          Char1 = {
+            name = "Char1",
+            Professions = {
+              Alchemy = { rank = 300, Recipes = { [60] = 1 } },
+            },
+          },
+        }
+      end
+      SD.NotifyRecipesChanged()
+      local results = SD.SearchRecipes("potion")
+      for k, v in pairs(old) do DS[k] = v end
+      _G.GetSpellInfo = oldGetSpellInfo
+      assert.are.equal(0, #results)
+      assert.are.equal(1, #SD.SearchRecipes("other"))
+    end)
+  end)
+
+  describe("index prewarm", function()
+    local function stubSlotsAndRecipes()
+      local DS = AltArmy.DataStore
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        IterateContainerSlots = DS.IterateContainerSlots,
+        IterateInventory = DS.IterateInventory,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+        GetProfessions = DS.GetProfessions,
+        ForEachCharacter = DS.ForEachCharacter,
+      }
+      DS.GetRealms = function() return { R = true } end
+      DS.GetCharacters = function()
+        return {
+          Alice = {
+            name = "Alice",
+            Professions = {
+              Alchemy = { rank = 300, Recipes = { [50] = 1, [60] = 1 } },
+            },
+          },
+        }
+      end
+      DS.IterateContainerSlots = function(_, _char, cb)
+        cb(0, 1, 111, 1, "item:111")
+        cb(0, 2, 222, 1, "item:222")
+      end
+      DS.IterateInventory = function() end
+      DS.GetCharacterName = function(_, c) return c and c.name or "" end
+      DS.GetCharacterClass = function() return "", "MAGE" end
+      DS.GetProfessions = function(_, c) return c and c.Professions or {} end
+      local oldGetItemInfo = _G.GetItemInfo
+      local oldGetSpellInfo = _G.GetSpellInfo
+      _G.GetItemInfo = function(id)
+        if id == 111 or id == "item:111" then return "Minor Healing Potion" end
+        if id == 222 or id == "item:222" then return "Runecloth" end
+        return nil
+      end
+      _G.GetSpellInfo = function(id)
+        if id == 50 then return "Elixir of Giants" end
+        if id == 60 then return "Transmute Iron to Gold" end
+        return nil
+      end
+      return old, oldGetItemInfo, oldGetSpellInfo
+    end
+
+    local function restoreAll(old, oldGetItemInfo, oldGetSpellInfo)
+      local DS = AltArmy.DataStore
+      for k, v in pairs(old) do DS[k] = v end
+      _G.GetItemInfo = oldGetItemInfo
+      _G.GetSpellInfo = oldGetSpellInfo
+      SD.StopIndexPrewarm()
+      SD.ClearSearchCaches()
+    end
+
+    local function drivePrewarmToIdle()
+      local guard = 0
+      while SD.IsIndexPrewarmRunning() and guard < 5000 do
+        SD._PrewarmStep()
+        guard = guard + 1
+      end
+      assert.is_true(guard < 5000, "prewarm did not finish")
+    end
+
+    it("completes item and local recipe suffix arrays via chunked steps", function()
+      local old, oldGetItemInfo, oldGetSpellInfo = stubSlotsAndRecipes()
+      SD.NotifyContainerDataChanged()
+      SD.NotifyRecipesChanged()
+      AltArmy.MainFrame = { IsShown = function() return true end }
+      SD.StartIndexPrewarm()
+      assert.is_true(SD.IsIndexPrewarmRunning())
+      drivePrewarmToIdle()
+      local itemArr = SD._GetItemSuffixArrayForTests()
+      local recipeArr = SD._GetLocalRecipeSuffixArrayForTests()
+      assert.is_truthy(itemArr)
+      assert.is_true(#itemArr > 0)
+      assert.is_truthy(recipeArr)
+      assert.is_true(#recipeArr > 0)
+      local potionIds = SD._LookupSuffixArrayIds(itemArr, "otion")
+      assert.is_true(potionIds[111])
+      local elixirIds = SD._LookupSuffixArrayIds(recipeArr, "elixir")
+      assert.is_true(elixirIds[50])
+      restoreAll(old, oldGetItemInfo, oldGetSpellInfo)
+      AltArmy.MainFrame = nil
+    end)
+
+    it("stops and clears on invalidate mid-prewarm", function()
+      local old, oldGetItemInfo, oldGetSpellInfo = stubSlotsAndRecipes()
+      SD.NotifyContainerDataChanged()
+      AltArmy.MainFrame = { IsShown = function() return false end }
+      SD.StartIndexPrewarm()
+      assert.is_true(SD.IsIndexPrewarmRunning())
+      SD._PrewarmStep()
+      SD.NotifyContainerDataChanged()
+      assert.is_false(SD.IsIndexPrewarmRunning())
+      assert.is_nil(SD._GetItemSuffixArrayForTests())
+      restoreAll(old, oldGetItemInfo, oldGetSpellInfo)
+      AltArmy.MainFrame = nil
+    end)
+
+    it("Ensure sync-finish during incomplete prewarm matches full BuildSuffixArray", function()
+      local old, oldGetItemInfo, oldGetSpellInfo = stubSlotsAndRecipes()
+      SD.NotifyContainerDataChanged()
+      AltArmy.MainFrame = { IsShown = function() return false end }
+      SD.StartIndexPrewarm()
+      -- One step: slots only; item suffix not ready yet.
+      SD._PrewarmStep()
+      assert.is_nil(SD._GetItemSuffixArrayForTests())
+      local results = SD.Search("otion", true)
+      assert.are.equal(1, #results)
+      assert.are.equal(111, results[1].itemID)
+      local arr = SD._GetItemSuffixArrayForTests()
+      assert.is_truthy(arr)
+      local expected = SD._BuildSuffixArray({
+        [111] = "minor healing potion",
+        [222] = "runecloth",
+      })
+      assert.are.equal(#expected, #arr)
+      restoreAll(old, oldGetItemInfo, oldGetSpellInfo)
+      AltArmy.MainFrame = nil
+    end)
+  end)
+
+  describe("index build debug logging", function()
+    it("logs suffix array build timing when search debug is on", function()
+      local logs = {}
+      local prevDebug = AltArmy.Debug
+      AltArmy.Debug = {
+        IsSearchEnabled = function() return true end,
+        LogSearch = function(msg) logs[#logs + 1] = msg end,
+      }
+      local oldStart, oldStop = _G.debugprofilestart, _G.debugprofilestop
+      _G.debugprofilestart = function() end
+      _G.debugprofilestop = function() return 2.25 end
+
+      SD._BuildSuffixArray({ [1] = "foo", [2] = "barbaz" })
+
+      _G.debugprofilestart = oldStart
+      _G.debugprofilestop = oldStop
+      AltArmy.Debug = prevDebug
+
+      local found = false
+      for _, msg in ipairs(logs) do
+        if type(msg) == "string" and msg:find("index suffixArray", 1, true)
+            and msg:find("ms=", 1, true) then
+          found = true
+          break
+        end
+      end
+      assert.is_true(found, "expected index suffixArray timing log")
+    end)
+
+    it("logs prewarm start/done and sort phases when search debug is on", function()
+      local DS = AltArmy.DataStore
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        IterateContainerSlots = DS.IterateContainerSlots,
+        IterateInventory = DS.IterateInventory,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+        GetProfessions = DS.GetProfessions,
+      }
+      DS.GetRealms = function() return { R = true } end
+      DS.GetCharacters = function()
+        return {
+          Alice = {
+            name = "Alice",
+            Professions = { Alchemy = { rank = 300, Recipes = { [50] = 1 } } },
+          },
+        }
+      end
+      DS.IterateContainerSlots = function(_, _char, cb)
+        cb(0, 1, 111, 1, "item:111")
+      end
+      DS.IterateInventory = function() end
+      DS.GetCharacterName = function(_, c) return c and c.name or "" end
+      DS.GetCharacterClass = function() return "", "MAGE" end
+      DS.GetProfessions = function(_, c) return c and c.Professions or {} end
+      local oldGetItemInfo = _G.GetItemInfo
+      local oldGetSpellInfo = _G.GetSpellInfo
+      _G.GetItemInfo = function(id)
+        if id == 111 or id == "item:111" then return "Minor Healing Potion" end
+        return nil
+      end
+      _G.GetSpellInfo = function(id)
+        if id == 50 then return "Elixir of Giants" end
+        return nil
+      end
+      local oldGetTime = _G.GetTime
+      _G.GetTime = function() return 10 end
+
+      local logs = {}
+      local prevDebug = AltArmy.Debug
+      AltArmy.Debug = {
+        IsSearchEnabled = function() return true end,
+        LogSearch = function(msg) logs[#logs + 1] = msg end,
+      }
+      local oldStart, oldStop = _G.debugprofilestart, _G.debugprofilestop
+      _G.debugprofilestart = function() end
+      _G.debugprofilestop = function() return 1 end
+
+      SD.ClearSearchCaches()
+      AltArmy.MainFrame = { IsShown = function() return true end }
+      SD.StartIndexPrewarm()
+      local guard = 0
+      while SD.IsIndexPrewarmRunning() and guard < 5000 do
+        SD._PrewarmStep()
+        guard = guard + 1
+      end
+
+      _G.debugprofilestart = oldStart
+      _G.debugprofilestop = oldStop
+      _G.GetItemInfo = oldGetItemInfo
+      _G.GetSpellInfo = oldGetSpellInfo
+      _G.GetTime = oldGetTime
+      for k, v in pairs(old) do DS[k] = v end
+      AltArmy.Debug = prevDebug
+      SD.StopIndexPrewarm()
+      SD.ClearSearchCaches()
+      AltArmy.MainFrame = nil
+
+      local joined = table.concat(logs, "\n")
+      assert.is_truthy(joined:find("index prewarm start", 1, true))
+      assert.is_truthy(joined:find("prewarm itemSuffix", 1, true))
+      assert.is_truthy(joined:find("prewarm localRecipeSuffix", 1, true))
+      assert.is_truthy(joined:find("index prewarm done", 1, true))
     end)
   end)
 end)

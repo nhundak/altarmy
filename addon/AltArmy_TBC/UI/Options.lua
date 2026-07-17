@@ -327,7 +327,7 @@ local debugSearchHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighl
 debugSearchHint:SetPoint("TOPLEFT", debugSearchRow, "BOTTOMLEFT", 0, -8)
 debugSearchHint:SetWidth(520)
 debugSearchHint:SetJustifyH("LEFT")
-debugSearchHint:SetText("Logs search pipeline timing in chat when using the Search tab.")
+    debugSearchHint:SetText("Logs search pipeline and index-build timing in chat when using the Search tab.")
 
 local debugCooldownsRow = Theme.CreateLabeledCheckbox(tabDebug, {
     point = "TOPLEFT",
