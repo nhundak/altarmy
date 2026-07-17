@@ -47,7 +47,7 @@ describe("GuildTabData", function()
   end)
 
   describe("GetPrimaryProfessions", function()
-    it("returns only crafting professions with rank, highest skill first", function()
+    it("returns crafting then gathering professions with rank, highest skill first within each group", function()
       local m = member({ name = "A", profs = {
         { key = "tailoring", name = "Tailoring", rank = 375 },
         { key = "alchemy", name = "Alchemy", rank = 300 },
@@ -59,8 +59,33 @@ describe("GuildTabData", function()
         {
           { key = "tailoring", name = "Tailoring", rank = 375 },
           { key = "alchemy", name = "Alchemy", rank = 300 },
+          { key = "mining", name = "Mining", rank = 300 },
         },
         GTD.GetPrimaryProfessions(m))
+    end)
+
+    it("sorts gathering professions to the right of crafting even when gathering rank is higher", function()
+      local m = member({ name = "A", profs = {
+        { key = "mining", name = "Mining", rank = 375 },
+        { key = "alchemy", name = "Alchemy", rank = 1 },
+        { key = "herbalism", name = "Herbalism", rank = 300 },
+      } })
+      assert.are.same({
+        { key = "alchemy", name = "Alchemy", rank = 1 },
+        { key = "mining", name = "Mining", rank = 375 },
+        { key = "herbalism", name = "Herbalism", rank = 300 },
+      }, GTD.GetPrimaryProfessions(m))
+    end)
+
+    it("includes skinning and recognizes gathering keys stored as display names", function()
+      local m = member({ name = "A", profs = {
+        { key = "Skinning", name = "Skinning", rank = 300 },
+        { key = "Herbalism", name = "Herbalism", rank = 150 },
+      } })
+      assert.are.same({
+        { key = "skinning", name = "Skinning", rank = 300 },
+        { key = "herbalism", name = "Herbalism", rank = 150 },
+      }, GTD.GetPrimaryProfessions(m))
     end)
 
     it("breaks skill-rank ties alphabetically by name", function()
@@ -80,16 +105,23 @@ describe("GuildTabData", function()
       local m = member({ name = "A", profs = {
         { key = "tailoring", name = "Tailoring", rank = 0 },
         { key = "alchemy", name = "Alchemy", rank = 1 },
+        { key = "mining", name = "Mining", rank = 0 },
       } })
       assert.are.same({ { key = "alchemy", name = "Alchemy", rank = 1 } }, GTD.GetPrimaryProfessions(m))
     end)
 
-    it("excludes poisons", function()
+    it("excludes poisons and lockpicking", function()
       local m = member({ name = "A", profs = {
         { key = "poisons", name = "Poisons", rank = 300 },
+        { key = "lockpicking", name = "Lockpicking", rank = 300 },
+        { key = "Lockpicking", name = "Lockpicking", rank = 300 },
         { key = "alchemy", name = "Alchemy", rank = 300 },
+        { key = "mining", name = "Mining", rank = 300 },
       } })
-      assert.are.same({ { key = "alchemy", name = "Alchemy", rank = 300 } }, GTD.GetPrimaryProfessions(m))
+      assert.are.same({
+        { key = "alchemy", name = "Alchemy", rank = 300 },
+        { key = "mining", name = "Mining", rank = 300 },
+      }, GTD.GetPrimaryProfessions(m))
     end)
 
     it("includes the specialization label when present", function()
@@ -105,6 +137,20 @@ describe("GuildTabData", function()
     end)
   end)
 
+  describe("GetCraftingProfessions", function()
+    it("returns only crafting professions (no gathering)", function()
+      local m = member({ name = "A", profs = {
+        { key = "tailoring", name = "Tailoring", rank = 375 },
+        { key = "mining", name = "Mining", rank = 375 },
+        { key = "herbalism", name = "Herbalism", rank = 300 },
+        { key = "cooking", name = "Cooking", rank = 300 },
+      } })
+      assert.are.same(
+        { { key = "tailoring", name = "Tailoring", rank = 375 } },
+        GTD.GetCraftingProfessions(m))
+    end)
+  end)
+
   describe("FormatProfessions", function()
     it("lists each profession with its skill level in gray parentheses", function()
       local m = member({ name = "A", profs = {
@@ -113,6 +159,16 @@ describe("GuildTabData", function()
       } })
       assert.are.equal(
         "Tailoring |cff808080(375)|r, Alchemy |cff808080(300)|r",
+        GTD.FormatProfessions(m))
+    end)
+
+    it("lists gathering professions after crafting professions", function()
+      local m = member({ name = "A", profs = {
+        { key = "mining", name = "Mining", rank = 375 },
+        { key = "alchemy", name = "Alchemy", rank = 300 },
+      } })
+      assert.are.equal(
+        "Alchemy |cff808080(300)|r, Mining |cff808080(375)|r",
         GTD.FormatProfessions(m))
     end)
 
@@ -1122,19 +1178,37 @@ describe("GuildTabData", function()
   end)
 
   describe("FormatNoProfessionsMessage", function()
-    it("embeds the class-colored character name", function()
+    it("embeds the class-colored character name when there are no professions", function()
       local m = member({ name = "Newbie", classFile = "WARRIOR" })
       assert.are.equal("No known professions for Newbie",
+        GTD.FormatNoProfessionsMessage(m, plainFormatName))
+    end)
+
+    it("says they have no professions with recipes when only gathering is known", function()
+      local m = member({ name = "Gatherer", classFile = "DRUID", profs = {
+        { key = "mining", name = "Mining", rank = 300 },
+        { key = "herbalism", name = "Herbalism", rank = 150 },
+      } })
+      assert.are.equal("Gatherer has no professions with recipes",
+        GTD.FormatNoProfessionsMessage(m, plainFormatName))
+    end)
+
+    it("says they have no professions with recipes when only secondary skills are known", function()
+      local m = member({ name = "Cook", classFile = "MAGE", profs = {
+        { key = "cooking", name = "Cooking", rank = 300 },
+        { key = "poisons", name = "Poisons", rank = 300 },
+      } })
+      assert.are.equal("Cook has no professions with recipes",
         GTD.FormatNoProfessionsMessage(m, plainFormatName))
     end)
   end)
 
   describe("FormatNoProfessionRecipesMessage", function()
-    it("embeds the class-colored character name", function()
+    it("embeds the profession, class-colored character name, and a gray sharing hint", function()
       local m = member({ name = "Bob", classFile = "MAGE" })
       assert.are.equal(
-        "No recipes known for Bob",
-        GTD.FormatNoProfessionRecipesMessage(m, plainFormatName))
+        "No known Alchemy recipes for Bob\n\n|cff808080Data will be shared when they open their Alchemy screen|r",
+        GTD.FormatNoProfessionRecipesMessage(m, plainFormatName, "Alchemy"))
     end)
   end)
 

@@ -24,6 +24,18 @@ local _guildRecipeSuffixArray = nil
 local _itemNameCache = {}
 local _recipeNameCache = {}
 local _itemAggregateGroup = nil
+-- Shared recipe name/icon by profession+recipeID+resultItemID (skill text stays per entry).
+local recipeVisualCache = {}
+
+-- Chunked enrich+display prewarm for the current recipe result list (scroll warm-up).
+local RECIPE_RESULT_PREWARM_CHUNK = 40
+local _resultPrewarmFrame = CreateFrame("Frame")
+local _resultPrewarm = {
+    list = nil,
+    index = 1,
+    generation = 0,
+}
+local StopRecipeResultPrewarm
 
 -- Background index prewarm (chunked OnUpdate). Packed into one table for the local limit.
 local PREWARM_NAME_CHUNK = 200
@@ -130,6 +142,166 @@ local function LogIndexBuild(kind, ms, detail)
     SearchProfileStart()
 end
 
+-- Scroll paint debug: throttled so OnValueChanged spam does not flood chat / worsen hitching.
+local SCROLL_SUMMARY_INTERVAL_SEC = 0.5
+local SCROLL_SLOW_MS = 2.5
+local SCROLL_SLOW_LOG_INTERVAL_SEC = 0.25
+local SCROLL_IDLE_RESET_SEC = 1.5
+
+local function NewScrollDebugWindow()
+    return {
+        paints = 0,
+        sumMs = 0,
+        maxMs = 0,
+        enrichCold = 0,
+        enrichWarm = 0,
+        displayCold = 0,
+        displayWarm = 0,
+        itemRows = 0,
+        recipeRows = 0,
+        tooltipRows = 0,
+        lastSummaryAt = nil,
+        lastSlowLogAt = nil,
+        lastPaintAt = nil,
+    }
+end
+
+local scrollDebugWindow = NewScrollDebugWindow()
+
+function SD._ResetScrollPaintDebugForTests()
+    scrollDebugWindow = NewScrollDebugWindow()
+end
+
+--- Start timing one UpdateVisibleRows paint. Returns nil when search debug is off.
+function SD.BeginScrollPaintDebug()
+    if not SearchDebugEnabled() then
+        return nil
+    end
+    SearchProfileStart()
+    return {
+        enrichCold = 0,
+        enrichWarm = 0,
+        displayCold = 0,
+        displayWarm = 0,
+        itemRows = 0,
+        recipeRows = 0,
+        tooltipRows = 0,
+    }
+end
+
+--- Call before enrich/display cache so cold vs warm reflects this paint.
+function SD.NoteScrollRecipePaint(stats, entry)
+    if not stats or not entry then
+        return
+    end
+    stats.recipeRows = (stats.recipeRows or 0) + 1
+    if entry._aaCraftEnriched then
+        stats.enrichWarm = (stats.enrichWarm or 0) + 1
+    else
+        stats.enrichCold = (stats.enrichCold or 0) + 1
+    end
+    if entry._aaDisplayCached then
+        stats.displayWarm = (stats.displayWarm or 0) + 1
+    else
+        stats.displayCold = (stats.displayCold or 0) + 1
+    end
+end
+
+function SD.NoteScrollItemPaint(stats)
+    if not stats then
+        return
+    end
+    stats.itemRows = (stats.itemRows or 0) + 1
+end
+
+function SD.NoteScrollTooltipPaint(stats)
+    if not stats then
+        return
+    end
+    stats.tooltipRows = (stats.tooltipRows or 0) + 1
+end
+
+local function MaybeResetScrollWindow(now)
+    local last = scrollDebugWindow.lastPaintAt
+    if last and (now - last) >= SCROLL_IDLE_RESET_SEC then
+        scrollDebugWindow = NewScrollDebugWindow()
+    end
+end
+
+--- Finish one paint: accumulate window stats; log slow paints and periodic summaries.
+--- `now` is optional (defaults to GetTime()) for tests.
+function SD.EndScrollPaintDebug(stats, now)
+    if not stats or not SearchDebugEnabled() then
+        return false
+    end
+    local ms = SearchProfileElapsedMs()
+    stats.ms = ms
+    now = now or (GetTime and GetTime()) or 0
+    MaybeResetScrollWindow(now)
+
+    local w = scrollDebugWindow
+    w.paints = w.paints + 1
+    w.sumMs = w.sumMs + ms
+    if ms > w.maxMs then
+        w.maxMs = ms
+    end
+    w.enrichCold = w.enrichCold + (stats.enrichCold or 0)
+    w.enrichWarm = w.enrichWarm + (stats.enrichWarm or 0)
+    w.displayCold = w.displayCold + (stats.displayCold or 0)
+    w.displayWarm = w.displayWarm + (stats.displayWarm or 0)
+    w.itemRows = w.itemRows + (stats.itemRows or 0)
+    w.recipeRows = w.recipeRows + (stats.recipeRows or 0)
+    w.tooltipRows = w.tooltipRows + (stats.tooltipRows or 0)
+    w.lastPaintAt = now
+
+    local logged = false
+    if ms >= SCROLL_SLOW_MS then
+        local lastSlow = w.lastSlowLogAt
+        if not lastSlow or (now - lastSlow) >= SCROLL_SLOW_LOG_INTERVAL_SEC then
+            LogSearchDebug(string.format(
+                "  scroll paint ms=%.2f items=%d recipes=%d tooltip=%d"
+                    .. " enrichCold=%d enrichWarm=%d displayCold=%d displayWarm=%d",
+                ms,
+                stats.itemRows or 0,
+                stats.recipeRows or 0,
+                stats.tooltipRows or 0,
+                stats.enrichCold or 0,
+                stats.enrichWarm or 0,
+                stats.displayCold or 0,
+                stats.displayWarm or 0
+            ))
+            w.lastSlowLogAt = now
+            logged = true
+        end
+    end
+
+    local lastSummary = w.lastSummaryAt
+    if not lastSummary then
+        w.lastSummaryAt = now
+    elseif (now - lastSummary) >= SCROLL_SUMMARY_INTERVAL_SEC and w.paints > 0 then
+        local avg = w.sumMs / w.paints
+        LogSearchDebug(string.format(
+            "  scroll window paints=%d avgMs=%.2f maxMs=%.2f items=%d recipes=%d tooltip=%d"
+                .. " enrichCold=%d enrichWarm=%d displayCold=%d displayWarm=%d",
+            w.paints,
+            avg,
+            w.maxMs,
+            w.itemRows,
+            w.recipeRows,
+            w.tooltipRows,
+            w.enrichCold,
+            w.enrichWarm,
+            w.displayCold,
+            w.displayWarm
+        ))
+        scrollDebugWindow = NewScrollDebugWindow()
+        scrollDebugWindow.lastSummaryAt = now
+        scrollDebugWindow.lastPaintAt = now
+        logged = true
+    end
+    return logged
+end
+
 local function CountMapKeys(t)
     local n = 0
     for _ in pairs(t or {}) do
@@ -208,6 +380,10 @@ function SD.ClearSearchCaches()
     _guildRecipeSuffixArray = nil
     _itemNameCache = {}
     _recipeNameCache = {}
+    recipeVisualCache = {}
+    if StopRecipeResultPrewarm then
+        StopRecipeResultPrewarm()
+    end
 end
 
 --- Debounce delay (seconds) for tooltip-only search tail.
@@ -2320,6 +2496,141 @@ local function EnrichRecipeEntry(entry)
     return entry
 end
 SD._EnrichRecipeEntry = EnrichRecipeEntry
+
+--- Resolve and cache recipe row display fields (name, icon, skill text) after first paint.
+--- Name/icon are shared by recipe identity; skill text is per entry (skillRank/difficulty).
+--- Highlighting is applied by the UI from `_aaRecipeBaseName`; not stored here.
+function SD.EnsureRecipeDisplayCache(entry)
+    if not entry or entry._aaDisplayCached then
+        return entry
+    end
+    local cacheKey = tostring(entry.professionName or "") .. ":"
+        .. tostring(entry.recipeID or "") .. ":" .. tostring(entry.resultItemID or "")
+    local visual = recipeVisualCache[cacheKey]
+    local recipeName
+    local iconPath
+    if visual then
+        recipeName = visual.name
+        iconPath = visual.iconPath
+    else
+        recipeName = "Recipe " .. tostring(entry.recipeID or "?")
+        iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
+        if GetSpellInfo and entry.recipeID then
+            local name, _, spellIcon = GetSpellInfo(entry.recipeID)
+            if name then
+                recipeName = name
+            end
+            if spellIcon and not entry.resultItemID then
+                iconPath = spellIcon
+            end
+        end
+        if recipeName == ("Recipe " .. tostring(entry.recipeID or "?")) and GetItemInfo and entry.recipeID then
+            local name = GetItemInfo(entry.recipeID)
+            if name then
+                recipeName = name
+            end
+        end
+        if entry.resultItemID and GetItemInfo then
+            local _, _, _, _, _, _, _, _, _, resultIcon = GetItemInfo(entry.resultItemID)
+            if resultIcon then
+                iconPath = resultIcon
+            end
+        elseif GetItemInfo and entry.recipeID then
+            local _, _, _, _, _, _, _, _, _, icon = GetItemInfo(entry.recipeID)
+            if icon then
+                iconPath = icon
+            end
+        end
+        local profName = entry.professionName or ""
+        if profName ~= "" then
+            recipeName = profName .. ": " .. recipeName
+        end
+        recipeVisualCache[cacheKey] = { name = recipeName, iconPath = iconPath }
+    end
+    local skillText
+    local RCL = AltArmy and AltArmy.RecipeCraftLib
+    if RCL and RCL.FormatSkillCell then
+        skillText = RCL.FormatSkillCell(entry.recipeSkillRequired, entry.skillRank, entry.difficulty)
+    else
+        skillText = tostring(entry.skillRank or 0)
+    end
+    entry._aaRecipeBaseName = recipeName
+    entry._aaIconPath = iconPath
+    entry._aaSkillCellText = skillText
+    entry._aaDisplayCached = true
+    return entry
+end
+
+StopRecipeResultPrewarm = function()
+    _resultPrewarmFrame:SetScript("OnUpdate", nil)
+    _resultPrewarm.list = nil
+    _resultPrewarm.index = 1
+end
+
+function SD.StopRecipeResultPrewarm()
+    StopRecipeResultPrewarm()
+end
+
+function SD.IsRecipeResultPrewarmRunning()
+    return _resultPrewarm.list ~= nil
+end
+
+--- Warm enrich + display cache for a recipe result list in OnUpdate chunks (scroll-friendly).
+function SD.StartRecipeResultPrewarm(list)
+    StopRecipeResultPrewarm()
+    if not list or #list == 0 then
+        return
+    end
+    _resultPrewarm.list = list
+    _resultPrewarm.index = 1
+    _resultPrewarm.generation = _resultPrewarm.generation + 1
+    local generation = _resultPrewarm.generation
+    _resultPrewarmFrame:SetScript("OnUpdate", function()
+        if generation ~= _resultPrewarm.generation then
+            return
+        end
+        local rows = _resultPrewarm.list
+        if not rows then
+            StopRecipeResultPrewarm()
+            return
+        end
+        local i = _resultPrewarm.index
+        local last = math.min(i + RECIPE_RESULT_PREWARM_CHUNK - 1, #rows)
+        for j = i, last do
+            local entry = rows[j]
+            EnrichRecipeEntry(entry)
+            SD.EnsureRecipeDisplayCache(entry)
+        end
+        _resultPrewarm.index = last + 1
+        if _resultPrewarm.index > #rows then
+            StopRecipeResultPrewarm()
+        end
+    end)
+end
+
+function SD._TickRecipeResultPrewarmForTests()
+    local onUpdate = _resultPrewarmFrame.GetScript and _resultPrewarmFrame:GetScript("OnUpdate")
+    if type(onUpdate) == "function" then
+        onUpdate(_resultPrewarmFrame, 0)
+        return
+    end
+    -- Spec CreateFrame mocks often no-op SetScript; advance one chunk directly.
+    local rows = _resultPrewarm.list
+    if not rows then
+        return
+    end
+    local i = _resultPrewarm.index
+    local last = math.min(i + RECIPE_RESULT_PREWARM_CHUNK - 1, #rows)
+    for j = i, last do
+        local entry = rows[j]
+        EnrichRecipeEntry(entry)
+        SD.EnsureRecipeDisplayCache(entry)
+    end
+    _resultPrewarm.index = last + 1
+    if _resultPrewarm.index > #rows then
+        StopRecipeResultPrewarm()
+    end
+end
 
 --- True when search settings require CraftLib fields on every hit (level/difficulty/source).
 --- Profession filter does not need enrichment.

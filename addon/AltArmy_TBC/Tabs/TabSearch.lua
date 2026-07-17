@@ -18,10 +18,16 @@ local OVERLAY_ICON_SIZE = 14
 local HEADER_HEIGHT = 18
 local HEADER_ROW_GAP = 3  -- space between section header and first data row
 -- Virtualized list: only render rows near the viewport
-local ROW_BUFFER = 3   -- extra rows above/below viewport to render
-local ITEM_POOL_SIZE = 32
-local RECIPE_POOL_SIZE = 32
-local TOOLTIP_ONLY_POOL_SIZE = 32
+local ROW_BUFFER = 6   -- extra rows above/below viewport; larger = fewer refill flickers while scrolling
+local ITEM_POOL_SIZE = 40
+local RECIPE_POOL_SIZE = 40
+local TOOLTIP_ONLY_POOL_SIZE = 40
+-- Refill before the visible window reaches the edge of the painted buffer.
+local PAINT_COVER_MARGIN = 1
+local forceVisiblePaint = true
+local paintedItemsFirst, paintedItemsLast = nil, nil
+local paintedRecipesFirst, paintedRecipesLast = nil, nil
+local paintedTooltipFirst, paintedTooltipLast = nil, nil
 
 local SD = AltArmy.SearchData
 if not SD or not SD.SearchWithLocationGroups or not SD.SearchRecipes then
@@ -313,6 +319,8 @@ local itemGroups = {}
 local tooltipOnlyItemList = {}
 local tooltipOnlyItemGroups = {}
 local tooltipOnlyResultRows = {}
+-- Built in UpdateResults; reused by UpdateVisibleRows so scroll does not rebuild guild roster.
+local searchRosterByName = nil
 local UpdateVisibleRows
 local UpdateResults
 local RefreshSearchHeaderSortLabels
@@ -835,6 +843,13 @@ end
 local function fillItemRow(row, entry, showRealmSuffix, rowOpts)
     if not row or not entry then return end
     rowOpts = rowOpts or {}
+    if rowOpts.scrollDebug then
+        if rowOpts.scrollDebugIsTooltip then
+            SD.NoteScrollTooltipPaint(rowOpts.scrollDebug)
+        else
+            SD.NoteScrollItemPaint(rowOpts.scrollDebug)
+        end
+    end
     local highlightSearch = rowOpts.highlightSearch ~= false
     local searchQuery = rowOpts.searchQuery
     row.entry = entry
@@ -866,54 +881,47 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
     local highlightSearch = rowOpts.highlightSearch ~= false
     local searchQuery = rowOpts.searchQuery
     row.entry = entry
+    if rowOpts.scrollDebug and SD.NoteScrollRecipePaint then
+        SD.NoteScrollRecipePaint(rowOpts.scrollDebug, entry)
+    end
     -- Viewport-only CraftLib enrich (search defers this unless filters need it).
     if SD._EnrichRecipeEntry then
         SD._EnrichRecipeEntry(entry)
     end
-    local recipeName = "Recipe " .. tostring(entry.recipeID or "?")
-    local iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
-    if GetSpellInfo and entry.recipeID then
-        local name = GetSpellInfo(entry.recipeID)
-        if name then recipeName = name end
+    if SD.EnsureRecipeDisplayCache then
+        SD.EnsureRecipeDisplayCache(entry)
     end
-    if recipeName == ("Recipe " .. tostring(entry.recipeID or "?")) and GetItemInfo and entry.recipeID then
-        local name = GetItemInfo(entry.recipeID)
-        if name then recipeName = name end
-    end
-    if entry.resultItemID and GetItemInfo then
-        local _, _, _, _, _, _, _, _, _, resultIcon = GetItemInfo(entry.resultItemID)
-        if resultIcon then iconPath = resultIcon end
-    end
-    if not entry.resultItemID and GetItemInfo and entry.recipeID then
-        local _, _, _, _, _, _, _, _, _, icon = GetItemInfo(entry.recipeID)
-        if icon then iconPath = icon end
-    end
-    if not entry.resultItemID and GetSpellInfo and entry.recipeID then
-        local _, _, spellIcon = GetSpellInfo(entry.recipeID)
-        if spellIcon then iconPath = spellIcon end
-    end
-    local profName = entry.professionName or ""
-    if profName ~= "" then
-        recipeName = profName .. ": " .. recipeName
-    end
+    local recipeName = entry._aaRecipeBaseName
+        or ("Recipe " .. tostring(entry.recipeID or "?"))
     recipeName = maybeHighlightSearchText(recipeName, highlightSearch, searchQuery)
+    local iconPath = entry._aaIconPath or "Interface\\Icons\\INV_Misc_QuestionMark"
     local iconPrefix = ("|T%s:0|t "):format(iconPath)
     SetItemCellTruncated(row.cells.Recipe, recipeName, "", iconPrefix, recipeColWidths.Recipe or 354)
     local namePart = buildCharacterNamePart(entry, showRealmSuffix)
-    local charSuffix = entry.isGuild and "|cff8ab4f8 (Guild)|r" or nil
-    SetCharacterCellTruncated(row.cells.Character, namePart, charSuffix, recipeColWidths.Character or 160)
     local Nav = AltArmy.SearchGuildNav
+    local charSuffix
+    if entry.isGuild then
+        if Nav and Nav.FormatGuildRecipeCharacterSuffix then
+            charSuffix = Nav.FormatGuildRecipeCharacterSuffix(
+                entry.characterName, entry.realm, rowOpts)
+        else
+            charSuffix = "|cff8ab4f8 (Guild)|r"
+        end
+    end
+    SetCharacterCellTruncated(row.cells.Character, namePart, charSuffix, recipeColWidths.Character or 160)
     local clickable = Nav and Nav.IsGuildRecipeCharacterClickable
         and Nav.IsGuildRecipeCharacterClickable(entry)
     if row.characterBtn then
         row.characterBtn:SetShown(clickable and true or false)
     end
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
-    local skillText
-    if RCL and RCL.FormatSkillCell then
-        skillText = RCL.FormatSkillCell(entry.recipeSkillRequired, entry.skillRank, entry.difficulty)
-    else
-        skillText = tostring(entry.skillRank or 0)
+    local skillText = entry._aaSkillCellText
+    if not skillText then
+        local RCL = AltArmy and AltArmy.RecipeCraftLib
+        if RCL and RCL.FormatSkillCell then
+            skillText = RCL.FormatSkillCell(entry.recipeSkillRequired, entry.skillRank, entry.difficulty)
+        else
+            skillText = tostring(entry.skillRank or 0)
+        end
     end
     row.cells.Skill:SetText(skillText)
 end
@@ -1040,7 +1048,10 @@ local function positionPooledRow(row, rowY)
 end
 
 -- Virtualized list: fill only rows in the visible range + buffer. Call after layout and on scroll.
+-- While the visible window stays inside the last painted buffer, skip refills so SetVerticalScroll
+-- moves already-filled rows (no blank/flicker). Refill when the visible edge nears the buffer.
 UpdateVisibleRows = function()
+    local scrollDbg = SD.BeginScrollPaintDebug and SD.BeginScrollPaintDebug() or nil
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     local nItems = categories.Items and #itemList or 0
     local nRecipes = categories.Recipes and #recipeList or 0
@@ -1050,13 +1061,27 @@ UpdateVisibleRows = function()
     local viewHeight = scrollFrame:GetHeight()
     local itemsSectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
     local searchQuery = frame.lastQuery or ""
-    local highlightRowOpts = { searchQuery = searchQuery, highlightSearch = true }
-    local tooltipOnlyRowOpts = { highlightSearch = false }
+    local highlightRowOpts = { searchQuery = searchQuery, highlightSearch = true, scrollDebug = scrollDbg }
+    if searchRosterByName then
+        highlightRowOpts.rosterByName = searchRosterByName
+        highlightRowOpts.onlineCache = {}
+    end
+    local tooltipOnlyRowOpts = {
+        highlightSearch = false,
+        scrollDebug = scrollDbg,
+        scrollDebugIsTooltip = true,
+    }
+    local force = forceVisiblePaint
 
     -- Items: visible range and render range (with buffer)
     local itemsRange = VirtualList.GetRenderRange(
         scrollValue, viewHeight, itemsSectionTop, ROW_HEIGHT, nItems, ROW_BUFFER)
-    if itemsRange then
+    local refillItems = force
+        or not itemsRange
+        or not VirtualList.IsVisibleRangeCovered(
+            itemsRange.firstVisible, itemsRange.lastVisible,
+            paintedItemsFirst, paintedItemsLast, PAINT_COVER_MARGIN)
+    if itemsRange and refillItems then
         local firstRender = itemsRange.firstRender
         local lastRender = itemsRange.lastRender
         local totalColX = (colWidths.Item or 280) + (colWidths.Character or 160)
@@ -1071,9 +1096,13 @@ UpdateVisibleRows = function()
                 local entry = itemList[dataIndex]
                 local rowY = VirtualList.RowTopOffset(itemsSectionTop, dataIndex, ROW_HEIGHT)
                 positionPooledRow(row, rowY)
-                fillItemRow(row, entry, showRealmSuffix, highlightRowOpts)
+                if row.dataIndex ~= dataIndex then
+                    fillItemRow(row, entry, showRealmSuffix, highlightRowOpts)
+                    row.dataIndex = dataIndex
+                elseif scrollDbg then
+                    SD.NoteScrollItemPaint(scrollDbg)
+                end
                 row:Show()
-                row.dataIndex = dataIndex
             end,
             function(poolIdx)
                 local row = resultRows[poolIdx]
@@ -1096,13 +1125,16 @@ UpdateVisibleRows = function()
             end
         end
         hideUnusedOverlays(groupOverlayPool, overlayIdx)
-    else
+        paintedItemsFirst = firstRender
+        paintedItemsLast = lastRender
+    elseif not itemsRange then
         for _, row in ipairs(resultRows) do
             row:Hide()
             row.entry = nil
             row.dataIndex = nil
         end
         hideUnusedOverlays(groupOverlayPool, 0)
+        paintedItemsFirst, paintedItemsLast = nil, nil
     end
 
     -- Recipes: visible range and render range
@@ -1112,7 +1144,12 @@ UpdateVisibleRows = function()
     end
     local recipesRange = VirtualList.GetRenderRange(
         scrollValue, viewHeight, recipesSectionTop, ROW_HEIGHT, nRecipes, ROW_BUFFER)
-    if recipesRange then
+    local refillRecipes = force
+        or not recipesRange
+        or not VirtualList.IsVisibleRangeCovered(
+            recipesRange.firstVisible, recipesRange.lastVisible,
+            paintedRecipesFirst, paintedRecipesLast, PAINT_COVER_MARGIN)
+    if recipesRange and refillRecipes then
         VirtualList.ForEachPoolSlot(RECIPE_POOL_SIZE, recipesRange.firstRender, recipesRange.renderCount,
             function(poolIdx, dataIndex)
                 local row = recipeRows[poolIdx]
@@ -1123,7 +1160,12 @@ UpdateVisibleRows = function()
                 local entry = recipeList[dataIndex]
                 local rowY = VirtualList.RowTopOffset(recipesSectionTop, dataIndex, ROW_HEIGHT)
                 positionPooledRow(row, rowY)
-                fillRecipeRow(row, entry, showRealmSuffix, highlightRowOpts)
+                if row.dataIndex ~= dataIndex then
+                    fillRecipeRow(row, entry, showRealmSuffix, highlightRowOpts)
+                    row.dataIndex = dataIndex
+                elseif scrollDbg then
+                    SD.NoteScrollRecipePaint(scrollDbg, entry)
+                end
                 row:Show()
             end,
             function(poolIdx)
@@ -1131,13 +1173,18 @@ UpdateVisibleRows = function()
                 if row then
                     row:Hide()
                     row.entry = nil
+                    row.dataIndex = nil
                 end
             end)
-    else
+        paintedRecipesFirst = recipesRange.firstRender
+        paintedRecipesLast = recipesRange.lastRender
+    elseif not recipesRange then
         for _, row in ipairs(recipeRows) do
             row:Hide()
             row.entry = nil
+            row.dataIndex = nil
         end
+        paintedRecipesFirst, paintedRecipesLast = nil, nil
     end
 
     -- "You may also be interested in:" tooltip-only section
@@ -1152,7 +1199,12 @@ UpdateVisibleRows = function()
     end
     local tooltipOnlyRange = VirtualList.GetRenderRange(
         scrollValue, viewHeight, tooltipOnlySectionTop, ROW_HEIGHT, nTooltipOnly, ROW_BUFFER)
-    if tooltipOnlyRange then
+    local refillTooltip = force
+        or not tooltipOnlyRange
+        or not VirtualList.IsVisibleRangeCovered(
+            tooltipOnlyRange.firstVisible, tooltipOnlyRange.lastVisible,
+            paintedTooltipFirst, paintedTooltipLast, PAINT_COVER_MARGIN)
+    if tooltipOnlyRange and refillTooltip then
         local firstRender = tooltipOnlyRange.firstRender
         local lastRender = tooltipOnlyRange.lastRender
         local totalColX = (colWidths.Item or 280) + (colWidths.Character or 160)
@@ -1167,9 +1219,13 @@ UpdateVisibleRows = function()
                 local entry = tooltipOnlyItemList[dataIndex]
                 local rowY = VirtualList.RowTopOffset(tooltipOnlySectionTop, dataIndex, ROW_HEIGHT)
                 positionPooledRow(row, rowY)
-                fillItemRow(row, entry, showRealmSuffix, tooltipOnlyRowOpts)
+                if row.dataIndex ~= dataIndex then
+                    fillItemRow(row, entry, showRealmSuffix, tooltipOnlyRowOpts)
+                    row.dataIndex = dataIndex
+                elseif scrollDbg then
+                    SD.NoteScrollTooltipPaint(scrollDbg)
+                end
                 row:Show()
-                row.dataIndex = dataIndex
             end,
             function(poolIdx)
                 local row = tooltipOnlyResultRows[poolIdx]
@@ -1192,19 +1248,27 @@ UpdateVisibleRows = function()
             end
         end
         hideUnusedOverlays(tooltipOnlyGroupOverlayPool, overlayIdx)
-    else
+        paintedTooltipFirst = firstRender
+        paintedTooltipLast = lastRender
+    elseif not tooltipOnlyRange then
         for _, row in ipairs(tooltipOnlyResultRows) do
             row:Hide()
             row.entry = nil
             row.dataIndex = nil
         end
         hideUnusedOverlays(tooltipOnlyGroupOverlayPool, 0)
+        paintedTooltipFirst, paintedTooltipLast = nil, nil
     end
 
+    forceVisiblePaint = false
     UpdateStickyHeaders()
+    if scrollDbg and SD.EndScrollPaintDebug then
+        SD.EndScrollPaintDebug(scrollDbg)
+    end
 end
 
--- Wire scroll to refresh visible rows (must be after UpdateVisibleRows is defined)
+-- Wire scroll to refresh visible rows (must be after UpdateVisibleRows is defined).
+-- SetVerticalScroll is sync; UpdateVisibleRows usually no-ops fills while buffer covers the viewport.
 searchScrollBar:SetScript("OnValueChanged", function(_, value)
     scrollFrame:SetVerticalScroll(value)
     UpdateVisibleRows()
@@ -1212,6 +1276,15 @@ end)
 
 UpdateResults = function()
     applySectionSorts()
+    forceVisiblePaint = true
+    paintedItemsFirst, paintedItemsLast = nil, nil
+    paintedRecipesFirst, paintedRecipesLast = nil, nil
+    paintedTooltipFirst, paintedTooltipLast = nil, nil
+    if GTD and GTD.BuildRosterLastOnlineMap then
+        searchRosterByName = GTD.BuildRosterLastOnlineMap()
+    else
+        searchRosterByName = nil
+    end
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     local nItems = categories.Items and #itemList or 0
     local nRecipes = categories.Recipes and #recipeList or 0
@@ -1322,6 +1395,9 @@ UpdateResults = function()
         end
     end
     RefreshSearchHeaderSortLabels()
+    if SD.StartRecipeResultPrewarm then
+        SD.StartRecipeResultPrewarm(recipeList)
+    end
     UpdateVisibleRows()
     UpdateNoResultsHint()
 end

@@ -387,6 +387,93 @@ describe("RecipeCraftLib", function()
       assert.is_nil(entry.difficulty)
       assert.is_nil(entry.recipeSource)
     end)
+
+    it("reuses static enrich fields without CraftLib when lookup cache is cleared", function()
+      local lookupCalls = 0
+      _G.GetSpellInfo = function() return "Alchemy" end
+      _G.CraftLib = {
+        IsReady = function() return true end,
+        GetProfessions = function()
+          return { alchemy = { id = 1, name = "Alchemy", recipes = {} } }
+        end,
+        GetRecipeBySpellId = function(_, profKey, spellId)
+          if profKey == "alchemy" and spellId == 11449 then
+            lookupCalls = lookupCalls + 1
+            return {
+              id = 11449,
+              skillRequired = 180,
+              skillRange = { yellow = 195, green = 210, gray = 225 },
+              source = { type = "trainer" },
+              expansion = 1,
+            }
+          end
+          return nil
+        end,
+        GetRecipeByItemId = function() return nil end,
+        GetRecipeByProduct = function() return nil end,
+        GetRecipeDifficulty = function(_, _, skill)
+          if skill >= 210 then return "green" end
+          if skill >= 195 then return "yellow" end
+          return "orange"
+        end,
+      }
+      local a = {
+        professionName = "Alchemy",
+        recipeID = 11449,
+        skillRank = 220,
+        characterName = "Alice",
+      }
+      local b = {
+        professionName = "Alchemy",
+        recipeID = 11449,
+        skillRank = 190,
+        characterName = "Bob",
+      }
+      RCL.EnrichEntry(a)
+      assert.are.equal(1, lookupCalls)
+      RCL._ClearLookupCacheOnlyForTests()
+      RCL.EnrichEntry(b)
+      -- Static enrich cache must satisfy Bob without another CraftLib spell lookup.
+      assert.are.equal(1, lookupCalls)
+      assert.are.equal(180, a.recipeSkillRequired)
+      assert.are.equal(180, b.recipeSkillRequired)
+      assert.are.equal("trainer", a.recipeSource)
+      assert.are.equal("trainer", b.recipeSource)
+      assert.are.equal("tbc", a.recipeExpansion)
+      assert.are.equal("green", a.difficulty)
+      assert.are.equal("orange", b.difficulty)
+    end)
+
+    it("ClearCaches forces a fresh CraftLib lookup", function()
+      local lookupCalls = 0
+      _G.GetSpellInfo = function() return "Alchemy" end
+      _G.CraftLib = {
+        IsReady = function() return true end,
+        GetProfessions = function()
+          return { alchemy = { id = 1, name = "Alchemy", recipes = {} } }
+        end,
+        GetRecipeBySpellId = function(_, profKey, spellId)
+          if profKey == "alchemy" and spellId == 11449 then
+            lookupCalls = lookupCalls + 1
+            return {
+              id = 11449,
+              skillRequired = 180,
+              skillRange = { yellow = 195, green = 210, gray = 225 },
+              source = { type = "vendor" },
+              expansion = 0,
+            }
+          end
+          return nil
+        end,
+        GetRecipeByItemId = function() return nil end,
+        GetRecipeByProduct = function() return nil end,
+      }
+      local entry = { professionName = "Alchemy", recipeID = 11449, skillRank = 200 }
+      RCL.EnrichEntry(entry)
+      RCL.ClearCaches()
+      RCL.EnrichEntry({ professionName = "Alchemy", recipeID = 11449, skillRank = 200 })
+      assert.are.equal(2, lookupCalls)
+    end)
   end)
 
   describe("GetDifficulty", function()

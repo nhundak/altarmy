@@ -1247,10 +1247,20 @@ local function forwardRecipeWheel(_, delta)
     recipeViewport.SetOffset(recipeViewport.scroll:GetVerticalScroll() - delta * RECIPE_WHEEL_STEP)
 end
 
-local noProfText = recipeBody:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-noProfText:SetPoint("CENTER", recipeBody, "CENTER", 0, 0)
+-- Empty-state copy region ignores the profession tab strip so "no professions" and
+-- "no recipes" messages share the same vertical position under the character title.
+local emptyMsgRegion = CreateFrame("Frame", nil, listView)
+emptyMsgRegion:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
+emptyMsgRegion:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
+emptyMsgRegion:EnableMouse(false)
+emptyMsgRegion:Hide()
+
+local noProfText = emptyMsgRegion:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+-- TOP at region center (+ half line) so the first line matches a single-line CENTER message.
+noProfText:SetPoint("TOP", emptyMsgRegion, "CENTER", 0, 7)
 noProfText:SetWidth(360)
 noProfText:SetJustifyH("CENTER")
+noProfText:SetJustifyV("TOP")
 noProfText:Hide()
 
 local loadingText = recipeBody:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -2024,7 +2034,7 @@ layoutRecipeView = function(entry)
     if not entry then return end
     clearPendingRecipeIcons()
     updateRecipeSearchPlaceholder(entry)
-    local profs = GTD.GetPrimaryProfessions(entry)
+    local profs = GTD.GetCraftingProfessions(entry)
     -- Re-resolve preferred profession while search focus is still pending (profs may load late).
     if focusScrollPending and (focusProfessionKey or focusProfessionName) then
         local Nav = AltArmy.SearchGuildNav
@@ -2082,7 +2092,7 @@ layoutRecipeView = function(entry)
         end
         tab:ClearAllPoints()
         tab:SetPoint("LEFT", profTabStrip, "LEFT", tabX, 0)
-        local labelText = prof.name or prof.key or "?"
+        local labelText = (prof.name or prof.key or "?") .. " (" .. (prof.rank or 0) .. ")"
         tab.label:SetText(labelText)
         local textWidth = tab.label:GetStringWidth() or 40
         tab:SetWidth(math.max(64, textWidth + 16))
@@ -2141,7 +2151,7 @@ layoutRecipeView = function(entry)
         recipeViewportFrame:Hide()
         hideRecipeRowsFrom(1)
         noProfText:SetText(GTD.FormatNoProfessionRecipesMessage(
-            entry, formatName))
+            entry, formatName, selectedProf and selectedProf.name))
         noProfText:Show()
         return
     end
@@ -2218,6 +2228,7 @@ showGuildList = function()
     anchorListViewportBelowColHeader()
     listViewport:Show()
     recipeBody:Hide()
+    emptyMsgRegion:Hide()
     profTabStrip:Hide()
     craftLibRecommendBtn:Hide()
     craftLibRecommendPanel:Hide()
@@ -2233,7 +2244,7 @@ showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredR
     local Nav = AltArmy.SearchGuildNav
     if (preferredProfKey or preferredProfName) and Nav and Nav.FindProfessionIndex then
         selectedProfIndex = Nav.FindProfessionIndex(
-            GTD.GetPrimaryProfessions(entry), preferredProfKey, preferredProfName)
+            GTD.GetCraftingProfessions(entry), preferredProfKey, preferredProfName)
     end
     recipeSortKey, recipeSortAscending = GTD.GetDefaultRecipeSort(isCraftLibAvailable())
     -- Quiet clear so OnTextChanged does not layout/wipe focus mid-open.
@@ -2252,6 +2263,7 @@ showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredR
     emptyText:Hide()
     updateListHeaderFade()
     recipeBody:Show()
+    emptyMsgRegion:Show()
     if entry.source and entry.source ~= "local" then
         local Comm = AltArmy.GuildShareComm
         if Comm and Comm.RequestRecipesForCharacter then
@@ -2486,6 +2498,7 @@ local function refreshImpl()
             emptyText:Hide()
             updateListHeaderFade()
             recipeBody:Show()
+            emptyMsgRegion:Show()
             layoutRecipeView(selectedCharacter)
             return
         end

@@ -195,4 +195,62 @@ describe("SearchGuildNav", function()
     assert.are.equal("Level 70 Mage", lines[2])
     assert.are.equal("Online (as Alice)", lines[3])
   end)
+
+  it("IsGuildRecipePlayerOnline is true when any character in the main group is online", function()
+    AltArmy.GuildShareData = {
+      GetCharacter = function(name, realm)
+        return {
+          name = name,
+          realm = realm,
+          main = "ChiefMain",
+          guildName = "G",
+        }
+      end,
+      GetGuildMembersForDisplay = function()
+        return {
+          { name = "Bob", realm = "R", main = "ChiefMain" },
+          { name = "Alice", realm = "R", main = "ChiefMain", isMain = true },
+        }
+      end,
+    }
+    package.loaded["GuildTabData"] = nil
+    require("GuildTabData")
+    assert.is_true(Nav.IsGuildRecipePlayerOnline("Bob", "R", {
+      rosterByName = {
+        bob = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+        alice = { online = true },
+      },
+    }))
+    assert.is_false(Nav.IsGuildRecipePlayerOnline("Bob", "R", {
+      rosterByName = {
+        bob = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+        alice = { online = false, years = 0, months = 0, days = 2, hours = 0 },
+      },
+    }))
+  end)
+
+  it("FormatGuildRecipeCharacterSuffix colors Online white and Offline gray", function()
+    package.loaded["GuildTabData"] = nil
+    require("GuildTabData")
+    AltArmy.GuildShareData = {
+      GetCharacter = function(name, realm)
+        return { name = name, realm = realm, main = name, guildName = "G" }
+      end,
+      GetGuildMembersForDisplay = function()
+        return { { name = "Bob", realm = "R", main = "Bob", isMain = true } }
+      end,
+    }
+    assert.are.equal(
+      "|cff8ab4f8 (Guild |r|cffffffffOnline|r|cff8ab4f8)|r",
+      Nav.FormatGuildRecipeCharacterSuffix("Bob", "R", {
+        rosterByName = { bob = { online = true } },
+      }))
+    assert.are.equal(
+      "|cff8ab4f8 (Guild |r|cff808080Offline|r|cff8ab4f8)|r",
+      Nav.FormatGuildRecipeCharacterSuffix("Bob", "R", {
+        rosterByName = {
+          bob = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+        },
+      }))
+  end)
 end)

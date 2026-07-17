@@ -91,6 +91,25 @@ describe("VirtualList", function()
     end)
   end)
 
+  describe("IsVisibleRangeCovered", function()
+    it("returns false when painted bounds are missing", function()
+      assert.is_false(VirtualList.IsVisibleRangeCovered(1, 5, nil, 10, 1))
+      assert.is_false(VirtualList.IsVisibleRangeCovered(1, 5, 1, nil, 1))
+    end)
+
+    it("is true while visible stays inside painted range with margin", function()
+      -- painted 7..23, margin 1 → safe while visible within 8..22
+      assert.is_true(VirtualList.IsVisibleRangeCovered(10, 20, 7, 23, 1))
+      assert.is_true(VirtualList.IsVisibleRangeCovered(8, 22, 7, 23, 1))
+    end)
+
+    it("is false when visible reaches the painted edge within margin", function()
+      assert.is_false(VirtualList.IsVisibleRangeCovered(7, 20, 7, 23, 1))
+      assert.is_false(VirtualList.IsVisibleRangeCovered(10, 23, 7, 23, 1))
+      assert.is_false(VirtualList.IsVisibleRangeCovered(15, 25, 7, 23, 1))
+    end)
+  end)
+
   describe("ForEachPoolSlot", function()
     it("invokes show for renderCount slots and hide for the rest", function()
       local shown = {}

@@ -1152,6 +1152,136 @@ describe("SearchData", function()
     end)
   end)
 
+  describe("EnsureRecipeDisplayCache", function()
+    it("resolves name icon and skill text once then reuses cache", function()
+      local spellCalls = 0
+      _G.GetSpellInfo = function(id)
+        if id == 11449 then
+          spellCalls = spellCalls + 1
+          return "Greater Mana Potion", nil, "Interface\\Icons\\INV_Potion_73"
+        end
+        return "Alchemy"
+      end
+      _G.GetItemInfo = function() return nil end
+      local entry = {
+        professionName = "Alchemy",
+        recipeID = 11449,
+        resultItemID = nil,
+        recipeSkillRequired = 180,
+        skillRank = 300,
+        difficulty = "gray",
+      }
+      SD.EnsureRecipeDisplayCache(entry)
+      SD.EnsureRecipeDisplayCache(entry)
+      assert.are.equal(1, spellCalls)
+      assert.are.equal("Alchemy: Greater Mana Potion", entry._aaRecipeBaseName)
+      assert.are.equal("Interface\\Icons\\INV_Potion_73", entry._aaIconPath)
+      assert.is_truthy(entry._aaSkillCellText)
+      assert.is_truthy(entry._aaSkillCellText:find("180", 1, true))
+      assert.is_truthy(entry._aaDisplayCached)
+    end)
+
+    it("uses result item icon when available", function()
+      _G.GetSpellInfo = function(id)
+        if id == 11449 then
+          return "Greater Mana Potion"
+        end
+        return "Alchemy"
+      end
+      _G.GetItemInfo = function(id)
+        if id == 1710 then
+          return "Greater Mana Potion", nil, nil, nil, nil, nil, nil, nil, nil,
+            "Interface\\Icons\\INV_Potion_72"
+        end
+        return nil
+      end
+      local entry = {
+        professionName = "Alchemy",
+        recipeID = 11449,
+        resultItemID = 1710,
+        skillRank = 200,
+      }
+      SD.EnsureRecipeDisplayCache(entry)
+      assert.are.equal("Interface\\Icons\\INV_Potion_72", entry._aaIconPath)
+    end)
+
+    it("reuses name and icon by recipe identity across characters", function()
+      local spellCalls = 0
+      _G.GetSpellInfo = function(id)
+        if id == 11449 then
+          spellCalls = spellCalls + 1
+          return "Greater Mana Potion", nil, "Interface\\Icons\\INV_Potion_73"
+        end
+        return "Alchemy"
+      end
+      _G.GetItemInfo = function() return nil end
+      local a = {
+        professionName = "Alchemy",
+        recipeID = 11449,
+        skillRank = 300,
+        recipeSkillRequired = 180,
+        difficulty = "gray",
+        characterName = "Alice",
+      }
+      local b = {
+        professionName = "Alchemy",
+        recipeID = 11449,
+        skillRank = 200,
+        recipeSkillRequired = 180,
+        difficulty = "yellow",
+        characterName = "Bob",
+      }
+      SD.EnsureRecipeDisplayCache(a)
+      SD.EnsureRecipeDisplayCache(b)
+      assert.are.equal(1, spellCalls)
+      assert.are.equal(a._aaRecipeBaseName, b._aaRecipeBaseName)
+      assert.are.equal(a._aaIconPath, b._aaIconPath)
+      assert.is_truthy(a._aaSkillCellText:find("/300", 1, true))
+      assert.is_truthy(b._aaSkillCellText:find("/200", 1, true))
+    end)
+  end)
+
+  describe("StartRecipeResultPrewarm", function()
+    before_each(function()
+      if SD.StopRecipeResultPrewarm then
+        SD.StopRecipeResultPrewarm()
+      end
+      _G.CraftLib = nil
+      if AltArmy.RecipeCraftLib and AltArmy.RecipeCraftLib.ClearCaches then
+        AltArmy.RecipeCraftLib.ClearCaches()
+      end
+    end)
+
+    it("enriches and display-caches entries across OnUpdate chunks", function()
+      local spellCalls = 0
+      _G.GetSpellInfo = function(id)
+        if id == 1 or id == 2 or id == 3 then
+          spellCalls = spellCalls + 1
+          return "Spell" .. tostring(id)
+        end
+        return "Alchemy"
+      end
+      _G.GetItemInfo = function() return nil end
+      local list = {
+        { professionName = "Alchemy", recipeID = 1, skillRank = 100 },
+        { professionName = "Alchemy", recipeID = 2, skillRank = 100 },
+        { professionName = "Alchemy", recipeID = 3, skillRank = 100 },
+      }
+      SD.StartRecipeResultPrewarm(list)
+      assert.is_true(SD.IsRecipeResultPrewarmRunning())
+      -- Force tiny chunks via test helper if available; otherwise tick until done.
+      local guard = 0
+      while SD.IsRecipeResultPrewarmRunning() and guard < 20 do
+        SD._TickRecipeResultPrewarmForTests()
+        guard = guard + 1
+      end
+      assert.is_false(SD.IsRecipeResultPrewarmRunning())
+      assert.is_true(list[1]._aaCraftEnriched)
+      assert.is_true(list[3]._aaDisplayCached)
+      assert.is_truthy(list[2]._aaRecipeBaseName)
+    end)
+  end)
+
   describe("deferred recipe enrich", function()
     local function stubCraftEnrichCounter()
       local calls = { n = 0 }
@@ -2356,6 +2486,116 @@ describe("SearchData", function()
       assert.is_truthy(itemLog:find("aggGroup=", 1, true), itemLog)
       assert.is_truthy(itemLog:find("aggScore=", 1, true), itemLog)
       assert.is_truthy(itemLog:find("aggSort=", 1, true), itemLog)
+    end)
+  end)
+
+  describe("scroll paint debug logging", function()
+    local function withSearchDebug(fn)
+      local logs = {}
+      local prevDebug = AltArmy.Debug
+      AltArmy.Debug = {
+        IsSearchEnabled = function() return true end,
+        LogSearch = function(msg) logs[#logs + 1] = msg end,
+      }
+      local oldStart, oldStop = _G.debugprofilestart, _G.debugprofilestop
+      local tick = 0
+      _G.debugprofilestart = function() end
+      _G.debugprofilestop = function()
+        tick = tick + 1
+        return tick * 1.0
+      end
+      local ok, err = pcall(fn, logs)
+      _G.debugprofilestart = oldStart
+      _G.debugprofilestop = oldStop
+      AltArmy.Debug = prevDebug
+      if not ok then error(err) end
+      return logs
+    end
+
+    before_each(function()
+      SD._ResetScrollPaintDebugForTests()
+    end)
+
+    it("BeginScrollPaintDebug returns nil when search debug is off", function()
+      local prevDebug = AltArmy.Debug
+      AltArmy.Debug = {
+        IsSearchEnabled = function() return false end,
+        LogSearch = function() end,
+      }
+      assert.is_nil(SD.BeginScrollPaintDebug())
+      AltArmy.Debug = prevDebug
+    end)
+
+    it("counts enrich/display cold vs warm before fill", function()
+      withSearchDebug(function()
+        local stats = SD.BeginScrollPaintDebug()
+        assert.is_truthy(stats)
+        SD.NoteScrollRecipePaint(stats, { recipeID = 1 })
+        SD.NoteScrollRecipePaint(stats, {
+          recipeID = 2,
+          _aaCraftEnriched = true,
+          _aaDisplayCached = true,
+        })
+        SD.NoteScrollItemPaint(stats)
+        assert.are.equal(1, stats.enrichCold)
+        assert.are.equal(1, stats.enrichWarm)
+        assert.are.equal(1, stats.displayCold)
+        assert.are.equal(1, stats.displayWarm)
+        assert.are.equal(2, stats.recipeRows)
+        assert.are.equal(1, stats.itemRows)
+      end)
+    end)
+
+    it("logs a summary on the summary interval and a slow paint when over threshold", function()
+      local logs = withSearchDebug(function()
+        -- Force slow ms via debugprofilestop returning large values.
+        _G.debugprofilestop = function() return 5.0 end
+        local stats = SD.BeginScrollPaintDebug()
+        SD.NoteScrollRecipePaint(stats, { recipeID = 1 })
+        SD.EndScrollPaintDebug(stats, 1.0)
+        -- Second paint within summary window should not emit another summary yet.
+        stats = SD.BeginScrollPaintDebug()
+        SD.NoteScrollRecipePaint(stats, {
+          recipeID = 1,
+          _aaCraftEnriched = true,
+          _aaDisplayCached = true,
+        })
+        SD.EndScrollPaintDebug(stats, 1.2)
+        -- Past summary interval: emit window summary.
+        stats = SD.BeginScrollPaintDebug()
+        SD.EndScrollPaintDebug(stats, 1.0 + 0.51)
+      end)
+      local slowLog, summaryLog
+      for _, msg in ipairs(logs) do
+        if type(msg) == "string" then
+          if msg:find("scroll paint ms=", 1, true) then
+            slowLog = msg
+          end
+          if msg:find("scroll window", 1, true) then
+            summaryLog = msg
+          end
+        end
+      end
+      assert.is_truthy(slowLog, "expected slow paint log")
+      assert.is_truthy(slowLog:find("enrichCold=", 1, true), slowLog)
+      assert.is_truthy(summaryLog, "expected scroll window summary")
+      assert.is_truthy(summaryLog:find("paints=", 1, true), summaryLog)
+      assert.is_truthy(summaryLog:find("avgMs=", 1, true), summaryLog)
+      assert.is_truthy(summaryLog:find("maxMs=", 1, true), summaryLog)
+    end)
+
+    it("does not log when search debug is off", function()
+      local logs = {}
+      local prevDebug = AltArmy.Debug
+      AltArmy.Debug = {
+        IsSearchEnabled = function() return false end,
+        LogSearch = function(msg) logs[#logs + 1] = msg end,
+      }
+      local stats = SD.BeginScrollPaintDebug()
+      SD.NoteScrollRecipePaint(stats, { recipeID = 1 })
+      SD.EndScrollPaintDebug(stats, 10)
+      AltArmy.Debug = prevDebug
+      assert.are.equal(0, #logs)
     end)
   end)
 end)

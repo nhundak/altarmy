@@ -58,7 +58,18 @@ function VirtualList.GroupPoolSpan(group, firstRender, lastRender)
     }
 end
 
---- Drive a fixed-size row pool: onShow(poolIdx, dataIndex) then onHide(poolIdx) for unused slots.
+--- True when [firstVisible, lastVisible] stays inside [paintedFirst, paintedLast]
+--- with at least `margin` rows of slack on each side (refill before hitting the edge).
+function VirtualList.IsVisibleRangeCovered(firstVisible, lastVisible, paintedFirst, paintedLast, margin)
+    if not paintedFirst or not paintedLast or not firstVisible or not lastVisible then
+        return false
+    end
+    margin = margin or 0
+    return firstVisible >= (paintedFirst + margin)
+        and lastVisible <= (paintedLast - margin)
+end
+
+--- Invoke onShow(poolIdx, dataIndex) for active slots and onHide(poolIdx) for the rest.
 function VirtualList.ForEachPoolSlot(poolSize, firstRender, renderCount, onShow, onHide)
     poolSize = poolSize or 0
     renderCount = renderCount or 0

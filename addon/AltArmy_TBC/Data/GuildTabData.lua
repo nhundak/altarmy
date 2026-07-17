@@ -10,6 +10,8 @@ AltArmy.GuildTabData = AltArmy.GuildTabData or {}
 local GTD = AltArmy.GuildTabData
 
 local GRAY = "|cff808080"
+local GUILD_TAG_COLOR = "|cff8ab4f8"
+local WHITE = "|cffffffff"
 local SEARCH_MATCH_COLOR = "|cff00ff00"
 
 --- Trim and lowercase a guild-tab search query; empty string when absent.
@@ -111,8 +113,7 @@ local function entryMatchesQuery(entry, query)
     return false
 end
 
--- Crafting professions shown on character rows. Gathering + secondary skills
--- (cooking, first aid, fishing, mining, herbalism, skinning, riding) and poisons are omitted.
+-- Crafting professions (recipe tabs + left side of character-row profession list).
 GTD.PRIMARY_PROFESSION_KEYS = {
     alchemy = true,
     blacksmithing = true,
@@ -123,27 +124,105 @@ GTD.PRIMARY_PROFESSION_KEYS = {
     tailoring = true,
 }
 
---- A character's primary crafting professions (rank > 0), each { key, name, rank, spec }, sorted by
---- highest skill rank first, then alphabetically by name for ties.
-function GTD.GetPrimaryProfessions(entry)
-    local out = {}
-    local profs = entry and entry.Professions
-    if type(profs) ~= "table" then return out end
-    for key, prof in pairs(profs) do
-        if GTD.PRIMARY_PROFESSION_KEYS[key] and (prof.rank or 0) > 0 then
-            out[#out + 1] = {
-                key = key,
-                name = prof.name or key,
-                rank = prof.rank or 0,
-                spec = prof.spec,
-            }
-        end
-    end
-    table.sort(out, function(a, b)
+-- Gathering professions shown on character rows (right of crafting). Not recipe tabs.
+-- Secondary skills (cooking, first aid, fishing, riding), poisons, and lockpicking are omitted.
+GTD.GATHERING_PROFESSION_KEYS = {
+    herbalism = true,
+    mining = true,
+    skinning = true,
+}
+
+local function sortProfessionsByRankThenName(list)
+    table.sort(list, function(a, b)
         if a.rank ~= b.rank then return a.rank > b.rank end
         return a.name:lower() < b.name:lower()
     end)
+end
+
+--- Map a stored profession table key (or display name) to a stable crafting/gathering key.
+--- Returns nil for secondary skills, poisons, lockpicking, and unknown professions.
+local function resolveDisplayProfessionKey(key, prof)
+    if type(key) ~= "string" or key == "" then return nil end
+    if GTD.PRIMARY_PROFESSION_KEYS[key] or GTD.GATHERING_PROFESSION_KEYS[key] then
+        return key
+    end
+    local lower = key:lower()
+    if GTD.PRIMARY_PROFESSION_KEYS[lower] or GTD.GATHERING_PROFESSION_KEYS[lower] then
+        return lower
+    end
+    local name = prof and prof.name
+    if type(name) == "string" and name ~= "" then
+        local nameLower = name:lower()
+        if GTD.PRIMARY_PROFESSION_KEYS[nameLower] or GTD.GATHERING_PROFESSION_KEYS[nameLower] then
+            return nameLower
+        end
+    end
+    return nil
+end
+
+local function collectProfessions(entry, includeGathering)
+    local crafting = {}
+    local gathering = {}
+    local profs = entry and entry.Professions
+    if type(profs) ~= "table" then
+        return crafting, gathering
+    end
+    for key, prof in pairs(profs) do
+        if (prof.rank or 0) > 0 then
+            local resolved = resolveDisplayProfessionKey(key, prof)
+            if resolved then
+                local row = {
+                    key = resolved,
+                    name = prof.name or key,
+                    rank = prof.rank or 0,
+                    spec = prof.spec,
+                }
+                if GTD.GATHERING_PROFESSION_KEYS[resolved] then
+                    if includeGathering then
+                        gathering[#gathering + 1] = row
+                    end
+                else
+                    crafting[#crafting + 1] = row
+                end
+            end
+        end
+    end
+    sortProfessionsByRankThenName(crafting)
+    if includeGathering then
+        sortProfessionsByRankThenName(gathering)
+    end
+    return crafting, gathering
+end
+
+--- Character-row professions (rank > 0): crafting first, then gathering on the right.
+--- Each entry is { key, name, rank, spec }. Within each group: highest rank first, then name.
+function GTD.GetPrimaryProfessions(entry)
+    local crafting, gathering = collectProfessions(entry, true)
+    local out = {}
+    for i = 1, #crafting do
+        out[#out + 1] = crafting[i]
+    end
+    for i = 1, #gathering do
+        out[#out + 1] = gathering[i]
+    end
     return out
+end
+
+--- Crafting-only professions for recipe tabs (excludes gathering).
+function GTD.GetCraftingProfessions(entry)
+    local crafting = collectProfessions(entry, false)
+    return crafting
+end
+
+local function hasAnyProfessionWithRank(entry)
+    local profs = entry and entry.Professions
+    if type(profs) ~= "table" then return false end
+    for _, prof in pairs(profs) do
+        if (prof.rank or 0) > 0 then
+            return true
+        end
+    end
+    return false
 end
 
 local function findProfessionByKey(char, profKey)
@@ -387,14 +466,24 @@ function GTD.FormatCharacterTitle(entry, formatName)
     return formatNamePart(entry, formatName)
 end
 
---- Message when a character has no primary crafting professions.
+--- Empty-state copy when recipe tabs are unavailable.
+--- Truly no professions → "No known professions for {name}".
+--- Has professions but none crafting → "{name} has no professions with recipes".
 function GTD.FormatNoProfessionsMessage(entry, formatName)
-    return "No known professions for " .. formatNamePart(entry, formatName)
+    local name = formatNamePart(entry, formatName)
+    if hasAnyProfessionWithRank(entry) then
+        return name .. " has no professions with recipes"
+    end
+    return "No known professions for " .. name
 end
 
 --- Empty-state copy when a profession is known but its recipe list is empty.
-function GTD.FormatNoProfessionRecipesMessage(entry, formatName)
-    return "No recipes known for " .. formatNamePart(entry, formatName)
+--- Second line (gray) explains recipes arrive when they open that profession screen.
+function GTD.FormatNoProfessionRecipesMessage(entry, formatName, professionName)
+    local name = formatNamePart(entry, formatName)
+    local profession = (professionName and professionName ~= "") and professionName or "profession"
+    return "No known " .. profession .. " recipes for " .. name
+        .. "\n\n" .. GRAY .. "Data will be shared when they open their " .. profession .. " screen|r"
 end
 
 --- Sorted unique guild names from characters on `realm` that have a guild set.
@@ -991,6 +1080,15 @@ function GTD.FormatClassDisplayName(classFile)
     return classFile:sub(1, 1):upper() .. classFile:sub(2):lower()
 end
 
+--- Search-result character suffix for guildmate recipes: "(Guild Online/Offline)".
+--- "Guild" stays in the guild tag color; Online is white, Offline is gray.
+function GTD.FormatGuildSearchCharacterSuffix(isOnline)
+    if isOnline then
+        return GUILD_TAG_COLOR .. " (Guild |r" .. WHITE .. "Online|r" .. GUILD_TAG_COLOR .. ")|r"
+    end
+    return GUILD_TAG_COLOR .. " (Guild |r" .. GRAY .. "Offline|r" .. GUILD_TAG_COLOR .. ")|r"
+end
+
 --- Lines for a search-result guildmate name tooltip.
 --- opts: name, preferredName, classFile, level, presenceDetail?, formatName?, classDisplayName?
 --- Returns `{ line1, line2, line3? }` (line3 omitted when presence is unknown).
@@ -1125,8 +1223,9 @@ end
 
 --- Professions column: "Name — Spec (rank), ..." with the specialization (when present) after
 --- an em dash in the default (white) color and the gray skill level in parentheses.
---- Optional `query` highlights matching substrings in profession names and specializations.
---- Empty string when the character has no primary crafting professions.
+--- Gathering professions are listed after crafting. Optional `query` highlights matching
+--- substrings in profession names and specializations.
+--- Empty string when the character has no displayable professions.
 function GTD.FormatProfessions(entry, query)
     local activeQuery = query and GTD.NormalizeSearchQuery(query) or ""
     local parts = {}

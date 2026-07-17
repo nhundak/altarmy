@@ -120,23 +120,12 @@ function Nav.ResolveGuildMember(characterName, realm)
     return GSD.GetCharacter(characterName, realm)
 end
 
---- Tooltip lines for a clickable guildmate name in search results, or nil.
---- opts.rosterByName may inject a roster map (tests); defaults to live guild roster.
-function Nav.GetGuildCharacterHoverTooltipLines(characterName, realm, opts)
-    opts = opts or {}
-    local entry = Nav.ResolveGuildMember(characterName, realm)
-    if not entry then
-        return nil
-    end
+local function resolveMemberGroup(entry, realm)
     local GTD = AltArmy.GuildTabData
     local GSD = AltArmy.GuildShareData
-    if not GTD or not GTD.BuildGuildCharacterHoverTooltipLines then
-        return nil
-    end
-
     local group
-    local guild = entry.guildName
-    if guild and GSD and GSD.GetGuildMembersForDisplay and GTD.GroupMembersByMain then
+    local guild = entry and entry.guildName
+    if guild and GSD and GSD.GetGuildMembersForDisplay and GTD and GTD.GroupMembersByMain then
         local members = GSD.GetGuildMembersForDisplay(guild, realm, true)
         local groups = GTD.GroupMembersByMain(members)
         for _, g in ipairs(groups or {}) do
@@ -150,26 +139,85 @@ function Nav.GetGuildCharacterHoverTooltipLines(characterName, realm, opts)
             if group then break end
         end
     end
-    if not group then
+    if not group and entry then
         group = {
             main = entry.main or entry.name,
             preferredName = entry.displayName or entry.main or entry.name,
             members = { entry },
         }
     end
+    return group
+end
+
+local function rosterMapForOpts(opts)
+    opts = opts or {}
+    if opts.rosterByName ~= nil then
+        return opts.rosterByName
+    end
+    local GTD = AltArmy.GuildTabData
+    if GTD and GTD.BuildRosterLastOnlineMap then
+        return GTD.BuildRosterLastOnlineMap()
+    end
+    return {}
+end
+
+--- True when any character in the recipe owner's main-group is online on the guild roster.
+--- opts.rosterByName / opts.onlineCache may be injected (tests / search layout cache).
+function Nav.IsGuildRecipePlayerOnline(characterName, realm, opts)
+    opts = opts or {}
+    local cache = opts.onlineCache
+    local cacheKey = (realm or "") .. "\0" .. (characterName or "")
+    if cache and cache[cacheKey] ~= nil then
+        return cache[cacheKey]
+    end
+    local entry = Nav.ResolveGuildMember(characterName, realm)
+    local online = false
+    if entry then
+        local GTD = AltArmy.GuildTabData
+        local group = resolveMemberGroup(entry, realm)
+        local status = GTD and GTD.GetGroupLastOnlineStatus
+            and GTD.GetGroupLastOnlineStatus(group, rosterMapForOpts(opts))
+        online = status and status.online and true or false
+    end
+    if cache then
+        cache[cacheKey] = online
+    end
+    return online
+end
+
+--- Colored "(Guild Online/Offline)" suffix for a guildmate recipe row.
+function Nav.FormatGuildRecipeCharacterSuffix(characterName, realm, opts)
+    local GTD = AltArmy.GuildTabData
+    if not GTD or not GTD.FormatGuildSearchCharacterSuffix then
+        return "|cff8ab4f8 (Guild)|r"
+    end
+    return GTD.FormatGuildSearchCharacterSuffix(
+        Nav.IsGuildRecipePlayerOnline(characterName, realm, opts))
+end
+
+--- Tooltip lines for a clickable guildmate name in search results, or nil.
+--- opts.rosterByName may inject a roster map (tests); defaults to live guild roster.
+function Nav.GetGuildCharacterHoverTooltipLines(characterName, realm, opts)
+    opts = opts or {}
+    local entry = Nav.ResolveGuildMember(characterName, realm)
+    if not entry then
+        return nil
+    end
+    local GTD = AltArmy.GuildTabData
+    if not GTD or not GTD.BuildGuildCharacterHoverTooltipLines then
+        return nil
+    end
+
+    local group = resolveMemberGroup(entry, realm)
 
     local preferred = (GTD.ResolveGroupDisplayName and GTD.ResolveGroupDisplayName(group))
-        or group.preferredName
+        or (group and group.preferredName)
         or entry.displayName
         or entry.main
         or entry.name
 
-    local rosterByName = opts.rosterByName
-    if rosterByName == nil and GTD.BuildRosterLastOnlineMap then
-        rosterByName = GTD.BuildRosterLastOnlineMap()
-    end
     local presence = GTD.GetGroupMostRecentOnlineDetail
-        and GTD.GetGroupMostRecentOnlineDetail(group, rosterByName or {})
+        and GTD.GetGroupMostRecentOnlineDetail(group, rosterMapForOpts(opts))
 
     return GTD.BuildGuildCharacterHoverTooltipLines({
         name = entry.name,

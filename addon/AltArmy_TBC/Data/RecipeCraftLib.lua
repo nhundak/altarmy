@@ -7,6 +7,8 @@ local RCL = AltArmy.RecipeCraftLib
 
 local lookupCache = {}
 local profKeyCache = {}
+-- Static CraftLib fields keyed by profession+recipeID(+resultItemID); difficulty stays per skillRank.
+local enrichStaticCache = {}
 
 local MAX_TBC_SKILL = 375
 local SPELL_ID_POISONS = 2842
@@ -341,11 +343,45 @@ function RCL.GetDifficulty(recipe, playerSkill)
     return "gray"
 end
 
+local function EnrichStaticCacheKey(professionName, recipeID, resultItemID)
+    return tostring(professionName or "") .. ":"
+        .. tostring(recipeID or "") .. ":" .. tostring(resultItemID or "")
+end
+
+local function ApplyEnrichStatic(entry, cached)
+    entry.recipeReagents = nil
+    if cached.miss then
+        entry.recipeSkillRequired = nil
+        entry.difficulty = nil
+        entry.recipeSource = nil
+        entry.recipeExpansion = nil
+        return entry
+    end
+    entry.recipeSource = cached.recipeSource
+    entry.recipeExpansion = cached.recipeExpansion
+    entry.recipeSkillRequired = cached.recipeSkillRequired
+    if cached.resultItemID and not entry.resultItemID then
+        entry.resultItemID = cached.resultItemID
+    end
+    if cached.recipeSkillRequired and cached.recipe then
+        entry.difficulty = RCL.GetDifficulty(cached.recipe, entry.skillRank or 0)
+    else
+        entry.difficulty = nil
+    end
+    return entry
+end
+
 --- Enrich a search recipe entry with CraftLib metadata (mutates entry).
+--- Static fields are cached by recipe identity; difficulty is recomputed from skillRank.
 --- Does not populate recipeReagents (unused by Search/Guild UI; avoids alloc on large result sets).
 function RCL.EnrichEntry(entry)
     if not entry or not RCL.IsAvailable() then
         return entry
+    end
+    local cacheKey = EnrichStaticCacheKey(entry.professionName, entry.recipeID, entry.resultItemID)
+    local cached = enrichStaticCache[cacheKey]
+    if cached then
+        return ApplyEnrichStatic(entry, cached)
     end
     entry.recipeSkillRequired = nil
     entry.difficulty = nil
@@ -354,6 +390,7 @@ function RCL.EnrichEntry(entry)
     entry.recipeReagents = nil
     local recipe = RCL.LookupRecipe(entry.professionName, entry.recipeID, entry.resultItemID)
     if not recipe then
+        enrichStaticCache[cacheKey] = { miss = true }
         return entry
     end
     entry.recipeSource = RCL.NormalizeRecipeSource(recipe.source)
@@ -369,6 +406,13 @@ function RCL.EnrichEntry(entry)
         entry.recipeSkillRequired = req
         entry.difficulty = RCL.GetDifficulty(recipe, entry.skillRank or 0)
     end
+    enrichStaticCache[cacheKey] = {
+        recipe = recipe,
+        recipeSource = entry.recipeSource,
+        recipeExpansion = entry.recipeExpansion,
+        recipeSkillRequired = entry.recipeSkillRequired,
+        resultItemID = entry.resultItemID,
+    }
     return entry
 end
 
@@ -389,6 +433,12 @@ end
 function RCL.ClearCaches()
     clearTable(lookupCache)
     clearTable(profKeyCache)
+    clearTable(enrichStaticCache)
+end
+
+--- Test helper: drop LookupRecipe cache while keeping enrichStaticCache.
+function RCL._ClearLookupCacheOnlyForTests()
+    clearTable(lookupCache)
 end
 
 RCL._LookupRecipeUncached = LookupRecipeUncached
