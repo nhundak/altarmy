@@ -1230,11 +1230,6 @@ SD._FilterAndSortRecipes = FilterAndSortRecipes
 -- Chunked index prewarm (started when AltArmy.MainFrame opens)
 ------------------------------------------------------------------------
 
-local function MainFrameIsShown()
-    local main = AltArmy and AltArmy.MainFrame
-    return main and main.IsShown and main:IsShown()
-end
-
 local function ResetPrewarmWorkState()
     _prewarm.nameList = nil
     _prewarm.nameIndex = 1
@@ -1419,9 +1414,7 @@ FinishItemSuffixArraySync = function()
         end
         _itemSuffixArray = BuildSuffixArray(names)
     end
-    if MainFrameIsShown() then
-        StartIndexPrewarm()
-    end
+    StartIndexPrewarm()
     return _itemSuffixArray
 end
 
@@ -1475,9 +1468,7 @@ FinishLocalRecipeSuffixArraySync = function()
             _localRecipeSuffixArray = arr
         end)
     end
-    if MainFrameIsShown() then
-        StartIndexPrewarm()
-    end
+    StartIndexPrewarm()
     return _localRecipeSuffixArray
 end
 
@@ -1535,9 +1526,7 @@ FinishGuildRecipeSuffixArraySync = function()
             _guildRecipeSuffixArray = arr
         end)
     end
-    if MainFrameIsShown() then
-        StartIndexPrewarm()
-    end
+    StartIndexPrewarm()
     return _guildRecipeSuffixArray
 end
 
@@ -1735,17 +1724,12 @@ StartIndexPrewarm = function()
 end
 
 SchedulePrewarmRestart = function()
-    if not MainFrameIsShown() then
-        return
-    end
     _prewarm.restartRemaining = PREWARM_RESTART_DEBOUNCE_SEC
     _prewarmRestartFrame:SetScript("OnUpdate", function(_, elapsed)
         _prewarm.restartRemaining = _prewarm.restartRemaining - elapsed
         if _prewarm.restartRemaining <= 0 then
             _prewarmRestartFrame:SetScript("OnUpdate", nil)
-            if MainFrameIsShown() then
-                StartIndexPrewarm()
-            end
+            StartIndexPrewarm()
         end
     end)
 end
@@ -1761,6 +1745,30 @@ end
 function SD.IsIndexPrewarmRunning()
     return _prewarm.running and true or false
 end
+
+--- Advance debounced prewarm restart (tests); elapsed defaults past the debounce.
+function SD._TickPrewarmRestartForTests(elapsed)
+    local onUpdate = _prewarmRestartFrame.GetScript and _prewarmRestartFrame:GetScript("OnUpdate")
+    if type(onUpdate) ~= "function" then
+        -- Spec CreateFrame mocks often no-op SetScript; apply the same restart logic directly.
+        if (_prewarm.restartRemaining or 0) > 0 then
+            _prewarm.restartRemaining = 0
+            StartIndexPrewarm()
+        end
+        return
+    end
+    onUpdate(_prewarmRestartFrame, elapsed or (PREWARM_RESTART_DEBOUNCE_SEC + 0.01))
+end
+
+-- Start chunked index build at login so Search is warm before the UI opens.
+local _prewarmLoginFrame = CreateFrame("Frame")
+_prewarmLoginFrame:RegisterEvent("PLAYER_LOGIN")
+_prewarmLoginFrame:SetScript("OnEvent", function(self, event)
+    if event == "PLAYER_LOGIN" then
+        self:UnregisterEvent("PLAYER_LOGIN")
+        StartIndexPrewarm()
+    end
+end)
 
 function SD._GetItemSuffixArrayForTests()
     return _itemSuffixArray

@@ -1698,6 +1698,39 @@ describe("SearchData", function()
       AltArmy.MainFrame = nil
     end)
 
+    it("starts and completes without MainFrame shown (login-style prewarm)", function()
+      local old, oldGetItemInfo, oldGetSpellInfo = stubSlotsAndRecipes()
+      SD.NotifyContainerDataChanged()
+      SD.NotifyRecipesChanged()
+      AltArmy.MainFrame = { IsShown = function() return false end }
+      SD.StartIndexPrewarm()
+      assert.is_true(SD.IsIndexPrewarmRunning())
+      drivePrewarmToIdle()
+      assert.is_truthy(SD._GetItemSuffixArrayForTests())
+      assert.is_truthy(SD._GetLocalRecipeSuffixArrayForTests())
+      restoreAll(old, oldGetItemInfo, oldGetSpellInfo)
+      AltArmy.MainFrame = nil
+    end)
+
+    it("debounced restart after invalidate runs even when MainFrame is hidden", function()
+      local old, oldGetItemInfo, oldGetSpellInfo = stubSlotsAndRecipes()
+      AltArmy.MainFrame = { IsShown = function() return false end }
+      SD.StartIndexPrewarm()
+      drivePrewarmToIdle()
+      assert.is_truthy(SD._GetItemSuffixArrayForTests())
+
+      SD.NotifyContainerDataChanged()
+      assert.is_false(SD.IsIndexPrewarmRunning())
+      assert.is_nil(SD._GetItemSuffixArrayForTests())
+      assert.is_truthy(SD._TickPrewarmRestartForTests, "expected restart tick helper for tests")
+      SD._TickPrewarmRestartForTests(1)
+      assert.is_true(SD.IsIndexPrewarmRunning())
+      drivePrewarmToIdle()
+      assert.is_truthy(SD._GetItemSuffixArrayForTests())
+      restoreAll(old, oldGetItemInfo, oldGetSpellInfo)
+      AltArmy.MainFrame = nil
+    end)
+
     it("Ensure sync-finish during incomplete prewarm matches full BuildSuffixArray", function()
       local old, oldGetItemInfo, oldGetSpellInfo = stubSlotsAndRecipes()
       SD.NotifyContainerDataChanged()

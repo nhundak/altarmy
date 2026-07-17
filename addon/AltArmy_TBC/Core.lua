@@ -728,10 +728,3 @@ main:SetScript("OnShow", function()
         SD.StartIndexPrewarm()
     end
 end)
-
-main:HookScript("OnHide", function()
-    local SD = AltArmy.SearchData
-    if SD and SD.StopIndexPrewarm then
-        SD.StopIndexPrewarm()
-    end
-end)
