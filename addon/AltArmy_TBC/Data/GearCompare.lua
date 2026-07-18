@@ -67,7 +67,7 @@ local function resolveLoadoutStatSides(newLink, oldLink, charData, entry, opts)
         sumRawStatsForLinks(loadout.equippedLinks)
 end
 
-local function buildSummary(newLink, oldLink, technique, classFile, specKey, charData, entry, opts)
+local function buildSummary(newLink, oldLink, technique, classFile, specKey, charData, entry, opts, level)
     opts = opts or {}
     if GU.IsWeaponPairItem and GU.IsWeaponPairItem(newLink) and charData then
         local compareOpts = {}
@@ -87,8 +87,8 @@ local function buildSummary(newLink, oldLink, technique, classFile, specKey, cha
             }
         end
     end
-    local newTotal = GU.ScoreItem(newLink, technique, classFile, specKey) or 0
-    local oldTotal = oldLink and (GU.ScoreItem(oldLink, technique, classFile, specKey) or 0) or 0
+    local newTotal = GU.ScoreItem(newLink, technique, classFile, specKey, level) or 0
+    local oldTotal = oldLink and (GU.ScoreItem(oldLink, technique, classFile, specKey, level) or 0) or 0
     return {
         newTotal = newTotal,
         oldTotal = oldTotal,
@@ -171,8 +171,8 @@ local function compareStatComparisonRows(a, b)
     return (a.label or "") < (b.label or "")
 end
 
-local function buildStatComparisonRows(newLink, oldLink, classFile, specKey, charData, entry, opts)
-    local weights = GU.GetWeights and GU.GetWeights(classFile, specKey) or {}
+local function buildStatComparisonRows(newLink, oldLink, classFile, specKey, charData, entry, opts, level)
+    local weights = GU.GetWeights and GU.GetWeights(classFile, specKey, level) or {}
     local newStats, oldStats = resolveLoadoutStatSides(newLink, oldLink, charData, entry, opts)
     local seen = {}
     for k in pairs(newStats) do seen[k] = true end
@@ -228,10 +228,12 @@ local function buildRawStatRows(newLink, oldLink, charData, entry, opts)
     return rows
 end
 
-local function buildCustomComparison(newLink, oldLink, classFile, specKey, opts, charData, entry)
+local function buildCustomComparison(newLink, oldLink, classFile, specKey, opts, charData, entry, level)
     opts = opts or {}
-    local rows = buildStatComparisonRows(newLink, oldLink, classFile, specKey, charData, entry, opts)
-    local summary = buildSummary(newLink, oldLink, "custom", classFile, specKey, charData, entry, opts)
+    local rows = buildStatComparisonRows(
+        newLink, oldLink, classFile, specKey, charData, entry, opts, level)
+    local summary = buildSummary(
+        newLink, oldLink, "custom", classFile, specKey, charData, entry, opts, level)
     local loadoutRow = buildWeaponLoadoutRow(charData, entry, newLink, opts, opts.upgradeMaxDelta)
     if loadoutRow then
         rows[#rows + 1] = loadoutRow
@@ -259,7 +261,8 @@ local function buildCustomComparison(newLink, oldLink, classFile, specKey, opts,
     return result
 end
 
-local function buildScoreOnlyComparison(newLink, oldLink, classFile, specKey, technique, charData, entry, opts)
+local function buildScoreOnlyComparison(
+    newLink, oldLink, classFile, specKey, technique, charData, entry, opts, level)
     local sections = {}
     local rawRows = buildRawStatRows(newLink, oldLink, charData, entry, opts)
     if #rawRows > 0 then
@@ -269,7 +272,8 @@ local function buildScoreOnlyComparison(newLink, oldLink, classFile, specKey, te
         }
     end
     if technique == "ilvl" then
-        local summary = buildSummary(newLink, oldLink, technique, classFile, specKey, charData, entry, opts)
+        local summary = buildSummary(
+            newLink, oldLink, technique, classFile, specKey, charData, entry, opts, level)
         sections[#sections + 1] = {
             title = "Item level",
             rows = {
@@ -283,7 +287,8 @@ local function buildScoreOnlyComparison(newLink, oldLink, classFile, specKey, te
         }
     end
     local result = { sections = sections }
-    local summary = buildSummary(newLink, oldLink, technique, classFile, specKey, charData, entry, opts)
+    local summary = buildSummary(
+        newLink, oldLink, technique, classFile, specKey, charData, entry, opts, level)
     if summary.weaponLoadout then
         result.weaponLoadoutNote = buildWeaponLoadoutNote(summary.weaponLoadout)
     end
@@ -297,7 +302,7 @@ function GC.GetEquippedCompareItem(char, focusedLink, opts)
     if #slots == 0 then return nil, nil end
 
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local classFile, specKey = GU.ResolveCompareContext(char, opts.entry)
+    local classFile, specKey, level = GU.ResolveCompareContext(char, opts.entry)
     local DS = AltArmy.DataStore
     if not DS or not DS.GetInventoryItem then return nil, slots[1] end
 
@@ -315,7 +320,7 @@ function GC.GetEquippedCompareItem(char, focusedLink, opts)
         return eqLink, targetSlot
     end
 
-    local newScore = GU.ScoreItem(focusedLink, technique, classFile, specKey)
+    local newScore = GU.ScoreItem(focusedLink, technique, classFile, specKey, level)
     local bestSlot = slots[1]
     local bestLink = nil
     local bestDelta = -math.huge
@@ -327,7 +332,7 @@ function GC.GetEquippedCompareItem(char, focusedLink, opts)
         local eqLink = GU.ResolveItemLink(equipped)
         if eqLink then
             hasEquipped = true
-            local oldScore = GU.ScoreItem(eqLink, technique, classFile, specKey)
+            local oldScore = GU.ScoreItem(eqLink, technique, classFile, specKey, level)
             local delta = newScore - oldScore
             if delta > bestDelta then
                 bestDelta = delta
@@ -347,22 +352,24 @@ function GC.BuildComparison(focusedLink, equippedLink, technique, charData, entr
     if not focusedLink then return nil end
     opts = opts or {}
     technique = GU.GetEffectiveTechnique(technique or "custom")
-    local classFile, specKey = GU.ResolveCompareContext(charData, entry)
+    local classFile, specKey, level = GU.ResolveCompareContext(charData, entry)
     local provider = GU.GetProvider(technique)
     local built
 
     if technique == "custom" then
-        built = buildCustomComparison(focusedLink, equippedLink, classFile, specKey, opts, charData, entry)
+        built = buildCustomComparison(
+            focusedLink, equippedLink, classFile, specKey, opts, charData, entry, level)
     elseif technique == "ilvl" or technique == "gearscore" then
         built = buildScoreOnlyComparison(
-            focusedLink, equippedLink, classFile, specKey, technique, charData, entry, opts)
+            focusedLink, equippedLink, classFile, specKey, technique, charData, entry, opts, level)
     else
-        built = buildCustomComparison(focusedLink, equippedLink, classFile, specKey, opts, charData, entry)
+        built = buildCustomComparison(
+            focusedLink, equippedLink, classFile, specKey, opts, charData, entry, level)
     end
 
     local sections = built.sections or built
     local summary = buildSummary(
-        focusedLink, equippedLink, technique, classFile, specKey, charData, entry, opts)
+        focusedLink, equippedLink, technique, classFile, specKey, charData, entry, opts, level)
 
     return {
         focusedName = getItemName(focusedLink),
@@ -551,7 +558,7 @@ local function copyShallowTable(tbl)
     return out
 end
 
-local function buildItemDump(link, classFile, specKey, technique, forceRefresh)
+local function buildItemDump(link, classFile, specKey, technique, forceRefresh, level)
     if not link then return nil end
     local snapshot = ItemStats and ItemStats.CollectParseSnapshot
         and ItemStats.CollectParseSnapshot(link, { forceRefresh = forceRefresh })
@@ -561,7 +568,7 @@ local function buildItemDump(link, classFile, specKey, technique, forceRefresh)
         cacheSource = ItemStats and ItemStats.GetSource and ItemStats.GetSource(link) or nil,
         parseSnapshot = snapshot,
         scoreBreakdown = GU and GU.BuildScoreBreakdown
-            and GU.BuildScoreBreakdown(link, technique, classFile, specKey) or nil,
+            and GU.BuildScoreBreakdown(link, technique, classFile, specKey, level) or nil,
     }
 end
 
@@ -570,13 +577,13 @@ function GC.BuildComparePanelDump(focusedLink, equippedLink, technique, charData
     if not focusedLink then return nil end
     opts = opts or {}
     technique = GU.GetEffectiveTechnique(technique or "custom")
-    local classFile, specKey = GU.ResolveCompareContext(charData, entry)
+    local classFile, specKey, level = GU.ResolveCompareContext(charData, entry)
     local comparison = GC.BuildComparison(focusedLink, equippedLink, technique, charData, entry, opts)
     if not comparison then return nil end
 
     local summary = comparison.summary or {}
     local forceRefresh = opts.forceRefresh ~= false
-    local weights = GU.GetWeights and GU.GetWeights(classFile, specKey) or {}
+    local weights = GU.GetWeights and GU.GetWeights(classFile, specKey, level) or {}
 
     return {
         version = COMPARE_DUMP_VERSION,
@@ -586,7 +593,7 @@ function GC.BuildComparePanelDump(focusedLink, equippedLink, technique, charData
             realm = entry and entry.realm or (charData and charData.realm),
             classFile = classFile,
             specKey = specKey,
-            level = charData and tonumber(charData.level) or nil,
+            level = level or (charData and tonumber(charData.level)) or nil,
         },
         context = {
             invSlot = opts.invSlot,
@@ -598,9 +605,9 @@ function GC.BuildComparePanelDump(focusedLink, equippedLink, technique, charData
             weightedChangePercent = weightedPercentValue(summary, opts.upgradeMaxDelta),
         },
         items = {
-            focused = buildItemDump(focusedLink, classFile, specKey, technique, forceRefresh),
+            focused = buildItemDump(focusedLink, classFile, specKey, technique, forceRefresh, level),
             equipped = equippedLink
-                and buildItemDump(equippedLink, classFile, specKey, technique, forceRefresh)
+                and buildItemDump(equippedLink, classFile, specKey, technique, forceRefresh, level)
                 or nil,
         },
         comparison = comparison,

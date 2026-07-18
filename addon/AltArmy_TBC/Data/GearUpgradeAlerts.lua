@@ -463,11 +463,11 @@ local function questRewardClearUpgrade(char, link, evalOpts, opts)
         local technique = GU.GetEffectiveTechnique
             and GU.GetEffectiveTechnique(evalOpts and evalOpts.technique or "custom")
             or (evalOpts and evalOpts.technique) or "custom"
-        local classFile, specKey = char.classFile or "", "unknown"
+        local classFile, specKey, level = char.classFile or "", "unknown", nil
         if GU.ResolveCompareContext then
-            classFile, specKey = GU.ResolveCompareContext(char, nil)
+            classFile, specKey, level = GU.ResolveCompareContext(char, nil)
         end
-        local newScore = GU.ScoreItem(link, technique, classFile, specKey) or 0
+        local newScore = GU.ScoreItem(link, technique, classFile, specKey, level) or 0
         oldTotal = math.max(0, newScore - delta)
     end
     return GU.GetUpgradeHighlightKind(delta, oldTotal, opts) == "clear"

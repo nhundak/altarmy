@@ -137,6 +137,84 @@ describe("GearUpgrade", function()
         assert.is_true(score > 0)
     end)
 
+    it("ScoreItemCustom values wand ranged_dps for leveling mages", function()
+        local wand = "|Hitem:50:0|h[Sparkling Wand]|h"
+        local leveling = GU.ScoreItemCustom(wand, "MAGE", "frost", 30)
+        local maxLevel = GU.ScoreItemCustom(wand, "MAGE", "frost", 70)
+        local nilLevel = GU.ScoreItemCustom(wand, "MAGE", "frost")
+        assert.is_true(leveling > maxLevel)
+        assert.are.equal(maxLevel, nilLevel)
+        local weights = GU.GetWeights("MAGE", "frost", 30)
+        assert.are.equal(3.5, weights.ranged_dps)
+        assert.are.equal(0.25, weights.melee_dps)
+        assert.are.equal(0, GU.GetWeights("MAGE", "frost", 70).ranged_dps or 0)
+    end)
+
+    it("ScoreItem memoizes separately for leveling vs max-level weights", function()
+        local wand = "|Hitem:50:0|h[Sparkling Wand]|h"
+        GU.ResetFocusPass()
+        local leveling = GU.ScoreItem(wand, "custom", "MAGE", "frost", 30)
+        local maxLevel = GU.ScoreItem(wand, "custom", "MAGE", "frost", 70)
+        assert.is_true(leveling > maxLevel)
+        assert.are.equal(leveling, GU.ScoreItem(wand, "custom", "MAGE", "frost", 30))
+        assert.are.equal(maxLevel, GU.ScoreItem(wand, "custom", "MAGE", "frost", 70))
+    end)
+
+    it("ScoreItemCustom uses item required level when higher than character level", function()
+        local endgameWand = "|Hitem:90:0|h[Endgame Wand]|h"
+        local midWand = "|Hitem:91:0|h[Mid Wand]|h"
+        local oldGetItemInfo = _G.GetItemInfo
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 90 then
+                return "Endgame Wand", endgameWand, 4, 100, 70, "Weapon", "Wand", nil,
+                    "INVTYPE_RANGEDRIGHT"
+            end
+            if id == 91 then
+                return "Mid Wand", midWand, 3, 50, 35, "Weapon", "Wand", nil,
+                    "INVTYPE_RANGEDRIGHT"
+            end
+            return oldGetItemInfo(item)
+        end
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 90 or id == 91 then
+                return { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 20 }
+            end
+            return oldGetItemStats(link)
+        end
+        if AltArmy.ItemUsability and AltArmy.ItemUsability.ClearCache then
+            AltArmy.ItemUsability.ClearCache()
+        end
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+
+        local at20For70 = GU.ScoreItemCustom(endgameWand, "MAGE", "frost", 20)
+        local at70 = GU.ScoreItemCustom(endgameWand, "MAGE", "frost", 70)
+        assert.are.equal(at70, at20For70)
+        assert.are.equal(0, GU.GetWeights("MAGE", "frost", 70).ranged_dps or 0)
+
+        local at20For35 = GU.ScoreItemCustom(midWand, "PRIEST", "shadow", 20)
+        local at35 = GU.ScoreItemCustom(midWand, "PRIEST", "shadow", 35)
+        assert.are.equal(at35, at20For35)
+        assert.is_true(at20For35 > GU.ScoreItemCustom(midWand, "PRIEST", "shadow", 70))
+
+        _G.GetItemInfo = oldGetItemInfo
+        _G.GetItemStats = oldGetItemStats
+    end)
+
+    it("ResolveCompareContext returns character level", function()
+        local char = { classFile = "MAGE", level = 42, talents = { primary = 3, specKey = "frost" } }
+        local entry = { classFile = "MAGE", level = 42 }
+        local classFile, specKey, level = GU.ResolveCompareContext(char, entry)
+        assert.are.equal("MAGE", classFile)
+        assert.are.equal("frost", specKey)
+        assert.are.equal(42, level)
+    end)
+
     it("FormatCompareSpecWarningText describes assumed spec with class-colored name", function()
         local text = GU.FormatCompareSpecWarningText("Totem", "Enhancement", "SHAMAN")
         assert.is_true(text:find("|cff", 1, true) ~= nil)

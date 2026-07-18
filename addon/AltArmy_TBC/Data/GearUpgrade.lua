@@ -64,9 +64,10 @@ local function storedItemsFingerprint(char)
     return table.concat(parts, "|")
 end
 
-local function scoreMemoKey(link, technique, classFile, specKey)
+local function scoreMemoKey(link, technique, classFile, specKey, bandId)
     return tostring(link) .. "\0" .. tostring(technique)
         .. "\0" .. tostring(classFile) .. "\0" .. tostring(specKey)
+        .. "\0" .. tostring(bandId or "default")
 end
 
 local function resolveLevelsAhead(value)
@@ -149,22 +150,30 @@ function GU.GetWeightedChangeColor(percent, opts)
         lerpChannel(WEIGHTED_CHANGE_COLOR_RED[3], WEIGHTED_CHANGE_COLOR_YELLOW[3], t)
 end
 
-local function buildWeightsFromPawnScales()
-    local out = {}
-    local PS = AltArmy.PawnScales
-    local raw = PS and PS.RAW
-    if not raw then return out end
-    for classFile, bySpec in pairs(raw) do
-        out[classFile] = {}
-        for specKey, pawnValues in pairs(bySpec) do
-            out[classFile][specKey] = GU.PawnScaleToWeights(pawnValues)
-        end
-    end
-    return out
+-- Lazy cache of translated weights keyed by class/spec/override-band.
+local weightsCache = {}
+
+local function weightsCacheKey(classFile, specKey, bandId)
+    return tostring(classFile) .. "\0" .. tostring(specKey) .. "\0" .. tostring(bandId or "default")
 end
 
--- TBC stat weights per class/spec (weebly EJ/MaxDPS-derived, via PawnScale translator).
-local WEIGHTS = buildWeightsFromPawnScales()
+--- Character level for weight selection, raised to the item's required level when higher.
+local function effectiveWeightLevel(link, level)
+    if level == nil then return nil end
+    local n = tonumber(level)
+    if n == nil then return nil end
+    local iu = IU()
+    local itemMin = (iu and iu.GetItemMinLevel and iu.GetItemMinLevel(link)) or 0
+    return math.max(n, itemMin)
+end
+
+local function overrideBandId(classFile, specKey, level)
+    local PS = AltArmy.PawnScales
+    if PS and PS.GetOverrideBandId then
+        return PS.GetOverrideBandId(classFile, specKey, level)
+    end
+    return "default"
+end
 
 local PROVIDERS = {
     {
@@ -323,7 +332,8 @@ end
 local function resolveCompareContext(char, entry)
     local classFile = resolveCompareClassFile(char, entry)
     local specKey = resolveGearCompareSpecKey(char, classFile)
-    return classFile, specKey
+    local level = tonumber(entry and entry.level) or tonumber(char and char.level)
+    return classFile, specKey, level
 end
 
 function GU.ResolveCompareContext(char, entry)
@@ -444,24 +454,40 @@ function GU.GetSpecKey(char)
     return getSpecKey(char)
 end
 
-local function getWeights(classFile, specKey)
-    classFile = (classFile or ""):upper()
-    local byClass = WEIGHTS[classFile]
-    if not byClass then return nil end
-    if byClass[specKey] then return byClass[specKey] end
-    if DT and DT.GetLevelingSpecKey then
-        return byClass[DT.GetLevelingSpecKey(classFile)]
+local function resolveRawScale(classFile, specKey, level)
+    local PS = AltArmy.PawnScales
+    if not PS or not PS.GetRawScale then return nil, nil end
+    local resolvedSpec = specKey
+    local raw = PS.GetRawScale(classFile, resolvedSpec, level)
+    if not raw and DT and DT.GetLevelingSpecKey then
+        resolvedSpec = DT.GetLevelingSpecKey(classFile)
+        raw = PS.GetRawScale(classFile, resolvedSpec, level)
     end
-    return nil
+    if not raw then return nil, nil end
+    return resolvedSpec, raw
 end
 
-function GU.GetWeights(classFile, specKey)
-    return getWeights(classFile, specKey)
+local function getWeights(classFile, specKey, level)
+    classFile = (classFile or ""):upper()
+    local resolvedSpec, raw = resolveRawScale(classFile, specKey, level)
+    if not raw then return nil end
+
+    local bandId = overrideBandId(classFile, resolvedSpec, level)
+    local key = weightsCacheKey(classFile, resolvedSpec, bandId)
+    local cached = weightsCache[key]
+    if cached then return cached end
+    local weights = GU.PawnScaleToWeights(raw)
+    weightsCache[key] = weights
+    return weights
 end
 
-function GU.ScoreItemCustom(link, classFile, specKey)
+function GU.GetWeights(classFile, specKey, level)
+    return getWeights(classFile, specKey, level)
+end
+
+function GU.ScoreItemCustom(link, classFile, specKey, level)
     if not link then return 0 end
-    local weights = getWeights(classFile, specKey)
+    local weights = getWeights(classFile, specKey, effectiveWeightLevel(link, level))
     if not weights then return 0 end
     local stats = normalizeItemStatsRef(link)
     local total = 0
@@ -482,20 +508,23 @@ local function scoreItemGearScore(link)
     return nil
 end
 
-local function scoreItem(link, technique, classFile, specKey)
+local function scoreItem(link, technique, classFile, specKey, level)
     if not link then return 0 end
-    local key = scoreMemoKey(link, technique, classFile, specKey)
+    local effectiveLevel = effectiveWeightLevel(link, level)
+    local resolvedSpec = resolveRawScale((classFile or ""):upper(), specKey, effectiveLevel)
+    local bandId = overrideBandId((classFile or ""):upper(), resolvedSpec or specKey, effectiveLevel)
+    local key = scoreMemoKey(link, technique, classFile, specKey, bandId)
     local cached = scoreMemo[key]
     if cached ~= nil then return cached end
     local score
     if technique == "ilvl" then
         score = getItemLevel(link)
     elseif technique == "custom" then
-        score = GU.ScoreItemCustom(link, classFile, specKey)
+        score = GU.ScoreItemCustom(link, classFile, specKey, level)
     elseif technique == "gearscore" then
         score = scoreItemGearScore(link) or getItemLevel(link)
     else
-        score = GU.ScoreItemCustom(link, classFile, specKey)
+        score = GU.ScoreItemCustom(link, classFile, specKey, level)
     end
     scoreMemo[key] = score
     return score
@@ -505,15 +534,15 @@ function GU.ResolveItemLink(item)
     return resolveItemLink(item)
 end
 
-function GU.ScoreItem(link, technique, classFile, specKey)
-    return scoreItem(link, technique, classFile, specKey)
+function GU.ScoreItem(link, technique, classFile, specKey, level)
+    return scoreItem(link, technique, classFile, specKey, level)
 end
 
 --- Per-stat weighted score breakdown for debug dumps.
-function GU.BuildScoreBreakdown(link, technique, classFile, specKey)
+function GU.BuildScoreBreakdown(link, technique, classFile, specKey, level)
     if not link then return nil end
     technique = GU.GetEffectiveTechnique(technique or "custom")
-    local weights = getWeights(classFile, specKey)
+    local weights = getWeights(classFile, specKey, effectiveWeightLevel(link, level))
     local stats = normalizeItemStats(link)
     local contributions = {}
     local weightedSum = 0
@@ -534,15 +563,15 @@ function GU.BuildScoreBreakdown(link, technique, classFile, specKey)
     end)
     return {
         technique = technique,
-        total = scoreItem(link, technique, classFile, specKey),
+        total = scoreItem(link, technique, classFile, specKey, level),
         weightedSum = weightedSum,
         contributions = contributions,
     }
 end
 
-function GU.CompareItems(newLink, oldLink, technique, classFile, specKey)
-    local newScore = scoreItem(newLink, technique, classFile, specKey)
-    local oldScore = oldLink and scoreItem(oldLink, technique, classFile, specKey) or 0
+function GU.CompareItems(newLink, oldLink, technique, classFile, specKey, level)
+    local newScore = scoreItem(newLink, technique, classFile, specKey, level)
+    local oldScore = oldLink and scoreItem(oldLink, technique, classFile, specKey, level) or 0
     if not oldLink then
         return newScore > 0
     end
@@ -563,13 +592,13 @@ function GU.GetSlotCompareDelta(char, itemLink, invSlot, opts, entry)
     local cached = slotDeltaMemo[memoKey]
     if cached ~= nil then return cached end
     if not DS or not DS.GetInventoryItem then return 0 end
-    local classFile, specKey = resolveCompareContext(char, entry)
-    local newScore = scoreItem(itemLink, technique, classFile, specKey)
+    local classFile, specKey, level = resolveCompareContext(char, entry)
+    local newScore = scoreItem(itemLink, technique, classFile, specKey, level)
     local delta
     if not eqLink then
         delta = newScore > 0 and newScore or 0
     else
-        delta = newScore - scoreItem(eqLink, technique, classFile, specKey)
+        delta = newScore - scoreItem(eqLink, technique, classFile, specKey, level)
     end
     slotDeltaMemo[memoKey] = delta
     return delta
@@ -584,9 +613,9 @@ local function getEquippedLink(char, invSlot)
     return resolveItemLink(DS:GetInventoryItem(char, invSlot))
 end
 
-local function scoreForLink(link, technique, classFile, specKey)
+local function scoreForLink(link, technique, classFile, specKey, level)
     if not link then return 0 end
-    return scoreItem(link, technique, classFile, specKey)
+    return scoreItem(link, technique, classFile, specKey, level)
 end
 
 --- True for weapons that occupy the main-hand + off-hand loadout pair.
@@ -598,11 +627,11 @@ function GU.IsWeaponPairItem(itemLink)
 end
 
 --- Weighted score of equipped main-hand plus off-hand (empty slots count as 0).
-function GU.GetEquippedLoadoutValue(char, technique, classFile, specKey)
+function GU.GetEquippedLoadoutValue(char, technique, classFile, specKey, level)
     local mh = getEquippedLink(char, MAIN_HAND_SLOT)
     local oh = getEquippedLink(char, OFF_HAND_SLOT)
-    return scoreForLink(mh, technique, classFile, specKey)
-        + scoreForLink(oh, technique, classFile, specKey)
+    return scoreForLink(mh, technique, classFile, specKey, level)
+        + scoreForLink(oh, technique, classFile, specKey, level)
 end
 
 local function isFishingPoleLink(iu, link)
@@ -620,8 +649,8 @@ function GU.FindBestBagItemForRole(char, role, opts, entry)
     local iu = IU()
     if not iu or not iu.GetWeaponRole then return nil, 0 end
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local classFile, specKey = resolveCompareContext(char, entry)
-    local level = tonumber(entry and entry.level) or tonumber(char.level) or 0
+    local classFile, specKey, level = resolveCompareContext(char, entry)
+    level = level or tonumber(entry and entry.level) or tonumber(char.level) or 0
     local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
     local memoKey = charKeyFromChar(char, entry) .. "\0" .. tostring(role)
         .. "\0" .. technique .. "\0" .. classFile .. "\0" .. specKey
@@ -645,7 +674,7 @@ function GU.FindBestBagItemForRole(char, role, opts, entry)
                         local equippable = iu.IsEquippableWithin(
                             classFile, level, link, levelsAhead)
                         if equippable then
-                            local itemScore = scoreItem(link, technique, classFile, specKey)
+                            local itemScore = scoreItem(link, technique, classFile, specKey, level)
                             if itemScore > bestScore then
                                 bestScore = itemScore
                                 bestLink = link
@@ -669,9 +698,9 @@ local function isSingleHandSelectedRole(role)
     return role == "onehand" or role == "offhand"
 end
 
-local function scoreLoadoutLinks(mhLink, ohLink, technique, classFile, specKey)
-    return scoreForLink(mhLink, technique, classFile, specKey)
-        + scoreForLink(ohLink, technique, classFile, specKey)
+local function scoreLoadoutLinks(mhLink, ohLink, technique, classFile, specKey, level)
+    return scoreForLink(mhLink, technique, classFile, specKey, level)
+        + scoreForLink(ohLink, technique, classFile, specKey, level)
 end
 
 local function loadoutLinksFromSlots(mhLink, ohLink)
@@ -734,7 +763,7 @@ local function considerStoredLinkForSlot(
     if not iu.IsEquippableWithin(classFile, level, link, levelsAhead) then
         return bestLink, bestScore
     end
-    local itemScore = scoreItem(link, technique, classFile, specKey)
+    local itemScore = scoreItem(link, technique, classFile, specKey, level)
     if itemScore > bestScore then
         return link, itemScore
     end
@@ -748,8 +777,8 @@ function GU.FindBestStoredItemForSlot(char, targetSlot, opts, entry)
     local iu = IU()
     if not iu then return nil, 0 end
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local classFile, specKey = resolveCompareContext(char, entry)
-    local level = tonumber(entry and entry.level) or tonumber(char.level) or 0
+    local classFile, specKey, level = resolveCompareContext(char, entry)
+    level = level or tonumber(entry and entry.level) or tonumber(char.level) or 0
     local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
     local memoKey = charKeyFromChar(char, entry) .. "\0" .. tostring(targetSlot)
         .. "\0" .. technique .. "\0" .. classFile .. "\0" .. specKey
@@ -813,9 +842,11 @@ end
 
 local function finalizeSelectionCompare(
     candidateMH, candidateOH, equippedMH, equippedOH,
-    mode, deducedLinks, technique, classFile, specKey)
-    local candidateValue = scoreLoadoutLinks(candidateMH, candidateOH, technique, classFile, specKey)
-    local equippedValue = scoreLoadoutLinks(equippedMH, equippedOH, technique, classFile, specKey)
+    mode, deducedLinks, technique, classFile, specKey, level)
+    local candidateValue = scoreLoadoutLinks(
+        candidateMH, candidateOH, technique, classFile, specKey, level)
+    local equippedValue = scoreLoadoutLinks(
+        equippedMH, equippedOH, technique, classFile, specKey, level)
     return {
         candidateLinks = loadoutLinksFromSlots(candidateMH, candidateOH),
         equippedLinks = loadoutLinksFromSlots(equippedMH, equippedOH),
@@ -833,7 +864,7 @@ end
 
 local function buildOnehandFocusCompare(
     char, focusedLink, selectedSlot, selectedLink, selectedRole, opts, entry,
-    technique, classFile, specKey)
+    technique, classFile, specKey, level)
     local deducedLinks = {}
     if selectedRole == "twohand" then
         local deduced = select(1, findBestDeducedPartner(
@@ -843,11 +874,11 @@ local function buildOnehandFocusCompare(
                 deduced, "candidate", OFF_HAND_SLOT, "offhand")
             return finalizeSelectionCompare(
                 focusedLink, deduced, selectedLink, nil,
-                "paired_candidate", deducedLinks, technique, classFile, specKey)
+                "paired_candidate", deducedLinks, technique, classFile, specKey, level)
         end
         return finalizeSelectionCompare(
             focusedLink, nil, selectedLink, nil,
-            "one_v_one", deducedLinks, technique, classFile, specKey)
+            "one_v_one", deducedLinks, technique, classFile, specKey, level)
     end
     if isSingleHandSelectedRole(selectedRole) then
         local candidateMH, candidateOH, equippedMH, equippedOH
@@ -858,7 +889,7 @@ local function buildOnehandFocusCompare(
         end
         return finalizeSelectionCompare(
             candidateMH, candidateOH, equippedMH, equippedOH,
-            "one_v_one", deducedLinks, technique, classFile, specKey)
+            "one_v_one", deducedLinks, technique, classFile, specKey, level)
     end
     local candidateMH, candidateOH
     if selectedSlot == MAIN_HAND_SLOT then
@@ -868,17 +899,17 @@ local function buildOnehandFocusCompare(
     end
     return finalizeSelectionCompare(
         candidateMH, candidateOH, nil, nil,
-        "one_v_one", deducedLinks, technique, classFile, specKey)
+        "one_v_one", deducedLinks, technique, classFile, specKey, level)
 end
 
 local function buildTwohandFocusCompare(
     char, focusedLink, selectedSlot, selectedLink, selectedRole, opts, entry,
-    technique, classFile, specKey)
+    technique, classFile, specKey, level)
     local deducedLinks = {}
     if selectedRole == "twohand" then
         return finalizeSelectionCompare(
             focusedLink, nil, selectedLink, nil,
-            "one_v_one", deducedLinks, technique, classFile, specKey)
+            "one_v_one", deducedLinks, technique, classFile, specKey, level)
     end
     if not selectedLink then
         local otherSlot = otherWeaponSlot(selectedSlot)
@@ -899,7 +930,7 @@ local function buildTwohandFocusCompare(
         end
         return finalizeSelectionCompare(
             focusedLink, nil, equippedMH, equippedOH,
-            "empty_2h", deducedLinks, technique, classFile, specKey)
+            "empty_2h", deducedLinks, technique, classFile, specKey, level)
     end
     if isSingleHandSelectedRole(selectedRole) then
         local otherSlot = otherWeaponSlot(selectedSlot)
@@ -935,16 +966,16 @@ local function buildTwohandFocusCompare(
         local mode = #deducedLinks > 0 and "paired_equipped" or "one_v_one"
         return finalizeSelectionCompare(
             focusedLink, nil, equippedMH, equippedOH,
-            mode, deducedLinks, technique, classFile, specKey)
+            mode, deducedLinks, technique, classFile, specKey, level)
     end
     return finalizeSelectionCompare(
         focusedLink, nil, nil, nil,
-        "one_v_one", deducedLinks, technique, classFile, specKey)
+        "one_v_one", deducedLinks, technique, classFile, specKey, level)
 end
 
 local function compareOffhandFocusVsTwohand(
     char, focusedLink, equippedTwohandLink, opts, entry,
-    technique, classFile, specKey, deducedLinks)
+    technique, classFile, specKey, level, deducedLinks)
     deducedLinks = deducedLinks or {}
     local deduced = select(1, findBestDeducedPartner(
         char, MAIN_HAND_SLOT, opts, entry))
@@ -953,21 +984,21 @@ local function compareOffhandFocusVsTwohand(
             deduced, "candidate", MAIN_HAND_SLOT, "mainhand")
         return finalizeSelectionCompare(
             deduced, focusedLink, equippedTwohandLink, nil,
-            "paired_candidate", deducedLinks, technique, classFile, specKey)
+            "paired_candidate", deducedLinks, technique, classFile, specKey, level)
     end
     return finalizeSelectionCompare(
         nil, focusedLink, equippedTwohandLink, nil,
-        "one_v_one", deducedLinks, technique, classFile, specKey)
+        "one_v_one", deducedLinks, technique, classFile, specKey, level)
 end
 
 local function buildOffhandFocusCompare(
     char, focusedLink, selectedSlot, selectedLink, selectedRole, opts, entry,
-    technique, classFile, specKey)
+    technique, classFile, specKey, level)
     local deducedLinks = {}
     if selectedRole == "twohand" then
         return compareOffhandFocusVsTwohand(
             char, focusedLink, selectedLink, opts, entry,
-            technique, classFile, specKey, deducedLinks)
+            technique, classFile, specKey, level, deducedLinks)
     end
     if selectedSlot == OFF_HAND_SLOT and not selectedLink then
         local mhLink = getEquippedLink(char, MAIN_HAND_SLOT)
@@ -976,7 +1007,7 @@ local function buildOffhandFocusCompare(
         if mhRole == "twohand" then
             return compareOffhandFocusVsTwohand(
                 char, focusedLink, mhLink, opts, entry,
-                technique, classFile, specKey, deducedLinks)
+                technique, classFile, specKey, level, deducedLinks)
         end
     end
     if isSingleHandSelectedRole(selectedRole) then
@@ -990,11 +1021,11 @@ local function buildOffhandFocusCompare(
         end
         return finalizeSelectionCompare(
             candidateMH, candidateOH, equippedMH, equippedOH,
-            "one_v_one", deducedLinks, technique, classFile, specKey)
+            "one_v_one", deducedLinks, technique, classFile, specKey, level)
     end
     return finalizeSelectionCompare(
         nil, focusedLink, nil, nil,
-        "one_v_one", deducedLinks, technique, classFile, specKey)
+        "one_v_one", deducedLinks, technique, classFile, specKey, level)
 end
 
 --- Selection-driven weapon loadout compare for one focused item and grid slot.
@@ -1007,23 +1038,23 @@ function GU.BuildSelectionLoadoutCompare(char, focusedLink, selectedSlot, opts, 
     if not focusRole or focusRole == "ranged" then return nil end
 
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local classFile, specKey = resolveCompareContext(char, entry)
+    local classFile, specKey, level = resolveCompareContext(char, entry)
     local selectedLink = getEquippedLink(char, selectedSlot)
     local selectedRole = selectedLink and iu.GetWeaponRole(selectedLink) or nil
 
     if focusRole == "twohand" then
         return buildTwohandFocusCompare(
             char, focusedLink, selectedSlot, selectedLink, selectedRole,
-            opts, entry, technique, classFile, specKey)
+            opts, entry, technique, classFile, specKey, level)
     end
     if focusRole == "offhand" then
         return buildOffhandFocusCompare(
             char, focusedLink, selectedSlot, selectedLink, selectedRole,
-            opts, entry, technique, classFile, specKey)
+            opts, entry, technique, classFile, specKey, level)
     end
     return buildOnehandFocusCompare(
         char, focusedLink, selectedSlot, selectedLink, selectedRole,
-        opts, entry, technique, classFile, specKey)
+        opts, entry, technique, classFile, specKey, level)
 end
 
 local function selectionInfoFromCompare(result, compareSlot)
@@ -1358,8 +1389,8 @@ local function upgradeDeltaInSlots(char, newLink, opts, slots, entry)
         return GU.GetWeaponConfigDelta(char, newLink, opts, entry) or 0
     end
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local classFile, specKey = resolveCompareContext(char, entry)
-    local newScore = scoreItem(newLink, technique, classFile, specKey)
+    local classFile, specKey, level = resolveCompareContext(char, entry)
+    local newScore = scoreItem(newLink, technique, classFile, specKey, level)
 
     local bestDelta = 0
     local hasEquipped = false
@@ -1455,8 +1486,8 @@ function GU.GetEquippedBaselineFromUpgradeDelta(char, itemLink, delta, opts, ent
     opts = opts or {}
     if not char or not itemLink then return 0 end
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local classFile, specKey = resolveCompareContext(char, entry)
-    local newScore = scoreItem(itemLink, technique, classFile, specKey) or 0
+    local classFile, specKey, level = resolveCompareContext(char, entry)
+    local newScore = scoreItem(itemLink, technique, classFile, specKey, level) or 0
     return math.max(0, newScore - delta)
 end
 
@@ -1519,8 +1550,8 @@ function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, _upgrade
             local eqLink = resolveItemLink(equipped)
             if eqLink then
                 local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-                local compareClass, specKey = resolveCompareContext(charData, entry)
-                oldScore = scoreItem(eqLink, technique, compareClass, specKey) or 0
+                local compareClass, specKey, weightLevel = resolveCompareContext(charData, entry)
+                oldScore = scoreItem(eqLink, technique, compareClass, specKey, weightLevel or level) or 0
             end
         end
     end
@@ -1780,12 +1811,12 @@ function GU.BuildFocusSlotDebugLines(entry, charData, itemLink, invSlot, opts, u
         return lines
     end
 
-    local classFile, specKey = resolveCompareContext(charData, entry)
-    local level = entry.level or (charData and charData.level) or 0
+    local classFile, specKey, level = resolveCompareContext(charData, entry)
+    local charLevel = entry.level or (charData and charData.level) or 0
     lines[#lines + 1] = string.format(
         "  Class/level/spec: %s / %s / %s",
         tostring(classFile),
-        tostring(level),
+        tostring(level or charLevel),
         tostring(specKey))
 
     lines[#lines + 1] = string.format("  Focused item: %s", focusDebugItemLabel(itemLink))
@@ -1822,7 +1853,8 @@ function GU.BuildFocusSlotDebugLines(entry, charData, itemLink, invSlot, opts, u
         local never = iu.CanNeverUseItem(classFile, itemLink)
         lines[#lines + 1] = string.format("  CanNeverUseItem: %s", tostring(never))
         local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
-        local inRange, _, reason = iu.IsEquippableWithin(classFile, level, itemLink, levelsAhead)
+        local inRange, _, reason = iu.IsEquippableWithin(
+            classFile, level or charLevel, itemLink, levelsAhead)
         lines[#lines + 1] = string.format(
             "  IsEquippableWithin: inRange=%s reason=%s",
             tostring(inRange),
@@ -1853,8 +1885,8 @@ function GU.BuildFocusSlotDebugLines(entry, charData, itemLink, invSlot, opts, u
         end
     end
 
-    local newScoreFocus = GU.ScoreItem(itemLink, focusTechnique, classFile, specKey)
-    local oldScoreFocus = eqLink and GU.ScoreItem(eqLink, focusTechnique, classFile, specKey) or 0
+    local newScoreFocus = GU.ScoreItem(itemLink, focusTechnique, classFile, specKey, level)
+    local oldScoreFocus = eqLink and GU.ScoreItem(eqLink, focusTechnique, classFile, specKey, level) or 0
     local rawDelta = GU.GetFocusSlotDelta(charData, itemLink, invSlot, opts, entry)
     local slotDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, opts, entry)
     lines[#lines + 1] = string.format(
@@ -1891,8 +1923,8 @@ function GU.BuildFocusSlotDebugLines(entry, charData, itemLink, invSlot, opts, u
     end
 
     if sessionTechnique and sessionTechnique ~= focusTechnique then
-        local newScoreSession = GU.ScoreItem(itemLink, sessionTechnique, classFile, specKey)
-        local oldScoreSession = eqLink and GU.ScoreItem(eqLink, sessionTechnique, classFile, specKey) or 0
+        local newScoreSession = GU.ScoreItem(itemLink, sessionTechnique, classFile, specKey, level)
+        local oldScoreSession = eqLink and GU.ScoreItem(eqLink, sessionTechnique, classFile, specKey, level) or 0
         local sessionOpts = { technique = debugCtx.sessionTechnique }
         local sessionDelta = GU.GetSlotCompareDelta(charData, itemLink, invSlot, sessionOpts, entry)
         lines[#lines + 1] = string.format(

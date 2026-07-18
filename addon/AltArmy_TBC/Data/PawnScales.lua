@@ -256,8 +256,77 @@ PS.RAW = {
     },
 }
 
-function PS.GetRawScale(classFile, specKey)
+-- Sparse level-range overrides on top of PS.RAW. Entries only list keys they change.
+-- Wand-class leveling: priests wand the most (Spirit Tap / Wand Spec), then warlocks,
+-- then mages. MeleeDps fills staff/mace gaps while leveling; endgame stays at 0.
+local WAND_LEVELING_MAGE = { minLevel = 1, maxLevel = 69, RangedDps = 3.5, MeleeDps = 0.25 }
+local WAND_LEVELING_WARLOCK = { minLevel = 1, maxLevel = 69, RangedDps = 5, MeleeDps = 0.25 }
+local WAND_LEVELING_PRIEST = { minLevel = 1, maxLevel = 69, RangedDps = 6, MeleeDps = 0.25 }
+
+PS.LEVEL_OVERRIDES = {
+    MAGE = {
+        fire = { WAND_LEVELING_MAGE },
+        frost = { WAND_LEVELING_MAGE },
+        arcane = { WAND_LEVELING_MAGE },
+    },
+    WARLOCK = {
+        affliction = { WAND_LEVELING_WARLOCK },
+        demonology = { WAND_LEVELING_WARLOCK },
+        destruction = { WAND_LEVELING_WARLOCK },
+    },
+    PRIEST = {
+        holy = { WAND_LEVELING_PRIEST },
+        discipline = { WAND_LEVELING_PRIEST },
+        shadow = { WAND_LEVELING_PRIEST },
+    },
+}
+
+local function sparseOverrideValues(entry)
+    local sparse = {}
+    for k, v in pairs(entry) do
+        if k ~= "minLevel" and k ~= "maxLevel" then
+            sparse[k] = v
+        end
+    end
+    return sparse
+end
+
+--- Band id for weight caching: which override entries matched at this level.
+function PS.GetOverrideBandId(classFile, specKey, level)
+    if level == nil then return "default" end
+    local byClass = PS.LEVEL_OVERRIDES[(classFile or ""):upper()]
+    local ranges = byClass and byClass[specKey]
+    if not ranges then return "default" end
+    local parts = {}
+    for i, entry in ipairs(ranges) do
+        local minL = entry.minLevel or 1
+        local maxL = entry.maxLevel or 70
+        if level >= minL and level <= maxL then
+            parts[#parts + 1] = tostring(i)
+        end
+    end
+    if #parts == 0 then return "default" end
+    return table.concat(parts, ",")
+end
+
+function PS.GetRawScale(classFile, specKey, level)
     local byClass = PS.RAW[(classFile or ""):upper()]
     if not byClass then return nil end
-    return byClass[specKey]
+    local base = byClass[specKey]
+    if not base then return nil end
+    if level == nil then return base end
+
+    local overrideClass = PS.LEVEL_OVERRIDES[(classFile or ""):upper()]
+    local ranges = overrideClass and overrideClass[specKey]
+    if not ranges then return base end
+
+    local merged = nil
+    for _, entry in ipairs(ranges) do
+        local minL = entry.minLevel or 1
+        local maxL = entry.maxLevel or 70
+        if level >= minL and level <= maxL then
+            merged = merge(merged or base, sparseOverrideValues(entry))
+        end
+    end
+    return merged or base
 end
