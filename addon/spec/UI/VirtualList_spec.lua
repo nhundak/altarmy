@@ -133,4 +133,20 @@ describe("VirtualList", function()
       assert.are.same({ 1, 2, 3 }, hidden)
     end)
   end)
+
+  describe("ShouldFillPoolRow", function()
+    it("skips fill when scrolling reuses the same data index", function()
+      assert.is_false(VirtualList.ShouldFillPoolRow(false, 3, 3))
+    end)
+
+    it("fills when the pool slot binds a different data index", function()
+      assert.is_true(VirtualList.ShouldFillPoolRow(false, 3, 7))
+      assert.is_true(VirtualList.ShouldFillPoolRow(false, nil, 1))
+    end)
+
+    it("fills on force paint even when data index is unchanged", function()
+      -- Query/highlight changes keep the same row indices; must refill for highlight text.
+      assert.is_true(VirtualList.ShouldFillPoolRow(true, 3, 3))
+    end)
+  end)
 end)

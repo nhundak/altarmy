@@ -33,7 +33,7 @@ local SD = AltArmy.SearchData
 if not SD or not SD.SearchWithLocationGroups or not SD.SearchRecipes then
     return
 end
-if not VirtualList or not VirtualList.GetRenderRange then
+if not VirtualList or not VirtualList.GetRenderRange or not VirtualList.ShouldFillPoolRow then
     return
 end
 
@@ -1096,7 +1096,7 @@ UpdateVisibleRows = function()
                 local entry = itemList[dataIndex]
                 local rowY = VirtualList.RowTopOffset(itemsSectionTop, dataIndex, ROW_HEIGHT)
                 positionPooledRow(row, rowY)
-                if row.dataIndex ~= dataIndex then
+                if VirtualList.ShouldFillPoolRow(force, row.dataIndex, dataIndex) then
                     fillItemRow(row, entry, showRealmSuffix, highlightRowOpts)
                     row.dataIndex = dataIndex
                 elseif scrollDbg then
@@ -1160,7 +1160,7 @@ UpdateVisibleRows = function()
                 local entry = recipeList[dataIndex]
                 local rowY = VirtualList.RowTopOffset(recipesSectionTop, dataIndex, ROW_HEIGHT)
                 positionPooledRow(row, rowY)
-                if row.dataIndex ~= dataIndex then
+                if VirtualList.ShouldFillPoolRow(force, row.dataIndex, dataIndex) then
                     fillRecipeRow(row, entry, showRealmSuffix, highlightRowOpts)
                     row.dataIndex = dataIndex
                 elseif scrollDbg then
@@ -1219,7 +1219,7 @@ UpdateVisibleRows = function()
                 local entry = tooltipOnlyItemList[dataIndex]
                 local rowY = VirtualList.RowTopOffset(tooltipOnlySectionTop, dataIndex, ROW_HEIGHT)
                 positionPooledRow(row, rowY)
-                if row.dataIndex ~= dataIndex then
+                if VirtualList.ShouldFillPoolRow(force, row.dataIndex, dataIndex) then
                     fillItemRow(row, entry, showRealmSuffix, tooltipOnlyRowOpts)
                     row.dataIndex = dataIndex
                 elseif scrollDbg then

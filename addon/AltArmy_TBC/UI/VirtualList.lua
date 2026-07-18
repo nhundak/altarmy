@@ -84,3 +84,10 @@ function VirtualList.ForEachPoolSlot(poolSize, firstRender, renderCount, onShow,
         end
     end
 end
+
+--- Whether a pooled row's cell content must be rebuilt.
+--- force: results/query changed (e.g. typing updates search highlight).
+--- Otherwise refill only when the slot binds a different data index.
+function VirtualList.ShouldFillPoolRow(force, rowDataIndex, dataIndex)
+    return force or rowDataIndex ~= dataIndex
+end
