@@ -114,6 +114,118 @@ describe("GuildChatMainName", function()
     end)
   end)
 
+  describe("Communities guild UI helpers", function()
+    local savedDebug
+    local savedGSS
+    local savedEnum
+
+    local function guildClub()
+      return { clubType = 2 } -- Enum.ClubType.Guild
+    end
+
+    local function characterClub()
+      return { clubType = 1 } -- Enum.ClubType.Character
+    end
+
+    local function msg(opts)
+      opts = opts or {}
+      return {
+        content = opts.content or "hello",
+        destroyed = opts.destroyed,
+        author = opts.author ~= nil and opts.author or { name = opts.name or "Alt" },
+      }
+    end
+
+    setup(function()
+      savedDebug = AltArmy.Debug
+      savedGSS = AltArmy.GuildShareSettings
+      savedEnum = _G.Enum
+      _G.Enum = { ClubType = { Guild = 2, Character = 1, BattleNet = 0 } }
+      AltArmy.Debug = { IsGuildShareEnabled = function() return true end }
+      AltArmy.GuildShareSettings = {
+        IsSharingEnabled = function() return true end,
+        IsChatInsertionEnabled = function() return true end,
+        IsChatInsertionChannelEnabled = function(key) return key == "guild" end,
+        IsChatInsertionClassColorEnabled = function() return false end,
+      }
+      AltArmy.GuildShareData = {
+        GetMainOf = function() return "Mainman" end,
+        FindCharacter = function() return { realm = "R", classFile = "MAGE" } end,
+      }
+    end)
+
+    teardown(function()
+      AltArmy.Debug = savedDebug
+      AltArmy.GuildShareSettings = savedGSS
+      AltArmy.GuildShareData = nil
+      _G.Enum = savedEnum
+    end)
+
+    it("ShouldAnnotateClubMessage is true for guild club messages with an author", function()
+      assert.is_true(GCM.ShouldAnnotateClubMessage(guildClub(), msg()))
+    end)
+
+    it("ShouldAnnotateClubMessage is false for non-guild clubs", function()
+      assert.is_false(GCM.ShouldAnnotateClubMessage(characterClub(), msg()))
+    end)
+
+    it("ShouldAnnotateClubMessage is false when clubInfo is missing", function()
+      assert.is_false(GCM.ShouldAnnotateClubMessage(nil, msg()))
+    end)
+
+    it("ShouldAnnotateClubMessage is false for destroyed messages", function()
+      assert.is_false(GCM.ShouldAnnotateClubMessage(guildClub(), msg({ destroyed = true })))
+    end)
+
+    it("ShouldAnnotateClubMessage is false when author name is missing", function()
+      assert.is_false(GCM.ShouldAnnotateClubMessage(guildClub(), msg({ author = {} })))
+      assert.is_false(GCM.ShouldAnnotateClubMessage(guildClub(), msg({ author = { name = "" } })))
+    end)
+
+    it("AnnotateClubMessageContent annotates when guild insertion is allowed", function()
+      local out = GCM.AnnotateClubMessageContent("Alt", "hello")
+      assert.are.equal("[Mainman] hello", out)
+    end)
+
+    it("WrapCommunitiesFormatMessage annotates via the frame instance FormatMessage", function()
+      local savedCClub = _G.C_Club
+      _G.C_Club = {
+        GetClubInfo = function() return guildClub() end,
+      }
+      local owner = {
+        FormatMessage = function(_, _, _, message)
+          return "FMT:" .. (message.content or "")
+        end,
+      }
+      assert.is_true(GCM.WrapCommunitiesFormatMessage(owner))
+      local out = owner:FormatMessage("club", "stream", msg({ content = "hello" }))
+      assert.are.equal("FMT:[Mainman] hello", out)
+      _G.C_Club = savedCClub
+    end)
+
+    it("WrapCommunitiesFormatMessage is idempotent on the same owner", function()
+      local owner = {
+        FormatMessage = function(_, _, _, message)
+          return message.content
+        end,
+      }
+      assert.is_true(GCM.WrapCommunitiesFormatMessage(owner))
+      assert.is_false(GCM.WrapCommunitiesFormatMessage(owner))
+    end)
+
+    it("AnnotateClubMessageContent returns nil when the guild channel is disabled", function()
+      AltArmy.GuildShareSettings.IsChatInsertionChannelEnabled = function() return false end
+      assert.is_nil(GCM.AnnotateClubMessageContent("Alt", "hello"))
+      AltArmy.GuildShareSettings.IsChatInsertionChannelEnabled = function(key) return key == "guild" end
+    end)
+
+    it("AnnotateClubMessageContent returns nil when chat insertion is disabled", function()
+      AltArmy.GuildShareSettings.IsChatInsertionEnabled = function() return false end
+      assert.is_nil(GCM.AnnotateClubMessageContent("Alt", "hello"))
+      AltArmy.GuildShareSettings.IsChatInsertionEnabled = function() return true end
+    end)
+  end)
+
   it("leaves the message unchanged when the sender is unknown", function()
     assert.are.equal("hi", GCM.Transform("Stranger", "hi", mains({})))
   end)

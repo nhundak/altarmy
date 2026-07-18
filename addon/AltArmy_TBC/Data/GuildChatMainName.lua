@@ -1,8 +1,11 @@
 -- AltArmy TBC — Guild data sharing: guild-chat main-name insertion.
 -- Annotates chat messages from an alt with the poster's self-declared main, so you can
 -- tell who is behind an unfamiliar alt name. Also annotates guildmate online/offline
--- system messages the same way. Pure Transform is unit-tested; chat filters are installed
+-- system messages the same way, and anniversary guild UI (Communities) messages via a
+-- FormatMessage wrap. Pure Transform is unit-tested; chat filters / hooks are installed
 -- once and gated at call time by the feature flag, sharing opt-in, and chat settings.
+-- luacheck: globals ChatFrame_AddMessageEventFilter CreateFrame IsAddOnLoaded
+-- luacheck: globals C_Club CommunitiesChatMixin CommunitiesFrame
 
 if not AltArmy then return end
 
@@ -210,6 +213,39 @@ function GCM.FilterSystemMessage(message)
     return nil
 end
 
+local CLUB_TYPE_GUILD = 2 -- Enum.ClubType.Guild when Enum is unavailable in tests
+
+local function guildClubType()
+    local enum = _G.Enum
+    if enum and enum.ClubType and enum.ClubType.Guild ~= nil then
+        return enum.ClubType.Guild
+    end
+    return CLUB_TYPE_GUILD
+end
+
+--- True when a Communities message should be considered for main-name annotation
+--- (guild club, not destroyed, author name present). Settings gates are applied later.
+function GCM.ShouldAnnotateClubMessage(clubInfo, message)
+    if not clubInfo or clubInfo.clubType ~= guildClubType() then
+        return false
+    end
+    if not message or message.destroyed then
+        return false
+    end
+    local author = message.author
+    local name = author and author.name
+    if type(name) ~= "string" or name == "" then
+        return false
+    end
+    return true
+end
+
+--- Annotate Communities message body using the same gates as guild chat insertion.
+--- Returns modified content, or nil to leave it untouched.
+function GCM.AnnotateClubMessageContent(authorName, content)
+    return GCM.FilterMessage(content, authorName, "guild")
+end
+
 local function installChatFilter(channelKey, eventName)
     if not ChatFrame_AddMessageEventFilter then return end
     ChatFrame_AddMessageEventFilter(eventName, function(_, _, msg, author, ...)
@@ -235,4 +271,84 @@ if ChatFrame_AddMessageEventFilter then
         end
         return false
     end)
+end
+
+-- Anniversary guild UI (Communities) message feed: wrap FormatMessage so live and
+-- historical rows get the same [Main] prefix. hooksecurefunc cannot change returns.
+-- Mixin copies FormatMessage onto the frame instance, so wrapping only
+-- CommunitiesChatMixin leaves CommunitiesFrame.Chat on the original function —
+-- always wrap the live Chat frame as well.
+
+--- Wrap owner.FormatMessage to annotate guild club message content.
+--- Returns true when newly wrapped, false if already wrapped or nothing to wrap.
+function GCM.WrapCommunitiesFormatMessage(owner)
+    if not owner or type(owner.FormatMessage) ~= "function" then
+        return false
+    end
+    if owner._altArmyMainNameFormatHooked then
+        return false
+    end
+    owner._altArmyMainNameFormatHooked = true
+    local orig = owner.FormatMessage
+    owner.FormatMessage = function(self, clubId, streamId, message)
+        local clubApi = _G.C_Club
+        local clubInfo = clubApi and clubApi.GetClubInfo and clubApi.GetClubInfo(clubId)
+        if GCM.ShouldAnnotateClubMessage(clubInfo, message) then
+            local author = message.author and message.author.name
+            local newContent = GCM.AnnotateClubMessageContent(author, message.content)
+            if newContent then
+                local copy = {}
+                for k, v in pairs(message) do
+                    copy[k] = v
+                end
+                copy.content = newContent
+                return orig(self, clubId, streamId, copy)
+            end
+        end
+        return orig(self, clubId, streamId, message)
+    end
+    return true
+end
+
+local function installCommunitiesChatHook()
+    GCM.WrapCommunitiesFormatMessage(_G.CommunitiesChatMixin)
+    local frame = _G.CommunitiesFrame
+    local chat = frame and frame.Chat
+    if not chat then return end
+    local newlyWrapped = GCM.WrapCommunitiesFormatMessage(chat)
+    if newlyWrapped and chat.DisplayChat and chat.IsShown and chat:IsShown() then
+        chat:DisplayChat()
+    end
+end
+
+local function watchCommunitiesFrame()
+    local frame = _G.CommunitiesFrame
+    if not frame or frame._altArmyMainNameWatch then return end
+    frame._altArmyMainNameWatch = true
+    if frame.HookScript then
+        frame:HookScript("OnShow", function()
+            installCommunitiesChatHook()
+        end)
+    end
+    installCommunitiesChatHook()
+end
+
+local function tryInstallCommunitiesHooks()
+    watchCommunitiesFrame()
+    installCommunitiesChatHook()
+end
+
+tryInstallCommunitiesHooks()
+
+if CreateFrame then
+    local hookFrame = CreateFrame("Frame")
+    hookFrame:RegisterEvent("ADDON_LOADED")
+    hookFrame:SetScript("OnEvent", function(_, event, addonName)
+        if event == "ADDON_LOADED" and addonName == "Blizzard_Communities" then
+            tryInstallCommunitiesHooks()
+        end
+    end)
+    if IsAddOnLoaded and IsAddOnLoaded("Blizzard_Communities") then
+        tryInstallCommunitiesHooks()
+    end
 end
