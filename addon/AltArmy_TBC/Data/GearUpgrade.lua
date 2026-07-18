@@ -18,7 +18,7 @@ local function IU()
 end
 
 local DEFAULT_LEVELS_AHEAD = 5
-local DEFAULT_UPGRADE_THRESHOLD_PERCENT = 10
+local DEFAULT_UPGRADE_THRESHOLD_PERCENT = 5
 
 local scoreMemo = {}
 local storedItemMemo = {}
@@ -90,12 +90,11 @@ function GU.GetUpgradeThresholdRatio(opts)
     return GU.ResolveUpgradeThresholdPercent(pct) / 100
 end
 
---- Weighted percent change for compare panel and focus verdict (matches GearCompare).
-function GU.GetWeightedChangePercent(delta, oldTotal, upgradeMaxDelta)
+--- Weighted percent change vs currently equipped score (compare panel and focus verdict).
+--- upgradeMaxDelta is ignored (kept for call-site compatibility); focus-grid max-delta
+--- is only used for column sort tie-breaks via GetFocusUpgradePercent.
+function GU.GetWeightedChangePercent(delta, oldTotal, _upgradeMaxDelta)
     delta = tonumber(delta) or 0
-    if upgradeMaxDelta and upgradeMaxDelta > 0 then
-        return delta / upgradeMaxDelta * 100
-    end
     oldTotal = tonumber(oldTotal) or 0
     if oldTotal > 0 then
         return delta / oldTotal * 100
@@ -1440,13 +1439,25 @@ local function focusSortTierForCategory(category)
     return FOCUS_CATEGORY_SORT_TIER[category] or 5
 end
 
---- clear (+) vs minor (~) among positive upgrade deltas.
-function GU.GetUpgradeHighlightKind(delta, maxDelta, opts)
+--- clear (+) vs minor (~) from equipped-relative percent vs upgrade threshold.
+--- oldTotal is the currently equipped score (0 / nil = empty slot → clear when delta > 0).
+function GU.GetUpgradeHighlightKind(delta, oldTotal, opts)
     if not delta or delta <= 0 then return nil end
-    if not maxDelta or maxDelta <= 0 then return "clear" end
-    local ratio = GU.GetUpgradeThresholdRatio(opts)
-    if delta >= maxDelta * ratio then return "clear" end
+    local percent = GU.GetWeightedChangePercent(delta, oldTotal)
+    local threshold = GU.GetUpgradeThresholdRatio(opts) * 100
+    if percent >= threshold then return "clear" end
     return "minor"
+end
+
+--- Equipped score baseline implied by a character-level upgrade delta.
+function GU.GetEquippedBaselineFromUpgradeDelta(char, itemLink, delta, opts, entry)
+    delta = tonumber(delta) or 0
+    opts = opts or {}
+    if not char or not itemLink then return 0 end
+    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+    local classFile, specKey = resolveCompareContext(char, entry)
+    local newScore = scoreItem(itemLink, technique, classFile, specKey) or 0
+    return math.max(0, newScore - delta)
 end
 
 --- Inventory slot used for focus verdict/badges (the selected grid cell).
@@ -1455,7 +1466,8 @@ function GU.ResolveFocusCompareSlot(_charData, _itemLink, invSlot, _opts, _entry
 end
 
 --- Classify one inventory slot for focus-mode badges and sorting.
-function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeMaxDelta)
+--- upgradeMaxDelta is unused for classification (kept for call-site compatibility).
+function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, _upgradeMaxDelta)
     opts = opts or {}
     if not entry or not itemLink or not invSlot then return nil end
     local iu = IU()
@@ -1498,21 +1510,23 @@ function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeM
         }
     end
 
-    if rawDelta < 0 then
-        local oldScore = loadoutOldScore or 0
-        if not loadoutOldScore then
-            local DS = AltArmy.DataStore
-            if DS and DS.GetInventoryItem then
-                local equipped = DS:GetInventoryItem(charData, invSlot)
-                local eqLink = resolveItemLink(equipped)
-                if eqLink then
-                    local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-                    local compareClass, specKey = resolveCompareContext(charData, entry)
-                    oldScore = scoreItem(eqLink, technique, compareClass, specKey) or 0
-                end
+    local oldScore = loadoutOldScore
+    if oldScore == nil then
+        oldScore = 0
+        local DS = AltArmy.DataStore
+        if DS and DS.GetInventoryItem then
+            local equipped = DS:GetInventoryItem(charData, invSlot)
+            local eqLink = resolveItemLink(equipped)
+            if eqLink then
+                local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+                local compareClass, specKey = resolveCompareContext(charData, entry)
+                oldScore = scoreItem(eqLink, technique, compareClass, specKey) or 0
             end
         end
-        local weightedPercent = GU.GetWeightedChangePercent(rawDelta, oldScore, upgradeMaxDelta)
+    end
+
+    if rawDelta < 0 then
+        local weightedPercent = GU.GetWeightedChangePercent(rawDelta, oldScore)
         local threshold = GU.GetUpgradeThresholdRatio(opts) * 100
         if weightedPercent > -threshold then
             local category = inRange and GU.FOCUS_CATEGORY.SIDEGRADE_IN_RANGE
@@ -1533,7 +1547,7 @@ function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, upgradeM
     end
 
     if rawDelta > 0 then
-        local kind = GU.GetUpgradeHighlightKind(rawDelta, upgradeMaxDelta, opts)
+        local kind = GU.GetUpgradeHighlightKind(rawDelta, oldScore, opts)
         local category
         if kind == "clear" then
             category = inRange and GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE
@@ -1889,7 +1903,7 @@ function GU.BuildFocusSlotDebugLines(entry, charData, itemLink, invSlot, opts, u
     end
 
     if rawDelta > 0 then
-        local kind = GU.GetUpgradeHighlightKind(rawDelta, upgradeMaxDelta, opts)
+        local kind = GU.GetUpgradeHighlightKind(rawDelta, oldScoreFocus, opts)
         lines[#lines + 1] = string.format("  Upgrade highlight kind: %s", tostring(kind or "(nil)"))
     end
 
@@ -2221,7 +2235,8 @@ function GU.GetLevelsUntilEquippable(entry, charData, itemLink)
     return effective - level
 end
 
---- Upgrade size as a percent of the best positive delta in the comparison grid.
+--- Upgrade size as a percent of the best positive delta in the comparison grid
+--- (focus column sort tie-break only; not used for Weighted % or Upgrade threshold).
 function GU.GetFocusUpgradePercent(entry, charData, itemLink, opts, upgradeMaxDelta)
     local delta = GU.GetFocusUpgradeDelta(entry, charData, itemLink, opts, upgradeMaxDelta) or 0
     if delta <= 0 or not upgradeMaxDelta or upgradeMaxDelta <= 0 then return 0 end

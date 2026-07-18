@@ -104,14 +104,11 @@ local function getItemNameFromLink(link)
     return getItemName(link)
 end
 
-local function weightedPercentValue(summary, upgradeMaxDelta)
+local function weightedPercentValue(summary, _upgradeMaxDelta)
     if GU and GU.GetWeightedChangePercent then
-        return GU.GetWeightedChangePercent(summary.delta, summary.oldTotal, upgradeMaxDelta)
+        return GU.GetWeightedChangePercent(summary.delta, summary.oldTotal)
     end
     local delta = summary.delta or 0
-    if upgradeMaxDelta and upgradeMaxDelta > 0 then
-        return delta / upgradeMaxDelta * 100
-    end
     local oldTotal = summary.oldTotal or 0
     if oldTotal > 0 then
         return delta / oldTotal * 100

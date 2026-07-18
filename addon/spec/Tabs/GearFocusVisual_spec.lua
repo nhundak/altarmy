@@ -4,13 +4,23 @@
 ]]
 
 describe("Gear focus visuals", function()
-    local CLEAR_UPGRADE_RATIO = 0.10
+    local UPGRADE_THRESHOLD_PERCENT = 5
     local FOCUS_FADE_ALPHA = 0.45
 
-    local function getUpgradeHighlightKind(delta, maxDelta)
+    --- Mirrors equipped-relative GetUpgradeHighlightKind (delta vs oldTotal).
+    local function getUpgradeHighlightKind(delta, oldTotal, thresholdPercent)
+        thresholdPercent = thresholdPercent or UPGRADE_THRESHOLD_PERCENT
         if not delta or delta <= 0 then return nil end
-        if not maxDelta or maxDelta <= 0 then return "clear" end
-        if delta >= maxDelta * CLEAR_UPGRADE_RATIO then return "clear" end
+        oldTotal = tonumber(oldTotal) or 0
+        local percent
+        if oldTotal > 0 then
+            percent = delta / oldTotal * 100
+        elseif delta > 0 then
+            percent = 100
+        else
+            percent = 0
+        end
+        if percent >= thresholdPercent then return "clear" end
         return "minor"
     end
 
@@ -21,17 +31,19 @@ describe("Gear focus visuals", function()
     end
 
     it("uses green bucket for clear upgrades", function()
-        assert.are.equal("clear", getUpgradeHighlightKind(15, 15))
-        assert.are.equal("clear", getUpgradeHighlightKind(10, 15))
+        assert.are.equal("clear", getUpgradeHighlightKind(15, 100))
+        assert.are.equal("clear", getUpgradeHighlightKind(5, 100))
+        assert.are.equal("clear", getUpgradeHighlightKind(10, 0))
     end)
 
     it("uses yellow bucket for minor upgrades", function()
-        assert.are.equal("minor", getUpgradeHighlightKind(0.5, 15))
+        assert.are.equal("minor", getUpgradeHighlightKind(4, 100))
+        assert.are.equal("minor", getUpgradeHighlightKind(0.5, 100))
     end)
 
     it("returns nil highlight for non-upgrades", function()
-        assert.is_nil(getUpgradeHighlightKind(0, 15))
-        assert.is_nil(getUpgradeHighlightKind(nil, 15))
+        assert.is_nil(getUpgradeHighlightKind(0, 100))
+        assert.is_nil(getUpgradeHighlightKind(nil, 100))
     end)
 
     it("dims never-equip, beyond-level, and downgrade columns", function()

@@ -166,7 +166,7 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
 
     local thresholdLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     thresholdLabel:SetPoint("TOPLEFT", levelsEdit, "BOTTOMLEFT", 0, -14)
-    thresholdLabel:SetText("Upgrade threshold (%)")
+    thresholdLabel:SetText("Upgrade threshold (% vs equipped)")
 
     local thresholdEdit = CreateFrame("EditBox", nil, scrollChild)
     thresholdEdit:SetPoint("TOPLEFT", thresholdLabel, "BOTTOMLEFT", 0, -4)

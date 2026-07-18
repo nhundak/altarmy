@@ -292,11 +292,22 @@ local function enrichEntriesForCurrentCharacter(entries, evalOpts, opts)
         if equippable and GU and GU.GetCharacterUpgradeDelta then
             entry.delta = GU.GetCharacterUpgradeDelta(char, entry.link, evalOpts) or 0
             if entry.delta > 0 and GU.GetUpgradeHighlightKind then
-                local upgradeMaxDelta
-                if GU.ComputeUpgradeMaxDeltaForCurrentRealm then
-                    upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForCurrentRealm(entry.link, evalOpts)
+                local oldTotal = 0
+                if GU.GetEquippedBaselineFromUpgradeDelta then
+                    oldTotal = GU.GetEquippedBaselineFromUpgradeDelta(
+                        char, entry.link, entry.delta, evalOpts)
+                elseif GU.ScoreItem then
+                    local technique = GU.GetEffectiveTechnique
+                        and GU.GetEffectiveTechnique(evalOpts and evalOpts.technique or "custom")
+                        or (evalOpts and evalOpts.technique) or "custom"
+                    local classFile, specKey = char.classFile or "", "unknown"
+                    if GU.ResolveCompareContext then
+                        classFile, specKey = GU.ResolveCompareContext(char, nil)
+                    end
+                    local newScore = GU.ScoreItem(entry.link, technique, classFile, specKey) or 0
+                    oldTotal = math.max(0, newScore - entry.delta)
                 end
-                entry.highlightKind = GU.GetUpgradeHighlightKind(entry.delta, upgradeMaxDelta, opts)
+                entry.highlightKind = GU.GetUpgradeHighlightKind(entry.delta, oldTotal, opts)
             end
         else
             entry.delta = 0

@@ -456,11 +456,21 @@ local function questRewardClearUpgrade(char, link, evalOpts, opts)
     if not GU or not GU.GetUpgradeHighlightKind then return false end
     local delta = questRewardUpgradeDelta(char, link, evalOpts)
     if delta <= 0 then return false end
-    local upgradeMaxDelta
-    if GU.ComputeUpgradeMaxDeltaForCurrentRealm then
-        upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForCurrentRealm(link, evalOpts)
+    local oldTotal = 0
+    if GU.GetEquippedBaselineFromUpgradeDelta then
+        oldTotal = GU.GetEquippedBaselineFromUpgradeDelta(char, link, delta, evalOpts)
+    elseif GU.ScoreItem then
+        local technique = GU.GetEffectiveTechnique
+            and GU.GetEffectiveTechnique(evalOpts and evalOpts.technique or "custom")
+            or (evalOpts and evalOpts.technique) or "custom"
+        local classFile, specKey = char.classFile or "", "unknown"
+        if GU.ResolveCompareContext then
+            classFile, specKey = GU.ResolveCompareContext(char, nil)
+        end
+        local newScore = GU.ScoreItem(link, technique, classFile, specKey) or 0
+        oldTotal = math.max(0, newScore - delta)
     end
-    return GU.GetUpgradeHighlightKind(delta, upgradeMaxDelta, opts) == "clear"
+    return GU.GetUpgradeHighlightKind(delta, oldTotal, opts) == "clear"
 end
 
 local function collectEquippableQuestRewardLinks(char, links, evalOpts)

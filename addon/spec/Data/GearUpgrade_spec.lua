@@ -533,12 +533,16 @@ describe("GearUpgrade", function()
         assert.is_true(opts.showQuestRewardVendorIndicator)
         assert.are.equal("custom", opts.technique)
         assert.are.equal(5, opts.levelsAhead)
-        assert.are.equal(10, opts.upgradeThresholdPercent)
+        assert.are.equal(5, opts.upgradeThresholdPercent)
     end)
 
-    it("GetUpgradeHighlightKind uses upgradeThresholdPercent from opts", function()
-        assert.are.equal("minor", GU.GetUpgradeHighlightKind(3, 15, { upgradeThresholdPercent = 50 }))
-        assert.are.equal("clear", GU.GetUpgradeHighlightKind(3, 15, { upgradeThresholdPercent = 10 }))
+    it("GetUpgradeHighlightKind uses equipped-relative percent vs threshold", function()
+        -- 3/35 ≈ 8.6%: clear at 5%, minor at 50%
+        assert.are.equal("clear", GU.GetUpgradeHighlightKind(3, 35, { upgradeThresholdPercent = 5 }))
+        assert.are.equal("minor", GU.GetUpgradeHighlightKind(3, 35, { upgradeThresholdPercent = 50 }))
+        -- empty equipped baseline → 100% → clear
+        assert.are.equal("clear", GU.GetUpgradeHighlightKind(10, 0, { upgradeThresholdPercent = 5 }))
+        assert.are.equal("clear", GU.GetUpgradeHighlightKind(10, nil, { upgradeThresholdPercent = 5 }))
     end)
 
     it("GetWeightedChangeColor uses threshold bands and smooth blends", function()
@@ -566,7 +570,7 @@ describe("GearUpgrade", function()
     end)
 
     it("ResolveUpgradeThresholdPercent clamps to 0-100", function()
-        assert.are.equal(10, GU.ResolveUpgradeThresholdPercent(nil))
+        assert.are.equal(5, GU.ResolveUpgradeThresholdPercent(nil))
         assert.are.equal(0, GU.ResolveUpgradeThresholdPercent(-10))
         assert.are.equal(100, GU.ResolveUpgradeThresholdPercent(150))
     end)
@@ -1002,15 +1006,19 @@ describe("GearUpgrade", function()
         local verdict = GU.GetFocusVerdictForSlot(entry, char, slightlyWorseLink, 1, {
             technique = "ilvl",
             levelsAhead = 5,
+            -- -3 ilvl on equipped 35 ≈ -8.6%; keep at 10% so this stays in the sidegrade band
+            upgradeThresholdPercent = 10,
         }, 100)
         char.Inventory[1] = "|Hitem:10:0|h[Old Helm]|h"
         assert.are.equal("Sidegrade", verdict.label)
     end)
 
-    it("GetWeightedChangePercent matches compare panel formula", function()
-        assert.are.equal(-3, GU.GetWeightedChangePercent(-3, 35, 100))
-        assert.are.equal(-20, GU.GetWeightedChangePercent(-3, 35, 15))
-        assert.are.equal(-100, GU.GetWeightedChangePercent(-35, 35, nil))
+    it("GetWeightedChangePercent is equipped-relative and ignores upgradeMaxDelta", function()
+        assert.are.equal(-3 / 35 * 100, GU.GetWeightedChangePercent(-3, 35))
+        assert.are.equal(-3 / 35 * 100, GU.GetWeightedChangePercent(-3, 35, 15))
+        assert.are.equal(-100, GU.GetWeightedChangePercent(-35, 35))
+        assert.are.equal(100, GU.GetWeightedChangePercent(10, 0))
+        assert.are.equal(0, GU.GetWeightedChangePercent(0, 0))
     end)
 
     it("BuildFocusSlotDebugLines reports classification and delta", function()
@@ -1632,7 +1640,8 @@ describe("GearUpgrade", function()
         it("GetFocusVerdictForSlot uses selected slot for 2H focus", function()
             local char = setupWarriorDualWield()
             local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
-            local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
+            -- Loadout +5 on equipped 55 ≈ 9.1% vs equipped → clear at default 5% threshold
+            local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 5 }
             local link = "|Hitem:203:0|h[Big 2H]|h"
             local verdict = GU.GetFocusVerdictForSlot(entry, char, link, OFF, opts, 5)
             assert.are.equal("Upgrade", verdict.label)

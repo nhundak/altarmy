@@ -847,9 +847,9 @@ function GearTab.getUpgradeHighlightBelowHeaderExtent()
     return (rh - cell) / 2 + cell
 end
 
-function GearTab.getUpgradeHighlightKind(delta, maxDelta)
+function GearTab.getUpgradeHighlightKind(delta, oldTotal)
     if GU and GU.GetUpgradeHighlightKind then
-        return GU.GetUpgradeHighlightKind(delta, maxDelta, GU.GetOptions and GU.GetOptions())
+        return GU.GetUpgradeHighlightKind(delta, oldTotal, GU.GetOptions and GU.GetOptions())
     end
     return nil
 end

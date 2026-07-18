@@ -852,11 +852,17 @@ describe("GearUpgradeAlerts", function()
                         notifyOtherCharacters = overrides.notifyOtherCharacters ~= false,
                         technique = "custom",
                         levelsAhead = 5,
-                        upgradeThresholdPercent = overrides.upgradeThresholdPercent or 10,
+                        upgradeThresholdPercent = overrides.upgradeThresholdPercent or 5,
                     }
                 end,
                 GetEffectiveTechnique = function(technique)
                     return technique
+                end,
+                ResolveCompareContext = function(char)
+                    return (char and char.classFile) or "MAGE", "arcane"
+                end,
+                ScoreItem = overrides.scoreItem or function()
+                    return 100
                 end,
                 EvaluateForCharacter = overrides.evaluateForCharacter or function(_, link)
                     return link == linkA or link == linkB
@@ -870,13 +876,19 @@ describe("GearUpgradeAlerts", function()
                     if link == linkB then return 50 end
                     return 0
                 end,
-                ComputeUpgradeMaxDeltaForCurrentRealm =
-                    overrides.computeUpgradeMaxDeltaForCurrentRealm or function() return 100 end,
-                GetUpgradeHighlightKind = overrides.getUpgradeHighlightKind or function(delta, maxDelta, opts)
-                    local threshold = ((opts and opts.upgradeThresholdPercent) or 10) / 100
+                GetUpgradeHighlightKind = overrides.getUpgradeHighlightKind or function(delta, oldTotal, opts)
+                    local threshold = (opts and opts.upgradeThresholdPercent) or 5
                     if not delta or delta <= 0 then return nil end
-                    if not maxDelta or maxDelta <= 0 then return "clear" end
-                    if delta >= maxDelta * threshold then return "clear" end
+                    oldTotal = tonumber(oldTotal) or 0
+                    local percent
+                    if oldTotal > 0 then
+                        percent = delta / oldTotal * 100
+                    elseif delta > 0 then
+                        percent = 100
+                    else
+                        percent = 0
+                    end
+                    if percent >= threshold then return "clear" end
                     return "minor"
                 end,
             }
@@ -947,7 +959,8 @@ describe("GearUpgradeAlerts", function()
                 getCharacterUpgradeDelta = function(_, link)
                     if link == linkReward then return 100 end
                     if link == linkA then return 10 end
-                    if link == linkB then return 5 end
+                    -- Below 5% of ScoreItem=100 baseline (3/97 ≈ 3.1%) so only linkA is clear
+                    if link == linkB then return 3 end
                     return 0
                 end,
             })
@@ -997,11 +1010,12 @@ describe("GearUpgradeAlerts", function()
             assert.is_nil(chatLines[1]:match("is the best upgrade"))
         end)
 
-        it("announces a clear upgrade when the reward meets the realm-wide threshold", function()
+        it("announces a clear upgrade when the reward meets the equipped threshold", function()
+            -- ScoreItem=100 ⇒ oldTotal = 100 - delta. 15/85 ≈ 17.6% clear; 3/97 ≈ 3.1% minor.
             loadWithMocks({
-                computeUpgradeMaxDeltaForCurrentRealm = function() return 100 end,
+                upgradeThresholdPercent = 5,
                 getCharacterUpgradeDelta = function(_, link)
-                    if link == linkA then return 8 end
+                    if link == linkA then return 3 end
                     if link == linkB then return 15 end
                     return 0
                 end,
@@ -1013,11 +1027,12 @@ describe("GearUpgradeAlerts", function()
         end)
 
         it("announces a minor upgrade for the best positive reward below threshold", function()
+            -- 4/96 ≈ 4.2% and 3/97 ≈ 3.1% both below 5% → announce best as minor.
             loadWithMocks({
-                computeUpgradeMaxDeltaForCurrentRealm = function() return 100 end,
+                upgradeThresholdPercent = 5,
                 getCharacterUpgradeDelta = function(_, link)
-                    if link == linkA then return 8 end
-                    if link == linkB then return 5 end
+                    if link == linkA then return 4 end
+                    if link == linkB then return 3 end
                     return 0
                 end,
             })

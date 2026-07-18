@@ -7,15 +7,16 @@ local SC = AltArmy.SearchColumns
 SC.ITEM_COLUMN_ORDER = { "Item", "Character", "Total" }
 SC.RECIPE_COLUMN_ORDER = { "Recipe", "Character", "Skill" }
 
--- Closed-settings total (354+170+72=596) matches listViewport width on the 640px main frame
+-- Closed-settings total (344+180+72=596) matches listViewport width on the 640px main frame
 -- (624 content − 8 inner pad − 20 scroll gutter).
-SC.ITEM_COLUMN_WIDTHS = { Item = 354, Character = 170, Total = 72 }
-SC.RECIPE_COLUMN_WIDTHS = { Recipe = 354, Character = 170, Skill = 72 }
+SC.ITEM_COLUMN_WIDTHS = { Item = 344, Character = 180, Total = 72 }
+SC.RECIPE_COLUMN_WIDTHS = { Recipe = 344, Character = 180, Skill = 72 }
 
 --- Pixels to subtract from Item/Recipe when the search settings panel is open.
-SC.SETTINGS_FIRST_COLUMN_SHRINK = 179
+--- Chosen so open-settings widths stay 175 / 158 (same as before the closed-layout tweak).
+SC.SETTINGS_FIRST_COLUMN_SHRINK = 169
 --- Pixels to subtract from Character when the search settings panel is open.
-SC.SETTINGS_CHARACTER_COLUMN_SHRINK = 12
+SC.SETTINGS_CHARACTER_COLUMN_SHRINK = 22
 
 local DEFAULT_COL_WIDTH = 80
 

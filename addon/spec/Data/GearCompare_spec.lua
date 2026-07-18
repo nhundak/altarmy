@@ -156,7 +156,7 @@ describe("GearCompare", function()
         assert.are.equal(expectedPercent, rows[3].percent)
     end)
 
-    it("BuildComparison weighted change percent uses upgradeMaxDelta when provided", function()
+    it("BuildComparison weighted change percent ignores upgradeMaxDelta", function()
         local char = DS:GetCharacter("MageAlt", "TestRealm")
         local focused = "|Hitem:11:0|h[New Helm]|h"
         local equipped = "|Hitem:10:0|h[Old Helm]|h"
@@ -165,7 +165,7 @@ describe("GearCompare", function()
         })
         local rows = result.sections[1].rows
         assert.are.equal("Weighted", rows[#rows].label)
-        assert.are.equal(result.summary.delta / 15 * 100, rows[#rows].percent)
+        assert.are.equal(result.summary.delta / result.summary.oldTotal * 100, rows[#rows].percent)
     end)
 
     it("BuildComparison includes zero-weight changing stats marked unimportant", function()

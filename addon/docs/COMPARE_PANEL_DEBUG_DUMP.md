@@ -89,9 +89,9 @@ Compare session settings:
 | `invSlot`                | Inventory slot ID being compared (e.g. `1` = head)                      |
 | `techniqueId`            | Scoring provider id (`custom`, `ilvl`, `gearscore`)                    |
 | `techniqueLabel`         | Display label shown in the UI                                           |
-| `upgradeMaxDelta`        | Denominator for weighted % when using focus-mode max-delta scaling      |
-| `upgradeThresholdPercent`| Upgrade threshold from gear options (if set)                            |
-| `weightedChangePercent`  | Percent shown on the Weighted row (`delta / upgradeMaxDelta * 100` or `delta / oldTotal * 100`) |
+| `upgradeMaxDelta`        | Best positive score delta across the focus grid (sort / debug; not used for Weighted %) |
+| `upgradeThresholdPercent`| Upgrade threshold from gear options (if set); compared to equipped-relative %           |
+| `weightedChangePercent`  | Percent shown on the Weighted row (`delta / oldTotal * 100`)                             |
 
 ### `items.focused` and `items.equipped`
 
@@ -170,7 +170,7 @@ Full weight table for the resolved `classFile` + `specKey` (normalized stat key 
 5. Focus on:
    - Wrong `normalized` → fix `ItemStats` parsing/normalization.
    - Right stats, wrong score → fix `weights` or `BuildScoreBreakdown`.
-   - Right score, wrong % or verdict → fix `upgradeMaxDelta`, threshold, or `GetWeightedChangePercent`.
+   - Right score, wrong % or verdict → fix equipped baseline (`oldTotal`), threshold, or `GetWeightedChangePercent`.
 
 ## Related chat debug
 

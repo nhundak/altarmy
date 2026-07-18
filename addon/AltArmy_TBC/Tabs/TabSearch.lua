@@ -113,9 +113,9 @@ local recipeColWidths = {}
 
 local function SyncSearchColumnWidths(settingsOpen)
     local item = SearchColumns and SearchColumns.GetItemColumnWidths(settingsOpen)
-        or { Item = 354, Character = 170, Total = 72 }
+        or { Item = 344, Character = 180, Total = 72 }
     local recipe = SearchColumns and SearchColumns.GetRecipeColumnWidths(settingsOpen)
-        or { Recipe = 354, Character = 170, Skill = 72 }
+        or { Recipe = 344, Character = 180, Skill = 72 }
     for k, v in pairs(item) do
         colWidths[k] = v
     end
@@ -863,7 +863,7 @@ local function fillItemRow(row, entry, showRealmSuffix, rowOpts)
         local icon = select(10, GetItemInfo(entry.itemLink)) or "Interface\\Icons\\INV_Misc_QuestionMark"
         iconPrefix = "|T" .. icon .. ":0|t "
     end
-    SetItemCellTruncated(row.cells.Item, itemText, countSuffix, iconPrefix, colWidths.Item or 354)
+    SetItemCellTruncated(row.cells.Item, itemText, countSuffix, iconPrefix, colWidths.Item or 344)
     local locLabel = entry.location == "bank" and "Bank"
         or (entry.location == "mail" and "Mail")
         or (entry.location == "equipped" and "Equipped")
@@ -896,7 +896,7 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
     recipeName = maybeHighlightSearchText(recipeName, highlightSearch, searchQuery)
     local iconPath = entry._aaIconPath or "Interface\\Icons\\INV_Misc_QuestionMark"
     local iconPrefix = ("|T%s:0|t "):format(iconPath)
-    SetItemCellTruncated(row.cells.Recipe, recipeName, "", iconPrefix, recipeColWidths.Recipe or 354)
+    SetItemCellTruncated(row.cells.Recipe, recipeName, "", iconPrefix, recipeColWidths.Recipe or 344)
     local namePart = buildCharacterNamePart(entry, showRealmSuffix)
     local Nav = AltArmy.SearchGuildNav
     local charSuffix
