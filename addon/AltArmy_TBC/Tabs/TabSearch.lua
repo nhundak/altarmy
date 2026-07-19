@@ -1361,16 +1361,9 @@ UpdateResults = function()
     if scrollFrame.UpdateScrollChildRect then
         scrollFrame:UpdateScrollChildRect()
     end
-    if searchScrollBar then
-        local viewHeight = scrollFrame:GetHeight()
-        local maxScroll = math.max(0, contentHeight - viewHeight)
-        searchScrollBar:SetMinMaxValues(0, maxScroll)
-        searchScrollBar:SetValueStep(ROW_HEIGHT)
-        local val = searchScrollBar:GetValue()
-        if val > maxScroll then
-            searchScrollBar:SetValue(maxScroll)
-            scrollFrame:SetVerticalScroll(maxScroll)
-        end
+    if searchScrollBar and Theme.UpdateVerticalScrollRange then
+        Theme.UpdateVerticalScrollRange(
+            scrollFrame, searchScrollBar, contentHeight, scrollFrame:GetHeight(), ROW_HEIGHT)
     end
     -- Horizontal scroll: list viewport may be narrower than totalColWidth
     if listViewport and horizontalScroll and horizontalScrollChild and horizontalScrollBar then
@@ -1400,6 +1393,17 @@ UpdateResults = function()
     end
     UpdateVisibleRows()
     UpdateNoResultsHint()
+end
+
+-- Reset list to top; force-nudge so a post-shrink bar/frame desync cannot stick mid-list.
+local function ResetSearchVerticalScroll()
+    if Theme.SetVerticalScrollOffset and searchScrollBar then
+        Theme.SetVerticalScrollOffset(
+            scrollFrame, searchScrollBar, 0, select(2, searchScrollBar:GetMinMaxValues()), true)
+    elseif searchScrollBar then
+        searchScrollBar:SetValue(0)
+        scrollFrame:SetVerticalScroll(0)
+    end
 end
 
 function frame.DoSearch()
@@ -1434,9 +1438,10 @@ function frame.DoSearch()
         recipeList = localRecipeList
     end
     ScheduleGuildRecipeSearch(query)
+    -- Reset before rebuild so shrinking results cannot desync bar (0) vs frame (mid-list).
+    ResetSearchVerticalScroll()
     UpdateResults()
-    if searchScrollBar then searchScrollBar:SetValue(0) end
-    scrollFrame:SetVerticalScroll(0)
+    ResetSearchVerticalScroll()
     ScheduleTooltipSearch(query)
 end
 
@@ -1476,9 +1481,10 @@ function frame.SearchWithQuery(_self, query)
         recipeList = localRecipeList
     end
     ScheduleGuildRecipeSearch(q)
+    -- Reset before rebuild so shrinking results cannot desync bar (0) vs frame (mid-list).
+    ResetSearchVerticalScroll()
     UpdateResults()
-    if searchScrollBar then searchScrollBar:SetValue(0) end
-    scrollFrame:SetVerticalScroll(0)
+    ResetSearchVerticalScroll()
     if searchEdit and searchEdit.SetText then
         searchEdit:SetText(query or "")
     end

@@ -1055,6 +1055,52 @@ function Theme.ClampScroll(offset, maxScroll)
     return math.max(0, math.min(maxScroll or 0, offset or 0))
 end
 
+--- Apply a vertical scroll offset to ScrollFrame and Slider together.
+--- Always writes the ScrollFrame (do not rely on Slider OnValueChanged alone —
+--- SetValue is a no-op when the bar is already at `offset`).
+--- When `force` is true and the frame already reports `offset`, nudges away
+--- first so a post-resize visual desync still gets corrected.
+--- @return number applied offset
+function Theme.SetVerticalScrollOffset(scrollFrame, scrollBar, offset, maxScroll, force)
+    offset = Theme.ClampScroll(offset, maxScroll)
+    if scrollFrame and scrollFrame.SetVerticalScroll then
+        local current = scrollFrame.GetVerticalScroll and scrollFrame:GetVerticalScroll() or nil
+        if force and current == offset and maxScroll and maxScroll > 0 then
+            local nudge = (offset <= 0) and math.min(1, maxScroll) or 0
+            scrollFrame:SetVerticalScroll(nudge)
+        end
+        scrollFrame:SetVerticalScroll(offset)
+    end
+    if scrollBar and scrollBar.SetValue then
+        scrollBar:SetValue(offset)
+    end
+    return offset
+end
+
+--- Update slider range from content/viewport heights and sync both widgets.
+--- Uses the ScrollFrame offset as source of truth (clamped to the new max).
+--- @return number applied offset
+--- @return number maxScroll
+function Theme.UpdateVerticalScrollRange(scrollFrame, scrollBar, contentHeight, viewHeight, valueStep)
+    local maxScroll = Theme.ScrollMax(contentHeight, viewHeight)
+    local cur = 0
+    if scrollFrame and scrollFrame.GetVerticalScroll then
+        cur = scrollFrame:GetVerticalScroll() or 0
+    elseif scrollBar and scrollBar.GetValue then
+        cur = scrollBar:GetValue() or 0
+    end
+    cur = Theme.ClampScroll(cur, maxScroll)
+    if scrollBar then
+        if scrollBar.SetMinMaxValues then
+            scrollBar:SetMinMaxValues(0, maxScroll)
+        end
+        if valueStep and scrollBar.SetValueStep then
+            scrollBar:SetValueStep(valueStep)
+        end
+    end
+    return Theme.SetVerticalScrollOffset(scrollFrame, scrollBar, cur, maxScroll), maxScroll
+end
+
 --- Vertical ScrollFrame + Slider + wheel handler with unified range/clamp behavior.
 --- opts: parent, gutterEdge, name, anchorTop/anchorBottom tables {point, rel, relPoint, x, y},
 --- valueStep, wheelStep, wheelSource ("scroll"|"slider"), wheelOnChild, enableMouse, enableMouseWheel,

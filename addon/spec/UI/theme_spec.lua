@@ -626,6 +626,65 @@ describe("AltArmy.Theme", function()
         end)
     end)
 
+    describe("SetVerticalScrollOffset and UpdateVerticalScrollRange", function()
+        it("syncs scroll frame when bar is already at the target (SetValue no-op)", function()
+            local scroll = makeStubFrame()
+            local bar = makeStubFrame()
+            scroll:SetVerticalScroll(200)
+            bar:SetMinMaxValues(0, 50)
+            bar._value = 0 -- silent clamp; SetValue(0) would no-op
+            Theme.SetVerticalScrollOffset(scroll, bar, 0, 50)
+            assert.are.equal(0, scroll:GetVerticalScroll())
+            assert.are.equal(0, bar:GetValue())
+        end)
+
+        it("nudges the scroll frame when force is set and API already reports the target", function()
+            local scroll = makeStubFrame()
+            local bar = makeStubFrame()
+            local calls = {}
+            scroll._verticalScroll = 0
+            function scroll:SetVerticalScroll(v)
+                calls[#calls + 1] = v
+                self._verticalScroll = v
+            end
+            bar:SetMinMaxValues(0, 50)
+            bar._value = 0
+            Theme.SetVerticalScrollOffset(scroll, bar, 0, 50, true)
+            assert.are.same({ 1, 0 }, calls)
+            assert.are.equal(0, scroll:GetVerticalScroll())
+        end)
+
+        it("does not nudge on ordinary sync when already at target", function()
+            local scroll = makeStubFrame()
+            local bar = makeStubFrame()
+            local calls = {}
+            scroll._verticalScroll = 0
+            function scroll:SetVerticalScroll(v)
+                calls[#calls + 1] = v
+                self._verticalScroll = v
+            end
+            bar._value = 0
+            Theme.SetVerticalScrollOffset(scroll, bar, 0, 50)
+            assert.are.same({ 0 }, calls)
+        end)
+
+        it("clamps and syncs both widgets when content height shrinks", function()
+            local scroll = makeStubFrame()
+            local bar = makeStubFrame()
+            scroll:SetVerticalScroll(200)
+            bar:SetValue(200)
+            bar:SetMinMaxValues(0, 400)
+            -- Bar silently clamped by SetMinMaxValues; frame left behind (classic desync).
+            bar:SetMinMaxValues(0, 50)
+            bar._value = 0
+            local offset, maxScroll = Theme.UpdateVerticalScrollRange(scroll, bar, 150, 100, 18)
+            assert.are.equal(50, maxScroll)
+            assert.are.equal(50, offset)
+            assert.are.equal(50, scroll:GetVerticalScroll())
+            assert.are.equal(50, bar:GetValue())
+        end)
+    end)
+
     describe("CreateVerticalScrollViewport", function()
         it("scrolls by wheelStep on mouse wheel", function()
             local parent = makeStubFrame()
