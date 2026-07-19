@@ -714,9 +714,9 @@ describe("GuildTabData", function()
         assert.is_nil(GTD.FormatGroupPresenceTooltipLine("Bob", nil))
       end)
 
-      it("returns Online when the hovered character is online", function()
+      it("returns white Online when the hovered character is online", function()
         assert.are.equal(
-          "Online",
+          "|cffffffffOnline|r",
           GTD.FormatGroupPresenceTooltipLine("Bob", {
             memberName = "Bob",
             status = { online = true },
@@ -726,7 +726,7 @@ describe("GuildTabData", function()
 
       it("notes when another character is the online presence", function()
         assert.are.equal(
-          "Online (as Alice)",
+          "|cffffffffOnline (as |rAlice|cffffffff)|r",
           GTD.FormatGroupPresenceTooltipLine("Bob", {
             memberName = "Alice",
             classFile = "WARRIOR",
@@ -737,7 +737,7 @@ describe("GuildTabData", function()
 
       it("class-colors the other character name in the as-clause", function()
         assert.are.equal(
-          "Online (as [Alice])",
+          "|cffffffffOnline (as |r[Alice]|cffffffff)|r",
           GTD.FormatGroupPresenceTooltipLine("Bob", {
             memberName = "Alice",
             classFile = "WARRIOR",
@@ -746,16 +746,16 @@ describe("GuildTabData", function()
         )
       end)
 
-      it("formats last seen and notes a different character when applicable", function()
+      it("formats last seen in gray and notes a different character when applicable", function()
         assert.are.equal(
-          "Last seen 5h ago",
+          "|cff808080Last seen 5h ago|r",
           GTD.FormatGroupPresenceTooltipLine("Bob", {
             memberName = "Bob",
             status = { online = false, years = 0, months = 0, days = 0, hours = 5 },
           }, plainFormatName)
         )
         assert.are.equal(
-          "Last seen 2d ago (as Alice)",
+          "|cff808080Last seen 2d ago (as |rAlice|cff808080)|r",
           GTD.FormatGroupPresenceTooltipLine("Bob", {
             memberName = "Alice",
             status = { online = false, years = 0, months = 0, days = 2, hours = 0 },
@@ -765,16 +765,17 @@ describe("GuildTabData", function()
     end)
 
     describe("BuildGuildCharacterHoverTooltipLines", function()
-      it("builds title and level lines with class-colored name", function()
+      it("builds title and level lines with class-colored name and main", function()
         local lines = GTD.BuildGuildCharacterHoverTooltipLines({
           name = "Bob",
           preferredName = "Chief",
+          preferredClassFile = "WARRIOR",
           classFile = "MAGE",
           level = 70,
           formatName = function(name) return "[" .. name .. "]" end,
           classDisplayName = "Mage",
         })
-        assert.are.equal("[Bob] (Chief)", lines[1])
+        assert.are.equal("[Bob] |cffffffff(|r[Chief]|cffffffff)|r", lines[1])
         assert.are.equal("Level 70 Mage", lines[2])
         assert.is_nil(lines[3])
       end)
@@ -796,6 +797,7 @@ describe("GuildTabData", function()
         local lines = GTD.BuildGuildCharacterHoverTooltipLines({
           name = "Bob",
           preferredName = "Chief",
+          preferredClassFile = "WARRIOR",
           classFile = "MAGE",
           level = 70,
           formatName = plainFormatName,
@@ -805,9 +807,9 @@ describe("GuildTabData", function()
             status = { online = true },
           },
         })
-        assert.are.equal("Bob (Chief)", lines[1])
+        assert.are.equal("Bob |cffffffff(|rChief|cffffffff)|r", lines[1])
         assert.are.equal("Level 70 Mage", lines[2])
-        assert.are.equal("Online (as Alice)", lines[3])
+        assert.are.equal("|cffffffffOnline (as |rAlice|cffffffff)|r", lines[3])
         assert.is_true(lines.presenceOnline)
       end)
 
@@ -824,8 +826,41 @@ describe("GuildTabData", function()
             status = { online = false, years = 0, months = 0, days = 0, hours = 5 },
           },
         })
-        assert.are.equal("Last seen 5h ago", lines[3])
+        assert.are.equal("|cff808080Last seen 5h ago|r", lines[3])
         assert.is_false(lines.presenceOnline)
+      end)
+    end)
+
+    describe("BuildOwnCharacterHoverTooltipLines", function()
+      it("builds class-colored name and level/class lines only", function()
+        local lines = GTD.BuildOwnCharacterHoverTooltipLines({
+          name = "MyAlt",
+          classFile = "MAGE",
+          level = 68,
+          formatName = function(name) return "[" .. name .. "]" end,
+          classDisplayName = "Mage",
+        })
+        assert.are.equal("[MyAlt]", lines[1])
+        assert.are.equal("Level 68 Mage", lines[2])
+        assert.is_nil(lines[3])
+      end)
+
+      it("does not include preferred name or presence", function()
+        local lines = GTD.BuildOwnCharacterHoverTooltipLines({
+          name = "MyAlt",
+          preferredName = "Chief",
+          classFile = "WARRIOR",
+          level = 70,
+          formatName = plainFormatName,
+          classDisplayName = "Warrior",
+          presenceDetail = {
+            memberName = "MyAlt",
+            status = { online = true },
+          },
+        })
+        assert.are.equal("MyAlt", lines[1])
+        assert.are.equal("Level 70 Warrior", lines[2])
+        assert.is_nil(lines[3])
       end)
     end)
 

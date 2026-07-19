@@ -35,8 +35,16 @@ function Nav.ShouldBackReturnToSearch()
     return active and true or false
 end
 
+--- True when a recipe-result Character cell should open that character's recipe list.
+--- Guildmate rows (`isGuild`) and own-account characters resolvable from DataStore.
 function Nav.IsGuildRecipeCharacterClickable(entry)
-    return entry and entry.isGuild and true or false
+    if not entry or not entry.characterName or entry.characterName == "" then
+        return false
+    end
+    if entry.isGuild then
+        return true
+    end
+    return Nav.ResolveLocalMember(entry.characterName, entry.realm) ~= nil
 end
 
 --- Index of the preferred profession in a GetPrimaryProfessions-style list (1-based).
@@ -108,16 +116,60 @@ function Nav.ScrollOffsetToRevealRow(rowTopY, rowHeight, viewHeight, currentOffs
     return math.floor(target + 0.5)
 end
 
+--- Build a guild-tab member entry for an own-account character (DataStore).
+function Nav.ResolveLocalMember(characterName, realm)
+    if not characterName or characterName == "" then
+        return nil
+    end
+    local DS = AltArmy.DataStore
+    if not DS or not DS.GetCharacter then
+        return nil
+    end
+    local char = DS:GetCharacter(characterName, realm)
+    if not char then
+        return nil
+    end
+    local GSD = AltArmy.GuildShareData
+    local GSS = AltArmy.GuildShareSettings
+    local guild = char.guildName
+    local displayName = GSS and GSS.GetDisplayName and GSS.GetDisplayName(realm) or nil
+    local savedMain = GSS and GSS.GetMain and GSS.GetMain(realm) or nil
+    local mainDeclared = savedMain ~= nil
+    local mainName = savedMain or characterName
+    if GSD and GSD.BuildLocalMemberEntry then
+        return GSD.BuildLocalMemberEntry(
+            characterName, realm, char, guild, mainName, displayName, mainDeclared)
+    end
+    return {
+        name = (char.name) or characterName,
+        realm = realm,
+        classFile = char.classFile or "",
+        faction = char.faction or "",
+        level = char.level or 0,
+        guildName = guild,
+        main = mainName,
+        displayName = displayName,
+        isMain = (mainName ~= nil and characterName == mainName),
+        mainDeclared = mainDeclared,
+        source = "local",
+        Professions = {},
+    }
+end
+
 --- Resolve the guild-tab member entry for a search recipe row.
+--- Prefers received guildmate data; falls back to own-account DataStore characters.
 function Nav.ResolveGuildMember(characterName, realm)
     if not characterName or characterName == "" then
         return nil
     end
     local GSD = AltArmy.GuildShareData
-    if not GSD or not GSD.GetCharacter then
-        return nil
+    if GSD and GSD.GetCharacter then
+        local entry = GSD.GetCharacter(characterName, realm)
+        if entry then
+            return entry
+        end
     end
-    return GSD.GetCharacter(characterName, realm)
+    return Nav.ResolveLocalMember(characterName, realm)
 end
 
 local function resolveMemberGroup(entry, realm)
@@ -195,7 +247,9 @@ function Nav.FormatGuildRecipeCharacterSuffix(characterName, realm, opts)
         Nav.IsGuildRecipePlayerOnline(characterName, realm, opts))
 end
 
---- Tooltip lines for a clickable guildmate name in search results, or nil.
+--- Tooltip lines for a clickable character name in search results, or nil.
+--- Own-account characters get a short name + level/class tooltip; guildmates get the
+--- full preferred-name + presence tooltip.
 --- opts.rosterByName may inject a roster map (tests); defaults to live guild roster.
 function Nav.GetGuildCharacterHoverTooltipLines(characterName, realm, opts)
     opts = opts or {}
@@ -204,7 +258,22 @@ function Nav.GetGuildCharacterHoverTooltipLines(characterName, realm, opts)
         return nil
     end
     local GTD = AltArmy.GuildTabData
-    if not GTD or not GTD.BuildGuildCharacterHoverTooltipLines then
+    if not GTD then
+        return nil
+    end
+
+    if entry.source == "local" then
+        if not GTD.BuildOwnCharacterHoverTooltipLines then
+            return nil
+        end
+        return GTD.BuildOwnCharacterHoverTooltipLines({
+            name = entry.name,
+            classFile = entry.classFile,
+            level = entry.level,
+        })
+    end
+
+    if not GTD.BuildGuildCharacterHoverTooltipLines then
         return nil
     end
 
@@ -222,6 +291,7 @@ function Nav.GetGuildCharacterHoverTooltipLines(characterName, realm, opts)
     return GTD.BuildGuildCharacterHoverTooltipLines({
         name = entry.name,
         preferredName = preferred,
+        preferredClassFile = group and group.classFile,
         classFile = entry.classFile,
         level = entry.level,
         presenceDetail = presence,

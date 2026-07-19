@@ -752,7 +752,7 @@ local function createRecipeRow()
         row.cells[colName] = cell
         cx = cx + w
     end
-    -- Clickable guildmate name overlay (Character column, full row height).
+    -- Clickable character name overlay (own + guildmate; Character column, full row height).
     local charBtn = CreateFrame("Button", nil, row)
     charBtn:SetPoint("TOP", row, "TOP", 0, 0)
     charBtn:SetPoint("BOTTOM", row, "BOTTOM", 0, 0)
@@ -792,17 +792,8 @@ local function createRecipeRow()
                 GameTooltip:AddLine(lines[2], 1, 1, 1, true)
             end
             if lines[3] then
-                if lines.presenceOnline then
-                    local g = Theme.COLORS and Theme.COLORS.green
-                    GameTooltip:AddLine(
-                        lines[3],
-                        (g and g[1]) or 0.20,
-                        (g and g[2]) or 0.85,
-                        (g and g[3]) or 0.35,
-                        true)
-                else
-                    GameTooltip:AddLine(lines[3], 0.9, 0.9, 0.9, true)
-                end
+                -- Embedded white/gray + class colors; keep AddLine RGB neutral.
+                GameTooltip:AddLine(lines[3], 1, 1, 1, true)
             end
             GameTooltip:Show()
         end,

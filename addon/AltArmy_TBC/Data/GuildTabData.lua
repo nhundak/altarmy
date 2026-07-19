@@ -1031,21 +1031,23 @@ function GTD.GetGroupMostRecentOnlineDetail(group, rosterByName)
 end
 
 --- Tooltip presence line for a hovered guild character, or nil when roster info is missing.
---- When the most recent presence belongs to a different alt, appends " (as Name)" with
---- Name class-colored via formatName / ClassColor when classFile is available on detail.
+--- Online is white; last-seen uses the same gray as search Offline. When the most recent
+--- presence belongs to a different alt, appends " (as Name)" with Name class-colored via
+--- formatName / ClassColor (surrounding text keeps white/gray, including parentheses).
 function GTD.FormatGroupPresenceTooltipLine(hoveredName, detail, formatName)
     if not detail or not detail.status then
         return nil
     end
-    local line
+    local prefixColor = detail.status.online and WHITE or GRAY
+    local body
     if detail.status.online then
-        line = "Online"
+        body = "Online"
     else
         local ago = GTD.FormatRosterLastOnline(detail.status)
         if not ago or ago == "" then
             return nil
         end
-        line = "Last seen " .. ago
+        body = "Last seen " .. ago
     end
     local hoverKey = GTD.NormalizeRosterName(hoveredName)
     local memberKey = GTD.NormalizeRosterName(detail.memberName)
@@ -1059,9 +1061,9 @@ function GTD.FormatGroupPresenceTooltipLine(hoveredName, detail, formatName)
                 asName = CC.formatName(detail.memberName, detail.classFile)
             end
         end
-        line = line .. " (as " .. asName .. ")"
+        return prefixColor .. body .. " (as |r" .. asName .. prefixColor .. ")|r"
     end
-    return line
+    return prefixColor .. body .. "|r"
 end
 
 --- Localized / display class name for tooltip copy.
@@ -1089,27 +1091,48 @@ function GTD.FormatGuildSearchCharacterSuffix(isOnline)
     return GUILD_TAG_COLOR .. " (Guild |r" .. GRAY .. "Offline|r" .. GUILD_TAG_COLOR .. ")|r"
 end
 
+local function colorTooltipName(name, classFile, formatName)
+    if formatName then
+        return formatName(name, classFile)
+    end
+    local CC = AltArmy.ClassColor
+    if CC and CC.formatName then
+        return CC.formatName(name, classFile)
+    end
+    return name
+end
+
+--- Two-line tooltip for an own-account character in search results.
+--- opts: name, classFile, level, formatName?, classDisplayName?
+--- Returns `{ line1, line2 }` — class-colored name, then "Level N Class".
+function GTD.BuildOwnCharacterHoverTooltipLines(opts)
+    opts = opts or {}
+    local name = opts.name or "?"
+    local className = opts.classDisplayName or GTD.FormatClassDisplayName(opts.classFile)
+    local level = math.floor(tonumber(opts.level) or 0)
+    return {
+        colorTooltipName(name, opts.classFile, opts.formatName),
+        "Level " .. level .. " " .. className,
+    }
+end
+
 --- Lines for a search-result guildmate name tooltip.
---- opts: name, preferredName, classFile, level, presenceDetail?, formatName?, classDisplayName?
+--- opts: name, preferredName, preferredClassFile?, classFile, level, presenceDetail?,
+---       formatName?, classDisplayName?
 --- Returns `{ line1, line2, line3? }` (line3 omitted when presence is unknown).
---- Preferred name is omitted from line1 when it matches the character name.
+--- Preferred/main name is omitted from line1 when it matches the character name.
+--- When shown, preferred name is class-colored (preferredClassFile) with white parentheses.
 function GTD.BuildGuildCharacterHoverTooltipLines(opts)
     opts = opts or {}
     local name = opts.name or "?"
     local preferred = opts.preferredName or name
     local formatName = opts.formatName
-    local CC = AltArmy.ClassColor
-    local colored
-    if formatName then
-        colored = formatName(name, opts.classFile)
-    elseif CC and CC.formatName then
-        colored = CC.formatName(name, opts.classFile)
-    else
-        colored = name
-    end
+    local colored = colorTooltipName(name, opts.classFile, formatName)
     local line1 = colored
     if preferred ~= "" and preferred:lower() ~= name:lower() then
-        line1 = colored .. " (" .. preferred .. ")"
+        local preferredColored = colorTooltipName(
+            preferred, opts.preferredClassFile or opts.classFile, formatName)
+        line1 = colored .. " " .. WHITE .. "(|r" .. preferredColored .. WHITE .. ")|r"
     end
     local className = opts.classDisplayName or GTD.FormatClassDisplayName(opts.classFile)
     local level = math.floor(tonumber(opts.level) or 0)

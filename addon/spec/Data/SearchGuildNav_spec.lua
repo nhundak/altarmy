@@ -76,11 +76,110 @@ describe("SearchGuildNav", function()
     assert.is_nil(Nav.ResolveGuildMember("Missing", "Realm"))
   end)
 
-  it("recipe entry is clickable only when marked as guild", function()
+  it("recipe entry is clickable when marked as guild", function()
     assert.is_false(Nav.IsGuildRecipeCharacterClickable(nil))
     assert.is_false(Nav.IsGuildRecipeCharacterClickable({}))
     assert.is_false(Nav.IsGuildRecipeCharacterClickable({ isGuild = false, characterName = "Bob" }))
     assert.is_true(Nav.IsGuildRecipeCharacterClickable({ isGuild = true, characterName = "Bob" }))
+  end)
+
+  it("own-character recipe entry is clickable when DataStore has the character", function()
+    AltArmy.GuildShareData = {
+      GetCharacter = function() return nil end,
+      BuildLocalMemberEntry = function(name, realm, char, guild, mainName, displayName, mainDeclared)
+        return {
+          name = name,
+          realm = realm,
+          classFile = char.classFile,
+          level = char.level,
+          guildName = guild,
+          main = mainName,
+          displayName = displayName,
+          mainDeclared = mainDeclared and true or false,
+          source = "local",
+          Professions = {},
+        }
+      end,
+    }
+    AltArmy.DataStore = {
+      GetCharacter = function(_, name, realm)
+        if name == "MyAlt" and realm == "Area 52" then
+          return { name = "MyAlt", classFile = "MAGE", level = 70, guildName = "MyGuild" }
+        end
+        return nil
+      end,
+    }
+    assert.is_true(Nav.IsGuildRecipeCharacterClickable({
+      characterName = "MyAlt",
+      realm = "Area 52",
+    }))
+    assert.is_false(Nav.IsGuildRecipeCharacterClickable({
+      characterName = "Missing",
+      realm = "Area 52",
+    }))
+  end)
+
+  it("ResolveGuildMember falls back to a local DataStore character", function()
+    local built
+    AltArmy.GuildShareData = {
+      GetCharacter = function() return nil end,
+      BuildLocalMemberEntry = function(name, realm, char, guild, mainName, displayName, mainDeclared)
+        built = {
+          name = name,
+          realm = realm,
+          classFile = char.classFile,
+          level = char.level,
+          guildName = guild,
+          main = mainName,
+          displayName = displayName,
+          mainDeclared = mainDeclared and true or false,
+          source = "local",
+        }
+        return built
+      end,
+    }
+    AltArmy.GuildShareSettings = {
+      GetDisplayName = function() return "Chief" end,
+      GetMain = function() return "MyMain" end,
+    }
+    AltArmy.DataStore = {
+      GetCharacter = function(_, name, realm)
+        return {
+          name = name,
+          realm = realm,
+          classFile = "WARRIOR",
+          level = 68,
+          guildName = "LocalGuild",
+        }
+      end,
+    }
+    local entry = Nav.ResolveGuildMember("MyAlt", "Area 52")
+    assert.are.equal("local", entry.source)
+    assert.are.equal("MyAlt", entry.name)
+    assert.are.equal("Area 52", entry.realm)
+    assert.are.equal("LocalGuild", entry.guildName)
+    assert.are.equal("MyMain", entry.main)
+    assert.are.equal("Chief", entry.displayName)
+    assert.is_true(entry.mainDeclared)
+    assert.are.equal(built, entry)
+  end)
+
+  it("ResolveGuildMember prefers stored guildmate over local fallback", function()
+    AltArmy.GuildShareData = {
+      GetCharacter = function(name, realm)
+        return { name = name, realm = realm, source = "OtherPlayer" }
+      end,
+      BuildLocalMemberEntry = function()
+        error("should not build local entry when guildmate exists")
+      end,
+    }
+    AltArmy.DataStore = {
+      GetCharacter = function()
+        return { name = "Bob", classFile = "MAGE", level = 70 }
+      end,
+    }
+    local entry = Nav.ResolveGuildMember("Bob", "R")
+    assert.are.equal("OtherPlayer", entry.source)
   end)
 
   it("FindProfessionIndex prefers matching professionKey", function()
@@ -192,8 +291,76 @@ describe("SearchGuildNav", function()
     assert.is_truthy(lines)
     assert.is_truthy(lines[1]:find("Bob", 1, true))
     assert.is_truthy(lines[1]:find("Chief", 1, true))
+    -- Main/display name is class-colored; parentheses stay white.
+    assert.is_truthy(lines[1]:find("|cffffffff(|r", 1, true))
+    assert.is_truthy(lines[1]:find("|cffffffff)|r", 1, true))
     assert.are.equal("Level 70 Mage", lines[2])
-    assert.are.equal("Online (as Alice)", lines[3])
+    assert.are.equal("|cffffffffOnline (as |rAlice|cffffffff)|r", lines[3])
+  end)
+
+  it("GetGuildCharacterHoverTooltipLines uses own-character tooltip for local source", function()
+    AltArmy.GuildShareData = {
+      GetCharacter = function() return nil end,
+      BuildLocalMemberEntry = function(name, realm, char)
+        return {
+          name = name,
+          realm = realm,
+          classFile = char.classFile,
+          level = char.level,
+          displayName = "Chief",
+          main = "MyMain",
+          source = "local",
+        }
+      end,
+      GetGuildMembersForDisplay = function()
+        return {
+          {
+            name = "MyAlt",
+            realm = "Area 52",
+            classFile = "MAGE",
+            level = 68,
+            displayName = "Chief",
+            main = "MyMain",
+            source = "local",
+          },
+          {
+            name = "MyMain",
+            realm = "Area 52",
+            classFile = "WARRIOR",
+            level = 70,
+            displayName = "Chief",
+            main = "MyMain",
+            isMain = true,
+            source = "local",
+          },
+        }
+      end,
+    }
+    AltArmy.DataStore = {
+      GetCharacter = function(_, name, realm)
+        return {
+          name = name,
+          realm = realm,
+          classFile = "MAGE",
+          level = 68,
+          guildName = "G",
+        }
+      end,
+    }
+    package.loaded["GuildTabData"] = nil
+    require("GuildTabData")
+    local lines = Nav.GetGuildCharacterHoverTooltipLines("MyAlt", "Area 52", {
+      rosterByName = {
+        myalt = { online = true },
+      },
+    })
+    assert.is_truthy(lines)
+    assert.is_truthy(lines[1]:find("MyAlt", 1, true))
+    -- Own tooltip: no preferred/main suffix and no presence line.
+    assert.is_nil(lines[1]:find("Chief", 1, true))
+    assert.is_nil(lines[1]:find("(", 1, true))
+    assert.are.equal("Level 68 Mage", lines[2])
+    assert.is_nil(lines[3])
   end)
 
   it("IsGuildRecipePlayerOnline is true when any character in the main group is online", function()
