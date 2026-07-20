@@ -44,6 +44,8 @@ function D.Ensure()
     if d.pretendCraftLibNotInstalled == nil then
         d.pretendCraftLibNotInstalled = false
     end
+    -- Legacy SavedVariables key from the dual-engine experiment; no longer read.
+    d.searchEngineV2 = nil
 end
 
 function D.IsEnabled()

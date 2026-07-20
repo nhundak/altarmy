@@ -44,6 +44,25 @@ describe("SearchStickyHeaders", function()
         return tops, itemsSectionTop
     end
 
+    describe("ComputeSectionLayout", function()
+        it("matches ComputeSectionHeaderTops for the three search sections", function()
+            local sections = {
+                { id = "items", rowCount = 10 },
+                { id = "recipes", rowCount = 5 },
+                { id = "tooltip", rowCount = 3, gapBefore = SECTION_GAP_BEFORE_TOOLTIP },
+            }
+            local tops, metas = Sticky.ComputeSectionLayout(
+                sections, HEADER_HEIGHT, HEADER_ROW_GAP, ROW_HEIGHT)
+            local legacy = Sticky.ComputeSectionHeaderTops(
+                10, 5, 3, HEADER_HEIGHT, HEADER_ROW_GAP, ROW_HEIGHT, SECTION_GAP_BEFORE_TOOLTIP)
+            assert.are.same(legacy, tops)
+            assert.are.equal(3, #metas)
+            assert.are.equal("items", metas[1].id)
+            assert.are.equal(HEADER_HEIGHT + HEADER_ROW_GAP, metas[1].sectionTop)
+            assert.are.equal("tooltip", metas[3].id)
+        end)
+    end)
+
     describe("ComputeStickyTops", function()
         it("returns natural positions when nothing is scrolled", function()
             local tops = { 0, 300, 600 }

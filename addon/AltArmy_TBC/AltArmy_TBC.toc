@@ -49,6 +49,11 @@ Data\RecipeCraftLib.lua
 Data\SearchSettings.lua
 Data\SearchColumns.lua
 Data\SearchData.lua
+Data\SearchIndex.lua
+Data\SearchQuery.lua
+Data\SearchPresent.lua
+Data\SearchTasks.lua
+Data\SearchEngine.lua
 Data\NetWorth.lua
 Data\SearchGuildNav.lua
 Data\GuildShareSettings.lua
@@ -70,6 +75,7 @@ Tabs\TabGear.lua
 Tabs\TabReputation.lua
 Tabs\TabCooldowns.lua
 Tabs\SearchStickyHeaders.lua
+Tabs\TabSearchSettings.lua
 Tabs\TabSearch.lua
 Tabs\GraphLogic.lua
 Tabs\TabGraph.lua
