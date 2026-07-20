@@ -1020,4 +1020,98 @@ describe("ItemStats", function()
         assert.is_nil(stats.ap)
         assert.are.equal(214, stats.feral_ap)
     end)
+
+    it("GetNormalized does not double-count mp5 from API POWER_REGEN0 and tooltip MANA_REGENERATION", function()
+        -- Repro: Hexxer's Belt / Protectorate Waistband dump — GetItemStats exposes
+        -- ITEM_MOD_POWER_REGEN0_SHORT while tooltip parse uses MANA_REGENERATION_SHORT.
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 31472 then
+                return {
+                    ["RESISTANCE0_NAME"] = 297,
+                    ["ITEM_MOD_ATTACK_POWER_SHORT"] = 29,
+                    ["ITEM_MOD_POWER_REGEN0_SHORT"] = 3,
+                    ["ITEM_MOD_AGILITY_SHORT"] = 26,
+                }
+            end
+            if id == 30342 then
+                return {
+                    ["ITEM_MOD_INTELLECT_SHORT"] = 18,
+                    ["ITEM_MOD_POWER_REGEN0_SHORT"] = 6,
+                    ["ITEM_MOD_STAMINA_SHORT"] = 27,
+                    ["ITEM_MOD_SPELL_POWER"] = 20,
+                    ["RESISTANCE0_NAME"] = 330,
+                }
+            end
+            return {}
+        end
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            if id == 31472 then
+                return "Hexxer's Belt", "|Hitem:31472:0|h[Hexxer's Belt]|h",
+                    2, 69, 69, "Armor", "Mail", nil, "INVTYPE_WAIST"
+            end
+            if id == 30342 then
+                return "Protectorate Waistband", "|Hitem:30342:0|h[Protectorate Waistband]|h",
+                    2, 69, 69, "Armor", "Mail", nil, "INVTYPE_WAIST"
+            end
+            return mockGetItemInfo(item)
+        end
+        local tooltipById = {
+            [31472] = {
+                "Hexxer's Belt",
+                "297 Armor",
+                "+26 Agility",
+                "Equip: Increases attack power by 30.",
+                "Equip: Restores 4 mana per 5 sec.",
+            },
+            [30342] = {
+                "Protectorate Waistband",
+                "330 Armor",
+                "+27 Stamina",
+                "+18 Intellect",
+                "Equip: Increases damage and healing done by magical spells and effects by up to 21.",
+                "Equip: Restores 7 mana per 5 sec.",
+            },
+        }
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                local tip = makeTooltipMock({})
+                tip.SetHyperlink = function(self, link)
+                    local id = tonumber(tostring(link):match("item:(%d+)"))
+                    self.lineTexts = tooltipById[id] or {}
+                    local fontStrings = {}
+                    for i, text in ipairs(self.lineTexts) do
+                        fontStrings[i] = {
+                            IsObjectType = function(_, t)
+                                return t == "FontString"
+                            end,
+                            GetText = function()
+                                return text
+                            end,
+                        }
+                    end
+                    self.GetRegions = function()
+                        return unpack(fontStrings)
+                    end
+                end
+                return tip
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local oldStats = IS.GetNormalized("|Hitem:31472:0|h[Hexxer's Belt]|h")
+        local newStats = IS.GetNormalized("|Hitem:30342:0|h[Protectorate Waistband]|h")
+        assert.are.equal(4, oldStats.mp5)
+        assert.are.equal(7, newStats.mp5)
+        assert.are.equal(3, newStats.mp5 - oldStats.mp5)
+    end)
 end)

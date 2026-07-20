@@ -370,6 +370,42 @@ local function finalizeMergedSpellStats(merged)
     merged["ITEM_MOD_SPELL_POWER"] = nil
 end
 
+-- API uses POWER_REGEN0; tooltip parse uses MANA_REGENERATION. Both map to mp5.
+local UNIFIED_MP5_STAT_KEYS = {
+    "ITEM_MOD_MANA_REGENERATION_SHORT",
+    "ITEM_MOD_MANA_REGENERATION",
+    "ITEM_MOD_POWER_REGEN0_SHORT",
+    "ITEM_MOD_POWER_REGEN0",
+}
+
+local function finalizeMergedManaRegen(merged)
+    if not merged then return end
+    local best = nil
+    for i = 1, #UNIFIED_MP5_STAT_KEYS do
+        local key = UNIFIED_MP5_STAT_KEYS[i]
+        local value = merged[key]
+        if value ~= nil and not isInvalidApiStatValue(value) then
+            local n = tonumber(value) or 0
+            if best == nil or n > best then
+                best = n
+            end
+        end
+    end
+    if best == nil then
+        for i = 1, #UNIFIED_MP5_STAT_KEYS do
+            local key = UNIFIED_MP5_STAT_KEYS[i]
+            if isInvalidApiStatValue(merged[key]) then
+                merged[key] = nil
+            end
+        end
+        return
+    end
+    merged["ITEM_MOD_MANA_REGENERATION_SHORT"] = best
+    merged["ITEM_MOD_MANA_REGENERATION"] = nil
+    merged["ITEM_MOD_POWER_REGEN0_SHORT"] = nil
+    merged["ITEM_MOD_POWER_REGEN0"] = nil
+end
+
 local FERAL_AP_KEYS = {
     "ITEM_MOD_FERAL_ATTACK_POWER_SHORT",
     "ITEM_MOD_FERAL_ATTACK_POWER",
@@ -785,6 +821,7 @@ local function collectFreshParseSnapshot(link)
     local tooltipRaw, tooltipLines, incomplete = parseTooltipToRaw(link)
     local mergedRaw = mergeTooltipSupplement(apiRaw, tooltipRaw)
     finalizeMergedSpellStats(mergedRaw)
+    finalizeMergedManaRegen(mergedRaw)
     finalizeMergedFeralAttackPower(mergedRaw, tooltipRaw)
     local normalized = normalizeRawStats(mergedRaw, link)
     return {
@@ -866,6 +903,7 @@ local function fetchStats(link)
     local tooltipRaw, tooltipLines, incomplete = parseTooltipToRaw(link)
     local mergedRaw = mergeTooltipSupplement(apiRaw, tooltipRaw)
     finalizeMergedSpellStats(mergedRaw)
+    finalizeMergedManaRegen(mergedRaw)
     finalizeMergedFeralAttackPower(mergedRaw, tooltipRaw)
 
     local parseSnapshot = {
