@@ -22,7 +22,7 @@ Missing-data `!` marks are **expected** after users upgrade to a new addon versi
 
 | Layer | File | Responsibility |
 |-------|------|----------------|
-| Data | `AltArmy_TBC/Data/SummaryData.lua` | `GetMissingDataInfo` (aggregator), `addUniqueInstruction` (dedup), `PresentMissingDataTooltip` (tooltip) |
+| Data | `AltArmy_TBC/Data/Characters/SummaryData.lua` | `GetMissingDataInfo` (aggregator), `addUniqueInstruction` (dedup), `PresentMissingDataTooltip` (tooltip) |
 | UI | `AltArmy_TBC/Tabs/TabSummary.lua` | Single `Warning` column renders `!` and calls `PresentMissingDataTooltip` |
 | Tests | `spec/Data/SummaryData_spec.lua` | Every new condition needs `GetMissingDataInfo` coverage + dedup case where applicable |
 

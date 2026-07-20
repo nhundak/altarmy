@@ -4,6 +4,23 @@ This folder holds the **data layer** for AltArmy TBC: persistence, aggregation, 
 
 ---
 
+## Folder layout
+
+Modules are grouped by domain. Filenames and `AltArmy.*` namespaces are unchanged; only disk paths differ.
+
+| Folder | Contents |
+|--------|----------|
+| **(root)** | Shared utilities: `CharKey`, `ClassColor`, `Debug`; docs (`DESIGN.md`, `DATA_VERSIONS.md`) |
+| **DataStore/** | Persistence core + scan modules; `LevelProgressData` |
+| **Characters/** | Summary list/view, realm filters, bank-alt flags, net worth |
+| **Gear/** | Item stats/usability, gear score, compare/upgrade, Pawn scales |
+| **Search/** | Search settings, index, query, present, engine, guild nav |
+| **Guild/** | Guild share settings/protocol/data/comm, tab helpers, chat main-name |
+| **Cooldowns/** | Cooldown data/alerts, stockpile mail plan |
+| **Integrations/** | Optional addon bridges (RestedXP, CraftLib) |
+
+---
+
 ## DataStore: Core + Modules
 
 **DataStore** is split into a **core** file and **domain modules**. The single public API remains `AltArmy.DataStore`; consumers (SummaryData, Characters, Tabs) call `DS:GetRealms()`, `DS:GetCharacter(name, realm)`, `DS:GetProfessions(char)`, etc. unchanged.

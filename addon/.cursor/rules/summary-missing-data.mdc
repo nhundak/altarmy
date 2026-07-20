@@ -1,6 +1,6 @@
 ---
 description: Summary tab missing-data warnings — one mark, one tooltip, unified aggregator
-globs: AltArmy_TBC/Tabs/TabSummary.lua,AltArmy_TBC/Data/SummaryData.lua,spec/Data/SummaryData_spec.lua
+globs: AltArmy_TBC/Tabs/TabSummary.lua,AltArmy_TBC/Data/Characters/SummaryData.lua,spec/Data/SummaryData_spec.lua
 alwaysApply: false
 ---
 
