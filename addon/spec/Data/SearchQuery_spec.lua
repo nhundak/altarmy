@@ -105,4 +105,25 @@ describe("SearchQuery", function()
         assert.are.equal(100, rows[1].recipeID)
         assert.is_false(rows[1].isGuild and true or false)
     end)
+
+    it("MatchAndExpandRecipes keeps recipeNameLower stamped at index build", function()
+        local namesById = {
+            [100] = "bolt of linen cloth",
+            [200] = "woolen cape",
+        }
+        local entries = {
+            { recipeID = 100, characterName = "Alice", realm = "R", isGuild = false },
+            { recipeID = 100, characterName = "Bob", realm = "R", isGuild = true },
+            { recipeID = 200, characterName = "Alice", realm = "R", isGuild = false },
+        }
+        local index = SI.BuildIndex(entries, {
+            getId = function(e) return e.recipeID end,
+            getNameLower = function(e) return namesById[e.recipeID] end,
+            stampNameKey = "recipeNameLower",
+        })
+        local rows = SQ.MatchAndExpandRecipes(index, "linen", {})
+        assert.are.equal(2, #rows)
+        assert.are.equal("bolt of linen cloth", rows[1].recipeNameLower)
+        assert.are.equal("bolt of linen cloth", rows[2].recipeNameLower)
+    end)
 end)

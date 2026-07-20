@@ -66,6 +66,39 @@ describe("SearchPresent", function()
         assert.are.equal("G1", expanded[3].characterName)
     end)
 
+    it("CollapseGuildRecipeRows stays correct across many collapsible recipes", function()
+        -- Large multi-recipe input: old impl rescanned j=i..n per collapsed id (O(n^2)).
+        local sorted = {}
+        local recipeCount = 200
+        for id = 1, recipeCount do
+            sorted[#sorted + 1] = {
+                recipeID = id, characterName = "Own" .. id, isGuild = false, professionName = "Tailoring",
+            }
+            for g = 1, 4 do
+                sorted[#sorted + 1] = {
+                    recipeID = id,
+                    characterName = "G" .. id .. "_" .. g,
+                    isGuild = true,
+                    professionName = "Tailoring",
+                }
+            end
+        end
+        local out = SP.CollapseGuildRecipeRows(sorted, {})
+        -- Each recipe: 1 own row + 1 collapsed summary.
+        assert.are.equal(recipeCount * 2, #out)
+        local collapsedN = 0
+        for i = 1, #out do
+            local row = out[i]
+            if row.isGuildCollapsed then
+                collapsedN = collapsedN + 1
+                assert.are.equal(4, #row.guildChars)
+                assert.are.equal("G" .. row.recipeID .. "_1", row.guildChars[1].characterName)
+                assert.are.equal("G" .. row.recipeID .. "_4", row.guildChars[4].characterName)
+            end
+        end
+        assert.are.equal(recipeCount, collapsedN)
+    end)
+
     it("SortItemResults sorts by Item name", function()
         local list = {
             { itemID = 2, itemName = "Wool", characterName = "A", realm = "R", location = "bag", count = 1 },
@@ -74,5 +107,95 @@ describe("SearchPresent", function()
         local sorted = SP.SortItemResults(list, "Item", true)
         assert.are.equal("Linen", sorted[1].itemName)
         assert.are.equal("Wool", sorted[2].itemName)
+    end)
+
+    it("SortRecipeResults by Recipe keeps already-ordered within-id rows", function()
+        -- Mirrors TabSearch merge: own rows then guild rows, each side A-Z.
+        local list = {
+            {
+                recipeID = 2, recipeNameLower = "beta", professionName = "Alchemy",
+                characterName = "Alice",
+            },
+            {
+                recipeID = 2, recipeNameLower = "beta", professionName = "Alchemy",
+                characterName = "Bob", isGuild = true,
+            },
+            {
+                recipeID = 1, recipeNameLower = "alpha", professionName = "Alchemy",
+                characterName = "Carol",
+            },
+            {
+                recipeID = 1, recipeNameLower = "alpha", professionName = "Alchemy",
+                characterName = "Dave", isGuild = true,
+            },
+        }
+        local out = SP.SortRecipeResults(list, "Recipe", true, false)
+        assert.are.equal(1, out[1].recipeID)
+        assert.are.equal("Carol", out[1].characterName)
+        assert.are.equal("Dave", out[2].characterName)
+        assert.are.equal(2, out[3].recipeID)
+        assert.are.equal("Alice", out[3].characterName)
+        assert.are.equal("Bob", out[4].characterName)
+    end)
+
+    it("SortRecipeResults by Recipe prefers stamped _aaRecipeSortKey", function()
+        local list = {
+            {
+                recipeID = 1,
+                recipeNameLower = "zzz",
+                professionName = "Tailoring",
+                _aaRecipeSortKey = "alchemy\0alpha",
+                characterName = "A",
+            },
+            {
+                recipeID = 2,
+                recipeNameLower = "aaa",
+                professionName = "Alchemy",
+                _aaRecipeSortKey = "tailoring\0zeta",
+                characterName = "B",
+            },
+        }
+        local out = SP.SortRecipeResults(list, "Recipe", true, false)
+        -- Stamped keys place recipe 1 (alchemy/alpha) before recipe 2 (tailoring/zeta),
+        -- not the recipeNameLower/professionName fields.
+        assert.are.equal(1, out[1].recipeID)
+        assert.are.equal(2, out[2].recipeID)
+    end)
+
+    it("EnsureRecipeDisplayCache keeps profession prefix out of the searchable match name", function()
+        _G.GetSpellInfo = function(id)
+            if id == 20047 then
+                return "Enchant 2H Weapon - Impact", nil, "Interface\\Icons\\Spell_Holy_GreaterHeal"
+            end
+            return nil
+        end
+        _G.GetItemInfo = function() return nil end
+        local entry = {
+            professionName = "Enchanting",
+            recipeID = 20047,
+            skillRank = 300,
+        }
+        SP.EnsureRecipeDisplayCache(entry)
+        assert.are.equal("Enchanting: Enchant 2H Weapon - Impact", entry._aaRecipeBaseName)
+        assert.are.equal("Enchanting: ", entry._aaRecipeNamePrefix)
+        assert.are.equal("Enchant 2H Weapon - Impact", entry._aaRecipeMatchName)
+    end)
+
+    it("FormatHighlightedRecipeName highlights only the recipe match name, not the profession prefix", function()
+        local entry = {
+            _aaRecipeBaseName = "Enchanting: Enchant 2H Weapon - Impact",
+            _aaRecipeNamePrefix = "Enchanting: ",
+            _aaRecipeMatchName = "Enchant 2H Weapon - Impact",
+        }
+        local out = SP.FormatHighlightedRecipeName(entry, "enchant", function(text, query)
+            local lower = (text or ""):lower()
+            local q = (query or ""):lower()
+            local s, e = lower:find(q, 1, true)
+            if not s then
+                return text
+            end
+            return text:sub(1, s - 1) .. "<H>" .. text:sub(s, e) .. "</H>" .. text:sub(e + 1)
+        end)
+        assert.are.equal("Enchanting: <H>Enchant</H> 2H Weapon - Impact", out)
     end)
 end)

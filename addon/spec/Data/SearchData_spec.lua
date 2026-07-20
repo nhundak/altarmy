@@ -1110,6 +1110,8 @@ describe("SearchData", function()
       SD.EnsureRecipeDisplayCache(entry)
       assert.are.equal(1, spellCalls)
       assert.are.equal("Alchemy: Greater Mana Potion", entry._aaRecipeBaseName)
+      assert.are.equal("Alchemy: ", entry._aaRecipeNamePrefix)
+      assert.are.equal("Greater Mana Potion", entry._aaRecipeMatchName)
       assert.are.equal("Interface\\Icons\\INV_Potion_73", entry._aaIconPath)
       assert.is_truthy(entry._aaSkillCellText)
       assert.is_truthy(entry._aaSkillCellText:find("180", 1, true))
@@ -1586,6 +1588,44 @@ describe("SearchData", function()
       assert.are.equal(1, out[3].recipeID)
     end)
 
+    it("stamps _aaRecipeSortKey on all index rows for a recipe id", function()
+      local oldGetAll = SD.GetAllRecipes
+      SD.GetAllRecipes = function()
+        return {
+          {
+            characterName = "Alice",
+            realm = "R",
+            professionName = "Alchemy",
+            skillRank = 300,
+            recipeID = 1,
+          },
+          {
+            characterName = "Bob",
+            realm = "R",
+            professionName = "Alchemy",
+            skillRank = 1,
+            recipeID = 1,
+          },
+        }
+      end
+      local oldGetSpellInfo = _G.GetSpellInfo
+      _G.GetSpellInfo = function(id)
+        if id == 1 then return "Minor Healing Potion" end
+        return nil
+      end
+
+      SD.ClearSearchCaches()
+      local hits = SD.SearchRecipes("healing")
+      SD.GetAllRecipes = oldGetAll
+      _G.GetSpellInfo = oldGetSpellInfo
+
+      assert.are.equal(2, #hits)
+      local expected = "alchemy\0minor healing potion"
+      assert.are.equal(expected, hits[1]._aaRecipeSortKey)
+      assert.are.equal(expected, hits[2]._aaRecipeSortKey)
+      assert.are.equal("minor healing potion", hits[1].recipeNameLower)
+    end)
+
     it("sorts by character name ascending", function()
       local out = SD.SortRecipeResults(rows, "Character", true, true)
       assert.are.equal("Alice", out[1].characterName)
@@ -1878,8 +1918,259 @@ describe("SearchData", function()
     end)
   end)
 
+  describe("search phase debug logging", function()
+    local function withSearchDebug(fn)
+      local logs = {}
+      local prevDebug = AltArmy.Debug
+      AltArmy.Debug = {
+        IsSearchEnabled = function() return true end,
+        LogSearch = function(msg) logs[#logs + 1] = msg end,
+      }
+      local oldStart, oldStop = _G.debugprofilestart, _G.debugprofilestop
+      local tick = 0
+      _G.debugprofilestart = function() end
+      _G.debugprofilestop = function()
+        tick = tick + 1
+        return tick * 0.5
+      end
+      local ok, err = pcall(fn, logs)
+      _G.debugprofilestart = oldStart
+      _G.debugprofilestop = oldStop
+      AltArmy.Debug = prevDebug
+      if not ok then error(err) end
+      return logs
+    end
 
+    it("logs lookup/expand/sort/enrich/filter phases for SearchRecipes", function()
+      local oldGetAll = SD.GetAllRecipes
+      SD.GetAllRecipes = function()
+        return {
+          { characterName = "Alice", realm = "R", professionName = "Alchemy", skillRank = 300, recipeID = 1 },
+          { characterName = "Bob", realm = "R", professionName = "Alchemy", skillRank = 1, recipeID = 2 },
+        }
+      end
+      local oldGetSpellInfo = _G.GetSpellInfo
+      _G.GetSpellInfo = function(id)
+        if id == 1 then return "Minor Healing Potion" end
+        if id == 2 then return "Elixir of Giants" end
+        return nil
+      end
 
+      local logs = withSearchDebug(function()
+        SD.ClearSearchCaches()
+        SD.SearchRecipes("elixir")
+      end)
 
+      SD.GetAllRecipes = oldGetAll
+      _G.GetSpellInfo = oldGetSpellInfo
 
+      local recipeLog = nil
+      for _, msg in ipairs(logs) do
+        if type(msg) == "string" and msg:find("recipes q=", 1, true) then
+          recipeLog = msg
+          break
+        end
+      end
+      assert.is_truthy(recipeLog, "expected recipes timing log")
+      assert.is_truthy(recipeLog:find("lookup=", 1, true), recipeLog)
+      assert.is_truthy(recipeLog:find("expand=", 1, true), recipeLog)
+      assert.is_truthy(recipeLog:find("sort=", 1, true), recipeLog)
+      assert.is_truthy(recipeLog:find("enrich=", 1, true), recipeLog)
+      assert.is_truthy(recipeLog:find("filter=", 1, true), recipeLog)
+    end)
+
+    it("logs lookup/expand/sort/enrich/filter phases for SearchGuildRecipes", function()
+      local oldGetAll = SD.GetAllGuildRecipes
+      SD.GetAllGuildRecipes = function()
+        return {
+          {
+            characterName = "G1",
+            realm = "R",
+            professionName = "Alchemy",
+            skillRank = 300,
+            recipeID = 1,
+            isGuild = true,
+          },
+        }
+      end
+      local oldGetSpellInfo = _G.GetSpellInfo
+      _G.GetSpellInfo = function(id)
+        if id == 1 then return "Minor Healing Potion" end
+        return nil
+      end
+      local SS = AltArmy.SearchSettings
+      local oldCan = SS and SS.CanShowIncludeGuildmatesToggle
+      local oldInc = SS and SS.IsIncludeGuildmatesEnabled
+      if SS then
+        SS.CanShowIncludeGuildmatesToggle = function() return true end
+        SS.IsIncludeGuildmatesEnabled = function() return true end
+      end
+
+      local logs = withSearchDebug(function()
+        SD.ClearSearchCaches()
+        SD.SearchGuildRecipes("healing")
+      end)
+
+      SD.GetAllGuildRecipes = oldGetAll
+      _G.GetSpellInfo = oldGetSpellInfo
+      if SS then
+        SS.CanShowIncludeGuildmatesToggle = oldCan
+        SS.IsIncludeGuildmatesEnabled = oldInc
+      end
+
+      local guildLog = nil
+      for _, msg in ipairs(logs) do
+        if type(msg) == "string" and msg:find("guildRecipes q=", 1, true) then
+          guildLog = msg
+          break
+        end
+      end
+      assert.is_truthy(guildLog, "expected guildRecipes timing log")
+      assert.is_truthy(guildLog:find("lookup=", 1, true), guildLog)
+      assert.is_truthy(guildLog:find("expand=", 1, true), guildLog)
+      assert.is_truthy(guildLog:find("sort=", 1, true), guildLog)
+      assert.is_truthy(guildLog:find("enrich=", 1, true), guildLog)
+      assert.is_truthy(guildLog:find("filter=", 1, true), guildLog)
+    end)
+
+    it("logs lookup/expand/aggregate phases for SearchItems", function()
+      local DS = AltArmy.DataStore
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        IterateContainerSlots = DS.IterateContainerSlots,
+        IterateInventory = DS.IterateInventory,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+      }
+      DS.GetRealms = function() return { R = true } end
+      DS.GetCharacters = function()
+        return { Alice = { name = "Alice" } }
+      end
+      DS.IterateContainerSlots = function(_, _char, cb)
+        cb(0, 1, 111, 1, "item:111")
+      end
+      DS.IterateInventory = function() end
+      DS.GetCharacterName = function(_, c) return c and c.name or "" end
+      DS.GetCharacterClass = function() return "", "MAGE" end
+      local oldGetItemInfo = _G.GetItemInfo
+      _G.GetItemInfo = function(id)
+        if id == 111 or id == "item:111" then return "Minor Healing Potion" end
+        return nil
+      end
+
+      local logs = withSearchDebug(function()
+        SD.ClearSearchCaches()
+        SD.SearchItems("potion", true)
+      end)
+
+      for k, v in pairs(old) do DS[k] = v end
+      _G.GetItemInfo = oldGetItemInfo
+      SD.ClearSearchCaches()
+
+      local itemLog = nil
+      for _, msg in ipairs(logs) do
+        if type(msg) == "string" and msg:find("items q=", 1, true) then
+          itemLog = msg
+          break
+        end
+      end
+      assert.is_truthy(itemLog, "expected items timing log")
+      assert.is_truthy(itemLog:find("lookup=", 1, true), itemLog)
+      assert.is_truthy(itemLog:find("expand=", 1, true), itemLog)
+      assert.is_truthy(itemLog:find("aggregate=", 1, true), itemLog)
+    end)
+
+    it("logs index build timing when building a cold item index", function()
+      local DS = AltArmy.DataStore
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        IterateContainerSlots = DS.IterateContainerSlots,
+        IterateInventory = DS.IterateInventory,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+      }
+      DS.GetRealms = function() return { R = true } end
+      DS.GetCharacters = function()
+        return { Alice = { name = "Alice" } }
+      end
+      DS.IterateContainerSlots = function(_, _char, cb)
+        cb(0, 1, 111, 1, "item:111")
+      end
+      DS.IterateInventory = function() end
+      DS.GetCharacterName = function(_, c) return c and c.name or "" end
+      DS.GetCharacterClass = function() return "", "MAGE" end
+      local oldGetItemInfo = _G.GetItemInfo
+      _G.GetItemInfo = function(id)
+        if id == 111 or id == "item:111" then return "Minor Healing Potion" end
+        return nil
+      end
+
+      local logs = withSearchDebug(function()
+        SD.ClearSearchCaches()
+        SD.GetAllContainerSlots()
+        SD.SearchItems("potion", true)
+      end)
+
+      for k, v in pairs(old) do DS[k] = v end
+      _G.GetItemInfo = oldGetItemInfo
+      SD.ClearSearchCaches()
+
+      local indexLog = nil
+      for _, msg in ipairs(logs) do
+        if type(msg) == "string" and msg:find("index items", 1, true) then
+          indexLog = msg
+          break
+        end
+      end
+      assert.is_truthy(indexLog, "expected index items timing log")
+    end)
+
+    it("logs recipeUi sort/collapse sub-timings", function()
+      local logs = withSearchDebug(function()
+        local timings = SD.BeginUiTiming()
+        assert.is_truthy(timings)
+        SD.MarkUiTiming(timings, "sort")
+        SD.MarkUiTiming(timings, "collapse")
+        SD.LogRecipeUiTimings(timings, { nIn = 120, nOut = 40 })
+      end)
+
+      local uiLog = nil
+      for _, msg in ipairs(logs) do
+        if type(msg) == "string" and msg:find("recipeUi ", 1, true) then
+          uiLog = msg
+          break
+        end
+      end
+      assert.is_truthy(uiLog, "expected recipeUi timing log")
+      assert.is_truthy(uiLog:find("sort=", 1, true), uiLog)
+      assert.is_truthy(uiLog:find("collapse=", 1, true), uiLog)
+      assert.is_truthy(uiLog:find("nIn=120", 1, true), uiLog)
+      assert.is_truthy(uiLog:find("nOut=40", 1, true), uiLog)
+    end)
+
+    it("logs scrollPaint row counts when ending paint debug", function()
+      local logs = withSearchDebug(function()
+        local stats = SD.BeginScrollPaintDebug()
+        assert.is_truthy(stats)
+        SD.NoteScrollItemPaint(stats)
+        SD.NoteScrollRecipePaint(stats)
+        SD.NoteScrollTooltipPaint(stats)
+        assert.is_true(SD.EndScrollPaintDebug(stats))
+      end)
+
+      local paintLog = nil
+      for _, msg in ipairs(logs) do
+        if type(msg) == "string" and msg:find("scrollPaint ", 1, true) then
+          paintLog = msg
+          break
+        end
+      end
+      assert.is_truthy(paintLog, "expected scrollPaint timing log")
+      assert.is_truthy(paintLog:find("itemRows=1", 1, true), paintLog)
+      assert.is_truthy(paintLog:find("recipeRows=1", 1, true), paintLog)
+      assert.is_truthy(paintLog:find("tooltipRows=1", 1, true), paintLog)
+    end)
+  end)
 end)

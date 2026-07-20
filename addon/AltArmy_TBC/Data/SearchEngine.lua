@@ -76,6 +76,24 @@ function SE.EnsureRecipeDisplayCache(entry)
     return entry
 end
 
+function SE.FormatHighlightedRecipeName(entry, query, highlightFn)
+    local e = eng()
+    if e.FormatHighlightedRecipeName then
+        return e.FormatHighlightedRecipeName(entry, query, highlightFn)
+    end
+    local SP = AltArmy.SearchPresent
+    if SP and SP.FormatHighlightedRecipeName then
+        return SP.FormatHighlightedRecipeName(entry, query, highlightFn)
+    end
+    local name = entry and (entry._aaRecipeBaseName
+        or ("Recipe " .. tostring(entry.recipeID or "?")))
+        or ""
+    if highlightFn then
+        return highlightFn(name, query)
+    end
+    return name
+end
+
 function SE.EnrichRecipeEntry(entry)
     local e = eng()
     if e.EnrichRecipeEntry then
@@ -156,6 +174,28 @@ function SE.StartRecipeResultPrewarm(list)
     local e = eng()
     if e.StartRecipeResultPrewarm then
         e.StartRecipeResultPrewarm(list)
+    end
+end
+
+function SE.BeginUiTiming()
+    local e = eng()
+    if e and e.BeginUiTiming then
+        return e.BeginUiTiming()
+    end
+    return nil
+end
+
+function SE.MarkUiTiming(timings, key)
+    local e = eng()
+    if e and e.MarkUiTiming then
+        e.MarkUiTiming(timings, key)
+    end
+end
+
+function SE.LogRecipeUiTimings(timings, meta)
+    local e = eng()
+    if e and e.LogRecipeUiTimings then
+        e.LogRecipeUiTimings(timings, meta)
     end
 end
 

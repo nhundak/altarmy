@@ -384,15 +384,30 @@ local function applySectionSorts()
         itemList = SD.SortItemResults(itemList, sectionSort.items.key, sectionSort.items.ascending)
     end
     if sectionSort.recipes.key then
+        local uiTimings = SD.BeginUiTiming and SD.BeginUiTiming() or nil
+        local merged = recipeCollapseState.mergedList
+        local nIn = #(merged or {})
         local sorted = SD.SortRecipeResults(
-            recipeCollapseState.mergedList,
+            merged,
             sectionSort.recipes.key,
             sectionSort.recipes.ascending,
             isCraftLibAvailable())
+        if uiTimings and SD.MarkUiTiming then
+            SD.MarkUiTiming(uiTimings, "sort")
+        end
         if SD.CollapseGuildRecipeRows then
             recipeList = SD.CollapseGuildRecipeRows(sorted, recipeCollapseState.expandedIDs)
         else
             recipeList = sorted
+        end
+        if uiTimings and SD.MarkUiTiming then
+            SD.MarkUiTiming(uiTimings, "collapse")
+        end
+        if uiTimings and SD.LogRecipeUiTimings then
+            SD.LogRecipeUiTimings(uiTimings, {
+                nIn = nIn,
+                nOut = #(recipeList or {}),
+            })
         end
     end
     if sectionSort.tooltip.key then
@@ -794,7 +809,7 @@ local function createRecipeRow()
         row.cells[colName] = cell
         cx = cx + w
     end
-    -- Clickable character name overlay (own + guildmate; Character column, full row height).
+    -- Clickable Character overlay for guildmate rows (whisper) and collapsed summaries.
     local charBtn = CreateFrame("Button", nil, row)
     charBtn:SetPoint("TOP", row, "TOP", 0, 0)
     charBtn:SetPoint("BOTTOM", row, "BOTTOM", 0, 0)
@@ -823,28 +838,15 @@ local function createRecipeRow()
             UpdateResults()
             return
         end
+        -- Online guildmates: whisper. Own-account rows never show this button.
+        if not entry.isGuild then
+            return
+        end
         local Nav = AltArmy.SearchGuildNav
-        if not Nav then return end
-        -- Guildmates: whisper the online character. Own characters: guild drill-in.
-        if entry.isGuild then
-            if Nav.OpenGuildRecipeWhisper then
-                Nav.OpenGuildRecipeWhisper(entry.characterName, entry.realm, {
-                    rosterByName = searchRosterByName,
-                })
-            end
-            return
-        end
-        if not Nav.IsGuildRecipeCharacterClickable
-            or not Nav.IsGuildRecipeCharacterClickable(entry) then
-            return
-        end
-        if AltArmy.OpenGuildCharacterFromSearch then
-            AltArmy.OpenGuildCharacterFromSearch(
-                entry.characterName,
-                entry.realm,
-                entry.professionKey,
-                entry.professionName,
-                entry.recipeID)
+        if Nav and Nav.OpenGuildRecipeWhisper then
+            Nav.OpenGuildRecipeWhisper(entry.characterName, entry.realm, {
+                rosterByName = searchRosterByName,
+            })
         end
     end)
     Theme.InstallHoverTint(row)
@@ -1047,9 +1049,15 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
     if isCollapseChild then
         row.cells.Recipe:SetText("")
     else
-        local recipeName = entry._aaRecipeBaseName
-            or ("Recipe " .. tostring(entry.recipeID or "?"))
-        recipeName = maybeHighlightSearchText(recipeName, highlightSearch, searchQuery)
+        local recipeName = SD.FormatHighlightedRecipeName
+            and SD.FormatHighlightedRecipeName(entry, searchQuery, function(text, query)
+                return maybeHighlightSearchText(text, highlightSearch, query)
+            end)
+        if not recipeName then
+            recipeName = entry._aaRecipeBaseName
+                or ("Recipe " .. tostring(entry.recipeID or "?"))
+            recipeName = maybeHighlightSearchText(recipeName, highlightSearch, searchQuery)
+        end
         local iconPath = entry._aaIconPath or "Interface\\Icons\\INV_Misc_QuestionMark"
         local iconPrefix = ("|T%s:0|t "):format(iconPath)
         SetItemCellTruncated(row.cells.Recipe, recipeName, "", iconPrefix, recipeColWidths.Recipe or 344)
@@ -1083,17 +1091,10 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
         end
     end
     SetCharacterCellTruncated(row.cells.Character, namePart, charSuffix, recipeColWidths.Character or 160)
-    -- Guildmates always get a Character hit target (tooltip); highlight/click only when online.
-    -- Own characters get it when drill-in is available.
-    local showCharBtn = false
-    if entry.isGuild then
-        showCharBtn = true
-    elseif Nav and Nav.IsGuildRecipeCharacterClickable
-        and Nav.IsGuildRecipeCharacterClickable(entry, rowOpts) then
-        showCharBtn = true
-    end
+    -- Guildmates get a Character hit target (tooltip; click/highlight only when online).
+    -- Own-account recipe rows are plain text (no hover tint, no click).
     if row.characterBtn then
-        row.characterBtn:SetShown(showCharBtn)
+        row.characterBtn:SetShown(entry.isGuild and true or false)
     end
     local skillText = entry._aaSkillCellText
     if not skillText then

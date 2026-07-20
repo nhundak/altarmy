@@ -328,7 +328,8 @@ debugSearchHint:SetPoint("TOPLEFT", debugSearchRow, "BOTTOMLEFT", 0, -8)
 debugSearchHint:SetWidth(520)
 debugSearchHint:SetJustifyH("LEFT")
 debugSearchHint:SetText(
-    "Logs search phase timings (lookup/expand/sort/enrich/filter) and index-build timing in chat.")
+    "Logs search phase timings (lookup/expand/sort/enrich/filter), recipe UI (sort/collapse), "
+        .. "scroll paint, and index-build timing in chat.")
 
 local debugCooldownsRow = Theme.CreateLabeledCheckbox(tabDebug, {
     point = "TOPLEFT",

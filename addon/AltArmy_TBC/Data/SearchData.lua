@@ -27,6 +27,74 @@ local caches = {
     recipeVisualCache = {},
 }
 
+--- Query timing debug (Debug > Search query timing). Uses debugprofilestart/stop.
+local Prof = {}
+
+function Prof.enabled()
+    local Dbg = AltArmy and AltArmy.Debug
+    return Dbg and Dbg.IsSearchEnabled and Dbg.IsSearchEnabled()
+end
+
+function Prof.log(msg)
+    local Dbg = AltArmy and AltArmy.Debug
+    if Dbg and Dbg.LogSearch then
+        Dbg.LogSearch(msg)
+    end
+end
+
+function Prof.start()
+    if debugprofilestart then
+        debugprofilestart()
+    end
+end
+
+function Prof.elapsedMs()
+    if debugprofilestop then
+        return debugprofilestop()
+    end
+    return 0
+end
+
+function Prof.mark(timings, key)
+    if not timings then
+        return
+    end
+    local ms = Prof.elapsedMs()
+    timings[key] = ms
+    timings.total = (timings.total or 0) + ms
+    Prof.start()
+end
+
+function Prof.ms(timings, key)
+    local v = timings and timings[key]
+    if type(v) ~= "number" then
+        return 0
+    end
+    return v
+end
+
+function Prof.logIndex(kind, ms, detail)
+    if not Prof.enabled() then
+        return
+    end
+    if detail and detail ~= "" then
+        Prof.log(string.format("  index %s ms=%.2f %s", kind, ms, detail))
+    else
+        Prof.log(string.format("  index %s ms=%.2f", kind, ms))
+    end
+    Prof.start()
+end
+
+function Prof.queryLabel(query)
+    if type(query) == "string" then
+        if #query > 40 then
+            return query:sub(1, 37) .. "..."
+        end
+        return query
+    end
+    return tostring(query)
+end
+
 local function LocationFromBagID(bagID)
     if bagID == KEYRING_CONTAINER then
         return "keyring"
@@ -322,6 +390,10 @@ local function EnsureItemIndex()
     if caches.itemIndex then
         return caches.itemIndex
     end
+    local debug = Prof.enabled()
+    if debug then
+        Prof.start()
+    end
     local SI = AltArmy.SearchIndex
     local slots = SD.GetAllContainerSlots()
     for i = 1, #slots do
@@ -337,12 +409,21 @@ local function EnsureItemIndex()
         end,
     })
     caches.itemMemo = {}
+    if debug then
+        local idx = caches.itemIndex
+        Prof.logIndex("items", Prof.elapsedMs(), string.format(
+            "entries=%d names=%d", #(idx.entries or {}), #(idx.names or {})))
+    end
     return caches.itemIndex
 end
 
 local function EnsureLocalRecipeIndex()
     if caches.localRecipeIndex then
         return caches.localRecipeIndex
+    end
+    local debug = Prof.enabled()
+    if debug then
+        Prof.start()
     end
     local SI = AltArmy.SearchIndex
     local recipes = SD.GetAllRecipes()
@@ -351,15 +432,28 @@ local function EnsureLocalRecipeIndex()
         getNameLower = function(e)
             return GetCachedRecipeNameLower(e.recipeID)
         end,
+        stampNameKey = "recipeNameLower",
+        stampSortKey = function(entry, nameLower)
+            entry._aaRecipeSortKey = (entry.professionName or ""):lower() .. "\0" .. nameLower
+        end,
         compareWithinId = CompareRecipeRowsWithinId,
     })
     caches.localRecipeMemo = {}
+    if debug then
+        local idx = caches.localRecipeIndex
+        Prof.logIndex("localRecipes", Prof.elapsedMs(), string.format(
+            "entries=%d names=%d", #(idx.entries or {}), #(idx.names or {})))
+    end
     return caches.localRecipeIndex
 end
 
 local function EnsureGuildRecipeIndex()
     if caches.guildRecipeIndex then
         return caches.guildRecipeIndex
+    end
+    local debug = Prof.enabled()
+    if debug then
+        Prof.start()
     end
     local SI = AltArmy.SearchIndex
     local recipes = SD.GetAllGuildRecipes()
@@ -368,9 +462,18 @@ local function EnsureGuildRecipeIndex()
         getNameLower = function(e)
             return GetCachedRecipeNameLower(e.recipeID)
         end,
+        stampNameKey = "recipeNameLower",
+        stampSortKey = function(entry, nameLower)
+            entry._aaRecipeSortKey = (entry.professionName or ""):lower() .. "\0" .. nameLower
+        end,
         compareWithinId = CompareRecipeRowsWithinId,
     })
     caches.guildRecipeMemo = {}
+    if debug then
+        local idx = caches.guildRecipeIndex
+        Prof.logIndex("guildRecipes", Prof.elapsedMs(), string.format(
+            "entries=%d names=%d", #(idx.entries or {}), #(idx.names or {})))
+    end
     return caches.guildRecipeIndex
 end
 
@@ -510,12 +613,25 @@ function SD.SearchItems(query, skipTooltip)
     if not query or (type(query) == "string" and query:match("^%s*$")) then
         return {}, {}
     end
+    local debug = Prof.enabled()
+    local timings = debug and { total = 0 } or nil
+    if debug then
+        Prof.start()
+    end
     local SQ = AltArmy.SearchQuery
     local SP = AltArmy.SearchPresent
     local index = EnsureItemIndex()
     local queryLower, queryID = SQ.ParseQuery(query)
-    local raw = SQ.MatchAndExpandItems(index, queryLower, queryID, caches.itemMemo)
+    local raw = SQ.MatchAndExpandItems(index, queryLower, queryID, caches.itemMemo, timings)
     local mainRows = SP.AggregateItemRows(raw, queryLower or "")
+    Prof.mark(timings, "aggregate")
+    -- Aggregate is one step in the new engine; keep legacy agg* keys for chat parity.
+    if timings then
+        timings.aggGroup = timings.aggregate or 0
+        timings.aggScore = 0
+        timings.aggSort = 0
+        timings.aggCleanup = 0
+    end
     local tooltipOnlyRows = {}
     if queryLower and not skipTooltip then
         local matches = {}
@@ -534,6 +650,26 @@ function SD.SearchItems(query, skipTooltip)
             end
         end
         tooltipOnlyRows = SP.AggregateItemRows(matches, queryLower)
+    end
+    Prof.mark(timings, "tooltip")
+    if debug then
+        Prof.log(string.format(
+            "  items q=%q ms=%.2f mainRows=%d tooltipRows=%d skipTooltip=%s"
+                .. " lookup=%.2f expand=%.2f aggregate=%.2f"
+                .. " aggGroup=%.2f aggScore=%.2f aggSort=%.2f aggCleanup=%.2f",
+            Prof.queryLabel(query),
+            Prof.ms(timings, "total"),
+            #mainRows,
+            #tooltipOnlyRows,
+            tostring(skipTooltip and true or false),
+            Prof.ms(timings, "lookup"),
+            Prof.ms(timings, "expand"),
+            Prof.ms(timings, "aggregate"),
+            Prof.ms(timings, "aggGroup"),
+            Prof.ms(timings, "aggScore"),
+            Prof.ms(timings, "aggSort"),
+            Prof.ms(timings, "aggCleanup")
+        ))
     end
     return mainRows, tooltipOnlyRows
 end
@@ -574,36 +710,59 @@ local function EnrichRecipeList(list)
     return list
 end
 
-function SD.SearchRecipes(query)
-    if not query or (type(query) == "string" and query:match("^%s*$")) then
-        return {}
+local function searchRecipesInternal(query, ensureIndex, memo, logKind)
+    local debug = Prof.enabled()
+    local timings = debug and { total = 0 } or nil
+    if debug then
+        Prof.start()
     end
     local SQ = AltArmy.SearchQuery
-    local index = EnsureLocalRecipeIndex()
+    local index = ensureIndex()
+    local scanned = #(index.entries or {})
     local queryLower = type(query) == "string" and query:lower() or ""
-    local results = SQ.MatchAndExpandRecipes(index, queryLower, caches.localRecipeMemo)
+    local results = SQ.MatchAndExpandRecipes(index, queryLower, memo, timings)
+    -- No separate sort phase during search (UI sorts result lists).
+    if timings then
+        timings.sort = 0
+    end
     local SS = AltArmy and AltArmy.SearchSettings
     local settings = SS and SS.GetSearchSettings and SS.GetSearchSettings() or nil
     if NeedsCraftLibEnrichForFilters(settings) then
         EnrichRecipeList(results)
     end
-    return ApplyRecipeFilters(results)
+    Prof.mark(timings, "enrich")
+    results = ApplyRecipeFilters(results)
+    Prof.mark(timings, "filter")
+    if debug then
+        Prof.log(string.format(
+            "  %s q=%q ms=%.2f scanned=%d hits=%d lookup=%.2f expand=%.2f sort=%.2f enrich=%.2f filter=%.2f",
+            logKind,
+            Prof.queryLabel(query),
+            Prof.ms(timings, "total"),
+            scanned,
+            #results,
+            Prof.ms(timings, "lookup"),
+            Prof.ms(timings, "expand"),
+            Prof.ms(timings, "sort"),
+            Prof.ms(timings, "enrich"),
+            Prof.ms(timings, "filter")
+        ))
+    end
+    return results
+end
+
+function SD.SearchRecipes(query)
+    if not query or (type(query) == "string" and query:match("^%s*$")) then
+        return {}
+    end
+    return searchRecipesInternal(query, EnsureLocalRecipeIndex, caches.localRecipeMemo, "recipes")
 end
 
 function SD.SearchGuildRecipes(query)
     if not query or (type(query) == "string" and query:match("^%s*$")) then
         return {}
     end
-    local SQ = AltArmy.SearchQuery
-    local index = EnsureGuildRecipeIndex()
-    local queryLower = type(query) == "string" and query:lower() or ""
-    local results = SQ.MatchAndExpandRecipes(index, queryLower, caches.guildRecipeMemo)
-    local SS = AltArmy and AltArmy.SearchSettings
-    local settings = SS and SS.GetSearchSettings and SS.GetSearchSettings() or nil
-    if NeedsCraftLibEnrichForFilters(settings) then
-        EnrichRecipeList(results)
-    end
-    return ApplyRecipeFilters(results)
+    return searchRecipesInternal(query, EnsureGuildRecipeIndex, caches.guildRecipeMemo, "guildRecipes")
 end
 
 function SD.MergeRecipeSearchResults(localList, guildList)
@@ -652,6 +811,20 @@ function SD.EnsureRecipeDisplayCache(entry)
         return SP.EnsureRecipeDisplayCache(entry)
     end
     return entry
+end
+
+function SD.FormatHighlightedRecipeName(entry, query, highlightFn)
+    local SP = AltArmy.SearchPresent
+    if SP and SP.FormatHighlightedRecipeName then
+        return SP.FormatHighlightedRecipeName(entry, query, highlightFn)
+    end
+    local name = entry and (entry._aaRecipeBaseName
+        or ("Recipe " .. tostring(entry.recipeID or "?")))
+        or ""
+    if highlightFn then
+        return highlightFn(name, query)
+    end
+    return name
 end
 
 function SD.StartRecipeResultPrewarm(list)
@@ -859,20 +1032,53 @@ function SD.SearchGroupedByCharacter(query)
     return list
 end
 
-local function SearchDebugEnabled()
-    local Dbg = AltArmy and AltArmy.Debug
-    return Dbg and Dbg.IsSearchEnabled and Dbg.IsSearchEnabled()
+--- Start a UI-phase timing bag (nil when Search query timing is off).
+function SD.BeginUiTiming()
+    if not Prof.enabled() then
+        return nil
+    end
+    Prof.start()
+    return { total = 0 }
+end
+
+function SD.MarkUiTiming(timings, key)
+    Prof.mark(timings, key)
+end
+
+--- Log untimed recipe UI work (sort/collapse) after UpdateResults applySectionSorts.
+--- meta: optional { nIn, nOut }
+function SD.LogRecipeUiTimings(timings, meta)
+    if not timings or not Prof.enabled() then
+        return
+    end
+    meta = meta or {}
+    Prof.log(string.format(
+        "  recipeUi ms=%.2f sort=%.2f collapse=%.2f nIn=%d nOut=%d",
+        Prof.ms(timings, "total"),
+        Prof.ms(timings, "sort"),
+        Prof.ms(timings, "collapse"),
+        tonumber(meta.nIn) or 0,
+        tonumber(meta.nOut) or 0
+    ))
 end
 
 function SD.BeginScrollPaintDebug()
-    if not SearchDebugEnabled() then return nil end
-    if debugprofilestart then debugprofilestart() end
+    if not Prof.enabled() then return nil end
+    Prof.start()
     return { itemRows = 0, recipeRows = 0, tooltipRows = 0 }
 end
 
 function SD.EndScrollPaintDebug(stats)
-    if not stats or not SearchDebugEnabled() then return false end
-    return false
+    if not stats or not Prof.enabled() then return false end
+    local ms = Prof.elapsedMs()
+    Prof.log(string.format(
+        "  scrollPaint ms=%.2f itemRows=%d recipeRows=%d tooltipRows=%d",
+        ms,
+        stats.itemRows or 0,
+        stats.recipeRows or 0,
+        stats.tooltipRows or 0
+    ))
+    return true
 end
 
 function SD.NoteScrollItemPaint(stats)

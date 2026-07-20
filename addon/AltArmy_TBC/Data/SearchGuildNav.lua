@@ -37,16 +37,16 @@ end
 
 --- True when a recipe-result Character cell should highlight and accept clicks.
 --- Guildmate rows: only when someone in their main-group is online (whisper).
---- Own-account rows: when the character is resolvable from DataStore (guild drill-in).
+--- Own-account rows: never (plain text only).
 --- opts.rosterByName / opts.onlineCache may be injected (tests / search layout cache).
 function Nav.IsGuildRecipeCharacterClickable(entry, opts)
-    if not entry or not entry.characterName or entry.characterName == "" then
+    if not entry or not entry.isGuild then
         return false
     end
-    if entry.isGuild then
-        return Nav.IsGuildRecipePlayerOnline(entry.characterName, entry.realm, opts)
+    if not entry.characterName or entry.characterName == "" then
+        return false
     end
-    return Nav.ResolveLocalMember(entry.characterName, entry.realm) ~= nil
+    return Nav.IsGuildRecipePlayerOnline(entry.characterName, entry.realm, opts)
 end
 
 --- Index of the preferred profession in a GetPrimaryProfessions-style list (1-based).

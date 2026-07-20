@@ -102,7 +102,7 @@ describe("SearchGuildNav", function()
     }))
   end)
 
-  it("own-character recipe entry is clickable when DataStore has the character", function()
+  it("own-character recipe entries are never Character-column clickable", function()
     AltArmy.GuildShareData = {
       GetCharacter = function() return nil end,
       BuildLocalMemberEntry = function(name, realm, char, guild, mainName, displayName, mainDeclared)
@@ -128,12 +128,13 @@ describe("SearchGuildNav", function()
         return nil
       end,
     }
-    assert.is_true(Nav.IsGuildRecipeCharacterClickable({
+    assert.is_false(Nav.IsGuildRecipeCharacterClickable({
       characterName = "MyAlt",
       realm = "Area 52",
     }))
     assert.is_false(Nav.IsGuildRecipeCharacterClickable({
-      characterName = "Missing",
+      isGuild = false,
+      characterName = "MyAlt",
       realm = "Area 52",
     }))
   end)

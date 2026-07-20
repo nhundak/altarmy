@@ -10,16 +10,20 @@ local SI = AltArmy.SearchIndex
 --- opts.getId(entry) -> id
 --- opts.getNameLower(entry) -> lowercase name or nil
 --- opts.compareWithinId(a, b) optional sort within each byId bucket
+--- opts.stampNameKey optional string field to set on every entry from getNameLower
+--- opts.stampSortKey(entry, nameLower) optional; called for every entry when name is known
 --- @return table { entries, byId, names }
 function SI.BuildIndex(entries, opts)
     opts = opts or {}
     local getId = opts.getId
     local getNameLower = opts.getNameLower
     local compareWithinId = opts.compareWithinId
+    local stampNameKey = opts.stampNameKey
+    local stampSortKey = opts.stampSortKey
     local list = entries or {}
     local byId = {}
     local names = {}
-    local nameSeen = {}
+    local nameById = {}
 
     for i = 1, #list do
         local entry = list[i]
@@ -31,11 +35,24 @@ function SI.BuildIndex(entries, opts)
                 byId[id] = bucket
             end
             bucket[#bucket + 1] = entry
-            if not nameSeen[id] and getNameLower then
-                local nameLower = getNameLower(entry)
-                if nameLower and nameLower ~= "" then
-                    nameSeen[id] = true
-                    names[#names + 1] = { id = id, nameLower = nameLower }
+            if getNameLower then
+                local nameLower = nameById[id]
+                if not nameLower then
+                    nameLower = getNameLower(entry)
+                    if nameLower and nameLower ~= "" then
+                        nameById[id] = nameLower
+                        names[#names + 1] = { id = id, nameLower = nameLower }
+                    else
+                        nameLower = nil
+                    end
+                end
+                if nameLower then
+                    if stampNameKey then
+                        entry[stampNameKey] = nameLower
+                    end
+                    if stampSortKey then
+                        stampSortKey(entry, nameLower)
+                    end
                 end
             end
         end

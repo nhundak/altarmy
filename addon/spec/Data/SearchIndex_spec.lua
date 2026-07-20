@@ -55,6 +55,52 @@ describe("SearchIndex", function()
         assert.are.equal(2, index.names[1].id)
     end)
 
+    it("BuildIndex stamps nameLower onto every entry when stampNameKey is set", function()
+        local namesById = {
+            [100] = "bolt of linen cloth",
+            [200] = "woolen cape",
+        }
+        local entries = {
+            { recipeID = 100, characterName = "Alice" },
+            { recipeID = 100, characterName = "Bob" },
+            { recipeID = 200, characterName = "Alice" },
+        }
+        local index = SI.BuildIndex(entries, {
+            getId = function(e) return e.recipeID end,
+            getNameLower = function(e) return namesById[e.recipeID] end,
+            stampNameKey = "recipeNameLower",
+        })
+        assert.are.equal("bolt of linen cloth", index.byId[100][1].recipeNameLower)
+        assert.are.equal("bolt of linen cloth", index.byId[100][2].recipeNameLower)
+        assert.are.equal("woolen cape", index.byId[200][1].recipeNameLower)
+        assert.is_nil(entries[1].nameLower)
+    end)
+
+    it("BuildIndex stamps sort keys onto every entry when stampSortKey is set", function()
+        local namesById = {
+            [100] = "bolt of linen cloth",
+            [200] = "woolen cape",
+        }
+        local entries = {
+            { recipeID = 100, characterName = "Alice", professionName = "Tailoring" },
+            { recipeID = 100, characterName = "Bob", professionName = "Tailoring" },
+            { recipeID = 200, characterName = "Alice", professionName = "Tailoring" },
+        }
+        local index = SI.BuildIndex(entries, {
+            getId = function(e) return e.recipeID end,
+            getNameLower = function(e) return namesById[e.recipeID] end,
+            stampNameKey = "recipeNameLower",
+            stampSortKey = function(entry, nameLower)
+                entry._aaRecipeSortKey = (entry.professionName or ""):lower() .. "\0" .. nameLower
+            end,
+        })
+        local expected100 = "tailoring\0bolt of linen cloth"
+        local expected200 = "tailoring\0woolen cape"
+        assert.are.equal(expected100, index.byId[100][1]._aaRecipeSortKey)
+        assert.are.equal(expected100, index.byId[100][2]._aaRecipeSortKey)
+        assert.are.equal(expected200, index.byId[200][1]._aaRecipeSortKey)
+    end)
+
     it("MatchNameIds finds substring matches", function()
         local names = {
             { id = 1, nameLower = "linen cloth" },

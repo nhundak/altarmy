@@ -1,4 +1,4 @@
--- AltArmy TBC — v2 search query: name scan, expand via byId, prefix-narrowing memo.
+-- AltArmy TBC — Search query: name scan, expand via byId, prefix-narrowing memo.
 
 AltArmy = AltArmy or {}
 AltArmy.SearchQuery = AltArmy.SearchQuery or {}
@@ -42,8 +42,24 @@ local function expandIds(byId, ids, dest, seen)
     end
 end
 
+local function profileMark(timings, key)
+    if not timings then
+        return
+    end
+    local ms = 0
+    if debugprofilestop then
+        ms = debugprofilestop()
+    end
+    timings[key] = (timings[key] or 0) + ms
+    timings.total = (timings.total or 0) + ms
+    if debugprofilestart then
+        debugprofilestart()
+    end
+end
+
 --- Match item index; updates memo.prevQuery / memo.prevIds for narrowing.
-function SQ.MatchAndExpandItems(index, queryLower, queryID, memo)
+--- Optional timings table records lookup / expand ms (debugprofilestart must already be running).
+function SQ.MatchAndExpandItems(index, queryLower, queryID, memo, timings)
     local results = {}
     local seen = {}
     if not index then
@@ -64,6 +80,7 @@ function SQ.MatchAndExpandItems(index, queryLower, queryID, memo)
         for id in pairs(ids) do
             matchedIds[id] = true
         end
+        profileMark(timings, "lookup")
         expandIds(index.byId, ids, results, seen)
 
         -- Link-only fallback for IDs not matched by name.
@@ -76,10 +93,13 @@ function SQ.MatchAndExpandItems(index, queryLower, queryID, memo)
                 end
             end
         end
+        profileMark(timings, "expand")
 
         memo.prevQuery = queryLower
         memo.prevIds = matchedIds
     else
+        profileMark(timings, "lookup")
+        profileMark(timings, "expand")
         memo.prevQuery = nil
         memo.prevIds = nil
     end
@@ -87,30 +107,22 @@ function SQ.MatchAndExpandItems(index, queryLower, queryID, memo)
     return results
 end
 
-function SQ.MatchAndExpandRecipes(index, queryLower, memo)
+function SQ.MatchAndExpandRecipes(index, queryLower, memo, timings)
     local results = {}
     local seen = {}
     if not index or not queryLower or queryLower == "" then
+        profileMark(timings, "lookup")
+        profileMark(timings, "expand")
         return results
     end
     memo = memo or {}
     local SI = AltArmy.SearchIndex
     local prevIds = canNarrow(memo, queryLower) and memo.prevIds or nil
     local ids = SI.MatchNameIds(index.names, queryLower, prevIds)
+    profileMark(timings, "lookup")
+    -- recipeNameLower is stamped onto entries at index build (stampNameKey).
     expandIds(index.byId, ids, results, seen)
-    for i = 1, #results do
-        local entry = results[i]
-        if entry and not entry.recipeNameLower then
-            local nameLower = nil
-            for j = 1, #(index.names or {}) do
-                if index.names[j].id == entry.recipeID then
-                    nameLower = index.names[j].nameLower
-                    break
-                end
-            end
-            entry.recipeNameLower = nameLower
-        end
-    end
+    profileMark(timings, "expand")
     memo.prevQuery = queryLower
     memo.prevIds = ids
     return results

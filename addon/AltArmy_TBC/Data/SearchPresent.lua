@@ -229,6 +229,9 @@ function SP.SortItemResults(list, sortKey, ascending)
 end
 
 local function recipeSortName(entry)
+    if entry._aaRecipeSortKey then
+        return entry._aaRecipeSortKey
+    end
     local nameLower = entry.recipeNameLower or ""
     return ((entry.professionName or ""):lower() .. "\0" .. nameLower)
 end
@@ -270,8 +273,38 @@ local function compareGuildAffiliation(a, b)
     return aGuild and 1 or -1
 end
 
+local function compareRecipeRowsWithinId(a, b)
+    local aGuild = a.isGuild and true or false
+    local bGuild = b.isGuild and true or false
+    if aGuild ~= bGuild then
+        return not aGuild
+    end
+    local ca = (a.characterName or ""):lower()
+    local cb = (b.characterName or ""):lower()
+    if ca ~= cb then
+        return ca < cb
+    end
+    return (a.recipeID or 0) < (b.recipeID or 0)
+end
+
+--- True when rows are already own-before-guild then character A-Z (hot path after search merge).
+local function withinIdOrdered(rows)
+    for i = 2, #rows do
+        local prev = rows[i - 1]
+        local cur = rows[i]
+        if not compareRecipeRowsWithinId(prev, cur) then
+            -- Equal keys are fine (stable); only fail when cur should sort before prev.
+            if compareRecipeRowsWithinId(cur, prev) then
+                return false
+            end
+        end
+    end
+    return true
+end
+
 --- Sort by recipe (profession+name): sort unique recipe IDs, then expand rows
 --- (own before guild, then character). O(U log U + R) instead of O(R log R).
+--- Within-id table.sort is skipped when rows are already ordered (TabSearch merge).
 local function SortRecipeResultsByRecipe(list, ascending)
     local groupsById = {}
     local groups = {}
@@ -302,20 +335,8 @@ local function SortRecipeResultsByRecipe(list, ascending)
     local out = {}
     for i = 1, #groups do
         local rows = groups[i].rows
-        if #rows > 1 then
-            table.sort(rows, function(a, b)
-                local aGuild = a.isGuild and true or false
-                local bGuild = b.isGuild and true or false
-                if aGuild ~= bGuild then
-                    return not aGuild
-                end
-                local ca = (a.characterName or ""):lower()
-                local cb = (b.characterName or ""):lower()
-                if ca ~= cb then
-                    return ca < cb
-                end
-                return (a.recipeID or 0) < (b.recipeID or 0)
-            end)
+        if #rows > 1 and not withinIdOrdered(rows) then
+            table.sort(rows, compareRecipeRowsWithinId)
         end
         for j = 1, #rows do
             out[#out + 1] = rows[j]
@@ -402,6 +423,7 @@ end
 
 --- Collapse guild rows for the same recipeID (parity with SearchData.CollapseGuildRecipeRows).
 --- Clears prior _aaFromCollapse flags on the input before building the display list.
+--- Collects guild chars per recipeID in one O(n) pass (no per-id j=i..n rescans).
 function SP.CollapseGuildRecipeRows(sortedList, expandedSet)
     if sortedList == nil then
         return nil
@@ -412,19 +434,23 @@ function SP.CollapseGuildRecipeRows(sortedList, expandedSet)
     end
     expandedSet = expandedSet or {}
 
+    local guildCountById = {}
+    local guildCharsById = {}
+
     for i = 1, n do
         local entry = sortedList[i]
         if entry then
             entry._aaFromCollapse = nil
-        end
-    end
-
-    local guildCountById = {}
-    for i = 1, n do
-        local entry = sortedList[i]
-        if entry and entry.isGuild and entry.recipeID ~= nil then
-            local id = entry.recipeID
-            guildCountById[id] = (guildCountById[id] or 0) + 1
+            if entry.isGuild and entry.recipeID ~= nil then
+                local id = entry.recipeID
+                local chars = guildCharsById[id]
+                if not chars then
+                    chars = {}
+                    guildCharsById[id] = chars
+                end
+                chars[#chars + 1] = entry
+                guildCountById[id] = #chars
+            end
         end
     end
 
@@ -445,15 +471,8 @@ function SP.CollapseGuildRecipeRows(sortedList, expandedSet)
                 out[outN] = entry
             elseif not collapsedEmitted[id] then
                 collapsedEmitted[id] = true
-                local guildChars = {}
-                local charN = 0
-                for j = i, n do
-                    local e = sortedList[j]
-                    if e and e.isGuild and e.recipeID == id then
-                        charN = charN + 1
-                        guildChars[charN] = e
-                    end
-                end
+                local guildChars = guildCharsById[id]
+                local charN = #guildChars
                 local isExpanded = expandedSet[id] and true or false
                 outN = outN + 1
                 out[outN] = {
@@ -480,7 +499,8 @@ end
 
 --- Resolve and cache recipe row display fields (name, icon, skill text) after first paint.
 --- Name/icon are shared by recipe identity; skill text is per entry (skillRank/difficulty).
---- Highlighting is applied by the UI from `_aaRecipeBaseName`; not stored here.
+--- `_aaRecipeBaseName` is the full display string (profession prefix + recipe name).
+--- Highlighting uses `_aaRecipeMatchName` only so profession prefixes are not tinted.
 function SP.EnsureRecipeDisplayCache(entry)
     if not entry or entry._aaDisplayCached then
         return entry
@@ -489,26 +509,30 @@ function SP.EnsureRecipeDisplayCache(entry)
         .. tostring(entry.recipeID or "") .. ":" .. tostring(entry.resultItemID or "")
     local visual = recipeVisualCache[cacheKey]
     local recipeName
+    local matchName
+    local namePrefix
     local iconPath
     if visual then
         recipeName = visual.name
+        matchName = visual.matchName
+        namePrefix = visual.namePrefix
         iconPath = visual.iconPath
     else
-        recipeName = "Recipe " .. tostring(entry.recipeID or "?")
+        matchName = "Recipe " .. tostring(entry.recipeID or "?")
         iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
         if GetSpellInfo and entry.recipeID then
             local name, _, spellIcon = GetSpellInfo(entry.recipeID)
             if name then
-                recipeName = name
+                matchName = name
             end
             if spellIcon and not entry.resultItemID then
                 iconPath = spellIcon
             end
         end
-        if recipeName == ("Recipe " .. tostring(entry.recipeID or "?")) and GetItemInfo and entry.recipeID then
+        if matchName == ("Recipe " .. tostring(entry.recipeID or "?")) and GetItemInfo and entry.recipeID then
             local name = GetItemInfo(entry.recipeID)
             if name then
-                recipeName = name
+                matchName = name
             end
         end
         if entry.resultItemID and GetItemInfo then
@@ -523,10 +547,17 @@ function SP.EnsureRecipeDisplayCache(entry)
             end
         end
         local profName = entry.professionName or ""
+        namePrefix = ""
         if profName ~= "" then
-            recipeName = profName .. ": " .. recipeName
+            namePrefix = profName .. ": "
         end
-        recipeVisualCache[cacheKey] = { name = recipeName, iconPath = iconPath }
+        recipeName = namePrefix .. matchName
+        recipeVisualCache[cacheKey] = {
+            name = recipeName,
+            matchName = matchName,
+            namePrefix = namePrefix,
+            iconPath = iconPath,
+        }
     end
     local skillText
     local RCL = AltArmy and AltArmy.RecipeCraftLib
@@ -561,10 +592,36 @@ function SP.EnsureRecipeDisplayCache(entry)
         skillText = tostring(entry.skillRank or 0)
     end
     entry._aaRecipeBaseName = recipeName
+    entry._aaRecipeMatchName = matchName
+    entry._aaRecipeNamePrefix = namePrefix or ""
     entry._aaIconPath = iconPath
     entry._aaSkillCellText = skillText
     entry._aaDisplayCached = true
     return entry
+end
+
+--- Build the recipe display name with search highlighting applied only to the searchable
+--- recipe name (not the profession prefix like "Enchanting: ").
+--- `highlightFn(text, query)` should return `text` unchanged when highlighting is off.
+function SP.FormatHighlightedRecipeName(entry, query, highlightFn)
+    if not entry then
+        return ""
+    end
+    local matchName = entry._aaRecipeMatchName
+    local prefix = entry._aaRecipeNamePrefix
+    local fallback = entry._aaRecipeBaseName
+        or ("Recipe " .. tostring(entry.recipeID or "?"))
+    if not matchName then
+        if highlightFn then
+            return highlightFn(fallback, query)
+        end
+        return fallback
+    end
+    local highlighted = matchName
+    if highlightFn then
+        highlighted = highlightFn(matchName, query) or matchName
+    end
+    return (prefix or "") .. highlighted
 end
 
 --- True when search settings require CraftLib fields on every hit (level/difficulty/source).
