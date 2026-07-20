@@ -1102,6 +1102,95 @@ local function colorTooltipName(name, classFile, formatName)
     return name
 end
 
+--- Tooltip lines for a collapsed "Multiple guildmates" recipe search row.
+--- `chars` entries: `{ name, classFile, mainName?, mainClassFile?, status? }`.
+--- Presence/sort use `c.status` when provided (caller supplies main-group / player presence);
+--- otherwise fall back to individual `rosterByName` lookup by character name.
+--- Sorted by last online via RosterStatusSortValue: online first (A–Z among online),
+--- then shortest offline duration, unknown last (A–Z tie-break within equal status).
+--- Character rows are `{ left = namePart, right = presence }` for GameTooltip:AddDoubleLine
+--- (names left, times right-aligned). Footer lines are plain strings for AddLine:
+--- optional white "...and N others", then gray "Click to expand/collapse".
+--- opts.formatName?(name, classFile) optional class-color formatter.
+function GTD.BuildCollapsedGuildRecipeTooltipLines(chars, rosterByName, opts)
+    if type(chars) ~= "table" or #chars == 0 then
+        return {}
+    end
+    opts = opts or {}
+    rosterByName = rosterByName or {}
+    local formatName = opts.formatName
+
+    local rows = {}
+    for i = 1, #chars do
+        local c = chars[i]
+        if c and c.name and c.name ~= "" then
+            local status = c.status
+            if status == nil then
+                local key = GTD.NormalizeRosterName(c.name)
+                status = key and rosterByName[key] or nil
+            end
+            local online = status and status.online and true or false
+            rows[#rows + 1] = {
+                name = c.name,
+                classFile = c.classFile,
+                mainName = c.mainName,
+                mainClassFile = c.mainClassFile,
+                online = online,
+                status = status,
+                -- Finite sort key (avoid math.huge; WoW table.sort mishandles inf).
+                sortValue = GTD.RosterStatusSortValue(status),
+                sortKey = (c.name or ""):lower(),
+            }
+        end
+    end
+
+    table.sort(rows, function(a, b)
+        if a.sortValue ~= b.sortValue then
+            return a.sortValue < b.sortValue
+        end
+        return a.sortKey < b.sortKey
+    end)
+
+    local total = #rows
+    local showCount = total
+    local others = 0
+    if total >= 10 then
+        showCount = 8
+        others = total - 8
+    end
+
+    local lines = {}
+    for i = 1, showCount do
+        local row = rows[i]
+        local colored = colorTooltipName(row.name, row.classFile, formatName)
+        local left = colored
+        local main = row.mainName
+        if main and main ~= "" and main:lower() ~= row.name:lower() then
+            local mainColored = colorTooltipName(main, row.mainClassFile or row.classFile, formatName)
+            left = colored .. " " .. WHITE .. "(|r" .. mainColored .. WHITE .. ")|r"
+        end
+        local presence
+        if row.online then
+            presence = WHITE .. "Online|r"
+        else
+            local ago = GTD.FormatRosterLastOnline(row.status, { showUnknownWhenMissing = true })
+            -- FormatRosterLastOnline already wraps Unknown in gray; wrap ago-text ourselves.
+            if ago:sub(1, #GRAY) == GRAY then
+                presence = ago
+            else
+                presence = GRAY .. ago .. "|r"
+            end
+        end
+        lines[i] = { left = left, right = presence }
+    end
+    if others > 0 then
+        lines[#lines + 1] = WHITE .. "...and " .. others .. " others|r"
+    end
+    local hint = (opts.isExpanded and "Click to collapse") or "Click to expand"
+    lines[#lines + 1] = GRAY .. hint .. "|r"
+    return lines
+end
+
 --- Two-line tooltip for an own-account character in search results.
 --- opts: name, classFile, level, formatName?, classDisplayName?
 --- Returns `{ line1, line2 }` — class-colored name, then "Level N Class".

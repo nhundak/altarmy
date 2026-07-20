@@ -2549,7 +2549,32 @@ function SD.EnsureRecipeDisplayCache(entry)
     end
     local skillText
     local RCL = AltArmy and AltArmy.RecipeCraftLib
-    if RCL and RCL.FormatSkillCell then
+    if entry.isGuildCollapsed then
+        skillText = "*"
+        if RCL and RCL.IsAvailable and RCL.IsAvailable()
+            and RCL.FormatCollapsedSkillCell and RCL.PickHardestDifficulty then
+            -- Required skill is recipe-level; difficulty varies by each guildmate's skillRank.
+            EnrichRecipeEntry(entry)
+            local difficulties = {}
+            local req = entry.recipeSkillRequired
+            local chars = entry.guildChars
+            if type(chars) == "table" then
+                for i = 1, #chars do
+                    local c = chars[i]
+                    if c then
+                        EnrichRecipeEntry(c)
+                        if not req and c.recipeSkillRequired then
+                            req = c.recipeSkillRequired
+                        end
+                        if c.difficulty then
+                            difficulties[#difficulties + 1] = c.difficulty
+                        end
+                    end
+                end
+            end
+            skillText = RCL.FormatCollapsedSkillCell(req, RCL.PickHardestDifficulty(difficulties))
+        end
+    elseif RCL and RCL.FormatSkillCell then
         skillText = RCL.FormatSkillCell(entry.recipeSkillRequired, entry.skillRank, entry.difficulty)
     else
         skillText = tostring(entry.skillRank or 0)
@@ -2870,6 +2895,85 @@ function SD.MergeRecipeSearchResults(localList, guildList)
         for i = 1, #guildList do
             n = n + 1
             out[n] = guildList[i]
+        end
+    end
+    return out
+end
+
+--- Collapse guild rows for the same recipeID into one synthetic row when 3+ guildmates
+--- share it. Local rows and recipes with fewer than 3 guild rows pass through unchanged.
+--- When recipeID is in expandedSet, the summary row is kept and child guild rows
+--- follow it with `_aaFromCollapse` (recipe name omitted in the UI).
+--- Must run after SortRecipeResults; synthetic rows must not be re-sorted.
+--- @param sortedList table|nil sorted recipe search rows
+--- @param expandedSet table|nil set of recipeIDs that should remain expanded
+--- @return table|nil display list
+function SD.CollapseGuildRecipeRows(sortedList, expandedSet)
+    if sortedList == nil then
+        return nil
+    end
+    local n = #sortedList
+    if n == 0 then
+        return {}
+    end
+    expandedSet = expandedSet or {}
+
+    local guildCountById = {}
+    for i = 1, n do
+        local entry = sortedList[i]
+        if entry and entry.isGuild and entry.recipeID ~= nil then
+            local id = entry.recipeID
+            guildCountById[id] = (guildCountById[id] or 0) + 1
+        end
+    end
+
+    local out = {}
+    local outN = 0
+    local collapsedEmitted = {}
+
+    for i = 1, n do
+        local entry = sortedList[i]
+        if entry and not entry.isGuild then
+            outN = outN + 1
+            out[outN] = entry
+        elseif entry and entry.isGuild then
+            local id = entry.recipeID
+            local count = id ~= nil and guildCountById[id] or 0
+            if count < 3 then
+                outN = outN + 1
+                out[outN] = entry
+            elseif not collapsedEmitted[id] then
+                collapsedEmitted[id] = true
+                -- Collect all guild rows for this recipeID (preserve sorted order).
+                local guildChars = {}
+                local charN = 0
+                for j = i, n do
+                    local e = sortedList[j]
+                    if e and e.isGuild and e.recipeID == id then
+                        charN = charN + 1
+                        guildChars[charN] = e
+                    end
+                end
+                local isExpanded = expandedSet[id] and true or false
+                outN = outN + 1
+                out[outN] = {
+                    isGuildCollapsed = true,
+                    isGuildExpanded = isExpanded or nil,
+                    recipeID = id,
+                    professionName = entry.professionName,
+                    guildChars = guildChars,
+                    _aaSkillCellText = "*",
+                }
+                if isExpanded then
+                    for k = 1, charN do
+                        local child = guildChars[k]
+                        child._aaFromCollapse = true
+                        outN = outN + 1
+                        out[outN] = child
+                    end
+                end
+            end
+            -- else: subsequent guild row for an already-emitted collapse — skip
         end
     end
     return out

@@ -7,10 +7,14 @@ AltArmy.SearchStickyHeaders = AltArmy.SearchStickyHeaders or {}
 local Sticky = AltArmy.SearchStickyHeaders
 
 --- Content-coordinate tops for visible section headers (top of list = 0).
-function Sticky.ComputeSectionHeaderTops(nItems, nRecipes, nTooltipOnly, headerHeight, headerRowGap, rowHeight)
+--- Optional `sectionGapBeforeTooltip` adds space after the recipes block before the
+--- "You may also be interested in" header (when both sections are present).
+function Sticky.ComputeSectionHeaderTops(
+    nItems, nRecipes, nTooltipOnly, headerHeight, headerRowGap, rowHeight, sectionGapBeforeTooltip)
     local tops = {}
     local currentTop = 0
     local blockHeight = headerHeight + headerRowGap
+    local tooltipGap = tonumber(sectionGapBeforeTooltip) or 0
 
     if nItems > 0 then
         tops[#tops + 1] = currentTop
@@ -21,6 +25,9 @@ function Sticky.ComputeSectionHeaderTops(nItems, nRecipes, nTooltipOnly, headerH
         currentTop = currentTop + blockHeight + nRecipes * rowHeight
     end
     if nTooltipOnly > 0 then
+        if nRecipes > 0 and tooltipGap > 0 then
+            currentTop = currentTop + tooltipGap
+        end
         tops[#tops + 1] = currentTop
     end
 

@@ -430,6 +430,37 @@ function RCL.FormatSkillCell(recipeRequired, playerSkill, difficulty)
     return string.format("|c%s%d|r/%d", hex, req, rank)
 end
 
+local DIFFICULTY_HARDNESS = { orange = 1, yellow = 2, green = 3, gray = 4 }
+
+--- Hardest difficulty among a list (`orange` > `yellow` > `green` > `gray`).
+--- Ignores nil/unknown values; returns nil when none are valid.
+function RCL.PickHardestDifficulty(difficulties)
+    if type(difficulties) ~= "table" then
+        return nil
+    end
+    local best
+    local bestOrd
+    for i = 1, #difficulties do
+        local d = difficulties[i]
+        local ord = d and DIFFICULTY_HARDNESS[d]
+        if ord and (not bestOrd or ord < bestOrd) then
+            best = d
+            bestOrd = ord
+        end
+    end
+    return best
+end
+
+--- Collapsed multi-guildmate skill cell: colored recipeRequired/***, or "*" when unknown.
+function RCL.FormatCollapsedSkillCell(recipeRequired, difficulty)
+    local req = tonumber(recipeRequired)
+    if not RCL.IsValidSkillRequired(req) then
+        return "*"
+    end
+    local hex = RCL.GetDifficultyColorHex(difficulty) or "ffffffff"
+    return string.format("|c%s%d|r/***", hex, req)
+end
+
 function RCL.ClearCaches()
     clearTable(lookupCache)
     clearTable(profKeyCache)

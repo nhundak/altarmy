@@ -5,29 +5,57 @@ if not frame then
     return
 end
 
-local PAD = 4
 local Theme = AltArmy.Theme
 local CC = AltArmy.ClassColor
 local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 local VirtualList = AltArmy.VirtualList
-local SECTION_INSET = Theme.TAB_SECTION_INSET
-local SECTION_GAP = Theme.SECTION_GAP
-local ROW_HEIGHT = 18
--- Right-side (Total column) icon size; match left-side row icon (WoW :0 default ~14)
-local OVERLAY_ICON_SIZE = 14
-local HEADER_HEIGHT = 18
-local HEADER_ROW_GAP = 3  -- space between section header and first data row
--- Virtualized list: only render rows near the viewport
-local ROW_BUFFER = 6   -- extra rows above/below viewport; larger = fewer refill flickers while scrolling
-local ITEM_POOL_SIZE = 40
-local RECIPE_POOL_SIZE = 40
-local TOOLTIP_ONLY_POOL_SIZE = 40
--- Refill before the visible window reaches the edge of the painted buffer.
-local PAINT_COVER_MARGIN = 1
-local forceVisiblePaint = true
-local paintedItemsFirst, paintedItemsLast = nil, nil
-local paintedRecipesFirst, paintedRecipesLast = nil, nil
-local paintedTooltipFirst, paintedTooltipLast = nil, nil
+-- Layout / list metrics packed to stay under Lua 5.1's 200-local / function limit.
+local UI = {
+    PAD = 4,
+    SECTION_INSET = Theme.TAB_SECTION_INSET,
+    SECTION_GAP = Theme.SECTION_GAP,
+    ROW_HEIGHT = 18,
+    -- Right-side (Total column) icon size; match left-side row icon (WoW :0 default ~14)
+    OVERLAY_ICON_SIZE = 14,
+    HEADER_HEIGHT = 18,
+    HEADER_ROW_GAP = 3, -- space between section header and first data row
+    -- Extra space between the last recipe row and the "You may also be interested in" header.
+    SECTION_GAP_BEFORE_TOOLTIP = 2,
+    -- Virtualized list: only render rows near the viewport
+    ROW_BUFFER = 6, -- extra rows above/below viewport; larger = fewer refill flickers while scrolling
+    ITEM_POOL_SIZE = 40,
+    RECIPE_POOL_SIZE = 40,
+    TOOLTIP_ONLY_POOL_SIZE = 40,
+    -- Refill before the visible window reaches the edge of the painted buffer.
+    PAINT_COVER_MARGIN = 1,
+    HORIZONTAL_SCROLL_BAR_HEIGHT = 20,
+    TOOLTIP_CHUNK_SIZE = 80,
+    GRID_SPLIT_FRACTION = 0.6,
+    SEARCH_SETTINGS_WIDTH_TRIM = 60,
+    SETTINGS_ROW_HEIGHT = 22,
+    RECIPE_LEVEL_LABEL_GAP = 6,
+    RECIPE_LEVEL_MIN_MAX_GAP = 12,
+    RECIPE_LEVEL_RESET_GAP = 4,
+    RECIPE_LEVEL_MIN_EDIT_WIDTH = 28,
+    RECIPE_LEVEL_DEFAULT_EDIT_WIDTH = 40,
+    RECIPE_LEVEL_ROW_GAP = 10,
+    FILTER_SECTION_GAP = 12,
+    FILTER_DROPDOWN_GAP = 4,
+    FILTER_DROPDOWN_POPUP_PAD_LEFT = 10,
+    FILTER_DROPDOWN_POPUP_PAD_TOP = 6,
+    FILTER_DROPDOWN_POPUP_PAD_BOTTOM = 8,
+    FILTER_DROPDOWN_POPUP_PAD_RIGHT = 8,
+    FILTER_DROPDOWN_TEXT_INSET = 10,
+}
+local paint = {
+    forceVisible = true,
+    itemsFirst = nil,
+    itemsLast = nil,
+    recipesFirst = nil,
+    recipesLast = nil,
+    tooltipFirst = nil,
+    tooltipLast = nil,
+}
 
 local SD = AltArmy.SearchData
 if not SD or not SD.SearchWithLocationGroups or not SD.SearchRecipes then
@@ -174,7 +202,6 @@ local function maybeHighlightSearchText(text, highlightSearch, query)
 end
 
 -- Main tab content: bordered panel (same styling as settings panel).
-local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
 local tabContentPanel = Theme.CreateTabContentPanel(frame)
 local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)
 
@@ -199,17 +226,17 @@ horizontalScroll:EnableMouse(true)
 
 -- Scroll frame (viewport for results; section headers live inside scroll)
 local scrollFrame = CreateFrame("ScrollFrame", "AltArmyTBC_SearchScrollFrame", frame)
-scrollFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -PAD)
-scrollFrame:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD - 20, -PAD)
-scrollFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
-scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - 20, PAD)
+scrollFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", UI.PAD, -UI.PAD)
+scrollFrame:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -UI.PAD - 20, -UI.PAD)
+scrollFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", UI.PAD, UI.PAD)
+scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -UI.PAD - 20, UI.PAD)
 scrollFrame:EnableMouse(true)
 
 -- Custom vertical scroll bar (same style as Gear tab)
-local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
+UI.SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 local searchScrollBar = CreateFrame("Slider", "AltArmyTBC_SearchScrollBar", tabContentInner)
 searchScrollBar:SetMinMaxValues(0, 0)
-searchScrollBar:SetValueStep(ROW_HEIGHT)
+searchScrollBar:SetValueStep(UI.ROW_HEIGHT)
 searchScrollBar:SetValue(0)
 searchScrollBar:EnableMouse(true)
 -- OnValueChanged set below after UpdateVisibleRows is defined
@@ -218,7 +245,7 @@ searchScrollBar:EnableMouse(true)
 local UpdateStickyHeaders
 local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
     name = "AltArmyTBC_SearchHorizontalScrollBar",
-    thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
+    thickness = UI.HORIZONTAL_SCROLL_BAR_HEIGHT - UI.PAD * 2,
     onScroll = function(value)
         if not horizontalScroll then return end
         if horizontalScroll.UpdateScrollChildRect then
@@ -239,7 +266,7 @@ local function OnSearchScrollWheel(_, delta)
     if not searchScrollBar then return end
     local minVal, maxVal = searchScrollBar:GetMinMaxValues()
     local current = searchScrollBar:GetValue()
-    local newVal = current - delta * ROW_HEIGHT * 2
+    local newVal = current - delta * UI.ROW_HEIGHT * 2
     newVal = math.max(minVal, math.min(maxVal, newVal))
     searchScrollBar:SetValue(newVal)
     scrollFrame:SetVerticalScroll(newVal)
@@ -305,7 +332,7 @@ stickyHeaderTopSeal:Hide()
 local resultsArea = CreateFrame("Frame", nil, scrollFrame)
 resultsArea:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
 resultsArea:SetWidth(totalColWidth)
-resultsArea:SetHeight(ROW_HEIGHT)
+resultsArea:SetHeight(UI.ROW_HEIGHT)
 scrollFrame:SetScrollChild(resultsArea)
 resultsArea:SetScript("OnMouseWheel", OnSearchScrollWheel)
 
@@ -319,6 +346,9 @@ local itemGroups = {}
 local tooltipOnlyItemList = {}
 local tooltipOnlyItemGroups = {}
 local tooltipOnlyResultRows = {}
+-- Raw merged recipe hits (pre-collapse). Display list is recipeList after sort+collapse.
+-- expandedIDs: set of recipeIDs whose guild rows are currently expanded.
+local recipeCollapseState = { mergedList = {}, expandedIDs = {} }
 -- Built in UpdateResults; reused by UpdateVisibleRows so scroll does not rebuild guild roster.
 local searchRosterByName = nil
 local UpdateVisibleRows
@@ -340,6 +370,10 @@ local function resetSectionSorts()
     sectionSort.tooltip.ascending = true
 end
 
+local function resetRecipeCollapseExpanded()
+    recipeCollapseState.expandedIDs = {}
+end
+
 local function isCraftLibAvailable()
     local RCL = AltArmy and AltArmy.RecipeCraftLib
     return RCL and RCL.IsAvailable and RCL.IsAvailable() or false
@@ -350,8 +384,16 @@ local function applySectionSorts()
         itemList = SD.SortItemResults(itemList, sectionSort.items.key, sectionSort.items.ascending)
     end
     if sectionSort.recipes.key then
-        recipeList = SD.SortRecipeResults(
-            recipeList, sectionSort.recipes.key, sectionSort.recipes.ascending, isCraftLibAvailable())
+        local sorted = SD.SortRecipeResults(
+            recipeCollapseState.mergedList,
+            sectionSort.recipes.key,
+            sectionSort.recipes.ascending,
+            isCraftLibAvailable())
+        if SD.CollapseGuildRecipeRows then
+            recipeList = SD.CollapseGuildRecipeRows(sorted, recipeCollapseState.expandedIDs)
+        else
+            recipeList = sorted
+        end
     end
     if sectionSort.tooltip.key then
         tooltipOnlyItemList = SD.SortItemResults(
@@ -362,13 +404,13 @@ end
 -- Sticky section headers overlay the clipping viewport (not the nested scroll-child),
 -- so they seal the top edge above scrolling row text. X is synced to horizontal scroll.
 local itemsHeaderRow = CreateFrame("Frame", nil, listViewport)
-itemsHeaderRow:SetHeight(HEADER_HEIGHT)
+itemsHeaderRow:SetHeight(UI.HEADER_HEIGHT)
 StyleStickySearchHeader(itemsHeaderRow)
 itemsHeaderRow:Hide()
 local itemsHeaderButtons = {}
 -- Recipes section header
 local recipesHeaderRow = CreateFrame("Frame", nil, listViewport)
-recipesHeaderRow:SetHeight(HEADER_HEIGHT)
+recipesHeaderRow:SetHeight(UI.HEADER_HEIGHT)
 StyleStickySearchHeader(recipesHeaderRow)
 recipesHeaderRow:Hide()
 local recipesHeaderButtons = {}
@@ -376,7 +418,7 @@ local recipesHeaderButtons = {}
 -- "You may also be interested in:" section header: same columns as items (Item/Character/Total),
 -- with the first column label replaced by the section title.
 local alsoInterestedHeaderRow = CreateFrame("Frame", nil, listViewport)
-alsoInterestedHeaderRow:SetHeight(HEADER_HEIGHT)
+alsoInterestedHeaderRow:SetHeight(UI.HEADER_HEIGHT)
 StyleStickySearchHeader(alsoInterestedHeaderRow)
 alsoInterestedHeaderRow:Hide()
 local alsoInterestedHeaderButtons = {}
@@ -387,7 +429,7 @@ end
 
 local function createSearchHeaderButton(headerRow, sectionId, colName, justifyLeft)
     local btn = CreateFrame("Button", nil, headerRow)
-    btn:SetHeight(HEADER_HEIGHT)
+    btn:SetHeight(UI.HEADER_HEIGHT)
     btn:EnableMouse(true)
     btn:RegisterForClicks("LeftButtonUp")
     local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -432,7 +474,6 @@ local stickyHeaderFadeFrame = scrollTopFade.frame
 -- Debounce for tooltip-only search: main results appear immediately.
 -- Delay: 1 char → 0.4s; 2 chars → 0.1s; 3+ → start chunked scan immediately.
 -- Guild recipes always merge in the same frame as local recipe results.
-local TOOLTIP_CHUNK_SIZE = 80
 local tooltipDebounceFrame = CreateFrame("Frame")
 local tooltipDebounceRemaining = 0
 local tooltipDebounceQuery = nil
@@ -511,7 +552,7 @@ local function StartTooltipChunkSearch(query)
         end
 
         local processed = 0
-        while processed < TOOLTIP_CHUNK_SIZE and state.index <= state.total do
+        while processed < UI.TOOLTIP_CHUNK_SIZE and state.index <= state.total do
             local entry = state.all[state.index]
             state.index = state.index + 1
             processed = processed + 1
@@ -577,7 +618,7 @@ local function IsTooltipSearchPending()
     return tooltipChunkState ~= nil
 end
 
---- Merge guild recipe hits into recipeList in the same frame as local results (no layout).
+--- Merge guild recipe hits into mergedList in the same frame as local results (no layout).
 local function MergeGuildRecipesNow(query)
     if not query or query == "" then
         return
@@ -591,15 +632,16 @@ local function MergeGuildRecipesNow(query)
     end
     local guildHits = ApplyRecipeRealmFilter(SD.SearchGuildRecipes(query) or {})
     if SD.MergeRecipeSearchResults then
-        recipeList = SD.MergeRecipeSearchResults(localRecipeList, guildHits)
+        recipeCollapseState.mergedList = SD.MergeRecipeSearchResults(localRecipeList, guildHits)
     else
-        recipeList = {}
+        local merged = {}
         for i = 1, #localRecipeList do
-            recipeList[i] = localRecipeList[i]
+            merged[i] = localRecipeList[i]
         end
         for i = 1, #guildHits do
-            recipeList[#recipeList + 1] = guildHits[i]
+            merged[#merged + 1] = guildHits[i]
         end
+        recipeCollapseState.mergedList = merged
     end
 end
 
@@ -668,7 +710,7 @@ local function getGroupOverlay(i)
         overlay.total = overlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         overlay.total:SetJustifyH("RIGHT")
         overlay.icon = overlay:CreateTexture(nil, "OVERLAY")
-        overlay.icon:SetSize(OVERLAY_ICON_SIZE, OVERLAY_ICON_SIZE)
+        overlay.icon:SetSize(UI.OVERLAY_ICON_SIZE, UI.OVERLAY_ICON_SIZE)
         groupOverlayPool[i] = overlay
     end
     return groupOverlayPool[i]
@@ -682,7 +724,7 @@ local function getTooltipOnlyGroupOverlay(i)
         overlay.total = overlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         overlay.total:SetJustifyH("RIGHT")
         overlay.icon = overlay:CreateTexture(nil, "OVERLAY")
-        overlay.icon:SetSize(OVERLAY_ICON_SIZE, OVERLAY_ICON_SIZE)
+        overlay.icon:SetSize(UI.OVERLAY_ICON_SIZE, UI.OVERLAY_ICON_SIZE)
         tooltipOnlyGroupOverlayPool[i] = overlay
     end
     return tooltipOnlyGroupOverlayPool[i]
@@ -690,7 +732,7 @@ end
 
 local function createItemRow()
     local row = CreateFrame("Frame", nil, resultsArea)
-    row:SetHeight(ROW_HEIGHT)
+    row:SetHeight(UI.ROW_HEIGHT)
     row:EnableMouse(true)
     row.cells = {}
     local cx = 0
@@ -699,7 +741,7 @@ local function createItemRow()
         local cell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         cell:SetPoint("TOPLEFT", row, "TOPLEFT", cx, 0)
         cell:SetWidth(w)
-        cell:SetHeight(ROW_HEIGHT)
+        cell:SetHeight(UI.ROW_HEIGHT)
         cell:SetJustifyV("MIDDLE")
         cell:SetJustifyH(colName == "Item" and "LEFT" or "RIGHT")
         cell:SetNonSpaceWrap(false)
@@ -735,7 +777,7 @@ end
 
 local function createRecipeRow()
     local row = CreateFrame("Frame", nil, resultsArea)
-    row:SetHeight(ROW_HEIGHT)
+    row:SetHeight(UI.ROW_HEIGHT)
     row:EnableMouse(true)
     row.cells = {}
     local cx = 0
@@ -744,7 +786,7 @@ local function createRecipeRow()
         local cell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         cell:SetPoint("TOPLEFT", row, "TOPLEFT", cx, 0)
         cell:SetWidth(w)
-        cell:SetHeight(ROW_HEIGHT)
+        cell:SetHeight(UI.ROW_HEIGHT)
         cell:SetJustifyV("MIDDLE")
         cell:SetJustifyH(colName == "Recipe" and "LEFT" or "RIGHT")
         cell:SetNonSpaceWrap(false)
@@ -763,8 +805,36 @@ local function createRecipeRow()
     charBtn:RegisterForClicks("LeftButtonUp")
     charBtn:SetScript("OnClick", function(self)
         local entry = self:GetParent().entry
+        if not entry then return end
+        -- Summary "Multiple guildmates" row: full-row button; shift-click link, else toggle.
+        if entry.isGuildCollapsed and entry.recipeID ~= nil then
+            if IsShiftKeyDown() then
+                local link = GetRecipeLink(entry.recipeID)
+                if link and ChatEdit_InsertLink then
+                    ChatEdit_InsertLink(link)
+                end
+                return
+            end
+            if entry.isGuildExpanded or recipeCollapseState.expandedIDs[entry.recipeID] then
+                recipeCollapseState.expandedIDs[entry.recipeID] = nil
+            else
+                recipeCollapseState.expandedIDs[entry.recipeID] = true
+            end
+            UpdateResults()
+            return
+        end
         local Nav = AltArmy.SearchGuildNav
-        if not Nav or not Nav.IsGuildRecipeCharacterClickable
+        if not Nav then return end
+        -- Guildmates: whisper the online character. Own characters: guild drill-in.
+        if entry.isGuild then
+            if Nav.OpenGuildRecipeWhisper then
+                Nav.OpenGuildRecipeWhisper(entry.characterName, entry.realm, {
+                    rosterByName = searchRosterByName,
+                })
+            end
+            return
+        end
+        if not Nav.IsGuildRecipeCharacterClickable
             or not Nav.IsGuildRecipeCharacterClickable(entry) then
             return
         end
@@ -777,27 +847,60 @@ local function createRecipeRow()
                 entry.recipeID)
         end
     end)
+    Theme.InstallHoverTint(row)
     Theme.BindInteractableHover(charBtn, {
         onEnter = function(self)
             local entry = self:GetParent().entry
             if not entry or not GameTooltip then return end
             local Nav = AltArmy.SearchGuildNav
+            if entry.isGuildCollapsed then
+                -- Full-row click highlight lives on the row; suppress the Character/Skill-only tint.
+                Theme.SetHoverTint(self, false)
+                Theme.SetHoverTint(self:GetParent(), true)
+                local lines = Nav and Nav.GetCollapsedGuildRecipeTooltipLines
+                    and Nav.GetCollapsedGuildRecipeTooltipLines(entry, {
+                        rosterByName = searchRosterByName,
+                    })
+                if not lines or not lines[1] then return end
+                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+                GameTooltip:ClearLines()
+                for i = 1, #lines do
+                    local line = lines[i]
+                    if type(line) == "table" then
+                        -- Name left, last-online right-aligned (embedded colors; RGB neutral).
+                        GameTooltip:AddDoubleLine(
+                            line.left or "", line.right or "", 1, 1, 1, 1, 1, 1)
+                    else
+                        GameTooltip:AddLine(line, 1, 1, 1, true)
+                    end
+                end
+                GameTooltip:Show()
+                return
+            end
+            local hoverOpts = { rosterByName = searchRosterByName }
+            if entry.isGuild and Nav and Nav.IsGuildRecipeCharacterClickable
+                and not Nav.IsGuildRecipeCharacterClickable(entry, hoverOpts) then
+                -- Offline guildmate: keep tooltip, no interactable highlight.
+                Theme.SetHoverTint(self, false)
+            end
             local lines = Nav and Nav.GetGuildCharacterHoverTooltipLines
-                and Nav.GetGuildCharacterHoverTooltipLines(entry.characterName, entry.realm)
+                and Nav.GetGuildCharacterHoverTooltipLines(
+                    entry.characterName, entry.realm, hoverOpts)
             if not lines or not lines[1] then return end
             GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
             GameTooltip:ClearLines()
-            GameTooltip:AddLine(lines[1], 1, 1, 1, true)
-            if lines[2] then
-                GameTooltip:AddLine(lines[2], 1, 1, 1, true)
-            end
-            if lines[3] then
+            for i = 1, #lines do
                 -- Embedded white/gray + class colors; keep AddLine RGB neutral.
-                GameTooltip:AddLine(lines[3], 1, 1, 1, true)
+                GameTooltip:AddLine(lines[i], 1, 1, 1, true)
             end
             GameTooltip:Show()
         end,
-        onLeave = function()
+        onLeave = function(self)
+            local parent = self:GetParent()
+            local entry = parent and parent.entry
+            if entry and entry.isGuildCollapsed then
+                Theme.SetHoverTint(parent, false)
+            end
             if GameTooltip then GameTooltip:Hide() end
         end,
     })
@@ -805,6 +908,9 @@ local function createRecipeRow()
     row:SetScript("OnEnter", function(self)
         local entry = self.entry
         if not entry then return end
+        if entry.isGuildCollapsed then
+            Theme.SetHoverTint(self, true)
+        end
         if GameTooltip then
             GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
             local link = GetRecipeLink(entry.recipeID)
@@ -816,18 +922,43 @@ local function createRecipeRow()
             GameTooltip:Show()
         end
     end)
-    row:SetScript("OnLeave", function()
+    row:SetScript("OnLeave", function(self)
+        if self.entry and self.entry.isGuildCollapsed then
+            Theme.SetHoverTint(self, false)
+        end
         if GameTooltip then GameTooltip:Hide() end
     end)
     row:SetScript("OnMouseUp", function(self, button)
-        if button ~= "LeftButton" or not IsShiftKeyDown() then return end
+        if button ~= "LeftButton" then return end
         local entry = self.entry
         if not entry then return end
-        local link = GetRecipeLink(entry.recipeID)
-        if link and ChatEdit_InsertLink then
-            ChatEdit_InsertLink(link)
+        if IsShiftKeyDown() then
+            local link = GetRecipeLink(entry.recipeID)
+            if link and ChatEdit_InsertLink then
+                ChatEdit_InsertLink(link)
+            end
+            return
+        end
+        if entry.isGuildCollapsed and entry.recipeID ~= nil then
+            if entry.isGuildExpanded or recipeCollapseState.expandedIDs[entry.recipeID] then
+                recipeCollapseState.expandedIDs[entry.recipeID] = nil
+            else
+                recipeCollapseState.expandedIDs[entry.recipeID] = true
+            end
+            UpdateResults()
+        elseif entry._aaFromCollapse and entry.recipeID ~= nil then
+            recipeCollapseState.expandedIDs[entry.recipeID] = nil
+            UpdateResults()
         end
     end)
+    -- Indent rail for expanded child rows (recipe name omitted).
+    local childRail = row:CreateTexture(nil, "ARTWORK")
+    childRail:SetWidth(2)
+    childRail:SetPoint("TOPLEFT", row, "TOPLEFT", 12, -3)
+    childRail:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 12, 3)
+    childRail:SetColorTexture(0.55, 0.55, 0.60, 0.85)
+    childRail:Hide()
+    row.collapseChildRail = childRail
     return row
 end
 
@@ -866,6 +997,32 @@ local function fillItemRow(row, entry, showRealmSuffix, rowOpts)
     row.cells.Total:SetText("")
 end
 
+local function restoreRecipeCharacterBtnAnchors(row)
+    local charBtn = row.characterBtn
+    if not charBtn or not row._aaCollapsedBtnWide then
+        return
+    end
+    charBtn:ClearAllPoints()
+    charBtn:SetPoint("TOP", row, "TOP", 0, 0)
+    charBtn:SetPoint("BOTTOM", row, "BOTTOM", 0, 0)
+    charBtn:SetPoint("LEFT", row.cells.Character, "LEFT", 0, 0)
+    charBtn:SetPoint("RIGHT", row.cells.Character, "RIGHT", 0, 0)
+    row._aaCollapsedBtnWide = false
+end
+
+local function widenRecipeCharacterBtnForCollapse(row)
+    local charBtn = row.characterBtn
+    if not charBtn then return end
+    -- Character + Skill only: player-list tooltip here; Recipe column keeps the recipe tooltip.
+    -- Full-row click highlight is drawn on the row itself.
+    charBtn:ClearAllPoints()
+    charBtn:SetPoint("TOP", row, "TOP", 0, 0)
+    charBtn:SetPoint("BOTTOM", row, "BOTTOM", 0, 0)
+    charBtn:SetPoint("LEFT", row.cells.Character, "LEFT", 0, 0)
+    charBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row._aaCollapsedBtnWide = true
+end
+
 local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
     if not row or not entry then return end
     rowOpts = rowOpts or {}
@@ -882,12 +1039,38 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
     if SD.EnsureRecipeDisplayCache then
         SD.EnsureRecipeDisplayCache(entry)
     end
-    local recipeName = entry._aaRecipeBaseName
-        or ("Recipe " .. tostring(entry.recipeID or "?"))
-    recipeName = maybeHighlightSearchText(recipeName, highlightSearch, searchQuery)
-    local iconPath = entry._aaIconPath or "Interface\\Icons\\INV_Misc_QuestionMark"
-    local iconPrefix = ("|T%s:0|t "):format(iconPath)
-    SetItemCellTruncated(row.cells.Recipe, recipeName, "", iconPrefix, recipeColWidths.Recipe or 344)
+
+    local isCollapseChild = entry._aaFromCollapse and true or false
+    if row.collapseChildRail then
+        row.collapseChildRail:SetShown(isCollapseChild)
+    end
+    if isCollapseChild then
+        row.cells.Recipe:SetText("")
+    else
+        local recipeName = entry._aaRecipeBaseName
+            or ("Recipe " .. tostring(entry.recipeID or "?"))
+        recipeName = maybeHighlightSearchText(recipeName, highlightSearch, searchQuery)
+        local iconPath = entry._aaIconPath or "Interface\\Icons\\INV_Misc_QuestionMark"
+        local iconPrefix = ("|T%s:0|t "):format(iconPath)
+        SetItemCellTruncated(row.cells.Recipe, recipeName, "", iconPrefix, recipeColWidths.Recipe or 344)
+    end
+
+    if entry.isGuildCollapsed then
+        SetCharacterCellTruncated(
+            row.cells.Character,
+            "|cff8ab4f8Multiple guildmates|r",
+            nil,
+            recipeColWidths.Character or 160)
+        row.cells.Skill:SetText(entry._aaSkillCellText or "*")
+        if row.characterBtn then
+            widenRecipeCharacterBtnForCollapse(row)
+            row.characterBtn:Show()
+        end
+        return
+    end
+
+    Theme.SetHoverTint(row, false)
+    restoreRecipeCharacterBtnAnchors(row)
     local namePart = buildCharacterNamePart(entry, showRealmSuffix)
     local Nav = AltArmy.SearchGuildNav
     local charSuffix
@@ -900,10 +1083,17 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
         end
     end
     SetCharacterCellTruncated(row.cells.Character, namePart, charSuffix, recipeColWidths.Character or 160)
-    local clickable = Nav and Nav.IsGuildRecipeCharacterClickable
-        and Nav.IsGuildRecipeCharacterClickable(entry)
+    -- Guildmates always get a Character hit target (tooltip); highlight/click only when online.
+    -- Own characters get it when drill-in is available.
+    local showCharBtn = false
+    if entry.isGuild then
+        showCharBtn = true
+    elseif Nav and Nav.IsGuildRecipeCharacterClickable
+        and Nav.IsGuildRecipeCharacterClickable(entry, rowOpts) then
+        showCharBtn = true
+    end
     if row.characterBtn then
-        row.characterBtn:SetShown(clickable and true or false)
+        row.characterBtn:SetShown(showCharBtn)
     end
     local skillText = entry._aaSkillCellText
     if not skillText then
@@ -960,9 +1150,10 @@ UpdateStickyHeaders = function()
     local nTooltipOnly = #tooltipOnlyItemList
 
     local headerTops = StickyMod.ComputeSectionHeaderTops(
-        nItems, nRecipes, nTooltipOnly, HEADER_HEIGHT, HEADER_ROW_GAP, ROW_HEIGHT)
+        nItems, nRecipes, nTooltipOnly, UI.HEADER_HEIGHT, UI.HEADER_ROW_GAP, UI.ROW_HEIGHT,
+        UI.SECTION_GAP_BEFORE_TOOLTIP)
     local scrollValue = searchScrollBar and searchScrollBar:GetValue() or 0
-    local stickyTops = StickyMod.ComputeStickyTops(headerTops, scrollValue, HEADER_HEIGHT)
+    local stickyTops = StickyMod.ComputeStickyTops(headerTops, scrollValue, UI.HEADER_HEIGHT)
 
     local headerRows = {}
     if nItems > 0 then
@@ -1009,7 +1200,7 @@ local function placeGroupOverlay(overlay, rows, firstPoolIdx, lastPoolIdx, total
     overlay:SetPoint("TOPRIGHT", firstRowFrame, "TOPLEFT", totalColX + totalColW, 2)
     overlay:SetPoint("BOTTOMRIGHT", lastRowFrame, "BOTTOMLEFT", totalColX + totalColW, 2)
     overlay.icon:ClearAllPoints()
-    overlay.icon:SetPoint("CENTER", overlay, "RIGHT", -2 - OVERLAY_ICON_SIZE / 2, 0)
+    overlay.icon:SetPoint("CENTER", overlay, "RIGHT", -2 - UI.OVERLAY_ICON_SIZE / 2, 0)
     local iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
     if firstEntry and firstEntry.itemLink and GetItemInfo then
         local _, _, _, _, _, _, _, _, _, tex = GetItemInfo(firstEntry.itemLink)
@@ -1020,7 +1211,7 @@ local function placeGroupOverlay(overlay, rows, firstPoolIdx, lastPoolIdx, total
     overlay.total:ClearAllPoints()
     overlay.total:SetPoint("RIGHT", overlay.icon, "LEFT", -3, 0)
     overlay.total:SetPoint("CENTER", overlay, "CENTER", 0, 0)
-    overlay.total:SetWidth(math.max(1, totalColW - OVERLAY_ICON_SIZE - 2))
+    overlay.total:SetWidth(math.max(1, totalColW - UI.OVERLAY_ICON_SIZE - 2))
     overlay.total:SetText(tostring(groupTotal))
     overlay:Show()
 end
@@ -1035,7 +1226,7 @@ local function positionPooledRow(row, rowY)
     row:ClearAllPoints()
     row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
     row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
-    row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - ROW_HEIGHT)
+    row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - UI.ROW_HEIGHT)
 end
 
 -- Virtualized list: fill only rows in the visible range + buffer. Call after layout and on scroll.
@@ -1050,7 +1241,7 @@ UpdateVisibleRows = function()
     local showRealmSuffix = (GlobalRealmFilterValue() == "all") and AccountHasMultipleRealms()
     local scrollValue = searchScrollBar and searchScrollBar:GetValue() or 0
     local viewHeight = scrollFrame:GetHeight()
-    local itemsSectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
+    local itemsSectionTop = UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
     local searchQuery = frame.lastQuery or ""
     local highlightRowOpts = { searchQuery = searchQuery, highlightSearch = true, scrollDebug = scrollDbg }
     if searchRosterByName then
@@ -1062,22 +1253,22 @@ UpdateVisibleRows = function()
         scrollDebug = scrollDbg,
         scrollDebugIsTooltip = true,
     }
-    local force = forceVisiblePaint
+    local force = paint.forceVisible
 
     -- Items: visible range and render range (with buffer)
     local itemsRange = VirtualList.GetRenderRange(
-        scrollValue, viewHeight, itemsSectionTop, ROW_HEIGHT, nItems, ROW_BUFFER)
+        scrollValue, viewHeight, itemsSectionTop, UI.ROW_HEIGHT, nItems, UI.ROW_BUFFER)
     local refillItems = force
         or not itemsRange
         or not VirtualList.IsVisibleRangeCovered(
             itemsRange.firstVisible, itemsRange.lastVisible,
-            paintedItemsFirst, paintedItemsLast, PAINT_COVER_MARGIN)
+            paint.itemsFirst, paint.itemsLast, UI.PAINT_COVER_MARGIN)
     if itemsRange and refillItems then
         local firstRender = itemsRange.firstRender
         local lastRender = itemsRange.lastRender
         local totalColX = (colWidths.Item or 280) + (colWidths.Character or 160)
         local totalColW = colWidths.Total or 72
-        VirtualList.ForEachPoolSlot(ITEM_POOL_SIZE, firstRender, itemsRange.renderCount,
+        VirtualList.ForEachPoolSlot(UI.ITEM_POOL_SIZE, firstRender, itemsRange.renderCount,
             function(poolIdx, dataIndex)
                 local row = resultRows[poolIdx]
                 if not row then
@@ -1085,7 +1276,7 @@ UpdateVisibleRows = function()
                     resultRows[poolIdx] = row
                 end
                 local entry = itemList[dataIndex]
-                local rowY = VirtualList.RowTopOffset(itemsSectionTop, dataIndex, ROW_HEIGHT)
+                local rowY = VirtualList.RowTopOffset(itemsSectionTop, dataIndex, UI.ROW_HEIGHT)
                 positionPooledRow(row, rowY)
                 if VirtualList.ShouldFillPoolRow(force, row.dataIndex, dataIndex) then
                     fillItemRow(row, entry, showRealmSuffix, highlightRowOpts)
@@ -1116,8 +1307,8 @@ UpdateVisibleRows = function()
             end
         end
         hideUnusedOverlays(groupOverlayPool, overlayIdx)
-        paintedItemsFirst = firstRender
-        paintedItemsLast = lastRender
+        paint.itemsFirst = firstRender
+        paint.itemsLast = lastRender
     elseif not itemsRange then
         for _, row in ipairs(resultRows) do
             row:Hide()
@@ -1125,23 +1316,23 @@ UpdateVisibleRows = function()
             row.dataIndex = nil
         end
         hideUnusedOverlays(groupOverlayPool, 0)
-        paintedItemsFirst, paintedItemsLast = nil, nil
+        paint.itemsFirst, paint.itemsLast = nil, nil
     end
 
     -- Recipes: visible range and render range
-    local recipesSectionTop = itemsSectionTop + nItems * ROW_HEIGHT + HEADER_HEIGHT + HEADER_ROW_GAP
+    local recipesSectionTop = itemsSectionTop + nItems * UI.ROW_HEIGHT + UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
     if nItems == 0 then
-        recipesSectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
+        recipesSectionTop = UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
     end
     local recipesRange = VirtualList.GetRenderRange(
-        scrollValue, viewHeight, recipesSectionTop, ROW_HEIGHT, nRecipes, ROW_BUFFER)
+        scrollValue, viewHeight, recipesSectionTop, UI.ROW_HEIGHT, nRecipes, UI.ROW_BUFFER)
     local refillRecipes = force
         or not recipesRange
         or not VirtualList.IsVisibleRangeCovered(
             recipesRange.firstVisible, recipesRange.lastVisible,
-            paintedRecipesFirst, paintedRecipesLast, PAINT_COVER_MARGIN)
+            paint.recipesFirst, paint.recipesLast, UI.PAINT_COVER_MARGIN)
     if recipesRange and refillRecipes then
-        VirtualList.ForEachPoolSlot(RECIPE_POOL_SIZE, recipesRange.firstRender, recipesRange.renderCount,
+        VirtualList.ForEachPoolSlot(UI.RECIPE_POOL_SIZE, recipesRange.firstRender, recipesRange.renderCount,
             function(poolIdx, dataIndex)
                 local row = recipeRows[poolIdx]
                 if not row then
@@ -1149,7 +1340,7 @@ UpdateVisibleRows = function()
                     recipeRows[poolIdx] = row
                 end
                 local entry = recipeList[dataIndex]
-                local rowY = VirtualList.RowTopOffset(recipesSectionTop, dataIndex, ROW_HEIGHT)
+                local rowY = VirtualList.RowTopOffset(recipesSectionTop, dataIndex, UI.ROW_HEIGHT)
                 positionPooledRow(row, rowY)
                 if VirtualList.ShouldFillPoolRow(force, row.dataIndex, dataIndex) then
                     fillRecipeRow(row, entry, showRealmSuffix, highlightRowOpts)
@@ -1167,40 +1358,41 @@ UpdateVisibleRows = function()
                     row.dataIndex = nil
                 end
             end)
-        paintedRecipesFirst = recipesRange.firstRender
-        paintedRecipesLast = recipesRange.lastRender
+        paint.recipesFirst = recipesRange.firstRender
+        paint.recipesLast = recipesRange.lastRender
     elseif not recipesRange then
         for _, row in ipairs(recipeRows) do
             row:Hide()
             row.entry = nil
             row.dataIndex = nil
         end
-        paintedRecipesFirst, paintedRecipesLast = nil, nil
+        paint.recipesFirst, paint.recipesLast = nil, nil
     end
 
     -- "You may also be interested in:" tooltip-only section
     local nTooltipOnly = #tooltipOnlyItemList
     local tooltipOnlySectionTop
     if nRecipes > 0 then
-        tooltipOnlySectionTop = recipesSectionTop + nRecipes * ROW_HEIGHT + HEADER_HEIGHT + HEADER_ROW_GAP
+        tooltipOnlySectionTop = recipesSectionTop + nRecipes * UI.ROW_HEIGHT
+            + UI.SECTION_GAP_BEFORE_TOOLTIP + UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
     elseif nItems > 0 then
-        tooltipOnlySectionTop = itemsSectionTop + nItems * ROW_HEIGHT + HEADER_HEIGHT + HEADER_ROW_GAP
+        tooltipOnlySectionTop = itemsSectionTop + nItems * UI.ROW_HEIGHT + UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
     else
-        tooltipOnlySectionTop = HEADER_HEIGHT + HEADER_ROW_GAP
+        tooltipOnlySectionTop = UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
     end
     local tooltipOnlyRange = VirtualList.GetRenderRange(
-        scrollValue, viewHeight, tooltipOnlySectionTop, ROW_HEIGHT, nTooltipOnly, ROW_BUFFER)
+        scrollValue, viewHeight, tooltipOnlySectionTop, UI.ROW_HEIGHT, nTooltipOnly, UI.ROW_BUFFER)
     local refillTooltip = force
         or not tooltipOnlyRange
         or not VirtualList.IsVisibleRangeCovered(
             tooltipOnlyRange.firstVisible, tooltipOnlyRange.lastVisible,
-            paintedTooltipFirst, paintedTooltipLast, PAINT_COVER_MARGIN)
+            paint.tooltipFirst, paint.tooltipLast, UI.PAINT_COVER_MARGIN)
     if tooltipOnlyRange and refillTooltip then
         local firstRender = tooltipOnlyRange.firstRender
         local lastRender = tooltipOnlyRange.lastRender
         local totalColX = (colWidths.Item or 280) + (colWidths.Character or 160)
         local totalColW = colWidths.Total or 72
-        VirtualList.ForEachPoolSlot(TOOLTIP_ONLY_POOL_SIZE, firstRender, tooltipOnlyRange.renderCount,
+        VirtualList.ForEachPoolSlot(UI.TOOLTIP_ONLY_POOL_SIZE, firstRender, tooltipOnlyRange.renderCount,
             function(poolIdx, dataIndex)
                 local row = tooltipOnlyResultRows[poolIdx]
                 if not row then
@@ -1208,7 +1400,7 @@ UpdateVisibleRows = function()
                     tooltipOnlyResultRows[poolIdx] = row
                 end
                 local entry = tooltipOnlyItemList[dataIndex]
-                local rowY = VirtualList.RowTopOffset(tooltipOnlySectionTop, dataIndex, ROW_HEIGHT)
+                local rowY = VirtualList.RowTopOffset(tooltipOnlySectionTop, dataIndex, UI.ROW_HEIGHT)
                 positionPooledRow(row, rowY)
                 if VirtualList.ShouldFillPoolRow(force, row.dataIndex, dataIndex) then
                     fillItemRow(row, entry, showRealmSuffix, tooltipOnlyRowOpts)
@@ -1239,8 +1431,8 @@ UpdateVisibleRows = function()
             end
         end
         hideUnusedOverlays(tooltipOnlyGroupOverlayPool, overlayIdx)
-        paintedTooltipFirst = firstRender
-        paintedTooltipLast = lastRender
+        paint.tooltipFirst = firstRender
+        paint.tooltipLast = lastRender
     elseif not tooltipOnlyRange then
         for _, row in ipairs(tooltipOnlyResultRows) do
             row:Hide()
@@ -1248,10 +1440,10 @@ UpdateVisibleRows = function()
             row.dataIndex = nil
         end
         hideUnusedOverlays(tooltipOnlyGroupOverlayPool, 0)
-        paintedTooltipFirst, paintedTooltipLast = nil, nil
+        paint.tooltipFirst, paint.tooltipLast = nil, nil
     end
 
-    forceVisiblePaint = false
+    paint.forceVisible = false
     UpdateStickyHeaders()
     if scrollDbg and SD.EndScrollPaintDebug then
         SD.EndScrollPaintDebug(scrollDbg)
@@ -1267,10 +1459,10 @@ end)
 
 UpdateResults = function()
     applySectionSorts()
-    forceVisiblePaint = true
-    paintedItemsFirst, paintedItemsLast = nil, nil
-    paintedRecipesFirst, paintedRecipesLast = nil, nil
-    paintedTooltipFirst, paintedTooltipLast = nil, nil
+    paint.forceVisible = true
+    paint.itemsFirst, paint.itemsLast = nil, nil
+    paint.recipesFirst, paint.recipesLast = nil, nil
+    paint.tooltipFirst, paint.tooltipLast = nil, nil
     if GTD and GTD.BuildRosterLastOnlineMap then
         searchRosterByName = GTD.BuildRosterLastOnlineMap()
     else
@@ -1284,7 +1476,7 @@ UpdateResults = function()
     -- Items section: layout header, build groups, set content height (virtualized rows in UpdateVisibleRows)
     if nItems > 0 then
         itemsHeaderRow:Show()
-        contentHeight = contentHeight + HEADER_HEIGHT + HEADER_ROW_GAP
+        contentHeight = contentHeight + UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
 
         -- Group consecutive rows by item (itemID + itemName); store for UpdateVisibleRows
         itemGroups = {}
@@ -1303,7 +1495,7 @@ UpdateResults = function()
             end
         end
 
-        contentHeight = contentHeight + nItems * ROW_HEIGHT
+        contentHeight = contentHeight + nItems * UI.ROW_HEIGHT
     else
         itemsHeaderRow:Hide()
         itemGroups = {}
@@ -1312,8 +1504,8 @@ UpdateResults = function()
     -- Recipes section: layout header and content height (virtualized rows in UpdateVisibleRows)
     if nRecipes > 0 then
         recipesHeaderRow:Show()
-        contentHeight = contentHeight + HEADER_HEIGHT + HEADER_ROW_GAP
-        contentHeight = contentHeight + nRecipes * ROW_HEIGHT
+        contentHeight = contentHeight + UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
+        contentHeight = contentHeight + nRecipes * UI.ROW_HEIGHT
     else
         recipesHeaderRow:Hide()
     end
@@ -1322,7 +1514,10 @@ UpdateResults = function()
     local nTooltipOnly = #tooltipOnlyItemList
     if nTooltipOnly > 0 then
         alsoInterestedHeaderRow:Show()
-        contentHeight = contentHeight + HEADER_HEIGHT + HEADER_ROW_GAP
+        if nRecipes > 0 then
+            contentHeight = contentHeight + UI.SECTION_GAP_BEFORE_TOOLTIP
+        end
+        contentHeight = contentHeight + UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
 
         tooltipOnlyItemGroups = {}
         local prevKey = nil
@@ -1339,14 +1534,14 @@ UpdateResults = function()
             end
         end
 
-        contentHeight = contentHeight + nTooltipOnly * ROW_HEIGHT
+        contentHeight = contentHeight + nTooltipOnly * UI.ROW_HEIGHT
     else
         alsoInterestedHeaderRow:Hide()
         tooltipOnlyItemGroups = {}
     end
 
-    if contentHeight < ROW_HEIGHT then
-        contentHeight = ROW_HEIGHT
+    if contentHeight < UI.ROW_HEIGHT then
+        contentHeight = UI.ROW_HEIGHT
     end
     resultsArea:SetHeight(contentHeight)
     if scrollFrame.UpdateScrollChildRect then
@@ -1354,7 +1549,7 @@ UpdateResults = function()
     end
     if searchScrollBar and Theme.UpdateVerticalScrollRange then
         Theme.UpdateVerticalScrollRange(
-            scrollFrame, searchScrollBar, contentHeight, scrollFrame:GetHeight(), ROW_HEIGHT)
+            scrollFrame, searchScrollBar, contentHeight, scrollFrame:GetHeight(), UI.ROW_HEIGHT)
     end
     -- Horizontal scroll: list viewport may be narrower than totalColWidth
     if listViewport and horizontalScroll and horizontalScrollChild and horizontalScrollBar then
@@ -1405,6 +1600,7 @@ function frame.DoSearch()
     if query and query:match("^%s*$") then query = "" end
     frame.lastQuery = query or ""
     resetSectionSorts()
+    resetRecipeCollapseExpanded()
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     if categories.Items and query ~= "" then
         -- Skip tooltip scan for the immediate response; tooltip results arrive after debounce.
@@ -1420,12 +1616,14 @@ function frame.DoSearch()
     else
         localRecipeList = {}
     end
+    recipeCollapseState.mergedList = localRecipeList
     recipeList = localRecipeList
     local currentRealm = (GetRealmName and GetRealmName()) or ""
     if RF and RF.filterListByRealm then
         local rf = GlobalRealmFilterValue()
         itemList = RF.filterListByRealm(itemList, rf, currentRealm)
         localRecipeList = RF.filterListByRealm(localRecipeList, rf, currentRealm)
+        recipeCollapseState.mergedList = localRecipeList
         recipeList = localRecipeList
     end
     ScheduleGuildRecipeSearch(query)
@@ -1441,11 +1639,13 @@ function frame.SearchWithQuery(_self, query)
     local q = (query and type(query) == "string") and query:match("^%s*(.-)%s*$") or ""
     frame.lastQuery = q
     resetSectionSorts()
+    resetRecipeCollapseExpanded()
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     if q == "" then
         itemList = {}
         tooltipOnlyItemList = {}
         localRecipeList = {}
+        recipeCollapseState.mergedList = {}
         recipeList = {}
     else
         if categories.Items then
@@ -1462,6 +1662,7 @@ function frame.SearchWithQuery(_self, query)
         else
             localRecipeList = {}
         end
+        recipeCollapseState.mergedList = localRecipeList
         recipeList = localRecipeList
     end
     local currentRealm = (GetRealmName and GetRealmName()) or ""
@@ -1469,6 +1670,7 @@ function frame.SearchWithQuery(_self, query)
         local rf = GlobalRealmFilterValue()
         itemList = RF.filterListByRealm(itemList, rf, currentRealm)
         localRecipeList = RF.filterListByRealm(localRecipeList, rf, currentRealm)
+        recipeCollapseState.mergedList = localRecipeList
         recipeList = localRecipeList
     end
     ScheduleGuildRecipeSearch(q)
@@ -1483,14 +1685,6 @@ function frame.SearchWithQuery(_self, query)
 end
 
 -- Search settings panel: right 40% of frame when visible (list 60%, both full height).
-local GRID_SPLIT_FRACTION = 0.6
-local SEARCH_SETTINGS_WIDTH_TRIM = 60
-local SETTINGS_ROW_HEIGHT = 22
-local RECIPE_LEVEL_LABEL_GAP = 6
-local RECIPE_LEVEL_MIN_MAX_GAP = 12
-local RECIPE_LEVEL_RESET_GAP = 4
-local RECIPE_LEVEL_MIN_EDIT_WIDTH = 28
-local RECIPE_LEVEL_DEFAULT_EDIT_WIDTH = 40
 local settingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 Theme.ApplyBackdrop(settingsPanel, "section")
 
@@ -1502,12 +1696,12 @@ local function ApplySettingsPanelLayout()
     if w <= 0 then
         return
     end
-    local settingsLeft = w * GRID_SPLIT_FRACTION + SECTION_GAP + SEARCH_SETTINGS_WIDTH_TRIM
+    local settingsLeft = w * UI.GRID_SPLIT_FRACTION + UI.SECTION_GAP + UI.SEARCH_SETTINGS_WIDTH_TRIM
     settingsPanel:ClearAllPoints()
-    settingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", settingsLeft, -SECTION_INSET)
-    settingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", settingsLeft, SECTION_INSET)
-    settingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SECTION_INSET, -SECTION_INSET)
-    settingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+    settingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", settingsLeft, -UI.SECTION_INSET)
+    settingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", settingsLeft, UI.SECTION_INSET)
+    settingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -UI.SECTION_INSET, -UI.SECTION_INSET)
+    settingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -UI.SECTION_INSET, UI.SECTION_INSET)
     if applyRecipeLevelFilterRowLayout then
         applyRecipeLevelFilterRowLayout()
     end
@@ -1550,7 +1744,6 @@ local function RerunSearchIfActive()
     end
 end
 
-local RECIPE_LEVEL_ROW_GAP = 10
 
 local function SetRecipeLevelHeaderColor(fontString)
     if not fontString or not fontString.SetTextColor then
@@ -1573,11 +1766,11 @@ professionSectionAnchor:SetSize(1, 1)
 professionSectionAnchor:SetPoint("TOPLEFT", filterContent, "TOPLEFT", 0, 0)
 
 local minLevelLabel = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-minLevelLabel:SetPoint("TOPLEFT", recipeLevelHeader, "BOTTOMLEFT", 0, -RECIPE_LEVEL_ROW_GAP)
+minLevelLabel:SetPoint("TOPLEFT", recipeLevelHeader, "BOTTOMLEFT", 0, -UI.RECIPE_LEVEL_ROW_GAP)
 minLevelLabel:SetText("Min")
 
 local minLevelEdit = CreateFrame("EditBox", nil, filterContent)
-minLevelEdit:SetSize(RECIPE_LEVEL_DEFAULT_EDIT_WIDTH, SETTINGS_ROW_HEIGHT)
+minLevelEdit:SetSize(UI.RECIPE_LEVEL_DEFAULT_EDIT_WIDTH, UI.SETTINGS_ROW_HEIGHT)
 minLevelEdit:SetFontObject("GameFontHighlightSmall")
 minLevelEdit:SetAutoFocus(false)
 minLevelEdit:SetNumeric(true)
@@ -1628,7 +1821,7 @@ maxLevelLabel:SetPoint("TOP", minLevelLabel, "TOP", 0, 0)
 maxLevelLabel:SetText("Max")
 
 local maxLevelEdit = CreateFrame("EditBox", nil, filterContent)
-maxLevelEdit:SetSize(RECIPE_LEVEL_DEFAULT_EDIT_WIDTH, SETTINGS_ROW_HEIGHT)
+maxLevelEdit:SetSize(UI.RECIPE_LEVEL_DEFAULT_EDIT_WIDTH, UI.SETTINGS_ROW_HEIGHT)
 maxLevelEdit:SetFontObject("GameFontHighlightSmall")
 maxLevelEdit:SetAutoFocus(false)
 maxLevelEdit:SetNumeric(true)
@@ -1661,7 +1854,7 @@ local function ResetRecipeLevelFilterControls()
 end
 
 local recipeLevelResetBtn = CreateFrame("Button", nil, filterContent, "BackdropTemplate")
-recipeLevelResetBtn:SetSize(SETTINGS_ROW_HEIGHT, SETTINGS_ROW_HEIGHT)
+recipeLevelResetBtn:SetSize(UI.SETTINGS_ROW_HEIGHT, UI.SETTINGS_ROW_HEIGHT)
 recipeLevelResetBtn:SetPoint("RIGHT", filterContent, "RIGHT", 0, 0)
 recipeLevelResetBtn:SetPoint("TOP", minLevelEdit, "TOP", 0, 0)
 Theme.ApplyBackdrop(recipeLevelResetBtn, "section")
@@ -1679,7 +1872,7 @@ applyRecipeLevelFilterRowLayout = function()
     if not rowWidth or rowWidth <= 0 then
         return
     end
-    local resetW = SETTINGS_ROW_HEIGHT
+    local resetW = UI.SETTINGS_ROW_HEIGHT
     local minLabelW = minLevelLabel:GetStringWidth()
     if not minLabelW or minLabelW <= 0 then
         minLabelW = 18
@@ -1688,9 +1881,9 @@ applyRecipeLevelFilterRowLayout = function()
     if not maxLabelW or maxLabelW <= 0 then
         maxLabelW = 22
     end
-    local fixed = minLabelW + RECIPE_LEVEL_LABEL_GAP + RECIPE_LEVEL_MIN_MAX_GAP + maxLabelW
-        + RECIPE_LEVEL_LABEL_GAP + resetW + RECIPE_LEVEL_RESET_GAP
-    local editW = math.max(RECIPE_LEVEL_MIN_EDIT_WIDTH, math.floor((rowWidth - fixed) / 2 + 0.5))
+    local fixed = minLabelW + UI.RECIPE_LEVEL_LABEL_GAP + UI.RECIPE_LEVEL_MIN_MAX_GAP + maxLabelW
+        + UI.RECIPE_LEVEL_LABEL_GAP + resetW + UI.RECIPE_LEVEL_RESET_GAP
+    local editW = math.max(UI.RECIPE_LEVEL_MIN_EDIT_WIDTH, math.floor((rowWidth - fixed) / 2 + 0.5))
     minLevelEdit:SetWidth(editW)
     maxLevelEdit:SetWidth(editW)
 end
@@ -1722,13 +1915,6 @@ UpdateRecipeLevelResetButtonVisibility = function()
     recipeLevelResetBtn:SetShown(filterActive)
 end
 
-local FILTER_SECTION_GAP = 12
-local FILTER_DROPDOWN_GAP = 4
-local FILTER_DROPDOWN_POPUP_PAD_LEFT = 10
-local FILTER_DROPDOWN_POPUP_PAD_TOP = 6
-local FILTER_DROPDOWN_POPUP_PAD_BOTTOM = 8
-local FILTER_DROPDOWN_POPUP_PAD_RIGHT = 8
-local FILTER_DROPDOWN_TEXT_INSET = 10
 local craftFilterWidgets = {}
 local craftFilterDropdowns = {}
 
@@ -1747,7 +1933,7 @@ end
 
 local function SetDropdownButtonSummary(btn, btnText, summary)
     btn.fullSummaryText = summary
-    local maxW = (btn:GetWidth() or 0) - FILTER_DROPDOWN_TEXT_INSET
+    local maxW = (btn:GetWidth() or 0) - UI.FILTER_DROPDOWN_TEXT_INSET
     if maxW <= 0 then
         btnText:SetText(summary)
         btn.wasSummaryTruncated = false
@@ -1763,7 +1949,7 @@ end
 
 local function CreateFilterSectionHeader(relativeTo, text, registerInCraftFilter)
     local header = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    header:SetPoint("TOP", relativeTo, "BOTTOM", 0, -FILTER_SECTION_GAP)
+    header:SetPoint("TOP", relativeTo, "BOTTOM", 0, -UI.FILTER_SECTION_GAP)
     header:SetPoint("LEFT", filterContent, "LEFT", 0, 0)
     header:SetPoint("RIGHT", filterContent, "RIGHT", 0, 0)
     header:SetJustifyH("LEFT")
@@ -1785,8 +1971,8 @@ local function CreateMultiSelectFilterDropdown(config)
 
     local btn = CreateFrame("Button", nil, filterContent)
     local dropdownRowHeight = Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or (Theme.CHAR_LIST_ROW_HEIGHT or 20) + 4
-    btn:SetHeight(SETTINGS_ROW_HEIGHT + 4)
-    btn:SetPoint("TOP", header, "BOTTOM", 0, -FILTER_DROPDOWN_GAP)
+    btn:SetHeight(UI.SETTINGS_ROW_HEIGHT + 4)
+    btn:SetPoint("TOP", header, "BOTTOM", 0, -UI.FILTER_DROPDOWN_GAP)
     btn:SetPoint("LEFT", filterContent, "LEFT", 0, 0)
     btn:SetPoint("RIGHT", filterContent, "RIGHT", 0, 0)
     Theme.SkinButton(btn)
@@ -1820,9 +2006,9 @@ local function CreateMultiSelectFilterDropdown(config)
     popup:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, 0)
     local rowHeight = dropdownRowHeight
     popup:SetHeight(
-        FILTER_DROPDOWN_POPUP_PAD_TOP
+        UI.FILTER_DROPDOWN_POPUP_PAD_TOP
             + #config.keys * rowHeight
-            + FILTER_DROPDOWN_POPUP_PAD_BOTTOM
+            + UI.FILTER_DROPDOWN_POPUP_PAD_BOTTOM
     )
     popup:SetFrameLevel(filterContent:GetFrameLevel() + 100)
     popup:Hide()
@@ -1837,7 +2023,7 @@ local function CreateMultiSelectFilterDropdown(config)
             rowHeight = dropdownRowHeight,
             text = (config.getRowLabel and config.getRowLabel(key)) or config.labels[key] or key,
             fullWidthHover = true,
-            rightInset = FILTER_DROPDOWN_POPUP_PAD_RIGHT,
+            rightInset = UI.FILTER_DROPDOWN_POPUP_PAD_RIGHT,
             onClick = function(checked)
                 if config.setEnabled then
                     config.setEnabled(key, checked)
@@ -1850,8 +2036,8 @@ local function CreateMultiSelectFilterDropdown(config)
             rowOpts.point = "TOPLEFT"
             rowOpts.relativeTo = popup
             rowOpts.relativePoint = "TOPLEFT"
-            rowOpts.x = FILTER_DROPDOWN_POPUP_PAD_LEFT
-            rowOpts.y = -FILTER_DROPDOWN_POPUP_PAD_TOP
+            rowOpts.x = UI.FILTER_DROPDOWN_POPUP_PAD_LEFT
+            rowOpts.y = -UI.FILTER_DROPDOWN_POPUP_PAD_TOP
         else
             rowOpts.relativeTo = prevRow
             rowOpts.relativePoint = "BOTTOMLEFT"
@@ -1906,7 +2092,7 @@ professionDropdownBtn, professionDropdown = CreateMultiSelectFilterDropdown({
     end,
 })
 
-recipeLevelHeader:SetPoint("TOPLEFT", professionDropdownBtn, "BOTTOMLEFT", 0, -FILTER_SECTION_GAP)
+recipeLevelHeader:SetPoint("TOPLEFT", professionDropdownBtn, "BOTTOMLEFT", 0, -UI.FILTER_SECTION_GAP)
 
 local DIFFICULTY_LABELS = {
     orange = "Orange",
@@ -1994,7 +2180,7 @@ local craftLibCallout = Theme.CreateCraftLibInstallCallout(filterContent, {
         "All recipe icons",
     },
 })
-craftLibCallout:SetPoint("TOPLEFT", professionDropdownBtn, "BOTTOMLEFT", 0, -FILTER_SECTION_GAP)
+craftLibCallout:SetPoint("TOPLEFT", professionDropdownBtn, "BOTTOMLEFT", 0, -UI.FILTER_SECTION_GAP)
 craftLibCallout:SetPoint("TOPRIGHT", filterContent, "TOPRIGHT", 0, 0)
 
 local function SetCraftFilterWidgetsShown(shown)
@@ -2066,25 +2252,25 @@ end
 
 local function ApplyTabContentLayout()
     tabContentPanel:ClearAllPoints()
-    tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+    tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", UI.SECTION_INSET, -UI.SECTION_INSET)
     if settingsPanel:IsShown() then
-        tabContentPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -SECTION_GAP, SECTION_INSET)
+        tabContentPanel:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMLEFT", -UI.SECTION_GAP, UI.SECTION_INSET)
     else
-    tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+    tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -UI.SECTION_INSET, UI.SECTION_INSET)
     end
 end
 
 -- List viewport and horizontal scroll bar layout.
 -- Columns are sized to the viewport, so horizontal scroll is unused; do not reserve
--- HORIZONTAL_SCROLL_BAR_HEIGHT (Summary only reserves that strip when columns overflow).
+-- UI.HORIZONTAL_SCROLL_BAR_HEIGHT (Summary only reserves that strip when columns overflow).
 local function ApplySearchListLayout()
     ApplyTabContentLayout()
     listViewport:ClearAllPoints()
-    listViewport:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, -PAD)
+    listViewport:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, -UI.PAD)
     listViewport:SetPoint(
-        "BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, PAD)
+        "BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -UI.SCROLL_GUTTER, UI.PAD)
     horizontalScrollBar:ClearAllPoints()
-    horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", PAD, -4)
+    horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", UI.PAD, -4)
     horizontalScrollBar:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, -4)
     Theme.AnchorVerticalScrollBar(searchScrollBar, tabContentPanel, listViewport)
     if noResultsHint and listViewport then
@@ -2121,7 +2307,7 @@ local function LayoutSearchHeaderButtons(buttonsByCol, headerRow, order, widths,
             btn:ClearAllPoints()
             btn:SetPoint("BOTTOMLEFT", headerRow, "BOTTOMLEFT", x, 0)
             btn:SetWidth(w)
-            btn:SetHeight(HEADER_HEIGHT)
+            btn:SetHeight(UI.HEADER_HEIGHT)
             local base = labelTextForCol and labelTextForCol(colName) or colName
             btn.label:SetText(Theme.FormatSortHeaderLabel(base, sortState and sortState.key == colName,
                 sortState and sortState.ascending))

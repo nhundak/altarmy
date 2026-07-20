@@ -35,14 +35,16 @@ function Nav.ShouldBackReturnToSearch()
     return active and true or false
 end
 
---- True when a recipe-result Character cell should open that character's recipe list.
---- Guildmate rows (`isGuild`) and own-account characters resolvable from DataStore.
-function Nav.IsGuildRecipeCharacterClickable(entry)
+--- True when a recipe-result Character cell should highlight and accept clicks.
+--- Guildmate rows: only when someone in their main-group is online (whisper).
+--- Own-account rows: when the character is resolvable from DataStore (guild drill-in).
+--- opts.rosterByName / opts.onlineCache may be injected (tests / search layout cache).
+function Nav.IsGuildRecipeCharacterClickable(entry, opts)
     if not entry or not entry.characterName or entry.characterName == "" then
         return false
     end
     if entry.isGuild then
-        return true
+        return Nav.IsGuildRecipePlayerOnline(entry.characterName, entry.realm, opts)
     end
     return Nav.ResolveLocalMember(entry.characterName, entry.realm) ~= nil
 end
@@ -213,6 +215,43 @@ local function rosterMapForOpts(opts)
     return {}
 end
 
+--- Online whisper target for a guildmate recipe row (the character currently playing), or nil.
+--- opts.rosterByName may inject a roster map (tests / search layout cache).
+function Nav.ResolveGuildRecipeWhisperTarget(characterName, realm, opts)
+    local entry = Nav.ResolveGuildMember(characterName, realm)
+    if not entry or entry.source == "local" then
+        return nil
+    end
+    local GTD = AltArmy.GuildTabData
+    local GSD = AltArmy.GuildShareData
+    if not GTD or not GTD.ResolveOnlineWhisperTarget then
+        return nil
+    end
+    local members
+    if entry.guildName and GSD and GSD.GetGuildMembersForDisplay then
+        members = GSD.GetGuildMembersForDisplay(entry.guildName, realm, true)
+    end
+    return GTD.ResolveOnlineWhisperTarget(entry, rosterMapForOpts(opts), members)
+end
+
+--- Open a whisper to the online character for a guildmate recipe row.
+--- @return boolean true when a whisper was opened
+function Nav.OpenGuildRecipeWhisper(characterName, realm, opts)
+    local target = Nav.ResolveGuildRecipeWhisperTarget(characterName, realm, opts)
+    if not target or target == "" then
+        return false
+    end
+    if _G.ChatFrame_SendTell then
+        _G.ChatFrame_SendTell(target)
+        return true
+    end
+    if _G.ChatFrame_OpenChat then
+        _G.ChatFrame_OpenChat("/w " .. target .. " ")
+        return true
+    end
+    return false
+end
+
 --- True when any character in the recipe owner's main-group is online on the guild roster.
 --- opts.rosterByName / opts.onlineCache may be injected (tests / search layout cache).
 function Nav.IsGuildRecipePlayerOnline(characterName, realm, opts)
@@ -245,6 +284,75 @@ function Nav.FormatGuildRecipeCharacterSuffix(characterName, realm, opts)
     end
     return GTD.FormatGuildSearchCharacterSuffix(
         Nav.IsGuildRecipePlayerOnline(characterName, realm, opts))
+end
+
+--- Tooltip lines for a collapsed "Multiple guildmates" recipe search row.
+--- Resolves each character's main/class via ResolveGuildMember, and presence via the
+--- main-group (player) last-online status — online on any alt counts as online.
+--- Formats via GuildTabData.BuildCollapsedGuildRecipeTooltipLines. Caches on the entry.
+--- opts.rosterByName may inject a roster map (tests / search layout cache).
+function Nav.GetCollapsedGuildRecipeTooltipLines(entry, opts)
+    if not entry or not entry.isGuildCollapsed then
+        return nil
+    end
+    if entry._aaCollapsedTooltipLines then
+        return entry._aaCollapsedTooltipLines
+    end
+    local GTD = AltArmy.GuildTabData
+    if not GTD or not GTD.BuildCollapsedGuildRecipeTooltipLines then
+        return nil
+    end
+    opts = opts or {}
+    local guildChars = entry.guildChars
+    if type(guildChars) ~= "table" or #guildChars == 0 then
+        return nil
+    end
+
+    local rosterByName = rosterMapForOpts(opts)
+    local chars = {}
+    local mainClassCache = {}
+    for i = 1, #guildChars do
+        local row = guildChars[i]
+        if row and row.characterName and row.characterName ~= "" then
+            local member = Nav.ResolveGuildMember(row.characterName, row.realm)
+            local name = (member and member.name) or row.characterName
+            local classFile = (member and member.classFile) or row.classFile
+            local mainName = (member and (member.main or member.displayName)) or name
+            local mainClassFile = classFile
+            if mainName and mainName:lower() ~= name:lower() then
+                local cacheKey = (row.realm or "") .. "\0" .. mainName
+                local cached = mainClassCache[cacheKey]
+                if cached == nil then
+                    local mainMember = Nav.ResolveGuildMember(mainName, row.realm)
+                    cached = (mainMember and mainMember.classFile) or classFile or ""
+                    mainClassCache[cacheKey] = cached
+                end
+                mainClassFile = cached ~= "" and cached or classFile
+            end
+            -- Player presence: any character in the main-group online counts as online.
+            local status
+            if member and GTD.GetGroupLastOnlineStatus then
+                local group = resolveMemberGroup(member, row.realm)
+                status = GTD.GetGroupLastOnlineStatus(group, rosterByName)
+            end
+            chars[#chars + 1] = {
+                name = name,
+                classFile = classFile,
+                mainName = mainName,
+                mainClassFile = mainClassFile,
+                status = status,
+            }
+        end
+    end
+
+    local buildOpts = {
+        formatName = opts.formatName,
+        isExpanded = entry.isGuildExpanded and true or false,
+    }
+    local lines = GTD.BuildCollapsedGuildRecipeTooltipLines(
+        chars, rosterByName, buildOpts)
+    entry._aaCollapsedTooltipLines = lines
+    return lines
 end
 
 --- Tooltip lines for a clickable character name in search results, or nil.
@@ -288,7 +396,7 @@ function Nav.GetGuildCharacterHoverTooltipLines(characterName, realm, opts)
     local presence = GTD.GetGroupMostRecentOnlineDetail
         and GTD.GetGroupMostRecentOnlineDetail(group, rosterMapForOpts(opts))
 
-    return GTD.BuildGuildCharacterHoverTooltipLines({
+    local lines = GTD.BuildGuildCharacterHoverTooltipLines({
         name = entry.name,
         preferredName = preferred,
         preferredClassFile = group and group.classFile,
@@ -296,4 +404,8 @@ function Nav.GetGuildCharacterHoverTooltipLines(characterName, realm, opts)
         level = entry.level,
         presenceDetail = presence,
     })
+    if lines and lines.presenceOnline then
+        lines[#lines + 1] = "|cff808080Click to whisper|r"
+    end
+    return lines
 end

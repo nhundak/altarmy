@@ -76,11 +76,30 @@ describe("SearchGuildNav", function()
     assert.is_nil(Nav.ResolveGuildMember("Missing", "Realm"))
   end)
 
-  it("recipe entry is clickable when marked as guild", function()
+  it("guildmate recipe entry is clickable only when online", function()
+    package.loaded["GuildTabData"] = nil
+    require("GuildTabData")
+    AltArmy.GuildShareData = {
+      GetCharacter = function(name, realm)
+        return { name = name, realm = realm, main = name, guildName = "G" }
+      end,
+      GetGuildMembersForDisplay = function()
+        return { { name = "Bob", realm = "R", main = "Bob", isMain = true } }
+      end,
+    }
     assert.is_false(Nav.IsGuildRecipeCharacterClickable(nil))
     assert.is_false(Nav.IsGuildRecipeCharacterClickable({}))
     assert.is_false(Nav.IsGuildRecipeCharacterClickable({ isGuild = false, characterName = "Bob" }))
-    assert.is_true(Nav.IsGuildRecipeCharacterClickable({ isGuild = true, characterName = "Bob" }))
+    assert.is_true(Nav.IsGuildRecipeCharacterClickable({
+      isGuild = true, characterName = "Bob", realm = "R",
+    }, { rosterByName = { bob = { online = true } } }))
+    assert.is_false(Nav.IsGuildRecipeCharacterClickable({
+      isGuild = true, characterName = "Bob", realm = "R",
+    }, {
+      rosterByName = {
+        bob = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+      },
+    }))
   end)
 
   it("own-character recipe entry is clickable when DataStore has the character", function()
@@ -296,6 +315,38 @@ describe("SearchGuildNav", function()
     assert.is_truthy(lines[1]:find("|cffffffff)|r", 1, true))
     assert.are.equal("Level 70 Mage", lines[2])
     assert.are.equal("|cffffffffOnline (as |rAlice|cffffffff)|r", lines[3])
+    assert.are.equal("|cff808080Click to whisper|r", lines[4])
+  end)
+
+  it("GetGuildCharacterHoverTooltipLines omits whisper hint when offline", function()
+    AltArmy.GuildShareData = {
+      GetCharacter = function(name, realm)
+        return {
+          name = name,
+          realm = realm,
+          classFile = "MAGE",
+          level = 70,
+          displayName = "Bob",
+          main = "Bob",
+          guildName = "G",
+        }
+      end,
+      GetGuildMembersForDisplay = function()
+        return {
+          { name = "Bob", realm = "R", classFile = "MAGE", level = 70, main = "Bob", isMain = true },
+        }
+      end,
+    }
+    package.loaded["GuildTabData"] = nil
+    require("GuildTabData")
+    local lines = Nav.GetGuildCharacterHoverTooltipLines("Bob", "R", {
+      rosterByName = {
+        bob = { online = false, years = 0, months = 0, days = 0, hours = 5 },
+      },
+    })
+    assert.is_truthy(lines)
+    assert.are.equal("|cff808080Last seen 5h ago|r", lines[3])
+    assert.is_nil(lines[4])
   end)
 
   it("GetGuildCharacterHoverTooltipLines uses own-character tooltip for local source", function()
@@ -419,5 +470,214 @@ describe("SearchGuildNav", function()
           bob = { online = false, years = 0, months = 0, days = 1, hours = 0 },
         },
       }))
+  end)
+
+  it("GetCollapsedGuildRecipeTooltipLines resolves mains and caches on the entry", function()
+    package.loaded["GuildTabData"] = nil
+    require("GuildTabData")
+    AltArmy.GuildShareData = {
+      GetCharacter = function(name, realm)
+        if name == "Bob" then
+          return {
+            name = "Bob",
+            realm = realm,
+            classFile = "MAGE",
+            main = "Chief",
+            displayName = "Chief",
+            guildName = "G",
+          }
+        end
+        if name == "Alice" then
+          return {
+            name = "Alice",
+            realm = realm,
+            classFile = "WARRIOR",
+            main = "Alice",
+            displayName = "Alice",
+            guildName = "G",
+            isMain = true,
+          }
+        end
+        if name == "Chief" then
+          return {
+            name = "Chief",
+            realm = realm,
+            classFile = "WARRIOR",
+            main = "Chief",
+            displayName = "Chief",
+            guildName = "G",
+            isMain = true,
+          }
+        end
+        return nil
+      end,
+    }
+    local entry = {
+      isGuildCollapsed = true,
+      recipeID = 42,
+      guildChars = {
+        { characterName = "Bob", realm = "R", classFile = "MAGE" },
+        { characterName = "Alice", realm = "R", classFile = "WARRIOR" },
+      },
+    }
+    local roster = {
+      bob = { online = false, years = 0, months = 0, days = 0, hours = 5 },
+      alice = { online = true },
+    }
+    local lines = Nav.GetCollapsedGuildRecipeTooltipLines(entry, { rosterByName = roster })
+    assert.is_truthy(lines)
+    assert.are.equal(3, #lines)
+    -- Online Alice first (main omitted), then offline Bob with main Chief, then expand hint.
+    assert.is_truthy(lines[1].left:find("Alice", 1, true))
+    assert.are.equal("|cffffffffOnline|r", lines[1].right)
+    assert.is_nil(lines[1].left:find("(", 1, true))
+    assert.is_truthy(lines[2].left:find("Bob", 1, true))
+    assert.is_truthy(lines[2].left:find("Chief", 1, true))
+    assert.are.equal("|cff8080805h ago|r", lines[2].right)
+    assert.are.equal("|cff808080Click to expand|r", lines[3])
+    -- Cached on the entry for subsequent hovers.
+    assert.are.equal(lines, entry._aaCollapsedTooltipLines)
+    local again = Nav.GetCollapsedGuildRecipeTooltipLines(entry, { rosterByName = roster })
+    assert.are.equal(lines, again)
+  end)
+
+  it("GetCollapsedGuildRecipeTooltipLines returns nil for non-collapsed entries", function()
+    assert.is_nil(Nav.GetCollapsedGuildRecipeTooltipLines(nil))
+    assert.is_nil(Nav.GetCollapsedGuildRecipeTooltipLines({
+      characterName = "Bob",
+      isGuild = true,
+    }))
+  end)
+
+  it("GetCollapsedGuildRecipeTooltipLines treats player online via any alt in the main group", function()
+    package.loaded["GuildTabData"] = nil
+    require("GuildTabData")
+    AltArmy.GuildShareData = {
+      GetCharacter = function(name, realm)
+        if name == "Bob" or name == "Alice" then
+          return {
+            name = name,
+            realm = realm,
+            classFile = name == "Bob" and "MAGE" or "WARRIOR",
+            main = "ChiefMain",
+            displayName = "Chief",
+            guildName = "G",
+            isMain = name == "Alice",
+          }
+        end
+        return nil
+      end,
+      GetGuildMembersForDisplay = function()
+        return {
+          {
+            name = "Bob",
+            realm = "R",
+            classFile = "MAGE",
+            main = "ChiefMain",
+            displayName = "Chief",
+            guildName = "G",
+          },
+          {
+            name = "Alice",
+            realm = "R",
+            classFile = "WARRIOR",
+            main = "ChiefMain",
+            displayName = "Chief",
+            guildName = "G",
+            isMain = true,
+          },
+          {
+            name = "Zebra",
+            realm = "R",
+            classFile = "HUNTER",
+            main = "Zebra",
+            displayName = "Zebra",
+            guildName = "G",
+            isMain = true,
+          },
+        }
+      end,
+    }
+    local entry = {
+      isGuildCollapsed = true,
+      recipeID = 99,
+      guildChars = {
+        -- Bob has the recipe but is offline; Alice (same player) is online.
+        { characterName = "Bob", realm = "R", classFile = "MAGE" },
+        { characterName = "Zebra", realm = "R", classFile = "HUNTER" },
+      },
+    }
+    local lines = Nav.GetCollapsedGuildRecipeTooltipLines(entry, {
+      rosterByName = {
+        bob = { online = false, years = 0, months = 0, days = 5, hours = 0 },
+        alice = { online = true },
+        zebra = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+      },
+    })
+    assert.is_truthy(lines)
+    -- Bob counts as online (Alice is playing), so sorts before Zebra.
+    assert.is_truthy(lines[1].left:find("Bob", 1, true))
+    assert.are.equal("|cffffffffOnline|r", lines[1].right)
+    assert.is_truthy(lines[2].left:find("Zebra", 1, true))
+    assert.are.equal("|cff8080801d ago|r", lines[2].right)
+  end)
+
+  it("ResolveGuildRecipeWhisperTarget returns the online character in the main group", function()
+    package.loaded["GuildTabData"] = nil
+    require("GuildTabData")
+    AltArmy.GuildShareData = {
+      GetCharacter = function(name, realm)
+        return {
+          name = name,
+          realm = realm,
+          main = "ChiefMain",
+          guildName = "G",
+        }
+      end,
+      GetGuildMembersForDisplay = function()
+        return {
+          { name = "Bob", realm = "R", main = "ChiefMain" },
+          { name = "Alice", realm = "R", main = "ChiefMain", isMain = true },
+        }
+      end,
+    }
+    assert.are.equal("Alice", Nav.ResolveGuildRecipeWhisperTarget("Bob", "R", {
+      rosterByName = {
+        bob = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+        alice = { online = true },
+      },
+    }))
+    assert.is_nil(Nav.ResolveGuildRecipeWhisperTarget("Bob", "R", {
+      rosterByName = {
+        bob = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+        alice = { online = false, years = 0, months = 0, days = 2, hours = 0 },
+      },
+    }))
+  end)
+
+  it("OpenGuildRecipeWhisper sends tell to the online target", function()
+    package.loaded["GuildTabData"] = nil
+    require("GuildTabData")
+    local told
+    _G.ChatFrame_SendTell = function(name) told = name end
+    AltArmy.GuildShareData = {
+      GetCharacter = function(name, realm)
+        return { name = name, realm = realm, main = name, guildName = "G" }
+      end,
+      GetGuildMembersForDisplay = function()
+        return { { name = "Bob", realm = "R", main = "Bob", isMain = true } }
+      end,
+    }
+    assert.is_true(Nav.OpenGuildRecipeWhisper("Bob", "R", {
+      rosterByName = { bob = { online = true } },
+    }))
+    assert.are.equal("Bob", told)
+    told = nil
+    assert.is_false(Nav.OpenGuildRecipeWhisper("Bob", "R", {
+      rosterByName = {
+        bob = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+      },
+    }))
+    assert.is_nil(told)
   end)
 end)

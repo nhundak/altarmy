@@ -831,6 +831,144 @@ describe("GuildTabData", function()
       end)
     end)
 
+    describe("BuildCollapsedGuildRecipeTooltipLines", function()
+      local function formatName(name)
+        return "[" .. (name or "?") .. "]"
+      end
+
+      it("sorts online first alphabetically, then shortest offline, unknown last", function()
+        local lines = GTD.BuildCollapsedGuildRecipeTooltipLines({
+          { name = "Zebra", classFile = "MAGE", mainName = "Zebra", mainClassFile = "MAGE" },
+          { name = "Alice", classFile = "WARRIOR", mainName = "Alice", mainClassFile = "WARRIOR" },
+          { name = "Bob", classFile = "PRIEST", mainName = "Bob", mainClassFile = "PRIEST" },
+          { name = "Carol", classFile = "HUNTER", mainName = "Carol", mainClassFile = "HUNTER" },
+          { name = "Amy", classFile = "WARLOCK", mainName = "Amy", mainClassFile = "WARLOCK" },
+          { name = "Dave", classFile = "ROGUE", mainName = "Dave", mainClassFile = "ROGUE" },
+        }, {
+          zebra = { online = true },
+          alice = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+          bob = { online = true },
+          carol = { online = false, years = 0, months = 0, days = 0, hours = 5 },
+          amy = { online = true },
+          -- Dave missing from roster
+        }, { formatName = formatName })
+        assert.are.equal(7, #lines)
+        -- Online A–Z: Amy, Bob, Zebra; then Carol (5h), Alice (1d), Dave (Unknown); hint
+        assert.are.equal("[Amy]", lines[1].left)
+        assert.are.equal("|cffffffffOnline|r", lines[1].right)
+        assert.are.equal("[Bob]", lines[2].left)
+        assert.are.equal("|cffffffffOnline|r", lines[2].right)
+        assert.are.equal("[Zebra]", lines[3].left)
+        assert.are.equal("|cffffffffOnline|r", lines[3].right)
+        assert.are.equal("[Carol]", lines[4].left)
+        assert.are.equal("|cff8080805h ago|r", lines[4].right)
+        assert.are.equal("[Alice]", lines[5].left)
+        assert.are.equal("|cff8080801d ago|r", lines[5].right)
+        assert.are.equal("[Dave]", lines[6].left)
+        assert.are.equal("|cff808080Unknown|r", lines[6].right)
+        assert.are.equal("|cff808080Click to expand|r", lines[7])
+      end)
+
+      it("prefers per-char status over individual roster lookup (player presence)", function()
+        -- Bob's recipe alt is offline on the roster, but caller marks the player online.
+        local lines = GTD.BuildCollapsedGuildRecipeTooltipLines({
+          { name = "Zebra", classFile = "MAGE", mainName = "Zebra", mainClassFile = "MAGE" },
+          {
+            name = "Bob",
+            classFile = "PRIEST",
+            mainName = "Chief",
+            mainClassFile = "WARRIOR",
+            status = { online = true },
+          },
+        }, {
+          zebra = { online = false, years = 0, months = 0, days = 2, hours = 0 },
+          bob = { online = false, years = 0, months = 0, days = 5, hours = 0 },
+        }, { formatName = formatName })
+        assert.is_truthy(lines[1].left:find("[Bob]", 1, true))
+        assert.are.equal("|cffffffffOnline|r", lines[1].right)
+        assert.are.equal("[Zebra]", lines[2].left)
+        assert.are.equal("|cff8080802d ago|r", lines[2].right)
+      end)
+
+      it("omits main name when identical to character name", function()
+        local lines = GTD.BuildCollapsedGuildRecipeTooltipLines({
+          { name = "Bob", classFile = "MAGE", mainName = "bob", mainClassFile = "WARRIOR" },
+        }, {
+          bob = { online = true },
+        }, { formatName = formatName })
+        assert.are.equal(2, #lines)
+        assert.are.same({ left = "[Bob]", right = "|cffffffffOnline|r" }, lines[1])
+        assert.are.equal("|cff808080Click to expand|r", lines[2])
+      end)
+
+      it("includes class-colored main name when different", function()
+        local lines = GTD.BuildCollapsedGuildRecipeTooltipLines({
+          { name = "Bob", classFile = "MAGE", mainName = "Chief", mainClassFile = "WARRIOR" },
+        }, {
+          bob = { online = true },
+        }, { formatName = formatName })
+        assert.are.equal(2, #lines)
+        assert.are.equal("[Bob] |cffffffff(|r[Chief]|cffffffff)|r", lines[1].left)
+        assert.are.equal("|cffffffffOnline|r", lines[1].right)
+        assert.are.equal("|cff808080Click to expand|r", lines[2])
+      end)
+
+      it("uses gray Unknown when roster status is missing", function()
+        local lines = GTD.BuildCollapsedGuildRecipeTooltipLines({
+          { name = "Bob", classFile = "MAGE", mainName = "Bob", mainClassFile = "MAGE" },
+        }, {}, { formatName = formatName })
+        assert.are.equal(2, #lines)
+        assert.are.same({ left = "[Bob]", right = "|cff808080Unknown|r" }, lines[1])
+        assert.are.equal("|cff808080Click to expand|r", lines[2])
+      end)
+
+      it("shows all characters when fewer than 10, plus expand hint", function()
+        local chars = {}
+        local roster = {}
+        for i = 1, 9 do
+          local name = "Char" .. i
+          chars[i] = { name = name, classFile = "MAGE", mainName = name, mainClassFile = "MAGE" }
+          roster[name:lower()] = { online = true }
+        end
+        local lines = GTD.BuildCollapsedGuildRecipeTooltipLines(chars, roster, { formatName = formatName })
+        assert.are.equal(10, #lines)
+        assert.are.equal("[Char9]", lines[9].left)
+        assert.are.equal("|cff808080Click to expand|r", lines[10])
+      end)
+
+      it("truncates to 8 lines plus white others and gray expand hint when 10 or more", function()
+        local chars = {}
+        local roster = {}
+        for i = 1, 12 do
+          local name = "Char" .. i
+          chars[i] = { name = name, classFile = "MAGE", mainName = name, mainClassFile = "MAGE" }
+          roster[name:lower()] = {
+            online = false, years = 0, months = 0, days = 0, hours = i,
+          }
+        end
+        local lines = GTD.BuildCollapsedGuildRecipeTooltipLines(chars, roster, { formatName = formatName })
+        assert.are.equal(10, #lines)
+        assert.are.equal("[Char1]", lines[1].left)
+        assert.are.equal("[Char8]", lines[8].left)
+        assert.are.equal("|cffffffff...and 4 others|r", lines[9])
+        assert.are.equal("|cff808080Click to expand|r", lines[10])
+      end)
+
+      it("says Click to collapse when opts.isExpanded", function()
+        local lines = GTD.BuildCollapsedGuildRecipeTooltipLines({
+          { name = "Bob", classFile = "MAGE", mainName = "Bob", mainClassFile = "MAGE" },
+        }, {
+          bob = { online = true },
+        }, { formatName = formatName, isExpanded = true })
+        assert.are.equal("|cff808080Click to collapse|r", lines[#lines])
+      end)
+
+      it("returns empty table for nil or empty chars", function()
+        assert.are.same({}, GTD.BuildCollapsedGuildRecipeTooltipLines(nil, {}))
+        assert.are.same({}, GTD.BuildCollapsedGuildRecipeTooltipLines({}, {}))
+      end)
+    end)
+
     describe("BuildOwnCharacterHoverTooltipLines", function()
       it("builds class-colored name and level/class lines only", function()
         local lines = GTD.BuildOwnCharacterHoverTooltipLines({

@@ -18,6 +18,8 @@ describe("SearchStickyHeaders", function()
         Sticky = AltArmy.SearchStickyHeaders
     end)
 
+    local SECTION_GAP_BEFORE_TOOLTIP = 2
+
     --- Mirrors TabSearch UpdateVisibleRows section-top math (scroll/content coords, top = 0).
     local function computeSectionHeaderTops(nItems, nRecipes, nTooltipOnly)
         local tops = {}
@@ -33,6 +35,9 @@ describe("SearchStickyHeaders", function()
             currentTop = currentTop + HEADER_HEIGHT + HEADER_ROW_GAP + nRecipes * ROW_HEIGHT
         end
         if nTooltipOnly > 0 then
+            if nRecipes > 0 then
+                currentTop = currentTop + SECTION_GAP_BEFORE_TOOLTIP
+            end
             tops[#tops + 1] = currentTop
         end
 
@@ -92,9 +97,24 @@ describe("SearchStickyHeaders", function()
         end)
 
         it("returns three tops when all sections have results", function()
-            local tops = Sticky.ComputeSectionHeaderTops(5, 3, 2, HEADER_HEIGHT, HEADER_ROW_GAP, ROW_HEIGHT)
+            local tops = Sticky.ComputeSectionHeaderTops(
+                5, 3, 2, HEADER_HEIGHT, HEADER_ROW_GAP, ROW_HEIGHT, SECTION_GAP_BEFORE_TOOLTIP)
             local expected, _ = computeSectionHeaderTops(5, 3, 2)
             assert.are.same(expected, tops)
+        end)
+
+        it("adds section gap before tooltip only when recipes precede it", function()
+            local withRecipes = Sticky.ComputeSectionHeaderTops(
+                0, 2, 1, HEADER_HEIGHT, HEADER_ROW_GAP, ROW_HEIGHT, SECTION_GAP_BEFORE_TOOLTIP)
+            local withoutGap = Sticky.ComputeSectionHeaderTops(
+                0, 2, 1, HEADER_HEIGHT, HEADER_ROW_GAP, ROW_HEIGHT, 0)
+            assert.are.equal(withoutGap[2] + SECTION_GAP_BEFORE_TOOLTIP, withRecipes[2])
+
+            local itemsOnlyThenTooltip = Sticky.ComputeSectionHeaderTops(
+                2, 0, 1, HEADER_HEIGHT, HEADER_ROW_GAP, ROW_HEIGHT, SECTION_GAP_BEFORE_TOOLTIP)
+            local itemsOnlyNoGapArg = Sticky.ComputeSectionHeaderTops(
+                2, 0, 1, HEADER_HEIGHT, HEADER_ROW_GAP, ROW_HEIGHT, 0)
+            assert.are.same(itemsOnlyNoGapArg, itemsOnlyThenTooltip)
         end)
     end)
 end)

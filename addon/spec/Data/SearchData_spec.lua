@@ -1239,6 +1239,66 @@ describe("SearchData", function()
       assert.is_truthy(a._aaSkillCellText:find("/300", 1, true))
       assert.is_truthy(b._aaSkillCellText:find("/200", 1, true))
     end)
+
+    it("formats collapsed guild rows as required/*** using hardest difficulty", function()
+      _G.GetSpellInfo = function(id)
+        if id == 11449 then
+          return "Greater Mana Potion", nil, "Interface\\Icons\\INV_Potion_73"
+        end
+        return "Alchemy"
+      end
+      _G.GetItemInfo = function() return nil end
+      local RCL = AltArmy.RecipeCraftLib
+      local oldAvailable = RCL.IsAvailable
+      local oldEnrich = RCL.EnrichEntry
+      RCL.IsAvailable = function() return true end
+      RCL.EnrichEntry = function(entry)
+        if not entry then return entry end
+        entry.recipeSkillRequired = 180
+        if entry.skillRank == 100 then
+          entry.difficulty = "orange"
+        elseif entry.skillRank == 200 then
+          entry.difficulty = "yellow"
+        else
+          entry.difficulty = "gray"
+        end
+        return entry
+      end
+      local entry = {
+        isGuildCollapsed = true,
+        professionName = "Alchemy",
+        recipeID = 11449,
+        guildChars = {
+          { characterName = "Alice", professionName = "Alchemy", recipeID = 11449, skillRank = 300 },
+          { characterName = "Bob", professionName = "Alchemy", recipeID = 11449, skillRank = 100 },
+          { characterName = "Carol", professionName = "Alchemy", recipeID = 11449, skillRank = 200 },
+        },
+      }
+      SD.EnsureRecipeDisplayCache(entry)
+      RCL.IsAvailable = oldAvailable
+      RCL.EnrichEntry = oldEnrich
+      assert.are.equal("|cffff8040180|r/***", entry._aaSkillCellText)
+    end)
+
+    it("uses * for collapsed rows when CraftLib is unavailable", function()
+      _G.GetSpellInfo = function() return "Alchemy" end
+      _G.GetItemInfo = function() return nil end
+      local RCL = AltArmy.RecipeCraftLib
+      local oldAvailable = RCL.IsAvailable
+      RCL.IsAvailable = function() return false end
+      local entry = {
+        isGuildCollapsed = true,
+        professionName = "Alchemy",
+        recipeID = 11449,
+        guildChars = {
+          { characterName = "Alice", professionName = "Alchemy", recipeID = 11449, skillRank = 300 },
+          { characterName = "Bob", professionName = "Alchemy", recipeID = 11449, skillRank = 100 },
+        },
+      }
+      SD.EnsureRecipeDisplayCache(entry)
+      RCL.IsAvailable = oldAvailable
+      assert.are.equal("*", entry._aaSkillCellText)
+    end)
   end)
 
   describe("StartRecipeResultPrewarm", function()
@@ -1687,6 +1747,171 @@ describe("SearchData", function()
       assert.are.equal("Alice", out[1].characterName)
       assert.are.equal("Bob", out[2].characterName)
       assert.are.equal("Zebra", out[3].characterName)
+    end)
+  end)
+
+  describe("CollapseGuildRecipeRows", function()
+    local function guildRow(name, recipeID, skillRank)
+      return {
+        characterName = name,
+        recipeID = recipeID,
+        professionName = "Tailoring",
+        skillRank = skillRank or 300,
+        isGuild = true,
+        classFile = "MAGE",
+        realm = "R",
+      }
+    end
+
+    local function localRow(name, recipeID, skillRank)
+      return {
+        characterName = name,
+        recipeID = recipeID,
+        professionName = "Tailoring",
+        skillRank = skillRank or 375,
+        classFile = "WARRIOR",
+        realm = "R",
+      }
+    end
+
+    it("collapses 3+ guild rows for the same recipe into one synthetic entry", function()
+      local sorted = {
+        localRow("Alice", 1),
+        guildRow("Bob", 1, 250),
+        guildRow("Carol", 1, 300),
+        guildRow("Dave", 1, 200),
+      }
+      local out = SD.CollapseGuildRecipeRows(sorted, {})
+      assert.are.equal(2, #out)
+      assert.are.equal("Alice", out[1].characterName)
+      assert.is_true(out[2].isGuildCollapsed)
+      assert.are.equal(1, out[2].recipeID)
+      assert.are.equal("Tailoring", out[2].professionName)
+      assert.are.equal("*", out[2]._aaSkillCellText)
+      assert.are.equal(3, #out[2].guildChars)
+      assert.are.equal("Bob", out[2].guildChars[1].characterName)
+      assert.are.equal("Carol", out[2].guildChars[2].characterName)
+      assert.are.equal("Dave", out[2].guildChars[3].characterName)
+    end)
+
+    it("leaves a single guild row uncollapsed", function()
+      local sorted = {
+        localRow("Alice", 1),
+        guildRow("Bob", 1),
+      }
+      local out = SD.CollapseGuildRecipeRows(sorted, {})
+      assert.are.equal(2, #out)
+      assert.are.equal("Alice", out[1].characterName)
+      assert.are.equal("Bob", out[2].characterName)
+      assert.is_nil(out[2].isGuildCollapsed)
+    end)
+
+    it("leaves exactly two guild rows uncollapsed", function()
+      local sorted = {
+        localRow("Alice", 1),
+        guildRow("Bob", 1),
+        guildRow("Carol", 1),
+      }
+      local out = SD.CollapseGuildRecipeRows(sorted, {})
+      assert.are.equal(3, #out)
+      assert.are.equal("Alice", out[1].characterName)
+      assert.are.equal("Bob", out[2].characterName)
+      assert.are.equal("Carol", out[3].characterName)
+      assert.is_nil(out[2].isGuildCollapsed)
+      assert.is_nil(out[3].isGuildCollapsed)
+    end)
+
+    it("leaves local-only rows unchanged", function()
+      local sorted = {
+        localRow("Alice", 1),
+        localRow("Bob", 1),
+      }
+      local out = SD.CollapseGuildRecipeRows(sorted, {})
+      assert.are.equal(2, #out)
+      assert.are.equal("Alice", out[1].characterName)
+      assert.are.equal("Bob", out[2].characterName)
+    end)
+
+    it("places the collapsed row at the first guild row position", function()
+      -- Sorted by Character: Alice (local), Bob/Carol/Dave (guild), Zebra (local other recipe)
+      local sorted = {
+        localRow("Alice", 1),
+        guildRow("Bob", 1),
+        guildRow("Carol", 1),
+        guildRow("Dave", 1),
+        localRow("Zebra", 2),
+      }
+      local out = SD.CollapseGuildRecipeRows(sorted, {})
+      assert.are.equal(3, #out)
+      assert.are.equal("Alice", out[1].characterName)
+      assert.is_true(out[2].isGuildCollapsed)
+      assert.are.equal(1, out[2].recipeID)
+      assert.are.equal("Zebra", out[3].characterName)
+    end)
+
+    it("collapses each recipe independently", function()
+      local sorted = {
+        guildRow("A", 1),
+        guildRow("B", 1),
+        guildRow("B2", 1),
+        guildRow("C", 2),
+        guildRow("D", 2),
+        guildRow("D2", 2),
+        guildRow("E", 3),
+        guildRow("F", 3),
+      }
+      local out = SD.CollapseGuildRecipeRows(sorted, {})
+      assert.are.equal(4, #out)
+      assert.is_true(out[1].isGuildCollapsed)
+      assert.are.equal(1, out[1].recipeID)
+      assert.is_true(out[2].isGuildCollapsed)
+      assert.are.equal(2, out[2].recipeID)
+      assert.are.equal("E", out[3].characterName)
+      assert.is_nil(out[3].isGuildCollapsed)
+      assert.are.equal("F", out[4].characterName)
+      assert.is_nil(out[4].isGuildCollapsed)
+    end)
+
+    it("keeps the summary row and appends child rows when expanded", function()
+      local sorted = {
+        localRow("Alice", 1),
+        guildRow("Bob", 1),
+        guildRow("Carol", 1),
+        guildRow("Dave", 1),
+      }
+      local out = SD.CollapseGuildRecipeRows(sorted, { [1] = true })
+      assert.are.equal(5, #out)
+      assert.are.equal("Alice", out[1].characterName)
+      assert.is_true(out[2].isGuildCollapsed)
+      assert.is_true(out[2].isGuildExpanded)
+      assert.are.equal(1, out[2].recipeID)
+      assert.are.equal(3, #out[2].guildChars)
+      assert.are.equal("Bob", out[3].characterName)
+      assert.is_true(out[3]._aaFromCollapse)
+      assert.are.equal("Carol", out[4].characterName)
+      assert.is_true(out[4]._aaFromCollapse)
+      assert.are.equal("Dave", out[5].characterName)
+      assert.is_true(out[5]._aaFromCollapse)
+      assert.is_nil(out[1]._aaFromCollapse)
+    end)
+
+    it("does not mutate the input list", function()
+      local sorted = {
+        guildRow("Bob", 1),
+        guildRow("Carol", 1),
+        guildRow("Dave", 1),
+      }
+      local out = SD.CollapseGuildRecipeRows(sorted, {})
+      assert.are.equal(1, #out)
+      assert.are.equal(3, #sorted)
+      assert.are.equal("Bob", sorted[1].characterName)
+    end)
+
+    it("returns the list unchanged when nil or empty", function()
+      assert.is_nil(SD.CollapseGuildRecipeRows(nil, {}))
+      local empty = {}
+      local out = SD.CollapseGuildRecipeRows(empty, {})
+      assert.are.equal(0, #out)
     end)
   end)
 
