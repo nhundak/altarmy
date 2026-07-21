@@ -335,9 +335,11 @@ function GA.ScheduleLevelUpUpgradeAnnouncement(newLevel)
         ctimer.After(GA.LEVEL_UP_UPGRADE_ANNOUNCE_DELAY_SEC, function()
             if generation ~= levelUpUpgradeAnnounceGeneration then return end
             GA.AnnounceLevelUpUpgrades(newLevel)
+            GA.AnnounceLevelUpConsumables(newLevel)
         end)
     else
         GA.AnnounceLevelUpUpgrades(newLevel)
+        GA.AnnounceLevelUpConsumables(newLevel)
     end
 end
 
@@ -667,6 +669,7 @@ function GA.SimulateLevelUp(rawLevel)
         return false
     end
     GA.AnnounceLevelUpUpgrades(newLevel)
+    GA.AnnounceLevelUpConsumables(newLevel)
     return true
 end
 
@@ -831,6 +834,109 @@ function GA.AnnounceLevelUpUpgrades(newLevel)
                 .. trainingSkillName(link) .. " before you can equip this.")
         end
     end
+end
+
+-- Returns the required level when the link is a consumable, nil otherwise.
+local function consumableRequiredLevel(link)
+    if not link or not GetItemInfo then return nil end
+    local name, _, _, _, minLevel, itemClass = GetItemInfo(link)
+    if not name then return nil end
+    if (itemClass or ""):lower() ~= "consumable" then return nil end
+    return tonumber(minLevel) or 0
+end
+
+-- Bag copies need no reminder, so a bag hit suppresses the bank label;
+-- mail is still called out because that copy must be retrieved before it expires.
+local function formatLevelUpConsumeFragment(link, locations)
+    locations = locations or {}
+    local fragment = link or "?"
+    local bank = locations.bank and not locations.bag
+    if bank and locations.mail then
+        fragment = fragment .. " (bank + mail)"
+    elseif locations.mail then
+        fragment = fragment .. " (mail)"
+    elseif bank then
+        fragment = fragment .. " (bank)"
+    end
+    return fragment
+end
+
+function GA.FormatLevelUpConsumeMessage(candidates)
+    if not candidates or #candidates == 0 then return "" end
+    local fragments = {}
+    for i = 1, #candidates do
+        local candidate = candidates[i]
+        fragments[i] = formatLevelUpConsumeFragment(candidate.link, candidate)
+    end
+    local list
+    if #fragments == 1 then
+        list = fragments[1]
+    elseif #fragments == 2 then
+        list = fragments[1] .. " and " .. fragments[2]
+    else
+        list = table.concat(fragments, ", ", 1, #fragments - 1)
+            .. ", and " .. fragments[#fragments]
+    end
+    return "Congratulations! You can now consume " .. list
+end
+
+--- Announce consumables in the bags, bank, or mailbox that become usable at the new level.
+function GA.AnnounceLevelUpConsumables(newLevel)
+    if not notifyCurrentCharacterEnabled() or not newLevel then return end
+    local DS = AltArmy.DataStore
+    if not DS or not DS.GetCurrentCharacter then return end
+    local char = DS:GetCurrentCharacter()
+    if not char then return end
+    local BA = AltArmy.BankAlt
+    if BA and BA.Is then
+        local realm = char.realm or (DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm()) or ""
+        local name = char.name or ""
+        if BA.Is(name, realm) then return end
+    end
+    if DS.ScanBags then DS:ScanBags() end
+
+    local candidates = {}
+    local candidateOrder = {}
+    local function consider(link, location)
+        if not link then return end
+        if consumableRequiredLevel(link) ~= newLevel then return end
+        noteLevelUpCandidate(candidates, candidateOrder, link, location)
+    end
+
+    if DS.IterateBagSlots then
+        DS:IterateBagSlots(char, function(_, _, itemId, _, link)
+            consider(resolveOwnedLink(itemId, link), "bag")
+        end)
+    elseif GetContainerNumSlots and GetContainerItemLink then
+        for bag = 0, 4 do
+            local slots = GetContainerNumSlots(bag) or 0
+            for slot = 1, slots do
+                consider(GetContainerItemLink(bag, slot), "bag")
+            end
+        end
+    end
+
+    if DS.IterateBankSlots then
+        DS:IterateBankSlots(char, function(_, _, itemId, _, link)
+            consider(resolveOwnedLink(itemId, link), "bank")
+        end)
+    end
+
+    local numMails = DS.GetNumMails and DS:GetNumMails(char) or 0
+    for i = 1, numMails do
+        if DS.GetMailInfo then
+            local _, _, link = DS:GetMailInfo(char, i)
+            consider(link, "mail")
+        end
+    end
+
+    if #candidateOrder == 0 then return end
+    local found = {}
+    for i = 1, #candidateOrder do
+        found[i] = candidates[candidateOrder[i]]
+    end
+    postChat(ALTARMY_GOLD .. "Alt Army|r "
+        .. GA.FormatLevelUpConsumeMessage(found))
 end
 
 function GA.HandleSetItemRef(link, button)

@@ -766,6 +766,248 @@ describe("GearUpgradeAlerts", function()
         end)
     end)
 
+    describe("AnnounceLevelUpConsumables", function()
+        local chatLines
+        local potionLink = "|Hitem:118:0|h[Minor Healing Potion]|h"
+        local elixirLink = "|Hitem:2454:0|h[Elixir of Lion's Strength]|h"
+        local scrollLink = "|Hitem:954:0|h[Scroll of Strength]|h"
+        local helmLink = "|Hitem:11:0|h[New Helm]|h"
+
+        local function consumableGetItemInfo(item)
+            local infoByLink = {
+                [potionLink] = { name = "Minor Healing Potion", minLevel = 5, class = "Consumable" },
+                [elixirLink] = { name = "Elixir of Lion's Strength", minLevel = 5, class = "Consumable" },
+                [scrollLink] = { name = "Scroll of Strength", minLevel = 10, class = "Consumable" },
+                [helmLink] = { name = "New Helm", minLevel = 5, class = "Armor" },
+            }
+            local info = infoByLink[item]
+            if not info then return nil end
+            return info.name, item, 1, 10, info.minLevel, info.class, "Potion"
+        end
+
+        local function loadWithMocks(overrides)
+            overrides = overrides or {}
+            chatLines = {}
+            _G.DEFAULT_CHAT_FRAME = {
+                AddMessage = function(_, line)
+                    chatLines[#chatLines + 1] = line
+                end,
+            }
+            _G.GetItemInfo = consumableGetItemInfo
+            _G.GetContainerNumSlots = function() return 0 end
+            _G.GetContainerItemLink = nil
+            AltArmy.DataStore = {
+                GetCurrentCharacter = function()
+                    return overrides.char or { classFile = "MAGE", name = "MageAlt" }
+                end,
+                ScanBags = function() end,
+                IterateBagSlots = overrides.iterateBagSlots or function() end,
+                IterateBankSlots = overrides.iterateBankSlots,
+                GetNumMails = overrides.getNumMails or function() return 0 end,
+                GetMailInfo = overrides.getMailInfo,
+                BANK_CONTAINER = -1,
+                MIN_BANK_BAG_ID = 5,
+                MAX_BANK_BAG_ID = 11,
+            }
+            AltArmy.GearUpgrade = {
+                GetOptions = function()
+                    local notifyCurrent = overrides.notifyCurrentCharacter
+                    if notifyCurrent == nil then notifyCurrent = true end
+                    return {
+                        notifyCurrentCharacter = notifyCurrent,
+                        notifyOtherCharacters = true,
+                        technique = "custom",
+                        levelsAhead = 5,
+                    }
+                end,
+                EvaluateForCharacter = function() return false end,
+                GetEffectiveTechnique = function(technique) return technique end,
+            }
+            AltArmy.ItemUsability = {
+                IsBindOnPickup = function() return false end,
+                NeedsProficiencyTraining = function() return false end,
+                EffectiveRequiredLevel = function() return 999 end,
+            }
+            package.loaded["GearUpgradeAlerts"] = nil
+            require("GearUpgradeAlerts")
+            GA = AltArmy.GearUpgradeAlerts
+        end
+
+        it("announces a bank consumable usable at the new level", function()
+            loadWithMocks({
+                iterateBankSlots = function(_, _char, cb)
+                    cb(-1, 1, 118, 5, potionLink)
+                end,
+            })
+            GA.AnnounceLevelUpConsumables(5)
+            assert.are.equal(1, #chatLines)
+            assert.matches("Congratulations! You can now consume ", chatLines[1])
+            assert.is_not_nil(chatLines[1]:find(potionLink .. " (bank)", 1, true))
+        end)
+
+        it("announces a mail consumable usable at the new level", function()
+            loadWithMocks({
+                getNumMails = function() return 1 end,
+                getMailInfo = function()
+                    return nil, 1, potionLink
+                end,
+            })
+            GA.AnnounceLevelUpConsumables(5)
+            assert.are.equal(1, #chatLines)
+            assert.is_not_nil(chatLines[1]:find(potionLink .. " (mail)", 1, true))
+        end)
+
+        it("merges bank and mail sources for the same consumable", function()
+            loadWithMocks({
+                iterateBankSlots = function(_, _char, cb)
+                    cb(-1, 1, 118, 5, potionLink)
+                end,
+                getNumMails = function() return 1 end,
+                getMailInfo = function()
+                    return nil, 1, potionLink
+                end,
+            })
+            GA.AnnounceLevelUpConsumables(5)
+            assert.are.equal(1, #chatLines)
+            assert.is_not_nil(chatLines[1]:find(potionLink .. " (bank + mail)", 1, true))
+        end)
+
+        it("lists multiple consumables with commas and a final and", function()
+            loadWithMocks({
+                iterateBankSlots = function(_, _char, cb)
+                    cb(-1, 1, 118, 5, potionLink)
+                    cb(-1, 2, 2454, 1, elixirLink)
+                end,
+            })
+            GA.AnnounceLevelUpConsumables(5)
+            assert.are.equal(1, #chatLines)
+            assert.is_not_nil(chatLines[1]:find(
+                potionLink .. " (bank) and " .. elixirLink .. " (bank)", 1, true))
+        end)
+
+        it("skips non-consumable items", function()
+            loadWithMocks({
+                iterateBankSlots = function(_, _char, cb)
+                    cb(-1, 1, 11, 1, helmLink)
+                end,
+            })
+            GA.AnnounceLevelUpConsumables(5)
+            assert.are.equal(0, #chatLines)
+        end)
+
+        it("skips consumables whose required level does not match", function()
+            loadWithMocks({
+                iterateBankSlots = function(_, _char, cb)
+                    cb(-1, 1, 954, 1, scrollLink)
+                end,
+            })
+            GA.AnnounceLevelUpConsumables(5)
+            assert.are.equal(0, #chatLines)
+        end)
+
+        it("announces bag consumables without a source suffix", function()
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 118, 5, potionLink)
+                end,
+            })
+            GA.AnnounceLevelUpConsumables(5)
+            assert.are.equal(1, #chatLines)
+            assert.matches("Congratulations! You can now consume ", chatLines[1])
+            assert.is_not_nil(chatLines[1]:find(potionLink, 1, true))
+            assert.is_nil(chatLines[1]:match("%(bank%)"))
+            assert.is_nil(chatLines[1]:match("%(mail%)"))
+        end)
+
+        it("omits the bank label when the consumable is also in bags", function()
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 118, 5, potionLink)
+                end,
+                iterateBankSlots = function(_, _char, cb)
+                    cb(-1, 1, 118, 5, potionLink)
+                end,
+            })
+            GA.AnnounceLevelUpConsumables(5)
+            assert.are.equal(1, #chatLines)
+            assert.is_nil(chatLines[1]:match("%(bank%)"))
+        end)
+
+        it("keeps the mail label when the consumable is also in bags", function()
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 118, 5, potionLink)
+                end,
+                getNumMails = function() return 1 end,
+                getMailInfo = function()
+                    return nil, 1, potionLink
+                end,
+            })
+            GA.AnnounceLevelUpConsumables(5)
+            assert.are.equal(1, #chatLines)
+            assert.is_not_nil(chatLines[1]:find(potionLink .. " (mail)", 1, true))
+        end)
+
+        it("does not announce when current-character notifications are disabled", function()
+            loadWithMocks({
+                notifyCurrentCharacter = false,
+                iterateBankSlots = function(_, _char, cb)
+                    cb(-1, 1, 118, 5, potionLink)
+                end,
+            })
+            GA.AnnounceLevelUpConsumables(5)
+            assert.are.equal(0, #chatLines)
+        end)
+
+        it("skips consumable announcements for bank alts", function()
+            require("CharKey")
+            package.loaded["BankAlt"] = nil
+            require("BankAlt")
+            AltArmy.BankAlt.Set("MageAlt", "TestRealm", true)
+            loadWithMocks({
+                char = { classFile = "MAGE", name = "MageAlt", realm = "TestRealm" },
+                iterateBankSlots = function(_, _char, cb)
+                    cb(-1, 1, 118, 5, potionLink)
+                end,
+            })
+            AltArmy.DataStore.GetCurrentPlayerRealm = function() return "TestRealm" end
+            GA.AnnounceLevelUpConsumables(5)
+            assert.are.equal(0, #chatLines)
+        end)
+
+        it("ScheduleLevelUpUpgradeAnnouncement also announces consumables", function()
+            local scheduled = {}
+            _G.C_Timer = {
+                After = function(_, fn)
+                    scheduled[#scheduled + 1] = fn
+                end,
+            }
+            loadWithMocks({
+                iterateBankSlots = function(_, _char, cb)
+                    cb(-1, 1, 118, 5, potionLink)
+                end,
+            })
+            GA.ScheduleLevelUpUpgradeAnnouncement(5)
+            assert.are.equal(0, #chatLines)
+            scheduled[1]()
+            assert.are.equal(1, #chatLines)
+            assert.matches("You can now consume ", chatLines[1])
+            _G.C_Timer = nil
+        end)
+
+        it("SimulateLevelUp runs the consumable scan", function()
+            loadWithMocks({
+                iterateBankSlots = function(_, _char, cb)
+                    cb(-1, 1, 118, 5, potionLink)
+                end,
+            })
+            local ok = GA.SimulateLevelUp(5)
+            assert.is_true(ok)
+            assert.are.equal(1, #chatLines)
+            assert.matches("You can now consume ", chatLines[1])
+        end)
+    end)
+
     describe("CollectQuestRewardLinks", function()
         it("collects only choice links when choices exist", function()
             package.loaded["GearUpgradeAlerts"] = nil
@@ -1237,6 +1479,69 @@ describe("GearUpgradeAlerts", function()
                     { link = bootsLink, bag = true },
                     { link = glovesLink, bag = true },
                 }))
+        end)
+    end)
+
+    describe("FormatLevelUpConsumeMessage", function()
+        local potionLink = "|Hitem:118:0|h[Minor Healing Potion]|h"
+        local elixirLink = "|Hitem:2454:0|h[Elixir of Lion's Strength]|h"
+        local scrollLink = "|Hitem:954:0|h[Scroll of Strength]|h"
+
+        it("labels the source as bank, mail, or bank + mail", function()
+            assert.are.equal(
+                "Congratulations! You can now consume " .. potionLink .. " (bank)",
+                GA.FormatLevelUpConsumeMessage({ { link = potionLink, bank = true } }))
+            assert.are.equal(
+                "Congratulations! You can now consume " .. potionLink .. " (mail)",
+                GA.FormatLevelUpConsumeMessage({ { link = potionLink, mail = true } }))
+            assert.are.equal(
+                "Congratulations! You can now consume " .. potionLink .. " (bank + mail)",
+                GA.FormatLevelUpConsumeMessage({ { link = potionLink, bank = true, mail = true } }))
+        end)
+
+        it("suppresses bank labels for items also in bags but keeps mail", function()
+            assert.are.equal(
+                "Congratulations! You can now consume " .. potionLink,
+                GA.FormatLevelUpConsumeMessage({ { link = potionLink, bag = true } }))
+            assert.are.equal(
+                "Congratulations! You can now consume " .. potionLink,
+                GA.FormatLevelUpConsumeMessage({ { link = potionLink, bag = true, bank = true } }))
+            assert.are.equal(
+                "Congratulations! You can now consume " .. potionLink .. " (mail)",
+                GA.FormatLevelUpConsumeMessage({ { link = potionLink, bag = true, mail = true } }))
+            assert.are.equal(
+                "Congratulations! You can now consume " .. potionLink .. " (mail)",
+                GA.FormatLevelUpConsumeMessage({
+                    { link = potionLink, bag = true, bank = true, mail = true },
+                }))
+        end)
+
+        it("joins two consumables with and", function()
+            assert.are.equal(
+                "Congratulations! You can now consume "
+                    .. potionLink .. " (bank) and " .. elixirLink .. " (mail)",
+                GA.FormatLevelUpConsumeMessage({
+                    { link = potionLink, bank = true },
+                    { link = elixirLink, mail = true },
+                }))
+        end)
+
+        it("lists three or more consumables with commas and a final and", function()
+            assert.are.equal(
+                "Congratulations! You can now consume "
+                    .. potionLink .. " (bank), "
+                    .. elixirLink .. " (mail), and "
+                    .. scrollLink .. " (bank + mail)",
+                GA.FormatLevelUpConsumeMessage({
+                    { link = potionLink, bank = true },
+                    { link = elixirLink, mail = true },
+                    { link = scrollLink, bank = true, mail = true },
+                }))
+        end)
+
+        it("returns empty string for no candidates", function()
+            assert.are.equal("", GA.FormatLevelUpConsumeMessage({}))
+            assert.are.equal("", GA.FormatLevelUpConsumeMessage(nil))
         end)
     end)
 end)
