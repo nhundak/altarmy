@@ -1381,7 +1381,7 @@ applyListColumnLayout = function()
                 row.lastOnlineFS:SetShown(showOnline)
             end
             row.profFS:ClearAllPoints()
-            row.profFS:SetPoint("LEFT", row, "LEFT", UI.SECOND_COLUMN, 0)
+            row.profFS:SetPoint("LEFT", row, "LEFT", UI.SECOND_COLUMN + UI.CHAR_INDENT, 0)
             if showOnline and row.lastOnlineFS then
                 row.profFS:SetPoint("RIGHT", row.lastOnlineFS, "LEFT", -UI.NAME_COLUMN_GAP, 0)
             else
@@ -1701,7 +1701,7 @@ local function acquireCharRow(index)
         lastOnlineFS:SetWordWrap(false)
         row.lastOnlineFS = lastOnlineFS
         local profFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        profFS:SetPoint("LEFT", row, "LEFT", UI.SECOND_COLUMN, 0)
+        profFS:SetPoint("LEFT", row, "LEFT", UI.SECOND_COLUMN + UI.CHAR_INDENT, 0)
         profFS:SetPoint("RIGHT", lastOnlineFS, "LEFT", -UI.NAME_COLUMN_GAP, 0)
         profFS:SetJustifyH("LEFT")
         profFS:SetWordWrap(false)
