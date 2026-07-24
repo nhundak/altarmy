@@ -44,6 +44,9 @@ function D.Ensure()
     if d.pretendCraftLibNotInstalled == nil then
         d.pretendCraftLibNotInstalled = false
     end
+    if d.showZygorMissingGuides == nil then
+        d.showZygorMissingGuides = false
+    end
     -- Legacy SavedVariables key from the dual-engine experiment; no longer read.
     d.searchEngineV2 = nil
 end
@@ -194,6 +197,27 @@ function D.RefreshCraftLibDependentUi()
     if searchFrame and searchFrame.DoSearch then
         pcall(function()
             searchFrame:DoSearch()
+        end)
+    end
+end
+
+--- When true, Reputation-tab Zygor icons also appear for trial placeholder guides
+--- (guide.missing). Standalone flag (does not require master debug on).
+function D.IsShowZygorMissingGuides()
+    D.Ensure()
+    return AltArmyTBC_Options.debug.showZygorMissingGuides == true
+end
+
+function D.SetShowZygorMissingGuides(on)
+    D.Ensure()
+    AltArmyTBC_Options.debug.showZygorMissingGuides = on == true
+end
+
+function D.RefreshZygorDependentUi()
+    local repFrame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Reputation
+    if repFrame and repFrame.RefreshGrid then
+        pcall(function()
+            repFrame:RefreshGrid()
         end)
     end
 end

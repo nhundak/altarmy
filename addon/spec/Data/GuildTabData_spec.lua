@@ -1366,12 +1366,15 @@ describe("GuildTabData", function()
         GTD.FormatNoProfessionsMessage(m, plainFormatName))
     end)
 
-    it("says they have no professions with recipes when only secondary skills are known", function()
+    it("treats secondary-only skills as no known professions", function()
       local m = member({ name = "Cook", classFile = "MAGE", profs = {
         { key = "cooking", name = "Cooking", rank = 300 },
+        { key = "firstAid", name = "First Aid", rank = 300 },
+        { key = "fishing", name = "Fishing", rank = 300 },
+        { key = "lockpicking", name = "Lockpicking", rank = 300 },
         { key = "poisons", name = "Poisons", rank = 300 },
       } })
-      assert.are.equal("Cook has no professions with recipes",
+      assert.are.equal("No known professions for Cook",
         GTD.FormatNoProfessionsMessage(m, plainFormatName))
     end)
   end)

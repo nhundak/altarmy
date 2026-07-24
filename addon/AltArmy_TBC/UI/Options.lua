@@ -502,6 +502,33 @@ debugPretendCraftLibHint:SetText(
     "Hides CraftLib-only search filters and guild recipe skill columns even when CraftLib is loaded."
     .. " Toggle with /altarmy craftlib toggle.")
 
+local debugShowZygorMissingRow = Theme.CreateLabeledCheckbox(tabDebug, {
+    point = "TOPLEFT",
+    relativeTo = debugPretendCraftLibHint,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -16,
+    text = "Show Zygor guides (trial placeholders)",
+    fullWidthHover = true,
+    onClick = function(checked)
+        if AltArmy.Debug and AltArmy.Debug.SetShowZygorMissingGuides then
+            AltArmy.Debug.SetShowZygorMissingGuides(checked)
+        end
+        if AltArmy.Debug and AltArmy.Debug.RefreshZygorDependentUi then
+            AltArmy.Debug.RefreshZygorDependentUi()
+        end
+    end,
+})
+panel.debugShowZygorMissingCheckbox = debugShowZygorMissingRow.check
+
+local debugShowZygorMissingHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+debugShowZygorMissingHint:SetPoint("TOPLEFT", debugShowZygorMissingRow, "BOTTOMLEFT", 0, -8)
+debugShowZygorMissingHint:SetWidth(520)
+debugShowZygorMissingHint:SetJustifyH("LEFT")
+debugShowZygorMissingHint:SetText(
+    "On the Reputation tab, show Zygor guide icons even when Zygor only has trial placeholder "
+        .. "guides (they cannot be opened). Paid Zygor installs show icons without this.")
+
 function RefreshDebugCheckboxes()
     local D = AltArmy and AltArmy.Debug
     if not D or not D.Ensure then return end
@@ -527,6 +554,9 @@ function RefreshDebugCheckboxes()
     end
     if panel.debugPretendCraftLibCheckbox then
         panel.debugPretendCraftLibCheckbox:SetChecked(d.pretendCraftLibNotInstalled == true)
+    end
+    if panel.debugShowZygorMissingCheckbox then
+        panel.debugShowZygorMissingCheckbox:SetChecked(d.showZygorMissingGuides == true)
     end
     ResetDeleteAllHistoryButton()
 end

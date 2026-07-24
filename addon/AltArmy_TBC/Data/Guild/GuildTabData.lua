@@ -214,17 +214,6 @@ function GTD.GetCraftingProfessions(entry)
     return crafting
 end
 
-local function hasAnyProfessionWithRank(entry)
-    local profs = entry and entry.Professions
-    if type(profs) ~= "table" then return false end
-    for _, prof in pairs(profs) do
-        if (prof.rank or 0) > 0 then
-            return true
-        end
-    end
-    return false
-end
-
 local function findProfessionByKey(char, profKey)
     if not char or type(char.Professions) ~= "table" or not profKey then return nil end
     local prof = char.Professions[profKey]
@@ -467,11 +456,11 @@ function GTD.FormatCharacterTitle(entry, formatName)
 end
 
 --- Empty-state copy when recipe tabs are unavailable.
---- Truly no professions → "No known professions for {name}".
---- Has professions but none crafting → "{name} has no professions with recipes".
+--- No primary/gathering professions (secondary-only counts as none) → "No known professions for {name}".
+--- Has gathering (or other non-crafting primary) but no crafting → "{name} has no professions with recipes".
 function GTD.FormatNoProfessionsMessage(entry, formatName)
     local name = formatNamePart(entry, formatName)
-    if hasAnyProfessionWithRank(entry) then
+    if #GTD.GetPrimaryProfessions(entry) > 0 then
         return name .. " has no professions with recipes"
     end
     return "No known professions for " .. name

@@ -11,6 +11,7 @@ local SSR = AltArmy.ScoreSortRow
 local SD = AltArmy.SummaryData
 local CC = AltArmy.ClassColor
 local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
+local ZI = AltArmy.ZygorIntegration
 local PAD = 4
 local SECTION_INSET = Theme.TAB_SECTION_INSET
 local SECTION_GAP = Theme.SECTION_GAP
@@ -33,6 +34,8 @@ local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
 local SCORE_ROW_HEIGHT = 20         -- extra header height for the sorting row (Gear: GetScoreRowHeight)
 local SCORE_ROW_CONTENT_HEIGHT = 24 -- control/value height (Gear: GetScoreRowContentHeight)
 local SCORE_ROW_BOTTOM_INSET = 6    -- (Gear: SCORE_ROW_HEADER_BOTTOM_INSET)
+local ZYGOR_BTN_SIZE = 16
+local ZYGOR_BTN_GAP = 4
 local function GetHeaderHeight()
     return FIXED_HEADER_ROW_HEIGHT + SCORE_ROW_HEIGHT
 end
@@ -616,8 +619,48 @@ local function GetFactionLabelRow(i)
         row.sortBtn:SetScript("OnClick", function(self)
             ToggleFactionSort(self:GetParent().factionID)
         end)
+        -- Zygor guide icon: shown only when a loadable guide exists for this faction.
+        -- Hit area is full row height; hover tint matches the faction-name band.
+        row.zygorBtn = CreateFrame("Button", nil, row)
+        row.zygorBtn:SetSize(ZYGOR_BTN_SIZE, REP_ROW_HEIGHT)
+        row.zygorBtn:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+        row.zygorBtn.icon = row.zygorBtn:CreateTexture(nil, "ARTWORK")
+        row.zygorBtn.icon:SetSize(ZYGOR_BTN_SIZE, ZYGOR_BTN_SIZE)
+        row.zygorBtn.icon:SetPoint("CENTER", row.zygorBtn, "CENTER", 0, 2)
+        row.zygorBtn:Hide()
+        if row.zygorBtn.RegisterForClicks then
+            row.zygorBtn:RegisterForClicks("LeftButtonUp")
+        end
+        row.zygorBtn:SetScript("OnClick", function(self)
+            local parent = self:GetParent()
+            if parent and parent.zygorGuideTitle and ZI and ZI.OpenGuide then
+                ZI.OpenGuide(parent.zygorGuideTitle)
+            end
+        end)
+        Theme.BindInteractableHover(row.zygorBtn, {
+            bandHeight = REP_FACTION_LABEL_HOVER_HEIGHT,
+            bandCenter = true,
+            bandYOffset = 2,
+            onEnter = function(self)
+                if not GameTooltip then return end
+                local parent = self:GetParent()
+                local fname = (parent and parent.factionName) or "faction"
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:ClearLines()
+                GameTooltip:AddLine("Load Zygor guide: " .. fname, 1, 1, 1)
+                GameTooltip:Show()
+            end,
+            onLeave = function()
+                if GameTooltip then GameTooltip:Hide() end
+            end,
+        })
         row:SetScript("OnMouseUp", function(self, button)
             if button ~= "LeftButton" then return end
+            -- Child Zygor button owns its click; don't also toggle faction sort.
+            if self.zygorBtn and self.zygorBtn:IsShown() and self.zygorBtn.IsMouseOver
+                and self.zygorBtn:IsMouseOver() then
+                return
+            end
             ToggleFactionSort(self.factionID)
         end)
         factionLabelPool[i] = row
@@ -674,8 +717,16 @@ local function UpdateFactionLabels(factionRows, numRows)
         end
 
         local isSorted = fr and factionSortFactionID and factionSortFactionID == fr.factionID
-        local baseMax = FACTION_LABEL_WIDTH - 6
-        local nameMax = isSorted and (baseMax - (FACTION_SORT_BTN_SIZE + 4)) or baseMax
+        local name = (fr and fr.name) or "?"
+        row.factionName = name
+
+        local zygorTitle = nil
+        if ZI and ZI.GetGuideForFaction and fr and fr.factionID then
+            zygorTitle = ZI.GetGuideForFaction(fr.factionID)
+        end
+        row.zygorGuideTitle = zygorTitle
+        local hasZygor = zygorTitle ~= nil
+
         if isSorted then
             row.text:SetTextColor(1, 0.82, 0, 1)
             row.sortBtn.text:SetText(factionSortHighFirst and ">" or "<")
@@ -684,7 +735,33 @@ local function UpdateFactionLabels(factionRows, numRows)
             row.text:SetTextColor(0.9, 0.9, 0.9, 1)
             row.sortBtn:Hide()
         end
-        local name = (fr and fr.name) or "?"
+
+        row.zygorBtn:ClearAllPoints()
+        if hasZygor then
+            local texPath = ZI and ZI.GetIconTexturePath and ZI.GetIconTexturePath()
+            if texPath and row.zygorBtn.icon then
+                row.zygorBtn.icon:SetTexture(texPath)
+            end
+            row.zygorBtn:SetSize(ZYGOR_BTN_SIZE, dims.rowHeight)
+            -- Anchor to the row (not sortBtn) so full-height hit area stays row-aligned.
+            local rightInset = 2
+            if isSorted then
+                rightInset = 2 + FACTION_SORT_BTN_SIZE + ZYGOR_BTN_GAP
+            end
+            row.zygorBtn:SetPoint("RIGHT", row, "RIGHT", -rightInset, 0)
+            row.zygorBtn:Show()
+        else
+            row.zygorBtn:Hide()
+        end
+
+        local baseMax = FACTION_LABEL_WIDTH - 6
+        local nameMax = baseMax
+        if isSorted then
+            nameMax = nameMax - (FACTION_SORT_BTN_SIZE + 4)
+        end
+        if hasZygor then
+            nameMax = nameMax - (ZYGOR_BTN_SIZE + ZYGOR_BTN_GAP)
+        end
         if TruncateFontString then
             TruncateFontString(row.text, name, nameMax)
         else

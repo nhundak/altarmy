@@ -4,7 +4,7 @@
 ## Version: 1.8.11
 ## Author: Nick Tower
 ## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings, AltArmyTBC_GraphSettings, AltArmyTBC_GuildData, AltArmyTBC_SharingSettings
-## OptionalDeps: Auctionator, CraftLib, TacoTip, GearScoreTBCClassic, RXPGuides, RXPGuides_TBC, NovaInstanceTracker, Questie
+## OptionalDeps: Auctionator, CraftLib, TacoTip, GearScoreTBCClassic, RXPGuides, RXPGuides_TBC, NovaInstanceTracker, Questie, ZygorGuidesViewerClassicTBCAnniv
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
 UI\Theme.lua
@@ -38,6 +38,7 @@ Data\Cooldowns\CooldownAlerts.lua
 Data\Gear\GearUpgradeAlerts.lua
 Data\Integrations\RestedXpIntegration.lua
 Data\Integrations\RestedXpQuestRewardConflict.lua
+Data\Integrations\ZygorIntegration.lua
 Data\DataStore\DataStoreReputations.lua
 Data\DataStore\DataStoreMail.lua
 Data\DataStore\DataStoreAuctions.lua
