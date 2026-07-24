@@ -2790,6 +2790,9 @@ end
 
 function GearTab.FormatComparePercentInParens(percent)
     percent = tonumber(percent) or 0
+    if percent >= 1000 then
+        return "(999+%)"
+    end
     if percent < 0 then
         return "(" .. GearTab.FormatCompareDelta(percent) .. "%)"
     end

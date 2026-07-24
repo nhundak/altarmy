@@ -325,6 +325,9 @@ describe("Gear compare panel height", function()
         end
         local function formatComparePercentInParens(percent)
             percent = tonumber(percent) or 0
+            if percent >= 1000 then
+                return "(999+%)"
+            end
             if percent < 0 then
                 return "(" .. formatCompareDelta(percent) .. "%)"
             end
@@ -339,6 +342,9 @@ describe("Gear compare panel height", function()
         assert.are.equal("-1.4 (-8.1%)", formatCompareWeightedChange(-1.4, -8.1))
         assert.are.equal("0 (0%)", formatCompareWeightedChange(0, 0))
         assert.are.equal("+40", formatCompareWeightedChange(40, nil))
+        assert.are.equal("+12 (999+%)", formatCompareWeightedChange(12, 1000))
+        assert.are.equal("+50 (999+%)", formatCompareWeightedChange(50, 2500))
+        assert.are.equal("+9.9 (999%)", formatCompareWeightedChange(9.9, 999))
     end)
 
     it("uses gold label and threshold-based delta color for weighted summary row", function()
