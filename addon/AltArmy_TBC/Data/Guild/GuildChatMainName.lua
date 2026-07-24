@@ -1,9 +1,11 @@
 -- AltArmy TBC — Guild data sharing: guild-chat main-name insertion.
--- Annotates chat messages from an alt with the poster's self-declared main, so you can
--- tell who is behind an unfamiliar alt name. Also annotates guildmate online/offline
--- system messages the same way, and anniversary guild UI (Communities) messages via a
--- FormatMessage wrap. Pure Transform is unit-tested; chat filters / hooks are installed
--- once and gated at call time by the feature flag, sharing opt-in, and chat settings.
+-- Annotates chat messages with the poster's group display label (override → preferred →
+-- main) when that label differs from the sender name, so you can tell who is behind an
+-- unfamiliar alt (or a main using a preferred name). Also annotates guildmate
+-- online/offline system messages the same way, and anniversary guild UI (Communities)
+-- messages via a FormatMessage wrap. Pure Transform is unit-tested; chat filters / hooks
+-- are installed once and gated at call time by the feature flag, sharing opt-in, and
+-- chat settings.
 -- luacheck: globals ChatFrame_AddMessageEventFilter CreateFrame IsAddOnLoaded
 -- luacheck: globals C_Club CommunitiesChatMixin CommunitiesFrame
 
@@ -48,19 +50,23 @@ local function stripRealm(name)
     return name:match("^[^%-]+") or name
 end
 
---- Annotate when sender is an alt of `getMain(sender)`. Optional `getLabel(sender, main)`
---- supplies the bracket text (override → preferred → main); defaults to main.
+--- Annotate with the group's display label (override → preferred → main).
+--- Skips when there is no main, or when the resolved label matches the sender name
+--- (nothing useful to add beyond the character already shown in chat).
 --- Optional `colorByClass` (default true) controls class-color escapes on the bracket label.
 function GCM.Transform(sender, message, getMain, getMainClass, getLabel, colorByClass)
     if not sender or not getMain then return message end
     local senderKey = stripRealm(sender)
     local main = getMain(sender)
-    if not main or main == "" or main == senderKey then
+    if not main or main == "" then
         return message
     end
     local label = (getLabel and getLabel(sender, main)) or main
     if not label or label == "" then
         label = main
+    end
+    if label == senderKey then
+        return message
     end
     local useColor = colorByClass ~= false
     local classFile = (useColor and getMainClass) and getMainClass(sender, main) or nil
@@ -95,17 +101,20 @@ function GCM.ParseOnlineOffline(message)
     return nil
 end
 
---- Resolve label + class for an alt sender. Returns label, classFile, or nil if no annotation.
+--- Resolve label + class for annotation. Returns label, classFile, useColor, or nil if none.
 local function resolveAnnotation(sender, getMain, getMainClass, getLabel, colorByClass)
     if not sender or not getMain then return nil end
     local senderKey = stripRealm(sender)
     local main = getMain(sender)
-    if not main or main == "" or main == senderKey then
+    if not main or main == "" then
         return nil
     end
     local label = (getLabel and getLabel(sender, main)) or main
     if not label or label == "" then
         label = main
+    end
+    if label == senderKey then
+        return nil
     end
     local useColor = colorByClass ~= false
     local classFile = (useColor and getMainClass) and getMainClass(sender, main) or nil

@@ -57,15 +57,26 @@ describe("GuildChatMainName", function()
     assert.are.equal("[Mainman] hello", out)
   end)
 
-  it("leaves the message unchanged when the sender is their own main", function()
+  it("leaves the message unchanged when the label matches the sender name", function()
     assert.are.equal("hello", GCM.Transform("Mainman", "hello", mains({ Mainman = "Mainman" })))
   end)
 
-  it("leaves the message unchanged when the sender main matches without realm suffix", function()
+  it("leaves the message unchanged when the label matches the sender without realm suffix", function()
     assert.are.equal(
       "hello",
       GCM.Transform("Mainman-Realm", "hello", mains({ ["Mainman-Realm"] = "Mainman" }))
     )
+  end)
+
+  it("annotates when the sender is their own main but the preferred label differs", function()
+    local out = GCM.Transform(
+      "Mainman",
+      "hello",
+      mains({ Mainman = "Mainman" }),
+      nil,
+      function() return "SomethingElse" end,
+      false)
+    assert.are.equal("[SomethingElse] hello", out)
   end)
 
   describe("FilterMessage channel gating", function()
@@ -251,13 +262,13 @@ describe("GuildChatMainName", function()
     assert.is_false(out:find("Mainman", 1, true) ~= nil, out)
   end)
 
-  it("still skips annotation when sender is the main even if getLabel differs", function()
+  it("skips annotation when getLabel matches the sender name", function()
     local out = GCM.Transform(
-      "Mainman",
+      "Alt",
       "hello",
-      mains({ Mainman = "Mainman" }),
+      mains({ Alt = "Mainman" }),
       nil,
-      function() return "Buddy" end)
+      function() return "Alt" end)
     assert.are.equal("hello", out)
   end)
 
@@ -311,6 +322,13 @@ describe("GuildChatMainName", function()
       AltArmy.GuildShareSettings.GetGroupOverrideName = function() return nil end
       local out = GCM.FilterMessage("hello", "Alt", "guild")
       assert.is_true(out and out:find("Chief", 1, true) ~= nil, out)
+    end)
+
+    it("annotates when the sender is the main but displayName differs", function()
+      AltArmy.GuildShareSettings.GetGroupOverrideName = function() return nil end
+      AltArmy.GuildShareSettings.IsChatInsertionClassColorEnabled = function() return false end
+      local out = GCM.FilterMessage("hello", "Mainman", "guild")
+      assert.are.equal("[Chief] hello", out)
     end)
   end)
 
@@ -371,9 +389,19 @@ describe("GuildChatMainName", function()
       assert.are.equal("Allystie [Treebus] has gone offline.", out)
     end)
 
-    it("leaves online/offline unchanged when the character is their own main", function()
+    it("leaves online/offline unchanged when the label matches the character name", function()
       assert.are.equal(ONLINE, GCM.TransformOnlineOffline(ONLINE, mains({ Allystie = "Allystie" })))
       assert.are.equal(OFFLINE, GCM.TransformOnlineOffline(OFFLINE, mains({ Allystie = "Allystie" })))
+    end)
+
+    it("annotates online/offline when the character is their main but preferred label differs", function()
+      local out = GCM.TransformOnlineOffline(
+        OFFLINE,
+        mains({ Allystie = "Allystie" }),
+        nil,
+        function() return "SomethingElse" end,
+        false)
+      assert.are.equal("Allystie [SomethingElse] has gone offline.", out)
     end)
 
     it("leaves online/offline unchanged when the character is unknown", function()
