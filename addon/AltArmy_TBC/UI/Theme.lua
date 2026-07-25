@@ -213,7 +213,12 @@ function Theme.SkinButton(btn, isToggle)
     Theme.ApplyBackdrop(btn, "button")
     setButtonTextColor(btn, C.btnText)
 
-    local function restoreNormal(self)
+    -- Skinned buttons lose Blizzard disabled textures; keep a muted look in sync with Enable/Disable.
+    local mutedBg = { 0.10, 0.10, 0.12, 1.00 }
+    local mutedBorder = { 0.20, 0.18, 0.16, 0.70 }
+    local mutedText = { 0.45, 0.45, 0.48, 1.00 }
+
+    local function applyEnabledLook(self)
         if self._selected then
             applyButtonColors(self, C.btnActiveBg, C.btnActiveBorder)
             setButtonTextColor(self, C.btnTextHover)
@@ -223,8 +228,33 @@ function Theme.SkinButton(btn, isToggle)
         end
     end
 
+    local function applyDisabledLook(self)
+        applyButtonColors(self, mutedBg, mutedBorder)
+        setButtonTextColor(self, mutedText)
+    end
+
+    local function restoreNormal(self)
+        if self.IsEnabled and not self:IsEnabled() then
+            applyDisabledLook(self)
+            return
+        end
+        applyEnabledLook(self)
+    end
+
+    local origEnable = btn.Enable
+    local origDisable = btn.Disable
+    btn.Enable = function(self)
+        if origEnable then origEnable(self) end
+        applyEnabledLook(self)
+    end
+    btn.Disable = function(self)
+        if origDisable then origDisable(self) end
+        applyDisabledLook(self)
+    end
+
     if btn.HookScript then
         btn:HookScript("OnEnter", function(self)
+            if self.IsEnabled and not self:IsEnabled() then return end
             if not self._selected then
                 applyButtonColors(self, C.btnHoverBg, C.btnHoverBorder)
             end
@@ -232,6 +262,7 @@ function Theme.SkinButton(btn, isToggle)
         end)
         btn:HookScript("OnLeave", restoreNormal)
         btn:HookScript("OnMouseDown", function(self)
+            if self.IsEnabled and not self:IsEnabled() then return end
             applyButtonColors(self, C.btnPressBg, C.btnBorder)
         end)
         btn:HookScript("OnMouseUp", restoreNormal)
@@ -240,14 +271,16 @@ function Theme.SkinButton(btn, isToggle)
     if isToggle then
         btn.SetSelected = function(self, on)
             self._selected = on
-            if on then
-                applyButtonColors(self, C.btnActiveBg, C.btnActiveBorder)
-                setButtonTextColor(self, C.btnTextHover)
-            else
-                applyButtonColors(self, C.btnBg, C.btnBorder)
-                setButtonTextColor(self, C.btnText)
+            if self.IsEnabled and not self:IsEnabled() then
+                applyDisabledLook(self)
+                return
             end
+            applyEnabledLook(self)
         end
+    end
+
+    if btn.IsEnabled and not btn:IsEnabled() then
+        applyDisabledLook(btn)
     end
 end
 

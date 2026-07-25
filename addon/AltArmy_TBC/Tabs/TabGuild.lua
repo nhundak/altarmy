@@ -396,7 +396,7 @@ local groupDeleteBtn = CreateFrame("Button", nil, groupSettingsBody, "UIPanelBut
 groupDeleteBtn:SetHeight(22)
 groupDeleteBtn:SetPoint("BOTTOMLEFT", groupSettingsBody, "BOTTOMLEFT", 0, 0)
 groupDeleteBtn:SetPoint("BOTTOMRIGHT", groupSettingsBody, "BOTTOMRIGHT", 0, 0)
-groupDeleteBtn:SetText("Delete")
+groupDeleteBtn:SetText("Delete local data")
 Theme.SkinDangerButton(groupDeleteBtn)
 groupDeleteBtn:SetScript("OnClick", function(self)
     if not selectedSettingsGroup then return end
@@ -442,7 +442,7 @@ end
 closeGroupSettings = function()
     selectedSettingsGroup = nil
     deleteConfirmPending = false
-    groupDeleteBtn:SetText("Delete")
+    groupDeleteBtn:SetText("Delete local data")
     groupSettingsPanel:Hide()
     applyMainPanelLayout()
     if updateGuildHeaderForListMode then
@@ -476,11 +476,11 @@ updateGroupSettingsPanel = function()
     if isOwn then
         groupDeleteBtn:Hide()
         deleteConfirmPending = false
-        groupDeleteBtn:SetText("Delete")
+        groupDeleteBtn:SetText("Delete local data")
     else
         groupDeleteBtn:Show()
         if not deleteConfirmPending then
-            groupDeleteBtn:SetText("Delete")
+            groupDeleteBtn:SetText("Delete local data")
         end
     end
 end
@@ -493,7 +493,7 @@ openGroupSettings = function(group)
     end
     selectedSettingsGroup = group
     deleteConfirmPending = false
-    groupDeleteBtn:SetText("Delete")
+    groupDeleteBtn:SetText("Delete local data")
     ApplyGroupSettingsPanelLayout()
     groupSettingsPanel:Show()
     applyMainPanelLayout()

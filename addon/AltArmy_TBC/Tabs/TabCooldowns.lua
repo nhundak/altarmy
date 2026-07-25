@@ -344,7 +344,7 @@ local stockpilePopover = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 stockpilePopover:Hide()
 stockpilePopover:SetFrameStrata("DIALOG")
 stockpilePopover:SetFrameLevel((frame:GetFrameLevel() or 0) + 200)
-stockpilePopover:SetSize(320, 120)
+stockpilePopover:SetSize(336, 120)
 stockpilePopover:EnableMouse(true)
 stockpilePopover:SetClampedToScreen(true)
 Theme.ApplyBackdrop(stockpilePopover, "dialog")
@@ -362,39 +362,39 @@ popTitle:SetPoint("TOPLEFT", stockpilePopover, "TOPLEFT", 12, -10)
 popTitle:SetText("Send Stockpile")
 Theme.SetTitleColor(popTitle)
 
-local popValueLabel = stockpilePopover:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-popValueLabel:SetPoint("TOPRIGHT", stockpilePopover, "TOPRIGHT", -12, -10)
-popValueLabel:SetJustifyH("RIGHT")
-popValueLabel:SetJustifyV("TOP")
+local popMin = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTemplate")
+popMin:SetSize(40, 22)
+popMin:SetPoint("TOPLEFT", popTitle, "BOTTOMLEFT", 0, -14)
+popMin:SetText("Min")
+Theme.SkinButton(popMin)
+
+local popMinus = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTemplate")
+popMinus:SetSize(24, 22)
+popMinus:SetPoint("TOP", popMin, "TOP", 0, 0)
+popMinus:SetPoint("LEFT", popMin, "RIGHT", 4, 0)
+popMinus:SetText("-")
+Theme.SkinButton(popMinus)
+
+local popMax = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTemplate")
+popMax:SetSize(40, 22)
+popMax:SetPoint("TOP", popMin, "TOP", 0, 0)
+popMax:SetPoint("RIGHT", stockpilePopover, "RIGHT", -12, 0)
+popMax:SetText("Max")
+Theme.SkinButton(popMax)
+
+local popPlus = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTemplate")
+popPlus:SetSize(24, 22)
+popPlus:SetPoint("TOP", popMin, "TOP", 0, 0)
+popPlus:SetPoint("RIGHT", popMax, "LEFT", -4, 0)
+popPlus:SetText("+")
+Theme.SkinButton(popPlus)
+
+local popValueLabel = stockpilePopover:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+popValueLabel:SetPoint("LEFT", popMinus, "RIGHT", 8, 0)
+popValueLabel:SetPoint("RIGHT", popPlus, "LEFT", -8, 0)
+popValueLabel:SetJustifyH("CENTER")
+popValueLabel:SetJustifyV("MIDDLE")
 popValueLabel:SetText("")
-
-local popSlider = CreateFrame("Slider", nil, stockpilePopover)
-popSlider:SetPoint("TOPLEFT", popTitle, "BOTTOMLEFT", 6, -16)
-popSlider:SetPoint("TOPRIGHT", stockpilePopover, "TOPRIGHT", -18, -32)
-popSlider:SetHeight(16)
-popSlider:SetOrientation("HORIZONTAL")
-popSlider:SetMinMaxValues(0, 1)
-popSlider:SetValueStep(1)
-popSlider:SetObeyStepOnDrag(true)
-popSlider:EnableMouse(true)
-local popThumb = popSlider:CreateTexture(nil, "ARTWORK")
-popThumb:SetTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
-popThumb:SetSize(16, 16)
-popSlider:SetThumbTexture(popThumb)
-local popBar = popSlider:CreateTexture(nil, "BACKGROUND")
-popBar:SetTexture("Interface\\Tooltips\\UI-Tooltip-Background")
-popBar:SetVertexColor(0.35, 0.35, 0.45, 1)
-popBar:SetHeight(8)
-popBar:SetPoint("LEFT", popSlider, "LEFT", 0, 0)
-popBar:SetPoint("RIGHT", popSlider, "RIGHT", 0, 0)
-
-local popMinLabel = stockpilePopover:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-popMinLabel:SetPoint("TOPLEFT", popSlider, "BOTTOMLEFT", -6, -6)
-popMinLabel:SetText("")
-
-local popMaxLabel = stockpilePopover:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-popMaxLabel:SetPoint("TOPRIGHT", popSlider, "BOTTOMRIGHT", 6, -6)
-popMaxLabel:SetText("")
 
 local popCancel = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTemplate")
 popCancel:SetSize(90, 20)
@@ -405,11 +405,12 @@ Theme.SkinButton(popCancel)
 local popOk = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTemplate")
 popOk:SetSize(90, 20)
 popOk:SetPoint("RIGHT", popCancel, "LEFT", -8, 0)
-popOk:SetText("Okay")
+popOk:SetText("Send")
 popOk:Disable()
 Theme.SkinButton(popOk)
 
 local popCtx = nil
+local popWillHave = 0
 local function HideStockpilePopover()
     stockpilePopover:Hide()
     stockpilePopoverOverlay:Hide()
@@ -444,26 +445,69 @@ end
 local function SyncPopoverOkState()
     if not popCtx then
         popOk:Disable()
+        popMin:Disable()
+        popMinus:Disable()
+        popPlus:Disable()
+        popMax:Disable()
         return
     end
     local lo = tonumber(popCtx.sliderMinWillHave) or 0
     local hi = tonumber(popCtx.sliderMaxWillHave) or lo
     if hi < lo then
         popOk:Disable()
+        popMin:Disable()
+        popMinus:Disable()
+        popPlus:Disable()
+        popMax:Disable()
         return
     end
-    local v = tonumber(popSlider:GetValue()) or lo
+    local v = tonumber(popWillHave) or lo
     if v >= lo and v <= hi then
         popOk:Enable()
     else
         popOk:Disable()
     end
+    if v > lo then
+        popMin:Enable()
+        popMinus:Enable()
+    else
+        popMin:Disable()
+        popMinus:Disable()
+    end
+    if v < hi then
+        popPlus:Enable()
+        popMax:Enable()
+    else
+        popPlus:Disable()
+        popMax:Disable()
+    end
 end
-popSlider:SetScript("OnValueChanged", function(_, value)
+
+local function SetPopoverWillHave(value)
     if not popCtx then return end
-    local v = math.floor((tonumber(value) or 0) + 0.5)
+    local lo = tonumber(popCtx.sliderMinWillHave) or 0
+    local hi = tonumber(popCtx.sliderMaxWillHave) or lo
+    local v = math.floor((tonumber(value) or lo) + 0.5)
+    if v < lo then v = lo end
+    if v > hi then v = hi end
+    popWillHave = v
     SetPopoverValueLines(v)
     SyncPopoverOkState()
+end
+
+popMin:SetScript("OnClick", function()
+    if not popCtx then return end
+    SetPopoverWillHave(tonumber(popCtx.sliderMinWillHave) or popWillHave)
+end)
+popMinus:SetScript("OnClick", function()
+    SetPopoverWillHave((tonumber(popWillHave) or 0) - 1)
+end)
+popPlus:SetScript("OnClick", function()
+    SetPopoverWillHave((tonumber(popWillHave) or 0) + 1)
+end)
+popMax:SetScript("OnClick", function()
+    if not popCtx then return end
+    SetPopoverWillHave(tonumber(popCtx.sliderMaxWillHave) or popWillHave)
 end)
 
 local function RunSendStockpile(_ctx)
@@ -472,7 +516,7 @@ end
 popOk:SetScript("OnClick", function()
     if not popCtx then return end
     local lo = tonumber(popCtx.sliderMinWillHave) or 0
-    local v = tonumber(popSlider:GetValue()) or lo
+    local v = tonumber(popWillHave) or lo
     if v < lo then return end
     popCtx.requestedCrafts = math.floor(v + 0.5)
     local ctx = popCtx
@@ -500,16 +544,9 @@ local function ShowStockpilePopover(anchorRow, ctx)
     if maxV < minV then maxV = minV end
     ctx.sliderMinWillHave = minV
     ctx.sliderMaxWillHave = maxV
-    popSlider:SetMinMaxValues(minV, maxV)
 
     popTitle:SetText("Send Stockpile")
-
-    local defaultV = minV
-    popSlider:SetValue(defaultV)
-    popMinLabel:SetText("Min: " .. tostring(minV))
-    popMaxLabel:SetText("Max: " .. tostring(maxV))
-    SetPopoverValueLines(defaultV)
-    SyncPopoverOkState()
+    SetPopoverWillHave(minV)
     stockpilePopoverOverlay:Show()
     stockpilePopover:Show()
 end
