@@ -60,10 +60,10 @@ function SE.SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
     return eng().SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
 end
 
-function SE.CollapseGuildRecipeRows(sortedList, expandedSet)
+function SE.CollapseGuildRecipeRows(sortedList, expandedSet, rosterByName)
     local e = eng()
     if e.CollapseGuildRecipeRows then
-        return e.CollapseGuildRecipeRows(sortedList, expandedSet)
+        return e.CollapseGuildRecipeRows(sortedList, expandedSet, rosterByName)
     end
     return sortedList
 end

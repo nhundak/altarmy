@@ -424,7 +424,9 @@ end
 --- Collapse guild rows for the same recipeID (parity with SearchData.CollapseGuildRecipeRows).
 --- Clears prior _aaFromCollapse flags on the input before building the display list.
 --- Collects guild chars per recipeID in one O(n) pass (no per-id j=i..n rescans).
-function SP.CollapseGuildRecipeRows(sortedList, expandedSet)
+--- Last-online sort (main-group, then A–Z) runs only for expanded groups so collapsed
+--- search refreshes stay cheap. Optional `rosterByName` feeds that expand-time sort.
+function SP.CollapseGuildRecipeRows(sortedList, expandedSet, rosterByName)
     if sortedList == nil then
         return nil
     end
@@ -454,6 +456,17 @@ function SP.CollapseGuildRecipeRows(sortedList, expandedSet)
         end
     end
 
+    local Nav = AltArmy and AltArmy.SearchGuildNav
+    local GTD = AltArmy and AltArmy.GuildTabData
+    local sortOpts = { rosterByName = rosterByName }
+    local function sortGuildCharsForExpand(chars)
+        if Nav and Nav.SortGuildRecipeCharsByLastOnline then
+            Nav.SortGuildRecipeCharsByLastOnline(chars, sortOpts)
+        elseif GTD and GTD.SortGuildSearchCharsByLastOnline then
+            GTD.SortGuildSearchCharsByLastOnline(chars, rosterByName)
+        end
+    end
+
     local out = {}
     local outN = 0
     local collapsedEmitted = {}
@@ -474,6 +487,9 @@ function SP.CollapseGuildRecipeRows(sortedList, expandedSet)
                 local guildChars = guildCharsById[id]
                 local charN = #guildChars
                 local isExpanded = expandedSet[id] and true or false
+                if isExpanded then
+                    sortGuildCharsForExpand(guildChars)
+                end
                 outN = outN + 1
                 out[outN] = {
                     isGuildCollapsed = true,

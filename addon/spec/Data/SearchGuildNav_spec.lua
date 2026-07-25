@@ -473,6 +473,66 @@ describe("SearchGuildNav", function()
       }))
   end)
 
+  it("SortGuildRecipeCharsByLastOnline uses main-group presence, then A-Z", function()
+    package.loaded["GuildTabData"] = nil
+    require("GuildTabData")
+    -- Bob (recipe alt) is offline; Chief (same main-group) is online => Bob sorts as online.
+    AltArmy.GuildShareData = {
+      GetCharacter = function(name, realm)
+        if name == "Bob" then
+          return {
+            name = "Bob", realm = realm, classFile = "MAGE",
+            main = "Chief", displayName = "Chief", guildName = "G",
+          }
+        end
+        if name == "Alice" then
+          return {
+            name = "Alice", realm = realm, classFile = "WARRIOR",
+            main = "Alice", displayName = "Alice", guildName = "G", isMain = true,
+          }
+        end
+        if name == "Zebra" then
+          return {
+            name = "Zebra", realm = realm, classFile = "PRIEST",
+            main = "Zebra", displayName = "Zebra", guildName = "G", isMain = true,
+          }
+        end
+        if name == "Chief" then
+          return {
+            name = "Chief", realm = realm, classFile = "WARRIOR",
+            main = "Chief", displayName = "Chief", guildName = "G", isMain = true,
+          }
+        end
+        return nil
+      end,
+      GetGuildMembersForDisplay = function()
+        return {
+          { name = "Bob", realm = "R", main = "Chief", classFile = "MAGE", guildName = "G" },
+          { name = "Chief", realm = "R", main = "Chief", classFile = "WARRIOR", guildName = "G", isMain = true },
+          { name = "Alice", realm = "R", main = "Alice", classFile = "WARRIOR", guildName = "G", isMain = true },
+          { name = "Zebra", realm = "R", main = "Zebra", classFile = "PRIEST", guildName = "G", isMain = true },
+        }
+      end,
+    }
+    local chars = {
+      { characterName = "Zebra", realm = "R" },
+      { characterName = "Alice", realm = "R" },
+      { characterName = "Bob", realm = "R" },
+    }
+    Nav.SortGuildRecipeCharsByLastOnline(chars, {
+      rosterByName = {
+        bob = { online = false, years = 0, months = 0, days = 0, hours = 5 },
+        chief = { online = true },
+        alice = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+        zebra = { online = true },
+      },
+    })
+    -- Online by group: Bob (via Chief), Zebra; then Alice (1d). A–Z within online: Bob, Zebra.
+    assert.are.equal("Bob", chars[1].characterName)
+    assert.are.equal("Zebra", chars[2].characterName)
+    assert.are.equal("Alice", chars[3].characterName)
+  end)
+
   it("GetCollapsedGuildRecipeTooltipLines resolves mains and caches on the entry", function()
     package.loaded["GuildTabData"] = nil
     require("GuildTabData")

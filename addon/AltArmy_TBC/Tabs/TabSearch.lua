@@ -396,7 +396,8 @@ local function applySectionSorts()
             SD.MarkUiTiming(uiTimings, "sort")
         end
         if SD.CollapseGuildRecipeRows then
-            recipeList = SD.CollapseGuildRecipeRows(sorted, recipeCollapseState.expandedIDs)
+            recipeList = SD.CollapseGuildRecipeRows(
+                sorted, recipeCollapseState.expandedIDs, searchRosterByName)
         else
             recipeList = sorted
         end
@@ -1439,16 +1440,16 @@ searchScrollBar:SetScript("OnValueChanged", function(_, value)
 end)
 
 UpdateResults = function()
-    applySectionSorts()
-    paint.forceVisible = true
-    paint.itemsFirst, paint.itemsLast = nil, nil
-    paint.recipesFirst, paint.recipesLast = nil, nil
-    paint.tooltipFirst, paint.tooltipLast = nil, nil
     if GTD and GTD.BuildRosterLastOnlineMap then
         searchRosterByName = GTD.BuildRosterLastOnlineMap()
     else
         searchRosterByName = nil
     end
+    applySectionSorts()
+    paint.forceVisible = true
+    paint.itemsFirst, paint.itemsLast = nil, nil
+    paint.recipesFirst, paint.recipesLast = nil, nil
+    paint.tooltipFirst, paint.tooltipLast = nil, nil
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     local nItems = categories.Items and #itemList or 0
     local nRecipes = categories.Recipes and #recipeList or 0

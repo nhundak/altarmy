@@ -787,8 +787,8 @@ function SD.SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
     return AltArmy.SearchPresent.SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
 end
 
-function SD.CollapseGuildRecipeRows(sortedList, expandedSet)
-    return AltArmy.SearchPresent.CollapseGuildRecipeRows(sortedList, expandedSet)
+function SD.CollapseGuildRecipeRows(sortedList, expandedSet, rosterByName)
+    return AltArmy.SearchPresent.CollapseGuildRecipeRows(sortedList, expandedSet, rosterByName)
 end
 
 function SD.EnrichRecipeEntry(entry)

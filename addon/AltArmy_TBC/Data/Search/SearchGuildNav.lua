@@ -286,6 +286,39 @@ function Nav.FormatGuildRecipeCharacterSuffix(characterName, realm, opts)
         Nav.IsGuildRecipePlayerOnline(characterName, realm, opts))
 end
 
+--- Sort search guild-char rows by main-group last-online (any alt), then A–Z.
+--- Mutates `chars` in place. opts.rosterByName may inject a roster map.
+function Nav.SortGuildRecipeCharsByLastOnline(chars, opts)
+    if type(chars) ~= "table" or #chars < 2 then
+        return chars
+    end
+    local GTD = AltArmy.GuildTabData
+    if not GTD or not GTD.SortGuildSearchCharsByLastOnline then
+        return chars
+    end
+    local rosterByName = rosterMapForOpts(opts)
+    local statusCache = {}
+    local function getStatus(row)
+        if not row or not row.characterName or row.characterName == "" then
+            return nil
+        end
+        local cacheKey = (row.realm or "") .. "\0" .. row.characterName
+        local cached = statusCache[cacheKey]
+        if cached ~= nil then
+            return cached.status
+        end
+        local status
+        local member = Nav.ResolveGuildMember(row.characterName, row.realm)
+        if member and GTD.GetGroupLastOnlineStatus then
+            local group = resolveMemberGroup(member, row.realm)
+            status = GTD.GetGroupLastOnlineStatus(group, rosterByName)
+        end
+        statusCache[cacheKey] = { status = status }
+        return status
+    end
+    return GTD.SortGuildSearchCharsByLastOnline(chars, rosterByName, { getStatus = getStatus })
+end
+
 --- Tooltip lines for a collapsed "Multiple guildmates" recipe search row.
 --- Resolves each character's main/class via ResolveGuildMember, and presence via the
 --- main-group (player) last-online status — online on any alt counts as online.

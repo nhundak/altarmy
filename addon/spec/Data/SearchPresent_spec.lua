@@ -66,6 +66,79 @@ describe("SearchPresent", function()
         assert.are.equal("G1", expanded[3].characterName)
     end)
 
+    it("CollapseGuildRecipeRows expands guildmates by main-group last online then A-Z", function()
+        package.loaded["GuildTabData"] = nil
+        package.loaded["SearchGuildNav"] = nil
+        require("GuildTabData")
+        require("SearchGuildNav")
+        assert.truthy(AltArmy.GuildTabData)
+        assert.truthy(AltArmy.SearchGuildNav)
+
+        -- Bob's recipe alt is offline; Chief (same main-group) is online => Bob sorts online.
+        AltArmy.GuildShareData = {
+            GetCharacter = function(name, realm)
+                local mains = {
+                    Bob = "Chief", Chief = "Chief", Alice = "Alice",
+                    Zebra = "Zebra", Amy = "Amy", Carol = "Carol", Dave = "Dave",
+                }
+                local main = mains[name]
+                if not main then return nil end
+                return {
+                    name = name, realm = realm, classFile = "MAGE",
+                    main = main, displayName = main, guildName = "G",
+                    isMain = (name == main) or nil,
+                }
+            end,
+            GetGuildMembersForDisplay = function()
+                return {
+                    { name = "Bob", realm = "R", main = "Chief", guildName = "G" },
+                    { name = "Chief", realm = "R", main = "Chief", guildName = "G", isMain = true },
+                    { name = "Alice", realm = "R", main = "Alice", guildName = "G", isMain = true },
+                    { name = "Zebra", realm = "R", main = "Zebra", guildName = "G", isMain = true },
+                    { name = "Amy", realm = "R", main = "Amy", guildName = "G", isMain = true },
+                    { name = "Carol", realm = "R", main = "Carol", guildName = "G", isMain = true },
+                    { name = "Dave", realm = "R", main = "Dave", guildName = "G", isMain = true },
+                }
+            end,
+        }
+
+        local sorted = {
+            { recipeID = 10, characterName = "Zebra", realm = "R", isGuild = true, professionName = "Tailoring" },
+            { recipeID = 10, characterName = "Alice", realm = "R", isGuild = true, professionName = "Tailoring" },
+            { recipeID = 10, characterName = "Bob", realm = "R", isGuild = true, professionName = "Tailoring" },
+            { recipeID = 10, characterName = "Carol", realm = "R", isGuild = true, professionName = "Tailoring" },
+            { recipeID = 10, characterName = "Amy", realm = "R", isGuild = true, professionName = "Tailoring" },
+            { recipeID = 10, characterName = "Dave", realm = "R", isGuild = true, professionName = "Tailoring" },
+        }
+        local rosterByName = {
+            zebra = { online = true },
+            alice = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+            bob = { online = false, years = 0, months = 0, days = 0, hours = 5 },
+            chief = { online = true },
+            carol = { online = false, years = 0, months = 0, days = 0, hours = 5 },
+            amy = { online = true },
+            -- Dave missing from roster => unknown
+        }
+        -- Collapsed: defer last-online sort (keep input order) so search refresh stays cheap.
+        local collapsed = SP.CollapseGuildRecipeRows(sorted, {}, rosterByName)
+        assert.are.equal(1, #collapsed)
+        assert.are.equal("Zebra", collapsed[1].guildChars[1].characterName)
+        assert.are.equal("Dave", collapsed[1].guildChars[6].characterName)
+
+        local expanded = SP.CollapseGuildRecipeRows(sorted, { [10] = true }, rosterByName)
+        -- Online by group A–Z: Amy, Bob (via Chief), Zebra; then Carol (5h), Alice (1d), Dave.
+        assert.are.equal(7, #expanded)
+        assert.is_true(expanded[1].isGuildCollapsed)
+        assert.are.equal("Amy", expanded[2].characterName)
+        assert.are.equal("Bob", expanded[3].characterName)
+        assert.are.equal("Zebra", expanded[4].characterName)
+        assert.are.equal("Carol", expanded[5].characterName)
+        assert.are.equal("Alice", expanded[6].characterName)
+        assert.are.equal("Dave", expanded[7].characterName)
+        assert.are.equal("Amy", expanded[1].guildChars[1].characterName)
+        assert.are.equal("Dave", expanded[1].guildChars[6].characterName)
+    end)
+
     it("CollapseGuildRecipeRows stays correct across many collapsible recipes", function()
         -- Large multi-recipe input: old impl rescanned j=i..n per collapsed id (O(n^2)).
         local sorted = {}

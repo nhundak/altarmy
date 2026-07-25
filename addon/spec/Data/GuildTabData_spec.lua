@@ -831,6 +831,64 @@ describe("GuildTabData", function()
       end)
     end)
 
+    describe("SortGuildSearchCharsByLastOnline", function()
+      it("sorts online first A-Z, then shortest offline, unknown last A-Z", function()
+        local chars = {
+          { characterName = "Zebra" },
+          { characterName = "Alice" },
+          { characterName = "Bob" },
+          { characterName = "Carol" },
+          { characterName = "Amy" },
+          { characterName = "Dave" },
+        }
+        GTD.SortGuildSearchCharsByLastOnline(chars, {
+          zebra = { online = true },
+          alice = { online = false, years = 0, months = 0, days = 1, hours = 0 },
+          bob = { online = true },
+          carol = { online = false, years = 0, months = 0, days = 0, hours = 5 },
+          amy = { online = true },
+        })
+        assert.are.equal("Amy", chars[1].characterName)
+        assert.are.equal("Bob", chars[2].characterName)
+        assert.are.equal("Zebra", chars[3].characterName)
+        assert.are.equal("Carol", chars[4].characterName)
+        assert.are.equal("Alice", chars[5].characterName)
+        assert.are.equal("Dave", chars[6].characterName)
+      end)
+
+      it("falls back to A-Z when roster is empty", function()
+        local chars = {
+          { characterName = "Zebra" },
+          { characterName = "Alice" },
+          { characterName = "Bob" },
+        }
+        GTD.SortGuildSearchCharsByLastOnline(chars, {})
+        assert.are.equal("Alice", chars[1].characterName)
+        assert.are.equal("Bob", chars[2].characterName)
+        assert.are.equal("Zebra", chars[3].characterName)
+      end)
+
+      it("prefers opts.getStatus over individual roster lookup", function()
+        local chars = {
+          { characterName = "Bob" },
+          { characterName = "Alice" },
+        }
+        GTD.SortGuildSearchCharsByLastOnline(chars, {
+          bob = { online = false, years = 0, months = 0, days = 2, hours = 0 },
+          alice = { online = true },
+        }, {
+          getStatus = function(entry)
+            if entry.characterName == "Bob" then
+              return { online = true }
+            end
+            return { online = false, years = 0, months = 0, days = 1, hours = 0 }
+          end,
+        })
+        assert.are.equal("Bob", chars[1].characterName)
+        assert.are.equal("Alice", chars[2].characterName)
+      end)
+    end)
+
     describe("BuildCollapsedGuildRecipeTooltipLines", function()
       local function formatName(name)
         return "[" .. (name or "?") .. "]"

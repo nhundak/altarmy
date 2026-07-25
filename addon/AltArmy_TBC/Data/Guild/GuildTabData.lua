@@ -795,15 +795,50 @@ function GTD.GroupOnlineSortValue(group, rosterByName)
 end
 
 --- Comparable online-sort value for one character entry.
+--- Accepts guild-tab members (`name`) or search guild rows (`characterName`).
 function GTD.MemberOnlineSortValue(member, rosterByName)
     if not member or type(rosterByName) ~= "table" then
         return GTD.ROSTER_ONLINE_SORT_UNKNOWN
     end
-    local key = GTD.NormalizeRosterName(member.name)
+    local key = GTD.NormalizeRosterName(member.name or member.characterName)
     if not key then
         return GTD.ROSTER_ONLINE_SORT_UNKNOWN
     end
     return GTD.RosterStatusSortValue(rosterByName[key])
+end
+
+--- Sort search guild-char rows (`{ characterName = ... }`) by last-online
+--- (most recently online first), then character name A–Z. Mutates `chars` in place.
+--- Optional `opts.getStatus(entry)` supplies a roster status (e.g. main-group presence);
+--- when omitted, falls back to looking up the entry's own name in `rosterByName`.
+function GTD.SortGuildSearchCharsByLastOnline(chars, rosterByName, opts)
+    if type(chars) ~= "table" or #chars < 2 then
+        return chars
+    end
+    rosterByName = rosterByName or {}
+    opts = opts or {}
+    local getStatus = opts.getStatus
+    table.sort(chars, function(a, b)
+        local va
+        local vb
+        if getStatus then
+            va = GTD.RosterStatusSortValue(getStatus(a))
+            vb = GTD.RosterStatusSortValue(getStatus(b))
+        else
+            va = GTD.MemberOnlineSortValue(a, rosterByName)
+            vb = GTD.MemberOnlineSortValue(b, rosterByName)
+        end
+        if va ~= vb then
+            return va < vb
+        end
+        local na = (a.characterName or a.name or ""):lower()
+        local nb = (b.characterName or b.name or ""):lower()
+        if na ~= nb then
+            return na < nb
+        end
+        return (a.characterName or a.name or "") < (b.characterName or b.name or "")
+    end)
+    return chars
 end
 
 local function copyGroupWithMembers(group, members)
