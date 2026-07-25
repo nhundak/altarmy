@@ -119,14 +119,8 @@ headerSearchEdit:SetScript("OnEnterPressed", function(box)
     box:ClearFocus()
     local query = box:GetText()
     local trimmed = query and query:match("^%s*(.-)%s*$") or ""
-    if trimmed ~= "" then
-        if trimmed:lower() == "/reload" then
-            ReloadUI()
-            return
-        end
-        if enterSearchMode then
-            enterSearchMode(trimmed)
-        end
+    if trimmed ~= "" and enterSearchMode then
+        enterSearchMode(trimmed)
     end
 end)
 headerSearchEdit:SetScript("OnEscapePressed", function(box)
