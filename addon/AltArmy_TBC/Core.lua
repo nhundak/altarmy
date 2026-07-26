@@ -192,14 +192,8 @@ setActiveTab = function(tabName)
     -- Update tab button highlights: background and label color by selected state
     for _, btn in pairs(tabStrip.buttons or {}) do
         local isSelected = (btn.tabName == tabName)
-        if isSelected then
-            -- Keep Gear tab enabled when active so clicking it can close settings and return to grid
-            btn:SetEnabled(btn.tabName == "Gear" or btn.tabName == "Reputation" or false)
-            if btn.SetSelected then btn:SetSelected(true) end
-        else
-            btn:SetEnabled(true)
-            if btn.SetSelected then btn:SetSelected(false) end
-        end
+        btn:SetEnabled(true)
+        if btn.SetSelected then btn:SetSelected(isSelected) end
     end
     -- Gear tab settings button: only visible when Gear tab is active and tab strip is shown
     if tabStrip.gearSettingsBtn then
@@ -261,6 +255,7 @@ for _, tabName in ipairs(tabNames) do
     btn.label = label
     Theme.SkinButton(btn, true)
     btn:SetScript("OnClick", function()
+        if AltArmy.CurrentTab == tabName then return end
         setActiveTab(tabName)
     end)
     prevBtn = btn
@@ -282,30 +277,6 @@ local function updateGuildTabVisibility()
 end
 AltArmy.UpdateGuildTabVisibility = updateGuildTabVisibility
 updateGuildTabVisibility()
-
--- Gear tab: clicking the tab again while settings are open switches back to the gear grid
-tabStrip.buttons["Gear"]:SetScript("OnClick", function()
-    if AltArmy.CurrentTab == "Gear"
-        and AltArmy.TabFrames.Gear
-        and AltArmy.TabFrames.Gear.IsGearSettingsShown
-        and AltArmy.TabFrames.Gear:IsGearSettingsShown() then
-        AltArmy.TabFrames.Gear:ToggleGearSettings()
-    else
-        setActiveTab("Gear")
-    end
-end)
-
--- Reputation tab: same pattern as Gear (toggle settings when clicking tab again)
-tabStrip.buttons["Reputation"]:SetScript("OnClick", function()
-    if AltArmy.CurrentTab == "Reputation"
-        and AltArmy.TabFrames.Reputation
-        and AltArmy.TabFrames.Reputation.IsReputationSettingsShown
-        and AltArmy.TabFrames.Reputation:IsReputationSettingsShown() then
-        AltArmy.TabFrames.Reputation:ToggleReputationSettings()
-    else
-        setActiveTab("Reputation")
-    end
-end)
 
 -- Glow texture for settings buttons when their panel is active (shown behind icon)
 local function addSettingsButtonGlow(btn)
