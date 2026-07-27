@@ -502,6 +502,10 @@ describe("GuildShareComm helpers", function()
         PresenceMatchesStored = function()
           return presenceMatches
         end,
+        TouchReceivedAt = function(sender, presence, realm)
+          saved.touched = { sender = sender, presence = presence, realm = realm }
+          return true
+        end,
       }
       Comm.NotifyDataChanged = function()
         notifyCount = notifyCount + 1
@@ -526,11 +530,24 @@ describe("GuildShareComm helpers", function()
       assert.are.equal("Alice", saved.received.sender)
     end)
 
-    it("skips SaveReceived and NotifyDataChanged when presence matches stored data", function()
+    it("touches receivedAt and notifies without SaveReceived when presence matches", function()
       presenceMatches = true
       Comm._DispatchReceivedMessage("P", { chars = { { name = "Alice" } } }, "Alice")
-      assert.are.equal(0, notifyCount)
       assert.is_nil(saved.received)
+      assert.truthy(saved.touched)
+      assert.are.equal("Alice", saved.touched.sender)
+      assert.are.equal("R", saved.touched.realm)
+      assert.are.equal(1, notifyCount)
+    end)
+
+    it("does not notify when TouchReceivedAt finds nothing to bump", function()
+      presenceMatches = true
+      AltArmy.GuildShareData.TouchReceivedAt = function()
+        return false
+      end
+      Comm._DispatchReceivedMessage("P", { chars = { { name = "Alice" } } }, "Alice")
+      assert.is_nil(saved.received)
+      assert.are.equal(0, notifyCount)
     end)
 
     it("calls NotifyDataChanged when presence changed", function()
@@ -557,8 +574,9 @@ describe("GuildShareComm helpers", function()
         v = 1, login = true, chars = { { name = "Alice" } },
       }, "Alice")
       Comm._TestHookSend = nil
-      assert.are.equal(0, notifyCount)
       assert.is_nil(saved.received)
+      assert.truthy(saved.touched)
+      assert.are.equal(1, notifyCount)
       assert.are.equal(1, #sent)
       assert.are.equal("PR", sent[1].msgType)
       assert.are.equal("WHISPER", sent[1].distribution)
@@ -875,6 +893,30 @@ describe("GuildShareComm helpers", function()
       assert.are.equal(2, #GSD.GetGuildMembers("MyGuild"))
       assert.are.equal("MyGuild", GSD.GetCharacter("Peer", "R").guildName)
       assert.truthy(GSD.GetCharacter("Peer", "R").Professions.tailoring.Recipes[100])
+    end)
+
+    it("bumps receivedAt without requesting recipes when presence matches", function()
+      local rv = P.HashRecipeIDs({ 100, 200 })
+      local msg = P.ParsePresence(presence("Peer", {
+        charEntry("Peer", { { key = "tailoring", rank = 375, count = 2, rv = rv } }),
+      }))
+      GSD.SaveReceived("Alice", msg, "MyGuild", "R")
+      GSD.SaveRecipes("R", { v = 1, name = "Peer", profs = { { key = "tailoring", ids = { 100, 200 } } } })
+      GSD.GetCharacter("Peer", "R").receivedAt = NOW - 20 * 24 * 60 * 60
+
+      local sent = {}
+      Comm._TestHookSend = function(msgType, payload, distribution, target)
+        sent[#sent + 1] = { msgType = msgType, target = target }
+      end
+      Comm._DispatchReceivedMessage("P", msg, "Alice")
+      Comm._TestHookSend = nil
+
+      assert.are.equal(NOW, GSD.GetCharacter("Peer", "R").receivedAt)
+      assert.truthy(GSD.GetCharacter("Peer", "R").Professions.tailoring.Recipes[100])
+      for _, s in ipairs(sent) do
+        assert.are_not.equal("RQ", s.msgType)
+        assert.are_not.equal("CQ", s.msgType)
+      end
     end)
   end)
 

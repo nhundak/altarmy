@@ -228,6 +228,48 @@ describe("GuildShareData", function()
     end)
   end)
 
+  describe("TouchReceivedAt", function()
+    local function parsed(main, chars)
+      return P.ParsePresence(presence(main, chars))
+    end
+
+    it("bumps receivedAt for presence chars from that sender without changing content", function()
+      local msg = parsed("Main", {
+        charEntry("Main", { { key = "tailoring", name = "Tailoring", rank = 375, count = 2, rv = 42 } }),
+        charEntry("Alt", {}),
+      })
+      GSD.SaveReceived("Peer", msg, "G", "R")
+      local main = GSD.GetCharacter("Main", "R")
+      local alt = GSD.GetCharacter("Alt", "R")
+      assert.are.equal(NOW, main.receivedAt)
+      main.receivedAt = NOW - 20 * 24 * 60 * 60
+      alt.receivedAt = NOW - 20 * 24 * 60 * 60
+
+      local touched = GSD.TouchReceivedAt("Peer", msg, "R")
+      assert.is_true(touched)
+      assert.are.equal(NOW, GSD.GetCharacter("Main", "R").receivedAt)
+      assert.are.equal(NOW, GSD.GetCharacter("Alt", "R").receivedAt)
+      assert.are.equal(375, GSD.GetCharacter("Main", "R").Professions.tailoring.rank)
+    end)
+
+    it("does not bump chars from a different sender", function()
+      GSD.SaveReceived("Alice", parsed("Alice", { charEntry("Alice") }), "G", "R")
+      GSD.SaveReceived("Bob", parsed("Bob", { charEntry("Bob") }), "G", "R")
+      GSD.GetCharacter("Alice", "R").receivedAt = NOW - 1000
+      GSD.GetCharacter("Bob", "R").receivedAt = NOW - 1000
+
+      local touched = GSD.TouchReceivedAt("Bob", parsed("Bob", { charEntry("Bob") }), "R")
+      assert.is_true(touched)
+      assert.are.equal(NOW - 1000, GSD.GetCharacter("Alice", "R").receivedAt)
+      assert.are.equal(NOW, GSD.GetCharacter("Bob", "R").receivedAt)
+    end)
+
+    it("returns false when presence has no matching stored chars", function()
+      assert.is_false(GSD.TouchReceivedAt("Peer", parsed("Main", { charEntry("Main") }), "R"))
+      assert.is_false(GSD.TouchReceivedAt("Peer", parsed("Main", {}), "R"))
+    end)
+  end)
+
   describe("SaveReceived clear-by-source", function()
     it("removes all chars from a sender when they advertise an empty presence", function()
       GSD.SaveReceived("Peer", P.ParsePresence(presence("Main", {

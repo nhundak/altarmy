@@ -592,6 +592,12 @@ local function handlePresence(payload, sender, isReply)
     local unchanged = GSD.PresenceMatchesStored
         and GSD.PresenceMatchesStored(sender, parsed, realm)
     if unchanged then
+        -- Still refresh freshness so the Guild tab old-data warning clears, but do not
+        -- re-request profession cards / recipes for content we already have.
+        local touched = GSD.TouchReceivedAt and GSD.TouchReceivedAt(sender, parsed, realm)
+        if touched then
+            Comm.NotifyDataChanged()
+        end
         -- Login announces still get a whispered PR so the newcomer receives our presence
         -- even though their data is already stored (they missed our last guild broadcast).
         if not isReply and isLoginAnnounce then

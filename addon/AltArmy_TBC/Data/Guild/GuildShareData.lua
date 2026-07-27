@@ -196,6 +196,27 @@ function GSD.PresenceMatchesStored(sender, presence, realm)
     return true
 end
 
+--- Refresh receivedAt for stored chars advertised in an unchanged presence.
+--- Does not rewrite profession/recipe content. Returns true when any timestamp was updated.
+function GSD.TouchReceivedAt(sender, presence, realm)
+    if not presence or type(presence.chars) ~= "table" or #presence.chars == 0 then
+        return false
+    end
+    realm = realm or "?"
+    local ts = now()
+    local touched = false
+    for _, c in ipairs(presence.chars) do
+        if c and c.name then
+            local stored = GSD.GetCharacter(c.name, realm)
+            if stored and (not sender or stored.source == sender) then
+                stored.receivedAt = ts
+                touched = true
+            end
+        end
+    end
+    return touched
+end
+
 --- Store an inbound (already parsed) presence for a guild on a realm.
 --- Preserves previously pulled recipes when the advertised version is unchanged.
 --- Slim v2 chars carry `ch` only: keep Professions when checksum matches, otherwise clear
