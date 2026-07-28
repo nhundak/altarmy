@@ -83,6 +83,47 @@ describe("GuildManualGroups", function()
       GMG.SetMapping(nil, "R", "Main", { guild = "G" })
       assert.is_nil(GMG.GetMapping("Alt", "R"))
     end)
+    it("stores classFile and level when provided", function()
+      GMG.SetMapping("Bobsalt", "R", "Bob", {
+        guild = "G",
+        classFile = "WARRIOR",
+        level = 60,
+      })
+      local m = GMG.GetMapping("Bobsalt", "R")
+      assert.are.equal("WARRIOR", m.classFile)
+      assert.are.equal(60, m.level)
+    end)
+
+    it("preserves classFile and level when omitted on update", function()
+      GMG.SetMapping("Bobsalt", "R", "Bob", {
+        guild = "G", classFile = "WARRIOR", level = 60,
+      })
+      GMG.SetMapping("Bobsalt", "R", "Bob", { guild = "G", origin = "note" })
+      local m = GMG.GetMapping("Bobsalt", "R")
+      assert.are.equal("WARRIOR", m.classFile)
+      assert.are.equal(60, m.level)
+    end)
+  end)
+
+  describe("RefreshFromRosterInfo", function()
+    it("updates classFile and level from a roster info map", function()
+      GMG.SetMapping("Bobsalt", "R", "Bob", { guild = "G" })
+      GMG.SetMapping("Bob", "R", "Bob", { guild = "G", classFile = "MAGE", level = 68 })
+      local updated = GMG.RefreshFromRosterInfo({
+        bobsalt = { classFile = "WARRIOR", level = 60, name = "Bobsalt" },
+        bob = { classFile = "MAGE", level = 70, name = "Bob" },
+      }, "R")
+      assert.are.equal(2, updated)
+      assert.are.equal("WARRIOR", GMG.GetMapping("Bobsalt", "R").classFile)
+      assert.are.equal(60, GMG.GetMapping("Bobsalt", "R").level)
+      assert.are.equal(70, GMG.GetMapping("Bob", "R").level)
+    end)
+
+    it("returns 0 when roster info is empty or nil", function()
+      GMG.SetMapping("Bobsalt", "R", "Bob", { guild = "G" })
+      assert.are.equal(0, GMG.RefreshFromRosterInfo(nil, "R"))
+      assert.are.equal(0, GMG.RefreshFromRosterInfo({}, "R"))
+    end)
   end)
 
   describe("GetMainOf", function()
@@ -165,6 +206,177 @@ describe("GuildManualGroups", function()
     end)
   end)
 
+  describe("GetUltimateMain", function()
+    it("returns the name itself when unmapped", function()
+      assert.are.equal("Bob", GMG.GetUltimateMain("Bob", "R"))
+    end)
+
+    it("returns the mapped main for a single hop", function()
+      GMG.SetMapping("Bobsalt", "R", "Bob", { guild = "G" })
+      assert.are.equal("Bob", GMG.GetUltimateMain("Bobsalt", "R"))
+    end)
+
+    it("walks a chain to the root", function()
+      GMG.SetMapping("C", "R", "B", { guild = "G" })
+      GMG.SetMapping("B", "R", "A", { guild = "G" })
+      assert.are.equal("A", GMG.GetUltimateMain("C", "R"))
+    end)
+
+    it("returns the starting name on a cycle", function()
+      GMG.SetMapping("Alice", "R", "Bob", { guild = "G" })
+      GMG.SetMapping("Bob", "R", "Alice", { guild = "G" })
+      assert.are.equal("Alice", GMG.GetUltimateMain("Alice", "R"))
+      assert.are.equal("Bob", GMG.GetUltimateMain("Bob", "R"))
+    end)
+
+    it("treats a self-main anchor as the root", function()
+      GMG.SetMapping("Bob", "R", "Bob", { guild = "G" })
+      GMG.SetMapping("Bobsalt", "R", "Bob", { guild = "G" })
+      assert.are.equal("Bob", GMG.GetUltimateMain("Bobsalt", "R"))
+      assert.are.equal("Bob", GMG.GetUltimateMain("Bob", "R"))
+    end)
+  end)
+
+  describe("AssignToGroup", function()
+    it("maps a character under the given main", function()
+      GMG.AssignToGroup("Bobsalt", "R", "Bob", { guild = "G", origin = "user" })
+      local m = GMG.GetMapping("Bobsalt", "R")
+      assert.truthy(m)
+      assert.are.equal("Bob", m.main)
+      assert.are.equal("user", m.origin)
+    end)
+
+    it("overwrites an existing mapping to move between groups", function()
+      GMG.SetMapping("Alt", "R", "Alice", { guild = "G" })
+      GMG.AssignToGroup("Alt", "R", "Bob", { guild = "G", origin = "user" })
+      assert.are.equal("Bob", GMG.GetMapping("Alt", "R").main)
+    end)
+
+    it("resolves the target main to its root when the main is already an alt", function()
+      GMG.SetMapping("Alice", "R", "Bob", { guild = "G" })
+      GMG.AssignToGroup("Carol", "R", "Alice", { guild = "G", origin = "user" })
+      assert.are.equal("Bob", GMG.GetMapping("Carol", "R").main)
+    end)
+
+    it("reparents existing alts when a main is moved under another main", function()
+      GMG.SetMapping("A", "R", "A", { guild = "G" })
+      GMG.SetMapping("A1", "R", "A", { guild = "G" })
+      GMG.SetMapping("A2", "R", "A", { guild = "G" })
+      GMG.AssignToGroup("A", "R", "B", { guild = "G", origin = "user" })
+      assert.are.equal("B", GMG.GetMapping("A", "R").main)
+      assert.are.equal("B", GMG.GetMapping("A1", "R").main)
+      assert.are.equal("B", GMG.GetMapping("A2", "R").main)
+    end)
+
+    it("self-assignment writes an anchor without stranding alts", function()
+      GMG.SetMapping("A1", "R", "A", { guild = "G" })
+      GMG.AssignToGroup("A", "R", "A", { guild = "G", origin = "note" })
+      assert.are.equal("A", GMG.GetMapping("A", "R").main)
+      assert.are.equal("A", GMG.GetMapping("A1", "R").main)
+    end)
+
+    it("accepting both halves of a note cycle produces no stored cycle", function()
+      -- Alice's note → Bob, then Bob's note → Alice: second assign reparents onto Alice.
+      GMG.AssignToGroup("Alice", "R", "Bob", { guild = "G", origin = "note" })
+      GMG.AssignToGroup("Bob", "R", "Alice", { guild = "G", origin = "note" })
+      assert.are.equal("Alice", GMG.GetMapping("Bob", "R").main)
+      -- Alice was reparented onto Alice (root after Bob→Alice); no Alice→Bob edge left.
+      local alice = GMG.GetMapping("Alice", "R")
+      if alice then
+        assert.are.equal("Alice", alice.main)
+      end
+      assert.are.equal("Alice", GMG.GetUltimateMain("Bob", "R"))
+      assert.are.equal("Alice", GMG.GetUltimateMain("Alice", "R"))
+    end)
+
+    it("no-ops when name or main is empty", function()
+      GMG.AssignToGroup("", "R", "Bob", { guild = "G" })
+      GMG.AssignToGroup("Alt", "R", "", { guild = "G" })
+      assert.is_nil(GMG.GetMapping("Alt", "R"))
+    end)
+  end)
+
+  describe("ApplyProposal", function()
+    it("writes the main anchor and non-alreadyMapped members", function()
+      local proposal = {
+        main = "Bob",
+        members = {
+          { name = "Bobsalt", noteText = "bob alt", noteHash = 1 },
+          { name = "OldAlt", alreadyMapped = true, noteText = "old", noteHash = 2 },
+        },
+      }
+      GMG.SetMapping("OldAlt", "R", "Bob", { guild = "G", origin = "note" })
+      GMG.ApplyProposal(proposal, "R", "G", function(name)
+        if name == "Bob" then return "MAGE", 70 end
+        if name == "Bobsalt" then return "WARRIOR", 60 end
+        return nil, nil
+      end)
+      assert.are.equal("Bob", GMG.GetMapping("Bob", "R").main)
+      assert.are.equal("MAGE", GMG.GetMapping("Bob", "R").classFile)
+      assert.are.equal(70, GMG.GetMapping("Bob", "R").level)
+      assert.are.equal("Bob", GMG.GetMapping("Bobsalt", "R").main)
+      assert.are.equal("note", GMG.GetMapping("Bobsalt", "R").origin)
+      assert.are.equal("bob alt", GMG.GetMapping("Bobsalt", "R").noteText)
+      assert.are.equal(1, GMG.GetMapping("Bobsalt", "R").noteHash)
+      assert.are.equal("WARRIOR", GMG.GetMapping("Bobsalt", "R").classFile)
+      -- alreadyMapped member left untouched (still mapped).
+      assert.are.equal("Bob", GMG.GetMapping("OldAlt", "R").main)
+    end)
+
+    it("unmaps names listed in removedMappedNames", function()
+      GMG.SetMapping("Bob", "R", "Bob", { guild = "G", origin = "note" })
+      GMG.SetMapping("OldAlt", "R", "Bob", { guild = "G", origin = "note" })
+      GMG.SetMapping("KeepAlt", "R", "Bob", { guild = "G", origin = "note" })
+      local proposal = {
+        main = "Bob",
+        members = {
+          { name = "KeepAlt", alreadyMapped = true },
+        },
+        removedMappedNames = { "OldAlt" },
+      }
+      GMG.ApplyProposal(proposal, "R", "G")
+      assert.is_nil(GMG.GetMapping("OldAlt", "R"))
+      assert.are.equal("Bob", GMG.GetMapping("KeepAlt", "R").main)
+      assert.are.equal("Bob", GMG.GetMapping("Bob", "R").main)
+    end)
+
+    it("accept with all members removed writes only the anchor", function()
+      local proposal = {
+        main = "Bob",
+        members = {},
+        removedMappedNames = { "OldAlt" },
+      }
+      GMG.SetMapping("OldAlt", "R", "Bob", { guild = "G" })
+      GMG.ApplyProposal(proposal, "R", "G")
+      assert.are.equal("Bob", GMG.GetMapping("Bob", "R").main)
+      assert.is_nil(GMG.GetMapping("OldAlt", "R"))
+      -- No other members written.
+      assert.are.equal(1, #GMG.GetMappingsForGuild("G"))
+    end)
+
+    it("merges under the root when the proposal main is already grouped elsewhere", function()
+      GMG.SetMapping("Alice", "R", "Bob", { guild = "G", origin = "user" })
+      local proposal = {
+        main = "Alice",
+        members = {
+          { name = "Carol", noteText = "Alice alt", noteHash = 3 },
+        },
+      }
+      GMG.ApplyProposal(proposal, "R", "G")
+      -- Alice was already under Bob; Carol collapses under Bob, Alice stays under Bob.
+      assert.are.equal("Bob", GMG.GetMapping("Carol", "R").main)
+      assert.are.equal("Bob", GMG.GetMapping("Alice", "R").main)
+      local alice = GMG.GetMapping("Alice", "R")
+      assert.are.equal("Bob", alice.main)
+    end)
+
+    it("no-ops when proposal or main is missing", function()
+      GMG.ApplyProposal(nil, "R", "G")
+      GMG.ApplyProposal({ members = {} }, "R", "G")
+      assert.are.equal(0, #GMG.GetMappingsForGuild("G"))
+    end)
+  end)
+
   describe("RetireIfAgrees", function()
     it("removes mapping when effectiveMain matches the mapped main", function()
       GMG.SetMapping("Alt", "R", "Main", { guild = "G" })
@@ -180,6 +392,12 @@ describe("GuildManualGroups", function()
 
     it("returns false when no mapping exists", function()
       assert.is_false(GMG.RetireIfAgrees("Nobody", "R", "Main"))
+    end)
+
+    it("retires when mains match case-insensitively", function()
+      GMG.SetMapping("Alt", "R", "bobsalt", { guild = "G" })
+      assert.is_true(GMG.RetireIfAgrees("Alt", "R", "Bobsalt"))
+      assert.is_nil(GMG.GetMapping("Alt", "R"))
     end)
   end)
 

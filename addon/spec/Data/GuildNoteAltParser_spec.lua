@@ -226,6 +226,65 @@ describe("GuildNoteAltParser", function()
       assert.are.equal(0, #GNP.ScanRoster(rosterEntries, {}, {}))
     end)
 
+    it("never re-suggests origin user mappings even when the note changed", function()
+      local rosterEntries = {
+        { name = "Bobsalt", publicNote = "alice alt NOW" },
+        { name = "Bob", publicNote = "" },
+        { name = "Alice", publicNote = "" },
+      }
+      local existing = {
+        Bobsalt = { main = "Bob", origin = "user", noteHash = GNP.HashNote("bob alt") },
+      }
+      assert.are.equal(0, #GNP.ScanRoster(rosterEntries, existing, {}))
+    end)
+
+    it("re-suggests under a new main when an accepted note points elsewhere", function()
+      local rosterEntries = {
+        { name = "Bobsalt", publicNote = "alice alt" },
+        { name = "Bob", publicNote = "" },
+        { name = "Alice", publicNote = "" },
+      }
+      local existing = {
+        Bobsalt = { main = "Bob", origin = "note", noteHash = GNP.HashNote("bob alt") },
+      }
+      local suggestions = GNP.ScanRoster(rosterEntries, existing, {})
+      assert.are.equal(1, #suggestions)
+      assert.are.equal("Bobsalt", suggestions[1].name)
+      assert.are.equal("Alice", suggestions[1].main)
+    end)
+
+    it("prefers the public note over a disagreeing officer note", function()
+      local rosterEntries = {
+        { name = "Bobsalt", publicNote = "bob alt", officerNote = "alice alt" },
+        { name = "Bob", publicNote = "" },
+        { name = "Alice", publicNote = "" },
+      }
+      local suggestions = GNP.ScanRoster(rosterEntries, {}, {})
+      assert.are.equal(1, #suggestions)
+      assert.are.equal("Bob", suggestions[1].main)
+      assert.are.equal("bob alt", suggestions[1].noteText)
+    end)
+
+    it("produces no suggestion when a previously accepted note is cleared", function()
+      local rosterEntries = {
+        { name = "Bobsalt", publicNote = "", officerNote = "" },
+        { name = "Bob", publicNote = "" },
+      }
+      local existing = {
+        Bobsalt = { main = "Bob", origin = "note", noteHash = GNP.HashNote("bob alt") },
+      }
+      assert.are.equal(0, #GNP.ScanRoster(rosterEntries, existing, {}))
+    end)
+
+    it("does not match non-ASCII names with %a patterns (documented limitation)", function()
+      local names = rosterSet({ "Ångela", "Bob" })
+      -- Accented candidate names are not matched by the current [%a%d]+ patterns.
+      assert.is_nil(GNP.ParseNote("alt of Ångela", names))
+      assert.is_nil(GNP.ParseNote("Ångela", names))
+      -- ASCII patterns still work alongside roster entries that happen to be non-ASCII.
+      assert.are.equal("Bob", GNP.ParseNote("alt of Bob", names).main)
+    end)
+
     it("lists stale manual mappings whose character left the roster", function()
       local rosterEntries = {
         { name = "Bob", publicNote = "" },
@@ -554,6 +613,61 @@ describe("GuildNoteAltParser", function()
 
     it("returns empty for nil proposals", function()
       assert.are.equal(0, #GNP.EnrichProposalsWithSharedData(nil, {}))
+    end)
+  end)
+
+  describe("CollectProposalOccupiedNames", function()
+    it("collects mains, members, and knownMembers across all proposals", function()
+      local occupied = GNP.CollectProposalOccupiedNames({
+        {
+          main = "Alice",
+          members = {
+            { name = "NoteAlt" },
+            { name = "NoteTwo" },
+          },
+          knownMembers = {
+            { name = "SharedAlt" },
+          },
+        },
+        {
+          main = "Bob",
+          members = {
+            { name = "Bobsalt" },
+          },
+        },
+      })
+      assert.is_true(occupied.alice)
+      assert.is_true(occupied.notealt)
+      assert.is_true(occupied.notetwo)
+      assert.is_true(occupied.sharedalt)
+      assert.is_true(occupied.bob)
+      assert.is_true(occupied.bobsalt)
+      assert.is_nil(occupied.carol)
+    end)
+
+    it("returns empty for nil or empty proposals", function()
+      local empty = GNP.CollectProposalOccupiedNames(nil)
+      assert.are.equal(0, (function()
+        local n = 0
+        for _ in pairs(empty) do n = n + 1 end
+        return n
+      end)())
+      assert.are.equal(0, (function()
+        local set = GNP.CollectProposalOccupiedNames({})
+        local n = 0
+        for _ in pairs(set) do n = n + 1 end
+        return n
+      end)())
+    end)
+
+    it("dedupes names that appear in multiple proposals", function()
+      local occupied = GNP.CollectProposalOccupiedNames({
+        { main = "Alice", members = { { name = "Shared" } } },
+        { main = "Bob", members = { { name = "Shared" } }, knownMembers = { { name = "Alice" } } },
+      })
+      assert.is_true(occupied.alice)
+      assert.is_true(occupied.shared)
+      assert.is_true(occupied.bob)
     end)
   end)
 end)

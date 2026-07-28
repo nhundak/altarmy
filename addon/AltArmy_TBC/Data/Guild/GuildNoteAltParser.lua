@@ -439,6 +439,27 @@ function GNP.EnrichProposalsWithSharedData(proposals, sharedEntries)
     return proposals
 end
 
+--- Normalized-name set of every main, member, and knownMember across all proposals.
+--- Used by the notes wizard add-box so a character cannot be added to two proposals.
+function GNP.CollectProposalOccupiedNames(proposals)
+    local set = {}
+    for _, p in ipairs(proposals or {}) do
+        if p then
+            local mainKey = normalizeKey(p.main)
+            if mainKey then set[mainKey] = true end
+            for _, m in ipairs(p.members or {}) do
+                local key = m and normalizeKey(m.name)
+                if key then set[key] = true end
+            end
+            for _, m in ipairs(p.knownMembers or {}) do
+                local key = m and normalizeKey(m.name)
+                if key then set[key] = true end
+            end
+        end
+    end
+    return set
+end
+
 --- Manual mappings whose character no longer appears on the roster.
 --- Returns `{ name, main, origin }`.
 function GNP.FindStaleMappings(existingMappings, rosterEntries)

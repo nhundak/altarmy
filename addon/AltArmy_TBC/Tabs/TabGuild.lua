@@ -37,6 +37,10 @@ local UI = {
     CHAR_INDENT = 12,
     LIST_COL_HEADER_HEIGHT = 18,
     LIST_FOOTER_HEIGHT = 28,
+    -- Notes wizard member table columns.
+    NOTES_REASON_COL_WIDTH = 150,
+    NOTES_ACTION_COL_WIDTH = 78,
+    NOTES_COL_GAP = 8,
     GRAY = "|cff808080",
     -- Second column (group character count, character professions) shares one left edge.
     SECOND_COLUMN = 180,
@@ -510,12 +514,33 @@ end
 
 ME.currentDisplayMembers = function()
     local GSD = AltArmy.GuildShareData
+    local GMG = AltArmy.GuildManualGroups
     local guild = activeGuild()
     if not guild or not GSD or not GSD.GetGuildMembersForDisplay then
         return {}
     end
     local map = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or nil
+    if map and GMG and GMG.RefreshFromRosterInfo then
+        GMG.RefreshFromRosterInfo(map, currentRealm())
+    end
     return GSD.GetGuildMembersForDisplay(guild, currentRealm(), isBrowsingWithoutGuild(), map) or {}
+end
+
+--- classFile, level from the live guild roster for a character name (or nil, nil).
+ME.rosterClassLevel = function(name)
+    if type(name) ~= "string" or name == "" or not GTD.BuildRosterInfoMap then
+        return nil, nil
+    end
+    local map = GTD.BuildRosterInfoMap() or {}
+    local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(name)
+    local info = key and map[key]
+    if not info then return nil, nil end
+    local classFile = info.classFile
+    if type(classFile) ~= "string" or classFile == "" then
+        classFile = nil
+    end
+    local lvl = tonumber(info.level)
+    return classFile, (lvl and lvl > 0) and lvl or nil
 end
 
 ME.showManualSuggest = function(anchorEdit, names, onPick)
@@ -686,7 +711,20 @@ ME.commitMain = function(name)
     local guild = activeGuild()
     local realm = currentRealm()
     if not GMG or not guild then return end
-    GMG.SetMapping(name, realm, name, { guild = guild, origin = "user" })
+    local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
+    local resolved = (GTD.ResolveRosterName and GTD.ResolveRosterName(name, rosterInfo)) or nil
+    if not resolved then return end
+    name = resolved
+    local classFile, level = ME.rosterClassLevel(name)
+    if GMG.AssignToGroup then
+        GMG.AssignToGroup(name, realm, name, {
+            guild = guild, origin = "user", classFile = classFile, level = level,
+        })
+    else
+        GMG.SetMapping(name, realm, name, {
+            guild = guild, origin = "user", classFile = classFile, level = level,
+        })
+    end
     ME.createMode = false
     ME.mainEdit:Hide()
     ME.mainLabel:Hide()
@@ -697,7 +735,10 @@ ME.commitMain = function(name)
     local group = {
         main = name,
         preferredName = name,
-        members = { { name = name, main = name, isMain = true, source = "manual", realm = realm } },
+        members = { {
+            name = name, main = name, isMain = true, source = "manual", realm = realm,
+            classFile = classFile or "", level = level or 0,
+        } },
         characterCount = 1,
         prefsRealm = realm,
     }
@@ -714,9 +755,20 @@ ME.commitAlt = function(name)
     local guild = activeGuild()
     local realm = groupPrefsRealm(selectedSettingsGroup)
     if not GMG or not guild then return end
-    GMG.SetMapping(name, realm, selectedSettingsGroup.main, {
-        guild = guild, origin = "user",
-    })
+    local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
+    local resolved = (GTD.ResolveRosterName and GTD.ResolveRosterName(name, rosterInfo)) or nil
+    if not resolved then return end
+    name = resolved
+    local classFile, level = ME.rosterClassLevel(name)
+    if GMG.AssignToGroup then
+        GMG.AssignToGroup(name, realm, selectedSettingsGroup.main, {
+            guild = guild, origin = "user", classFile = classFile, level = level,
+        })
+    else
+        GMG.SetMapping(name, realm, selectedSettingsGroup.main, {
+            guild = guild, origin = "user", classFile = classFile, level = level,
+        })
+    end
     if Theme.ClearEditBoxText then
         Theme.ClearEditBoxText(ME.addCharEdit)
     else
@@ -1721,7 +1773,6 @@ ME.notesWizardActive = false
 ME.notesProposals = {}
 ME.notesIndex = 1
 ME.notesMemberRows = {}
-ME.notesSlideDuration = 0.22
 
 ME.notesBackBtn = CreateFrame("Button", nil, header)
 ME.notesBackBtn:SetSize(52, 22)
@@ -1734,11 +1785,18 @@ ME.notesBackBtnLabel:SetText("Back")
 
 ME.notesTitleFS = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 ME.notesTitleFS:SetPoint("LEFT", ME.notesBackBtn, "RIGHT", 8, 0)
-ME.notesTitleFS:SetPoint("RIGHT", header, "RIGHT", -8, 0)
 ME.notesTitleFS:SetJustifyH("LEFT")
 ME.notesTitleFS:SetWordWrap(false)
 ME.notesTitleFS:Hide()
 Theme.SetTitleColor(ME.notesTitleFS)
+
+ME.notesProgressFS = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+ME.notesProgressFS:SetPoint("RIGHT", header, "RIGHT", -8, 0)
+ME.notesProgressFS:SetJustifyH("RIGHT")
+ME.notesProgressFS:SetWordWrap(false)
+ME.notesProgressFS:Hide()
+Theme.SetTitleColor(ME.notesProgressFS)
+ME.notesTitleFS:SetPoint("RIGHT", ME.notesProgressFS, "LEFT", -12, 0)
 
 ME.notesWizard = CreateFrame("Frame", nil, listView)
 ME.notesWizard:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
@@ -1778,78 +1836,40 @@ ME.notesEmptyFS:SetWidth(420)
 ME.notesEmptyFS:SetJustifyH("CENTER")
 ME.notesEmptyFS:Hide()
 
--- Fixed form chrome (does not scroll): group name + add character side by side, then members.
--- Fields use the full panel width; only the members list reserves a thin scrollbar gutter.
-local NOTES_FIELD_GAP = 12
+-- Members table header + scrolling list. Add-character control lives at the bottom of the list.
 ME.notesScrollBarOpts = { width = 6, gap = 2, rightInset = 2 }
 ME.notesMembersGutter = Theme.VerticalScrollBarGutter(ME.notesScrollBarOpts)
 
-ME.notesFieldsRow = CreateFrame("Frame", nil, ME.notesSlide)
-ME.notesFieldsRow:SetPoint("TOPLEFT", ME.notesSlide, "TOPLEFT", 0, 0)
-ME.notesFieldsRow:SetPoint("TOPRIGHT", ME.notesSlide, "TOPRIGHT", 0, 0)
-ME.notesFieldsRow:SetHeight(42)
+ME.notesMembersHeader = CreateFrame("Frame", nil, ME.notesSlide)
+ME.notesMembersHeader:SetPoint("TOPLEFT", ME.notesSlide, "TOPLEFT", 0, 0)
+-- Inset by the members scrollbar gutter so headers line up with row columns.
+ME.notesMembersHeader:SetPoint("TOPRIGHT", ME.notesSlide, "TOPRIGHT", -ME.notesMembersGutter, 0)
+ME.notesMembersHeader:SetHeight(UI.LIST_COL_HEADER_HEIGHT)
+-- Keep a legacy alias so empty-state show/hide paths stay simple.
+ME.notesMembersLabel = ME.notesMembersHeader
 
-ME.notesNameCol = CreateFrame("Frame", nil, ME.notesFieldsRow)
-ME.notesNameCol:SetPoint("TOPLEFT", ME.notesFieldsRow, "TOPLEFT", 0, 0)
-ME.notesNameCol:SetPoint("BOTTOMRIGHT", ME.notesFieldsRow, "BOTTOM", -NOTES_FIELD_GAP / 2, 0)
-
-ME.notesAddCol = CreateFrame("Frame", nil, ME.notesFieldsRow)
-ME.notesAddCol:SetPoint("TOPLEFT", ME.notesFieldsRow, "TOP", NOTES_FIELD_GAP / 2, 0)
-ME.notesAddCol:SetPoint("BOTTOMRIGHT", ME.notesFieldsRow, "BOTTOMRIGHT", 0, 0)
-
-ME.notesNameLabel = Theme.CreateOptionsSectionLabel(ME.notesNameCol, {
-    point = "TOPLEFT",
-    x = 0,
-    y = 0,
-    text = "Group name",
-})
-
-ME.notesNameEdit = CreateFrame("EditBox", nil, ME.notesNameCol)
-ME.notesNameEdit:SetPoint("TOPLEFT", ME.notesNameLabel, "BOTTOMLEFT", 0, -4)
-ME.notesNameEdit:SetPoint("RIGHT", ME.notesNameCol, "RIGHT", 0, 0)
-ME.notesNameEdit:SetHeight(22)
-ME.notesNameEdit:SetFontObject("GameFontHighlight")
-ME.notesNameEdit:SetAutoFocus(false)
-ME.notesNameEdit:SetTextInsets(6, 6, 0, 0)
-Theme.ApplyInputTextures(ME.notesNameEdit)
 do
-    local maxLen = AltArmy.GuildShareSettings and AltArmy.GuildShareSettings.DISPLAY_NAME_MAX_LENGTH
-    if ME.notesNameEdit.SetMaxLetters and maxLen then
-        ME.notesNameEdit:SetMaxLetters(maxLen)
-    end
+    local actionW = UI.NOTES_ACTION_COL_WIDTH
+    local gap = UI.NOTES_COL_GAP
+    local charLabel = ME.notesMembersHeader:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    charLabel:SetPoint("LEFT", ME.notesMembersHeader, "LEFT", 0, 0)
+    charLabel:SetPoint("RIGHT", ME.notesMembersHeader, "CENTER", -gap / 2, 0)
+    charLabel:SetJustifyH("LEFT")
+    charLabel:SetWordWrap(false)
+    charLabel:SetText("Characters in this group")
+    ME.notesMembersCharHeader = charLabel
+
+    local reasonLabel = ME.notesMembersHeader:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    reasonLabel:SetPoint("LEFT", ME.notesMembersHeader, "CENTER", gap / 2, 0)
+    reasonLabel:SetPoint("RIGHT", ME.notesMembersHeader, "RIGHT", -(actionW + gap), 0)
+    reasonLabel:SetJustifyH("LEFT")
+    reasonLabel:SetWordWrap(false)
+    reasonLabel:SetText("Reason for inclusion")
+    ME.notesMembersReasonHeader = reasonLabel
 end
 
-ME.notesAddLabel = Theme.CreateOptionsSectionLabel(ME.notesAddCol, {
-    point = "TOPLEFT",
-    x = 0,
-    y = 0,
-    text = "Add character",
-})
-
-ME.notesAddEdit = CreateFrame("EditBox", nil, ME.notesAddCol)
-ME.notesAddEdit:SetPoint("TOPLEFT", ME.notesAddLabel, "BOTTOMLEFT", 0, -4)
-ME.notesAddEdit:SetPoint("RIGHT", ME.notesAddCol, "RIGHT", 0, 0)
-ME.notesAddEdit:SetHeight(22)
-ME.notesAddEdit:SetFontObject("GameFontHighlight")
-ME.notesAddEdit:SetAutoFocus(false)
-ME.notesAddEdit:SetTextInsets(6, 6, 0, 0)
-Theme.ApplyInputTextures(ME.notesAddEdit)
-if Theme.SetupEditBoxPlaceholder then
-    Theme.SetupEditBoxPlaceholder(ME.notesAddEdit, "Type a guild member name")
-end
-
-ME.notesMembersLabel = Theme.CreateOptionsSectionLabel(ME.notesSlide, {
-    point = "TOPLEFT",
-    relativeTo = ME.notesFieldsRow,
-    relativePoint = "BOTTOMLEFT",
-    x = 0,
-    y = -14,
-    text = "Characters in this group",
-})
-
--- Only the members list scrolls.
 ME.notesScrollHost = CreateFrame("Frame", nil, ME.notesSlide)
-ME.notesScrollHost:SetPoint("TOPLEFT", ME.notesMembersLabel, "BOTTOMLEFT", 0, -4)
+ME.notesScrollHost:SetPoint("TOPLEFT", ME.notesMembersHeader, "BOTTOMLEFT", 0, -4)
 ME.notesScrollHost:SetPoint("BOTTOMRIGHT", ME.notesSlide, "BOTTOMRIGHT", 0, 0)
 
 ME.notesViewport = Theme.CreateVerticalScrollViewport({
@@ -1864,15 +1884,160 @@ ME.notesViewport = Theme.CreateVerticalScrollViewport({
 })
 ME.notesMembersList = ME.notesViewport.child
 
+ME.notesAddRowH = 22
+ME.notesAddDockPad = 4
+
+-- Add-character row: inline after members when the list fits; sticky at the host
+-- bottom when it overflows (never use a 0-height dock as the scroll bottom anchor —
+-- that collapses the viewport on some clients).
+ME.notesAddRow = CreateFrame("Frame", nil, ME.notesMembersList)
+ME.notesAddRow:SetHeight(ME.notesAddRowH)
+ME.notesAddRow:Hide()
+
+ME.notesAddBtn = CreateFrame("Button", nil, ME.notesAddRow, "UIPanelButtonTemplate")
+ME.notesAddBtn:SetSize(120, 22)
+ME.notesAddBtn:SetPoint("LEFT", ME.notesAddRow, "LEFT", 0, 0)
+ME.notesAddBtn:SetText("Add character")
+Theme.SkinButton(ME.notesAddBtn)
+
+ME.notesAddCancelBtn = CreateFrame("Button", nil, ME.notesAddRow, "UIPanelButtonTemplate")
+ME.notesAddCancelBtn:SetSize(70, 22)
+-- Keep Cancel inside the characters column (left 50%) so it does not overlap Reason.
+ME.notesAddCancelBtn:SetPoint("RIGHT", ME.notesAddRow, "CENTER", -UI.NOTES_COL_GAP / 2, 0)
+ME.notesAddCancelBtn:SetText("Cancel")
+Theme.SkinButton(ME.notesAddCancelBtn)
+ME.notesAddCancelBtn:Hide()
+
+ME.notesAddEdit = CreateFrame("EditBox", nil, ME.notesAddRow)
+ME.notesAddEdit:SetPoint("LEFT", ME.notesAddRow, "LEFT", 0, 0)
+ME.notesAddEdit:SetPoint("RIGHT", ME.notesAddCancelBtn, "LEFT", -8, 0)
+ME.notesAddEdit:SetHeight(22)
+ME.notesAddEdit:SetFontObject("GameFontHighlight")
+ME.notesAddEdit:SetAutoFocus(false)
+ME.notesAddEdit:SetTextInsets(6, 6, 0, 0)
+Theme.ApplyInputTextures(ME.notesAddEdit)
+if Theme.SetupEditBoxPlaceholder then
+    Theme.SetupEditBoxPlaceholder(ME.notesAddEdit, "Type a guild member name")
+end
+ME.notesAddEdit:Hide()
+
+ME.anchorNotesMembersScroll = function(bottomInset)
+    local scroll = ME.notesViewport and ME.notesViewport.scroll
+    if not scroll then return end
+    bottomInset = bottomInset or 0
+    scroll:ClearAllPoints()
+    scroll:SetPoint("TOPLEFT", ME.notesScrollHost, "TOPLEFT", 0, 0)
+    scroll:SetPoint("BOTTOMRIGHT", ME.notesScrollHost, "BOTTOMRIGHT", -ME.notesMembersGutter, bottomInset)
+end
+
+ME.positionNotesAddRow = function(membersHeight)
+    if not ME.notesAddRow or not ME.notesScrollHost then return end
+    local addH = ME.notesAddRowH or 22
+    local pad = ME.notesAddDockPad or 4
+    local scroll = ME.notesViewport and ME.notesViewport.scroll
+    -- Measure against the full host height (no sticky inset).
+    ME.anchorNotesMembersScroll(0)
+    if ME.notesViewport and ME.notesViewport.UpdateRange then
+        ME.notesViewport.UpdateRange()
+    end
+    local viewH = (scroll and scroll.GetHeight and scroll:GetHeight()) or 0
+    local needsSticky = viewH > 1 and (membersHeight + addH + pad) > (viewH + 0.5)
+
+    ME.notesAddSticky = needsSticky and true or false
+    if needsSticky then
+        ME.anchorNotesMembersScroll(addH + pad)
+        ME.notesAddRow:SetParent(ME.notesScrollHost)
+        ME.notesAddRow:ClearAllPoints()
+        ME.notesAddRow:SetPoint("BOTTOMLEFT", ME.notesScrollHost, "BOTTOMLEFT", 0, 0)
+        ME.notesAddRow:SetPoint("BOTTOMRIGHT", ME.notesScrollHost, "BOTTOMRIGHT", -ME.notesMembersGutter, 0)
+        ME.notesAddRow:SetHeight(addH)
+        ME.notesMembersList:SetHeight(math.max(1, membersHeight))
+        local hostLevel = ME.notesScrollHost:GetFrameLevel() or 0
+        ME.notesAddRow:SetFrameLevel(hostLevel + 20)
+    else
+        ME.anchorNotesMembersScroll(0)
+        ME.notesAddRow:SetParent(ME.notesMembersList)
+        ME.notesAddRow:ClearAllPoints()
+        ME.notesAddRow:SetPoint("TOPLEFT", ME.notesMembersList, "TOPLEFT", 0, -membersHeight)
+        ME.notesAddRow:SetPoint("TOPRIGHT", ME.notesMembersList, "TOPRIGHT", 0, -membersHeight)
+        ME.notesAddRow:SetHeight(addH)
+        ME.notesMembersList:SetHeight(math.max(1, membersHeight + addH))
+    end
+    ME.notesAddRow:Show()
+    if ME.updateNotesMembersScroll then
+        ME.updateNotesMembersScroll()
+    end
+end
+
+ME.showNotesAddInput = function()
+    ME.notesAddBtn:Hide()
+    ME.notesAddCancelBtn:Show()
+    ME.notesAddEdit:Show()
+    if Theme.ClearEditBoxText then
+        Theme.ClearEditBoxText(ME.notesAddEdit)
+    else
+        ME.notesAddEdit:SetText("")
+    end
+    ME.notesAddEdit:SetFocus()
+    -- Only scroll to the add row when it is inline in the list.
+    if not ME.notesAddSticky
+        and ME.notesViewport and ME.notesViewport.scroll and ME.notesViewport.SetOffset then
+        local scroll = ME.notesViewport.scroll
+        local maxScroll = (scroll.GetVerticalScrollRange and scroll:GetVerticalScrollRange()) or 0
+        ME.notesViewport.SetOffset(maxScroll)
+    end
+end
+
+ME.hideNotesAddInput = function()
+    ME.hideManualSuggest()
+    if ME.notesAddEdit:IsShown() then
+        ME.notesAddEdit:ClearFocus()
+    end
+    if Theme.ClearEditBoxText then
+        Theme.ClearEditBoxText(ME.notesAddEdit)
+    else
+        ME.notesAddEdit:SetText("")
+    end
+    ME.notesAddEdit:Hide()
+    ME.notesAddCancelBtn:Hide()
+    ME.notesAddBtn:Show()
+end
+
+ME.notesAddBtn:SetScript("OnClick", function()
+    ME.showNotesAddInput()
+end)
+ME.notesAddCancelBtn:SetScript("OnClick", function()
+    ME.hideNotesAddInput()
+end)
+
 ME.updateNotesWizardTitle = function()
     local total = #ME.notesProposals
-    if total < 1 then
+    local proposal = ME.notesProposals[ME.notesIndex]
+    if total < 1 or not proposal then
         ME.notesTitleFS:SetText("Review note groupings")
+        Theme.SetTitleColor(ME.notesTitleFS)
+        if ME.notesProgressFS then
+            ME.notesProgressFS:SetText("")
+            ME.notesProgressFS:Hide()
+        end
     else
-        ME.notesTitleFS:SetText(
-            "Suggested group " .. tostring(ME.notesIndex) .. " of " .. tostring(total))
+        local groupName = proposal.displayName or proposal.main or "?"
+        local classFile, _ = ME.rosterClassLevel(proposal.main)
+        local coloredName = formatName(groupName, classFile)
+        local prefix = "Suggested group: "
+        local t = Theme.COLORS and Theme.COLORS.title
+        if t and CC and CC.formatHex then
+            prefix = CC.formatHex(t[1], t[2], t[3], prefix)
+        end
+        ME.notesTitleFS:SetText(prefix .. coloredName)
+        -- White base so embedded class/title color codes render as authored.
+        ME.notesTitleFS:SetTextColor(1, 1, 1, 1)
+        if ME.notesProgressFS then
+            ME.notesProgressFS:SetText(tostring(ME.notesIndex) .. " of " .. tostring(total))
+            ME.notesProgressFS:Show()
+            Theme.SetTitleColor(ME.notesProgressFS)
+        end
     end
-    Theme.SetTitleColor(ME.notesTitleFS)
 end
 
 ME.updateNotesMembersScroll = function()
@@ -1906,6 +2071,36 @@ ME.currentNotesProposal = function()
     return ME.notesProposals[ME.notesIndex]
 end
 
+-- Accept is only meaningful when the group has someone besides the main.
+ME.syncNotesAcceptEnabled = function()
+    local proposal = ME.currentNotesProposal()
+    local count = 0
+    if proposal then
+        if proposal.main and proposal.main ~= "" then
+            count = count + 1
+        end
+        local mainKey = proposal.main and GTD.NormalizeRosterName and GTD.NormalizeRosterName(proposal.main)
+        for _, member in ipairs(proposal.members or {}) do
+            if member and member.name and member.name ~= "" then
+                local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(member.name)
+                if not mainKey or key ~= mainKey then
+                    count = count + 1
+                end
+            end
+        end
+        for _, known in ipairs(proposal.knownMembers or {}) do
+            if known and known.name and known.name ~= "" then
+                count = count + 1
+            end
+        end
+    end
+    if count > 1 then
+        ME.notesAcceptBtn:Enable()
+    else
+        ME.notesAcceptBtn:Disable()
+    end
+end
+
 ME.layoutNotesMembers = function()
     local proposal = ME.currentNotesProposal()
     local members = (proposal and proposal.members) or {}
@@ -1915,16 +2110,19 @@ ME.layoutNotesMembers = function()
         displayRows[#displayRows + 1] = {
             name = proposal.main,
             locked = true,
+            isMain = true,
         }
     end
     for _, member in ipairs(members) do
-        if member and member.name
+        if member and member.name and not member.addedManually
             and (not proposal or GTD.NormalizeRosterName(member.name) ~= GTD.NormalizeRosterName(proposal.main)) then
             displayRows[#displayRows + 1] = {
                 name = member.name,
                 locked = false,
                 member = member,
                 noteText = member.noteText,
+                alreadyMapped = member.alreadyMapped,
+                origin = member.origin,
             }
         end
     end
@@ -1933,11 +2131,28 @@ ME.layoutNotesMembers = function()
             displayRows[#displayRows + 1] = {
                 name = known.name,
                 locked = true,
+                isKnownShared = true,
+            }
+        end
+    end
+    -- Manually added characters stay at the bottom (above the Add control), in add order.
+    for _, member in ipairs(members) do
+        if member and member.addedManually and member.name
+            and (not proposal or GTD.NormalizeRosterName(member.name) ~= GTD.NormalizeRosterName(proposal.main)) then
+            displayRows[#displayRows + 1] = {
+                name = member.name,
+                locked = false,
+                member = member,
+                noteText = member.noteText,
+                alreadyMapped = member.alreadyMapped,
+                origin = member.origin,
+                addedManually = true,
             }
         end
     end
     local y = 0
-    local removeW = 78
+    local removeW = UI.NOTES_ACTION_COL_WIDTH
+    local colGap = UI.NOTES_COL_GAP
     local textTopPad = 2
     local lineGap = 2
     local nameLineH = 14
@@ -1956,9 +2171,12 @@ ME.layoutNotesMembers = function()
             noteFS:SetJustifyH("LEFT")
             noteFS:SetWordWrap(false)
             row.noteFS = noteFS
+            local reasonFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            reasonFS:SetJustifyH("LEFT")
+            reasonFS:SetWordWrap(false)
+            row.reasonFS = reasonFS
             local removeBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
             removeBtn:SetSize(removeW, 22)
-            removeBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
             removeBtn:SetText("Remove")
             Theme.SkinButton(removeBtn)
             row.removeBtn = removeBtn
@@ -1970,31 +2188,70 @@ ME.layoutNotesMembers = function()
         if row.stripeBg then
             row.stripeBg:Hide()
         end
+        if not row.reasonFS then
+            local reasonFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            reasonFS:SetJustifyH("LEFT")
+            reasonFS:SetWordWrap(false)
+            row.reasonFS = reasonFS
+        end
         local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(entry.name)
         local info = key and rosterInfo[key] or nil
+        -- Prefer the scan/provenance note when present; otherwise show the live guild note.
         local noteText = entry.noteText
         if (not noteText or noteText == "") and info and info.note and info.note ~= "" then
             noteText = info.note
         end
-        local noteLine = (GTD.FormatNotesWizardMemberNote
+        local noteLine = (noteText and GTD.FormatNotesWizardMemberNote
             and GTD.FormatNotesWizardMemberNote(noteText)) or ""
         local hasNoteLine = noteLine ~= ""
         local rowH = textTopPad + nameLineH + bottomPad
         if hasNoteLine then
             rowH = rowH + lineGap + subLineH
         end
+        rowH = math.max(rowH, 22 + bottomPad)
         row:SetHeight(rowH)
 
-        local textRight = entry.locked and -4 or -(removeW + 8)
+        local reasonKind = (GTD.ClassifyNotesWizardInclusionReason
+            and GTD.ClassifyNotesWizardInclusionReason({
+                isMain = entry.isMain,
+                mainFromShared = proposal and proposal.mainFromShared,
+                isKnownShared = entry.isKnownShared,
+                noteText = entry.noteText,
+                alreadyMapped = entry.alreadyMapped,
+                origin = entry.origin,
+            })) or "manual"
+        local reasonText = (GTD.NotesWizardInclusionReasonLabel
+            and GTD.NotesWizardInclusionReasonLabel(reasonKind)) or ""
+
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", ME.notesMembersList, "TOPLEFT", 0, -y)
+        row:SetPoint("TOPRIGHT", ME.notesMembersList, "TOPRIGHT", 0, -y)
+
+        row.removeBtn:ClearAllPoints()
+        row.removeBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.removeBtn:SetSize(removeW, 22)
+
+        -- Characters column = left 50%; reason fills from center to the actions column.
         row.nameFS:ClearAllPoints()
         row.nameFS:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -textTopPad)
-        row.nameFS:SetPoint("TOPRIGHT", row, "TOPRIGHT", textRight, -textTopPad)
+        row.nameFS:SetPoint("TOPRIGHT", row, "TOP", -colGap / 2, -textTopPad)
         row.nameFS:SetHeight(nameLineH)
+        row.nameFS:SetText((GTD.FormatNotesWizardMemberName
+            and GTD.FormatNotesWizardMemberName(
+                entry.name, info and info.classFile, info and info.level, formatName))
+            or formatName(entry.name, info and info.classFile))
+
+        row.reasonFS:ClearAllPoints()
+        row.reasonFS:SetPoint("LEFT", row, "CENTER", colGap / 2, 0)
+        row.reasonFS:SetPoint("RIGHT", row, "RIGHT", -(removeW + colGap), 0)
+        row.reasonFS:SetHeight(nameLineH)
+        row.reasonFS:SetText(reasonText)
+        row.reasonFS:Show()
 
         if hasNoteLine then
             row.noteFS:ClearAllPoints()
             row.noteFS:SetPoint("TOPLEFT", row.nameFS, "BOTTOMLEFT", 0, -lineGap)
-            row.noteFS:SetPoint("TOPRIGHT", row, "TOPRIGHT", textRight, 0)
+            row.noteFS:SetPoint("TOPRIGHT", row, "TOP", -colGap / 2, 0)
             row.noteFS:SetHeight(subLineH)
             row.noteFS:SetText(noteLine)
             row.noteFS:Show()
@@ -2003,19 +2260,10 @@ ME.layoutNotesMembers = function()
             row.noteFS:Hide()
         end
 
-        row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", ME.notesMembersList, "TOPLEFT", 0, -y)
-        row:SetPoint("TOPRIGHT", ME.notesMembersList, "TOPRIGHT", 0, -y)
-        row.nameFS:SetText((GTD.FormatNotesWizardMemberName
-            and GTD.FormatNotesWizardMemberName(
-                entry.name, info and info.classFile, info and info.level, formatName))
-            or formatName(entry.name, info and info.classFile))
-
         if entry.locked then
             row.removeBtn:Hide()
             row.removeBtn:SetScript("OnClick", nil)
         else
-            row.removeBtn:SetSize(removeW, 22)
             row.removeBtn:Show()
             do
                 local mem = entry.member
@@ -2024,6 +2272,10 @@ ME.layoutNotesMembers = function()
                     if not p or not mem then return end
                     for j, m in ipairs(p.members) do
                         if m == mem or m.name == mem.name then
+                            if m.alreadyMapped and m.name then
+                                p.removedMappedNames = p.removedMappedNames or {}
+                                p.removedMappedNames[#p.removedMappedNames + 1] = m.name
+                            end
                             table.remove(p.members, j)
                             break
                         end
@@ -2036,21 +2288,30 @@ ME.layoutNotesMembers = function()
         y = y + rowH + 4
     end
     ME.hideNotesMemberRowsFrom(#displayRows + 1)
-    ME.notesMembersList:SetHeight(math.max(1, y))
-    if ME.updateNotesMembersScroll then
-        ME.updateNotesMembersScroll()
+
+    if ME.positionNotesAddRow then
+        ME.positionNotesAddRow(y)
+    elseif ME.notesAddRow then
+        ME.notesAddRow:ClearAllPoints()
+        ME.notesAddRow:SetPoint("TOPLEFT", ME.notesMembersList, "TOPLEFT", 0, -y)
+        ME.notesAddRow:SetPoint("TOPRIGHT", ME.notesMembersList, "TOPRIGHT", 0, -y)
+        ME.notesAddRow:SetHeight(22)
+        ME.notesAddRow:Show()
+        ME.notesMembersList:SetHeight(math.max(1, y + 22))
+        if ME.updateNotesMembersScroll then
+            ME.updateNotesMembersScroll()
+        end
+    end
+    if ME.syncNotesAcceptEnabled then
+        ME.syncNotesAcceptEnabled()
     end
 end
 
 ME.fillNotesProposalForm = function()
     local proposal = ME.currentNotesProposal()
     if not proposal then
-        ME.notesNameLabel:Hide()
-        ME.notesNameEdit:Hide()
         ME.notesMembersLabel:Hide()
-        ME.notesAddLabel:Hide()
-        ME.notesAddEdit:Hide()
-        if ME.notesFieldsRow then ME.notesFieldsRow:Hide() end
+        if ME.notesAddRow then ME.notesAddRow:Hide() end
         ME.notesAcceptBtn:Hide()
         ME.notesSkipBtn:Hide()
         if ME.notesScrollHost then ME.notesScrollHost:Hide() end
@@ -2060,127 +2321,55 @@ ME.fillNotesProposalForm = function()
         return
     end
     ME.notesEmptyFS:Hide()
-    if ME.notesFieldsRow then ME.notesFieldsRow:Show() end
     if ME.notesScrollHost then ME.notesScrollHost:Show() end
-    ME.notesNameLabel:Show()
-    ME.notesNameEdit:Show()
     ME.notesMembersLabel:Show()
-    ME.notesAddLabel:Show()
-    ME.notesAddEdit:Show()
+    ME.hideNotesAddInput()
     ME.notesAcceptBtn:Show()
     ME.notesSkipBtn:Show()
     ME.layoutNotesFooterButtons()
     if ME.updateNotesWizardTitle then ME.updateNotesWizardTitle() end
-    local display = proposal.displayName or proposal.main or ""
-    if Theme.SetEditBoxText then
-        Theme.SetEditBoxText(ME.notesNameEdit, display)
-    else
-        ME.notesNameEdit:SetText(display)
-    end
-    if Theme.ClearEditBoxText then
-        Theme.ClearEditBoxText(ME.notesAddEdit)
-    else
-        ME.notesAddEdit:SetText("")
-    end
     if ME.notesViewport and ME.notesViewport.SetOffset then
         ME.notesViewport.SetOffset(0)
     end
     ME.layoutNotesMembers()
 end
 
-ME.setNotesSlideOffset = function(x)
-    ME.notesSlide:ClearAllPoints()
-    ME.notesSlide:SetPoint("TOPLEFT", ME.notesClip, "TOPLEFT", x, 0)
-    ME.notesSlide:SetPoint("BOTTOMRIGHT", ME.notesClip, "BOTTOMRIGHT", x, 0)
-end
-
-ME.stopNotesSlide = function()
-    if ME.notesSlide:GetScript("OnUpdate") then
-        ME.notesSlide:SetScript("OnUpdate", nil)
-    end
-    ME.notesSliding = false
-end
-
-ME.animateNotesSlide = function(fromX, toX, onDone)
-    ME.stopNotesSlide()
-    ME.notesSliding = true
-    ME.setNotesSlideOffset(fromX)
-    local elapsed = 0
-    local duration = ME.notesSlideDuration
-    ME.notesSlide:SetScript("OnUpdate", function(_, dt)
-        elapsed = elapsed + (dt or 0)
-        local t = duration > 0 and math.min(1, elapsed / duration) or 1
-        -- Ease out
-        local eased = 1 - (1 - t) * (1 - t)
-        ME.setNotesSlideOffset(fromX + (toX - fromX) * eased)
-        if t >= 1 then
-            ME.stopNotesSlide()
-            ME.setNotesSlideOffset(toX)
-            if onDone then onDone() end
-        end
-    end)
-end
-
 ME.acceptCurrentNotesProposal = function()
     local proposal = ME.currentNotesProposal()
     if not proposal then return end
     local GMG = AltArmy.GuildManualGroups
-    local GSS = AltArmy.GuildShareSettings
     local guild = activeGuild()
     local realm = currentRealm()
     if not GMG or not guild then return end
-    local main = proposal.main
-    local displayName = ME.notesNameEdit:GetText() or ""
-    displayName = displayName:match("^%s*(.-)%s*$") or displayName
-    if displayName == "" then
-        displayName = main
-    end
-    proposal.displayName = displayName
-    -- Ensure the main character exists as a group anchor.
-    GMG.SetMapping(main, realm, main, { guild = guild, origin = "note" })
-    for _, member in ipairs(proposal.members or {}) do
-        if member.name and member.name ~= main and not member.alreadyMapped then
-            GMG.SetMapping(member.name, realm, main, {
-                guild = guild,
-                origin = "note",
-                noteText = member.noteText,
-                noteHash = member.noteHash,
-            })
-        end
-    end
-    if GSS and GSS.SetGroupOverrideName and displayName ~= main then
-        GSS.SetGroupOverrideName(main, realm, displayName)
-    elseif GSS and GSS.SetGroupOverrideName and displayName == main then
-        GSS.SetGroupOverrideName(main, realm, nil)
+    -- Group display uses the default name (main character, or shared preferred name
+    -- when EnrichProposalsWithSharedData already set proposal.displayName).
+    if GMG.ApplyProposal then
+        GMG.ApplyProposal(proposal, realm, guild, function(name)
+            return ME.rosterClassLevel(name)
+        end)
     end
 end
 
 ME.advanceNotesWizard = function(accepted)
-    if ME.notesSliding then return end
     if accepted then
         ME.acceptCurrentNotesProposal()
     end
-    local width = ME.notesClip:GetWidth() or 400
-    if width < 1 then width = 400 end
-    ME.animateNotesSlide(0, -width, function()
-        ME.notesIndex = ME.notesIndex + 1
-        if ME.notesIndex > #ME.notesProposals then
-            ME.closeNotesWizard(true)
-            return
-        end
-        ME.fillNotesProposalForm()
-        ME.animateNotesSlide(width, 0, nil)
-    end)
+    ME.notesIndex = ME.notesIndex + 1
+    if ME.notesIndex > #ME.notesProposals then
+        ME.closeNotesWizard(true)
+        return
+    end
+    ME.fillNotesProposalForm()
 end
 
 ME.closeNotesWizard = function(refreshAfter)
-    ME.stopNotesSlide()
     ME.notesWizardActive = false
     ME.notesProposals = {}
     ME.notesIndex = 1
     ME.notesWizard:Hide()
     ME.notesBackBtn:Hide()
     ME.notesTitleFS:Hide()
+    if ME.notesProgressFS then ME.notesProgressFS:Hide() end
     ME.hideManualSuggest()
     if showGuildList then showGuildList() end
     if refreshAfter and refresh then
@@ -2209,6 +2398,9 @@ ME.showNotesWizardChrome = function()
         Theme.SetTitleColor(ME.notesTitleFS)
     end
     ME.notesTitleFS:Show()
+    if ME.notesProgressFS and ME.notesProgressFS:GetText() ~= "" then
+        ME.notesProgressFS:Show()
+    end
 end
 
 ME.openScanReview = function()
@@ -2264,7 +2456,6 @@ ME.openScanReview = function()
     ME.listFooter:Hide()
     ME.showNotesWizardChrome()
     ME.notesWizard:Show()
-    ME.setNotesSlideOffset(0)
     ME.fillNotesProposalForm()
 end
 
@@ -2272,41 +2463,22 @@ ME.notesBackBtn:SetScript("OnClick", function()
     ME.closeNotesWizard(true)
 end)
 ME.notesAcceptBtn:SetScript("OnClick", function()
+    if ME.notesAcceptBtn.IsEnabled and not ME.notesAcceptBtn:IsEnabled() then
+        return
+    end
     ME.advanceNotesWizard(true)
 end)
 ME.notesSkipBtn:SetScript("OnClick", function()
     ME.advanceNotesWizard(false)
 end)
-ME.notesNameEdit:SetScript("OnEnterPressed", function(box) box:ClearFocus() end)
-ME.notesNameEdit:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
-ME.notesNameEdit:SetScript("OnEditFocusLost", function(box)
-    local proposal = ME.currentNotesProposal()
-    if not proposal then return end
-    local text = box:GetText() or ""
-    text = text:match("^%s*(.-)%s*$") or text
-    if text ~= "" then
-        proposal.displayName = text
-    end
-end)
-
 ME.notesAddEdit:SetScript("OnTextChanged", function(box)
     if Theme.UpdateEditBoxPlaceholderVisibility then
         Theme.UpdateEditBoxPlaceholderVisibility(box)
     end
     if box:HasFocus() then
-        local proposal = ME.currentNotesProposal()
-        local occupied = {}
-        if proposal then
-            occupied[GTD.NormalizeRosterName(proposal.main) or ""] = true
-            for _, m in ipairs(proposal.members or {}) do
-                local key = GTD.NormalizeRosterName(m.name)
-                if key then occupied[key] = true end
-            end
-            for _, m in ipairs(proposal.knownMembers or {}) do
-                local key = GTD.NormalizeRosterName(m.name)
-                if key then occupied[key] = true end
-            end
-        end
+        local GNP = AltArmy.GuildNoteAltParser
+        local occupied = (GNP and GNP.CollectProposalOccupiedNames
+            and GNP.CollectProposalOccupiedNames(ME.notesProposals)) or {}
         local matches = GTD.FilterRosterNamesForAdd
             and GTD.FilterRosterNamesForAdd(ME.currentRosterDisplayNames(), box:GetText() or "", occupied, {
                 maxResults = ME.suggestMax,
@@ -2315,16 +2487,13 @@ ME.notesAddEdit:SetScript("OnTextChanged", function(box)
         ME.showManualSuggest(box, matches, function(name)
             local p = ME.currentNotesProposal()
             if not p then return end
-            p.members[#p.members + 1] = { name = name, noteText = nil, noteHash = nil }
-            table.sort(p.members, function(a, b)
-                return (a.name or ""):lower() < (b.name or ""):lower()
-            end)
-            if Theme.ClearEditBoxText then
-                Theme.ClearEditBoxText(box)
-            else
-                box:SetText("")
-            end
+            local key = GTD.NormalizeRosterName(name)
+            if key and occupied[key] then return end
+            p.members[#p.members + 1] = {
+                name = name, noteText = nil, noteHash = nil, addedManually = true,
+            }
             ME.layoutNotesMembers()
+            ME.hideNotesAddInput()
         end)
     end
 end)
@@ -2342,46 +2511,47 @@ ME.notesAddEdit:SetScript("OnEnterPressed", function(box)
     local text = box:GetText() or ""
     text = text:match("^%s*(.-)%s*$") or text
     ME.hideManualSuggest()
+    local added = false
     if text ~= "" then
         local p = ME.currentNotesProposal()
         if p then
-            local key = GTD.NormalizeRosterName(text)
-            local exists = key and key == (GTD.NormalizeRosterName(p.main) or "")
-            if not exists then
-                for _, m in ipairs(p.members) do
-                    if GTD.NormalizeRosterName(m.name) == key then
-                        exists = true
-                        break
-                    end
-                end
+            local GNP = AltArmy.GuildNoteAltParser
+            local occupied = (GNP and GNP.CollectProposalOccupiedNames
+                and GNP.CollectProposalOccupiedNames(ME.notesProposals)) or {}
+            local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
+            -- Same filter as the dropdown: if exactly one match, accept the partial input.
+            local matches = GTD.FilterRosterNamesForAdd
+                and GTD.FilterRosterNamesForAdd(ME.currentRosterDisplayNames(), text, occupied, {
+                    rosterInfo = rosterInfo,
+                }) or {}
+            local pick = (#matches == 1) and matches[1] or nil
+            if not pick and GTD.ResolveRosterName then
+                pick = GTD.ResolveRosterName(text, rosterInfo)
             end
-            if not exists then
-                for _, m in ipairs(p.knownMembers or {}) do
-                    if GTD.NormalizeRosterName(m.name) == key then
-                        exists = true
-                        break
-                    end
+            if pick then
+                local key = GTD.NormalizeRosterName(pick)
+                if key and not occupied[key] then
+                    p.members[#p.members + 1] = { name = pick, addedManually = true }
+                    ME.layoutNotesMembers()
+                    added = true
                 end
-            end
-            if not exists then
-                p.members[#p.members + 1] = { name = text }
-                table.sort(p.members, function(a, b)
-                    return (a.name or ""):lower() < (b.name or ""):lower()
-                end)
-                ME.layoutNotesMembers()
             end
         end
     end
-    if Theme.ClearEditBoxText then
-        Theme.ClearEditBoxText(box)
+    if added then
+        ME.hideNotesAddInput()
     else
-        box:SetText("")
+        if Theme.ClearEditBoxText then
+            Theme.ClearEditBoxText(box)
+        else
+            box:SetText("")
+        end
+        box:ClearFocus()
+        box:SetFocus()
     end
-    box:ClearFocus()
 end)
-ME.notesAddEdit:SetScript("OnEscapePressed", function(box)
-    ME.hideManualSuggest()
-    box:ClearFocus()
+ME.notesAddEdit:SetScript("OnEscapePressed", function()
+    ME.hideNotesAddInput()
 end)
 
 -- No horizontal scroll bar on this list; pin above the footer (panel padding
@@ -3725,7 +3895,6 @@ showGuildList = function()
     clearRecipeSearch()
     header:SetHeight(UI.HEADER_HEIGHT)
     if ME.notesWizardActive then
-        ME.stopNotesSlide()
         ME.notesWizardActive = false
         ME.notesProposals = {}
         ME.notesIndex = 1
@@ -3733,6 +3902,7 @@ showGuildList = function()
     if ME.notesWizard then ME.notesWizard:Hide() end
     if ME.notesBackBtn then ME.notesBackBtn:Hide() end
     if ME.notesTitleFS then ME.notesTitleFS:Hide() end
+    if ME.notesProgressFS then ME.notesProgressFS:Hide() end
     setListHeaderVisible(true)
     listColHeader:Show()
     anchorListViewportBelowColHeader()
@@ -4015,6 +4185,10 @@ local function refreshImpl()
     local realm = currentRealm()
     local browseAllRealms = isBrowsingWithoutGuild()
     local rosterInfoMap = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or nil
+    local GMG = AltArmy.GuildManualGroups
+    if rosterInfoMap and GMG and GMG.RefreshFromRosterInfo then
+        GMG.RefreshFromRosterInfo(rosterInfoMap, realm)
+    end
     local members = (GSD and GSD.GetGuildMembersForDisplay(guild, realm, browseAllRealms, rosterInfoMap)) or {}
 
     if selectedCharacterKey then

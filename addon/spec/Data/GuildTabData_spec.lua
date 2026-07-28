@@ -499,6 +499,41 @@ describe("GuildTabData", function()
       })
       assert.are.same({ "Alice", "Bob" }, names)
     end)
+
+    it("ResolveRosterName returns the roster display name for an exact match", function()
+      local rosterInfo = {
+        alice = { name = "Alice", classFile = "MAGE", level = 70 },
+        bob = { name = "Bob", classFile = "WARRIOR", level = 60 },
+      }
+      assert.are.equal("Alice", GTD.ResolveRosterName("Alice", rosterInfo))
+      assert.are.equal("Bob", GTD.ResolveRosterName("Bob", rosterInfo))
+    end)
+
+    it("ResolveRosterName matches case-insensitively", function()
+      local rosterInfo = {
+        bobsalt = { name = "Bobsalt", classFile = "WARRIOR", level = 60 },
+      }
+      assert.are.equal("Bobsalt", GTD.ResolveRosterName("bobsalt", rosterInfo))
+      assert.are.equal("Bobsalt", GTD.ResolveRosterName("BOBSALT", rosterInfo))
+    end)
+
+    it("ResolveRosterName returns nil for unknown or empty names", function()
+      local rosterInfo = {
+        alice = { name = "Alice" },
+      }
+      assert.is_nil(GTD.ResolveRosterName("Nobody", rosterInfo))
+      assert.is_nil(GTD.ResolveRosterName("", rosterInfo))
+      assert.is_nil(GTD.ResolveRosterName(nil, rosterInfo))
+      assert.is_nil(GTD.ResolveRosterName("Alice", nil))
+      assert.is_nil(GTD.ResolveRosterName("Alice", {}))
+    end)
+
+    it("ResolveRosterName strips realm suffix before lookup", function()
+      local rosterInfo = {
+        alice = { name = "Alice" },
+      }
+      assert.are.equal("Alice", GTD.ResolveRosterName("Alice-EmeraldDream", rosterInfo))
+    end)
   end)
 
   describe("manual vs addon disagreements", function()
@@ -527,6 +562,7 @@ describe("GuildTabData", function()
       assert.are.equal("Alt", conflicts[1].name)
       assert.are.equal("ManualMain", conflicts[1].manualMain)
       assert.are.equal("AddonMain", conflicts[1].addonMain)
+      assert.are.equal("user", conflicts[1].origin)
     end)
 
     it("FindManualAddonDisagreements ignores agreeing or unmapped members", function()
@@ -2409,6 +2445,34 @@ describe("GuildTabData", function()
       assert.are.equal(
         "|cff808080Reason: referred to by other notes|r",
         GTD.FormatNotesWizardMemberAttribution("referred"))
+    end)
+
+    it("NotesWizardInclusionReasonLabel returns short column labels", function()
+      assert.are.equal("Name in note", GTD.NotesWizardInclusionReasonLabel("note"))
+      assert.are.equal("Manually added", GTD.NotesWizardInclusionReasonLabel("manual"))
+      assert.are.equal("Shared with Alt Army", GTD.NotesWizardInclusionReasonLabel("shared"))
+      assert.are.equal("Referred to by note", GTD.NotesWizardInclusionReasonLabel("main"))
+      assert.are.equal("Referred to by note", GTD.NotesWizardInclusionReasonLabel("referred"))
+      assert.are.equal("", GTD.NotesWizardInclusionReasonLabel(nil))
+      assert.are.equal("", GTD.NotesWizardInclusionReasonLabel("unknown"))
+    end)
+
+    it("ClassifyNotesWizardInclusionReason picks kind from row role and provenance", function()
+      assert.are.equal("main", GTD.ClassifyNotesWizardInclusionReason({ isMain = true }))
+      assert.are.equal("shared", GTD.ClassifyNotesWizardInclusionReason({
+        isMain = true, mainFromShared = true,
+      }))
+      assert.are.equal("shared", GTD.ClassifyNotesWizardInclusionReason({ isKnownShared = true }))
+      assert.are.equal("note", GTD.ClassifyNotesWizardInclusionReason({
+        noteText = "bob alt",
+      }))
+      assert.are.equal("note", GTD.ClassifyNotesWizardInclusionReason({
+        alreadyMapped = true, origin = "note",
+      }))
+      assert.are.equal("manual", GTD.ClassifyNotesWizardInclusionReason({
+        alreadyMapped = true, origin = "user",
+      }))
+      assert.are.equal("manual", GTD.ClassifyNotesWizardInclusionReason({}))
     end)
   end)
 end)

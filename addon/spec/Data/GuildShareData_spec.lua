@@ -623,6 +623,22 @@ describe("GuildShareData", function()
       assert.are.equal("MAGE", byName.Bob.classFile)
       assert.are.equal(70, byName.Bob.level)
     end)
+
+    it("falls back to stored classFile and level when roster info is absent", function()
+      GMG.SetMapping("Bobsalt", "R", "Bob", {
+        guild = "G", classFile = "WARRIOR", level = 60,
+      })
+      GMG.SetMapping("Bob", "R", "Bob", {
+        guild = "G", classFile = "MAGE", level = 70,
+      })
+      local members = GSD.GetGuildMembersForDisplay("G", "R")
+      local byName = {}
+      for _, m in ipairs(members) do byName[m.name] = m end
+      assert.are.equal("WARRIOR", byName.Bobsalt.classFile)
+      assert.are.equal(60, byName.Bobsalt.level)
+      assert.are.equal("MAGE", byName.Bob.classFile)
+      assert.are.equal(70, byName.Bob.level)
+    end)
   end)
 
   describe("purging", function()
@@ -687,6 +703,81 @@ describe("GuildShareData", function()
       local m = GMG.GetMapping("Alt", "R")
       assert.truthy(m)
       assert.are.equal("ManualMain", m.main)
+    end)
+
+    it("SaveReceived retires only the presence's names, leaving other mappings alone", function()
+      GMG.SetMapping("PeerAlt", "R", "PeerMain", { guild = "G" })
+      GMG.SetMapping("OtherAlt", "R", "PeerMain", { guild = "G" })
+      GMG.SetMapping("Elsewhere", "OtherRealm", "PeerMain", { guild = "G" })
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("PeerMain", {
+        charEntry("PeerMain"), charEntry("PeerAlt"),
+      })), "G", "R")
+      assert.is_nil(GMG.GetMapping("PeerAlt", "R"))
+      assert.truthy(GMG.GetMapping("OtherAlt", "R"))
+      assert.truthy(GMG.GetMapping("Elsewhere", "OtherRealm"))
+    end)
+
+    it("disagreeing presence shadows the mapping in display and IsShadowed", function()
+      AltArmy.GuildShareSettings = nil
+      GMG.SetMapping("PeerAlt", "R", "ManualMain", { guild = "G" })
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("AddonMain", {
+        charEntry("AddonMain"), charEntry("PeerAlt"),
+      })), "G", "R")
+      assert.is_true(GMG.IsShadowed("PeerAlt", "R"))
+      local members = GSD.GetGuildMembersForDisplay("G", "R")
+      local byName = {}
+      for _, m in ipairs(members) do byName[m.name] = m end
+      assert.are.equal("AddonMain", byName.PeerAlt.main)
+      assert.are.equal("Peer", byName.PeerAlt.source)
+      assert.are.not_equal("manual", byName.PeerAlt.source)
+    end)
+
+    it("main-only presence retires the anchor; manual alts still group via display stubs", function()
+      AltArmy.GuildShareSettings = nil
+      GMG.SetMapping("PeerMain", "R", "PeerMain", { guild = "G" })
+      GMG.SetMapping("PeerAlt", "R", "PeerMain", { guild = "G" })
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("PeerMain", {
+        charEntry("PeerMain"),
+      })), "G", "R")
+      assert.is_nil(GMG.GetMapping("PeerMain", "R"))
+      assert.truthy(GMG.GetMapping("PeerAlt", "R"))
+      local members = GSD.GetGuildMembersForDisplay("G", "R")
+      local byName = {}
+      for _, m in ipairs(members) do byName[m.name] = m end
+      assert.are.equal("Peer", byName.PeerMain.source)
+      assert.are.equal("manual", byName.PeerAlt.source)
+      assert.are.equal("PeerMain", byName.PeerAlt.main)
+    end)
+
+    it("opt-out empty presence unshadows surviving manual mappings", function()
+      AltArmy.GuildShareSettings = nil
+      GMG.SetMapping("PeerAlt", "R", "ManualMain", { guild = "G" })
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("AddonMain", {
+        charEntry("AddonMain"), charEntry("PeerAlt"),
+      })), "G", "R")
+      assert.is_true(GMG.IsShadowed("PeerAlt", "R"))
+      -- Peer opts out: empty presence clears their received chars.
+      GSD.SaveReceived("Peer", P.ParsePresence({ v = 1, chars = {} }), "G", "R")
+      assert.is_false(GMG.IsShadowed("PeerAlt", "R"))
+      assert.truthy(GMG.GetMapping("PeerAlt", "R"))
+      local members = GSD.GetGuildMembersForDisplay("G", "R")
+      local byName = {}
+      for _, m in ipairs(members) do byName[m.name] = m end
+      assert.are.equal("manual", byName.PeerAlt.source)
+      assert.are.equal("ManualMain", byName.PeerAlt.main)
+    end)
+
+    it("SetMapping after coverage is shadowed then retired by the next agreeing presence", function()
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("PeerMain", {
+        charEntry("PeerMain"), charEntry("PeerAlt"),
+      })), "G", "R")
+      GMG.SetMapping("PeerAlt", "R", "PeerMain", { guild = "G", origin = "user" })
+      assert.is_true(GMG.IsShadowed("PeerAlt", "R"))
+      assert.truthy(GMG.GetMapping("PeerAlt", "R"))
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("PeerMain", {
+        charEntry("PeerMain"), charEntry("PeerAlt"),
+      })), "G", "R")
+      assert.is_nil(GMG.GetMapping("PeerAlt", "R"))
     end)
 
     it("PurgeGuild also clears manual mappings for that guild", function()

@@ -471,7 +471,8 @@ end
 --- When `allLocalRealms` is true, merges local account characters from every realm.
 --- Unshadowed manual mappings (GuildManualGroups) are appended with source = "manual".
 --- Optional `rosterInfoMap` (from GTD.BuildRosterInfoMap) enriches classFile/level on
---- manual stubs; keys are normalized lowercase short names.
+--- manual stubs; keys are normalized lowercase short names. When roster info is missing
+--- (e.g. not currently in a guild), falls back to classFile/level stored on the mapping.
 function GSD.GetGuildMembersForDisplay(guild, realm, allLocalRealms, rosterInfoMap)
     local byKey = {}
     for _, entry in ipairs(GSD.GetGuildMembers(guild)) do
@@ -498,11 +499,25 @@ function GSD.GetGuildMembersForDisplay(guild, realm, allLocalRealms, rosterInfoM
         end
         local function makeManualEntry(name, entryRealm, main, mapping, isMain)
             local info = rosterInfoFor(name)
+            local classFile = ""
+            if info and type(info.classFile) == "string" and info.classFile ~= "" then
+                classFile = info.classFile
+            elseif mapping and type(mapping.classFile) == "string" and mapping.classFile ~= "" then
+                classFile = mapping.classFile
+            end
+            local level = 0
+            local rosterLevel = info and tonumber(info.level)
+            local storedLevel = mapping and tonumber(mapping.level)
+            if rosterLevel and rosterLevel > 0 then
+                level = rosterLevel
+            elseif storedLevel and storedLevel > 0 then
+                level = storedLevel
+            end
             return {
                 name = name,
                 realm = entryRealm,
-                classFile = (info and info.classFile) or "",
-                level = (info and info.level) or 0,
+                classFile = classFile,
+                level = level,
                 guildName = guild,
                 main = main,
                 isMain = isMain and true or false,
@@ -529,7 +544,9 @@ function GSD.GetGuildMembersForDisplay(guild, realm, allLocalRealms, rosterInfoM
         end
         for key, mainInfo in pairs(mainsNeeded) do
             if not byKey[key] then
-                byKey[key] = makeManualEntry(mainInfo.name, mainInfo.realm, mainInfo.name, nil, true)
+                local mainMapping = GMG.GetMapping and GMG.GetMapping(mainInfo.name, mainInfo.realm)
+                byKey[key] = makeManualEntry(
+                    mainInfo.name, mainInfo.realm, mainInfo.name, mainMapping, true)
             end
         end
     end

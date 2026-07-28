@@ -681,6 +681,21 @@ function GTD.RosterDisplayNames(rosterInfoMap)
     return out
 end
 
+--- Case-insensitive match of typed text to a roster display name.
+--- `rosterInfoMap` is a BuildRosterInfoMap result (normalized key → { name, ... }).
+--- Returns the proper-cased roster name, or nil when unknown.
+function GTD.ResolveRosterName(text, rosterInfoMap)
+    if type(text) ~= "string" or text == "" then return nil end
+    if type(rosterInfoMap) ~= "table" then return nil end
+    local key = GTD.NormalizeRosterName(text)
+    if not key then return nil end
+    local info = rosterInfoMap[key]
+    if info and type(info.name) == "string" and info.name ~= "" then
+        return info.name
+    end
+    return nil
+end
+
 --- Filter roster display names for an "add character" autocomplete.
 --- Excludes names present in `occupiedNames` (lowercase set). Optional `opts.maxResults`.
 --- When `opts.rosterInfo` is a BuildRosterInfoMap result, also matches `note` text.
@@ -1478,6 +1493,46 @@ function GTD.FormatNotesWizardMemberAttribution(kind, reason)
     return GRAY .. "Reason: " .. text .. "|r"
 end
 
+--- Short inclusion-reason label for the notes wizard "Reason for Inclusion" column.
+--- `kind`: "main" | "note" | "manual" | "shared" | "referred"
+function GTD.NotesWizardInclusionReasonLabel(kind)
+    if kind == "note" then
+        return "Name in note"
+    elseif kind == "manual" then
+        return "Manually added"
+    elseif kind == "shared" then
+        return "Shared with Alt Army"
+    elseif kind == "main" or kind == "referred" then
+        return "Referred to by note"
+    end
+    return ""
+end
+
+--- Classify a notes-wizard display row into an inclusion-reason kind.
+--- opts: isMain?, mainFromShared?, isKnownShared?, noteText?, alreadyMapped?, origin?
+function GTD.ClassifyNotesWizardInclusionReason(opts)
+    opts = opts or {}
+    if opts.isMain then
+        if opts.mainFromShared then
+            return "shared"
+        end
+        return "main"
+    end
+    if opts.isKnownShared then
+        return "shared"
+    end
+    if type(opts.noteText) == "string" and opts.noteText:match("%S") then
+        return "note"
+    end
+    if opts.alreadyMapped then
+        if opts.origin == "note" then
+            return "note"
+        end
+        return "manual"
+    end
+    return "manual"
+end
+
 --- Gray level suffix for the guild character recipe title: "(level N)" or "(N)".
 function GTD.FormatCharacterLevelSuffix(level, mode, grayPrefix)
     local n = math.floor(tonumber(level) or 0)
@@ -1570,7 +1625,7 @@ function GTD.BuildRosterLastOnlineMap(api)
 end
 
 --- Build short-name -> { classFile, level, name, note } from guild roster APIs.
---- Used to enrich manual grouping stubs at display time (nothing persisted).
+--- Used to enrich manual grouping stubs and to refresh stored class/level on mappings.
 --- `note` is the trimmed public note, or officer note when public is empty.
 --- `api` may override: isInGuild, getNumGuildMembers, getGuildRosterInfo, normalizeName.
 function GTD.BuildRosterInfoMap(api)
