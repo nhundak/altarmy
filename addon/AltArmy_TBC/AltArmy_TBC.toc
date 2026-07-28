@@ -10,6 +10,7 @@
 UI\Theme.lua
 UI\Text.lua
 UI\VirtualList.lua
+UI\SlideTransition.lua
 Core.lua
 Data\CharKey.lua
 Data\Characters\BankAlt.lua

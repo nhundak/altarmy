@@ -513,6 +513,9 @@ end)
 local listView = CreateFrame("Frame", nil, inner)
 listView:SetAllPoints(inner)
 listView:Hide()
+if listView.SetClipsChildren then
+    listView:SetClipsChildren(true)
+end
 
 -- Fixed header (does not scroll)
 local header = CreateFrame("Frame", nil, listView)
@@ -945,11 +948,16 @@ local function setListHeaderVisible(visible)
     profTabStrip:SetShown(not visible)
 end
 
+-- Member-list page body (slides against recipeBody / notesWizard).
+ME.listBody = CreateFrame("Frame", nil, listView)
+ME.listBody:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
+ME.listBody:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", 0, 0)
+
 -- Scroll body below the guild header and fixed column headers.
-local listColHeader = CreateFrame("Frame", nil, listView)
+local listColHeader = CreateFrame("Frame", nil, ME.listBody)
 listColHeader:SetHeight(UI.LIST_COL_HEADER_HEIGHT)
-listColHeader:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
-listColHeader:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", -SCROLL_GUTTER, -PAD)
+listColHeader:SetPoint("TOPLEFT", ME.listBody, "TOPLEFT", 0, 0)
+listColHeader:SetPoint("TOPRIGHT", ME.listBody, "TOPRIGHT", -SCROLL_GUTTER, 0)
 listColHeader:Hide()
 
 local LIST_HEADER_LABEL = {
@@ -1028,12 +1036,12 @@ createListHeaderButton("characterCount", "LEFT", function(btn)
 end)
 updateListHeaderSortIndicators()
 
-local listViewport = CreateFrame("Frame", nil, listView)
+local listViewport = CreateFrame("Frame", nil, ME.listBody)
 -- Footer sits under the list; viewport leaves room so rows don't cover the buttons.
-ME.listFooter = CreateFrame("Frame", nil, listView)
+ME.listFooter = CreateFrame("Frame", nil, ME.listBody)
 ME.listFooter:SetHeight(UI.LIST_FOOTER_HEIGHT)
-ME.listFooter:SetPoint("BOTTOMLEFT", listView, "BOTTOMLEFT", 0, 0)
-ME.listFooter:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
+ME.listFooter:SetPoint("BOTTOMLEFT", ME.listBody, "BOTTOMLEFT", 0, 0)
+ME.listFooter:SetPoint("BOTTOMRIGHT", ME.listBody, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
 ME.listFooter:Hide()
 
 ME.addGroupBtn = CreateFrame("Button", nil, ME.listFooter, "UIPanelButtonTemplate")
@@ -1042,7 +1050,11 @@ ME.addGroupBtn:SetText("Add Manual Group")
 Theme.SkinButton(ME.addGroupBtn)
 ME.addGroupBtn:SetWidth(140)
 ME.addGroupBtn:SetScript("OnClick", function()
-    ME.openManualCreate()
+    if ME.slideSwap then
+        ME.slideSwap(function() ME.openManualCreate() end)
+    else
+        ME.openManualCreate()
+    end
 end)
 
 ME.scanNotesBtn = CreateFrame("Button", nil, ME.listFooter, "UIPanelButtonTemplate")
@@ -1051,7 +1063,11 @@ ME.scanNotesBtn:SetText("Add Groups from Notes")
 Theme.SkinButton(ME.scanNotesBtn)
 ME.scanNotesBtn:SetWidth(170)
 ME.scanNotesBtn:SetScript("OnClick", function()
-    ME.openScanReview()
+    if ME.slideSwap then
+        ME.slideSwap(function() ME.openScanReview() end)
+    else
+        ME.openScanReview()
+    end
 end)
 
 ME.layoutListFooterButtons = function()
@@ -1072,6 +1088,7 @@ end
 ME.syncListFooter = function()
     -- Guild member list only (not recipe detail, picker, message view, or notes wizard).
     local showList = listView:IsShown()
+        and ME.listBody and ME.listBody:IsShown()
         and listViewport:IsShown()
         and listColHeader:IsShown()
         and not shouldShowGuildPicker()
@@ -1312,9 +1329,10 @@ ME.notesSlide:SetPoint("TOPLEFT", ME.notesClip, "TOPLEFT", 0, 0)
 ME.notesSlide:SetPoint("BOTTOMRIGHT", ME.notesClip, "BOTTOMRIGHT", 0, 0)
 
 ME.notesEmptyFS = ME.notesSlide:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-ME.notesEmptyFS:SetPoint("TOP", ME.notesSlide, "TOP", 0, -40)
+ME.notesEmptyFS:SetPoint("CENTER", ME.notesSlide, "CENTER", 0, 0)
 ME.notesEmptyFS:SetWidth(420)
 ME.notesEmptyFS:SetJustifyH("CENTER")
+ME.notesEmptyFS:SetJustifyV("MIDDLE")
 ME.notesEmptyFS:Hide()
 
 -- Members table header + scrolling list. Add-character control lives at the bottom of the list.
@@ -2353,6 +2371,7 @@ ME.openScanReview = function()
     ME.editSourceGroup = nil
     selectedCharacter = nil
     selectedCharacterKey = nil
+    if ME.listBody then ME.listBody:Hide() end
     listColHeader:Hide()
     listViewport:Hide()
     if ME.updateListHeaderFade then
@@ -2372,6 +2391,7 @@ ME.openManualCreate = function()
     ME.editSourceGroup = nil
     selectedCharacter = nil
     selectedCharacterKey = nil
+    if ME.listBody then ME.listBody:Hide() end
     listColHeader:Hide()
     listViewport:Hide()
     if ME.updateListHeaderFade then
@@ -2401,6 +2421,7 @@ ME.openGroupEdit = function(group)
     ME.deleteConfirmPending = false
     selectedCharacter = nil
     selectedCharacterKey = nil
+    if ME.listBody then ME.listBody:Hide() end
     listColHeader:Hide()
     listViewport:Hide()
     if ME.updateListHeaderFade then
@@ -2413,7 +2434,11 @@ ME.openGroupEdit = function(group)
 end
 
 ME.notesBackBtn:SetScript("OnClick", function()
-    ME.closeNotesWizard(true)
+    if ME.slideSwap then
+        ME.slideSwap(function() ME.closeNotesWizard(true) end)
+    else
+        ME.closeNotesWizard(true)
+    end
 end)
 ME.notesAcceptBtn:SetScript("OnClick", function()
     if ME.notesAcceptBtn.IsEnabled and not ME.notesAcceptBtn:IsEnabled() then
@@ -2609,8 +2634,8 @@ local function anchorListViewportBelowColHeader()
 end
 local function anchorListViewportBelowGuildHeader()
     listViewport:ClearAllPoints()
-    listViewport:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
-    listViewport:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
+    listViewport:SetPoint("TOPLEFT", ME.listBody, "TOPLEFT", 0, 0)
+    listViewport:SetPoint("BOTTOMRIGHT", ME.listBody, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
 end
 anchorListViewportBelowColHeader()
 
@@ -2785,9 +2810,9 @@ end
 
 -- Empty-state copy region ignores the profession tab strip so "no professions" and
 -- "no recipes" messages share the same vertical position under the character title.
-local emptyMsgRegion = CreateFrame("Frame", nil, listView)
-emptyMsgRegion:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
-emptyMsgRegion:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
+-- Parented to recipeBody so it slides with the recipe page.
+local emptyMsgRegion = CreateFrame("Frame", nil, recipeBody)
+emptyMsgRegion:SetAllPoints(recipeBody)
 emptyMsgRegion:EnableMouse(false)
 emptyMsgRegion:Hide()
 
@@ -3285,8 +3310,12 @@ local function acquireMainRow(index)
             updateSettingsBtnVisibility()
         end)
         settingsBtn:SetScript("OnClick", function()
-            if row.settingsGroup then
-                ME.openGroupEdit(row.settingsGroup)
+            if not row.settingsGroup then return end
+            local group = row.settingsGroup
+            if ME.slideSwap then
+                ME.slideSwap(function() ME.openGroupEdit(group) end)
+            else
+                ME.openGroupEdit(group)
             end
         end)
         row.settingsBtn = settingsBtn
@@ -3955,6 +3984,7 @@ showGuildList = function()
     if ME.editOptions then ME.editOptions:Hide() end
     if ME.notesDeleteBtn then ME.notesDeleteBtn:Hide() end
     setListHeaderVisible(true)
+    if ME.listBody then ME.listBody:Show() end
     listColHeader:Show()
     anchorListViewportBelowColHeader()
     listViewport:Show()
@@ -3992,6 +4022,7 @@ showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredR
         clearRecipeFocus()
     end
     setListHeaderVisible(false)
+    if ME.listBody then ME.listBody:Hide() end
     listColHeader:Hide()
     listViewport:Hide()
     emptyText:Hide()
@@ -4006,6 +4037,45 @@ showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredR
     end
     layoutRecipeView(entry)
     if ME.syncListFooter then ME.syncListFooter() end
+end
+
+-- Slide between listBody / recipeBody / notesWizard. Direction: to list = back, else forward.
+ME.slideSwap = function(switchFn)
+    if type(switchFn) ~= "function" then return end
+    local ST = AltArmy.SlideTransition
+    local function visiblePage()
+        if ME.notesWizard and ME.notesWizard:IsShown() then
+            return ME.notesWizard
+        end
+        if recipeBody:IsShown() then
+            return recipeBody
+        end
+        if ME.listBody and ME.listBody:IsShown() then
+            return ME.listBody
+        end
+        return nil
+    end
+    if not ST or not ST.Run or not frame:IsShown() then
+        switchFn()
+        return
+    end
+    local fromPage = visiblePage()
+    switchFn()
+    local toPage = visiblePage()
+    if not fromPage or not toPage or fromPage == toPage then
+        return
+    end
+    local direction = (toPage == ME.listBody) and "back" or "forward"
+    local width = (listView.GetWidth and listView:GetWidth()) or 0
+    if width <= 0 and toPage.GetWidth then
+        width = toPage:GetWidth() or 0
+    end
+    ST.Run({
+        from = fromPage,
+        to = toPage,
+        width = width,
+        direction = direction,
+    })
 end
 
 --- Open character recipe detail from search; Back returns via SearchGuildNav / Core.
@@ -4033,8 +4103,15 @@ backBtn:SetScript("OnClick", function()
         AltArmy.ReturnToSearchFromGuildCharacter()
         return
     end
-    showGuildList()
-    refresh()
+    local goList = function()
+        showGuildList()
+        refresh()
+    end
+    if ME.slideSwap then
+        ME.slideSwap(goList)
+    else
+        goList()
+    end
 end)
 
 guildBackBtn:SetScript("OnClick", function()
@@ -4146,7 +4223,11 @@ local function layoutList(groups, query, rosterByName, forceHoverMain)
                 end
                 charRow.memberEntry = m
                 charRow:SetScript("OnClick", function()
-                    showRecipeView(m)
+                    if ME.slideSwap then
+                        ME.slideSwap(function() showRecipeView(m) end)
+                    else
+                        showRecipeView(m)
+                    end
                 end)
                 y = y + UI.CHAR_ROW_HEIGHT
             end
@@ -4257,6 +4338,7 @@ local function refreshImpl()
         selectedCharacter = resolved or selectedCharacter
         if selectedCharacter then
             setListHeaderVisible(false)
+            if ME.listBody then ME.listBody:Hide() end
             listColHeader:Hide()
             listViewport:Hide()
             emptyText:Hide()
