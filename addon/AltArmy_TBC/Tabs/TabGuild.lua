@@ -17,12 +17,10 @@ local Theme = AltArmy.Theme
 local CC = AltArmy.ClassColor
 local GTD = AltArmy.GuildTabData
 local SECTION_INSET = Theme.TAB_SECTION_INSET
-local SECTION_GAP = Theme.SECTION_GAP
 local PAD = Theme.TAB_CONTENT_PADDING
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 -- Layout metrics packed to stay under Lua 5.1's 200-local / function limit.
 local UI = {
-    GRID_SPLIT_FRACTION = 0.6,
     HEADER_HEIGHT = 32,
     RECIPE_TITLE_HEIGHT = 32,
     PROF_TAB_HEIGHT = 26,
@@ -37,6 +35,8 @@ local UI = {
     CHAR_INDENT = 12,
     LIST_COL_HEADER_HEIGHT = 18,
     LIST_FOOTER_HEIGHT = 28,
+    -- Nudge footer action buttons slightly below vertical center.
+    FOOTER_BUTTON_Y = -2,
     -- Notes wizard member table columns.
     NOTES_REASON_COL_WIDTH = 150,
     NOTES_ACTION_COL_WIDTH = 78,
@@ -119,26 +119,18 @@ local listSortAscending = true
 local listSortCanLookupOnline = nil
 -- When the current character is not guilded, browse a guild from account alts.
 local selectedBrowseGuild = nil
--- Group settings side panel (session-only).
-local selectedSettingsGroup = nil
-local deleteConfirmPending = false
-local openGroupSettings
-local closeGroupSettings
-local updateGroupSettingsPanel
-local ApplyGroupSettingsPanelLayout
-local isGroupSettingsShown
 local updateGuildHeaderForListMode
 local applyListColumnLayout
 local syncMainRowSettingsIcons
-local applyMainPanelLayout
 -- Manual grouping edit UI + session state (packed to limit locals).
 local ME = {
-    wizardMode = nil, -- "notes" | "manual" while a full-panel wizard is open
+    wizardMode = nil, -- "notes" | "manual" | "edit" while a full-panel wizard is open
     suggestMax = 40,
     -- Visible dropdown height before scrolling (~8 name-only rows + padding).
     suggestMaxHeight = 160,
-    altRowPool = {},
     suggestPool = {},
+    editSourceGroup = nil,
+    deleteConfirmPending = false,
 }
 
 local function activeGuild()
@@ -277,175 +269,7 @@ panel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
 panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 local inner = Theme.CreatePanelInnerContent(panel)
 
--- Group settings side panel (60% list / 40% settings when open).
-local groupSettingsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-Theme.ApplyBackdrop(groupSettingsPanel, "section")
-ApplyGroupSettingsPanelLayout = function()
-    local w = frame:GetWidth()
-    if w <= 0 then return end
-    groupSettingsPanel:ClearAllPoints()
-    local settingsLeft = w * UI.GRID_SPLIT_FRACTION + SECTION_GAP
-    groupSettingsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", settingsLeft, -SECTION_INSET)
-    groupSettingsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", settingsLeft, SECTION_INSET)
-    groupSettingsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SECTION_INSET, -SECTION_INSET)
-    groupSettingsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
-end
-ApplyGroupSettingsPanelLayout()
-groupSettingsPanel:Hide()
-
-local groupSettingsContent = Theme.CreateSettingsPanelContent(groupSettingsPanel)
-local groupSettingsTitle = groupSettingsContent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-groupSettingsTitle:SetPoint("TOPLEFT", groupSettingsContent, "TOPLEFT", 0, 0)
-groupSettingsTitle:SetPoint("TOPRIGHT", groupSettingsContent, "TOPRIGHT", 0, 0)
-groupSettingsTitle:SetJustifyH("LEFT")
-groupSettingsTitle:SetText("Settings")
-Theme.SetTitleColor(groupSettingsTitle)
-
-local function formatGroupSettingsTitle(group)
-    local displayName = GTD.ResolveGroupDisplayName(group)
-    local coloredName = formatName(displayName, group and group.classFile)
-    local suffix = " settings"
-    local t = Theme.COLORS and Theme.COLORS.title
-    if t and CC and CC.formatHex then
-        suffix = CC.formatHex(t[1], t[2], t[3], suffix)
-    end
-    return coloredName .. suffix
-end
-
-local function setGroupSettingsTitle(group)
-    if not group then
-        groupSettingsTitle:SetText("Settings")
-        Theme.SetTitleColor(groupSettingsTitle)
-        return
-    end
-    groupSettingsTitle:SetText(formatGroupSettingsTitle(group))
-    -- White base so embedded class/title color codes render as authored.
-    groupSettingsTitle:SetTextColor(1, 1, 1, 1)
-end
-
-local groupSettingsBody = CreateFrame("Frame", nil, groupSettingsContent)
-groupSettingsBody:SetPoint("TOPLEFT", groupSettingsTitle, "BOTTOMLEFT", 0, -8)
-groupSettingsBody:SetPoint("BOTTOMRIGHT", groupSettingsContent, "BOTTOMRIGHT", 0, 0)
-
-local groupPinRow = Theme.CreateLabeledCheckbox(groupSettingsBody, {
-    point = "TOPLEFT",
-    x = 0,
-    y = 0,
-    text = "Pin",
-    fullWidthHover = true,
-    onClick = function(checked)
-        if not selectedSettingsGroup then return end
-        local GSS = AltArmy.GuildShareSettings
-        local realm = groupPrefsRealm(selectedSettingsGroup)
-        if GSS and GSS.SetGroupPinned then
-            GSS.SetGroupPinned(selectedSettingsGroup.main, realm, checked)
-        end
-        selectedSettingsGroup.pinned = checked and true or false
-        if refresh then refresh() end
-    end,
-})
-
-local overrideLabel = Theme.CreateOptionsSectionLabel(groupSettingsBody, {
-    point = "TOPLEFT",
-    relativeTo = groupPinRow,
-    relativePoint = "BOTTOMLEFT",
-    x = 0,
-    y = -14,
-    text = "Override name in my UI",
-})
-
-local overrideResetBtn = CreateFrame("Button", nil, groupSettingsBody, "UIPanelButtonTemplate")
-overrideResetBtn:SetSize(56, 22)
-overrideResetBtn:SetPoint("TOP", overrideLabel, "BOTTOM", 0, -4)
-overrideResetBtn:SetPoint("RIGHT", groupSettingsBody, "RIGHT", 0, 0)
-overrideResetBtn:SetText("Reset")
-Theme.SkinButton(overrideResetBtn)
-
-local overrideEdit = CreateFrame("EditBox", nil, groupSettingsBody)
-overrideEdit:SetPoint("TOPLEFT", overrideLabel, "BOTTOMLEFT", 0, -4)
-overrideEdit:SetPoint("RIGHT", overrideResetBtn, "LEFT", -6, 0)
-overrideEdit:SetHeight(22)
-overrideEdit:SetFontObject("GameFontHighlight")
-overrideEdit:SetAutoFocus(false)
-overrideEdit:SetTextInsets(6, 6, 0, 0)
-local overrideMaxLen = AltArmy.GuildShareSettings and AltArmy.GuildShareSettings.DISPLAY_NAME_MAX_LENGTH
-if overrideEdit.SetMaxLetters and overrideMaxLen then
-    overrideEdit:SetMaxLetters(overrideMaxLen)
-end
-Theme.ApplyInputTextures(overrideEdit)
-overrideEdit:SetScript("OnEnterPressed", function(box) box:ClearFocus() end)
-overrideEdit:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
-local function applyOverrideFromEdit(box)
-    if not selectedSettingsGroup then return end
-    local GSS = AltArmy.GuildShareSettings
-    local realm = groupPrefsRealm(selectedSettingsGroup)
-    local text = box:GetText() or ""
-    if GSS and GSS.SetGroupOverrideName then
-        GSS.SetGroupOverrideName(selectedSettingsGroup.main, realm, text)
-    end
-    local newOverride = (GSS and GSS.GetGroupOverrideName
-        and GSS.GetGroupOverrideName(selectedSettingsGroup.main, realm)) or nil
-    if newOverride == selectedSettingsGroup.overrideName then
-        return
-    end
-    selectedSettingsGroup.overrideName = newOverride
-    setGroupSettingsTitle(selectedSettingsGroup)
-    if refresh then refresh() end
-end
-overrideEdit:SetScript("OnTextChanged", function(box)
-    applyOverrideFromEdit(box)
-end)
-overrideEdit:SetScript("OnEditFocusLost", function(box)
-    applyOverrideFromEdit(box)
-end)
-overrideResetBtn:SetScript("OnClick", function()
-    if Theme.ClearEditBoxText then
-        Theme.ClearEditBoxText(overrideEdit)
-    else
-        overrideEdit:SetText("")
-        if overrideEdit.ClearFocus then
-            overrideEdit:ClearFocus()
-        end
-    end
-    applyOverrideFromEdit(overrideEdit)
-end)
-
--- Manual alts section (edit existing group or create a new one).
-ME.altsLabel = Theme.CreateOptionsSectionLabel(groupSettingsBody, {
-    point = "TOPLEFT",
-    relativeTo = overrideEdit,
-    relativePoint = "BOTTOMLEFT",
-    x = 0,
-    y = -14,
-    text = "Manually-added alts",
-})
-
-ME.altsList = CreateFrame("Frame", nil, groupSettingsBody)
-ME.altsList:SetPoint("TOPLEFT", ME.altsLabel, "BOTTOMLEFT", 0, -4)
-ME.altsList:SetPoint("RIGHT", groupSettingsBody, "RIGHT", 0, 0)
-ME.altsList:SetHeight(80)
-
-ME.addCharLabel = Theme.CreateOptionsSectionLabel(groupSettingsBody, {
-    point = "TOPLEFT",
-    relativeTo = ME.altsList,
-    relativePoint = "BOTTOMLEFT",
-    x = 0,
-    y = -10,
-    text = "Add character",
-})
-
-ME.addCharEdit = CreateFrame("EditBox", nil, groupSettingsBody)
-ME.addCharEdit:SetPoint("TOPLEFT", ME.addCharLabel, "BOTTOMLEFT", 0, -4)
-ME.addCharEdit:SetPoint("RIGHT", groupSettingsBody, "RIGHT", 0, 0)
-ME.addCharEdit:SetHeight(22)
-ME.addCharEdit:SetFontObject("GameFontHighlight")
-ME.addCharEdit:SetAutoFocus(false)
-ME.addCharEdit:SetTextInsets(6, 6, 0, 0)
-Theme.ApplyInputTextures(ME.addCharEdit)
-if Theme.SetupEditBoxPlaceholder then
-    Theme.SetupEditBoxPlaceholder(ME.addCharEdit, "Type a guild member name")
-end
-
+-- Autocomplete dropdown for add-character (wizard / edit modes).
 ME.suggestFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 Theme.ApplyBackdrop(ME.suggestFrame, "section")
 -- Above Accept/Skip and other tab chrome while the notes wizard is open.
@@ -660,354 +484,6 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
     end
 end
 
-ME.refreshManualSuggest = function(anchorEdit)
-    local occupied = GTD.CollectOccupiedNames and GTD.CollectOccupiedNames(ME.currentDisplayMembers()) or {}
-    local query = anchorEdit:GetText() or ""
-    local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
-    local matches = GTD.FilterRosterNamesForAdd
-        and GTD.FilterRosterNamesForAdd(ME.currentRosterDisplayNames(), query, occupied, {
-            maxResults = ME.suggestMax,
-            rosterInfo = rosterInfo,
-        }) or {}
-    ME.showManualSuggest(anchorEdit, matches, function(name)
-        if Theme.SetEditBoxText then
-            Theme.SetEditBoxText(anchorEdit, name)
-        else
-            anchorEdit:SetText(name)
-        end
-        anchorEdit:ClearFocus()
-        ME.commitAlt(name)
-    end)
-end
-
-ME.commitAlt = function(name)
-    if type(name) ~= "string" or name == "" then return end
-    if not selectedSettingsGroup or not selectedSettingsGroup.main then return end
-    local GMG = AltArmy.GuildManualGroups
-    local guild = activeGuild()
-    local realm = groupPrefsRealm(selectedSettingsGroup)
-    if not GMG or not guild then return end
-    local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
-    local resolved = (GTD.ResolveRosterName and GTD.ResolveRosterName(name, rosterInfo)) or nil
-    if not resolved then return end
-    name = resolved
-    local classFile, level = ME.rosterClassLevel(name)
-    if GMG.AssignToGroup then
-        GMG.AssignToGroup(name, realm, selectedSettingsGroup.main, {
-            guild = guild, origin = "user", classFile = classFile, level = level,
-        })
-    else
-        GMG.SetMapping(name, realm, selectedSettingsGroup.main, {
-            guild = guild, origin = "user", classFile = classFile, level = level,
-        })
-    end
-    if Theme.ClearEditBoxText then
-        Theme.ClearEditBoxText(ME.addCharEdit)
-    else
-        ME.addCharEdit:SetText("")
-    end
-    ME.hideManualSuggest()
-    if refresh then refresh() end
-end
-
-ME.hideManualAltRowsFrom = function(index)
-    for i = index, #ME.altRowPool do
-        if ME.altRowPool[i] then ME.altRowPool[i]:Hide() end
-    end
-end
-
-ME.layoutManualAltRows = function()
-    local alts = (GTD.GetManualAlts and GTD.GetManualAlts(selectedSettingsGroup)) or {}
-    local y = 0
-    local rowH = 22
-    local removeW = 72
-    for i, alt in ipairs(alts) do
-        local row = ME.altRowPool[i]
-        if not row then
-            row = CreateFrame("Frame", nil, ME.altsList)
-            row:SetHeight(rowH)
-            local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            nameFS:SetPoint("LEFT", row, "LEFT", 0, 0)
-            nameFS:SetPoint("RIGHT", row, "RIGHT", -(removeW + 6), 0)
-            nameFS:SetJustifyH("LEFT")
-            row.nameFS = nameFS
-            local removeBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-            removeBtn:SetSize(removeW, 22)
-            removeBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-            removeBtn:SetText("Remove")
-            Theme.SkinButton(removeBtn)
-            row.removeBtn = removeBtn
-            ME.altRowPool[i] = row
-        end
-        row:SetHeight(rowH)
-        row.removeBtn:SetSize(removeW, 22)
-        row.nameFS:ClearAllPoints()
-        row.nameFS:SetPoint("LEFT", row, "LEFT", 0, 0)
-        row.nameFS:SetPoint("RIGHT", row, "RIGHT", -(removeW + 6), 0)
-        row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", ME.altsList, "TOPLEFT", 0, -y)
-        row:SetPoint("TOPRIGHT", ME.altsList, "TOPRIGHT", 0, -y)
-        row.nameFS:SetText(formatName(alt.name, alt.classFile))
-        row.removeBtn:SetScript("OnClick", function()
-            local GMG = AltArmy.GuildManualGroups
-            local realm = groupPrefsRealm(selectedSettingsGroup)
-            if GMG and GMG.RemoveMapping then
-                GMG.RemoveMapping(alt.name, realm)
-            end
-            if refresh then refresh() end
-        end)
-        row:Show()
-        y = y + rowH
-    end
-    ME.hideManualAltRowsFrom(#alts + 1)
-    ME.altsList:SetHeight(math.max(22, y))
-end
-
-ME.addCharEdit:SetScript("OnTextChanged", function(box)
-    if Theme.UpdateEditBoxPlaceholderVisibility then
-        Theme.UpdateEditBoxPlaceholderVisibility(box)
-    end
-    if box:HasFocus() then
-        ME.refreshManualSuggest(box)
-    end
-end)
-ME.addCharEdit:SetScript("OnEditFocusGained", function(box)
-    ME.refreshManualSuggest(box)
-end)
-ME.addCharEdit:SetScript("OnEditFocusLost", function()
-    -- Delay hide so suggest button clicks register.
-    if C_Timer and C_Timer.After then
-        C_Timer.After(0.15, ME.hideManualSuggest)
-    else
-        ME.hideManualSuggest()
-    end
-end)
-ME.addCharEdit:SetScript("OnEnterPressed", function(box)
-    local text = box:GetText() or ""
-    text = text:match("^%s*(.-)%s*$") or text
-    ME.hideManualSuggest()
-    ME.commitAlt(text)
-    box:ClearFocus()
-end)
-ME.addCharEdit:SetScript("OnEscapePressed", function(box)
-    ME.hideManualSuggest()
-    box:ClearFocus()
-end)
-
-ME.conflictLabel = Theme.CreateOptionsSectionLabel(groupSettingsBody, {
-    point = "TOPLEFT",
-    relativeTo = ME.addCharEdit,
-    relativePoint = "BOTTOMLEFT",
-    x = 0,
-    y = -14,
-    text = "Manual grouping conflict",
-})
-ME.conflictLabel:Hide()
-
-ME.conflictText = groupSettingsBody:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-ME.conflictText:SetPoint("TOPLEFT", ME.conflictLabel, "BOTTOMLEFT", 0, -4)
-ME.conflictText:SetPoint("RIGHT", groupSettingsBody, "RIGHT", 0, 0)
-ME.conflictText:SetJustifyH("LEFT")
-ME.conflictText:SetWordWrap(true)
-ME.conflictText:Hide()
-
-ME.conflictRemoveBtn = CreateFrame("Button", nil, groupSettingsBody, "UIPanelButtonTemplate")
-ME.conflictRemoveBtn:SetHeight(22)
-ME.conflictRemoveBtn:SetPoint("TOPLEFT", ME.conflictText, "BOTTOMLEFT", 0, -6)
-ME.conflictRemoveBtn:SetPoint("RIGHT", groupSettingsBody, "RIGHT", 0, 0)
-ME.conflictRemoveBtn:SetText("Remove my manual entry")
-Theme.SkinButton(ME.conflictRemoveBtn)
-ME.conflictRemoveBtn:Hide()
-ME.conflictCurrent = nil
-
-ME.conflictRemoveBtn:SetScript("OnClick", function()
-    local conflict = ME.conflictCurrent
-    if not conflict then return end
-    local GMG = AltArmy.GuildManualGroups
-    if GMG and GMG.RemoveMapping then
-        GMG.RemoveMapping(conflict.name, conflict.realm or groupPrefsRealm(selectedSettingsGroup))
-    end
-    ME.conflictCurrent = nil
-    if refresh then refresh() end
-end)
-
-ME.layoutManualConflicts = function()
-    local conflicts = (GTD.FindManualAddonDisagreements
-        and GTD.FindManualAddonDisagreements(selectedSettingsGroup)) or {}
-    if #conflicts == 0 then
-        ME.conflictCurrent = nil
-        ME.conflictLabel:Hide()
-        ME.conflictText:Hide()
-        ME.conflictRemoveBtn:Hide()
-        return
-    end
-    ME.conflictCurrent = conflicts[1]
-    ME.conflictLabel:Show()
-    ME.conflictText:SetText(
-        (GTD.FormatManualDisagreementText and GTD.FormatManualDisagreementText(conflicts[1]))
-            or "")
-    ME.conflictText:Show()
-    ME.conflictRemoveBtn:Show()
-end
-
-ME.setNormalSettingsWidgetsShown = function(shown)
-    local show = shown and true or false
-    if show then
-        groupPinRow:Show()
-        overrideLabel:Show()
-        overrideEdit:Show()
-        overrideResetBtn:Show()
-        ME.altsLabel:Show()
-        ME.altsList:Show()
-        ME.addCharLabel:Show()
-        ME.addCharEdit:Show()
-    else
-        groupPinRow:Hide()
-        overrideLabel:Hide()
-        overrideEdit:Hide()
-        overrideResetBtn:Hide()
-        ME.altsLabel:Hide()
-        ME.altsList:Hide()
-        ME.addCharLabel:Hide()
-        ME.addCharEdit:Hide()
-        ME.conflictLabel:Hide()
-        ME.conflictText:Hide()
-        ME.conflictRemoveBtn:Hide()
-    end
-end
-
-local groupDeleteBtn = CreateFrame("Button", nil, groupSettingsBody, "UIPanelButtonTemplate")
-groupDeleteBtn:SetHeight(22)
-groupDeleteBtn:SetPoint("BOTTOMLEFT", groupSettingsBody, "BOTTOMLEFT", 0, 0)
-groupDeleteBtn:SetPoint("BOTTOMRIGHT", groupSettingsBody, "BOTTOMRIGHT", 0, 0)
-groupDeleteBtn:SetText("Delete local data")
-Theme.SkinDangerButton(groupDeleteBtn)
-groupDeleteBtn:SetScript("OnClick", function(self)
-    if not selectedSettingsGroup then return end
-    if deleteConfirmPending then
-        deleteConfirmPending = false
-        local main = selectedSettingsGroup.main
-        local realm = groupPrefsRealm(selectedSettingsGroup)
-        local GSD = AltArmy.GuildShareData
-        local GSS = AltArmy.GuildShareSettings
-        local GMG = AltArmy.GuildManualGroups
-        if GSD and GSD.RemoveGroup then
-            GSD.RemoveGroup(main, realm)
-        end
-        if GMG and GMG.RemoveGroup then
-            GMG.RemoveGroup(main, realm)
-        end
-        if GSS and GSS.ClearGroupUiPrefs then
-            GSS.ClearGroupUiPrefs(main, realm)
-        end
-        closeGroupSettings()
-        local Comm = AltArmy.GuildShareComm
-        if Comm and Comm.NotifyDataChanged then
-            Comm.NotifyDataChanged()
-        elseif refresh then
-            refresh()
-        end
-    else
-        deleteConfirmPending = true
-        self:SetText("Really delete?")
-    end
-end)
-
-isGroupSettingsShown = function()
-    return groupSettingsPanel:IsShown()
-end
-
-applyMainPanelLayout = function()
-    panel:ClearAllPoints()
-    panel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
-    if isGroupSettingsShown() then
-        panel:SetPoint("BOTTOMRIGHT", groupSettingsPanel, "BOTTOMLEFT", -SECTION_GAP, 0)
-    else
-        panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
-    end
-end
-
-closeGroupSettings = function()
-    selectedSettingsGroup = nil
-    deleteConfirmPending = false
-    ME.hideManualSuggest()
-    groupDeleteBtn:SetText("Delete local data")
-    groupSettingsPanel:Hide()
-    applyMainPanelLayout()
-    if updateGuildHeaderForListMode then
-        updateGuildHeaderForListMode()
-    end
-    if applyListColumnLayout then
-        applyListColumnLayout()
-    end
-    if syncMainRowSettingsIcons then
-        syncMainRowSettingsIcons()
-    end
-end
-
-updateGroupSettingsPanel = function()
-    if not selectedSettingsGroup then return end
-    setGroupSettingsTitle(selectedSettingsGroup)
-    ME.setNormalSettingsWidgetsShown(true)
-    if groupPinRow.check then
-        groupPinRow.check:SetChecked(selectedSettingsGroup.pinned and true or false)
-    end
-    local override = selectedSettingsGroup.overrideName or ""
-    if overrideEdit:GetText() ~= override then
-        if Theme.SetEditBoxText then
-            Theme.SetEditBoxText(overrideEdit, override)
-        else
-            overrideEdit:SetText(override)
-        end
-    end
-    ME.layoutManualAltRows()
-    ME.layoutManualConflicts()
-    local GSS = AltArmy.GuildShareSettings
-    local ownMain = GSS and GSS.GetMain and GSS.GetMain(groupPrefsRealm(selectedSettingsGroup)) or nil
-    local isOwn = GTD.IsOwnGroup and GTD.IsOwnGroup(selectedSettingsGroup, ownMain)
-    if isOwn then
-        groupDeleteBtn:Hide()
-        deleteConfirmPending = false
-        groupDeleteBtn:SetText("Delete local data")
-    else
-        groupDeleteBtn:Show()
-        if not deleteConfirmPending then
-            groupDeleteBtn:SetText("Delete local data")
-        end
-    end
-end
-
-openGroupSettings = function(group)
-    if not group then return end
-    if selectedSettingsGroup and selectedSettingsGroup.main == group.main
-        and isGroupSettingsShown() then
-        closeGroupSettings()
-        return
-    end
-    selectedSettingsGroup = group
-    deleteConfirmPending = false
-    groupDeleteBtn:SetText("Delete local data")
-    ApplyGroupSettingsPanelLayout()
-    groupSettingsPanel:Show()
-    applyMainPanelLayout()
-    updateGroupSettingsPanel()
-    if updateGuildHeaderForListMode then
-        updateGuildHeaderForListMode()
-    end
-    if applyListColumnLayout then
-        applyListColumnLayout()
-    end
-    if syncMainRowSettingsIcons then
-        syncMainRowSettingsIcons()
-    end
-end
-
-frame:HookScript("OnSizeChanged", function()
-    if isGroupSettingsShown() then
-        ApplyGroupSettingsPanelLayout()
-        applyMainPanelLayout()
-    end
-end)
 
 -- Disabled / no-guild message state
 local messageView = CreateFrame("Frame", nil, inner)
@@ -1426,14 +902,8 @@ updateGuildHeaderForListMode = function()
         guildNameText:SetText(selectedBrowseGuild or "")
         Theme.SetTitleColor(guildNameText)
         guildNameText:Show()
-        if isGroupSettingsShown and isGroupSettingsShown() then
-            searchEdit:Hide()
-            searchClearBtn:Hide()
-            if searchEdit.ClearFocus then searchEdit:ClearFocus() end
-        else
-            searchEdit:Show()
-            updateSearchClearVisibility()
-        end
+        searchEdit:Show()
+        updateSearchClearVisibility()
         tabardFrame:Hide()
         if ME.syncListFooter then ME.syncListFooter() end
         return
@@ -1444,14 +914,8 @@ updateGuildHeaderForListMode = function()
     guildNameText:SetText(activeGuild() or "")
     Theme.SetTitleColor(guildNameText)
     guildNameText:Show()
-    if isGroupSettingsShown and isGroupSettingsShown() then
-        searchEdit:Hide()
-        searchClearBtn:Hide()
-        if searchEdit.ClearFocus then searchEdit:ClearFocus() end
-    else
-        searchEdit:Show()
-        updateSearchClearVisibility()
-    end
+    searchEdit:Show()
+    updateSearchClearVisibility()
     updateTabard()
     if ME.syncListFooter then ME.syncListFooter() end
 end
@@ -1592,12 +1056,13 @@ end)
 
 ME.layoutListFooterButtons = function()
     local gap = 8
+    local y = UI.FOOTER_BUTTON_Y or 0
     local addW = ME.addGroupBtn:GetWidth() or 140
     local scanShown = ME.scanNotesBtn:IsShown()
     local scanW = scanShown and (ME.scanNotesBtn:GetWidth() or 170) or 0
     local total = addW + (scanShown and (gap + scanW) or 0)
     ME.addGroupBtn:ClearAllPoints()
-    ME.addGroupBtn:SetPoint("LEFT", ME.listFooter, "CENTER", -total / 2, 0)
+    ME.addGroupBtn:SetPoint("LEFT", ME.listFooter, "CENTER", -total / 2, y)
     if scanShown then
         ME.scanNotesBtn:ClearAllPoints()
         ME.scanNotesBtn:SetPoint("LEFT", ME.addGroupBtn, "RIGHT", gap, 0)
@@ -1648,6 +1113,13 @@ ME.notesTitleFS:SetWordWrap(false)
 ME.notesTitleFS:Hide()
 Theme.SetTitleColor(ME.notesTitleFS)
 
+ME.notesDeleteBtn = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
+ME.notesDeleteBtn:SetSize(130, 22)
+ME.notesDeleteBtn:SetPoint("RIGHT", header, "RIGHT", -2, 0)
+ME.notesDeleteBtn:SetText("Delete local data")
+Theme.SkinDangerButton(ME.notesDeleteBtn)
+ME.notesDeleteBtn:Hide()
+
 ME.notesProgressFS = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 ME.notesProgressFS:SetPoint("RIGHT", header, "RIGHT", -8, 0)
 ME.notesProgressFS:SetJustifyH("RIGHT")
@@ -1677,6 +1149,157 @@ ME.notesSkipBtn:SetSize(100, 22)
 ME.notesSkipBtn:SetText("Skip group")
 Theme.SkinButton(ME.notesSkipBtn)
 
+-- Match the members-table scrollbar gutter so Pin / Override line up with
+-- "Characters in this group" / "Reason for inclusion" below.
+ME.notesScrollBarOpts = { width = 6, gap = 2, rightInset = 2 }
+ME.notesMembersGutter = Theme.VerticalScrollBarGutter(ME.notesScrollBarOpts)
+
+-- Edit-mode options (Pin / Override name), shown above the member table.
+-- One row: left 50% Pin, right 50% Override name + Reset.
+ME.editOptions = CreateFrame("Frame", nil, ME.notesWizard)
+ME.editOptions:SetHeight(22)
+ME.editOptions:SetPoint("TOPLEFT", ME.notesWizard, "TOPLEFT", 0, 0)
+ME.editOptions:SetPoint("TOPRIGHT", ME.notesWizard, "TOPRIGHT", -ME.notesMembersGutter, 0)
+ME.editOptions:Hide()
+
+ME.editPinCol = CreateFrame("Frame", nil, ME.editOptions)
+ME.editPinCol:SetPoint("TOPLEFT", ME.editOptions, "TOPLEFT", 0, 0)
+ME.editPinCol:SetPoint("BOTTOMRIGHT", ME.editOptions, "BOTTOM", -(UI.NOTES_COL_GAP / 2), 0)
+
+ME.editOverrideCol = CreateFrame("Frame", nil, ME.editOptions)
+ME.editOverrideCol:SetPoint("TOPRIGHT", ME.editOptions, "TOPRIGHT", 0, 0)
+ME.editOverrideCol:SetPoint("BOTTOMLEFT", ME.editOptions, "BOTTOM", UI.NOTES_COL_GAP / 2, 0)
+
+ME.editPinRow = Theme.CreateLabeledCheckbox(ME.editPinCol, {
+    point = "TOPLEFT",
+    x = 0,
+    y = 0,
+    text = "Pin",
+    fullWidthHover = true,
+    onClick = function(checked)
+        local p = ME.currentNotesProposal and ME.currentNotesProposal()
+        local group = ME.editSourceGroup
+        if not p or not group then return end
+        local pinned = checked and true or false
+        local GSS = AltArmy.GuildShareSettings
+        local realm = groupPrefsRealm(group)
+        if GSS and GSS.SetGroupPinned then
+            GSS.SetGroupPinned(group.main, realm, pinned)
+        end
+        p.pinned = pinned
+        group.pinned = pinned
+    end,
+})
+
+ME.editOverrideResetBtn = CreateFrame("Button", nil, ME.editOverrideCol, "UIPanelButtonTemplate")
+ME.editOverrideResetBtn:SetSize(56, 22)
+ME.editOverrideResetBtn:SetPoint("TOPRIGHT", ME.editOverrideCol, "TOPRIGHT", 0, 0)
+ME.editOverrideResetBtn:SetText("Reset")
+Theme.SkinButton(ME.editOverrideResetBtn)
+
+ME.editOverrideEdit = CreateFrame("EditBox", nil, ME.editOverrideCol)
+ME.editOverrideEdit:SetPoint("TOPLEFT", ME.editOverrideCol, "TOPLEFT", 0, 0)
+ME.editOverrideEdit:SetPoint("RIGHT", ME.editOverrideResetBtn, "LEFT", -6, 0)
+ME.editOverrideEdit:SetHeight(22)
+ME.editOverrideEdit:SetFontObject("GameFontHighlight")
+ME.editOverrideEdit:SetAutoFocus(false)
+ME.editOverrideEdit:SetTextInsets(6, 6, 0, 0)
+do
+    local overrideMaxLen = AltArmy.GuildShareSettings and AltArmy.GuildShareSettings.DISPLAY_NAME_MAX_LENGTH
+    if ME.editOverrideEdit.SetMaxLetters and overrideMaxLen then
+        ME.editOverrideEdit:SetMaxLetters(overrideMaxLen)
+    end
+end
+Theme.ApplyInputTextures(ME.editOverrideEdit)
+if Theme.SetupEditBoxPlaceholder then
+    Theme.SetupEditBoxPlaceholder(ME.editOverrideEdit, "Override name in my UI")
+end
+
+ME.applyEditOverrideFromEdit = function(box)
+    local p = ME.currentNotesProposal and ME.currentNotesProposal()
+    local group = ME.editSourceGroup
+    if not p or not group then return end
+    local text = box:GetText() or ""
+    text = text:match("^%s*(.-)%s*$") or text
+    local GSS = AltArmy.GuildShareSettings
+    local realm = groupPrefsRealm(group)
+    if GSS and GSS.SetGroupOverrideName then
+        GSS.SetGroupOverrideName(group.main, realm, text)
+    end
+    local applied = (GSS and GSS.GetGroupOverrideName
+        and GSS.GetGroupOverrideName(group.main, realm)) or nil
+    if applied == "" then applied = nil end
+    if applied == p.overrideName and applied == group.overrideName then
+        return
+    end
+    p.overrideName = applied
+    group.overrideName = applied
+    if ME.updateNotesWizardTitle then ME.updateNotesWizardTitle() end
+end
+
+ME.editOverrideEdit:SetScript("OnEnterPressed", function(box)
+    ME.applyEditOverrideFromEdit(box)
+    box:ClearFocus()
+end)
+ME.editOverrideEdit:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
+ME.editOverrideEdit:SetScript("OnTextChanged", function(box)
+    if Theme.UpdateEditBoxPlaceholderVisibility then
+        Theme.UpdateEditBoxPlaceholderVisibility(box)
+    end
+    ME.applyEditOverrideFromEdit(box)
+end)
+ME.editOverrideEdit:SetScript("OnEditFocusLost", function(box)
+    ME.applyEditOverrideFromEdit(box)
+end)
+ME.editOverrideResetBtn:SetScript("OnClick", function()
+    if Theme.ClearEditBoxText then
+        Theme.ClearEditBoxText(ME.editOverrideEdit)
+    else
+        ME.editOverrideEdit:SetText("")
+        if ME.editOverrideEdit.ClearFocus then
+            ME.editOverrideEdit:ClearFocus()
+        end
+    end
+    ME.applyEditOverrideFromEdit(ME.editOverrideEdit)
+end)
+
+ME.anchorNotesWizardBody = function()
+    if not ME.notesClip then return end
+    ME.notesClip:ClearAllPoints()
+    if ME.wizardMode == "edit" and ME.editOptions and ME.editOptions:IsShown() then
+        ME.notesClip:SetPoint("TOPLEFT", ME.editOptions, "BOTTOMLEFT", 0, -8)
+    else
+        ME.notesClip:SetPoint("TOPLEFT", ME.notesWizard, "TOPLEFT", 0, 0)
+    end
+    -- Settings apply immediately: no Save/Cancel footer; use full height.
+    if ME.wizardMode == "edit" then
+        if ME.notesFooter then ME.notesFooter:Hide() end
+        ME.notesClip:SetPoint("BOTTOMRIGHT", ME.notesWizard, "BOTTOMRIGHT", 0, 0)
+    else
+        if ME.notesFooter then ME.notesFooter:Show() end
+        ME.notesClip:SetPoint("BOTTOMRIGHT", ME.notesFooter, "TOPRIGHT", 0, 0)
+    end
+end
+
+ME.syncEditOptionsFromProposal = function()
+    local p = ME.currentNotesProposal and ME.currentNotesProposal()
+    if not p or not ME.editOptions then return end
+    if ME.editPinRow and ME.editPinRow.check then
+        ME.editPinRow.check:SetChecked(p.pinned and true or false)
+    end
+    local override = p.overrideName or ""
+    if ME.editOverrideEdit:GetText() ~= override then
+        if Theme.SetEditBoxText then
+            Theme.SetEditBoxText(ME.editOverrideEdit, override)
+        else
+            ME.editOverrideEdit:SetText(override)
+        end
+    end
+    if Theme.UpdateEditBoxPlaceholderVisibility then
+        Theme.UpdateEditBoxPlaceholderVisibility(ME.editOverrideEdit)
+    end
+end
+
 ME.notesClip = CreateFrame("Frame", nil, ME.notesWizard)
 ME.notesClip:SetPoint("TOPLEFT", ME.notesWizard, "TOPLEFT", 0, 0)
 ME.notesClip:SetPoint("BOTTOMRIGHT", ME.notesFooter, "TOPRIGHT", 0, 0)
@@ -1695,9 +1318,6 @@ ME.notesEmptyFS:SetJustifyH("CENTER")
 ME.notesEmptyFS:Hide()
 
 -- Members table header + scrolling list. Add-character control lives at the bottom of the list.
-ME.notesScrollBarOpts = { width = 6, gap = 2, rightInset = 2 }
-ME.notesMembersGutter = Theme.VerticalScrollBarGutter(ME.notesScrollBarOpts)
-
 ME.notesMembersHeader = CreateFrame("Frame", nil, ME.notesSlide)
 ME.notesMembersHeader:SetPoint("TOPLEFT", ME.notesSlide, "TOPLEFT", 0, 0)
 -- Inset by the members scrollbar gutter so headers line up with row columns.
@@ -1870,8 +1490,38 @@ end)
 
 ME.updateNotesWizardTitle = function()
     local isManual = ME.wizardMode == "manual"
+    local isEdit = ME.wizardMode == "edit"
     local total = #ME.notesProposals
     local proposal = ME.notesProposals[ME.notesIndex]
+    if isEdit then
+        if ME.notesProgressFS then
+            ME.notesProgressFS:SetText("")
+            ME.notesProgressFS:Hide()
+        end
+        local group = ME.editSourceGroup
+        local displayName
+        if proposal and type(proposal.overrideName) == "string" and proposal.overrideName ~= "" then
+            displayName = proposal.overrideName
+        else
+            -- Prefer preferred/main; ignore the group's persisted override when staging a clear.
+            displayName = (group and (group.preferredName or group.main))
+                or (proposal and proposal.main)
+                or "?"
+        end
+        local classFile = group and group.classFile
+        if not classFile and proposal and proposal.main then
+            classFile = select(1, ME.rosterClassLevel(proposal.main))
+        end
+        local coloredName = formatName(displayName, classFile)
+        local suffix = " settings"
+        local t = Theme.COLORS and Theme.COLORS.title
+        if t and CC and CC.formatHex then
+            suffix = CC.formatHex(t[1], t[2], t[3], suffix)
+        end
+        ME.notesTitleFS:SetText(coloredName .. suffix)
+        ME.notesTitleFS:SetTextColor(1, 1, 1, 1)
+        return
+    end
     if isManual then
         if ME.notesProgressFS then
             ME.notesProgressFS:SetText("")
@@ -1931,21 +1581,78 @@ ME.updateNotesMembersScroll = function()
     end
 end
 
+--- Show/hide header Delete and retarget the title's right edge (delete vs progress).
+ME.syncNotesHeaderActions = function()
+    local isEdit = ME.wizardMode == "edit"
+    local showDelete = false
+    if isEdit and ME.notesDeleteBtn then
+        local group = ME.editSourceGroup
+        local GSS = AltArmy.GuildShareSettings
+        local ownMain = GSS and GSS.GetMain and GSS.GetMain(groupPrefsRealm(group)) or nil
+        local isOwn = GTD.IsOwnGroup and GTD.IsOwnGroup(group, ownMain)
+        showDelete = not isOwn
+        if showDelete then
+            ME.notesDeleteBtn:Show()
+            if not ME.deleteConfirmPending then
+                ME.notesDeleteBtn:SetText("Delete local data")
+            end
+        else
+            ME.notesDeleteBtn:Hide()
+            ME.deleteConfirmPending = false
+            ME.notesDeleteBtn:SetText("Delete local data")
+        end
+    elseif ME.notesDeleteBtn then
+        ME.notesDeleteBtn:Hide()
+        ME.deleteConfirmPending = false
+        ME.notesDeleteBtn:SetText("Delete local data")
+    end
+
+    if ME.notesTitleFS then
+        ME.notesTitleFS:ClearAllPoints()
+        ME.notesTitleFS:SetPoint("LEFT", ME.notesBackBtn, "RIGHT", 8, 0)
+        if showDelete then
+            ME.notesTitleFS:SetPoint("RIGHT", ME.notesDeleteBtn, "LEFT", -12, 0)
+        else
+            ME.notesTitleFS:SetPoint("RIGHT", ME.notesProgressFS, "LEFT", -12, 0)
+        end
+    end
+end
+
 ME.layoutNotesFooterButtons = function()
     local isManual = ME.wizardMode == "manual"
+    local isEdit = ME.wizardMode == "edit"
+    if ME.syncNotesHeaderActions then
+        ME.syncNotesHeaderActions()
+    end
+    if isEdit then
+        -- Immediate-apply settings: no footer actions.
+        ME.notesAcceptBtn:Hide()
+        ME.notesSkipBtn:Hide()
+        if ME.notesFooter then ME.notesFooter:Hide() end
+        if ME.anchorNotesWizardBody then ME.anchorNotesWizardBody() end
+        return
+    end
+    if ME.notesFooter then ME.notesFooter:Show() end
+    local y = UI.FOOTER_BUTTON_Y or 0
     if isManual then
         ME.notesAcceptBtn:SetText("Create group")
         ME.notesSkipBtn:SetText("Cancel")
+        ME.notesAcceptBtn:SetWidth(120)
+        ME.notesSkipBtn:SetWidth(100)
     else
         ME.notesAcceptBtn:SetText("Accept group")
         ME.notesSkipBtn:SetText("Skip group")
+        ME.notesAcceptBtn:SetWidth(120)
+        ME.notesSkipBtn:SetWidth(100)
     end
+    ME.notesAcceptBtn:Show()
+    ME.notesSkipBtn:Show()
     local gap = 8
     local acceptW = ME.notesAcceptBtn:GetWidth() or 120
     local skipW = ME.notesSkipBtn:GetWidth() or 100
     local total = acceptW + gap + skipW
     ME.notesAcceptBtn:ClearAllPoints()
-    ME.notesAcceptBtn:SetPoint("LEFT", ME.notesFooter, "CENTER", -total / 2, 0)
+    ME.notesAcceptBtn:SetPoint("LEFT", ME.notesFooter, "CENTER", -total / 2, y)
     ME.notesSkipBtn:ClearAllPoints()
     ME.notesSkipBtn:SetPoint("LEFT", ME.notesAcceptBtn, "RIGHT", gap, 0)
 end
@@ -1960,29 +1667,13 @@ ME.currentNotesProposal = function()
     return ME.notesProposals[ME.notesIndex]
 end
 
--- Accept is only meaningful when the group has someone besides the main.
+-- Accept enablement for notes/manual wizards (settings has no Accept/Save).
 ME.syncNotesAcceptEnabled = function()
-    local proposal = ME.currentNotesProposal()
-    local count = 0
-    if proposal then
-        if proposal.main and proposal.main ~= "" then
-            count = count + 1
-        end
-        local mainKey = proposal.main and GTD.NormalizeRosterName and GTD.NormalizeRosterName(proposal.main)
-        for _, member in ipairs(proposal.members or {}) do
-            if member and member.name and member.name ~= "" then
-                local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(member.name)
-                if not mainKey or key ~= mainKey then
-                    count = count + 1
-                end
-            end
-        end
-        for _, known in ipairs(proposal.knownMembers or {}) do
-            if known and known.name and known.name ~= "" then
-                count = count + 1
-            end
-        end
+    if ME.wizardMode == "edit" then
+        return
     end
+    local proposal = ME.currentNotesProposal()
+    local count = (GTD.CountNotesProposalCharacters and GTD.CountNotesProposalCharacters(proposal)) or 0
     if count > 1 then
         ME.notesAcceptBtn:Enable()
     else
@@ -1991,12 +1682,57 @@ ME.syncNotesAcceptEnabled = function()
 end
 
 ME.layoutNotesMembers = function()
+    if ME.isEditingOwnGroup and ME.isEditingOwnGroup() then
+        ME.notesMembersLabel:Hide()
+        if ME.notesScrollHost then ME.notesScrollHost:Hide() end
+        if ME.notesAddRow then ME.notesAddRow:Hide() end
+        ME.hideNotesMemberRowsFrom(1)
+        return
+    end
     local proposal = ME.currentNotesProposal()
     local members = (proposal and proposal.members) or {}
     local knownMembers = (proposal and proposal.knownMembers) or {}
     local isManual = ME.wizardMode == "manual"
+    local isEdit = ME.wizardMode == "edit"
     local displayRows = {}
-    if isManual then
+    if isEdit then
+        local order = proposal and proposal.order or {}
+        local mainKey = proposal and proposal.main and GTD.NormalizeRosterName
+            and GTD.NormalizeRosterName(proposal.main)
+        local memberByKey = {}
+        for _, member in ipairs(members) do
+            if member and member.name then
+                local k = GTD.NormalizeRosterName and GTD.NormalizeRosterName(member.name)
+                if k then memberByKey[k] = member end
+            end
+        end
+        for _, name in ipairs(order) do
+            local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(name)
+            local isMain = mainKey and key == mainKey
+            local member = memberByKey[key]
+            if isMain then
+                displayRows[#displayRows + 1] = {
+                    name = name,
+                    locked = true,
+                    isMain = true,
+                    reasonKind = "shared",
+                }
+            else
+                local removable = member and (member.removable or member.addedManually
+                    or member.reasonKind == "manual" or member.reasonKind == "note"
+                    or member.reasonKind == "conflict")
+                displayRows[#displayRows + 1] = {
+                    name = name,
+                    locked = not removable,
+                    member = member or { name = name, removable = true, reasonKind = "manual",
+                        addedManually = true },
+                    reasonKind = (member and member.reasonKind) or "manual",
+                    origin = member and member.origin,
+                    addedManually = removable and true or false,
+                }
+            end
+        end
+    elseif isManual then
         -- Stable add-order; changing main must not reshuffle rows.
         local order = (GTD.ManualProposalDisplayOrder and GTD.ManualProposalDisplayOrder(proposal)) or {}
         local mainKey = proposal and proposal.main and GTD.NormalizeRosterName
@@ -2127,6 +1863,32 @@ ME.layoutNotesMembers = function()
             setMainBtn:Hide()
             row.setMainBtn = setMainBtn
         end
+        if not row.mainStarIcon then
+            local mainStarIcon = CreateFrame("Frame", nil, row)
+            mainStarIcon:SetSize(UI.MAIN_STAR_ICON_SIZE, nameLineH)
+            mainStarIcon:EnableMouse(true)
+            mainStarIcon:Hide()
+            local starTex = mainStarIcon:CreateTexture(nil, "ARTWORK")
+            starTex:SetSize(UI.MAIN_STAR_ICON_SIZE, UI.MAIN_STAR_ICON_SIZE)
+            starTex:SetPoint("CENTER", mainStarIcon, "CENTER", 0, 0)
+            starTex:SetTexture(UI.MAIN_STAR_TEXTURE)
+            mainStarIcon.tex = starTex
+            mainStarIcon:SetScript("OnEnter", function(self)
+                if not self.showMainStarTooltip then return end
+                if GTD.PresentMainStarTooltip then
+                    GTD.PresentMainStarTooltip(self, "ANCHOR_BOTTOMLEFT", {
+                        name = self.starName,
+                        classFile = self.starClassFile,
+                        isOwn = self.starIsOwn,
+                        showConfigureHint = false,
+                    })
+                end
+            end)
+            mainStarIcon:SetScript("OnLeave", function()
+                if GameTooltip then GameTooltip:Hide() end
+            end)
+            row.mainStarIcon = mainStarIcon
+        end
         if row.attrFS then
             row.attrFS:Hide()
         end
@@ -2156,20 +1918,24 @@ ME.layoutNotesMembers = function()
         rowH = math.max(rowH, 22 + bottomPad)
         row:SetHeight(rowH)
 
-        local reasonKind = (GTD.ClassifyNotesWizardInclusionReason
-            and GTD.ClassifyNotesWizardInclusionReason({
-                isMain = entry.isMain,
-                mainFromShared = proposal and proposal.mainFromShared,
-                isKnownShared = entry.isKnownShared,
-                noteText = entry.noteText,
-                alreadyMapped = entry.alreadyMapped,
-                origin = entry.origin,
-            })) or "manual"
+        local reasonKind = entry.reasonKind
+            or (GTD.ClassifyNotesWizardInclusionReason
+                and GTD.ClassifyNotesWizardInclusionReason({
+                    isMain = entry.isMain,
+                    mainFromShared = proposal and proposal.mainFromShared,
+                    isKnownShared = entry.isKnownShared,
+                    noteText = entry.noteText,
+                    alreadyMapped = entry.alreadyMapped,
+                    origin = entry.origin,
+                })) or "manual"
         local reasonText
         if isManual then
             -- Manual create: every character was added by the user.
             reasonText = (GTD.NotesWizardInclusionReasonLabel
                 and GTD.NotesWizardInclusionReasonLabel("manual")) or "Manually added"
+        elseif isEdit and entry.isMain then
+            reasonText = (GTD.NotesWizardInclusionReasonLabel
+                and GTD.NotesWizardInclusionReasonLabel("shared")) or "Shared via Alt Army"
         else
             reasonText = (GTD.NotesWizardInclusionReasonLabel
                 and GTD.NotesWizardInclusionReasonLabel(reasonKind)) or ""
@@ -2208,8 +1974,35 @@ ME.layoutNotesMembers = function()
         end
 
         -- Characters column = left 50%; reason fills from center to the actions column.
+        -- Main row: star icon (same texture as guild list) left of the name.
+        local showMainStar = entry.isMain and true or false
+        if row.mainStarIcon then
+            if showMainStar then
+                local GSS = AltArmy.GuildShareSettings
+                local ownMain = GSS and GSS.GetMain and GSS.GetMain(currentRealm()) or nil
+                local mainKey = proposal and proposal.main and GTD.NormalizeRosterName
+                    and GTD.NormalizeRosterName(proposal.main)
+                local ownKey = ownMain and GTD.NormalizeRosterName and GTD.NormalizeRosterName(ownMain)
+                row.mainStarIcon.starName = entry.name
+                row.mainStarIcon.starClassFile = info and info.classFile
+                row.mainStarIcon.starIsOwn = (mainKey and ownKey and mainKey == ownKey) and true or false
+                row.mainStarIcon.showMainStarTooltip = true
+                row.mainStarIcon:ClearAllPoints()
+                row.mainStarIcon:SetSize(UI.MAIN_STAR_ICON_SIZE, nameLineH)
+                row.mainStarIcon:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -textTopPad)
+                row.mainStarIcon:Show()
+            else
+                row.mainStarIcon.showMainStarTooltip = false
+                row.mainStarIcon:Hide()
+            end
+        end
+
         row.nameFS:ClearAllPoints()
-        row.nameFS:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -textTopPad)
+        if showMainStar and row.mainStarIcon then
+            row.nameFS:SetPoint("TOPLEFT", row.mainStarIcon, "TOPRIGHT", UI.MAIN_STAR_ICON_GAP, 0)
+        else
+            row.nameFS:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -textTopPad)
+        end
         row.nameFS:SetPoint("TOPRIGHT", row, "TOP", -colGap / 2, -textTopPad)
         row.nameFS:SetHeight(nameLineH)
         row.nameFS:SetText((GTD.FormatNotesWizardMemberName
@@ -2226,7 +2019,8 @@ ME.layoutNotesMembers = function()
 
         if hasNoteLine then
             row.noteFS:ClearAllPoints()
-            row.noteFS:SetPoint("TOPLEFT", row.nameFS, "BOTTOMLEFT", 0, -lineGap)
+            -- Note stays flush left; only the name is indented for the star.
+            row.noteFS:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -(textTopPad + nameLineH + lineGap))
             row.noteFS:SetPoint("TOPRIGHT", row, "TOP", -colGap / 2, 0)
             row.noteFS:SetHeight(subLineH)
             row.noteFS:SetText(noteLine)
@@ -2252,6 +2046,43 @@ ME.layoutNotesMembers = function()
                             GTD.RemoveManualProposalMember(p, removeName)
                         end
                         if ME.updateNotesWizardTitle then ME.updateNotesWizardTitle() end
+                        ME.layoutNotesMembers()
+                        return
+                    end
+                    if ME.wizardMode == "edit" then
+                        local group = ME.editSourceGroup
+                        local GMG = AltArmy.GuildManualGroups
+                        local realm = group and groupPrefsRealm(group)
+                        if GMG and GMG.RemoveMapping and removeName then
+                            GMG.RemoveMapping(removeName, realm)
+                        end
+                        local removeKey = GTD.NormalizeRosterName and GTD.NormalizeRosterName(removeName)
+                        if p.members then
+                            for j = #p.members, 1, -1 do
+                                local m = p.members[j]
+                                if m and GTD.NormalizeRosterName(m.name) == removeKey then
+                                    table.remove(p.members, j)
+                                    break
+                                end
+                            end
+                        end
+                        if p.order then
+                            for j = #p.order, 1, -1 do
+                                if GTD.NormalizeRosterName(p.order[j]) == removeKey then
+                                    table.remove(p.order, j)
+                                    break
+                                end
+                            end
+                        end
+                        if group and group.members and removeKey then
+                            for j = #group.members, 1, -1 do
+                                local m = group.members[j]
+                                if m and GTD.NormalizeRosterName(m.name) == removeKey then
+                                    table.remove(group.members, j)
+                                    break
+                                end
+                            end
+                        end
                         ME.layoutNotesMembers()
                         return
                     end
@@ -2296,6 +2127,13 @@ ME.layoutNotesMembers = function()
     end
 end
 
+ME.isEditingOwnGroup = function()
+    if ME.wizardMode ~= "edit" or not ME.editSourceGroup then return false end
+    local GSS = AltArmy.GuildShareSettings
+    local ownMain = GSS and GSS.GetMain and GSS.GetMain(groupPrefsRealm(ME.editSourceGroup)) or nil
+    return GTD.IsOwnGroup and GTD.IsOwnGroup(ME.editSourceGroup, ownMain) and true or false
+end
+
 ME.fillNotesProposalForm = function()
     local proposal = ME.currentNotesProposal()
     if not proposal then
@@ -2303,6 +2141,9 @@ ME.fillNotesProposalForm = function()
         if ME.notesAddRow then ME.notesAddRow:Hide() end
         ME.notesAcceptBtn:Hide()
         ME.notesSkipBtn:Hide()
+        if ME.notesDeleteBtn then ME.notesDeleteBtn:Hide() end
+        if ME.editOptions then ME.editOptions:Hide() end
+        if ME.anchorNotesWizardBody then ME.anchorNotesWizardBody() end
         if ME.notesScrollHost then ME.notesScrollHost:Hide() end
         ME.notesEmptyFS:SetText("No new groupings found from guild notes.")
         ME.notesEmptyFS:Show()
@@ -2310,17 +2151,66 @@ ME.fillNotesProposalForm = function()
         return
     end
     ME.notesEmptyFS:Hide()
-    if ME.notesScrollHost then ME.notesScrollHost:Show() end
-    ME.notesMembersLabel:Show()
     ME.hideNotesAddInput()
-    ME.notesAcceptBtn:Show()
-    ME.notesSkipBtn:Show()
+    if ME.wizardMode == "edit" then
+        if ME.editOptions then ME.editOptions:Show() end
+        if ME.syncEditOptionsFromProposal then ME.syncEditOptionsFromProposal() end
+    else
+        if ME.editOptions then ME.editOptions:Hide() end
+    end
+    if ME.anchorNotesWizardBody then ME.anchorNotesWizardBody() end
     ME.layoutNotesFooterButtons()
     if ME.updateNotesWizardTitle then ME.updateNotesWizardTitle() end
+    -- Own-group settings: pin/override only — no member table or add control.
+    if ME.isEditingOwnGroup and ME.isEditingOwnGroup() then
+        ME.notesMembersLabel:Hide()
+        if ME.notesScrollHost then ME.notesScrollHost:Hide() end
+        if ME.notesAddRow then ME.notesAddRow:Hide() end
+        if ME.hideNotesMemberRowsFrom then ME.hideNotesMemberRowsFrom(1) end
+        return
+    end
+    if ME.notesScrollHost then ME.notesScrollHost:Show() end
+    ME.notesMembersLabel:Show()
     if ME.notesViewport and ME.notesViewport.SetOffset then
         ME.notesViewport.SetOffset(0)
     end
     ME.layoutNotesMembers()
+end
+
+ME.deleteEditedGroup = function()
+    local group = ME.editSourceGroup
+    if not group then return end
+    local main = group.main
+    local realm = groupPrefsRealm(group)
+    local displayName = (GTD.ResolveGroupDisplayName and GTD.ResolveGroupDisplayName(group))
+        or main or "?"
+    local classFile = group.classFile
+    if (not classFile or classFile == "") and main and ME.rosterClassLevel then
+        classFile = select(1, ME.rosterClassLevel(main))
+    end
+    local GSD = AltArmy.GuildShareData
+    local GSS = AltArmy.GuildShareSettings
+    local GMG = AltArmy.GuildManualGroups
+    if GSD and GSD.RemoveGroup then
+        GSD.RemoveGroup(main, realm)
+    end
+    if GMG and GMG.RemoveGroup then
+        GMG.RemoveGroup(main, realm)
+    end
+    if GSS and GSS.ClearGroupUiPrefs then
+        GSS.ClearGroupUiPrefs(main, realm)
+    end
+    if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+        DEFAULT_CHAT_FRAME:AddMessage(
+            "Local data for " .. formatName(displayName, classFile) .. " deleted.")
+    end
+    ME.closeNotesWizard(false)
+    local Comm = AltArmy.GuildShareComm
+    if Comm and Comm.NotifyDataChanged then
+        Comm.NotifyDataChanged()
+    elseif refresh then
+        refresh()
+    end
 end
 
 ME.acceptCurrentNotesProposal = function()
@@ -2341,6 +2231,11 @@ ME.acceptCurrentNotesProposal = function()
 end
 
 ME.advanceNotesWizard = function(accepted)
+    if ME.wizardMode == "edit" then
+        -- Settings apply immediately; footer actions are unused.
+        ME.closeNotesWizard(true)
+        return
+    end
     if accepted then
         ME.acceptCurrentNotesProposal()
     end
@@ -2357,10 +2252,17 @@ ME.closeNotesWizard = function(refreshAfter)
     ME.wizardMode = nil
     ME.notesProposals = {}
     ME.notesIndex = 1
+    ME.editSourceGroup = nil
+    ME.deleteConfirmPending = false
     ME.notesWizard:Hide()
     ME.notesBackBtn:Hide()
     ME.notesTitleFS:Hide()
     if ME.notesProgressFS then ME.notesProgressFS:Hide() end
+    if ME.editOptions then ME.editOptions:Hide() end
+    if ME.notesDeleteBtn then
+        ME.notesDeleteBtn:Hide()
+        ME.notesDeleteBtn:SetText("Delete local data")
+    end
     ME.hideManualSuggest()
     if showGuildList then showGuildList() end
     if refreshAfter and refresh then
@@ -2382,6 +2284,9 @@ ME.showNotesWizardChrome = function()
     recipeSearchClearBtn:Hide()
     whisperBtn:Hide()
     ME.notesBackBtn:Show()
+    if ME.syncNotesHeaderActions then
+        ME.syncNotesHeaderActions()
+    end
     if ME.updateNotesWizardTitle then
         ME.updateNotesWizardTitle()
     else
@@ -2389,8 +2294,11 @@ ME.showNotesWizardChrome = function()
         Theme.SetTitleColor(ME.notesTitleFS)
     end
     ME.notesTitleFS:Show()
-    if ME.notesProgressFS and ME.notesProgressFS:GetText() ~= "" then
+    if ME.wizardMode ~= "edit"
+        and ME.notesProgressFS and ME.notesProgressFS:GetText() ~= "" then
         ME.notesProgressFS:Show()
+    elseif ME.notesProgressFS then
+        ME.notesProgressFS:Hide()
     end
 end
 
@@ -2399,7 +2307,6 @@ ME.openScanReview = function()
     local GMG = AltArmy.GuildManualGroups
     local GSD = AltArmy.GuildShareData
     if not GNP then return end
-    closeGroupSettings()
     local rosterEntries = GNP.BuildRosterNoteEntries and GNP.BuildRosterNoteEntries() or {}
     local existing = {}
     local guild = activeGuild()
@@ -2433,10 +2340,17 @@ ME.openScanReview = function()
     if GNP.EnrichProposalsWithSharedData then
         proposals = GNP.EnrichProposalsWithSharedData(proposals, sharedEntries)
     end
+    -- Never propose groupings under (or including) the player's own characters —
+    -- a guild note matching the player's main/alt is a false positive.
+    local ownNames = ME.collectOwnCharacterNames and ME.collectOwnCharacterNames() or {}
+    if GNP.FilterProposalsExcludingNames then
+        proposals = GNP.FilterProposalsExcludingNames(proposals, ownNames)
+    end
     ME.notesProposals = proposals
     ME.notesIndex = 1
     ME.notesWizardActive = true
     ME.wizardMode = "notes"
+    ME.editSourceGroup = nil
     selectedCharacter = nil
     selectedCharacterKey = nil
     listColHeader:Hide()
@@ -2451,11 +2365,40 @@ ME.openScanReview = function()
 end
 
 ME.openManualCreate = function()
-    closeGroupSettings()
     ME.notesProposals = { { main = nil, members = {}, order = {}, manual = true } }
     ME.notesIndex = 1
     ME.notesWizardActive = true
     ME.wizardMode = "manual"
+    ME.editSourceGroup = nil
+    selectedCharacter = nil
+    selectedCharacterKey = nil
+    listColHeader:Hide()
+    listViewport:Hide()
+    if ME.updateListHeaderFade then
+        ME.updateListHeaderFade()
+    end
+    ME.listFooter:Hide()
+    ME.showNotesWizardChrome()
+    ME.notesWizard:Show()
+    ME.fillNotesProposalForm()
+end
+
+ME.openGroupEdit = function(group)
+    if not group then return end
+    -- Toggle-close when re-clicking the same group's gear while editor is open.
+    if ME.notesWizardActive and ME.wizardMode == "edit" and ME.editSourceGroup
+        and ME.editSourceGroup.main == group.main then
+        ME.closeNotesWizard(true)
+        return
+    end
+    local proposal = GTD.BuildGroupEditProposal and GTD.BuildGroupEditProposal(group)
+    if not proposal then return end
+    ME.notesProposals = { proposal }
+    ME.notesIndex = 1
+    ME.notesWizardActive = true
+    ME.wizardMode = "edit"
+    ME.editSourceGroup = group
+    ME.deleteConfirmPending = false
     selectedCharacter = nil
     selectedCharacterKey = nil
     listColHeader:Hide()
@@ -2481,10 +2424,39 @@ end)
 ME.notesSkipBtn:SetScript("OnClick", function()
     ME.advanceNotesWizard(false)
 end)
+ME.notesDeleteBtn:SetScript("OnClick", function(self)
+    if ME.wizardMode ~= "edit" then return end
+    if ME.deleteConfirmPending then
+        ME.deleteConfirmPending = false
+        ME.deleteEditedGroup()
+    else
+        ME.deleteConfirmPending = true
+        self:SetText("Really delete?")
+    end
+end)
+
+--- Normalized-name set of the player's configured main plus local account characters.
+--- Used to keep the notes wizard from proposing (or manually adding) own characters.
+ME.collectOwnCharacterNames = function()
+    local set = {}
+    local GSS = AltArmy.GuildShareSettings
+    local ownMain = GSS and GSS.GetMain and GSS.GetMain(currentRealm()) or nil
+    if type(ownMain) == "string" and ownMain ~= "" then
+        local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(ownMain)
+        if key then set[key] = true end
+    end
+    for _, entry in ipairs(ME.currentDisplayMembers()) do
+        if entry and entry.source == "local" and entry.name then
+            local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(entry.name)
+            if key then set[key] = true end
+        end
+    end
+    return set
+end
 
 --- Occupied names for the wizard add-character autocomplete.
 ME.wizardOccupiedNames = function()
-    if ME.wizardMode == "manual" then
+    if ME.wizardMode == "manual" or ME.wizardMode == "edit" then
         local occupied = GTD.CollectOccupiedNames
             and GTD.CollectOccupiedNames(ME.currentDisplayMembers()) or {}
         local proposal = ME.currentNotesProposal()
@@ -2499,12 +2471,20 @@ ME.wizardOccupiedNames = function()
                     if key then occupied[key] = true end
                 end
             end
+            for _, name in ipairs(proposal.order or {}) do
+                local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(name)
+                if key then occupied[key] = true end
+            end
         end
         return occupied
     end
     local GNP = AltArmy.GuildNoteAltParser
-    return (GNP and GNP.CollectProposalOccupiedNames
+    local occupied = (GNP and GNP.CollectProposalOccupiedNames
         and GNP.CollectProposalOccupiedNames(ME.notesProposals)) or {}
+    for key, on in pairs(ME.collectOwnCharacterNames()) do
+        if on then occupied[key] = true end
+    end
+    return occupied
 end
 
 ME.addWizardMember = function(name)
@@ -2517,6 +2497,36 @@ ME.addWizardMember = function(name)
         if not GTD.AddManualProposalMember or not GTD.AddManualProposalMember(p, name) then
             return false
         end
+    elseif ME.wizardMode == "edit" then
+        local group = ME.editSourceGroup
+        local GMG = AltArmy.GuildManualGroups
+        local guild = activeGuild()
+        local realm = group and groupPrefsRealm(group)
+        if not group or not group.main or not GMG or not guild then return false end
+        local classFile, level = ME.rosterClassLevel(name)
+        if GMG.AssignToGroup then
+            GMG.AssignToGroup(name, realm, group.main, {
+                guild = guild, origin = "user", classFile = classFile, level = level,
+            })
+        elseif GMG.SetMapping then
+            GMG.SetMapping(name, realm, group.main, {
+                guild = guild, origin = "user", classFile = classFile, level = level,
+            })
+        else
+            return false
+        end
+        p.members = p.members or {}
+        p.order = p.order or {}
+        p.members[#p.members + 1] = {
+            name = name, removable = true, reasonKind = "manual",
+            addedManually = true, origin = "user",
+        }
+        p.order[#p.order + 1] = name
+        group.members = group.members or {}
+        group.members[#group.members + 1] = {
+            name = name, main = group.main, source = "manual", origin = "user",
+            classFile = classFile, level = level, realm = realm,
+        }
     else
         p.members[#p.members + 1] = {
             name = name, noteText = nil, noteHash = nil, addedManually = true,
@@ -2807,12 +2817,12 @@ local charRowPool = {}
 local suppressMainRowHoverEvents = false
 
 local function isMainRowSettingsActive(row)
-    return selectedSettingsGroup
-        and isGroupSettingsShown
-        and isGroupSettingsShown()
+    return ME.notesWizardActive
+        and ME.wizardMode == "edit"
+        and ME.editSourceGroup
         and row
         and row.settingsGroup
-        and selectedSettingsGroup.main == row.settingsGroup.main
+        and ME.editSourceGroup.main == row.settingsGroup.main
 end
 
 local function mainRowIsUnderMouse(row)
@@ -2868,7 +2878,7 @@ syncMainRowSettingsIcons = function()
 end
 
 applyListColumnLayout = function()
-    local showOnline = not (isGroupSettingsShown and isGroupSettingsShown())
+    local showOnline = true
     local onlineBtn = listHeaderButtons.online
     local countBtn = listHeaderButtons.characterCount
     if onlineBtn then
@@ -3276,7 +3286,7 @@ local function acquireMainRow(index)
         end)
         settingsBtn:SetScript("OnClick", function()
             if row.settingsGroup then
-                openGroupSettings(row.settingsGroup)
+                ME.openGroupEdit(row.settingsGroup)
             end
         end)
         row.settingsBtn = settingsBtn
@@ -3934,11 +3944,16 @@ showGuildList = function()
         ME.notesWizardActive = false
         ME.notesProposals = {}
         ME.notesIndex = 1
+        ME.wizardMode = nil
+        ME.editSourceGroup = nil
+        ME.deleteConfirmPending = false
     end
     if ME.notesWizard then ME.notesWizard:Hide() end
     if ME.notesBackBtn then ME.notesBackBtn:Hide() end
     if ME.notesTitleFS then ME.notesTitleFS:Hide() end
     if ME.notesProgressFS then ME.notesProgressFS:Hide() end
+    if ME.editOptions then ME.editOptions:Hide() end
+    if ME.notesDeleteBtn then ME.notesDeleteBtn:Hide() end
     setListHeaderVisible(true)
     listColHeader:Show()
     anchorListViewportBelowColHeader()
@@ -3953,7 +3968,9 @@ showGuildList = function()
 end
 
 showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredRecipeID)
-    closeGroupSettings()
+    if ME.notesWizardActive then
+        ME.closeNotesWizard(false)
+    end
     selectedCharacter = entry
     selectedCharacterKey = memberKey(entry)
     selectedProfIndex = 1
@@ -4030,7 +4047,9 @@ end)
 -- *** Refresh ***
 
 local function showMessage(text, withButton)
-    closeGroupSettings()
+    if ME.notesWizardActive then
+        ME.closeNotesWizard(false)
+    end
     selectedCharacter = nil
     selectedCharacterKey = nil
     selectedBrowseGuild = nil
@@ -4268,22 +4287,6 @@ local function refreshImpl()
         filtered = GTD.SortGroups(filtered, listSortKey, listSortAscending, rosterByName)
     end
 
-    if selectedSettingsGroup then
-        local stillPresent
-        for _, g in ipairs(filtered) do
-            if g.main == selectedSettingsGroup.main then
-                stillPresent = g
-                break
-            end
-        end
-        if stillPresent then
-            selectedSettingsGroup = stillPresent
-            updateGroupSettingsPanel()
-        else
-            closeGroupSettings()
-        end
-    end
-
     if #filtered == 0 then
         hideMainRowsFrom(1)
         hideCharRowsFrom(1)
@@ -4380,5 +4383,7 @@ frame:SetScript("OnShow", function()
     refresh()
 end)
 frame:HookScript("OnHide", function()
-    closeGroupSettings()
+    if ME.notesWizardActive then
+        ME.closeNotesWizard(false)
+    end
 end)

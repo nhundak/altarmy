@@ -164,21 +164,36 @@ end
 --- `existingMappings`: name → mapping entry (with optional noteHash/origin)
 --- `storedChars`: name → truthy when addon data already covers the character
 --- Returns list of `{ name, main, noteText, noteHash, pattern }`.
+--- Lookups against existingMappings / storedChars are case-insensitive.
 function GNP.ScanRoster(rosterEntries, existingMappings, storedChars)
     local out = {}
     existingMappings = existingMappings or {}
     storedChars = storedChars or {}
     local rosterSet = buildRosterNameSet(rosterEntries)
 
+    local function lookupByName(map, name, short)
+        if not map then return nil end
+        local hit = map[short] or map[name]
+        if hit then return hit end
+        local key = normalizeKey(short or name)
+        if not key then return nil end
+        for k, v in pairs(map) do
+            if type(k) == "string" and normalizeKey(k) == key then
+                return v
+            end
+        end
+        return nil
+    end
+
     for _, entry in ipairs(rosterEntries or {}) do
         if entry and type(entry.name) == "string" and entry.name ~= "" then
             local short = entry.name:match("^[^%-]+") or entry.name
-            if not storedChars[short] and not storedChars[entry.name] then
+            if not lookupByName(storedChars, entry.name, short) then
                 local noteText = pickNoteText(entry)
                 if noteText then
                     local parsed = GNP.ParseNote(noteText, rosterSet)
                     if parsed and normalizeKey(parsed.main) ~= normalizeKey(short) then
-                        local existing = existingMappings[short] or existingMappings[entry.name]
+                        local existing = lookupByName(existingMappings, entry.name, short)
                         local noteHash = GNP.HashNote(noteText)
                         local skip = false
                         if existing and existing.origin == "note"
@@ -298,6 +313,8 @@ end
 --- optional `existingMappings` and Alt Army `sharedEntries`.
 --- Existing local mappings already under a proposed main are merged into `members`
 --- (marked `alreadyMapped`) so prior accepts remain visible when reviewing again.
+--- Mains that differ only by case are merged into one proposal (canonical casing
+--- from the first suggestion that creates the group).
 --- Returns `{ main, displayName, members = { name, noteText, noteHash, pattern, alreadyMapped? } }`
 --- sorted by main. Members within a group are sorted by name. Does not include the main
 --- as a member row (the main is implied by `main` / `displayName`).
@@ -307,14 +324,17 @@ function GNP.GroupSuggestionsByMain(suggestions, existingMappings, sharedEntries
     local order = {}
     for _, s in ipairs(suggestions) do
         if s and type(s.main) == "string" and s.main ~= "" and type(s.name) == "string" and s.name ~= "" then
-            local g = byMain[s.main]
+            local mainKey = normalizeKey(s.main)
+            local g = mainKey and byMain[mainKey]
             if not g then
                 g = {
                     main = s.main,
                     displayName = s.main,
                     members = {},
                 }
-                byMain[s.main] = g
+                if mainKey then
+                    byMain[mainKey] = g
+                end
                 order[#order + 1] = g
             end
             g.members[#g.members + 1] = {
@@ -437,6 +457,65 @@ function GNP.EnrichProposalsWithSharedData(proposals, sharedEntries)
         end
     end
     return proposals
+end
+
+--- Drop / trim note proposals that involve excluded account characters.
+--- `excludedNames`: set of normalized (or raw) names — typically the player's
+--- configured main plus local account characters. A proposal is removed when its
+--- `main` is excluded, or when every note-deduced member was excluded. Excluded
+--- names are also stripped from `members` and `knownMembers`.
+--- Returns a new list (does not mutate the input proposals' member arrays in place
+--- when filtering; proposal tables that are kept may be shallow-copied).
+function GNP.FilterProposalsExcludingNames(proposals, excludedNames)
+    if not proposals then return {} end
+    if type(excludedNames) ~= "table" then
+        local copy = {}
+        for i, p in ipairs(proposals) do
+            copy[i] = p
+        end
+        return copy
+    end
+    local excluded = {}
+    for key, on in pairs(excludedNames) do
+        if on then
+            local nk = normalizeKey(key)
+            if nk then excluded[nk] = true end
+        end
+    end
+    local out = {}
+    for _, p in ipairs(proposals) do
+        if p and type(p.main) == "string" and p.main ~= "" then
+            local mainKey = normalizeKey(p.main)
+            if not (mainKey and excluded[mainKey]) then
+                local members = {}
+                for _, m in ipairs(p.members or {}) do
+                    local key = m and normalizeKey(m.name)
+                    if key and not excluded[key] then
+                        members[#members + 1] = m
+                    end
+                end
+                if #members > 0 then
+                    local known = {}
+                    for _, m in ipairs(p.knownMembers or {}) do
+                        local key = m and normalizeKey(m.name)
+                        if key and not excluded[key] then
+                            known[#known + 1] = m
+                        end
+                    end
+                    out[#out + 1] = {
+                        main = p.main,
+                        displayName = p.displayName,
+                        members = members,
+                        knownMembers = known,
+                        mainFromShared = p.mainFromShared,
+                        sharedReason = p.sharedReason,
+                        manual = p.manual,
+                    }
+                end
+            end
+        end
+    end
+    return out
 end
 
 --- Normalized-name set of every main, member, and knownMember across all proposals.

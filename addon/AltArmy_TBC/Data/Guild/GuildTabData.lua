@@ -788,6 +788,197 @@ function GTD.FormatManualDisagreementText(conflict)
         conflict.addonMain or "?")
 end
 
+--- Build a staged edit proposal from an existing guild group for the full-screen editor.
+--- `gmg` defaults to AltArmy.GuildManualGroups (injectable for tests).
+--- Returns `{ main, members, order, pinned, overrideName, edit = true }` or nil.
+--- Each non-main member has: name, removable, reasonKind ("shared"|"manual"|"note"|"conflict"),
+--- and optionally conflictManualMain when reasonKind is "conflict".
+function GTD.BuildGroupEditProposal(group, gmg)
+    if not group then return nil end
+    gmg = gmg or AltArmy.GuildManualGroups
+    local mainKey = GTD.NormalizeRosterName(group.main)
+    local conflictByKey = {}
+    for _, c in ipairs(GTD.FindManualAddonDisagreements(group, gmg)) do
+        local key = GTD.NormalizeRosterName(c.name)
+        if key then
+            conflictByKey[key] = c
+        end
+    end
+
+    local order = {}
+    local members = {}
+    -- Main first in display order.
+    if type(group.main) == "string" and group.main ~= "" then
+        order[#order + 1] = group.main
+    end
+    for _, m in ipairs(group.members or {}) do
+        if m and m.name then
+            local key = GTD.NormalizeRosterName(m.name)
+            if key and key ~= mainKey then
+                order[#order + 1] = m.name
+                local conflict = conflictByKey[key]
+                local reasonKind
+                local conflictManualMain
+                local removable
+                if conflict then
+                    reasonKind = "conflict"
+                    removable = true
+                    conflictManualMain = conflict.manualMain
+                elseif GTD.IsManualMember(m) then
+                    removable = true
+                    local origin = m.origin
+                    if (not origin or origin == "") and gmg and gmg.GetMapping then
+                        local mapping = gmg.GetMapping(m.name, m.realm)
+                        origin = mapping and mapping.origin
+                    end
+                    if origin == "note" then
+                        reasonKind = "note"
+                    else
+                        reasonKind = "manual"
+                    end
+                else
+                    reasonKind = "shared"
+                    removable = false
+                end
+                local entry = {
+                    name = m.name,
+                    removable = removable,
+                    reasonKind = reasonKind,
+                    addedManually = removable and true or false,
+                    origin = (reasonKind == "note" and "note")
+                        or (reasonKind == "manual" and "user")
+                        or nil,
+                }
+                if conflictManualMain then
+                    entry.conflictManualMain = conflictManualMain
+                end
+                members[#members + 1] = entry
+            end
+        end
+    end
+
+    local originalRemovable = {}
+    for _, entry in ipairs(members) do
+        if entry.removable then
+            originalRemovable[#originalRemovable + 1] = entry.name
+        end
+    end
+
+    return {
+        main = group.main,
+        members = members,
+        order = order,
+        pinned = group.pinned and true or false,
+        overrideName = group.overrideName,
+        edit = true,
+        -- Snapshot of removable names at open-time so Diff does not need live GMG.
+        originalRemovable = originalRemovable,
+    }
+end
+
+--- Diff a staged edit proposal against the original group.
+--- Returns `{ adds = {names}, removes = {names}, pinned?, overrideName? }`.
+--- `pinned` / `overrideName` are set only when they differ from the original
+--- (overrideName is "" when clearing a previous override).
+--- `adds`/`removes` cover removable members only (manual alts + conflict mappings).
+function GTD.DiffGroupEditProposal(proposal, group)
+    local diff = { adds = {}, removes = {} }
+    if type(proposal) ~= "table" or type(group) ~= "table" then
+        return diff
+    end
+
+    local mainKey = GTD.NormalizeRosterName(group.main)
+
+    -- Prefer the snapshot taken at Build time (covers conflicts without live GMG).
+    local originalRemovable = {}
+    if type(proposal.originalRemovable) == "table" then
+        for _, name in ipairs(proposal.originalRemovable) do
+            local key = GTD.NormalizeRosterName(name)
+            if key then
+                originalRemovable[key] = name
+            end
+        end
+    else
+        for _, m in ipairs(GTD.GetManualAlts(group)) do
+            local key = GTD.NormalizeRosterName(m.name)
+            if key then
+                originalRemovable[key] = m.name
+            end
+        end
+    end
+
+    local originalMemberKeys = {}
+    for _, m in ipairs(group.members or {}) do
+        local key = GTD.NormalizeRosterName(m and m.name)
+        if key then
+            originalMemberKeys[key] = true
+        end
+    end
+
+    local stagedRemovable = {}
+    for _, m in ipairs(proposal.members or {}) do
+        if m and m.name then
+            local key = GTD.NormalizeRosterName(m.name)
+            if key and key ~= mainKey then
+                local isRemovable = m.removable or m.addedManually
+                    or m.reasonKind == "manual" or m.reasonKind == "note"
+                    or m.reasonKind == "conflict"
+                if isRemovable then
+                    stagedRemovable[key] = m.name
+                end
+            end
+        end
+    end
+    for _, name in ipairs(proposal.order or {}) do
+        local key = GTD.NormalizeRosterName(name)
+        if key and key ~= mainKey and not originalMemberKeys[key] then
+            stagedRemovable[key] = name
+        end
+    end
+
+    for key, name in pairs(stagedRemovable) do
+        if not originalRemovable[key] then
+            diff.adds[#diff.adds + 1] = name
+        end
+    end
+    for key, name in pairs(originalRemovable) do
+        if not stagedRemovable[key] then
+            diff.removes[#diff.removes + 1] = name
+        end
+    end
+
+    local origPinned = group.pinned and true or false
+    local stagedPinned = proposal.pinned and true or false
+    if stagedPinned ~= origPinned then
+        diff.pinned = stagedPinned
+    end
+
+    local origOverride = group.overrideName
+    if origOverride == "" then origOverride = nil end
+    local stagedOverride = proposal.overrideName
+    if stagedOverride == "" then stagedOverride = nil end
+    if origOverride ~= stagedOverride then
+        if stagedOverride == nil then
+            diff.overrideName = ""
+        else
+            diff.overrideName = stagedOverride
+        end
+    end
+
+    return diff
+end
+
+--- True when a staged edit proposal differs from the original group.
+function GTD.GroupEditProposalHasChanges(proposal, group)
+    local diff = GTD.DiffGroupEditProposal(proposal, group)
+    if not diff then return false end
+    if #(diff.adds or {}) > 0 then return true end
+    if #(diff.removes or {}) > 0 then return true end
+    if diff.pinned ~= nil then return true end
+    if diff.overrideName ~= nil then return true end
+    return false
+end
+
 --- True when this character is the player's explicitly marked main (not a deduced grouping main).
 function GTD.IsExplicitMain(member)
     return member ~= nil and member.isMain == true and member.mainDeclared == true
@@ -1458,11 +1649,41 @@ end
 
 --- Notes-wizard note line (white): the note wrapped in double quotes.
 --- Empty string when there is no note.
+--- Pipe characters in the note are doubled so player-controlled text cannot
+--- inject WoW UI escape sequences (|c, |T, etc.).
 function GTD.FormatNotesWizardMemberNote(note)
     if type(note) ~= "string" then return "" end
     note = note:match("^%s*(.-)%s*$") or note
     if note == "" then return "" end
+    note = note:gsub("|", "||")
     return WHITE .. '"' .. note .. '"|r'
+end
+
+--- Count characters in a notes/manual wizard proposal for Accept-button enabling.
+--- Counts main (if set), members (excluding case-variants of the main), and knownMembers.
+--- Accept is meaningful when the result is greater than 1.
+function GTD.CountNotesProposalCharacters(proposal)
+    if type(proposal) ~= "table" then return 0 end
+    local count = 0
+    local mainKey
+    if type(proposal.main) == "string" and proposal.main ~= "" then
+        count = count + 1
+        mainKey = GTD.NormalizeRosterName and GTD.NormalizeRosterName(proposal.main)
+    end
+    for _, member in ipairs(proposal.members or {}) do
+        if member and type(member.name) == "string" and member.name ~= "" then
+            local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(member.name)
+            if not mainKey or key ~= mainKey then
+                count = count + 1
+            end
+        end
+    end
+    for _, known in ipairs(proposal.knownMembers or {}) do
+        if known and type(known.name) == "string" and known.name ~= "" then
+            count = count + 1
+        end
+    end
+    return count
 end
 
 --- Notes-wizard attribution line (gray), prefixed with "Reason: ".
@@ -1494,14 +1715,16 @@ function GTD.FormatNotesWizardMemberAttribution(kind, reason)
 end
 
 --- Short inclusion-reason label for the notes wizard "Reason for Inclusion" column.
---- `kind`: "main" | "note" | "manual" | "shared" | "referred"
+--- `kind`: "main" | "note" | "manual" | "shared" | "referred" | "conflict"
 function GTD.NotesWizardInclusionReasonLabel(kind)
     if kind == "note" then
         return "Name in note"
     elseif kind == "manual" then
         return "Manually added"
     elseif kind == "shared" then
-        return "Shared with Alt Army"
+        return "Shared via Alt Army"
+    elseif kind == "conflict" then
+        return "Conflicts with addon"
     elseif kind == "main" or kind == "referred" then
         return "Referred to by note"
     end

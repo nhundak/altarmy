@@ -137,6 +137,16 @@ describe("GuildManualGroups", function()
       assert.are.equal("Bob", GMG.GetMainOf("Bob", "R"))
     end)
 
+    it("resolves an alt lookup case-insensitively", function()
+      GMG.SetMapping("Bobsalt", "R", "Bob", { guild = "G" })
+      assert.are.equal("Bob", GMG.GetMainOf("bobsalt", "R"))
+    end)
+
+    it("resolves a main-of lookup case-insensitively", function()
+      GMG.SetMapping("Bobsalt", "R", "Bob", { guild = "G" })
+      assert.are.equal("Bob", GMG.GetMainOf("bob", "R"))
+    end)
+
     it("returns nil when unknown", function()
       assert.is_nil(GMG.GetMainOf("Nobody", "R"))
     end)
@@ -203,6 +213,17 @@ describe("GuildManualGroups", function()
       GMG.SetMapping("A1", "R1", "Main", { guild = "G" })
       GMG.SetMapping("A2", "R2", "Main", { guild = "G" })
       assert.are.equal(2, GMG.RemoveGroup("Main"))
+    end)
+
+    it("removes mappings whose main matches case-insensitively", function()
+      GMG.SetMapping("A1", "R", "Bob", { guild = "G" })
+      GMG.SetMapping("A2", "R", "Bob", { guild = "G" })
+      GMG.SetMapping("B1", "R", "Other", { guild = "G" })
+      local n = GMG.RemoveGroup("BOB", "R")
+      assert.are.equal(2, n)
+      assert.is_nil(GMG.GetMapping("A1", "R"))
+      assert.is_nil(GMG.GetMapping("A2", "R"))
+      assert.truthy(GMG.GetMapping("B1", "R"))
     end)
   end)
 
@@ -293,6 +314,27 @@ describe("GuildManualGroups", function()
       GMG.AssignToGroup("", "R", "Bob", { guild = "G" })
       GMG.AssignToGroup("Alt", "R", "", { guild = "G" })
       assert.is_nil(GMG.GetMapping("Alt", "R"))
+    end)
+
+    it("updates an existing entry when AssignToGroup uses a case-variant name", function()
+      GMG.SetMapping("Bobsalt", "R", "Alice", { guild = "G", origin = "user", classFile = "WARRIOR", level = 60 })
+      GMG.AssignToGroup("bobsalt", "R", "Bob", { guild = "G", origin = "note" })
+      local underExact = GMG.GetMapping("Bobsalt", "R")
+      assert.truthy(underExact)
+      assert.are.equal("Bob", underExact.main)
+      assert.are.equal("note", underExact.origin)
+      -- Must update the existing key, not create a duplicate case-variant entry.
+      local all = GMG.GetMappingsForGuild("G")
+      local count = 0
+      local storedName
+      for _, e in ipairs(all) do
+        if (e.name or ""):lower() == "bobsalt" then
+          count = count + 1
+          storedName = e.name
+        end
+      end
+      assert.are.equal(1, count)
+      assert.are.equal("Bobsalt", storedName)
     end)
   end)
 
@@ -394,6 +436,51 @@ describe("GuildManualGroups", function()
       GMG.ApplyProposal(proposal, "R", "G", nil, { origin = "user" })
       assert.are.equal("user", GMG.GetMapping("Bob", "R").origin)
       assert.are.equal("user", GMG.GetMapping("Bobsalt", "R").origin)
+    end)
+
+    it("keeps a remove-then-re-added member mapped (removedMappedNames vs members)", function()
+      -- Notes wizard: remove alreadyMapped OldAlt (adds to removedMappedNames), then
+      -- re-add via the add box. Accept must leave OldAlt mapped under Bob.
+      GMG.SetMapping("Bob", "R", "Bob", { guild = "G", origin = "note" })
+      GMG.SetMapping("OldAlt", "R", "Bob", { guild = "G", origin = "note" })
+      GMG.SetMapping("KeepAlt", "R", "Bob", { guild = "G", origin = "note" })
+      local proposal = {
+        main = "Bob",
+        members = {
+          { name = "OldAlt", noteText = nil, noteHash = nil, addedManually = true },
+          { name = "KeepAlt", alreadyMapped = true },
+        },
+        removedMappedNames = { "OldAlt" },
+      }
+      GMG.ApplyProposal(proposal, "R", "G")
+      assert.are.equal("Bob", GMG.GetMapping("OldAlt", "R").main)
+      assert.are.equal("Bob", GMG.GetMapping("KeepAlt", "R").main)
+      assert.are.equal("Bob", GMG.GetMapping("Bob", "R").main)
+    end)
+
+    it("skips a member that equals the main differing only by case", function()
+      local proposal = {
+        main = "Bob",
+        members = {
+          { name = "bob" },
+          { name = "Bobsalt" },
+        },
+      }
+      GMG.ApplyProposal(proposal, "R", "G")
+      assert.are.equal("Bob", GMG.GetMapping("Bob", "R").main)
+      assert.are.equal("Bob", GMG.GetMapping("Bobsalt", "R").main)
+      -- Case-variant of main must not create a second mapping entry.
+      local all = GMG.GetMappingsForGuild("G")
+      local bobCount = 0
+      local storedName
+      for _, e in ipairs(all) do
+        if (e.name or ""):lower() == "bob" then
+          bobCount = bobCount + 1
+          storedName = e.name
+        end
+      end
+      assert.are.equal(1, bobCount)
+      assert.are.equal("Bob", storedName)
     end)
   end)
 

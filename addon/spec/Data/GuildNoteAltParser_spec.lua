@@ -150,6 +150,23 @@ describe("GuildNoteAltParser", function()
       assert.is_nil(GNP.ParseNote("rank officer since 2020", roster))
       assert.is_nil(GNP.ParseNote("likes pie", roster))
     end)
+
+    it("falls through to a later pattern when an earlier candidate is off-roster", function()
+      -- "alt of Zed" matches first but Zed is not on the roster; "(Bob)" should win.
+      local r = GNP.ParseNote("alt of Zed (Bob)", roster)
+      assert.truthy(r)
+      assert.are.equal("Bob", r.main)
+      assert.are.equal("parens", r.pattern)
+    end)
+
+    it("does not error or invent candidates from notes with pipe escape sequences", function()
+      assert.is_nil(GNP.ParseNote("|cff00ff00Hacked|r", roster))
+      assert.is_nil(GNP.ParseNote("|TInterface\\Icons\\INV_Misc_QuestionMark:16|t", roster))
+      -- A real roster match still works even when the note also contains escapes.
+      local r = GNP.ParseNote("alt of Bob |cff00ff00wow|r", roster)
+      assert.truthy(r)
+      assert.are.equal("Bob", r.main)
+    end)
   end)
 
   describe("HashNote", function()
@@ -191,6 +208,28 @@ describe("GuildNoteAltParser", function()
       local storedChars = { Bobsalt = { name = "Bobsalt", main = "Other" } }
       local suggestions = GNP.ScanRoster(rosterEntries, {}, storedChars)
       assert.are.equal(0, #suggestions)
+    end)
+
+    it("skips characters when storedChars keys differ only by case", function()
+      local rosterEntries = {
+        { name = "Bobsalt", publicNote = "bob alt" },
+        { name = "Bob", publicNote = "" },
+      }
+      local storedChars = { bobsalt = { name = "Bobsalt", main = "Other" } }
+      assert.are.equal(0, #GNP.ScanRoster(rosterEntries, {}, storedChars))
+    end)
+
+    it("skips characters when existingMappings keys differ only by case", function()
+      local note = "bob alt"
+      local hash = GNP.HashNote(note)
+      local rosterEntries = {
+        { name = "Bobsalt", publicNote = note },
+        { name = "Bob", publicNote = "" },
+      }
+      local existing = {
+        bobsalt = { main = "Bob", origin = "note", noteHash = hash },
+      }
+      assert.are.equal(0, #GNP.ScanRoster(rosterEntries, existing, {}))
     end)
 
     it("skips characters with an accepted unchanged note mapping", function()
@@ -300,6 +339,20 @@ describe("GuildNoteAltParser", function()
       for _, s in ipairs(stale) do names[s.name] = s.main end
       assert.are.equal("Bob", names.GoneAlt)
       assert.are.equal("Bob", names.Bobsalt)
+    end)
+
+    it("does not report mappings whose main left the roster while the alt remains (documented)", function()
+      -- Current behavior: only the mapped character's roster presence is checked.
+      -- A mapping Alt→GoneMain with Alt still on roster is not considered stale.
+      local rosterEntries = {
+        { name = "StillHere", publicNote = "" },
+        { name = "Bob", publicNote = "" },
+      }
+      local existing = {
+        StillHere = { main = "GoneMain", origin = "user" },
+      }
+      local stale = GNP.FindStaleMappings(existing, rosterEntries)
+      assert.are.equal(0, #stale)
     end)
   end)
 
@@ -504,6 +557,53 @@ describe("GuildNoteAltParser", function()
       assert.are.equal("Bob", suggestions[1].main)
       assert.are.equal("Bobsalt", suggestions[1].name)
     end)
+
+    it("merges suggestions whose resolved mains differ only by case", function()
+      local proposals = GNP.GroupSuggestionsByMain({
+        { name = "Bobsalt", main = "Bob", noteText = "bob alt", noteHash = 1 },
+        { name = "Bobtwo", main = "bob", noteText = "alt of bob", noteHash = 2 },
+      })
+      assert.are.equal(1, #proposals)
+      assert.are.equal("Bob", proposals[1].main)
+      assert.are.equal(2, #proposals[1].members)
+      local memberNames = {}
+      for _, m in ipairs(proposals[1].members) do
+        memberNames[#memberNames + 1] = m.name
+      end
+      table.sort(memberNames)
+      assert.are.same({ "Bobsalt", "Bobtwo" }, memberNames)
+    end)
+
+    it("scan-level mutual-alt notes produce two proposals that ApplyProposal resolves without a cycle", function()
+      local rosterEntries = {
+        { name = "Alice", publicNote = "Bob's alt" },
+        { name = "Bob", publicNote = "Alice's alt" },
+      }
+      local suggestions = GNP.ScanRoster(rosterEntries, {}, {})
+      local proposals = GNP.GroupSuggestionsByMain(suggestions)
+      -- Cycle keeps original mains → two proposals (Alice under Bob, Bob under Alice).
+      assert.are.equal(2, #proposals)
+      local byMain = {}
+      for _, p in ipairs(proposals) do byMain[p.main] = p end
+      assert.truthy(byMain.Bob)
+      assert.truthy(byMain.Alice)
+      assert.are.equal(1, #byMain.Bob.members)
+      assert.are.equal("Alice", byMain.Bob.members[1].name)
+      assert.are.equal(1, #byMain.Alice.members)
+      assert.are.equal("Bob", byMain.Alice.members[1].name)
+
+      -- Accepting both halves uses AssignToGroup cycle-break; no stored cycle remains.
+      require("GuildManualGroups")
+      local GMG = AltArmy.GuildManualGroups
+      assert.truthy(GMG)
+      _G.AltArmyTBC_GuildData = { manual = {} }
+      GMG.ApplyProposal(byMain.Bob, "R", "G")
+      GMG.ApplyProposal(byMain.Alice, "R", "G")
+      assert.are.equal("Alice", GMG.GetMapping("Bob", "R").main)
+      local alice = GMG.GetMapping("Alice", "R")
+      assert.truthy(alice)
+      assert.are.equal("Alice", alice.main)
+    end)
   end)
 
   describe("EnrichProposalsWithSharedData", function()
@@ -668,6 +768,70 @@ describe("GuildNoteAltParser", function()
       assert.is_true(occupied.alice)
       assert.is_true(occupied.shared)
       assert.is_true(occupied.bob)
+    end)
+  end)
+
+  describe("FilterProposalsExcludingNames", function()
+    it("drops proposals whose main is in the excluded set", function()
+      local out = GNP.FilterProposalsExcludingNames({
+        {
+          main = "MyMain",
+          members = { { name = "GuildAlt" } },
+        },
+        {
+          main = "Other",
+          members = { { name = "OtherAlt" } },
+        },
+      }, { mymain = true })
+      assert.are.equal(1, #out)
+      assert.are.equal("Other", out[1].main)
+    end)
+
+    it("strips excluded members and knownMembers from kept proposals", function()
+      local out = GNP.FilterProposalsExcludingNames({
+        {
+          main = "Alice",
+          members = {
+            { name = "NoteAlt" },
+            { name = "MyAlt" },
+          },
+          knownMembers = {
+            { name = "SharedAlt" },
+            { name = "MyMain" },
+          },
+        },
+      }, { myalt = true, mymain = true })
+      assert.are.equal(1, #out)
+      assert.are.equal(1, #out[1].members)
+      assert.are.equal("NoteAlt", out[1].members[1].name)
+      assert.are.equal(1, #out[1].knownMembers)
+      assert.are.equal("SharedAlt", out[1].knownMembers[1].name)
+    end)
+
+    it("drops a proposal that has no members left after stripping excluded names", function()
+      local out = GNP.FilterProposalsExcludingNames({
+        {
+          main = "Alice",
+          members = { { name = "MyAlt" } },
+          knownMembers = { { name = "SharedAlt" } },
+        },
+      }, { myalt = true })
+      assert.are.equal(0, #out)
+    end)
+
+    it("returns empty for nil proposals or nil excluded set", function()
+      assert.are.equal(0, #GNP.FilterProposalsExcludingNames(nil, { a = true }))
+      local kept = GNP.FilterProposalsExcludingNames({
+        { main = "Alice", members = { { name = "Alt" } } },
+      }, nil)
+      assert.are.equal(1, #kept)
+    end)
+
+    it("matches excluded names case-insensitively", function()
+      local out = GNP.FilterProposalsExcludingNames({
+        { main = "MyMain", members = { { name = "GuildAlt" } } },
+      }, { MYMAIN = true })
+      assert.are.equal(0, #out)
     end)
   end)
 end)

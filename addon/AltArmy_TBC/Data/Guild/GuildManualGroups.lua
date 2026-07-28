@@ -28,9 +28,20 @@ local function realmTable(realm, create)
     return d.manual[realm]
 end
 
+local function normalizeKey(name)
+    if type(name) ~= "string" then return nil end
+    local GTD = AltArmy.GuildTabData
+    if GTD and GTD.NormalizeRosterName then
+        return GTD.NormalizeRosterName(name)
+    end
+    local short = name:match("^[^%-]+") or name
+    return short:lower()
+end
+
 --- Store or update a name→main mapping.
 --- opts: guild, origin ("user"|"note"), noteText, noteHash, classFile?, level?
 --- Omitting classFile/level preserves any previously stored values for that mapping.
+--- When a case-variant of `name` already exists, updates that entry (reuses stored key).
 function GMG.SetMapping(name, realm, main, opts)
     if type(name) ~= "string" or name == "" then return end
     if type(main) ~= "string" or main == "" then return end
@@ -38,6 +49,20 @@ function GMG.SetMapping(name, realm, main, opts)
     opts = opts or {}
     local rt = realmTable(realm, true)
     local existing = rt[name]
+    local storedKey = name
+    -- Reuse an existing case-variant key so we do not create duplicate entries.
+    if not existing then
+        local nameKey = normalizeKey(name)
+        if nameKey then
+            for n, e in pairs(rt) do
+                if normalizeKey(n) == nameKey then
+                    existing = e
+                    storedKey = n
+                    break
+                end
+            end
+        end
+    end
     local ts = now()
     local entry = existing or {}
     entry.main = main
@@ -60,46 +85,66 @@ function GMG.SetMapping(name, realm, main, opts)
         entry.createdAt = ts
     end
     entry.updatedAt = ts
-    rt[name] = entry
+    rt[storedKey] = entry
 end
 
 function GMG.GetMapping(name, realm)
     if type(name) ~= "string" or name == "" then return nil end
     local rt = realmTable(realm, false)
-    return rt and rt[name] or nil
+    if not rt then return nil end
+    local entry = rt[name]
+    if entry then return entry end
+    local nameKey = normalizeKey(name)
+    if not nameKey then return nil end
+    for n, e in pairs(rt) do
+        if normalizeKey(n) == nameKey then
+            return e
+        end
+    end
+    return nil
 end
 
 function GMG.RemoveMapping(name, realm)
     if type(name) ~= "string" or name == "" then return end
     local rt = realmTable(realm, false)
-    if rt then
+    if not rt then return end
+    if rt[name] then
         rt[name] = nil
+        return
     end
-end
-
-local function normalizeKey(name)
-    if type(name) ~= "string" then return nil end
-    local GTD = AltArmy.GuildTabData
-    if GTD and GTD.NormalizeRosterName then
-        return GTD.NormalizeRosterName(name)
+    local nameKey = normalizeKey(name)
+    if not nameKey then return end
+    for n, _ in pairs(rt) do
+        if normalizeKey(n) == nameKey then
+            rt[n] = nil
+            return
+        end
     end
-    local short = name:match("^[^%-]+") or name
-    return short:lower()
 end
 
 --- Resolve an alt to its main. A character that is someone's main resolves to itself.
 --- When realm is omitted, searches all realms.
+--- Lookups are case-insensitive (normalized roster keys).
 function GMG.GetMainOf(name, realm)
     if type(name) ~= "string" or name == "" then return nil end
+    local nameKey = normalizeKey(name)
     local function fromRealm(rt)
-        if not rt then return nil end
+        if not rt or not nameKey then return nil end
         local entry = rt[name]
+        if not entry then
+            for n, e in pairs(rt) do
+                if normalizeKey(n) == nameKey then
+                    entry = e
+                    break
+                end
+            end
+        end
         if entry and entry.main then
             return entry.main
         end
         for _, m in pairs(rt) do
-            if m and m.main == name then
-                return name
+            if m and type(m.main) == "string" and normalizeKey(m.main) == nameKey then
+                return m.main
             end
         end
         return nil
@@ -200,6 +245,8 @@ end
 --- Persist a notes/manual-wizard proposal: write the main anchor and new members via
 --- AssignToGroup, skip alreadyMapped members, and RemoveMapping for each name in
 --- `proposal.removedMappedNames`.
+--- Removals are applied before assignments so a remove-then-re-add (name in both
+--- `removedMappedNames` and `members`) ends mapped under the proposal main.
 --- `classLevelFn(name)` optional → classFile, level.
 --- `opts.origin` optional (default "note"); manual wizard passes "user".
 function GMG.ApplyProposal(proposal, realm, guild, classLevelFn, opts)
@@ -214,6 +261,11 @@ function GMG.ApplyProposal(proposal, realm, guild, classLevelFn, opts)
             return classLevelFn(name)
         end
         return nil, nil
+    end
+    for _, removedName in ipairs(proposal.removedMappedNames or {}) do
+        if type(removedName) == "string" and removedName ~= "" then
+            GMG.RemoveMapping(removedName, realm)
+        end
     end
     local mainClass, mainLevel = classLevel(main)
     GMG.AssignToGroup(main, realm, main, {
@@ -232,11 +284,6 @@ function GMG.ApplyProposal(proposal, realm, guild, classLevelFn, opts)
                 classFile = classFile,
                 level = level,
             })
-        end
-    end
-    for _, removedName in ipairs(proposal.removedMappedNames or {}) do
-        if type(removedName) == "string" and removedName ~= "" then
-            GMG.RemoveMapping(removedName, realm)
         end
     end
 end
@@ -322,15 +369,17 @@ function GMG.IsShadowed(name, realm)
     return GSD.GetCharacter(name, realm) ~= nil
 end
 
---- Remove every mapping whose main equals `main`. Returns count removed.
+--- Remove every mapping whose main equals `main` (case-insensitive). Returns count removed.
 function GMG.RemoveGroup(main, realm)
     if type(main) ~= "string" or main == "" then return 0 end
+    local mainKey = normalizeKey(main)
     local removed = 0
     local d = ensure()
     local function purgeRealm(rt)
         if not rt then return end
         for name, entry in pairs(rt) do
-            if entry and entry.main == main then
+            if entry and type(entry.main) == "string"
+                and normalizeKey(entry.main) == mainKey then
                 rt[name] = nil
                 removed = removed + 1
             end

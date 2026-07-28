@@ -591,6 +591,210 @@ describe("GuildTabData", function()
     end)
   end)
 
+  describe("BuildGroupEditProposal / DiffGroupEditProposal", function()
+    local function gmgStub(mappings)
+      return {
+        GetMapping = function(name, realm)
+          for _, m in ipairs(mappings or {}) do
+            if m.name == name and (not realm or m.realm == realm or not m.realm) then
+              return m.entry
+            end
+          end
+          return nil
+        end,
+      }
+    end
+
+    it("BuildGroupEditProposal returns nil for a nil group", function()
+      assert.is_nil(GTD.BuildGroupEditProposal(nil))
+    end)
+
+    it("BuildGroupEditProposal stages main, members, pin, and override", function()
+      local group = {
+        main = "Bob",
+        pinned = true,
+        overrideName = "Boss",
+        members = {
+          member({ name = "Bob", main = "Bob", isMain = true, source = "Peer" }),
+          member({ name = "Bobsalt", main = "Bob", source = "manual", origin = "user" }),
+          member({ name = "AddonAlt", main = "Bob", source = "Peer" }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group, gmgStub({
+        { name = "Bobsalt", realm = "R", entry = { main = "Bob", origin = "user" } },
+      }))
+      assert.truthy(proposal)
+      assert.is_true(proposal.edit)
+      assert.are.equal("Bob", proposal.main)
+      assert.is_true(proposal.pinned)
+      assert.are.equal("Boss", proposal.overrideName)
+      assert.are.same({ "Bob", "Bobsalt", "AddonAlt" }, proposal.order)
+      assert.are.equal(2, #proposal.members)
+      local byName = {}
+      for _, m in ipairs(proposal.members) do byName[m.name] = m end
+      assert.is_true(byName.Bobsalt.removable)
+      assert.are.equal("manual", byName.Bobsalt.reasonKind)
+      assert.is_false(byName.AddonAlt.removable)
+      assert.are.equal("shared", byName.AddonAlt.reasonKind)
+    end)
+
+    it("BuildGroupEditProposal marks note-origin manual members as note reason", function()
+      local group = {
+        main = "Bob",
+        members = {
+          member({ name = "Bob", main = "Bob", isMain = true, source = "manual" }),
+          member({ name = "NoteAlt", main = "Bob", source = "manual" }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group, gmgStub({
+        { name = "NoteAlt", realm = "R", entry = { main = "Bob", origin = "note" } },
+      }))
+      local byName = {}
+      for _, m in ipairs(proposal.members) do byName[m.name] = m end
+      assert.are.equal("note", byName.NoteAlt.reasonKind)
+      assert.is_true(byName.NoteAlt.removable)
+    end)
+
+    it("BuildGroupEditProposal marks conflicting shadowed mappings as conflict and removable", function()
+      local group = {
+        main = "AddonMain",
+        members = {
+          member({
+            name = "AddonMain", realm = "R", main = "AddonMain", isMain = true, source = "Peer",
+          }),
+          member({
+            name = "Alt", realm = "R", main = "AddonMain", source = "Peer",
+          }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group, gmgStub({
+        { name = "Alt", realm = "R", entry = { main = "ManualMain", origin = "user" } },
+      }))
+      local byName = {}
+      for _, m in ipairs(proposal.members) do byName[m.name] = m end
+      assert.are.equal("conflict", byName.Alt.reasonKind)
+      assert.is_true(byName.Alt.removable)
+      assert.are.equal("ManualMain", byName.Alt.conflictManualMain)
+    end)
+
+    it("BuildGroupEditProposal marks the main row as non-removable shared/main", function()
+      local group = {
+        main = "Bob",
+        members = {
+          member({ name = "Bob", main = "Bob", isMain = true, source = "Peer" }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group)
+      assert.are.equal(0, #proposal.members)
+      assert.are.same({ "Bob" }, proposal.order)
+    end)
+
+    it("DiffGroupEditProposal reports no changes when staged equals original", function()
+      local group = {
+        main = "Bob",
+        pinned = false,
+        overrideName = nil,
+        members = {
+          member({ name = "Bob", main = "Bob", isMain = true, source = "manual" }),
+          member({ name = "Bobsalt", main = "Bob", source = "manual" }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group)
+      local diff = GTD.DiffGroupEditProposal(proposal, group)
+      assert.are.same({}, diff.adds)
+      assert.are.same({}, diff.removes)
+      assert.is_nil(diff.pinned)
+      assert.is_nil(diff.overrideName)
+    end)
+
+    it("DiffGroupEditProposal reports added and removed manual members", function()
+      local group = {
+        main = "Bob",
+        members = {
+          member({ name = "Bob", main = "Bob", isMain = true, source = "manual" }),
+          member({ name = "OldAlt", main = "Bob", source = "manual" }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group)
+      -- Remove OldAlt, add NewAlt.
+      proposal.members = { { name = "NewAlt", removable = true, reasonKind = "manual" } }
+      proposal.order = { "Bob", "NewAlt" }
+      local diff = GTD.DiffGroupEditProposal(proposal, group)
+      assert.are.same({ "NewAlt" }, diff.adds)
+      assert.are.same({ "OldAlt" }, diff.removes)
+    end)
+
+    it("DiffGroupEditProposal reports pin and override changes", function()
+      local group = {
+        main = "Bob",
+        pinned = false,
+        overrideName = nil,
+        members = {
+          member({ name = "Bob", main = "Bob", isMain = true, source = "Peer" }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group)
+      proposal.pinned = true
+      proposal.overrideName = "Boss"
+      local diff = GTD.DiffGroupEditProposal(proposal, group)
+      assert.is_true(diff.pinned)
+      assert.are.equal("Boss", diff.overrideName)
+    end)
+
+    it("DiffGroupEditProposal reports clearing an override name", function()
+      local group = {
+        main = "Bob",
+        overrideName = "Boss",
+        members = {
+          member({ name = "Bob", main = "Bob", isMain = true, source = "Peer" }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group)
+      proposal.overrideName = nil
+      local diff = GTD.DiffGroupEditProposal(proposal, group)
+      assert.are.equal("", diff.overrideName)
+    end)
+
+    it("NotesWizardInclusionReasonLabel returns Conflict for conflict kind", function()
+      assert.are.equal("Conflicts with addon", GTD.NotesWizardInclusionReasonLabel("conflict"))
+    end)
+
+    it("GroupEditProposalHasChanges is false when staged equals original", function()
+      local group = {
+        main = "Bob",
+        pinned = true,
+        overrideName = "Boss",
+        members = {
+          member({ name = "Bob", main = "Bob", isMain = true, source = "manual" }),
+          member({ name = "Bobsalt", main = "Bob", source = "manual" }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group)
+      assert.is_false(GTD.GroupEditProposalHasChanges(proposal, group))
+    end)
+
+    it("GroupEditProposalHasChanges is true for pin, override, or member edits", function()
+      local group = {
+        main = "Bob",
+        pinned = false,
+        members = {
+          member({ name = "Bob", main = "Bob", isMain = true, source = "manual" }),
+          member({ name = "OldAlt", main = "Bob", source = "manual" }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group)
+      proposal.pinned = true
+      assert.is_true(GTD.GroupEditProposalHasChanges(proposal, group))
+      proposal = GTD.BuildGroupEditProposal(group)
+      proposal.overrideName = "Boss"
+      assert.is_true(GTD.GroupEditProposalHasChanges(proposal, group))
+      proposal = GTD.BuildGroupEditProposal(group)
+      proposal.members = {}
+      proposal.order = { "Bob" }
+      assert.is_true(GTD.GroupEditProposalHasChanges(proposal, group))
+    end)
+  end)
+
   describe("FilterGroups", function()
     local groups
 
@@ -2420,6 +2624,15 @@ describe("GuildTabData", function()
         GTD.FormatNotesWizardMemberNote("Alice's bank alt"))
     end)
 
+    it("FormatNotesWizardMemberNote escapes pipe sequences in note text", function()
+      assert.are.equal(
+        '|cffffffff"||cff00ff00Hacked||r"|r',
+        GTD.FormatNotesWizardMemberNote("|cff00ff00Hacked|r"))
+      assert.are.equal(
+        '|cffffffff"||TInterface\\Icons\\INV_Misc_QuestionMark:16||t"|r',
+        GTD.FormatNotesWizardMemberNote("|TInterface\\Icons\\INV_Misc_QuestionMark:16|t"))
+    end)
+
     it("FormatNotesWizardMemberNote returns empty when note is missing", function()
       assert.are.equal("", GTD.FormatNotesWizardMemberNote(nil))
       assert.are.equal("", GTD.FormatNotesWizardMemberNote(""))
@@ -2450,7 +2663,7 @@ describe("GuildTabData", function()
     it("NotesWizardInclusionReasonLabel returns short column labels", function()
       assert.are.equal("Name in note", GTD.NotesWizardInclusionReasonLabel("note"))
       assert.are.equal("Manually added", GTD.NotesWizardInclusionReasonLabel("manual"))
-      assert.are.equal("Shared with Alt Army", GTD.NotesWizardInclusionReasonLabel("shared"))
+      assert.are.equal("Shared via Alt Army", GTD.NotesWizardInclusionReasonLabel("shared"))
       assert.are.equal("Referred to by note", GTD.NotesWizardInclusionReasonLabel("main"))
       assert.are.equal("Referred to by note", GTD.NotesWizardInclusionReasonLabel("referred"))
       assert.are.equal("", GTD.NotesWizardInclusionReasonLabel(nil))
@@ -2473,6 +2686,50 @@ describe("GuildTabData", function()
         alreadyMapped = true, origin = "user",
       }))
       assert.are.equal("manual", GTD.ClassifyNotesWizardInclusionReason({}))
+    end)
+  end)
+
+  describe("CountNotesProposalCharacters", function()
+    it("counts main only as 1", function()
+      assert.are.equal(1, GTD.CountNotesProposalCharacters({
+        main = "Bob",
+        members = {},
+      }))
+    end)
+
+    it("counts main plus members", function()
+      assert.are.equal(3, GTD.CountNotesProposalCharacters({
+        main = "Bob",
+        members = {
+          { name = "Bobsalt" },
+          { name = "Bank" },
+        },
+      }))
+    end)
+
+    it("does not double-count a member that is a case-variant of the main", function()
+      assert.are.equal(2, GTD.CountNotesProposalCharacters({
+        main = "Bob",
+        members = {
+          { name = "bob" },
+          { name = "Bobsalt" },
+        },
+      }))
+    end)
+
+    it("includes knownMembers in the count (Accept enabled with shared-only companions)", function()
+      -- Documented: main + only knownMembers enables Accept (writes a redundant anchor).
+      assert.are.equal(2, GTD.CountNotesProposalCharacters({
+        main = "Bob",
+        members = {},
+        knownMembers = { { name = "SharedAlt" } },
+      }))
+    end)
+
+    it("returns 0 for nil or empty proposals", function()
+      assert.are.equal(0, GTD.CountNotesProposalCharacters(nil))
+      assert.are.equal(0, GTD.CountNotesProposalCharacters({}))
+      assert.are.equal(0, GTD.CountNotesProposalCharacters({ main = "" }))
     end)
   end)
 
