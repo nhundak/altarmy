@@ -60,6 +60,8 @@ Data\Search\SearchGuildNav.lua
 Data\Guild\GuildShareSettings.lua
 Data\Guild\GuildShareProtocol.lua
 Data\Guild\GuildShareData.lua
+Data\Guild\GuildManualGroups.lua
+Data\Guild\GuildNoteAltParser.lua
 Data\Guild\GuildShareComm.lua
 Data\Guild\GuildTabData.lua
 Data\Guild\GuildChatMainName.lua

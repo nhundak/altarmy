@@ -1,7 +1,7 @@
 ---
 description: Avoid Lua 5.1's 200 local variables per function limit in addon scripts
 globs: AltArmy_TBC/**/*.lua
-alwaysApply: false
+alwaysApply: true
 ---
 
 # Lua 5.1 local variable limit
@@ -9,6 +9,8 @@ alwaysApply: false
 WoW TBC uses **Lua 5.1**, which allows at most **200 local variables per function** (the file's main chunk counts as one function). Exceeding it fails at load with:
 
 `main function has more than 200 local variables`
+
+**Luacheck does not catch this.** After editing large tab/UI files, run `npm run check` (includes a Lua 5.1 compile pass) or `npm run check:compile` before finishing.
 
 ## When editing large UI files (`Tabs/Tab*.lua`, especially `TabGuild.lua` / `TabGear.lua` / `TabSearch.lua`)
 

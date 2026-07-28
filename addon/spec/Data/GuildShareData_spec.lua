@@ -4,7 +4,7 @@
 ]]
 
 describe("GuildShareData", function()
-  local GSD, P
+  local GSD, P, GMG
   local NOW = 1700000000
 
   local function presence(main, chars)
@@ -21,14 +21,17 @@ describe("GuildShareData", function()
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     require("GuildShareProtocol")
     require("GuildShareData")
+    require("GuildManualGroups")
     GSD = AltArmy.GuildShareData
     P = AltArmy.GuildShareProtocol
+    GMG = AltArmy.GuildManualGroups
     assert.truthy(GSD)
   end)
 
   before_each(function()
     _G.AltArmyTBC_GuildData = nil
     GSD._Ensure()
+    if GMG and GMG._Ensure then GMG._Ensure() end
   end)
 
   describe("SaveReceived / getters", function()
@@ -116,6 +119,21 @@ describe("GuildShareData", function()
       assert.are.equal("Main", GSD.GetMainOf("Alt", "R"))
       assert.are.equal("Main", GSD.GetMainOf("Main", "R"))
       assert.is_nil(GSD.GetMainOf("Stranger", "R"))
+    end)
+
+    it("GetMainOf falls through to manual mappings when no stored character", function()
+      GMG.SetMapping("Bobsalt", "R", "Bob", { guild = "G" })
+      assert.are.equal("Bob", GSD.GetMainOf("Bobsalt", "R"))
+      assert.are.equal("Bob", GSD.GetMainOf("Bob", "R"))
+      assert.is_nil(GSD.GetMainOf("Stranger", "R"))
+    end)
+
+    it("GetMainOf prefers stored character over manual mapping", function()
+      GMG.SetMapping("Alt", "R", "ManualMain", { guild = "G" })
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("AddonMain", {
+        charEntry("AddonMain"), charEntry("Alt"),
+      })), "G", "R")
+      assert.are.equal("AddonMain", GSD.GetMainOf("Alt", "R"))
     end)
   end)
 
@@ -550,6 +568,61 @@ describe("GuildShareData", function()
       assert.are.equal("local", main.source)
       assert.are.equal(375, main.Professions.Tailoring.rank)
     end)
+
+    it("GetGuildMembersForDisplay appends unshadowed manual mappings", function()
+      GMG.SetMapping("Bobsalt", "R", "Bob", {
+        guild = "G", origin = "note", noteText = "bob alt",
+      })
+      local members = GSD.GetGuildMembersForDisplay("G", "R")
+      local byName = {}
+      for _, m in ipairs(members) do byName[m.name] = m end
+      assert.are.equal("manual", byName.Bobsalt.source)
+      assert.are.equal("Bob", byName.Bobsalt.main)
+      assert.is_false(byName.Bobsalt.mainDeclared)
+      assert.are.equal("note", byName.Bobsalt.origin)
+      assert.are.equal("bob alt", byName.Bobsalt.noteText)
+      assert.are.equal("G", byName.Bobsalt.guildName)
+      -- Stub main when not already present
+      assert.truthy(byName.Bob)
+      assert.are.equal("manual", byName.Bob.source)
+      assert.is_true(byName.Bob.isMain)
+      assert.is_false(byName.Bob.mainDeclared)
+      -- Local chars still present
+      assert.are.equal("local", byName.Main.source)
+    end)
+
+    it("GetGuildMembersForDisplay skips manual mappings shadowed by received or local data", function()
+      GMG.SetMapping("Alt", "R", "ManualMain", { guild = "G" })
+      GMG.SetMapping("PeerAlt", "R", "Peer", { guild = "G" })
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("Peer", {
+        charEntry("Peer"), charEntry("PeerAlt"),
+      })), "G", "R")
+      local members = GSD.GetGuildMembersForDisplay("G", "R")
+      local byName = {}
+      for _, m in ipairs(members) do byName[m.name] = m end
+      -- Local Alt wins over manual
+      assert.are.equal("local", byName.Alt.source)
+      assert.are.equal("Main", byName.Alt.main)
+      -- Received PeerAlt wins over manual
+      assert.are.equal("Peer", byName.PeerAlt.source)
+      assert.are.equal("Peer", byName.PeerAlt.main)
+      assert.is_nil(byName.ManualMain)
+    end)
+
+    it("enriches manual entries from an optional roster info map", function()
+      GMG.SetMapping("Bobsalt", "R", "Bob", { guild = "G" })
+      local rosterInfo = {
+        bobsalt = { classFile = "WARRIOR", level = 60, name = "Bobsalt" },
+        bob = { classFile = "MAGE", level = 70, name = "Bob" },
+      }
+      local members = GSD.GetGuildMembersForDisplay("G", "R", false, rosterInfo)
+      local byName = {}
+      for _, m in ipairs(members) do byName[m.name] = m end
+      assert.are.equal("WARRIOR", byName.Bobsalt.classFile)
+      assert.are.equal(60, byName.Bobsalt.level)
+      assert.are.equal("MAGE", byName.Bob.classFile)
+      assert.are.equal(70, byName.Bob.level)
+    end)
   end)
 
   describe("purging", function()
@@ -595,6 +668,46 @@ describe("GuildShareData", function()
       })), "G", "R")
       local removed = GSD.RemoveGroup("Main")
       assert.are.equal(1, removed)
+      assert.are.equal(0, #GSD.GetGuildMembers("G"))
+    end)
+
+    it("SaveReceived retires manual mappings that agree with the addon main", function()
+      GMG.SetMapping("Alt", "R", "Main", { guild = "G" })
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("Main", {
+        charEntry("Main"), charEntry("Alt"),
+      })), "G", "R")
+      assert.is_nil(GMG.GetMapping("Alt", "R"))
+    end)
+
+    it("SaveReceived keeps disagreeing manual mappings (shadowed, not deleted)", function()
+      GMG.SetMapping("Alt", "R", "ManualMain", { guild = "G" })
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("AddonMain", {
+        charEntry("AddonMain"), charEntry("Alt"),
+      })), "G", "R")
+      local m = GMG.GetMapping("Alt", "R")
+      assert.truthy(m)
+      assert.are.equal("ManualMain", m.main)
+    end)
+
+    it("PurgeGuild also clears manual mappings for that guild", function()
+      GMG.SetMapping("Alt", "R", "Main", { guild = "G" })
+      GMG.SetMapping("OtherAlt", "R", "Other", { guild = "OtherGuild" })
+      GSD.PurgeGuild("G")
+      assert.is_nil(GMG.GetMapping("Alt", "R"))
+      assert.truthy(GMG.GetMapping("OtherAlt", "R"))
+    end)
+
+    it("PurgeAll also clears all manual mappings", function()
+      GMG.SetMapping("Alt", "R", "Main", { guild = "G" })
+      GSD.PurgeAll()
+      assert.is_nil(GMG.GetMapping("Alt", "R"))
+    end)
+
+    it("PurgeStale does not remove manual mappings", function()
+      GMG.SetMapping("Alt", "R", "Main", { guild = "G" })
+      GSD.SaveReceived("A", P.ParsePresence(presence("A", { charEntry("A") })), "G", "R")
+      GSD.PurgeStale(100, NOW + 1000)
+      assert.truthy(GMG.GetMapping("Alt", "R"))
       assert.are.equal(0, #GSD.GetGuildMembers("G"))
     end)
   end)

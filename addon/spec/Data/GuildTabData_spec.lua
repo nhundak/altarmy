@@ -34,6 +34,8 @@ describe("GuildTabData", function()
       mainDeclared = opts.mainDeclared,
       source = opts.source,
       receivedAt = opts.receivedAt,
+      origin = opts.origin,
+      noteText = opts.noteText,
       Professions = profMap(opts.profs),
     }
   end
@@ -317,6 +319,239 @@ describe("GuildTabData", function()
       local text = GTD.GetOldDataTooltipText()
       assert.is_true(type(text) == "string" and #text > 0)
       assert.truthy(text:find("14", 1, true))
+    end)
+  end)
+
+  describe("manual grouping indicators", function()
+    it("IsManualMember is true only for source=manual", function()
+      assert.is_true(GTD.IsManualMember(member({ name = "A", source = "manual" })))
+      assert.is_false(GTD.IsManualMember(member({ name = "A", source = "local" })))
+      assert.is_false(GTD.IsManualMember(member({ name = "A", source = "Peer" })))
+      assert.is_false(GTD.IsManualMember(nil))
+    end)
+
+    it("GroupHasManualData is true when any member is manual", function()
+      local groups = GTD.GroupMembersByMain({
+        member({ name = "Bob", main = "Bob", isMain = true, source = "manual" }),
+        member({ name = "Bobsalt", main = "Bob", source = "manual" }),
+      })
+      assert.is_true(GTD.GroupHasManualData(groups[1]))
+    end)
+
+    it("GroupHasManualData is false for received or local-only groups", function()
+      local received = GTD.GroupMembersByMain({
+        member({ name = "Peer", main = "Peer", isMain = true, source = "Peer" }),
+      })
+      assert.is_false(GTD.GroupHasManualData(received[1]))
+      local localOnly = GTD.GroupMembersByMain({
+        member({ name = "Me", main = "Me", isMain = true, source = "local" }),
+      })
+      assert.is_false(GTD.GroupHasManualData(localOnly[1]))
+    end)
+
+    it("GroupIsEntirelyManual is true only when every member is manual", function()
+      local allManual = GTD.GroupMembersByMain({
+        member({ name = "Bob", main = "Bob", isMain = true, source = "manual" }),
+        member({ name = "Bobsalt", main = "Bob", source = "manual" }),
+      })
+      assert.is_true(GTD.GroupIsEntirelyManual(allManual[1]))
+    end)
+
+    it("GroupIsEntirelyManual is false when any member has shared data", function()
+      local mixed = GTD.GroupMembersByMain({
+        member({ name = "Alice", main = "Alice", isMain = true, source = "Peer" }),
+        member({ name = "NoteAlt", main = "Alice", source = "manual" }),
+      })
+      assert.is_true(GTD.GroupHasManualData(mixed[1]))
+      assert.is_false(GTD.GroupIsEntirelyManual(mixed[1]))
+    end)
+
+    it("GroupIsEntirelyManual is false for empty or nil groups", function()
+      assert.is_false(GTD.GroupIsEntirelyManual(nil))
+      assert.is_false(GTD.GroupIsEntirelyManual({ members = {} }))
+    end)
+
+    it("GetManualDataTooltipText warns that grouping may be inaccurate", function()
+      local text = GTD.GetManualDataTooltipText(member({ name = "A", source = "manual" }))
+      assert.truthy(text:find("does not use Alt Army", 1, true))
+      assert.truthy(text:find("manually", 1, true) or text:find("manual", 1, true))
+      assert.truthy(text:find("inaccurate", 1, true) or text:find("unreliable", 1, true)
+        or text:find("may be", 1, true))
+    end)
+
+    it("GetManualDataTooltipText does not include note provenance", function()
+      local text = GTD.GetManualDataTooltipText(member({
+        name = "A", source = "manual", origin = "note", noteText = "bob alt",
+      }))
+      assert.is_nil(text:find("bob alt", 1, true))
+      assert.is_nil(text:find("From guild note", 1, true))
+    end)
+
+    it("GetManualCharacterTooltipText warns the character may be inaccurate", function()
+      assert.are.equal(
+        "This character was entered manually and may be inaccurate",
+        GTD.GetManualCharacterTooltipText(member({ name = "A", source = "manual" })))
+    end)
+
+    it("FormatCharacterName does not embed M for manual members", function()
+      local text = GTD.FormatCharacterName(
+        member({ name = "Bobsalt", classFile = "MAGE", level = 60, source = "manual" }),
+        plainFormatName)
+      assert.are.equal("Bobsalt |cff808080(level 60)|r", text)
+      assert.is_nil(text:find("(manual)", 1, true))
+    end)
+
+    it("FormatCharacterNamePart is name-only for list layout with a separate M icon", function()
+      local m = member({ name = "Bobsalt", classFile = "MAGE", level = 60, source = "manual" })
+      assert.are.equal("Bobsalt", GTD.FormatCharacterNamePart(m, plainFormatName))
+      assert.are.equal("Mind|cff00ff00frell|r",
+        GTD.FormatCharacterNamePart(
+          member({ name = "Mindfrell", classFile = "MAGE", level = 70 }),
+          plainFormatName, "frell"))
+    end)
+
+    it("FormatProfessions returns blank for manual members", function()
+      assert.are.equal("", GTD.FormatProfessions(member({ name = "A", source = "manual" })))
+    end)
+  end)
+
+  describe("manual group editing helpers", function()
+    it("CollectOccupiedNames returns a lowercase set of member names", function()
+      local set = GTD.CollectOccupiedNames({
+        member({ name = "Alice" }),
+        member({ name = "Bob-Realm" }),
+      })
+      assert.is_true(set.alice)
+      assert.is_true(set.bob)
+      assert.is_nil(set.carol)
+    end)
+
+    it("FilterRosterNamesForAdd matches query and excludes occupied names", function()
+      local occupied = { bob = true, carol = true }
+      local matches = GTD.FilterRosterNamesForAdd(
+        { "Alice", "Bob", "Bobby", "Carol", "Dave" },
+        "bo",
+        occupied)
+      assert.are.same({ "Bobby" }, matches)
+    end)
+
+    it("FilterRosterNamesForAdd also matches guild notes when rosterInfo is provided", function()
+      local rosterInfo = {
+        alice = { name = "Alice", note = "main bank char" },
+        bob = { name = "Bob", note = "Alice alt" },
+        carol = { name = "Carol", note = "" },
+      }
+      local matches = GTD.FilterRosterNamesForAdd(
+        { "Alice", "Bob", "Carol", "Dave" },
+        "bank",
+        {},
+        { rosterInfo = rosterInfo })
+      assert.are.same({ "Alice" }, matches)
+    end)
+
+    it("FilterRosterNamesForAdd matches name or note and keeps name-only alphabetical order", function()
+      local rosterInfo = {
+        alice = { name = "Alice", note = "bank mule" },
+        banky = { name = "Banky", note = "storage" },
+        carol = { name = "Carol", note = "nope" },
+      }
+      local matches = GTD.FilterRosterNamesForAdd(
+        { "Carol", "Alice", "Banky" },
+        "bank",
+        {},
+        { rosterInfo = rosterInfo })
+      assert.are.same({ "Alice", "Banky" }, matches)
+    end)
+
+    it("FilterRosterNamesForAdd returns all unoccupied when query is empty", function()
+      local matches = GTD.FilterRosterNamesForAdd(
+        { "Carol", "Alice", "Bob" },
+        "",
+        { bob = true })
+      assert.are.same({ "Alice", "Carol" }, matches)
+    end)
+
+    it("FilterRosterNamesForAdd respects maxResults", function()
+      local names = {}
+      for i = 1, 20 do names[i] = "Name" .. i end
+      local matches = GTD.FilterRosterNamesForAdd(names, "name", {}, { maxResults = 5 })
+      assert.are.equal(5, #matches)
+    end)
+
+    it("GetManualAlts returns manual members that are not the main", function()
+      local group = {
+        main = "Bob",
+        members = {
+          member({ name = "Bob", main = "Bob", isMain = true, source = "manual" }),
+          member({ name = "Bobsalt", main = "Bob", source = "manual" }),
+          member({ name = "AddonAlt", main = "Bob", source = "Peer" }),
+        },
+      }
+      local alts = GTD.GetManualAlts(group)
+      assert.are.equal(1, #alts)
+      assert.are.equal("Bobsalt", alts[1].name)
+    end)
+
+    it("RosterDisplayNames extracts sorted display names from a roster info map", function()
+      local names = GTD.RosterDisplayNames({
+        alice = { name = "Alice", classFile = "MAGE", level = 70 },
+        bob = { name = "Bob", classFile = "WARRIOR", level = 60 },
+      })
+      assert.are.same({ "Alice", "Bob" }, names)
+    end)
+  end)
+
+  describe("manual vs addon disagreements", function()
+    it("FindManualAddonDisagreements lists shadowed mappings that disagree", function()
+      local GMG = {
+        GetMapping = function(name, realm)
+          if name == "Alt" and realm == "R" then
+            return { main = "ManualMain", origin = "user" }
+          end
+          return nil
+        end,
+      }
+      local group = {
+        main = "AddonMain",
+        members = {
+          member({
+            name = "Alt", realm = "R", main = "AddonMain", source = "Peer",
+          }),
+          member({
+            name = "AddonMain", realm = "R", main = "AddonMain", isMain = true, source = "Peer",
+          }),
+        },
+      }
+      local conflicts = GTD.FindManualAddonDisagreements(group, GMG)
+      assert.are.equal(1, #conflicts)
+      assert.are.equal("Alt", conflicts[1].name)
+      assert.are.equal("ManualMain", conflicts[1].manualMain)
+      assert.are.equal("AddonMain", conflicts[1].addonMain)
+    end)
+
+    it("FindManualAddonDisagreements ignores agreeing or unmapped members", function()
+      local GMG = {
+        GetMapping = function(name)
+          if name == "Alt" then return { main = "AddonMain" } end
+          return nil
+        end,
+      }
+      local group = {
+        main = "AddonMain",
+        members = {
+          member({ name = "Alt", realm = "R", main = "AddonMain", source = "Peer" }),
+        },
+      }
+      assert.are.equal(0, #GTD.FindManualAddonDisagreements(group, GMG))
+    end)
+
+    it("FormatManualDisagreementText explains the conflict", function()
+      local text = GTD.FormatManualDisagreementText({
+        name = "Alt", manualMain = "Alice", addonMain = "Bob",
+      })
+      assert.truthy(text:find("Alt", 1, true))
+      assert.truthy(text:find("Alice", 1, true))
+      assert.truthy(text:find("Bob", 1, true))
     end)
   end)
 
@@ -1161,6 +1396,86 @@ describe("GuildTabData", function()
           alice = { online = true },
           bob = { online = false, years = 0, months = 0, days = 2, hours = 4 },
         }, map)
+      end)
+    end)
+
+    describe("BuildRosterInfoMap", function()
+      it("returns an empty map when not in a guild", function()
+        local map = GTD.BuildRosterInfoMap({
+          isInGuild = function() return false end,
+          getNumGuildMembers = function() return 3 end,
+        })
+        assert.are.same({}, map)
+      end)
+
+      it("maps classFile and level by normalized short name", function()
+        local roster = {
+          [1] = { name = "Alice-Realm", level = 70, classFile = "MAGE" },
+          [2] = { name = "Bob", level = 60, classFile = "WARRIOR" },
+        }
+        local map = GTD.BuildRosterInfoMap({
+          isInGuild = function() return true end,
+          getNumGuildMembers = function() return 2 end,
+          getGuildRosterInfo = function(i)
+            local e = roster[i]
+            -- name, rank, rankIndex, level, class, zone, note, officernote, online, status, classFileName
+            return e.name, nil, nil, e.level, nil, nil, nil, nil, true, nil, e.classFile
+          end,
+        })
+        assert.are.same({
+          alice = { classFile = "MAGE", level = 70, name = "Alice", note = "" },
+          bob = { classFile = "WARRIOR", level = 60, name = "Bob", note = "" },
+        }, map)
+      end)
+
+      it("prefers public note and falls back to officer note", function()
+        local roster = {
+          [1] = { name = "Alice", level = 70, classFile = "MAGE", note = "  main bank  ", officer = "ignored" },
+          [2] = { name = "Bob", level = 60, classFile = "WARRIOR", note = "", officer = "Alice's alt" },
+          [3] = { name = "Carol", level = 60, classFile = "PRIEST", note = "   ", officer = "  " },
+        }
+        local map = GTD.BuildRosterInfoMap({
+          isInGuild = function() return true end,
+          getNumGuildMembers = function() return 3 end,
+          getGuildRosterInfo = function(i)
+            local e = roster[i]
+            return e.name, nil, nil, e.level, nil, nil, e.note, e.officer, true, nil, e.classFile
+          end,
+        })
+        assert.are.equal("main bank", map.alice.note)
+        assert.are.equal("Alice's alt", map.bob.note)
+        assert.are.equal("", map.carol.note)
+      end)
+    end)
+
+    describe("FormatRosterSuggestName", function()
+      it("class-colors the name and appends a white level suffix", function()
+        local text = GTD.FormatRosterSuggestName({
+          name = "Alice",
+          classFile = "MAGE",
+          level = 70,
+        }, function(name, classFile)
+          return "[" .. classFile .. "]" .. name
+        end)
+        assert.are.equal("[MAGE]Alice |cffffffff(70)|r", text)
+      end)
+
+      it("uses 0 when level is missing", function()
+        local text = GTD.FormatRosterSuggestName({ name = "Bob" }, function(name)
+          return name
+        end)
+        assert.are.equal("Bob |cffffffff(0)|r", text)
+      end)
+
+      it("highlights matching substrings in the name when a query is provided", function()
+        local text = GTD.FormatRosterSuggestName({
+          name = "Banky",
+          classFile = "WARRIOR",
+          level = 60,
+        }, function(name)
+          return name
+        end, "bank")
+        assert.are.equal("|cff00ff00Bank|ry |cffffffff(60)|r", text)
       end)
     end)
   end)
@@ -2053,6 +2368,47 @@ describe("GuildTabData", function()
       local m = member({ name = "Odd", level = 42.9 })
       local text = GTD.FormatCharacterName(m, plainFormatName)
       assert.truthy(text:find("(level 42)", 1, true))
+    end)
+  end)
+
+  describe("notes wizard member row formatting", function()
+    it("FormatNotesWizardMemberName class-colors the name and grays the level", function()
+      assert.are.equal(
+        "Alice |cff808080(level 70)|r",
+        GTD.FormatNotesWizardMemberName("Alice", "MAGE", 70, plainFormatName))
+    end)
+
+    it("FormatNotesWizardMemberNote returns a white quoted note line", function()
+      assert.are.equal(
+        '|cffffffff"Alice\'s bank alt"|r',
+        GTD.FormatNotesWizardMemberNote("Alice's bank alt"))
+    end)
+
+    it("FormatNotesWizardMemberNote returns empty when note is missing", function()
+      assert.are.equal("", GTD.FormatNotesWizardMemberNote(nil))
+      assert.are.equal("", GTD.FormatNotesWizardMemberNote(""))
+      assert.are.equal("", GTD.FormatNotesWizardMemberNote("   "))
+    end)
+
+    it("FormatNotesWizardMemberAttribution uses text match in guild note for note kind", function()
+      assert.are.equal(
+        "|cff808080Reason: text match in guild note|r",
+        GTD.FormatNotesWizardMemberAttribution("note", "From note: 'Alice alt'"))
+    end)
+
+    it("FormatNotesWizardMemberAttribution uses added manually for manual kind", function()
+      assert.are.equal(
+        "|cff808080Reason: added manually|r",
+        GTD.FormatNotesWizardMemberAttribution("manual"))
+    end)
+
+    it("FormatNotesWizardMemberAttribution uses the provided shared/referred reason in lowercase start", function()
+      assert.are.equal(
+        "|cff808080Reason: from Alt Army shared data|r",
+        GTD.FormatNotesWizardMemberAttribution("shared", "From Alt Army shared data"))
+      assert.are.equal(
+        "|cff808080Reason: referred to by other notes|r",
+        GTD.FormatNotesWizardMemberAttribution("referred"))
     end)
   end)
 end)

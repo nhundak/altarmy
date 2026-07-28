@@ -616,6 +616,163 @@ function GTD.GetOldDataTooltipText()
     return "This data is more than 14 days old. The guildmate has not shared an update recently."
 end
 
+--- True when this member comes from a local manual grouping (not addon-shared).
+function GTD.IsManualMember(member)
+    return member ~= nil and member.source == "manual"
+end
+
+--- True when any member in the group is a manual stub.
+function GTD.GroupHasManualData(group)
+    if not group then return false end
+    for _, m in ipairs(group.members or {}) do
+        if GTD.IsManualMember(m) then
+            return true
+        end
+    end
+    return false
+end
+
+--- True when the group has members and every member is a manual stub (no shared data).
+function GTD.GroupIsEntirelyManual(group)
+    if not group then return false end
+    local members = group.members or {}
+    if #members == 0 then return false end
+    for _, m in ipairs(members) do
+        if not GTD.IsManualMember(m) then
+            return false
+        end
+    end
+    return true
+end
+
+--- Tooltip body for the Guild tab manual-grouping warning icon on a group row.
+function GTD.GetManualDataTooltipText(_member)
+    return "This player does not use Alt Army. This group was entered manually and may be inaccurate."
+end
+
+--- Tooltip body for the Guild tab manual-grouping warning icon on a character row.
+function GTD.GetManualCharacterTooltipText(_member)
+    return "This character was entered manually and may be inaccurate"
+end
+
+--- Lowercase short-name set of every character already present in a flat member list.
+function GTD.CollectOccupiedNames(members)
+    local set = {}
+    for _, m in ipairs(members or {}) do
+        local key = GTD.NormalizeRosterName(m and m.name)
+        if key and key ~= "" then
+            set[key] = true
+        end
+    end
+    return set
+end
+
+--- Sorted roster display names from a BuildRosterInfoMap result.
+function GTD.RosterDisplayNames(rosterInfoMap)
+    local out = {}
+    for _, info in pairs(rosterInfoMap or {}) do
+        if info and type(info.name) == "string" and info.name ~= "" then
+            out[#out + 1] = info.name
+        end
+    end
+    table.sort(out, function(a, b)
+        return a:lower() < b:lower()
+    end)
+    return out
+end
+
+--- Filter roster display names for an "add character" autocomplete.
+--- Excludes names present in `occupiedNames` (lowercase set). Optional `opts.maxResults`.
+--- When `opts.rosterInfo` is a BuildRosterInfoMap result, also matches `note` text.
+function GTD.FilterRosterNamesForAdd(rosterNames, query, occupiedNames, opts)
+    opts = opts or {}
+    local q = GTD.NormalizeSearchQuery(query)
+    local occupied = occupiedNames or {}
+    local rosterInfo = opts.rosterInfo
+    local maxResults = opts.maxResults
+    local out = {}
+    for _, name in ipairs(rosterNames or {}) do
+        if type(name) == "string" and name ~= "" then
+            local key = GTD.NormalizeRosterName(name)
+            if key and not occupied[key] then
+                local matched = q == "" or name:lower():find(q, 1, true)
+                if not matched and rosterInfo then
+                    local info = rosterInfo[key]
+                    local note = info and info.note
+                    if type(note) == "string" and note ~= "" and note:lower():find(q, 1, true) then
+                        matched = true
+                    end
+                end
+                if matched then
+                    out[#out + 1] = name
+                end
+            end
+        end
+    end
+    table.sort(out, function(a, b)
+        return a:lower() < b:lower()
+    end)
+    if maxResults and #out > maxResults then
+        local trimmed = {}
+        for i = 1, maxResults do
+            trimmed[i] = out[i]
+        end
+        return trimmed
+    end
+    return out
+end
+
+--- Manual-only alt members of a group (excludes the main stub and addon/local members).
+function GTD.GetManualAlts(group)
+    local out = {}
+    if not group then return out end
+    local mainKey = GTD.NormalizeRosterName(group.main)
+    for _, m in ipairs(group.members or {}) do
+        if GTD.IsManualMember(m) then
+            local key = GTD.NormalizeRosterName(m.name)
+            if key and key ~= mainKey then
+                out[#out + 1] = m
+            end
+        end
+    end
+    return out
+end
+
+--- Members of a group that still have a local manual mapping disagreeing with addon data.
+--- `gmg` defaults to AltArmy.GuildManualGroups (injectable for tests).
+--- Returns `{ name, realm, manualMain, addonMain, origin }`.
+function GTD.FindManualAddonDisagreements(group, gmg)
+    local out = {}
+    gmg = gmg or AltArmy.GuildManualGroups
+    if not group or not gmg or not gmg.GetMapping then return out end
+    for _, m in ipairs(group.members or {}) do
+        if m and m.name and m.source and m.source ~= "manual" and m.source ~= "local" then
+            local mapping = gmg.GetMapping(m.name, m.realm)
+            if mapping and mapping.main and mapping.main ~= (m.main or m.name) then
+                out[#out + 1] = {
+                    name = m.name,
+                    realm = m.realm,
+                    manualMain = mapping.main,
+                    addonMain = m.main or m.name,
+                    origin = mapping.origin,
+                }
+            end
+        end
+    end
+    return out
+end
+
+--- User-facing explanation of a manual vs addon main conflict.
+function GTD.FormatManualDisagreementText(conflict)
+    if not conflict then return "" end
+    return string.format(
+        "You grouped %s under %s, but %s's addon reports %s as their main. Addon data is being used.",
+        conflict.name or "?",
+        conflict.manualMain or "?",
+        conflict.name or "?",
+        conflict.addonMain or "?")
+end
+
 --- True when this character is the player's explicitly marked main (not a deduced grouping main).
 function GTD.IsExplicitMain(member)
     return member ~= nil and member.isMain == true and member.mainDeclared == true
@@ -748,19 +905,24 @@ function GTD.FormatMainRowLabel(group, formatName, query)
     return GTD.FormatMainRowName(group, formatName, query) .. " " .. GTD.FormatMainRowCount(group)
 end
 
+--- Class-colored character name only (no level / manual mark). Optional `query` highlights
+--- matching substrings. Used when the list row places "M" and level as separate widgets.
+function GTD.FormatCharacterNamePart(entry, formatName, query)
+    local name = entry.name or "?"
+    if query and GTD.NormalizeSearchQuery(query) ~= "" then
+        return GTD.FormatTextWithSearchHighlight(name, entry.classFile, query, formatName)
+    end
+    if formatName then
+        return formatName(name, entry.classFile)
+    end
+    local CC = AltArmy.ClassColor
+    return (CC and CC.formatName and CC.formatName(name, entry.classFile)) or name
+end
+
 --- Character name column: class-colored name + gray "(level N)".
 --- Optional `query` highlights matching substrings in the character name.
 function GTD.FormatCharacterName(entry, formatName, query)
-    local name = entry.name or "?"
-    local namePart
-    if query and GTD.NormalizeSearchQuery(query) ~= "" then
-        namePart = GTD.FormatTextWithSearchHighlight(name, entry.classFile, query, formatName)
-    elseif formatName then
-        namePart = formatName(name, entry.classFile)
-    else
-        local CC = AltArmy.ClassColor
-        namePart = (CC and CC.formatName and CC.formatName(name, entry.classFile)) or name
-    end
+    local namePart = GTD.FormatCharacterNamePart(entry, formatName, query)
     local level = math.floor(tonumber(entry.level) or 0)
     return namePart .. " " .. GRAY .. "(level " .. level .. ")|r"
 end
@@ -1266,6 +1428,56 @@ function GTD.BuildGuildCharacterHoverTooltipLines(opts)
     return { line1, line2 }
 end
 
+--- Notes-wizard member title: class-colored name + gray "(level N)".
+function GTD.FormatNotesWizardMemberName(name, classFile, level, formatNameFn)
+    local colored
+    if formatNameFn then
+        colored = formatNameFn(name or "?", classFile) or (name or "?")
+    else
+        local CC = AltArmy.ClassColor
+        colored = (CC and CC.formatName and CC.formatName(name or "?", classFile)) or (name or "?")
+    end
+    local n = math.floor(tonumber(level) or 0)
+    return colored .. " " .. GRAY .. "(level " .. n .. ")|r"
+end
+
+--- Notes-wizard note line (white): the note wrapped in double quotes.
+--- Empty string when there is no note.
+function GTD.FormatNotesWizardMemberNote(note)
+    if type(note) ~= "string" then return "" end
+    note = note:match("^%s*(.-)%s*$") or note
+    if note == "" then return "" end
+    return WHITE .. '"' .. note .. '"|r'
+end
+
+--- Notes-wizard attribution line (gray), prefixed with "Reason: ".
+--- The reason body starts with a lowercase letter.
+--- `kind`: "note" | "manual" | "shared" | "referred" (or any other string used as custom reason).
+--- For "note", always returns "text match in guild note" (does not repeat the note text).
+--- For "manual", returns "added manually".
+--- Otherwise uses `reason` when provided (first character lowercased).
+function GTD.FormatNotesWizardMemberAttribution(kind, reason)
+    local text
+    if kind == "note" then
+        text = "text match in guild note"
+    elseif kind == "manual" then
+        text = "added manually"
+    else
+        text = (type(reason) == "string" and reason ~= "" and reason) or nil
+        if not text and kind == "shared" then
+            text = "from Alt Army shared data"
+        elseif not text and kind == "referred" then
+            text = "referred to by other notes"
+        end
+    end
+    if not text or text == "" then return "" end
+    text = text:gsub("^%s+", ""):gsub("%s+$", "")
+    if text ~= "" then
+        text = text:sub(1, 1):lower() .. text:sub(2)
+    end
+    return GRAY .. "Reason: " .. text .. "|r"
+end
+
 --- Gray level suffix for the guild character recipe title: "(level N)" or "(N)".
 function GTD.FormatCharacterLevelSuffix(level, mode, grayPrefix)
     local n = math.floor(tonumber(level) or 0)
@@ -1357,12 +1569,74 @@ function GTD.BuildRosterLastOnlineMap(api)
     return out
 end
 
+--- Build short-name -> { classFile, level, name, note } from guild roster APIs.
+--- Used to enrich manual grouping stubs at display time (nothing persisted).
+--- `note` is the trimmed public note, or officer note when public is empty.
+--- `api` may override: isInGuild, getNumGuildMembers, getGuildRosterInfo, normalizeName.
+function GTD.BuildRosterInfoMap(api)
+    api = api or {}
+    local isInGuild = api.isInGuild or IsInGuild
+    local getNum = api.getNumGuildMembers or GetNumGuildMembers
+    local getInfo = api.getGuildRosterInfo or GetGuildRosterInfo
+    local normalize = api.normalizeName or GTD.NormalizeRosterName
+
+    local out = {}
+    if not isInGuild or not isInGuild() then return out end
+    if not getNum or not getInfo then return out end
+    local n = getNum()
+    if type(n) ~= "number" or n < 1 then return out end
+    for i = 1, n do
+        -- name, rank, rankIndex, level, class, zone, note, officernote, online, status, classFileName
+        local name, _, _, level, _, _, publicNote, officerNote, _, _, classFile = getInfo(i)
+        local key = normalize(name)
+        if key and key ~= "" then
+            local short = type(name) == "string" and (name:match("^[^%-]+") or name) or name
+            local note = ""
+            if type(publicNote) == "string" then
+                note = publicNote:match("^%s*(.-)%s*$") or ""
+            end
+            if note == "" and type(officerNote) == "string" then
+                note = officerNote:match("^%s*(.-)%s*$") or ""
+            end
+            out[key] = {
+                classFile = classFile or "",
+                level = level or 0,
+                name = short,
+                note = note,
+            }
+        end
+    end
+    return out
+end
+
+--- Autocomplete label: class-colored name + white "(level)".
+--- `formatNameFn(name, classFile)` supplies the colored name (defaults to plain name).
+--- Optional `query` highlights matching name substrings in green.
+function GTD.FormatRosterSuggestName(info, formatNameFn, query)
+    local name = (info and info.name) or ""
+    local classFile = info and info.classFile or nil
+    local colored
+    local q = query and GTD.NormalizeSearchQuery(query) or ""
+    if q ~= "" then
+        colored = GTD.FormatTextWithSearchHighlight(name, classFile, q, formatNameFn)
+    elseif formatNameFn then
+        colored = formatNameFn(name, classFile) or name
+    else
+        colored = name
+    end
+    local level = math.floor(tonumber(info and info.level) or 0)
+    return colored .. " |cffffffff(" .. level .. ")|r"
+end
+
 --- Professions column: "Name — Spec (rank), ..." with the specialization (when present) after
 --- an em dash in the default (white) color and the gray skill level in parentheses.
 --- Gathering professions are listed after crafting. Optional `query` highlights matching
 --- substrings in profession names and specializations.
---- Empty string when the character has no displayable professions.
+--- Empty string when the character has no displayable professions (including manual members).
 function GTD.FormatProfessions(entry, query)
+    if GTD.IsManualMember(entry) then
+        return ""
+    end
     local activeQuery = query and GTD.NormalizeSearchQuery(query) or ""
     local parts = {}
     for _, prof in ipairs(GTD.GetPrimaryProfessions(entry)) do

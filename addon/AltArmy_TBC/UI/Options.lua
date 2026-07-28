@@ -304,12 +304,27 @@ do
 end
 
 -- ---------------------------------------------------------------------------
--- Debug tab
+-- Debug tab (scrollable — content exceeds the Interface Options canvas)
 -- ---------------------------------------------------------------------------
 
-local debugSearchRow = Theme.CreateLabeledCheckbox(tabDebug, {
+local DEBUG_SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
+local debugViewport = Theme.CreateVerticalScrollViewport({
+    name = "AltArmyTBC_DebugOptionsScroll",
+    parent = tabDebug,
+    gutterEdge = panel,
+    anchorTop = { "TOPLEFT", tabDebug, "TOPLEFT", 0, -4 },
+    anchorBottom = { "BOTTOMRIGHT", panel, "BOTTOMRIGHT", -DEBUG_SCROLL_GUTTER, 4 },
+    wheelStep = 40,
+    valueStep = 20,
+    enableMouseWheel = true,
+    wheelOnChild = false,
+    wheelSource = "slider",
+    minScrollToShow = 1,
+})
+local debugScrollChild = debugViewport.child
+local debugSearchRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
     point = "TOPLEFT",
-    relativeTo = tabDebug,
+    relativeTo = debugScrollChild,
     relativePoint = "TOPLEFT",
     x = 0,
     y = 0,
@@ -323,7 +338,7 @@ local debugSearchRow = Theme.CreateLabeledCheckbox(tabDebug, {
 })
 panel.debugSearchCheckbox = debugSearchRow.check
 
-local debugSearchHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugSearchHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 debugSearchHint:SetPoint("TOPLEFT", debugSearchRow, "BOTTOMLEFT", 0, -8)
 debugSearchHint:SetWidth(520)
 debugSearchHint:SetJustifyH("LEFT")
@@ -331,7 +346,7 @@ debugSearchHint:SetText(
     "Logs search phase timings (lookup/expand/sort/enrich/filter), recipe UI (sort/collapse), "
         .. "scroll paint, and index-build timing in chat.")
 
-local debugCooldownsRow = Theme.CreateLabeledCheckbox(tabDebug, {
+local debugCooldownsRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
     point = "TOPLEFT",
     relativeTo = debugSearchHint,
     relativePoint = "BOTTOMLEFT",
@@ -347,13 +362,13 @@ local debugCooldownsRow = Theme.CreateLabeledCheckbox(tabDebug, {
 })
 panel.debugCooldownsCheckbox = debugCooldownsRow.check
 
-local debugCooldownsHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugCooldownsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 debugCooldownsHint:SetPoint("TOPLEFT", debugCooldownsRow, "BOTTOMLEFT", 0, -8)
 debugCooldownsHint:SetWidth(520)
 debugCooldownsHint:SetJustifyH("LEFT")
 debugCooldownsHint:SetText("Logs cooldown persistence when opening profession windows (e.g. Tailoring).")
 
-local debugLevelHistoryRow = Theme.CreateLabeledCheckbox(tabDebug, {
+local debugLevelHistoryRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
     point = "TOPLEFT",
     relativeTo = debugCooldownsHint,
     relativePoint = "BOTTOMLEFT",
@@ -371,7 +386,7 @@ panel.debugLevelHistoryCheckbox = debugLevelHistoryRow.check
 
 local deleteAllHistoryConfirmPending = false
 
-local debugDeleteAllHistoryBtn = CreateFrame("Button", nil, tabDebug, "UIPanelButtonTemplate")
+local debugDeleteAllHistoryBtn = CreateFrame("Button", nil, debugScrollChild, "UIPanelButtonTemplate")
 debugDeleteAllHistoryBtn:SetSize(160, 22)
 debugDeleteAllHistoryBtn:SetPoint("TOPLEFT", debugLevelHistoryRow, "BOTTOMLEFT", 0, -12)
 debugDeleteAllHistoryBtn:SetText("Delete all history")
@@ -400,13 +415,13 @@ debugDeleteAllHistoryBtn:SetScript("OnClick", function(self)
     end
 end)
 
-local debugLevelHistoryHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugLevelHistoryHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 debugLevelHistoryHint:SetPoint("TOPLEFT", debugDeleteAllHistoryBtn, "BOTTOMLEFT", 0, -12)
 debugLevelHistoryHint:SetWidth(520)
 debugLevelHistoryHint:SetJustifyH("LEFT")
 debugLevelHistoryHint:SetText("Logs level history import checks, decisions, and stored milestone summaries.")
 
-local debugItemComparisonRow = Theme.CreateLabeledCheckbox(tabDebug, {
+local debugItemComparisonRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
     point = "TOPLEFT",
     relativeTo = debugLevelHistoryHint,
     relativePoint = "BOTTOMLEFT",
@@ -422,14 +437,14 @@ local debugItemComparisonRow = Theme.CreateLabeledCheckbox(tabDebug, {
 })
 panel.debugItemComparisonCheckbox = debugItemComparisonRow.check
 
-local debugItemComparisonHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugItemComparisonHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 debugItemComparisonHint:SetPoint("TOPLEFT", debugItemComparisonRow, "BOTTOMLEFT", 0, -8)
 debugItemComparisonHint:SetWidth(520)
 debugItemComparisonHint:SetJustifyH("LEFT")
 debugItemComparisonHint:SetText(
     "Logs every comparison algorithm for each equippable alt when you loot an item or run /altarmy debug item.")
 
-local debugItemStatsRow = Theme.CreateLabeledCheckbox(tabDebug, {
+local debugItemStatsRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
     point = "TOPLEFT",
     relativeTo = debugItemComparisonHint,
     relativePoint = "BOTTOMLEFT",
@@ -445,14 +460,14 @@ local debugItemStatsRow = Theme.CreateLabeledCheckbox(tabDebug, {
 })
 panel.debugItemStatsCheckbox = debugItemStatsRow.check
 
-local debugItemStatsHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugItemStatsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 debugItemStatsHint:SetPoint("TOPLEFT", debugItemStatsRow, "BOTTOMLEFT", 0, -8)
 debugItemStatsHint:SetWidth(520)
 debugItemStatsHint:SetJustifyH("LEFT")
 debugItemStatsHint:SetText(
     "Logs API vs tooltip stat parsing when comparing items. Use /altarmy debug stats with an item on the cursor.")
 
-local debugGuildShareVerboseRow = Theme.CreateLabeledCheckbox(tabDebug, {
+local debugGuildShareVerboseRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
     point = "TOPLEFT",
     relativeTo = debugItemStatsHint,
     relativePoint = "BOTTOMLEFT",
@@ -468,16 +483,57 @@ local debugGuildShareVerboseRow = Theme.CreateLabeledCheckbox(tabDebug, {
 })
 panel.debugGuildShareVerboseCheckbox = debugGuildShareVerboseRow.check
 
-local debugGuildShareVerboseHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugGuildShareVerboseHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 debugGuildShareVerboseHint:SetPoint("TOPLEFT", debugGuildShareVerboseRow, "BOTTOMLEFT", 0, -8)
 debugGuildShareVerboseHint:SetWidth(520)
 debugGuildShareVerboseHint:SetJustifyH("LEFT")
 debugGuildShareVerboseHint:SetText(
     "Prints every guild-share message sent/received to chat.")
 
-local debugPretendCraftLibRow = Theme.CreateLabeledCheckbox(tabDebug, {
+local clearManualGroupsConfirmPending = false
+
+local debugClearManualGroupsBtn = CreateFrame("Button", nil, debugScrollChild, "UIPanelButtonTemplate")
+debugClearManualGroupsBtn:SetSize(200, 22)
+debugClearManualGroupsBtn:SetPoint("TOPLEFT", debugGuildShareVerboseHint, "BOTTOMLEFT", 0, -12)
+debugClearManualGroupsBtn:SetText("Clear manual groups")
+Theme.SkinDangerButton(debugClearManualGroupsBtn)
+panel.debugClearManualGroupsBtn = debugClearManualGroupsBtn
+
+local function ResetClearManualGroupsButton()
+    clearManualGroupsConfirmPending = false
+    if panel.debugClearManualGroupsBtn then
+        panel.debugClearManualGroupsBtn:SetText("Clear manual groups")
+        panel.debugClearManualGroupsBtn:Enable()
+    end
+end
+
+debugClearManualGroupsBtn:SetScript("OnClick", function(self)
+    if clearManualGroupsConfirmPending then
+        clearManualGroupsConfirmPending = false
+        local GMG = AltArmy and AltArmy.GuildManualGroups
+        if GMG and GMG.ClearAll then
+            GMG.ClearAll()
+        end
+        if AltArmy.RefreshGuildTab then
+            AltArmy.RefreshGuildTab()
+        end
+        self:SetText("Clear manual groups")
+    else
+        clearManualGroupsConfirmPending = true
+        self:SetText("Really clear?")
+    end
+end)
+
+local debugClearManualGroupsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+debugClearManualGroupsHint:SetPoint("TOPLEFT", debugClearManualGroupsBtn, "BOTTOMLEFT", 0, -12)
+debugClearManualGroupsHint:SetWidth(520)
+debugClearManualGroupsHint:SetJustifyH("LEFT")
+debugClearManualGroupsHint:SetText(
+    "Deletes every local manual main/alt grouping (user and note-accepted). Does not affect shared Alt Army data.")
+
+local debugPretendCraftLibRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
     point = "TOPLEFT",
-    relativeTo = debugGuildShareVerboseHint,
+    relativeTo = debugClearManualGroupsHint,
     relativePoint = "BOTTOMLEFT",
     x = 0,
     y = -16,
@@ -494,7 +550,7 @@ local debugPretendCraftLibRow = Theme.CreateLabeledCheckbox(tabDebug, {
 })
 panel.debugPretendCraftLibCheckbox = debugPretendCraftLibRow.check
 
-local debugPretendCraftLibHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugPretendCraftLibHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 debugPretendCraftLibHint:SetPoint("TOPLEFT", debugPretendCraftLibRow, "BOTTOMLEFT", 0, -8)
 debugPretendCraftLibHint:SetWidth(520)
 debugPretendCraftLibHint:SetJustifyH("LEFT")
@@ -502,7 +558,7 @@ debugPretendCraftLibHint:SetText(
     "Hides CraftLib-only search filters and guild recipe skill columns even when CraftLib is loaded."
     .. " Toggle with /altarmy craftlib toggle.")
 
-local debugShowZygorMissingRow = Theme.CreateLabeledCheckbox(tabDebug, {
+local debugShowZygorMissingRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
     point = "TOPLEFT",
     relativeTo = debugPretendCraftLibHint,
     relativePoint = "BOTTOMLEFT",
@@ -521,13 +577,31 @@ local debugShowZygorMissingRow = Theme.CreateLabeledCheckbox(tabDebug, {
 })
 panel.debugShowZygorMissingCheckbox = debugShowZygorMissingRow.check
 
-local debugShowZygorMissingHint = tabDebug:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugShowZygorMissingHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 debugShowZygorMissingHint:SetPoint("TOPLEFT", debugShowZygorMissingRow, "BOTTOMLEFT", 0, -8)
 debugShowZygorMissingHint:SetWidth(520)
 debugShowZygorMissingHint:SetJustifyH("LEFT")
 debugShowZygorMissingHint:SetText(
     "On the Reputation tab, show Zygor guide icons even when Zygor only has trial placeholder "
         .. "guides (they cannot be opened). Paid Zygor installs show icons without this.")
+
+local function UpdateDebugScrollRange()
+    local top = debugScrollChild:GetTop()
+    local bottom = debugShowZygorMissingHint:GetBottom()
+    if top and bottom then
+        debugScrollChild:SetHeight(math.max(1, top - bottom + 16))
+    else
+        debugScrollChild:SetHeight(900)
+    end
+    if debugViewport and debugViewport.UpdateRange then
+        debugViewport.UpdateRange()
+    end
+end
+panel.UpdateDebugScrollRange = UpdateDebugScrollRange
+
+tabDebug:HookScript("OnShow", function()
+    UpdateDebugScrollRange()
+end)
 
 function RefreshDebugCheckboxes()
     local D = AltArmy and AltArmy.Debug
@@ -559,6 +633,8 @@ function RefreshDebugCheckboxes()
         panel.debugShowZygorMissingCheckbox:SetChecked(d.showZygorMissingGuides == true)
     end
     ResetDeleteAllHistoryButton()
+    ResetClearManualGroupsButton()
+    UpdateDebugScrollRange()
 end
 panel.RefreshDebugCheckboxes = RefreshDebugCheckboxes
 

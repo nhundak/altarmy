@@ -1170,7 +1170,11 @@ function Theme.CreateVerticalScrollViewport(opts)
     scrollBar:SetValueStep(valueStep)
     scrollBar:SetValue(0)
     scrollBar:EnableMouse(true)
-    Theme.AnchorVerticalScrollBar(scrollBar, gutterEdge, scroll)
+    Theme.AnchorVerticalScrollBar(scrollBar, gutterEdge, scroll, {
+        width = opts.scrollBarWidth,
+        gap = opts.scrollBarGap,
+        thumbLength = opts.scrollBarThumbLength,
+    })
 
     local child = CreateFrame("Frame", nil, scroll)
     child:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, 0)

@@ -11,3 +11,5 @@ When running unit tests or luacheck:
 - Do **not** search for system Lua, invent `LUA_51_PATH`, shim `luajit` as `lua.exe`, or poke Homebrew/LuaRocks unless `npm` scripts fail with a clear missing-tool message.
 - If Lua 5.1 / busted / luacheck are missing, run `npm run setup:dev` once, then retry.
 - Runners auto-resolve `<repo>/.lua51/bin` (and Windows Lua for Windows defaults). No per-session env exports are required when that tree exists.
+
+`npm run check` runs luacheck **and** a Lua 5.1 compile pass (`check-lua51-compile.js`) that catches `main function has more than 200 local variables`. After editing large `Tabs/Tab*.lua` files, always run `npm run check` before considering the work done.

@@ -18,10 +18,13 @@ npm run check
 npm run lint
 ```
 
-Or:
+`npm run check` runs **luacheck** and a **Lua 5.1 compile pass** (`npm run check:compile`). The compile pass catches bytecode limits luacheck cannot see — especially `main function has more than 200 local variables` in large tab files.
+
+Or run pieces separately:
 
 ```bash
 node scripts/run-luacheck.js AltArmy_TBC
+node scripts/check-lua51-compile.js AltArmy_TBC
 ```
 
 Luacheck reports undefined globals, unused variables, line length, etc. Add any new WoW API or addon globals to `.luacheckrc` under `read_globals` or `globals` as needed.

@@ -285,6 +285,13 @@ function GSD.SaveReceived(sender, presence, guild, realm)
             end
         end
     end
+    -- Retire manual mappings that the addon presence confirms.
+    local GMG = AltArmy.GuildManualGroups
+    if GMG and GMG.RetireIfAgrees and effectiveMain then
+        for name in pairs(keep) do
+            GMG.RetireIfAgrees(name, realm, effectiveMain)
+        end
+    end
 end
 
 --- Characters from a (parsed) presence that still need a whispered profession card.
@@ -462,7 +469,10 @@ end
 
 --- Received guildmates plus local account characters (local wins on name+realm conflict).
 --- When `allLocalRealms` is true, merges local account characters from every realm.
-function GSD.GetGuildMembersForDisplay(guild, realm, allLocalRealms)
+--- Unshadowed manual mappings (GuildManualGroups) are appended with source = "manual".
+--- Optional `rosterInfoMap` (from GTD.BuildRosterInfoMap) enriches classFile/level on
+--- manual stubs; keys are normalized lowercase short names.
+function GSD.GetGuildMembersForDisplay(guild, realm, allLocalRealms, rosterInfoMap)
     local byKey = {}
     for _, entry in ipairs(GSD.GetGuildMembers(guild)) do
         byKey[memberKey(entry)] = entry
@@ -476,6 +486,54 @@ function GSD.GetGuildMembersForDisplay(guild, realm, allLocalRealms)
             byKey[memberKey(entry)] = entry
         end
     end
+
+    local GMG = AltArmy.GuildManualGroups
+    if GMG and GMG.GetMappingsForGuild and guild then
+        local GTD = AltArmy.GuildTabData
+        local normalize = GTD and GTD.NormalizeRosterName
+        local function rosterInfoFor(name)
+            if not rosterInfoMap or not name then return nil end
+            local key = normalize and normalize(name) or (name and name:lower())
+            return key and rosterInfoMap[key] or nil
+        end
+        local function makeManualEntry(name, entryRealm, main, mapping, isMain)
+            local info = rosterInfoFor(name)
+            return {
+                name = name,
+                realm = entryRealm,
+                classFile = (info and info.classFile) or "",
+                level = (info and info.level) or 0,
+                guildName = guild,
+                main = main,
+                isMain = isMain and true or false,
+                mainDeclared = false,
+                source = "manual",
+                origin = mapping and mapping.origin or "user",
+                noteText = mapping and mapping.noteText or nil,
+                Professions = {},
+            }
+        end
+        local mainsNeeded = {}
+        for _, mapping in ipairs(GMG.GetMappingsForGuild(guild)) do
+            local key = memberKey({ realm = mapping.realm, name = mapping.name })
+            if not byKey[key] then
+                byKey[key] = makeManualEntry(
+                    mapping.name, mapping.realm, mapping.main, mapping, mapping.name == mapping.main)
+                if mapping.main and mapping.main ~= "" then
+                    mainsNeeded[memberKey({ realm = mapping.realm, name = mapping.main })] = {
+                        name = mapping.main,
+                        realm = mapping.realm,
+                    }
+                end
+            end
+        end
+        for key, mainInfo in pairs(mainsNeeded) do
+            if not byKey[key] then
+                byKey[key] = makeManualEntry(mainInfo.name, mainInfo.realm, mainInfo.name, nil, true)
+            end
+        end
+    end
+
     local out = {}
     for _, entry in pairs(byKey) do
         out[#out + 1] = entry
@@ -484,6 +542,7 @@ function GSD.GetGuildMembersForDisplay(guild, realm, allLocalRealms)
 end
 
 --- Resolve an alt to its main. A main resolves to itself. Unknown characters return nil.
+--- Falls through to GuildManualGroups when no received/local stored character matches.
 function GSD.GetMainOf(name, realm)
     -- If a realm is supplied, use it; otherwise search all realms.
     local function fromEntry(entry)
@@ -491,12 +550,18 @@ function GSD.GetMainOf(name, realm)
         return entry.main or entry.name
     end
     if realm then
-        return fromEntry(GSD.GetCharacter(name, realm))
-    end
-    local d = ensure()
-    for _, rt in pairs(d.chars) do
-        local hit = fromEntry(rt[name])
+        local hit = fromEntry(GSD.GetCharacter(name, realm))
         if hit then return hit end
+    else
+        local d = ensure()
+        for _, rt in pairs(d.chars) do
+            local hit = fromEntry(rt[name])
+            if hit then return hit end
+        end
+    end
+    local GMG = AltArmy.GuildManualGroups
+    if GMG and GMG.GetMainOf then
+        return GMG.GetMainOf(name, realm)
     end
     return nil
 end
@@ -552,9 +617,14 @@ function GSD.PurgeGuild(guild)
             end
         end
     end
+    local GMG = AltArmy.GuildManualGroups
+    if GMG and GMG.ClearGuild then
+        GMG.ClearGuild(guild)
+    end
 end
 
 --- Remove entries older than maxAgeSeconds. Returns the number removed.
+--- Does not touch AltArmyTBC_GuildData.manual.
 function GSD.PurgeStale(maxAgeSeconds, nowTs)
     nowTs = nowTs or now()
     local removed = 0
@@ -574,6 +644,10 @@ end
 function GSD.PurgeAll()
     local d = ensure()
     d.chars = {}
+    local GMG = AltArmy.GuildManualGroups
+    if GMG and GMG.ClearAll then
+        GMG.ClearAll()
+    end
 end
 
 --- Remove every stored character whose effective main equals `main`.

@@ -36,6 +36,7 @@ local UI = {
     GROUP_GAP = 0,
     CHAR_INDENT = 12,
     LIST_COL_HEADER_HEIGHT = 18,
+    LIST_FOOTER_HEIGHT = 28,
     GRAY = "|cff808080",
     -- Second column (group character count, character professions) shares one left edge.
     SECOND_COLUMN = 180,
@@ -43,6 +44,7 @@ local UI = {
     -- Third column on main rows: most recent last-online across the group's characters.
     LAST_ONLINE_COLUMN_WIDTH = 72,
     OLD_DATA_ICON_WIDTH = 14,
+    MANUAL_DATA_ICON_WIDTH = 14,
     SETTINGS_ICON_WIDTH = 18,
     PIN_ICON_SIZE = 14,
     PIN_ICON_GAP = 2,
@@ -122,6 +124,16 @@ local isGroupSettingsShown
 local updateGuildHeaderForListMode
 local applyListColumnLayout
 local syncMainRowSettingsIcons
+local applyMainPanelLayout
+-- Manual grouping edit UI + session state (packed to limit locals).
+local ME = {
+    createMode = false,
+    suggestMax = 40,
+    -- Visible dropdown height before scrolling (~8 name-only rows + padding).
+    suggestMaxHeight = 160,
+    altRowPool = {},
+    suggestPool = {},
+}
 
 local function activeGuild()
     local g = currentGuild()
@@ -392,6 +404,526 @@ overrideResetBtn:SetScript("OnClick", function()
     applyOverrideFromEdit(overrideEdit)
 end)
 
+-- Manual alts section (edit existing group or create a new one).
+ME.altsLabel = Theme.CreateOptionsSectionLabel(groupSettingsBody, {
+    point = "TOPLEFT",
+    relativeTo = overrideEdit,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -14,
+    text = "Manually-added alts",
+})
+
+ME.altsList = CreateFrame("Frame", nil, groupSettingsBody)
+ME.altsList:SetPoint("TOPLEFT", ME.altsLabel, "BOTTOMLEFT", 0, -4)
+ME.altsList:SetPoint("RIGHT", groupSettingsBody, "RIGHT", 0, 0)
+ME.altsList:SetHeight(80)
+
+ME.addCharLabel = Theme.CreateOptionsSectionLabel(groupSettingsBody, {
+    point = "TOPLEFT",
+    relativeTo = ME.altsList,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -10,
+    text = "Add character",
+})
+
+ME.addCharEdit = CreateFrame("EditBox", nil, groupSettingsBody)
+ME.addCharEdit:SetPoint("TOPLEFT", ME.addCharLabel, "BOTTOMLEFT", 0, -4)
+ME.addCharEdit:SetPoint("RIGHT", groupSettingsBody, "RIGHT", 0, 0)
+ME.addCharEdit:SetHeight(22)
+ME.addCharEdit:SetFontObject("GameFontHighlight")
+ME.addCharEdit:SetAutoFocus(false)
+ME.addCharEdit:SetTextInsets(6, 6, 0, 0)
+Theme.ApplyInputTextures(ME.addCharEdit)
+if Theme.SetupEditBoxPlaceholder then
+    Theme.SetupEditBoxPlaceholder(ME.addCharEdit, "Type a guild member name")
+end
+
+ME.mainLabel = Theme.CreateOptionsSectionLabel(groupSettingsBody, {
+    point = "TOPLEFT",
+    relativeTo = groupPinRow,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -14,
+    text = "Main character",
+})
+ME.mainLabel:Hide()
+
+ME.mainEdit = CreateFrame("EditBox", nil, groupSettingsBody)
+ME.mainEdit:SetPoint("TOPLEFT", ME.mainLabel, "BOTTOMLEFT", 0, -4)
+ME.mainEdit:SetPoint("RIGHT", groupSettingsBody, "RIGHT", 0, 0)
+ME.mainEdit:SetHeight(22)
+ME.mainEdit:SetFontObject("GameFontHighlight")
+ME.mainEdit:SetAutoFocus(false)
+ME.mainEdit:SetTextInsets(6, 6, 0, 0)
+Theme.ApplyInputTextures(ME.mainEdit)
+ME.mainEdit:Hide()
+if Theme.SetupEditBoxPlaceholder then
+    Theme.SetupEditBoxPlaceholder(ME.mainEdit, "Type the main character name")
+end
+
+ME.suggestFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+Theme.ApplyBackdrop(ME.suggestFrame, "section")
+-- Above Accept/Skip and other tab chrome while the notes wizard is open.
+ME.suggestFrame:SetFrameStrata("TOOLTIP")
+ME.suggestFrame:SetToplevel(true)
+ME.suggestFrame:Hide()
+ME.suggestFrame:SetHeight(1)
+
+ME.suggestScrollBarOpts = { width = 6, gap = 2, rightInset = 2 }
+ME.suggestGutter = Theme.VerticalScrollBarGutter(ME.suggestScrollBarOpts)
+ME.suggestViewport = Theme.CreateVerticalScrollViewport({
+    parent = ME.suggestFrame,
+    gutterEdge = ME.suggestFrame,
+    anchorTop = { "TOPLEFT", ME.suggestFrame, "TOPLEFT", 2, -2 },
+    anchorBottom = { "BOTTOMRIGHT", ME.suggestFrame, "BOTTOMRIGHT", -(2 + ME.suggestGutter), 2 },
+    enableMouseWheel = true,
+    valueStep = 18,
+    scrollBarWidth = ME.suggestScrollBarOpts.width,
+    scrollBarGap = ME.suggestScrollBarOpts.gap,
+})
+ME.suggestList = ME.suggestViewport.child
+-- Keep the track/thumb from overlapping the dropdown's top border.
+do
+    local sb = ME.suggestViewport.scrollBar
+    local scroll = ME.suggestViewport.scroll
+    local gap = ME.suggestScrollBarOpts.gap or 2
+    if sb and scroll then
+        sb:ClearAllPoints()
+        sb:SetPoint("TOPLEFT", scroll, "TOPRIGHT", gap, -2)
+        sb:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", gap, 0)
+    end
+end
+
+ME.hideManualSuggest = function()
+    ME.suggestFrame:Hide()
+    for _, btn in ipairs(ME.suggestPool) do
+        btn:Hide()
+    end
+end
+
+ME.currentRosterDisplayNames = function()
+    local map = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
+    return (GTD.RosterDisplayNames and GTD.RosterDisplayNames(map)) or {}
+end
+
+ME.currentDisplayMembers = function()
+    local GSD = AltArmy.GuildShareData
+    local guild = activeGuild()
+    if not guild or not GSD or not GSD.GetGuildMembersForDisplay then
+        return {}
+    end
+    local map = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or nil
+    return GSD.GetGuildMembersForDisplay(guild, currentRealm(), isBrowsingWithoutGuild(), map) or {}
+end
+
+ME.showManualSuggest = function(anchorEdit, names, onPick)
+    ME.hideManualSuggest()
+    if not names or #names == 0 then return end
+    local count = math.min(#names, ME.suggestMax)
+    local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
+    local query = GTD.NormalizeSearchQuery and GTD.NormalizeSearchQuery(anchorEdit:GetText() or "") or ""
+    local topPad = 2
+    local nameLineH = 14
+    local noteTopPad = 2
+    local noteLineH = 12
+    local bottomPad = 2
+    local charGap = 0
+    local y = 2
+    local listParent = ME.suggestList or ME.suggestFrame
+    ME.suggestFrame:ClearAllPoints()
+    ME.suggestFrame:SetPoint("TOPLEFT", anchorEdit, "BOTTOMLEFT", 0, -2)
+    ME.suggestFrame:SetPoint("TOPRIGHT", anchorEdit, "BOTTOMRIGHT", 0, -2)
+    ME.suggestFrame:SetFrameLevel(math.max((frame:GetFrameLevel() or 0) + 50, 200))
+    for i = 1, count do
+        local charName = names[i]
+        local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(charName)
+        local info = (key and rosterInfo[key]) or nil
+        local noteText = info and info.note or ""
+        local hasNote = type(noteText) == "string" and noteText ~= ""
+        local rowH = topPad + nameLineH + (hasNote and (noteTopPad + noteLineH) or 0) + bottomPad
+        local btn = ME.suggestPool[i]
+        if not btn then
+            btn = CreateFrame("Button", nil, listParent)
+            local nameFS = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            nameFS:SetJustifyH("LEFT")
+            nameFS:SetWordWrap(false)
+            btn.nameFS = nameFS
+            local noteFS = btn:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            noteFS:SetJustifyH("LEFT")
+            noteFS:SetWordWrap(false)
+            btn.noteFS = noteFS
+            if Theme.BindInteractableHover then
+                Theme.BindInteractableHover(btn)
+            else
+                Theme.InstallHoverTint(btn)
+            end
+            ME.suggestPool[i] = btn
+        elseif Theme.BindInteractableHover and not btn:GetScript("OnEnter") then
+            Theme.BindInteractableHover(btn)
+        end
+        -- Migrate older single-label pool buttons if present.
+        if not btn.nameFS and btn.label then
+            btn.nameFS = btn.label
+        end
+        if btn.SetParent then
+            btn:SetParent(listParent)
+        end
+        if btn.nameFS then
+            btn.nameFS:ClearAllPoints()
+            btn.nameFS:SetPoint("TOPLEFT", btn, "TOPLEFT", 6, -topPad)
+            btn.nameFS:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -6, -topPad)
+            btn.nameFS:SetHeight(nameLineH)
+        end
+        if btn.noteFS then
+            btn.noteFS:ClearAllPoints()
+            btn.noteFS:SetPoint("TOPLEFT", btn.nameFS, "BOTTOMLEFT", 8, -noteTopPad)
+            btn.noteFS:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -6, 0)
+            btn.noteFS:SetHeight(noteLineH)
+        end
+        btn:SetHeight(rowH)
+        btn:ClearAllPoints()
+        btn:SetPoint("TOPLEFT", listParent, "TOPLEFT", 0, -y)
+        btn:SetPoint("TOPRIGHT", listParent, "TOPRIGHT", 0, -y)
+        if btn.nameFS then
+            if GTD.FormatRosterSuggestName then
+                btn.nameFS:SetText(GTD.FormatRosterSuggestName(
+                    info or { name = charName }, formatName, query ~= "" and query or nil))
+            else
+                btn.nameFS:SetText(charName)
+            end
+        end
+        if btn.noteFS then
+            if hasNote then
+                if query ~= "" and GTD.FormatTextWithSearchHighlight then
+                    btn.noteFS:SetText(GTD.FormatTextWithSearchHighlight(noteText, nil, query))
+                else
+                    btn.noteFS:SetText(noteText)
+                end
+                btn.noteFS:Show()
+            else
+                btn.noteFS:SetText("")
+                btn.noteFS:Hide()
+            end
+        end
+        do
+            local picked = charName
+            btn:SetScript("OnClick", function()
+                ME.hideManualSuggest()
+                if onPick then onPick(picked) end
+            end)
+            btn:EnableMouseWheel(true)
+            btn:SetScript("OnMouseWheel", function(_, delta)
+                if not ME.suggestViewport or not ME.suggestViewport.SetOffset then return end
+                local scroll = ME.suggestViewport.scroll
+                local cur = (scroll and scroll.GetVerticalScroll and scroll:GetVerticalScroll()) or 0
+                ME.suggestViewport.SetOffset(cur - delta * 18)
+            end)
+        end
+        btn:Show()
+        y = y + rowH
+        if i < count then
+            y = y + charGap
+        end
+    end
+    for i = count + 1, #ME.suggestPool do
+        if ME.suggestPool[i] then ME.suggestPool[i]:Hide() end
+    end
+    local contentH = math.max(1, y + 2)
+    local maxH = ME.suggestMaxHeight or 160
+    local viewH = math.min(contentH, maxH)
+    -- Outer frame: content/view height plus top/bottom padding around the viewport.
+    ME.suggestFrame:SetHeight(viewH + 4)
+    if ME.suggestViewport then
+        local frameW = ME.suggestFrame:GetWidth() or 0
+        if frameW < 1 then
+            frameW = anchorEdit:GetWidth() or 200
+        end
+        local scrollW = math.max(1, frameW - 4 - (ME.suggestGutter or 0))
+        listParent:SetWidth(scrollW)
+        listParent:SetHeight(contentH)
+        if ME.suggestViewport.SetOffset then
+            ME.suggestViewport.SetOffset(0)
+        end
+        if ME.suggestViewport.UpdateRange then
+            ME.suggestViewport.UpdateRange()
+        end
+    end
+    ME.suggestFrame:Show()
+    if ME.suggestViewport and ME.suggestViewport.UpdateRange then
+        ME.suggestViewport.UpdateRange()
+    end
+end
+
+ME.refreshManualSuggest = function(anchorEdit, forMain)
+    local occupied = GTD.CollectOccupiedNames and GTD.CollectOccupiedNames(ME.currentDisplayMembers()) or {}
+    local query = anchorEdit:GetText() or ""
+    local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
+    local matches = GTD.FilterRosterNamesForAdd
+        and GTD.FilterRosterNamesForAdd(ME.currentRosterDisplayNames(), query, occupied, {
+            maxResults = ME.suggestMax,
+            rosterInfo = rosterInfo,
+        }) or {}
+    ME.showManualSuggest(anchorEdit, matches, function(name)
+        if Theme.SetEditBoxText then
+            Theme.SetEditBoxText(anchorEdit, name)
+        else
+            anchorEdit:SetText(name)
+        end
+        anchorEdit:ClearFocus()
+        if forMain then
+            ME.commitMain(name)
+        else
+            ME.commitAlt(name)
+        end
+    end)
+end
+
+ME.commitMain = function(name)
+    if type(name) ~= "string" or name == "" then return end
+    local GMG = AltArmy.GuildManualGroups
+    local guild = activeGuild()
+    local realm = currentRealm()
+    if not GMG or not guild then return end
+    GMG.SetMapping(name, realm, name, { guild = guild, origin = "user" })
+    ME.createMode = false
+    ME.mainEdit:Hide()
+    ME.mainLabel:Hide()
+    overrideLabel:Show()
+    overrideEdit:Show()
+    overrideResetBtn:Show()
+    groupPinRow:Show()
+    local group = {
+        main = name,
+        preferredName = name,
+        members = { { name = name, main = name, isMain = true, source = "manual", realm = realm } },
+        characterCount = 1,
+        prefsRealm = realm,
+    }
+    selectedSettingsGroup = group
+    if refresh then refresh() end
+    -- Re-resolve from refreshed list so settings stay in sync with display.
+    if updateGroupSettingsPanel then updateGroupSettingsPanel() end
+end
+
+ME.commitAlt = function(name)
+    if type(name) ~= "string" or name == "" then return end
+    if not selectedSettingsGroup or not selectedSettingsGroup.main then return end
+    local GMG = AltArmy.GuildManualGroups
+    local guild = activeGuild()
+    local realm = groupPrefsRealm(selectedSettingsGroup)
+    if not GMG or not guild then return end
+    GMG.SetMapping(name, realm, selectedSettingsGroup.main, {
+        guild = guild, origin = "user",
+    })
+    if Theme.ClearEditBoxText then
+        Theme.ClearEditBoxText(ME.addCharEdit)
+    else
+        ME.addCharEdit:SetText("")
+    end
+    ME.hideManualSuggest()
+    if refresh then refresh() end
+end
+
+ME.hideManualAltRowsFrom = function(index)
+    for i = index, #ME.altRowPool do
+        if ME.altRowPool[i] then ME.altRowPool[i]:Hide() end
+    end
+end
+
+ME.layoutManualAltRows = function()
+    local alts = (GTD.GetManualAlts and GTD.GetManualAlts(selectedSettingsGroup)) or {}
+    local y = 0
+    local rowH = 22
+    local removeW = 72
+    for i, alt in ipairs(alts) do
+        local row = ME.altRowPool[i]
+        if not row then
+            row = CreateFrame("Frame", nil, ME.altsList)
+            row:SetHeight(rowH)
+            local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            nameFS:SetPoint("LEFT", row, "LEFT", 0, 0)
+            nameFS:SetPoint("RIGHT", row, "RIGHT", -(removeW + 6), 0)
+            nameFS:SetJustifyH("LEFT")
+            row.nameFS = nameFS
+            local removeBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+            removeBtn:SetSize(removeW, 22)
+            removeBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+            removeBtn:SetText("Remove")
+            Theme.SkinButton(removeBtn)
+            row.removeBtn = removeBtn
+            ME.altRowPool[i] = row
+        end
+        row:SetHeight(rowH)
+        row.removeBtn:SetSize(removeW, 22)
+        row.nameFS:ClearAllPoints()
+        row.nameFS:SetPoint("LEFT", row, "LEFT", 0, 0)
+        row.nameFS:SetPoint("RIGHT", row, "RIGHT", -(removeW + 6), 0)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", ME.altsList, "TOPLEFT", 0, -y)
+        row:SetPoint("TOPRIGHT", ME.altsList, "TOPRIGHT", 0, -y)
+        row.nameFS:SetText(formatName(alt.name, alt.classFile))
+        row.removeBtn:SetScript("OnClick", function()
+            local GMG = AltArmy.GuildManualGroups
+            local realm = groupPrefsRealm(selectedSettingsGroup)
+            if GMG and GMG.RemoveMapping then
+                GMG.RemoveMapping(alt.name, realm)
+            end
+            if refresh then refresh() end
+        end)
+        row:Show()
+        y = y + rowH
+    end
+    ME.hideManualAltRowsFrom(#alts + 1)
+    ME.altsList:SetHeight(math.max(22, y))
+end
+
+ME.addCharEdit:SetScript("OnTextChanged", function(box)
+    if Theme.UpdateEditBoxPlaceholderVisibility then
+        Theme.UpdateEditBoxPlaceholderVisibility(box)
+    end
+    if box:HasFocus() then
+        ME.refreshManualSuggest(box, false)
+    end
+end)
+ME.addCharEdit:SetScript("OnEditFocusGained", function(box)
+    ME.refreshManualSuggest(box, false)
+end)
+ME.addCharEdit:SetScript("OnEditFocusLost", function()
+    -- Delay hide so suggest button clicks register.
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0.15, ME.hideManualSuggest)
+    else
+        ME.hideManualSuggest()
+    end
+end)
+ME.addCharEdit:SetScript("OnEnterPressed", function(box)
+    local text = box:GetText() or ""
+    text = text:match("^%s*(.-)%s*$") or text
+    ME.hideManualSuggest()
+    ME.commitAlt(text)
+    box:ClearFocus()
+end)
+ME.addCharEdit:SetScript("OnEscapePressed", function(box)
+    ME.hideManualSuggest()
+    box:ClearFocus()
+end)
+
+ME.mainEdit:SetScript("OnTextChanged", function(box)
+    if Theme.UpdateEditBoxPlaceholderVisibility then
+        Theme.UpdateEditBoxPlaceholderVisibility(box)
+    end
+    if box:HasFocus() then
+        ME.refreshManualSuggest(box, true)
+    end
+end)
+ME.mainEdit:SetScript("OnEditFocusGained", function(box)
+    ME.refreshManualSuggest(box, true)
+end)
+ME.mainEdit:SetScript("OnEditFocusLost", function()
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0.15, ME.hideManualSuggest)
+    else
+        ME.hideManualSuggest()
+    end
+end)
+ME.mainEdit:SetScript("OnEnterPressed", function(box)
+    local text = box:GetText() or ""
+    text = text:match("^%s*(.-)%s*$") or text
+    ME.hideManualSuggest()
+    ME.commitMain(text)
+    box:ClearFocus()
+end)
+ME.mainEdit:SetScript("OnEscapePressed", function(box)
+    ME.hideManualSuggest()
+    box:ClearFocus()
+end)
+
+ME.conflictLabel = Theme.CreateOptionsSectionLabel(groupSettingsBody, {
+    point = "TOPLEFT",
+    relativeTo = ME.addCharEdit,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -14,
+    text = "Manual grouping conflict",
+})
+ME.conflictLabel:Hide()
+
+ME.conflictText = groupSettingsBody:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+ME.conflictText:SetPoint("TOPLEFT", ME.conflictLabel, "BOTTOMLEFT", 0, -4)
+ME.conflictText:SetPoint("RIGHT", groupSettingsBody, "RIGHT", 0, 0)
+ME.conflictText:SetJustifyH("LEFT")
+ME.conflictText:SetWordWrap(true)
+ME.conflictText:Hide()
+
+ME.conflictRemoveBtn = CreateFrame("Button", nil, groupSettingsBody, "UIPanelButtonTemplate")
+ME.conflictRemoveBtn:SetHeight(22)
+ME.conflictRemoveBtn:SetPoint("TOPLEFT", ME.conflictText, "BOTTOMLEFT", 0, -6)
+ME.conflictRemoveBtn:SetPoint("RIGHT", groupSettingsBody, "RIGHT", 0, 0)
+ME.conflictRemoveBtn:SetText("Remove my manual entry")
+Theme.SkinButton(ME.conflictRemoveBtn)
+ME.conflictRemoveBtn:Hide()
+ME.conflictCurrent = nil
+
+ME.conflictRemoveBtn:SetScript("OnClick", function()
+    local conflict = ME.conflictCurrent
+    if not conflict then return end
+    local GMG = AltArmy.GuildManualGroups
+    if GMG and GMG.RemoveMapping then
+        GMG.RemoveMapping(conflict.name, conflict.realm or groupPrefsRealm(selectedSettingsGroup))
+    end
+    ME.conflictCurrent = nil
+    if refresh then refresh() end
+end)
+
+ME.layoutManualConflicts = function()
+    local conflicts = (GTD.FindManualAddonDisagreements
+        and GTD.FindManualAddonDisagreements(selectedSettingsGroup)) or {}
+    if #conflicts == 0 then
+        ME.conflictCurrent = nil
+        ME.conflictLabel:Hide()
+        ME.conflictText:Hide()
+        ME.conflictRemoveBtn:Hide()
+        return
+    end
+    ME.conflictCurrent = conflicts[1]
+    ME.conflictLabel:Show()
+    ME.conflictText:SetText(
+        (GTD.FormatManualDisagreementText and GTD.FormatManualDisagreementText(conflicts[1]))
+            or "")
+    ME.conflictText:Show()
+    ME.conflictRemoveBtn:Show()
+end
+
+ME.setNormalSettingsWidgetsShown = function(shown)
+    local show = shown and true or false
+    if show then
+        groupPinRow:Show()
+        overrideLabel:Show()
+        overrideEdit:Show()
+        overrideResetBtn:Show()
+        ME.altsLabel:Show()
+        ME.altsList:Show()
+        ME.addCharLabel:Show()
+        ME.addCharEdit:Show()
+    else
+        groupPinRow:Hide()
+        overrideLabel:Hide()
+        overrideEdit:Hide()
+        overrideResetBtn:Hide()
+        ME.altsLabel:Hide()
+        ME.altsList:Hide()
+        ME.addCharLabel:Hide()
+        ME.addCharEdit:Hide()
+        ME.mainLabel:Hide()
+        ME.mainEdit:Hide()
+        ME.conflictLabel:Hide()
+        ME.conflictText:Hide()
+        ME.conflictRemoveBtn:Hide()
+    end
+end
+
 local groupDeleteBtn = CreateFrame("Button", nil, groupSettingsBody, "UIPanelButtonTemplate")
 groupDeleteBtn:SetHeight(22)
 groupDeleteBtn:SetPoint("BOTTOMLEFT", groupSettingsBody, "BOTTOMLEFT", 0, 0)
@@ -406,8 +938,12 @@ groupDeleteBtn:SetScript("OnClick", function(self)
         local realm = groupPrefsRealm(selectedSettingsGroup)
         local GSD = AltArmy.GuildShareData
         local GSS = AltArmy.GuildShareSettings
+        local GMG = AltArmy.GuildManualGroups
         if GSD and GSD.RemoveGroup then
             GSD.RemoveGroup(main, realm)
+        end
+        if GMG and GMG.RemoveGroup then
+            GMG.RemoveGroup(main, realm)
         end
         if GSS and GSS.ClearGroupUiPrefs then
             GSS.ClearGroupUiPrefs(main, realm)
@@ -429,7 +965,7 @@ isGroupSettingsShown = function()
     return groupSettingsPanel:IsShown()
 end
 
-local function applyMainPanelLayout()
+applyMainPanelLayout = function()
     panel:ClearAllPoints()
     panel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
     if isGroupSettingsShown() then
@@ -442,6 +978,8 @@ end
 closeGroupSettings = function()
     selectedSettingsGroup = nil
     deleteConfirmPending = false
+    ME.createMode = false
+    ME.hideManualSuggest()
     groupDeleteBtn:SetText("Delete local data")
     groupSettingsPanel:Hide()
     applyMainPanelLayout()
@@ -457,8 +995,23 @@ closeGroupSettings = function()
 end
 
 updateGroupSettingsPanel = function()
+    if not selectedSettingsGroup and not ME.createMode then return end
+    if ME.createMode then
+        setGroupSettingsTitle(nil)
+        groupSettingsTitle:SetText("Add group")
+        Theme.SetTitleColor(groupSettingsTitle)
+        ME.setNormalSettingsWidgetsShown(false)
+        ME.mainLabel:Show()
+        ME.mainEdit:Show()
+        groupDeleteBtn:Hide()
+        ME.hideManualAltRowsFrom(1)
+        return
+    end
     if not selectedSettingsGroup then return end
     setGroupSettingsTitle(selectedSettingsGroup)
+    ME.mainLabel:Hide()
+    ME.mainEdit:Hide()
+    ME.setNormalSettingsWidgetsShown(true)
     if groupPinRow.check then
         groupPinRow.check:SetChecked(selectedSettingsGroup.pinned and true or false)
     end
@@ -470,6 +1023,8 @@ updateGroupSettingsPanel = function()
             overrideEdit:SetText(override)
         end
     end
+    ME.layoutManualAltRows()
+    ME.layoutManualConflicts()
     local GSS = AltArmy.GuildShareSettings
     local ownMain = GSS and GSS.GetMain and GSS.GetMain(groupPrefsRealm(selectedSettingsGroup)) or nil
     local isOwn = GTD.IsOwnGroup and GTD.IsOwnGroup(selectedSettingsGroup, ownMain)
@@ -486,14 +1041,42 @@ updateGroupSettingsPanel = function()
 end
 
 openGroupSettings = function(group)
-    if not group then return end
-    if selectedSettingsGroup and selectedSettingsGroup.main == group.main and isGroupSettingsShown() then
+    if not group and not ME.createMode then return end
+    if group and selectedSettingsGroup and selectedSettingsGroup.main == group.main
+        and isGroupSettingsShown() and not ME.createMode then
         closeGroupSettings()
         return
     end
+    ME.createMode = false
     selectedSettingsGroup = group
     deleteConfirmPending = false
     groupDeleteBtn:SetText("Delete local data")
+    ApplyGroupSettingsPanelLayout()
+    groupSettingsPanel:Show()
+    applyMainPanelLayout()
+    updateGroupSettingsPanel()
+    if updateGuildHeaderForListMode then
+        updateGuildHeaderForListMode()
+    end
+    if applyListColumnLayout then
+        applyListColumnLayout()
+    end
+    if syncMainRowSettingsIcons then
+        syncMainRowSettingsIcons()
+    end
+end
+
+ME.openCreateGroup = function()
+    ME.createMode = true
+    selectedSettingsGroup = nil
+    deleteConfirmPending = false
+    if Theme.ClearEditBoxText then
+        Theme.ClearEditBoxText(ME.mainEdit)
+        Theme.ClearEditBoxText(ME.addCharEdit)
+    else
+        ME.mainEdit:SetText("")
+        ME.addCharEdit:SetText("")
+    end
     ApplyGroupSettingsPanelLayout()
     groupSettingsPanel:Show()
     applyMainPanelLayout()
@@ -908,6 +1491,11 @@ local function layoutRecipeRowColumns(row, showSkillCol)
 end
 
 updateGuildHeaderForListMode = function()
+    if ME.notesWizardActive then
+        ME.showNotesWizardChrome()
+        if ME.syncListFooter then ME.syncListFooter() end
+        return
+    end
     if shouldShowGuildPicker() then
         guildBackBtn:Hide()
         guildNameText:ClearAllPoints()
@@ -918,6 +1506,7 @@ updateGuildHeaderForListMode = function()
         searchEdit:Hide()
         searchClearBtn:Hide()
         tabardFrame:Hide()
+        if ME.syncListFooter then ME.syncListFooter() end
         return
     end
     if isBrowsingWithoutGuild() and shouldShowBrowseBackButton() then
@@ -936,6 +1525,7 @@ updateGuildHeaderForListMode = function()
             updateSearchClearVisibility()
         end
         tabardFrame:Hide()
+        if ME.syncListFooter then ME.syncListFooter() end
         return
     end
     guildBackBtn:Hide()
@@ -953,6 +1543,7 @@ updateGuildHeaderForListMode = function()
         updateSearchClearVisibility()
     end
     updateTabard()
+    if ME.syncListFooter then ME.syncListFooter() end
 end
 
 local function setListHeaderVisible(visible)
@@ -1064,12 +1655,741 @@ end)
 updateListHeaderSortIndicators()
 
 local listViewport = CreateFrame("Frame", nil, listView)
--- No horizontal scroll bar on this list; pin to the inner content bottom (panel padding
+-- Footer sits under the list; viewport leaves room so rows don't cover the buttons.
+ME.listFooter = CreateFrame("Frame", nil, listView)
+ME.listFooter:SetHeight(UI.LIST_FOOTER_HEIGHT)
+ME.listFooter:SetPoint("BOTTOMLEFT", listView, "BOTTOMLEFT", 0, 0)
+ME.listFooter:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
+ME.listFooter:Hide()
+
+ME.addGroupBtn = CreateFrame("Button", nil, ME.listFooter, "UIPanelButtonTemplate")
+ME.addGroupBtn:SetHeight(22)
+ME.addGroupBtn:SetText("Add Manual Group")
+Theme.SkinButton(ME.addGroupBtn)
+ME.addGroupBtn:SetWidth(140)
+ME.addGroupBtn:SetScript("OnClick", function()
+    ME.openCreateGroup()
+end)
+
+ME.scanNotesBtn = CreateFrame("Button", nil, ME.listFooter, "UIPanelButtonTemplate")
+ME.scanNotesBtn:SetHeight(22)
+ME.scanNotesBtn:SetText("Add Groups from Notes")
+Theme.SkinButton(ME.scanNotesBtn)
+ME.scanNotesBtn:SetWidth(170)
+ME.scanNotesBtn:SetScript("OnClick", function()
+    ME.openScanReview()
+end)
+
+ME.layoutListFooterButtons = function()
+    local gap = 8
+    local addW = ME.addGroupBtn:GetWidth() or 140
+    local scanShown = ME.scanNotesBtn:IsShown()
+    local scanW = scanShown and (ME.scanNotesBtn:GetWidth() or 170) or 0
+    local total = addW + (scanShown and (gap + scanW) or 0)
+    ME.addGroupBtn:ClearAllPoints()
+    ME.addGroupBtn:SetPoint("LEFT", ME.listFooter, "CENTER", -total / 2, 0)
+    if scanShown then
+        ME.scanNotesBtn:ClearAllPoints()
+        ME.scanNotesBtn:SetPoint("LEFT", ME.addGroupBtn, "RIGHT", gap, 0)
+    end
+end
+
+ME.syncListFooter = function()
+    -- Guild member list only (not recipe detail, picker, message view, or notes wizard).
+    local showList = listView:IsShown()
+        and listViewport:IsShown()
+        and listColHeader:IsShown()
+        and not shouldShowGuildPicker()
+        and not ME.notesWizardActive
+    if not showList then
+        ME.listFooter:Hide()
+        return
+    end
+    ME.listFooter:Show()
+    ME.addGroupBtn:Show()
+    -- Note scan needs the live guild roster.
+    if currentGuild() then
+        ME.scanNotesBtn:Show()
+    else
+        ME.scanNotesBtn:Hide()
+    end
+    ME.layoutListFooterButtons()
+end
+
+-- *** Notes grouping wizard (full-panel, one proposed group at a time) ***
+ME.notesWizardActive = false
+ME.notesProposals = {}
+ME.notesIndex = 1
+ME.notesMemberRows = {}
+ME.notesSlideDuration = 0.22
+
+ME.notesBackBtn = CreateFrame("Button", nil, header)
+ME.notesBackBtn:SetSize(52, 22)
+ME.notesBackBtn:SetPoint("LEFT", header, "LEFT", 2, 0)
+ME.notesBackBtn:Hide()
+Theme.SkinButton(ME.notesBackBtn)
+ME.notesBackBtnLabel = ME.notesBackBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+ME.notesBackBtnLabel:SetPoint("CENTER", ME.notesBackBtn, "CENTER", 0, 0)
+ME.notesBackBtnLabel:SetText("Back")
+
+ME.notesTitleFS = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+ME.notesTitleFS:SetPoint("LEFT", ME.notesBackBtn, "RIGHT", 8, 0)
+ME.notesTitleFS:SetPoint("RIGHT", header, "RIGHT", -8, 0)
+ME.notesTitleFS:SetJustifyH("LEFT")
+ME.notesTitleFS:SetWordWrap(false)
+ME.notesTitleFS:Hide()
+Theme.SetTitleColor(ME.notesTitleFS)
+
+ME.notesWizard = CreateFrame("Frame", nil, listView)
+ME.notesWizard:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
+ME.notesWizard:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", 0, 0)
+ME.notesWizard:Hide()
+
+ME.notesFooter = CreateFrame("Frame", nil, ME.notesWizard)
+ME.notesFooter:SetHeight(UI.LIST_FOOTER_HEIGHT)
+ME.notesFooter:SetPoint("BOTTOMLEFT", ME.notesWizard, "BOTTOMLEFT", 0, 0)
+ME.notesFooter:SetPoint("BOTTOMRIGHT", ME.notesWizard, "BOTTOMRIGHT", 0, 0)
+ME.notesFooter:SetFrameLevel((ME.notesWizard:GetFrameLevel() or 0) + 20)
+
+ME.notesAcceptBtn = CreateFrame("Button", nil, ME.notesFooter, "UIPanelButtonTemplate")
+ME.notesAcceptBtn:SetSize(120, 22)
+ME.notesAcceptBtn:SetText("Accept group")
+Theme.SkinButton(ME.notesAcceptBtn)
+
+ME.notesSkipBtn = CreateFrame("Button", nil, ME.notesFooter, "UIPanelButtonTemplate")
+ME.notesSkipBtn:SetSize(100, 22)
+ME.notesSkipBtn:SetText("Skip group")
+Theme.SkinButton(ME.notesSkipBtn)
+
+ME.notesClip = CreateFrame("Frame", nil, ME.notesWizard)
+ME.notesClip:SetPoint("TOPLEFT", ME.notesWizard, "TOPLEFT", 0, 0)
+ME.notesClip:SetPoint("BOTTOMRIGHT", ME.notesFooter, "TOPRIGHT", 0, 0)
+if ME.notesClip.SetClipsChildren then
+    ME.notesClip:SetClipsChildren(true)
+end
+
+ME.notesSlide = CreateFrame("Frame", nil, ME.notesClip)
+ME.notesSlide:SetPoint("TOPLEFT", ME.notesClip, "TOPLEFT", 0, 0)
+ME.notesSlide:SetPoint("BOTTOMRIGHT", ME.notesClip, "BOTTOMRIGHT", 0, 0)
+
+ME.notesEmptyFS = ME.notesSlide:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+ME.notesEmptyFS:SetPoint("TOP", ME.notesSlide, "TOP", 0, -40)
+ME.notesEmptyFS:SetWidth(420)
+ME.notesEmptyFS:SetJustifyH("CENTER")
+ME.notesEmptyFS:Hide()
+
+-- Fixed form chrome (does not scroll): group name + add character side by side, then members.
+-- Fields use the full panel width; only the members list reserves a thin scrollbar gutter.
+local NOTES_FIELD_GAP = 12
+ME.notesScrollBarOpts = { width = 6, gap = 2, rightInset = 2 }
+ME.notesMembersGutter = Theme.VerticalScrollBarGutter(ME.notesScrollBarOpts)
+
+ME.notesFieldsRow = CreateFrame("Frame", nil, ME.notesSlide)
+ME.notesFieldsRow:SetPoint("TOPLEFT", ME.notesSlide, "TOPLEFT", 0, 0)
+ME.notesFieldsRow:SetPoint("TOPRIGHT", ME.notesSlide, "TOPRIGHT", 0, 0)
+ME.notesFieldsRow:SetHeight(42)
+
+ME.notesNameCol = CreateFrame("Frame", nil, ME.notesFieldsRow)
+ME.notesNameCol:SetPoint("TOPLEFT", ME.notesFieldsRow, "TOPLEFT", 0, 0)
+ME.notesNameCol:SetPoint("BOTTOMRIGHT", ME.notesFieldsRow, "BOTTOM", -NOTES_FIELD_GAP / 2, 0)
+
+ME.notesAddCol = CreateFrame("Frame", nil, ME.notesFieldsRow)
+ME.notesAddCol:SetPoint("TOPLEFT", ME.notesFieldsRow, "TOP", NOTES_FIELD_GAP / 2, 0)
+ME.notesAddCol:SetPoint("BOTTOMRIGHT", ME.notesFieldsRow, "BOTTOMRIGHT", 0, 0)
+
+ME.notesNameLabel = Theme.CreateOptionsSectionLabel(ME.notesNameCol, {
+    point = "TOPLEFT",
+    x = 0,
+    y = 0,
+    text = "Group name",
+})
+
+ME.notesNameEdit = CreateFrame("EditBox", nil, ME.notesNameCol)
+ME.notesNameEdit:SetPoint("TOPLEFT", ME.notesNameLabel, "BOTTOMLEFT", 0, -4)
+ME.notesNameEdit:SetPoint("RIGHT", ME.notesNameCol, "RIGHT", 0, 0)
+ME.notesNameEdit:SetHeight(22)
+ME.notesNameEdit:SetFontObject("GameFontHighlight")
+ME.notesNameEdit:SetAutoFocus(false)
+ME.notesNameEdit:SetTextInsets(6, 6, 0, 0)
+Theme.ApplyInputTextures(ME.notesNameEdit)
+do
+    local maxLen = AltArmy.GuildShareSettings and AltArmy.GuildShareSettings.DISPLAY_NAME_MAX_LENGTH
+    if ME.notesNameEdit.SetMaxLetters and maxLen then
+        ME.notesNameEdit:SetMaxLetters(maxLen)
+    end
+end
+
+ME.notesAddLabel = Theme.CreateOptionsSectionLabel(ME.notesAddCol, {
+    point = "TOPLEFT",
+    x = 0,
+    y = 0,
+    text = "Add character",
+})
+
+ME.notesAddEdit = CreateFrame("EditBox", nil, ME.notesAddCol)
+ME.notesAddEdit:SetPoint("TOPLEFT", ME.notesAddLabel, "BOTTOMLEFT", 0, -4)
+ME.notesAddEdit:SetPoint("RIGHT", ME.notesAddCol, "RIGHT", 0, 0)
+ME.notesAddEdit:SetHeight(22)
+ME.notesAddEdit:SetFontObject("GameFontHighlight")
+ME.notesAddEdit:SetAutoFocus(false)
+ME.notesAddEdit:SetTextInsets(6, 6, 0, 0)
+Theme.ApplyInputTextures(ME.notesAddEdit)
+if Theme.SetupEditBoxPlaceholder then
+    Theme.SetupEditBoxPlaceholder(ME.notesAddEdit, "Type a guild member name")
+end
+
+ME.notesMembersLabel = Theme.CreateOptionsSectionLabel(ME.notesSlide, {
+    point = "TOPLEFT",
+    relativeTo = ME.notesFieldsRow,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -14,
+    text = "Characters in this group",
+})
+
+-- Only the members list scrolls.
+ME.notesScrollHost = CreateFrame("Frame", nil, ME.notesSlide)
+ME.notesScrollHost:SetPoint("TOPLEFT", ME.notesMembersLabel, "BOTTOMLEFT", 0, -4)
+ME.notesScrollHost:SetPoint("BOTTOMRIGHT", ME.notesSlide, "BOTTOMRIGHT", 0, 0)
+
+ME.notesViewport = Theme.CreateVerticalScrollViewport({
+    parent = ME.notesScrollHost,
+    gutterEdge = ME.notesScrollHost,
+    anchorTop = { "TOPLEFT", ME.notesScrollHost, "TOPLEFT", 0, 0 },
+    anchorBottom = { "BOTTOMRIGHT", ME.notesScrollHost, "BOTTOMRIGHT", -ME.notesMembersGutter, 0 },
+    enableMouseWheel = true,
+    valueStep = 24,
+    scrollBarWidth = ME.notesScrollBarOpts.width,
+    scrollBarGap = ME.notesScrollBarOpts.gap,
+})
+ME.notesMembersList = ME.notesViewport.child
+
+ME.updateNotesWizardTitle = function()
+    local total = #ME.notesProposals
+    if total < 1 then
+        ME.notesTitleFS:SetText("Review note groupings")
+    else
+        ME.notesTitleFS:SetText(
+            "Suggested group " .. tostring(ME.notesIndex) .. " of " .. tostring(total))
+    end
+    Theme.SetTitleColor(ME.notesTitleFS)
+end
+
+ME.updateNotesMembersScroll = function()
+    if not ME.notesViewport or not ME.notesMembersList then return end
+    local child = ME.notesMembersList
+    local width = (ME.notesViewport.scroll and ME.notesViewport.scroll:GetWidth()) or child:GetWidth() or 1
+    child:SetWidth(math.max(1, width))
+    if ME.notesViewport.UpdateRange then
+        ME.notesViewport.UpdateRange()
+    end
+end
+
+ME.layoutNotesFooterButtons = function()
+    local gap = 8
+    local acceptW = ME.notesAcceptBtn:GetWidth() or 120
+    local skipW = ME.notesSkipBtn:GetWidth() or 100
+    local total = acceptW + gap + skipW
+    ME.notesAcceptBtn:ClearAllPoints()
+    ME.notesAcceptBtn:SetPoint("LEFT", ME.notesFooter, "CENTER", -total / 2, 0)
+    ME.notesSkipBtn:ClearAllPoints()
+    ME.notesSkipBtn:SetPoint("LEFT", ME.notesAcceptBtn, "RIGHT", gap, 0)
+end
+
+ME.hideNotesMemberRowsFrom = function(index)
+    for i = index, #ME.notesMemberRows do
+        if ME.notesMemberRows[i] then ME.notesMemberRows[i]:Hide() end
+    end
+end
+
+ME.currentNotesProposal = function()
+    return ME.notesProposals[ME.notesIndex]
+end
+
+ME.layoutNotesMembers = function()
+    local proposal = ME.currentNotesProposal()
+    local members = (proposal and proposal.members) or {}
+    local knownMembers = (proposal and proposal.knownMembers) or {}
+    local displayRows = {}
+    if proposal and proposal.main and proposal.main ~= "" then
+        displayRows[#displayRows + 1] = {
+            name = proposal.main,
+            locked = true,
+        }
+    end
+    for _, member in ipairs(members) do
+        if member and member.name
+            and (not proposal or GTD.NormalizeRosterName(member.name) ~= GTD.NormalizeRosterName(proposal.main)) then
+            displayRows[#displayRows + 1] = {
+                name = member.name,
+                locked = false,
+                member = member,
+                noteText = member.noteText,
+            }
+        end
+    end
+    for _, known in ipairs(knownMembers) do
+        if known and known.name then
+            displayRows[#displayRows + 1] = {
+                name = known.name,
+                locked = true,
+            }
+        end
+    end
+    local y = 0
+    local removeW = 78
+    local textTopPad = 2
+    local lineGap = 2
+    local nameLineH = 14
+    local subLineH = 12
+    local bottomPad = 2
+    local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
+    for i, entry in ipairs(displayRows) do
+        local row = ME.notesMemberRows[i]
+        if not row then
+            row = CreateFrame("Frame", nil, ME.notesMembersList)
+            local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            nameFS:SetJustifyH("LEFT")
+            nameFS:SetWordWrap(false)
+            row.nameFS = nameFS
+            local noteFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            noteFS:SetJustifyH("LEFT")
+            noteFS:SetWordWrap(false)
+            row.noteFS = noteFS
+            local removeBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+            removeBtn:SetSize(removeW, 22)
+            removeBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+            removeBtn:SetText("Remove")
+            Theme.SkinButton(removeBtn)
+            row.removeBtn = removeBtn
+            ME.notesMemberRows[i] = row
+        end
+        if row.attrFS then
+            row.attrFS:Hide()
+        end
+        if row.stripeBg then
+            row.stripeBg:Hide()
+        end
+        local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(entry.name)
+        local info = key and rosterInfo[key] or nil
+        local noteText = entry.noteText
+        if (not noteText or noteText == "") and info and info.note and info.note ~= "" then
+            noteText = info.note
+        end
+        local noteLine = (GTD.FormatNotesWizardMemberNote
+            and GTD.FormatNotesWizardMemberNote(noteText)) or ""
+        local hasNoteLine = noteLine ~= ""
+        local rowH = textTopPad + nameLineH + bottomPad
+        if hasNoteLine then
+            rowH = rowH + lineGap + subLineH
+        end
+        row:SetHeight(rowH)
+
+        local textRight = entry.locked and -4 or -(removeW + 8)
+        row.nameFS:ClearAllPoints()
+        row.nameFS:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -textTopPad)
+        row.nameFS:SetPoint("TOPRIGHT", row, "TOPRIGHT", textRight, -textTopPad)
+        row.nameFS:SetHeight(nameLineH)
+
+        if hasNoteLine then
+            row.noteFS:ClearAllPoints()
+            row.noteFS:SetPoint("TOPLEFT", row.nameFS, "BOTTOMLEFT", 0, -lineGap)
+            row.noteFS:SetPoint("TOPRIGHT", row, "TOPRIGHT", textRight, 0)
+            row.noteFS:SetHeight(subLineH)
+            row.noteFS:SetText(noteLine)
+            row.noteFS:Show()
+        else
+            row.noteFS:SetText("")
+            row.noteFS:Hide()
+        end
+
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", ME.notesMembersList, "TOPLEFT", 0, -y)
+        row:SetPoint("TOPRIGHT", ME.notesMembersList, "TOPRIGHT", 0, -y)
+        row.nameFS:SetText((GTD.FormatNotesWizardMemberName
+            and GTD.FormatNotesWizardMemberName(
+                entry.name, info and info.classFile, info and info.level, formatName))
+            or formatName(entry.name, info and info.classFile))
+
+        if entry.locked then
+            row.removeBtn:Hide()
+            row.removeBtn:SetScript("OnClick", nil)
+        else
+            row.removeBtn:SetSize(removeW, 22)
+            row.removeBtn:Show()
+            do
+                local mem = entry.member
+                row.removeBtn:SetScript("OnClick", function()
+                    local p = ME.currentNotesProposal()
+                    if not p or not mem then return end
+                    for j, m in ipairs(p.members) do
+                        if m == mem or m.name == mem.name then
+                            table.remove(p.members, j)
+                            break
+                        end
+                    end
+                    ME.layoutNotesMembers()
+                end)
+            end
+        end
+        row:Show()
+        y = y + rowH + 4
+    end
+    ME.hideNotesMemberRowsFrom(#displayRows + 1)
+    ME.notesMembersList:SetHeight(math.max(1, y))
+    if ME.updateNotesMembersScroll then
+        ME.updateNotesMembersScroll()
+    end
+end
+
+ME.fillNotesProposalForm = function()
+    local proposal = ME.currentNotesProposal()
+    if not proposal then
+        ME.notesNameLabel:Hide()
+        ME.notesNameEdit:Hide()
+        ME.notesMembersLabel:Hide()
+        ME.notesAddLabel:Hide()
+        ME.notesAddEdit:Hide()
+        if ME.notesFieldsRow then ME.notesFieldsRow:Hide() end
+        ME.notesAcceptBtn:Hide()
+        ME.notesSkipBtn:Hide()
+        if ME.notesScrollHost then ME.notesScrollHost:Hide() end
+        ME.notesEmptyFS:SetText("No new groupings found from guild notes.")
+        ME.notesEmptyFS:Show()
+        if ME.updateNotesWizardTitle then ME.updateNotesWizardTitle() end
+        return
+    end
+    ME.notesEmptyFS:Hide()
+    if ME.notesFieldsRow then ME.notesFieldsRow:Show() end
+    if ME.notesScrollHost then ME.notesScrollHost:Show() end
+    ME.notesNameLabel:Show()
+    ME.notesNameEdit:Show()
+    ME.notesMembersLabel:Show()
+    ME.notesAddLabel:Show()
+    ME.notesAddEdit:Show()
+    ME.notesAcceptBtn:Show()
+    ME.notesSkipBtn:Show()
+    ME.layoutNotesFooterButtons()
+    if ME.updateNotesWizardTitle then ME.updateNotesWizardTitle() end
+    local display = proposal.displayName or proposal.main or ""
+    if Theme.SetEditBoxText then
+        Theme.SetEditBoxText(ME.notesNameEdit, display)
+    else
+        ME.notesNameEdit:SetText(display)
+    end
+    if Theme.ClearEditBoxText then
+        Theme.ClearEditBoxText(ME.notesAddEdit)
+    else
+        ME.notesAddEdit:SetText("")
+    end
+    if ME.notesViewport and ME.notesViewport.SetOffset then
+        ME.notesViewport.SetOffset(0)
+    end
+    ME.layoutNotesMembers()
+end
+
+ME.setNotesSlideOffset = function(x)
+    ME.notesSlide:ClearAllPoints()
+    ME.notesSlide:SetPoint("TOPLEFT", ME.notesClip, "TOPLEFT", x, 0)
+    ME.notesSlide:SetPoint("BOTTOMRIGHT", ME.notesClip, "BOTTOMRIGHT", x, 0)
+end
+
+ME.stopNotesSlide = function()
+    if ME.notesSlide:GetScript("OnUpdate") then
+        ME.notesSlide:SetScript("OnUpdate", nil)
+    end
+    ME.notesSliding = false
+end
+
+ME.animateNotesSlide = function(fromX, toX, onDone)
+    ME.stopNotesSlide()
+    ME.notesSliding = true
+    ME.setNotesSlideOffset(fromX)
+    local elapsed = 0
+    local duration = ME.notesSlideDuration
+    ME.notesSlide:SetScript("OnUpdate", function(_, dt)
+        elapsed = elapsed + (dt or 0)
+        local t = duration > 0 and math.min(1, elapsed / duration) or 1
+        -- Ease out
+        local eased = 1 - (1 - t) * (1 - t)
+        ME.setNotesSlideOffset(fromX + (toX - fromX) * eased)
+        if t >= 1 then
+            ME.stopNotesSlide()
+            ME.setNotesSlideOffset(toX)
+            if onDone then onDone() end
+        end
+    end)
+end
+
+ME.acceptCurrentNotesProposal = function()
+    local proposal = ME.currentNotesProposal()
+    if not proposal then return end
+    local GMG = AltArmy.GuildManualGroups
+    local GSS = AltArmy.GuildShareSettings
+    local guild = activeGuild()
+    local realm = currentRealm()
+    if not GMG or not guild then return end
+    local main = proposal.main
+    local displayName = ME.notesNameEdit:GetText() or ""
+    displayName = displayName:match("^%s*(.-)%s*$") or displayName
+    if displayName == "" then
+        displayName = main
+    end
+    proposal.displayName = displayName
+    -- Ensure the main character exists as a group anchor.
+    GMG.SetMapping(main, realm, main, { guild = guild, origin = "note" })
+    for _, member in ipairs(proposal.members or {}) do
+        if member.name and member.name ~= main and not member.alreadyMapped then
+            GMG.SetMapping(member.name, realm, main, {
+                guild = guild,
+                origin = "note",
+                noteText = member.noteText,
+                noteHash = member.noteHash,
+            })
+        end
+    end
+    if GSS and GSS.SetGroupOverrideName and displayName ~= main then
+        GSS.SetGroupOverrideName(main, realm, displayName)
+    elseif GSS and GSS.SetGroupOverrideName and displayName == main then
+        GSS.SetGroupOverrideName(main, realm, nil)
+    end
+end
+
+ME.advanceNotesWizard = function(accepted)
+    if ME.notesSliding then return end
+    if accepted then
+        ME.acceptCurrentNotesProposal()
+    end
+    local width = ME.notesClip:GetWidth() or 400
+    if width < 1 then width = 400 end
+    ME.animateNotesSlide(0, -width, function()
+        ME.notesIndex = ME.notesIndex + 1
+        if ME.notesIndex > #ME.notesProposals then
+            ME.closeNotesWizard(true)
+            return
+        end
+        ME.fillNotesProposalForm()
+        ME.animateNotesSlide(width, 0, nil)
+    end)
+end
+
+ME.closeNotesWizard = function(refreshAfter)
+    ME.stopNotesSlide()
+    ME.notesWizardActive = false
+    ME.notesProposals = {}
+    ME.notesIndex = 1
+    ME.notesWizard:Hide()
+    ME.notesBackBtn:Hide()
+    ME.notesTitleFS:Hide()
+    ME.hideManualSuggest()
+    if showGuildList then showGuildList() end
+    if refreshAfter and refresh then
+        refresh()
+    elseif ME.syncListFooter then
+        ME.syncListFooter()
+    end
+end
+
+ME.showNotesWizardChrome = function()
+    guildNameText:Hide()
+    guildBackBtn:Hide()
+    searchEdit:Hide()
+    searchClearBtn:Hide()
+    tabardFrame:Hide()
+    backBtn:Hide()
+    recipeTitleFS:Hide()
+    recipeSearchEdit:Hide()
+    recipeSearchClearBtn:Hide()
+    whisperBtn:Hide()
+    ME.notesBackBtn:Show()
+    if ME.updateNotesWizardTitle then
+        ME.updateNotesWizardTitle()
+    else
+        ME.notesTitleFS:SetText("Review note groupings")
+        Theme.SetTitleColor(ME.notesTitleFS)
+    end
+    ME.notesTitleFS:Show()
+end
+
+ME.openScanReview = function()
+    local GNP = AltArmy.GuildNoteAltParser
+    local GMG = AltArmy.GuildManualGroups
+    local GSD = AltArmy.GuildShareData
+    if not GNP then return end
+    closeGroupSettings()
+    local rosterEntries = GNP.BuildRosterNoteEntries and GNP.BuildRosterNoteEntries() or {}
+    local existing = {}
+    local guild = activeGuild()
+    if GMG and GMG.GetMappingsForGuild and guild then
+        for _, m in ipairs(GMG.GetMappingsForGuild(guild)) do
+            existing[m.name] = m
+        end
+    end
+    local storedChars = {}
+    if GSD and GSD.GetGuildMembers and guild then
+        for _, entry in ipairs(GSD.GetGuildMembers(guild)) do
+            if entry and entry.name then
+                storedChars[entry.name] = entry
+            end
+        end
+    end
+    for _, entry in ipairs(ME.currentDisplayMembers()) do
+        if entry and entry.source == "local" and entry.name then
+            storedChars[entry.name] = entry
+        end
+    end
+    local suggestions = GNP.ScanRoster(rosterEntries, existing, storedChars) or {}
+    local sharedEntries = {}
+    for _, entry in pairs(storedChars) do
+        if entry and type(entry) == "table" and entry.name and entry.main then
+            sharedEntries[#sharedEntries + 1] = entry
+        end
+    end
+    local proposals = (GNP.GroupSuggestionsByMain
+        and GNP.GroupSuggestionsByMain(suggestions, existing, sharedEntries)) or {}
+    if GNP.EnrichProposalsWithSharedData then
+        proposals = GNP.EnrichProposalsWithSharedData(proposals, sharedEntries)
+    end
+    ME.notesProposals = proposals
+    ME.notesIndex = 1
+    ME.notesWizardActive = true
+    ME.createMode = false
+    selectedCharacter = nil
+    selectedCharacterKey = nil
+    listColHeader:Hide()
+    listViewport:Hide()
+    if ME.updateListHeaderFade then
+        ME.updateListHeaderFade()
+    end
+    ME.listFooter:Hide()
+    ME.showNotesWizardChrome()
+    ME.notesWizard:Show()
+    ME.setNotesSlideOffset(0)
+    ME.fillNotesProposalForm()
+end
+
+ME.notesBackBtn:SetScript("OnClick", function()
+    ME.closeNotesWizard(true)
+end)
+ME.notesAcceptBtn:SetScript("OnClick", function()
+    ME.advanceNotesWizard(true)
+end)
+ME.notesSkipBtn:SetScript("OnClick", function()
+    ME.advanceNotesWizard(false)
+end)
+ME.notesNameEdit:SetScript("OnEnterPressed", function(box) box:ClearFocus() end)
+ME.notesNameEdit:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
+ME.notesNameEdit:SetScript("OnEditFocusLost", function(box)
+    local proposal = ME.currentNotesProposal()
+    if not proposal then return end
+    local text = box:GetText() or ""
+    text = text:match("^%s*(.-)%s*$") or text
+    if text ~= "" then
+        proposal.displayName = text
+    end
+end)
+
+ME.notesAddEdit:SetScript("OnTextChanged", function(box)
+    if Theme.UpdateEditBoxPlaceholderVisibility then
+        Theme.UpdateEditBoxPlaceholderVisibility(box)
+    end
+    if box:HasFocus() then
+        local proposal = ME.currentNotesProposal()
+        local occupied = {}
+        if proposal then
+            occupied[GTD.NormalizeRosterName(proposal.main) or ""] = true
+            for _, m in ipairs(proposal.members or {}) do
+                local key = GTD.NormalizeRosterName(m.name)
+                if key then occupied[key] = true end
+            end
+            for _, m in ipairs(proposal.knownMembers or {}) do
+                local key = GTD.NormalizeRosterName(m.name)
+                if key then occupied[key] = true end
+            end
+        end
+        local matches = GTD.FilterRosterNamesForAdd
+            and GTD.FilterRosterNamesForAdd(ME.currentRosterDisplayNames(), box:GetText() or "", occupied, {
+                maxResults = ME.suggestMax,
+                rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {},
+            }) or {}
+        ME.showManualSuggest(box, matches, function(name)
+            local p = ME.currentNotesProposal()
+            if not p then return end
+            p.members[#p.members + 1] = { name = name, noteText = nil, noteHash = nil }
+            table.sort(p.members, function(a, b)
+                return (a.name or ""):lower() < (b.name or ""):lower()
+            end)
+            if Theme.ClearEditBoxText then
+                Theme.ClearEditBoxText(box)
+            else
+                box:SetText("")
+            end
+            ME.layoutNotesMembers()
+        end)
+    end
+end)
+ME.notesAddEdit:SetScript("OnEditFocusGained", function(box)
+    box:GetScript("OnTextChanged")(box)
+end)
+ME.notesAddEdit:SetScript("OnEditFocusLost", function()
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0.15, ME.hideManualSuggest)
+    else
+        ME.hideManualSuggest()
+    end
+end)
+ME.notesAddEdit:SetScript("OnEnterPressed", function(box)
+    local text = box:GetText() or ""
+    text = text:match("^%s*(.-)%s*$") or text
+    ME.hideManualSuggest()
+    if text ~= "" then
+        local p = ME.currentNotesProposal()
+        if p then
+            local key = GTD.NormalizeRosterName(text)
+            local exists = key and key == (GTD.NormalizeRosterName(p.main) or "")
+            if not exists then
+                for _, m in ipairs(p.members) do
+                    if GTD.NormalizeRosterName(m.name) == key then
+                        exists = true
+                        break
+                    end
+                end
+            end
+            if not exists then
+                for _, m in ipairs(p.knownMembers or {}) do
+                    if GTD.NormalizeRosterName(m.name) == key then
+                        exists = true
+                        break
+                    end
+                end
+            end
+            if not exists then
+                p.members[#p.members + 1] = { name = text }
+                table.sort(p.members, function(a, b)
+                    return (a.name or ""):lower() < (b.name or ""):lower()
+                end)
+                ME.layoutNotesMembers()
+            end
+        end
+    end
+    if Theme.ClearEditBoxText then
+        Theme.ClearEditBoxText(box)
+    else
+        box:SetText("")
+    end
+    box:ClearFocus()
+end)
+ME.notesAddEdit:SetScript("OnEscapePressed", function(box)
+    ME.hideManualSuggest()
+    box:ClearFocus()
+end)
+
+-- No horizontal scroll bar on this list; pin above the footer (panel padding
 -- already provides the bronze-border gutter — do not reserve an extra PAD strip).
 local function anchorListViewportBelowColHeader()
     listViewport:ClearAllPoints()
     listViewport:SetPoint("TOPLEFT", listColHeader, "BOTTOMLEFT", 0, -2)
-    listViewport:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
+    listViewport:SetPoint("BOTTOMRIGHT", ME.listFooter, "TOPRIGHT", 0, 0)
 end
 local function anchorListViewportBelowGuildHeader()
     listViewport:ClearAllPoints()
@@ -1096,13 +2416,6 @@ local listHeaderFade = Theme.CreatePinnedHeaderScrollFade({
     scrollBar = viewport.scrollBar,
     headerBottomInset = 0,
 })
-if viewport.scrollBar then
-    viewport.scrollBar:HookScript("OnValueChanged", function()
-        if listHeaderFade then
-            listHeaderFade:Update()
-        end
-    end)
-end
 
 local function updateListHeaderFade()
     if not listHeaderFade then
@@ -1113,6 +2426,13 @@ local function updateListHeaderFade()
     elseif listHeaderFade.frame then
         listHeaderFade.frame:Hide()
     end
+end
+ME.updateListHeaderFade = updateListHeaderFade
+
+if viewport.scrollBar then
+    viewport.scrollBar:HookScript("OnValueChanged", function()
+        updateListHeaderFade()
+    end)
 end
 
 local WHEEL_STEP = UI.MAIN_ROW_HEIGHT * 3
@@ -1391,33 +2711,12 @@ applyListColumnLayout = function()
     end
 end
 
--- Left chain: [!] [pin] name. Warning/pin only consume space when visible.
-local function layoutMainRowLeftIcons(row, showOld, pinned)
+-- Left chain: [pin] name [!] [M]. Pin only consumes space when visible.
+-- Stale "!" and manual "M" sit immediately to the right of the name text.
+local function layoutMainRowLeftIcons(row, showOld, pinned, showManual)
     local leftAnchor = row
     local leftPoint = "LEFT"
     local leftX = UI.LEFT_ICON_PAD
-
-    if row.oldDataIcon then
-        row.oldDataIcon.showOldDataTooltip = showOld and true or false
-        if showOld then
-            row.oldDataIcon:ClearAllPoints()
-            row.oldDataIcon:SetPoint("LEFT", row, "LEFT", UI.LEFT_ICON_PAD, 0)
-            row.oldDataIcon:EnableMouse(true)
-            row.oldDataIcon:Show()
-            if row.oldDataIcon.mark then
-                row.oldDataIcon.mark:Show()
-            end
-            leftAnchor = row.oldDataIcon
-            leftPoint = "RIGHT"
-            leftX = UI.PIN_ICON_GAP
-        else
-            row.oldDataIcon:EnableMouse(false)
-            row.oldDataIcon:Hide()
-            if row.oldDataIcon.mark then
-                row.oldDataIcon.mark:Hide()
-            end
-        end
-    end
 
     if row.pinIcon then
         if pinned then
@@ -1432,15 +2731,80 @@ local function layoutMainRowLeftIcons(row, showOld, pinned)
         end
     end
 
+    local nameColRight = UI.SECOND_COLUMN - UI.NAME_COLUMN_GAP
+    local afterNameReserve = 0
+    if showOld and row.oldDataIcon then
+        afterNameReserve = afterNameReserve + UI.OLD_DATA_ICON_WIDTH + UI.PIN_ICON_GAP
+    end
+    if showManual and row.manualDataIcon then
+        afterNameReserve = afterNameReserve + UI.MANUAL_DATA_ICON_WIDTH + UI.PIN_ICON_GAP
+    end
+    local nameRightLimit = nameColRight - afterNameReserve
+
     if row.nameFS then
         row.nameFS:ClearAllPoints()
         row.nameFS:SetPoint("LEFT", leftAnchor, leftPoint, leftX, 0)
-        row.nameFS:SetPoint("RIGHT", row, "LEFT", UI.SECOND_COLUMN - UI.NAME_COLUMN_GAP, 0)
+        row.nameFS:SetPoint("RIGHT", row, "LEFT", nameRightLimit, 0)
+    end
+
+    local fsW = (row.nameFS and row.nameFS.GetWidth and row.nameFS:GetWidth()) or 0
+    local textW = (row.nameFS and row.nameFS.GetStringWidth and row.nameFS:GetStringWidth()) or 0
+    if textW > fsW then
+        textW = fsW
+    end
+    local trailingOffset = textW + UI.PIN_ICON_GAP
+    local maxTrailing = fsW + UI.PIN_ICON_GAP
+
+    local function placeAfterName(icon, width)
+        if trailingOffset > maxTrailing then
+            trailingOffset = maxTrailing
+        end
+        icon:ClearAllPoints()
+        icon:SetPoint("LEFT", row.nameFS, "LEFT", trailingOffset, 0)
+        trailingOffset = trailingOffset + width + UI.PIN_ICON_GAP
+        maxTrailing = maxTrailing + width + UI.PIN_ICON_GAP
+    end
+
+    if row.oldDataIcon then
+        row.oldDataIcon.showOldDataTooltip = showOld and true or false
+        if showOld then
+            placeAfterName(row.oldDataIcon, UI.OLD_DATA_ICON_WIDTH)
+            row.oldDataIcon:EnableMouse(true)
+            row.oldDataIcon:Show()
+            if row.oldDataIcon.mark then
+                row.oldDataIcon.mark:Show()
+            end
+        else
+            row.oldDataIcon:EnableMouse(false)
+            row.oldDataIcon:Hide()
+            if row.oldDataIcon.mark then
+                row.oldDataIcon.mark:Hide()
+            end
+        end
+    end
+
+    if row.manualDataIcon then
+        row.manualDataIcon.showManualDataTooltip = showManual and true or false
+        if showManual then
+            placeAfterName(row.manualDataIcon, UI.MANUAL_DATA_ICON_WIDTH)
+            row.manualDataIcon:EnableMouse(true)
+            row.manualDataIcon:Show()
+            if row.manualDataIcon.mark then
+                row.manualDataIcon.mark:Show()
+            end
+        else
+            row.manualDataIcon:EnableMouse(false)
+            row.manualDataIcon:Hide()
+            if row.manualDataIcon.mark then
+                row.manualDataIcon.mark:Hide()
+            end
+        end
     end
 end
 
--- Left chain for character rows: [star?] name. Star only when the main was explicitly set.
-local function layoutCharRowLeftIcons(row, showMainStar)
+-- Left chain for character rows: [star?] name [M?] (level). Star only when main was set
+-- explicitly; manual "M" and level sit immediately to the right of the name text.
+local function layoutCharRowLeftIcons(row, showMainStar, showManual)
     local leftAnchor = row
     local leftPoint = "LEFT"
     local leftX = UI.CHAR_INDENT
@@ -1461,10 +2825,69 @@ local function layoutCharRowLeftIcons(row, showMainStar)
         end
     end
 
+    local nameColRight = UI.SECOND_COLUMN - UI.NAME_COLUMN_GAP
+    local afterNameReserve = 0
+    if showManual and row.manualDataIcon then
+        afterNameReserve = afterNameReserve + UI.MANUAL_DATA_ICON_WIDTH + UI.PIN_ICON_GAP
+    end
+    local levelW = 0
+    if row.levelFS and row.levelFS.GetStringWidth then
+        levelW = row.levelFS:GetStringWidth() or 0
+    end
+    if levelW > 0 then
+        afterNameReserve = afterNameReserve + levelW + UI.PIN_ICON_GAP
+    end
+    local nameRightLimit = nameColRight - afterNameReserve
+
     if row.nameFS then
         row.nameFS:ClearAllPoints()
         row.nameFS:SetPoint("LEFT", leftAnchor, leftPoint, leftX, 0)
-        row.nameFS:SetPoint("RIGHT", row, "LEFT", UI.SECOND_COLUMN - UI.NAME_COLUMN_GAP, 0)
+        row.nameFS:SetPoint("RIGHT", row, "LEFT", nameRightLimit, 0)
+    end
+
+    local fsW = (row.nameFS and row.nameFS.GetWidth and row.nameFS:GetWidth()) or 0
+    local textW = (row.nameFS and row.nameFS.GetStringWidth and row.nameFS:GetStringWidth()) or 0
+    if textW > fsW then
+        textW = fsW
+    end
+    local trailingOffset = textW + UI.PIN_ICON_GAP
+    local maxTrailing = fsW + UI.PIN_ICON_GAP
+
+    local function placeAfterName(widget, width)
+        if trailingOffset > maxTrailing then
+            trailingOffset = maxTrailing
+        end
+        widget:ClearAllPoints()
+        widget:SetPoint("LEFT", row.nameFS, "LEFT", trailingOffset, 0)
+        trailingOffset = trailingOffset + width + UI.PIN_ICON_GAP
+        maxTrailing = maxTrailing + width + UI.PIN_ICON_GAP
+    end
+
+    if row.manualDataIcon then
+        row.manualDataIcon.showManualDataTooltip = showManual and true or false
+        if showManual then
+            placeAfterName(row.manualDataIcon, UI.MANUAL_DATA_ICON_WIDTH)
+            row.manualDataIcon:EnableMouse(true)
+            row.manualDataIcon:Show()
+            if row.manualDataIcon.mark then
+                row.manualDataIcon.mark:Show()
+            end
+        else
+            row.manualDataIcon:EnableMouse(false)
+            row.manualDataIcon:Hide()
+            if row.manualDataIcon.mark then
+                row.manualDataIcon.mark:Hide()
+            end
+        end
+    end
+
+    if row.levelFS then
+        if levelW > 0 then
+            placeAfterName(row.levelFS, levelW)
+            row.levelFS:Show()
+        else
+            row.levelFS:Hide()
+        end
     end
 end
 
@@ -1571,6 +2994,48 @@ local function acquireMainRow(index)
             if GameTooltip then GameTooltip:Hide() end
         end)
         row.oldDataIcon = oldDataIcon
+
+        local manualDataIcon = CreateFrame("Frame", nil, row)
+        manualDataIcon:SetSize(UI.MANUAL_DATA_ICON_WIDTH, UI.MAIN_ROW_HEIGHT)
+        manualDataIcon:EnableMouse(false)
+        manualDataIcon:Hide()
+        local manualMark = manualDataIcon:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        manualMark:SetText("M")
+        manualMark:SetPoint("CENTER", manualDataIcon, "CENTER", 0, 0)
+        manualMark:SetTextColor(0.7, 0.7, 0.7, 1)
+        manualDataIcon.mark = manualMark
+        manualDataIcon:SetScript("OnEnter", function(self)
+            setMainRowHover(true)
+            if not self.showManualDataTooltip or not GameTooltip then return end
+            local firstManual
+            local g = row.settingsGroup
+            if g then
+                for _, m in ipairs(g.members or {}) do
+                    if GTD.IsManualMember and GTD.IsManualMember(m) then
+                        firstManual = m
+                        break
+                    end
+                end
+            end
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine("Manual grouping", 1, 1, 1)
+            GameTooltip:AddLine(
+                (GTD.GetManualDataTooltipText and GTD.GetManualDataTooltipText(firstManual)) or "",
+                1, 0.82, 0, true)
+            GameTooltip:Show()
+        end)
+        manualDataIcon:SetScript("OnLeave", function()
+            if suppressMainRowHoverEvents then
+                return
+            end
+            if GetMouseFocus and GetMouseFocus() == row.settingsBtn then
+                return
+            end
+            setMainRowHover(false)
+            if GameTooltip then GameTooltip:Hide() end
+        end)
+        row.manualDataIcon = manualDataIcon
 
         local settingsBtn = CreateFrame("Button", nil, row)
         settingsBtn:SetSize(UI.SETTINGS_ICON_WIDTH, UI.SETTINGS_ICON_WIDTH)
@@ -1694,6 +3159,40 @@ local function acquireCharRow(index)
         nameFS:SetJustifyH("LEFT")
         nameFS:SetWordWrap(false)
         row.nameFS = nameFS
+
+        local manualDataIcon = CreateFrame("Frame", nil, row)
+        manualDataIcon:SetSize(UI.MANUAL_DATA_ICON_WIDTH, UI.CHAR_ROW_HEIGHT)
+        manualDataIcon:EnableMouse(false)
+        manualDataIcon:Hide()
+        local manualMark = manualDataIcon:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        manualMark:SetText("M")
+        manualMark:SetPoint("CENTER", manualDataIcon, "CENTER", 0, 0)
+        manualMark:SetTextColor(0.7, 0.7, 0.7, 1)
+        manualDataIcon.mark = manualMark
+        manualDataIcon:SetScript("OnEnter", function(self)
+            Theme.SetHoverTint(row, true)
+            if not self.showManualDataTooltip or not GameTooltip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine("Manual grouping", 1, 1, 1)
+            GameTooltip:AddLine(
+                (GTD.GetManualCharacterTooltipText
+                    and GTD.GetManualCharacterTooltipText(row.memberEntry)) or "",
+                1, 0.82, 0, true)
+            GameTooltip:Show()
+        end)
+        manualDataIcon:SetScript("OnLeave", function()
+            Theme.SetHoverTint(row, false)
+            if GameTooltip then GameTooltip:Hide() end
+        end)
+        row.manualDataIcon = manualDataIcon
+
+        local levelFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        levelFS:SetJustifyH("LEFT")
+        levelFS:SetWordWrap(false)
+        levelFS:Hide()
+        row.levelFS = levelFS
+
         local lastOnlineFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         lastOnlineFS:SetPoint("RIGHT", row, "RIGHT", -UI.RIGHT_TRAILING_RESERVE, 0)
         lastOnlineFS:SetWidth(UI.LAST_ONLINE_COLUMN_WIDTH)
@@ -1706,6 +3205,7 @@ local function acquireCharRow(index)
         profFS:SetJustifyH("LEFT")
         profFS:SetWordWrap(false)
         row.profFS = profFS
+
         charRowPool[index] = row
     end
     row:Show()
@@ -1784,6 +3284,7 @@ local function layoutGuildPicker(guilds)
     scrollChild:SetHeight(math.max(1, y))
     if viewport.UpdateRange then viewport.UpdateRange() end
     updateListHeaderFade()
+    if ME.syncListFooter then ME.syncListFooter() end
 end
 
 local function hideRecipeRowsFrom(index)
@@ -2223,6 +3724,15 @@ showGuildList = function()
     clearPendingRecipeIcons()
     clearRecipeSearch()
     header:SetHeight(UI.HEADER_HEIGHT)
+    if ME.notesWizardActive then
+        ME.stopNotesSlide()
+        ME.notesWizardActive = false
+        ME.notesProposals = {}
+        ME.notesIndex = 1
+    end
+    if ME.notesWizard then ME.notesWizard:Hide() end
+    if ME.notesBackBtn then ME.notesBackBtn:Hide() end
+    if ME.notesTitleFS then ME.notesTitleFS:Hide() end
     setListHeaderVisible(true)
     listColHeader:Show()
     anchorListViewportBelowColHeader()
@@ -2233,6 +3743,7 @@ showGuildList = function()
     craftLibRecommendBtn:Hide()
     craftLibRecommendPanel:Hide()
     updateListHeaderFade()
+    if ME.syncListFooter then ME.syncListFooter() end
 end
 
 showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredRecipeID)
@@ -2271,6 +3782,7 @@ showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredR
         end
     end
     layoutRecipeView(entry)
+    if ME.syncListFooter then ME.syncListFooter() end
 end
 
 --- Open character recipe detail from search; Back returns via SearchGuildNav / Core.
@@ -2320,6 +3832,7 @@ local function showMessage(text, withButton)
     messageView:Show()
     messageText:SetText(text)
     optionsBtn:SetShown(withButton and true or false)
+    if ME.syncListFooter then ME.syncListFooter() end
 end
 
 local function ensureGuildRosterIncludesOffline()
@@ -2358,7 +3871,9 @@ local function layoutList(groups, query, rosterByName, forceHoverMain)
         row.nameFS:SetText(GTD.FormatMainRowName(
             g, formatName, activeQuery ~= "" and activeQuery or nil, isOwn))
         local isOld = GTD.GroupHasOldData and GTD.GroupHasOldData(g)
-        layoutMainRowLeftIcons(row, isOld and true or false, g.pinned and true or false)
+        local isManual = GTD.GroupIsEntirelyManual and GTD.GroupIsEntirelyManual(g)
+        layoutMainRowLeftIcons(
+            row, isOld and true or false, g.pinned and true or false, isManual and true or false)
         row.countFS:SetText(GTD.FormatMainRowCount(g))
         if row.lastOnlineFS then
             local status = GTD.GetGroupLastOnlineStatus and GTD.GetGroupLastOnlineStatus(g, rosterByName)
@@ -2380,11 +3895,24 @@ local function layoutList(groups, query, rosterByName, forceHoverMain)
                 charRow:ClearAllPoints()
                 charRow:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -y)
                 charRow:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", 0, -y)
-                charRow.nameFS:SetText(GTD.FormatCharacterName(
-                    m, formatName, activeQuery ~= "" and activeQuery or nil))
-                layoutCharRowLeftIcons(charRow, GTD.IsExplicitMain(m))
-                charRow.profFS:SetText(GTD.FormatProfessions(
-                    m, activeQuery ~= "" and activeQuery or nil))
+                local charQuery = activeQuery ~= "" and activeQuery or nil
+                charRow.nameFS:SetText(
+                    (GTD.FormatCharacterNamePart and GTD.FormatCharacterNamePart(
+                        m, formatName, charQuery))
+                    or GTD.FormatCharacterName(m, formatName, charQuery))
+                if charRow.levelFS then
+                    local levelText = (GTD.FormatCharacterLevelSuffix
+                        and GTD.FormatCharacterLevelSuffix(m.level, "full", UI.GRAY)) or ""
+                    if levelText:sub(1, 1) == " " then
+                        levelText = levelText:sub(2)
+                    end
+                    charRow.levelFS:SetText(levelText)
+                end
+                layoutCharRowLeftIcons(
+                    charRow,
+                    GTD.IsExplicitMain(m),
+                    GTD.IsManualMember and GTD.IsManualMember(m))
+                charRow.profFS:SetText(GTD.FormatProfessions(m, charQuery))
                 if charRow.lastOnlineFS then
                     local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(m.name)
                     local status = key and rosterByName[key] or nil
@@ -2478,9 +4006,16 @@ local function refreshImpl()
     messageView:Hide()
     listView:Show()
 
+    -- Incoming share/roster refreshes must not tear down an in-progress notes review.
+    -- (showGuildList clears notesWizardActive, so this guard must run before that call.)
+    if ME.notesWizardActive then
+        return
+    end
+
     local realm = currentRealm()
     local browseAllRealms = isBrowsingWithoutGuild()
-    local members = (GSD and GSD.GetGuildMembersForDisplay(guild, realm, browseAllRealms)) or {}
+    local rosterInfoMap = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or nil
+    local members = (GSD and GSD.GetGuildMembersForDisplay(guild, realm, browseAllRealms, rosterInfoMap)) or {}
 
     if selectedCharacterKey then
         local resolved
@@ -2537,6 +4072,8 @@ local function refreshImpl()
         else
             closeGroupSettings()
         end
+    elseif ME.createMode and isGroupSettingsShown and isGroupSettingsShown() then
+        updateGroupSettingsPanel()
     end
 
     if #filtered == 0 then
