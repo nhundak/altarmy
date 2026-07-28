@@ -1533,6 +1533,128 @@ function GTD.ClassifyNotesWizardInclusionReason(opts)
     return "manual"
 end
 
+--- Ensure `proposal.order` exists (add order for stable manual-wizard display).
+--- Synthesizes from main + members when missing. Returns the order table.
+function GTD.EnsureManualProposalOrder(proposal)
+    if type(proposal) ~= "table" then return {} end
+    if type(proposal.order) == "table" then
+        return proposal.order
+    end
+    local order = {}
+    if type(proposal.main) == "string" and proposal.main ~= "" then
+        order[#order + 1] = proposal.main
+    end
+    for _, member in ipairs(proposal.members or {}) do
+        if member and type(member.name) == "string" and member.name ~= "" then
+            order[#order + 1] = member.name
+        end
+    end
+    proposal.order = order
+    return order
+end
+
+--- Stable display order for a manual-create proposal (add order; independent of main).
+function GTD.ManualProposalDisplayOrder(proposal)
+    if type(proposal) ~= "table" then return {} end
+    local order = GTD.EnsureManualProposalOrder(proposal)
+    local out = {}
+    for i, name in ipairs(order) do
+        out[i] = name
+    end
+    return out
+end
+
+local function rebuildManualMembersFromOrder(proposal)
+    local mainKey = type(proposal.main) == "string" and proposal.main ~= ""
+        and GTD.NormalizeRosterName and GTD.NormalizeRosterName(proposal.main)
+    proposal.members = {}
+    for _, name in ipairs(proposal.order or {}) do
+        if type(name) == "string" and name ~= "" then
+            local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(name)
+            if key and key ~= mainKey then
+                proposal.members[#proposal.members + 1] = { name = name, addedManually = true }
+            end
+        end
+    end
+end
+
+--- Add a character to an in-memory manual-create proposal.
+--- First name becomes `proposal.main`; subsequent names append as `{ name, addedManually = true }`.
+--- Appends to `proposal.order` (stable display order). Returns true on success.
+function GTD.AddManualProposalMember(proposal, name)
+    if type(proposal) ~= "table" then return false end
+    if type(name) ~= "string" or name == "" then return false end
+    local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(name)
+    if not key or key == "" then return false end
+    local order = GTD.EnsureManualProposalOrder(proposal)
+    for _, existing in ipairs(order) do
+        local existingKey = GTD.NormalizeRosterName and GTD.NormalizeRosterName(existing)
+        if existingKey == key then return false end
+    end
+    order[#order + 1] = name
+    if type(proposal.main) ~= "string" or proposal.main == "" then
+        proposal.main = name
+    end
+    rebuildManualMembersFromOrder(proposal)
+    return true
+end
+
+--- Remove a character from an in-memory manual-create proposal.
+--- When the main is removed, promotes the next name in display order.
+--- Returns true when something was removed.
+function GTD.RemoveManualProposalMember(proposal, name)
+    if type(proposal) ~= "table" then return false end
+    if type(name) ~= "string" or name == "" then return false end
+    local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(name)
+    if not key or key == "" then return false end
+    local order = GTD.EnsureManualProposalOrder(proposal)
+    local removeIndex
+    for i, existing in ipairs(order) do
+        local existingKey = GTD.NormalizeRosterName and GTD.NormalizeRosterName(existing)
+        if existingKey == key then
+            removeIndex = i
+            break
+        end
+    end
+    if not removeIndex then return false end
+    local mainKey = type(proposal.main) == "string" and proposal.main ~= ""
+        and GTD.NormalizeRosterName and GTD.NormalizeRosterName(proposal.main)
+    table.remove(order, removeIndex)
+    if mainKey and mainKey == key then
+        local nextName = order[1]
+        if type(nextName) == "string" and nextName ~= "" then
+            proposal.main = nextName
+        else
+            proposal.main = nil
+        end
+    end
+    rebuildManualMembersFromOrder(proposal)
+    return true
+end
+
+--- Make `name` the main of an in-memory manual-create proposal.
+--- Does not change `proposal.order` (display order stays stable).
+--- Returns true on success (including when name is already the main).
+function GTD.SetManualProposalMain(proposal, name)
+    if type(proposal) ~= "table" then return false end
+    if type(name) ~= "string" or name == "" then return false end
+    local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(name)
+    if not key or key == "" then return false end
+    local order = GTD.EnsureManualProposalOrder(proposal)
+    local found = false
+    for _, existing in ipairs(order) do
+        local existingKey = GTD.NormalizeRosterName and GTD.NormalizeRosterName(existing)
+        if existingKey == key then
+            found = true
+            break
+        end
+    end
+    if not found then return false end
+    proposal.main = name
+    rebuildManualMembersFromOrder(proposal)
+    return true
+end
+
 --- Gray level suffix for the guild character recipe title: "(level N)" or "(N)".
 function GTD.FormatCharacterLevelSuffix(level, mode, grayPrefix)
     local n = math.floor(tonumber(level) or 0)

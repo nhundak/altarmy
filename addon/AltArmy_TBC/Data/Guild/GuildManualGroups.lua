@@ -197,15 +197,18 @@ function GMG.AssignToGroup(name, realm, main, opts)
     end
 end
 
---- Persist a notes-wizard proposal: write the main anchor and new members via
+--- Persist a notes/manual-wizard proposal: write the main anchor and new members via
 --- AssignToGroup, skip alreadyMapped members, and RemoveMapping for each name in
 --- `proposal.removedMappedNames`.
 --- `classLevelFn(name)` optional → classFile, level.
-function GMG.ApplyProposal(proposal, realm, guild, classLevelFn)
+--- `opts.origin` optional (default "note"); manual wizard passes "user".
+function GMG.ApplyProposal(proposal, realm, guild, classLevelFn, opts)
     if type(proposal) ~= "table" then return end
     local main = proposal.main
     if type(main) ~= "string" or main == "" then return end
     realm = realm or "?"
+    opts = opts or {}
+    local origin = opts.origin or "note"
     local function classLevel(name)
         if type(classLevelFn) == "function" then
             return classLevelFn(name)
@@ -214,7 +217,7 @@ function GMG.ApplyProposal(proposal, realm, guild, classLevelFn)
     end
     local mainClass, mainLevel = classLevel(main)
     GMG.AssignToGroup(main, realm, main, {
-        guild = guild, origin = "note", classFile = mainClass, level = mainLevel,
+        guild = guild, origin = origin, classFile = mainClass, level = mainLevel,
     })
     for _, member in ipairs(proposal.members or {}) do
         if member and type(member.name) == "string" and member.name ~= ""
@@ -223,7 +226,7 @@ function GMG.ApplyProposal(proposal, realm, guild, classLevelFn)
             local classFile, level = classLevel(member.name)
             GMG.AssignToGroup(member.name, realm, main, {
                 guild = guild,
-                origin = "note",
+                origin = origin,
                 noteText = member.noteText,
                 noteHash = member.noteHash,
                 classFile = classFile,

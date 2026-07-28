@@ -2475,4 +2475,142 @@ describe("GuildTabData", function()
       assert.are.equal("manual", GTD.ClassifyNotesWizardInclusionReason({}))
     end)
   end)
+
+  describe("AddManualProposalMember / RemoveManualProposalMember", function()
+    it("AddManualProposalMember sets main on first add", function()
+      local proposal = { main = nil, members = {}, manual = true }
+      local ok = GTD.AddManualProposalMember(proposal, "Bob")
+      assert.is_true(ok)
+      assert.are.equal("Bob", proposal.main)
+      assert.are.equal(0, #proposal.members)
+      assert.are.same({ "Bob" }, proposal.order)
+    end)
+
+    it("AddManualProposalMember appends subsequent names as manually-added members", function()
+      local proposal = { main = "Bob", members = {}, order = { "Bob" }, manual = true }
+      local ok = GTD.AddManualProposalMember(proposal, "Bobsalt")
+      assert.is_true(ok)
+      assert.are.equal(1, #proposal.members)
+      assert.are.equal("Bobsalt", proposal.members[1].name)
+      assert.is_true(proposal.members[1].addedManually)
+      assert.are.same({ "Bob", "Bobsalt" }, proposal.order)
+    end)
+
+    it("AddManualProposalMember rejects duplicates and empty names", function()
+      local proposal = {
+        main = "Bob",
+        members = { { name = "Bobsalt", addedManually = true } },
+        order = { "Bob", "Bobsalt" },
+      }
+      assert.is_false(GTD.AddManualProposalMember(proposal, "Bob"))
+      assert.is_false(GTD.AddManualProposalMember(proposal, "bobsalt"))
+      assert.is_false(GTD.AddManualProposalMember(proposal, ""))
+      assert.is_false(GTD.AddManualProposalMember(proposal, nil))
+      assert.are.equal(1, #proposal.members)
+    end)
+
+    it("RemoveManualProposalMember removes an alt member", function()
+      local proposal = {
+        main = "Bob",
+        members = {
+          { name = "Bobsalt", addedManually = true },
+          { name = "Bank", addedManually = true },
+        },
+        order = { "Bob", "Bobsalt", "Bank" },
+      }
+      local ok = GTD.RemoveManualProposalMember(proposal, "Bobsalt")
+      assert.is_true(ok)
+      assert.are.equal("Bob", proposal.main)
+      assert.are.equal(1, #proposal.members)
+      assert.are.equal("Bank", proposal.members[1].name)
+      assert.are.same({ "Bob", "Bank" }, proposal.order)
+    end)
+
+    it("RemoveManualProposalMember promotes next member when main is removed", function()
+      local proposal = {
+        main = "Bob",
+        members = {
+          { name = "Bobsalt", addedManually = true },
+          { name = "Bank", addedManually = true },
+        },
+        order = { "Bob", "Bobsalt", "Bank" },
+      }
+      local ok = GTD.RemoveManualProposalMember(proposal, "Bob")
+      assert.is_true(ok)
+      assert.are.equal("Bobsalt", proposal.main)
+      assert.are.equal(1, #proposal.members)
+      assert.are.equal("Bank", proposal.members[1].name)
+      assert.are.same({ "Bobsalt", "Bank" }, proposal.order)
+    end)
+
+    it("RemoveManualProposalMember clears main when last character is removed", function()
+      local proposal = { main = "Bob", members = {}, order = { "Bob" } }
+      local ok = GTD.RemoveManualProposalMember(proposal, "Bob")
+      assert.is_true(ok)
+      assert.is_nil(proposal.main)
+      assert.are.equal(0, #proposal.members)
+      assert.are.same({}, proposal.order)
+    end)
+
+    it("RemoveManualProposalMember returns false for unknown names", function()
+      local proposal = { main = "Bob", members = {}, order = { "Bob" } }
+      assert.is_false(GTD.RemoveManualProposalMember(proposal, "Nobody"))
+      assert.are.equal("Bob", proposal.main)
+    end)
+
+    it("SetManualProposalMain changes main without changing display order", function()
+      local proposal = {
+        main = "Bob",
+        members = {
+          { name = "Bobsalt", addedManually = true },
+          { name = "Bank", addedManually = true },
+        },
+        order = { "Bob", "Bobsalt", "Bank" },
+      }
+      local ok = GTD.SetManualProposalMain(proposal, "Bank")
+      assert.is_true(ok)
+      assert.are.equal("Bank", proposal.main)
+      assert.are.same({ "Bob", "Bobsalt", "Bank" }, proposal.order)
+      assert.are.equal(2, #proposal.members)
+      assert.are.equal("Bob", proposal.members[1].name)
+      assert.are.equal("Bobsalt", proposal.members[2].name)
+      assert.are.same(
+        { "Bob", "Bobsalt", "Bank" },
+        GTD.ManualProposalDisplayOrder(proposal))
+    end)
+
+    it("SetManualProposalMain is a no-op success when name is already main", function()
+      local proposal = {
+        main = "Bob",
+        members = { { name = "Bobsalt", addedManually = true } },
+        order = { "Bob", "Bobsalt" },
+      }
+      assert.is_true(GTD.SetManualProposalMain(proposal, "Bob"))
+      assert.are.equal("Bob", proposal.main)
+      assert.are.equal(1, #proposal.members)
+      assert.are.equal("Bobsalt", proposal.members[1].name)
+      assert.are.same({ "Bob", "Bobsalt" }, proposal.order)
+    end)
+
+    it("SetManualProposalMain returns false for unknown or empty names", function()
+      local proposal = {
+        main = "Bob",
+        members = { { name = "Bobsalt", addedManually = true } },
+        order = { "Bob", "Bobsalt" },
+      }
+      assert.is_false(GTD.SetManualProposalMain(proposal, "Nobody"))
+      assert.is_false(GTD.SetManualProposalMain(proposal, ""))
+      assert.is_false(GTD.SetManualProposalMain(proposal, nil))
+      assert.are.equal("Bob", proposal.main)
+    end)
+
+    it("ManualProposalDisplayOrder synthesizes order from main+members when missing", function()
+      local proposal = {
+        main = "Bob",
+        members = { { name = "Bobsalt", addedManually = true } },
+      }
+      assert.are.same({ "Bob", "Bobsalt" }, GTD.ManualProposalDisplayOrder(proposal))
+      assert.are.same({ "Bob", "Bobsalt" }, proposal.order)
+    end)
+  end)
 end)

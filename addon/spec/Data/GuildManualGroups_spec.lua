@@ -375,6 +375,26 @@ describe("GuildManualGroups", function()
       GMG.ApplyProposal({ members = {} }, "R", "G")
       assert.are.equal(0, #GMG.GetMappingsForGuild("G"))
     end)
+
+    it("defaults origin to note when opts is omitted", function()
+      local proposal = {
+        main = "Bob",
+        members = { { name = "Bobsalt" } },
+      }
+      GMG.ApplyProposal(proposal, "R", "G")
+      assert.are.equal("note", GMG.GetMapping("Bob", "R").origin)
+      assert.are.equal("note", GMG.GetMapping("Bobsalt", "R").origin)
+    end)
+
+    it("uses opts.origin when provided (manual wizard)", function()
+      local proposal = {
+        main = "Bob",
+        members = { { name = "Bobsalt" } },
+      }
+      GMG.ApplyProposal(proposal, "R", "G", nil, { origin = "user" })
+      assert.are.equal("user", GMG.GetMapping("Bob", "R").origin)
+      assert.are.equal("user", GMG.GetMapping("Bobsalt", "R").origin)
+    end)
   end)
 
   describe("RetireIfAgrees", function()

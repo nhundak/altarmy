@@ -40,6 +40,8 @@ local UI = {
     -- Notes wizard member table columns.
     NOTES_REASON_COL_WIDTH = 150,
     NOTES_ACTION_COL_WIDTH = 78,
+    NOTES_MAIN_BTN_WIDTH = 50,
+    NOTES_ACTION_BTN_GAP = 4,
     NOTES_COL_GAP = 8,
     GRAY = "|cff808080",
     -- Second column (group character count, character professions) shares one left edge.
@@ -131,7 +133,7 @@ local syncMainRowSettingsIcons
 local applyMainPanelLayout
 -- Manual grouping edit UI + session state (packed to limit locals).
 local ME = {
-    createMode = false,
+    wizardMode = nil, -- "notes" | "manual" while a full-panel wizard is open
     suggestMax = 40,
     -- Visible dropdown height before scrolling (~8 name-only rows + padding).
     suggestMaxHeight = 160,
@@ -444,29 +446,6 @@ if Theme.SetupEditBoxPlaceholder then
     Theme.SetupEditBoxPlaceholder(ME.addCharEdit, "Type a guild member name")
 end
 
-ME.mainLabel = Theme.CreateOptionsSectionLabel(groupSettingsBody, {
-    point = "TOPLEFT",
-    relativeTo = groupPinRow,
-    relativePoint = "BOTTOMLEFT",
-    x = 0,
-    y = -14,
-    text = "Main character",
-})
-ME.mainLabel:Hide()
-
-ME.mainEdit = CreateFrame("EditBox", nil, groupSettingsBody)
-ME.mainEdit:SetPoint("TOPLEFT", ME.mainLabel, "BOTTOMLEFT", 0, -4)
-ME.mainEdit:SetPoint("RIGHT", groupSettingsBody, "RIGHT", 0, 0)
-ME.mainEdit:SetHeight(22)
-ME.mainEdit:SetFontObject("GameFontHighlight")
-ME.mainEdit:SetAutoFocus(false)
-ME.mainEdit:SetTextInsets(6, 6, 0, 0)
-Theme.ApplyInputTextures(ME.mainEdit)
-ME.mainEdit:Hide()
-if Theme.SetupEditBoxPlaceholder then
-    Theme.SetupEditBoxPlaceholder(ME.mainEdit, "Type the main character name")
-end
-
 ME.suggestFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 Theme.ApplyBackdrop(ME.suggestFrame, "section")
 -- Above Accept/Skip and other tab chrome while the notes wizard is open.
@@ -681,7 +660,7 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
     end
 end
 
-ME.refreshManualSuggest = function(anchorEdit, forMain)
+ME.refreshManualSuggest = function(anchorEdit)
     local occupied = GTD.CollectOccupiedNames and GTD.CollectOccupiedNames(ME.currentDisplayMembers()) or {}
     local query = anchorEdit:GetText() or ""
     local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
@@ -697,55 +676,8 @@ ME.refreshManualSuggest = function(anchorEdit, forMain)
             anchorEdit:SetText(name)
         end
         anchorEdit:ClearFocus()
-        if forMain then
-            ME.commitMain(name)
-        else
-            ME.commitAlt(name)
-        end
+        ME.commitAlt(name)
     end)
-end
-
-ME.commitMain = function(name)
-    if type(name) ~= "string" or name == "" then return end
-    local GMG = AltArmy.GuildManualGroups
-    local guild = activeGuild()
-    local realm = currentRealm()
-    if not GMG or not guild then return end
-    local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
-    local resolved = (GTD.ResolveRosterName and GTD.ResolveRosterName(name, rosterInfo)) or nil
-    if not resolved then return end
-    name = resolved
-    local classFile, level = ME.rosterClassLevel(name)
-    if GMG.AssignToGroup then
-        GMG.AssignToGroup(name, realm, name, {
-            guild = guild, origin = "user", classFile = classFile, level = level,
-        })
-    else
-        GMG.SetMapping(name, realm, name, {
-            guild = guild, origin = "user", classFile = classFile, level = level,
-        })
-    end
-    ME.createMode = false
-    ME.mainEdit:Hide()
-    ME.mainLabel:Hide()
-    overrideLabel:Show()
-    overrideEdit:Show()
-    overrideResetBtn:Show()
-    groupPinRow:Show()
-    local group = {
-        main = name,
-        preferredName = name,
-        members = { {
-            name = name, main = name, isMain = true, source = "manual", realm = realm,
-            classFile = classFile or "", level = level or 0,
-        } },
-        characterCount = 1,
-        prefsRealm = realm,
-    }
-    selectedSettingsGroup = group
-    if refresh then refresh() end
-    -- Re-resolve from refreshed list so settings stay in sync with display.
-    if updateGroupSettingsPanel then updateGroupSettingsPanel() end
 end
 
 ME.commitAlt = function(name)
@@ -836,11 +768,11 @@ ME.addCharEdit:SetScript("OnTextChanged", function(box)
         Theme.UpdateEditBoxPlaceholderVisibility(box)
     end
     if box:HasFocus() then
-        ME.refreshManualSuggest(box, false)
+        ME.refreshManualSuggest(box)
     end
 end)
 ME.addCharEdit:SetScript("OnEditFocusGained", function(box)
-    ME.refreshManualSuggest(box, false)
+    ME.refreshManualSuggest(box)
 end)
 ME.addCharEdit:SetScript("OnEditFocusLost", function()
     -- Delay hide so suggest button clicks register.
@@ -858,36 +790,6 @@ ME.addCharEdit:SetScript("OnEnterPressed", function(box)
     box:ClearFocus()
 end)
 ME.addCharEdit:SetScript("OnEscapePressed", function(box)
-    ME.hideManualSuggest()
-    box:ClearFocus()
-end)
-
-ME.mainEdit:SetScript("OnTextChanged", function(box)
-    if Theme.UpdateEditBoxPlaceholderVisibility then
-        Theme.UpdateEditBoxPlaceholderVisibility(box)
-    end
-    if box:HasFocus() then
-        ME.refreshManualSuggest(box, true)
-    end
-end)
-ME.mainEdit:SetScript("OnEditFocusGained", function(box)
-    ME.refreshManualSuggest(box, true)
-end)
-ME.mainEdit:SetScript("OnEditFocusLost", function()
-    if C_Timer and C_Timer.After then
-        C_Timer.After(0.15, ME.hideManualSuggest)
-    else
-        ME.hideManualSuggest()
-    end
-end)
-ME.mainEdit:SetScript("OnEnterPressed", function(box)
-    local text = box:GetText() or ""
-    text = text:match("^%s*(.-)%s*$") or text
-    ME.hideManualSuggest()
-    ME.commitMain(text)
-    box:ClearFocus()
-end)
-ME.mainEdit:SetScript("OnEscapePressed", function(box)
     ME.hideManualSuggest()
     box:ClearFocus()
 end)
@@ -968,8 +870,6 @@ ME.setNormalSettingsWidgetsShown = function(shown)
         ME.altsList:Hide()
         ME.addCharLabel:Hide()
         ME.addCharEdit:Hide()
-        ME.mainLabel:Hide()
-        ME.mainEdit:Hide()
         ME.conflictLabel:Hide()
         ME.conflictText:Hide()
         ME.conflictRemoveBtn:Hide()
@@ -1030,7 +930,6 @@ end
 closeGroupSettings = function()
     selectedSettingsGroup = nil
     deleteConfirmPending = false
-    ME.createMode = false
     ME.hideManualSuggest()
     groupDeleteBtn:SetText("Delete local data")
     groupSettingsPanel:Hide()
@@ -1047,22 +946,8 @@ closeGroupSettings = function()
 end
 
 updateGroupSettingsPanel = function()
-    if not selectedSettingsGroup and not ME.createMode then return end
-    if ME.createMode then
-        setGroupSettingsTitle(nil)
-        groupSettingsTitle:SetText("Add group")
-        Theme.SetTitleColor(groupSettingsTitle)
-        ME.setNormalSettingsWidgetsShown(false)
-        ME.mainLabel:Show()
-        ME.mainEdit:Show()
-        groupDeleteBtn:Hide()
-        ME.hideManualAltRowsFrom(1)
-        return
-    end
     if not selectedSettingsGroup then return end
     setGroupSettingsTitle(selectedSettingsGroup)
-    ME.mainLabel:Hide()
-    ME.mainEdit:Hide()
     ME.setNormalSettingsWidgetsShown(true)
     if groupPinRow.check then
         groupPinRow.check:SetChecked(selectedSettingsGroup.pinned and true or false)
@@ -1093,42 +978,15 @@ updateGroupSettingsPanel = function()
 end
 
 openGroupSettings = function(group)
-    if not group and not ME.createMode then return end
-    if group and selectedSettingsGroup and selectedSettingsGroup.main == group.main
-        and isGroupSettingsShown() and not ME.createMode then
+    if not group then return end
+    if selectedSettingsGroup and selectedSettingsGroup.main == group.main
+        and isGroupSettingsShown() then
         closeGroupSettings()
         return
     end
-    ME.createMode = false
     selectedSettingsGroup = group
     deleteConfirmPending = false
     groupDeleteBtn:SetText("Delete local data")
-    ApplyGroupSettingsPanelLayout()
-    groupSettingsPanel:Show()
-    applyMainPanelLayout()
-    updateGroupSettingsPanel()
-    if updateGuildHeaderForListMode then
-        updateGuildHeaderForListMode()
-    end
-    if applyListColumnLayout then
-        applyListColumnLayout()
-    end
-    if syncMainRowSettingsIcons then
-        syncMainRowSettingsIcons()
-    end
-end
-
-ME.openCreateGroup = function()
-    ME.createMode = true
-    selectedSettingsGroup = nil
-    deleteConfirmPending = false
-    if Theme.ClearEditBoxText then
-        Theme.ClearEditBoxText(ME.mainEdit)
-        Theme.ClearEditBoxText(ME.addCharEdit)
-    else
-        ME.mainEdit:SetText("")
-        ME.addCharEdit:SetText("")
-    end
     ApplyGroupSettingsPanelLayout()
     groupSettingsPanel:Show()
     applyMainPanelLayout()
@@ -1720,7 +1578,7 @@ ME.addGroupBtn:SetText("Add Manual Group")
 Theme.SkinButton(ME.addGroupBtn)
 ME.addGroupBtn:SetWidth(140)
 ME.addGroupBtn:SetScript("OnClick", function()
-    ME.openCreateGroup()
+    ME.openManualCreate()
 end)
 
 ME.scanNotesBtn = CreateFrame("Button", nil, ME.listFooter, "UIPanelButtonTemplate")
@@ -2011,8 +1869,31 @@ ME.notesAddCancelBtn:SetScript("OnClick", function()
 end)
 
 ME.updateNotesWizardTitle = function()
+    local isManual = ME.wizardMode == "manual"
     local total = #ME.notesProposals
     local proposal = ME.notesProposals[ME.notesIndex]
+    if isManual then
+        if ME.notesProgressFS then
+            ME.notesProgressFS:SetText("")
+            ME.notesProgressFS:Hide()
+        end
+        if not proposal or not proposal.main or proposal.main == "" then
+            ME.notesTitleFS:SetText("New manual group")
+            Theme.SetTitleColor(ME.notesTitleFS)
+        else
+            local groupName = proposal.displayName or proposal.main
+            local classFile, _ = ME.rosterClassLevel(proposal.main)
+            local coloredName = formatName(groupName, classFile)
+            local prefix = "New group: "
+            local t = Theme.COLORS and Theme.COLORS.title
+            if t and CC and CC.formatHex then
+                prefix = CC.formatHex(t[1], t[2], t[3], prefix)
+            end
+            ME.notesTitleFS:SetText(prefix .. coloredName)
+            ME.notesTitleFS:SetTextColor(1, 1, 1, 1)
+        end
+        return
+    end
     if total < 1 or not proposal then
         ME.notesTitleFS:SetText("Review note groupings")
         Theme.SetTitleColor(ME.notesTitleFS)
@@ -2051,6 +1932,14 @@ ME.updateNotesMembersScroll = function()
 end
 
 ME.layoutNotesFooterButtons = function()
+    local isManual = ME.wizardMode == "manual"
+    if isManual then
+        ME.notesAcceptBtn:SetText("Create group")
+        ME.notesSkipBtn:SetText("Cancel")
+    else
+        ME.notesAcceptBtn:SetText("Accept group")
+        ME.notesSkipBtn:SetText("Skip group")
+    end
     local gap = 8
     local acceptW = ME.notesAcceptBtn:GetWidth() or 120
     local skipW = ME.notesSkipBtn:GetWidth() or 100
@@ -2105,59 +1994,101 @@ ME.layoutNotesMembers = function()
     local proposal = ME.currentNotesProposal()
     local members = (proposal and proposal.members) or {}
     local knownMembers = (proposal and proposal.knownMembers) or {}
+    local isManual = ME.wizardMode == "manual"
     local displayRows = {}
-    if proposal and proposal.main and proposal.main ~= "" then
-        displayRows[#displayRows + 1] = {
-            name = proposal.main,
-            locked = true,
-            isMain = true,
-        }
-    end
-    for _, member in ipairs(members) do
-        if member and member.name and not member.addedManually
-            and (not proposal or GTD.NormalizeRosterName(member.name) ~= GTD.NormalizeRosterName(proposal.main)) then
-            displayRows[#displayRows + 1] = {
-                name = member.name,
-                locked = false,
-                member = member,
-                noteText = member.noteText,
-                alreadyMapped = member.alreadyMapped,
-                origin = member.origin,
-            }
+    if isManual then
+        -- Stable add-order; changing main must not reshuffle rows.
+        local order = (GTD.ManualProposalDisplayOrder and GTD.ManualProposalDisplayOrder(proposal)) or {}
+        local mainKey = proposal and proposal.main and GTD.NormalizeRosterName
+            and GTD.NormalizeRosterName(proposal.main)
+        local memberByKey = {}
+        for _, member in ipairs(members) do
+            if member and member.name then
+                local k = GTD.NormalizeRosterName and GTD.NormalizeRosterName(member.name)
+                if k then memberByKey[k] = member end
+            end
         end
-    end
-    for _, known in ipairs(knownMembers) do
-        if known and known.name then
+        for _, name in ipairs(order) do
+            local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(name)
+            local isMain = mainKey and key == mainKey
             displayRows[#displayRows + 1] = {
-                name = known.name,
-                locked = true,
-                isKnownShared = true,
-            }
-        end
-    end
-    -- Manually added characters stay at the bottom (above the Add control), in add order.
-    for _, member in ipairs(members) do
-        if member and member.addedManually and member.name
-            and (not proposal or GTD.NormalizeRosterName(member.name) ~= GTD.NormalizeRosterName(proposal.main)) then
-            displayRows[#displayRows + 1] = {
-                name = member.name,
+                name = name,
                 locked = false,
-                member = member,
-                noteText = member.noteText,
-                alreadyMapped = member.alreadyMapped,
-                origin = member.origin,
+                isMain = isMain and true or false,
                 addedManually = true,
+                member = (not isMain) and (memberByKey[key] or { name = name, addedManually = true }) or nil,
             }
+        end
+    else
+        if proposal and proposal.main and proposal.main ~= "" then
+            displayRows[#displayRows + 1] = {
+                name = proposal.main,
+                locked = true,
+                isMain = true,
+            }
+        end
+        for _, member in ipairs(members) do
+            if member and member.name and not member.addedManually
+                and (not proposal
+                    or GTD.NormalizeRosterName(member.name)
+                        ~= GTD.NormalizeRosterName(proposal.main)) then
+                displayRows[#displayRows + 1] = {
+                    name = member.name,
+                    locked = false,
+                    member = member,
+                    noteText = member.noteText,
+                    alreadyMapped = member.alreadyMapped,
+                    origin = member.origin,
+                }
+            end
+        end
+        for _, known in ipairs(knownMembers) do
+            if known and known.name then
+                displayRows[#displayRows + 1] = {
+                    name = known.name,
+                    locked = true,
+                    isKnownShared = true,
+                }
+            end
+        end
+        -- Manually added characters stay at the bottom (above the Add control), in add order.
+        for _, member in ipairs(members) do
+            if member and member.addedManually and member.name
+                and (not proposal
+                    or GTD.NormalizeRosterName(member.name)
+                        ~= GTD.NormalizeRosterName(proposal.main)) then
+                displayRows[#displayRows + 1] = {
+                    name = member.name,
+                    locked = false,
+                    member = member,
+                    noteText = member.noteText,
+                    alreadyMapped = member.alreadyMapped,
+                    origin = member.origin,
+                    addedManually = true,
+                }
+            end
         end
     end
     local y = 0
     local removeW = UI.NOTES_ACTION_COL_WIDTH
+    local mainBtnW = UI.NOTES_MAIN_BTN_WIDTH or 50
+    local actionBtnGap = UI.NOTES_ACTION_BTN_GAP or 4
+    -- Manual mode reserves room for Main + Remove on non-main rows.
+    local actionColW = removeW
+    if isManual then
+        actionColW = removeW + actionBtnGap + mainBtnW
+    end
     local colGap = UI.NOTES_COL_GAP
     local textTopPad = 2
     local lineGap = 2
     local nameLineH = 14
     local subLineH = 12
     local bottomPad = 2
+    if ME.notesMembersReasonHeader then
+        ME.notesMembersReasonHeader:ClearAllPoints()
+        ME.notesMembersReasonHeader:SetPoint("LEFT", ME.notesMembersHeader, "CENTER", colGap / 2, 0)
+        ME.notesMembersReasonHeader:SetPoint("RIGHT", ME.notesMembersHeader, "RIGHT", -(actionColW + colGap), 0)
+    end
     local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
     for i, entry in ipairs(displayRows) do
         local row = ME.notesMemberRows[i]
@@ -2180,7 +2111,21 @@ ME.layoutNotesMembers = function()
             removeBtn:SetText("Remove")
             Theme.SkinButton(removeBtn)
             row.removeBtn = removeBtn
+            local setMainBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+            setMainBtn:SetSize(mainBtnW, 22)
+            setMainBtn:SetText("Main")
+            Theme.SkinButton(setMainBtn)
+            setMainBtn:Hide()
+            row.setMainBtn = setMainBtn
             ME.notesMemberRows[i] = row
+        end
+        if not row.setMainBtn then
+            local setMainBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+            setMainBtn:SetSize(mainBtnW, 22)
+            setMainBtn:SetText("Main")
+            Theme.SkinButton(setMainBtn)
+            setMainBtn:Hide()
+            row.setMainBtn = setMainBtn
         end
         if row.attrFS then
             row.attrFS:Hide()
@@ -2220,8 +2165,15 @@ ME.layoutNotesMembers = function()
                 alreadyMapped = entry.alreadyMapped,
                 origin = entry.origin,
             })) or "manual"
-        local reasonText = (GTD.NotesWizardInclusionReasonLabel
-            and GTD.NotesWizardInclusionReasonLabel(reasonKind)) or ""
+        local reasonText
+        if isManual then
+            -- Manual create: every character was added by the user.
+            reasonText = (GTD.NotesWizardInclusionReasonLabel
+                and GTD.NotesWizardInclusionReasonLabel("manual")) or "Manually added"
+        else
+            reasonText = (GTD.NotesWizardInclusionReasonLabel
+                and GTD.NotesWizardInclusionReasonLabel(reasonKind)) or ""
+        end
 
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", ME.notesMembersList, "TOPLEFT", 0, -y)
@@ -2230,6 +2182,30 @@ ME.layoutNotesMembers = function()
         row.removeBtn:ClearAllPoints()
         row.removeBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
         row.removeBtn:SetSize(removeW, 22)
+
+        local showSetMain = isManual and not entry.isMain and not entry.locked
+        if row.setMainBtn then
+            row.setMainBtn:ClearAllPoints()
+            row.setMainBtn:SetSize(mainBtnW, 22)
+            row.setMainBtn:SetPoint("RIGHT", row.removeBtn, "LEFT", -actionBtnGap, 0)
+            if showSetMain then
+                row.setMainBtn:Show()
+                do
+                    local setMainName = entry.name
+                    row.setMainBtn:SetScript("OnClick", function()
+                        local p = ME.currentNotesProposal()
+                        if not p or not GTD.SetManualProposalMain then return end
+                        if GTD.SetManualProposalMain(p, setMainName) then
+                            if ME.updateNotesWizardTitle then ME.updateNotesWizardTitle() end
+                            ME.layoutNotesMembers()
+                        end
+                    end)
+                end
+            else
+                row.setMainBtn:Hide()
+                row.setMainBtn:SetScript("OnClick", nil)
+            end
+        end
 
         -- Characters column = left 50%; reason fills from center to the actions column.
         row.nameFS:ClearAllPoints()
@@ -2243,7 +2219,7 @@ ME.layoutNotesMembers = function()
 
         row.reasonFS:ClearAllPoints()
         row.reasonFS:SetPoint("LEFT", row, "CENTER", colGap / 2, 0)
-        row.reasonFS:SetPoint("RIGHT", row, "RIGHT", -(removeW + colGap), 0)
+        row.reasonFS:SetPoint("RIGHT", row, "RIGHT", -(actionColW + colGap), 0)
         row.reasonFS:SetHeight(nameLineH)
         row.reasonFS:SetText(reasonText)
         row.reasonFS:Show()
@@ -2267,9 +2243,19 @@ ME.layoutNotesMembers = function()
             row.removeBtn:Show()
             do
                 local mem = entry.member
+                local removeName = entry.name
                 row.removeBtn:SetScript("OnClick", function()
                     local p = ME.currentNotesProposal()
-                    if not p or not mem then return end
+                    if not p then return end
+                    if ME.wizardMode == "manual" then
+                        if GTD.RemoveManualProposalMember then
+                            GTD.RemoveManualProposalMember(p, removeName)
+                        end
+                        if ME.updateNotesWizardTitle then ME.updateNotesWizardTitle() end
+                        ME.layoutNotesMembers()
+                        return
+                    end
+                    if not mem then return end
                     for j, m in ipairs(p.members) do
                         if m == mem or m.name == mem.name then
                             if m.alreadyMapped and m.name then
@@ -2304,6 +2290,9 @@ ME.layoutNotesMembers = function()
     end
     if ME.syncNotesAcceptEnabled then
         ME.syncNotesAcceptEnabled()
+    end
+    if ME.updateNotesWizardTitle then
+        ME.updateNotesWizardTitle()
     end
 end
 
@@ -2344,9 +2333,10 @@ ME.acceptCurrentNotesProposal = function()
     -- Group display uses the default name (main character, or shared preferred name
     -- when EnrichProposalsWithSharedData already set proposal.displayName).
     if GMG.ApplyProposal then
+        local origin = (ME.wizardMode == "manual") and "user" or "note"
         GMG.ApplyProposal(proposal, realm, guild, function(name)
             return ME.rosterClassLevel(name)
-        end)
+        end, { origin = origin })
     end
 end
 
@@ -2364,6 +2354,7 @@ end
 
 ME.closeNotesWizard = function(refreshAfter)
     ME.notesWizardActive = false
+    ME.wizardMode = nil
     ME.notesProposals = {}
     ME.notesIndex = 1
     ME.notesWizard:Hide()
@@ -2445,7 +2436,26 @@ ME.openScanReview = function()
     ME.notesProposals = proposals
     ME.notesIndex = 1
     ME.notesWizardActive = true
-    ME.createMode = false
+    ME.wizardMode = "notes"
+    selectedCharacter = nil
+    selectedCharacterKey = nil
+    listColHeader:Hide()
+    listViewport:Hide()
+    if ME.updateListHeaderFade then
+        ME.updateListHeaderFade()
+    end
+    ME.listFooter:Hide()
+    ME.showNotesWizardChrome()
+    ME.notesWizard:Show()
+    ME.fillNotesProposalForm()
+end
+
+ME.openManualCreate = function()
+    closeGroupSettings()
+    ME.notesProposals = { { main = nil, members = {}, order = {}, manual = true } }
+    ME.notesIndex = 1
+    ME.notesWizardActive = true
+    ME.wizardMode = "manual"
     selectedCharacter = nil
     selectedCharacterKey = nil
     listColHeader:Hide()
@@ -2471,29 +2481,66 @@ end)
 ME.notesSkipBtn:SetScript("OnClick", function()
     ME.advanceNotesWizard(false)
 end)
+
+--- Occupied names for the wizard add-character autocomplete.
+ME.wizardOccupiedNames = function()
+    if ME.wizardMode == "manual" then
+        local occupied = GTD.CollectOccupiedNames
+            and GTD.CollectOccupiedNames(ME.currentDisplayMembers()) or {}
+        local proposal = ME.currentNotesProposal()
+        if proposal then
+            if proposal.main and proposal.main ~= "" then
+                local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(proposal.main)
+                if key then occupied[key] = true end
+            end
+            for _, member in ipairs(proposal.members or {}) do
+                if member and member.name then
+                    local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(member.name)
+                    if key then occupied[key] = true end
+                end
+            end
+        end
+        return occupied
+    end
+    local GNP = AltArmy.GuildNoteAltParser
+    return (GNP and GNP.CollectProposalOccupiedNames
+        and GNP.CollectProposalOccupiedNames(ME.notesProposals)) or {}
+end
+
+ME.addWizardMember = function(name)
+    local p = ME.currentNotesProposal()
+    if not p or type(name) ~= "string" or name == "" then return false end
+    local occupied = ME.wizardOccupiedNames()
+    local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(name)
+    if key and occupied[key] then return false end
+    if ME.wizardMode == "manual" then
+        if not GTD.AddManualProposalMember or not GTD.AddManualProposalMember(p, name) then
+            return false
+        end
+    else
+        p.members[#p.members + 1] = {
+            name = name, noteText = nil, noteHash = nil, addedManually = true,
+        }
+    end
+    ME.layoutNotesMembers()
+    return true
+end
+
 ME.notesAddEdit:SetScript("OnTextChanged", function(box)
     if Theme.UpdateEditBoxPlaceholderVisibility then
         Theme.UpdateEditBoxPlaceholderVisibility(box)
     end
     if box:HasFocus() then
-        local GNP = AltArmy.GuildNoteAltParser
-        local occupied = (GNP and GNP.CollectProposalOccupiedNames
-            and GNP.CollectProposalOccupiedNames(ME.notesProposals)) or {}
+        local occupied = ME.wizardOccupiedNames()
         local matches = GTD.FilterRosterNamesForAdd
             and GTD.FilterRosterNamesForAdd(ME.currentRosterDisplayNames(), box:GetText() or "", occupied, {
                 maxResults = ME.suggestMax,
                 rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {},
             }) or {}
-        ME.showManualSuggest(box, matches, function(name)
-            local p = ME.currentNotesProposal()
-            if not p then return end
-            local key = GTD.NormalizeRosterName(name)
-            if key and occupied[key] then return end
-            p.members[#p.members + 1] = {
-                name = name, noteText = nil, noteHash = nil, addedManually = true,
-            }
-            ME.layoutNotesMembers()
-            ME.hideNotesAddInput()
+        ME.showManualSuggest(box, matches, function(picked)
+            if ME.addWizardMember(picked) then
+                ME.hideNotesAddInput()
+            end
         end)
     end
 end)
@@ -2513,29 +2560,18 @@ ME.notesAddEdit:SetScript("OnEnterPressed", function(box)
     ME.hideManualSuggest()
     local added = false
     if text ~= "" then
-        local p = ME.currentNotesProposal()
-        if p then
-            local GNP = AltArmy.GuildNoteAltParser
-            local occupied = (GNP and GNP.CollectProposalOccupiedNames
-                and GNP.CollectProposalOccupiedNames(ME.notesProposals)) or {}
-            local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
-            -- Same filter as the dropdown: if exactly one match, accept the partial input.
-            local matches = GTD.FilterRosterNamesForAdd
-                and GTD.FilterRosterNamesForAdd(ME.currentRosterDisplayNames(), text, occupied, {
-                    rosterInfo = rosterInfo,
-                }) or {}
-            local pick = (#matches == 1) and matches[1] or nil
-            if not pick and GTD.ResolveRosterName then
-                pick = GTD.ResolveRosterName(text, rosterInfo)
-            end
-            if pick then
-                local key = GTD.NormalizeRosterName(pick)
-                if key and not occupied[key] then
-                    p.members[#p.members + 1] = { name = pick, addedManually = true }
-                    ME.layoutNotesMembers()
-                    added = true
-                end
-            end
+        local occupied = ME.wizardOccupiedNames()
+        local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
+        local matches = GTD.FilterRosterNamesForAdd
+            and GTD.FilterRosterNamesForAdd(ME.currentRosterDisplayNames(), text, occupied, {
+                rosterInfo = rosterInfo,
+            }) or {}
+        local pick = (#matches == 1) and matches[1] or nil
+        if not pick and GTD.ResolveRosterName then
+            pick = GTD.ResolveRosterName(text, rosterInfo)
+        end
+        if pick then
+            added = ME.addWizardMember(pick) and true or false
         end
     end
     if added then
@@ -4246,8 +4282,6 @@ local function refreshImpl()
         else
             closeGroupSettings()
         end
-    elseif ME.createMode and isGroupSettingsShown and isGroupSettingsShown() then
-        updateGroupSettingsPanel()
     end
 
     if #filtered == 0 then
