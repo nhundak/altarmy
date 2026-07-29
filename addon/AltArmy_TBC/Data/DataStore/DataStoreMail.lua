@@ -77,7 +77,7 @@ function DS:ScanMailbox(_self)
     end
     if CheckInbox then CheckInbox() end
     for i = 1, numItems do
-        local _, stationaryIcon, mailSender, mailSubject, mailMoney, _, daysLeft, numAttachments, _, wasReturned =
+        local _, _, mailSender, mailSubject, mailMoney, _, daysLeft, numAttachments, _, wasReturned =
             GetInboxHeaderInfo(i)
         daysLeft = daysLeft or MAIL_EXPIRY_DAYS
         if numAttachments and numAttachments > 0 then
@@ -100,19 +100,17 @@ function DS:ScanMailbox(_self)
                 end
             end
         end
-        local inboxText
-        if GetInboxText then inboxText = GetInboxText(i) end
-        if (mailMoney and mailMoney > 0) or (inboxText and inboxText ~= "") then
-            local mailIcon = (mailMoney and mailMoney > 0) and MAIL_ICON_COIN or (stationaryIcon or MAIL_ICON_NOTE)
+        -- Do not call GetInboxText: it marks the message as read.
+        -- Attachments and money are available from header/item APIs without that.
+        if mailMoney and mailMoney > 0 then
             table.insert(char.Mails, {
-                icon = mailIcon,
+                icon = MAIL_ICON_COIN,
                 itemID = nil,
                 count = nil,
                 sender = mailSender,
                 link = nil,
                 money = mailMoney or 0,
                 subject = mailSubject,
-                text = inboxText,
                 lastCheck = Now(),
                 daysLeft = daysLeft,
                 returned = wasReturned,

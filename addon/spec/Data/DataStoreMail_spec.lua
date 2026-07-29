@@ -164,5 +164,58 @@ describe("DataStoreMail", function()
       assert.are.equal(0, #char.MailCache)
       assert.are.equal(999, char.lastMailCheck)
     end)
+
+    it("ScanMailbox does not call GetInboxText (avoids marking mail as read)", function()
+      local char = { Mails = {}, MailCache = {} }
+      DS._GetCurrentCharTable = function() return char end
+      local inboxTextCalls = 0
+      _G.GetInboxNumItems = function() return 1 end
+      _G.CheckInbox = function() end
+      _G.GetInboxHeaderInfo = function()
+        return nil, "icon", "Sender", "Subject", 0, 0, 30, 1, nil, false
+      end
+      _G.GetInboxItem = function(_mailIndex, attachIndex)
+        if attachIndex ~= 1 then return nil end
+        return "Item", 100, "itemIcon", 2
+      end
+      _G.GetInboxItemLink = function(_mailIndex, attachIndex)
+        if attachIndex ~= 1 then return nil end
+        return "|Hitem:100|h[Item]|h"
+      end
+      _G.GetInboxText = function()
+        inboxTextCalls = inboxTextCalls + 1
+        return "body"
+      end
+      local old = _G.time
+      _G.time = function() return 1000 end
+      DS:ScanMailbox()
+      _G.time = old
+      assert.are.equal(0, inboxTextCalls)
+      assert.are.equal(1, #char.Mails)
+      assert.are.equal(100, char.Mails[1].itemID)
+      assert.are.equal(2, char.Mails[1].count)
+    end)
+
+    it("ScanMailbox still records money without reading body text", function()
+      local char = { Mails = {}, MailCache = {} }
+      DS._GetCurrentCharTable = function() return char end
+      _G.GetInboxNumItems = function() return 1 end
+      _G.CheckInbox = function() end
+      _G.GetInboxHeaderInfo = function()
+        return nil, "coinIcon", "Sender", "COD", 2500, 0, 20, nil, nil, false
+      end
+      _G.GetInboxItem = function() return nil end
+      _G.GetInboxItemLink = function() return nil end
+      _G.GetInboxText = function()
+        error("GetInboxText should not be called")
+      end
+      local old = _G.time
+      _G.time = function() return 1000 end
+      DS:ScanMailbox()
+      _G.time = old
+      assert.are.equal(1, #char.Mails)
+      assert.are.equal(2500, char.Mails[1].money)
+      assert.is_nil(char.Mails[1].text)
+    end)
   end)
 end)
