@@ -588,7 +588,7 @@ function GTD.GroupMembersByMain(members)
 end
 
 -- Age at which received guildmate data is flagged as outdated in the Guild tab (not purged).
-GTD.OLD_DATA_AGE_SEC = 60 * 60 * 24 * 14
+GTD.OLD_DATA_AGE_SEC = 60 * 60 * 24 * 30
 
 --- True when a received (non-local) member's data is at least OLD_DATA_AGE_SEC old.
 function GTD.IsMemberDataOld(member, nowTs, maxAgeSec)
@@ -613,7 +613,7 @@ end
 
 --- Tooltip body for the Guild tab old-data warning icon.
 function GTD.GetOldDataTooltipText()
-    return "This data is more than 14 days old. The guildmate has not shared an update recently."
+    return "This data is more than 30 days old. The guildmate has not shared an update recently."
 end
 
 --- True when this member comes from a local manual grouping (not addon-shared).
@@ -653,6 +653,11 @@ end
 --- Tooltip body for the Guild tab manual-grouping warning icon on a character row.
 function GTD.GetManualCharacterTooltipText(_member)
     return "This character was entered manually and may be inaccurate"
+end
+
+--- Brief explanation shown at the top of the "New manual group" wizard.
+function GTD.GetManualGroupCreateDescription()
+    return "Manual groups let you link guildmates who don't use Alt Army as main and alts."
 end
 
 --- Lowercase short-name set of every character already present in a flat member list.
@@ -697,19 +702,22 @@ function GTD.ResolveRosterName(text, rosterInfoMap)
 end
 
 --- Filter roster display names for an "add character" autocomplete.
---- Excludes names present in `occupiedNames` (lowercase set). Optional `opts.maxResults`.
---- When `opts.rosterInfo` is a BuildRosterInfoMap result, also matches `note` text.
+--- Matches against name (and `note` when `opts.rosterInfo` is provided).
+--- Names present in `occupiedNames` (lowercase set of truthy values / reason strings)
+--- are included after selectable matches, sorted A-Z within each group.
+--- Optional `opts.maxResults` trims the combined list.
 function GTD.FilterRosterNamesForAdd(rosterNames, query, occupiedNames, opts)
     opts = opts or {}
     local q = GTD.NormalizeSearchQuery(query)
     local occupied = occupiedNames or {}
     local rosterInfo = opts.rosterInfo
     local maxResults = opts.maxResults
-    local out = {}
+    local available = {}
+    local blocked = {}
     for _, name in ipairs(rosterNames or {}) do
         if type(name) == "string" and name ~= "" then
             local key = GTD.NormalizeRosterName(name)
-            if key and not occupied[key] then
+            if key then
                 local matched = q == "" or name:lower():find(q, 1, true)
                 if not matched and rosterInfo then
                     local info = rosterInfo[key]
@@ -719,14 +727,28 @@ function GTD.FilterRosterNamesForAdd(rosterNames, query, occupiedNames, opts)
                     end
                 end
                 if matched then
-                    out[#out + 1] = name
+                    if occupied[key] then
+                        blocked[#blocked + 1] = name
+                    else
+                        available[#available + 1] = name
+                    end
                 end
             end
         end
     end
-    table.sort(out, function(a, b)
+    table.sort(available, function(a, b)
         return a:lower() < b:lower()
     end)
+    table.sort(blocked, function(a, b)
+        return a:lower() < b:lower()
+    end)
+    local out = {}
+    for _, name in ipairs(available) do
+        out[#out + 1] = name
+    end
+    for _, name in ipairs(blocked) do
+        out[#out + 1] = name
+    end
     if maxResults and #out > maxResults then
         local trimmed = {}
         for i = 1, maxResults do
@@ -735,6 +757,69 @@ function GTD.FilterRosterNamesForAdd(rosterNames, query, occupiedNames, opts)
         return trimmed
     end
     return out
+end
+
+--- User-facing occupied entry for a roster name, or nil when selectable.
+--- Values may be reason strings, `{ groupName, classFile }` tables, or other truthy markers.
+function GTD.RosterAddDisabledReason(occupiedNames, name)
+    if type(name) ~= "string" or name == "" then return nil end
+    local key = GTD.NormalizeRosterName(name)
+    if not key then return nil end
+    local value = occupiedNames and occupiedNames[key]
+    if not value then return nil end
+    return value
+end
+
+--- Format an occupied-entry value for the add-character suggest list.
+--- Group entries render as "Already in group {class-colored name}" with the prefix in
+--- gray; plain strings / other truthy values are fully gray.
+function GTD.FormatRosterAddDisabledReason(value, formatNameFn)
+    if value == nil or value == false then return "" end
+    if type(value) == "table" then
+        local groupName = value.groupName
+        if type(groupName) ~= "string" or groupName == "" then
+            groupName = "?"
+        end
+        local coloredName
+        if formatNameFn then
+            coloredName = formatNameFn(groupName, value.classFile) or groupName
+        else
+            local CC = AltArmy.ClassColor
+            coloredName = (CC and CC.formatName and CC.formatName(groupName, value.classFile))
+                or groupName
+        end
+        return GRAY .. "Already in group |r" .. coloredName
+    end
+    local text
+    if type(value) == "string" and value ~= "" then
+        if value == "your character" then
+            text = "Your character"
+        else
+            text = value
+        end
+    else
+        text = "Already in a group"
+    end
+    return GRAY .. text .. "|r"
+end
+
+--- Occupied map for add-character autocomplete: normalized name → `{ groupName, classFile }`.
+--- `groupName` is ResolveGroupDisplayName (override → preferred → main). Optional `getOverride`.
+function GTD.BuildOccupiedGroupReasons(members, getOverride)
+    local occupied = {}
+    for _, g in ipairs(GTD.GroupMembersByMain(members) or {}) do
+        local payload = {
+            groupName = GTD.ResolveGroupDisplayName(g, getOverride),
+            classFile = g.classFile,
+        }
+        for _, m in ipairs(g.members or {}) do
+            local key = GTD.NormalizeRosterName(m and m.name)
+            if key then
+                occupied[key] = payload
+            end
+        end
+    end
+    return occupied
 end
 
 --- Manual-only alt members of a group (excludes the main stub and addon/local members).
@@ -1651,12 +1736,20 @@ end
 --- Empty string when there is no note.
 --- Pipe characters in the note are doubled so player-controlled text cannot
 --- inject WoW UI escape sequences (|c, |T, etc.).
-function GTD.FormatNotesWizardMemberNote(note)
+--- Optional `query` highlights matching substrings in green inside the quotes.
+function GTD.FormatNotesWizardMemberNote(note, query)
     if type(note) ~= "string" then return "" end
     note = note:match("^%s*(.-)%s*$") or note
     if note == "" then return "" end
     note = note:gsub("|", "||")
-    return WHITE .. '"' .. note .. '"|r'
+    local q = query and GTD.NormalizeSearchQuery(query) or ""
+    if q == "" then
+        return WHITE .. '"' .. note .. '"|r'
+    end
+    local body = GTD.FormatTextWithSearchHighlight(note, nil, q, function(seg)
+        return WHITE .. seg .. "|r"
+    end)
+    return WHITE .. '"' .. "|r" .. body .. WHITE .. '"' .. "|r"
 end
 
 --- Count characters in a notes/manual wizard proposal for Accept-button enabling.

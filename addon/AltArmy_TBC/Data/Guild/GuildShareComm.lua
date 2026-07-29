@@ -124,8 +124,8 @@ local BROADCAST_THROTTLE = 10          -- seconds between guild broadcasts
 Comm.SETTINGS_BROADCAST_DEBOUNCE_SEC = 5
 -- Longer than typical craft cast times so skill-ups during a crafting session coalesce.
 Comm.PROFESSION_BROADCAST_DEBOUNCE_SEC = 30
--- Prune received data older than 60 days (14+ day data stays but is flagged in the Guild tab).
-Comm.STALE_MAX_AGE = 60 * 60 * 24 * 60
+-- Prune received data older than 90 days (30+ day data stays but is flagged in the Guild tab).
+Comm.STALE_MAX_AGE = 60 * 60 * 24 * 90
 local STALE_MAX_AGE = Comm.STALE_MAX_AGE
 
 local commObj            -- table embedded with AceComm-3.0 + AceSerializer-3.0

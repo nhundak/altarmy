@@ -26,8 +26,8 @@ describe("GuildShareComm helpers", function()
   end)
 
   describe("STALE_MAX_AGE", function()
-    it("purges received guild data after 60 days", function()
-      assert.are.equal(60 * 60 * 24 * 60, Comm.STALE_MAX_AGE)
+    it("purges received guild data after 90 days", function()
+      assert.are.equal(60 * 60 * 24 * 90, Comm.STALE_MAX_AGE)
     end)
   end)
 

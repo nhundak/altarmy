@@ -140,6 +140,8 @@ read_globals = {
     "GameTooltip_Clear",
     "DEFAULT_CHAT_FRAME",
     "GetCursorPosition",
+    "SetCursor",
+    "ResetCursor",
     "IsMouseButtonDown",
     "IsShiftKeyDown",
     "IsControlKeyDown",

@@ -255,8 +255,8 @@ describe("GuildTabData", function()
     local DAY = 60 * 60 * 24
     local NOW = 1700000000
 
-    it("exposes a 14-day UI warning age", function()
-      assert.are.equal(14 * DAY, GTD.OLD_DATA_AGE_SEC)
+    it("exposes a 30-day UI warning age", function()
+      assert.are.equal(30 * DAY, GTD.OLD_DATA_AGE_SEC)
     end)
 
     it("IsMemberDataOld is false for local account members", function()
@@ -282,7 +282,7 @@ describe("GuildTabData", function()
       })
       assert.is_true(GTD.IsMemberDataOld(m, NOW))
       assert.is_true(GTD.IsMemberDataOld(
-        member({ name = "Peer", source = "Peer", receivedAt = NOW - (20 * DAY) }),
+        member({ name = "Peer", source = "Peer", receivedAt = NOW - (40 * DAY) }),
         NOW))
     end)
 
@@ -290,11 +290,11 @@ describe("GuildTabData", function()
       local groups = GTD.GroupMembersByMain({
         member({
           name = "Main", main = "Main", isMain = true, source = "Main",
-          receivedAt = NOW - (20 * DAY),
+          receivedAt = NOW - (40 * DAY),
         }),
         member({
           name = "Alt", main = "Main", source = "Main",
-          receivedAt = NOW - (20 * DAY),
+          receivedAt = NOW - (40 * DAY),
         }),
       })
       assert.is_true(GTD.GroupHasOldData(groups[1], NOW))
@@ -318,7 +318,7 @@ describe("GuildTabData", function()
     it("GetOldDataTooltipText explains that shared data is outdated", function()
       local text = GTD.GetOldDataTooltipText()
       assert.is_true(type(text) == "string" and #text > 0)
-      assert.truthy(text:find("14", 1, true))
+      assert.truthy(text:find("30", 1, true))
     end)
   end)
 
@@ -393,6 +393,14 @@ describe("GuildTabData", function()
         GTD.GetManualCharacterTooltipText(member({ name = "A", source = "manual" })))
     end)
 
+    it("GetManualGroupCreateDescription explains main/alt grouping for non-addon guildmates", function()
+      local text = GTD.GetManualGroupCreateDescription()
+      assert.truthy(text:find("main", 1, true) or text:find("alt", 1, true))
+      assert.truthy(text:find("Alt Army", 1, true) or text:find("addon", 1, true))
+      assert.is_nil(text:find("never shared", 1, true))
+      assert.is_nil(text:find("this computer", 1, true))
+    end)
+
     it("FormatCharacterName does not embed M for manual members", function()
       local text = GTD.FormatCharacterName(
         member({ name = "Bobsalt", classFile = "MAGE", level = 60, source = "manual" }),
@@ -426,13 +434,13 @@ describe("GuildTabData", function()
       assert.is_nil(set.carol)
     end)
 
-    it("FilterRosterNamesForAdd matches query and excludes occupied names", function()
-      local occupied = { bob = true, carol = true }
+    it("FilterRosterNamesForAdd matches query and sorts occupied names to the bottom", function()
+      local occupied = { bob = "already in a group", carol = true }
       local matches = GTD.FilterRosterNamesForAdd(
         { "Alice", "Bob", "Bobby", "Carol", "Dave" },
         "bo",
         occupied)
-      assert.are.same({ "Bobby" }, matches)
+      assert.are.same({ "Bobby", "Bob" }, matches)
     end)
 
     it("FilterRosterNamesForAdd also matches guild notes when rosterInfo is provided", function()
@@ -463,19 +471,81 @@ describe("GuildTabData", function()
       assert.are.same({ "Alice", "Banky" }, matches)
     end)
 
-    it("FilterRosterNamesForAdd returns all unoccupied when query is empty", function()
+    it("FilterRosterNamesForAdd returns selectable first then occupied when query is empty", function()
       local matches = GTD.FilterRosterNamesForAdd(
-        { "Carol", "Alice", "Bob" },
+        { "Carol", "Alice", "Bob", "Zed" },
         "",
-        { bob = true })
-      assert.are.same({ "Alice", "Carol" }, matches)
+        { bob = "already in a group", zed = true })
+      assert.are.same({ "Alice", "Carol", "Bob", "Zed" }, matches)
     end)
 
-    it("FilterRosterNamesForAdd respects maxResults", function()
+    it("FilterRosterNamesForAdd respects maxResults across selectable and occupied", function()
       local names = {}
       for i = 1, 20 do names[i] = "Name" .. i end
       local matches = GTD.FilterRosterNamesForAdd(names, "name", {}, { maxResults = 5 })
       assert.are.equal(5, #matches)
+    end)
+
+    it("RosterAddDisabledReason returns the occupied entry (string or table)", function()
+      assert.are.equal(
+        "already in a group",
+        GTD.RosterAddDisabledReason({ bob = "already in a group" }, "Bob"))
+      assert.is_true(GTD.RosterAddDisabledReason({ bob = true }, "Bob"))
+      assert.are.equal(
+        "your character",
+        GTD.RosterAddDisabledReason({ bob = "your character" }, "Bob"))
+      local info = { groupName = "Alice", classFile = "MAGE" }
+      assert.are.equal(info, GTD.RosterAddDisabledReason({ bob = info }, "Bob"))
+      assert.is_nil(GTD.RosterAddDisabledReason({ bob = true }, "Alice"))
+      assert.is_nil(GTD.RosterAddDisabledReason(nil, "Bob"))
+    end)
+
+    it("BuildOccupiedGroupReasons maps members to group display name and main class", function()
+      local occupied = GTD.BuildOccupiedGroupReasons({
+        member({ name = "Alice", main = "Alice", isMain = true, displayName = "AliceMain",
+          classFile = "MAGE" }),
+        member({ name = "Alicia", main = "Alice", classFile = "WARRIOR" }),
+        member({ name = "Bob", main = "Bob", isMain = true, displayName = "Bob",
+          classFile = "WARRIOR" }),
+      })
+      assert.are.equal("AliceMain", occupied.alice.groupName)
+      assert.are.equal("MAGE", occupied.alice.classFile)
+      assert.are.equal("AliceMain", occupied.alicia.groupName)
+      assert.are.equal("MAGE", occupied.alicia.classFile)
+      assert.are.equal("Bob", occupied.bob.groupName)
+      assert.are.equal("WARRIOR", occupied.bob.classFile)
+    end)
+
+    it("BuildOccupiedGroupReasons prefers override names via getOverride", function()
+      local occupied = GTD.BuildOccupiedGroupReasons({
+        member({ name = "Alice", main = "Alice", isMain = true, displayName = "Alice",
+          classFile = "MAGE" }),
+      }, function(group)
+        if group.main == "Alice" then return "Bank Crew" end
+      end)
+      assert.are.equal("Bank Crew", occupied.alice.groupName)
+    end)
+
+    it("FormatRosterAddDisabledReason colors Already in group gray with class-colored name", function()
+      local text = GTD.FormatRosterAddDisabledReason({
+        groupName = "Alice",
+        classFile = "MAGE",
+      }, function(name, classFile)
+        return "[" .. classFile .. "]" .. name
+      end)
+      assert.are.equal("|cff808080Already in group |r[MAGE]Alice", text)
+    end)
+
+    it("FormatRosterAddDisabledReason colors plain string reasons in gray and capitalizes Your character", function()
+      assert.are.equal(
+        "|cff808080Your character|r",
+        GTD.FormatRosterAddDisabledReason("Your character"))
+      assert.are.equal(
+        "|cff808080Your character|r",
+        GTD.FormatRosterAddDisabledReason("your character"))
+      assert.are.equal(
+        "|cff808080Already in a group|r",
+        GTD.FormatRosterAddDisabledReason(true))
     end)
 
     it("GetManualAlts returns manual members that are not the main", function()
@@ -2637,6 +2707,12 @@ describe("GuildTabData", function()
       assert.are.equal("", GTD.FormatNotesWizardMemberNote(nil))
       assert.are.equal("", GTD.FormatNotesWizardMemberNote(""))
       assert.are.equal("", GTD.FormatNotesWizardMemberNote("   "))
+    end)
+
+    it("FormatNotesWizardMemberNote highlights matching substrings inside white quotes", function()
+      assert.are.equal(
+        '|cffffffff"|r|cff00ff00bank|r|cffffffff alt|r|cffffffff"|r',
+        GTD.FormatNotesWizardMemberNote("bank alt", "bank"))
     end)
 
     it("FormatNotesWizardMemberAttribution uses text match in guild note for note kind", function()

@@ -306,8 +306,39 @@ end
 ME.hideManualSuggest = function()
     ME.suggestFrame:Hide()
     for _, btn in ipairs(ME.suggestPool) do
+        btn.suggestUnavailable = nil
+        if Theme.SetHoverTint then
+            Theme.SetHoverTint(btn, false)
+        end
         btn:Hide()
     end
+    if ME.suggestDivider then
+        ME.suggestDivider:Hide()
+    end
+    if ME.suggestUnavailableHeader then
+        ME.suggestUnavailableHeader:Hide()
+    end
+end
+
+--- Hover tint for add-character suggest rows (skipped when unavailable).
+--- Blizzard dropdowns and most addons do not change the hardware cursor for
+--- non-clickable list rows; they disable hover affordance and show why in-text.
+ME.bindSuggestHover = function(btn)
+    if not btn or btn._suggestHoverBound then return end
+    Theme.InstallHoverTint(btn)
+    if btn.EnableMouse then
+        btn:EnableMouse(true)
+    end
+    btn:SetScript("OnEnter", function(self)
+        if self.suggestUnavailable then
+            return
+        end
+        Theme.SetHoverTint(self, true)
+    end)
+    btn:SetScript("OnLeave", function(self)
+        Theme.SetHoverTint(self, false)
+    end)
+    btn._suggestHoverBound = true
 end
 
 ME.currentRosterDisplayNames = function()
@@ -351,15 +382,27 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
     if not names or #names == 0 then return end
     local count = math.min(#names, ME.suggestMax)
     local rosterInfo = (GTD.BuildRosterInfoMap and GTD.BuildRosterInfoMap()) or {}
+    local occupied = (ME.wizardOccupiedNames and ME.wizardOccupiedNames()) or {}
     local query = GTD.NormalizeSearchQuery and GTD.NormalizeSearchQuery(anchorEdit:GetText() or "") or ""
     local topPad = 2
     local nameLineH = 14
     local noteTopPad = 2
     local noteLineH = 12
+    local reasonLineH = 12
     local bottomPad = 2
     local charGap = 0
+    local dividerPad = 4
+    local dividerH = 1
     local y = 2
     local listParent = ME.suggestList or ME.suggestFrame
+    local sawSelectable = false
+    local unavailableSectionStarted = false
+    if ME.suggestDivider then
+        ME.suggestDivider:Hide()
+    end
+    if ME.suggestUnavailableHeader then
+        ME.suggestUnavailableHeader:Hide()
+    end
     ME.suggestFrame:ClearAllPoints()
     ME.suggestFrame:SetPoint("TOPLEFT", anchorEdit, "BOTTOMLEFT", 0, -2)
     ME.suggestFrame:SetPoint("TOPRIGHT", anchorEdit, "BOTTOMRIGHT", 0, -2)
@@ -370,7 +413,60 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
         local info = (key and rosterInfo[key]) or nil
         local noteText = info and info.note or ""
         local hasNote = type(noteText) == "string" and noteText ~= ""
-        local rowH = topPad + nameLineH + (hasNote and (noteTopPad + noteLineH) or 0) + bottomPad
+        local disabledInfo = (GTD.RosterAddDisabledReason
+            and GTD.RosterAddDisabledReason(occupied, charName)) or nil
+        local disabledText = disabledInfo and GTD.FormatRosterAddDisabledReason
+            and GTD.FormatRosterAddDisabledReason(disabledInfo, formatName) or nil
+        if disabledText == "" then disabledText = nil end
+        if disabledInfo then
+            if not unavailableSectionStarted then
+                if sawSelectable then
+                    if not ME.suggestDivider and Theme.CreateSeparator then
+                        ME.suggestDivider = Theme.CreateSeparator(listParent)
+                    end
+                    local sep = ME.suggestDivider
+                    if sep then
+                        if sep.SetParent then
+                            sep:SetParent(listParent)
+                        end
+                        sep:ClearAllPoints()
+                        sep:SetHeight(dividerH)
+                        sep:SetPoint("TOPLEFT", listParent, "TOPLEFT", 6, -(y + dividerPad))
+                        sep:SetPoint("TOPRIGHT", listParent, "TOPRIGHT", -6, -(y + dividerPad))
+                        sep:Show()
+                        y = y + dividerPad + dividerH + dividerPad
+                    end
+                end
+                if not ME.suggestUnavailableHeader then
+                    local header = listParent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+                    header:SetJustifyH("LEFT")
+                    header:SetWordWrap(false)
+                    ME.suggestUnavailableHeader = header
+                end
+                local header = ME.suggestUnavailableHeader
+                if header.SetParent then
+                    header:SetParent(listParent)
+                end
+                header:SetFontObject("GameFontDisableSmall")
+                header:ClearAllPoints()
+                header:SetPoint("TOPLEFT", listParent, "TOPLEFT", 6, -y)
+                header:SetPoint("TOPRIGHT", listParent, "TOPRIGHT", -6, -y)
+                header:SetHeight(nameLineH)
+                header:SetText("|cff808080Unavailable matches:|r")
+                header:Show()
+                y = y + nameLineH + noteTopPad
+                unavailableSectionStarted = true
+            end
+        else
+            sawSelectable = true
+        end
+        local rowH = topPad + nameLineH + bottomPad
+        if hasNote then
+            rowH = rowH + noteTopPad + noteLineH
+        end
+        if disabledText then
+            rowH = rowH + noteTopPad + reasonLineH
+        end
         local btn = ME.suggestPool[i]
         if not btn then
             btn = CreateFrame("Button", nil, listParent)
@@ -378,22 +474,28 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
             nameFS:SetJustifyH("LEFT")
             nameFS:SetWordWrap(false)
             btn.nameFS = nameFS
-            local noteFS = btn:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            local noteFS = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             noteFS:SetJustifyH("LEFT")
             noteFS:SetWordWrap(false)
             btn.noteFS = noteFS
-            if Theme.BindInteractableHover then
-                Theme.BindInteractableHover(btn)
-            else
-                Theme.InstallHoverTint(btn)
-            end
+            local reasonFS = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            reasonFS:SetJustifyH("LEFT")
+            reasonFS:SetWordWrap(false)
+            btn.reasonFS = reasonFS
+            ME.bindSuggestHover(btn)
             ME.suggestPool[i] = btn
-        elseif Theme.BindInteractableHover and not btn:GetScript("OnEnter") then
-            Theme.BindInteractableHover(btn)
+        elseif not btn._suggestHoverBound then
+            ME.bindSuggestHover(btn)
         end
         -- Migrate older single-label pool buttons if present.
         if not btn.nameFS and btn.label then
             btn.nameFS = btn.label
+        end
+        if not btn.reasonFS then
+            local reasonFS = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            reasonFS:SetJustifyH("LEFT")
+            reasonFS:SetWordWrap(false)
+            btn.reasonFS = reasonFS
         end
         if btn.SetParent then
             btn:SetParent(listParent)
@@ -404,11 +506,24 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
             btn.nameFS:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -6, -topPad)
             btn.nameFS:SetHeight(nameLineH)
         end
+        local belowNameAnchor = btn.nameFS
         if btn.noteFS then
+            btn.noteFS:SetFontObject("GameFontHighlightSmall")
             btn.noteFS:ClearAllPoints()
-            btn.noteFS:SetPoint("TOPLEFT", btn.nameFS, "BOTTOMLEFT", 8, -noteTopPad)
+            btn.noteFS:SetPoint("TOPLEFT", belowNameAnchor, "BOTTOMLEFT", 8, -noteTopPad)
             btn.noteFS:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -6, 0)
             btn.noteFS:SetHeight(noteLineH)
+        end
+        if btn.reasonFS then
+            btn.reasonFS:SetFontObject("GameFontHighlightSmall")
+            btn.reasonFS:ClearAllPoints()
+            if hasNote and btn.noteFS then
+                btn.reasonFS:SetPoint("TOPLEFT", btn.noteFS, "BOTTOMLEFT", 0, -noteTopPad)
+            else
+                btn.reasonFS:SetPoint("TOPLEFT", belowNameAnchor, "BOTTOMLEFT", 8, -noteTopPad)
+            end
+            btn.reasonFS:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -6, 0)
+            btn.reasonFS:SetHeight(reasonLineH)
         end
         btn:SetHeight(rowH)
         btn:ClearAllPoints()
@@ -424,7 +539,10 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
         end
         if btn.noteFS then
             if hasNote then
-                if query ~= "" and GTD.FormatTextWithSearchHighlight then
+                if GTD.FormatNotesWizardMemberNote then
+                    btn.noteFS:SetText(GTD.FormatNotesWizardMemberNote(
+                        noteText, query ~= "" and query or nil))
+                elseif query ~= "" and GTD.FormatTextWithSearchHighlight then
                     btn.noteFS:SetText(GTD.FormatTextWithSearchHighlight(noteText, nil, query))
                 else
                     btn.noteFS:SetText(noteText)
@@ -435,12 +553,29 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
                 btn.noteFS:Hide()
             end
         end
+        if btn.reasonFS then
+            if disabledText then
+                btn.reasonFS:SetText(disabledText)
+                btn.reasonFS:Show()
+            else
+                btn.reasonFS:SetText("")
+                btn.reasonFS:Hide()
+            end
+        end
+        btn.suggestUnavailable = disabledInfo and true or nil
+        if disabledInfo and Theme.SetHoverTint then
+            Theme.SetHoverTint(btn, false)
+        end
         do
             local picked = charName
-            btn:SetScript("OnClick", function()
-                ME.hideManualSuggest()
-                if onPick then onPick(picked) end
-            end)
+            if disabledInfo then
+                btn:SetScript("OnClick", nil)
+            else
+                btn:SetScript("OnClick", function()
+                    ME.hideManualSuggest()
+                    if onPick then onPick(picked) end
+                end)
+            end
             btn:EnableMouseWheel(true)
             btn:SetScript("OnMouseWheel", function(_, delta)
                 if not ME.suggestViewport or not ME.suggestViewport.SetOffset then return end
@@ -542,6 +677,11 @@ local tabardBorder = tabardFrame:CreateTexture(nil, "OVERLAY")
 tabardBorder:SetAllPoints(tabardFrame)
 
 local function updateTabard()
+    -- Keep the tabard off while list-header chrome is replaced (notes wizard / recipe detail).
+    if ME.notesWizardActive or selectedCharacter then
+        tabardFrame:Hide()
+        return
+    end
     if not currentGuild() or isBrowsingWithoutGuild() then
         tabardFrame:Hide()
         return
@@ -1335,6 +1475,22 @@ ME.notesEmptyFS:SetJustifyH("CENTER")
 ME.notesEmptyFS:SetJustifyV("MIDDLE")
 ME.notesEmptyFS:Hide()
 
+-- Manual-create intro (above the character list). Hidden in notes/edit modes.
+ME.notesManualDesc = CreateFrame("Frame", nil, ME.notesSlide)
+ME.notesManualDesc:SetPoint("TOPLEFT", ME.notesSlide, "TOPLEFT", 0, 0)
+ME.notesManualDesc:SetPoint("TOPRIGHT", ME.notesSlide, "TOPRIGHT", -ME.notesMembersGutter, 0)
+ME.notesManualDesc:Hide()
+ME.notesManualDescFS = ME.notesManualDesc:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+ME.notesManualDescFS:SetPoint("TOPLEFT", ME.notesManualDesc, "TOPLEFT", 0, 0)
+ME.notesManualDescFS:SetPoint("TOPRIGHT", ME.notesManualDesc, "TOPRIGHT", 0, 0)
+ME.notesManualDescFS:SetJustifyH("LEFT")
+ME.notesManualDescFS:SetJustifyV("TOP")
+ME.notesManualDescFS:SetWordWrap(true)
+ME.notesManualDescFS:SetTextColor(1, 1, 1, 1)
+ME.notesManualDescFS:SetText(
+    (GTD.GetManualGroupCreateDescription and GTD.GetManualGroupCreateDescription())
+        or "Manual groups let you link guildmates who don't use Alt Army as main and alts.")
+
 -- Members table header + scrolling list. Add-character control lives at the bottom of the list.
 ME.notesMembersHeader = CreateFrame("Frame", nil, ME.notesSlide)
 ME.notesMembersHeader:SetPoint("TOPLEFT", ME.notesSlide, "TOPLEFT", 0, 0)
@@ -1367,6 +1523,64 @@ end
 ME.notesScrollHost = CreateFrame("Frame", nil, ME.notesSlide)
 ME.notesScrollHost:SetPoint("TOPLEFT", ME.notesMembersHeader, "BOTTOMLEFT", 0, -4)
 ME.notesScrollHost:SetPoint("BOTTOMRIGHT", ME.notesSlide, "BOTTOMRIGHT", 0, 0)
+
+-- Anchor description / column headers / scroll host for notes, manual, and edit wizards.
+-- Manual create: show intro copy; hide column headers while the group has no characters.
+ME.anchorNotesMembersChrome = function(hasMembers)
+    if not ME.notesMembersHeader or not ME.notesScrollHost then return end
+    local isManual = ME.wizardMode == "manual"
+    local showDesc = isManual and ME.notesManualDesc ~= nil
+    local showHeaders = (not isManual) or (hasMembers and true or false)
+
+    if ME.notesManualDesc then
+        if showDesc then
+            ME.notesManualDesc:ClearAllPoints()
+            ME.notesManualDesc:SetPoint("TOPLEFT", ME.notesSlide, "TOPLEFT", 0, 0)
+            ME.notesManualDesc:SetPoint("TOPRIGHT", ME.notesSlide, "TOPRIGHT",
+                -ME.notesMembersGutter, 0)
+            local width = ME.notesManualDesc:GetWidth() or 0
+            if width < 1 and ME.notesSlide and ME.notesSlide.GetWidth then
+                width = (ME.notesSlide:GetWidth() or 0) - (ME.notesMembersGutter or 0)
+            end
+            if width < 1 then width = 420 end
+            ME.notesManualDescFS:SetWidth(width)
+            local textH = (ME.notesManualDescFS.GetStringHeight
+                and ME.notesManualDescFS:GetStringHeight()) or 28
+            ME.notesManualDesc:SetHeight(math.max(12, textH))
+            ME.notesManualDesc:Show()
+        else
+            ME.notesManualDesc:Hide()
+        end
+    end
+
+    local topAnchor = ME.notesSlide
+    local topRel = "TOPLEFT"
+    local topY = 0
+    if showDesc and ME.notesManualDesc and ME.notesManualDesc:IsShown() then
+        topAnchor = ME.notesManualDesc
+        topRel = "BOTTOMLEFT"
+        topY = -8
+    end
+
+    ME.notesMembersHeader:ClearAllPoints()
+    ME.notesScrollHost:ClearAllPoints()
+    if showHeaders then
+        ME.notesMembersHeader:SetPoint("TOPLEFT", topAnchor, topRel, 0, topY)
+        if showDesc and ME.notesManualDesc and ME.notesManualDesc:IsShown() then
+            ME.notesMembersHeader:SetPoint("TOPRIGHT", ME.notesManualDesc, "BOTTOMRIGHT", 0, topY)
+        else
+            ME.notesMembersHeader:SetPoint("TOPRIGHT", ME.notesSlide, "TOPRIGHT",
+                -ME.notesMembersGutter, 0)
+        end
+        ME.notesMembersHeader:SetHeight(UI.LIST_COL_HEADER_HEIGHT)
+        ME.notesMembersHeader:Show()
+        ME.notesScrollHost:SetPoint("TOPLEFT", ME.notesMembersHeader, "BOTTOMLEFT", 0, -4)
+    else
+        ME.notesMembersHeader:Hide()
+        ME.notesScrollHost:SetPoint("TOPLEFT", topAnchor, topRel, 0, topY)
+    end
+    ME.notesScrollHost:SetPoint("BOTTOMRIGHT", ME.notesSlide, "BOTTOMRIGHT", 0, 0)
+end
 
 ME.notesViewport = Theme.CreateVerticalScrollViewport({
     parent = ME.notesScrollHost,
@@ -1701,6 +1915,7 @@ end
 
 ME.layoutNotesMembers = function()
     if ME.isEditingOwnGroup and ME.isEditingOwnGroup() then
+        if ME.notesManualDesc then ME.notesManualDesc:Hide() end
         ME.notesMembersLabel:Hide()
         if ME.notesScrollHost then ME.notesScrollHost:Hide() end
         if ME.notesAddRow then ME.notesAddRow:Hide() end
@@ -1822,6 +2037,9 @@ ME.layoutNotesMembers = function()
                 }
             end
         end
+    end
+    if ME.anchorNotesMembersChrome then
+        ME.anchorNotesMembersChrome(#displayRows > 0)
     end
     local y = 0
     local removeW = UI.NOTES_ACTION_COL_WIDTH
@@ -2155,6 +2373,7 @@ end
 ME.fillNotesProposalForm = function()
     local proposal = ME.currentNotesProposal()
     if not proposal then
+        if ME.notesManualDesc then ME.notesManualDesc:Hide() end
         ME.notesMembersLabel:Hide()
         if ME.notesAddRow then ME.notesAddRow:Hide() end
         ME.notesAcceptBtn:Hide()
@@ -2181,6 +2400,7 @@ ME.fillNotesProposalForm = function()
     if ME.updateNotesWizardTitle then ME.updateNotesWizardTitle() end
     -- Own-group settings: pin/override only — no member table or add control.
     if ME.isEditingOwnGroup and ME.isEditingOwnGroup() then
+        if ME.notesManualDesc then ME.notesManualDesc:Hide() end
         ME.notesMembersLabel:Hide()
         if ME.notesScrollHost then ME.notesScrollHost:Hide() end
         if ME.notesAddRow then ME.notesAddRow:Hide() end
@@ -2188,7 +2408,7 @@ ME.fillNotesProposalForm = function()
         return
     end
     if ME.notesScrollHost then ME.notesScrollHost:Show() end
-    ME.notesMembersLabel:Show()
+    -- Header/description visibility is owned by layoutNotesMembers via anchorNotesMembersChrome.
     if ME.notesViewport and ME.notesViewport.SetOffset then
         ME.notesViewport.SetOffset(0)
     end
@@ -2249,9 +2469,16 @@ ME.acceptCurrentNotesProposal = function()
 end
 
 ME.advanceNotesWizard = function(accepted)
+    local function closeWithSlide()
+        if ME.slideSwap then
+            ME.slideSwap(function() ME.closeNotesWizard(true) end)
+        else
+            ME.closeNotesWizard(true)
+        end
+    end
     if ME.wizardMode == "edit" then
         -- Settings apply immediately; footer actions are unused.
-        ME.closeNotesWizard(true)
+        closeWithSlide()
         return
     end
     if accepted then
@@ -2259,7 +2486,8 @@ ME.advanceNotesWizard = function(accepted)
     end
     ME.notesIndex = ME.notesIndex + 1
     if ME.notesIndex > #ME.notesProposals then
-        ME.closeNotesWizard(true)
+        -- Same back-slide as notesBackBtn (manual Cancel / finished scan).
+        closeWithSlide()
         return
     end
     ME.fillNotesProposalForm()
@@ -2371,13 +2599,12 @@ ME.openScanReview = function()
     ME.editSourceGroup = nil
     selectedCharacter = nil
     selectedCharacterKey = nil
+    -- Only hide the sliding page frame; child Hide() would leave an empty listBody
+    -- when SlideTransition re-Shows it for the outgoing animation.
     if ME.listBody then ME.listBody:Hide() end
-    listColHeader:Hide()
-    listViewport:Hide()
     if ME.updateListHeaderFade then
         ME.updateListHeaderFade()
     end
-    ME.listFooter:Hide()
     ME.showNotesWizardChrome()
     ME.notesWizard:Show()
     ME.fillNotesProposalForm()
@@ -2392,12 +2619,9 @@ ME.openManualCreate = function()
     selectedCharacter = nil
     selectedCharacterKey = nil
     if ME.listBody then ME.listBody:Hide() end
-    listColHeader:Hide()
-    listViewport:Hide()
     if ME.updateListHeaderFade then
         ME.updateListHeaderFade()
     end
-    ME.listFooter:Hide()
     ME.showNotesWizardChrome()
     ME.notesWizard:Show()
     ME.fillNotesProposalForm()
@@ -2422,12 +2646,9 @@ ME.openGroupEdit = function(group)
     selectedCharacter = nil
     selectedCharacterKey = nil
     if ME.listBody then ME.listBody:Hide() end
-    listColHeader:Hide()
-    listViewport:Hide()
     if ME.updateListHeaderFade then
         ME.updateListHeaderFade()
     end
-    ME.listFooter:Hide()
     ME.showNotesWizardChrome()
     ME.notesWizard:Show()
     ME.fillNotesProposalForm()
@@ -2480,34 +2701,77 @@ ME.collectOwnCharacterNames = function()
 end
 
 --- Occupied names for the wizard add-character autocomplete.
+--- Values are reason strings or `{ groupName, classFile }` so the suggest list can
+--- explain why a match cannot be selected.
 ME.wizardOccupiedNames = function()
+    local function proposalGroupReason(proposal)
+        if not proposal then return { groupName = "?" } end
+        local groupName = proposal.overrideName
+        if type(groupName) ~= "string" or groupName == "" then
+            groupName = proposal.displayName
+        end
+        if type(groupName) ~= "string" or groupName == "" then
+            groupName = proposal.main
+        end
+        if type(groupName) ~= "string" or groupName == "" then
+            groupName = "?"
+        end
+        local classFile
+        if proposal.main and ME.rosterClassLevel then
+            classFile = ME.rosterClassLevel(proposal.main)
+        end
+        return { groupName = groupName, classFile = classFile }
+    end
+
     if ME.wizardMode == "manual" or ME.wizardMode == "edit" then
-        local occupied = GTD.CollectOccupiedNames
-            and GTD.CollectOccupiedNames(ME.currentDisplayMembers()) or {}
+        local occupied = (GTD.BuildOccupiedGroupReasons
+            and GTD.BuildOccupiedGroupReasons(ME.currentDisplayMembers(), function(group)
+                local GSS = AltArmy.GuildShareSettings
+                if not GSS or not GSS.GetGroupOverrideName then return nil end
+                return GSS.GetGroupOverrideName(group.main, groupPrefsRealm(group))
+            end)) or {}
         local proposal = ME.currentNotesProposal()
         if proposal then
+            local reason = proposalGroupReason(proposal)
             if proposal.main and proposal.main ~= "" then
                 local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(proposal.main)
-                if key then occupied[key] = true end
+                if key then occupied[key] = reason end
             end
             for _, member in ipairs(proposal.members or {}) do
                 if member and member.name then
                     local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(member.name)
-                    if key then occupied[key] = true end
+                    if key then occupied[key] = reason end
                 end
             end
             for _, name in ipairs(proposal.order or {}) do
                 local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(name)
-                if key then occupied[key] = true end
+                if key then occupied[key] = reason end
             end
         end
         return occupied
     end
-    local GNP = AltArmy.GuildNoteAltParser
-    local occupied = (GNP and GNP.CollectProposalOccupiedNames
-        and GNP.CollectProposalOccupiedNames(ME.notesProposals)) or {}
+    local occupied = {}
+    for _, proposal in ipairs(ME.notesProposals or {}) do
+        local reason = proposalGroupReason(proposal)
+        if proposal.main and proposal.main ~= "" then
+            local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(proposal.main)
+            if key then occupied[key] = reason end
+        end
+        for _, member in ipairs(proposal.members or {}) do
+            if member and member.name then
+                local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(member.name)
+                if key then occupied[key] = reason end
+            end
+        end
+        for _, known in ipairs(proposal.knownMembers or {}) do
+            if known and known.name then
+                local key = GTD.NormalizeRosterName and GTD.NormalizeRosterName(known.name)
+                if key then occupied[key] = reason end
+            end
+        end
+    end
     for key, on in pairs(ME.collectOwnCharacterNames()) do
-        if on then occupied[key] = true end
+        if on then occupied[key] = "Your character" end
     end
     return occupied
 end
@@ -2601,9 +2865,21 @@ ME.notesAddEdit:SetScript("OnEnterPressed", function(box)
             and GTD.FilterRosterNamesForAdd(ME.currentRosterDisplayNames(), text, occupied, {
                 rosterInfo = rosterInfo,
             }) or {}
-        local pick = (#matches == 1) and matches[1] or nil
+        local selectable = {}
+        for _, name in ipairs(matches) do
+            local disabled = GTD.RosterAddDisabledReason
+                and GTD.RosterAddDisabledReason(occupied, name)
+            if not disabled then
+                selectable[#selectable + 1] = name
+            end
+        end
+        local pick = (#selectable == 1) and selectable[1] or nil
         if not pick and GTD.ResolveRosterName then
             pick = GTD.ResolveRosterName(text, rosterInfo)
+            if pick and GTD.RosterAddDisabledReason
+                and GTD.RosterAddDisabledReason(occupied, pick) then
+                pick = nil
+            end
         end
         if pick then
             added = ME.addWizardMember(pick) and true or false
@@ -4022,9 +4298,9 @@ showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredR
         clearRecipeFocus()
     end
     setListHeaderVisible(false)
+    -- Hide only the sliding page; keep list children shown so an outgoing slide
+    -- still paints the character list (SlideTransition re-Shows listBody).
     if ME.listBody then ME.listBody:Hide() end
-    listColHeader:Hide()
-    listViewport:Hide()
     emptyText:Hide()
     updateListHeaderFade()
     recipeBody:Show()
@@ -4064,6 +4340,17 @@ ME.slideSwap = function(switchFn)
     local toPage = visiblePage()
     if not fromPage or not toPage or fromPage == toPage then
         return
+    end
+    -- switchFn may leave listBody hidden; restore list chrome so the outgoing
+    -- page still shows rows/header/footer while SlideTransition animates it.
+    if fromPage == ME.listBody then
+        listColHeader:Show()
+        listViewport:Show()
+        if ME.listFooter then
+            ME.listFooter:Show()
+            if ME.layoutListFooterButtons then ME.layoutListFooterButtons() end
+        end
+        if ME.updateListHeaderFade then ME.updateListHeaderFade() end
     end
     local direction = (toPage == ME.listBody) and "back" or "forward"
     local width = (listView.GetWidth and listView:GetWidth()) or 0
