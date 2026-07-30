@@ -392,6 +392,54 @@ describe("SummaryData", function()
       assert.is_true(found, "expected an instruction containing 'Alchemy'")
     end)
 
+    it("adds Open your profession window when recipes are marked stale after learn", function()
+      local char = {
+        dataVersions = { character = 1, professions = 1 },
+        Professions = {
+          Alchemy = { rank = 300, maxRank = 375, Recipes = { [11449] = { color = 1 } } },
+          Mining = { rank = 300, maxRank = 375, Recipes = {} },
+        },
+        professionsNeedingRecipeScan = { Alchemy = true, Mining = true },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.HasModuleData = function(_, c, mod) return (c.dataVersions and c.dataVersions[mod]) == 1 end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      assert.is_true(out.hasMissing)
+      local foundAlchemy, foundMining = false, false
+      for _, line in ipairs(out.instructions) do
+        if line:find("Alchemy", 1, true) then foundAlchemy = true end
+        if line:find("Mining", 1, true) then foundMining = true end
+      end
+      assert.is_true(foundAlchemy, "expected Alchemy rescan instruction")
+      assert.is_false(foundMining, "gathering professions should not warn for stale recipes")
+    end)
+
+    it("dedupes empty-recipes and stale-recipe instructions for the same profession", function()
+      local char = {
+        dataVersions = { character = 1, professions = 1 },
+        Professions = { Alchemy = { rank = 50, maxRank = 300, Recipes = {} } },
+        professionsNeedingRecipeScan = { Alchemy = true },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.HasModuleData = function(_, c, mod) return (c.dataVersions and c.dataVersions[mod]) == 1 end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function() return 0 end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      local count = 0
+      for _, line in ipairs(out.instructions) do
+        if line:find("Alchemy", 1, true) then count = count + 1 end
+      end
+      assert.are.equal(1, count)
+    end)
+
     it("adds Open your Poisons window when poison skill rank was not captured", function()
       local char = {
         classFile = "ROGUE",

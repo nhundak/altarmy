@@ -154,8 +154,18 @@ local function buildResolvers(author)
     return function(s)
         return GSD.GetMainOf(stripRealm(s))
     end, function(_, main)
-        local mainEntry = GSD.FindCharacter and GSD.FindCharacter(main, senderEntry and senderEntry.realm)
-        return mainEntry and mainEntry.classFile or nil
+        local realm = senderEntry and senderEntry.realm
+        local mainEntry = GSD.FindCharacter and GSD.FindCharacter(main, realm)
+        if mainEntry and mainEntry.classFile and mainEntry.classFile ~= "" then
+            return mainEntry.classFile
+        end
+        -- Manual-only mains live under .manual, not .chars.
+        local GMG = AltArmy.GuildManualGroups
+        local mapping = GMG and GMG.GetMapping and GMG.GetMapping(main, realm) or nil
+        if mapping and type(mapping.classFile) == "string" and mapping.classFile ~= "" then
+            return mapping.classFile
+        end
+        return nil
     end, function(_, main)
         local realm = senderEntry and senderEntry.realm
         local override = GSS and GSS.GetGroupOverrideName and GSS.GetGroupOverrideName(main, realm) or nil

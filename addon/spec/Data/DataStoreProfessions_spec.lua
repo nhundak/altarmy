@@ -707,4 +707,168 @@ describe("DataStoreProfessions", function()
       assert.is_not_nil(char.Professions.Alchemy)
     end)
   end)
+
+  describe("OnNewRecipeLearned", function()
+    local deferredScanCalls
+    local craftScanCalls
+
+    local function mockPlayer(name, realm)
+      _G.UnitName = function()
+        return name
+      end
+      _G.GetRealmName = function()
+        return realm
+      end
+      _G.time = function()
+        return 1000
+      end
+    end
+
+    before_each(function()
+      deferredScanCalls = 0
+      craftScanCalls = 0
+      AltArmy.GuildShareComm = {
+        PROFESSION_BROADCAST_DEBOUNCE_SEC = 30,
+        ScheduleBroadcast = function() end,
+      }
+      _G.AltArmyTBC_Data = { Characters = {} }
+      mockPlayer("TestPlayer", "TestRealm")
+      _G.GetTradeSkillLine = function()
+        return "UNKNOWN"
+      end
+      _G.GetCraftSkillLine = nil
+      DS.RunDeferredRecipeScan = function()
+        deferredScanCalls = deferredScanCalls + 1
+      end
+      DS.ScanCraftRecipes = function()
+        craftScanCalls = craftScanCalls + 1
+      end
+    end)
+
+    it("marks professions stale even when recipe id is nil", function()
+      local char = DS:_GetCurrentCharTable()
+      char.Professions = {
+        Enchanting = { rank = 300, maxRank = 375, Recipes = { [1] = true } },
+      }
+      DS:OnNewRecipeLearned(nil)
+      assert.is_true(char.professionsNeedingRecipeScan.Enchanting)
+      assert.are.equal(0, deferredScanCalls)
+    end)
+
+    it("runs deferred trade-skill scan when TradeSkill UI is open", function()
+      _G.GetTradeSkillLine = function()
+        return "Alchemy", 300, 375
+      end
+      local char = DS:_GetCurrentCharTable()
+      char.Professions = { Alchemy = { rank = 300, maxRank = 375, Recipes = {} } }
+      DS:OnNewRecipeLearned(11449)
+      assert.are.equal(1, deferredScanCalls)
+      assert.are.equal(0, craftScanCalls)
+      assert.is_nil(char.professionsNeedingRecipeScan)
+    end)
+
+    it("runs craft scan when Craft UI is open and TradeSkill is not", function()
+      _G.GetTradeSkillLine = function()
+        return "UNKNOWN"
+      end
+      _G.GetCraftSkillLine = function()
+        return "Enchanting"
+      end
+      local char = DS:_GetCurrentCharTable()
+      char.Professions = { Enchanting = { rank = 300, maxRank = 375, Recipes = {} } }
+      DS:OnNewRecipeLearned(7418)
+      assert.are.equal(0, deferredScanCalls)
+      assert.are.equal(1, craftScanCalls)
+      assert.is_nil(char.professionsNeedingRecipeScan)
+    end)
+
+    it("marks craftable professions stale when UI is closed", function()
+      local char = DS:_GetCurrentCharTable()
+      char.Professions = {
+        Alchemy = { rank = 300, maxRank = 375, Recipes = { [11449] = { color = 1 } } },
+        Tailoring = { rank = 375, maxRank = 375, Recipes = { [1] = true } },
+        Mining = { rank = 300, maxRank = 375, Recipes = {} },
+        Fishing = { rank = 300, maxRank = 375, Recipes = {} },
+      }
+      DS:OnNewRecipeLearned(18560)
+      assert.is_true(char.professionsNeedingRecipeScan.Alchemy)
+      assert.is_true(char.professionsNeedingRecipeScan.Tailoring)
+      assert.is_nil(char.professionsNeedingRecipeScan.Mining)
+      assert.is_nil(char.professionsNeedingRecipeScan.Fishing)
+      assert.are.equal(0, deferredScanCalls)
+    end)
+
+    it("ClearProfessionRecipesStale removes one profession and drops empty table", function()
+      local char = DS:_GetCurrentCharTable()
+      char.professionsNeedingRecipeScan = { Alchemy = true, Tailoring = true }
+      DS:ClearProfessionRecipesStale("Alchemy", char)
+      assert.is_nil(char.professionsNeedingRecipeScan.Alchemy)
+      assert.is_true(char.professionsNeedingRecipeScan.Tailoring)
+      DS:ClearProfessionRecipesStale("Tailoring", char)
+      assert.is_nil(char.professionsNeedingRecipeScan)
+    end)
+  end)
+
+  describe("IsProfessionRecipeLearnSystemMessage", function()
+    it("matches ERR_LEARN_RECIPE_S and English recipe fallback", function()
+      _G.ERR_LEARN_RECIPE_S = "You have learned how to create a new item: %s."
+      _G.ERR_LEARN_SPELL_S = "You have learned a new spell: %s."
+      assert.is_true(DS:IsProfessionRecipeLearnSystemMessage(
+        "You have learned how to create a new item: Major Healing Potion."))
+      assert.is_true(DS:IsProfessionRecipeLearnSystemMessage(
+        "You have learned how to create a new item: Mooncloth."))
+    end)
+
+    it("matches enchant formula learn lines but not arbitrary new spells", function()
+      _G.ERR_LEARN_RECIPE_S = "You have learned how to create a new item: %s."
+      _G.ERR_LEARN_SPELL_S = "You have learned a new spell: %s."
+      assert.is_true(DS:IsProfessionRecipeLearnSystemMessage(
+        "You have learned a new spell: Enchant Cloak - Greater Shadow Resistance."))
+      assert.is_false(DS:IsProfessionRecipeLearnSystemMessage(
+        "You have learned a new spell: Fireball."))
+      assert.is_false(DS:IsProfessionRecipeLearnSystemMessage("Some other system message."))
+    end)
+  end)
+
+  describe("OnProfessionLearnSystemMessage", function()
+    local function mockPlayer(name, realm)
+      _G.UnitName = function()
+        return name
+      end
+      _G.GetRealmName = function()
+        return realm
+      end
+    end
+
+    before_each(function()
+      _G.AltArmyTBC_Data = { Characters = {} }
+      mockPlayer("TestPlayer", "TestRealm")
+      _G.GetTradeSkillLine = function()
+        return "UNKNOWN"
+      end
+      _G.GetCraftSkillLine = nil
+      _G.ERR_LEARN_SPELL_S = "You have learned a new spell: %s."
+      _G.ERR_LEARN_RECIPE_S = "You have learned how to create a new item: %s."
+    end)
+
+    it("marks professions stale for enchant learn system chat when Craft UI is closed", function()
+      local char = DS:_GetCurrentCharTable()
+      char.Professions = {
+        Enchanting = { rank = 350, maxRank = 375, Recipes = { [7418] = true } },
+      }
+      local ok = DS:OnProfessionLearnSystemMessage(
+        "You have learned a new spell: Enchant Cloak - Greater Shadow Resistance.")
+      assert.is_true(ok)
+      assert.is_true(char.professionsNeedingRecipeScan.Enchanting)
+    end)
+
+    it("ignores unrelated system chat", function()
+      local char = DS:_GetCurrentCharTable()
+      char.Professions = {
+        Enchanting = { rank = 350, maxRank = 375, Recipes = { [7418] = true } },
+      }
+      assert.is_false(DS:OnProfessionLearnSystemMessage("You have learned a new spell: Fireball."))
+      assert.is_nil(char.professionsNeedingRecipeScan)
+    end)
+  end)
 end)

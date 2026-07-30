@@ -770,6 +770,7 @@ function DS:ScanRecipes()
     char.dataVersions.professions = DATA_VERSIONS.professions
     self:ScanCooldownSpecializations(char)
     self:ScanProfessionSpecializations(char)
+    self:ClearProfessionRecipesStale(tradeskillName, char)
     notifyRecipesChanged()
 end
 
@@ -820,6 +821,7 @@ function DS:ScanCraftRecipes()
     if self.ScanCraftCooldownExpiry then
         self:ScanCraftCooldownExpiry()
     end
+    self:ClearProfessionRecipesStale(craftName, char)
     notifyRecipesChanged()
 end
 
@@ -975,6 +977,170 @@ function DS:IsRecipeKnownAnyProfession(char, spellID)
         end
     end
     return false
+end
+
+local function isTradeSkillUiOpen()
+    if not GetTradeSkillLine then
+        return false
+    end
+    local name = GetTradeSkillLine()
+    return name ~= nil and name ~= "" and name ~= "UNKNOWN"
+end
+
+local function isCraftUiOpen()
+    if not GetCraftSkillLine then
+        return false
+    end
+    local name = GetCraftSkillLine(1)
+    return name ~= nil and name ~= ""
+end
+
+-- Match SummaryData: gathering/secondary skills have no recipe window to open.
+local PROFESSIONS_NO_RECIPE_SCAN_WARNING = {
+    Fishing = true,
+    Riding = true,
+    Herbalism = true,
+    Mining = true,
+    Skinning = true,
+}
+
+--- Capture %s from a WoW global format string (e.g. ERR_LEARN_SPELL_S).
+local function captureGlobalFormat(fmt, msg)
+    if type(fmt) ~= "string" or type(msg) ~= "string" then
+        return nil
+    end
+    local prefix, suffix = fmt:match("^(.*)%%s(.*)$")
+    if not prefix then
+        return nil
+    end
+    local function esc(s)
+        return (s:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1"))
+    end
+    return msg:match("^" .. esc(prefix) .. "(.+)" .. esc(suffix) .. "$")
+end
+
+local function stripWowFormatting(text)
+    if type(text) ~= "string" then
+        return ""
+    end
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", "")
+    text = text:gsub("|r", "")
+    text = text:gsub("|H.-|h%[(.-)%]|h", "%1")
+    text = text:gsub("|T.-|t", "")
+    return text
+end
+
+--- Enchant formulas use ERR_LEARN_SPELL_S ("You have learned a new spell: …"), not the recipe string.
+local function isEnchantFormulaLearnName(name)
+    name = stripWowFormatting(name)
+    if name == "" then
+        return false
+    end
+    -- "Enchant Cloak - Greater Shadow Resistance", "Enchant Weapon - Mongoose", etc.
+    if name:find("^Enchant ") then
+        return true
+    end
+    return false
+end
+
+--- True when a system chat line indicates a profession recipe/formula was learned.
+--- TBC Classic often does not fire NEW_RECIPE_LEARNED; chat is the reliable signal.
+function DS:IsProfessionRecipeLearnSystemMessage(msg)
+    if type(msg) ~= "string" or msg == "" then
+        return false
+    end
+    local recipeName = captureGlobalFormat(_G.ERR_LEARN_RECIPE_S, msg)
+    if recipeName then
+        return true
+    end
+    local spellName = captureGlobalFormat(_G.ERR_LEARN_SPELL_S, msg)
+    if spellName and isEnchantFormulaLearnName(spellName) then
+        return true
+    end
+    -- English fallbacks for unit tests / missing globals
+    recipeName = msg:match("^You have learned how to create a new item: (.+)%.$")
+    if recipeName then
+        return true
+    end
+    spellName = msg:match("^You have learned a new spell: (.+)%.$")
+    if spellName and isEnchantFormulaLearnName(spellName) then
+        return true
+    end
+    return false
+end
+
+--- Mark craftable professions as needing a recipe-window rescan (Summary ! warning).
+--- Used when a recipe is learned without the profession UI open (unknown which prof).
+function DS:MarkProfessionRecipesStale(char)
+    char = char or GetCurrentCharTable()
+    if not char or type(char.Professions) ~= "table" then
+        return
+    end
+    local needing = char.professionsNeedingRecipeScan
+    if type(needing) ~= "table" then
+        needing = {}
+        char.professionsNeedingRecipeScan = needing
+    end
+    for profName, prof in pairs(char.Professions) do
+        if type(profName) == "string" and not PROFESSIONS_NO_RECIPE_SCAN_WARNING[profName] then
+            local rank = (prof and prof.rank) or 0
+            if rank > 0 then
+                needing[profName] = true
+            end
+        end
+    end
+end
+
+--- Clear the Summary rescan warning for one profession after a successful recipe scan.
+function DS:ClearProfessionRecipesStale(profName, char)
+    if not profName then
+        return
+    end
+    char = char or GetCurrentCharTable()
+    if not char or type(char.professionsNeedingRecipeScan) ~= "table" then
+        return
+    end
+    char.professionsNeedingRecipeScan[profName] = nil
+    if not next(char.professionsNeedingRecipeScan) then
+        char.professionsNeedingRecipeScan = nil
+    end
+end
+
+--- Recipe learned (event or system chat): scan if UI open, else mark Summary stale.
+function DS:OnRecipeLearnDetected()
+    local char = GetCurrentCharTable()
+    if not char then
+        return
+    end
+
+    if isTradeSkillUiOpen() then
+        if self.RunDeferredRecipeScan then
+            self:RunDeferredRecipeScan()
+        end
+        return
+    end
+    if isCraftUiOpen() then
+        if self.ScanCraftRecipes then
+            self:ScanCraftRecipes()
+        end
+        return
+    end
+
+    self:MarkProfessionRecipesStale(char)
+end
+
+--- Handle NEW_RECIPE_LEARNED when the client fires it (optional recipeID).
+function DS:OnNewRecipeLearned(_recipeID)
+    self:OnRecipeLearnDetected()
+end
+
+--- Handle CHAT_MSG_SYSTEM learn lines (primary signal on TBC Classic).
+function DS:OnProfessionLearnSystemMessage(msg)
+    if not self:IsProfessionRecipeLearnSystemMessage(msg) then
+        return false
+    end
+    self:OnRecipeLearnDetected()
+    return true
 end
 
 local function RecipeIdFromTradeLink(link)

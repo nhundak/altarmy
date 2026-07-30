@@ -71,6 +71,16 @@ describe("GuildManualGroups", function()
       assert.is_nil(GMG.GetMapping("Nobody", "R"))
     end)
 
+    it("searches all realms when realm is omitted", function()
+      GMG.SetMapping("Bobsalt", "OtherRealm", "Bob", {
+        guild = "G", classFile = "WARRIOR", level = 60,
+      })
+      local m = GMG.GetMapping("Bobsalt")
+      assert.truthy(m)
+      assert.are.equal("Bob", m.main)
+      assert.are.equal("WARRIOR", m.classFile)
+    end)
+
     it("RemoveMapping clears a single entry", function()
       GMG.SetMapping("Alt", "R", "Main", { guild = "G" })
       GMG.RemoveMapping("Alt", "R")

@@ -90,16 +90,26 @@ end
 
 function GMG.GetMapping(name, realm)
     if type(name) ~= "string" or name == "" then return nil end
-    local rt = realmTable(realm, false)
-    if not rt then return nil end
-    local entry = rt[name]
-    if entry then return entry end
     local nameKey = normalizeKey(name)
-    if not nameKey then return nil end
-    for n, e in pairs(rt) do
-        if normalizeKey(n) == nameKey then
-            return e
+    local function fromRealm(rt)
+        if not rt then return nil end
+        local entry = rt[name]
+        if entry then return entry end
+        if not nameKey then return nil end
+        for n, e in pairs(rt) do
+            if normalizeKey(n) == nameKey then
+                return e
+            end
         end
+        return nil
+    end
+    if realm then
+        return fromRealm(realmTable(realm, false))
+    end
+    local d = ensure()
+    for _, rt in pairs(d.manual) do
+        local hit = fromRealm(rt)
+        if hit then return hit end
     end
     return nil
 end

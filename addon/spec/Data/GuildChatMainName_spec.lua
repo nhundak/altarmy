@@ -125,6 +125,56 @@ describe("GuildChatMainName", function()
     end)
   end)
 
+  describe("FilterMessage manual-group class color", function()
+    local savedDebug
+    local savedGSS
+    local savedGSD
+    local savedGMG
+
+    setup(function()
+      savedDebug = AltArmy.Debug
+      savedGSS = AltArmy.GuildShareSettings
+      savedGSD = AltArmy.GuildShareData
+      savedGMG = AltArmy.GuildManualGroups
+      AltArmy.Debug = { IsGuildShareEnabled = function() return true end }
+      AltArmy.GuildShareSettings = {
+        IsSharingEnabled = function() return true end,
+        IsChatInsertionEnabled = function() return true end,
+        IsChatInsertionChannelEnabled = function(key) return key == "guild" end,
+        IsChatInsertionClassColorEnabled = function() return true end,
+      }
+      -- Manual-only: main resolved via GetMainOf, but FindCharacter has no .chars entry.
+      AltArmy.GuildShareData = {
+        GetMainOf = function() return "Mainman" end,
+        FindCharacter = function() return nil end,
+      }
+      AltArmy.GuildManualGroups = {
+        GetMapping = function(name)
+          if name == "Mainman" then
+            return { main = "Mainman", classFile = "WARRIOR" }
+          end
+          return nil
+        end,
+      }
+    end)
+
+    teardown(function()
+      AltArmy.Debug = savedDebug
+      AltArmy.GuildShareSettings = savedGSS
+      AltArmy.GuildShareData = savedGSD
+      AltArmy.GuildManualGroups = savedGMG
+    end)
+
+    it("colors the main from the manual mapping classFile when FindCharacter misses", function()
+      local out = GCM.FilterMessage("hello", "Alt", "guild")
+      assert.is_true(out and out:find("|cff", 1, true) ~= nil, out)
+      assert.is_true(out:find("Mainman", 1, true) ~= nil, out)
+      -- Warrior class color, not white fallback.
+      assert.is_true(out:find("|cffc79c6eMainman|r", 1, true) ~= nil, out)
+      assert.is_false(out:find("|cffffffffMainman|r", 1, true) ~= nil, out)
+    end)
+  end)
+
   describe("Communities guild UI helpers", function()
     local savedDebug
     local savedGSS

@@ -202,6 +202,8 @@ frame:RegisterEvent("TRADE_SKILL_CLOSE")
 frame:RegisterEvent("TRADE_SKILL_UPDATE")
 frame:RegisterEvent("CRAFT_SHOW")
 frame:RegisterEvent("CHAT_MSG_SKILL")
+frame:RegisterEvent("CHAT_MSG_SYSTEM")
+frame:RegisterEvent("NEW_RECIPE_LEARNED")
 frame:RegisterEvent("UPDATE_FACTION")
 frame:RegisterEvent("MAIL_SHOW")
 frame:RegisterEvent("MAIL_INBOX_UPDATE")
@@ -518,6 +520,19 @@ frame:SetScript("OnEvent", function(_, event, ...)
     -- RunDeferredRecipeScan triggers more UPDATE events and can cause an infinite loop/crash.
     -- (DataStore_Crafts only runs full scan once after TRADE_SKILL_SHOW via a timer.)
     if event == "TRADE_SKILL_UPDATE" then
+        return
+    end
+    if event == "NEW_RECIPE_LEARNED" then
+        if DS.OnNewRecipeLearned then
+            DS:OnNewRecipeLearned(tonumber((...)))
+        end
+        return
+    end
+    if event == "CHAT_MSG_SYSTEM" then
+        local msg = ...
+        if DS.OnProfessionLearnSystemMessage then
+            DS:OnProfessionLearnSystemMessage(msg)
+        end
         return
     end
     if event == "CHAT_MSG_SKILL" then

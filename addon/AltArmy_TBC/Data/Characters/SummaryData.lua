@@ -419,14 +419,17 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
         end
     end
 
-    -- Per-profession: if we have profession data but a skill has no recipes, add "Open your X window"
+    -- Per-profession: no recipes yet, or recipes marked stale after NEW_RECIPE_LEARNED without UI.
     -- (skip Fishing, Riding, Herbalism, Mining, Skinning)
     if DS.HasModuleData and DS:HasModuleData(char, "professions") and DS.GetProfessions and DS.GetNumRecipes then
         local professions = DS:GetProfessions(char)
+        local needingRescan = char.professionsNeedingRecipeScan
         for profName, prof in pairs(professions or {}) do
             if not PROFESSIONS_NO_WARNING[profName] then
                 local rank = (prof and prof.rank) or 0
-                if rank > 0 and DS:GetNumRecipes(char, profName) == 0 then
+                local needsOpen = (rank > 0 and DS:GetNumRecipes(char, profName) == 0)
+                    or (type(needingRescan) == "table" and needingRescan[profName])
+                if needsOpen then
                     addUniqueInstruction(out, "* Open your " .. profName .. " window")
                 end
             end
