@@ -9,6 +9,8 @@ local lookupCache = {}
 local profKeyCache = {}
 -- Static CraftLib fields keyed by profession+recipeID(+resultItemID); difficulty stays per skillRank.
 local enrichStaticCache = {}
+-- recipeName -> { professionName, recipeID, resultItemID } or false (miss)
+local recipeNameProfCache = {}
 
 local MAX_TBC_SKILL = 375
 local SPELL_ID_POISONS = 2842
@@ -320,6 +322,100 @@ function RCL.LookupRecipe(professionName, recipeID, resultItemID)
     return recipe
 end
 
+local function professionDisplayName(CraftLib, professionKey)
+    if not professionKey then
+        return nil
+    end
+    local data = CraftLib:GetProfession(professionKey)
+    if data and type(data.name) == "string" and data.name ~= "" then
+        return data.name
+    end
+    return nil
+end
+
+local function learnInfoFromRecipe(professionName, recipe)
+    if type(professionName) ~= "string" or professionName == "" or not recipe then
+        return nil
+    end
+    local recipeID = tonumber(recipe.id)
+    if not recipeID then
+        return nil
+    end
+    return {
+        professionName = professionName,
+        recipeID = recipeID,
+        resultItemID = tonumber(recipe.itemId),
+    }
+end
+
+--- Resolve CraftLib learn metadata (profession + primary recipe spell id) for guild share / stale mark.
+function RCL.FindRecipeLearnInfo(spellId, recipeName)
+    if not RCL.IsAvailable() then
+        return nil
+    end
+    local CraftLib = CraftLibApi()
+    spellId = tonumber(spellId)
+    if spellId then
+        for key, data in pairs(CraftLib:GetProfessions()) do
+            local recipe = CraftLib:GetRecipeBySpellId(key, spellId)
+            if recipe then
+                return learnInfoFromRecipe(professionDisplayName(CraftLib, key) or (data and data.name), recipe)
+            end
+        end
+        local producers = CraftLib:GetRecipeByProduct(spellId)
+        if producers and producers[1] and producers[1].recipe then
+            local key = producers[1].professionKey
+            return learnInfoFromRecipe(professionDisplayName(CraftLib, key), producers[1].recipe)
+        end
+    end
+    if type(recipeName) ~= "string" or recipeName == "" then
+        return nil
+    end
+    local cached = recipeNameProfCache[recipeName]
+    if cached ~= nil then
+        if cached == false then
+            return nil
+        end
+        return cached
+    end
+    for key, data in pairs(CraftLib:GetProfessions()) do
+        local recipes = CraftLib:GetRecipes(key)
+        for i = 1, #(recipes or {}) do
+            local recipe = recipes[i]
+            if recipe and recipe.name == recipeName then
+                local info = learnInfoFromRecipe(
+                    (data and data.name) or professionDisplayName(CraftLib, key),
+                    recipe
+                )
+                if info then
+                    recipeNameProfCache[recipeName] = info
+                    return info
+                end
+            end
+        end
+    end
+    recipeNameProfCache[recipeName] = false
+    return nil
+end
+
+--- Resolve CraftLib profession display name for a learned spell/item id.
+function RCL.FindProfessionNameBySpellId(spellId)
+    local info = RCL.FindRecipeLearnInfo(spellId, nil)
+    return info and info.professionName or nil
+end
+
+--- Resolve CraftLib profession display name by exact recipe.name match.
+function RCL.FindProfessionNameByRecipeName(recipeName)
+    local info = RCL.FindRecipeLearnInfo(nil, recipeName)
+    return info and info.professionName or nil
+end
+
+--- Map a learn signal (spell/item id and/or chat recipe name) to a profession display name.
+function RCL.ResolveLearnedRecipeProfession(spellId, recipeName)
+    local info = RCL.FindRecipeLearnInfo(spellId, recipeName)
+    return info and info.professionName or nil
+end
+
 function RCL.GetDifficulty(recipe, playerSkill)
     if not recipe then
         return nil
@@ -465,6 +561,7 @@ function RCL.ClearCaches()
     clearTable(lookupCache)
     clearTable(profKeyCache)
     clearTable(enrichStaticCache)
+    clearTable(recipeNameProfCache)
 end
 
 --- Test helper: drop LookupRecipe cache while keeping enrichStaticCache.

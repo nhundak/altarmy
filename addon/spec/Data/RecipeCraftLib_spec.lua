@@ -535,4 +535,104 @@ describe("RecipeCraftLib", function()
       assert.are.equal("|cffffffff180|r/***", RCL.FormatCollapsedSkillCell(180, nil))
     end)
   end)
+
+  describe("ResolveLearnedRecipeProfession", function()
+    local function mockCraftLib()
+      local alchemyRecipes = {
+        { id = 11449, name = "Elixir of Agility", itemId = 8949 },
+      }
+      local enchantRecipes = {
+        { id = 7418, name = "Enchant Cloak - Greater Shadow Resistance" },
+      }
+      local professions = {
+        alchemy = { id = 2259, name = "Alchemy", recipes = alchemyRecipes },
+        enchanting = { id = 7411, name = "Enchanting", recipes = enchantRecipes },
+      }
+      _G.CraftLib = {
+        IsReady = function() return true end,
+        GetProfessions = function() return professions end,
+        GetProfession = function(_, key) return professions[key] end,
+        GetRecipes = function(_, key)
+          return professions[key] and professions[key].recipes or {}
+        end,
+        GetRecipeBySpellId = function(_, key, spellId)
+          for _, recipe in ipairs(professions[key] and professions[key].recipes or {}) do
+            if recipe.id == spellId then
+              return recipe
+            end
+          end
+          return nil
+        end,
+        GetRecipeByItemId = function(_, itemId)
+          for _, data in pairs(professions) do
+            for _, recipe in ipairs(data.recipes) do
+              if recipe.itemId == itemId then
+                return recipe
+              end
+            end
+          end
+          return nil
+        end,
+        GetRecipeByProduct = function(_, itemId)
+          for key, data in pairs(professions) do
+            for _, recipe in ipairs(data.recipes) do
+              if recipe.itemId == itemId then
+                return { { recipe = recipe, professionKey = key, yield = 1 } }
+              end
+            end
+          end
+          return nil
+        end,
+      }
+    end
+
+    it("returns nil when CraftLib is unavailable", function()
+      assert.is_nil(RCL.ResolveLearnedRecipeProfession(11449, "Elixir of Agility"))
+      assert.is_nil(RCL.FindRecipeLearnInfo(11449, "Elixir of Agility"))
+    end)
+
+    it("resolves profession display name by spell id", function()
+      mockCraftLib()
+      assert.are.equal("Alchemy", RCL.ResolveLearnedRecipeProfession(11449, nil))
+      assert.are.equal("Enchanting", RCL.ResolveLearnedRecipeProfession(7418, nil))
+    end)
+
+    it("resolves profession display name by crafted item id", function()
+      mockCraftLib()
+      assert.are.equal("Alchemy", RCL.ResolveLearnedRecipeProfession(8949, nil))
+    end)
+
+    it("resolves profession display name by recipe name", function()
+      mockCraftLib()
+      assert.are.equal(
+        "Enchanting",
+        RCL.ResolveLearnedRecipeProfession(nil, "Enchant Cloak - Greater Shadow Resistance")
+      )
+      assert.are.equal("Alchemy", RCL.ResolveLearnedRecipeProfession(nil, "Elixir of Agility"))
+    end)
+
+    it("returns nil when spell id and name are unknown", function()
+      mockCraftLib()
+      assert.is_nil(RCL.ResolveLearnedRecipeProfession(999999, "Not A Real Recipe"))
+    end)
+
+    it("FindRecipeLearnInfo returns recipe id and result item for share", function()
+      mockCraftLib()
+      assert.are.same({
+        professionName = "Alchemy",
+        recipeID = 11449,
+        resultItemID = 8949,
+      }, RCL.FindRecipeLearnInfo(11449, nil))
+      assert.are.same({
+        professionName = "Alchemy",
+        recipeID = 11449,
+        resultItemID = 8949,
+      }, RCL.FindRecipeLearnInfo(8949, nil))
+      assert.are.same({
+        professionName = "Enchanting",
+        recipeID = 7418,
+        resultItemID = nil,
+      }, RCL.FindRecipeLearnInfo(nil, "Enchant Cloak - Greater Shadow Resistance"))
+    end)
+  end)
 end)

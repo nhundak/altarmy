@@ -1043,35 +1043,68 @@ local function isEnchantFormulaLearnName(name)
     return false
 end
 
---- True when a system chat line indicates a profession recipe/formula was learned.
+--- Extract the learned recipe/formula name from a profession learn system chat line.
 --- TBC Classic often does not fire NEW_RECIPE_LEARNED; chat is the reliable signal.
-function DS:IsProfessionRecipeLearnSystemMessage(msg)
+function DS:GetProfessionRecipeLearnName(msg)
     if type(msg) ~= "string" or msg == "" then
-        return false
+        return nil
     end
     local recipeName = captureGlobalFormat(_G.ERR_LEARN_RECIPE_S, msg)
     if recipeName then
-        return true
+        return stripWowFormatting(recipeName)
     end
     local spellName = captureGlobalFormat(_G.ERR_LEARN_SPELL_S, msg)
     if spellName and isEnchantFormulaLearnName(spellName) then
-        return true
+        return stripWowFormatting(spellName)
     end
     -- English fallbacks for unit tests / missing globals
     recipeName = msg:match("^You have learned how to create a new item: (.+)%.$")
     if recipeName then
-        return true
+        return stripWowFormatting(recipeName)
     end
     spellName = msg:match("^You have learned a new spell: (.+)%.$")
     if spellName and isEnchantFormulaLearnName(spellName) then
-        return true
+        return stripWowFormatting(spellName)
     end
-    return false
+    return nil
+end
+
+--- True when a system chat line indicates a profession recipe/formula was learned.
+function DS:IsProfessionRecipeLearnSystemMessage(msg)
+    return self:GetProfessionRecipeLearnName(msg) ~= nil
+end
+
+local function markOneProfessionRecipesStale(needing, char, professionName)
+    if type(professionName) ~= "string" or professionName == "" then
+        return false
+    end
+    if PROFESSIONS_NO_RECIPE_SCAN_WARNING[professionName] then
+        return false
+    end
+    local prof = char.Professions[professionName]
+    local rank = (prof and prof.rank) or 0
+    if rank <= 0 then
+        return false
+    end
+    needing[professionName] = true
+    return true
+end
+
+local function markAllCraftableProfessionRecipesStale(needing, char)
+    for profName, prof in pairs(char.Professions) do
+        if type(profName) == "string" and not PROFESSIONS_NO_RECIPE_SCAN_WARNING[profName] then
+            local rank = (prof and prof.rank) or 0
+            if rank > 0 then
+                needing[profName] = true
+            end
+        end
+    end
 end
 
 --- Mark craftable professions as needing a recipe-window rescan (Summary ! warning).
---- Used when a recipe is learned without the profession UI open (unknown which prof).
-function DS:MarkProfessionRecipesStale(char)
+--- When professionName is known (CraftLib lookup), only that profession is marked.
+--- Otherwise all craftable professions with rank > 0 are marked.
+function DS:MarkProfessionRecipesStale(char, professionName)
     char = char or GetCurrentCharTable()
     if not char or type(char.Professions) ~= "table" then
         return
@@ -1081,14 +1114,10 @@ function DS:MarkProfessionRecipesStale(char)
         needing = {}
         char.professionsNeedingRecipeScan = needing
     end
-    for profName, prof in pairs(char.Professions) do
-        if type(profName) == "string" and not PROFESSIONS_NO_RECIPE_SCAN_WARNING[profName] then
-            local rank = (prof and prof.rank) or 0
-            if rank > 0 then
-                needing[profName] = true
-            end
-        end
+    if professionName and markOneProfessionRecipesStale(needing, char, professionName) then
+        return
     end
+    markAllCraftableProfessionRecipesStale(needing, char)
 end
 
 --- Clear the Summary rescan warning for one profession after a successful recipe scan.
@@ -1106,8 +1135,43 @@ function DS:ClearProfessionRecipesStale(profName, char)
     end
 end
 
+--- Insert a newly learned recipe id so guild share can advertise it without a profession UI scan.
+--- Returns true when a new primary recipe entry was stored (and a share broadcast was scheduled).
+function DS:AddLearnedRecipeForShare(professionName, recipeID, resultItemID, char)
+    recipeID = tonumber(recipeID)
+    if type(professionName) ~= "string" or professionName == "" or not recipeID then
+        return false
+    end
+    char = char or GetCurrentCharTable()
+    if not char or type(char.Professions) ~= "table" then
+        return false
+    end
+    local prof = char.Professions[professionName]
+    if type(prof) ~= "table" or (prof.rank or 0) <= 0 then
+        return false
+    end
+    if PROFESSIONS_NO_RECIPE_SCAN_WARNING[professionName] then
+        return false
+    end
+    prof.Recipes = prof.Recipes or {}
+    if prof.Recipes[recipeID] ~= nil then
+        return false
+    end
+    prof.Recipes[recipeID] = {
+        color = 0,
+        resultItemID = tonumber(resultItemID),
+        primaryRecipeID = recipeID,
+    }
+    char.lastUpdate = time()
+    char.dataVersions = char.dataVersions or {}
+    char.dataVersions.professions = DATA_VERSIONS.professions
+    notifyRecipesChanged()
+    return true
+end
+
 --- Recipe learned (event or system chat): scan if UI open, else mark Summary stale.
-function DS:OnRecipeLearnDetected()
+--- With CraftLib, also insert the resolved recipe id so guildmates can pull it.
+function DS:OnRecipeLearnDetected(recipeID, learnedName)
     local char = GetCurrentCharTable()
     if not char then
         return
@@ -1126,20 +1190,32 @@ function DS:OnRecipeLearnDetected()
         return
     end
 
-    self:MarkProfessionRecipesStale(char)
+    local professionName = nil
+    local RCL = AltArmy and AltArmy.RecipeCraftLib
+    if RCL and RCL.IsAvailable and RCL.IsAvailable() and RCL.FindRecipeLearnInfo then
+        local info = RCL.FindRecipeLearnInfo(recipeID, learnedName)
+        if info then
+            professionName = info.professionName
+            if info.recipeID then
+                self:AddLearnedRecipeForShare(professionName, info.recipeID, info.resultItemID, char)
+            end
+        end
+    end
+    self:MarkProfessionRecipesStale(char, professionName)
 end
 
 --- Handle NEW_RECIPE_LEARNED when the client fires it (optional recipeID).
-function DS:OnNewRecipeLearned(_recipeID)
-    self:OnRecipeLearnDetected()
+function DS:OnNewRecipeLearned(recipeID)
+    self:OnRecipeLearnDetected(recipeID, nil)
 end
 
 --- Handle CHAT_MSG_SYSTEM learn lines (primary signal on TBC Classic).
 function DS:OnProfessionLearnSystemMessage(msg)
-    if not self:IsProfessionRecipeLearnSystemMessage(msg) then
+    local learnedName = self:GetProfessionRecipeLearnName(msg)
+    if not learnedName then
         return false
     end
-    self:OnRecipeLearnDetected()
+    self:OnRecipeLearnDetected(nil, learnedName)
     return true
 end
 
