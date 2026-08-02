@@ -541,6 +541,79 @@ describe("Gear compare panel height", function()
         assert.are.equal(COMPARE_WARNING_KIND.UNPICKED_SPEC, warnings[4].kind)
     end)
 
+    it("pins Weighted only when the full stat list overflows the viewport", function()
+        local COMPARE_ROW_HEIGHT = 14
+        local COMPARE_ROW_GAP = 2
+        local function getCompareStatContentHeight(rowCount)
+            rowCount = tonumber(rowCount) or 0
+            if rowCount <= 0 then return 0 end
+            return rowCount * COMPARE_ROW_HEIGHT + (rowCount - 1) * COMPARE_ROW_GAP
+        end
+        local function shouldPinCompareWeightedRow(totalRowCount, viewHeight)
+            if not totalRowCount or totalRowCount <= 0 then return false end
+            viewHeight = tonumber(viewHeight) or 0
+            if viewHeight <= 0 then return false end
+            return getCompareStatContentHeight(totalRowCount) > viewHeight
+        end
+        local function splitCompareStatRows(rows)
+            rows = rows or {}
+            local scrollRows = {}
+            local weightedRow = nil
+            if #rows > 0 and rows[#rows].formatAsWeightedChange then
+                weightedRow = rows[#rows]
+                for i = 1, #rows - 1 do
+                    scrollRows[i] = rows[i]
+                end
+            else
+                for i = 1, #rows do
+                    scrollRows[i] = rows[i]
+                end
+            end
+            return scrollRows, weightedRow
+        end
+
+        local rows = {
+            { label = "Stamina" },
+            { label = "Intellect" },
+            { label = "Weighted", formatAsWeightedChange = true },
+        }
+        local scrollRows, weighted = splitCompareStatRows(rows)
+        assert.are.equal(2, #scrollRows)
+        assert.are.equal("Weighted", weighted.label)
+        assert.is_true(shouldPinCompareWeightedRow(3, getCompareStatContentHeight(3) - 1))
+        assert.is_false(shouldPinCompareWeightedRow(3, getCompareStatContentHeight(3)))
+        assert.is_false(shouldPinCompareWeightedRow(3, getCompareStatContentHeight(3) + 10))
+        assert.is_false(shouldPinCompareWeightedRow(0, 100))
+        local noWeightedScroll = select(1, splitCompareStatRows({ { label = "Stamina" } }))
+        assert.are.equal(1, #noWeightedScroll)
+        assert.is_nil(select(2, splitCompareStatRows({ { label = "Stamina" } })))
+    end)
+
+    it("places off-hand hint beside the property name, not in a 4th column", function()
+        -- Mirrors LayoutCompareStatHint in TabGear.lua.
+        local COMPARE_STAT_HINT_GAP = 2
+        local function layoutCompareStatHint(data, nameWidth)
+            if type(data.offhandHint) ~= "string" or data.offhandHint == ""
+                or data.formatAsWeightedChange then
+                return nil
+            end
+            return {
+                anchor = "name",
+                offsetX = (tonumber(nameWidth) or 0) + COMPARE_STAT_HINT_GAP,
+            }
+        end
+        local shown = layoutCompareStatHint({
+            offhandHint = "When dual wielding, the offhand weapon's damage is scaled to 50% of its listed amount",
+        }, 54)
+        assert.are.equal("name", shown.anchor)
+        assert.are.equal(56, shown.offsetX)
+        assert.is_nil(layoutCompareStatHint({}))
+        assert.is_nil(layoutCompareStatHint({
+            offhandHint = "hint",
+            formatAsWeightedChange = true,
+        }))
+    end)
+
     it("compare dump row appears when debug is enabled during compare layout", function()
         local function shouldShowCompareDumpRow(debugEnabled)
             return debugEnabled == true

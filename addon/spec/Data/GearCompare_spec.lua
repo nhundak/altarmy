@@ -539,4 +539,174 @@ describe("GearCompare", function()
         assert.are.equal(20, strengthRow.oldValue)
         assert.are.equal(5, strengthRow.delta)
     end)
+
+    it("BuildComparison scales off-hand melee DPS and flags the row with a hint", function()
+        local oldGetItemInfo = _G.GetItemInfo
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            local items = {
+                [204] = { "Small 2H", nil, 2, 50, 50, "Weapon", "Two-Handed Swords", nil, "INVTYPE_2HWEAPON" },
+                [205] = { "New 1H", nil, 3, 40, 40, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+                [206] = { "Bag OH", nil, 2, 22, 22, "Weapon", "Daggers", nil, "INVTYPE_WEAPONOFFHAND" },
+                [207] = { "Bag 1H", nil, 2, 28, 28, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+            }
+            local info = items[id]
+            if info then
+                local link = "|cff|Hitem:" .. tostring(id) .. ":0|h[" .. info[1] .. "]|h|r"
+                return info[1], link, info[3], info[4], info[5], info[6], info[7], nil, info[9]
+            end
+            return oldGetItemInfo(item)
+        end
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 204 then
+                return { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 50 }
+            end
+            if id == 205 then
+                return { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 30 }
+            end
+            if id == 206 then
+                return { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 28 }
+            end
+            if id == 207 then
+                return { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 20 }
+            end
+            return oldGetItemStats(link)
+        end
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+        if AltArmy.GearUpgrade and AltArmy.GearUpgrade.ResetFocusPass then
+            AltArmy.GearUpgrade.ResetFocusPass()
+        end
+        _G.AltArmyTBC_Data.Characters.TestRealm.Warrior2H = {
+            name = "Warrior2H",
+            realm = "TestRealm",
+            classFile = "WARRIOR",
+            level = 60,
+            Inventory = {
+                [16] = "|Hitem:204:0|h[Small 2H]|h",
+            },
+            Containers = {
+                [0] = {
+                    links = {
+                        [1] = "|Hitem:206:0|h[Bag OH]|h",
+                        [2] = "|Hitem:207:0|h[Bag 1H]|h",
+                    },
+                },
+            },
+            talents = { tabs = { 0, 21, 0 }, primary = 2, specKey = "fury" },
+        }
+        local char = DS:GetCharacter("Warrior2H", "TestRealm")
+        local entry = { name = "Warrior2H", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+        local result = GC.BuildComparison(
+            "|Hitem:205:0|h[New 1H]|h",
+            "|Hitem:204:0|h[Small 2H]|h",
+            "custom",
+            char,
+            entry,
+            { compareSlot = 16 })
+        _G.GetItemInfo = oldGetItemInfo
+        _G.GetItemStats = oldGetItemStats
+        if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+            AltArmy.ItemStats.ClearCache()
+        end
+        local rows = result.sections[1].rows
+        local dpsRow
+        for i = 1, #rows do
+            if rows[i].label == "Melee DPS" then
+                dpsRow = rows[i]
+                break
+            end
+        end
+        assert.is_not_nil(dpsRow)
+        -- Candidate loadout is New 1H (30 dps) + Bag OH (28 dps at 50% = 14).
+        assert.are.equal(44, dpsRow.newValue)
+        assert.are.equal(50, dpsRow.oldValue)
+        assert.are.equal(-6, dpsRow.delta)
+        assert.are.equal(GC.GetOffhandDpsHintText(), dpsRow.offhandHint)
+        -- Only the affected DPS row carries the hint.
+        for i = 1, #rows do
+            if rows[i] ~= dpsRow then
+                assert.is_nil(rows[i].offhandHint)
+            end
+        end
+    end)
+
+    it("BuildComparison rows carry no off-hand hint for armor items", function()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local result = GC.BuildComparison(
+            "|Hitem:11:0|h[New Helm]|h",
+            "|Hitem:10:0|h[Old Helm]|h",
+            "custom",
+            char)
+        local rows = result.sections[1].rows
+        assert.is_true(#rows > 0)
+        for i = 1, #rows do
+            assert.is_nil(rows[i].offhandHint)
+        end
+    end)
+
+    it("GetOffhandDpsHintText explains the off-hand DPS percentage", function()
+        local text = GC.GetOffhandDpsHintText()
+        assert.are.equal(
+            "When dual wielding, the offhand weapon's damage is scaled to 50% of its listed amount",
+            text)
+    end)
+
+    it("BuildComparison computes weapon loadout summary a bounded number of times", function()
+        local oldGetItemInfo = _G.GetItemInfo
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            local items = {
+                [201] = { "Weak MH", nil, 2, 30, 30, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+                [202] = { "Weak OH", nil, 2, 25, 25, "Weapon", "Daggers", nil, "INVTYPE_WEAPONOFFHAND" },
+                [203] = { "Big 2H", nil, 3, 60, 60, "Weapon", "Two-Handed Swords", nil, "INVTYPE_2HWEAPON" },
+            }
+            local info = items[id]
+            if info then
+                local link = "|cff|Hitem:" .. tostring(id) .. ":0|h[" .. info[1] .. "]|h|r"
+                return info[1], link, info[3], info[4], info[5], info[6], info[7], nil, info[9]
+            end
+            return oldGetItemInfo(item)
+        end
+        _G.AltArmyTBC_Data.Characters.TestRealm.WarriorDW = {
+            name = "WarriorDW",
+            realm = "TestRealm",
+            classFile = "WARRIOR",
+            level = 60,
+            Inventory = {
+                [16] = "|Hitem:201:0|h[Weak MH]|h",
+                [17] = "|Hitem:202:0|h[Weak OH]|h",
+            },
+            Containers = { [0] = { links = {} } },
+            talents = { tabs = { 0, 21, 0 }, primary = 2, specKey = "fury" },
+        }
+        local char = DS:GetCharacter("WarriorDW", "TestRealm")
+        local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+        local GU = AltArmy.GearUpgrade
+        if GU.ResetFocusPass then GU.ResetFocusPass() end
+        local configCalls = 0
+        local oldConfig = GU.GetWeaponConfigDelta
+        GU.GetWeaponConfigDelta = function(...)
+            configCalls = configCalls + 1
+            return oldConfig(...)
+        end
+        local result = GC.BuildComparison(
+            "|Hitem:203:0|h[Big 2H]|h",
+            "|Hitem:201:0|h[Weak MH]|h",
+            "ilvl",
+            char,
+            entry,
+            { compareSlot = 16 })
+        GU.GetWeaponConfigDelta = oldConfig
+        _G.GetItemInfo = oldGetItemInfo
+        assert.is_not_nil(result)
+        assert.are.equal(5, result.summary.delta)
+        -- resolveLoadoutStatSides + one shared buildSummary (no outer/ilvl duplicates).
+        assert.are.equal(2, configCalls)
+    end)
 end)

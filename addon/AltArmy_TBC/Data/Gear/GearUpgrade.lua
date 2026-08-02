@@ -20,17 +20,32 @@ end
 local DEFAULT_LEVELS_AHEAD = 5
 local DEFAULT_UPGRADE_THRESHOLD_PERCENT = 5
 
+-- Off-hand weapons deal 50% of their damage in TBC (and abilities are mostly
+-- main-hand driven), so an off-hand weapon's DPS counts at half value when a
+-- dual-wield loadout is scored. Matches sim-derived Pawn scales, which value
+-- OffHandDps at ~40-50% of MainHandDps.
+GU.OFFHAND_DPS_FACTOR = 0.5
+local OFFHAND_SCALED_STAT = "melee_dps"
+
 local scoreMemo = {}
 local storedItemMemo = {}
 local bagRoleMemo = {}
 local slotDeltaMemo = {}
 local weaponConfigMemo = {}
+-- Fingerprint is frozen for one focus pass; self-invalidating memos persist across passes.
+local fingerprintMemo = {}
 
 function GU.ResetFocusPass()
+    fingerprintMemo = {}
+    slotDeltaMemo = {}
+end
+
+--- Drop score-dependent memos (e.g. after ItemStats.ClearCache). Container
+--- fingerprint memo and slot-delta pass memo are left alone.
+function GU.InvalidateScoreDependentMemos()
     scoreMemo = {}
     storedItemMemo = {}
     bagRoleMemo = {}
-    slotDeltaMemo = {}
     weaponConfigMemo = {}
 end
 
@@ -40,7 +55,7 @@ local function charKeyFromChar(char, entry)
     return name .. "-" .. realm
 end
 
-local function storedItemsFingerprint(char)
+local function buildStoredItemsFingerprint(char)
     local parts = {}
     local containers = char and char.Containers
     if containers then
@@ -64,10 +79,33 @@ local function storedItemsFingerprint(char)
     return table.concat(parts, "|")
 end
 
-local function scoreMemoKey(link, technique, classFile, specKey, bandId)
+--- Container fingerprint for the current focus pass (computed at most once per char).
+local function storedItemsFingerprint(char)
+    if not char then return "" end
+    local cached = fingerprintMemo[char]
+    if cached ~= nil then return cached end
+    local fp = buildStoredItemsFingerprint(char)
+    fingerprintMemo[char] = fp
+    return fp
+end
+
+--- Per-character memo bucket invalidated when the container fingerprint changes.
+local function getMemoBucket(memo, char, entry)
+    local charKey = charKeyFromChar(char, entry)
+    local fp = storedItemsFingerprint(char)
+    local bucket = memo[charKey]
+    if not bucket or bucket.fingerprint ~= fp then
+        bucket = { fingerprint = fp, entries = {} }
+        memo[charKey] = bucket
+    end
+    return bucket.entries
+end
+
+local function scoreMemoKey(link, technique, classFile, specKey, bandId, isOffhand)
     return tostring(link) .. "\0" .. tostring(technique)
         .. "\0" .. tostring(classFile) .. "\0" .. tostring(specKey)
         .. "\0" .. tostring(bandId or "default")
+        .. "\0" .. (isOffhand and "oh" or "mh")
 end
 
 local function resolveLevelsAhead(value)
@@ -485,7 +523,9 @@ function GU.GetWeights(classFile, specKey, level)
     return getWeights(classFile, specKey, level)
 end
 
-function GU.ScoreItemCustom(link, classFile, specKey, level)
+--- isOffhand: score the item as an off-hand loadout partner (weapon DPS
+--- counts at GU.OFFHAND_DPS_FACTOR; all other stats are fully effective).
+function GU.ScoreItemCustom(link, classFile, specKey, level, isOffhand)
     if not link then return 0 end
     local weights = getWeights(classFile, specKey, effectiveWeightLevel(link, level))
     if not weights then return 0 end
@@ -494,6 +534,9 @@ function GU.ScoreItemCustom(link, classFile, specKey, level)
     for short, value in pairs(stats) do
         local w = weights[short]
         if w then
+            if isOffhand and short == OFFHAND_SCALED_STAT then
+                value = value * GU.OFFHAND_DPS_FACTOR
+            end
             total = total + value * w
         end
     end
@@ -508,23 +551,23 @@ local function scoreItemGearScore(link)
     return nil
 end
 
-local function scoreItem(link, technique, classFile, specKey, level)
+local function scoreItem(link, technique, classFile, specKey, level, isOffhand)
     if not link then return 0 end
     local effectiveLevel = effectiveWeightLevel(link, level)
     local resolvedSpec = resolveRawScale((classFile or ""):upper(), specKey, effectiveLevel)
     local bandId = overrideBandId((classFile or ""):upper(), resolvedSpec or specKey, effectiveLevel)
-    local key = scoreMemoKey(link, technique, classFile, specKey, bandId)
+    local key = scoreMemoKey(link, technique, classFile, specKey, bandId, isOffhand)
     local cached = scoreMemo[key]
     if cached ~= nil then return cached end
     local score
     if technique == "ilvl" then
         score = getItemLevel(link)
     elseif technique == "custom" then
-        score = GU.ScoreItemCustom(link, classFile, specKey, level)
+        score = GU.ScoreItemCustom(link, classFile, specKey, level, isOffhand)
     elseif technique == "gearscore" then
         score = scoreItemGearScore(link) or getItemLevel(link)
     else
-        score = GU.ScoreItemCustom(link, classFile, specKey, level)
+        score = GU.ScoreItemCustom(link, classFile, specKey, level, isOffhand)
     end
     scoreMemo[key] = score
     return score
@@ -534,8 +577,8 @@ function GU.ResolveItemLink(item)
     return resolveItemLink(item)
 end
 
-function GU.ScoreItem(link, technique, classFile, specKey, level)
-    return scoreItem(link, technique, classFile, specKey, level)
+function GU.ScoreItem(link, technique, classFile, specKey, level, isOffhand)
+    return scoreItem(link, technique, classFile, specKey, level, isOffhand)
 end
 
 --- Per-stat weighted score breakdown for debug dumps.
@@ -613,9 +656,9 @@ local function getEquippedLink(char, invSlot)
     return resolveItemLink(DS:GetInventoryItem(char, invSlot))
 end
 
-local function scoreForLink(link, technique, classFile, specKey, level)
+local function scoreForLink(link, technique, classFile, specKey, level, isOffhand)
     if not link then return 0 end
-    return scoreItem(link, technique, classFile, specKey, level)
+    return scoreItem(link, technique, classFile, specKey, level, isOffhand)
 end
 
 --- True for weapons that occupy the main-hand + off-hand loadout pair.
@@ -631,7 +674,7 @@ function GU.GetEquippedLoadoutValue(char, technique, classFile, specKey, level)
     local mh = getEquippedLink(char, MAIN_HAND_SLOT)
     local oh = getEquippedLink(char, OFF_HAND_SLOT)
     return scoreForLink(mh, technique, classFile, specKey, level)
-        + scoreForLink(oh, technique, classFile, specKey, level)
+        + scoreForLink(oh, technique, classFile, specKey, level, true)
 end
 
 local function isFishingPoleLink(iu, link)
@@ -652,11 +695,10 @@ function GU.FindBestBagItemForRole(char, role, opts, entry)
     local classFile, specKey, level = resolveCompareContext(char, entry)
     level = level or tonumber(entry and entry.level) or tonumber(char.level) or 0
     local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
-    local memoKey = charKeyFromChar(char, entry) .. "\0" .. tostring(role)
-        .. "\0" .. technique .. "\0" .. classFile .. "\0" .. specKey
+    local entries = getMemoBucket(bagRoleMemo, char, entry)
+    local memoKey = tostring(role) .. "\0" .. technique .. "\0" .. classFile .. "\0" .. specKey
         .. "\0" .. tostring(level) .. "\0" .. tostring(levelsAhead)
-        .. "\0" .. storedItemsFingerprint(char)
-    local cached = bagRoleMemo[memoKey]
+    local cached = entries[memoKey]
     if cached then
         return cached.link, cached.score
     end
@@ -685,7 +727,7 @@ function GU.FindBestBagItemForRole(char, role, opts, entry)
             end
         end
     end
-    bagRoleMemo[memoKey] = { link = bestLink, score = bestScore }
+    entries[memoKey] = { link = bestLink, score = bestScore }
     return bestLink, bestScore
 end
 
@@ -700,7 +742,7 @@ end
 
 local function scoreLoadoutLinks(mhLink, ohLink, technique, classFile, specKey, level)
     return scoreForLink(mhLink, technique, classFile, specKey, level)
-        + scoreForLink(ohLink, technique, classFile, specKey, level)
+        + scoreForLink(ohLink, technique, classFile, specKey, level, true)
 end
 
 local function loadoutLinksFromSlots(mhLink, ohLink)
@@ -763,7 +805,9 @@ local function considerStoredLinkForSlot(
     if not iu.IsEquippableWithin(classFile, level, link, levelsAhead) then
         return bestLink, bestScore
     end
-    local itemScore = scoreItem(link, technique, classFile, specKey, level)
+    -- Rank off-hand partners by their off-hand contribution (scaled weapon DPS).
+    local itemScore = scoreItem(
+        link, technique, classFile, specKey, level, targetSlot == OFF_HAND_SLOT)
     if itemScore > bestScore then
         return link, itemScore
     end
@@ -780,11 +824,10 @@ function GU.FindBestStoredItemForSlot(char, targetSlot, opts, entry)
     local classFile, specKey, level = resolveCompareContext(char, entry)
     level = level or tonumber(entry and entry.level) or tonumber(char.level) or 0
     local levelsAhead = resolveLevelsAhead(opts.levelsAhead)
-    local memoKey = charKeyFromChar(char, entry) .. "\0" .. tostring(targetSlot)
-        .. "\0" .. technique .. "\0" .. classFile .. "\0" .. specKey
-        .. "\0" .. tostring(level) .. "\0" .. tostring(levelsAhead)
-        .. "\0" .. storedItemsFingerprint(char)
-    local cached = storedItemMemo[memoKey]
+    local entries = getMemoBucket(storedItemMemo, char, entry)
+    local memoKey = tostring(targetSlot) .. "\0" .. technique .. "\0" .. classFile
+        .. "\0" .. specKey .. "\0" .. tostring(level) .. "\0" .. tostring(levelsAhead)
+    local cached = entries[memoKey]
     if cached then
         return cached.link, cached.score
     end
@@ -814,7 +857,7 @@ function GU.FindBestStoredItemForSlot(char, targetSlot, opts, entry)
             return false
         end)
     end
-    storedItemMemo[memoKey] = { link = bestLink, score = bestScore }
+    entries[memoKey] = { link = bestLink, score = bestScore }
     return bestLink, bestScore
 end
 
@@ -1140,14 +1183,16 @@ function GU.GetWeaponConfigDelta(char, itemLink, opts, entry)
     if not itemRole or itemRole == "ranged" then return 0, nil end
 
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
+    local classFile, specKey, level = resolveCompareContext(char, entry)
     local compareSlot = resolveWeaponCompareSlot(opts)
     local mh = getEquippedLink(char, MAIN_HAND_SLOT)
     local oh = getEquippedLink(char, OFF_HAND_SLOT)
-    local memoKey = charKeyFromChar(char, entry) .. "\0" .. tostring(itemLink)
-        .. "\0" .. technique .. "\0" .. tostring(compareSlot or "auto")
+    local entries = getMemoBucket(weaponConfigMemo, char, entry)
+    local memoKey = tostring(itemLink) .. "\0" .. technique
+        .. "\0" .. tostring(compareSlot or "auto")
         .. "\0" .. tostring(mh or "") .. "\0" .. tostring(oh or "")
-        .. "\0" .. storedItemsFingerprint(char)
-    local cached = weaponConfigMemo[memoKey]
+        .. "\0" .. classFile .. "\0" .. specKey .. "\0" .. tostring(level or "")
+    local cached = entries[memoKey]
     if cached then
         return cached.delta, cached.info
     end
@@ -1162,7 +1207,7 @@ function GU.GetWeaponConfigDelta(char, itemLink, opts, entry)
     if not result then return 0, nil end
     local delta = result.delta or 0
     local info = selectionInfoFromCompare(result, compareSlot)
-    weaponConfigMemo[memoKey] = { delta = delta, info = info }
+    entries[memoKey] = { delta = delta, info = info }
     return delta, info
 end
 
@@ -1173,7 +1218,8 @@ function GU.GetWeaponLoadoutCompareLinks(char, focusedLink, opts, entry)
     end
     local compareSlot = resolveWeaponCompareSlot(opts)
     if not compareSlot then return nil end
-    local result = GU.BuildSelectionLoadoutCompare(char, focusedLink, compareSlot, opts, entry)
+    local _, info = GU.GetWeaponConfigDelta(char, focusedLink, opts, entry)
+    local result = info and info.selection
     if not result then return nil end
     return {
         candidateLinks = result.candidateLinks,
@@ -1314,7 +1360,8 @@ function GU.BuildWeaponLoadoutHeaderLinks(focusedLink, char, opts, entry)
     end
     local compareSlot = resolveWeaponCompareSlot(opts)
     if not compareSlot then return nil end
-    local result = GU.BuildSelectionLoadoutCompare(char, focusedLink, compareSlot, opts, entry)
+    local _, info = GU.GetWeaponConfigDelta(char, focusedLink, opts, entry)
+    local result = info and info.selection
     if not result then return nil end
 
     local focusedLinks = result.candidateLinks or {}

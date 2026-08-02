@@ -35,23 +35,48 @@ local function getRawStats(link)
     return {}
 end
 
-local function sumRawStatsForLinks(links)
+local OFFHAND_SCALED_STAT = "melee_dps"
+
+local function offhandDpsFactor()
+    local factor = GU and tonumber(GU.OFFHAND_DPS_FACTOR)
+    return factor or 0.5
+end
+
+--- Tooltip text for the compare-panel hint shown when off-hand DPS scaling applies.
+function GC.GetOffhandDpsHintText()
+    return string.format(
+        "When dual wielding, the offhand weapon's damage is scaled to %d%% of its listed amount",
+        offhandDpsFactor() * 100)
+end
+
+--- Sum raw stats for one loadout side; off-hand weapon DPS is counted at
+--- GU.OFFHAND_DPS_FACTOR so displayed rows match the weighted score.
+--- Second return is true when scaling changed a value.
+local function sumLoadoutSideStats(mhLink, ohLink)
     local totals = {}
-    if not links then return totals end
-    for i = 1, #links do
-        local stats = getRawStats(links[i])
+    local scaled = false
+    local function addStats(link, isOffhand)
+        if not link then return end
+        local stats = getRawStats(link)
         for key, value in pairs(stats) do
-            totals[key] = (totals[key] or 0) + (tonumber(value) or 0)
+            local v = tonumber(value) or 0
+            if isOffhand and key == OFFHAND_SCALED_STAT and v ~= 0 then
+                v = v * offhandDpsFactor()
+                scaled = true
+            end
+            totals[key] = (totals[key] or 0) + v
         end
     end
-    return totals
+    addStats(mhLink, false)
+    addStats(ohLink, true)
+    return totals, scaled
 end
 
 local function resolveLoadoutStatSides(newLink, oldLink, charData, entry, opts)
     if not charData or not newLink
         or not GU.IsWeaponPairItem or not GU.IsWeaponPairItem(newLink)
         or not GU.GetWeaponLoadoutCompareLinks then
-        return getRawStats(newLink), oldLink and getRawStats(oldLink) or {}
+        return getRawStats(newLink), oldLink and getRawStats(oldLink) or {}, false
     end
     local compareOpts = {}
     if opts then
@@ -60,11 +85,15 @@ local function resolveLoadoutStatSides(newLink, oldLink, charData, entry, opts)
         end
     end
     local loadout = GU.GetWeaponLoadoutCompareLinks(charData, newLink, compareOpts, entry)
-    if not loadout then
-        return getRawStats(newLink), oldLink and getRawStats(oldLink) or {}
+    local selection = loadout and loadout.selection
+    if not selection then
+        return getRawStats(newLink), oldLink and getRawStats(oldLink) or {}, false
     end
-    return sumRawStatsForLinks(loadout.candidateLinks),
-        sumRawStatsForLinks(loadout.equippedLinks)
+    local newStats, newScaled = sumLoadoutSideStats(
+        selection.candidateMH, selection.candidateOH)
+    local oldStats, oldScaled = sumLoadoutSideStats(
+        selection.equippedMH, selection.equippedOH)
+    return newStats, oldStats, newScaled or oldScaled
 end
 
 local function buildSummary(newLink, oldLink, technique, classFile, specKey, charData, entry, opts, level)
@@ -97,7 +126,7 @@ local function buildSummary(newLink, oldLink, technique, classFile, specKey, cha
 end
 
 local WEAPON_LOADOUT_CAVEAT = "Compares your full main-hand + off-hand setup. "
-    .. "Stat weights ignore weapon speed and dual-wield penalties."
+    .. "Off-hand weapon DPS counts at 50%; stat weights ignore weapon speed."
 
 local function getItemNameFromLink(link)
     if not link then return nil end
@@ -171,9 +200,17 @@ local function compareStatComparisonRows(a, b)
     return (a.label or "") < (b.label or "")
 end
 
+local function offhandHintForKey(key, offhandScaled)
+    if offhandScaled and key == OFFHAND_SCALED_STAT then
+        return GC.GetOffhandDpsHintText()
+    end
+    return nil
+end
+
 local function buildStatComparisonRows(newLink, oldLink, classFile, specKey, charData, entry, opts, level)
     local weights = GU.GetWeights and GU.GetWeights(classFile, specKey, level) or {}
-    local newStats, oldStats = resolveLoadoutStatSides(newLink, oldLink, charData, entry, opts)
+    local newStats, oldStats, offhandScaled = resolveLoadoutStatSides(
+        newLink, oldLink, charData, entry, opts)
     local seen = {}
     for k in pairs(newStats) do seen[k] = true end
     for k in pairs(oldStats) do seen[k] = true end
@@ -192,6 +229,7 @@ local function buildStatComparisonRows(newLink, oldLink, classFile, specKey, cha
                 weight = w,
                 unimportant = w <= 0,
                 weightedDelta = (newVal - oldVal) * w,
+                offhandHint = offhandHintForKey(key, offhandScaled),
             }
         end
     end
@@ -200,7 +238,8 @@ local function buildStatComparisonRows(newLink, oldLink, classFile, specKey, cha
 end
 
 local function buildRawStatRows(newLink, oldLink, charData, entry, opts)
-    local newStats, oldStats = resolveLoadoutStatSides(newLink, oldLink, charData, entry, opts)
+    local newStats, oldStats, offhandScaled = resolveLoadoutStatSides(
+        newLink, oldLink, charData, entry, opts)
     local seen = {}
     local keys = {}
     for k in pairs(newStats) do
@@ -223,6 +262,7 @@ local function buildRawStatRows(newLink, oldLink, charData, entry, opts)
             newValue = newVal,
             oldValue = oldVal,
             delta = newVal - oldVal,
+            offhandHint = offhandHintForKey(key, offhandScaled),
         }
     end
     return rows
@@ -254,6 +294,7 @@ local function buildCustomComparison(newLink, oldLink, classFile, specKey, opts,
     }
     local result = {
         sections = sections,
+        summary = summary,
     }
     if summary.weaponLoadout then
         result.weaponLoadoutNote = buildWeaponLoadoutNote(summary.weaponLoadout)
@@ -271,9 +312,9 @@ local function buildScoreOnlyComparison(
             rows = rawRows,
         }
     end
+    local summary = buildSummary(
+        newLink, oldLink, technique, classFile, specKey, charData, entry, opts, level)
     if technique == "ilvl" then
-        local summary = buildSummary(
-            newLink, oldLink, technique, classFile, specKey, charData, entry, opts, level)
         sections[#sections + 1] = {
             title = "Item level",
             rows = {
@@ -286,9 +327,10 @@ local function buildScoreOnlyComparison(
             },
         }
     end
-    local result = { sections = sections }
-    local summary = buildSummary(
-        newLink, oldLink, technique, classFile, specKey, charData, entry, opts, level)
+    local result = {
+        sections = sections,
+        summary = summary,
+    }
     if summary.weaponLoadout then
         result.weaponLoadoutNote = buildWeaponLoadoutNote(summary.weaponLoadout)
     end
@@ -368,8 +410,11 @@ function GC.BuildComparison(focusedLink, equippedLink, technique, charData, entr
     end
 
     local sections = built.sections or built
-    local summary = buildSummary(
-        focusedLink, equippedLink, technique, classFile, specKey, charData, entry, opts, level)
+    local summary = built.summary
+    if not summary then
+        summary = buildSummary(
+            focusedLink, equippedLink, technique, classFile, specKey, charData, entry, opts, level)
+    end
 
     return {
         focusedName = getItemName(focusedLink),

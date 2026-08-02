@@ -98,6 +98,8 @@ local COMPARE_STAT_ROW_INDENT = 8 -- content inset from the panel split on both 
 local COMPARE_STAT_COL_NAME = 110
 local COMPARE_STAT_COL_DELTA = 52
 local COMPARE_STAT_COL_WEIGHT = 40
+local COMPARE_STAT_HINT_SIZE = 12
+local COMPARE_STAT_HINT_GAP = 2
 local COMPARE_STAT_COL_WEIGHTED_NAME = 60
 local COMPARE_STAT_COL_WEIGHTED_DELTA = 102
 local COMPARE_PANEL_SPLIT_GAP = 8
@@ -142,7 +144,8 @@ local function applyUpgradeBadgeFont(fontString)
 end
 local SELECTED_NEUTRAL_HIGHLIGHT = { 0.82, 0.68, 0.22, 0.42 }
 local FOCUS_FADE_ALPHA = 0.45
-local FOCUS_GRID_HEIGHT_SLACK = 2
+-- Focus grid: keep a tiny bottom pad so the last icon isn't flush against the scroll chrome.
+local FOCUS_GRID_BOTTOM_PAD = 2
 
 -- Gear settings persistence (AltArmyTBC_GearSettings)
 local DEFAULT_SCORE_PROVIDER = "level"
@@ -320,15 +323,18 @@ end
 
 function GearTab.GetScrollableGridHeight()
     local rh = dims.rowHeight or select(1, GearTab.GetSpacingDimensions())
+    local cell = dims.cellSize or GearTab.GetCellSizePx()
     local visibleCount = #GearTab.GetVisibleDisplaySlots()
     if visibleCount <= 0 then
         visibleCount = NUM_EQUIPMENT_SLOTS
     end
-    local h = visibleCount * rh + PAD
     if droppedItemLink then
-        h = h + FOCUS_GRID_HEIGHT_SLACK
+        -- Content-tight height for the 1–2 visible focus rows: top centering offset,
+        -- cells + inter-row gaps, no trailing row-gap, then a small bottom pad.
+        local topOffset = (rh - cell) / 2
+        return topOffset + (visibleCount - 1) * rh + cell + FOCUS_GRID_BOTTOM_PAD
     end
-    return h
+    return visibleCount * rh + PAD
 end
 
 function GearTab.GetSessionCompareTechnique()
@@ -463,6 +469,45 @@ function GearTab.GetCompareStatContentHeight(rowCount)
     rowCount = tonumber(rowCount) or 0
     if rowCount <= 0 then return 0 end
     return rowCount * COMPARE_ROW_HEIGHT + (rowCount - 1) * COMPARE_ROW_GAP
+end
+
+--- Flatten section rows in display order.
+function GearTab.FlattenCompareStatRows(sections)
+    local rows = {}
+    sections = sections or {}
+    for s = 1, #sections do
+        local sectionRows = sections[s].rows or {}
+        for r = 1, #sectionRows do
+            rows[#rows + 1] = sectionRows[r]
+        end
+    end
+    return rows
+end
+
+--- Split a trailing Weighted/summary row from the scrollable stat rows.
+function GearTab.SplitCompareStatRows(rows)
+    rows = rows or {}
+    local scrollRows = {}
+    local weightedRow = nil
+    if #rows > 0 and rows[#rows].formatAsWeightedChange then
+        weightedRow = rows[#rows]
+        for i = 1, #rows - 1 do
+            scrollRows[i] = rows[i]
+        end
+    else
+        for i = 1, #rows do
+            scrollRows[i] = rows[i]
+        end
+    end
+    return scrollRows, weightedRow
+end
+
+--- Pin Weighted at the bottom only when the full list overflows the viewport.
+function GearTab.ShouldPinCompareWeightedRow(totalRowCount, viewHeight)
+    if not totalRowCount or totalRowCount <= 0 then return false end
+    viewHeight = tonumber(viewHeight) or 0
+    if viewHeight <= 0 then return false end
+    return GearTab.GetCompareStatContentHeight(totalRowCount) > viewHeight
 end
 
 function GearTab.HasAnyUpgradeOrEventualUpgrade(list)
@@ -1234,6 +1279,10 @@ end
 function GearTab.GetPinnedHeaderHeight()
     if GearTab.ShouldHideMessageHeader() then
         return ITEM_CHECK_WAITING_HEADER_HEIGHT
+    end
+    -- Focus compare clears the fit-message row; only the character name band is needed.
+    if droppedItemLink then
+        return COLUMN_HEADER_HEIGHT_GEAR
     end
     if GearTab.ShouldHideScoreHeader() then
         return FIXED_HEADER_ROW_HEIGHT
@@ -2394,26 +2443,52 @@ function GearTab.LayoutCompareDumpRow(anchorBelow)
     compareDumpRow:Show()
 end
 
-local compareStatScrollApi
-local compareStatScroll
-local compareStatScrollBar
-local compareStatContainer
-compareStatScrollApi = Theme.CreateVerticalScrollViewport({
+local compareStatUI = {
+    dataRows = {},
+    sectionsCache = nil,
+    weightedCache = nil,
+    weightedPinned = false,
+    weightedFooterRow = nil,
+}
+compareStatUI.scrollApi = Theme.CreateVerticalScrollViewport({
     parent = compareRightPanel,
     gutterEdge = compareRightPanel,
     name = "AltArmyTBC_CompareStatScroll",
     anchorTop = { "TOPLEFT", compareRightPanel, "TOPLEFT", 0, 0 },
-    anchorBottom = { "BOTTOMRIGHT", compareRightPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, 0 },
     valueStep = COMPARE_ROW_HEIGHT + COMPARE_ROW_GAP,
     wheelStep = (COMPARE_ROW_HEIGHT + COMPARE_ROW_GAP) * 2,
     enableMouse = true,
     enableMouseWheel = true,
 })
-compareStatScroll = compareStatScrollApi.scroll
-compareStatScrollBar = compareStatScrollApi.scrollBar
-compareStatContainer = compareStatScrollApi.child
-local compareStatDataRows = {}
-local compareStatSectionsCache = nil
+compareStatUI.scroll = compareStatUI.scrollApi.scroll
+compareStatUI.scrollBar = compareStatUI.scrollApi.scrollBar
+compareStatUI.container = compareStatUI.scrollApi.child
+compareStatUI.weightedFooter = CreateFrame("Frame", nil, compareRightPanel)
+compareStatUI.weightedFooter:SetHeight(COMPARE_ROW_HEIGHT)
+compareStatUI.weightedFooter:Hide()
+
+function GearTab.LayoutCompareStatScrollArea(pinWeighted)
+    local scroll = compareStatUI.scroll
+    local footer = compareStatUI.weightedFooter
+    if not scroll then return end
+    scroll:ClearAllPoints()
+    scroll:SetPoint("TOPLEFT", compareRightPanel, "TOPLEFT", 0, 0)
+    if pinWeighted and footer then
+        footer:ClearAllPoints()
+        footer:SetPoint("BOTTOMLEFT", compareRightPanel, "BOTTOMLEFT", 0, 0)
+        footer:SetPoint("BOTTOMRIGHT", compareRightPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
+        footer:Show()
+        scroll:SetPoint("BOTTOMRIGHT", footer, "TOPRIGHT", 0, COMPARE_ROW_GAP)
+    else
+        if footer then
+            footer:Hide()
+        end
+        scroll:SetPoint("BOTTOMRIGHT", compareRightPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, 0)
+    end
+    compareStatUI.weightedPinned = pinWeighted and true or false
+end
+
+GearTab.LayoutCompareStatScrollArea(false)
 
 function GearTab.updateCompareFocusEquipped(itemLink)
     if not compareFocusEquipped then return end
@@ -2525,8 +2600,9 @@ function GearTab.ShowCompareEmptyHint(list)
     if compareWarningContainer then compareWarningContainer:Hide() end
     if compareVerdictRow then compareVerdictRow:Hide() end
     if compareDumpRow then compareDumpRow:Hide() end
-    if compareStatScroll then compareStatScroll:Hide() end
-    if compareStatScrollBar then compareStatScrollBar:Hide() end
+    if compareStatUI.scroll then compareStatUI.scroll:Hide() end
+    if compareStatUI.scrollBar then compareStatUI.scrollBar:Hide() end
+    if compareStatUI.weightedFooter then compareStatUI.weightedFooter:Hide() end
     GearTab.HideCompareWarningRows()
     GearTab.HideCompareStatRows()
 end
@@ -2534,7 +2610,7 @@ end
 function GearTab.HideCompareEmptyHint()
     if compareEmptyHint then compareEmptyHint:Hide() end
     if compareEmptyHintArea then compareEmptyHintArea:Hide() end
-    if compareStatScroll then compareStatScroll:Show() end
+    if compareStatUI.scroll then compareStatUI.scroll:Show() end
 end
 
 function GearTab.ShowCompareEmptyState(itemLink, equippedLink, list)
@@ -2578,10 +2654,11 @@ function GearTab.LayoutComparePanelBody()
     compareRightPanel:SetPoint("TOPLEFT", compareLeftPanel, "TOPRIGHT", COMPARE_PANEL_SPLIT_GAP, 0)
     compareRightPanel:SetPoint("BOTTOMRIGHT", compareStatsInner, "BOTTOMRIGHT", 0, 0)
 
-    if compareStatScrollApi then
-        compareStatScrollApi.UpdateRange()
+    if compareStatUI.sectionsCache then
+        GearTab.RefreshCompareStatWeightedPin()
+    elseif compareStatUI.scrollApi then
+        compareStatUI.scrollApi.UpdateRange()
     end
-    GearTab.RelayoutCompareStatRowColumns()
 end
 
 function GearTab.LayoutComparePanelSections(warnings, verdict, entry)
@@ -2662,20 +2739,26 @@ function GearTab.LayoutComparePanelSections(warnings, verdict, entry)
 end
 
 function GearTab.UpdateCompareStatScroll(rowCount)
-    if not compareStatScrollApi or not compareStatContainer then return end
+    if not compareStatUI.scrollApi or not compareStatUI.container then return end
     rowCount = tonumber(rowCount) or 0
     local contentH = GearTab.GetCompareStatContentHeight(rowCount)
-    compareStatContainer:SetHeight(math.max(contentH, 1))
-    compareStatScrollApi.SetOffset(0)
-    compareStatScrollApi.UpdateRange()
+    compareStatUI.container:SetHeight(math.max(contentH, 1))
+    compareStatUI.scrollApi.SetOffset(0)
+    compareStatUI.scrollApi.UpdateRange()
 end
 
 function GearTab.HideCompareStatRows()
-    for i = 1, #compareStatDataRows do
-        if compareStatDataRows[i] and compareStatDataRows[i].frame then
-            compareStatDataRows[i].frame:Hide()
+    for i = 1, #compareStatUI.dataRows do
+        if compareStatUI.dataRows[i] and compareStatUI.dataRows[i].frame then
+            compareStatUI.dataRows[i].frame:Hide()
         end
     end
+    if compareStatUI.weightedFooter then
+        compareStatUI.weightedFooter:Hide()
+    end
+    compareStatUI.sectionsCache = nil
+    compareStatUI.weightedCache = nil
+    compareStatUI.weightedPinned = false
 end
 
 local function createCompareStatColumn(parent, left, width, justifyH)
@@ -2688,8 +2771,8 @@ local function createCompareStatColumn(parent, left, width, justifyH)
 end
 
 function GearTab.GetCompareStatRowWidth()
-    if compareStatContainer and compareStatContainer.GetWidth then
-        local w = compareStatContainer:GetWidth()
+    if compareStatUI.container and compareStatUI.container.GetWidth then
+        local w = compareStatUI.container:GetWidth()
         if w and w > 0 then return w end
     end
     if compareRightPanel and compareRightPanel.GetWidth then
@@ -2698,6 +2781,33 @@ function GearTab.GetCompareStatRowWidth()
     end
     return COMPARE_STAT_ROW_INDENT + COMPARE_STAT_COL_NAME
         + COMPARE_STAT_COL_DELTA + COMPARE_STAT_COL_WEIGHT
+end
+
+function GearTab.LayoutCompareStatHint(rowCells, data)
+    local hint = rowCells and rowCells.hint
+    if not hint then return end
+    if not data or not data.offhandHint or data.offhandHint == ""
+        or data.formatAsWeightedChange then
+        hint.hintText = nil
+        hint:Hide()
+        return
+    end
+    local nameFs = rowCells.name
+    if not nameFs then
+        hint.hintText = nil
+        hint:Hide()
+        return
+    end
+    local textWidth = nameFs.GetStringWidth and nameFs:GetStringWidth() or 0
+    hint.hintText = data.offhandHint
+    hint:ClearAllPoints()
+    hint:SetPoint(
+        "LEFT",
+        nameFs,
+        "LEFT",
+        textWidth + COMPARE_STAT_HINT_GAP,
+        0)
+    hint:Show()
 end
 
 function GearTab.LayoutCompareStatRowColumns(rowCells, data)
@@ -2721,6 +2831,7 @@ function GearTab.LayoutCompareStatRowColumns(rowCells, data)
         weightFs:SetWidth(0)
         weightFs:SetText("")
         weightFs:Hide()
+        GearTab.LayoutCompareStatHint(rowCells, data)
         return
     end
     weightFs:Show()
@@ -2739,41 +2850,79 @@ function GearTab.LayoutCompareStatRowColumns(rowCells, data)
     weightFs:SetPoint("TOPLEFT", rowCells.frame, "TOPLEFT", left, 0)
     weightFs:SetWidth(COMPARE_STAT_COL_WEIGHT)
     weightFs:SetJustifyH("RIGHT")
+    GearTab.LayoutCompareStatHint(rowCells, data)
 end
 
 function GearTab.RelayoutCompareStatRowColumns()
-    if not compareStatSectionsCache then return end
-    local dataRowIndex = 0
-    for s = 1, #compareStatSectionsCache do
-        local rows = compareStatSectionsCache[s].rows or {}
-        for r = 1, #rows do
-            dataRowIndex = dataRowIndex + 1
-            local row = compareStatDataRows[dataRowIndex]
-            if row and row.frame and row.frame:IsShown() then
-                GearTab.LayoutCompareStatRowColumns(row, rows[r])
-            end
+    if not compareStatUI.sectionsCache then return end
+    local scrollRows = GearTab.SplitCompareStatRows(
+        GearTab.FlattenCompareStatRows(compareStatUI.sectionsCache))
+    if not compareStatUI.weightedPinned and compareStatUI.weightedCache then
+        scrollRows[#scrollRows + 1] = compareStatUI.weightedCache
+    end
+    for i = 1, #scrollRows do
+        local row = compareStatUI.dataRows[i]
+        if row and row.frame and row.frame:IsShown() then
+            GearTab.LayoutCompareStatRowColumns(row, scrollRows[i])
         end
+    end
+    if compareStatUI.weightedPinned and compareStatUI.weightedFooterRow and compareStatUI.weightedCache then
+        GearTab.LayoutCompareStatRowColumns(
+            compareStatUI.weightedFooterRow, compareStatUI.weightedCache)
     end
 end
 
+local function createCompareStatHintCell(rowFrame)
+    local hint = CreateFrame("Button", nil, rowFrame)
+    hint:SetSize(COMPARE_STAT_HINT_SIZE, COMPARE_STAT_HINT_SIZE)
+    local tex = hint:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints()
+    tex:SetTexture(DEDUCED_HINT_ICON)
+    hint:SetScript("OnEnter", function(self)
+        if not GameTooltip or not self.hintText or self.hintText == "" then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(self.hintText, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    hint:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    hint:Hide()
+    return hint
+end
+
+local function createCompareStatRowCells(parent)
+    local rowFrame = CreateFrame("Frame", nil, parent)
+    rowFrame:SetHeight(COMPARE_ROW_HEIGHT)
+    local left = COMPARE_STAT_ROW_INDENT
+    local nameCol = createCompareStatColumn(rowFrame, left, COMPARE_STAT_COL_NAME, "LEFT")
+    left = left + COMPARE_STAT_COL_NAME
+    local deltaCol = createCompareStatColumn(rowFrame, left, COMPARE_STAT_COL_DELTA, "RIGHT")
+    left = left + COMPARE_STAT_COL_DELTA
+    local weightCol = createCompareStatColumn(rowFrame, left, COMPARE_STAT_COL_WEIGHT, "RIGHT")
+    return {
+        frame = rowFrame,
+        name = nameCol,
+        delta = deltaCol,
+        weight = weightCol,
+        hint = createCompareStatHintCell(rowFrame),
+    }
+end
+
 function GearTab.GetCompareStatDataRow(index)
-    if not compareStatDataRows[index] then
-        local rowFrame = CreateFrame("Frame", nil, compareStatContainer)
-        rowFrame:SetHeight(COMPARE_ROW_HEIGHT)
-        local left = COMPARE_STAT_ROW_INDENT
-        local nameCol = createCompareStatColumn(rowFrame, left, COMPARE_STAT_COL_NAME, "LEFT")
-        left = left + COMPARE_STAT_COL_NAME
-        local deltaCol = createCompareStatColumn(rowFrame, left, COMPARE_STAT_COL_DELTA, "RIGHT")
-        left = left + COMPARE_STAT_COL_DELTA
-        local weightCol = createCompareStatColumn(rowFrame, left, COMPARE_STAT_COL_WEIGHT, "RIGHT")
-        compareStatDataRows[index] = {
-            frame = rowFrame,
-            name = nameCol,
-            delta = deltaCol,
-            weight = weightCol,
-        }
+    if not compareStatUI.dataRows[index] then
+        compareStatUI.dataRows[index] = createCompareStatRowCells(compareStatUI.container)
     end
-    return compareStatDataRows[index]
+    return compareStatUI.dataRows[index]
+end
+
+function GearTab.GetCompareStatWeightedFooterRow()
+    if not compareStatUI.weightedFooterRow then
+        compareStatUI.weightedFooterRow = createCompareStatRowCells(compareStatUI.weightedFooter)
+        compareStatUI.weightedFooterRow.frame:SetPoint("TOPLEFT", compareStatUI.weightedFooter, "TOPLEFT", 0, 0)
+        compareStatUI.weightedFooterRow.frame:SetPoint("TOPRIGHT", compareStatUI.weightedFooter, "TOPRIGHT", 0, 0)
+    end
+    return compareStatUI.weightedFooterRow
 end
 
 function GearTab.FormatCompareNumber(n)
@@ -2878,35 +3027,76 @@ end
 function GearTab.LayoutCompareStatDataRow(rowCells, anchorRow)
     rowCells.frame:ClearAllPoints()
     if not anchorRow then
-        rowCells.frame:SetPoint("TOPLEFT", compareStatContainer, "TOPLEFT", 0, 0)
+        rowCells.frame:SetPoint("TOPLEFT", compareStatUI.container, "TOPLEFT", 0, 0)
     else
         rowCells.frame:SetPoint("TOPLEFT", anchorRow, "BOTTOMLEFT", 0, -COMPARE_ROW_GAP)
     end
-    rowCells.frame:SetPoint("TOPRIGHT", compareStatContainer, "TOPRIGHT", 0, 0)
+    rowCells.frame:SetPoint("TOPRIGHT", compareStatUI.container, "TOPRIGHT", 0, 0)
     rowCells.frame:Show()
 end
 
 function GearTab.PopulateCompareStatRows(sections)
-    compareStatSectionsCache = sections
+    compareStatUI.sectionsCache = sections
+    local allRows = GearTab.FlattenCompareStatRows(sections)
+    local scrollRows, weightedRow = GearTab.SplitCompareStatRows(allRows)
+    compareStatUI.weightedCache = weightedRow
+
+    local viewHeight = 0
+    if compareRightPanel and compareRightPanel.GetHeight then
+        viewHeight = compareRightPanel:GetHeight() or 0
+    end
+    if viewHeight <= 0 and compareStatUI.scroll and compareStatUI.scroll.GetHeight then
+        viewHeight = compareStatUI.scroll:GetHeight() or 0
+    end
+
+    local pinWeighted = weightedRow ~= nil
+        and GearTab.ShouldPinCompareWeightedRow(#allRows, viewHeight)
+    GearTab.LayoutCompareStatScrollArea(pinWeighted)
+
     local dataRowIndex = 0
     local lastStatAnchor = nil
-    sections = sections or {}
-    for s = 1, #sections do
-        local rows = sections[s].rows or {}
-        for r = 1, #rows do
-            dataRowIndex = dataRowIndex + 1
-            local dataRow = GearTab.GetCompareStatDataRow(dataRowIndex)
-            GearTab.SetCompareStatDataRow(dataRow, rows[r])
-            GearTab.LayoutCompareStatDataRow(dataRow, lastStatAnchor)
-            lastStatAnchor = dataRow.frame
+    local rowsForScroll = scrollRows
+    if weightedRow and not pinWeighted then
+        rowsForScroll = {}
+        for i = 1, #scrollRows do
+            rowsForScroll[i] = scrollRows[i]
+        end
+        rowsForScroll[#rowsForScroll + 1] = weightedRow
+    end
+
+    for r = 1, #rowsForScroll do
+        dataRowIndex = dataRowIndex + 1
+        local dataRow = GearTab.GetCompareStatDataRow(dataRowIndex)
+        GearTab.SetCompareStatDataRow(dataRow, rowsForScroll[r])
+        GearTab.LayoutCompareStatDataRow(dataRow, lastStatAnchor)
+        lastStatAnchor = dataRow.frame
+    end
+    for i = dataRowIndex + 1, #compareStatUI.dataRows do
+        if compareStatUI.dataRows[i] and compareStatUI.dataRows[i].frame then
+            compareStatUI.dataRows[i].frame:Hide()
         end
     end
-    for i = dataRowIndex + 1, #compareStatDataRows do
-        if compareStatDataRows[i] and compareStatDataRows[i].frame then
-            compareStatDataRows[i].frame:Hide()
-        end
+
+    if pinWeighted and weightedRow then
+        local footerRow = GearTab.GetCompareStatWeightedFooterRow()
+        GearTab.SetCompareStatDataRow(footerRow, weightedRow)
+        footerRow.frame:Show()
+        compareStatUI.weightedFooter:Show()
+    elseif compareStatUI.weightedFooter then
+        compareStatUI.weightedFooter:Hide()
     end
+
     GearTab.UpdateCompareStatScroll(dataRowIndex)
+end
+
+function GearTab.RefreshCompareStatWeightedPin()
+    if not compareStatUI.sectionsCache then
+        if compareStatUI.scrollApi then
+            compareStatUI.scrollApi.UpdateRange()
+        end
+        return
+    end
+    GearTab.PopulateCompareStatRows(compareStatUI.sectionsCache)
 end
 
 function GearTab.LayoutCompareBottomPanels(mainSection, areaLeft, areaRight)

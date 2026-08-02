@@ -1658,6 +1658,97 @@ describe("GearUpgrade", function()
             assert.are.equal(-2, delta)
         end)
 
+        local function withWeaponDpsStats(dpsById, fn)
+            local oldGetItemStats = _G.GetItemStats
+            _G.GetItemStats = function(link)
+                local id = tonumber(tostring(link):match("item:(%d+)"))
+                local stats = id and dpsById[id]
+                if stats then return stats end
+                return oldGetItemStats(link)
+            end
+            if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+                AltArmy.ItemStats.ClearCache()
+            end
+            local ok, err = pcall(fn)
+            _G.GetItemStats = oldGetItemStats
+            if AltArmy.ItemStats and AltArmy.ItemStats.ClearCache then
+                AltArmy.ItemStats.ClearCache()
+            end
+            assert(ok, err)
+        end
+
+        it("ScoreItemCustom counts off-hand melee DPS at OFFHAND_DPS_FACTOR", function()
+            withWeaponDpsStats({
+                [206] = {
+                    ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 20,
+                    ["ITEM_MOD_STAMINA_SHORT"] = 10,
+                },
+            }, function()
+                assert.are.equal(0.5, GU.OFFHAND_DPS_FACTOR)
+                local weights = GU.GetWeights("WARRIOR", "fury", 60)
+                assert.is_true((weights.melee_dps or 0) > 0)
+                local oh = "|Hitem:206:0|h[Bag OH]|h"
+                local mainScore = GU.ScoreItemCustom(oh, "WARRIOR", "fury", 60)
+                local offScore = GU.ScoreItemCustom(oh, "WARRIOR", "fury", 60, true)
+                local expected = mainScore
+                    - 20 * weights.melee_dps * (1 - GU.OFFHAND_DPS_FACTOR)
+                assert.is_true(math.abs(offScore - expected) < 1e-9)
+                assert.is_true(offScore < mainScore)
+            end)
+        end)
+
+        it("1H vs 2H custom compare counts deduced off-hand DPS at half value", function()
+            withWeaponDpsStats({
+                [204] = { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 50 },
+                [205] = { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 30 },
+                [206] = { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 28 },
+                [207] = { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 20 },
+            }, function()
+                local char = setupWarriorTwoHand()
+                local entry = {
+                    name = "Warrior2H", realm = "TestRealm",
+                    classFile = "WARRIOR", level = 60,
+                }
+                local delta, info = GU.GetWeaponConfigDelta(char, "|Hitem:205:0|h[New 1H]|h", {
+                    technique = "custom",
+                    compareSlot = MAIN,
+                }, entry)
+                local newScore = GU.ScoreItemCustom(
+                    "|Hitem:205:0|h[New 1H]|h", "WARRIOR", "fury", 60)
+                local ohFull = GU.ScoreItemCustom(
+                    "|Hitem:206:0|h[Bag OH]|h", "WARRIOR", "fury", 60)
+                local ohScaled = GU.ScoreItemCustom(
+                    "|Hitem:206:0|h[Bag OH]|h", "WARRIOR", "fury", 60, true)
+                local equipped = GU.ScoreItemCustom(
+                    "|Hitem:204:0|h[Small 2H]|h", "WARRIOR", "fury", 60)
+                assert.are.equal("paired_candidate", info.config)
+                -- Naive sum (30 + 28 dps) beats the 2H (50 dps)...
+                assert.is_true(newScore + ohFull > equipped)
+                -- ...but with the off-hand counted at 50% (30 + 14) it does not.
+                assert.is_true(math.abs(info.candidateValue - (newScore + ohScaled)) < 1e-9)
+                assert.is_true(math.abs(info.currentValue - equipped) < 1e-9)
+                assert.is_true(delta < 0)
+            end)
+        end)
+
+        it("GetEquippedLoadoutValue counts off-hand DPS at half value", function()
+            withWeaponDpsStats({
+                [201] = { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 30 },
+                [202] = { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 24 },
+            }, function()
+                local char = setupWarriorDualWield()
+                local val = GU.GetEquippedLoadoutValue(char, "custom", "WARRIOR", "fury", 60)
+                local mh = GU.ScoreItemCustom(
+                    "|Hitem:201:0|h[Weak MH]|h", "WARRIOR", "fury", 60)
+                local ohFull = GU.ScoreItemCustom(
+                    "|Hitem:202:0|h[Weak OH]|h", "WARRIOR", "fury", 60)
+                local ohScaled = GU.ScoreItemCustom(
+                    "|Hitem:202:0|h[Weak OH]|h", "WARRIOR", "fury", 60, true)
+                assert.is_true(ohScaled < ohFull)
+                assert.is_true(math.abs(val - (mh + ohScaled)) < 1e-9)
+            end)
+        end)
+
         it("GetCharacterUpgradeDelta uses loadout comparison for shield vs 2H", function()
             local char = setupPaladinTwoHand()
             local delta = GU.GetCharacterUpgradeDelta(char, "|Hitem:208:0|h[Shield]|h", {
@@ -1927,6 +2018,115 @@ describe("GearUpgrade", function()
             assert.are.equal(delta1, delta2)
             assert.are.equal(callsAfterFirst, getItemInfoCalls)
             GU.ResetFocusPass()
+        end)
+
+        it("storedItemsFingerprint is frozen for a focus pass until ResetFocusPass", function()
+            local char = setupRogueTwoHand()
+            local entry = { name = "Rogue2H", realm = "TestRealm", classFile = "ROGUE", level = 60 }
+            local opts = { technique = "ilvl", compareSlot = MAIN }
+            GU.ResetFocusPass()
+            local delta1, info1 = GU.GetWeaponConfigDelta(
+                char, "|Hitem:205:0|h[New 1H]|h", opts, entry)
+            assert.are.equal("paired_candidate", info1.config)
+            assert.is_not_nil(info1.offHandLink)
+
+            -- Mutate bags mid-pass; fingerprint must stay frozen.
+            char.Containers[0].links[1] = nil
+            char.Containers[0].links[2] = nil
+            local delta2, info2 = GU.GetWeaponConfigDelta(
+                char, "|Hitem:205:0|h[New 1H]|h", opts, entry)
+            assert.are.equal(delta1, delta2)
+            assert.are.equal(info1.offHandLink, info2.offHandLink)
+
+            GU.ResetFocusPass()
+            local delta3, info3 = GU.GetWeaponConfigDelta(
+                char, "|Hitem:205:0|h[New 1H]|h", opts, entry)
+            assert.are_not.equal(delta1, delta3)
+            assert.is_nil(info3.offHandLink)
+            assert.are.equal("one_v_one", info3.config)
+        end)
+
+        it("FindBestStoredItemForSlot persists across ResetFocusPass until bags change", function()
+            local char = setupWarriorDualWield()
+            local entry = { name = "WarriorDW", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local opts = { technique = "ilvl" }
+            local mailScans = 0
+            local oldIterate = DS.IterateMailItemLinks
+            DS.IterateMailItemLinks = function(self, c, callback)
+                mailScans = mailScans + 1
+                return oldIterate(self, c, callback)
+            end
+            GU.ResetFocusPass()
+            local link1 = select(1, GU.FindBestStoredItemForSlot(char, OFF, opts, entry))
+            local scansAfterFirst = mailScans
+            GU.ResetFocusPass()
+            local link2 = select(1, GU.FindBestStoredItemForSlot(char, OFF, opts, entry))
+            assert.are.equal(link1, link2)
+            assert.are.equal(scansAfterFirst, mailScans)
+
+            char.Containers[0].links[1] = "|Hitem:209:0|h[Better 1H]|h"
+            GU.ResetFocusPass()
+            local link3 = select(1, GU.FindBestStoredItemForSlot(char, OFF, opts, entry))
+            DS.IterateMailItemLinks = oldIterate
+            assert.are_not.equal(link1, link3)
+            assert.is_true(mailScans > scansAfterFirst)
+        end)
+
+        it("GetWeaponConfigDelta persists across ResetFocusPass until bags change", function()
+            local char = setupRogueTwoHand()
+            local entry = { name = "Rogue2H", realm = "TestRealm", classFile = "ROGUE", level = 60 }
+            local opts = { technique = "ilvl", compareSlot = MAIN }
+            local mailScans = 0
+            local oldIterate = DS.IterateMailItemLinks
+            DS.IterateMailItemLinks = function(self, c, callback)
+                mailScans = mailScans + 1
+                return oldIterate(self, c, callback)
+            end
+            GU.ResetFocusPass()
+            local delta1, info1 = GU.GetWeaponConfigDelta(
+                char, "|Hitem:205:0|h[New 1H]|h", opts, entry)
+            local scansAfterFirst = mailScans
+            GU.ResetFocusPass()
+            local delta2, info2 = GU.GetWeaponConfigDelta(
+                char, "|Hitem:205:0|h[New 1H]|h", opts, entry)
+            assert.are.equal(delta1, delta2)
+            assert.are.equal(info1.offHandLink, info2.offHandLink)
+            assert.are.equal(scansAfterFirst, mailScans)
+
+            char.Containers[0].links[1] = nil
+            char.Containers[0].links[2] = nil
+            GU.ResetFocusPass()
+            local delta3, info3 = GU.GetWeaponConfigDelta(
+                char, "|Hitem:205:0|h[New 1H]|h", opts, entry)
+            DS.IterateMailItemLinks = oldIterate
+            assert.are_not.equal(delta1, delta3)
+            assert.is_nil(info3.offHandLink)
+            assert.is_true(mailScans > scansAfterFirst)
+        end)
+
+        it("GetWeaponLoadoutCompareLinks reuses GetWeaponConfigDelta selection cache", function()
+            local char = setupRogueTwoHand()
+            local entry = { name = "Rogue2H", realm = "TestRealm", classFile = "ROGUE", level = 60 }
+            local opts = { technique = "ilvl", compareSlot = MAIN }
+            GU.ResetFocusPass()
+            local buildCalls = 0
+            local oldBuild = GU.BuildSelectionLoadoutCompare
+            GU.BuildSelectionLoadoutCompare = function(...)
+                buildCalls = buildCalls + 1
+                return oldBuild(...)
+            end
+            local delta, info = GU.GetWeaponConfigDelta(
+                char, "|Hitem:205:0|h[New 1H]|h", opts, entry)
+            local callsAfterDelta = buildCalls
+            local links = GU.GetWeaponLoadoutCompareLinks(
+                char, "|Hitem:205:0|h[New 1H]|h", opts, entry)
+            GU.BuildSelectionLoadoutCompare = oldBuild
+            assert.is_true(callsAfterDelta > 0)
+            assert.are.equal(callsAfterDelta, buildCalls)
+            assert.is_not_nil(links)
+            assert.is_not_nil(info.selection)
+            assert.are.same(info.selection.candidateLinks, links.candidateLinks)
+            assert.are.same(info.selection.equippedLinks, links.equippedLinks)
         end)
 
         describe("main-hand-only weapon cannot be considered for off-hand", function()

@@ -864,6 +864,10 @@ end
 function IS.ClearCache()
     cache = {}
     pendingIds = {}
+    local GU = AltArmy.GearUpgrade
+    if GU and GU.InvalidateScoreDependentMemos then
+        GU.InvalidateScoreDependentMemos()
+    end
 end
 
 function IS.SetOnUpdated(fn)

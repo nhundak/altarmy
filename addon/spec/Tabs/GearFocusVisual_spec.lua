@@ -187,21 +187,37 @@ describe("Gear focus visuals", function()
             getUpgradeBadgeOffsetY("sidegradeFuture"))
     end)
 
-    local FOCUS_GRID_HEIGHT_SLACK = 2
+    local FOCUS_GRID_BOTTOM_PAD = 2
     local PAD = 4
 
-    local function getScrollableGridHeight(visibleCount, rowHeight, focused)
-        local h = visibleCount * rowHeight + PAD
+    local function getScrollableGridHeight(visibleCount, rowHeight, cellSize, focused)
         if focused then
-            h = h + FOCUS_GRID_HEIGHT_SLACK
+            local topOffset = (rowHeight - cellSize) / 2
+            return topOffset + (visibleCount - 1) * rowHeight + cellSize + FOCUS_GRID_BOTTOM_PAD
         end
-        return h
+        return visibleCount * rowHeight + PAD
     end
 
-    it("adds slack to focused grid height so the viewport avoids vertical scroll", function()
+    it("uses content-tight height for focused grid rows", function()
         local rh = 48
-        assert.are.equal(1 * rh + PAD + FOCUS_GRID_HEIGHT_SLACK, getScrollableGridHeight(1, rh, true))
-        assert.are.equal(2 * rh + PAD + FOCUS_GRID_HEIGHT_SLACK, getScrollableGridHeight(2, rh, true))
-        assert.are.equal(2 * rh + PAD, getScrollableGridHeight(2, rh, false))
+        local cell = 36
+        assert.are.equal(6 + cell + FOCUS_GRID_BOTTOM_PAD, getScrollableGridHeight(1, rh, cell, true))
+        assert.are.equal(6 + rh + cell + FOCUS_GRID_BOTTOM_PAD, getScrollableGridHeight(2, rh, cell, true))
+        assert.are.equal(2 * rh + PAD, getScrollableGridHeight(2, rh, cell, false))
+        -- Focused 2-row height is shorter than the old N*rh + pad + slack formula.
+        assert.is_true(getScrollableGridHeight(2, rh, cell, true) < 2 * rh + PAD + 2)
+    end)
+
+    it("focus pinned header is name-only (no empty message row)", function()
+        local COLUMN_HEADER_HEIGHT_GEAR = 18
+        local MESSAGE_ROW_HEIGHT = 12
+        local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
+        local function getPinnedHeaderHeight(focused)
+            if focused then return COLUMN_HEADER_HEIGHT_GEAR end
+            return FIXED_HEADER_ROW_HEIGHT
+        end
+        assert.are.equal(18, getPinnedHeaderHeight(true))
+        assert.are.equal(30, getPinnedHeaderHeight(false))
+        assert.are.equal(MESSAGE_ROW_HEIGHT, getPinnedHeaderHeight(false) - getPinnedHeaderHeight(true))
     end)
 end)
