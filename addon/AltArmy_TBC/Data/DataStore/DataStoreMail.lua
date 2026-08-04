@@ -147,6 +147,31 @@ function DS:GetMailInfo(char, index)
     return data.icon, data.count, data.link, data.money, data.subject, data.sender, daysLeft, data.returned
 end
 
+--- Soonest remaining days until any mail expires/returns (Mails + MailCache).
+--- Adjusts each entry by elapsed time since its lastCheck.
+--- @param char table|nil
+--- @param now number|nil unix time (defaults to time())
+--- @return number|nil fractional days remaining, or nil if no mail with expiry data
+function DS:GetSoonestMailDaysLeft(char, now)
+    if not char then return nil end
+    now = now or Now()
+    local soonest = nil
+    local function consider(rows)
+        for _, data in ipairs(rows or {}) do
+            if data and type(data.daysLeft) == "number" then
+                local lastCheck = data.lastCheck or 0
+                local left = data.daysLeft - (now - lastCheck) / 86400
+                if soonest == nil or left < soonest then
+                    soonest = left
+                end
+            end
+        end
+    end
+    consider(char.Mails)
+    consider(char.MailCache)
+    return soonest
+end
+
 function DS:GetMailItemCount(char, itemID)
     if not char or not itemID then return 0 end
     local count = 0

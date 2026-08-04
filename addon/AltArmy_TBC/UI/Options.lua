@@ -1930,6 +1930,25 @@ SlashCmdList.ALTARMY = function(msg)
         end
         return
     end
+    local debugMailName = trimmed:match("^[Dd]ebug [Mm]ail%s+(.+)$")
+    if debugMailName then
+        local MA = AltArmy and AltArmy.MailAlerts
+        if MA and MA.DebugAnnounceForCharacter then
+            MA.DebugAnnounceForCharacter(debugMailName)
+        elseif AltArmy.Debug and AltArmy.Debug.NotifyChat then
+            AltArmy.Debug.NotifyChat("Mail alerts are unavailable.")
+        end
+        return
+    end
+    if lower == "debug mail" then
+        local MA = AltArmy and AltArmy.MailAlerts
+        if MA and MA.DebugAnnounceForCharacter then
+            MA.DebugAnnounceForCharacter("")
+        elseif AltArmy.Debug and AltArmy.Debug.NotifyChat then
+            AltArmy.Debug.NotifyChat("Mail alerts are unavailable.")
+        end
+        return
+    end
     local debugLevelUp = trimmed:match("^[Dd]ebug [Ll]evelup%s+(%d+)$")
     if debugLevelUp then
         local GA = AltArmy and AltArmy.GearUpgradeAlerts

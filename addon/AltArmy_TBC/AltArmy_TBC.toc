@@ -42,6 +42,7 @@ Data\Integrations\RestedXpQuestRewardConflict.lua
 Data\Integrations\ZygorIntegration.lua
 Data\DataStore\DataStoreReputations.lua
 Data\DataStore\DataStoreMail.lua
+Data\MailAlerts.lua
 Data\DataStore\DataStoreAuctions.lua
 Data\Characters\SummaryData.lua
 Data\Characters\RealmFilter.lua
