@@ -503,7 +503,7 @@ local function ApplySummaryListLayout()
     horizontalScrollBar:ClearAllPoints()
     horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", PAD, -4)
     horizontalScrollBar:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, -4)
-    Theme.AnchorVerticalScrollBar(scrollBar, tabContentPanel, listViewport)
+    Theme.AnchorVerticalScrollBar(scrollBar, tabContentPanel, listViewport, { gap = 0 })
 end
 
 local summaryDeferredUpdatePending = false

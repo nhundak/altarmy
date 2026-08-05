@@ -1378,9 +1378,9 @@ local scrollTopFade
 
 function GearTab.LayoutVerticalScrollBar()
     if not verticalScrollBar or not verticalScroll or not fixedHeaderRow then return end
-    Theme.AnchorVerticalScrollBar(verticalScrollBar, gearMainSection, verticalScroll)
+    Theme.AnchorVerticalScrollBar(verticalScrollBar, gearMainSection, verticalScroll, { gap = 0 })
     -- Extend track upward over the pinned header (Reputation spans contentArea including header).
-    verticalScrollBar:SetPoint("TOPLEFT", fixedHeaderRow, "TOPRIGHT", Theme.SCROLL_BAR_GAP, 0)
+    verticalScrollBar:SetPoint("TOPLEFT", fixedHeaderRow, "TOPRIGHT", 0, 0)
 end
 
 function GearTab.LayoutGridHost()
@@ -1392,7 +1392,7 @@ function GearTab.LayoutGridHost()
     gridHost:SetPoint("BOTTOMRIGHT", gearMainSection, "BOTTOMRIGHT", -SCROLL_GUTTER, chromeH)
     if horizontalScrollBar then
         horizontalScrollBar:ClearAllPoints()
-        horizontalScrollBar:SetPoint("BOTTOMLEFT", gearMainInner, "BOTTOMLEFT", PAD, -4)
+        horizontalScrollBar:SetPoint("BOTTOMLEFT", gearMainInner, "BOTTOMLEFT", 0, -4)
         horizontalScrollBar:SetPoint("BOTTOMRIGHT", gearMainSection, "BOTTOMRIGHT", -SCROLL_GUTTER, -4)
         horizontalScrollBar:SetFrameLevel(gearMainSection:GetFrameLevel() + 30)
         horizontalScrollBar:EnableMouse(true)

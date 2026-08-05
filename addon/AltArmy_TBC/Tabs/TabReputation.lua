@@ -16,7 +16,7 @@ local PAD = 4
 local SECTION_INSET = Theme.TAB_SECTION_INSET
 local SECTION_GAP = Theme.SECTION_GAP
 local FACTION_LABEL_WIDTH = 120
-local REP_ROW_HEIGHT = 46
+local REP_ROW_HEIGHT = 47
 local REP_BAR_HEIGHT = 20
 local REP_STANDING_ROW_HEIGHT = 12
 local REP_STANDING_BAR_GAP = 1
@@ -228,15 +228,30 @@ local tabContentPanel = Theme.CreateTabContentPanel(frame)
 tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
 tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)
+tabContentInner:SetClipsChildren(true)
 
 local rightPanel = CreateFrame("Frame", nil, tabContentInner)
 rightPanel:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
 rightPanel:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", 0, 0)
 
 local contentArea = CreateFrame("Frame", nil, rightPanel)
-contentArea:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 0, -PAD)
-contentArea:SetPoint("BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER,
-    HORIZONTAL_SCROLL_BAR_HEIGHT)
+contentArea:SetClipsChildren(true)
+local function LayoutContentArea(horizontalScrollBar)
+    contentArea:ClearAllPoints()
+    contentArea:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 0, -PAD)
+    contentArea:SetPoint("TOPRIGHT", tabContentPanel, "TOPRIGHT", -SCROLL_GUTTER, 0)
+    contentArea:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", 0, 0)
+    contentArea:SetPoint("BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER,
+        HORIZONTAL_SCROLL_BAR_HEIGHT)
+    if horizontalScrollBar then
+        horizontalScrollBar:ClearAllPoints()
+        horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", 0, -4)
+        horizontalScrollBar:SetPoint("BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, -4)
+        horizontalScrollBar:SetFrameLevel(tabContentPanel:GetFrameLevel() + 30)
+        horizontalScrollBar:EnableMouse(true)
+    end
+end
+LayoutContentArea(nil)
 
 local verticalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_ReputationVerticalScroll", contentArea)
 verticalScroll:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 0, 0)
@@ -277,9 +292,9 @@ headerCornerFrame:SetSize(FACTION_LABEL_WIDTH, GetHeaderHeight())
 Theme.ApplyGridLabelColumnBackground(headerCornerFrame)
 
 factionFilterEdit = CreateFrame("EditBox", "AltArmyTBC_ReputationFactionFilterEdit", headerCornerFrame)
-factionFilterEdit:SetHeight(20)
+factionFilterEdit:SetHeight(16)
 -- Pin flush to the top of the header; the score-sort row occupies the bottom band of the corner.
-local FACTION_FILTER_EDIT_TOP_Y = 3
+local FACTION_FILTER_EDIT_TOP_Y = 0
 factionFilterEdit:SetPoint("TOPLEFT", headerCornerFrame, "TOPLEFT", 2, FACTION_FILTER_EDIT_TOP_Y)
 factionFilterEdit:SetPoint("TOPRIGHT", headerCornerFrame, "TOPRIGHT", -2, FACTION_FILTER_EDIT_TOP_Y)
 factionFilterEdit:SetAutoFocus(false)
@@ -350,7 +365,7 @@ verticalScrollBar:SetMinMaxValues(0, 0)
 verticalScrollBar:SetValueStep(dims.rowHeight)
 verticalScrollBar:SetValue(0)
 verticalScrollBar:EnableMouse(true)
-Theme.AnchorVerticalScrollBar(verticalScrollBar, tabContentPanel, contentArea)
+Theme.AnchorVerticalScrollBar(verticalScrollBar, tabContentPanel, contentArea, { gap = 0 })
 local scrollTopFade
 verticalScrollBar:SetScript("OnValueChanged", function(_, value)
     verticalScroll:SetVerticalScroll(value)
@@ -546,7 +561,7 @@ local repGridScrollDragging = false
 
 local scrollGridLeftFade
 local scrollHeaderLeftFade
-local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
+local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentPanel, {
     name = "AltArmyTBC_ReputationHorizontalScrollBar",
     thickness = HORIZONTAL_SCROLL_BAR_HEIGHT - PAD * 2,
     onScroll = function(value)
@@ -572,8 +587,7 @@ local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
     end,
 })
 local horizontalScrollBar = horizontalScrollApi.bar
-horizontalScrollBar:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", PAD, -4)
-horizontalScrollBar:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", 0, -4)
+LayoutContentArea(horizontalScrollBar)
 
 scrollGridLeftFade = Theme.CreatePinnedHorizontalScrollFade({
     anchorScrollFrame = horizontalScroll,
@@ -732,7 +746,7 @@ local function UpdateFactionLabels(factionRows, numRows)
             row.sortBtn.text:SetText(factionSortHighFirst and ">" or "<")
             row.sortBtn:Show()
         else
-            row.text:SetTextColor(0.9, 0.9, 0.9, 1)
+            row.text:SetTextColor(1, 1, 1, 1)
             row.sortBtn:Hide()
         end
 

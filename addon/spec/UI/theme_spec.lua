@@ -121,9 +121,13 @@ describe("AltArmy.Theme", function()
                     self._textColorCalls = (self._textColorCalls or 0) + 1
                 end,
                 SetText = function(self, t) self._text = t end,
-                SetPoint = function() end,
+                SetPoint = function(self, ...)
+                    self._points = self._points or {}
+                    table.insert(self._points, { ... })
+                end,
                 SetWidth = function() end,
-                SetJustifyH = function() end,
+                SetJustifyH = function(self, h) self._justifyH = h end,
+                SetJustifyV = function(self, v) self._justifyV = v end,
                 SetWordWrap = function(self, on) self._wordWrap = on end,
                 Show = function(self) self._shown = true end,
                 Hide = function(self) self._shown = false end,
@@ -1017,6 +1021,26 @@ describe("AltArmy.Theme", function()
             box:SetFocus()
             Theme.UpdateEditBoxPlaceholderVisibility(box)
             assert.is_true(box.altArmyPlaceholderHint:IsShown())
+        end)
+
+        it("defaults the fallback hint to no vertical offset", function()
+            local box = makeStubEditBox()
+            Theme.SetupEditBoxPlaceholder(box, "Search here")
+            local points = box.altArmyPlaceholderHint._points or {}
+            assert.are.equal(0, points[1][5])
+            assert.are.equal(0, points[2][5])
+        end)
+
+        it("honors an explicit placeholder yOffset", function()
+            local box = makeStubEditBox()
+            Theme.SetupEditBoxPlaceholder(box, "Filter faction", {
+                leftInset = 4,
+                rightInset = 4,
+                yOffset = -2,
+            })
+            local points = box.altArmyPlaceholderHint._points or {}
+            assert.are.equal(-2, points[1][5])
+            assert.are.equal(-2, points[2][5])
         end)
 
         it("hides the fallback hint when the field has text", function()

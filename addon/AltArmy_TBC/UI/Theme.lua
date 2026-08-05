@@ -771,6 +771,7 @@ function Theme.SetupEditBoxPlaceholder(editBox, placeholderText, options)
     options = options or {}
     local leftInset = options.leftInset or 6
     local rightInset = options.rightInset or 6
+    local yOffset = options.yOffset or 0
     if editBox.SetPlaceholderText then
         editBox:SetPlaceholderText(placeholderText or "")
         return
@@ -778,8 +779,8 @@ function Theme.SetupEditBoxPlaceholder(editBox, placeholderText, options)
     local hint = editBox[PLACEHOLDER_HINT_KEY]
     if not hint then
         hint = editBox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        hint:SetPoint("LEFT", editBox, "LEFT", leftInset, 0)
-        hint:SetPoint("RIGHT", editBox, "RIGHT", -rightInset, 0)
+        hint:SetPoint("LEFT", editBox, "LEFT", leftInset, yOffset)
+        hint:SetPoint("RIGHT", editBox, "RIGHT", -rightInset, yOffset)
         hint:SetJustifyH("LEFT")
         hint:SetTextColor(0.5, 0.5, 0.5, 1)
         editBox[PLACEHOLDER_HINT_KEY] = hint
