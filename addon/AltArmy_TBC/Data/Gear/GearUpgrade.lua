@@ -239,7 +239,8 @@ local PROVIDERS = {
         installInfo = {
             name = "GearScoreTBCClassic or TacoTip",
             url = "https://www.curseforge.com/wow/addons/gearscoretbcclassic",
-            text = "Install GearScoreTBCClassic or TacoTip from CurseForge for gear score integration.",
+            wagoUrl = "https://addons.wago.io/addons/tacotip",
+            text = "Install GearScoreTBCClassic or TacoTip from CurseForge or Wago for gear score integration.",
         },
         warningSpecAgnostic = true,
         IsAvailable = function()

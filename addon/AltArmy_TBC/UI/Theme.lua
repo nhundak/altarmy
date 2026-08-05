@@ -2050,7 +2050,10 @@ function Theme.CreateCollapsibleSection(parent, opts)
     }
 end
 
-Theme.CRAFTLIB_INSTALL_URL = "https://www.curseforge.com/wow/addons/craftlib"
+Theme.CRAFTLIB_INSTALL_URL_CURSEFORGE = "https://www.curseforge.com/wow/addons/craftlib"
+Theme.CRAFTLIB_INSTALL_URL_WAGO = "https://addons.wago.io/addons/craftlib"
+-- Back-compat alias (CurseForge).
+Theme.CRAFTLIB_INSTALL_URL = Theme.CRAFTLIB_INSTALL_URL_CURSEFORGE
 
 --- Soft blue accent used for callout bullet lists (matches GuildShareOnboarding).
 Theme.BULLET_TEXT_COLOR = { 0.54, 0.71, 0.97, 1 }
@@ -2059,7 +2062,7 @@ Theme.BULLET_TEXT_COLOR = { 0.54, 0.71, 0.97, 1 }
 --- opts.bodyText — optional gray description paragraph (used when introText is nil).
 --- opts.introText — optional white intro line (e.g. "Install the CraftLib addon to see:").
 --- opts.bulletLines — optional list of bullet body strings (shown in soft blue with "• ").
---- opts.height — panel height (default fits content; ~132 without bullets).
+--- opts.height — panel height (default fits content; ~174 without bullets).
 --- opts.padding — inner padding (default 8).
 function Theme.CreateCraftLibInstallCallout(parent, opts)
     opts = opts or {}
@@ -2073,16 +2076,19 @@ function Theme.CreateCraftLibInstallCallout(parent, opts)
     local bulletColor = Theme.BULLET_TEXT_COLOR
     -- GameFontHighlightSmall line height used to size the panel to its content.
     local lineH = 12
+    -- Each platform: gap before label + label + gap + url row.
+    local installBlockH = 6 + lineH + 4 + urlRowHeight
+    local secondInstallBlockH = 4 + lineH + 4 + urlRowHeight
     local height = opts.height
     if not height then
         if hasBullets then
             local n = #bulletLines
-            -- pad + icon + gaps + intro + bullets + install + url + pad
+            -- pad + icon + gaps + intro + bullets + CurseForge + Wago + pad
             height = padding * 2 + 24 + 6 + lineH + 4
                 + (lineH * n) + (2 * math.max(0, n - 1))
-                + 6 + lineH + 4 + urlRowHeight
+                + installBlockH + secondInstallBlockH
         else
-            height = 132
+            height = 174
         end
     end
 
@@ -2091,6 +2097,50 @@ function Theme.CreateCraftLibInstallCallout(parent, opts)
     frame:SetHeight(height)
 
     local inner = Theme.CreatePanelInnerContent(frame, padding)
+
+    local function createReadonlyUrlEdit(url, anchorFrame)
+        local urlEdit = CreateFrame("EditBox", nil, frame)
+        urlEdit:SetHeight(urlRowHeight)
+        urlEdit:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", 0, -4)
+        urlEdit:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
+        urlEdit:SetFontObject("GameFontHighlightSmall")
+        urlEdit:SetAutoFocus(false)
+        urlEdit:SetTextInsets(4, 4, 0, 0)
+        urlEdit:SetText(url)
+        Theme.ApplyInputTextures(urlEdit)
+        urlEdit:SetScript("OnEditFocusGained", function(box)
+            box:HighlightText()
+        end)
+        urlEdit:SetScript("OnEditFocusLost", function(box)
+            box:HighlightText(0, 0)
+        end)
+        urlEdit:SetScript("OnMouseUp", function(box)
+            box:SetFocus()
+            box:HighlightText()
+        end)
+        urlEdit:SetScript("OnEscapePressed", function(box)
+            box:ClearFocus()
+        end)
+        urlEdit:SetScript("OnEnterPressed", function(box)
+            box:ClearFocus()
+        end)
+        urlEdit:SetScript("OnChar", function() end)
+        urlEdit:SetScript("OnTextChanged", function(box)
+            if box:GetText() ~= url then
+                box:SetText(url)
+            end
+        end)
+        return urlEdit
+    end
+
+    local function createInstallLinkBlock(labelText, url, relativeTo, topGap)
+        local installLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        installLabel:SetPoint("TOPLEFT", relativeTo, "BOTTOMLEFT", 0, topGap or -6)
+        installLabel:SetJustifyH("LEFT")
+        installLabel:SetText(labelText)
+        installLabel:SetTextColor(1, 1, 1, 1)
+        return createReadonlyUrlEdit(url, installLabel)
+    end
 
     local icon = frame:CreateTexture(nil, "ARTWORK")
     icon:SetSize(24, 24)
@@ -2139,43 +2189,16 @@ function Theme.CreateCraftLibInstallCallout(parent, opts)
         contentBottom = body
     end
 
-    local installLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    installLabel:SetPoint("TOPLEFT", contentBottom, "BOTTOMLEFT", 0, -6)
-    installLabel:SetJustifyH("LEFT")
-    installLabel:SetText("Install from CurseForge")
-    installLabel:SetTextColor(1, 1, 1, 1)
-
-    local urlEdit = CreateFrame("EditBox", nil, frame)
-    urlEdit:SetHeight(urlRowHeight)
-    urlEdit:SetPoint("TOPLEFT", installLabel, "BOTTOMLEFT", 0, -4)
-    urlEdit:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
-    urlEdit:SetFontObject("GameFontHighlightSmall")
-    urlEdit:SetAutoFocus(false)
-    urlEdit:SetTextInsets(4, 4, 0, 0)
-    urlEdit:SetText(Theme.CRAFTLIB_INSTALL_URL)
-    Theme.ApplyInputTextures(urlEdit)
-    urlEdit:SetScript("OnEditFocusGained", function(box)
-        box:HighlightText()
-    end)
-    urlEdit:SetScript("OnEditFocusLost", function(box)
-        box:HighlightText(0, 0)
-    end)
-    urlEdit:SetScript("OnMouseUp", function(box)
-        box:SetFocus()
-        box:HighlightText()
-    end)
-    urlEdit:SetScript("OnEscapePressed", function(box)
-        box:ClearFocus()
-    end)
-    urlEdit:SetScript("OnEnterPressed", function(box)
-        box:ClearFocus()
-    end)
-    urlEdit:SetScript("OnChar", function() end)
-    urlEdit:SetScript("OnTextChanged", function(box)
-        if box:GetText() ~= Theme.CRAFTLIB_INSTALL_URL then
-            box:SetText(Theme.CRAFTLIB_INSTALL_URL)
-        end
-    end)
+    local urlEdit = createInstallLinkBlock(
+        "Install from CurseForge",
+        Theme.CRAFTLIB_INSTALL_URL_CURSEFORGE,
+        contentBottom,
+        -6)
+    local wagoUrlEdit = createInstallLinkBlock(
+        "Install from Wago",
+        Theme.CRAFTLIB_INSTALL_URL_WAGO,
+        urlEdit,
+        -4)
 
     function frame.SelectInstallUrl()
         if not urlEdit or not urlEdit.HighlightText then
@@ -2193,6 +2216,7 @@ function Theme.CreateCraftLibInstallCallout(parent, opts)
     end)
 
     frame.urlEdit = urlEdit
+    frame.wagoUrlEdit = wagoUrlEdit
     return frame
 end
 

@@ -1104,18 +1104,22 @@ describe("AltArmy.Theme", function()
             return matches
         end
 
-        it("renders gray body text and CurseForge install label by default", function()
+        it("renders gray body text and CurseForge/Wago install links by default", function()
             local parent = makeStubFrame()
             local callout = Theme.CreateCraftLibInstallCallout(parent, {
                 bodyText = "Install CraftLib for filters",
             })
             local body = textsByValue(callout, "Install CraftLib for filters")[1]
-            local install = textsByValue(callout, "Install from CurseForge")[1]
+            local installCf = textsByValue(callout, "Install from CurseForge")[1]
+            local installWago = textsByValue(callout, "Install from Wago")[1]
             assert.is_not_nil(body)
-            assert.is_not_nil(install)
+            assert.is_not_nil(installCf)
+            assert.is_not_nil(installWago)
             assert.are.same(Theme.COLORS.label, body._textColor)
-            assert.are.same({ 1, 1, 1, 1 }, install._textColor)
-            assert.are.equal(Theme.CRAFTLIB_INSTALL_URL, callout.urlEdit:GetText())
+            assert.are.same({ 1, 1, 1, 1 }, installCf._textColor)
+            assert.are.same({ 1, 1, 1, 1 }, installWago._textColor)
+            assert.are.equal(Theme.CRAFTLIB_INSTALL_URL_CURSEFORGE, callout.urlEdit:GetText())
+            assert.are.equal(Theme.CRAFTLIB_INSTALL_URL_WAGO, callout.wagoUrlEdit:GetText())
         end)
 
         it("renders white intro and blue bullet lines when provided", function()
@@ -1134,21 +1138,24 @@ describe("AltArmy.Theme", function()
             local bullet2 = textsByValue(callout, "• Recipe skill requirements")[1]
             local bullet3 = textsByValue(callout, "• Color coded difficulty")[1]
             local bullet4 = textsByValue(callout, "• All recipe icons")[1]
-            local install = textsByValue(callout, "Install from CurseForge")[1]
+            local installCf = textsByValue(callout, "Install from CurseForge")[1]
+            local installWago = textsByValue(callout, "Install from Wago")[1]
             assert.is_not_nil(intro)
             assert.is_not_nil(bullet1)
             assert.is_not_nil(bullet2)
             assert.is_not_nil(bullet3)
             assert.is_not_nil(bullet4)
-            assert.is_not_nil(install)
+            assert.is_not_nil(installCf)
+            assert.is_not_nil(installWago)
             assert.are.same({ 1, 1, 1, 1 }, intro._textColor)
             assert.are.same({ 0.54, 0.71, 0.97, 1 }, bullet1._textColor)
             assert.are.same({ 0.54, 0.71, 0.97, 1 }, bullet2._textColor)
             assert.are.same({ 0.54, 0.71, 0.97, 1 }, bullet3._textColor)
             assert.are.same({ 0.54, 0.71, 0.97, 1 }, bullet4._textColor)
-            assert.are.same({ 1, 1, 1, 1 }, install._textColor)
-            -- pad*2 + icon + gaps + intro + 4 bullets + install + url
-            assert.are.equal(160, callout._height)
+            assert.are.same({ 1, 1, 1, 1 }, installCf._textColor)
+            assert.are.same({ 1, 1, 1, 1 }, installWago._textColor)
+            -- pad*2 + icon + gaps + intro + 4 bullets + 2*(install + url)
+            assert.are.equal(202, callout._height)
         end)
     end)
 
