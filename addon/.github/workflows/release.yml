@@ -1,6 +1,8 @@
-# CurseForge Release — build addon zip and upload via API
-# Requires: CURSEFORGE_API_TOKEN (secret), CURSEFORGE_PROJECT_ID, CURSEFORGE_DISPLAY_NAME
+# CurseForge + Wago Release — build addon zip and upload via API
+# Requires: CURSEFORGE_API_TOKEN, WAGO_API_TOKEN (secrets)
+# Requires: CURSEFORGE_PROJECT_ID, CURSEFORGE_DISPLAY_NAME (vars)
 # CURSEFORGE_GAME_VERSIONS: CurseForge game version ID for TBC Classic 2.5.6 (Interface 20506)
+# Wago project ID is read from ## X-Wago-ID in the TOC
 
 name: CurseForge Release
 
@@ -22,6 +24,8 @@ on:
 env:
   CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
   CURSEFORGE_GAME_VERSIONS: "16533"
+  WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
+  WAGO_BC_PATCH: "2.5.6"
 
 jobs:
   release:
@@ -96,3 +100,48 @@ jobs:
             exit 1
           fi
           echo "Uploaded $ZIP_FILE_NAME as $RELEASE_TYPE (HTTP $HTTP_CODE)"
+
+      - name: Upload to Wago
+        run: |
+          WAGO_PROJECT_ID=$(grep -oP "## X-Wago-ID: \K[^\r\n ]+" AltArmy_TBC/AltArmy_TBC.toc || true)
+          if [ -z "$WAGO_PROJECT_ID" ]; then
+            echo "Missing ## X-Wago-ID in AltArmy_TBC/AltArmy_TBC.toc"
+            exit 1
+          fi
+          if [ -z "$WAGO_API_TOKEN" ]; then
+            echo "Missing WAGO_API_TOKEN secret"
+            exit 1
+          fi
+          if [ -f CHANGELOG.txt ]; then
+            CHANGELOG_FILE="CHANGELOG.txt"
+          else
+            echo "See repository for changes." > CHANGELOG.txt
+            CHANGELOG_FILE="CHANGELOG.txt"
+          fi
+          case "$RELEASE_TYPE" in
+            release) WAGO_STABILITY="stable" ;;
+            beta)    WAGO_STABILITY="beta" ;;
+            alpha)   WAGO_STABILITY="alpha" ;;
+            *)       WAGO_STABILITY="stable" ;;
+          esac
+          API_URL="https://addons.wago.io/api/projects/${WAGO_PROJECT_ID}/version"
+          echo "Uploading to: $API_URL (stability=$WAGO_STABILITY, bc=$WAGO_BC_PATCH)"
+          METADATA=$(jq -n \
+            --arg label "$ADDON_VERSION" \
+            --arg stability "$WAGO_STABILITY" \
+            --arg supported_bc_patch "$WAGO_BC_PATCH" \
+            --rawfile changelog "$CHANGELOG_FILE" \
+            '{label: $label, stability: $stability, changelog: $changelog, supported_bc_patch: $supported_bc_patch}')
+          HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/wago_response.txt -X POST \
+            -H "authorization: Bearer ${{ secrets.WAGO_API_TOKEN }}" \
+            -H "accept: application/json" \
+            -F "metadata=$METADATA" \
+            -F "file=@$ZIP_FILE_NAME" \
+            "$API_URL")
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "Wago API returned HTTP $HTTP_CODE. Response:"
+            cat /tmp/wago_response.txt
+            exit 1
+          fi
+          echo "Uploaded $ZIP_FILE_NAME to Wago as $WAGO_STABILITY (HTTP $HTTP_CODE)"
+          cat /tmp/wago_response.txt
