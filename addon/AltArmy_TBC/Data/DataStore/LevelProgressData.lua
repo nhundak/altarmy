@@ -12,7 +12,27 @@ local NEUTRAL_COLOR = { r = 0.7, g = 0.7, b = 0.7 }
 
 LPD.AXIS_MIN_LEVEL = 0
 LPD.AXIS_MAX_LEVEL = (DS.MAX_LEVEL) or 70
+LPD.METRIC_TIME_PER_LEVEL = "timePerLevel"
+LPD.METRIC_CUMULATIVE_PLAYED = "cumulativePlayed"
 local FIRST_RECORDED_LEVEL = 1
+
+--- @param metric string|nil
+--- @return string
+function LPD.NormalizeMetric(metric)
+    if metric == LPD.METRIC_CUMULATIVE_PLAYED then
+        return LPD.METRIC_CUMULATIVE_PLAYED
+    end
+    return LPD.METRIC_TIME_PER_LEVEL
+end
+
+--- Dropdown entries for Graphs metric selector.
+--- @return table[] { id, label }
+function LPD.GetMetricEntries()
+    return {
+        { id = LPD.METRIC_TIME_PER_LEVEL, label = "Time per level" },
+        { id = LPD.METRIC_CUMULATIVE_PLAYED, label = "Cumulative play time" },
+    }
+end
 
 local GRAPH_DEBUG_PREFIX = "|cff00ccff[Alt Army:Graph]|r "
 local WATCH_NAMES_LOWER = {
@@ -104,20 +124,75 @@ function LPD._BuildSeriesFromMilestones(milestones)
     return series
 end
 
+local function AppendCumulativePoint(series, toLevel, fromLevel, cumulative, segmentSeconds)
+    local levelSpan = toLevel - fromLevel
+    if levelSpan <= 0 or not cumulative or cumulative <= 0 then return false end
+    if not segmentSeconds or segmentSeconds <= 0 then return false end
+
+    series[#series + 1] = {
+        level = toLevel,
+        seconds = cumulative,
+        fromLevel = fromLevel,
+        toLevel = toLevel,
+        totalSeconds = segmentSeconds,
+        spansGap = levelSpan > 1,
+    }
+    return true
+end
+
+--- Build cumulative /played series from milestones (Y = playedTotal at level).
+--- @param milestones table
+--- @return table[]
+function LPD._BuildCumulativeSeriesFromMilestones(milestones)
+    local levels = SortedMilestoneLevels(milestones)
+    local series = {}
+    local lastLevel = nil
+    local lastCumulative = 0
+
+    for _, level in ipairs(levels) do
+        local milestone = milestones[level]
+        if milestone and type(milestone.playedTotal) == "number" and milestone.playedTotal > 0 then
+            local fromLevel = lastLevel or FIRST_RECORDED_LEVEL
+            local cumulative = milestone.playedTotal
+            local segmentSeconds = cumulative - lastCumulative
+            if AppendCumulativePoint(series, level, fromLevel, cumulative, segmentSeconds) then
+                lastLevel = level
+                lastCumulative = cumulative
+            end
+        elseif milestone and type(milestone.playedLevel) == "number" and milestone.playedLevel > 0 then
+            if not lastLevel or level - lastLevel == 1 then
+                local fromLevel = lastLevel or (level - 1)
+                local cumulative = lastCumulative + milestone.playedLevel
+                if AppendCumulativePoint(series, level, fromLevel, cumulative, milestone.playedLevel) then
+                    lastLevel = level
+                    lastCumulative = cumulative
+                end
+            end
+        end
+    end
+
+    return series
+end
+
 local function CountUsableMilestones(milestones)
     return #LPD._BuildSeriesFromMilestones(milestones)
 end
 
---- Build sorted time-per-level series for one character.
+--- Build sorted chart series for one character.
 --- @param name string
 --- @param realm string
+--- @param metric string|nil LPD.METRIC_TIME_PER_LEVEL or LPD.METRIC_CUMULATIVE_PLAYED
 --- @return table[] { level, seconds, fromLevel, toLevel, totalSeconds, spansGap }
-function LPD.GetSeriesForCharacter(name, realm)
+function LPD.GetSeriesForCharacter(name, realm, metric)
     local char = DS:GetCharacter(name, realm)
     if not char or not char.levelHistory or not char.levelHistory.milestones then
         return {}
     end
 
+    metric = LPD.NormalizeMetric(metric)
+    if metric == LPD.METRIC_CUMULATIVE_PLAYED then
+        return LPD._BuildCumulativeSeriesFromMilestones(char.levelHistory.milestones)
+    end
     return LPD._BuildSeriesFromMilestones(char.levelHistory.milestones)
 end
 

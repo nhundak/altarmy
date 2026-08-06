@@ -70,6 +70,28 @@ describe("LevelProgressData", function()
     end)
   end)
 
+  describe("metric constants", function()
+    it("exposes time-per-level and cumulative-played metric ids", function()
+      assert.are.equal("timePerLevel", LPD.METRIC_TIME_PER_LEVEL)
+      assert.are.equal("cumulativePlayed", LPD.METRIC_CUMULATIVE_PLAYED)
+    end)
+
+    it("normalizes unknown metrics to time per level", function()
+      assert.are.equal(LPD.METRIC_TIME_PER_LEVEL, LPD.NormalizeMetric(nil))
+      assert.are.equal(LPD.METRIC_TIME_PER_LEVEL, LPD.NormalizeMetric("nope"))
+      assert.are.equal(LPD.METRIC_CUMULATIVE_PLAYED, LPD.NormalizeMetric(LPD.METRIC_CUMULATIVE_PLAYED))
+    end)
+
+    it("lists dropdown entries for both metrics", function()
+      local entries = LPD.GetMetricEntries()
+      assert.are.equal(2, #entries)
+      assert.are.equal(LPD.METRIC_TIME_PER_LEVEL, entries[1].id)
+      assert.are.equal("Time per level", entries[1].label)
+      assert.are.equal(LPD.METRIC_CUMULATIVE_PLAYED, entries[2].id)
+      assert.are.equal("Cumulative play time", entries[2].label)
+    end)
+  end)
+
   describe("GetSeriesForCharacter", function()
     it("builds sorted level->seconds series from playedLevel", function()
       seedChar("Bob", "Faerlina", makeChar({
@@ -118,6 +140,94 @@ describe("LevelProgressData", function()
       assert.are.equal(3, series[2].toLevel)
       assert.are.equal(4, series[3].level)
       assert.are.equal(1500, series[3].seconds)
+    end)
+
+    it("builds cumulative playedTotal vs level when metric is cumulativePlayed", function()
+      seedChar("CumAlice", "Faerlina", makeChar({
+        levelHistory = {
+          milestones = {
+            [2] = { playedTotal = 1000 },
+            [3] = { playedTotal = 2500 },
+            [4] = { playedTotal = 4000 },
+          },
+        },
+      }))
+
+      local series = LPD.GetSeriesForCharacter(
+        "CumAlice", "Faerlina", LPD.METRIC_CUMULATIVE_PLAYED
+      )
+      assert.are.equal(3, #series)
+      assert.are.equal(2, series[1].level)
+      assert.are.equal(1000, series[1].seconds)
+      assert.are.equal(1000, series[1].totalSeconds)
+      assert.are.equal(3, series[2].level)
+      assert.are.equal(2500, series[2].seconds)
+      assert.are.equal(1500, series[2].totalSeconds)
+      assert.are.equal(4, series[3].level)
+      assert.are.equal(4000, series[3].seconds)
+      assert.are.equal(1500, series[3].totalSeconds)
+    end)
+
+    it("accumulates playedLevel into cumulative series when playedTotal absent", function()
+      seedChar("CumBob", "Faerlina", makeChar({
+        levelHistory = {
+          milestones = {
+            [3] = { playedLevel = 1000 },
+            [4] = { playedLevel = 1500 },
+            [5] = { playedLevel = 2000 },
+          },
+        },
+      }))
+
+      local series = LPD.GetSeriesForCharacter(
+        "CumBob", "Faerlina", LPD.METRIC_CUMULATIVE_PLAYED
+      )
+      assert.are.equal(3, #series)
+      assert.are.equal(1000, series[1].seconds)
+      assert.are.equal(2500, series[2].seconds)
+      assert.are.equal(4500, series[3].seconds)
+      assert.are.equal(1000, series[1].totalSeconds)
+      assert.are.equal(1500, series[2].totalSeconds)
+      assert.are.equal(2000, series[3].totalSeconds)
+    end)
+
+    it("uses absolute playedTotal for leading cumulative gap points", function()
+      seedChar("CumLate", "Faerlina", makeChar({
+        levelHistory = {
+          milestones = {
+            [61] = { playedTotal = 60000 },
+            [62] = { playedTotal = 63600 },
+          },
+        },
+      }))
+
+      local series = LPD.GetSeriesForCharacter(
+        "CumLate", "Faerlina", LPD.METRIC_CUMULATIVE_PLAYED
+      )
+      assert.are.equal(2, #series)
+      assert.are.equal(61, series[1].level)
+      assert.are.equal(60000, series[1].seconds)
+      assert.are.equal(1, series[1].fromLevel)
+      assert.is_true(series[1].spansGap)
+      assert.are.equal(62, series[2].level)
+      assert.are.equal(63600, series[2].seconds)
+      assert.are.equal(3600, series[2].totalSeconds)
+      assert.is_false(series[2].spansGap)
+    end)
+
+    it("defaults to time-per-level when metric omitted", function()
+      seedChar("DefaultMetric", "Faerlina", makeChar({
+        levelHistory = {
+          milestones = {
+            [2] = { playedTotal = 1000 },
+            [3] = { playedTotal = 2500 },
+          },
+        },
+      }))
+
+      local series = LPD.GetSeriesForCharacter("DefaultMetric", "Faerlina")
+      assert.are.equal(1000, series[1].seconds)
+      assert.are.equal(1500, series[2].seconds)
     end)
 
     it("spans missing intermediate levels using last available playedTotal", function()

@@ -299,12 +299,27 @@ function Logic.ComputeLogYAxis(rawYMax, rawYMin, ignoreMaxFloor)
     }
 end
 
-function Logic.SampleLeadingGapCurve(gap, endPt, pointCount, axisFloor)
+--- Leading-gap interpolation modes.
+--- linear: Y interpolates straight from 0 to end (time-per-level dashed approx).
+--- quadratic: Y = end * frac^2 — integral of a linear time-per-level ramp from 0 to 2R
+--- (average rate R), so cumulative play time bows below the straight chord.
+Logic.LEADING_GAP_CURVE_LINEAR = "linear"
+Logic.LEADING_GAP_CURVE_QUADRATIC = "quadratic"
+
+--- Sample the dashed leading-gap path in data space.
+--- @param gap table { fromLevel, ... }
+--- @param endPt table { level, seconds }
+--- @param pointCount number|nil
+--- @param axisFloor number|nil log-axis floor to clip the start against
+--- @param curveMode string|nil Logic.LEADING_GAP_CURVE_LINEAR or _QUADRATIC
+--- @return table[] { level, seconds }
+function Logic.SampleLeadingGapCurve(gap, endPt, pointCount, axisFloor, curveMode)
     pointCount = pointCount or 24
     local fromLevel = gap.fromLevel
     local toLevel = endPt.level
     local endSeconds = endPt.seconds
     local levelSpan = toLevel - fromLevel
+    local quadratic = curveMode == Logic.LEADING_GAP_CURVE_QUADRATIC
     if levelSpan <= 0 then
         return {
             { level = fromLevel, seconds = 0 },
@@ -312,21 +327,40 @@ function Logic.SampleLeadingGapCurve(gap, endPt, pointCount, axisFloor)
         }
     end
 
-    local startLevel = fromLevel
-    local startSeconds = 0
-    if axisFloor and axisFloor > 0 and endSeconds > axisFloor then
-        startLevel = fromLevel + (axisFloor / endSeconds) * levelSpan
-        startSeconds = axisFloor
+    local function SecondsAtFrac(frac)
+        if quadratic then
+            return endSeconds * frac * frac
+        end
+        return endSeconds * frac
     end
+
+    local startFrac = 0
+    if axisFloor and axisFloor > 0 and endSeconds > axisFloor then
+        if quadratic then
+            startFrac = math.sqrt(axisFloor / endSeconds)
+        else
+            startFrac = axisFloor / endSeconds
+        end
+    end
+
+    local startLevel = fromLevel + startFrac * levelSpan
+    local startSeconds = SecondsAtFrac(startFrac)
+    local spanFrac = 1 - startFrac
 
     local samples = {}
     for i = 0, pointCount do
-        local frac = i / pointCount
+        local frac = startFrac + (i / pointCount) * spanFrac
         samples[#samples + 1] = {
-            level = startLevel + frac * (toLevel - startLevel),
-            seconds = startSeconds + frac * (endSeconds - startSeconds),
+            level = fromLevel + frac * levelSpan,
+            seconds = SecondsAtFrac(frac),
         }
     end
+
+    -- Keep exact endpoints after float math.
+    samples[1].level = startLevel
+    samples[1].seconds = startSeconds
+    samples[#samples].level = toLevel
+    samples[#samples].seconds = endSeconds
     return samples
 end
 

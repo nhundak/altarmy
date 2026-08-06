@@ -1,4 +1,4 @@
--- AltArmy TBC — Graphs tab: time-per-level multi-character line graph.
+-- AltArmy TBC — Graphs tab: multi-character level progress line graphs.
 
 local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Graph
 if not frame then return end
@@ -14,7 +14,20 @@ local SECTION_GAP = Theme.SECTION_GAP
 local ROW_HEIGHT = 20
 local OPTION_ROW_HEIGHT = ROW_HEIGHT
 local OPTION_ROW_GAP = 0
-local OPTIONS_PANEL_HEIGHT = 6 + 3 * OPTION_ROW_HEIGHT + 2 * OPTION_ROW_GAP + 6
+local METRIC_DROPDOWN_HEIGHT = Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or (OPTION_ROW_HEIGHT + 4)
+local METRIC_TO_OPTIONS_GAP = 4
+local OPTIONS_PANEL_PAD = 6
+local OPTIONS_PANEL_HEIGHT_FULL = OPTIONS_PANEL_PAD
+    + METRIC_DROPDOWN_HEIGHT
+    + METRIC_TO_OPTIONS_GAP
+    + 3 * OPTION_ROW_HEIGHT
+    + 2 * OPTION_ROW_GAP
+    + OPTIONS_PANEL_PAD
+local OPTIONS_PANEL_HEIGHT_CUMULATIVE = OPTIONS_PANEL_PAD
+    + METRIC_DROPDOWN_HEIGHT
+    + METRIC_TO_OPTIONS_GAP
+    + OPTION_ROW_HEIGHT
+    + OPTIONS_PANEL_PAD
 local OUTLIER_INFO_ICON_SIZE = 14
 local SECTION_HEADER_HEIGHT = 18
 local INSUFFICIENT_SECTION_GAP = 10
@@ -63,6 +76,8 @@ local HandleCompareRowLeave
 local HandleCompareSelectAllEnter
 local HandleCompareSelectAllLeave
 local UpdateSelectAllCheckbox
+local HideOutlierOptionTooltip
+local UpdateMetricDependentOptions
 
 local CharKey = AltArmy.CharKey
 
@@ -77,7 +92,32 @@ local function EnsureSettings()
     if AltArmyTBC_GraphSettings.rollingAverage == nil then
         AltArmyTBC_GraphSettings.rollingAverage = false
     end
+    local defaultMetric = (LPD and LPD.METRIC_TIME_PER_LEVEL) or "timePerLevel"
+    if LPD and LPD.NormalizeMetric then
+        AltArmyTBC_GraphSettings.metric = LPD.NormalizeMetric(AltArmyTBC_GraphSettings.metric)
+    elseif AltArmyTBC_GraphSettings.metric == nil then
+        AltArmyTBC_GraphSettings.metric = defaultMetric
+    end
     return AltArmyTBC_GraphSettings
+end
+
+local function GetSelectedMetric()
+    local metric = EnsureSettings().metric
+    if LPD and LPD.NormalizeMetric then
+        return LPD.NormalizeMetric(metric)
+    end
+    return metric or "timePerLevel"
+end
+
+local function IsCumulativePlayedMetric()
+    return LPD
+        and LPD.METRIC_CUMULATIVE_PLAYED
+        and GetSelectedMetric() == LPD.METRIC_CUMULATIVE_PLAYED
+end
+
+local function GetSeriesForEntry(entry)
+    if not LPD or not entry then return {} end
+    return LPD.GetSeriesForCharacter(entry.name, entry.realm, GetSelectedMetric())
 end
 
 local function IsLogarithmic()
@@ -88,6 +128,9 @@ local function IsLogarithmic()
 end
 
 local function IsIgnoreOutliers()
+    if IsCumulativePlayedMetric() then
+        return false
+    end
     if hoveredOutliersPreview and not suppressOutliersHoverPreview then
         return true
     end
@@ -95,6 +138,9 @@ local function IsIgnoreOutliers()
 end
 
 local function IsRollingAverage()
+    if IsCumulativePlayedMetric() then
+        return false
+    end
     if hoveredRollingAveragePreview and not suppressRollingAverageHoverPreview then
         return true
     end
@@ -494,7 +540,10 @@ zoomResetBtn:SetScript("OnClick", function()
     RebuildGraph()
 end)
 
-local HINT_SELECT_CHARACTERS = "Select one or more characters on the right\nto compare time per level."
+local HINT_SELECT_CHARACTERS_TIME_PER_LEVEL =
+    "Select one or more characters on the right\nto compare time per level."
+local HINT_SELECT_CHARACTERS_CUMULATIVE =
+    "Select one or more characters on the right\nto compare cumulative play time."
 local HINT_LEVEL_UP_PROGRESSION =
     "As you level up your characters\nthis page will display graphs of their progression"
 local HINT_NO_HISTORY = "No level history yet.\nLevel up characters while\nlevel history is enabled."
@@ -502,7 +551,7 @@ local HINT_NO_HISTORY = "No level history yet.\nLevel up characters while\nlevel
 local graphHint = graphFrame:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 graphHint:SetPoint("CENTER", graphFrame, "CENTER", 0, 0)
 graphHint:SetWidth(graphFrame:GetWidth() - 40)
-graphHint:SetText(HINT_SELECT_CHARACTERS)
+graphHint:SetText(HINT_SELECT_CHARACTERS_TIME_PER_LEVEL)
 graphHint:SetJustifyH("CENTER")
 
 local function UpdateEmptyGraphHint()
@@ -518,16 +567,42 @@ local function UpdateEmptyGraphHint()
         graphHint:SetText(HINT_NO_HISTORY)
     elseif #list == 0 then
         graphHint:SetText(HINT_LEVEL_UP_PROGRESSION)
+    elseif IsCumulativePlayedMetric() then
+        graphHint:SetText(HINT_SELECT_CHARACTERS_CUMULATIVE)
     else
-        graphHint:SetText(HINT_SELECT_CHARACTERS)
+        graphHint:SetText(HINT_SELECT_CHARACTERS_TIME_PER_LEVEL)
     end
 end
 
 -- Options panel (top right)
 local optionsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 optionsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
-optionsPanel:SetSize(SELECTOR_WIDTH, OPTIONS_PANEL_HEIGHT)
+optionsPanel:SetSize(SELECTOR_WIDTH, OPTIONS_PANEL_HEIGHT_FULL)
 Theme.ApplyBackdrop(optionsPanel, "section")
+
+local metricDropdown = Theme.CreateSingleSelectDropdown({
+    parent = optionsPanel,
+    dropdownParent = frame,
+    width = SELECTOR_WIDTH - 12,
+    rowHeight = METRIC_DROPDOWN_HEIGHT,
+    point = "TOPLEFT",
+    relativeTo = optionsPanel,
+    relativePoint = "TOPLEFT",
+    x = 6,
+    y = -6,
+    entries = (LPD and LPD.GetMetricEntries and LPD.GetMetricEntries()) or {
+        { id = "timePerLevel", label = "Time per level" },
+        { id = "cumulativePlayed", label = "Cumulative play time" },
+    },
+    getSelectedId = function()
+        return GetSelectedMetric()
+    end,
+    onSelect = function(id)
+        EnsureSettings().metric = (LPD and LPD.NormalizeMetric and LPD.NormalizeMetric(id)) or id
+        UpdateMetricDependentOptions()
+        RebuildGraph()
+    end,
+})
 
 local function CreateOptionRow(parent)
     local row = CreateFrame("Frame", nil, parent)
@@ -549,7 +624,7 @@ local function CreateOptionRow(parent)
 end
 
 local logRow = CreateOptionRow(optionsPanel)
-logRow:SetPoint("TOPLEFT", optionsPanel, "TOPLEFT", 6, -6)
+logRow:SetPoint("TOPLEFT", metricDropdown.button, "BOTTOMLEFT", 0, -METRIC_TO_OPTIONS_GAP)
 logRow:SetPoint("RIGHT", optionsPanel, "RIGHT", -6, 0)
 logRow.label:SetText("Logarithmic")
 logRow.check:SetChecked(EnsureSettings().logarithmic == true)
@@ -590,6 +665,24 @@ rollingAverageRow.check:SetScript("OnClick", WireOptionRowCheck(
     function() hoveredRollingAveragePreview = false end,
     function() suppressRollingAverageHoverPreview = true end
 ))
+
+UpdateMetricDependentOptions = function()
+    local cumulative = IsCumulativePlayedMetric()
+    outlierRow:SetShown(not cumulative)
+    rollingAverageRow:SetShown(not cumulative)
+    optionsPanel:SetHeight(cumulative and OPTIONS_PANEL_HEIGHT_CUMULATIVE or OPTIONS_PANEL_HEIGHT_FULL)
+    if cumulative then
+        hoveredOutliersPreview = false
+        hoveredRollingAveragePreview = false
+        suppressOutliersHoverPreview = false
+        suppressRollingAverageHoverPreview = false
+        SetRowHoverHighlight(outlierRow, false)
+        SetRowHoverHighlight(rollingAverageRow, false)
+        if HideOutlierOptionTooltip then
+            HideOutlierOptionTooltip()
+        end
+    end
+end
 
 -- Selector panel
 local selectorPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
@@ -883,21 +976,41 @@ local function FormatTooltipTitle(entry)
     return name
 end
 
-local function ShowSegmentTooltip(owner, entry, fromLevel, toLevel, totalSeconds, perLevelSeconds)
+local function ShowSegmentTooltip(owner, entry, fromLevel, toLevel, totalSeconds, ySeconds)
     if not GameTooltip or not owner then return end
 
     GameTooltip:SetOwner(owner, "ANCHOR_BOTTOMLEFT")
     GameTooltip:ClearLines()
     GameTooltip:AddLine(FormatTooltipTitle(entry), 1, 1, 1, true)
-    GameTooltip:AddLine(string.format("Level %d-%d", fromLevel, toLevel), 0.9, 0.9, 0.9, true)
-    GameTooltip:AddLine(FormatDurationPrecise(totalSeconds), 0.9, 0.9, 0.9, true)
-    local levelSpan = toLevel - fromLevel
-    if levelSpan > 1 then
-        local perLevel = perLevelSeconds or (totalSeconds / levelSpan)
+
+    if IsCumulativePlayedMetric() then
+        GameTooltip:AddLine(string.format("Level %d", toLevel), 0.9, 0.9, 0.9, true)
         GameTooltip:AddLine(
-            string.format("(%s per level)", FormatDurationPrecise(perLevel)),
+            "Total played: " .. FormatDurationPrecise(ySeconds),
             0.9, 0.9, 0.9, true
         )
+        if totalSeconds and totalSeconds > 0 and fromLevel and toLevel and toLevel > fromLevel then
+            GameTooltip:AddLine(
+                string.format(
+                    "(+%s from %d-%d)",
+                    FormatDurationPrecise(totalSeconds),
+                    fromLevel,
+                    toLevel
+                ),
+                0.9, 0.9, 0.9, true
+            )
+        end
+    else
+        GameTooltip:AddLine(string.format("Level %d-%d", fromLevel, toLevel), 0.9, 0.9, 0.9, true)
+        GameTooltip:AddLine(FormatDurationPrecise(totalSeconds), 0.9, 0.9, 0.9, true)
+        local levelSpan = toLevel - fromLevel
+        if levelSpan > 1 then
+            local perLevel = ySeconds or (totalSeconds / levelSpan)
+            GameTooltip:AddLine(
+                string.format("(%s per level)", FormatDurationPrecise(perLevel)),
+                0.9, 0.9, 0.9, true
+            )
+        end
     end
     GameTooltip:Show()
 end
@@ -921,9 +1034,11 @@ local function ShowOutlierOptionTooltip(owner)
     GameTooltip:Show()
 end
 
-local function HideOutlierOptionTooltip()
+HideOutlierOptionTooltip = function()
     if GameTooltip then GameTooltip:Hide() end
 end
+
+UpdateMetricDependentOptions()
 
 local function ReleaseMarkerDot(dot)
     if not dot then return end
@@ -1048,7 +1163,7 @@ end
 
 local function GetSeriesSecondsBounds(entry)
     if not LPD or not entry or not Logic then return 0, 0 end
-    local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
+    local series = GetSeriesForEntry(entry)
     local drawable = LPD.PrepareDrawableSeries(series)
     local marked = Logic.ApplyOutlierFlags(drawable.usable, IsIgnoreOutliers())
     if IsRollingAverage() then
@@ -1101,11 +1216,17 @@ local function DrawLineSegment(group, x1, y1, x2, y2, style, r, g, b)
 end
 
 local function DrawLeadingGap(group, gap, endPt, X, Y, logarithmic, r, g, b)
-    local x, y = X(endPt.level), Y(endPt.seconds)
     local lineCountBefore = #Core.graphLines
     local texCountBefore = #Core.graphTextures
-    if logarithmic then
-        local samples = Logic.SampleLeadingGapCurve(gap, endPt, nil, currentLogAxisYMin)
+    local cumulative = IsCumulativePlayedMetric()
+    -- Time-per-level gaps are linear in data space (straight on a linear axis).
+    -- Cumulative play time is the integral of that ramp, so use a quadratic curve.
+    if logarithmic or cumulative then
+        local curveMode = cumulative
+            and Logic.LEADING_GAP_CURVE_QUADRATIC
+            or Logic.LEADING_GAP_CURVE_LINEAR
+        local axisFloor = logarithmic and currentLogAxisYMin or nil
+        local samples = Logic.SampleLeadingGapCurve(gap, endPt, nil, axisFloor, curveMode)
         local screenPoints = {}
         for _, sample in ipairs(samples) do
             screenPoints[#screenPoints + 1] = {
@@ -1115,6 +1236,7 @@ local function DrawLeadingGap(group, gap, endPt, X, Y, logarithmic, r, g, b)
         end
         Core.CreateDashedPolyline(graphFrame, screenPoints, DASH_THICKNESS, r, g, b, FULL_DASH_ALPHA)
     else
+        local x, y = X(endPt.level), Y(endPt.seconds)
         local gx1, gy1 = X(gap.fromLevel), Y(0)
         Core.CreateDashedLine(graphFrame, gx1, gy1, x, y, DASH_THICKNESS, r, g, b, FULL_DASH_ALPHA)
     end
@@ -1170,7 +1292,7 @@ local function AddHoveredSeries(entry)
     local key = EntryKey(entry)
     if drawnKeys[key] then return end
 
-    local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
+    local series = GetSeriesForEntry(entry)
     local drawable = LPD.PrepareDrawableSeries(series)
     if #drawable.usable < 1 then return end
 
@@ -1223,7 +1345,7 @@ RebuildGraph = function()
     local scaleMinLevel, scaleMaxLevel = GetLevelBoundsForScale()
 
     for _, entry in ipairs(toDraw) do
-        local series = LPD.GetSeriesForCharacter(entry.name, entry.realm)
+        local series = GetSeriesForEntry(entry)
         local drawable = LPD.PrepareDrawableSeries(series)
         if #drawable.usable >= 1 then
             local charData = PrepareCharGraphData(entry, drawable)
@@ -1593,6 +1715,9 @@ frame:SetScript("OnHide", function()
     suppressLogarithmicHoverPreview = false
     suppressOutliersHoverPreview = false
     suppressRollingAverageHoverPreview = false
+    if metricDropdown and metricDropdown.Close then
+        metricDropdown:Close()
+    end
     for _, row in ipairs(selectorRows) do
         row.suppressHoverPreview = false
     end
@@ -1607,6 +1732,10 @@ frame:SetScript("OnHide", function()
 end)
 
 frame:SetScript("OnShow", function()
+    if metricDropdown and metricDropdown.Update then
+        metricDropdown:Update()
+    end
+    UpdateMetricDependentOptions()
     logRow.check:SetChecked(EnsureSettings().logarithmic == true)
     outlierRow.check:SetChecked(EnsureSettings().ignoreOutliers == true)
     rollingAverageRow.check:SetChecked(EnsureSettings().rollingAverage == true)

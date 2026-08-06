@@ -304,6 +304,52 @@ describe("GraphLogic", function()
             local samples = Logic.SampleLeadingGapCurve(gap, endPt)
             assert.is_true(#samples >= 16)
         end)
+
+        describe("quadratic mode (cumulative play time)", function()
+            local cumGap = {
+                fromLevel = 1,
+                toLevel = 61,
+                toY = 60000,
+                totalSeconds = 60000,
+            }
+            local cumEnd = { level = 61, seconds = 60000 }
+
+            it("integrates a linear time-per-level ramp as seconds = end * frac^2", function()
+                local samples = Logic.SampleLeadingGapCurve(
+                    cumGap, cumEnd, 4, nil, Logic.LEADING_GAP_CURVE_QUADRATIC
+                )
+                assert.are.equal(5, #samples)
+                assert.are.equal(1, samples[1].level)
+                assert.are.equal(0, samples[1].seconds)
+                assert.are.equal(16, samples[2].level)
+                assert.are.equal(3750, samples[2].seconds) -- 60000 * (0.25^2)
+                assert.are.equal(31, samples[3].level)
+                assert.are.equal(15000, samples[3].seconds) -- 60000 * (0.5^2)
+                assert.are.equal(61, samples[5].level)
+                assert.are.equal(60000, samples[5].seconds)
+            end)
+
+            it("finds axis floor along the quadratic curve", function()
+                -- 60000 * frac^2 = 15000 => frac = 0.5 => level = 31
+                local samples = Logic.SampleLeadingGapCurve(
+                    cumGap, cumEnd, 4, 15000, Logic.LEADING_GAP_CURVE_QUADRATIC
+                )
+                assert.are.equal(5, #samples)
+                assert.are.equal(31, samples[1].level)
+                assert.are.equal(15000, samples[1].seconds)
+                assert.are.equal(61, samples[5].level)
+                assert.are.equal(60000, samples[5].seconds)
+            end)
+
+            it("stays below the linear chord at mid-span", function()
+                local samples = Logic.SampleLeadingGapCurve(
+                    cumGap, cumEnd, 2, nil, Logic.LEADING_GAP_CURVE_QUADRATIC
+                )
+                local mid = samples[2]
+                assert.are.equal(31, mid.level)
+                assert.is_true(mid.seconds < 30000)
+            end)
+        end)
     end)
 
     local function makePoint(level, seconds)
