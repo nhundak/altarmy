@@ -25,8 +25,13 @@ describe("AltArmy.Theme", function()
             self._gradient = { orientation = orientation, minColor = minColor, maxColor = maxColor }
         end
         function t:SetVertexColor(r, g, b, a) self._vertex = { r, g, b, a } end
-        function t:SetAllPoints() end
-        function t:SetPoint() end
+        function t:SetAllPoints(frame)
+            self._allPoints = frame or true
+        end
+        function t:SetPoint(...)
+            self._points = self._points or {}
+            table.insert(self._points, { ... })
+        end
         function t:SetHeight() end
         function t:SetWidth(w) self._width = w end
         function t:SetSize(w, h) self._width = w self._height = h end
@@ -986,12 +991,17 @@ describe("AltArmy.Theme", function()
             assert.is_not_nil(check)
             assert.are.equal(18, check._width)
             assert.are.equal(18, check._height)
-            assert.are.equal(2, #check._textures)
+            assert.are.equal(3, #check._textures)
             assert.are.equal("BACKGROUND", check._textures[1]._layer)
-            assert.are.equal(Theme.COLORS.inputBg[1], check._textures[1]._color[1])
-            assert.are.equal("OVERLAY", check._textures[2]._layer)
-            assert.are.equal("Interface\\Buttons\\UI-CheckBox-Check", check._textures[2]._texture)
-            assert.are.equal(check._textures[2], check._checkedTexture)
+            assert.are.same(Theme.COLORS.inputBorder, check._textures[1]._color)
+            assert.are.equal(check, check._textures[1]._allPoints)
+            assert.are.equal("BORDER", check._textures[2]._layer)
+            assert.are.same(Theme.COLORS.inputBg, check._textures[2]._color)
+            assert.are.same({ "TOPLEFT", check, "TOPLEFT", 1, -1 }, check._textures[2]._points[1])
+            assert.are.same({ "BOTTOMRIGHT", check, "BOTTOMRIGHT", -1, 1 }, check._textures[2]._points[2])
+            assert.are.equal("OVERLAY", check._textures[3]._layer)
+            assert.are.equal("Interface\\Buttons\\UI-CheckBox-Check", check._textures[3]._texture)
+            assert.are.equal(check._textures[3], check._checkedTexture)
         end)
 
         it("honors custom size", function()

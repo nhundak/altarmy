@@ -1254,18 +1254,29 @@ function Theme.ApplyCheckboxBackground(texture)
     texture:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
 end
 
+function Theme.ApplyCheckboxBorder(texture)
+    if not texture then return end
+    local br = C.inputBorder
+    texture:SetColorTexture(br[1], br[2], br[3], br[4])
+end
+
 Theme.CHAR_LIST_CHECKBOX_SIZE = 18
 Theme.CHAR_LIST_ROW_HEIGHT = 20
 Theme.OPTIONS_DROPDOWN_ROW_HEIGHT = Theme.CHAR_LIST_ROW_HEIGHT + 4
 Theme.DROPDOWN_MAX_VISIBLE_ROWS = 8
 
---- Themed checkbox chrome (background + check texture); callers own layout and labels.
+--- Themed checkbox chrome (background + border + check texture); callers own layout and labels.
+--- 1px border is drawn inside the control bounds so the outer footprint matches `size`.
 function Theme.CreateThemeCheckbox(parent, size)
     local checkSize = size or Theme.CHAR_LIST_CHECKBOX_SIZE
     local check = CreateFrame("CheckButton", nil, parent)
     check:SetSize(checkSize, checkSize)
-    local checkBg = check:CreateTexture(nil, "BACKGROUND")
-    checkBg:SetAllPoints(check)
+    local checkBorder = check:CreateTexture(nil, "BACKGROUND")
+    checkBorder:SetAllPoints(check)
+    Theme.ApplyCheckboxBorder(checkBorder)
+    local checkBg = check:CreateTexture(nil, "BORDER")
+    checkBg:SetPoint("TOPLEFT", check, "TOPLEFT", 1, -1)
+    checkBg:SetPoint("BOTTOMRIGHT", check, "BOTTOMRIGHT", -1, 1)
     Theme.ApplyCheckboxBackground(checkBg)
     local checkTex = check:CreateTexture(nil, "OVERLAY")
     checkTex:SetAllPoints(check)
