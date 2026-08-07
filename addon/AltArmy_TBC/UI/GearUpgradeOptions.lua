@@ -143,6 +143,13 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     local levelsLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     levelsLabel:SetPoint("TOPLEFT", comparisonSection, "BOTTOMLEFT", 0, -10)
     levelsLabel:SetText("Level look-ahead")
+    Theme.AttachLabelHelpIcon(levelsLabel, {
+        title = "Level look-ahead",
+        lines = {
+            "When checking whether an item is an upgrade, include items that cannot "
+                .. "be equipped for this many levels.",
+        },
+    })
 
     local levelsEdit = CreateFrame("EditBox", nil, scrollChild)
     levelsEdit:SetPoint("TOPLEFT", levelsLabel, "BOTTOMLEFT", 0, -4)
@@ -167,6 +174,14 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     local thresholdLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     thresholdLabel:SetPoint("TOPLEFT", levelsEdit, "BOTTOMLEFT", 0, -14)
     thresholdLabel:SetText("Upgrade threshold (% vs equipped)")
+    Theme.AttachLabelHelpIcon(thresholdLabel, {
+        title = "Upgrade threshold",
+        lines = {
+            "Alt Army will draw your attention to an item upgrade only if it is this "
+                .. "percent of an upgrade or more. Smaller upgrades can still be viewed, "
+                .. "but we won't point them out.",
+        },
+    })
 
     local thresholdEdit = CreateFrame("EditBox", nil, scrollChild)
     thresholdEdit:SetPoint("TOPLEFT", thresholdLabel, "BOTTOMLEFT", 0, -4)

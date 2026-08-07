@@ -1398,18 +1398,97 @@ local function addSettingsTooltipSectionGap(tooltip)
     tooltip:AddLine(" ", 0, 0, 0, true, getSettingsTooltipGapFont())
 end
 
---- Help icon on the right of a settings row; tooltip matches Graphs option rows (title + gray body).
-function Theme.AttachSettingsHelpIcon(row, tooltipOpts)
-    tooltipOpts = tooltipOpts or {}
-    local title = tooltipOpts.title or ""
-    local lines = tooltipOpts.lines or {}
-
-    local btn = CreateFrame("Button", nil, row)
+local function createSettingsHelpButton(parent)
+    local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(SETTINGS_INFO_ICON_SIZE, SETTINGS_INFO_ICON_SIZE)
-    btn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     local tex = btn:CreateTexture(nil, "ARTWORK")
     tex:SetAllPoints(btn)
     tex:SetTexture("Interface\\Common\\help-i")
+    return btn
+end
+
+local function showSettingsHelpTooltip(tooltipAnchor, tooltipOpts)
+    if not GameTooltip or not tooltipAnchor then return end
+    tooltipOpts = tooltipOpts or {}
+    local title = tooltipOpts.title or ""
+    local lines = tooltipOpts.lines or {}
+    GameTooltip:SetOwner(tooltipAnchor, "ANCHOR_NONE")
+    GameTooltip:ClearLines()
+    if title ~= "" then
+        GameTooltip:AddLine(title, 1, 1, 1, true)
+    end
+    local prevWasBody = false
+    for i = 1, #lines do
+        local line = lines[i]
+        local text
+        local r, g, b = 0.9, 0.9, 0.9
+        local isHeading = false
+        if type(line) == "table" then
+            text = line.text or ""
+            if line.heading then
+                r, g, b = 1, 1, 1
+                isHeading = true
+            else
+                r, g, b = 0.75, 0.75, 0.75
+            end
+        else
+            text = line
+        end
+        if isHeading and prevWasBody then
+            addSettingsTooltipSectionGap(GameTooltip)
+        end
+        if text ~= "" then
+            GameTooltip:AddLine(text, r, g, b, true)
+        end
+        prevWasBody = text ~= "" and not isHeading
+    end
+    GameTooltip:SetPoint("TOPLEFT", tooltipAnchor, "TOPRIGHT", 8, 0)
+    GameTooltip:Show()
+end
+
+local function hideSettingsHelpTooltip()
+    if GameTooltip then GameTooltip:Hide() end
+end
+
+local function wireSettingsHelpButton(btn, tooltipAnchor, tooltipOpts, row)
+    local function showTooltip()
+        showSettingsHelpTooltip(tooltipAnchor, tooltipOpts)
+    end
+
+    local function onTooltipEnter()
+        if row and row.hoverRegion then
+            Theme.SetHoverTint(row.hoverRegion, true)
+        end
+        showTooltip()
+    end
+
+    local function onTooltipLeave()
+        if row and row.hoverRegion then
+            Theme.SetHoverTint(row.hoverRegion, false)
+        end
+        hideSettingsHelpTooltip()
+    end
+
+    btn:SetScript("OnEnter", onTooltipEnter)
+    btn:SetScript("OnLeave", onTooltipLeave)
+
+    if row then
+        if row.hoverRegion then
+            row.hoverRegion:HookScript("OnEnter", showTooltip)
+            row.hoverRegion:HookScript("OnLeave", hideSettingsHelpTooltip)
+        end
+        if row.check then
+            row.check:HookScript("OnEnter", showTooltip)
+            row.check:HookScript("OnLeave", hideSettingsHelpTooltip)
+        end
+    end
+end
+
+--- Help icon on the right of a settings row; tooltip matches Graphs option rows (title + gray body).
+function Theme.AttachSettingsHelpIcon(row, tooltipOpts)
+    tooltipOpts = tooltipOpts or {}
+    local btn = createSettingsHelpButton(row)
+    btn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
 
     if row.label then
         row.label:ClearAllPoints()
@@ -1418,75 +1497,42 @@ function Theme.AttachSettingsHelpIcon(row, tooltipOpts)
         row.label:SetJustifyH("LEFT")
     end
 
-    local tooltipAnchor = row
-
-    local function showTooltip()
-        if not GameTooltip or not tooltipAnchor then return end
-        GameTooltip:SetOwner(tooltipAnchor, "ANCHOR_NONE")
-        GameTooltip:ClearLines()
-        if title ~= "" then
-            GameTooltip:AddLine(title, 1, 1, 1, true)
-        end
-        local prevWasBody = false
-        for i = 1, #lines do
-            local line = lines[i]
-            local text
-            local r, g, b = 0.9, 0.9, 0.9
-            local isHeading = false
-            if type(line) == "table" then
-                text = line.text or ""
-                if line.heading then
-                    r, g, b = 1, 1, 1
-                    isHeading = true
-                else
-                    r, g, b = 0.75, 0.75, 0.75
-                end
-            else
-                text = line
-            end
-            if isHeading and prevWasBody then
-                addSettingsTooltipSectionGap(GameTooltip)
-            end
-            if text ~= "" then
-                GameTooltip:AddLine(text, r, g, b, true)
-            end
-            prevWasBody = text ~= "" and not isHeading
-        end
-        GameTooltip:SetPoint("TOPLEFT", tooltipAnchor, "TOPRIGHT", 8, 0)
-        GameTooltip:Show()
-    end
-
-    local function hideTooltip()
-        if GameTooltip then GameTooltip:Hide() end
-    end
-
-    local function onTooltipEnter()
-        if row.hoverRegion then
-            Theme.SetHoverTint(row.hoverRegion, true)
-        end
-        showTooltip()
-    end
-
-    local function onTooltipLeave()
-        if row.hoverRegion then
-            Theme.SetHoverTint(row.hoverRegion, false)
-        end
-        hideTooltip()
-    end
-
-    btn:SetScript("OnEnter", onTooltipEnter)
-    btn:SetScript("OnLeave", onTooltipLeave)
-
-    if row.hoverRegion then
-        row.hoverRegion:HookScript("OnEnter", showTooltip)
-        row.hoverRegion:HookScript("OnLeave", hideTooltip)
-    end
-    if row.check then
-        row.check:HookScript("OnEnter", showTooltip)
-        row.check:HookScript("OnLeave", hideTooltip)
-    end
-
+    wireSettingsHelpButton(btn, row, tooltipOpts, row)
     row.helpBtn = btn
+    return btn
+end
+
+--- Help icon immediately after a FontString label (edit-row captions, etc.).
+--- One hit region covers the label, gap, and icon so the tooltip does not flicker.
+function Theme.AttachLabelHelpIcon(label, tooltipOpts)
+    if not label then return nil end
+    tooltipOpts = tooltipOpts or {}
+    local parent = tooltipOpts.parent
+    if not parent and label.GetParent then
+        parent = label:GetParent()
+    end
+    if not parent then return nil end
+
+    local btn = createSettingsHelpButton(parent)
+    btn:SetPoint("LEFT", label, "RIGHT", 4, 0)
+    if btn.EnableMouse then
+        btn:EnableMouse(false)
+    end
+
+    -- FontStrings do not receive mouse events; cover label through icon (including gap).
+    local hitRegion = CreateFrame("Frame", nil, parent)
+    hitRegion:EnableMouse(true)
+    hitRegion:SetPoint("TOPLEFT", label, "TOPLEFT", 0, 2)
+    hitRegion:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, -2)
+    if parent.GetFrameLevel and hitRegion.SetFrameLevel then
+        hitRegion:SetFrameLevel((parent:GetFrameLevel() or 0) + 5)
+    end
+    hitRegion:SetScript("OnEnter", function()
+        showSettingsHelpTooltip(hitRegion, tooltipOpts)
+    end)
+    hitRegion:SetScript("OnLeave", hideSettingsHelpTooltip)
+
+    btn.hitRegion = hitRegion
     return btn
 end
 

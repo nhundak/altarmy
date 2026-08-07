@@ -87,7 +87,10 @@ describe("AltArmy.Theme", function()
         function f:SetFrameLevel(level) self._frameLevel = level end
         function f:EnableMouse() end
         function f:EnableMouseWheel() end
-        function f:SetPoint() end
+        function f:SetPoint(...)
+            self._points = self._points or {}
+            table.insert(self._points, { ... })
+        end
         function f:SetCheckedTexture(tex) self._checkedTexture = tex end
         function f:SetMinMaxValues(min, max) self._minVal = min self._maxVal = max end
         function f:GetMinMaxValues() return self._minVal or 0, self._maxVal or 0 end
@@ -121,6 +124,7 @@ describe("AltArmy.Theme", function()
                 _layer = layer,
                 _template = template,
                 _textColorCalls = 0,
+                _parent = f,
                 SetTextColor = function(self, r, g, b, a)
                     self._textColor = { r, g, b, a }
                     self._textColorCalls = (self._textColorCalls or 0) + 1
@@ -130,6 +134,7 @@ describe("AltArmy.Theme", function()
                     self._points = self._points or {}
                     table.insert(self._points, { ... })
                 end,
+                GetParent = function(self) return self._parent end,
                 SetWidth = function() end,
                 SetJustifyH = function(self, h) self._justifyH = h end,
                 SetJustifyV = function(self, v) self._justifyV = v end,
@@ -1184,6 +1189,38 @@ describe("AltArmy.Theme", function()
             assert.is_not_nil(row.hoverRegion.altArmyHoverTint)
             row.hoverRegion._scripts.OnMouseUp(row.hoverRegion, "LeftButton")
             assert.is_true(clicked)
+        end)
+    end)
+
+    describe("AttachLabelHelpIcon", function()
+        it("places a help-i icon and wires one hit region spanning label through icon", function()
+            local parent = makeStubFrame()
+            local label = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            label:SetText("Level look-ahead")
+            local btn = Theme.AttachLabelHelpIcon(label, {
+                title = "Level look-ahead",
+                lines = { "How many levels ahead an item may require." },
+            })
+            assert.are.equal(14, btn._width)
+            assert.are.equal(14, btn._height)
+            assert.are.equal("Interface\\Common\\help-i", btn._textures[1]._texture)
+            assert.is_not_nil(btn.hitRegion)
+            assert.is_not_nil(btn.hitRegion._scripts.OnEnter)
+            assert.is_not_nil(btn.hitRegion._scripts.OnLeave)
+            local points = btn.hitRegion._points
+            assert.is_not_nil(points)
+            local hasLeftOnLabel = false
+            local hasRightOnBtn = false
+            for _, point in ipairs(points) do
+                if point[1] == "TOPLEFT" and point[2] == label then
+                    hasLeftOnLabel = true
+                end
+                if point[1] == "BOTTOMRIGHT" and point[2] == btn then
+                    hasRightOnBtn = true
+                end
+            end
+            assert.is_true(hasLeftOnLabel)
+            assert.is_true(hasRightOnBtn)
         end)
     end)
 end)
