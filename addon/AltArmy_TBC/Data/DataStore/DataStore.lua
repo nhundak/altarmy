@@ -214,6 +214,8 @@ frame:RegisterEvent("AUCTION_OWNED_LIST_UPDATE")
 frame:RegisterEvent("AUCTION_BIDDER_LIST_UPDATE")
 frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+frame:RegisterEvent("UPDATE_INSTANCE_INFO")
+frame:RegisterEvent("RAID_INSTANCE_WELCOME")
 
 local isMailOpen = false
 local isAuctionHouseOpen = false
@@ -452,6 +454,21 @@ frame:SetScript("OnEvent", function(_, event, ...)
             if DS.RunLevelHistoryBackfill then
                 DS:RunLevelHistoryBackfill()
             end
+            if DS.RequestLockoutInfoDelayed then
+                DS:RequestLockoutInfoDelayed()
+            end
+        end
+        return
+    end
+    if event == "UPDATE_INSTANCE_INFO" then
+        if DS.ScanSavedInstances then
+            DS:ScanSavedInstances()
+        end
+        return
+    end
+    if event == "RAID_INSTANCE_WELCOME" then
+        if DS.RequestLockoutInfo then
+            DS:RequestLockoutInfo()
         end
         return
     end

@@ -20,6 +20,7 @@ Data\Debug.lua
 Data\DataStore\DataStore.lua
 Data\ClassColor.lua
 Data\Cooldowns\CooldownData.lua
+Data\Cooldowns\LockoutData.lua
 Data\Cooldowns\StockpilePlan.lua
 Data\DataStore\DataStoreCharacter.lua
 Data\DataStore\DataStoreTalents.lua
@@ -36,6 +37,7 @@ Data\Gear\GearUpgrade.lua
 Data\Gear\GearCompare.lua
 Data\DataStore\DataStoreCurrencies.lua
 Data\DataStore\DataStoreProfessions.lua
+Data\DataStore\DataStoreLockouts.lua
 Data\Cooldowns\CooldownAlerts.lua
 Data\Gear\GearUpgradeAlerts.lua
 Data\Integrations\RestedXpIntegration.lua
@@ -80,6 +82,7 @@ Tabs\TabSummary.lua
 Tabs\TabGear.lua
 Tabs\TabReputation.lua
 Tabs\TabCooldowns.lua
+Tabs\TabCooldownsRaids.lua
 Tabs\SearchStickyHeaders.lua
 Tabs\TabSearchSettings.lua
 Tabs\TabSearch.lua

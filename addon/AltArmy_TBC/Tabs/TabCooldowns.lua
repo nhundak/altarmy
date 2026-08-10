@@ -24,6 +24,20 @@ if not CD or not DS then return end
 if not SP or not SP.BuildItemPlan then return end
 
 CD.EnsureCooldownOptions()
+local LD = AltArmy.LockoutData
+if LD and LD.EnsureLockoutListOptions then
+    LD.EnsureLockoutListOptions()
+end
+
+--- Crafting vs Raids sub-views (persisted in AltArmyTBC_Options.cooldowns.activeView).
+local VIEW = {
+    STRIP_H = 22,
+    BTN_W = 88,
+    BTN_H = 20,
+    GAP = 4,
+    active = "crafting",
+    buttons = {},
+}
 
 --- Item counts for mats column and Mats sort (bags+bank+mail snapshot, same as tooltips).
 local function GetItemCountForMats(char, itemId)
@@ -226,10 +240,25 @@ end
 
 local totalColWidth = colWidths.Category + colWidths.Character + colWidths.Mats + colWidths.Time
 
+local viewStrip = CreateFrame("Frame", nil, frame)
+viewStrip:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+viewStrip:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SECTION_INSET, -SECTION_INSET)
+viewStrip:SetHeight(VIEW.STRIP_H)
+
 local tabContentPanel = Theme.CreateTabContentPanel(frame)
-tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
+tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -(SECTION_INSET + VIEW.STRIP_H + PAD))
 tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)
+
+local raidsPanel = Theme.CreateTabContentPanel(frame)
+raidsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -(SECTION_INSET + VIEW.STRIP_H + PAD))
+raidsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
+raidsPanel:Hide()
+
+frame.CraftingView = tabContentPanel
+frame.RaidsView = raidsPanel
+
+local SetActiveCooldownsView -- forward-declared; defined after RefreshList
 
 local headerRow = CreateFrame("Frame", nil, tabContentInner)
 headerRow:SetHeight(HEADER_HEIGHT)
@@ -1668,10 +1697,63 @@ end
 
 frame.RefreshCooldownList = RefreshList
 
+SetActiveCooldownsView = function(which)
+    if which ~= "crafting" and which ~= "raids" then
+        which = "crafting"
+    end
+    VIEW.active = which
+    if LD and LD.EnsureLockoutListOptions then
+        local opts = LD.EnsureLockoutListOptions()
+        opts.activeView = which
+    elseif AltArmyTBC_Options and AltArmyTBC_Options.cooldowns then
+        AltArmyTBC_Options.cooldowns.activeView = which
+    end
+    tabContentPanel:SetShown(which == "crafting")
+    raidsPanel:SetShown(which == "raids")
+    for id, btn in pairs(VIEW.buttons) do
+        if btn.SetSelected then
+            btn:SetSelected(id == which)
+        end
+    end
+    if which == "raids" then
+        if DS.RequestLockoutInfo then
+            DS:RequestLockoutInfo()
+        end
+        if frame.RefreshRaidsList then
+            frame.RefreshRaidsList()
+        end
+    else
+        SyncSortFromSaved()
+        UpdateHeaderSortIndicators()
+        RefreshList()
+    end
+end
+frame.SetCooldownsView = SetActiveCooldownsView
+
+do
+    local viewIds = { "crafting", "raids" }
+    local viewLabels = { crafting = "Crafting", raids = "Dungeons" }
+    for i, id in ipairs(viewIds) do
+        local btn = CreateFrame("Button", nil, viewStrip, "UIPanelButtonTemplate")
+        btn:SetSize(VIEW.BTN_W, VIEW.BTN_H)
+        btn:SetPoint("TOPLEFT", viewStrip, "TOPLEFT", (i - 1) * (VIEW.BTN_W + VIEW.GAP), 0)
+        btn:SetText(viewLabels[id])
+        Theme.SkinButton(btn, true)
+        btn:SetScript("OnClick", function()
+            SetActiveCooldownsView(id)
+        end)
+        VIEW.buttons[id] = btn
+    end
+end
+
 frame:SetScript("OnShow", function()
-    SyncSortFromSaved()
-    UpdateHeaderSortIndicators()
-    RefreshList()
+    local which = "crafting"
+    if LD and LD.EnsureLockoutListOptions then
+        which = LD.EnsureLockoutListOptions().activeView or "crafting"
+    elseif AltArmyTBC_Options and AltArmyTBC_Options.cooldowns and AltArmyTBC_Options.cooldowns.activeView then
+        which = AltArmyTBC_Options.cooldowns.activeView
+    end
+    SetActiveCooldownsView(which)
 end)
 
 local upd = 0
@@ -1680,6 +1762,12 @@ frame:SetScript("OnUpdate", function(_, dt)
     upd = upd + dt
     if upd >= REFRESH_INTERVAL then
         upd = 0
-        RefreshList()
+        if VIEW.active == "raids" then
+            if frame.RefreshRaidsList then
+                frame.RefreshRaidsList()
+            end
+        else
+            RefreshList()
+        end
     end
 end)
