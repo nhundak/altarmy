@@ -1358,6 +1358,26 @@ describe("GuildTabData", function()
         assert.is_true(lines.presenceOnline)
       end)
 
+      it("inserts a green specialization line under the name when provided", function()
+        local lines = GTD.BuildGuildCharacterHoverTooltipLines({
+          name = "Bob",
+          preferredName = "Bob",
+          classFile = "MAGE",
+          level = 70,
+          formatName = plainFormatName,
+          classDisplayName = "Mage",
+          specializationLabel = "Potion",
+          presenceDetail = {
+            memberName = "Bob",
+            status = { online = true },
+          },
+        })
+        assert.are.equal("Bob", lines[1])
+        assert.are.equal("|cff00ff00Potion specialization|r", lines[2])
+        assert.are.equal("Level 70 Mage", lines[3])
+        assert.are.equal("|cffffffffOnline|r", lines[4])
+      end)
+
       it("marks presenceOnline false when last seen", function()
         local lines = GTD.BuildGuildCharacterHoverTooltipLines({
           name = "Bob",
@@ -1584,6 +1604,21 @@ describe("GuildTabData", function()
         assert.are.equal("[MyAlt]", lines[1])
         assert.are.equal("Level 68 Mage", lines[2])
         assert.is_nil(lines[3])
+      end)
+
+      it("inserts a green specialization line under the name when provided", function()
+        local lines = GTD.BuildOwnCharacterHoverTooltipLines({
+          name = "MyAlt",
+          classFile = "MAGE",
+          level = 68,
+          formatName = plainFormatName,
+          classDisplayName = "Mage",
+          specializationLabel = "Potion",
+        })
+        assert.are.equal("MyAlt", lines[1])
+        assert.are.equal("|cff00ff00Potion specialization|r", lines[2])
+        assert.are.equal("Level 68 Mage", lines[3])
+        assert.is_nil(lines[4])
       end)
 
       it("does not include preferred name or presence", function()

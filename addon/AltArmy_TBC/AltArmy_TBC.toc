@@ -52,6 +52,7 @@ Data\Characters\RealmFilter.lua
 Data\Characters\GlobalRealmFilter.lua
 Data\Characters\Characters.lua
 Data\Integrations\RecipeCraftLib.lua
+Data\Search\RecipeYieldBonus.lua
 Data\Search\SearchSettings.lua
 Data\Search\SearchColumns.lua
 Data\Search\SearchData.lua

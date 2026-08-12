@@ -839,7 +839,7 @@ local function createRecipeRow()
             UpdateResults()
             return
         end
-        -- Online guildmates: whisper. Own-account rows never show this button.
+        -- Online guildmates: whisper. Own-account rows are tooltip-only.
         if not entry.isGuild then
             return
         end
@@ -881,9 +881,26 @@ local function createRecipeRow()
                 return
             end
             local hoverOpts = { rosterByName = searchRosterByName }
-            if entry.isGuild and Nav and Nav.IsGuildRecipeCharacterClickable
-                and not Nav.IsGuildRecipeCharacterClickable(entry, hoverOpts) then
-                -- Offline guildmate: keep tooltip, no interactable highlight.
+            if not entry.isGuild then
+                hoverOpts.forceLocal = true
+            end
+            local RYB = AltArmy and AltArmy.RecipeYieldBonus
+            local specLabel = entry._aaCharSpecLabel
+            if (not specLabel or specLabel == "") and not entry.isGuild
+                and RYB and RYB.LookupCharSpecLabel then
+                specLabel = RYB.LookupCharSpecLabel(entry)
+            end
+            if specLabel and specLabel ~= "" then
+                local showSpec = not entry.isGuild
+                    or (RYB and RYB.IsFeatureEnabled and RYB.IsFeatureEnabled())
+                if showSpec then
+                    hoverOpts.specializationLabel = specLabel
+                end
+            end
+            if (not entry.isGuild)
+                or (entry.isGuild and Nav and Nav.IsGuildRecipeCharacterClickable
+                    and not Nav.IsGuildRecipeCharacterClickable(entry, hoverOpts)) then
+                -- Own-account or offline guildmate: keep tooltip, no interactable highlight.
                 Theme.SetHoverTint(self, false)
             end
             local lines = Nav and Nav.GetGuildCharacterHoverTooltipLines
@@ -1081,6 +1098,12 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
     Theme.SetHoverTint(row, false)
     restoreRecipeCharacterBtnAnchors(row)
     local namePart = buildCharacterNamePart(entry, showRealmSuffix)
+    local RYB = AltArmy and AltArmy.RecipeYieldBonus
+    if RYB and RYB.IsFeatureEnabled and RYB.IsFeatureEnabled()
+        and entry._aaYieldBonusMatch
+        and RYB.FormatSpecialistPrefixMarkup then
+        namePart = RYB.FormatSpecialistPrefixMarkup() .. namePart
+    end
     local Nav = AltArmy.SearchGuildNav
     local charSuffix
     if entry.isGuild then
@@ -1088,14 +1111,14 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
             charSuffix = Nav.FormatGuildRecipeCharacterSuffix(
                 entry.characterName, entry.realm, rowOpts)
         else
-            charSuffix = "|cff8ab4f8 (Guild)|r"
+            charSuffix = "|cff8ab4f8 (|r|cff808080Offline|r|cff8ab4f8)|r"
         end
     end
     SetCharacterCellTruncated(row.cells.Character, namePart, charSuffix, recipeColWidths.Character or 160)
-    -- Guildmates get a Character hit target (tooltip; click/highlight only when online).
-    -- Own-account recipe rows are plain text (no hover tint, no click).
+    -- Guildmates: tooltip; click/highlight only when online.
+    -- Own-account: tooltip only (no hover tint, no click).
     if row.characterBtn then
-        row.characterBtn:SetShown(entry.isGuild and true or false)
+        row.characterBtn:SetShown(true)
     end
     local skillText = entry._aaSkillCellText
     if not skillText then

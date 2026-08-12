@@ -37,7 +37,7 @@ end
 
 --- True when a recipe-result Character cell should highlight and accept clicks.
 --- Guildmate rows: only when someone in their main-group is online (whisper).
---- Own-account rows: never (plain text only).
+--- Own-account rows: never (tooltip only).
 --- opts.rosterByName / opts.onlineCache may be injected (tests / search layout cache).
 function Nav.IsGuildRecipeCharacterClickable(entry, opts)
     if not entry or not entry.isGuild then
@@ -276,11 +276,11 @@ function Nav.IsGuildRecipePlayerOnline(characterName, realm, opts)
     return online
 end
 
---- Colored "(Guild Online/Offline)" suffix for a guildmate recipe row.
+--- Colored "(Online/Offline)" suffix for a guildmate recipe row.
 function Nav.FormatGuildRecipeCharacterSuffix(characterName, realm, opts)
     local GTD = AltArmy.GuildTabData
     if not GTD or not GTD.FormatGuildSearchCharacterSuffix then
-        return "|cff8ab4f8 (Guild)|r"
+        return "|cff8ab4f8 (|r|cff808080Offline|r|cff8ab4f8)|r"
     end
     return GTD.FormatGuildSearchCharacterSuffix(
         Nav.IsGuildRecipePlayerOnline(characterName, realm, opts))
@@ -389,12 +389,18 @@ function Nav.GetCollapsedGuildRecipeTooltipLines(entry, opts)
 end
 
 --- Tooltip lines for a clickable character name in search results, or nil.
---- Own-account characters get a short name + level/class tooltip; guildmates get the
---- full preferred-name + presence tooltip.
+--- Own-account characters get a short name + optional spec + level/class tooltip;
+--- guildmates get the full preferred-name + presence tooltip.
 --- opts.rosterByName may inject a roster map (tests); defaults to live guild roster.
+--- opts.forceLocal uses DataStore (own-account) even when the name exists in guild data.
 function Nav.GetGuildCharacterHoverTooltipLines(characterName, realm, opts)
     opts = opts or {}
-    local entry = Nav.ResolveGuildMember(characterName, realm)
+    local entry
+    if opts.forceLocal then
+        entry = Nav.ResolveLocalMember(characterName, realm)
+    else
+        entry = Nav.ResolveGuildMember(characterName, realm)
+    end
     if not entry then
         return nil
     end
@@ -411,6 +417,7 @@ function Nav.GetGuildCharacterHoverTooltipLines(characterName, realm, opts)
             name = entry.name,
             classFile = entry.classFile,
             level = entry.level,
+            specializationLabel = opts.specializationLabel,
         })
     end
 
@@ -436,6 +443,7 @@ function Nav.GetGuildCharacterHoverTooltipLines(characterName, realm, opts)
         classFile = entry.classFile,
         level = entry.level,
         presenceDetail = presence,
+        specializationLabel = opts.specializationLabel,
     })
     if lines and lines.presenceOnline then
         lines[#lines + 1] = "|cff808080Click to whisper|r"

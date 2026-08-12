@@ -705,6 +705,10 @@ local function EnrichRecipeList(list)
         if entry and not entry._aaCraftEnriched then
             RCL.EnrichEntry(entry)
             entry._aaCraftEnriched = true
+            local RYB = AltArmy and AltArmy.RecipeYieldBonus
+            if RYB and RYB.StampEntry then
+                RYB.StampEntry(entry)
+            end
         end
     end
     return list
@@ -800,6 +804,10 @@ function SD.EnrichRecipeEntry(entry)
         RCL.EnrichEntry(entry)
     end
     entry._aaCraftEnriched = true
+    local RYB = AltArmy and AltArmy.RecipeYieldBonus
+    if RYB and RYB.StampEntry then
+        RYB.StampEntry(entry)
+    end
     return entry
 end
 

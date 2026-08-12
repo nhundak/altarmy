@@ -1559,13 +1559,13 @@ function GTD.FormatClassDisplayName(classFile)
     return classFile:sub(1, 1):upper() .. classFile:sub(2):lower()
 end
 
---- Search-result character suffix for guildmate recipes: "(Guild Online/Offline)".
---- "Guild" stays in the guild tag color; Online is white, Offline is gray.
+--- Search-result character suffix for guildmate recipes: "(Online/Offline)".
+--- Parens use the guild tag color; Online is white, Offline is gray.
 function GTD.FormatGuildSearchCharacterSuffix(isOnline)
     if isOnline then
-        return GUILD_TAG_COLOR .. " (Guild |r" .. WHITE .. "Online|r" .. GUILD_TAG_COLOR .. ")|r"
+        return GUILD_TAG_COLOR .. " (|r" .. WHITE .. "Online|r" .. GUILD_TAG_COLOR .. ")|r"
     end
-    return GUILD_TAG_COLOR .. " (Guild |r" .. GRAY .. "Offline|r" .. GUILD_TAG_COLOR .. ")|r"
+    return GUILD_TAG_COLOR .. " (|r" .. GRAY .. "Offline|r" .. GUILD_TAG_COLOR .. ")|r"
 end
 
 local function colorTooltipName(name, classFile, formatName)
@@ -1668,24 +1668,29 @@ function GTD.BuildCollapsedGuildRecipeTooltipLines(chars, rosterByName, opts)
     return lines
 end
 
---- Two-line tooltip for an own-account character in search results.
---- opts: name, classFile, level, formatName?, classDisplayName?
---- Returns `{ line1, line2 }` — class-colored name, then "Level N Class".
+--- Tooltip for an own-account character in search results.
+--- opts: name, classFile, level, formatName?, classDisplayName?, specializationLabel?
+--- Returns class-colored name, optional green specialization, then "Level N Class".
 function GTD.BuildOwnCharacterHoverTooltipLines(opts)
     opts = opts or {}
     local name = opts.name or "?"
     local className = opts.classDisplayName or GTD.FormatClassDisplayName(opts.classFile)
     local level = math.floor(tonumber(opts.level) or 0)
-    return {
+    local lines = {
         colorTooltipName(name, opts.classFile, opts.formatName),
-        "Level " .. level .. " " .. className,
     }
+    local specLabel = opts.specializationLabel
+    if type(specLabel) == "string" and specLabel ~= "" then
+        lines[#lines + 1] = "|cff00ff00" .. specLabel .. " specialization|r"
+    end
+    lines[#lines + 1] = "Level " .. level .. " " .. className
+    return lines
 end
 
 --- Lines for a search-result guildmate name tooltip.
 --- opts: name, preferredName, preferredClassFile?, classFile, level, presenceDetail?,
----       formatName?, classDisplayName?
---- Returns `{ line1, line2, line3? }` (line3 omitted when presence is unknown).
+---       formatName?, classDisplayName?, specializationLabel?
+--- Returns lines: name, optional green specialization, level/class, optional presence.
 --- Preferred/main name is omitted from line1 when it matches the character name.
 --- When shown, preferred name is class-colored (preferredClassFile) with white parentheses.
 function GTD.BuildGuildCharacterHoverTooltipLines(opts)
@@ -1700,23 +1705,24 @@ function GTD.BuildGuildCharacterHoverTooltipLines(opts)
             preferred, opts.preferredClassFile or opts.classFile, formatName)
         line1 = colored .. " " .. WHITE .. "(|r" .. preferredColored .. WHITE .. ")|r"
     end
+    local lines = { line1 }
+    local specLabel = opts.specializationLabel
+    if type(specLabel) == "string" and specLabel ~= "" then
+        lines[#lines + 1] = "|cff00ff00" .. specLabel .. " specialization|r"
+    end
     local className = opts.classDisplayName or GTD.FormatClassDisplayName(opts.classFile)
     local level = math.floor(tonumber(opts.level) or 0)
-    local line2 = "Level " .. level .. " " .. className
-    local line3 = GTD.FormatGroupPresenceTooltipLine(name, opts.presenceDetail, formatName)
-    if line3 then
-        return {
-            line1,
-            line2,
-            line3,
-            presenceOnline = opts.presenceDetail
-                and opts.presenceDetail.status
-                and opts.presenceDetail.status.online
-                and true
-                or false,
-        }
+    lines[#lines + 1] = "Level " .. level .. " " .. className
+    local presence = GTD.FormatGroupPresenceTooltipLine(name, opts.presenceDetail, formatName)
+    if presence then
+        lines[#lines + 1] = presence
+        lines.presenceOnline = opts.presenceDetail
+            and opts.presenceDetail.status
+            and opts.presenceDetail.status.online
+            and true
+            or false
     end
-    return { line1, line2 }
+    return lines
 end
 
 --- Notes-wizard member title: class-colored name + gray "(level N)".

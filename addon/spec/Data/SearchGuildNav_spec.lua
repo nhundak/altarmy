@@ -319,6 +319,43 @@ describe("SearchGuildNav", function()
     assert.are.equal("|cff808080Click to whisper|r", lines[4])
   end)
 
+  it("GetGuildCharacterHoverTooltipLines inserts specialization under the name", function()
+    AltArmy.GuildShareData = {
+      GetCharacter = function(name, realm)
+        return {
+          name = name,
+          realm = realm,
+          classFile = "MAGE",
+          level = 70,
+          displayName = "Bob",
+          main = "Bob",
+          guildName = "G",
+        }
+      end,
+      GetGuildMembersForDisplay = function()
+        return {
+          {
+            name = "Bob",
+            realm = "R",
+            classFile = "MAGE",
+            level = 70,
+            displayName = "Bob",
+            main = "Bob",
+            isMain = true,
+          },
+        }
+      end,
+    }
+    package.loaded["GuildTabData"] = nil
+    require("GuildTabData")
+    local lines = Nav.GetGuildCharacterHoverTooltipLines("Bob", "R", {
+      rosterByName = { bob = { online = true } },
+      specializationLabel = "Elixir",
+    })
+    assert.are.equal("|cff00ff00Elixir specialization|r", lines[2])
+    assert.are.equal("Level 70 Mage", lines[3])
+  end)
+
   it("GetGuildCharacterHoverTooltipLines omits whisper hint when offline", function()
     AltArmy.GuildShareData = {
       GetCharacter = function(name, realm)
@@ -415,6 +452,44 @@ describe("SearchGuildNav", function()
     assert.is_nil(lines[3])
   end)
 
+  it("GetGuildCharacterHoverTooltipLines inserts specialization on own-character tooltip", function()
+    AltArmy.GuildShareData = {
+      GetCharacter = function() return nil end,
+      BuildLocalMemberEntry = function(name, realm, char)
+        return {
+          name = name,
+          realm = realm,
+          classFile = char.classFile,
+          level = char.level,
+          displayName = "Chief",
+          main = "MyMain",
+          source = "local",
+        }
+      end,
+      GetGuildMembersForDisplay = function()
+        return {}
+      end,
+    }
+    AltArmy.DataStore = {
+      GetCharacter = function(_, name, realm)
+        return {
+          name = name,
+          realm = realm,
+          classFile = "MAGE",
+          level = 68,
+        }
+      end,
+    }
+    package.loaded["GuildTabData"] = nil
+    require("GuildTabData")
+    local lines = Nav.GetGuildCharacterHoverTooltipLines("MyAlt", "Area 52", {
+      specializationLabel = "Shadoweave",
+      forceLocal = true,
+    })
+    assert.are.equal("|cff00ff00Shadoweave specialization|r", lines[2])
+    assert.are.equal("Level 68 Mage", lines[3])
+  end)
+
   it("IsGuildRecipePlayerOnline is true when any character in the main group is online", function()
     AltArmy.GuildShareData = {
       GetCharacter = function(name, realm)
@@ -460,12 +535,12 @@ describe("SearchGuildNav", function()
       end,
     }
     assert.are.equal(
-      "|cff8ab4f8 (Guild |r|cffffffffOnline|r|cff8ab4f8)|r",
+      "|cff8ab4f8 (|r|cffffffffOnline|r|cff8ab4f8)|r",
       Nav.FormatGuildRecipeCharacterSuffix("Bob", "R", {
         rosterByName = { bob = { online = true } },
       }))
     assert.are.equal(
-      "|cff8ab4f8 (Guild |r|cff808080Offline|r|cff8ab4f8)|r",
+      "|cff8ab4f8 (|r|cff808080Offline|r|cff8ab4f8)|r",
       Nav.FormatGuildRecipeCharacterSuffix("Bob", "R", {
         rosterByName = {
           bob = { online = false, years = 0, months = 0, days = 1, hours = 0 },
