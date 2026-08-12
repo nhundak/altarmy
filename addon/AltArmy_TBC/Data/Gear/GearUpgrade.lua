@@ -570,7 +570,13 @@ local function scoreItem(link, technique, classFile, specKey, level, isOffhand)
     else
         score = GU.ScoreItemCustom(link, classFile, specKey, level, isOffhand)
     end
-    scoreMemo[key] = score
+    -- Do not memoize while ItemStats is still loading; otherwise a 0 sticks and
+    -- compare rows (fresh GetNormalized) disagree with summary.oldTotal (ScoreItem).
+    local itemStats = IS()
+    local source = itemStats and itemStats.GetSource and itemStats.GetSource(link)
+    if source ~= "pending" then
+        scoreMemo[key] = score
+    end
     return score
 end
 

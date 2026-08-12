@@ -755,9 +755,17 @@ local function ensurePendingFrame()
         itemId = tonumber(itemId)
         if not itemId or not pendingIds[itemId] then return end
         pendingIds[itemId] = nil
+        local cleared = false
         for link, entry in pairs(cache) do
             if entry.itemId == itemId then
                 cache[link] = nil
+                cleared = true
+            end
+        end
+        if cleared then
+            local GU = AltArmy.GearUpgrade
+            if GU and GU.InvalidateScoreDependentMemos then
+                GU.InvalidateScoreDependentMemos()
             end
         end
         if onUpdatedCallback then
@@ -980,6 +988,10 @@ function IS.CollectParseSnapshot(link, opts)
                 tooltipLines = snap.tooltipLines,
                 parseSnapshot = snap,
             })
+            local GU = AltArmy.GearUpgrade
+            if GU and GU.InvalidateScoreDependentMemos then
+                GU.InvalidateScoreDependentMemos()
+            end
         end
         return snap
     end

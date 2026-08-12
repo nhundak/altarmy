@@ -160,6 +160,36 @@ describe("GearUpgrade", function()
         assert.are.equal(maxLevel, GU.ScoreItem(wand, "custom", "MAGE", "frost", 70))
     end)
 
+    -- Repro: compare panel showed Weighted +100% while every stat row dropped.
+    -- ScoreItem memoized 0 while ItemStats was still pending; rows later used
+    -- refreshed GetNormalized stats, but summary.oldTotal stayed 0.
+    it("ScoreItem recomputes after ItemStats pending resolves", function()
+        local IS = AltArmy.ItemStats
+        local link = "|Hitem:11:0|h[New Helm]|h"
+        IS.ClearCache()
+        GU.InvalidateScoreDependentMemos()
+
+        local oldGetItemInfo = _G.GetItemInfo
+        _G.GetItemInfo = function()
+            return nil
+        end
+        local pendingScore = GU.ScoreItem(link, "custom", "MAGE", "frost")
+        assert.are.equal(0, pendingScore)
+        assert.are.equal("pending", IS.GetSource(link))
+
+        _G.GetItemInfo = oldGetItemInfo
+        local stats = IS.GetNormalized(link)
+        assert.is_true((stats.int or 0) > 0)
+
+        local scoreAfter = GU.ScoreItem(link, "custom", "MAGE", "frost")
+        assert.is_true(scoreAfter > 0)
+
+        local breakdown = GU.BuildScoreBreakdown(link, "custom", "MAGE", "frost")
+        assert.is_not_nil(breakdown)
+        assert.is_true(breakdown.weightedSum > 0)
+        assert.are.equal(breakdown.weightedSum, breakdown.total)
+    end)
+
     it("ScoreItemCustom uses item required level when higher than character level", function()
         local endgameWand = "|Hitem:90:0|h[Endgame Wand]|h"
         local midWand = "|Hitem:91:0|h[Mid Wand]|h"
