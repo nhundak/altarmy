@@ -407,6 +407,7 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
     end
 
     -- Reputation: stale data version and/or legacy scalar storage (pre-v2 snapshot rows)
+    -- Containers v2 (equipped bag identity) is additive and not worth a Summary warning.
     if DS.HasModuleData and DS:HasModuleData(char, "reputations") then
         local staleVersion = DS.NeedsRescan and DS:NeedsRescan(char, "reputations")
         local legacyScalars = charHasLegacyReputationScalars(char)

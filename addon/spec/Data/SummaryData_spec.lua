@@ -292,6 +292,48 @@ describe("SummaryData", function()
       assert.is_true(found, "expected reputation refresh instruction for current character")
     end)
 
+    it("does not warn for stale containers version (equipped bag identity is optional)", function()
+      local char = {
+        level = 70,
+        talents = { tabs = { 0, 0, 21 } },
+        dataVersions = {
+          character = 1, guildMembership = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
+        cooldownSpecs = {
+          masterTransmutation = false,
+          spellfireTailor = false,
+          shadoweaveTailor = false,
+          moonclothTailor = false,
+        },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.NeedsRescan = function(_, c, mod)
+        return mod == "containers" and (c.dataVersions.containers or 0) < 2
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Bob" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_false(out.hasMissing)
+      assert.are.same(out.instructions, {})
+    end)
+
     it("flags outdated reputation storage for alt with log in instruction", function()
       local char = {
         dataVersions = {

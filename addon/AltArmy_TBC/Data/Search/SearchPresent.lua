@@ -11,7 +11,8 @@ local function LocationSortKey(location)
     if location == "keyring" then return 2 end
     if location == "bank" then return 3 end
     if location == "equipped" then return 4 end
-    if location == "mail" then return 5 end
+    if location == "equipped-bank" then return 5 end
+    if location == "mail" then return 6 end
     return 99
 end
 

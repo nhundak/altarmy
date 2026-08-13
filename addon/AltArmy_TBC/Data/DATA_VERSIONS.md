@@ -8,8 +8,9 @@ Each module has its own version number that is incremented when the storage form
 ### character (v1)
 - **v1**: Initial version. Stores name, realm, level, class, classFile, race, faction, money, xp, xpMax, restXP, played, lastLogout, lastUpdate.
 
-### containers (v1)
+### containers (v2)
 - **v1**: Initial version. Stores bag/bank contents in `char.Containers[bagID]` with `links` and `items` tables. Also stores `bagInfo` and `bankInfo` summaries.
+- **v2**: Also stores equipped bag identity on inventory bags 1–4 and bank bags 5–11 as `bagLink` / `bagItemID` (backpack, keyring, and main bank container are not items).
 
 ### equipment (v1)
 - **v1**: Initial version. Stores equipped gear in `char.Inventory[slot]` (slots 1-19). Stores full link if enchanted, otherwise itemID.

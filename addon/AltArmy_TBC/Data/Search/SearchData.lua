@@ -190,6 +190,31 @@ local function BuildAllContainerSlots()
                 return false
             end)
         end
+        if charData and DS.IterateEquippedBags then
+            local characterName = (DS.GetCharacterName and DS:GetCharacterName(charData)) or charName
+            local classFile = nil
+            if DS.GetCharacterClass then
+                local _, cf = DS:GetCharacterClass(charData)
+                classFile = cf
+            end
+            DS:IterateEquippedBags(charData, function(bagID, itemID, link)
+                local location = "equipped"
+                if bagID >= MIN_BANK_BAG_ID and bagID <= MAX_BANK_BAG_ID then
+                    location = "equipped-bank"
+                end
+                table.insert(list, {
+                    characterName = characterName,
+                    realm = realm,
+                    itemID = itemID,
+                    itemLink = link,
+                    count = 1,
+                    location = location,
+                    bagID = bagID,
+                    classFile = classFile,
+                })
+                return false
+            end)
+        end
         if charData and (charData.Mails or charData.MailCache) then
             local characterName = (DS.GetCharacterName and DS:GetCharacterName(charData)) or charName
             local classFile = nil
@@ -964,7 +989,8 @@ function SD._LocationSortKey(location)
     if location == "keyring" then return 2 end
     if location == "bank" then return 3 end
     if location == "equipped" then return 4 end
-    if location == "mail" then return 5 end
+    if location == "equipped-bank" then return 5 end
+    if location == "mail" then return 6 end
     return 99
 end
 

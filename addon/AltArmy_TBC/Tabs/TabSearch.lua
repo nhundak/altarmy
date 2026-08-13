@@ -1009,6 +1009,7 @@ local function fillItemRow(row, entry, showRealmSuffix, rowOpts)
     local locLabel = entry.location == "bank" and "Bank"
         or (entry.location == "mail" and "Mail")
         or (entry.location == "equipped" and "Equipped")
+        or (entry.location == "equipped-bank" and "Equipped-bank")
         or (entry.location == "keyring" and "Keyring")
         or "Bags"
     local namePart = buildCharacterNamePart(entry, showRealmSuffix)

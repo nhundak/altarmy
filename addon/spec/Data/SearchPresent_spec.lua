@@ -46,6 +46,27 @@ describe("SearchPresent", function()
         assert.are.equal(2, item1[1].count)
     end)
 
+    it("AggregateItemRows keeps equipped and equipped-bank as separate locations", function()
+        local raw = {
+            {
+                itemID = 21841, itemName = "Netherweave Bag", itemNameLower = "netherweave bag",
+                itemLink = "x", characterName = "A", realm = "R", location = "equipped", count = 1,
+                classFile = "MAGE",
+            },
+            {
+                itemID = 21841, itemName = "Netherweave Bag", itemNameLower = "netherweave bag",
+                itemLink = "x", characterName = "A", realm = "R", location = "equipped-bank", count = 1,
+                classFile = "MAGE",
+            },
+        }
+        local rows = SP.AggregateItemRows(raw, "netherweave")
+        assert.are.equal(2, #rows)
+        assert.are.equal("equipped", rows[1].location)
+        assert.are.equal(1, rows[1].count)
+        assert.are.equal("equipped-bank", rows[2].location)
+        assert.are.equal(1, rows[2].count)
+    end)
+
     it("CollapseGuildRecipeRows collapses 3+ guild rows and expands with descriptors", function()
         local sorted = {
             { recipeID = 10, characterName = "Own", isGuild = false, professionName = "Tailoring" },

@@ -60,6 +60,13 @@ local function GetItemInfoForSlot(bagID, slot)
     return 1
 end
 
+local function IsEquippableBagSlot(bagID)
+    if type(bagID) ~= "number" then return false end
+    if bagID >= 1 and bagID <= NUM_BAG_SLOTS then return true end
+    if bagID >= MIN_BANK_BAG_ID and bagID <= MAX_BANK_BAG_ID then return true end
+    return false
+end
+
 local function GetContainer(char, bagID)
     if not char then return nil end
     char.Containers = char.Containers or {}
@@ -71,15 +78,94 @@ local function GetContainer(char, bagID)
     return bag
 end
 
-local function ScanContainer(char, bagID, sizeOverride)
-    local numSlots = sizeOverride or GetNumSlots(bagID)
-    if not numSlots or numSlots <= 0 then return end
-    if not GetItemLink then return end
-    local bag = GetContainer(char, bagID)
+local function ClearContainerContents(bag)
+    if not bag then return end
     bag.links = bag.links or {}
     bag.items = bag.items or {}
     for k in pairs(bag.links) do bag.links[k] = nil end
     for k in pairs(bag.items) do bag.items[k] = nil end
+end
+
+local function ClearBagIdentity(bag)
+    if not bag then return end
+    bag.bagLink = nil
+    bag.bagItemID = nil
+end
+
+local INV_BAG_SLOT_NAMES = { "Bag0Slot", "Bag1Slot", "Bag2Slot", "Bag3Slot" }
+local TBC_FIRST_BAG_INV_SLOT = 20
+local TBC_FIRST_BANK_BAG_INV_SLOT = 68
+
+local function GetBagInventorySlot(bagID)
+    local conv = (C_Container and C_Container.ContainerIDToInventoryID) or ContainerIDToInventoryID
+    if conv then
+        local ok, invSlot = pcall(conv, bagID)
+        if ok and type(invSlot) == "number" then
+            return invSlot
+        end
+    end
+    if bagID >= 1 and bagID <= NUM_BAG_SLOTS then
+        local name = INV_BAG_SLOT_NAMES[bagID]
+        if name and GetInventorySlotInfo then
+            local slot = GetInventorySlotInfo(name)
+            if type(slot) == "number" then
+                return slot
+            end
+        end
+        if INVSLOT_BAG_0 then
+            return INVSLOT_BAG_0 + (bagID - 1)
+        end
+        return TBC_FIRST_BAG_INV_SLOT + (bagID - 1)
+    end
+    if bagID >= MIN_BANK_BAG_ID and bagID <= MAX_BANK_BAG_ID then
+        if BankButtonIDToInvSlotID then
+            local ok, invSlot = pcall(BankButtonIDToInvSlotID, bagID - NUM_BAG_SLOTS, 1)
+            if ok and type(invSlot) == "number" then
+                return invSlot
+            end
+        end
+        return TBC_FIRST_BANK_BAG_INV_SLOT + (bagID - MIN_BANK_BAG_ID)
+    end
+    return nil
+end
+
+local function ScanBagIdentity(char, bagID, preserveIfUnknown)
+    if not char or not IsEquippableBagSlot(bagID) then return end
+    local bag = GetContainer(char, bagID)
+    local invSlot = GetBagInventorySlot(bagID)
+    if not invSlot then
+        if not preserveIfUnknown then
+            ClearBagIdentity(bag)
+        end
+        return
+    end
+    local link = GetInventoryItemLink and GetInventoryItemLink("player", invSlot) or nil
+    local itemID = GetInventoryItemID and GetInventoryItemID("player", invSlot) or nil
+    if not itemID and type(link) == "string" then
+        itemID = tonumber(link:match("item:(%d+)"))
+    end
+    if itemID then
+        bag.bagItemID = itemID
+        bag.bagLink = link
+    elseif not preserveIfUnknown then
+        ClearBagIdentity(bag)
+    end
+end
+
+local function ScanContainer(char, bagID, sizeOverride)
+    local numSlots = sizeOverride or GetNumSlots(bagID)
+    if not numSlots or numSlots <= 0 then
+        if IsEquippableBagSlot(bagID) and char and char.Containers and char.Containers[bagID] then
+            local bag = char.Containers[bagID]
+            ClearContainerContents(bag)
+            ScanBagIdentity(char, bagID, false)
+            char.lastUpdate = time()
+        end
+        return
+    end
+    if not GetItemLink then return end
+    local bag = GetContainer(char, bagID)
+    ClearContainerContents(bag)
     for slot = 1, numSlots do
         local link = GetItemLink(bagID, slot)
         if link then
@@ -88,6 +174,9 @@ local function ScanContainer(char, bagID, sizeOverride)
             bag.links[slot] = link
             bag.items[slot] = { itemID = itemID, count = count }
         end
+    end
+    if IsEquippableBagSlot(bagID) then
+        ScanBagIdentity(char, bagID, true)
     end
     char.lastUpdate = time()
 end
@@ -100,7 +189,12 @@ function DS:ScanBags()
         if bagID == 0 and (not numSlots or numSlots <= 0) then
             numSlots = BACKPACK_FALLBACK_SLOTS
         end
-        if numSlots and numSlots > 0 then
+        if bagID == 0 then
+            if numSlots and numSlots > 0 then
+                ScanContainer(char, bagID, numSlots)
+            end
+        else
+            -- Equippable slots: always scan (clears identity/contents when empty).
             ScanContainer(char, bagID, numSlots)
         end
     end
@@ -134,9 +228,8 @@ function DS:ScanBank()
         ScanContainer(char, BANK_CONTAINER)
     end
     for bagID = MIN_BANK_BAG_ID, MAX_BANK_BAG_ID do
-        if GetNumSlots(bagID) and GetNumSlots(bagID) > 0 then
-            ScanContainer(char, bagID)
-        end
+        -- Always scan equippable bank bag slots so empty slots clear stale identity/contents.
+        ScanContainer(char, bagID)
     end
     local totalSlots, freeSlots = 0, 0
     local getFree = (C_Container and C_Container.GetContainerNumFreeSlots) or GetContainerNumFreeSlots
@@ -280,6 +373,20 @@ function DS:IterateBankSlots(char, callback)
                         end
                     end
                 end
+            end
+        end
+    end
+end
+
+--- Yields equipped bag items (inventory bags 1-4 and bank bags 5-11), not bag contents.
+--- callback(bagID, itemID, link) — return true to stop early.
+function DS:IterateEquippedBags(char, callback)
+    if not char or not char.Containers or not callback then return end
+    for bagID, bag in pairs(char.Containers) do
+        bagID = tonumber(bagID)
+        if bagID and IsEquippableBagSlot(bagID) and bag and bag.bagItemID then
+            if callback(bagID, bag.bagItemID, bag.bagLink) then
+                return
             end
         end
     end

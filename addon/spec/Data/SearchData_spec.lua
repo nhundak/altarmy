@@ -142,6 +142,55 @@ describe("SearchData", function()
       assert.is_true(seenNumeric)
       assert.is_true(seenEnchanted)
     end)
+
+    it("includes inventory bags as equipped and bank bags as equipped-bank", function()
+      local DS = AltArmy.DataStore
+      assert.truthy(DS)
+      local old = {
+        GetRealms = DS.GetRealms,
+        GetCharacters = DS.GetCharacters,
+        IterateContainerSlots = DS.IterateContainerSlots,
+        IterateEquippedBags = DS.IterateEquippedBags,
+        IterateInventory = DS.IterateInventory,
+        GetCharacterName = DS.GetCharacterName,
+        GetCharacterClass = DS.GetCharacterClass,
+      }
+
+      DS.GetRealms = function() return { R1 = true } end
+      DS.GetCharacters = function()
+        return { Alice = { name = "Alice" } }
+      end
+      DS.IterateContainerSlots = function(_self, _char, _cb) end
+      DS.IterateInventory = function(_self, _char, _cb) end
+      DS.IterateEquippedBags = function(_self, _char, cb)
+        cb(1, 21841, "|Hitem:21841:0|h[Netherweave Bag]|h")
+        cb(5, 14156, "|Hitem:14156:0|h[Bottomless Bag]|h")
+      end
+      DS.GetCharacterName = function(_self, char) return char and char.name or "" end
+      DS.GetCharacterClass = function() return "", "MAGE" end
+
+      local list = SD.GetAllContainerSlots()
+
+      DS.GetRealms = old.GetRealms
+      DS.GetCharacters = old.GetCharacters
+      DS.IterateContainerSlots = old.IterateContainerSlots
+      DS.IterateEquippedBags = old.IterateEquippedBags
+      DS.IterateInventory = old.IterateInventory
+      DS.GetCharacterName = old.GetCharacterName
+      DS.GetCharacterClass = old.GetCharacterClass
+
+      local seenInv, seenBank = false, false
+      for _, e in ipairs(list) do
+        if e.itemID == 21841 and e.location == "equipped" and e.count == 1 and e.bagID == 1 then
+          seenInv = true
+        end
+        if e.itemID == 14156 and e.location == "equipped-bank" and e.count == 1 and e.bagID == 5 then
+          seenBank = true
+        end
+      end
+      assert.is_true(seenInv)
+      assert.is_true(seenBank)
+    end)
   end)
 
   describe("search caches", function()
@@ -304,11 +353,12 @@ describe("SearchData", function()
   end)
 
   describe("_LocationSortKey", function()
-    it("orders bag before keyring before bank before equipped before mail", function()
+    it("orders bag before keyring before bank before equipped before equipped-bank before mail", function()
       assert.is_true(SD._LocationSortKey("bag") < SD._LocationSortKey("keyring"))
       assert.is_true(SD._LocationSortKey("keyring") < SD._LocationSortKey("bank"))
       assert.is_true(SD._LocationSortKey("bank") < SD._LocationSortKey("equipped"))
-      assert.is_true(SD._LocationSortKey("equipped") < SD._LocationSortKey("mail"))
+      assert.is_true(SD._LocationSortKey("equipped") < SD._LocationSortKey("equipped-bank"))
+      assert.is_true(SD._LocationSortKey("equipped-bank") < SD._LocationSortKey("mail"))
     end)
   end)
 
