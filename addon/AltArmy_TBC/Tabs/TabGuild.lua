@@ -1948,7 +1948,8 @@ ME.layoutNotesMembers = function()
                     name = name,
                     locked = true,
                     isMain = true,
-                    reasonKind = "shared",
+                    reasonKind = (proposal and proposal.mainReasonKind) or "main",
+                    showMainStar = proposal and proposal.mainDeclared and true or false,
                 }
             else
                 local removable = member and (member.removable or member.addedManually
@@ -1994,6 +1995,7 @@ ME.layoutNotesMembers = function()
                 name = proposal.main,
                 locked = true,
                 isMain = true,
+                showMainStar = proposal.mainDeclared and true or false,
             }
         end
         for _, member in ipairs(members) do
@@ -2169,9 +2171,6 @@ ME.layoutNotesMembers = function()
             -- Manual create: every character was added by the user.
             reasonText = (GTD.NotesWizardInclusionReasonLabel
                 and GTD.NotesWizardInclusionReasonLabel("manual")) or "Manually added"
-        elseif isEdit and entry.isMain then
-            reasonText = (GTD.NotesWizardInclusionReasonLabel
-                and GTD.NotesWizardInclusionReasonLabel("shared")) or "Shared via Alt Army"
         else
             reasonText = (GTD.NotesWizardInclusionReasonLabel
                 and GTD.NotesWizardInclusionReasonLabel(reasonKind)) or ""
@@ -2210,8 +2209,8 @@ ME.layoutNotesMembers = function()
         end
 
         -- Characters column = left 50%; reason fills from center to the actions column.
-        -- Main row: star icon (same texture as guild list) left of the name.
-        local showMainStar = entry.isMain and true or false
+        -- Star only when this character explicitly set themselves as main via Alt Army.
+        local showMainStar = entry.showMainStar and true or false
         if row.mainStarIcon then
             if showMainStar then
                 local GSS = AltArmy.GuildShareSettings

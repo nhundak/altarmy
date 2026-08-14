@@ -344,6 +344,7 @@ function Nav.GetCollapsedGuildRecipeTooltipLines(entry, opts)
     local rosterByName = rosterMapForOpts(opts)
     local chars = {}
     local mainClassCache = {}
+    local RYB = AltArmy and AltArmy.RecipeYieldBonus
     for i = 1, #guildChars do
         local row = guildChars[i]
         if row and row.characterName and row.characterName ~= "" then
@@ -368,12 +369,23 @@ function Nav.GetCollapsedGuildRecipeTooltipLines(entry, opts)
                 local group = resolveMemberGroup(member, row.realm)
                 status = GTD.GetGroupLastOnlineStatus(group, rosterByName)
             end
+            local namePrefix
+            if RYB then
+                if RYB.StampEntry then
+                    RYB.StampEntry(row)
+                end
+                if RYB.GetMatchingSpecLabel and RYB.GetMatchingSpecLabel(row)
+                    and RYB.FormatSpecialistPrefixMarkup then
+                    namePrefix = RYB.FormatSpecialistPrefixMarkup()
+                end
+            end
             chars[#chars + 1] = {
                 name = name,
                 classFile = classFile,
                 mainName = mainName,
                 mainClassFile = mainClassFile,
                 status = status,
+                namePrefix = namePrefix,
             }
         end
     end

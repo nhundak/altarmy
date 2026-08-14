@@ -757,6 +757,64 @@ describe("GuildTabData", function()
       local proposal = GTD.BuildGroupEditProposal(group)
       assert.are.equal(0, #proposal.members)
       assert.are.same({ "Bob" }, proposal.order)
+      assert.are.equal("shared", proposal.mainReasonKind)
+      assert.is_false(proposal.mainDeclared)
+    end)
+
+    it("BuildGroupEditProposal classifies a fully manual main as manually added, not shared", function()
+      local group = {
+        main = "Bob",
+        members = {
+          member({ name = "Bob", main = "Bob", isMain = true, source = "manual", origin = "user" }),
+          member({ name = "Bobsalt", main = "Bob", source = "manual", origin = "user" }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group)
+      assert.are.equal("manual", proposal.mainReasonKind)
+      assert.is_false(proposal.mainDeclared)
+    end)
+
+    it("BuildGroupEditProposal classifies a note-origin grouping main as referred, not shared", function()
+      local group = {
+        main = "Bob",
+        members = {
+          member({ name = "Bob", main = "Bob", isMain = true, source = "manual", origin = "note" }),
+          member({ name = "NoteAlt", main = "Bob", source = "manual", origin = "note" }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group)
+      assert.are.equal("main", proposal.mainReasonKind)
+      assert.is_false(proposal.mainDeclared)
+    end)
+
+    it("BuildGroupEditProposal sets mainDeclared only for an explicit Alt Army main", function()
+      local group = {
+        main = "Alice",
+        members = {
+          member({
+            name = "Alice", main = "Alice", isMain = true, source = "Peer", mainDeclared = true,
+          }),
+          member({ name = "Alicesalt", main = "Alice", source = "Peer" }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group)
+      assert.are.equal("shared", proposal.mainReasonKind)
+      assert.is_true(proposal.mainDeclared)
+    end)
+
+    it("BuildGroupEditProposal resolves a missing main origin from the manual mapping", function()
+      local group = {
+        main = "Bob",
+        members = {
+          member({ name = "Bob", main = "Bob", isMain = true, source = "manual" }),
+          member({ name = "Bobsalt", main = "Bob", source = "manual" }),
+        },
+      }
+      local proposal = GTD.BuildGroupEditProposal(group, gmgStub({
+        { name = "Bob", realm = "R", entry = { main = "Bob", origin = "note" } },
+      }))
+      assert.are.equal("main", proposal.mainReasonKind)
+      assert.is_false(proposal.mainDeclared)
     end)
 
     it("DiffGroupEditProposal reports no changes when staged equals original", function()
@@ -1534,6 +1592,24 @@ describe("GuildTabData", function()
         assert.are.equal("[Bob] |cffffffff(|r[Chief]|cffffffff)|r", lines[1].left)
         assert.are.equal("|cffffffffOnline|r", lines[1].right)
         assert.are.equal("|cff808080Click to expand|r", lines[2])
+      end)
+
+      it("prefixes the name with namePrefix when provided", function()
+        local lines = GTD.BuildCollapsedGuildRecipeTooltipLines({
+          {
+            name = "Bob",
+            classFile = "MAGE",
+            mainName = "Chief",
+            mainClassFile = "WARRIOR",
+            namePrefix = "|cff33ff33+|r ",
+          },
+          { name = "Alice", classFile = "WARRIOR", mainName = "Alice" },
+        }, {
+          bob = { online = true },
+          alice = { online = true },
+        }, { formatName = formatName })
+        assert.are.equal("[Alice]", lines[1].left)
+        assert.are.equal("|cff33ff33+|r [Bob] |cffffffff(|r[Chief]|cffffffff)|r", lines[2].left)
       end)
 
       it("uses gray Unknown when roster status is missing", function()
@@ -2797,6 +2873,15 @@ describe("GuildTabData", function()
         alreadyMapped = true, origin = "user",
       }))
       assert.are.equal("manual", GTD.ClassifyNotesWizardInclusionReason({}))
+      assert.are.equal("manual", GTD.ClassifyNotesWizardInclusionReason({
+        isMain = true, origin = "user",
+      }))
+      assert.are.equal("manual", GTD.ClassifyNotesWizardInclusionReason({
+        isMain = true, isManualMember = true,
+      }))
+      assert.are.equal("main", GTD.ClassifyNotesWizardInclusionReason({
+        isMain = true, origin = "note",
+      }))
     end)
   end)
 

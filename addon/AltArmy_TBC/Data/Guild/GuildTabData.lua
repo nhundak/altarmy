@@ -875,7 +875,11 @@ end
 
 --- Build a staged edit proposal from an existing guild group for the full-screen editor.
 --- `gmg` defaults to AltArmy.GuildManualGroups (injectable for tests).
---- Returns `{ main, members, order, pinned, overrideName, edit = true }` or nil.
+--- Returns `{ main, members, order, pinned, overrideName, edit = true,
+--- mainReasonKind, mainDeclared }` or nil.
+--- `mainReasonKind` is the inclusion reason for the grouping main
+--- ("shared"|"manual"|"main"); `mainDeclared` is true only when that character
+--- explicitly set themselves as main and shared via Alt Army.
 --- Each non-main member has: name, removable, reasonKind ("shared"|"manual"|"note"|"conflict"),
 --- and optionally conflictManualMain when reasonKind is "conflict".
 function GTD.BuildGroupEditProposal(group, gmg)
@@ -892,6 +896,7 @@ function GTD.BuildGroupEditProposal(group, gmg)
 
     local order = {}
     local members = {}
+    local mainMember
     -- Main first in display order.
     if type(group.main) == "string" and group.main ~= "" then
         order[#order + 1] = group.main
@@ -899,7 +904,9 @@ function GTD.BuildGroupEditProposal(group, gmg)
     for _, m in ipairs(group.members or {}) do
         if m and m.name then
             local key = GTD.NormalizeRosterName(m.name)
-            if key and key ~= mainKey then
+            if key and key == mainKey then
+                mainMember = m
+            elseif key then
                 order[#order + 1] = m.name
                 local conflict = conflictByKey[key]
                 local reasonKind
@@ -949,6 +956,20 @@ function GTD.BuildGroupEditProposal(group, gmg)
         end
     end
 
+    local mainOrigin = mainMember and mainMember.origin
+    if (not mainOrigin or mainOrigin == "") and gmg and gmg.GetMapping
+        and type(group.main) == "string" and group.main ~= "" then
+        local mapping = gmg.GetMapping(group.main, mainMember and mainMember.realm)
+        mainOrigin = mapping and mapping.origin
+    end
+    local mainFromShared = mainMember ~= nil and not GTD.IsManualMember(mainMember)
+    local mainReasonKind = GTD.ClassifyNotesWizardInclusionReason({
+        isMain = true,
+        mainFromShared = mainFromShared,
+        origin = mainOrigin,
+        isManualMember = GTD.IsManualMember(mainMember),
+    })
+
     return {
         main = group.main,
         members = members,
@@ -956,6 +977,9 @@ function GTD.BuildGroupEditProposal(group, gmg)
         pinned = group.pinned and true or false,
         overrideName = group.overrideName,
         edit = true,
+        mainReasonKind = mainReasonKind,
+        mainDeclared = GTD.IsExplicitMain(mainMember) and true or false,
+        mainFromShared = mainFromShared and true or false,
         -- Snapshot of removable names at open-time so Diff does not need live GMG.
         originalRemovable = originalRemovable,
     }
@@ -1580,7 +1604,7 @@ local function colorTooltipName(name, classFile, formatName)
 end
 
 --- Tooltip lines for a collapsed "Multiple guildmates" recipe search row.
---- `chars` entries: `{ name, classFile, mainName?, mainClassFile?, status? }`.
+--- `chars` entries: `{ name, classFile, mainName?, mainClassFile?, status?, namePrefix? }`.
 --- Presence/sort use `c.status` when provided (caller supplies main-group / player presence);
 --- otherwise fall back to individual `rosterByName` lookup by character name.
 --- Sorted by last online via RosterStatusSortValue: online first (A–Z among online),
@@ -1612,6 +1636,7 @@ function GTD.BuildCollapsedGuildRecipeTooltipLines(chars, rosterByName, opts)
                 classFile = c.classFile,
                 mainName = c.mainName,
                 mainClassFile = c.mainClassFile,
+                namePrefix = c.namePrefix,
                 online = online,
                 status = status,
                 -- Finite sort key (avoid math.huge; WoW table.sort mishandles inf).
@@ -1645,6 +1670,10 @@ function GTD.BuildCollapsedGuildRecipeTooltipLines(chars, rosterByName, opts)
         if main and main ~= "" and main:lower() ~= row.name:lower() then
             local mainColored = colorTooltipName(main, row.mainClassFile or row.classFile, formatName)
             left = colored .. " " .. WHITE .. "(|r" .. mainColored .. WHITE .. ")|r"
+        end
+        local prefix = row.namePrefix
+        if type(prefix) == "string" and prefix ~= "" then
+            left = prefix .. left
         end
         local presence
         if row.online then
@@ -1831,12 +1860,21 @@ function GTD.NotesWizardInclusionReasonLabel(kind)
 end
 
 --- Classify a notes-wizard display row into an inclusion-reason kind.
---- opts: isMain?, mainFromShared?, isKnownShared?, noteText?, alreadyMapped?, origin?
+--- opts: isMain?, mainFromShared?, isKnownShared?, noteText?, alreadyMapped?,
+--- origin? ("note"|"user"), isManualMember?
 function GTD.ClassifyNotesWizardInclusionReason(opts)
     opts = opts or {}
     if opts.isMain then
         if opts.mainFromShared then
             return "shared"
+        end
+        -- Note-created grouping main: other notes referred to this character.
+        if opts.origin == "note" then
+            return "main"
+        end
+        -- Manual-create grouping main (or a manual stub with no note origin).
+        if opts.origin == "user" or opts.isManualMember then
+            return "manual"
         end
         return "main"
     end

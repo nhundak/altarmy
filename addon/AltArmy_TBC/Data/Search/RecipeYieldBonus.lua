@@ -29,6 +29,22 @@ function RYB.FormatSpecialistPrefixMarkup()
     return SPECIALIST_PREFIX
 end
 
+--- Spec label for the specialist + / hover tooltip, or nil.
+--- Same condition as the + prefix: feature on and recipe bonus matches char spec.
+function RYB.GetMatchingSpecLabel(entry)
+    if not entry or not RYB.IsFeatureEnabled() then
+        return nil
+    end
+    if not entry._aaYieldBonusMatch then
+        return nil
+    end
+    local spec = entry._aaCharSpecLabel
+    if type(spec) == "string" and spec ~= "" then
+        return spec
+    end
+    return nil
+end
+
 --- Bonus label for a recipe, or nil when none.
 --- @param recipeID number|nil craft spell id
 --- @param resultItemID number|nil crafted item id

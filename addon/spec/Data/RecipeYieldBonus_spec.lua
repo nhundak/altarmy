@@ -113,6 +113,37 @@ describe("RecipeYieldBonus", function()
     end)
   end)
 
+  describe("GetMatchingSpecLabel", function()
+    it("returns the spec when feature is on and recipe bonus matches", function()
+      enableCraftLib()
+      assert.are.equal("Potion", RYB.GetMatchingSpecLabel({
+        _aaYieldBonusMatch = true,
+        _aaCharSpecLabel = "Potion",
+      }))
+    end)
+
+    it("returns nil when the character spec does not match the recipe", function()
+      enableCraftLib()
+      assert.is_nil(RYB.GetMatchingSpecLabel({
+        _aaYieldBonusMatch = false,
+        _aaCharSpecLabel = "Potion",
+      }))
+    end)
+
+    it("returns nil when CraftLib is unavailable", function()
+      assert.is_nil(RYB.GetMatchingSpecLabel({
+        _aaYieldBonusMatch = true,
+        _aaCharSpecLabel = "Potion",
+      }))
+    end)
+
+    it("returns nil when the entry has no matching spec label", function()
+      enableCraftLib()
+      assert.is_nil(RYB.GetMatchingSpecLabel({ _aaYieldBonusMatch = true }))
+      assert.is_nil(RYB.GetMatchingSpecLabel(nil))
+    end)
+  end)
+
   describe("StampEntry", function()
     it("no-ops when CraftLib is unavailable", function()
       local entry = {

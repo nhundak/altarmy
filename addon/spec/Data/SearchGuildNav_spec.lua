@@ -677,6 +677,66 @@ describe("SearchGuildNav", function()
     assert.are.equal(lines, again)
   end)
 
+  it("GetCollapsedGuildRecipeTooltipLines prefixes matching specialists with a green plus", function()
+    package.loaded["GuildTabData"] = nil
+    require("GuildTabData")
+    AltArmy.GuildShareData = {
+      GetCharacter = function(name, realm)
+        return {
+          name = name,
+          realm = realm,
+          classFile = name == "Bob" and "MAGE" or "WARRIOR",
+          main = name,
+          displayName = name,
+          guildName = "G",
+          isMain = true,
+        }
+      end,
+    }
+    local prevRYB = AltArmy.RecipeYieldBonus
+    AltArmy.RecipeYieldBonus = {
+      GetMatchingSpecLabel = function(row)
+        return row._aaYieldBonusMatch and row._aaCharSpecLabel or nil
+      end,
+      FormatSpecialistPrefixMarkup = function()
+        return "|cff33ff33+|r "
+      end,
+    }
+    local entry = {
+      isGuildCollapsed = true,
+      recipeID = 42,
+      guildChars = {
+        {
+          characterName = "Bob",
+          realm = "R",
+          classFile = "MAGE",
+          _aaYieldBonusMatch = true,
+          _aaCharSpecLabel = "Potion",
+        },
+        {
+          characterName = "Alice",
+          realm = "R",
+          classFile = "WARRIOR",
+          _aaYieldBonusMatch = false,
+          _aaCharSpecLabel = "Elixir",
+        },
+      },
+    }
+    local lines = Nav.GetCollapsedGuildRecipeTooltipLines(entry, {
+      rosterByName = {
+        bob = { online = true },
+        alice = { online = true },
+      },
+    })
+    AltArmy.RecipeYieldBonus = prevRYB
+    assert.is_truthy(lines[1])
+    -- Online A–Z: Alice (no plus), Bob (plus).
+    assert.is_truthy(lines[1].left:find("Alice", 1, true))
+    assert.is_nil(lines[1].left:find("|cff33ff33+|r ", 1, true))
+    assert.is_truthy(lines[2].left:find("|cff33ff33+|r ", 1, true))
+    assert.is_truthy(lines[2].left:find("Bob", 1, true))
+  end)
+
   it("GetCollapsedGuildRecipeTooltipLines returns nil for non-collapsed entries", function()
     assert.is_nil(Nav.GetCollapsedGuildRecipeTooltipLines(nil))
     assert.is_nil(Nav.GetCollapsedGuildRecipeTooltipLines({

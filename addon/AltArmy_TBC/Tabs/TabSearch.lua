@@ -885,17 +885,10 @@ local function createRecipeRow()
                 hoverOpts.forceLocal = true
             end
             local RYB = AltArmy and AltArmy.RecipeYieldBonus
-            local specLabel = entry._aaCharSpecLabel
-            if (not specLabel or specLabel == "") and not entry.isGuild
-                and RYB and RYB.LookupCharSpecLabel then
-                specLabel = RYB.LookupCharSpecLabel(entry)
-            end
-            if specLabel and specLabel ~= "" then
-                local showSpec = not entry.isGuild
-                    or (RYB and RYB.IsFeatureEnabled and RYB.IsFeatureEnabled())
-                if showSpec then
-                    hoverOpts.specializationLabel = specLabel
-                end
+            local specLabel = RYB and RYB.GetMatchingSpecLabel
+                and RYB.GetMatchingSpecLabel(entry)
+            if specLabel then
+                hoverOpts.specializationLabel = specLabel
             end
             if (not entry.isGuild)
                 or (entry.isGuild and Nav and Nav.IsGuildRecipeCharacterClickable
@@ -1100,8 +1093,7 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
     restoreRecipeCharacterBtnAnchors(row)
     local namePart = buildCharacterNamePart(entry, showRealmSuffix)
     local RYB = AltArmy and AltArmy.RecipeYieldBonus
-    if RYB and RYB.IsFeatureEnabled and RYB.IsFeatureEnabled()
-        and entry._aaYieldBonusMatch
+    if RYB and RYB.GetMatchingSpecLabel and RYB.GetMatchingSpecLabel(entry)
         and RYB.FormatSpecialistPrefixMarkup then
         namePart = RYB.FormatSpecialistPrefixMarkup() .. namePart
     end
