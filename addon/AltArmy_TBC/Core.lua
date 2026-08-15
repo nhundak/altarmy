@@ -96,10 +96,10 @@ headerSearchEdit:SetPoint("RIGHT", closeBtn, "LEFT", 2, 0)
 headerSearchEdit:SetSize(288, 20)
 headerSearchEdit:SetAutoFocus(false)
 headerSearchEdit:SetFontObject("GameFontHighlight")
-if headerSearchEdit.SetTextInsets then
-    headerSearchEdit:SetTextInsets(6, 6, 0, 0)
-end
-Theme.SetupEditBoxPlaceholder(headerSearchEdit, "Search for items or recipes")
+local headerSearchLeftInset = Theme.ApplySearchInputIcon(headerSearchEdit)
+Theme.SetupEditBoxPlaceholder(headerSearchEdit, "Search for items or recipes", {
+    leftInset = headerSearchLeftInset,
+})
 
 -- Clear (X) button at start of input; only visible when there is text
 local headerSearchClearBtn = CreateFrame("Button", nil, headerPanel)

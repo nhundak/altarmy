@@ -729,10 +729,11 @@ local searchEdit = CreateFrame("EditBox", "AltArmyTBC_GuildSearchEdit", header)
 anchorGuildHeaderSearch(searchEdit)
 searchEdit:SetAutoFocus(false)
 searchEdit:SetFontObject("GameFontHighlight")
-if searchEdit.SetTextInsets then
-    searchEdit:SetTextInsets(6, 6, 0, 0)
-end
 Theme.ApplyInputTextures(searchEdit)
+local searchLeftInset = Theme.ApplySearchInputIcon(searchEdit)
+Theme.SetupEditBoxPlaceholder(searchEdit, UI.SEARCH_PLACEHOLDER, {
+    leftInset = searchLeftInset,
+})
 
 local searchClearBtn = CreateFrame("Button", nil, header)
 searchClearBtn:SetPoint("RIGHT", searchEdit, "LEFT", -2, 0)
@@ -745,8 +746,6 @@ searchClearBtn:SetHighlightFontObject("GameFontNormal")
 searchClearBtn:SetScript("OnClick", function()
     Theme.ClearEditBoxText(searchEdit)
 end)
-
-Theme.SetupEditBoxPlaceholder(searchEdit, UI.SEARCH_PLACEHOLDER)
 
 local function updateSearchClearVisibility()
     local text = searchEdit:GetText()
@@ -763,10 +762,8 @@ local recipeSearchEdit = CreateFrame("EditBox", "AltArmyTBC_GuildRecipeSearchEdi
 anchorGuildHeaderSearch(recipeSearchEdit)
 recipeSearchEdit:SetAutoFocus(false)
 recipeSearchEdit:SetFontObject("GameFontHighlight")
-if recipeSearchEdit.SetTextInsets then
-    recipeSearchEdit:SetTextInsets(6, 6, 0, 0)
-end
 Theme.ApplyInputTextures(recipeSearchEdit)
+local recipeSearchLeftInset = Theme.ApplySearchInputIcon(recipeSearchEdit)
 recipeSearchEdit:Hide()
 
 local recipeSearchClearBtn = CreateFrame("Button", nil, header)
@@ -781,7 +778,9 @@ recipeSearchClearBtn:SetScript("OnClick", function()
     Theme.ClearEditBoxText(recipeSearchEdit)
 end)
 
-Theme.SetupEditBoxPlaceholder(recipeSearchEdit, "Search for recipes on this character")
+Theme.SetupEditBoxPlaceholder(recipeSearchEdit, "Search for recipes on this character", {
+    leftInset = recipeSearchLeftInset,
+})
 
 local function updateRecipeSearchPlaceholder(entry)
     Theme.SetEditBoxPlaceholderText(recipeSearchEdit, GTD.FormatRecipeSearchPlaceholder(entry and entry.name))

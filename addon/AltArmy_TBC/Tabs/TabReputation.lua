@@ -299,13 +299,19 @@ factionFilterEdit:SetPoint("TOPLEFT", headerCornerFrame, "TOPLEFT", 2, FACTION_F
 factionFilterEdit:SetPoint("TOPRIGHT", headerCornerFrame, "TOPRIGHT", -2, FACTION_FILTER_EDIT_TOP_Y)
 factionFilterEdit:SetAutoFocus(false)
 factionFilterEdit:SetFontObject("GameFontHighlight")
-if factionFilterEdit.SetTextInsets then
-    factionFilterEdit:SetTextInsets(4, 4, 0, 0)
-end
 Theme.ApplyInputTextures(factionFilterEdit)
+local factionFilterLeftInset = Theme.ApplySearchInputIcon(factionFilterEdit, {
+    size = 10,
+    leftPad = 2,
+    gap = 2,
+    rightInset = 4,
+})
 
 local FACTION_FILTER_PLACEHOLDER = "Filter faction"
-Theme.SetupEditBoxPlaceholder(factionFilterEdit, FACTION_FILTER_PLACEHOLDER, { leftInset = 4, rightInset = 4 })
+Theme.SetupEditBoxPlaceholder(factionFilterEdit, FACTION_FILTER_PLACEHOLDER, {
+    leftInset = factionFilterLeftInset,
+    rightInset = 4,
+})
 
 Theme.BindEditBoxPlaceholderHandlers(factionFilterEdit, function()
     if frame.RefreshGrid then

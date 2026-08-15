@@ -32,6 +32,9 @@ describe("AltArmy.Theme", function()
             self._points = self._points or {}
             table.insert(self._points, { ... })
         end
+        function t:ClearAllPoints()
+            self._points = {}
+        end
         function t:SetHeight() end
         function t:SetWidth(w) self._width = w end
         function t:SetSize(w, h) self._width = w self._height = h end
@@ -162,7 +165,9 @@ describe("AltArmy.Theme", function()
         function f:SetParent() end
         function f:OnBackdropSizeChanged() end
         function f:SetAutoFocus() end
-        function f:SetTextInsets() end
+        function f:SetTextInsets(left, right, top, bottom)
+            self._textInsets = { left, right, top, bottom }
+        end
         function f:SetFontObject() end
         function f:HighlightText() end
         function f:SetFocus() end
@@ -1091,6 +1096,54 @@ describe("AltArmy.Theme", function()
             local box = makeStubEditBox()
             Theme.SetEditBoxText(box, "Frell")
             assert.are.equal("Frell", box:GetText())
+        end)
+    end)
+
+    describe("ApplySearchInputIcon", function()
+        it("places a muted search icon on the left and indents typed text", function()
+            local box = makeStubFrame()
+            local leftInset = Theme.ApplySearchInputIcon(box)
+            local icon = box.altArmySearchIcon
+            assert.is_not_nil(icon)
+            assert.are.equal("OVERLAY", icon._layer)
+            assert.are.equal(Theme.SEARCH_INPUT_ICON, icon._texture)
+            assert.are.equal(12, icon._width)
+            assert.are.equal(12, icon._height)
+            assert.are.same({ "LEFT", box, "LEFT", 3, -1 }, icon._points[1])
+            assert.are.same({ 0.55, 0.55, 0.55, 0.9 }, icon._vertex)
+            assert.are.equal(18, leftInset)
+            assert.are.same({ 18, 6, 0, 0 }, box._textInsets)
+        end)
+
+        it("honors a smaller icon for compact filter fields", function()
+            local box = makeStubFrame()
+            local leftInset = Theme.ApplySearchInputIcon(box, {
+                size = 10,
+                leftPad = 2,
+                gap = 2,
+                rightInset = 4,
+            })
+            local icon = box.altArmySearchIcon
+            assert.are.equal(10, icon._width)
+            assert.are.equal(10, icon._height)
+            assert.are.same({ "LEFT", box, "LEFT", 2, -1 }, icon._points[1])
+            assert.are.equal(14, leftInset)
+            assert.are.same({ 14, 4, 0, 0 }, box._textInsets)
+        end)
+
+        it("reuses the existing icon texture instead of creating another", function()
+            local box = makeStubFrame()
+            Theme.ApplySearchInputIcon(box)
+            local first = box.altArmySearchIcon
+            local textureCount = #box._textures
+            Theme.ApplySearchInputIcon(box, { size = 10 })
+            assert.are.equal(first, box.altArmySearchIcon)
+            assert.are.equal(textureCount, #box._textures)
+            assert.are.equal(10, first._width)
+        end)
+
+        it("does nothing when the edit box is missing", function()
+            assert.are.equal(0, Theme.ApplySearchInputIcon(nil))
         end)
     end)
 

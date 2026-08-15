@@ -758,6 +758,36 @@ function Theme.ApplyInputTextures(editBox)
     editBox.altArmyInputBorder:SetColorTexture(ibr[1], ibr[2], ibr[3], ibr[4])
 end
 
+Theme.SEARCH_INPUT_ICON = "Interface\\Common\\UI-Searchbox-Icon"
+
+--- Small muted magnifying-glass on the left of a search/filter EditBox.
+--- Returns the left text inset so typed text and placeholders clear the icon.
+function Theme.ApplySearchInputIcon(editBox, options)
+    if not editBox then return 0 end
+    options = options or {}
+    local size = options.size or 12
+    local leftPad = options.leftPad or 3
+    local gap = options.gap or 3
+    local rightInset = options.rightInset or 6
+    local icon = editBox.altArmySearchIcon
+    if not icon then
+        icon = editBox:CreateTexture(nil, "OVERLAY")
+        editBox.altArmySearchIcon = icon
+    end
+    icon:SetSize(size, size)
+    if icon.ClearAllPoints then
+        icon:ClearAllPoints()
+    end
+    icon:SetPoint("LEFT", editBox, "LEFT", leftPad, -1)
+    icon:SetTexture(Theme.SEARCH_INPUT_ICON)
+    icon:SetVertexColor(0.55, 0.55, 0.55, 0.9)
+    local leftInset = leftPad + size + gap
+    if editBox.SetTextInsets then
+        editBox:SetTextInsets(leftInset, rightInset, 0, 0)
+    end
+    return leftInset
+end
+
 local PLACEHOLDER_HINT_KEY = "altArmyPlaceholderHint"
 
 local function trimmedEditBoxText(editBox)
