@@ -1089,8 +1089,67 @@ guildDisplayEdit:SetScript("OnEditFocusLost", function(box)
     applyGuildDisplayNameFromEdit(box, true)
 end)
 
-local guildChatHeader = Theme.CreateOptionsSectionLabel(guildSharingTail, {
+local guildDataRetentionHeader = Theme.CreateOptionsSectionLabel(guildSharingTail, {
     relativeTo = guildIdentityRow,
+    relativePoint = "BOTTOMLEFT",
+    x = 0,
+    y = -GUILD_SHARING_ROW_GAP,
+    text = "Data retention",
+    justifyH = "LEFT",
+})
+
+local guildDataRetentionRow = CreateFrame("Frame", nil, guildSharingTail)
+guildDataRetentionRow:SetPoint("TOPLEFT", guildDataRetentionHeader, "BOTTOMLEFT", 0, -8)
+guildDataRetentionRow:SetPoint("RIGHT", guildSharingTail, "RIGHT", 0, 0)
+guildDataRetentionRow:SetHeight(GUILD_CHAT_CHECK_ROW_HEIGHT + 4)
+
+local guildDataRetentionLeft = CreateFrame("Frame", nil, guildDataRetentionRow)
+anchorGuildSharingLeftHalf(guildDataRetentionLeft, guildDataRetentionRow)
+
+local guildAutoDeleteRow = Theme.CreateLabeledCheckbox(guildDataRetentionLeft, {
+    point = "TOPLEFT",
+    relativeTo = guildDataRetentionLeft,
+    relativePoint = "TOPLEFT",
+    x = 0,
+    y = 0,
+    text = "Auto-delete old data",
+    fullWidthHover = true,
+    onClick = function(checked)
+        local GSS = AltArmy.GuildShareSettings
+        if GSS and GSS.SetAutoDeleteOldDataEnabled then
+            GSS.SetAutoDeleteOldDataEnabled(checked)
+        end
+        if checked then
+            local Comm = AltArmy.GuildShareComm
+            if Comm and Comm.PurgeStaleReceived then
+                Comm.PurgeStaleReceived()
+            end
+        end
+        if AltArmy.RefreshGuildTab then AltArmy.RefreshGuildTab() end
+    end,
+})
+panel.guildAutoDeleteCheckbox = guildAutoDeleteRow.check
+do
+    local GSS = AltArmy.GuildShareSettings
+    if Theme.AttachSettingsHelpIcon then
+        Theme.AttachSettingsHelpIcon(guildAutoDeleteRow, {
+            title = "Auto-delete old data",
+            lines = {
+                (GSS and GSS.AUTO_DELETE_OLD_DATA_TOOLTIP)
+                    or "Data shared by others will be automatically deleted if it's more than 6 months old.",
+            },
+        })
+    end
+end
+attachSharingRequiredTooltip(guildAutoDeleteRow.hoverRegion, function()
+    return guildAutoDeleteRow._sharingRequiredTooltip == true
+end)
+attachSharingRequiredTooltip(guildAutoDeleteRow.check, function()
+    return guildAutoDeleteRow._sharingRequiredTooltip == true
+end)
+
+local guildChatHeader = Theme.CreateOptionsSectionLabel(guildSharingTail, {
+    relativeTo = guildDataRetentionRow,
     relativePoint = "BOTTOMLEFT",
     x = 0,
     y = -GUILD_SHARING_ROW_GAP,
@@ -1241,6 +1300,7 @@ function refreshGuildSharingDependentControls()
     local sharingOn = GSS and GSS.IsSharingEnabled and GSS.IsSharingEnabled() == true
     local chatOn = GSS and GSS.IsChatInsertionEnabled and GSS.IsChatInsertionEnabled() == true
     -- Dependent controls only usable while sharing is on.
+    setGuildSharingCheckboxEnabled(guildAutoDeleteRow, sharingOn)
     setGuildSharingCheckboxEnabled(guildChatInsertRow, sharingOn)
     -- Class-color checkbox needs both sharing and chat insertion.
     setGuildSharingCheckboxEnabled(guildChatClassColorRow, sharingOn and chatOn)
@@ -1290,6 +1350,10 @@ local function RefreshGuildSharingControls()
         local GSS = AltArmy.GuildShareSettings
         if GSS then
             guildShareEnableRow.check:SetChecked(GSS.IsSharingEnabled())
+            if guildAutoDeleteRow and guildAutoDeleteRow.check
+                and GSS.IsAutoDeleteOldDataEnabled then
+                guildAutoDeleteRow.check:SetChecked(GSS.IsAutoDeleteOldDataEnabled())
+            end
             guildChatInsertRow.check:SetChecked(GSS.IsChatInsertionEnabled())
             if guildChatClassColorRow and guildChatClassColorRow.check
                 and GSS.IsChatInsertionClassColorEnabled then
@@ -1778,6 +1842,8 @@ local function applyOptionsFocus(focus)
         Theme.FlashAttentionHighlight(bankAltRow)
     elseif focus.flash == "guildShare" and Theme.FlashAttentionHighlight and guildShareEnableFocusRegion then
         Theme.FlashAttentionHighlight(guildShareEnableFocusRegion)
+    elseif focus.flash == "autoDelete" and Theme.FlashAttentionHighlight and guildAutoDeleteRow then
+        Theme.FlashAttentionHighlight(guildAutoDeleteRow)
     end
 end
 
@@ -2113,7 +2179,7 @@ end
 AltArmy.OptionsPanel = panel
 
 --- @param initialTab string|nil "general" (default), "characters", "cooldowns", or "debug"
---- @param opts table|nil { name, realm, flash = "main"|"bankAlt"|"guildShare" }
+--- @param opts table|nil { name, realm, flash = "main"|"bankAlt"|"guildShare"|"autoDelete" }
 function AltArmy.OpenInterfaceOptions(initialTab, opts)
     opts = opts or {}
     local tab = initialTab or "general"

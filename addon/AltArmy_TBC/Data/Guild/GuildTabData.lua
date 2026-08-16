@@ -611,9 +611,52 @@ function GTD.GroupHasOldData(group, nowTs, maxAgeSec)
     return false
 end
 
+--- Oldest receivedAt among non-local members, or nil.
+function GTD.GetGroupOldestReceivedAt(group)
+    if not group then return nil end
+    local oldest
+    for _, m in ipairs(group.members or {}) do
+        if m and m.source ~= "local" and type(m.receivedAt) == "number" then
+            if not oldest or m.receivedAt < oldest then
+                oldest = m.receivedAt
+            end
+        end
+    end
+    return oldest
+end
+
+--- Whole days since receivedAt (floored). Nil when receivedAt is missing.
+function GTD.GetDataAgeDays(receivedAt, nowTs)
+    if type(receivedAt) ~= "number" then return nil end
+    nowTs = nowTs or ((time and time()) or 0)
+    return math.max(0, math.floor((nowTs - receivedAt) / (60 * 60 * 24)))
+end
+
+--- Whole days remaining until auto-delete (ceiled). 0 when already due.
+function GTD.GetDaysUntilAutoDelete(receivedAt, nowTs, maxAgeSec)
+    if type(receivedAt) ~= "number" then return nil end
+    nowTs = nowTs or ((time and time()) or 0)
+    if not maxAgeSec then
+        local GSS = AltArmy.GuildShareSettings
+        maxAgeSec = (GSS and GSS.AUTO_DELETE_MAX_AGE_SEC) or (60 * 60 * 24 * 180)
+    end
+    local remaining = (receivedAt + maxAgeSec) - nowTs
+    if remaining <= 0 then return 0 end
+    return math.ceil(remaining / (60 * 60 * 24))
+end
+
 --- Tooltip body for the Guild tab old-data warning icon.
-function GTD.GetOldDataTooltipText()
-    return "This data is more than 30 days old. The guildmate has not shared an update recently."
+function GTD.GetOldDataTooltipText(ageDays)
+    return string.format(
+        "This data is %d days old. The guildmate has not shared an update with you recently.",
+        tonumber(ageDays) or 0)
+end
+
+--- Gray follow-up line when auto-delete is enabled.
+function GTD.GetOldDataAutoDeleteTooltipText(daysUntilDelete)
+    return string.format(
+        "This data will be deleted in %d days, unless new data is received by then.",
+        tonumber(daysUntilDelete) or 0)
 end
 
 --- True when this member comes from a local manual grouping (not addon-shared).

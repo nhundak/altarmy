@@ -3480,9 +3480,10 @@ local function acquireMainRow(index)
         end)
 
         -- Far-left stale warning; only participates in layout when shown (see layoutMainRowLeftIcons).
-        local oldDataIcon = CreateFrame("Frame", nil, row)
+        local oldDataIcon = CreateFrame("Button", nil, row)
         oldDataIcon:SetSize(UI.OLD_DATA_ICON_WIDTH, UI.MAIN_ROW_HEIGHT)
         oldDataIcon:EnableMouse(false)
+        oldDataIcon:RegisterForClicks("LeftButtonUp")
         oldDataIcon:Hide()
         local mark = oldDataIcon:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         mark:SetText("!")
@@ -3495,7 +3496,18 @@ local function acquireMainRow(index)
             GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
             GameTooltip:ClearLines()
             GameTooltip:AddLine("Shared data is outdated", 1, 1, 1)
-            GameTooltip:AddLine(GTD.GetOldDataTooltipText(), 1, 0.82, 0, true)
+            local receivedAt = GTD.GetGroupOldestReceivedAt and GTD.GetGroupOldestReceivedAt(row.settingsGroup)
+            local ageDays = GTD.GetDataAgeDays and GTD.GetDataAgeDays(receivedAt)
+            GameTooltip:AddLine(GTD.GetOldDataTooltipText(ageDays), 1, 0.82, 0, true)
+            local GSS = AltArmy.GuildShareSettings
+            if GSS and GSS.IsAutoDeleteOldDataEnabled and GSS.IsAutoDeleteOldDataEnabled() then
+                local daysLeft = GTD.GetDaysUntilAutoDelete and GTD.GetDaysUntilAutoDelete(receivedAt)
+                if daysLeft ~= nil and GTD.GetOldDataAutoDeleteTooltipText then
+                    GameTooltip:AddLine(
+                        GTD.GetOldDataAutoDeleteTooltipText(daysLeft), 0.5, 0.5, 0.5, true)
+                    GameTooltip:AddLine("Click to configure", 0.5, 0.5, 0.5, true)
+                end
+            end
             GameTooltip:Show()
         end)
         oldDataIcon:SetScript("OnLeave", function()
@@ -3507,6 +3519,12 @@ local function acquireMainRow(index)
             end
             setMainRowHover(false)
             if GameTooltip then GameTooltip:Hide() end
+        end)
+        oldDataIcon:SetScript("OnClick", function()
+            if GameTooltip then GameTooltip:Hide() end
+            if AltArmy.OpenInterfaceOptions then
+                AltArmy.OpenInterfaceOptions("general", { flash = "autoDelete" })
+            end
         end)
         row.oldDataIcon = oldDataIcon
 

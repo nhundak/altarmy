@@ -315,10 +315,47 @@ describe("GuildTabData", function()
       assert.is_false(GTD.GroupHasOldData(localOnly[1], NOW))
     end)
 
-    it("GetOldDataTooltipText explains that shared data is outdated", function()
-      local text = GTD.GetOldDataTooltipText()
-      assert.is_true(type(text) == "string" and #text > 0)
-      assert.truthy(text:find("30", 1, true))
+    it("GetOldDataTooltipText includes the data age in days", function()
+      local text = GTD.GetOldDataTooltipText(42)
+      assert.are.equal(
+        "This data is 42 days old. The guildmate has not shared an update with you recently.",
+        text)
+    end)
+
+    it("GetGroupOldestReceivedAt uses the oldest non-local receivedAt", function()
+      local groups = GTD.GroupMembersByMain({
+        member({
+          name = "Main", main = "Main", isMain = true, source = "Main",
+          receivedAt = NOW - (40 * DAY),
+        }),
+        member({
+          name = "Alt", main = "Main", source = "Main",
+          receivedAt = NOW - (90 * DAY),
+        }),
+        member({
+          name = "Me", main = "Main", source = "local",
+          receivedAt = NOW - (200 * DAY),
+        }),
+      })
+      assert.are.equal(NOW - (90 * DAY), GTD.GetGroupOldestReceivedAt(groups[1]))
+    end)
+
+    it("GetDataAgeDays floors elapsed whole days", function()
+      assert.are.equal(40, GTD.GetDataAgeDays(NOW - (40 * DAY), NOW))
+      assert.are.equal(40, GTD.GetDataAgeDays(NOW - (40 * DAY) - 3600, NOW))
+    end)
+
+    it("GetDaysUntilAutoDelete ceils remaining days until the prune age", function()
+      local maxAge = 180 * DAY
+      assert.are.equal(140, GTD.GetDaysUntilAutoDelete(NOW - (40 * DAY), NOW, maxAge))
+      assert.are.equal(1, GTD.GetDaysUntilAutoDelete(NOW - maxAge + 1, NOW, maxAge))
+      assert.are.equal(0, GTD.GetDaysUntilAutoDelete(NOW - maxAge, NOW, maxAge))
+    end)
+
+    it("GetOldDataAutoDeleteTooltipText includes remaining days", function()
+      assert.are.equal(
+        "This data will be deleted in 140 days, unless new data is received by then.",
+        GTD.GetOldDataAutoDeleteTooltipText(140))
     end)
   end)
 

@@ -16,6 +16,7 @@ local function ensure()
     local s = _G.AltArmyTBC_SharingSettings
     if s.enabled == nil then s.enabled = false end
     if s.chatInsertion == nil then s.chatInsertion = true end
+    if s.autoDeleteOldData == nil then s.autoDeleteOldData = true end
     -- chatInsertionClassColor stays nil until first read; defaulted from Blizzard then.
     s.mains = s.mains or {}
     s.displayNames = s.displayNames or {}
@@ -94,6 +95,21 @@ end
 
 function GSS.SetSharingEnabled(on)
     ensure().enabled = on == true
+end
+
+-- *** Auto-delete stale received guild data ***
+
+--- Received (non-local) share data older than this is pruned when auto-delete is on.
+GSS.AUTO_DELETE_MAX_AGE_SEC = 60 * 60 * 24 * 180
+GSS.AUTO_DELETE_OLD_DATA_TOOLTIP =
+    "Data shared by others will be automatically deleted if it's more than 6 months old."
+
+function GSS.IsAutoDeleteOldDataEnabled()
+    return ensure().autoDeleteOldData == true
+end
+
+function GSS.SetAutoDeleteOldDataEnabled(on)
+    ensure().autoDeleteOldData = on == true
 end
 
 -- *** Chat insertion (Phase 6) ***

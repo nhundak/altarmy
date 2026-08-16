@@ -801,5 +801,45 @@ describe("GuildShareData", function()
       assert.truthy(GMG.GetMapping("Alt", "R"))
       assert.are.equal(0, #GSD.GetGuildMembers("G"))
     end)
+
+    it("PurgeStale converts stale received characters into a manual group", function()
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("Main", {
+        charEntry("Main"), charEntry("Alt"),
+      })), "G", "R")
+      local removed = GSD.PurgeStale(100, NOW + 1000)
+      assert.are.equal(2, removed)
+      assert.are.equal(0, #GSD.GetGuildMembers("G"))
+
+      local mainMap = GMG.GetMapping("Main", "R")
+      local altMap = GMG.GetMapping("Alt", "R")
+      assert.truthy(mainMap)
+      assert.truthy(altMap)
+      assert.are.equal("Main", mainMap.main)
+      assert.are.equal("Main", altMap.main)
+      assert.are.equal("G", altMap.guild)
+      assert.are.equal("MAGE", altMap.classFile)
+      assert.are.equal(70, altMap.level)
+
+      AltArmy.GuildShareSettings = nil
+      local members = GSD.GetGuildMembersForDisplay("G", "R")
+      local byName = {}
+      for _, m in ipairs(members) do byName[m.name] = m end
+      assert.are.equal("manual", byName.Main.source)
+      assert.are.equal("manual", byName.Alt.source)
+      assert.are.equal("Main", byName.Alt.main)
+      assert.are.same({}, byName.Main.Professions)
+      assert.are.same({}, byName.Alt.Professions)
+    end)
+
+    it("PurgeStale does not overwrite an existing manual mapping", function()
+      GMG.SetMapping("Alt", "R", "ManualMain", { guild = "G", origin = "user" })
+      GSD.SaveReceived("Peer", P.ParsePresence(presence("AddonMain", {
+        charEntry("AddonMain"), charEntry("Alt"),
+      })), "G", "R")
+      GSD.PurgeStale(100, NOW + 1000)
+      local altMap = GMG.GetMapping("Alt", "R")
+      assert.truthy(altMap)
+      assert.are.equal("ManualMain", altMap.main)
+    end)
   end)
 end)

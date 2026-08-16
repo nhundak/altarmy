@@ -641,21 +641,45 @@ function GSD.PurgeGuild(guild)
 end
 
 --- Remove entries older than maxAgeSeconds. Returns the number removed.
---- Does not touch AltArmyTBC_GuildData.manual.
+--- Stale received characters are converted to local manual mappings (grouping only;
+--- recipes and other share payloads are discarded) unless a mapping already exists.
 function GSD.PurgeStale(maxAgeSeconds, nowTs)
     nowTs = nowTs or now()
     local removed = 0
     local d = ensure()
-    for _, rt in pairs(d.chars) do
+    for realm, rt in pairs(d.chars) do
         for name, entry in pairs(rt) do
             local ts = entry.receivedAt or 0
             if (nowTs - ts) > maxAgeSeconds then
+                GSD.ConvertReceivedToManual(name, realm, entry)
                 rt[name] = nil
                 removed = removed + 1
             end
         end
     end
     return removed
+end
+
+--- Write a manual name→main mapping from a received character about to be purged.
+--- Does not overwrite an existing mapping (including user/note groupings).
+--- @return boolean true when a mapping was written
+function GSD.ConvertReceivedToManual(name, realm, entry)
+    local GMG = AltArmy.GuildManualGroups
+    if not (GMG and GMG.SetMapping and GMG.GetMapping) then return false end
+    if type(name) ~= "string" or name == "" then return false end
+    if GMG.GetMapping(name, realm) then return false end
+    entry = entry or {}
+    local main = entry.main
+    if type(main) ~= "string" or main == "" then
+        main = name
+    end
+    GMG.SetMapping(name, realm, main, {
+        guild = entry.guildName,
+        origin = "user",
+        classFile = entry.classFile,
+        level = entry.level,
+    })
+    return true
 end
 
 function GSD.PurgeAll()

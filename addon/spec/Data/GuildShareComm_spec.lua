@@ -26,8 +26,36 @@ describe("GuildShareComm helpers", function()
   end)
 
   describe("STALE_MAX_AGE", function()
-    it("purges received guild data after 90 days", function()
-      assert.are.equal(60 * 60 * 24 * 90, Comm.STALE_MAX_AGE)
+    it("purges received guild data after 180 days", function()
+      assert.are.equal(60 * 60 * 24 * 180, Comm.STALE_MAX_AGE)
+    end)
+  end)
+
+  describe("PurgeStaleReceived", function()
+    it("purges when auto-delete is enabled", function()
+      local purgedAge
+      AltArmy.GuildShareSettings.IsAutoDeleteOldDataEnabled = function() return true end
+      AltArmy.GuildShareSettings.AUTO_DELETE_MAX_AGE_SEC = 60 * 60 * 24 * 180
+      AltArmy.GuildShareData = {
+        PurgeStale = function(age)
+          purgedAge = age
+          return 1
+        end,
+      }
+      Comm.PurgeStaleReceived()
+      assert.are.equal(60 * 60 * 24 * 180, purgedAge)
+    end)
+
+    it("does not purge when auto-delete is disabled", function()
+      local called = false
+      AltArmy.GuildShareSettings.IsAutoDeleteOldDataEnabled = function() return false end
+      AltArmy.GuildShareData = {
+        PurgeStale = function()
+          called = true
+        end,
+      }
+      Comm.PurgeStaleReceived()
+      assert.is_false(called)
     end)
   end)
 

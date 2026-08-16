@@ -124,8 +124,8 @@ local BROADCAST_THROTTLE = 10          -- seconds between guild broadcasts
 Comm.SETTINGS_BROADCAST_DEBOUNCE_SEC = 5
 -- Longer than typical craft cast times so skill-ups during a crafting session coalesce.
 Comm.PROFESSION_BROADCAST_DEBOUNCE_SEC = 30
--- Prune received data older than 90 days (30+ day data stays but is flagged in the Guild tab).
-Comm.STALE_MAX_AGE = 60 * 60 * 24 * 90
+-- Prune received data older than 180 days (30+ day data stays but is flagged in the Guild tab).
+Comm.STALE_MAX_AGE = 60 * 60 * 24 * 180
 local STALE_MAX_AGE = Comm.STALE_MAX_AGE
 
 local commObj            -- table embedded with AceComm-3.0 + AceSerializer-3.0
@@ -688,10 +688,19 @@ function Comm.Init()
     commObj:RegisterComm(PREFIX, onCommReceived)
     initialized = true
     -- Prune very old received data (harmless when the flag is off / no data present).
-    local GSD = AltArmy.GuildShareData
-    if GSD and GSD.PurgeStale then
-        pcall(function() GSD.PurgeStale(STALE_MAX_AGE) end)
+    Comm.PurgeStaleReceived()
+end
+
+--- Remove received guild share entries older than STALE_MAX_AGE when auto-delete is on.
+function Comm.PurgeStaleReceived()
+    local GSS = AltArmy.GuildShareSettings
+    if GSS and GSS.IsAutoDeleteOldDataEnabled and not GSS.IsAutoDeleteOldDataEnabled() then
+        return
     end
+    local GSD = AltArmy.GuildShareData
+    if not (GSD and GSD.PurgeStale) then return end
+    local maxAge = (GSS and GSS.AUTO_DELETE_MAX_AGE_SEC) or STALE_MAX_AGE
+    pcall(function() GSD.PurgeStale(maxAge) end)
 end
 
 -- *** Events ***
