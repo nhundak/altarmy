@@ -178,6 +178,28 @@ function AltArmy.SwitchToSummaryTab()
     end
 end
 
+--- Open the main UI on a named tab (e.g. "Cooldowns", "Gear"). Clears header search.
+--- If the frame is already shown, switches immediately; otherwise sets pendingOpenTab and Shows.
+function AltArmy.ShowMainTab(tabName)
+    if not tabName or tabName == "" then
+        tabName = "Summary"
+    end
+    if not AltArmy.MainFrame or not AltArmy.MainFrame.Show then
+        return
+    end
+    lastTab = tabName
+    if AltArmy.MainFrame.IsShown and AltArmy.MainFrame:IsShown() then
+        if headerSearchEdit and headerSearchEdit.SetText then
+            headerSearchEdit:SetText("")
+        end
+        exitSearchMode()
+        setActiveTab(tabName)
+        return
+    end
+    pendingOpenTab = tabName
+    AltArmy.MainFrame:Show()
+end
+
 -- Tab button strip (below header; leave clear space so tabs don't overlap header)
 local tabStrip = CreateFrame("Frame", nil, main)
 tabStrip:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -HEADER_TOTAL_OFFSET)
@@ -677,8 +699,10 @@ main:SetScript("OnShow", function()
         headerSearchEdit:SetText("")
     end
     exitSearchMode()
-    if openTab == "Gear" then
-        setActiveTab("Gear")
+    if AltArmy.TabFrames and AltArmy.TabFrames[openTab] then
+        setActiveTab(openTab)
+    else
+        setActiveTab("Summary")
     end
     if openTab == "Gear" and pendingGearFocusLink then
         local gearFrame = AltArmy.TabFrames and AltArmy.TabFrames.Gear

@@ -609,4 +609,60 @@ describe("CooldownData", function()
         assert.are.equal(1, #ids)
         assert.are.equal(29688, ids[1])
     end)
+
+    describe("EvaluateSendAllRow", function()
+        local function eval(opts)
+            return CD.EvaluateSendAllRow(
+                opts.curName or "Me",
+                opts.curRealm or "RealmA",
+                opts.rowName or "Alt",
+                opts.rowRealm or "RealmA",
+                opts.n or 2,
+                opts.minCrafts,
+                opts.maxAfterTransfer
+            )
+        end
+
+        it("skips current character", function()
+            local r = eval({ rowName = "Me", minCrafts = 0, maxAfterTransfer = 5 })
+            assert.are.equal("skip", r.action)
+            assert.are.equal("self", r.reason)
+        end)
+
+        it("skips other realm", function()
+            local r = eval({ rowRealm = "Other", minCrafts = 0, maxAfterTransfer = 5 })
+            assert.are.equal("skip", r.action)
+            assert.are.equal("realm", r.reason)
+        end)
+
+        it("skips when target already has N crafts", function()
+            local r = eval({ n = 2, minCrafts = 2, maxAfterTransfer = 5 })
+            assert.are.equal("skip", r.action)
+            assert.are.equal("enough", r.reason)
+        end)
+
+        it("skips when target has more than N crafts", function()
+            local r = eval({ n = 2, minCrafts = 3, maxAfterTransfer = 5 })
+            assert.are.equal("skip", r.action)
+            assert.are.equal("enough", r.reason)
+        end)
+
+        it("sends delta when min is below N and max allows N", function()
+            local r = eval({ n = 2, minCrafts = 1, maxAfterTransfer = 5 })
+            assert.are.equal("send", r.action)
+            assert.are.equal(2, r.requestedCrafts)
+        end)
+
+        it("skips when reagents unknown", function()
+            local r = eval({ n = 2, minCrafts = nil, maxAfterTransfer = nil })
+            assert.are.equal("skip", r.action)
+            assert.are.equal("unknown", r.reason)
+        end)
+
+        it("skips when cannot reach N after transfer", function()
+            local r = eval({ n = 2, minCrafts = 0, maxAfterTransfer = 1 })
+            assert.are.equal("skip", r.action)
+            assert.are.equal("insufficient", r.reason)
+        end)
+    end)
 end)

@@ -1091,6 +1091,16 @@ local stockpileAttachSeq = {
     successTargetClassFile = nil,
 }
 
+--- /alta sendall N queue (one table to avoid Lua 5.1 local limit).
+local sendAllSeq = {
+    active = false,
+    targetN = 0,
+    rows = nil,
+    index = 1,
+    waitingForMail = false,
+    ADVANCE_DELAY = 1,
+}
+
 --- Outgoing mail announce (shown on MAIL_SEND_SUCCESS).
 local stockpileMailPendingAnnounce = nil -- { displayName = string, classFile = string|nil }
 
@@ -1121,11 +1131,58 @@ local function ResetAttachSeqState()
     stockpileAttachSeq.successTargetClassFile = nil
 end
 
-local function AbortAttachSeq(msg)
+sendAllSeq.Finish = function(msg)
+    sendAllSeq.active = false
+    sendAllSeq.targetN = 0
+    sendAllSeq.rows = nil
+    sendAllSeq.index = 1
+    sendAllSeq.waitingForMail = false
+    if msg then
+        ChatInfo(msg)
+    end
+end
+
+sendAllSeq.ScheduleAdvance = function(delay)
+    local function go()
+        if not sendAllSeq.active then
+            return
+        end
+        sendAllSeq.waitingForMail = false
+        sendAllSeq.Advance()
+    end
+    local d = delay
+    if d == nil then
+        d = sendAllSeq.ADVANCE_DELAY
+    end
+    local ctimer = _G.C_Timer
+    if ctimer and ctimer.After and d > 0 then
+        ctimer.After(d, go)
+    else
+        go()
+    end
+end
+
+--- opts.abortSendAll: mailbox closed — stop the whole send-all run.
+--- opts.skipSendAllContinue: clear attach without continuing send-all (e.g. superseding a prior attach).
+--- Otherwise, if send-all was waiting on this attach, continue to the next row.
+local function AbortAttachSeq(msg, opts)
     ResetAttachSeqState()
     ClearCursor()
     if msg then
         ChatInfo(msg)
+    end
+    opts = opts or {}
+    if opts.abortSendAll then
+        if sendAllSeq.active then
+            sendAllSeq.Finish("Send-all aborted (mailbox closed).")
+        end
+        return
+    end
+    if opts.skipSendAllContinue then
+        return
+    end
+    if sendAllSeq.active and sendAllSeq.waitingForMail then
+        sendAllSeq.ScheduleAdvance(0.5)
     end
 end
 
@@ -1204,10 +1261,17 @@ mailCloseWatcher:SetScript("OnEvent", function(_, event)
             ChatInfo("Items sent to " .. nameColored .. ".")
         end
         stockpileMailPendingAnnounce = nil
+        if sendAllSeq.active and sendAllSeq.waitingForMail then
+            sendAllSeq.ScheduleAdvance(sendAllSeq.ADVANCE_DELAY)
+        end
         return
     end
     if event == "MAIL_FAILED" then
         stockpileMailPendingAnnounce = nil
+        if sendAllSeq.active and sendAllSeq.waitingForMail then
+            ChatInfo("Mail send failed; continuing send-all.")
+            sendAllSeq.ScheduleAdvance(sendAllSeq.ADVANCE_DELAY)
+        end
         return
     end
     if event == "MAIL_CLOSED" then
@@ -1216,7 +1280,9 @@ mailCloseWatcher:SetScript("OnEvent", function(_, event)
             HideStockpilePopover()
         end
         if stockpileAttachSeq.active then
-            AbortAttachSeq()
+            AbortAttachSeq(nil, { abortSendAll = true })
+        elseif sendAllSeq.active then
+            sendAllSeq.Finish("Send-all aborted (mailbox closed).")
         end
     end
 end)
@@ -1376,20 +1442,24 @@ stockpileSplitEventFrame:SetScript("OnUpdate", function()
 end)
 
 RunSendStockpile = function(ctx)
-    if not ctx or not ctx.spellId or not ctx.targetName or not ctx.requestedCrafts then return end
+    if not ctx or not ctx.spellId or not ctx.targetName or not ctx.requestedCrafts then
+        return false
+    end
     if DS.IsMailOpen and not DS:IsMailOpen() then
         ChatInfo("Visit a mailbox and click again to send stockpile")
-        return
+        return false
     end
     local _, curRealm = GetCurrentIdentity()
     if ctx.targetRealm ~= curRealm then
         ChatInfo("Can't send stockpile across realms")
-        return
+        return false
     end
 
     local currentChar = DS.GetCurrentCharacter and DS:GetCurrentCharacter() or nil
     local targetChar = DS.GetCharacter and DS:GetCharacter(ctx.targetName, ctx.targetRealm) or nil
-    if not currentChar or not targetChar then return end
+    if not currentChar or not targetChar then
+        return false
+    end
 
     local getTargetCount = function(ch, itemId)
         return DS.GetTotalItemCount and DS:GetTotalItemCount(ch, itemId) or DS:GetContainerItemCount(ch, itemId)
@@ -1408,8 +1478,12 @@ RunSendStockpile = function(ctx)
             getTargetCount,
             getSourceCount
         )
-    if minCrafts == nil or maxCrafts == nil then return end
-    if ctx.requestedCrafts <= minCrafts then return end
+    if minCrafts == nil or maxCrafts == nil then
+        return false
+    end
+    if ctx.requestedCrafts <= minCrafts then
+        return false
+    end
     if ctx.requestedCrafts > maxCrafts then
         ChatNotEnoughStockpile(
             ctx.targetDisplayName or ctx.targetName,
@@ -1419,11 +1493,11 @@ RunSendStockpile = function(ctx)
                 return getSourceCount(currentChar, itemId)
             end
         )
-        return
+        return false
     end
 
     if not EnsureSendMailTab() then
-        return
+        return false
     end
 
     local clearSendMail = _G.ClearSendMail
@@ -1433,7 +1507,7 @@ RunSendStockpile = function(ctx)
 
     local recipient = FormatMailRecipient(ctx.targetName, ctx.targetRealm)
     if not SetSendMailRecipient(recipient) then
-        return
+        return false
     end
 
     local sendPlan = CD.GetReagentSendPlan and CD.GetReagentSendPlan(
@@ -1445,11 +1519,11 @@ RunSendStockpile = function(ctx)
         getSourceCount
     )
     if not sendPlan then
-        return
+        return false
     end
 
     if stockpileAttachSeq.active then
-        AbortAttachSeq()
+        AbortAttachSeq(nil, { skipSendAllContinue = true })
     end
 
     local stacksById = CollectLiveStacksByItemID()
@@ -1470,7 +1544,7 @@ RunSendStockpile = function(ctx)
                         return getSourceCount(currentChar, itemId)
                     end
                 )
-                return
+                return false
             end
         end
     end
@@ -1501,7 +1575,7 @@ RunSendStockpile = function(ctx)
                         return getSourceCount(currentChar, itemId)
                     end)
                 end
-                return
+                return false
             end
             for _, op in ipairs(plan.ops or {}) do
                 steps[#steps + 1] = op
@@ -1516,7 +1590,7 @@ RunSendStockpile = function(ctx)
     end
 
     if #steps == 0 then
-        return
+        return false
     end
 
     ChatInfo("Attaching items...")
@@ -1524,6 +1598,178 @@ RunSendStockpile = function(ctx)
     stockpileAttachSeq.successTargetClassFile = ctx.targetClassFile
     StartAttachSeq(steps)
     TryAdvanceAttachSeq()
+    return true
+end
+
+sendAllSeq.SnapshotVisibleRows = function()
+    RefreshList()
+    local snap = {}
+    for _, row in ipairs(activeRows) do
+        local rd = row.rowData
+        if rd and rd.spellId then
+            snap[#snap + 1] = {
+                charKeyName = rd.charKeyName,
+                name = rd.name,
+                realm = rd.realm,
+                spellId = rd.spellId,
+            }
+        end
+    end
+    return snap
+end
+
+sendAllSeq.Advance = function()
+    if not sendAllSeq.active then
+        return
+    end
+    if DS.IsMailOpen and not DS:IsMailOpen() then
+        sendAllSeq.Finish("Send-all aborted (mailbox closed).")
+        return
+    end
+    if not IsMailboxActuallyOpen() then
+        sendAllSeq.Finish("Send-all aborted (mailbox closed).")
+        return
+    end
+
+    local curName, curRealm = GetCurrentIdentity()
+    local currentChar = DS.GetCurrentCharacter and DS:GetCurrentCharacter() or nil
+    if not currentChar or not curName or curName == "" then
+        sendAllSeq.Finish("Send-all aborted (no current character).")
+        return
+    end
+
+    local getTargetCount = function(ch, itemId)
+        return DS.GetTotalItemCount and DS:GetTotalItemCount(ch, itemId) or DS:GetContainerItemCount(ch, itemId)
+    end
+    local getSourceCount = function(ch, itemId)
+        return DS.GetBagItemCount and DS:GetBagItemCount(ch, itemId) or DS:GetContainerItemCount(ch, itemId)
+    end
+
+    local rows = sendAllSeq.rows or {}
+    local n = sendAllSeq.targetN
+    while sendAllSeq.index <= #rows do
+        local rd = rows[sendAllSeq.index]
+        sendAllSeq.index = sendAllSeq.index + 1
+        if rd then
+            local targetChar = DS.GetCharacter and DS:GetCharacter(rd.charKeyName, rd.realm) or nil
+            local minCrafts, maxCrafts, cappedMax
+            if targetChar and rd.spellId then
+                minCrafts = CD.GetMaxCraftableQuantity
+                    and CD.GetMaxCraftableQuantity(targetChar, rd.spellId, getTargetCount)
+                maxCrafts = CD.GetMaxCraftableQuantityAfterTransfer
+                    and CD.GetMaxCraftableQuantityAfterTransfer(
+                        targetChar,
+                        currentChar,
+                        rd.spellId,
+                        getTargetCount,
+                        getSourceCount
+                    )
+                if minCrafts ~= nil and maxCrafts ~= nil then
+                    cappedMax = ComputeMaxCraftsWithAttachmentCap(
+                        targetChar,
+                        currentChar,
+                        rd.spellId,
+                        minCrafts,
+                        maxCrafts
+                    )
+                end
+            end
+
+            local decision = CD.EvaluateSendAllRow
+                and CD.EvaluateSendAllRow(
+                    curName,
+                    curRealm,
+                    rd.charKeyName,
+                    rd.realm,
+                    n,
+                    minCrafts,
+                    cappedMax
+                )
+            if not decision then
+                decision = { action = "skip", reason = "unknown" }
+            end
+
+            if decision.action == "skip" then
+                if decision.reason == "unknown" then
+                    local classFile = targetChar and select(2, DS:GetCharacterClass(targetChar))
+                    local nameColored = ColorNameByClass(rd.name or rd.charKeyName, classFile)
+                    ChatInfo(
+                        "Skipping "
+                            .. nameColored
+                            .. ": open this profession's tradeskill window once to load material counts."
+                    )
+                elseif decision.reason == "insufficient" then
+                    ChatNotEnoughStockpile(
+                        rd.name or rd.charKeyName,
+                        targetChar and select(2, DS:GetCharacterClass(targetChar)),
+                        rd.spellId,
+                        function(itemId)
+                            return getSourceCount(currentChar, itemId)
+                        end
+                    )
+                end
+                -- self / realm / enough: silent skip
+            else
+                local tgtClass = targetChar and select(2, DS:GetCharacterClass(targetChar))
+                local srcClass = select(2, DS:GetCharacterClass(currentChar))
+                local started = RunSendStockpile({
+                    spellId = rd.spellId,
+                    targetName = rd.charKeyName,
+                    targetDisplayName = rd.name,
+                    targetRealm = rd.realm,
+                    targetClassFile = tgtClass,
+                    sourceDisplayName = (DS.GetCharacterName and DS:GetCharacterName(currentChar))
+                        or curName,
+                    sourceClassFile = srcClass,
+                    requestedCrafts = decision.requestedCrafts or n,
+                })
+                if started then
+                    sendAllSeq.waitingForMail = true
+                    return
+                end
+                -- RunSendStockpile already logged; continue to next row
+            end
+        end
+    end
+
+    sendAllSeq.Finish("Send-all finished.")
+end
+
+--- Kick off /alta sendall N. Requires open mailbox. Snapshots the visible crafting list.
+frame.StartSendAllStockpile = function(_, n)
+    local targetN = tonumber(n)
+    if not targetN or targetN < 1 then
+        ChatInfo("Usage: /alta sendall <n>")
+        return
+    end
+    if sendAllSeq.active then
+        ChatInfo("Send-all is already in progress.")
+        return
+    end
+    if DS.IsMailOpen and not DS:IsMailOpen() then
+        ChatInfo("Visit a mailbox and run /alta sendall again.")
+        return
+    end
+    if not IsMailboxActuallyOpen() then
+        ChatInfo("Visit a mailbox and run /alta sendall again.")
+        return
+    end
+    if stockpilePopover and stockpilePopover.IsShown and stockpilePopover:IsShown() then
+        HideStockpilePopover()
+    end
+    SetActiveCooldownsView("crafting")
+    local snap = sendAllSeq.SnapshotVisibleRows()
+    if #snap == 0 then
+        ChatInfo("No crafting cooldown rows to send.")
+        return
+    end
+    sendAllSeq.active = true
+    sendAllSeq.targetN = targetN
+    sendAllSeq.rows = snap
+    sendAllSeq.index = 1
+    sendAllSeq.waitingForMail = false
+    ChatInfo(string.format("Send-all started: target %dx across %d row(s).", targetN, #snap))
+    sendAllSeq.Advance()
 end
 
 local function ReleaseRows()

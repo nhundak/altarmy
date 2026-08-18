@@ -2171,6 +2171,41 @@ SlashCmdList.ALTARMY = function(msg)
         end
         return
     end
+    do
+        local sendAllN = trimmed:match("^[Ss]endall%s+(%d+)$")
+        local sendAllBare = lower == "sendall"
+        if sendAllN or sendAllBare then
+            local n = sendAllN and tonumber(sendAllN) or nil
+            if not n or n < 1 then
+                if AltArmy.Debug and AltArmy.Debug.NotifyChat then
+                    AltArmy.Debug.NotifyChat("Usage: /alta sendall <n>")
+                else
+                    local chat = _G.DEFAULT_CHAT_FRAME
+                    if chat and chat.AddMessage then
+                        chat:AddMessage("|cfffecc00Alt Army|r Usage: /alta sendall <n>")
+                    end
+                end
+                return
+            end
+            if AltArmy.ShowMainTab then
+                AltArmy.ShowMainTab("Cooldowns")
+            elseif AltArmy.MainFrame then
+                AltArmy.MainFrame:Show()
+            end
+            local cdFrame = AltArmy.TabFrames and AltArmy.TabFrames.Cooldowns
+            if cdFrame and cdFrame.SetCooldownsView then
+                cdFrame:SetCooldownsView("crafting")
+            end
+            if cdFrame and cdFrame.StartSendAllStockpile then
+                cdFrame:StartSendAllStockpile(n)
+            else
+                if AltArmy.Debug and AltArmy.Debug.NotifyChat then
+                    AltArmy.Debug.NotifyChat("Send-all stockpile is unavailable.")
+                end
+            end
+            return
+        end
+    end
     if AltArmy and AltArmy.MainFrame then
         AltArmy.MainFrame:Show()
     end

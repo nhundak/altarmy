@@ -521,6 +521,33 @@ function CD.GetReagentSendPlan(target, source, spellId, requestedCrafts, getTarg
     return rows
 end
 
+--- Classify a crafting-cooldown list row for /alta sendall N.
+--- minCrafts / maxAfterTransfer may be nil when RecipeReagents are unknown.
+--- @return table { action, reason?, requestedCrafts? }
+---   action = "send"|"skip"
+---   reason = "self"|"realm"|"enough"|"unknown"|"insufficient"|nil
+function CD.EvaluateSendAllRow(curName, curRealm, rowName, rowRealm, n, minCrafts, maxAfterTransfer)
+    local targetN = tonumber(n) or 0
+    if (rowName or "") == (curName or "") and (rowRealm or "") == (curRealm or "") then
+        return { action = "skip", reason = "self" }
+    end
+    if (rowRealm or "") ~= (curRealm or "") then
+        return { action = "skip", reason = "realm" }
+    end
+    if minCrafts == nil or maxAfterTransfer == nil then
+        return { action = "skip", reason = "unknown" }
+    end
+    local minV = tonumber(minCrafts) or 0
+    local maxV = tonumber(maxAfterTransfer) or 0
+    if minV >= targetN then
+        return { action = "skip", reason = "enough" }
+    end
+    if maxV < targetN then
+        return { action = "skip", reason = "insufficient" }
+    end
+    return { action = "send", requestedCrafts = targetN }
+end
+
 --- true / false when reagents known; nil when RecipeReagents missing for this spell.
 function CD.CharacterHasReagents(char, spellId, getContainerItemCount)
     local qty = CD.GetMaxCraftableQuantity(char, spellId, getContainerItemCount)
