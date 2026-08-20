@@ -665,4 +665,108 @@ describe("CooldownData", function()
             assert.are.equal("insufficient", r.reason)
         end)
     end)
+
+    describe("AllocateSendAllCrafts", function()
+        -- Void Sphere: 2x Void Crystal (22450) per craft
+        local voidSphereReagents = function(targetHave)
+            return { { itemID = 22450, need = 2, targetHave = targetHave or 0 } }
+        end
+        -- Prismatic Sphere: 4x Large Prismatic Shard (22449) per craft
+        local prismaticReagents = function(targetHave)
+            return { { itemID = 22449, need = 4, targetHave = targetHave or 0 } }
+        end
+
+        it("fills two alts from a shared pool with partial shortfall on the second", function()
+            -- Source has 6 void crystals → 3 crafts worth. N=2.
+            -- Alt1 at 0 → gets 2 crafts (uses 4). Alt2 at 0 → gets 1 craft (uses 2).
+            local result = CD.AllocateSendAllCrafts(2, { [22450] = 6 }, {
+                { selected = true, minCrafts = 0, reagents = voidSphereReagents(0) },
+                { selected = true, minCrafts = 0, reagents = voidSphereReagents(0) },
+            })
+            assert.are.equal(2, result.rows[1].willHave)
+            assert.are.equal(2, result.rows[1].delta)
+            assert.is_false(result.rows[1].shortfall)
+            assert.are.equal(1, result.rows[2].willHave)
+            assert.are.equal(1, result.rows[2].delta)
+            assert.is_true(result.rows[2].shortfall)
+            assert.is_true(result.anyShortfall)
+        end)
+
+        it("does not consume pool for unselected rows", function()
+            local result = CD.AllocateSendAllCrafts(2, { [22450] = 4 }, {
+                { selected = false, minCrafts = 0, reagents = voidSphereReagents(0) },
+                { selected = true, minCrafts = 0, reagents = voidSphereReagents(0) },
+            })
+            assert.are.equal(0, result.rows[1].willHave)
+            assert.are.equal(0, result.rows[1].delta)
+            assert.are.equal(2, result.rows[2].willHave)
+            assert.are.equal(2, result.rows[2].delta)
+            assert.is_false(result.anyShortfall)
+        end)
+
+        it("skips self and realm without consuming", function()
+            local result = CD.AllocateSendAllCrafts(2, { [22450] = 4 }, {
+                { selected = true, skip = "self", minCrafts = 0, reagents = voidSphereReagents(0) },
+                { selected = true, skip = "realm", minCrafts = 0, reagents = voidSphereReagents(0) },
+                { selected = true, minCrafts = 0, reagents = voidSphereReagents(0) },
+            })
+            assert.are.equal(0, result.rows[1].delta)
+            assert.are.equal(0, result.rows[2].delta)
+            assert.are.equal(2, result.rows[3].willHave)
+            assert.are.equal(2, result.rows[3].delta)
+        end)
+
+        it("skips rows that already have enough crafts", function()
+            local result = CD.AllocateSendAllCrafts(2, { [22450] = 4 }, {
+                { selected = true, minCrafts = 2, reagents = voidSphereReagents(4) },
+                { selected = true, minCrafts = 0, reagents = voidSphereReagents(0) },
+            })
+            assert.are.equal(2, result.rows[1].willHave)
+            assert.are.equal(0, result.rows[1].delta)
+            assert.is_false(result.rows[1].shortfall)
+            assert.are.equal(2, result.rows[2].willHave)
+            assert.are.equal(2, result.rows[2].delta)
+        end)
+
+        it("accounts for target already having some reagents", function()
+            -- Target has 2 crystals (1 craft). Need N=2 → send 2 more. Source has 2.
+            local result = CD.AllocateSendAllCrafts(2, { [22450] = 2 }, {
+                { selected = true, minCrafts = 1, reagents = voidSphereReagents(2) },
+            })
+            assert.are.equal(2, result.rows[1].willHave)
+            assert.are.equal(1, result.rows[1].delta)
+            assert.is_false(result.anyShortfall)
+        end)
+
+        it("handles different recipes without cross-consuming wrong mats", function()
+            local result = CD.AllocateSendAllCrafts(1, { [22450] = 2, [22449] = 4 }, {
+                { selected = true, minCrafts = 0, reagents = voidSphereReagents(0) },
+                { selected = true, minCrafts = 0, reagents = prismaticReagents(0) },
+            })
+            assert.are.equal(1, result.rows[1].willHave)
+            assert.are.equal(1, result.rows[1].delta)
+            assert.are.equal(1, result.rows[2].willHave)
+            assert.are.equal(1, result.rows[2].delta)
+            assert.is_false(result.anyShortfall)
+        end)
+
+        it("marks unknown reagents as no-op with shortfall for selected", function()
+            local result = CD.AllocateSendAllCrafts(2, { [22450] = 10 }, {
+                { selected = true, minCrafts = nil, reagents = nil },
+            })
+            assert.are.equal(0, result.rows[1].willHave)
+            assert.are.equal(0, result.rows[1].delta)
+            assert.is_true(result.rows[1].shortfall)
+            assert.is_true(result.anyShortfall)
+        end)
+
+        it("returns zero delta when source cannot increase crafts at all", function()
+            local result = CD.AllocateSendAllCrafts(2, { [22450] = 0 }, {
+                { selected = true, minCrafts = 0, reagents = voidSphereReagents(0) },
+            })
+            assert.are.equal(0, result.rows[1].willHave)
+            assert.are.equal(0, result.rows[1].delta)
+            assert.is_true(result.rows[1].shortfall)
+        end)
+    end)
 end)

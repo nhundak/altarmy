@@ -208,6 +208,11 @@ frame:RegisterEvent("UPDATE_FACTION")
 frame:RegisterEvent("MAIL_SHOW")
 frame:RegisterEvent("MAIL_INBOX_UPDATE")
 frame:RegisterEvent("MAIL_CLOSED")
+-- TBC Anniversary often does not fire MAIL_CLOSED; interaction-manager covers that client.
+pcall(function()
+    frame:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_SHOW")
+    frame:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
+end)
 frame:RegisterEvent("AUCTION_HOUSE_SHOW")
 frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
 frame:RegisterEvent("AUCTION_OWNED_LIST_UPDATE")
@@ -221,6 +226,27 @@ local isMailOpen = false
 local isAuctionHouseOpen = false
 local lastReputationScan = 0
 local isBankOpen = false
+local MAIL_INTERACTION_TYPE = (
+    _G.Enum and _G.Enum.PlayerInteractionType and _G.Enum.PlayerInteractionType.MailInfo
+) or 17
+
+local function HookMailFrameVisibility()
+    local mf = _G.MailFrame
+    if not mf or mf.altArmyDataStoreMailHooked then
+        return
+    end
+    mf.altArmyDataStoreMailHooked = true
+    if mf.HookScript then
+        mf:HookScript("OnShow", function()
+            isMailOpen = true
+        end)
+        mf:HookScript("OnHide", function()
+            isMailOpen = false
+        end)
+    end
+end
+
+HookMailFrameVisibility()
 
 function DS:IsBankOpen()
     return isBankOpen
@@ -572,6 +598,15 @@ frame:SetScript("OnEvent", function(_, event, ...)
     end
     if event == "MAIL_SHOW" then
         isMailOpen = true
+        HookMailFrameVisibility()
+        return
+    end
+    if event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" then
+        local interactionType = ...
+        if interactionType == MAIL_INTERACTION_TYPE then
+            isMailOpen = true
+            HookMailFrameVisibility()
+        end
         return
     end
     if event == "MAIL_INBOX_UPDATE" then
@@ -581,7 +616,13 @@ frame:SetScript("OnEvent", function(_, event, ...)
         end
         return
     end
-    if event == "MAIL_CLOSED" then
+    if event == "MAIL_CLOSED" or event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
+        if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
+            local interactionType = ...
+            if interactionType ~= MAIL_INTERACTION_TYPE then
+                return
+            end
+        end
         isMailOpen = false
         local char = GetCurrentCharTable()
         if char and GetInboxNumItems and DS.ScanMailbox then

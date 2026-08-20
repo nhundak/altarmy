@@ -13,13 +13,20 @@ local HEADER_HEIGHT = 18
 local HEADER_ROW_GAP = 3 -- TabSearch.lua section headers use this gap above first row
 local MAT_ICON_SIZE = 14 -- TabSearch OVERLAY_ICON_SIZE (inline "|Tpath:0|t" uses ~14px height)
 local REFRESH_INTERVAL = 1
-local TIP_ROW_HEIGHT = 16
+local TIP_ROW_HEIGHT = 22
 local TIP_ICON_SIZE = 14
+local SEND_COL_WIDTH = 28
+local MATS_COMPOSE_WIDTH = 70
+local SELECT_ALL_HEIGHT = 18
+local COL_ANIM_DURATION = 0.2
+local SEND_TIP_TEXT =
+    "Tip: visit a mailbox on a bank alt, then open this page to distribute materials to your characters"
 
 local CD = AltArmy.CooldownData
 local DS = AltArmy.DataStore
 local RF = AltArmy.RealmFilter
 local SP = AltArmy.StockpilePlan
+local SlideTransition = AltArmy.SlideTransition
 if not CD or not DS then return end
 if not SP or not SP.BuildItemPlan then return end
 
@@ -183,10 +190,27 @@ local function AccountHasMultipleRealms()
 end
 
 local colWidths = {
-    Category = 230, -- +55 vs original 175 to fill 640px frame content width
+    Category = 226, -- leave ~4px before scrollbar so send checkboxes aren't flush
     Character = 190,
     Mats = 44,
     Time = 128,
+    Send = 0,
+}
+
+local IDLE_COL_WIDTHS = {
+    Category = 226,
+    Character = 190,
+    Mats = 44,
+    Time = 128,
+    Send = 0,
+}
+-- Compose: Send checkbox column; Mats 70; Recipe/Character each lose half of Send plus half of Mats growth.
+local COMPOSE_COL_WIDTHS = {
+    Category = 226 - (SEND_COL_WIDTH / 2) - ((MATS_COMPOSE_WIDTH - 44) / 2),
+    Character = 190 - (SEND_COL_WIDTH / 2) - ((MATS_COMPOSE_WIDTH - 44) / 2),
+    Mats = MATS_COMPOSE_WIDTH,
+    Time = 128,
+    Send = SEND_COL_WIDTH,
 }
 
 local SORT_KEYS_ORDER = { "recipe", "character", "mats", "time" }
@@ -225,8 +249,13 @@ local function SyncSortFromSaved()
 end
 
 local RefreshList -- forward-declared; header buttons call this after sort changes
-local ComputeMaxCraftsWithAttachmentCap -- forward-declared; used by row click
+local ComputeMaxCraftsWithAttachmentCap -- forward-declared; used by send flow
+local ApplyColumnWidths -- forward-declared; column animation + refresh
+local SyncSendCheckFade -- forward-declared; checkbox fade with Select All
+local UpdateSendBarMode -- forward-declared; mailbox / compose UI
+local RecomputeSendAllocation -- forward-declared; preview mats + Send enablement
 local headerButtons = {}
+local sendHeaderBtn
 
 local function UpdateHeaderSortIndicators()
     for _, sk in ipairs(SORT_KEYS_ORDER) do
@@ -238,7 +267,11 @@ local function UpdateHeaderSortIndicators()
     end
 end
 
-local totalColWidth = colWidths.Category + colWidths.Character + colWidths.Mats + colWidths.Time
+local function TotalColWidth()
+    return colWidths.Category + colWidths.Character + colWidths.Mats + colWidths.Time + (colWidths.Send or 0)
+end
+
+local totalColWidth = TotalColWidth()
 
 local viewStrip = CreateFrame("Frame", nil, frame)
 viewStrip:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
@@ -301,15 +334,38 @@ for _, sk in ipairs(SORT_KEYS_ORDER) do
     hx = hx + SORT_COL_WIDTH[sk]
 end
 
--- Scrollbar track aligns with listViewport (Gear / Reputation / Summary pattern).
-local listViewport = CreateFrame("Frame", nil, tabContentInner)
-listViewport:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, -PAD)
-listViewport:SetPoint("BOTTOMRIGHT", tabContentPanel, "BOTTOMRIGHT", -SCROLL_GUTTER, PAD)
+sendHeaderBtn = CreateFrame("Frame", nil, headerRow)
+sendHeaderBtn:SetPoint("TOPLEFT", headerRow, "TOPLEFT", hx, 0)
+sendHeaderBtn:SetSize(1, HEADER_HEIGHT)
+sendHeaderBtn:Hide()
+sendHeaderBtn:EnableMouse(false)
 
-local rowParent = CreateFrame("Frame", nil, listViewport)
-rowParent:SetPoint("TOPLEFT", listViewport, "TOPLEFT", 0, -(HEADER_HEIGHT + HEADER_ROW_GAP - PAD))
-rowParent:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, TIP_ROW_HEIGHT)
+-- "All" select strip sits above the column headers in compose mode (header slides down).
+local selectAllBar = CreateFrame("Frame", nil, tabContentInner)
+selectAllBar:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, 0)
+selectAllBar:SetHeight(SELECT_ALL_HEIGHT)
+selectAllBar:SetWidth(totalColWidth)
+selectAllBar:SetFrameLevel((headerRow:GetFrameLevel() or 0) + 1)
+selectAllBar:Hide()
+selectAllBar:EnableMouse(true)
 
+local selectAllCheck = Theme.CreateThemeCheckbox(selectAllBar, 16)
+selectAllCheck:SetPoint("RIGHT", selectAllBar, "RIGHT", 0, 0)
+
+local selectAllLabel = selectAllBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+selectAllLabel:SetPoint("RIGHT", selectAllCheck, "LEFT", -4, 0)
+selectAllLabel:SetJustifyH("RIGHT")
+selectAllLabel:SetTextColor(1, 1, 1)
+selectAllLabel:SetText("Select All")
+
+local selectAllHit = CreateFrame("Button", nil, selectAllBar)
+selectAllHit:SetPoint("TOPLEFT", selectAllLabel, "TOPLEFT", -4, 2)
+selectAllHit:SetPoint("BOTTOMRIGHT", selectAllCheck, "BOTTOMRIGHT", 2, -2)
+selectAllHit:SetFrameLevel(selectAllBar:GetFrameLevel() + 2)
+selectAllHit:RegisterForClicks("LeftButtonUp")
+Theme.BindInteractableHover(selectAllHit)
+
+-- Bottom tip / send bar (list viewport sits above this so rows never overlap it).
 local tipRow = CreateFrame("Frame", nil, tabContentInner)
 tipRow:SetPoint("BOTTOMLEFT", tabContentInner, "BOTTOMLEFT", 0, 0)
 tipRow:SetPoint("BOTTOMRIGHT", tabContentInner, "BOTTOMRIGHT", 0, 0)
@@ -324,7 +380,17 @@ local tipLabel = tipRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall
 tipLabel:SetPoint("LEFT", tipIcon, "RIGHT", 4, 0)
 tipLabel:SetPoint("RIGHT", tipRow, "RIGHT", 0, 0)
 tipLabel:SetJustifyH("LEFT")
-tipLabel:SetText("Tip: visit a mailbox then click a row to send materials to that character")
+tipLabel:SetText(SEND_TIP_TEXT)
+
+-- Scrollbar track aligns with listViewport (Gear / Reputation / Summary pattern).
+local listViewport = CreateFrame("Frame", nil, tabContentInner)
+listViewport:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, -PAD)
+listViewport:SetPoint("BOTTOMLEFT", tipRow, "TOPLEFT", 0, PAD)
+listViewport:SetPoint("BOTTOMRIGHT", tipRow, "TOPRIGHT", -SCROLL_GUTTER, PAD)
+
+local rowParent = CreateFrame("Frame", nil, listViewport)
+rowParent:SetPoint("TOPLEFT", listViewport, "TOPLEFT", 0, -(HEADER_HEIGHT + HEADER_ROW_GAP - PAD))
+rowParent:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, 0)
 
 local scroll = CreateFrame("ScrollFrame", nil, rowParent)
 scroll:SetPoint("TOPLEFT", rowParent, "TOPLEFT", 0, 0)
@@ -366,224 +432,508 @@ local rowPool = {}
 local activeRows = {}
 
 -- ---------------------------------------------------------------------------
--- Send Stockpile popover (row click)
+-- Bottom send bar (mailbox-gated) + column layout helpers
 -- ---------------------------------------------------------------------------
 
-local stockpilePopover = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-stockpilePopover:Hide()
-stockpilePopover:SetFrameStrata("DIALOG")
-stockpilePopover:SetFrameLevel((frame:GetFrameLevel() or 0) + 200)
-stockpilePopover:SetSize(336, 120)
-stockpilePopover:EnableMouse(true)
-stockpilePopover:SetClampedToScreen(true)
-Theme.ApplyBackdrop(stockpilePopover, "dialog")
-
--- Click-catcher overlay: click outside popover to close it.
-local stockpilePopoverOverlay = CreateFrame("Frame", nil, UIParent)
-stockpilePopoverOverlay:Hide()
-stockpilePopoverOverlay:SetAllPoints(UIParent)
-stockpilePopoverOverlay:SetFrameStrata("DIALOG")
-stockpilePopoverOverlay:SetFrameLevel(stockpilePopover:GetFrameLevel() - 1)
-stockpilePopoverOverlay:EnableMouse(true)
-
-local popTitle = stockpilePopover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-popTitle:SetPoint("TOPLEFT", stockpilePopover, "TOPLEFT", 12, -10)
-popTitle:SetText("Send Stockpile")
-Theme.SetTitleColor(popTitle)
-
-local popMin = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTemplate")
-popMin:SetSize(40, 22)
-popMin:SetPoint("TOPLEFT", popTitle, "BOTTOMLEFT", 0, -14)
-popMin:SetText("Min")
-Theme.SkinButton(popMin)
-
-local popMinus = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTemplate")
-popMinus:SetSize(24, 22)
-popMinus:SetPoint("TOP", popMin, "TOP", 0, 0)
-popMinus:SetPoint("LEFT", popMin, "RIGHT", 4, 0)
-popMinus:SetText("-")
-Theme.SkinButton(popMinus)
-
-local popMax = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTemplate")
-popMax:SetSize(40, 22)
-popMax:SetPoint("TOP", popMin, "TOP", 0, 0)
-popMax:SetPoint("RIGHT", stockpilePopover, "RIGHT", -12, 0)
-popMax:SetText("Max")
-Theme.SkinButton(popMax)
-
-local popPlus = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTemplate")
-popPlus:SetSize(24, 22)
-popPlus:SetPoint("TOP", popMin, "TOP", 0, 0)
-popPlus:SetPoint("RIGHT", popMax, "LEFT", -4, 0)
-popPlus:SetText("+")
-Theme.SkinButton(popPlus)
-
-local popValueLabel = stockpilePopover:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-popValueLabel:SetPoint("LEFT", popMinus, "RIGHT", 8, 0)
-popValueLabel:SetPoint("RIGHT", popPlus, "LEFT", -8, 0)
-popValueLabel:SetJustifyH("CENTER")
-popValueLabel:SetJustifyV("MIDDLE")
-popValueLabel:SetText("")
-
-local popCancel = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTemplate")
-popCancel:SetSize(90, 20)
-popCancel:SetPoint("BOTTOMRIGHT", stockpilePopover, "BOTTOMRIGHT", -12, 12)
-popCancel:SetText("Cancel")
-Theme.SkinButton(popCancel)
-
-local popOk = CreateFrame("Button", nil, stockpilePopover, "UIPanelButtonTemplate")
-popOk:SetSize(90, 20)
-popOk:SetPoint("RIGHT", popCancel, "LEFT", -8, 0)
-popOk:SetText("Send")
-popOk:Disable()
-Theme.SkinButton(popOk)
-
-local popCtx = nil
-local popWillHave = 0
-local function HideStockpilePopover()
-    stockpilePopover:Hide()
-    stockpilePopoverOverlay:Hide()
-    popCtx = nil
-end
-popCancel:SetScript("OnClick", HideStockpilePopover)
-
-local function SetPopoverValueLines(willHaveAfter)
-    if not popCtx then return end
-    local v = tonumber(willHaveAfter) or 0
-    local baseline = tonumber(popCtx.minCrafts) or 0
-    local sendN = math.max(0, v - baseline)
-    local srcPlain = popCtx.sourceDisplayName or "?"
-    local tgtPlain = popCtx.targetDisplayName or popCtx.targetName or "?"
-    local line1 = ColorNameByClass(srcPlain, popCtx.sourceClassFile) .. " will send: " .. tostring(sendN) .. "x"
-    local line2 = ColorNameByClass(tgtPlain, popCtx.targetClassFile) .. " will have: " .. tostring(v) .. "x"
-    popValueLabel:SetText(line1 .. "\n" .. line2)
-end
-
 local function IsMailboxActuallyOpen()
+    -- Prefer IsVisible (parent chain). Do not trust InboxFrame:IsShown() alone — it can
+    -- remain "shown" after MailFrame is hidden, which falsely keeps send-materials mode up.
     local mf = _G.MailFrame
-    if mf and mf.IsShown and mf:IsShown() then
-        return true
-    end
-    local inbox = _G.InboxFrame
-    if inbox and inbox.IsShown and inbox:IsShown() then
-        return true
+    if mf then
+        if mf.IsVisible and mf:IsVisible() then
+            return true
+        end
+        if mf.IsShown and mf:IsShown() then
+            return true
+        end
     end
     return false
 end
 
-local function SyncPopoverOkState()
-    if not popCtx then
-        popOk:Disable()
-        popMin:Disable()
-        popMinus:Disable()
-        popPlus:Disable()
-        popMax:Disable()
+local RunSendStockpile -- assigned later (mail compose + attachment engine)
+
+--- Packed UI/state for the bottom bar (avoids Lua 5.1 local limit).
+local sendBar = {
+    mode = "tip", -- "tip" | "idle" | "compose"
+    targetN = 1,
+    checks = {}, -- rowKey -> bool
+    allocByKey = {}, -- rowKey -> { willHave, delta, shortfall }
+    anyChecked = false,
+    allEligibleChecked = false,
+    sending = false,
+    animating = false,
+    animElapsed = 0,
+    animFrom = nil,
+    animTo = nil,
+    headerOffset = 0,
+    animFromHeader = 0,
+    animToHeader = 0,
+}
+
+sendBar.openBtn = CreateFrame("Button", nil, tipRow, "UIPanelButtonTemplate")
+sendBar.openBtn:SetSize(120, 20)
+sendBar.openBtn:SetPoint("LEFT", tipRow, "LEFT", 0, 0)
+sendBar.openBtn:SetText("Send Materials")
+Theme.SkinButton(sendBar.openBtn)
+sendBar.openBtn:Hide()
+
+sendBar.cancelBtn = CreateFrame("Button", nil, tipRow, "UIPanelButtonTemplate")
+sendBar.cancelBtn:SetSize(70, 20)
+sendBar.cancelBtn:SetPoint("LEFT", tipRow, "LEFT", 0, 0)
+sendBar.cancelBtn:SetText("Cancel")
+Theme.SkinButton(sendBar.cancelBtn)
+sendBar.cancelBtn:Hide()
+
+sendBar.minusBtn = CreateFrame("Button", nil, tipRow, "UIPanelButtonTemplate")
+sendBar.minusBtn:SetSize(24, 20)
+sendBar.minusBtn:SetText("-")
+Theme.SkinButton(sendBar.minusBtn)
+sendBar.minusBtn:Hide()
+
+sendBar.plusBtn = CreateFrame("Button", nil, tipRow, "UIPanelButtonTemplate")
+sendBar.plusBtn:SetSize(24, 20)
+sendBar.plusBtn:SetText("+")
+Theme.SkinButton(sendBar.plusBtn)
+sendBar.plusBtn:Hide()
+
+sendBar.countLabel = tipRow:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+sendBar.countLabel:SetJustifyH("CENTER")
+sendBar.countLabel:SetWidth(36)
+sendBar.countLabel:Hide()
+
+sendBar.sendBtn = CreateFrame("Button", nil, tipRow, "UIPanelButtonTemplate")
+sendBar.sendBtn:SetSize(70, 20)
+sendBar.sendBtn:SetPoint("RIGHT", tipRow, "RIGHT", 0, 0)
+sendBar.sendBtn:SetText("Send")
+Theme.SkinButton(sendBar.sendBtn)
+sendBar.sendBtn:Hide()
+
+-- Disabled buttons do not receive OnEnter; overlay provides the empty-selection tooltip.
+sendBar.sendHit = CreateFrame("Frame", nil, tipRow)
+sendBar.sendHit:SetAllPoints(sendBar.sendBtn)
+sendBar.sendHit:EnableMouse(true)
+sendBar.sendHit:Hide()
+sendBar.sendHit:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:SetText("Choose at least one character to send materials to", nil, nil, nil, nil, true)
+    GameTooltip:Show()
+end)
+sendBar.sendHit:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+end)
+
+local function RowSendKey(rd)
+    if not rd then return nil end
+    return tostring(rd.realm or "") .. "\0" .. tostring(rd.charKeyName or "") .. "\0" .. tostring(rd.spellId or "")
+end
+
+local function CopyWidths(src)
+    return {
+        Category = src.Category,
+        Character = src.Character,
+        Mats = src.Mats,
+        Time = src.Time,
+        Send = src.Send or 0,
+    }
+end
+
+local function Lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+ApplyColumnWidths = function(widths)
+    if not widths then return end
+    colWidths.Category = widths.Category
+    colWidths.Character = widths.Character
+    colWidths.Mats = widths.Mats
+    colWidths.Time = widths.Time
+    colWidths.Send = widths.Send or 0
+    SORT_COL_WIDTH.recipe = colWidths.Category
+    SORT_COL_WIDTH.character = colWidths.Character
+    SORT_COL_WIDTH.mats = colWidths.Mats
+    SORT_COL_WIDTH.time = colWidths.Time
+    totalColWidth = TotalColWidth()
+    headerRow:SetWidth(math.max(1, totalColWidth))
+    if selectAllBar then
+        selectAllBar:SetWidth(math.max(1, totalColWidth))
+    end
+
+    local x = 0
+    for _, sk in ipairs(SORT_KEYS_ORDER) do
+        local btn = headerButtons[sk]
+        if btn then
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", headerRow, "TOPLEFT", x, 0)
+            btn:SetSize(SORT_COL_WIDTH[sk], HEADER_HEIGHT)
+            x = x + SORT_COL_WIDTH[sk]
+        end
+    end
+    if sendHeaderBtn then
+        sendHeaderBtn:ClearAllPoints()
+        sendHeaderBtn:SetPoint("TOPLEFT", headerRow, "TOPLEFT", x, 0)
+        if colWidths.Send > 0.5 then
+            sendHeaderBtn:SetSize(colWidths.Send, HEADER_HEIGHT)
+            sendHeaderBtn:Show()
+        else
+            sendHeaderBtn:SetSize(1, HEADER_HEIGHT)
+            sendHeaderBtn:Hide()
+        end
+    end
+
+    local function layoutRow(row)
+        if not row or not row.catCell then return end
+        row:SetWidth(totalColWidth)
+        row.catCell:SetSize(colWidths.Category, ROW_HEIGHT)
+        row.charCell:SetSize(colWidths.Character, ROW_HEIGHT)
+        if row.matSlot then
+            row.matSlot:SetSize(colWidths.Mats, ROW_HEIGHT)
+        end
+        row.timeCell:SetSize(colWidths.Time, ROW_HEIGHT)
+        if row.sendSlot then
+            if colWidths.Send > 0.5 then
+                row.sendSlot:SetSize(colWidths.Send, ROW_HEIGHT)
+            end
+        end
+    end
+    for _, row in ipairs(activeRows) do
+        layoutRow(row)
+    end
+    for _, row in ipairs(rowPool) do
+        layoutRow(row)
+    end
+    if scrollChild then
+        local _, h = scrollChild:GetSize()
+        scrollChild:SetSize(totalColWidth, h or 1)
+    end
+    -- Keep checkbox fade in sync with Select All (header offset).
+    do
+        local fadeAlpha = 0
+        if SELECT_ALL_HEIGHT > 0 then
+            fadeAlpha = math.min(1, (sendBar.headerOffset or 0) / SELECT_ALL_HEIGHT)
+        end
+        SyncSendCheckFade(fadeAlpha)
+    end
+end
+
+SyncSendCheckFade = function(alpha)
+    alpha = tonumber(alpha) or 0
+    if alpha < 0 then alpha = 0 end
+    if alpha > 1 then alpha = 1 end
+    local sendW = colWidths.Send or 0
+    local function apply(row)
+        if not row or not row.sendSlot then return end
+        if sendW > 0.5 and alpha > 0.01 then
+            row.sendSlot:SetSize(sendW, ROW_HEIGHT)
+            row.sendSlot:Show()
+            row.sendSlot:SetAlpha(alpha)
+        else
+            row.sendSlot:SetAlpha(0)
+            row.sendSlot:Hide()
+        end
+    end
+    for _, row in ipairs(activeRows) do
+        apply(row)
+    end
+    for _, row in ipairs(rowPool) do
+        apply(row)
+    end
+end
+
+local function ApplyHeaderOffset(offset)
+    offset = tonumber(offset) or 0
+    if offset < 0 then offset = 0 end
+    sendBar.headerOffset = offset
+    headerRow:ClearAllPoints()
+    headerRow:SetPoint("TOPLEFT", tabContentInner, "TOPLEFT", 0, -offset)
+    local fadeAlpha = 0
+    if SELECT_ALL_HEIGHT > 0 then
+        fadeAlpha = math.min(1, offset / SELECT_ALL_HEIGHT)
+    end
+    if selectAllBar then
+        selectAllBar:SetWidth(math.max(1, totalColWidth))
+        if offset > 0.5 then
+            selectAllBar:Show()
+            selectAllBar:SetAlpha(fadeAlpha)
+        else
+            selectAllBar:SetAlpha(0)
+            selectAllBar:Hide()
+        end
+    end
+    SyncSendCheckFade(fadeAlpha)
+    rowParent:ClearAllPoints()
+    rowParent:SetPoint(
+        "TOPLEFT",
+        listViewport,
+        "TOPLEFT",
+        0,
+        -(HEADER_HEIGHT + HEADER_ROW_GAP - PAD + offset)
+    )
+    rowParent:SetPoint("BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, 0)
+    if cooldownHeaderFade then
+        cooldownHeaderFade:Update()
+    end
+end
+
+local function StartColumnAnim(toWidths, toHeaderOffset)
+    sendBar.animFrom = CopyWidths(colWidths)
+    sendBar.animTo = CopyWidths(toWidths)
+    sendBar.animFromHeader = sendBar.headerOffset or 0
+    sendBar.animToHeader = tonumber(toHeaderOffset) or sendBar.animFromHeader
+    sendBar.animElapsed = 0
+    sendBar.animating = true
+end
+
+local function StepColumnAnim(dt)
+    if not sendBar.animating then return end
+    sendBar.animElapsed = (sendBar.animElapsed or 0) + (dt or 0)
+    local duration = COL_ANIM_DURATION
+    if SlideTransition and SlideTransition.DEFAULT_DURATION then
+        duration = SlideTransition.DEFAULT_DURATION
+    end
+    local t = sendBar.animElapsed / duration
+    if t >= 1 then
+        sendBar.animating = false
+        ApplyColumnWidths(sendBar.animTo)
+        ApplyHeaderOffset(sendBar.animToHeader)
         return
     end
-    local lo = tonumber(popCtx.sliderMinWillHave) or 0
-    local hi = tonumber(popCtx.sliderMaxWillHave) or lo
-    if hi < lo then
-        popOk:Disable()
-        popMin:Disable()
-        popMinus:Disable()
-        popPlus:Disable()
-        popMax:Disable()
+    local ease = (SlideTransition and SlideTransition.EaseOut and SlideTransition.EaseOut(t)) or t
+    local from, to = sendBar.animFrom, sendBar.animTo
+    ApplyColumnWidths({
+        Category = Lerp(from.Category, to.Category, ease),
+        Character = Lerp(from.Character, to.Character, ease),
+        Mats = Lerp(from.Mats, to.Mats, ease),
+        Time = Lerp(from.Time, to.Time, ease),
+        Send = Lerp(from.Send, to.Send, ease),
+    })
+    ApplyHeaderOffset(Lerp(sendBar.animFromHeader, sendBar.animToHeader, ease))
+end
+
+local function SyncQtyControls()
+    local n = sendBar.targetN or 1
+    sendBar.countLabel:SetText(tostring(n))
+    if n <= 1 or sendBar.sending then
+        sendBar.minusBtn:Disable()
+    else
+        sendBar.minusBtn:Enable()
+    end
+    if sendBar.sending then
+        sendBar.plusBtn:Disable()
+    else
+        sendBar.plusBtn:Enable()
+    end
+end
+
+local function SyncSelectAllCheck()
+    if not selectAllCheck then return end
+    local allChecked = true
+    local anyEligible = false
+    for _, row in ipairs(activeRows) do
+        if row.sendEligible then
+            anyEligible = true
+            if not row.sendChecked then
+                allChecked = false
+                break
+            end
+        end
+    end
+    sendBar.allEligibleChecked = anyEligible and allChecked
+    selectAllCheck:SetChecked(sendBar.allEligibleChecked)
+    if sendBar.mode == "compose" and not sendBar.sending and anyEligible then
+        selectAllCheck:Enable()
+        if selectAllHit then selectAllHit:Enable() end
+    else
+        selectAllCheck:Disable()
+        if selectAllHit then selectAllHit:Disable() end
+    end
+end
+
+local function SetAllEligibleChecked(checked)
+    checked = checked and true or false
+    for _, row in ipairs(activeRows) do
+        if row.sendEligible then
+            row.sendChecked = checked
+            if row.sendKey then
+                sendBar.checks[row.sendKey] = checked
+            end
+            if row.sendCheck then
+                row.sendCheck:SetChecked(checked)
+            end
+        end
+    end
+    if RecomputeSendAllocation then
+        RecomputeSendAllocation()
+    else
+        SyncSelectAllCheck()
+    end
+end
+
+selectAllCheck:SetScript("OnClick", function(checkBtn)
+    if sendBar.mode ~= "compose" or sendBar.sending then
+        checkBtn:SetChecked(sendBar.allEligibleChecked and true or false)
         return
     end
-    local v = tonumber(popWillHave) or lo
-    if v >= lo and v <= hi then
-        popOk:Enable()
+    -- CheckButton already toggled; use the new checked state as the target.
+    SetAllEligibleChecked(checkBtn:GetChecked() and true or false)
+end)
+
+selectAllHit:SetScript("OnClick", function()
+    if sendBar.mode ~= "compose" or sendBar.sending then return end
+    selectAllCheck:Click()
+end)
+
+local function SyncSendButtonState()
+    local canSend = sendBar.mode == "compose" and sendBar.anyChecked and not sendBar.sending
+    if canSend then
+        sendBar.sendBtn:Enable()
+        sendBar.sendHit:Hide()
     else
-        popOk:Disable()
-    end
-    if v > lo then
-        popMin:Enable()
-        popMinus:Enable()
-    else
-        popMin:Disable()
-        popMinus:Disable()
-    end
-    if v < hi then
-        popPlus:Enable()
-        popMax:Enable()
-    else
-        popPlus:Disable()
-        popMax:Disable()
+        sendBar.sendBtn:Disable()
+        if sendBar.mode == "compose" and not sendBar.anyChecked and not sendBar.sending then
+            sendBar.sendHit:Show()
+        else
+            sendBar.sendHit:Hide()
+        end
     end
 end
 
-local function SetPopoverWillHave(value)
-    if not popCtx then return end
-    local lo = tonumber(popCtx.sliderMinWillHave) or 0
-    local hi = tonumber(popCtx.sliderMaxWillHave) or lo
-    local v = math.floor((tonumber(value) or lo) + 0.5)
-    if v < lo then v = lo end
-    if v > hi then v = hi end
-    popWillHave = v
-    SetPopoverValueLines(v)
-    SyncPopoverOkState()
-end
-
-popMin:SetScript("OnClick", function()
-    if not popCtx then return end
-    SetPopoverWillHave(tonumber(popCtx.sliderMinWillHave) or popWillHave)
-end)
-popMinus:SetScript("OnClick", function()
-    SetPopoverWillHave((tonumber(popWillHave) or 0) - 1)
-end)
-popPlus:SetScript("OnClick", function()
-    SetPopoverWillHave((tonumber(popWillHave) or 0) + 1)
-end)
-popMax:SetScript("OnClick", function()
-    if not popCtx then return end
-    SetPopoverWillHave(tonumber(popCtx.sliderMaxWillHave) or popWillHave)
-end)
-
-local function RunSendStockpile(_ctx)
-    -- Implemented in a later step (mail compose + attachment engine).
-end
-popOk:SetScript("OnClick", function()
-    if not popCtx then return end
-    local lo = tonumber(popCtx.sliderMinWillHave) or 0
-    local v = tonumber(popWillHave) or lo
-    if v < lo then return end
-    popCtx.requestedCrafts = math.floor(v + 0.5)
-    local ctx = popCtx
-    HideStockpilePopover()
-    RunSendStockpile(ctx)
-end)
-
-local function ShowStockpilePopover(anchorRow, ctx)
-    popCtx = ctx
-    stockpilePopover:ClearAllPoints()
-    -- Anchor using UIParent-relative screen coords so it survives list refresh/row pooling.
-    local left = anchorRow and anchorRow.GetLeft and anchorRow:GetLeft() or nil
-    local bottom = anchorRow and anchorRow.GetBottom and anchorRow:GetBottom() or nil
-    local scale = (UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
-    if scale <= 0 then scale = 1 end
-    if left and bottom then
-        stockpilePopover:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left / scale + 6, bottom / scale - 2)
-    else
-        local cx, cy = GetCursorPosition()
-        stockpilePopover:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cx / scale + 6, cy / scale - 2)
+local function SetRowInteractive(row, on)
+    if not row then return end
+    if row.EnableMouse then
+        row:EnableMouse(on and true or false)
     end
-    local baseline = tonumber(ctx.minCrafts) or 0
-    local maxV = tonumber(ctx.maxCrafts) or baseline
-    local minV = baseline + 1 -- minimum = send at least one craft worth (never "0 to send")
-    if maxV < minV then maxV = minV end
-    ctx.sliderMinWillHave = minV
-    ctx.sliderMaxWillHave = maxV
-
-    popTitle:SetText("Send Stockpile")
-    SetPopoverWillHave(minV)
-    stockpilePopoverOverlay:Show()
-    stockpilePopover:Show()
+    if not on and Theme.SetHoverTint then
+        Theme.SetHoverTint(row, false)
+    end
 end
 
-stockpilePopoverOverlay:SetScript("OnMouseDown", function(_, button)
-    if button ~= "LeftButton" then return end
-    if stockpilePopover and stockpilePopover.IsShown and stockpilePopover:IsShown() then
-        HideStockpilePopover()
+local function ApplyRowInteractivity()
+    local on = sendBar.mode == "compose" and not sendBar.sending
+    for _, row in ipairs(activeRows) do
+        SetRowInteractive(row, on)
+    end
+    SyncSelectAllCheck()
+end
+
+UpdateSendBarMode = function(forceMode, opts)
+    opts = opts or {}
+    -- MAIL_CLOSED can fire before DataStore/MailFrame flags clear; allow an explicit override.
+    local mailboxOpen = false
+    if not opts.forceClosed then
+        mailboxOpen = (DS.IsMailOpen and DS:IsMailOpen()) and IsMailboxActuallyOpen()
+    end
+    local mode
+    if not mailboxOpen then
+        mode = "tip"
+    elseif forceMode == "compose" or forceMode == "idle" then
+        mode = forceMode
+    elseif sendBar.mode == "compose" then
+        mode = "compose"
+    else
+        mode = "idle"
+    end
+    local prev = sendBar.mode
+    sendBar.mode = mode
+
+    local showTip = mode == "tip"
+    tipIcon:SetShown(showTip)
+    tipLabel:SetShown(showTip)
+    sendBar.openBtn:SetShown(mode == "idle")
+    local showCompose = mode == "compose"
+    sendBar.cancelBtn:SetShown(showCompose)
+    sendBar.minusBtn:SetShown(showCompose)
+    sendBar.plusBtn:SetShown(showCompose)
+    sendBar.countLabel:SetShown(showCompose)
+    sendBar.sendBtn:SetShown(showCompose)
+    if showCompose then
+        sendBar.minusBtn:ClearAllPoints()
+        sendBar.countLabel:ClearAllPoints()
+        sendBar.plusBtn:ClearAllPoints()
+        sendBar.countLabel:SetPoint("CENTER", tipRow, "CENTER", 0, 0)
+        sendBar.minusBtn:SetPoint("RIGHT", sendBar.countLabel, "LEFT", -4, 0)
+        sendBar.plusBtn:SetPoint("LEFT", sendBar.countLabel, "RIGHT", 4, 0)
+        SyncQtyControls()
+        SyncSendButtonState()
+    else
+        sendBar.sendHit:Hide()
+        if mode ~= "compose" then
+            sendBar.sending = false
+        end
+    end
+
+    if prev ~= mode then
+        if mode == "compose" then
+            sendBar.targetN = sendBar.targetN or 1
+            if sendBar.targetN < 1 then sendBar.targetN = 1 end
+            sendBar.checks = {}
+            StartColumnAnim(COMPOSE_COL_WIDTHS, SELECT_ALL_HEIGHT)
+        elseif prev == "compose" then
+            sendBar.checks = {}
+            sendBar.allocByKey = {}
+            StartColumnAnim(IDLE_COL_WIDTHS, 0)
+        end
+        ApplyRowInteractivity()
+        if RefreshList then
+            RefreshList()
+        end
+    else
+        ApplyRowInteractivity()
+        if mode == "compose" and RecomputeSendAllocation then
+            RecomputeSendAllocation()
+        end
+    end
+end
+
+local function ExitComposeMode(opts)
+    opts = opts or {}
+    sendBar.sending = false
+    -- Do not set sendBar.mode here — UpdateSendBarMode must see prev == "compose"
+    -- so it can animate columns back to idle widths.
+    if opts.keepIdle and (DS.IsMailOpen and DS:IsMailOpen()) and IsMailboxActuallyOpen() then
+        UpdateSendBarMode("idle")
+    else
+        UpdateSendBarMode()
+    end
+end
+
+sendBar.openBtn:SetScript("OnClick", function()
+    if sendBar.mode ~= "idle" then return end
+    sendBar.targetN = 1
+    UpdateSendBarMode("compose")
+end)
+
+sendBar.cancelBtn:SetScript("OnClick", function()
+    if sendBar.sending then
+        if sendBar.AbortSending then
+            sendBar.AbortSending("Send cancelled.")
+        end
+        if sendBar.mode == "compose" then
+            ExitComposeMode({ keepIdle = true })
+        end
+        return
+    end
+    ExitComposeMode({ keepIdle = true })
+end)
+
+sendBar.minusBtn:SetScript("OnClick", function()
+    if sendBar.sending then return end
+    local n = (sendBar.targetN or 1) - 1
+    if n < 1 then n = 1 end
+    sendBar.targetN = n
+    SyncQtyControls()
+    if RecomputeSendAllocation then RecomputeSendAllocation() end
+end)
+
+sendBar.plusBtn:SetScript("OnClick", function()
+    if sendBar.sending then return end
+    sendBar.targetN = (sendBar.targetN or 1) + 1
+    SyncQtyControls()
+    if RecomputeSendAllocation then RecomputeSendAllocation() end
+end)
+
+sendBar.sendBtn:SetScript("OnClick", function()
+    if sendBar.StartSending then
+        sendBar.StartSending()
     end
 end)
 
@@ -615,6 +965,7 @@ local function PoolRow()
         local matSlot = CreateFrame("Frame", nil, row)
         matSlot:SetSize(colWidths.Mats, ROW_HEIGHT)
         matSlot:SetPoint("TOPLEFT", char, "TOPRIGHT", 0, 0)
+        row.matSlot = matSlot
 
         local matIcon = matSlot:CreateTexture(nil, "ARTWORK")
         matIcon:SetSize(MAT_ICON_SIZE, MAT_ICON_SIZE)
@@ -636,8 +987,20 @@ local function PoolRow()
         tm:SetNonSpaceWrap(false)
         row.timeCell = tm
 
+        local sendSlot = CreateFrame("Frame", nil, row)
+        sendSlot:SetSize(math.max(1, colWidths.Send or 1), ROW_HEIGHT)
+        sendSlot:SetPoint("TOPLEFT", tm, "TOPRIGHT", 0, 0)
+        row.sendSlot = sendSlot
+        local check = Theme.CreateThemeCheckbox(sendSlot, 16)
+        check:SetPoint("RIGHT", sendSlot, "RIGHT", 0, 0)
+        row.sendCheck = check
+        sendSlot:Hide()
+
         Theme.BindInteractableHover(row, {
             onEnter = function(self)
+                if sendBar.mode ~= "compose" then
+                    return
+                end
                 if not self.spellId then
                     return
                 end
@@ -654,7 +1017,6 @@ local function PoolRow()
                     local title = _G.GetSpellInfo and _G.GetSpellInfo(self.spellId)
                     GameTooltip:AddLine(title or ("Spell " .. tostring(self.spellId)), 1, 1, 1)
                 end
-                -- Small gap before custom material summary (between default spell tooltip and AltArmy lines).
                 GameTooltip:AddLine(" ", 1, 1, 1)
                 local charTable = self.charTableRef
                 local qty = nil
@@ -719,93 +1081,156 @@ local function PoolRow()
             end,
         })
 
+        local function ToggleRowSendCheck(self)
+            if sendBar.mode ~= "compose" or sendBar.sending then return end
+            if not self.sendEligible then return end
+            local key = self.sendKey
+            if not key then return end
+            local newVal = not self.sendChecked
+            self.sendChecked = newVal
+            sendBar.checks[key] = newVal
+            if self.sendCheck then
+                self.sendCheck:SetChecked(newVal)
+            end
+            if RecomputeSendAllocation then
+                RecomputeSendAllocation()
+            end
+        end
+
+        local function ShowMatsSendTooltip(self)
+            if sendBar.mode ~= "compose" then return end
+            local rd = self.rowData
+            local alloc = self.allocPreview
+            if not rd or not alloc or not self.sendEligible or not self.sendChecked then
+                return
+            end
+            local currentChar = DS.GetCurrentCharacter and DS:GetCurrentCharacter() or nil
+            local curName = (DS.GetCharacterName and currentChar and DS:GetCharacterName(currentChar))
+                or (select(1, GetCurrentIdentity()))
+            local srcClass = currentChar and select(2, DS:GetCharacterClass(currentChar)) or nil
+            local tgtClass = self.charTableRef and select(2, DS:GetCharacterClass(self.charTableRef)) or nil
+            local srcName = ColorNameByClass(curName or "?", srcClass)
+            local tgtName = ColorNameByClass(rd.name or rd.charKeyName or "?", tgtClass)
+            local delta = alloc.delta or 0
+            local willHave = alloc.willHave or 0
+            local desired = sendBar.targetN or 1
+            local recipeName = rd.categoryTitle
+                or (_G.GetSpellInfo and _G.GetSpellInfo(self.spellId or rd.spellId))
+                or "Recipe"
+            GameTooltip:SetOwner(self.matSlot or self, "ANCHOR_BOTTOMLEFT")
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine(recipeName, 1, 1, 1, true)
+            GameTooltip:AddLine(srcName .. " will send " .. tostring(delta) .. "x", 1, 1, 1, true)
+            GameTooltip:AddLine(tgtName .. " will have " .. tostring(willHave) .. "x", 1, 1, 1, true)
+            if willHave < desired then
+                GameTooltip:AddLine(
+                    srcName .. " does not have enough materials to give everyone " .. tostring(desired) .. "x.",
+                    0.6,
+                    0.6,
+                    0.6,
+                    true
+                )
+            end
+            GameTooltip:Show()
+        end
+
+        local function RowFromChild(child)
+            if not child then return nil end
+            if child.catCell then return child end
+            local p = child:GetParent()
+            if p and p.catCell then return p end
+            if p then
+                local gp = p:GetParent()
+                if gp and gp.catCell then return gp end
+            end
+            return nil
+        end
+
+        local function ApplyRowHoverFromChild(child, showTooltip)
+            local parent = RowFromChild(child)
+            if not parent or sendBar.mode ~= "compose" then
+                return
+            end
+            if Theme.SetHoverTint then
+                for _, r in ipairs(activeRows) do
+                    if r ~= parent then
+                        Theme.SetHoverTint(r, false)
+                    end
+                end
+                Theme.SetHoverTint(parent, true)
+            end
+            if showTooltip and parent:GetScript("OnEnter") then
+                parent:GetScript("OnEnter")(parent)
+            end
+        end
+
+        local function ClearRowHoverFromChild(child)
+            local parent = RowFromChild(child)
+            GameTooltip:Hide()
+            if parent and Theme.SetHoverTint and not (MouseIsOver and MouseIsOver(parent)) then
+                Theme.SetHoverTint(parent, false)
+            end
+        end
+
+        -- Mats cell owns mouse for its send tooltip, but must keep row hover + click-to-toggle.
+        -- Use GetParent() (not a closed-over row) so recycled pool frames always tint themselves.
+        matSlot:EnableMouse(true)
+        matSlot:SetScript("OnEnter", function(self)
+            local parent = self:GetParent()
+            if not parent then return end
+            if sendBar.mode == "compose" and Theme.SetHoverTint then
+                for _, r in ipairs(activeRows) do
+                    if r ~= parent then
+                        Theme.SetHoverTint(r, false)
+                    end
+                end
+                Theme.SetHoverTint(parent, true)
+            end
+            if sendBar.mode == "compose" and parent.sendChecked and parent.allocPreview then
+                ShowMatsSendTooltip(parent)
+            elseif sendBar.mode == "compose" and parent:GetScript("OnEnter") then
+                parent:GetScript("OnEnter")(parent)
+            end
+        end)
+        matSlot:SetScript("OnLeave", function(self)
+            ClearRowHoverFromChild(self)
+        end)
+        matSlot:SetScript("OnMouseUp", function(self, button)
+            if button == "LeftButton" then
+                ToggleRowSendCheck(self:GetParent())
+            end
+        end)
+
+        -- Checkbox steals mouse from the row; forward hover so highlight appears immediately.
+        row.sendCheck:SetScript("OnEnter", function(self)
+            ApplyRowHoverFromChild(self, true)
+        end)
+        row.sendCheck:SetScript("OnLeave", function(self)
+            ClearRowHoverFromChild(self)
+        end)
+
+        row.sendCheck:SetScript("OnClick", function(checkBtn)
+            local parent = row
+            if sendBar.mode ~= "compose" or sendBar.sending or not parent.sendEligible then
+                checkBtn:SetChecked(parent.sendChecked and true or false)
+                return
+            end
+            local newVal = checkBtn:GetChecked() and true or false
+            parent.sendChecked = newVal
+            if parent.sendKey then
+                sendBar.checks[parent.sendKey] = newVal
+            end
+            if RecomputeSendAllocation then
+                RecomputeSendAllocation()
+            end
+        end)
+
         row:RegisterForClicks("LeftButtonUp")
         row:SetScript("OnClick", function(self)
-            if stockpilePopover and stockpilePopover:IsShown() then
-                HideStockpilePopover()
-            end
-            if not self or not self.rowData or not self.spellId then return end
-            local rd = self.rowData
-
-            local curName, curRealm = GetCurrentIdentity()
-            if not curName or curName == "" then return end
-            if (rd.charKeyName == curName) and (rd.realm == curRealm) then
-                return
-            end
-
-            if DS.IsMailOpen and not DS:IsMailOpen() then
-                ChatInfo("Visit a mailbox and click again to send stockpile")
-                return
-            end
-            if not IsMailboxActuallyOpen() then
-                ChatInfo("Visit a mailbox and click again to send stockpile")
-                return
-            end
-
-            local currentChar = DS.GetCurrentCharacter and DS:GetCurrentCharacter() or nil
-            local targetChar = self.charTableRef
-            if not currentChar or not targetChar then return end
-
-            local getTargetCount = function(ch, itemId)
-                return DS.GetTotalItemCount and DS:GetTotalItemCount(ch, itemId) or DS:GetContainerItemCount(ch, itemId)
-            end
-            local getSourceCount = function(ch, itemId)
-                if DS.GetBagItemCount then
-                    return DS:GetBagItemCount(ch, itemId)
-                end
-                return DS:GetContainerItemCount(ch, itemId)
-            end
-
-            local minCrafts = CD.GetMaxCraftableQuantity
-                and CD.GetMaxCraftableQuantity(targetChar, self.spellId, getTargetCount)
-            if minCrafts == nil then
-                ChatInfo("Open this profession's tradeskill window once to load material counts.")
-                return
-            end
-            local maxCrafts = CD.GetMaxCraftableQuantityAfterTransfer
-                and CD.GetMaxCraftableQuantityAfterTransfer(
-                    targetChar,
-                    currentChar,
-                    self.spellId,
-                    getTargetCount,
-                    getSourceCount
-                )
-            if maxCrafts == nil then
-                ChatInfo("Open this profession's tradeskill window once to load material counts.")
-                return
-            end
-            local cappedMax = ComputeMaxCraftsWithAttachmentCap(
-                targetChar,
-                currentChar,
-                self.spellId,
-                minCrafts,
-                maxCrafts
-            )
-            if cappedMax <= minCrafts then
-                local _, targetClassFile = DS:GetCharacterClass(targetChar)
-                ChatNotEnoughStockpile(rd.name, targetClassFile, self.spellId, function(itemId)
-                    return getSourceCount(currentChar, itemId)
-                end)
-                return
-            end
-
-            if rd.realm ~= curRealm then
-                ChatInfo("Can't send stockpile across realms")
-                return
-            end
-
-            ShowStockpilePopover(self, {
-                spellId = self.spellId,
-                targetName = rd.charKeyName,
-                targetDisplayName = rd.name,
-                targetRealm = rd.realm,
-                targetClassFile = select(2, DS:GetCharacterClass(targetChar)),
-                sourceDisplayName = (DS.GetCharacterName and DS:GetCharacterName(currentChar)) or curName,
-                sourceClassFile = select(2, DS:GetCharacterClass(currentChar)),
-                minCrafts = minCrafts,
-                maxCrafts = cappedMax,
-            })
+            ToggleRowSendCheck(self)
         end)
+
+        row:EnableMouse(false)
     end
     row:Show()
     return row
@@ -1132,13 +1557,33 @@ local function ResetAttachSeqState()
 end
 
 sendAllSeq.Finish = function(msg)
+    local fromCompose = sendAllSeq.fromCompose
     sendAllSeq.active = false
     sendAllSeq.targetN = 0
     sendAllSeq.rows = nil
     sendAllSeq.index = 1
     sendAllSeq.waitingForMail = false
+    sendAllSeq.usePreallocated = false
+    sendAllSeq.fromCompose = false
+    sendBar.sending = false
     if msg then
         ChatInfo(msg)
+    end
+    if fromCompose then
+        if (DS.IsMailOpen and DS:IsMailOpen()) and IsMailboxActuallyOpen() then
+            UpdateSendBarMode("idle")
+        else
+            -- Leave mode as compose so UpdateSendBarMode sees the transition and
+            -- reverts column widths; mailbox-closed forces tip inside the updater.
+            UpdateSendBarMode()
+        end
+        if RefreshList then
+            RefreshList()
+        end
+    else
+        SyncQtyControls()
+        SyncSendButtonState()
+        ApplyRowInteractivity()
     end
 end
 
@@ -1248,12 +1693,49 @@ local function CompleteAttachSeqAndSendMail()
     end
 end
 
--- Hide popover / abort attachment when mailbox closes; announce stockpile send on mail sent.
+-- Abort attachment when mailbox closes; announce stockpile send on mail sent; sync send bar.
+-- TBC Anniversary often does not fire MAIL_CLOSED — also listen to interaction-manager + MailFrame hooks.
+local MAIL_INTERACTION_TYPE = (
+    _G.Enum and _G.Enum.PlayerInteractionType and _G.Enum.PlayerInteractionType.MailInfo
+) or 17
+
+local function OnMailboxOpened()
+    UpdateSendBarMode()
+end
+
+local function OnMailboxClosed()
+    stockpileMailPendingAnnounce = nil
+    if stockpileAttachSeq.active then
+        AbortAttachSeq(nil, { abortSendAll = true })
+    elseif sendAllSeq.active then
+        sendAllSeq.Finish("Send-all aborted (mailbox closed).")
+    end
+    sendBar.sending = false
+    UpdateSendBarMode(nil, { forceClosed = true })
+end
+
+local function EnsureMailFrameHooks()
+    local mf = _G.MailFrame
+    if not mf or mf.altArmyCooldownsMailHooked then
+        return
+    end
+    mf.altArmyCooldownsMailHooked = true
+    if mf.HookScript then
+        mf:HookScript("OnShow", OnMailboxOpened)
+        mf:HookScript("OnHide", OnMailboxClosed)
+    end
+end
+
 local mailCloseWatcher = CreateFrame("Frame", nil, frame)
 mailCloseWatcher:RegisterEvent("MAIL_CLOSED")
+mailCloseWatcher:RegisterEvent("MAIL_SHOW")
 mailCloseWatcher:RegisterEvent("MAIL_SEND_SUCCESS")
 mailCloseWatcher:RegisterEvent("MAIL_FAILED")
-mailCloseWatcher:SetScript("OnEvent", function(_, event)
+pcall(function()
+    mailCloseWatcher:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_SHOW")
+    mailCloseWatcher:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
+end)
+mailCloseWatcher:SetScript("OnEvent", function(_, event, ...)
     if event == "MAIL_SEND_SUCCESS" then
         local p = stockpileMailPendingAnnounce
         if p and p.displayName and p.displayName ~= "" then
@@ -1274,18 +1756,29 @@ mailCloseWatcher:SetScript("OnEvent", function(_, event)
         end
         return
     end
-    if event == "MAIL_CLOSED" then
-        stockpileMailPendingAnnounce = nil
-        if stockpilePopover and stockpilePopover.IsShown and stockpilePopover:IsShown() then
-            HideStockpilePopover()
+    if event == "MAIL_SHOW" or event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" then
+        if event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" then
+            local interactionType = ...
+            if interactionType ~= MAIL_INTERACTION_TYPE then
+                return
+            end
         end
-        if stockpileAttachSeq.active then
-            AbortAttachSeq(nil, { abortSendAll = true })
-        elseif sendAllSeq.active then
-            sendAllSeq.Finish("Send-all aborted (mailbox closed).")
+        EnsureMailFrameHooks()
+        OnMailboxOpened()
+        return
+    end
+    if event == "MAIL_CLOSED" or event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
+        if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
+            local interactionType = ...
+            if interactionType ~= MAIL_INTERACTION_TYPE then
+                return
+            end
         end
+        OnMailboxClosed()
     end
 end)
+
+EnsureMailFrameHooks()
 
 local function StartAttachSeq(steps)
     if not steps or #steps == 0 then
@@ -1652,41 +2145,52 @@ sendAllSeq.Advance = function()
         sendAllSeq.index = sendAllSeq.index + 1
         if rd then
             local targetChar = DS.GetCharacter and DS:GetCharacter(rd.charKeyName, rd.realm) or nil
-            local minCrafts, maxCrafts, cappedMax
-            if targetChar and rd.spellId then
-                minCrafts = CD.GetMaxCraftableQuantity
-                    and CD.GetMaxCraftableQuantity(targetChar, rd.spellId, getTargetCount)
-                maxCrafts = CD.GetMaxCraftableQuantityAfterTransfer
-                    and CD.GetMaxCraftableQuantityAfterTransfer(
-                        targetChar,
-                        currentChar,
-                        rd.spellId,
-                        getTargetCount,
-                        getSourceCount
-                    )
-                if minCrafts ~= nil and maxCrafts ~= nil then
-                    cappedMax = ComputeMaxCraftsWithAttachmentCap(
-                        targetChar,
-                        currentChar,
-                        rd.spellId,
-                        minCrafts,
-                        maxCrafts
-                    )
-                end
-            end
+            local decision
 
-            local decision = CD.EvaluateSendAllRow
-                and CD.EvaluateSendAllRow(
-                    curName,
-                    curRealm,
-                    rd.charKeyName,
-                    rd.realm,
-                    n,
-                    minCrafts,
-                    cappedMax
-                )
-            if not decision then
-                decision = { action = "skip", reason = "unknown" }
+            if sendAllSeq.usePreallocated then
+                local req = tonumber(rd.requestedCrafts)
+                if req and req >= 1 then
+                    decision = { action = "send", requestedCrafts = req }
+                else
+                    decision = { action = "skip", reason = "enough" }
+                end
+            else
+                local minCrafts, maxCrafts, cappedMax
+                if targetChar and rd.spellId then
+                    minCrafts = CD.GetMaxCraftableQuantity
+                        and CD.GetMaxCraftableQuantity(targetChar, rd.spellId, getTargetCount)
+                    maxCrafts = CD.GetMaxCraftableQuantityAfterTransfer
+                        and CD.GetMaxCraftableQuantityAfterTransfer(
+                            targetChar,
+                            currentChar,
+                            rd.spellId,
+                            getTargetCount,
+                            getSourceCount
+                        )
+                    if minCrafts ~= nil and maxCrafts ~= nil then
+                        cappedMax = ComputeMaxCraftsWithAttachmentCap(
+                            targetChar,
+                            currentChar,
+                            rd.spellId,
+                            minCrafts,
+                            maxCrafts
+                        )
+                    end
+                end
+
+                decision = CD.EvaluateSendAllRow
+                    and CD.EvaluateSendAllRow(
+                        curName,
+                        curRealm,
+                        rd.charKeyName,
+                        rd.realm,
+                        n,
+                        minCrafts,
+                        cappedMax
+                    )
+                if not decision then
+                    decision = { action = "skip", reason = "unknown" }
+                end
             end
 
             if decision.action == "skip" then
@@ -1754,8 +2258,9 @@ frame.StartSendAllStockpile = function(_, n)
         ChatInfo("Visit a mailbox and run /alta sendall again.")
         return
     end
-    if stockpilePopover and stockpilePopover.IsShown and stockpilePopover:IsShown() then
-        HideStockpilePopover()
+    if sendBar.mode == "compose" then
+        sendBar.sending = false
+        UpdateSendBarMode("idle")
     end
     SetActiveCooldownsView("crafting")
     local snap = sendAllSeq.SnapshotVisibleRows()
@@ -1768,17 +2273,56 @@ frame.StartSendAllStockpile = function(_, n)
     sendAllSeq.rows = snap
     sendAllSeq.index = 1
     sendAllSeq.waitingForMail = false
+    sendAllSeq.usePreallocated = false
+    sendAllSeq.fromCompose = false
     ChatInfo(string.format("Send-all started: target %dx across %d row(s).", targetN, #snap))
     sendAllSeq.Advance()
 end
 
 local function ReleaseRows()
     for _, r in ipairs(activeRows) do
+        if Theme.SetHoverTint then
+            Theme.SetHoverTint(r, false)
+        end
         r:Hide()
         r:SetParent(scrollChild)
         rowPool[#rowPool + 1] = r
     end
     activeRows = {}
+end
+
+--- After a list rebuild, row frames are reshuffled under the cursor; re-apply hover/tooltip.
+local function SyncRowHoverUnderMouse()
+    if sendBar.mode ~= "compose" then
+        return
+    end
+    if not MouseIsOver then
+        return
+    end
+    local under = nil
+    for _, row in ipairs(activeRows) do
+        if Theme.SetHoverTint then
+            Theme.SetHoverTint(row, false)
+        end
+        if not under and row:IsShown() and MouseIsOver(row) then
+            under = row
+        end
+    end
+    if not under then
+        return
+    end
+    if Theme.SetHoverTint then
+        Theme.SetHoverTint(under, true)
+    end
+    -- Prefer mats send tooltip when the cursor is still over that cell.
+    if under.matSlot and MouseIsOver(under.matSlot) and under.sendChecked and under.allocPreview then
+        local enter = under.matSlot:GetScript("OnEnter")
+        if enter then
+            enter(under.matSlot)
+        end
+    elseif under:GetScript("OnEnter") then
+        under:GetScript("OnEnter")(under)
+    end
 end
 
 local function CompareCooldownRows(a, b)
@@ -1879,6 +2423,9 @@ RefreshList = function()
     local totalH = math.max(1, #rows) * ROW_HEIGHT
     scrollChild:SetSize(totalColWidth, totalH)
 
+    local curName, curRealm = GetCurrentIdentity()
+    local compose = sendBar.mode == "compose"
+
     local y = 0
     for _, rd in ipairs(rows) do
         local row = PoolRow()
@@ -1911,7 +2458,44 @@ RefreshList = function()
         end
         row.spellId = rd.spellId
         row.rowData = rd
+        row.allocPreview = nil
 
+        local key = RowSendKey(rd)
+        row.sendKey = key
+        local isSelf = (rd.charKeyName == curName) and (rd.realm == curRealm)
+        local sameRealm = (rd.realm == curRealm)
+        row.sendEligible = (not isSelf) and sameRealm
+        local fadingSend = (sendBar.headerOffset or 0) > 0.5 or (colWidths.Send or 0) > 0.5
+        if compose or fadingSend then
+            local checked
+            if compose then
+                if sendBar.checks[key] ~= nil then
+                    checked = sendBar.checks[key] and true or false
+                else
+                    checked = row.sendEligible and true or false
+                    sendBar.checks[key] = checked
+                end
+                if not row.sendEligible then
+                    checked = false
+                    sendBar.checks[key] = false
+                end
+            else
+                checked = false
+            end
+            row.sendChecked = checked
+            if row.sendCheck then
+                row.sendCheck:SetChecked(checked)
+                if compose and row.sendEligible and not sendBar.sending then
+                    row.sendCheck:Enable()
+                else
+                    row.sendCheck:Disable()
+                end
+            end
+        else
+            row.sendChecked = false
+        end
+
+        -- Default mats display; RecomputeSendAllocation may replace with preview.
         local craftQty = rd._sortCraftQty
         if craftQty == nil then
             row.matCountLabel:Hide()
@@ -1929,6 +2513,33 @@ RefreshList = function()
             row.matCountLabel:SetTextColor(1, 0.25, 0.25, 1)
             row.matCountLabel:Show()
         end
+
+        -- Apply current column sizes (animation may be mid-flight).
+        if row.catCell then
+            row.catCell:SetSize(colWidths.Category, ROW_HEIGHT)
+            row.charCell:SetSize(colWidths.Character, ROW_HEIGHT)
+            if row.matSlot then
+                row.matSlot:SetSize(colWidths.Mats, ROW_HEIGHT)
+            end
+            row.timeCell:SetSize(colWidths.Time, ROW_HEIGHT)
+            if row.sendSlot and colWidths.Send > 0.5 then
+                row.sendSlot:SetSize(colWidths.Send, ROW_HEIGHT)
+            end
+        end
+    end
+
+    do
+        local fadeAlpha = 0
+        if SELECT_ALL_HEIGHT > 0 then
+            fadeAlpha = math.min(1, (sendBar.headerOffset or 0) / SELECT_ALL_HEIGHT)
+        end
+        SyncSendCheckFade(fadeAlpha)
+    end
+
+    ApplyRowInteractivity()
+
+    if compose and RecomputeSendAllocation then
+        RecomputeSendAllocation()
     end
 
     local viewH = scroll:GetHeight()
@@ -1939,6 +2550,190 @@ RefreshList = function()
     if cooldownHeaderFade then
         cooldownHeaderFade:Update()
     end
+    SyncRowHoverUnderMouse()
+end
+
+local function FormatMatsPreview(craftQty, willHave, desiredN)
+    local left = craftQty >= 100 and "99+" or tostring(craftQty)
+    local rightN = willHave or craftQty
+    local right = rightN >= 100 and "99+" or tostring(rightN)
+    local leftColor = craftQty >= 1 and "|cff00ff00" or "|cffff4040"
+    local rightColor = (rightN >= (desiredN or 1)) and "|cff00ff00" or "|cffffc033"
+    return leftColor .. left .. "x|r -> " .. rightColor .. right .. "x|r"
+end
+
+RecomputeSendAllocation = function()
+    sendBar.allocByKey = {}
+    sendBar.anyChecked = false
+    if sendBar.mode ~= "compose" then
+        SyncSendButtonState()
+        SyncSelectAllCheck()
+        return
+    end
+
+    local curName, curRealm = GetCurrentIdentity()
+    local currentChar = DS.GetCurrentCharacter and DS:GetCurrentCharacter() or nil
+    local getTargetCount = function(ch, itemId)
+        return DS.GetTotalItemCount and DS:GetTotalItemCount(ch, itemId) or DS:GetContainerItemCount(ch, itemId)
+    end
+    local getSourceCount = function(ch, itemId)
+        return DS.GetBagItemCount and DS:GetBagItemCount(ch, itemId) or DS:GetContainerItemCount(ch, itemId)
+    end
+
+    local sourceCounts = {}
+    local inputs = {}
+    local desired = sendBar.targetN or 1
+
+    for _, row in ipairs(activeRows) do
+        local rd = row.rowData
+        local selected = row.sendChecked and row.sendEligible and true or false
+        if selected then
+            sendBar.anyChecked = true
+        end
+        local skip = nil
+        if rd then
+            if (rd.charKeyName == curName) and (rd.realm == curRealm) then
+                skip = "self"
+            elseif rd.realm ~= curRealm then
+                skip = "realm"
+            end
+        end
+        local minCrafts = nil
+        local reagents = nil
+        local targetChar = row.charTableRef
+        if targetChar and rd and rd.spellId and CD.GetReagentList then
+            local list = CD.GetReagentList(rd.spellId)
+            if list then
+                minCrafts = CD.GetMaxCraftableQuantity
+                    and CD.GetMaxCraftableQuantity(targetChar, rd.spellId, getTargetCount)
+                reagents = {}
+                for _, pair in ipairs(list) do
+                    local itemId, need = pair[1], pair[2] or 1
+                    local targetHave = getTargetCount(targetChar, itemId) or 0
+                    reagents[#reagents + 1] = {
+                        itemID = itemId,
+                        need = need,
+                        targetHave = targetHave,
+                    }
+                    if currentChar and selected and not skip then
+                        if sourceCounts[itemId] == nil then
+                            sourceCounts[itemId] = getSourceCount(currentChar, itemId) or 0
+                        end
+                    end
+                end
+            end
+        end
+        inputs[#inputs + 1] = {
+            selected = selected,
+            skip = skip,
+            minCrafts = minCrafts,
+            reagents = reagents,
+        }
+    end
+
+    local result = CD.AllocateSendAllCrafts and CD.AllocateSendAllCrafts(desired, sourceCounts, inputs)
+        or { rows = {} }
+    for i, row in ipairs(activeRows) do
+        local alloc = result.rows[i] or { willHave = 0, delta = 0, shortfall = false }
+        row.allocPreview = alloc
+        local key = row.sendKey
+        if key then
+            sendBar.allocByKey[key] = alloc
+        end
+        local rd = row.rowData
+        local craftQty = rd and rd._sortCraftQty
+        if craftQty == nil then
+            row.matCountLabel:Hide()
+            row.matIcon:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Waiting")
+            row.matIcon:Show()
+        elseif row.sendChecked and row.sendEligible then
+            row.matIcon:Hide()
+            row.matCountLabel:SetText(FormatMatsPreview(craftQty, alloc.willHave, desired))
+            row.matCountLabel:SetTextColor(1, 1, 1, 1)
+            row.matCountLabel:Show()
+        elseif craftQty >= 1 then
+            row.matIcon:Hide()
+            local label = craftQty >= 100 and "99+x" or (tostring(craftQty) .. "x")
+            row.matCountLabel:SetText(label)
+            row.matCountLabel:SetTextColor(0, 1, 0, 1)
+            row.matCountLabel:Show()
+        else
+            row.matIcon:Hide()
+            row.matCountLabel:SetText("0x")
+            row.matCountLabel:SetTextColor(1, 0.25, 0.25, 1)
+            row.matCountLabel:Show()
+        end
+    end
+    SyncSendButtonState()
+    SyncSelectAllCheck()
+end
+
+sendBar.AbortSending = function(msg)
+    if stockpileAttachSeq.active then
+        ResetAttachSeqState()
+        ClearCursor()
+    end
+    if sendAllSeq.active then
+        sendAllSeq.Finish(msg or "Send cancelled.")
+    else
+        sendBar.sending = false
+    end
+end
+
+sendBar.StartSending = function()
+    if sendBar.mode ~= "compose" or sendBar.sending then
+        return
+    end
+    if DS.IsMailOpen and not DS:IsMailOpen() then
+        ChatInfo("Visit a mailbox to send materials.")
+        return
+    end
+    if not IsMailboxActuallyOpen() then
+        ChatInfo("Visit a mailbox to send materials.")
+        return
+    end
+    if RecomputeSendAllocation then
+        RecomputeSendAllocation()
+    end
+    if not sendBar.anyChecked then
+        return
+    end
+    local snap = {}
+    for _, row in ipairs(activeRows) do
+        local rd = row.rowData
+        local alloc = row.allocPreview
+        if rd and row.sendChecked and row.sendEligible and alloc and (alloc.delta or 0) > 0 then
+            snap[#snap + 1] = {
+                charKeyName = rd.charKeyName,
+                name = rd.name,
+                realm = rd.realm,
+                spellId = rd.spellId,
+                requestedCrafts = alloc.willHave,
+            }
+        end
+    end
+    if #snap == 0 then
+        ChatInfo("Nothing to send for the selected characters.")
+        return
+    end
+    sendBar.sending = true
+    SyncQtyControls()
+    SyncSendButtonState()
+    ApplyRowInteractivity()
+    for _, row in ipairs(activeRows) do
+        if row.sendCheck then
+            row.sendCheck:Disable()
+        end
+    end
+    sendAllSeq.active = true
+    sendAllSeq.targetN = sendBar.targetN or 1
+    sendAllSeq.rows = snap
+    sendAllSeq.index = 1
+    sendAllSeq.waitingForMail = false
+    sendAllSeq.usePreallocated = true
+    sendAllSeq.fromCompose = true
+    ChatInfo(string.format("Sending materials: target %dx across %d character(s).", sendAllSeq.targetN, #snap))
+    sendAllSeq.Advance()
 end
 
 frame.RefreshCooldownList = RefreshList
@@ -1946,6 +2741,12 @@ frame.RefreshCooldownList = RefreshList
 SetActiveCooldownsView = function(which)
     if which ~= "crafting" and which ~= "raids" then
         which = "crafting"
+    end
+    if which == "raids" and sendBar.mode == "compose" then
+        if sendBar.sending and sendBar.AbortSending then
+            sendBar.AbortSending("Send cancelled.")
+        end
+        ExitComposeMode({ keepIdle = true })
     end
     VIEW.active = which
     if LD and LD.EnsureLockoutListOptions then
@@ -1971,6 +2772,7 @@ SetActiveCooldownsView = function(which)
     else
         SyncSortFromSaved()
         UpdateHeaderSortIndicators()
+        UpdateSendBarMode()
         RefreshList()
     end
 end
@@ -2004,7 +2806,18 @@ end)
 
 local upd = 0
 frame:SetScript("OnUpdate", function(_, dt)
-    if AltArmy.CurrentTab ~= "Cooldowns" then return end
+    StepColumnAnim(dt)
+    if AltArmy.CurrentTab ~= "Cooldowns" then
+        if sendBar.mode == "compose" then
+            if sendBar.sending and sendBar.AbortSending then
+                sendBar.AbortSending("Send cancelled.")
+            end
+            if sendBar.mode == "compose" then
+                ExitComposeMode()
+            end
+        end
+        return
+    end
     upd = upd + dt
     if upd >= REFRESH_INTERVAL then
         upd = 0
@@ -2013,6 +2826,7 @@ frame:SetScript("OnUpdate", function(_, dt)
                 frame.RefreshRaidsList()
             end
         else
+            UpdateSendBarMode()
             RefreshList()
         end
     end

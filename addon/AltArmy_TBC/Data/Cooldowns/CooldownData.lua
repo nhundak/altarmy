@@ -548,6 +548,89 @@ function CD.EvaluateSendAllRow(curName, curRealm, rowName, rowRealm, n, minCraft
     return { action = "send", requestedCrafts = targetN }
 end
 
+--- Allocate a shared source reagent pool across selected cooldown rows in list order.
+--- desiredN is the absolute craft count each selected row should reach (same as sendall N).
+--- sourceCounts: map itemID -> count available on the sending character.
+--- rowInputs: array of {
+---   selected = bool,
+---   skip = "self"|"realm"|nil,
+---   minCrafts = number|nil,  -- nil = unknown reagents
+---   reagents = { { itemID, need, targetHave }, ... }|nil
+--- }
+--- @return table { rows = { { willHave, delta, shortfall }, ... }, anyShortfall = bool }
+function CD.AllocateSendAllCrafts(desiredN, sourceCounts, rowInputs)
+    local targetN = tonumber(desiredN) or 0
+    if targetN < 0 then targetN = 0 end
+    local remaining = {}
+    if sourceCounts then
+        for itemId, count in pairs(sourceCounts) do
+            remaining[itemId] = tonumber(count) or 0
+        end
+    end
+    local out = {}
+    local anyShortfall = false
+    local inputs = rowInputs or {}
+    for i = 1, #inputs do
+        local inp = inputs[i] or {}
+        local minCrafts = inp.minCrafts
+        local baseline = tonumber(minCrafts) or 0
+        local entry = { willHave = baseline, delta = 0, shortfall = false }
+
+        if not inp.selected or inp.skip == "self" or inp.skip == "realm" then
+            out[#out + 1] = entry
+        elseif minCrafts == nil or not inp.reagents then
+            entry.willHave = 0
+            entry.shortfall = true
+            anyShortfall = true
+            out[#out + 1] = entry
+        elseif baseline >= targetN then
+            entry.willHave = baseline
+            entry.delta = 0
+            entry.shortfall = false
+            out[#out + 1] = entry
+        else
+            local maxFromRemaining = math.huge
+            for _, r in ipairs(inp.reagents) do
+                local need = tonumber(r.need) or 1
+                if need <= 0 then need = 1 end
+                local targetHave = tonumber(r.targetHave) or 0
+                local srcHave = remaining[r.itemID] or 0
+                local n = math.floor((targetHave + srcHave) / need)
+                if n < maxFromRemaining then
+                    maxFromRemaining = n
+                end
+            end
+            if maxFromRemaining == math.huge then
+                maxFromRemaining = baseline
+            end
+            local willHave = maxFromRemaining
+            if willHave > targetN then willHave = targetN end
+            if willHave < baseline then willHave = baseline end
+            -- Consume reagents for the increase above what the target already has.
+            for _, r in ipairs(inp.reagents) do
+                local need = tonumber(r.need) or 1
+                if need <= 0 then need = 1 end
+                local targetHave = tonumber(r.targetHave) or 0
+                local required = willHave * need - targetHave
+                if required < 0 then required = 0 end
+                local have = remaining[r.itemID] or 0
+                remaining[r.itemID] = have - required
+                if remaining[r.itemID] < 0 then
+                    remaining[r.itemID] = 0
+                end
+            end
+            entry.willHave = willHave
+            entry.delta = willHave - baseline
+            if willHave < targetN then
+                entry.shortfall = true
+                anyShortfall = true
+            end
+            out[#out + 1] = entry
+        end
+    end
+    return { rows = out, anyShortfall = anyShortfall }
+end
+
 --- true / false when reagents known; nil when RecipeReagents missing for this spell.
 function CD.CharacterHasReagents(char, spellId, getContainerItemCount)
     local qty = CD.GetMaxCraftableQuantity(char, spellId, getContainerItemCount)
