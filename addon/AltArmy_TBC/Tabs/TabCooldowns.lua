@@ -468,6 +468,8 @@ local sendBar = {
     headerOffset = 0,
     animFromHeader = 0,
     animToHeader = 0,
+    -- Full list rebuild deferred while LMB is down (ReleaseRows cancels Button OnClick).
+    pendingRefresh = false,
 }
 
 sendBar.openBtn = CreateFrame("Button", nil, tipRow, "UIPanelButtonTemplate")
@@ -622,7 +624,8 @@ SyncSendCheckFade = function(alpha)
     local sendW = colWidths.Send or 0
     local function apply(row)
         if not row or not row.sendSlot then return end
-        if sendW > 0.5 and alpha > 0.01 then
+        -- Own character / cross-realm: no Send checkbox.
+        if row.sendEligible and sendW > 0.5 and alpha > 0.01 then
             row.sendSlot:SetSize(sendW, ROW_HEIGHT)
             row.sendSlot:Show()
             row.sendSlot:SetAlpha(alpha)
@@ -802,15 +805,19 @@ local function SetRowInteractive(row, on)
     if row.EnableMouse then
         row:EnableMouse(on and true or false)
     end
+    if row.matSlot and row.matSlot.EnableMouse then
+        row.matSlot:EnableMouse(on and true or false)
+    end
     if not on and Theme.SetHoverTint then
         Theme.SetHoverTint(row, false)
     end
 end
 
 local function ApplyRowInteractivity()
-    local on = sendBar.mode == "compose" and not sendBar.sending
+    local composeOn = sendBar.mode == "compose" and not sendBar.sending
     for _, row in ipairs(activeRows) do
-        SetRowInteractive(row, on)
+        -- Own character / ineligible targets: no hover highlight or click-to-toggle.
+        SetRowInteractive(row, composeOn and row.sendEligible)
     end
     SyncSelectAllCheck()
 end
@@ -1001,6 +1008,13 @@ local function PoolRow()
                 if sendBar.mode ~= "compose" then
                     return
                 end
+                -- Ineligible rows (e.g. current character) stay non-highlighted.
+                if not self.sendEligible then
+                    if Theme.SetHoverTint then
+                        Theme.SetHoverTint(self, false)
+                    end
+                    return
+                end
                 if not self.spellId then
                     return
                 end
@@ -1148,7 +1162,7 @@ local function PoolRow()
 
         local function ApplyRowHoverFromChild(child, showTooltip)
             local parent = RowFromChild(child)
-            if not parent or sendBar.mode ~= "compose" then
+            if not parent or sendBar.mode ~= "compose" or not parent.sendEligible then
                 return
             end
             if Theme.SetHoverTint then
@@ -1174,11 +1188,12 @@ local function PoolRow()
 
         -- Mats cell owns mouse for its send tooltip, but must keep row hover + click-to-toggle.
         -- Use GetParent() (not a closed-over row) so recycled pool frames always tint themselves.
+        -- Require MouseDown+Up on the same matSlot so a mid-click list rebuild cannot toggle the wrong row.
         matSlot:EnableMouse(true)
         matSlot:SetScript("OnEnter", function(self)
             local parent = self:GetParent()
             if not parent then return end
-            if sendBar.mode == "compose" and Theme.SetHoverTint then
+            if sendBar.mode == "compose" and parent.sendEligible and Theme.SetHoverTint then
                 for _, r in ipairs(activeRows) do
                     if r ~= parent then
                         Theme.SetHoverTint(r, false)
@@ -1188,17 +1203,27 @@ local function PoolRow()
             end
             if sendBar.mode == "compose" and parent.sendChecked and parent.allocPreview then
                 ShowMatsSendTooltip(parent)
-            elseif sendBar.mode == "compose" and parent:GetScript("OnEnter") then
+            elseif sendBar.mode == "compose" and parent.sendEligible and parent:GetScript("OnEnter") then
                 parent:GetScript("OnEnter")(parent)
             end
         end)
         matSlot:SetScript("OnLeave", function(self)
             ClearRowHoverFromChild(self)
         end)
-        matSlot:SetScript("OnMouseUp", function(self, button)
+        matSlot:SetScript("OnMouseDown", function(self, button)
             if button == "LeftButton" then
-                ToggleRowSendCheck(self:GetParent())
+                self._sendClickDown = true
             end
+        end)
+        matSlot:SetScript("OnMouseUp", function(self, button)
+            if button ~= "LeftButton" or not self._sendClickDown then
+                return
+            end
+            self._sendClickDown = false
+            ToggleRowSendCheck(self:GetParent())
+        end)
+        matSlot:SetScript("OnHide", function(self)
+            self._sendClickDown = false
         end)
 
         -- Checkbox steals mouse from the row; forward hover so highlight appears immediately.
@@ -1210,7 +1235,10 @@ local function PoolRow()
         end)
 
         row.sendCheck:SetScript("OnClick", function(checkBtn)
-            local parent = row
+            local parent = RowFromChild(checkBtn)
+            if not parent then
+                return
+            end
             if sendBar.mode ~= "compose" or sendBar.sending or not parent.sendEligible then
                 checkBtn:SetChecked(parent.sendChecked and true or false)
                 return
@@ -2304,7 +2332,7 @@ local function SyncRowHoverUnderMouse()
         if Theme.SetHoverTint then
             Theme.SetHoverTint(row, false)
         end
-        if not under and row:IsShown() and MouseIsOver(row) then
+        if not under and row.sendEligible and row:IsShown() and MouseIsOver(row) then
             under = row
         end
     end
@@ -2387,8 +2415,142 @@ local function CompareCooldownRows(a, b)
     return false
 end
 
+local function SoftUpdateActiveRowTimes(now)
+    now = now or (time and time() or 0)
+    for _, row in ipairs(activeRows) do
+        local rd = row.rowData
+        if rd then
+            local expUnix = rd.expiresUnix
+            local text = CD.FormatTimeRemaining(expUnix, now)
+            rd.timeText = text
+            row.timeCell:SetText(text or "")
+            if expUnix == nil then
+                row.timeCell:SetTextColor(1, 1, 0.4, 1)
+            elseif expUnix <= now then
+                row.timeCell:SetTextColor(0, 1, 0, 1)
+            else
+                row.timeCell:SetTextColor(1, 0.35, 0.35, 1)
+            end
+        end
+    end
+end
+
+--- True when the visible row set matches existing frames (same keys, same order).
+--- Avoids ReleaseRows/Hide which cancels in-flight Button clicks and hover.
+local function CanReuseActiveCooldownRows(rows)
+    if #activeRows ~= #rows then
+        return false
+    end
+    for i, rd in ipairs(rows) do
+        local row = activeRows[i]
+        if not row or row.sendKey ~= RowSendKey(rd) then
+            return false
+        end
+    end
+    return true
+end
+
+local function IsLeftMouseDown()
+    return IsMouseButtonDown and IsMouseButtonDown("LeftButton")
+end
+
+local function FillCooldownListRow(row, rd, now, compose, curName, curRealm, opts)
+    opts = opts or {}
+    row.charTableRef = DS:GetCharacter(rd.charKeyName, rd.realm)
+    row.catCell:SetText(FormatRecipeColumnText(rd.spellId, rd.categoryTitle or "", row.charTableRef))
+    local _, classFile = DS:GetCharacterClass(row.charTableRef)
+    row.charCell:SetTextColor(1, 1, 1, 1)
+    local showRealm = (AltArmy.GlobalRealmFilter and AltArmy.GlobalRealmFilter.Get() == "all")
+        and AccountHasMultipleRealms()
+        and rd.realm
+        and rd.realm ~= ""
+    local charText = RF and RF.formatColoredCharacterNameRealm
+        and RF.formatColoredCharacterNameRealm(rd.name or "", rd.realm, showRealm, classFile)
+        or ((rd.name or "") .. (showRealm and (" — " .. rd.realm) or ""))
+    row.charCell:SetText(charText)
+    row.timeCell:SetText(rd.timeText or "")
+    local expUnix = rd.expiresUnix
+    if expUnix == nil then
+        row.timeCell:SetTextColor(1, 1, 0.4, 1)
+    elseif expUnix <= now then
+        row.timeCell:SetTextColor(0, 1, 0, 1)
+    else
+        row.timeCell:SetTextColor(1, 0.35, 0.35, 1)
+    end
+    row.spellId = rd.spellId
+    row.rowData = rd
+    row.allocPreview = nil
+
+    local key = RowSendKey(rd)
+    row.sendKey = key
+    local isSelf = (rd.charKeyName == curName) and (rd.realm == curRealm)
+    local sameRealm = (rd.realm == curRealm)
+    row.sendEligible = (not isSelf) and sameRealm
+    local fadingSend = (sendBar.headerOffset or 0) > 0.5 or (colWidths.Send or 0) > 0.5
+    if compose or fadingSend then
+        local checked
+        if compose then
+            if sendBar.checks[key] ~= nil then
+                checked = sendBar.checks[key] and true or false
+            else
+                checked = row.sendEligible and true or false
+                sendBar.checks[key] = checked
+            end
+            if not row.sendEligible then
+                checked = false
+                sendBar.checks[key] = false
+            end
+        else
+            checked = false
+        end
+        row.sendChecked = checked
+        -- Avoid SetChecked/Enable mid-click; they can cancel CheckButton OnClick.
+        if row.sendCheck and not opts.preserveChecks then
+            row.sendCheck:SetChecked(checked)
+            if compose and row.sendEligible and not sendBar.sending then
+                row.sendCheck:Enable()
+            else
+                row.sendCheck:Disable()
+            end
+        end
+    else
+        row.sendChecked = false
+    end
+
+    -- Default mats display; RecomputeSendAllocation may replace with preview.
+    local craftQty = rd._sortCraftQty
+    if craftQty == nil then
+        row.matCountLabel:Hide()
+        row.matIcon:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Waiting")
+        row.matIcon:Show()
+    elseif craftQty >= 1 then
+        row.matIcon:Hide()
+        local label = craftQty >= 100 and "99+x" or (tostring(craftQty) .. "x")
+        row.matCountLabel:SetText(label)
+        row.matCountLabel:SetTextColor(0, 1, 0, 1)
+        row.matCountLabel:Show()
+    else
+        row.matIcon:Hide()
+        row.matCountLabel:SetText("0x")
+        row.matCountLabel:SetTextColor(1, 0.25, 0.25, 1)
+        row.matCountLabel:Show()
+    end
+
+    -- Apply current column sizes (animation may be mid-flight).
+    if row.catCell then
+        row.catCell:SetSize(colWidths.Category, ROW_HEIGHT)
+        row.charCell:SetSize(colWidths.Character, ROW_HEIGHT)
+        if row.matSlot then
+            row.matSlot:SetSize(colWidths.Mats, ROW_HEIGHT)
+        end
+        row.timeCell:SetSize(colWidths.Time, ROW_HEIGHT)
+        if row.sendSlot and colWidths.Send > 0.5 then
+            row.sendSlot:SetSize(colWidths.Send, ROW_HEIGHT)
+        end
+    end
+end
+
 RefreshList = function()
-    ReleaseRows()
     CD.EnsureCooldownOptions()
     local opts = AltArmyTBC_Options and AltArmyTBC_Options.cooldowns
     if not opts then return end
@@ -2420,112 +2582,42 @@ RefreshList = function()
 
     table.sort(rows, CompareCooldownRows)
 
+    local reuse = CanReuseActiveCooldownRows(rows)
+    -- Hiding/repooling frames while LMB is down cancels Button OnClick (and matSlot down/up).
+    if IsLeftMouseDown() and #activeRows > 0 and not reuse then
+        sendBar.pendingRefresh = true
+        SoftUpdateActiveRowTimes(now)
+        return
+    end
+    sendBar.pendingRefresh = false
+
+    if not reuse then
+        ReleaseRows()
+    end
+
     local totalH = math.max(1, #rows) * ROW_HEIGHT
     scrollChild:SetSize(totalColWidth, totalH)
 
     local curName, curRealm = GetCurrentIdentity()
     local compose = sendBar.mode == "compose"
+    local preserveChecks = reuse and IsLeftMouseDown()
 
     local y = 0
-    for _, rd in ipairs(rows) do
-        local row = PoolRow()
-        activeRows[#activeRows + 1] = row
+    for i, rd in ipairs(rows) do
+        local row
+        if reuse then
+            row = activeRows[i]
+        else
+            row = PoolRow()
+            activeRows[#activeRows + 1] = row
+        end
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, y)
         row:SetWidth(totalColWidth)
         y = y - ROW_HEIGHT
-
-        row.charTableRef = DS:GetCharacter(rd.charKeyName, rd.realm)
-        row.catCell:SetText(FormatRecipeColumnText(rd.spellId, rd.categoryTitle or "", row.charTableRef))
-        local _, classFile = DS:GetCharacterClass(row.charTableRef)
-        row.charCell:SetTextColor(1, 1, 1, 1)
-        local showRealm = (AltArmy.GlobalRealmFilter and AltArmy.GlobalRealmFilter.Get() == "all")
-            and AccountHasMultipleRealms()
-            and rd.realm
-            and rd.realm ~= ""
-        local charText = RF and RF.formatColoredCharacterNameRealm
-            and RF.formatColoredCharacterNameRealm(rd.name or "", rd.realm, showRealm, classFile)
-            or ((rd.name or "") .. (showRealm and (" — " .. rd.realm) or ""))
-        row.charCell:SetText(charText)
-        row.timeCell:SetText(rd.timeText or "")
-        local expUnix = rd.expiresUnix
-        if expUnix == nil then
-            row.timeCell:SetTextColor(1, 1, 0.4, 1)
-        elseif expUnix <= now then
-            row.timeCell:SetTextColor(0, 1, 0, 1)
-        else
-            row.timeCell:SetTextColor(1, 0.35, 0.35, 1)
-        end
-        row.spellId = rd.spellId
-        row.rowData = rd
-        row.allocPreview = nil
-
-        local key = RowSendKey(rd)
-        row.sendKey = key
-        local isSelf = (rd.charKeyName == curName) and (rd.realm == curRealm)
-        local sameRealm = (rd.realm == curRealm)
-        row.sendEligible = (not isSelf) and sameRealm
-        local fadingSend = (sendBar.headerOffset or 0) > 0.5 or (colWidths.Send or 0) > 0.5
-        if compose or fadingSend then
-            local checked
-            if compose then
-                if sendBar.checks[key] ~= nil then
-                    checked = sendBar.checks[key] and true or false
-                else
-                    checked = row.sendEligible and true or false
-                    sendBar.checks[key] = checked
-                end
-                if not row.sendEligible then
-                    checked = false
-                    sendBar.checks[key] = false
-                end
-            else
-                checked = false
-            end
-            row.sendChecked = checked
-            if row.sendCheck then
-                row.sendCheck:SetChecked(checked)
-                if compose and row.sendEligible and not sendBar.sending then
-                    row.sendCheck:Enable()
-                else
-                    row.sendCheck:Disable()
-                end
-            end
-        else
-            row.sendChecked = false
-        end
-
-        -- Default mats display; RecomputeSendAllocation may replace with preview.
-        local craftQty = rd._sortCraftQty
-        if craftQty == nil then
-            row.matCountLabel:Hide()
-            row.matIcon:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Waiting")
-            row.matIcon:Show()
-        elseif craftQty >= 1 then
-            row.matIcon:Hide()
-            local label = craftQty >= 100 and "99+x" or (tostring(craftQty) .. "x")
-            row.matCountLabel:SetText(label)
-            row.matCountLabel:SetTextColor(0, 1, 0, 1)
-            row.matCountLabel:Show()
-        else
-            row.matIcon:Hide()
-            row.matCountLabel:SetText("0x")
-            row.matCountLabel:SetTextColor(1, 0.25, 0.25, 1)
-            row.matCountLabel:Show()
-        end
-
-        -- Apply current column sizes (animation may be mid-flight).
-        if row.catCell then
-            row.catCell:SetSize(colWidths.Category, ROW_HEIGHT)
-            row.charCell:SetSize(colWidths.Character, ROW_HEIGHT)
-            if row.matSlot then
-                row.matSlot:SetSize(colWidths.Mats, ROW_HEIGHT)
-            end
-            row.timeCell:SetSize(colWidths.Time, ROW_HEIGHT)
-            if row.sendSlot and colWidths.Send > 0.5 then
-                row.sendSlot:SetSize(colWidths.Send, ROW_HEIGHT)
-            end
-        end
+        FillCooldownListRow(row, rd, now, compose, curName, curRealm, {
+            preserveChecks = preserveChecks,
+        })
     end
 
     do
@@ -2550,7 +2642,10 @@ RefreshList = function()
     if cooldownHeaderFade then
         cooldownHeaderFade:Update()
     end
-    SyncRowHoverUnderMouse()
+    -- Only re-sync hover after a real frame reshuffle; in-place updates keep the same widgets.
+    if not reuse then
+        SyncRowHoverUnderMouse()
+    end
 end
 
 local function FormatMatsPreview(craftQty, willHave, desiredN)
@@ -2817,6 +2912,11 @@ frame:SetScript("OnUpdate", function(_, dt)
             end
         end
         return
+    end
+    -- Finish a deferred full rebuild after LMB release (see RefreshList).
+    if sendBar.pendingRefresh and VIEW.active ~= "raids" and not IsLeftMouseDown() then
+        sendBar.pendingRefresh = false
+        RefreshList()
     end
     upd = upd + dt
     if upd >= REFRESH_INTERVAL then
