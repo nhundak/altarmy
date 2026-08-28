@@ -159,6 +159,37 @@ describe("Mail expiry alerts", function()
       assert.are.equal(0, #warnings)
     end)
 
+    it("does not warn when remaining time is negative", function()
+      stubCharacters({
+        RealmA = {
+          Alice = {
+            name = "Alice",
+            classFile = "MAGE",
+            -- 1 day left at lastCheck 0; 2 days later remaining is -1
+            Mails = { { daysLeft = 1, lastCheck = 0 } },
+          },
+        },
+      })
+      local warnings = MA.CollectWarnings(DS, 2 * 86400, 5)
+      assert.are.equal(0, #warnings)
+    end)
+
+    it("still warns when remaining time is zero", function()
+      stubCharacters({
+        RealmA = {
+          Alice = {
+            name = "Alice",
+            classFile = "MAGE",
+            Mails = { { daysLeft = 1, lastCheck = 0 } },
+          },
+        },
+      })
+      local warnings = MA.CollectWarnings(DS, 1 * 86400, 5)
+      assert.are.equal(1, #warnings)
+      assert.are.equal("Alice", warnings[1].name)
+      assert.is_near(0, warnings[1].daysLeft, 0.001)
+    end)
+
     it("sorts by soonest expiry first", function()
       stubCharacters({
         RealmA = {

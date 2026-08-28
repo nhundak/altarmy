@@ -96,7 +96,7 @@ function MA.CollectWarnings(DS, now, thresholdDays)
     thresholdDays = thresholdDays or WARN_DAYS
     DS:ForEachCharacter(function(realm, charName, char)
         local daysLeft = DS:GetSoonestMailDaysLeft(char, now)
-        if daysLeft ~= nil and daysLeft <= thresholdDays then
+        if daysLeft ~= nil and daysLeft >= 0 and daysLeft <= thresholdDays then
             results[#results + 1] = {
                 name = (char and char.name) or charName,
                 realm = realm,
