@@ -845,24 +845,59 @@ local function consumableRequiredLevel(link)
     return tonumber(minLevel) or 0
 end
 
--- Bag copies need no reminder, so a bag hit suppresses the bank label;
--- mail is still called out because that copy must be retrieved before it expires.
+-- Inventory copies need no reminder. If bags are a source, omit locations;
+-- otherwise list non-inventory sources (bank, mail) in parentheses.
+local CONSUME_SOURCE_ORDER = { "bank", "mail" }
+
 local function formatLevelUpConsumeFragment(link, locations)
     locations = locations or {}
     local fragment = link or "?"
-    local bank = locations.bank and not locations.bag
-    if bank and locations.mail then
-        fragment = fragment .. " (bank + mail)"
-    elseif locations.mail then
-        fragment = fragment .. " (mail)"
-    elseif bank then
-        fragment = fragment .. " (bank)"
+    if locations.bag then
+        return fragment
+    end
+    local sources = {}
+    for i = 1, #CONSUME_SOURCE_ORDER do
+        local key = CONSUME_SOURCE_ORDER[i]
+        if locations[key] then
+            sources[#sources + 1] = key
+        end
+    end
+    if #sources > 0 then
+        fragment = fragment .. " (" .. table.concat(sources, ", ") .. ")"
     end
     return fragment
 end
 
+local function mergeConsumeCandidates(candidates)
+    local merged = {}
+    local order = {}
+    for i = 1, #candidates do
+        local candidate = candidates[i]
+        local key = extractItemId(candidate.link) or candidate.link or ("#" .. i)
+        if not merged[key] then
+            merged[key] = {
+                link = candidate.link,
+                bag = false,
+                bank = false,
+                mail = false,
+            }
+            order[#order + 1] = key
+        end
+        local entry = merged[key]
+        if candidate.bag then entry.bag = true end
+        if candidate.bank then entry.bank = true end
+        if candidate.mail then entry.mail = true end
+    end
+    local result = {}
+    for i = 1, #order do
+        result[i] = merged[order[i]]
+    end
+    return result
+end
+
 function GA.FormatLevelUpConsumeMessage(candidates)
     if not candidates or #candidates == 0 then return "" end
+    candidates = mergeConsumeCandidates(candidates)
     local fragments = {}
     for i = 1, #candidates do
         local candidate = candidates[i]
@@ -900,7 +935,15 @@ function GA.AnnounceLevelUpConsumables(newLevel)
     local function consider(link, location)
         if not link then return end
         if consumableRequiredLevel(link) ~= newLevel then return end
-        noteLevelUpCandidate(candidates, candidateOrder, link, location)
+        local key = extractItemId(link) or link
+        noteLevelUpCandidate(candidates, candidateOrder, key, location)
+        local entry = candidates[key]
+        if not entry then return end
+        local stored = entry.link
+        local storedIsHyperlink = type(stored) == "string" and stored:find("|H")
+        if not storedIsHyperlink then
+            entry.link = link
+        end
     end
 
     if DS.IterateBagSlots then

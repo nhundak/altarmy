@@ -781,6 +781,16 @@ describe("GearUpgradeAlerts", function()
                 [helmLink] = { name = "New Helm", minLevel = 5, class = "Armor" },
             }
             local info = infoByLink[item]
+            if not info then
+                local id = tonumber(tostring(item):match("item:(%d+)")) or tonumber(item)
+                local infoById = {
+                    [118] = { name = "Minor Healing Potion", minLevel = 5, class = "Consumable" },
+                    [2454] = { name = "Elixir of Lion's Strength", minLevel = 5, class = "Consumable" },
+                    [954] = { name = "Scroll of Strength", minLevel = 10, class = "Consumable" },
+                    [11] = { name = "New Helm", minLevel = 5, class = "Armor" },
+                }
+                info = infoById[id]
+            end
             if not info then return nil end
             return info.name, item, 1, 10, info.minLevel, info.class, "Potion"
         end
@@ -869,7 +879,7 @@ describe("GearUpgradeAlerts", function()
             })
             GA.AnnounceLevelUpConsumables(5)
             assert.are.equal(1, #chatLines)
-            assert.is_not_nil(chatLines[1]:find(potionLink .. " (bank + mail)", 1, true))
+            assert.is_not_nil(chatLines[1]:find(potionLink .. " (bank, mail)", 1, true))
         end)
 
         it("lists multiple consumables with commas and a final and", function()
@@ -933,7 +943,7 @@ describe("GearUpgradeAlerts", function()
             assert.is_nil(chatLines[1]:match("%(bank%)"))
         end)
 
-        it("keeps the mail label when the consumable is also in bags", function()
+        it("omits source labels when the consumable is also in bags", function()
             loadWithMocks({
                 iterateBagSlots = function(_, _char, cb)
                     cb(0, 1, 118, 5, potionLink)
@@ -945,7 +955,29 @@ describe("GearUpgradeAlerts", function()
             })
             GA.AnnounceLevelUpConsumables(5)
             assert.are.equal(1, #chatLines)
-            assert.is_not_nil(chatLines[1]:find(potionLink .. " (mail)", 1, true))
+            assert.is_not_nil(chatLines[1]:find(potionLink, 1, true))
+            assert.is_nil(chatLines[1]:match("%(mail%)"))
+            assert.is_nil(chatLines[1]:match("%(bank%)"))
+        end)
+
+        it("announces the same consumable once when bag and mail links differ", function()
+            local bagLink = "|cff1eff00|Hitem:118:0:0:0:0:0:0:0|h[Minor Healing Potion]|h|r"
+            local mailLink = "|Hitem:118:0|h[Minor Healing Potion]|h"
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 118, 5, bagLink)
+                end,
+                getNumMails = function() return 1 end,
+                getMailInfo = function()
+                    return nil, 1, mailLink
+                end,
+            })
+            GA.AnnounceLevelUpConsumables(5)
+            assert.are.equal(1, #chatLines)
+            assert.matches("Congratulations! You can now consume ", chatLines[1])
+            local _, count = chatLines[1]:gsub("%[Minor Healing Potion%]", "")
+            assert.are.equal(1, count)
+            assert.is_nil(chatLines[1]:match("%(mail%)"))
         end)
 
         it("does not announce when current-character notifications are disabled", function()
@@ -1487,7 +1519,7 @@ describe("GearUpgradeAlerts", function()
         local elixirLink = "|Hitem:2454:0|h[Elixir of Lion's Strength]|h"
         local scrollLink = "|Hitem:954:0|h[Scroll of Strength]|h"
 
-        it("labels the source as bank, mail, or bank + mail", function()
+        it("labels non-inventory sources in parentheses", function()
             assert.are.equal(
                 "Congratulations! You can now consume " .. potionLink .. " (bank)",
                 GA.FormatLevelUpConsumeMessage({ { link = potionLink, bank = true } }))
@@ -1495,11 +1527,11 @@ describe("GearUpgradeAlerts", function()
                 "Congratulations! You can now consume " .. potionLink .. " (mail)",
                 GA.FormatLevelUpConsumeMessage({ { link = potionLink, mail = true } }))
             assert.are.equal(
-                "Congratulations! You can now consume " .. potionLink .. " (bank + mail)",
+                "Congratulations! You can now consume " .. potionLink .. " (bank, mail)",
                 GA.FormatLevelUpConsumeMessage({ { link = potionLink, bank = true, mail = true } }))
         end)
 
-        it("suppresses bank labels for items also in bags but keeps mail", function()
+        it("omits source labels when the item is in bags", function()
             assert.are.equal(
                 "Congratulations! You can now consume " .. potionLink,
                 GA.FormatLevelUpConsumeMessage({ { link = potionLink, bag = true } }))
@@ -1507,12 +1539,29 @@ describe("GearUpgradeAlerts", function()
                 "Congratulations! You can now consume " .. potionLink,
                 GA.FormatLevelUpConsumeMessage({ { link = potionLink, bag = true, bank = true } }))
             assert.are.equal(
-                "Congratulations! You can now consume " .. potionLink .. " (mail)",
+                "Congratulations! You can now consume " .. potionLink,
                 GA.FormatLevelUpConsumeMessage({ { link = potionLink, bag = true, mail = true } }))
             assert.are.equal(
-                "Congratulations! You can now consume " .. potionLink .. " (mail)",
+                "Congratulations! You can now consume " .. potionLink,
                 GA.FormatLevelUpConsumeMessage({
                     { link = potionLink, bag = true, bank = true, mail = true },
+                }))
+        end)
+
+        it("shows the same item once when sources use different item links", function()
+            local bagLink = "|cff1eff00|Hitem:118:0:0:0:0:0:0:0|h[Minor Healing Potion]|h|r"
+            local mailLink = "|Hitem:118:0|h[Minor Healing Potion]|h"
+            assert.are.equal(
+                "Congratulations! You can now consume " .. bagLink,
+                GA.FormatLevelUpConsumeMessage({
+                    { link = bagLink, bag = true },
+                    { link = mailLink, mail = true },
+                }))
+            assert.are.equal(
+                "Congratulations! You can now consume " .. potionLink .. " (bank, mail)",
+                GA.FormatLevelUpConsumeMessage({
+                    { link = potionLink, bank = true },
+                    { link = mailLink, mail = true },
                 }))
         end)
 
@@ -1531,7 +1580,7 @@ describe("GearUpgradeAlerts", function()
                 "Congratulations! You can now consume "
                     .. potionLink .. " (bank), "
                     .. elixirLink .. " (mail), and "
-                    .. scrollLink .. " (bank + mail)",
+                    .. scrollLink .. " (bank, mail)",
                 GA.FormatLevelUpConsumeMessage({
                     { link = potionLink, bank = true },
                     { link = elixirLink, mail = true },
