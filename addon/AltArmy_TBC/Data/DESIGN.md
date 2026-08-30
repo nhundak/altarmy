@@ -10,14 +10,14 @@ Modules are grouped by domain. Filenames and `AltArmy.*` namespaces are unchange
 
 | Folder | Contents |
 |--------|----------|
-| **(root)** | Shared utilities: `CharKey`, `ClassColor`, `Debug`; docs (`DESIGN.md`, `DATA_VERSIONS.md`) |
-| **DataStore/** | Persistence core + scan modules; `LevelProgressData` |
-| **Characters/** | Summary list/view, realm filters, bank-alt flags, net worth |
-| **Gear/** | Item stats/usability, gear score, compare/upgrade, Pawn scales |
-| **Search/** | Search settings, index, query, present, engine, guild nav |
-| **Guild/** | Guild share settings/protocol/data/comm, tab helpers, chat main-name |
-| **Cooldowns/** | Cooldown data/alerts, stockpile mail plan |
-| **Integrations/** | Optional addon bridges (RestedXP, CraftLib) |
+| **(root)** | Shared utilities: `CharKey`, `ClassColor`, `Debug`, `MailAlerts`; docs (`DESIGN.md`, `DATA_VERSIONS.md`) |
+| **DataStore/** | Persistence core + scan modules: character, containers, equipment, currencies, professions, reputations, mail, auctions, talents, lockouts, level history; `LevelProgressData` |
+| **Characters/** | Summary list/view, realm filters, bank-alt flags/detect, net worth |
+| **Gear/** | Item stats/usability, gear score, compare/upgrade, Pawn scales, upgrade alerts |
+| **Search/** | Search settings, index, query, present, engine, guild nav, recipe yield bonus |
+| **Guild/** | Guild share settings/protocol/data/comm, tab helpers, chat main-name, manual groups, note parser |
+| **Cooldowns/** | Cooldown data/alerts, lockout list helpers, stockpile mail plan |
+| **Integrations/** | Optional addon bridges (RestedXP, CraftLib, Zygor) |
 
 ---
 
@@ -26,7 +26,11 @@ Modules are grouped by domain. Filenames and `AltArmy.*` namespaces are unchange
 **DataStore** is split into a **core** file and **domain modules**. The single public API remains `AltArmy.DataStore`; consumers (SummaryData, Characters, Tabs) call `DS:GetRealms()`, `DS:GetCharacter(name, realm)`, `DS:GetProfessions(char)`, etc. unchanged.
 
 - **DataStore.lua (core)** — Namespace, SavedVariables (`AltArmyTBC_Data`), `GetCurrentCharTable` / `GetCurrentCharacter`, `DATA_VERSIONS`, `MigrateDataVersions`, and the single event frame. Registers all WoW events and dispatches to module methods (e.g. `DS:ScanCharacter()`, `DS:ScanBags()`). Exposes shared data to modules via `DS._GetCurrentCharTable` and `DS._DATA_VERSIONS`. Cross-cutting APIs: `GetRealms`, `GetCharacters`, `GetCharacter`, `GetCurrentCharacter`, `HasModuleData`, `GetDataVersion`, `NeedsRescan`, `GetAllDataVersions`.
-- **Module files** (DataStoreCharacter, DataStoreContainers, DataStoreEquipment, DataStoreCurrencies, DataStoreProfessions, DataStoreReputations, DataStoreMail, DataStoreAuctions) — Each attaches its scan function(s) and getters to `AltArmy.DataStore`. Load order: core first, then modules; DataStoreCurrencies loads after DataStoreContainers (ScanCurrencies uses GetContainerItemCount).
+- **Module files** — DataStoreCharacter, DataStoreContainers, DataStoreEquipment, DataStoreCurrencies, DataStoreProfessions, DataStoreReputations, DataStoreMail, DataStoreAuctions, DataStoreTalents, DataStoreLockouts, DataStoreLevelHistory. Each attaches its scan function(s) and getters to `AltArmy.DataStore`. Load order: core first, then modules; DataStoreCurrencies loads after DataStoreContainers (ScanCurrencies uses GetContainerItemCount).
+
+Guild share payloads use separate SavedVariables (`AltArmyTBC_GuildData`, `AltArmyTBC_SharingSettings`) owned by the Guild modules, not `AltArmyTBC_Data.Characters`.
+
+See [DATA_VERSIONS.md](DATA_VERSIONS.md) for per-module format versions.
 
 ---
 
@@ -43,7 +47,8 @@ Data flows in one direction:
    - Reads from DataStore only (no direct SavedVariables access).  
    - Builds a flat list of character entries for the Summary tab.  
    - Entry shape: `name`, `realm`, `level`, `restXp`, `money`, `played`, `lastOnline` (raw values: copper, seconds, timestamps).  
-   - Provides display helpers: `GetMoneyString`, `GetTimeString`, `FormatLastOnline`, `FormatRestXp`.
+   - Provides display helpers: `GetMoneyString`, `GetTimeString`, `FormatLastOnline`, `FormatRestXp`.  
+   - Aggregates missing-data warnings via `GetMissingDataInfo`.
 
 3. **Characters.lua** — List and view  
    - Gets list via `SummaryData.GetCharacterList()`.  
@@ -51,7 +56,7 @@ Data flows in one direction:
    - Exposes: `InvalidateView()`, `GetView()`, `GetList()`, `Sort(ascending, sortKey)`.  
    - Tabs (e.g. TabSummary) use Characters for the scroll list; they do not call SummaryData or DataStore directly for that list.
 
-**Rule:** Each layer talks only to the layer below. Tabs talk to Characters (or SummaryData only for formatting); they do not talk to DataStore for list data.
+**Rule:** Each layer talks only to the layer below. Tabs talk to Characters (or SummaryData only for formatting); they do not talk to DataStore for list data. Other domains (Search, Gear, Guild, Cooldowns) have their own helpers above DataStore.
 
 ---
 
@@ -72,7 +77,8 @@ Data flows in one direction:
 
 ## TBC Compatibility
 
-- No external addon dependencies. DataStore is internal; no DataStore_Characters or similar.
+- No required external addon dependencies. DataStore is internal; no DataStore_Characters or similar.
+- OptionalDeps (Auctionator, CraftLib, etc.) enrich features when present.
 - WoW API usage is defensive: check for function existence (e.g. `UnitName and UnitName("player")`, `GetRealmName and GetRealmName()`) so the addon runs on TBC Classic even when some APIs differ or are missing.
 - SavedVariables key is `AltArmyTBC_Data`; structure is `Characters[realm][name] = charData`.
 
@@ -80,7 +86,7 @@ Data flows in one direction:
 
 ## Extensibility
 
-- **DataStore:** New character fields or domains can be added in a new module file (or existing module); the module attaches its scan and getters to `AltArmy.DataStore`. Core’s event handler is extended to call the new scan when appropriate.
+- **DataStore:** New character fields or domains can be added in a new module file (or existing module); the module attaches its scan and getters to `AltArmy.DataStore`. Core’s event handler is extended to call the new scan when appropriate. Bump `DATA_VERSIONS` and document in `DATA_VERSIONS.md`.
 - **SummaryData:** New entry fields can be added to the table returned by `GetCharacterList()`; new formatting helpers can be added alongside existing ones.
 - **Characters:** `Sort()` can be extended to support new sort keys; the view/list model stays index-based so UI code does not need to change for new columns.
 
@@ -88,10 +94,16 @@ Data flows in one direction:
 
 ## Namespace
 
-All modules live under the `AltArmy` global:
+Modules live under the `AltArmy` global. Common entry points:
 
 - `AltArmy.DataStore` — DataStore API  
 - `AltArmy.SummaryData` — SummaryData API and formatting  
 - `AltArmy.Characters` — Characters list/view API  
+- `AltArmy.BankAlt` / `BankAltDetect` — bank-alt flag  
+- `AltArmy.SearchEngine` / `SearchSettings` / … — search  
+- `AltArmy.GearUpgrade` / `GearCompare` / `GearScore` — gear  
+- `AltArmy.CooldownData` / `LockoutData` / `StockpilePlan` — cooldowns  
+- `AltArmy.GuildShareSettings` / `GuildShareComm` / … — guild share  
+- `AltArmy.LevelProgressData` — graphs data  
 
-The Data folder does not introduce new globals beyond these namespaces.
+The Data folder does not introduce new globals beyond the `AltArmy` namespace tree.

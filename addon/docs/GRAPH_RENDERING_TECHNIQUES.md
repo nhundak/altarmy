@@ -1,12 +1,13 @@
 # Rendering High-Quality Graphs in a WoW Addon
 
-A reference distilled from the **AHPriceGraph** addon, documenting the code and
-techniques it uses to draw smooth, interactive, good-looking graphs purely with
-the WoW UI/widget API (no external libraries). This is intended as a guide for
-adding a new **character level progress over time** graph to AltArmy_TBC.
+A reference distilled from the **AHPriceGraph** addon, documenting techniques for
+smooth, interactive graphs using only the WoW UI/widget API (no external libraries).
 
-The original code is organized as one shared core module plus several
-graph-type modules:
+AltArmy’s shipped **Graphs** tab applies these ideas for character level progress
+over calendar time and played time. Product behavior: [tabs/graphs.md](tabs/graphs.md).
+Implementation: `AltArmy_TBC/UI/GraphCore.lua`, `Tabs/GraphLogic.lua`, `Tabs/TabGraph.lua`.
+
+AHPriceGraph’s original layout (for orientation while reading the techniques below):
 
 | File | Responsibility |
 | --- | --- |
