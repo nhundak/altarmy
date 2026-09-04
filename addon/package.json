@@ -1,15 +1,15 @@
 {
-	"name": "altarmy-tbc",
-	"version": "1.11.2",
-	"private": true,
-	"description": "AltArmy — WoW TBC Classic addon (character summary, gear, search)",
-	"scripts": {
-		"setup:dev": "node scripts/setup-dev-tools.js",
-		"typecheck": "node -e \"process.exit(0)\"",
-		"check": "node scripts/run-luacheck.js AltArmy_TBC && node scripts/check-lua51-compile.js AltArmy_TBC",
-		"lint": "node scripts/run-luacheck.js AltArmy_TBC",
-		"check:compile": "node scripts/check-lua51-compile.js AltArmy_TBC",
-		"test": "node scripts/run-busted.js",
-		"dump:sync": "node scripts/sync-compare-dump.js"
-	}
+  "name": "altarmy-tbc",
+  "version": "1.11.3",
+  "private": true,
+  "description": "AltArmy — WoW TBC Classic addon (character summary, gear, search)",
+  "scripts": {
+    "setup:dev": "node scripts/setup-dev-tools.js",
+    "typecheck": "node -e \"process.exit(0)\"",
+    "check": "node scripts/run-luacheck.js AltArmy_TBC && node scripts/check-lua51-compile.js AltArmy_TBC",
+    "lint": "node scripts/run-luacheck.js AltArmy_TBC",
+    "check:compile": "node scripts/check-lua51-compile.js AltArmy_TBC",
+    "test": "node scripts/run-busted.js",
+    "dump:sync": "node scripts/sync-compare-dump.js"
+  }
 }
