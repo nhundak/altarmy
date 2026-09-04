@@ -452,6 +452,27 @@ describe("AltArmy.Theme", function()
             btn:SetDropdownSelected(false)
             assert.is_false(btn.altArmyDropdownSelectedBg._shown)
         end)
+
+        it("calls onEnter and onLeave while keeping hover tint", function()
+            local parent = makeStubFrame()
+            local entered, left
+            local btn = Theme.CreateDropdownMenuItem(parent, {
+                index = 1,
+                text = "Option",
+                onEnter = function(self)
+                    entered = self
+                end,
+                onLeave = function(self)
+                    left = self
+                end,
+            })
+            btn._scripts.OnEnter()
+            assert.are.equal(btn, entered)
+            assert.are.equal(Theme.HOVER_TINT_ALPHA, btn.altArmyHoverTint._vertex[4])
+            btn._scripts.OnLeave()
+            assert.are.equal(btn, left)
+            assert.are.equal(0, btn.altArmyHoverTint._vertex[4])
+        end)
     end)
 
     describe("CreateSingleSelectDropdown", function()
@@ -501,6 +522,42 @@ describe("AltArmy.Theme", function()
             bothItem._scripts.OnClick(bothItem)
             assert.are.equal("both", selected)
             assert.is_false(dd.popup:IsShown())
+        end)
+
+        it("calls onEntryEnter and onEntryLeave with the hovered entry", function()
+            local parent = makeStubFrame()
+            local enteredEntry, enteredBtn, leftEntry
+            local dd = Theme.CreateSingleSelectDropdown({
+                parent = parent,
+                entries = {
+                    { id = "auto", label = "Auto", spellId = 29688 },
+                    { id = 17187, label = "Arcanite", spellId = 17187 },
+                },
+                getSelectedId = function() return "auto" end,
+                onEntryEnter = function(btn, entry)
+                    enteredBtn = btn
+                    enteredEntry = entry
+                end,
+                onEntryLeave = function(_btn, entry)
+                    leftEntry = entry
+                end,
+            })
+            local item
+            for i = 1, #framesCreated do
+                local f = framesCreated[i]
+                if f.entryId == 17187 and f._scripts and f._scripts.OnEnter then
+                    item = f
+                    break
+                end
+            end
+            assert.is_not_nil(item)
+            item._scripts.OnEnter()
+            assert.are.equal(item, enteredBtn)
+            assert.is_not_nil(enteredEntry)
+            assert.are.equal(17187, enteredEntry.id)
+            assert.are.equal(17187, enteredEntry.spellId)
+            item._scripts.OnLeave()
+            assert.are.equal(17187, leftEntry.id)
         end)
 
         it("SetEnabled disables the trigger and closes the popup", function()

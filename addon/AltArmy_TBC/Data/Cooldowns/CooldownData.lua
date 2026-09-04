@@ -330,11 +330,96 @@ function CD.RecordSuccessfulSphereCast(char, spellId)
     char.lastSphere = { spellId = spellId }
 end
 
---- Effective sphere spell for cooldown rows:
---- 1) last successful sphere craft when still known,
---- 2) Void Sphere then Prismatic Sphere when known.
---- nil = do not show sphere row.
-function CD.ResolveSphereSpellForCharacter(char)
+--- True for categories that share one cooldown across several recipes (transmute, spheres).
+function CD.IsGroupCategory(categoryKey)
+    local cat = CD.CATEGORIES[categoryKey]
+    return cat and cat.mode == "group" and type(cat.spellIds) == "table"
+end
+
+local function GroupSpellIds(categoryKey)
+    if not CD.IsGroupCategory(categoryKey) then
+        return nil
+    end
+    return CD.CATEGORIES[categoryKey].spellIds
+end
+
+--- Group spell ids this character knows, in category definition order.
+function CD.GetKnownGroupSpellIds(char, categoryKey)
+    local ids = GroupSpellIds(categoryKey)
+    if not ids or not char then
+        return {}
+    end
+    local out = {}
+    for _, sid in ipairs(ids) do
+        if select(1, CD.FindRecipeProfession(char, sid)) then
+            out[#out + 1] = sid
+        end
+    end
+    return out
+end
+
+--- "auto" or a known group spellId. Unknown / unlearned overrides are Auto.
+function CD.GetGroupRecipeChoice(char, categoryKey)
+    if not char or not GroupSpellIds(categoryKey) then
+        return "auto"
+    end
+    local t = char.cooldownGroupChoice
+    local chosen = t and t[categoryKey]
+    if type(chosen) == "number" and select(1, CD.FindRecipeProfession(char, chosen)) then
+        local ids = GroupSpellIds(categoryKey)
+        for _, sid in ipairs(ids) do
+            if sid == chosen then
+                return chosen
+            end
+        end
+    end
+    return "auto"
+end
+
+--- Persist Auto (clears override) or a known group spellId. Ignores invalid picks.
+function CD.SetGroupRecipeChoice(char, categoryKey, choice)
+    if not char or not GroupSpellIds(categoryKey) then
+        return
+    end
+    if choice == "auto" or choice == nil then
+        if type(char.cooldownGroupChoice) == "table" then
+            char.cooldownGroupChoice[categoryKey] = nil
+        end
+        return
+    end
+    if type(choice) ~= "number" or not select(1, CD.FindRecipeProfession(char, choice)) then
+        return
+    end
+    local inGroup = false
+    for _, sid in ipairs(GroupSpellIds(categoryKey)) do
+        if sid == choice then
+            inGroup = true
+            break
+        end
+    end
+    if not inGroup then
+        return
+    end
+    char.cooldownGroupChoice = char.cooldownGroupChoice or {}
+    char.cooldownGroupChoice[categoryKey] = choice
+end
+
+local function GroupRecipeDisplayTitle(categoryKey, spellId, getSpellInfoFn)
+    if categoryKey == "transmute" then
+        return CD.TransmuteCategoryDisplayTitle(spellId, getSpellInfoFn)
+    end
+    if categoryKey == "void_sphere" then
+        return CD.SphereCategoryDisplayTitle(spellId, getSpellInfoFn)
+    end
+    local name = getSpellInfoFn and getSpellInfoFn(spellId)
+    if type(name) == "string" and name ~= "" then
+        return name
+    end
+    return tostring(spellId)
+end
+
+--- Last-cast then fallback (no manual cooldownGroupChoice).
+local function ResolveSphereSpellAuto(char)
     if not char then return nil end
     local last = char.lastSphere
     local lastId = type(last) == "table" and type(last.spellId) == "number" and last.spellId or nil
@@ -349,11 +434,8 @@ function CD.ResolveSphereSpellForCharacter(char)
     return nil
 end
 
---- Effective transmute spell for cooldown rows:
---- 1) last successful transmute when still known,
---- 2) Primal Might then Arcanite when known.
---- nil = do not show transmute row.
-function CD.ResolveTransmuteSpellForCharacter(char)
+--- Last-cast then fallback (no manual cooldownGroupChoice).
+local function ResolveTransmuteSpellAuto(char)
     if not char then return nil end
     local last = char.lastTransmute
     local lastId = type(last) == "table" and type(last.spellId) == "number" and last.spellId or nil
@@ -366,6 +448,141 @@ function CD.ResolveTransmuteSpellForCharacter(char)
         end
     end
     return nil
+end
+
+local function ResolveGroupSpellAuto(char, categoryKey)
+    if categoryKey == "transmute" then
+        return ResolveTransmuteSpellAuto(char)
+    end
+    if categoryKey == "void_sphere" then
+        return ResolveSphereSpellAuto(char)
+    end
+    return nil
+end
+
+local function GroupRecipeEntryMatchesQuery(entry, query)
+    if not query or query == "" then
+        return true
+    end
+    if entry.id == "auto" then
+        if string.find("auto", query, 1, true) then
+            return true
+        end
+        local autoLabel = entry.autoLabel
+        return type(autoLabel) == "string" and string.find(autoLabel:lower(), query, 1, true) ~= nil
+    end
+    local label = entry.label
+    return type(label) == "string" and string.find(label:lower(), query, 1, true) ~= nil
+end
+
+--- Dropdown entries: Auto first, then known recipes A–Z by display label.
+--- Auto includes spellId/autoLabel for the last-cast/fallback recipe (ignores manual pick).
+--- Optional query (case-insensitive) filters Auto by "auto"/autoLabel and recipes by label.
+function CD.ListGroupRecipeChoiceEntries(char, categoryKey, getSpellInfoFn, query)
+    local gsi = getSpellInfoFn or GetSpellInfo
+    local autoSpellId = ResolveGroupSpellAuto(char, categoryKey)
+    local autoLabel = autoSpellId and GroupRecipeDisplayTitle(categoryKey, autoSpellId, gsi) or nil
+    local entries = {
+        { id = "auto", label = "Auto", spellId = autoSpellId, autoLabel = autoLabel },
+    }
+    if not GroupSpellIds(categoryKey) then
+        return entries
+    end
+    local recipes = {}
+    for _, sid in ipairs(CD.GetKnownGroupSpellIds(char, categoryKey)) do
+        local label = GroupRecipeDisplayTitle(categoryKey, sid, gsi)
+        recipes[#recipes + 1] = { id = sid, label = label, spellId = sid }
+    end
+    table.sort(recipes, function(a, b)
+        return (a.label or ""):lower() < (b.label or ""):lower()
+    end)
+    for i = 1, #recipes do
+        entries[#entries + 1] = recipes[i]
+    end
+    if type(query) == "string" then
+        query = (query:match("^%s*(.-)%s*$") or query):lower()
+    else
+        query = ""
+    end
+    if query == "" then
+        return entries
+    end
+    local filtered = {}
+    for i = 1, #entries do
+        if GroupRecipeEntryMatchesQuery(entries[i], query) then
+            filtered[#filtered + 1] = entries[i]
+        end
+    end
+    return filtered
+end
+
+local GROUP_RECIPE_AUTO_GRAY = "|cffaaaaaa"
+
+--- Dropdown text for Auto / recipe entries. Optional highlightFn(text, query, formatSegment)
+--- wraps matching substrings (same contract as GuildTabData.FormatTextWithSearchHighlight).
+function CD.FormatGroupRecipeChoiceDisplayLabel(entry, query, highlightFn)
+    local function hl(text, formatSegment)
+        if highlightFn then
+            return highlightFn(text, query, formatSegment)
+        end
+        if formatSegment then
+            return formatSegment(text)
+        end
+        return text or ""
+    end
+    local function gray(seg)
+        return GROUP_RECIPE_AUTO_GRAY .. (seg or "") .. "|r"
+    end
+    if not entry or entry.id == "auto" then
+        local autoWord = hl("Auto")
+        local autoLabel = entry and entry.autoLabel
+        if type(autoLabel) == "string" and autoLabel ~= "" then
+            if highlightFn then
+                local inner = hl(autoLabel, gray)
+                return autoWord .. " " .. GROUP_RECIPE_AUTO_GRAY .. "(|r" .. inner
+                    .. GROUP_RECIPE_AUTO_GRAY .. ")|r"
+            end
+            return autoWord .. " " .. GROUP_RECIPE_AUTO_GRAY .. "(" .. autoLabel .. ")|r"
+        end
+        return autoWord
+    end
+    return hl(entry.label or "")
+end
+
+local function ResolveGroupOverride(char, categoryKey)
+    local choice = CD.GetGroupRecipeChoice(char, categoryKey)
+    if type(choice) == "number" then
+        return choice
+    end
+    return nil
+end
+
+--- Effective sphere spell for cooldown rows:
+--- 0) manual cooldownGroupChoice when still known,
+--- 1) last successful sphere craft when still known,
+--- 2) Void Sphere then Prismatic Sphere when known.
+--- nil = do not show sphere row.
+function CD.ResolveSphereSpellForCharacter(char)
+    if not char then return nil end
+    local override = ResolveGroupOverride(char, "void_sphere")
+    if override then
+        return override
+    end
+    return ResolveSphereSpellAuto(char)
+end
+
+--- Effective transmute spell for cooldown rows:
+--- 0) manual cooldownGroupChoice when still known,
+--- 1) last successful transmute when still known,
+--- 2) Primal Might then Arcanite when known.
+--- nil = do not show transmute row.
+function CD.ResolveTransmuteSpellForCharacter(char)
+    if not char then return nil end
+    local override = ResolveGroupOverride(char, "transmute")
+    if override then
+        return override
+    end
+    return ResolveTransmuteSpellAuto(char)
 end
 
 --- Short label for the Recipe column when category is transmute (from effective spell name).

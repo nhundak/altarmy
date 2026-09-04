@@ -408,6 +408,209 @@ describe("CooldownData", function()
         assert.are.equal(28027, CD.ResolveSphereSpellForCharacter(char))
     end)
 
+    it("GetKnownGroupSpellIds returns known group recipes in category order", function()
+        local char = {
+            Professions = {
+                Alchemy = { Recipes = { [17187] = {}, [28566] = {}, [29688] = {} } },
+                Enchanting = { Recipes = { [28027] = {} } },
+            },
+        }
+        assert.are.same({ 28566, 29688, 17187 }, CD.GetKnownGroupSpellIds(char, "transmute"))
+        assert.are.same({ 28027 }, CD.GetKnownGroupSpellIds(char, "void_sphere"))
+        assert.are.same({}, CD.GetKnownGroupSpellIds(char, "spellcloth"))
+        assert.are.same({}, CD.GetKnownGroupSpellIds(nil, "transmute"))
+    end)
+
+    it("GetGroupRecipeChoice is auto when absent or invalid", function()
+        local char = {
+            Professions = { Alchemy = { Recipes = { [29688] = {}, [17187] = {} } } },
+        }
+        assert.are.equal("auto", CD.GetGroupRecipeChoice(char, "transmute"))
+        char.cooldownGroupChoice = { transmute = 17187 }
+        assert.are.equal(17187, CD.GetGroupRecipeChoice(char, "transmute"))
+        char.cooldownGroupChoice.transmute = 28566
+        assert.are.equal("auto", CD.GetGroupRecipeChoice(char, "transmute"))
+        assert.are.equal("auto", CD.GetGroupRecipeChoice(char, "spellcloth"))
+    end)
+
+    it("SetGroupRecipeChoice stores known group spells and clears on auto", function()
+        local char = {
+            Professions = { Alchemy = { Recipes = { [29688] = {}, [17187] = {} } } },
+        }
+        CD.SetGroupRecipeChoice(char, "transmute", 17187)
+        assert.are.equal(17187, char.cooldownGroupChoice and char.cooldownGroupChoice.transmute)
+        CD.SetGroupRecipeChoice(char, "transmute", "auto")
+        assert.is_nil(char.cooldownGroupChoice and char.cooldownGroupChoice.transmute)
+        CD.SetGroupRecipeChoice(char, "transmute", 28566)
+        assert.is_nil(char.cooldownGroupChoice and char.cooldownGroupChoice.transmute)
+        CD.SetGroupRecipeChoice(char, "spellcloth", 31373)
+        assert.is_nil(char.cooldownGroupChoice and char.cooldownGroupChoice.spellcloth)
+    end)
+
+    it("ListGroupRecipeChoiceEntries starts with Auto and lists only known recipes", function()
+        local char = {
+            Professions = {
+                Alchemy = { Recipes = { [29688] = {}, [17187] = {} } },
+                Enchanting = { Recipes = { [28028] = {} } },
+            },
+        }
+        local transmute = CD.ListGroupRecipeChoiceEntries(char, "transmute", function(spellId)
+            if spellId == 29688 then return "Transmute: Primal Might" end
+            if spellId == 17187 then return "Transmute: Arcanite" end
+            return "Spell " .. tostring(spellId)
+        end)
+        assert.are.equal(3, #transmute)
+        assert.are.equal("auto", transmute[1].id)
+        assert.are.equal("Auto", transmute[1].label)
+        assert.are.equal(29688, transmute[1].spellId)
+        assert.are.equal("Primal Might", transmute[1].autoLabel)
+        assert.are.equal(17187, transmute[2].id)
+        assert.are.equal("Arcanite", transmute[2].label)
+        assert.are.equal(17187, transmute[2].spellId)
+        assert.are.equal(29688, transmute[3].id)
+        assert.are.equal("Primal Might", transmute[3].label)
+        assert.are.equal(29688, transmute[3].spellId)
+
+        local spheres = CD.ListGroupRecipeChoiceEntries(char, "void_sphere", function(spellId)
+            if spellId == 28028 then return "Void Sphere" end
+            return "Spell " .. tostring(spellId)
+        end)
+        assert.are.equal(2, #spheres)
+        assert.are.equal("auto", spheres[1].id)
+        assert.are.equal(28028, spheres[1].spellId)
+        assert.are.equal("Void Sphere", spheres[1].autoLabel)
+        assert.are.equal(28028, spheres[2].id)
+        assert.are.equal("Void Sphere", spheres[2].label)
+    end)
+
+    it("ListGroupRecipeChoiceEntries filters by query after Auto", function()
+        local char = {
+            Professions = { Alchemy = { Recipes = { [29688] = {}, [17187] = {} } } },
+        }
+        local gsi = function(spellId)
+            if spellId == 29688 then return "Transmute: Primal Might" end
+            if spellId == 17187 then return "Transmute: Arcanite" end
+            return "Spell " .. tostring(spellId)
+        end
+        local arc = CD.ListGroupRecipeChoiceEntries(char, "transmute", gsi, "arc")
+        assert.are.equal(1, #arc)
+        assert.are.equal(17187, arc[1].id)
+
+        local autoQ = CD.ListGroupRecipeChoiceEntries(char, "transmute", gsi, "auto")
+        assert.are.equal(1, #autoQ)
+        assert.are.equal("auto", autoQ[1].id)
+
+        local primalAuto = CD.ListGroupRecipeChoiceEntries(char, "transmute", gsi, "primal")
+        assert.are.equal(2, #primalAuto)
+        assert.are.equal("auto", primalAuto[1].id)
+        assert.are.equal(29688, primalAuto[2].id)
+    end)
+
+    it("FormatGroupRecipeChoiceDisplayLabel formats Auto and recipe text", function()
+        assert.are.equal("Auto", CD.FormatGroupRecipeChoiceDisplayLabel(nil))
+        assert.are.equal("Auto", CD.FormatGroupRecipeChoiceDisplayLabel({ id = "auto" }))
+        assert.are.equal(
+            "Auto |cffaaaaaa(Primal Might)|r",
+            CD.FormatGroupRecipeChoiceDisplayLabel({ id = "auto", autoLabel = "Primal Might" })
+        )
+        assert.are.equal("Arcanite", CD.FormatGroupRecipeChoiceDisplayLabel({ id = 17187, label = "Arcanite" }))
+    end)
+
+    it("FormatGroupRecipeChoiceDisplayLabel highlights query matches via highlightFn", function()
+        local function hl(text, query, formatSegment)
+            if query and query ~= "" and (text or ""):lower():find(query, 1, true) then
+                return "<" .. text .. ">"
+            end
+            if formatSegment then
+                return formatSegment(text)
+            end
+            return text
+        end
+        assert.are.equal(
+            "<Auto> |cffaaaaaa(|r|cffaaaaaaPrimal Might|r|cffaaaaaa)|r",
+            CD.FormatGroupRecipeChoiceDisplayLabel({ id = "auto", autoLabel = "Primal Might" }, "auto", hl)
+        )
+        assert.are.equal(
+            "Auto |cffaaaaaa(|r<Primal Might>|cffaaaaaa)|r",
+            CD.FormatGroupRecipeChoiceDisplayLabel({ id = "auto", autoLabel = "Primal Might" }, "primal", hl)
+        )
+        assert.are.equal(
+            "<Arcanite>",
+            CD.FormatGroupRecipeChoiceDisplayLabel({ id = 17187, label = "Arcanite" }, "arc", hl)
+        )
+    end)
+
+    it("ListGroupRecipeChoiceEntries Auto label uses last-cast Auto resolve not override", function()
+        local char = {
+            lastTransmute = { spellId = 28566 },
+            cooldownGroupChoice = { transmute = 17187 },
+            Professions = { Alchemy = { Recipes = { [28566] = {}, [29688] = {}, [17187] = {} } } },
+        }
+        local entries = CD.ListGroupRecipeChoiceEntries(char, "transmute", function(spellId)
+            if spellId == 28566 then return "Transmute: Earthstorm Diamond" end
+            if spellId == 29688 then return "Transmute: Primal Might" end
+            if spellId == 17187 then return "Transmute: Arcanite" end
+            return "Spell " .. tostring(spellId)
+        end)
+        assert.are.equal("auto", entries[1].id)
+        assert.are.equal(28566, entries[1].spellId)
+        assert.are.equal("Earthstorm Diamond", entries[1].autoLabel)
+    end)
+
+    it("ResolveTransmuteSpellForCharacter uses known override before last cast", function()
+        local char = {
+            lastTransmute = { spellId = 28566 },
+            cooldownGroupChoice = { transmute = 17187 },
+            Professions = { Alchemy = { Recipes = { [28566] = {}, [29688] = {}, [17187] = {} } } },
+        }
+        assert.are.equal(17187, CD.ResolveTransmuteSpellForCharacter(char))
+    end)
+
+    it("ResolveTransmuteSpellForCharacter ignores unknown override and uses Auto", function()
+        local char = {
+            lastTransmute = { spellId = 28566 },
+            cooldownGroupChoice = { transmute = 32765 },
+            Professions = { Alchemy = { Recipes = { [28566] = {}, [29688] = {} } } },
+        }
+        assert.are.equal(28566, CD.ResolveTransmuteSpellForCharacter(char))
+    end)
+
+    it("ResolveSphereSpellForCharacter uses known override before last cast", function()
+        local char = {
+            lastSphere = { spellId = 28028 },
+            cooldownGroupChoice = { void_sphere = 28027 },
+            Professions = { Enchanting = { Recipes = { [28028] = {}, [28027] = {} } } },
+        }
+        assert.are.equal(28027, CD.ResolveSphereSpellForCharacter(char))
+    end)
+
+    it("BuildRows uses cooldownGroupChoice for transmute spell and title", function()
+        local oldGi = _G.GetSpellInfo
+        _G.GetSpellInfo = function(spellId)
+            if spellId == 17187 then return "Transmute: Arcanite" end
+            if spellId == 29688 then return "Transmute: Primal Might" end
+            return oldGi and oldGi(spellId)
+        end
+        local char = {
+            name = "T",
+            cooldownGroupChoice = { transmute = 17187 },
+            Professions = { Alchemy = { Recipes = { [29688] = {}, [17187] = {} } } },
+        }
+        local ds = mockDS({ TestRealm = { P = char } })
+        local rows = CD.BuildRows(ds, AltArmyTBC_Options.cooldowns, 1000)
+        _G.GetSpellInfo = oldGi
+        local transmuteRow
+        for _, r in ipairs(rows) do
+            if r.categoryKey == "transmute" and r.name == "T" then
+                transmuteRow = r
+                break
+            end
+        end
+        assert.is_not_nil(transmuteRow)
+        assert.are.equal(17187, transmuteRow.spellId)
+        assert.are.equal("Arcanite", transmuteRow.categoryTitle)
+    end)
+
     it("GetSphereExpiryUnix uses max expiry across sphere spell ids", function()
         local char = {
             ProfCooldownExpiry = {

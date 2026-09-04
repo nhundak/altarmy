@@ -249,6 +249,7 @@ local function SyncSortFromSaved()
 end
 
 local RefreshList -- forward-declared; header buttons call this after sort changes
+local ShowRecipeTooltip -- spell + reagent counts; used by rows and recipe picker
 local ComputeMaxCraftsWithAttachmentCap -- forward-declared; used by send flow
 local ApplyColumnWidths -- forward-declared; column animation + refresh
 local SyncSendCheckFade -- forward-declared; checkbox fade with Select All
@@ -472,6 +473,265 @@ local sendBar = {
     pendingRefresh = false,
 }
 
+--- Shared Auto/recipe dropdown for grouped cooldown rows (one popup, not per-row).
+local recipePicker = {
+    char = nil,
+    categoryKey = nil,
+    row = nil,
+    query = "",
+    edit = nil,
+    cancelBtn = nil,
+}
+
+function recipePicker.FormatEntryLabel(entry, char)
+    local icon = entry and entry.spellId and RecipeIconTexture(entry.spellId, char)
+    local prefix = icon and ("|T%s:0|t "):format(icon) or ""
+    local GTD = AltArmy.GuildTabData
+    local text = CD.FormatGroupRecipeChoiceDisplayLabel
+        and CD.FormatGroupRecipeChoiceDisplayLabel(entry, recipePicker.query, function(plain, query, formatSegment)
+            if GTD and GTD.FormatTextWithSearchHighlight then
+                return GTD.FormatTextWithSearchHighlight(plain, nil, query, formatSegment)
+            end
+            return formatSegment and formatSegment(plain) or plain
+        end)
+        or (entry and entry.label)
+        or "Auto"
+    return prefix .. text
+end
+
+recipePicker.dropdown = Theme.CreateSingleSelectDropdown({
+    parent = frame,
+    dropdownParent = frame,
+    width = 280,
+    getEntries = function()
+        if not CD.ListGroupRecipeChoiceEntries then
+            return { { id = "auto", label = "Auto" } }
+        end
+        local raw = CD.ListGroupRecipeChoiceEntries(
+            recipePicker.char,
+            recipePicker.categoryKey,
+            GetSpellInfo,
+            recipePicker.query
+        )
+        local out = {}
+        for i, entry in ipairs(raw) do
+            out[i] = {
+                id = entry.id,
+                label = recipePicker.FormatEntryLabel(entry, recipePicker.char),
+                spellId = entry.spellId,
+            }
+        end
+        return out
+    end,
+    getSelectedId = function()
+        if not CD.GetGroupRecipeChoice then
+            return "auto"
+        end
+        return CD.GetGroupRecipeChoice(recipePicker.char, recipePicker.categoryKey)
+    end,
+    onSelect = function(id)
+        if CD.SetGroupRecipeChoice then
+            CD.SetGroupRecipeChoice(recipePicker.char, recipePicker.categoryKey, id)
+        end
+        recipePicker:Close()
+        if RefreshList then
+            RefreshList()
+        end
+    end,
+    onEntryEnter = function(btn, entry)
+        if ShowRecipeTooltip and entry and entry.spellId then
+            ShowRecipeTooltip(btn, entry.spellId, recipePicker.char)
+        end
+    end,
+    onEntryLeave = function()
+        GameTooltip:Hide()
+    end,
+})
+if recipePicker.dropdown and recipePicker.dropdown.button then
+    recipePicker.dropdown.button:Hide()
+    recipePicker.dropdown.button:EnableMouse(false)
+end
+if recipePicker.dropdown and recipePicker.dropdown.popup and recipePicker.dropdown.popup.HookScript then
+    recipePicker.dropdown.popup:HookScript("OnHide", function()
+        GameTooltip:Hide()
+        if recipePicker.edit and recipePicker.edit:IsShown() then
+            recipePicker:HideSearch()
+        end
+    end)
+end
+
+function recipePicker:IsOpen()
+    return self.dropdown and self.dropdown.popup and self.dropdown.popup:IsShown()
+end
+
+function recipePicker:EnsureSearchWidgets()
+    if self.edit then
+        return
+    end
+    local cancelBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    cancelBtn:SetSize(56, ROW_HEIGHT)
+    cancelBtn:SetText("Cancel")
+    Theme.SkinButton(cancelBtn)
+    cancelBtn:Hide()
+    cancelBtn:SetScript("OnClick", function()
+        recipePicker:Close()
+    end)
+    self.cancelBtn = cancelBtn
+
+    local edit = CreateFrame("EditBox", nil, frame)
+    edit:SetHeight(ROW_HEIGHT)
+    edit:SetAutoFocus(false)
+    edit:SetFontObject("GameFontHighlight")
+    Theme.ApplyInputTextures(edit)
+    local leftInset = Theme.ApplySearchInputIcon(edit, { size = 11, leftPad = 2, gap = 2, rightInset = 4 })
+    Theme.SetupEditBoxPlaceholder(edit, "Search", { leftInset = leftInset, rightInset = 4 })
+    Theme.BindEditBoxPlaceholderHandlers(edit, function(box)
+        recipePicker.query = box:GetText() or ""
+        local dd = recipePicker.dropdown
+        if dd and dd.Update and recipePicker:IsOpen() then
+            dd:Update()
+            if dd.popup then
+                dd.popup:Show()
+                if Theme._openSingleSelectDropdowns then
+                    Theme._openSingleSelectDropdowns[dd.popup] = true
+                end
+            end
+        end
+    end)
+    edit:SetScript("OnEscapePressed", function()
+        recipePicker:Close()
+    end)
+    edit:SetScript("OnEnterPressed", function()
+        local raw = CD.ListGroupRecipeChoiceEntries
+            and CD.ListGroupRecipeChoiceEntries(
+                recipePicker.char,
+                recipePicker.categoryKey,
+                GetSpellInfo,
+                recipePicker.query
+            ) or {}
+        local first = raw[1]
+        if first and CD.SetGroupRecipeChoice then
+            CD.SetGroupRecipeChoice(recipePicker.char, recipePicker.categoryKey, first.id)
+        end
+        recipePicker:Close()
+        if RefreshList then
+            RefreshList()
+        end
+    end)
+    edit:Hide()
+    self.edit = edit
+end
+
+function recipePicker:HideSearch()
+    local row = self.row
+    if self.edit then
+        if self.edit.ClearFocus then
+            self.edit:ClearFocus()
+        end
+        if Theme.ClearEditBoxText then
+            Theme.ClearEditBoxText(self.edit)
+        else
+            self.edit:SetText("")
+        end
+        self.edit:Hide()
+        self.edit:SetParent(frame)
+    end
+    if self.cancelBtn then
+        self.cancelBtn:Hide()
+        self.cancelBtn:SetParent(frame)
+    end
+    self.query = ""
+    if row and row.catCell then
+        row.catCell:Show()
+    end
+end
+
+function recipePicker:AttachSearch(row, reset)
+    self:EnsureSearchWidgets()
+    local host = row and row.catBtn
+    if not host or not self.edit or not self.cancelBtn then
+        return
+    end
+    if row.catCell then
+        row.catCell:Hide()
+    end
+    local hostLevel = (host.GetFrameLevel and host:GetFrameLevel()) or 0
+    self.cancelBtn:SetParent(host)
+    self.cancelBtn:ClearAllPoints()
+    self.cancelBtn:SetPoint("RIGHT", host, "RIGHT", 0, 0)
+    self.cancelBtn:SetSize(56, ROW_HEIGHT)
+    if self.cancelBtn.SetFrameLevel then
+        self.cancelBtn:SetFrameLevel(hostLevel + 2)
+    end
+    self.edit:SetParent(host)
+    self.edit:ClearAllPoints()
+    self.edit:SetPoint("LEFT", host, "LEFT", 0, 0)
+    self.edit:SetPoint("RIGHT", self.cancelBtn, "LEFT", -4, 0)
+    self.edit:SetHeight(ROW_HEIGHT)
+    if self.edit.SetFrameLevel then
+        self.edit:SetFrameLevel(hostLevel + 2)
+    end
+    self.cancelBtn:Show()
+    self.edit:Show()
+    if reset then
+        self.query = ""
+        if Theme.ClearEditBoxText then
+            Theme.ClearEditBoxText(self.edit)
+        else
+            self.edit:SetText("")
+        end
+        self.edit:SetFocus()
+    end
+end
+
+function recipePicker:Close()
+    self:HideSearch()
+    self.row = nil
+    self.char = nil
+    self.categoryKey = nil
+    self.query = ""
+    GameTooltip:Hide()
+    if self.dropdown and self.dropdown.Close then
+        self.dropdown:Close()
+    end
+end
+
+function recipePicker:Open(row)
+    local rd = row and row.rowData
+    local char = row and row.charTableRef
+    local dd = self.dropdown
+    if not rd or not char or not dd or not CD.IsGroupCategory or not CD.IsGroupCategory(rd.categoryKey) then
+        return
+    end
+    if dd.popup and dd.popup:IsShown() and self.row == row then
+        self:Close()
+        return
+    end
+    if self.row and self.row ~= row then
+        self:HideSearch()
+    end
+    self.row = row
+    self.char = char
+    self.categoryKey = rd.categoryKey
+    self.query = ""
+    self:AttachSearch(row, true)
+    if Theme.CloseSingleSelectDropdowns then
+        Theme.CloseSingleSelectDropdowns(dd.popup)
+    end
+    if dd.Update then
+        dd:Update()
+    end
+    if dd.popup and row.catBtn then
+        dd.popup:ClearAllPoints()
+        dd.popup:SetPoint("TOPLEFT", row.catBtn, "BOTTOMLEFT", 0, -2)
+        dd.popup:SetFrameStrata("DIALOG")
+        dd.popup:Show()
+        if Theme._openSingleSelectDropdowns then
+            Theme._openSingleSelectDropdowns[dd.popup] = true
+        end
+    end
+end
+
 sendBar.openBtn = CreateFrame("Button", nil, tipRow, "UIPanelButtonTemplate")
 sendBar.openBtn:SetSize(120, 20)
 sendBar.openBtn:SetPoint("LEFT", tipRow, "LEFT", 0, 0)
@@ -585,6 +845,9 @@ ApplyColumnWidths = function(widths)
     local function layoutRow(row)
         if not row or not row.catCell then return end
         row:SetWidth(totalColWidth)
+        if row.catBtn then
+            row.catBtn:SetSize(colWidths.Category, ROW_HEIGHT)
+        end
         row.catCell:SetSize(colWidths.Category, ROW_HEIGHT)
         row.charCell:SetSize(colWidths.Character, ROW_HEIGHT)
         if row.matSlot then
@@ -944,22 +1207,135 @@ sendBar.sendBtn:SetScript("OnClick", function()
     end
 end)
 
+ShowRecipeTooltip = function(owner, spellId, charTable, anchor)
+    if not spellId then
+        return
+    end
+    GameTooltip:SetOwner(owner, anchor or "ANCHOR_BOTTOMLEFT")
+    local link = _G.GetSpellLink and _G.GetSpellLink(spellId)
+    if link and link ~= "" then
+        GameTooltip:SetHyperlink(link)
+    else
+        if GameTooltip_Clear then
+            GameTooltip_Clear(GameTooltip)
+        elseif GameTooltip.ClearLines then
+            GameTooltip:ClearLines()
+        end
+        local title = _G.GetSpellInfo and _G.GetSpellInfo(spellId)
+        GameTooltip:AddLine(title or ("Spell " .. tostring(spellId)), 1, 1, 1)
+    end
+    GameTooltip:AddLine(" ", 1, 1, 1)
+    local qty = nil
+    if charTable and CD.GetMaxCraftableQuantity then
+        qty = CD.GetMaxCraftableQuantity(charTable, spellId, function(ch, itemId)
+            if DS.GetTotalItemCount then
+                return DS:GetTotalItemCount(ch, itemId)
+            end
+            return DS:GetContainerItemCount(ch, itemId)
+        end)
+    end
+    if qty == nil then
+        GameTooltip:AddLine(
+            "Open this profession's tradeskill window once to load material counts.",
+            0.75,
+            0.75,
+            0.75,
+            true
+        )
+    end
+    if charTable and CD.GetReagentHaveCounts then
+        local showRealm = (AltArmy.GlobalRealmFilter and AltArmy.GlobalRealmFilter.Get() == "all")
+            and AccountHasMultipleRealms()
+            and charTable.realm
+            and charTable.realm ~= ""
+        local _, classFile = DS:GetCharacterClass(charTable)
+        local displayName = charTable.name or "?"
+        local displayRealm = charTable.realm or ""
+        local nameStr = RF and RF.formatColoredCharacterNameRealm
+            and RF.formatColoredCharacterNameRealm(displayName, displayRealm, showRealm, classFile)
+            or displayName
+        GameTooltip:AddLine(nameStr .. " has:", 1, 1, 1, true)
+        local rrows = CD.GetReagentHaveCounts(charTable, spellId, function(ch, itemId)
+            if DS.GetTotalItemCount then
+                return DS:GetTotalItemCount(ch, itemId)
+            end
+            return DS:GetContainerItemCount(ch, itemId)
+        end)
+        for _, rr in ipairs(rrows) do
+            local have, need = rr.have or 0, rr.need or 0
+            local label
+            if GetItemInfo then
+                local itemName = GetItemInfo(rr.itemID)
+                label = itemName or ("Item " .. tostring(rr.itemID))
+            else
+                label = "Item " .. tostring(rr.itemID)
+            end
+            local color = have >= need and { 0, 1, 0 } or { 1, 0.3, 0.3 }
+            GameTooltip:AddLine(
+                TooltipReagentLine(rr.itemID, label, have, need),
+                color[1],
+                color[2],
+                color[3],
+                true
+            )
+        end
+    end
+    GameTooltip:Show()
+end
+
 local function PoolRow()
     local row = table.remove(rowPool)
     if not row then
         row = CreateFrame("Button", nil, scrollChild)
         row:SetHeight(ROW_HEIGHT)
 
-        local cat = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        cat:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
-        cat:SetSize(colWidths.Category, ROW_HEIGHT)
+        local catBtn = CreateFrame("Button", nil, row)
+        catBtn:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+        catBtn:SetSize(colWidths.Category, ROW_HEIGHT)
+        catBtn:RegisterForClicks("LeftButtonUp")
+        local cat = catBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        cat:SetAllPoints(catBtn)
         cat:SetJustifyH("LEFT")
         cat:SetJustifyV("MIDDLE")
         cat:SetNonSpaceWrap(false)
+        row.catBtn = catBtn
         row.catCell = cat
 
+        Theme.InstallHoverTint(catBtn)
+        catBtn:EnableMouse(true)
+        catBtn:SetScript("OnEnter", function(self)
+            local parent = self:GetParent()
+            local rd = parent and parent.rowData
+            local pickable = rd and CD.IsGroupCategory and CD.IsGroupCategory(rd.categoryKey)
+            if pickable and Theme.SetHoverTint then
+                Theme.SetHoverTint(self, true)
+            elseif Theme.SetHoverTint then
+                Theme.SetHoverTint(self, false)
+            end
+            if recipePicker.edit and recipePicker.edit:IsShown() and recipePicker.row == parent then
+                return
+            end
+            if parent then
+                ShowRecipeTooltip(self, parent.spellId, parent.charTableRef)
+            end
+        end)
+        catBtn:SetScript("OnLeave", function(self)
+            if Theme.SetHoverTint then
+                Theme.SetHoverTint(self, false)
+            end
+            GameTooltip:Hide()
+        end)
+        catBtn:SetScript("OnClick", function(self)
+            GameTooltip:Hide()
+            local parent = self:GetParent()
+            local rd = parent and parent.rowData
+            if parent and rd and CD.IsGroupCategory and CD.IsGroupCategory(rd.categoryKey) then
+                recipePicker:Open(parent)
+            end
+        end)
+
         local char = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        char:SetPoint("TOPLEFT", cat, "TOPRIGHT", 0, 0)
+        char:SetPoint("TOPLEFT", catBtn, "TOPRIGHT", 0, 0)
         char:SetSize(colWidths.Character, ROW_HEIGHT)
         char:SetJustifyH("LEFT")
         char:SetJustifyV("MIDDLE")
@@ -1015,80 +1391,7 @@ local function PoolRow()
                     end
                     return
                 end
-                if not self.spellId then
-                    return
-                end
-                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-                local link = _G.GetSpellLink and _G.GetSpellLink(self.spellId)
-                if link and link ~= "" then
-                    GameTooltip:SetHyperlink(link)
-                else
-                    if GameTooltip_Clear then
-                        GameTooltip_Clear(GameTooltip)
-                    elseif GameTooltip.ClearLines then
-                        GameTooltip:ClearLines()
-                    end
-                    local title = _G.GetSpellInfo and _G.GetSpellInfo(self.spellId)
-                    GameTooltip:AddLine(title or ("Spell " .. tostring(self.spellId)), 1, 1, 1)
-                end
-                GameTooltip:AddLine(" ", 1, 1, 1)
-                local charTable = self.charTableRef
-                local qty = nil
-                if charTable and CD.GetMaxCraftableQuantity then
-                    qty = CD.GetMaxCraftableQuantity(charTable, self.spellId, function(ch, itemId)
-                        if DS.GetTotalItemCount then
-                            return DS:GetTotalItemCount(ch, itemId)
-                        end
-                        return DS:GetContainerItemCount(ch, itemId)
-                    end)
-                end
-                if qty == nil then
-                    GameTooltip:AddLine(
-                        "Open this profession's tradeskill window once to load material counts.",
-                        0.75,
-                        0.75,
-                        0.75,
-                        true
-                    )
-                end
-                if charTable and CD.GetReagentHaveCounts then
-                    local showRealm = (AltArmy.GlobalRealmFilter and AltArmy.GlobalRealmFilter.Get() == "all")
-                        and AccountHasMultipleRealms()
-                        and charTable.realm
-                        and charTable.realm ~= ""
-                    local _, classFile = DS:GetCharacterClass(charTable)
-                    local displayName = charTable.name or "?"
-                    local displayRealm = charTable.realm or ""
-                    local nameStr = RF and RF.formatColoredCharacterNameRealm
-                        and RF.formatColoredCharacterNameRealm(displayName, displayRealm, showRealm, classFile)
-                        or displayName
-                    GameTooltip:AddLine(nameStr .. " has:", 1, 1, 1, true)
-                    local rrows = CD.GetReagentHaveCounts(charTable, self.spellId, function(ch, itemId)
-                        if DS.GetTotalItemCount then
-                            return DS:GetTotalItemCount(ch, itemId)
-                        end
-                        return DS:GetContainerItemCount(ch, itemId)
-                    end)
-                    for _, rr in ipairs(rrows) do
-                        local have, need = rr.have or 0, rr.need or 0
-                        local label
-                        if GetItemInfo then
-                            local itemName = GetItemInfo(rr.itemID)
-                            label = itemName or ("Item " .. tostring(rr.itemID))
-                        else
-                            label = "Item " .. tostring(rr.itemID)
-                        end
-                        local color = have >= need and { 0, 1, 0 } or { 1, 0.3, 0.3 }
-                        GameTooltip:AddLine(
-                            TooltipReagentLine(rr.itemID, label, have, need),
-                            color[1],
-                            color[2],
-                            color[3],
-                            true
-                        )
-                    end
-                end
-                GameTooltip:Show()
+                ShowRecipeTooltip(self, self.spellId, self.charTableRef)
             end,
             onLeave = function()
                 GameTooltip:Hide()
@@ -2308,6 +2611,7 @@ frame.StartSendAllStockpile = function(_, n)
 end
 
 local function ReleaseRows()
+    recipePicker:Close()
     for _, r in ipairs(activeRows) do
         if Theme.SetHoverTint then
             Theme.SetHoverTint(r, false)
@@ -2458,6 +2762,20 @@ local function FillCooldownListRow(row, rd, now, compose, curName, curRealm, opt
     opts = opts or {}
     row.charTableRef = DS:GetCharacter(rd.charKeyName, rd.realm)
     row.catCell:SetText(FormatRecipeColumnText(rd.spellId, rd.categoryTitle or "", row.charTableRef))
+    local groupPickable = CD.IsGroupCategory and CD.IsGroupCategory(rd.categoryKey)
+    local pickerOpenOnRow = recipePicker.row == row and recipePicker:IsOpen()
+    if row.catCell then
+        row.catCell:SetShown(not pickerOpenOnRow)
+    end
+    if row.catBtn then
+        row.catBtn:EnableMouse(true)
+        if not groupPickable and Theme.SetHoverTint then
+            Theme.SetHoverTint(row.catBtn, false)
+        end
+    end
+    if pickerOpenOnRow then
+        recipePicker:AttachSearch(row, false)
+    end
     local _, classFile = DS:GetCharacterClass(row.charTableRef)
     row.charCell:SetTextColor(1, 1, 1, 1)
     local showRealm = (AltArmy.GlobalRealmFilter and AltArmy.GlobalRealmFilter.Get() == "all")
@@ -2538,6 +2856,9 @@ local function FillCooldownListRow(row, rd, now, compose, curName, curRealm, opt
 
     -- Apply current column sizes (animation may be mid-flight).
     if row.catCell then
+        if row.catBtn then
+            row.catBtn:SetSize(colWidths.Category, ROW_HEIGHT)
+        end
         row.catCell:SetSize(colWidths.Category, ROW_HEIGHT)
         row.charCell:SetSize(colWidths.Character, ROW_HEIGHT)
         if row.matSlot then
@@ -2858,6 +3179,7 @@ SetActiveCooldownsView = function(which)
         end
     end
     if which == "raids" then
+        recipePicker:Close()
         if DS.RequestLockoutInfo then
             DS:RequestLockoutInfo()
         end
@@ -2889,6 +3211,10 @@ do
     end
 end
 
+frame:HookScript("OnHide", function()
+    recipePicker:Close()
+end)
+
 frame:SetScript("OnShow", function()
     local which = "crafting"
     if LD and LD.EnsureLockoutListOptions then
@@ -2903,6 +3229,7 @@ local upd = 0
 frame:SetScript("OnUpdate", function(_, dt)
     StepColumnAnim(dt)
     if AltArmy.CurrentTab ~= "Cooldowns" then
+        recipePicker:Close()
         if sendBar.mode == "compose" then
             if sendBar.sending and sendBar.AbortSending then
                 sendBar.AbortSending("Send cancelled.")

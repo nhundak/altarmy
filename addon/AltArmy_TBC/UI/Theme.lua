@@ -1588,7 +1588,10 @@ function Theme.CreateDropdownMenuItem(parent, opts)
     btn:SetPoint("RIGHT", parent, "RIGHT", -padSide, 0)
     btn:SetHeight(rowHeight - 2)
 
-    Theme.BindInteractableHover(btn)
+    Theme.BindInteractableHover(btn, {
+        onEnter = opts.onEnter,
+        onLeave = opts.onLeave,
+    })
 
     local selBg = btn:CreateTexture(nil, "ARTWORK")
     selBg:SetAllPoints(true)
@@ -1631,6 +1634,7 @@ end
 --- opts.point/relativeTo/relativePoint/x/y — anchor the trigger button
 --- opts.entries or opts.getEntries() -> { { id, label }, ... }
 --- opts.getSelectedId(), opts.onSelect(id, entry)
+--- opts.onEntryEnter(btn, entry), opts.onEntryLeave(btn, entry)
 function Theme.CreateSingleSelectDropdown(opts)
     opts = opts or {}
     local parent = opts.parent
@@ -1769,6 +1773,16 @@ function Theme.CreateSingleSelectDropdown(opts)
                 rowHeight = rowHeight,
                 text = entry.label or entry.id,
                 selected = opts.getSelectedId and opts.getSelectedId() == entry.id,
+                onEnter = function(self)
+                    if opts.onEntryEnter then
+                        opts.onEntryEnter(self, entry)
+                    end
+                end,
+                onLeave = function(self)
+                    if opts.onEntryLeave then
+                        opts.onEntryLeave(self, entry)
+                    end
+                end,
                 onClick = function(self)
                     closePopup()
                     if opts.onSelect then
