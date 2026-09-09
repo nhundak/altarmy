@@ -4,7 +4,7 @@ Product and engineering docs for the AltArmy TBC addon.
 
 ## Maintaining these docs
 
-When you change **user-visible** behavior, update the matching docs in the **same task**. See [AGENTS.md](../AGENTS.md) for the code → doc mapping. Significant features only — skip debug-only slash commands, placeholders, and pixel-level UI tweaks.
+When you change **user-visible** behavior, update the matching docs in the **same task**. See [CLAUDE.md](../CLAUDE.md) for the code → doc mapping. Significant features only — skip debug-only slash commands, placeholders, and pixel-level UI tweaks.
 
 ## Product docs
 

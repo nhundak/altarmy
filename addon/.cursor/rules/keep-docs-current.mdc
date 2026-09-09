@@ -7,6 +7,6 @@ alwaysApply: true
 
 When changing **user-visible** addon behavior, update the matching docs in the **same task**.
 
-Follow the code → doc mapping in [AGENTS.md](../../AGENTS.md). Start from [docs/README.md](../../docs/README.md).
+Follow the code → doc mapping in [CLAUDE.md](../../CLAUDE.md). Start from [docs/README.md](../../docs/README.md).
 
-Do not recreate deleted root `ALTARMY_TBC_*.md` specs. Do not dump feature catalogs into AGENTS.md.
+Do not recreate deleted root `ALTARMY_TBC_*.md` specs. Do not dump feature catalogs into CLAUDE.md.

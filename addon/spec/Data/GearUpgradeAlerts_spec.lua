@@ -519,7 +519,7 @@ describe("GearUpgradeAlerts", function()
                 end,
             }
             AltArmy.ItemUsability = {
-                IsBindOnPickup = function() return false end,
+                IsBindOnPickup = overrides.isBindOnPickup or function() return false end,
                 NeedsProficiencyTraining = function() return false end,
                 EffectiveRequiredLevel = overrides.effectiveRequiredLevel or function(_, link)
                     if link == helmLink then return 40 end
@@ -559,6 +559,18 @@ describe("GearUpgradeAlerts", function()
             assert.is_not_nil(chatLines[1]:find(helmLink, 1, true))
             assert.is_nil(chatLines[1]:match("%(bank%)"))
             assert.is_nil(chatLines[1]:match("%(mail%)"))
+        end)
+
+        it("announces soulbound (bind-on-pickup) bag upgrades at the new level", function()
+            loadWithMocks({
+                iterateBagSlots = function(_, _char, cb)
+                    cb(0, 1, 11, 1, helmLink)
+                end,
+                isBindOnPickup = function() return true end,
+            })
+            GA.AnnounceLevelUpUpgrades(40)
+            assert.are.equal(1, #chatLines)
+            assert.is_not_nil(chatLines[1]:find(helmLink, 1, true))
         end)
 
         it("announces multiple upgrades in a single chat message", function()

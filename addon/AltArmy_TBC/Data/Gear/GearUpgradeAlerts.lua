@@ -750,7 +750,6 @@ end
 
 local function considerLevelUpCandidate(candidates, candidateOrder, link, location, classFile, newLevel)
     if not link then return end
-    if IU and IU.IsBindOnPickup and IU.IsBindOnPickup(link) then return end
     local eff = IU and IU.EffectiveRequiredLevel(classFile, link) or 999
     if eff ~= newLevel then return end
     noteLevelUpCandidate(candidates, candidateOrder, link, location)

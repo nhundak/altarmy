@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 Conventions for AI agents working in this repository.
 

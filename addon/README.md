@@ -9,7 +9,7 @@ AltArmy collects character data while you play and presents it in tabbed dashboa
 - **[docs/README.md](docs/README.md)** — document map (features, architecture, per-tab details)
 - **[TESTING.md](TESTING.md)** — unit tests (`npm test`)
 - **[LINTING.md](LINTING.md)** — luacheck and Lua 5.1 compile checks (`npm run check`)
-- **[AGENTS.md](AGENTS.md)** — conventions for AI agents working in this repo
+- **[CLAUDE.md](CLAUDE.md)** — conventions for AI agents working in this repo
 
 ## Quick start (dev)
 
