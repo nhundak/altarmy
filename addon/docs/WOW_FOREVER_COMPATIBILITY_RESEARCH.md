@@ -77,6 +77,23 @@ We did not find a case of a well-established addon maintaining genuinely **separ
 - **Lint/compile tooling is already version-agnostic**: `.luacheckrc` targets `std = "lua51"` (true for every WoW client, Forever included) and `npm run check` does a Lua 5.1 compile pass — no tooling changes needed there. Per-file `-- luacheck: globals ...` annotations would need extending if we start referencing flavor-specific globals (`WOW_PROJECT_*`, new `C_*` namespaces) conditionally.
 - **`OptionalDeps`** (Auctionator, CraftLib, TacoTip, GearScoreTBCClassic, RXPGuides, Questie, Zygor...) are all TBC-Classic-specific addons; none of them are confirmed to exist for Forever yet. Our integration code already guards their absence, so this degrades gracefully, but a Forever build would ship with most optional integrations inert until/unless those addons (or equivalents) target Forever too.
 
+## Addon-development specifics (checked 2026-09-14, three days before beta)
+
+Re-verified the premise of this doc against independent outlets (Blizzard's own news post, Variety, Kotaku, Vice, Wikipedia, MMO-Champion) since the original notes cited sources that were worth double-checking — the announcement and dates are real and corroborated, not a hallucination.
+
+On addon development specifically, every source agrees on one point: **Blizzard has published no addon/API documentation for Forever yet.** No interface number, no `WOW_PROJECT_ID`, no addon-folder path, no supported/blocked list. [Blizzard's own BlizzCon recap article](https://news.blizzard.com/en-us/article/24301145/world-of-warcraft-at-blizzcon-2026-discover-whats-next) contains zero developer-facing technical detail. The [`Gethe/wow-ui-source`](https://github.com/Gethe/wow-ui-source) mirror (the usual place a new `Forever`/`classic_era`-style branch would show up once the client exists) has no Forever branch yet as of this check.
+
+What we could find:
+
+- **Community expectation, not confirmation:** since Forever is built on the vanilla 1–60 engine rather than Retail, the consensus guess (echoed independently by a [PEWPEWSHOP addon-compatibility post](https://pewpewshop.pro/wow-boost/blog~addons-for-wow-forever-what-is-known-so-far) and an addon dev's own [Forever port-assessment tracking issue](https://github.com/nazumods/wow/issues/942)) is that it will expose something closer to the **Classic Era API surface** (smaller, no `C_*` namespace sprawl) than Retail's, and possibly closer to Classic Era than to TBC's own incremental API additions. This is an assumption to verify in beta, not a fact — it's the same caution our existing "Domain data" section above already carries into the `DataStore/` risk assessment.
+  - This slightly updates (doesn't contradict) the note above under "Our codebase, and where Forever would bite" — the existing text says Forever "more plausibly resembles Classic Era/TBC's older-style APIs than retail's"; the new sources lean specifically toward Classic Era rather than TBC, for whatever that's worth pre-beta.
+- **One unconfirmed, speculative interface-number guess:** a third-party addon developer ([GitHub issue](https://github.com/danielcosta42/guildos/issues/11)) reasoned from Blizzard's `%d%02d%02d` interface-numbering convention and an internal build string reported as `1.60.x` to guess Forever's interface number will be **16000 or 16001**, and suggested beta builds declare `## Interface: 20506, 16000, 16001` (i.e., comma-delimited alongside TBC's own 20506) to hedge. This is one person's inference from a leaked/observed build string, not an official number — treat as a placeholder to test against, not something to hardcode with confidence.
+- **No addon-store support yet:** CurseForge, Wago, and WoWInterface have no "Forever" flavor/channel as of this check, so the multi-TOC pattern's flavor-suffix convention (section 1 above) has no established `_Forever` (or similar) suffix yet either — that will need confirming once one of those platforms adds it.
+- **Addon policy itself is an open question**, not just addon compatibility: Blizzard's own forums have a dedicated "WoW: Forever" category with an active "Should Blizzard block addons?" thread (387 replies as of 2026-09-14). Nothing suggests Blizzard is planning an addon lockout, but it means "will third-party addons be allowed at all, and under what API" isn't 100% settled the way it is for existing Classic-family clients.
+- **Beta (2026-09-17) is the real starting line.** Every source converges on the same advice: nothing meaningful can be confirmed about addon compatibility until the beta client is in hand and `select(4, GetBuildInfo())` / `WOW_PROJECT_ID` can be read directly.
+
+None of this changes the recommendation below — if anything it reinforces starting with multi-TOC + existence checks rather than the packager, since we don't even have a confirmed flavor suffix to build tooling around yet.
+
 ## Recommendation for when the beta lands
 
 1. Confirm the `## Interface` number and `WOW_PROJECT_ID` for Forever in-game (same `/dump select(4, GetBuildInfo())` check already noted in our `.toc`), and confirm whether it shares Classic Era's/TBC's container/equipment API shape or retail's.
@@ -95,3 +112,8 @@ We did not find a case of a well-established addon maintaining genuinely **separ
 - [Porting addons to Classic — Wowpedia](https://wowpedia.fandom.com/wiki/Porting_addons_to_Classic)
 - [Blizzard Announces World of Warcraft: Forever — Game Informer](https://gameinformer.com/blizzcon-2026/2026/09/12/blizzard-announces-world-of-warcraft-forever-expanding-vanilla-wow-with)
 - [World of Warcraft: Forever — Wikipedia](https://en.wikipedia.org/wiki/World_of_Warcraft:_Forever)
+- [World of Warcraft at BlizzCon 2026: Discover What's Next — Blizzard News](https://news.blizzard.com/en-us/article/24301145/world-of-warcraft-at-blizzcon-2026-discover-whats-next)
+- [Addons for WoW: Forever — What Is Known So Far — PEWPEWSHOP](https://pewpewshop.pro/wow-boost/blog~addons-for-wow-forever-what-is-known-so-far)
+- [Beta build: one package that loads on Forever, outside the stores — danielcosta42/guildos#11](https://github.com/danielcosta42/guildos/issues/11) (unofficial interface-number guess: 16000/16001, unconfirmed)
+- [Track WoW: Forever (Classic+) beta + Nov 4 launch — addon port assessment — nazumods/wow#942](https://github.com/nazumods/wow/issues/942)
+- [`Gethe/wow-ui-source`](https://github.com/Gethe/wow-ui-source) — mirror to watch for a Forever branch once the beta client exists
