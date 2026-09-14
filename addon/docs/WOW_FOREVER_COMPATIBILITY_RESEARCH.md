@@ -1,0 +1,97 @@
+# WoW Forever compatibility — research notes
+
+Status: **preliminary planning**, written 2026-09-14. Blizzard announced *World of Warcraft: Forever* at BlizzCon 2026 (2026-09-12); beta is expected to begin 2026-09-17, full release 2026-11-04. Forever expands the vanilla (1–60) experience — new zones (Mount Hyjal, Zephras Isle, The Riverglades), ~1,000 new quests, 9 dungeons, 10/20-player raids, a new playable race (Skyborne), an SD/HD toggle, and new reputations — and runs **alongside** Classic and Retail rather than replacing either. No addon API details are public yet; this doc captures how the addon ecosystem generally handles multiple game versions today, so we have a plan ready once the beta client (and its `## Interface` number / `WOW_PROJECT_ID`) is available.
+
+This is research only — no code changes. Nothing here is user-visible, so it doesn't trigger the CLAUDE.md "update docs in the same task" rule; it's meant to seed that work once Forever specifics are known.
+
+## How WoW addons support multiple game versions today
+
+Every retail/Classic/Cata Classic/etc. client build is still Lua 5.1 with the same addon-loading model (`.toc` → ordered file list → `SavedVariables`). What differs between versions is the **API surface** (functions added/removed/renamed, e.g. `C_Container` vs. old `GetContainerItemInfo`) and the **`## Interface` number** each client accepts. Addons bridge that gap with a mix of three mechanisms, almost always used together rather than as alternatives:
+
+### 1. Multi-TOC, single codebase (the dominant pattern)
+
+One repo, one set of `.lua` files, multiple `.toc` files — one per "flavor." The client picks the most specific `.toc` for the running build and falls back to the base name:
+
+```
+MyAddon/
+  MyAddon.toc            -- fallback / retail default
+  MyAddon_Vanilla.toc     -- Classic Era
+  MyAddon_TBC.toc          -- TBC Classic (also matches "Anniversary" clients)
+  MyAddon_Wrath.toc
+  MyAddon_Cata.toc
+  MyAddon_Mists.toc
+  MyAddon_Mainline.toc    -- retail (lower-priority fallback name)
+```
+
+Recognized suffixes today: `_Mainline`/`_Standard` (retail), `_Vanilla` (Classic Era, alias `_Classic`), `_TBC` (alias `_BCC`, and reportedly matches Anniversary/TBC-Anniversary clients), `_Wrath` (alias `_WOTLKC`), `_Cata`, `_Mists`. Each `.toc` lists its own `## Interface:` number but otherwise `#include`s the same `.lua` files, so there is exactly one implementation to maintain — the `.toc` files just select which files load and under what interface number.
+
+As of Patch 10.2.7, a **single** `.toc` can also declare several interface numbers comma-delimited (`## Interface: 120100, 50504, 38002, 20506, 11509`), letting very simple addons skip multiple `.toc` files entirely and rely on runtime checks (below) for any behavior differences. `.toc` file lists also support `[Family]`/`[Game]` path expansion (e.g. `[Family]\File.lua` loads `Mainline\File.lua` or `Classic\File.lua` automatically), letting a `.toc` route to per-version files without listing them per flavor.
+
+**Pros:** one codebase, one PR fixes all flavors, easiest to keep behavior consistent. **Cons:** every shared file must tolerate every flavor's API at once (lots of defensive/branchy code), and a bug in shared logic ships to every flavor simultaneously.
+
+### 2. Runtime version detection (small branches inside shared files)
+
+For differences that don't justify a separate file, addons branch at runtime using client-provided globals:
+
+```lua
+local isRetail = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local isTBC = (WOW_PROJECT_ID == WOW_PROJECT_BURNING_CRUSADE_CLASSIC)
+```
+
+Known `WOW_PROJECT_ID` values: `MAINLINE=1`, `CLASSIC=2` (legacy/Classic Era), `WOWLABS=3` (Plunderstorm), `BURNING_CRUSADE_CLASSIC=5`, `WRATH_CLASSIC=11`, `CATACLYSM_CLASSIC=14`, `MISTS_CLASSIC=19`. Blizzard assigns a new, non-sequential ID for each new client rather than reusing/extending an existing one — Forever will almost certainly get its own new `WOW_PROJECT_ID` and its own `## Interface` range, discoverable once the beta ships. `select(4, GetBuildInfo())` (the TOC/interface number of the running client) is the other common runtime check, and is already the verification method noted in our own `.toc` (`# TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())`).
+
+The community view (and ours already, per `Data/DESIGN.md` → "TBC Compatibility") favors **existence checks over version checks** wherever possible: `if C_AddOns and C_AddOns.IsAddOnLoaded then ... else ... end` rather than `if isRetail then ...`. Existence checks degrade gracefully to *any* future client without edits, including ones released after the addon's last update — which matters a lot for a brand-new, spec-unknown client like Forever.
+
+### 3. Build-time preprocessing (conditional comments)
+
+Larger multi-flavor addons (WeakAuras, BigWigs/LittleWigs, and everything using the community "packager" tooling: `BigWigsMods/packager`, used by CurseForge/WoWInterface/Wago/GitHub Actions release pipelines) mark flavor-specific code with special comments that the packager strips or uncomments per build, leaving line numbers unchanged (so error/stack traces still map to source):
+
+```lua
+--@retail@
+local supportsTransmog = true
+--@end-retail@
+--[===[@non-retail@
+local supportsTransmog = false
+--@end-non-retail@]===]
+```
+
+Keywords: `retail`, `version-retail`, `version-classic`, `version-bcc` (TBC), `version-wrath`, `version-cata`, `version-mists`, each invertible with a `non-` prefix; `do-not-package` and `alpha`/`debug` for build hygiene. The `.toc` file supports the same `#@keyword@ … #@end-keyword@` block syntax. This is the most powerful option (true dead-code elimination per flavor, zero runtime cost) but requires adopting the packager as part of the release pipeline — it's a tooling investment, not just a coding convention.
+
+## Examples reviewed
+
+| Addon | Approach |
+|---|---|
+| **WeakAuras** | Multi-`.toc` (`WeakAuras.toc`, `WeakAuras_Vanilla.toc`, `WeakAuras_TBC.toc`, `WeakAuras_Wrath.toc`, `WeakAuras_Cata.toc`) + BigWigs packager conditional comments inside shared Lua for the many small API differences (aura/spell APIs move around a lot between flavors); releases are packaged per-flavor and distributed as separate CurseForge/GitHub downloads. |
+| **ElvUI** | Single codebase across TBC/Wrath/Cata/Mists Classic and retail, using multi-`.toc` selection plus per-flavor folders/modules that are conditionally loaded — large UI surface, so version-specific chunks are isolated into their own files rather than branching inline everywhere. |
+| **BigWigs / LittleWigs** | The reference implementation for the packager/conditional-comment approach described above; maintains one repo across every flavor. |
+| **TOC/packager tooling ecosystem** (`wow-addon-packager`/`wap`, `BigWigsMods/packager`) | Confirms this is a standardized, third-party-tooled convention, not something each addon reinvents — worth adopting if/when we go multi-flavor rather than hand-rolling. |
+
+We did not find a case of a well-established addon maintaining genuinely **separate codebases** per flavor (e.g. a hard fork) as the default approach; forks tend to happen only when a maintainer abandons Classic support and a third party picks it up independently, not as a deliberate strategy.
+
+## Our codebase, and where Forever would bite
+
+- **Single `.toc`, single `## Interface: 20506` today** ([AltArmy_TBC.toc](../AltArmy_TBC/AltArmy_TBC.toc)) — no multi-flavor scaffolding exists yet.
+- **We already lean on the "existence check" convention** in a few places — `Data/Integrations/RestedXpIntegration.lua`, `Data/Gear/GearScore.lua`, and `Data/DataStore/DataStoreLevelHistory.lua` all guard `C_AddOns`/`IsAddOnLoaded` this way, and [`Data/DESIGN.md`](../AltArmy_TBC/Data/DESIGN.md) documents it as the house style ("WoW API usage is defensive... so the addon runs on TBC Classic even when some APIs differ or are missing"). That's the right instinct to extend, not a new pattern to introduce.
+- **The real risk surface is the `DataStore/` scan layer**, not the UI. `DataStoreContainers`, `DataStoreEquipment`, `DataStoreCurrencies`, `DataStoreProfessions`, `DataStoreReputations`, `DataStoreMail`, `DataStoreAuctions`, `DataStoreTalents`, and `DataStoreLockouts` each call WoW scanning APIs directly (bags, currency, professions, etc.) — this is exactly the API surface that has historically diverged hardest between Classic-family clients and retail (e.g. `GetContainerItemInfo` vs. `C_Container.GetContainerItemInfo`). Forever's actual API surface is unknown, but since it's built on the vanilla 1–60 engine it more plausibly resembles Classic Era/TBC's older-style APIs than retail's `C_*` namespace migration — that assumption needs verifying in beta, not assumed.
+- **Domain data, separate from API compatibility:** cooldown/lockout tables (`Data/Cooldowns/*`), reputation lists (`ReputationFactionFilter.lua`/`ReputationFactionSort.lua`), and gear scaling (`Data/Gear/PawnScales.lua`) are hand-authored for TBC's specific raids/factions/item levels. Forever's new zones, reputations, and raids will need their own data tables regardless of how we solve the *API* compatibility question — this is content work, not addon-architecture work, and will be a bigger lift than the API bridging itself.
+- **Lint/compile tooling is already version-agnostic**: `.luacheckrc` targets `std = "lua51"` (true for every WoW client, Forever included) and `npm run check` does a Lua 5.1 compile pass — no tooling changes needed there. Per-file `-- luacheck: globals ...` annotations would need extending if we start referencing flavor-specific globals (`WOW_PROJECT_*`, new `C_*` namespaces) conditionally.
+- **`OptionalDeps`** (Auctionator, CraftLib, TacoTip, GearScoreTBCClassic, RXPGuides, Questie, Zygor...) are all TBC-Classic-specific addons; none of them are confirmed to exist for Forever yet. Our integration code already guards their absence, so this degrades gracefully, but a Forever build would ship with most optional integrations inert until/unless those addons (or equivalents) target Forever too.
+
+## Recommendation for when the beta lands
+
+1. Confirm the `## Interface` number and `WOW_PROJECT_ID` for Forever in-game (same `/dump select(4, GetBuildInfo())` check already noted in our `.toc`), and confirm whether it shares Classic Era's/TBC's container/equipment API shape or retail's.
+2. Start with the **multi-TOC + existence-check** combination (sections 1 and 2 above) rather than adopting the packager/conditional-comment tooling (section 3) up front — it's zero new tooling, fits our current "defensive API usage" convention, and is enough unless the shared `.lua` files end up needing large blocks of flavor-only code.
+3. Reserve the packager/conditional-comment approach as a fallback if `DataStore/` scan modules end up needing substantially different implementations per flavor rather than small branches — that's the threshold where inline `if` branches stop being maintainable.
+4. Treat new zones/reputations/raids as a content workstream separate from the API-compatibility workstream; they don't block each other.
+
+## Sources
+
+- [Multi-TOC for World of Warcraft Addons — CurseForge support](https://support.curseforge.com/support/solutions/articles/9000209856-multi-toc-for-world-of-warcraft-addons)
+- [TOC format — Warcraft Wiki](https://warcraft.wiki.gg/wiki/TOC_format)
+- [WOW_PROJECT_ID — Warcraft Wiki](https://warcraft.wiki.gg/wiki/WOW_PROJECT_ID)
+- [BigWigsMods/packager README](https://github.com/BigWigsMods/packager/blob/master/README.md)
+- [WeakAuras2 repository](https://github.com/WeakAuras/WeakAuras2)
+- [ElvUI: TBC, Cataclysm, and Mists Classic — DeepWiki](https://deepwiki.com/tukui-org/ElvUI/4.4-tbc-cataclysm-and-mists-classic)
+- [Porting addons to Classic — Wowpedia](https://wowpedia.fandom.com/wiki/Porting_addons_to_Classic)
+- [Blizzard Announces World of Warcraft: Forever — Game Informer](https://gameinformer.com/blizzcon-2026/2026/09/12/blizzard-announces-world-of-warcraft-forever-expanding-vanilla-wow-with)
+- [World of Warcraft: Forever — Wikipedia](https://en.wikipedia.org/wiki/World_of_Warcraft:_Forever)
