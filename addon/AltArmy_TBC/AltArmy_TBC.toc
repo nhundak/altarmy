@@ -17,6 +17,7 @@ Data\CharKey.lua
 Data\Characters\BankAlt.lua
 Data\Characters\BankAltDetect.lua
 Data\Debug.lua
+Data\ApiCheck.lua
 Data\DataStore\DataStore.lua
 Data\ClassColor.lua
 Data\Cooldowns\CooldownData.lua

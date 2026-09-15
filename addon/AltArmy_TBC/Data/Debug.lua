@@ -290,4 +290,14 @@ function D.NotifyGuildShareUndecodableDumpSaved(index, total)
         tonumber(total) or 0))
 end
 
+--- Overwrites (not appends — only the latest client's results matter) the
+--- Blizzard-API existence check snapshot from ApiCheck.lua's /altarmy debug apicheck.
+function D.SaveApiCheckSnapshot(snapshot)
+    if type(snapshot) ~= "table" then
+        return
+    end
+    D.Ensure()
+    AltArmyTBC_Options.debug.apiCheckSnapshot = snapshot
+end
+
 D.Ensure()

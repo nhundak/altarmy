@@ -2072,6 +2072,15 @@ SlashCmdList.ALTARMY = function(msg)
         end
         return
     end
+    if lower == "debug apicheck" then
+        local AC = AltArmy and AltArmy.ApiCheck
+        if AC and AC.RunAndReport then
+            AC.RunAndReport()
+        elseif AltArmy.Debug and AltArmy.Debug.NotifyChat then
+            AltArmy.Debug.NotifyChat("API check is unavailable.")
+        end
+        return
+    end
     local debugStatsLink = trimmed:match("^[Dd]ebug [Ss]tats%s+(.+)$")
     if not debugStatsLink and lower == "debug stats" then
         if GetCursorInfo then

@@ -101,6 +101,8 @@ None of this changes the recommendation below — if anything it reinforces star
 3. Reserve the packager/conditional-comment approach as a fallback if `DataStore/` scan modules end up needing substantially different implementations per flavor rather than small branches — that's the threshold where inline `if` branches stop being maintainable.
 4. Treat new zones/reputations/raids as a content workstream separate from the API-compatibility workstream; they don't block each other.
 
+**Implemented (2026-09-15):** step 1's "confirm the API surface in-game" now has a tool — `/altarmy debug apicheck` (`AltArmy_TBC/Data/ApiCheck.lua`). It checks ~90 Blizzard API functions/tables the addon depends on for existence, prints a one-line status to chat, and writes the full per-entry results to `AltArmyTBC_Options.debug.apiCheckSnapshot` for offline review after `/reload`. It's manual-only (no login auto-run) and standalone (doesn't require `/altarmy debug on` first), so it's usable immediately on a first, unfamiliar login.
+
 ## Sources
 
 - [Multi-TOC for World of Warcraft Addons — CurseForge support](https://support.curseforge.com/support/solutions/articles/9000209856-multi-toc-for-world-of-warcraft-addons)
