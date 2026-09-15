@@ -9,7 +9,11 @@ AltArmy.DataStore = AltArmy.DataStore or {}
 
 local DS = AltArmy.DataStore
 
-DS.MAX_LEVEL = 70
+-- Existence-check, not version-check: GetMaxPlayerLevel() reflects whatever
+-- cap the running client actually has (70 on TBC Classic, 60 on WoW Forever),
+-- so this stays correct across clients without needing to detect which one
+-- we're on. Falls back to TBC's 70 if the API isn't present.
+DS.MAX_LEVEL = (GetMaxPlayerLevel and GetMaxPlayerLevel()) or 70
 
 local DATA_VERSIONS = {
     character = 1,

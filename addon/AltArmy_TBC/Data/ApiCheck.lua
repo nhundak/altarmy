@@ -129,6 +129,7 @@ AC.MANIFEST = {
     { area = "Unit Info", label = "UnitFactionGroup", candidates = { "UnitFactionGroup" } },
     { area = "Unit Info", label = "UnitGUID", candidates = { "UnitGUID" } },
     { area = "Unit Info", label = "UnitXPMax", candidates = { "UnitXPMax" } },
+    { area = "Unit Info", label = "GetMaxPlayerLevel", candidates = { "GetMaxPlayerLevel" } },
     { area = "Unit Info", label = "GetRealmName", candidates = { "GetRealmName" } },
     { area = "Unit Info", label = "GetMoney", candidates = { "GetMoney" } },
     { area = "Unit Info", label = "GetXPExhaustion", candidates = { "GetXPExhaustion" } },

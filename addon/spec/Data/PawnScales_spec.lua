@@ -76,4 +76,31 @@ describe("PawnScales", function()
         assert.are.equal(0, PS.GetRawScale("SHAMAN", "elemental", 30).RangedDps)
         assert.are.equal(0, PS.GetRawScale("PALADIN", "holy", 30).RangedDps)
     end)
+
+    describe("wand-leveling cutoff under a different level cap", function()
+        local savedDataStore
+
+        setup(function()
+            savedDataStore = _G.AltArmy.DataStore
+        end)
+
+        teardown(function()
+            -- Restore the default (TBC 70) cap so any later spec file sharing
+            -- this Lua process sees AltArmy.PawnScales built for a 70 cap again.
+            _G.AltArmy.DataStore = savedDataStore
+            package.loaded["PawnScales"] = nil
+            require("PawnScales")
+            PS = AltArmy.PawnScales
+        end)
+
+        it("clears one level before the cap when MAX_LEVEL is 60", function()
+            _G.AltArmy.DataStore = { MAX_LEVEL = 60 }
+            package.loaded["PawnScales"] = nil
+            require("PawnScales")
+            local capped = AltArmy.PawnScales
+
+            assert.are.equal(3.5, capped.GetRawScale("MAGE", "frost", 59).RangedDps)
+            assert.are.equal(0, capped.GetRawScale("MAGE", "frost", 60).RangedDps)
+        end)
+    end)
 end)

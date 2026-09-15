@@ -559,4 +559,32 @@ describe("DataStore", function()
       assert.are.equal(1, equipmentScanCount)
     end)
   end)
+
+  describe("MAX_LEVEL", function()
+    local function reloadDataStore()
+      package.loaded["DataStore"] = nil
+      package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+      require("DataStore")
+      return AltArmy.DataStore
+    end
+
+    after_each(function()
+      -- Restore the default (no GetMaxPlayerLevel) so AltArmy.DataStore.MAX_LEVEL
+      -- is back to 70 for any later spec file sharing this Lua process/globals.
+      _G.GetMaxPlayerLevel = nil
+      reloadDataStore()
+    end)
+
+    it("falls back to 70 when GetMaxPlayerLevel is unavailable", function()
+      _G.GetMaxPlayerLevel = nil
+      local reloaded = reloadDataStore()
+      assert.are.equal(70, reloaded.MAX_LEVEL)
+    end)
+
+    it("uses GetMaxPlayerLevel() when the client exposes it", function()
+      _G.GetMaxPlayerLevel = function() return 60 end
+      local reloaded = reloadDataStore()
+      assert.are.equal(60, reloaded.MAX_LEVEL)
+    end)
+  end)
 end)

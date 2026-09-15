@@ -259,9 +259,13 @@ PS.RAW = {
 -- Sparse level-range overrides on top of PS.RAW. Entries only list keys they change.
 -- Wand-class leveling: priests wand the most (Spirit Tap / Wand Spec), then warlocks,
 -- then mages. MeleeDps fills staff/mace gaps while leveling; endgame stays at 0.
-local WAND_LEVELING_MAGE = { minLevel = 1, maxLevel = 69, RangedDps = 3.5, MeleeDps = 0.25 }
-local WAND_LEVELING_WARLOCK = { minLevel = 1, maxLevel = 69, RangedDps = 5, MeleeDps = 0.25 }
-local WAND_LEVELING_PRIEST = { minLevel = 1, maxLevel = 69, RangedDps = 6, MeleeDps = 0.25 }
+-- Cutoff is "one below max level" so it clears on the last level regardless of
+-- the running client's cap (70 on TBC Classic, 60 on WoW Forever).
+local MAX_LEVEL = (AltArmy.DataStore and AltArmy.DataStore.MAX_LEVEL) or 70
+local WAND_LEVELING_CUTOFF = MAX_LEVEL - 1
+local WAND_LEVELING_MAGE = { minLevel = 1, maxLevel = WAND_LEVELING_CUTOFF, RangedDps = 3.5, MeleeDps = 0.25 }
+local WAND_LEVELING_WARLOCK = { minLevel = 1, maxLevel = WAND_LEVELING_CUTOFF, RangedDps = 5, MeleeDps = 0.25 }
+local WAND_LEVELING_PRIEST = { minLevel = 1, maxLevel = WAND_LEVELING_CUTOFF, RangedDps = 6, MeleeDps = 0.25 }
 
 PS.LEVEL_OVERRIDES = {
     MAGE = {
@@ -300,7 +304,7 @@ function PS.GetOverrideBandId(classFile, specKey, level)
     local parts = {}
     for i, entry in ipairs(ranges) do
         local minL = entry.minLevel or 1
-        local maxL = entry.maxLevel or 70
+        local maxL = entry.maxLevel or MAX_LEVEL
         if level >= minL and level <= maxL then
             parts[#parts + 1] = tostring(i)
         end
@@ -323,7 +327,7 @@ function PS.GetRawScale(classFile, specKey, level)
     local merged = nil
     for _, entry in ipairs(ranges) do
         local minL = entry.minLevel or 1
-        local maxL = entry.maxLevel or 70
+        local maxL = entry.maxLevel or MAX_LEVEL
         if level >= minL and level <= maxL then
             merged = merge(merged or base, sparseOverrideValues(entry))
         end

@@ -486,7 +486,8 @@ function Comm.InjectTestPresence()
         chars = {
             {
                 name = "AAtestmain", realm = realm, classFile = "MAGE",
-                faction = "Alliance", level = 70, profs = summaries,
+                faction = "Alliance", level = (AltArmy.DataStore and AltArmy.DataStore.MAX_LEVEL) or 70,
+                profs = summaries,
             },
             {
                 name = "AAtestalt", realm = realm, classFile = "WARRIOR",

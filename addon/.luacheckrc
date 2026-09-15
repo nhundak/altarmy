@@ -89,6 +89,7 @@ read_globals = {
     -- Misc WoW
     "rawget",
     "GetBuildInfo",
+    "GetMaxPlayerLevel",
     "GetAddOnMetadata",
     "Interface",
     "LE_FRAME_TUTORIAL",

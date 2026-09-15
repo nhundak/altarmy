@@ -99,9 +99,10 @@ function CalculatePriceRange(pts, paddingPercent)
 end
 ```
 
-For a **level progress** graph the Y domain is well known (1–70 for TBC), so you
-can hard-clamp `pMin = 1`, `pMax = 70` instead of auto-ranging, or auto-range on
-the visible level window and round to nice boundaries.
+For a **level progress** graph the Y domain is well known (1–MAX_LEVEL, the
+running client's level cap), so you can hard-clamp `pMin = 1`, `pMax =
+MAX_LEVEL` instead of auto-ranging, or auto-range on the visible level window
+and round to nice boundaries.
 
 ---
 
@@ -431,7 +432,7 @@ function LevelGraph.DrawForCharacter(charKey)
 
   local plotW, plotH = Core.CalculatePlotDimensions(graph)         -- 3. dimensions
   local tMin, tMax, tRange = Core.CalculateTimeRange(pts)          -- 4. domains
-  local pMin, pMax, pRange = Core.CalculatePriceRange(pts)         --    (or clamp 1..70)
+  local pMin, pMax, pRange = Core.CalculatePriceRange(pts)         --    (or clamp 1..MAX_LEVEL)
   local X, Y = Core.CreateTransformers(plotW, plotH, tMin, tRange, pMin, pRange)
 
   Core.RenderTimeStripes(graph, plotW, plotH, tMin, tMax, windowSeconds)  -- 5. back→front
