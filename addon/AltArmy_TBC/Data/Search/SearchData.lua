@@ -106,12 +106,13 @@ local function LocationFromBagID(bagID)
 end
 
 local function ResolveItemName(itemID, link)
-    if link and GetItemInfo then
-        local name = GetItemInfo(link)
+    local compat = AltArmy.DataStore and AltArmy.DataStore.CompatGetItemInfo
+    if link then
+        local name = compat and compat(link) or (GetItemInfo and GetItemInfo(link))
         if name then return name end
     end
-    if itemID and GetItemInfo then
-        local name = GetItemInfo(itemID)
+    if itemID then
+        local name = compat and compat(itemID) or (GetItemInfo and GetItemInfo(itemID))
         if name then return name end
     end
     return nil

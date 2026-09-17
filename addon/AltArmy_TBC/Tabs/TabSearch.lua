@@ -994,8 +994,9 @@ local function fillItemRow(row, entry, showRealmSuffix, rowOpts)
     itemText = maybeHighlightSearchText(itemText, highlightSearch, searchQuery)
     local countSuffix = " x" .. tostring(count)
     local iconPrefix = ""
-    if entry.itemLink and GetItemInfo and GetItemInfo(entry.itemLink) then
-        local icon = select(10, GetItemInfo(entry.itemLink)) or "Interface\\Icons\\INV_Misc_QuestionMark"
+    local compatGetItemInfo = AltArmy.DataStore and AltArmy.DataStore.CompatGetItemInfo
+    if entry.itemLink and compatGetItemInfo and compatGetItemInfo(entry.itemLink) then
+        local icon = select(10, compatGetItemInfo(entry.itemLink)) or "Interface\\Icons\\INV_Misc_QuestionMark"
         iconPrefix = "|T" .. icon .. ":0|t "
     end
     SetItemCellTruncated(row.cells.Item, itemText, countSuffix, iconPrefix, colWidths.Item or 344)
@@ -1237,8 +1238,9 @@ local function placeGroupOverlay(overlay, rows, firstPoolIdx, lastPoolIdx, total
     overlay.icon:ClearAllPoints()
     overlay.icon:SetPoint("CENTER", overlay, "RIGHT", -2 - UI.OVERLAY_ICON_SIZE / 2, 0)
     local iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
-    if firstEntry and firstEntry.itemLink and GetItemInfo then
-        local _, _, _, _, _, _, _, _, _, tex = GetItemInfo(firstEntry.itemLink)
+    local compatGetItemInfo = AltArmy.DataStore and AltArmy.DataStore.CompatGetItemInfo
+    if firstEntry and firstEntry.itemLink and compatGetItemInfo then
+        local _, _, _, _, _, _, _, _, _, tex = compatGetItemInfo(firstEntry.itemLink)
         if tex then iconPath = tex end
     end
     overlay.icon:SetTexture(iconPath)
