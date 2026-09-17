@@ -5,6 +5,19 @@ AltArmy = AltArmy or {}
 AltArmy.SearchData = AltArmy.SearchData or {}
 
 local SD = AltArmy.SearchData
+local DS = AltArmy.DataStore
+
+-- Self-contained (no AltArmy.DataStore dependency) so this module's unit tests,
+-- which stub GetItemInfo directly without loading the DataStore layer, keep working.
+-- See docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md for why the C_Item fallback exists.
+local function hasItemInfoApi()
+    return GetItemInfo ~= nil or (C_Item ~= nil and C_Item.GetItemInfo ~= nil)
+end
+
+local function compatGetItemInfo(item)
+    if GetItemInfo then return GetItemInfo(item) end
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
+end
 
 local BANK_CONTAINER = -1
 local KEYRING_CONTAINER = -2
@@ -106,13 +119,12 @@ local function LocationFromBagID(bagID)
 end
 
 local function ResolveItemName(itemID, link)
-    local compat = AltArmy.DataStore and AltArmy.DataStore.CompatGetItemInfo
-    if link then
-        local name = compat and compat(link) or (GetItemInfo and GetItemInfo(link))
+    if link and hasItemInfoApi() then
+        local name = compatGetItemInfo(link)
         if name then return name end
     end
-    if itemID then
-        local name = compat and compat(itemID) or (GetItemInfo and GetItemInfo(itemID))
+    if itemID and hasItemInfoApi() then
+        local name = compatGetItemInfo(itemID)
         if name then return name end
     end
     return nil
@@ -146,8 +158,8 @@ local function ResolveRecipeName(recipeID)
         local name = GetSpellInfo(recipeID)
         if name and name ~= "" then return name end
     end
-    if GetItemInfo then
-        local name = GetItemInfo(recipeID)
+    if hasItemInfoApi() then
+        local name = compatGetItemInfo(recipeID)
         if name and name ~= "" then return name end
     end
     return nil
@@ -169,7 +181,6 @@ end
 
 local function BuildAllContainerSlots()
     local list = {}
-    local DS = AltArmy.DataStore
     if not DS or not DS.ForEachCharacter or not DS.IterateContainerSlots or not DS.GetCharacterName then
         return list
     end
@@ -284,7 +295,6 @@ end
 
 local function BuildLocalRecipes()
     local list = {}
-    local DS = AltArmy.DataStore
     if not DS or not DS.ForEachCharacter or not DS.GetCharacterName
         or not DS.GetCharacterClass or not DS.GetProfessions then
         return list

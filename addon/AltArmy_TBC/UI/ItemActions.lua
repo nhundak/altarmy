@@ -7,6 +7,18 @@ AltArmy.ItemActions = AltArmy.ItemActions or {}
 
 local ItemActions = AltArmy.ItemActions
 
+-- Self-contained (no AltArmy.DataStore dependency) so this module's unit tests,
+-- which stub GetItemInfo directly without loading the DataStore layer, keep working.
+-- See docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md for why the C_Item fallback exists.
+local function hasItemInfoApi()
+    return GetItemInfo ~= nil or (C_Item ~= nil and C_Item.GetItemInfo ~= nil)
+end
+
+local function compatGetItemInfo(item)
+    if GetItemInfo then return GetItemInfo(item) end
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
+end
+
 --- Decide what a left-click should do based on held modifiers.
 --- Control previews the item in the Dressing Room; Shift links it into chat.
 --- Control takes precedence when both are held. Non-left buttons do nothing.
@@ -29,8 +41,8 @@ function ItemActions.ResolveItemLink(itemLinkOrID)
     elseif type(itemLinkOrID) == "string" and itemLinkOrID ~= "" then
         itemID = tonumber(string.match(itemLinkOrID, "item:(%d+)"))
     end
-    if itemID and GetItemInfo then
-        local _, freshLink = GetItemInfo(itemID)
+    if itemID and hasItemInfoApi() then
+        local _, freshLink = compatGetItemInfo(itemID)
         if freshLink and freshLink ~= "" then
             return freshLink
         end

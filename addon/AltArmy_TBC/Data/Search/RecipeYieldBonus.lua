@@ -5,6 +5,19 @@ AltArmy = AltArmy or {}
 AltArmy.RecipeYieldBonus = AltArmy.RecipeYieldBonus or {}
 
 local RYB = AltArmy.RecipeYieldBonus
+local DS = AltArmy.DataStore
+
+-- Self-contained (no AltArmy.DataStore dependency) so this module's unit tests,
+-- which stub GetItemInfo directly without loading the DataStore layer, keep working.
+-- See docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md for why the C_Item fallback exists.
+local function hasItemInfoApi()
+    return GetItemInfo ~= nil or (C_Item ~= nil and C_Item.GetItemInfo ~= nil)
+end
+
+local function compatGetItemInfo(item)
+    if GetItemInfo then return GetItemInfo(item) end
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
+end
 
 local SPECIALIST_PREFIX = "|cff33ff33+|r "
 
@@ -65,12 +78,12 @@ function RYB.ResolveRecipeBonusLabel(recipeID, resultItemID)
         return "Transmute"
     end
 
-    if not resultItemID or not GetItemInfo then
+    if not resultItemID or not hasItemInfoApi() then
         return nil
     end
 
     local name, _, _, _, _, itemType, itemSubType, _, _, _, _, classID, subclassID =
-        GetItemInfo(resultItemID)
+        compatGetItemInfo(resultItemID)
     if not name and not itemType then
         return nil
     end
@@ -155,7 +168,6 @@ function RYB.LookupCharSpecLabel(entry)
     end
 
     -- Local account character.
-    local DS = AltArmy and AltArmy.DataStore
     if not DS or not DS.GetCharacter then
         return nil
     end

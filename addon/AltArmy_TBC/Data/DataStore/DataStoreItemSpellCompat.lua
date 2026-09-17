@@ -23,6 +23,11 @@ if not AltArmy or not AltArmy.DataStore then return end
 
 local DS = AltArmy.DataStore
 
+--- True if either the legacy GetItemInfo global or its C_Item replacement exists.
+function DS.HasItemInfoApi()
+    return GetItemInfo ~= nil or (C_Item ~= nil and C_Item.GetItemInfo ~= nil)
+end
+
 --- Same tuple as legacy GetItemInfo(item):
 --- name, link, quality, iLevel, minLevel, itemType, itemSubType, stackCount,
 --- equipLoc, texture, sellPrice, classID, subclassID, bindType, expacID,

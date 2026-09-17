@@ -16,6 +16,7 @@ if not frame then return end
 local Theme = AltArmy.Theme
 local CC = AltArmy.ClassColor
 local GTD = AltArmy.GuildTabData
+local DS = AltArmy.DataStore
 local SECTION_INSET = Theme.TAB_SECTION_INSET
 local PAD = Theme.TAB_CONTENT_PADDING
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
@@ -162,8 +163,8 @@ local function GetRecipeLink(recipeID)
         local link = _G.GetSpellLink(recipeID)
         if link and link ~= "" then return link end
     end
-    if GetItemInfo then
-        local _, link = GetItemInfo(recipeID)
+    if DS.HasItemInfoApi() then
+        local _, link = DS.CompatGetItemInfo(recipeID)
         if link and link ~= "" then return link end
     end
     return nil

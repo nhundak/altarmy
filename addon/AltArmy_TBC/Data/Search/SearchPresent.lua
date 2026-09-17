@@ -6,6 +6,18 @@ AltArmy.SearchPresent = AltArmy.SearchPresent or {}
 
 local SP = AltArmy.SearchPresent
 
+-- Self-contained (no AltArmy.DataStore dependency) so this module's unit tests,
+-- which stub GetItemInfo directly without loading the DataStore layer, keep working.
+-- See docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md for why the C_Item fallback exists.
+local function hasItemInfoApi()
+    return GetItemInfo ~= nil or (C_Item ~= nil and C_Item.GetItemInfo ~= nil)
+end
+
+local function compatGetItemInfo(item)
+    if GetItemInfo then return GetItemInfo(item) end
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
+end
+
 local function LocationSortKey(location)
     if location == "bag" then return 1 end
     if location == "keyring" then return 2 end
@@ -546,19 +558,19 @@ function SP.EnsureRecipeDisplayCache(entry)
                 iconPath = spellIcon
             end
         end
-        if matchName == ("Recipe " .. tostring(entry.recipeID or "?")) and GetItemInfo and entry.recipeID then
-            local name = GetItemInfo(entry.recipeID)
+        if matchName == ("Recipe " .. tostring(entry.recipeID or "?")) and hasItemInfoApi() and entry.recipeID then
+            local name = compatGetItemInfo(entry.recipeID)
             if name then
                 matchName = name
             end
         end
-        if entry.resultItemID and GetItemInfo then
-            local _, _, _, _, _, _, _, _, _, resultIcon = GetItemInfo(entry.resultItemID)
+        if entry.resultItemID and hasItemInfoApi() then
+            local _, _, _, _, _, _, _, _, _, resultIcon = compatGetItemInfo(entry.resultItemID)
             if resultIcon then
                 iconPath = resultIcon
             end
-        elseif GetItemInfo and entry.recipeID then
-            local _, _, _, _, _, _, _, _, _, icon = GetItemInfo(entry.recipeID)
+        elseif hasItemInfoApi() and entry.recipeID then
+            local _, _, _, _, _, _, _, _, _, icon = compatGetItemInfo(entry.recipeID)
             if icon then
                 iconPath = icon
             end

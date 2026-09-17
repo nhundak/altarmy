@@ -6,6 +6,18 @@ AltArmy.NetWorth = AltArmy.NetWorth or {}
 
 local NW = AltArmy.NetWorth
 
+-- Self-contained (no AltArmy.DataStore dependency) so this module's unit tests,
+-- which stub GetItemInfo directly without loading the DataStore layer, keep working.
+-- See docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md for why the C_Item fallback exists.
+local function hasItemInfoApi()
+    return GetItemInfo ~= nil or (C_Item ~= nil and C_Item.GetItemInfo ~= nil)
+end
+
+local function compatGetItemInfo(item)
+    if GetItemInfo then return GetItemInfo(item) end
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
+end
+
 local DEFAULT_SCALE = 0.9
 local CALLER_ID = "AltArmy"
 local AUCTIONATOR_REQUIRED_MSG = "Auctionator is required to calculate your net worth"
@@ -142,13 +154,13 @@ local function isSoulboundOrUnsellable(link)
 end
 
 local function getVendorPrice(itemID, link)
-    if not GetItemInfo then return 0 end
+    if not hasItemInfoApi() then return 0 end
     local sellPrice
     if link then
-        sellPrice = select(11, GetItemInfo(link))
+        sellPrice = select(11, compatGetItemInfo(link))
     end
     if (not sellPrice or sellPrice == 0) and itemID then
-        sellPrice = select(11, GetItemInfo(itemID))
+        sellPrice = select(11, compatGetItemInfo(itemID))
     end
     return tonumber(sellPrice) or 0
 end

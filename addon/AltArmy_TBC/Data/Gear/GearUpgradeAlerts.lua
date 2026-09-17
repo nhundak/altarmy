@@ -16,6 +16,19 @@ local IU = AltArmy.ItemUsability
 local GU = AltArmy.GearUpgrade
 local GC = AltArmy.GearCompare
 local CC = AltArmy.ClassColor
+local DS = AltArmy.DataStore
+
+-- Self-contained (no AltArmy.DataStore dependency) so this module's unit tests,
+-- which stub GetItemInfo directly without loading the DataStore layer, keep working.
+-- See docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md for why the C_Item fallback exists.
+local function hasItemInfoApi()
+    return GetItemInfo ~= nil or (C_Item ~= nil and C_Item.GetItemInfo ~= nil)
+end
+
+local function compatGetItemInfo(item)
+    if GetItemInfo then return GetItemInfo(item) end
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
+end
 
 local function postChat(line)
     local chat = _G.DEFAULT_CHAT_FRAME
@@ -73,13 +86,13 @@ local levelUpUpgradeAnnounceGeneration = 0
 
 local function payloadToUsableLink(payload)
     if not payload or payload == "" then return nil end
-    if GetItemInfo then
-        local _, link = GetItemInfo(payload)
+    if hasItemInfoApi() then
+        local _, link = compatGetItemInfo(payload)
         if link and link ~= "" then
             return link
         end
         local wrapped = "|H" .. payload .. "|h"
-        local _, wrappedLink = GetItemInfo(wrapped)
+        local _, wrappedLink = compatGetItemInfo(wrapped)
         if wrappedLink and wrappedLink ~= "" then
             return wrappedLink
         end
@@ -121,8 +134,8 @@ end
 local function resolveItemLinkForUpgrade(itemId)
     itemId = tonumber(itemId)
     if not itemId then return nil end
-    if GetItemInfo then
-        local _, cached = GetItemInfo(itemId)
+    if hasItemInfoApi() then
+        local _, cached = compatGetItemInfo(itemId)
         if cached and cached ~= "" then
             return cached
         end
@@ -169,7 +182,6 @@ end
 
 local function filterOtherCharacterMatches(matches)
     if not matches or #matches == 0 then return {} end
-    local DS = AltArmy.DataStore
     if not DS or not DS.IsCurrentCharacter then return matches end
     local filtered = {}
     for i = 1, #matches do
@@ -181,7 +193,7 @@ local function filterOtherCharacterMatches(matches)
     return filtered
 end
 
-local function buildCurrentCharacterDisplayMatch(char, DS)
+local function buildCurrentCharacterDisplayMatch(char)
     if not char then return nil end
     local level = (DS and DS.GetCharacterLevel and DS:GetCharacterLevel(char))
         or tonumber(char.level) or 0
@@ -196,7 +208,6 @@ end
 
 local function buildCurrentCharacterMatch(itemLink, evalOpts)
     if not GU or not GU.EvaluateForCharacter then return nil end
-    local DS = AltArmy.DataStore
     if not DS or not DS.GetCurrentCharacter then return nil end
     local char = DS:GetCurrentCharacter()
     if not char then return nil end
@@ -444,7 +455,6 @@ function GA.IsQuestRewardEquippableForCharacter(char, link, evalOpts)
     if #slots == 0 then return false end
     local classFile = char.classFile or ""
     local level = tonumber(char.level) or 0
-    local DS = AltArmy.DataStore
     if DS and DS.GetCharacterLevel then
         level = DS:GetCharacterLevel(char) or level
     end
@@ -492,7 +502,6 @@ function GA.AnnounceQuestRewardUpgrades()
     if announceKey and GA.ShouldSkipQuestRewardDebounce(announceKey) then
         return
     end
-    local DS = AltArmy.DataStore
     if not DS or not DS.GetCurrentCharacter then return end
     local char = DS:GetCurrentCharacter()
     if not char then return end
@@ -507,7 +516,7 @@ function GA.AnnounceQuestRewardUpgrades()
         technique = opts.technique,
         levelsAhead = opts.levelsAhead,
     }
-    local displayMatch = buildCurrentCharacterDisplayMatch(char, DS)
+    local displayMatch = buildCurrentCharacterDisplayMatch(char)
     if not displayMatch then return end
 
     local links = GA.CollectQuestRewardLinks()
@@ -677,8 +686,8 @@ local function resolveOwnedLink(itemId, storedLink)
     if storedLink and storedLink:find("item:") then
         return storedLink
     end
-    if itemId and GetItemInfo then
-        local _, link = GetItemInfo(itemId)
+    if itemId and hasItemInfoApi() then
+        local _, link = compatGetItemInfo(itemId)
         if link then return link end
     end
     if itemId then
@@ -688,8 +697,8 @@ local function resolveOwnedLink(itemId, storedLink)
 end
 
 local function trainingSkillName(link)
-    if not link or not GetItemInfo or not IU then return "the required skill" end
-    local _, _, _, _, _, itemClass, subclass = GetItemInfo(link)
+    if not link or not hasItemInfoApi() or not IU then return "the required skill" end
+    local _, _, _, _, _, itemClass, subclass = compatGetItemInfo(link)
     return IU.GetProficiencySkillName(itemClass, subclass)
 end
 
@@ -757,7 +766,6 @@ end
 
 function GA.AnnounceLevelUpUpgrades(newLevel)
     if not notifyCurrentCharacterEnabled() or not newLevel or not GU then return end
-    local DS = AltArmy.DataStore
     if not DS or not DS.GetCurrentCharacter then return end
     local char = DS:GetCurrentCharacter()
     if not char then return end
@@ -837,8 +845,8 @@ end
 
 -- Returns the required level when the link is a consumable, nil otherwise.
 local function consumableRequiredLevel(link)
-    if not link or not GetItemInfo then return nil end
-    local name, _, _, _, minLevel, itemClass = GetItemInfo(link)
+    if not link or not hasItemInfoApi() then return nil end
+    local name, _, _, _, minLevel, itemClass = compatGetItemInfo(link)
     if not name then return nil end
     if (itemClass or ""):lower() ~= "consumable" then return nil end
     return tonumber(minLevel) or 0
@@ -917,7 +925,6 @@ end
 --- Announce consumables in the bags, bank, or mailbox that become usable at the new level.
 function GA.AnnounceLevelUpConsumables(newLevel)
     if not notifyCurrentCharacterEnabled() or not newLevel then return end
-    local DS = AltArmy.DataStore
     if not DS or not DS.GetCurrentCharacter then return end
     local char = DS:GetCurrentCharacter()
     if not char then return end

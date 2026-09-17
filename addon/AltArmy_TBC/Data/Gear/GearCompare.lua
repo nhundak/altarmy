@@ -7,6 +7,19 @@ AltArmy.GearCompare = AltArmy.GearCompare or {}
 local GC = AltArmy.GearCompare
 local GU = AltArmy.GearUpgrade
 local ItemStats = AltArmy.ItemStats
+local DS = AltArmy.DataStore
+
+-- Self-contained (no AltArmy.DataStore dependency) so this module's unit tests,
+-- which stub GetItemInfo directly without loading the DataStore layer, keep working.
+-- See docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md for why the C_Item fallback exists.
+local function hasItemInfoApi()
+    return GetItemInfo ~= nil or (C_Item ~= nil and C_Item.GetItemInfo ~= nil)
+end
+
+local function compatGetItemInfo(item)
+    if GetItemInfo then return GetItemInfo(item) end
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
+end
 
 local function getStatLabel(key)
     if ItemStats and ItemStats.GetDisplayLabel then
@@ -20,8 +33,8 @@ local function IU()
 end
 
 local function getItemName(link)
-    if not link or not GetItemInfo then return "?" end
-    local name = GetItemInfo(link)
+    if not link or not hasItemInfoApi() then return "?" end
+    local name = compatGetItemInfo(link)
     return name or "?"
 end
 
@@ -345,7 +358,6 @@ function GC.GetEquippedCompareItem(char, focusedLink, opts)
 
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
     local classFile, specKey, level = GU.ResolveCompareContext(char, opts.entry)
-    local DS = AltArmy.DataStore
     if not DS or not DS.GetInventoryItem then return nil, slots[1] end
 
     if opts.slot then
@@ -443,7 +455,6 @@ local function charMatchesRealmFilter(realm, realmFilter, currentRealm)
 end
 
 local function collectEquippableCharacters(itemLink, levelsAhead)
-    local DS = AltArmy.DataStore
     if not DS or not DS.ForEachCharacter or not itemLink then return {} end
     local slots = IU() and IU().GetInventorySlotsForItem(itemLink) or {}
     if #slots == 0 then return {} end

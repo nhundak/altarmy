@@ -9,6 +9,18 @@ if not AltArmy then return end
 AltArmy.GuildTabData = AltArmy.GuildTabData or {}
 local GTD = AltArmy.GuildTabData
 
+-- Self-contained (no AltArmy.DataStore dependency) so this module's unit tests,
+-- which stub GetItemInfo directly without loading the DataStore layer, keep working.
+-- See docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md for why the C_Item fallback exists.
+local function hasItemInfoApi()
+    return GetItemInfo ~= nil or (C_Item ~= nil and C_Item.GetItemInfo ~= nil)
+end
+
+local function compatGetItemInfo(item)
+    if GetItemInfo then return GetItemInfo(item) end
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
+end
+
 local GRAY = "|cff808080"
 local GUILD_TAG_COLOR = "|cff8ab4f8"
 local WHITE = "|cffffffff"
@@ -289,8 +301,8 @@ local function resolveItemIcon(itemID)
         local _, _, _, _, icon = GetItemInfoInstant(itemID)
         if icon then return icon end
     end
-    if GetItemInfo then
-        local _, _, _, _, _, _, _, _, _, icon = GetItemInfo(itemID)
+    if hasItemInfoApi() then
+        local _, _, _, _, _, _, _, _, _, icon = compatGetItemInfo(itemID)
         if icon then return icon end
     end
     return nil
@@ -307,8 +319,8 @@ function GTD.ResolveRecipeDisplay(recipeID, resultItemID)
         local name = GetSpellInfo(recipeID)
         if name then recipeName = name end
     end
-    if recipeName == ("Recipe " .. tostring(recipeID or "?")) and GetItemInfo and recipeID then
-        local name = GetItemInfo(recipeID)
+    if recipeName == ("Recipe " .. tostring(recipeID or "?")) and hasItemInfoApi() and recipeID then
+        local name = compatGetItemInfo(recipeID)
         if name then recipeName = name end
     end
 

@@ -447,8 +447,8 @@ end
 
 function GearTab.GetCompareFocusItemName(itemLink)
     itemLink = itemLink or droppedItemLink
-    if not itemLink or not GetItemInfo then return nil end
-    local name = GetItemInfo(itemLink)
+    if not itemLink or not DS.HasItemInfoApi() then return nil end
+    local name = DS.CompatGetItemInfo(itemLink)
     if name and name ~= "" then return name end
     return nil
 end
@@ -1112,8 +1112,8 @@ end
 --- Resolve item to texture path for display (itemID or link).
 function GearTab.GetItemTexture(itemIDOrLink)
     if not itemIDOrLink then return nil end
-    if not GetItemInfo then return nil end
-    local _, _, _, _, _, _, _, _, _, texture = GetItemInfo(itemIDOrLink)
+    if not DS.HasItemInfoApi() then return nil end
+    local _, _, _, _, _, _, _, _, _, texture = DS.CompatGetItemInfo(itemIDOrLink)
     return texture
 end
 
@@ -1132,8 +1132,8 @@ end
 
 --- Item quality from GetItemInfo (0=poor, 1=common, 2=uncommon, 3=rare, 4=epic, 5=legendary).
 function GearTab.GetItemQuality(itemIDOrLink)
-    if not itemIDOrLink or not GetItemInfo then return nil end
-    local _, _, quality = GetItemInfo(itemIDOrLink)
+    if not itemIDOrLink or not DS.HasItemInfoApi() then return nil end
+    local _, _, quality = DS.CompatGetItemInfo(itemIDOrLink)
     return quality
 end
 

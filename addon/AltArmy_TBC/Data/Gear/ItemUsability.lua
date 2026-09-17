@@ -5,6 +5,19 @@ AltArmy = AltArmy or {}
 AltArmy.ItemUsability = AltArmy.ItemUsability or {}
 
 local IU = AltArmy.ItemUsability
+local DS = AltArmy.DataStore
+
+-- Self-contained (no AltArmy.DataStore dependency) so this module's unit tests,
+-- which stub GetItemInfo directly without loading the DataStore layer, keep working.
+-- See docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md for why the C_Item fallback exists.
+local function hasItemInfoApi()
+    return GetItemInfo ~= nil or (C_Item ~= nil and C_Item.GetItemInfo ~= nil)
+end
+
+local function compatGetItemInfo(item)
+    if GetItemInfo then return GetItemInfo(item) end
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
+end
 
 local ARMOR_SPEC_LEVEL = 40
 local POLEARM_TRAIN_LEVEL = 20
@@ -182,8 +195,8 @@ end
 
 --- Parse GetItemInfo: returns itemLevel (iLvl), minLevel (required to equip).
 local function getItemInfoLevels(link)
-    if not link or not GetItemInfo then return nil, nil end
-    local name, _, _, itemLevel, minLevel = GetItemInfo(link)
+    if not link or not hasItemInfoApi() then return nil, nil end
+    local name, _, _, itemLevel, minLevel = compatGetItemInfo(link)
     if not name then return nil, nil end
     return tonumber(itemLevel) or 0, tonumber(minLevel) or 0
 end
@@ -226,8 +239,8 @@ end
 
 --- Parse item link for reqLevel, armor subclass, weapon subclass.
 function IU.GetItemUseInfo(link)
-    if not link or not GetItemInfo then return nil, nil, nil end
-    local name, _, _, _, minLevel, itemClass, subclass = GetItemInfo(link)
+    if not link or not hasItemInfoApi() then return nil, nil, nil end
+    local name, _, _, _, minLevel, itemClass, subclass = compatGetItemInfo(link)
     if not name then return nil, nil, nil end
     local reqLevel = tonumber(minLevel) or 0
     local ic = itemClass and itemClass:lower() or ""
@@ -245,7 +258,7 @@ end
 
 --- Inventory slot IDs for an item link, or empty table.
 function IU.GetInventorySlotsForItem(link)
-    if not link or not GetItemInfo then return {} end
+    if not link or not hasItemInfoApi() then return {} end
     local cached = inventorySlotsCache[link]
     if cached then
         local out = {}
@@ -254,9 +267,9 @@ function IU.GetInventorySlotsForItem(link)
         end
         return out
     end
-    local name = GetItemInfo(link)
+    local name = compatGetItemInfo(link)
     if not name then return {} end
-    local equipLoc = select(9, GetItemInfo(link))
+    local equipLoc = select(9, compatGetItemInfo(link))
     if not equipLoc then return {} end
     local slots = INVTYPE_TO_SLOTS[equipLoc]
     if not slots then return {} end
@@ -275,12 +288,12 @@ end
 
 --- Weapon role for loadout comparison: twohand, onehand, offhand, ranged, or nil.
 function IU.GetWeaponRole(link)
-    if not link or not GetItemInfo then return nil end
+    if not link or not hasItemInfoApi() then return nil end
     local cached = weaponRoleCache[link]
     if cached ~= nil then return cached end
-    local name = GetItemInfo(link)
+    local name = compatGetItemInfo(link)
     if not name then return nil end
-    local equipLoc = select(9, GetItemInfo(link))
+    local equipLoc = select(9, compatGetItemInfo(link))
     if not equipLoc then return nil end
     local role = EQUIPLOC_TO_WEAPON_ROLE[equipLoc]
     weaponRoleCache[link] = role
@@ -300,8 +313,8 @@ end
 function IU.GetFocusDisplaySlotsForItem(link)
     local slots = IU.GetInventorySlotsForItem(link)
     if not slots or #slots == 0 then return {} end
-    if not link or not GetItemInfo then return slots end
-    local equipLoc = select(9, GetItemInfo(link))
+    if not link or not hasItemInfoApi() then return slots end
+    local equipLoc = select(9, compatGetItemInfo(link))
     if WEAPON_PAIR_DISPLAY_TYPES[equipLoc] then
         return { MAIN_AND_OFF_HAND_SLOTS[1], MAIN_AND_OFF_HAND_SLOTS[2] }
     end
@@ -347,11 +360,11 @@ end
 
 --- max(item reqLevel, proficiency train level).
 function IU.EffectiveRequiredLevel(classFile, link)
-    if not link or not GetItemInfo then return 999 end
+    if not link or not hasItemInfoApi() then return 999 end
     local cacheKey = classLinkKey(classFile, link)
     local cached = effectiveLevelCache[cacheKey]
     if cached ~= nil then return cached end
-    local name, _, _, _, minLevel, itemClass, subclass = GetItemInfo(link)
+    local name, _, _, _, minLevel, itemClass, subclass = compatGetItemInfo(link)
     if not name then return 999 end
     local reqLevel = tonumber(minLevel) or 0
     classFile = normalizeClassFile(classFile)
@@ -447,13 +460,13 @@ end
 
 --- True if character has any equipped item of this armor subclass.
 function IU.CharHasEquippedArmorSubclass(charData, subclass)
-    if not charData or not charData.Inventory or not subclass or not GetItemInfo then
+    if not charData or not charData.Inventory or not subclass or not hasItemInfoApi() then
         return false
     end
     local target = subclass:lower()
     for _, item in pairs(charData.Inventory) do
         if type(item) == "string" then
-            local name, _, _, _, _, itemClass, itemSubclass = GetItemInfo(item)
+            local name, _, _, _, _, itemClass, itemSubclass = compatGetItemInfo(item)
             if name then
                 local ic = itemClass and itemClass:lower() or ""
                 if (ic == "armor" or ic == "armour")
@@ -491,8 +504,8 @@ end
 
 --- True when character is high enough to train but has not learned armor proficiency.
 function IU.NeedsProficiencyTraining(classFile, charLevel, link, charData)
-    if not link or not GetItemInfo then return false end
-    local name, _, _, _, minLevel, itemClass, subclass = GetItemInfo(link)
+    if not link or not hasItemInfoApi() then return false end
+    local name, _, _, _, minLevel, itemClass, subclass = compatGetItemInfo(link)
     if not name then return false end
     local reqLevel = tonumber(minLevel) or 0
     classFile = normalizeClassFile(classFile)
@@ -525,8 +538,8 @@ end
 
 --- True when character meets item level but has not learned Fishing.
 function IU.NeedsFishingTraining(classFile, charLevel, link, charData)
-    if not link or not GetItemInfo then return false end
-    local name, _, _, _, minLevel, itemClass, subclass = GetItemInfo(link)
+    if not link or not hasItemInfoApi() then return false end
+    local name, _, _, _, minLevel, itemClass, subclass = compatGetItemInfo(link)
     if not name then return false end
     local ic = itemClass and itemClass:lower() or ""
     if ic ~= "weapon" then return false end
@@ -548,7 +561,6 @@ local function formatWarningCharName(name, classFile)
 end
 
 local function getSoulboundOwnerNameAndClass(fallbackName, fallbackClass)
-    local DS = AltArmy and AltArmy.DataStore
     if DS and DS.GetCurrentCharacter then
         local char = DS:GetCurrentCharacter()
         if char and char.name then
@@ -561,8 +573,8 @@ end
 local SOULBOUND_ITEM_NAME_MAX = 30
 
 local function soulboundWarningItemLabel(link)
-    if not link or not GetItemInfo then return "This item" end
-    local name = GetItemInfo(link)
+    if not link or not hasItemInfoApi() then return "This item" end
+    local name = compatGetItemInfo(link)
     if not name or name == "" or #name > SOULBOUND_ITEM_NAME_MAX then
         return "This item"
     end
@@ -587,9 +599,9 @@ end
 
 --- Skill name for items the class can never equip (armor/weapon proficiency).
 function IU.GetNeverEquipSkillName(classFile, link)
-    if not link or not GetItemInfo then return "the required skill" end
+    if not link or not hasItemInfoApi() then return "the required skill" end
     local _, armorSubclass, weaponSubclass = IU.GetItemUseInfo(link)
-    local _, _, _, _, _, itemClass, subclass = GetItemInfo(link)
+    local _, _, _, _, _, itemClass, subclass = compatGetItemInfo(link)
     classFile = normalizeClassFile(classFile)
     if armorSubclass and armorSubclass ~= "" and armorSubclass ~= "Shields" then
         if not IU.CanClassEverUseArmor(classFile, armorSubclass) then
@@ -662,7 +674,7 @@ function IU.GetEquipWarnings(classFile, charLevel, charName, link, charData)
     end
 
     if IU.NeedsProficiencyTraining(classFile, charLevel, link, charData) then
-        local _, _, _, _, _, itemClass, subclass = GetItemInfo(link)
+        local _, _, _, _, _, itemClass, subclass = compatGetItemInfo(link)
         local skill = IU.GetProficiencySkillName(itemClass, subclass)
         local coloredName = formatWarningCharName(charName, classFile)
         addEquipWarning(
@@ -746,10 +758,10 @@ function IU.ValidateItemCheckDrop(link)
     if not link or link == "" then
         return false, "Drop an item to check."
     end
-    if not GetItemInfo then
+    if not hasItemInfoApi() then
         return false, "Unknown item."
     end
-    local name = GetItemInfo(link)
+    local name = compatGetItemInfo(link)
     if not name then
         return false, "Unknown item."
     end

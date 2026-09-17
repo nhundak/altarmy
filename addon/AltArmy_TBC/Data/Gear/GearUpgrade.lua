@@ -8,6 +8,19 @@ AltArmy.GearUpgrade = AltArmy.GearUpgrade or {}
 local GU = AltArmy.GearUpgrade
 local DT = AltArmy.DataStoreTalents
 local CC = AltArmy.ClassColor
+local DS = AltArmy.DataStore
+
+-- Self-contained (no AltArmy.DataStore dependency) so this module's unit tests,
+-- which stub GetItemInfo directly without loading the DataStore layer, keep working.
+-- See docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md for why the C_Item fallback exists.
+local function hasItemInfoApi()
+    return GetItemInfo ~= nil or (C_Item ~= nil and C_Item.GetItemInfo ~= nil)
+end
+
+local function compatGetItemInfo(item)
+    if GetItemInfo then return GetItemInfo(item) end
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
+end
 
 local function IS()
     return AltArmy.ItemStats
@@ -306,16 +319,16 @@ local function resolveItemLink(item)
     if type(item) == "string" and item:find("item:") then
         return item
     end
-    if type(item) == "number" and GetItemInfo then
-        local _, link = GetItemInfo(item)
+    if type(item) == "number" and hasItemInfoApi() then
+        local _, link = compatGetItemInfo(item)
         return link
     end
     return nil
 end
 
 local function getItemLevel(link)
-    if not link or not GetItemInfo then return 0 end
-    local _, _, _, iLevel = GetItemInfo(link)
+    if not link or not hasItemInfoApi() then return 0 end
+    local _, _, _, iLevel = compatGetItemInfo(link)
     return tonumber(iLevel) or 0
 end
 
@@ -633,7 +646,6 @@ function GU.GetSlotCompareDelta(char, itemLink, invSlot, opts, entry)
     opts = opts or {}
     if not char or not itemLink or not invSlot then return 0 end
     local technique = GU.GetEffectiveTechnique(opts.technique or "custom")
-    local DS = AltArmy.DataStore
     local equipped = DS and DS.GetInventoryItem and DS:GetInventoryItem(char, invSlot)
     local eqLink = resolveItemLink(equipped)
     local memoKey = charKeyFromChar(char, entry) .. "\0" .. tostring(invSlot)
@@ -658,7 +670,6 @@ local MAIN_HAND_SLOT = 16
 local OFF_HAND_SLOT = 17
 
 local function getEquippedLink(char, invSlot)
-    local DS = AltArmy.DataStore
     if not DS or not DS.GetInventoryItem then return nil end
     return resolveItemLink(DS:GetInventoryItem(char, invSlot))
 end
@@ -768,8 +779,8 @@ local function canEquipLinkInWeaponSlot(link, targetSlot, classFile, specKey)
     end
     if targetSlot == OFF_HAND_SLOT and iu.CanClassDualWield(classFile, specKey) then
         local role = iu.GetWeaponRole(link)
-        if role == "onehand" and GetItemInfo then
-            local equipLoc = select(9, GetItemInfo(link))
+        if role == "onehand" and hasItemInfoApi() then
+            local equipLoc = select(9, compatGetItemInfo(link))
             if equipLoc and equipLoc ~= "INVTYPE_WEAPONMAINHAND" then
                 return true
             end
@@ -855,7 +866,6 @@ function GU.FindBestStoredItemForSlot(char, targetSlot, opts, entry)
         end
     end
 
-    local DS = AltArmy.DataStore
     if DS and DS.IterateMailItemLinks then
         DS:IterateMailItemLinks(char, function(link)
             bestLink, bestScore = considerStoredLinkForSlot(
@@ -1144,8 +1154,8 @@ local function isValidWeaponCompareResult(result, focusedLink, compareSlot)
     local iu = IU()
     if not iu or not iu.GetWeaponRole or not focusedLink then return true end
     if iu.GetWeaponRole(focusedLink) ~= "onehand" then return true end
-    if GetItemInfo then
-        local equipLoc = select(9, GetItemInfo(focusedLink))
+    if hasItemInfoApi() then
+        local equipLoc = select(9, compatGetItemInfo(focusedLink))
         if equipLoc == "INVTYPE_WEAPON" then
             return false
         end
@@ -1244,7 +1254,6 @@ local function linksReferToSameItem(a, b)
 end
 
 local function weaponLoadoutStorageLocation(bagID)
-    local DS = AltArmy.DataStore
     bagID = tonumber(bagID)
     if not bagID then return "bag" end
     local bankContainer = (DS and DS.BANK_CONTAINER) or -1
@@ -1271,7 +1280,6 @@ end
 function GU.FindWeaponLoadoutItemStorage(char, link)
     if not char or not link then return nil end
     local targetId = tonumber(link:match("item:(%d+)"))
-    local DS = AltArmy.DataStore
 
     if DS and DS.IterateContainerSlots then
         local found
@@ -1313,8 +1321,8 @@ end
 function GU.FormatDeducedWeaponLoadoutHint(link, char)
     if not link then return nil end
     local itemName = "This item"
-    if GetItemInfo then
-        local name = GetItemInfo(link)
+    if hasItemInfoApi() then
+        local name = compatGetItemInfo(link)
         if name and name ~= "" then
             itemName = name
         end
@@ -1437,7 +1445,6 @@ end
 
 local function upgradeDeltaInSlots(char, newLink, opts, slots, entry)
     opts = opts or {}
-    local DS = AltArmy.DataStore
     if not DS or not DS.GetInventoryItem then return 0 end
     if GU.IsWeaponPairItem(newLink) then
         return GU.GetWeaponConfigDelta(char, newLink, opts, entry) or 0
@@ -1598,7 +1605,6 @@ function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, _upgrade
     local oldScore = loadoutOldScore
     if oldScore == nil then
         oldScore = 0
-        local DS = AltArmy.DataStore
         if DS and DS.GetInventoryItem then
             local equipped = DS:GetInventoryItem(charData, invSlot)
             local eqLink = resolveItemLink(equipped)
@@ -1827,11 +1833,11 @@ local FOCUS_CATEGORY_DEBUG = {
 local function focusDebugItemLabel(itemOrLink)
     if itemOrLink == nil then return "(none)" end
     if type(itemOrLink) == "number" then
-        local name = GetItemInfo and select(1, GetItemInfo(itemOrLink))
+        local name = hasItemInfoApi() and select(1, compatGetItemInfo(itemOrLink))
         return string.format("itemID %s (%s)", tostring(itemOrLink), name or "?")
     end
     if type(itemOrLink) == "string" then
-        local name = GetItemInfo and select(1, GetItemInfo(itemOrLink))
+        local name = hasItemInfoApi() and select(1, compatGetItemInfo(itemOrLink))
         if name and name ~= "" then return name end
         local bracket = itemOrLink:match("%[(.-)%]")
         if bracket then return bracket end
@@ -1875,7 +1881,6 @@ function GU.BuildFocusSlotDebugLines(entry, charData, itemLink, invSlot, opts, u
 
     lines[#lines + 1] = string.format("  Focused item: %s", focusDebugItemLabel(itemLink))
 
-    local DS = AltArmy.DataStore
     local equippedRaw
     if DS and DS.GetInventoryItem and charData then
         equippedRaw = DS:GetInventoryItem(charData, invSlot)
@@ -2068,7 +2073,6 @@ function GU.HasAnyFocusUpgradeOrEventual(list, itemLink, opts)
     local slots = GU.GetFocusInventorySlots(itemLink)
     if #slots == 0 then return false end
     opts = opts or {}
-    local DS = AltArmy.DataStore
     local upgradeMaxDelta
     for i = 1, #list do
         local e = list[i]
@@ -2118,7 +2122,6 @@ end
 
 --- Focus compare entries for all alts on the current realm (loot alerts, quest rewards).
 function GU.BuildFocusEntriesForCurrentRealm()
-    local DS = AltArmy.DataStore
     if not DS or not DS.ForEachCharacter then return {} end
     local realmFilter = "currentRealm"
     local currentRealm = DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm() or ""
@@ -2156,7 +2159,6 @@ function GU.ComputeUpgradeMaxDeltaForEntries(entries, itemLink, opts)
     local slots = GU.GetFocusInventorySlots(itemLink)
     if #slots == 0 then return nil end
     opts = opts or {}
-    local DS = AltArmy.DataStore
     local upgradeMaxDelta
     for i = 1, #entries do
         local e = entries[i]
@@ -2235,7 +2237,6 @@ function GU.EvaluateForCharacter(char, itemLink, opts)
     if not char or not itemLink then return false end
     local slots = GU.GetFocusInventorySlots(itemLink)
     if #slots == 0 then return false end
-    local DS = AltArmy.DataStore
     local level = opts.level
     if level == nil then
         level = (DS and DS.GetCharacterLevel and DS:GetCharacterLevel(char))
@@ -2296,7 +2297,6 @@ function GU.GetFocusCompareSortTier(entry, charData, itemLink, opts, upgradeMaxD
 end
 
 function GU.IsMaxLevelCharacter(entry, charData)
-    local DS = AltArmy.DataStore
     local maxLevel = (DS and DS.MAX_LEVEL) or 70
     local level = entry and entry.level or (charData and charData.level) or 0
     if DS and DS.GetCharacterLevel and charData then
@@ -2310,7 +2310,6 @@ function GU.GetLevelsUntilEquippable(entry, charData, itemLink)
     if not iu or not itemLink then return 999 end
     local classFile = entry and entry.classFile or (charData and charData.classFile) or ""
     local level = entry and entry.level or (charData and charData.level) or 0
-    local DS = AltArmy.DataStore
     if DS and DS.GetCharacterLevel and charData then
         level = DS:GetCharacterLevel(charData) or level
     end

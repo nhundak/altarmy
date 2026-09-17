@@ -7,6 +7,18 @@ AltArmy.ItemStats = AltArmy.ItemStats or {}
 
 local IS = AltArmy.ItemStats
 
+-- Self-contained (no AltArmy.DataStore dependency) so this module's unit tests,
+-- which stub GetItemInfo directly without loading the DataStore layer, keep working.
+-- See docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md for why the C_Item fallback exists.
+local function hasItemInfoApi()
+    return GetItemInfo ~= nil or (C_Item ~= nil and C_Item.GetItemInfo ~= nil)
+end
+
+local function compatGetItemInfo(item)
+    if GetItemInfo then return GetItemInfo(item) end
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
+end
+
 IS.STAT_ALIASES = {
     -- Primary attributes
     ["ITEM_MOD_STRENGTH_SHORT"] = "str",
@@ -264,8 +276,8 @@ local function isTooltipOnlyStatKey(apiKey)
 end
 
 local function resolveWeaponDpsKey(link)
-    if not link or not GetItemInfo then return "melee_dps" end
-    local _, _, _, _, _, _, subclass, _, equipSlot = GetItemInfo(link)
+    if not link or not hasItemInfoApi() then return "melee_dps" end
+    local _, _, _, _, _, _, subclass, _, equipSlot = compatGetItemInfo(link)
     if subclass and RANGED_WEAPON_SUBCLASSES[subclass] then
         return "ranged_dps"
     end
@@ -822,8 +834,8 @@ end
 
 local function collectFreshParseSnapshot(link)
     local itemName
-    if GetItemInfo then
-        itemName = GetItemInfo(link)
+    if hasItemInfoApi() then
+        itemName = compatGetItemInfo(link)
     end
     local apiRaw = fetchFromApi(link) or {}
     local tooltipRaw, tooltipLines, incomplete = parseTooltipToRaw(link)
@@ -903,8 +915,8 @@ function IS.GetTooltipLines(link)
 end
 
 local function fetchStats(link)
-    if GetItemInfo then
-        local name = GetItemInfo(link)
+    if hasItemInfoApi() then
+        local name = compatGetItemInfo(link)
         if not name then
             queuePending(parseItemId(link))
             return {}, "pending", {}
@@ -919,7 +931,7 @@ local function fetchStats(link)
     finalizeMergedFeralAttackPower(mergedRaw, tooltipRaw)
 
     local parseSnapshot = {
-        itemName = GetItemInfo and GetItemInfo(link) or nil,
+        itemName = hasItemInfoApi() and compatGetItemInfo(link) or nil,
         itemId = parseItemId(link),
         apiRaw = copyTable(apiRaw or {}),
         tooltipRaw = copyTable(tooltipRaw or {}),

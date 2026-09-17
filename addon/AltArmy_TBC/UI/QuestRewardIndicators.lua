@@ -11,6 +11,19 @@ local QRI = AltArmy.QuestRewardIndicators
 
 local GA = AltArmy.GearUpgradeAlerts
 local GU = AltArmy.GearUpgrade
+local DS = AltArmy.DataStore
+
+-- Self-contained (no AltArmy.DataStore dependency) so this module's unit tests,
+-- which stub GetItemInfo directly without loading the DataStore layer, keep working.
+-- See docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md for why the C_Item fallback exists.
+local function hasItemInfoApi()
+    return GetItemInfo ~= nil or (C_Item ~= nil and C_Item.GetItemInfo ~= nil)
+end
+
+local function compatGetItemInfo(item)
+    if GetItemInfo then return GetItemInfo(item) end
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
+end
 
 local VENDOR_ICON = "Interface/GossipFrame/VendorGossipIcon.blp"
 local UPGRADE_BADGE_CLEAR_COLOR = { 0.2, 1, 0.2 }
@@ -101,8 +114,8 @@ local function extractItemId(itemLink)
 end
 
 local function readSellPrice(link)
-    if not link or not GetItemInfo then return 0 end
-    local sellPrice = select(11, GetItemInfo(link))
+    if not link or not hasItemInfoApi() then return 0 end
+    local sellPrice = select(11, compatGetItemInfo(link))
     return tonumber(sellPrice) or 0
 end
 
@@ -264,7 +277,6 @@ function QRI.EvaluateRewardIndicators(entries, opts)
 end
 
 function QRI.ShouldEvaluateForCurrentCharacter()
-    local DS = AltArmy.DataStore
     if not DS or not DS.GetCurrentCharacter then return false end
     local char = DS:GetCurrentCharacter()
     if not char then return false end
@@ -277,7 +289,6 @@ function QRI.ShouldEvaluateForCurrentCharacter()
 end
 
 local function enrichEntriesForCurrentCharacter(entries, evalOpts, opts)
-    local DS = AltArmy.DataStore
     if not DS or not DS.GetCurrentCharacter then return entries end
     local char = DS:GetCurrentCharacter()
     if not char then return entries end

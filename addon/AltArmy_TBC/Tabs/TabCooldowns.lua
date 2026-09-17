@@ -63,12 +63,12 @@ end
 
 local function ItemLinkForChat(itemID)
     if not itemID then return "?" end
-    if GetItemInfo then
-        local _, link = GetItemInfo(itemID)
+    if DS.HasItemInfoApi() then
+        local _, link = DS.CompatGetItemInfo(itemID)
         if link and link ~= "" and link:find("item:") then
             return link
         end
-        local name = GetItemInfo(itemID)
+        local name = DS.CompatGetItemInfo(itemID)
         if name and name ~= "" then
             return string.format("[%s]", name)
         end
@@ -146,16 +146,16 @@ local function RecipeIconTexture(spellId, charTable)
             end
         end
     end
-    if resultItemID and GetItemInfo then
-        local _, _, _, _, _, _, _, _, _, tex = GetItemInfo(resultItemID)
+    if resultItemID and DS.HasItemInfoApi() then
+        local _, _, _, _, _, _, _, _, _, tex = DS.CompatGetItemInfo(resultItemID)
         if tex then return tex end
     end
     if spellId and GetSpellInfo then
         local _, _, tex = GetSpellInfo(spellId)
         if tex and tex ~= "" then return tex end
     end
-    if spellId and GetItemInfo then
-        local _, _, _, _, _, _, _, _, _, tex = GetItemInfo(spellId)
+    if spellId and DS.HasItemInfoApi() then
+        local _, _, _, _, _, _, _, _, _, tex = DS.CompatGetItemInfo(spellId)
         if tex then return tex end
     end
     return fallback
@@ -170,8 +170,8 @@ end
 --- GameTooltip:AddLine accepts inline |T…|t textures in the text.
 local function TooltipReagentLine(itemID, label, have, need)
     local tex = "Interface\\Icons\\INV_Misc_QuestionMark"
-    if itemID and GetItemInfo then
-        local t = select(10, GetItemInfo(itemID))
+    if itemID and DS.HasItemInfoApi() then
+        local t = select(10, DS.CompatGetItemInfo(itemID))
         if t and t ~= "" then
             tex = t
         end
@@ -1264,8 +1264,8 @@ ShowRecipeTooltip = function(owner, spellId, charTable, anchor)
         for _, rr in ipairs(rrows) do
             local have, need = rr.have or 0, rr.need or 0
             local label
-            if GetItemInfo then
-                local itemName = GetItemInfo(rr.itemID)
+            if DS.HasItemInfoApi() then
+                local itemName = DS.CompatGetItemInfo(rr.itemID)
                 label = itemName or ("Item " .. tostring(rr.itemID))
             else
                 label = "Item " .. tostring(rr.itemID)
@@ -1691,8 +1691,8 @@ local function GetItemStackLimit(itemID)
             return n
         end
     end
-    if GetItemInfo then
-        local maxStack = select(8, GetItemInfo(itemID))
+    if DS.HasItemInfoApi() then
+        local maxStack = select(8, DS.CompatGetItemInfo(itemID))
         if type(maxStack) == "number" and maxStack > 0 then
             return maxStack
         end

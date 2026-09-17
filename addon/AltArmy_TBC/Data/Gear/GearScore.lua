@@ -107,14 +107,14 @@ end
 local function resolveItemLink(item)
     if type(item) == "string" then
         if item:match("^|c") then return item end
-        if GetItemInfo then
-            local _, link = GetItemInfo(item)
+        if DS.HasItemInfoApi() then
+            local _, link = DS.CompatGetItemInfo(item)
             if link then return link end
         end
         return item
     end
-    if type(item) == "number" and GetItemInfo then
-        local _, link = GetItemInfo(item)
+    if type(item) == "number" and DS.HasItemInfoApi() then
+        local _, link = DS.CompatGetItemInfo(item)
         if link then return link end
         return "item:" .. tostring(item)
     end
