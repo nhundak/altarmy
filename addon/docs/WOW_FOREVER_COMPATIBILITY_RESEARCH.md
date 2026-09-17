@@ -137,14 +137,19 @@ Found CurseForge's `gameVersionTypeId` for "WoW Forever": **`88568`** — read d
 
 **Result: wrong ID space, deploy failed.** `88568` is CurseForge's **game version *type* ID** (the flavor/category — website filter dropdowns use this), not the **game version ID** the upload API's `gameVersions` field actually wants. CurseForge's own API docs confirm the split: `GET /api/game/versions` returns `{ id, gameVersionTypeID, name, slug }` objects, and `gameVersions` in the upload metadata takes `id` (a specific patch, e.g. our working `16533` = the specific version "2.5.6"), not `gameVersionTypeID` (e.g. `88568` = the "WoW Forever" category as a whole, covering every Forever patch). Deploying with `88568` in `gameVersions` failed: `HTTP 400 {"errorCode":1007,"errorMessage":"Invalid game version ID: 88568 does not exist."}`. Reverted `release.yml` to `CURSEFORGE_GAME_VERSIONS: "16533"` (TBC only) to unblock deploys.
 
-**Still needed:** the specific version `id` for "1.60.1" under `gameVersionTypeID` 88568. Not discoverable by scraping the website (only the type ID is exposed there) — requires the authenticated endpoint, which only the repo owner can call:
+**Resolved (2026-09-17):** rather than guess further, added a temporary diagnostic step to `release.yml` that ran the authenticated `/api/game/versions` query inside the GitHub Actions runner (which has the real `CURSEFORGE_API_TOKEN` secret) and then deliberately failed the job so it didn't fall through to a real upload. Result:
 
-```bash
-curl -s "https://wow.curseforge.com/api/game/versions" -H "X-Api-Token: $CURSEFORGE_API_TOKEN" \
-  | jq '.[] | select(.gameVersionTypeID == 88568)'
+```json
+{
+  "id": 17053,
+  "gameVersionTypeID": 88568,
+  "name": "1.60.1",
+  "slug": "1-60-1",
+  "apiVersion": "16001"
+}
 ```
 
-Once known, add it to `CURSEFORGE_GAME_VERSIONS` alongside `16533` (comma-separated, per `release.yml`'s existing parsing).
+`apiVersion: "16001"` matching the Interface number already in our `.toc` confirmed this was the right entry. `CURSEFORGE_GAME_VERSIONS` is now `"16533,17053"` (TBC 2.5.6 + WoW Forever 1.60.1); the diagnostic step has been removed.
 
 Wago's `WAGO_BC_PATCH`-equivalent field for Forever is still unresolved (no documented field name) — not addressed by this change.
 
