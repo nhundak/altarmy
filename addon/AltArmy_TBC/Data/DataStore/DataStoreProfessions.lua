@@ -145,12 +145,21 @@ local SPELL_ID_FIRSTAID = 3273
 local SPELL_ID_COOKING = 2550
 local SPELL_ID_FISHING = 7732
 
+-- Legacy GetSpellInfo is absent on some clients (e.g. WoW Forever beta — see
+-- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md); DS.CompatGetSpellInfo (from
+-- DataStoreItemSpellCompat.lua) falls back to C_Spell.GetSpellInfo. Checked
+-- dynamically, not captured as a load-time upvalue (see that doc's Reputations
+-- lesson on why).
+local function HasSpellInfoApi()
+    return GetSpellInfo ~= nil or (C_Spell ~= nil and C_Spell.GetSpellInfo ~= nil)
+end
+
 local function NormalizeProfessionName(name)
-    if not name or name == "" or not GetSpellInfo then
+    if not name or name == "" or not HasSpellInfoApi() then
         return name
     end
     if name == "Secourisme" then
-        return GetSpellInfo(SPELL_ID_FIRSTAID) or name
+        return DS.CompatGetSpellInfo(SPELL_ID_FIRSTAID) or name
     end
     return name
 end
@@ -332,14 +341,14 @@ end
 local function AddCooldownSpellIdsMatchingRowName(index, add)
     local CD = AltArmy and AltArmy.CooldownData
     if not CD or not CD.CATEGORIES or not CD.CATEGORY_ORDER then return end
-    if not GetTradeSkillInfo or not GetSpellInfo then return end
+    if not GetTradeSkillInfo or not HasSpellInfoApi() then return end
     local rowName = select(1, GetTradeSkillInfo(index))
     if not rowName or rowName == "" then return end
     for _, catKey in ipairs(CD.CATEGORY_ORDER) do
         local cat = CD.CATEGORIES[catKey]
         if cat and cat.mode == "single" and cat.spellId then
             local sid = cat.spellId
-            local spellTitle = GetSpellInfo(sid)
+            local spellTitle = DS.CompatGetSpellInfo(sid)
             if spellTitle and spellTitle == rowName then
                 add(sid)
             end
@@ -412,10 +421,10 @@ local function InferPrimaryRecipeId(row, ids)
     end
 
     local pool = #candidates > 0 and candidates or ids
-    if GetSpellInfo then
+    if HasSpellInfoApi() then
         table.sort(pool, function(a, b)
-            local na = GetSpellInfo(a) or ""
-            local nb = GetSpellInfo(b) or ""
+            local na = DS.CompatGetSpellInfo(a) or ""
+            local nb = DS.CompatGetSpellInfo(b) or ""
             if #na ~= #nb then
                 return #na > #nb
             end
@@ -674,8 +683,8 @@ function DS:ScanProfessionLinks()
                 local isPrimary = (category == "Professions")
                 local isSecondary = (category == "Secondary Skills")
                 if isPrimary or isSecondary then
-                    if skillName == "Secourisme" and GetSpellInfo then
-                        skillName = GetSpellInfo(SPELL_ID_FIRSTAID) or skillName
+                    if skillName == "Secourisme" and HasSpellInfoApi() then
+                        skillName = DS.CompatGetSpellInfo(SPELL_ID_FIRSTAID) or skillName
                     end
                     skillName = NormalizeProfessionName(skillName)
                     currentNames[skillName] = true
@@ -929,24 +938,24 @@ function DS:GetProfession2(char)
 end
 
 function DS:GetCookingRank(char)
-    if not char or not GetSpellInfo then return 0, 0 end
-    local name = GetSpellInfo(SPELL_ID_COOKING)
+    if not char or not HasSpellInfoApi() then return 0, 0 end
+    local name = DS.CompatGetSpellInfo(SPELL_ID_COOKING)
     local prof = name and char.Professions and char.Professions[name]
     if not prof then return 0, 0 end
     return prof.rank or 0, prof.maxRank or 0
 end
 
 function DS:GetFishingRank(char)
-    if not char or not GetSpellInfo then return 0, 0 end
-    local name = GetSpellInfo(SPELL_ID_FISHING)
+    if not char or not HasSpellInfoApi() then return 0, 0 end
+    local name = DS.CompatGetSpellInfo(SPELL_ID_FISHING)
     local prof = name and char.Professions and char.Professions[name]
     if not prof then return 0, 0 end
     return prof.rank or 0, prof.maxRank or 0
 end
 
 function DS:GetFirstAidRank(char)
-    if not char or not GetSpellInfo then return 0, 0 end
-    local name = GetSpellInfo(SPELL_ID_FIRSTAID)
+    if not char or not HasSpellInfoApi() then return 0, 0 end
+    local name = DS.CompatGetSpellInfo(SPELL_ID_FIRSTAID)
     local prof = name and char.Professions and char.Professions[name]
     if not prof then return 0, 0 end
     return prof.rank or 0, prof.maxRank or 0
@@ -1540,7 +1549,7 @@ function DS:TryScanTrackedCooldownsFromActionBars()
             if CD.IsTrackedSpellId(spellId) then
                 persistFromActionCooldown(spellId, slot)
             end
-        elseif actionType == "macro" and type(actionId) == "number" and GetMacroInfo and GetSpellInfo then
+        elseif actionType == "macro" and type(actionId) == "number" and GetMacroInfo and HasSpellInfoApi() then
             -- Some profession casts appear on action bars as macros; match tracked spell names in macro body.
             local _, _, body = GetMacroInfo(actionId)
             if type(body) == "string" and body ~= "" then
@@ -1548,7 +1557,7 @@ function DS:TryScanTrackedCooldownsFromActionBars()
                 for _, spellId in ipairs(trackedIds) do
                     local sid = spellId
                     if CD.IsTrackedSpellId(sid) then
-                        local sname = GetSpellInfo(sid)
+                        local sname = DS.CompatGetSpellInfo(sid)
                         if type(sname) == "string" and sname ~= "" then
                             if bodyLower:find(sname:lower(), 1, true) then
                                 persistFromActionCooldown(sid, slot)

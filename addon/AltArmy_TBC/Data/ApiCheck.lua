@@ -41,13 +41,14 @@ AC.MANIFEST = {
     { area = "Inventory/Equipment", label = "GetInventoryItemID", candidates = { "GetInventoryItemID" } },
 
     -- Item/Spell Info
-    { area = "Item Info", label = "GetItemInfo", candidates = { "GetItemInfo" } },
-    { area = "Item Info", label = "GetItemInfoInstant", candidates = { "GetItemInfoInstant" } },
-    { area = "Item Info", label = "GetItemStats", candidates = { "GetItemStats" } },
-    { area = "Item Info", label = "IsUsableItem", candidates = { "IsUsableItem" } },
+    { area = "Item Info", label = "GetItemInfo", candidates = { "GetItemInfo", "C_Item.GetItemInfo" } },
+    { area = "Item Info", label = "GetItemInfoInstant",
+      candidates = { "GetItemInfoInstant", "C_Item.GetItemInfoInstant" } },
+    { area = "Item Info", label = "GetItemStats", candidates = { "GetItemStats", "C_Item.GetItemStats" } },
+    { area = "Item Info", label = "IsUsableItem", candidates = { "IsUsableItem", "C_Item.IsUsableItem" } },
     { area = "Item Info", label = "GetItemQualityColor", candidates = { "GetItemQualityColor" } },
-    { area = "Item Info", label = "GetSpellInfo", candidates = { "GetSpellInfo" } },
-    { area = "Item Info", label = "GetSpellLink", candidates = { "GetSpellLink" } },
+    { area = "Item Info", label = "GetSpellInfo", candidates = { "GetSpellInfo", "C_Spell.GetSpellInfo" } },
+    { area = "Item Info", label = "GetSpellLink", candidates = { "GetSpellLink", "C_Spell.GetSpellLink" } },
 
     -- Professions/Tradeskills
     { area = "Professions", label = "GetNumTradeSkills", candidates = { "GetNumTradeSkills" } },
@@ -72,10 +73,14 @@ AC.MANIFEST = {
     { area = "Crafting", label = "GetCraftReagentInfo", candidates = { "GetCraftReagentInfo" } },
 
     -- Reputations
-    { area = "Reputations", label = "GetNumFactions", candidates = { "GetNumFactions" } },
-    { area = "Reputations", label = "GetFactionInfo", candidates = { "GetFactionInfo" } },
-    { area = "Reputations", label = "GetFactionInfoByID", candidates = { "GetFactionInfoByID" } },
-    { area = "Reputations", label = "ExpandFactionHeader", candidates = { "ExpandFactionHeader" } },
+    { area = "Reputations", label = "GetNumFactions",
+      candidates = { "GetNumFactions", "C_Reputation.GetNumFactions" } },
+    { area = "Reputations", label = "GetFactionInfo",
+      candidates = { "GetFactionInfo", "C_Reputation.GetFactionDataByIndex" } },
+    { area = "Reputations", label = "GetFactionInfoByID",
+      candidates = { "GetFactionInfoByID", "C_Reputation.GetFactionDataByID" } },
+    { area = "Reputations", label = "ExpandFactionHeader",
+      candidates = { "ExpandFactionHeader", "C_Reputation.ExpandFactionHeader" } },
 
     -- Mail
     { area = "Mail", label = "GetInboxNumItems", candidates = { "GetInboxNumItems" } },
@@ -86,9 +91,14 @@ AC.MANIFEST = {
     { area = "Mail", label = "ReturnInboxItem", candidates = { "ReturnInboxItem" } },
 
     -- Auctions
-    { area = "Auctions", label = "GetNumAuctionItems", candidates = { "GetNumAuctionItems" } },
-    { area = "Auctions", label = "GetAuctionItemInfo", candidates = { "GetAuctionItemInfo" } },
+    { area = "Auctions", label = "GetNumAuctionItems",
+      candidates = { "GetNumAuctionItems", "C_AuctionHouse.GetNumOwnedAuctions" } },
+    { area = "Auctions", label = "GetAuctionItemInfo",
+      candidates = { "GetAuctionItemInfo", "C_AuctionHouse.GetOwnedAuctionInfo" } },
     { area = "Auctions", label = "GetAuctionItemLink", candidates = { "GetAuctionItemLink" } },
+    { area = "Auctions", label = "GetNumBids", candidates = { "GetNumAuctionItems", "C_AuctionHouse.GetNumBids" } },
+    { area = "Auctions", label = "GetBidInfo",
+      candidates = { "GetAuctionItemInfo", "C_AuctionHouse.GetBidInfo" } },
 
     -- Talents
     { area = "Talents", label = "GetNumTalentTabs", candidates = { "GetNumTalentTabs" } },

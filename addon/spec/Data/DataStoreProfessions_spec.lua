@@ -15,6 +15,7 @@ describe("DataStoreProfessions", function()
     _G.UIParent = _G.UIParent or {}
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     require("DataStore")
+    require("DataStoreItemSpellCompat")
     require("CooldownData")
     require("DataStoreProfessions")
     DS = AltArmy.DataStore

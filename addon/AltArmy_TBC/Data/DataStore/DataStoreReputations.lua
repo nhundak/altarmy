@@ -25,17 +25,61 @@ local STANDING_ID_TO_LABEL = {
     [8] = "Exalted",
 }
 
+-- Legacy globals are absent on some clients (e.g. WoW Forever beta, interface 16001 — see
+-- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md); C_Reputation is the retail/Forever-shaped
+-- replacement. Existence-checked, not version-checked, per Data/DESIGN.md "TBC Compatibility".
+-- Checked dynamically on every call (not captured as load-time upvalues) so this keeps working
+-- if a client ever defines these later than addon load, and so tests can stub the globals per-case.
+local function API_GetNumFactions()
+    if GetNumFactions then return GetNumFactions() end
+    if C_Reputation and C_Reputation.GetNumFactions then return C_Reputation.GetNumFactions() end
+    return nil
+end
+
+local function API_ExpandFactionHeader(index)
+    if ExpandFactionHeader then return ExpandFactionHeader(index) end
+    if C_Reputation and C_Reputation.ExpandFactionHeader then return C_Reputation.ExpandFactionHeader(index) end
+end
+
+local function API_CollapseFactionHeader(index)
+    if CollapseFactionHeader then return CollapseFactionHeader(index) end
+    if C_Reputation and C_Reputation.CollapseFactionHeader then return C_Reputation.CollapseFactionHeader(index) end
+end
+
+-- Returns the same tuple shape as the legacy GetFactionInfo(index):
+-- name, description, standingID, bottomValue, topValue, earnedValue, atWarWith, canToggleAtWar,
+-- isHeader, isCollapsed, hasRep, isWatched, isChild, factionID
+-- The C_Reputation.GetFactionDataByIndex field names below are inferred from the public retail
+-- API shape and not yet verified against a live Forever snapshot.
+local function API_GetFactionInfo(index)
+    if GetFactionInfo then return GetFactionInfo(index) end
+    if C_Reputation and C_Reputation.GetFactionDataByIndex then
+        local data = C_Reputation.GetFactionDataByIndex(index)
+        if not data then return nil end
+        return data.name, data.description, data.reaction, data.currentReactionThreshold,
+            data.nextReactionThreshold, data.currentStanding, data.atWarWith, data.canToggleAtWar,
+            data.isHeader, data.isCollapsed, data.hasRep, data.isWatched, data.isChild, data.factionID
+    end
+end
+
+--- True when a faction-scan API (legacy or C_Reputation) is actually available. Used by DataStore.lua's
+--- event dispatch so it doesn't call ScanReputations on clients (e.g. WoW Forever) where neither exists.
+function DS.HasReputationApi()
+    return (GetNumFactions ~= nil or (C_Reputation ~= nil and C_Reputation.GetNumFactions ~= nil))
+        and (GetFactionInfo ~= nil or (C_Reputation ~= nil and C_Reputation.GetFactionDataByIndex ~= nil))
+end
+
 local factionHeadersState = {}
 local function SaveFactionHeaders()
     for k in pairs(factionHeadersState) do factionHeadersState[k] = nil end
     local headerCount = 0
-    if not GetNumFactions then return end
-    for i = GetNumFactions(), 1, -1 do
-        local _, _, _, _, _, _, _, _, isHeader, isCollapsed = GetFactionInfo(i)
+    if not DS.HasReputationApi() then return end
+    for i = API_GetNumFactions(), 1, -1 do
+        local _, _, _, _, _, _, _, _, isHeader, isCollapsed = API_GetFactionInfo(i)
         if isHeader then
             headerCount = headerCount + 1
-            if isCollapsed and ExpandFactionHeader then
-                ExpandFactionHeader(i)
+            if isCollapsed then
+                API_ExpandFactionHeader(i)
                 factionHeadersState[headerCount] = true
             end
         end
@@ -44,13 +88,13 @@ end
 
 local function RestoreFactionHeaders()
     local headerCount = 0
-    if not GetNumFactions then return end
-    for i = GetNumFactions(), 1, -1 do
-        local _, _, _, _, _, _, _, _, isHeader = GetFactionInfo(i)
+    if not DS.HasReputationApi() then return end
+    for i = API_GetNumFactions(), 1, -1 do
+        local _, _, _, _, _, _, _, _, isHeader = API_GetFactionInfo(i)
         if isHeader then
             headerCount = headerCount + 1
-            if factionHeadersState[headerCount] and CollapseFactionHeader then
-                CollapseFactionHeader(i)
+            if factionHeadersState[headerCount] then
+                API_CollapseFactionHeader(i)
             end
         end
     end
@@ -276,12 +320,12 @@ function DS:GetCurrentReputationFactionRows()
     local ids = CollectFactionIdsFromSavedCharacters()
 
     -- Refresh display names from the current client's rep list (does not add factions to the grid).
-    if GetNumFactions and GetFactionInfo then
-        local n = GetNumFactions()
+    if DS.HasReputationApi() then
+        local n = API_GetNumFactions()
         if n and n >= 1 then
             for i = 1, n do
                 local name, _, _, _, _, _, _, _, isHeader, _, _, _, _, factionID =
-                    GetFactionInfo(i)
+                    API_GetFactionInfo(i)
                 if not isHeader and factionID and factionID > 0 then
                     if name and name ~= "" then
                         nameMap[factionID] = name
@@ -324,15 +368,15 @@ end
 function DS:ScanReputations()
     local char = GetCurrentCharTable()
     if not char then return end
-    if not GetNumFactions or not GetFactionInfo then return end
+    if not DS.HasReputationApi() then return end
     AltArmyTBC_Data.ReputationFactionNames = AltArmyTBC_Data.ReputationFactionNames or {}
     local factionNames = AltArmyTBC_Data.ReputationFactionNames
     char.Reputations = char.Reputations or {}
     for k in pairs(char.Reputations) do char.Reputations[k] = nil end
     SaveFactionHeaders()
-    for i = 1, GetNumFactions() do
+    for i = 1, API_GetNumFactions() do
         local name, _, standingID, bottomValue, topValue, earnedValue, _, _, isHeader, _, _, _, _, factionID =
-            GetFactionInfo(i)
+            API_GetFactionInfo(i)
         if not isHeader and factionID and factionID > 0 then
             if name and name ~= "" then
                 factionNames[factionID] = name

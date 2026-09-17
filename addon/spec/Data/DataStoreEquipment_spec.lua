@@ -15,6 +15,7 @@ describe("DataStoreEquipment", function()
     _G.UIParent = _G.UIParent or {}
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     require("DataStore")
+    require("DataStoreItemSpellCompat")
     require("DataStoreEquipment")
     DS = AltArmy.DataStore
   end)

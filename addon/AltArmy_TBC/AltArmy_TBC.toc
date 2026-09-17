@@ -19,6 +19,7 @@ Data\Characters\BankAltDetect.lua
 Data\Debug.lua
 Data\ApiCheck.lua
 Data\DataStore\DataStore.lua
+Data\DataStore\DataStoreItemSpellCompat.lua
 Data\ClassColor.lua
 Data\Cooldowns\CooldownData.lua
 Data\Cooldowns\LockoutData.lua

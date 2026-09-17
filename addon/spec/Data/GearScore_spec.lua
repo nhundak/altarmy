@@ -62,6 +62,7 @@ describe("GearScore", function()
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     package.loaded["GearScore"] = nil
     require("DataStore")
+    require("DataStoreItemSpellCompat")
     require("DataStoreCharacter")
     require("DataStoreEquipment")
     require("GearScore")

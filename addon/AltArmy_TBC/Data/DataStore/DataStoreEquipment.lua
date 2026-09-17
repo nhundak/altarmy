@@ -80,13 +80,13 @@ end
 
 function DS:GetAverageItemLevel(char)
     if not char or not char.Inventory then return 0 end
-    if not GetItemInfo then return 0 end
+    if not GetItemInfo and not (C_Item and C_Item.GetItemInfo) then return 0 end
     local totalLevel = 0
     local count = 0
     for slot = 1, NUM_EQUIPMENT_SLOTS do
         local item = char.Inventory[slot]
         if item then
-            local _, _, _, iLevel = GetItemInfo(item)
+            local _, _, _, iLevel = DS.CompatGetItemInfo(item)
             if iLevel and type(iLevel) == "number" then
                 totalLevel = totalLevel + iLevel
                 count = count + 1

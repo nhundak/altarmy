@@ -231,6 +231,11 @@ SafeRegisterEvent("AUCTION_HOUSE_SHOW")
 SafeRegisterEvent("AUCTION_HOUSE_CLOSED")
 SafeRegisterEvent("AUCTION_OWNED_LIST_UPDATE")
 SafeRegisterEvent("AUCTION_BIDDER_LIST_UPDATE")
+-- Retail/Forever-shaped C_AuctionHouse equivalents of the two legacy events above (see
+-- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md); SafeRegisterEvent no-ops on clients without them.
+SafeRegisterEvent("OWNED_AUCTIONS_UPDATED")
+SafeRegisterEvent("AUCTION_HOUSE_AUCTION_CREATED")
+SafeRegisterEvent("BIDS_UPDATED")
 SafeRegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 SafeRegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 SafeRegisterEvent("UPDATE_INSTANCE_INFO")
@@ -446,7 +451,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
             if GetNumSkillLines and GetSkillLineInfo and DS.ScanProfessionLinks then
                 DS:ScanProfessionLinks()
             end
-            if GetNumFactions and GetFactionInfo and DS.ScanReputations then
+            if DS.HasReputationApi and DS.HasReputationApi() and DS.ScanReputations then
                 DS:ScanReputations()
             end
             -- Delayed run: skill/faction data can load after login; rescan so we get it without opening panels
@@ -460,7 +465,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
                         if GetNumSkillLines and GetSkillLineInfo and DS.ScanProfessionLinks then
                             DS:ScanProfessionLinks()
                         end
-                        if GetNumFactions and GetFactionInfo and DS.ScanReputations then
+                        if DS.HasReputationApi and DS.HasReputationApi() and DS.ScanReputations then
                             DS:ScanReputations()
                         end
                     end
@@ -598,7 +603,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
         if now - lastReputationScan >= REPUTATION_SCAN_THROTTLE then
             lastReputationScan = now
             local char = GetCurrentCharTable()
-            if char and GetNumFactions and GetFactionInfo and DS.ScanReputations then
+            if char and DS.HasReputationApi and DS.HasReputationApi() and DS.ScanReputations then
                 DS:ScanReputations()
             end
         end
@@ -641,8 +646,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
     if event == "AUCTION_HOUSE_SHOW" then
         isAuctionHouseOpen = true
         local char = GetCurrentCharTable()
-        if char and GetNumAuctionItems and DS.ScanAuctions and DS.ScanBids then
+        if char and DS.HasOwnedAuctionsApi and DS.HasOwnedAuctionsApi() and DS.ScanAuctions then
             DS:ScanAuctions()
+        end
+        if char and DS.HasBidAuctionsApi and DS.HasBidAuctionsApi() and DS.ScanBids then
             DS:ScanBids()
         end
         return
@@ -651,17 +658,18 @@ frame:SetScript("OnEvent", function(_, event, ...)
         isAuctionHouseOpen = false
         return
     end
-    if event == "AUCTION_OWNED_LIST_UPDATE" then
-        if isAuctionHouseOpen and DS.ScanAuctions then
+    if event == "AUCTION_OWNED_LIST_UPDATE" or event == "OWNED_AUCTIONS_UPDATED"
+        or event == "AUCTION_HOUSE_AUCTION_CREATED" then
+        if isAuctionHouseOpen and DS.HasOwnedAuctionsApi and DS.HasOwnedAuctionsApi() and DS.ScanAuctions then
             local char = GetCurrentCharTable()
-            if char and GetNumAuctionItems then DS:ScanAuctions() end
+            if char then DS:ScanAuctions() end
         end
         return
     end
-    if event == "AUCTION_BIDDER_LIST_UPDATE" then
-        if isAuctionHouseOpen and DS.ScanBids then
+    if event == "AUCTION_BIDDER_LIST_UPDATE" or event == "BIDS_UPDATED" then
+        if isAuctionHouseOpen and DS.HasBidAuctionsApi and DS.HasBidAuctionsApi() and DS.ScanBids then
             local char = GetCurrentCharTable()
-            if char and GetNumAuctionItems then DS:ScanBids() end
+            if char then DS:ScanBids() end
         end
         return
     end
