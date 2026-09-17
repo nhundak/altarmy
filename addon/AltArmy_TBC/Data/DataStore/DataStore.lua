@@ -236,7 +236,13 @@ SafeRegisterEvent("AUCTION_BIDDER_LIST_UPDATE")
 SafeRegisterEvent("OWNED_AUCTIONS_UPDATED")
 SafeRegisterEvent("AUCTION_HOUSE_AUCTION_CREATED")
 SafeRegisterEvent("BIDS_UPDATED")
-SafeRegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+-- Forever's client is missing CombatLogGetCurrentEventInfo (confirmed via
+-- /altarmy debug apicheck; see docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md), and the
+-- OnEvent handler below is a no-op without it — registering anyway triggers a spurious
+-- ADDON_ACTION_FORBIDDEN, so skip registration entirely when the API isn't there.
+if CombatLogGetCurrentEventInfo then
+    SafeRegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+end
 SafeRegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 SafeRegisterEvent("UPDATE_INSTANCE_INFO")
 SafeRegisterEvent("RAID_INSTANCE_WELCOME")
