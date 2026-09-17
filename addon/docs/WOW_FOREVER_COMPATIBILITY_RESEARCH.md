@@ -153,6 +153,127 @@ Found CurseForge's `gameVersionTypeId` for "WoW Forever": **`88568`** — read d
 
 Wago's `WAGO_BC_PATCH`-equivalent field for Forever is still unresolved (no documented field name) — not addressed by this change.
 
+## First real Forever crash, and a data point against the "Classic Era-like" guess (2026-09-17)
+
+First actual in-game error report from Forever beta, day one:
+
+```
+Frame:RegisterEvent(): Attempt to register unknown event "TRADE_SKILL_UPDATE"
+```
+
+`DataStore.lua` unconditionally called `frame:RegisterEvent("TRADE_SKILL_UPDATE")` at file scope. On Forever's client, that event doesn't exist at all, and `RegisterEvent` on an unrecognized event name throws (hard error, not a silent no-op) — this is a load-time crash, not a soft failure.
+
+**Fixed:** removed the registration and its handler from [`DataStore.lua`](../AltArmy_TBC/Data/DataStore/DataStore.lua). This was safe with zero behavior change on any client, TBC included: the `TRADE_SKILL_UPDATE` handler was already a deliberate no-op (a comment above it explained it existed only to `return` early and *avoid* a rescan-on-every-expand/collapse infinite loop). The actual full profession scan has always been driven by `TRADE_SKILL_SHOW` + a 0.5s deferred timer (`DS:RunDeferredRecipeScan()`), never by `TRADE_SKILL_UPDATE`. `npm run check` passes after the change.
+
+**Why this happened, per Thaoky's `DataStore_Crafts`** (the addon our `Data/DataStore/` layer is modeled on — same module names, same `RegisterEvent`-dispatch structure): its retail file gates this exact event behind a runtime check —
+
+```lua
+local isRetail = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+...
+if not isRetail then
+    addon:ListenTo("TRADE_SKILL_UPDATE", OnTradeSkillUpdate)   -- only reached on non-retail clients
+    ...
+end
+```
+
+On the real retail engine, `TRADE_SKILL_UPDATE` is never even registered — it doesn't fire there. Forever hitting the identical "unknown event" error is a concrete signal that **Forever's client behaves like the retail engine for the profession API**, not like Classic Era's — this narrows (doesn't yet fully overturn) the "Community expectation" guess logged above under "Addon-development specifics", which leaned toward a Classic-Era-like surface. One API family isn't the whole picture, but it's the first real data point either way.
+
+Retail's actual replacements, per the same source:
+- `TRADE_SKILL_DATA_SOURCE_CHANGED` — registered unconditionally at login, drives the full rescan (the role `TRADE_SKILL_SHOW` + our timer already plays for us)
+- `TRADE_SKILL_LIST_UPDATE` — drives a lightweight cooldown-only refresh after crafting (the one piece of *actual* behavior the old `TRADE_SKILL_UPDATE` handler provided in Classic-family clients, which we don't currently replicate at all since ours was already a no-op)
+
+**The bigger finding, not yet acted on:** retail's scan function itself (`ScanRecipes_Retail` in Thaoky's code) isn't a small patch on top of the old API — it's a full rewrite around `C_TradeSkillUI`, keyed by `recipeID` (`GetAllRecipeIDs()`, `GetRecipeInfo(recipeID)`, `GetCategories()`/`GetCategoryInfo(id)`, `GetRecipeCooldown(recipeID)`), completely replacing the index-based `GetNumTradeSkills()`/`GetTradeSkillInfo(i)` loop that [`DataStoreProfessions.lua`](../AltArmy_TBC/Data/DataStore/DataStoreProfessions.lua) and `DataStore.lua`'s trade-skill scanning still use throughout. If Forever's engine has actually dropped those legacy globals (not just this one event), profession scanning would currently fail **silently** rather than crash — every call site is already guarded with `if GetNumTradeSkills and ... then`, so it just quietly does nothing instead of erroring.
+
+**Deliberately not implemented now** — a `C_TradeSkillUI`-based rewrite of profession scanning (mirroring `ScanRecipes_Retail`) is real, scoped work: new data shape (recipeID-keyed vs. index-keyed), new category/cooldown APIs, and it would need to coexist with the existing TBC-native path rather than replace it (TBC Classic itself is presumably still on the legacy API). Deferred until:
+1. `/altarmy debug apicheck` is run on Forever and the "Professions"/"Crafting" section of the snapshot confirms whether `GetNumTradeSkills`, `GetTradeSkillInfo`, `GetTradeSkillLine`, etc. are actually `missing` there (vs. just this one event) — that's the real go/no-go signal, not speculation.
+2. If they *are* missing, this becomes a tracked follow-up task: add `C_TradeSkillUI`-based scanning as an existence-checked alternate path (same "existence check over version check" house style as the rest of this doc), not a Forever-only branch.
+
+## Second crash, and the real fix: `C_EventUtils.IsEventValid` (2026-09-17)
+
+A second, near-identical crash followed within the hour:
+
+```
+Frame:RegisterEvent(): Attempt to register unknown event "CRAFT_SHOW"
+```
+
+`CRAFT_SHOW` is the old pre-Cata "Craft" UI event (used by Enchanting historically, alongside `GetCraftInfo`/`GetNumCrafts`). Same failure mode as `TRADE_SKILL_UPDATE`: unconditional `frame:RegisterEvent("CRAFT_SHOW")` at file scope in `DataStore.lua`, and the event doesn't exist on Forever's client.
+
+Rather than keep deleting one dead event at a time as each one surfaces in-game (whack-a-mole, and each occurrence is a hard crash for real players until fixed), we went back to Thaoky's `AddonFactory` — the framework underlying `DataStore_Crafts` — to see how it avoids this class of bug entirely. Its `addon:ListenToEvent()` ([`AddonFactory/Core/Addon.lua`](https://github.com/Thaoky/AddonFactory/blob/master/AddonFactory/Core/Addon.lua)) never calls `frame:RegisterEvent` unconditionally:
+
+```lua
+if not events[eventName] then
+    events[eventName] = {}
+    -- DataStore internal events are obviously not known by the game, so don't register them
+    if C_EventUtils.IsEventValid(eventName) then
+        frame:RegisterEvent(eventName)
+    end
+end
+```
+
+This is why Thaoky's retail `DataStore_Crafts_Retail.lua` can register `CRAFT_SHOW` and even `TRADE_SKILL_UPDATE` **unconditionally**, with no `isRetail` guard at all, at its `OnPlayerLogin` call site — `C_EventUtils.IsEventValid()` silently no-ops the registration for whichever events the running client doesn't recognize, instead of erroring. The `isRetail` branches we found earlier in that file are about *which scan function to run*, not about whether it's safe to register the event — event safety is handled once, generically, in the framework layer.
+
+**Fix applied:** added a `SafeRegisterEvent()` wrapper in [`DataStore.lua`](../AltArmy_TBC/Data/DataStore/DataStore.lua) (right above the event-registration block) and switched every `frame:RegisterEvent(...)` call there to go through it:
+
+```lua
+local function SafeRegisterEvent(eventName)
+    if C_EventUtils and C_EventUtils.IsEventValid and not C_EventUtils.IsEventValid(eventName) then
+        return
+    end
+    pcall(frame.RegisterEvent, frame, eventName)
+end
+```
+
+This checks existence the same "existence check over version check" way as the rest of this doc, and keeps the `pcall` as a second safety net (in case `C_EventUtils` itself doesn't exist on some client, or a genuinely unexpected event slips through). It replaces the old one-off `pcall(...)` block that had already been hand-added around `PLAYER_INTERACTION_MANAGER_FRAME_SHOW`/`_HIDE` for the same reason — that special case is now just two more calls through the same general helper. `C_EventUtils` is confirmed present on TBC Classic too: it's called unconditionally (no guard) inside `AddonFactory/Core/Addon.lua`, a single shared file Thaoky ships across every flavor from Vanilla through retail, so it isn't a retail-only API. `npm run check` passes (added `C_EventUtils` to the file's `luacheck: globals` line).
+
+**Scope of this fix:** applied only to `DataStore.lua`'s event-registration block, since that's where both crashes originated and it's the doc's already-identified highest-risk file (the `DataStore/` scan layer). Other files across the addon (`TabCooldowns.lua`, `TabGuild.lua`, `GearUpgradeAlerts.lua`, `DataStoreTalents.lua`, etc.) still call `frame:RegisterEvent` directly and unguarded — mostly for core events (`PLAYER_LOGIN`, `ADDON_LOADED`, `BAG_UPDATE`, `QUEST_COMPLETE`) that are very unlikely to be missing on any client, Forever included. If a third crash surfaces from one of those files, apply the same `SafeRegisterEvent` pattern there rather than a one-off deletion — this doc's fix should be the template going forward, not treated as DataStore.lua-specific.
+
+## `/altarmy debug apicheck` results on Forever (2026-09-17)
+
+Ran `/altarmy debug apicheck` in the live Forever beta client for the first time (interface `16001` confirmed in the snapshot header). Result: **57/94 ok, 37 missing, 0 fallback.** Full per-entry results are in `AltArmyTBC_Options.debug.apiCheckSnapshot` in that account's SavedVariables.
+
+Missing, by `ApiCheck.lua` area:
+
+| Area | Missing | Detail |
+|---|---|---|
+| Item Info | 7/7 (all) | `GetItemInfo`, `GetItemInfoInstant`, `GetItemStats`, `IsUsableItem`, `GetItemQualityColor`, `GetSpellInfo`, `GetSpellLink` |
+| Professions | 11/12 | `GetNumTradeSkills`, `GetTradeSkillInfo`, `GetTradeSkillLine`, `GetTradeSkillItemLink`, `GetTradeSkillRecipeLink`, `ExpandTradeSkillSubClass`, `GetTradeSkillNumReagents`, `GetTradeSkillReagentItemLink`, `GetTradeSkillReagentInfo`, `GetNumSkillLines`, `GetSkillLineInfo` (only `GetMacroInfo` survives) |
+| Crafting | 6/6 (all) | `GetCraftSkillLine`, `GetNumCrafts`, `GetCraftInfo`, `GetCraftRecipeLink`, `GetCraftNumReagents`, `GetCraftReagentInfo` |
+| Reputations | 4/4 (all) | `GetNumFactions`, `GetFactionInfo`, `GetFactionInfoByID`, `ExpandFactionHeader` |
+| Auctions | 3/3 (all) | `GetNumAuctionItems`, `GetAuctionItemInfo`, `GetAuctionItemLink` |
+| Talents | 2/2 (all) | `GetNumTalentTabs`, `GetTalentTabInfo` |
+| Guild | 1/6 | `GuildRoster` |
+| Unit Info | 1/14 | `CombatLogGetCurrentEventInfo` |
+| Quests | 1/3 | `SelectQuestLogEntry` |
+| Misc UI | 1/8 | `ChatFrame_OnHyperlinkClick` |
+
+Everything else — Bags/Containers (all `ok`, resolved via `C_Container`), Inventory/Equipment, Mail, Lockouts, and the rest of Guild/Addon Infra/Unit Info/Misc UI — came back `ok`.
+
+**This overturns, not just narrows, the "Classic Era-like" guess.** The legacy index-based scanning APIs for Professions, Crafting, Reputations, Auctions, and Talents aren't missing a handful of events (as the `TRADE_SKILL_UPDATE`/`CRAFT_SHOW` crashes suggested) — the entire old-style global surface for each of those domains is gone, wholesale, on Forever. Combined with `GetItemInfo`/`GetSpellInfo` also being absent, Forever's client looks like it dropped the pre-`C_*` globals the same way retail eventually did, not like Classic Era (which still has them). This is the "go" signal the doc's earlier "Deliberately not implemented now" section was waiting on.
+
+**Consequence for `DataStore/`:** per the existing guard convention (`if GetNumTradeSkills and ... then`), `DataStoreProfessions.lua` and the rest of `DataStore.lua`'s trade-skill/craft/reputation/auction/talent scanning are not crashing on Forever — they're silently no-ops there, same as predicted. A `C_*`-based alternate scan path (`C_TradeSkillUI`, faction/reputation's own `C_*` replacements, `C_AuctionHouse`, talent-spec APIs) is now a confirmed, scoped follow-up rather than speculative — still deferred, not implemented in this change.
+
+## Fix roadmap for the six missing-API areas (2026-09-17)
+
+Triaged the apicheck results above into a per-area plan, using Thaoky's `DataStore_*` addon suite ([github.com/Thaoky](https://github.com/Thaoky)) as reference — those addons already ship `C_*`-namespaced replacements for the same legacy globals, gated behind existence/`isRetail` checks.
+
+`GetItemQualityColor` needs no fix: it has no call site anywhere in the addon (only appears in `ApiCheck.lua`'s own manifest and `.luacheckrc`), so its "missing" status is inert.
+
+For the other five, one `MANIFEST` entry in `Data/ApiCheck.lua` already models a legacy/`C_*` pair as a single entry with multiple `candidates` (see the existing Bags/Containers rows) — the fix pattern below follows that same convention: add existence-checked `C_*` candidates, don't invent new areas/labels.
+
+| Area | Our call sites | Thaoky reference | Candidate `C_*` APIs | Complexity |
+|---|---|---|---|---|
+| Reputations | `Data/DataStore/DataStoreReputations.lua` (`ScanReputations`, `SaveFactionHeaders`) — already has one `C_*` fallback precedent (`TryFactionNameFromGameAPI` tries `C_Reputation.GetFactionDataByID`) | `DataStore_Reputations/DataStore_Reputations.lua` — single file, `API_*` existence-wrapped locals | `C_Reputation.GetNumFactions`, `ExpandFactionHeader`, `CollapseFactionHeader`, `GetFactionDataByIndex`, `GetFactionDataByID` | Low — clearest template, stored shape (`{s,e,b,t}` by factionID) unaffected |
+| Talents | `Data/DataStore/DataStoreTalents.lua` (`readTalentTabs`, `ScanTalents`) — already has a no-data fallback (`ResolveSpecKey` guesses a per-class leveling spec) | `DataStore_Talents/DataStore_Talents.lua` — **not a clean reference**: actively pushed (2026-08-16) but genuinely mid-rewrite, large sections commented out | `C_SpecializationInfo.GetTalentInfo` referenced but surrounding code disabled; needs direct in-game exploration of what talent API Forever actually exposes | Design question, not just an API swap — TBC's tab/point model may not map cleanly |
+| Item Info / Spell Info | Cross-cutting, ~20 files (`Data/Gear/ItemStats.lua`, `ItemUsability.lua`, `GearScore.lua`, `GearUpgrade*.lua`, `GearCompare.lua`, `DataStoreProfessions.lua`, `Data/Search/*`, `GuildTabData.lua`, several `Tabs/*`/`UI/*`) | No dedicated Thaoky module — same ad-hoc inline lookups we already use, seen in `DataStore_Containers.lua`/`DataStore_Spells.lua` | `C_Item.GetItemInfo`/`GetItemInfoInstant`/`GetItemStats`, `C_Spell.GetSpellName`/`GetSpellInfo`(table return)/`GetSpellLink` | Highest fan-out; mechanical once call shapes are confirmed — plan is a small number of shared compat helpers, not 20 inline patches |
+| Professions + Crafting | `Data/DataStore/DataStoreProfessions.lua` (`ScanProfessionLinks`, `ScanRecipes`, `ScanCraftRecipes`, reagent-capture helpers) — recipes already recipeID-keyed | `DataStore_Crafts/DataStore_Crafts_Retail.lua` — full rewrite, recipeID-native, already cited above in this doc | `C_TradeSkillUI.GetAllRecipeIDs`, `GetRecipeInfo`, `GetCategories`/`GetCategoryInfo`, `GetRecipeCooldown`, `GetBaseProfessionInfo` | Largest, but best-scouted — this doc already named the target APIs before this pass |
+| Auctions | `Data/DataStore/DataStoreAuctions.lua` (`ScanAuctions`, `ScanBids`) — synchronous index loop | `DataStore_Auctions/DataStore_Auctions.lua` — `isRetail = type(C_AuctionHouse) == "table"`, `API_*` wrappers | `C_AuctionHouse.GetNumOwnedAuctions`, `GetOwnedAuctionInfo`, `GetNumBids`, `GetBidInfo` | Highest structural risk — real retail's `C_AuctionHouse` is async (query + update events), not a drop-in sync replacement; likely the one area needing a `DATA_VERSIONS.md` bump |
+
+**Planned order:** Reputations → Talents → Item Info/Spell Info → Professions/Crafting → Auctions (roughly lowest-risk/clearest-template first, most invasive/lowest-traffic last). Each will be its own scoped follow-up: read the relevant Thaoky file in full (not just grep hits), add existence-checked `C_*` candidates to the matching `DataStore/` module and to `Data/ApiCheck.lua`'s `MANIFEST`, bump `Data/DATA_VERSIONS.md` only if the stored shape actually changes, and run `npm run check`.
+
+**Caution carried into that follow-up work:** Thaoky's actively-maintained retail `DataStore_Containers.lua` still calls the plain global `GetItemInfo` directly, unguarded — real retail hasn't dropped that global. Forever reporting it fully `missing` in apicheck may be a Forever-beta-specific quirk rather than proof retail's `C_Item` namespace is the only path forward; worth a direct `/dump GetItemInfo` / `/dump C_Item and C_Item.GetItemInfo` check in Forever itself before committing to the `C_Item` design, not just inferring it from Thaoky's retail code.
+
+Also checked `Altoholic_Forever` (a repo with that exact name under Thaoky's account) as a possible ready-made Forever reference — it's an empty scaffold (README + CI workflow only, created 2026-09-13), no source yet. Worth re-checking later, not usable now.
+
 ## Sources
 
 - [Multi-TOC for World of Warcraft Addons — CurseForge support](https://support.curseforge.com/support/solutions/articles/9000209856-multi-toc-for-world-of-warcraft-addons)
@@ -171,3 +292,13 @@ Wago's `WAGO_BC_PATCH`-equivalent field for Forever is still unresolved (no docu
 - [`Gethe/wow-ui-source`](https://github.com/Gethe/wow-ui-source) — mirror to watch for a Forever branch once the beta client exists
 - [AtlasLoot Classic Forever — CurseForge](https://www.curseforge.com/wow/addons/atlasloot-forever) (author: Sliccer; fork of AtlasLootClassic; no public source repo found)
 - [RPGLootFeed PR #617 — toc: add wow forever beta interface version 16001](https://github.com/McTalian-WoW-Addons/RPGLootFeed/pull/617) (merged 2026-09-17; actual source diff confirming Interface 16001)
+- [Thaoky/DataStore_Crafts — DataStore_Crafts_Retail.lua](https://github.com/Thaoky/DataStore_Crafts/blob/master/DataStore_Crafts/DataStore_Crafts_Retail.lua) — real source showing `TRADE_SKILL_UPDATE` gated `if not isRetail`, and the `C_TradeSkillUI`-based retail replacement scan
+- [Thaoky/DataStore_Crafts — DataStore_Crafts_NonRetail.lua](https://github.com/Thaoky/DataStore_Crafts/blob/master/DataStore_Crafts/DataStore_Crafts_NonRetail.lua) — the Classic-family (TBC/Wrath/Cata) counterpart, still index-based `GetNumTradeSkills`/`GetTradeSkillInfo`
+- [Thaoky/AddonFactory — Core/Addon.lua](https://github.com/Thaoky/AddonFactory/blob/master/AddonFactory/Core/Addon.lua) — `addon:ListenToEvent()`, the source of the `C_EventUtils.IsEventValid()` guard pattern all `DataStore_*` addons rely on
+- [C_EventUtils.IsEventValid — Warcraft Wiki](https://warcraft.wiki.gg/wiki/API_C_EventUtils.IsEventValid)
+- [Thaoky/DataStore_Reputations](https://github.com/Thaoky/DataStore_Reputations) — `isRetail`/`API_*`-wrapper pattern for `C_Reputation`, including the `IsMajorFaction`/`GetFactionParagonInfo` retail-only extras
+- [Thaoky/DataStore_Auctions](https://github.com/Thaoky/DataStore_Auctions) — `C_AuctionHouse.GetNumOwnedAuctions`/`GetOwnedAuctionInfo`/`GetNumBids`/`GetBidInfo`, gated on `type(C_AuctionHouse) == "table"`
+- [Thaoky/DataStore_Talents](https://github.com/Thaoky/DataStore_Talents) — mid-rewrite as of 2026-08-16; not a clean reference for the talent-API replacement yet
+- [Thaoky/DataStore_Spells](https://github.com/Thaoky/DataStore_Spells) — `C_Spell.GetSpellName`/`GetSpellInfo` existence-fallback pattern (`GetSpellInfo or C_Spell.GetSpellName`)
+- [Thaoky/DataStore_Containers](https://github.com/Thaoky/DataStore_Containers) — confirms real retail still calls the plain `GetItemInfo` global unguarded, the basis for this doc's "verify in Forever before trusting the `C_Item` port" caution
+- [Thaoky/Altoholic_Forever](https://github.com/Thaoky/Altoholic_Forever) — checked as a possible ready-made reference; empty scaffold only (README + CI workflow, created 2026-09-13)

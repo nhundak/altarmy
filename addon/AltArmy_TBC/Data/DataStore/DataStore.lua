@@ -2,6 +2,7 @@
 -- Persists character data to SavedVariables (AltArmyTBC_Data), shared across all characters on the account.
 -- Domain modules (DataStoreCharacter, DataStoreContainers, etc.) attach scans and getters to AltArmy.DataStore.
 -- TBC-compatible; no external DataStore dependency.
+-- luacheck: globals C_EventUtils
 
 if not AltArmy then return end
 
@@ -185,46 +186,55 @@ end
 
 -- Event frame and dispatch
 local frame = CreateFrame("Frame", nil, UIParent)
-frame:RegisterEvent("ADDON_LOADED")
-frame:RegisterEvent("VARIABLES_LOADED")
-frame:RegisterEvent("PLAYER_ALIVE")
-frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-frame:RegisterEvent("PLAYER_GUILD_UPDATE")
-frame:RegisterEvent("PLAYER_LOGOUT")
-frame:RegisterEvent("PLAYER_MONEY")
-frame:RegisterEvent("PLAYER_XP_UPDATE")
-frame:RegisterEvent("PLAYER_LEVEL_UP")
-frame:RegisterEvent("TIME_PLAYED_MSG")
-frame:RegisterEvent("BAG_UPDATE")
-frame:RegisterEvent("BANKFRAME_OPENED")
-frame:RegisterEvent("BANKFRAME_CLOSED")
-frame:RegisterEvent("PLAYERBANKSLOTS_CHANGED")
-frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
-frame:RegisterEvent("SKILL_LINES_CHANGED")
-frame:RegisterEvent("TRADE_SKILL_SHOW")
-frame:RegisterEvent("TRADE_SKILL_CLOSE")
-frame:RegisterEvent("TRADE_SKILL_UPDATE")
-frame:RegisterEvent("CRAFT_SHOW")
-frame:RegisterEvent("CHAT_MSG_SKILL")
-frame:RegisterEvent("CHAT_MSG_SYSTEM")
-frame:RegisterEvent("NEW_RECIPE_LEARNED")
-frame:RegisterEvent("UPDATE_FACTION")
-frame:RegisterEvent("MAIL_SHOW")
-frame:RegisterEvent("MAIL_INBOX_UPDATE")
-frame:RegisterEvent("MAIL_CLOSED")
+
+--- Registers an event only if the running client recognizes it (checked via
+--- C_EventUtils.IsEventValid when available, per Thaoky/AddonFactory's
+--- cross-flavor pattern), falling back to a pcall so an unrecognized event
+--- can never hard-error RegisterEvent on any client, old or new.
+local function SafeRegisterEvent(eventName)
+    if C_EventUtils and C_EventUtils.IsEventValid and not C_EventUtils.IsEventValid(eventName) then
+        return
+    end
+    pcall(frame.RegisterEvent, frame, eventName)
+end
+
+SafeRegisterEvent("ADDON_LOADED")
+SafeRegisterEvent("VARIABLES_LOADED")
+SafeRegisterEvent("PLAYER_ALIVE")
+SafeRegisterEvent("PLAYER_ENTERING_WORLD")
+SafeRegisterEvent("PLAYER_GUILD_UPDATE")
+SafeRegisterEvent("PLAYER_LOGOUT")
+SafeRegisterEvent("PLAYER_MONEY")
+SafeRegisterEvent("PLAYER_XP_UPDATE")
+SafeRegisterEvent("PLAYER_LEVEL_UP")
+SafeRegisterEvent("TIME_PLAYED_MSG")
+SafeRegisterEvent("BAG_UPDATE")
+SafeRegisterEvent("BANKFRAME_OPENED")
+SafeRegisterEvent("BANKFRAME_CLOSED")
+SafeRegisterEvent("PLAYERBANKSLOTS_CHANGED")
+SafeRegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+SafeRegisterEvent("SKILL_LINES_CHANGED")
+SafeRegisterEvent("TRADE_SKILL_SHOW")
+SafeRegisterEvent("TRADE_SKILL_CLOSE")
+SafeRegisterEvent("CRAFT_SHOW")
+SafeRegisterEvent("CHAT_MSG_SKILL")
+SafeRegisterEvent("CHAT_MSG_SYSTEM")
+SafeRegisterEvent("NEW_RECIPE_LEARNED")
+SafeRegisterEvent("UPDATE_FACTION")
+SafeRegisterEvent("MAIL_SHOW")
+SafeRegisterEvent("MAIL_INBOX_UPDATE")
+SafeRegisterEvent("MAIL_CLOSED")
 -- TBC Anniversary often does not fire MAIL_CLOSED; interaction-manager covers that client.
-pcall(function()
-    frame:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_SHOW")
-    frame:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
-end)
-frame:RegisterEvent("AUCTION_HOUSE_SHOW")
-frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
-frame:RegisterEvent("AUCTION_OWNED_LIST_UPDATE")
-frame:RegisterEvent("AUCTION_BIDDER_LIST_UPDATE")
-frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-frame:RegisterEvent("UPDATE_INSTANCE_INFO")
-frame:RegisterEvent("RAID_INSTANCE_WELCOME")
+SafeRegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_SHOW")
+SafeRegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
+SafeRegisterEvent("AUCTION_HOUSE_SHOW")
+SafeRegisterEvent("AUCTION_HOUSE_CLOSED")
+SafeRegisterEvent("AUCTION_OWNED_LIST_UPDATE")
+SafeRegisterEvent("AUCTION_BIDDER_LIST_UPDATE")
+SafeRegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+SafeRegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+SafeRegisterEvent("UPDATE_INSTANCE_INFO")
+SafeRegisterEvent("RAID_INSTANCE_WELCOME")
 
 local isMailOpen = false
 local isAuctionHouseOpen = false
@@ -561,12 +571,6 @@ frame:SetScript("OnEvent", function(_, event, ...)
                 end
             end)
         end
-        return
-    end
-    -- Do NOT run full recipe scan on TRADE_SKILL_UPDATE. Expand/Collapse in
-    -- RunDeferredRecipeScan triggers more UPDATE events and can cause an infinite loop/crash.
-    -- (DataStore_Crafts only runs full scan once after TRADE_SKILL_SHOW via a timer.)
-    if event == "TRADE_SKILL_UPDATE" then
         return
     end
     if event == "NEW_RECIPE_LEARNED" then
