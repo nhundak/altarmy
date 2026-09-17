@@ -135,7 +135,16 @@ Real-world precedent for this exact gap: another addon's CI currently ships Fore
 
 Found CurseForge's `gameVersionTypeId` for "WoW Forever": **`88568`** — read directly off AtlasLoot Classic Forever's CurseForge pages (project page, files listing, and a file detail page all agree). Added it to [`release.yml`](../.github/workflows/release.yml): `CURSEFORGE_GAME_VERSIONS: "16533,88568"`.
 
-**Caveat, still open:** `88568` was read from the *website's* filter/category ID (`gameVersionTypeId`), not confirmed against the legacy `wow.curseforge.com/api/projects/.../upload-file` API's own ID space that `gameVersions` actually uses in our upload call — our existing, working TBC value `16533` doesn't match this same site's "Classic TBC" category ID (`73246`), which suggests the website and the legacy upload API may use different ID namespaces. It's untested. The upload script already checks HTTP status and exits non-zero on rejection, so this is safe to try (a `workflow_dispatch` beta/alpha run, or the next real tag) — worst case it fails loudly and we know `88568` is wrong for this endpoint, nothing gets silently mistagged. If it fails, the fallback is `curl -H "X-Api-Token: $CURSEFORGE_API_TOKEN" https://wow.curseforge.com/api/game/versions` (using the real secret, which only the repo owner has) to get the ID confirmed straight from the API we actually call.
+**Result: wrong ID space, deploy failed.** `88568` is CurseForge's **game version *type* ID** (the flavor/category — website filter dropdowns use this), not the **game version ID** the upload API's `gameVersions` field actually wants. CurseForge's own API docs confirm the split: `GET /api/game/versions` returns `{ id, gameVersionTypeID, name, slug }` objects, and `gameVersions` in the upload metadata takes `id` (a specific patch, e.g. our working `16533` = the specific version "2.5.6"), not `gameVersionTypeID` (e.g. `88568` = the "WoW Forever" category as a whole, covering every Forever patch). Deploying with `88568` in `gameVersions` failed: `HTTP 400 {"errorCode":1007,"errorMessage":"Invalid game version ID: 88568 does not exist."}`. Reverted `release.yml` to `CURSEFORGE_GAME_VERSIONS: "16533"` (TBC only) to unblock deploys.
+
+**Still needed:** the specific version `id` for "1.60.1" under `gameVersionTypeID` 88568. Not discoverable by scraping the website (only the type ID is exposed there) — requires the authenticated endpoint, which only the repo owner can call:
+
+```bash
+curl -s "https://wow.curseforge.com/api/game/versions" -H "X-Api-Token: $CURSEFORGE_API_TOKEN" \
+  | jq '.[] | select(.gameVersionTypeID == 88568)'
+```
+
+Once known, add it to `CURSEFORGE_GAME_VERSIONS` alongside `16533` (comma-separated, per `release.yml`'s existing parsing).
 
 Wago's `WAGO_BC_PATCH`-equivalent field for Forever is still unresolved (no documented field name) — not addressed by this change.
 

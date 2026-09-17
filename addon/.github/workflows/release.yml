@@ -1,8 +1,8 @@
 # CurseForge + Wago Release — build addon zip and upload via API
 # Requires: CURSEFORGE_API_TOKEN, WAGO_API_TOKEN (secrets)
 # Requires: CURSEFORGE_PROJECT_ID, CURSEFORGE_DISPLAY_NAME (vars)
-# CURSEFORGE_GAME_VERSIONS: CurseForge game version IDs for TBC Classic 2.5.6 (Interface 20506) and WoW Forever 1.60.1 (Interface 16001)
-# WoW Forever ID (88568) is unconfirmed for this API — see docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md
+# CURSEFORGE_GAME_VERSIONS: CurseForge game version IDs (the specific-version "id", not "gameVersionTypeID") for TBC Classic 2.5.6 (Interface 20506)
+# WoW Forever 1.60.1 support is pending — its game version ID is not yet known; see docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md
 # Wago project ID is read from ## X-Wago-ID in the TOC
 
 name: CurseForge Release
@@ -24,7 +24,7 @@ on:
 
 env:
   CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
-  CURSEFORGE_GAME_VERSIONS: "16533,88568"
+  CURSEFORGE_GAME_VERSIONS: "16533"
   WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
   WAGO_BC_PATCH: "2.5.6"
 
@@ -34,6 +34,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # TEMPORARY diagnostic step — find the CurseForge game version "id" for WoW Forever (1.60.1)
+      # under gameVersionTypeID 88568, then bails out on purpose so this run doesn't fall through
+      # to a real CurseForge/Wago upload. Remove once the id is found and wired into
+      # CURSEFORGE_GAME_VERSIONS below. See docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md
+      - name: DEBUG - look up CurseForge WoW Forever game version id
+        run: |
+          echo "Querying https://wow.curseforge.com/api/game/versions for gameVersionTypeID 88568 (WoW Forever)..."
+          curl -s "https://wow.curseforge.com/api/game/versions" \
+            -H "X-Api-Token: ${{ secrets.CURSEFORGE_API_TOKEN }}" \
+            -o /tmp/cf_versions.json
+          echo "--- Matching entries (gameVersionTypeID == 88568) ---"
+          jq '[.[] | select(.gameVersionTypeID == 88568)]' /tmp/cf_versions.json
+          echo "--- Matching entries (name contains 1.60) ---"
+          jq '[.[] | select(.name | test("1\\.60"))]' /tmp/cf_versions.json
+          echo "Stopping here on purpose (diagnostic-only run) — see output above, then remove this step."
+          exit 1
 
       - name: Extract version
         id: version
