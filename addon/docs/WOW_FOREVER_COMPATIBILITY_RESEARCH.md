@@ -131,7 +131,13 @@ We also reviewed AtlasLoot Classic Forever (CurseForge, author Sliccer) — a fo
 
 Real-world precedent for this exact gap: another addon's CI currently ships Forever support only as a beta **pre-release tag that intentionally skips the CurseForge/Wago publish step** (the `.toc` gets the interface number, but the store-upload job isn't triggered), specifically because this store-side flavor plumbing isn't there yet.
 
-**Decision: leave `release.yml` untouched for now.** Guessing a `CURSEFORGE_GAME_VERSIONS` ID or inventing a Wago field name risks mistagging the release or an outright rejected upload. When ready to revisit: `curl -H "X-Api-Token: $CURSEFORGE_API_TOKEN" https://wow.curseforge.com/api/game/versions` (using the real secret, which only the repo owner has) would return the authoritative Forever game-version ID.
+**Update (2026-09-17, after first Forever-`.toc` deploy):** the deploy went out with only the `.toc` Interface change — CurseForge's page still showed flavor "Classic TBC" only, game version "2.5.6" only, confirming the store-side ID was in fact still missing.
+
+Found CurseForge's `gameVersionTypeId` for "WoW Forever": **`88568`** — read directly off AtlasLoot Classic Forever's CurseForge pages (project page, files listing, and a file detail page all agree). Added it to [`release.yml`](../.github/workflows/release.yml): `CURSEFORGE_GAME_VERSIONS: "16533,88568"`.
+
+**Caveat, still open:** `88568` was read from the *website's* filter/category ID (`gameVersionTypeId`), not confirmed against the legacy `wow.curseforge.com/api/projects/.../upload-file` API's own ID space that `gameVersions` actually uses in our upload call — our existing, working TBC value `16533` doesn't match this same site's "Classic TBC" category ID (`73246`), which suggests the website and the legacy upload API may use different ID namespaces. It's untested. The upload script already checks HTTP status and exits non-zero on rejection, so this is safe to try (a `workflow_dispatch` beta/alpha run, or the next real tag) — worst case it fails loudly and we know `88568` is wrong for this endpoint, nothing gets silently mistagged. If it fails, the fallback is `curl -H "X-Api-Token: $CURSEFORGE_API_TOKEN" https://wow.curseforge.com/api/game/versions` (using the real secret, which only the repo owner has) to get the ID confirmed straight from the API we actually call.
+
+Wago's `WAGO_BC_PATCH`-equivalent field for Forever is still unresolved (no documented field name) — not addressed by this change.
 
 ## Sources
 
