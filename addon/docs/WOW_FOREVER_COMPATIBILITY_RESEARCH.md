@@ -105,6 +105,34 @@ None of this changes the recommendation below — if anything it reinforces star
 
 **Implemented (2026-09-15): level cap.** Separately from the API-surface question above, Forever's 1–60 leveling range (vs. TBC's 70 cap) needed its own fix. `AltArmy.DataStore.MAX_LEVEL` (`AltArmy_TBC/Data/DataStore/DataStore.lua`) now reads `GetMaxPlayerLevel()` when the client exposes it, falling back to the hardcoded `70` when it doesn't — the same existence-check convention as everything else in this doc, so it needs no Forever-specific branch and degrades to today's TBC behavior if Forever's client doesn't expose that API. `AC.MANIFEST` in `ApiCheck.lua` now tracks `GetMaxPlayerLevel` too, so `/altarmy debug apicheck` will report whether it's actually present once beta is in hand. The wand-leveling gear-scale cutoff in `Data/Gear/PawnScales.lua` (previously hardcoded to `69`, "one below TBC's cap") was also switched to derive from `MAX_LEVEL - 1` so it clears at the right level regardless of which cap is active. Whether `GetMaxPlayerLevel()` exists on Forever's client, and what it returns, is still unverified pre-beta — same caveat as the rest of this document.
 
+## Confirmed: Interface number (2026-09-17, beta day)
+
+Forever's `## Interface` number is confirmed as **`16001`**, derived from its build version `1.60.1` via Blizzard's standard `%d%02d%02d` interface-numbering convention. This matches the speculative 16000/16001 guess logged above (from the `danielcosta42/guildos` issue) — it turned out correct.
+
+Ground truth: [RPGLootFeed PR #617](https://github.com/McTalian-WoW-Addons/RPGLootFeed/pull/617), a real addon's public GitHub history, merged 2026-09-17. The entire change was a one-line `.toc` edit adding `16001` to the existing comma-delimited `## Interface:` list — no new `.toc` file, no flavor suffix, no source/logic changes:
+
+```diff
+-## Interface: 11509, 20506, 50504, 120100, 120105
++## Interface: 11509, 16001, 20506, 50504, 120100, 120105
+```
+
+The PR description notes "no per-flavor TOC splitting is involved" — confirms section 1's comma-delimited-interface mechanism (Patch 10.2.7+) is the pattern real addons are using for Forever, not a new `_Forever.toc`.
+
+We also reviewed AtlasLoot Classic Forever (CurseForge, author Sliccer) — a fork of AtlasLootClassic, flavor-tagged **"WoW Forever"**, game version **1.60.1** on CurseForge. No public source repo link was found for it, so we couldn't diff its `.toc` directly; the RPGLootFeed PR above is the actual source evidence. CurseForge's packaged filename for it embeds `11601` (a packager-internal build tag distinct from the Interface number — don't confuse the two).
+
+**Implemented (2026-09-17):** added `16001` to [`AltArmy_TBC.toc`](../AltArmy_TBC/AltArmy_TBC.toc) (`## Interface: 20506, 16001`), so the client will load the addon on Forever. This only affects load-eligibility — it does **not** confirm `DataStore/` scanning or any other behavior actually works correctly on Forever. Step 1 of the recommendation below (confirm the API surface in-game, ideally via `/altarmy debug apicheck`) is still outstanding and should happen once Forever beta access is in hand.
+
+## Deployment pipeline (2026-09-17): not yet updated, on purpose
+
+[.github/workflows/release.yml](../.github/workflows/release.yml) has two flavor-specific values *separate* from the `.toc` Interface number, both owned by the store platforms rather than derived from our own files:
+
+- `CURSEFORGE_GAME_VERSIONS: "16533"` — a CurseForge-internal numeric game-version-catalog ID for "TBC Classic 2.5.6", not the WoW Interface number. CurseForge has assigned *some* ID for Forever — AtlasLoot Classic Forever is already live on CurseForge tagged flavor "WoW Forever" / version 1.60.1 — but that ID isn't published anywhere we could find (not in CurseForge's multi-TOC support article, not in the public `curseforge-v2` API library), only visible via an authenticated `GET /api/game/versions` call or the web uploader's dropdown.
+- `WAGO_BC_PATCH: "2.5.6"` — Wago's upload metadata only documents `supported_retail_patch`, `supported_wotlk_patch`, `supported_bc_patch`, `supported_classic_patch` fields; no Forever-equivalent field exists yet per their current docs.
+
+Real-world precedent for this exact gap: another addon's CI currently ships Forever support only as a beta **pre-release tag that intentionally skips the CurseForge/Wago publish step** (the `.toc` gets the interface number, but the store-upload job isn't triggered), specifically because this store-side flavor plumbing isn't there yet.
+
+**Decision: leave `release.yml` untouched for now.** Guessing a `CURSEFORGE_GAME_VERSIONS` ID or inventing a Wago field name risks mistagging the release or an outright rejected upload. When ready to revisit: `curl -H "X-Api-Token: $CURSEFORGE_API_TOKEN" https://wow.curseforge.com/api/game/versions` (using the real secret, which only the repo owner has) would return the authoritative Forever game-version ID.
+
 ## Sources
 
 - [Multi-TOC for World of Warcraft Addons — CurseForge support](https://support.curseforge.com/support/solutions/articles/9000209856-multi-toc-for-world-of-warcraft-addons)
@@ -121,3 +149,5 @@ None of this changes the recommendation below — if anything it reinforces star
 - [Beta build: one package that loads on Forever, outside the stores — danielcosta42/guildos#11](https://github.com/danielcosta42/guildos/issues/11) (unofficial interface-number guess: 16000/16001, unconfirmed)
 - [Track WoW: Forever (Classic+) beta + Nov 4 launch — addon port assessment — nazumods/wow#942](https://github.com/nazumods/wow/issues/942)
 - [`Gethe/wow-ui-source`](https://github.com/Gethe/wow-ui-source) — mirror to watch for a Forever branch once the beta client exists
+- [AtlasLoot Classic Forever — CurseForge](https://www.curseforge.com/wow/addons/atlasloot-forever) (author: Sliccer; fork of AtlasLootClassic; no public source repo found)
+- [RPGLootFeed PR #617 — toc: add wow forever beta interface version 16001](https://github.com/McTalian-WoW-Addons/RPGLootFeed/pull/617) (merged 2026-09-17; actual source diff confirming Interface 16001)

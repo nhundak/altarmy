@@ -1,4 +1,4 @@
-## Interface: 20506
+## Interface: 20506, 16001
 ## Title: AltArmy
 ## Notes: Alt management: character summary, gear and reputation grids, per-character containers, cross-character item search. TBC Classic.
 ## Version: 1.11.5
