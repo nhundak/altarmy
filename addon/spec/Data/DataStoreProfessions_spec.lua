@@ -357,6 +357,156 @@ describe("DataStoreProfessions", function()
     end)
   end)
 
+  describe("HasTradeSkillRecipesApi", function()
+    local oldGetNumTradeSkills, oldGetTradeSkillLine, oldCTradeSkillUI
+
+    before_each(function()
+      oldGetNumTradeSkills, oldGetTradeSkillLine = _G.GetNumTradeSkills, _G.GetTradeSkillLine
+      oldCTradeSkillUI = _G.C_TradeSkillUI
+      _G.C_TradeSkillUI = nil
+    end)
+
+    after_each(function()
+      _G.GetNumTradeSkills, _G.GetTradeSkillLine = oldGetNumTradeSkills, oldGetTradeSkillLine
+      _G.C_TradeSkillUI = oldCTradeSkillUI
+    end)
+
+    it("returns true when both GetNumTradeSkills and GetTradeSkillLine exist", function()
+      _G.GetNumTradeSkills = function() return 0 end
+      _G.GetTradeSkillLine = function() end
+      assert.is_true(DS.HasTradeSkillRecipesApi())
+    end)
+
+    it("returns false when neither the legacy nor C_TradeSkillUI API is available", function()
+      _G.GetNumTradeSkills = nil
+      _G.GetTradeSkillLine = nil
+      assert.is_false(DS.HasTradeSkillRecipesApi())
+    end)
+
+    it("returns true via the C_TradeSkillUI fallback when the legacy pair is missing", function()
+      _G.GetNumTradeSkills = nil
+      _G.GetTradeSkillLine = nil
+      _G.C_TradeSkillUI = {
+        GetAllRecipeIDs = function() return {} end,
+        GetBaseProfessionInfo = function() end,
+        GetRecipeInfo = function() end,
+      }
+      assert.is_true(DS.HasTradeSkillRecipesApi())
+    end)
+  end)
+
+  describe("ScanRecipes (C_TradeSkillUI fallback)", function()
+    local scheduleCount
+    local oldGetNumTradeSkills, oldGetTradeSkillLine
+
+    before_each(function()
+      scheduleCount = 0
+      AltArmy.GuildShareComm = {
+        ScheduleBroadcast = function()
+          scheduleCount = scheduleCount + 1
+        end,
+      }
+      _G.AltArmyTBC_Data = { Characters = {} }
+      DS.accountData = _G.AltArmyTBC_Data
+      _G.UnitName = function() return "TestPlayer" end
+      _G.GetRealmName = function() return "TestRealm" end
+      _G.time = function() return 0 end
+      oldGetNumTradeSkills, oldGetTradeSkillLine = _G.GetNumTradeSkills, _G.GetTradeSkillLine
+      _G.GetNumTradeSkills, _G.GetTradeSkillLine = nil, nil
+    end)
+
+    after_each(function()
+      AltArmy.GuildShareComm = nil
+      _G.GetNumTradeSkills, _G.GetTradeSkillLine = oldGetNumTradeSkills, oldGetTradeSkillLine
+      _G.C_TradeSkillUI = nil
+    end)
+
+    local function mockTradeSkillUI(opts)
+      opts = opts or {}
+      _G.C_TradeSkillUI = {
+        GetBaseProfessionInfo = function()
+          return {
+            professionName = opts.professionName or "Leatherworking",
+            skillLevel = opts.skillLevel or 300,
+            maxSkillLevel = opts.maxSkillLevel or 375,
+          }
+        end,
+        GetAllRecipeIDs = function()
+          return opts.recipeIDs or {}
+        end,
+        GetRecipeInfo = function(recipeID)
+          return opts.recipes and opts.recipes[recipeID]
+        end,
+        GetRecipeOutputItemData = opts.noOutputApi and nil or function(recipeID)
+          local outputs = opts.outputs or {}
+          return outputs[recipeID]
+        end,
+      }
+    end
+
+    it("populates only learned recipes, mapping relativeDifficulty to our color scale", function()
+      mockTradeSkillUI({
+        recipeIDs = { 100, 200 },
+        recipes = {
+          [100] = { recipeID = 100, categoryID = 1, name = "Learned Recipe", learned = true, relativeDifficulty = 0 },
+          [200] = { recipeID = 200, categoryID = 1, name = "Unlearned Recipe", learned = false, relativeDifficulty = 3 },
+        },
+        outputs = {
+          [100] = { icon = 1, itemID = 5555, hyperlink = "item:5555" },
+        },
+      })
+      DS:ScanRecipes()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.is_not_nil(char.Professions.Leatherworking.Recipes[100])
+      assert.are.equal(1, char.Professions.Leatherworking.Recipes[100].color)
+      assert.are.equal(5555, char.Professions.Leatherworking.Recipes[100].resultItemID)
+      assert.is_nil(char.Professions.Leatherworking.Recipes[200])
+    end)
+
+    it("updates profession rank from GetBaseProfessionInfo", function()
+      mockTradeSkillUI({ professionName = "Cooking", skillLevel = 150, maxSkillLevel = 375, recipeIDs = {} })
+      DS:ScanRecipes()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.are.equal(150, char.Professions.Cooking.rank)
+      assert.are.equal(375, char.Professions.Cooking.maxRank)
+    end)
+
+    it("leaves resultItemID nil when GetRecipeOutputItemData is unavailable", function()
+      mockTradeSkillUI({
+        noOutputApi = true,
+        recipeIDs = { 100 },
+        recipes = {
+          [100] = { recipeID = 100, categoryID = 1, name = "Learned Recipe", learned = true, relativeDifficulty = 1 },
+        },
+      })
+      DS:ScanRecipes()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.are.equal(2, char.Professions.Leatherworking.Recipes[100].color)
+      assert.is_nil(char.Professions.Leatherworking.Recipes[100].resultItemID)
+    end)
+
+    it("marks dataVersions.professions as gathered and schedules a guild-share broadcast", function()
+      mockTradeSkillUI({
+        recipeIDs = { 100 },
+        recipes = {
+          [100] = { recipeID = 100, categoryID = 1, name = "Learned Recipe", learned = true, relativeDifficulty = 2 },
+        },
+      })
+      DS:ScanRecipes()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.is_true((char.dataVersions.professions or 0) > 0)
+      assert.are.equal(1, scheduleCount)
+    end)
+
+    it("does not mark professions as scanned when no recipe IDs are returned yet", function()
+      mockTradeSkillUI({ recipeIDs = {} })
+      DS:ScanRecipes()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.is_true(not char.dataVersions or not char.dataVersions.professions)
+      assert.are.equal(0, scheduleCount)
+    end)
+  end)
+
   describe("IsRecipeKnownAnyProfession", function()
     it("returns false when spell missing", function()
       local char = { Professions = { Mining = { Recipes = { [1] = {} } } } }
@@ -584,6 +734,41 @@ describe("DataStoreProfessions", function()
     end)
   end)
 
+  describe("HasProfessionsListApi", function()
+    local oldGetNumSkillLines, oldGetSkillLineInfo, oldGetProfessions, oldGetProfessionInfo
+
+    before_each(function()
+      oldGetNumSkillLines, oldGetSkillLineInfo = _G.GetNumSkillLines, _G.GetSkillLineInfo
+      oldGetProfessions, oldGetProfessionInfo = _G.GetProfessions, _G.GetProfessionInfo
+      _G.GetProfessions, _G.GetProfessionInfo = nil, nil
+    end)
+
+    after_each(function()
+      _G.GetNumSkillLines, _G.GetSkillLineInfo = oldGetNumSkillLines, oldGetSkillLineInfo
+      _G.GetProfessions, _G.GetProfessionInfo = oldGetProfessions, oldGetProfessionInfo
+    end)
+
+    it("returns true when both GetNumSkillLines and GetSkillLineInfo exist", function()
+      _G.GetNumSkillLines = function() return 0 end
+      _G.GetSkillLineInfo = function() return nil end
+      assert.is_true(DS.HasProfessionsListApi())
+    end)
+
+    it("returns false when neither the legacy nor fallback API is available (e.g. WoW Forever, unconfirmed)", function()
+      _G.GetNumSkillLines = nil
+      _G.GetSkillLineInfo = nil
+      assert.is_false(DS.HasProfessionsListApi())
+    end)
+
+    it("returns true via the GetProfessions/GetProfessionInfo fallback when the legacy pair is missing", function()
+      _G.GetNumSkillLines = nil
+      _G.GetSkillLineInfo = nil
+      _G.GetProfessions = function() return nil end
+      _G.GetProfessionInfo = function() return nil end
+      assert.is_true(DS.HasProfessionsListApi())
+    end)
+  end)
+
   describe("ScanProfessionLinks", function()
     local scheduleCount
 
@@ -706,6 +891,131 @@ describe("DataStoreProfessions", function()
       DS:ScanProfessionLinks()
       local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
       assert.is_not_nil(char.Professions.Alchemy)
+    end)
+  end)
+
+  describe("ScanProfessionLinks (GetProfessions/GetProfessionInfo fallback)", function()
+    local scheduleCount
+    local oldGetNumSkillLines, oldGetSkillLineInfo
+
+    local function mockPlayer(name, realm)
+      _G.UnitName = function()
+        return name
+      end
+      _G.GetRealmName = function()
+        return realm
+      end
+      _G.time = function()
+        return 0
+      end
+    end
+
+    -- slots keyed by 1=prof1, 2=prof2, 3=fishing, 4=cooking, 5=firstAid; index maps to slots key.
+    local function mockGetProfessions(slots)
+      local nextIndex = 1
+      local indexToInfo = {}
+      local function assignIndex(slot)
+        if not slots[slot] then return nil end
+        local idx = nextIndex
+        nextIndex = nextIndex + 1
+        indexToInfo[idx] = slots[slot]
+        return idx
+      end
+      local prof1Index = assignIndex(1)
+      local prof2Index = assignIndex(2)
+      local archIndex = assignIndex("arch")
+      local fishIndex = assignIndex(3)
+      local cookIndex = assignIndex(4)
+      local firstAidIndex = assignIndex(5)
+      _G.GetProfessions = function()
+        return prof1Index, prof2Index, archIndex, fishIndex, cookIndex, firstAidIndex
+      end
+      _G.GetProfessionInfo = function(index)
+        local info = indexToInfo[index]
+        if not info then return nil end
+        return info.name, nil, info.rank, info.maxRank
+      end
+    end
+
+    before_each(function()
+      scheduleCount = 0
+      AltArmy.GuildShareComm = {
+        PROFESSION_BROADCAST_DEBOUNCE_SEC = 30,
+        ScheduleBroadcast = function()
+          scheduleCount = scheduleCount + 1
+        end,
+      }
+      _G.AltArmyTBC_Data = { Characters = {} }
+      DS.accountData = _G.AltArmyTBC_Data
+      mockPlayer("TestPlayer", "TestRealm")
+      oldGetNumSkillLines, oldGetSkillLineInfo = _G.GetNumSkillLines, _G.GetSkillLineInfo
+      _G.GetNumSkillLines, _G.GetSkillLineInfo = nil, nil
+    end)
+
+    after_each(function()
+      AltArmy.GuildShareComm = nil
+      _G.GetNumSkillLines, _G.GetSkillLineInfo = oldGetNumSkillLines, oldGetSkillLineInfo
+      _G.GetProfessions, _G.GetProfessionInfo = nil, nil
+    end)
+
+    it("populates primary professions (including gathering) via GetProfessions/GetProfessionInfo", function()
+      mockGetProfessions({
+        [1] = { name = "Mining", rank = 300, maxRank = 375 },
+        [2] = { name = "Tailoring", rank = 350, maxRank = 375 },
+      })
+      DS:ScanProfessionLinks()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.are.equal("Mining", char.Prof1)
+      assert.are.equal("Tailoring", char.Prof2)
+      assert.are.equal(300, char.Professions.Mining.rank)
+      assert.are.equal(375, char.Professions.Mining.maxRank)
+      assert.is_true(char.Professions.Mining.isPrimary)
+      assert.are.equal(350, char.Professions.Tailoring.rank)
+      assert.is_true(char.Professions.Tailoring.isPrimary)
+    end)
+
+    it("populates secondary professions (cooking/fishing) as isSecondary", function()
+      mockGetProfessions({
+        [3] = { name = "Fishing", rank = 100, maxRank = 375 },
+        [4] = { name = "Cooking", rank = 150, maxRank = 375 },
+      })
+      DS:ScanProfessionLinks()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.is_true(char.Professions.Fishing.isSecondary)
+      assert.is_nil(char.Professions.Fishing.isPrimary)
+      assert.are.equal(100, char.Professions.Fishing.rank)
+      assert.is_true(char.Professions.Cooking.isSecondary)
+      assert.are.equal(150, char.Professions.Cooking.rank)
+    end)
+
+    it("marks dataVersions.professions as gathered even though no window was ever opened", function()
+      mockGetProfessions({ [1] = { name = "Alchemy", rank = 1, maxRank = 75 } })
+      DS:ScanProfessionLinks()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.is_true((char.dataVersions.professions or 0) > 0)
+    end)
+
+    it("removes professions whose slot no longer reports an index (dropped profession)", function()
+      _G.AltArmyTBC_Data.Characters.TestRealm = {
+        TestPlayer = {
+          Prof1 = "Tailoring",
+          Professions = {
+            Tailoring = { rank = 375, maxRank = 375, Recipes = { [1] = { color = 1 } } },
+          },
+        },
+      }
+      mockGetProfessions({ [1] = { name = "Alchemy", rank = 1, maxRank = 75 } })
+      DS:ScanProfessionLinks()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.is_nil(char.Professions.Tailoring)
+      assert.is_not_nil(char.Professions.Alchemy)
+      assert.are.equal("Alchemy", char.Prof1)
+    end)
+
+    it("schedules a guild-share broadcast when profession presence changes", function()
+      mockGetProfessions({ [1] = { name = "Alchemy", rank = 1, maxRank = 75 } })
+      DS:ScanProfessionLinks()
+      assert.are.equal(1, scheduleCount)
     end)
   end)
 

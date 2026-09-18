@@ -653,13 +653,49 @@ local function PruneDroppedProfessions(char, currentNames, skillLinesReady)
 end
 DS._PruneDroppedProfessionsForTest = PruneDroppedProfessions
 
-function DS:ScanProfessionLinks()
-    local char = GetCurrentCharTable()
-    if not char then return end
-    if not GetNumSkillLines or not GetSkillLineInfo then return end
-    char.Professions = char.Professions or {}
-    char.Prof1 = nil
-    char.Prof2 = nil
+--- True when either profession-presence API is available: the legacy skill-line-list pair
+--- (GetNumSkillLines/GetSkillLineInfo) or the GetProfessions/GetProfessionInfo pair it falls back
+--- to (stable since Patch 4.0.1; confirmed present on BC Anniversary/MoP Classic/mainline — see
+--- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md). Clients missing both (unconfirmed whether WoW
+--- Forever is one) can never populate char.Professions at all, so callers use this to avoid
+--- telling the player to open a window that cannot possibly gather the data.
+function DS.HasProfessionsListApi()
+    return (GetNumSkillLines ~= nil and GetSkillLineInfo ~= nil)
+        or (GetProfessions ~= nil and GetProfessionInfo ~= nil)
+end
+
+--- Applies one scanned skill-line row (name/rank/maxRank + primary/secondary) to char.Professions.
+--- Shared by both the legacy (GetSkillLineInfo) and fallback (GetProfessionInfo) scan loops so the
+--- presence/rank-change bookkeeping (currentNames, "did anything change") only exists once.
+--- Returns the (possibly normalized) name and whether presence/rank changed.
+local function CollectProfessionEntry(char, currentNames, skillName, rank, maxRank, isPrimary, isSecondary)
+    if skillName == "Secourisme" and HasSpellInfoApi() then
+        skillName = DS.CompatGetSpellInfo(SPELL_ID_FIRSTAID) or skillName
+    end
+    skillName = NormalizeProfessionName(skillName)
+    currentNames[skillName] = true
+    local prof = char.Professions[skillName]
+    local newRank = rank or 0
+    local newMaxRank = maxRank or 0
+    local changed = false
+    if not prof then
+        prof = { rank = 0, maxRank = 0, Recipes = {} }
+        char.Professions[skillName] = prof
+        changed = true
+    elseif (prof.rank or 0) ~= newRank or (prof.maxRank or 0) ~= newMaxRank then
+        changed = true
+    end
+    prof.rank = newRank
+    prof.maxRank = newMaxRank
+    if isPrimary then prof.isPrimary = true end
+    if isSecondary then prof.isSecondary = true end
+    return skillName, changed
+end
+
+--- Legacy scan: enumerate every skill line via GetNumSkillLines/GetSkillLineInfo.
+local function ScanProfessionLinksLegacy(char, currentNames)
+    local presenceChanged = false
+    local skillLinesReady = false
     for i = GetNumSkillLines(), 1, -1 do
         local _, isHeader, isExpanded = GetSkillLineInfo(i)
         if isHeader and not isExpanded and ExpandSkillHeader then
@@ -667,9 +703,6 @@ function DS:ScanProfessionLinks()
         end
     end
     local category
-    local currentNames = {}
-    local skillLinesReady = false
-    local presenceChanged = false
     for i = 1, GetNumSkillLines() do
         local skillName, isHeader, _, rank, _, _, maxRank = GetSkillLineInfo(i)
         if not skillName then break end
@@ -683,33 +716,68 @@ function DS:ScanProfessionLinks()
                 local isPrimary = (category == "Professions")
                 local isSecondary = (category == "Secondary Skills")
                 if isPrimary or isSecondary then
-                    if skillName == "Secourisme" and HasSpellInfoApi() then
-                        skillName = DS.CompatGetSpellInfo(SPELL_ID_FIRSTAID) or skillName
-                    end
-                    skillName = NormalizeProfessionName(skillName)
-                    currentNames[skillName] = true
-                    local prof = char.Professions[skillName]
-                    local newRank = rank or 0
-                    local newMaxRank = maxRank or 0
-                    if not prof then
-                        prof = { rank = 0, maxRank = 0, Recipes = {} }
-                        char.Professions[skillName] = prof
-                        presenceChanged = true
-                    elseif (prof.rank or 0) ~= newRank or (prof.maxRank or 0) ~= newMaxRank then
-                        presenceChanged = true
-                    end
-                    prof.rank = newRank
-                    prof.maxRank = newMaxRank
-                    if isPrimary then prof.isPrimary = true end
-                    if isSecondary then prof.isSecondary = true end
+                    local name, changed = CollectProfessionEntry(
+                        char, currentNames, skillName, rank, maxRank, isPrimary, isSecondary)
+                    if changed then presenceChanged = true end
                     if isPrimary then
-                        if not char.Prof1 then char.Prof1 = skillName
-                        else char.Prof2 = skillName end
+                        if not char.Prof1 then char.Prof1 = name
+                        else char.Prof2 = name end
                     end
                 end
             end
         end
     end
+    return presenceChanged, skillLinesReady
+end
+
+--- Applies one GetProfessions() slot index (nil = not learned) via GetProfessionInfo.
+--- Returns (name, changed) — same order as CollectProfessionEntry — or (nil, false) when the
+--- slot is empty/unresolvable.
+local function ApplyProfessionSlot(char, currentNames, index, isPrimary, isSecondary)
+    if not index then return nil, false end
+    local name, _, rank, maxRank = GetProfessionInfo(index)
+    if not name or name == "" then return nil, false end
+    return CollectProfessionEntry(char, currentNames, name, rank, maxRank, isPrimary, isSecondary)
+end
+
+--- Fallback scan for clients missing GetNumSkillLines/GetSkillLineInfo (e.g. WoW Forever — see
+--- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md, "Seventh"). GetProfessions() returns spell-tab
+--- indices (nil when not learned) for the primary/secondary profession slots; GetProfessionInfo
+--- resolves each to name/rank/maxRank. Unlike the legacy loop this needs no window open first —
+--- it's a direct query, not a UI-panel snapshot. Archaeology is skipped: not present in TBC/Forever
+--- content. First Aid's inclusion as GetProfessions()'s 6th return is unconfirmed on Forever
+--- (real retail dropped it in Patch 8.0.1, Classic-family clients kept it); read defensively.
+local function ScanProfessionLinksViaGetProfessions(char, currentNames)
+    local prof1Index, prof2Index, _, fishIndex, cookIndex, firstAidIndex = GetProfessions()
+    local name1, changed1 = ApplyProfessionSlot(char, currentNames, prof1Index, true, false)
+    local name2, changed2 = ApplyProfessionSlot(char, currentNames, prof2Index, true, false)
+    local _, changedCook = ApplyProfessionSlot(char, currentNames, cookIndex, false, true)
+    local _, changedFish = ApplyProfessionSlot(char, currentNames, fishIndex, false, true)
+    local _, changedFirstAid = ApplyProfessionSlot(char, currentNames, firstAidIndex, false, true)
+    if name1 then char.Prof1 = name1 end
+    if name2 then char.Prof2 = name2 end
+    local presenceChanged = changed1 or changed2 or changedCook or changedFish or changedFirstAid
+    return presenceChanged, true
+end
+
+function DS:ScanProfessionLinks()
+    local char = GetCurrentCharTable()
+    if not char then return end
+    local hasLegacyApi = GetNumSkillLines ~= nil and GetSkillLineInfo ~= nil
+    local hasFallbackApi = GetProfessions ~= nil and GetProfessionInfo ~= nil
+    if not hasLegacyApi and not hasFallbackApi then return end
+
+    char.Professions = char.Professions or {}
+    char.Prof1 = nil
+    char.Prof2 = nil
+    local currentNames = {}
+    local presenceChanged, skillLinesReady
+    if hasLegacyApi then
+        presenceChanged, skillLinesReady = ScanProfessionLinksLegacy(char, currentNames)
+    else
+        presenceChanged, skillLinesReady = ScanProfessionLinksViaGetProfessions(char, currentNames)
+    end
+
     if PruneDroppedProfessions(char, currentNames, skillLinesReady) then
         notifyRecipesChanged()
     elseif presenceChanged then
@@ -723,11 +791,66 @@ function DS:ScanProfessionLinks()
     self:ScanProfessionSpecializations(char)
 end
 
-function DS:ScanRecipes()
-    local char = GetCurrentCharTable()
-    if not char then return end
+--- True when either recipe-scan API is available: the legacy trade-skill-window pair
+--- (GetNumTradeSkills/GetTradeSkillLine) or the C_TradeSkillUI fallback it falls back to (see
+--- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md, "Eighth"). Either way the profession window still
+--- has to be opened at least once this session — C_TradeSkillUI.OpenTradeSkill is a
+--- hardware-event-protected call, so an addon can never force this, only react to it.
+function DS.HasTradeSkillRecipesApi()
+    return (GetNumTradeSkills ~= nil and GetTradeSkillLine ~= nil)
+        or (C_TradeSkillUI ~= nil and C_TradeSkillUI.GetAllRecipeIDs ~= nil
+            and C_TradeSkillUI.GetBaseProfessionInfo ~= nil and C_TradeSkillUI.GetRecipeInfo ~= nil)
+end
+
+--- True when recipe scanning is happening via the C_TradeSkillUI fallback rather than the legacy
+--- GetNumTradeSkills/GetTradeSkillLine pair. Some profession *content* differs by client family,
+--- not just API shape — e.g. WoW Forever gave Skinning an actual recipe window that TBC's never
+--- had (see docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md, "Ninth") — so callers use this to adjust
+--- profession-specific assumptions like "does this gathering skill have recipes at all", not just
+--- which functions to call.
+function DS.IsUsingTradeSkillUiFallback()
+    return (GetNumTradeSkills == nil or GetTradeSkillLine == nil)
+        and (C_TradeSkillUI ~= nil and C_TradeSkillUI.GetAllRecipeIDs ~= nil)
+end
+
+-- Canonical lowercase profession keys with no recipe list at all on the legacy TBC API (pure
+-- gathering/secondary skills). WoW Forever gave Skinning real recipes (see
+-- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md, "Ninth"), so it's dropped from the equivalent set
+-- for the C_TradeSkillUI fallback. Single source of truth for "does this profession have a recipe
+-- window" — SummaryData.lua's missing-data nag and GuildTabData.lua's crafting/gathering split both
+-- read this (via DS.ProfessionHasNoRecipeWindow) instead of keeping their own copies, so a future
+-- correction (another profession gaining/losing recipes) only has to happen here.
+DS.NO_RECIPE_PROFESSION_KEYS_LEGACY = {
+    fishing = true,
+    riding = true,
+    herbalism = true,
+    mining = true,
+    skinning = true,
+}
+DS.NO_RECIPE_PROFESSION_KEYS_TRADESKILLUI_FALLBACK = {
+    fishing = true,
+    riding = true,
+    herbalism = true,
+    mining = true,
+}
+
+--- True when profNameOrKey (matched case-insensitively) has no recipe window to open on whichever
+--- recipe-scan API is currently active.
+function DS.ProfessionHasNoRecipeWindow(profNameOrKey)
+    if type(profNameOrKey) ~= "string" or profNameOrKey == "" then return false end
+    local key = profNameOrKey:lower()
+    local set = (DS.IsUsingTradeSkillUiFallback and DS.IsUsingTradeSkillUiFallback())
+        and DS.NO_RECIPE_PROFESSION_KEYS_TRADESKILLUI_FALLBACK
+        or DS.NO_RECIPE_PROFESSION_KEYS_LEGACY
+    return set[key] == true
+end
+
+--- Legacy scan: enumerate the open trade skill window via GetNumTradeSkills/GetTradeSkillInfo.
+--- Returns the (possibly normalized) profession name, or nil to abort without marking anything
+--- scanned (matches the original behavior when the window hasn't finished populating yet).
+local function ScanRecipesLegacy(char)
     local tradeskillName, currentLevel, maxLevel = GetTradeSkillLine()
-    if not tradeskillName or tradeskillName == "" or tradeskillName == "UNKNOWN" then return end
+    if not tradeskillName or tradeskillName == "" or tradeskillName == "UNKNOWN" then return nil end
     tradeskillName = NormalizeProfessionName(tradeskillName)
     local prof = char.Professions[tradeskillName]
     if not prof then
@@ -736,7 +859,7 @@ function DS:ScanRecipes()
     end
     ApplyProfessionRank(prof, currentLevel, maxLevel)
     local numTradeSkills = GetNumTradeSkills and GetNumTradeSkills()
-    if not numTradeSkills or numTradeSkills == 0 then return end
+    if not numTradeSkills or numTradeSkills == 0 then return nil end
     prof.Recipes = prof.Recipes or {}
     for k in pairs(prof.Recipes) do prof.Recipes[k] = nil end
     for i = 1, numTradeSkills do
@@ -771,9 +894,72 @@ function DS:ScanRecipes()
                 end
             end
             -- Capture reagents even when recipe link parse fails (ids may come from item links/GetItemSpell).
-            self:CaptureTradeSkillReagentsForIndex(i)
+            DS:CaptureTradeSkillReagentsForIndex(i)
         end
     end
+    return tradeskillName
+end
+
+-- Enum.TradeskillRelativeDifficulty -> our SkillTypeToColor scale (optimal/medium/easy/trivial).
+-- Confirmed against Warcraft Wiki's C_TradeSkillUI.GetRecipeInfo docs; not yet verified against a
+-- live Forever snapshot (same epistemic caveat as the rest of docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md).
+local RelativeDifficultyToColor = { [0] = 1, [1] = 2, [2] = 3, [3] = 4 }
+
+--- Fallback scan for clients missing GetNumTradeSkills/GetTradeSkillLine (e.g. WoW Forever — see
+--- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md, "Eighth"). Only learned recipes are stored, matching
+--- the legacy scan's semantics (the trade skill window only ever lists known recipes) even though
+--- C_TradeSkillUI.GetAllRecipeIDs() itself returns the whole class-wide recipe catalog including
+--- ones this character hasn't learned. resultItemID is filled best-effort via
+--- C_TradeSkillUI.GetRecipeOutputItemData when available; reagents are not scanned at all here —
+--- that needs the separate, more involved GetRecipeSchematic API and remains deferred.
+local function ScanRecipesViaTradeSkillUI(char)
+    local info = C_TradeSkillUI.GetBaseProfessionInfo()
+    if not info or not info.professionName or info.professionName == "" then return nil end
+    local tradeskillName = NormalizeProfessionName(info.professionName)
+    local prof = char.Professions[tradeskillName]
+    if not prof then
+        prof = { rank = 0, maxRank = 0, Recipes = {} }
+        char.Professions[tradeskillName] = prof
+    end
+    ApplyProfessionRank(prof, info.skillLevel, info.maxSkillLevel)
+
+    local recipeIDs = C_TradeSkillUI.GetAllRecipeIDs()
+    if not recipeIDs or #recipeIDs == 0 then return nil end
+    prof.Recipes = prof.Recipes or {}
+    for k in pairs(prof.Recipes) do prof.Recipes[k] = nil end
+
+    local hasOutputApi = C_TradeSkillUI.GetRecipeOutputItemData ~= nil
+    for _, recipeID in ipairs(recipeIDs) do
+        local recipeInfo = C_TradeSkillUI.GetRecipeInfo(recipeID)
+        if recipeInfo and recipeInfo.learned then
+            local color = RelativeDifficultyToColor[recipeInfo.relativeDifficulty] or 1
+            local resultItemID
+            if hasOutputApi then
+                local ok, outputInfo = pcall(C_TradeSkillUI.GetRecipeOutputItemData, recipeID)
+                if ok and outputInfo then
+                    resultItemID = outputInfo.itemID
+                end
+            end
+            prof.Recipes[recipeID] = { color = color, resultItemID = resultItemID, primaryRecipeID = recipeID }
+        end
+    end
+    return tradeskillName
+end
+
+function DS:ScanRecipes()
+    local char = GetCurrentCharTable()
+    if not char then return end
+    char.Professions = char.Professions or {}
+
+    local tradeskillName
+    if GetNumTradeSkills and GetTradeSkillLine then
+        tradeskillName = ScanRecipesLegacy(char)
+    elseif C_TradeSkillUI and C_TradeSkillUI.GetAllRecipeIDs and C_TradeSkillUI.GetBaseProfessionInfo
+        and C_TradeSkillUI.GetRecipeInfo then
+        tradeskillName = ScanRecipesViaTradeSkillUI(char)
+    end
+    if not tradeskillName then return end
+
     char.lastUpdate = time()
     char.dataVersions = char.dataVersions or {}
     char.dataVersions.professions = DATA_VERSIONS.professions

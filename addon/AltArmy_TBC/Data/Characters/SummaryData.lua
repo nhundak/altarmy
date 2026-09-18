@@ -210,14 +210,6 @@ local MODULE_INSTRUCTIONS = {
     currencies = "* Open your bags or visit a bank",
 }
 
--- Professions we do not warn about (gathering/secondary; no "Open your X window")
-local PROFESSIONS_NO_WARNING = {
-    Fishing = true,
-    Riding = true,
-    Herbalism = true,
-    Mining = true,
-    Skinning = true,
-}
 
 local function charHasLegacyReputationScalars(char)
     if not char or not char.Reputations then return false end
@@ -389,7 +381,11 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
     local isCurrent = resolveIsCurrentChar(name, realm)
 
     for moduleName, instruction in pairs(MODULE_INSTRUCTIONS) do
-        if not (DS.HasModuleData and DS:HasModuleData(char, moduleName)) then
+        -- Professions: skip the nag entirely on clients missing GetNumSkillLines/GetSkillLineInfo
+        -- (e.g. WoW Forever) — there is no window the player can open that would gather this data.
+        local skipUnreachable = moduleName == "professions"
+            and DS.HasProfessionsListApi and not DS.HasProfessionsListApi()
+        if not skipUnreachable and not (DS.HasModuleData and DS:HasModuleData(char, moduleName)) then
             if isCurrent then
                 addUniqueInstruction(out, instruction)
             else
@@ -421,12 +417,15 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
     end
 
     -- Per-profession: no recipes yet, or recipes marked stale after NEW_RECIPE_LEARNED without UI.
-    -- (skip Fishing, Riding, Herbalism, Mining, Skinning)
+    -- Skips professions with no recipe window at all (Fishing/Riding/Herbalism/Mining, plus
+    -- Skinning on TBC's legacy API only — Forever's Skinning has real recipes); see
+    -- DS.ProfessionHasNoRecipeWindow in DataStoreProfessions.lua, the shared source of truth this
+    -- and GuildTabData.lua's crafting/gathering split both read from.
     if DS.HasModuleData and DS:HasModuleData(char, "professions") and DS.GetProfessions and DS.GetNumRecipes then
         local professions = DS:GetProfessions(char)
         local needingRescan = char.professionsNeedingRecipeScan
         for profName, prof in pairs(professions or {}) do
-            if not PROFESSIONS_NO_WARNING[profName] then
+            if not (DS.ProfessionHasNoRecipeWindow and DS.ProfessionHasNoRecipeWindow(profName)) then
                 local rank = (prof and prof.rank) or 0
                 local needsOpen = (rank > 0 and DS:GetNumRecipes(char, profName) == 0)
                     or (type(needingRescan) == "table" and needingRescan[profName])

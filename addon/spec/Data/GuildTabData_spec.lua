@@ -151,6 +151,33 @@ describe("GuildTabData", function()
         { { key = "tailoring", name = "Tailoring", rank = 375 } },
         GTD.GetCraftingProfessions(m))
     end)
+
+    it("keeps skinning in the gathering bucket when AltArmy.DataStore isn't loaded (TBC default)", function()
+      local m = member({ name = "A", profs = {
+        { key = "skinning", name = "Skinning", rank = 300 },
+        { key = "tailoring", name = "Tailoring", rank = 300 },
+      } })
+      assert.is_nil(_G.AltArmy.DataStore)
+      assert.are.same(
+        { { key = "tailoring", name = "Tailoring", rank = 300 } },
+        GTD.GetCraftingProfessions(m))
+    end)
+
+    it("promotes skinning to the crafting bucket when DS.ProfessionHasNoRecipeWindow says it has recipes (WoW Forever)", function()
+      _G.AltArmy.DataStore = {
+        ProfessionHasNoRecipeWindow = function(key)
+          return key ~= "skinning"
+        end,
+      }
+      local m = member({ name = "A", profs = {
+        { key = "skinning", name = "Skinning", rank = 300 },
+        { key = "tailoring", name = "Tailoring", rank = 300 },
+      } })
+      assert.are.same(
+        { { key = "skinning", name = "Skinning", rank = 300 }, { key = "tailoring", name = "Tailoring", rank = 300 } },
+        GTD.GetCraftingProfessions(m))
+      _G.AltArmy.DataStore = nil
+    end)
   end)
 
   describe("FormatProfessions", function()

@@ -63,6 +63,26 @@ AC.MANIFEST = {
     { area = "Professions", label = "GetNumSkillLines", candidates = { "GetNumSkillLines" } },
     { area = "Professions", label = "GetSkillLineInfo", candidates = { "GetSkillLineInfo" } },
     { area = "Professions", label = "GetMacroInfo", candidates = { "GetMacroInfo" } },
+    -- Fallback for the GetNumSkillLines/GetSkillLineInfo pair above (profession presence + rank
+    -- only, not recipes): stable since Patch 4.0.1, used by Thaoky's DataStore_Crafts on Cata+
+    -- clients. Now wired into DataStoreProfessions.lua's ScanProfessionLinks as a fallback; these
+    -- rows confirm whether it's actually present on WoW Forever.
+    { area = "Professions", label = "GetProfessions", candidates = { "GetProfessions" } },
+    { area = "Professions", label = "GetProfessionInfo", candidates = { "GetProfessionInfo" } },
+    -- Fallback for GetNumTradeSkills/GetTradeSkillInfo/GetTradeSkillLine above (recipe presence,
+    -- category, learned state, difficulty — not reagents, still deferred). Now wired into
+    -- DataStoreProfessions.lua's ScanRecipes as a fallback; see
+    -- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md, "Eighth".
+    { area = "Professions", label = "C_TradeSkillUI.GetAllRecipeIDs",
+      candidates = { "C_TradeSkillUI.GetAllRecipeIDs" } },
+    { area = "Professions", label = "C_TradeSkillUI.GetRecipeInfo", candidates = { "C_TradeSkillUI.GetRecipeInfo" } },
+    { area = "Professions", label = "C_TradeSkillUI.GetBaseProfessionInfo",
+      candidates = { "C_TradeSkillUI.GetBaseProfessionInfo" } },
+    -- Best-effort resultItemID source (falls back to nil, not a legacy API's replacement).
+    { area = "Professions", label = "C_TradeSkillUI.GetRecipeOutputItemData",
+      candidates = { "C_TradeSkillUI.GetRecipeOutputItemData" } },
+    { area = "Professions", label = "C_TradeSkillUI.GetRecipeCooldown",
+      candidates = { "C_TradeSkillUI.GetRecipeCooldown" } },
 
     -- Crafting (old-style profession UI; some TBC-era professions still use this)
     { area = "Crafting", label = "GetCraftSkillLine", candidates = { "GetCraftSkillLine" } },

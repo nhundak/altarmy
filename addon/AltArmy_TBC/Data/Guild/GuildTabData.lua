@@ -136,13 +136,33 @@ GTD.PRIMARY_PROFESSION_KEYS = {
     tailoring = true,
 }
 
--- Gathering professions shown on character rows (right of crafting). Not recipe tabs.
--- Secondary skills (cooking, first aid, fishing, riding), poisons, and lockpicking are omitted.
+-- Gathering-slot professions recognized on character rows (right of crafting when they have no
+-- recipe window). Secondary skills (cooking, first aid, fishing, riding), poisons, and lockpicking
+-- are omitted entirely. Membership here is structural (these always occupy a primary-profession
+-- slot); whether a key actually lands in the gathering bucket vs. gets promoted to a recipe tab is
+-- decided dynamically by hasNoRecipeWindow() below, not by this table alone.
 GTD.GATHERING_PROFESSION_KEYS = {
     herbalism = true,
     mining = true,
     skinning = true,
 }
+
+--- True when key has no recipe window on the currently active client, per the shared
+--- AltArmy.DataStore.ProfessionHasNoRecipeWindow (DataStoreProfessions.lua) — the single source of
+--- truth this module's crafting/gathering split and SummaryData.lua's missing-data nag both read,
+--- so a future correction (another profession gaining/losing recipes, e.g. WoW Forever's Skinning —
+--- see docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md, "Ninth") only has to happen in one place.
+--- Resolved fresh on every call, not captured at file scope: this module is intentionally
+--- self-contained (no AltArmy.DataStore dependency), same reason as hasItemInfoApi above. Defaults
+--- to true (TBC's actual behavior for every key in GATHERING_PROFESSION_KEYS) when
+--- AltArmy.DataStore isn't loaded, which is exactly this module's unit-test environment.
+local function hasNoRecipeWindow(key)
+    local DS = AltArmy.DataStore
+    if DS and DS.ProfessionHasNoRecipeWindow then
+        return DS.ProfessionHasNoRecipeWindow(key)
+    end
+    return true
+end
 
 local function sortProfessionsByRankThenName(list)
     table.sort(list, function(a, b)
@@ -189,7 +209,7 @@ local function collectProfessions(entry, includeGathering)
                     rank = prof.rank or 0,
                     spec = prof.spec,
                 }
-                if GTD.GATHERING_PROFESSION_KEYS[resolved] then
+                if GTD.GATHERING_PROFESSION_KEYS[resolved] and hasNoRecipeWindow(resolved) then
                     if includeGathering then
                         gathering[#gathering + 1] = row
                     end

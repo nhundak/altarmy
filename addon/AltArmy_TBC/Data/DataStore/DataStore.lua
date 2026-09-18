@@ -216,6 +216,11 @@ SafeRegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 SafeRegisterEvent("SKILL_LINES_CHANGED")
 SafeRegisterEvent("TRADE_SKILL_SHOW")
 SafeRegisterEvent("TRADE_SKILL_CLOSE")
+-- Retail/Forever-shaped trigger for the C_TradeSkillUI recipe scan (see
+-- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md, "Eighth"): on those clients TRADE_SKILL_SHOW alone
+-- doesn't signal that recipe data is actually loaded, this event does. SafeRegisterEvent no-ops on
+-- clients without it (TBC Classic included, where TRADE_SKILL_SHOW's own timer already covers it).
+SafeRegisterEvent("TRADE_SKILL_DATA_SOURCE_CHANGED")
 SafeRegisterEvent("CRAFT_SHOW")
 SafeRegisterEvent("CHAT_MSG_SKILL")
 SafeRegisterEvent("CHAT_MSG_SYSTEM")
@@ -454,7 +459,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
         end
         local char = GetCurrentCharTable()
         if char then
-            if GetNumSkillLines and GetSkillLineInfo and DS.ScanProfessionLinks then
+            if DS.HasProfessionsListApi and DS.HasProfessionsListApi() and DS.ScanProfessionLinks then
                 DS:ScanProfessionLinks()
             end
             if DS.HasReputationApi and DS.HasReputationApi() and DS.ScanReputations then
@@ -468,7 +473,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
                     f:SetScript("OnUpdate", nil)
                     local c = GetCurrentCharTable()
                     if c then
-                        if GetNumSkillLines and GetSkillLineInfo and DS.ScanProfessionLinks then
+                        if DS.HasProfessionsListApi and DS.HasProfessionsListApi() and DS.ScanProfessionLinks then
                             DS:ScanProfessionLinks()
                         end
                         if DS.HasReputationApi and DS.HasReputationApi() and DS.ScanReputations then
@@ -525,13 +530,13 @@ frame:SetScript("OnEvent", function(_, event, ...)
     end
     if event == "SKILL_LINES_CHANGED" then
         local char = GetCurrentCharTable()
-        if char and GetNumSkillLines and GetSkillLineInfo and DS.ScanProfessionLinks then
+        if char and DS.HasProfessionsListApi and DS.HasProfessionsListApi() and DS.ScanProfessionLinks then
             DS:ScanProfessionLinks()
         end
         return
     end
     if event == "TRADE_SKILL_SHOW" then
-        if GetNumSkillLines and GetSkillLineInfo and DS.ScanProfessionLinks then
+        if DS.HasProfessionsListApi and DS.HasProfessionsListApi() and DS.ScanProfessionLinks then
             DS:ScanProfessionLinks()
         end
         tradeSkillScanFrame.elapsed = 0
@@ -539,7 +544,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
             f.elapsed = f.elapsed + elapsed
             if f.elapsed >= TRADE_SKILL_SCAN_DELAY then
                 f:SetScript("OnUpdate", nil)
-                if GetNumTradeSkills and GetTradeSkillLine and DS.RunDeferredRecipeScan then
+                if DS.HasTradeSkillRecipesApi and DS.HasTradeSkillRecipesApi() and DS.RunDeferredRecipeScan then
                     DS:RunDeferredRecipeScan()
                 end
             end
@@ -549,11 +554,22 @@ frame:SetScript("OnEvent", function(_, event, ...)
             f.elapsed = f.elapsed + elapsed
             if f.elapsed >= TRADE_SKILL_REAGENT_RETRY_DELAY then
                 f:SetScript("OnUpdate", nil)
+                -- Legacy-only: reagent capture still has no C_TradeSkillUI fallback (deferred, see
+                -- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md, "Eighth").
                 if GetNumTradeSkills and DS.CaptureAllTradeSkillReagentsOnly then
                     DS:CaptureAllTradeSkillReagentsOnly()
                 end
             end
         end)
+        return
+    end
+    if event == "TRADE_SKILL_DATA_SOURCE_CHANGED" then
+        -- Retail/Forever-shaped: fires once recipe data for the currently-viewed profession is
+        -- actually loaded, unlike TRADE_SKILL_SHOW which fires on window-open regardless. No-op on
+        -- TBC Classic (this event won't fire there; TRADE_SKILL_SHOW's own timer already covers it).
+        if DS.HasTradeSkillRecipesApi and DS.HasTradeSkillRecipesApi() and DS.RunDeferredRecipeScan then
+            DS:RunDeferredRecipeScan()
+        end
         return
     end
     if event == "TRADE_SKILL_CLOSE" then
@@ -599,7 +615,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
     end
     if event == "CHAT_MSG_SKILL" then
         local char = GetCurrentCharTable()
-        if char and GetNumSkillLines and GetSkillLineInfo and DS.ScanProfessionLinks then
+        if char and DS.HasProfessionsListApi and DS.HasProfessionsListApi() and DS.ScanProfessionLinks then
             DS:ScanProfessionLinks()
         end
         return

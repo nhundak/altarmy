@@ -205,6 +205,12 @@ describe("SummaryData", function()
       DS.NeedsRescan = function()
         return false
       end
+      -- Default: TBC's legacy no-recipe-window set (matches DataStoreProfessions.lua's
+      -- NO_RECIPE_PROFESSION_KEYS_LEGACY); tests targeting the Forever/fallback behavior override this.
+      DS.ProfessionHasNoRecipeWindow = function(profName)
+        local set = { Fishing = true, Riding = true, Herbalism = true, Mining = true, Skinning = true }
+        return set[profName] == true
+      end
     end)
 
     it("returns no missing when char is nil", function()
@@ -249,6 +255,57 @@ describe("SummaryData", function()
       local out = SD.GetMissingDataInfo("Alice", "Realm1")
       assert.is_false(out.hasMissing)
       assert.are.same(out.instructions, {})
+    end)
+
+    it("does not nag to open the Skills window when the client has no skill-line API (e.g. WoW Forever)", function()
+      local char = {
+        level = 20,
+        talents = { tabs = { 0, 0, 5 } },
+        dataVersions = {
+          character = 1, guildMembership = 1, containers = 1, equipment = 1,
+          reputations = 1, currencies = 1,
+          -- professions intentionally absent: never gatherable on this client
+        },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.HasProfessionsListApi = function() return false end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Alice" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Alice", "Realm1")
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_false(out.hasMissing)
+      assert.are.same(out.instructions, {})
+    end)
+
+    it("still nags to open the Skills window when the skill-line API exists but professions have not been gathered", function()
+      local char = {
+        level = 20,
+        talents = { tabs = { 0, 0, 5 } },
+        dataVersions = {
+          character = 1, guildMembership = 1, containers = 1, equipment = 1,
+          reputations = 1, currencies = 1,
+        },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.HasProfessionsListApi = function() return true end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Alice" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Alice", "Realm1")
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_true(out.hasMissing)
+      assert.are.same(out.instructions, { "* Open your Skills window (P)" })
     end)
 
     it("flags outdated reputation storage for current character (needs relog/reload)", function()
@@ -432,6 +489,59 @@ describe("SummaryData", function()
         if line:find("Alchemy") then found = true break end
       end
       assert.is_true(found, "expected an instruction containing 'Alchemy'")
+    end)
+
+    it("does not warn about Skinning on TBC's legacy trade-skill API (no recipe window there)", function()
+      local char = {
+        level = 70,
+        talents = { tabs = { 0, 0, 21 } },
+        dataVersions = {
+          character = 1, guildMembership = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Skinning = { rank = 50, maxRank = 300, Recipes = {} } },
+        cooldownSpecs = {
+          masterTransmutation = false,
+          spellfireTailor = false,
+          shadoweaveTailor = false,
+          moonclothTailor = false,
+        },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function() return 0 end
+      -- (uses before_each's default TBC/legacy DS.ProfessionHasNoRecipeWindow, which excludes Skinning)
+      local out = SD.GetMissingDataInfo("Alice", "Realm1")
+      assert.is_false(out.hasMissing)
+      assert.are.same({}, out.instructions)
+    end)
+
+    it("warns about Skinning when scanning via the C_TradeSkillUI fallback (WoW Forever has recipes there)", function()
+      local char = {
+        dataVersions = { character = 1, professions = 1 },
+        Professions = { Skinning = { rank = 50, maxRank = 300, Recipes = {} } },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.HasModuleData = function(_, c, mod) return (c.dataVersions and c.dataVersions[mod]) == 1 end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function() return 0 end
+      -- Forever/fallback: Skinning has real recipes, so it's no longer in the no-warning set.
+      DS.ProfessionHasNoRecipeWindow = function(profName)
+        local set = { Fishing = true, Riding = true, Herbalism = true, Mining = true }
+        return set[profName] == true
+      end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      assert.is_true(out.hasMissing)
+      local found = false
+      for _, line in ipairs(out.instructions) do
+        if line:find("Skinning") then found = true break end
+      end
+      assert.is_true(found, "expected an instruction containing 'Skinning'")
     end)
 
     it("adds Open your profession window when recipes are marked stale after learn", function()
