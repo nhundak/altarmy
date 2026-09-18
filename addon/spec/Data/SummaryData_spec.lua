@@ -201,6 +201,9 @@ describe("SummaryData", function()
       DT.HasTalentData = function(char)
         return char and char.talents and char.talents.tabs ~= nil
       end
+      DT.IsTalentEligible = function(char)
+        return (char and tonumber(char.level) or 0) >= 10
+      end
       -- Default: reputation storage is current (no stale-format warning)
       DS.NeedsRescan = function()
         return false
@@ -984,6 +987,46 @@ describe("SummaryData", function()
       end
     end)
 
+    it("does not add talents instruction for current character too low level for talents", function()
+      local char = {
+        level = 9,
+        dataVersions = {
+          character = 1, containers = 1, equipment = 1, professions = 1,
+          reputations = 2, mail = 1, auctions = 1, currencies = 1,
+        },
+        Professions = { Alchemy = { rank = 100, maxRank = 300, Recipes = { [1] = true } } },
+        cooldownSpecs = {
+          masterTransmutation = false,
+          spellfireTailor = false,
+          shadoweaveTailor = false,
+          moonclothTailor = false,
+        },
+      }
+      DS.GetCharacter = function(_, _name, _realm) return char end
+      DS.GetCharacterLevel = function(_, c) return (c and c.level) or 0 end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local p = c.Professions and c.Professions[profName]
+        if not p or not p.Recipes then return 0 end
+        local n = 0
+        for _ in pairs(p.Recipes) do n = n + 1 end
+        return n
+      end
+      local oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+      _G.UnitName = function(unit) return unit == "player" and "Bob" or nil end
+      _G.GetRealmName = function() return "Realm1" end
+      local out = SD.GetMissingDataInfo("Bob", "Realm1")
+      _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      assert.is_false(out.hasMissing)
+      for _, line in ipairs(out.instructions) do
+        assert.is_false(line:find("Talents", 1, true) ~= nil)
+      end
+    end)
+
     it("adds Open your Talents window for current character without talent data", function()
       local char = {
         level = 70,
@@ -1293,12 +1336,15 @@ describe("SummaryData", function()
         _G.AltArmy.DataStoreTalents = {}
         DT = _G.AltArmy.DataStoreTalents
       end
+      DT.IsTalentEligible = function(char)
+        return (char and tonumber(char.level) or 0) >= 10
+      end
       _G.UnitName = function() return "Me" end
       _G.GetRealmName = function() return "Realm1" end
     end)
 
     it("returns no missing when talent data exists", function()
-      DS.GetCharacter = function() return { talents = { tabs = { 0, 0, 21 } } } end
+      DS.GetCharacter = function() return { level = 70, talents = { tabs = { 0, 0, 21 } } } end
       DT.HasTalentData = function(char) return char and char.talents ~= nil end
       local out = SD.GetTalentSpecMissingInfo("Bob", "Realm1")
       assert.is_false(out.hasMissing)
@@ -1306,7 +1352,7 @@ describe("SummaryData", function()
     end)
 
     it("returns log-in instruction for another character", function()
-      DS.GetCharacter = function() return { classFile = "MAGE" } end
+      DS.GetCharacter = function() return { level = 70, classFile = "MAGE" } end
       DT.HasTalentData = function() return false end
       local out = SD.GetTalentSpecMissingInfo("Bob", "Realm1")
       assert.is_true(out.hasMissing)
@@ -1314,15 +1360,23 @@ describe("SummaryData", function()
     end)
 
     it("returns talents window instruction for current character", function()
-      DS.GetCharacter = function() return { classFile = "MAGE" } end
+      DS.GetCharacter = function() return { level = 70, classFile = "MAGE" } end
       DT.HasTalentData = function() return false end
       local out = SD.GetTalentSpecMissingInfo("Me", "Realm1")
       assert.is_true(out.hasMissing)
       assert.are.same({ "* Open your Talents window" }, out.instructions)
     end)
 
+    it("returns no missing for a character too low level to have talents", function()
+      DS.GetCharacter = function() return { level = 9, classFile = "MAGE" } end
+      DT.HasTalentData = function() return false end
+      local out = SD.GetTalentSpecMissingInfo("Me", "Realm1")
+      assert.is_false(out.hasMissing)
+      assert.are.same({}, out.instructions)
+    end)
+
     it("uses same title format as other missing-data tooltips", function()
-      DS.GetCharacter = function() return { classFile = "MAGE" } end
+      DS.GetCharacter = function() return { level = 70, classFile = "MAGE" } end
       DT.HasTalentData = function() return false end
       local title, lines = SD.GetTalentSpecMissingTooltip("Bob", "Realm1", "MAGE")
       assert.truthy(title:find("Some data for"))

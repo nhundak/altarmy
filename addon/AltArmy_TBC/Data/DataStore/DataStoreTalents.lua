@@ -1,6 +1,6 @@
 -- AltArmy TBC — Talent / spec tracking for gear upgrade comparisons.
 -- Requires DataStore.lua loaded first.
--- luacheck: globals GetNumTalentTabs GetTalentTabInfo
+-- luacheck: globals GetNumTalentTabs GetTalentTabInfo PlayerTalentFrame
 
 if not AltArmy or not AltArmy.DataStore then return end
 
@@ -63,6 +63,15 @@ end
 
 function DT.GetLevelingSpecKey(classFile)
     return LEVELING_SPEC_BY_CLASS[normalizeClassFile(classFile)] or "unknown"
+end
+
+--- Level at which TBC Classic characters gain their first talent point / the Talents tab unlocks.
+DT.TALENT_UNLOCK_LEVEL = 10
+
+--- Whether a character is high enough level to have any talents to speak of.
+function DT.IsTalentEligible(char)
+    local level = tonumber(char and char.level) or 0
+    return level >= DT.TALENT_UNLOCK_LEVEL
 end
 
 function DT.HasTalentData(char)
@@ -134,7 +143,12 @@ if CreateFrame then
     talentFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     talentFrame:RegisterEvent("CHARACTER_POINTS_CHANGED")
     talentFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
-    talentFrame:SetScript("OnEvent", function(_, event)
+    -- GetNumTalentTabs/GetTalentTabInfo return no data (numTabs == 0) until the lazy-loaded classic
+    -- talent UI has actually been opened once this session — CHARACTER_POINTS_CHANGED/
+    -- PLAYER_TALENT_UPDATE alone don't fire from merely opening the window with no points spent, so
+    -- without this the "Open your Talents window" instruction never actually clears itself.
+    talentFrame:RegisterEvent("ADDON_LOADED")
+    talentFrame:SetScript("OnEvent", function(_, event, addonName)
         if event == "PLAYER_ENTERING_WORLD" then
             if DS.ScanTalents then
                 DS:ScanTalents()
@@ -142,6 +156,17 @@ if CreateFrame then
         elseif event == "CHARACTER_POINTS_CHANGED" or event == "PLAYER_TALENT_UPDATE" then
             if DS.ScanTalents then
                 DS:ScanTalents()
+            end
+        elseif event == "ADDON_LOADED" and addonName == "Blizzard_TalentUI" then
+            if DS.ScanTalents then
+                DS:ScanTalents()
+            end
+            if PlayerTalentFrame and PlayerTalentFrame.HookScript then
+                PlayerTalentFrame:HookScript("OnShow", function()
+                    if DS.ScanTalents then
+                        DS:ScanTalents()
+                    end
+                end)
             end
         end
     end)

@@ -357,7 +357,10 @@ end
 
 local function appendTalentMissingInstructions(out, char, isCurrent)
     local DT = AltArmy.DataStoreTalents
-    if DT and DT.HasTalentData and DT.HasTalentData(char) then
+    if not DT or not DT.IsTalentEligible or not DT.IsTalentEligible(char) then
+        return
+    end
+    if DT.HasTalentData and DT.HasTalentData(char) then
         return
     end
     if isCurrent then

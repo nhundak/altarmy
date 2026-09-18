@@ -67,4 +67,16 @@ describe("DataStoreTalents", function()
             talents = { tabs = { 10, 0, 0 }, primary = 1, specKey = "arcane" },
         }))
     end)
+
+    it("IsTalentEligible is false below level 10", function()
+        assert.is_false(DT.IsTalentEligible({ level = 9 }))
+    end)
+
+    it("IsTalentEligible is true at level 10", function()
+        assert.is_true(DT.IsTalentEligible({ level = 10 }))
+    end)
+
+    it("IsTalentEligible is false when level is missing", function()
+        assert.is_false(DT.IsTalentEligible({ classFile = "MAGE" }))
+    end)
 end)
