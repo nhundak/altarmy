@@ -16,6 +16,14 @@ local DS = AltArmy.DataStore
 -- we're on. Falls back to TBC's 70 if the API isn't present.
 DS.MAX_LEVEL = (GetMaxPlayerLevel and GetMaxPlayerLevel()) or 70
 
+-- Version check, not existence check: unlike most of this file, there's no API
+-- to defensively probe here — selecting which stat-weight data table to use
+-- (see Data/Gear/PawnScalesForever.lua) genuinely requires knowing which client
+-- is running. 16001 is WoW Forever's confirmed Interface number (see
+-- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md). Falls back to false (today's
+-- TBC behavior) if GetBuildInfo isn't present.
+DS.IsWowForever = (GetBuildInfo and select(4, GetBuildInfo()) == 16001) or false
+
 local DATA_VERSIONS = {
     character = 1,
     guildMembership = 1,

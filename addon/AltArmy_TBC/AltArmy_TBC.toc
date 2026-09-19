@@ -35,6 +35,7 @@ Data\Gear\GearScore.lua
 Data\Gear\ItemStats.lua
 Data\Gear\PawnScale.lua
 Data\Gear\PawnScales.lua
+Data\Gear\PawnScalesForever.lua
 Data\Gear\GearUpgrade.lua
 Data\Gear\GearCompare.lua
 Data\DataStore\DataStoreCurrencies.lua

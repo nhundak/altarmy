@@ -18,6 +18,7 @@ describe("GearUpgrade", function()
             [50] = { "Sparkling Wand", nil, 2, 25, 25, "Weapon", "Wand", nil, "INVTYPE_RANGEDRIGHT" },
             [80] = { "Heal Ring", nil, 3, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
             [81] = { "Dmg Ring", nil, 3, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
+            [60] = { "Hit Ring", nil, 3, 40, 40, "Armor", "Miscellaneous", nil, "INVTYPE_FINGER" },
         }
         local info = items[id]
         if not info then return end
@@ -41,6 +42,9 @@ describe("GearUpgrade", function()
         end
         if id == 51 then
             return { ["ITEM_MOD_DAMAGE_PER_SECOND_SHORT"] = 12.0, ["ITEM_MOD_INTELLECT_SHORT"] = 5 }
+        end
+        if id == 60 then
+            return { ["ITEM_MOD_HIT_RATING_SHORT"] = 10, ["ITEM_MOD_HIT_SPELL_RATING_SHORT"] = 10 }
         end
         return {}
     end
@@ -102,6 +106,8 @@ describe("GearUpgrade", function()
         require("PawnScale")
         package.loaded["PawnScales"] = nil
         require("PawnScales")
+        package.loaded["PawnScalesForever"] = nil
+        require("PawnScalesForever")
         package.loaded["CharKey"] = nil
         require("CharKey")
         package.loaded["BankAlt"] = nil
@@ -148,6 +154,39 @@ describe("GearUpgrade", function()
         assert.are.equal(3.5, weights.ranged_dps)
         assert.are.equal(0.25, weights.melee_dps)
         assert.are.equal(0, GU.GetWeights("MAGE", "frost", 70).ranged_dps or 0)
+    end)
+
+    it("ScoreItemCustom does not dedupe when an item carries both hit and spell_hit", function()
+        -- Documents current (non-deduped) summing behavior: GU.ScoreItemCustom
+        -- sums value*weight per stat key independently, with no special-casing
+        -- for a stat pair that happens to represent "the same" underlying
+        -- concept (relevant since WoW Forever's merged Pawn scales write the
+        -- same weight into both the hit and spell_hit keys).
+        local ring = "|Hitem:60:0|h[Hit Ring]|h"
+        local weights = GU.GetWeights("PALADIN", "retribution")
+        local expected = 10 * weights.hit + 10 * weights.spell_hit
+        local score = GU.ScoreItemCustom(ring, "PALADIN", "retribution")
+        assert.are.equal(expected, score)
+    end)
+
+    describe("WoW Forever scale selection", function()
+        after_each(function()
+            AltArmy.DataStore.IsWowForever = nil
+        end)
+
+        it("uses PawnScales (TBC) weights when IsWowForever is false/unset", function()
+            AltArmy.DataStore.IsWowForever = nil
+            local weights = GU.GetWeights("MAGE", "frost")
+            assert.is_nil(weights.hit)
+            assert.are.equal(1.22, weights.spell_hit)
+        end)
+
+        it("uses PawnScalesForever's merged weights when IsWowForever is true", function()
+            AltArmy.DataStore.IsWowForever = true
+            local weights = GU.GetWeights("MAGE", "frost")
+            assert.are.equal(1.22, weights.hit)
+            assert.are.equal(1.22, weights.spell_hit)
+        end)
     end)
 
     it("ScoreItem memoizes separately for leveling vs max-level weights", function()

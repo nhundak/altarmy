@@ -32,7 +32,7 @@ Compare what each alt is wearing; drop an item to see who can use it and how it 
 
 ## Upgrade scoring and alerts
 
-- Built-in spec scales (Pawn-style weights) for “is this an upgrade?”
+- Built-in spec scales (Pawn-style weights) for “is this an upgrade?” WoW Forever uses its own scale table (hit and crit merged into single stats, since Forever has no separate spell/physical version of either) rather than TBC's.
 - Optional gear-score providers for scoring and missing-data hints.
 - Chat alerts (clickable) for loot, Need/Greed rolls, quest rewards, and level-up upgrades for the current character and/or alts.
 - Quest reward overlays on turn-in and quest log (upgrade vs vendor).

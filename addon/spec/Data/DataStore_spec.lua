@@ -587,4 +587,38 @@ describe("DataStore", function()
       assert.are.equal(60, reloaded.MAX_LEVEL)
     end)
   end)
+
+  describe("IsWowForever", function()
+    local function reloadDataStore()
+      package.loaded["DataStore"] = nil
+      package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+      require("DataStore")
+      return AltArmy.DataStore
+    end
+
+    after_each(function()
+      -- Restore the default (no GetBuildInfo) so AltArmy.DataStore.IsWowForever
+      -- is back to false for any later spec file sharing this Lua process/globals.
+      _G.GetBuildInfo = nil
+      reloadDataStore()
+    end)
+
+    it("falls back to false when GetBuildInfo is unavailable", function()
+      _G.GetBuildInfo = nil
+      local reloaded = reloadDataStore()
+      assert.is_false(reloaded.IsWowForever)
+    end)
+
+    it("is false when the client's interface number isn't Forever's", function()
+      _G.GetBuildInfo = function() return "2.5.6", 20506, "enUS", 20506 end
+      local reloaded = reloadDataStore()
+      assert.is_false(reloaded.IsWowForever)
+    end)
+
+    it("is true when the client's interface number is Forever's confirmed 16001", function()
+      _G.GetBuildInfo = function() return "1.60.1", 16001, "enUS", 16001 end
+      local reloaded = reloadDataStore()
+      assert.is_true(reloaded.IsWowForever)
+    end)
+  end)
 end)

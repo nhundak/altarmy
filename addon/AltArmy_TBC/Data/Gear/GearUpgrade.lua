@@ -201,11 +201,12 @@ function GU.GetWeightedChangeColor(percent, opts)
         lerpChannel(WEIGHTED_CHANGE_COLOR_RED[3], WEIGHTED_CHANGE_COLOR_YELLOW[3], t)
 end
 
--- Lazy cache of translated weights keyed by class/spec/override-band.
+-- Lazy cache of translated weights keyed by class/spec/override-band/scale-version.
 local weightsCache = {}
 
-local function weightsCacheKey(classFile, specKey, bandId)
+local function weightsCacheKey(classFile, specKey, bandId, scaleVersion)
     return tostring(classFile) .. "\0" .. tostring(specKey) .. "\0" .. tostring(bandId or "default")
+        .. "\0" .. tostring(scaleVersion or "tbc")
 end
 
 --- Character level for weight selection, raised to the item's required level when higher.
@@ -218,8 +219,22 @@ local function effectiveWeightLevel(link, level)
     return math.max(n, itemMin)
 end
 
+--- Which Pawn-scale module to use: WoW Forever's merged-hit/crit table when
+--- running on that client, TBC's otherwise. Reuses this file's module-level
+--- `DS` upvalue (line 11) rather than re-resolving AltArmy.DataStore — safe
+--- here because DataStore.lua's IsWowForever flag is set once, in place, on
+--- the same table DS already points to (not by replacing AltArmy.DataStore
+--- with a new table), unlike the stale-upvalue bugs documented in
+--- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md.
+local function activeScaleModule()
+    if DS and DS.IsWowForever and AltArmy.PawnScalesForever then
+        return AltArmy.PawnScalesForever, "forever"
+    end
+    return AltArmy.PawnScales, "tbc"
+end
+
 local function overrideBandId(classFile, specKey, level)
-    local PS = AltArmy.PawnScales
+    local PS = activeScaleModule()
     if PS and PS.GetOverrideBandId then
         return PS.GetOverrideBandId(classFile, specKey, level)
     end
@@ -507,25 +522,25 @@ function GU.GetSpecKey(char)
 end
 
 local function resolveRawScale(classFile, specKey, level)
-    local PS = AltArmy.PawnScales
-    if not PS or not PS.GetRawScale then return nil, nil end
+    local PS, scaleVersion = activeScaleModule()
+    if not PS or not PS.GetRawScale then return nil, nil, scaleVersion end
     local resolvedSpec = specKey
     local raw = PS.GetRawScale(classFile, resolvedSpec, level)
     if not raw and DT and DT.GetLevelingSpecKey then
         resolvedSpec = DT.GetLevelingSpecKey(classFile)
         raw = PS.GetRawScale(classFile, resolvedSpec, level)
     end
-    if not raw then return nil, nil end
-    return resolvedSpec, raw
+    if not raw then return nil, nil, scaleVersion end
+    return resolvedSpec, raw, scaleVersion
 end
 
 local function getWeights(classFile, specKey, level)
     classFile = (classFile or ""):upper()
-    local resolvedSpec, raw = resolveRawScale(classFile, specKey, level)
+    local resolvedSpec, raw, scaleVersion = resolveRawScale(classFile, specKey, level)
     if not raw then return nil end
 
     local bandId = overrideBandId(classFile, resolvedSpec, level)
-    local key = weightsCacheKey(classFile, resolvedSpec, bandId)
+    local key = weightsCacheKey(classFile, resolvedSpec, bandId, scaleVersion)
     local cached = weightsCache[key]
     if cached then return cached end
     local weights = GU.PawnScaleToWeights(raw)
