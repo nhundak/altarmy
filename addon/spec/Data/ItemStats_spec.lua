@@ -163,7 +163,7 @@ describe("ItemStats", function()
             if frameType == "GameTooltip" then
                 return makeTooltipMock({
                     "+20 Strength",
-                    "52.5 damage per second",
+                    "(52.5 damage per second)",
                 })
             end
             if frameType == "Frame" then
@@ -274,7 +274,7 @@ describe("ItemStats", function()
             if frameType == "GameTooltip" then
                 return makeTooltipMock({
                     "+5 Intellect",
-                    "15.5 damage per second",
+                    "(15.5 damage per second)",
                 })
             end
             if frameType == "Frame" then

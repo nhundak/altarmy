@@ -248,7 +248,8 @@ local EQUIP_STAT_PATTERNS = {
     { "^%+(%d+) Damage and Healing Spells$", COMBINED_SPELL_DAMAGE_HEAL_KEYS },
     { "^%+(%d+) Spell Damage and Healing$", COMBINED_SPELL_DAMAGE_HEAL_KEYS },
     { "^Equip: Restores (%d+) mana per 5 sec%.$", "ITEM_MOD_MANA_REGENERATION_SHORT" },
-    { "^(%d+%.?%d*) damage per second$", "ITEM_MOD_DAMAGE_PER_SECOND_SHORT" },
+    -- Tooltip wraps this line in parens, e.g. "(52.5 damage per second)".
+    { "^%(?(%d+%.?%d*) damage per second%)?$", "ITEM_MOD_DAMAGE_PER_SECOND_SHORT" },
     { "^(%d+) Armor$", "RESISTANCE0_NAME" },
 }
 

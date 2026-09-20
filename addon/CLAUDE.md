@@ -35,4 +35,16 @@ If the diff is user-visible and no `docs/` (or Data DESIGN / DATA_VERSIONS) file
 
 ## Other project rules
 
-Prefer red-green-refactor for new features. After large `Tabs/Tab*.lua` edits, run `npm run check` (Lua 5.1 local limit). See `.cursor/rules/` for TDD, Lua tooling, and domain-specific skills.
+Prefer red-green-refactor for new features: write a failing unit test first, then make it pass.
+
+Domain-specific skills (e.g. debug compare dumps, Summary missing-data) live in `.claude/skills/`.
+
+### Lua tooling
+
+Use `npm test` and `npm run check` / `npm run lint` from the repo root. Do **not** search for a system Lua install, invent `LUA_51_PATH`, shim `luajit` as `lua.exe`, or poke Homebrew/LuaRocks unless an `npm` script fails with a clear missing-tool message — if Lua 5.1 / busted / luacheck are missing, run `npm run setup:dev` once, then retry. Runners auto-resolve `<repo>/.lua51/bin` (and Windows Lua for Windows defaults); no per-session env exports are needed once that tree exists.
+
+### Lua 5.1 local-variable limit
+
+WoW TBC runs Lua 5.1, which allows at most **200 local variables per function** (a file's main chunk counts as one function). Exceeding it fails at load with `main function has more than 200 local variables` — **luacheck does not catch this**; only `npm run check`'s Lua 5.1 compile pass does. Run it after editing large `Tabs/Tab*.lua` files (especially `TabGuild.lua` / `TabGear.lua` / `TabSearch.lua`), before considering the work done.
+
+When editing those large UI files: prefer packing related constants/session state into one table (`local UI = { ... }`, `local state = { ... }`) instead of many top-level `local`s; prefer small helper modules under `Data/` for pure logic rather than growing a tab file's main-chunk locals. Nested `do ... end` blocks do **not** reset the limit, only a new function gets a fresh 200; forward declarations (`local foo` then `foo = function...`) still count. If the warning appears, count top-level locals and reduce by grouping into tables or extracting helpers until comfortably under 200, leaving headroom for future edits.
