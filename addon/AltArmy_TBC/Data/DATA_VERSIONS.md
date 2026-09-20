@@ -39,8 +39,9 @@ Canonical table: `DATA_VERSIONS` in [`DataStore.lua`](DataStore/DataStore.lua).
 ### currencies (v1)
 - **v1**: Initial version. Stores TBC currency item counts in `char.Currencies[itemID] = count`.
 
-### talents (v1)
+### talents (v2)
 - **v1**: Talent tab point totals for primary-spec inference (gear upgrade / compare warnings and missing-data).
+- **v2**: On clients without the legacy `GetNumTalentTabs`/`GetTalentTabInfo` (e.g. WoW Forever), falls back to `C_SpecializationInfo.GetSpecialization`/`GetSpecializationInfo`. `char.talents.tabs` becomes an empty table (not a per-tab point array) and `char.talents.primary` becomes the specialization index (not a tab index) on this path; `specKey` is resolved from Blizzard's canonical specialization ID rather than tab position. Same fields, same meaning to callers (`ResolveSpecKey`/`HasTalentData`), just a different source on clients where the fallback is active.
 
 ### levelHistory (v1)
 - **v1**: Level-up milestones in `char.levelHistory.milestones[level]` with `reachedAt`, `playedTotal`, `playedLevel`, `zone`, `money`, `restXP`, `gear`, `deaths` (bracket count). Death log in `char.levelHistory.deaths[]` with `at`, `level`, `zone`, `playedTotal`, `killerName`, `killerGuid`. Account import gate `levelHistoryImport.questieAt` and `levelHistoryImport.nitAt`; per-character `levelHistory.meta.importedRxpAt`.

@@ -123,6 +123,13 @@ AC.MANIFEST = {
     -- Talents
     { area = "Talents", label = "GetNumTalentTabs", candidates = { "GetNumTalentTabs" } },
     { area = "Talents", label = "GetTalentTabInfo", candidates = { "GetTalentTabInfo" } },
+    -- Fallback for the pair above on clients (e.g. WoW Forever) where the legacy talent-tree API is
+    -- gone; wired into DataStoreTalents.lua's ScanTalents as an alternate spec-detection path. See
+    -- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md.
+    { area = "Talents", label = "GetSpecialization",
+      candidates = { "C_SpecializationInfo.GetSpecialization", "GetSpecialization" } },
+    { area = "Talents", label = "GetSpecializationInfo",
+      candidates = { "C_SpecializationInfo.GetSpecializationInfo", "GetSpecializationInfo" } },
 
     -- Lockouts/Raids
     { area = "Lockouts", label = "RequestRaidInfo", candidates = { "RequestRaidInfo" } },
