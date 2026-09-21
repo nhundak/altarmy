@@ -26,6 +26,7 @@ Data\Cooldowns\LockoutData.lua
 Data\Cooldowns\StockpilePlan.lua
 Data\DataStore\DataStoreCharacter.lua
 Data\DataStore\DataStoreTalents.lua
+Data\DataStore\DataStoreLegacy.lua
 Data\DataStore\DataStoreLevelHistory.lua
 Data\DataStore\LevelProgressData.lua
 Data\DataStore\DataStoreContainers.lua

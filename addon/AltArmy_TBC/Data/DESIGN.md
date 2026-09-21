@@ -104,6 +104,7 @@ Modules live under the `AltArmy` global. Common entry points:
 - `AltArmy.GearUpgrade` / `GearCompare` / `GearScore` — gear  
 - `AltArmy.CooldownData` / `LockoutData` / `StockpilePlan` — cooldowns  
 - `AltArmy.GuildShareSettings` / `GuildShareComm` / … — guild share  
-- `AltArmy.LevelProgressData` — graphs data  
+- `AltArmy.LevelProgressData` — graphs data
+- `AltArmy.DataStoreLegacy` — WoW Forever Legacy Talent capture (speculative `C_Traits` API — see `docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md`)  
 
 The Data folder does not introduce new globals beyond the `AltArmy` namespace tree.

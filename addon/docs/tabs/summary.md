@@ -18,7 +18,7 @@ See levels, rest XP, money, played time, and last online at a glance; pin/hide c
 |--------|--------|
 | Name | Class-colored with class icon; bank-alt icon when flagged |
 | Level | Fractional level support |
-| Rest XP | Rested experience |
+| Rest XP | Rested experience (cap and accumulation rate widened by the WoW Forever "Well Rested" Legacy Talent, when captured — see [Legacy Talents](../WOW_FOREVER_COMPATIBILITY_RESEARCH.md#legacy-talents-2026-09-21)) |
 | Money | Bags + mail gold |
 | Played | Time played |
 | Last online | Relative last logout |

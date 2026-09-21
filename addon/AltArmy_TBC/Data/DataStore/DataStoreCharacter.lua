@@ -127,12 +127,22 @@ function DS:GetCharacterGuild(char)
     return char and char.guildName or nil
 end
 
+--- Rest-cap/accumulation multiplier from the "Well Rested" Legacy Talent (WoW Forever), 1 when
+--- unavailable/not spent — see DataStoreLegacy.lua.
+local function getRestXpMultiplier(char)
+    local DL = AltArmy.DataStoreLegacy
+    if DL and DL.GetRestXpMultiplier then
+        return DL.GetRestXpMultiplier(char)
+    end
+    return 1
+end
+
 function DS:GetStoredRestXp(char)
     if not char or char.level == MAX_LEVEL then return 0 end
     local xpMax = char.xpMax or 0
     local restXP = char.restXP or 0
     if xpMax <= 0 then return 0 end
-    local maxRest = xpMax * 1.5
+    local maxRest = xpMax * 1.5 * getRestXpMultiplier(char)
     return math.min(100, (restXP / maxRest) * 100)
 end
 
@@ -141,12 +151,13 @@ function DS:GetRestXp(char)
     local xpMax = char.xpMax or 0
     local restXP = char.restXP or 0
     if xpMax <= 0 then return 0 end
-    local maxRest = xpMax * 1.5
+    local restMultiplier = getRestXpMultiplier(char)
+    local maxRest = xpMax * 1.5 * restMultiplier
     local lastLogout = char.lastLogout or MAX_LOGOUT_SENTINEL
     if lastLogout >= MAX_LOGOUT_SENTINEL then
         return math.min(100, (restXP / maxRest) * 100)
     end
-    local oneXPBubble = xpMax / 20
+    local oneXPBubble = (xpMax / 20) * restMultiplier
     local elapsed = time() - lastLogout
     local numXPBubbles = elapsed / 28800
     local xpEarnedResting = numXPBubbles * oneXPBubble

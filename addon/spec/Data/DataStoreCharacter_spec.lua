@@ -56,6 +56,38 @@ describe("DataStoreCharacter", function()
     end)
   end)
 
+  describe("Legacy Talent rest-XP multiplier (WoW Forever)", function()
+    setup(function()
+      _G.AltArmy.DataStoreLegacy = { GetRestXpMultiplier = function(char)
+        local rank = char and char.legacyTalents and char.legacyTalents.restRank or 0
+        return 1 + (rank * 0.04)
+      end }
+    end)
+
+    teardown(function()
+      _G.AltArmy.DataStoreLegacy = nil
+    end)
+
+    it("GetStoredRestXp widens the cap by the Legacy Talent multiplier", function()
+      local char = { level = 1, xpMax = 1000, restXP = 750, legacyTalents = { restRank = 5 } }
+      local maxRest = 1000 * 1.5 * 1.2
+      local expected = math.min(100, (750 / maxRest) * 100)
+      assert.are.equal(expected, DS:GetStoredRestXp(char))
+    end)
+
+    it("GetRestXp widens both the cap and the accumulation rate", function()
+      local char = {
+        level = 1, xpMax = 1000, restXP = 0, lastLogout = 1000,
+        legacyTalents = { restRank = 5 },
+      }
+      _G.time = function() return 1000 + 28800 end
+      local maxRest = 1000 * 1.5 * 1.2
+      local oneXPBubble = (1000 / 20) * 1.2
+      local expected = math.min(100, (oneXPBubble / maxRest) * 100)
+      assert.are.equal(expected, DS:GetRestXp(char))
+    end)
+  end)
+
   describe("getters", function()
     it("GetCharacterName returns name or empty", function()
       assert.are.equal("Alice", DS:GetCharacterName({ name = "Alice" }))

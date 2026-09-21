@@ -165,7 +165,9 @@ function AltArmy.SummaryData.GetCharacterList()
                 if playerXpMax <= 0 then
                     restRate = 0
                 else
-                    local maxRest = playerXpMax * 1.5
+                    local DL = AltArmy.DataStoreLegacy
+                    local restMultiplier = (DL and DL.GetRestXpMultiplier and DL.GetRestXpMultiplier(charData)) or 1
+                    local maxRest = playerXpMax * 1.5 * restMultiplier
                     restRate = math.min(100, (restXP / maxRest) * 100)
                 end
             else
