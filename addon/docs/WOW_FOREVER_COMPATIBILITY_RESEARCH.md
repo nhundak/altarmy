@@ -555,6 +555,35 @@ Since the addon had never had to deal with Secret Values before the crash above,
 
 Implemented one item at a time via red-green-refactor per `CLAUDE.md`: a failing test was written and confirmed to fail against the unguarded code before each fix, then the minimal guard was added to turn it green. All new tests mock `_G.canaccessvalue` directly (the closest a Lua 5.1 test environment can get to a real secret value, since ordinary Lua comparison/string ops can never themselves throw — same limitation noted in the original fix above). `npm test` (2380 tests) and `npm run check` both pass throughout.
 
+## Shaman dual-wield: gameplay-rule divergence, not an API gap (2026-09-21)
+
+A gameplay-rules difference surfaced that isn't an API-existence question at all: on WoW Forever, Shaman can use axes (proficiency unchanged) but cannot dual-wield one-handed weapons, even via the TBC-only Dual Wield talent Enhancement Shaman gets. `IU.CanClassDualWield` (`Data/Gear/ItemUsability.lua`) previously granted the dual-wield exception to any Enhancement-spec Shaman unconditionally, which is correct for TBC Classic but wrong for Forever.
+
+**Fixed:** `IU.CanClassDualWield` now looks up `AltArmy.DataStore.IsWowForever` (the same flag `DataStore.lua` already derives from the confirmed Interface number `16001`, per "Confirmed: Interface number" above) and skips the Enhancement Shaman exception when it's true. Looked up fresh on each call (not captured as a module-load-time local) so it reflects `DataStore.IsWowForever` however/whenever that gets set. Weapon proficiency itself (Shaman using axes) was already correct and untouched — only the dual-wield talent check changed.
+
+This is a reminder that Forever compatibility isn't only an API-surface question (sections above): some class/talent mechanics genuinely differ between TBC and Forever at the ruleset level, and those need the same per-behavior verification as the API-existence gaps — there's no single flag or API probe that surfaces them automatically.
+
+## Rogue axe proficiency: the reverse case, Forever grants what TBC doesn't (2026-09-21)
+
+Same class of divergence as the Shaman dual-wield fix above, but in the opposite direction: on WoW Forever, Rogue gains one-handed axe proficiency, which TBC Classic doesn't grant (`WEAPON_PROFICIENCIES.ROGUE` in `Data/Gear/ItemUsability.lua` has no axe entries — correct for TBC). Without a fix, the addon would flag a Rogue wearing a one-handed axe as an unusable/wrong-class item on Forever.
+
+**Fixed:** added `FOREVER_EXTRA_WEAPON_PROFICIENCIES` (`Data/Gear/ItemUsability.lua`), a small additive table checked only when `AltArmy.DataStore.IsWowForever` is true (same live lookup pattern as the dual-wield fix, not a module-load-time capture). `IU.CanClassEverUseWeapon` checks TBC's `WEAPON_PROFICIENCIES` first, then falls through to this table on Forever only. Scoped to one-handed axes only — Rogues have never had access to any two-handed weapon in any version, so no two-handed-axes entry was added (covered by a test asserting `CanClassEverUseWeapon("ROGUE", "Two-Handed Axes")` stays `false` on Forever).
+
+Together with the Shaman fix, this establishes the general pattern for ruleset (not API) divergences: additive/subtractive changes both key off the same `AltArmy.DataStore.IsWowForever` flag, checked live inside the affected `ItemUsability.lua` function rather than gating at a higher layer — keeps TBC's behavior as the unconditional default and Forever as the opt-in delta.
+
+## Web research pass: cross-checking weapon proficiencies against Forever sources (2026-09-21)
+
+Searched and fetched several WoW Forever class/spellbook reference sites (`wowforevertalents.com` per-class abilities pages, Warcraft Tavern's weapon-skills article, and corroborating searches) to check our `WEAPON_PROFICIENCIES`/`FOREVER_EXTRA_WEAPON_PROFICIENCIES` tables (`Data/Gear/ItemUsability.lua`) against every class, not just Rogue/Shaman.
+
+**Result — one more real gap found, fixed below; everything else already correct:**
+- **Warrior, Paladin, Hunter, Mage, Warlock, Priest, Shaman**: fetched primary per-class spellbook pages directly; every one matches our existing tables exactly (Rogue's one-handed-axe addition and Shaman's dual-wield denial, both above, already cover their only real deltas).
+- **Priest false alarm**: an AI-synthesized search summary initially claimed Priest gained Polearms and Two-Handed Swords/Axes/Maces on Forever — a large, surprising change. Fetching the primary `wowforevertalents.com/abilities/priest/` page directly instead of trusting the synthesized answer showed this was wrong (the summarizer had bled in Paladin's weapon list from an adjacent part of the same query); Priest is unchanged. Lesson for future passes: verify a synthesized web-search answer against a primary source before treating it as a code-change trigger, especially when the claim is a big, surprising jump in scope.
+- **Shaman dual wield, still unconfirmed either way**: the same primary Shaman page that confirmed the proficiency table also repeated the "client tables let Shaman dual-wield from level 1, but this isn't confirmed as intended (absent from the level-38 BlizzCon demo)" caveat already logged in the Shaman dual-wield section above. No new evidence either direction — our existing fix (deny it) remains the best-evidence default, not a settled fact.
+
+**Real gap found — Druid gains Polearms at level 20 on Forever**, per two independent sources. Not in our `WEAPON_PROFICIENCIES.DRUID` or `FOREVER_EXTRA_WEAPON_PROFICIENCIES` table, so a Forever Druid in a polearm would have been flagged as using an unusable weapon.
+
+**Fixed:** added `DRUID = { ["polearms"] = true }` to `FOREVER_EXTRA_WEAPON_PROFICIENCIES`. `IU.MinLevelToTrainProficiency`'s existing polearm branch (`Data/Gear/ItemUsability.lua`) was already generic — keyed off `IU.CanClassEverUseWeapon(classFile, "Polearms")` rather than hardcoded to Warrior/Paladin/Hunter — so it picked up the level-20 (`POLEARM_TRAIN_LEVEL`) gate for Forever Druids automatically, with no separate change needed. Verified via `IU.EffectiveRequiredLevel("DRUID", <polearm link>)` returning 20 on Forever, 999 (unusable) on TBC, same as the other polearm classes.
+
 ## Sources
 
 - [Multi-TOC for World of Warcraft Addons — CurseForge support](https://support.curseforge.com/support/solutions/articles/9000209856-multi-toc-for-world-of-warcraft-addons)
@@ -594,3 +623,13 @@ Implemented one item at a time via red-green-refactor per `CLAUDE.md`: a failing
 - [UI/Addon settings wiped on client restart — Blizzard US forums](https://us.forums.blizzard.com/en/wow/t/uiaddon-settings-wiped-on-client-restart/2353992) — official-forum thread on the same bug, no Blizzard/CM response as of this check
 - [WOW Forever. Game not save any addons settings — Blizzard EU forums](https://eu.forums.blizzard.com/en/wow/t/wow-forever-game-not-save-any-addons-settings/629470) — EU-forum report of the same symptom
 - [WoW Forever Beta Known Issues — September 18 — Blizzard US forums](https://us.forums.blizzard.com/en/wow/t/wow-forever-beta-known-issues-september-18/2352687) — official known-issues list checked for (and not containing) a SavedVariables entry
+- [Rogue Spellbook & Abilities — WoW Forever Talent Calculator](https://wowforevertalents.com/abilities/rogue/) — primary per-class weapon list, source for confirming Rogue's one-handed-axe-only addition (no two-handed) and level-10 dual wield
+- [Shaman Spellbook, Armour & Weapons — WoW Forever](https://wowforevertalents.com/abilities/shaman/) — primary weapon-list confirmation Shaman proficiencies are unchanged from our table; repeats the "dual wield from level 1 unconfirmed, absent from BlizzCon level-38 demo" caveat
+- [Priest Spellbook & Abilities — WoW Forever Talent Calculator](https://wowforevertalents.com/abilities/priest/) — primary source used to correct a wrong AI-synthesized search summary that had claimed Priest gained Polearms/Two-Handed weapons
+- [Mage Spellbook & Abilities — WoW Forever Talent Calculator](https://wowforevertalents.com/abilities/mage/)
+- [Warlock Spellbook & Abilities — WoW Forever Talent Calculator](https://wowforevertalents.com/abilities/warlock/)
+- [Druid Spellbook & Abilities — WoW Forever Talent Calculator](https://wowforevertalents.com/abilities/druid/) — source of the confirmed Polearms-at-level-20 addition, implemented above
+- [Paladin Spellbook & Abilities — WoW Forever Talent Calculator](https://wowforevertalents.com/abilities/paladin/)
+- [Hunter Spellbook & Abilities — WoW Forever Talent Calculator](https://wowforevertalents.com/abilities/hunter/)
+- [Warrior Spellbook & Abilities — WoW Forever Talent Calculator](https://wowforevertalents.com/abilities/warrior/)
+- [Weapon Skills in World of Warcraft Forever — Warcraft Tavern](https://www.warcrafttavern.com/forever/news/weapon-skills-in-world-of-warcraft-forever/) — general weapon-skill-value/racial-ability changes, no per-class proficiency detail

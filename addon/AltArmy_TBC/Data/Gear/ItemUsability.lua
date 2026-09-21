@@ -226,6 +226,13 @@ function IU.CanClassEverUseArmor(classFile, subclass)
     return true
 end
 
+--- Extra weapon proficiencies granted only on WoW Forever, beyond TBC's WEAPON_PROFICIENCIES
+--- (see docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md): Rogue gains one-handed axes there.
+local FOREVER_EXTRA_WEAPON_PROFICIENCIES = {
+    ROGUE = { ["one-handed axes"] = true },
+    DRUID = { ["polearms"] = true },
+}
+
 --- True if this class can ever use this weapon subclass.
 function IU.CanClassEverUseWeapon(classFile, weaponSubclass)
     if not weaponSubclass or weaponSubclass == "" then return true end
@@ -234,7 +241,13 @@ function IU.CanClassEverUseWeapon(classFile, weaponSubclass)
     classFile = normalizeClassFile(classFile)
     local prof = WEAPON_PROFICIENCIES[classFile]
     if not prof then return true end
-    return prof[key] == true
+    if prof[key] == true then return true end
+    local liveDS = AltArmy.DataStore
+    if liveDS and liveDS.IsWowForever then
+        local extra = FOREVER_EXTRA_WEAPON_PROFICIENCIES[classFile]
+        if extra and extra[key] then return true end
+    end
+    return false
 end
 
 --- Parse item link for reqLevel, armor subclass, weapon subclass.
@@ -301,11 +314,17 @@ function IU.GetWeaponRole(link)
     return role
 end
 
---- True when class/spec can dual-wield one-handed weapons (TBC rules).
+--- True when class/spec can dual-wield one-handed weapons.
+--- Enhancement Shaman's Dual Wield talent is TBC-only: WoW Forever's client
+--- doesn't grant it (see docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md), so that
+--- exception is skipped when AltArmy.DataStore.IsWowForever is set.
 function IU.CanClassDualWield(classFile, specKey)
     classFile = normalizeClassFile(classFile)
     if DUAL_WIELD_CLASS[classFile] then return true end
-    if classFile == "SHAMAN" and specKey == "enhancement" then return true end
+    local liveDS = AltArmy.DataStore
+    if classFile == "SHAMAN" and specKey == "enhancement" and not (liveDS and liveDS.IsWowForever) then
+        return true
+    end
     return false
 end
 

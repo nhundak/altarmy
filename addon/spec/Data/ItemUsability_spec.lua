@@ -116,6 +116,15 @@ describe("ItemUsability", function()
         assert.is_false(IU.CanClassDualWield("PRIEST", "shadow"))
     end)
 
+    it("CanClassDualWield denies enhancement shaman on WoW Forever (no dual-wield talent there)", function()
+        AltArmy.DataStore = AltArmy.DataStore or {}
+        AltArmy.DataStore.IsWowForever = true
+        assert.is_false(IU.CanClassDualWield("SHAMAN", "enhancement"))
+        assert.is_true(IU.CanClassDualWield("WARRIOR", "arms"))
+        AltArmy.DataStore.IsWowForever = false
+        assert.is_true(IU.CanClassDualWield("SHAMAN", "enhancement"))
+    end)
+
     it("CanClassEverUseArmor blocks mage from leather", function()
         assert.is_false(IU.CanClassEverUseArmor("MAGE", "Leather"))
         assert.is_true(IU.CanClassEverUseArmor("MAGE", "Cloth"))
@@ -138,6 +147,19 @@ describe("ItemUsability", function()
         assert.is_false(IU.CanClassEverUseWeapon("ROGUE", "Shields"))
     end)
 
+    it("CanClassEverUseWeapon blocks rogue axes on TBC but allows them on WoW Forever", function()
+        assert.is_false(IU.CanClassEverUseWeapon("ROGUE", "One-Handed Axes"))
+        assert.is_false(IU.CanClassEverUseWeapon("ROGUE", "Two-Handed Axes"))
+
+        AltArmy.DataStore = AltArmy.DataStore or {}
+        AltArmy.DataStore.IsWowForever = true
+        assert.is_true(IU.CanClassEverUseWeapon("ROGUE", "One-Handed Axes"))
+        assert.is_false(IU.CanClassEverUseWeapon("ROGUE", "Two-Handed Axes"))
+        AltArmy.DataStore.IsWowForever = false
+
+        assert.is_false(IU.CanClassEverUseWeapon("ROGUE", "One-Handed Axes"))
+    end)
+
     it("CanClassEverUseWeapon allows paladins to use polearms", function()
         assert.is_true(IU.CanClassEverUseWeapon("PALADIN", "Polearms"))
         assert.is_false(IU.CanNeverUseItem("PALADIN", "|Hitem:15:0|h[Halberd]|h"))
@@ -155,6 +177,17 @@ describe("ItemUsability", function()
     it("CanClassEverUseWeapon allows druid two-handed maces", function()
         assert.is_true(IU.CanClassEverUseWeapon("DRUID", "Two-Handed Maces"))
         assert.is_false(IU.CanNeverUseItem("DRUID", "|Hitem:16:0|h[Heavy Mace]|h"))
+        assert.is_false(IU.CanClassEverUseWeapon("DRUID", "Polearms"))
+    end)
+
+    it("CanClassEverUseWeapon allows druid polearms on WoW Forever, gated to level 20", function()
+        AltArmy.DataStore = AltArmy.DataStore or {}
+        AltArmy.DataStore.IsWowForever = true
+        assert.is_true(IU.CanClassEverUseWeapon("DRUID", "Polearms"))
+        assert.are.equal(20, IU.MinLevelToTrainProficiency("DRUID", "Polearms", "Weapon"))
+        assert.are.equal(20, IU.EffectiveRequiredLevel("DRUID", "|Hitem:15:0|h[Halberd]|h"))
+        AltArmy.DataStore.IsWowForever = false
+
         assert.is_false(IU.CanClassEverUseWeapon("DRUID", "Polearms"))
     end)
 
