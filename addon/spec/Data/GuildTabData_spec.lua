@@ -1931,6 +1931,26 @@ describe("GuildTabData", function()
         assert.are.equal("Alice's alt", map.bob.note)
         assert.are.equal("", map.carol.note)
       end)
+
+      it("skips a roster row whose name is inaccessible (secret) but keeps the rest", function()
+        local roster = {
+          [1] = { name = "Alice", level = 70, classFile = "MAGE" },
+          [2] = { name = "SecretName", level = 60, classFile = "WARRIOR" },
+        }
+        _G.canaccessvalue = function(v) return v ~= "SecretName" end
+        local map = GTD.BuildRosterInfoMap({
+          isInGuild = function() return true end,
+          getNumGuildMembers = function() return 2 end,
+          getGuildRosterInfo = function(i)
+            local e = roster[i]
+            return e.name, nil, nil, e.level, nil, nil, nil, nil, true, nil, e.classFile
+          end,
+        })
+        _G.canaccessvalue = nil
+        assert.are.same({
+          alice = { classFile = "MAGE", level = 70, name = "Alice", note = "" },
+        }, map)
+      end)
     end)
 
     describe("FormatRosterSuggestName", function()

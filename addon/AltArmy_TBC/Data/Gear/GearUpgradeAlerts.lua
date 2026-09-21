@@ -257,19 +257,33 @@ local function collectLootUpgradeMatches(itemLink, currentEnabled, otherEnabled,
     return matches
 end
 
+--- Patch 12.0+ clients (Forever included) can hand CHAT_MSG_LOOT handlers Secret
+--- Value strings that error on any operation beyond store/pass. `canaccessvalue()`
+--- (existence-checked) is the guard, matching DataStoreProfessions.lua's fix.
+local function canAccessSecretValue(value)
+    if _G.canaccessvalue then
+        return _G.canaccessvalue(value)
+    end
+    return true
+end
+
 local function extractItemLink(msg)
     if not msg then return nil end
+    if not canAccessSecretValue(msg) then return nil end
     return msg:match("(|c.-|Hitem:.-|h[^|]*|h)")
         or msg:match("(|Hitem:.-|h[^|]*|h)")
         or msg:match("(item:%d+)")
 end
+GA._ExtractItemLink = extractItemLink
 
 local function isSelfLootMessage(msg)
     if not msg then return false end
+    if not canAccessSecretValue(msg) then return false end
     return msg:find("^You receive loot:") ~= nil
         or msg:find("^You receive item:") ~= nil
         or msg:find("^You create:") ~= nil
 end
+GA._IsSelfLootMessage = isSelfLootMessage
 
 local function maybeLogItemComparison(itemLink)
     if GC and GC.LogItemComparisonDebug then

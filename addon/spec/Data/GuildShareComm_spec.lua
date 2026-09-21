@@ -25,6 +25,23 @@ describe("GuildShareComm helpers", function()
     }
   end)
 
+  describe("_CollectOnlineGuildMembers", function()
+    it("skips a roster row whose name is inaccessible (secret) but keeps the rest", function()
+      local roster = {
+        { "Alice", nil, nil, nil, nil, nil, nil, nil, true },
+        { "SecretName", nil, nil, nil, nil, nil, nil, nil, true },
+      }
+      _G.UnitName = function() return "Me" end
+      _G.IsInGuild = function() return true end
+      _G.GetNumGuildMembers = function() return #roster end
+      _G.GetGuildRosterInfo = function(i) return unpack(roster[i]) end
+      _G.canaccessvalue = function(v) return v ~= "SecretName" end
+      local out = Comm._CollectOnlineGuildMembers()
+      _G.canaccessvalue = nil
+      assert.are.same({ Alice = true }, out)
+    end)
+  end)
+
   describe("STALE_MAX_AGE", function()
     it("purges received guild data after 180 days", function()
       assert.are.equal(60 * 60 * 24 * 180, Comm.STALE_MAX_AGE)

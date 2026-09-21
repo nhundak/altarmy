@@ -21,6 +21,18 @@ local function compatGetItemInfo(item)
     if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
 end
 
+--- Patch 12.0+ clients (Forever included) can hand GetGuildRosterInfo() names/notes
+--- to addons as Secret Values that error on any operation beyond store/pass.
+--- `canaccessvalue()` (existence-checked) is the guard, matching
+--- DataStoreProfessions.lua's fix. Self-contained for the same reason as
+--- hasItemInfoApi()/compatGetItemInfo() above.
+local function canAccessSecretValue(value)
+    if _G.canaccessvalue then
+        return _G.canaccessvalue(value)
+    end
+    return true
+end
+
 local GRAY = "|cff808080"
 local GUILD_TAG_COLOR = "|cff8ab4f8"
 local WHITE = "|cffffffff"
@@ -2200,14 +2212,15 @@ function GTD.BuildRosterInfoMap(api)
     for i = 1, n do
         -- name, rank, rankIndex, level, class, zone, note, officernote, online, status, classFileName
         local name, _, _, level, _, _, publicNote, officerNote, _, _, classFile = getInfo(i)
+        if not canAccessSecretValue(name) then name = nil end
         local key = normalize(name)
         if key and key ~= "" then
             local short = type(name) == "string" and (name:match("^[^%-]+") or name) or name
             local note = ""
-            if type(publicNote) == "string" then
+            if type(publicNote) == "string" and canAccessSecretValue(publicNote) then
                 note = publicNote:match("^%s*(.-)%s*$") or ""
             end
-            if note == "" and type(officerNote) == "string" then
+            if note == "" and type(officerNote) == "string" and canAccessSecretValue(officerNote) then
                 note = officerNote:match("^%s*(.-)%s*$") or ""
             end
             out[key] = {

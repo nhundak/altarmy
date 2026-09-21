@@ -61,6 +61,29 @@ describe("GearUpgradeAlerts", function()
         assert.are.equal("|Hitem:11:0|h[New Helm]|h", openedLink)
     end)
 
+    describe("CHAT_MSG_LOOT secret-value guard", function()
+        it("_IsSelfLootMessage treats an inaccessible (secret) message as not self-loot", function()
+            _G.canaccessvalue = function() return false end
+            local result = GA._IsSelfLootMessage("You receive loot: [Foo]x1.")
+            _G.canaccessvalue = nil
+            assert.is_false(result)
+        end)
+
+        it("_ExtractItemLink returns nil for an inaccessible (secret) message", function()
+            _G.canaccessvalue = function() return false end
+            local result = GA._ExtractItemLink("You receive loot: |Hitem:11:0|h[New Helm]|h.")
+            _G.canaccessvalue = nil
+            assert.is_nil(result)
+        end)
+
+        it("still works normally for plain (non-secret) messages", function()
+            assert.is_true(GA._IsSelfLootMessage("You receive loot: [Foo]x1."))
+            assert.are.equal(
+                "|Hitem:11:0|h[New Helm]|h",
+                GA._ExtractItemLink("You receive loot: |Hitem:11:0|h[New Helm]|h."))
+        end)
+    end)
+
     it("HandleSetItemRef falls back to bare item id when item is uncached", function()
         local ok = GA.HandleSetItemRef("altarmy:upgrade:99999", "LeftButton")
         assert.is_true(ok)

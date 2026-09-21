@@ -263,6 +263,17 @@ function Comm._WithLoginAnnounce(presence, isLoginAnnounce)
     return presence
 end
 
+--- Patch 12.0+ clients (Forever included) can hand GetGuildRosterInfo() names to
+--- addons as Secret Values that error on any operation beyond store/pass.
+--- `canaccessvalue()` (existence-checked) is the guard, matching
+--- DataStoreProfessions.lua's fix.
+local function canAccessSecretValue(value)
+    if _G.canaccessvalue then
+        return _G.canaccessvalue(value)
+    end
+    return true
+end
+
 local function collectOnlineGuildMembers()
     local out = {}
     if not (IsInGuild and IsInGuild()) then return out end
@@ -271,7 +282,7 @@ local function collectOnlineGuildMembers()
     local n = GetNumGuildMembers()
     for i = 1, n do
         local name, _, _, _, _, _, _, _, online = GetGuildRosterInfo(i)
-        if online and name then
+        if online and name and canAccessSecretValue(name) then
             local short = normalizeSender(name)
             if short ~= "" and short ~= mine then
                 out[short] = true
@@ -280,6 +291,7 @@ local function collectOnlineGuildMembers()
     end
     return out
 end
+Comm._CollectOnlineGuildMembers = collectOnlineGuildMembers
 
 --- True when a guildmate (normalized short name) is online in the roster.
 function Comm.IsGuildMemberOnline(name)

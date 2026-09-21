@@ -44,6 +44,16 @@ function GCM.FormatMainPrefix(main, classFile, colorByClass)
     return "[" .. namePart .. "] "
 end
 
+--- Patch 12.0+ clients (Forever included) can hand chat handlers Secret Value
+--- strings that error on any operation beyond store/pass. `canaccessvalue()`
+--- (existence-checked) is the guard, matching DataStoreProfessions.lua's fix.
+local function canAccessSecretValue(value)
+    if _G.canaccessvalue then
+        return _G.canaccessvalue(value)
+    end
+    return true
+end
+
 --- Strip any realm suffix ("Name-Realm" -> "Name") for main lookups.
 local function stripRealm(name)
     if type(name) ~= "string" then return name end
@@ -202,6 +212,7 @@ end
 --- Gated here (rather than by install/uninstall) so toggling takes effect immediately.
 function GCM.FilterMessage(message, author, channelKey)
     if not chatInsertionAllowed() then return nil end
+    if not canAccessSecretValue(message) or not canAccessSecretValue(author) then return nil end
     local GSS = AltArmy.GuildShareSettings
     if channelKey and GSS.IsChatInsertionChannelEnabled
         and not GSS.IsChatInsertionChannelEnabled(channelKey) then
@@ -220,6 +231,7 @@ end
 --- Annotate online/offline system messages when chat insertion is enabled.
 function GCM.FilterSystemMessage(message)
     if not chatInsertionAllowed() then return nil end
+    if not canAccessSecretValue(message) then return nil end
     local name = GCM.ParseOnlineOffline(message)
     if not name then return nil end
     local getMain, getMainClass, getLabel = buildResolvers(name)
@@ -254,6 +266,9 @@ function GCM.ShouldAnnotateClubMessage(clubInfo, message)
     local author = message.author
     local name = author and author.name
     if type(name) ~= "string" or name == "" then
+        return false
+    end
+    if not canAccessSecretValue(name) then
         return false
     end
     return true

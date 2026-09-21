@@ -12,6 +12,18 @@ local DATA_VERSIONS = DS._DATA_VERSIONS
 local ZERO_GUID = "0000000000000000"
 local ENVIRONMENT_KILLER = "Environment"
 
+--- Patch 12.0+ clients (Forever included) can hand combat-log fields (source
+--- name/subevent) to addons as Secret Values that error on any operation beyond
+--- store/pass. `canaccessvalue()` (existence-checked) is the guard for that,
+--- matching both our own DataStoreProfessions.lua fix and the convention Thaoky's
+--- DataStore addons use for this exact case.
+local function canAccessSecretValue(value)
+    if _G.canaccessvalue then
+        return _G.canaccessvalue(value)
+    end
+    return true
+end
+
 local lastAttacker = { name = nil, guid = nil }
 local testCharOverride = nil
 local testDebugMessages = nil
@@ -249,6 +261,9 @@ function DS._SetLevelHistoryTestChar(char)
 end
 
 function DS._ParseDeathKiller(sourceGUID, sourceName)
+    if sourceName and not canAccessSecretValue(sourceName) then
+        sourceName = nil
+    end
     if not sourceName or sourceName == "" then
         if not sourceGUID or sourceGUID == "" or sourceGUID == ZERO_GUID then
             return { killerName = ENVIRONMENT_KILLER, killerGuid = nil }
@@ -382,6 +397,7 @@ end
 
 local function IsDamageSubevent(subevent)
     if type(subevent) ~= "string" then return false end
+    if not canAccessSecretValue(subevent) then return false end
     if subevent == "ENVIRONMENTAL_DAMAGE" then return true end
     return subevent:match("_DAMAGE$") ~= nil
 end

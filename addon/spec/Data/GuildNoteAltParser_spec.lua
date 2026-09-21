@@ -24,6 +24,30 @@ describe("GuildNoteAltParser", function()
     assert.truthy(GNP)
   end)
 
+  describe("BuildRosterNoteEntries", function()
+    it("skips a roster row whose name is inaccessible (secret) but keeps the rest", function()
+      local rows = {
+        { "Alice", nil, nil, nil, nil, nil, "alt of Bob", "" },
+        { "SecretName", nil, nil, nil, nil, nil, "note", "" },
+        { "Carol", nil, nil, nil, nil, nil, "", "" },
+      }
+      local i = 0
+      _G.canaccessvalue = function(v) return v ~= "SecretName" end
+      local out = GNP.BuildRosterNoteEntries({
+        isInGuild = function() return true end,
+        getNumGuildMembers = function() return #rows end,
+        getGuildRosterInfo = function()
+          i = i + 1
+          return unpack(rows[i])
+        end,
+      })
+      _G.canaccessvalue = nil
+      assert.are.equal(2, #out)
+      assert.are.equal("Alice", out[1].name)
+      assert.are.equal("Carol", out[2].name)
+    end)
+  end)
+
   describe("ParseNote", function()
     local roster
 

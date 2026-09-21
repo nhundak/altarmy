@@ -123,6 +123,14 @@ describe("GuildChatMainName", function()
       AltArmy.GuildShareSettings.IsSharingEnabled = function() return false end
       assert.is_nil(GCM.FilterMessage("hello", "Alt", "guild"))
     end)
+
+    it("returns nil instead of annotating when the message is inaccessible (secret)", function()
+      AltArmy.GuildShareSettings.IsSharingEnabled = function() return true end
+      _G.canaccessvalue = function() return false end
+      local out = GCM.FilterMessage("hello", "Alt", "guild")
+      _G.canaccessvalue = nil
+      assert.is_nil(out)
+    end)
   end)
 
   describe("FilterMessage manual-group class color", function()
@@ -241,6 +249,13 @@ describe("GuildChatMainName", function()
     it("ShouldAnnotateClubMessage is false when author name is missing", function()
       assert.is_false(GCM.ShouldAnnotateClubMessage(guildClub(), msg({ author = {} })))
       assert.is_false(GCM.ShouldAnnotateClubMessage(guildClub(), msg({ author = { name = "" } })))
+    end)
+
+    it("ShouldAnnotateClubMessage is false when author name is inaccessible (secret)", function()
+      _G.canaccessvalue = function() return false end
+      local result = GCM.ShouldAnnotateClubMessage(guildClub(), msg())
+      _G.canaccessvalue = nil
+      assert.is_false(result)
     end)
 
     it("AnnotateClubMessageContent annotates when guild insertion is allowed", function()
@@ -517,6 +532,15 @@ describe("GuildChatMainName", function()
 
       it("returns nil for non online/offline system text", function()
         assert.is_nil(GCM.FilterSystemMessage("You receive loot: [Foo]."))
+      end)
+
+      it("returns nil instead of annotating when the message is inaccessible (secret)", function()
+        AltArmy.GuildShareSettings.IsSharingEnabled = function() return true end
+        AltArmy.GuildShareSettings.IsChatInsertionEnabled = function() return true end
+        _G.canaccessvalue = function() return false end
+        local out = GCM.FilterSystemMessage(ONLINE)
+        _G.canaccessvalue = nil
+        assert.is_nil(out)
       end)
     end)
   end)

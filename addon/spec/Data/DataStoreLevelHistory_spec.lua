@@ -54,6 +54,16 @@ describe("DataStoreLevelHistory", function()
       assert.are.equal("Defias Bandit", killer.killerName)
       assert.are.equal("Creature-0-1234-0-5678-000012345678", killer.killerGuid)
     end)
+
+    it("falls back to Environment instead of using an inaccessible (secret) source name", function()
+      _G.canaccessvalue = function() return false end
+      local killer = DS._ParseDeathKiller(
+        "Creature-0-1234-0-5678-000012345678",
+        "Defias Bandit"
+      )
+      _G.canaccessvalue = nil
+      assert.are.equal("Environment", killer.killerName)
+    end)
   end)
 
   describe("_ComputePlayedLevel", function()
@@ -229,6 +239,36 @@ describe("DataStoreLevelHistory", function()
         "Bob",
       })
       assert.are.equal(5600, char.levelHistory.deaths[1].playedTotal)
+    end)
+
+    it("ignores a damage event whose subevent is inaccessible (secret) instead of tracking a killer from it", function()
+      local char = makeChar()
+      DS._SetLevelHistoryTestChar(char)
+      _G.canaccessvalue = function(v) return v ~= "SWING_DAMAGE" end
+      DS:HandleCombatLogForLevelHistory({
+        1,
+        "SWING_DAMAGE",
+        nil,
+        "Creature-0-1",
+        "Murloc",
+        nil,
+        nil,
+        "Player-1-2",
+        "Bob",
+      })
+      _G.canaccessvalue = nil
+      DS:HandleCombatLogForLevelHistory({
+        2,
+        "UNIT_DIED",
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        "Player-1-2",
+        "Bob",
+      })
+      assert.are.equal("Environment", char.levelHistory.deaths[1].killerName)
     end)
   end)
 

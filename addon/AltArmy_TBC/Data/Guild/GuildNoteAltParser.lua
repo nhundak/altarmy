@@ -7,6 +7,17 @@ if not AltArmy then return end
 AltArmy.GuildNoteAltParser = AltArmy.GuildNoteAltParser or {}
 local GNP = AltArmy.GuildNoteAltParser
 
+--- Patch 12.0+ clients (Forever included) can hand GetGuildRosterInfo() names/notes
+--- to addons as Secret Values that error on any operation beyond store/pass.
+--- `canaccessvalue()` (existence-checked) is the guard, matching
+--- DataStoreProfessions.lua's fix.
+local function canAccessSecretValue(value)
+    if _G.canaccessvalue then
+        return _G.canaccessvalue(value)
+    end
+    return true
+end
+
 local function normalizeKey(name)
     local GTD = AltArmy.GuildTabData
     if GTD and GTD.NormalizeRosterName then
@@ -581,8 +592,10 @@ function GNP.BuildRosterNoteEntries(api)
     for i = 1, n do
         -- name, rank, rankIndex, level, class, zone, note, officernote, online, status, classFileName
         local name, _, _, _, _, _, publicNote, officerNote = getInfo(i)
-        if type(name) == "string" and name ~= "" then
+        if type(name) == "string" and name ~= "" and canAccessSecretValue(name) then
             local short = name:match("^[^%-]+") or name
+            if not canAccessSecretValue(publicNote) then publicNote = "" end
+            if not canAccessSecretValue(officerNote) then officerNote = "" end
             out[#out + 1] = {
                 name = short,
                 publicNote = publicNote or "",

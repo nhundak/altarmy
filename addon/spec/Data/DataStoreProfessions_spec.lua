@@ -1235,6 +1235,21 @@ describe("DataStoreProfessions", function()
       assert.is_true(ok)
       assert.is_nil(result)
     end)
+
+    it("returns nil via canaccessvalue without ever touching the value's content", function()
+      _G.ERR_LEARN_RECIPE_S = "You have learned how to create a new item: %s."
+      _G.ERR_LEARN_SPELL_S = "You have learned a new spell: %s."
+      local checked
+      _G.canaccessvalue = function(v)
+        checked = v
+        return false
+      end
+      local result = DS:GetProfessionRecipeLearnName(
+        "You have learned how to create a new item: Mooncloth.")
+      _G.canaccessvalue = nil
+      assert.is_nil(result)
+      assert.are.equal("You have learned how to create a new item: Mooncloth.", checked)
+    end)
   end)
 
   describe("OnProfessionLearnSystemMessage", function()

@@ -206,6 +206,17 @@ local function SafeRegisterEvent(eventName)
     pcall(frame.RegisterEvent, frame, eventName)
 end
 
+--- Patch 12.0+ clients (Forever included) can hand combat-log fields to addons as
+--- Secret Values that error on any operation beyond store/pass. `canaccessvalue()`
+--- (existence-checked) is the guard, matching DataStoreLevelHistory.lua's copy and
+--- our DataStoreProfessions.lua fix.
+local function canAccessSecretValue(value)
+    if _G.canaccessvalue then
+        return _G.canaccessvalue(value)
+    end
+    return true
+end
+
 SafeRegisterEvent("ADDON_LOADED")
 SafeRegisterEvent("VARIABLES_LOADED")
 SafeRegisterEvent("PLAYER_ALIVE")
@@ -369,7 +380,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
         local CD = AltArmy and AltArmy.CooldownData
         if not CD or not CD.RecordSuccessfulTransmuteCast then return end
         local subevent = payload[2]
-        if subevent ~= "SPELL_CAST_SUCCESS" then return end
+        if not canAccessSecretValue(subevent) or subevent ~= "SPELL_CAST_SUCCESS" then return end
         local srcGUID = payload[4]
         local playerGUID = UnitGUID("player")
         if not playerGUID or srcGUID ~= playerGUID then return end
