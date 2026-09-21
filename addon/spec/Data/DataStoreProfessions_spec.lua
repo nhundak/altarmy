@@ -1220,6 +1220,21 @@ describe("DataStoreProfessions", function()
         "You have learned a new spell: Fireball."))
       assert.is_false(DS:IsProfessionRecipeLearnSystemMessage("Some other system message."))
     end)
+
+    it("returns nil instead of erroring when inspecting msg throws (e.g. a tainted/secret chat string)", function()
+      _G.ERR_LEARN_RECIPE_S = "You have learned how to create a new item: %s."
+      _G.ERR_LEARN_SPELL_S = "You have learned a new spell: %s."
+      local originalMatch = string.match
+      string.match = function(...)
+        error("attempt to compare local 'msg' (a secret string value, while execution tainted by 'AltArmy_TBC'")
+      end
+      local ok, result = pcall(function()
+        return DS:GetProfessionRecipeLearnName("You have learned how to create a new item: Mooncloth.")
+      end)
+      string.match = originalMatch
+      assert.is_true(ok)
+      assert.is_nil(result)
+    end)
   end)
 
   describe("OnProfessionLearnSystemMessage", function()

@@ -191,6 +191,9 @@ read_globals = {
     "UnitGUID",
     "CombatLogGetCurrentEventInfo",
     "InCombatLockdown",
+    -- Secret Values (Patch 12.0+, Forever included)
+    "issecretvalue",
+    "canaccessvalue",
     -- Craft API (TBC Classic Enchanting / Beast Training)
     "GetCraftDisplaySkillLine",
     "GetCraftSkillLine",

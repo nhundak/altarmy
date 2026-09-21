@@ -1240,7 +1240,14 @@ end
 
 --- Extract the learned recipe/formula name from a profession learn system chat line.
 --- TBC Classic often does not fire NEW_RECIPE_LEARNED; chat is the reliable signal.
-function DS:GetProfessionRecipeLearnName(msg)
+--- Patch 12.0+ clients (Forever included) can hand chat handlers a Secret Value
+--- string whose *content* can't be inspected at all — even `== ""` throws
+--- ("attempt to compare ... a secret string value"), not just pattern matching.
+--- `issecretvalue()` (existence-checked, safe to call on tainted execution paths
+--- per Blizzard's own API) short-circuits the common case; `pcall` around the rest
+--- is the fallback safety net for anything `issecretvalue` doesn't catch, e.g. an
+--- older client without it.
+local function parseProfessionRecipeLearnName(msg)
     if type(msg) ~= "string" or msg == "" then
         return nil
     end
@@ -1262,6 +1269,17 @@ function DS:GetProfessionRecipeLearnName(msg)
         return stripWowFormatting(spellName)
     end
     return nil
+end
+
+function DS:GetProfessionRecipeLearnName(msg)
+    if _G.issecretvalue and _G.issecretvalue(msg) then
+        return nil
+    end
+    local ok, result = pcall(parseProfessionRecipeLearnName, msg)
+    if not ok then
+        return nil
+    end
+    return result
 end
 
 --- True when a system chat line indicates a profession recipe/formula was learned.
