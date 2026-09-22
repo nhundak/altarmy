@@ -370,10 +370,11 @@ local function buildDialog()
             local syncDisplay = not GSS or not GSS.ShouldSyncDisplayNameWithMain
                 or GSS.ShouldSyncDisplayNameWithMain(previousMain, previousDisplay)
             if displayNameEdit and id and syncDisplay then
+                local firstName = (GSS and GSS.FirstName and GSS.FirstName(id)) or id
                 if Theme.SetEditBoxText then
-                    Theme.SetEditBoxText(displayNameEdit, id)
+                    Theme.SetEditBoxText(displayNameEdit, firstName)
                 else
-                    displayNameEdit:SetText(id)
+                    displayNameEdit:SetText(firstName)
                 end
             end
         end,

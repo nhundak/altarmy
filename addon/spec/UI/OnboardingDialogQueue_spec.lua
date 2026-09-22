@@ -115,4 +115,32 @@ describe("OnboardingDialogQueue", function()
         ODQ.Process()
         assert.are.same({ "early", "late" }, order)
     end)
+
+    it("SuppressForSession blocks later providers from showing this session", function()
+        local order = {}
+        ODQ.Register({
+            id = "first",
+            priority = 1,
+            shouldPrompt = function() return true end,
+            show = function(onDismiss)
+                order[#order + 1] = "show-first"
+                ODQ.SuppressForSession()
+                onDismiss()
+            end,
+        })
+        ODQ.Register({
+            id = "second",
+            priority = 2,
+            shouldPrompt = function() return true end,
+            show = function(onDismiss)
+                order[#order + 1] = "show-second"
+                onDismiss()
+            end,
+        })
+        ODQ.Process()
+        assert.are.same({ "show-first" }, order)
+
+        ODQ.Process()
+        assert.are.same({ "show-first" }, order)
+    end)
 end)

@@ -10,6 +10,7 @@ local providers = {}
 local showing = false
 local processScheduled = false
 local nextIndex = 1
+local suppressedForSession = false
 
 local function sortProviders()
     table.sort(providers, function(a, b)
@@ -33,8 +34,14 @@ function ODQ.Register(provider)
     sortProviders()
 end
 
+--- Block all further onboarding dialogs for the rest of this session (until relog).
+--- Used by providers whose message should preempt everything else this login.
+function ODQ.SuppressForSession()
+    suppressedForSession = true
+end
+
 function ODQ.Process()
-    if showing then return end
+    if showing or suppressedForSession then return end
     sortProviders()
     if #providers == 0 then
         nextIndex = 1
@@ -81,6 +88,7 @@ function ODQ._ResetForTests()
     showing = false
     processScheduled = false
     nextIndex = 1
+    suppressedForSession = false
 end
 
 local enterFrame = CreateFrame and CreateFrame("Frame")

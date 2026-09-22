@@ -62,6 +62,10 @@ There is no Characters containers tab; inventory is via Search.
 - **Gear upgrades:** chat (and clickable links) for loot, Need/Greed, quest rewards, and level-up upgrades for you or alts; quest-reward overlays on turn-in / quest log.
 - **Mail expiry:** login chat when any character’s soonest mail returns within 5 days.
 
+### First-login notices
+
+One-time dialogs shown at most once each (guild-share prompt, bank-alt suggestion, RestedXP quest-reward conflict, a development-status notice) are sequenced through a shared onboarding queue so only one shows at a time. The development-status notice — a heads-up about a Blizzard bug that currently prevents SavedVariables from loading reliably, dismissed with a single "Got it" button — takes priority over the others and, once shown, suppresses the rest of the queue for the remainder of that login session.
+
 ### Optional addon integrations
 
 | Addon | Used for |

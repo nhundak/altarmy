@@ -181,6 +181,17 @@ describe("GuildShareSettings", function()
       assert.is_false(GSS.ShouldSyncDisplayNameWithMain("Bob", "Bobby"))
       assert.is_false(GSS.ShouldSyncDisplayNameWithMain(nil, "Chief"))
     end)
+    it("FirstName returns the first space-separated word", function()
+      assert.are.equal("Bob", GSS.FirstName("Bob Smith"))
+      assert.are.equal("Bob", GSS.FirstName("Bob"))
+      assert.are.equal("", GSS.FirstName(""))
+      assert.is_nil(GSS.FirstName(nil))
+    end)
+    it("ShouldSyncDisplayNameWithMain matches a WoW Forever main's first name (case-insensitive)", function()
+      assert.is_true(GSS.ShouldSyncDisplayNameWithMain("Bob Smith", "Bob"))
+      assert.is_true(GSS.ShouldSyncDisplayNameWithMain("Bob Smith", "bob"))
+      assert.is_false(GSS.ShouldSyncDisplayNameWithMain("Bob Smith", "Smith"))
+    end)
     it("SetCharacterOptedOut", function()
       GSS.SetCharacterOptedOut("Bob", "R", true)
       assert.is_true(GSS.IsCharacterOptedOut("Bob", "R"))
@@ -543,6 +554,22 @@ describe("GuildShareSettings", function()
       assert.are.equal("Main", picked)
       assert.are.equal("Main", GSS.GetMain("R"))
     end)
+
+    it("seeds the display name with only the top character's first name", function()
+      setChars("R", {
+        ["Main Toon"] = { name = "Main Toon", realm = "R", level = 70, classFile = "WARRIOR" },
+      })
+      AltArmy.GuildShareOnboarding = AltArmy.GuildShareOnboarding or {}
+      local GSO = AltArmy.GuildShareOnboarding
+      local origBuild = GSO.BuildRealmCharEntries
+      GSO.BuildRealmCharEntries = function(chars)
+        return { { id = "Main Toon", label = "Main Toon" } }
+      end
+      GSS.EnsureDefaultMainIfMissing("R")
+      GSO.BuildRealmCharEntries = origBuild
+      assert.are.equal("Main Toon", GSS.GetMain("R"))
+      assert.are.equal("Main", GSS.GetDisplayName("R"))
+    end)
   end)
 
   describe("character share mode", function()
@@ -638,6 +665,13 @@ describe("GuildShareSettings", function()
       local main, display = GSS.ResolvePresenceMainAndDisplay({ charEntry("SavedMain", 70) }, "R")
       assert.are.equal("SavedMain", main)
       assert.are.equal("SavedMain", display)
+    end)
+
+    it("uses only the main's first name as display for a WoW Forever 'First Last' main", function()
+      GSS.SetMain("R", "Saved Main")
+      local main, display = GSS.ResolvePresenceMainAndDisplay({ charEntry("Saved Main", 70) }, "R")
+      assert.are.equal("Saved Main", main)
+      assert.are.equal("Saved", display)
     end)
   end)
 

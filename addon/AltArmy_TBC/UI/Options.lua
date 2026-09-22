@@ -1023,11 +1023,12 @@ local guildMainDropdown = Theme.CreateSingleSelectDropdown({
         local syncDisplay = not GSS or not GSS.ShouldSyncDisplayNameWithMain
             or GSS.ShouldSyncDisplayNameWithMain(oldMain, oldDisplay)
         if id and syncDisplay then
+            local firstName = (GSS and GSS.FirstName and GSS.FirstName(id)) or id
             if guildDisplayEdit and Theme.SetEditBoxText then
-                Theme.SetEditBoxText(guildDisplayEdit, id)
+                Theme.SetEditBoxText(guildDisplayEdit, firstName)
             end
             if GSS and GSS.SetDisplayName then
-                GSS.SetDisplayName(nil, id)
+                GSS.SetDisplayName(nil, firstName)
             end
         end
         if AltArmy.RefreshGuildTab then AltArmy.RefreshGuildTab() end

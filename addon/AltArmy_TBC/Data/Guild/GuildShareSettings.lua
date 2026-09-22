@@ -342,7 +342,7 @@ function GSS.EnsureDefaultMainIfMissing(realm)
     if not top or not top.id then return nil end
     GSS.SetMain(realm, top.id)
     if not GSS.GetDisplayName(realm) then
-        GSS.SetDisplayName(realm, top.id)
+        GSS.SetDisplayName(realm, GSS.FirstName(top.id))
     end
     return top.id
 end
@@ -369,8 +369,8 @@ end
 GSS.DISPLAY_NAME_MAX_LENGTH = 20
 
 --- Whether changing main should also update the preferred/display name.
---- Sync when the preferred name is empty, or still matches the old main
---- (case-insensitive). Keep a custom preferred name otherwise.
+--- Sync when the preferred name is empty, or still matches the old main's
+--- first name (case-insensitive). Keep a custom preferred name otherwise.
 function GSS.ShouldSyncDisplayNameWithMain(oldMain, oldDisplayName)
     if type(oldDisplayName) ~= "string" or oldDisplayName == "" then
         return true
@@ -378,7 +378,17 @@ function GSS.ShouldSyncDisplayNameWithMain(oldMain, oldDisplayName)
     if type(oldMain) ~= "string" or oldMain == "" then
         return false
     end
-    return oldMain:lower() == oldDisplayName:lower()
+    return GSS.FirstName(oldMain):lower() == oldDisplayName:lower()
+end
+
+--- First name only, for copying a character name into the preferred-name field.
+--- WoW Forever characters have "First Last" names; earlier clients have no space
+--- to split on, so the whole name passes through unchanged.
+function GSS.FirstName(name)
+    if type(name) ~= "string" then
+        return name
+    end
+    return name:match("^(%S+)") or name
 end
 
 --- Trim a display name to the allowed length, or nil when empty/absent.
@@ -475,14 +485,14 @@ end
 
 --- Main + display name for a presence broadcast.
 --- Only an explicitly saved main is sent (receivers guess when nil so grouping still works).
---- Display falls back to the saved main name when the player has not set a preferred name.
+--- Display falls back to the saved main's first name when the player has not set a preferred name.
 --- `chars` is unused; kept for call-site compatibility.
 function GSS.ResolvePresenceMainAndDisplay(_chars, realm)
     realm = realm or currentRealm()
     local mainName = GSS.GetMain(realm)
     local displayName = GSS.GetDisplayName(realm)
     if not displayName and mainName then
-        displayName = mainName
+        displayName = GSS.FirstName(mainName)
     end
     return mainName, displayName
 end
