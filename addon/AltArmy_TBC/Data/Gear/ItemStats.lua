@@ -125,6 +125,14 @@ IS.STAT_ALIASES = {
     ["ALTARMY_SHADOW_SPELL"] = "shadow_sp",
     ["ALTARMY_NATURE_SPELL"] = "nature_sp",
     ["ALTARMY_HOLY_SPELL"] = "holy_sp",
+    -- Movement speed (tooltip-only; currently only seen on conditional/situational effects).
+    ["ALTARMY_MOVE_SPEED"] = "move_speed",
+}
+
+-- Resistance API keys fanned out together by "all Resistances"-style equip lines.
+local ALL_RESISTANCE_KEYS = {
+    "RESISTANCE1_NAME", "RESISTANCE2_NAME", "RESISTANCE3_NAME",
+    "RESISTANCE4_NAME", "RESISTANCE5_NAME", "RESISTANCE6_NAME",
 }
 
 -- English display labels for normalized stat keys (compare panel, debug).
@@ -174,6 +182,7 @@ IS.STAT_LABELS = {
     armor_pen = "Armor Penetration",
     spell_pen = "Spell Penetration",
     haste = "Haste",
+    move_speed = "Movement Speed",
 }
 
 local PRIMARY_STAT_DEFS = {
@@ -247,10 +256,23 @@ local EQUIP_STAT_PATTERNS = {
         COMBINED_SPELL_DAMAGE_HEAL_KEYS },
     { "^%+(%d+) Damage and Healing Spells$", COMBINED_SPELL_DAMAGE_HEAL_KEYS },
     { "^%+(%d+) Spell Damage and Healing$", COMBINED_SPELL_DAMAGE_HEAL_KEYS },
-    { "^Equip: Restores (%d+) mana per 5 sec%.$", "ITEM_MOD_MANA_REGENERATION_SHORT" },
+    { "^Equip: Restores (%d+) [Mm]ana per 5 sec%.$", "ITEM_MOD_MANA_REGENERATION_SHORT" },
     -- Tooltip wraps this line in parens, e.g. "(52.5 damage per second)".
     { "^%(?(%d+%.?%d*) damage per second%)?$", "ITEM_MOD_DAMAGE_PER_SECOND_SHORT" },
     { "^(%d+) Armor$", "RESISTANCE0_NAME" },
+    { "^Equip: Increases all Resistances by (%d+)%.?$", ALL_RESISTANCE_KEYS },
+}
+
+-- Conditional/situational equip clauses (e.g. "...in Forest and Grassland areas."). Each row has
+-- two captures: the bonus amount, and the condition text (kept verbatim, starting with "in ").
+-- A row may be a continuation sentence with no "Equip:" prefix (boosting a base clause further
+-- under a condition) or a full, entirely-conditional "Equip:" line — both are tried the same way
+-- by parseLineToConditionalRaw. See Data/DESIGN.md for the resulting stats.conditional shape.
+local CONDITIONAL_STAT_PATTERNS = {
+    { "^Gain an additional (%d+) to all Resistances (in .-)%.?$", ALL_RESISTANCE_KEYS },
+    { "^Restores an additional (%d+) [Mm]ana per 5 sec (in .-)%.?$",
+        "ITEM_MOD_MANA_REGENERATION_SHORT" },
+    { "^Equip: Movement speed increased by (%d+)%% (in .-)%.?$", "ALTARMY_MOVE_SPEED" },
 }
 
 local TOOLTIP_ONLY_STAT_KEYS = {
@@ -611,6 +633,23 @@ local function normalizeRawStats(raw, link)
     return out
 end
 
+--- Normalizes each condition's raw stat group and, if any are non-empty, sets `normalized.conditional`.
+--- Leaves `normalized.conditional` unset when there are no conditional clauses on this item.
+local function applyConditionalStats(normalized, conditionalRaw, link)
+    if not conditionalRaw or not next(conditionalRaw) then return end
+    local out
+    for condition, raw in pairs(conditionalRaw) do
+        local normalizedGroup = normalizeRawStats(raw, link)
+        if next(normalizedGroup) then
+            out = out or {}
+            out[condition] = normalizedGroup
+        end
+    end
+    if out then
+        normalized.conditional = out
+    end
+end
+
 local function stripColorCodes(text)
     text = text:gsub("|c[%x]+", "")
     text = text:gsub("|r", "")
@@ -718,14 +757,51 @@ local function parseLineToRaw(text, rawOut)
     return false
 end
 
+local function parseLineToConditionalRaw(text, conditionalRawOut)
+    for i = 1, #CONDITIONAL_STAT_PATTERNS do
+        local row = CONDITIONAL_STAT_PATTERNS[i]
+        local amount, condition = text:match(row[1])
+        if amount and condition then
+            local n = tonumber(amount)
+            if n then
+                conditionalRawOut[condition] = conditionalRawOut[condition] or {}
+                applyRawStatKeys(conditionalRawOut[condition], row[2], n)
+                return true
+            end
+        end
+    end
+    return false
+end
+
+--- Split a tooltip line on ". " (period+space) into sentence fragments, re-attaching the
+--- period to the front piece. Safe as a no-op for every existing single-sentence wording (none
+--- contain ". " — decimals like "52.5" have no space after the period); it's what lets a single
+--- "Equip:" line carry a base clause and a conditional addendum, e.g. "Increases X by 3. Gain
+--- an additional 5 ... in <condition>."
+local function splitTooltipSentences(text)
+    local parts = {}
+    local start = 1
+    while true do
+        local s = text:find(". ", start, true)
+        if not s then
+            parts[#parts + 1] = text:sub(start)
+            break
+        end
+        parts[#parts + 1] = text:sub(start, s)
+        start = s + 2
+    end
+    return parts
+end
+
 local function parseTooltipToRaw(link)
     local tip = getStatScanTooltip()
-    if not tip then return {}, {}, false end
+    if not tip then return {}, {}, false, {} end
     tip:ClearLines()
     tip:SetHyperlink(link)
     local rawLines = collectTooltipLines(tip)
     local strippedLines = {}
     local raw = {}
+    local conditionalRaw = {}
     local sawArmor = false
     for i = 1, #rawLines do
         local normalized = normalizeTooltipLine(rawLines[i])
@@ -736,13 +812,18 @@ local function parseTooltipToRaw(link)
         if lineHasArmor(normalized) then
             sawArmor = true
         end
-        parseLineToRaw(normalized, raw)
+        local sentences = splitTooltipSentences(normalized)
+        for j = 1, #sentences do
+            local sentence = sentences[j]
+            parseLineToRaw(sentence, raw)
+            parseLineToConditionalRaw(sentence, conditionalRaw)
+        end
     end
     local incomplete = false
     if sawArmor and not next(raw) and #strippedLines > 0 then
         incomplete = true
     end
-    return raw, strippedLines, incomplete
+    return raw, strippedLines, incomplete, conditionalRaw
 end
 
 local function fetchFromApi(link)
@@ -839,12 +920,13 @@ local function collectFreshParseSnapshot(link)
         itemName = compatGetItemInfo(link)
     end
     local apiRaw = fetchFromApi(link) or {}
-    local tooltipRaw, tooltipLines, incomplete = parseTooltipToRaw(link)
+    local tooltipRaw, tooltipLines, incomplete, conditionalRaw = parseTooltipToRaw(link)
     local mergedRaw = mergeTooltipSupplement(apiRaw, tooltipRaw)
     finalizeMergedSpellStats(mergedRaw)
     finalizeMergedManaRegen(mergedRaw)
     finalizeMergedFeralAttackPower(mergedRaw, tooltipRaw)
     local normalized = normalizeRawStats(mergedRaw, link)
+    applyConditionalStats(normalized, conditionalRaw, link)
     return {
         itemName = itemName,
         itemId = parseItemId(link),
@@ -925,7 +1007,7 @@ local function fetchStats(link)
     end
 
     local apiRaw = fetchFromApi(link)
-    local tooltipRaw, tooltipLines, incomplete = parseTooltipToRaw(link)
+    local tooltipRaw, tooltipLines, incomplete, conditionalRaw = parseTooltipToRaw(link)
     local mergedRaw = mergeTooltipSupplement(apiRaw, tooltipRaw)
     finalizeMergedSpellStats(mergedRaw)
     finalizeMergedManaRegen(mergedRaw)
@@ -941,9 +1023,12 @@ local function fetchStats(link)
         tooltipLines = copyTable(tooltipLines),
     }
 
-    if next(mergedRaw) then
+    -- An item can be entirely conditional (e.g. a movement-speed line with no always-on clause),
+    -- so treat a non-empty conditionalRaw the same as a non-empty mergedRaw here.
+    if next(mergedRaw) or (conditionalRaw and next(conditionalRaw)) then
         local source = resolveStatsSource(apiRaw, tooltipRaw, mergedRaw)
         local normalized = normalizeRawStats(mergedRaw, link)
+        applyConditionalStats(normalized, conditionalRaw, link)
         parseSnapshot.normalized = copyTable(normalized)
         return normalized, source, {
             tooltipLines = tooltipLines,

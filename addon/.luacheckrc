@@ -165,6 +165,7 @@ read_globals = {
     "ChatEdit_InsertLink",
     "GetCursorInfo",
     "ClearCursor",
+    "GetMerchantItemLink",
     "Settings",
     "InterfaceOptions_AddCategory",
     "InterfaceAddOnsList_Update",

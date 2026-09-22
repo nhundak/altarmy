@@ -92,6 +92,32 @@ Data flows in one direction:
 
 ---
 
+## Conditional / situational stats (Gear)
+
+Some items only grant part of their bonus under a condition (zone type, form, etc.), e.g. "Equip:
+Increases all Resistances by 3. Gain an additional 5 to all Resistances in Forest and Grassland
+areas." A normalized stats table from `ItemStats.GetNormalized(link)` (`Data/Gear/ItemStats.lua`)
+stays a flat `shortKey -> number` map for always-on stats; conditional stats live under a single
+reserved key, `stats.conditional`, mapping the condition's tooltip text to a nested table of the
+same shape:
+
+```lua
+{
+    fire_res = 3, -- always-on
+    conditional = {
+        ["in Forest and Grassland areas"] = { fire_res = 5, --[[ ... ]] },
+    },
+}
+```
+
+`GearCompare.lua`'s row builders pull `stats.conditional` out before doing arithmetic over the
+rest and render each conditional sub-stat as its own row, excluded from the weighted score.
+New wordings are added as rows in `ItemStats.lua`'s `CONDITIONAL_STAT_PATTERNS` table (and, for a
+genuinely new stat, one `IS.STAT_ALIASES`/`IS.STAT_LABELS` pair) — see the comments above that
+table for the pattern shape.
+
+---
+
 ## Namespace
 
 Modules live under the `AltArmy` global. Common entry points:

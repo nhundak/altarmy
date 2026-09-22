@@ -1232,8 +1232,8 @@ dropBoxIcon:Hide()
 
 function GearTab.tryAcceptCursorItem()
     if not GetCursorInfo then return end
-    local infoType, _, itemLink = GetCursorInfo()
-    if infoType == "item" and itemLink then
+    local itemLink = GearTab.getCursorItemLink()
+    if itemLink then
         GearTab.ApplyFocusedItem(itemLink, { manual = true })
         if ClearCursor then ClearCursor() end
         local tex = GearTab.GetItemTexture(itemLink)
@@ -1989,8 +1989,11 @@ end
 
 function GearTab.getCursorItemLink()
     if not GetCursorInfo then return nil end
-    local infoType, _, itemLink = GetCursorInfo()
+    local infoType, param2, itemLink = GetCursorInfo()
     if infoType == "item" and itemLink then return itemLink end
+    if infoType == "merchant" and GetMerchantItemLink then
+        return GetMerchantItemLink(param2)
+    end
     return nil
 end
 
@@ -2816,6 +2819,21 @@ function GearTab.LayoutCompareStatRowColumns(rowCells, data)
     local nameFs = rowCells.name
     local deltaFs = rowCells.delta
     local weightFs = rowCells.weight
+    if data and data.isHeader then
+        nameFs:ClearAllPoints()
+        nameFs:SetPoint("TOPLEFT", rowCells.frame, "TOPLEFT", indent, 0)
+        nameFs:SetWidth(GearTab.GetCompareStatRowWidth() - indent)
+        nameFs:SetJustifyH("LEFT")
+        deltaFs:ClearAllPoints()
+        deltaFs:SetWidth(0)
+        deltaFs:SetText("")
+        weightFs:ClearAllPoints()
+        weightFs:SetWidth(0)
+        weightFs:SetText("")
+        weightFs:Hide()
+        if rowCells.hint then rowCells.hint:Hide() end
+        return
+    end
     if data and data.formatAsWeightedChange then
         local nameW = COMPARE_STAT_COL_WEIGHTED_NAME
         local deltaLeft = indent + nameW
@@ -2836,9 +2854,10 @@ function GearTab.LayoutCompareStatRowColumns(rowCells, data)
     end
     weightFs:Show()
     local left = indent
+    local extraIndent = (data and data.indent) or 0
     nameFs:ClearAllPoints()
-    nameFs:SetPoint("TOPLEFT", rowCells.frame, "TOPLEFT", left, 0)
-    nameFs:SetWidth(COMPARE_STAT_COL_NAME)
+    nameFs:SetPoint("TOPLEFT", rowCells.frame, "TOPLEFT", left + extraIndent, 0)
+    nameFs:SetWidth(COMPARE_STAT_COL_NAME - extraIndent)
     nameFs:SetJustifyH("LEFT")
     left = left + COMPARE_STAT_COL_NAME
     deltaFs:ClearAllPoints()
@@ -2986,6 +3005,14 @@ end
 
 function GearTab.SetCompareStatDataRow(rowCells, data)
     data = data or {}
+    if data.isHeader then
+        rowCells.name:SetText(data.label or "?")
+        rowCells.name:SetTextColor(0.8, 0.8, 0.8, 1)
+        rowCells.delta:SetText("")
+        if rowCells.weight then rowCells.weight:SetText("") end
+        GearTab.LayoutCompareStatRowColumns(rowCells, data)
+        return
+    end
     if data.formatAsWeightedChange then
         rowCells.name:SetText("Weighted")
         local nr, ng, nb = GearTab.GetCompareWeightColor(1)

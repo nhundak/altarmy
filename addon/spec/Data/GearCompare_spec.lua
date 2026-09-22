@@ -250,6 +250,270 @@ describe("GearCompare", function()
         assert.are.equal(result.summary.delta, result.sections[1].rows[2].delta)
     end)
 
+    it("BuildComparison shows conditional stats as rows but excludes them from the weighted total", function()
+        -- Tooltip mock keyed by item id (via SetHyperlink) so the focused (11) and equipped (10)
+        -- items can carry different lines instead of both getting whatever text was set last.
+        local function makeTooltipMock(linesById)
+            local tip = { SetOwner = function() end }
+            tip.ClearLines = function(self) self.lineTexts = {} end
+            tip.SetHyperlink = function(self, link)
+                local id = tonumber(tostring(link):match("item:(%d+)"))
+                self.lineTexts = linesById[id] or {}
+            end
+            tip.GetRegions = function(self)
+                local fontStrings = {}
+                for i, text in ipairs(self.lineTexts or {}) do
+                    fontStrings[i] = {
+                        IsObjectType = function(_, t) return t == "FontString" end,
+                        GetText = function() return text end,
+                    }
+                end
+                return unpack(fontStrings)
+            end
+            return tip
+        end
+
+        local oldGetItemStats = _G.GetItemStats
+        local oldCreateFrame = _G.CreateFrame
+        _G.GetItemStats = function() return {} end
+
+        local function buildWithTooltipLine(equipLine)
+            _G.CreateFrame = function(frameType)
+                if frameType == "GameTooltip" then
+                    return makeTooltipMock({
+                        [11] = { "+5 Stamina", equipLine },
+                        [10] = { "+5 Stamina" },
+                    })
+                end
+                return oldCreateFrame(frameType)
+            end
+            -- ItemStats caches its scan tooltip in a module-level local; reload the module so
+            -- each call gets a fresh tooltip mock instead of reusing a stale cached one.
+            package.loaded["ItemStats"] = nil
+            require("ItemStats")
+            AltArmy.ItemStats.ClearCache()
+            local char = DS:GetCharacter("MageAlt", "TestRealm")
+            return GC.BuildComparison(
+                "|Hitem:11:0|h[New Helm]|h",
+                "|Hitem:10:0|h[Old Helm]|h",
+                "custom",
+                char)
+        end
+
+        local baseOnly, withConditional
+        local ok, err = pcall(function()
+            baseOnly = buildWithTooltipLine("Equip: Increases all Resistances by 3.")
+            withConditional = buildWithTooltipLine(
+                "Equip: Increases all Resistances by 3. Gain an additional 5 to all "
+                    .. "Resistances in Forest and Grassland areas.")
+        end)
+
+        -- Restore globals/module state even if the code under test errors, so a red-phase
+        -- failure here can't leak polluted mocks into later tests in this file.
+        _G.GetItemStats = oldGetItemStats
+        _G.CreateFrame = oldCreateFrame
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        AltArmy.ItemStats.ClearCache()
+
+        assert.is_true(ok, tostring(err))
+
+        -- The conditional addendum must not change the weighted totals at all.
+        assert.are.equal(baseOnly.summary.newTotal, withConditional.summary.newTotal)
+        assert.are.equal(baseOnly.summary.delta, withConditional.summary.delta)
+
+        -- Base (always-on) resistances are identical across all six schools, so they collapse
+        -- into a single "All Resistances" row instead of six separate rows.
+        local baseRows = baseOnly.sections[1].rows
+        assert.are.equal(2, #baseRows)
+        assert.are.equal("All Resistances", baseRows[1].label)
+        assert.is_true(baseRows[2].formatAsWeightedChange)
+        for _, row in ipairs(baseRows) do
+            assert.is_falsy(row.conditional)
+            assert.is_falsy(row.isHeader)
+        end
+
+        -- The conditional group is rendered as a header row (the condition text) followed by an
+        -- indented stat row with no parenthetical; its six equal resistances also collapse.
+        local headerRow, groupedRow, scalarRow
+        for _, row in ipairs(withConditional.sections[1].rows) do
+            if row.isHeader then
+                headerRow = row
+            elseif row.conditional then
+                groupedRow = row
+            elseif not row.formatAsWeightedChange then
+                scalarRow = row
+            end
+        end
+        assert.is_not_nil(scalarRow)
+        assert.are.equal("All Resistances", scalarRow.label)
+        assert.is_not_nil(headerRow)
+        assert.are.equal("... in Forest and Grassland areas:", headerRow.label)
+        assert.is_not_nil(groupedRow)
+        assert.are.equal("All Resistances", groupedRow.label)
+        assert.is_true(groupedRow.hideWeight)
+        assert.are.equal(5, groupedRow.indent)
+    end)
+
+    it("BuildComparison collapses identical resistance rows into a single All Resistances row", function()
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 11 then
+                return {
+                    ["RESISTANCE1_NAME"] = 5, ["RESISTANCE2_NAME"] = 5, ["RESISTANCE3_NAME"] = 5,
+                    ["RESISTANCE4_NAME"] = 5, ["RESISTANCE5_NAME"] = 5, ["RESISTANCE6_NAME"] = 5,
+                }
+            end
+            return {}
+        end
+        AltArmy.ItemStats.ClearCache()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local result = GC.BuildComparison(
+            "|Hitem:11:0|h[New Helm]|h",
+            "|Hitem:10:0|h[Old Helm]|h",
+            "custom",
+            char)
+        _G.GetItemStats = oldGetItemStats
+        AltArmy.ItemStats.ClearCache()
+
+        local rows = result.sections[1].rows
+        assert.are.equal(2, #rows)
+        assert.are.equal("All Resistances", rows[1].label)
+        assert.are.equal(5, rows[1].delta)
+        assert.is_true(rows[2].formatAsWeightedChange)
+    end)
+
+    it("BuildComparison does not collapse resistance rows when values differ", function()
+        local oldGetItemStats = _G.GetItemStats
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 11 then
+                return {
+                    ["RESISTANCE1_NAME"] = 5, ["RESISTANCE2_NAME"] = 5, ["RESISTANCE3_NAME"] = 5,
+                    ["RESISTANCE4_NAME"] = 5, ["RESISTANCE5_NAME"] = 5, ["RESISTANCE6_NAME"] = 3,
+                }
+            end
+            return {}
+        end
+        AltArmy.ItemStats.ClearCache()
+        local char = DS:GetCharacter("MageAlt", "TestRealm")
+        local result = GC.BuildComparison(
+            "|Hitem:11:0|h[New Helm]|h",
+            "|Hitem:10:0|h[Old Helm]|h",
+            "custom",
+            char)
+        _G.GetItemStats = oldGetItemStats
+        AltArmy.ItemStats.ClearCache()
+
+        local rows = result.sections[1].rows
+        local resistanceLabels = {}
+        for _, row in ipairs(rows) do
+            if not row.formatAsWeightedChange and row.label ~= "All Resistances" then
+                resistanceLabels[row.label] = true
+            end
+        end
+        assert.is_true(resistanceLabels["Holy Resistance"])
+        assert.is_true(resistanceLabels["Fire Resistance"])
+        assert.is_true(resistanceLabels["Nature Resistance"])
+        assert.is_true(resistanceLabels["Frost Resistance"])
+        assert.is_true(resistanceLabels["Shadow Resistance"])
+        assert.is_true(resistanceLabels["Arcane Resistance"])
+    end)
+
+    it("BuildComparison always places conditional groups after scalar stat rows", function()
+        -- Tooltip mock keyed by item id, matching the pattern used by the other conditional test.
+        local function makeTooltipMock(linesById)
+            local tip = { SetOwner = function() end }
+            tip.ClearLines = function(self) self.lineTexts = {} end
+            tip.SetHyperlink = function(self, link)
+                local id = tonumber(tostring(link):match("item:(%d+)"))
+                self.lineTexts = linesById[id] or {}
+            end
+            tip.GetRegions = function(self)
+                local fontStrings = {}
+                for i, text in ipairs(self.lineTexts or {}) do
+                    fontStrings[i] = {
+                        IsObjectType = function(_, t) return t == "FontString" end,
+                        GetText = function() return text end,
+                    }
+                end
+                return unpack(fontStrings)
+            end
+            return tip
+        end
+
+        local oldGetItemStats = _G.GetItemStats
+        local oldCreateFrame = _G.CreateFrame
+        -- Item 11 keeps its normal (important) INT/STA stats from the API, plus a fully
+        -- conditional, unrelated movement-speed line from the tooltip.
+        _G.GetItemStats = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 11 then
+                return { ["ITEM_MOD_INTELLECT_SHORT"] = 20, ["ITEM_MOD_STAMINA_SHORT"] = 10 }
+            end
+            if id == 10 then
+                return { ["ITEM_MOD_INTELLECT_SHORT"] = 5, ["ITEM_MOD_STAMINA_SHORT"] = 5 }
+            end
+            return {}
+        end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    [11] = { "Equip: Movement speed increased by 2% in Silverpine Forest and "
+                        .. "Hillsbrad Foothills." },
+                })
+            end
+            return oldCreateFrame(frameType)
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        AltArmy.ItemStats.ClearCache()
+
+        local ok, err = pcall(function()
+            local char = DS:GetCharacter("MageAlt", "TestRealm")
+            local result = GC.BuildComparison(
+                "|Hitem:11:0|h[New Helm]|h",
+                "|Hitem:10:0|h[Old Helm]|h",
+                "custom",
+                char)
+
+            local rows = result.sections[1].rows
+            assert.is_true(#rows >= 4) -- Stamina, Intellect, header, movement speed, Weighted
+
+            local firstGroupedIndex = nil
+            for i, row in ipairs(rows) do
+                if (row.isHeader or row.conditional) and not firstGroupedIndex then
+                    firstGroupedIndex = i
+                end
+            end
+            assert.is_not_nil(firstGroupedIndex)
+
+            -- Nothing before the first grouped/conditional row is itself grouped or conditional.
+            for i = 1, firstGroupedIndex - 1 do
+                assert.is_falsy(rows[i].isHeader)
+                assert.is_falsy(rows[i].conditional)
+            end
+
+            -- Nothing after the first grouped/conditional row (other than the trailing Weighted
+            -- summary row) is a plain scalar stat row.
+            for i = firstGroupedIndex, #rows do
+                local row = rows[i]
+                assert.is_true(row.isHeader or row.conditional or row.formatAsWeightedChange)
+            end
+
+            assert.is_true(rows[#rows].formatAsWeightedChange)
+        end)
+
+        _G.GetItemStats = oldGetItemStats
+        _G.CreateFrame = oldCreateFrame
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        AltArmy.ItemStats.ClearCache()
+
+        assert.is_true(ok, tostring(err))
+    end)
+
     it("BuildComparison ilvl returns item level summary", function()
         local char = DS:GetCharacter("MageAlt", "TestRealm")
         local result = GC.BuildComparison(

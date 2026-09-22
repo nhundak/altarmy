@@ -220,10 +220,161 @@ local function offhandHintForKey(key, offhandScaled)
     return nil
 end
 
+-- Conditional/situational stats (e.g. "...in Forest and Grassland areas") live under a
+-- reserved `conditional` key on a normalized stats table (see ItemStats.lua) instead of the
+-- normal flat short-key -> number shape. Pull that key out before any arithmetic over the rest.
+local function splitScalarAndConditionalStats(stats)
+    stats = stats or {}
+    local scalar = {}
+    for key, value in pairs(stats) do
+        if key ~= "conditional" then scalar[key] = value end
+    end
+    return scalar, stats.conditional or {}
+end
+
+-- Resistance short keys fanned out by "all Resistances"-style equip lines. When a row set has a
+-- changed row for every one of these keys and the rows are otherwise identical (same new/old/
+-- weight), they're collapsed into one "All Resistances" row instead of six separate ones.
+local ALL_RESISTANCE_SHORT_KEYS = {
+    "holy_res", "fire_res", "nature_res", "frost_res", "shadow_res", "arcane_res",
+}
+
+local function collapseAllResistanceRows(rows)
+    local byKey = {}
+    local matchCount = 0
+    for i = 1, #rows do
+        local row = rows[i]
+        if row.statKey then
+            for j = 1, #ALL_RESISTANCE_SHORT_KEYS do
+                if row.statKey == ALL_RESISTANCE_SHORT_KEYS[j] then
+                    byKey[row.statKey] = row
+                    matchCount = matchCount + 1
+                    break
+                end
+            end
+        end
+    end
+    if matchCount ~= #ALL_RESISTANCE_SHORT_KEYS then return rows end
+
+    -- "Identical value" means the same new/old amount (what's actually displayed); per-school
+    -- Pawn weights can differ slightly even when the amounts match, so weight isn't part of the
+    -- equality check. The merged row shows the highest of the six weights so sort position/
+    -- importance stays sensible even when they're not perfectly uniform.
+    local first = byKey[ALL_RESISTANCE_SHORT_KEYS[1]]
+    local maxWeight = first.weight or 0
+    for j = 2, #ALL_RESISTANCE_SHORT_KEYS do
+        local row = byKey[ALL_RESISTANCE_SHORT_KEYS[j]]
+        if row.newValue ~= first.newValue or row.oldValue ~= first.oldValue then
+            return rows
+        end
+        if (row.weight or 0) > maxWeight then
+            maxWeight = row.weight or 0
+        end
+    end
+
+    local isResistanceKey = {}
+    for j = 1, #ALL_RESISTANCE_SHORT_KEYS do
+        isResistanceKey[ALL_RESISTANCE_SHORT_KEYS[j]] = true
+    end
+    local collapsed = {}
+    local inserted = false
+    for i = 1, #rows do
+        local row = rows[i]
+        if not (row.statKey and isResistanceKey[row.statKey]) then
+            collapsed[#collapsed + 1] = row
+        elseif not inserted then
+            local merged = {}
+            for k, v in pairs(first) do merged[k] = v end
+            merged.label = "All Resistances"
+            merged.statKey = nil
+            merged.weight = maxWeight
+            merged.unimportant = maxWeight <= 0
+            merged.weightedDelta = merged.delta and merged.delta * maxWeight or nil
+            collapsed[#collapsed + 1] = merged
+            inserted = true
+        end
+    end
+    return collapsed
+end
+
+-- Extra indent (beyond the base row indent) applied to a stat row nested under a conditional
+-- group's header row.
+local CONDITIONAL_STAT_ROW_INDENT = 5
+
+local function buildConditionalRows(newConditional, oldConditional)
+    local labels = {}
+    local seenLabel = {}
+    for label in pairs(newConditional) do
+        if not seenLabel[label] then
+            seenLabel[label] = true
+            labels[#labels + 1] = label
+        end
+    end
+    for label in pairs(oldConditional) do
+        if not seenLabel[label] then
+            seenLabel[label] = true
+            labels[#labels + 1] = label
+        end
+    end
+    table.sort(labels)
+
+    local rows = {}
+    for i = 1, #labels do
+        local label = labels[i]
+        local newSub = newConditional[label] or {}
+        local oldSub = oldConditional[label] or {}
+        local seenKey = {}
+        local keys = {}
+        for k in pairs(newSub) do
+            if not seenKey[k] then seenKey[k] = true; keys[#keys + 1] = k end
+        end
+        for k in pairs(oldSub) do
+            if not seenKey[k] then seenKey[k] = true; keys[#keys + 1] = k end
+        end
+        table.sort(keys)
+
+        local statRows = {}
+        for j = 1, #keys do
+            local key = keys[j]
+            local newVal = newSub[key] or 0
+            local oldVal = oldSub[key] or 0
+            if newVal ~= oldVal then
+                statRows[#statRows + 1] = {
+                    label = getStatLabel(key),
+                    statKey = key,
+                    newValue = newVal,
+                    oldValue = oldVal,
+                    delta = newVal - oldVal,
+                    weight = 0,
+                    unimportant = true,
+                    hideWeight = true,
+                    conditional = true,
+                    indent = CONDITIONAL_STAT_ROW_INDENT,
+                }
+            end
+        end
+        statRows = collapseAllResistanceRows(statRows)
+
+        if #statRows > 0 then
+            rows[#rows + 1] = {
+                label = string.format("... %s:", label),
+                isHeader = true,
+                conditional = true,
+            }
+            for j = 1, #statRows do
+                rows[#rows + 1] = statRows[j]
+            end
+        end
+    end
+    return rows
+end
+
 local function buildStatComparisonRows(newLink, oldLink, classFile, specKey, charData, entry, opts, level)
     local weights = GU.GetWeights and GU.GetWeights(classFile, specKey, level) or {}
-    local newStats, oldStats, offhandScaled = resolveLoadoutStatSides(
+    local newStatsRaw, oldStatsRaw, offhandScaled = resolveLoadoutStatSides(
         newLink, oldLink, charData, entry, opts)
+    local newStats, newConditional = splitScalarAndConditionalStats(newStatsRaw)
+    local oldStats, oldConditional = splitScalarAndConditionalStats(oldStatsRaw)
     local seen = {}
     for k in pairs(newStats) do seen[k] = true end
     for k in pairs(oldStats) do seen[k] = true end
@@ -236,6 +387,7 @@ local function buildStatComparisonRows(newLink, oldLink, classFile, specKey, cha
             local w = statWeightForKey(weights, key)
             rows[#rows + 1] = {
                 label = getStatLabel(key),
+                statKey = key,
                 newValue = newVal,
                 oldValue = oldVal,
                 delta = newVal - oldVal,
@@ -246,13 +398,20 @@ local function buildStatComparisonRows(newLink, oldLink, classFile, specKey, cha
             }
         end
     end
+    rows = collapseAllResistanceRows(rows)
     table.sort(rows, compareStatComparisonRows)
+    local conditionalRows = buildConditionalRows(newConditional, oldConditional)
+    for i = 1, #conditionalRows do
+        rows[#rows + 1] = conditionalRows[i]
+    end
     return rows
 end
 
 local function buildRawStatRows(newLink, oldLink, charData, entry, opts)
-    local newStats, oldStats, offhandScaled = resolveLoadoutStatSides(
+    local newStatsRaw, oldStatsRaw, offhandScaled = resolveLoadoutStatSides(
         newLink, oldLink, charData, entry, opts)
+    local newStats, newConditional = splitScalarAndConditionalStats(newStatsRaw)
+    local oldStats, oldConditional = splitScalarAndConditionalStats(oldStatsRaw)
     local seen = {}
     local keys = {}
     for k in pairs(newStats) do
@@ -272,11 +431,17 @@ local function buildRawStatRows(newLink, oldLink, charData, entry, opts)
         local oldVal = oldStats[key] or 0
         rows[#rows + 1] = {
             label = getStatLabel(key),
+            statKey = key,
             newValue = newVal,
             oldValue = oldVal,
             delta = newVal - oldVal,
             offhandHint = offhandHintForKey(key, offhandScaled),
         }
+    end
+    rows = collapseAllResistanceRows(rows)
+    local conditionalRows = buildConditionalRows(newConditional, oldConditional)
+    for i = 1, #conditionalRows do
+        rows[#rows + 1] = conditionalRows[i]
     end
     return rows
 end

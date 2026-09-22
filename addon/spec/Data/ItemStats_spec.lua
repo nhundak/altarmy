@@ -1114,4 +1114,147 @@ describe("ItemStats", function()
         assert.are.equal(7, newStats.mp5)
         assert.are.equal(3, newStats.mp5 - oldStats.mp5)
     end)
+
+    it("GetNormalized parses all-resistances equip line with a conditional addendum", function()
+        _G.GetItemStats = function() return {} end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "+10 Stamina",
+                    "Equip: Increases all Resistances by 3. Gain an additional 5 to all "
+                        .. "Resistances in Forest and Grassland areas.",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:99:0|h[Monkey Greaves]|h")
+        assert.are.equal(3, stats.holy_res)
+        assert.are.equal(3, stats.fire_res)
+        assert.are.equal(3, stats.nature_res)
+        assert.are.equal(3, stats.frost_res)
+        assert.are.equal(3, stats.shadow_res)
+        assert.are.equal(3, stats.arcane_res)
+        assert.is_not_nil(stats.conditional)
+        local conditional = stats.conditional["in Forest and Grassland areas"]
+        assert.is_not_nil(conditional)
+        assert.are.equal(5, conditional.holy_res)
+        assert.are.equal(5, conditional.fire_res)
+        assert.are.equal(5, conditional.nature_res)
+        assert.are.equal(5, conditional.frost_res)
+        assert.are.equal(5, conditional.shadow_res)
+        assert.are.equal(5, conditional.arcane_res)
+    end)
+
+    it("GetNormalized parses all-resistances equip line without a conditional addendum", function()
+        _G.GetItemStats = function() return {} end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "+10 Stamina",
+                    "Equip: Increases all Resistances by 3.",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:99:0|h[Monkey Greaves]|h")
+        assert.are.equal(3, stats.holy_res)
+        assert.are.equal(3, stats.fire_res)
+        assert.are.equal(3, stats.nature_res)
+        assert.are.equal(3, stats.frost_res)
+        assert.are.equal(3, stats.shadow_res)
+        assert.are.equal(3, stats.arcane_res)
+        assert.is_nil(stats.conditional)
+    end)
+
+    it("GetNormalized parses mp5 equip line with a capitalized conditional addendum", function()
+        _G.GetItemStats = function() return {} end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "+10 Intellect",
+                    "Equip: Restores 3 Mana per 5 sec. Restores an additional 6 Mana per 5 sec "
+                        .. "in Forest and Grassland areas.",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:99:0|h[Monkey Greaves]|h")
+        assert.are.equal(3, stats.mp5)
+        assert.is_not_nil(stats.conditional)
+        assert.are.equal(6, stats.conditional["in Forest and Grassland areas"].mp5)
+    end)
+
+    it("GetNormalized still parses the existing lowercase mp5 equip line wording", function()
+        _G.GetItemStats = function() return {} end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "Equip: Restores 3 mana per 5 sec.",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:99:0|h[Monkey Greaves]|h")
+        assert.are.equal(3, stats.mp5)
+        assert.is_nil(stats.conditional)
+    end)
+
+    it("GetNormalized parses a fully-conditional movement speed equip line", function()
+        _G.GetItemStats = function() return {} end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "+10 Agility",
+                    "Equip: Movement speed increased by 2% in Silverpine Forest and "
+                        .. "Hillsbrad Foothills.",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:99:0|h[Monkey Greaves]|h")
+        assert.is_nil(stats.move_speed)
+        assert.is_not_nil(stats.conditional)
+        assert.are.equal(
+            2, stats.conditional["in Silverpine Forest and Hillsbrad Foothills"].move_speed)
+    end)
 end)

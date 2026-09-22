@@ -28,6 +28,10 @@ Compare what each alt is wearing; drop an item to see who can use it and how it 
 
 - Select a character column (and slot) while an item is focused.
 - Stat delta rows vs equipped piece; dual-wield offhand DPS is scaled to match upgrade scoring.
+- All six resistance schools collapse into a single "All Resistances" row when their values match.
+- Situational/conditional bonuses (e.g. "Increases X in \<condition\>") are grouped under a header
+  row naming the condition, with their stats indented underneath; excluded from the weighted
+  score for now.
 - Debug Dump button when `/altarmy debug on` — see [COMPARE_PANEL_DEBUG_DUMP.md](../COMPARE_PANEL_DEBUG_DUMP.md).
 
 ## Upgrade scoring and alerts
