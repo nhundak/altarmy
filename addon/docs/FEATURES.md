@@ -64,7 +64,7 @@ There is no Characters containers tab; inventory is via Search.
 
 ### First-login notices
 
-One-time dialogs shown at most once each (guild-share prompt, bank-alt suggestion, RestedXP quest-reward conflict, a development-status notice) are sequenced through a shared onboarding queue so only one shows at a time. The development-status notice — a heads-up about a Blizzard bug that currently prevents SavedVariables from loading reliably, dismissed with a single "Got it" button — takes priority over the others and, once shown, suppresses the rest of the queue for the remainder of that login session.
+One-time dialogs shown at most once each (guild-share prompt, bank-alt suggestion, RestedXP quest-reward conflict, a development-status notice) are sequenced through a shared onboarding queue so only one shows at a time. The development-status notice — a heads-up about a Blizzard bug that currently prevents SavedVariables from loading reliably, dismissed with a single "Got it" button — only appears on WoW Forever (`AltArmy.DataStore.IsWowForever`), takes priority over the others, and once shown, suppresses the rest of the queue for the remainder of that login session.
 
 ### Optional addon integrations
 

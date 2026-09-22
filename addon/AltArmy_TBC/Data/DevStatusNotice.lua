@@ -26,6 +26,10 @@ function DSN.ShouldPrompt(opts)
     if not opts.skipDismiss and DSN.IsDismissed() then
         return false
     end
+    local DS = AltArmy.DataStore
+    if not (DS and DS.IsWowForever) then
+        return false
+    end
     return true
 end
 

@@ -14,14 +14,25 @@ describe("DevStatusNotice", function()
 
     before_each(function()
         _G.AltArmyTBC_Options = {}
+        _G.AltArmy.DataStore = { IsWowForever = true }
     end)
 
-    it("ShouldPrompt is true when never shown", function()
+    it("ShouldPrompt is true when never shown and on WoW Forever", function()
         assert.is_true(DSN.ShouldPrompt())
     end)
 
     it("ShouldPrompt is false once dismissed", function()
         AltArmyTBC_Options.devStatusNoticeShown = true
+        assert.is_false(DSN.ShouldPrompt())
+    end)
+
+    it("ShouldPrompt is false when not on WoW Forever", function()
+        _G.AltArmy.DataStore = { IsWowForever = false }
+        assert.is_false(DSN.ShouldPrompt())
+    end)
+
+    it("ShouldPrompt is false when DataStore is unavailable", function()
+        _G.AltArmy.DataStore = nil
         assert.is_false(DSN.ShouldPrompt())
     end)
 
