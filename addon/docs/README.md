@@ -25,6 +25,7 @@ When you change **user-visible** behavior, update the matching docs in the **sam
 | [DEV_DUMPS.md](DEV_DUMPS.md) | `AltArmy.Debug.Dump` — general-purpose live-client debug capture into SavedVariables |
 | [GOLD_ECONOMY_HISTORY_RESEARCH.md](GOLD_ECONOMY_HISTORY_RESEARCH.md) | Research for a possible gold-history feature |
 | [WOW_FOREVER_COMPATIBILITY_RESEARCH.md](WOW_FOREVER_COMPATIBILITY_RESEARCH.md) | Preliminary research: how WoW addons support multiple game versions, ahead of WoW Forever's beta |
+| [WOW_FOREVER_COMPAT.md](WOW_FOREVER_COMPAT.md) | Audit: do the optional third-party addon integrations still work on WoW Forever |
 | [REFACTORING_OPPORTUNITIES.md](REFACTORING_OPPORTUNITIES.md) | Code-review snapshot of remaining refactors |
 
 ## Data layer (next to code)
