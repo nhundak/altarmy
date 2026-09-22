@@ -165,18 +165,30 @@ local function ResolveRecipeName(recipeID)
     return nil
 end
 
-local function GetCachedRecipeNameLower(recipeID)
+--- `knownName` is the name captured directly off the recipe row at scan time (see
+--- DataStoreProfessions.lua), when available — preferred over GetSpellInfo/GetItemInfo
+--- because recipeID isn't reliably a spell ID (it can be an item ID depending on
+--- profession/client), so blind ID-based lookups can silently miss or misresolve.
+--- A failed ID-based resolution is never cached: item/spell info can still be
+--- uncached client-side (e.g. right after login) and become available later.
+local function GetCachedRecipeNameLower(recipeID, knownName)
     if not recipeID then return nil end
+    if knownName and knownName ~= "" then
+        local nameLower = knownName:lower()
+        caches.recipeNameCache[recipeID] = { name = knownName, nameLower = nameLower }
+        return nameLower
+    end
     local cached = caches.recipeNameCache[recipeID]
-    if cached then
+    if cached and cached.nameLower then
         return cached.nameLower
     end
     local name = ResolveRecipeName(recipeID)
-    caches.recipeNameCache[recipeID] = {
-        name = name,
-        nameLower = name and name:lower() or nil,
-    }
-    return name and name:lower() or nil
+    if not name then
+        return nil
+    end
+    local nameLower = name:lower()
+    caches.recipeNameCache[recipeID] = { name = name, nameLower = nameLower }
+    return nameLower
 end
 
 local function BuildAllContainerSlots()
@@ -310,9 +322,10 @@ local function BuildLocalRecipes()
                         local skillRank = prof.rank or 0
                         for recipeID, data in pairs(prof.Recipes) do
                             if recipeID and not IsRecipeAliasId(recipeID, data) then
-                                local resultItemID
-                                if type(data) == "table" and data.resultItemID then
+                                local resultItemID, name
+                                if type(data) == "table" then
                                     resultItemID = data.resultItemID
+                                    name = data.name
                                 end
                                 table.insert(list, {
                                     characterName = characterName,
@@ -322,6 +335,7 @@ local function BuildLocalRecipes()
                                     skillRank = skillRank,
                                     recipeID = recipeID,
                                     resultItemID = resultItemID,
+                                    name = name,
                                 })
                             end
                         end
@@ -466,7 +480,7 @@ local function EnsureLocalRecipeIndex()
     caches.localRecipeIndex = SI.BuildIndex(recipes, {
         getId = function(e) return e.recipeID end,
         getNameLower = function(e)
-            return GetCachedRecipeNameLower(e.recipeID)
+            return GetCachedRecipeNameLower(e.recipeID, e.name)
         end,
         stampNameKey = "recipeNameLower",
         stampSortKey = function(entry, nameLower)

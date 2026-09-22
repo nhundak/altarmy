@@ -52,12 +52,15 @@ fs.copyFileSync(src, outFile);
 const text = fs.readFileSync(outFile, "utf8");
 const dumpCount = countDumpEntries(text, '["comparePanelDumps"]');
 const guildUndecodableCount = countDumpEntries(text, '["guildShareUndecodableDumps"]');
+const hasDevDumps = text.indexOf('["devDumps"]') !== -1;
 console.log("Synced:", outFile);
 console.log("Source:", src);
 console.log("comparePanelDumps entries (approx):", dumpCount);
 console.log("guildShareUndecodableDumps entries (approx):", guildUndecodableCount);
-if (dumpCount === 0 && guildUndecodableCount === 0) {
+console.log("devDumps present:", hasDevDumps, hasDevDumps ? "(see docs/DEV_DUMPS.md)" : "");
+if (dumpCount === 0 && guildUndecodableCount === 0 && !hasDevDumps) {
   console.warn(
-    "No dumps found — compare: debug on → Dump; guild share: verbose on + wait for undecodable → /reload."
+    "No dumps found — compare: debug on → Dump; guild share: verbose on + wait for undecodable → /reload;"
+      + " dev dump: debug on → AltArmy.Debug.Dump(label, payload) fires in-game → /reload."
   );
 }

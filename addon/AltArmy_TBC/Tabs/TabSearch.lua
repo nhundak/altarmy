@@ -105,14 +105,21 @@ local function HandleItemRowClick(itemLinkOrID, button)
     end
 end
 
--- Recipe link for display/tooltip: try spell first (most recipes), then item (recipe scrolls)
-local function GetRecipeLink(recipeID)
+-- Recipe link for display/tooltip: the crafted item (resultItemID) is reliable — recipeID
+-- isn't reliably a spell or item ID itself (it can be a pattern/link id in an unrelated
+-- namespace depending on profession/client), so guessing off it can link the wrong thing
+-- entirely. Only fall back to recipeID-based guesses when resultItemID is unavailable.
+local function GetRecipeLink(recipeID, resultItemID)
+    local compatGetItemInfo = AltArmy.DataStore and AltArmy.DataStore.CompatGetItemInfo
+    if resultItemID and compatGetItemInfo then
+        local _, link = compatGetItemInfo(resultItemID)
+        if link and link ~= "" then return link end
+    end
     if not recipeID then return nil end
     if _G.GetSpellLink then
         local link = _G.GetSpellLink(recipeID)
         if link and link ~= "" then return link end
     end
-    local compatGetItemInfo = AltArmy.DataStore and AltArmy.DataStore.CompatGetItemInfo
     if compatGetItemInfo then
         local _, link = compatGetItemInfo(recipeID)
         if link and link ~= "" then return link end
@@ -826,7 +833,7 @@ local function createRecipeRow()
         -- Summary "Multiple guildmates" row: full-row button; shift-click link, else toggle.
         if entry.isGuildCollapsed and entry.recipeID ~= nil then
             if IsShiftKeyDown() then
-                local link = GetRecipeLink(entry.recipeID)
+                local link = GetRecipeLink(entry.recipeID, entry.resultItemID)
                 if link and ChatEdit_InsertLink then
                     ChatEdit_InsertLink(link)
                 end
@@ -927,7 +934,7 @@ local function createRecipeRow()
         end
         if GameTooltip then
             GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-            local link = GetRecipeLink(entry.recipeID)
+            local link = GetRecipeLink(entry.recipeID, entry.resultItemID)
             if link then
                 GameTooltip:SetHyperlink(link)
             else
@@ -947,7 +954,7 @@ local function createRecipeRow()
         local entry = self.entry
         if not entry then return end
         if IsShiftKeyDown() then
-            local link = GetRecipeLink(entry.recipeID)
+            local link = GetRecipeLink(entry.recipeID, entry.resultItemID)
             if link and ChatEdit_InsertLink then
                 ChatEdit_InsertLink(link)
             end

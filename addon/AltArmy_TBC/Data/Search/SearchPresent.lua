@@ -549,9 +549,16 @@ function SP.EnsureRecipeDisplayCache(entry)
     else
         matchName = "Recipe " .. tostring(entry.recipeID or "?")
         iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
+        -- entry.name is captured directly off the recipe at scan time (see
+        -- DataStoreProfessions.lua) and is preferred: recipeID isn't reliably a spell ID
+        -- (it can be an item ID depending on profession/client), so the GetSpellInfo/
+        -- GetItemInfo(recipeID) guesses below can miss or misresolve it.
+        if entry.name and entry.name ~= "" then
+            matchName = entry.name
+        end
         if GetSpellInfo and entry.recipeID then
             local name, _, spellIcon = GetSpellInfo(entry.recipeID)
-            if name then
+            if name and matchName == ("Recipe " .. tostring(entry.recipeID or "?")) then
                 matchName = name
             end
             if spellIcon and not entry.resultItemID then

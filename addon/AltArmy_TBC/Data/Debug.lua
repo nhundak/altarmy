@@ -229,6 +229,36 @@ function D.NotifyChat(msg)
     end
 end
 
+--- Center-screen alert so a dump firing during play is impossible to miss.
+function D.ShowCenterAlert(text)
+    if _G.UIErrorsFrame and _G.UIErrorsFrame.AddMessage then
+        _G.UIErrorsFrame:AddMessage(tostring(text), 1, 0.3, 0.3, 1)
+    end
+end
+
+--- Standing dev-dump tool — see docs/DEV_DUMPS.md. `AltArmy.Debug.Dump(label, payload)` is
+--- meant to be called from wherever a debugging task needs to capture live-client data into
+--- SavedVariables; it's a no-op unless master debug is on (/altarmy debug on), so leaving
+--- calls in committed code between tasks is cheap. Writes to
+--- AltArmyTBC_Options.debug.devDumps[label] (overwriting any previous payload under the same
+--- label) and shows a center-screen alert. Read back with: /reload, then `npm run dump:sync`,
+--- then read devDumps.<label> from the synced file (see docs/DEV_DUMPS.md).
+function D.Dump(label, payload)
+    if not D.IsEnabled() then
+        return
+    end
+    if type(label) ~= "string" or label == "" then
+        return
+    end
+    D.Ensure()
+    local d = AltArmyTBC_Options.debug
+    if type(d.devDumps) ~= "table" then
+        d.devDumps = {}
+    end
+    d.devDumps[label] = payload
+    D.ShowCenterAlert("Alt Army dev dump: " .. label)
+end
+
 D.MAX_COMPARE_PANEL_DUMPS = 1
 D.MAX_GUILD_SHARE_UNDECODABLE_DUMPS = 1
 

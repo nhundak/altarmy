@@ -22,6 +22,7 @@ When you change **user-visible** behavior, update the matching docs in the **sam
 | [UI_DESIGN.md](UI_DESIGN.md) | Theme palette and shared UI conventions |
 | [GRAPH_RENDERING_TECHNIQUES.md](GRAPH_RENDERING_TECHNIQUES.md) | How the Graphs tab draws lines/axes (WoW widget techniques) |
 | [COMPARE_PANEL_DEBUG_DUMP.md](COMPARE_PANEL_DEBUG_DUMP.md) | Gear compare Dump button / SavedVariables debugging |
+| [DEV_DUMPS.md](DEV_DUMPS.md) | `AltArmy.Debug.Dump` — general-purpose live-client debug capture into SavedVariables |
 | [GOLD_ECONOMY_HISTORY_RESEARCH.md](GOLD_ECONOMY_HISTORY_RESEARCH.md) | Research for a possible gold-history feature |
 | [WOW_FOREVER_COMPATIBILITY_RESEARCH.md](WOW_FOREVER_COMPATIBILITY_RESEARCH.md) | Preliminary research: how WoW addons support multiple game versions, ahead of WoW Forever's beta |
 | [REFACTORING_OPPORTUNITIES.md](REFACTORING_OPPORTUNITIES.md) | Code-review snapshot of remaining refactors |

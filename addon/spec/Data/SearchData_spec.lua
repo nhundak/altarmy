@@ -835,6 +835,59 @@ describe("SearchData", function()
       assert.are.equal(results[1].characterName, "B")
     end)
 
+    it("uses a recipe row's own name instead of GetSpellInfo/GetItemInfo when present", function()
+      local oldGetAll = SD.GetAllRecipes
+      local oldGetItemInfo = _G.GetItemInfo
+      local oldGetSpellInfo = _G.GetSpellInfo
+      SD.GetAllRecipes = function()
+        return {
+          {
+            characterName = "A", realm = "R", professionName = "Blacksmithing",
+            skillRank = 150, recipeID = 2664, resultItemID = 2954, name = "Runed Copper Bracers",
+          },
+        }
+      end
+      -- Item/spell info not yet cached client-side (common right after login): both nil.
+      _G.GetItemInfo = function() return nil end
+      _G.GetSpellInfo = function() return nil end
+      local results = SD.SearchRecipes("runed copper bracers")
+      SD.GetAllRecipes = oldGetAll
+      _G.GetItemInfo = oldGetItemInfo
+      _G.GetSpellInfo = oldGetSpellInfo
+      assert.are.equal(1, #results)
+      assert.are.equal(2664, results[1].recipeID)
+    end)
+
+    it("does not permanently cache a recipe as unresolved when info wasn't available yet", function()
+      local oldGetAll = SD.GetAllRecipes
+      local oldGetItemInfo = _G.GetItemInfo
+      local oldGetSpellInfo = _G.GetSpellInfo
+      SD.GetAllRecipes = function()
+        return {
+          { characterName = "A", realm = "R", professionName = "Blacksmithing", skillRank = 150, recipeID = 9001 },
+        }
+      end
+      -- First lookup: item/spell not cached yet server-side, both return nil.
+      _G.GetItemInfo = function() return nil end
+      _G.GetSpellInfo = function() return nil end
+      local firstResults = SD.SearchRecipes("bracers")
+      assert.are.equal(0, #firstResults)
+
+      -- Later the client has the info cached. A rescan (NotifyRecipesChanged) should
+      -- let it resolve instead of permanently reusing the earlier nil result.
+      SD.InvalidateRecipesCache()
+      _G.GetItemInfo = function(id)
+        if id == 9001 then return "Runed Copper Bracers" end
+        return nil
+      end
+      local secondResults = SD.SearchRecipes("bracers")
+      SD.GetAllRecipes = oldGetAll
+      _G.GetItemInfo = oldGetItemInfo
+      _G.GetSpellInfo = oldGetSpellInfo
+      assert.are.equal(1, #secondResults)
+      assert.are.equal(9001, secondResults[1].recipeID)
+    end)
+
     it("lists own characters before guildmates when FilterAndSortRecipes merges both", function()
       local oldGetItemInfo = _G.GetItemInfo
       local oldGetSpellInfo = _G.GetSpellInfo
@@ -1166,6 +1219,29 @@ describe("SearchData", function()
       assert.is_truthy(entry._aaSkillCellText)
       assert.is_truthy(entry._aaSkillCellText:find("180", 1, true))
       assert.is_truthy(entry._aaDisplayCached)
+    end)
+
+    it("uses entry.name instead of GetSpellInfo/GetItemInfo(recipeID) when present", function()
+      -- recipeID isn't reliably a spell or item ID (e.g. some non-enchant profession recipes
+      -- use an unrelated numeric id), so a GetSpellInfo/GetItemInfo(recipeID) guess can
+      -- misresolve to a completely unrelated real item/spell that happens to share that id.
+      _G.GetSpellInfo = function(id)
+        if id == 2664 then
+          return "Some Unrelated Spell"
+        end
+        return nil
+      end
+      _G.GetItemInfo = function() return nil end
+      local entry = {
+        professionName = "Blacksmithing",
+        recipeID = 2664,
+        resultItemID = 2854,
+        name = "Runed Copper Bracers",
+        skillRank = 150,
+      }
+      SD.EnsureRecipeDisplayCache(entry)
+      assert.are.equal("Runed Copper Bracers", entry._aaRecipeMatchName)
+      assert.are.equal("Blacksmithing: Runed Copper Bracers", entry._aaRecipeBaseName)
     end)
 
     it("uses result item icon when available", function()

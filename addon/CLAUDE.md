@@ -39,6 +39,10 @@ Prefer red-green-refactor for new features: write a failing unit test first, the
 
 Domain-specific skills (e.g. debug compare dumps, Summary missing-data) live in `.claude/skills/`.
 
+### Debugging live-client behavior
+
+When a bug needs live WoW API / SavedVariables state to diagnose (not just reading code), use the **dev-dump** tool instead of asking the person to paste chat output: `AltArmy.Debug.Dump(label, payload)` (see [`.claude/skills/dev-dump/SKILL.md`](.claude/skills/dev-dump/SKILL.md) and [`docs/DEV_DUMPS.md`](docs/DEV_DUMPS.md)). It writes structured data to SavedVariables (read it yourself via `npm run dump:sync`) and fires a center-screen alert so the person knows it fired. Assume the person cannot easily copy text out of the WoW chat window.
+
 ### Lua tooling
 
 Use `npm test` and `npm run check` / `npm run lint` from the repo root. Do **not** search for a system Lua install, invent `LUA_51_PATH`, shim `luajit` as `lua.exe`, or poke Homebrew/LuaRocks unless an `npm` script fails with a clear missing-tool message — if Lua 5.1 / busted / luacheck are missing, run `npm run setup:dev` once, then retry. Runners auto-resolve `<repo>/.lua51/bin` (and Windows Lua for Windows defaults); no per-session env exports are needed once that tree exists.

@@ -247,4 +247,50 @@ describe("AltArmy.Debug", function()
         D.SaveApiCheckSnapshot("not a table")
         assert.are.equal(1, AltArmyTBC_Options.debug.apiCheckSnapshot.counts.total)
     end)
+
+    describe("Dump (standing dev-dump tool, see docs/DEV_DUMPS.md)", function()
+        it("Dump is a no-op when master debug is off: no SavedVariables write, no alert", function()
+            local alerted = {}
+            local oldAlert = D.ShowCenterAlert
+            D.ShowCenterAlert = function(text) alerted[#alerted + 1] = text end
+            D.Dump("myLabel", { foo = "bar" })
+            D.ShowCenterAlert = oldAlert
+            assert.is_nil(AltArmyTBC_Options.debug.devDumps)
+            assert.are.equal(0, #alerted)
+        end)
+
+        it("Dump stores the payload under devDumps[label] and alerts when master debug is on", function()
+            D.SetEnabled(true)
+            local alerted = {}
+            local oldAlert = D.ShowCenterAlert
+            D.ShowCenterAlert = function(text) alerted[#alerted + 1] = text end
+            D.Dump("myLabel", { foo = "bar" })
+            D.ShowCenterAlert = oldAlert
+            assert.are.same({ foo = "bar" }, AltArmyTBC_Options.debug.devDumps.myLabel)
+            assert.are.equal(1, #alerted)
+            assert.matches("myLabel", alerted[1])
+        end)
+
+        it("Dump keys by label so different call sites don't clobber each other", function()
+            D.SetEnabled(true)
+            D.Dump("labelA", { a = 1 })
+            D.Dump("labelB", { b = 2 })
+            assert.are.same({ a = 1 }, AltArmyTBC_Options.debug.devDumps.labelA)
+            assert.are.same({ b = 2 }, AltArmyTBC_Options.debug.devDumps.labelB)
+        end)
+
+        it("Dump overwrites the previous payload for the same label", function()
+            D.SetEnabled(true)
+            D.Dump("myLabel", { version = 1 })
+            D.Dump("myLabel", { version = 2 })
+            assert.are.equal(2, AltArmyTBC_Options.debug.devDumps.myLabel.version)
+        end)
+
+        it("Dump silently ignores a missing or non-string label", function()
+            D.SetEnabled(true)
+            D.Dump(nil, { a = 1 })
+            D.Dump(42, { a = 1 })
+            assert.is_nil(AltArmyTBC_Options.debug.devDumps)
+        end)
+    end)
 end)

@@ -863,7 +863,7 @@ local function ScanRecipesLegacy(char)
     prof.Recipes = prof.Recipes or {}
     for k in pairs(prof.Recipes) do prof.Recipes[k] = nil end
     for i = 1, numTradeSkills do
-        local _, recipeSkillType = GetTradeSkillInfo(i)
+        local skillName, recipeSkillType = GetTradeSkillInfo(i)
         -- Include rows whose difficulty string is unknown to our map (otherwise Spellcloth/etc. can be skipped).
         if recipeSkillType ~= "header" and recipeSkillType ~= "subheader" then
             local color = SkillTypeToColor[recipeSkillType] or 0
@@ -885,7 +885,12 @@ local function ScanRecipesLegacy(char)
                 end
             end
             if recipeID then
-                local row = { color = color, resultItemID = resultItemID, primaryRecipeID = recipeID }
+                -- name comes straight from the open tradeskill window: recipeID isn't reliably a
+                -- spell ID (it can be an item ID for non-enchant recipes), so search's later
+                -- GetSpellInfo/GetItemInfo(recipeID) guess can miss or misresolve it.
+                local row = {
+                    color = color, resultItemID = resultItemID, primaryRecipeID = recipeID, name = skillName,
+                }
                 prof.Recipes[recipeID] = row
                 for _, rid in ipairs(CollectRecipeIdsFromTradeSkillIndex(i)) do
                     if rid and rid ~= recipeID then
@@ -940,7 +945,11 @@ local function ScanRecipesViaTradeSkillUI(char)
                     resultItemID = outputInfo.itemID
                 end
             end
-            prof.Recipes[recipeID] = { color = color, resultItemID = resultItemID, primaryRecipeID = recipeID }
+            -- name comes straight from GetRecipeInfo: recipeID here isn't reliably a spell ID,
+            -- so search's later GetSpellInfo/GetItemInfo(recipeID) guess can miss or misresolve it.
+            prof.Recipes[recipeID] = {
+                color = color, resultItemID = resultItemID, primaryRecipeID = recipeID, name = recipeInfo.name,
+            }
         end
     end
     return tradeskillName
