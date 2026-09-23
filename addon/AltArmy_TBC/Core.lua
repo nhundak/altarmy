@@ -17,7 +17,7 @@ local Theme = AltArmy.Theme
 local MainTabs = AltArmy.MainTabs
 
 -- Height matches Forever's native CharacterFrame (CHARACTER_FRAME_HEIGHT = 484).
-local FRAME_WIDTH = 640
+local FRAME_WIDTH = 670
 local FRAME_HEIGHT = 484
 local TAB_HEIGHT = 22 -- toolbar control height (settings button)
 local CONTENT_INSET = 8

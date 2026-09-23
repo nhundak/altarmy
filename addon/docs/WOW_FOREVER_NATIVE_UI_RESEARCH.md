@@ -90,7 +90,7 @@ The rework goes **fully native**: the dark/bronze theme is removed, with no togg
   - the tiled `UI-Background-Rock` background and the NineSlice border
   - the close button
   - the portrait circle, which shows the active tab's icon (`SetPortraitToAsset`), and the title (`SetTitle`)
-- **Size:** 640 × 484. The height matches Forever's `CHARACTER_FRAME_HEIGHT` (`Blizzard_UIPanels_Game/Camelot/CharacterFrameConstants.lua`, 631 × 484).
+- **Size:** 670 × 484. The height matches Forever's `CHARACTER_FRAME_HEIGHT` (`Blizzard_UIPanels_Game/Camelot/CharacterFrameConstants.lua`, 631 × 484).
 - **Tabs:** icon flyouts on the right edge, anchored like CharacterFrame's `ModeTabs` (`TOPLEFT` → frame `TOPRIGHT`, y −30). Hovering a tab shows its name in a tooltip.
   - Forever: `LargeSideTabButtonTemplate`, which draws the `common-sidetab*` atlases.
   - TBC Anniversary has neither the template nor the atlases, so it falls back to the classic spellbook skill-line tab art.

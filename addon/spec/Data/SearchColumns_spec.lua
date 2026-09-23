@@ -45,19 +45,19 @@ describe("SearchColumns", function()
     end)
 
     it("uses a first-column width that fills the closed-settings viewport", function()
-        -- Main 640 − content insets 16 → 624; listViewport = 624 − inner pad 8 − scroll gutter 20.
+        -- Main 670 − content insets 16 → 654; listViewport = 654 − inner pad 8 − scroll gutter 20.
         -- Closed: first column 10px narrower, character 10px wider than the prior even split.
-        assert.are.equal(344, SC.ITEM_COLUMN_WIDTHS.Item)
-        assert.are.equal(344, SC.RECIPE_COLUMN_WIDTHS.Recipe)
+        assert.are.equal(374, SC.ITEM_COLUMN_WIDTHS.Item)
+        assert.are.equal(374, SC.RECIPE_COLUMN_WIDTHS.Recipe)
         assert.are.equal(180, SC.ITEM_COLUMN_WIDTHS.Character)
         assert.are.equal(180, SC.RECIPE_COLUMN_WIDTHS.Character)
-        assert.are.equal(596, SC.GetResultsTableWidth(false))
+        assert.are.equal(626, SC.GetResultsTableWidth(false))
     end)
 
     it("shrinks the first column when settings are open", function()
         assert.are.equal(175, SC.GetItemColumnWidths(true).Item)
         assert.are.equal(175, SC.GetRecipeColumnWidths(true).Recipe)
-        assert.are.equal(169, SC.SETTINGS_FIRST_COLUMN_SHRINK)
+        assert.are.equal(199, SC.SETTINGS_FIRST_COLUMN_SHRINK)
     end)
 
     it("shrinks the character column when settings are open", function()

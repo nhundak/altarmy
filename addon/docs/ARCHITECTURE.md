@@ -26,7 +26,7 @@ Visual language: [`UI/Theme.lua`](../AltArmy_TBC/UI/Theme.lua) — see [UI_DESIG
 
 ## Main window
 
-- Native Blizzard window: `PortraitFrameTemplate`, 640 × 484 (the height of Forever's CharacterFrame). It has a close button, and it can be dragged by the title bar and closed with Escape.
+- Native Blizzard window: `PortraitFrameTemplate`, 670 × 484 (the height of Forever's CharacterFrame). It has a close button, and it can be dragged by the title bar and closed with Escape.
 - The portrait circle and title (`Alt Army - <Tab>`) follow the active tab.
 - Open with `/altarmy` or `/alta`, or the minimap button.
 - **Toolbar row** under the title bar: a search slot and the active tab's settings button. The slot holds the global item/recipe search box (`SearchBoxTemplate`) on Summary (`MainTabs` `headerSearch`) and in Search mode. Reputation (faction filter) and Guild (character/profession search) put their own box in the same slot via `AltArmy.PlaceInToolbarSearchSlot`. Gear, Cooldowns and Graphs show no search. A native **Filter** dropdown (`Theme.CreateFilterDropdown`, entries from `Data/Search/SearchFilterMenu.lua`) appears left of the global search box once it has text; the box has a fixed width.

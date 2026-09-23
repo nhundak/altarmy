@@ -24,7 +24,7 @@ local HEADER_HEIGHT = 20
 local TOTALS_ROW_HEIGHT = 20
 local PAD = 4
 local WARNING_COL_WIDTH = 20
-local NAME_COL_BASE_WIDTH = 179 -- +30 vs original 149 to fill 640px frame content width
+local NAME_COL_BASE_WIDTH = 204 -- +55 vs original 149 to fill 670px frame content width
 
 local SD = AltArmy.SummaryData
 local Theme = AltArmy.Theme
@@ -150,7 +150,7 @@ local columns = {
         JustifyH = "LEFT",
     },
     Level = {
-        Width = 39,
+        Width = 44,
         GetText = function(entry)
             local l = entry.level
             if l == nil then return "" end
