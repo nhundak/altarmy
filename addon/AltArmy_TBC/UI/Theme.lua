@@ -7,6 +7,25 @@ AltArmy.Theme = AltArmy.Theme or {}
 
 local Theme = AltArmy.Theme
 
+-- Font roles -> Blizzard font objects (same sizes on Forever and TBC Anniversary: Small 10,
+-- Normal/Highlight 12, Med3 14, Large 16). Native panels (Character / Reputation / Skills)
+-- use 12pt for labels (gold Normal) and rows / values (white Highlight); only dense grids and
+-- small overlays stay 10pt. Use Theme.FONTS.<role>, never a GameFont literal, in UI code.
+Theme.FONTS = {
+    pageTitle = "GameFontNormalHuge",       -- Interface Options page header
+    headline = "GameFontHighlightLarge",    -- dialog headline
+    title = "GameFontNormalMed3",           -- panel / settings / dialog titles
+    heading = "GameFontNormal",             -- section and group headers, labels
+    body = "GameFontHighlight",             -- list rows, values, settings text, inputs
+    muted = "GameFontDisable",              -- empty states, unavailable rows
+    fineprint = "GameFontHighlightSmall",   -- footnotes, debug hints, secondary columns
+    smallButton = "GameFontNormalSmall",    -- labels on compact buttons / tabs
+    gridCell = "GameFontHighlightSmall",    -- dense grid cells (Gear, Reputation, Summary, roster)
+    gridHeader = "GameFontNormalSmall",     -- grid / list column headers
+    gridMuted = "GameFontDisableSmall",     -- muted text inside dense grids
+    badge = "GameFontNormalSmall",          -- count / upgrade badges
+}
+
 Theme.HOVER_TINT_BG = "Interface\\Tooltips\\UI-Tooltip-Background"
 Theme.HOVER_TINT_ALPHA = 0.22
 -- Native list-row hover (additive), used when the client has native chrome.
@@ -1313,7 +1332,7 @@ function Theme.CreateSearchBox(parent, opts)
     box = CreateFrame("EditBox", opts.name, parent)
     box:SetSize(opts.width or 200, height)
     box:SetAutoFocus(false)
-    box:SetFontObject("GameFontHighlight")
+    box:SetFontObject(Theme.FONTS.body)
     local leftInset = Theme.ApplySearchInputIcon(box)
     Theme.SetupEditBoxPlaceholder(box, opts.placeholder or "", { leftInset = leftInset })
     Theme.ApplyInputTextures(box)
@@ -1340,7 +1359,7 @@ function Theme.SetupEditBoxPlaceholder(editBox, placeholderText, options)
     end
     local hint = editBox[PLACEHOLDER_HINT_KEY]
     if not hint then
-        hint = editBox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        hint = editBox:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         hint:SetPoint("LEFT", editBox, "LEFT", leftInset, yOffset)
         hint:SetPoint("RIGHT", editBox, "RIGHT", -rightInset, yOffset)
         hint:SetJustifyH("LEFT")
@@ -1864,7 +1883,7 @@ end
 --- Options panel section heading (e.g. Cooldowns "Transmute", Gear "Current Character").
 function Theme.CreateOptionsSectionLabel(parent, opts)
     opts = opts or {}
-    local label = parent:CreateFontString(nil, opts.layer or "OVERLAY", "GameFontNormal")
+    local label = parent:CreateFontString(nil, opts.layer or "OVERLAY", Theme.FONTS.heading)
     if opts.relativeTo then
         label:SetPoint(opts.point or "TOPLEFT", opts.relativeTo, opts.relativePoint or "BOTTOMLEFT",
             opts.x or 0, opts.y or -14)
@@ -1907,7 +1926,7 @@ function Theme.CreateLabeledCheckbox(parent, opts)
     local check = Theme.CreateThemeCheckbox(row, checkSize)
     check:SetPoint("LEFT", row, "LEFT", 0, 0)
 
-    local label = check:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local label = check:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     label:SetPoint("LEFT", check, "RIGHT", 2, 0)
     label:SetText(opts.text or "")
 
@@ -2269,7 +2288,7 @@ function Theme.CreateDropdownMenuItem(parent, opts)
     selBg:Hide()
     btn.altArmyDropdownSelectedBg = selBg
 
-    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     label:SetPoint("LEFT", btn, "LEFT", labelLeft, 0)
     label:SetText(opts.text or "")
     btn.label = label
@@ -2336,7 +2355,7 @@ function Theme.CreateSingleSelectDropdown(opts)
     btn:SetSize(width, rowHeight)
     Theme.SkinDropdownButton(btn)
 
-    local btnText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local btnText = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     btnText:SetPoint("LEFT", btn, "LEFT", 6, 0)
     btnText:SetPoint("RIGHT", btn, "RIGHT", btn.altArmyDropdownArrow and -Theme.DROPDOWN_ARROW_GUTTER or -6, 0)
     btnText:SetJustifyH("LEFT")
@@ -2550,7 +2569,7 @@ function Theme.CreateMultiSelectCheckboxDropdown(config)
 
     local header
     if config.title and config.title ~= "" then
-        header = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        header = parent:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
         header:SetPoint("TOP", config.relativeTo, config.relativePoint or "BOTTOMLEFT", config.x or 0, config.y or -8)
         header:SetPoint("LEFT", parent, "LEFT", config.leftInset or 0, 0)
         header:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
@@ -2576,7 +2595,7 @@ function Theme.CreateMultiSelectCheckboxDropdown(config)
     end
     Theme.SkinDropdownButton(btn)
 
-    local btnText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local btnText = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     btnText:SetPoint("LEFT", btn, "LEFT", 6, 0)
     btnText:SetPoint("RIGHT", btn, "RIGHT", btn.altArmyDropdownArrow and -Theme.DROPDOWN_ARROW_GUTTER or -4, 0)
     btnText:SetJustifyH("LEFT")
@@ -2760,7 +2779,7 @@ function Theme.CreateCollapsibleSection(parent, opts)
     chevron:SetPoint("LEFT", header, "LEFT", 0, 0)
     chevron:SetTexture("Interface\\Buttons\\UI-PlusButton-UP")
 
-    local label = header:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local label = header:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
     label:SetPoint("LEFT", chevron, "RIGHT", 4, 0)
     label:SetPoint("RIGHT", header, "RIGHT", 0, 0)
     label:SetJustifyH("LEFT")
@@ -2872,7 +2891,7 @@ function Theme.CreateCraftLibInstallCallout(parent, opts)
         urlEdit:SetHeight(urlRowHeight)
         urlEdit:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", 0, -4)
         urlEdit:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
-        urlEdit:SetFontObject("GameFontHighlightSmall")
+        urlEdit:SetFontObject(Theme.FONTS.body)
         urlEdit:SetAutoFocus(false)
         urlEdit:SetTextInsets(4, 4, 0, 0)
         urlEdit:SetText(url)
@@ -2903,7 +2922,7 @@ function Theme.CreateCraftLibInstallCallout(parent, opts)
     end
 
     local function createInstallLinkBlock(labelText, url, relativeTo, topGap)
-        local installLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local installLabel = frame:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         installLabel:SetPoint("TOPLEFT", relativeTo, "BOTTOMLEFT", 0, topGap or -6)
         installLabel:SetJustifyH("LEFT")
         installLabel:SetText(labelText)
@@ -2916,7 +2935,7 @@ function Theme.CreateCraftLibInstallCallout(parent, opts)
     icon:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, 0)
     icon:SetTexture("Interface\\AddOns\\AltArmy_TBC\\Textures\\CraftLibIcon")
 
-    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local title = frame:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
     title:SetPoint("LEFT", icon, "RIGHT", 8, 0)
     title:SetPoint("TOP", icon, "TOP", 0, -2)
     title:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
@@ -2926,7 +2945,7 @@ function Theme.CreateCraftLibInstallCallout(parent, opts)
 
     local contentBottom
     if introText or hasBullets then
-        local intro = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local intro = frame:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         intro:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -6)
         intro:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
         intro:SetJustifyH("LEFT")
@@ -2937,7 +2956,7 @@ function Theme.CreateCraftLibInstallCallout(parent, opts)
 
         if hasBullets then
             for i = 1, #bulletLines do
-                local bullet = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                local bullet = frame:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
                 bullet:SetPoint("TOPLEFT", contentBottom, "BOTTOMLEFT", 0, i == 1 and -4 or -2)
                 bullet:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
                 bullet:SetJustifyH("LEFT")
@@ -2948,7 +2967,7 @@ function Theme.CreateCraftLibInstallCallout(parent, opts)
             end
         end
     else
-        local body = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local body = frame:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         body:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -8)
         body:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
         body:SetJustifyH("LEFT")

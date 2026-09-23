@@ -152,6 +152,28 @@ function SideTabs.Create(parent, defs, opts)
         end
     end
 
+    --- Show the player's guild crest in place of the tab icon (falls back to the icon when
+    --- there is no guild). Native tabs clip the crest with the tab's truncated-corner mask.
+    function obj:RefreshCrest(name)
+        local tab = self.tabs[name]
+        local GuildCrest = AltArmy.GuildCrest
+        if not tab or not GuildCrest then return end
+        if not tab.altArmyCrest then
+            if native then
+                tab.altArmyCrest = GuildCrest.CreateLayers(tab, tab.Icon, { mask = tab.Mask, subLevel = 1 })
+            else
+                tab.altArmyCrest = GuildCrest.CreateLayers(tab, tab, { layer = "ARTWORK", subLevel = 1 })
+            end
+        end
+        local drawn = tab.altArmyCrest:Refresh()
+        if native then
+            if tab.Icon and tab.Icon.SetShown then tab.Icon:SetShown(not drawn) end
+        else
+            local normal = tab.GetNormalTexture and tab:GetNormalTexture()
+            if normal and normal.SetAlpha then normal:SetAlpha(drawn and 0 or 1) end
+        end
+    end
+
     function obj:SetTabShown(name, shown)
         if not self.tabs[name] then return end
         self.hidden[name] = not shown or nil

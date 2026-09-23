@@ -17,7 +17,8 @@ Background research is in [WOW_FOREVER_NATIVE_UI_RESEARCH.md](WOW_FOREVER_NATIVE
 |-------|----------------|
 | Shell | `PortraitFrameTemplate`, 640 × 484 (Forever's `CHARACTER_FRAME_HEIGHT`). Provides the rock background, NineSlice border, close button, portrait circle and title bar. |
 | Title / portrait | `SetTitle("Alt Army - <Tab>")` and `SetPortraitToAsset(icon)` on every tab switch. Both come from `UI/MainTabs.lua`. |
-| Tabs | `UI/SideTabs.lua`: icon flyouts anchored like CharacterFrame's mode tabs. Forever uses `LargeSideTabButtonTemplate`; TBC uses spellbook skill-line tab art. |
+| Tabs | `UI/SideTabs.lua`: icon flyouts anchored like CharacterFrame's mode tabs. Forever uses `LargeSideTabButtonTemplate`; TBC uses spellbook skill-line tab art. On Forever, Reputation and Graphs use CharacterFrame's own Reputation / Statistics side-tab icons (`INV_SideTab_*_c60`). Guild shows the player's guild crest (`UI/GuildCrest.lua`), falling back to the tabard icon. |
+| Sub-view tabs | `UI/TopTabs.lua`: spellbook-style tabs hanging from a panel top into the toolbar row Forever uses `TabSystemTemplate` + `TabSystemTopButtonTemplate` square icon tabs. TBC doesn't load TabSystem, so it uses classic text top tabs (`PanelTopTabButtonTemplate` + `PanelTemplates_SelectTab`). Anchor the tab row's BOTTOMLEFT at the tab frame's TOPLEFT + `AltArmy.MainToolbarInsetX`. |
 | Toolbar | A row under the title bar, right of the portrait: search box, the active tab's settings button, and the search-mode checkboxes. |
 
 ## Helper → native art
@@ -38,7 +39,10 @@ Background research is in [WOW_FOREVER_NATIVE_UI_RESEARCH.md](WOW_FOREVER_NATIVE
 | Pinned scroll fades | Neutral shadow (`NATIVE_SCROLL_SHADOW`) | `nineSlice` |
 
 Rules:
-- **Use atlases and texture paths, never bundled art, for chrome.** The textures under `AltArmy_TBC/Textures/` are only for content, such as the compare arrow and quest reward markers.
+- **Use atlases and texture paths, never bundled art, for chrome.** The textures under `AltArmy_TBC/Textures/` are for content, such as the compare arrow and quest reward markers.
+  - **One exception:** `Textures/Icons/INV_SideTab_Reputation2_c60.blp` and `INV_SideTab_Stats_c60.blp` are byte-identical copies of Forever's CharacterFrame side-tab icons (fileDataIDs 8197103 / 8197104).
+  - Only TBC Anniversary uses them, because those files don't exist in its game data. Forever keeps loading its own copies from `Interface\Icons`.
+  - To re-extract them after a game update, with a local Forever install: `python scripts/extract-casc-files.py wow_classic_beta <outdir> interface/icons/inv_sidetab_reputation2_c60.blp interface/icons/inv_sidetab_stats_c60.blp`. The script is a read-only reader of the local CASC storage.
 - **Don't tint native chrome.** `SetBackdropColor` / `SetBackdropBorderColor` do nothing on native panels, because no backdrop is set. Where the tint itself carries meaning (the options attention flash), use `Theme.ApplyLegacyBackdrop`.
 - **New Blizzard templates:** add a capability to `NativeUI.DetectCaps()` and give the helper a fallback before using the template in a tab.
 
@@ -50,14 +54,26 @@ Rules:
 
 ## Typography
 
-| Element | Font object |
-|---------|-------------|
-| Window title | Set by the template (`GameFontNormal`) |
-| Section title / heading | `GameFontNormal` |
-| Body text, inputs | `GameFontHighlight` |
-| List rows, grid cells | `GameFontHighlightSmall` |
-| Column / group headers | `GameFontNormalSmall` |
-| Muted / empty | `GameFontDisableSmall` |
+Use `Theme.FONTS.<role>` for every FontString, font object and EditBox font. A spec (`spec/UI/ThemeFonts_spec.lua`) fails on new `"GameFont…"` literals in UI code.
+
+Native panels (Character, Reputation, Skills) use 12pt for nearly everything. Only dense grids and small overlays stay 10pt. Sizes are the same on Forever and TBC Anniversary: Small 10, Normal/Highlight 12, Med3 14, Large 16.
+
+| Role | Font object | Use for |
+|------|-------------|---------|
+| `title` | `GameFontNormalMed3` (14) | Panel, settings and dialog titles |
+| `heading` | `GameFontNormal` (12, gold) | Section and group headers, labels |
+| `body` | `GameFontHighlight` (12, white) | List rows, values, settings and checkbox text, dropdowns, inputs |
+| `muted` | `GameFontDisable` (12) | Empty states, unavailable rows |
+| `headline` | `GameFontHighlightLarge` | Dialog headline |
+| `pageTitle` | `GameFontNormalHuge` | Interface Options page header |
+| `fineprint` | `GameFontHighlightSmall` (10) | Footnotes, debug hints, secondary note columns |
+| `smallButton` | `GameFontNormalSmall` (10) | Labels on compact buttons and tabs |
+| `gridCell` | `GameFontHighlightSmall` (10) | Dense grid cells: Gear, Reputation, Summary, Guild roster, compare panel |
+| `gridHeader` | `GameFontNormalSmall` (10) | Grid and list column headers |
+| `gridMuted` | `GameFontDisableSmall` (10) | Muted text inside dense grids |
+| `badge` | `GameFontNormalSmall` (10) | Count and upgrade badges |
+
+The title bar text comes from the template (`GameFontNormal`).
 
 ## Spacing
 

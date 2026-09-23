@@ -43,7 +43,7 @@ headerPanel:SetScript("OnDragStop", function()
 end)
 Theme.ApplyBackdrop(headerPanel, "section")
 
-local headerTitle = headerPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+local headerTitle = headerPanel:CreateFontString(nil, "OVERLAY", Theme.FONTS.title)
 headerTitle:SetPoint("LEFT", headerPanel, "LEFT", Theme.TAB_CONTENT_PADDING, 0)
 headerTitle:SetText(ADDON_NAME)
 Theme.SetTitleColor(headerTitle)
@@ -59,7 +59,7 @@ bodyPanel:SetPoint("BOTTOMRIGHT", dialog, "BOTTOMRIGHT", -CONTENT_INSET, CONTENT
 
 local bodyInner = Theme.CreatePanelInnerContent(bodyPanel)
 
-local progressText = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
+local progressText = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.headline)
 progressText:SetPoint("TOPLEFT", bodyInner, "TOPLEFT", 0, 0)
 progressText:SetPoint("RIGHT", bodyInner, "RIGHT", 0, 0)
 progressText:SetJustifyH("LEFT")
@@ -67,7 +67,7 @@ progressText:SetWordWrap(true)
 progressText:SetTextColor(1, 1, 1, 1)
 progressText:SetText("Alt Army has mostly been updated to work with Forever!")
 
-local savedVarsText = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+local savedVarsText = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 savedVarsText:SetPoint("TOPLEFT", progressText, "BOTTOMLEFT", 0, -PARAGRAPH_GAP)
 savedVarsText:SetPoint("RIGHT", bodyInner, "RIGHT", 0, 0)
 savedVarsText:SetJustifyH("LEFT")
@@ -79,7 +79,7 @@ savedVarsText:SetText(
     .. " session cannot do so. This has a big impact on Alt Army, since it's all about recalling"
     .. " data from previous sessions.")
 
-local hopefulText = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+local hopefulText = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 hopefulText:SetPoint("TOPLEFT", savedVarsText, "BOTTOMLEFT", 0, -PARAGRAPH_GAP)
 hopefulText:SetPoint("RIGHT", bodyInner, "RIGHT", 0, 0)
 hopefulText:SetJustifyH("LEFT")

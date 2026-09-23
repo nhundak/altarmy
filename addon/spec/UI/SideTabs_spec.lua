@@ -127,6 +127,43 @@ describe("SideTabs", function()
       assert.is_false(tabs.tabs.Gear.checked)
     end)
 
+    describe("guild crest", function()
+      local savedGC
+      before_each(function() savedGC = AltArmy.GuildCrest end)
+      after_each(function() AltArmy.GuildCrest = savedGC end)
+
+      local function stubCrest(drawn)
+        AltArmy.GuildCrest = {
+          CreateLayers = function(_, anchor, opts)
+            local layers = { anchor = anchor, mask = opts and opts.mask, shown = false }
+            function layers.SetShown(self, on) self.shown = on end
+            function layers.Refresh(self) self.shown = drawn; return drawn end
+            return layers
+          end,
+        }
+      end
+
+      it("replaces the icon with the crest, clipped by the tab mask, when drawn", function()
+        stubCrest(true)
+        local t = tabs.tabs.Guild
+        t.Mask = {}
+        function t.Icon:SetShown(on) self.shown = on end
+        tabs:RefreshCrest("Guild")
+        assert.is_true(t.altArmyCrest.shown)
+        assert.are.equal(t.Icon, t.altArmyCrest.anchor)
+        assert.are.equal(t.Mask, t.altArmyCrest.mask)
+        assert.is_false(t.Icon.shown)
+      end)
+
+      it("keeps the fallback icon when there is no crest", function()
+        stubCrest(false)
+        local t = tabs.tabs.Guild
+        function t.Icon:SetShown(on) self.shown = on end
+        tabs:RefreshCrest("Guild")
+        assert.is_true(t.Icon.shown)
+      end)
+    end)
+
     it("re-flows when a tab is hidden", function()
       tabs:SetTabShown("Gear", false)
       assert.is_false(tabs.tabs.Gear.shown)

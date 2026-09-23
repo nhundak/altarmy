@@ -26,9 +26,65 @@ describe("MainTabs", function()
       assert.is_table(def)
       assert.are.equal(name, def.name)
       assert.is_string(def.label)
-      assert.truthy(def.icon:match("^Interface\\Icons\\"))
+      assert.truthy(def.icon:match("^Interface\\Icons\\")
+        or def.icon:match("^Interface\\AddOns\\AltArmy_TBC\\Textures\\Icons\\"))
     end
     assert.is_string(MainTabs.Get("Search").icon)
+  end)
+
+  describe("native side-tab icons", function()
+    local savedProject, savedMainline
+
+    local function reload(project)
+      _G.WOW_PROJECT_ID, _G.WOW_PROJECT_MAINLINE = project, 1
+      package.loaded["MainTabs"] = nil
+      AltArmy.MainTabs = nil
+      require("MainTabs")
+      return AltArmy.MainTabs
+    end
+
+    before_each(function()
+      savedProject, savedMainline = _G.WOW_PROJECT_ID, _G.WOW_PROJECT_MAINLINE
+    end)
+
+    after_each(function()
+      _G.WOW_PROJECT_ID, _G.WOW_PROJECT_MAINLINE = savedProject, savedMainline
+      MainTabs = reload(savedProject)
+    end)
+
+    it("uses the CharacterFrame Reputation / Statistics tab icons on Forever", function()
+      local tabs = reload(1)
+      assert.are.equal("Interface\\Icons\\INV_SideTab_Reputation2_c60", tabs.Get("Reputation").icon)
+      assert.are.equal("Interface\\Icons\\INV_SideTab_Stats_c60", tabs.Get("Graph").icon)
+    end)
+
+    it("uses the bundled copies of those icons on TBC Anniversary, which lacks the files", function()
+      local tabs = reload(5)
+      assert.are.equal(
+        "Interface\\AddOns\\AltArmy_TBC\\Textures\\Icons\\INV_SideTab_Reputation2_c60",
+        tabs.Get("Reputation").icon)
+      assert.are.equal(
+        "Interface\\AddOns\\AltArmy_TBC\\Textures\\Icons\\INV_SideTab_Stats_c60",
+        tabs.Get("Graph").icon)
+    end)
+
+    it("ships the bundled icon files", function()
+      for _, name in ipairs({ "INV_SideTab_Reputation2_c60", "INV_SideTab_Stats_c60" }) do
+        local f = io.open("AltArmy_TBC/Textures/Icons/" .. name .. ".blp", "rb")
+        assert.is_not_nil(f, name)
+        assert.are.equal("BLP2", f:read(4))
+        f:close()
+      end
+    end)
+
+    it("keeps stock game icons for tabs without a native side-tab icon", function()
+      assert.are.equal("Interface\\Icons\\INV_Misc_PocketWatch_01", reload(5).Get("Cooldowns").icon)
+    end)
+
+    it("marks the Guild tab to show the guild crest", function()
+      assert.is_true(reload(1).Get("Guild").guildCrest)
+      assert.are.equal("Interface\\Icons\\INV_Shirt_GuildTabard_01", MainTabs.Get("Guild").icon)
+    end)
   end)
 
   it("labels Graph as Graphs", function()

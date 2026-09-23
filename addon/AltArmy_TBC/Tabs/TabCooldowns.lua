@@ -37,13 +37,14 @@ if LD and LD.EnsureLockoutListOptions then
 end
 
 --- Crafting vs Raids sub-views (persisted in AltArmyTBC_Options.cooldowns.activeView).
+--- Switched by spellbook-style tabs hanging above the panel in the toolbar row (UI/TopTabs.lua).
 local VIEW = {
-    STRIP_H = 22,
-    BTN_W = 88,
-    BTN_H = 20,
-    GAP = 4,
     active = "crafting",
-    buttons = {},
+    tabs = nil,
+    defs = {
+        { name = "crafting", label = "Crafting", icon = "Interface\\Icons\\Trade_Alchemy" },
+        { name = "raids", label = "Dungeons", icon = "Interface\\Icons\\INV_Misc_Key_13" },
+    },
 }
 
 --- Item counts for mats column and Mats sort (bags+bank+mail snapshot, same as tooltips).
@@ -274,18 +275,13 @@ end
 
 local totalColWidth = TotalColWidth()
 
-local viewStrip = CreateFrame("Frame", nil, frame)
-viewStrip:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
-viewStrip:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SECTION_INSET, -SECTION_INSET)
-viewStrip:SetHeight(VIEW.STRIP_H)
-
 local tabContentPanel = Theme.CreateTabContentPanel(frame)
-tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -(SECTION_INSET + VIEW.STRIP_H + PAD))
+tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
 tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)
 
 local raidsPanel = Theme.CreateTabContentPanel(frame)
-raidsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -(SECTION_INSET + VIEW.STRIP_H + PAD))
+raidsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
 raidsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 raidsPanel:Hide()
 
@@ -323,7 +319,7 @@ for _, sk in ipairs(SORT_KEYS_ORDER) do
             RefreshList()
         end
     end)
-    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
     label:SetPoint("LEFT", btn, "LEFT", 0, 0)
     label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
     label:SetHeight(HEADER_HEIGHT)
@@ -353,7 +349,7 @@ selectAllBar:EnableMouse(true)
 local selectAllCheck = Theme.CreateThemeCheckbox(selectAllBar, 16)
 selectAllCheck:SetPoint("RIGHT", selectAllBar, "RIGHT", 0, 0)
 
-local selectAllLabel = selectAllBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+local selectAllLabel = selectAllBar:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
 selectAllLabel:SetPoint("RIGHT", selectAllCheck, "LEFT", -4, 0)
 selectAllLabel:SetJustifyH("RIGHT")
 selectAllLabel:SetTextColor(1, 1, 1)
@@ -377,7 +373,7 @@ tipIcon:SetTexture("Interface\\Common\\help-i")
 tipIcon:SetSize(TIP_ICON_SIZE, TIP_ICON_SIZE)
 tipIcon:SetPoint("LEFT", tipRow, "LEFT", 0, 0)
 
-local tipLabel = tipRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+local tipLabel = tipRow:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
 tipLabel:SetPoint("LEFT", tipIcon, "RIGHT", 4, 0)
 tipLabel:SetPoint("RIGHT", tipRow, "RIGHT", 0, 0)
 tipLabel:SetJustifyH("LEFT")
@@ -581,7 +577,7 @@ function recipePicker:EnsureSearchWidgets()
     local edit = CreateFrame("EditBox", nil, frame)
     edit:SetHeight(ROW_HEIGHT)
     edit:SetAutoFocus(false)
-    edit:SetFontObject("GameFontHighlight")
+    edit:SetFontObject(Theme.FONTS.body)
     Theme.ApplyInputTextures(edit)
     local leftInset = Theme.ApplySearchInputIcon(edit, { size = 11, leftPad = 2, gap = 2, rightInset = 4 })
     Theme.SetupEditBoxPlaceholder(edit, "Search", { leftInset = leftInset, rightInset = 4 })
@@ -758,7 +754,7 @@ sendBar.plusBtn:SetText("+")
 Theme.SkinButton(sendBar.plusBtn)
 sendBar.plusBtn:Hide()
 
-sendBar.countLabel = tipRow:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+sendBar.countLabel = tipRow:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
 sendBar.countLabel:SetJustifyH("CENTER")
 sendBar.countLabel:SetWidth(36)
 sendBar.countLabel:Hide()
@@ -1293,7 +1289,7 @@ local function PoolRow()
         catBtn:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
         catBtn:SetSize(colWidths.Category, ROW_HEIGHT)
         catBtn:RegisterForClicks("LeftButtonUp")
-        local cat = catBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        local cat = catBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         cat:SetAllPoints(catBtn)
         cat:SetJustifyH("LEFT")
         cat:SetJustifyV("MIDDLE")
@@ -1334,7 +1330,7 @@ local function PoolRow()
             end
         end)
 
-        local char = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        local char = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         char:SetPoint("TOPLEFT", catBtn, "TOPRIGHT", 0, 0)
         char:SetSize(colWidths.Character, ROW_HEIGHT)
         char:SetJustifyH("LEFT")
@@ -1355,14 +1351,14 @@ local function PoolRow()
         matIcon:SetPoint("CENTER", matSlot, "CENTER", 0, 0)
         row.matIcon = matIcon
 
-        local matNum = matSlot:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        local matNum = matSlot:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         matNum:SetAllPoints(matSlot)
         matNum:SetJustifyH("CENTER")
         matNum:SetJustifyV("MIDDLE")
         matNum:SetNonSpaceWrap(false)
         row.matCountLabel = matNum
 
-        local tm = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        local tm = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         tm:SetPoint("TOPLEFT", matSlot, "TOPRIGHT", 0, 0)
         tm:SetSize(colWidths.Time, ROW_HEIGHT)
         tm:SetJustifyH("RIGHT")
@@ -3173,10 +3169,8 @@ SetActiveCooldownsView = function(which)
     end
     tabContentPanel:SetShown(which == "crafting")
     raidsPanel:SetShown(which == "raids")
-    for id, btn in pairs(VIEW.buttons) do
-        if btn.SetSelected then
-            btn:SetSelected(id == which)
-        end
+    if VIEW.tabs then
+        VIEW.tabs:SetSelected(which)
     end
     if which == "raids" then
         recipePicker:Close()
@@ -3195,21 +3189,16 @@ SetActiveCooldownsView = function(which)
 end
 frame.SetCooldownsView = SetActiveCooldownsView
 
-do
-    local viewIds = { "crafting", "raids" }
-    local viewLabels = { crafting = "Crafting", raids = "Dungeons" }
-    for i, id in ipairs(viewIds) do
-        local btn = CreateFrame("Button", nil, viewStrip, "UIPanelButtonTemplate")
-        btn:SetSize(VIEW.BTN_W, VIEW.BTN_H)
-        btn:SetPoint("TOPLEFT", viewStrip, "TOPLEFT", (i - 1) * (VIEW.BTN_W + VIEW.GAP), 0)
-        btn:SetText(viewLabels[id])
-        Theme.SkinButton(btn, true)
-        btn:SetScript("OnClick", function()
+-- Tabs hang from the panel top up into the main window's toolbar row (left of the search box).
+-- Parented to the tab frame so they hide with it (other tabs, Search mode).
+VIEW.tabs = AltArmy.TopTabs.Create(frame, VIEW.defs, {
+    onSelect = function(id)
+        if VIEW.active ~= id then
             SetActiveCooldownsView(id)
-        end)
-        VIEW.buttons[id] = btn
-    end
-end
+        end
+    end,
+})
+VIEW.tabs.frame:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", AltArmy.MainToolbarInsetX or 54, 0)
 
 frame:HookScript("OnHide", function()
     recipePicker:Close()

@@ -27,7 +27,7 @@ local DEFS = {
     },
     Reputation = {
         label = "Reputation",
-        icon = "INV_Scroll_03",
+        nativeIcon = "INV_SideTab_Reputation2_c60", -- Forever CharacterFrame Reputation tab
         settings = { toggle = "ToggleReputationSettings", isShown = "IsReputationSettingsShown" },
     },
     Cooldowns = {
@@ -37,11 +37,12 @@ local DEFS = {
     },
     Graph = {
         label = "Graphs",
-        icon = "INV_Misc_Note_01",
+        nativeIcon = "INV_SideTab_Stats_c60", -- Forever CharacterFrame Statistics tab
     },
     Guild = {
         label = "Guild",
-        icon = "INV_Shirt_GuildTabard_01",
+        icon = "INV_Shirt_GuildTabard_01", -- shown when the player has no guild crest
+        guildCrest = true,
     },
     -- Header search results; no side tab.
     Search = {
@@ -51,9 +52,21 @@ local DEFS = {
     },
 }
 
+-- nativeIcon: Forever's CharacterFrame side-tab icons (*_c60). They exist only in Forever's
+-- game data, so TBC Anniversary uses byte-identical copies bundled under Textures/Icons
+-- (extracted from Forever's CASC storage; see docs/UI_DESIGN.md). Forever keeps the game file
+-- so its reskin applies.
+local BUNDLED_ICON_PREFIX = "Interface\\AddOns\\AltArmy_TBC\\Textures\\Icons\\"
+local isMainline = _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == (_G.WOW_PROJECT_MAINLINE or 1)
+
 for name, def in pairs(DEFS) do
     def.name = name
-    def.icon = ICON_PREFIX .. def.icon
+    if def.nativeIcon then
+        def.icon = (isMainline and ICON_PREFIX or BUNDLED_ICON_PREFIX) .. def.nativeIcon
+    else
+        def.icon = ICON_PREFIX .. def.icon
+    end
+    def.nativeIcon = nil
 end
 
 function MainTabs.Get(name)

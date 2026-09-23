@@ -15,6 +15,8 @@ UI\VirtualList.lua
 UI\SlideTransition.lua
 UI\MainTabs.lua
 UI\SideTabs.lua
+UI\GuildCrest.lua
+UI\TopTabs.lua
 Core.lua
 Data\CharKey.lua
 Data\Characters\BankAlt.lua

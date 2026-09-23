@@ -32,7 +32,7 @@ To browse locally: `git clone --depth 1 --branch forever https://github.com/Geth
 
 ## Template / API availability
 
-Checked by grepping both branches for the template definition.
+Checked by grepping both branches for the template definition. **Caveat:** a template file existing in a branch doesn't mean the client loads it. Also check the branch's `.toc` (see Modern tab bar), or confirm with the `nativeui-caps` dev dump.
 
 | Element | Template / API | Forever | TBC 2.5.6 | Notes |
 |---|---|---|---|---|
@@ -41,7 +41,7 @@ Checked by grepping both branches for the template definition.
 | Inset content area | `InsetFrameTemplate` | ✅ | ✅ | |
 | Close button | `UIPanelCloseButton`, `UIPanelCloseButtonDefaultAnchors` | ✅ | ✅ | Forever re-anchors it for its art |
 | Bottom / top tabs | `PanelTabButtonTemplate`, `PanelTopTabButtonTemplate` + `PanelTemplates_SetNumTabs` / `PanelTemplates_SetTab` | ✅ | ✅ | Classic-style tab strip |
-| Modern tab bar | `TabSystemTemplate`, `TabSystemButtonTemplate` | ✅ | ✅ | Dragonflight-style tab system (used in retail's newer windows) |
+| Modern tab bar | `TabSystemTemplate`, `TabSystemButtonTemplate` | ✅ | ❌ | Dragonflight-style tab system (used in retail's newer windows). The TBC source tree ships the files, but `Blizzard_SharedXML_TBC.toc` doesn't load them (Wrath / Cata / Mists do). This was confirmed in-game. |
 | Side tabs | `LargeSideTabButtonTemplate` | ✅ | ❌ | Used by Forever's CharacterFrame |
 | Scrolling lists | `WowScrollBoxList` + `MinimalScrollBar` / `WowTrimScrollBar`; `CreateDataProvider`, `CreateScrollBoxListLinearView`, `ScrollUtil.InitScrollBoxListWithScrollBar` | ✅ | ✅ | Replaces hand-rolled row pooling |
 | Dropdowns | `WowStyle1DropdownTemplate`, `WowStyle1FilterDropdownTemplate` (`DropdownButton` + `SetupMenu`) | ✅ | ✅ | |

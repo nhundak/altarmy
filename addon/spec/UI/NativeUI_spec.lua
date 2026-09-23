@@ -7,7 +7,7 @@ describe("NativeUI", function()
   local NativeUI
   local saved
 
-  local GLOBALS = { "C_XMLUtil", "C_Texture", "CreateFrame", "ScrollUtil", "MenuUtil", "NineSliceUtil" }
+  local GLOBALS = { "C_XMLUtil", "C_Texture", "CreateFrame", "ScrollUtil", "MenuUtil", "NineSliceUtil", "CreateFramePool" }
 
   local function stubClient(templates, atlases, extra)
     templates = templates or {}
@@ -147,6 +147,34 @@ describe("NativeUI", function()
       assert.is_true(NativeUI.DetectCaps().nineSlice)
       layouts.Dialog = nil
       assert.is_false(NativeUI.DetectCaps().nineSlice)
+    end)
+
+    it("reports top tabs, and icon tabs only with the Forever spellbook tab art", function()
+      _G.CreateFramePool = function() end
+      stubClient({ TabSystemTemplate = true, TabSystemTopButtonTemplate = true }, {})
+      local caps = NativeUI.DetectCaps()
+      assert.is_true(caps.topTabs)
+      assert.is_false(caps.iconTabs)
+      stubClient({ TabSystemTemplate = true, TabSystemTopButtonTemplate = true },
+        { ["spellbook-Tab-Frame-C60"] = { width = 44, height = 40 } })
+      assert.is_true(NativeUI.DetectCaps().iconTabs)
+      stubClient({ TabSystemTemplate = true }, { ["spellbook-Tab-Frame-C60"] = {} })
+      caps = NativeUI.DetectCaps()
+      assert.is_false(caps.topTabs)
+      assert.is_false(caps.iconTabs)
+    end)
+
+    it("reports classic panel top tabs when the template and PanelTemplates helpers exist", function()
+      local savedSel, savedDesel = _G.PanelTemplates_SelectTab, _G.PanelTemplates_DeselectTab
+      _G.PanelTemplates_SelectTab, _G.PanelTemplates_DeselectTab = function() end, function() end
+      stubClient({ PanelTopTabButtonTemplate = true })
+      local caps = NativeUI.DetectCaps()
+      _G.PanelTemplates_SelectTab = nil
+      local without = NativeUI.DetectCaps()
+      _G.PanelTemplates_SelectTab, _G.PanelTemplates_DeselectTab = savedSel, savedDesel
+      assert.is_true(caps.panelTopTabs)
+      assert.is_false(caps.topTabs)
+      assert.is_false(without.panelTopTabs)
     end)
 
     it("requires MenuUtil for WowStyle dropdowns", function()

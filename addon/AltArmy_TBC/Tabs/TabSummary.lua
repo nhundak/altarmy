@@ -305,7 +305,7 @@ for _, colName in ipairs(columnOrder) do
             Update()
             UpdateHeaderSortIndicators()
         end)
-        local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
         label:SetPoint("LEFT", btn, "LEFT", 0, 0)
         label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
         label:SetHeight(HEADER_HEIGHT)
@@ -335,7 +335,7 @@ local cellX = 0
 for _, colName in ipairs(columnOrder) do
     local col = columns[colName]
     local w = col and col.Width or 100
-    local cell = totalsRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local cell = totalsRow:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
     cell:SetPoint("LEFT", totalsRow, "LEFT", cellX, 0)
     cell:SetWidth(w)
     cell:SetJustifyH(col and col.JustifyH or "LEFT")
@@ -428,7 +428,7 @@ end
 ApplySummarySettingsPanelLayout()
 summarySettingsPanel:Hide()
 local summarySettingsContent = Theme.CreateSettingsPanelContent(summarySettingsPanel)
-local summarySettingsTitle = summarySettingsContent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+local summarySettingsTitle = summarySettingsContent:CreateFontString(nil, "OVERLAY", Theme.FONTS.title)
 summarySettingsTitle:SetPoint("TOPLEFT", summarySettingsContent, "TOPLEFT", 0, 0)
 summarySettingsTitle:SetPoint("TOPRIGHT", summarySettingsContent, "TOPRIGHT", 0, 0)
 summarySettingsTitle:SetJustifyH("LEFT")
@@ -598,7 +598,7 @@ for i = 1, ROW_POOL_SIZE do
             iconFrame:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
             iconFrame:SetSize(w, ROW_HEIGHT)
             iconFrame:EnableMouse(true)
-            local mark = iconFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            local mark = iconFrame:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
             mark:SetText("!")
             mark:SetPoint("CENTER", iconFrame, "CENTER", 0, 0)
             mark:SetTextColor(1, 0.82, 0, 1)
@@ -625,14 +625,14 @@ for i = 1, ROW_POOL_SIZE do
             nameIconFallback:SetSize(ICON_SIZE, ICON_SIZE)
             nameIconFallback:Hide()
             row.nameIconFallback = nameIconFallback
-            local cell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            local cell = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
             cell:SetPoint("LEFT", row, "LEFT", rowCellX + ICON_SIZE + 2, 0)
             cell:SetWidth(w - ICON_SIZE - 2)
             cell:SetJustifyH(col and col.JustifyH or "LEFT")
             cell:SetWordWrap(false)
             row.cells[colName] = cell
         else
-            local cell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            local cell = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
             cell:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
             cell:SetWidth(w)
             cell:SetJustifyH(col and col.JustifyH or "LEFT")

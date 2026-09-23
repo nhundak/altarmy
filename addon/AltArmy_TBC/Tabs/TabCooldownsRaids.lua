@@ -159,7 +159,7 @@ do
                 frame.RefreshRaidsList()
             end
         end)
-        local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
         label:SetPoint("LEFT", btn, "LEFT", 0, 0)
         label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
         label:SetHeight(HEADER_HEIGHT)
@@ -215,7 +215,7 @@ do
     end)
 end
 
-local emptyLabel = inner:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+local emptyLabel = inner:CreateFontString(nil, "OVERLAY", Theme.FONTS.muted)
 emptyLabel:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -HEADER_ROW_GAP - 4)
 emptyLabel:SetPoint("TOPRIGHT", headerRow, "BOTTOMRIGHT", 0, -HEADER_ROW_GAP - 4)
 emptyLabel:SetJustifyH("LEFT")
@@ -241,20 +241,20 @@ local function PoolRow()
     row:SetHeight(ROW_HEIGHT)
     row:EnableMouse(false)
 
-    local timeCell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local timeCell = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     timeCell:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     timeCell:SetWidth(UI.colWidths.time)
     timeCell:SetJustifyH("RIGHT")
     row.timeCell = timeCell
 
-    local instanceCell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local instanceCell = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     instanceCell:SetPoint("LEFT", row, "LEFT", 0, 0)
     instanceCell:SetWidth(UI.colWidths.instance)
     instanceCell:SetJustifyH("LEFT")
     instanceCell:SetWordWrap(false)
     row.instanceCell = instanceCell
 
-    local charCell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local charCell = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     charCell:SetPoint("LEFT", instanceCell, "RIGHT", 0, 0)
     charCell:SetPoint("RIGHT", timeCell, "LEFT", -4, 0)
     charCell:SetJustifyH("LEFT")

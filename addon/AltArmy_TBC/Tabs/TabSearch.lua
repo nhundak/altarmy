@@ -219,7 +219,7 @@ listViewport:SetClipsChildren(true)
 -- Points set in ApplySearchListLayout
 
 local HINT_NO_SEARCH_RESULTS_BOTH = "No matching items or recipes\nwere found for your search."
-local noResultsHint = tabContentInner:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+local noResultsHint = tabContentInner:CreateFontString(nil, "OVERLAY", Theme.FONTS.muted)
 noResultsHint:SetPoint("CENTER", listViewport, "CENTER", 0, 0)
 noResultsHint:SetWidth(280)
 noResultsHint:SetJustifyH("CENTER")
@@ -456,7 +456,7 @@ local function createSearchHeaderButton(headerRow, sectionId, colName, justifyLe
     btn:SetHeight(UI.HEADER_HEIGHT)
     btn:EnableMouse(true)
     btn:RegisterForClicks("LeftButtonUp")
-    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
     label:SetPoint("LEFT", btn, "LEFT", 0, 0)
     label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
     label:SetJustifyH(justifyLeft and "LEFT" or "RIGHT")
@@ -731,7 +731,7 @@ local function getGroupOverlay(i)
     if not groupOverlayPool[i] then
         local overlay = CreateFrame("Frame", nil, resultsArea)
         overlay:SetFrameLevel(resultsArea:GetFrameLevel() + 1)
-        overlay.total = overlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        overlay.total = overlay:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         overlay.total:SetJustifyH("RIGHT")
         overlay.icon = overlay:CreateTexture(nil, "OVERLAY")
         overlay.icon:SetSize(UI.OVERLAY_ICON_SIZE, UI.OVERLAY_ICON_SIZE)
@@ -745,7 +745,7 @@ local function getTooltipOnlyGroupOverlay(i)
     if not tooltipOnlyGroupOverlayPool[i] then
         local overlay = CreateFrame("Frame", nil, resultsArea)
         overlay:SetFrameLevel(resultsArea:GetFrameLevel() + 1)
-        overlay.total = overlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        overlay.total = overlay:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         overlay.total:SetJustifyH("RIGHT")
         overlay.icon = overlay:CreateTexture(nil, "OVERLAY")
         overlay.icon:SetSize(UI.OVERLAY_ICON_SIZE, UI.OVERLAY_ICON_SIZE)
@@ -762,7 +762,7 @@ local function createItemRow()
     local cx = 0
     for _, colName in ipairs(colOrder) do
         local w = colWidths[colName] or 80
-        local cell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        local cell = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         cell:SetPoint("TOPLEFT", row, "TOPLEFT", cx, 0)
         cell:SetWidth(w)
         cell:SetHeight(UI.ROW_HEIGHT)
@@ -807,7 +807,7 @@ local function createRecipeRow()
     local cx = 0
     for _, colName in ipairs(recipeColOrder) do
         local w = recipeColWidths[colName] or 80
-        local cell = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        local cell = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         cell:SetPoint("TOPLEFT", row, "TOPLEFT", cx, 0)
         cell:SetWidth(w)
         cell:SetHeight(UI.ROW_HEIGHT)

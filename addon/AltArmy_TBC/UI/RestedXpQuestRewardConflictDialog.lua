@@ -76,7 +76,7 @@ headerPanel:SetScript("OnDragStop", function()
 end)
 Theme.ApplyBackdrop(headerPanel, "section")
 
-local headerTitle = headerPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+local headerTitle = headerPanel:CreateFontString(nil, "OVERLAY", Theme.FONTS.title)
 headerTitle:SetPoint("LEFT", headerPanel, "LEFT", Theme.TAB_CONTENT_PADDING, 0)
 headerTitle:SetText(ADDON_NAME)
 Theme.SetTitleColor(headerTitle)
@@ -95,7 +95,7 @@ bodyPanel:SetPoint("BOTTOMRIGHT", dialog, "BOTTOMRIGHT", -CONTENT_INSET, CONTENT
 
 local bodyInner = Theme.CreatePanelInnerContent(bodyPanel)
 
-local headline = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
+local headline = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.headline)
 headline:SetPoint("TOPLEFT", bodyInner, "TOPLEFT", 0, 0)
 headline:SetPoint("RIGHT", bodyInner, "RIGHT", 0, 0)
 headline:SetJustifyH("LEFT")
@@ -103,7 +103,7 @@ headline:SetWordWrap(true)
 headline:SetText("Conflicting Settings")
 headline:SetTextColor(1, 1, 1, 1)
 
-local bodyText = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local bodyText = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 bodyText:SetPoint("TOPLEFT", headline, "BOTTOMLEFT", 0, -HEADLINE_BODY_GAP)
 bodyText:SetPoint("RIGHT", bodyInner, "RIGHT", 0, 0)
 bodyText:SetJustifyH("LEFT")
@@ -178,7 +178,7 @@ local mainAltArmyPanel = createPreviewPanel(
     PREVIEW_MAX_HEIGHT)
 mainAltArmyPanel:SetPoint("TOP", leftColumn, "TOP", 0, -COLUMN_TOP_INSET)
 
-local orLabel = leftColumn:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local orLabel = leftColumn:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 orLabel:SetPoint("TOP", mainAltArmyPanel, "BOTTOM", 0, -PREVIEW_STACK_GAP)
 orLabel:SetText("If the item is a sidegrade:")
 orLabel:SetTextColor(0.75, 0.75, 0.75, 1)
@@ -206,7 +206,7 @@ local function anchorColumnButton(btn, column, yRef)
     btn:SetPoint("LEFT", column, "LEFT", (column:GetWidth() - BUTTON_WIDTH) / 2, 0)
 end
 
-local footnote = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local footnote = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
 footnote:SetJustifyH("CENTER")
 footnote:SetWordWrap(true)
 footnote:SetTextColor(0.55, 0.55, 0.55, 1)

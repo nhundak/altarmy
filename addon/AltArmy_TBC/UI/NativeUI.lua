@@ -63,7 +63,7 @@ end
 --- Probe the client once for every native widget the reskin relies on.
 function NativeUI.DetectCaps()
     local has = NativeUI.HasTemplate
-    return {
+    local caps = {
         portraitFrame = has("PortraitFrameTemplate"),
         sideTabs = has("LargeSideTabButtonTemplate") and NativeUI.HasAtlas("common-sidetab"),
         minimalScrollBar = has("MinimalScrollBar", "EventFrame")
@@ -78,6 +78,16 @@ function NativeUI.DetectCaps()
         tooltipBackdrop = has("TooltipBackdropTemplate"),
         nineSlice = hasNineSliceLayouts(),
     }
+    -- Spellbook-style tabs hanging above a panel (TabSystemTopButtonTemplate). Icon (square) tabs
+    -- need Forever's spellbook tab art; TBC Anniversary's TabSystem is text-only.
+    caps.topTabs = has("TabSystemTemplate") and has("TabSystemTopButtonTemplate", "Button")
+        and _G.CreateFramePool ~= nil
+    caps.iconTabs = caps.topTabs and NativeUI.HasAtlas("spellbook-Tab-Frame-C60")
+    -- TBC Anniversary does not load Blizzard_SharedXML's TabSystem (absent from its .toc), but has
+    -- the classic top tab (TabButtonTemplate / HelpFrameTab art) driven by PanelTemplates_*.
+    caps.panelTopTabs = has("PanelTopTabButtonTemplate", "Button")
+        and _G.PanelTemplates_SelectTab ~= nil and _G.PanelTemplates_DeselectTab ~= nil
+    return caps
 end
 
 local cachedCaps = nil

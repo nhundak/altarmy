@@ -14,6 +14,7 @@ See who is playing which alts in the guild, open their shared professions/recipe
 ## Layout
 
 - Header: guild name / tabard, search for characters or professions.
+- The Guild side tab and the window portrait show your guild crest (`UI/GuildCrest.lua`). If you have no guild, they show the tabard icon.
 - Scroll list: one row per main (preferred name, character count, last online); expand for characters (class-colored name, level, primary professions).
 - Recipe detail: back + character title, profession tabs, recipe search, sortable recipe list.
 - Footer / settings for sharing preferences, notes wizard, pin-style UI prefs.

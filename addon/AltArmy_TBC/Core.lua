@@ -93,9 +93,33 @@ end)
 -- Title bar text + portrait icon follow the active tab (see applyWindowChrome).
 local fallbackTitle
 if not main.SetTitle then
-    fallbackTitle = main:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    fallbackTitle = main:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
     fallbackTitle:SetPoint("TOP", main, "TOP", 0, -8)
 end
+-- Guild tab: the portrait shows the player's guild crest (clipped to the portrait circle).
+local portraitCrest
+local function portraitTexture()
+    local container = main.PortraitContainer
+    return (container and container.portrait) or main.portrait
+end
+local function refreshPortraitCrest(def)
+    local GuildCrest = AltArmy.GuildCrest
+    local pt = portraitTexture()
+    if not (def and def.guildCrest and GuildCrest and pt) then
+        if portraitCrest then portraitCrest:SetShown(false) end
+        return false
+    end
+    if not portraitCrest then
+        local layer, sub = pt:GetDrawLayer()
+        portraitCrest = GuildCrest.CreateLayers(pt:GetParent(), pt, {
+            layer = layer,
+            subLevel = math.min((sub or 0) + 1, 5),
+            mask = main.PortraitContainer and main.PortraitContainer.CircleMask,
+        })
+    end
+    return portraitCrest:Refresh()
+end
+
 local function applyWindowChrome(tabName)
     local def = MainTabs.Get(tabName)
     local text = MainTabs.Title(tabName)
@@ -104,7 +128,12 @@ local function applyWindowChrome(tabName)
     elseif fallbackTitle then
         fallbackTitle:SetText(text)
     end
-    if def and main.SetPortraitToAsset then
+    local crestDrawn = refreshPortraitCrest(def)
+    local pt = portraitTexture()
+    if pt and pt.SetAlpha then
+        pt:SetAlpha(crestDrawn and 0 or 1)
+    end
+    if def and not crestDrawn and main.SetPortraitToAsset then
         main:SetPortraitToAsset(def.icon)
     end
 end
@@ -118,6 +147,10 @@ _G.AltArmyTBC_HeaderCloseButton = closeBtn
 closeBtn:SetScript("OnClick", function()
     main:Hide()
 end)
+
+-- Tab frames (content area) start CONTENT_INSET from the window edge; the toolbar starts right
+-- of the portrait. Tabs that hang controls into the toolbar row (Cooldowns sub-view tabs) use this.
+AltArmy.MainToolbarInsetX = LAYOUT.toolbarLeft - CONTENT_INSET
 
 -- Toolbar row: search-mode category checkboxes (left), settings button + global search (right).
 local toolbar = CreateFrame("Frame", nil, main)
@@ -141,10 +174,10 @@ if not nativeSearchBox then
         Theme.ClearEditBoxText(headerSearchEdit)
     end)
     headerSearchClearBtn:Hide()
-    local clearBtnLabel = headerSearchClearBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local clearBtnLabel = headerSearchClearBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     clearBtnLabel:SetPoint("CENTER", headerSearchClearBtn, "CENTER", 0, 0)
     clearBtnLabel:SetText("X")
-    headerSearchClearBtn:SetHighlightFontObject("GameFontNormal")
+    headerSearchClearBtn:SetHighlightFontObject(Theme.FONTS.heading)
 end
 local function setHeaderClearShown(on)
     if headerSearchClearBtn then
@@ -374,6 +407,9 @@ local function updateGuildTabVisibility()
     local GTD = AltArmy.GuildTabData
     local on = GTD and GTD.CanShowGuildTab and GTD.CanShowGuildTab()
     sideTabs:SetTabShown("Guild", on and true or false)
+    if on then
+        sideTabs:RefreshCrest("Guild")
+    end
     if not on and AltArmy.CurrentTab == "Guild" then
         setActiveTab("Summary")
     end
@@ -451,7 +487,7 @@ local function createCheckCaption(check, text, fallbackWidth)
     frame:SetScript("OnClick", function()
         check:Click()
     end)
-    local label = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local label = frame:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     label:SetPoint("LEFT", frame, "LEFT", 0, 0)
     label:SetText(text)
     local w = label.GetStringWidth and label:GetStringWidth() or 0
@@ -549,7 +585,7 @@ function AltArmy.RefreshSearchCategoryBar()
 end
 
 -- "Filters Active" sits left of the search box (anchored in layoutToolbarRight).
-local searchFiltersActiveLabel = toolbar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+local searchFiltersActiveLabel = toolbar:CreateFontString(nil, "OVERLAY", Theme.FONTS.badge)
 searchFiltersActiveLabel:SetJustifyH("RIGHT")
 searchFiltersActiveLabel:SetText("Filters Active")
 searchFiltersActiveLabel:Hide()

@@ -45,7 +45,7 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
     settingsPanel:Hide()
 
     local settingsContent = Theme.CreateSettingsPanelContent(settingsPanel)
-    local searchSettingsTitle = settingsContent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    local searchSettingsTitle = settingsContent:CreateFontString(nil, "OVERLAY", Theme.FONTS.title)
     searchSettingsTitle:SetPoint("TOPLEFT", settingsContent, "TOPLEFT", 0, 0)
     searchSettingsTitle:SetPoint("TOPRIGHT", settingsContent, "TOPRIGHT", 0, 0)
     searchSettingsTitle:SetJustifyH("LEFT")
@@ -88,7 +88,7 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
         end
     end
 
-    local recipeLevelHeader = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local recipeLevelHeader = filterContent:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
     recipeLevelHeader:SetText("Recipe Level")
     SetRecipeLevelHeaderColor(recipeLevelHeader)
 
@@ -96,13 +96,13 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
     professionSectionAnchor:SetSize(1, 1)
     professionSectionAnchor:SetPoint("TOPLEFT", filterContent, "TOPLEFT", 0, 0)
 
-    local minLevelLabel = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local minLevelLabel = filterContent:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     minLevelLabel:SetPoint("TOPLEFT", recipeLevelHeader, "BOTTOMLEFT", 0, -UI.RECIPE_LEVEL_ROW_GAP)
     minLevelLabel:SetText("Min")
 
     local minLevelEdit = CreateFrame("EditBox", nil, filterContent)
     minLevelEdit:SetSize(UI.RECIPE_LEVEL_DEFAULT_EDIT_WIDTH, UI.SETTINGS_ROW_HEIGHT)
-    minLevelEdit:SetFontObject("GameFontHighlightSmall")
+    minLevelEdit:SetFontObject(Theme.FONTS.body)
     minLevelEdit:SetAutoFocus(false)
     minLevelEdit:SetNumeric(true)
     minLevelEdit:SetJustifyH("CENTER")
@@ -146,14 +146,14 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
         ApplyRecipeLevelFilterMin(box, true)
     end)
 
-    local maxLevelLabel = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local maxLevelLabel = filterContent:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     maxLevelLabel:SetPoint("LEFT", minLevelEdit, "RIGHT", 12, 0)
     maxLevelLabel:SetPoint("TOP", minLevelLabel, "TOP", 0, 0)
     maxLevelLabel:SetText("Max")
 
     local maxLevelEdit = CreateFrame("EditBox", nil, filterContent)
     maxLevelEdit:SetSize(UI.RECIPE_LEVEL_DEFAULT_EDIT_WIDTH, UI.SETTINGS_ROW_HEIGHT)
-    maxLevelEdit:SetFontObject("GameFontHighlightSmall")
+    maxLevelEdit:SetFontObject(Theme.FONTS.body)
     maxLevelEdit:SetAutoFocus(false)
     maxLevelEdit:SetNumeric(true)
     maxLevelEdit:SetJustifyH("CENTER")
@@ -279,7 +279,7 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
     end
 
     local function CreateFilterSectionHeader(relativeTo, text, registerInCraftFilter)
-        local header = filterContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local header = filterContent:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
         header:SetPoint("TOP", relativeTo, "BOTTOM", 0, -UI.FILTER_SECTION_GAP)
         header:SetPoint("LEFT", filterContent, "LEFT", 0, 0)
         header:SetPoint("RIGHT", filterContent, "RIGHT", 0, 0)
@@ -311,7 +311,7 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
             AddCraftFilterWidget(btn)
         end
 
-        local btnText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local btnText = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         btnText:SetPoint("LEFT", btn, "LEFT", 6, 0)
         btnText:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
         btnText:SetJustifyH("LEFT")

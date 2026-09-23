@@ -10,6 +10,10 @@ Know which crafts are ready, whether mats are on hand, mail stockpile reagents f
 
 Persisted as Crafting vs **Raids** (`AltArmyTBC_Options.cooldowns.activeView`).
 
+You switch between them with spellbook-style tabs that hang above the panel in the toolbar row (`UI/TopTabs.lua`, Blizzard's `TabSystemTopButtonTemplate`). Hovering a tab shows its name.
+- **Forever:** square icon tabs (alchemy flask for Crafting, a dungeon key for Dungeons).
+- **TBC Anniversary:** classic text top tabs (`PanelTopTabButtonTemplate`), because its client doesn't load Blizzard's newer tab system.
+
 ### Crafting
 
 Columns: recipe/category, character, mats availability, time remaining. Sortable by recipe, character, mats, and time. Live refresh while the tab is open.

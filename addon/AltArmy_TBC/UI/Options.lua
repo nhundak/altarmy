@@ -195,7 +195,7 @@ end
 -- Header
 -- ---------------------------------------------------------------------------
 
-local header = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalHuge")
+local header = panel:CreateFontString(nil, "ARTWORK", Theme.FONTS.pageTitle)
 header:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -12)
 header:SetText("Alt Army")
 Theme.SetTitleColor(header)
@@ -338,7 +338,7 @@ local debugSearchRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
 })
 panel.debugSearchCheckbox = debugSearchRow.check
 
-local debugSearchHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugSearchHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
 debugSearchHint:SetPoint("TOPLEFT", debugSearchRow, "BOTTOMLEFT", 0, -8)
 debugSearchHint:SetWidth(520)
 debugSearchHint:SetJustifyH("LEFT")
@@ -362,7 +362,7 @@ local debugCooldownsRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
 })
 panel.debugCooldownsCheckbox = debugCooldownsRow.check
 
-local debugCooldownsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugCooldownsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
 debugCooldownsHint:SetPoint("TOPLEFT", debugCooldownsRow, "BOTTOMLEFT", 0, -8)
 debugCooldownsHint:SetWidth(520)
 debugCooldownsHint:SetJustifyH("LEFT")
@@ -415,7 +415,7 @@ debugDeleteAllHistoryBtn:SetScript("OnClick", function(self)
     end
 end)
 
-local debugLevelHistoryHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugLevelHistoryHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
 debugLevelHistoryHint:SetPoint("TOPLEFT", debugDeleteAllHistoryBtn, "BOTTOMLEFT", 0, -12)
 debugLevelHistoryHint:SetWidth(520)
 debugLevelHistoryHint:SetJustifyH("LEFT")
@@ -437,7 +437,7 @@ local debugItemComparisonRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
 })
 panel.debugItemComparisonCheckbox = debugItemComparisonRow.check
 
-local debugItemComparisonHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugItemComparisonHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
 debugItemComparisonHint:SetPoint("TOPLEFT", debugItemComparisonRow, "BOTTOMLEFT", 0, -8)
 debugItemComparisonHint:SetWidth(520)
 debugItemComparisonHint:SetJustifyH("LEFT")
@@ -460,7 +460,7 @@ local debugItemStatsRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
 })
 panel.debugItemStatsCheckbox = debugItemStatsRow.check
 
-local debugItemStatsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugItemStatsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
 debugItemStatsHint:SetPoint("TOPLEFT", debugItemStatsRow, "BOTTOMLEFT", 0, -8)
 debugItemStatsHint:SetWidth(520)
 debugItemStatsHint:SetJustifyH("LEFT")
@@ -483,7 +483,7 @@ local debugGuildShareVerboseRow = Theme.CreateLabeledCheckbox(debugScrollChild, 
 })
 panel.debugGuildShareVerboseCheckbox = debugGuildShareVerboseRow.check
 
-local debugGuildShareVerboseHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugGuildShareVerboseHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
 debugGuildShareVerboseHint:SetPoint("TOPLEFT", debugGuildShareVerboseRow, "BOTTOMLEFT", 0, -8)
 debugGuildShareVerboseHint:SetWidth(520)
 debugGuildShareVerboseHint:SetJustifyH("LEFT")
@@ -524,7 +524,7 @@ debugClearManualGroupsBtn:SetScript("OnClick", function(self)
     end
 end)
 
-local debugClearManualGroupsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugClearManualGroupsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
 debugClearManualGroupsHint:SetPoint("TOPLEFT", debugClearManualGroupsBtn, "BOTTOMLEFT", 0, -12)
 debugClearManualGroupsHint:SetWidth(520)
 debugClearManualGroupsHint:SetJustifyH("LEFT")
@@ -550,7 +550,7 @@ local debugPretendCraftLibRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
 })
 panel.debugPretendCraftLibCheckbox = debugPretendCraftLibRow.check
 
-local debugPretendCraftLibHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugPretendCraftLibHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
 debugPretendCraftLibHint:SetPoint("TOPLEFT", debugPretendCraftLibRow, "BOTTOMLEFT", 0, -8)
 debugPretendCraftLibHint:SetWidth(520)
 debugPretendCraftLibHint:SetJustifyH("LEFT")
@@ -577,7 +577,7 @@ local debugShowZygorMissingRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
 })
 panel.debugShowZygorMissingCheckbox = debugShowZygorMissingRow.check
 
-local debugShowZygorMissingHint = debugScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local debugShowZygorMissingHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
 debugShowZygorMissingHint:SetPoint("TOPLEFT", debugShowZygorMissingRow, "BOTTOMLEFT", 0, -8)
 debugShowZygorMissingHint:SetWidth(520)
 debugShowZygorMissingHint:SetJustifyH("LEFT")
@@ -969,13 +969,13 @@ guildIdentityLabelRow:SetPoint("TOPLEFT", guildIdentityRow, "TOPLEFT", 0, 0)
 guildIdentityLabelRow:SetPoint("RIGHT", guildIdentityRow, "RIGHT", 0, 0)
 guildIdentityLabelRow:SetHeight(GUILD_IDENTITY_LABEL_HEIGHT)
 
-local guildMainLabel = guildIdentityLabelRow:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local guildMainLabel = guildIdentityLabelRow:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 anchorGuildSharingLeftCaption(guildMainLabel, guildIdentityLabelRow)
 guildMainLabel:SetJustifyH("LEFT")
 guildMainLabel:SetWordWrap(true)
 guildMainLabel:SetText("What is your main character?")
 
-local guildDisplayLabel = guildIdentityLabelRow:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local guildDisplayLabel = guildIdentityLabelRow:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 anchorGuildSharingRightCaption(guildDisplayLabel, guildIdentityLabelRow)
 guildDisplayLabel:SetJustifyH("LEFT")
 guildDisplayLabel:SetWordWrap(true)
@@ -1051,7 +1051,7 @@ anchorGuildSharingLeftHalf(guildMainFocusRegion, guildIdentityRow)
 guildDisplayEdit = CreateFrame("EditBox", nil, guildDisplayControlColumn)
 guildDisplayEdit:SetPoint("TOPLEFT", guildDisplayControlColumn, "TOPLEFT", 0, 0)
 guildDisplayEdit:SetPoint("BOTTOMRIGHT", guildDisplayControlColumn, "BOTTOMRIGHT", 0, 0)
-guildDisplayEdit:SetFontObject("GameFontHighlight")
+guildDisplayEdit:SetFontObject(Theme.FONTS.body)
 guildDisplayEdit:SetAutoFocus(false)
 guildDisplayEdit:SetTextInsets(6, 6, 0, 0)
 local guildDisplayMaxLen = AltArmy.GuildShareSettings
@@ -1219,7 +1219,7 @@ guildChatChannelsLabelRow:SetPoint("RIGHT", guildChatChannelsRow, "RIGHT", 0, 0)
 guildChatChannelsLabelRow:SetHeight(GUILD_CHAT_CHANNELS_LABEL_HEIGHT)
 
 local guildChatChannelsLabel = guildChatChannelsLabelRow:CreateFontString(
-    nil, "ARTWORK", "GameFontHighlightSmall")
+    nil, "ARTWORK", Theme.FONTS.body)
 anchorGuildSharingLeftCaption(guildChatChannelsLabel, guildChatChannelsLabelRow)
 guildChatChannelsLabel:SetJustifyH("LEFT")
 guildChatChannelsLabel:SetWordWrap(true)
@@ -1485,7 +1485,7 @@ local function AcquireRow()
         row.iconFallback = iconFallback
 
         -- Name – Realm label (stretches full width; no delete button in the row)
-        local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local label = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         label:SetPoint("LEFT",  icon, "RIGHT", 4, 0)
         label:SetPoint("RIGHT", row,  "RIGHT", -4, 0)
         label:SetJustifyH("LEFT")
@@ -1568,13 +1568,13 @@ RefreshCharacterList = RefreshCharacterList_impl
 -- ---------------------------------------------------------------------------
 
 -- "Choose a character to begin" shown when nothing is selected
-local charSettingPrompt = tabCharacters:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+local charSettingPrompt = tabCharacters:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 charSettingPrompt:SetPoint("TOPLEFT", tabCharacters, "TOP", COL_GAP / 2, 0)
 charSettingPrompt:SetText("Choose a character to begin")
 charSettingPrompt:Show()
 
 -- "{Name} options" shown when a character is selected (name is class-colored).
-local charSettingHeader = tabCharacters:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+local charSettingHeader = tabCharacters:CreateFontString(nil, "ARTWORK", Theme.FONTS.title)
 charSettingHeader:SetPoint("TOPLEFT", tabCharacters, "TOP", COL_GAP / 2, 0)
 charSettingHeader:SetPoint("RIGHT", tabCharacters, "RIGHT", -16, 0)
 charSettingHeader:SetJustifyH("LEFT")
@@ -1628,7 +1628,7 @@ local function isGuildShareOptionsEnabled()
     return D and D.IsGuildShareEnabled and D.IsGuildShareEnabled()
 end
 
-local charGuildShareLabel = tabCharacters:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local charGuildShareLabel = tabCharacters:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 charGuildShareLabel:SetPoint("TOPLEFT", charSettingHeader, "BOTTOMLEFT", 0, -12)
 charGuildShareLabel:SetPoint("RIGHT", tabCharacters, "RIGHT", -16, 0)
 charGuildShareLabel:SetJustifyH("LEFT")

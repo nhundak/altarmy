@@ -51,7 +51,7 @@ headerPanel:SetScript("OnDragStop", function()
 end)
 Theme.ApplyBackdrop(headerPanel, "section")
 
-local headerTitle = headerPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+local headerTitle = headerPanel:CreateFontString(nil, "OVERLAY", Theme.FONTS.title)
 headerTitle:SetPoint("LEFT", headerPanel, "LEFT", Theme.TAB_CONTENT_PADDING, 0)
 headerTitle:SetText(ADDON_NAME)
 Theme.SetTitleColor(headerTitle)
@@ -70,7 +70,7 @@ bodyPanel:SetPoint("BOTTOMRIGHT", dialog, "BOTTOMRIGHT", -CONTENT_INSET, CONTENT
 
 local bodyInner = Theme.CreatePanelInnerContent(bodyPanel)
 
-local headline = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
+local headline = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.headline)
 headline:SetPoint("TOPLEFT", bodyInner, "TOPLEFT", 0, 0)
 headline:SetPoint("RIGHT", bodyInner, "RIGHT", 0, 0)
 headline:SetJustifyH("LEFT")
@@ -78,7 +78,7 @@ headline:SetWordWrap(true)
 headline:SetText("It looks like this character may be a bank alt")
 headline:SetTextColor(1, 1, 1, 1)
 
-local bodyText = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local bodyText = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 bodyText:SetPoint("TOPLEFT", headline, "BOTTOMLEFT", 0, -14)
 bodyText:SetPoint("RIGHT", bodyInner, "RIGHT", 0, 0)
 bodyText:SetJustifyH("LEFT")
@@ -91,7 +91,7 @@ bodyText:SetText(
         .. "Your bank alt will still appear in other parts of the addon, "
         .. "such as Summary, Graphs, and Search")
 
-local footnote = bodyInner:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+local footnote = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
 footnote:SetPoint("BOTTOMLEFT", bodyInner, "BOTTOMLEFT", 0, 0)
 footnote:SetPoint("BOTTOMRIGHT", bodyInner, "BOTTOMRIGHT", 0, 0)
 footnote:SetJustifyH("CENTER")
