@@ -224,7 +224,7 @@ end
 -- Grid first row uses a tighter frame anchor than the label row; trim is applied via cell content padding.
 local REP_FIRST_ROW_CELL_Y = -2
 
-local tabContentPanel = Theme.CreateTabContentPanel(frame)
+local tabContentPanel = Theme.CreateMainContentPanel(frame)
 tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
 tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)

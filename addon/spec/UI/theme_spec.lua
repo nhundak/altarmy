@@ -1102,6 +1102,23 @@ describe("AltArmy.Theme", function()
         end)
     end)
 
+    describe("CreateMainContentPanel", function()
+        it("creates a background-only panel with no border edge", function()
+            local parent = makeStubFrame()
+            local panel = Theme.CreateMainContentPanel(parent)
+            assert.is_not_nil(panel._backdrop)
+            assert.is_nil(panel._backdrop.edgeFile)
+            assert.is_not_nil(panel._backdrop.bgFile)
+        end)
+
+        it("native chrome draws the background without a NineSlice layout", function()
+            local recipe = Theme.NATIVE_TIERS.content
+            assert.is_not_nil(recipe)
+            assert.is_nil(recipe.layout)
+            assert.is_not_nil(recipe.bg)
+        end)
+    end)
+
     describe("CreateSettingsPanelContent", function()
         it("creates a child content frame with standard padding", function()
             local panel = makeStubFrame()

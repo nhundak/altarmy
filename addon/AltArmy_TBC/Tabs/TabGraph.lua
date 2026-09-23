@@ -332,7 +332,7 @@ local graphFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 graphFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
 graphFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
 graphFrame:SetPoint("RIGHT", frame, "RIGHT", -SELECTOR_WIDTH - SECTION_GAP, 0)
-Theme.ApplyBackdrop(graphFrame, "graph")
+Theme.ApplyBackdrop(graphFrame, "content")
 graphFrame:EnableMouse(true)
 
 local selectionOverlay = graphFrame:CreateTexture(nil, "OVERLAY")
@@ -573,7 +573,7 @@ end
 local optionsPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 optionsPanel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
 optionsPanel:SetSize(SELECTOR_WIDTH, OPTIONS_PANEL_HEIGHT_FULL)
-Theme.ApplyBackdrop(optionsPanel, "section")
+Theme.ApplyBackdrop(optionsPanel, "content")
 
 local metricDropdown = Theme.CreateSingleSelectDropdown({
     parent = optionsPanel,
@@ -685,7 +685,7 @@ local selectorPanel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 selectorPanel:SetPoint("TOPRIGHT", optionsPanel, "BOTTOMRIGHT", 0, -SECTION_GAP)
 selectorPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
 selectorPanel:SetWidth(SELECTOR_WIDTH)
-Theme.ApplyBackdrop(selectorPanel, "section")
+Theme.ApplyBackdrop(selectorPanel, "content")
 
 local selectorTitle = selectorPanel:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
 selectorTitle:SetPoint("TOPLEFT", selectorPanel, "TOPLEFT", 8, -8)

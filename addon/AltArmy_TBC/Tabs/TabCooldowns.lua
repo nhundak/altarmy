@@ -275,12 +275,12 @@ end
 
 local totalColWidth = TotalColWidth()
 
-local tabContentPanel = Theme.CreateTabContentPanel(frame)
+local tabContentPanel = Theme.CreateMainContentPanel(frame)
 tabContentPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
 tabContentPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)
 
-local raidsPanel = Theme.CreateTabContentPanel(frame)
+local raidsPanel = Theme.CreateMainContentPanel(frame)
 raidsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
 raidsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 raidsPanel:Hide()

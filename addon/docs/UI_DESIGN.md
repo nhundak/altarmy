@@ -26,6 +26,7 @@ Background research is in [WOW_FOREVER_NATIVE_UI_RESEARCH.md](WOW_FOREVER_NATIVE
 | Helper | Native result | Capability |
 |--------|---------------|------------|
 | `ApplyBackdrop(f, "section" \| "graph")`, `CreatePanel`, `CreateTabContentPanel` | `InsetFrameTemplate` NineSlice layout drawn onto the frame at BORDER, over a tiled `UI-Background-Marble` | `nineSlice` |
+| `ApplyBackdrop(f, "content")`, `CreateMainContentPanel` | Tiled `UI-Background-Marble` only, no border — every main-window tab's page panels (including the Gear and Graphs sub-sections), so the portrait window's bronze border is the single outline. Small controls (item drop wells, settings popouts) and dialog bodies still use `section`. | `nineSlice` |
 | `ApplyBackdrop(f, "window" \| "dialog")` | `Dialog` NineSlice layout over a tiled `UI-DialogBox-Background-Dark` | `nineSlice` |
 | `ApplyBackdrop(f, "tooltip")` | `TooltipDefaultLayout` with the GameTooltip center tint | `nineSlice` |
 | `SkinButton`, `SkinDangerButton` | `UIPanelButtonTemplate` art (the `UI-Panel-Button-Up/Down/Disabled/Highlight` slices). Template buttons keep their own art; plain buttons get it drawn on. Toggles use `LockHighlight`. Danger buttons use red label text. | `nineSlice` |

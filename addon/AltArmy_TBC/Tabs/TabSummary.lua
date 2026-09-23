@@ -345,7 +345,7 @@ end
 
 -- Main tab content: bordered panel (same styling as settings panel).
 local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
-local tabContentPanel = Theme.CreateTabContentPanel(frame)
+local tabContentPanel = Theme.CreateMainContentPanel(frame)
 local tabContentInner = Theme.CreatePanelInnerContent(tabContentPanel)
 scrollBar:SetParent(tabContentInner) -- reparented; layout in ApplySummaryListLayout
 

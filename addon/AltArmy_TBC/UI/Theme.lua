@@ -112,6 +112,13 @@ Theme.SECTION_BACKDROP = {
 
 Theme.GRAPH_BACKDROP = Theme.SECTION_BACKDROP
 
+-- Main-window tab content: background only; the window's own border is the only outline.
+Theme.CONTENT_BACKDROP = {
+    bgFile = BG_FILE,
+    tile = false,
+    insets = { left = 0, right = 0, top = 0, bottom = 0 },
+}
+
 Theme.TOOLTIP_BACKDROP = {
     bgFile = BG_FILE,
     edgeFile = EDGE_FILE,
@@ -132,6 +139,7 @@ Theme.BUTTON_BACKDROP = {
 local TIER_BACKDROP = {
     window = Theme.WINDOW_BACKDROP,
     section = Theme.SECTION_BACKDROP,
+    content = Theme.CONTENT_BACKDROP,
     graph = Theme.GRAPH_BACKDROP,
     tooltip = Theme.TOOLTIP_BACKDROP,
     button = Theme.BUTTON_BACKDROP,
@@ -141,6 +149,7 @@ local TIER_BG = {
     window = C.windowBg,
     dialog = C.dialogBg,
     section = C.sectionBg,
+    content = C.sectionBg,
     graph = C.graphBg,
     tooltip = C.tooltipBg,
     button = C.btnBg,
@@ -150,6 +159,7 @@ local TIER_BORDER = {
     window = C.windowBorder,
     dialog = C.panelBorder,
     section = C.sectionBorder,
+    content = C.sectionBorder,
     graph = C.sectionBorder,
     tooltip = C.tooltipBorder,
     button = C.btnBorder,
@@ -171,6 +181,8 @@ end
 Theme.NATIVE_TIERS = {
     section = { layout = "InsetFrameTemplate", bg = "Interface\\FrameGeneral\\UI-Background-Marble", bgInset = 0 },
     graph = { layout = "InsetFrameTemplate", bg = "Interface\\FrameGeneral\\UI-Background-Marble", bgInset = 0 },
+    -- No layout: background only, so the portrait window's border is the single outline.
+    content = { bg = "Interface\\FrameGeneral\\UI-Background-Marble", bgInset = 0 },
     window = { layout = "Dialog", bg = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark", bgInset = 6 },
     dialog = { layout = "Dialog", bg = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark", bgInset = 6 },
     -- GameTooltip default background tint.
@@ -190,7 +202,9 @@ function Theme.ApplyNativeChrome(frame, tier)
     if not frame or not recipe or not nativeChromeAvailable() or not _G.NineSliceUtil then
         return false
     end
-    _G.NineSliceUtil.ApplyLayoutByName(frame, recipe.layout)
+    if recipe.layout then
+        _G.NineSliceUtil.ApplyLayoutByName(frame, recipe.layout)
+    end
     if recipe.bg then
         local bg = frame.altArmyNativeBg
         if not bg then
@@ -1193,6 +1207,13 @@ Theme.SECTION_GAP = 4
 function Theme.CreateTabContentPanel(parent)
     local panel = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     Theme.ApplyBackdrop(panel, "section")
+    return panel
+end
+
+--- Borderless panel for a main-window tab's top-level content (sits inside the window border).
+function Theme.CreateMainContentPanel(parent)
+    local panel = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    Theme.ApplyBackdrop(panel, "content")
     return panel
 end
 

@@ -1316,7 +1316,7 @@ rightPanel:SetPoint("BOTTOMRIGHT", gearLayoutHost, "BOTTOMRIGHT", 0, 0)
 
 local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
 
-gearMainSection = Theme.CreateTabContentPanel(rightPanel)
+gearMainSection = Theme.CreateMainContentPanel(rightPanel)
 local gearMainInner = Theme.CreatePanelInnerContent(gearMainSection)
 gearMainInner:SetClipsChildren(true)
 
@@ -1876,7 +1876,7 @@ scrollHeaderLeftFade = Theme.CreatePinnedHorizontalScrollFade({
 })
 
 -- Item Check mode: header panel + instructions panel below.
-itemCheckSection = Theme.CreateTabContentPanel(rightPanel)
+itemCheckSection = Theme.CreateMainContentPanel(rightPanel)
 itemCheckSection:Hide()
 itemCheckInner = Theme.CreatePanelInnerContent(itemCheckSection)
 itemCheckInner:EnableMouse(true)
@@ -2017,7 +2017,7 @@ itemCheckDrop:SetScript("OnMouseUp", function(_, button)
     GearTab.tryAcceptItemCheckDrop()
 end)
 
-compareStatsSection = Theme.CreateTabContentPanel(rightPanel)
+compareStatsSection = Theme.CreateMainContentPanel(rightPanel)
 compareStatsSection:Hide()
 compareStatsInner = Theme.CreatePanelInnerContent(compareStatsSection)
 

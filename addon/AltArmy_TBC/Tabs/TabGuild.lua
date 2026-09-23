@@ -265,7 +265,7 @@ end
 
 -- *** Layout: panel + message state ***
 
-local panel = Theme.CreateTabContentPanel(frame)
+local panel = Theme.CreateMainContentPanel(frame)
 panel:SetPoint("TOPLEFT", frame, "TOPLEFT", SECTION_INSET, -SECTION_INSET)
 panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SECTION_INSET, SECTION_INSET)
 local inner = Theme.CreatePanelInnerContent(panel)
