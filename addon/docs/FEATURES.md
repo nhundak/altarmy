@@ -16,8 +16,8 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 
 ## UI design system
 
-- Shared warm bronze / dark panel theme in `AltArmy_TBC/UI/Theme.lua` (see [UI_DESIGN.md](UI_DESIGN.md)).
-- All tabs, settings panels, popovers, and Interface Options use the same backdrop recipe and color roles.
+- Native Blizzard look on both WoW Forever and TBC Anniversary. AltArmy uses Blizzard's own templates and atlases for panels, buttons, scrollbars, checkboxes, dropdowns, inputs and list highlights, so Forever's reskin (and reskin addons) apply automatically.
+- Everything goes through `AltArmy_TBC/UI/Theme.lua`, with capability detection in `UI/NativeUI.lua` and a flat-theme fallback (see [UI_DESIGN.md](UI_DESIGN.md)).
 
 ## Main UI and access
 

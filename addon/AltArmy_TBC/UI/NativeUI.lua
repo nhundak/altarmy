@@ -44,6 +44,22 @@ local function hasField(tbl, key)
     return type(tbl) == "table" and tbl[key] ~= nil
 end
 
+-- Layouts Theme.ApplyBackdrop draws natively; present on both Forever and TBC Anniversary.
+NativeUI.NINE_SLICE_LAYOUTS = { "InsetFrameTemplate", "Dialog", "TooltipDefaultLayout" }
+
+local function hasNineSliceLayouts()
+    local util = _G.NineSliceUtil
+    if not hasField(util, "ApplyLayoutByName") or not hasField(util, "GetLayout") then
+        return false
+    end
+    for _, name in ipairs(NativeUI.NINE_SLICE_LAYOUTS) do
+        if not util.GetLayout(name) then
+            return false
+        end
+    end
+    return true
+end
+
 --- Probe the client once for every native widget the reskin relies on.
 function NativeUI.DetectCaps()
     local has = NativeUI.HasTemplate
@@ -60,6 +76,7 @@ function NativeUI.DetectCaps()
         insetFrame = has("InsetFrameTemplate"),
         panelButton = has("UIPanelButtonTemplate", "Button"),
         tooltipBackdrop = has("TooltipBackdropTemplate"),
+        nineSlice = hasNineSliceLayouts(),
     }
 end
 

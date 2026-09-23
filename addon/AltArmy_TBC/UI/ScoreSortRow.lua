@@ -208,10 +208,11 @@ function SSR.CreateCornerControls(parent, opts)
     providerBtn:SetPoint("BOTTOMRIGHT", sortBtn, "BOTTOMLEFT", -SORT_BTN_GAP, 0)
     providerBtn:SetHeight(btnSize)
     providerBtn:Hide()
-    if Theme and Theme.SkinButton then Theme.SkinButton(providerBtn) end
+    if Theme and Theme.SkinDropdownButton then Theme.SkinDropdownButton(providerBtn) end
     local providerBtnText = providerBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     providerBtnText:SetPoint("LEFT", providerBtn, "LEFT", 6, 0)
-    providerBtnText:SetPoint("RIGHT", providerBtn, "RIGHT", -2, 0)
+    providerBtnText:SetPoint("RIGHT", providerBtn, "RIGHT",
+        providerBtn.altArmyDropdownArrow and -Theme.DROPDOWN_ARROW_GUTTER or -2, 0)
     providerBtnText:SetJustifyH("LEFT")
 
     local dropdown = CreateFrame("Frame", nil, dropdownParent, "BackdropTemplate")
@@ -219,7 +220,7 @@ function SSR.CreateCornerControls(parent, opts)
     dropdown:SetWidth(dropdownWidth)
     dropdown:SetFrameLevel(dropdownParent:GetFrameLevel() + 100)
     dropdown:Hide()
-    if Theme and Theme.ApplyBackdrop then Theme.ApplyBackdrop(dropdown, "section") end
+    if Theme and Theme.SkinDropdownPopup then Theme.SkinDropdownPopup(dropdown) end
     local dropdownButtons = {}
 
     local api = {}
@@ -260,12 +261,17 @@ function SSR.CreateCornerControls(parent, opts)
             dropdown:Hide()
             return
         end
-        dropdown:SetHeight(#providers * SETTINGS_ROW_HEIGHT + 4)
+        local insets = Theme.GetDropdownPopupInsets and Theme.GetDropdownPopupInsets()
+            or { left = 2, top = 2, right = 2, bottom = 2 }
+        dropdown:SetHeight(#providers * SETTINGS_ROW_HEIGHT + insets.top + insets.bottom)
         dropdown:SetWidth(dropdownWidth)
         for idx, provider in ipairs(providers) do
             local b = Theme.CreateDropdownMenuItem(dropdown, {
                 index = idx,
                 rowHeight = SETTINGS_ROW_HEIGHT,
+                padTop = insets.top,
+                padSide = insets.left,
+                padRight = insets.right,
                 text = provider.label,
                 selected = provider.id == getProviderId(),
                 onClick = function(self)

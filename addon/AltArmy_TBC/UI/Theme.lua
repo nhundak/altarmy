@@ -9,6 +9,9 @@ local Theme = AltArmy.Theme
 
 Theme.HOVER_TINT_BG = "Interface\\Tooltips\\UI-Tooltip-Background"
 Theme.HOVER_TINT_ALPHA = 0.22
+-- Native list-row hover (additive), used when the client has native chrome.
+Theme.NATIVE_ROW_HIGHLIGHT = "Interface\\QuestFrame\\UI-QuestTitleHighlight"
+Theme.NATIVE_ROW_HIGHLIGHT_ALPHA = 0.6
 
 Theme.COLORS = {
     -- Shell: semi-transparent so gaps between opaque section panels show the game through.
@@ -147,7 +150,57 @@ function Theme.EnsureBackdrop(frame)
     end
 end
 
-function Theme.ApplyBackdrop(frame, tier)
+-- Native Blizzard chrome per tier: NineSlice layout drawn onto the frame itself (BORDER layer,
+-- below the frame's own text/art and all child frames) plus a tiled native background.
+-- Layout names exist on both Forever and TBC Anniversary; Forever reskins their atlases in place.
+Theme.NATIVE_TIERS = {
+    section = { layout = "InsetFrameTemplate", bg = "Interface\\FrameGeneral\\UI-Background-Marble", bgInset = 0 },
+    graph = { layout = "InsetFrameTemplate", bg = "Interface\\FrameGeneral\\UI-Background-Marble", bgInset = 0 },
+    window = { layout = "Dialog", bg = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark", bgInset = 6 },
+    dialog = { layout = "Dialog", bg = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark", bgInset = 6 },
+    -- GameTooltip default background tint.
+    tooltip = { layout = "TooltipDefaultLayout", centerColor = { 0.09, 0.09, 0.19, 1 } },
+}
+
+local function nativeChromeAvailable()
+    local NativeUI = AltArmy.NativeUI
+    local caps = NativeUI and NativeUI.GetCaps and NativeUI.GetCaps()
+    return caps and caps.nineSlice or false
+end
+
+--- Apply native chrome for `tier`; returns false when the tier has no native recipe or the
+--- client lacks NineSlice layouts (caller then uses the legacy backdrop).
+function Theme.ApplyNativeChrome(frame, tier)
+    local recipe = Theme.NATIVE_TIERS[tier]
+    if not frame or not recipe or not nativeChromeAvailable() or not _G.NineSliceUtil then
+        return false
+    end
+    _G.NineSliceUtil.ApplyLayoutByName(frame, recipe.layout)
+    if recipe.bg then
+        local bg = frame.altArmyNativeBg
+        if not bg then
+            bg = frame:CreateTexture(nil, "BACKGROUND", nil, -6)
+            frame.altArmyNativeBg = bg
+        end
+        bg:SetTexture(recipe.bg, "REPEAT", "REPEAT")
+        if bg.SetHorizTile then bg:SetHorizTile(true) end
+        if bg.SetVertTile then bg:SetVertTile(true) end
+        local inset = recipe.bgInset or 0
+        bg:ClearAllPoints()
+        bg:SetPoint("TOPLEFT", frame, "TOPLEFT", inset, -inset)
+        bg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -inset, inset)
+    end
+    if recipe.centerColor and frame.Center and frame.Center.SetVertexColor then
+        local c = recipe.centerColor
+        frame.Center:SetVertexColor(c[1], c[2], c[3], c[4])
+    end
+    frame.altArmyNativeTier = tier
+    return true
+end
+
+--- Legacy flat-color backdrop (tintable via SetBackdropColor / SetBackdropBorderColor).
+--- Use only where the tint itself carries meaning (attention flash, themed buttons).
+function Theme.ApplyLegacyBackdrop(frame, tier)
     if not frame then return end
     Theme.EnsureBackdrop(frame)
     if not frame.SetBackdrop then return end
@@ -161,6 +214,12 @@ function Theme.ApplyBackdrop(frame, tier)
     if frame.SetBackdropBorderColor then
         frame:SetBackdropBorderColor(border[1], border[2], border[3], border[4])
     end
+end
+
+function Theme.ApplyBackdrop(frame, tier)
+    if not frame then return end
+    if Theme.ApplyNativeChrome(frame, tier) then return end
+    Theme.ApplyLegacyBackdrop(frame, tier)
 end
 
 function Theme.CreatePanel(parent, tier, name)
@@ -204,9 +263,151 @@ local function stripButtonTemplate(btn)
     if pt and pt.SetTexture then pt:SetTexture(nil) end
 end
 
+-- UIPanelButtonTemplate art: plain texture files on both Forever and TBC Anniversary
+-- (SecureUIPanelTemplates UIPanelButton_On*), so drawing them ourselves is identical to the template.
+Theme.PANEL_BUTTON = {
+    up = "Interface\\Buttons\\UI-Panel-Button-Up",
+    down = "Interface\\Buttons\\UI-Panel-Button-Down",
+    disabled = "Interface\\Buttons\\UI-Panel-Button-Disabled",
+    highlight = "Interface\\Buttons\\UI-Panel-Button-Highlight",
+}
+-- NORMAL / HIGHLIGHT / DISABLED font colors for plain-button label FontStrings.
+Theme.BUTTON_TEXT = {
+    normal = { 1.00, 0.82, 0.00 },
+    highlight = { 1.00, 1.00, 1.00 },
+    disabled = { 0.50, 0.50, 0.50 },
+    danger = { 1.00, 0.35, 0.30 },
+    dangerHighlight = { 1.00, 0.55, 0.50 },
+}
+
+local PANEL_SLICES = {
+    Left = { 0, 0.09375 },
+    Middle = { 0.09375, 0.53125 },
+    Right = { 0.53125, 0.625 },
+}
+local PANEL_TEX_BOTTOM = 0.6875
+
+local function setPanelArt(btn, file)
+    for key in pairs(PANEL_SLICES) do
+        local tex = btn[key]
+        if tex then tex:SetTexture(file) end
+    end
+end
+
+--- Left/Right cap width scales with height (12px at the template's 22px) but never exceeds half the width.
+local function layoutPanelCaps(btn)
+    local h = btn.GetHeight and btn:GetHeight() or 22
+    local w = btn.GetWidth and btn:GetWidth() or 40
+    local cap = math.floor(math.min(12 * (h > 0 and h or 22) / 22, (w > 0 and w or 40) / 2) + 0.5)
+    btn.Left:SetWidth(cap)
+    btn.Right:SetWidth(cap)
+end
+
+local function createPanelButtonArt(btn)
+    for key, coords in pairs(PANEL_SLICES) do
+        local tex = btn:CreateTexture(nil, "BACKGROUND")
+        tex:SetTexCoord(coords[1], coords[2], 0, PANEL_TEX_BOTTOM)
+        btn[key] = tex
+    end
+    btn.Left:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+    btn.Left:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
+    btn.Right:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
+    btn.Right:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
+    btn.Middle:SetPoint("TOPLEFT", btn.Left, "TOPRIGHT", 0, 0)
+    btn.Middle:SetPoint("BOTTOMRIGHT", btn.Right, "BOTTOMLEFT", 0, 0)
+    layoutPanelCaps(btn)
+    setPanelArt(btn, Theme.PANEL_BUTTON.up)
+
+    local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetTexture(Theme.PANEL_BUTTON.highlight)
+    highlight:SetTexCoord(0, 0.625, 0, PANEL_TEX_BOTTOM)
+    highlight:SetAllPoints(btn)
+    if highlight.SetBlendMode then highlight:SetBlendMode("ADD") end
+    if btn.SetHighlightTexture then btn:SetHighlightTexture(highlight) end
+
+    local function isEnabled(self)
+        return not (self.IsEnabled and not self:IsEnabled())
+    end
+    btn:HookScript("OnMouseDown", function(self)
+        if isEnabled(self) then setPanelArt(self, Theme.PANEL_BUTTON.down) end
+    end)
+    btn:HookScript("OnMouseUp", function(self)
+        if isEnabled(self) then setPanelArt(self, Theme.PANEL_BUTTON.up) end
+    end)
+    btn:HookScript("OnShow", function(self)
+        if isEnabled(self) then setPanelArt(self, Theme.PANEL_BUTTON.up) end
+    end)
+    btn:HookScript("OnSizeChanged", layoutPanelCaps)
+end
+
+--- Native look for any button: keeps UIPanelButtonTemplate art (instead of stripping it) or draws
+--- the same art on plain buttons. `colors` = { normal, highlight } label colors (plain buttons only).
+local function skinNativeButton(btn, isToggle, colors)
+    local plain = not (btn.Left and btn.Middle and btn.Right)
+    if plain then
+        createPanelButtonArt(btn)
+    end
+    local label = btn.label
+    local function applyLabel(color)
+        if label and label.SetTextColor and color then
+            label:SetTextColor(color[1], color[2], color[3])
+        end
+    end
+    local function restore(self)
+        if self.IsEnabled and not self:IsEnabled() then
+            applyLabel(Theme.BUTTON_TEXT.disabled)
+        elseif self._selected then
+            applyLabel(colors.highlight)
+        else
+            applyLabel(colors.normal)
+        end
+    end
+
+    local origEnable, origDisable = btn.Enable, btn.Disable
+    btn.Enable = function(self)
+        if origEnable then origEnable(self) end
+        if plain then setPanelArt(self, Theme.PANEL_BUTTON.up) end
+        restore(self)
+    end
+    btn.Disable = function(self)
+        if origDisable then origDisable(self) end
+        if plain then setPanelArt(self, Theme.PANEL_BUTTON.disabled) end
+        restore(self)
+    end
+    btn:HookScript("OnEnter", function(self)
+        if self.IsEnabled and not self:IsEnabled() then return end
+        applyLabel(colors.highlight)
+    end)
+    btn:HookScript("OnLeave", restore)
+
+    if isToggle then
+        btn.SetSelected = function(self, on)
+            self._selected = on
+            if on and self.LockHighlight then
+                self:LockHighlight()
+            elseif self.UnlockHighlight then
+                self:UnlockHighlight()
+            end
+            restore(self)
+        end
+    end
+    if plain and btn.IsEnabled and not btn:IsEnabled() then
+        setPanelArt(btn, Theme.PANEL_BUTTON.disabled)
+    end
+    restore(btn)
+end
+
 function Theme.SkinButton(btn, isToggle)
     if not btn or btn._skinned then return end
     btn._skinned = true
+
+    if nativeChromeAvailable() then
+        skinNativeButton(btn, isToggle, {
+            normal = Theme.BUTTON_TEXT.normal,
+            highlight = Theme.BUTTON_TEXT.highlight,
+        })
+        return
+    end
 
     stripButtonTemplate(btn)
 
@@ -287,6 +488,17 @@ end
 function Theme.SkinDangerButton(btn)
     if not btn or btn._skinned then return end
     btn._skinned = true
+    if nativeChromeAvailable() then
+        -- Template buttons render their own Text; tint it red since there is no btn.label.
+        if not btn.label and btn.GetFontString then
+            btn.label = btn:GetFontString()
+        end
+        skinNativeButton(btn, false, {
+            normal = Theme.BUTTON_TEXT.danger,
+            highlight = Theme.BUTTON_TEXT.dangerHighlight,
+        })
+        return
+    end
     stripButtonTemplate(btn)
     Theme.ApplyBackdrop(btn, "button")
     applyButtonColors(btn, C.btnDangerBg, C.btnDangerBorder)
@@ -321,7 +533,14 @@ function Theme.InstallHoverTint(target, layerOrBandHeight, bandCenter, bandYOffs
     end
     bandYOffset = bandYOffset or 0
     local t = target:CreateTexture(nil, layer)
-    t:SetTexture(Theme.HOVER_TINT_BG)
+    if nativeChromeAvailable() then
+        -- Same additive glow Blizzard lists (quest log, reputation, skills) use for hover.
+        t:SetTexture(Theme.NATIVE_ROW_HIGHLIGHT)
+        if t.SetBlendMode then t:SetBlendMode("ADD") end
+        t.altArmyHoverOnAlpha = Theme.NATIVE_ROW_HIGHLIGHT_ALPHA
+    else
+        t:SetTexture(Theme.HOVER_TINT_BG)
+    end
     if bandHeight then
         t:SetPoint("LEFT", target, "LEFT", 0, bandYOffset)
         t:SetPoint("RIGHT", target, "RIGHT", 0, bandYOffset)
@@ -341,7 +560,7 @@ end
 function Theme.SetHoverTint(target, on)
     local t = target and target.altArmyHoverTint
     if t then
-        t:SetVertexColor(1, 1, 1, on and Theme.HOVER_TINT_ALPHA or 0)
+        t:SetVertexColor(1, 1, 1, on and (t.altArmyHoverOnAlpha or Theme.HOVER_TINT_ALPHA) or 0)
     end
 end
 
@@ -476,7 +695,240 @@ function Theme.StyleScrollTrack(texture)
     texture:SetColorTexture(track[1], track[2], track[3], track[4])
 end
 
---- Apply Compare-panel scrollbar chrome: dark track + Blizzard knob thumb.
+-- MinimalScrollBar art (Blizzard_SharedXML/Shared/Scroll/MinimalScrollBar.xml; same atlas names
+-- on Forever and TBC Anniversary). Drawn onto our Slider so callers keep the Slider API.
+-- The Slider's thumb is an invisible hit texture `stepperInset` longer at each end than the
+-- visible thumb, so the visible thumb travels only between the two arrow stepper buttons
+-- (MinimalScrollBar insets its track 19px for them) without resizing the caller's Slider.
+Theme.MINIMAL_SCROLL = {
+    width = 8,
+    stepperInset = 19,
+    stepperSize = { 17, 11 },
+    minStep = 16,
+    repeatDelay = 0.35,
+    repeatInterval = 0.06,
+    track = { "minimal-scrollbar-track-top", "!minimal-scrollbar-track-middle", "minimal-scrollbar-track-bottom" },
+    thumbUp = {
+        "minimal-scrollbar-small-thumb-top", "minimal-scrollbar-small-thumb-middle",
+        "minimal-scrollbar-small-thumb-bottom",
+    },
+    thumbOver = {
+        "minimal-scrollbar-small-thumb-top-over", "minimal-scrollbar-small-thumb-middle-over",
+        "minimal-scrollbar-small-thumb-bottom-over",
+    },
+    back = { normal = "minimal-scrollbar-arrow-top", over = "minimal-scrollbar-arrow-top-over",
+        down = "minimal-scrollbar-arrow-top-down" },
+    forward = { normal = "minimal-scrollbar-arrow-bottom", over = "minimal-scrollbar-arrow-bottom-over",
+        down = "minimal-scrollbar-arrow-bottom-down" },
+}
+
+local function nativeScrollBarsAvailable()
+    local NativeUI = AltArmy.NativeUI
+    local caps = NativeUI and NativeUI.GetCaps and NativeUI.GetCaps()
+    return caps and caps.minimalScrollBar or false
+end
+
+local function atlasInfo(atlas)
+    local tex = _G.C_Texture
+    if not tex or not tex.GetAtlasInfo then return nil end
+    local ok, info = pcall(tex.GetAtlasInfo, atlas)
+    return ok and info or nil
+end
+
+--- Cap length along the scroll axis (atlas height of the vertical art).
+local function capLength(atlas)
+    local info = atlasInfo(atlas)
+    return info and info.height or 4
+end
+
+--- Vertical bars use the atlas directly; horizontal bars draw it rotated 90 degrees so the
+--- vertical art's top becomes the left end.
+local function setBarAtlas(tex, atlas, horizontal)
+    if not horizontal then
+        tex:SetAtlas(atlas)
+        return
+    end
+    local info = atlasInfo(atlas)
+    if not info then
+        tex:SetColorTexture(0.45, 0.45, 0.45, 1)
+        return
+    end
+    tex:SetTexture(info.file or info.filename)
+    local l, r, t, b = info.leftTexCoord, info.rightTexCoord, info.topTexCoord, info.bottomTexCoord
+    tex:SetTexCoord(r, t, l, t, r, b, l, b)
+end
+
+local function setThumbAtlases(slider, set)
+    local horizontal = slider.altArmyNativeHorizontal
+    local art = slider.altArmyNativeThumb
+    setBarAtlas(art.Begin, set[1], horizontal)
+    setBarAtlas(art.Middle, set[2], horizontal)
+    setBarAtlas(art.End, set[3], horizontal)
+end
+
+--- Size a cap along the scroll axis; `across` is the bar's visual thickness.
+local function sizeAlong(tex, horizontal, along, across)
+    if horizontal then
+        tex:SetSize(along, across)
+    else
+        tex:SetSize(across, along)
+    end
+end
+
+--- Anchor offsets that move `inset` px inward from the start / end edge.
+local function insetOffsets(horizontal, inset)
+    if horizontal then
+        return inset, 0, -inset, 0
+    end
+    return 0, -inset, 0, inset
+end
+
+local function stepSlider(slider, direction)
+    local M = Theme.MINIMAL_SCROLL
+    local step = slider.GetValueStep and slider:GetValueStep() or 0
+    if not step or step < M.minStep then
+        step = M.minStep
+    end
+    local lo, hi = slider:GetMinMaxValues()
+    local value = (slider:GetValue() or 0) + direction * step
+    slider:SetValue(math.max(lo or 0, math.min(hi or 0, value)))
+end
+
+--- Arrow button at one end of the bar; click steps, holding repeats.
+local function createStepper(slider, horizontal, direction, art)
+    local M = Theme.MINIMAL_SCROLL
+    local btn = CreateFrame("Button", nil, slider)
+    if horizontal then
+        btn:SetSize(M.stepperSize[2], M.stepperSize[1])
+    else
+        btn:SetSize(M.stepperSize[1], M.stepperSize[2])
+    end
+    if btn.SetFrameLevel and slider.GetFrameLevel then
+        btn:SetFrameLevel((slider:GetFrameLevel() or 0) + 2)
+    end
+    local arrow = btn:CreateTexture(nil, "ARTWORK")
+    arrow:SetAllPoints(btn)
+    btn.altArmyArrow = arrow
+    local function show(state)
+        setBarAtlas(arrow, art[state], horizontal)
+    end
+    show("normal")
+
+    local held, elapsed = false, 0
+    local function stopRepeat(self)
+        held = false
+        self:SetScript("OnUpdate", nil)
+    end
+    btn:SetScript("OnClick", function()
+        stepSlider(slider, direction)
+    end)
+    btn:SetScript("OnMouseDown", function(self)
+        show("down")
+        held, elapsed = true, -M.repeatDelay
+        self:SetScript("OnUpdate", function(_, dt)
+            if not held then return end
+            elapsed = elapsed + (dt or 0)
+            if elapsed >= M.repeatInterval then
+                elapsed = 0
+                stepSlider(slider, direction)
+            end
+        end)
+    end)
+    btn:SetScript("OnMouseUp", function(self)
+        show(self.IsMouseOver and self:IsMouseOver() and "over" or "normal")
+        stopRepeat(self)
+    end)
+    btn:SetScript("OnEnter", function() show("over") end)
+    btn:SetScript("OnLeave", function() show("normal") end)
+    btn:SetScript("OnHide", stopRepeat)
+    return btn
+end
+
+local function setupNativeScrollBar(slider, horizontal, thumbLength)
+    local M = Theme.MINIMAL_SCROLL
+    local S = M.stepperInset
+    local startPoint, endPoint = "TOP", "BOTTOM"
+    local midStart, midEnd = { "TOPLEFT", "BOTTOMLEFT" }, { "BOTTOMRIGHT", "TOPRIGHT" }
+    if horizontal then
+        startPoint, endPoint = "LEFT", "RIGHT"
+        midStart, midEnd = { "TOPLEFT", "TOPRIGHT" }, { "BOTTOMRIGHT", "BOTTOMLEFT" }
+    end
+    local sx, sy, ex, ey = insetOffsets(horizontal, S)
+    slider.altArmyNativeHorizontal = horizontal
+
+    local track = slider.altArmyNativeTrack
+    if not track then
+        track = {
+            Begin = slider:CreateTexture(nil, "BACKGROUND"),
+            Middle = slider:CreateTexture(nil, "BACKGROUND"),
+            End = slider:CreateTexture(nil, "BACKGROUND"),
+        }
+        slider.altArmyNativeTrack = track
+    end
+    setBarAtlas(track.Begin, M.track[1], horizontal)
+    setBarAtlas(track.Middle, M.track[2], horizontal)
+    setBarAtlas(track.End, M.track[3], horizontal)
+    sizeAlong(track.Begin, horizontal, capLength(M.track[1]), M.width)
+    sizeAlong(track.End, horizontal, capLength(M.track[3]), M.width)
+    track.Begin:ClearAllPoints()
+    track.Begin:SetPoint(startPoint, slider, startPoint, sx, sy)
+    track.End:ClearAllPoints()
+    track.End:SetPoint(endPoint, slider, endPoint, ex, ey)
+    track.Middle:ClearAllPoints()
+    track.Middle:SetPoint(midStart[1], track.Begin, midStart[2], 0, 0)
+    track.Middle:SetPoint(midEnd[1], track.End, midEnd[2], 0, 0)
+
+    -- Invisible hit thumb (positioned by the Slider); visible art is anchored inside it.
+    local thumb = slider.altArmyScrollThumb
+    if not thumb then
+        thumb = slider:CreateTexture(nil, "OVERLAY")
+        slider.altArmyScrollThumb = thumb
+    end
+    thumb:SetColorTexture(0, 0, 0, 0)
+    sizeAlong(thumb, horizontal, thumbLength + 2 * S, M.width)
+
+    local art = slider.altArmyNativeThumb
+    if not art then
+        art = {
+            Begin = slider:CreateTexture(nil, "OVERLAY", nil, 1),
+            Middle = slider:CreateTexture(nil, "OVERLAY", nil, 1),
+            End = slider:CreateTexture(nil, "OVERLAY", nil, 1),
+        }
+        slider.altArmyNativeThumb = art
+        -- Thumb is a texture (no mouse events); highlight it while the bar is hovered.
+        slider:HookScript("OnEnter", function(self)
+            setThumbAtlases(self, Theme.MINIMAL_SCROLL.thumbOver)
+        end)
+        slider:HookScript("OnLeave", function(self)
+            setThumbAtlases(self, Theme.MINIMAL_SCROLL.thumbUp)
+        end)
+    end
+    sizeAlong(art.Begin, horizontal, capLength(M.thumbUp[1]), M.width)
+    sizeAlong(art.End, horizontal, capLength(M.thumbUp[3]), M.width)
+    art.Begin:ClearAllPoints()
+    art.Begin:SetPoint(startPoint, thumb, startPoint, sx, sy)
+    art.End:ClearAllPoints()
+    art.End:SetPoint(endPoint, thumb, endPoint, ex, ey)
+    art.Middle:ClearAllPoints()
+    art.Middle:SetPoint(midStart[1], art.Begin, midStart[2], 0, 0)
+    art.Middle:SetPoint(midEnd[1], art.End, midEnd[2], 0, 0)
+    setThumbAtlases(slider, M.thumbUp)
+
+    if not slider.altArmyStepBack then
+        slider.altArmyStepBack = createStepper(slider, horizontal, -1, M.back)
+        slider.altArmyStepForward = createStepper(slider, horizontal, 1, M.forward)
+    end
+    slider.altArmyStepBack:ClearAllPoints()
+    slider.altArmyStepBack:SetPoint(startPoint, slider, startPoint, 0, 0)
+    slider.altArmyStepForward:ClearAllPoints()
+    slider.altArmyStepForward:SetPoint(endPoint, slider, endPoint, 0, 0)
+
+    slider:SetThumbTexture(thumb)
+    return thumb
+end
+
+--- Apply scrollbar chrome to a Slider: native MinimalScrollBar art when the client has it,
+--- else the legacy dark track + Blizzard knob thumb.
 --- opts.thickness: bar width (vertical) or height (horizontal); defaults from slider size.
 --- opts.thumbLength: knob length along the scroll axis (default 24).
 --- opts.horizontal: true for horizontal scroll bars.
@@ -485,6 +937,9 @@ function Theme.SetupScrollBar(slider, opts)
     opts = opts or {}
     local horizontal = opts.horizontal == true
     local thumbLength = opts.thumbLength or Theme.SCROLL_THUMB_LENGTH
+    if nativeScrollBarsAvailable() then
+        return setupNativeScrollBar(slider, horizontal, thumbLength)
+    end
     local thickness = opts.thickness
     if not thickness then
         if horizontal and slider.GetHeight then
@@ -546,8 +1001,18 @@ function Theme.AnchorVerticalScrollBar(scrollBar, _gutterEdge, scrollFrame, opts
     return scrollBar
 end
 
+-- Native mode: pinned-header fades read as a soft shadow over the textured inset background.
+Theme.NATIVE_SCROLL_SHADOW = { 0, 0, 0, 0.55 }
+
+--- Opaque fill for pinned grid headers / label columns (must hide rows scrolling beneath).
 function Theme.StyleGridHeader(texture)
     if not texture then return end
+    if nativeChromeAvailable() then
+        texture:SetTexture(Theme.NATIVE_TIERS.section.bg, "REPEAT", "REPEAT")
+        if texture.SetHorizTile then texture:SetHorizTile(true) end
+        if texture.SetVertTile then texture:SetVertTile(true) end
+        return
+    end
     local hdr = C.gridHeaderBg
     texture:SetColorTexture(hdr[1], hdr[2], hdr[3], hdr[4])
 end
@@ -588,6 +1053,9 @@ local SCROLL_FADE_TEX = "Interface\\AddOns\\AltArmy_TBC\\Textures\\ScrollFade"
 
 local function ApplyScrollFadeTexture(fadeFrame, color, orientation)
     if not fadeFrame or not color then return end
+    if nativeChromeAvailable() then
+        color = Theme.NATIVE_SCROLL_SHADOW
+    end
     local tex = fadeFrame:CreateTexture(nil, "ARTWORK")
     tex:SetAllPoints(fadeFrame)
     tex:SetTexture(SCROLL_FADE_TEX)
@@ -741,8 +1209,43 @@ function Theme.CreateSeparator(parent, width)
     return sep
 end
 
+-- InputBoxVisualTemplate border (same atlases and anchors on Forever and TBC Anniversary).
+Theme.INPUT_BORDER = {
+    left = "common-search-border-left",
+    middle = "common-search-border-middle",
+    right = "common-search-border-right",
+    capWidth = 8,
+    leftOffset = -5,
+}
+
 function Theme.ApplyInputTextures(editBox)
     if not editBox then return end
+    local NativeUI = AltArmy.NativeUI
+    local caps = NativeUI and NativeUI.GetCaps and NativeUI.GetCaps()
+    if caps and caps.inputBox then
+        if editBox.altArmyInputLeft then return end
+        local B = Theme.INPUT_BORDER
+        local left = editBox:CreateTexture(nil, "BACKGROUND")
+        left:SetAtlas(B.left)
+        left:SetWidth(B.capWidth)
+        left:SetPoint("LEFT", editBox, "LEFT", B.leftOffset, 0)
+        left:SetPoint("TOP", editBox, "TOP", 0, 0)
+        left:SetPoint("BOTTOM", editBox, "BOTTOM", 0, 0)
+        local right = editBox:CreateTexture(nil, "BACKGROUND")
+        right:SetAtlas(B.right)
+        right:SetWidth(B.capWidth)
+        right:SetPoint("RIGHT", editBox, "RIGHT", 0, 0)
+        right:SetPoint("TOP", editBox, "TOP", 0, 0)
+        right:SetPoint("BOTTOM", editBox, "BOTTOM", 0, 0)
+        local middle = editBox:CreateTexture(nil, "BACKGROUND")
+        middle:SetAtlas(B.middle)
+        middle:SetPoint("TOPLEFT", left, "TOPRIGHT", 0, 0)
+        middle:SetPoint("BOTTOMRIGHT", right, "BOTTOMLEFT", 0, 0)
+        editBox.altArmyInputLeft = left
+        editBox.altArmyInputMiddle = middle
+        editBox.altArmyInputRight = right
+        return
+    end
     if not editBox.altArmyInputBg then
         local bg = editBox:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints(editBox)
@@ -969,9 +1472,7 @@ function Theme.FlashAttentionHighlight(frame, opts)
     if not hl then
         hl = CreateFrame("Frame", nil, frame)
         hl:EnableMouse(false)
-        if Theme.ApplyBackdrop then
-            Theme.ApplyBackdrop(hl, "tooltip")
-        end
+        Theme.ApplyLegacyBackdrop(hl, "tooltip")
         local g = C.settingsGlow
         if hl.SetBackdropBorderColor then
             hl:SetBackdropBorderColor(g[1], g[2], g[3], 1)
@@ -1091,7 +1592,8 @@ function Theme.CreateHorizontalScrollBar(parent, opts)
                 if scale <= 0 then scale = 1 end
                 local cursorX = select(1, GetCursorPosition())
                 local value = Theme.HorizontalDragValue(
-                    dragStartValue, cursorX, dragStartX, scale, barWidth, minVal, maxVal, thumbLength)
+                    dragStartValue, cursorX, dragStartX, scale, barWidth, minVal, maxVal,
+                    bar.altArmyThumbTravelLength or thumbLength)
                 if lastValue == nil or math.abs(value - lastValue) >= 0.5 then
                     bar:SetValue(value)
                 end
@@ -1107,6 +1609,10 @@ function Theme.CreateHorizontalScrollBar(parent, opts)
         thickness = opts.thickness,
         thumbLength = thumbLength,
     })
+    -- Native bars use a longer invisible hit thumb (see Theme.MINIMAL_SCROLL.stepperInset).
+    if bar.altArmyNativeThumb then
+        bar.altArmyThumbTravelLength = thumbLength + 2 * Theme.MINIMAL_SCROLL.stepperInset
+    end
 
     local api = {}
     api.bar = bar
@@ -1326,8 +1832,19 @@ Theme.DROPDOWN_MAX_VISIBLE_ROWS = 8
 
 --- Themed checkbox chrome (background + border + check texture); callers own layout and labels.
 --- 1px border is drawn inside the control bounds so the outer footprint matches `size`.
+-- UICheckButtonTemplate art has transparent padding; grow the frame so the visible box matches.
+Theme.NATIVE_CHECKBOX_PAD = 4
+
 function Theme.CreateThemeCheckbox(parent, size)
     local checkSize = size or Theme.CHAR_LIST_CHECKBOX_SIZE
+    local NativeUI = AltArmy.NativeUI
+    local caps = NativeUI and NativeUI.GetCaps and NativeUI.GetCaps()
+    if caps and caps.checkButton then
+        local native = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+        local s = checkSize + Theme.NATIVE_CHECKBOX_PAD
+        native:SetSize(s, s)
+        return native
+    end
     local check = CreateFrame("CheckButton", nil, parent)
     check:SetSize(checkSize, checkSize)
     local checkBorder = check:CreateTexture(nil, "BACKGROUND")
@@ -1603,18 +2120,128 @@ end
 local DROPDOWN_MENU_PAD_TOP = 2
 local DROPDOWN_MENU_PAD_SIDE = 2
 
+-- WowStyle1DropdownTemplate / MenuStyle1 art (Blizzard_Menu). Forever loads the mainline
+-- family, TBC Anniversary the classic family; the atlas names differ between them.
+Theme.DROPDOWN_ART = {
+    mainline = {
+        holder = "common-dropdown-textholder", holderPad = { -8, 7, 8, -9 },
+        arrow = "common-dropdown-a-button", arrowPoint = { "RIGHT", 1, -3 },
+        bg = "common-dropdown-bg", bgPad = { -10, 3, 10, -3 }, bgAlpha = 0.925,
+        -- MenuStyle1Mixin:GetInset (mainline): the bg art has a thick bottom edge.
+        insets = { left = 8, top = 8, right = 8, bottom = 15 },
+    },
+    classic = {
+        holder = "common-dropdown-classic-textholder", holderPad = { -9, 8, 8, -9 },
+        arrow = "common-dropdown-classic-a-buttonDown", arrowPoint = { "RIGHT", -1, 0 },
+        bg = "common-dropdown-classic-bg", bgPad = { -3, 3, 3, -4 }, bgFill = { 0, 0, 0, 0.8 }, bgFillInset = 6,
+        -- MenuStyle1Mixin:GetInset (classic).
+        insets = { left = 16, top = 10, right = 16, bottom = 10 },
+    },
+}
+Theme.DROPDOWN_ARROW_GUTTER = 24
+-- Legacy UIDropDownMenu radio check (present on both clients): checked half of the sheet.
+Theme.MENU_RADIO_CHECK = { file = "Interface\\Common\\UI-DropDownRadioChecks", coords = { 0, 0.5, 0.5, 1 } }
+
+local function nativeDropdownsAvailable()
+    local NativeUI = AltArmy.NativeUI
+    local caps = NativeUI and NativeUI.GetCaps and NativeUI.GetCaps()
+    return caps and caps.wowStyleDropdown or false
+end
+
+local function dropdownArt()
+    local mainline = _G.WOW_PROJECT_MAINLINE or 1
+    if _G.WOW_PROJECT_ID == mainline then
+        return Theme.DROPDOWN_ART.mainline
+    end
+    return Theme.DROPDOWN_ART.classic
+end
+
+--- Native dropdown trigger look (text holder + arrow). Callers keep their own label FontString;
+--- leave Theme.DROPDOWN_ARROW_GUTTER free on the right for the arrow.
+--- Falls back to Theme.SkinButton when the client has no WowStyle dropdown art.
+function Theme.SkinDropdownButton(btn)
+    if not btn then return end
+    if not nativeDropdownsAvailable() then
+        Theme.SkinButton(btn)
+        return
+    end
+    if btn.altArmyDropdownHolder then return end
+    local art = dropdownArt()
+    local holder = btn:CreateTexture(nil, "BACKGROUND")
+    holder:SetAtlas(art.holder)
+    holder:SetPoint("TOPLEFT", btn, "TOPLEFT", art.holderPad[1], art.holderPad[2])
+    holder:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", art.holderPad[3], art.holderPad[4])
+    local arrow = btn:CreateTexture(nil, "OVERLAY")
+    arrow:SetAtlas(art.arrow, true)
+    arrow:SetPoint(art.arrowPoint[1], btn, art.arrowPoint[1], art.arrowPoint[2], art.arrowPoint[3])
+    btn.altArmyDropdownHolder = holder
+    btn.altArmyDropdownArrow = arrow
+    local function setDisabledLook(disabled)
+        local v = disabled and 0.5 or 1
+        holder:SetVertexColor(v, v, v)
+        arrow:SetVertexColor(v, v, v)
+    end
+    local origEnable, origDisable = btn.Enable, btn.Disable
+    btn.Enable = function(self)
+        if origEnable then origEnable(self) end
+        setDisabledLook(false)
+    end
+    btn.Disable = function(self)
+        if origDisable then origDisable(self) end
+        setDisabledLook(true)
+    end
+end
+
+local LEGACY_POPUP_INSETS = { left = 2, top = 2, right = 2, bottom = 2 }
+
+--- Content insets for a dropdown popup: rows start `top` below the popup top and stop
+--- `bottom` above its bottom (native menu art needs the room). Size popups as
+--- rows * rowHeight + top + bottom.
+function Theme.GetDropdownPopupInsets()
+    if nativeDropdownsAvailable() then
+        return dropdownArt().insets
+    end
+    return LEGACY_POPUP_INSETS
+end
+
+--- Native menu background for a dropdown popup frame (falls back to the section panel).
+function Theme.SkinDropdownPopup(popup)
+    if not popup then return end
+    if not nativeDropdownsAvailable() then
+        Theme.ApplyBackdrop(popup, "section")
+        return
+    end
+    if popup.altArmyMenuBg then return end
+    local art = dropdownArt()
+    local bg = popup:CreateTexture(nil, "BACKGROUND", nil, 1)
+    bg:SetAtlas(art.bg)
+    bg:SetPoint("TOPLEFT", popup, "TOPLEFT", art.bgPad[1], art.bgPad[2])
+    bg:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", art.bgPad[3], art.bgPad[4])
+    if art.bgAlpha and bg.SetAlpha then bg:SetAlpha(art.bgAlpha) end
+    popup.altArmyMenuBg = bg
+    if art.bgFill then
+        local fill = popup:CreateTexture(nil, "BACKGROUND", nil, 0)
+        local c, inset = art.bgFill, art.bgFillInset or 0
+        fill:SetColorTexture(c[1], c[2], c[3], c[4])
+        fill:SetPoint("TOPLEFT", bg, "TOPLEFT", inset, -inset)
+        fill:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", -inset, inset)
+        popup.altArmyMenuFill = fill
+    end
+end
+
 --- Single selectable row inside a custom dropdown popup (hover matches settings list rows).
 function Theme.CreateDropdownMenuItem(parent, opts)
     opts = opts or {}
     local rowHeight = opts.rowHeight or Theme.CHAR_LIST_ROW_HEIGHT or 20
     local padTop = opts.padTop or DROPDOWN_MENU_PAD_TOP
     local padSide = opts.padSide or DROPDOWN_MENU_PAD_SIDE
+    local padRight = opts.padRight or padSide
     local idx = opts.index or 1
 
     local btn = CreateFrame("Button", nil, parent)
     btn:SetPoint("TOPLEFT", parent, "TOPLEFT", padSide, -padTop - (idx - 1) * rowHeight)
     btn:SetPoint("LEFT", parent, "LEFT", padSide, 0)
-    btn:SetPoint("RIGHT", parent, "RIGHT", -padSide, 0)
+    btn:SetPoint("RIGHT", parent, "RIGHT", -padRight, 0)
     btn:SetHeight(rowHeight - 2)
 
     Theme.BindInteractableHover(btn, {
@@ -1622,14 +2249,28 @@ function Theme.CreateDropdownMenuItem(parent, opts)
         onLeave = opts.onLeave,
     })
 
-    local selBg = btn:CreateTexture(nil, "ARTWORK")
-    selBg:SetAllPoints(true)
-    selBg:SetColorTexture(C.rowSelected[1], C.rowSelected[2], C.rowSelected[3], C.rowSelected[4])
+    local selBg
+    local labelLeft = 4
+    if nativeDropdownsAvailable() then
+        -- Native menus mark the current choice with a radio check, not a row fill.
+        selBg = btn:CreateTexture(nil, "ARTWORK")
+        selBg:SetTexture(Theme.MENU_RADIO_CHECK.file)
+        local rc = Theme.MENU_RADIO_CHECK.coords
+        selBg:SetTexCoord(rc[1], rc[2], rc[3], rc[4])
+        selBg:SetSize(16, 16)
+        selBg:SetPoint("LEFT", btn, "LEFT", 2, 0)
+        btn.altArmyRadioCheck = selBg
+        labelLeft = 20
+    else
+        selBg = btn:CreateTexture(nil, "ARTWORK")
+        selBg:SetAllPoints(true)
+        selBg:SetColorTexture(C.rowSelected[1], C.rowSelected[2], C.rowSelected[3], C.rowSelected[4])
+    end
     selBg:Hide()
     btn.altArmyDropdownSelectedBg = selBg
 
     local label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    label:SetPoint("LEFT", btn, "LEFT", 4, 0)
+    label:SetPoint("LEFT", btn, "LEFT", labelLeft, 0)
     label:SetText(opts.text or "")
     btn.label = label
 
@@ -1673,10 +2314,11 @@ function Theme.CreateSingleSelectDropdown(opts)
     local width = opts.width or 340
     local dropdownParent = opts.dropdownParent or parent
     local maxVisibleRows = opts.maxVisibleRows or Theme.DROPDOWN_MAX_VISIBLE_ROWS or 8
-    local popupPadTop = DROPDOWN_MENU_PAD_TOP
-    local popupPadBottom = 2
-    local popupPadSide = DROPDOWN_MENU_PAD_SIDE
-    local scrollPadTop = popupPadTop + 2
+    local insets = Theme.GetDropdownPopupInsets()
+    local popupPadTop = insets.top
+    local popupPadBottom = insets.bottom
+    local popupPadLeft = insets.left
+    local popupPadRight = insets.right
 
     local function popupHeightForCount(count)
         local visibleRows = math.min(count, maxVisibleRows)
@@ -1692,11 +2334,11 @@ function Theme.CreateSingleSelectDropdown(opts)
         btn:SetPoint(opts.point or "TOPLEFT", parent, opts.relativePoint or "TOPLEFT", opts.x or 0, opts.y or 0)
     end
     btn:SetSize(width, rowHeight)
-    Theme.SkinButton(btn)
+    Theme.SkinDropdownButton(btn)
 
     local btnText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     btnText:SetPoint("LEFT", btn, "LEFT", 6, 0)
-    btnText:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
+    btnText:SetPoint("RIGHT", btn, "RIGHT", btn.altArmyDropdownArrow and -Theme.DROPDOWN_ARROW_GUTTER or -6, 0)
     btnText:SetJustifyH("LEFT")
 
     local popup = CreateFrame("Frame", nil, dropdownParent, "BackdropTemplate")
@@ -1704,22 +2346,22 @@ function Theme.CreateSingleSelectDropdown(opts)
     popup:SetWidth(width)
     popup:SetFrameLevel((dropdownParent.GetFrameLevel and dropdownParent:GetFrameLevel() or 0) + 100)
     popup:Hide()
-    Theme.ApplyBackdrop(popup, "section")
+    Theme.SkinDropdownPopup(popup)
 
     popup:HookScript("OnHide", function()
         Theme._openSingleSelectDropdowns[popup] = nil
     end)
 
     local listHost = CreateFrame("Frame", nil, popup)
-    listHost:SetPoint("TOPLEFT", popup, "TOPLEFT", popupPadSide, -popupPadTop)
-    listHost:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -popupPadSide, popupPadBottom)
+    listHost:SetPoint("TOPLEFT", popup, "TOPLEFT", popupPadLeft, -popupPadTop)
+    listHost:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -popupPadRight, popupPadBottom)
 
     local listViewport = Theme.CreateVerticalScrollViewport({
         parent = popup,
         gutterEdge = popup,
-        anchorTop = { "TOPLEFT", popup, "TOPLEFT", popupPadSide, -scrollPadTop },
+        anchorTop = { "TOPLEFT", popup, "TOPLEFT", popupPadLeft, -popupPadTop },
         anchorBottom = {
-            "BOTTOMRIGHT", popup, "BOTTOMRIGHT", -Theme.VerticalScrollBarGutter(), popupPadBottom,
+            "BOTTOMRIGHT", popup, "BOTTOMRIGHT", -(popupPadRight + Theme.VerticalScrollBarGutter()), popupPadBottom,
         },
         valueStep = rowHeight,
         wheelStep = rowHeight,
@@ -1789,7 +2431,7 @@ function Theme.CreateSingleSelectDropdown(opts)
             listHost:Hide()
             listViewport.scroll:Show()
             host = listViewport.child
-            host:SetHeight(popupPadTop + count * rowHeight + popupPadBottom)
+            host:SetHeight(count * rowHeight)
         else
             listViewport.scroll:Hide()
             listHost:Show()
@@ -1800,6 +2442,8 @@ function Theme.CreateSingleSelectDropdown(opts)
             local b = Theme.CreateDropdownMenuItem(host, {
                 index = idx,
                 rowHeight = rowHeight,
+                padTop = 0,
+                padSide = 0,
                 text = entry.label or entry.id,
                 selected = opts.getSelectedId and opts.getSelectedId() == entry.id,
                 onEnter = function(self)
@@ -1891,10 +2535,6 @@ function Theme.CloseMultiSelectCheckboxDropdowns(exceptPopup)
     end
 end
 
-local MULTI_SELECT_DROPDOWN_POPUP_PAD_TOP = 4
-local MULTI_SELECT_DROPDOWN_POPUP_PAD_BOTTOM = 4
-local MULTI_SELECT_DROPDOWN_POPUP_PAD_LEFT = 4
-local MULTI_SELECT_DROPDOWN_POPUP_PAD_RIGHT = 8
 local MULTI_SELECT_DROPDOWN_TEXT_INSET = 10
 
 --- Multi-select settings dropdown with checkbox rows (Search settings style).
@@ -1934,24 +2574,23 @@ function Theme.CreateMultiSelectCheckboxDropdown(config)
         btn:SetPoint("LEFT", parent, "LEFT", config.leftInset or 0, 0)
         btn:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
     end
-    Theme.SkinButton(btn)
+    Theme.SkinDropdownButton(btn)
 
     local btnText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     btnText:SetPoint("LEFT", btn, "LEFT", 6, 0)
-    btnText:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+    btnText:SetPoint("RIGHT", btn, "RIGHT", btn.altArmyDropdownArrow and -Theme.DROPDOWN_ARROW_GUTTER or -4, 0)
     btnText:SetJustifyH("LEFT")
 
     local popup = CreateFrame("Frame", nil, dropdownParent, "BackdropTemplate")
     popup:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
     popup:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, 0)
-    popup:SetHeight(
-        MULTI_SELECT_DROPDOWN_POPUP_PAD_TOP
-            + #keys * rowHeight
-            + MULTI_SELECT_DROPDOWN_POPUP_PAD_BOTTOM
-    )
+    -- Native menu insets are already roomier than the old 4px; legacy keeps 4 / 4 / 4 / 8.
+    local popupInsets = nativeDropdownsAvailable() and Theme.GetDropdownPopupInsets()
+        or { left = 4, top = 4, right = 8, bottom = 4 }
+    popup:SetHeight(popupInsets.top + #keys * rowHeight + popupInsets.bottom)
     popup:SetFrameLevel((dropdownParent:GetFrameLevel() or 0) + 100)
     popup:Hide()
-    Theme.ApplyBackdrop(popup, "section")
+    Theme.SkinDropdownPopup(popup)
     Theme._openMultiSelectCheckboxDropdowns[popup] = true
 
     local checks = {}
@@ -2019,7 +2658,7 @@ function Theme.CreateMultiSelectCheckboxDropdown(config)
             rowHeight = rowHeight,
             text = rowLabelText(key),
             fullWidthHover = true,
-            rightInset = MULTI_SELECT_DROPDOWN_POPUP_PAD_RIGHT,
+            rightInset = popupInsets.right,
             onClick = function(checked)
                 if config.setEnabled then
                     config.setEnabled(key, checked)
@@ -2034,8 +2673,8 @@ function Theme.CreateMultiSelectCheckboxDropdown(config)
             rowOpts.point = "TOPLEFT"
             rowOpts.relativeTo = popup
             rowOpts.relativePoint = "TOPLEFT"
-            rowOpts.x = MULTI_SELECT_DROPDOWN_POPUP_PAD_LEFT
-            rowOpts.y = -MULTI_SELECT_DROPDOWN_POPUP_PAD_TOP
+            rowOpts.x = popupInsets.left
+            rowOpts.y = -popupInsets.top
         else
             rowOpts.relativeTo = prevRow
             rowOpts.relativePoint = "BOTTOMLEFT"

@@ -10,6 +10,8 @@ describe("AltArmy.Theme", function()
     local function makeStubTexture()
         local t = { _color = nil, _vertex = nil, _texture = nil }
         function t:SetColorTexture(r, g, b, a) self._color = { r, g, b, a } end
+        function t:SetAtlas(a) self._atlas = a end
+        function t:SetBlendMode(m) self._blendMode = m end
         function t:SetTexture(tex) self._texture = tex end
         function t:SetTexCoord(a, b, c, d, e, f, g, h)
             self._texCoord = { a, b, c, d, e, f, g, h }
@@ -276,6 +278,88 @@ describe("AltArmy.Theme", function()
             assert.is_not_nil(f.SetBackdrop)
             assert.is_not_nil(f.OnBackdropSizeChanged)
         end)
+
+        describe("native nine-slice chrome", function()
+            local savedNativeUI, savedNineSlice, applied
+
+            before_each(function()
+                savedNativeUI, savedNineSlice = AltArmy.NativeUI, _G.NineSliceUtil
+                applied = {}
+                AltArmy.NativeUI = { GetCaps = function() return { nineSlice = true } end }
+                _G.NineSliceUtil = {
+                    ApplyLayoutByName = function(frame, layout)
+                        table.insert(applied, { frame = frame, layout = layout })
+                        frame.Center = frame.Center or makeStubTexture()
+                    end,
+                }
+            end)
+
+            after_each(function()
+                AltArmy.NativeUI, _G.NineSliceUtil = savedNativeUI, savedNineSlice
+            end)
+
+            local function nativeBg(f)
+                return f.altArmyNativeBg
+            end
+
+            it("draws section panels as a native inset with the marble background", function()
+                local f = makeStubFrame()
+                Theme.ApplyBackdrop(f, "section")
+                assert.are.equal("InsetFrameTemplate", applied[1].layout)
+                assert.are.equal(f, applied[1].frame)
+                assert.is_nil(f._backdrop)
+                assert.are.equal(Theme.NATIVE_TIERS.section.bg, nativeBg(f)._texture)
+                assert.are.equal("BACKGROUND", nativeBg(f)._layer)
+            end)
+
+            it("uses the inset for graph panels too", function()
+                local f = makeStubFrame()
+                Theme.ApplyBackdrop(f, "graph")
+                assert.are.equal("InsetFrameTemplate", applied[1].layout)
+            end)
+
+            it("uses the Dialog border for window and dialog tiers", function()
+                local w, d = makeStubFrame(), makeStubFrame()
+                Theme.ApplyBackdrop(w, "window")
+                Theme.ApplyBackdrop(d, "dialog")
+                assert.are.equal("Dialog", applied[1].layout)
+                assert.are.equal("Dialog", applied[2].layout)
+                assert.are.equal(Theme.NATIVE_TIERS.dialog.bg, nativeBg(d)._texture)
+            end)
+
+            it("uses the tooltip layout and tints its center", function()
+                local f = makeStubFrame()
+                Theme.ApplyBackdrop(f, "tooltip")
+                assert.are.equal("TooltipDefaultLayout", applied[1].layout)
+                assert.is_nil(nativeBg(f))
+                assert.are.same(Theme.NATIVE_TIERS.tooltip.centerColor, f.Center._vertex)
+            end)
+
+            it("reuses the background texture when applied twice", function()
+                local f = makeStubFrame()
+                Theme.ApplyBackdrop(f, "section")
+                local bg = nativeBg(f)
+                local count = #f._textures
+                Theme.ApplyBackdrop(f, "section")
+                assert.are.equal(bg, nativeBg(f))
+                assert.are.equal(count, #f._textures)
+            end)
+
+            it("keeps the legacy backdrop for the button tier", function()
+                local f = makeStubFrame()
+                Theme.ApplyBackdrop(f, "button")
+                assert.are.equal(0, #applied)
+                assert.is_not_nil(f._backdrop)
+            end)
+
+            it("falls back to the legacy backdrop without nine-slice support", function()
+                AltArmy.NativeUI = { GetCaps = function() return { nineSlice = false } end }
+                local f = makeStubFrame()
+                Theme.ApplyBackdrop(f, "section")
+                assert.are.equal(0, #applied)
+                assert.is_not_nil(f._backdrop)
+            end)
+        end)
     end)
 
     describe("CreatePanel", function()
@@ -345,6 +429,84 @@ describe("AltArmy.Theme", function()
         end)
     end)
 
+    describe("native panel buttons", function()
+        local savedNativeUI
+
+        before_each(function()
+            savedNativeUI = AltArmy.NativeUI
+            AltArmy.NativeUI = { GetCaps = function() return { nineSlice = true } end }
+        end)
+
+        after_each(function()
+            AltArmy.NativeUI = savedNativeUI
+        end)
+
+        local function plainButton()
+            local btn = makeStubFrame()
+            btn.Left, btn.Right, btn.Middle = nil, nil, nil
+            btn._width, btn._height = 80, 22
+            function btn:SetHighlightTexture(t) self._highlightTexture = t end
+            function btn:LockHighlight() self._lockedHighlight = true end
+            function btn:UnlockHighlight() self._lockedHighlight = false end
+            btn.label = btn:CreateFontString(nil, "OVERLAY")
+            return btn
+        end
+
+        it("draws the three-slice UI-Panel-Button art on a plain button", function()
+            local btn = plainButton()
+            Theme.SkinButton(btn)
+            assert.is_nil(btn._backdrop)
+            assert.are.equal(Theme.PANEL_BUTTON.up, btn.Left._texture)
+            assert.are.equal(Theme.PANEL_BUTTON.up, btn.Middle._texture)
+            assert.are.equal(Theme.PANEL_BUTTON.up, btn.Right._texture)
+            assert.are.equal(Theme.PANEL_BUTTON.highlight, btn._highlightTexture._texture)
+        end)
+
+        it("swaps to the pressed / disabled art like the template", function()
+            local btn = plainButton()
+            Theme.SkinButton(btn)
+            btn._scripts.OnMouseDown(btn)
+            assert.are.equal(Theme.PANEL_BUTTON.down, btn.Middle._texture)
+            btn:Disable()
+            assert.are.equal(Theme.PANEL_BUTTON.disabled, btn.Middle._texture)
+            btn:Enable()
+            assert.are.equal(Theme.PANEL_BUTTON.up, btn.Middle._texture)
+        end)
+
+        it("keeps an existing UIPanelButtonTemplate's own art", function()
+            local btn = makeStubFrame()
+            local alphaSet = false
+            btn.Left = { SetAlpha = function() alphaSet = true end }
+            Theme.SkinButton(btn)
+            assert.is_false(alphaSet)
+            assert.is_nil(btn._backdrop)
+        end)
+
+        it("shows toggle selection with a locked highlight", function()
+            local btn = plainButton()
+            Theme.SkinButton(btn, true)
+            btn:SetSelected(true)
+            assert.is_true(btn._lockedHighlight)
+            btn:SetSelected(false)
+            assert.is_false(btn._lockedHighlight)
+        end)
+
+        it("colors plain-button labels with the native button font colors", function()
+            local btn = plainButton()
+            Theme.SkinButton(btn)
+            assert.are.same(Theme.BUTTON_TEXT.normal, { unpack(btn.label._textColor, 1, 3) })
+            btn:Disable()
+            assert.are.same(Theme.BUTTON_TEXT.disabled, { unpack(btn.label._textColor, 1, 3) })
+        end)
+
+        it("danger buttons use panel art with a red label", function()
+            local btn = plainButton()
+            Theme.SkinDangerButton(btn)
+            assert.are.equal(Theme.PANEL_BUTTON.up, btn.Middle._texture)
+            assert.are.same(Theme.BUTTON_TEXT.danger, { unpack(btn.label._textColor, 1, 3) })
+        end)
+    end)
+
     describe("InstallHoverTint", function()
         it("creates a hover tint texture on the frame", function()
             local f = makeStubFrame()
@@ -352,6 +514,21 @@ describe("AltArmy.Theme", function()
             assert.is_not_nil(f.altArmyHoverTint)
             Theme.SetHoverTint(f, true)
             assert.are.equal(Theme.HOVER_TINT_ALPHA, f.altArmyHoverTint._vertex[4])
+        end)
+
+        it("uses the native quest-log list highlight when native chrome is available", function()
+            local savedNativeUI = AltArmy.NativeUI
+            AltArmy.NativeUI = { GetCaps = function() return { nineSlice = true } end }
+            local f = makeStubFrame()
+            Theme.InstallHoverTint(f)
+            AltArmy.NativeUI = savedNativeUI
+            local t = f.altArmyHoverTint
+            assert.are.equal(Theme.NATIVE_ROW_HIGHLIGHT, t._texture)
+            assert.are.equal("ADD", t._blendMode)
+            Theme.SetHoverTint(f, true)
+            assert.are.equal(Theme.NATIVE_ROW_HIGHLIGHT_ALPHA, t._vertex[4])
+            Theme.SetHoverTint(f, false)
+            assert.are.equal(0, t._vertex[4])
         end)
     end)
 
@@ -416,6 +593,76 @@ describe("AltArmy.Theme", function()
             Theme.SkinSettingsIconButton(btn)
             btn._scripts.OnEnter(btn)
             assert.is_false(btn.hoverGlow._shown)
+        end)
+    end)
+
+    describe("native dropdown art", function()
+        local savedNativeUI, savedProject, savedMainline
+
+        before_each(function()
+            savedNativeUI, savedProject, savedMainline = AltArmy.NativeUI, _G.WOW_PROJECT_ID, _G.WOW_PROJECT_MAINLINE
+            AltArmy.NativeUI = { GetCaps = function() return { wowStyleDropdown = true } end }
+            _G.WOW_PROJECT_MAINLINE = 1
+        end)
+
+        after_each(function()
+            AltArmy.NativeUI, _G.WOW_PROJECT_ID, _G.WOW_PROJECT_MAINLINE = savedNativeUI, savedProject, savedMainline
+        end)
+
+        local function atlases(f)
+            local found = {}
+            for _, t in ipairs(f._textures) do
+                if t._atlas then found[t._atlas] = t end
+            end
+            return found
+        end
+
+        it("uses the mainline (Forever) dropdown atlases on project 1", function()
+            _G.WOW_PROJECT_ID = 1
+            local btn = makeStubFrame()
+            Theme.SkinDropdownButton(btn)
+            local a = atlases(btn)
+            assert.is_not_nil(a["common-dropdown-textholder"])
+            assert.is_not_nil(a["common-dropdown-a-button"])
+            assert.is_nil(btn._backdrop)
+        end)
+
+        it("uses the classic dropdown atlases on TBC Anniversary", function()
+            _G.WOW_PROJECT_ID = 5
+            local btn = makeStubFrame()
+            Theme.SkinDropdownButton(btn)
+            local a = atlases(btn)
+            assert.is_not_nil(a["common-dropdown-classic-textholder"])
+            assert.is_not_nil(a["common-dropdown-classic-a-buttonDown"])
+        end)
+
+        it("gives popups the native menu background", function()
+            _G.WOW_PROJECT_ID = 5
+            local popup = makeStubFrame()
+            Theme.SkinDropdownPopup(popup)
+            assert.is_not_nil(atlases(popup)["common-dropdown-classic-bg"])
+            assert.is_nil(popup._backdrop)
+        end)
+
+        it("sizes single-select popups to fit every row inside the native menu insets", function()
+            _G.WOW_PROJECT_ID = 1
+            local dd = Theme.CreateSingleSelectDropdown({
+                parent = makeStubFrame(),
+                rowHeight = 20,
+                entries = { { id = "a", label = "A" }, { id = "b", label = "B" }, { id = "c", label = "C" } },
+            })
+            local ins = Theme.DROPDOWN_ART.mainline.insets
+            assert.are.same(ins, Theme.GetDropdownPopupInsets())
+            assert.are.equal(3 * 20 + ins.top + ins.bottom, dd.popup._height)
+        end)
+
+        it("marks the selected menu row with a radio check instead of a fill", function()
+            local parent = makeStubFrame()
+            local row = Theme.CreateDropdownMenuItem(parent, { index = 1, text = "A", selected = true })
+            assert.is_not_nil(row.altArmyRadioCheck)
+            assert.is_true(row.altArmyRadioCheck:IsShown())
+            row:SetDropdownSelected(false)
+            assert.is_false(row.altArmyRadioCheck:IsShown())
         end)
     end)
 
@@ -666,6 +913,124 @@ describe("AltArmy.Theme", function()
         end)
     end)
 
+    describe("native minimal scroll bars", function()
+        local savedNativeUI, savedCTexture
+
+        before_each(function()
+            savedNativeUI, savedCTexture = AltArmy.NativeUI, _G.C_Texture
+            AltArmy.NativeUI = { GetCaps = function() return { nineSlice = true, minimalScrollBar = true } end }
+            _G.C_Texture = {
+                GetAtlasInfo = function(name)
+                    return {
+                        file = "atlasfile:" .. name, width = 8, height = 10,
+                        leftTexCoord = 0.1, rightTexCoord = 0.2, topTexCoord = 0.3, bottomTexCoord = 0.4,
+                    }
+                end,
+            }
+        end)
+
+        after_each(function()
+            AltArmy.NativeUI, _G.C_Texture = savedNativeUI, savedCTexture
+        end)
+
+        local function stubSlider()
+            local slider = makeStubFrame()
+            slider._minVal, slider._maxVal, slider._value = 0, 100, 0
+            function slider:GetValueStep() return self._valueStep or 20 end
+            function slider:SetValueStep(v) self._valueStep = v end
+            return slider
+        end
+
+        it("draws the MinimalScrollBar track atlases inset for the stepper buttons", function()
+            local slider = stubSlider()
+            Theme.SetupScrollBar(slider, { thickness = 14 })
+            local track = slider.altArmyNativeTrack
+            local S = Theme.MINIMAL_SCROLL.stepperInset
+            assert.are.equal("minimal-scrollbar-track-top", track.Begin._atlas)
+            assert.are.equal("!minimal-scrollbar-track-middle", track.Middle._atlas)
+            assert.are.equal("minimal-scrollbar-track-bottom", track.End._atlas)
+            assert.are.same({ "TOP", slider, "TOP", 0, -S }, track.Begin._points[1])
+            assert.are.same({ "BOTTOM", slider, "BOTTOM", 0, S }, track.End._points[1])
+            assert.is_nil(slider.altArmyScrollTrack)
+        end)
+
+        it("uses an invisible hit thumb that spans the stepper insets", function()
+            local slider = stubSlider()
+            local thumb = Theme.SetupScrollBar(slider, { thickness = 14 })
+            local S = Theme.MINIMAL_SCROLL.stepperInset
+            assert.are.equal(0, thumb._color[4])
+            assert.is_nil(thumb._atlas)
+            assert.are.equal(Theme.SCROLL_THUMB_LENGTH + 2 * S, thumb._height)
+        end)
+
+        it("draws rounded caps with the middle piece strictly between them", function()
+            local slider = stubSlider()
+            local thumb = Theme.SetupScrollBar(slider, { thickness = 14 })
+            local art = slider.altArmyNativeThumb
+            local S = Theme.MINIMAL_SCROLL.stepperInset
+            assert.are.equal("minimal-scrollbar-small-thumb-top", art.Begin._atlas)
+            assert.are.equal("minimal-scrollbar-small-thumb-middle", art.Middle._atlas)
+            assert.are.equal("minimal-scrollbar-small-thumb-bottom", art.End._atlas)
+            assert.are.same({ "TOP", thumb, "TOP", 0, -S }, art.Begin._points[1])
+            assert.are.same({ "BOTTOM", thumb, "BOTTOM", 0, S }, art.End._points[1])
+            assert.are.same({ "TOPLEFT", art.Begin, "BOTTOMLEFT", 0, 0 }, art.Middle._points[1])
+            assert.are.same({ "BOTTOMRIGHT", art.End, "TOPRIGHT", 0, 0 }, art.Middle._points[2])
+        end)
+
+        it("swaps thumb art to the -over atlases while hovered", function()
+            local slider = stubSlider()
+            Theme.SetupScrollBar(slider, { thickness = 14 })
+            slider._scripts.OnEnter(slider)
+            assert.are.equal("minimal-scrollbar-small-thumb-middle-over", slider.altArmyNativeThumb.Middle._atlas)
+            slider._scripts.OnLeave(slider)
+            assert.are.equal("minimal-scrollbar-small-thumb-middle", slider.altArmyNativeThumb.Middle._atlas)
+        end)
+
+        it("adds arrow stepper buttons that step the slider value", function()
+            local slider = stubSlider()
+            Theme.SetupScrollBar(slider, { thickness = 14 })
+            local back, fwd = slider.altArmyStepBack, slider.altArmyStepForward
+            assert.are.equal("minimal-scrollbar-arrow-top", back.altArmyArrow._atlas)
+            assert.are.equal("minimal-scrollbar-arrow-bottom", fwd.altArmyArrow._atlas)
+            fwd._scripts.OnClick(fwd)
+            assert.are.equal(20, slider:GetValue())
+            fwd._scripts.OnClick(fwd)
+            back._scripts.OnClick(back)
+            assert.are.equal(20, slider:GetValue())
+            slider:SetValue(95)
+            fwd._scripts.OnClick(fwd)
+            assert.are.equal(100, slider:GetValue())
+        end)
+
+        it("steps horizontal bars by at least the minimum step", function()
+            local slider = stubSlider()
+            slider:SetValueStep(1)
+            Theme.SetupScrollBar(slider, { horizontal = true, thickness = 12 })
+            slider.altArmyStepForward._scripts.OnClick(slider.altArmyStepForward)
+            assert.are.equal(Theme.MINIMAL_SCROLL.minStep, slider:GetValue())
+        end)
+
+        it("rotates the atlases for horizontal sliders", function()
+            local slider = stubSlider()
+            local thumb = Theme.SetupScrollBar(slider, { horizontal = true, thickness = 12 })
+            local mid = slider.altArmyNativeThumb.Middle
+            assert.are.equal("atlasfile:minimal-scrollbar-small-thumb-middle", mid._texture)
+            -- 90 degree rotation: UL=(R,T) LL=(L,T) UR=(R,B) LR=(L,B)
+            assert.are.same({ 0.2, 0.3, 0.1, 0.3, 0.2, 0.4, 0.1, 0.4 }, mid._texCoord)
+            local S = Theme.MINIMAL_SCROLL.stepperInset
+            assert.are.equal(Theme.SCROLL_THUMB_LENGTH + 2 * S, thumb._width)
+            assert.are.equal("atlasfile:minimal-scrollbar-arrow-top", slider.altArmyStepBack.altArmyArrow._texture)
+        end)
+
+        it("is idempotent", function()
+            local slider = stubSlider()
+            Theme.SetupScrollBar(slider, { thickness = 14 })
+            local count = #slider._textures
+            Theme.SetupScrollBar(slider, { thickness = 14 })
+            assert.are.equal(count, #slider._textures)
+        end)
+    end)
+
     describe("section layout spacing", function()
         it("defines tab section inset and inter-panel gap matching Graphs tab", function()
             assert.are.equal(0, Theme.TAB_SECTION_INSET)
@@ -833,6 +1198,35 @@ describe("AltArmy.Theme", function()
             viewport.scroll._height = 100
             viewport:UpdateRange()
             assert.is_false(viewport.scrollBar:IsShown())
+        end)
+    end)
+
+    describe("native grid chrome", function()
+        local savedNativeUI, savedNineSlice
+
+        before_each(function()
+            savedNativeUI, savedNineSlice = AltArmy.NativeUI, _G.NineSliceUtil
+            AltArmy.NativeUI = { GetCaps = function() return { nineSlice = true } end }
+            _G.NineSliceUtil = { ApplyLayoutByName = function() end }
+        end)
+
+        after_each(function()
+            AltArmy.NativeUI, _G.NineSliceUtil = savedNativeUI, savedNineSlice
+        end)
+
+        it("fills pinned grid headers with the inset background texture", function()
+            local tex = makeStubTexture()
+            Theme.StyleGridHeader(tex)
+            assert.are.equal(Theme.NATIVE_TIERS.section.bg, tex._texture)
+            assert.is_nil(tex._color)
+        end)
+
+        it("tints pinned-header fades as a neutral shadow", function()
+            local viewport = makeStubFrame()
+            local header = makeStubFrame()
+            header.GetParent = function() return viewport end
+            local fade = Theme.CreatePinnedHeaderScrollFade({ headerFrame = header })
+            assert.are.same(Theme.NATIVE_SCROLL_SHADOW, fade.frame._textures[1]._vertex)
         end)
     end)
 
@@ -1077,6 +1471,24 @@ describe("AltArmy.Theme", function()
             assert.are.equal(22, check._width)
             assert.are.equal(22, check._height)
         end)
+
+        it("uses UICheckButtonTemplate, padded for its transparent art, when native", function()
+            local savedNativeUI, savedCreateFrame = AltArmy.NativeUI, _G.CreateFrame
+            local template
+            AltArmy.NativeUI = { GetCaps = function() return { checkButton = true } end }
+            _G.CreateFrame = function(kind, _, _, tmpl)
+                template = tmpl
+                local f = makeStubFrame()
+                f._kind = kind
+                return f
+            end
+            local check = Theme.CreateThemeCheckbox(makeStubFrame())
+            AltArmy.NativeUI, _G.CreateFrame = savedNativeUI, savedCreateFrame
+            assert.are.equal("UICheckButtonTemplate", template)
+            assert.are.equal("CheckButton", check._kind)
+            assert.are.equal(18 + Theme.NATIVE_CHECKBOX_PAD, check._width)
+            assert.are.equal(0, #check._textures)
+        end)
     end)
 
     describe("EditBox placeholder helpers", function()
@@ -1201,6 +1613,21 @@ describe("AltArmy.Theme", function()
 
         it("does nothing when the edit box is missing", function()
             assert.are.equal(0, Theme.ApplySearchInputIcon(nil))
+        end)
+    end)
+
+    describe("ApplyInputTextures (native)", function()
+        it("draws the InputBoxTemplate three-slice border atlases", function()
+            local savedNativeUI = AltArmy.NativeUI
+            AltArmy.NativeUI = { GetCaps = function() return { inputBox = true } end }
+            local box = makeStubFrame()
+            Theme.ApplyInputTextures(box)
+            AltArmy.NativeUI = savedNativeUI
+            assert.are.equal("common-search-border-left", box.altArmyInputLeft._atlas)
+            assert.are.equal("common-search-border-middle", box.altArmyInputMiddle._atlas)
+            assert.are.equal("common-search-border-right", box.altArmyInputRight._atlas)
+            assert.are.same({ "LEFT", box, "LEFT", -5, 0 }, box.altArmyInputLeft._points[1])
+            assert.is_nil(box.altArmyInputBg)
         end)
     end)
 

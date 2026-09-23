@@ -521,6 +521,10 @@ function Core.CreateTooltipBase(_parent, width, height)
     })
     shadow:SetBackdropColor(0, 0, 0, 0.5)
     shadow:SetBackdropBorderColor(0, 0, 0, 0.4)
+    -- Native GameTooltip chrome has no drop shadow.
+    if tooltip.altArmyNativeTier then
+        shadow:Hide()
+    end
     tooltip.shadow = shadow
 
     tooltip:Hide()

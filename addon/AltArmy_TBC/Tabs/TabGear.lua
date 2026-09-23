@@ -1508,10 +1508,11 @@ scoreProviderBtn:SetPoint("BOTTOMLEFT", headerCornerColumn, "BOTTOMLEFT", 0, SCO
 scoreProviderBtn:SetPoint("BOTTOMRIGHT", scoreSortBtn, "BOTTOMLEFT", -SCORE_SORT_BTN_GAP, 0)
 scoreProviderBtn:SetHeight(GearTab.GetScoreRowContentHeight())
 scoreProviderBtn:Hide()
-Theme.SkinButton(scoreProviderBtn)
+Theme.SkinDropdownButton(scoreProviderBtn)
 local scoreProviderBtnText = scoreProviderBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 scoreProviderBtnText:SetPoint("LEFT", scoreProviderBtn, "LEFT", 6, 0)
-scoreProviderBtnText:SetPoint("RIGHT", scoreProviderBtn, "RIGHT", -2, 0)
+scoreProviderBtnText:SetPoint("RIGHT", scoreProviderBtn, "RIGHT",
+    scoreProviderBtn.altArmyDropdownArrow and -Theme.DROPDOWN_ARROW_GUTTER or -2, 0)
 scoreProviderBtnText:SetJustifyH("LEFT")
 
 local scoreProviderDropdown = CreateFrame("Frame", nil, fixedHeaderRow, "BackdropTemplate")
@@ -1519,7 +1520,7 @@ scoreProviderDropdown:SetPoint("TOPLEFT", scoreProviderBtn, "BOTTOMLEFT", 0, -2)
 scoreProviderDropdown:SetWidth(SCORE_PROVIDER_DROPDOWN_WIDTH)
 scoreProviderDropdown:SetFrameLevel(fixedHeaderRow:GetFrameLevel() + 100)
 scoreProviderDropdown:Hide()
-Theme.ApplyBackdrop(scoreProviderDropdown, "section")
+Theme.SkinDropdownPopup(scoreProviderDropdown)
 local scoreProviderDropdownButtons = {}
 
 function GearTab.ApplyScoreSortLayout()
@@ -1588,12 +1589,16 @@ function GearTab.RebuildScoreProviderDropdown()
         scoreProviderDropdown:Hide()
         return
     end
-    scoreProviderDropdown:SetHeight(#providers * SETTINGS_ROW_HEIGHT + 4)
+    local insets = Theme.GetDropdownPopupInsets()
+    scoreProviderDropdown:SetHeight(#providers * SETTINGS_ROW_HEIGHT + insets.top + insets.bottom)
     scoreProviderDropdown:SetWidth(SCORE_PROVIDER_DROPDOWN_WIDTH)
     for idx, provider in ipairs(providers) do
         local b = Theme.CreateDropdownMenuItem(scoreProviderDropdown, {
             index = idx,
             rowHeight = SETTINGS_ROW_HEIGHT,
+            padTop = insets.top,
+            padSide = insets.left,
+            padRight = insets.right,
             text = provider.label,
             selected = provider.id == GearTab.GetSelectedScoreProvider(),
             onClick = function(self)

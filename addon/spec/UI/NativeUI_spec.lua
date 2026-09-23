@@ -7,7 +7,7 @@ describe("NativeUI", function()
   local NativeUI
   local saved
 
-  local GLOBALS = { "C_XMLUtil", "C_Texture", "CreateFrame", "ScrollUtil", "MenuUtil" }
+  local GLOBALS = { "C_XMLUtil", "C_Texture", "CreateFrame", "ScrollUtil", "MenuUtil", "NineSliceUtil" }
 
   local function stubClient(templates, atlases, extra)
     templates = templates or {}
@@ -133,6 +133,20 @@ describe("NativeUI", function()
     it("requires ScrollUtil binding for minimal scroll bars", function()
       stubClient({ MinimalScrollBar = true })
       assert.is_false(NativeUI.DetectCaps().minimalScrollBar)
+    end)
+
+    it("reports nine-slice chrome only when NineSliceUtil has the shared layouts", function()
+      stubClient({})
+      _G.NineSliceUtil = nil
+      assert.is_false(NativeUI.DetectCaps().nineSlice)
+      local layouts = { InsetFrameTemplate = {}, Dialog = {}, TooltipDefaultLayout = {} }
+      _G.NineSliceUtil = {
+        ApplyLayoutByName = function() end,
+        GetLayout = function(name) return layouts[name] end,
+      }
+      assert.is_true(NativeUI.DetectCaps().nineSlice)
+      layouts.Dialog = nil
+      assert.is_false(NativeUI.DetectCaps().nineSlice)
     end)
 
     it("requires MenuUtil for WowStyle dropdowns", function()
