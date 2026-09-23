@@ -14,10 +14,12 @@ MainTabs.ORDER = { "Summary", "Gear", "Reputation", "Cooldowns", "Graph", "Guild
 
 -- settings.toggle / settings.isShown: method names on AltArmy.TabFrames[name].
 -- settings.optionsKey: opens Interface Options on that AltArmy section instead.
+-- headerSearch: show the toolbar item/recipe search on this tab (always shown in search mode).
 local DEFS = {
     Summary = {
         label = "Summary",
         icon = "INV_Misc_Book_09",
+        headerSearch = true, -- toolbar item/recipe search; other tabs hide it
         settings = { toggle = "ToggleSummarySettings", isShown = "IsSummarySettingsShown" },
     },
     Gear = {

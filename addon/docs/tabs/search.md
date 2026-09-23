@@ -8,7 +8,7 @@ Locate items in bags, bank, and mail snapshots; find known recipes; filter by Cr
 
 ## Access
 
-- The toolbar search box on the main window is always available; typing switches into Search mode.
+- The toolbar search box is shown on the Summary tab (and stays while in Search mode); typing switches into Search mode.
 - There is no side tab for Search. In Search mode no side tab is selected, and clicking any side tab clears the query and leaves Search.
 - The Items / Recipes / Guildmate recipes checkboxes sit on the left of the toolbar while searching. The toolbar settings button opens Search settings and is highlighted while recipe filters are active ("Filters Active").
 

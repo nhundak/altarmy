@@ -693,7 +693,7 @@ local function updateTabard()
     tabardFrame:SetShown(drawn and true or false)
 end
 
--- Search fields: same horizontal span as the main toolbar search box.
+-- Recipe search (character view): same horizontal span as the main toolbar search box.
 local headerSearchRef = _G.AltArmyTBC_HeaderSearchEdit
 
 local function anchorGuildHeaderSearch(edit)
@@ -708,8 +708,9 @@ local function anchorGuildHeaderSearch(edit)
     end
 end
 
-local searchEdit = CreateFrame("EditBox", "AltArmyTBC_GuildSearchEdit", header)
-anchorGuildHeaderSearch(searchEdit)
+-- Character/profession search lives in the main toolbar row (where Summary's item search
+-- sits); parented to the tab frame because the list header clips its children.
+local searchEdit = CreateFrame("EditBox", "AltArmyTBC_GuildSearchEdit", frame)
 searchEdit:SetAutoFocus(false)
 searchEdit:SetFontObject(Theme.FONTS.body)
 Theme.ApplyInputTextures(searchEdit)
@@ -717,8 +718,14 @@ local searchLeftInset = Theme.ApplySearchInputIcon(searchEdit)
 Theme.SetupEditBoxPlaceholder(searchEdit, UI.SEARCH_PLACEHOLDER, {
     leftInset = searchLeftInset,
 })
+if AltArmy.PlaceInToolbarSearchSlot then
+    AltArmy.PlaceInToolbarSearchSlot(searchEdit, frame)
+else
+    anchorGuildHeaderSearch(searchEdit)
+end
 
-local searchClearBtn = CreateFrame("Button", nil, header)
+local searchClearBtn = CreateFrame("Button", nil, searchEdit:GetParent())
+searchClearBtn:SetFrameLevel(searchEdit:GetFrameLevel())
 searchClearBtn:SetPoint("RIGHT", searchEdit, "LEFT", -2, 0)
 searchClearBtn:SetSize(18, 18)
 searchClearBtn:Hide()

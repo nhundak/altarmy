@@ -285,33 +285,26 @@ headerBg:SetPoint("TOPRIGHT", fixedHeaderRow, "TOPRIGHT", 0, HEADER_BG_OVERHANG)
 Theme.StyleGridHeader(headerBg)
 fixedHeaderRow:EnableMouse(true)
 
--- Faction name filter (styled like main window header search)
+-- Grid corner: score-sort controls (the faction filter moved to the toolbar row).
 local headerCornerFrame = CreateFrame("Frame", nil, fixedHeaderRow)
 headerCornerFrame:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, 0)
 headerCornerFrame:SetSize(FACTION_LABEL_WIDTH, GetHeaderHeight())
 Theme.ApplyGridLabelColumnBackground(headerCornerFrame)
 
-factionFilterEdit = CreateFrame("EditBox", "AltArmyTBC_ReputationFactionFilterEdit", headerCornerFrame)
-factionFilterEdit:SetHeight(16)
--- Pin flush to the top of the header; the score-sort row occupies the bottom band of the corner.
-local FACTION_FILTER_EDIT_TOP_Y = 0
-factionFilterEdit:SetPoint("TOPLEFT", headerCornerFrame, "TOPLEFT", 2, FACTION_FILTER_EDIT_TOP_Y)
-factionFilterEdit:SetPoint("TOPRIGHT", headerCornerFrame, "TOPRIGHT", -2, FACTION_FILTER_EDIT_TOP_Y)
+-- Lives in the main toolbar row (where Summary's item search sits), not in the grid corner.
+factionFilterEdit = CreateFrame("EditBox", "AltArmyTBC_ReputationFactionFilterEdit", frame)
 factionFilterEdit:SetAutoFocus(false)
 factionFilterEdit:SetFontObject(Theme.FONTS.body)
 Theme.ApplyInputTextures(factionFilterEdit)
-local factionFilterLeftInset = Theme.ApplySearchInputIcon(factionFilterEdit, {
-    size = 10,
-    leftPad = 2,
-    gap = 2,
-    rightInset = 4,
-})
+local factionFilterLeftInset = Theme.ApplySearchInputIcon(factionFilterEdit)
 
 local FACTION_FILTER_PLACEHOLDER = "Filter faction"
 Theme.SetupEditBoxPlaceholder(factionFilterEdit, FACTION_FILTER_PLACEHOLDER, {
     leftInset = factionFilterLeftInset,
-    rightInset = 4,
 })
+if AltArmy.PlaceInToolbarSearchSlot then
+    AltArmy.PlaceInToolbarSearchSlot(factionFilterEdit, frame)
+end
 
 Theme.BindEditBoxPlaceholderHandlers(factionFilterEdit, function()
     if frame.RefreshGrid then

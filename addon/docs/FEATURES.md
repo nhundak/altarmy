@@ -25,7 +25,7 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 - Tabs are icon flyouts on the right edge; hovering one shows its name. The portrait icon and title show the active tab.
 - Open with `/altarmy` or `/alta`.
 - Minimap button (left-click toggle, drag to move).
-- The toolbar search box switches into Search mode when populated. Clicking any side tab leaves Search mode.
+- The toolbar item/recipe search box is on the Summary tab. Typing in it switches into Search mode. Reputation and Guild use the same toolbar spot for their own filter. Gear, Cooldowns and Graphs have no toolbar search. Clicking any side tab leaves Search mode.
 - One toolbar settings button opens the active tab's settings (Summary, Gear, Reputation, Search panels; Cooldowns opens Interface Options).
 - `/altarmy networth [all] [scale]` — vendor + Auctionator AH value across characters (Auctionator required).
 

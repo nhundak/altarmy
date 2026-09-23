@@ -1370,6 +1370,23 @@ function Theme.SetupEditBoxPlaceholder(editBox, placeholderText, options)
     Theme.UpdateEditBoxPlaceholderVisibility(editBox)
 end
 
+--- Copy ref's input font (and its placeholder font) onto editBox so toolbar search boxes match.
+function Theme.MatchSearchBoxFont(editBox, ref)
+    if not editBox or not ref then return end
+    local fontObject = ref.GetFontObject and ref:GetFontObject()
+    if fontObject then
+        editBox:SetFontObject(fontObject)
+    end
+    local hint = editBox[PLACEHOLDER_HINT_KEY]
+    if not hint then return end
+    local refHint = ref.Instructions or ref[PLACEHOLDER_HINT_KEY]
+    local hintFont = refHint and refHint.GetFontObject and refHint:GetFontObject()
+    if hintFont then
+        hint:SetFontObject(hintFont)
+        hint:SetTextColor(0.5, 0.5, 0.5, 1)
+    end
+end
+
 function Theme.SetEditBoxPlaceholderText(editBox, placeholderText)
     if not editBox then return end
     if editBox.SetPlaceholderText then

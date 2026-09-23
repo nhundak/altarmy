@@ -32,6 +32,12 @@ describe("MainTabs", function()
     assert.is_string(MainTabs.Get("Search").icon)
   end)
 
+  it("shows the toolbar item/recipe search only on Summary", function()
+    for _, name in ipairs(MainTabs.ORDER) do
+      assert.are.equal(name == "Summary", MainTabs.Get(name).headerSearch == true, name)
+    end
+  end)
+
   describe("native side-tab icons", function()
     local savedProject, savedMainline
 

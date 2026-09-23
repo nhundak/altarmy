@@ -11,7 +11,7 @@ See standing and progress for every tracked faction across alts; sort by faction
 - Rows = factions; columns = characters.
 - Per-cell standing label and progress bar.
 - Truncated faction names show the full name in a tooltip on hover.
-- Faction name filter to reduce visible rows; matching text in faction names is highlighted green (same as other search results), including the visible part of a match cut off by "...".
+- Faction name filter (in the main toolbar row, where Summary's item search sits) to reduce visible rows; matching text in faction names is highlighted green (same as other search results), including the visible part of a match cut off by "...".
 - Settings panel for pin/hide and character sort (same pattern as Gear).
 - Score-sort row (level / iLvl / played / gear score) for column ordering.
 

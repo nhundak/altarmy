@@ -27,7 +27,9 @@ local LAYOUT = {
     toolbarTop = -28,
     toolbarHeight = 24,
     contentTop = -60,
-    searchWidth = 180,
+    searchWidth = 360,
+    -- Search results view: narrower so the category checkboxes on the left still fit.
+    searchModeWidth = 180,
 }
 
 local setActiveTab -- forward-declare so header search scripts can call it
@@ -320,9 +322,23 @@ local function isSettingsActive()
     return isShown and isShown(frame) and true or false
 end
 
+--- Header item/recipe search shows on tabs that opt in (MainTabs headerSearch) and while in
+--- search mode (including Guild drill-in from a search result).
+local function isHeaderSearchShown()
+    if searchModeHandlers.inSearchMode then return true end
+    local def = MainTabs.Get(AltArmy.CurrentTab)
+    return def and def.headerSearch and true or false
+end
+
 --- Right side of the toolbar: [Filters Active] [search] [settings]; search slides right when
 --- the active tab has no settings.
 local function layoutToolbarRight()
+    local showSearch = isHeaderSearchShown()
+    headerSearchEdit:SetShown(showSearch)
+    if not showSearch and headerSearchEdit.HasFocus and headerSearchEdit:HasFocus() then
+        headerSearchEdit:ClearFocus()
+    end
+    headerSearchEdit:SetWidth(searchModeHandlers.inSearchMode and LAYOUT.searchModeWidth or LAYOUT.searchWidth)
     headerSearchEdit:ClearAllPoints()
     if settingsBtn:IsShown() then
         headerSearchEdit:SetPoint("RIGHT", settingsBtn, "LEFT", -6, 0)
@@ -348,6 +364,22 @@ UpdateSettingsButtonGlow = function()
 end
 
 AltArmy.UpdateSearchSettingsButtonGlow = UpdateSettingsButtonGlow
+
+--- Put a tab's own search/filter box in the toolbar slot the header search occupies (same
+--- position, width and font). The header search is hidden on those tabs. parent should be the
+--- tab frame so the box hides with its tab; tab content frames sit below the toolbar row.
+function AltArmy.PlaceInToolbarSearchSlot(edit, parent)
+    if not edit then return end
+    if parent then
+        edit:SetParent(parent)
+        edit:SetFrameLevel(parent:GetFrameLevel() + 50)
+    end
+    edit:ClearAllPoints()
+    edit:SetHeight(headerSearchEdit:GetHeight())
+    edit:SetPoint("LEFT", headerSearchEdit, "LEFT", 0, 0)
+    edit:SetPoint("RIGHT", headerSearchEdit, "RIGHT", 0, 0)
+    Theme.MatchSearchBoxFont(edit, headerSearchEdit)
+end
 
 settingsBtn:SetScript("OnClick", function()
     local settings, key = activeSettings()
