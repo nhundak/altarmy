@@ -67,4 +67,46 @@ describe("GuildCrest", function()
     _G.SetLargeGuildTabardTextures, _G.C_GuildInfo = nil, nil
     assert.is_false(GC.Apply(tex(), tex(), tex()))
   end)
+
+  describe("CreateLayers backdrop", function()
+    local function parent()
+      local p = { created = {} }
+      function p:CreateTexture(_, layer, _, sub)
+        local t = tex()
+        t.layer, t.sub, t.shown = layer, sub, true
+        function t:SetAllPoints() end
+        function t:Hide() self.shown = false end
+        function t:SetShown(on) self.shown = on end
+        table.insert(p.created, t)
+        return t
+      end
+      return p
+    end
+
+    it("adds an opaque backing under the crest, shown only when a crest is drawn", function()
+      local p = parent()
+      local layers = GC.CreateLayers(p, {}, { subLevel = 2, backdrop = { 0, 0, 0, 1 } })
+      assert.is_not_nil(layers.backdrop)
+      assert.are.same({ 0, 0, 0, 1 }, layers.backdrop.color)
+      assert.are.equal(2, layers.backdrop.sub)
+      assert.are.equal(3, layers.background.sub)
+      assert.are.equal(5, layers.border.sub)
+
+      _G.IsInGuild = function() return false end
+      assert.is_false(layers:Refresh())
+      assert.is_false(layers.backdrop.shown)
+
+      _G.IsInGuild = function() return true end
+      _G.SetLargeGuildTabardTextures = function() end
+      assert.is_true(layers:Refresh())
+      assert.is_true(layers.backdrop.shown)
+    end)
+
+    it("creates no backing by default", function()
+      local p = parent()
+      local layers = GC.CreateLayers(p, {}, {})
+      assert.is_nil(layers.backdrop)
+      assert.are.equal(3, #p.created)
+    end)
+  end)
 end)

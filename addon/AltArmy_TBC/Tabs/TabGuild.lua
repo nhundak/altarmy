@@ -26,15 +26,15 @@ local UI = {
     RECIPE_TITLE_HEIGHT = 32,
     PROF_TAB_HEIGHT = 26,
     PROF_TAB_GAP = 4,
-    RECIPE_ROW_HEIGHT = 18,
+    RECIPE_ROW_HEIGHT = 20,
     RECIPE_SKILL_COL_WIDTH = 72,
-    RECIPE_COL_HEADER_HEIGHT = 18,
-    -- Match TabCooldowns row height (18) and flush row packing (no inter-group gap).
-    MAIN_ROW_HEIGHT = 18,
-    CHAR_ROW_HEIGHT = 18,
+    RECIPE_COL_HEADER_HEIGHT = 20,
+    -- Match TabCooldowns row height (20) and flush row packing (no inter-group gap).
+    MAIN_ROW_HEIGHT = 20,
+    CHAR_ROW_HEIGHT = 20,
     GROUP_GAP = 0,
     CHAR_INDENT = 12,
-    LIST_COL_HEADER_HEIGHT = 18,
+    LIST_COL_HEADER_HEIGHT = 20,
     LIST_FOOTER_HEIGHT = 28,
     -- Nudge footer action buttons slightly below vertical center.
     FOOTER_BUTTON_Y = -2,
@@ -388,8 +388,8 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
     local topPad = 2
     local nameLineH = 14
     local noteTopPad = 2
-    local noteLineH = 12
-    local reasonLineH = 12
+    local noteLineH = 14
+    local reasonLineH = 14
     local bottomPad = 2
     local charGap = 0
     local dividerPad = 4
@@ -439,7 +439,7 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
                     end
                 end
                 if not ME.suggestUnavailableHeader then
-                    local header = listParent:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridMuted)
+                    local header = listParent:CreateFontString(nil, "OVERLAY", Theme.FONTS.muted)
                     header:SetJustifyH("LEFT")
                     header:SetWordWrap(false)
                     ME.suggestUnavailableHeader = header
@@ -448,7 +448,7 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
                 if header.SetParent then
                     header:SetParent(listParent)
                 end
-                header:SetFontObject(Theme.FONTS.gridMuted)
+                header:SetFontObject(Theme.FONTS.muted)
                 header:ClearAllPoints()
                 header:SetPoint("TOPLEFT", listParent, "TOPLEFT", 6, -y)
                 header:SetPoint("TOPRIGHT", listParent, "TOPRIGHT", -6, -y)
@@ -471,15 +471,15 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
         local btn = ME.suggestPool[i]
         if not btn then
             btn = CreateFrame("Button", nil, listParent)
-            local nameFS = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+            local nameFS = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
             nameFS:SetJustifyH("LEFT")
             nameFS:SetWordWrap(false)
             btn.nameFS = nameFS
-            local noteFS = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.fineprint)
+            local noteFS = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
             noteFS:SetJustifyH("LEFT")
             noteFS:SetWordWrap(false)
             btn.noteFS = noteFS
-            local reasonFS = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.fineprint)
+            local reasonFS = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
             reasonFS:SetJustifyH("LEFT")
             reasonFS:SetWordWrap(false)
             btn.reasonFS = reasonFS
@@ -493,7 +493,7 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
             btn.nameFS = btn.label
         end
         if not btn.reasonFS then
-            local reasonFS = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.fineprint)
+            local reasonFS = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
             reasonFS:SetJustifyH("LEFT")
             reasonFS:SetWordWrap(false)
             btn.reasonFS = reasonFS
@@ -509,14 +509,14 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
         end
         local belowNameAnchor = btn.nameFS
         if btn.noteFS then
-            btn.noteFS:SetFontObject(Theme.FONTS.fineprint)
+            btn.noteFS:SetFontObject(Theme.FONTS.body)
             btn.noteFS:ClearAllPoints()
             btn.noteFS:SetPoint("TOPLEFT", belowNameAnchor, "BOTTOMLEFT", 8, -noteTopPad)
             btn.noteFS:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -6, 0)
             btn.noteFS:SetHeight(noteLineH)
         end
         if btn.reasonFS then
-            btn.reasonFS:SetFontObject(Theme.FONTS.fineprint)
+            btn.reasonFS:SetFontObject(Theme.FONTS.body)
             btn.reasonFS:ClearAllPoints()
             if hasNote and btn.noteFS then
                 btn.reasonFS:SetPoint("TOPLEFT", btn.noteFS, "BOTTOMLEFT", 0, -noteTopPad)
@@ -635,12 +635,12 @@ local optionsBtn = CreateFrame("Button", nil, messageView)
 optionsBtn:SetSize(180, 24)
 optionsBtn:SetPoint("TOP", messageText, "BOTTOM", 0, -16)
 Theme.SkinButton(optionsBtn)
-local optionsBtnLabel = optionsBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.smallButton)
+local optionsBtnLabel = optionsBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
 optionsBtnLabel:SetPoint("CENTER", optionsBtn, "CENTER", 0, 0)
 optionsBtnLabel:SetText("Open sharing options")
 optionsBtn:SetScript("OnClick", function()
     if AltArmy.OpenInterfaceOptions then
-        AltArmy.OpenInterfaceOptions()
+        AltArmy.OpenInterfaceOptions("general", { flash = "guildShare" })
     end
 end)
 
@@ -710,13 +710,10 @@ end
 
 -- Character/profession search lives in the main toolbar row (where Summary's item search
 -- sits); parented to the tab frame because the list header clips its children.
-local searchEdit = CreateFrame("EditBox", "AltArmyTBC_GuildSearchEdit", frame)
-searchEdit:SetAutoFocus(false)
-searchEdit:SetFontObject(Theme.FONTS.body)
-Theme.ApplyInputTextures(searchEdit)
-local searchLeftInset = Theme.ApplySearchInputIcon(searchEdit)
-Theme.SetupEditBoxPlaceholder(searchEdit, UI.SEARCH_PLACEHOLDER, {
-    leftInset = searchLeftInset,
+-- Same search box as Summary's item search (native SearchBoxTemplate: magnifier, clear button).
+local searchEdit = Theme.CreateSearchBox(frame, {
+    name = "AltArmyTBC_GuildSearchEdit",
+    placeholder = UI.SEARCH_PLACEHOLDER,
 })
 if AltArmy.PlaceInToolbarSearchSlot then
     AltArmy.PlaceInToolbarSearchSlot(searchEdit, frame)
@@ -724,66 +721,19 @@ else
     anchorGuildHeaderSearch(searchEdit)
 end
 
-local searchClearBtn = CreateFrame("Button", nil, searchEdit:GetParent())
-searchClearBtn:SetFrameLevel(searchEdit:GetFrameLevel())
-searchClearBtn:SetPoint("RIGHT", searchEdit, "LEFT", -2, 0)
-searchClearBtn:SetSize(18, 18)
-searchClearBtn:Hide()
-local searchClearLabel = searchClearBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
-searchClearLabel:SetPoint("CENTER", searchClearBtn, "CENTER", 0, 0)
-searchClearLabel:SetText("X")
-searchClearBtn:SetHighlightFontObject(Theme.FONTS.heading)
-searchClearBtn:SetScript("OnClick", function()
-    Theme.ClearEditBoxText(searchEdit)
-end)
-
-local function updateSearchClearVisibility()
-    local text = searchEdit:GetText()
-    local trimmed = text and text:match("^%s*(.-)%s*$") or ""
-    if trimmed == "" then
-        searchClearBtn:Hide()
-    else
-        searchClearBtn:Show()
-    end
-end
-
 -- Recipe detail search (top right while viewing one character's recipes).
-local recipeSearchEdit = CreateFrame("EditBox", "AltArmyTBC_GuildRecipeSearchEdit", header)
-anchorGuildHeaderSearch(recipeSearchEdit)
-recipeSearchEdit:SetAutoFocus(false)
-recipeSearchEdit:SetFontObject(Theme.FONTS.body)
-Theme.ApplyInputTextures(recipeSearchEdit)
-local recipeSearchLeftInset = Theme.ApplySearchInputIcon(recipeSearchEdit)
-recipeSearchEdit:Hide()
-
-local recipeSearchClearBtn = CreateFrame("Button", nil, header)
-recipeSearchClearBtn:SetPoint("RIGHT", recipeSearchEdit, "LEFT", -2, 0)
-recipeSearchClearBtn:SetSize(18, 18)
-recipeSearchClearBtn:Hide()
-local recipeSearchClearLabel = recipeSearchClearBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
-recipeSearchClearLabel:SetPoint("CENTER", recipeSearchClearBtn, "CENTER", 0, 0)
-recipeSearchClearLabel:SetText("X")
-recipeSearchClearBtn:SetHighlightFontObject(Theme.FONTS.heading)
-recipeSearchClearBtn:SetScript("OnClick", function()
-    Theme.ClearEditBoxText(recipeSearchEdit)
-end)
-
-Theme.SetupEditBoxPlaceholder(recipeSearchEdit, "Search for recipes on this character", {
-    leftInset = recipeSearchLeftInset,
+local recipeSearchEdit = Theme.CreateSearchBox(header, {
+    name = "AltArmyTBC_GuildRecipeSearchEdit",
+    placeholder = "Search for recipes on this character",
 })
+anchorGuildHeaderSearch(recipeSearchEdit)
+recipeSearchEdit:Hide()
 
 local function updateRecipeSearchPlaceholder(entry)
     Theme.SetEditBoxPlaceholderText(recipeSearchEdit, GTD.FormatRecipeSearchPlaceholder(entry and entry.name))
 end
 
 local function updateRecipeSearchClearVisibility()
-    local text = recipeSearchEdit:GetText()
-    local trimmed = text and text:match("^%s*(.-)%s*$") or ""
-    if trimmed == "" then
-        recipeSearchClearBtn:Hide()
-    else
-        recipeSearchClearBtn:Show()
-    end
     if selectedCharacter and updateWhisperButton then
         updateWhisperButton(selectedCharacter)
     end
@@ -809,7 +759,7 @@ guildBackBtn:SetSize(52, 22)
 guildBackBtn:SetPoint("LEFT", header, "LEFT", 2, 0)
 guildBackBtn:Hide()
 Theme.SkinButton(guildBackBtn)
-local guildBackBtnLabel = guildBackBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.smallButton)
+local guildBackBtnLabel = guildBackBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
 guildBackBtnLabel:SetPoint("CENTER", guildBackBtn, "CENTER", 0, 0)
 guildBackBtnLabel:SetText("Back")
 
@@ -818,7 +768,7 @@ backBtn:SetSize(52, 22)
 backBtn:SetPoint("LEFT", header, "LEFT", 2, 0)
 backBtn:Hide()
 Theme.SkinButton(backBtn)
-local backBtnLabel = backBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.smallButton)
+local backBtnLabel = backBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
 backBtnLabel:SetPoint("CENTER", backBtn, "CENTER", 0, 0)
 backBtnLabel:SetText("Back")
 
@@ -826,7 +776,7 @@ local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 
 local recipeTitleFS = header:CreateFontString(nil, "OVERLAY", Theme.FONTS.title)
 recipeTitleFS:SetPoint("LEFT", backBtn, "RIGHT", 8, 0)
-recipeTitleFS:SetPoint("RIGHT", recipeSearchClearBtn, "LEFT", -8, 0)
+recipeTitleFS:SetPoint("RIGHT", recipeSearchEdit, "LEFT", -8, 0)
 recipeTitleFS:SetJustifyH("LEFT")
 recipeTitleFS:SetWordWrap(false)
 recipeTitleFS:Hide()
@@ -835,7 +785,7 @@ local whisperBtn = CreateFrame("Button", nil, header)
 whisperBtn:SetHeight(22)
 whisperBtn:Hide()
 Theme.SkinButton(whisperBtn)
-local whisperBtnLabel = whisperBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.smallButton)
+local whisperBtnLabel = whisperBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
 whisperBtnLabel:SetPoint("CENTER", whisperBtn, "CENTER", 0, 0)
 whisperBtnLabel:SetText("Whisper")
 whisperBtn:SetWidth(math.max(64, (whisperBtnLabel:GetStringWidth() or 40) + 16))
@@ -849,11 +799,8 @@ whisperBtn:SetScript("OnClick", function(self)
     end
 end)
 
---- Right edge reserved for the recipe search clear button (when shown) or the search box.
+--- Right edge reserved for the recipe search box.
 local function recipeSearchLeftGuard()
-    if recipeSearchClearBtn:IsShown() then
-        return recipeSearchClearBtn, "LEFT"
-    end
     return recipeSearchEdit, "LEFT"
 end
 
@@ -956,7 +903,7 @@ craftLibRecommendBtn:SetHeight(UI.PROF_TAB_HEIGHT - 4)
 craftLibRecommendBtn:SetPoint("TOPRIGHT", profTabStrip, "TOPRIGHT", 0, 0)
 Theme.SkinButton(craftLibRecommendBtn, true)
 Theme.BindInteractableHover(craftLibRecommendBtn)
-local craftLibRecommendLabel = craftLibRecommendBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.smallButton)
+local craftLibRecommendLabel = craftLibRecommendBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
 craftLibRecommendLabel:SetPoint("CENTER", craftLibRecommendBtn, "CENTER", 0, 0)
 craftLibRecommendLabel:SetText("Recommended: CraftLib")
 craftLibRecommendBtn:Hide()
@@ -1022,7 +969,6 @@ updateGuildHeaderForListMode = function()
         Theme.SetTitleColor(guildNameText)
         guildNameText:Show()
         searchEdit:Hide()
-        searchClearBtn:Hide()
         tabardFrame:Hide()
         if ME.syncListFooter then ME.syncListFooter() end
         return
@@ -1035,7 +981,6 @@ updateGuildHeaderForListMode = function()
         Theme.SetTitleColor(guildNameText)
         guildNameText:Show()
         searchEdit:Show()
-        updateSearchClearVisibility()
         tabardFrame:Hide()
         if ME.syncListFooter then ME.syncListFooter() end
         return
@@ -1047,7 +992,6 @@ updateGuildHeaderForListMode = function()
     Theme.SetTitleColor(guildNameText)
     guildNameText:Show()
     searchEdit:Show()
-    updateSearchClearVisibility()
     updateTabard()
     if ME.syncListFooter then ME.syncListFooter() end
 end
@@ -1056,14 +1000,12 @@ local function setListHeaderVisible(visible)
     if visible then
         updateGuildHeaderForListMode()
         recipeSearchEdit:Hide()
-        recipeSearchClearBtn:Hide()
         whisperBtn:Hide()
-        anchorRecipeTitleTo(recipeSearchClearBtn)
+        anchorRecipeTitleTo(recipeSearchEdit)
     else
         guildNameText:Hide()
         guildBackBtn:Hide()
         searchEdit:Hide()
-        searchClearBtn:Hide()
         tabardFrame:Hide()
         recipeSearchEdit:Show()
         updateRecipeSearchClearVisibility()
@@ -1127,7 +1069,7 @@ local function createListHeaderButton(sortKey, justifyH, anchorFn)
     btn:EnableMouse(true)
     btn:RegisterForClicks("LeftButtonUp")
     anchorFn(btn)
-    local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
+    local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
     label:SetPoint("LEFT", btn, "LEFT", 0, 0)
     label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
     label:SetHeight(UI.LIST_COL_HEADER_HEIGHT)
@@ -1248,7 +1190,7 @@ ME.notesBackBtn:SetSize(52, 22)
 ME.notesBackBtn:SetPoint("LEFT", header, "LEFT", 2, 0)
 ME.notesBackBtn:Hide()
 Theme.SkinButton(ME.notesBackBtn)
-ME.notesBackBtnLabel = ME.notesBackBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.smallButton)
+ME.notesBackBtnLabel = ME.notesBackBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
 ME.notesBackBtnLabel:SetPoint("CENTER", ME.notesBackBtn, "CENTER", 0, 0)
 ME.notesBackBtnLabel:SetText("Back")
 
@@ -2045,7 +1987,7 @@ ME.layoutNotesMembers = function()
     local textTopPad = 2
     local lineGap = 2
     local nameLineH = 14
-    local subLineH = 12
+    local subLineH = 14
     local bottomPad = 2
     if ME.notesMembersReasonHeader then
         ME.notesMembersReasonHeader:ClearAllPoints()
@@ -2061,11 +2003,11 @@ ME.layoutNotesMembers = function()
             nameFS:SetJustifyH("LEFT")
             nameFS:SetWordWrap(false)
             row.nameFS = nameFS
-            local noteFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.fineprint)
+            local noteFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
             noteFS:SetJustifyH("LEFT")
             noteFS:SetWordWrap(false)
             row.noteFS = noteFS
-            local reasonFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.fineprint)
+            local reasonFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
             reasonFS:SetJustifyH("LEFT")
             reasonFS:SetWordWrap(false)
             row.reasonFS = reasonFS
@@ -2123,7 +2065,7 @@ ME.layoutNotesMembers = function()
             row.stripeBg:Hide()
         end
         if not row.reasonFS then
-            local reasonFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.fineprint)
+            local reasonFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
             reasonFS:SetJustifyH("LEFT")
             reasonFS:SetWordWrap(false)
             row.reasonFS = reasonFS
@@ -2510,12 +2452,10 @@ ME.showNotesWizardChrome = function()
     guildNameText:Hide()
     guildBackBtn:Hide()
     searchEdit:Hide()
-    searchClearBtn:Hide()
     tabardFrame:Hide()
     backBtn:Hide()
     recipeTitleFS:Hide()
     recipeSearchEdit:Hide()
-    recipeSearchClearBtn:Hide()
     whisperBtn:Hide()
     ME.notesBackBtn:Show()
     if ME.syncNotesHeaderActions then
@@ -2985,7 +2925,7 @@ local function createRecipeHeaderButton(sortKey, anchorFn)
     btn:EnableMouse(true)
     btn:RegisterForClicks("LeftButtonUp")
     anchorFn(btn)
-    local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
+    local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
     label:SetPoint("LEFT", btn, "LEFT", 0, 0)
     label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
     label:SetHeight(UI.RECIPE_COL_HEADER_HEIGHT)
@@ -3475,7 +3415,7 @@ local function acquireMainRow(index)
         oldDataIcon:EnableMouse(false)
         oldDataIcon:RegisterForClicks("LeftButtonUp")
         oldDataIcon:Hide()
-        local mark = oldDataIcon:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        local mark = oldDataIcon:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         mark:SetText("!")
         mark:SetPoint("CENTER", oldDataIcon, "CENTER", 0, 0)
         mark:SetTextColor(1, 0.82, 0, 1)
@@ -3522,7 +3462,7 @@ local function acquireMainRow(index)
         manualDataIcon:SetSize(UI.MANUAL_DATA_ICON_WIDTH, UI.MAIN_ROW_HEIGHT)
         manualDataIcon:EnableMouse(false)
         manualDataIcon:Hide()
-        local manualMark = manualDataIcon:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        local manualMark = manualDataIcon:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         manualMark:SetText("M")
         manualMark:SetPoint("CENTER", manualDataIcon, "CENTER", 0, 0)
         manualMark:SetTextColor(0.7, 0.7, 0.7, 1)
@@ -3680,7 +3620,7 @@ local function acquireCharRow(index)
         end)
         row.mainStarIcon = mainStarIcon
 
-        local nameFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        local nameFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         nameFS:SetPoint("LEFT", row, "LEFT", UI.CHAR_INDENT, 0)
         nameFS:SetPoint("RIGHT", row, "LEFT", UI.SECOND_COLUMN - UI.NAME_COLUMN_GAP, 0)
         nameFS:SetJustifyH("LEFT")
@@ -3691,7 +3631,7 @@ local function acquireCharRow(index)
         manualDataIcon:SetSize(UI.MANUAL_DATA_ICON_WIDTH, UI.CHAR_ROW_HEIGHT)
         manualDataIcon:EnableMouse(false)
         manualDataIcon:Hide()
-        local manualMark = manualDataIcon:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        local manualMark = manualDataIcon:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         manualMark:SetText("M")
         manualMark:SetPoint("CENTER", manualDataIcon, "CENTER", 0, 0)
         manualMark:SetTextColor(0.7, 0.7, 0.7, 1)
@@ -3714,19 +3654,19 @@ local function acquireCharRow(index)
         end)
         row.manualDataIcon = manualDataIcon
 
-        local levelFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        local levelFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         levelFS:SetJustifyH("LEFT")
         levelFS:SetWordWrap(false)
         levelFS:Hide()
         row.levelFS = levelFS
 
-        local lastOnlineFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        local lastOnlineFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         lastOnlineFS:SetPoint("RIGHT", row, "RIGHT", -UI.RIGHT_TRAILING_RESERVE, 0)
         lastOnlineFS:SetWidth(UI.LAST_ONLINE_COLUMN_WIDTH)
         lastOnlineFS:SetJustifyH("RIGHT")
         lastOnlineFS:SetWordWrap(false)
         row.lastOnlineFS = lastOnlineFS
-        local profFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        local profFS = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         profFS:SetPoint("LEFT", row, "LEFT", UI.SECOND_COLUMN + UI.CHAR_INDENT, 0)
         profFS:SetPoint("RIGHT", lastOnlineFS, "LEFT", -UI.NAME_COLUMN_GAP, 0)
         profFS:SetJustifyH("LEFT")
@@ -4113,7 +4053,7 @@ layoutRecipeView = function(entry)
             tab = CreateFrame("Button", nil, profTabStrip)
             tab:SetHeight(UI.PROF_TAB_HEIGHT - 4)
             Theme.SkinButton(tab, true)
-            local tabLabel = tab:CreateFontString(nil, "OVERLAY", Theme.FONTS.smallButton)
+            local tabLabel = tab:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
             tabLabel:SetPoint("CENTER", tab, "CENTER", 0, 0)
             tab.label = tabLabel
             profTabPool[i] = tab
@@ -4683,26 +4623,19 @@ local function refreshImpl()
 end
 refresh = refreshImpl
 
-searchEdit:SetScript("OnTextChanged", function(box)
+-- HookScript keeps SearchBoxTemplate's own handlers (clear button, Instructions placeholder).
+searchEdit:HookScript("OnTextChanged", function(box)
     local text = box:GetText() or ""
     searchText = text
     Theme.UpdateEditBoxPlaceholderVisibility(searchEdit)
-    updateSearchClearVisibility()
     refresh()
 end)
-searchEdit:SetScript("OnEditFocusGained", function(self)
-    Theme.UpdateEditBoxPlaceholderVisibility(self)
-end)
-searchEdit:SetScript("OnEditFocusLost", function(self)
-    Theme.UpdateEditBoxPlaceholderVisibility(self)
-end)
-searchEdit:SetScript("OnEnterPressed", function(box) box:ClearFocus() end)
-searchEdit:SetScript("OnEscapePressed", function(box)
+searchEdit:HookScript("OnEnterPressed", function(box) box:ClearFocus() end)
+searchEdit:HookScript("OnEscapePressed", function(box)
     Theme.ClearEditBoxText(box)
 end)
-updateSearchClearVisibility()
 
-recipeSearchEdit:SetScript("OnTextChanged", function(box)
+recipeSearchEdit:HookScript("OnTextChanged", function(box)
     recipeSearchText = box:GetText() or ""
     Theme.UpdateEditBoxPlaceholderVisibility(recipeSearchEdit)
     updateRecipeSearchClearVisibility()
@@ -4717,14 +4650,8 @@ recipeSearchEdit:SetScript("OnTextChanged", function(box)
     end
     layoutRecipeView(selectedCharacter)
 end)
-recipeSearchEdit:SetScript("OnEditFocusGained", function(self)
-    Theme.UpdateEditBoxPlaceholderVisibility(self)
-end)
-recipeSearchEdit:SetScript("OnEditFocusLost", function(self)
-    Theme.UpdateEditBoxPlaceholderVisibility(self)
-end)
-recipeSearchEdit:SetScript("OnEnterPressed", function(box) box:ClearFocus() end)
-recipeSearchEdit:SetScript("OnEscapePressed", function(box)
+recipeSearchEdit:HookScript("OnEnterPressed", function(box) box:ClearFocus() end)
+recipeSearchEdit:HookScript("OnEscapePressed", function(box)
     Theme.ClearEditBoxText(box)
 end)
 updateRecipeSearchClearVisibility()

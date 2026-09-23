@@ -368,17 +368,31 @@ end
 
 GSS.DISPLAY_NAME_MAX_LENGTH = 20
 
+local function displayMatchesCharacter(name, displayLower)
+    if type(name) ~= "string" or name == "" then
+        return false
+    end
+    return name:lower() == displayLower or GSS.FirstName(name):lower() == displayLower
+end
+
 --- Whether changing main should also update the preferred/display name.
---- Sync when the preferred name is empty, or still matches the old main's
---- first name (case-insensitive). Keep a custom preferred name otherwise.
-function GSS.ShouldSyncDisplayNameWithMain(oldMain, oldDisplayName)
+--- Sync when the preferred name is empty, or matches (case-insensitive) the full
+--- name or first name of the old main or any character in charsByName
+--- (name-keyed, e.g. DataStore:GetCharacters(realm)). Keep a custom name otherwise.
+function GSS.ShouldSyncDisplayNameWithMain(oldMain, oldDisplayName, charsByName)
     if type(oldDisplayName) ~= "string" or oldDisplayName == "" then
         return true
     end
-    if type(oldMain) ~= "string" or oldMain == "" then
-        return false
+    local displayLower = oldDisplayName:lower()
+    if displayMatchesCharacter(oldMain, displayLower) then
+        return true
     end
-    return GSS.FirstName(oldMain):lower() == oldDisplayName:lower()
+    for name in pairs(charsByName or {}) do
+        if displayMatchesCharacter(name, displayLower) then
+            return true
+        end
+    end
+    return false
 end
 
 --- First name only, for copying a character name into the preferred-name field.

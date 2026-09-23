@@ -245,6 +245,7 @@ local mainDropdown
 local displayNameEdit
 local onDoneCallback
 local selectedMain
+local footnote
 
 local function buildDialog()
     if dialog then return end
@@ -333,7 +334,7 @@ local function buildDialog()
         BULLET_TEXT_COLOR[1], BULLET_TEXT_COLOR[2], BULLET_TEXT_COLOR[3], BULLET_TEXT_COLOR[4])
     notSharedBullet:SetText(GSO.NOT_SHARED_BULLET)
 
-    local notSharedEg = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
+    local notSharedEg = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
     notSharedEg:SetPoint("TOPLEFT", notSharedBullet, "BOTTOMLEFT", 0, -LIST_ITEM_GAP)
     notSharedEg:SetPoint("RIGHT", bodyInner, "RIGHT", 0, 0)
     notSharedEg:SetJustifyH("LEFT")
@@ -367,8 +368,10 @@ local function buildDialog()
             local previousDisplay = displayNameEdit and displayNameEdit:GetText() or nil
             selectedMain = id
             local GSS = AltArmy.GuildShareSettings
+            local DS = AltArmy.DataStore
+            local realmChars = DS and DS.GetCharacters and DS:GetCharacters(currentRealm()) or nil
             local syncDisplay = not GSS or not GSS.ShouldSyncDisplayNameWithMain
-                or GSS.ShouldSyncDisplayNameWithMain(previousMain, previousDisplay)
+                or GSS.ShouldSyncDisplayNameWithMain(previousMain, previousDisplay, realmChars)
             if displayNameEdit and id and syncDisplay then
                 local firstName = (GSS and GSS.FirstName and GSS.FirstName(id)) or id
                 if Theme.SetEditBoxText then
@@ -416,7 +419,7 @@ local function buildDialog()
     btnSkip:SetText("No, don't share")
     Theme.SkinButton(btnSkip)
 
-    local footnote = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
+    footnote = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
     footnote:SetPoint("TOP", btnConfirm, "BOTTOM", 0, -10)
     footnote:SetPoint("LEFT", bodyInner, "LEFT", 0, 0)
     footnote:SetPoint("RIGHT", bodyInner, "RIGHT", 0, 0)
@@ -459,6 +462,15 @@ local function buildDialog()
     closeBtn:SetScript("OnClick", function() completeAndClose(false) end)
 end
 
+--- Grow/shrink the dialog so the footnote (last element) sits inside the body panel.
+local function fitDialogHeight()
+    if not (dialog and footnote) then return end
+    local top, bottom = dialog:GetTop(), footnote:GetBottom()
+    if not (top and bottom) then return end
+    local needed = (top - bottom) + Theme.TAB_CONTENT_PADDING + CONTENT_INSET
+    dialog:SetHeight(math.ceil(needed))
+end
+
 local function show(done)
     buildDialog()
     onDoneCallback = done
@@ -476,6 +488,9 @@ local function show(done)
         end
     end
     dialog:Show()
+    fitDialogHeight()
+    -- Wrapped text heights can settle a frame after Show.
+    if C_Timer and C_Timer.After then C_Timer.After(0, fitDialogHeight) end
 end
 
 --- Open the guild-share onboarding dialog (used by the onboarding queue).

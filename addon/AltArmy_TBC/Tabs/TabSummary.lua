@@ -3,7 +3,7 @@
 local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Summary
 if not frame then return end
 
-local ROW_HEIGHT = 18
+local ROW_HEIGHT = 20
 local ROW_POOL_SIZE = 30 -- row widget pool (covers the 484px-tall window); visible count follows scrollFrame height
 
 local function GetVisibleRowCount(viewportH)
@@ -21,7 +21,7 @@ local function GetSummaryListViewportBottomInset(needsHorizontalScroll, horizont
     return summaryRowLift or 0
 end
 local HEADER_HEIGHT = 20
-local TOTALS_ROW_HEIGHT = 18
+local TOTALS_ROW_HEIGHT = 20
 local PAD = 4
 local WARNING_COL_WIDTH = 20
 local NAME_COL_BASE_WIDTH = 179 -- +30 vs original 149 to fill 640px frame content width
@@ -305,7 +305,7 @@ for _, colName in ipairs(columnOrder) do
             Update()
             UpdateHeaderSortIndicators()
         end)
-        local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
+        local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
         label:SetPoint("LEFT", btn, "LEFT", 0, 0)
         label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
         label:SetHeight(HEADER_HEIGHT)
@@ -335,7 +335,7 @@ local cellX = 0
 for _, colName in ipairs(columnOrder) do
     local col = columns[colName]
     local w = col and col.Width or 100
-    local cell = totalsRow:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+    local cell = totalsRow:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     cell:SetPoint("LEFT", totalsRow, "LEFT", cellX, 0)
     cell:SetWidth(w)
     cell:SetJustifyH(col and col.JustifyH or "LEFT")
@@ -598,7 +598,7 @@ for i = 1, ROW_POOL_SIZE do
             iconFrame:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
             iconFrame:SetSize(w, ROW_HEIGHT)
             iconFrame:EnableMouse(true)
-            local mark = iconFrame:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+            local mark = iconFrame:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
             mark:SetText("!")
             mark:SetPoint("CENTER", iconFrame, "CENTER", 0, 0)
             mark:SetTextColor(1, 0.82, 0, 1)
@@ -625,14 +625,14 @@ for i = 1, ROW_POOL_SIZE do
             nameIconFallback:SetSize(ICON_SIZE, ICON_SIZE)
             nameIconFallback:Hide()
             row.nameIconFallback = nameIconFallback
-            local cell = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+            local cell = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
             cell:SetPoint("LEFT", row, "LEFT", rowCellX + ICON_SIZE + 2, 0)
             cell:SetWidth(w - ICON_SIZE - 2)
             cell:SetJustifyH(col and col.JustifyH or "LEFT")
             cell:SetWordWrap(false)
             row.cells[colName] = cell
         else
-            local cell = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+            local cell = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
             cell:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
             cell:SetWidth(w)
             cell:SetJustifyH(col and col.JustifyH or "LEFT")

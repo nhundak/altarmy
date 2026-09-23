@@ -16,11 +16,23 @@ local broker = ldb:NewDataObject(LDB_ICON_NAME, {
     OnClick = function(_, mouseButton)
         if mouseButton ~= "LeftButton" then return end
         local main = AltArmy.MainFrame
-        if main:IsShown() then main:Hide() else main:Show() end
+        if main:IsShown() then
+            main:Hide()
+            return
+        end
+        -- Holding an item: open straight into Gear > Upgrade Check with that item loaded.
+        local gear = AltArmy.TabFrames and AltArmy.TabFrames.Gear
+        if gear and gear.HasCursorItem and gear:HasCursorItem() and AltArmy.ShowMainTab then
+            AltArmy.ShowMainTab("Gear")
+            gear:LoadCursorItemForUpgradeCheck()
+            return
+        end
+        main:Show()
     end,
     OnTooltipShow = function(tooltip)
         tooltip:AddLine("Alt Army")
         tooltip:AddLine("Left-click: open / close", 1, 1, 1)
+        tooltip:AddLine("Left-click holding an item: check it for upgrades", 1, 1, 1)
         tooltip:AddLine("Drag to move", 0.7, 0.7, 0.7)
     end,
 })

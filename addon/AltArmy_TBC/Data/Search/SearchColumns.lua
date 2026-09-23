@@ -19,6 +19,24 @@ SC.SETTINGS_FIRST_COLUMN_SHRINK = 169
 SC.SETTINGS_CHARACTER_COLUMN_SHRINK = 22
 
 local DEFAULT_COL_WIDTH = 80
+--- Floor for the Item/Recipe column when it is fitted to the list viewport.
+SC.MIN_FIRST_COLUMN_WIDTH = 200
+
+--- Closed settings with a known viewport width: size firstCol so the table fills it exactly
+--- (no horizontal scroll). Other columns keep their widths.
+local function FitFirstColumn(widths, firstCol, fitWidth)
+    if not fitWidth or fitWidth <= 0 then
+        return widths
+    end
+    local others = 0
+    for name, w in pairs(widths) do
+        if name ~= firstCol then
+            others = others + w
+        end
+    end
+    widths[firstCol] = math.max(SC.MIN_FIRST_COLUMN_WIDTH, math.floor(fitWidth - others))
+    return widths
+end
 
 local function CopyWidths(widths)
     local out = {}
@@ -28,9 +46,10 @@ local function CopyWidths(widths)
     return out
 end
 
-function SC.GetItemColumnWidths(settingsOpen)
+--- fitWidth (optional, settings closed only): list viewport width to fill with the Item column.
+function SC.GetItemColumnWidths(settingsOpen, fitWidth)
     if not settingsOpen then
-        return CopyWidths(SC.ITEM_COLUMN_WIDTHS)
+        return FitFirstColumn(CopyWidths(SC.ITEM_COLUMN_WIDTHS), "Item", fitWidth)
     end
     return {
         Item = SC.ITEM_COLUMN_WIDTHS.Item - SC.SETTINGS_FIRST_COLUMN_SHRINK,
@@ -39,9 +58,9 @@ function SC.GetItemColumnWidths(settingsOpen)
     }
 end
 
-function SC.GetRecipeColumnWidths(settingsOpen)
+function SC.GetRecipeColumnWidths(settingsOpen, fitWidth)
     if not settingsOpen then
-        return CopyWidths(SC.RECIPE_COLUMN_WIDTHS)
+        return FitFirstColumn(CopyWidths(SC.RECIPE_COLUMN_WIDTHS), "Recipe", fitWidth)
     end
     return {
         Recipe = SC.RECIPE_COLUMN_WIDTHS.Recipe - SC.SETTINGS_FIRST_COLUMN_SHRINK,
@@ -109,7 +128,13 @@ function SC.GetRecipeTableWidth(settingsOpen)
     return SC.GetTableWidth(SC.RECIPE_COLUMN_ORDER, widths)
 end
 
-function SC.GetResultsTableWidth(settingsOpen)
+function SC.GetResultsTableWidth(settingsOpen, fitWidth)
+    if not settingsOpen and fitWidth then
+        return math.max(
+            SC.GetTableWidth(SC.ITEM_COLUMN_ORDER, SC.GetItemColumnWidths(false, fitWidth)),
+            SC.GetTableWidth(SC.RECIPE_COLUMN_ORDER, SC.GetRecipeColumnWidths(false, fitWidth))
+        )
+    end
     if settingsOpen then
         return math.max(
             SC.GetTableWidth(SC.ITEM_COLUMN_ORDER, SC.GetItemColumnWidths(true)),

@@ -17,6 +17,7 @@ Shared theme with the main UI ([UI_DESIGN.md](../UI_DESIGN.md)).
 ## Minimap
 
 - Left-click: open/close main window.
+- Left-click while holding an item (window closed): opens the window on **Gear → Upgrade Check** with that item loaded for comparison. The next click closes the window as usual.
 - Drag: reposition (LibDBIcon).
 - Show/hide under General options.
 

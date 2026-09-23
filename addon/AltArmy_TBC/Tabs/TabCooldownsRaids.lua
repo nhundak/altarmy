@@ -6,8 +6,8 @@ if not frame or not frame.RaidsView then return end
 local Theme = AltArmy.Theme
 local PAD = 4
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
-local ROW_HEIGHT = 18
-local HEADER_HEIGHT = 18
+local ROW_HEIGHT = 20
+local HEADER_HEIGHT = 20
 local HEADER_ROW_GAP = 3
 
 local LD = AltArmy.LockoutData
@@ -159,7 +159,7 @@ do
                 frame.RefreshRaidsList()
             end
         end)
-        local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
+        local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
         label:SetPoint("LEFT", btn, "LEFT", 0, 0)
         label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
         label:SetHeight(HEADER_HEIGHT)
@@ -215,11 +215,10 @@ do
     end)
 end
 
-local emptyLabel = inner:CreateFontString(nil, "OVERLAY", Theme.FONTS.muted)
-emptyLabel:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -HEADER_ROW_GAP - 4)
-emptyLabel:SetPoint("TOPRIGHT", headerRow, "BOTTOMRIGHT", 0, -HEADER_ROW_GAP - 4)
-emptyLabel:SetJustifyH("LEFT")
-emptyLabel:SetText("No active raid or heroic lockouts recorded. Log characters in to refresh.")
+local emptyLabel = inner:CreateFontString(nil, "OVERLAY", Theme.FONTS.emptyState)
+emptyLabel:SetPoint("CENTER", inner, "CENTER", 0, 0)
+emptyLabel:SetJustifyH("CENTER")
+emptyLabel:SetText("Your dungeon lockouts will appear here")
 emptyLabel:Hide()
 
 local function ReleaseRows()
@@ -292,7 +291,10 @@ local function RefreshRaidsList()
     local totalH = math.max(1, #rows) * ROW_HEIGHT
     scrollChild:SetSize(totalW, totalH)
 
-    emptyLabel:SetShown(#rows == 0)
+    local isEmpty = #rows == 0
+    emptyLabel:SetShown(isEmpty)
+    headerRow:SetShown(not isEmpty)
+    listViewport:SetShown(not isEmpty)
 
     local y = 0
     for _, rd in ipairs(rows) do
@@ -323,6 +325,9 @@ local function RefreshRaidsList()
 
     if viewport.UpdateRange then
         viewport.UpdateRange()
+    end
+    if isEmpty then
+        scrollBar:Hide()
     end
     if headerFade then
         headerFade:Update()

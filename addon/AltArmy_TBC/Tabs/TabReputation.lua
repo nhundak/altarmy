@@ -18,15 +18,15 @@ local SECTION_GAP = Theme.SECTION_GAP
 local FACTION_LABEL_WIDTH = 120
 local REP_ROW_HEIGHT = 47
 local REP_BAR_HEIGHT = 20
-local REP_STANDING_ROW_HEIGHT = 12
+local REP_STANDING_ROW_HEIGHT = 14
 local REP_STANDING_BAR_GAP = 1
 local REP_CELL_CONTENT_SHIFT_DOWN = 5
 -- Vertically center standing + gap + bar in the cell (matches faction label centered in the row).
 local REP_CELL_CONTENT_TOP_PAD = (REP_ROW_HEIGHT - REP_STANDING_ROW_HEIGHT - REP_STANDING_BAR_GAP - REP_BAR_HEIGHT) / 2
 local MISSING_DATA_TEXT_R, MISSING_DATA_TEXT_G, MISSING_DATA_TEXT_B = 0.78, 0.68, 0.4
 -- Match TabGear header: name row + message row (Reputation uses only one text line, centered in full height)
-local MESSAGE_ROW_HEIGHT = 12
-local COLUMN_HEADER_HEIGHT_GEAR = 18
+local MESSAGE_ROW_HEIGHT = 14
+local COLUMN_HEADER_HEIGHT_GEAR = 20
 local COLUMN_HEADER_NAME_Y_OFFSET = 1
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
@@ -292,33 +292,27 @@ headerCornerFrame:SetSize(FACTION_LABEL_WIDTH, GetHeaderHeight())
 Theme.ApplyGridLabelColumnBackground(headerCornerFrame)
 
 -- Lives in the main toolbar row (where Summary's item search sits), not in the grid corner.
-factionFilterEdit = CreateFrame("EditBox", "AltArmyTBC_ReputationFactionFilterEdit", frame)
-factionFilterEdit:SetAutoFocus(false)
-factionFilterEdit:SetFontObject(Theme.FONTS.body)
-Theme.ApplyInputTextures(factionFilterEdit)
-local factionFilterLeftInset = Theme.ApplySearchInputIcon(factionFilterEdit)
-
-local FACTION_FILTER_PLACEHOLDER = "Filter faction"
-Theme.SetupEditBoxPlaceholder(factionFilterEdit, FACTION_FILTER_PLACEHOLDER, {
-    leftInset = factionFilterLeftInset,
+-- Same search box as Summary's item search (native SearchBoxTemplate: magnifier, clear button).
+factionFilterEdit = Theme.CreateSearchBox(frame, {
+    name = "AltArmyTBC_ReputationFactionFilterEdit",
+    placeholder = "Filter faction",
 })
 if AltArmy.PlaceInToolbarSearchSlot then
     AltArmy.PlaceInToolbarSearchSlot(factionFilterEdit, frame)
 end
 
-Theme.BindEditBoxPlaceholderHandlers(factionFilterEdit, function()
+-- HookScript keeps SearchBoxTemplate's own handlers (clear button, Instructions placeholder).
+factionFilterEdit:HookScript("OnTextChanged", function(box)
+    Theme.UpdateEditBoxPlaceholderVisibility(box)
     if frame.RefreshGrid then
         frame:RefreshGrid()
     end
 end)
-factionFilterEdit:SetScript("OnEnterPressed", function(box)
+factionFilterEdit:HookScript("OnEnterPressed", function(box)
     box:ClearFocus()
 end)
-factionFilterEdit:SetScript("OnEscapePressed", function(box)
+factionFilterEdit:HookScript("OnEscapePressed", function(box)
     Theme.ClearEditBoxText(box)
-    if frame.RefreshGrid then
-        frame:RefreshGrid()
-    end
 end)
 
 -- Sorting row controls (provider selector + sort-direction) in the bottom band of the corner.
@@ -429,14 +423,14 @@ local function GetHeaderColumnFrame(index)
         if col.RegisterForClicks then
             col:RegisterForClicks("LeftButtonUp")
         end
-        col.header = col:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
+        col.header = col:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
         col.header:SetPoint("TOPLEFT", col, "TOPLEFT", 0, COLUMN_HEADER_NAME_Y_OFFSET)
         col.header:SetPoint("TOPRIGHT", col, "TOPRIGHT", 0, COLUMN_HEADER_NAME_Y_OFFSET)
         col.header:SetHeight(COLUMN_HEADER_HEIGHT_GEAR)
         col.header:SetJustifyH("CENTER")
         col.header:SetJustifyV("MIDDLE")
         col.header:SetWordWrap(false)
-        col.message = col:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        col.message = col:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         col.message:SetPoint("TOP", col.header, "BOTTOM", 0, 0)
         col.message:SetPoint("LEFT", col, "LEFT", 0, 0)
         col.message:SetPoint("RIGHT", col, "RIGHT", 0, 0)
@@ -445,7 +439,7 @@ local function GetHeaderColumnFrame(index)
         col.message:SetWordWrap(true)
         col.message:SetNonSpaceWrap(true)
         -- Sorting row: per-column value for the selected sort metric (bottom band).
-        col.scoreText = col:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        col.scoreText = col:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         col.scoreText:SetPoint("BOTTOMLEFT", col, "BOTTOMLEFT", 0, SCORE_ROW_BOTTOM_INSET)
         col.scoreText:SetPoint("BOTTOMRIGHT", col, "BOTTOMRIGHT", 0, SCORE_ROW_BOTTOM_INSET)
         col.scoreText:SetHeight(SCORE_ROW_CONTENT_HEIGHT)
@@ -487,7 +481,7 @@ local function CreateRepCell(col, rowH, colW)
     local cell = CreateFrame("Frame", nil, col)
     local innerW = colW - 8
     cell:SetSize(innerW, rowH)
-    cell.standing = cell:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
+    cell.standing = cell:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
     ApplyRepCellContentLayout(cell)
     cell.standing:SetHeight(REP_STANDING_ROW_HEIGHT)
     cell.standing:SetJustifyH("CENTER")
@@ -502,7 +496,7 @@ local function CreateRepCell(col, rowH, colW)
     cell.barFill:SetPoint("BOTTOMLEFT", cell.barBg, "BOTTOMLEFT", 0, 0)
     cell.barFill:SetHeight(REP_BAR_HEIGHT)
     -- Progress numbers sit on top of the bar (same band as the fill).
-    cell.progress = cell:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+    cell.progress = cell:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     cell.progress:SetPoint("TOPLEFT", cell.barBg, "TOPLEFT", 2, 0)
     cell.progress:SetPoint("BOTTOMRIGHT", cell.barBg, "BOTTOMRIGHT", -2, 0)
     cell.progress:SetJustifyH("CENTER")
@@ -623,7 +617,7 @@ local function GetFactionLabelRow(i)
         if row.RegisterForClicks then
             row:RegisterForClicks("LeftButtonUp")
         end
-        row.text = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        row.text = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         row.text:SetPoint("LEFT", row, "LEFT", 0, 2)
         row.text:SetPoint("RIGHT", row, "RIGHT", 0, 2)
         row.text:SetJustifyH("LEFT")
@@ -634,7 +628,7 @@ local function GetFactionLabelRow(i)
         row.sortBtn:SetSize(FACTION_SORT_BTN_SIZE, FACTION_SORT_BTN_SIZE)
         row.sortBtn:SetPoint("RIGHT", row, "RIGHT", -2, 2)
         Theme.SkinButton(row.sortBtn)
-        row.sortBtn.text = row.sortBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        row.sortBtn.text = row.sortBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         row.sortBtn.text:SetPoint("CENTER", row.sortBtn, "CENTER", 0, 0)
         row.sortBtn.text:SetTextColor(1, 0.82, 0, 1)
         row.sortBtn:Hide()

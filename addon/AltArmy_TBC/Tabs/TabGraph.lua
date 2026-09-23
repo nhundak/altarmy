@@ -29,7 +29,7 @@ local OPTIONS_PANEL_HEIGHT_CUMULATIVE = OPTIONS_PANEL_PAD
     + OPTION_ROW_HEIGHT
     + OPTIONS_PANEL_PAD
 local OUTLIER_INFO_ICON_SIZE = 14
-local SECTION_HEADER_HEIGHT = 18
+local SECTION_HEADER_HEIGHT = 20
 local INSUFFICIENT_SECTION_GAP = 10
 local LINE_THICKNESS = 2
 local DASH_THICKNESS = 1
@@ -413,11 +413,11 @@ local function RefreshCursorLineAfterRebuild()
 end
 
 local zoomResetBtn = CreateFrame("Button", nil, graphFrame, "BackdropTemplate")
-zoomResetBtn:SetSize(84, 22)
+zoomResetBtn:SetSize(92, 22)
 zoomResetBtn:SetPoint("TOPLEFT", graphFrame, "TOPLEFT", Core.PADDING.left + 6, -8)
 zoomResetBtn:SetFrameLevel(graphFrame:GetFrameLevel() + 60)
 Theme.SkinButton(zoomResetBtn)
-local zoomResetBtnText = zoomResetBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.smallButton)
+local zoomResetBtnText = zoomResetBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
 zoomResetBtnText:SetPoint("CENTER", zoomResetBtn, "CENTER", 0, 0)
 zoomResetBtnText:SetText("Reset Zoom")
 zoomResetBtn:Hide()
@@ -540,18 +540,15 @@ zoomResetBtn:SetScript("OnClick", function()
     RebuildGraph()
 end)
 
-local HINT_SELECT_CHARACTERS_TIME_PER_LEVEL =
-    "Select one or more characters on the right\nto compare time per level."
-local HINT_SELECT_CHARACTERS_CUMULATIVE =
-    "Select one or more characters on the right\nto compare cumulative play time."
+local HINT_SELECT_CHARACTERS = "Select one or more characters on the right"
 local HINT_LEVEL_UP_PROGRESSION =
     "As you level up your characters\nthis page will display graphs of their progression"
 local HINT_NO_HISTORY = "No level history yet.\nLevel up characters while\nlevel history is enabled."
 
-local graphHint = graphFrame:CreateFontString(nil, "OVERLAY", Theme.FONTS.muted)
+local graphHint = graphFrame:CreateFontString(nil, "OVERLAY", Theme.FONTS.emptyState)
 graphHint:SetPoint("CENTER", graphFrame, "CENTER", 0, 0)
 graphHint:SetWidth(graphFrame:GetWidth() - 40)
-graphHint:SetText(HINT_SELECT_CHARACTERS_TIME_PER_LEVEL)
+graphHint:SetText(HINT_SELECT_CHARACTERS)
 graphHint:SetJustifyH("CENTER")
 
 local function UpdateEmptyGraphHint()
@@ -567,10 +564,8 @@ local function UpdateEmptyGraphHint()
         graphHint:SetText(HINT_NO_HISTORY)
     elseif #list == 0 then
         graphHint:SetText(HINT_LEVEL_UP_PROGRESSION)
-    elseif IsCumulativePlayedMetric() then
-        graphHint:SetText(HINT_SELECT_CHARACTERS_CUMULATIVE)
     else
-        graphHint:SetText(HINT_SELECT_CHARACTERS_TIME_PER_LEVEL)
+        graphHint:SetText(HINT_SELECT_CHARACTERS)
     end
 end
 
@@ -583,6 +578,7 @@ Theme.ApplyBackdrop(optionsPanel, "section")
 local metricDropdown = Theme.CreateSingleSelectDropdown({
     parent = optionsPanel,
     dropdownParent = frame,
+    popupAlign = "right",
     width = SELECTOR_WIDTH - 12,
     rowHeight = METRIC_DROPDOWN_HEIGHT,
     point = "TOPLEFT",

@@ -21,17 +21,22 @@ describe("Theme.FONTS", function()
     assert.are.equal("GameFontNormalMed3", Theme.FONTS.title)
   end)
 
-  it("keeps dense grid roles at the 10pt Small fonts", function()
-    assert.are.equal("GameFontHighlightSmall", Theme.FONTS.gridCell)
-    assert.are.equal("GameFontNormalSmall", Theme.FONTS.gridHeader)
-    assert.are.equal("GameFontDisableSmall", Theme.FONTS.gridMuted)
+  it("uses a larger gray font for centered empty-state messages", function()
+    assert.are.equal("GameFontDisableLarge", Theme.FONTS.emptyState)
+  end)
+
+  it("has no 10pt text roles; only icon badges stay Small", function()
+    for _, role in ipairs({ "gridCell", "gridHeader", "gridMuted", "fineprint", "smallButton" }) do
+      assert.is_nil(Theme.FONTS[role], role)
+    end
+    assert.are.equal("GameFontNormalSmall", Theme.FONTS.badge)
   end)
 
   -- Modules loaded by their own specs with a stub Theme keep literals equal to their role.
   local ALLOWED = {
     ["AltArmy_TBC/UI/Theme.lua"] = true,
-    ["AltArmy_TBC/UI/ScoreSortRow.lua"] = true,         -- gridCell
-    ["AltArmy_TBC/UI/GraphCore.lua"] = true,            -- gridMuted
+    ["AltArmy_TBC/UI/ScoreSortRow.lua"] = true,         -- body
+    ["AltArmy_TBC/UI/GraphCore.lua"] = true,            -- muted
     ["AltArmy_TBC/UI/QuestRewardIndicators.lua"] = true, -- badge
     ["AltArmy_TBC/Tabs/TabCharacters.lua"] = true,      -- unloaded placeholder
   }

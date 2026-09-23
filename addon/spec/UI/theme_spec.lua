@@ -135,6 +135,7 @@ describe("AltArmy.Theme", function()
                     self._textColorCalls = (self._textColorCalls or 0) + 1
                 end,
                 SetText = function(self, t) self._text = t end,
+                GetStringWidth = function(self) return #(self._text or "") * 7 end,
                 SetPoint = function(self, ...)
                     self._points = self._points or {}
                     table.insert(self._points, { ... })
@@ -805,6 +806,46 @@ describe("AltArmy.Theme", function()
             assert.are.equal(17187, enteredEntry.spellId)
             item._scripts.OnLeave()
             assert.are.equal(17187, leftEntry.id)
+        end)
+
+        it("widens the popup past the button when a label does not fit", function()
+            local parent = makeStubFrame()
+            local dd = Theme.CreateSingleSelectDropdown({
+                parent = parent,
+                width = 100,
+                entries = {
+                    { id = "a", label = "A" },
+                    { id = "long", label = "Cumulative play time" },
+                },
+                getSelectedId = function() return "a" end,
+            })
+            -- 20 chars * 7px stub width = 140px of text alone.
+            assert.is_true(dd.popup:GetWidth() > 140)
+        end)
+
+        it("anchors the popup's right edge to the button when popupAlign is right", function()
+            local parent = makeStubFrame()
+            local dd = Theme.CreateSingleSelectDropdown({
+                parent = parent,
+                popupAlign = "right",
+                entries = { { id = "a", label = "A" } },
+                getSelectedId = function() return "a" end,
+            })
+            local p = dd.popup._points[#dd.popup._points]
+            assert.are.equal("TOPRIGHT", p[1])
+            assert.are.equal(dd.button, p[2])
+            assert.are.equal("BOTTOMRIGHT", p[3])
+        end)
+
+        it("keeps the popup at button width when labels fit", function()
+            local parent = makeStubFrame()
+            local dd = Theme.CreateSingleSelectDropdown({
+                parent = parent,
+                width = 200,
+                entries = { { id = "a", label = "A" } },
+                getSelectedId = function() return "a" end,
+            })
+            assert.are.equal(200, dd.popup:GetWidth())
         end)
 
         it("SetEnabled disables the trigger and closes the popup", function()
@@ -1675,6 +1716,29 @@ describe("AltArmy.Theme", function()
             assert.is_not_nil(box.altArmySearchIcon)
             assert.are.equal(200, box._width)
         end)
+
+        it("SetEditBoxPlaceholderText updates the native Instructions placeholder", function()
+            AltArmy.NativeUI = { GetCaps = function() return { searchBox = true } end }
+            local box = Theme.CreateSearchBox(makeStubFrame(), { placeholder = "Old" })
+            Theme.SetEditBoxPlaceholderText(box, "Search Bob's recipes")
+            assert.are.equal("Search Bob's recipes", box.Instructions._text)
+        end)
+
+        it("fallback has a clear button inside the right edge, shown only with text", function()
+            AltArmy.NativeUI = { GetCaps = function() return { searchBox = false } end }
+            local box = Theme.CreateSearchBox(makeStubFrame(), { placeholder = "Find" })
+            local clear = box.altArmyClearButton
+            assert.is_not_nil(clear)
+            assert.are.same({ "RIGHT", box, "RIGHT", -3, 0 }, clear._points[1])
+            assert.is_false(clear:IsShown())
+            box:SetText("felweed")
+            box._scripts.OnTextChanged(box, true)
+            assert.is_true(clear:IsShown())
+            clear:Click()
+            assert.are.equal("", box:GetText())
+            box._scripts.OnTextChanged(box, false)
+            assert.is_false(clear:IsShown())
+        end)
     end)
 
     describe("CreateOptionsSectionLabel", function()
@@ -1752,8 +1816,8 @@ describe("AltArmy.Theme", function()
             assert.are.same({ 0.54, 0.71, 0.97, 1 }, bullet4._textColor)
             assert.are.same({ 1, 1, 1, 1 }, installCf._textColor)
             assert.are.same({ 1, 1, 1, 1 }, installWago._textColor)
-            -- pad*2 + icon + gaps + intro + 4 bullets + 2*(install + url)
-            assert.are.equal(202, callout._height)
+            -- pad*2 + icon + gaps + intro + 4 bullets + 2*(install + url); 14px lines (12pt body)
+            assert.are.equal(216, callout._height)
         end)
     end)
 

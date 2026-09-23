@@ -37,18 +37,28 @@ end
 --- Three stacked crest textures on `parent`, covering `anchor` (a frame or texture).
 --- opts.mask: MaskTexture to clip the crest (e.g. side-tab corners, portrait circle).
 --- opts.layer / opts.subLevel: draw layer (default ARTWORK, sublevels +0..+2).
---- Returns { background, emblem, border, SetShown(on) }.
+--- opts.backdrop: { r, g, b, a } solid backing drawn under the crest (the tabard art has
+--- transparent edges); takes sublevel +0 and pushes the crest to +1..+3.
+--- Returns { background, emblem, border, [backdrop], SetShown(on) }.
 function GC.CreateLayers(parent, anchor, opts)
     opts = opts or {}
     local layer = opts.layer or "ARTWORK"
     local base = opts.subLevel or 0
     local layers = {}
     local list = {}
-    for i, key in ipairs({ "background", "emblem", "border" }) do
+    local keys = { "background", "emblem", "border" }
+    if opts.backdrop then
+        table.insert(keys, 1, "backdrop")
+    end
+    for i, key in ipairs(keys) do
         local t = parent:CreateTexture(nil, layer, nil, base + i - 1)
         t:SetAllPoints(anchor)
         if opts.mask and t.AddMaskTexture then
             t:AddMaskTexture(opts.mask)
+        end
+        if key == "backdrop" then
+            local c = opts.backdrop
+            t:SetColorTexture(c[1] or 0, c[2] or 0, c[3] or 0, c[4] or 1)
         end
         t:Hide()
         layers[key] = t

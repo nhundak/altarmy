@@ -22,7 +22,7 @@ local SECTION_GAP = Theme.SECTION_GAP
 local GRID_SPLIT_FRACTION = 0.6 -- grid/compare stats get 60%; settings columns get 40%
 local LEFT_PANEL_WIDTH = 120
 local LEFT_PANEL_VISIBLE = false  -- set true to show "Who can use this?" drop zone
-local MESSAGE_ROW_HEIGHT = 12
+local MESSAGE_ROW_HEIGHT = 14
 local SETTINGS_ROW_HEIGHT = 22
 -- Base cell size was 28; icon size (medium 32px) + glow inset in dims.cellSize
 local NUM_EQUIPMENT_SLOTS = 19
@@ -65,6 +65,21 @@ local SLOT_ORDER = {
 -- State: dropped item link (nil = use default sort by level)
 local droppedItemLink = nil
 local itemCheckModeActive = false
+
+--- Grid vs Upgrade Check sub-views, switched by spellbook-style tabs hanging above the panel in
+--- the toolbar row (UI/TopTabs.lua). "upgrade" covers both the drop prompt and focus compare.
+--- Icons are bundled art (scripts/generate-gear-view-icons.py); only Forever's icon tabs show them.
+local VIEW = {
+    tabs = nil,
+    defs = {
+        { name = "grid", label = "Grid", icon = "Interface\\AddOns\\AltArmy_TBC\\Textures\\Icons\\GearViewGrid" },
+        {
+            name = "upgrade",
+            label = "Upgrade Check",
+            icon = "Interface\\AddOns\\AltArmy_TBC\\Textures\\Icons\\GearViewUpgradeCheck",
+        },
+    },
+}
 local resetGridHorizontalScrollOnRefresh = false
 
 function GearTab.ShouldHideScoreHeader()
@@ -91,7 +106,7 @@ local compareHoverRefs = {}
 local comparePanelContext = nil
 local soulboundCompareRecheckFrame = nil
 
-local COMPARE_ROW_HEIGHT = 14
+local COMPARE_ROW_HEIGHT = 16
 local COMPARE_ROW_GAP = 2
 local COMPARE_SECTION_GAP = 6
 local COMPARE_STAT_ROW_INDENT = 8 -- content inset from the panel split on both sides
@@ -155,9 +170,7 @@ local SCORE_ROW_LAYOUT_TRIM = 4
 local SCORE_ROW_HEADER_BOTTOM_INSET = 6
 local UPGRADE_HIGHLIGHT_COLUMN_INSET = 2
 local SELECTED_CELL_HIGHLIGHT_INSET = UPGRADE_HIGHLIGHT_COLUMN_INSET + 2
-local ITEM_CHECK_BTN_TOP_OFFSET = 6
 local HEADER_TOP_INSET = 4
-local ITEM_CHECK_BTN_HEIGHT = 22
 local ITEM_CHECK_COMPACT_SECTION_PAD = 4
 local ITEM_CHECK_WAITING_HEADER_HEIGHT = 30
 
@@ -1215,7 +1228,7 @@ leftPanel:SetPoint("TOPLEFT", gearLayoutHost, "TOPLEFT", 0, 0)
 leftPanel:SetPoint("BOTTOMLEFT", gearLayoutHost, "BOTTOMLEFT", 0, 0)
 leftPanel:SetWidth(LEFT_PANEL_WIDTH)
 
-local labelWho = leftPanel:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+local labelWho = leftPanel:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
 labelWho:SetPoint("TOPLEFT", leftPanel, "TOPLEFT", 0, 0)
 labelWho:SetText("Who can use this?")
 
@@ -1266,15 +1279,11 @@ if not LEFT_PANEL_VISIBLE then
 end
 
 -- ---- Right panel: slot row headers + scrollable character columns ----
-local COLUMN_HEADER_HEIGHT_GEAR = 18
+local COLUMN_HEADER_HEIGHT_GEAR = 20
 local COLUMN_HEADER_NAME_Y_OFFSET = 1
 local SCORE_PROVIDER_DROPDOWN_WIDTH = 200
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 local FIXED_HEADER_ROW_HEIGHT = COLUMN_HEADER_HEIGHT_GEAR + MESSAGE_ROW_HEIGHT
-
-function GearTab.GetItemCheckButtonHeight()
-    return ITEM_CHECK_BTN_HEIGHT
-end
 
 function GearTab.GetPinnedHeaderHeight()
     if GearTab.ShouldHideMessageHeader() then
@@ -1334,29 +1343,24 @@ headerCornerColumn:SetPoint("TOPLEFT", fixedHeaderRow, "TOPLEFT", 0, 0)
 headerCornerColumn:SetPoint("BOTTOMLEFT", fixedHeaderRow, "BOTTOMLEFT", 0, 0)
 headerCornerColumn:SetWidth(SLOT_LABEL_WIDTH)
 Theme.ApplyGridLabelColumnBackground(headerCornerColumn)
-local headerCornerCell = headerCornerColumn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
+local headerCornerCell = headerCornerColumn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
 headerCornerCell:SetPoint("TOPLEFT", headerCornerColumn, "TOPLEFT", 0, 0)
 headerCornerCell:SetWidth(SLOT_LABEL_WIDTH - 4)
 headerCornerCell:SetHeight(FIXED_HEADER_ROW_HEIGHT)
 headerCornerCell:SetJustifyH("LEFT")
 headerCornerCell:SetText("")
 
-local itemCheckBtn = CreateFrame("Button", nil, gearMainSection)
-Theme.SkinButton(itemCheckBtn)
-itemCheckBtn:SetFrameLevel(gearMainSection:GetFrameLevel() + 20)
-local itemCheckBtnText = itemCheckBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.smallButton)
-itemCheckBtnText:SetPoint("LEFT", itemCheckBtn, "LEFT", 4, 0)
-itemCheckBtnText:SetPoint("RIGHT", itemCheckBtn, "RIGHT", -4, 0)
-itemCheckBtnText:SetJustifyH("CENTER")
-itemCheckBtnText:SetWordWrap(false)
-itemCheckBtnText:SetTextColor(1, 1, 1, 1)
-itemCheckBtnText:SetText("Upgrade check")
-
-function GearTab.updateItemCheckButtonLabel()
+function GearTab.GetActiveViewName()
     if droppedItemLink or itemCheckModeActive then
-        itemCheckBtnText:SetText("Go back")
-    else
-        itemCheckBtnText:SetText("Upgrade check")
+        return "upgrade"
+    end
+    return "grid"
+end
+
+--- Highlight the sub-view tab that matches the current focus / item-check state.
+function GearTab.SyncViewTabs()
+    if VIEW.tabs then
+        VIEW.tabs:SetSelected(GearTab.GetActiveViewName())
     end
 end
 
@@ -1462,7 +1466,7 @@ local scoreSortBtn = CreateFrame("Button", nil, headerCornerColumn)
 scoreSortBtn:SetPoint("BOTTOMRIGHT", headerCornerColumn, "BOTTOMRIGHT", 0, SCORE_ROW_HEADER_BOTTOM_INSET)
 scoreSortBtn:SetSize(GearTab.GetScoreSortBtnSize(), GearTab.GetScoreSortBtnSize())
 Theme.SkinButton(scoreSortBtn)
-local scoreSortBtnText = scoreSortBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+local scoreSortBtnText = scoreSortBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
 scoreSortBtnText:SetPoint("CENTER", scoreSortBtn, "CENTER", 0, 0)
 scoreSortBtnText:SetJustifyH("CENTER")
 scoreSortBtnText:SetTextColor(1, 0.82, 0, 1)
@@ -1483,19 +1487,7 @@ scoreSortBtn:SetScript("OnClick", function()
 end)
 GearTab.UpdateScoreSortButton()
 
-function GearTab.LayoutItemCheckButton()
-    if not itemCheckBtn or not gearMainSection then return end
-    local innerPad = Theme.TAB_CONTENT_PADDING or 8
-    local btnH = GearTab.GetItemCheckButtonHeight()
-    itemCheckBtn:ClearAllPoints()
-    itemCheckBtn:SetSize(SLOT_LABEL_WIDTH, btnH)
-    -- Sit in the section padding above gearMainInner so a small upward offset is not clipped.
-    itemCheckBtn:SetPoint("TOPLEFT", gearMainSection, "TOPLEFT", innerPad,
-        -(innerPad - ITEM_CHECK_BTN_TOP_OFFSET + HEADER_TOP_INSET + 2))
-end
-GearTab.LayoutItemCheckButton()
-
-local scoreProviderStaticLabel = headerCornerColumn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+local scoreProviderStaticLabel = headerCornerColumn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
 scoreProviderStaticLabel:SetPoint("BOTTOMLEFT", headerCornerColumn, "BOTTOMLEFT", 4, SCORE_ROW_HEADER_BOTTOM_INSET)
 scoreProviderStaticLabel:SetPoint("BOTTOMRIGHT", scoreSortBtn, "BOTTOMLEFT", -SCORE_SORT_BTN_GAP, 0)
 scoreProviderStaticLabel:SetHeight(GearTab.GetScoreRowContentHeight())
@@ -1509,7 +1501,7 @@ scoreProviderBtn:SetPoint("BOTTOMRIGHT", scoreSortBtn, "BOTTOMLEFT", -SCORE_SORT
 scoreProviderBtn:SetHeight(GearTab.GetScoreRowContentHeight())
 scoreProviderBtn:Hide()
 Theme.SkinDropdownButton(scoreProviderBtn)
-local scoreProviderBtnText = scoreProviderBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+local scoreProviderBtnText = scoreProviderBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
 scoreProviderBtnText:SetPoint("LEFT", scoreProviderBtn, "LEFT", 6, 0)
 scoreProviderBtnText:SetPoint("RIGHT", scoreProviderBtn, "RIGHT",
     scoreProviderBtn.altArmyDropdownArrow and -Theme.DROPDOWN_ARROW_GUTTER or -2, 0)
@@ -1626,7 +1618,7 @@ end)
 local SLOT_LABEL_ROW_OFFSET = (dims.rowHeight - dims.cellSize) / 2
 local slotLabels = {}
 for slot = 1, NUM_EQUIPMENT_SLOTS do
-    local label = slotHeaderContainer:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+    local label = slotHeaderContainer:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     label:SetPoint("LEFT", slotHeaderContainer, "LEFT", 0, 0)
     label:SetWidth(SLOT_LABEL_WIDTH - 4)
     label:SetHeight(dims.cellSize)
@@ -1680,7 +1672,6 @@ function GearTab.LayoutPinnedHeader()
     end
     GearTab.ApplyPinnedHeaderColumnVisibility()
     GearTab.ApplyScoreSortLayout()
-    GearTab.LayoutItemCheckButton()
 end
 
 function GearTab.ApplyPinnedHeaderColumnVisibility()
@@ -1763,7 +1754,7 @@ function GearTab.GetHeaderColumnFrame(index)
         local col = CreateFrame("Frame", nil, headerGridContainer)
         col:SetSize(dims.columnWidth, GearTab.GetPinnedHeaderHeight())
         col:EnableMouse(true)
-        col.header = col:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
+        col.header = col:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
         col.header:SetPoint("TOPLEFT", col, "TOPLEFT", 0, COLUMN_HEADER_NAME_Y_OFFSET)
         col.header:SetPoint("TOPRIGHT", col, "TOPRIGHT", 0, COLUMN_HEADER_NAME_Y_OFFSET)
         col.header:SetHeight(COLUMN_HEADER_HEIGHT_GEAR)
@@ -1771,7 +1762,7 @@ function GearTab.GetHeaderColumnFrame(index)
         col.header:SetWordWrap(false)
         col.headerSelectionHighlight = col:CreateTexture(nil, "BACKGROUND", nil, -1)
         col.headerSelectionHighlight:Hide()
-        col.message = col:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        col.message = col:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         col.message:SetPoint("TOP", col.header, "BOTTOM", 0, 0)
         col.message:SetPoint("LEFT", col, "LEFT", 0, 0)
         col.message:SetPoint("RIGHT", col, "RIGHT", 0, 0)
@@ -1779,7 +1770,7 @@ function GearTab.GetHeaderColumnFrame(index)
         col.message:SetJustifyH("CENTER")
         col.message:SetWordWrap(true)
         col.message:SetNonSpaceWrap(true)
-        col.scoreText = col:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        col.scoreText = col:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         col.scoreText:SetPoint("BOTTOMLEFT", col, "BOTTOMLEFT", 0, SCORE_ROW_HEADER_BOTTOM_INSET)
         col.scoreText:SetPoint("BOTTOMRIGHT", col, "BOTTOMRIGHT", 0, SCORE_ROW_HEADER_BOTTOM_INSET)
         col.scoreText:SetHeight(GearTab.GetScoreRowContentHeight())
@@ -1958,19 +1949,8 @@ itemCheckDropIcon:SetSize(32, 32)
 itemCheckDropIcon:SetPoint("CENTER", itemCheckDrop, "CENTER", 0, 0)
 itemCheckDropIcon:Hide()
 
-local itemCheckCancel = CreateFrame("Button", nil, itemCheckStack)
-itemCheckCancel:SetSize(72, SETTINGS_ROW_HEIGHT)
-itemCheckCancel:SetPoint("TOP", itemCheckDrop, "BOTTOM", 0, -14)
-itemCheckCancel:SetPoint("LEFT", itemCheckStack, "LEFT", (ITEM_CHECK_STACK_WIDTH - 72) / 2, 0)
-Theme.SkinButton(itemCheckCancel)
-
-local itemCheckCancelText = itemCheckCancel:CreateFontString(nil, "OVERLAY", Theme.FONTS.smallButton)
-itemCheckCancelText:SetPoint("CENTER", itemCheckCancel, "CENTER", 0, 0)
-itemCheckCancelText:SetTextColor(1, 1, 1, 1)
-itemCheckCancelText:SetText("Go back")
-
 local itemCheckError = itemCheckStack:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
-itemCheckError:SetPoint("TOP", itemCheckCancel, "BOTTOM", 0, -10)
+itemCheckError:SetPoint("TOP", itemCheckDrop, "BOTTOM", 0, -14)
 itemCheckError:SetWidth(ITEM_CHECK_STACK_WIDTH)
 itemCheckError:SetJustifyH("CENTER")
 itemCheckError:SetWordWrap(true)
@@ -2005,7 +1985,7 @@ end
 function GearTab.applyItemCheckDrop(itemLink)
     GearTab.ApplyFocusedItem(itemLink, { manual = true })
     GearTab.exitItemCheckMode()
-    GearTab.updateItemCheckButtonLabel()
+    GearTab.SyncViewTabs()
     if frame.RefreshGrid then frame:RefreshGrid() end
 end
 
@@ -2035,10 +2015,6 @@ itemCheckDrop:SetScript("OnMouseUp", function(_, button)
         return
     end
     GearTab.tryAcceptItemCheckDrop()
-end)
-
-itemCheckCancel:SetScript("OnClick", function()
-    GearTab.exitItemCheckMode()
 end)
 
 compareStatsSection = Theme.CreateTabContentPanel(rightPanel)
@@ -2271,7 +2247,7 @@ function GearTab.ApplyCompareFocusHeaderLoadout(loadoutHeader)
     end
 end
 
-local compareFocusError = compareItemsRow:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+local compareFocusError = compareItemsRow:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
 compareFocusError:SetPoint("TOP", compareItemsRow, "BOTTOM", 0, -2)
 compareFocusError:SetPoint("LEFT", compareItemsRow, "LEFT", 8, 0)
 compareFocusError:SetPoint("RIGHT", compareItemsRow, "RIGHT", -8, 0)
@@ -2327,7 +2303,7 @@ function GearTab.tryAcceptCompareFocusDrop()
     if ClearCursor then ClearCursor() end
     GearTab.ApplyFocusedItem(itemLink, { manual = true })
     GearTab.updateCompareFocusDrop(itemLink)
-    GearTab.updateItemCheckButtonLabel()
+    GearTab.SyncViewTabs()
     if frame.RefreshGrid then frame:RefreshGrid() end
     return true
 end
@@ -2338,8 +2314,7 @@ compareFocusDrop:SetScript("OnMouseUp", function(_, button)
         droppedItemLink = nil
         GearTab.ClearCompareSelection()
         GearTab.updateCompareFocusDrop(nil)
-        GearTab.updateItemCheckButtonLabel()
-        if frame.RefreshGrid then frame:RefreshGrid() end
+        GearTab.enterItemCheckMode()
         return
     end
     GearTab.tryAcceptCompareFocusDrop()
@@ -2370,10 +2345,10 @@ local compareWarningRows = {}
 local compareVerdictRow = CreateFrame("Frame", nil, compareLeftPanel)
 compareVerdictRow:SetHeight(COMPARE_ROW_HEIGHT)
 compareVerdictRow:Hide()
-local compareVerdictPrefix = compareVerdictRow:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+local compareVerdictPrefix = compareVerdictRow:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
 compareVerdictPrefix:SetJustifyH("RIGHT")
 compareVerdictPrefix:SetText("Verdict for ")
-local compareVerdictLabel = compareVerdictRow:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+local compareVerdictLabel = compareVerdictRow:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
 compareVerdictLabel:SetPoint("RIGHT", compareVerdictRow, "RIGHT", 0, 0)
 compareVerdictLabel:SetJustifyH("RIGHT")
 compareVerdictPrefix:SetPoint("RIGHT", compareVerdictLabel, "LEFT", 0, 0)
@@ -2388,7 +2363,7 @@ compareDumpBtn:SetPoint("TOPRIGHT", compareDumpRow, "TOPRIGHT", 0, 0)
 if Theme.SkinButton then
     Theme.SkinButton(compareDumpBtn)
 end
-local compareDumpLabel = compareDumpBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.smallButton)
+local compareDumpLabel = compareDumpBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
 compareDumpLabel:SetPoint("CENTER", compareDumpBtn, "CENTER", 0, 0)
 compareDumpLabel:SetTextColor(1, 1, 1, 1)
 compareDumpLabel:SetText("Dump")
@@ -2641,7 +2616,7 @@ function GearTab.GetCompareWarningRow(index)
         local row = CreateFrame("Frame", nil, compareWarningContainer)
         row:SetHeight(COMPARE_ROW_HEIGHT)
 
-        local label = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+        local label = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         label:SetPoint("LEFT", row, "LEFT", 0, 0)
         label:SetPoint("RIGHT", row, "RIGHT", 0, 0)
         label:SetJustifyH("RIGHT")
@@ -2770,7 +2745,7 @@ function GearTab.HideCompareStatRows()
 end
 
 local function createCompareStatColumn(parent, left, width, justifyH)
-    local fs = parent:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridCell)
+    local fs = parent:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     fs:SetPoint("TOPLEFT", parent, "TOPLEFT", left, 0)
     fs:SetWidth(width)
     fs:SetHeight(COMPARE_ROW_HEIGHT)
@@ -3311,7 +3286,7 @@ function GearTab.enterItemCheckMode()
     if verticalScrollBar then verticalScrollBar:Hide() end
     if horizontalScrollBar then horizontalScrollBar:Hide() end
     if verticalScroll then verticalScroll:EnableMouse(false) end
-    GearTab.updateItemCheckButtonLabel()
+    GearTab.SyncViewTabs()
     GearTab.LayoutGearPanels()
 end
 
@@ -3323,46 +3298,95 @@ function GearTab.exitItemCheckMode()
     if verticalScrollBar then verticalScrollBar:Show() end
     if horizontalScrollBar then horizontalScrollBar:Show() end
     if verticalScroll then verticalScroll:EnableMouse(true) end
-    GearTab.updateItemCheckButtonLabel()
+    GearTab.SyncViewTabs()
     GearTab.LayoutGearPanels()
     if frame.RefreshGrid then frame:RefreshGrid() end
 end
 
-itemCheckBtn:SetScript("OnClick", function()
+function GearTab.ShowGridView()
     if droppedItemLink then
         droppedItemLink = nil
         GearTab.ClearCompareSelection()
-        GearTab.updateItemCheckButtonLabel()
-        if frame.RefreshGrid then frame:RefreshGrid() end
-        return
     end
     if itemCheckModeActive then
         GearTab.exitItemCheckMode()
         return
     end
+    GearTab.SyncViewTabs()
+    if frame.RefreshGrid then frame:RefreshGrid() end
+end
+
+--- Enter Upgrade Check: an item held on the cursor is checked right away; otherwise show the
+--- drop prompt.
+--- Load the item held on the cursor into Upgrade Check (replacing any focused item). An item
+--- that can't be checked opens the drop prompt with the error. Returns false when the cursor
+--- holds no item.
+function GearTab.LoadCursorItemForUpgradeCheck()
     local cursorLink = GearTab.getCursorItemLink()
-    if cursorLink then
-        local ok, errMsg = true, nil
-        if IU and IU.ValidateItemCheckDrop then
-            ok, errMsg = IU.ValidateItemCheckDrop(cursorLink)
-        end
-        if ok then
-            if ClearCursor then ClearCursor() end
-            GearTab.applyItemCheckDrop(cursorLink)
-            return
-        end
-        GearTab.enterItemCheckMode()
-        GearTab.showItemCheckError(errMsg)
-        return
+    if not cursorLink then return false end
+    local ok, errMsg = true, nil
+    if IU and IU.ValidateItemCheckDrop then
+        ok, errMsg = IU.ValidateItemCheckDrop(cursorLink)
+    end
+    if ok then
+        if ClearCursor then ClearCursor() end
+        GearTab.applyItemCheckDrop(cursorLink)
+        return true
+    end
+    if droppedItemLink then
+        droppedItemLink = nil
+        GearTab.ClearCompareSelection()
     end
     GearTab.enterItemCheckMode()
-end)
+    GearTab.showItemCheckError(errMsg)
+    return true
+end
+
+function GearTab.ShowUpgradeCheckView()
+    if droppedItemLink or itemCheckModeActive then
+        GearTab.SyncViewTabs()
+        return
+    end
+    if GearTab.LoadCursorItemForUpgradeCheck() then return end
+    GearTab.enterItemCheckMode()
+end
+
+--- Main-window Gear side tab clicked (Core.lua): an item on the cursor goes straight into
+--- Upgrade Check, as if the Upgrade Check sub-tab had been clicked.
+function frame:OnSideTabClicked()
+    GearTab.LoadCursorItemForUpgradeCheck()
+end
+
+--- Minimap button (UI/Minimap.lua) opens Gear with the cursor item when one is held.
+function frame:HasCursorItem()
+    return GearTab.getCursorItemLink() ~= nil
+end
+
+function frame:LoadCursorItemForUpgradeCheck()
+    return GearTab.LoadCursorItemForUpgradeCheck()
+end
+
+-- Tabs hang from the panel top up into the main window's toolbar row (same spot as Cooldowns).
+-- Parented to the tab frame so they hide with it.
+VIEW.tabs = AltArmy.TopTabs.Create(frame, VIEW.defs, {
+    onSelect = function(id)
+        if id == GearTab.GetActiveViewName() then
+            GearTab.SyncViewTabs()
+        elseif id == "upgrade" then
+            GearTab.ShowUpgradeCheckView()
+        else
+            GearTab.ShowGridView()
+        end
+    end,
+})
+VIEW.tabs.frame:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", AltArmy.MainToolbarInsetX or 54, 0)
+GearTab.SyncViewTabs()
 
 function frame:FocusItem(link)
     if not link or link == "" then return end
     if itemCheckModeActive then GearTab.exitItemCheckMode() end
     GearTab.ApplyFocusedItem(link)
-    GearTab.updateItemCheckButtonLabel()
+    GearTab.SyncViewTabs()
     if self.RefreshGrid then self:RefreshGrid() end
 end
 
@@ -3373,7 +3397,7 @@ end
 function frame:ClearFocus()
     droppedItemLink = nil
     GearTab.ClearCompareSelection()
-    GearTab.updateItemCheckButtonLabel()
+    GearTab.SyncViewTabs()
     if self.RefreshGrid then self:RefreshGrid() end
 end
 
@@ -3860,7 +3884,6 @@ function GearTab.ApplySpacing()
         local btnSize = GearTab.GetScoreSortBtnSize()
         scoreSortBtn:SetSize(btnSize, btnSize)
     end
-    GearTab.LayoutItemCheckButton()
 
     for _, col in pairs(headerColumnPool) do
         col:SetSize(dims.columnWidth, GearTab.GetPinnedHeaderHeight())
@@ -3891,6 +3914,7 @@ frame:HookScript("OnHide", function()
     end
 end)
 frame:SetScript("OnShow", function()
+    GearTab.SyncViewTabs()
     GearTab.ApplySpacing()
     GearTab.RefreshGearTabControls()
     if GearScoreMod and GearScoreMod.CaptureCurrentCharacterScore then

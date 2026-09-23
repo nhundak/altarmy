@@ -23,7 +23,7 @@ local COLUMN_TOP_INSET = 4
 local BUTTON_HEIGHT = 24
 local SIDEGRADE_LABEL_HEIGHT = 14
 local BUTTON_WIDTH = 180
-local FOOTNOTE_LINE_HEIGHT = 12
+local FOOTNOTE_LINE_HEIGHT = 14
 local HEADLINE_BODY_GAP = 10
 local BODY_COLUMNS_GAP = 18
 local HEADLINE_HEIGHT = 16
@@ -206,7 +206,7 @@ local function anchorColumnButton(btn, column, yRef)
     btn:SetPoint("LEFT", column, "LEFT", (column:GetWidth() - BUTTON_WIDTH) / 2, 0)
 end
 
-local footnote = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
+local footnote = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 footnote:SetJustifyH("CENTER")
 footnote:SetWordWrap(true)
 footnote:SetTextColor(0.55, 0.55, 0.55, 1)

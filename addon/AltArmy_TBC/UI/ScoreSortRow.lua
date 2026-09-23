@@ -190,12 +190,12 @@ function SSR.CreateCornerControls(parent, opts)
     sortBtn:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, bottomInset)
     sortBtn:SetSize(btnSize, btnSize)
     if Theme and Theme.SkinButton then Theme.SkinButton(sortBtn) end
-    local sortBtnText = sortBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local sortBtnText = sortBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     sortBtnText:SetPoint("CENTER", sortBtn, "CENTER", 0, 0)
     sortBtnText:SetJustifyH("CENTER")
     sortBtnText:SetTextColor(1, 0.82, 0, 1)
 
-    local staticLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local staticLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     staticLabel:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 4, bottomInset)
     staticLabel:SetPoint("BOTTOMRIGHT", sortBtn, "BOTTOMLEFT", -SORT_BTN_GAP, 0)
     staticLabel:SetHeight(btnSize)
@@ -209,7 +209,7 @@ function SSR.CreateCornerControls(parent, opts)
     providerBtn:SetHeight(btnSize)
     providerBtn:Hide()
     if Theme and Theme.SkinDropdownButton then Theme.SkinDropdownButton(providerBtn) end
-    local providerBtnText = providerBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local providerBtnText = providerBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     providerBtnText:SetPoint("LEFT", providerBtn, "LEFT", 6, 0)
     providerBtnText:SetPoint("RIGHT", providerBtn, "RIGHT",
         providerBtn.altArmyDropdownArrow and -Theme.DROPDOWN_ARROW_GUTTER or -2, 0)

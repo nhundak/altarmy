@@ -22,6 +22,8 @@ Alchemy transmutes and enchanting spheres share one cooldown per group, so the l
 
 Click the Recipe cell on a grouped row to pick **Auto** or a specific recipe that character knows (listed A–Z after Auto). The cell becomes a search field with Cancel (same pattern as adding a character to a guild group). Matching text in the dropdown is highlighted in green. A manual pick is saved per character and wins over last-cast until you choose Auto again. Single-recipe rows (Spellcloth, Shadowcloth, Primal Mooncloth, Brilliant Glass) are not pickable.
 
+When no character has a tracked crafting cooldown, the table is replaced by a short centered description of the view.
+
 Tooltips: reagent counts, craftability, character-specific material context (bags + bank + mail). Hovering any Recipe cell or a recipe in the picker shows the same recipe tooltip. The hover highlight and picker apply only to grouped rows.
 
 **Stockpile send**
@@ -35,6 +37,7 @@ Tooltips: reagent counts, craftability, character-specific material context (bag
 
 - Per-character heroic and raid lockouts (instance name, difficulty, time remaining / Ready).
 - Sort by instance, character, or time (default: soonest reset first).
+- When there are no lockouts, the table is replaced by centered text: “Your dungeon lockouts will appear here”
 - Lists **active** lockouts only (no “available now / unlocked” planner yet — see [FEATURE_IDEAS.md](../FEATURE_IDEAS.md)).
 
 ## Alerts

@@ -91,7 +91,7 @@ bodyText:SetText(
         .. "Your bank alt will still appear in other parts of the addon, "
         .. "such as Summary, Graphs, and Search")
 
-local footnote = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
+local footnote = bodyInner:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 footnote:SetPoint("BOTTOMLEFT", bodyInner, "BOTTOMLEFT", 0, 0)
 footnote:SetPoint("BOTTOMRIGHT", bodyInner, "BOTTOMRIGHT", 0, 0)
 footnote:SetJustifyH("CENTER")

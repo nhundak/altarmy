@@ -8,9 +8,19 @@ Compare what each alt is wearing; drop an item to see who can use it and how it 
 
 ## Layout
 
-- Rows = equipment slots; columns = characters.
-- Side settings for sort, pin/hide, icon size, and spacing.
-- Item-check / compare panels when an item is focused.
+Two sub-views, switched with spellbook-style tabs that hang above the panel in the toolbar row
+(`UI/TopTabs.lua`, same as Cooldowns). Hovering a tab shows its name.
+- **Forever:** square icon tabs: a gold 2×2 grid for **Grid** and gold balance scales for **Upgrade Check**. These are bundled art (`Textures/Icons/GearView*.tga`), made by `scripts/generate-gear-view-icons.py`, because the game has no fitting grid or scales icon.
+- **TBC Anniversary:** classic text top tabs.
+
+**Grid** — rows = equipment slots; columns = characters. Side settings for sort, pin/hide, icon
+size, and spacing.
+
+**Upgrade Check** — the item-check drop prompt, then the compare panel once an item is focused.
+Choosing the tab while holding an item on the cursor checks that item immediately. The same happens when you click the main window's **Gear** side tab while holding an item: it switches to Upgrade Check and loads that item, replacing any item already focused. Clicking the minimap button while holding an item (window closed) opens the window straight into this view with the item loaded. Focusing an item
+from elsewhere (loot / quest alerts, links) switches to this tab; right-clicking the focused item
+clears it back to the drop prompt. Choosing **Grid** clears the focused item. Hiding the tab while
+still on the drop prompt returns to Grid; a focused item stays in Upgrade Check.
 
 ## Grid
 

@@ -8,22 +8,18 @@ AltArmy.Theme = AltArmy.Theme or {}
 local Theme = AltArmy.Theme
 
 -- Font roles -> Blizzard font objects (same sizes on Forever and TBC Anniversary: Small 10,
--- Normal/Highlight 12, Med3 14, Large 16). Native panels (Character / Reputation / Skills)
--- use 12pt for labels (gold Normal) and rows / values (white Highlight); only dense grids and
--- small overlays stay 10pt. Use Theme.FONTS.<role>, never a GameFont literal, in UI code.
+-- Normal/Highlight 12, Med3 14, Large 16). Like native panels (Character / Reputation / Skills),
+-- all text is 12pt: labels and column headers gold Normal, rows / values white Highlight. Only
+-- icon badge glyphs use a Small base. Use Theme.FONTS.<role>, never a GameFont literal, in UI code.
 Theme.FONTS = {
     pageTitle = "GameFontNormalHuge",       -- Interface Options page header
     headline = "GameFontHighlightLarge",    -- dialog headline
     title = "GameFontNormalMed3",           -- panel / settings / dialog titles
-    heading = "GameFontNormal",             -- section and group headers, labels
-    body = "GameFontHighlight",             -- list rows, values, settings text, inputs
-    muted = "GameFontDisable",              -- empty states, unavailable rows
-    fineprint = "GameFontHighlightSmall",   -- footnotes, debug hints, secondary columns
-    smallButton = "GameFontNormalSmall",    -- labels on compact buttons / tabs
-    gridCell = "GameFontHighlightSmall",    -- dense grid cells (Gear, Reputation, Summary, roster)
-    gridHeader = "GameFontNormalSmall",     -- grid / list column headers
-    gridMuted = "GameFontDisableSmall",     -- muted text inside dense grids
-    badge = "GameFontNormalSmall",          -- count / upgrade badges
+    heading = "GameFontNormal",             -- section and column headers, labels, button labels
+    body = "GameFontHighlight",             -- grid cells, list rows, values, hints, inputs
+    muted = "GameFontDisable",              -- unavailable rows, graph axes, inline empty notes
+    emptyState = "GameFontDisableLarge",    -- centered empty-state messages that replace a table/graph
+    badge = "GameFontNormalSmall",          -- Gear upgrade glyphs on item icons (scaled x2)
 }
 
 Theme.HOVER_TINT_BG = "Interface\\Tooltips\\UI-Tooltip-Background"
@@ -1333,9 +1329,34 @@ function Theme.CreateSearchBox(parent, opts)
     box:SetSize(opts.width or 200, height)
     box:SetAutoFocus(false)
     box:SetFontObject(Theme.FONTS.body)
-    local leftInset = Theme.ApplySearchInputIcon(box)
-    Theme.SetupEditBoxPlaceholder(box, opts.placeholder or "", { leftInset = leftInset })
+    local clearSize = 14
+    local leftInset = Theme.ApplySearchInputIcon(box, { rightInset = clearSize + 6 })
+    Theme.SetupEditBoxPlaceholder(box, opts.placeholder or "", {
+        leftInset = leftInset,
+        rightInset = clearSize + 6,
+    })
     Theme.ApplyInputTextures(box)
+
+    -- Clear (X) inside the right edge, like SearchBoxTemplate's; shown only while there is text.
+    local clear = CreateFrame("Button", nil, box)
+    clear:SetSize(clearSize, clearSize)
+    clear:SetPoint("RIGHT", box, "RIGHT", -3, 0)
+    local clearLabel = clear:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
+    clearLabel:SetPoint("CENTER", clear, "CENTER", 0, 0)
+    clearLabel:SetText("x")
+    clearLabel:SetTextColor(0.6, 0.6, 0.6, 1)
+    clear:SetScript("OnEnter", function() clearLabel:SetTextColor(1, 1, 1, 1) end)
+    clear:SetScript("OnLeave", function() clearLabel:SetTextColor(0.6, 0.6, 0.6, 1) end)
+    clear:SetScript("OnClick", function()
+        Theme.ClearEditBoxText(box)
+        clear:Hide()
+    end)
+    clear:Hide()
+    box.altArmyClearButton = clear
+    box:HookScript("OnTextChanged", function(self)
+        local text = self:GetText() or ""
+        clear:SetShown(text:match("^%s*(.-)%s*$") ~= "")
+    end)
     return box, false
 end
 
@@ -1389,6 +1410,11 @@ end
 
 function Theme.SetEditBoxPlaceholderText(editBox, placeholderText)
     if not editBox then return end
+    -- SearchBoxTemplate: its own Instructions FontString (shown/hidden by the template).
+    if editBox.Instructions and editBox.Instructions.SetText then
+        editBox.Instructions:SetText(placeholderText or "")
+        return
+    end
     if editBox.SetPlaceholderText then
         editBox:SetPlaceholderText(placeholderText or "")
         return
@@ -2337,6 +2363,7 @@ end
 --- Custom single-select dropdown (Gear / Reputation / Search settings style).
 --- opts.parent, opts.width, opts.rowHeight, opts.dropdownParent
 --- opts.maxVisibleRows — cap visible rows before scrolling (default Theme.DROPDOWN_MAX_VISIBLE_ROWS)
+--- opts.popupAlign — "right" aligns the popup's right edge with the button (default left)
 --- opts.point/relativeTo/relativePoint/x/y — anchor the trigger button
 --- opts.entries or opts.getEntries() -> { { id, label }, ... }
 --- opts.getSelectedId(), opts.onSelect(id, entry)
@@ -2378,7 +2405,11 @@ function Theme.CreateSingleSelectDropdown(opts)
     btnText:SetJustifyH("LEFT")
 
     local popup = CreateFrame("Frame", nil, dropdownParent, "BackdropTemplate")
-    popup:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
+    if opts.popupAlign == "right" then
+        popup:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, -2)
+    else
+        popup:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
+    end
     popup:SetWidth(width)
     popup:SetFrameLevel((dropdownParent.GetFrameLevel and dropdownParent:GetFrameLevel() or 0) + 100)
     popup:Hide()
@@ -2504,6 +2535,20 @@ function Theme.CreateSingleSelectDropdown(opts)
             b.entryId = entry.id
             itemButtons[idx] = b
         end
+
+        -- Grow the popup (never below the button width) so long labels are not clipped.
+        local widest = 0
+        for i = 1, #itemButtons do
+            local lbl = itemButtons[i].label
+            local w = lbl and lbl.GetStringWidth and lbl:GetStringWidth() or 0
+            if w > widest then widest = w end
+        end
+        local labelLeft = nativeDropdownsAvailable() and 20 or 4
+        local chrome = popupPadLeft + popupPadRight + labelLeft + 8
+        if useScroll then
+            chrome = chrome + Theme.VerticalScrollBarGutter()
+        end
+        popup:SetWidth(math.max(width, math.ceil(widest + chrome)))
 
         if useScroll then
             listViewport.SetOffset(0)
@@ -2774,6 +2819,180 @@ function Theme.CreateMultiSelectCheckboxDropdown(config)
     return api
 end
 
+Theme.FILTER_DROPDOWN_WIDTH = 93
+Theme.FILTER_DROPDOWN_HEIGHT = 22
+
+local function filterDropdownNative()
+    local NativeUI = AltArmy.NativeUI
+    local caps = NativeUI and NativeUI.GetCaps and NativeUI.GetCaps()
+    return caps and caps.filterDropdown or false
+end
+
+local function filterEntryLabel(entry)
+    local SFM = AltArmy.SearchFilterMenu
+    if SFM and SFM.FormatLabel then
+        return SFM.FormatLabel(entry)
+    end
+    return entry.label or ""
+end
+
+--- Professions-style "Filter" button whose menu holds checkboxes, dividers and buttons.
+--- opts.parent, opts.text (default "Filter")
+--- opts.getEntries() -> { { kind = "checkbox"|"divider"|"button", key, label, checked, enabled, icon }, ... }
+---   (re-read on open and after every toggle, so checked/enabled stay live)
+--- opts.onToggle(key, checked) for checkboxes; opts.onSelect(key) for buttons (closes the menu).
+--- Native: WowStyle1FilterDropdownTemplate + Blizzard_Menu. Fallback: skinned button + popup.
+function Theme.CreateFilterDropdown(opts)
+    opts = opts or {}
+    local parent = opts.parent
+    if not parent then return nil end
+    local text = opts.text or "Filter"
+    local function entries()
+        return opts.getEntries and opts.getEntries() or {}
+    end
+    local function liveEntry(key)
+        for _, e in ipairs(entries()) do
+            if e.key == key then return e end
+        end
+        return nil
+    end
+
+    if filterDropdownNative() then
+        local dd = CreateFrame("DropdownButton", nil, parent, "WowStyle1FilterDropdownTemplate")
+        if dd.Text and dd.Text.SetText then
+            dd.Text:SetText(text)
+        elseif dd.SetText then
+            dd:SetText(text)
+        end
+        dd:SetupMenu(function(_, root)
+            for _, e in ipairs(entries()) do
+                local key = e.key
+                if e.kind == "checkbox" then
+                    local cb = root:CreateCheckbox(filterEntryLabel(e), function()
+                        local live = liveEntry(key)
+                        return live and live.checked or false
+                    end, function()
+                        local live = liveEntry(key)
+                        if opts.onToggle then opts.onToggle(key, not (live and live.checked)) end
+                    end)
+                    if cb and cb.SetEnabled then
+                        cb:SetEnabled(function()
+                            local live = liveEntry(key)
+                            return live ~= nil and live.enabled ~= false
+                        end)
+                    end
+                elseif e.kind == "divider" then
+                    root:CreateDivider()
+                elseif e.kind == "button" then
+                    root:CreateButton(filterEntryLabel(e), function()
+                        if opts.onSelect then opts.onSelect(key) end
+                    end)
+                end
+            end
+        end)
+        return { button = dd, Close = function() if dd.CloseMenu then dd:CloseMenu() end end }
+    end
+
+    -- Fallback: skinned trigger + popup rebuilt from getEntries() on every open/toggle.
+    local rowHeight = Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or Theme.CHAR_LIST_ROW_HEIGHT or 20
+    local btn = CreateFrame("Button", nil, parent)
+    btn:SetSize(Theme.FILTER_DROPDOWN_WIDTH, Theme.FILTER_DROPDOWN_HEIGHT)
+    Theme.SkinDropdownButton(btn)
+    local btnText = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
+    btnText:SetPoint("LEFT", btn, "LEFT", 6, 0)
+    btnText:SetPoint("RIGHT", btn, "RIGHT", btn.altArmyDropdownArrow and -Theme.DROPDOWN_ARROW_GUTTER or -4, 0)
+    btnText:SetText(text)
+
+    local popup = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    popup:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
+    popup:SetWidth(150)
+    popup:SetFrameLevel((parent:GetFrameLevel() or 0) + 100)
+    popup:Hide()
+    Theme.SkinDropdownPopup(popup)
+    Theme._openMultiSelectCheckboxDropdowns[popup] = true
+    local insets = Theme.GetDropdownPopupInsets()
+
+    local rows, dividers = {}, {}
+    local rebuild
+    local function rowFor(e)
+        local row = rows[e.key]
+        if row then return row end
+        if e.kind == "checkbox" then
+            row = Theme.CreateLabeledCheckbox(popup, {
+                rowHeight = rowHeight,
+                fullWidthHover = true,
+                rightInset = insets.right,
+                onClick = function(checked)
+                    if opts.onToggle then opts.onToggle(e.key, checked) end
+                    rebuild()
+                end,
+            })
+        else
+            row = Theme.CreateDropdownMenuItem(popup, {
+                rowHeight = rowHeight,
+                onClick = function()
+                    popup:Hide()
+                    if opts.onSelect then opts.onSelect(e.key) end
+                end,
+            })
+        end
+        rows[e.key] = row
+        return row
+    end
+
+    rebuild = function()
+        for _, row in pairs(rows) do row:Hide() end
+        for _, d in ipairs(dividers) do d:Hide() end
+        local y, nDiv = insets.top, 0
+        for _, e in ipairs(entries()) do
+            if e.kind == "divider" then
+                nDiv = nDiv + 1
+                local d = dividers[nDiv]
+                if not d then
+                    d = popup:CreateTexture(nil, "ARTWORK")
+                    d:SetColorTexture(1, 1, 1, 0.15)
+                    d:SetHeight(1)
+                    dividers[nDiv] = d
+                end
+                d:ClearAllPoints()
+                d:SetPoint("TOPLEFT", popup, "TOPLEFT", insets.left, -y - 4)
+                d:SetPoint("RIGHT", popup, "RIGHT", -insets.right, 0)
+                d:Show()
+                y = y + 9
+            else
+                local row = rowFor(e)
+                row:ClearAllPoints()
+                row:SetPoint("TOPLEFT", popup, "TOPLEFT", insets.left, -y)
+                row:SetPoint("RIGHT", popup, "RIGHT", -insets.right, 0)
+                row:SetHeight(rowHeight)
+                if e.kind == "checkbox" then
+                    row.label:SetText(filterEntryLabel(e))
+                    row.check:SetChecked(e.checked and true or false)
+                    local on = e.enabled ~= false
+                    if on then row.check:Enable() else row.check:Disable() end
+                    local v = on and 1 or 0.5
+                    row.label:SetTextColor(v, v, v)
+                else
+                    row.label:SetText(filterEntryLabel(e))
+                end
+                row:Show()
+                y = y + rowHeight
+            end
+        end
+        popup:SetHeight(y + insets.bottom)
+    end
+
+    btn:SetScript("OnClick", function()
+        local show = not popup:IsShown()
+        Theme.CloseMultiSelectCheckboxDropdowns(show and popup or nil)
+        Theme.CloseSingleSelectDropdowns(nil)
+        if show then rebuild() end
+        popup:SetShown(show)
+    end)
+
+    return { button = btn, popup = popup, Close = function() popup:Hide() end }
+end
+
 --- Collapsible settings section with a clickable header and optional body frame.
 function Theme.CreateCollapsibleSection(parent, opts)
     opts = opts or {}
@@ -2879,8 +3098,8 @@ function Theme.CreateCraftLibInstallCallout(parent, opts)
         or "Alt Army can do more advanced recipe filtering if you install the CraftLib addon"
     local urlRowHeight = opts.urlRowHeight or 22
     local bulletColor = Theme.BULLET_TEXT_COLOR
-    -- GameFontHighlightSmall line height used to size the panel to its content.
-    local lineH = 12
+    -- Theme.FONTS.body (12pt) line height used to size the panel to its content.
+    local lineH = 14
     -- Each platform: gap before label + label + gap + url row.
     local installBlockH = 6 + lineH + 4 + urlRowHeight
     local secondInstallBlockH = 4 + lineH + 4 + urlRowHeight

@@ -8,8 +8,8 @@ local SECTION_INSET = Theme.TAB_SECTION_INSET
 local PAD = 4
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 -- Match TabSearch.lua result rows (items / recipes): row height, fonts, flush columns, icon scale.
-local ROW_HEIGHT = 18
-local HEADER_HEIGHT = 18
+local ROW_HEIGHT = 20
+local HEADER_HEIGHT = 20
 local HEADER_ROW_GAP = 3 -- TabSearch.lua section headers use this gap above first row
 local MAT_ICON_SIZE = 14 -- TabSearch OVERLAY_ICON_SIZE (inline "|Tpath:0|t" uses ~14px height)
 local REFRESH_INTERVAL = 1
@@ -319,7 +319,7 @@ for _, sk in ipairs(SORT_KEYS_ORDER) do
             RefreshList()
         end
     end)
-    local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
+    local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
     label:SetPoint("LEFT", btn, "LEFT", 0, 0)
     label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
     label:SetHeight(HEADER_HEIGHT)
@@ -402,6 +402,14 @@ Theme.AnchorVerticalScrollBar(scrollBar, tabContentPanel, listViewport)
 
 local scrollChild = CreateFrame("Frame", nil, scroll)
 scroll:SetScrollChild(scrollChild)
+
+-- Empty state: replaces the table when no character has a tracked crafting cooldown.
+local craftingEmptyLabel = tabContentInner:CreateFontString(nil, "OVERLAY", Theme.FONTS.emptyState)
+craftingEmptyLabel:SetPoint("CENTER", tabContentInner, "CENTER", 0, 0)
+craftingEmptyLabel:SetWidth(400)
+craftingEmptyLabel:SetJustifyH("CENTER")
+craftingEmptyLabel:SetText("Your crafting cooldowns will appear here")
+craftingEmptyLabel:Hide()
 
 -- Gradient under the pinned header when the list is scrolled (Gear / Summary pattern).
 headerRow:SetFrameLevel((tabContentInner:GetFrameLevel() or 0) + 10)
@@ -2959,6 +2967,14 @@ RefreshList = function()
     if cooldownHeaderFade then
         cooldownHeaderFade:Update()
     end
+    local isEmpty = #rows == 0
+    headerRow:SetShown(not isEmpty)
+    listViewport:SetShown(not isEmpty)
+    tipRow:SetShown(not isEmpty)
+    if isEmpty then
+        scrollBar:Hide()
+    end
+    craftingEmptyLabel:SetShown(isEmpty)
     -- Only re-sync hover after a real frame reshuffle; in-place updates keep the same widgets.
     if not reuse then
         SyncRowHoverUnderMouse()

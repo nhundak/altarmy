@@ -5,7 +5,7 @@ Opt-in guild data sharing: browse guildmate characters and recipes grouped by ma
 ## Visibility
 
 - Tab button appears only when guild sharing is enabled (feature / settings) **and** at least one character on the current realm is in a guild.
-- If sharing is off for the player, the tab shows a message with a link to enable sharing options.
+- If sharing is off for the player, the tab shows a message with a button that opens Options → General and flashes the guild sharing toggle.
 
 ## Purpose
 
@@ -25,6 +25,7 @@ See who is playing which alts in the guild, open their shared professions/recipe
 - Broadcasts shareable character cards and recipes over guild addon messages (AceComm).
 - Received data in `AltArmyTBC_GuildData`.
 - Onboarding dialog when appropriate (queued with other onboarding prompts).
+- Changing the main (onboarding dialog or Options) also sets the preferred name ("What should people call you?") to the new main's first name — but only when the current preferred name is empty or matches (case-insensitive) a realm character's full or first name. Custom names are kept.
 - Chat main-name insertion (channels configurable): prefixes messages / online-offline lines with the poster’s group display label when it differs from the sender.
 
 ## Search integration

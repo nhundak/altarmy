@@ -64,6 +64,7 @@ Data\Characters\Characters.lua
 Data\Integrations\RecipeCraftLib.lua
 Data\Search\RecipeYieldBonus.lua
 Data\Search\SearchSettings.lua
+Data\Search\SearchFilterMenu.lua
 Data\Search\SearchColumns.lua
 Data\Search\SearchData.lua
 Data\Search\SearchIndex.lua

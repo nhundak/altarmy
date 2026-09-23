@@ -78,7 +78,7 @@ end
 
 local function AcquireFontString(parent)
     local fs = AcquireFromPool(fontStringPool, function()
-        return parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        return parent:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     end)
     table.insert(Core.graphLabels, fs)
     return fs

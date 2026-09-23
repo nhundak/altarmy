@@ -338,7 +338,7 @@ local debugSearchRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
 })
 panel.debugSearchCheckbox = debugSearchRow.check
 
-local debugSearchHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
+local debugSearchHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 debugSearchHint:SetPoint("TOPLEFT", debugSearchRow, "BOTTOMLEFT", 0, -8)
 debugSearchHint:SetWidth(520)
 debugSearchHint:SetJustifyH("LEFT")
@@ -362,7 +362,7 @@ local debugCooldownsRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
 })
 panel.debugCooldownsCheckbox = debugCooldownsRow.check
 
-local debugCooldownsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
+local debugCooldownsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 debugCooldownsHint:SetPoint("TOPLEFT", debugCooldownsRow, "BOTTOMLEFT", 0, -8)
 debugCooldownsHint:SetWidth(520)
 debugCooldownsHint:SetJustifyH("LEFT")
@@ -415,7 +415,7 @@ debugDeleteAllHistoryBtn:SetScript("OnClick", function(self)
     end
 end)
 
-local debugLevelHistoryHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
+local debugLevelHistoryHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 debugLevelHistoryHint:SetPoint("TOPLEFT", debugDeleteAllHistoryBtn, "BOTTOMLEFT", 0, -12)
 debugLevelHistoryHint:SetWidth(520)
 debugLevelHistoryHint:SetJustifyH("LEFT")
@@ -437,7 +437,7 @@ local debugItemComparisonRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
 })
 panel.debugItemComparisonCheckbox = debugItemComparisonRow.check
 
-local debugItemComparisonHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
+local debugItemComparisonHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 debugItemComparisonHint:SetPoint("TOPLEFT", debugItemComparisonRow, "BOTTOMLEFT", 0, -8)
 debugItemComparisonHint:SetWidth(520)
 debugItemComparisonHint:SetJustifyH("LEFT")
@@ -460,7 +460,7 @@ local debugItemStatsRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
 })
 panel.debugItemStatsCheckbox = debugItemStatsRow.check
 
-local debugItemStatsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
+local debugItemStatsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 debugItemStatsHint:SetPoint("TOPLEFT", debugItemStatsRow, "BOTTOMLEFT", 0, -8)
 debugItemStatsHint:SetWidth(520)
 debugItemStatsHint:SetJustifyH("LEFT")
@@ -483,7 +483,7 @@ local debugGuildShareVerboseRow = Theme.CreateLabeledCheckbox(debugScrollChild, 
 })
 panel.debugGuildShareVerboseCheckbox = debugGuildShareVerboseRow.check
 
-local debugGuildShareVerboseHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
+local debugGuildShareVerboseHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 debugGuildShareVerboseHint:SetPoint("TOPLEFT", debugGuildShareVerboseRow, "BOTTOMLEFT", 0, -8)
 debugGuildShareVerboseHint:SetWidth(520)
 debugGuildShareVerboseHint:SetJustifyH("LEFT")
@@ -524,7 +524,7 @@ debugClearManualGroupsBtn:SetScript("OnClick", function(self)
     end
 end)
 
-local debugClearManualGroupsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
+local debugClearManualGroupsHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 debugClearManualGroupsHint:SetPoint("TOPLEFT", debugClearManualGroupsBtn, "BOTTOMLEFT", 0, -12)
 debugClearManualGroupsHint:SetWidth(520)
 debugClearManualGroupsHint:SetJustifyH("LEFT")
@@ -550,7 +550,7 @@ local debugPretendCraftLibRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
 })
 panel.debugPretendCraftLibCheckbox = debugPretendCraftLibRow.check
 
-local debugPretendCraftLibHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
+local debugPretendCraftLibHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 debugPretendCraftLibHint:SetPoint("TOPLEFT", debugPretendCraftLibRow, "BOTTOMLEFT", 0, -8)
 debugPretendCraftLibHint:SetWidth(520)
 debugPretendCraftLibHint:SetJustifyH("LEFT")
@@ -577,7 +577,7 @@ local debugShowZygorMissingRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
 })
 panel.debugShowZygorMissingCheckbox = debugShowZygorMissingRow.check
 
-local debugShowZygorMissingHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.fineprint)
+local debugShowZygorMissingHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
 debugShowZygorMissingHint:SetPoint("TOPLEFT", debugShowZygorMissingRow, "BOTTOMLEFT", 0, -8)
 debugShowZygorMissingHint:SetWidth(520)
 debugShowZygorMissingHint:SetJustifyH("LEFT")
@@ -1020,8 +1020,11 @@ local guildMainDropdown = Theme.CreateSingleSelectDropdown({
         local oldMain = GSS and GSS.GetMain and GSS.GetMain() or nil
         local oldDisplay = GSS and GSS.GetDisplayName and GSS.GetDisplayName() or nil
         if GSS and GSS.SetMain then GSS.SetMain(nil, id) end
+        local DS = AltArmy.DataStore
+        local realm = GSS and GSS._CurrentRealm and GSS._CurrentRealm() or ""
+        local realmChars = DS and DS.GetCharacters and DS:GetCharacters(realm) or nil
         local syncDisplay = not GSS or not GSS.ShouldSyncDisplayNameWithMain
-            or GSS.ShouldSyncDisplayNameWithMain(oldMain, oldDisplay)
+            or GSS.ShouldSyncDisplayNameWithMain(oldMain, oldDisplay, realmChars)
         if id and syncDisplay then
             local firstName = (GSS and GSS.FirstName and GSS.FirstName(id)) or id
             if guildDisplayEdit and Theme.SetEditBoxText then

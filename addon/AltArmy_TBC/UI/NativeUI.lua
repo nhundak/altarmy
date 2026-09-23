@@ -70,6 +70,9 @@ function NativeUI.DetectCaps()
             and hasField(_G.ScrollUtil, "InitScrollFrameWithScrollBar"),
         wowStyleDropdown = has("WowStyle1DropdownTemplate", "DropdownButton")
             and _G.MenuUtil ~= nil,
+        -- Professions-style "Filter" button (checkbox menu + dividers).
+        filterDropdown = has("WowStyle1FilterDropdownTemplate", "DropdownButton")
+            and _G.MenuUtil ~= nil,
         searchBox = has("SearchBoxTemplate", "EditBox"),
         inputBox = has("InputBoxTemplate", "EditBox"),
         checkButton = has("UICheckButtonTemplate", "CheckButton"),

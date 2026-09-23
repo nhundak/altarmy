@@ -14,7 +14,7 @@ local UI = {
     PAD = 4,
     SECTION_INSET = Theme.TAB_SECTION_INSET,
     SECTION_GAP = Theme.SECTION_GAP,
-    ROW_HEIGHT = 18,
+    ROW_HEIGHT = 20,
     -- Right-side (Total column) icon size; match left-side row icon (WoW :0 default ~14)
     OVERLAY_ICON_SIZE = 14,
     HEADER_HEIGHT = 18,
@@ -147,10 +147,10 @@ local recipeColOrder = SearchColumns and SearchColumns.RECIPE_COLUMN_ORDER
 local colWidths = {}
 local recipeColWidths = {}
 
-local function SyncSearchColumnWidths(settingsOpen)
-    local item = SearchColumns and SearchColumns.GetItemColumnWidths(settingsOpen)
+local function SyncSearchColumnWidths(settingsOpen, fitWidth)
+    local item = SearchColumns and SearchColumns.GetItemColumnWidths(settingsOpen, fitWidth)
         or { Item = 344, Character = 180, Total = 72 }
-    local recipe = SearchColumns and SearchColumns.GetRecipeColumnWidths(settingsOpen)
+    local recipe = SearchColumns and SearchColumns.GetRecipeColumnWidths(settingsOpen, fitWidth)
         or { Recipe = 344, Character = 180, Skill = 72 }
     for k, v in pairs(item) do
         colWidths[k] = v
@@ -456,7 +456,7 @@ local function createSearchHeaderButton(headerRow, sectionId, colName, justifyLe
     btn:SetHeight(UI.HEADER_HEIGHT)
     btn:EnableMouse(true)
     btn:RegisterForClicks("LeftButtonUp")
-    local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.gridHeader)
+    local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
     label:SetPoint("LEFT", btn, "LEFT", 0, 0)
     label:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
     label:SetJustifyH(justifyLeft and "LEFT" or "RIGHT")
@@ -685,7 +685,7 @@ local function GetNoSearchResultsHintText(categories)
     local items = categories.Items and true or false
     local recipes = categories.Recipes and true or false
     if not items and not recipes then
-        return "Choose Items and/or Recipes above"
+        return "Choose Items and/or Recipes\nin the Filter menu"
     end
     if items and recipes then
         return HINT_NO_SEARCH_RESULTS_BOTH
@@ -1562,6 +1562,12 @@ UpdateResults = function()
     -- Horizontal scroll: list viewport may be narrower than totalColWidth
     if listViewport and horizontalScroll and horizontalScrollChild and horizontalScrollBar then
         local vw = listViewport:GetWidth()
+        local settingsOpen = frame.IsSearchSettingsShown and frame:IsSearchSettingsShown()
+        -- Settings closed: columns fill the viewport (re-fit when its width changes).
+        if vw and vw > 0 and not settingsOpen and UI.fitWidth ~= math.floor(vw) and UI.ApplyColumnLayout then
+            UI.fitWidth = math.floor(vw)
+            UI.ApplyColumnLayout()
+        end
         if vw and vw > 0 then
             horizontalScrollChild:SetWidth(totalColWidth)
             local vh = listViewport:GetHeight()
@@ -1569,7 +1575,8 @@ UpdateResults = function()
                 vh = scrollFrame:GetHeight()
             end
             horizontalScrollChild:SetHeight(vh)
-            local maxHorzScroll = math.max(0, totalColWidth - vw)
+            -- Horizontal scroll only while the settings panel narrows the list.
+            local maxHorzScroll = settingsOpen and math.max(0, totalColWidth - vw) or 0
             horizontalScrollApi:SetRange(0, maxHorzScroll)
             horizontalScrollBar:SetShown(maxHorzScroll > 0)
             local hVal = horizontalScrollBar:GetValue()
@@ -1763,8 +1770,9 @@ end
 
 local function ApplySearchColumnLayout()
     local settingsOpen = settingsPanel and settingsPanel:IsShown()
-    SyncSearchColumnWidths(settingsOpen)
-    totalColWidth = SearchColumns and SearchColumns.GetResultsTableWidth(settingsOpen)
+    local fitWidth = not settingsOpen and UI.fitWidth or nil
+    SyncSearchColumnWidths(settingsOpen, fitWidth)
+    totalColWidth = SearchColumns and SearchColumns.GetResultsTableWidth(settingsOpen, fitWidth)
         or math.max(getTotalColWidth(), getRecipeColWidth())
     if resultsArea then
         resultsArea:SetWidth(totalColWidth)
@@ -1783,6 +1791,8 @@ local function ApplySearchColumnLayout()
         RelayoutSearchResultRow(row, colOrder, colWidths)
     end
 end
+
+UI.ApplyColumnLayout = ApplySearchColumnLayout
 
 local searchLayoutUpdateFrame = CreateFrame("Frame")
 local searchDeferredUpdatePending = false
@@ -1816,6 +1826,9 @@ function frame:ToggleSearchSettings(_self)
     RefreshSearchListAfterLayout()
     if AltArmy and AltArmy.UpdateSearchSettingsButtonGlow then
         AltArmy.UpdateSearchSettingsButtonGlow()
+    end
+    if not showSettings and AltArmy and AltArmy.OnSearchSettingsClosed then
+        AltArmy.OnSearchSettingsClosed()
     end
 end
 
