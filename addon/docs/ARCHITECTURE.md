@@ -16,7 +16,7 @@ It is **not** an external DataStore consumer. Persistence lives inside the addon
 
 | Path | Role |
 |------|------|
-| `AltArmy_TBC/Core.lua` | Main frame, tab strip, Search mode overlay |
+| `AltArmy_TBC/Core.lua` | Main frame shell, toolbar, side tabs wiring, Search mode overlay |
 | `AltArmy_TBC/Tabs/` | Per-tab UI |
 | `AltArmy_TBC/UI/` | Theme, minimap, options, shared widgets, onboarding dialogs |
 | `AltArmy_TBC/Data/` | DataStore, aggregation, search, guild share, gear/cooldown logic |
@@ -26,11 +26,20 @@ Visual language: [`UI/Theme.lua`](../AltArmy_TBC/UI/Theme.lua) — see [UI_DESIG
 
 ## Main window
 
-- Movable frame; registered for Escape close.
+- Native Blizzard window: `PortraitFrameTemplate`, 640 × 484 (the height of Forever's CharacterFrame). It has a close button, and it can be dragged by the title bar and closed with Escape.
+- The portrait circle and title (`Alt Army - <Tab>`) follow the active tab.
 - Open with `/altarmy` or `/alta`, or the minimap button.
-- Header search box switches the window into **Search mode** (not a top-level tab button).
+- **Toolbar row** under the title bar: the global search box (`SearchBoxTemplate`) and the active tab's settings button. In Search mode it also shows the Items / Recipes / Guildmate recipes checkboxes.
+- Typing in the search box switches the window into **Search mode**, which has no side tab of its own.
+- Template availability per client is detected in `UI/NativeUI.lua`, so missing templates fall back to the themed look.
 
-### Tab strip
+### Side tabs
+
+The tabs are icon flyouts on the right edge (`UI/SideTabs.lua`), anchored like CharacterFrame's mode tabs. Hovering one shows its name.
+- Forever: `LargeSideTabButtonTemplate`.
+- TBC Anniversary: classic spellbook skill-line tabs.
+
+The order, icons, titles, and each tab's settings button action live in `UI/MainTabs.lua`.
 
 | Tab | Notes |
 |-----|--------|

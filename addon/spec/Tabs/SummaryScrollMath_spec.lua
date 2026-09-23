@@ -5,7 +5,7 @@
 
 describe("Summary tab virtual list scroll math", function()
     local ROW_HEIGHT = 18
-    local ROW_POOL_SIZE = 20
+    local ROW_POOL_SIZE = 30
     local HORIZONTAL_SCROLL_BAR_HEIGHT = 20
 
     --- Mirrors TabSummary GetVisibleRowCount().

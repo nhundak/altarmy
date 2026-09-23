@@ -1,6 +1,6 @@
 # Search tab
 
-Header Search mode: find items and recipes across characters (and optionally guildmates).
+Toolbar Search mode: find items and recipes across characters (and optionally guildmates).
 
 ## Purpose
 
@@ -8,8 +8,9 @@ Locate items in bags, bank, and mail snapshots; find known recipes; filter by Cr
 
 ## Access
 
-- Header search box on the main window always available; typing switches into Search mode.
-- Not a top-level tab strip button.
+- The toolbar search box on the main window is always available; typing switches into Search mode.
+- There is no side tab for Search. In Search mode no side tab is selected, and clicking any side tab clears the query and leaves Search.
+- The Items / Recipes / Guildmate recipes checkboxes sit on the left of the toolbar while searching. The toolbar settings button opens Search settings and is highlighted while recipe filters are active ("Filters Active").
 
 ## Results
 

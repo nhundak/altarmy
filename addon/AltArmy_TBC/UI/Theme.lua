@@ -788,6 +788,35 @@ function Theme.ApplySearchInputIcon(editBox, options)
     return leftInset
 end
 
+--- Search EditBox: native SearchBoxTemplate (magnifier, clear button, Instructions placeholder)
+--- when the client has it, else the custom icon + placeholder + input textures.
+--- opts: name, width, height (default 20), placeholder. Returns editBox, isNative.
+--- Callers should HookScript (not SetScript) so the template's own handlers keep running.
+function Theme.CreateSearchBox(parent, opts)
+    opts = opts or {}
+    local NativeUI = AltArmy.NativeUI
+    local native = NativeUI and NativeUI.GetCaps and NativeUI.GetCaps().searchBox or false
+    local height = opts.height or 20
+    local box
+    if native then
+        box = CreateFrame("EditBox", opts.name, parent, "SearchBoxTemplate")
+        box:SetSize(opts.width or 200, height)
+        box:SetAutoFocus(false)
+        if box.Instructions then
+            box.Instructions:SetText(opts.placeholder or "")
+        end
+        return box, true
+    end
+    box = CreateFrame("EditBox", opts.name, parent)
+    box:SetSize(opts.width or 200, height)
+    box:SetAutoFocus(false)
+    box:SetFontObject("GameFontHighlight")
+    local leftInset = Theme.ApplySearchInputIcon(box)
+    Theme.SetupEditBoxPlaceholder(box, opts.placeholder or "", { leftInset = leftInset })
+    Theme.ApplyInputTextures(box)
+    return box, false
+end
+
 local PLACEHOLDER_HINT_KEY = "altArmyPlaceholderHint"
 
 local function trimmedEditBoxText(editBox)

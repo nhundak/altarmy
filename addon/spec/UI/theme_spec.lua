@@ -1204,6 +1204,52 @@ describe("AltArmy.Theme", function()
         end)
     end)
 
+    describe("CreateSearchBox", function()
+        local savedCreateFrame, savedNativeUI, lastTemplate
+
+        before_each(function()
+            savedCreateFrame, savedNativeUI = _G.CreateFrame, AltArmy.NativeUI
+            lastTemplate = nil
+            _G.CreateFrame = function(_, _, _, template)
+                lastTemplate = template
+                local f = makeStubFrame()
+                f.SetAutoFocus = function() end
+                f.SetTextInsets = function(self, ...) self._textInsets = { ... } end
+                if template == "SearchBoxTemplate" then
+                    f.Instructions = f:CreateFontString(nil, "ARTWORK")
+                end
+                return f
+            end
+        end)
+
+        after_each(function()
+            _G.CreateFrame, AltArmy.NativeUI = savedCreateFrame, savedNativeUI
+        end)
+
+        it("uses SearchBoxTemplate and its Instructions placeholder when available", function()
+            AltArmy.NativeUI = { GetCaps = function() return { searchBox = true } end }
+            local box, isNative = Theme.CreateSearchBox(makeStubFrame(), {
+                width = 180, placeholder = "Search for items",
+            })
+            assert.is_true(isNative)
+            assert.are.equal("SearchBoxTemplate", lastTemplate)
+            assert.are.equal("Search for items", box.Instructions._text)
+            assert.are.equal(180, box._width)
+            assert.is_nil(box.altArmySearchIcon)
+        end)
+
+        it("falls back to the custom icon + placeholder box", function()
+            AltArmy.NativeUI = { GetCaps = function() return { searchBox = false } end }
+            local box, isNative = Theme.CreateSearchBox(makeStubFrame(), {
+                width = 200, placeholder = "Find",
+            })
+            assert.is_false(isNative)
+            assert.is_nil(lastTemplate)
+            assert.is_not_nil(box.altArmySearchIcon)
+            assert.are.equal(200, box._width)
+        end)
+    end)
+
     describe("CreateOptionsSectionLabel", function()
         it("uses GameFontNormal without custom title color", function()
             local parent = makeStubFrame()

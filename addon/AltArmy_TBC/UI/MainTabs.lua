@@ -1,0 +1,78 @@
+-- AltArmy TBC — Main window tab registry: order, labels, portrait/side-tab icons, settings routing.
+-- Pure data; Core.lua builds the side tabs, title, portrait and toolbar settings button from it.
+
+AltArmy = AltArmy or {}
+AltArmy.MainTabs = AltArmy.MainTabs or {}
+
+local MainTabs = AltArmy.MainTabs
+
+local ADDON_TITLE = "Alt Army"
+local ICON_PREFIX = "Interface\\Icons\\"
+
+-- "Guild" stays last so hiding it (no guilded characters) never leaves a gap in the stack.
+MainTabs.ORDER = { "Summary", "Gear", "Reputation", "Cooldowns", "Graph", "Guild" }
+
+-- settings.toggle / settings.isShown: method names on AltArmy.TabFrames[name].
+-- settings.optionsKey: opens Interface Options on that AltArmy section instead.
+local DEFS = {
+    Summary = {
+        label = "Summary",
+        icon = "INV_Misc_Book_09",
+        settings = { toggle = "ToggleSummarySettings", isShown = "IsSummarySettingsShown" },
+    },
+    Gear = {
+        label = "Gear",
+        icon = "INV_Chest_Plate01",
+        settings = { toggle = "ToggleGearSettings", isShown = "IsGearSettingsShown" },
+    },
+    Reputation = {
+        label = "Reputation",
+        icon = "INV_Scroll_03",
+        settings = { toggle = "ToggleReputationSettings", isShown = "IsReputationSettingsShown" },
+    },
+    Cooldowns = {
+        label = "Cooldowns",
+        icon = "INV_Misc_PocketWatch_01",
+        settings = { optionsKey = "cooldowns" },
+    },
+    Graph = {
+        label = "Graphs",
+        icon = "INV_Misc_Note_01",
+    },
+    Guild = {
+        label = "Guild",
+        icon = "INV_Shirt_GuildTabard_01",
+    },
+    -- Header search results; no side tab.
+    Search = {
+        label = "Search",
+        icon = "INV_Misc_Spyglass_02",
+        settings = { toggle = "ToggleSearchSettings", isShown = "IsSearchSettingsShown" },
+    },
+}
+
+for name, def in pairs(DEFS) do
+    def.name = name
+    def.icon = ICON_PREFIX .. def.icon
+end
+
+function MainTabs.Get(name)
+    if name == nil then return nil end
+    return DEFS[name]
+end
+
+--- Side-tab definitions in display order (excludes Search).
+function MainTabs.List()
+    local list = {}
+    for i, name in ipairs(MainTabs.ORDER) do
+        list[i] = DEFS[name]
+    end
+    return list
+end
+
+--- Window title for a tab, e.g. "Alt Army - Reputation".
+function MainTabs.Title(name)
+    local def = DEFS[name]
+    if not def then return ADDON_TITLE end
+    return ADDON_TITLE .. " - " .. def.label
+end

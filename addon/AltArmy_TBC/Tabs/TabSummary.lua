@@ -4,7 +4,7 @@ local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Summary
 if not frame then return end
 
 local ROW_HEIGHT = 18
-local ROW_POOL_SIZE = 20 -- row widget pool; visible count follows scrollFrame height
+local ROW_POOL_SIZE = 30 -- row widget pool (covers the 484px-tall window); visible count follows scrollFrame height
 
 local function GetVisibleRowCount(viewportH)
     if not viewportH or viewportH <= 0 then

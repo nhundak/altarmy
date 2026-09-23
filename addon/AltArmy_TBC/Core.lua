@@ -14,12 +14,21 @@ AltArmy.CurrentTab = "Summary"
 AltArmyTBC_Options = AltArmyTBC_Options or {}
 
 local Theme = AltArmy.Theme
+local MainTabs = AltArmy.MainTabs
 
+-- Height matches Forever's native CharacterFrame (CHARACTER_FRAME_HEIGHT = 484).
 local FRAME_WIDTH = 640
-local FRAME_HEIGHT = 420
-local TAB_HEIGHT = 22
+local FRAME_HEIGHT = 484
+local TAB_HEIGHT = 22 -- toolbar control height (checkbox rows, settings button)
 local CONTENT_INSET = 8
-local HEADER_TOTAL_OFFSET = 40  -- CONTENT_INSET + header section + gap before tab strip
+-- Toolbar row sits under the title bar, right of the portrait circle; content starts below it.
+local LAYOUT = {
+    toolbarLeft = 62,
+    toolbarTop = -28,
+    toolbarHeight = 24,
+    contentTop = -60,
+    searchWidth = 180,
+}
 
 local setActiveTab -- forward-declare so header search scripts can call it
 local exitSearchMode -- forward-declare; OpenGearTabFocused uses it when frame already visible
@@ -33,8 +42,11 @@ local lastTab = "Summary"
 local pendingOpenTab = nil
 local pendingGearFocusLink = nil
 
--- Create main frame
-local main = CreateFrame("Frame", "AltArmyTBC_MainFrame", UIParent)
+-- Create main frame: native portrait frame (rock background, NineSlice border, close button,
+-- portrait circle, title bar). Falls back to the themed backdrop if the template is missing.
+local nativeShell = AltArmy.NativeUI and AltArmy.NativeUI.GetCaps().portraitFrame
+local main = CreateFrame("Frame", "AltArmyTBC_MainFrame", UIParent,
+    nativeShell and "PortraitFrameTemplate" or "BackdropTemplate")
 main:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
 main:SetPoint("CENTER", 0, 0)
 main:SetFrameStrata("DIALOG")
@@ -50,7 +62,9 @@ main:HookScript("OnShow", function(f)
         f:Raise()
     end
 end)
-Theme.ApplyBackdrop(main, "window")
+if not nativeShell then
+    Theme.ApplyBackdrop(main, "window")
+end
 main:Hide()
 
 AltArmy.MainFrame = main
@@ -59,63 +73,86 @@ AltArmy.MainFrame = main
 UISpecialFrames = UISpecialFrames or {}
 tinsert(UISpecialFrames, "AltArmyTBC_MainFrame")
 
--- Header section (title, search, close) — same nearly-opaque card + bronze border as tab panels
-local HEADER_SECTION_GAP = 4
-local HEADER_PANEL_HEIGHT = HEADER_TOTAL_OFFSET - CONTENT_INSET - HEADER_SECTION_GAP
-local headerPanel = CreateFrame("Frame", nil, main, "BackdropTemplate")
-headerPanel:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
-headerPanel:SetPoint("TOPRIGHT", main, "TOPRIGHT", -CONTENT_INSET, -CONTENT_INSET)
-headerPanel:SetHeight(HEADER_PANEL_HEIGHT)
-headerPanel:EnableMouse(true)
-headerPanel:RegisterForDrag("LeftButton")
-headerPanel:SetScript("OnDragStart", function()
+-- Drag by the title bar (template TitleContainer, or a top strip on the fallback shell).
+local dragRegion = main.TitleContainer
+if not dragRegion then
+    dragRegion = CreateFrame("Frame", nil, main)
+    dragRegion:SetPoint("TOPLEFT", main, "TOPLEFT", 0, 0)
+    dragRegion:SetPoint("TOPRIGHT", main, "TOPRIGHT", -24, 0)
+    dragRegion:SetHeight(24)
+end
+dragRegion:EnableMouse(true)
+dragRegion:RegisterForDrag("LeftButton")
+dragRegion:SetScript("OnDragStart", function()
     main:StartMoving()
 end)
-headerPanel:SetScript("OnDragStop", function()
+dragRegion:SetScript("OnDragStop", function()
     main:StopMovingOrSizing()
 end)
-Theme.ApplyBackdrop(headerPanel, "section")
 
--- Title (vertically centered in header)
-local title = headerPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-title:SetPoint("LEFT", headerPanel, "LEFT", Theme.TAB_CONTENT_PADDING, 0)
-title:SetText(ADDON_NAME)
-Theme.SetTitleColor(title)
+-- Title bar text + portrait icon follow the active tab (see applyWindowChrome).
+local fallbackTitle
+if not main.SetTitle then
+    fallbackTitle = main:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    fallbackTitle:SetPoint("TOP", main, "TOP", 0, -8)
+end
+local function applyWindowChrome(tabName)
+    local def = MainTabs.Get(tabName)
+    local text = MainTabs.Title(tabName)
+    if main.SetTitle then
+        main:SetTitle(text)
+    elseif fallbackTitle then
+        fallbackTitle:SetText(text)
+    end
+    if def and main.SetPortraitToAsset then
+        main:SetPortraitToAsset(def.icon)
+    end
+end
 
--- Close button (vertically centered like title)
-local closeBtn = CreateFrame("Button", nil, headerPanel, "UIPanelCloseButton")
-closeBtn:SetPoint("RIGHT", headerPanel, "RIGHT", 2, 0)
+local closeBtn = main.CloseButton
+if not closeBtn then
+    closeBtn = CreateFrame("Button", nil, main, "UIPanelCloseButton")
+    closeBtn:SetPoint("TOPRIGHT", main, "TOPRIGHT", -2, -2)
+end
 _G.AltArmyTBC_HeaderCloseButton = closeBtn
 closeBtn:SetScript("OnClick", function()
     main:Hide()
 end)
 
--- Header search: EditBox to the left of close button (vertically centered in header)
-local headerSearchEdit = CreateFrame("EditBox", "AltArmyTBC_HeaderSearchEdit", headerPanel)
-headerSearchEdit:SetPoint("RIGHT", closeBtn, "LEFT", 2, 0)
-headerSearchEdit:SetSize(288, 20)
-headerSearchEdit:SetAutoFocus(false)
-headerSearchEdit:SetFontObject("GameFontHighlight")
-local headerSearchLeftInset = Theme.ApplySearchInputIcon(headerSearchEdit)
-Theme.SetupEditBoxPlaceholder(headerSearchEdit, "Search for items or recipes", {
-    leftInset = headerSearchLeftInset,
+-- Toolbar row: search-mode category checkboxes (left), settings button + global search (right).
+local toolbar = CreateFrame("Frame", nil, main)
+toolbar:SetPoint("TOPLEFT", main, "TOPLEFT", LAYOUT.toolbarLeft, LAYOUT.toolbarTop)
+toolbar:SetPoint("TOPRIGHT", main, "TOPRIGHT", -CONTENT_INSET, LAYOUT.toolbarTop)
+toolbar:SetHeight(LAYOUT.toolbarHeight)
+
+local headerSearchEdit, nativeSearchBox = Theme.CreateSearchBox(toolbar, {
+    name = "AltArmyTBC_HeaderSearchEdit",
+    width = LAYOUT.searchWidth,
+    placeholder = "Search for items or recipes",
 })
 
--- Clear (X) button at start of input; only visible when there is text
-local headerSearchClearBtn = CreateFrame("Button", nil, headerPanel)
-headerSearchClearBtn:SetPoint("RIGHT", headerSearchEdit, "LEFT", -2, 0)
-headerSearchClearBtn:SetSize(18, 18)
-headerSearchClearBtn:SetScript("OnClick", function()
-    Theme.ClearEditBoxText(headerSearchEdit)
-end)
-headerSearchClearBtn:Hide()
-local clearBtnLabel = headerSearchClearBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-clearBtnLabel:SetPoint("CENTER", headerSearchClearBtn, "CENTER", 0, 0)
-clearBtnLabel:SetText("X")
-headerSearchClearBtn:SetHighlightFontObject("GameFontNormal")
+-- Fallback shell only: clear (X) button left of the input; SearchBoxTemplate has its own.
+local headerSearchClearBtn
+if not nativeSearchBox then
+    headerSearchClearBtn = CreateFrame("Button", nil, toolbar)
+    headerSearchClearBtn:SetPoint("RIGHT", headerSearchEdit, "LEFT", -2, 0)
+    headerSearchClearBtn:SetSize(18, 18)
+    headerSearchClearBtn:SetScript("OnClick", function()
+        Theme.ClearEditBoxText(headerSearchEdit)
+    end)
+    headerSearchClearBtn:Hide()
+    local clearBtnLabel = headerSearchClearBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    clearBtnLabel:SetPoint("CENTER", headerSearchClearBtn, "CENTER", 0, 0)
+    clearBtnLabel:SetText("X")
+    headerSearchClearBtn:SetHighlightFontObject("GameFontNormal")
+end
+local function setHeaderClearShown(on)
+    if headerSearchClearBtn then
+        headerSearchClearBtn:SetShown(on)
+    end
+end
 
-Theme.ApplyInputTextures(headerSearchEdit)
-headerSearchEdit:SetScript("OnEnterPressed", function(box)
+headerSearchEdit:HookScript("OnEnterPressed", function(box)
     box:ClearFocus()
     local query = box:GetText()
     local trimmed = query and query:match("^%s*(.-)%s*$") or ""
@@ -123,7 +160,7 @@ headerSearchEdit:SetScript("OnEnterPressed", function(box)
         enterSearchMode(trimmed)
     end
 end)
-headerSearchEdit:SetScript("OnEscapePressed", function(box)
+headerSearchEdit:HookScript("OnEscapePressed", function(box)
     box:ClearFocus()
 end)
 -- OnTextChanged registered below after enterSearchMode/exitSearchMode are defined
@@ -200,99 +237,143 @@ function AltArmy.ShowMainTab(tabName)
     AltArmy.MainFrame:Show()
 end
 
--- Tab button strip (below header; leave clear space so tabs don't overlap header)
-local tabStrip = CreateFrame("Frame", nil, main)
-tabStrip:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -HEADER_TOTAL_OFFSET)
-tabStrip:SetPoint("TOPRIGHT", main, "TOPRIGHT", -CONTENT_INSET, -HEADER_TOTAL_OFFSET)
-tabStrip:SetHeight(TAB_HEIGHT)
+-- Toolbar settings button: one button for every tab, routed through MainTabs[tab].settings.
+local settingsBtn = CreateFrame("Button", nil, toolbar)
+settingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
+settingsBtn:SetPoint("RIGHT", toolbar, "RIGHT", 0, 0)
+do
+    local icon = settingsBtn:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints(settingsBtn)
+    icon:SetTexture("Interface\\Icons\\Trade_Engineering")
+    local highlight = settingsBtn:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints(settingsBtn)
+    highlight:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+    highlight:SetBlendMode("ADD")
+    settingsBtn:SetHighlightTexture(highlight)
+    -- Same checked overlay as spellbook/side tabs marks "settings open" / "filters active".
+    local active = settingsBtn:CreateTexture(nil, "OVERLAY")
+    active:SetAllPoints(settingsBtn)
+    active:SetTexture("Interface\\Buttons\\CheckButtonHilight")
+    active:SetBlendMode("ADD")
+    active:Hide()
+    settingsBtn.activeOverlay = active
+end
+settingsBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:SetText("Settings")
+end)
+settingsBtn:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+end)
+
+local function isRecipeFilterActive()
+    local SS = AltArmy.SearchSettings
+    return SS and SS.IsAnyRecipeFilterActive and SS.IsAnyRecipeFilterActive() or false
+end
+
+--- Settings entry + tab key for whatever the window currently shows (Search while searching).
+local function activeSettings()
+    local key = searchModeHandlers.inSearchMode and "Search" or AltArmy.CurrentTab
+    local def = MainTabs.Get(key)
+    return def and def.settings, key
+end
+
+local function isSettingsActive()
+    local settings, key = activeSettings()
+    if not settings then return false end
+    if key == "Search" and isRecipeFilterActive() then return true end
+    local frame = AltArmy.TabFrames[key]
+    local isShown = settings.isShown and frame and frame[settings.isShown]
+    return isShown and isShown(frame) and true or false
+end
+
+--- Right side of the toolbar: [Filters Active] [search] [settings]; search slides right when
+--- the active tab has no settings.
+local function layoutToolbarRight()
+    headerSearchEdit:ClearAllPoints()
+    if settingsBtn:IsShown() then
+        headerSearchEdit:SetPoint("RIGHT", settingsBtn, "LEFT", -6, 0)
+    else
+        headerSearchEdit:SetPoint("RIGHT", toolbar, "RIGHT", 0, 0)
+    end
+    local label = searchModeHandlers.searchFiltersActiveLabel
+    if label then
+        label:ClearAllPoints()
+        label:SetPoint("RIGHT", headerSearchEdit, "LEFT", headerSearchClearBtn and -24 or -8, 0)
+    end
+end
+
+UpdateSettingsButtonGlow = function()
+    local settings = activeSettings()
+    settingsBtn:SetShown(settings ~= nil)
+    settingsBtn.activeOverlay:SetShown(settings ~= nil and isSettingsActive())
+    local label = searchModeHandlers.searchFiltersActiveLabel
+    if label then
+        label:SetShown(searchModeHandlers.inSearchMode and isRecipeFilterActive() or false)
+    end
+    layoutToolbarRight()
+end
+
+AltArmy.UpdateSearchSettingsButtonGlow = UpdateSettingsButtonGlow
+
+settingsBtn:SetScript("OnClick", function()
+    local settings, key = activeSettings()
+    if not settings then return end
+    if settings.optionsKey then
+        if AltArmy.OpenInterfaceOptions then
+            AltArmy.OpenInterfaceOptions(settings.optionsKey)
+        end
+    else
+        local frame = AltArmy.TabFrames[key]
+        local toggle = frame and frame[settings.toggle]
+        if toggle then
+            toggle(frame)
+        end
+    end
+    UpdateSettingsButtonGlow()
+end)
+
+-- Side tabs (right edge, CharacterFrame style); forward-declared so setActiveTab can use them.
+local sideTabs
 
 setActiveTab = function(tabName)
     AltArmy.CurrentTab = tabName
     for name, frame in pairs(AltArmy.TabFrames) do
         frame:SetShown(name == tabName)
     end
-    -- Update tab button highlights: background and label color by selected state
-    for _, btn in pairs(tabStrip.buttons or {}) do
-        local isSelected = (btn.tabName == tabName)
-        btn:SetEnabled(true)
-        if btn.SetSelected then btn:SetSelected(isSelected) end
+    if sideTabs then
+        sideTabs:SetSelected(tabName)
     end
-    -- Gear tab settings button: only visible when Gear tab is active and tab strip is shown
-    if tabStrip.gearSettingsBtn then
-        if tabName == "Gear" and tabStrip:IsShown() then
-            tabStrip.gearSettingsBtn:Show()
-        else
-            tabStrip.gearSettingsBtn:Hide()
-        end
-    end
-    -- Summary tab settings button: only visible when Summary tab is active and tab strip is shown
-    if tabStrip.summarySettingsBtn then
-        if tabName == "Summary" and tabStrip:IsShown() then
-            tabStrip.summarySettingsBtn:Show()
-        else
-            tabStrip.summarySettingsBtn:Hide()
-        end
-    end
-    if tabStrip.reputationSettingsBtn then
-        if tabName == "Reputation" and tabStrip:IsShown() then
-            tabStrip.reputationSettingsBtn:Show()
-        else
-            tabStrip.reputationSettingsBtn:Hide()
-        end
-    end
-    if tabStrip.cooldownSettingsBtn then
-        if tabName == "Cooldowns" and tabStrip:IsShown() then
-            tabStrip.cooldownSettingsBtn:Show()
-        else
-            tabStrip.cooldownSettingsBtn:Hide()
-        end
-    end
-    if searchModeHandlers.searchSettingsBtn then
-        searchModeHandlers.searchSettingsBtn:Hide()
-    end
+    applyWindowChrome(tabName)
     UpdateSettingsButtonGlow()
 end
 
-local TAB_BTN_MIN_WIDTH = 72
--- "Guild" is always created but its button is only shown when the guildShare feature flag is on
--- and at least one character on the current realm is in a guild (see updateGuildTabVisibility).
--- It is kept last so hiding it never leaves a gap in the strip.
-local tabNames = { "Summary", "Gear", "Reputation", "Cooldowns", "Graph", "Guild" }
-tabStrip.buttons = {}
-local prevBtn = nil
-for _, tabName in ipairs(tabNames) do
-    local btn = CreateFrame("Button", nil, tabStrip)
-    btn.tabName = tabName
-    btn:SetHeight(TAB_HEIGHT)
-    btn:SetWidth(TAB_BTN_MIN_WIDTH)
-    if prevBtn then
-        btn:SetPoint("LEFT", prevBtn, "RIGHT", 4, 0)
-    else
-        btn:SetPoint("LEFT", tabStrip, "LEFT", 0, 0)
+--- Side tab click: leaves search mode (clearing the query) or switches tabs.
+local function onSideTabSelected(tabName)
+    local query = headerSearchEdit:GetText() or ""
+    if searchModeHandlers.inSearchMode or query:match("%S") then
+        lastTab = tabName
+        -- Clearing fires OnTextChanged -> exitSearchMode -> setActiveTab(lastTab).
+        headerSearchEdit:SetText("")
+        if searchModeHandlers.inSearchMode then
+            exitSearchMode()
+        end
+        return
     end
-    -- Label (plain Button has no built-in text)
-    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    label:SetPoint("CENTER", btn, "CENTER", 0, 0)
-    label:SetText(tabName == "Graph" and "Graphs" or tabName)
-    btn.label = label
-    Theme.SkinButton(btn, true)
-    btn:SetScript("OnClick", function()
-        if AltArmy.CurrentTab == tabName then return end
-        setActiveTab(tabName)
-    end)
-    prevBtn = btn
-    tabStrip.buttons[tabName] = btn
+    if AltArmy.CurrentTab == tabName then return end
+    setActiveTab(tabName)
 end
+
+sideTabs = AltArmy.SideTabs.Create(main, MainTabs.List(), { onSelect = onSideTabSelected })
+AltArmy.MainSideTabs = sideTabs
 
 -- Guild tab: only visible when the guildShare feature flag is on and the current realm has at
 -- least one guilded character. Debug.lua / DataStore load after Core, so we evaluate lazily (on
 -- frame show / when the flag or guild membership changes) rather than at load.
 local function updateGuildTabVisibility()
-    local btn = tabStrip.buttons["Guild"]
-    if not btn then return end
     local GTD = AltArmy.GuildTabData
     local on = GTD and GTD.CanShowGuildTab and GTD.CanShowGuildTab()
-    btn:SetShown(on and true or false)
+    sideTabs:SetTabShown("Guild", on and true or false)
     if not on and AltArmy.CurrentTab == "Guild" then
         setActiveTab("Summary")
     end
@@ -300,110 +381,19 @@ end
 AltArmy.UpdateGuildTabVisibility = updateGuildTabVisibility
 updateGuildTabVisibility()
 
--- Glow texture for settings buttons when their panel is active (shown behind icon)
-local function addSettingsButtonGlow(btn)
-    Theme.InstallSettingsButtonGlow(btn, "glow")
-end
-
-UpdateSettingsButtonGlow = function()
-    if tabStrip.gearSettingsBtn and tabStrip.gearSettingsBtn:IsShown() and tabStrip.gearSettingsBtn.glow then
-        local active = AltArmy.TabFrames.Gear and AltArmy.TabFrames.Gear.IsGearSettingsShown
-            and AltArmy.TabFrames.Gear:IsGearSettingsShown()
-        tabStrip.gearSettingsBtn.glow:SetShown(active)
-    end
-    if tabStrip.summarySettingsBtn and tabStrip.summarySettingsBtn:IsShown() and tabStrip.summarySettingsBtn.glow then
-        local active = AltArmy.TabFrames.Summary and AltArmy.TabFrames.Summary.IsSummarySettingsShown
-            and AltArmy.TabFrames.Summary:IsSummarySettingsShown()
-        tabStrip.summarySettingsBtn.glow:SetShown(active)
-    end
-    if tabStrip.reputationSettingsBtn and tabStrip.reputationSettingsBtn:IsShown()
-        and tabStrip.reputationSettingsBtn.glow then
-        local active = AltArmy.TabFrames.Reputation and AltArmy.TabFrames.Reputation.IsReputationSettingsShown
-            and AltArmy.TabFrames.Reputation:IsReputationSettingsShown()
-        tabStrip.reputationSettingsBtn.glow:SetShown(active)
-    end
-    if searchModeHandlers.searchSettingsBtn and searchModeHandlers.searchSettingsBtn:IsShown()
-        and searchModeHandlers.searchSettingsBtn.glow then
-        local settingsOpen = AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.IsSearchSettingsShown
-            and AltArmy.TabFrames.Search:IsSearchSettingsShown()
-        local filterActive = false
-        local SS = AltArmy.SearchSettings
-        if SS and SS.IsAnyRecipeFilterActive then
-            filterActive = SS.IsAnyRecipeFilterActive()
-        end
-        searchModeHandlers.searchSettingsBtn.glow:SetShown(settingsOpen or filterActive)
-        if searchModeHandlers.searchFiltersActiveLabel then
-            searchModeHandlers.searchFiltersActiveLabel:SetShown(filterActive)
-        end
-    elseif searchModeHandlers.searchFiltersActiveLabel then
-        searchModeHandlers.searchFiltersActiveLabel:Hide()
-    end
-end
-
-AltArmy.UpdateSearchSettingsButtonGlow = UpdateSettingsButtonGlow
-
-local function createTabSettingsButton(onClick)
-    local btn = CreateFrame("Button", nil, tabStrip)
-    btn:SetPoint("TOPRIGHT", tabStrip, "TOPRIGHT", 0, 0)
-    btn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
-    btn:Hide()
-    addSettingsButtonGlow(btn)
-    local icon = btn:CreateTexture(nil, "ARTWORK")
-    icon:SetAllPoints(btn)
-    icon:SetTexture("Interface\\Icons\\Trade_Engineering")
-    Theme.SkinSettingsIconButton(btn)
-    btn:SetScript("OnClick", onClick)
-    return btn
-end
-
--- Gear tab settings icon (top right of tab strip; visible only when Gear tab is active)
-local gearSettingsBtn = createTabSettingsButton(function()
-    if AltArmy.TabFrames.Gear and AltArmy.TabFrames.Gear.ToggleGearSettings then
-        AltArmy.TabFrames.Gear:ToggleGearSettings()
-        UpdateSettingsButtonGlow()
-    end
-end)
-tabStrip.gearSettingsBtn = gearSettingsBtn
-
--- Summary tab settings icon (same position as Gear; visible only when Summary tab is active)
-local summarySettingsBtn = createTabSettingsButton(function()
-    if AltArmy.TabFrames.Summary and AltArmy.TabFrames.Summary.ToggleSummarySettings then
-        AltArmy.TabFrames.Summary:ToggleSummarySettings()
-        UpdateSettingsButtonGlow()
-    end
-end)
-tabStrip.summarySettingsBtn = summarySettingsBtn
-
--- Reputation tab settings icon (same position; visible only when Reputation tab is active)
-local reputationSettingsBtn = createTabSettingsButton(function()
-    if AltArmy.TabFrames.Reputation and AltArmy.TabFrames.Reputation.ToggleReputationSettings then
-        AltArmy.TabFrames.Reputation:ToggleReputationSettings()
-        UpdateSettingsButtonGlow()
-    end
-end)
-tabStrip.reputationSettingsBtn = reputationSettingsBtn
-
--- Cooldowns tab settings icon — opens Interface > AddOns > AltArmy (same position as other tab gears).
-local cooldownSettingsBtn = createTabSettingsButton(function()
-    if AltArmy.OpenInterfaceOptions then
-        AltArmy.OpenInterfaceOptions("cooldowns")
-    end
-end)
-tabStrip.cooldownSettingsBtn = cooldownSettingsBtn
-
-setActiveTab("Summary")
-
--- Content area: one frame per tab
+-- Content area: one frame per tab, below the toolbar row.
 local contentArea = CreateFrame("Frame", nil, main)
-contentArea:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -HEADER_TOTAL_OFFSET - TAB_HEIGHT - 4)
+contentArea:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, LAYOUT.contentTop)
 contentArea:SetPoint("BOTTOMRIGHT", main, "BOTTOMRIGHT", -CONTENT_INSET, CONTENT_INSET)
 
-for _, tabName in ipairs(tabNames) do
+for _, tabName in ipairs(MainTabs.ORDER) do
     local cf = CreateFrame("Frame", nil, contentArea)
     cf:SetAllPoints(contentArea)
     cf:SetShown(tabName == "Summary")
     AltArmy.TabFrames[tabName] = cf
 end
+
+setActiveTab("Summary")
 
 -- Search content frame (no tab button; shown when search box has text)
 local searchFrame = CreateFrame("Frame", nil, contentArea)
@@ -413,22 +403,19 @@ AltArmy.TabFrames.Search = searchFrame
 
 -- Register enterSearchMode handler early (before check buttons etc.) so it exists even if later UI errors.
 -- Handler reads refs from searchModeHandlers as we fill them in below.
-searchModeHandlers.tabStrip = tabStrip
 searchModeHandlers.enterSearchMode = function(trimmed)
-    local strip = searchModeHandlers.tabStrip
     local resultsLabel = searchModeHandlers.searchResultsLabel
     local itemsChk = searchModeHandlers.itemsCheck
     local recipesChk = searchModeHandlers.recipesCheck
-    if not strip or not resultsLabel then
+    if not resultsLabel then
         return
     end
     lastTab = AltArmy.CurrentTab
-    strip:Hide()
+    searchModeHandlers.inSearchMode = true
+    -- Side tabs stay visible (none selected); clicking one leaves search.
+    sideTabs:SetSelected(nil)
+    applyWindowChrome("Search")
     resultsLabel:Show()
-    local searchBtn = searchModeHandlers.searchSettingsBtn
-    if searchBtn then
-        searchBtn:Show()
-    end
     if itemsChk then itemsChk:SetChecked(AltArmy.SearchCategories.Items) end
     if recipesChk then recipesChk:SetChecked(AltArmy.SearchCategories.Recipes) end
     if AltArmy.RefreshSearchCategoryBar then AltArmy.RefreshSearchCategoryBar() end
@@ -446,14 +433,31 @@ searchModeHandlers.enterSearchMode = function(trimmed)
     UpdateSettingsButtonGlow()
 end
 
--- Search category filter checkboxes (replace tab strip when in search mode)
+-- Search category filter checkboxes (left side of the toolbar, search mode only)
 AltArmy.SearchCategories = AltArmy.SearchCategories or { Items = true, Recipes = true }
-local searchResultsLabel = CreateFrame("Frame", nil, main)
+local searchResultsLabel = CreateFrame("Frame", nil, toolbar)
 searchModeHandlers.searchResultsLabel = searchResultsLabel
-searchResultsLabel:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, -HEADER_TOTAL_OFFSET)
-searchResultsLabel:SetPoint("TOPRIGHT", main, "TOPRIGHT", -CONTENT_INSET, -HEADER_TOTAL_OFFSET)
-searchResultsLabel:SetHeight(TAB_HEIGHT)
+searchResultsLabel:SetPoint("TOPLEFT", toolbar, "TOPLEFT", 0, 0)
+searchResultsLabel:SetPoint("BOTTOMLEFT", toolbar, "BOTTOMLEFT", 0, 0)
+searchResultsLabel:SetWidth(1)
 searchResultsLabel:Hide()
+local SEARCH_CHECK_SIZE = 24
+
+--- Clickable caption beside a toolbar checkbox, sized to its text.
+local function createCheckCaption(check, text, fallbackWidth)
+    local frame = CreateFrame("Button", nil, searchResultsLabel)
+    frame:SetPoint("LEFT", check, "RIGHT", 0, 0)
+    frame:EnableMouse(true)
+    frame:SetScript("OnClick", function()
+        check:Click()
+    end)
+    local label = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("LEFT", frame, "LEFT", 0, 0)
+    label:SetText(text)
+    local w = label.GetStringWidth and label:GetStringWidth() or 0
+    frame:SetSize((w and w > 0) and (w + 4) or fallbackWidth, TAB_HEIGHT)
+    return frame, label
+end
 local function refreshSearchIfActive()
     if AltArmy.TabFrames.Search and AltArmy.TabFrames.Search:IsShown() and headerSearchEdit then
         local query = headerSearchEdit:GetText()
@@ -463,30 +467,23 @@ local function refreshSearchIfActive()
         end
     end
 end
-local gap = 12
+local gap = 10
 local updateGuildmateRecipesControlEnabled
 local itemsCheck = CreateFrame("CheckButton", nil, searchResultsLabel, "UICheckButtonTemplate")
 searchModeHandlers.itemsCheck = itemsCheck
 itemsCheck:SetScript("OnClick", function() end)  -- set before any GetScript("OnClick") from template
+itemsCheck:SetSize(SEARCH_CHECK_SIZE, SEARCH_CHECK_SIZE)
 itemsCheck:SetPoint("LEFT", searchResultsLabel, "LEFT", 0, 0)
 itemsCheck:SetChecked(AltArmy.SearchCategories.Items)
 itemsCheck:SetScript("OnClick", function()
     AltArmy.SearchCategories.Items = itemsCheck:GetChecked()
     refreshSearchIfActive()
 end)
-local itemsLabelFrame = CreateFrame("Button", nil, searchResultsLabel)
-itemsLabelFrame:SetPoint("LEFT", itemsCheck, "RIGHT", 2, 0)
-itemsLabelFrame:SetSize(50, TAB_HEIGHT)
-itemsLabelFrame:EnableMouse(true)
-itemsLabelFrame:SetScript("OnClick", function()
-    itemsCheck:Click()
-end)
-local itemsLabel = itemsLabelFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-itemsLabel:SetPoint("LEFT", itemsLabelFrame, "LEFT", 0, 0)
-itemsLabel:SetText("Items")
+local itemsLabelFrame = createCheckCaption(itemsCheck, "Items", 50)
 local recipesCheck = CreateFrame("CheckButton", nil, searchResultsLabel, "UICheckButtonTemplate")
 searchModeHandlers.recipesCheck = recipesCheck
 recipesCheck:SetScript("OnClick", function() end)  -- set before any GetScript("OnClick") from template
+recipesCheck:SetSize(SEARCH_CHECK_SIZE, SEARCH_CHECK_SIZE)
 recipesCheck:SetPoint("LEFT", itemsLabelFrame, "RIGHT", gap, 0)
 recipesCheck:SetChecked(AltArmy.SearchCategories.Recipes)
 recipesCheck:SetScript("OnClick", function()
@@ -494,20 +491,12 @@ recipesCheck:SetScript("OnClick", function()
     updateGuildmateRecipesControlEnabled()
     refreshSearchIfActive()
 end)
-local recipesLabelFrame = CreateFrame("Button", nil, searchResultsLabel)
-recipesLabelFrame:SetPoint("LEFT", recipesCheck, "RIGHT", 2, 0)
-recipesLabelFrame:SetSize(60, TAB_HEIGHT)
-recipesLabelFrame:EnableMouse(true)
-recipesLabelFrame:SetScript("OnClick", function()
-    recipesCheck:Click()
-end)
-local recipesLabel = recipesLabelFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-recipesLabel:SetPoint("LEFT", recipesLabelFrame, "LEFT", 0, 0)
-recipesLabel:SetText("Recipes")
+local recipesLabelFrame = createCheckCaption(recipesCheck, "Recipes", 60)
 
 local includeGuildCheck = CreateFrame("CheckButton", nil, searchResultsLabel, "UICheckButtonTemplate")
 searchModeHandlers.includeGuildCheck = includeGuildCheck
 includeGuildCheck:SetScript("OnClick", function() end)
+includeGuildCheck:SetSize(SEARCH_CHECK_SIZE, SEARCH_CHECK_SIZE)
 includeGuildCheck:SetPoint("LEFT", recipesLabelFrame, "RIGHT", gap, 0)
 includeGuildCheck:SetScript("OnClick", function()
     local SS = AltArmy.SearchSettings
@@ -516,16 +505,7 @@ includeGuildCheck:SetScript("OnClick", function()
     end
     refreshSearchIfActive()
 end)
-local includeGuildLabelFrame = CreateFrame("Button", nil, searchResultsLabel)
-includeGuildLabelFrame:SetPoint("LEFT", includeGuildCheck, "RIGHT", 2, 0)
-includeGuildLabelFrame:SetSize(130, TAB_HEIGHT)
-includeGuildLabelFrame:EnableMouse(true)
-includeGuildLabelFrame:SetScript("OnClick", function()
-    includeGuildCheck:Click()
-end)
-local includeGuildLabel = includeGuildLabelFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-includeGuildLabel:SetPoint("LEFT", includeGuildLabelFrame, "LEFT", 0, 0)
-includeGuildLabel:SetText("Guildmate recipes")
+local includeGuildLabelFrame, includeGuildLabel = createCheckCaption(includeGuildCheck, "Guildmate recipes", 115)
 includeGuildCheck:Hide()
 includeGuildLabelFrame:Hide()
 
@@ -568,45 +548,22 @@ function AltArmy.RefreshSearchCategoryBar()
     refreshIncludeGuildmatesCheck()
 end
 
-local searchSettingsBtn = CreateFrame("Button", nil, searchResultsLabel)
-searchSettingsBtn:SetPoint("TOPRIGHT", searchResultsLabel, "TOPRIGHT", 0, 0)
-searchSettingsBtn:SetSize(TAB_HEIGHT, TAB_HEIGHT)
-searchSettingsBtn:Hide()
-Theme.InstallSettingsButtonGlow(searchSettingsBtn, "glow")
-local searchSettingsIcon = searchSettingsBtn:CreateTexture(nil, "ARTWORK")
-searchSettingsIcon:SetAllPoints(searchSettingsBtn)
-searchSettingsIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
-Theme.SkinSettingsIconButton(searchSettingsBtn)
-searchSettingsBtn:SetScript("OnClick", function()
-    if AltArmy.TabFrames.Search and AltArmy.TabFrames.Search.ToggleSearchSettings then
-        AltArmy.TabFrames.Search:ToggleSearchSettings()
-        UpdateSettingsButtonGlow()
-    end
-end)
-searchModeHandlers.searchSettingsBtn = searchSettingsBtn
-
-local searchFiltersActiveLabel = searchResultsLabel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-searchFiltersActiveLabel:SetPoint("RIGHT", searchSettingsBtn, "LEFT", -6, 0)
+-- "Filters Active" sits left of the search box (anchored in layoutToolbarRight).
+local searchFiltersActiveLabel = toolbar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 searchFiltersActiveLabel:SetJustifyH("RIGHT")
 searchFiltersActiveLabel:SetText("Filters Active")
-if Theme.SetTitleColor then
-    Theme.SetTitleColor(searchFiltersActiveLabel)
-end
 searchFiltersActiveLabel:Hide()
 searchModeHandlers.searchFiltersActiveLabel = searchFiltersActiveLabel
 
 exitSearchMode = function()
+    searchModeHandlers.inSearchMode = false
     searchResultsLabel:Hide()
-    if searchSettingsBtn then
-        searchSettingsBtn:Hide()
-    end
     if AltArmy.TabFrames.Search
         and AltArmy.TabFrames.Search.IsSearchSettingsShown
         and AltArmy.TabFrames.Search:IsSearchSettingsShown()
         and AltArmy.TabFrames.Search.ToggleSearchSettings then
         AltArmy.TabFrames.Search:ToggleSearchSettings()
     end
-    tabStrip:Show()
     if AltArmy.TabFrames.Search then AltArmy.TabFrames.Search:Hide() end
     if AltArmy.TabFrames[lastTab] then AltArmy.TabFrames[lastTab]:Show() end
     setActiveTab(lastTab)
@@ -625,9 +582,6 @@ function AltArmy.OpenGuildCharacterFromSearch(characterName, realm, professionKe
 
     Nav.Begin()
     searchResultsLabel:Hide()
-    if searchSettingsBtn then
-        searchSettingsBtn:Hide()
-    end
     if AltArmy.TabFrames.Search then
         AltArmy.TabFrames.Search:Hide()
     end
@@ -649,9 +603,9 @@ function AltArmy.ReturnToSearchFromGuildCharacter()
     local trimmed = query:match("^%s*(.-)%s*$") or ""
     if trimmed == "" then
         exitSearchMode()
-        if headerSearchClearBtn then headerSearchClearBtn:Hide() end
+        setHeaderClearShown(false)
     else
-        if headerSearchClearBtn then headerSearchClearBtn:Show() end
+        setHeaderClearShown(true)
         enterSearchMode(trimmed)
     end
 end
@@ -674,18 +628,19 @@ local function applySearchBoxState()
 
     if trimmed == "" then
         exitSearchMode()
-        headerSearchClearBtn:Hide()
+        setHeaderClearShown(false)
     else
-        headerSearchClearBtn:Show()
+        setHeaderClearShown(true)
         enterSearchMode(trimmed)  -- switch to search results on any character
     end
 end
 
-headerSearchEdit:SetScript("OnTextChanged", applySearchBoxState)
-headerSearchEdit:SetScript("OnEditFocusGained", function(self)
+-- HookScript keeps SearchBoxTemplate's own handlers (clear button, Instructions placeholder).
+headerSearchEdit:HookScript("OnTextChanged", applySearchBoxState)
+headerSearchEdit:HookScript("OnEditFocusGained", function(self)
     Theme.UpdateEditBoxPlaceholderVisibility(self)
 end)
-headerSearchEdit:SetScript("OnEditFocusLost", function(self)
+headerSearchEdit:HookScript("OnEditFocusLost", function(self)
     Theme.UpdateEditBoxPlaceholderVisibility(self)
 end)
 Theme.UpdateEditBoxPlaceholderVisibility(headerSearchEdit)

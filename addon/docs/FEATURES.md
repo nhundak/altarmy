@@ -21,10 +21,12 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 
 ## Main UI and access
 
-- Main frame is movable, closable, and registered for Escape closing.
+- The main frame is a native Blizzard window (portrait, title bar, close button, rock background), as tall as the character sheet. It can be moved and closed with Escape.
+- Tabs are icon flyouts on the right edge; hovering one shows its name. The portrait icon and title show the active tab.
 - Open with `/altarmy` or `/alta`.
 - Minimap button (left-click toggle, drag to move).
-- Header search box switches into Search mode when populated.
+- The toolbar search box switches into Search mode when populated. Clicking any side tab leaves Search mode.
+- One toolbar settings button opens the active tab's settings (Summary, Gear, Reputation, Search panels; Cooldowns opens Interface Options).
 - `/altarmy networth [all] [scale]` — vendor + Auctionator AH value across characters (Auctionator required).
 
 ## Tabs
@@ -35,7 +37,7 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 | [Gear](tabs/gear.md) | Equipment grid, item check, compare panel, upgrade scoring / alerts |
 | [Reputation](tabs/reputation.md) | Faction matrix, score-sort, optional Zygor guide links |
 | [Cooldowns](tabs/cooldowns.md) | Crafting cooldowns + Raids lockouts, stockpile send / send-all |
-| [Search](tabs/search.md) | Items and recipes (header Search mode) |
+| [Search](tabs/search.md) | Items and recipes (toolbar Search mode) |
 | [Graphs](tabs/graphs.md) | Level progress charts and history imports |
 | [Guild](tabs/guild.md) | Opt-in guild data sharing (conditional tab) |
 | [Options](tabs/options.md) | Interface Options + slash commands |

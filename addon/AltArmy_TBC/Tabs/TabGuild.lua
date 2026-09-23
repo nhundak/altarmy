@@ -707,17 +707,13 @@ local function updateTabard()
     tabardFrame:Hide()
 end
 
--- Search fields: same left edge as main header search; extend to the close button.
+-- Search fields: same horizontal span as the main toolbar search box.
 local headerSearchRef = _G.AltArmyTBC_HeaderSearchEdit
-local headerCloseRef = _G.AltArmyTBC_HeaderCloseButton
 
 local function anchorGuildHeaderSearch(edit)
     edit:SetHeight(20)
     edit:SetPoint("TOP", header, "TOP", 0, -6)
-    if headerSearchRef and headerCloseRef then
-        edit:SetPoint("LEFT", headerSearchRef, "LEFT", 0, 0)
-        edit:SetPoint("RIGHT", headerCloseRef, "LEFT", 2, 0)
-    elseif headerSearchRef then
+    if headerSearchRef then
         edit:SetPoint("LEFT", headerSearchRef, "LEFT", 0, 0)
         edit:SetPoint("RIGHT", headerSearchRef, "RIGHT", 0, 0)
     else

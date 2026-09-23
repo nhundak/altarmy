@@ -8,10 +8,13 @@
 ## OptionalDeps: Auctionator, CraftLib, TacoTip, GearScoreTBCClassic, RXPGuides, RXPGuides_TBC, NovaInstanceTracker, Questie, ZygorGuidesViewerClassicTBCAnniv
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
+UI\NativeUI.lua
 UI\Theme.lua
 UI\Text.lua
 UI\VirtualList.lua
 UI\SlideTransition.lua
+UI\MainTabs.lua
+UI\SideTabs.lua
 Core.lua
 Data\CharKey.lua
 Data\Characters\BankAlt.lua

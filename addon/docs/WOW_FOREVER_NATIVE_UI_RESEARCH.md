@@ -82,9 +82,34 @@ These are the closest models for AltArmy's tabs, and they're built only from the
 - **Art:** use `SetAtlas` names, never bundled textures. Treat custom palette colors as an accent, not the frame chrome.
 - **Open question:** whether to keep the current dark/bronze theme as an option (like Baganator's skins) or go fully native. Also check how the reskin addons above treat third-party windows built from Blizzard templates.
 
-## Suggested next step
+## Rework decisions (2026-09-23)
 
-Build a throwaway spike window: `ButtonFrameTemplate` shell + `TabSystemTemplate` tabs + `WowScrollBoxList` / `MinimalScrollBar` list + `WowStyle1DropdownTemplate` + `SearchBoxTemplate`. Load it on **both** Forever and TBC Anniversary and screenshot. Use [DEV_DUMPS.md](DEV_DUMPS.md) to capture anything that errors on one client.
+The rework goes **fully native**: the dark/bronze theme is removed, with no toggle.
+
+- **Shell:** `PortraitFrameTemplate`, which provides:
+  - the tiled `UI-Background-Rock` background and the NineSlice border
+  - the close button
+  - the portrait circle, which shows the active tab's icon (`SetPortraitToAsset`), and the title (`SetTitle`)
+- **Size:** 640 × 484. The height matches Forever's `CHARACTER_FRAME_HEIGHT` (`Blizzard_UIPanels_Game/Camelot/CharacterFrameConstants.lua`, 631 × 484).
+- **Tabs:** icon flyouts on the right edge, anchored like CharacterFrame's `ModeTabs` (`TOPLEFT` → frame `TOPRIGHT`, y −30). Hovering a tab shows its name in a tooltip.
+  - Forever: `LargeSideTabButtonTemplate`, which draws the `common-sidetab*` atlases.
+  - TBC Anniversary has neither the template nor the atlases, so it falls back to the classic spellbook skill-line tab art.
+- **Toolbar row** under the title bar holds:
+  - the `SearchBoxTemplate` global search
+  - the active tab's settings button
+  - the search-mode category checkboxes
+- **Controls:** the `Theme.lua` helpers are rewritten behind their current signatures:
+  - scroll bars: `MinimalScrollBar` + `ScrollUtil.InitScrollFrameWithScrollBar`, also horizontal via `isHorizontal`
+  - dropdowns: `WowStyle1DropdownTemplate` / `WowStyle1FilterDropdownTemplate`
+  - checkboxes: `UICheckButtonTemplate`
+  - text inputs: `InputBoxTemplate` / `SearchBoxTemplate`
+  - buttons: `UIPanelButtonTemplate`
+  - panels: `InsetFrameTemplate`
+- **Fonts:** a role → Blizzard font object map, taken from Forever's CharacterFrame / ReputationFrame usage.
+- **Capability layer:** `AltArmy_TBC/UI/NativeUI.lua` (`HasTemplate`, `HasAtlas`, `GetCaps`) chooses between a template and its fallback.
+  - With `/altarmy debug on`, it writes a `nativeui-caps` dev dump at login (see [DEV_DUMPS.md](DEV_DUMPS.md)).
+  - The dump holds the capabilities, the side-tab atlas size, and the CharacterFrame size and scale.
+  - Capture it on both clients before building on these assumptions.
 
 ## Sources
 
