@@ -26,6 +26,7 @@ When you change **user-visible** behavior, update the matching docs in the **sam
 | [GOLD_ECONOMY_HISTORY_RESEARCH.md](GOLD_ECONOMY_HISTORY_RESEARCH.md) | Research for a possible gold-history feature |
 | [WOW_FOREVER_COMPATIBILITY_RESEARCH.md](WOW_FOREVER_COMPATIBILITY_RESEARCH.md) | Preliminary research: how WoW addons support multiple game versions, ahead of WoW Forever's beta |
 | [WOW_FOREVER_COMPAT.md](WOW_FOREVER_COMPAT.md) | Audit: do the optional third-party addon integrations still work on WoW Forever |
+| [WOW_FOREVER_NATIVE_UI_RESEARCH.md](WOW_FOREVER_NATIVE_UI_RESEARCH.md) | Research: matching Forever's built-in UI look via Blizzard templates/atlases (TBC + Forever availability) |
 | [REFACTORING_OPPORTUNITIES.md](REFACTORING_OPPORTUNITIES.md) | Code-review snapshot of remaining refactors |
 
 ## Data layer (next to code)
