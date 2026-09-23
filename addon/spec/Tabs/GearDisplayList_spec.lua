@@ -389,9 +389,7 @@ describe("Gear display list focus mode", function()
 
     --- Mirror TabGear GetFocusedInventorySlots.
     local function getFocusedInventorySlots(itemLink)
-        local slots = IU.GetInventorySlotsForItem(itemLink)
-        if not slots or #slots == 0 then return {} end
-        return slots
+        return GU.GetFocusInventorySlots(itemLink)
     end
 
     --- Mirror TabGear PickBestCompareSlotForEntry.

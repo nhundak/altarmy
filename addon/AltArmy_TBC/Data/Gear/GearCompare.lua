@@ -799,7 +799,13 @@ function GC.BuildComparePanelDump(focusedLink, equippedLink, technique, charData
     opts = opts or {}
     technique = GU.GetEffectiveTechnique(technique or "custom")
     local classFile, specKey, level = GU.ResolveCompareContext(charData, entry)
-    local comparison = GC.BuildComparison(focusedLink, equippedLink, technique, charData, entry, opts)
+    -- Mirror the panel: it builds with compareSlot = selected slot, not auto best-hand.
+    local compareOpts = copyShallowTable(opts)
+    if compareOpts.compareSlot == nil then
+        compareOpts.compareSlot = opts.invSlot
+    end
+    local comparison = GC.BuildComparison(
+        focusedLink, equippedLink, technique, charData, entry, compareOpts)
     if not comparison then return nil end
 
     local summary = comparison.summary or {}

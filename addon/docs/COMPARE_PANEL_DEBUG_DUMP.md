@@ -86,7 +86,7 @@ Compare session settings:
 
 | Field                     | Meaning                                                                 |
 |--------------------------|-------------------------------------------------------------------------|
-| `invSlot`                | Inventory slot ID being compared (e.g. `1` = head)                      |
+| `invSlot`                | Inventory slot ID being compared (e.g. `1` = head); weapon loadout uses it as `compareSlot`, same as the panel |
 | `techniqueId`            | Scoring provider id (`custom`, `ilvl`, `gearscore`)                    |
 | `techniqueLabel`         | Display label shown in the UI                                           |
 | `upgradeMaxDelta`        | Best positive score delta across the focus grid (sort / debug; not used for Weighted %) |

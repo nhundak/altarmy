@@ -27,6 +27,9 @@ Compare what each alt is wearing; drop an item to see who can use it and how it 
 ## Compare panel
 
 - Select a character column (and slot) while an item is focused.
+- When a character is auto-selected (or its column clicked), the compare slot is the one with the
+  best upgrade. One-hand weapons consider both hands for dual-wield classes, so a one-hander that
+  only beats the off-hand opens against the off-hand — matching quest reward / loot alerts.
 - Stat delta rows vs equipped piece; dual-wield offhand DPS is scaled to match upgrade scoring.
 - All six resistance schools collapse into a single "All Resistances" row when their values match.
 - Situational/conditional bonuses (e.g. "Increases X in \<condition\>") are grouped under a header

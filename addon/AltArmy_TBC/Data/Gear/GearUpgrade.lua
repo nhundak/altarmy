@@ -1602,6 +1602,10 @@ function GU.ClassifyFocusSlot(entry, charData, itemLink, invSlot, opts, _upgrade
         local slotOpts = focusOptsForSlot(opts, invSlot)
         local configDelta, configInfo = GU.GetWeaponConfigDelta(
             charData, itemLink, slotOpts, entry)
+        -- Same rule as auto best-hand: drop bogus empty-off-hand compares.
+        if configInfo and not isValidWeaponCompareResult(configInfo.selection, itemLink, invSlot) then
+            return nil
+        end
         rawDelta = configDelta or 0
         loadoutOldScore = configInfo and configInfo.currentValue or 0
     else
@@ -1803,9 +1807,16 @@ function GU.GetBestFocusCompareSlot(entry, charData, itemLink, slots, opts, upgr
     return slots[1]
 end
 
+--- Candidate slots for focus classification / compare selection. Weapon-pair items
+--- consider both hands (ClassifyFocusSlot drops hands the item can't occupy), so a
+--- one-hander that only upgrades the off-hand matches the auto-slot upgrade delta.
 function GU.GetFocusInventorySlots(itemLink)
     local iu = IU()
-    if not iu or not iu.GetInventorySlotsForItem or not itemLink then return {} end
+    if not iu or not itemLink then return {} end
+    if iu.GetFocusDisplaySlotsForItem and GU.IsWeaponPairItem(itemLink) then
+        return iu.GetFocusDisplaySlotsForItem(itemLink) or {}
+    end
+    if not iu.GetInventorySlotsForItem then return {} end
     return iu.GetInventorySlotsForItem(itemLink) or {}
 end
 

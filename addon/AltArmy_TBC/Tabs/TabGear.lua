@@ -250,8 +250,8 @@ function GearTab.GetFocusedSlotSet()
 end
 
 function GearTab.GetFocusedInventorySlots()
-    if not droppedItemLink or not IU or not IU.GetInventorySlotsForItem then return {} end
-    return IU.GetInventorySlotsForItem(droppedItemLink) or {}
+    if not droppedItemLink or not GU or not GU.GetFocusInventorySlots then return {} end
+    return GU.GetFocusInventorySlots(droppedItemLink)
 end
 
 function GearTab.IsMultiSlotFocus()

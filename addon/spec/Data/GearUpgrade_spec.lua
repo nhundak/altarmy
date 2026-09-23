@@ -2270,6 +2270,55 @@ describe("GearUpgrade", function()
             end)
         end)
 
+        describe("one-hander that only upgrades the off-hand (strong MH + weak shield)", function()
+            local entry = { name = "WarriorShield", realm = "TestRealm", classFile = "WARRIOR", level = 60 }
+            local oneHandLink = "|Hitem:205:0|h[New 1H]|h"
+
+            local function setupWarriorShield()
+                _G.AltArmyTBC_Data.Characters.TestRealm.WarriorShield = {
+                    name = "WarriorShield",
+                    realm = "TestRealm",
+                    classFile = "WARRIOR",
+                    level = 60,
+                    Inventory = {
+                        [MAIN] = "|Hitem:211:0|h[Strong MH]|h",
+                        [OFF] = "|Hitem:208:0|h[Shield]|h",
+                    },
+                    Containers = { [0] = { links = {} } },
+                    talents = { tabs = { 0, 21, 0 }, primary = 2, specKey = "fury" },
+                }
+                return DS:GetCharacter("WarriorShield", "TestRealm")
+            end
+
+            it("GetFocusInventorySlots includes both hands for a one-hander", function()
+                assert.are.same({ MAIN, OFF }, GU.GetFocusInventorySlots(oneHandLink))
+            end)
+
+            it("auto upgrade delta (quest reward / alerts) is positive via the off-hand", function()
+                local char = setupWarriorShield()
+                local delta, info = GU.GetWeaponConfigDelta(char, oneHandLink, { technique = "ilvl" }, entry)
+                assert.is_true(delta > 0)
+                assert.are.equal(OFF, info.targetSlot)
+            end)
+
+            it("focus compare slot picks the off-hand, matching the auto delta", function()
+                local char = setupWarriorShield()
+                local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
+                local upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForEntries({ entry }, oneHandLink, opts)
+                local slot = GU.GetBestFocusCompareSlot(
+                    entry, char, oneHandLink, GU.GetFocusInventorySlots(oneHandLink), opts, upgradeMaxDelta)
+                assert.are.equal(OFF, slot)
+            end)
+
+            it("focus summary is an upgrade, not a main-hand downgrade", function()
+                local char = setupWarriorShield()
+                local opts = { technique = "ilvl", levelsAhead = 0, upgradeThresholdPercent = 10 }
+                local upgradeMaxDelta = GU.ComputeUpgradeMaxDeltaForEntries({ entry }, oneHandLink, opts)
+                local summary = GU.SummarizeFocusEntry(entry, char, oneHandLink, opts, upgradeMaxDelta)
+                assert.are.equal(GU.FOCUS_CATEGORY.UPGRADE_IN_RANGE, summary.category)
+            end)
+        end)
+
         describe("off-hand-only item cannot be considered for main-hand", function()
             local entry = { name = "MageMH", realm = "TestRealm", classFile = "MAGE", level = 60 }
 
