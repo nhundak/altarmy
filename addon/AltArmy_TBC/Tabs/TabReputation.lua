@@ -353,7 +353,9 @@ headerGridContainer:SetPoint("TOPLEFT", headerHorizontalScroll, "TOPLEFT", 0, 0)
 headerGridContainer:SetHeight(GetHeaderHeight())
 headerHorizontalScroll:SetScrollChild(headerGridContainer)
 
-local verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_ReputationVerticalScrollBar", rightPanel)
+-- Parent to the unclipped outer panel: tabContentInner clips, and the gutter extends past its padded edge.
+local verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_ReputationVerticalScrollBar", tabContentPanel)
+verticalScrollBar:SetFrameLevel(tabContentPanel:GetFrameLevel() + 30)
 verticalScrollBar:SetMinMaxValues(0, 0)
 verticalScrollBar:SetValueStep(dims.rowHeight)
 verticalScrollBar:SetValue(0)

@@ -1687,6 +1687,12 @@ function Theme.CreateHorizontalScrollBar(parent, opts)
     if opts.thickness then
         bar:SetHeight(opts.thickness)
     end
+    -- Opaque backing so grid content scrolled beneath the bar does not show through the track.
+    local backing = bar:CreateTexture(nil, "BACKGROUND", nil, -8)
+    backing:SetAllPoints(bar)
+    local bg = C.gridHeaderBg
+    backing:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
+    bar.altArmyOpaqueBacking = backing
     Theme.SetupScrollBar(bar, {
         horizontal = true,
         thickness = opts.thickness,
