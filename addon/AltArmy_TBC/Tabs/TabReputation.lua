@@ -614,6 +614,18 @@ local function GetFactionLabelRow(i)
             bandHeight = REP_FACTION_LABEL_HOVER_HEIGHT,
             bandCenter = true,
             bandYOffset = 2,
+            -- Full faction name when the label is truncated.
+            onEnter = function(self)
+                if self.truncated and self.factionName and GameTooltip then
+                    GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+                    GameTooltip:ClearLines()
+                    GameTooltip:AddLine(self.factionName, 1, 1, 1)
+                    GameTooltip:Show()
+                end
+            end,
+            onLeave = function()
+                if GameTooltip then GameTooltip:Hide() end
+            end,
         })
         if row.RegisterForClicks then
             row:RegisterForClicks("LeftButtonUp")
@@ -665,7 +677,7 @@ local function GetFactionLabelRow(i)
                 if not GameTooltip then return end
                 local parent = self:GetParent()
                 local fname = (parent and parent.factionName) or "faction"
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
                 GameTooltip:ClearLines()
                 GameTooltip:AddLine("Load Zygor guide: " .. fname, 1, 1, 1)
                 GameTooltip:Show()
@@ -724,6 +736,7 @@ local function UpdateFactionLabels(factionRows, numRows)
         lab:Hide()
     end
 
+    local filterQuery = factionFilterEdit and factionFilterEdit:GetText() or ""
     for r = 1, numRows do
         local row = GetFactionLabelRow(r)
         local fr = factionRows[r]
@@ -782,10 +795,18 @@ local function UpdateFactionLabels(factionRows, numRows)
         if hasZygor then
             nameMax = nameMax - (ZYGOR_BTN_SIZE + ZYGOR_BTN_GAP)
         end
+        local shownName = name
         if TruncateFontString then
-            TruncateFontString(row.text, name, nameMax)
+            shownName = TruncateFontString(row.text, name, nameMax) or name
         else
             row.text:SetText(name)
+        end
+        row.truncated = (shownName ~= name)
+        -- Highlight filter matches in green (after truncation so width is measured on plain text);
+        -- matches are found in the full name so one cut off by "..." still highlights its visible part.
+        local GTD = AltArmy.GuildTabData
+        if filterQuery ~= "" and GTD and GTD.FormatTruncatedTextWithSearchHighlight then
+            row.text:SetText(GTD.FormatTruncatedTextWithSearchHighlight(name, shownName, filterQuery))
         end
         row:Show()
     end

@@ -119,6 +119,43 @@ function GTD.FormatTextWithSearchHighlight(text, classFile, query, formatSegment
     return table.concat(parts)
 end
 
+--- Like FormatTextWithSearchHighlight, but for text truncated with a trailing "...": matches are
+--- found in `fullText` so a match cut off by the ellipsis still highlights its visible part
+--- (e.g. "Durotar Supply and..." highlights "and" for query "and logistics").
+function GTD.FormatTruncatedTextWithSearchHighlight(fullText, shownText, query)
+    fullText = fullText or "?"
+    shownText = shownText or fullText
+    query = GTD.NormalizeSearchQuery(query)
+    if query == "" then return shownText end
+
+    local visibleLen = #shownText
+    local ellipsis = ""
+    if shownText ~= fullText and shownText:sub(-3) == "..." then
+        visibleLen = visibleLen - 3
+        ellipsis = "..."
+    end
+    if fullText:sub(1, visibleLen) ~= shownText:sub(1, visibleLen) then
+        return GTD.FormatTextWithSearchHighlight(shownText, nil, query)
+    end
+
+    local lowerFull = fullText:lower()
+    local parts = {}
+    local pos = 1
+    while pos <= visibleLen do
+        local matchStart, matchEnd = lowerFull:find(query, pos, true)
+        if not matchStart or matchStart > visibleLen then
+            parts[#parts + 1] = fullText:sub(pos, visibleLen)
+            break
+        end
+        if matchStart > pos then
+            parts[#parts + 1] = fullText:sub(pos, matchStart - 1)
+        end
+        parts[#parts + 1] = SEARCH_MATCH_COLOR .. fullText:sub(matchStart, math.min(matchEnd, visibleLen)) .. "|r"
+        pos = matchEnd + 1
+    end
+    return table.concat(parts) .. ellipsis
+end
+
 local function nameMatchesQuery(name, query)
     return query ~= "" and (name or ""):lower():find(query, 1, true) ~= nil
 end

@@ -1105,6 +1105,36 @@ describe("GuildTabData", function()
     end)
   end)
 
+  describe("FormatTruncatedTextWithSearchHighlight", function()
+    local GREEN = "|cff00ff00"
+    local FULL = "Durotar Supply and Logistics"
+
+    it("highlights the visible part of a match that continues past the ellipsis", function()
+      local out = GTD.FormatTruncatedTextWithSearchHighlight(FULL, "Durotar Supply and...", "and logistics")
+      assert.are.equal("Durotar Supply " .. GREEN .. "and|r...", out)
+    end)
+
+    it("highlights fully visible matches normally", function()
+      local out = GTD.FormatTruncatedTextWithSearchHighlight(FULL, "Durotar Supply and...", "supply")
+      assert.are.equal("Durotar " .. GREEN .. "Supply|r and...", out)
+    end)
+
+    it("leaves text plain when the only match is hidden", function()
+      local out = GTD.FormatTruncatedTextWithSearchHighlight(FULL, "Durotar Supply and...", "logistics")
+      assert.are.equal("Durotar Supply and...", out)
+    end)
+
+    it("behaves like FormatTextWithSearchHighlight when not truncated", function()
+      local out = GTD.FormatTruncatedTextWithSearchHighlight("Sha'tar", "Sha'tar", "tar")
+      assert.are.equal("Sha'" .. GREEN .. "tar|r", out)
+    end)
+
+    it("returns shown text unchanged for an empty query", function()
+      assert.are.equal("Durotar Supply and...",
+        GTD.FormatTruncatedTextWithSearchHighlight(FULL, "Durotar Supply and...", ""))
+    end)
+  end)
+
   describe("FormatMainRowName", function()
     it("returns the preferred name", function()
       local groups = GTD.GroupMembersByMain({

@@ -7,6 +7,8 @@ std = "lua51"
 -- Vendored libraries (LibDBIcon, LibStub, etc.)
 exclude_files = {
     "AltArmy_TBC/Libs",
+    -- Optional local dev tool (ForeverSVFix) links SavedVariables here
+    "AltArmy_TBC/ForeverSVFixData",
 }
 
 -- Do not warn about unused implicit self argument in method (:) definitions.
