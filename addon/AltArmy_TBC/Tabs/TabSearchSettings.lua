@@ -306,14 +306,19 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
         btn:SetPoint("TOP", header, "BOTTOM", 0, -UI.FILTER_DROPDOWN_GAP)
         btn:SetPoint("LEFT", filterContent, "LEFT", 0, 0)
         btn:SetPoint("RIGHT", filterContent, "RIGHT", 0, 0)
-        Theme.SkinButton(btn)
+        Theme.SkinDropdownButton(btn)
         if registerCraftFilterWidget then
             AddCraftFilterWidget(btn)
         end
+        -- Native dropdown art reserves the menu border; legacy popups keep the tab's own padding.
+        local popupPad = btn.altArmyDropdownArrow and Theme.GetDropdownPopupInsets() or {
+            left = UI.FILTER_DROPDOWN_POPUP_PAD_LEFT, top = UI.FILTER_DROPDOWN_POPUP_PAD_TOP,
+            right = UI.FILTER_DROPDOWN_POPUP_PAD_RIGHT, bottom = UI.FILTER_DROPDOWN_POPUP_PAD_BOTTOM,
+        }
 
         local btnText = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         btnText:SetPoint("LEFT", btn, "LEFT", 6, 0)
-        btnText:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+        btnText:SetPoint("RIGHT", btn, "RIGHT", btn.altArmyDropdownArrow and -Theme.DROPDOWN_ARROW_GUTTER or -4, 0)
         btnText:SetJustifyH("LEFT")
 
         if btn.HookScript then
@@ -336,14 +341,10 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
         popup:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
         popup:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, 0)
         local rowHeight = dropdownRowHeight
-        popup:SetHeight(
-            UI.FILTER_DROPDOWN_POPUP_PAD_TOP
-                + #config.keys * rowHeight
-                + UI.FILTER_DROPDOWN_POPUP_PAD_BOTTOM
-        )
+        popup:SetHeight(popupPad.top + #config.keys * rowHeight + popupPad.bottom)
         popup:SetFrameLevel(filterContent:GetFrameLevel() + 100)
         popup:Hide()
-        Theme.ApplyBackdrop(popup, "section")
+        Theme.SkinDropdownPopup(popup)
         craftFilterDropdowns[#craftFilterDropdowns + 1] = popup
 
         local checks = {}
@@ -354,7 +355,7 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
                 rowHeight = dropdownRowHeight,
                 text = (config.getRowLabel and config.getRowLabel(key)) or config.labels[key] or key,
                 fullWidthHover = true,
-                rightInset = UI.FILTER_DROPDOWN_POPUP_PAD_RIGHT,
+                rightInset = popupPad.right,
                 onClick = function(checked)
                     if config.setEnabled then
                         config.setEnabled(key, checked)
@@ -367,8 +368,8 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
                 rowOpts.point = "TOPLEFT"
                 rowOpts.relativeTo = popup
                 rowOpts.relativePoint = "TOPLEFT"
-                rowOpts.x = UI.FILTER_DROPDOWN_POPUP_PAD_LEFT
-                rowOpts.y = -UI.FILTER_DROPDOWN_POPUP_PAD_TOP
+                rowOpts.x = popupPad.left
+                rowOpts.y = -popupPad.top
             else
                 rowOpts.relativeTo = prevRow
                 rowOpts.relativePoint = "BOTTOMLEFT"

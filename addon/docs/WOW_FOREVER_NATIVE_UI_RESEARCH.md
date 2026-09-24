@@ -1,6 +1,6 @@
 # WoW Forever native UI — research
 
-Research for a possible UI/UX rework: making AltArmy look and feel like the built-in WoW Forever client UI (window frames, buttons, tabs, lists, dropdowns). This covers **source and web research only** (checked 2026-09-23). Nothing here has been verified in the live client yet. Today's custom look is documented in [UI_DESIGN.md](UI_DESIGN.md) (`AltArmy_TBC/UI/Theme.lua`). For addon-API compatibility, see [WOW_FOREVER_COMPATIBILITY_RESEARCH.md](WOW_FOREVER_COMPATIBILITY_RESEARCH.md) and [WOW_FOREVER_COMPAT.md](WOW_FOREVER_COMPAT.md).
+Research for a possible UI/UX rework: making AltArmy look and feel like the built-in WoW Forever client UI (window frames, buttons, tabs, lists, dropdowns). The research below is from source and web checks (2026-09-23). The rework it led to has shipped (see [Rework decisions](#rework-decisions-2026-09-23) and [Not yet done](#not-yet-done)); the current look is documented in [UI_DESIGN.md](UI_DESIGN.md) (`AltArmy_TBC/UI/Theme.lua`). Only some points have been confirmed in the live client so far, e.g. TabSystem missing on TBC. For addon-API compatibility, see [WOW_FOREVER_COMPATIBILITY_RESEARCH.md](WOW_FOREVER_COMPATIBILITY_RESEARCH.md) and [WOW_FOREVER_COMPAT.md](WOW_FOREVER_COMPAT.md).
 
 ## TL;DR
 
@@ -80,7 +80,7 @@ These are the closest models for AltArmy's tabs, and they're built only from the
 - **Lists:** ScrollBox + DataProvider replaces custom scroll frames and row pools. It also shifts per-row locals out of the large `Tabs/Tab*.lua` main chunks, which helps with the Lua 5.1 200-local limit (see [CLAUDE.md](../CLAUDE.md)).
 - **Forever-only pieces:** check before use, e.g. `if C_XMLUtil.GetTemplateInfo("ColoredProgressBarTemplate") then … end` (or `pcall` around `CreateFrame`), and fall back on TBC. Same for the addon compartment vs LibDBIcon.
 - **Art:** use `SetAtlas` names, never bundled textures. Treat custom palette colors as an accent, not the frame chrome.
-- **Open question:** whether to keep the current dark/bronze theme as an option (like Baganator's skins) or go fully native. Also check how the reskin addons above treat third-party windows built from Blizzard templates.
+- **Resolved:** whether to keep the dark/bronze theme as an option (like Baganator's skins). We went fully native with no toggle (see below). Still unchecked: how the reskin addons above treat third-party windows built from Blizzard templates.
 
 ## Rework decisions (2026-09-23)
 
@@ -91,16 +91,19 @@ The rework goes **fully native**: the dark/bronze theme is removed, with no togg
   - the close button
   - the portrait circle, which shows the active tab's icon (`SetPortraitToAsset`), and the title (`SetTitle`)
 - **Size:** 670 × 484. The height matches Forever's `CHARACTER_FRAME_HEIGHT` (`Blizzard_UIPanels_Game/Camelot/CharacterFrameConstants.lua`, 631 × 484).
-- **Tabs:** icon flyouts on the right edge, anchored like CharacterFrame's `ModeTabs` (`TOPLEFT` → frame `TOPRIGHT`, y −30). Hovering a tab shows its name in a tooltip.
+- **Main tabs:** icon flyouts on the right edge, anchored like CharacterFrame's `ModeTabs` (`TOPLEFT` → frame `TOPRIGHT`, y −30). Hovering a tab shows its name in a tooltip.
   - Forever: `LargeSideTabButtonTemplate`, which draws the `common-sidetab*` atlases.
   - TBC Anniversary has neither the template nor the atlases, so it falls back to the classic spellbook skill-line tab art.
+- **Sub-view tabs** (Cooldowns, Gear): `UI/TopTabs.lua`, spellbook-style tabs hanging from the panel top.
+  - Forever: `TabSystemTemplate` + `TabSystemTopButtonTemplate` square icon tabs.
+  - TBC Anniversary doesn't load TabSystem, so it uses classic text tabs (`PanelTopTabButtonTemplate` + `PanelTemplates_SelectTab`).
 - **Toolbar row** under the title bar holds:
   - the `SearchBoxTemplate` global search
   - the active tab's settings button
   - the search-mode category checkboxes
 - **Controls:** the `Theme.lua` helpers are rewritten behind their current signatures:
   - scroll bars: `MinimalScrollBar` + `ScrollUtil.InitScrollFrameWithScrollBar`, also horizontal via `isHorizontal`
-  - dropdowns: `WowStyle1DropdownTemplate` / `WowStyle1FilterDropdownTemplate`
+  - dropdowns: `WowStyle1FilterDropdownTemplate` for the search Filter; the rest are drawn with the `WowStyle1DropdownTemplate` atlases (see [Not yet done](#not-yet-done))
   - checkboxes: `UICheckButtonTemplate`
   - text inputs: `InputBoxTemplate` / `SearchBoxTemplate`
   - buttons: `UIPanelButtonTemplate`
@@ -110,6 +113,16 @@ The rework goes **fully native**: the dark/bronze theme is removed, with no togg
   - With `/altarmy debug on`, it writes a `nativeui-caps` dev dump at login (see [DEV_DUMPS.md](DEV_DUMPS.md)).
   - The dump holds the capabilities, the side-tab atlas size, and the CharacterFrame size and scale.
   - Capture it on both clients before building on these assumptions.
+
+## Not yet done
+
+These are left over from the implications above and are deferred:
+
+- **Lists:** move `UI/VirtualList.lua` / `Theme.CreateVerticalScrollViewport` grids to `WowScrollBoxList` + DataProvider. Only the scroll bar art is native today.
+- **Addon compartment:** add `AddonCompartmentFrame` / `## AddonCompartmentFunc` on Forever, keeping LibDBIcon for TBC.
+- **Real dropdowns:** `Theme.CreateSingleSelectDropdown`, `Theme.CreateMultiSelectCheckboxDropdown` and the Gear / `ScoreSortRow` provider lists are our own buttons painted with the `WowStyle1DropdownTemplate` / `MenuStyle1` atlases. Only `Theme.CreateFilterDropdown` uses the real template + `MenuUtil`. Switching the rest would let reskin addons pick them up.
+
+Tried and dropped: Reputation-tab bars on `ColoredProgressBarTemplate` (Forever stat-bar art). We preferred the existing flat bars, so they stay.
 
 ## Sources
 

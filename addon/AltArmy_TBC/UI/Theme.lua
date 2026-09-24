@@ -1,5 +1,6 @@
--- AltArmy TBC — Shared UI theme (warm bronze / dark panel design language).
--- Inspired by AHPriceGraph; Graphs tab values are canonical for AltArmy.
+-- AltArmy TBC — Shared UI theme: native Blizzard chrome (templates, NineSlice layouts, atlases)
+-- chosen per client via NativeUI caps. Theme.COLORS is the legacy flat palette, used only as the
+-- fallback where a native piece is missing, and for accent / meaning colors. See docs/UI_DESIGN.md.
 -- Loaded before Core.lua in the .toc; must bootstrap the namespace here.
 
 AltArmy = AltArmy or {}
