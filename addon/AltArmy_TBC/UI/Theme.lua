@@ -2644,8 +2644,6 @@ function Theme.CloseMultiSelectCheckboxDropdowns(exceptPopup)
     end
 end
 
-local MULTI_SELECT_DROPDOWN_TEXT_INSET = 10
-
 --- Multi-select settings dropdown with checkbox rows (Search settings style).
 function Theme.CreateMultiSelectCheckboxDropdown(config)
     config = config or {}
@@ -2689,6 +2687,9 @@ function Theme.CreateMultiSelectCheckboxDropdown(config)
     btnText:SetPoint("LEFT", btn, "LEFT", 6, 0)
     btnText:SetPoint("RIGHT", btn, "RIGHT", btn.altArmyDropdownArrow and -Theme.DROPDOWN_ARROW_GUTTER or -4, 0)
     btnText:SetJustifyH("LEFT")
+    btnText:SetWordWrap(false)
+    -- Left padding + right gutter (arrow or plain) that btnText is inset by within btn.
+    local btnTextInsets = 6 + (btn.altArmyDropdownArrow and Theme.DROPDOWN_ARROW_GUTTER or 4)
 
     local popup = CreateFrame("Frame", nil, dropdownParent, "BackdropTemplate")
     popup:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
@@ -2716,7 +2717,7 @@ function Theme.CreateMultiSelectCheckboxDropdown(config)
 
     local function setButtonSummary(summary)
         btn.fullSummaryText = summary
-        local maxW = (btn:GetWidth() or 0) - MULTI_SELECT_DROPDOWN_TEXT_INSET
+        local maxW = (btn:GetWidth() or 0) - btnTextInsets
         if maxW <= 0 then
             btnText:SetText(summary)
             btn.wasSummaryTruncated = false

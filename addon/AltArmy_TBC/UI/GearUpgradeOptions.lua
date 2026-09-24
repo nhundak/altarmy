@@ -151,8 +151,10 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
         },
     })
 
+    -- Native input border's left cap overhangs the box; inset so the scroll child doesn't clip it.
+    local inputInset = -Theme.INPUT_BORDER.leftOffset
     local levelsEdit = CreateFrame("EditBox", nil, scrollChild)
-    levelsEdit:SetPoint("TOPLEFT", levelsLabel, "BOTTOMLEFT", 0, -4)
+    levelsEdit:SetPoint("TOPLEFT", levelsLabel, "BOTTOMLEFT", inputInset, -4)
     levelsEdit:SetSize(44, 20)
     levelsEdit:SetFontObject(Theme.FONTS.body)
     levelsEdit:SetAutoFocus(false)
@@ -172,7 +174,7 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     levelsEdit:SetScript("OnEditFocusLost", saveLevelsAhead)
 
     local thresholdLabel = scrollChild:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
-    thresholdLabel:SetPoint("TOPLEFT", levelsEdit, "BOTTOMLEFT", 0, -14)
+    thresholdLabel:SetPoint("TOPLEFT", levelsEdit, "BOTTOMLEFT", -inputInset, -14)
     thresholdLabel:SetText("Upgrade threshold (% vs equipped)")
     Theme.AttachLabelHelpIcon(thresholdLabel, {
         title = "Upgrade threshold",
@@ -184,7 +186,7 @@ function AltArmy.BuildGearUpgradeOptionsUI(panel)
     })
 
     local thresholdEdit = CreateFrame("EditBox", nil, scrollChild)
-    thresholdEdit:SetPoint("TOPLEFT", thresholdLabel, "BOTTOMLEFT", 0, -4)
+    thresholdEdit:SetPoint("TOPLEFT", thresholdLabel, "BOTTOMLEFT", inputInset, -4)
     thresholdEdit:SetSize(44, 20)
     thresholdEdit:SetFontObject(Theme.FONTS.body)
     thresholdEdit:SetAutoFocus(false)
