@@ -421,18 +421,44 @@ local function formatCompareCharName(charName, classFile)
     return charName or "?"
 end
 
+--- Class-colored first name for compare-panel warnings (full name goes in the hover tooltip).
+local function formatCompareWarningCharName(charName, classFile)
+    if CC and CC.firstName then
+        charName = CC.firstName(charName)
+    end
+    return formatCompareCharName(charName, classFile)
+end
+
 function GU.FormatCompareSpecWarningText(charName, assumedSpec, classFile)
     return string.format(
         "%s's spec is unknown. Assuming %s",
-        formatCompareCharName(charName, classFile),
+        formatCompareWarningCharName(charName, classFile),
         assumedSpec or "Unknown")
 end
 
 function GU.FormatCompareUnpickedSpecWarningText(charName, assumedSpec, classFile)
     return string.format(
-        "%s hasn't picked a spec yet. Assuming %s",
-        formatCompareCharName(charName, classFile),
-        assumedSpec or "Unknown")
+        "Assuming %s spec for %s",
+        assumedSpec or "Unknown",
+        formatCompareWarningCharName(charName, classFile))
+end
+
+--- Compare-panel blocker when the character is on another realm (WoW Forever calls realms "rulesets").
+--- Nil when on the same realm or either realm is unknown.
+function GU.GetCompareRealmWarning(entry, currentRealm, isForever)
+    if not entry then return nil end
+    local realm = entry.realm or ""
+    currentRealm = currentRealm or ""
+    if realm == "" or currentRealm == "" or realm == currentRealm then return nil end
+    local nameText = formatCompareWarningCharName(entry.name, entry.classFile)
+    return {
+        kind = "different_realm",
+        text = nameText .. " is on a different " .. (isForever and "ruleset" or "server"),
+        charName = entry.name or "?",
+        realm = realm,
+        classFile = entry.classFile,
+        nameText = nameText,
+    }
 end
 
 local TALENT_SPEC_MIN_LEVEL = 10
@@ -493,6 +519,7 @@ function GU.GetCompareSpecWarning(entry, charData)
             realm = warningBase.realm,
             classFile = warningBase.classFile,
             assumedSpec = assumedSpec,
+            nameText = formatCompareWarningCharName(charName, warningBase.classFile),
         }
     end
 
@@ -504,6 +531,7 @@ function GU.GetCompareSpecWarning(entry, charData)
             realm = warningBase.realm,
             classFile = warningBase.classFile,
             assumedSpec = assumedSpec,
+            nameText = formatCompareWarningCharName(charName, warningBase.classFile),
         }
     end
 

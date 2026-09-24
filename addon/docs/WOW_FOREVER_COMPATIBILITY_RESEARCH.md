@@ -599,6 +599,14 @@ WoW Forever's **Legacy** system: an account-wide progression layer, separate fro
 
 **What's still open:** whether `C_ClassTalents.GetActiveConfigID()` really does double as the Legacy config getter (vs. Legacy needing its own, unguessed function), and whether the node/entry/definition chain above actually reaches Legacy tree nodes at all, are both unverified pre-confirmation. If `/altarmy debug apicheck` on a real Forever login shows the config resolves to nothing useful (e.g. only class-talent nodes come back, no Adventure-tree "Well Rested" match), the next step is hooking `ToggleLegacySystemUI`'s `OnShow` to force-resolve the Legacy-specific config, the same lazy-load gotcha `DataStoreTalents.lua` already hit with the classic talent UI (`ADDON_LOADED` → `Blizzard_TalentUI` → `PlayerTalentFrame:HookScript("OnShow", ...)`).
 
+## Recipe names/tooltips resolved to unrelated items (2026-09-23)
+
+**Symptom (live Forever):** Guild tab recipe list showed random item names/tooltips, or "Recipe 2662".
+
+**Cause:** `GuildTabData.ResolveRecipeDisplay`, the Guild tab's recipe link helper, and Search's recipe name/icon/link paths called the raw `GetSpellInfo` / `GetSpellLink` globals, which Forever doesn't have (`C_Spell` only). With the spell lookup silently skipped, they fell through to `GetItemInfo(recipeID)` — treating a spell id as an item id, which picks up whatever unrelated item shares that number (or nothing, leaving "Recipe N").
+
+**Fix:** those paths now use a `C_Spell` fallback (`DS.CompatGetSpellLink` in the tabs; self-contained helpers in the pure data modules). The Guild tab also prefers the scan-time `name` stored on local characters' recipes, then the crafted item's name, and only guesses recipeID-as-item last. Other raw `GetSpellInfo` callers (Cooldowns, CraftLib, SummaryData, SearchSettings) are untouched here.
+
 ## Sources
 
 - [Multi-TOC for World of Warcraft Addons — CurseForge support](https://support.curseforge.com/support/solutions/articles/9000209856-multi-toc-for-world-of-warcraft-addons)

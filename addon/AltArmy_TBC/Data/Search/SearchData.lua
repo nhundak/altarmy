@@ -154,10 +154,13 @@ end
 
 local function ResolveRecipeName(recipeID)
     if not recipeID then return nil end
-    if GetSpellInfo then
-        local name = GetSpellInfo(recipeID)
-        if name and name ~= "" then return name end
+    local spellName = GetSpellInfo and GetSpellInfo(recipeID)
+    if not spellName and C_Spell and C_Spell.GetSpellInfo then
+        -- Forever has only C_Spell; without it a spell id gets misread as an item id below.
+        local info = C_Spell.GetSpellInfo(recipeID)
+        spellName = info and info.name
     end
+    if spellName and spellName ~= "" then return spellName end
     if hasItemInfoApi() then
         local name = compatGetItemInfo(recipeID)
         if name and name ~= "" then return name end

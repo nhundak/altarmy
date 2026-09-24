@@ -2217,6 +2217,21 @@ describe("GuildTabData", function()
       }, GTD.GetProfessionRecipes(entry, "alchemy"))
     end)
 
+    it("carries the scan-time recipe name when one was stored", function()
+      local entry = member({
+        name = "A",
+        profs = {
+          { key = "alchemy", name = "Alchemy", rank = 300 },
+        },
+      })
+      entry.Professions.alchemy.Recipes = {
+        [11449] = { primaryRecipeID = 11449, resultItemID = 9187, name = "Elixir of Giants" },
+      }
+      assert.are.same({
+        { recipeID = 11449, resultItemID = 9187, name = "Elixir of Giants" },
+      }, GTD.GetProfessionRecipes(entry, "alchemy"))
+    end)
+
     it("returns empty when profession is missing", function()
       assert.are.same({}, GTD.GetProfessionRecipes(member({ name = "A" }), "alchemy"))
     end)
@@ -2658,6 +2673,55 @@ describe("GuildTabData", function()
       local _, icon, pendingItemID = GTD.ResolveRecipeDisplay(100, 4306)
       assert.are.equal(132905, icon)
       assert.is_nil(pendingItemID)
+    end)
+
+    describe("without the legacy GetSpellInfo global (WoW Forever)", function()
+      local savedCSpell
+      before_each(function()
+        savedCSpell = _G.C_Spell
+        _G.C_Spell = {
+          GetSpellInfo = function(id)
+            if id == 2662 then
+              return { name = "Copper Chain Pants", iconID = 132535, spellID = 2662 }
+            end
+          end,
+        }
+      end)
+      after_each(function()
+        _G.C_Spell = savedCSpell
+      end)
+
+      it("resolves the recipe name via C_Spell instead of misreading the spell id as an item id", function()
+        _G.GetItemInfo = function(id)
+          if id == 2662 then return "Unrelated Item" end
+        end
+        local name = GTD.ResolveRecipeDisplay(2662, nil)
+        assert.are.equal("Copper Chain Pants", name)
+      end)
+
+      it("uses the C_Spell icon when no result item is known", function()
+        _G.GetItemIcon = function(id)
+          if id == 2662 then return 999999 end
+        end
+        local _, icon = GTD.ResolveRecipeDisplay(2662, nil)
+        assert.are.equal(132535, icon)
+      end)
+    end)
+
+    it("prefers the scan-time recipe name over any id-based lookup", function()
+      _G.GetSpellInfo = function() return "Wrong Spell" end
+      _G.GetItemInfo = function() return "Wrong Item" end
+      local name = GTD.ResolveRecipeDisplay(100, nil, "Bolt of Silk")
+      assert.are.equal("Bolt of Silk", name)
+    end)
+
+    it("uses the crafted item's name before guessing the recipe id as an item id", function()
+      _G.GetItemInfo = function(id)
+        if id == 4306 then return "Silk Cloth" end
+        if id == 100 then return "Unrelated Item" end
+      end
+      local name = GTD.ResolveRecipeDisplay(100, 4306)
+      assert.are.equal("Silk Cloth", name)
     end)
   end)
 

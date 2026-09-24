@@ -116,8 +116,9 @@ local function GetRecipeLink(recipeID, resultItemID)
         if link and link ~= "" then return link end
     end
     if not recipeID then return nil end
-    if _G.GetSpellLink then
-        local link = _G.GetSpellLink(recipeID)
+    local compatGetSpellLink = AltArmy.DataStore and AltArmy.DataStore.CompatGetSpellLink
+    if compatGetSpellLink then
+        local link = compatGetSpellLink(recipeID)
         if link and link ~= "" then return link end
     end
     if compatGetItemInfo then

@@ -157,21 +157,24 @@ local function memberKey(entry)
     return (entry.realm or "") .. "\0" .. (entry.name or "")
 end
 
-local function GetRecipeLink(recipeID)
+-- Spell link via the compat shim (Forever has only C_Spell.GetSpellLink); then the crafted item.
+-- recipeID-as-item is a last resort — a spell id read as an item id links an unrelated item.
+local function GetRecipeLink(recipeID, resultItemID)
     if not recipeID then return nil end
-    if _G.GetSpellLink then
-        local link = _G.GetSpellLink(recipeID)
-        if link and link ~= "" then return link end
+    local link = DS.CompatGetSpellLink(recipeID)
+    if link and link ~= "" then return link end
+    if not DS.HasItemInfoApi() then return nil end
+    if resultItemID then
+        local _, itemLink = DS.CompatGetItemInfo(resultItemID)
+        if itemLink and itemLink ~= "" then return itemLink end
     end
-    if DS.HasItemInfoApi() then
-        local _, link = DS.CompatGetItemInfo(recipeID)
-        if link and link ~= "" then return link end
-    end
+    local _, itemLink = DS.CompatGetItemInfo(recipeID)
+    if itemLink and itemLink ~= "" then return itemLink end
     return nil
 end
 
-local function resolveRecipeDisplay(recipeID, resultItemID)
-    return GTD.ResolveRecipeDisplay(recipeID, resultItemID)
+local function resolveRecipeDisplay(recipe)
+    return GTD.ResolveRecipeDisplay(recipe.recipeID, recipe.resultItemID, recipe.name)
 end
 
 local showRecipeView
@@ -3974,11 +3977,11 @@ local function acquireRecipeRow(index)
             local recipeID = self.recipeID
             if not recipeID or not GameTooltip then return end
             GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-            local link = GetRecipeLink(recipeID)
+            local link = GetRecipeLink(recipeID, self.resultItemID)
             if link then
                 GameTooltip:SetHyperlink(link)
             else
-                GameTooltip:SetText("Recipe " .. tostring(recipeID))
+                GameTooltip:SetText(self.recipeName or ("Recipe " .. tostring(recipeID)))
             end
             GameTooltip:Show()
         end)
@@ -3987,7 +3990,7 @@ local function acquireRecipeRow(index)
         end)
         row:SetScript("OnMouseUp", function(self, button)
             if button ~= "LeftButton" or not IsShiftKeyDown() then return end
-            local link = GetRecipeLink(self.recipeID)
+            local link = GetRecipeLink(self.recipeID, self.resultItemID)
             if link and ChatEdit_InsertLink then
                 ChatEdit_InsertLink(link)
             end
@@ -4125,7 +4128,7 @@ layoutRecipeView = function(entry)
     end
 
     local filteredRecipes = GTD.FilterRecipesBySearch(allRecipes, recipeSearchText, function(recipe)
-        return select(1, resolveRecipeDisplay(recipe.recipeID, recipe.resultItemID))
+        return select(1, resolveRecipeDisplay(recipe))
     end)
     local showSkillCol = isCraftLibAvailable()
     if not showSkillCol and recipeSortKey == "skill" then
@@ -4136,7 +4139,7 @@ layoutRecipeView = function(entry)
         professionName = selectedProf and selectedProf.name,
         skillRank = selectedProf and selectedProf.rank or 0,
         getRecipeName = function(recipe)
-            return select(1, resolveRecipeDisplay(recipe.recipeID, recipe.resultItemID))
+            return select(1, resolveRecipeDisplay(recipe))
         end,
     })
     local preserveScroll = GTD.AreRecipeListsEqual(recipeViewport._lastRecipes, recipes)
@@ -4155,9 +4158,11 @@ layoutRecipeView = function(entry)
         row:SetPoint("TOPLEFT", recipeScrollChild, "TOPLEFT", 0, -y)
         row:SetPoint("TOPRIGHT", recipeScrollChild, "TOPRIGHT", 0, -y)
         row.recipeID = recipe.recipeID
+        row.resultItemID = recipe.resultItemID
         layoutRecipeRowColumns(row, showSkillCol)
         local enriched = GTD.EnrichRecipeEntry(recipe, profName, skillRank)
-        local recipeName, iconPath, pendingItemID = resolveRecipeDisplay(enriched.recipeID, enriched.resultItemID)
+        local recipeName, iconPath, pendingItemID = resolveRecipeDisplay(recipe)
+        row.recipeName = recipeName
         trackPendingRecipeIcon(pendingItemID)
         local highlightedName = GTD.FormatTextWithSearchHighlight(recipeName, nil, recipeSearchText)
         row.label:SetText(("|T%s:0|t %s"):format(iconPath, highlightedName))

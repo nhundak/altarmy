@@ -291,6 +291,35 @@ describe("GearUpgrade", function()
         assert.matches("spec is unknown%. Assuming Enhancement", text)
     end)
 
+    it("FormatCompareSpecWarningText shows first name only", function()
+        local text = GU.FormatCompareSpecWarningText("Totem Earthsong", "Enhancement", "SHAMAN")
+        assert.is_true(text:find("Totem", 1, true) ~= nil)
+        assert.is_nil(text:find("Earthsong", 1, true))
+    end)
+
+    it("GetCompareRealmWarning flags a character on another server by first name", function()
+        local w = GU.GetCompareRealmWarning(
+            { name = "Totem Earthsong", realm = "Faerlina", classFile = "SHAMAN" }, "Benediction", false)
+        assert.are.equal("different_realm", w.kind)
+        assert.are.equal("Totem Earthsong", w.charName)
+        assert.are.equal("SHAMAN", w.classFile)
+        assert.are.equal(w.nameText .. " is on a different server", w.text)
+        assert.is_nil(w.text:find("Earthsong", 1, true))
+    end)
+
+    it("GetCompareRealmWarning says ruleset on WoW Forever", function()
+        local w = GU.GetCompareRealmWarning(
+            { name = "Totem", realm = "Hardcore", classFile = "SHAMAN" }, "Normal", true)
+        assert.matches("is on a different ruleset$", w.text)
+    end)
+
+    it("GetCompareRealmWarning is nil on the same realm or unknown realm", function()
+        assert.is_nil(GU.GetCompareRealmWarning({ name = "A", realm = "X" }, "X", false))
+        assert.is_nil(GU.GetCompareRealmWarning({ name = "A", realm = "" }, "X", false))
+        assert.is_nil(GU.GetCompareRealmWarning({ name = "A", realm = "X" }, "", false))
+        assert.is_nil(GU.GetCompareRealmWarning(nil, "X", false))
+    end)
+
     it("GetCompareSpecWarning when talent data is missing", function()
         AltArmy.SummaryData = {
             GetTalentSpecMissingInfo = function(name)
@@ -349,10 +378,9 @@ describe("GearUpgrade", function()
         local warning = GU.GetCompareSpecWarning(entry, char)
         assert.is_truthy(warning)
         assert.are.equal("unpicked_spec", warning.kind)
-        assert.matches("hasn't picked a spec yet", warning.text)
+        assert.are.equal("Assuming Enhancement spec for " .. warning.nameText, warning.text)
         assert.is_nil(warning.text:match("spec is unknown"))
         assert.matches("FreshSixty", warning.text)
-        assert.matches("Enhancement", warning.text)
     end)
 
     it("GetCompareSpecWarning uses unpicked message for low-level characters with talent data", function()
@@ -363,7 +391,7 @@ describe("GearUpgrade", function()
         local entry = { name = "Lowbie", realm = "TestRealm", classFile = "MAGE", level = 8 }
         local warning = GU.GetCompareSpecWarning(entry, char)
         assert.are.equal("unpicked_spec", warning.kind)
-        assert.matches("hasn't picked a spec yet", warning.text)
+        assert.matches("^Assuming %a+ spec for ", warning.text)
     end)
 
     it("ScoreItemCustom weights wand ranged_dps for hunters", function()

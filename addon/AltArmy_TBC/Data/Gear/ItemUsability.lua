@@ -571,8 +571,12 @@ function IU.NeedsFishingTraining(classFile, charLevel, link, charData)
     return true
 end
 
+--- Class-colored first name for compare-panel warnings (full name goes in the hover tooltip).
 local function formatWarningCharName(name, classFile)
     local CC = AltArmy.ClassColor
+    if CC and CC.firstName then
+        name = CC.firstName(name)
+    end
     if CC and CC.wrapName then
         return CC.wrapName(name, classFile)
     end
@@ -642,8 +646,15 @@ IU.EQUIP_WARNING_KIND = {
     TRAINING = "training",
 }
 
-local function addEquipWarning(warnings, text, kind)
-    warnings[#warnings + 1] = { text = text, kind = kind }
+--- nameText is the colored name as embedded in text; charName is the full name for the tooltip.
+local function addEquipWarning(warnings, text, kind, charName, classFile, nameText)
+    warnings[#warnings + 1] = {
+        text = text,
+        kind = kind,
+        charName = charName,
+        classFile = classFile,
+        nameText = nameText,
+    }
 end
 
 function IU.GetEquipWarningText(warning)
@@ -670,7 +681,8 @@ function IU.GetEquipWarnings(classFile, charLevel, charName, link, charData)
         addEquipWarning(
             warnings,
             formatSoulboundWarning(link, coloredName),
-            IU.EQUIP_WARNING_KIND.SOULBOUND)
+            IU.EQUIP_WARNING_KIND.SOULBOUND,
+            ownerName, ownerClass, coloredName)
     end
 
     if IU.CanNeverUseItem(classFile, link) then
@@ -679,7 +691,8 @@ function IU.GetEquipWarnings(classFile, charLevel, charName, link, charData)
         addEquipWarning(
             warnings,
             coloredName .. " can never equip this (" .. skill .. ")",
-            IU.EQUIP_WARNING_KIND.NEVER)
+            IU.EQUIP_WARNING_KIND.NEVER,
+            charName, classFile, coloredName)
         return warnings
     end
 
@@ -689,7 +702,8 @@ function IU.GetEquipWarnings(classFile, charLevel, charName, link, charData)
         addEquipWarning(
             warnings,
             formatLevelRequirementWarning(coloredName, charLevel, effective),
-            IU.EQUIP_WARNING_KIND.LEVEL)
+            IU.EQUIP_WARNING_KIND.LEVEL,
+            charName, classFile, coloredName)
     end
 
     if IU.NeedsProficiencyTraining(classFile, charLevel, link, charData) then
@@ -699,7 +713,8 @@ function IU.GetEquipWarnings(classFile, charLevel, charName, link, charData)
         addEquipWarning(
             warnings,
             coloredName .. " must train " .. skill .. " to equip this",
-            IU.EQUIP_WARNING_KIND.TRAINING)
+            IU.EQUIP_WARNING_KIND.TRAINING,
+            charName, classFile, coloredName)
     end
 
     if IU.NeedsFishingTraining(classFile, charLevel, link, charData) then
@@ -707,7 +722,8 @@ function IU.GetEquipWarnings(classFile, charLevel, charName, link, charData)
         addEquipWarning(
             warnings,
             coloredName .. " must train Fishing to equip this",
-            IU.EQUIP_WARNING_KIND.TRAINING)
+            IU.EQUIP_WARNING_KIND.TRAINING,
+            charName, classFile, coloredName)
     end
 
     return warnings

@@ -66,6 +66,20 @@ describe("ClassColor", function()
     end)
   end)
 
+  describe("firstName", function()
+    it("returns the first word of a WoW Forever style name", function()
+      assert.are.equal("Aldric", CC.firstName("Aldric Stormwind"))
+    end)
+
+    it("passes single-word names through unchanged", function()
+      assert.are.equal("Alt", CC.firstName("Alt"))
+    end)
+
+    it("returns ? for nil", function()
+      assert.are.equal("?", CC.firstName(nil))
+    end)
+  end)
+
   describe("formatNameWithSuffix", function()
     it("appends a title-colored suffix after the class-colored name", function()
       local out = CC.formatNameWithSuffix("Alice", "WARRIOR", " options", { 0.85, 0.78, 0.42 })

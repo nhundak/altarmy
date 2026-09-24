@@ -72,12 +72,27 @@ local function sumLoadoutSideStats(mhLink, ohLink)
         if not link then return end
         local stats = getRawStats(link)
         for key, value in pairs(stats) do
-            local v = tonumber(value) or 0
-            if isOffhand and key == OFFHAND_SCALED_STAT and v ~= 0 then
-                v = v * offhandDpsFactor()
-                scaled = true
+            if key == "conditional" then
+                -- Situational stat groups (condition -> { short key -> number }); merge per
+                -- condition rather than coercing the table to a number.
+                if type(value) == "table" then
+                    totals.conditional = totals.conditional or {}
+                    for condition, sub in pairs(value) do
+                        local merged = totals.conditional[condition] or {}
+                        totals.conditional[condition] = merged
+                        for subKey, subValue in pairs(sub) do
+                            merged[subKey] = (merged[subKey] or 0) + (tonumber(subValue) or 0)
+                        end
+                    end
+                end
+            else
+                local v = tonumber(value) or 0
+                if isOffhand and key == OFFHAND_SCALED_STAT and v ~= 0 then
+                    v = v * offhandDpsFactor()
+                    scaled = true
+                end
+                totals[key] = (totals[key] or 0) + v
             end
-            totals[key] = (totals[key] or 0) + v
         end
     end
     addStats(mhLink, false)
@@ -297,10 +312,6 @@ local function collapseAllResistanceRows(rows)
     return collapsed
 end
 
--- Extra indent (beyond the base row indent) applied to a stat row nested under a conditional
--- group's header row.
-local CONDITIONAL_STAT_ROW_INDENT = 5
-
 local function buildConditionalRows(newConditional, oldConditional)
     local labels = {}
     local seenLabel = {}
@@ -349,7 +360,6 @@ local function buildConditionalRows(newConditional, oldConditional)
                     unimportant = true,
                     hideWeight = true,
                     conditional = true,
-                    indent = CONDITIONAL_STAT_ROW_INDENT,
                 }
             end
         end

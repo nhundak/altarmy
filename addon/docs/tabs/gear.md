@@ -43,8 +43,14 @@ still on the drop prompt returns to Grid; a focused item stays in Upgrade Check.
 - Stat delta rows vs equipped piece; dual-wield offhand DPS is scaled to match upgrade scoring.
 - All six resistance schools collapse into a single "All Resistances" row when their values match.
 - Situational/conditional bonuses (e.g. "Increases X in \<condition\>") are grouped under a header
-  row naming the condition, with their stats indented underneath; excluded from the weighted
+  row naming the condition, with their stats listed underneath; excluded from the weighted
   score for now.
+- Warning lines under the verdict (soulbound, level, proficiency, spec assumptions, different
+  server) are red for hard blockers and yellow for cautions. A character on another realm gets a
+  red "*Name* is on a different server" line ("ruleset" on WoW Forever). The verdict and warnings
+  show only the character's class-colored first name (WoW Forever names are "First Last");
+  hovering the name shows the full name, plus " — Realm" when the realm filter shows all realms.
+- Loot / quest upgrade alerts only consider characters on the current realm.
 - Debug Dump button when `/altarmy debug on` — see [COMPARE_PANEL_DEBUG_DUMP.md](../COMPARE_PANEL_DEBUG_DUMP.md).
 
 ## Upgrade scoring and alerts

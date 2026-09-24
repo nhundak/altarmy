@@ -18,6 +18,15 @@ local function compatGetItemInfo(item)
     if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
 end
 
+--- Legacy GetSpellInfo tuple (name, rank, icon); Forever has only C_Spell.GetSpellInfo.
+local function compatGetSpellInfo(spellID)
+    if GetSpellInfo then return GetSpellInfo(spellID) end
+    if C_Spell and C_Spell.GetSpellInfo then
+        local info = C_Spell.GetSpellInfo(spellID)
+        if info then return info.name, nil, info.iconID end
+    end
+end
+
 local function LocationSortKey(location)
     if location == "bag" then return 1 end
     if location == "keyring" then return 2 end
@@ -556,8 +565,10 @@ function SP.EnsureRecipeDisplayCache(entry)
         if entry.name and entry.name ~= "" then
             matchName = entry.name
         end
-        if GetSpellInfo and entry.recipeID then
-            local name, _, spellIcon = GetSpellInfo(entry.recipeID)
+        local spellIcon
+        if entry.recipeID then
+            local name, _, icon = compatGetSpellInfo(entry.recipeID)
+            spellIcon = icon
             if name and matchName == ("Recipe " .. tostring(entry.recipeID or "?")) then
                 matchName = name
             end
@@ -576,7 +587,7 @@ function SP.EnsureRecipeDisplayCache(entry)
             if resultIcon then
                 iconPath = resultIcon
             end
-        elseif hasItemInfoApi() and entry.recipeID then
+        elseif not spellIcon and hasItemInfoApi() and entry.recipeID then
             local _, _, _, _, _, _, _, _, _, icon = compatGetItemInfo(entry.recipeID)
             if icon then
                 iconPath = icon

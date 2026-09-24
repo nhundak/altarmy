@@ -57,6 +57,15 @@ function CC.formatName(name, classFile)
     return "|cffffffff" .. name .. "|r"
 end
 
+--- First word of a character name. WoW Forever names are "First Last"; single-word
+--- names pass through unchanged.
+--- @param name string|nil
+--- @return string
+function CC.firstName(name)
+    if type(name) ~= "string" or name == "" then return "?" end
+    return name:match("^(%S+)") or name
+end
+
 --- Like formatName but returns plain text when class color is unavailable.
 --- @param text string|nil
 --- @param classFile string|nil

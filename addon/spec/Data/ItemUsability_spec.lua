@@ -504,6 +504,19 @@ describe("ItemUsability", function()
         assert.are.equal(IU.EQUIP_WARNING_KIND.LEVEL, warnings[1].kind)
     end)
 
+    it("GetEquipWarnings shows first name only and keeps full name for tooltip", function()
+        _G.IsUsableItem = nil
+        local warnings = IU.GetEquipWarnings(
+            "PALADIN", 35, "Tome Lightbringer", "|Hitem:2:0|h[Plate Helm]|h")
+        assert.are.equal(1, #warnings)
+        assert.are.equal(
+            coloredName("Tome", "PALADIN") .. " must gain 5 levels to equip this",
+            warningText(warnings[1]))
+        assert.are.equal("Tome Lightbringer", warnings[1].charName)
+        assert.are.equal("PALADIN", warnings[1].classFile)
+        assert.are.equal(coloredName("Tome", "PALADIN"), warnings[1].nameText)
+    end)
+
     it("GetEquipWarnings includes proficiency training when skill is missing", function()
         _G.AltArmyTBC_ItemUsabilityScanTooltipTextLeft1 = {
             GetText = function() return "" end,

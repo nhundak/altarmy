@@ -334,7 +334,7 @@ describe("GearCompare", function()
         end
 
         -- The conditional group is rendered as a header row (the condition text) followed by an
-        -- indented stat row with no parenthetical; its six equal resistances also collapse.
+        -- unindented stat row with no parenthetical; its six equal resistances also collapse.
         local headerRow, groupedRow, scalarRow
         for _, row in ipairs(withConditional.sections[1].rows) do
             if row.isHeader then
@@ -352,7 +352,7 @@ describe("GearCompare", function()
         assert.is_not_nil(groupedRow)
         assert.are.equal("All Resistances", groupedRow.label)
         assert.is_true(groupedRow.hideWeight)
-        assert.are.equal(5, groupedRow.indent)
+        assert.is_nil(groupedRow.indent)
     end)
 
     it("BuildComparison collapses identical resistance rows into a single All Resistances row", function()
@@ -802,6 +802,71 @@ describe("GearCompare", function()
         assert.are.equal(25, strengthRow.newValue)
         assert.are.equal(20, strengthRow.oldValue)
         assert.are.equal(5, strengthRow.delta)
+    end)
+
+    it("BuildComparison merges conditional stats across a dual-wield loadout instead of erroring", function()
+        local oldGetItemInfo = _G.GetItemInfo
+        local oldGetNormalized = AltArmy.ItemStats.GetNormalized
+        _G.GetItemInfo = function(item)
+            local id = type(item) == "number" and item
+                or tonumber(tostring(item):match("item:(%d+)"))
+            local items = {
+                [211] = { "Old MH", nil, 2, 30, 30, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+                [212] = { "Old OH", nil, 2, 25, 25, "Weapon", "Daggers", nil, "INVTYPE_WEAPON" },
+                [213] = { "New 1H", nil, 3, 40, 40, "Weapon", "One-Handed Swords", nil, "INVTYPE_WEAPON" },
+            }
+            local info = items[id]
+            if info then
+                local link = "|cff|Hitem:" .. tostring(id) .. ":0|h[" .. info[1] .. "]|h|r"
+                return info[1], link, info[3], info[4], info[5], info[6], info[7], nil, info[9]
+            end
+            return oldGetItemInfo(item)
+        end
+        local zone = "in Forest and Grassland areas"
+        AltArmy.ItemStats.GetNormalized = function(link)
+            local id = tonumber(tostring(link):match("item:(%d+)"))
+            if id == 211 then return { str = 10, conditional = { [zone] = { sta = 4 } } } end
+            if id == 212 then return { str = 6, conditional = { [zone] = { sta = 3 } } } end
+            if id == 213 then return { str = 14 } end
+            return {}
+        end
+        _G.AltArmyTBC_Data.Characters.TestRealm.RogueDW = {
+            name = "RogueDW",
+            realm = "TestRealm",
+            classFile = "ROGUE",
+            level = 60,
+            Inventory = {
+                [16] = "|Hitem:211:0|h[Old MH]|h",
+                [17] = "|Hitem:212:0|h[Old OH]|h",
+            },
+            talents = { tabs = { 0, 21, 0 }, primary = 2, specKey = "combat" },
+        }
+        local char = DS:GetCharacter("RogueDW", "TestRealm")
+        local entry = { name = "RogueDW", realm = "TestRealm", classFile = "ROGUE", level = 60 }
+        local ok, result = pcall(GC.BuildComparison,
+            "|Hitem:213:0|h[New 1H]|h",
+            "|Hitem:211:0|h[Old MH]|h",
+            "custom",
+            char,
+            entry,
+            { compareSlot = 16 })
+        _G.GetItemInfo = oldGetItemInfo
+        AltArmy.ItemStats.GetNormalized = oldGetNormalized
+        _G.AltArmyTBC_Data.Characters.TestRealm.RogueDW = nil
+
+        assert.is_true(ok, tostring(result))
+        local headerRow, groupedRow
+        for _, row in ipairs(result.sections[1].rows) do
+            if row.isHeader then
+                headerRow = row
+            elseif row.conditional then
+                groupedRow = row
+            end
+        end
+        assert.is_not_nil(headerRow)
+        assert.are.equal("... " .. zone .. ":", headerRow.label)
+        assert.is_not_nil(groupedRow)
+        assert.are.equal("sta", groupedRow.statKey)
     end)
 
     it("BuildComparison scales off-hand melee DPS and flags the row with a hint", function()

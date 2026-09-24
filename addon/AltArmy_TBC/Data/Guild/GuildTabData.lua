@@ -21,6 +21,16 @@ local function compatGetItemInfo(item)
     if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
 end
 
+--- Legacy GetSpellInfo tuple (name, rank, icon). Forever has only C_Spell.GetSpellInfo;
+--- without this fallback a recipe spell id got misread as an unrelated item id.
+local function compatGetSpellInfo(spellID)
+    if GetSpellInfo then return GetSpellInfo(spellID) end
+    if C_Spell and C_Spell.GetSpellInfo then
+        local info = C_Spell.GetSpellInfo(spellID)
+        if info then return info.name, nil, info.iconID end
+    end
+end
+
 --- Patch 12.0+ clients (Forever included) can hand GetGuildRosterInfo() names/notes
 --- to addons as Secret Values that error on any operation beyond store/pass.
 --- `canaccessvalue()` (existence-checked) is the guard, matching
@@ -318,11 +328,14 @@ local function buildRecipeList(prof)
     local recipes = prof and prof.Recipes or {}
     for _, id in ipairs(ids) do
         local data = recipes[id]
-        local resultItemID
-        if type(data) == "table" and data.resultItemID then
+        local resultItemID, name
+        if type(data) == "table" then
             resultItemID = data.resultItemID
+            if type(data.name) == "string" and data.name ~= "" then
+                name = data.name
+            end
         end
-        out[#out + 1] = { recipeID = id, resultItemID = resultItemID }
+        out[#out + 1] = { recipeID = id, resultItemID = resultItemID, name = name }
     end
     return out
 end
@@ -378,20 +391,24 @@ local function resolveItemIcon(itemID)
 end
 
 --- Resolve recipe display name and icon for guild-tab rows.
+--- knownName (optional) is the name captured at scan time and wins over id-based lookups.
 --- Returns recipeName, iconPath, pendingItemID (item id to watch via GET_ITEM_INFO_RECEIVED, or nil).
-function GTD.ResolveRecipeDisplay(recipeID, resultItemID)
-    local recipeName = "Recipe " .. tostring(recipeID or "?")
+function GTD.ResolveRecipeDisplay(recipeID, resultItemID, knownName)
+    local recipeName = (type(knownName) == "string" and knownName ~= "") and knownName or nil
     local iconPath = QUESTION_MARK_ICON
     local pendingItemID = nil
 
-    if GetSpellInfo and recipeID then
-        local name = GetSpellInfo(recipeID)
-        if name then recipeName = name end
+    if not recipeName and recipeID then
+        recipeName = compatGetSpellInfo(recipeID)
     end
-    if recipeName == ("Recipe " .. tostring(recipeID or "?")) and hasItemInfoApi() and recipeID then
-        local name = compatGetItemInfo(recipeID)
-        if name then recipeName = name end
+    -- The crafted item is a reliable stand-in; recipeID-as-item is a last-resort guess.
+    if not recipeName and resultItemID and hasItemInfoApi() then
+        recipeName = compatGetItemInfo(resultItemID)
     end
+    if not recipeName and recipeID and hasItemInfoApi() then
+        recipeName = compatGetItemInfo(recipeID)
+    end
+    recipeName = recipeName or ("Recipe " .. tostring(recipeID or "?"))
 
     if resultItemID then
         local icon = resolveItemIcon(resultItemID)
@@ -401,16 +418,11 @@ function GTD.ResolveRecipeDisplay(recipeID, resultItemID)
             pendingItemID = resultItemID
         end
     elseif recipeID then
-        local icon = resolveItemIcon(recipeID)
+        -- Spell first: recipe ids are normally spell ids; reading one as an item id shows an unrelated icon.
+        local _, _, spellIcon = compatGetSpellInfo(recipeID)
+        local icon = spellIcon or resolveItemIcon(recipeID)
         if icon then
             iconPath = icon
-        elseif GetSpellInfo then
-            local _, _, spellIcon = GetSpellInfo(recipeID)
-            if spellIcon then
-                iconPath = spellIcon
-            else
-                pendingItemID = recipeID
-            end
         else
             pendingItemID = recipeID
         end

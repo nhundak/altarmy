@@ -124,6 +124,7 @@ GearTab.COMPARE_WARNING_KIND = {
     MISSING_SPEC = "missing_spec",
     UNPICKED_SPEC = "unpicked_spec",
     WEAPON_LOADOUT = "weapon_loadout",
+    DIFFERENT_REALM = "different_realm",
 }
 local COMPARE_PANEL_PAD = 8
 local COMPARE_PANEL_MIN_HEIGHT = 100
@@ -450,12 +451,13 @@ function GearTab.FormatCompareFocusVsLabel()
     return "vs"
 end
 
+--- Returns the prefix text plus the colored first-name segment (for the name hover tooltip).
 function GearTab.FormatCompareVerdictPrefix(charName, classFile)
-    local namePart = charName or "?"
+    local namePart = (CC and CC.firstName) and CC.firstName(charName) or (charName or "?")
     if CC and CC.formatName then
-        namePart = CC.formatName(charName, classFile)
+        namePart = CC.formatName(namePart, classFile)
     end
-    return "Verdict for " .. namePart .. ": "
+    return "Verdict for " .. namePart .. ": ", namePart
 end
 
 function GearTab.GetCompareFocusItemName(itemLink)
@@ -651,6 +653,10 @@ function GearTab.GetCompareWarningSeverity(warning, entry)
         and warning.kind == GearTab.COMPARE_WARNING_KIND.WEAPON_LOADOUT then
         return "caution"
     end
+    if type(warning) == "table"
+        and warning.kind == GearTab.COMPARE_WARNING_KIND.DIFFERENT_REALM then
+        return "blocking"
+    end
     local kind = IU and IU.GetEquipWarningKind and IU.GetEquipWarningKind(warning)
     if kind == IU.EQUIP_WARNING_KIND.SOULBOUND then
         if isCompareEntryCurrentCharacter(entry) then
@@ -715,6 +721,14 @@ function GearTab.GetCompareWarnings(entry, itemLink, charData)
         local specWarning = GU.GetCompareSpecWarning(entry, charData)
         if specWarning then
             warnings[#warnings + 1] = specWarning
+        end
+    end
+    if entry and itemLink and GU and GU.GetCompareRealmWarning then
+        local realmWarning = GU.GetCompareRealmWarning(
+            entry, (DS and DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm()) or "",
+            DS and DS.IsWowForever)
+        if realmWarning then
+            warnings[#warnings + 1] = realmWarning
         end
     end
     if entry and itemLink and IU and IU.GetEquipWarnings then
@@ -2605,6 +2619,70 @@ function GearTab.HideCompareEmptyState()
     GearTab.HideCompareEmptyHint()
 end
 
+--- Measuring FontString matching compare-panel body text.
+function GearTab.GetCompareNameMeasure()
+    if not compareStatUI.nameMeasure then
+        local fs = compareLeftPanel:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
+        fs:SetPoint("TOPLEFT", compareLeftPanel, "TOPLEFT", 0, 0)
+        fs:SetAlpha(0)
+        compareStatUI.nameMeasure = fs
+    end
+    return compareStatUI.nameMeasure
+end
+
+--- Hover hit area over a shortened (first-name) character name inside a right-justified
+--- FontString; the tooltip shows the full class-colored name, plus " — realm" when the global
+--- realm filter shows all realms. Hidden when nothing was shortened.
+function GearTab.GetCompareNameHit(parent)
+    if not parent.nameHit then
+        local hit = CreateFrame("Frame", nil, parent)
+        hit:EnableMouse(true)
+        hit:SetScript("OnEnter", function(self)
+            if not self.fullName then return end
+            local RF = AltArmy.RealmFilter
+            local GRF = AltArmy.GlobalRealmFilter
+            local showRealm = (GRF and GRF.Get and GRF.Get() == "all") or false
+            local label = RF and RF.formatColoredCharacterNameRealm
+                and RF.formatColoredCharacterNameRealm(
+                    self.fullName, self.realm, showRealm, self.classFile, false)
+                or self.fullName
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine(label, 1, 1, 1)
+            GameTooltip:Show()
+        end)
+        hit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        parent.nameHit = hit
+    end
+    return parent.nameHit
+end
+
+function GearTab.PositionCompareNameHit(parent, fontString, text, nameText, fullName, classFile, realm)
+    local hit = GearTab.GetCompareNameHit(parent)
+    hit:Hide()
+    if type(text) ~= "string" or type(nameText) ~= "string" or type(fullName) ~= "string" then
+        return
+    end
+    if not CC or not CC.firstName or CC.firstName(fullName) == fullName then return end
+    local startIdx = text:find(nameText, 1, true)
+    if not startIdx then return end
+    local measure = GearTab.GetCompareNameMeasure()
+    measure:SetText(text)
+    local totalW = measure:GetStringWidth() or 0
+    measure:SetText(text:sub(1, startIdx - 1))
+    local prefixW = (startIdx > 1) and (measure:GetStringWidth() or 0) or 0
+    measure:SetText(nameText)
+    local nameW = measure:GetStringWidth() or 0
+    if nameW <= 0 then return end
+    hit.fullName = fullName
+    hit.classFile = classFile
+    hit.realm = realm
+    hit:ClearAllPoints()
+    hit:SetPoint("LEFT", fontString, "RIGHT", -(totalW - prefixW), 0)
+    hit:SetSize(nameW, COMPARE_ROW_HEIGHT)
+    hit:Show()
+end
+
 function GearTab.HideCompareWarningRows()
     for i = 1, #compareWarningRows do
         compareWarningRows[i]:Hide()
@@ -2654,8 +2732,11 @@ function GearTab.LayoutComparePanelSections(warnings, verdict, entry)
         if verdict and verdict.label then
             local charName = entry and entry.name or "?"
             local classFile = entry and entry.classFile or nil
-            compareVerdictPrefix:SetText(
-                GearTab.FormatCompareVerdictPrefix(charName, classFile))
+            local prefixText, nameText = GearTab.FormatCompareVerdictPrefix(charName, classFile)
+            compareVerdictPrefix:SetText(prefixText)
+            GearTab.PositionCompareNameHit(
+                compareVerdictRow, compareVerdictPrefix, prefixText, nameText, charName, classFile,
+                entry and entry.realm)
             compareVerdictLabel:SetText(verdict.label)
             compareVerdictLabel:SetTextColor(verdict.r or 1, verdict.g or 1, verdict.b or 1, 1)
             compareVerdictRow:SetPoint("TOPLEFT", compareLeftPanel, "TOPLEFT", 0, 0)
@@ -2691,6 +2772,18 @@ function GearTab.LayoutComparePanelSections(warnings, verdict, entry)
                 text = IU and IU.GetEquipWarningText and IU.GetEquipWarningText(warning) or warning
             end
             row.label:SetText(text)
+            if type(warning) == "table" then
+                -- Soulbound names the current character (the item's holder), not the compared alt.
+                local warningRealm = warning.realm
+                if not warningRealm and IU and warning.kind == IU.EQUIP_WARNING_KIND.SOULBOUND then
+                    warningRealm = DS and DS.GetCurrentPlayerRealm and DS:GetCurrentPlayerRealm()
+                end
+                GearTab.PositionCompareNameHit(
+                    row, row.label, text, warning.nameText, warning.charName, warning.classFile,
+                    warningRealm or (entry and entry.realm))
+            elseif row.nameHit then
+                row.nameHit:Hide()
+            end
             local wr, wg, wb = GearTab.GetCompareWarningColor(warning, entry)
             row.label:SetTextColor(wr, wg, wb, 1)
             row:ClearAllPoints()
@@ -2834,10 +2927,9 @@ function GearTab.LayoutCompareStatRowColumns(rowCells, data)
     end
     weightFs:Show()
     local left = indent
-    local extraIndent = (data and data.indent) or 0
     nameFs:ClearAllPoints()
-    nameFs:SetPoint("TOPLEFT", rowCells.frame, "TOPLEFT", left + extraIndent, 0)
-    nameFs:SetWidth(COMPARE_STAT_COL_NAME - extraIndent)
+    nameFs:SetPoint("TOPLEFT", rowCells.frame, "TOPLEFT", left, 0)
+    nameFs:SetWidth(COMPARE_STAT_COL_NAME)
     nameFs:SetJustifyH("LEFT")
     left = left + COMPARE_STAT_COL_NAME
     deltaFs:ClearAllPoints()
