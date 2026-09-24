@@ -32,7 +32,7 @@ To browse locally: `git clone --depth 1 --branch forever https://github.com/Geth
 
 ## Template / API availability
 
-Checked by grepping both branches for the template definition. **Caveat:** a template file existing in a branch doesn't mean the client loads it. Also check the branch's `.toc` (see Modern tab bar), or confirm with the `nativeui-caps` dev dump.
+Checked by grepping both branches for the template definition. **Caveat:** a template file existing in a branch doesn't mean the client loads it. Also check the branch's `.toc` (see Modern tab bar), or check `NativeUI.GetCaps()` in-game.
 
 | Element | Template / API | Forever | TBC 2.5.6 | Notes |
 |---|---|---|---|---|
@@ -110,9 +110,6 @@ The rework goes **fully native**: the dark/bronze theme is removed, with no togg
   - panels: `InsetFrameTemplate`
 - **Fonts:** a role → Blizzard font object map, taken from Forever's CharacterFrame / ReputationFrame usage.
 - **Capability layer:** `AltArmy_TBC/UI/NativeUI.lua` (`HasTemplate`, `HasAtlas`, `GetCaps`) chooses between a template and its fallback.
-  - With `/altarmy debug on`, it writes a `nativeui-caps` dev dump at login (see [DEV_DUMPS.md](DEV_DUMPS.md)).
-  - The dump holds the capabilities, the side-tab atlas size, and the CharacterFrame size and scale.
-  - Capture it on both clients before building on these assumptions.
 
 ## Not yet done
 

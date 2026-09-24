@@ -100,7 +100,26 @@ end
 local totalHeight = 0
 local prevBlock = nil
 
-for _, key in ipairs(CD.CATEGORY_ORDER) do
+local DS = AltArmy.DataStore
+local isForever = DS and DS.IsWowForever or false
+
+-- WoW Forever: most categories are TBC-only crafts; show a WIP banner and Transmute only.
+if isForever then
+    local banner = CreateFrame("Frame", nil, scrollChild)
+    banner:SetWidth(520)
+    local bannerFs = banner:CreateFontString(nil, "OVERLAY", Theme.FONTS.headline)
+    bannerFs:SetPoint("TOPLEFT", banner, "TOPLEFT", 0, 0)
+    bannerFs:SetWidth(520)
+    bannerFs:SetJustifyH("LEFT")
+    bannerFs:SetText("These settings are a work in progress for WoW Forever")
+    local bannerH = math.ceil(bannerFs:GetStringHeight() or 20) + 8
+    banner:SetHeight(bannerH)
+    banner:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, 0)
+    totalHeight = totalHeight + bannerH + BLOCK_GAP
+    prevBlock = banner
+end
+
+for _, key in ipairs(CD.GetOptionsCategoryOrder(isForever)) do
     local catDef = CD.CATEGORIES[key]
     local title = catDef and catDef.title or key
     local block = CreateFrame("Frame", nil, scrollChild)

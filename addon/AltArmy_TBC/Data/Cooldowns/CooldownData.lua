@@ -26,6 +26,19 @@ CD.CATEGORY_ORDER = {
     "void_sphere",
 }
 
+--- Categories WoW Forever's Options → Cooldowns tab shows (the rest are TBC-specific crafts).
+CD.FOREVER_OPTIONS_CATEGORY_ORDER = { "transmute" }
+
+--- Category keys the Options → Cooldowns tab builds rows for.
+---@param isForever boolean
+---@return string[]
+function CD.GetOptionsCategoryOrder(isForever)
+    if isForever then
+        return CD.FOREVER_OPTIONS_CATEGORY_ORDER
+    end
+    return CD.CATEGORY_ORDER
+end
+
 -- TBC enchanting sphere crafts share one cooldown (2 days).
 CD.SPHERE_SPELL_IDS = {
     28028, -- Void Sphere

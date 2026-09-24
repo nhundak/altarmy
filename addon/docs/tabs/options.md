@@ -9,7 +9,7 @@ Interface Options panel (AddOns → AltArmy) and user-facing slash commands.
 | **General** | Minimap show/hide; global realm filter (current / all realms) |
 | **Characters** | Per-character bank-alt flags; delete character data (self-delete protected + confirmation) |
 | **Gear** | Gear upgrade notification toggles (current character / alts; loot, quest rewards, etc.) |
-| **Cooldowns** | Per-category UI visibility, alerts, reminder intervals; specialization-related options |
+| **Cooldowns** | Per-category UI visibility, alerts, reminder intervals; specialization-related options. On WoW Forever, shows a "work in progress" banner and only the Transmute category (the others are TBC-specific crafts) |
 | **Debug** | Hidden until `/altarmy debug on`; search timing, cooldown scan logging, item stats, guild share verbose, etc. |
 
 Shared theme with the main UI ([UI_DESIGN.md](../UI_DESIGN.md)).
