@@ -1,5 +1,5 @@
 -- AltArmy TBC — Item stat extraction for gear compare/scoring.
--- Priority: GetItemStats → tooltip regex parsing.
+-- Priority: GetItemStats / C_Item.GetItemStats → tooltip regex parsing.
 -- luacheck: globals GetItemInfo GetItemStats UIParent CreateFrame
 
 AltArmy = AltArmy or {}
@@ -17,6 +17,16 @@ end
 local function compatGetItemInfo(item)
     if GetItemInfo then return GetItemInfo(item) end
     if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
+end
+
+-- Same self-contained pattern; Forever has only C_Item.GetItemStats.
+local function hasItemStatsApi()
+    return GetItemStats ~= nil or (C_Item ~= nil and C_Item.GetItemStats ~= nil)
+end
+
+local function compatGetItemStats(link)
+    if GetItemStats then return GetItemStats(link) end
+    if C_Item and C_Item.GetItemStats then return C_Item.GetItemStats(link) end
 end
 
 IS.STAT_ALIASES = {
@@ -827,11 +837,13 @@ local function parseTooltipToRaw(link)
 end
 
 local function fetchFromApi(link)
-    if not GetItemStats then return nil end
-    local stats = GetItemStats(link)
+    if not hasItemStatsApi() then return nil end
+    local stats = compatGetItemStats(link)
     if type(stats) == "table" and next(stats) then
         return stats, "api"
     end
+    -- Legacy out-table form; C_Item.GetItemStats takes no second argument.
+    if not GetItemStats then return nil end
     local tableStats = {}
     local ok = GetItemStats(link, tableStats)
     if ok ~= false and next(tableStats) then

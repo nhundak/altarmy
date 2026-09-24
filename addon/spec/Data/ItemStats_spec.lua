@@ -100,6 +100,7 @@ describe("ItemStats", function()
     before_each(function()
         _G.GetItemInfo = mockGetItemInfo
         _G.GetItemStats = mockGetItemStats
+        _G.C_Item = nil
         _G.CreateFrame = _G.CreateFrame or function(frameType, name)
             if frameType == "GameTooltip" then
                 return makeTooltipMock({})
@@ -179,6 +180,82 @@ describe("ItemStats", function()
         local stats = IS.GetNormalized("|Hitem:60:0|h[War Axe]|h")
         assert.are.equal(20, stats.str)
         assert.are.equal(52.5, stats.melee_dps)
+    end)
+
+    describe("C_Item.GetItemStats fallback (WoW Forever)", function()
+        local function reloadWithTooltip(lines)
+            _G.CreateFrame = function(frameType)
+                if frameType == "GameTooltip" then
+                    return makeTooltipMock(lines)
+                end
+                if frameType == "Frame" then
+                    return { RegisterEvent = function() end, SetScript = function() end }
+                end
+                return {}
+            end
+            package.loaded["ItemStats"] = nil
+            require("ItemStats")
+            IS = AltArmy.ItemStats
+            IS.ClearCache()
+        end
+
+        it("uses C_Item.GetItemStats when the legacy global is missing", function()
+            _G.GetItemStats = nil
+            _G.C_Item = { GetItemStats = mockGetItemStats }
+            reloadWithTooltip({})
+
+            local link = "|Hitem:11:0|h[New Helm]|h"
+            local stats = IS.GetNormalized(link)
+            assert.are.equal(20, stats.int)
+            assert.are.equal(10, stats.sta)
+            assert.are.equal("api", IS.GetSource(link))
+        end)
+
+        it("still merges weapon DPS from the tooltip on the C_Item path", function()
+            _G.GetItemStats = nil
+            _G.C_Item = {
+                GetItemStats = function() return { ["ITEM_MOD_STRENGTH_SHORT"] = 20 } end,
+            }
+            _G.GetItemInfo = function(item)
+                local id = type(item) == "number" and item
+                    or tonumber(tostring(item):match("item:(%d+)"))
+                if id == 60 then
+                    return "War Axe", "|Hitem:60:0|h[War Axe]|h", 3, 60, 60,
+                        "Weapon", "Axe", nil, "INVTYPE_WEAPON"
+                end
+                return mockGetItemInfo(item)
+            end
+            reloadWithTooltip({ "+20 Strength", "(52.5 damage per second)" })
+
+            local stats = IS.GetNormalized("|Hitem:60:0|h[War Axe]|h")
+            assert.are.equal(20, stats.str)
+            assert.are.equal(52.5, stats.melee_dps)
+        end)
+
+        it("falls back to tooltip parsing when neither API exists", function()
+            _G.GetItemStats = nil
+            _G.C_Item = nil
+            reloadWithTooltip({
+                "+15 Intellect",
+                "Equip: Increases damage done by Fire spells and effects by up to 42.",
+            })
+
+            local link = "|Hitem:11:0|h[New Helm]|h"
+            local stats = IS.GetNormalized(link)
+            assert.are.equal(42, stats.fire_sp)
+            assert.are.equal("tooltip", IS.GetSource(link))
+        end)
+
+        it("prefers the legacy global when both exist", function()
+            _G.GetItemStats = mockGetItemStats
+            _G.C_Item = {
+                GetItemStats = function() return { ["ITEM_MOD_INTELLECT_SHORT"] = 999 } end,
+            }
+            reloadWithTooltip({})
+
+            local stats = IS.GetNormalized("|Hitem:11:0|h[New Helm]|h")
+            assert.are.equal(20, stats.int)
+        end)
     end)
 
     it("GetNormalized splits spell and physical hit rating from API", function()
