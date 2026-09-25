@@ -354,18 +354,18 @@ headerGridContainer:SetHeight(GetHeaderHeight())
 headerHorizontalScroll:SetScrollChild(headerGridContainer)
 
 -- Parent to the unclipped outer panel: tabContentInner clips, and the gutter extends past its padded edge.
-local verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_ReputationVerticalScrollBar", tabContentPanel)
-verticalScrollBar:SetFrameLevel(tabContentPanel:GetFrameLevel() + 30)
-verticalScrollBar:SetMinMaxValues(0, 0)
-verticalScrollBar:SetValueStep(dims.rowHeight)
-verticalScrollBar:SetValue(0)
-verticalScrollBar:EnableMouse(true)
-Theme.AnchorVerticalScrollBar(verticalScrollBar, tabContentPanel, contentArea, { gap = 0 })
 local scrollTopFade
-verticalScrollBar:SetScript("OnValueChanged", function(_, value)
-    verticalScroll:SetVerticalScroll(value)
-    if scrollTopFade then scrollTopFade:Update() end
-end)
+local verticalScrollBinding = Theme.CreateVerticalScrollBinding(verticalScroll, {
+    parent = tabContentPanel,
+    name = "AltArmyTBC_ReputationVerticalScrollBar",
+    step = dims.rowHeight * 2,
+    onScroll = function()
+        if scrollTopFade then scrollTopFade:Update() end
+    end,
+})
+local verticalScrollBar = verticalScrollBinding.bar
+verticalScrollBar:SetFrameLevel(tabContentPanel:GetFrameLevel() + 30)
+Theme.AnchorVerticalScrollBar(verticalScrollBar, tabContentPanel, contentArea, { gap = 0 })
 
 scrollTopFade = Theme.CreatePinnedHeaderScrollFade({
     headerFrame = fixedHeaderRow,
@@ -373,18 +373,9 @@ scrollTopFade = Theme.CreatePinnedHeaderScrollFade({
     scrollBar = verticalScrollBar,
 })
 
-local function OnReputationScrollWheel(_, delta)
-    if not verticalScrollBar then return end
-    local minVal, maxVal = verticalScrollBar:GetMinMaxValues()
-    local current = verticalScrollBar:GetValue()
-    local newVal = current - delta * dims.rowHeight * 2
-    newVal = math.max(minVal, math.min(maxVal, newVal))
-    verticalScrollBar:SetValue(newVal)
-    verticalScroll:SetVerticalScroll(newVal)
-    if scrollTopFade then scrollTopFade:Update() end
-end
-verticalScroll:SetScript("OnMouseWheel", OnReputationScrollWheel)
-verticalScrollChild:SetScript("OnMouseWheel", OnReputationScrollWheel)
+verticalScrollChild:SetScript("OnMouseWheel", function(_, delta)
+    verticalScrollBinding.Wheel(delta)
+end)
 
 local factionHeaderContainer = CreateFrame("Frame", nil, verticalScrollChild)
 factionHeaderContainer:SetPoint("TOPLEFT", verticalScrollChild, "TOPLEFT", 0, -GetHeaderHeight())
@@ -1068,7 +1059,6 @@ function frame:RefreshGrid(_self)
 
     local numCols = #currentList
     local viewWidth = verticalScroll and verticalScroll:GetWidth() or 0
-    local viewHeight = verticalScroll and verticalScroll:GetHeight() or 0
     local gridContentWidth = numCols * dims.columnWidth + PAD
     local gridViewWidth = math.max(0, viewWidth - FACTION_LABEL_WIDTH)
 
@@ -1086,20 +1076,12 @@ function frame:RefreshGrid(_self)
         if headerHorizontalScroll and headerHorizontalScroll.UpdateScrollChildRect then
             headerHorizontalScroll:UpdateScrollChildRect()
         end
-        if verticalScrollBar then
-            local totalChildHeight = GetHeaderHeight() + dims.scrollableGridHeight
-            local maxVertScroll = math.max(0, totalChildHeight - viewHeight)
-            local savedVert = verticalScrollBar:GetValue() or 0
-            verticalScrollBar:SetMinMaxValues(0, maxVertScroll)
-            verticalScrollBar:SetValueStep(dims.rowHeight)
-            verticalScrollBar:SetStepsPerPage(10)
-            local vertScroll = Theme.ClampScroll(savedVert, maxVertScroll)
-            verticalScrollBar:SetValue(vertScroll)
-            verticalScroll:SetVerticalScroll(vertScroll)
-        end
+        -- Clamps the kept offset to the new range (scroll survives tab revisits).
+        verticalScrollBinding.SetStep(dims.rowHeight * 2)
+        verticalScrollBinding.UpdateRange()
         if horizontalScrollBar and horizontalScroll and gridContainer then
             local maxHorzScroll = math.max(0, gridContentWidth - gridViewWidth)
-            horizontalScrollApi:SetRange(0, maxHorzScroll)
+            horizontalScrollApi:SetRange(0, maxHorzScroll, gridViewWidth)
             horizontalScrollBar:SetShown(maxHorzScroll > 0)
             horizontalScrollApi:Restore(maxHorzScroll)
         end

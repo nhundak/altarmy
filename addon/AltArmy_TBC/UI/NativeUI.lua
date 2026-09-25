@@ -90,6 +90,10 @@ function NativeUI.DetectCaps()
     -- the classic top tab (TabButtonTemplate / HelpFrameTab art) driven by PanelTemplates_*.
     caps.panelTopTabs = has("PanelTopTabButtonTemplate", "Button")
         and _G.PanelTemplates_SelectTab ~= nil and _G.PanelTemplates_DeselectTab ~= nil
+    -- Virtualized list (WowScrollBoxList + linear view + DataProvider) driven by a MinimalScrollBar.
+    caps.scrollBoxList = caps.minimalScrollBar and has("WowScrollBoxList")
+        and _G.CreateScrollBoxListLinearView ~= nil and _G.CreateDataProvider ~= nil
+        and hasField(_G.ScrollUtil, "InitScrollBoxListWithScrollBar")
     return caps
 end
 

@@ -703,34 +703,20 @@ selectorChild:SetPoint("TOPLEFT", selectorScroll, "TOPLEFT", 0, 0)
 selectorChild:SetWidth(1)
 selectorScroll:SetScrollChild(selectorChild)
 
-local selectorScrollBar = CreateFrame("Slider", nil, selectorPanel)
-selectorScrollBar:SetMinMaxValues(0, 0)
-selectorScrollBar:SetValueStep(ROW_HEIGHT)
-selectorScrollBar:SetValue(0)
-selectorScrollBar:EnableMouse(true)
+local selectorScrollBinding = Theme.CreateVerticalScrollBinding(selectorScroll, {
+    parent = selectorPanel,
+    step = ROW_HEIGHT * 2,
+})
+local selectorScrollBar = selectorScrollBinding.bar
 Theme.AnchorVerticalScrollBar(selectorScrollBar, selectorPanel, selectorScroll)
 
 local function UpdateSelectorScrollbar()
-    local maxScroll = math.max(0, selectorChild:GetHeight() - selectorScroll:GetHeight())
-    local prevScroll = selectorScrollBar:GetValue()
-    selectorScrollBar:SetMinMaxValues(0, maxScroll)
-    local newScroll = math.min(prevScroll, maxScroll)
-    selectorScrollBar:SetValue(newScroll)
-    selectorScroll:SetVerticalScroll(newScroll)
-    selectorScrollBar:SetShown(maxScroll > 0)
+    selectorScrollBinding.UpdateRange()
 end
 
-selectorScrollBar:SetScript("OnValueChanged", function(_, value)
-    selectorScroll:SetVerticalScroll(value)
+selectorChild:SetScript("OnMouseWheel", function(_, delta)
+    selectorScrollBinding.Wheel(delta)
 end)
-
-local function OnSelectorScrollWheel(_, delta)
-    local cur = selectorScrollBar:GetValue()
-    local lo, hi = selectorScrollBar:GetMinMaxValues()
-    selectorScrollBar:SetValue(math.max(lo, math.min(hi, cur - delta * ROW_HEIGHT * 2)))
-end
-selectorScroll:SetScript("OnMouseWheel", OnSelectorScrollWheel)
-selectorChild:SetScript("OnMouseWheel", OnSelectorScrollWheel)
 
 local selectorRows = {}
 local insufficientRows = {}

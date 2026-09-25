@@ -824,6 +824,27 @@ local function stepSlider(slider, direction)
     slider:SetValue(math.max(lo or 0, math.min(hi or 0, value)))
 end
 
+--- Like MinimalScrollBar's steppers: an arrow is disabled (normal art, desaturated, inert) when the
+--- value already sits at its end or there is nothing to scroll.
+local function isStepperEnabled(slider, direction)
+    local lo, hi = slider:GetMinMaxValues()
+    lo, hi = lo or 0, hi or 0
+    if hi - lo < 0.5 then
+        return false
+    end
+    local value = slider:GetValue() or 0
+    if direction < 0 then
+        return value > lo + 0.5
+    end
+    return value < hi - 0.5
+end
+
+local function refreshSteppers(slider)
+    local back, fwd = slider.altArmyStepBack, slider.altArmyStepForward
+    if back then back.altArmyRefresh() end
+    if fwd then fwd.altArmyRefresh() end
+end
+
 --- Arrow button at one end of the bar; click steps, holding repeats.
 local function createStepper(slider, horizontal, direction, art)
     local M = Theme.MINIMAL_SCROLL
@@ -839,20 +860,38 @@ local function createStepper(slider, horizontal, direction, art)
     local arrow = btn:CreateTexture(nil, "ARTWORK")
     arrow:SetAllPoints(btn)
     btn.altArmyArrow = arrow
+    local enabled = true
     local function show(state)
-        setBarAtlas(arrow, art[state], horizontal)
+        setBarAtlas(arrow, art[enabled and state or "normal"], horizontal)
     end
-    show("normal")
 
     local held, elapsed = false, 0
     local function stopRepeat(self)
         held = false
         self:SetScript("OnUpdate", nil)
     end
+
+    function btn.altArmyRefresh()
+        local now = isStepperEnabled(slider, direction)
+        if now == enabled and btn.altArmyStateApplied then return end
+        enabled = now
+        btn.altArmyStateApplied = true
+        btn.altArmyEnabled = enabled
+        if arrow.SetDesaturated then
+            arrow:SetDesaturated(not enabled)
+        end
+        if not enabled then
+            stopRepeat(btn)
+        end
+        show(enabled and btn.IsMouseOver and btn:IsMouseOver() and "over" or "normal")
+    end
+
     btn:SetScript("OnClick", function()
+        if not enabled then return end
         stepSlider(slider, direction)
     end)
     btn:SetScript("OnMouseDown", function(self)
+        if not enabled then return end
         show("down")
         held, elapsed = true, -M.repeatDelay
         self:SetScript("OnUpdate", function(_, dt)
@@ -947,7 +986,10 @@ local function setupNativeScrollBar(slider, horizontal, thumbLength)
     if not slider.altArmyStepBack then
         slider.altArmyStepBack = createStepper(slider, horizontal, -1, M.back)
         slider.altArmyStepForward = createStepper(slider, horizontal, 1, M.forward)
+        slider:HookScript("OnValueChanged", refreshSteppers)
+        slider:HookScript("OnMinMaxChanged", refreshSteppers)
     end
+    refreshSteppers(slider)
     slider.altArmyStepBack:ClearAllPoints()
     slider.altArmyStepBack:SetPoint(startPoint, slider, startPoint, 0, 0)
     slider.altArmyStepForward:ClearAllPoints()
@@ -1017,13 +1059,25 @@ end
 
 --- Anchor a vertical scrollbar beside scrollFrame; track ends rightInset inside gutterEdge's right edge.
 --- scrollFrame should end at -(VerticalScrollBarGutter()) from gutterEdge's right edge.
+--- Sets scrollBar.altArmyAnchorX (x offset used) so callers can re-anchor one end consistently.
 function Theme.AnchorVerticalScrollBar(scrollBar, _gutterEdge, scrollFrame, opts)
     if not scrollBar or not scrollFrame then return scrollBar end
     opts = opts or {}
     local w = opts.width or Theme.SCROLL_BAR_WIDTH
     local gap = opts.gap or Theme.SCROLL_BAR_GAP
+    if scrollBar.altArmyNativeScrollBar then
+        -- Real MinimalScrollBar keeps its template width; center it in the gutter track slot.
+        local barW = scrollBar:GetWidth() or Theme.MINIMAL_SCROLL.width
+        local x = gap + math.max(0, (w - barW) / 2)
+        scrollBar.altArmyAnchorX = x
+        scrollBar:ClearAllPoints()
+        scrollBar:SetPoint("TOPLEFT", scrollFrame, "TOPRIGHT", x, 0)
+        scrollBar:SetPoint("BOTTOMLEFT", scrollFrame, "BOTTOMRIGHT", x, 0)
+        return scrollBar
+    end
     scrollBar:SetOrientation("VERTICAL")
     scrollBar:SetWidth(w)
+    scrollBar.altArmyAnchorX = gap
     scrollBar:ClearAllPoints()
     scrollBar:SetPoint("TOPLEFT", scrollFrame, "TOPRIGHT", gap, 0)
     scrollBar:SetPoint("BOTTOMLEFT", scrollFrame, "BOTTOMRIGHT", gap, 0)
@@ -1709,6 +1763,8 @@ function Theme.CreateHorizontalScrollBar(parent, opts)
 
     function api:SetRange(minVal, maxVal)
         bar:SetMinMaxValues(minVal, maxVal)
+        -- OnMinMaxChanged may not fire when the value is unchanged; keep end arrows in sync.
+        refreshSteppers(bar)
     end
 
     function api:Apply(value)
@@ -1744,56 +1800,190 @@ function Theme.ClampScroll(offset, maxScroll)
     return math.max(0, math.min(maxScroll or 0, offset or 0))
 end
 
---- Apply a vertical scroll offset to ScrollFrame and Slider together.
---- Always writes the ScrollFrame (do not rely on Slider OnValueChanged alone —
---- SetValue is a no-op when the bar is already at `offset`).
---- When `force` is true and the frame already reports `offset`, nudges away
---- first so a post-resize visual desync still gets corrected.
---- @return number applied offset
-function Theme.SetVerticalScrollOffset(scrollFrame, scrollBar, offset, maxScroll, force)
-    offset = Theme.ClampScroll(offset, maxScroll)
-    if scrollFrame and scrollFrame.SetVerticalScroll then
-        local current = scrollFrame.GetVerticalScroll and scrollFrame:GetVerticalScroll() or nil
-        if force and current == offset and maxScroll and maxScroll > 0 then
-            local nudge = (offset <= 0) and math.min(1, maxScroll) or 0
-            scrollFrame:SetVerticalScroll(nudge)
+--- Vertical scroll bar bound to an existing ScrollFrame (its scroll child's height sets the range).
+--- Native clients get a real MinimalScrollBar wired by ScrollUtil.InitScrollFrameWithScrollBar, which
+--- owns the ScrollFrame's OnVerticalScroll / OnScrollRangeChanged / OnMouseWheel scripts: never
+--- SetScript those afterwards; use onScroll / AddOnScroll. Other clients (and unit tests) get a Slider.
+--- opts: parent (bar parent; default the ScrollFrame's parent), name, step (wheel/stepper px),
+---   onScroll(offset) (once per offset change from any source), hideIfUnscrollable (default true),
+---   minScrollToShow, getRange() (Slider path only: override max offset)
+--- @return table binding: bar, native, GetOffset(), GetMaxScroll(), SetOffset(v), UpdateRange(),
+---   Wheel(delta), SetStep(px), AddOnScroll(fn)
+function Theme.CreateVerticalScrollBinding(scrollFrame, opts)
+    opts = opts or {}
+    local parent = opts.parent or scrollFrame:GetParent()
+    local step = opts.step or (Theme.CHAR_LIST_ROW_HEIGHT * 2)
+    local hideIfUnscrollable = opts.hideIfUnscrollable ~= false
+    local listeners = {}
+    if opts.onScroll then listeners[1] = opts.onScroll end
+    local lastNotified = nil
+
+    local binding = { native = false }
+
+    local function notify()
+        local offset = scrollFrame:GetVerticalScroll() or 0
+        if lastNotified and math.abs(offset - lastNotified) < 0.01 then return end
+        lastNotified = offset
+        for i = 1, #listeners do
+            listeners[i](offset)
         end
-        scrollFrame:SetVerticalScroll(offset)
     end
-    if scrollBar and scrollBar.SetValue then
-        scrollBar:SetValue(offset)
+
+    function binding.AddOnScroll(fn)
+        listeners[#listeners + 1] = fn
     end
-    return offset
+
+    function binding.GetOffset()
+        return scrollFrame:GetVerticalScroll() or 0
+    end
+
+    local ScrollUtil = _G.ScrollUtil
+    if nativeScrollBarsAvailable() and ScrollUtil and ScrollUtil.InitScrollFrameWithScrollBar then
+        local bar = CreateFrame("EventFrame", opts.name, parent, "MinimalScrollBar")
+        bar.altArmyNativeScrollBar = true
+        binding.bar, binding.native = bar, true
+        ScrollUtil.InitScrollFrameWithScrollBar(scrollFrame, bar)
+        scrollFrame:SetPanExtent(step)
+        if bar.SetHideIfUnscrollable then
+            bar:SetHideIfUnscrollable(hideIfUnscrollable)
+        end
+
+        local function range()
+            return scrollFrame:GetVerticalScrollRange() or 0
+        end
+        binding.GetMaxScroll = range
+
+        -- Listener order on the bar is undefined, so apply the offset here as well instead of
+        -- relying on ScrollUtil's own OnScroll listener having run first.
+        bar:RegisterCallback(_G.BaseScrollBoxEvents.OnScroll, function(_, pct)
+            scrollFrame:SetVerticalScroll((pct or 0) * range())
+            notify()
+        end, binding)
+
+        function binding.SetOffset(value)
+            local maxScroll = range()
+            value = Theme.ClampScroll(value, maxScroll)
+            scrollFrame:SetVerticalScroll(value)
+            -- Drive the bar directly: nested ScrollFrames may not fire OnVerticalScroll.
+            bar:SetScrollPercentage(maxScroll > 0 and value / maxScroll or 0, true)
+            notify()
+        end
+
+        function binding.UpdateRange()
+            if scrollFrame.UpdateScrollChildRect then
+                scrollFrame:UpdateScrollChildRect()
+            end
+            -- Nested ScrollFrames may not fire OnScrollRangeChanged; run ScrollUtil's handler
+            -- so the thumb size and pan step follow the new range.
+            local onRange = scrollFrame:GetScript("OnScrollRangeChanged")
+            if onRange then
+                onRange(scrollFrame, scrollFrame:GetHorizontalScrollRange() or 0, range())
+            end
+            if binding.GetOffset() > range() then
+                binding.SetOffset(range())
+            end
+        end
+
+        function binding.Wheel(delta)
+            bar:ScrollStepInDirection(-delta)
+        end
+
+        function binding.SetStep(px)
+            step = px
+            scrollFrame:SetPanExtent(px)
+        end
+
+        function binding.SetAllowShow(allowed)
+            if allowed then
+                -- Re-runs ScrollBar:Update, which shows the bar only when there is range.
+                bar:SetHideIfUnscrollable(hideIfUnscrollable)
+                if not hideIfUnscrollable then bar:Show() end
+            else
+                bar:SetHideIfUnscrollable(false)
+                bar:Hide()
+            end
+        end
+
+        return binding
+    end
+
+    local bar = CreateFrame("Slider", opts.name, parent)
+    bar:SetOrientation("VERTICAL")
+    bar:SetMinMaxValues(0, 0)
+    bar:SetValueStep(step)
+    bar:SetValue(0)
+    bar:EnableMouse(true)
+    binding.bar = bar
+
+    local function range()
+        if opts.getRange then
+            return opts.getRange()
+        end
+        local child = scrollFrame.GetScrollChild and scrollFrame:GetScrollChild()
+        return Theme.ScrollMax(child and child:GetHeight() or 0, scrollFrame:GetHeight())
+    end
+    binding.GetMaxScroll = range
+
+    bar:SetScript("OnValueChanged", function(_, value)
+        scrollFrame:SetVerticalScroll(value)
+        notify()
+    end)
+
+    function binding.SetOffset(value)
+        value = Theme.ClampScroll(value, range())
+        scrollFrame:SetVerticalScroll(value)
+        bar:SetValue(value)
+        notify()
+    end
+
+    local allowShow = true
+    local function syncShown()
+        if not allowShow then
+            bar:Hide()
+        elseif hideIfUnscrollable then
+            bar:SetShown(range() > (opts.minScrollToShow or 0))
+        end
+    end
+
+    function binding.UpdateRange()
+        local maxScroll = range()
+        local cur = Theme.ClampScroll(binding.GetOffset(), maxScroll)
+        scrollFrame:SetVerticalScroll(cur)
+        bar:SetMinMaxValues(0, maxScroll)
+        bar:SetValueStep(step)
+        bar:SetValue(cur)
+        syncShown()
+        notify()
+    end
+
+    function binding.SetAllowShow(allowed)
+        allowShow = allowed and true or false
+        if allowShow and not hideIfUnscrollable then bar:Show() end
+        syncShown()
+    end
+
+    function binding.Wheel(delta)
+        binding.SetOffset(binding.GetOffset() - delta * step)
+    end
+
+    function binding.SetStep(px)
+        step = px
+        bar:SetValueStep(px)
+    end
+
+    scrollFrame:SetScript("OnMouseWheel", function(_, delta)
+        binding.Wheel(delta)
+    end)
+
+    return binding
 end
 
---- Update slider range from content/viewport heights and sync both widgets.
---- Uses the ScrollFrame offset as source of truth (clamped to the new max).
---- @return number applied offset
---- @return number maxScroll
-function Theme.UpdateVerticalScrollRange(scrollFrame, scrollBar, contentHeight, viewHeight, valueStep)
-    local maxScroll = Theme.ScrollMax(contentHeight, viewHeight)
-    local cur = 0
-    if scrollFrame and scrollFrame.GetVerticalScroll then
-        cur = scrollFrame:GetVerticalScroll() or 0
-    elseif scrollBar and scrollBar.GetValue then
-        cur = scrollBar:GetValue() or 0
-    end
-    cur = Theme.ClampScroll(cur, maxScroll)
-    if scrollBar then
-        if scrollBar.SetMinMaxValues then
-            scrollBar:SetMinMaxValues(0, maxScroll)
-        end
-        if valueStep and scrollBar.SetValueStep then
-            scrollBar:SetValueStep(valueStep)
-        end
-    end
-    return Theme.SetVerticalScrollOffset(scrollFrame, scrollBar, cur, maxScroll), maxScroll
-end
-
---- Vertical ScrollFrame + Slider + wheel handler with unified range/clamp behavior.
+--- Vertical ScrollFrame + scroll bar (see CreateVerticalScrollBinding) with unified range/clamp.
 --- opts: parent, gutterEdge, name, anchorTop/anchorBottom tables {point, rel, relPoint, x, y},
---- valueStep, wheelStep, wheelSource ("scroll"|"slider"), wheelOnChild, enableMouse, enableMouseWheel,
---- syncChildWidth, fallbackViewHeight, minScrollToShow
+--- valueStep, wheelStep, wheelOnChild, enableMouse, enableMouseWheel, childWidth, syncChildWidth,
+--- fallbackViewHeight, minScrollToShow, scrollBarWidth, scrollBarGap
+--- @return table api: scroll, child, scrollBar, binding, UpdateRange(), SetOffset(v), GetOffset(),
+---   OnScroll(fn), Wheel(delta)
 function Theme.CreateVerticalScrollViewport(opts)
     opts = opts or {}
     local parent = opts.parent
@@ -1815,92 +2005,54 @@ function Theme.CreateVerticalScrollViewport(opts)
         scroll:EnableMouseWheel(true)
     end
 
-    local valueStep = opts.valueStep or Theme.CHAR_LIST_ROW_HEIGHT
-    local wheelStep = opts.wheelStep or (valueStep * 2)
-    local wheelSource = opts.wheelSource or "scroll"
-    local wheelOnChild = opts.wheelOnChild ~= false
-    local minScrollToShow = opts.minScrollToShow or 0
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, 0)
+    child:SetWidth(opts.childWidth or 1)
+    scroll:SetScrollChild(child)
 
-    local scrollBar = CreateFrame("Slider", nil, gutterEdge)
-    scrollBar:SetMinMaxValues(0, 0)
-    scrollBar:SetValueStep(valueStep)
-    scrollBar:SetValue(0)
-    scrollBar:EnableMouse(true)
+    local binding = Theme.CreateVerticalScrollBinding(scroll, {
+        parent = gutterEdge,
+        step = opts.wheelStep or ((opts.valueStep or Theme.CHAR_LIST_ROW_HEIGHT) * 2),
+        minScrollToShow = opts.minScrollToShow,
+        getRange = function()
+            local h = scroll:GetHeight() or 0
+            if h <= 0 and opts.fallbackViewHeight then
+                h = opts.fallbackViewHeight
+            end
+            return Theme.ScrollMax(child:GetHeight(), h)
+        end,
+    })
+    local scrollBar = binding.bar
     Theme.AnchorVerticalScrollBar(scrollBar, gutterEdge, scroll, {
         width = opts.scrollBarWidth,
         gap = opts.scrollBarGap,
         thumbLength = opts.scrollBarThumbLength,
     })
 
-    local child = CreateFrame("Frame", nil, scroll)
-    child:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, 0)
-    child:SetWidth(opts.childWidth or 1)
-    scroll:SetScrollChild(child)
-
-    local function viewHeight()
-        local h = scroll:GetHeight() or 0
-        if h <= 0 and opts.fallbackViewHeight then
-            return opts.fallbackViewHeight
-        end
-        return h
-    end
-
-    local function maxScroll()
-        return Theme.ScrollMax(child:GetHeight(), viewHeight())
-    end
-
-    local function setOffset(offset)
-        local maxVal = maxScroll()
-        local value = Theme.ClampScroll(offset, maxVal)
-        scroll:SetVerticalScroll(value)
-        scrollBar:SetValue(value)
-    end
-
-    local function updateRange()
-        local maxVal = maxScroll()
-        local cur = scroll:GetVerticalScroll()
-        cur = Theme.ClampScroll(cur, maxVal)
-        scroll:SetVerticalScroll(cur)
-        scrollBar:SetMinMaxValues(0, maxVal)
-        scrollBar:SetValueStep(valueStep)
-        scrollBar:SetValue(cur)
-        scrollBar:SetShown(maxVal > minScrollToShow)
-    end
-
-    scrollBar:SetScript("OnValueChanged", function(_, value)
-        scroll:SetVerticalScroll(value)
-    end)
-
-    local function onWheel(_, delta)
-        if wheelSource == "slider" then
-            local cur = scrollBar:GetValue()
-            local lo, hi = scrollBar:GetMinMaxValues()
-            scrollBar:SetValue(math.max(lo, math.min(hi, cur - delta * wheelStep)))
-        else
-            setOffset(scroll:GetVerticalScroll() - delta * wheelStep)
-        end
-    end
-
-    scroll:SetScript("OnMouseWheel", onWheel)
-    if wheelOnChild then
-        child:SetScript("OnMouseWheel", onWheel)
+    if opts.wheelOnChild ~= false then
+        child:SetScript("OnMouseWheel", function(_, delta)
+            binding.Wheel(delta)
+        end)
     end
 
     if opts.syncChildWidth ~= false then
         scroll:SetScript("OnSizeChanged", function(s, w)
             child:SetWidth(w or s:GetWidth() or 1)
-            updateRange()
+            binding.UpdateRange()
         end)
     end
 
-    local api = {
+    return {
         scroll = scroll,
         child = child,
         scrollBar = scrollBar,
-        UpdateRange = updateRange,
-        SetOffset = setOffset,
+        binding = binding,
+        UpdateRange = function() binding.UpdateRange() end,
+        SetOffset = binding.SetOffset,
+        GetOffset = binding.GetOffset,
+        OnScroll = binding.AddOnScroll,
+        Wheel = binding.Wheel,
     }
-    return api
 end
 
 function Theme.ApplyCheckboxBackground(texture)

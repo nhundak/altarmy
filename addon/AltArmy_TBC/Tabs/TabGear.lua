@@ -1392,13 +1392,14 @@ gridHost:SetClipsChildren(true)
 local horizontalScrollBar
 local verticalScroll
 local verticalScrollBar
+local verticalScrollBinding
 local scrollTopFade
 
 function GearTab.LayoutVerticalScrollBar()
     if not verticalScrollBar or not verticalScroll or not fixedHeaderRow then return end
     Theme.AnchorVerticalScrollBar(verticalScrollBar, gearMainSection, verticalScroll, { gap = 0 })
     -- Extend track upward over the pinned header (Reputation spans contentArea including header).
-    verticalScrollBar:SetPoint("TOPLEFT", fixedHeaderRow, "TOPRIGHT", 0, 0)
+    verticalScrollBar:SetPoint("TOPLEFT", fixedHeaderRow, "TOPRIGHT", verticalScrollBar.altArmyAnchorX or 0, 0)
 end
 
 function GearTab.LayoutGridHost()
@@ -1434,18 +1435,17 @@ verticalScrollChild:SetWidth(MIN_SCROLL_CHILD_WIDTH)
 verticalScrollChild:EnableMouse(true)
 verticalScroll:SetScrollChild(verticalScrollChild)
 
--- Vertical scroll bar: custom (no template) so it doesn't conflict with horizontal; both bars under our control
-verticalScrollBar = CreateFrame("Slider", "AltArmyTBC_GearVerticalScrollBar", gearMainSection)
-verticalScrollBar:SetMinMaxValues(0, 0)
-verticalScrollBar:SetValueStep(dims.rowHeight)
-verticalScrollBar:SetValue(0)
-verticalScrollBar:EnableMouse(true)
+-- Vertical scroll bar (native MinimalScrollBar); the horizontal bar stays our own Slider.
+verticalScrollBinding = Theme.CreateVerticalScrollBinding(verticalScroll, {
+    parent = gearMainSection,
+    name = "AltArmyTBC_GearVerticalScrollBar",
+    step = dims.rowHeight * 2,
+    onScroll = function()
+        if scrollTopFade then scrollTopFade:Update() end
+    end,
+})
+verticalScrollBar = verticalScrollBinding.bar
 GearTab.LayoutVerticalScrollBar()
-
-verticalScrollBar:SetScript("OnValueChanged", function(_, value)
-    verticalScroll:SetVerticalScroll(value)
-    if scrollTopFade then scrollTopFade:Update() end
-end)
 
 scrollTopFade = Theme.CreatePinnedHeaderScrollFade({
     headerFrame = fixedHeaderRow,
@@ -1453,19 +1453,10 @@ scrollTopFade = Theme.CreatePinnedHeaderScrollFade({
     scrollBar = verticalScrollBar,
 })
 
--- Mouse wheel: scroll the gear list when hovering over the scroll area (frame or scroll child)
+-- Mouse wheel over the scroll child (the ScrollFrame itself is wired by the binding).
 function GearTab.OnGearScrollWheel(_, delta)
-    if not verticalScrollBar then return end
-    local minVal, maxVal = verticalScrollBar:GetMinMaxValues()
-    local current = verticalScrollBar:GetValue()
-    -- delta: 1 = scroll up (see higher content), -1 = scroll down (see lower content)
-    local newVal = current - delta * dims.rowHeight * 2
-    newVal = math.max(minVal, math.min(maxVal, newVal))
-    verticalScrollBar:SetValue(newVal)
-    verticalScroll:SetVerticalScroll(newVal)
-    if scrollTopFade then scrollTopFade:Update() end
+    verticalScrollBinding.Wheel(delta)
 end
-verticalScroll:SetScript("OnMouseWheel", GearTab.OnGearScrollWheel)
 verticalScrollChild:SetScript("OnMouseWheel", GearTab.OnGearScrollWheel)
 
 -- Row headers (slot names); scroll with equipment rows
@@ -3375,7 +3366,7 @@ function GearTab.enterItemCheckMode()
     GearTab.resetItemCheckDrop()
     if slotHeaderContainer then slotHeaderContainer:Hide() end
     if horizontalScroll then horizontalScroll:Hide() end
-    if verticalScrollBar then verticalScrollBar:Hide() end
+    if verticalScrollBinding then verticalScrollBinding.SetAllowShow(false) end
     if horizontalScrollBar then horizontalScrollBar:Hide() end
     if verticalScroll then verticalScroll:EnableMouse(false) end
     GearTab.SyncViewTabs()
@@ -3387,7 +3378,7 @@ function GearTab.exitItemCheckMode()
     GearTab.resetItemCheckDrop()
     if slotHeaderContainer then slotHeaderContainer:Show() end
     if horizontalScroll then horizontalScroll:Show() end
-    if verticalScrollBar then verticalScrollBar:Show() end
+    if verticalScrollBinding then verticalScrollBinding.SetAllowShow(true) end
     if horizontalScrollBar then horizontalScrollBar:Show() end
     if verticalScroll then verticalScroll:EnableMouse(true) end
     GearTab.SyncViewTabs()
@@ -3877,7 +3868,6 @@ function frame:RefreshGrid(_self)
     GearTab.LayoutVisibleGridRows()
 
     local viewWidth = verticalScroll and verticalScroll:GetWidth() or 0
-    local viewHeight = verticalScroll and verticalScroll:GetHeight() or 0
     local gridContentWidth = numCols * dims.columnWidth + PAD
     local gridViewWidth = math.max(0, viewWidth - SLOT_LABEL_WIDTH)
 
@@ -3890,26 +3880,19 @@ function frame:RefreshGrid(_self)
         if headerGridContainer then
             headerGridContainer:SetWidth(math.max(0, gridContentWidth))
         end
-        if verticalScrollBar then
-            local totalChildHeight = dims.scrollableGridHeight
-            local maxVertScroll = math.max(0, totalChildHeight - viewHeight)
-            local savedVert = verticalScrollBar:GetValue() or 0
-            verticalScrollBar:SetMinMaxValues(0, maxVertScroll)
-            verticalScrollBar:SetValueStep(dims.rowHeight)
-            verticalScrollBar:SetStepsPerPage(10)
-            local vertScroll = Theme.ClampScroll(savedVert, maxVertScroll)
+        if verticalScrollBinding then
+            verticalScrollChild:SetHeight(dims.scrollableGridHeight)
+            verticalScrollBinding.SetStep(dims.rowHeight * 2)
+            -- Clamps the kept offset to the new range (scroll survives tab revisits).
+            verticalScrollBinding.UpdateRange()
             if droppedItemLink then
-                vertScroll = 0
-                verticalScrollBar:Hide()
-            else
-                verticalScrollBar:SetShown(maxVertScroll > 0)
+                verticalScrollBinding.SetOffset(0)
             end
-            verticalScrollBar:SetValue(vertScroll)
-            verticalScroll:SetVerticalScroll(vertScroll)
+            verticalScrollBinding.SetAllowShow(not droppedItemLink and not itemCheckModeActive)
         end
         if horizontalScrollBar and horizontalScroll and gridContainer then
             local maxHorzScroll = math.max(0, gridContentWidth - gridViewWidth)
-            horizontalScrollApi:SetRange(0, maxHorzScroll)
+            horizontalScrollApi:SetRange(0, maxHorzScroll, gridViewWidth)
             horizontalScrollBar:SetShown(maxHorzScroll > 0)
             if resetGridHorizontalScrollOnRefresh then
                 horizontalScrollApi:Reset()
@@ -3962,8 +3945,8 @@ function GearTab.ApplySpacing()
         horizontalScroll:SetPoint("TOPRIGHT", verticalScrollChild, "TOPRIGHT", 0, 0)
         horizontalScroll:SetHeight(dims.scrollableGridHeight)
     end
-    if verticalScrollBar then
-        verticalScrollBar:SetValueStep(dims.rowHeight)
+    if verticalScrollBinding then
+        verticalScrollBinding.SetStep(dims.rowHeight * 2)
     end
 
     if scoreProviderStaticLabel then

@@ -221,38 +221,22 @@ scrollChild:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
 scrollChild:SetPoint("TOPRIGHT", scrollFrame, "TOPRIGHT", 0, 0)
 scrollFrame:SetScrollChild(scrollChild)
 
--- Custom vertical scroll bar (Graphs / Compare panel style)
+-- Vertical scroll bar (native MinimalScrollBar). Rows are a fixed pool on scrollFrame (faux
+-- scrolling): the scroll offset only picks the first list index, so every scroll re-runs Update().
 local SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
 local summaryNeedsHorizontalScroll = false
-local scrollBar = CreateFrame("Slider", "AltArmyTBC_SummaryScrollBar", frame)
-scrollBar:SetMinMaxValues(0, 0)
-scrollBar:SetValueStep(ROW_HEIGHT)
-scrollBar:SetValue(0)
-scrollBar:EnableMouse(true)
-scrollBar:SetScript("OnValueChanged", function(_, value)
-    scrollFrame:SetVerticalScroll(value)
-    -- Nested ScrollFrame (vertical inside horizontal scroll child) may not fire OnVerticalScroll;
-    -- refresh row pool from the scrollbar value so dragging/wheel updates the list.
-    if scrollFrame.UpdateScrollChildRect then
-        scrollFrame:UpdateScrollChildRect()
-    end
-    Update()
+local scrollBinding = Theme.CreateVerticalScrollBinding(scrollFrame, {
+    parent = frame,
+    name = "AltArmyTBC_SummaryScrollBar",
+    step = ROW_HEIGHT * 2,
+    onScroll = function()
+        Update()
+    end,
+})
+local scrollBar = scrollBinding.bar
+scrollChild:SetScript("OnMouseWheel", function(_, delta)
+    scrollBinding.Wheel(delta)
 end)
-
-local function OnSummaryScrollWheel(_, delta)
-    if not scrollBar then return end
-    local minVal, maxVal = scrollBar:GetMinMaxValues()
-    local current = scrollBar:GetValue()
-    local newVal = current - delta * ROW_HEIGHT * 2
-    newVal = math.max(minVal, math.min(maxVal, newVal))
-    scrollBar:SetValue(newVal)
-end
-scrollFrame:SetScript("OnMouseWheel", OnSummaryScrollWheel)
-scrollChild:SetScript("OnMouseWheel", OnSummaryScrollWheel)
-
-local function GetScrollBar()
-    return scrollBar
-end
 
 -- Header row (fixed above scroll area; each column is a clickable button)
 local headerRow = CreateFrame("Frame", nil, frame)
@@ -779,23 +763,10 @@ Update = function()
     scrollChild:SetHeight(viewportH + maxScroll)
     scrollChild:Show()
 
-    local sb = GetScrollBar()
-    if sb then
-        sb:SetMinMaxValues(0, maxScroll)
-        sb:SetValueStep(ROW_HEIGHT)
-        sb:SetStepsPerPage(visibleRows - 1)
-        local val = sb:GetValue()
-        if val > maxScroll then
-            sb:SetValue(maxScroll)
-            scrollFrame:SetVerticalScroll(maxScroll)
-        end
-    end
+    scrollBinding.UpdateRange()
 
-    local offset = 0
-    if sb then
-        local maxOffset = math.max(0, numItems - visibleRows)
-        offset = math.min(math.floor((sb:GetValue() or 0) / ROW_HEIGHT), maxOffset)
-    end
+    local maxOffset = math.max(0, numItems - visibleRows)
+    local offset = math.min(math.floor(scrollBinding.GetOffset() / ROW_HEIGHT), maxOffset)
 
     -- Horizontal scroll: list viewport may be narrower than totalColWidth (e.g. when settings panel is open)
     if listViewport and horizontalScroll and horizontalScrollChild and horizontalScrollBar then
@@ -808,7 +779,7 @@ Update = function()
             end
             horizontalScrollChild:SetHeight(vh)
             local maxHorzScroll = math.max(0, totalColWidth - vw)
-            horizontalScrollApi:SetRange(0, maxHorzScroll)
+            horizontalScrollApi:SetRange(0, maxHorzScroll, vw)
             horizontalScrollBar:SetShown(maxHorzScroll > 0)
             local hVal = horizontalScrollBar:GetValue()
             if hVal > maxHorzScroll then
@@ -1021,11 +992,7 @@ frame:SetScript("OnEvent", function(_, event)
             AltArmy.Characters:InvalidateView()
         end
         if frame:IsShown() then
-            local sb = GetScrollBar()
-            if sb then
-                sb:SetValue(0)
-            end
-            scrollFrame:SetVerticalScroll(0)
+            scrollBinding.SetOffset(0)
             Update()
         end
     end

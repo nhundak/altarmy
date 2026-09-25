@@ -1,0 +1,17 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+    <!--
+        Empty row templates for WowScrollBoxList frame pools. ScrollBox pools frames per template
+        name, so each row kind needs its own template or pooled frames would be handed to another
+        kind. Children are built in Lua on first initialize (see Tabs/TabSearch.lua).
+    -->
+    <Frame name="AltArmySearchItemRowTemplate" virtual="true">
+        <Size x="1" y="20"/>
+    </Frame>
+    <Frame name="AltArmySearchRecipeRowTemplate" virtual="true">
+        <Size x="1" y="20"/>
+    </Frame>
+    <Frame name="AltArmySearchSpacerTemplate" virtual="true">
+        <Size x="1" y="21"/>
+    </Frame>
+</Ui>

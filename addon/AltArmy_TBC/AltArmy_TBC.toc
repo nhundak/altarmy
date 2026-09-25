@@ -11,7 +11,7 @@
 UI\NativeUI.lua
 UI\Theme.lua
 UI\Text.lua
-UI\VirtualList.lua
+UI\ScrollRows.xml
 UI\SlideTransition.lua
 UI\MainTabs.lua
 UI\SideTabs.lua
@@ -96,6 +96,7 @@ Tabs\TabReputation.lua
 Tabs\TabCooldowns.lua
 Tabs\TabCooldownsRaids.lua
 Tabs\SearchStickyHeaders.lua
+Tabs\SearchListModel.lua
 Tabs\TabSearchSettings.lua
 Tabs\TabSearch.lua
 Tabs\GraphLogic.lua
@@ -108,6 +109,8 @@ Libs\AceSerializer-3.0\AceSerializer-3.0.lua
 Libs\AceComm-3.0\AceComm-3.0.lua
 Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
 Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
+Libs\LibDeflate\LibDeflate.lua
+Data\ProfitExport.lua
 UI\MinimapSavedVars.lua
 UI\Minimap.lua
 UI\BankAltSuggestDialog.lua
@@ -119,3 +122,4 @@ UI\Options.lua
 UI\CooldownOptions.lua
 UI\QuestRewardIndicators.lua
 UI\GearUpgradeOptions.lua
+UI\ProfitExportDialog.lua

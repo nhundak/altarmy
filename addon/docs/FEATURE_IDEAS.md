@@ -27,6 +27,7 @@ Compared against:
 | Actionable suggestion panel | **Not started** | Separate chat alerts exist (cooldowns, mail, gear upgrades) |
 | Data freshness indicators | **Partial** | Missing-data `!` and Last Online; no per-domain scan age |
 | Guild data sharing | **Shipped** | [tabs/guild.md](tabs/guild.md) |
+| Export for altarmy-profit | **Shipped** | [tabs/options.md](tabs/options.md#export-for-altarmy-profit); characters only (no auction prices) |
 
 ---
 

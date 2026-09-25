@@ -7,7 +7,10 @@ describe("NativeUI", function()
   local NativeUI
   local saved
 
-  local GLOBALS = { "C_XMLUtil", "C_Texture", "CreateFrame", "ScrollUtil", "MenuUtil", "NineSliceUtil", "CreateFramePool" }
+  local GLOBALS = {
+    "C_XMLUtil", "C_Texture", "CreateFrame", "ScrollUtil", "MenuUtil", "NineSliceUtil", "CreateFramePool",
+    "CreateScrollBoxListLinearView", "CreateDataProvider",
+  }
 
   local function stubClient(templates, atlases, extra)
     templates = templates or {}
@@ -133,6 +136,30 @@ describe("NativeUI", function()
     it("requires ScrollUtil binding for minimal scroll bars", function()
       stubClient({ MinimalScrollBar = true })
       assert.is_false(NativeUI.DetectCaps().minimalScrollBar)
+    end)
+
+    it("reports virtualized ScrollBox lists when template, view, provider and binding exist", function()
+      stubClient({ MinimalScrollBar = true, WowScrollBoxList = true }, {}, {
+        ScrollUtil = {
+          InitScrollFrameWithScrollBar = function() end,
+          InitScrollBoxListWithScrollBar = function() end,
+        },
+      })
+      _G.CreateScrollBoxListLinearView = function() end
+      _G.CreateDataProvider = function() end
+      assert.is_true(NativeUI.DetectCaps().scrollBoxList)
+    end)
+
+    it("reports no ScrollBox lists without CreateDataProvider", function()
+      stubClient({ MinimalScrollBar = true, WowScrollBoxList = true }, {}, {
+        ScrollUtil = {
+          InitScrollFrameWithScrollBar = function() end,
+          InitScrollBoxListWithScrollBar = function() end,
+        },
+      })
+      _G.CreateScrollBoxListLinearView = function() end
+      _G.CreateDataProvider = nil
+      assert.is_false(NativeUI.DetectCaps().scrollBoxList)
     end)
 
     it("reports nine-slice chrome only when NineSliceUtil has the shared layouts", function()

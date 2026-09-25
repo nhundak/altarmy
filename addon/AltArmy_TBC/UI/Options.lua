@@ -1951,6 +1951,12 @@ SLASH_ALTARMY1, SLASH_ALTARMY2 = "/altarmy", "/alta"
 SlashCmdList.ALTARMY = function(msg)
     local trimmed = (msg or ""):match("^%s*(.-)%s*$") or ""
     local lower = trimmed:lower()
+    if lower == "export" then
+        if AltArmy.ProfitExportDialog then
+            AltArmy.ProfitExportDialog.Show()
+        end
+        return
+    end
     if lower == "debug on" then
         if AltArmy.Debug and AltArmy.Debug.SetEnabled then
             AltArmy.Debug.SetEnabled(true)

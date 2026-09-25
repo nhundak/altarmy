@@ -203,17 +203,11 @@ local headerFade = Theme.CreatePinnedHeaderScrollFade({
     headerBottomInset = 2,
 })
 
-do
-    local prevOnValueChanged = scrollBar:GetScript("OnValueChanged")
-    scrollBar:SetScript("OnValueChanged", function(self, value)
-        if prevOnValueChanged then
-            prevOnValueChanged(self, value)
-        end
-        if headerFade then
-            headerFade:Update()
-        end
-    end)
-end
+viewport.OnScroll(function()
+    if headerFade then
+        headerFade:Update()
+    end
+end)
 
 local emptyLabel = inner:CreateFontString(nil, "OVERLAY", Theme.FONTS.emptyState)
 emptyLabel:SetPoint("CENTER", inner, "CENTER", 0, 0)

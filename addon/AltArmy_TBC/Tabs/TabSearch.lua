@@ -8,7 +8,6 @@ end
 local Theme = AltArmy.Theme
 local CC = AltArmy.ClassColor
 local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
-local VirtualList = AltArmy.VirtualList
 -- Layout / list metrics packed to stay under Lua 5.1's 200-local / function limit.
 local UI = {
     PAD = 4,
@@ -21,13 +20,6 @@ local UI = {
     HEADER_ROW_GAP = 3, -- space between section header and first data row
     -- Extra space between the last recipe row and the "You may also be interested in" header.
     SECTION_GAP_BEFORE_TOOLTIP = 2,
-    -- Virtualized list: only render rows near the viewport
-    ROW_BUFFER = 6, -- extra rows above/below viewport; larger = fewer refill flickers while scrolling
-    ITEM_POOL_SIZE = 40,
-    RECIPE_POOL_SIZE = 40,
-    TOOLTIP_ONLY_POOL_SIZE = 40,
-    -- Refill before the visible window reaches the edge of the painted buffer.
-    PAINT_COVER_MARGIN = 1,
     HORIZONTAL_SCROLL_BAR_HEIGHT = 20,
     TOOLTIP_CHUNK_SIZE = 80,
     GRID_SPLIT_FRACTION = 0.6,
@@ -46,23 +38,22 @@ local UI = {
     FILTER_DROPDOWN_POPUP_PAD_BOTTOM = 8,
     FILTER_DROPDOWN_POPUP_PAD_RIGHT = 8,
     FILTER_DROPDOWN_TEXT_INSET = 10,
-}
-local paint = {
-    forceVisible = true,
-    itemsFirst = nil,
-    itemsLast = nil,
-    recipesFirst = nil,
-    recipesLast = nil,
-    tooltipFirst = nil,
-    tooltipLast = nil,
+    -- Bumped by ApplySearchColumnLayout; pooled rows re-anchor their cells when stale.
+    colLayoutGen = 0,
+    -- Per-refresh fill context for ScrollBox row initializers (set in UpdateResults).
+    rowCtx = { showRealmSuffix = false, highlightOpts = {}, tooltipOpts = {} },
 }
 
 local SD = AltArmy.SearchEngine or AltArmy.SearchData
 if not SD or not (SD.SearchItems or SD.SearchWithLocationGroups) or not SD.SearchRecipes then
     return
 end
-if not VirtualList or not VirtualList.GetRenderRange or not VirtualList.ShouldFillPoolRow then
-    return
+-- Results are a virtualized WowScrollBoxList (TBC Anniversary and Forever both ship it).
+do
+    local caps = AltArmy.NativeUI and AltArmy.NativeUI.GetCaps and AltArmy.NativeUI.GetCaps()
+    if not (caps and caps.scrollBoxList) or not AltArmy.SearchListModel then
+        return
+    end
 end
 
 local GTD = AltArmy.GuildTabData
@@ -231,24 +222,17 @@ local horizontalScroll = CreateFrame("ScrollFrame", "AltArmyTBC_SearchHorizontal
 horizontalScroll:SetAllPoints(listViewport)
 horizontalScroll:EnableMouse(true)
 
--- horizontalScrollChild created after totalColWidth is known; scrollFrame reparented into it below
+-- horizontalScrollChild created after totalColWidth is known; scrollBox reparented into it below
 
--- Scroll frame (viewport for results; section headers live inside scroll)
-local scrollFrame = CreateFrame("ScrollFrame", "AltArmyTBC_SearchScrollFrame", frame)
-scrollFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", UI.PAD, -UI.PAD)
-scrollFrame:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -UI.PAD - 20, -UI.PAD)
-scrollFrame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", UI.PAD, UI.PAD)
-scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -UI.PAD - 20, UI.PAD)
-scrollFrame:EnableMouse(true)
+-- Results list: virtualized WowScrollBoxList (only rows in view have frames). Section headers are
+-- spacer elements in the list; the visible headers are sticky overlays on listViewport.
+local scrollBox = CreateFrame("Frame", "AltArmyTBC_SearchScrollBox", frame, "WowScrollBoxList")
 
--- Custom vertical scroll bar (same style as Gear tab)
+-- Vertical scroll bar (native MinimalScrollBar); bound to scrollBox once the view exists.
 UI.SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
-local searchScrollBar = CreateFrame("Slider", "AltArmyTBC_SearchScrollBar", tabContentInner)
-searchScrollBar:SetMinMaxValues(0, 0)
-searchScrollBar:SetValueStep(UI.ROW_HEIGHT)
-searchScrollBar:SetValue(0)
-searchScrollBar:EnableMouse(true)
--- OnValueChanged set below after UpdateVisibleRows is defined
+local searchScrollBar = CreateFrame("EventFrame", "AltArmyTBC_SearchScrollBar", tabContentInner, "MinimalScrollBar")
+searchScrollBar.altArmyNativeScrollBar = true
+searchScrollBar:SetHideIfUnscrollable(true)
 
 -- Horizontal scroll bar at bottom of list area (like Summary tab)
 local UpdateStickyHeaders
@@ -271,16 +255,10 @@ local horizontalScrollApi = Theme.CreateHorizontalScrollBar(tabContentInner, {
 })
 local horizontalScrollBar = horizontalScrollApi.bar
 
+-- Sticky headers overlay the list; forward their wheel to the ScrollBox.
 local function OnSearchScrollWheel(_, delta)
-    if not searchScrollBar then return end
-    local minVal, maxVal = searchScrollBar:GetMinMaxValues()
-    local current = searchScrollBar:GetValue()
-    local newVal = current - delta * UI.ROW_HEIGHT * 2
-    newVal = math.max(minVal, math.min(maxVal, newVal))
-    searchScrollBar:SetValue(newVal)
-    scrollFrame:SetVerticalScroll(newVal)
+    scrollBox:OnMouseWheel(delta)
 end
-scrollFrame:SetScript("OnMouseWheel", OnSearchScrollWheel)
 
 -- Results area (scroll child; stacks Items section then Recipes section)
 local function getTotalColWidth()
@@ -296,71 +274,44 @@ end
 local totalColWidth = SearchColumns and SearchColumns.GetResultsTableWidth(false)
     or math.max(getTotalColWidth(), getRecipeColWidth())
 
--- Horizontal scroll child: holds the vertical scroll frame so the whole results area can scroll horizontally
+-- Horizontal scroll child: holds the vertical scroll box so the whole results area can scroll horizontally
 local horizontalScrollChild = CreateFrame("Frame", nil, horizontalScroll)
 horizontalScrollChild:SetPoint("TOPLEFT", horizontalScroll, "TOPLEFT", 0, 0)
 horizontalScrollChild:SetHeight(1)
 horizontalScrollChild:SetWidth(totalColWidth)
 horizontalScroll:SetScrollChild(horizontalScrollChild)
 
--- Reparent scroll frame into horizontal scroll child so it scrolls with the grid.
--- Inset 2px from the top so row text cannot draw into the seam above the sticky header
--- (ScrollFrame clips its child; a full-bleed top edge lets 1–2px of text peek through).
-scrollFrame:ClearAllPoints()
-scrollFrame:SetParent(horizontalScrollChild)
-scrollFrame:SetPoint("TOPLEFT", horizontalScrollChild, "TOPLEFT", 0, -2)
-scrollFrame:SetPoint("BOTTOMLEFT", horizontalScrollChild, "BOTTOMLEFT", 0, 0)
-scrollFrame:SetPoint("BOTTOMRIGHT", horizontalScrollChild, "BOTTOMRIGHT", 0, 0)
+-- Reparent scroll box into horizontal scroll child so it scrolls with the grid (rows stretch to
+-- the box width = totalColWidth). Sticky headers have no background, so rows must never scroll
+-- under the pinned header: the box starts below the first header block (whose spacer is left
+-- out of the list), which leaves every row's on-screen position and the scroll range unchanged.
+-- The extra 2px keeps row text off the header's bottom edge.
+UI.LIST_TOP_INSET = 2 + UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
+scrollBox:ClearAllPoints()
+scrollBox:SetParent(horizontalScrollChild)
+scrollBox:SetPoint("TOPLEFT", horizontalScrollChild, "TOPLEFT", 0, -UI.LIST_TOP_INSET)
+scrollBox:SetPoint("BOTTOMLEFT", horizontalScrollChild, "BOTTOMLEFT", 0, 0)
+scrollBox:SetPoint("BOTTOMRIGHT", horizontalScrollChild, "BOTTOMRIGHT", 0, 0)
 
+-- Sticky headers are transparent (the page background shows through, so nothing appears to move
+-- behind them); see UI.LIST_TOP_INSET for why rows never pass underneath.
 local function StyleStickySearchHeader(headerRow)
     headerRow:EnableMouse(true)
     headerRow:SetScript("OnMouseWheel", OnSearchScrollWheel)
-    local headerBg = headerRow:CreateTexture(nil, "BACKGROUND")
-    -- Overhang above the header frame seals the viewport top edge under the sticky header.
-    headerBg:SetPoint("TOPLEFT", headerRow, "TOPLEFT", 0, 2)
-    headerBg:SetPoint("TOPRIGHT", headerRow, "TOPRIGHT", 0, 2)
-    headerBg:SetPoint("BOTTOMLEFT", headerRow, "BOTTOMLEFT", 0, 0)
-    headerBg:SetPoint("BOTTOMRIGHT", headerRow, "BOTTOMRIGHT", 0, 0)
-    Theme.StyleGridHeader(headerBg)
-    -- Draw above nested scroll frames so row text cannot peek at the viewport seam.
     headerRow:SetFrameLevel((listViewport:GetFrameLevel() or 0) + 40)
 end
 
--- Viewport-fixed strip covering the top seam when a section header is pinned.
-local stickyHeaderTopSeal = CreateFrame("Frame", nil, listViewport)
-stickyHeaderTopSeal:SetHeight(2)
-stickyHeaderTopSeal:SetPoint("TOPLEFT", listViewport, "TOPLEFT", 0, 0)
-stickyHeaderTopSeal:SetPoint("TOPRIGHT", listViewport, "TOPRIGHT", 0, 0)
-stickyHeaderTopSeal:SetFrameLevel((listViewport:GetFrameLevel() or 0) + 45)
-local stickyHeaderTopSealBg = stickyHeaderTopSeal:CreateTexture(nil, "BACKGROUND")
-stickyHeaderTopSealBg:SetAllPoints(stickyHeaderTopSeal)
-Theme.StyleGridHeader(stickyHeaderTopSealBg)
-stickyHeaderTopSeal:EnableMouse(false)
-stickyHeaderTopSeal:Hide()
-
-local resultsArea = CreateFrame("Frame", nil, scrollFrame)
-resultsArea:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
-resultsArea:SetWidth(totalColWidth)
-resultsArea:SetHeight(UI.ROW_HEIGHT)
-scrollFrame:SetScrollChild(resultsArea)
-resultsArea:SetScript("OnMouseWheel", OnSearchScrollWheel)
-
 -- Result list state (declared before section headers; header clicks update sort and refresh).
-local resultRows = {}
 local itemList = {}
 local recipeList = {}
 local localRecipeList = {}
-local recipeRows = {}
-local itemGroups = {}
 local tooltipOnlyItemList = {}
-local tooltipOnlyItemGroups = {}
-local tooltipOnlyResultRows = {}
 -- Raw merged recipe hits (pre-collapse). Display list is recipeList after sort+collapse.
 -- expandedIDs: set of recipeIDs whose guild rows are currently expanded.
 local recipeCollapseState = { mergedList = {}, expandedIDs = {} }
--- Built in UpdateResults; reused by UpdateVisibleRows so scroll does not rebuild guild roster.
+-- Built in UpdateResults; reused by row initializers so scroll does not rebuild guild roster.
 local searchRosterByName = nil
-local UpdateVisibleRows
+local PlaceGroupOverlays
 local UpdateResults
 local RefreshSearchHeaderSortLabels
 
@@ -491,8 +442,6 @@ initSearchSectionHeader(alsoInterestedHeaderRow, "tooltip", colOrder, alsoIntere
 
 local scrollTopFade = Theme.CreatePinnedHeaderScrollFade({
     headerFrame = itemsHeaderRow,
-    scrollFrame = scrollFrame,
-    scrollBar = searchScrollBar,
 })
 local stickyHeaderFadeFrame = scrollTopFade.frame
 
@@ -726,12 +675,14 @@ local function UpdateNoResultsHint()
     end
 end
 
--- Group overlay: total count (centered in group) + item icon to the right
+-- Group overlay: total count (centered in group) + item icon to the right. Children of the
+-- ScrollBox's scroll target so they move and clip with the rows they span.
 local groupOverlayPool = {}
 local function getGroupOverlay(i)
     if not groupOverlayPool[i] then
-        local overlay = CreateFrame("Frame", nil, resultsArea)
-        overlay:SetFrameLevel(resultsArea:GetFrameLevel() + 1)
+        local target = scrollBox:GetScrollTarget()
+        local overlay = CreateFrame("Frame", nil, target)
+        overlay:SetFrameLevel(target:GetFrameLevel() + 5)
         overlay.total = overlay:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
         overlay.total:SetJustifyH("RIGHT")
         overlay.icon = overlay:CreateTexture(nil, "OVERLAY")
@@ -741,23 +692,8 @@ local function getGroupOverlay(i)
     return groupOverlayPool[i]
 end
 
-local tooltipOnlyGroupOverlayPool = {}
-local function getTooltipOnlyGroupOverlay(i)
-    if not tooltipOnlyGroupOverlayPool[i] then
-        local overlay = CreateFrame("Frame", nil, resultsArea)
-        overlay:SetFrameLevel(resultsArea:GetFrameLevel() + 1)
-        overlay.total = overlay:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
-        overlay.total:SetJustifyH("RIGHT")
-        overlay.icon = overlay:CreateTexture(nil, "OVERLAY")
-        overlay.icon:SetSize(UI.OVERLAY_ICON_SIZE, UI.OVERLAY_ICON_SIZE)
-        tooltipOnlyGroupOverlayPool[i] = overlay
-    end
-    return tooltipOnlyGroupOverlayPool[i]
-end
-
-local function createItemRow()
-    local row = CreateFrame("Frame", nil, resultsArea)
-    row:SetHeight(UI.ROW_HEIGHT)
+--- One-time build of an item-row frame from the ScrollBox pool (AltArmySearchItemRowTemplate).
+local function buildItemRow(row)
     row:EnableMouse(true)
     row.cells = {}
     local cx = 0
@@ -797,12 +733,10 @@ local function createItemRow()
         if not entry then return end
         HandleItemRowClick(entry.itemLink or entry.itemID, button)
     end)
-    return row
 end
 
-local function createRecipeRow()
-    local row = CreateFrame("Frame", nil, resultsArea)
-    row:SetHeight(UI.ROW_HEIGHT)
+--- One-time build of a recipe-row frame from the ScrollBox pool (AltArmySearchRecipeRowTemplate).
+local function buildRecipeRow(row)
     row:EnableMouse(true)
     row.cells = {}
     local cx = 0
@@ -981,7 +915,6 @@ local function createRecipeRow()
     childRail:SetColorTexture(0.55, 0.55, 0.60, 0.85)
     childRail:Hide()
     row.collapseChildRail = childRail
-    return row
 end
 
 local function fillItemRow(row, entry, showRealmSuffix, rowOpts)
@@ -1198,7 +1131,7 @@ UpdateStickyHeaders = function()
     local sections = buildVisibleSearchSections(nItems, nRecipes, nTooltipOnly)
     local headerTops = StickyMod.ComputeSectionLayout(
         sections, UI.HEADER_HEIGHT, UI.HEADER_ROW_GAP, UI.ROW_HEIGHT)
-    local scrollValue = searchScrollBar and searchScrollBar:GetValue() or 0
+    local scrollValue = scrollBox:GetDerivedScrollOffset()
     local stickyTops = StickyMod.ComputeStickyTops(headerTops, scrollValue, UI.HEADER_HEIGHT)
 
     local headerById = {
@@ -1214,31 +1147,18 @@ UpdateStickyHeaders = function()
     local hScroll = (horizontalScroll and horizontalScroll.GetHorizontalScroll
         and horizontalScroll:GetHorizontalScroll()) or 0
     local headerWidth = totalColWidth or 0
-    local hasPinnedHeader = false
     for i, headerRow in ipairs(headerRows) do
         local stickyTop = stickyTops[i] or 0
-        if stickyTop == 0 then
-            hasPinnedHeader = true
-        end
         headerRow:ClearAllPoints()
         headerRow:SetPoint("TOPLEFT", listViewport, "TOPLEFT", -hScroll, -stickyTop)
         headerRow:SetWidth(headerWidth)
     end
 
-    if stickyHeaderTopSeal then
-        stickyHeaderTopSeal:SetShown(hasPinnedHeader)
-    end
-
     UpdateStickyHeaderFade(headerRows, stickyTops, scrollValue)
 end
 
--- Place a Total-column group overlay spanning pool rows [firstPoolIdx, lastPoolIdx].
-local function placeGroupOverlay(overlay, rows, firstPoolIdx, lastPoolIdx, totalColX, totalColW, firstEntry, groupTotal)
-    local firstRowFrame = rows[firstPoolIdx]
-    local lastRowFrame = rows[lastPoolIdx]
-    if not firstRowFrame or not lastRowFrame or not firstRowFrame:IsShown() or not lastRowFrame:IsShown() then
-        return
-    end
+-- Place a Total-column group overlay spanning row frames firstRowFrame..lastRowFrame.
+local function placeGroupOverlay(overlay, firstRowFrame, lastRowFrame, totalColX, totalColW, firstEntry, groupTotal)
     overlay:ClearAllPoints()
     overlay:SetPoint("TOPLEFT", firstRowFrame, "TOPLEFT", totalColX, 2)
     overlay:SetPoint("BOTTOMLEFT", lastRowFrame, "BOTTOMLEFT", totalColX, 2)
@@ -1268,203 +1188,131 @@ local function hideUnusedOverlays(pool, usedCount)
     end
 end
 
-local function positionPooledRow(row, rowY)
-    row:ClearAllPoints()
-    row:SetPoint("TOPLEFT", resultsArea, "TOPLEFT", 0, rowY)
-    row:SetPoint("TOPRIGHT", resultsArea, "TOPRIGHT", 0, rowY)
-    row:SetPoint("BOTTOMLEFT", resultsArea, "TOPLEFT", 0, rowY - UI.ROW_HEIGHT)
+local function RelayoutSearchResultRow(row, order, widths)
+    if not row or not row.cells then
+        return
+    end
+    local cx = 0
+    for _, colName in ipairs(order) do
+        local w = widths[colName] or 80
+        local cell = row.cells[colName]
+        if cell then
+            cell:SetWidth(w)
+            cell:ClearAllPoints()
+            cell:SetPoint("TOPLEFT", row, "TOPLEFT", cx, 0)
+            cx = cx + w
+        end
+    end
 end
 
---- Paint one virtualized section (rows + optional group overlays).
-local function paintSearchSection(cfg)
-    local range = VirtualList.GetRenderRange(
-        cfg.scrollValue, cfg.viewHeight, cfg.sectionTop, UI.ROW_HEIGHT, cfg.rowCount, UI.ROW_BUFFER)
-    local paintFirstKey = cfg.paintFirstKey
-    local paintLastKey = cfg.paintLastKey
-    local refill = cfg.force
-        or not range
-        or not VirtualList.IsVisibleRangeCovered(
-            range.firstVisible, range.lastVisible,
-            paint[paintFirstKey], paint[paintLastKey], UI.PAINT_COVER_MARGIN)
-    if range and refill then
-        local firstRender = range.firstRender
-        local lastRender = range.lastRender
-        VirtualList.ForEachPoolSlot(cfg.poolSize, firstRender, range.renderCount,
-            function(poolIdx, dataIndex)
-                local row = cfg.rows[poolIdx]
-                if not row then
-                    row = cfg.createRow()
-                    cfg.rows[poolIdx] = row
-                end
-                local entry = cfg.list[dataIndex]
-                local rowY = VirtualList.RowTopOffset(cfg.sectionTop, dataIndex, UI.ROW_HEIGHT)
-                positionPooledRow(row, rowY)
-                if VirtualList.ShouldFillPoolRow(cfg.force, row.dataIndex, dataIndex) then
-                    cfg.fillRow(row, entry, cfg.showRealmSuffix, cfg.rowOpts)
-                    row.dataIndex = dataIndex
-                elseif cfg.onSkipFill then
-                    cfg.onSkipFill(entry)
-                end
-                row:Show()
-            end,
-            function(poolIdx)
-                local row = cfg.rows[poolIdx]
-                if row then
-                    row:Hide()
-                    row.entry = nil
-                    row.dataIndex = nil
-                end
-            end)
-        if cfg.groups and cfg.getOverlay then
-            local overlayIdx = 0
-            local totalColX = (colWidths.Item or 280) + (colWidths.Character or 160)
-            local totalColW = colWidths.Total or 72
-            for _, group in ipairs(cfg.groups) do
-                local span = VirtualList.GroupPoolSpan(group, firstRender, lastRender)
-                if span then
-                    overlayIdx = overlayIdx + 1
-                    placeGroupOverlay(
-                        cfg.getOverlay(overlayIdx), cfg.rows,
-                        span.firstPoolIdx, span.lastPoolIdx,
-                        totalColX, totalColW, cfg.list[group.start], group.total)
-                end
+-- ScrollBox row initializers. The list is virtualized by WowScrollBoxList: only elements in view
+-- have frames, and a frame whose element stays in view is not re-initialized while scrolling.
+local function syncRowColumns(row, order, widths)
+    if row.colLayoutGen ~= UI.colLayoutGen then
+        RelayoutSearchResultRow(row, order, widths)
+        row.colLayoutGen = UI.colLayoutGen
+    end
+end
+
+-- Scroll paint debug: one timing log per ScrollBox update that filled rows (ended in OnUpdate).
+local function beginPaintDebug()
+    local ctx = UI.rowCtx
+    if not ctx.paintDbg and SD.BeginScrollPaintDebug then
+        ctx.paintDbg = SD.BeginScrollPaintDebug()
+        ctx.highlightOpts.scrollDebug = ctx.paintDbg
+        ctx.tooltipOpts.scrollDebug = ctx.paintDbg
+    end
+end
+
+local function endPaintDebug()
+    local ctx = UI.rowCtx
+    if not ctx.paintDbg then return end
+    if SD.EndScrollPaintDebug then
+        SD.EndScrollPaintDebug(ctx.paintDbg)
+    end
+    ctx.paintDbg = nil
+    ctx.highlightOpts.scrollDebug = nil
+    ctx.tooltipOpts.scrollDebug = nil
+end
+
+local function initItemRow(row, element)
+    if not row.cells then
+        buildItemRow(row)
+    end
+    syncRowColumns(row, colOrder, colWidths)
+    beginPaintDebug()
+    local ctx = UI.rowCtx
+    local opts = element.sectionId == "tooltip" and ctx.tooltipOpts or ctx.highlightOpts
+    fillItemRow(row, element.entry, ctx.showRealmSuffix, opts)
+end
+
+local function initRecipeRow(row, element)
+    if not row.cells then
+        buildRecipeRow(row)
+    end
+    syncRowColumns(row, recipeColOrder, recipeColWidths)
+    beginPaintDebug()
+    fillRecipeRow(row, element.entry, UI.rowCtx.showRealmSuffix, UI.rowCtx.highlightOpts)
+end
+
+-- Section header slot: the visible header is a sticky overlay on listViewport.
+local function initSpacerRow(row)
+    row:EnableMouse(false)
+end
+
+do
+    local view = CreateScrollBoxListLinearView()
+    view:SetElementFactory(function(factory, element)
+        if element.kind == "header" then
+            factory("AltArmySearchSpacerTemplate", initSpacerRow)
+        elseif element.sectionId == "recipes" then
+            factory("AltArmySearchRecipeRowTemplate", initRecipeRow)
+        else
+            factory("AltArmySearchItemRowTemplate", initItemRow)
+        end
+    end)
+    view:SetElementExtentCalculator(function(_, element)
+        return element.extent
+    end)
+    -- Default pan extent is the first element's height (a section header); wheel by two rows.
+    view:SetPanExtent(UI.ROW_HEIGHT * 2)
+    ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, searchScrollBar, view)
+end
+
+-- Total overlays span the visible frames of each item group; re-place whenever the set of
+-- frames changes (frames move with the scroll target, so plain scrolling needs no work).
+PlaceGroupOverlays = function()
+    local totalColX = (colWidths.Item or 280) + (colWidths.Character or 160)
+    local totalColW = colWidths.Total or 72
+    local spans, order = {}, {}
+    for _, rowFrame in scrollBox:EnumerateFrames() do
+        local element = rowFrame.GetElementData and rowFrame:GetElementData()
+        local group = element and element.group
+        if group then
+            local span = spans[group]
+            if not span then
+                span = { first = rowFrame }
+                spans[group] = span
+                order[#order + 1] = group
             end
-            hideUnusedOverlays(cfg.overlayPool, overlayIdx)
+            span.last = rowFrame
         end
-        paint[paintFirstKey] = firstRender
-        paint[paintLastKey] = lastRender
-    elseif not range then
-        for _, row in ipairs(cfg.rows) do
-            row:Hide()
-            row.entry = nil
-            row.dataIndex = nil
-        end
-        if cfg.overlayPool then
-            hideUnusedOverlays(cfg.overlayPool, 0)
-        end
-        paint[paintFirstKey], paint[paintLastKey] = nil, nil
     end
+    for i, group in ipairs(order) do
+        local span = spans[group]
+        placeGroupOverlay(getGroupOverlay(i), span.first, span.last, totalColX, totalColW,
+            group.firstEntry, group.total)
+    end
+    hideUnusedOverlays(groupOverlayPool, #order)
 end
 
--- Virtualized list: fill only rows in the visible range + buffer. Call after layout and on scroll.
--- While the visible window stays inside the last painted buffer, skip refills so SetVerticalScroll
--- moves already-filled rows (no blank/flicker). Refill when the visible edge nears the buffer.
-UpdateVisibleRows = function()
-    local scrollDbg = SD.BeginScrollPaintDebug and SD.BeginScrollPaintDebug() or nil
-    local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
-    local nItems = categories.Items and #itemList or 0
-    local nRecipes = categories.Recipes and #recipeList or 0
-    local nTooltipOnly = #tooltipOnlyItemList
-    -- Show realm suffix only when viewing all realms and account has characters on multiple realms.
-    local showRealmSuffix = (GlobalRealmFilterValue() == "all") and AccountHasMultipleRealms()
-    local scrollValue = searchScrollBar and searchScrollBar:GetValue() or 0
-    local viewHeight = scrollFrame:GetHeight()
-    local searchQuery = frame.lastQuery or ""
-    local highlightRowOpts = { searchQuery = searchQuery, highlightSearch = true, scrollDebug = scrollDbg }
-    if searchRosterByName then
-        highlightRowOpts.rosterByName = searchRosterByName
-        highlightRowOpts.onlineCache = {}
-    end
-    local tooltipOnlyRowOpts = {
-        highlightSearch = false,
-        scrollDebug = scrollDbg,
-        scrollDebugIsTooltip = true,
-    }
-    local force = paint.forceVisible
-    local StickyMod = AltArmy.SearchStickyHeaders
-    local sectionMetas
-    if StickyMod and StickyMod.ComputeSectionLayout then
-        local _
-        _, sectionMetas = StickyMod.ComputeSectionLayout(
-            buildVisibleSearchSections(nItems, nRecipes, nTooltipOnly),
-            UI.HEADER_HEIGHT, UI.HEADER_ROW_GAP, UI.ROW_HEIGHT)
-    end
-    local topsById = {}
-    for i = 1, #(sectionMetas or {}) do
-        local m = sectionMetas[i]
-        topsById[m.id] = m.sectionTop
-    end
-    local defaultTop = UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
-
-    paintSearchSection({
-        scrollValue = scrollValue,
-        viewHeight = viewHeight,
-        sectionTop = topsById.items or defaultTop,
-        rowCount = nItems,
-        force = force,
-        paintFirstKey = "itemsFirst",
-        paintLastKey = "itemsLast",
-        poolSize = UI.ITEM_POOL_SIZE,
-        rows = resultRows,
-        list = itemList,
-        createRow = createItemRow,
-        fillRow = fillItemRow,
-        showRealmSuffix = showRealmSuffix,
-        rowOpts = highlightRowOpts,
-        onSkipFill = function()
-            if scrollDbg then SD.NoteScrollItemPaint(scrollDbg) end
-        end,
-        groups = itemGroups,
-        getOverlay = getGroupOverlay,
-        overlayPool = groupOverlayPool,
-    })
-
-    paintSearchSection({
-        scrollValue = scrollValue,
-        viewHeight = viewHeight,
-        sectionTop = topsById.recipes or defaultTop,
-        rowCount = nRecipes,
-        force = force,
-        paintFirstKey = "recipesFirst",
-        paintLastKey = "recipesLast",
-        poolSize = UI.RECIPE_POOL_SIZE,
-        rows = recipeRows,
-        list = recipeList,
-        createRow = createRecipeRow,
-        fillRow = fillRecipeRow,
-        showRealmSuffix = showRealmSuffix,
-        rowOpts = highlightRowOpts,
-        onSkipFill = function(entry)
-            if scrollDbg then SD.NoteScrollRecipePaint(scrollDbg, entry) end
-        end,
-    })
-
-    paintSearchSection({
-        scrollValue = scrollValue,
-        viewHeight = viewHeight,
-        sectionTop = topsById.tooltip or defaultTop,
-        rowCount = nTooltipOnly,
-        force = force,
-        paintFirstKey = "tooltipFirst",
-        paintLastKey = "tooltipLast",
-        poolSize = UI.TOOLTIP_ONLY_POOL_SIZE,
-        rows = tooltipOnlyResultRows,
-        list = tooltipOnlyItemList,
-        createRow = createItemRow,
-        fillRow = fillItemRow,
-        showRealmSuffix = showRealmSuffix,
-        rowOpts = tooltipOnlyRowOpts,
-        onSkipFill = function()
-            if scrollDbg then SD.NoteScrollTooltipPaint(scrollDbg) end
-        end,
-        groups = tooltipOnlyItemGroups,
-        getOverlay = getTooltipOnlyGroupOverlay,
-        overlayPool = tooltipOnlyGroupOverlayPool,
-    })
-
-    paint.forceVisible = false
+scrollBox:RegisterCallback(BaseScrollBoxEvents.OnScroll, function()
     UpdateStickyHeaders()
-    if scrollDbg and SD.EndScrollPaintDebug then
-        SD.EndScrollPaintDebug(scrollDbg)
-    end
-end
-
--- Wire scroll to refresh visible rows (must be after UpdateVisibleRows is defined).
--- SetVerticalScroll is sync; UpdateVisibleRows usually no-ops fills while buffer covers the viewport.
-searchScrollBar:SetScript("OnValueChanged", function(_, value)
-    scrollFrame:SetVerticalScroll(value)
-    UpdateVisibleRows()
-end)
+end, frame)
+scrollBox:RegisterCallback(ScrollBoxListMixin.Event.OnDataRangeChanged, function()
+    PlaceGroupOverlays()
+end, frame)
+scrollBox:RegisterCallback(ScrollBoxListMixin.Event.OnUpdate, endPaintDebug, frame)
 
 UpdateResults = function()
     if GTD and GTD.BuildRosterLastOnlineMap then
@@ -1473,93 +1321,27 @@ UpdateResults = function()
         searchRosterByName = nil
     end
     applySectionSorts()
-    paint.forceVisible = true
-    paint.itemsFirst, paint.itemsLast = nil, nil
-    paint.recipesFirst, paint.recipesLast = nil, nil
-    paint.tooltipFirst, paint.tooltipLast = nil, nil
     local categories = AltArmy.SearchCategories or { Items = true, Recipes = true }
     local nItems = categories.Items and #itemList or 0
     local nRecipes = categories.Recipes and #recipeList or 0
-    local contentHeight = 0
-
-    -- Items section: layout header, build groups, set content height (virtualized rows in UpdateVisibleRows)
-    if nItems > 0 then
-        itemsHeaderRow:Show()
-        contentHeight = contentHeight + UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
-
-        -- Group consecutive rows by item (itemID + itemName); store for UpdateVisibleRows
-        itemGroups = {}
-        local prevKey = nil
-        for i = 1, nItems do
-            local entry = itemList[i]
-            local key = (entry.itemID or 0) .. "\t" .. (entry.itemName or "")
-            if i == 1 or key ~= prevKey then
-                table.insert(itemGroups, { start = i, count = 1, total = entry.count or 1 })
-                prevKey = key
-            else
-                local g = itemGroups[#itemGroups]
-                g.count = g.count + 1
-                g.total = g.total + (entry.count or 1)
-                prevKey = key
-            end
-        end
-
-        contentHeight = contentHeight + nItems * UI.ROW_HEIGHT
-    else
-        itemsHeaderRow:Hide()
-        itemGroups = {}
-    end
-
-    -- Recipes section: layout header and content height (virtualized rows in UpdateVisibleRows)
-    if nRecipes > 0 then
-        recipesHeaderRow:Show()
-        contentHeight = contentHeight + UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
-        contentHeight = contentHeight + nRecipes * UI.ROW_HEIGHT
-    else
-        recipesHeaderRow:Hide()
-    end
-
-    -- "You may also be interested in:" section: tooltip-only matches shown after Items and Recipes
     local nTooltipOnly = #tooltipOnlyItemList
-    if nTooltipOnly > 0 then
-        alsoInterestedHeaderRow:Show()
-        if nRecipes > 0 then
-            contentHeight = contentHeight + UI.SECTION_GAP_BEFORE_TOOLTIP
-        end
-        contentHeight = contentHeight + UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP
+    itemsHeaderRow:SetShown(nItems > 0)
+    recipesHeaderRow:SetShown(nRecipes > 0)
+    alsoInterestedHeaderRow:SetShown(nTooltipOnly > 0)
 
-        tooltipOnlyItemGroups = {}
-        local prevKey = nil
-        for i = 1, nTooltipOnly do
-            local entry = tooltipOnlyItemList[i]
-            local key = (entry.itemID or 0) .. "\t" .. (entry.itemName or "")
-            if i == 1 or key ~= prevKey then
-                table.insert(tooltipOnlyItemGroups, { start = i, count = 1, total = entry.count or 1 })
-                prevKey = key
-            else
-                local g = tooltipOnlyItemGroups[#tooltipOnlyItemGroups]
-                g.count = g.count + 1
-                g.total = g.total + (entry.count or 1)
-            end
-        end
+    -- Fill context read by the row initializers until the next refresh.
+    local ctx = UI.rowCtx
+    -- Show realm suffix only when viewing all realms and account has characters on multiple realms.
+    ctx.showRealmSuffix = (GlobalRealmFilterValue() == "all") and AccountHasMultipleRealms()
+    ctx.highlightOpts = {
+        searchQuery = frame.lastQuery or "",
+        highlightSearch = true,
+        rosterByName = searchRosterByName,
+        onlineCache = searchRosterByName and {} or nil,
+    }
+    ctx.tooltipOpts = { highlightSearch = false, scrollDebugIsTooltip = true }
+    ctx.paintDbg = nil
 
-        contentHeight = contentHeight + nTooltipOnly * UI.ROW_HEIGHT
-    else
-        alsoInterestedHeaderRow:Hide()
-        tooltipOnlyItemGroups = {}
-    end
-
-    if contentHeight < UI.ROW_HEIGHT then
-        contentHeight = UI.ROW_HEIGHT
-    end
-    resultsArea:SetHeight(contentHeight)
-    if scrollFrame.UpdateScrollChildRect then
-        scrollFrame:UpdateScrollChildRect()
-    end
-    if searchScrollBar and Theme.UpdateVerticalScrollRange then
-        Theme.UpdateVerticalScrollRange(
-            scrollFrame, searchScrollBar, contentHeight, scrollFrame:GetHeight(), UI.ROW_HEIGHT)
-    end
     -- Horizontal scroll: list viewport may be narrower than totalColWidth
     if listViewport and horizontalScroll and horizontalScrollChild and horizontalScrollBar then
         local vw = listViewport:GetWidth()
@@ -1573,12 +1355,12 @@ UpdateResults = function()
             horizontalScrollChild:SetWidth(totalColWidth)
             local vh = listViewport:GetHeight()
             if not vh or vh <= 0 then
-                vh = scrollFrame:GetHeight()
+                vh = scrollBox:GetHeight()
             end
             horizontalScrollChild:SetHeight(vh)
             -- Horizontal scroll only while the settings panel narrows the list.
             local maxHorzScroll = settingsOpen and math.max(0, totalColWidth - vw) or 0
-            horizontalScrollApi:SetRange(0, maxHorzScroll)
+            horizontalScrollApi:SetRange(0, maxHorzScroll, vw)
             horizontalScrollBar:SetShown(maxHorzScroll > 0)
             local hVal = horizontalScrollBar:GetValue()
             if hVal > maxHorzScroll then
@@ -1589,23 +1371,35 @@ UpdateResults = function()
             end
         end
     end
+
+    local listsById = { items = itemList, recipes = recipeList, tooltip = tooltipOnlyItemList }
+    local sections = buildVisibleSearchSections(nItems, nRecipes, nTooltipOnly)
+    for _, section in ipairs(sections) do
+        section.list = listsById[section.id]
+        section.grouped = section.id ~= "recipes"
+    end
+    local elements = AltArmy.SearchListModel.Build(sections, {
+        headerHeight = UI.HEADER_HEIGHT,
+        headerRowGap = UI.HEADER_ROW_GAP,
+        rowHeight = UI.ROW_HEIGHT,
+        -- The first header is always pinned above the box (see UI.LIST_TOP_INSET).
+        omitFirstHeader = true,
+    })
+    -- Synchronous full update: frames in view are (re)initialized, OnScroll places the sticky
+    -- headers and OnDataRangeChanged the Total overlays. Keeps the pixel offset (clamped).
+    scrollBox:SetDataProvider(CreateDataProvider(elements), ScrollBoxConstants.RetainScrollPosition)
+
     RefreshSearchHeaderSortLabels()
     if SD.StartRecipeResultPrewarm then
         SD.StartRecipeResultPrewarm(recipeList)
     end
-    UpdateVisibleRows()
+    UpdateStickyHeaders()
     UpdateNoResultsHint()
 end
 
--- Reset list to top; force-nudge so a post-shrink bar/frame desync cannot stick mid-list.
+-- Reset list to top.
 local function ResetSearchVerticalScroll()
-    if Theme.SetVerticalScrollOffset and searchScrollBar then
-        Theme.SetVerticalScrollOffset(
-            scrollFrame, searchScrollBar, 0, select(2, searchScrollBar:GetMinMaxValues()), true)
-    elseif searchScrollBar then
-        searchScrollBar:SetValue(0)
-        scrollFrame:SetVerticalScroll(0)
-    end
+    scrollBox:ScrollToBegin(ScrollBoxConstants.NoScrollInterpolation)
 end
 
 --- Shared search pipeline used by DoSearch and SearchWithQuery.
@@ -1723,23 +1517,6 @@ local function ApplySearchListLayout()
     end
 end
 
-local function RelayoutSearchResultRow(row, order, widths)
-    if not row or not row.cells then
-        return
-    end
-    local cx = 0
-    for _, colName in ipairs(order) do
-        local w = widths[colName] or 80
-        local cell = row.cells[colName]
-        if cell then
-            cell:SetWidth(w)
-            cell:ClearAllPoints()
-            cell:SetPoint("TOPLEFT", row, "TOPLEFT", cx, 0)
-            cx = cx + w
-        end
-    end
-end
-
 local function LayoutSearchHeaderButtons(buttonsByCol, headerRow, order, widths, sortState, labelTextForCol)
     local x = 0
     for _, colName in ipairs(order) do
@@ -1775,22 +1552,13 @@ local function ApplySearchColumnLayout()
     SyncSearchColumnWidths(settingsOpen, fitWidth)
     totalColWidth = SearchColumns and SearchColumns.GetResultsTableWidth(settingsOpen, fitWidth)
         or math.max(getTotalColWidth(), getRecipeColWidth())
-    if resultsArea then
-        resultsArea:SetWidth(totalColWidth)
-    end
     if horizontalScrollChild then
         horizontalScrollChild:SetWidth(totalColWidth)
     end
     RefreshSearchHeaderSortLabels()
-    for _, row in ipairs(resultRows) do
-        RelayoutSearchResultRow(row, colOrder, colWidths)
-    end
-    for _, row in ipairs(recipeRows) do
-        RelayoutSearchResultRow(row, recipeColOrder, recipeColWidths)
-    end
-    for _, row in ipairs(tooltipOnlyResultRows) do
-        RelayoutSearchResultRow(row, colOrder, colWidths)
-    end
+    -- Pooled rows re-anchor their cells on next initialize (UpdateResults re-initializes all
+    -- rows in view right after every column layout change).
+    UI.colLayoutGen = UI.colLayoutGen + 1
 end
 
 UI.ApplyColumnLayout = ApplySearchColumnLayout
@@ -1843,10 +1611,7 @@ end)
 -- Initial empty state: layout list viewport then build results (horizontal scroll range set in UpdateResults)
 RefreshSearchListAfterLayout()
 
--- When tab is shown, refresh layout and scroll child rect (viewport may have been zero when hidden)
+-- When tab is shown, refresh layout (viewport may have been zero when hidden)
 frame:SetScript("OnShow", function()
     RefreshSearchListAfterLayout()
-    if scrollFrame and scrollFrame.UpdateScrollChildRect then
-        scrollFrame:UpdateScrollChildRect()
-    end
 end)

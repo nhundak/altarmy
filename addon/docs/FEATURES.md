@@ -79,6 +79,13 @@ One-time dialogs shown at most once each (guild-share prompt, bank-alt suggestio
 | Questie / NovaInstanceTracker | Level history import into Graphs |
 | Zygor Guides | Reputation tab guide links |
 
+### Export for altarmy-profit
+
+`/altarmy export` (the only way in; no button) shows the account's characters,
+professions and learned recipes as one copyable string for the altarmy-profit site, which ranks profitable
+crafts for them. See [tabs/options.md](tabs/options.md#export-for-altarmy-profit). Bundles LibDeflate
+(zlib license) for the compression.
+
 ### Data collection and persistence
 
 Stored under `AltArmyTBC_Data`, `AltArmyTBC_Options`, tab settings tables, `AltArmyTBC_GuildData`, and `AltArmyTBC_SharingSettings` (see [ARCHITECTURE.md](ARCHITECTURE.md)).

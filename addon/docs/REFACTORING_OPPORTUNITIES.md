@@ -7,7 +7,7 @@ A code-review snapshot of remaining refactoring opportunities across the addon's
 The codebase is generally well-organized: `Theme.lua` provides a styling layer, logic is
 partly separated from UI (e.g. `GraphLogic.lua`), and modules are cohesive. Shared text/
 sort/identity helpers, the safe-wave UI factories (horizontal scrollbar, vertical scroll
-viewport, theme checkbox), and `UI/VirtualList.lua` are already extracted. The main
+viewport, theme checkbox) are already extracted; Search rows are virtualized by Blizzard's `WowScrollBoxList`. The main
 remaining opportunities are **cross-cutting UI duplication** and a few **oversized
 files/functions** that mix concerns.
 
@@ -18,16 +18,15 @@ files/functions** that mix concerns.
 1. **Shared UI factories (remaining)** — scrollable grid + sort settings panel shell.
 2. **Theme constants + tokens** — centralize magic numbers; adopt or delete unused color helpers.
 3. **File splits** — `TabCooldowns`, `DataStore` deferred timers, `Options` sub-tabs.
-4. **Cleanup** — remove dead code; dedupe bag/bank constants. Optionally adopt `VirtualList` in `TabSummary`.
+4. **Cleanup** — remove dead code; dedupe bag/bank constants. Optionally move `TabSummary`'s faux-scroll row pool to `WowScrollBoxList`.
 
 ---
 
 ## 1. Repeated UI scaffolding (high impact, medium risk)
 
 Horizontal scrollbar, vertical scroll viewport, and theme checkbox factories are already in
-[`UI/Theme.lua`](../AltArmy_TBC/UI/Theme.lua). Virtualized row viewport math lives in
-[`UI/VirtualList.lua`](../AltArmy_TBC/UI/VirtualList.lua) (adopted by `TabSearch`;
-`TabSummary` still uses its own offset model). Remaining structural duplication:
+[`UI/Theme.lua`](../AltArmy_TBC/UI/Theme.lua). `TabSearch` rows are virtualized by Blizzard's
+`WowScrollBoxList`; `TabSummary` still uses its own faux-scroll offset model. Remaining structural duplication:
 
 | Item | Notes | Suggested extraction |
 |------|-------|----------------------|
@@ -54,7 +53,7 @@ Horizontal scrollbar, vertical scroll viewport, and theme checkbox factories are
 | File | Lines | Notes |
 |------|------:|-------|
 | `TabGear.lua` | 3,833 | Dominated by grid + compare/item-check UI. Shrinks once §1 grid/settings helpers land; also a Lua 5.1 locals-pressure risk. |
-| `TabSearch.lua` | 2,039 | Virtual-list math extracted to `UI/VirtualList.lua`; further shrink via settings-panel / dead-anchor cleanup. |
+| `TabSearch.lua` | 2,039 | Rows virtualized by `WowScrollBoxList` (element list from `Tabs/SearchListModel.lua`); further shrink via settings-panel / dead-anchor cleanup. |
 | `Options.lua` | 1,752 | Mixes defaults, tab strip, sub-tabs, char list, slash commands. `CooldownOptions` already demonstrates the cleaner host-panel split to mirror. |
 | `TabCooldowns.lua` | 1,633 | Mixes list UI with live bag/mail attach logic. `TryAdvanceAttachSeq` (~1161–1285) plus `RunSendStockpile` (~1300–1449) and related mail/stockpile flow could move to a testable non-UI module. |
 | `TabGraph.lua` | 1,608 | `RebuildGraph` (~1198+) and compare-selector panel could move to their own modules. |

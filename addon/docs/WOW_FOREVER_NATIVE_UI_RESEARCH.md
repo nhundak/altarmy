@@ -102,7 +102,9 @@ The rework goes **fully native**: the dark/bronze theme is removed, with no togg
   - the active tab's settings button
   - the search-mode category checkboxes
 - **Controls:** the `Theme.lua` helpers are rewritten behind their current signatures:
-  - scroll bars: `MinimalScrollBar` + `ScrollUtil.InitScrollFrameWithScrollBar`, also horizontal via `isHorizontal`
+  - vertical scroll bars: real `MinimalScrollBar` frames bound with `ScrollUtil.InitScrollFrameWithScrollBar` (`Theme.CreateVerticalScrollBinding` / `CreateVerticalScrollViewport`)
+  - horizontal scroll bars: still our own Slider painted with the `MinimalScrollBar` atlases rotated 90°, because there is no horizontal Minimal template (only the unskinned `HorizontalScrollBarTemplate`)
+  - Search results: a virtualized `WowScrollBoxList` + `CreateDataProvider` (see [Scroll containers and virtualization](#scroll-containers-and-virtualization))
   - dropdowns: `WowStyle1FilterDropdownTemplate` for the search Filter; the rest are drawn with the `WowStyle1DropdownTemplate` atlases (see [Not yet done](#not-yet-done))
   - checkboxes: `UICheckButtonTemplate`
   - text inputs: `InputBoxTemplate` / `SearchBoxTemplate`
@@ -111,11 +113,25 @@ The rework goes **fully native**: the dark/bronze theme is removed, with no togg
 - **Fonts:** a role → Blizzard font object map, taken from Forever's CharacterFrame / ReputationFrame usage.
 - **Capability layer:** `AltArmy_TBC/UI/NativeUI.lua` (`HasTemplate`, `HasAtlas`, `GetCaps`) chooses between a template and its fallback.
 
+## Scroll containers and virtualization
+
+Two kinds of built-in scroll container are used. Both ship in `Blizzard_SharedXML_TBC.toc`, so they work the same on TBC Anniversary and Forever (`NativeUI` caps `minimalScrollBar` and `scrollBoxList`).
+
+- **ScrollFrame + `MinimalScrollBar`:** used by every tab except Search, and by the options lists. `ScrollUtil.InitScrollFrameWithScrollBar` wires the bar.
+  - It *replaces* (`SetScript`) the ScrollFrame's `OnVerticalScroll`, `OnScrollRangeChanged` and `OnMouseWheel` scripts. Code that runs on scroll registers with the binding's `onScroll` / `AddOnScroll` instead. That is a bar `OnScroll` callback, and it fires once per offset change from any source (wheel, drag, arrows, code).
+  - Nested ScrollFrames (Summary, Search) may not fire `OnScrollRangeChanged`, so `UpdateRange()` runs ScrollUtil's range handler by hand.
+- **`WowScrollBoxList` + DataProvider:** used by Search. It is virtualized. Only elements in view get frames, and a frame whose element stays in view is not re-initialized while scrolling. That replaced our own `VirtualList` row pool. Differences from the old pool:
+  - No buffer rows. Rows are acquired synchronously as they scroll in, so none are left blank.
+  - Frame pools are keyed by template, so each row kind has its own empty template in `UI/ScrollRows.xml`. The children are still built in Lua.
+  - It has no sticky headers, no multi-row overlays and no 2D scroll. Search keeps its sticky section headers as overlays, which follow `GetDerivedScrollOffset()` on `OnScroll`. The headers have no background, so the page background shows through. The list box starts below the first header's block and leaves that spacer out, so rows never scroll underneath a pinned header. The Total column's group overlays are re-anchored on `OnDataRangeChanged`. Horizontal scroll is still an outer ScrollFrame.
+  - `Update()` fires `OnScroll` *before* it runs the row initializers, then `OnDataRangeChanged`, then `OnUpdate`. So decorations that depend on filled frames go in `OnDataRangeChanged`.
+- Summary also culls rows to the viewport, but faux-scroll style: a fixed row pool on the ScrollFrame, with the offset choosing the first row. The native bar only changed where that offset comes from.
+
 ## Not yet done
 
 These are left over from the implications above and are deferred:
 
-- **Lists:** move `UI/VirtualList.lua` / `Theme.CreateVerticalScrollViewport` grids to `WowScrollBoxList` + DataProvider. Only the scroll bar art is native today.
+- **Native horizontal scroll bars:** an XML template inheriting `HorizontalScrollBarTemplate` with the `MinimalScrollBar` children would drop `Theme.CreateHorizontalScrollBar`'s manual drag math.
 - **Addon compartment:** add `AddonCompartmentFrame` / `## AddonCompartmentFunc` on Forever, keeping LibDBIcon for TBC.
 - **Real dropdowns:** `Theme.CreateSingleSelectDropdown`, `Theme.CreateMultiSelectCheckboxDropdown` and the Gear / `ScoreSortRow` provider lists are our own buttons painted with the `WowStyle1DropdownTemplate` / `MenuStyle1` atlases. Only `Theme.CreateFilterDropdown` uses the real template + `MenuUtil`. Switching the rest would let reskin addons pick them up.
 

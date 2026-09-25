@@ -27,6 +27,7 @@ describe("AltArmy.Theme", function()
             self._gradient = { orientation = orientation, minColor = minColor, maxColor = maxColor }
         end
         function t:SetVertexColor(r, g, b, a) self._vertex = { r, g, b, a } end
+        function t:SetDesaturated(on) self._desaturated = on end
         function t:SetAllPoints(frame)
             self._allPoints = frame or true
         end
@@ -1043,6 +1044,41 @@ describe("AltArmy.Theme", function()
             assert.are.equal(100, slider:GetValue())
         end)
 
+        it("grays out and disables the arrow at whichever end the value sits", function()
+            local slider = stubSlider()
+            Theme.SetupScrollBar(slider, { horizontal = true, thickness = 12 })
+            local back, fwd = slider.altArmyStepBack, slider.altArmyStepForward
+            assert.is_true(back.altArmyArrow._desaturated)
+            assert.is_false(fwd.altArmyArrow._desaturated)
+            -- Disabled arrow ignores clicks and hover art.
+            back._scripts.OnClick(back)
+            assert.are.equal(0, slider:GetValue())
+            back._scripts.OnEnter(back)
+            assert.are.equal("atlasfile:minimal-scrollbar-arrow-top", back.altArmyArrow._texture)
+            slider:SetValue(100)
+            assert.is_false(back.altArmyArrow._desaturated)
+            assert.is_true(fwd.altArmyArrow._desaturated)
+            slider:SetValue(50)
+            assert.is_false(back.altArmyArrow._desaturated)
+            assert.is_false(fwd.altArmyArrow._desaturated)
+        end)
+
+        it("disables both arrows when there is no scroll range", function()
+            local slider = stubSlider()
+            slider._maxVal = 0
+            Theme.SetupScrollBar(slider, { horizontal = true, thickness = 12 })
+            assert.is_true(slider.altArmyStepBack.altArmyArrow._desaturated)
+            assert.is_true(slider.altArmyStepForward.altArmyArrow._desaturated)
+        end)
+
+        it("CreateHorizontalScrollBar refreshes arrow state when the range changes", function()
+            local api = Theme.CreateHorizontalScrollBar(makeStubFrame(), { thickness = 12 })
+            local fwd = api.bar.altArmyStepForward
+            assert.is_true(fwd.altArmyArrow._desaturated)
+            api:SetRange(0, 200)
+            assert.is_false(fwd.altArmyArrow._desaturated)
+        end)
+
         it("steps horizontal bars by at least the minimum step", function()
             local slider = stubSlider()
             slider:SetValueStep(1)
@@ -1150,65 +1186,6 @@ describe("AltArmy.Theme", function()
         end)
     end)
 
-    describe("SetVerticalScrollOffset and UpdateVerticalScrollRange", function()
-        it("syncs scroll frame when bar is already at the target (SetValue no-op)", function()
-            local scroll = makeStubFrame()
-            local bar = makeStubFrame()
-            scroll:SetVerticalScroll(200)
-            bar:SetMinMaxValues(0, 50)
-            bar._value = 0 -- silent clamp; SetValue(0) would no-op
-            Theme.SetVerticalScrollOffset(scroll, bar, 0, 50)
-            assert.are.equal(0, scroll:GetVerticalScroll())
-            assert.are.equal(0, bar:GetValue())
-        end)
-
-        it("nudges the scroll frame when force is set and API already reports the target", function()
-            local scroll = makeStubFrame()
-            local bar = makeStubFrame()
-            local calls = {}
-            scroll._verticalScroll = 0
-            function scroll:SetVerticalScroll(v)
-                calls[#calls + 1] = v
-                self._verticalScroll = v
-            end
-            bar:SetMinMaxValues(0, 50)
-            bar._value = 0
-            Theme.SetVerticalScrollOffset(scroll, bar, 0, 50, true)
-            assert.are.same({ 1, 0 }, calls)
-            assert.are.equal(0, scroll:GetVerticalScroll())
-        end)
-
-        it("does not nudge on ordinary sync when already at target", function()
-            local scroll = makeStubFrame()
-            local bar = makeStubFrame()
-            local calls = {}
-            scroll._verticalScroll = 0
-            function scroll:SetVerticalScroll(v)
-                calls[#calls + 1] = v
-                self._verticalScroll = v
-            end
-            bar._value = 0
-            Theme.SetVerticalScrollOffset(scroll, bar, 0, 50)
-            assert.are.same({ 0 }, calls)
-        end)
-
-        it("clamps and syncs both widgets when content height shrinks", function()
-            local scroll = makeStubFrame()
-            local bar = makeStubFrame()
-            scroll:SetVerticalScroll(200)
-            bar:SetValue(200)
-            bar:SetMinMaxValues(0, 400)
-            -- Bar silently clamped by SetMinMaxValues; frame left behind (classic desync).
-            bar:SetMinMaxValues(0, 50)
-            bar._value = 0
-            local offset, maxScroll = Theme.UpdateVerticalScrollRange(scroll, bar, 150, 100, 18)
-            assert.are.equal(50, maxScroll)
-            assert.are.equal(50, offset)
-            assert.are.equal(50, scroll:GetVerticalScroll())
-            assert.are.equal(50, bar:GetValue())
-        end)
-    end)
-
     describe("CreateVerticalScrollViewport", function()
         it("scrolls by wheelStep on mouse wheel", function()
             local parent = makeStubFrame()
@@ -1256,6 +1233,158 @@ describe("AltArmy.Theme", function()
             viewport.scroll._height = 100
             viewport:UpdateRange()
             assert.is_false(viewport.scrollBar:IsShown())
+        end)
+
+        it("notifies OnScroll listeners on wheel (Slider fallback)", function()
+            local parent = makeStubFrame()
+            local viewport = Theme.CreateVerticalScrollViewport({
+                parent = parent, gutterEdge = parent, wheelStep = 40, valueStep = 20,
+            })
+            viewport.child._height = 300
+            viewport.scroll._height = 100
+            viewport.UpdateRange()
+            local seen = {}
+            viewport.OnScroll(function(offset) seen[#seen + 1] = offset end)
+            viewport.scroll._scripts.OnMouseWheel(viewport.scroll, -1)
+            assert.are.same({ 40 }, seen)
+            assert.are.equal(40, viewport.GetOffset())
+        end)
+    end)
+
+    describe("CreateVerticalScrollBinding (native MinimalScrollBar)", function()
+        local savedNativeUI, savedScrollUtil, savedCreateFrame, savedEvents
+        local created, initCalls
+
+        local function makeNativeBar()
+            local bar = makeStubFrame()
+            bar._callbacks = {}
+            bar._pct = 0
+            function bar:RegisterCallback(event, fn, owner)
+                self._callbacks[#self._callbacks + 1] = { event = event, fn = fn, owner = owner }
+            end
+            function bar:SetScrollPercentage(p, immediate)
+                self._pct = p
+                self._lastImmediate = immediate
+                for _, cb in ipairs(self._callbacks) do
+                    if cb.event == "OnScroll" then cb.fn(cb.owner, p) end
+                end
+            end
+            function bar:GetScrollPercentage() return self._pct end
+            function bar:SetHideIfUnscrollable(on) self._hideIfUnscrollable = on end
+            function bar:ScrollStepInDirection(dir) self._steppedDir = dir end
+            return bar
+        end
+
+        local function makeScrollFrame(childH, viewH)
+            local scroll = makeStubFrame()
+            scroll._height = viewH
+            local child = makeStubFrame()
+            child._height = childH
+            scroll:SetScrollChild(child)
+            function scroll:GetVerticalScrollRange()
+                return math.max(0, self._scrollChild:GetHeight() - self:GetHeight())
+            end
+            function scroll:GetHorizontalScrollRange() return 0 end
+            function scroll:UpdateScrollChildRect() self._rectUpdated = true end
+            function scroll:GetParent() return self._parentFrame end
+            scroll._parentFrame = makeStubFrame()
+            return scroll
+        end
+
+        before_each(function()
+            savedNativeUI, savedScrollUtil = AltArmy.NativeUI, _G.ScrollUtil
+            savedCreateFrame, savedEvents = _G.CreateFrame, _G.BaseScrollBoxEvents
+            created, initCalls = {}, {}
+            AltArmy.NativeUI = { GetCaps = function() return { minimalScrollBar = true } end }
+            _G.BaseScrollBoxEvents = { OnScroll = "OnScroll" }
+            _G.CreateFrame = function(frameType, name, parent, template)
+                local f = (template == "MinimalScrollBar") and makeNativeBar() or makeStubFrame()
+                created[#created + 1] = { frameType = frameType, name = name, parent = parent, template = template, frame = f }
+                return f
+            end
+            _G.ScrollUtil = {
+                InitScrollFrameWithScrollBar = function(scrollFrame, bar)
+                    initCalls[#initCalls + 1] = { scrollFrame = scrollFrame, bar = bar }
+                    function scrollFrame:SetPanExtent(p) self._panExtent = p end
+                    scrollFrame:SetScript("OnScrollRangeChanged", function(sf)
+                        sf._rangeChangedCalls = (sf._rangeChangedCalls or 0) + 1
+                    end)
+                    scrollFrame:SetScript("OnMouseWheel", function(_, delta)
+                        bar:ScrollStepInDirection(-delta)
+                    end)
+                end,
+            }
+        end)
+
+        after_each(function()
+            AltArmy.NativeUI, _G.ScrollUtil = savedNativeUI, savedScrollUtil
+            _G.CreateFrame, _G.BaseScrollBoxEvents = savedCreateFrame, savedEvents
+        end)
+
+        it("creates a MinimalScrollBar wired by ScrollUtil with our pan extent", function()
+            local scroll = makeScrollFrame(300, 100)
+            local binding = Theme.CreateVerticalScrollBinding(scroll, { step = 36 })
+            assert.is_true(binding.native)
+            assert.are.equal("EventFrame", created[1].frameType)
+            assert.are.equal("MinimalScrollBar", created[1].template)
+            assert.are.equal(1, #initCalls)
+            assert.are.equal(scroll, initCalls[1].scrollFrame)
+            assert.are.equal(binding.bar, initCalls[1].bar)
+            assert.are.equal(36, scroll._panExtent)
+            assert.is_true(binding.bar._hideIfUnscrollable)
+            assert.is_true(binding.bar.altArmyNativeScrollBar)
+        end)
+
+        it("applies bar scrolls to the frame and notifies once per offset", function()
+            local scroll = makeScrollFrame(300, 100)
+            local seen = {}
+            local binding = Theme.CreateVerticalScrollBinding(scroll, {
+                onScroll = function(offset) seen[#seen + 1] = offset end,
+            })
+            binding.bar:SetScrollPercentage(0.5)
+            assert.are.equal(100, scroll:GetVerticalScroll())
+            binding.bar:SetScrollPercentage(0.5)
+            assert.are.same({ 100 }, seen)
+        end)
+
+        it("SetOffset clamps and drives the bar immediately", function()
+            local scroll = makeScrollFrame(300, 100)
+            local seen = {}
+            local binding = Theme.CreateVerticalScrollBinding(scroll)
+            binding.AddOnScroll(function(offset) seen[#seen + 1] = offset end)
+            binding.SetOffset(500)
+            assert.are.equal(200, scroll:GetVerticalScroll())
+            assert.are.equal(1, binding.bar:GetScrollPercentage())
+            assert.is_true(binding.bar._lastImmediate)
+            assert.are.same({ 200 }, seen)
+            assert.are.equal(200, binding.GetOffset())
+            assert.are.equal(200, binding.GetMaxScroll())
+        end)
+
+        it("UpdateRange refreshes the ScrollUtil range handler and clamps", function()
+            local scroll = makeScrollFrame(300, 100)
+            local binding = Theme.CreateVerticalScrollBinding(scroll)
+            binding.SetOffset(200)
+            scroll._scrollChild._height = 150
+            binding.UpdateRange()
+            assert.is_true(scroll._rectUpdated)
+            assert.are.equal(1, scroll._rangeChangedCalls)
+            assert.are.equal(50, scroll:GetVerticalScroll())
+        end)
+
+        it("Wheel steps the bar opposite to the wheel delta", function()
+            local scroll = makeScrollFrame(300, 100)
+            local binding = Theme.CreateVerticalScrollBinding(scroll)
+            binding.Wheel(1)
+            assert.are.equal(-1, binding.bar._steppedDir)
+        end)
+
+        it("viewport exposes the native bar and forwards child wheel to it", function()
+            local parent = makeStubFrame()
+            local viewport = Theme.CreateVerticalScrollViewport({ parent = parent, gutterEdge = parent })
+            assert.is_true(viewport.scrollBar.altArmyNativeScrollBar)
+            viewport.child._scripts.OnMouseWheel(viewport.child, -1)
+            assert.are.equal(1, viewport.scrollBar._steppedDir)
         end)
     end)
 

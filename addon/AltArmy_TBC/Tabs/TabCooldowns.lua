@@ -393,15 +393,22 @@ local scroll = CreateFrame("ScrollFrame", nil, rowParent)
 scroll:SetPoint("TOPLEFT", rowParent, "TOPLEFT", 0, 0)
 scroll:SetPoint("BOTTOMRIGHT", rowParent, "BOTTOMRIGHT", 0, 0)
 
-local scrollBar = CreateFrame("Slider", nil, tabContentPanel)
-scrollBar:SetMinMaxValues(0, 0)
-scrollBar:SetValue(0)
-scrollBar:SetValueStep(ROW_HEIGHT)
-scrollBar:EnableMouse(true)
-Theme.AnchorVerticalScrollBar(scrollBar, tabContentPanel, listViewport)
-
 local scrollChild = CreateFrame("Frame", nil, scroll)
 scroll:SetScrollChild(scrollChild)
+
+local cooldownHeaderFade
+local scrollBinding = Theme.CreateVerticalScrollBinding(scroll, {
+    parent = tabContentPanel,
+    step = ROW_HEIGHT * 3,
+    minScrollToShow = 1,
+    onScroll = function()
+        if cooldownHeaderFade then
+            cooldownHeaderFade:Update()
+        end
+    end,
+})
+local scrollBar = scrollBinding.bar
+Theme.AnchorVerticalScrollBar(scrollBar, tabContentPanel, listViewport)
 
 -- Empty state: replaces the table when no character has a tracked crafting cooldown.
 local craftingEmptyLabel = tabContentInner:CreateFontString(nil, "OVERLAY", Theme.FONTS.emptyState)
@@ -413,25 +420,13 @@ craftingEmptyLabel:Hide()
 
 -- Gradient under the pinned header when the list is scrolled (Gear / Summary pattern).
 headerRow:SetFrameLevel((tabContentInner:GetFrameLevel() or 0) + 10)
-local cooldownHeaderFade = Theme.CreatePinnedHeaderScrollFade({
+cooldownHeaderFade = Theme.CreatePinnedHeaderScrollFade({
     headerFrame = headerRow,
     scrollFrame = scroll,
     scrollBar = scrollBar,
     headerBottomInset = 2,
 })
 
-scrollBar:SetScript("OnValueChanged", function(_, v)
-    scroll:SetVerticalScroll(v)
-    if cooldownHeaderFade then
-        cooldownHeaderFade:Update()
-    end
-end)
-
-scroll:SetScript("OnMouseWheel", function(_, delta)
-    local cur = scrollBar:GetValue()
-    local lo, hi = scrollBar:GetMinMaxValues()
-    scrollBar:SetValue(math.max(lo, math.min(hi, cur - delta * ROW_HEIGHT * 3)))
-end)
 
 local rowPool = {}
 local activeRows = {}
@@ -2959,11 +2954,7 @@ RefreshList = function()
         RecomputeSendAllocation()
     end
 
-    local viewH = scroll:GetHeight()
-    if viewH <= 0 then viewH = 1 end
-    local maxScroll = math.max(0, totalH - viewH)
-    scrollBar:SetMinMaxValues(0, maxScroll)
-    scrollBar:SetShown(maxScroll > 1)
+    scrollBinding.UpdateRange()
     if cooldownHeaderFade then
         cooldownHeaderFade:Update()
     end

@@ -291,6 +291,7 @@ ME.suggestViewport = Theme.CreateVerticalScrollViewport({
     anchorBottom = { "BOTTOMRIGHT", ME.suggestFrame, "BOTTOMRIGHT", -(2 + ME.suggestGutter), 2 },
     enableMouseWheel = true,
     valueStep = 18,
+    wheelStep = 18,
     scrollBarWidth = ME.suggestScrollBarOpts.width,
     scrollBarGap = ME.suggestScrollBarOpts.gap,
 })
@@ -582,10 +583,7 @@ ME.showManualSuggest = function(anchorEdit, names, onPick)
             end
             btn:EnableMouseWheel(true)
             btn:SetScript("OnMouseWheel", function(_, delta)
-                if not ME.suggestViewport or not ME.suggestViewport.SetOffset then return end
-                local scroll = ME.suggestViewport.scroll
-                local cur = (scroll and scroll.GetVerticalScroll and scroll:GetVerticalScroll()) or 0
-                ME.suggestViewport.SetOffset(cur - delta * 18)
+                if ME.suggestViewport then ME.suggestViewport.Wheel(delta) end
             end)
         end
         btn:Show()
@@ -2853,6 +2851,7 @@ local viewport = Theme.CreateVerticalScrollViewport({
     anchorBottom = { "BOTTOMRIGHT", listViewport, "BOTTOMRIGHT", 0, 0 },
     enableMouseWheel = true,
     valueStep = UI.MAIN_ROW_HEIGHT,
+    wheelStep = UI.MAIN_ROW_HEIGHT * 3,
 })
 local scrollChild = viewport.child
 
@@ -2877,15 +2876,10 @@ local function updateListHeaderFade()
 end
 ME.updateListHeaderFade = updateListHeaderFade
 
-if viewport.scrollBar then
-    viewport.scrollBar:HookScript("OnValueChanged", function()
-        updateListHeaderFade()
-    end)
-end
+viewport.OnScroll(updateListHeaderFade)
 
-local WHEEL_STEP = UI.MAIN_ROW_HEIGHT * 3
 local function forwardWheel(_, delta)
-    viewport.SetOffset(viewport.scroll:GetVerticalScroll() - delta * WHEEL_STEP)
+    viewport.Wheel(delta)
 end
 
 -- Empty-state hint shown inside the list area (header stays visible).
@@ -2990,6 +2984,7 @@ local recipeViewport = Theme.CreateVerticalScrollViewport({
     anchorBottom = { "BOTTOMRIGHT", recipeViewportFrame, "BOTTOMRIGHT", 0, 0 },
     enableMouseWheel = true,
     valueStep = UI.RECIPE_ROW_HEIGHT,
+    wheelStep = UI.RECIPE_ROW_HEIGHT * 3,
 })
 local recipeScrollChild = recipeViewport.child
 
@@ -3002,17 +2997,14 @@ local recipeHeaderFade = Theme.CreatePinnedHeaderScrollFade({
     -- Pull fade up so it meets the header edge (avoids a 1–2px seam).
     headerBottomInset = 2,
 })
-if recipeViewport.scrollBar then
-    recipeViewport.scrollBar:HookScript("OnValueChanged", function()
-        if recipeHeaderFade then
-            recipeHeaderFade:Update()
-        end
-    end)
-end
+recipeViewport.OnScroll(function()
+    if recipeHeaderFade then
+        recipeHeaderFade:Update()
+    end
+end)
 
-local RECIPE_WHEEL_STEP = UI.RECIPE_ROW_HEIGHT * 3
 local function forwardRecipeWheel(_, delta)
-    recipeViewport.SetOffset(recipeViewport.scroll:GetVerticalScroll() - delta * RECIPE_WHEEL_STEP)
+    recipeViewport.Wheel(delta)
 end
 
 -- Empty-state copy region ignores the profession tab strip so "no professions" and

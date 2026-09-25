@@ -48,6 +48,13 @@ read_globals = {
     "GameFontHighlight",
     "GameFontDisable",
     "GameFontDisableSmall",
+    -- Blizzard_SharedXML ScrollBox / ScrollBar (TBC Anniversary + Forever)
+    "ScrollUtil",
+    "CreateScrollBoxListLinearView",
+    "CreateDataProvider",
+    "BaseScrollBoxEvents",
+    "ScrollBoxListMixin",
+    "ScrollBoxConstants",
     -- Unit & player
     "UnitName",
     "GetUnitName",
