@@ -9,6 +9,7 @@ import { Notifications } from '@mantine/notifications'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { App } from './App'
 import { AuthProvider } from './components/AuthProvider'
+import { cssVariablesResolver, theme } from './theme'
 
 // No retries: a mistyped path or a failed download should show its error straight away.
 const queryClient = new QueryClient({
@@ -20,7 +21,7 @@ if (!root) throw new Error('#root missing from index.html')
 
 createRoot(root).render(
   <StrictMode>
-    <MantineProvider defaultColorScheme="auto">
+    <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver} defaultColorScheme="auto">
       <Notifications />
       <QueryClientProvider client={queryClient}>
         <AuthProvider>

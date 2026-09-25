@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
 import { vi } from 'vitest'
 import { LOCAL_SESSION, SessionContext, type Session } from '../lib/session'
+import { theme } from '../theme'
 
 /** Hosted mode's sessions, for rendering as a guest or a linked user. */
 export const GUEST: Session = { mode: 'hosted', uid: 'guest', tier: 'free' }
@@ -13,7 +14,7 @@ export const LINKED: Session = { mode: 'hosted', uid: 'g1', tier: 'linked' }
 export function renderWithProviders(ui: ReactElement, session: Session = LOCAL_SESSION) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <MantineProvider env="test">
+    <MantineProvider theme={theme} env="test">
       <QueryClientProvider client={queryClient}>
         <SessionContext.Provider value={session}>{ui}</SessionContext.Provider>
       </QueryClientProvider>
