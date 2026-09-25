@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { robeResult } from '../test/results'
 import { characters, status } from '../test/status'
-import { mockApi, renderWithProviders } from '../test/utils'
+import { GUEST, mockApi, renderWithProviders } from '../test/utils'
 import { SearchTab } from './SearchTab'
 
 // Tests that only check paging swap the results table for one line per row: rendering 150 full rows
@@ -49,6 +49,16 @@ describe('SearchTab', () => {
     expect(screen.getByText(/No Alt Army file found/)).toBeInTheDocument()
     expect(screen.getByText(/No prices yet/)).toBeInTheDocument()
     expect(urls(fetch, '/api/rank')).toEqual([])
+  })
+
+  it('points hosted users to the Upload tab for characters and prices', async () => {
+    mockApi({
+      '/api/status': status({ characters: 0, selection: null, prices: 0 }),
+      '/api/characters': { groups: [], selection: null },
+    })
+    renderWithProviders(<SearchTab />, GUEST)
+    expect(await screen.findByText(/Paste the Alt Army export \(\/altarmy export\) or upload AltArmy_TBC.lua/)).toBeInTheDocument()
+    expect(screen.getByText(/then upload Auctionator.lua on the Upload tab/)).toBeInTheDocument()
   })
 
   it("shows the selected realm's characters and ranks with the stored parameters", async () => {

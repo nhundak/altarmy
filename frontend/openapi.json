@@ -84,46 +84,6 @@
         "title": "ApiKeyOut",
         "type": "object"
       },
-      "AuctionHouseOut": {
-        "properties": {
-          "faction": {
-            "title": "Faction",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "integer"
-          },
-          "last_scan": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Scan"
-          },
-          "prices": {
-            "title": "Prices",
-            "type": "integer"
-          },
-          "realm": {
-            "title": "Realm",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "realm",
-          "faction",
-          "prices",
-          "last_scan"
-        ],
-        "title": "AuctionHouseOut",
-        "type": "object"
-      },
       "Body_post_upload_api_uploads_post": {
         "properties": {
           "file": {
@@ -308,41 +268,6 @@
           "uploaders_7d"
         ],
         "title": "CoverageOut",
-        "type": "object"
-      },
-      "DayOut": {
-        "properties": {
-          "available": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Available"
-          },
-          "day": {
-            "title": "Day",
-            "type": "string"
-          },
-          "high": {
-            "title": "High",
-            "type": "integer"
-          },
-          "low": {
-            "title": "Low",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "day",
-          "low",
-          "high",
-          "available"
-        ],
-        "title": "DayOut",
         "type": "object"
       },
       "EvaluateRequest": {
@@ -777,10 +702,6 @@
       },
       "Me": {
         "properties": {
-          "free_max_level": {
-            "title": "Free Max Level",
-            "type": "integer"
-          },
           "tier": {
             "enum": [
               "free",
@@ -796,8 +717,7 @@
         },
         "required": [
           "uid",
-          "tier",
-          "free_max_level"
+          "tier"
         ],
         "title": "Me",
         "type": "object"
@@ -966,114 +886,17 @@
         "title": "OptionOut",
         "type": "object"
       },
-      "PriceHistoryOut": {
+      "PasteRequest": {
         "properties": {
-          "days": {
-            "items": {
-              "$ref": "#/components/schemas/DayOut"
-            },
-            "title": "Days",
-            "type": "array"
-          },
-          "item": {
-            "$ref": "#/components/schemas/ItemInfo"
-          },
-          "stats": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PriceStatsOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "text": {
+            "title": "Text",
+            "type": "string"
           }
         },
         "required": [
-          "item",
-          "stats",
-          "days"
+          "text"
         ],
-        "title": "PriceHistoryOut",
-        "type": "object"
-      },
-      "PriceStatsOut": {
-        "description": "An item's pooled statistics over the last 7 days (filled hourly; None until then or without data).",
-        "properties": {
-          "avail_7d": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Avail 7D"
-          },
-          "median_7d": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Median 7D"
-          },
-          "scans_7d": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scans 7D"
-          }
-        },
-        "required": [
-          "median_7d",
-          "avail_7d",
-          "scans_7d"
-        ],
-        "title": "PriceStatsOut",
-        "type": "object"
-      },
-      "PricesOut": {
-        "properties": {
-          "gated": {
-            "title": "Gated",
-            "type": "boolean"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/ItemInfo"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "stats": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/PriceStatsOut"
-            },
-            "title": "Stats",
-            "type": "object"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "items",
-          "stats",
-          "total",
-          "gated"
-        ],
-        "title": "PricesOut",
+        "title": "PasteRequest",
         "type": "object"
       },
       "ProfessionOut": {
@@ -1693,7 +1516,8 @@
           "via": {
             "enum": [
               "browser",
-              "watcher"
+              "watcher",
+              "paste"
             ],
             "title": "Via",
             "type": "string"
@@ -2517,159 +2341,6 @@
         "summary": "Get Me"
       }
     },
-    "/api/prices": {
-      "get": {
-        "description": "Items priced on the auction house, by name. The free tier only sees items whose required level is\nat most `free_max_level` (see /api/me).",
-        "operationId": "get_prices_api_prices_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "auction_house_id",
-            "required": true,
-            "schema": {
-              "title": "Auction House Id",
-              "type": "integer"
-            }
-          },
-          {
-            "description": "part of the item name, any case; empty: every priced item",
-            "in": "query",
-            "name": "q",
-            "required": false,
-            "schema": {
-              "default": "",
-              "description": "part of the item name, any case; empty: every priced item",
-              "title": "Q",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "top",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "maximum": 200,
-              "minimum": 1,
-              "title": "Top",
-              "type": "integer"
-            }
-          },
-          {
-            "description": "which game's data: tbc or forever",
-            "in": "query",
-            "name": "game_version",
-            "required": true,
-            "schema": {
-              "description": "which game's data: tbc or forever",
-              "enum": [
-                "tbc",
-                "forever"
-              ],
-              "title": "Game Version",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PricesOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Prices"
-      }
-    },
-    "/api/prices/{item_id}": {
-      "get": {
-        "description": "One item's current price and daily history on the auction house (403 for the free tier above its\nlevel).",
-        "operationId": "get_price_history_api_prices__item_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "item_id",
-            "required": true,
-            "schema": {
-              "title": "Item Id",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "auction_house_id",
-            "required": true,
-            "schema": {
-              "title": "Auction House Id",
-              "type": "integer"
-            }
-          },
-          {
-            "description": "which game's data: tbc or forever",
-            "in": "query",
-            "name": "game_version",
-            "required": true,
-            "schema": {
-              "description": "which game's data: tbc or forever",
-              "enum": [
-                "tbc",
-                "forever"
-              ],
-              "title": "Game Version",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PriceHistoryOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Price History"
-      }
-    },
     "/api/rank": {
       "get": {
         "description": "What the selected realm/faction's characters can craft, most profitable first. Bounds are\ninclusive; an omitted bound is unbounded (so losses are included unless `min_profit` is set).",
@@ -2886,61 +2557,6 @@
           }
         ],
         "summary": "Get Rank"
-      }
-    },
-    "/api/realms": {
-      "get": {
-        "description": "The version's auction houses, with how many current prices each has.",
-        "operationId": "get_realms_api_realms_get",
-        "parameters": [
-          {
-            "description": "which game's data: tbc or forever",
-            "in": "query",
-            "name": "game_version",
-            "required": true,
-            "schema": {
-              "description": "which game's data: tbc or forever",
-              "enum": [
-                "tbc",
-                "forever"
-              ],
-              "title": "Game Version",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/AuctionHouseOut"
-                  },
-                  "title": "Response Get Realms Api Realms Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Realms"
       }
     },
     "/api/reload": {
@@ -3302,6 +2918,67 @@
           }
         ],
         "summary": "Post Upload"
+      }
+    },
+    "/api/uploads/paste": {
+      "post": {
+        "description": "Import the Alt Army addon's export string: replaces your characters of this game version, as an\nAltArmy_TBC.lua upload would. 400 if it is damaged or from the other game's client.",
+        "operationId": "post_paste_api_uploads_paste_post",
+        "parameters": [
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Paste"
       }
     },
     "/api/versions": {

@@ -14,3 +14,6 @@ frontend/dist/
 node_modules
 *-debug.log
 .firebase/
+
+# the tray exe (scripts/build_tray.py)
+dist/

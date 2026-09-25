@@ -32,7 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const session = useMemo<Session | undefined>(
     () =>
       config.data && me.data
-        ? { mode: config.data.mode, uid: me.data.uid, tier: me.data.tier, freeMaxLevel: me.data.free_max_level }
+        ? { mode: config.data.mode, uid: me.data.uid, tier: me.data.tier }
         : undefined,
     [config.data, me.data],
   )

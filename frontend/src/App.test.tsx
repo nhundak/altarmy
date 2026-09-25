@@ -120,36 +120,42 @@ describe('the shell by mode and tier', () => {
     mockApi({
       '/api/status': status(),
       '/api/characters': characters,
-      '/api/realms': [],
       '/api/ah-blocked': { items: [], details: {} },
       '/api/keys': [],
       '/api/uploads': [],
     })
 
   it('shows everything in local mode, with no account controls', async () => {
-    mockApi({ '/api/game-data/update': result, '/api/status': status(), '/api/characters': characters, '/api/realms': [] })
+    mockApi({ '/api/game-data/update': result, '/api/status': status(), '/api/characters': characters })
     renderApp()
-    expect(tabs()).toEqual(['Search', 'Prices', 'Manage'])
+    expect(tabs()).toEqual(['Search', 'Manage'])
     expect(screen.queryByText('Guest')).not.toBeInTheDocument()
   })
 
-  it('gives guests only prices and a way to link, and never syncs or updates game data', async () => {
+  it('gives guests everything but API keys, with a way to link, and never syncs or updates game data', async () => {
     const fetch = hostedApi()
     renderWithProviders(<App />, GUEST)
-    expect(tabs()).toEqual(['Prices', 'Upload'])
+    expect(tabs()).toEqual(['Search', 'Upload', 'Manage'])
     expect(screen.getByText('You are browsing as a guest')).toBeInTheDocument()
-    expect(await screen.findByText(/No auction house has prices/)).toBeInTheDocument()
+    expect(await screen.findByText('Tailor Guy')).toBeInTheDocument() // their characters, ready to rank
+    fireEvent.click(screen.getByRole('tab', { name: 'Manage' }))
+    expect(await screen.findByText('Never sold on the auction house')).toBeInTheDocument()
+    expect(screen.getByText(/Link your account \(Link account, at the top\) to make API keys/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Make key' })).not.toBeInTheDocument()
     expect(updateCalls(fetch)).toEqual([])
+    expect(fetch.mock.calls.map(([r]) => new URL(r.url).pathname)).not.toContain('/api/keys')
   })
 
   it('gives linked users search and their AH blocks, without the local file sync', async () => {
     const fetch = hostedApi()
     renderWithProviders(<App />, LINKED)
-    expect(tabs()).toEqual(['Search', 'Prices', 'Upload', 'Manage'])
+    expect(tabs()).toEqual(['Search', 'Upload', 'Manage'])
+    expect(screen.queryByText('You are browsing as a guest')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: 'Manage' }))
     expect(await screen.findByText('Never sold on the auction house')).toBeInTheDocument()
     expect(screen.getByText('Upload automatically')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Make key' })).toBeInTheDocument()
     expect(screen.queryByText('Addon data')).not.toBeInTheDocument()
     expect(screen.queryByText('Game data')).not.toBeInTheDocument()
     expect(updateCalls(fetch)).toEqual([])

@@ -13,7 +13,7 @@ Feature ideas that do not depend on hosting live in [ROADMAP_IDEAS.md](ROADMAP_I
 | Modes | One codebase, `ALTARMY_MODE=local` (SQLite, file watcher, no login) or `hosted` | Fast tests, offline and privacy fallback, and the local sync loop becomes the uploader |
 | Game versions | `tbc` and `forever`, selectable in the UI | The two clients the [Alt Army](../../altarmy_tbc) addon supports |
 | Price sources | Addon snapshots uploaded by users are primary; third-party feeds are added as they exist | Blizzard's Classic AH endpoints have been 404 since late 2024, NexusHub is gone, Undermine Exchange is retail-only |
-| Access | Firebase **anonymous** auth on first visit; prices for items with a required level of 30 or below are free; linking the account unlocks everything | Low-friction first experience that still identifies the visitor and converts them later |
+| Access | Firebase **anonymous** auth on first visit, with the full app (rankings and flow charts); linking an email keeps the account across browsers and enables API keys. A level limit for guests is to be designed separately (the Phase 3 gate was removed) | Low-friction first experience that still identifies the visitor |
 | Uploaders | Browser file upload and CLI watcher first; packaged tray app and Alt Army paste export later | Cheapest paths first; the watcher is the existing sync code with a remote sink |
 
 ## 2. Architecture
@@ -56,7 +56,8 @@ schema local and hosted mode share.
   includes Jewelcrafting.
 - Alt Army writes the same `AltArmy_TBC.lua` on both clients and does not record the client per character.
   Uploaders infer the version from the WoW flavor folder (`_anniversary_` -> tbc, `_classic_beta_` ->
-  forever); the browser upload asks. Addon follow-up: record the interface/build per character so uploads
+  forever); the browser upload asks (Phase 7: the addon's paste export carries the client's interface, so
+  pastes self-identify). Addon follow-up: record the interface/build per character so file uploads
   self-identify.
 - Front end: a version switch at the top level; realm lists, characters and prices are all per version.
 
@@ -139,20 +140,19 @@ Differences from the list above:
   hosting domain to both that list and the Auth authorized domains.
 - A FastAPI dependency verifies the Firebase ID token with `firebase-admin` and yields `User(uid, tier)`.
   `tier` is `linked` when the token's `firebase.sign_in_provider` is not `anonymous`, else `free`.
-- Free tier: price routes and item pages are filtered to `items.required_level <= FREE_TIER_MAX_LEVEL`
-  (30); no rankings, no characters. Reagents such as cloth and ore have a required level of zero, so the
-  free tier includes every raw material; gear, potions and recipes above level 30 are what the gate holds
-  back. Anonymous users may still upload, since that is how they contribute and
-  get identified. Linked tier: everything.
+- Free tier (Phase 3 to 7): price routes and item pages were filtered to items of required level 30 and
+  below, with no rankings or characters. **Removed after Phase 7:** guests get everything linked users do
+  (Search, characters, selection, evaluate, AH blocks, uploads); only API keys need a linked account. The
+  Prices tab and its routes (`/api/realms`, `/api/prices`, `/api/prices/{item_id}`) were removed with it.
+  A level limit will be designed separately.
 - Local mode: the dependency returns a fixed local user with the linked tier.
 - Phase 3 wiring: `ALTARMY_MODE` picks the mode. Hosted mode reads `FIREBASE_PROJECT_ID`,
   `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN` and optionally `FIREBASE_AUTH_EMULATOR_HOST`; the front end
   learns them from the public `GET /api/config`. The front end's `AuthProvider` signs in before rendering
   and sends the ID token as a bearer token.
-- Linked-only routes answer 403 to a free user: characters, selection, rank, evaluate and ah-blocked.
-  The local file sync, source-file lookups, game data update and reload answer 404 in hosted mode.
-  `/api/prices` and `/api/prices/{item_id}` apply the level gate: the list is filtered, and one item
-  above the level gets 403.
+- Linked-only routes answer 403 to a free user: only `/api/keys` now (until Phase 7 also characters,
+  selection, rank, evaluate and ah-blocked). The local file sync, source-file lookups, game data update
+  and reload answer 404 in hosted mode.
 - CLI and tray uploaders authenticate with per-user API keys minted on the site (`POST /api/keys`), not
   Firebase tokens. Only linked accounts can mint keys (an anonymous uid is lost when the browser's data
   is cleared). Keys are `ak_` + 32 random bytes, stored as SHA-256 hashes, and only `POST /api/uploads`
@@ -325,7 +325,23 @@ Each phase ships on its own and local mode keeps working throughout.
    coverage, an in-process rank cache. Monthly partitions for `price_observations` stay deferred: the merge
    job prints the row count; partition once it passes about 5 million or the daily prune takes over a
    minute (a Postgres-only revision; the primary key then needs a date column).
-7. **More sources and uploaders.** Blizzard API poller, AHDB parser, tray app, Alt Army paste export.
+7. **More uploaders** (done: Alt Army paste export, tray app). An AHDB parser waits for a real AHDB file; a
+   Blizzard API poller waits for the Classic auction endpoints to come back (section 14: every house 404s
+   as of 2026-09-25).
+
+Phase 7 status (done, 2026-09-25). Revision `0005` allows `uploads.via = 'paste'`. Differences from section 7:
+
+- **Paste export:** the addon (`../altarmy_tbc`) gained `/altarmy export` (a slash command only, no button),
+  showing `AAX1:` + LibDeflate's printable raw DEFLATE of plain `V|`/`C|`/`P|` lines, not AceSerializer.
+  The site's Upload tab has **Paste from Alt Army** (`POST /api/uploads/paste`, parsed by `paste.py`). It
+  carries characters only, no prices. The `V|` line holds the client's interface and build, which settles
+  section 3's addon follow-up for pastes: an export from the other game's client is refused, while file
+  uploads still infer the game from the folder. A golden export string is shared by both repos' tests.
+- **Tray app:** `altarmy-profit-tray.exe` (PyInstaller, one unsigned file of about 18 MB), published as a
+  GitHub Release by `.github/workflows/tray.yml` on a `tray-v*` tag and linked from the Manage tab. It runs
+  `watch.run`, so uploads, state file and backoff are the watcher's. The finders moved to `wowfiles.py` so
+  the exe carries no database packages.
+- AHDB is not parsed: no AHDB file to build against.
 
 ## 12. Verification per phase
 
@@ -347,6 +363,7 @@ Each phase ships on its own and local mode keeps working throughout.
 - Retention window for raw observations: decided in Phase 2, 90 days (`prices.KEEP_DAYS`, pruned at each
   local sync; the hosted daily `altarmy-prune` job calls the same `prices.prune`). `price_daily` is kept indefinitely.
 - Whether the TBC Anniversary realms will ever expose a Blizzard AH endpoint; the plan does not depend on it.
+  As of 2026-09-25 the realms and their auction house list are there, but the auction data itself 404s.
 
 ## 14. Phase 0 findings (2026-09-24)
 
@@ -379,9 +396,14 @@ Still to check by hand:
 
 - **AH cut and postage** on both clients (the app assumes 5% and 30c per attachment). Change
   `GameVersion.ah_cut` or `mail_postage` in `versions.py` if either differs.
-- **Blizzard API for Anniversary realms.** Create a client at https://develop.battle.net/access/clients, set
-  `BLIZZARD_CLIENT_ID` and `BLIZZARD_CLIENT_SECRET`, run `python scripts/probe_blizzard_api.py`, and record
-  which namespace (if any) answers with auctions.
+- **Blizzard API for Anniversary realms** (checked 2026-09-25: no auction data). `dynamic-classicann-us`
+  lists Dreamscythe (connected realm 6064), Nightslayer (6065) and Maladath (6539), and
+  `dynamic-classicann-eu` lists Thunderstrike, Spineshatter and one more. Each realm's auctions index
+  answers 200 with three houses (2 Alliance, 6 Horde, 7 Blackwater), but every house answers 404, in both
+  regions. Classic Era (`dynamic-classic1x-*`) is the same; progression (`dynamic-classic-us`) 404s at
+  the index. Forever has no namespace. So a Blizzard poller has nothing to read for now; rerun
+  `scripts/probe_blizzard_api.py` (it needs `BLIZZARD_CLIENT_ID` and `BLIZZARD_CLIENT_SECRET`) to see
+  whether that changes.
 - **Output counts.** TBC's data says the Major protection potions make 5 per craft; confirm one in game.
 - **Price outliers** (addressed in Phase 6). TBC rankings surfaced single overpriced listings (a 49s gem
   "selling" for 333g). Crafts now sell at the lower of the current price and the 7-day median; see section 8.

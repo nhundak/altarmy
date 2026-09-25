@@ -29,6 +29,7 @@ import {
   useStatus,
 } from '../api/queries'
 import { goldToCopper } from '../lib/money'
+import { useSession } from '../lib/session'
 import { useStoredState } from '../lib/storage'
 import { CharacterName } from './CharacterName'
 import { ResultsTable } from './ResultsTable'
@@ -159,6 +160,7 @@ function Range({ name, min, max, onMin, onMax, step }: RangeProps) {
 
 export function SearchTab() {
   const status = useStatus()
+  const { mode } = useSession()
   const characters = useCharacters()
   const select = useSelectRealm()
   const [includeUnlearned, setIncludeUnlearned] = useStoredState(
@@ -298,10 +300,18 @@ export function SearchTab() {
         </Accordion.Item>
       </Accordion>
       {status.data.prices === 0 && (
-        <Alert color="yellow">No prices yet. Scan the auction house with Auctionator, then /reload.</Alert>
+        <Alert color="yellow">
+          {mode === 'hosted'
+            ? 'No prices yet for this realm. Scan the auction house with Auctionator, then upload Auctionator.lua on the Upload tab.'
+            : 'No prices yet. Scan the auction house with Auctionator, then /reload.'}
+        </Alert>
       )}
       {!status.data.selection ? (
-        <Alert>No characters yet. Install the Alt Army addon, log in, or set its file on the Manage tab.</Alert>
+        <Alert>
+          {mode === 'hosted'
+            ? 'No characters yet. Paste the Alt Army export (/altarmy export) or upload AltArmy_TBC.lua on the Upload tab.'
+            : 'No characters yet. Install the Alt Army addon, log in, or set its file on the Manage tab.'}
+        </Alert>
       ) : debouncedFilters.exits.length ? (
         <Results filters={debouncedFilters} />
       ) : (

@@ -12,7 +12,7 @@ are mostly far off it is quarantined and changes nothing.
 from __future__ import annotations
 
 import csv
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -21,6 +21,9 @@ from sqlalchemy import Connection, delete, func, select
 
 from . import auctionator, db, schema
 from .auctionator import ItemPrice
+from .wowfiles import WOW_ROOTS as WOW_ROOTS  # re-exported: the rest of the code finds them here
+from .wowfiles import find_altarmy_files as find_altarmy_files
+from .wowfiles import find_auctionator_files as find_auctionator_files
 
 KEEP_DAYS = 90  # observations older than this are pruned (price_daily is kept)
 AUCTIONATOR = "auctionator"
@@ -118,30 +121,6 @@ def auction_house_for_auctionator_key(conn: Connection, game_version: str, key: 
     if faction not in ("Horde", "Alliance") or not realm:
         realm, faction = key, ""
     return auctionator_auction_house(conn, game_version, key, realm, faction)
-
-
-@dataclass(frozen=True)
-class AuctionHouseInfo:
-    id: int
-    realm: str  # "" for the unnamed auction house
-    faction: str  # "" if both factions share it
-    prices: int  # items with a current price
-    last_scan: datetime | None  # newest price seen
-
-
-def auction_houses(conn: Connection, game_version: str) -> list[AuctionHouseInfo]:
-    """The version's auction houses by realm then faction, with how many prices each has."""
-    t, pc = schema.auction_houses, schema.price_current
-    rows = conn.execute(
-        select(t.c.id, t.c.realm, t.c.faction, func.count(pc.c.item_id), func.max(pc.c.seen_at))
-        .select_from(t.outerjoin(pc, pc.c.auction_house_id == t.c.id))
-        .where(t.c.game_version == game_version)
-        .group_by(t.c.id, t.c.realm, t.c.faction)
-        .order_by(t.c.realm, t.c.faction)
-    )
-    return [
-        AuctionHouseInfo(r[0], r[1], r[2], int(r[3]), None if r[4] is None else db.utc(r[4])) for r in rows
-    ]
 
 
 def price_version(conn: Connection, auction_house_id: int | None) -> int | None:
@@ -477,28 +456,6 @@ def load_buy_and_sell(
     return buy, sell
 
 
-@dataclass(frozen=True)
-class PriceStats:
-    median_7d: int | None  # the median of the item's daily medians over the last 7 days
-    avail_7d: int | None  # the median of its daily availability
-    scans_7d: int | None  # days with data in the last 7
-
-
-def stats(conn: Connection, auction_house_id: int, item_ids: Iterable[int]) -> dict[int, PriceStats]:
-    """The merge's 7-day statistics of the given items with a current price."""
-    wanted = sorted(set(item_ids))
-    pc = schema.price_current
-    out: dict[int, PriceStats] = {}
-    for start in range(0, len(wanted), 500):
-        for r in conn.execute(
-            select(pc.c.item_id, pc.c.median_7d, pc.c.avail_7d, pc.c.scans_7d).where(
-                pc.c.auction_house_id == auction_house_id, pc.c.item_id.in_(wanted[start : start + 500])
-            )
-        ):
-            out[r.item_id] = PriceStats(r.median_7d, r.avail_7d, r.scans_7d)
-    return out
-
-
 def count_current(conn: Connection, auction_house_id: int | None) -> int:
     if auction_house_id is None:
         return 0
@@ -569,35 +526,6 @@ def import_csv(
             found[int(item_id)] = Observation(int(item_id), int(row["price"]), now)
     record_snapshot(conn, auction_house_id, "csv", now, list(found.values()))
     return len(found), unresolved
-
-
-WOW_ROOTS = [
-    Path(r"C:\Program Files (x86)\World of Warcraft"),
-    Path(r"C:\Program Files\World of Warcraft"),
-    Path(r"D:\World of Warcraft"),
-]
-
-
-def find_auctionator_files(
-    roots: Iterable[Path] = WOW_ROOTS, flavors: Sequence[str] | None = None
-) -> list[Path]:
-    """Account-wide Auctionator SavedVariables under each WoW install's flavor folders (_retail_, ...), or
-    only under `flavors` (e.g. ("_anniversary_",))."""
-    return _find(roots, flavors, "Auctionator.lua")
-
-
-def find_altarmy_files(roots: Iterable[Path] = WOW_ROOTS, flavors: Sequence[str] | None = None) -> list[Path]:
-    """Alt Army's account-wide SavedVariables (characters, professions, recipes) under each WoW install,
-    or only under `flavors`."""
-    return _find(roots, flavors, "AltArmy_TBC.lua")
-
-
-def _find(roots: Iterable[Path], flavors: Sequence[str] | None, name: str) -> list[Path]:
-    found: list[Path] = []
-    for root in roots:
-        for flavor in flavors if flavors is not None else ("_*_",):
-            found += sorted(root.glob(f"{flavor}/WTF/Account/*/SavedVariables/{name}"))
-    return found
 
 
 def auctionator_realms(path: Path) -> list[str]:

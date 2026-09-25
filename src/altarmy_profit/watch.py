@@ -20,10 +20,10 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePath
 
-from . import prices, versions
+from . import versions, wowfiles
 
 DEFAULT_STATE = Path.home() / ".altarmy-profit" / "watch-state.json"
-KINDS = (("altarmy", prices.find_altarmy_files), ("auctionator", prices.find_auctionator_files))
+KINDS = (("altarmy", wowfiles.find_altarmy_files), ("auctionator", wowfiles.find_auctionator_files))
 MAX_BACKOFF = 300  # seconds between retries after failures, at most
 
 # (url, headers, body) -> (HTTP status, response body); `urllib_transport` or a test double
@@ -56,7 +56,7 @@ def version_of(path: PurePath) -> str | None:
     return None
 
 
-def find_files(roots: Iterable[Path] = prices.WOW_ROOTS) -> list[Found]:
+def find_files(roots: Iterable[Path] = wowfiles.WOW_ROOTS) -> list[Found]:
     """Both addons' files for every game version under the WoW installs: Alt Army files first, then by
     game version."""
     order = list(versions.VERSIONS)

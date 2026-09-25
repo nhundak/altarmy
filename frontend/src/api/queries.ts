@@ -162,52 +162,6 @@ export function useMe(enabled: boolean) {
   })
 }
 
-/** The chosen game's auction houses, with how many prices each has. */
-export function useRealms() {
-  const gameVersion = useGameVersion()
-  const version = useDataVersion()
-  return useQuery({
-    queryKey: ['realms', gameVersion, version],
-    queryFn: () => call(client.GET('/api/realms', gv(gameVersion))),
-    placeholderData: keepPreviousData,
-  })
-}
-
-/** Items priced on an auction house whose name contains `q`, by name. */
-export function usePrices(auctionHouseId: number | null, q: string, top = 50) {
-  const gameVersion = useGameVersion()
-  const version = useDataVersion()
-  return useQuery({
-    queryKey: ['prices', gameVersion, version, auctionHouseId, q, top],
-    queryFn: () =>
-      call(
-        client.GET('/api/prices', {
-          params: { query: { game_version: gameVersion, auction_house_id: auctionHouseId ?? 0, q, top } },
-        }),
-      ),
-    enabled: auctionHouseId !== null,
-    placeholderData: keepPreviousData,
-  })
-}
-
-/** One item's current price and daily history on an auction house. */
-export function usePriceHistory(auctionHouseId: number, itemId: number) {
-  const gameVersion = useGameVersion()
-  const version = useDataVersion()
-  return useQuery({
-    queryKey: ['price-history', gameVersion, version, auctionHouseId, itemId],
-    queryFn: () =>
-      call(
-        client.GET('/api/prices/{item_id}', {
-          params: {
-            path: { item_id: itemId },
-            query: { game_version: gameVersion, auction_house_id: auctionHouseId },
-          },
-        }),
-      ),
-  })
-}
-
 /** Each realm's scans of the chosen game (every tier), so uploaders see where scans are needed. */
 export function useCoverage() {
   const gameVersion = useGameVersion()
@@ -227,6 +181,18 @@ export function useUploads() {
 }
 
 export type UploadKind = 'altarmy' | 'auctionator'
+
+/** Import the Alt Army addon's export string for the chosen game (replaces your characters, like the file). */
+export function usePasteUpload() {
+  const gameVersion = useGameVersion()
+  const invalidate = useInvalidateAll()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (text: string) => call(client.POST('/api/uploads/paste', { ...gv(gameVersion), body: { text } })),
+    onSuccess: () => invalidate(),
+    onError: () => queryClient.invalidateQueries({ queryKey: ['uploads'] }), // it lists rejected ones too
+  })
+}
 
 /** Upload an addon file for the chosen game; everything it can change is refetched afterwards. */
 export function useUpload() {

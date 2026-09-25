@@ -20,11 +20,11 @@ const firebase = {
   emulator_url: 'http://127.0.0.1:9099',
 }
 const hosted: Config = { mode: 'hosted', firebase }
-const guest: Me = { uid: 'guest', tier: 'free', free_max_level: 30 }
+const guest: Me = { uid: 'guest', tier: 'free' }
 
 function Who() {
   const s = useSession()
-  return <p>{`${s.mode} ${s.uid} ${s.tier} ${s.freeMaxLevel}`}</p>
+  return <p>{`${s.mode} ${s.uid} ${s.tier}`}</p>
 }
 
 const renderApp = () =>
@@ -38,16 +38,16 @@ describe('AuthProvider', () => {
   afterEach(() => vi.clearAllMocks())
 
   it('needs no sign-in in local mode', async () => {
-    mockApi({ '/api/config': { mode: 'local', firebase: null }, '/api/me': { uid: 'local', tier: 'linked', free_max_level: 30 } })
+    mockApi({ '/api/config': { mode: 'local', firebase: null }, '/api/me': { uid: 'local', tier: 'linked' } })
     renderApp()
-    expect(await screen.findByText('local local linked 30')).toBeInTheDocument()
+    expect(await screen.findByText('local local linked')).toBeInTheDocument()
     expect(initAuth).not.toHaveBeenCalled()
   })
 
   it('signs in with Firebase in hosted mode, then asks the API who that is', async () => {
     const fetch = mockApi({ '/api/config': hosted, '/api/me': guest })
     renderApp()
-    expect(await screen.findByText('hosted guest free 30')).toBeInTheDocument()
+    expect(await screen.findByText('hosted guest free')).toBeInTheDocument()
     expect(initAuth).toHaveBeenCalledWith(firebase)
     const me = fetch.mock.calls.map(([r]) => r).find((r) => new URL(r.url).pathname === '/api/me')
     expect(me?.headers.get('Authorization')).toBe('Bearer id-token')

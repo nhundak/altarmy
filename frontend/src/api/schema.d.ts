@@ -239,48 +239,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/prices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Prices
-         * @description Items priced on the auction house, by name. The free tier only sees items whose required level is
-         *     at most `free_max_level` (see /api/me).
-         */
-        get: operations["get_prices_api_prices_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/prices/{item_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Price History
-         * @description One item's current price and daily history on the auction house (403 for the free tier above its
-         *     level).
-         */
-        get: operations["get_price_history_api_prices__item_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/rank": {
         parameters: {
             query?: never;
@@ -294,26 +252,6 @@ export interface paths {
          *     inclusive; an omitted bound is unbounded (so losses are included unless `min_profit` is set).
          */
         get: operations["get_rank_api_rank_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/realms": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Realms
-         * @description The version's auction houses, with how many current prices each has.
-         */
-        get: operations["get_realms_api_realms_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -445,6 +383,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/paste": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Paste
+         * @description Import the Alt Army addon's export string: replaces your characters of this game version, as an
+         *     AltArmy_TBC.lua upload would. 400 if it is damaged or from the other game's client.
+         */
+        post: operations["post_paste_api_uploads_paste_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/versions": {
         parameters: {
             query?: never;
@@ -500,19 +459,6 @@ export interface components {
             last_used_at: string | null;
             /** Prefix */
             prefix: string;
-        };
-        /** AuctionHouseOut */
-        AuctionHouseOut: {
-            /** Faction */
-            faction: string;
-            /** Id */
-            id: number;
-            /** Last Scan */
-            last_scan: string | null;
-            /** Prices */
-            prices: number;
-            /** Realm */
-            realm: string;
         };
         /** Body_post_upload_api_uploads_post */
         Body_post_upload_api_uploads_post: {
@@ -582,17 +528,6 @@ export interface components {
             scans_7d: number;
             /** Uploaders 7D */
             uploaders_7d: number;
-        };
-        /** DayOut */
-        DayOut: {
-            /** Available */
-            available: number | null;
-            /** Day */
-            day: string;
-            /** High */
-            high: number;
-            /** Low */
-            low: number;
         };
         /**
          * EvaluateRequest
@@ -757,8 +692,6 @@ export interface components {
         };
         /** Me */
         Me: {
-            /** Free Max Level */
-            free_max_level: number;
             /**
              * Tier
              * @enum {string}
@@ -833,37 +766,10 @@ export interface components {
             /** Via */
             via: string;
         };
-        /** PriceHistoryOut */
-        PriceHistoryOut: {
-            /** Days */
-            days: components["schemas"]["DayOut"][];
-            item: components["schemas"]["ItemInfo"];
-            stats: components["schemas"]["PriceStatsOut"] | null;
-        };
-        /**
-         * PriceStatsOut
-         * @description An item's pooled statistics over the last 7 days (filled hourly; None until then or without data).
-         */
-        PriceStatsOut: {
-            /** Avail 7D */
-            avail_7d: number | null;
-            /** Median 7D */
-            median_7d: number | null;
-            /** Scans 7D */
-            scans_7d: number | null;
-        };
-        /** PricesOut */
-        PricesOut: {
-            /** Gated */
-            gated: boolean;
-            /** Items */
-            items: components["schemas"]["ItemInfo"][];
-            /** Stats */
-            stats: {
-                [key: string]: components["schemas"]["PriceStatsOut"];
-            };
-            /** Total */
-            total: number;
+        /** PasteRequest */
+        PasteRequest: {
+            /** Text */
+            text: string;
         };
         /** ProfessionOut */
         ProfessionOut: {
@@ -1081,7 +987,7 @@ export interface components {
              * Via
              * @enum {string}
              */
-            via: "browser" | "watcher";
+            via: "browser" | "watcher" | "paste";
         };
         /** UploadResult */
         UploadResult: {
@@ -1578,77 +1484,6 @@ export interface operations {
             };
         };
     };
-    get_prices_api_prices_get: {
-        parameters: {
-            query: {
-                auction_house_id: number;
-                /** @description part of the item name, any case; empty: every priced item */
-                q?: string;
-                top?: number;
-                /** @description which game's data: tbc or forever */
-                game_version: "tbc" | "forever";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PricesOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_price_history_api_prices__item_id__get: {
-        parameters: {
-            query: {
-                auction_house_id: number;
-                /** @description which game's data: tbc or forever */
-                game_version: "tbc" | "forever";
-            };
-            header?: never;
-            path: {
-                item_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PriceHistoryOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_rank_api_rank_get: {
         parameters: {
             query: {
@@ -1687,38 +1522,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RankResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_realms_api_realms_get: {
-        parameters: {
-            query: {
-                /** @description which game's data: tbc or forever */
-                game_version: "tbc" | "forever";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuctionHouseOut"][];
                 };
             };
             /** @description Validation Error */
@@ -1933,6 +1736,42 @@ export interface operations {
         requestBody: {
             content: {
                 "multipart/form-data": components["schemas"]["Body_post_upload_api_uploads_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_paste_api_uploads_paste_post: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasteRequest"];
             };
         };
         responses: {

@@ -229,27 +229,3 @@ def set_ah_blocked(conn: Connection, user_uid: str, game_version: str, item_id: 
                 t.c.user_uid == user_uid, t.c.game_version == game_version, t.c.item_id == item_id
             )
         )
-
-
-def search_prices(
-    conn: Connection,
-    game_version: str,
-    auction_house_id: int,
-    query: str = "",
-    max_required_level: int | None = None,
-    limit: int = 50,
-) -> tuple[list[int], int]:
-    """Items with a current price on the auction house whose name contains `query` (any case), usable at
-    `max_required_level` or below when given: the first `limit` item ids by name, and how many match."""
-    i, pc = schema.items, schema.price_current
-    where = [i.c.game_version == game_version, pc.c.auction_house_id == auction_house_id]
-    if query.strip():
-        where.append(func.lower(i.c.name).contains(query.strip().lower(), autoescape=True))
-    if max_required_level is not None:
-        where.append(i.c.required_level <= max_required_level)
-    joined = i.join(pc, pc.c.item_id == i.c.id)
-    total = int(conn.execute(select(func.count()).select_from(joined).where(*where)).scalar_one())
-    ids: Iterable[int] = conn.execute(
-        select(i.c.id).select_from(joined).where(*where).order_by(i.c.name, i.c.id).limit(limit)
-    ).scalars()
-    return list(ids), total

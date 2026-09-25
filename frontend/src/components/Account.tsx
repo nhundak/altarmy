@@ -151,15 +151,14 @@ export function AccountStatus() {
   )
 }
 
-/** Shown to free users above the tabs. */
+/** Shown to guests above the tabs. */
 export function LinkPrompt() {
-  const { freeMaxLevel } = useSession()
   return (
     <Alert color="blue" title="You are browsing as a guest" mb="md">
       <Group justify="space-between" align="center">
         <Text size="sm">
-          Guests see auction prices of items up to level {freeMaxLevel}. Link an email address to unlock profit
-          rankings, your characters and every price.
+          Your characters and settings live in this browser. Link an email address to keep them and use them on
+          other browsers.
         </Text>
         <AccountButton mode="link" />
       </Group>

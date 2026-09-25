@@ -1,0 +1,30 @@
+name: tray
+
+# Build the Windows tray uploader and publish it as a GitHub Release when a `tray-v*` tag is pushed
+# (e.g. `git tag tray-v0.1.0 && git push origin tray-v0.1.0`). The site's Manage tab links to the latest one.
+on:
+  push:
+    tags: ["tray-v*"]
+
+permissions:
+  contents: write # create the release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e ".[tray,build-tray,dev]"
+      - run: python -m pytest -q tests/test_tray_core.py tests/test_watch.py
+      - run: python scripts/build_tray.py
+      - name: Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/altarmy-profit-tray.exe \
+            --title "Tray uploader ${GITHUB_REF_NAME#tray-v}" \
+            --notes "Uploads Alt Army and Auctionator SavedVariables to the altarmy-profit site whenever WoW rewrites them. Download altarmy-profit-tray.exe and run it; it asks for an API key from the site's Manage tab. The exe is unsigned, so Windows SmartScreen asks once (More info → Run anyway)."

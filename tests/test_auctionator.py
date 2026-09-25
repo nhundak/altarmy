@@ -1,12 +1,13 @@
 import contextlib
 import random
+import zlib
 from datetime import date
 from pathlib import Path
 
 import pytest
 from sqlalchemy import Connection, select
 
-from altarmy_profit import altarmy, auctionator, cli, ingest, prices, schema
+from altarmy_profit import altarmy, auctionator, cli, ingest, paste, prices, schema
 from altarmy_profit.auctionator import DayStats, ItemPrice
 
 from .test_altarmy import ALTARMY_SV
@@ -178,8 +179,20 @@ def test_mangled_files_only_raise_value_error() -> None:
     """Uploads are untrusted: whatever the bytes, parsing either succeeds or raises ValueError (a 400)."""
     rng = random.Random(1)
     prices = [_saved_variables({"R": {"1": _entry(5), "g:2:3": _entry(7)}, "S": {"4": {"m": 1}}})]
+    export = (Path(__file__).parent / "fixtures" / "altarmy_export_v1.txt").read_bytes().strip()
+    export_lines = b"V|1|20506|x\nC|R|N|Horde|MAGE|70\nP|Tailoring|375|375|1,2,3\nC|R|M||PRIEST|1"
     for _ in range(1500):
         with contextlib.suppress(ValueError):
             auctionator.parse_price_database(_mangled(prices, rng))
         with contextlib.suppress(ValueError):
             altarmy.parse_characters(_mangled([ALTARMY_SV], rng))
+        # the paste export: mangled as pasted, and mangled inside the compression
+        with contextlib.suppress(ValueError):
+            paste.decode(_mangled([export], rng).decode("latin-1"))
+        with contextlib.suppress(ValueError):
+            paste.decode(_deflated(_mangled([export_lines], rng)))
+
+
+def _deflated(lines: bytes) -> str:
+    c = zlib.compressobj(9, zlib.DEFLATED, -15)
+    return paste.PREFIX + paste.encode_for_print(c.compress(lines) + c.flush())

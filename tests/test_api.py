@@ -531,7 +531,7 @@ def hosted(tmp_path: Path, game_versions: dict[str, GameVersion], database: db.D
 
 
 def test_local_mode_needs_no_sign_in(client: TestClient) -> None:
-    assert client.get("/api/me").json() == {"uid": "local", "tier": "linked", "free_max_level": 30}
+    assert client.get("/api/me").json() == {"uid": "local", "tier": "linked"}
     assert client.get("/api/me", headers=FREE).json()["uid"] == "local"  # tokens are ignored
     assert client.get("/api/config").json() == {"mode": "local", "firebase": None}
 
@@ -552,7 +552,6 @@ def test_hosted_mode_signs_users_in(hosted: TestClient, conn: Connection) -> Non
     assert hosted.get("/api/me", headers=FREE).json() == {
         "uid": "guest",
         "tier": "free",
-        "free_max_level": 30,
     }
     assert hosted.get("/api/me", headers=LINKED).json()["tier"] == "linked"
     u = schema.users
@@ -562,21 +561,28 @@ def test_hosted_mode_signs_users_in(hosted: TestClient, conn: Connection) -> Non
 
 @pytest.mark.parametrize(
     ("method", "path"),
-    [
-        ("GET", "/api/characters"),
-        ("PUT", "/api/selection"),
-        ("GET", "/api/rank"),
-        ("POST", "/api/evaluate"),
-        ("GET", "/api/ah-blocked"),
-        ("PUT", "/api/ah-blocked/1"),
-        ("DELETE", "/api/ah-blocked/1"),
-    ],
+    [("GET", "/api/keys"), ("POST", "/api/keys"), ("DELETE", "/api/keys/1")],
 )
-def test_free_users_get_403_from_linked_routes(hosted: TestClient, method: str, path: str) -> None:
-    body = {"realm": "R", "faction": "Horde"} if path == "/api/selection" else {"recipe_id": 1, "choices": {}}
-    res = hosted.request(method, path, headers=FREE, json=body if method in ("PUT", "POST") else None)
+def test_only_api_keys_need_a_linked_account(hosted: TestClient, method: str, path: str) -> None:
+    res = hosted.request(method, path, headers=FREE, json={"label": "pc"} if method == "POST" else None)
     assert res.status_code == 403
     assert "Link your account" in res.json()["detail"]
+
+
+def test_guests_rank_evaluate_and_block_like_everyone(hosted: TestClient, priced: Connection) -> None:
+    assert hosted.get("/api/rank", headers=FREE).json()["total"] == 0  # a new guest: no characters yet
+    store.save_characters(priced, "guest", FOREVER, altarmy.parse_characters(ALTARMY_SV))
+    selection = {"realm": "Classic Beta PvE", "faction": "Horde"}
+    assert hosted.put("/api/selection", headers=FREE, json=selection).json()["selection"] == selection
+    assert [g["realm"] for g in hosted.get("/api/characters", headers=FREE).json()["groups"]][0] == (
+        "Classic Beta PvE"
+    )
+    (r,) = hosted.get("/api/rank", headers=FREE).json()["results"]
+    assert (r["recipe"], r["tree"]["via"]) == ("Green Robe", "Green Robe")  # with its flow chart
+    body = {"recipe_id": r["recipe_id"], "choices": {}}
+    assert hosted.post("/api/evaluate", headers=FREE, json=body).json()["result"]["profit"] == r["profit"]
+    assert hosted.put("/api/ah-blocked/3", headers=FREE).json()["items"][0]["item_id"] == 3
+    assert hosted.delete("/api/ah-blocked/3", headers=FREE).json()["items"] == []
 
 
 @pytest.mark.parametrize(
@@ -669,15 +675,6 @@ def _item_price(price: int) -> ItemPrice:
     return ItemPrice(price, {db.utcnow().date(): DayStats(price, price, 1)})
 
 
-def test_prices_list_seven_day_statistics(client: TestClient, priced: Connection) -> None:
-    ah = scanned_robe(priced, 3_330_000, 1000)
-    body = client.get("/api/prices", params={"auction_house_id": ah}).json()
-    assert body["stats"]["3"] == {"median_7d": 1000, "avail_7d": 2, "scans_7d": 4}
-    assert body["stats"]["1"] == {"median_7d": None, "avail_7d": None, "scans_7d": None}
-    history = client.get("/api/prices/3", params={"auction_house_id": ah}).json()
-    assert history["stats"] == {"median_7d": 1000, "avail_7d": 2, "scans_7d": 4}
-
-
 def test_coverage_lists_each_realms_scans(hosted: TestClient, conn: Connection) -> None:
     assert upload(
         hosted, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": _entry(20)}}), FREE
@@ -695,71 +692,6 @@ def test_coverage_lists_each_realms_scans(hosted: TestClient, conn: Connection) 
     assert row["last_scan"] is not None
     (dream,) = hosted.get("/api/coverage", params={"game_version": "tbc"}, headers=FREE).json()
     assert (dream["auction_house_id"], dream["last_scan"], dream["scans_7d"]) == (tbc, None, 0)
-
-
-def gated(conn: Connection) -> int:
-    """Linen (level 0), thread (0) and the robe, raised to level 40, priced on Classic Beta PvE."""
-    i = schema.items
-    conn.execute(i.update().where(i.c.game_version == FOREVER, i.c.id == 3).values(required_level=40))
-    return set_prices(conn, {1: 20, 2: 100, 3: 999})
-
-
-def test_realms_list_auction_houses(client: TestClient, priced: Connection) -> None:
-    set_prices(priced, {1: 7}, realm="Dreamscythe", faction="Horde")
-    pve, dream = client.get("/api/realms").json()
-    assert (pve["realm"], pve["faction"], pve["prices"]) == ("Classic Beta PvE", "", 2)
-    assert (dream["realm"], dream["faction"], dream["prices"]) == ("Dreamscythe", "Horde", 1)
-    assert dream["last_scan"] is not None
-    assert client.get("/api/realms", params={"game_version": "tbc"}).json() == []
-
-
-def test_prices_search_by_name(client: TestClient, db2_paths: dict[str, Path], conn: Connection) -> None:
-    ingest.build_db(db2_paths, conn, FOREVER)
-    ah = gated(conn)
-    body = client.get("/api/prices", params={"auction_house_id": ah}).json()
-    assert [(i["name"], i["ah_price"]) for i in body["items"]] == [
-        ("Coarse Thread", 100),
-        ("Green Robe", 999),
-        ("Linen Cloth", 20),
-    ]
-    assert (body["total"], body["gated"]) == (3, False)
-    body = client.get("/api/prices", params={"auction_house_id": ah, "q": "LINEN", "top": 1}).json()
-    assert ([i["id"] for i in body["items"]], body["total"]) == ([1], 1)
-    body = client.get("/api/prices", params={"auction_house_id": ah, "q": "e", "top": 1}).json()
-    assert (len(body["items"]), body["total"]) == (1, 3)
-    assert client.get("/api/prices", params={"auction_house_id": ah, "q": "%"}).json()["total"] == 0
-    tbc: dict[str, str | int] = {"auction_house_id": ah, "game_version": "tbc"}
-    assert client.get("/api/prices", params=tbc).status_code == 404  # a Forever auction house
-
-
-def test_free_users_see_prices_up_to_level_30(
-    hosted: TestClient, db2_paths: dict[str, Path], conn: Connection
-) -> None:
-    ingest.build_db(db2_paths, conn, FOREVER)
-    params = {"auction_house_id": gated(conn)}
-    free = hosted.get("/api/prices", params=params, headers=FREE).json()
-    assert [i["name"] for i in free["items"]] == ["Coarse Thread", "Linen Cloth"]
-    assert (free["total"], free["gated"]) == (2, True)
-    linked = hosted.get("/api/prices", params=params, headers=LINKED).json()
-    assert (linked["total"], linked["gated"]) == (3, False)
-
-    assert hosted.get("/api/prices/3", params=params, headers=FREE).status_code == 403
-    assert hosted.get("/api/prices/1", params=params, headers=FREE).json()["item"]["ah_price"] == 20
-    history = hosted.get("/api/prices/3", params=params, headers=LINKED).json()
-    assert (history["item"]["name"], history["days"]) == ("Green Robe", [])
-    assert hosted.get("/api/prices/99", params=params, headers=LINKED).status_code == 404
-
-
-def test_price_history_newest_first(
-    client: TestClient, db2_paths: dict[str, Path], conn: Connection, wow_root: Path
-) -> None:
-    ingest.build_db(db2_paths, conn, FOREVER)
-    with_tailor(conn)
-    ah = client.get("/api/status").json()["auction_house_id"]  # synced Classic Beta PvE's scan
-    assert ah is not None
-    days = client.get("/api/prices/1", params={"auction_house_id": ah}).json()["days"]
-    assert days and days[0]["low"] == 20
-    assert [d["day"] for d in days] == sorted((d["day"] for d in days), reverse=True)
 
 
 # --- uploads and API keys ---------------------------------------------------------------------------
@@ -785,8 +717,8 @@ def test_guests_upload_characters_and_prices(hosted: TestClient, conn: Connectio
     body = res.json()
     assert (body["kind"], body["characters"]) == ("altarmy", 4)
     assert body["groups"][0] == {"realm": "Classic Beta PvE", "faction": "Alliance", "characters": 1}
-    assert store.count_characters(conn, "guest", FOREVER) == 4  # kept for when they link
-    assert hosted.get("/api/characters", headers=FREE).status_code == 403
+    assert store.count_characters(conn, "guest", FOREVER) == 4
+    assert len(hosted.get("/api/characters", headers=FREE).json()["groups"]) == 3
 
     data = _saved_variables({"ClassicBetaPvE": {"1": _entry(20), "2": _entry(100)}})
     res = upload(hosted, "auctionator", gzip.compress(data), FREE, modified_at=1_790_000_000_000)
@@ -797,8 +729,8 @@ def test_guests_upload_characters_and_prices(hosted: TestClient, conn: Connectio
         "",
         2,
     )
-    realms = hosted.get("/api/realms", headers=FREE).json()
-    assert [(r["realm"], r["prices"]) for r in realms] == [("Classic Beta PvE", 2)]
+    (covered,) = hosted.get("/api/coverage", headers=FREE).json()
+    assert (covered["realm"], covered["prices"]) == ("Classic Beta PvE", 2)
     history = hosted.get("/api/uploads", headers=FREE).json()
     assert [(u["kind"], u["outcome"], u["via"]) for u in history] == [
         ("auctionator", "accepted", "browser"),
@@ -808,11 +740,9 @@ def test_guests_upload_characters_and_prices(hosted: TestClient, conn: Connectio
 
 
 def test_upload_refreshes_the_cached_market(client: TestClient, priced: Connection) -> None:
-    ah = client.get("/api/status").json()["auction_house_id"]
-    params = {"auction_house_id": ah, "q": "linen"}
-    assert client.get("/api/prices", params=params).json()["items"][0]["ah_price"] == 20
+    assert client.get("/api/rank").json()["results"][0]["cost"] == 10 * 20 + 100
     upload(client, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": {"m": 33}}}))
-    assert client.get("/api/prices", params=params).json()["items"][0]["ah_price"] == 33
+    assert client.get("/api/rank").json()["results"][0]["cost"] == 10 * 33 + 100  # linen repriced
 
 
 def test_bad_uploads(hosted: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -831,6 +761,43 @@ def test_bad_uploads(hosted: TestClient, monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(uploads, "RATE_LIMIT", 3)
     res = upload(hosted, "altarmy", ALTARMY_SV, LINKED)
     assert res.status_code == 429  # the rejected ones count too
+
+
+PASTE = (Path(__file__).parent / "fixtures" / "altarmy_export_v1.txt").read_text(encoding="utf-8")
+
+
+def test_guests_paste_the_addons_export(hosted: TestClient) -> None:
+    tbc = {"game_version": "tbc"}
+    res = hosted.post("/api/uploads/paste", params=tbc, headers=FREE, json={"text": PASTE})
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert (body["kind"], body["characters"], body["realms"]) == ("altarmy", 2, [])
+    assert body["groups"] == [{"realm": "Dreamscythe", "faction": "Horde", "characters": 1}]
+    (row,) = hosted.get("/api/uploads", headers=FREE).json()
+    assert (row["kind"], row["via"], row["outcome"], row["game_version"]) == (
+        "altarmy",
+        "paste",
+        "accepted",
+        "tbc",
+    )
+
+
+def test_bad_pastes(hosted: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    res = hosted.post(
+        "/api/uploads/paste", headers=LINKED, json={"text": PASTE}
+    )  # a TBC export, Forever chosen
+    assert res.status_code == 400
+    assert res.json()["detail"] == "This is a TBC Anniversary export: switch the game at the top."
+    res = hosted.post("/api/uploads/paste", headers=LINKED, json={"text": "hello"})
+    assert res.status_code == 400
+    rows = hosted.get("/api/uploads", headers=LINKED).json()
+    assert [(r["via"], r["outcome"]) for r in rows] == [("paste", "rejected")] * 2
+    assert hosted.post("/api/uploads/paste", json={"text": PASTE}).status_code == 401
+
+    monkeypatch.setattr(uploads, "MAX_BYTES", 100)
+    assert hosted.post("/api/uploads/paste", headers=LINKED, json={"text": "x" * 101}).status_code == 413
+    monkeypatch.setattr(uploads, "RATE_LIMIT", 3)
+    assert hosted.post("/api/uploads/paste", headers=LINKED, json={"text": PASTE}).status_code == 429
 
 
 def test_api_keys(hosted: TestClient, conn: Connection) -> None:

@@ -3,13 +3,20 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import type { components } from '../api/schema'
 import { LINKED, mockApi, renderWithProviders } from '../test/utils'
-import { ApiKeysCard } from './ApiKeysCard'
+import { ApiKeysCard, TRAY_DOWNLOAD } from './ApiKeysCard'
 
 type ApiKeyOut = components['schemas']['ApiKeyOut']
 
 const pc: ApiKeyOut = { id: 1, prefix: 'ak_abcde', label: 'gaming pc', created_at: '2026-09-24 20:00:00', last_used_at: null }
 
 describe('ApiKeysCard', () => {
+  it('links the latest tray uploader', () => {
+    mockApi({ '/api/keys': [] })
+    renderWithProviders(<ApiKeysCard />, LINKED)
+    expect(screen.getByRole('link', { name: 'tray uploader for Windows' })).toHaveAttribute('href', TRAY_DOWNLOAD)
+    expect(TRAY_DOWNLOAD).toMatch(/releases\/latest\/download\/altarmy-profit-tray\.exe$/)
+  })
+
   it('makes a key, shows it once with the watch command, and revokes keys', async () => {
     let keys: ApiKeyOut[] = []
     const fetch = mockApi({

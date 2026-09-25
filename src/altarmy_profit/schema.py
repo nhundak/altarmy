@@ -40,7 +40,7 @@ metadata = MetaData(
 PRICE_SOURCES = ("auctionator", "ahdb", "blizzard_api", "csv", "manual")
 TIERS = ("free", "linked")
 UPLOAD_KINDS = ("altarmy", "auctionator")
-UPLOAD_VIA = ("browser", "watcher")
+UPLOAD_VIA = ("browser", "watcher", "paste")
 UPLOAD_OUTCOMES = ("accepted", "rejected")
 SNAPSHOT_STATUSES = ("accepted", "quarantined")
 

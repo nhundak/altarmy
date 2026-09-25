@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import Connection, func, select
 
-from . import altarmy, auctionator, db, prices, schema, service, store, users
+from . import altarmy, auctionator, db, paste, prices, schema, service, store, users, versions
 
 MAX_BYTES = 32 * 2**20  # decompressed; the biggest real file (TBC Auctionator.lua) is about 5 MB
 RATE_LIMIT = 60  # uploads per user per hour
@@ -124,7 +124,26 @@ def ingest(
 
 
 def ingest_altarmy(conn: Connection, user_uid: str, game_version: str, data: bytes) -> Imported:
-    chars = altarmy.parse_characters(data)
+    return _save_characters(conn, user_uid, game_version, altarmy.parse_characters(data))
+
+
+def ingest_paste(conn: Connection, user_uid: str, game_version: str, text: str) -> Imported:
+    """Store the Alt Army addon's paste export (characters, as `ingest_altarmy`); ValueError if it is bad
+    or from another game's client."""
+    export = paste.decode(text, MAX_BYTES)
+    if export.game_version != game_version:
+        made_by = versions.VERSIONS.get(export.game_version or "")
+        if made_by is None:
+            raise ValueError(
+                f"This export is from a client this site doesn't serve (interface {export.interface})."
+            )
+        raise ValueError(f"This is a {made_by.label} export: switch the game at the top.")
+    return _save_characters(conn, user_uid, game_version, export.characters)
+
+
+def _save_characters(
+    conn: Connection, user_uid: str, game_version: str, chars: list[altarmy.Character]
+) -> Imported:
     store.save_characters(conn, user_uid, game_version, chars)
     service.bump_data_version(conn, user_uid, game_version)
     groups = tuple((g.realm, g.faction, len(g.characters)) for g in altarmy.groups(chars))

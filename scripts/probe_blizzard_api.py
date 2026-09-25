@@ -42,6 +42,13 @@ def get(url: str, tok: str) -> tuple[int, Any]:
         return e.code, None
 
 
+def _name(value: object) -> str:
+    """A realm name: a string with `locale`, else (the index's links carry no locale) a map of locales."""
+    if isinstance(value, dict):
+        value = value.get("en_US") or next(iter(value.values()), "")
+    return value if isinstance(value, str) else ""
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--region", default="us")
@@ -62,9 +69,7 @@ def main() -> None:
             continue
         for link in index.get("connected_realms", []):
             status, cr = get(link["href"], tok)
-            names = {
-                r["name"].lower() for r in (cr or {}).get("realms", []) if isinstance(r.get("name"), str)
-            }
+            names = {_name(r.get("name")).lower() for r in (cr or {}).get("realms", [])}
             if status != 200 or not names & realms:
                 continue
             cid = cr["id"]

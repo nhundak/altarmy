@@ -172,3 +172,24 @@ def test_0002_downgrade_restores_the_local_users_settings(database: db.Database)
         chars = old.tables["character_recipes"]
         assert len(conn.execute(select(chars)).all()) == 4
         db.upgrade(conn)
+
+
+def test_0005_keeps_uploads_and_allows_paste(database: db.Database) -> None:
+    u = schema.uploads
+    row = {
+        "user_uid": "local",
+        "game_version": "tbc",
+        "kind": "altarmy",
+        "via": "watcher",
+        "size": 10,
+        "received_at": datetime(2026, 9, 25, tzinfo=UTC),
+        "outcome": "accepted",
+        "detail": "4 characters",
+    }
+    with database.engine.begin() as conn:
+        command.downgrade(db.alembic_config(conn), "0004")
+        conn.execute(u.insert().values(**row))
+        db.upgrade(conn)
+        conn.execute(u.insert().values(**{**row, "via": "paste"}))
+        assert conn.execute(select(u.c.via).order_by(u.c.id)).scalars().all() == ["watcher", "paste"]
+        assert inspect(conn).get_indexes("uploads")[0]["name"] == "ix_uploads_user_uid_received_at"

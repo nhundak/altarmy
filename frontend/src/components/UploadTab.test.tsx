@@ -119,9 +119,31 @@ describe('UploadTab', () => {
     expect(table).toHaveTextContent('never')
   })
 
-  it('tells guests their characters wait for a linked account', () => {
-    mockApi({ '/api/uploads': [] })
-    renderWithProviders(<UploadTab />, GUEST)
-    expect(screen.getByText(/Your characters are kept: link your account/)).toBeInTheDocument()
+  it("imports the addon's pasted export for the chosen game", async () => {
+    const fetch = mockApi({ '/api/uploads/paste': characters, '/api/uploads': [] })
+    renderWithProviders(<UploadTab />, LINKED)
+    const box = screen.getByRole('textbox', { name: 'Alt Army export for WoW: Forever' })
+    expect(screen.getByRole('button', { name: 'Import characters' })).toBeDisabled()
+    await userEvent.type(box, 'AAX1:abc')
+    await userEvent.click(screen.getByRole('button', { name: 'Import characters' }))
+    expect(await screen.findByText(/Imported 3 characters: Classic Beta PvE \(Horde\) 1/)).toBeInTheDocument()
+    const post = fetch.mock.calls.map(([r]) => r).find((r) => r.method === 'POST')!
+    expect(new URL(post.url).searchParams.get('game_version')).toBe('forever')
+    expect(await post.json()).toEqual({ text: 'AAX1:abc' })
+  })
+
+  it("shows why a pasted export was refused, such as the other game's", async () => {
+    const fetch = mockApi({})
+    fetch.mockImplementation(async (request: Request) =>
+      request.method === 'POST'
+        ? new Response(JSON.stringify({ detail: 'This is a TBC Anniversary export: switch the game at the top.' }), {
+            status: 400,
+          })
+        : new Response('[]', { status: 200 }),
+    )
+    renderWithProviders(<UploadTab />, LINKED)
+    await userEvent.type(screen.getByRole('textbox', { name: /Alt Army export/ }), 'AAX1:abc')
+    await userEvent.click(screen.getByRole('button', { name: 'Import characters' }))
+    expect(await screen.findByText('This is a TBC Anniversary export: switch the game at the top.')).toBeInTheDocument()
   })
 })

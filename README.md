@@ -77,7 +77,7 @@ characters of one realm and faction can craft (chains may use any of their recip
 The web UI is a React app (`frontend/`) served by a local FastAPI server (`altarmy-profit ui`); build
 it once with `npm run build` in `frontend/`. A switch in the header picks the game (WoW: Forever or TBC
 Anniversary); everything below it, including characters, prices and settings on Manage, belongs to that
-game. It has three tabs:
+game. Its tabs are Search and Manage, plus Upload in hosted mode:
 
 - **Search** ranks what your characters on the chosen realm and faction can craft, and names who
   crafts each recipe. A switch adds recipes of their professions they have not learned yet. Expand a
@@ -87,8 +87,6 @@ game. It has three tabs:
   shows the changed numbers. **Reset** goes back to the best plan. A row's ⋯ menu can mark its output
   **Never sell on auction house**: from then on it is only vendored or disenchanted (it can still be
   bought there).
-- **Prices** looks up an auction house's current prices and 7-day medians by item name; **history** on a
-  row shows Auctionator's daily low, high and quantity for it.
 - **Manage** lists the items never sold on the auction house (remove one to allow it again), downloads
   the chosen game's latest data (its newest build on wago.tools; prices are kept) and shows the addon
   files in use.
@@ -107,9 +105,10 @@ auction house keeps its own, so switching realms back and forth loses nothing.
   describes.
 - `hosted`: the multi-user web app at https://alt-army-prod.web.app (see `docs/HOSTED_PLAN.md` and
   **Deploy** below). Visitors are signed in with
-  Firebase, anonymously at first; a guest sees the Prices tab (items of required level 30 and below) and
-  the Upload tab. Linking an email address and password (the header's **Link account**) keeps the same
-  user and unlocks Search, Manage and every price; **Sign in** gets back to that account on another
+  Firebase, anonymously at first, and a guest gets everything: Search (rankings and flow charts), Upload
+  and Manage. Only API keys need a linked account. Linking an email address and password (the header's
+  **Link account**) keeps the same user and data, so they survive clearing the browser and work on
+  other browsers. **Sign in** gets back to that account on another
   browser (with **Forgot password?**), and **Sign out** starts a new guest session. Each user has their
   own characters, selection and AH blocks. The server never reads local addon files and has no game data
   download or reload button: data comes in through uploads (below), game data through a daily job. The
@@ -119,6 +118,10 @@ auction house keeps its own, so switching realms back and forth loses nothing.
 
 In hosted mode:
 
+- **Upload** also takes the Alt Army addon's export: in game, `/altarmy export` shows a string starting
+  with `AAX1:`. Copy it (Ctrl+C) and
+  paste it in **Paste from Alt Army**. That replaces your characters like the file does, with no logout or
+  `/reload`. The string says which client made it, so pasting a TBC export while Forever is chosen is refused.
 - **Upload** takes `AltArmy_TBC.lua` (replaces your characters of the chosen game) and `Auctionator.lua`
   (adds a scan for every realm in it; everyone's scans fill the same auction houses, the newest price
   wins). Files are parsed on the server, never stored, and limited to 32 MB; the tab lists your recent
@@ -135,6 +138,20 @@ In hosted mode:
   It finds both addons' files for both games under the usual WoW folders (`--wow-root` for another),
   uploads the ones WoW rewrote every 15 seconds (`--interval`), and remembers what it sent in
   `~/.altarmy-profit/watch-state.json`. `--once` uploads what changed and exits. It needs no database.
+- **Tray uploader (Windows).** The same watcher without Python or a terminal: download
+  `altarmy-profit-tray.exe` from the [latest release](https://github.com/ntower/altarmy-profit/releases/latest)
+  (the Manage tab links it) and run it. Windows SmartScreen warns once because it is unsigned (More info →
+  Run anyway).
+  - It asks for an API key, then sits in the notification area and uploads as the watcher does.
+  - Its menu shows the latest upload and has Upload now, Open site, Set API key…, Start with Windows (a
+    `HKCU\...\Run` entry), Show log and Quit.
+  - Settings are in `~/.altarmy-profit/tray.json`: `server` (default the live site; set it to try staging) and
+    `key`, in plain text like `ALTARMY_KEY`. The log is `~/.altarmy-profit/tray.log`.
+  - From source: `pip install -e ".[tray]"`, then `altarmy-profit-tray`.
+  - To build the exe: `pip install -e ".[tray,build-tray]"` and `python scripts/build_tray.py`, which writes
+    `dist/altarmy-profit-tray.exe`.
+  - Pushing a `tray-v*` tag makes `.github/workflows/tray.yml` build it on Windows and publish a GitHub
+    Release.
 
 **Firebase project.** `hosted.env` holds the project's public web config (`alt-army-prod`), and
 `npm run dev:hosted` runs the dev loop below in hosted mode against it. That creates real users in the
@@ -270,7 +287,8 @@ Coarse Thread,120
 - `src/altarmy_profit/auth.py`, `users.py` – users and tiers (Firebase token verification in hosted mode,
   the fixed local user otherwise) and each user's settings and sync state
 - `src/altarmy_profit/uploads.py`, `watch.py` – uploaded addon files (parse, pool, history, rate limit)
-  and the CLI watcher that sends them
+  and the CLI watcher that sends them; `paste.py` – the Alt Army addon's export string; `wowfiles.py` –
+  where WoW keeps SavedVariables; `tray.py`, `tray_core.py` – the Windows tray uploader
 - `src/altarmy_profit/store.py` – load the database into engine dataclasses
 - `src/altarmy_profit/service.py`, `api.py` – use-cases and the FastAPI JSON API behind the web UI
 - `src/altarmy_profit/cli.py` – command line; `ratelimit.py` – hosted mode's per-IP and per-user limits

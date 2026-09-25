@@ -6,8 +6,9 @@ Each handler opens its own connection from the shared `db.Database` (never share
 
 Every route but /api/config and /api/versions has a user (`CurrentUser`). Local mode (`ALTARMY_MODE=local`,
 the default) always has `auth.LOCAL_USER`; hosted mode verifies the Firebase ID token sent as a bearer
-token. Rankings, characters and AH blocks need the linked tier (`LinkedUser`, else 403); the free tier sees
-prices only for items up to `auth.FREE_TIER_MAX_LEVEL`. The addon file sync, source files and game data
+token. Every tier, anonymous guests included, ranks recipes, keeps characters and blocks AH items; only the
+API key routes need a linked account (`LinkedUser`, else 403), since a guest's uid is lost with the
+browser's data. The addon file sync, source files and game data
 update exist only in local mode (`LOCAL_ONLY`, else 404); account deletion only in hosted mode
 (`HOSTED_ONLY`). Uploads also take an API key (`Uploader`), the CLI watcher's credential; no other route
 does, so a leaked key can only upload. Hosted mode rate-limits every request per client IP and per user
@@ -314,31 +315,7 @@ class ConfigOut(BaseModel):
 
 class Me(BaseModel):
     uid: str
-    tier: auth.Tier  # free: prices up to free_max_level only; linked: everything
-    free_max_level: int  # the free tier's highest required level
-
-
-class AuctionHouseOut(BaseModel):
-    id: int
-    realm: str  # "" for the unnamed auction house (prices set by hand or CSV)
-    faction: str  # "" if both factions share it
-    prices: int  # items with a current price
-    last_scan: str | None  # newest price seen, "YYYY-MM-DD HH:MM:SS" UTC
-
-
-class PriceStatsOut(BaseModel):
-    """An item's pooled statistics over the last 7 days (filled hourly; None until then or without data)."""
-
-    median_7d: int | None  # median of the daily medians, copper
-    avail_7d: int | None  # median of the most seen up at once per day
-    scans_7d: int | None  # days with a scan of it
-
-
-class PricesOut(BaseModel):
-    items: list[ItemInfo]  # by name; `ah_price` is the auction house's current price
-    stats: dict[int, PriceStatsOut]  # per listed item
-    total: int  # how many items matched
-    gated: bool  # True if items above the free tier's level were left out
+    tier: auth.Tier  # free: an anonymous guest (no API keys); linked: signed in with an email
 
 
 class CoverageOut(BaseModel):
@@ -354,21 +331,9 @@ class CoverageOut(BaseModel):
     uploaders_7d: int  # how many users sent them
 
 
-class DayOut(BaseModel):
-    day: str  # YYYY-MM-DD
-    low: int  # copper
-    high: int
-    available: int | None
-
-
-class PriceHistoryOut(BaseModel):
-    item: ItemInfo
-    stats: PriceStatsOut | None  # None if the item has no current price
-    days: list[DayOut]  # newest first
-
-
 UploadKind = Literal["altarmy", "auctionator"]
-UploadVia = Literal["browser", "watcher"]
+FileVia = Literal["browser", "watcher"]  # how a file upload was sent
+UploadVia = Literal["browser", "watcher", "paste"]  # paste: the Alt Army addon's export string
 
 
 class GroupCount(BaseModel):
@@ -531,7 +496,9 @@ Uploader = Annotated[auth.User, Depends(_uploader)]
 
 def _linked_user(user: CurrentUser) -> auth.User:
     if not user.linked:
-        raise HTTPException(403, "Link your account to see rankings, characters and AH blocks.")
+        raise HTTPException(
+            403, "Link your account to make API keys: a guest's account ends with the browser's data."
+        )
     return user
 
 
@@ -552,11 +519,6 @@ def _hosted_only(request: Request) -> None:
 
 
 HOSTED_ONLY = [Depends(_hosted_only)]  # route dependencies of account management
-
-
-def _max_level(user: auth.User) -> int | None:
-    """The highest required level whose prices the user may see; None: any."""
-    return None if user.linked else auth.FREE_TIER_MAX_LEVEL
 
 
 @contextmanager
@@ -651,7 +613,7 @@ def sync_now(state: State, user: CurrentUser) -> Status:
 
 
 @router.get("/characters")
-def get_characters(state: State, user: LinkedUser) -> Characters:
+def get_characters(state: State, user: CurrentUser) -> Characters:
     with _connect(state) as conn:
         chars = store.load_characters(conn, user.uid, state.key)
         sel = service.selection(conn, user.uid, state.key, chars)
@@ -682,7 +644,7 @@ def get_characters(state: State, user: LinkedUser) -> Characters:
 
 
 @router.put("/selection")
-def put_selection(state: State, user: LinkedUser, body: SelectionModel, request: Request) -> Status:
+def put_selection(state: State, user: CurrentUser, body: SelectionModel, request: Request) -> Status:
     """Switch realm/faction; in local mode that realm's Auctionator prices are synced too."""
     hosted = _auth(request).mode == "hosted"
     with _http_errors(), _connect(state) as conn:
@@ -700,7 +662,7 @@ def put_sources(state: State, user: CurrentUser, body: Sources) -> Status:
 @router.get("/rank")
 def get_rank(
     state: State,
-    user: LinkedUser,
+    user: CurrentUser,
     include_unlearned: Annotated[
         bool, Query(description="rank every recipe of the characters' professions, not just learned ones")
     ] = False,
@@ -738,7 +700,7 @@ def get_rank(
 
 
 @router.post("/evaluate")
-def evaluate(state: State, user: LinkedUser, body: EvaluateRequest) -> EvaluateResponse:
+def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> EvaluateResponse:
     """One recipe as /api/rank would give it, with the user's `choices` of sources and exit applied."""
     base, chars, no_ah = _selected(state, user)
     r = service.evaluate(
@@ -858,13 +820,13 @@ def _ah_blocked(state: AppState, conn: Connection, user: auth.User) -> AhBlocked
 
 
 @router.get("/ah-blocked")
-def get_ah_blocked(state: State, user: LinkedUser) -> AhBlocked:
+def get_ah_blocked(state: State, user: CurrentUser) -> AhBlocked:
     with _connect(state) as conn:
         return _ah_blocked(state, conn, user)
 
 
 @router.put("/ah-blocked/{item_id}")
-def block_ah(state: State, user: LinkedUser, item_id: int) -> AhBlocked:
+def block_ah(state: State, user: CurrentUser, item_id: int) -> AhBlocked:
     """Never sell `item_id` on the AH: /api/rank and /api/evaluate only vendor or disenchant it."""
     with _connect(state) as conn:
         store.set_ah_blocked(conn, user.uid, state.key, item_id, True)
@@ -872,7 +834,7 @@ def block_ah(state: State, user: LinkedUser, item_id: int) -> AhBlocked:
 
 
 @router.delete("/ah-blocked/{item_id}")
-def unblock_ah(state: State, user: LinkedUser, item_id: int) -> AhBlocked:
+def unblock_ah(state: State, user: CurrentUser, item_id: int) -> AhBlocked:
     """Allow selling `item_id` on the AH again."""
     with _connect(state) as conn:
         store.set_ah_blocked(conn, user.uid, state.key, item_id, False)
@@ -913,7 +875,7 @@ def post_upload(
     file: UploadFile,
     kind: Annotated[UploadKind, Form()],
     modified_at: Annotated[int | None, Form(description="the file's modified time, ms since 1970")] = None,
-    via: Annotated[UploadVia, Form()] = "browser",
+    via: Annotated[FileVia, Form()] = "browser",
 ) -> UploadResult:
     """Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this
     game version, Auctionator adds a scan for every realm it has prices for."""
@@ -946,8 +908,45 @@ def post_upload(
         raise HTTPException(400, str(e)) from e
     if got.auction_house_ids:
         state.cache.invalidate(got.auction_house_ids)
+    return _upload_result(got)
+
+
+class PasteRequest(BaseModel):
+    text: str  # the string the Alt Army addon's export shows (starts with AAX1:)
+
+
+@router.post("/uploads/paste")
+def post_paste(state: State, user: Uploader, body: PasteRequest) -> UploadResult:
+    """Import the Alt Army addon's export string: replaces your characters of this game version, as an
+    AltArmy_TBC.lua upload would. 400 if it is damaged or from the other game's client."""
+    database = state.database
+    with database.begin() as conn:
+        try:
+            uploads.check_rate(conn, user.uid)
+        except uploads.RateLimited:
+            raise HTTPException(429, "Too many uploads: try again in an hour.") from None
+    size = len(body.text)
+
+    def reject(why: str) -> None:
+        with database.begin() as conn:
+            uploads.record_upload(conn, user.uid, state.key, "altarmy", "paste", size, "rejected", why)
+
+    if size > uploads.MAX_BYTES:
+        reject("too large")
+        raise HTTPException(413, f"Exports are limited to {uploads.MAX_BYTES // 2**20} MB.")
+    try:
+        with database.begin() as conn:
+            got = uploads.ingest_paste(conn, user.uid, state.key, body.text)
+            uploads.record_upload(conn, user.uid, state.key, "altarmy", "paste", size, "accepted", got.detail)
+    except ValueError as e:
+        reject(str(e))
+        raise HTTPException(400, str(e)) from e
+    return _upload_result(got)
+
+
+def _upload_result(got: uploads.Imported) -> UploadResult:
     return UploadResult(
-        kind=kind,
+        kind=cast(UploadKind, got.kind),
         detail=got.detail,
         characters=got.characters,
         groups=[GroupCount(realm=r, faction=f, characters=n) for r, f, n in got.groups],
@@ -996,61 +995,7 @@ def delete_key(request: Request, user: LinkedUser, key_id: int) -> list[ApiKeyOu
         return [_key_out(k) for k in users.list_keys(conn, user.uid)]
 
 
-# --- prices ----------------------------------------------------------------------------------------
-@router.get("/realms")
-def get_realms(state: State, user: CurrentUser) -> list[AuctionHouseOut]:
-    """The version's auction houses, with how many current prices each has."""
-    with _connect(state) as conn:
-        found = prices.auction_houses(conn, state.key)
-    return [
-        AuctionHouseOut(
-            id=a.id,
-            realm=a.realm,
-            faction=a.faction,
-            prices=a.prices,
-            last_scan=db.timestamp_text(a.last_scan),
-        )
-        for a in found
-    ]
-
-
-def _check_auction_house(state: AppState, conn: Connection, auction_house_id: int) -> None:
-    if prices.game_version_of(conn, auction_house_id) != state.key:
-        raise HTTPException(404, f"No {state.version.label} auction house {auction_house_id}.")
-
-
-@router.get("/prices")
-def get_prices(
-    state: State,
-    user: CurrentUser,
-    auction_house_id: int,
-    q: Annotated[str, Query(description="part of the item name, any case; empty: every priced item")] = "",
-    top: Annotated[int, Query(ge=1, le=200)] = 50,
-) -> PricesOut:
-    """Items priced on the auction house, by name. The free tier only sees items whose required level is
-    at most `free_max_level` (see /api/me)."""
-    max_level = _max_level(user)
-    with _connect(state) as conn:
-        _check_auction_house(state, conn, auction_house_id)
-        ids, total = store.search_prices(conn, state.key, auction_house_id, q, max_level, top)
-        base = state.cache.get(auction_house_id)
-        details = _item_details(state, conn, base, ids)
-        found = prices.stats(conn, auction_house_id, ids)
-    listed = [details[i] for i in ids if i in details]
-    return PricesOut(
-        items=listed,
-        stats={i.id: _stats_out(found.get(i.id)) for i in listed},
-        total=total,
-        gated=max_level is not None,
-    )
-
-
-def _stats_out(s: prices.PriceStats | None) -> PriceStatsOut:
-    if s is None:
-        return PriceStatsOut(median_7d=None, avail_7d=None, scans_7d=None)
-    return PriceStatsOut(median_7d=s.median_7d, avail_7d=s.avail_7d, scans_7d=s.scans_7d)
-
-
+# --- coverage --------------------------------------------------------------------------------------
 @router.get("/coverage")
 def get_coverage(state: State, user: CurrentUser) -> list[CoverageOut]:
     """Each named auction house's scans: where uploads are needed. Open to every tier."""
@@ -1069,36 +1014,6 @@ def get_coverage(state: State, user: CurrentUser) -> list[CoverageOut]:
         )
         for c in found
     ]
-
-
-@router.get("/prices/{item_id}")
-def get_price_history(
-    state: State, user: CurrentUser, auction_house_id: int, item_id: int
-) -> PriceHistoryOut:
-    """One item's current price and daily history on the auction house (403 for the free tier above its
-    level)."""
-    with _connect(state) as conn:
-        _check_auction_house(state, conn, auction_house_id)
-        base = state.cache.get(auction_house_id)
-        details = _item_details(state, conn, base, [item_id])
-        if item_id not in details:
-            raise HTTPException(404, f"Unknown item {item_id}.")
-        item = details[item_id]
-        max_level = _max_level(user)
-        if max_level is not None and item.required_level > max_level:
-            raise HTTPException(
-                403, f"Link your account to see prices of items above level {auth.FREE_TIER_MAX_LEVEL}."
-            )
-        days = prices.daily(conn, auction_house_id, item_id)
-        found = prices.stats(conn, auction_house_id, [item_id]).get(item_id)
-    return PriceHistoryOut(
-        item=item,
-        stats=None if found is None else _stats_out(found),
-        days=[
-            DayOut(day=d.isoformat(), low=low, high=high, available=available)
-            for d, low, high, available in reversed(days)
-        ],
-    )
 
 
 # --- local mode: game data, addon files ------------------------------------------------------------
@@ -1167,7 +1082,7 @@ def get_config(request: Request) -> ConfigOut:
 
 @router.get("/me")
 def get_me(user: CurrentUser) -> Me:
-    return Me(uid=user.uid, tier=user.tier, free_max_level=auth.FREE_TIER_MAX_LEVEL)
+    return Me(uid=user.uid, tier=user.tier)
 
 
 @router.delete("/me", dependencies=HOSTED_ONLY, status_code=204)

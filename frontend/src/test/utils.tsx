@@ -6,8 +6,8 @@ import { vi } from 'vitest'
 import { LOCAL_SESSION, SessionContext, type Session } from '../lib/session'
 
 /** Hosted mode's sessions, for rendering as a guest or a linked user. */
-export const GUEST: Session = { mode: 'hosted', uid: 'guest', tier: 'free', freeMaxLevel: 30 }
-export const LINKED: Session = { mode: 'hosted', uid: 'g1', tier: 'linked', freeMaxLevel: 30 }
+export const GUEST: Session = { mode: 'hosted', uid: 'guest', tier: 'free' }
+export const LINKED: Session = { mode: 'hosted', uid: 'g1', tier: 'linked' }
 
 /** Render with Mantine, a fresh query client and a signed-in `session` (default: local mode's user). */
 export function renderWithProviders(ui: ReactElement, session: Session = LOCAL_SESSION) {

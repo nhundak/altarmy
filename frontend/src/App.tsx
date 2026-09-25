@@ -3,7 +3,6 @@ import { useAutoUpdateGameData, useSyncNotifications } from './api/queries'
 import { AccountStatus, LinkPrompt } from './components/Account'
 import { GameVersionProvider, GameVersionSwitch } from './components/GameVersionProvider'
 import { ManageTab } from './components/ManageTab'
-import { PricesTab } from './components/PricesTab'
 import { PrivacyNote } from './components/PrivacyNote'
 import { SearchTab } from './components/SearchTab'
 import { UploadTab } from './components/UploadTab'
@@ -26,7 +25,6 @@ function LocalUpkeep() {
 
 function Shell() {
   const { mode, tier } = useSession()
-  const linked = tier === 'linked'
   return (
     <Container size="xl" py="md">
       {mode === 'local' && <LocalUpkeep />}
@@ -37,33 +35,24 @@ function Shell() {
           <GameVersionSwitch />
         </Group>
       </Group>
-      {!linked && <LinkPrompt />}
-      {/* keyed by tier: linking opens the Search tab it unlocks */}
-      <Tabs key={tier} defaultValue={linked ? 'search' : 'prices'}>
+      {tier === 'free' && <LinkPrompt />}
+      <Tabs defaultValue="search">
         <Tabs.List mb="md">
-          {linked && <Tabs.Tab value="search">Search</Tabs.Tab>}
-          <Tabs.Tab value="prices">Prices</Tabs.Tab>
+          <Tabs.Tab value="search">Search</Tabs.Tab>
           {mode === 'hosted' && <Tabs.Tab value="upload">Upload</Tabs.Tab>}
-          {linked && <Tabs.Tab value="manage">Manage</Tabs.Tab>}
+          <Tabs.Tab value="manage">Manage</Tabs.Tab>
         </Tabs.List>
-        {linked && (
-          <Tabs.Panel value="search">
-            <SearchTab />
-          </Tabs.Panel>
-        )}
-        <Tabs.Panel value="prices">
-          <PricesTab />
+        <Tabs.Panel value="search">
+          <SearchTab />
         </Tabs.Panel>
         {mode === 'hosted' && (
           <Tabs.Panel value="upload">
             <UploadTab />
           </Tabs.Panel>
         )}
-        {linked && (
-          <Tabs.Panel value="manage">
-            <ManageTab />
-          </Tabs.Panel>
-        )}
+        <Tabs.Panel value="manage">
+          <ManageTab />
+        </Tabs.Panel>
       </Tabs>
       {mode === 'hosted' && <PrivacyNote />}
     </Container>

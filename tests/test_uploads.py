@@ -2,6 +2,7 @@
 
 import gzip
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import Connection, select
@@ -15,6 +16,7 @@ from .test_auctionator import _entry, _saved_variables
 
 NOW = datetime(2026, 9, 24, 20, 0, tzinfo=UTC)
 OTHER = "other-user"
+PASTE = (Path(__file__).parent / "fixtures" / "altarmy_export_v1.txt").read_text(encoding="utf-8")
 
 
 @pytest.fixture
@@ -72,7 +74,7 @@ def test_prices_before_characters_still_price_them(conn: Connection) -> None:
         conn, ME, FOREVER, "auctionator", scan({"ClassicBetaPvE": {"1": _entry(25)}}), None, now=NOW
     )
     assert prices.load_current(conn, ah) == {1: 25}
-    assert len(prices.auction_houses(conn, FOREVER)) == 1
+    assert len(prices.coverage(conn, FOREVER)) == 1
 
 
 def test_uploads_pool_and_the_newest_scan_wins(conn: Connection, other: str) -> None:
@@ -116,6 +118,20 @@ def test_trust_halves_on_quarantine_and_recovers(conn: Connection, other: str) -
     assert users.adjust_trust(conn, other, quarantined=True) == 0.25
     assert users.adjust_trust(conn, other, quarantined=False) == pytest.approx(0.35)
     assert users.trust(conn, "nobody") == 1.0
+
+
+def test_a_pasted_export_replaces_the_characters(conn: Connection) -> None:
+    got = uploads.ingest_paste(conn, ME, "tbc", PASTE)
+    assert (got.kind, got.characters) == ("altarmy", 2)
+    assert got.groups == (("Dreamscythe", "Horde", 1),)  # a character never scanned has no faction group
+    assert [c.name for c in store.load_characters(conn, ME, "tbc")] == ["Tailor Guy", "Frell"]
+    assert service.data_version(conn, ME, "tbc") == 1
+
+
+def test_a_pasted_export_of_the_other_game_is_refused(conn: Connection) -> None:
+    with pytest.raises(ValueError, match="This is a TBC Anniversary export: switch the game at the top"):
+        uploads.ingest_paste(conn, ME, FOREVER, PASTE)
+    assert store.count_characters(conn, ME, FOREVER) == 0
 
 
 def test_scan_time_is_clamped() -> None:

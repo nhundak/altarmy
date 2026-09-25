@@ -1,10 +1,9 @@
 import { useState } from 'react'
-import { Alert, Badge, Button, Card, Code, FileInput, Group, Stack, Table, Text, Title } from '@mantine/core'
+import { Alert, Badge, Button, Card, Code, FileInput, Group, Stack, Table, Text, Textarea, Title } from '@mantine/core'
 import type { components } from '../api/schema'
-import { useCoverage, useUpload, useUploads, type UploadKind } from '../api/queries'
+import { useCoverage, usePasteUpload, useUpload, useUploads, type UploadKind } from '../api/queries'
 import { age } from '../lib/age'
 import { GAME_VERSIONS, useGameVersion } from '../lib/gameVersion'
-import { useSession } from '../lib/session'
 
 type UploadResult = components['schemas']['UploadResult']
 
@@ -43,6 +42,47 @@ function Summary({ result }: { result: UploadResult }) {
         </Group>
       ))}
     </Stack>
+  )
+}
+
+/** The Alt Army addon's export string: characters without a file or /reload. */
+function PasteCard() {
+  const gameVersion = useGameVersion()
+  const game = GAME_VERSIONS.find((v) => v.value === gameVersion)
+  const upload = usePasteUpload()
+  const [text, setText] = useState('')
+  return (
+    <Card withBorder>
+      <Stack gap="sm">
+        <Title order={4}>Paste from Alt Army</Title>
+        <Text size="sm" c="dimmed">
+          The quickest way to bring in your characters: in game, type <Code>/altarmy export</Code>, press Ctrl+C,
+          and paste the string here. No logout or /reload needed.
+        </Text>
+        <Textarea
+          label={`Alt Army export for ${game?.label ?? gameVersion}`}
+          placeholder="AAX1:..."
+          value={text}
+          onChange={(e) => {
+            setText(e.currentTarget.value)
+            upload.reset()
+          }}
+          rows={3}
+          styles={{ input: { fontFamily: 'monospace', wordBreak: 'break-all' } }}
+        />
+        <Group>
+          <Button disabled={!text.trim()} loading={upload.isPending} onClick={() => upload.mutate(text)}>
+            Import characters
+          </Button>
+        </Group>
+        {upload.isError && <Alert color="red">{upload.error.message}</Alert>}
+        {upload.data && (
+          <Alert color="green" title="Imported">
+            <Summary result={upload.data} />
+          </Alert>
+        )}
+      </Stack>
+    </Card>
   )
 }
 
@@ -158,7 +198,7 @@ function History() {
               <Table.Tr key={u.id}>
                 <Table.Td>{u.received_at} UTC</Table.Td>
                 <Table.Td>
-                  {u.kind === 'altarmy' ? 'AltArmy_TBC.lua' : 'Auctionator.lua'} ({u.game_version}, {u.via})
+                  {u.via === 'paste' ? 'Alt Army export' : u.kind === 'altarmy' ? 'AltArmy_TBC.lua' : 'Auctionator.lua'} ({u.game_version}, {u.via})
                 </Table.Td>
                 <Table.Td>
                   <Badge color={u.outcome === 'accepted' ? 'green' : 'red'} variant="light">
@@ -179,15 +219,9 @@ function History() {
 
 /** Hosted mode's way in for addon data: upload the SavedVariables files (or run the watcher, see Manage). */
 export function UploadTab() {
-  const { tier } = useSession()
   return (
     <Stack>
-      {tier === 'free' && (
-        <Alert color="blue">
-          Your characters are kept: link your account to rank what they can craft. Everyone's price uploads fill in
-          the auction houses for all users.
-        </Alert>
-      )}
+      <PasteCard />
       {FILES.map((f) => (
         <UploadCard key={f.kind} {...f} />
       ))}

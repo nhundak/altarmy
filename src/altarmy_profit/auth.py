@@ -18,10 +18,6 @@ Tier = Literal["free", "linked"]
 Mode = Literal["local", "hosted"]
 MODES: tuple[Mode, ...] = ("local", "hosted")
 
-# The free tier sees prices only for items a character of this level or lower can use. Raw materials
-# (cloth, ore, herbs) have a required level of 0, so they are all free.
-FREE_TIER_MAX_LEVEL = 30
-
 
 @dataclass(frozen=True)
 class User:
