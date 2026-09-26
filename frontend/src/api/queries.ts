@@ -5,28 +5,27 @@ import {
   call,
   client,
   type Evaluation,
-  type GameVersion,
+  type ManualCharacter,
   type Selection,
   type Sources,
   type Status,
   type UpdateResult,
 } from './client'
-import { useGameVersion } from '../lib/gameVersion'
+import { GAME_VERSION } from '../lib/gameVersion'
 import type { Choices } from '../lib/choices'
 import { importedSince, readSyncSeen, syncSeen, writeSyncSeen } from '../lib/syncNotice'
 
 /** The `game_version` query parameter every per-game route takes. */
-const gv = (gameVersion: GameVersion) => ({ params: { query: { game_version: gameVersion } } })
+const GV = { params: { query: { game_version: GAME_VERSION } } }
 
 /**
- * The chosen game's server status. Fetching it also makes the server re-import the Alt Army and Auctionator files if WoW
+ * The server status. Fetching it also makes the server re-import the Alt Army and Auctionator files if WoW
  * rewrote them (on logout or /reload), so poll it, and refetch when the user comes back from the game.
  */
 export function useStatus() {
-  const gameVersion = useGameVersion()
   return useQuery({
-    queryKey: ['status', gameVersion],
-    queryFn: () => call(client.GET('/api/status', gv(gameVersion))),
+    queryKey: ['status', GAME_VERSION],
+    queryFn: () => call(client.GET('/api/status', GV)),
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   })
@@ -42,13 +41,40 @@ export function useDataVersion() {
 }
 
 export function useCharacters() {
-  const gameVersion = useGameVersion()
   const version = useDataVersion()
   return useQuery({
-    queryKey: ['characters', gameVersion, version],
-    queryFn: () => call(client.GET('/api/characters', gv(gameVersion))),
+    queryKey: ['characters', GAME_VERSION, version],
+    queryFn: () => call(client.GET('/api/characters', GV)),
     enabled: version !== undefined,
     placeholderData: keepPreviousData,
+  })
+}
+
+/** Every profession of the game's recipes (fixed until the next game data update). */
+export function useProfessions() {
+  return useQuery({
+    queryKey: ['professions', GAME_VERSION],
+    queryFn: () => call(client.GET('/api/professions', GV)),
+    staleTime: Infinity,
+  })
+}
+
+/** Add a character by hand (it knows every recipe of its professions) and select its realm. */
+export function useCreateCharacter() {
+  const invalidate = useInvalidateAll()
+  return useMutation({
+    mutationFn: (body: ManualCharacter) => call(client.POST('/api/characters', { ...GV, body })),
+    onSuccess: () => invalidate(),
+  })
+}
+
+export function useDeleteCharacter() {
+  const invalidate = useInvalidateAll()
+  return useMutation({
+    mutationFn: ({ realm, name }: { realm: string; name: string }) =>
+      call(client.DELETE('/api/characters', { params: { query: { game_version: GAME_VERSION, realm, name } } })),
+    onSuccess: () => invalidate(),
+    onError: showError('Could not remove the character'),
   })
 }
 
@@ -66,23 +92,24 @@ export type RankParams = {
   maxProfit: number | null
   minRoi: number | null
   maxRoi: number | null
+  /** only recipes of these professions; empty for every one */
+  professions: string[]
   top: number
 }
 
 const orUndefined = <T>(v: T | null) => v ?? undefined
 
-/** Ranked recipes for the selected realm/faction's characters. */
+/** Ranked recipes for the selected realm/faction's characters (every recipe without characters). */
 export function useRank(params: RankParams) {
-  const gameVersion = useGameVersion()
   const version = useDataVersion()
   return useQuery({
-    queryKey: ['rank', gameVersion, version, params],
+    queryKey: ['rank', GAME_VERSION, version, params],
     queryFn: () =>
       call(
         client.GET('/api/rank', {
           params: {
             query: {
-              game_version: gameVersion,
+              game_version: GAME_VERSION,
               include_unlearned: params.includeUnlearned,
               include_trivial: params.includeTrivial,
               exits: params.exits,
@@ -92,6 +119,7 @@ export function useRank(params: RankParams) {
               max_profit: orUndefined(params.maxProfit),
               min_roi: orUndefined(params.minRoi),
               max_roi: orUndefined(params.maxRoi),
+              professions: params.professions.length ? params.professions : undefined,
               top: params.top,
             },
           },
@@ -114,15 +142,14 @@ export function useEvaluations(
   choices: Readonly<Record<number, Choices>>,
   { includeUnlearned, includeTrivial, exits, version }: EvaluateParams,
 ): Readonly<Record<number, EvaluationState>> {
-  const gameVersion = useGameVersion()
   const ids = Object.keys(choices).map(Number)
   return useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['evaluate', gameVersion, version, id, includeUnlearned, includeTrivial, exits, choices[id]],
+      queryKey: ['evaluate', GAME_VERSION, version, id, includeUnlearned, includeTrivial, exits, choices[id]],
       queryFn: () =>
         call(
           client.POST('/api/evaluate', {
-            ...gv(gameVersion),
+            ...GV,
             body: {
               recipe_id: id,
               include_unlearned: includeUnlearned,
@@ -162,13 +189,12 @@ export function useMe(enabled: boolean) {
   })
 }
 
-/** Each realm's scans of the chosen game (every tier), so uploaders see where scans are needed. */
+/** Each realm's scans (every tier): where uploads are needed, and the realms one can browse. */
 export function useCoverage() {
-  const gameVersion = useGameVersion()
   const version = useDataVersion()
   return useQuery({
-    queryKey: ['coverage', gameVersion, version],
-    queryFn: () => call(client.GET('/api/coverage', gv(gameVersion))),
+    queryKey: ['coverage', GAME_VERSION, version],
+    queryFn: () => call(client.GET('/api/coverage', GV)),
   })
 }
 
@@ -182,28 +208,26 @@ export function useUploads() {
 
 export type UploadKind = 'altarmy' | 'auctionator'
 
-/** Import the Alt Army addon's export string for the chosen game (replaces your characters, like the file). */
+/** Import the Alt Army addon's export string (replaces your characters, like the file). */
 export function usePasteUpload() {
-  const gameVersion = useGameVersion()
   const invalidate = useInvalidateAll()
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (text: string) => call(client.POST('/api/uploads/paste', { ...gv(gameVersion), body: { text } })),
+    mutationFn: (text: string) => call(client.POST('/api/uploads/paste', { ...GV, body: { text } })),
     onSuccess: () => invalidate(),
     onError: () => queryClient.invalidateQueries({ queryKey: ['uploads'] }), // it lists rejected ones too
   })
 }
 
-/** Upload an addon file for the chosen game; everything it can change is refetched afterwards. */
+/** Upload an addon file; everything it can change is refetched afterwards. */
 export function useUpload() {
-  const gameVersion = useGameVersion()
   const invalidate = useInvalidateAll()
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ kind, file }: { kind: UploadKind; file: File }) =>
       call(
         client.POST('/api/uploads', {
-          ...gv(gameVersion),
+          ...GV,
           // The generated type says `string` (OpenAPI's binary format); the serializer sends the File itself.
           body: { kind, file: file as unknown as string, modified_at: file.lastModified, via: 'browser' },
           bodySerializer: (body) => {
@@ -249,18 +273,16 @@ export function useRevokeKey() {
 }
 
 export function useAuctionatorFiles() {
-  const gameVersion = useGameVersion()
   return useQuery({
-    queryKey: ['auctionator', gameVersion, 'files'],
-    queryFn: () => call(client.GET('/api/auctionator/files', gv(gameVersion))),
+    queryKey: ['auctionator', GAME_VERSION, 'files'],
+    queryFn: () => call(client.GET('/api/auctionator/files', GV)),
   })
 }
 
 export function useAltArmyFiles() {
-  const gameVersion = useGameVersion()
   return useQuery({
-    queryKey: ['altarmy', gameVersion, 'files'],
-    queryFn: () => call(client.GET('/api/altarmy/files', gv(gameVersion))),
+    queryKey: ['altarmy', GAME_VERSION, 'files'],
+    queryFn: () => call(client.GET('/api/altarmy/files', GV)),
   })
 }
 
@@ -270,29 +292,27 @@ function showError(title: string) {
 
 /** Items never sold on the AH: searches only vendor or disenchant them. */
 export function useAhBlocked() {
-  const gameVersion = useGameVersion()
   return useQuery({
-    queryKey: ['ah-blocked', gameVersion],
-    queryFn: () => call(client.GET('/api/ah-blocked', gv(gameVersion))),
+    queryKey: ['ah-blocked', GAME_VERSION],
+    queryFn: () => call(client.GET('/api/ah-blocked', GV)),
   })
 }
 
 /** Never sell an item on the AH, or allow it again; searches and re-costed plans are refetched. */
 export function useSetAhBlocked() {
-  const gameVersion = useGameVersion()
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ itemId, blocked }: { itemId: number; blocked: boolean }) => {
-      const params = { params: { path: { item_id: itemId }, query: { game_version: gameVersion } } }
+      const params = { params: { path: { item_id: itemId }, query: { game_version: GAME_VERSION } } }
       return call(blocked ? client.PUT('/api/ah-blocked/{item_id}', params) : client.DELETE('/api/ah-blocked/{item_id}', params))
     },
     onSuccess: (list, { itemId, blocked }) => {
-      queryClient.setQueryData(['ah-blocked', gameVersion], list)
+      queryClient.setQueryData(['ah-blocked', GAME_VERSION], list)
       if (blocked) {
         const name = list.details[itemId]?.name ?? `Item ${itemId}`
         notifications.show({
           title: `${name} won't be sold on the auction house`,
-          message: 'Allow it again from its menu or the Manage tab.',
+          message: 'Allow it again from its menu or the Manage page.',
         })
       }
       return queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'rank' || q.queryKey[0] === 'evaluate' })
@@ -307,9 +327,9 @@ function useInvalidateAll() {
   return () => queryClient.invalidateQueries()
 }
 
-function updateGameData(gameVersion: GameVersion, onlyIfNew: boolean) {
+function updateGameData(onlyIfNew: boolean) {
   return call(
-    client.POST('/api/game-data/update', { params: { query: { game_version: gameVersion, only_if_new: onlyIfNew } } }),
+    client.POST('/api/game-data/update', { params: { query: { game_version: GAME_VERSION, only_if_new: onlyIfNew } } }),
   )
 }
 
@@ -322,10 +342,9 @@ function showUpdated(r: UpdateResult, title: string) {
 }
 
 export function useUpdateGameData() {
-  const gameVersion = useGameVersion()
   const invalidate = useInvalidateAll()
   return useMutation({
-    mutationFn: () => updateGameData(gameVersion, false),
+    mutationFn: () => updateGameData(false),
     onSuccess: (r) => {
       showUpdated(r, 'Game data updated')
       return invalidate()
@@ -335,14 +354,13 @@ export function useUpdateGameData() {
 }
 
 /**
- * Once per page load and game version, fetch the chosen game's newest build if its database does not have
- * it yet. Failures only go to the console: being offline should not raise a toast on every visit.
+ * Once per page load, fetch the game's newest build if the database does not have it yet. Failures only go to
+ * the console: being offline should not raise a toast on every visit.
  */
 export function useAutoUpdateGameData() {
-  const gameVersion = useGameVersion()
   const invalidate = useInvalidateAll()
   const { mutate } = useMutation({
-    mutationFn: (v: GameVersion) => updateGameData(v, true),
+    mutationFn: () => updateGameData(true),
     onSuccess: (r) => {
       if (!r.updated) return
       showUpdated(r, 'New game data downloaded')
@@ -350,12 +368,12 @@ export function useAutoUpdateGameData() {
     },
     onError: (error) => console.warn('Automatic game data update failed:', error),
   })
-  const started = useRef(new Set<GameVersion>()) // StrictMode runs effects twice in development
+  const started = useRef(false) // StrictMode runs effects twice in development
   useEffect(() => {
-    if (started.current.has(gameVersion)) return
-    started.current.add(gameVersion)
-    mutate(gameVersion)
-  }, [mutate, gameVersion])
+    if (started.current) return
+    started.current = true
+    mutate()
+  }, [mutate])
 }
 
 /**
@@ -363,42 +381,38 @@ export function useAutoUpdateGameData() {
  * open (status polling), or since it was last open.
  */
 export function useSyncNotifications() {
-  const gameVersion = useGameVersion()
   const status = useStatus().data
   useEffect(() => {
     if (!status) return
-    const lines = importedSince(readSyncSeen(gameVersion), status)
-    writeSyncSeen(gameVersion, syncSeen(status))
+    const lines = importedSince(readSyncSeen(GAME_VERSION), status)
+    writeSyncSeen(GAME_VERSION, syncSeen(status))
     if (lines.length) notifications.show({ color: 'green', title: 'Addon data imported', message: lines.join(' ') })
-  }, [status, gameVersion])
+  }, [status])
 }
 
 /** The mutations below answer with the new status: show it at once, then refetch the rest. */
 function useApplyStatus() {
-  const gameVersion = useGameVersion()
   const queryClient = useQueryClient()
   return (status: Status) => {
-    queryClient.setQueryData(['status', gameVersion], status)
+    queryClient.setQueryData(['status', GAME_VERSION], status)
     return queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'status' })
   }
 }
 
 /** Switch realm/faction; the server swaps in that realm's Auctionator prices. */
 export function useSelectRealm() {
-  const gameVersion = useGameVersion()
   const apply = useApplyStatus()
   return useMutation({
-    mutationFn: (body: Selection) => call(client.PUT('/api/selection', { ...gv(gameVersion), body })),
+    mutationFn: (body: Selection) => call(client.PUT('/api/selection', { ...GV, body })),
     onSuccess: apply,
     onError: showError('Could not switch realm'),
   })
 }
 
 export function useSetSources() {
-  const gameVersion = useGameVersion()
   const apply = useApplyStatus()
   return useMutation({
-    mutationFn: (body: Sources) => call(client.PUT('/api/sources', { ...gv(gameVersion), body })),
+    mutationFn: (body: Sources) => call(client.PUT('/api/sources', { ...GV, body })),
     onSuccess: apply,
     onError: showError('Could not use that file'),
   })
@@ -406,20 +420,18 @@ export function useSetSources() {
 
 /** Re-import both addon files even if they look unchanged. */
 export function useSyncNow() {
-  const gameVersion = useGameVersion()
   const apply = useApplyStatus()
   return useMutation({
-    mutationFn: () => call(client.POST('/api/sync', gv(gameVersion))),
+    mutationFn: () => call(client.POST('/api/sync', GV)),
     onSuccess: apply,
     onError: showError('Sync failed'),
   })
 }
 
 export function useReload() {
-  const gameVersion = useGameVersion()
   const invalidate = useInvalidateAll()
   return useMutation({
-    mutationFn: () => call(client.POST('/api/reload', gv(gameVersion))),
+    mutationFn: () => call(client.POST('/api/reload', GV)),
     onSuccess: () => invalidate(),
     onError: showError('Reload failed'),
   })

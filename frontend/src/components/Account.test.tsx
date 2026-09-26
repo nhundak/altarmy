@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { linkWithEmail, resetPassword, signInWithEmail, signOut } from '../lib/auth'
 import { GUEST, LINKED, mockApi, renderWithProviders } from '../test/utils'
-import { AccountStatus } from './Account'
+import { AccountControls } from './Account'
 
 vi.mock('../lib/auth', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/auth')>()),
@@ -20,46 +20,51 @@ async function fill(email: string, password = '') {
   if (password) await userEvent.type(screen.getByLabelText(/Password/), password)
 }
 
+const submit = (name: string) => userEvent.click(screen.getAllByRole('button', { name }).at(-1)!)
+
 describe('account', () => {
   afterEach(() => vi.clearAllMocks())
 
-  it('links an email to the guest account', async () => {
+  it('creates an account that keeps this browser’s data', async () => {
     mockApi({})
-    renderWithProviders(<AccountStatus />, GUEST)
-    expect(screen.getByText('Guest')).toBeInTheDocument()
+    renderWithProviders(<AccountControls />, GUEST)
+    expect(screen.queryByText(/guest/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Google/)).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Link account' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await userEvent.click(await screen.findByText('Create account'))
+    expect(screen.getByText(/keeps the characters and settings already in this browser/)).toBeInTheDocument()
     await fill('me@example.com', 'hunter22')
-    await userEvent.click(screen.getAllByRole('button', { name: 'Link account' }).at(-1)!)
+    await submit('Create account')
     await waitFor(() => expect(linkWithEmail).toHaveBeenCalledWith('me@example.com', 'hunter22'))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
   it('points a taken email to signing in', async () => {
     vi.mocked(linkWithEmail).mockRejectedValueOnce(Object.assign(new Error('x'), { code: 'auth/email-already-in-use' }))
-    renderWithProviders(<AccountStatus />, GUEST)
-    await userEvent.click(screen.getByRole('button', { name: 'Link account' }))
+    renderWithProviders(<AccountControls />, GUEST)
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await userEvent.click(await screen.findByText('Create account'))
     await fill('me@example.com', 'hunter22')
-    await userEvent.click(screen.getAllByRole('button', { name: 'Link account' }).at(-1)!)
+    await submit('Create account')
     expect(await screen.findByText('That email already has an account: sign in instead.')).toBeInTheDocument()
   })
 
   it('signs in to an existing account, and explains a wrong password', async () => {
     vi.mocked(signInWithEmail).mockRejectedValueOnce(Object.assign(new Error('x'), { code: 'auth/invalid-credential' }))
-    renderWithProviders(<AccountStatus />, GUEST)
+    renderWithProviders(<AccountControls />, GUEST)
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await fill('me@example.com', 'wrong')
-    await userEvent.click(screen.getAllByRole('button', { name: 'Sign in' }).at(-1)!)
+    await submit('Sign in')
     expect(await screen.findByText('Wrong email or password.')).toBeInTheDocument()
     await userEvent.clear(screen.getByLabelText(/Password/))
     await userEvent.type(screen.getByLabelText(/Password/), 'right')
-    await userEvent.click(screen.getAllByRole('button', { name: 'Sign in' }).at(-1)!)
+    await submit('Sign in')
     await waitFor(() => expect(signInWithEmail).toHaveBeenLastCalledWith('me@example.com', 'right'))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
   it('sends a password reset email', async () => {
-    renderWithProviders(<AccountStatus />, GUEST)
+    renderWithProviders(<AccountControls />, GUEST)
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await fill('me@example.com')
     await userEvent.click(screen.getByRole('button', { name: 'Forgot password?' }))
@@ -67,11 +72,11 @@ describe('account', () => {
     expect(resetPassword).toHaveBeenCalledWith('me@example.com')
   })
 
-  it('shows the linked email and signs out', async () => {
-    renderWithProviders(<AccountStatus />, LINKED)
-    expect(screen.getByText('me@example.com')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Link account' })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }))
-    expect(signOut).toHaveBeenCalledOnce()
+  it('shows the signed-in email and signs out from its menu', async () => {
+    renderWithProviders(<AccountControls />, LINKED)
+    expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'me@example.com' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Sign out' }))
+    await waitFor(() => expect(signOut).toHaveBeenCalledOnce())
   })
 })

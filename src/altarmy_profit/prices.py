@@ -195,6 +195,20 @@ def coverage(conn: Connection, game_version: str, now: datetime | None = None) -
     return out
 
 
+def freshest_auction_house(conn: Connection, game_version: str) -> tuple[str, str] | None:
+    """The (realm, faction) of the named auction house with the newest accepted snapshot; None if no named
+    auction house of the version has one."""
+    t, snap = schema.auction_houses, schema.price_snapshots
+    found = conn.execute(
+        select(t.c.realm, t.c.faction)
+        .join(snap, snap.c.auction_house_id == t.c.id)
+        .where(t.c.game_version == game_version, t.c.realm != "", snap.c.status == "accepted")
+        .order_by(snap.c.scanned_at.desc(), snap.c.id.desc())
+        .limit(1)
+    ).first()
+    return None if found is None else (str(found.realm), str(found.faction))
+
+
 def game_version_of(conn: Connection, auction_house_id: int) -> str | None:
     t = schema.auction_houses
     found = conn.execute(select(t.c.game_version).where(t.c.id == auction_house_id)).scalar_one_or_none()

@@ -129,7 +129,7 @@ def test_a_pasted_export_replaces_the_characters(conn: Connection) -> None:
 
 
 def test_a_pasted_export_of_the_other_game_is_refused(conn: Connection) -> None:
-    with pytest.raises(ValueError, match="This is a TBC Anniversary export: switch the game at the top"):
+    with pytest.raises(ValueError, match="This is a TBC Anniversary export; this site serves WoW: Forever"):
         uploads.ingest_paste(conn, ME, FOREVER, PASTE)
     assert store.count_characters(conn, ME, FOREVER) == 0
 

@@ -89,8 +89,17 @@ export interface paths {
         /** Get Characters */
         get: operations["get_characters_api_characters_get"];
         put?: never;
-        post?: never;
-        delete?: never;
+        /**
+         * Post Character
+         * @description Add a character by hand (or replace yours of that realm and name) and select its realm. It knows
+         *     every recipe of its professions. An Alt Army import later replaces every character, these included.
+         */
+        post: operations["post_character_api_characters_post"];
+        /**
+         * Delete Character
+         * @description Delete one of your characters (404 if you have none of that realm and name).
+         */
+        delete: operations["delete_character_api_characters_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -239,6 +248,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/professions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Professions
+         * @description Every profession the game version's recipes belong to, by name.
+         */
+        get: operations["get_professions_api_professions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/rank": {
         parameters: {
             query?: never;
@@ -248,8 +277,9 @@ export interface paths {
         };
         /**
          * Get Rank
-         * @description What the selected realm/faction's characters can craft, most profitable first. Bounds are
-         *     inclusive; an omitted bound is unbounded (so losses are included unless `min_profit` is set).
+         * @description What the selected realm/faction's characters can craft, most profitable first; without characters,
+         *     every recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive; an omitted
+         *     bound is unbounded (so losses are included unless `min_profit` is set).
          */
         get: operations["get_rank_api_rank_get"];
         put?: never;
@@ -673,6 +703,34 @@ export interface components {
             label: string;
         };
         /**
+         * ManualCharacter
+         * @description A character typed in by hand. It knows every recipe of its professions (nothing is learned).
+         */
+        ManualCharacter: {
+            /** Class File */
+            class_file: string;
+            /**
+             * Faction
+             * @enum {string}
+             */
+            faction: "Horde" | "Alliance";
+            /** Level */
+            level: number;
+            /** Name */
+            name: string;
+            /** Professions */
+            professions: components["schemas"]["ManualProfession"][];
+            /** Realm */
+            realm: string;
+        };
+        /** ManualProfession */
+        ManualProfession: {
+            /** Name */
+            name: string;
+            /** Rank */
+            rank: number;
+        };
+        /**
          * MaterialOut
          * @description One possible disenchant result.
          */
@@ -937,6 +995,8 @@ export interface components {
             item_id: number;
             /** Name */
             name: string;
+            /** Paths */
+            paths: string[];
             /** Quantity */
             quantity: number;
             /** Value */
@@ -1240,6 +1300,76 @@ export interface operations {
             };
         };
     };
+    post_character_api_characters_post: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualCharacter"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Characters"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_character_api_characters_delete: {
+        parameters: {
+            query: {
+                realm: string;
+                name: string;
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Characters"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_config_api_config_get: {
         parameters: {
             query?: never;
@@ -1484,6 +1614,38 @@ export interface operations {
             };
         };
     };
+    get_professions_api_professions_get: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_rank_api_rank_get: {
         parameters: {
             query: {
@@ -1505,6 +1667,8 @@ export interface operations {
                 min_roi?: number | null;
                 /** @description profit / cost (0.5 = 50%) */
                 max_roi?: number | null;
+                /** @description only recipes of these professions (default: every one) */
+                professions?: string[] | null;
                 top?: number;
                 /** @description which game's data: tbc or forever */
                 game_version: "tbc" | "forever";

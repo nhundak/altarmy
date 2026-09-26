@@ -1,8 +1,11 @@
+from dataclasses import replace
 from pathlib import Path
 
+import pytest
 from sqlalchemy import Connection
 
 from altarmy_profit import altarmy, ingest, store
+from altarmy_profit.altarmy import Profession
 
 from .conftest import FOREVER, ME, set_prices
 from .test_altarmy import ALTARMY_SV
@@ -79,3 +82,29 @@ def test_load_market_prices_from_one_auction_house(db2_paths: dict[str, Path], c
     assert store.load_market(conn, FOREVER, there).prices == {1: 99}
     assert store.load_market(conn, FOREVER, None).prices == {}
     assert store.load_market(conn, "tbc", here).items == {}  # game data is per version
+
+
+def test_profession_names(
+    db2_paths: dict[str, Path], conn: Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert store.profession_names(conn, FOREVER) == []
+    ingest.build_db(db2_paths, conn, FOREVER)
+    assert store.profession_names(conn, FOREVER) == ["Tailoring"]
+    assert store.profession_names(conn, "tbc") == []
+    monkeypatch.setattr(store, "HIDDEN_PROFESSIONS", frozenset({"Tailoring"}))
+    assert store.profession_names(conn, FOREVER) == []
+
+
+def test_upsert_and_delete_one_character(conn: Connection) -> None:
+    chars = altarmy.parse_characters(ALTARMY_SV)
+    store.save_characters(conn, ME, FOREVER, chars)
+    first = chars[0]
+    changed = replace(first, level=first.level + 1, professions=(Profession("Cooking", 10, 75, frozenset()),))
+    store.upsert_character(conn, ME, FOREVER, changed)
+    got = store.load_characters(conn, ME, FOREVER)
+    assert changed in got and first not in got
+    assert len(got) == len(chars)  # the others stay
+
+    assert store.delete_character(conn, ME, FOREVER, first.realm, first.name)
+    assert not store.delete_character(conn, ME, FOREVER, first.realm, first.name)
+    assert len(store.load_characters(conn, ME, FOREVER)) == len(chars) - 1

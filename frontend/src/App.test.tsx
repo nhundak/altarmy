@@ -1,9 +1,8 @@
 import { Notifications, notifications } from '@mantine/notifications'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import type { UpdateResult } from './api/client'
-import { GAME_VERSION_KEY } from './lib/gameVersion'
 import { syncSeen, syncSeenKey } from './lib/syncNotice'
 import { characters, status } from './test/status'
 import { GUEST, LINKED, mockApi, renderWithProviders } from './test/utils'
@@ -83,39 +82,7 @@ describe('addon sync notifications', () => {
   })
 })
 
-describe('game version switch', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    notifications.clean()
-    localStorage.clear()
-  })
-
-  const versionsOf = (fetch: ReturnType<typeof mockApi>, path: string) =>
-    fetch.mock.calls
-      .map(([r]) => new URL(r.url))
-      .filter((u) => u.pathname === path)
-      .map((u) => u.searchParams.get('game_version'))
-
-  it('asks the API about the chosen game and remembers the choice', async () => {
-    const fetch = mockApi({
-      '/api/game-data/update': { ...result, updated: false },
-      '/api/status': status(),
-      '/api/characters': characters,
-    })
-    renderApp()
-    await waitFor(() => expect(versionsOf(fetch, '/api/status')).toContain('forever'))
-    expect(versionsOf(fetch, '/api/status')).not.toContain('tbc')
-
-    fireEvent.click(screen.getByText('TBC Anniversary'))
-    await waitFor(() => expect(versionsOf(fetch, '/api/status')).toContain('tbc'))
-    await waitFor(() => expect(versionsOf(fetch, '/api/game-data/update')).toEqual(['forever', 'tbc']))
-    expect(JSON.parse(localStorage.getItem(GAME_VERSION_KEY) ?? '')).toBe('tbc')
-  })
-})
-
-
 describe('the shell by mode and tier', () => {
-  const tabs = () => screen.getAllByRole('tab').map((t) => t.textContent)
   const hostedApi = () =>
     mockApi({
       '/api/status': status(),
@@ -123,41 +90,72 @@ describe('the shell by mode and tier', () => {
       '/api/ah-blocked': { items: [], details: {} },
       '/api/keys': [],
       '/api/uploads': [],
+      '/api/coverage': [],
+      '/api/rank': { results: [], total: 0, items: {}, classes: {} },
     })
+  const nav = () => within(screen.getByRole('navigation', { name: 'Pages' })).getAllByRole('link').map((l) => l.textContent)
 
-  it('shows everything in local mode, with no account controls', async () => {
+  it('names the site Alt Army, links the addon page, and has no account controls in local mode', async () => {
     mockApi({ '/api/game-data/update': result, '/api/status': status(), '/api/characters': characters })
     renderApp()
-    expect(tabs()).toEqual(['Search', 'Manage'])
-    expect(screen.queryByText('Guest')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Alt Army, main page' })).toHaveAttribute('href', '/')
+    expect(nav()).toEqual(['Manage'])
+    expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('radiogroup', { name: 'Game version' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'Get the Addon' }))
+    expect(await screen.findByRole('heading', { name: 'Get the Addon' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/addon')
   })
 
-  it('gives guests everything but API keys, with a way to link, and never syncs or updates game data', async () => {
+  it('gives anonymous users everything but API keys, with a way to sign in, and never syncs or updates game data', async () => {
     const fetch = hostedApi()
     renderWithProviders(<App />, GUEST)
-    expect(tabs()).toEqual(['Search', 'Upload', 'Manage'])
-    expect(screen.getByText('You are browsing as a guest')).toBeInTheDocument()
-    expect(await screen.findByText('Tailor Guy')).toBeInTheDocument() // their characters, ready to rank
-    fireEvent.click(screen.getByRole('tab', { name: 'Manage' }))
+    expect(nav()).toEqual(['Upload', 'Manage'])
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^3 characters on/ })).toBeInTheDocument() // theirs, ready to rank
+    expect(screen.queryByText(/guest/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'Manage' }))
     expect(await screen.findByText('Never sold on the auction house')).toBeInTheDocument()
-    expect(screen.getByText(/Link your account \(Link account, at the top\) to make API keys/)).toBeInTheDocument()
+    expect(screen.getByText(/Create an account or sign in \(top right\) to make API keys/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Make key' })).not.toBeInTheDocument()
     expect(updateCalls(fetch)).toEqual([])
     expect(fetch.mock.calls.map(([r]) => new URL(r.url).pathname)).not.toContain('/api/keys')
   })
 
-  it('gives linked users search and their AH blocks, without the local file sync', async () => {
+  it('gives signed-in users their AH blocks and API keys, without the local file sync', async () => {
     const fetch = hostedApi()
+    window.history.pushState(null, '', '/manage')
     renderWithProviders(<App />, LINKED)
-    expect(tabs()).toEqual(['Search', 'Upload', 'Manage'])
-    expect(screen.queryByText('You are browsing as a guest')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('tab', { name: 'Manage' }))
+    expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument()
     expect(await screen.findByText('Never sold on the auction house')).toBeInTheDocument()
     expect(screen.getByText('Upload automatically')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Make key' })).toBeInTheDocument()
     expect(screen.queryByText('Addon data')).not.toBeInTheDocument()
     expect(screen.queryByText('Game data')).not.toBeInTheDocument()
     expect(updateCalls(fetch)).toEqual([])
+  })
+
+  it('opens the upload page in hosted mode only', async () => {
+    hostedApi()
+    window.history.pushState(null, '', '/upload')
+    renderWithProviders(<App />, GUEST)
+    expect(await screen.findByRole('heading', { name: 'Upload' })).toBeInTheDocument()
+    expect(screen.getByText('Paste from Alt Army')).toBeInTheDocument()
+  })
+})
+
+describe('theme toggle', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('switches between the dark and light schemes', () => {
+    mockApi({ '/api/game-data/update': result, '/api/status': status(), '/api/characters': characters })
+    renderApp()
+    const root = document.documentElement
+    const before = root.getAttribute('data-mantine-color-scheme')
+    const toggle = screen.getByRole('button', { name: /Switch to (light|dark) theme/ })
+    fireEvent.click(toggle)
+    const after = root.getAttribute('data-mantine-color-scheme')
+    expect(after).not.toBe(before)
+    expect(screen.getByRole('button', { name: `Switch to ${before} theme` })).toBeInTheDocument()
   })
 })

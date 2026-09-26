@@ -5,6 +5,11 @@ tr.details:hover {
 }
 
 /* Sortable column headers: the arrow shows faintly until its column is the sort. */
+/* A step's alternatives menu, just after its text. */
+.stepChoice {
+  margin-left: 4px;
+}
+
 .sort {
   font-weight: inherit;
   white-space: nowrap;
@@ -18,4 +23,30 @@ tr.details:hover {
 
 .arrow[data-active] {
   opacity: 1;
+}
+
+/* Columns that give way on narrower screens (Mantine's lg, md, sm and xs breakpoints); the full table needs
+   about 1080px. */
+@media (max-width: 75em) {
+  .hideBelowLg {
+    display: none;
+  }
+}
+
+@media (max-width: 62em) {
+  .hideBelowMd {
+    display: none;
+  }
+}
+
+@media (max-width: 48em) {
+  .hideBelowSm {
+    display: none;
+  }
+}
+
+@media (max-width: 36em) {
+  .hideBelowXs {
+    display: none;
+  }
 }

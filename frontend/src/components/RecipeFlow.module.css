@@ -36,17 +36,6 @@
   flex: none;
 }
 
-/* The alternatives menu sits in the top-right corner. */
-.menu {
-  flex: none;
-  margin-left: auto;
-}
-
-.check {
-  display: inline-block;
-  width: 1em;
-}
-
 .detail {
   overflow: hidden;
   color: var(--mantine-color-dimmed);

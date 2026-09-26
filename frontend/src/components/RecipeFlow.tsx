@@ -1,86 +1,26 @@
-import { createContext, useContext, useMemo, type ReactNode } from 'react'
-import { ActionIcon, Button, Group, Loader, Menu, Text, useComputedColorScheme } from '@mantine/core'
-import { Controls, Handle, Panel, Position, ReactFlow, type NodeProps, type NodeTypes } from '@xyflow/react'
-import type { FlowNode, ItemMap, RankResult } from '../api/client'
+import { useMemo } from 'react'
+import { useComputedColorScheme } from '@mantine/core'
+import { Controls, Handle, Position, ReactFlow, type NodeProps, type NodeTypes } from '@xyflow/react'
+import type { ItemMap, RankResult } from '../api/client'
 import { SELL_PATH } from '../lib/choices'
 import { buildFlow, type ItemFlowNode, type MailFlowNode, type SellFlowNode } from '../lib/flow'
 import { CharacterName } from './CharacterName'
+import {
+  BUY_FROM,
+  ChoiceMenu,
+  ChooseContext,
+  Earned,
+  SELL_TEXT,
+  sellChoices,
+  sourceChoices,
+  type PlanEditing,
+} from './ChoiceMenu'
 import { DisenchantHover, ItemLink } from './ItemTooltip'
 import { Money } from './Money'
 import classes from './RecipeFlow.module.css'
 
 const MAX_HEIGHT = 480
 const PADDING = 32
-
-const BUY_FROM: Record<string, string> = { ah: 'on the AH', vendor: 'from a vendor' }
-
-const SELL_TEXT: Record<string, string> = {
-  ah: 'Sell on the AH',
-  vendor: 'Sell to a vendor',
-  disenchant: 'Disenchant, sell the materials',
-}
-
-/** Money made: green, or red with a minus sign when it is a loss. */
-const Earned = ({ copper }: { copper: number }) => (
-  <Text span inherit c={copper < 0 ? 'red' : 'teal'}>
-    <Money copper={copper} />
-  </Text>
-)
-
-/** Picks another source (or exit) at a tree path; absent when the chart is read-only. */
-const ChooseContext = createContext<((path: string, key: string) => void) | undefined>(undefined)
-
-type Choice = { key: string; label: ReactNode; amount: ReactNode; current: boolean }
-
-/** The button in a node's top-right corner listing its alternatives, best first. */
-function ChoiceMenu({ label, path, choices }: { label: string; path: string; choices: Choice[] }) {
-  const onChoose = useContext(ChooseContext)
-  if (!onChoose || choices.length < 2) return null
-  return (
-    <Menu position="bottom-end" shadow="md" withinPortal>
-      <Menu.Target>
-        <ActionIcon className={`nodrag nopan ${classes.menu}`} variant="subtle" size="xs" aria-label={label}>
-          ⇄
-        </ActionIcon>
-      </Menu.Target>
-      {/* Portalled in the browser, but inline in tests: either way, clicks in it must not pan the chart. */}
-      <Menu.Dropdown className="nodrag nopan">
-        {choices.map((c) => (
-          <Menu.Item
-            key={c.key}
-            leftSection={<span className={classes.check}>{c.current ? '✓' : ''}</span>}
-            rightSection={
-              <Text span size="xs" c="dimmed" ff="monospace">
-                {c.amount}
-              </Text>
-            }
-            fw={c.current ? 600 : undefined}
-            onClick={() => !c.current && onChoose(path, c.key)}
-          >
-            {c.label}
-          </Menu.Item>
-        ))}
-      </Menu.Dropdown>
-    </Menu>
-  )
-}
-
-/** A source option as a menu line: crafts name the crafter, and say so when they mail it to `holder`. */
-function optionLabel({ source, via, crafter }: FlowNode['options'][number], holder: string): ReactNode {
-  if (!via) return `Buy ${BUY_FROM[source] ?? source}`
-  return (
-    <>
-      Craft ({via})
-      {crafter && (
-        <>
-          {' '}
-          by <CharacterName name={crafter} />
-          {crafter !== holder && holder ? ', mailed' : ''}
-        </>
-      )}
-    </>
-  )
-}
 
 function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap }) {
   const { itemId, name, quantity, cost, via, crafts, made, source, crafter, isLeaf, path, options, option, holder } =
@@ -96,13 +36,8 @@ function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap })
         </span>
         <ChoiceMenu
           label={`Change source of ${name}`}
-          path={path}
-          choices={options.map((o) => ({
-            key: o.key,
-            label: optionLabel(o, holder),
-            amount: <Money copper={o.cost} cost />,
-            current: o.key === option,
-          }))}
+          paths={[path]}
+          choices={sourceChoices(options, option, holder)}
         />
       </div>
       <div className={classes.detail}>
@@ -158,20 +93,7 @@ function SellNode({
         ) : (
           <span>{text}</span>
         )}
-        <ChoiceMenu
-          label="Change how it is sold"
-          path={SELL_PATH}
-          choices={options.map((o) => ({
-            key: o.kind,
-            label: SELL_TEXT[o.kind] ?? `Sell via ${o.kind}`,
-            amount: (
-              <>
-                profit <Earned copper={o.profit} />
-              </>
-            ),
-            current: o.kind === exit,
-          }))}
-        />
+        <ChoiceMenu label="Change how it is sold" paths={[SELL_PATH]} choices={sellChoices(options, exit)} />
       </div>
       <div className={classes.detail}>
         Gross <Earned copper={revenue} /> · Net <Earned copper={profit} />
@@ -185,19 +107,9 @@ function SellNode({
   )
 }
 
-/** Makes the flow chart editable: nodes with alternatives get a menu of them. */
-export type FlowEditing = {
-  onChoose: (path: string, key: string) => void
-  /** The user changed something: offer Reset. */
-  modified: boolean
-  onReset: () => void
-  /** The changed plan is being re-costed. */
-  pending: boolean
-  error: string | null
-}
-
-/** A recipe's reagent tree as a left-to-right flow chart: bought reagents, crafts, mailing, then the sale. */
-export function RecipeFlow({ result, items, editing }: { result: RankResult; items: ItemMap; editing?: FlowEditing }) {
+/** A recipe's reagent tree as a left-to-right flow chart: bought reagents, crafts, mailing, then the sale. With
+ * `editing`, nodes with alternatives get a menu of them (Reset and progress are the caller's to show). */
+export function RecipeFlow({ result, items, editing }: { result: RankResult; items: ItemMap; editing?: PlanEditing }) {
   const colorScheme = useComputedColorScheme('light')
   const flow = useMemo(() => buildFlow(result), [result])
   const nodeTypes = useMemo<NodeTypes>(
@@ -228,21 +140,6 @@ export function RecipeFlow({ result, items, editing }: { result: RankResult; ite
           proOptions={{ hideAttribution: true }}
         >
           <Controls showInteractive={false} />
-          {editing && (editing.modified || editing.error) && (
-            <Panel position="top-right" className="nodrag nopan">
-              <Group gap="xs">
-                {editing.pending && <Loader size="xs" aria-label="Re-costing" />}
-                {editing.error && (
-                  <Text size="xs" c="red">
-                    {editing.error}
-                  </Text>
-                )}
-                <Button size="compact-xs" variant="light" onClick={editing.onReset}>
-                  Reset
-                </Button>
-              </Group>
-            </Panel>
-          )}
         </ReactFlow>
       </div>
     </ChooseContext.Provider>

@@ -23,45 +23,83 @@ afterEach(() => {
 
 const noResults = { results: [], total: 0, items: {}, classes: {} }
 
+const house = (realm: string, faction: string, prices = 10) => ({
+  auction_house_id: 1,
+  realm,
+  faction,
+  prices,
+  last_scan: '2026-09-24 10:00:00',
+  last_scan_items: prices,
+  scans_7d: 1,
+  uploaders_7d: 1,
+})
+
 function urls(fetch: ReturnType<typeof mockApi>, pathname: string) {
   return fetch.mock.calls.map(([request]) => new URL(request.url)).filter((u) => u.pathname === pathname)
 }
 
 describe('SearchTab', () => {
-  it('points to the Manage tab when there are no recipes', async () => {
+  const realm = () => screen.getByRole('combobox', { name: 'Realm and faction' })
+
+  it('points to the Manage page when there are no recipes', async () => {
     mockApi({ '/api/status': status({ recipes: 0 }), '/api/characters': characters })
     renderWithProviders(<SearchTab />)
-    expect(await screen.findByText(/Download game data on the Manage tab/)).toBeInTheDocument()
+    expect(await screen.findByText(/Download game data on the Manage page/)).toBeInTheDocument()
   })
 
-  it('asks for Alt Army characters before ranking, and shows sync warnings', async () => {
+  it('browses every recipe of a realm without characters, and shows sync warnings', async () => {
+    const shared = { realm: 'Classic Beta PvE', faction: '' }
     const fetch = mockApi({
       '/api/status': status({
         characters: 0,
-        selection: null,
-        prices: 0,
-        warnings: ['No Alt Army file found. Pick AltArmy_TBC.lua on the Manage tab.'],
+        selection: shared,
+        warnings: ['No Alt Army file found. Pick AltArmy_TBC.lua on the Manage page.'],
       }),
-      '/api/characters': { groups: [], selection: null },
+      '/api/characters': { groups: [], selection: shared },
+      '/api/coverage': [house('Classic Beta PvE', ''), house('Dreamscythe', 'Horde')],
+      '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
-    expect(await screen.findByText(/No characters yet/)).toBeInTheDocument()
+    expect(await screen.findByText(/Browsing every recipe on this realm/)).toBeInTheDocument()
     expect(screen.getByText(/No Alt Army file found/)).toBeInTheDocument()
-    expect(screen.getByText(/No prices yet/)).toBeInTheDocument()
-    expect(urls(fetch, '/api/rank')).toEqual([])
+    expect(screen.queryByRole('switch', { name: /Include recipes not learned yet/ })).not.toBeInTheDocument()
+    expect(await screen.findByText('No recipes match these filters with the current prices.')).toBeInTheDocument()
+    expect(urls(fetch, '/api/rank')).toHaveLength(1)
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Realm and faction' })).toHaveValue('Classic Beta PvE (both factions)'),
+    )
   })
 
-  it('points hosted users to the Upload tab for characters and prices', async () => {
+  it('points hosted users to the Upload page for prices', async () => {
     mockApi({
       '/api/status': status({ characters: 0, selection: null, prices: 0 }),
       '/api/characters': { groups: [], selection: null },
+      '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />, GUEST)
-    expect(await screen.findByText(/Paste the Alt Army export \(\/altarmy export\) or upload AltArmy_TBC.lua/)).toBeInTheDocument()
-    expect(screen.getByText(/then upload Auctionator.lua on the Upload tab/)).toBeInTheDocument()
+    expect(await screen.findByText(/then upload Auctionator.lua on the Upload page/)).toBeInTheDocument()
+    expect(screen.queryByText(/guest/i)).not.toBeInTheDocument()
   })
 
-  it("shows the selected realm's characters and ranks with the stored parameters", async () => {
+  it('ranks only the chosen professions', async () => {
+    localStorage.setItem('altarmy-profit.search.professions', JSON.stringify(['Tailoring']))
+    const fetch = mockApi({
+      '/api/status': status(),
+      '/api/characters': characters,
+      '/api/rank': noResults,
+      '/api/professions': ['Cooking', 'Tailoring'],
+    })
+    renderWithProviders(<SearchTab />)
+    await screen.findByText(/No recipes match these filters/)
+    expect(urls(fetch, '/api/rank')[0]?.searchParams.getAll('professions')).toEqual(['Tailoring'])
+    await userEvent.click(screen.getByRole('combobox', { name: 'Professions' }))
+    await userEvent.click(await screen.findByRole('option', { name: 'Cooking' }))
+    await waitFor(() =>
+      expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('professions')).toEqual(['Tailoring', 'Cooking']),
+    )
+  })
+
+  it('ranks with the stored parameters', async () => {
     localStorage.setItem('altarmy-profit.search.includeUnlearned', 'true')
     localStorage.setItem('altarmy-profit.search.includeTrivial', 'false')
     localStorage.setItem('altarmy-profit.search.open', JSON.stringify(['advanced', 'characters']))
@@ -80,10 +118,8 @@ describe('SearchTab', () => {
     expect(screen.getByRole('checkbox', { name: 'Disenchant' })).not.toBeChecked()
     expect(screen.getByRole('switch', { name: /Include recipes not learned yet/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Include Trivial Recipes/ })).not.toBeChecked()
-    expect(await screen.findByText('Tailor Guy')).toBeInTheDocument() // characters load after the status
-    expect(screen.getByText(/Cooking 1\/75, Tailoring 50\/75/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Characters (1)' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Realm and faction' })).toHaveValue('Classic Beta PvE (Horde)')
+    await waitFor(() => expect(realm()).toHaveValue('Classic Beta PvE (Horde) · 1 character'))
+    expect(screen.queryByRole('button', { name: /^Characters/ })).not.toBeInTheDocument()
     await screen.findByText(/No recipes match these filters/)
     const [rank] = urls(fetch, '/api/rank')
     expect(rank?.searchParams.toString()).toBe(
@@ -91,7 +127,8 @@ describe('SearchTab', () => {
     )
   })
 
-  it('opens and closes the sections, remembering which are open', async () => {
+  it('opens and closes Advanced Options, remembering it, and ignores sections that are gone', async () => {
+    localStorage.setItem('altarmy-profit.search.open', JSON.stringify(['characters']))
     mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<SearchTab />)
     const advanced = await screen.findByRole('button', { name: 'Advanced Options' })
@@ -99,10 +136,8 @@ describe('SearchTab', () => {
     await userEvent.click(advanced)
     expect(advanced).toHaveAttribute('aria-expanded', 'true')
     expect(localStorage.getItem('altarmy-profit.search.open')).toBe('["advanced"]')
-    await userEvent.click(await screen.findByRole('button', { name: /^Characters/ }))
-    expect(localStorage.getItem('altarmy-profit.search.open')).toBe('["advanced","characters"]')
     await userEvent.click(advanced)
-    expect(localStorage.getItem('altarmy-profit.search.open')).toBe('["characters"]')
+    expect(localStorage.getItem('altarmy-profit.search.open')).toBe('[]')
   })
 
   it('asks for a way to sell instead of ranking when none is ticked', async () => {
@@ -145,14 +180,32 @@ describe('SearchTab', () => {
       '/api/selection': status({ selection: { realm: 'Dreamscythe', faction: 'Horde' } }),
     })
     renderWithProviders(<SearchTab />)
-    await screen.findByText('Tailor Guy')
-    await userEvent.click(screen.getByRole('combobox', { name: 'Realm and faction' }))
-    await userEvent.click(await screen.findByRole('option', { name: 'Dreamscythe (Horde)' }))
+    await waitFor(() => expect(realm()).toHaveValue('Classic Beta PvE (Horde) · 1 character'))
+    await userEvent.click(realm())
+    await userEvent.click(await screen.findByRole('option', { name: 'Dreamscythe (Horde) · 2 characters' }))
     await waitFor(() => expect(urls(fetch, '/api/selection')).toHaveLength(1))
     const put = fetch.mock.calls.map(([r]) => r).find((r) => new URL(r.url).pathname === '/api/selection')
     expect(put?.method).toBe('PUT')
     expect(await put?.json()).toEqual({ realm: 'Dreamscythe', faction: 'Horde' })
-    expect(await screen.findByText('Frell')).toBeInTheDocument()
+    await waitFor(() => expect(realm()).toHaveValue('Dreamscythe (Horde) · 2 characters'))
+  })
+
+  it('switches to a realm with prices but no characters', async () => {
+    const fetch = mockApi({
+      '/api/status': status(),
+      '/api/characters': characters,
+      '/api/coverage': [house('Classic Beta PvE', ''), house('Atiesh', '')],
+      '/api/rank': noResults,
+      '/api/selection': status({ selection: { realm: 'Atiesh', faction: '' } }),
+    })
+    renderWithProviders(<SearchTab />)
+    await waitFor(() => expect(realm()).toHaveValue('Classic Beta PvE (Horde) · 1 character'))
+    await userEvent.click(realm())
+    expect(screen.queryByRole('option', { name: 'Classic Beta PvE (both factions)' })).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('option', { name: 'Atiesh (both factions)' }))
+    await waitFor(() => expect(urls(fetch, '/api/selection')).toHaveLength(1))
+    const put = fetch.mock.calls.map(([r]) => r).find((r) => new URL(r.url).pathname === '/api/selection')
+    expect(await put?.json()).toEqual({ realm: 'Atiesh', faction: '' })
   })
 
   it('saves changed parameters and ignores malformed stored values', async () => {

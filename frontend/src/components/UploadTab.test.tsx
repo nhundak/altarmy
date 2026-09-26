@@ -122,7 +122,7 @@ describe('UploadTab', () => {
   it("imports the addon's pasted export for the chosen game", async () => {
     const fetch = mockApi({ '/api/uploads/paste': characters, '/api/uploads': [] })
     renderWithProviders(<UploadTab />, LINKED)
-    const box = screen.getByRole('textbox', { name: 'Alt Army export for WoW: Forever' })
+    const box = screen.getByRole('textbox', { name: 'Alt Army export' })
     expect(screen.getByRole('button', { name: 'Import characters' })).toBeDisabled()
     await userEvent.type(box, 'AAX1:abc')
     await userEvent.click(screen.getByRole('button', { name: 'Import characters' }))

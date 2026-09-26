@@ -74,13 +74,27 @@ source; older prices stay as history (see Data notes).
 characters, their professions and the recipes they have learned. `rank` then only ranks what the
 characters of one realm and faction can craft (chains may use any of their recipes, whoever knows them).
 
-The web UI is a React app (`frontend/`) served by a local FastAPI server (`altarmy-profit ui`); build
-it once with `npm run build` in `frontend/`. A switch in the header picks the game (WoW: Forever or TBC
-Anniversary); everything below it, including characters, prices and settings on Manage, belongs to that
-game. Its tabs are Search and Manage, plus Upload in hosted mode:
+The web UI, **Alt Army**, is a React app (`frontend/`) served by a local FastAPI server (`altarmy-profit
+ui`); build it once with `npm run build` in `frontend/`. It serves WoW: Forever only (the API and CLI
+serve both games). The header links **Manage**, **Upload** (hosted mode) and **Get the Addon** (a
+placeholder page for now); each is its own page (`/manage`, `/upload`, `/addon`).
+
+The main page opens with a welcome banner and three ways to start:
+
+- **Import your characters** pastes the Alt Army addon's export (see Upload below).
+- **Create manually** types in a character: realm, faction, name, class, level and profession skills. A
+  hand-made character knows every recipe of its professions; an import later replaces it along with
+  every other character. Characters can be removed from the search's Characters section.
+- **Just browse** needs no characters: every recipe is ranked for one unnamed character, so nothing is
+  learned, skill-gated or mailed.
+
+Once one is done (or characters already exist) the cards fold into a one-line summary and the search
+appears below it:
 
 - **Search** ranks what your characters on the chosen realm and faction can craft, and names who
-  crafts each recipe. A switch adds recipes of their professions they have not learned yet. Expand a
+  crafts each recipe. The realm picker also lists every other realm with prices, to browse it without
+  characters, and **Professions** narrows the results. A switch adds recipes of their professions they
+  have not learned yet. Expand a
   recipe to see its plan as a flow chart or steps. Where a material could come from elsewhere (vendor,
   AH, or a craft), or the output could be sold another way, the node's ⇄ menu lists the options, best
   first. Picking one re-costs the recipe, adding or removing buy, craft and mail steps, and the row
@@ -88,14 +102,15 @@ game. Its tabs are Search and Manage, plus Upload in hosted mode:
   **Never sell on auction house**: from then on it is only vendored or disenchanted (it can still be
   bought there).
 - **Manage** lists the items never sold on the auction house (remove one to allow it again), downloads
-  the chosen game's latest data (its newest build on wago.tools; prices are kept) and shows the addon
+  the game's latest data (its newest build on wago.tools; prices are kept) and shows the addon
   files in use.
 
 The UI reads `AltArmy_TBC.lua` and `Auctionator.lua` itself: it finds them under the usual WoW install
-folders, in the chosen game's folder (`_classic_beta_` for Forever, `_anniversary_` for TBC; paste
-another path on Manage), and re-imports either one whenever
-WoW rewrites it, on logout or `/reload`. Prices come from the chosen realm's Auctionator scan; each
-auction house keeps its own, so switching realms back and forth loses nothing.
+folders, in Forever's `_classic_beta_` folder (paste another path on Manage), and re-imports either
+one whenever WoW rewrites it, on logout or `/reload`. Prices come from the chosen realm's Auctionator
+scan; each auction house keeps its own, so switching realms back and forth loses nothing. Without
+characters, every realm in the Auctionator file is imported, and the most recently scanned one is
+browsed.
 
 ### Local and hosted mode
 
@@ -105,14 +120,14 @@ auction house keeps its own, so switching realms back and forth loses nothing.
   describes.
 - `hosted`: the multi-user web app at https://alt-army-prod.web.app (see `docs/HOSTED_PLAN.md` and
   **Deploy** below). Visitors are signed in with
-  Firebase, anonymously at first, and a guest gets everything: Search (rankings and flow charts), Upload
-  and Manage. Only API keys need a linked account. Linking an email address and password (the header's
-  **Link account**) keeps the same user and data, so they survive clearing the browser and work on
-  other browsers. **Sign in** gets back to that account on another
-  browser (with **Forgot password?**), and **Sign out** starts a new guest session. Each user has their
+  Firebase, anonymously at first, and get everything: the main page (rankings and flow charts), Upload
+  and Manage. Only API keys need an account. The header's **Sign in** opens a dialog to sign in (with
+  **Forgot password?**) or **Create account**: an email address and password on the same user, so the
+  browser's characters and settings are kept and work on other browsers. Signed in, the email's menu has
+  **Sign out**, which starts a new anonymous session. Each user has their
   own characters, selection and AH blocks. The server never reads local addon files and has no game data
-  download or reload button: data comes in through uploads (below), game data through a daily job. The
-  footer's **Privacy** note says what is stored and deletes the account (`DELETE /api/me`). Requests are
+  download or reload button: data comes in through uploads (below), game data through a daily job.
+  `DELETE /api/me` deletes the account (the UI has no link to it for now). Requests are
   rate-limited per client IP and per user (429). Needs `pip install -e ".[hosted]"`
   and `FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY` and `FIREBASE_AUTH_DOMAIN`.
 
@@ -121,10 +136,10 @@ In hosted mode:
 - **Upload** also takes the Alt Army addon's export: in game, `/altarmy export` shows a string starting
   with `AAX1:`. Copy it (Ctrl+C) and
   paste it in **Paste from Alt Army**. That replaces your characters like the file does, with no logout or
-  `/reload`. The string says which client made it, so pasting a TBC export while Forever is chosen is refused.
-- **Upload** takes `AltArmy_TBC.lua` (replaces your characters of the chosen game) and `Auctionator.lua`
+  `/reload`. The string says which client made it, so a TBC export is refused.
+- **Upload** takes `AltArmy_TBC.lua` (replaces your characters) and `Auctionator.lua`
   (adds a scan for every realm in it; everyone's scans fill the same auction houses, the newest price
-  wins). Files are parsed on the server, never stored, and limited to 32 MB; the tab lists your recent
+  wins). Files are parsed on the server, never stored, and limited to 32 MB; the page lists your recent
   uploads, rejected ones included. A realm's scan whose prices mostly differ wildly from its recent
   prices is not used (shown as **not used**), and makes the uploader's next scans face a stricter check.
   **Coverage** lists every realm's last scan, stalest first, so you can see where a scan helps most.
@@ -140,7 +155,7 @@ In hosted mode:
   `~/.altarmy-profit/watch-state.json`. `--once` uploads what changed and exits. It needs no database.
 - **Tray uploader (Windows).** The same watcher without Python or a terminal: download
   `altarmy-profit-tray.exe` from the [latest release](https://github.com/ntower/altarmy-profit/releases/latest)
-  (the Manage tab links it) and run it. Windows SmartScreen warns once because it is unsigned (More info →
+  (the Manage page links it) and run it. Windows SmartScreen warns once because it is unsigned (More info →
   Run anyway).
   - It asks for an API key, then sits in the notification area and uploads as the watcher does.
   - Its menu shows the latest upload and has Upload now, Open site, Set API key…, Start with Windows (a

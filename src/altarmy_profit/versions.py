@@ -25,6 +25,8 @@ class GameVersion:
     flavor_folders: tuple[str, ...]  # WoW install subfolders whose WTF holds this client's SavedVariables
     data_dir: Path  # hand-maintained CSVs: disenchant.csv, vendor_items.csv
     interface: int  # the client's interface number (## Interface in addon TOCs)
+    max_level: int  # the level cap: bounds hand-made characters
+    max_skill: int  # the highest profession skill rank
     ah_cut: float = AH_CUT
     mail_postage: int = MAIL_POSTAGE  # copper per attachment
 
@@ -46,6 +48,8 @@ VERSIONS: dict[str, GameVersion] = {
         flavor_folders=("_classic_beta_",),
         data_dir=DATA_DIR / "forever",
         interface=16001,
+        max_level=60,
+        max_skill=300,
     ),
     "tbc": GameVersion(
         key="tbc",
@@ -55,6 +59,8 @@ VERSIONS: dict[str, GameVersion] = {
         flavor_folders=("_anniversary_",),
         data_dir=DATA_DIR / "tbc",
         interface=20506,
+        max_level=70,
+        max_skill=375,
     ),
 }
 DEFAULT_VERSION: GameVersionKey = "forever"

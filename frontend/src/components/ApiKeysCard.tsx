@@ -31,8 +31,8 @@ export function ApiKeysCard() {
         </Text>
         {tier === 'free' ? (
           <Alert color="blue">
-            Link your account (Link account, at the top) to make API keys: a guest's account ends with this browser's
-            data.
+            Create an account or sign in (top right) to make API keys: without an account, your data ends with this
+            browser's.
           </Alert>
         ) : (
           <KeyManager />

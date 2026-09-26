@@ -1,13 +1,27 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
-import { ActionIcon, List, Menu, SegmentedControl, Stack, Table, Text, UnstyledButton } from '@mantine/core'
-import type { ItemMap, RankResult } from '../api/client'
+import {
+  ActionIcon,
+  Button,
+  Group,
+  List,
+  Loader,
+  Menu,
+  SegmentedControl,
+  Stack,
+  Table,
+  Text,
+  UnstyledButton,
+} from '@mantine/core'
+import type { ItemMap, RankResult, Step } from '../api/client'
 import { useEvaluations, type EvaluateParams } from '../api/queries'
-import { choose, type Choices } from '../lib/choices'
+import { choose, SELL_PATH, type Choices } from '../lib/choices'
 import { formatRoi } from '../lib/money'
+import { stepSource } from '../lib/steps'
 import { CharacterClasses, CharacterName } from './CharacterName'
+import { ChoiceMenu, ChooseContext, sellChoices, sourceChoices, type PlanEditing } from './ChoiceMenu'
 import { DisenchantHover, ItemLink, RecipeTooltip } from './ItemTooltip'
 import { Money } from './Money'
-import { RecipeFlow, type FlowEditing } from './RecipeFlow'
+import { RecipeFlow } from './RecipeFlow'
 import classes from './ResultsTable.module.css'
 
 const COLUMNS = ['', 'Profit', 'ROI', 'Recipe', 'Profession', 'Crafter', 'Cost', 'Revenue', 'Sell via']
@@ -36,8 +50,16 @@ const COLUMN_WIDTHS: Readonly<Record<string, number>> = {
   Cost: MONEY_WIDTH,
   Revenue: MONEY_WIDTH,
 }
+/** Columns dropped as the screen narrows (ResultsTable.module.css): Profession first, then Cost and Revenue,
+ * Crafter, and Sell via last. */
+const COLUMN_HIDDEN: Readonly<Record<string, string | undefined>> = {
+  Profession: classes.hideBelowLg,
+  Cost: classes.hideBelowMd,
+  Revenue: classes.hideBelowMd,
+  Crafter: classes.hideBelowSm,
+  'Sell via': classes.hideBelowXs,
+}
 
-type Step = RankResult['steps'][number]
 type Sort = { column: string; descending: boolean }
 
 /** `results` ordered by `sort`, stably; unsorted keeps the server's order (profit, best first). */
@@ -132,15 +154,51 @@ function describeAction(
   }
 }
 
-function StepList({ result, items }: { result: RankResult; items: ItemMap }) {
+/** The menu changing how a step is done, if it has alternatives: a reagent's source, or the way to sell. */
+function StepChoice({ step, result }: { step: Step; result: RankResult }) {
+  if (step.action === 'sell')
+    return (
+      <ChoiceMenu
+        label="Change how it is sold"
+        paths={[SELL_PATH]}
+        choices={sellChoices(result.sell_options, result.best_exit)}
+      />
+    )
+  const source = stepSource(step, result.tree)
+  if (!source) return null
   return (
-    <List type="ordered" size="sm">
-      {result.steps
-        .flatMap((step) => describe(step, result, items))
-        .map((line, i) => (
+    <ChoiceMenu
+      label={`Change source of ${step.name}`}
+      paths={source.paths}
+      choices={sourceChoices(source.options, source.option, source.holder)}
+    />
+  )
+}
+
+/** The plan as numbered instructions; with `editing`, a step with alternatives ends in a menu of them. */
+function StepList({ result, items, editing }: { result: RankResult; items: ItemMap; editing?: PlanEditing }) {
+  const lines = result.steps.flatMap((step) =>
+    describe(step, result, items).map((line, i, all) =>
+      i < all.length - 1 ? (
+        line
+      ) : (
+        <>
+          {line}
+          <span className={classes.stepChoice}>
+            <StepChoice step={step} result={result} />
+          </span>
+        </>
+      ),
+    ),
+  )
+  return (
+    <ChooseContext.Provider value={editing?.onChoose}>
+      <List type="ordered" size="sm">
+        {lines.map((line, i) => (
           <List.Item key={i}>{line}</List.Item>
         ))}
-    </List>
+      </List>
+    </ChooseContext.Provider>
   )
 }
 
@@ -150,24 +208,38 @@ const byCrafter = (crafters: string[], crafter: string) =>
 
 type View = 'flow' | 'steps'
 
-function Details({ result, items, editing }: { result: RankResult; items: ItemMap; editing: FlowEditing }) {
+function Details({ result, items, editing }: { result: RankResult; items: ItemMap; editing: PlanEditing }) {
   const [view, setView] = useState<View>('flow')
   return (
     <Stack gap="xs" py="xs">
-      <SegmentedControl
-        size="xs"
-        w="fit-content"
-        value={view}
-        onChange={(v) => setView(v as View)}
-        data={[
-          { value: 'flow', label: 'Flow' },
-          { value: 'steps', label: 'Steps' },
-        ]}
-      />
+      <Group justify="space-between" gap="xs">
+        <SegmentedControl
+          size="xs"
+          value={view}
+          onChange={(v) => setView(v as View)}
+          data={[
+            { value: 'flow', label: 'Flow' },
+            { value: 'steps', label: 'Steps' },
+          ]}
+        />
+        {(editing.modified || editing.error) && (
+          <Group gap="xs">
+            {editing.pending && <Loader size="xs" aria-label="Re-costing" />}
+            {editing.error && (
+              <Text size="xs" c="red">
+                {editing.error}
+              </Text>
+            )}
+            <Button size="compact-xs" variant="light" onClick={editing.onReset}>
+              Reset
+            </Button>
+          </Group>
+        )}
+      </Group>
       {view === 'flow' ? (
         <RecipeFlow result={result} items={items} editing={editing} />
       ) : (
-        <StepList result={result} items={items} />
+        <StepList result={result} items={items} editing={editing} />
       )}
     </Stack>
   )
@@ -262,10 +334,11 @@ export function ResultsTable({
     [rankItems, evaluations],
   )
   const rows = useMemo(() => sorted(current, sort), [current, sort])
-  const editing = (id: number): FlowEditing => {
+  const editing = (id: number): PlanEditing => {
     const evaluation = evaluations[id]
     return {
-      onChoose: (path, key) => setChoices((prev) => ({ ...prev, [id]: choose(prev[id] ?? {}, path, key) })),
+      onChoose: (paths, key) =>
+        setChoices((prev) => ({ ...prev, [id]: paths.reduce((c, path) => choose(c, path, key), prev[id] ?? {}) })),
       modified: id in choices,
       onReset: () => setChoices((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => Number(k) !== id))),
       pending: evaluation?.isFetching ?? false,
@@ -275,7 +348,7 @@ export function ResultsTable({
 
   return (
     <CharacterClasses.Provider value={characterClasses}>
-      <Table.ScrollContainer minWidth={800}>
+      <Table.ScrollContainer minWidth={360}>
         <Table striped highlightOnHover stickyHeader>
           <Table.Thead>
             <Table.Tr>
@@ -284,6 +357,7 @@ export function ResultsTable({
                 return (
                   <Table.Th
                     key={c}
+                    className={COLUMN_HIDDEN[c]}
                     w={COLUMN_WIDTHS[c]}
                     ta={MONEY_COLUMNS.has(c) ? 'right' : undefined}
                     aria-sort={!(c in SORT_KEYS) ? undefined : !active ? 'none' : sort.descending ? 'descending' : 'ascending'}
@@ -347,8 +421,9 @@ export function ResultsTable({
                         }
                       />
                     </Table.Td>
-                    <Table.Td>{r.profession}</Table.Td>
+                    <Table.Td className={COLUMN_HIDDEN.Profession}>{r.profession}</Table.Td>
                     <Table.Td
+                      className={COLUMN_HIDDEN.Crafter}
                       title={r.crafters.length > 1 ? byCrafter(r.crafters, r.crafter).join(', ') : undefined}
                     >
                       {r.crafters.length ? (
@@ -359,17 +434,18 @@ export function ResultsTable({
                         </>
                       ) : (
                         <Text span size="sm" c="dimmed">
-                          not learned
+                          {/* no crafter named: browsing without characters */}
+                          {r.crafter ? 'not learned' : 'anyone'}
                         </Text>
                       )}
                     </Table.Td>
-                    <Table.Td ff="monospace" ta="right">
+                    <Table.Td className={COLUMN_HIDDEN.Cost} ff="monospace" ta="right">
                       <Money copper={r.cost} cost padded />
                     </Table.Td>
-                    <Table.Td c="teal" ff="monospace" ta="right">
+                    <Table.Td className={COLUMN_HIDDEN.Revenue} c="teal" ff="monospace" ta="right">
                       <Money copper={r.revenue} padded />
                     </Table.Td>
-                    <Table.Td>{exitLabel(r.best_exit)}</Table.Td>
+                    <Table.Td className={COLUMN_HIDDEN['Sell via']}>{exitLabel(r.best_exit)}</Table.Td>
                     {onSetAhBlocked && (
                       // Menu clicks (in its portal too) bubble here in React, not to the row.
                       <Table.Td onClick={(e) => e.stopPropagation()}>

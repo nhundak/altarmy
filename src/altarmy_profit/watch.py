@@ -191,6 +191,6 @@ def run(
             failures += 1
             log(f"Upload failed ({e}); retrying.")
         except BadKey as e:
-            log(f"Stopped: {e}. Make a new key on the site's Manage tab.")
+            log(f"Stopped: {e}. Make a new key on the site's Manage page.")
             return
         sleep(min(interval * 2**failures, MAX_BACKOFF))

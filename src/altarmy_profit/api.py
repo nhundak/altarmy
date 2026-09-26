@@ -23,7 +23,7 @@ from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping, Se
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Query, Request, Response, UploadFile
@@ -32,6 +32,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import Connection
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import Scope
 
 from . import altarmy, auth, db, engine, prices, ratelimit, service, store, uploads, users, versions
 from .store import CACHE_DIR
@@ -100,6 +102,7 @@ class StepOut(BaseModel):
     value: int  # copper for the whole step: negative when buying or mailing, positive when selling
     via: str  # buy: vendor | ah; craft: recipe name; mail: recipient; sell: vendor | ah | disenchant
     who: str  # the character doing it; "" if no characters are known
+    paths: list[str]  # the tree paths (choice keys) of the nodes it stands for; ["sell"] for the sale
 
 
 class OptionOut(BaseModel):
@@ -204,7 +207,7 @@ class RankResult(BaseModel):
     mail_to: str  # who the output is mailed to; "" if the crafter sells it
     exits: list[ExitOut]
     reagents: list[ItemCount]
-    steps: list[StepOut]  # buy reagents, craft (intermediates first), mail, sell
+    steps: list[StepOut]  # per character: buys, crafts (intermediates first), mails; then the sale
     tree: NodeOut  # the recipe's craft, with reagents as inputs
     sell_options: list[SellOptionOut]  # each exit's best profit, best first
 
@@ -290,6 +293,25 @@ class Characters(BaseModel):
     selection: SelectionModel | None
 
 
+NoTab = Field(min_length=1, max_length=64, pattern=r"^[^\t\n]*\S[^\t\n]*$")  # the front end keys by tabs
+
+
+class ManualProfession(BaseModel):
+    name: str  # one of /api/professions
+    rank: int = Field(ge=1)  # skill; at most the game version's cap
+
+
+class ManualCharacter(BaseModel):
+    """A character typed in by hand. It knows every recipe of its professions (nothing is learned)."""
+
+    realm: Annotated[str, NoTab]
+    faction: Literal["Horde", "Alliance"]
+    name: Annotated[str, NoTab]
+    class_file: str  # e.g. MAGE
+    level: int = Field(ge=1)  # at most the game version's cap
+    professions: list[ManualProfession] = Field(max_length=12)
+
+
 class VersionOut(BaseModel):
     """A game version the app serves; pass its `key` as `game_version` to the other routes."""
 
@@ -315,7 +337,7 @@ class ConfigOut(BaseModel):
 
 class Me(BaseModel):
     uid: str
-    tier: auth.Tier  # free: an anonymous guest (no API keys); linked: signed in with an email
+    tier: auth.Tier  # free: an anonymous session (no API keys); linked: signed in with an email
 
 
 class CoverageOut(BaseModel):
@@ -497,7 +519,9 @@ Uploader = Annotated[auth.User, Depends(_uploader)]
 def _linked_user(user: CurrentUser) -> auth.User:
     if not user.linked:
         raise HTTPException(
-            403, "Link your account to make API keys: a guest's account ends with the browser's data."
+            403,
+            "Create an account or sign in to make API keys: an anonymous session ends with this browser's"
+            " data.",
         )
     return user
 
@@ -612,11 +636,9 @@ def sync_now(state: State, user: CurrentUser) -> Status:
         return _status(state, conn, user, False, _sync(state, conn, user, force=True))
 
 
-@router.get("/characters")
-def get_characters(state: State, user: CurrentUser) -> Characters:
-    with _connect(state) as conn:
-        chars = store.load_characters(conn, user.uid, state.key)
-        sel = service.selection(conn, user.uid, state.key, chars)
+def _characters(state: AppState, conn: Connection, user: auth.User) -> Characters:
+    chars = store.load_characters(conn, user.uid, state.key)
+    sel = service.selection(conn, user.uid, state.key, chars)
     return Characters(
         groups=[
             GroupOut(
@@ -641,6 +663,61 @@ def get_characters(state: State, user: CurrentUser) -> Characters:
         ],
         selection=_selection_model(sel),
     )
+
+
+@router.get("/characters")
+def get_characters(state: State, user: CurrentUser) -> Characters:
+    with _connect(state) as conn:
+        return _characters(state, conn, user)
+
+
+@router.post("/characters")
+def post_character(state: State, user: CurrentUser, body: ManualCharacter) -> Characters:
+    """Add a character by hand (or replace yours of that realm and name) and select its realm. It knows
+    every recipe of its professions. An Alt Army import later replaces every character, these included."""
+    v = state.version
+    if body.class_file not in altarmy.CLASS_FILES:
+        raise HTTPException(400, f"Unknown class {body.class_file}.")
+    if body.level > v.max_level:
+        raise HTTPException(400, f"The level cap is {v.max_level}.")
+    names = [p.name for p in body.professions]
+    if len(set(names)) < len(names):
+        raise HTTPException(400, "Each profession once, please.")
+    with _http_errors(), _connect(state) as conn:
+        known = set(store.profession_names(conn, state.key))
+        for p in body.professions:
+            if p.name not in known:
+                raise HTTPException(400, f"Unknown profession {p.name}.")
+            if p.rank > v.max_skill:
+                raise HTTPException(400, f"Profession skill goes up to {v.max_skill}.")
+        char = altarmy.Character(
+            realm=body.realm.strip(),
+            name=body.name.strip(),
+            faction=body.faction,
+            class_file=body.class_file,
+            level=body.level,
+            professions=tuple(
+                altarmy.Profession(p.name, p.rank, altarmy.max_rank_for(p.rank, v.max_skill), frozenset())
+                for p in sorted(body.professions, key=lambda p: p.name)
+            ),
+        )
+        service.create_character(conn, user.uid, state.key, char)
+        return _characters(state, conn, user)
+
+
+@router.delete("/characters")
+def delete_character(state: State, user: CurrentUser, realm: str, name: str) -> Characters:
+    """Delete one of your characters (404 if you have none of that realm and name)."""
+    with _http_errors(), _connect(state) as conn:
+        service.delete_character(conn, user.uid, state.key, realm, name)
+        return _characters(state, conn, user)
+
+
+@router.get("/professions")
+def get_professions(state: State) -> list[str]:
+    """Every profession the game version's recipes belong to, by name."""
+    with _connect(state) as conn:
+        return store.profession_names(conn, state.key)
 
 
 @router.put("/selection")
@@ -676,19 +753,28 @@ def get_rank(
     max_profit: Annotated[int | None, Query(description="copper")] = None,
     min_roi: Annotated[float | None, Query(description="profit / cost (0.5 = 50%)")] = None,
     max_roi: Annotated[float | None, Query(description="profit / cost (0.5 = 50%)")] = None,
+    professions: Annotated[
+        list[str] | None, Query(description="only recipes of these professions (default: every one)")
+    ] = None,
     top: Annotated[int, Query(ge=1)] = 50,
 ) -> RankResponse:
-    """What the selected realm/faction's characters can craft, most profitable first. Bounds are
-    inclusive; an omitted bound is unbounded (so losses are included unless `min_profit` is set)."""
+    """What the selected realm/faction's characters can craft, most profitable first; without characters,
+    every recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive; an omitted
+    bound is unbounded (so losses are included unless `min_profit` is set)."""
     base, chars, no_ah = _selected(state, user)
     filters = engine.Filters(min_cost, max_cost, min_profit, max_profit, min_roi, max_roi)
-    key = (user.uid, tuple(chars), include_unlearned, include_trivial, frozenset(exits), filters, no_ah)
+    # Without characters the ranking depends on nobody: every browsing user shares it.
+    whose = user.uid if chars else ""
+    key = (whose, tuple(chars), include_unlearned, include_trivial, frozenset(exits), filters, no_ah)
     matches = state.rank_cache.get(key, base)
     if matches is None:
         matches = service.search(
             base, chars, include_unlearned, filters, frozenset(exits), no_ah, include_trivial
         )
         state.rank_cache.put(key, base, matches)
+    if professions:
+        wanted = {p.lower() for p in professions}
+        matches = [r for r in matches if r.recipe.skill_name.lower() in wanted]
     results = matches[:top]
     crafters = altarmy.crafters(chars)
     return RankResponse(
@@ -723,12 +809,14 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
 def _selected(
     state: AppState, user: auth.User
 ) -> tuple[engine.Market, list[altarmy.Character], frozenset[int]]:
-    """The selection's market (priced by its auction house), characters and never-on-the-AH items."""
+    """The selection's market (priced by its auction house), characters (hand-made ones knowing every
+    recipe of their professions) and never-on-the-AH items."""
     with _connect(state) as conn:
         sel, chars = service.selected_characters(conn, user.uid, state.key)
         ah = service.auction_house_of(conn, state.key, sel)
         no_ah = _no_ah(state, conn, user)
-    return state.cache.get(ah), chars, no_ah
+    base = state.cache.get(ah)
+    return base, service.imply_recipes(base.recipes, chars), no_ah
 
 
 def _item_infos(
@@ -798,6 +886,7 @@ def _result_out(r: engine.Result, base: engine.Market, crafters: dict[int, list[
                 value=s.value,
                 via=s.via,
                 who=s.who,
+                paths=list(s.paths),
             )
             for s in r.steps
         ],
@@ -1111,6 +1200,20 @@ def get_versions(request: Request) -> list[VersionOut]:
     return out
 
 
+class _SpaFiles(StaticFiles):
+    """The built front end, with index.html for the app's own pages (/addon, /manage, ...): any path
+    without a file extension outside /api that has no file of its own."""
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as e:
+            parts = PurePath(path).parts  # StaticFiles passes an OS path (backslashes on Windows)
+            if e.status_code != 404 or (parts and ("." in parts[-1] or parts[0] == "api")):
+                raise
+            return await super().get_response("index.html", scope)
+
+
 def create_app(
     game_versions: Mapping[str, GameVersion] = versions.VERSIONS,
     *,
@@ -1180,7 +1283,7 @@ def create_app(
     }
     app.include_router(router)
     if static_dir is not None and (static_dir / "index.html").is_file():
-        app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
+        app.mount("/", _SpaFiles(directory=static_dir, html=True), name="frontend")
     else:
 
         @app.get("/", include_in_schema=False)

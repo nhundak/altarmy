@@ -195,7 +195,25 @@ def test_steps_merge_repeated_reagents() -> None:
         Recipe(12, "Green Robe", GREEN, 1, ((BOLT, 1), (LINEN, 3)), "Tailoring"),
     ]
     m = make_market({LINEN: 10}, recipes)
-    assert must_evaluate(m, recipes[1]).steps[0] == Step("buy", LINEN, "Linen Cloth", 5, -50, via="ah")
+    steps = must_evaluate(m, recipes[1]).steps
+    assert steps[0] == Step("buy", LINEN, "Linen Cloth", 5, -50, via="ah")
+    assert steps[0].paths == ("r.0.0", "r.1")  # both tree nodes it stands for, in walk order
+
+
+def test_steps_name_the_tree_paths_they_cover() -> None:
+    recipes = [
+        Recipe(11, "Bolt of Linen", BOLT, 1, ((LINEN, 2),), "Tailoring"),
+        Recipe(12, "Green Robe", GREEN, 1, ((BOLT, 3), (THREAD, 1)), "Tailoring"),
+    ]
+    m = make_market({LINEN: 10, THREAD: 5, BOLT: 100}, recipes)
+    steps = must_evaluate(m, recipes[1]).steps
+    assert [(s.action, s.paths) for s in steps] == [
+        ("buy", ("r.0.0",)),
+        ("buy", ("r.1",)),
+        ("craft", ("r.0",)),
+        ("craft", ("r",)),
+        ("sell", ("sell",)),
+    ]
 
 
 def test_tree_links_reagents_to_the_crafts_that_use_them() -> None:
@@ -391,6 +409,7 @@ def test_disenchant_mails_to_the_best_enchanter() -> None:
     assert (de.postage, de.mail_to) == (MAIL_POSTAGE, "Zed")
     assert [s.action for s in res.steps] == ["buy", "buy", "craft", "mail", "sell"]
     assert res.steps[3] == Step("mail", GREEN, "Green Robe", 1, -MAIL_POSTAGE, via="Zed", who="Tailor")
+    assert res.steps[3].paths == ("r",)  # the output's mail belongs to the recipe's craft
 
 
 def test_disenchant_ties_between_enchanters_go_to_the_first_name() -> None:
@@ -444,12 +463,14 @@ def maul_market(
     leather_price: int = 100,
     recipes: Sequence[Recipe] = (CURE, MAUL_RECIPE),
     include_trivial: bool = True,
+    extra_items: Sequence[Item] = (),
 ) -> Market:
     items = {
         SCRAPS: Item(SCRAPS, "Ruined Leather Scraps", stack_size=20),
         LEATHER: Item(LEATHER, "Light Leather", stack_size=20),
         MAUL: Item(MAUL, "Heavy Copper Maul", class_id=2, sell_price=1000),
         COPPER: Item(COPPER, "Copper Bar", stack_size=20),
+        **{i.id: i for i in extra_items},
     }
     prices = {SCRAPS: 5, LEATHER: leather_price, COPPER: 10}
     return Market(items, list(recipes), prices, crafters=crafters, include_trivial=include_trivial)
@@ -461,13 +482,48 @@ def test_intermediate_is_crafted_by_another_character_and_mailed() -> None:
     assert res.cost == 2 * 15 + MAIL_POSTAGE + 10  # scraps for 2 leather, one stack mailed, copper
     leather = res.tree.inputs[0]
     assert (leather.crafter, leather.mail_to, leather.postage) == ("Leathery", "Smithy", MAIL_POSTAGE)
-    assert res.steps == [
+    assert [s.paths for s in res.steps if s.item_id == LEATHER] == [("r.0",), ("r.0",)]  # craft and mail
+    assert res.steps == [  # each character's buys, crafts and mails together, the one who mails first
         Step("buy", SCRAPS, "Ruined Leather Scraps", 6, -30, "ah", "Leathery"),
-        Step("buy", COPPER, "Copper Bar", 1, -10, "ah", "Smithy"),
         Step("craft", LEATHER, "Light Leather", 2, via="Light Leather", who="Leathery"),
         Step("mail", LEATHER, "Light Leather", 2, -MAIL_POSTAGE, "Smithy", "Leathery"),
+        Step("buy", COPPER, "Copper Bar", 1, -10, "ah", "Smithy"),
         Step("craft", MAUL, "Heavy Copper Maul", 1, via="Heavy Copper Maul", who="Smithy"),
         Step("sell", MAUL, "Heavy Copper Maul", 1, 1000, "vendor", "Smithy"),
+    ]
+
+
+def test_steps_finish_a_self_contained_character_before_switching() -> None:
+    # copper (Smithy's) is the first reagent, but Leathery can do everything now and Smithy can't
+    reversed_maul = replace(MAUL_RECIPE, reagents=((COPPER, 1), (LEATHER, 2)))
+    res = must_evaluate(maul_market(SMITHY, LEATHERY, recipes=(CURE, reversed_maul)), reversed_maul)
+    assert [(s.who, s.action) for s in res.steps] == [
+        ("Leathery", "buy"),
+        ("Leathery", "craft"),
+        ("Leathery", "mail"),
+        ("Smithy", "buy"),
+        ("Smithy", "craft"),
+        ("Smithy", "sell"),
+    ]
+
+
+def test_steps_return_to_a_character_only_when_they_must() -> None:
+    # Leathery cures leather and mails it; Smithy makes the maul and mails it back; Leathery wraps it
+    # (needing more scraps) and sells: Leathery buys all their scraps in their first block
+    wrap = Recipe(22, "Wrapped Maul", 10, 1, ((MAUL, 1), (SCRAPS, 2)), "Leatherworking", spell_id=952)
+    leathery = replace(LEATHERY, known_spells=frozenset({950, 952}))
+    wrapped = Item(10, "Wrapped Maul", class_id=2, sell_price=2000)
+    m = maul_market(SMITHY, leathery, recipes=(CURE, MAUL_RECIPE, wrap), extra_items=[wrapped])
+    res = must_evaluate(m, wrap)
+    assert res.steps == [
+        Step("buy", SCRAPS, "Ruined Leather Scraps", 8, -40, "ah", "Leathery"),
+        Step("craft", LEATHER, "Light Leather", 2, via="Light Leather", who="Leathery"),
+        Step("mail", LEATHER, "Light Leather", 2, -MAIL_POSTAGE, "Smithy", "Leathery"),
+        Step("buy", COPPER, "Copper Bar", 1, -10, "ah", "Smithy"),
+        Step("craft", MAUL, "Heavy Copper Maul", 1, via="Heavy Copper Maul", who="Smithy"),
+        Step("mail", MAUL, "Heavy Copper Maul", 1, -MAIL_POSTAGE, "Leathery", "Smithy"),
+        Step("craft", 10, "Wrapped Maul", 1, via="Wrapped Maul", who="Leathery"),
+        Step("sell", 10, "Wrapped Maul", 1, 2000, "vendor", "Leathery"),
     ]
 
 
@@ -524,7 +580,7 @@ def test_choosing_to_craft_a_bought_reagent_adds_its_chain() -> None:
     assert (leather.via, leather.crafter, leather.mail_to) == ("Light Leather", "Leathery", "Smithy")
     assert (leather.option, leather.inputs[0].item_id) == ("craft:20", SCRAPS)
     assert res.cost == 2 * 15 + MAIL_POSTAGE + 10
-    assert [s.action for s in res.steps] == ["buy", "buy", "craft", "mail", "craft", "sell"]
+    assert [s.action for s in res.steps] == ["buy", "craft", "mail", "buy", "craft", "sell"]
 
 
 def test_choosing_to_buy_a_crafted_reagent_drops_its_chain() -> None:

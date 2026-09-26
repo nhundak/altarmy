@@ -9,6 +9,8 @@ export type Evaluation = components['schemas']['EvaluateResponse']
 export type ItemInfo = components['schemas']['ItemInfo']
 /** One item in a recipe's reagent tree: bought (no inputs) or crafted from its inputs. */
 export type FlowNode = components['schemas']['NodeOut']
+/** One instruction of a recipe's plan; `paths` are the tree paths of the nodes it stands for. */
+export type Step = components['schemas']['StepOut']
 /** Tooltip details keyed by item id (JSON object keys are strings). */
 export type ItemMap = Readonly<Record<string, ItemInfo>>
 export type Characters = components['schemas']['Characters']
@@ -23,6 +25,9 @@ export type AhBlocked = components['schemas']['AhBlocked']
 export type Coverage = components['schemas']['CoverageOut']
 export type Config = components['schemas']['ConfigOut']
 export type Me = components['schemas']['Me']
+export type UploadResult = components['schemas']['UploadResult']
+/** A character typed in by hand. */
+export type ManualCharacter = components['schemas']['ManualCharacter']
 
 export const client = createClient<paths>({
   baseUrl: globalThis.location?.origin ?? '',

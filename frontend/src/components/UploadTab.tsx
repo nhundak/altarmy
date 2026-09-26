@@ -1,11 +1,9 @@
 import { useState } from 'react'
-import { Alert, Badge, Button, Card, Code, FileInput, Group, Stack, Table, Text, Textarea, Title } from '@mantine/core'
-import type { components } from '../api/schema'
-import { useCoverage, usePasteUpload, useUpload, useUploads, type UploadKind } from '../api/queries'
+import { Alert, Badge, Button, Card, Code, FileInput, Group, Stack, Table, Text, Title } from '@mantine/core'
+import { useCoverage, useUpload, useUploads, type UploadKind } from '../api/queries'
 import { age } from '../lib/age'
-import { GAME_VERSIONS, useGameVersion } from '../lib/gameVersion'
-
-type UploadResult = components['schemas']['UploadResult']
+import { GAME_FLAVOR, GAME_VERSION_LABEL } from '../lib/gameVersion'
+import { PasteForm, Summary } from './PasteForm'
 
 const MAX_MB = 32
 
@@ -14,43 +12,8 @@ const FILES: readonly { kind: UploadKind; name: string; what: string }[] = [
   { kind: 'auctionator', name: 'Auctionator.lua', what: 'auction prices of every realm you scanned' },
 ]
 
-function Summary({ result }: { result: UploadResult }) {
-  if (result.kind === 'altarmy') {
-    return (
-      <Text size="sm">
-        Imported {result.characters} characters
-        {result.groups.length > 0 && `: ${result.groups.map((g) => `${g.realm} (${g.faction || 'no faction'}) ${g.characters}`).join(', ')}`}
-        .
-      </Text>
-    )
-  }
-  if (!result.realms.length) return <Text size="sm">No realm in the file has prices.</Text>
-  return (
-    <Stack gap={4}>
-      {result.realms.map((r) => (
-        <Group key={r.key} gap="xs">
-          <Text size="sm">
-            {r.realm}
-            {r.faction ? ` (${r.faction})` : ''}: {r.items} prices
-            {r.quarantined ? '' : `, ${r.moved} changed`}
-          </Text>
-          {r.quarantined && (
-            <Badge color="yellow" variant="light" title="They differ widely from recent scans of this realm">
-              not used
-            </Badge>
-          )}
-        </Group>
-      ))}
-    </Stack>
-  )
-}
-
 /** The Alt Army addon's export string: characters without a file or /reload. */
 function PasteCard() {
-  const gameVersion = useGameVersion()
-  const game = GAME_VERSIONS.find((v) => v.value === gameVersion)
-  const upload = usePasteUpload()
-  const [text, setText] = useState('')
   return (
     <Card withBorder>
       <Stack gap="sm">
@@ -59,28 +22,7 @@ function PasteCard() {
           The quickest way to bring in your characters: in game, type <Code>/altarmy export</Code>, press Ctrl+C,
           and paste the string here. No logout or /reload needed.
         </Text>
-        <Textarea
-          label={`Alt Army export for ${game?.label ?? gameVersion}`}
-          placeholder="AAX1:..."
-          value={text}
-          onChange={(e) => {
-            setText(e.currentTarget.value)
-            upload.reset()
-          }}
-          rows={3}
-          styles={{ input: { fontFamily: 'monospace', wordBreak: 'break-all' } }}
-        />
-        <Group>
-          <Button disabled={!text.trim()} loading={upload.isPending} onClick={() => upload.mutate(text)}>
-            Import characters
-          </Button>
-        </Group>
-        {upload.isError && <Alert color="red">{upload.error.message}</Alert>}
-        {upload.data && (
-          <Alert color="green" title="Imported">
-            <Summary result={upload.data} />
-          </Alert>
-        )}
+        <PasteForm />
       </Stack>
     </Card>
   )
@@ -133,8 +75,6 @@ function CoverageCard() {
 }
 
 function UploadCard({ kind, name, what }: { kind: UploadKind; name: string; what: string }) {
-  const gameVersion = useGameVersion()
-  const game = GAME_VERSIONS.find((v) => v.value === gameVersion)
   const upload = useUpload()
   const [file, setFile] = useState<File | null>(null)
   const tooBig = file !== null && file.size > MAX_MB * 2 ** 20
@@ -145,13 +85,13 @@ function UploadCard({ kind, name, what }: { kind: UploadKind; name: string; what
         <Text size="sm" c="dimmed">
           Brings in {what}. It is in{' '}
           <Code>
-            World of Warcraft\{game?.flavor}\WTF\Account\&lt;account&gt;\SavedVariables\{name}
+            World of Warcraft\{GAME_FLAVOR}\WTF\Account\&lt;account&gt;\SavedVariables\{name}
           </Code>
           ; WoW writes it on logout or /reload.
         </Text>
         <Group align="flex-end">
           <FileInput
-            label={`${name} for ${game?.label ?? gameVersion}`}
+            label={`${name} for ${GAME_VERSION_LABEL}`}
             placeholder={`Pick ${name}`}
             accept=".lua"
             value={file}

@@ -17,7 +17,7 @@ PROBLEMS = ("Upload failed", "Stopped", "Rejected")  # watch.py's log lines that
 @dataclass(frozen=True)
 class TrayConfig:
     server: str  # the site's URL, no trailing slash
-    key: str | None  # an ak_ API key from the site's Manage tab; stored in plain text in the user's profile
+    key: str | None  # an ak_ API key from the site's Manage page; stored in plain text in the user's profile
 
 
 def load_config(path: Path = CONFIG_PATH) -> TrayConfig:

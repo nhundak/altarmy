@@ -1,11 +1,16 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
+import { MotionGlobalConfig } from 'motion/react'
 import { afterEach, vi } from 'vitest'
+
+// Animations finish at once (exits under AnimatePresence still unmount a tick later: use waitFor).
+MotionGlobalConfig.skipAnimations = true
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   localStorage.clear()
+  window.history.replaceState(null, '', '/')
 })
 
 // Browser APIs Mantine uses that jsdom lacks.
@@ -30,6 +35,7 @@ class ResizeObserverStub {
 }
 window.ResizeObserver = ResizeObserverStub
 window.HTMLElement.prototype.scrollIntoView = () => {}
+window.scrollTo = () => {}
 
 // What React Flow needs from the browser (see its testing guide): zoom transforms, element sizes, SVG bounds.
 class DOMMatrixReadOnlyStub {

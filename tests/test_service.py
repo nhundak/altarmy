@@ -47,7 +47,8 @@ def test_search_ranks_known_recipes_or_whole_professions(
     assert service.search(base, chars("Tailor Guy"), False, Filters(max_cost=299)) == []
     assert service.search(base, chars("Tailor Guy"), False, profitable, exits=frozenset({"ah"})) == []
     assert service.search(base, chars("Frell", "Ally Alt"), False, profitable) == []
-    assert service.search(base, [], True, profitable) == []
+    (browsed,) = service.search(base, [], False, profitable)  # no characters: every recipe, nobody named
+    assert (browsed.recipe.name, browsed.crafter, browsed.postage) == ("Green Robe", "", 0)
 
     (tailor,) = chars("Tailor Guy")
     novice = replace(tailor, professions=(Profession("Tailoring", 1, 75, frozenset()),))
@@ -192,7 +193,10 @@ def test_sync_rereads_files_the_game_rewrote(conn: Connection, wow_root: Path) -
 def test_sync_warnings(conn: Connection, wow_root: Path, tmp_path: Path) -> None:
     res = service.sync(conn, ME, FOREVER, [tmp_path / "no wow here"])
     assert not res.changed
-    assert res.warnings == ["No Alt Army file found. Pick AltArmy_TBC.lua on the Manage tab."]
+    assert res.warnings == [
+        "No Alt Army file found. Pick AltArmy_TBC.lua on the Manage page.",
+        "No Auctionator file found. Pick Auctionator.lua on the Manage page.",
+    ]
 
     (wow_root / SV_DIR / "Auctionator.lua").write_bytes(_saved_variables({"Atiesh": {"1": _entry(1)}}))
     users.update_sync(conn, ME, FOREVER, altarmy_path=str(wow_root / SV_DIR / "AltArmy_TBC.lua"))
@@ -267,3 +271,81 @@ def test_pricing_auction_house(conn: Connection, wow_root: Path) -> None:
     horde = service.pricing_auction_house(conn, ME, FOREVER)
     assert horde != unnamed
     assert service.selected_auction_house(conn, ME, FOREVER) == horde
+
+
+def test_hand_made_characters_know_every_recipe_of_their_professions(
+    db2_paths: dict[str, Path], conn: Connection
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    base = store.load_market(conn, FOREVER, set_prices(conn, {1: 20, 2: 100}))
+    handy = Character(
+        "Classic Beta PvE", "Handy", "Horde", "MAGE", 60, (Profession("tailoring", 50, 75, frozenset()),)
+    )
+    (implied,) = service.imply_recipes(base.recipes, [handy])
+    assert implied.known_recipes == {900}
+    (r,) = service.search(base, [implied], False, Filters(min_profit=0))
+    assert r.crafter == "Handy"
+
+    (tailor,) = chars("Tailor Guy")  # imported: knows the robe, and Cooking with no recipes stays so
+    assert service.imply_recipes(base.recipes, [tailor]) == [tailor]
+    nobody = replace(handy, professions=())
+    assert service.imply_recipes(base.recipes, [nobody]) == [nobody]
+
+
+def test_selection_falls_back_to_the_freshest_scanned_realm(conn: Connection) -> None:
+    assert service.selection(conn, ME, FOREVER, []) is None
+    set_prices(conn, {1: 20}, realm="Dreamscythe", faction="Horde")
+    set_prices(conn, {1: 30})  # Classic Beta PvE (both factions), later
+    set_prices(conn, {1: 40}, realm="")  # the unnamed auction house never counts
+    assert service.selection(conn, ME, FOREVER, []) == Selection("Classic Beta PvE", "")
+
+    service.select(conn, ME, FOREVER, "Dreamscythe", "Horde")  # a realm with prices but no characters
+    assert service.selected_characters(conn, ME, FOREVER) == (Selection("Dreamscythe", "Horde"), [])
+    with pytest.raises(ValueError, match=r"Nowhere \(both factions\)"):
+        service.select(conn, ME, FOREVER, "Nowhere", "")
+    with pytest.raises(ValueError):
+        service.select(conn, ME, FOREVER, "", "")
+
+
+def test_an_import_forgets_a_selected_realm_it_has_no_characters_on(conn: Connection) -> None:
+    set_prices(conn, {1: 20}, realm="Elsewhere")
+    service.select(conn, ME, FOREVER, "Elsewhere", "")
+    service.replace_characters(conn, ME, FOREVER, chars())
+    assert service.selected_characters(conn, ME, FOREVER)[0] == Selection("Dreamscythe", "Horde")
+
+    service.select(conn, ME, FOREVER, "Classic Beta PvE", "Horde")
+    service.replace_characters(conn, ME, FOREVER, chars())  # still there: kept
+    assert service.selected_characters(conn, ME, FOREVER)[0] == Selection("Classic Beta PvE", "Horde")
+
+
+def test_create_and_delete_characters(conn: Connection, monkeypatch: pytest.MonkeyPatch) -> None:
+    handy = Character("Classic Beta PvE", "Handy", "Alliance", "MAGE", 60, ())
+    service.create_character(conn, ME, FOREVER, handy)
+    assert service.selected_characters(conn, ME, FOREVER) == (
+        Selection("Classic Beta PvE", "Alliance"),
+        [handy],
+    )
+    assert service.data_version(conn, ME, FOREVER) == 1
+
+    monkeypatch.setattr(service, "MAX_CHARACTERS", 1)
+    service.create_character(conn, ME, FOREVER, replace(handy, level=10))  # replacing one is fine
+    with pytest.raises(ValueError, match="At most 1"):
+        service.create_character(conn, ME, FOREVER, replace(handy, name="Other"))
+
+    service.delete_character(conn, ME, FOREVER, "Classic Beta PvE", "Handy")
+    assert store.load_characters(conn, ME, FOREVER) == []
+    with pytest.raises(FileNotFoundError):
+        service.delete_character(conn, ME, FOREVER, "Classic Beta PvE", "Handy")
+
+
+def test_sync_without_characters_records_every_realm(
+    db2_paths: dict[str, Path], conn: Connection, wow_root: Path
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    (wow_root / SV_DIR / "AltArmy_TBC.lua").unlink()
+    warning = "No Alt Army file found. Pick AltArmy_TBC.lua on the Manage page."
+    assert service.sync(conn, ME, FOREVER, [wow_root]) == SyncResult(True, [warning])
+    realms = {(c.realm, c.faction): c.prices for c in prices.coverage(conn, FOREVER)}
+    assert realms == {("ClassicBetaPvE", ""): 2, ("Dreamscythe", "Horde"): 1}
+    assert service.selected_characters(conn, ME, FOREVER)[0] is not None
+    assert service.sync(conn, ME, FOREVER, [wow_root]) == SyncResult(False, [warning])  # unchanged file

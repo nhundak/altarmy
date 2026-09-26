@@ -1,5 +1,5 @@
 """Decode the Alt Army addon's paste export: characters, professions and learned recipes as one string,
-pasted on the Upload tab instead of uploading AltArmy_TBC.lua (no /reload needed).
+pasted on the main page or the Upload page instead of uploading AltArmy_TBC.lua (no /reload needed).
 
 The addon (`AltArmy_TBC/Data/ProfitExport.lua`) writes "AAX1:" plus LibDeflate's printable encoding of raw
 DEFLATE of these lines:

@@ -132,6 +132,8 @@ class Step:
     value: int = 0  # copper for the whole step: negative when buying or mailing, positive when selling
     via: str = ""  # buy: vendor | ah; craft: recipe name; mail: recipient; sell: vendor | ah | disenchant
     who: str = ""  # the character doing it; "" if no characters are known
+    # the tree paths (see `Choices`) of the nodes it stands for: several when merged; "sell" for the sale
+    paths: tuple[str, ...] = field(default=(), compare=False)
 
 
 @dataclass(frozen=True)
@@ -183,7 +185,7 @@ class Result:
     best_exit: str
     tree: Node  # the recipe's craft, with its reagents as inputs
     exits: list[Exit] = field(default_factory=list)
-    steps: list[Step] = field(default_factory=list)  # buy reagents, craft (sub-crafts first), mail, sell
+    steps: list[Step] = field(default_factory=list)  # per character: buys, crafts (sub-crafts first), mails
     postage: int = 0  # per craft: mailing the output to whoever sells it (included in cost)
     mail_to: str = ""  # who the output is mailed to; "" if the crafter sells it
     crafter: str = ""  # who does the final craft; "" if no characters are known
@@ -241,6 +243,42 @@ def _option(key: str, node: Node) -> Option:
 
 def ah_net(price: int, cut: float = AH_CUT) -> int:
     return int(price * (1 - cut))
+
+
+StepKey = tuple[str, int, str, str]  # (action, item_id, who, via): a merged step
+_ACTION_RANK = {"buy": 0, "craft": 1, "mail": 2, "sell": 3}
+
+
+def _schedule(steps: dict[StepKey, Step], deps: dict[StepKey, set[StepKey]]) -> list[Step]:
+    """`steps` (in tree walk order) with every step after those in `deps` it needs, switching characters
+    as rarely as possible: one character at a time does everything they can (all their buys, then crafts,
+    then mails, then the sale), preferring whoever can finish outright, else whoever can do the most, else
+    the first met. A character comes back only for what waited on someone else's mail."""
+    index = {key: i for i, key in enumerate(steps)}
+    done: set[StepKey] = set()
+    out: list[Step] = []
+    while len(done) < len(steps):
+        best: tuple[tuple[bool, int, int], list[StepKey]] | None = None
+        for who in dict.fromkeys(key[2] for key in steps if key not in done):
+            theirs = [key for key in steps if key[2] == who and key not in done]
+            ready: set[StepKey] = set()
+            grew = True
+            while grew:
+                grew = False
+                for key in theirs:
+                    if key not in ready and all(d in done or d in ready for d in deps[key]):
+                        ready.add(key)
+                        grew = True
+            if not ready:
+                continue
+            block = sorted(ready, key=lambda k: (_ACTION_RANK[k[0]], index[k]))
+            score = (len(ready) < len(theirs), -len(ready), index[block[0]])
+            if best is None or score < best[0]:
+                best = (score, block)
+        assert best is not None, "a step depends on itself"
+        out.extend(steps[key] for key in best[1])
+        done.update(best[1])
+    return out
 
 
 class Market:
@@ -478,58 +516,59 @@ class Market:
 
     @staticmethod
     def steps(tree: Node, sell_via: str, revenue: int, mail_to: str = "", postage: int = 0) -> list[Step]:
-        """Instructions for a craft tree: buy every bought reagent (merged per item and character),
-        craft intermediates before what uses them, mailing each to the character who needs it, craft,
-        mail the output to `mail_to` if set (`postage` in total), then sell. Sub-crafts are whole
-        crafts, so a multi-output intermediate may leave spares."""
-        buys: dict[tuple[str, int, str, str], Step] = {}
-        crafts: dict[tuple[str, int, str, str], Step] = {}  # craft and mail steps, in walk order
+        """Instructions for a craft tree: buy every bought reagent (merged per item and character), craft
+        intermediates, mail each to the character who needs it, craft, mail the output to `mail_to` if set
+        (`postage` in total), then sell. Nothing comes before what it needs; within that, the steps are
+        grouped per character, each doing all their buys, then crafts, then mails before another takes
+        over (see `_schedule`). Sub-crafts are whole crafts, so a multi-output intermediate may leave
+        spares. Each step names the tree paths it stands for (a mail its craft's)."""
+        steps: dict[StepKey, Step] = {}  # in walk order
+        deps: dict[StepKey, set[StepKey]] = {}
 
-        def add(steps: dict[tuple[str, int, str, str], Step], step: Step) -> None:
+        def add(step: Step, needs: set[StepKey]) -> StepKey:
             key = (step.action, step.item_id, step.who, step.via)
             had = steps.get(key)
             steps[key] = (
-                replace(step, quantity=step.quantity + had.quantity, value=step.value + had.value)
+                replace(
+                    step,
+                    quantity=step.quantity + had.quantity,
+                    value=step.value + had.value,
+                    paths=had.paths + step.paths,
+                )
                 if had
                 else step
             )
+            deps.setdefault(key, set()).update(needs)
+            return key
 
-        def walk(node: Node) -> None:
+        def walk(node: Node, path: str) -> StepKey:
+            """Adds the node's steps; the key of the one that puts its items in its consumer's hands."""
+            at = (path,)
             if not node.via:
-                add(
-                    buys,
-                    Step(
-                        "buy", node.item_id, node.name, node.quantity, -node.cost, node.source, node.crafter
-                    ),
+                step = Step(
+                    "buy", node.item_id, node.name, node.quantity, -node.cost, node.source, node.crafter, at
                 )
-                return
-            for n in node.inputs:
-                walk(n)
-            add(crafts, Step("craft", node.item_id, node.name, node.made, via=node.via, who=node.crafter))
-            if node.mail_to:
-                add(
-                    crafts,
-                    Step(
-                        "mail",
-                        node.item_id,
-                        node.name,
-                        node.quantity,
-                        -node.postage,
-                        node.mail_to,
-                        node.crafter,
-                    ),
-                )
+                return add(step, set())
+            inputs = {walk(n, f"{path}.{i}") for i, n in enumerate(node.inputs)}
+            step = Step("craft", node.item_id, node.name, node.made, via=node.via, who=node.crafter, paths=at)
+            craft = add(step, inputs)
+            if not node.mail_to:
+                return craft
+            mail = Step(
+                "mail", node.item_id, node.name, node.quantity, -node.postage, node.mail_to, node.crafter, at
+            )
+            return add(mail, {craft})
 
-        for n in tree.inputs:
-            walk(n)
-        who = tree.crafter
-        return [
-            *buys.values(),
-            *crafts.values(),
-            Step("craft", tree.item_id, tree.name, tree.made, via=tree.via, who=who),
-            *([Step("mail", tree.item_id, tree.name, tree.made, -postage, mail_to, who)] if mail_to else []),
-            Step("sell", tree.item_id, tree.name, tree.made, revenue, sell_via, mail_to or who),
-        ]
+        inputs = {walk(n, f"{ROOT}.{i}") for i, n in enumerate(tree.inputs)}
+        who, root = tree.crafter, (ROOT,)
+        craft = Step("craft", tree.item_id, tree.name, tree.made, via=tree.via, who=who, paths=root)
+        last = add(craft, inputs)
+        if mail_to:
+            mail = Step("mail", tree.item_id, tree.name, tree.made, -postage, mail_to, who, root)
+            last = add(mail, {last})
+        sale = Step("sell", tree.item_id, tree.name, tree.made, revenue, sell_via, mail_to or who, (SELL,))
+        add(sale, {last})
+        return _schedule(steps, deps)
 
     # --- evaluation --------------------------------------------------------------------
     def evaluate(self, recipe: Recipe, choices: Choices | None = None) -> Result | None:

@@ -137,14 +137,15 @@ def ingest_paste(conn: Connection, user_uid: str, game_version: str, text: str) 
             raise ValueError(
                 f"This export is from a client this site doesn't serve (interface {export.interface})."
             )
-        raise ValueError(f"This is a {made_by.label} export: switch the game at the top.")
+        served = versions.VERSIONS[game_version].label
+        raise ValueError(f"This is a {made_by.label} export; this site serves {served}.")
     return _save_characters(conn, user_uid, game_version, export.characters)
 
 
 def _save_characters(
     conn: Connection, user_uid: str, game_version: str, chars: list[altarmy.Character]
 ) -> Imported:
-    store.save_characters(conn, user_uid, game_version, chars)
+    service.replace_characters(conn, user_uid, game_version, chars)
     service.bump_data_version(conn, user_uid, game_version)
     groups = tuple((g.realm, g.faction, len(g.characters)) for g in altarmy.groups(chars))
     return Imported("altarmy", characters=len(chars), groups=groups)

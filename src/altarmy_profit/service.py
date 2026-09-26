@@ -11,7 +11,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Hashable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ from .engine import (
     Crafter,
     Filters,
     Market,
+    Recipe,
     Result,
     recipes_for_characters,
 )
@@ -181,10 +182,14 @@ def _market(
     no_ah: frozenset[int],
     include_trivial: bool,
 ) -> Market:
-    """`base` narrowed to what the characters can craft (see `search`), with them as the crafters."""
-    known = frozenset().union(*(c.known_recipes for c in chars))
-    professions = {p.name for c in chars for p in c.professions}
-    recipes = recipes_for_characters(base.recipes, known, professions, include_unlearned)
+    """`base` narrowed to what the characters can craft (see `search`), with them as the crafters. Without
+    characters every recipe counts, crafted by one unnamed character (so nothing is mailed)."""
+    if chars:
+        known = frozenset().union(*(c.known_recipes for c in chars))
+        professions = {p.name for c in chars for p in c.professions}
+        recipes = recipes_for_characters(base.recipes, known, professions, include_unlearned)
+    else:
+        recipes = list(base.recipes)
     crafters = [
         Crafter(c.name, tuple((p.name, p.rank, p.max_rank) for p in c.professions), c.known_recipes)
         for c in chars
@@ -205,27 +210,96 @@ def _market(
     )
 
 
+def imply_recipes(recipes: Iterable[Recipe], chars: Sequence[Character]) -> list[Character]:
+    """Characters made by hand know no recipes: give each one with professions but no learned recipe at
+    all every recipe of its professions. Imported characters (any learned recipe) stay as they are."""
+    recipes = list(recipes)
+    out = []
+    for c in chars:
+        if c.professions and not c.known_recipes:
+            ids: dict[str, set[int]] = {p.name.lower(): set() for p in c.professions}
+            for r in recipes:
+                if r.skill_name.lower() in ids:
+                    ids[r.skill_name.lower()].add(r.spell_id)
+            profs = tuple(replace(p, recipe_ids=frozenset(ids[p.name.lower()])) for p in c.professions)
+            c = replace(c, professions=profs)
+        out.append(c)
+    return out
+
+
 # --- realm/faction selection -----------------------------------------------------------------------
+def realm_label(realm: str, faction: str) -> str:
+    """ "Realm (Faction)", or "Realm (both factions)" for an auction house the factions share."""
+    return f"{realm} ({faction or 'both factions'})"
+
+
+def _known_auction_house(conn: Connection, game_version: str, realm: str, faction: str) -> bool:
+    return bool(realm) and prices.find_auction_house(conn, game_version, realm, faction) is not None
+
+
 def selection(
     conn: Connection, user_uid: str, game_version: str, chars: Sequence[Character]
 ) -> Selection | None:
-    """The saved realm/faction if it still has characters, else the group with the most characters."""
+    """The saved realm/faction if it still has characters or an auction house, else the group with the
+    most characters, else the realm scanned most recently; None if there is none of these."""
     groups = altarmy.groups(chars)
     saved = users.get_settings(conn, user_uid, game_version)
+    realm, faction = saved.selected_realm or "", saved.selected_faction or ""
     for g in groups:
-        if (g.realm, g.faction) == (saved.selected_realm, saved.selected_faction):
+        if (g.realm, g.faction) == (realm, faction):
             return Selection(g.realm, g.faction)
-    if not groups:
-        return None
-    best = max(groups, key=lambda g: len(g.characters))
-    return Selection(best.realm, best.faction)
+    if _known_auction_house(conn, game_version, realm, faction):
+        return Selection(realm, faction)
+    if groups:
+        best = max(groups, key=lambda g: len(g.characters))
+        return Selection(best.realm, best.faction)
+    freshest = prices.freshest_auction_house(conn, game_version)
+    return None if freshest is None else Selection(*freshest)
 
 
 def select(conn: Connection, user_uid: str, game_version: str, realm: str, faction: str) -> None:
+    """Select a realm/faction that has characters or an auction house (faction "" for one both factions
+    share); ValueError otherwise."""
     groups = altarmy.groups(store.load_characters(conn, user_uid, game_version))
-    if not any((g.realm, g.faction) == (realm, faction) for g in groups):
-        raise ValueError(f"no characters on {realm} ({faction})")
+    has_group = any((g.realm, g.faction) == (realm, faction) for g in groups)
+    if not has_group and not _known_auction_house(conn, game_version, realm, faction):
+        raise ValueError(f"no characters or prices on {realm_label(realm, faction)}")
     users.update_settings(conn, user_uid, game_version, selected_realm=realm, selected_faction=faction)
+
+
+def replace_characters(
+    conn: Connection, user_uid: str, game_version: str, chars: Sequence[Character]
+) -> None:
+    """Store an import's characters in place of the user's. A selected realm none of them is on is
+    forgotten, so the new characters' biggest group is selected."""
+    store.save_characters(conn, user_uid, game_version, chars)
+    saved = users.get_settings(conn, user_uid, game_version)
+    wanted = (saved.selected_realm, saved.selected_faction)
+    if not any((g.realm, g.faction) == wanted for g in altarmy.groups(chars)):
+        users.update_settings(conn, user_uid, game_version, selected_realm=None, selected_faction=None)
+
+
+MAX_CHARACTERS = 50  # per user and game version, when made by hand
+
+
+def create_character(conn: Connection, user_uid: str, game_version: str, char: Character) -> None:
+    """Store a character made by hand (replacing the user's one of that realm and name) and select its
+    realm and faction."""
+    have = store.load_characters(conn, user_uid, game_version)
+    if len(have) >= MAX_CHARACTERS and not any((c.realm, c.name) == (char.realm, char.name) for c in have):
+        raise ValueError(f"At most {MAX_CHARACTERS} characters.")
+    store.upsert_character(conn, user_uid, game_version, char)
+    users.update_settings(
+        conn, user_uid, game_version, selected_realm=char.realm, selected_faction=char.faction
+    )
+    bump_data_version(conn, user_uid, game_version)
+
+
+def delete_character(conn: Connection, user_uid: str, game_version: str, realm: str, name: str) -> None:
+    """Delete one of the user's characters; FileNotFoundError if there is no such character."""
+    if not store.delete_character(conn, user_uid, game_version, realm, name):
+        raise FileNotFoundError(f"No character {name} on {realm}.")
+    bump_data_version(conn, user_uid, game_version)
 
 
 def selected_characters(
@@ -263,7 +337,8 @@ def pricing_auction_house(conn: Connection, user_uid: str, game_version: str) ->
     ah = auction_house_of(conn, game_version, sel)
     if ah is None:
         raise ValueError(
-            f"No auction house known for {sel.realm} ({sel.faction}) yet: import its Auctionator scan first."
+            f"No auction house known for {realm_label(sel.realm, sel.faction)} yet: import its"
+            " Auctionator scan first."
         )
     return ah
 
@@ -386,7 +461,7 @@ def _changed_mtime(path: Path, last: int | None, force: bool) -> int | None:
 def _sync_altarmy(conn: Connection, found: _Finder, force: bool, warnings: list[str]) -> bool:
     path = _source(conn, "altarmy_path", prices.find_altarmy_files, found)
     if path is None:
-        warnings.append("No Alt Army file found. Pick AltArmy_TBC.lua on the Manage tab.")
+        warnings.append("No Alt Army file found. Pick AltArmy_TBC.lua on the Manage page.")
         return False
     if not path.is_file():
         warnings.append(f"Alt Army file not found: {path}")
@@ -399,7 +474,7 @@ def _sync_altarmy(conn: Connection, found: _Finder, force: bool, warnings: list[
     except ValueError as e:
         warnings.append(f"Could not read {path}: {e}")
         return False
-    store.save_characters(conn, found.user_uid, found.game_version, chars)
+    replace_characters(conn, found.user_uid, found.game_version, chars)
     found.update(conn, altarmy_mtime=mtime, altarmy_synced=db.utcnow())
     return True
 
@@ -408,16 +483,18 @@ def _sync_auctionator(conn: Connection, found: _Finder, force: bool, warnings: l
     """Record the selected realm's scan when the file (or the selection) changed. Each auction house
     keeps its own prices, so a file without the realm leaves the prices alone and only warns."""
     uid, gv = found.user_uid, found.game_version
-    sel = selection(conn, uid, gv, store.load_characters(conn, uid, gv))
-    if sel is None:
-        return False  # no characters yet, so no realm to price
+    chars = store.load_characters(conn, uid, gv)
     path = _source(conn, "auctionator_path", prices.find_auctionator_files, found)
     if path is None:
-        warnings.append("No Auctionator file found. Pick Auctionator.lua on the Manage tab.")
+        warnings.append("No Auctionator file found. Pick Auctionator.lua on the Manage page.")
         return False
     if not path.is_file():
         warnings.append(f"Auctionator file not found: {path}")
         return False
+    if not altarmy.groups(chars):
+        return _sync_every_realm(conn, found, path, force, warnings)
+    sel = selection(conn, uid, gv, chars)
+    assert sel is not None  # there are characters
     state = found.state(conn)
     wanted = f"{sel.realm}\t{sel.faction}"
     moved = wanted != state.auctionator_for
@@ -449,8 +526,44 @@ def _sync_auctionator(conn: Connection, found: _Finder, force: bool, warnings: l
     return True
 
 
+EVERY_REALM = "*"  # local_sync.auctionator_for once the file's every realm was recorded
+
+
+def _sync_every_realm(conn: Connection, found: _Finder, path: Path, force: bool, warnings: list[str]) -> bool:
+    """Without characters there is no realm to pick: record every realm the file has prices for, as an
+    upload does, so browsing has prices (the selection then falls back to the freshest scan)."""
+    state = found.state(conn)
+    mtime = _changed_mtime(path, state.auctionator_mtime, force or state.auctionator_for != EVERY_REALM)
+    if mtime is None:
+        return False
+    try:
+        realms = auctionator.parse_price_database(path.read_bytes())
+    except ValueError as e:
+        warnings.append(f"Could not read {path}: {e}")
+        return False
+    scanned_at = prices.file_time(path)
+    for key, item_prices in sorted(realms.items()):
+        if not item_prices:
+            continue
+        ah = prices.auction_house_for_auctionator_key(conn, found.game_version, key)
+        prices.record_auctionator(conn, ah, item_prices, scanned_at, uploader_uid=found.user_uid)
+        merge.merge_auction_house(conn, ah, db.utcnow().date())
+    prices.prune(conn)
+    found.update(
+        conn,
+        auctionator_realm="",
+        auctionator_for=EVERY_REALM,
+        auctionator_mtime=mtime,
+        auctionator_synced=db.utcnow(),
+    )
+    return True
+
+
 def _no_prices(sel: Selection) -> str:
-    return f"Auctionator has no prices for {sel.realm} ({sel.faction}). Scan that auction house in game."
+    return (
+        f"Auctionator has no prices for {realm_label(sel.realm, sel.faction)}. Scan that auction house"
+        " in game."
+    )
 
 
 # --- game data -------------------------------------------------------------------------------------

@@ -74,7 +74,10 @@ def test_empty_db(client: TestClient, database: db.Database) -> None:
     assert status["last_auctionator_import"] is None
     assert status["db_path"] == database.display_url
     assert (status["characters"], status["selection"], status["data_version"]) == (0, None, 0)
-    assert status["warnings"] == ["No Alt Army file found. Pick AltArmy_TBC.lua on the Manage tab."]
+    assert status["warnings"] == [
+        "No Alt Army file found. Pick AltArmy_TBC.lua on the Manage page.",
+        "No Auctionator file found. Pick Auctionator.lua on the Manage page.",
+    ]
     assert client.get("/api/characters").json() == {"groups": [], "selection": None}
     assert client.get("/api/rank").json()["results"] == []
 
@@ -222,6 +225,12 @@ def test_rank_lists_options_and_evaluate_applies_choices(
         {"key": "ah", "cost": 100, "source": "ah", "via": "", "crafter": ""},
     ]
     assert r["sell_options"] == [{"kind": "vendor", "profit": 500 - 211}]
+    assert [(st["action"], st["paths"]) for st in r["steps"]] == [
+        ("buy", ["r.0"]),
+        ("buy", ["r.1"]),
+        ("craft", ["r"]),
+        ("sell", ["sell"]),
+    ]
 
     body = {"recipe_id": r["recipe_id"], "choices": {"r.1": "ah"}}
     got = client.post("/api/evaluate", json=body).json()
@@ -344,8 +353,11 @@ def test_auctionator_files_default(
 
 
 def test_rank_include_unlearned(client: TestClient, priced: Connection) -> None:
-    novice = Character("Realm", "Novice", "Horde", "MAGE", 5, (Profession("Tailoring", 1, 75, frozenset()),))
-    store.save_characters(priced, ME, FOREVER, [novice])
+    # knows a recipe this build lacks, so it counts as imported (hand-made characters know everything)
+    novice = Character(
+        "Realm", "Novice", "Horde", "MAGE", 5, (Profession("Tailoring", 1, 75, frozenset({1})),)
+    )
+    service.replace_characters(priced, ME, FOREVER, [novice])
     set_prices(priced, {1: 20, 2: 100}, realm="Realm")
     assert client.get("/api/rank").json()["results"] == []
     (r,) = client.get("/api/rank", params={"include_unlearned": True}).json()["results"]
@@ -356,7 +368,7 @@ def test_rank_and_evaluate_without_trivial_recipes(client: TestClient, priced: C
     veteran = Character(
         "Realm", "Veteran", "Horde", "MAGE", 60, (Profession("Tailoring", 60, 150, frozenset({900})),)
     )
-    store.save_characters(priced, ME, FOREVER, [veteran])  # the robe is grey from 60
+    service.replace_characters(priced, ME, FOREVER, [veteran])  # the robe is grey from 60
     set_prices(priced, {1: 20, 2: 100}, realm="Realm")
     (r,) = client.get("/api/rank").json()["results"]
     grey = client.get("/api/rank", params={"include_trivial": False}).json()
@@ -566,11 +578,13 @@ def test_hosted_mode_signs_users_in(hosted: TestClient, conn: Connection) -> Non
 def test_only_api_keys_need_a_linked_account(hosted: TestClient, method: str, path: str) -> None:
     res = hosted.request(method, path, headers=FREE, json={"label": "pc"} if method == "POST" else None)
     assert res.status_code == 403
-    assert "Link your account" in res.json()["detail"]
+    assert "Create an account or sign in" in res.json()["detail"]
 
 
 def test_guests_rank_evaluate_and_block_like_everyone(hosted: TestClient, priced: Connection) -> None:
-    assert hosted.get("/api/rank", headers=FREE).json()["total"] == 0  # a new guest: no characters yet
+    # a new user without characters browses every recipe of the freshest realm, crafted by nobody
+    (browsed,) = hosted.get("/api/rank", headers=FREE).json()["results"]
+    assert (browsed["crafter"], browsed["crafters"]) == ("", [])
     store.save_characters(priced, "guest", FOREVER, altarmy.parse_characters(ALTARMY_SV))
     selection = {"realm": "Classic Beta PvE", "faction": "Horde"}
     assert hosted.put("/api/selection", headers=FREE, json=selection).json()["selection"] == selection
@@ -611,7 +625,8 @@ def test_hosted_status_never_syncs_local_files(hosted: TestClient, conn: Connect
 
 
 def test_linked_users_rank_their_own_characters(hosted: TestClient, priced: Connection) -> None:
-    assert hosted.get("/api/rank", headers=LINKED).json()["total"] == 0  # the tailor is the local user's
+    # the tailor is the local user's: this user only browses
+    assert hosted.get("/api/rank", headers=LINKED).json()["results"][0]["crafter"] == ""
     store.save_characters(priced, "g1", FOREVER, altarmy.parse_characters(ALTARMY_SV))
     selection = {"realm": "Classic Beta PvE", "faction": "Horde"}
     assert hosted.put("/api/selection", headers=LINKED, json=selection).json()["selection"] == selection
@@ -787,7 +802,7 @@ def test_bad_pastes(hosted: TestClient, monkeypatch: pytest.MonkeyPatch) -> None
         "/api/uploads/paste", headers=LINKED, json={"text": PASTE}
     )  # a TBC export, Forever chosen
     assert res.status_code == 400
-    assert res.json()["detail"] == "This is a TBC Anniversary export: switch the game at the top."
+    assert res.json()["detail"] == "This is a TBC Anniversary export; this site serves WoW: Forever."
     res = hosted.post("/api/uploads/paste", headers=LINKED, json={"text": "hello"})
     assert res.status_code == 400
     rows = hosted.get("/api/uploads", headers=LINKED).json()
@@ -917,3 +932,99 @@ def test_hosted_instances_leave_migrations_to_the_deploy(
     assert not app.state.auth.database.migrates
     local = create_app(game_versions, mode="local")
     assert local.state.auth.database.migrates
+
+
+def test_professions(client: TestClient, db2_paths: dict[str, Path], conn: Connection) -> None:
+    assert client.get("/api/professions").json() == []
+    ingest.build_db(db2_paths, conn, FOREVER)
+    assert client.get("/api/professions").json() == ["Tailoring"]
+
+
+HANDY = {
+    "realm": "Classic Beta PvE",
+    "faction": "Alliance",
+    "name": "Handy",
+    "class_file": "MAGE",
+    "level": 60,
+    "professions": [{"name": "Tailoring", "rank": 80}],
+}
+
+
+def test_characters_made_by_hand(client: TestClient, db2_paths: dict[str, Path], conn: Connection) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    set_prices(conn, {1: 20, 2: 100})
+    body = client.post("/api/characters", json=HANDY).json()
+    assert body["selection"] == {"realm": "Classic Beta PvE", "faction": "Alliance"}
+    ((handy,),) = [g["characters"] for g in body["groups"]]
+    assert (handy["name"], handy["professions"]) == (
+        "Handy",
+        [{"name": "Tailoring", "rank": 80, "max_rank": 150, "recipes": 0}],
+    )
+    assert client.get("/api/status").json()["data_version"] >= 1
+    (r,) = client.get("/api/rank").json()["results"]  # knows every Tailoring recipe
+    assert (r["crafters"], r["crafter"]) == (["Handy"], "Handy")
+
+    gone = client.delete("/api/characters", params={"realm": "Classic Beta PvE", "name": "Handy"})
+    assert gone.json()["groups"] == []
+    assert (
+        client.delete("/api/characters", params={"realm": "Classic Beta PvE", "name": "Handy"}).status_code
+        == 404
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"class_file": "DEATHKNIGHT"},
+        {"level": 61},
+        {"faction": "Neutral"},
+        {"name": "Tab\tbed"},
+        {"realm": "  "},
+        {"professions": [{"name": "Juggling", "rank": 1}]},
+        {"professions": [{"name": "Tailoring", "rank": 301}]},
+        {"professions": [{"name": "Tailoring", "rank": 1}, {"name": "Tailoring", "rank": 2}]},
+    ],
+)
+def test_bad_hand_made_characters(
+    client: TestClient, db2_paths: dict[str, Path], conn: Connection, change: dict[str, Any]
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    res = client.post("/api/characters", json={**HANDY, **change})
+    assert res.status_code in (400, 422)
+    assert store.load_characters(conn, ME, FOREVER) == []
+
+
+def test_browsing_without_characters(
+    client: TestClient, db2_paths: dict[str, Path], conn: Connection
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    set_prices(conn, {1: 20, 2: 100})
+    status = client.get("/api/status").json()
+    assert (status["characters"], status["selection"]) == (0, {"realm": "Classic Beta PvE", "faction": ""})
+    body = client.get("/api/rank").json()
+    (r,) = body["results"]
+    assert (r["crafter"], r["crafters"], r["mail_to"], body["classes"]) == ("", [], "", {})
+    assert {s["who"] for s in r["steps"]} == {""}
+    assert client.get("/api/rank", params={"professions": ["tailoring"]}).json()["total"] == 1
+    assert client.get("/api/rank", params={"professions": ["Cooking"]}).json()["total"] == 0
+
+    set_prices(conn, {1: 30}, realm="Dreamscythe", faction="Horde")
+    res = client.put("/api/selection", json={"realm": "Dreamscythe", "faction": "Horde"})
+    assert res.json()["selection"] == {"realm": "Dreamscythe", "faction": "Horde"}
+    assert client.put("/api/selection", json={"realm": "Nowhere", "faction": ""}).status_code == 400
+
+
+def test_serves_the_front_end_for_its_own_pages(
+    tmp_path: Path, game_versions: dict[str, GameVersion], database: db.Database
+) -> None:
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html>app</html>")
+    (dist / "assets" / "app.js").write_text("js")
+    client = TestClient(create_app(game_versions, database=database, static_dir=dist, wow_roots=()))
+    for page in ("/addon", "/upload", "/manage"):
+        assert client.get(page).text == "<html>app</html>"
+    assert client.get("/assets/app.js").text == "js"
+    assert client.get("/assets/missing.js").status_code == 404
+    assert client.get("/api/nope").status_code == 404
+    assert "app" not in client.get("/api/nope").text

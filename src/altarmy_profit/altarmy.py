@@ -15,6 +15,18 @@ from dataclasses import dataclass
 
 from .luasv import LuaTable, LuaValue, parse_assignments
 
+# The classes of the classic clients, as Alt Army's classFile spells them.
+CLASS_FILES = frozenset(
+    {"WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID"}
+)
+SKILL_TIER = 75  # profession ranks come in tiers of 75 (Apprentice 75, Journeyman 150, ...)
+
+
+def max_rank_for(rank: int, max_skill: int) -> int:
+    """The profession cap a character at `rank` has at least: the smallest tier holding it, at most
+    `max_skill`."""
+    return min(max_skill, max(SKILL_TIER, -(-rank // SKILL_TIER) * SKILL_TIER))
+
 
 @dataclass(frozen=True)
 class Profession:

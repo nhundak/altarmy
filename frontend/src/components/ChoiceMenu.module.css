@@ -1,0 +1,11 @@
+/* In a flow chart node's title the menu sits in the top-right corner; in a step line, after the text. */
+.menu {
+  flex: none;
+  margin-left: auto;
+  vertical-align: middle;
+}
+
+.check {
+  display: inline-block;
+  width: 1em;
+}

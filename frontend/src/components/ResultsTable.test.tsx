@@ -30,11 +30,11 @@ const disenchanted: RankResult = {
     },
   ],
   steps: [
-    { action: 'buy', item_id: 4, name: 'Medium Hide', quantity: 2, value: -12648, via: 'ah', who: '' },
-    { action: 'craft', item_id: 5, name: 'Cured Medium Hide', quantity: 2, value: 0, via: 'Cure', who: '' },
-    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '' },
-    { action: 'mail', item_id: 3, name: 'Green Robe', quantity: 1, value: -30, via: 'Enchy', who: '' },
-    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 75988, via: 'disenchant', who: '' },
+    { action: 'buy', item_id: 4, name: 'Medium Hide', quantity: 2, value: -12648, via: 'ah', who: '', paths: ['r.0.0'] },
+    { action: 'craft', item_id: 5, name: 'Cured Medium Hide', quantity: 2, value: 0, via: 'Cure', who: '', paths: ['r.0'] },
+    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', paths: ['r'] },
+    { action: 'mail', item_id: 3, name: 'Green Robe', quantity: 1, value: -30, via: 'Enchy', who: '', paths: ['r'] },
+    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 75988, via: 'disenchant', who: '', paths: ['sell'] },
   ],
 }
 
@@ -78,9 +78,12 @@ describe('ResultsTable', () => {
   })
 
   it('names the characters who know the recipe', () => {
-    renderWithProviders(<ResultsTable results={[robe, { ...robe, recipe_id: 101, crafters: [] }]} items={items} />)
+    const unlearned = { ...robe, recipe_id: 101, crafters: [] }
+    const browsed = { ...robe, recipe_id: 102, crafters: [], crafter: '' } // no characters at all
+    renderWithProviders(<ResultsTable results={[robe, unlearned, browsed]} items={items} />)
     expect(screen.getByText('Tailor Guy')).toBeInTheDocument()
     expect(screen.getByText('not learned')).toBeInTheDocument()
+    expect(screen.getByText('anyone')).toBeInTheDocument()
   })
 
   it('expands a row into a flow chart of the reagents, crafts and sale', async () => {
@@ -151,11 +154,11 @@ describe('ResultsTable', () => {
       recipe_id: 102,
       crafter: 'Smithy',
       steps: [
-        { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 6, value: -120, via: 'ah', who: 'Leathery' },
-        { action: 'craft', item_id: 2, name: 'Coarse Thread', quantity: 2, value: 0, via: 'Thread', who: 'Leathery' },
-        { action: 'mail', item_id: 2, name: 'Coarse Thread', quantity: 2, value: -30, via: 'Smithy', who: 'Leathery' },
-        { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: 'Smithy' },
-        { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: 'Smithy' },
+        { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 6, value: -120, via: 'ah', who: 'Leathery', paths: ['r.0.0'] },
+        { action: 'craft', item_id: 2, name: 'Coarse Thread', quantity: 2, value: 0, via: 'Thread', who: 'Leathery', paths: ['r.0'] },
+        { action: 'mail', item_id: 2, name: 'Coarse Thread', quantity: 2, value: -30, via: 'Smithy', who: 'Leathery', paths: ['r.0'] },
+        { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: 'Smithy', paths: ['r'] },
+        { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: 'Smithy', paths: ['sell'] },
       ],
     }
     renderWithProviders(<ResultsTable results={[split]} items={items} />)
@@ -333,6 +336,64 @@ describe('ResultsTable', () => {
       expect(line('_2 _0')).toBeInTheDocument()
       expect(screen.queryByLabelText('Changed plan')).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
+    })
+
+    it('offers the same menus on the Steps tab', async () => {
+      await open()
+      await showSteps()
+      expect(screen.queryByRole('button', { name: 'Change source of Linen Cloth' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Change source of Green Robe' })).not.toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: 'Change source of Coarse Thread' }))
+      expect(screen.getAllByRole('menuitem').map(shown)).toEqual(['✓Buy from a vendor1 0', 'Buy on the AH1 50'])
+      await userEvent.keyboard('{Escape}')
+      await userEvent.click(screen.getByRole('button', { name: 'Change how it is sold' }))
+      expect(screen.getAllByRole('menuitem').map(shown)).toEqual([
+        '✓Sell to a vendorprofit 2 0',
+        'Sell on the AHprofit 1 75',
+      ])
+    })
+
+    it('re-costs the recipe with a choice made on the Steps tab', async () => {
+      const fetch = await open()
+      await showSteps()
+      await userEvent.click(screen.getByRole('button', { name: 'Change source of Coarse Thread' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: /Buy on the AH/ }))
+
+      expect(await screen.findByText((_, el) => el?.tagName === 'LI' && shown(el) === 'Purchase 1x Coarse Thread on the AH (1 50)')).toBeInTheDocument()
+      expect((await fetch.mock.calls[0]![0].json()).choices).toEqual({ 'r.1': 'ah' })
+      await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
+      expect(line('Purchase 1x Coarse Thread from a vendor (1 0)')).toBeInTheDocument()
+    })
+
+    it('changes every use of a merged step at once, offering what they all offer, costs summed', async () => {
+      const fetch = mockApi({ '/api/evaluate': { result: robe, items } })
+      const both = (vendor: number, ah: number) => [
+        { key: 'vendor', cost: vendor, source: 'vendor', via: '', crafter: '' },
+        { key: 'ah', cost: ah, source: 'ah', via: '', crafter: '' },
+      ]
+      // Thread for a sub-crafted bolt (r.0.0) and for the robe itself (r.1), bought in one step.
+      const merged: RankResult = {
+        ...robe,
+        steps: [
+          { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 3, value: -300, via: 'vendor', who: '', paths: ['r.0.0', 'r.1'] },
+          ...robe.steps.slice(2),
+        ],
+        tree: {
+          ...robe.tree,
+          inputs: [
+            { ...robe.tree, item_id: 1, name: 'Linen Cloth', inputs: [bought(2, 'Coarse Thread', 2, 200, 'vendor', both(200, 300))] },
+            bought(2, 'Coarse Thread', 1, 100, 'vendor', [...both(100, 150), { key: 'craft:9', cost: 90, source: '', via: 'Spin', crafter: '' }]),
+          ],
+        },
+      }
+      renderWithProviders(<ResultsTable results={[merged]} items={items} />)
+      await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+      await showSteps()
+      await userEvent.click(screen.getByRole('button', { name: 'Change source of Coarse Thread' }))
+      expect(screen.getAllByRole('menuitem').map(shown)).toEqual(['✓Buy from a vendor3 0', 'Buy on the AH4 50'])
+      await userEvent.click(screen.getByRole('menuitem', { name: /Buy on the AH/ }))
+      await screen.findByRole('button', { name: 'Reset' })
+      expect((await fetch.mock.calls[0]![0].json()).choices).toEqual({ 'r.0.0': 'ah', 'r.1': 'ah' })
     })
   })
 

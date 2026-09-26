@@ -2,7 +2,7 @@
 (`watch.py`) in the Windows notification area, so players need no terminal or Python.
 
 It watches both games' Alt Army and Auctionator SavedVariables and uploads the ones WoW rewrites, with the
-API key from the site's Manage tab (asked for on first run, kept in `~/.altarmy-profit/tray.json`). Its menu
+API key from the site's Manage page (asked for on first run, kept in `~/.altarmy-profit/tray.json`). Its menu
 shows the latest upload, and offers Upload now, Open site, Set API key, Start with Windows (the HKCU Run
 key), the log and Quit. Windows only; the testable parts are in `tray_core.py`. Needs the `tray` extra.
 """
@@ -89,7 +89,7 @@ class Tray:
         root.attributes("-topmost", True)
         key = simpledialog.askstring(
             "altarmy-profit",
-            "Paste an API key from the site's Manage tab (Upload automatically → Make a key).\n"
+            "Paste an API key from the site's Manage page (Upload automatically → Make a key).\n"
             f"Site: {self.config.server}",
             parent=root,
         )

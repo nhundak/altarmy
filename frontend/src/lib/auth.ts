@@ -58,7 +58,7 @@ function currentUser(): User {
   return user
 }
 
-/** Link an email address and password to this browser's guest account: same uid, now the linked tier. */
+/** Create an account from this browser's anonymous session: same uid (and data), now the linked tier. */
 export async function linkWithEmail(email: string, password: string): Promise<void> {
   const fa = await import('firebase/auth')
   const user = currentUser()
@@ -66,7 +66,7 @@ export async function linkWithEmail(email: string, password: string): Promise<vo
   await user.getIdToken(true) // the new token says "password", which the API reads as linked
 }
 
-/** Sign in to an existing account; the guest session's data stays with the guest uid. */
+/** Sign in to an existing account; the anonymous session's data stays with its uid. */
 export async function signInWithEmail(email: string, password: string): Promise<void> {
   const fa = await import('firebase/auth')
   await fa.signInWithEmailAndPassword(requireAuth(), email, password)
@@ -78,7 +78,7 @@ export async function resetPassword(email: string): Promise<void> {
   await fa.sendPasswordResetEmail(requireAuth(), email)
 }
 
-/** Sign out, into a fresh guest session. */
+/** Sign out, into a fresh anonymous session. */
 export async function signOut(): Promise<void> {
   const fa = await import('firebase/auth')
   const a = requireAuth()

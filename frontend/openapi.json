@@ -654,6 +654,79 @@
         "title": "KeyRequest",
         "type": "object"
       },
+      "ManualCharacter": {
+        "description": "A character typed in by hand. It knows every recipe of its professions (nothing is learned).",
+        "properties": {
+          "class_file": {
+            "title": "Class File",
+            "type": "string"
+          },
+          "faction": {
+            "enum": [
+              "Horde",
+              "Alliance"
+            ],
+            "title": "Faction",
+            "type": "string"
+          },
+          "level": {
+            "minimum": 1.0,
+            "title": "Level",
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[^\\t\\n]*\\S[^\\t\\n]*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "professions": {
+            "items": {
+              "$ref": "#/components/schemas/ManualProfession"
+            },
+            "maxItems": 12,
+            "title": "Professions",
+            "type": "array"
+          },
+          "realm": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[^\\t\\n]*\\S[^\\t\\n]*$",
+            "title": "Realm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "realm",
+          "faction",
+          "name",
+          "class_file",
+          "level",
+          "professions"
+        ],
+        "title": "ManualCharacter",
+        "type": "object"
+      },
+      "ManualProfession": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rank": {
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "rank"
+        ],
+        "title": "ManualProfession",
+        "type": "object"
+      },
       "MaterialOut": {
         "description": "One possible disenchant result.",
         "properties": {
@@ -1408,6 +1481,13 @@
             "title": "Name",
             "type": "string"
           },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Paths",
+            "type": "array"
+          },
           "quantity": {
             "title": "Quantity",
             "type": "integer"
@@ -1432,7 +1512,8 @@
           "quantity",
           "value",
           "via",
-          "who"
+          "who",
+          "paths"
         ],
         "title": "StepOut",
         "type": "object"
@@ -1943,6 +2024,73 @@
       }
     },
     "/api/characters": {
+      "delete": {
+        "description": "Delete one of your characters (404 if you have none of that realm and name).",
+        "operationId": "delete_character_api_characters_delete",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "realm",
+            "required": true,
+            "schema": {
+              "title": "Realm",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Characters"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Character"
+      },
       "get": {
         "operationId": "get_characters_api_characters_get",
         "parameters": [
@@ -1990,6 +2138,65 @@
           }
         ],
         "summary": "Get Characters"
+      },
+      "post": {
+        "description": "Add a character by hand (or replace yours of that realm and name) and select its realm. It knows\nevery recipe of its professions. An Alt Army import later replaces every character, these included.",
+        "operationId": "post_character_api_characters_post",
+        "parameters": [
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualCharacter"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Characters"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Character"
       }
     },
     "/api/config": {
@@ -2341,9 +2548,59 @@
         "summary": "Get Me"
       }
     },
+    "/api/professions": {
+      "get": {
+        "description": "Every profession the game version's recipes belong to, by name.",
+        "operationId": "get_professions_api_professions_get",
+        "parameters": [
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Response Get Professions Api Professions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Professions"
+      }
+    },
     "/api/rank": {
       "get": {
-        "description": "What the selected realm/faction's characters can craft, most profitable first. Bounds are\ninclusive; an omitted bound is unbounded (so losses are included unless `min_profit` is set).",
+        "description": "What the selected realm/faction's characters can craft, most profitable first; without characters,\nevery recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive; an omitted\nbound is unbounded (so losses are included unless `min_profit` is set).",
         "operationId": "get_rank_api_rank_get",
         "parameters": [
           {
@@ -2500,6 +2757,27 @@
               ],
               "description": "profit / cost (0.5 = 50%)",
               "title": "Max Roi"
+            }
+          },
+          {
+            "description": "only recipes of these professions (default: every one)",
+            "in": "query",
+            "name": "professions",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only recipes of these professions (default: every one)",
+              "title": "Professions"
             }
           },
           {

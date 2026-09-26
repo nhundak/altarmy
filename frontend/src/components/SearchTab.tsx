@@ -7,6 +7,7 @@ import {
   Flex,
   Group,
   Loader,
+  MultiSelect,
   NumberInput,
   Select,
   SimpleGrid,
@@ -16,22 +17,23 @@ import {
 } from '@mantine/core'
 import { useDebouncedValue } from '@mantine/hooks'
 import { z } from 'zod'
-import type { CharacterGroup, Selection } from '../api/client'
 import {
   type Exit,
   type RankParams,
   useAhBlocked,
   useCharacters,
+  useCoverage,
   useDataVersion,
+  useProfessions,
   useRank,
   useSelectRealm,
   useSetAhBlocked,
   useStatus,
 } from '../api/queries'
 import { goldToCopper } from '../lib/money'
+import { fromKey, realmOptions, toKey } from '../lib/realms'
 import { useSession } from '../lib/session'
 import { useStoredState } from '../lib/storage'
-import { CharacterName } from './CharacterName'
 import { ResultsTable } from './ResultsTable'
 
 /** Results per page: the first request asks for this many, and each "Show more" for this many more. */
@@ -43,24 +45,18 @@ const EXITS: { value: Exit; label: string }[] = [
   { value: 'ah', label: 'Auction house' },
 ]
 const ALL_EXITS: Exit[] = EXITS.map((e) => e.value)
-const SECTIONS = ['advanced', 'characters'] as const
-const NONE_OPEN: (typeof SECTIONS)[number][] = []
+const SECTIONS = ['advanced'] as const
+const NONE_OPEN: string[] = []
+const NO_PROFESSIONS: string[] = []
 
 const bound = z.number().nullable()
 /** NumberInput reports an empty field as ''; that means no bound. */
 const toBound = (v: number | string) => (typeof v === 'number' ? v : null)
 const scaled = (v: number | null, f: (v: number) => number) => (v === null ? null : f(v))
 
-// Realms may contain spaces but never tabs.
-const toKey = (s: Selection) => `${s.realm}\t${s.faction}`
-const fromKey = (key: string): Selection => {
-  const [realm = '', faction = ''] = key.split('\t')
-  return { realm, faction }
-}
-
 type Filters = Omit<RankParams, 'top'>
 
-function Results({ filters }: { filters: Filters }) {
+function Results({ filters, browsing }: { filters: Filters; browsing: boolean }) {
   // Back to one page whenever the filters change.
   const [page, setPage] = useState({ filters, top: PAGE })
   const top = page.filters === filters ? page.top : PAGE
@@ -73,7 +69,13 @@ function Results({ filters }: { filters: Filters }) {
   if (rank.isError) return <Alert color="red">{rank.error.message}</Alert>
   const { results, total } = rank.data
   if (!results.length) {
-    return <Alert>No recipes match these filters for these characters with the current prices.</Alert>
+    return (
+      <Alert>
+        {browsing
+          ? 'No recipes match these filters with the current prices.'
+          : 'No recipes match these filters for these characters with the current prices.'}
+      </Alert>
+    )
   }
   return (
     <Stack>
@@ -104,25 +106,6 @@ function Results({ filters }: { filters: Filters }) {
           </Button>
         </Group>
       )}
-    </Stack>
-  )
-}
-
-function CharacterList({ group }: { group: CharacterGroup }) {
-  return (
-    <Stack gap={2}>
-      {group.characters.map((c) => (
-        <Text key={c.name} size="sm">
-          <b>
-            <CharacterName name={c.name} classFile={c.class_file} />
-          </b>{' '}
-          <Text span c="dimmed" size="sm">
-            {c.level}
-            {c.professions.length ? ': ' : ''}
-            {c.professions.map((p) => `${p.name} ${p.rank}/${p.max_rank}`).join(', ')}
-          </Text>
-        </Text>
-      ))}
     </Stack>
   )
 }
@@ -162,6 +145,8 @@ export function SearchTab() {
   const status = useStatus()
   const { mode } = useSession()
   const characters = useCharacters()
+  const coverage = useCoverage()
+  const professionNames = useProfessions()
   const select = useSelectRealm()
   const [includeUnlearned, setIncludeUnlearned] = useStoredState(
     'altarmy-profit.search.includeUnlearned',
@@ -173,7 +158,9 @@ export function SearchTab() {
     z.boolean(),
     true,
   )
-  const [open, setOpen] = useStoredState('altarmy-profit.search.open', z.array(z.enum(SECTIONS)), NONE_OPEN)
+  // Stored as strings: sections that no longer exist (the old Characters one) are dropped, not an error.
+  const [stored, setOpen] = useStoredState('altarmy-profit.search.open', z.array(z.string()), NONE_OPEN)
+  const open = SECTIONS.filter((s) => stored.includes(s))
   const [exits, setExits] = useStoredState('altarmy-profit.search.exits', z.array(z.enum(ALL_EXITS)), ALL_EXITS)
   // Money in gold and ROI in percent, as typed; converted for the API below.
   const [minCost, setMinCost] = useStoredState('altarmy-profit.search.minCost', bound, 0)
@@ -183,6 +170,11 @@ export function SearchTab() {
   const [maxProfit, setMaxProfit] = useStoredState('altarmy-profit.search.maxProfit', bound, null)
   const [minRoi, setMinRoi] = useStoredState('altarmy-profit.search.minRoi', bound, 0)
   const [maxRoi, setMaxRoi] = useStoredState('altarmy-profit.search.maxRoi', bound, null)
+  const [professions, setProfessions] = useStoredState(
+    'altarmy-profit.search.professions',
+    z.array(z.string()),
+    NO_PROFESSIONS,
+  )
   const filters = useMemo<Filters>(
     () => ({
       includeUnlearned,
@@ -194,8 +186,9 @@ export function SearchTab() {
       maxProfit: scaled(maxProfit, goldToCopper),
       minRoi: scaled(minRoi, (p) => p / 100),
       maxRoi: scaled(maxRoi, (p) => p / 100),
+      professions,
     }),
-    [includeUnlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi],
+    [includeUnlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, professions],
   )
   const [debouncedFilters] = useDebouncedValue(filters, 300)
 
@@ -204,7 +197,7 @@ export function SearchTab() {
   if (status.data.recipes === 0) {
     return (
       <Alert color="red">
-        No recipes in {status.data.db_path}. Download game data on the Manage tab (or run `altarmy-profit ingest`).
+        No recipes in {status.data.db_path}. Download game data on the Manage page (or run `altarmy-profit ingest`).
       </Alert>
     )
   }
@@ -213,6 +206,19 @@ export function SearchTab() {
   // Show the realm being switched to while the server imports its prices.
   const selection = select.isPending ? select.variables : status.data.selection
   const group = groups.find((g) => selection && toKey(g) === toKey(selection))
+  // Without characters on the selected realm, every recipe is ranked for one unnamed crafter.
+  const browsing = group === undefined
+  const options = realmOptions(groups, coverage.data ?? [])
+  const grouped = (['Your characters', 'Browse a realm'] as const)
+    .map((name) => ({
+      group: name,
+      items: options.filter((o) => o.section === name).map(({ value, label }) => ({ value, label })),
+    }))
+    .filter((g) => g.items.length > 0)
+  if (selection && !options.some((o) => o.value === toKey(selection))) {
+    // e.g. a realm whose scan is still being merged: still show what is selected
+    grouped.push({ group: 'Browse a realm', items: [{ value: toKey(selection), label: selection.realm }] })
+  }
 
   return (
     <Stack>
@@ -229,20 +235,38 @@ export function SearchTab() {
       >
         <Select
           label="Realm and faction"
-          placeholder="No characters"
-          data={groups.map((g) => ({ value: toKey(g), label: `${g.realm} (${g.faction})` }))}
+          placeholder="No realm has prices yet"
+          data={grouped}
           value={selection ? toKey(selection) : null}
           onChange={(key) => key && select.mutate(fromKey(key))}
           allowDeselect={false}
           style={{ flex: 1, maxWidth: 420 }}
         />
-        <Switch
-          label="Include recipes not learned yet"
-          description="Every recipe of these characters' professions, not just the ones they know."
-          checked={includeUnlearned}
-          onChange={(e) => setIncludeUnlearned(e.currentTarget.checked)}
+        <MultiSelect
+          label="Professions"
+          placeholder={professions.length ? undefined : 'Every profession'}
+          data={professionNames.data ?? []}
+          value={professions}
+          onChange={setProfessions}
+          clearable
+          searchable
+          style={{ flex: 1, maxWidth: 420 }}
         />
+        {!browsing && (
+          <Switch
+            label="Include recipes not learned yet"
+            description="Every recipe of these characters' professions, not just the ones they know."
+            checked={includeUnlearned}
+            onChange={(e) => setIncludeUnlearned(e.currentTarget.checked)}
+          />
+        )}
       </Flex>
+      {browsing && (
+        <Text size="sm" c="dimmed">
+          Browsing every recipe on this realm, crafted and sold by one character. Add your characters to see who can
+          craft what and what mailing between them costs.
+        </Text>
+      )}
       <Accordion
         multiple
         variant="separated"
@@ -253,12 +277,14 @@ export function SearchTab() {
           <Accordion.Control>Advanced Options</Accordion.Control>
           <Accordion.Panel>
             <Stack>
-              <Checkbox
-                label="Include Trivial Recipes"
-                description="Uncheck to show only recipes that can still give the crafter a skill point."
-                checked={includeTrivial}
-                onChange={(e) => setIncludeTrivial(e.currentTarget.checked)}
-              />
+              {!browsing && (
+                <Checkbox
+                  label="Include Trivial Recipes"
+                  description="Uncheck to show only recipes that can still give the crafter a skill point."
+                  checked={includeTrivial}
+                  onChange={(e) => setIncludeTrivial(e.currentTarget.checked)}
+                />
+              )}
               <Checkbox.Group
                 label="Sell via"
                 value={exits}
@@ -292,28 +318,16 @@ export function SearchTab() {
             </Stack>
           </Accordion.Panel>
         </Accordion.Item>
-        <Accordion.Item value="characters">
-          <Accordion.Control>Characters{group ? ` (${group.characters.length})` : ''}</Accordion.Control>
-          <Accordion.Panel>
-            {group ? <CharacterList group={group} /> : <Text c="dimmed">No characters imported.</Text>}
-          </Accordion.Panel>
-        </Accordion.Item>
       </Accordion>
       {status.data.prices === 0 && (
         <Alert color="yellow">
           {mode === 'hosted'
-            ? 'No prices yet for this realm. Scan the auction house with Auctionator, then upload Auctionator.lua on the Upload tab.'
+            ? 'No prices yet for this realm. Scan the auction house with Auctionator, then upload Auctionator.lua on the Upload page.'
             : 'No prices yet. Scan the auction house with Auctionator, then /reload.'}
         </Alert>
       )}
-      {!status.data.selection ? (
-        <Alert>
-          {mode === 'hosted'
-            ? 'No characters yet. Paste the Alt Army export (/altarmy export) or upload AltArmy_TBC.lua on the Upload tab.'
-            : 'No characters yet. Install the Alt Army addon, log in, or set its file on the Manage tab.'}
-        </Alert>
-      ) : debouncedFilters.exits.length ? (
-        <Results filters={debouncedFilters} />
+      {debouncedFilters.exits.length ? (
+        <Results filters={debouncedFilters} browsing={browsing} />
       ) : (
         <Alert>Pick at least one way to sell under Advanced Options.</Alert>
       )}

@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { client } from '../api/client'
 import { authErrorMessage, signOut } from '../lib/auth'
 
-/** Delete the account on the server (data, then the sign-in account), then start a fresh guest session. */
+/** Delete the account on the server (data, then the sign-in account), then start a fresh anonymous session. */
 function DeleteAccount({ onDone }: { onDone: () => void }) {
   const queryClient = useQueryClient()
   const [confirming, setConfirming] = useState(false)
@@ -24,7 +24,7 @@ function DeleteAccount({ onDone }: { onDone: () => void }) {
       }
       await signOut()
       queryClient.clear()
-      notifications.show({ color: 'green', title: 'Account deleted', message: 'You are now a new guest.' })
+      notifications.show({ color: 'green', title: 'Account deleted', message: 'Your data is gone from this site.' })
       onDone()
     } catch (e) {
       setError(authErrorMessage(e))

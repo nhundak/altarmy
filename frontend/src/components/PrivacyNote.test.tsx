@@ -22,7 +22,7 @@ async function openAndConfirm() {
 describe('privacy note', () => {
   afterEach(() => vi.clearAllMocks())
 
-  it('deletes the account, then starts a new guest session', async () => {
+  it('deletes the account, then starts a new anonymous session', async () => {
     const fetch = mockApi({ '/api/me': null })
     await openAndConfirm()
     await waitFor(() => expect(signOut).toHaveBeenCalled())

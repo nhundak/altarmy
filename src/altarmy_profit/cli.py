@@ -110,7 +110,7 @@ def cmd_import_altarmy(args: argparse.Namespace) -> None:
     except ValueError as e:
         sys.exit(str(e))
     with args.database.begin() as conn:
-        store.save_characters(conn, LOCAL_UID, args.game_version, chars)
+        service.replace_characters(conn, LOCAL_UID, args.game_version, chars)
     for g in altarmy.groups(chars):
         print(f"{g.realm} ({g.faction}): {', '.join(c.name for c in g.characters)}")
 
@@ -283,7 +283,7 @@ def main(argv: list[str] | None = None) -> None:
         "watch", help="upload the addon files to an altarmy-profit server whenever WoW rewrites them"
     )
     s.add_argument("--server", required=True, help="e.g. https://altarmy.example.com")
-    s.add_argument("--key", help="API key from the site's Manage tab (default: the ALTARMY_KEY variable)")
+    s.add_argument("--key", help="API key from the site's Manage page (default: the ALTARMY_KEY variable)")
     s.add_argument("--interval", type=float, default=15, help="seconds between checks (default: 15)")
     s.add_argument("--once", action="store_true", help="upload what changed, then exit")
     s.add_argument("--state", default=str(watch.DEFAULT_STATE), help="which files were sent (JSON)")

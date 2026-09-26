@@ -146,33 +146,56 @@ def save_characters(conn: Connection, user_uid: str, game_version: str, chars: S
     # professions and recipes cascade
     conn.execute(delete(c).where(c.c.user_uid == user_uid, c.c.game_version == game_version))
     for ch in chars:
-        char_id: int = conn.execute(
-            c.insert()
-            .values(
-                user_uid=user_uid,
-                game_version=game_version,
-                realm=ch.realm,
-                name=ch.name,
-                faction=ch.faction,
-                class_file=ch.class_file,
-                level=ch.level,
+        _insert_character(conn, user_uid, game_version, ch)
+
+
+def upsert_character(conn: Connection, user_uid: str, game_version: str, char: Character) -> None:
+    """Store one character, replacing the user's character of that realm and name; the others stay."""
+    delete_character(conn, user_uid, game_version, char.realm, char.name)
+    _insert_character(conn, user_uid, game_version, char)
+
+
+def delete_character(conn: Connection, user_uid: str, game_version: str, realm: str, name: str) -> bool:
+    """Delete the user's character of that realm and name (its professions and recipes cascade); False if
+    there was none."""
+    c = schema.characters
+    done = conn.execute(
+        delete(c).where(
+            c.c.user_uid == user_uid, c.c.game_version == game_version, c.c.realm == realm, c.c.name == name
+        )
+    )
+    return bool(done.rowcount)
+
+
+def _insert_character(conn: Connection, user_uid: str, game_version: str, ch: Character) -> None:
+    c = schema.characters
+    char_id: int = conn.execute(
+        c.insert()
+        .values(
+            user_uid=user_uid,
+            game_version=game_version,
+            realm=ch.realm,
+            name=ch.name,
+            faction=ch.faction,
+            class_file=ch.class_file,
+            level=ch.level,
+        )
+        .returning(c.c.id)
+    ).scalar_one()
+    for p in ch.professions:
+        conn.execute(
+            schema.character_professions.insert().values(
+                character_id=char_id, skill_name=p.name, rank=p.rank, max_rank=p.max_rank
             )
-            .returning(c.c.id)
-        ).scalar_one()
-        for p in ch.professions:
+        )
+        if p.recipe_ids:
             conn.execute(
-                schema.character_professions.insert().values(
-                    character_id=char_id, skill_name=p.name, rank=p.rank, max_rank=p.max_rank
-                )
+                schema.character_recipes.insert(),
+                [
+                    {"character_id": char_id, "skill_name": p.name, "spell_id": spell}
+                    for spell in sorted(p.recipe_ids)
+                ],
             )
-            if p.recipe_ids:
-                conn.execute(
-                    schema.character_recipes.insert(),
-                    [
-                        {"character_id": char_id, "skill_name": p.name, "spell_id": spell}
-                        for spell in sorted(p.recipe_ids)
-                    ],
-                )
 
 
 def load_characters(conn: Connection, user_uid: str, game_version: str) -> list[Character]:
@@ -193,6 +216,23 @@ def load_characters(conn: Connection, user_uid: str, game_version: str) -> list[
         Character(r.realm, r.name, r.faction, r.class_file, r.level, tuple(profs.get(r.id, ())))
         for r in conn.execute(select(c).where(*owned).order_by(c.c.realm, c.c.name))
     ]
+
+
+# Skill lines with recipes in DB2 that aren't professions a player picks (class skills, a test line).
+HIDDEN_PROFESSIONS = frozenset({"Comprehension", "Demonology", "Poisons", "Test Profession [DNT]"})
+
+
+def profession_names(conn: Connection, game_version: str) -> list[str]:
+    """Every profession the version's recipes belong to, by name, but `HIDDEN_PROFESSIONS`."""
+    r = schema.recipes
+    query = (
+        select(r.c.skill_name)
+        .where(r.c.game_version == game_version, r.c.skill_name.not_in(HIDDEN_PROFESSIONS))
+        .distinct()
+        .order_by(r.c.skill_name)
+    )
+    names: list[str] = list(conn.execute(query).scalars().all())
+    return names
 
 
 def count_characters(conn: Connection, user_uid: str, game_version: str) -> int:

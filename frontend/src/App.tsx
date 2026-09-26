@@ -1,20 +1,21 @@
-import { Container, Group, Tabs, Title } from '@mantine/core'
+import {
+  ActionIcon,
+  Anchor,
+  Button,
+  Container,
+  Group,
+  useComputedColorScheme,
+  useMantineColorScheme,
+} from '@mantine/core'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { useAutoUpdateGameData, useSyncNotifications } from './api/queries'
-import { AccountStatus, LinkPrompt } from './components/Account'
-import { GameVersionProvider, GameVersionSwitch } from './components/GameVersionProvider'
-import { ManageTab } from './components/ManageTab'
-import { PrivacyNote } from './components/PrivacyNote'
-import { SearchTab } from './components/SearchTab'
-import { UploadTab } from './components/UploadTab'
+import classes from './App.module.css'
+import { AccountControls } from './components/Account'
+import { IconMark, IconMoon, IconSun } from './components/icons'
+import { Landing } from './components/Landing'
+import { AddonPage, ManagePage, UploadPage } from './components/Pages'
+import { linkProps, useRoute, type Route } from './lib/router'
 import { useSession } from './lib/session'
-
-export function App() {
-  return (
-    <GameVersionProvider>
-      <Shell />
-    </GameVersionProvider>
-  )
-}
 
 /** Local mode keeps the game data current and toasts what the addon file sync imported. */
 function LocalUpkeep() {
@@ -23,38 +24,94 @@ function LocalUpkeep() {
   return null
 }
 
-function Shell() {
-  const { mode, tier } = useSession()
+function NavLink({ to, label }: { to: Route; label: string }) {
+  const route = useRoute()
   return (
-    <Container size="xl" py="md">
-      {mode === 'local' && <LocalUpkeep />}
-      <Group justify="space-between" align="center" mb="md">
-        <Title order={1}>altarmy-profit</Title>
-        <Group>
-          {mode === 'hosted' && <AccountStatus />}
-          <GameVersionSwitch />
+    <Anchor className={classes.nav} underline="never" aria-current={route === to ? 'page' : undefined} {...linkProps(to)}>
+      {label}
+    </Anchor>
+  )
+}
+
+/** Follows the OS until clicked; Mantine remembers the choice in localStorage. */
+function ThemeToggle() {
+  const { setColorScheme } = useMantineColorScheme()
+  const scheme = useComputedColorScheme('dark')
+  const next = scheme === 'dark' ? 'light' : 'dark'
+  return (
+    <ActionIcon
+      variant="subtle"
+      color="gray"
+      size="lg"
+      aria-label={`Switch to ${next} theme`}
+      title={`Switch to ${next} theme`}
+      onClick={() => setColorScheme(next)}
+    >
+      {scheme === 'dark' ? <IconSun size={20} /> : <IconMoon size={20} />}
+    </ActionIcon>
+  )
+}
+
+function Header() {
+  const { mode } = useSession()
+  return (
+    <header className={classes.header}>
+      <a className={classes.brand} aria-label="Alt Army, main page" {...linkProps('/')}>
+        <span className={classes.mark}>
+          <IconMark size={28} />
+        </span>
+        <span className={classes.wordmark}>Alt Army</span>
+      </a>
+      <Group gap="md">
+        <Group gap="md" component="nav" aria-label="Pages">
+          {mode === 'hosted' && <NavLink to="/upload" label="Upload" />}
+          <NavLink to="/manage" label="Manage" />
         </Group>
+        <Button component="a" {...linkProps('/addon')}>
+          Get the Addon
+        </Button>
+        {mode === 'hosted' && <AccountControls />}
+        <ThemeToggle />
       </Group>
-      {tier === 'free' && <LinkPrompt />}
-      <Tabs defaultValue="search">
-        <Tabs.List mb="md">
-          <Tabs.Tab value="search">Search</Tabs.Tab>
-          {mode === 'hosted' && <Tabs.Tab value="upload">Upload</Tabs.Tab>}
-          <Tabs.Tab value="manage">Manage</Tabs.Tab>
-        </Tabs.List>
-        <Tabs.Panel value="search">
-          <SearchTab />
-        </Tabs.Panel>
-        {mode === 'hosted' && (
-          <Tabs.Panel value="upload">
-            <UploadTab />
-          </Tabs.Panel>
-        )}
-        <Tabs.Panel value="manage">
-          <ManageTab />
-        </Tabs.Panel>
-      </Tabs>
-      {mode === 'hosted' && <PrivacyNote />}
-    </Container>
+    </header>
+  )
+}
+
+function Page({ route }: { route: Route }) {
+  const { mode, uid } = useSession()
+  switch (route) {
+    case '/addon':
+      return <AddonPage />
+    case '/upload':
+      return mode === 'hosted' ? <UploadPage /> : <Landing key={uid} />
+    case '/manage':
+      return <ManagePage />
+    default:
+      // Per user: what they chose on the main page is theirs.
+      return <Landing key={uid} />
+  }
+}
+
+export function App() {
+  const { mode } = useSession()
+  const route = useRoute()
+  return (
+    <MotionConfig reducedMotion="user">
+      <Container size="xl" pb="xl">
+        {mode === 'local' && <LocalUpkeep />}
+        <Header />
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.main
+            key={route}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+          >
+            <Page route={route} />
+          </motion.main>
+        </AnimatePresence>
+      </Container>
+    </MotionConfig>
   )
 }
