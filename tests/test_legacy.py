@@ -160,3 +160,26 @@ def test_the_pre_versions_file_is_imported_too(database: db.Database, tmp_path: 
     assert legacy.import_version_files(database, tmp_path, VERSIONS) == [legacy.version_file("tbc", tmp_path)]
     with database.begin() as conn:
         assert [c.name for c in store.load_characters(conn, ME, "tbc")] == ["Frell"]
+
+
+def test_a_version_already_imported_is_never_imported_again(database: db.Database, tmp_path: Path) -> None:
+    """An old release still running writes its file again after the import; it must not overwrite newer
+    data, nor stop the app from starting."""
+    path = legacy.version_file("tbc", tmp_path)
+    fill(old_file(path, "2.5.6.69795"))
+    legacy.import_version_files(database, tmp_path)
+    with database.begin() as conn:
+        store.save_characters(conn, ME, "tbc", [Character("Dreamscythe", "New", "Horde", "MAGE", 1, ())])
+    fill(old_file(path, "2.5.6.69795"))  # back again
+    assert legacy.import_version_files(database, tmp_path) == []
+    assert path.is_file()  # left where it is
+    with database.begin() as conn:
+        assert [c.name for c in store.load_characters(conn, ME, "tbc")] == ["New"]
+
+
+def test_the_pre_versions_file_is_not_moved_into_a_version_already_imported(tmp_path: Path) -> None:
+    legacy_db = tmp_path / "altarmy-profit.db"
+    old_file(legacy_db, "1.60.1.69913").close()
+    (tmp_path / "altarmy-profit-forever.db.imported").write_bytes(b"")
+    assert legacy.migrate_legacy_db(legacy_db) is None
+    assert legacy_db.is_file() and not legacy.version_file("forever", tmp_path).exists()

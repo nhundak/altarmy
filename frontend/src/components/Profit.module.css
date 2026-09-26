@@ -1,0 +1,152 @@
+.cards {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+  align-items: stretch;
+}
+
+.cards[data-phase='choose'] {
+  grid-template-columns: 2fr 1fr 1fr;
+}
+
+/* The open card on the left; the other two stacked at the top beside it (the last row takes the slack). */
+.cards[data-phase='expanded'] {
+  grid-template-columns: 3fr 1fr;
+  grid-template-rows: auto auto 1fr;
+  align-items: start;
+}
+
+.cards[data-phase='expanded'] .slot[data-open] {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+}
+
+.cards[data-phase='expanded'] .slot:not([data-open]) {
+  grid-column: 2;
+}
+
+/* One column on phones, the open card first. Selectors as specific as the ones above, so they win. */
+@media (max-width: 48em) {
+  .cards[data-phase] {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+  }
+
+  .cards[data-phase] .slot:not([data-open]),
+  .cards[data-phase] .slot[data-open] {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .cards[data-phase] .slot[data-open] {
+    order: -1;
+  }
+}
+
+.slot {
+  min-width: 0;
+}
+
+.card {
+  height: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-body);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+:global([data-mantine-color-scheme='dark']) .card {
+  background: var(--mantine-color-dark-6);
+}
+
+.pick {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: var(--mantine-spacing-lg);
+  border-radius: 12px;
+  text-align: left;
+}
+
+.card:has(.pick:hover),
+.card:has(.pick:focus-visible) {
+  border-color: var(--mantine-primary-color-filled);
+  box-shadow: 0 0 0 1px var(--mantine-primary-color-filled);
+}
+
+.card[data-featured] {
+  border-color: color-mix(in srgb, var(--mantine-primary-color-filled) 55%, var(--mantine-color-default-border));
+}
+
+.open {
+  padding: var(--mantine-spacing-lg);
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  color: var(--mantine-primary-color-filled);
+  background: color-mix(in srgb, var(--mantine-primary-color-filled) 14%, transparent);
+  flex: none;
+}
+
+.slot:not([data-open]) .compact .icon {
+  width: 32px;
+  height: 32px;
+}
+
+.strip {
+  border-radius: 12px;
+  border: 1px solid var(--mantine-color-default-border);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-lg);
+  background: var(--mantine-color-body);
+}
+
+:global([data-mantine-color-scheme='dark']) .strip {
+  background: var(--mantine-color-dark-6);
+}
+
+.steps {
+  margin: 0;
+  padding-left: 1.2em;
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+}
+
+.steps li + li {
+  margin-top: 2px;
+}
+
+.summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 2px 4px;
+  margin-left: -4px;
+}
+
+.summary:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.chevron {
+  display: inline-flex;
+  color: var(--mantine-color-dimmed);
+  transition: transform 200ms ease;
+}
+
+.chevron[data-open] {
+  transform: rotate(180deg);
+}
+
+.details {
+  border-top: 1px solid var(--mantine-color-default-border);
+  margin-top: var(--mantine-spacing-sm);
+  padding-block: var(--mantine-spacing-sm) var(--mantine-spacing-xs);
+}

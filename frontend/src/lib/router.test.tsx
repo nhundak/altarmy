@@ -15,6 +15,7 @@ function Where() {
 describe('router', () => {
   it('maps paths to pages, unknown ones to the main page', () => {
     expect(routeOf('/addon')).toBe('/addon')
+    expect(routeOf('/profit')).toBe('/profit')
     expect(routeOf('/manage/')).toBe('/manage')
     expect(routeOf('/nope')).toBe('/')
     expect(routeOf('/')).toBe('/')

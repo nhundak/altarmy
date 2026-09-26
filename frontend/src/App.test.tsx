@@ -108,8 +108,20 @@ describe('the shell by mode and tier', () => {
     expect(window.location.pathname).toBe('/addon')
   })
 
+  it('opens with the two showcase cards, the profit one leading to the search', async () => {
+    mockApi({ '/api/game-data/update': result, '/api/status': status(), '/api/characters': characters })
+    renderApp()
+    expect(screen.getByRole('link', { name: 'Alt Army' })).toHaveAttribute('href', '/addon')
+    fireEvent.click(screen.getByRole('link', { name: 'Put your army to work' }))
+    expect(window.location.pathname).toBe('/profit')
+    expect(await screen.findByRole('button', { name: /^3 characters on/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'Alt Army, main page' }))
+    expect(await screen.findByRole('link', { name: 'Put your army to work' })).toBeInTheDocument()
+  })
+
   it('gives anonymous users everything but API keys, with a way to sign in, and never syncs or updates game data', async () => {
     const fetch = hostedApi()
+    window.history.pushState(null, '', '/profit')
     renderWithProviders(<App />, GUEST)
     expect(nav()).toEqual(['Upload', 'Manage'])
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()

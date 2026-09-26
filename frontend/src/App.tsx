@@ -14,6 +14,7 @@ import { AccountControls } from './components/Account'
 import { IconMark, IconMoon, IconSun } from './components/icons'
 import { Landing } from './components/Landing'
 import { AddonPage, ManagePage, UploadPage } from './components/Pages'
+import { ProfitPage } from './components/Profit'
 import { linkProps, useRoute, type Route } from './lib/router'
 import { useSession } from './lib/session'
 
@@ -82,13 +83,15 @@ function Page({ route }: { route: Route }) {
   switch (route) {
     case '/addon':
       return <AddonPage />
+    case '/profit':
+      // Per user: what they chose on the Profit page is theirs.
+      return <ProfitPage key={uid} />
     case '/upload':
-      return mode === 'hosted' ? <UploadPage /> : <Landing key={uid} />
+      return mode === 'hosted' ? <UploadPage /> : <ProfitPage key={uid} />
     case '/manage':
       return <ManagePage />
     default:
-      // Per user: what they chose on the main page is theirs.
-      return <Landing key={uid} />
+      return <Landing />
   }
 }
 

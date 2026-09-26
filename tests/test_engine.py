@@ -1088,14 +1088,18 @@ def test_detailed_steps_say_where_to_go() -> None:
             said.append((d.who, s.action, s.item_id))
         elif d.kind == "go":
             said.append((d.who, "go", d.location_id, tuple((i, q) for i, _, q in d.retrieve)))
+        elif d.kind == "start":
+            said.append((d.who, "start", d.location_id))
         else:
             said.append((d.who, "switch"))
     assert said == [
-        ("Leathery", "buy", SCRAPS),  # at the auction house, where everyone starts
+        ("Leathery", "start", "ah"),  # everyone starts at the hub, the auction house
+        ("Leathery", "buy", SCRAPS),
         ("Leathery", "go", "mailbox:1", ((SCRAPS, 6),)),
         ("Leathery", "craft", LEATHER),
         ("Leathery", "mail", LEATHER),  # from the mailbox Leathery stands at
         ("Smithy", "switch"),
+        ("Smithy", "start", "ah"),
         ("Smithy", "buy", COPPER),
         ("Smithy", "go", "mailbox:1", ((COPPER, 1), (LEATHER, 2))),  # the AH's copper and Leathery's leather
         ("Smithy", "go", "anvil:1", ()),
@@ -1106,6 +1110,7 @@ def test_detailed_steps_say_where_to_go() -> None:
     assert sorted(d.step for d in details if d.step is not None) == list(range(len(res.steps)))
     switch = next(d for d in details if d.kind == "switch")
     assert switch.seconds == timed(0).config.switch_character
+    assert all(d.seconds == 0 for d in details if d.kind == "start")
     runs = {d.location_id: d.seconds for d in details if d.kind == "go" and d.who == "Smithy"}
     assert runs["anvil:1"] == pytest.approx(5.0)  # from the mailbox (35 yd) to the anvil (70 yd): 5 s
 

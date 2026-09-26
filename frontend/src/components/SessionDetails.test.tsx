@@ -26,6 +26,8 @@ const at = (
   map_area: number | null = null,
 ) => ({ id, kind, name, map_x, map_y, map_area })
 
+const stockton = at('ah', 'ah', 'Auctioneer Stockton', 71.4, 46.7, 1637)
+
 /** The robe planned for 20 crafts: the steps say 20x, and the details say where to go. */
 const session: RankResult = {
   ...timedRobe,
@@ -35,6 +37,7 @@ const session: RankResult = {
   profit: 4000,
   steps: timedRobe.steps.map((s) => ({ ...s, quantity: s.quantity * 20, value: s.value * 20 })),
   details: [
+    { kind: 'start', who: '', step: null, location: stockton, retrieve: [], seconds: 0 },
     { kind: 'step', who: '', step: 0, location: null, retrieve: [], seconds: 0 },
     { kind: 'go', who: '', step: null, location: at('vendor:1', 'vendor', 'Thread Seller', 48.5, 71.2), retrieve: [], seconds: 13.6 },
     { kind: 'step', who: '', step: 1, location: null, retrieve: [], seconds: 0 },
@@ -119,6 +122,8 @@ describe('the Steps view plans a session', () => {
     expect(screen.queryByText(/Run to/)).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('checkbox', { name: 'Detailed view' }))
     // to buy the thread (a 13.6 s run from the auction house), and later to sell the robe
+    // each character starts where they stand, which takes no time
+    expect(await line('Start at Auctioneer Stockton at 71.4, 46.7')).toBeInTheDocument()
     expect(await line('Run to Thread Seller at 48.5, 71.2. · 14 s')).toBeInTheDocument()
     expect(await line('Run to Thread Seller at 48.5, 71.2.')).toBeInTheDocument()
     expect(await line('Sell 20x Green Robe to Thread Seller (Gross 1 0 0 · Net 40 0)')).toBeInTheDocument()
@@ -140,6 +145,10 @@ describe('the Steps view plans a session', () => {
     expect(screen.getByTestId('map-dot')).toHaveStyle({ left: '50%', top: '70.4%' })
     await userEvent.unhover(screen.getByText('Run to Mailbox at 50.0, 70.4'))
     await waitFor(() => expect(screen.queryByRole('img', { name: 'Map: Mailbox' })).not.toBeInTheDocument())
+    // so does where a character starts
+    await userEvent.hover(screen.getByText('Start at Auctioneer Stockton at 71.4, 46.7'))
+    expect(await screen.findByRole('img', { name: 'Map: Auctioneer Stockton' })).toBeInTheDocument()
+    await userEvent.unhover(screen.getByText('Start at Auctioneer Stockton at 71.4, 46.7'))
     // a run without a known zone map is plain text
     await userEvent.hover(screen.getAllByText(/Run to Thread Seller/)[0])
     expect(screen.queryAllByRole('img', { name: /^Map:/ })).toHaveLength(0)
@@ -189,6 +198,7 @@ describe('every line of a session says how long it takes', () => {
       ],
       details: [
         { kind: 'switch', who: 'Frell', step: null, location: null, retrieve: [], seconds: 45 },
+        { kind: 'start', who: 'Frell', step: null, location: stockton, retrieve: [], seconds: 0 },
         { kind: 'step', who: 'Frell', step: 0, location: null, retrieve: [], seconds: 0 },
       ],
     }
@@ -199,6 +209,7 @@ describe('every line of a session says how long it takes', () => {
     localStorage.setItem('altarmy-profit.steps.detailed', 'true')
     await openSteps()
     expect(await line('Switch to Frell · 45 s')).toBeInTheDocument()
+    expect(await line('Frell: Start at Auctioneer Stockton at 71.4, 46.7')).toBeInTheDocument()
     expect(await line('Frell: Disenchant 20x Green Robe · 1 min 10 s')).toBeInTheDocument()
     const sell = await screen.findByText((_, el) => el?.tagName === 'LI' && shown(el)?.startsWith('Frell: Sell materials') === true)
     expect(shown(sell)).toMatch(/· 30 s$/)

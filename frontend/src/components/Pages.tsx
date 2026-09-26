@@ -8,7 +8,7 @@ function Page({ title, lead, children }: { title: string; lead?: ReactNode; chil
   return (
     <Stack gap="lg">
       <Stack gap={4}>
-        <Anchor size="sm" {...linkProps('/')}>
+        <Anchor size="sm" {...linkProps('/profit')}>
           ← Back to the search
         </Anchor>
         <Title order={2}>{title}</Title>
@@ -38,7 +38,7 @@ export function AddonPage() {
           <List.Item>
             Type <Code>/altarmy export</Code> in game and press Ctrl+C.
           </List.Item>
-          <List.Item>Paste the export into Import your characters on the main page.</List.Item>
+          <List.Item>Paste the export into Import your characters on the Profit page.</List.Item>
         </List>
       </Stack>
     </Page>

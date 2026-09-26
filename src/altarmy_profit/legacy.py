@@ -153,10 +153,14 @@ def version_file(key: str, data_dir: Path = versions.DATA_DIR) -> Path:
     return data_dir / f"altarmy-profit-{key}.db"
 
 
+def _imported(path: Path) -> Path:
+    return path.with_name(path.name + IMPORTED_SUFFIX)
+
+
 def migrate_legacy_db(legacy: Path = LEGACY_DB, data_dir: Path | None = None) -> Path | None:
     """Rename the pre-versions database to its version's file, picked from the build it holds (no build
     means Forever, the only version back then). Returns the new path; None if there was nothing to move or
-    that version already has a file."""
+    that version already has a file, or was imported already."""
     if not legacy.is_file():
         return None
     conn = connect(legacy)
@@ -166,7 +170,7 @@ def migrate_legacy_db(legacy: Path = LEGACY_DB, data_dir: Path | None = None) ->
     finally:
         conn.close()
     target = version_file(versions.version_of_build(row[0] if row else ""), data_dir or legacy.parent)
-    if target.exists():
+    if target.exists() or _imported(target).exists():
         return None
     legacy.rename(target)
     return target
@@ -178,16 +182,18 @@ def import_version_files(
     game_versions: Mapping[str, GameVersion] = versions.VERSIONS,
 ) -> list[Path]:
     """Import every old per-version file found in `data_dir` (after moving the pre-versions file into
-    place), renaming each to `*.imported`. Returns the files imported."""
+    place), renaming each to `*.imported`. Returns the files imported. A version is imported once: a file
+    that shows up again after its `*.imported` (an old release still running writes it) is left alone,
+    since the database has moved on since."""
     migrate_legacy_db(data_dir / LEGACY_DB.name, data_dir)
     done = []
     for key in game_versions:
         path = version_file(key, data_dir)
-        if not path.is_file():
+        if not path.is_file() or _imported(path).exists():
             continue
         with database.begin() as conn:
             import_version_file(conn, key, path)
-        path.rename(path.with_name(path.name + IMPORTED_SUFFIX))
+            path.rename(_imported(path))  # before the commit: if it fails, nothing was imported
         done.append(path)
     return done
 

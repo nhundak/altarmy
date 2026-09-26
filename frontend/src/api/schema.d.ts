@@ -666,7 +666,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "switch" | "go" | "step";
+            kind: "switch" | "start" | "go" | "step";
             location: components["schemas"]["LocationOut"] | null;
             /** Retrieve */
             retrieve: components["schemas"]["ItemCount"][];

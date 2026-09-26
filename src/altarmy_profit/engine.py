@@ -554,13 +554,14 @@ def time_result(result: Result, model: TimeModel) -> timing.Timing:
 
 @dataclass(frozen=True)
 class Detail:
-    """One line of a plan spelled out: `switch` to another character, `go` somewhere (with what to take
-    from the mailbox there), or do a `step` (an index into the result's `steps`)."""
+    """One line of a plan spelled out: `switch` to another character, `start` (where a character's stretch
+    begins: the hub), `go` somewhere (with what to take from the mailbox there), or do a `step` (an index
+    into the result's `steps`)."""
 
-    kind: str  # switch | go | step
+    kind: str  # switch | start | go | step
     who: str
     step: int | None = None
-    location_id: str = ""  # go: where to
+    location_id: str = ""  # start: where they stand; go: where to
     retrieve: tuple[tuple[int, str, int], ...] = ()  # go to collect: (item id, name, quantity) waiting there
     seconds: float = 0.0  # go: the run there
 
@@ -621,7 +622,8 @@ def detailed_steps(result: Result) -> list[Detail]:
     """The result's steps with where to go in between, following the route its timing took: per character
     (as `time_result` splits them), buys where they are bought, a stop at the mailbox to collect AH
     purchases and alts' mail, crafts at their stations (the rest where the character stands), then mail and
-    sales where they happen. Every step appears once; empty without a timing."""
+    sales where they happen. Each character's stretch opens with where they start (the hub). Every step
+    appears once; empty without a timing."""
     city, t, model = timed_city(result), result.timing, result.time_model
     if city is None or t is None or model is None:
         return []
@@ -644,6 +646,7 @@ def detailed_steps(result: Result) -> list[Detail]:
         me = _Spelling(steps, run, out, city.hub.id, leg)
         if n:
             out.append(Detail("switch", me.who, seconds=config.switch_character))
+        out.append(Detail("start", me.who, location_id=city.hub.id))
         mine: list[timing.Stop] = []
         while stops and stops[0].who == me.who:
             mine.append(stops.pop(0))

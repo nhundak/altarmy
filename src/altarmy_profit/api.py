@@ -259,10 +259,10 @@ class LocationOut(BaseModel):
 class DetailOut(BaseModel):
     """One line of a session spelled out."""
 
-    kind: Literal["switch", "go", "step"]
+    kind: Literal["switch", "start", "go", "step"]
     who: str
     step: int | None  # step: an index into `steps`
-    location: LocationOut | None  # go: where to
+    location: LocationOut | None  # start: where the character stands (no time); go: where to
     retrieve: list[ItemCount]  # go to the mailbox: what waits there
     seconds: float  # go: the run there
 
@@ -1215,10 +1215,10 @@ def _details_out(r: engine.Result) -> list[DetailOut]:
 
     return [
         DetailOut(
-            kind=cast(Literal["switch", "go", "step"], d.kind),
+            kind=cast(Literal["switch", "start", "go", "step"], d.kind),
             who=d.who,
             step=d.step,
-            location=where(d.location_id) if d.kind == "go" else None,
+            location=where(d.location_id) if d.kind in ("start", "go") else None,
             retrieve=[ItemCount(item_id=i, count=q) for i, _, q in d.retrieve],
             seconds=d.seconds,
         )

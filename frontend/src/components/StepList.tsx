@@ -159,26 +159,42 @@ function stepLines(step: Step, result: RankResult, items: ItemMap, vendor?: stri
 
 type Detail = RankResult['details'][number]
 
-/** A run to somewhere, with what to take from the mailbox there. */
-function goLine({ who, location, retrieve, seconds }: Detail, items: ItemMap): ReactNode {
-  if (!location) return null
+/** "`verb` <place> at x, y", showing the zone map with the spot marked on hover when it is known. */
+function Place({ verb, location }: { verb: string; location: NonNullable<Detail['location']> }) {
   const { name, map_x: x, map_y: y, map_area: area } = location
-  const run = (
+  const text = (
     <>
-      Run to {name}
+      {verb} {name}
       {x != null && y != null && ` at ${formatCoords(x, y)}`}
     </>
   )
+  return area != null && x != null && y != null ? (
+    <Hover tooltip={<ZoneMap area={area} x={x} y={y} name={name} />}>
+      <span className={classes.mapLink}>{text}</span>
+    </Hover>
+  ) : (
+    text
+  )
+}
+
+/** Where a character's stretch starts; standing there takes no time, so no time is shown. */
+function startLine({ who, location }: Detail): ReactNode {
+  if (!location) return null
   return (
     <>
       <Who who={who} />
-      {area != null && x != null && y != null ? (
-        <Hover tooltip={<ZoneMap area={area} x={x} y={y} name={name} />}>
-          <span className={classes.mapLink}>{run}</span>
-        </Hover>
-      ) : (
-        run
-      )}
+      <Place verb="Start at" location={location} />
+    </>
+  )
+}
+
+/** A run to somewhere, with what to take from the mailbox there. */
+function goLine({ who, location, retrieve, seconds }: Detail, items: ItemMap): ReactNode {
+  if (!location) return null
+  return (
+    <>
+      <Who who={who} />
+      <Place verb="Run to" location={location} />
       .
       {retrieve.length > 0 && (
         <>
@@ -211,6 +227,10 @@ function planLines(result: RankResult, items: ItemMap, detailed: boolean): React
           <Took seconds={d.seconds} />
         </>,
       ]
+    }
+    if (d.kind === 'start') {
+      vendor = d.location?.kind === 'vendor' ? d.location.name : undefined
+      return [startLine(d)]
     }
     if (d.kind === 'go') {
       vendor = d.location?.kind === 'vendor' ? d.location.name : undefined

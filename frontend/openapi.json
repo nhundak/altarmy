@@ -348,6 +348,7 @@
           "kind": {
             "enum": [
               "switch",
+              "start",
               "go",
               "step"
             ],

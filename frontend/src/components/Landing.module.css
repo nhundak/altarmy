@@ -1,152 +1,122 @@
-.cards {
-  display: grid;
-  gap: var(--mantine-spacing-md);
-  align-items: stretch;
-}
-
-.cards[data-phase='choose'] {
-  grid-template-columns: 2fr 1fr 1fr;
-}
-
-/* The open card on the left; the other two stacked at the top beside it (the last row takes the slack). */
-.cards[data-phase='expanded'] {
-  grid-template-columns: 3fr 1fr;
-  grid-template-rows: auto auto 1fr;
-  align-items: start;
-}
-
-.cards[data-phase='expanded'] .slot[data-open] {
-  grid-column: 1;
-  grid-row: 1 / span 3;
-}
-
-.cards[data-phase='expanded'] .slot:not([data-open]) {
-  grid-column: 2;
-}
-
-/* One column on phones, the open card first. Selectors as specific as the ones above, so they win. */
-@media (max-width: 48em) {
-  .cards[data-phase] {
-    grid-template-columns: 1fr;
-    grid-template-rows: none;
-  }
-
-  .cards[data-phase] .slot:not([data-open]),
-  .cards[data-phase] .slot[data-open] {
-    grid-column: auto;
-    grid-row: auto;
-  }
-
-  .cards[data-phase] .slot[data-open] {
-    order: -1;
-  }
-}
-
-.slot {
-  min-width: 0;
-}
-
+/*
+ * The main page's showcase cards: warm panels with a gold glow, like the Profit page's banner. The title's link
+ * is stretched over the whole card; the carousel's controls sit above it.
+ */
 .card {
-  height: 100%;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: var(--mantine-spacing-xl);
+  align-items: center;
+  padding: var(--mantine-spacing-xl);
   border-radius: 12px;
   border: 1px solid var(--mantine-color-default-border);
-  background: var(--mantine-color-body);
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--mantine-color-gold-4) 22%, transparent), transparent 55%),
+    radial-gradient(80% 120% at 100% 100%, color-mix(in srgb, var(--mantine-color-gold-6) 10%, transparent), transparent 60%),
+    var(--mantine-color-body);
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
 }
 
 :global([data-mantine-color-scheme='dark']) .card {
-  background: var(--mantine-color-dark-6);
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--mantine-color-gold-5) 18%, transparent), transparent 55%),
+    radial-gradient(80% 120% at 100% 100%, color-mix(in srgb, var(--mantine-color-gold-7) 12%, transparent), transparent 60%),
+    var(--mantine-color-dark-6);
 }
 
-.pick {
-  display: block;
-  width: 100%;
-  height: 100%;
-  padding: var(--mantine-spacing-lg);
-  border-radius: 12px;
-  text-align: left;
-}
-
-.card:has(.pick:hover),
-.card:has(.pick:focus-visible) {
+.card:hover,
+.card:has(.link:focus-visible) {
   border-color: var(--mantine-primary-color-filled);
   box-shadow: 0 0 0 1px var(--mantine-primary-color-filled);
 }
 
-.card[data-featured] {
-  border-color: color-mix(in srgb, var(--mantine-primary-color-filled) 55%, var(--mantine-color-default-border));
+.link {
+  color: inherit;
+  text-decoration: none;
+  outline: none;
 }
 
-.open {
-  padding: var(--mantine-spacing-lg);
-}
-
-.icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  color: var(--mantine-primary-color-filled);
-  background: color-mix(in srgb, var(--mantine-primary-color-filled) 14%, transparent);
-  flex: none;
-}
-
-.slot:not([data-open]) .compact .icon {
-  width: 32px;
-  height: 32px;
-}
-
-.strip {
+.link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
   border-radius: 12px;
-  border: 1px solid var(--mantine-color-default-border);
-  padding: var(--mantine-spacing-sm) var(--mantine-spacing-lg);
-  background: var(--mantine-color-body);
 }
 
-:global([data-mantine-color-scheme='dark']) .strip {
-  background: var(--mantine-color-dark-6);
+.card[data-reverse] .shots {
+  order: -1;
 }
 
-.steps {
-  margin: 0;
-  padding-left: 1.2em;
+.copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  min-width: 0;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-primary-color-filled);
+}
+
+.title {
+  font-size: clamp(1.75rem, 1.2rem + 2vw, 2.6rem);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  max-width: 22ch;
+}
+
+.lead {
+  max-width: 52ch;
+  font-size: var(--mantine-font-size-lg);
   color: var(--mantine-color-dimmed);
+}
+
+.note {
   font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
 }
 
-.steps li + li {
-  margin-top: 2px;
-}
-
-.summary {
+.cue {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border-radius: 6px;
-  padding: 2px 4px;
-  margin-left: -4px;
+  margin-top: var(--mantine-spacing-xs);
+  font-weight: 700;
+  color: var(--mantine-primary-color-filled);
 }
 
-.summary:hover {
-  background: var(--mantine-color-default-hover);
+.arrow {
+  transition: transform 150ms ease;
 }
 
-.chevron {
-  display: inline-flex;
-  color: var(--mantine-color-dimmed);
-  transition: transform 200ms ease;
+.card:hover .arrow,
+.card:has(.link:focus-visible) .arrow {
+  transform: translateX(4px);
 }
 
-.chevron[data-open] {
-  transform: rotate(180deg);
+/* Above the stretched link, so the carousel's buttons get the clicks. */
+.shots {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
 }
 
-.details {
-  border-top: 1px solid var(--mantine-color-default-border);
-  margin-top: var(--mantine-spacing-sm);
-  padding-block: var(--mantine-spacing-sm) var(--mantine-spacing-xs);
+/* One column on phones: the copy first, then the screenshots, whichever side they take on wide screens. */
+@media (max-width: 48em) {
+  .card {
+    grid-template-columns: 1fr;
+    padding: var(--mantine-spacing-lg);
+  }
+
+  .card[data-reverse] .shots {
+    order: 0;
+  }
 }

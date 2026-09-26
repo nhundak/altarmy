@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import {
   Accordion,
   Alert,
@@ -71,7 +71,8 @@ const scaled = (v: number | null, f: (v: number) => number) => (v === null ? nul
 
 type Filters = Omit<RankParams, 'top'>
 
-function Results({
+/** Memoized: opening or closing a filter section re-renders the search, and the table is the costly part. */
+const Results = memo(function Results({
   filters,
   browsing,
   onRankBy,
@@ -138,7 +139,7 @@ function Results({
       )}
     </Stack>
   )
-}
+})
 
 type RangeProps = {
   name: string // e.g. "cost (gold)"
@@ -317,9 +318,19 @@ export function SearchTab() {
           craft what and what mailing between them costs.
         </Text>
       )}
-      {/* Two independent sections, side by side on large screens, each remembering whether it is open. */}
+      {/* Two independent sections, side by side on large screens, each remembering whether it is open. They open
+          without animating: a height transition re-lays out the results table below on every frame. Both panels
+          stay mounted and are only hidden when closed (Mantine's default hides them in an Activity, which re-runs
+          every input's effects on each open). */}
       <SimpleGrid cols={{ base: 1, lg: 2 }} style={{ alignItems: 'start' }}>
-        <Accordion multiple variant="separated" value={open} onChange={(v) => toggleSection('advanced', v)}>
+        <Accordion
+          multiple
+          variant="separated"
+          transitionDuration={0}
+          keepMountedMode="display-none"
+          value={open}
+          onChange={(v) => toggleSection('advanced', v)}
+        >
           <Accordion.Item value="advanced">
             <Accordion.Control>Advanced Filters</Accordion.Control>
             <Accordion.Panel>
@@ -366,10 +377,19 @@ export function SearchTab() {
             </Accordion.Panel>
           </Accordion.Item>
         </Accordion>
-        <Accordion multiple variant="separated" value={open} onChange={(v) => toggleSection('time', v)}>
+        <Accordion
+          multiple
+          variant="separated"
+          transitionDuration={0}
+          keepMountedMode="display-none"
+          value={open}
+          onChange={(v) => toggleSection('time', v)}
+        >
           <Accordion.Item value="time">
             <Accordion.Control>Time assumptions</Accordion.Control>
-            <Accordion.Panel>{open.includes('time') && <TimeSettingsPanel />}</Accordion.Panel>
+            <Accordion.Panel>
+              <TimeSettingsPanel />
+            </Accordion.Panel>
           </Accordion.Item>
         </Accordion>
       </SimpleGrid>

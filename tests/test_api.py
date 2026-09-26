@@ -1050,7 +1050,7 @@ def test_serves_the_front_end_for_its_own_pages(
     (dist / "index.html").write_text("<html>app</html>")
     (dist / "assets" / "app.js").write_text("js")
     client = TestClient(create_app(game_versions, database=database, static_dir=dist, wow_roots=()))
-    for page in ("/addon", "/upload", "/manage"):
+    for page in ("/addon", "/profit", "/upload", "/manage"):
         assert client.get(page).text == "<html>app</html>"
     assert client.get("/assets/app.js").text == "js"
     assert client.get("/assets/missing.js").status_code == 404
@@ -1139,8 +1139,9 @@ def test_evaluate_plans_a_session_spelled_out(client: TestClient, priced: Connec
             said.append((s["action"], s["name"], s["quantity"]))
         else:
             loc = d["location"]
-            said.append(("go", loc["name"], [(i["item_id"], i["count"]) for i in d["retrieve"]]))
+            said.append((d["kind"], loc["name"], [(i["item_id"], i["count"]) for i in d["retrieve"]]))
     assert said == [
+        ("start", "Auctioneer", []),
         ("buy", "Linen Cloth", 200),
         ("buy", "Coarse Thread", 20),
         ("go", "Mailbox", [(1, 200), (2, 20)]),
@@ -1149,7 +1150,8 @@ def test_evaluate_plans_a_session_spelled_out(client: TestClient, priced: Connec
         ("go", "Thread Seller", []),
         ("sell", "Green Robe", 20),
     ]
-    anvil = r["details"][3]["location"]
+    assert r["details"][0]["seconds"] == 0
+    anvil = r["details"][4]["location"]
     assert (anvil["kind"], anvil["map_x"], anvil["map_y"], anvil["map_area"]) == ("anvil", 49.0, 50.0, 1638)
     assert (
         client.post("/api/evaluate", json={"recipe_id": 100, "choices": {}}).json()["result"]["details"] == []
