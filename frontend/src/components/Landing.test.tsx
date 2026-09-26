@@ -39,7 +39,9 @@ describe('Landing', () => {
     fireEvent.click(within(shots).getByRole('button', { name: 'Next screenshot' }))
     expect(within(shots).getAllByRole('img').map((i) => i.getAttribute('src'))).toContain('/landing/addon-search.png')
     expect(window.location.pathname).toBe('/')
-    expect(screen.getByRole('group', { name: 'Put your army to work screenshots' })).toBeInTheDocument()
+    const profit = screen.getByRole('group', { name: 'Put your army to work screenshots' })
+    expect(within(profit).getByRole('img')).toHaveAttribute('src', '/landing/profit-search.png')
+    expect(within(profit).getAllByRole('button', { name: /^Screenshot \d of 3$/ })).toHaveLength(3)
   })
 
   it('cycles the two carousels every six seconds, the profit one three seconds behind the addon one', () => {

@@ -63,11 +63,16 @@ describe('Carousel', () => {
     expect(current()).toBe(2)
   })
 
-  it('forgets the offset once the visitor steps by hand', () => {
+  it('stops cycling once the visitor picks a picture', () => {
     vi.useFakeTimers()
-    renderCarousel(500)
-    fireEvent.click(screen.getByRole('button', { name: 'Next screenshot' }))
+    renderCarousel()
     act(() => vi.advanceTimersByTime(1000))
-    expect(current()).toBe(2)
+    expect(current()).toBe(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Screenshot 1 of 3' }))
+    act(() => vi.advanceTimersByTime(10000))
+    expect(current()).toBe(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Next screenshot' }))
+    act(() => vi.advanceTimersByTime(10000))
+    expect(current()).toBe(1)
   })
 })

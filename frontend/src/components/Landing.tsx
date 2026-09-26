@@ -16,6 +16,8 @@ type Showcase = {
   note?: string
   cue: string
   slides: readonly Slide[]
+  /** The screenshots' shape, as a CSS aspect ratio (the carousel's default is 3:2). */
+  aspect?: string
   /** Pictures on the left, copy on the right (on wide screens; phones always read the copy first). */
   reverse?: boolean
 }
@@ -53,10 +55,11 @@ const SHOWCASES: readonly Showcase[] = [
       'results.',
     cue: 'Find profitable crafts',
     slides: [
-      { src: '/landing/profit-1.svg', alt: 'Profit: the most profitable recipes' },
-      { src: '/landing/profit-2.svg', alt: 'Profit: where to buy and what to craft' },
-      { src: '/landing/profit-3.svg', alt: 'Profit: how best to sell' },
+      { src: '/landing/profit-search.png', alt: 'Profit: recipes ranked by profit, profit per hour and return' },
+      { src: '/landing/profit-flow.png', alt: 'Profit: the flow chart of what to buy and craft for Hard Gold Bracers' },
+      { src: '/landing/profit-steps.png', alt: 'Profit: the step-by-step plan, with the run to each spot on the city map' },
     ],
+    aspect: '16 / 9',
     reverse: true,
   },
 ]
@@ -94,7 +97,7 @@ function ShowcaseCard({ spec, index }: { spec: Showcase; index: number }) {
       </div>
       <div className={classes.shots}>
         {/* The cards take turns: the second one's first step comes half an interval after the first one's. */}
-        <Carousel slides={spec.slides} label={`${spec.title} screenshots`} offset={index * 3000} />
+        <Carousel slides={spec.slides} label={`${spec.title} screenshots`} offset={index * 3000} aspect={spec.aspect} />
       </div>
     </motion.article>
   )

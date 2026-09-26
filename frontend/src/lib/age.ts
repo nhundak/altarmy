@@ -1,6 +1,11 @@
+/** A server timestamp ("YYYY-MM-DD HH:MM:SS", UTC) as epoch milliseconds; NaN if it cannot be read. */
+export function parseUtc(utc: string): number {
+  return Date.parse(`${utc.replace(' ', 'T')}Z`)
+}
+
 /** How long ago a server timestamp ("YYYY-MM-DD HH:MM:SS", UTC) was, roughly: "just now", "5 min", "3 h", "2 days". */
 export function age(utc: string, now: Date = new Date()): string {
-  const then = Date.parse(`${utc.replace(' ', 'T')}Z`)
+  const then = parseUtc(utc)
   if (Number.isNaN(then)) return utc
   const minutes = Math.max(0, Math.floor((now.getTime() - then) / 60_000))
   if (minutes < 1) return 'just now'

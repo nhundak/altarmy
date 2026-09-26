@@ -5,10 +5,9 @@
   min-width: 0;
 }
 
-/* The pictures stack in one frame so a new one fades in over the old; 3:2 is the addon screenshots' shape. */
+/* The pictures stack in one frame (its aspect ratio set inline) so a new one fades in over the old. */
 .frame {
   position: relative;
-  aspect-ratio: 3 / 2;
   overflow: hidden;
   border-radius: 8px;
   border: 1px solid var(--mantine-color-default-border);

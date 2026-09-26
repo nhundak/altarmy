@@ -70,6 +70,19 @@ describe('SearchTab', () => {
     )
   })
 
+  it('shows how fresh the selected auction house prices are', async () => {
+    mockApi({
+      '/api/status': status(),
+      '/api/characters': characters,
+      '/api/coverage': [house('Classic Beta PvE', ''), { ...house('Dreamscythe', 'Horde'), auction_house_id: 2 }],
+      '/api/rank': noResults,
+    })
+    renderWithProviders(<SearchTab />, GUEST)
+    const freshness = await screen.findByRole('status', { name: 'Price freshness' })
+    expect(freshness).toHaveTextContent(/Auction house prices are from a scan \d+ days ago\./)
+    expect(screen.getByRole('link', { name: 'Upload your scan' })).toHaveAttribute('href', '/upload')
+  })
+
   it('points hosted users to the Upload page for prices', async () => {
     mockApi({
       '/api/status': status({ characters: 0, selection: null, prices: 0 }),

@@ -100,3 +100,13 @@ export function IconChevron(props: IconProps) {
     </Svg>
   )
 }
+
+/** A triangle with an exclamation mark: something needs attention. */
+export function IconWarning(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M10.3 3.9 2.6 17.2a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+      <path d="M12 9v4M12 17h.01" />
+    </Svg>
+  )
+}

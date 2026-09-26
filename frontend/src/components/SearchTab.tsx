@@ -37,6 +37,7 @@ import { goldToCopper } from '../lib/money'
 import { fromKey, realmOptions, toKey } from '../lib/realms'
 import { useSession } from '../lib/session'
 import { useStoredState } from '../lib/storage'
+import { PriceFreshness } from './PriceFreshness'
 import { ResultsTable, type RankBy } from './ResultsTable'
 import { TimeSettingsPanel } from './TimeSettingsPanel'
 
@@ -255,6 +256,9 @@ export function SearchTab() {
     // e.g. a realm whose scan is still being merged: still show what is selected
     grouped.push({ group: 'Browse a realm', items: [{ value: toKey(selection), label: selection.realm }] })
   }
+  // The selection's auction house and its newest scan; undefined while the coverage is still loading.
+  const house = coverage.data?.find((c) => c.auction_house_id === status.data.auction_house_id)
+  const lastScan = coverage.data && status.data.auction_house_id !== null ? (house?.last_scan ?? null) : undefined
 
   return (
     <Stack>
@@ -297,6 +301,7 @@ export function SearchTab() {
           />
         )}
       </Flex>
+      {lastScan !== undefined && <PriceFreshness lastScan={lastScan} />}
       <Group gap="xs">
         <Text size="sm" fw={500} id="rank-by">
           Rank by
