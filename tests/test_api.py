@@ -1050,7 +1050,7 @@ def test_serves_the_front_end_for_its_own_pages(
 def test_time_settings_round_trip(client: TestClient, priced: Connection, cities: Path) -> None:
     got = client.get("/api/time").json()
     assert [c["name"] for c in got["cities"]] == ["Orgrimmar", "Thunder Bluff"]  # Horde's; no neutral town
-    assert (got["city"], got["active"]) == (None, "Orgrimmar")
+    assert (got["city"], got["active"]) == (None, None)  # whatever is fastest
     assert got["config"] == got["defaults"]
     assert got["defaults"]["batch"] == 20
     put = client.put("/api/time", json={"city": "Thunder Bluff", "config": {"batch": 5, "time_value": 10**6}})
@@ -1072,16 +1072,22 @@ def test_time_settings_round_trip(client: TestClient, priced: Connection, cities
 def test_rank_reports_profit_per_hour(client: TestClient, priced: Connection, cities: Path) -> None:
     (r,) = client.get("/api/rank").json()["results"]
     t = r["timing"]
-    assert (t["city"], t["batch"]) == ("Orgrimmar", 20)
+    # by default each plan is timed in the fastest Horde city: Thunder Bluff has the anvil and the vendor
+    assert (t["city"], t["batch"]) == ("Thunder Bluff", 20)
     assert t["total_seconds"] == pytest.approx(t["fixed_seconds"] + 20 * t["per_craft_seconds"])
     assert t["per_hour"] == round(200 * 20 * 3600 / t["total_seconds"])
     assert set(t["breakdown"]) >= {"travel", "craft", "ah", "vendor"}
-    # collect the AH purchases, sell the robe to the vendor, back to the auction house
-    assert [leg["to_name"] for leg in t["legs"]] == ["Mailbox", "Thread Seller", "Auctioneer"]
+    # collect the AH purchases, craft at the anvil, sell the robe to the vendor, and stop there
+    assert [leg["to_name"] for leg in t["legs"]] == ["Mailbox", "Anvil", "Thread Seller"]
     assert [c["city"] for c in r["cities"]] == ["Orgrimmar", "Thunder Bluff"]
-    assert r["best_city"] == "Thunder Bluff"  # its vendor is next door
-    # the robe is crafted at an anvil, which Orgrimmar lacks here: noted, not timed
-    assert (t["missing"], r["cities"][0]["missing"], r["cities"][1]["missing"]) == (["anvil"], ["anvil"], [])
+    assert r["best_city"] == "Thunder Bluff"
+    # the robe is crafted at an anvil, which Orgrimmar lacks here: noted, not timed, never the pick
+    assert (t["missing"], r["cities"][0]["missing"], r["cities"][1]["missing"]) == ([], ["anvil"], [])
+    client.put("/api/time", json={"city": "Orgrimmar"})  # a chosen city is used as it is
+    (there,) = client.get("/api/rank").json()["results"]
+    assert (there["timing"]["city"], there["timing"]["missing"]) == ("Orgrimmar", ["anvil"])
+    assert [leg["to_name"] for leg in there["timing"]["legs"]] == ["Mailbox", "Thread Seller"]
+    client.put("/api/time", json={})
     craft = next(s for s in r["steps"] if s["action"] == "craft")
     assert craft["seconds"] == pytest.approx(3.5) and craft["station"] == "anvil"  # a 3 s cast at an anvil
     assert r["tree"]["seconds"] > 0 and r["tree"]["inputs"][0]["options"][0]["seconds"] > 0

@@ -14,7 +14,7 @@ SCHEMA = """
 CREATE TABLE game_tele (id INTEGER, position_x REAL, position_y REAL, position_z REAL, orientation REAL,
     map INTEGER, name TEXT);
 CREATE TABLE creature (guid INTEGER, id INTEGER, map INTEGER, position_x REAL, position_y REAL,
-    position_z REAL, patch_min INTEGER, patch_max INTEGER);
+    position_z REAL, patch_min INTEGER, patch_max INTEGER, movement_type INTEGER DEFAULT 0);
 CREATE TABLE creature_template (entry INTEGER, patch INTEGER, name TEXT, npc_flags INTEGER,
     vendor_id INTEGER);
 CREATE TABLE npc_vendor (entry INTEGER, item INTEGER, maxcount INTEGER, condition_id INTEGER);
@@ -47,7 +47,8 @@ def town(tmp_path: Path) -> Iterator[sqlite3.Connection]:
         ],
     )
     conn.executemany(
-        "INSERT INTO creature VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO creature (guid, id, map, position_x, position_y, position_z, patch_min, patch_max)"
+        " VALUES (?,?,?,?,?,?,?,?)",
         [
             (1, 10, 1, X + 10, Y, Z, 0, 10),
             (2, 10, 1, X + 10, Y, Z, 5, 10),  # the same auctioneer again for later patches
@@ -63,9 +64,15 @@ def town(tmp_path: Path) -> Iterator[sqlite3.Connection]:
             (12, 11, 1, X + 5, Y, Z + 500, 0, 10),  # far above (a flying ship, say)
         ],
     )
+    conn.execute("INSERT INTO creature_template VALUES (23, 0, 'Wandering Seller', 4, 0)")
+    conn.execute(  # walks a waypoint route: nowhere to run to
+        "INSERT INTO creature (guid, id, map, position_x, position_y, position_z, patch_min, patch_max,"
+        " movement_type) VALUES (13, 23, 1, ?, ?, ?, 0, 10, 2)",
+        (X, Y + 5, Z),
+    )
     conn.executemany(
         "INSERT INTO npc_vendor VALUES (?,?,?,?)",
-        [(20, 2, 0, 0), (20, 3, 0, 0), (20, 4, 5, 0), (22, 5, 0, 9)],
+        [(20, 2, 0, 0), (20, 3, 0, 0), (20, 4, 5, 0), (22, 5, 0, 9), (23, 7, 0, 0)],
     )
     conn.executemany("INSERT INTO npc_vendor_template VALUES (?,?,?,?)", [(70, 6, 0, 0), (70, 2, 0, 0)])
     conn.executemany(
@@ -106,7 +113,7 @@ def test_npcs_near_takes_current_spawns_once_with_their_newest_template(town: sq
     ]
     assert (got[0].x, got[0].y) == (X + 10, Y)
     vendors = vmangos.npcs_near(town, 1, X, Y, Z, 100, vmangos.NPC_VENDOR)
-    assert [s.entry for s in vendors] == [20, 21, 22]
+    assert [s.entry for s in vendors] == [20, 21, 22]  # not 23, who patrols
 
 
 def test_objects_near_finds_mailboxes_and_stations(town: sqlite3.Connection) -> None:

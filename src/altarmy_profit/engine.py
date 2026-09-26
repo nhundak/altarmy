@@ -208,16 +208,18 @@ class Node:
 
 @dataclass(frozen=True, eq=False)
 class TimeModel:
-    """How plans are timed: the user's `timing.TimeConfig` in one city. With a time value, plans are chosen
-    by copper plus the value of the play time they take."""
+    """How plans are timed: the user's `timing.TimeConfig` in one city, or with `fastest` in whichever of
+    those cities is quickest for each plan (`city` then only guides the estimate plans are chosen by). With
+    a time value, plans are chosen by copper plus the value of the play time they take."""
 
     config: timing.TimeConfig
     city: timing.CityMap
+    fastest: tuple[timing.CityMap, ...] = ()
 
     @property
-    def key(self) -> tuple[str, timing.TimeConfig]:
-        """What a ranking under this model depends on (the city by name: maps are loaded once)."""
-        return self.city.name, self.config
+    def key(self) -> tuple[tuple[str, ...], timing.TimeConfig]:
+        """What a ranking under this model depends on (cities by name: maps are loaded once)."""
+        return (self.city.name, *(c.name for c in self.fastest)), self.config
 
 
 @dataclass
@@ -258,9 +260,17 @@ class Result:
 
     @cached_property
     def timing(self) -> Timing | None:
-        """How long a batch takes in the model's city, routed step by step (see `time_result`); None
-        without a time model. Worked out when first read, like `steps`."""
-        return None if self.time_model is None else time_result(self, self.time_model)
+        """How long a batch takes in the model's city (with `fastest`, the quickest of its cities that has
+        every station the plan needs), routed step by step (see `time_result`); None without a time model.
+        Worked out when first read, like `steps`."""
+        model = self.time_model
+        if model is None:
+            return None
+        if not model.fastest:
+            return time_result(self, model)
+        timings = [time_result(self, replace(model, city=c, fastest=())) for c in model.fastest]
+        usable = [t for t in timings if not t.missing] or timings
+        return min(usable, key=lambda t: t.total_seconds)
 
     @property
     def rate(self) -> int | None:

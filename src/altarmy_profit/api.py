@@ -328,7 +328,7 @@ class CityOut(BaseModel):
 class TimeSettings(BaseModel):
     cities: list[CityOut]  # where the selection's faction crafts: its cities (every one for a shared AH)
     city: str | None  # the user's pick; None: the faction's default
-    active: str  # the city plans are timed in now
+    active: str | None  # the city plans are timed in; None: each in whichever of `cities` is fastest
     config: TimeConfigModel
     defaults: TimeConfigModel
 
@@ -1044,13 +1044,22 @@ def _timing_out(t: timing.Timing, profit: int, city: timing.CityMap) -> TimingOu
     )
 
 
+def _timed_city(model: engine.TimeModel, t: timing.Timing) -> timing.CityMap:
+    """The city a timing was worked out in: the model's own, or with `fastest` the one that won."""
+    return next(c for c in (model.city, *model.fastest) if c.name == t.city)
+
+
 def _cities_out(r: engine.Result, cities: Sequence[timing.CityMap]) -> list[CityTimingOut]:
-    """The result's plan timed in each city (as chosen for the user's city)."""
+    """The result's plan timed in each city (as chosen for the user's settings)."""
     if r.time_model is None:
         return []
     out = []
+    timed = r.timing
     for city in cities:
-        t = r.timing if city is r.time_model.city else engine.time_result(r, replace(r.time_model, city=city))
+        if timed is not None and timed.city == city.name:
+            t: timing.Timing | None = timed
+        else:
+            t = engine.time_result(r, replace(r.time_model, city=city, fastest=()))
         assert t is not None
         out.append(
             CityTimingOut(
@@ -1126,7 +1135,9 @@ def _result_out(
         ],
         tree=_node_out(r.tree),
         sell_options=[SellOptionOut(**asdict(o)) for o in r.sell_options],
-        timing=None if t is None or r.time_model is None else _timing_out(t, r.profit, r.time_model.city),
+        timing=None
+        if t is None or r.time_model is None
+        else _timing_out(t, r.profit, _timed_city(r.time_model, t)),
         cities=per_city,
         best_city=_best_city(per_city),
     )
@@ -1150,7 +1161,7 @@ def _time_settings(state: AppState, conn: Connection, user: auth.User) -> TimeSe
             for c in cities
         ],
         city=saved if saved in state.cities else None,
-        active=model.city.name,
+        active=None if model.fastest else model.city.name,
         config=TimeConfigModel(**asdict(model.config)),
         defaults=TimeConfigModel(**asdict(timing.DEFAULT_CONFIG)),
     )

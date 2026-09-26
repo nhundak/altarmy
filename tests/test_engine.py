@@ -986,10 +986,10 @@ def test_timing_is_exact_and_lazy() -> None:
     by_who: dict[str, list[str]] = {}
     for leg in t.legs:
         by_who.setdefault(leg.who, []).append(leg.to_id)
-    assert by_who["Leathery"] == ["mailbox:1", "ah"]  # buy scraps at the AH, craft, mail, home
-    assert by_who["Smithy"] == ["mailbox:1", "anvil:1", "vendor:2", "ah"]  # collect, forge, sell, home
-    smithy = 5 + 5 + (70**2 + 21**2) ** 0.5 / 7 + 3
-    assert t.breakdown["travel"] == pytest.approx(10 + smithy)
+    assert by_who["Leathery"] == ["mailbox:1"]  # buy scraps at the AH, collect, craft and mail at the box
+    assert by_who["Smithy"] == ["mailbox:1", "anvil:1", "vendor:2"]  # collect, forge, sell; done there
+    smithy = 5 + 5 + (70**2 + 21**2) ** 0.5 / 7
+    assert t.breakdown["travel"] == pytest.approx(5 + smithy)
     # a search each for scraps and copper; a batch buys 3 stacks of scraps and 1 of copper (10 bars: a click)
     assert t.breakdown["ah"] == pytest.approx(2 * cfg.ah_search + (3 + 1) * cfg.ah_buy)
     assert res.rate == t.per_hour(res.profit)
@@ -1003,8 +1003,21 @@ def test_ah_purchases_are_collected_from_the_mailbox_in_one_trip() -> None:
     )  # linen and thread on the AH
     t = res.timing
     assert t is not None
-    assert [leg.to_id for leg in t.legs] == ["mailbox:1", "vendor:2", "ah"]  # collect both, then sell nearby
+    assert [leg.to_id for leg in t.legs] == ["mailbox:1", "vendor:2"]  # collect both, then sell nearby
     assert t.breakdown["mail"] == pytest.approx(2 * cfg.mail_open)  # one mail per item, however many bought
+
+
+def test_a_character_collects_an_alts_mail_even_without_ah_purchases() -> None:
+    copper = Item(COPPER, "Copper Bar", stack_size=20, vendor_price=10)  # Smithy buys nothing on the AH
+    m = maul_market(SMITHY, LEATHERY, time=timed(0), extra_items=[copper])
+    res = must_evaluate(m, MAUL_RECIPE)
+    assert [(s.who, s.action, s.via) for s in res.steps if s.action == "buy"] == [
+        ("Leathery", "buy", "ah"),
+        ("Smithy", "buy", "vendor"),
+    ]
+    t = res.timing
+    assert t is not None
+    assert [leg.to_id for leg in t.legs if leg.who == "Smithy"][0] == "mailbox:1"  # the leather Leathery sent
 
 
 def test_rank_does_not_time(monkeypatch: pytest.MonkeyPatch) -> None:

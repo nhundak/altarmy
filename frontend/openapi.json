@@ -1819,8 +1819,15 @@
       "TimeSettings": {
         "properties": {
           "active": {
-            "title": "Active",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
           },
           "cities": {
             "items": {

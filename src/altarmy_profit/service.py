@@ -259,14 +259,14 @@ def time_model(
     cities: Mapping[str, timing.CityMap],
     faction: str,
 ) -> TimeModel:
-    """The user's time settings: their saved city if a `faction` character crafts there, else the
-    faction's default, and their config overrides."""
+    """The user's time settings: their saved city if a `faction` character crafts there, else whichever of
+    the faction's cities is fastest for each plan (the default), and their config overrides."""
     saved = users.get_settings(conn, user_uid, game_version)
     config = timing.config_from_json(saved.time_config)
-    allowed = {c.name for c in faction_cities(cities, faction)}
-    if saved.time_city in allowed:
+    allowed = faction_cities(cities, faction)
+    if saved.time_city in {c.name for c in allowed}:
         return TimeModel(config, cities[saved.time_city])
-    return TimeModel(config, default_city(cities, faction))
+    return TimeModel(config, default_city(cities, faction), tuple(allowed))
 
 
 def set_time(

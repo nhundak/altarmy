@@ -145,7 +145,7 @@ describe('SearchTab', () => {
     const settings = {
       cities: [city('Orgrimmar', 'Horde'), city('Thunder Bluff', 'Horde')],
       city: null,
-      active: 'Orgrimmar',
+      active: null,
       config,
       defaults: config,
     }
@@ -158,6 +158,8 @@ describe('SearchTab', () => {
     renderWithProviders(<SearchTab />)
     await userEvent.click(await screen.findByRole('button', { name: 'Time assumptions' }))
     const batch = await screen.findByLabelText('Crafts per session')
+    expect(screen.getByRole('combobox', { name: 'Craft Location' })).toHaveValue('Whatever is fastest')
+    expect(screen.getByLabelText('Open a mail')).toBeInTheDocument()
     const ranked = urls(fetch, '/api/rank').length
     fireEvent.change(batch, { target: { value: '5' } })
     for (const gone of ['An hour of your time is worth (gold)', 'Stacks per mail', 'Disenchant (per item)', /Detour/]) {

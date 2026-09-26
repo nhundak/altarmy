@@ -369,7 +369,8 @@ def test_time_model_follows_the_users_settings(conn: Connection, cities: Path) -
     assert [c.name for c in service.faction_cities(maps, "Horde")] == ["Orgrimmar", "Thunder Bluff"]
     assert [c.name for c in service.faction_cities(maps, "")] == ["Orgrimmar", "Stormwind", "Thunder Bluff"]
     model = service.time_model(conn, ME, FOREVER, maps, "Horde")
-    assert (model.city.name, model.config) == ("Orgrimmar", timing.DEFAULT_CONFIG)  # the faction's capital
+    assert (model.city.name, model.config) == ("Orgrimmar", timing.DEFAULT_CONFIG)  # the estimate's city
+    assert [c.name for c in model.fastest] == ["Orgrimmar", "Thunder Bluff"]  # timed in whichever is fastest
     assert service.time_model(conn, ME, FOREVER, maps, "Alliance").city.name == "Stormwind"
     users.update_settings(conn, ME, FOREVER, time_city="Thunder Bluff", time_config='{"batch": 5}')
     model = service.time_model(conn, ME, FOREVER, maps, "Horde")

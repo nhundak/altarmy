@@ -296,7 +296,9 @@ def test_cli_ranks_by_profit_per_hour(
     assert "/h" in out and "Green Robe" in out
     assert "10 in " in out  # the batch's time
     cli.main(rank)  # the saved settings: the faction's default city
-    assert "Timed in Orgrimmar: 20 crafts per session" in capsys.readouterr().out
+    assert (
+        "Timed in the fastest of Orgrimmar, Thunder Bluff: 20 crafts per session" in capsys.readouterr().out
+    )
     with pytest.raises(SystemExit, match="No city preset named Atlantis"):
         cli.main([*rank, "--city", "Atlantis"])
     with pytest.raises(SystemExit, match="No city preset named Booty Bay"):  # neutral: not the tracked AH

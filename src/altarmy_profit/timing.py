@@ -7,7 +7,8 @@ scripts/build_cities.py, hand-tunable through its `overrides`). The engine turns
 per stretch a character is logged in; `time_blocks` routes each through the city and adds it all up.
 
 A session is one batch: travel, character switches and AH searches are paid once per batch, the rest per
-craft. Every character starts and ends at the city's hub (usually the auction house).
+craft. Every character starts at the city's hub (usually the auction house) and ends wherever their last
+action is: they log out there, or hand over to the next character.
 """
 
 from __future__ import annotations
@@ -324,7 +325,7 @@ ANYWHERE = CityMap("Anywhere", "", [Location("ah", "ah", "Auction house", 0.0, 0
 class Block:
     """One stretch a character is logged in: where they must go and what they do there. They gather
     (mail, AH and vendor buys, any order), craft at `stations` (in order), then dispose (mail, AH, vendor,
-    any order), and go back to the hub. `fixed` and `per_craft` hold their action seconds by
+    any order), ending wherever that leaves them. `fixed` and `per_craft` hold their action seconds by
     `BREAKDOWN` kind, once per batch and per craft."""
 
     who: str
@@ -508,8 +509,9 @@ def _stops(city: CityMap, block: Block, config: TimeConfig) -> tuple[list[str], 
 def route(city: CityMap, block: Block, config: TimeConfig) -> list[Leg]:
     """The block's legs: from the hub through its gather stops in the quickest order: the AH, vendors, and
     one visit to the mailbox if anything waits there (AH purchases arrive by mail, so it comes after the AH;
-    what alts sent too). Then its stations (in turn, the nearest each time), its dispose stops (quickest
-    order) and back to the hub. Legs of no length are left out."""
+    what alts sent too). Then its stations (in turn, the nearest each time) and its dispose stops (quickest
+    order), where the route ends: nobody runs back to the hub after their last action. Legs of no length
+    are left out."""
     gather, dispose, _ = _stops(city, block, config)
     hub = city.hub.id
     collect = ["mailbox"] if block.buys_ah or block.receives_mail else []
@@ -521,8 +523,8 @@ def route(city: CityMap, block: Block, config: TimeConfig) -> list[Leg]:
             station_s, stations = _walk(city, at, placed, None, config)
             after = stations[-1] if stations else at
             best_rest: tuple[float, list[str]] | None = None
-            for end, (seconds, ids) in _paths(city, after, dispose, config).items():
-                total = station_s + seconds + city.seconds(end, hub, config)
+            for seconds, ids in _paths(city, after, dispose, config).values():
+                total = station_s + seconds
                 if best_rest is None or total < best_rest[0]:
                     best_rest = (total, stations + ids)
             assert best_rest is not None
@@ -536,7 +538,7 @@ def route(city: CityMap, block: Block, config: TimeConfig) -> list[Leg]:
             best = (head_s + tail_s, head + rest)
     assert best is not None
     legs, at = [], hub
-    for stop in [*best[1], hub]:
+    for stop in best[1]:
         if stop != at:
             legs.append(Leg(block.who, at, stop, city.seconds(at, stop, config)))
         at = stop

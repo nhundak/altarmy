@@ -48,6 +48,7 @@ FROM sold ORDER BY sold.item
 LATEST_PATCH = 10  # vmangos' content patches run 0 (1.2) to 10 (1.12); rows are kept per patch
 NPC_VENDOR = 0x4  # creature_template.npc_flags
 NPC_AUCTIONEER = 0x1000
+MOVE_WAYPOINTS = 2  # creature.movement_type: 0 stands, 1 wanders nearby, 2 walks a waypoint route
 GO_SPELL_FOCUS = 8  # gameobject_template.type; data0 is the SpellFocusObject id
 GO_MAILBOX = 19
 
@@ -97,7 +98,7 @@ def npcs_near(
     conn: sqlite3.Connection, map_id: int, x: float, y: float, z: float, radius: float, flag: int
 ) -> list[Spawn]:
     """Creatures spawned within `radius` yards (in 3D) whose newest template has the `npc_flags` bit
-    `flag`."""
+    `flag`, leaving out those that walk a waypoint route (a patrolling vendor has no spot to run to)."""
     near, args = _near("c", x, y, z, radius)
     rows = conn.execute(
         f"""
@@ -106,9 +107,10 @@ def npcs_near(
         WHERE t.patch = (
             SELECT MAX(patch) FROM creature_template n WHERE n.entry = t.entry AND n.patch <= ?
         )
-          AND c.map = ? AND c.patch_min <= ? AND c.patch_max >= ? AND (t.npc_flags & ?) != 0 AND {near}
+          AND c.map = ? AND c.patch_min <= ? AND c.patch_max >= ? AND (t.npc_flags & ?) != 0
+          AND c.movement_type != ? AND {near}
         """,
-        (LATEST_PATCH, map_id, LATEST_PATCH, LATEST_PATCH, flag, *args),
+        (LATEST_PATCH, map_id, LATEST_PATCH, LATEST_PATCH, flag, MOVE_WAYPOINTS, *args),
     )
     return _unique(
         Spawn(int(g), int(e), str(n), float(px), float(py), float(pz)) for g, e, n, px, py, pz in rows

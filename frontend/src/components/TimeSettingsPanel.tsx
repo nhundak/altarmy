@@ -16,7 +16,7 @@ const ACTIONS: readonly { key: NumberKey; label: string; step: number; min?: num
   { key: 'vendor_sell', label: 'Sell to a vendor (per stack)', step: 0.5 },
   { key: 'mail_send', label: 'Send a mail', step: 1 },
   { key: 'mail_attach', label: 'Attach a stack', step: 0.5 },
-  { key: 'mail_open', label: 'Take a mail', step: 0.5 },
+  { key: 'mail_open', label: 'Open a mail', step: 0.5 },
   { key: 'switch_character', label: 'Switch characters', step: 5 },
   { key: 'craft_overhead', label: 'Extra per craft', step: 0.1 },
   { key: 'run_speed', label: 'Run speed (yards per second)', step: 0.5, min: 0.5 },
@@ -31,7 +31,7 @@ function changes(config: TimeConfig, defaults: TimeConfig): Partial<TimeConfig> 
 
 function cityOptions(settings: TimeSettings) {
   return [
-    { value: '', label: `Default (${settings.city === null ? settings.active : 'your faction’s capital'})` },
+    { value: '', label: 'Whatever is fastest' },
     ...settings.cities.map((c) => ({ value: c.name, label: c.name })),
   ]
 }
@@ -60,8 +60,8 @@ export function TimeSettingsPanel() {
     <Stack>
       {settings.cities.length ? (
         <Select
-          label="Craft in"
-          description="Where your characters run between the auction house, mailbox, vendors and crafting stations."
+          label="Craft Location"
+          description="Some cities have shorter times to run between mailboxes, vendors, etc"
           data={cityOptions(settings)}
           value={shown.city ?? ''}
           onChange={(v) => update({ ...shown, city: v || null })}
@@ -75,7 +75,7 @@ export function TimeSettingsPanel() {
       )}
       <NumberInput
         label="Crafts per session"
-        description="The more you intend to craft at once, the less the time to run between npcs matters"
+        description="Crafting multiple items at once improves average time, because you don't need to run around as much."
         value={shown.config.batch}
         onChange={(v) => set('batch', v, 1, true)}
         min={1}

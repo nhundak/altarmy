@@ -161,16 +161,16 @@ def test_route_visits_everything_in_the_best_order() -> None:
     block = Block("Smith", receives_mail=True, buys_ah=True, vendor_items=frozenset({1}), stations=("anvil",))
     legs = timing.route(c, block, FAST)
     stops = [leg.to_id for leg in legs]
-    # buy at the AH (the hub: no leg), collect the mail on the way to vendor 1, then the anvil, then home
-    assert stops == ["mailbox:1", "vendor:1", "anvil:1", "ah"]
-    assert sum(leg.seconds for leg in legs) == pytest.approx(5 + 15 + 10 + 10)
+    # buy at the AH (the hub: no leg), collect the mail on the way to vendor 1, then the anvil, and stop
+    assert stops == ["mailbox:1", "vendor:1", "anvil:1"]
+    assert sum(leg.seconds for leg in legs) == pytest.approx(5 + 15 + 10)
     assert all(leg.who == "Smith" for leg in legs)
 
 
 def test_route_covers_vendor_items_with_few_vendors() -> None:
     c = city()
     block = Block("A", vendor_items=frozenset({2, 3}))
-    assert [leg.to_id for leg in timing.route(c, block, FAST)] == ["vendor:2", "ah"]  # one vendor sells both
+    assert [leg.to_id for leg in timing.route(c, block, FAST)] == ["vendor:2"]  # one vendor sells both
 
 
 def test_route_disposes_after_crafting() -> None:
@@ -187,7 +187,12 @@ def test_ah_purchases_are_collected_in_one_trip_to_the_mailbox() -> None:
     both = timing.route(
         city(), Block("A", buys_ah=True, receives_mail=True, vendor_items=frozenset({3})), FAST
     )
-    assert [leg.to_id for leg in both] == ["vendor:2", "mailbox:1", "ah"]  # everything bought, then the mail
+    assert [leg.to_id for leg in both] == ["mailbox:1", "vendor:2"]  # collect on the way out; it ends there
+
+
+def test_an_alts_mail_is_collected_even_without_ah_purchases() -> None:
+    legs = timing.route(city(), Block("B", receives_mail=True, stations=("anvil",)), FAST)
+    assert [leg.to_id for leg in legs] == ["mailbox:1", "anvil:1"]
 
 
 def test_the_mailbox_never_comes_before_the_auction_house() -> None:
@@ -258,8 +263,7 @@ def test_route_with_many_stops_visits_each_once() -> None:
     data["vendors"] = {f"vendor:{i}": [i] for i in range(1, 10)}
     c = CityMap.from_dict(data)
     stops = [leg.to_id for leg in timing.route(c, Block("A", vendor_items=frozenset(range(1, 10))), FAST)]
-    assert sorted(stops[:-1]) == sorted(f"vendor:{i}" for i in range(1, 10))
-    assert stops[-1] == "ah"
+    assert sorted(stops) == sorted(f"vendor:{i}" for i in range(1, 10))  # and it ends at the last one
 
 
 def test_route_notes_items_no_vendor_here_sells() -> None:
@@ -272,14 +276,14 @@ def test_new_forever_stations_are_deployed_where_the_crafter_stands() -> None:
     c = city(locations=[loom])  # even a placed one is never walked to
     t = timing.time_blocks([Block("A", stations=("spinning_wheel", "loom", "anvil"))], FAST, c)
     assert (t.missing, t.deployed) == (frozenset(), frozenset({"spinning_wheel", "loom"}))
-    assert [leg.to_id for leg in t.legs] == ["anvil:1", "ah"]
+    assert [leg.to_id for leg in t.legs] == ["anvil:1"]
     assert c.trip("spinning_wheel", FAST) == c.trip("loom", FAST) == 0.0
 
 
 def test_timing_notes_stations_the_city_lacks() -> None:
     t = timing.time_blocks([Block("A", stations=("anvil", "forge"))], FAST, city())
     assert t.missing == frozenset({"forge"})
-    assert [leg.to_id for leg in t.legs] == ["anvil:1", "ah"]  # the forge is skipped, not timed
+    assert [leg.to_id for leg in t.legs] == ["anvil:1"]  # the forge is skipped, not timed
 
 
 # --- timings --------------------------------------------------------------------------------------------
@@ -289,10 +293,10 @@ def test_time_blocks_sums_travel_switches_and_actions() -> None:
     b = Block("B", receives_mail=True, sells_ah=True, per_craft={"mail": 1.0, "ah": 2.0})
     t = timing.time_blocks([a, b], cfg, city())
     assert t.breakdown["switch"] == 30.0
-    assert t.breakdown["travel"] == pytest.approx(20.0 + 10.0)  # A: anvil and back by the mailbox; B: mailbox
+    assert t.breakdown["travel"] == pytest.approx(15.0 + 10.0)  # A: anvil, then the mailbox; B: mailbox, AH
     assert t.breakdown["craft"] == pytest.approx(30.0)
     assert t.breakdown["ah"] == pytest.approx(8.0 + 20.0)
-    assert t.fixed_seconds == pytest.approx(30.0 + 30.0 + 8.0)
+    assert t.fixed_seconds == pytest.approx(30.0 + 25.0 + 8.0)
     assert t.per_craft_seconds == pytest.approx(6.0)
     assert t.total_seconds == pytest.approx(sum(t.breakdown.values()))
     assert t.total_seconds == pytest.approx(t.fixed_seconds + 10 * t.per_craft_seconds)

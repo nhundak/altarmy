@@ -145,7 +145,8 @@ def cmd_rank(args: argparse.Namespace) -> None:
         print(f"{sel.realm} ({sel.faction}). Characters: {', '.join(c.name for c in chars)}")
     cfg = model.config
     worth = format_money(cfg.time_value)
-    print(f"Timed in {model.city.name}: {cfg.batch} crafts per session, an hour worth {worth}.")
+    where = f"the fastest of {', '.join(c.name for c in model.fastest)}" if model.fastest else model.city.name
+    print(f"Timed in {where}: {cfg.batch} crafts per session, an hour worth {worth}.")
     filters = Filters(min_profit=args.min_profit)
     results = service.search(
         market,
@@ -183,12 +184,12 @@ def _time_model(args: argparse.Namespace, conn: Connection, v: GameVersion, fact
     """The saved time settings (as the web app's), with this run's --city, --batch and --gold-per-hour."""
     cities = store.load_cities(v.cities_dir)
     model = service.time_model(conn, LOCAL_UID, v.key, cities, faction)
-    city = model.city
+    city, fastest = model.city, model.fastest
     if args.city is not None:
         if args.city not in cities or not cities[args.city].faction:
             known = ", ".join(c for c in cities if cities[c].faction) or "none (run scripts/build_cities.py)"
             sys.exit(f"No city preset named {args.city}; known: {known}.")
-        city = cities[args.city]
+        city, fastest = cities[args.city], ()
     changes: dict[str, object] = {}
     if args.batch is not None:
         changes["batch"] = args.batch
@@ -198,7 +199,7 @@ def _time_model(args: argparse.Namespace, conn: Connection, v: GameVersion, fact
         config = timing.config_from_dict(changes, model.config)
     except ValueError as e:
         sys.exit(str(e))
-    return TimeModel(config, city)
+    return TimeModel(config, city, fastest)
 
 
 def cmd_ui(args: argparse.Namespace) -> None:

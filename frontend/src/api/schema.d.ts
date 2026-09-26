@@ -1184,7 +1184,7 @@ export interface components {
         /** TimeSettings */
         TimeSettings: {
             /** Active */
-            active: string;
+            active: string | null;
             /** Cities */
             cities: components["schemas"]["CityOut"][];
             /** City */

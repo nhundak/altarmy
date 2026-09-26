@@ -302,7 +302,8 @@ Coarse Thread,120
   `CastingTimeIndex` into `SpellCastTimes`, and the station a craft needs (anvil, cooking fire, loom, ...)
   from `SpellCastingRequirements.RequiresSpellFocus`'s `SpellFocusObject` name.
 - **City presets** (`data/forever/cities/*.json`) say where the auction house (the hub every character
-  starts and ends at), mailboxes, anvils, forges, cooking fires and vendors (with what they sell) stand,
+  starts at; nobody runs back after their last action), mailboxes, anvils, forges, cooking fires and
+  vendors (with what they sell) stand,
   taken from vmangos' world database by `python scripts/build_cities.py` (patch 1.12 spawns within a
   radius of each city's teleport point; `cities.CITY_SPECS`). Running time is straight-line distance
   times a detour factor over the run speed. Measured times go in a preset's `overrides`, which
