@@ -116,6 +116,10 @@ describe('SearchTab', () => {
     expect(screen.getByLabelText('Min ROI (%)')).toHaveValue('')
     expect(screen.getByRole('checkbox', { name: 'Auction house' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Disenchant' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Disenchant' })).toHaveAccessibleDescription(
+      /Requires at least one character with enchanting/,
+    )
+    expect(screen.getByText("Rarely the best profit, but it's always available.")).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: /Include recipes not learned yet/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Include Trivial Recipes/ })).not.toBeChecked()
     await waitFor(() => expect(realm()).toHaveValue('Classic Beta PvE (Horde) · 1 character'))

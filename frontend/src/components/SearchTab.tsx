@@ -41,10 +41,20 @@ import { TimeSettingsPanel } from './TimeSettingsPanel'
 /** Results per page: the first request asks for this many, and each "Show more" for this many more. */
 const PAGE = 50
 
-const EXITS: { value: Exit; label: string }[] = [
-  { value: 'vendor', label: 'Vendor' },
-  { value: 'disenchant', label: 'Disenchant' },
-  { value: 'ah', label: 'Auction house' },
+const EXITS: { value: Exit; label: string; description: string }[] = [
+  { value: 'vendor', label: 'Vendor', description: "Rarely the best profit, but it's always available." },
+  {
+    value: 'disenchant',
+    label: 'Disenchant',
+    description:
+      'Often the best choice if you want reliable results. Enchanting materials tend to have stable prices and sell well. Requires at least one character with enchanting',
+  },
+  {
+    value: 'ah',
+    label: 'Auction house',
+    description:
+      "Sometimes the best profit, but for some items there will be no buyers. You'll need to take an active role in figuring out what sells reliably.",
+  },
 ]
 const ALL_EXITS: Exit[] = EXITS.map((e) => e.value)
 const SECTIONS = ['advanced', 'time'] as const
@@ -320,11 +330,11 @@ export function SearchTab() {
                   value={exits}
                   onChange={(v) => setExits(ALL_EXITS.filter((e) => v.includes(e)))}
                 >
-                  <Group mt={4}>
+                  <Stack mt={4} gap="xs">
                     {EXITS.map((e) => (
-                      <Checkbox key={e.value} value={e.value} label={e.label} />
+                      <Checkbox key={e.value} value={e.value} label={e.label} description={e.description} />
                     ))}
-                  </Group>
+                  </Stack>
                 </Checkbox.Group>
                 <SimpleGrid cols={{ base: 1, sm: 3, lg: 1 }}>
                   <Range
