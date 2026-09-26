@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 
@@ -154,6 +154,8 @@ class Step:
     # seconds of play per craft of the recipe the step itself takes (clicks, casts); travel is in `Timing`
     seconds: float = field(default=0.0, compare=False)
     station: str = field(default="", compare=False)  # craft: the station it is cast at; "" anywhere
+    # sell by disenchanting: the disenchanting's share of `seconds` (the rest is posting the materials)
+    lead_seconds: float = field(default=0.0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -234,13 +236,15 @@ class Result:
     mail_to: str = ""  # who the output is mailed to; "" if the crafter sells it
     crafter: str = ""  # who does the final craft; "" if no characters are known
     sell_options: list[SellOption] = field(default_factory=list)  # each exit's best profit, best first
-    bonus_output: float = 0.0  # expected extra units per craft from the crafter's talents (Master Chef)
+    bonus_output: float = 0.0  # expected extra units from the crafter's talents (Master Chef), all crafts
     # With a time model: the estimated play time per craft (what the plan was chosen by), and the per-craft
     # seconds of the sale and of mailing the output to whoever sells it
     seconds: float = field(default=0.0, compare=False)
     sell_seconds: float = field(default=0.0, compare=False)
+    disenchant_seconds: float = field(default=0.0, compare=False)  # the disenchanting part of `sell_seconds`
     mail_seconds: float = field(default=0.0, compare=False)
     time_model: TimeModel | None = field(default=None, compare=False, repr=False)
+    crafts: int = 1  # how many crafts cost, revenue, steps and tree are for (a session's; 1 in rankings)
 
     @cached_property
     def steps(self) -> list[Step]:
@@ -256,6 +260,7 @@ class Result:
             self.bonus_output,
             self.sell_seconds,
             self.mail_seconds,
+            self.disenchant_seconds,
         )
 
     @cached_property
@@ -379,6 +384,7 @@ def plan_steps(
     bonus: float = 0.0,
     sell_seconds: float = 0.0,
     mail_seconds: float = 0.0,
+    disenchant_seconds: float = 0.0,
 ) -> list[Step]:
     """Instructions for a craft tree: buy every bought reagent (merged per item and character), craft
     intermediates, mail each to the character who needs it, craft, mail the output to `mail_to` if set
@@ -461,6 +467,7 @@ def plan_steps(
         (SELL,),
         bonus=bonus,
         seconds=sell_seconds,
+        lead_seconds=disenchant_seconds,
     )
     add(sale, {last})
     return _schedule(steps, deps)
@@ -543,6 +550,154 @@ def time_result(result: Result, model: TimeModel) -> timing.Timing:
         run.append(step)
     close()
     return timing.time_blocks(blocks, model.config, model.city)
+
+
+@dataclass(frozen=True)
+class Detail:
+    """One line of a plan spelled out: `switch` to another character, `go` somewhere (with what to take
+    from the mailbox there), or do a `step` (an index into the result's `steps`)."""
+
+    kind: str  # switch | go | step
+    who: str
+    step: int | None = None
+    location_id: str = ""  # go: where to
+    retrieve: tuple[tuple[int, str, int], ...] = ()  # go to collect: (item id, name, quantity) waiting there
+    seconds: float = 0.0  # go: the run there
+
+
+def timed_city(result: Result) -> timing.CityMap | None:
+    """The city `result.timing` was worked out in; None without a time model."""
+    model, t = result.time_model, result.timing
+    if model is None or t is None:
+        return None
+    return next((c for c in (model.city, *model.fastest) if c.name == t.city), model.city)
+
+
+def _placed(station: str) -> bool:
+    return bool(station) and station not in timing.DEPLOYABLE
+
+
+class _Spelling:
+    """One character's stretch being spelled out: the steps still to say, where they stand, the lines."""
+
+    def __init__(
+        self,
+        steps: Sequence[Step],
+        run: Sequence[int],
+        out: list[Detail],
+        start: str,
+        leg: Callable[[str, str], float],
+    ) -> None:
+        self.steps, self.out, self.leg = steps, out, leg
+        self.who = steps[run[0]].who
+        self.pending = list(run)
+        self.at = start
+
+    def take(self, match: Callable[[Step], bool]) -> None:
+        for i in [i for i in self.pending if match(self.steps[i])]:
+            self.pending.remove(i)
+            self.out.append(Detail("step", self.who, i))
+
+    def go(self, loc: str, retrieve: tuple[tuple[int, str, int], ...] = ()) -> None:
+        if loc != self.at or retrieve:
+            seconds = self.leg(self.at, loc)
+            self.out.append(Detail("go", self.who, location_id=loc, retrieve=retrieve, seconds=seconds))
+        self.at = loc
+
+    def crafts(self, station: str | None) -> None:
+        """Crafts in order: those needing no placed station, and those at `station` (every one if None), up
+        to the first that needs another station."""
+        for i in list(self.pending):
+            s = self.steps[i]
+            if s.action != "craft":
+                continue
+            if _placed(s.station) and station is not None and s.station != station:
+                break
+            self.pending.remove(i)
+            self.out.append(Detail("step", self.who, i))
+
+
+def detailed_steps(result: Result) -> list[Detail]:
+    """The result's steps with where to go in between, following the route its timing took: per character
+    (as `time_result` splits them), buys where they are bought, a stop at the mailbox to collect AH
+    purchases and alts' mail, crafts at their stations (the rest where the character stands), then mail and
+    sales where they happen. Every step appears once; empty without a timing."""
+    city, t, model = timed_city(result), result.timing, result.time_model
+    if city is None or t is None or model is None:
+        return []
+    config = model.config
+
+    def leg(a: str, b: str) -> float:
+        return city.seconds(a, b, config)
+
+    steps = result.steps
+    stops = list(t.stops)
+    out: list[Detail] = []
+    mailed: dict[str, list[tuple[int, str, int]]] = {}  # recipient -> what waits in their mailbox
+    runs: list[list[int]] = []
+    for i, step in enumerate(steps):
+        if runs and steps[runs[-1][0]].who == step.who:
+            runs[-1].append(i)
+        else:
+            runs.append([i])
+    for n, run in enumerate(runs):
+        me = _Spelling(steps, run, out, city.hub.id, leg)
+        if n:
+            out.append(Detail("switch", me.who, seconds=config.switch_character))
+        mine: list[timing.Stop] = []
+        while stops and stops[0].who == me.who:
+            mine.append(stops.pop(0))
+        vendors = [
+            st.location_id
+            for st in mine
+            if st.phase == "gather" and city.location(st.location_id).kind == "vendor"
+        ]
+        disposing = False
+        for st in mine:
+            loc = st.location_id
+            kind = city.location(loc).kind
+            if st.phase == "gather":
+                me.go(loc)
+                if kind == "ah":
+                    me.take(_ah_buy)
+                else:  # what this vendor sells; the last vendor also takes what no vendor here sells
+                    me.take(_vendor_buy(city.vendor_items.get(loc, frozenset()), loc == vendors[-1]))
+            elif st.phase == "collect":
+                bought = [
+                    (steps[i].item_id, steps[i].name, steps[i].quantity) for i in run if _ah_buy(steps[i])
+                ]
+                me.go(loc, tuple(bought + mailed.pop(me.who, [])))
+            elif st.phase == "station":
+                me.go(loc)
+                me.crafts(kind)
+            else:
+                if not disposing:
+                    disposing = True
+                    me.crafts(None)  # whatever is left, where they stand (a station the city lacks)
+                me.go(loc)
+                if kind == "mailbox":
+                    me.take(lambda s: s.action == "mail")
+                elif kind == "ah":
+                    me.take(lambda s: s.action == "sell" and s.via in ("ah", "disenchant"))
+                else:
+                    me.take(lambda s: s.action == "sell" and s.via == "vendor")
+        me.crafts(None)
+        for i in me.pending:  # nothing should be left; if something is, it still gets said
+            out.append(Detail("step", me.who, i))
+        for i in run:
+            if steps[i].action == "mail":
+                mailed.setdefault(steps[i].via, []).append(
+                    (steps[i].item_id, steps[i].name, steps[i].quantity)
+                )
+    return out
+
+
+def _vendor_buy(sold: frozenset[int], anything: bool) -> Callable[[Step], bool]:
+    return lambda s: s.action == "buy" and s.via == "vendor" and (anything or s.item_id in sold)
+
+
+def _ah_buy(step: Step) -> bool:
+    return step.action == "buy" and step.via == "ah"
 
 
 def _materials(result: Result) -> tuple[Material, ...]:
@@ -940,11 +1095,17 @@ class Market:
 
     # --- evaluation --------------------------------------------------------------------
     def evaluate(
-        self, recipe: Recipe, choices: Choices | None = None, memo: Memo | None = None
+        self,
+        recipe: Recipe,
+        choices: Choices | None = None,
+        memo: Memo | None = None,
+        crafts: int = 1,
     ) -> Result | None:
         """The most profitable way to craft and sell `recipe`: over who crafts it, how each reagent
         is had (and mailed), and the exit. `choices` fixes some of those (see `Choices`). A `memo` from an
-        earlier evaluation on this market saves working the shared subtrees out again."""
+        earlier evaluation on this market saves working the shared subtrees out again. With `crafts`, the
+        plan is for that many crafts at once (a session): sub-crafts are whole batches for all of them, and
+        cost, revenue and steps are the session's."""
         choices = choices or {}
         exits = [e for e in self.exits_for(recipe.output_item_id) if e.kind in self.exits]
         if not exits:
@@ -953,17 +1114,17 @@ class Market:
             memo = {}
         by_exit: dict[str, Result] = {}  # the most profitable result for each way of selling
         for who in self._final_crafters(recipe):
-            tree = self._craft(recipe, recipe.output_count, 1, who, 0, memo, ROOT, choices)
+            tree = self._craft(recipe, recipe.output_count * crafts, crafts, who, 0, memo, ROOT, choices)
             here = self._exits_at(exits, who, recipe.output_item_id)
             if tree is None or not here:
                 continue
             mail = self.postage(recipe.output_item_id, tree.made)
             mail_act, mail_est = self._mail_seconds(recipe.output_item_id, tree.made)
             # A Master Chef's extra results are counted at their expected number; mailing them is not charged.
-            bonus = self._bonus_output(recipe, who)
+            bonus = self._bonus_output(recipe, who) * crafts
             for exit in here:
                 postage = mail if exit.postage else 0
-                revenue = round(exit.value * (recipe.output_count + bonus))
+                revenue = round(exit.value * (recipe.output_count * crafts + bonus))
                 sell_act, sell_est = self._sell_seconds(exit, recipe.output_item_id, tree.made)
                 seconds = tree.seconds + sell_est + (mail_est if exit.postage else 0.0)
                 had = by_exit.get(exit.kind)
@@ -983,8 +1144,14 @@ class Market:
                     bonus_output=bonus,
                     seconds=seconds,
                     sell_seconds=sell_act,
+                    disenchant_seconds=(
+                        self.time.config.disenchant * tree.made
+                        if self.time is not None and exit.kind == "disenchant"
+                        else 0.0
+                    ),
                     mail_seconds=mail_act if exit.postage else 0.0,
                     time_model=self.time,
+                    crafts=crafts,
                 )
         if not by_exit:
             return None

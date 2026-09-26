@@ -12,6 +12,9 @@ export function formatSeconds(seconds: number): string {
   return rest ? `${minutes} min ${rest} s` : `${minutes} min`
 }
 
+/** A spot on a zone map, as players read it: "55.9, 62.7". */
+export const formatCoords = (x: number, y: number): string => `${x.toFixed(1)}, ${y.toFixed(1)}`
+
 /** How a timing's breakdown kinds read, in the order they are listed. */
 export const BREAKDOWN_LABELS: Readonly<Record<string, string>> = {
   travel: 'running',

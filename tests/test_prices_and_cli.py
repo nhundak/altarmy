@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection, func, select
 
-from altarmy_profit import cli, db, ingest, prices, schema, store, versions
+from altarmy_profit import cli, db, ingest, prices, schema, store, versions, wowfiles
 from altarmy_profit.auctionator import DayStats, ItemPrice
 from altarmy_profit.prices import Observation
 from altarmy_profit.versions import GameVersion
@@ -448,3 +448,11 @@ def test_cli_ingest_only_if_new_skips_a_loaded_build(
     cli.main(["--game-version", "tbc", "--db", dbfile, "ingest", "--only-if-new"])
     assert "already loaded" in capsys.readouterr().out
     assert builds == ["2.5.7.1"]
+
+
+def test_find_saved_variables(wow_root: Path) -> None:
+    (wow_root / SV_DIR / "frellscout.lua").write_text("FrellscoutDB = {}")
+    assert wowfiles.find_saved_variables("frellscout.lua", [wow_root]) == [
+        wow_root / SV_DIR / "frellscout.lua"
+    ]
+    assert wowfiles.find_saved_variables("frellscout.lua", [wow_root], ("_anniversary_",)) == []

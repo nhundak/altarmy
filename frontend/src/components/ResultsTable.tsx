@@ -1,30 +1,15 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
-import {
-  ActionIcon,
-  Button,
-  Group,
-  List,
-  Loader,
-  Menu,
-  SegmentedControl,
-  Stack,
-  Table,
-  Text,
-  UnstyledButton,
-} from '@mantine/core'
-import type { ItemMap, RankResult, Step } from '../api/client'
+import { Fragment, useMemo, useState } from 'react'
+import { ActionIcon, Menu, Table, Text, UnstyledButton } from '@mantine/core'
+import type { ItemMap, RankResult } from '../api/client'
 import { useEvaluations, type EvaluateParams } from '../api/queries'
-import { choose, SELL_PATH, type Choices } from '../lib/choices'
+import { choose, type Choices } from '../lib/choices'
 import { formatRoi } from '../lib/money'
-import { stepSource } from '../lib/steps'
 import { formatSeconds } from '../lib/time'
-import { bonusNote, discountNote } from '../lib/talents'
 import { CharacterClasses, CharacterName } from './CharacterName'
-import { ChoiceMenu, ChooseContext, sellChoices, sourceChoices, type PlanEditing } from './ChoiceMenu'
-import { DisenchantHover, ItemLink, RecipeTooltip } from './ItemTooltip'
+import { type PlanEditing } from './ChoiceMenu'
+import { ItemLink, RecipeTooltip } from './ItemTooltip'
 import { Money } from './Money'
-import { RecipeFlow } from './RecipeFlow'
-import { TimingSummary } from './TimingSummary'
+import { SessionDetails } from './SessionDetails'
 import classes from './ResultsTable.module.css'
 
 const COLUMNS = ['', 'Profit', 'Per hour', 'ROI', 'Recipe', 'Profession', 'Crafter', 'Cost', 'Revenue', 'Sell via']
@@ -84,187 +69,9 @@ function sorted(results: RankResult[], sort: Sort | null): RankResult[] {
   })
 }
 
-/** A step's amount: spending is a cost (red, unsigned), income is a signed gain. */
-const StepMoney = ({ value }: { value: number }) =>
-  value < 0 ? <Money copper={-value} cost /> : <Money copper={value} signed />
-
-/** Money made, green or (a loss) red, without a sign. */
-const Earned = ({ copper }: { copper: number }) => (
-  <Text span inherit c={copper < 0 ? 'red' : 'teal'}>
-    <Money copper={Math.abs(copper)} />
-  </Text>
-)
-
-/** A sale's gross and the recipe's net profit. */
-const Sale = ({ gross, net }: { gross: number; net: number }) => (
-  <>
-    (Gross <Earned copper={gross} /> · Net <Earned copper={net} />)
-  </>
-)
-
-/** A step as one or more instruction lines, prefixed with who does it; disenchanting splits into disenchant,
- * then sell the mats. */
-function describe(step: Step, result: RankResult, items: ItemMap): ReactNode[] {
-  const lines = describeAction(step, result, items)
-  return step.who
-    ? lines.map((l) => (
-        <>
-          <CharacterName name={step.who} />: {l}
-        </>
-      ))
-    : lines
-}
-
-function describeAction(
-  { action, item_id, name, quantity, value, via, discount, bonus }: Step,
-  result: RankResult,
-  items: ItemMap,
-): ReactNode[] {
-  const item = <ItemLink item={items[item_id]} name={name} />
-  const discounted = discountNote(discount)
-  const extra = bonus > 0 ? ` (${bonusNote(bonus)})` : ''
-  switch (action) {
-    case 'buy':
-      return [
-        <>
-          Purchase {quantity}x {item} {via === 'vendor' ? 'from a vendor' : 'on the AH'} (<StepMoney value={value} />
-          {discounted && `, ${discounted}`})
-        </>,
-      ]
-    case 'craft':
-      return [
-        <>
-          Craft {quantity}x {item}
-        </>,
-      ]
-    case 'mail':
-      return [
-        <>
-          Mail {quantity}x {item} to <CharacterName name={via} /> (<StepMoney value={value} />)
-        </>,
-      ]
-    case 'sell':
-      if (via === 'disenchant')
-        return [
-          <>
-            Disenchant {quantity > 1 ? `${quantity}x ` : ''}
-            {item}
-            {extra}
-          </>,
-          <>
-            <DisenchantHover result={result} items={items}>
-              Sell materials
-            </DisenchantHover>{' '}
-            <Sale gross={value} net={result.profit} />
-          </>,
-        ]
-      return [
-        <>
-          Sell {quantity}x {item}
-          {extra} {via === 'ah' ? 'on the AH' : 'to a vendor'}{' '}
-          <Sale gross={value} net={result.profit} />
-        </>,
-      ]
-  }
-}
-
-/** The menu changing how a step is done, if it has alternatives: a reagent's source, or the way to sell. */
-function StepChoice({ step, result }: { step: Step; result: RankResult }) {
-  if (step.action === 'sell')
-    return (
-      <ChoiceMenu
-        label="Change how it is sold"
-        paths={[SELL_PATH]}
-        choices={sellChoices(result.sell_options, result.best_exit)}
-      />
-    )
-  const source = stepSource(step, result.tree)
-  if (!source) return null
-  return (
-    <ChoiceMenu
-      label={`Change source of ${step.name}`}
-      paths={source.paths}
-      choices={sourceChoices(source.options, source.option, source.holder)}
-    />
-  )
-}
-
-/** The plan as numbered instructions; with `editing`, a step with alternatives ends in a menu of them. */
-function StepList({ result, items, editing }: { result: RankResult; items: ItemMap; editing?: PlanEditing }) {
-  const lines = result.steps.flatMap((step) =>
-    describe(step, result, items).map((line, i, all) =>
-      i < all.length - 1 ? (
-        line
-      ) : (
-        <>
-          {line}
-          {step.seconds >= 0.05 && (
-            <Text span size="xs" c="dimmed">
-              {' '}
-              · {formatSeconds(step.seconds)}
-            </Text>
-          )}
-          <span className={classes.stepChoice}>
-            <StepChoice step={step} result={result} />
-          </span>
-        </>
-      ),
-    ),
-  )
-  return (
-    <ChooseContext.Provider value={editing?.onChoose}>
-      <List type="ordered" size="sm">
-        {lines.map((line, i) => (
-          <List.Item key={i}>{line}</List.Item>
-        ))}
-      </List>
-    </ChooseContext.Provider>
-  )
-}
-
 /** The characters who know the recipe, the one doing the craft first. */
 const byCrafter = (crafters: string[], crafter: string) =>
   crafters.includes(crafter) ? [crafter, ...crafters.filter((c) => c !== crafter)] : crafters
-
-type View = 'flow' | 'steps'
-
-function Details({ result, items, editing }: { result: RankResult; items: ItemMap; editing: PlanEditing }) {
-  const [view, setView] = useState<View>('flow')
-  return (
-    <Stack gap="xs" py="xs">
-      <Group justify="space-between" gap="xs">
-        <SegmentedControl
-          size="xs"
-          value={view}
-          onChange={(v) => setView(v as View)}
-          data={[
-            { value: 'flow', label: 'Flow' },
-            { value: 'steps', label: 'Steps' },
-          ]}
-        />
-        {(editing.modified || editing.error) && (
-          <Group gap="xs">
-            {editing.pending && <Loader size="xs" aria-label="Re-costing" />}
-            {editing.error && (
-              <Text size="xs" c="red">
-                {editing.error}
-              </Text>
-            )}
-            <Button size="compact-xs" variant="light" onClick={editing.onReset}>
-              Reset
-            </Button>
-          </Group>
-        )}
-      </Group>
-      {view === 'flow' ? (
-        <RecipeFlow result={result} items={items} editing={editing} />
-      ) : (
-        <StepList result={result} items={items} editing={editing} />
-      )}
-      <TimingSummary result={result} items={items} />
-    </Stack>
-  )
-}
 
 const DEFAULT_PARAMS: EvaluateParams = {
   includeUnlearned: false,
@@ -516,7 +323,13 @@ export function ResultsTable({
                     <Table.Tr className={classes.details}>
                       <Table.Td />
                       <Table.Td colSpan={columns - 1}>
-                        <Details result={r} items={items} editing={editing(r.recipe_id)} />
+                        <SessionDetails
+                          result={r}
+                          items={items}
+                          editing={editing(r.recipe_id)}
+                          params={params}
+                          choices={choices[r.recipe_id]}
+                        />
                       </Table.Td>
                     </Table.Tr>
                   )}

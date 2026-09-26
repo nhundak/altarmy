@@ -23,15 +23,17 @@ export function renderWithProviders(ui: ReactElement, session: Session = LOCAL_S
 }
 
 /**
- * Stub fetch: each API path answers with its JSON body (or `body(url)` for a function); unknown paths get
- * a 404 with a `detail`.
+ * Stub fetch: each API path answers with its JSON body (or `await body(url, request)` for a function; read
+ * the request's body from a clone, since tests read the original afterwards); unknown paths get a 404 with a
+ * `detail`.
  */
 export function mockApi(routes: Record<string, unknown>) {
   const fetch = vi.fn(async (request: Request) => {
     const url = new URL(request.url)
     const found = url.pathname in routes
     const route = routes[url.pathname]
-    const body = typeof route === 'function' ? (route as (url: URL) => unknown)(url) : route
+    const body =
+      typeof route === 'function' ? await (route as (url: URL, request: Request) => unknown)(url, request) : route
     return new Response(JSON.stringify(found ? body : { detail: `no mock for ${url.pathname}` }), {
       status: found ? 200 : 404,
       headers: { 'Content-Type': 'application/json' },

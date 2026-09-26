@@ -342,6 +342,66 @@
         "title": "CoverageOut",
         "type": "object"
       },
+      "DetailOut": {
+        "description": "One line of a session spelled out.",
+        "properties": {
+          "kind": {
+            "enum": [
+              "switch",
+              "go",
+              "step"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retrieve": {
+            "items": {
+              "$ref": "#/components/schemas/ItemCount"
+            },
+            "title": "Retrieve",
+            "type": "array"
+          },
+          "seconds": {
+            "title": "Seconds",
+            "type": "number"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "who": {
+            "title": "Who",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "who",
+          "step",
+          "location",
+          "retrieve",
+          "seconds"
+        ],
+        "title": "DetailOut",
+        "type": "object"
+      },
       "EvaluateRequest": {
         "description": "Re-cost one recipe with some of its sources or its exit picked by the user.",
         "properties": {
@@ -351,6 +411,30 @@
             },
             "title": "Choices",
             "type": "object"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "copies": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Copies"
           },
           "exits": {
             "default": [
@@ -763,6 +847,53 @@
           "seconds"
         ],
         "title": "LegOut",
+        "type": "object"
+      },
+      "LocationOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "map_x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Map X"
+          },
+          "map_y": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Map Y"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "map_x",
+          "map_y"
+        ],
+        "title": "LocationOut",
         "type": "object"
       },
       "ManualCharacter": {
@@ -1208,6 +1339,19 @@
             "title": "Crafters",
             "type": "array"
           },
+          "crafts": {
+            "default": 1,
+            "title": "Crafts",
+            "type": "integer"
+          },
+          "details": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DetailOut"
+            },
+            "title": "Details",
+            "type": "array"
+          },
           "exits": {
             "items": {
               "$ref": "#/components/schemas/ExitOut"
@@ -1646,6 +1790,11 @@
           "item_id": {
             "title": "Item Id",
             "type": "integer"
+          },
+          "lead_seconds": {
+            "default": 0.0,
+            "title": "Lead Seconds",
+            "type": "number"
           },
           "name": {
             "title": "Name",

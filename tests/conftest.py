@@ -287,6 +287,7 @@ def city_preset(name: str, faction: str, vendor_x: float, anvil: bool = False) -
         "faction": faction,
         "map": 1,
         "hub": "ah",
+        "zone": {"name": name, "min_x": -1000, "min_y": -1000, "max_x": 1000, "max_y": 1000},
         "locations": [
             {"id": "ah", "kind": "ah", "name": "Auctioneer", "x": 0, "y": 0, "z": 0},
             {"id": "mailbox:1", "kind": "mailbox", "name": "Mailbox", "x": 35, "y": 0, "z": 0},

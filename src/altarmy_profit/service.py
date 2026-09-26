@@ -173,12 +173,26 @@ def evaluate(
     no_ah: frozenset[int] = frozenset(),
     include_trivial: bool = True,
     time: TimeModel | None = None,
+    crafts: int = 1,
 ) -> Result | None:
-    """One recipe as `search` would rank it, but with the user's `choices` of sources and exit; None if
-    the characters can't make or sell it."""
+    """One recipe as `search` would rank it, but with the user's `choices` of sources and exit, for
+    `crafts` crafts at once (see `session_model` for timing them); None if the characters can't make or sell
+    it."""
     market = _market(base, chars, include_unlearned, exits, no_ah, include_trivial, time)
     recipe = next((r for r in market.recipes if r.id == recipe_id), None)
-    return None if recipe is None else market.evaluate(recipe, choices)
+    return None if recipe is None else market.evaluate(recipe, choices, crafts=crafts)
+
+
+def session_model(time: TimeModel, cities: Sequence[timing.CityMap], city: str | None) -> TimeModel:
+    """`time` for a session planned as a whole (its crafts are the batch: `batch` 1), in `city` if given
+    (one of `cities`, the selection's faction's), else as `time` picks. ValueError for another city."""
+    config = replace(time.config, batch=1)
+    if city is None:
+        return replace(time, config=config)
+    found = next((c for c in cities if c.name == city), None)
+    if found is None:
+        raise ValueError(f"{city} is not a city these characters craft in.")
+    return TimeModel(config, found)
 
 
 def _market(

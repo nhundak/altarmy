@@ -27,6 +27,14 @@ def find_altarmy_files(roots: Iterable[Path] = WOW_ROOTS, flavors: Sequence[str]
     return _find(roots, flavors, "AltArmy_TBC.lua")
 
 
+def find_saved_variables(
+    name: str, roots: Iterable[Path] = WOW_ROOTS, flavors: Sequence[str] | None = None
+) -> list[Path]:
+    """Any addon's account-wide SavedVariables file `name` (e.g. "frellscout.lua") under each WoW install,
+    or only under `flavors`."""
+    return _find(roots, flavors, name)
+
+
 def _find(roots: Iterable[Path], flavors: Sequence[str] | None, name: str) -> list[Path]:
     found: list[Path] = []
     for root in roots:

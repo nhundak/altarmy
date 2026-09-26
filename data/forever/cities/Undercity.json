@@ -3,6 +3,13 @@
  "faction": "Horde",
  "map": 0,
  "hub": "ah",
+ "zone": {
+  "name": "Undercity",
+  "min_x": 1237.8411865234,
+  "min_y": -86.18240356445,
+  "max_x": 1877.9453125,
+  "max_y": 873.19262695313
+ },
  "locations": [
   {
    "id": "ah",

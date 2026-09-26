@@ -37,6 +37,8 @@ def main() -> None:
     focus = ingest.craft_stations(
         {t: ingest.download(t, version.default_build, ROOT / "cache") for t in tables}
     )
+    ui = {t: ingest.download(t, version.default_build, ROOT / "cache") for t in ("UiMapAssignment", "UiMap")}
+    zones = ingest.zone_boxes(ui["UiMapAssignment"], ui["UiMap"])
     out_dir = ROOT / version.cities_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     world = vmangos.download_world_db(ROOT / "cache")
@@ -58,6 +60,7 @@ def main() -> None:
             focus,
             existing,
             source=f"vmangos {world.parent.name}",
+            zones=zones,
         )
         path.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
         counts = ", ".join(f"{v} {k}" for k, v in data["generated"]["counts"].items())

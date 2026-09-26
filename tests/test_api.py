@@ -1112,3 +1112,44 @@ def test_evaluate_uses_the_time_settings(client: TestClient, priced: Connection,
 def test_guests_keep_their_own_time_settings(hosted: TestClient, conn: Connection) -> None:
     assert hosted.put("/api/time", json={"config": {"batch": 2}}, headers=FREE).status_code == 200
     assert hosted.get("/api/time", headers=FREE).json()["config"]["batch"] == 2
+
+
+def test_evaluate_plans_a_session_spelled_out(client: TestClient, priced: Connection, cities: Path) -> None:
+    body = {"recipe_id": 100, "choices": {}, "copies": 20, "city": "Thunder Bluff"}
+    r = client.post("/api/evaluate", json=body).json()["result"]
+    assert (r["crafts"], r["cost"], r["revenue"], r["profit"]) == (20, 20 * 300, 20 * 500, 20 * 200)
+    assert (r["timing"]["city"], r["timing"]["batch"]) == ("Thunder Bluff", 1)
+    assert r["timing"]["per_hour"] == round(20 * 200 * 3600 / r["timing"]["total_seconds"])
+    said = []
+    for d in r["details"]:
+        if d["kind"] == "step":
+            s = r["steps"][d["step"]]
+            said.append((s["action"], s["name"], s["quantity"]))
+        else:
+            loc = d["location"]
+            said.append(("go", loc["name"], [(i["item_id"], i["count"]) for i in d["retrieve"]]))
+    assert said == [
+        ("buy", "Linen Cloth", 200),
+        ("buy", "Coarse Thread", 20),
+        ("go", "Mailbox", [(1, 200), (2, 20)]),
+        ("go", "Anvil", []),
+        ("craft", "Green Robe", 20),
+        ("go", "Thread Seller", []),
+        ("sell", "Green Robe", 20),
+    ]
+    anvil = r["details"][3]["location"]
+    assert (anvil["kind"], anvil["map_x"], anvil["map_y"]) == ("anvil", 49.0, 50.0)
+    assert (
+        client.post("/api/evaluate", json={"recipe_id": 100, "choices": {}}).json()["result"]["details"] == []
+    )
+
+
+def test_evaluate_refuses_a_city_the_characters_dont_craft_in(
+    client: TestClient, priced: Connection, cities: Path
+) -> None:
+    for city in ("Stormwind", "Booty Bay", "Atlantis"):
+        got = client.post("/api/evaluate", json={"recipe_id": 100, "choices": {}, "copies": 5, "city": city})
+        assert got.status_code == 400
+    assert (
+        client.post("/api/evaluate", json={"recipe_id": 100, "choices": {}, "copies": 0}).status_code == 422
+    )

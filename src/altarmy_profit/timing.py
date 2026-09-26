@@ -175,6 +175,34 @@ def _location(data: object) -> Location:
     return Location(_str(d, "id"), kind, _str(d, "name", ""), _num(d, "x"), _num(d, "y"), _num(d, "z"))
 
 
+@dataclass(frozen=True)
+class Zone:
+    """The city's zone map (DB2 UiMapAssignment): its name and the world box it shows, so a position can
+    be given as the map percentages players read (0 top/left, 100 bottom/right)."""
+
+    name: str
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+
+    def map_coords(self, x: float, y: float) -> tuple[float, float]:
+        """(map x, map y) in percent, one decimal. World y runs right to left, world x bottom to top."""
+        mx = 100 * (self.max_y - y) / (self.max_y - self.min_y)
+        my = 100 * (self.max_x - x) / (self.max_x - self.min_x)
+        return round(mx, 1), round(my, 1)
+
+
+def _zone(data: object) -> Zone | None:
+    if data is None:
+        return None
+    d = _mapping(data, "zone")
+    zone = Zone(_str(d, "name"), _num(d, "min_x"), _num(d, "min_y"), _num(d, "max_x"), _num(d, "max_y"))
+    if zone.max_x <= zone.min_x or zone.max_y <= zone.min_y:
+        raise ValueError("zone: max must exceed min")
+    return zone
+
+
 def _pair(a: str, b: str) -> tuple[str, str]:
     return (a, b) if a <= b else (b, a)
 
@@ -195,12 +223,14 @@ class CityMap:
         map_id: int = 0,
         detour: float | None = None,
         travel: Mapping[tuple[str, str], float] | None = None,
+        zone: Zone | None = None,
     ) -> None:
         if faction not in FACTIONS:
             raise ValueError(f"unknown faction {faction!r}")
         self.name = name
         self.faction = faction
         self.map_id = map_id
+        self.zone = zone  # for map coordinates; None if the preset has none
         self.locations: tuple[Location, ...] = tuple(locations)
         self._by_id = {loc.id: loc for loc in self.locations}
         if hub not in self._by_id:
@@ -253,12 +283,20 @@ class CityMap:
             hub,
             vendors,
             map_id=int(_num(data, "map")) if "map" in data else 0,
+            zone=_zone(data.get("zone")),
             detour=detour,
             travel=travel,
         )
 
     def location(self, loc_id: str) -> Location:
         return self._by_id[loc_id]
+
+    def map_coords(self, loc_id: str) -> tuple[float, float] | None:
+        """Where a location is on the city's zone map, in percent; None without a zone."""
+        if self.zone is None:
+            return None
+        loc = self._by_id[loc_id]
+        return self.zone.map_coords(loc.x, loc.y)
 
     def seconds(self, a: str, b: str, config: TimeConfig) -> float:
         """Running time between two locations: a hand-measured time if there is one, else straight-line
@@ -506,43 +544,67 @@ def _stops(city: CityMap, block: Block, config: TimeConfig) -> tuple[list[str], 
     return gather, dispose, unsold
 
 
-def route(city: CityMap, block: Block, config: TimeConfig) -> list[Leg]:
-    """The block's legs: from the hub through its gather stops in the quickest order: the AH, vendors, and
-    one visit to the mailbox if anything waits there (AH purchases arrive by mail, so it comes after the AH;
-    what alts sent too). Then its stations (in turn, the nearest each time) and its dispose stops (quickest
-    order), where the route ends: nobody runs back to the hub after their last action. Legs of no length
-    are left out."""
+@dataclass(frozen=True)
+class Stop:
+    """One place on a character's route and what they do there: `gather` (buy at the AH or a vendor),
+    `collect` (take AH purchases and alts' mail from the mailbox), `station` (craft there) or `dispose`
+    (send mail, sell at the AH or to a vendor)."""
+
+    who: str
+    phase: str
+    location_id: str
+
+
+def plan_stops(city: CityMap, block: Block, config: TimeConfig) -> list[Stop]:
+    """The block's stops in order, starting from the hub: its gather stops in the quickest order (the AH,
+    vendors, and one visit to the mailbox if anything waits there: AH purchases arrive by mail, so it comes
+    after the AH; what alts sent too), then its stations (in turn, the nearest each time) and its dispose
+    stops (quickest order), where the route ends: nobody runs back to the hub after their last action.
+    Stops where the character already stands (buying at the hub) are listed too."""
     gather, dispose, _ = _stops(city, block, config)
     hub = city.hub.id
     collect = ["mailbox"] if block.buys_ah or block.receives_mail else []
-    tails: dict[str, tuple[float, list[str]]] = {}  # the quickest rest of the route from each place
+    tails: dict[
+        str, tuple[float, list[tuple[str, str]]]
+    ] = {}  # the quickest rest of the route from each place
 
-    def tail(at: str) -> tuple[float, list[str]]:
+    def tail(at: str) -> tuple[float, list[tuple[str, str]]]:
         if at not in tails:
             placed = [k for k in block.stations if k not in DEPLOYABLE]
             station_s, stations = _walk(city, at, placed, None, config)
             after = stations[-1] if stations else at
-            best_rest: tuple[float, list[str]] | None = None
+            best_rest: tuple[float, list[tuple[str, str]]] | None = None
             for seconds, ids in _paths(city, after, dispose, config).values():
                 total = station_s + seconds
                 if best_rest is None or total < best_rest[0]:
-                    best_rest = (total, stations + ids)
+                    best_rest = (total, [("station", i) for i in stations] + [("dispose", i) for i in ids])
             assert best_rest is not None
             tails[at] = best_rest
         return tails[at]
 
-    best: tuple[float, list[str]] | None = None
+    best: tuple[float, list[tuple[str, str]]] | None = None
     for end, (head_s, head) in _paths(city, hub, [*gather, *collect], config, ("ah", "mailbox")).items():
         tail_s, rest = tail(end)
         if best is None or head_s + tail_s < best[0]:
-            best = (head_s + tail_s, head + rest)
+            phases = [("collect" if city.location(i).kind == "mailbox" else "gather", i) for i in head]
+            best = (head_s + tail_s, phases + rest)
     assert best is not None
-    legs, at = [], hub
-    for stop in best[1]:
-        if stop != at:
-            legs.append(Leg(block.who, at, stop, city.seconds(at, stop, config)))
-        at = stop
+    return [Stop(block.who, phase, loc) for phase, loc in best[1]]
+
+
+def legs_of(city: CityMap, stops: Sequence[Stop], config: TimeConfig) -> list[Leg]:
+    """The runs between stops, from the hub; stops where the character already stands take no leg."""
+    legs, at = [], city.hub.id
+    for stop in stops:
+        if stop.location_id != at:
+            legs.append(Leg(stop.who, at, stop.location_id, city.seconds(at, stop.location_id, config)))
+        at = stop.location_id
     return legs
+
+
+def route(city: CityMap, block: Block, config: TimeConfig) -> list[Leg]:
+    """The block's legs (see `plan_stops`). Legs of no length are left out."""
+    return legs_of(city, plan_stops(city, block, config), config)
 
 
 # --- timings --------------------------------------------------------------------------------------------
@@ -559,6 +621,7 @@ class Timing:
     unsold: frozenset[int] = frozenset()  # vendor items no vendor in the city sells (timed at the nearest)
     missing: frozenset[str] = frozenset()  # station kinds the plan needs and the city lacks (not timed)
     deployed: frozenset[str] = frozenset()  # DEPLOYABLE stations the plan needs: there, and no trip
+    stops: tuple[Stop, ...] = ()  # every stop of every block, in order (what `legs` run between)
 
     @property
     def total_seconds(self) -> float:
@@ -576,13 +639,16 @@ def time_blocks(blocks: Sequence[Block], config: TimeConfig, city: CityMap) -> T
     fixed = dict.fromkeys(BREAKDOWN, 0.0)
     per_craft = dict.fromkeys(BREAKDOWN, 0.0)
     legs: list[Leg] = []
+    stops: list[Stop] = []
     unsold: set[int] = set()
     missing: set[str] = set()
     deployed: set[str] = set()
     for i, block in enumerate(blocks):
         if i:
             fixed["switch"] += config.switch_character
-        block_legs = route(city, block, config)
+        block_stops = plan_stops(city, block, config)
+        block_legs = legs_of(city, block_stops, config)
+        stops.extend(block_stops)
         legs.extend(block_legs)
         fixed["travel"] += sum(leg.seconds for leg in block_legs)
         unsold |= _stops(city, block, config)[2]
@@ -605,4 +671,5 @@ def time_blocks(blocks: Sequence[Block], config: TimeConfig, city: CityMap) -> T
         frozenset(unsold),
         frozenset(missing),
         frozenset(deployed),
+        tuple(stops),
     )

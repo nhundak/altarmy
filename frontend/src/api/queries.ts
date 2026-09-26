@@ -174,6 +174,37 @@ export function useEvaluations(
   })
 }
 
+/** A recipe planned as a session: `copies` crafts at once in `city` (null: as the time settings pick), spelled
+ * out with where to go. The user's plan `choices` apply. The previous plan stays shown while a new one loads. */
+export function useSessionPlan(
+  recipeId: number,
+  { includeUnlearned, includeTrivial, exits, version }: EvaluateParams,
+  choices: Choices | undefined,
+  copies: number,
+  city: string | null,
+) {
+  return useQuery({
+    // under 'evaluate', so whatever re-costs plans (time settings, AH blocks) re-plans sessions too
+    queryKey: ['evaluate', GAME_VERSION, version, recipeId, includeUnlearned, includeTrivial, exits, choices ?? {}, 'session', copies, city],
+    queryFn: () =>
+      call(
+        client.POST('/api/evaluate', {
+          ...GV,
+          body: {
+            recipe_id: recipeId,
+            include_unlearned: includeUnlearned,
+            include_trivial: includeTrivial,
+            exits,
+            choices: choices ?? {},
+            copies,
+            city: city ?? undefined,
+          },
+        }),
+      ),
+    placeholderData: keepPreviousData,
+  })
+}
+
 /** How to sign in (never changes while the page is open). */
 export function useConfig() {
   return useQuery({

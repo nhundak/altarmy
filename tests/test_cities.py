@@ -1,12 +1,13 @@
 """City presets: reading spawns from a vmangos-shaped world database, and building a preset from them."""
 
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from altarmy_profit import cities, timing, vmangos
+from altarmy_profit import cities, ingest, timing, vmangos
 from altarmy_profit.cities import CitySpec
 from altarmy_profit.vmangos import Spawn
 
@@ -128,7 +129,11 @@ def test_vendor_stock_is_unlimited_and_unconditional(town: sqlite3.Connection) -
     assert vmangos.vendor_stock(town, []) == {}
 
 
-def build(town: sqlite3.Connection, existing: dict[str, object] | None = None) -> dict[str, object]:
+def build(
+    town: sqlite3.Connection,
+    existing: dict[str, object] | None = None,
+    zones: Sequence[ingest.ZoneBox] = (),
+) -> dict[str, Any]:
     spec = CitySpec("Town", "Town", "Horde", 100)
     m, x, y, z = vmangos.city_centre(town, "Town")
     vendors = vmangos.npcs_near(town, m, x, y, z, 100, vmangos.NPC_VENDOR)
@@ -142,6 +147,7 @@ def build(town: sqlite3.Connection, existing: dict[str, object] | None = None) -
         vmangos.vendor_stock(town, [v.entry for v in vendors]),
         FOCUS,
         existing,
+        zones=zones,
     )
 
 
@@ -173,6 +179,25 @@ def test_build_city_makes_a_preset_the_timing_model_reads(town: sqlite3.Connecti
     }
 
 
+def test_build_city_names_the_smallest_zone_map_around_the_hub(town: sqlite3.Connection) -> None:
+    zones = [
+        (1, "Kalimdor", -9000.0, -9000.0, 9000.0, 9000.0),
+        (1, "Town", X - 500, Y - 500, X + 500, Y + 500),
+        (1, "Elsewhere", X + 1000, Y, X + 2000, Y + 500),  # not around the hub
+        (0, "Other Continent", X - 100, Y - 100, X + 100, Y + 100),
+    ]
+    data = build(town, zones=zones)
+    assert data["zone"] == {
+        "name": "Town",
+        "min_x": X - 500,
+        "min_y": Y - 500,
+        "max_x": X + 500,
+        "max_y": Y + 500,
+    }
+    assert timing.CityMap.from_dict(data).map_coords("ah") == (50.0, 49.0)  # Ann stands 10 yd north of centre
+    assert "zone" not in build(town)
+
+
 def test_build_city_keeps_the_hand_tuned_overrides(town: sqlite3.Connection) -> None:
     overrides = {"detour": 1.8, "travel": {"ah|mailbox:50": 4.0}}
     data = build(town, {"name": "Town", "overrides": overrides})
@@ -190,3 +215,85 @@ def test_build_city_starts_at_a_mailbox_without_an_auction_house() -> None:
     data = cities.build_city(CitySpec("Hamlet", "X", "", 10), 0, [], [box], [], [], {}, FOCUS)
     assert data["hub"] == "mailbox:7"
     assert timing.CityMap.from_dict(data).hub.id == "mailbox:7"
+
+
+# --- frellscout mailboxes ---------------------------------------------------------------------------------
+SCOUT_SV = b"""
+FrellscoutDB = {
+\t["nextId"] = 5,
+\t["mailboxes"] = {
+\t\t{ ["id"] = 1, ["instance"] = 1, ["x"] = 1000, ["y"] = -4050, ["z"] = 20, ["zone"] = "Town" },
+\t\t{ ["id"] = 2, ["instance"] = 1, ["x"] = 1006, ["y"] = -4050, ["z"] = 0, ["zone"] = "Town" },
+\t\t{ ["id"] = 3, ["instance"] = 1, ["x"] = 1040, ["y"] = -4000, ["z"] = 0, ["zone"] = "Town" },
+\t\t{ ["id"] = 4, ["instance"] = 0, ["x"] = 1040, ["y"] = -4000, ["z"] = 5, ["zone"] = "Far" },
+\t},
+}
+"""
+
+
+def town_preset() -> dict[str, Any]:
+    return {
+        "name": "Town",
+        "faction": "Horde",
+        "map": 1,
+        "hub": "ah",
+        "locations": [
+            {"id": "ah", "kind": "ah", "name": "Ann", "x": 1000.0, "y": -4010.0, "z": 20.0},
+            {"id": "mailbox:50", "kind": "mailbox", "name": "Mailbox", "x": 1000.0, "y": -4050.0, "z": 20.0},
+            {"id": "vendor:20", "kind": "vendor", "name": "Vic", "x": 1045.0, "y": -4000.0, "z": 31.0},
+        ],
+        "vendors": {"vendor:20": [2]},
+        "generated": {"source": "vmangos", "tele": "Town", "radius": 100, "counts": {}},
+        "overrides": {},
+    }
+
+
+def test_scouted_mailboxes_reads_frellscout_saved_variables() -> None:
+    found = cities.scouted_mailboxes(SCOUT_SV)
+    assert [(m.id, m.map_id, m.x, m.y, m.z) for m in found] == [
+        (1, 1, 1000.0, -4050.0, 20.0),
+        (2, 1, 1006.0, -4050.0, 0.0),
+        (3, 1, 1040.0, -4000.0, 0.0),
+        (4, 0, 1040.0, -4000.0, 5.0),
+    ]
+    assert cities.scouted_mailboxes(b"Other = {}") == []
+
+
+@pytest.mark.parametrize(
+    "text", [b"FrellscoutDB = 3", b'FrellscoutDB = {["mailboxes"] = {{["id"] = 1, ["x"] = "a"}}}']
+)
+def test_scouted_mailboxes_rejects_a_malformed_file(text: bytes) -> None:
+    with pytest.raises(ValueError):
+        cities.scouted_mailboxes(text)
+
+
+def test_add_scouted_mailboxes_skips_classic_ones_and_places_new_ones() -> None:
+    presets = {"Town": town_preset()}
+    changed, report = cities.add_scouted_mailboxes(presets, cities.scouted_mailboxes(SCOUT_SV))
+    added = changed["Town"]["overrides"]["locations"]
+    # 1 stands on vmangos' mailbox and 2 is 6 yd off it: both Classic. 3 is new; its height comes from the
+    # nearest location (the vendor, 5 yd away). 4 is on another continent: no city.
+    assert added == [
+        {
+            "id": "mailbox:scout:1040:-4000",
+            "kind": "mailbox",
+            "name": "Mailbox",
+            "x": 1040.0,
+            "y": -4000.0,
+            "z": 31.0,
+        }
+    ]
+    assert [line.split(":")[0] for line in report] == ["#1", "#2", "#3", "#4"]
+    assert "mailbox:50" in report[0] and "mailbox:50" in report[1]
+    assert "Town" in report[2] and "no city" in report[3]
+    assert presets["Town"]["overrides"] == {}  # the input is left alone
+    city = timing.CityMap.from_dict(changed["Town"])
+    assert city.location("mailbox:scout:1040:-4000").kind == "mailbox"
+
+
+def test_add_scouted_mailboxes_twice_changes_nothing() -> None:
+    found = cities.scouted_mailboxes(SCOUT_SV)
+    once, _ = cities.add_scouted_mailboxes({"Town": town_preset()}, found)
+    twice, report = cities.add_scouted_mailboxes(once, found)
+    assert twice == {}
+    assert "mailbox:scout:1040:-4000" in report[2]

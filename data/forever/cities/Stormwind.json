@@ -3,6 +3,13 @@
  "faction": "Alliance",
  "map": 0,
  "hub": "ah",
+ "zone": {
+  "name": "Stormwind City",
+  "min_x": -9154.169921875,
+  "min_y": -14.58399963379,
+  "max_x": -7995.830078125,
+  "max_y": 1722.9200439453
+ },
  "locations": [
   {
    "id": "ah",

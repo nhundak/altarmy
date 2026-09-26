@@ -120,6 +120,7 @@ class StepOut(BaseModel):
     discount: int = 0  # buy from a vendor: percent off from the buyer's Legacy talents (Bartering)
     bonus: float = 0.0  # sell: expected extra units on top of quantity (Master Chef), counted in value
     seconds: float = 0.0  # play time per craft this step takes (clicks, casts); travel is in the timing
+    lead_seconds: float = 0.0  # a disenchant sale: the disenchanting's share of `seconds` (then posting)
     station: str = ""  # craft: the station it is cast at (anvil, cooking_fire, loom, ...); "" anywhere
 
 
@@ -246,6 +247,25 @@ class CityTimingOut(BaseModel):
     missing: list[str]  # crafting stations the plan needs and the city lacks: it can't be crafted there
 
 
+class LocationOut(BaseModel):
+    id: str
+    kind: str  # ah | mailbox | vendor | a crafting station (anvil, ...)
+    name: str
+    map_x: float | None  # on the city's zone map, percent; None if the preset has no zone
+    map_y: float | None
+
+
+class DetailOut(BaseModel):
+    """One line of a session spelled out."""
+
+    kind: Literal["switch", "go", "step"]
+    who: str
+    step: int | None  # step: an index into `steps`
+    location: LocationOut | None  # go: where to
+    retrieve: list[ItemCount]  # go to the mailbox: what waits there
+    seconds: float  # go: the run there
+
+
 class RankResult(BaseModel):
     recipe_id: int
     recipe: str
@@ -271,6 +291,8 @@ class RankResult(BaseModel):
     timing: TimingOut | None = None  # this plan in the user's city
     cities: list[CityTimingOut] = []  # this plan in each city the selection's faction crafts in
     best_city: str | None = None  # the quickest of those; None without city presets
+    crafts: int = 1  # what cost, revenue, profit, steps and tree are for (a session's, from /api/evaluate)
+    details: list[DetailOut] = []  # a session's steps with where to go in between (/api/evaluate with copies)
 
 
 class RankResponse(BaseModel):
@@ -289,6 +311,9 @@ class EvaluateRequest(BaseModel):
     exits: list[ExitKind] = list(ALL_EXIT_KINDS)
     # tree path ("r.0", "r.0.1"; "sell" for the exit) -> option key (or exit kind); unknown keys are ignored
     choices: dict[str, str]
+    # a session: that many crafts at once, spelled out step by step (`details`); None: one craft, as ranked
+    copies: int | None = Field(default=None, ge=1, le=1000)
+    city: str | None = None  # time and route the session in this city (the selection's faction's)
 
 
 class EvaluateResponse(BaseModel):
@@ -938,6 +963,9 @@ def get_rank(
 def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> EvaluateResponse:
     """One recipe as /api/rank would give it, with the user's `choices` of sources and exit applied."""
     s = _selected(state, user)
+    session = body.copies is not None or body.city is not None
+    with _http_errors():
+        time = service.session_model(s.time, s.cities, body.city) if session else s.time
     r = service.evaluate(
         s.base,
         s.chars,
@@ -947,12 +975,13 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
         body.choices,
         s.no_ah,
         body.include_trivial,
-        s.time,
+        time,
+        body.copies or 1,
     )
     if r is None:
         raise HTTPException(404, "These characters can't craft and sell that recipe.")
     return EvaluateResponse(
-        result=_result_out(r, s.base, altarmy.crafters(s.chars), s.cities),
+        result=_result_out(r, s.base, altarmy.crafters(s.chars), s.cities, detailed=session),
         items=_item_infos(state, s.base, [r]),
     )
 
@@ -1083,6 +1112,8 @@ def _result_out(
     base: engine.Market,
     crafters: dict[int, list[str]],
     cities: Sequence[timing.CityMap] = (),
+    *,
+    detailed: bool = False,
 ) -> RankResult:
     per_city = _cities_out(r, cities)
     t = r.timing
@@ -1130,6 +1161,7 @@ def _result_out(
                 bonus=s.bonus,
                 seconds=s.seconds,
                 station=s.station,
+                lead_seconds=s.lead_seconds,
             )
             for s in r.steps
         ],
@@ -1140,7 +1172,38 @@ def _result_out(
         else _timing_out(t, r.profit, _timed_city(r.time_model, t)),
         cities=per_city,
         best_city=_best_city(per_city),
+        crafts=r.crafts,
+        details=_details_out(r) if detailed else [],
     )
+
+
+def _details_out(r: engine.Result) -> list[DetailOut]:
+    city = engine.timed_city(r)
+    if city is None:
+        return []
+
+    def where(loc_id: str) -> LocationOut:
+        loc = city.location(loc_id)
+        coords = city.map_coords(loc_id)
+        return LocationOut(
+            id=loc.id,
+            kind=loc.kind,
+            name=loc.name,
+            map_x=coords[0] if coords else None,
+            map_y=coords[1] if coords else None,
+        )
+
+    return [
+        DetailOut(
+            kind=cast(Literal["switch", "go", "step"], d.kind),
+            who=d.who,
+            step=d.step,
+            location=where(d.location_id) if d.kind == "go" else None,
+            retrieve=[ItemCount(item_id=i, count=q) for i, _, q in d.retrieve],
+            seconds=d.seconds,
+        )
+        for d in engine.detailed_steps(r)
+    ]
 
 
 def _time_settings(state: AppState, conn: Connection, user: auth.User) -> TimeSettings:

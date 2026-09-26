@@ -617,6 +617,26 @@ export interface components {
             uploaders_7d: number;
         };
         /**
+         * DetailOut
+         * @description One line of a session spelled out.
+         */
+        DetailOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "switch" | "go" | "step";
+            location: components["schemas"]["LocationOut"] | null;
+            /** Retrieve */
+            retrieve: components["schemas"]["ItemCount"][];
+            /** Seconds */
+            seconds: number;
+            /** Step */
+            step: number | null;
+            /** Who */
+            who: string;
+        };
+        /**
          * EvaluateRequest
          * @description Re-cost one recipe with some of its sources or its exit picked by the user.
          */
@@ -625,6 +645,10 @@ export interface components {
             choices: {
                 [key: string]: string;
             };
+            /** City */
+            city?: string | null;
+            /** Copies */
+            copies?: number | null;
             /**
              * Exits
              * @default [
@@ -776,6 +800,19 @@ export interface components {
             to_name: string;
             /** Who */
             who: string;
+        };
+        /** LocationOut */
+        LocationOut: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Map X */
+            map_x: number | null;
+            /** Map Y */
+            map_y: number | null;
+            /** Name */
+            name: string;
         };
         /**
          * ManualCharacter
@@ -967,6 +1004,16 @@ export interface components {
             crafter: string;
             /** Crafters */
             crafters: string[];
+            /**
+             * Crafts
+             * @default 1
+             */
+            crafts: number;
+            /**
+             * Details
+             * @default []
+             */
+            details: components["schemas"]["DetailOut"][];
             /** Exits */
             exits: components["schemas"]["ExitOut"][];
             /** Mail To */
@@ -1106,6 +1153,11 @@ export interface components {
             discount: number;
             /** Item Id */
             item_id: number;
+            /**
+             * Lead Seconds
+             * @default 0
+             */
+            lead_seconds: number;
             /** Name */
             name: string;
             /** Paths */

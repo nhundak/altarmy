@@ -181,6 +181,34 @@ def test_route_disposes_after_crafting() -> None:
     assert stops == ["mailbox:1", "anvil:1", "mailbox:1", "ah"]
 
 
+def test_plan_stops_lists_every_stop_with_its_role() -> None:
+    block = Block("A", buys_ah=True, stations=("anvil",), sends_mail=True, sells_ah=True)
+    stops = timing.plan_stops(city(), block, FAST)
+    assert [(st.phase, st.location_id) for st in stops] == [
+        ("gather", "ah"),  # at the hub already: no leg, but still a stop
+        ("collect", "mailbox:1"),
+        ("station", "anvil:1"),
+        ("dispose", "mailbox:1"),
+        ("dispose", "ah"),
+    ]
+    assert all(st.who == "A" for st in stops)
+    legs = timing.route(city(), block, FAST)
+    assert [leg.to_id for leg in legs] == ["mailbox:1", "anvil:1", "mailbox:1", "ah"]
+    t = timing.time_blocks([block], FAST, city())
+    assert t.stops == tuple(stops)
+
+
+def test_map_coordinates_come_from_the_zone_box() -> None:
+    assert city().map_coords("ah") is None  # no zone in the preset
+    zone = {"name": "Testville", "min_x": -100, "min_y": -200, "max_x": 100, "max_y": 200}
+    c = CityMap.from_dict({**city_data(), "zone": zone})
+    assert c.zone is not None and c.zone.name == "Testville"
+    assert c.map_coords("ah") == (50.0, 50.0)  # the middle of the box
+    assert c.map_coords("mailbox:1") == (50.0, 25.0)  # world x 50: a quarter of the way up from the middle
+    with pytest.raises(ValueError):
+        CityMap.from_dict({**city_data(), "zone": {**zone, "max_x": -100}})
+
+
 def test_ah_purchases_are_collected_in_one_trip_to_the_mailbox() -> None:
     legs = timing.route(city(), Block("A", buys_ah=True, sells_ah=True), FAST)
     assert [leg.to_id for leg in legs] == ["mailbox:1", "ah"]  # however many items were bought

@@ -3,6 +3,13 @@
  "faction": "Alliance",
  "map": 0,
  "hub": "ah",
+ "zone": {
+  "name": "Ironforge",
+  "min_x": -5096.845703125,
+  "min_y": -1504.2164306641,
+  "max_x": -4569.2412109375,
+  "max_y": -713.59136962891
+ },
  "locations": [
   {
    "id": "ah",

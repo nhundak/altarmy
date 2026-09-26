@@ -30,11 +30,11 @@ const disenchanted: RankResult = {
     },
   ],
   steps: [
-    { action: 'buy', item_id: 4, name: 'Medium Hide', quantity: 2, value: -12648, via: 'ah', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.0.0'] },
-    { action: 'craft', item_id: 5, name: 'Cured Medium Hide', quantity: 2, value: 0, via: 'Cure', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.0'] },
-    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r'] },
-    { action: 'mail', item_id: 3, name: 'Green Robe', quantity: 1, value: -30, via: 'Enchy', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r'] },
-    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 75988, via: 'disenchant', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['sell'] },
+    { action: 'buy', item_id: 4, name: 'Medium Hide', quantity: 2, value: -12648, via: 'ah', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0.0'] },
+    { action: 'craft', item_id: 5, name: 'Cured Medium Hide', quantity: 2, value: 0, via: 'Cure', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0'] },
+    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r'] },
+    { action: 'mail', item_id: 3, name: 'Green Robe', quantity: 1, value: -30, via: 'Enchy', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r'] },
+    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 75988, via: 'disenchant', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['sell'] },
   ],
 }
 
@@ -64,11 +64,42 @@ const silverColors = (el: HTMLElement) =>
 /** The colours of the gross and net amounts on the flow chart's sale line with text `text`. */
 const saleColors = (text: string) => silverColors(screen.getByText(detail(text)))
 
-const showSteps = async (nth = 0) => await userEvent.click(screen.getAllByText('Steps')[nth])
+/** Open the Steps view, and wait for its session plan. */
+const showSteps = async (nth = 0) => {
+  await userEvent.click(screen.getAllByText('Steps')[nth]!)
+  await screen.findAllByText(/^\d+ crafts?:/)
+}
+
+/** /api/evaluate as the server answers it, for tests: each recipe planned as its row (once the user has made a
+ * choice, as `chosen`), with the session's crafts. */
+const planned =
+  (rows: RankResult[], chosen?: RankResult) =>
+  async (_: URL, request: Request) => {
+    const body = (await request.clone().json()) as { recipe_id: number; choices: object; copies?: number }
+    const row = rows.find((r) => r.recipe_id === body.recipe_id) ?? rows[0]!
+    const result = chosen && Object.keys(body.choices).length ? chosen : row
+    return { result: body.copies ? { ...result, crafts: body.copies } : result, items }
+  }
+
+/** The choices of the first /api/evaluate request that made any. */
+async function choicesSent(fetch: ReturnType<typeof mockApi>) {
+  for (const [request] of fetch.mock.calls) {
+    if (new URL(request.url).pathname !== '/api/evaluate') continue
+    const { choices } = (await request.clone().json()) as { choices: Record<string, string> }
+    if (Object.keys(choices).length) return choices
+  }
+  return undefined
+}
+
+/** Render the rows with the server planning their sessions. */
+function renderRows(rows: RankResult[]) {
+  mockApi({ '/api/evaluate': planned(rows) })
+  return renderWithProviders(<ResultsTable results={rows} items={items} />)
+}
 
 describe('ResultsTable', () => {
   it('formats money, ROI and the recipe as its output item, without the quantity', () => {
-    renderWithProviders(<ResultsTable results={[robe]} items={items} />)
+    renderRows([robe])
     expect(line('_2 _0')).toBeInTheDocument()
     expect(screen.getByText('67%')).toBeInTheDocument()
     expect(line('Green Robe')).toBeInTheDocument()
@@ -80,14 +111,14 @@ describe('ResultsTable', () => {
   it('names the characters who know the recipe', () => {
     const unlearned = { ...robe, recipe_id: 101, crafters: [] }
     const browsed = { ...robe, recipe_id: 102, crafters: [], crafter: '' } // no characters at all
-    renderWithProviders(<ResultsTable results={[robe, unlearned, browsed]} items={items} />)
+    renderRows([robe, unlearned, browsed])
     expect(screen.getByText('Tailor Guy')).toBeInTheDocument()
     expect(screen.getByText('not learned')).toBeInTheDocument()
     expect(screen.getByText('anyone')).toBeInTheDocument()
   })
 
   it('expands a row into a flow chart of the reagents, crafts and sale', async () => {
-    renderWithProviders(<ResultsTable results={[robe]} items={items} />)
+    renderRows([robe])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     expect(screen.getByText(detail('Buy on the AH · 2 0'))).toBeInTheDocument()
     expect(screen.getByText(detail('Buy from a vendor · 1 0'))).toBeInTheDocument()
@@ -100,13 +131,13 @@ describe('ResultsTable', () => {
   })
 
   it('shows a loss on the sale as a red, negative net', async () => {
-    renderWithProviders(<ResultsTable results={[{ ...robe, profit: -150 }]} items={items} />)
+    renderRows([{ ...robe, profit: -150 }])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     expect(saleColors('Gross 5 0 · Net -1 50')).toEqual(['teal', 'red'])
   })
 
   it('shows step-by-step instructions on the Steps tab', async () => {
-    renderWithProviders(<ResultsTable results={[robe, disenchanted]} items={items} />)
+    renderRows([robe, disenchanted])
     const [first, second] = screen.getAllByRole('button', { name: 'Details for Green Robe' })
 
     await userEvent.click(first)
@@ -137,7 +168,7 @@ describe('ResultsTable', () => {
         inputs: [robe.tree.inputs[0], { ...robe.tree.inputs[1], cost: 90, discount: 10 }],
       },
     }
-    renderWithProviders(<ResultsTable results={[talented]} items={items} />)
+    renderRows([talented])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     expect(screen.getByText(detail('Buy from a vendor · 90 · Bartering −10%'))).toBeInTheDocument()
     expect(screen.getByText(detail('+0.3 expected from Master Chef'))).toBeInTheDocument()
@@ -149,14 +180,14 @@ describe('ResultsTable', () => {
   })
 
   it('colours the Steps sale by its sign, without + or -', async () => {
-    renderWithProviders(<ResultsTable results={[{ ...robe, profit: -150 }]} items={items} />)
+    renderRows([{ ...robe, profit: -150 }])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await showSteps()
     expect(silverColors(line('Sell 1x Green Robe to a vendor (Gross 5 0 · Net 1 50)'))).toEqual(['teal', 'red'])
   })
 
   it('shows the expected disenchant materials on the Steps sell line', async () => {
-    renderWithProviders(<ResultsTable results={[disenchanted]} items={items} />)
+    renderRows([disenchanted])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await showSteps()
     await userEvent.hover(screen.getByText('Sell materials'))
@@ -164,7 +195,7 @@ describe('ResultsTable', () => {
   })
 
   it('shows the expected disenchant materials on the flow chart sell node', async () => {
-    renderWithProviders(<ResultsTable results={[disenchanted]} items={items} />)
+    renderRows([disenchanted])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await userEvent.hover(screen.getByText('Disenchant, sell the materials'))
     await expectDisenchantTooltip()
@@ -176,14 +207,14 @@ describe('ResultsTable', () => {
       recipe_id: 102,
       crafter: 'Smithy',
       steps: [
-        { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 6, value: -120, via: 'ah', who: 'Leathery', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.0.0'] },
-        { action: 'craft', item_id: 2, name: 'Coarse Thread', quantity: 2, value: 0, via: 'Thread', who: 'Leathery', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.0'] },
-        { action: 'mail', item_id: 2, name: 'Coarse Thread', quantity: 2, value: -30, via: 'Smithy', who: 'Leathery', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.0'] },
-        { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: 'Smithy', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r'] },
-        { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: 'Smithy', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['sell'] },
+        { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 6, value: -120, via: 'ah', who: 'Leathery', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0.0'] },
+        { action: 'craft', item_id: 2, name: 'Coarse Thread', quantity: 2, value: 0, via: 'Thread', who: 'Leathery', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0'] },
+        { action: 'mail', item_id: 2, name: 'Coarse Thread', quantity: 2, value: -30, via: 'Smithy', who: 'Leathery', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0'] },
+        { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: 'Smithy', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r'] },
+        { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: 'Smithy', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['sell'] },
       ],
     }
-    renderWithProviders(<ResultsTable results={[split]} items={items} />)
+    renderRows([split])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await showSteps()
     expect(line('Leathery: Purchase 6x Linen Cloth on the AH (1 20)')).toBeInTheDocument()
@@ -211,14 +242,14 @@ describe('ResultsTable', () => {
 
   it('puts the character on its own line in flow chart nodes', async () => {
     const named: RankResult = { ...robe, tree: { ...robe.tree, crafter: 'Smithy' } }
-    renderWithProviders(<ResultsTable results={[named]} items={items} />)
+    renderRows([named])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     expect(screen.getByText('Craft 1x Green Robe')).toBeInTheDocument()
     expect(screen.getByText('Smithy')).toBeInTheDocument()
   })
 
   it('shows mailing to an enchanter on the flow chart', async () => {
-    renderWithProviders(<ResultsTable results={[disenchanted]} items={items} />)
+    renderRows([disenchanted])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     expect(screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent === 'Mail 1x to Enchy')).toBeInTheDocument()
     expect(screen.getAllByText('Enchy')).toHaveLength(2) // mail recipient, and the disenchanter under the sale
@@ -226,7 +257,7 @@ describe('ResultsTable', () => {
   })
 
   it('shows the recipe tooltip, not the item tooltip, on the recipe', async () => {
-    renderWithProviders(<ResultsTable results={[robe]} items={items} />)
+    renderRows([robe])
     const recipe = screen.getByText('Green Robe')
     expect(recipe.closest('[data-quality]')?.querySelector('img')).not.toBeNull()
     await userEvent.hover(recipe)
@@ -234,7 +265,7 @@ describe('ResultsTable', () => {
   })
 
   it.each([false, true])('links flow and step items to their tooltips (steps: %s)', async (steps) => {
-    renderWithProviders(<ResultsTable results={[robe]} items={items} />)
+    renderRows([robe])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     if (steps) await showSteps()
     await userEvent.hover(screen.getByText('Linen Cloth'))
@@ -307,7 +338,7 @@ describe('ResultsTable', () => {
       ],
     }
     async function open() {
-      const fetch = mockApi({ '/api/evaluate': { result: fromAh, items } })
+      const fetch = mockApi({ '/api/evaluate': planned([robe], fromAh) })
       renderWithProviders(<ResultsTable results={[robe]} items={items} />)
       await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
       return fetch
@@ -341,9 +372,14 @@ describe('ResultsTable', () => {
       await userEvent.click(screen.getByRole('menuitem', { name: /Buy on the AH/ }))
 
       expect(await screen.findByText(detail('Buy on the AH · 1 50'))).toBeInTheDocument()
-      const request = fetch.mock.calls[0]![0]
-      expect([request.method, new URL(request.url).pathname]).toEqual(['POST', '/api/evaluate'])
-      expect(await request.json()).toEqual({
+      const bodies = await Promise.all(
+        fetch.mock.calls
+          .map(([r]) => r)
+          .filter((r) => r.method === 'POST' && new URL(r.url).pathname === '/api/evaluate')
+          .map((r) => r.clone().json() as Promise<Record<string, unknown>>),
+      )
+      // the row is re-costed per craft (no copies), as the ranking has it
+      expect(bodies).toContainEqual({
         recipe_id: 100,
         include_unlearned: false,
         include_trivial: true,
@@ -354,7 +390,7 @@ describe('ResultsTable', () => {
       expect(screen.getByLabelText('Changed plan')).toBeInTheDocument()
 
       await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
-      expect(screen.getByText(detail('Buy from a vendor · 1 0'))).toBeInTheDocument()
+      expect(await screen.findByText(detail('Buy from a vendor · 1 0'))).toBeInTheDocument()
       expect(line('_2 _0')).toBeInTheDocument()
       expect(screen.queryByLabelText('Changed plan')).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
@@ -382,13 +418,12 @@ describe('ResultsTable', () => {
       await userEvent.click(screen.getByRole('menuitem', { name: /Buy on the AH/ }))
 
       expect(await screen.findByText((_, el) => el?.tagName === 'LI' && shown(el) === 'Purchase 1x Coarse Thread on the AH (1 50)')).toBeInTheDocument()
-      expect((await fetch.mock.calls[0]![0].json()).choices).toEqual({ 'r.1': 'ah' })
+      expect(await choicesSent(fetch)).toEqual({ 'r.1': 'ah' })
       await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
-      expect(line('Purchase 1x Coarse Thread from a vendor (1 0)')).toBeInTheDocument()
+      expect(await screen.findByText((_, el) => el?.tagName === 'LI' && shown(el) === 'Purchase 1x Coarse Thread from a vendor (1 0)')).toBeInTheDocument()
     })
 
     it('changes every use of a merged step at once, offering what they all offer, costs summed', async () => {
-      const fetch = mockApi({ '/api/evaluate': { result: robe, items } })
       const both = (vendor: number, ah: number) => [
         { key: 'vendor', cost: vendor, source: 'vendor', via: '', crafter: '', seconds: 0 },
         { key: 'ah', cost: ah, source: 'ah', via: '', crafter: '', seconds: 0 },
@@ -397,7 +432,7 @@ describe('ResultsTable', () => {
       const merged: RankResult = {
         ...robe,
         steps: [
-          { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 3, value: -300, via: 'vendor', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.0.0', 'r.1'] },
+          { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 3, value: -300, via: 'vendor', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0.0', 'r.1'] },
           ...robe.steps.slice(2),
         ],
         tree: {
@@ -408,6 +443,7 @@ describe('ResultsTable', () => {
           ],
         },
       }
+      const fetch = mockApi({ '/api/evaluate': planned([merged], robe) })
       renderWithProviders(<ResultsTable results={[merged]} items={items} />)
       await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
       await showSteps()
@@ -415,7 +451,7 @@ describe('ResultsTable', () => {
       expect(screen.getAllByRole('menuitem').map(shown)).toEqual(['✓Buy from a vendor3 0', 'Buy on the AH4 50'])
       await userEvent.click(screen.getByRole('menuitem', { name: /Buy on the AH/ }))
       await screen.findByRole('button', { name: 'Reset' })
-      expect((await fetch.mock.calls[0]![0].json()).choices).toEqual({ 'r.0.0': 'ah', 'r.1': 'ah' })
+      expect(await choicesSent(fetch)).toEqual({ 'r.0.0': 'ah', 'r.1': 'ah' })
     })
   })
 
@@ -442,7 +478,7 @@ describe('ResultsTable', () => {
     })
 
     it('has no actions menu without a handler', () => {
-      renderWithProviders(<ResultsTable results={[robe]} items={items} />)
+      renderRows([robe])
       expect(screen.queryByRole('button', { name: 'Actions for Green Robe' })).not.toBeInTheDocument()
     })
   })
@@ -452,13 +488,13 @@ describe('ResultsTable profit per hour', () => {
   const header = (name: string) => screen.getByRole('columnheader', { name: new RegExp(`^${name}`) })
 
   it('shows profit per hour, with the batch time on hover', () => {
-    renderWithProviders(<ResultsTable results={[timedRobe]} items={items} />)
+    renderRows([timedRobe])
     const cell = line('1 23 45')
     expect(cell).toHaveAttribute('title', '20 crafts in 4 min 10 s')
   })
 
   it('shows a dash without a timing', () => {
-    renderWithProviders(<ResultsTable results={[robe]} items={items} />)
+    renderRows([robe])
     expect(line('–')).toBeInTheDocument()
   })
 
@@ -478,7 +514,7 @@ describe('ResultsTable profit per hour', () => {
 
   it('names the new Forever stations a plan needs, counted as set down on the spot', async () => {
     const deployed: RankResult = { ...timedRobe, timing: { ...timedRobe.timing!, deployed: ['loom', 'spinning_wheel'] } }
-    renderWithProviders(<ResultsTable results={[deployed]} items={items} />)
+    renderRows([deployed])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     expect(
       screen.getByText('Needs a loom and a spinning wheel'),
@@ -491,21 +527,17 @@ describe('ResultsTable profit per hour', () => {
       timing: { ...timedRobe.timing!, missing: ['anvil', 'spinning_wheel'] },
       cities: [{ ...timedRobe.cities[0]!, missing: ['anvil'] }, timedRobe.cities[1]!],
     }
-    renderWithProviders(<ResultsTable results={[noAnvil]} items={items} />)
+    renderRows([noAnvil])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     expect(screen.getByText(/Orgrimmar has no anvil or spinning wheel: this plan can't be crafted there/)).toBeInTheDocument()
-    const text = (t: string) => screen.getByText((_, el) => el?.tagName === 'P' && shown(el) === t)
-    expect(text('By city: Orgrimmar (no anvil) · Thunder Bluff 1 min (5 12 34/hr) · quickest in Thunder Bluff')).toBeInTheDocument()
   })
 
-  it('shows the time of each step, the runs, and how the cities compare', async () => {
-    renderWithProviders(<ResultsTable results={[timedRobe]} items={items} />)
+  it('sums the plan up in one line, times each step, and notes what the lines cannot show', async () => {
+    renderRows([timedRobe])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
-    const text = (t: string) => screen.getByText((_, el) => el?.tagName === 'P' && shown(el) === t)
-    expect(text('A batch of 20 takes 4 min 10 s in Orgrimmar: 1 23 45/hr')).toBeInTheDocument()
-    expect(text('running 3 min 20 s · crafting 50 s')).toBeInTheDocument()
-    expect(line('Auctioneer → Thread Seller → Auctioneer (3 min 20 s)')).toBeInTheDocument()
-    expect(text('By city: Orgrimmar 4 min 10 s (1 23 45/hr) · Thunder Bluff 1 min (5 12 34/hr) · quickest in Thunder Bluff')).toBeInTheDocument()
+    const text = (t: string) => screen.findByText((_, el) => el?.tagName === 'P' && shown(el) === t)
+    expect(await text('20 crafts: cost 3 0 · profit 2 0 · 4 min 10 s · 1 23 45/hr')).toBeInTheDocument()
+    expect(screen.queryByText(/^A batch of|^By city/)).not.toBeInTheDocument() // the controls say it now
     expect(screen.getByText(/No vendor in Orgrimmar sells Coarse Thread/)).toBeInTheDocument()
     expect(screen.queryByText(/can't be crafted there/)).not.toBeInTheDocument()
     await showSteps()

@@ -56,6 +56,62 @@ def test_craft_stations_are_the_foci_profession_spells_need(db2_paths: dict[str,
     assert ingest.craft_stations(db2_paths) == {1: "Anvil"}  # the robe's; the forge and fire go unused
 
 
+def test_zone_boxes_are_the_whole_map_assignments(tmp_path: Path) -> None:
+    uma = write_csv(
+        tmp_path / "UiMapAssignment.csv",
+        [
+            "UiMin_0",
+            "UiMin_1",
+            "UiMax_0",
+            "UiMax_1",
+            "Region_0",
+            "Region_1",
+            "Region_2",
+            "Region_3",
+            "Region_4",
+            "Region_5",
+            "ID",
+            "UiMapID",
+            "MapID",
+        ],
+        [
+            {
+                "UiMin_0": 0,
+                "UiMin_1": 0,
+                "UiMax_0": 1,
+                "UiMax_1": 1,
+                "Region_0": 1000,
+                "Region_1": -5000,
+                "Region_2": -1e6,
+                "Region_3": 2000,
+                "Region_4": -4000,
+                "Region_5": 1e6,
+                "ID": 1,
+                "UiMapID": 1454,
+                "MapID": 1,
+            },
+            # a corner of a map (a sub-zone overlay): not the whole map
+            {
+                "UiMin_0": 0.5,
+                "UiMin_1": 0,
+                "UiMax_0": 1,
+                "UiMax_1": 1,
+                "Region_0": 0,
+                "Region_1": 0,
+                "Region_2": 0,
+                "Region_3": 1,
+                "Region_4": 1,
+                "Region_5": 1,
+                "ID": 2,
+                "UiMapID": 1454,
+                "MapID": 1,
+            },
+        ],
+    )
+    names = write_csv(tmp_path / "UiMap.csv", ["Name_lang", "ID"], [{"Name_lang": "Orgrimmar", "ID": 1454}])
+    assert ingest.zone_boxes(uma, names) == [(1, "Orgrimmar", 1000.0, -5000.0, 2000.0, -4000.0)]
+
+
 def test_build_db_without_cast_time_or_focus_reads_zero(
     db2_paths: dict[str, Path], conn: Connection, tmp_path: Path
 ) -> None:

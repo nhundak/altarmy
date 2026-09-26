@@ -1047,3 +1047,79 @@ def test_no_time_model_means_no_timing() -> None:
     res = must_evaluate(maul_market(SMITHY, LEATHERY), MAUL_RECIPE)
     assert (res.seconds, res.timing, res.rate) == (0.0, None, None)
     assert all(s.seconds == 0.0 for s in res.steps)
+
+
+# --- a session: N crafts, spelled out ---------------------------------------------------------------
+def test_a_session_crafts_whole_batches_for_all_its_crafts() -> None:
+    bolts = Recipe(11, "Bolt of Linen", BOLT, 2, ((LINEN, 2),), "Tailoring")  # two bolts a craft
+    robe = Recipe(10, "Green Robe", GREEN, 1, ((BOLT, 1), (THREAD, 1)), "Tailoring")
+    m = make_market({LINEN: 10, THREAD: 5, BOLT: 100}, [bolts, robe])
+    one = must_evaluate(m, robe)
+    assert (one.crafts, one.cost, one.tree.inputs[0].crafts) == (1, 20 + 5, 1)  # a spare bolt per robe
+    res = m.evaluate(robe, crafts=20)
+    assert res is not None
+    assert (res.crafts, res.tree.inputs[0].crafts) == (20, 10)  # ten bolt crafts make the 20 bolts
+    assert (res.cost, res.revenue) == (10 * 20 + 20 * 5, 20 * 500)
+    assert [(s.action, s.quantity) for s in res.steps if s.item_id in (BOLT, GREEN)] == [
+        ("craft", 20),
+        ("craft", 20),
+        ("sell", 20),
+    ]
+
+
+def test_a_session_scales_master_chef_extras() -> None:
+    stew = Recipe(30, "Stew", GREEN, 1, ((LINEN, 1),), "Cooking")
+    chef = replace(crafter("Chef", ("Cooking", 50), known=frozenset({0})), extra_results=(("Cooking", 0.5),))
+    m = make_market({LINEN: 20}, [stew], crafters=[chef], exits=frozenset({"vendor"}))
+    res = m.evaluate(stew, crafts=10)
+    assert res is not None
+    assert (res.bonus_output, res.revenue) == (5.0, 15 * 500)
+
+
+def test_detailed_steps_say_where_to_go() -> None:
+    m = maul_market(SMITHY, LEATHERY, time=timed(0), recipes=(CURE, ANVIL_MAUL))
+    res = must_evaluate(m, ANVIL_MAUL)
+    details = engine.detailed_steps(res)
+    said: list[tuple[object, ...]] = []
+    for d in details:
+        if d.kind == "step":
+            assert d.step is not None
+            s = res.steps[d.step]
+            said.append((d.who, s.action, s.item_id))
+        elif d.kind == "go":
+            said.append((d.who, "go", d.location_id, tuple((i, q) for i, _, q in d.retrieve)))
+        else:
+            said.append((d.who, "switch"))
+    assert said == [
+        ("Leathery", "buy", SCRAPS),  # at the auction house, where everyone starts
+        ("Leathery", "go", "mailbox:1", ((SCRAPS, 6),)),
+        ("Leathery", "craft", LEATHER),
+        ("Leathery", "mail", LEATHER),  # from the mailbox Leathery stands at
+        ("Smithy", "switch"),
+        ("Smithy", "buy", COPPER),
+        ("Smithy", "go", "mailbox:1", ((COPPER, 1), (LEATHER, 2))),  # the AH's copper and Leathery's leather
+        ("Smithy", "go", "anvil:1", ()),
+        ("Smithy", "craft", MAUL),
+        ("Smithy", "go", "vendor:2", ()),
+        ("Smithy", "sell", MAUL),
+    ]
+    assert sorted(d.step for d in details if d.step is not None) == list(range(len(res.steps)))
+    switch = next(d for d in details if d.kind == "switch")
+    assert switch.seconds == timed(0).config.switch_character
+    runs = {d.location_id: d.seconds for d in details if d.kind == "go" and d.who == "Smithy"}
+    assert runs["anvil:1"] == pytest.approx(5.0)  # from the mailbox (35 yd) to the anvil (70 yd): 5 s
+
+
+def test_a_disenchant_sale_says_how_long_the_disenchanting_takes() -> None:
+    cfg = timed(0).config
+    enchanter = crafter("Both", ("Enchanting", 10), ("Tailoring", 50), known=frozenset({900}))
+    m = make_market(DE_PRICES, [ROBE], DE_ROWS, crafters=[enchanter], time=timed(0))
+    res = m.evaluate(ROBE, crafts=4)
+    assert res is not None and res.best_exit == "disenchant"
+    sale = res.steps[-1]
+    assert sale.lead_seconds == pytest.approx(4 * cfg.disenchant)  # four robes to disenchant
+    assert sale.seconds > sale.lead_seconds  # and the dust to post
+
+
+def test_detailed_steps_need_a_timing() -> None:
+    assert engine.detailed_steps(must_evaluate(maul_market(SMITHY, LEATHERY), MAUL_RECIPE)) == []
