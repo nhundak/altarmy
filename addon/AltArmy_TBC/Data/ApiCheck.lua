@@ -133,11 +133,16 @@ AC.MANIFEST = {
 
     -- Legacy Talents (WoW Forever's account-wide Legacy Points system). Unconfirmed guesses — see
     -- DataStoreLegacy.lua's header and docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md ("Legacy
-    -- Talents"). C_ClassTalents.GetActiveConfigID is real/confirmed for class talents; whether it
-    -- also resolves the Legacy config is the part this check exists to confirm.
+    -- Talents"). C_ClassTalents.GetActiveConfigID turned out to return the class-talent config, not
+    -- the Legacy one; the Legacy config is now resolved by its DB2 trait system/tree ids
+    -- (GetConfigIDBySystemID, else GetConfigIDByTreeID), which this check exists to confirm.
     { area = "Legacy Talents", label = "ToggleLegacySystemUI", candidates = { "ToggleLegacySystemUI" } },
     { area = "Legacy Talents", label = "C_ClassTalents.GetActiveConfigID",
       candidates = { "C_ClassTalents.GetActiveConfigID" } },
+    { area = "Legacy Talents", label = "C_Traits.GetConfigIDBySystemID",
+      candidates = { "C_Traits.GetConfigIDBySystemID" } },
+    { area = "Legacy Talents", label = "C_Traits.GetConfigIDByTreeID",
+      candidates = { "C_Traits.GetConfigIDByTreeID" } },
     { area = "Legacy Talents", label = "C_Traits.GetConfigInfo", candidates = { "C_Traits.GetConfigInfo" } },
     { area = "Legacy Talents", label = "C_Traits.GetTreeNodes", candidates = { "C_Traits.GetTreeNodes" } },
     { area = "Legacy Talents", label = "C_Traits.GetNodeInfo", candidates = { "C_Traits.GetNodeInfo" } },

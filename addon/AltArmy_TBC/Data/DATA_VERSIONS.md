@@ -43,8 +43,9 @@ Canonical table: `DATA_VERSIONS` in [`DataStore.lua`](DataStore/DataStore.lua).
 - **v1**: Talent tab point totals for primary-spec inference (gear upgrade / compare warnings and missing-data).
 - **v2**: On clients without the legacy `GetNumTalentTabs`/`GetTalentTabInfo` (e.g. WoW Forever), falls back to `C_SpecializationInfo.GetSpecialization`/`GetSpecializationInfo`. `char.talents.tabs` becomes an empty table (not a per-tab point array) and `char.talents.primary` becomes the specialization index (not a tab index) on this path; `specKey` is resolved from Blizzard's canonical specialization ID rather than tab position. Same fields, same meaning to callers (`ResolveSpecKey`/`HasTalentData`), just a different source on clients where the fallback is active.
 
-### legacyTalents (v1)
+### legacyTalents (v2)
 - **v1**: WoW Forever's account-wide Legacy Points system. Stores `char.legacyTalents.nodes[nodeID] = rank` for every spent node, `totalRanksSpent`, and `restRank` (rank of the "Well Rested" rest-XP talent, resolved by name — see `Data/DataStore/DataStoreLegacy.lua`). Absent entirely on clients where the (unconfirmed, speculative) `C_Traits` API chain this relies on doesn't resolve, e.g. TBC Classic.
+- **v2**: v1 read `C_ClassTalents.GetActiveConfigID()`, which is the class-talent config, so its nodes were class talents. v2 resolves the Legacy config by its DB2 trait system (45) or trees (1187/1188/1189), walks only those trees, and adds `char.legacyTalents.spells[spellID] = rank` (each node's definition spell, e.g. Master Chef 1225457, Bartering 1225459). `spells` marks v2 data: readers ignore `legacyTalents` without it, and a scan that can't resolve the Legacy config drops v1 data.
 
 ### levelHistory (v1)
 - **v1**: Level-up milestones in `char.levelHistory.milestones[level]` with `reachedAt`, `playedTotal`, `playedLevel`, `zone`, `money`, `restXP`, `gear`, `deaths` (bracket count). Death log in `char.levelHistory.deaths[]` with `at`, `level`, `zone`, `playedTotal`, `killerName`, `killerGuid`. Account import gate `levelHistoryImport.questieAt` and `levelHistoryImport.nitAt`; per-character `levelHistory.meta.importedRxpAt`.

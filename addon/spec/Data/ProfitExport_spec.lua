@@ -33,10 +33,12 @@ local CHARACTERS = {
         },
         Cooking = { rank = 1, maxRank = 75 },
       },
+      legacyTalents = { spells = { [1225459] = 2, [1225457] = 3, [1225478] = 0 }, nodes = {}, restRank = 0 },
     },
   },
   ["Classic Beta PvE"] = {
-    ["Tailor Guy"] = { classFile = "PRIEST", level = 20 }, -- never scanned: no faction, no professions
+    -- never scanned: no faction, no professions; v1 legacy talents (class talents really) aren't exported
+    ["Tailor Guy"] = { classFile = "PRIEST", level = 20, legacyTalents = { nodes = { [105955] = 2 } } },
   },
 }
 
@@ -47,6 +49,8 @@ local LINES = table.concat({
   "P|Cooking|1|75|",
   "P|Enchanting|300|375|7418,7420",
   "P|Tailoring|375|375|26745,26746",
+  "T|1225457|3",
+  "T|1225459|2",
 }, "\n")
 
 describe("ProfitExport", function()

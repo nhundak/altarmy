@@ -5,7 +5,9 @@
 --   V|1|<interface>|<build>                       the client, so the site knows which game it is
 --   C|<realm>|<name>|<faction>|<CLASS_FILE>|<level>
 --   P|<profession>|<rank>|<maxRank>|<recipe ids>  belongs to the C line before it; ids comma-separated
--- Recipe ids are craft spell ids, aliases resolved to primaryRecipeID (as the site reads the file).
+--   T|<spell id>|<rank>                           a Legacy talent of the C line before it (rank > 0)
+-- Recipe ids are craft spell ids, aliases resolved to primaryRecipeID (as the site reads the file). Talents
+-- are char.legacyTalents.spells (DataStoreLegacy.lua, data version 2), sorted by spell id.
 -- The altarmy-profit repo parses it in src/altarmy_profit/paste.py; spec/fixtures/profit_export_v1.txt is
 -- the shared golden string.
 
@@ -45,6 +47,24 @@ local function recipeIds(prof)
     return ids
 end
 
+--- A character's Legacy talents as sorted {spell id, rank} pairs; none from v1 data (no `spells`).
+local function legacyTalents(char)
+    local spells = type(char.legacyTalents) == "table" and char.legacyTalents.spells
+    local out = {}
+    if type(spells) ~= "table" then
+        return out
+    end
+    for spellID, rank in pairs(spells) do
+        if type(spellID) == "number" and type(rank) == "number" and rank > 0 then
+            out[#out + 1] = { spellID, rank }
+        end
+    end
+    table.sort(out, function(a, b)
+        return a[1] < b[1]
+    end)
+    return out
+end
+
 --- The export's text: `characters` is AltArmyTBC_Data.Characters (realm -> name -> character).
 --- @return string
 function ProfitExport.Lines(characters, interface, build)
@@ -65,6 +85,9 @@ function ProfitExport.Lines(characters, interface, build)
                             table.concat(recipeIds(prof), ","),
                         }, "|")
                     end
+                end
+                for _, talent in ipairs(legacyTalents(char)) do
+                    out[#out + 1] = table.concat({ "T", field(talent[1]), field(talent[2]) }, "|")
                 end
             end
         end

@@ -68,45 +68,112 @@ describe("DataStoreLegacy", function()
             assert.is_nil(DL.ScanActiveConfig())
         end)
 
-        it("returns nil when no active config resolves", function()
-            _G.C_Traits = { GetTreeNodes = function() end, GetNodeInfo = function() end }
-            _G.C_ClassTalents = { GetActiveConfigID = function() return nil end }
+        it("returns nil when no Legacy config resolves", function()
+            _G.C_Traits = {
+                GetTreeNodes = function() end,
+                GetNodeInfo = function() end,
+                GetConfigIDBySystemID = function() return nil end,
+                GetConfigIDByTreeID = function() return 0 end,
+            }
             assert.is_nil(DL.ScanActiveConfig())
         end)
 
-        it("captures per-node ranks and total ranks spent across all trees", function()
+        it("never reads the class-talent config", function()
             _G.C_ClassTalents = { GetActiveConfigID = function() return 111 end }
+            _G.C_Traits = { GetTreeNodes = function() return { 1 } end, GetNodeInfo = function()
+                return { activeRank = 3, entryIDs = {} }
+            end }
+            assert.is_nil(DL.ScanActiveConfig())
+        end)
+
+        it("resolves the config by the Legacy trait system", function()
+            local asked
             _G.C_Traits = {
+                GetConfigIDBySystemID = function(systemID)
+                    asked = systemID
+                    return 77
+                end,
                 GetConfigInfo = function(configID)
-                    assert.are.equal(111, configID)
-                    return { treeIDs = { 1, 2 } }
+                    assert.are.equal(77, configID)
+                    return { treeIDs = { 1187 } }
                 end,
-                GetTreeNodes = function(treeID)
-                    if treeID == 1 then return { 10, 11 } end
-                    return { 20 }
+                GetTreeNodes = function() return { 5 } end,
+                GetNodeInfo = function() return { activeRank = 1, entryIDs = {} } end,
+            }
+            local result = DL.ScanActiveConfig()
+            assert.are.equal(45, asked)
+            assert.are.equal(1, result.nodes[5])
+        end)
+
+        it("falls back to a Legacy tree's config", function()
+            _G.C_Traits = {
+                GetConfigIDByTreeID = function(treeID)
+                    if treeID == 1188 then return 88 end
+                    return nil
                 end,
-                GetNodeInfo = function(_configID, nodeID)
-                    local ranks = { [10] = 2, [11] = 0, [20] = 3 }
-                    return { activeRank = ranks[nodeID], entryIDs = {} }
+                GetTreeNodes = function() return { 5 } end,
+                GetNodeInfo = function(configID)
+                    assert.are.equal(88, configID)
+                    return { activeRank = 1, entryIDs = {} }
                 end,
             }
             local result = DL.ScanActiveConfig()
             assert.is_not_nil(result)
+            assert.are.equal(3, result.totalRanksSpent) -- the same node in each of the three known trees
+        end)
+
+        it("walks only the Legacy trees of the config", function()
+            _G.C_Traits = {
+                GetConfigIDBySystemID = function() return 1 end,
+                GetConfigInfo = function() return { treeIDs = { 900, 1187, 1189 } } end,
+                GetTreeNodes = function(treeID)
+                    if treeID == 1187 then return { 10, 11 } end
+                    if treeID == 1189 then return { 20 } end
+                    return { 99 }
+                end,
+                GetNodeInfo = function(_configID, nodeID)
+                    local ranks = { [10] = 2, [11] = 0, [20] = 3, [99] = 5 }
+                    return { activeRank = ranks[nodeID], entryIDs = {} }
+                end,
+            }
+            local result = DL.ScanActiveConfig()
             assert.are.equal(2, result.nodes[10])
             assert.is_nil(result.nodes[11]) -- zero-rank nodes are not recorded
             assert.are.equal(3, result.nodes[20])
+            assert.is_nil(result.nodes[99]) -- not a Legacy tree
             assert.are.equal(5, result.totalRanksSpent)
             assert.are.equal(0, result.restRank)
         end)
 
+        it("records each ranked node's definition spell", function()
+            _G.C_Traits = {
+                GetConfigIDBySystemID = function() return 1 end,
+                GetConfigInfo = function() return { treeIDs = { 1187 } } end,
+                GetTreeNodes = function() return { 110289, 110286 } end,
+                GetNodeInfo = function(_configID, nodeID)
+                    if nodeID == 110289 then return { activeRank = 3, entryIDs = { 136850 } } end
+                    return { activeRank = 2, entryIDs = { 136843 } }
+                end,
+                GetEntryInfo = function(_configID, entryID)
+                    return { definitionID = entryID == 136850 and 141613 or 141606 }
+                end,
+                GetDefinitionInfo = function(definitionID)
+                    return { spellID = definitionID == 141613 and DL.SPELL_MASTER_CHEF or DL.SPELL_BARTERING }
+                end,
+            }
+            local result = DL.ScanActiveConfig()
+            assert.are.equal(3, result.spells[DL.SPELL_MASTER_CHEF])
+            assert.are.equal(2, result.spells[DL.SPELL_BARTERING])
+        end)
+
         it("identifies the rest-XP talent's rank by resolved name", function()
-            _G.C_ClassTalents = { GetActiveConfigID = function() return 1 end }
             _G.C_Spell = { GetSpellInfo = function(spellID)
                 if spellID == 999 then return { name = "Well Rested" } end
                 return { name = "Something Else" }
             end }
             _G.C_Traits = {
-                GetConfigInfo = function() return { treeIDs = { 1 } } end,
+                GetConfigIDBySystemID = function() return 1 end,
+                GetConfigInfo = function() return { treeIDs = { 1187 } } end,
                 GetTreeNodes = function() return { 5 } end,
                 GetNodeInfo = function(_configID, nodeID)
                     if nodeID == 5 then return { activeRank = 3, entryIDs = { 500 } } end
@@ -136,15 +203,19 @@ describe("DataStoreLegacy", function()
         end)
 
         it("returns 1 when restRank is 0", function()
-            assert.are.equal(1, DL.GetRestXpMultiplier({ legacyTalents = { restRank = 0 } }))
+            assert.are.equal(1, DL.GetRestXpMultiplier({ legacyTalents = { spells = {}, restRank = 0 } }))
         end)
 
         it("applies 4% per rank", function()
-            assert.are.equal(1.12, DL.GetRestXpMultiplier({ legacyTalents = { restRank = 3 } }))
+            assert.are.equal(1.12, DL.GetRestXpMultiplier({ legacyTalents = { spells = {}, restRank = 3 } }))
         end)
 
         it("clamps at the max rank (5 -> 20%)", function()
-            assert.are.equal(1.2, DL.GetRestXpMultiplier({ legacyTalents = { restRank = 9 } }))
+            assert.are.equal(1.2, DL.GetRestXpMultiplier({ legacyTalents = { spells = {}, restRank = 9 } }))
+        end)
+
+        it("ignores v1 data (read from the class-talent config)", function()
+            assert.are.equal(1, DL.GetRestXpMultiplier({ legacyTalents = { restRank = 3 } }))
         end)
     end)
 
@@ -162,10 +233,22 @@ describe("DataStoreLegacy", function()
             assert.is_nil(char.legacyTalents)
         end)
 
+        it("drops v1 data when the Legacy config doesn't resolve", function()
+            _G.C_Traits = nil
+            DS:ScanLegacyTalents()
+            local char = AltArmyTBC_Data.Characters.Faerlina.Legacychar
+            char.legacyTalents = { nodes = { [1] = 3 }, totalRanksSpent = 3, restRank = 0 }
+            DS:ScanLegacyTalents()
+            assert.is_nil(char.legacyTalents)
+            char.legacyTalents = { spells = { [7] = 1 }, nodes = {}, totalRanksSpent = 1, restRank = 0 }
+            DS:ScanLegacyTalents()
+            assert.are.equal(1, char.legacyTalents.spells[7])
+        end)
+
         it("stores captured data and bumps dataVersions.legacyTalents", function()
-            _G.C_ClassTalents = { GetActiveConfigID = function() return 1 end }
             _G.C_Traits = {
-                GetConfigInfo = function() return { treeIDs = { 1 } } end,
+                GetConfigIDBySystemID = function() return 1 end,
+                GetConfigInfo = function() return { treeIDs = { 1187 } } end,
                 GetTreeNodes = function() return { 5 } end,
                 GetNodeInfo = function() return { activeRank = 2, entryIDs = {} } end,
             }
@@ -173,7 +256,7 @@ describe("DataStoreLegacy", function()
             local char = AltArmyTBC_Data.Characters.Faerlina.Legacychar
             assert.are.equal(2, char.legacyTalents.nodes[5])
             assert.are.equal(2, char.legacyTalents.totalRanksSpent)
-            assert.are.equal(1, char.dataVersions.legacyTalents)
+            assert.are.equal(2, char.dataVersions.legacyTalents)
         end)
     end)
 end)

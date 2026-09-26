@@ -613,6 +613,29 @@ WoW Forever's **Legacy** system: an account-wide progression layer, separate fro
 
 **What's still open:** whether `C_ClassTalents.GetActiveConfigID()` really does double as the Legacy config getter (vs. Legacy needing its own, unguessed function), and whether the node/entry/definition chain above actually reaches Legacy tree nodes at all, are both unverified pre-confirmation. If `/altarmy debug apicheck` on a real Forever login shows the config resolves to nothing useful (e.g. only class-talent nodes come back, no Adventure-tree "Well Rested" match), the next step is hooking `ToggleLegacySystemUI`'s `OnShow` to force-resolve the Legacy-specific config, the same lazy-load gotcha `DataStoreTalents.lua` already hit with the classic talent UI (`ADDON_LOADED` → `Blizzard_TalentUI` → `PlayerTalentFrame:HookScript("OnShow", ...)`).
 
+### Update (2026-09-25): the Legacy config, by its DB2 ids
+
+**The first capture read class talents.** Saved Forever characters below the Legacy unlock level (25) had `legacyTalents.nodes`: a level-19 Warrior with 10 ranks, a level-20 Shaman with 11. Those counts match class talent points. So `C_ClassTalents.GetActiveConfigID()` returns the class-talent config, not the Legacy one.
+
+**The Legacy system in Forever's DB2** (wago.tools, build 1.60.1.70009):
+- `TraitSystem` 45 owns `TraitTree` 1187, 1188 and 1189.
+- Those trees spend `TraitCurrency` 4225, which has `SourcedMax` 16 (the launch cap).
+- Nodes the altarmy-profit site uses, all in tree 1187:
+
+| Talent | Node | Entry | Definition | Spell | Max ranks |
+| --- | --- | --- | --- | --- | --- |
+| Master Chef | 110289 | 136850 | 141613 | 1225457 | 5 |
+| Bartering | 110286 | 136843 | 141606 | 1225459 | 2 |
+
+- Well Rested is spell 1225478.
+
+**Changes in `DataStoreLegacy.lua` (data version 2):**
+- It resolves the config with `C_Traits.GetConfigIDBySystemID(45)`, and falls back to `C_Traits.GetConfigIDByTreeID` on the Legacy trees. It never uses the class-talent config.
+- It walks only the Legacy trees.
+- It stores `legacyTalents.spells[definition spellID] = rank`.
+- `ProfitExport` sends those ranks as `T|<spell id>|<rank>` lines.
+- Both config getters are now in `ApiCheck.lua`. They are real Retail APIs, but it's still unconfirmed that Forever serves the Legacy config through them.
+
 ## Recipe names/tooltips resolved to unrelated items (2026-09-23)
 
 **Symptom (live Forever):** Guild tab recipe list showed random item names/tooltips, or "Recipe 2662".
