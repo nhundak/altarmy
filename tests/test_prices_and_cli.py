@@ -290,15 +290,17 @@ def test_cli_ranks_by_profit_per_hour(
     cli.main(["--db", dbfile, "import-altarmy", str(wow_root / SV_DIR / "AltArmy_TBC.lua")])
     capsys.readouterr()
     rank = ["--db", dbfile, "rank", "--realm", "Classic Beta PvE", "--faction", "Horde"]
-    cli.main([*rank, "--sort", "rate", "--city", "Booty Bay", "--batch", "10", "--gold-per-hour", "100"])
+    cli.main([*rank, "--sort", "rate", "--city", "Thunder Bluff", "--batch", "10", "--gold-per-hour", "100"])
     out = capsys.readouterr().out
-    assert "Timed in Booty Bay: 10 crafts per session, an hour worth 100g 00s 00c." in out
+    assert "Timed in Thunder Bluff: 10 crafts per session, an hour worth 100g 00s 00c." in out
     assert "/h" in out and "Green Robe" in out
     assert "10 in " in out  # the batch's time
     cli.main(rank)  # the saved settings: the faction's default city
     assert "Timed in Orgrimmar: 20 crafts per session" in capsys.readouterr().out
     with pytest.raises(SystemExit, match="No city preset named Atlantis"):
         cli.main([*rank, "--city", "Atlantis"])
+    with pytest.raises(SystemExit, match="No city preset named Booty Bay"):  # neutral: not the tracked AH
+        cli.main([*rank, "--city", "Booty Bay"])
     with pytest.raises(SystemExit, match="batch"):
         cli.main([*rank, "--batch", "0"])
 

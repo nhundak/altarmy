@@ -300,12 +300,14 @@ def city_preset(name: str, faction: str, vendor_x: float, anvil: bool = False) -
 @pytest.fixture
 def cities(tmp_path: Path) -> Path:
     """Forever's city presets (the `game_versions` data dir): Orgrimmar (Horde, its vendor 700 yd off, no
-    anvil), Booty Bay (neutral, 14 yd, an anvil) and Stormwind (Alliance, an anvil)."""
+    anvil), Thunder Bluff (Horde, 14 yd, an anvil), Stormwind (Alliance, an anvil) and Booty Bay (neutral,
+    its vendor next door: never offered, its auction house isn't the tracked one)."""
     folder = tmp_path / "cities"
     folder.mkdir()
     for name, faction, x, anvil in [
         ("Orgrimmar", "Horde", 700, False),
-        ("Booty Bay", "", 14, True),
+        ("Thunder Bluff", "Horde", 14, True),
+        ("Booty Bay", "", 1, True),
         ("Stormwind", "Alliance", 70, True),
     ]:
         preset = city_preset(name, faction, x, anvil)

@@ -319,14 +319,14 @@ class TimeConfigModel(BaseModel):
 
 class CityOut(BaseModel):
     name: str
-    faction: str  # Horde | Alliance | "" (neutral)
+    faction: str  # Horde | Alliance
     hub: str  # where every character starts and ends
     locations: int
     vendors: int
 
 
 class TimeSettings(BaseModel):
-    cities: list[CityOut]  # where the selection's faction crafts: its cities, then neutral towns
+    cities: list[CityOut]  # where the selection's faction crafts: its cities (every one for a shared AH)
     city: str | None  # the user's pick; None: the faction's default
     active: str  # the city plans are timed in now
     config: TimeConfigModel

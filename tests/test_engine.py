@@ -956,12 +956,22 @@ def test_steps_and_nodes_carry_their_seconds() -> None:
     seconds = {(s.action, s.item_id): s.seconds for s in res.steps}
     assert seconds["buy", SCRAPS] == pytest.approx(cfg.ah_buy * 6 / 20)  # six scraps: 0.3 of a stack
     assert seconds["craft", LEATHER] == pytest.approx(2 * cfg.craft_overhead)  # instant casts
-    mail = 0.1 * cfg.mail_attach + 0.1 / cfg.mail_attachments * (cfg.mail_send + cfg.mail_open)
+    mail = 0.1 * cfg.mail_attach + 0.1 * (cfg.mail_send + cfg.mail_open)  # a batch: one stack in one mail
     assert seconds["mail", LEATHER] == pytest.approx(mail)
     assert seconds["craft", MAUL] == pytest.approx(3.0 + cfg.craft_overhead)
     assert seconds["sell", MAUL] == pytest.approx(cfg.vendor_sell)
     assert [s.station for s in res.steps if s.action == "craft"] == ["", "anvil"]
     assert res.tree.seconds > sum(seconds.values()) - seconds["sell", MAUL]  # plus shared trips, the switch
+
+
+def test_a_partial_stack_takes_a_whole_click() -> None:
+    cfg = timed(0).config  # batch 10
+    one = replace(ROBE, reagents=((LINEN, 1), (THREAD, 1)))
+    linen = Item(LINEN, "Linen Cloth", stack_size=20)  # thread stacks by 1
+    m = make_market({LINEN: 20, THREAD: 100}, [one], extra_items=[linen], time=timed(0))
+    buys = {s.item_id: s.seconds for s in must_evaluate(m, one).steps if s.action == "buy"}
+    assert buys[LINEN] == pytest.approx(cfg.ah_buy / 10)  # 10 linen a batch: one stack, one click
+    assert buys[THREAD] == pytest.approx(cfg.ah_buy)  # a click per thread
 
 
 def test_timing_is_exact_and_lazy() -> None:
@@ -980,10 +990,21 @@ def test_timing_is_exact_and_lazy() -> None:
     assert by_who["Smithy"] == ["mailbox:1", "anvil:1", "vendor:2", "ah"]  # collect, forge, sell, home
     smithy = 5 + 5 + (70**2 + 21**2) ** 0.5 / 7 + 3
     assert t.breakdown["travel"] == pytest.approx(10 + smithy)
-    # a search each for scraps and copper; per craft 0.3 of a stack of scraps and 0.05 of copper bars
-    assert t.breakdown["ah"] == pytest.approx(2 * cfg.ah_search + 10 * (0.3 + 0.05) * cfg.ah_buy)
+    # a search each for scraps and copper; a batch buys 3 stacks of scraps and 1 of copper (10 bars: a click)
+    assert t.breakdown["ah"] == pytest.approx(2 * cfg.ah_search + (3 + 1) * cfg.ah_buy)
     assert res.rate == t.per_hour(res.profit)
     assert t.total_seconds == pytest.approx(sum(t.breakdown.values()))
+
+
+def test_ah_purchases_are_collected_from_the_mailbox_in_one_trip() -> None:
+    cfg = timed(0).config
+    res = must_evaluate(
+        make_market({LINEN: 20, THREAD: 100}, time=timed(0)), ROBE
+    )  # linen and thread on the AH
+    t = res.timing
+    assert t is not None
+    assert [leg.to_id for leg in t.legs] == ["mailbox:1", "vendor:2", "ah"]  # collect both, then sell nearby
+    assert t.breakdown["mail"] == pytest.approx(2 * cfg.mail_open)  # one mail per item, however many bought
 
 
 def test_rank_does_not_time(monkeypatch: pytest.MonkeyPatch) -> None:

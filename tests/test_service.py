@@ -366,14 +366,18 @@ def test_sync_without_characters_records_every_realm(
 # --- profit per hour ----------------------------------------------------------------------------------
 def test_time_model_follows_the_users_settings(conn: Connection, cities: Path) -> None:
     maps = store.load_cities(cities)
-    assert [c.name for c in service.faction_cities(maps, "Horde")] == ["Orgrimmar", "Booty Bay"]
-    assert [c.name for c in service.faction_cities(maps, "")] == ["Booty Bay", "Orgrimmar", "Stormwind"]
+    assert [c.name for c in service.faction_cities(maps, "Horde")] == ["Orgrimmar", "Thunder Bluff"]
+    assert [c.name for c in service.faction_cities(maps, "")] == ["Orgrimmar", "Stormwind", "Thunder Bluff"]
     model = service.time_model(conn, ME, FOREVER, maps, "Horde")
     assert (model.city.name, model.config) == ("Orgrimmar", timing.DEFAULT_CONFIG)  # the faction's capital
     assert service.time_model(conn, ME, FOREVER, maps, "Alliance").city.name == "Stormwind"
-    users.update_settings(conn, ME, FOREVER, time_city="Booty Bay", time_config='{"batch": 5}')
+    users.update_settings(conn, ME, FOREVER, time_city="Thunder Bluff", time_config='{"batch": 5}')
     model = service.time_model(conn, ME, FOREVER, maps, "Horde")
-    assert (model.city.name, model.config.batch) == ("Booty Bay", 5)
+    assert (model.city.name, model.config.batch) == ("Thunder Bluff", 5)
+    users.update_settings(conn, ME, FOREVER, time_city="Booty Bay")  # neutral: never used
+    assert service.time_model(conn, ME, FOREVER, maps, "Horde").city.name == "Orgrimmar"
+    with pytest.raises(ValueError, match="Booty Bay"):
+        service.set_time(conn, ME, FOREVER, maps, "Booty Bay", {})
     users.update_settings(conn, ME, FOREVER, time_city="Stormwind")
     assert service.time_model(conn, ME, FOREVER, maps, "Horde").city.name == "Orgrimmar"  # not a Horde city
     assert service.time_model(conn, ME, FOREVER, {}, "Horde").city is timing.ANYWHERE  # no presets

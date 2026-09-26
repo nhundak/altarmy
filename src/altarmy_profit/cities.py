@@ -22,7 +22,7 @@ from .vmangos import Spawn
 class CitySpec:
     name: str  # the preset's name, as the app shows it
     tele: str  # vmangos' game_tele point the city is found around
-    faction: str  # Horde | Alliance | "" (neutral)
+    faction: str  # Horde | Alliance: only faction cities, whose auction house is the one prices track
     radius: float  # yards around the tele point that count as the city
 
 
@@ -33,9 +33,6 @@ CITY_SPECS: tuple[CitySpec, ...] = (
     CitySpec("Stormwind", "Stormwind", "Alliance", 650),
     CitySpec("Ironforge", "Ironforge", "Alliance", 350),
     CitySpec("Darnassus", "Darnassus", "Alliance", 550),
-    CitySpec("Booty Bay", "BootyBay", "", 200),
-    CitySpec("Gadgetzan", "Gadgetzan", "", 200),
-    CitySpec("Everlook", "Everlook", "", 150),
 )
 
 

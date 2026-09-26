@@ -3,7 +3,6 @@ import { Alert, Button, Group, Loader, NumberInput, Select, SimpleGrid, Stack, T
 import { useDebouncedCallback } from '@mantine/hooks'
 import type { TimeConfig, TimeSettings } from '../api/client'
 import { useSetTime, useTime } from '../api/queries'
-import { goldToCopper } from '../lib/money'
 
 type Draft = { city: string | null; config: TimeConfig }
 type NumberKey = { [K in keyof TimeConfig]: TimeConfig[K] extends number ? K : never }[keyof TimeConfig]
@@ -18,12 +17,9 @@ const ACTIONS: readonly { key: NumberKey; label: string; step: number; min?: num
   { key: 'mail_send', label: 'Send a mail', step: 1 },
   { key: 'mail_attach', label: 'Attach a stack', step: 0.5 },
   { key: 'mail_open', label: 'Take a mail', step: 0.5 },
-  { key: 'mail_attachments', label: 'Stacks per mail', step: 1, min: 1, whole: true },
   { key: 'switch_character', label: 'Switch characters', step: 5 },
-  { key: 'disenchant', label: 'Disenchant (per item)', step: 0.5 },
   { key: 'craft_overhead', label: 'Extra per craft', step: 0.1 },
   { key: 'run_speed', label: 'Run speed (yards per second)', step: 0.5, min: 0.5 },
-  { key: 'detour', label: 'Detour (path over straight line)', step: 0.1, min: 1 },
 ]
 
 /** The config's settings that differ from the defaults: what is saved. */
@@ -36,7 +32,7 @@ function changes(config: TimeConfig, defaults: TimeConfig): Partial<TimeConfig> 
 function cityOptions(settings: TimeSettings) {
   return [
     { value: '', label: `Default (${settings.city === null ? settings.active : 'your faction’s capital'})` },
-    ...settings.cities.map((c) => ({ value: c.name, label: c.faction ? c.name : `${c.name} (neutral)` })),
+    ...settings.cities.map((c) => ({ value: c.name, label: c.name })),
   ]
 }
 
@@ -77,30 +73,20 @@ export function TimeSettingsPanel() {
           No city maps for this game yet: times count casts, clicks and switching characters, not running.
         </Text>
       )}
-      <SimpleGrid cols={{ base: 1, sm: 2 }} maw={640}>
-        <NumberInput
-          label="Crafts per session"
-          description="Running and switching characters are shared by this many crafts."
-          value={shown.config.batch}
-          onChange={(v) => set('batch', v, 1, true)}
-          min={1}
-          step={5}
-          allowDecimal={false}
-        />
-        <NumberInput
-          label="An hour of your time is worth (gold)"
-          description="Plans taking longer cost this much per hour. 0: time is only reported."
-          value={shown.config.time_value / 10000}
-          onChange={(v) => typeof v === 'number' && v >= 0 && update({ ...shown, config: { ...shown.config, time_value: goldToCopper(v) } })}
-          min={0}
-          step={5}
-          decimalScale={2}
-        />
-      </SimpleGrid>
+      <NumberInput
+        label="Crafts per session"
+        description="The more you intend to craft at once, the less the time to run between npcs matters"
+        value={shown.config.batch}
+        onChange={(v) => set('batch', v, 1, true)}
+        min={1}
+        step={5}
+        allowDecimal={false}
+        maw={420}
+      />
       <Text size="sm" fw={500}>
         Seconds per action
       </Text>
-      <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }}>
+      <SimpleGrid cols={{ base: 1, xs: 2 }}>
         {ACTIONS.map(({ key, label, step, min = 0, whole = false }) => (
           <NumberInput
             key={key}

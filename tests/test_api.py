@@ -1049,16 +1049,21 @@ def test_serves_the_front_end_for_its_own_pages(
 # --- profit per hour ----------------------------------------------------------------------------------
 def test_time_settings_round_trip(client: TestClient, priced: Connection, cities: Path) -> None:
     got = client.get("/api/time").json()
-    assert [c["name"] for c in got["cities"]] == ["Orgrimmar", "Booty Bay"]  # Horde's, then neutral
+    assert [c["name"] for c in got["cities"]] == ["Orgrimmar", "Thunder Bluff"]  # Horde's; no neutral town
     assert (got["city"], got["active"]) == (None, "Orgrimmar")
     assert got["config"] == got["defaults"]
     assert got["defaults"]["batch"] == 20
-    put = client.put("/api/time", json={"city": "Booty Bay", "config": {"batch": 5, "time_value": 10**6}})
+    put = client.put("/api/time", json={"city": "Thunder Bluff", "config": {"batch": 5, "time_value": 10**6}})
     assert put.status_code == 200
-    assert (put.json()["city"], put.json()["active"]) == ("Booty Bay", "Booty Bay")
+    assert (put.json()["city"], put.json()["active"]) == ("Thunder Bluff", "Thunder Bluff")
     assert (put.json()["config"]["batch"], put.json()["config"]["time_value"]) == (5, 10**6)
     assert client.get("/api/time").json() == put.json()
-    for bad in [{"city": "Atlantis"}, {"config": {"batch": 0}}, {"config": {"nope": 1}}]:
+    for bad in [
+        {"city": "Atlantis"},
+        {"city": "Booty Bay"},
+        {"config": {"batch": 0}},
+        {"config": {"nope": 1}},
+    ]:
         assert client.put("/api/time", json=bad).status_code == 400
     reset = client.put("/api/time", json={}).json()
     assert (reset["city"], reset["config"]) == (None, reset["defaults"])
@@ -1071,9 +1076,10 @@ def test_rank_reports_profit_per_hour(client: TestClient, priced: Connection, ci
     assert t["total_seconds"] == pytest.approx(t["fixed_seconds"] + 20 * t["per_craft_seconds"])
     assert t["per_hour"] == round(200 * 20 * 3600 / t["total_seconds"])
     assert set(t["breakdown"]) >= {"travel", "craft", "ah", "vendor"}
-    assert {leg["to_name"] for leg in t["legs"]} == {"Thread Seller", "Auctioneer"}  # the robe sells to it
-    assert [c["city"] for c in r["cities"]] == ["Orgrimmar", "Booty Bay"]
-    assert r["best_city"] == "Booty Bay"  # its vendor is next door
+    # collect the AH purchases, sell the robe to the vendor, back to the auction house
+    assert [leg["to_name"] for leg in t["legs"]] == ["Mailbox", "Thread Seller", "Auctioneer"]
+    assert [c["city"] for c in r["cities"]] == ["Orgrimmar", "Thunder Bluff"]
+    assert r["best_city"] == "Thunder Bluff"  # its vendor is next door
     # the robe is crafted at an anvil, which Orgrimmar lacks here: noted, not timed
     assert (t["missing"], r["cities"][0]["missing"], r["cities"][1]["missing"]) == (["anvil"], ["anvil"], [])
     craft = next(s for s in r["steps"] if s["action"] == "craft")
@@ -1092,9 +1098,9 @@ def test_rank_times_anywhere_without_presets(client: TestClient, priced: Connect
 
 
 def test_evaluate_uses_the_time_settings(client: TestClient, priced: Connection, cities: Path) -> None:
-    client.put("/api/time", json={"city": "Booty Bay", "config": {"batch": 4}})
+    client.put("/api/time", json={"city": "Thunder Bluff", "config": {"batch": 4}})
     body = client.post("/api/evaluate", json={"recipe_id": 100, "choices": {}}).json()
-    assert (body["result"]["timing"]["city"], body["result"]["timing"]["batch"]) == ("Booty Bay", 4)
+    assert (body["result"]["timing"]["city"], body["result"]["timing"]["batch"]) == ("Thunder Bluff", 4)
 
 
 def test_guests_keep_their_own_time_settings(hosted: TestClient, conn: Connection) -> None:

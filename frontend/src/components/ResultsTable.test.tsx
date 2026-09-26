@@ -495,7 +495,7 @@ describe('ResultsTable profit per hour', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     expect(screen.getByText(/Orgrimmar has no anvil or spinning wheel: this plan can't be crafted there/)).toBeInTheDocument()
     const text = (t: string) => screen.getByText((_, el) => el?.tagName === 'P' && shown(el) === t)
-    expect(text('By city: Orgrimmar (no anvil) · Booty Bay 1 min (5 12 34/hr) · quickest in Booty Bay')).toBeInTheDocument()
+    expect(text('By city: Orgrimmar (no anvil) · Thunder Bluff 1 min (5 12 34/hr) · quickest in Thunder Bluff')).toBeInTheDocument()
   })
 
   it('shows the time of each step, the runs, and how the cities compare', async () => {
@@ -505,7 +505,7 @@ describe('ResultsTable profit per hour', () => {
     expect(text('A batch of 20 takes 4 min 10 s in Orgrimmar: 1 23 45/hr')).toBeInTheDocument()
     expect(text('running 3 min 20 s · crafting 50 s')).toBeInTheDocument()
     expect(line('Auctioneer → Thread Seller → Auctioneer (3 min 20 s)')).toBeInTheDocument()
-    expect(text('By city: Orgrimmar 4 min 10 s (1 23 45/hr) · Booty Bay 1 min (5 12 34/hr) · quickest in Booty Bay')).toBeInTheDocument()
+    expect(text('By city: Orgrimmar 4 min 10 s (1 23 45/hr) · Thunder Bluff 1 min (5 12 34/hr) · quickest in Thunder Bluff')).toBeInTheDocument()
     expect(screen.getByText(/No vendor in Orgrimmar sells Coarse Thread/)).toBeInTheDocument()
     expect(screen.queryByText(/can't be crafted there/)).not.toBeInTheDocument()
     await showSteps()

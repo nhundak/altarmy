@@ -92,7 +92,7 @@ export const robeResult: RankResult = {
 }
 
 /** The robe timed in Orgrimmar: a 3.5 s craft, a run to the thread seller and back, 1g 23s 45c an hour; quicker
- * in Booty Bay. No vendor there sells thread. */
+ * in Thunder Bluff. No vendor there sells thread. */
 export const timedRobe: RankResult = {
   ...robeResult,
   steps: robeResult.steps.map((s) => (s.action === 'craft' ? { ...s, seconds: 3.5, station: 'anvil' } : s)),
@@ -114,7 +114,7 @@ export const timedRobe: RankResult = {
   },
   cities: [
     { city: 'Orgrimmar', total_seconds: 250, per_hour: 12345, missing: [] },
-    { city: 'Booty Bay', total_seconds: 60, per_hour: 51234, missing: [] },
+    { city: 'Thunder Bluff', total_seconds: 60, per_hour: 51234, missing: [] },
   ],
-  best_city: 'Booty Bay',
+  best_city: 'Thunder Bluff',
 }

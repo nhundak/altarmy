@@ -236,12 +236,13 @@ DEFAULT_CITIES = ("Orgrimmar", "Stormwind")  # where a faction's plans are timed
 
 
 def faction_cities(cities: Mapping[str, timing.CityMap], faction: str) -> list[timing.CityMap]:
-    """The cities a character of `faction` crafts in: their faction's, then the neutral towns, each by
-    name; every city for faction "" (an auction house both factions share)."""
-    if not faction:
-        return sorted(cities.values(), key=lambda c: c.name)
-    own = sorted((c for c in cities.values() if c.faction == faction), key=lambda c: c.name)
-    return own + sorted((c for c in cities.values() if not c.faction), key=lambda c: c.name)
+    """The cities a character of `faction` crafts in: their faction's, by name; every faction city for
+    faction "" (an auction house both factions share). Never a neutral town (Booty Bay, ...): its auction
+    house is not the one prices come from."""
+    return sorted(
+        (c for c in cities.values() if c.faction and (not faction or c.faction == faction)),
+        key=lambda c: c.name,
+    )
 
 
 def default_city(cities: Mapping[str, timing.CityMap], faction: str) -> timing.CityMap:
@@ -278,7 +279,7 @@ def set_time(
 ) -> None:
     """Save the user's city (None: the faction's default) and config overrides (replacing the old ones);
     ValueError for an unknown city or a bad setting."""
-    if city is not None and city not in cities:
+    if city is not None and (city not in cities or not cities[city].faction):
         raise ValueError(f"No city preset named {city}.")
     changes = timing.config_changes(timing.config_from_dict(config))
     users.update_settings(

@@ -185,8 +185,8 @@ def _time_model(args: argparse.Namespace, conn: Connection, v: GameVersion, fact
     model = service.time_model(conn, LOCAL_UID, v.key, cities, faction)
     city = model.city
     if args.city is not None:
-        if args.city not in cities:
-            known = ", ".join(cities) or "none (run scripts/build_cities.py)"
+        if args.city not in cities or not cities[args.city].faction:
+            known = ", ".join(c for c in cities if cities[c].faction) or "none (run scripts/build_cities.py)"
             sys.exit(f"No city preset named {args.city}; known: {known}.")
         city = cities[args.city]
     changes: dict[str, object] = {}

@@ -174,6 +174,9 @@ export function SearchTab() {
   // Stored as strings: sections that no longer exist (the old Characters one) are dropped, not an error.
   const [stored, setOpen] = useStoredState('altarmy-profit.search.open', z.array(z.string()), NONE_OPEN)
   const open = SECTIONS.filter((s) => stored.includes(s))
+  /** Open or close one section from its own accordion's value, keeping the other's state. */
+  const toggleSection = (section: (typeof SECTIONS)[number], value: string[]) =>
+    setOpen(SECTIONS.filter((s) => (s === section ? value.includes(s) : open.includes(s))))
   const [exits, setExits] = useStoredState('altarmy-profit.search.exits', z.array(z.enum(ALL_EXITS)), ALL_EXITS)
   // Money in gold and ROI in percent, as typed; converted for the API below.
   const [minCost, setMinCost] = useStoredState('altarmy-profit.search.minCost', bound, 0)
@@ -297,62 +300,62 @@ export function SearchTab() {
           craft what and what mailing between them costs.
         </Text>
       )}
-      <Accordion
-        multiple
-        variant="separated"
-        value={open}
-        onChange={(v) => setOpen(SECTIONS.filter((s) => v.includes(s)))}
-      >
-        <Accordion.Item value="advanced">
-          <Accordion.Control>Advanced Options</Accordion.Control>
-          <Accordion.Panel>
-            <Stack>
-              {!browsing && (
-                <Checkbox
-                  label="Include Trivial Recipes"
-                  description="Uncheck to show only recipes that can still give the crafter a skill point."
-                  checked={includeTrivial}
-                  onChange={(e) => setIncludeTrivial(e.currentTarget.checked)}
-                />
-              )}
-              <Checkbox.Group
-                label="Sell via"
-                value={exits}
-                onChange={(v) => setExits(ALL_EXITS.filter((e) => v.includes(e)))}
-              >
-                <Group mt={4}>
-                  {EXITS.map((e) => (
-                    <Checkbox key={e.value} value={e.value} label={e.label} />
-                  ))}
-                </Group>
-              </Checkbox.Group>
-              <SimpleGrid cols={{ base: 1, sm: 3 }}>
-                <Range
-                  name="cost (gold)"
-                  min={minCost}
-                  max={maxCost}
-                  onMin={setMinCost}
-                  onMax={setMaxCost}
-                  step={1}
-                />
-                <Range
-                  name="profit (gold)"
-                  min={minProfit}
-                  max={maxProfit}
-                  onMin={setMinProfit}
-                  onMax={setMaxProfit}
-                  step={0.5}
-                />
-                <Range name="ROI (%)" min={minRoi} max={maxRoi} onMin={setMinRoi} onMax={setMaxRoi} step={10} />
-              </SimpleGrid>
-            </Stack>
-          </Accordion.Panel>
-        </Accordion.Item>
-        <Accordion.Item value="time">
-          <Accordion.Control>Play Time and City</Accordion.Control>
-          <Accordion.Panel>{open.includes('time') && <TimeSettingsPanel />}</Accordion.Panel>
-        </Accordion.Item>
-      </Accordion>
+      {/* Two independent sections, side by side on large screens, each remembering whether it is open. */}
+      <SimpleGrid cols={{ base: 1, lg: 2 }} style={{ alignItems: 'start' }}>
+        <Accordion multiple variant="separated" value={open} onChange={(v) => toggleSection('advanced', v)}>
+          <Accordion.Item value="advanced">
+            <Accordion.Control>Advanced Filters</Accordion.Control>
+            <Accordion.Panel>
+              <Stack>
+                {!browsing && (
+                  <Checkbox
+                    label="Include Trivial Recipes"
+                    description="Uncheck to show only recipes that can still give the crafter a skill point."
+                    checked={includeTrivial}
+                    onChange={(e) => setIncludeTrivial(e.currentTarget.checked)}
+                  />
+                )}
+                <Checkbox.Group
+                  label="Sell via"
+                  value={exits}
+                  onChange={(v) => setExits(ALL_EXITS.filter((e) => v.includes(e)))}
+                >
+                  <Group mt={4}>
+                    {EXITS.map((e) => (
+                      <Checkbox key={e.value} value={e.value} label={e.label} />
+                    ))}
+                  </Group>
+                </Checkbox.Group>
+                <SimpleGrid cols={{ base: 1, sm: 3, lg: 1 }}>
+                  <Range
+                    name="cost (gold)"
+                    min={minCost}
+                    max={maxCost}
+                    onMin={setMinCost}
+                    onMax={setMaxCost}
+                    step={1}
+                  />
+                  <Range
+                    name="profit (gold)"
+                    min={minProfit}
+                    max={maxProfit}
+                    onMin={setMinProfit}
+                    onMax={setMaxProfit}
+                    step={0.5}
+                  />
+                  <Range name="ROI (%)" min={minRoi} max={maxRoi} onMin={setMinRoi} onMax={setMaxRoi} step={10} />
+                </SimpleGrid>
+              </Stack>
+            </Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
+        <Accordion multiple variant="separated" value={open} onChange={(v) => toggleSection('time', v)}>
+          <Accordion.Item value="time">
+            <Accordion.Control>Time assumptions</Accordion.Control>
+            <Accordion.Panel>{open.includes('time') && <TimeSettingsPanel />}</Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
+      </SimpleGrid>
       {status.data.prices === 0 && (
         <Alert color="yellow">
           {mode === 'hosted'
@@ -363,7 +366,7 @@ export function SearchTab() {
       {debouncedFilters.exits.length ? (
         <Results filters={debouncedFilters} browsing={browsing} onRankBy={setSort} />
       ) : (
-        <Alert>Pick at least one way to sell under Advanced Options.</Alert>
+        <Alert>Pick at least one way to sell under Advanced Filters.</Alert>
       )}
     </Stack>
   )

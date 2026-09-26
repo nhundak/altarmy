@@ -122,7 +122,7 @@ def test_load_market_marks_soulbound_items_not_tradable(db2_paths: dict[str, Pat
 
 def test_load_cities_reads_every_preset(cities: Path, tmp_path: Path) -> None:
     got = store.load_cities(cities)
-    assert list(got) == ["Booty Bay", "Orgrimmar", "Stormwind"]
+    assert list(got) == ["Booty Bay", "Orgrimmar", "Stormwind", "Thunder Bluff"]
     assert (got["Orgrimmar"].faction, got["Booty Bay"].faction) == ("Horde", "")
     assert store.load_cities(tmp_path / "nowhere") == {}
     (cities / "Broken.json").write_text("{", encoding="utf-8")

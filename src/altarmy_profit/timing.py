@@ -12,7 +12,6 @@ craft. Every character starts and ends at the city's hub (usually the auction ho
 
 from __future__ import annotations
 
-import itertools
 import json
 import math
 import re
@@ -52,7 +51,7 @@ def station_kind(name: str) -> str:
 
 FACTIONS = frozenset({"Horde", "Alliance", ""})  # "" for a neutral town
 BREAKDOWN = ("travel", "switch", "ah", "vendor", "mail", "craft", "disenchant")
-MAX_PERMUTED = 7  # stops per group tried in every order; beyond, nearest first
+MAX_EXACT = 12  # stops per group routed exactly (Held-Karp); beyond, nearest first
 
 
 @dataclass(frozen=True)
@@ -218,6 +217,7 @@ class CityMap:
                 self._sellers.setdefault(i, []).append(loc_id)
         self._trips: dict[tuple[str, TimeConfig], float] = {}  # memo for `trip`: pure, safe to share
         self._nearest: dict[tuple[str, str, TimeConfig], Location | None] = {}  # memo for `nearest`
+        self._legs: dict[TimeConfig, dict[tuple[str, str], float]] = {}  # memo for `_paths`, per config
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> CityMap:
@@ -271,6 +271,13 @@ class CityMap:
         yards = math.dist((p.x, p.y, p.z), (q.x, q.y, q.z))
         return yards * (self.detour if self.detour is not None else config.detour) / config.run_speed
 
+    def leg_times(self, config: TimeConfig) -> dict[tuple[str, str], float]:
+        """A memo of `seconds` under `config`, filled by whoever reads it (`_paths`)."""
+        table = self._legs.get(config)
+        if table is None:
+            table = self._legs.setdefault(config, {})
+        return table
+
     def nearest(self, kind: str, from_id: str, config: TimeConfig) -> Location | None:
         """The location of `kind` quickest to reach from `from_id`; None if the city has none."""
         key = (kind, from_id, config)
@@ -321,8 +328,8 @@ class Block:
     `BREAKDOWN` kind, once per batch and per craft."""
 
     who: str
-    receives_mail: bool = False
-    buys_ah: bool = False
+    receives_mail: bool = False  # an alt sent them something: collected at the mailbox
+    buys_ah: bool = False  # AH purchases arrive by mail: collected at the mailbox, some time after the AH
     vendor_items: frozenset[int] = frozenset()  # items bought from vendors
     stations: tuple[str, ...] = ()  # station kinds crafted at (see `station_kind`)
     sends_mail: bool = False
@@ -381,18 +388,103 @@ def _walk(
     return total, ids
 
 
-def _orders(city: CityMap, start: str, stops: Sequence[str], config: TimeConfig) -> list[tuple[str, ...]]:
-    """The orders worth trying: every one for a few stops, else nearest first."""
-    if len(stops) <= MAX_PERMUTED:
-        return list(itertools.permutations(stops))
-    left, order, at = list(stops), [], start
+def _candidates(city: CityMap, target: str) -> list[str]:
+    """Where a stop can be made: the location itself, or every location of that kind."""
+    if target in city._by_id:
+        return [target]
+    return [loc.id for loc in city.locations if loc.kind == target]
+
+
+Paths = dict[str, tuple[float, list[str]]]  # end location -> (seconds, the ids visited in order)
+
+
+def _paths(
+    city: CityMap,
+    start: str,
+    stops: Sequence[str],
+    config: TimeConfig,
+    before: tuple[str, str] | None = None,
+) -> Paths:
+    """The quickest way from `start` through every stop (ids, or kinds: any location of that kind), for
+    each place it can end. With `before` (a, b), `a` comes before `b` (the AH before the mailbox its
+    purchases are collected from). A kind the city lacks is skipped.
+
+    Held-Karp: the best time to have visited each set of stops, ending at each place, built up one stop
+    at a time, so every order is covered without trying each (2^n n^2 steps, not n!). Beyond `MAX_EXACT`
+    stops, nearest first."""
+    wanted = [(name, cands) for name in stops if (cands := _candidates(city, name))]
+    if not wanted:
+        return {start: (0.0, [])}
+    names = [name for name, _ in wanted]
+    first = names.index(before[0]) if before and before[0] in names else None
+    then = names.index(before[1]) if before and before[1] in names else None
+    if len(wanted) > MAX_EXACT:
+        seconds, ids = _walk(city, start, _nearest_first(city, start, names, config, before), None, config)
+        return {ids[-1]: (seconds, ids)}
+    n = len(wanted)
+    memo = city.leg_times(config)
+
+    def leg(a: str, b: str) -> float:
+        got = memo.get((a, b))
+        if got is None:
+            got = memo[a, b] = city.seconds(a, b, config)
+        return got
+
+    # table[mask][at] = (seconds, where from, which stop `at` served)
+    table: list[dict[str, tuple[float, str, int]]] = [{} for _ in range(1 << n)]
+
+    def offer(mask: int, at: str, seconds: float, came_from: str, stop: int) -> None:
+        had = table[mask].get(at)
+        if had is None or seconds < had[0]:
+            table[mask][at] = (seconds, came_from, stop)
+
+    def may_visit(mask: int, stop: int) -> bool:
+        return stop != then or first is None or bool(mask & (1 << first))
+
+    for k, (_, cands) in enumerate(wanted):
+        if may_visit(0, k):
+            for c in cands:
+                offer(1 << k, c, leg(start, c), start, k)
+    for mask in range(1, 1 << n):  # a superset is always a larger number: every subset is final by then
+        for at, (seconds, _, _) in list(table[mask].items()):
+            for k, (_, cands) in enumerate(wanted):
+                if mask & (1 << k) or not may_visit(mask, k):
+                    continue
+                for c in cands:
+                    offer(mask | (1 << k), c, seconds + leg(at, c), at, k)
+    out: Paths = {}
+    full = (1 << n) - 1
+    for end, (seconds, _, _) in table[full].items():
+        ids, mask, at = [], full, end
+        while mask:
+            _, came_from, stop = table[mask][at]
+            ids.append(at)
+            mask &= ~(1 << stop)
+            at = came_from
+        out[end] = (seconds, ids[::-1])
+    return out
+
+
+def _nearest_first(
+    city: CityMap,
+    start: str,
+    stops: Sequence[str],
+    config: TimeConfig,
+    before: tuple[str, str] | None = None,
+) -> list[str]:
+    """Too many stops for `_paths`: always the nearest next, keeping `before`'s order."""
+    left, at = list(stops), start
+    order: list[str] = []
     while left:
-        nxt = min(left, key=lambda t: _reach(city, at, t, config))
+        ready = [
+            t for t in left if not before or t != before[1] or before[0] in order or before[0] not in left
+        ]
+        nxt = min(ready, key=lambda t: _reach(city, at, t, config))
         left.remove(nxt)
         order.append(nxt)
         loc = city._resolve(nxt, at, config)
         at = loc.id if loc is not None else at
-    return [tuple(order)]
+    return order
 
 
 def _reach(city: CityMap, at: str, target: str, config: TimeConfig) -> float:
@@ -401,9 +493,10 @@ def _reach(city: CityMap, at: str, target: str, config: TimeConfig) -> float:
 
 
 def _stops(city: CityMap, block: Block, config: TimeConfig) -> tuple[list[str], list[str], frozenset[int]]:
-    """The block's gather and dispose stops (ids or kinds) and the vendor items nobody here sells."""
+    """The block's gather and dispose stops (ids or kinds) and the vendor items nobody here sells. The
+    mailbox visit that collects AH purchases and alts' mail is added by `route`, after the AH."""
     vendors, unsold = _vendors_for(city, block.vendor_items, config)
-    gather = (["mailbox"] if block.receives_mail else []) + (["ah"] if block.buys_ah else []) + vendors
+    gather = (["ah"] if block.buys_ah else []) + vendors
     dispose = (
         (["mailbox"] if block.sends_mail else [])
         + (["ah"] if block.sells_ah else [])
@@ -413,11 +506,13 @@ def _stops(city: CityMap, block: Block, config: TimeConfig) -> tuple[list[str], 
 
 
 def route(city: CityMap, block: Block, config: TimeConfig) -> list[Leg]:
-    """The block's legs: from the hub through its gather stops (in the quickest order), its stations (in
-    turn, the nearest each time), its dispose stops (quickest order) and back to the hub. Legs of no
-    length are left out."""
+    """The block's legs: from the hub through its gather stops in the quickest order: the AH, vendors, and
+    one visit to the mailbox if anything waits there (AH purchases arrive by mail, so it comes after the AH;
+    what alts sent too). Then its stations (in turn, the nearest each time), its dispose stops (quickest
+    order) and back to the hub. Legs of no length are left out."""
     gather, dispose, _ = _stops(city, block, config)
     hub = city.hub.id
+    collect = ["mailbox"] if block.buys_ah or block.receives_mail else []
     tails: dict[str, tuple[float, list[str]]] = {}  # the quickest rest of the route from each place
 
     def tail(at: str) -> tuple[float, list[str]]:
@@ -425,17 +520,18 @@ def route(city: CityMap, block: Block, config: TimeConfig) -> list[Leg]:
             placed = [k for k in block.stations if k not in DEPLOYABLE]
             station_s, stations = _walk(city, at, placed, None, config)
             after = stations[-1] if stations else at
-            dispose_s, disposed = min(
-                (_walk(city, after, o, hub, config) for o in _orders(city, after, dispose, config)),
-                key=lambda w: w[0],
-            )
-            tails[at] = (station_s + dispose_s, stations + disposed)
+            best_rest: tuple[float, list[str]] | None = None
+            for end, (seconds, ids) in _paths(city, after, dispose, config).items():
+                total = station_s + seconds + city.seconds(end, hub, config)
+                if best_rest is None or total < best_rest[0]:
+                    best_rest = (total, stations + ids)
+            assert best_rest is not None
+            tails[at] = best_rest
         return tails[at]
 
     best: tuple[float, list[str]] | None = None
-    for order in _orders(city, hub, gather, config):
-        head_s, head = _walk(city, hub, order, None, config)
-        tail_s, rest = tail(head[-1] if head else hub)
+    for end, (head_s, head) in _paths(city, hub, [*gather, *collect], config, ("ah", "mailbox")).items():
+        tail_s, rest = tail(end)
         if best is None or head_s + tail_s < best[0]:
             best = (head_s + tail_s, head + rest)
     assert best is not None

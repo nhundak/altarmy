@@ -1,6 +1,9 @@
 """The pure timing model: config parsing, city maps, routes and batch timings."""
 
+import itertools
 import json
+import math
+import random
 from typing import Any
 
 import pytest
@@ -158,10 +161,9 @@ def test_route_visits_everything_in_the_best_order() -> None:
     block = Block("Smith", receives_mail=True, buys_ah=True, vendor_items=frozenset({1}), stations=("anvil",))
     legs = timing.route(c, block, FAST)
     stops = [leg.to_id for leg in legs]
-    # gather (mailbox, AH, vendor 1) in the cheapest order from the hub, then the anvil, then home
-    assert set(stops[:-2]) == {"mailbox:1", "vendor:1"}  # the hub is the AH: no leg to it
-    assert stops[-2:] == ["anvil:1", "ah"]
-    assert sum(leg.seconds for leg in legs) == pytest.approx(40.0)  # out to 200 yd and back
+    # buy at the AH (the hub: no leg), collect the mail on the way to vendor 1, then the anvil, then home
+    assert stops == ["mailbox:1", "vendor:1", "anvil:1", "ah"]
+    assert sum(leg.seconds for leg in legs) == pytest.approx(5 + 15 + 10 + 10)
     assert all(leg.who == "Smith" for leg in legs)
 
 
@@ -175,7 +177,76 @@ def test_route_disposes_after_crafting() -> None:
     c = city()
     block = Block("A", buys_ah=True, stations=("anvil",), sends_mail=True, sells_ah=True)
     stops = [leg.to_id for leg in timing.route(c, block, FAST)]
-    assert stops == ["anvil:1", "mailbox:1", "ah"]  # AH buy at the hub, craft, mail, sell back at the AH
+    # buy at the AH (the hub), collect it at the mailbox, craft, mail, sell back at the AH
+    assert stops == ["mailbox:1", "anvil:1", "mailbox:1", "ah"]
+
+
+def test_ah_purchases_are_collected_in_one_trip_to_the_mailbox() -> None:
+    legs = timing.route(city(), Block("A", buys_ah=True, sells_ah=True), FAST)
+    assert [leg.to_id for leg in legs] == ["mailbox:1", "ah"]  # however many items were bought
+    both = timing.route(
+        city(), Block("A", buys_ah=True, receives_mail=True, vendor_items=frozenset({3})), FAST
+    )
+    assert [leg.to_id for leg in both] == ["vendor:2", "mailbox:1", "ah"]  # everything bought, then the mail
+
+
+def test_the_mailbox_never_comes_before_the_auction_house() -> None:
+    # the hub is a mailbox 5 s from the AH: collecting first would be quicker, but there'd be nothing yet
+    c = city(hub="mailbox:1")
+    stops = [leg.to_id for leg in timing.route(c, Block("A", buys_ah=True), FAST)]
+    assert stops == ["ah", "mailbox:1"]
+    # an alt's mail alone can be collected first
+    assert timing.route(c, Block("A", receives_mail=True), FAST) == []
+
+
+def test_many_stops_keep_the_auction_house_before_the_mailbox() -> None:
+    # nearest first from the mailbox would collect there straight away, before buying anything
+    c = city(hub="mailbox:1")
+    stops = ["mailbox", *[f"vendor:{i}" for i in (1, 2)], "ah", "vendor:1", "vendor:2", "ah", "mailbox", "ah"]
+    order = timing._nearest_first(c, "mailbox:1", stops, FAST, ("ah", "mailbox"))
+    assert order.index("ah") < order.index("mailbox")
+
+
+@pytest.mark.parametrize("seed", range(25))
+def test_held_karp_finds_the_quickest_order(seed: int) -> None:
+    """Against brute force: every order of the stops and every choice of mailbox or vendor for a kind."""
+    rng = random.Random(seed)
+
+    def spot(loc_id: str, kind: str) -> dict[str, object]:
+        return {
+            "id": loc_id,
+            "kind": kind,
+            "name": loc_id,
+            "x": rng.uniform(0, 500),
+            "y": rng.uniform(0, 500),
+            "z": 0,
+        }
+
+    locs = [spot("ah", "ah"), *(spot(f"mailbox:{i}", "mailbox") for i in range(3))]
+    locs += [spot(f"vendor:{i}", "vendor") for i in range(6)]
+    c = CityMap.from_dict({"name": "R", "faction": "Horde", "hub": "ah", "locations": locs, "vendors": {}})
+    stops = ["ah", "mailbox", *rng.sample([f"vendor:{i}" for i in range(6)], rng.randint(0, 5))]
+    if rng.random() < 0.5:
+        stops.append("vendor")  # any vendor
+    start = rng.choice([loc["id"] for loc in locs])
+    got = min(s for s, _ in timing._paths(c, str(start), stops, FAST, ("ah", "mailbox")).values())
+
+    def choices(stop: str) -> list[str]:
+        return (
+            [loc.id for loc in c.locations if loc.kind == stop] if stop in ("mailbox", "vendor") else [stop]
+        )
+
+    best = math.inf
+    for order in itertools.permutations(stops):
+        if order.index("ah") > order.index("mailbox"):
+            continue
+        for picks in itertools.product(*(choices(stop) for stop in order)):
+            at, total = str(start), 0.0
+            for loc_id in picks:
+                total += c.seconds(at, loc_id, FAST)
+                at = loc_id
+            best = min(best, total)
+    assert got == pytest.approx(best)
 
 
 def test_route_with_many_stops_visits_each_once() -> None:

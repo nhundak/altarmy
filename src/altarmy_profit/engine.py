@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
@@ -496,6 +497,9 @@ def time_result(result: Result, model: TimeModel) -> timing.Timing:
             return
         who = run[0].who
         searched = {s.item_id for s in run if s.via == "ah"}
+        bought = {
+            s.item_id for s in run if s.action == "buy" and s.via == "ah"
+        }  # one mail each, however many
         searched |= {m.item_id for s in run if s.via == "disenchant" for m in _materials(result)}
         per_craft: dict[str, float] = {}
         for s in run:
@@ -512,7 +516,10 @@ def time_result(result: Result, model: TimeModel) -> timing.Timing:
                 sends_mail=any(s.action == "mail" for s in run),
                 sells_ah=any(s.action == "sell" and s.via in ("ah", "disenchant") for s in run),
                 sells_vendor=any(s.action == "sell" and s.via == "vendor" for s in run),
-                fixed={"ah": model.config.ah_search * len(searched)} if searched else {},
+                fixed={
+                    "ah": model.config.ah_search * len(searched),
+                    "mail": model.config.mail_open * len(bought),
+                },
                 per_craft=per_craft,
             )
         )
@@ -677,11 +684,24 @@ class Market:
         return max(1, item.stack_size) if item else 1
 
     # --- play time -----------------------------------------------------------------------------------
-    # Seconds are per craft of the recipe being evaluated: clicks per stack are counted in fractions of a
-    # stack, and a trip across the city, a character switch or an AH search is shared by the batch.
+    # Seconds are per craft of the recipe being evaluated. A batch clicks once per whole stack (and sends
+    # whole mails); those clicks, trips across the city, character switches and AH searches are shared by
+    # the batch.
     def _effective(self, copper: int, seconds: float) -> float:
         """What a plan costs counting its play time at the time value: plans are compared by this."""
         return copper + self._per_second * seconds
+
+    def _per_batch(self, count: float) -> float:
+        """A per-batch count of actions, rounded up to whole ones, per craft."""
+        assert self.time is not None
+        batch = self.time.config.batch
+        return math.ceil(count - 1e-9) / batch
+
+    def _stacks(self, item_id: int, qty: float) -> float:
+        """Per craft, the stacks a batch handles for `qty` units a craft: whole stacks, since a click takes
+        as long for one unit as for a full stack (20 crafts needing 1 salt each buy one stack of 20)."""
+        assert self.time is not None
+        return self._per_batch(qty * self.time.config.batch / self._stack(item_id))
 
     def _trip(self, target: str) -> float:
         """A trip from the hub to `target` (a location id or kind) and back, shared by the batch."""
@@ -696,10 +716,12 @@ class Market:
         """(the buy's own seconds, with the shared trip and search) for `qty` units from `source`."""
         if self.time is None:
             return 0.0, 0.0
-        cfg, stacks = self.time.config, qty / self._stack(item_id)
-        if source == "ah":
+        cfg, stacks = self.time.config, self._stacks(item_id, qty)
+        if source == "ah":  # the purchase arrives by mail: one mail per item, and a trip to the mailbox
             act = cfg.ah_buy * stacks
-            return act, act + cfg.ah_search / cfg.batch + self._trip("ah")
+            return act, act + (cfg.ah_search + cfg.mail_open) / cfg.batch + self._trip("ah") + self._trip(
+                "mailbox"
+            )
         act = cfg.vendor_buy * stacks
         key = f"vendor-of:{item_id}"
         if key not in self._trips:
@@ -711,8 +733,9 @@ class Market:
         """(sending and taking `qty` units, with both characters' mailbox trips and the switch)."""
         if self.time is None:
             return 0.0, 0.0
-        cfg, stacks = self.time.config, qty / self._stack(item_id)
-        act = cfg.mail_attach * stacks + stacks / cfg.mail_attachments * (cfg.mail_send + cfg.mail_open)
+        cfg, stacks = self.time.config, self._stacks(item_id, qty)
+        mails = self._per_batch(stacks * cfg.batch / cfg.mail_attachments)
+        act = cfg.mail_attach * stacks + mails * (cfg.mail_send + cfg.mail_open)
         return act, act + cfg.switch_character / cfg.batch + 2 * self._trip("mailbox")
 
     def _craft_seconds(self, recipe: Recipe, runs: int) -> tuple[float, float, str]:
@@ -729,13 +752,13 @@ class Market:
             return 0.0, 0.0
         cfg = self.time.config
         if exit.kind == "vendor":
-            act = cfg.vendor_sell * made / self._stack(item_id)
+            act = cfg.vendor_sell * self._stacks(item_id, made)
             return act, act + self._trip("vendor")
         if exit.kind == "ah":
-            act = cfg.ah_post * made / self._stack(item_id)
+            act = cfg.ah_post * self._stacks(item_id, made)
             return act, act + cfg.ah_search / cfg.batch + self._trip("ah")
         posts = sum(
-            m.chance * (m.min_count + m.max_count) / 2 * made / self._stack(m.item_id) for m in exit.materials
+            self._stacks(m.item_id, m.chance * (m.min_count + m.max_count) / 2 * made) for m in exit.materials
         )
         act = cfg.disenchant * made + cfg.ah_post * posts
         return act, act + cfg.ah_search * len(exit.materials) / cfg.batch + self._trip("ah")

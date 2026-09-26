@@ -143,7 +143,7 @@ describe('SearchTab', () => {
     }
     const city = (name: string, faction: string) => ({ name, faction, hub: 'Auctioneer', locations: 9, vendors: 3 })
     const settings = {
-      cities: [city('Orgrimmar', 'Horde'), city('Booty Bay', '')],
+      cities: [city('Orgrimmar', 'Horde'), city('Thunder Bluff', 'Horde')],
       city: null,
       active: 'Orgrimmar',
       config,
@@ -156,22 +156,24 @@ describe('SearchTab', () => {
       '/api/time': settings,
     })
     renderWithProviders(<SearchTab />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Play Time and City' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Time assumptions' }))
     const batch = await screen.findByLabelText('Crafts per session')
     const ranked = urls(fetch, '/api/rank').length
     fireEvent.change(batch, { target: { value: '5' } })
-    fireEvent.change(screen.getByLabelText('An hour of your time is worth (gold)'), { target: { value: '50' } })
+    for (const gone of ['An hour of your time is worth (gold)', 'Stacks per mail', 'Disenchant (per item)', /Detour/]) {
+      expect(screen.queryByLabelText(gone)).not.toBeInTheDocument()
+    }
     await waitFor(() => expect(fetch.mock.calls.some(([r]) => r.method === 'PUT')).toBe(true), { timeout: 3000 })
     const put = fetch.mock.calls.map(([r]) => r).find((r) => r.method === 'PUT')
-    expect(await put?.json()).toEqual({ city: null, config: { batch: 5, time_value: 500000 } })
+    expect(await put?.json()).toEqual({ city: null, config: { batch: 5 } })
     await waitFor(() => expect(urls(fetch, '/api/rank').length).toBeGreaterThan(ranked))
   })
 
-  it('opens and closes Advanced Options, remembering it, and ignores sections that are gone', async () => {
+  it('opens and closes Advanced Filters, remembering it, and ignores sections that are gone', async () => {
     localStorage.setItem('altarmy-profit.search.open', JSON.stringify(['characters']))
     mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<SearchTab />)
-    const advanced = await screen.findByRole('button', { name: 'Advanced Options' })
+    const advanced = await screen.findByRole('button', { name: 'Advanced Filters' })
     expect(advanced).toHaveAttribute('aria-expanded', 'false')
     await userEvent.click(advanced)
     expect(advanced).toHaveAttribute('aria-expanded', 'true')
