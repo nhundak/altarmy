@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from altarmy_profit import engine
+from altarmy_profit import engine, timing
 from altarmy_profit.engine import (
     ALL_EXITS,
     MAIL_POSTAGE,
@@ -21,6 +21,7 @@ from altarmy_profit.engine import (
     Result,
     SellOption,
     Step,
+    TimeModel,
     ah_net,
     can_skill_up,
     plan_steps,
@@ -41,6 +42,7 @@ def make_market(
     exits: frozenset[str] = ALL_EXITS,
     no_ah: frozenset[int] = frozenset(),
     extra_items: Sequence[Item] = (),
+    time: TimeModel | None = None,
 ) -> Market:
     items = {
         LINEN: Item(LINEN, "Linen Cloth"),
@@ -66,6 +68,7 @@ def make_market(
         include_unlearned=include_unlearned,
         exits=exits,
         no_ah=no_ah,
+        time=time,
     )
 
 
@@ -472,6 +475,7 @@ def maul_market(
     recipes: Sequence[Recipe] = (CURE, MAUL_RECIPE),
     include_trivial: bool = True,
     extra_items: Sequence[Item] = (),
+    time: TimeModel | None = None,
 ) -> Market:
     items = {
         SCRAPS: Item(SCRAPS, "Ruined Leather Scraps", stack_size=20),
@@ -481,7 +485,7 @@ def maul_market(
         **{i.id: i for i in extra_items},
     }
     prices = {SCRAPS: 5, LEATHER: leather_price, COPPER: 10}
-    return Market(items, list(recipes), prices, crafters=crafters, include_trivial=include_trivial)
+    return Market(items, list(recipes), prices, crafters=crafters, include_trivial=include_trivial, time=time)
 
 
 def test_intermediate_is_crafted_by_another_character_and_mailed() -> None:
@@ -857,3 +861,155 @@ def test_soulbound_craft_is_not_mailed_to_an_enchanter() -> None:
 def test_soulbound_items_have_no_ah_exit() -> None:
     m = make_market({LINEN: 20, THREAD: 100, GREEN: 100_000}, extra_items=[BOUND_ROBE])
     assert [e.kind for e in m.exits_for(GREEN)] == ["vendor"]
+
+
+# --- time: profit per hour --------------------------------------------------------------------------
+# On foot at 7 yd/s with no detour: 7 yd is a second. The auction house is the hub; a mailbox 5 s away, an
+# anvil 10 s away, a vendor selling thread 100 s away and one selling nothing we need 3 s away.
+TOWN = timing.CityMap(
+    "Town",
+    "Horde",
+    [
+        timing.Location("ah", "ah", "Auctioneer", 0, 0, 0),
+        timing.Location("mailbox:1", "mailbox", "Mailbox", 35, 0, 0),
+        timing.Location("anvil:1", "anvil", "Anvil", 70, 0, 0),
+        timing.Location("vendor:1", "vendor", "Thread Seller", 700, 0, 0),
+        timing.Location("vendor:2", "vendor", "Junk Seller", 0, 21, 0),
+    ],
+    "ah",
+    {"vendor:1": frozenset({THREAD}), "vendor:2": frozenset()},
+)
+GOLD = 10_000
+
+
+def timed(gold_per_hour: float = 0, batch: int = 10) -> TimeModel:
+    cfg = timing.TimeConfig(run_speed=7.0, detour=1.0, batch=batch, time_value=round(gold_per_hour * GOLD))
+    return TimeModel(cfg, TOWN)
+
+
+ANVIL_MAUL = replace(MAUL_RECIPE, cast_time_ms=3000, station="anvil")
+BOLT_RECIPES = [BOLT_RECIPE, BOLT_ROBE, BOLT_TUNIC]
+BOLT_PRICES = {LINEN: 10, THREAD: 5, BOLT: 100}
+
+
+def plan(r: Result) -> tuple[object, ...]:
+    return (
+        r.recipe.id,
+        r.cost,
+        r.revenue,
+        r.best_exit,
+        r.crafter,
+        r.mail_to,
+        r.tree,
+        r.steps,
+        r.sell_options,
+    )
+
+
+def enchanters() -> list[Crafter]:
+    return [TAILOR, crafter("Aaron", ("Enchanting", 10)), crafter("Zed", ("Enchanting", 90))]
+
+
+def test_time_worth_nothing_changes_no_plan() -> None:
+    for untimed, with_time in [
+        (maul_market(SMITHY, LEATHERY), maul_market(SMITHY, LEATHERY, time=timed(0))),
+        (
+            make_market(DE_PRICES, [ROBE], DE_ROWS, crafters=enchanters()),
+            make_market(DE_PRICES, [ROBE], DE_ROWS, crafters=enchanters(), time=timed(0)),
+        ),
+        (make_market(BOLT_PRICES, BOLT_RECIPES), make_market(BOLT_PRICES, BOLT_RECIPES, time=timed(0))),
+    ]:
+        a, b = untimed.rank(min_profit=-(10**9)), with_time.rank(min_profit=-(10**9))
+        assert [plan(r) for r in a] == [plan(r) for r in b]
+        assert all(r.seconds > 0 for r in b)
+
+
+def test_time_value_prefers_the_auction_house_to_a_long_run() -> None:
+    prices = {LINEN: 20, THREAD: 100}
+    assert must_evaluate(make_market(prices, thread_vendor_price=90), ROBE).tree.inputs[1].source == "vendor"
+    res = must_evaluate(make_market(prices, thread_vendor_price=90, time=timed(100)), ROBE)
+    thread = res.tree.inputs[1]
+    assert (thread.source, thread.option, thread.cost) == ("ah", "ah", 100)
+    assert res.cost == 300  # money stays whole copper
+    assert [o.key for o in thread.options] == ["ah", "vendor"]  # best for money and time together first
+    assert thread.options[1].seconds > thread.options[0].seconds
+
+
+def test_time_value_avoids_mailing_an_intermediate() -> None:
+    res = must_evaluate(maul_market(SMITHY, LEATHERY, time=timed(100)), MAUL_RECIPE)
+    assert res.tree.inputs[0].source == "ah"  # 200c of leather beats 60c and a switch to Leathery
+    assert res.cost == 2 * 100 + 10
+    assert "mail" not in [s.action for s in res.steps]
+
+
+def test_time_value_can_change_the_exit() -> None:
+    m = make_market(DE_PRICES, [ROBE], DE_ROWS, crafters=enchanters(), time=timed(100))
+    res = must_evaluate(m, ROBE)
+    assert res.best_exit == "vendor"  # disenchanting pays more but needs a mail and a switch to Zed
+    assert [o.kind for o in res.sell_options] == ["vendor", "disenchant"]
+
+
+def test_steps_and_nodes_carry_their_seconds() -> None:
+    cfg = timed(0).config
+    m = maul_market(SMITHY, LEATHERY, time=timed(0), recipes=(CURE, ANVIL_MAUL))
+    res = must_evaluate(m, ANVIL_MAUL)
+    seconds = {(s.action, s.item_id): s.seconds for s in res.steps}
+    assert seconds["buy", SCRAPS] == pytest.approx(cfg.ah_buy * 6 / 20)  # six scraps: 0.3 of a stack
+    assert seconds["craft", LEATHER] == pytest.approx(2 * cfg.craft_overhead)  # instant casts
+    mail = 0.1 * cfg.mail_attach + 0.1 / cfg.mail_attachments * (cfg.mail_send + cfg.mail_open)
+    assert seconds["mail", LEATHER] == pytest.approx(mail)
+    assert seconds["craft", MAUL] == pytest.approx(3.0 + cfg.craft_overhead)
+    assert seconds["sell", MAUL] == pytest.approx(cfg.vendor_sell)
+    assert [s.station for s in res.steps if s.action == "craft"] == ["", "anvil"]
+    assert res.tree.seconds > sum(seconds.values()) - seconds["sell", MAUL]  # plus shared trips, the switch
+
+
+def test_timing_is_exact_and_lazy() -> None:
+    cfg = timed(0).config
+    m = maul_market(SMITHY, LEATHERY, time=timed(0), recipes=(CURE, ANVIL_MAUL))
+    res = must_evaluate(m, ANVIL_MAUL)
+    assert "timing" not in vars(res)
+    t = res.timing
+    assert t is not None and res.timing is t
+    assert (t.city, t.batch) == ("Town", 10)
+    assert t.breakdown["switch"] == cfg.switch_character
+    by_who: dict[str, list[str]] = {}
+    for leg in t.legs:
+        by_who.setdefault(leg.who, []).append(leg.to_id)
+    assert by_who["Leathery"] == ["mailbox:1", "ah"]  # buy scraps at the AH, craft, mail, home
+    assert by_who["Smithy"] == ["mailbox:1", "anvil:1", "vendor:2", "ah"]  # collect, forge, sell, home
+    smithy = 5 + 5 + (70**2 + 21**2) ** 0.5 / 7 + 3
+    assert t.breakdown["travel"] == pytest.approx(10 + smithy)
+    # a search each for scraps and copper; per craft 0.3 of a stack of scraps and 0.05 of copper bars
+    assert t.breakdown["ah"] == pytest.approx(2 * cfg.ah_search + 10 * (0.3 + 0.05) * cfg.ah_buy)
+    assert res.rate == t.per_hour(res.profit)
+    assert t.total_seconds == pytest.approx(sum(t.breakdown.values()))
+
+
+def test_rank_does_not_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+    time_blocks = timing.time_blocks
+
+    def counted(*args: Any) -> Any:
+        calls.append(1)
+        return time_blocks(*args)
+
+    monkeypatch.setattr(timing, "time_blocks", counted)
+    ranked = maul_market(SMITHY, LEATHERY, time=timed(10)).rank()
+    assert ranked and calls == []
+    assert ranked[0].rate is not None
+    assert len(calls) == 1
+
+
+def test_rank_matches_fresh_evaluations_with_time() -> None:
+    m = make_market(BOLT_PRICES, BOLT_RECIPES, time=timed(50))
+    ranked = m.rank(min_profit=-(10**9))
+    fresh = sorted((must_evaluate(m, r) for r in m.recipes), key=lambda r: -r.profit)
+    assert [plan(r) for r in ranked] == [plan(r) for r in fresh]
+    assert [r.seconds for r in ranked] == [r.seconds for r in fresh]
+
+
+def test_no_time_model_means_no_timing() -> None:
+    res = must_evaluate(maul_market(SMITHY, LEATHERY), MAUL_RECIPE)
+    assert (res.seconds, res.timing, res.rate) == (0.0, None, None)
+    assert all(s.seconds == 0.0 for s in res.steps)

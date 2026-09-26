@@ -1,0 +1,496 @@
+{
+ "name": "Booty Bay",
+ "faction": "",
+ "map": 0,
+ "hub": "ah",
+ "locations": [
+  {
+   "id": "ah",
+   "kind": "ah",
+   "name": "Auctioneer Kresky",
+   "x": -14446.5,
+   "y": 448.41,
+   "z": 4.13
+  },
+  {
+   "id": "mailbox:10764",
+   "kind": "mailbox",
+   "name": "Mailbox",
+   "x": -14417.4,
+   "y": 517.03,
+   "z": 5.01
+  },
+  {
+   "id": "mailbox:10807",
+   "kind": "mailbox",
+   "name": "Mailbox",
+   "x": -14462.0,
+   "y": 480.03,
+   "z": 26.86
+  },
+  {
+   "id": "anvil:63",
+   "kind": "anvil",
+   "name": "Anvil",
+   "x": -14378.6,
+   "y": 364.39,
+   "z": 23.94
+  },
+  {
+   "id": "cooking_fire:429",
+   "kind": "cooking_fire",
+   "name": "Campfire",
+   "x": -14126.9,
+   "y": 467.53,
+   "z": 1.85
+  },
+  {
+   "id": "forge:10118",
+   "kind": "forge",
+   "name": "Forge",
+   "x": -14378.8,
+   "y": 379.26,
+   "z": 23.31
+  },
+  {
+   "id": "cooking_fire:10760",
+   "kind": "cooking_fire",
+   "name": "Stove",
+   "x": -14446.8,
+   "y": 446.23,
+   "z": 8.96
+  },
+  {
+   "id": "cooking_fire:10765",
+   "kind": "cooking_fire",
+   "name": "Stove",
+   "x": -14448.7,
+   "y": 444.7,
+   "z": 3.92
+  },
+  {
+   "id": "cooking_fire:10766",
+   "kind": "cooking_fire",
+   "name": "Stove",
+   "x": -14435.2,
+   "y": 434.39,
+   "z": 15.33
+  },
+  {
+   "id": "cooking_fire:10767",
+   "kind": "cooking_fire",
+   "name": "Stove",
+   "x": -14455.2,
+   "y": 442.53,
+   "z": 15.38
+  },
+  {
+   "id": "cooking_fire:10769",
+   "kind": "cooking_fire",
+   "name": "Stove",
+   "x": -14456.8,
+   "y": 444.28,
+   "z": 20.23
+  },
+  {
+   "id": "cooking_fire:10789",
+   "kind": "cooking_fire",
+   "name": "Stove",
+   "x": -14419.3,
+   "y": 415.4,
+   "z": 22.63
+  },
+  {
+   "id": "cooking_fire:10792",
+   "kind": "cooking_fire",
+   "name": "Stove",
+   "x": -14430.3,
+   "y": 425.98,
+   "z": 3.97
+  },
+  {
+   "id": "cooking_fire:10813",
+   "kind": "cooking_fire",
+   "name": "Stove",
+   "x": -14398.5,
+   "y": 404.67,
+   "z": 22.82
+  },
+  {
+   "id": "cooking_fire:10821",
+   "kind": "cooking_fire",
+   "name": "Stove",
+   "x": -14461.7,
+   "y": 504.14,
+   "z": 26.1
+  },
+  {
+   "id": "cooking_fire:10991",
+   "kind": "cooking_fire",
+   "name": "Stove",
+   "x": -14450.9,
+   "y": 496.6,
+   "z": 14.91
+  },
+  {
+   "id": "forge:11000",
+   "kind": "forge",
+   "name": "Forge",
+   "x": -14380.5,
+   "y": 371.75,
+   "z": 23.95
+  },
+  {
+   "id": "anvil:11001",
+   "kind": "anvil",
+   "name": "Anvil",
+   "x": -14381.7,
+   "y": 374.04,
+   "z": 23.91
+  },
+  {
+   "id": "vendor:2843",
+   "kind": "vendor",
+   "name": "Jutak",
+   "x": -14467.8,
+   "y": 468.37,
+   "z": 15.11
+  },
+  {
+   "id": "vendor:2838",
+   "kind": "vendor",
+   "name": "Crazk Sparks",
+   "x": -14430.2,
+   "y": 410.96,
+   "z": 15.36
+  },
+  {
+   "id": "vendor:2839",
+   "kind": "vendor",
+   "name": "Haren Kanmae",
+   "x": -14340.6,
+   "y": 414.6,
+   "z": 6.71
+  },
+  {
+   "id": "vendor:2626",
+   "kind": "vendor",
+   "name": "Old Man Heming",
+   "x": -14451.3,
+   "y": 471.16,
+   "z": 4.28
+  },
+  {
+   "id": "vendor:2482",
+   "kind": "vendor",
+   "name": "Zarena Cromwind",
+   "x": -14379.1,
+   "y": 412.67,
+   "z": 6.82
+  },
+  {
+   "id": "vendor:2832",
+   "kind": "vendor",
+   "name": "Nixxrax Fillamug",
+   "x": -14451.7,
+   "y": 495.42,
+   "z": 15.19
+  },
+  {
+   "id": "vendor:2622",
+   "kind": "vendor",
+   "name": "Sly Garrett",
+   "x": -14437.3,
+   "y": 408.21,
+   "z": 15.11
+  },
+  {
+   "id": "vendor:2844",
+   "kind": "vendor",
+   "name": "Hurklor",
+   "x": -14361.9,
+   "y": 372.23,
+   "z": 24.45
+  },
+  {
+   "id": "vendor:2663",
+   "kind": "vendor",
+   "name": "Narkk",
+   "x": -14334.8,
+   "y": 425.68,
+   "z": 6.71
+  },
+  {
+   "id": "vendor:6807",
+   "kind": "vendor",
+   "name": "Innkeeper Skindle",
+   "x": -14457.7,
+   "y": 495.35,
+   "z": 15.21
+  },
+  {
+   "id": "vendor:2842",
+   "kind": "vendor",
+   "name": "Wigcik",
+   "x": -14444.0,
+   "y": 433.76,
+   "z": 4.27
+  },
+  {
+   "id": "vendor:2845",
+   "kind": "vendor",
+   "name": "Fargon Mortalak",
+   "x": -14359.1,
+   "y": 367.47,
+   "z": 24.46
+  },
+  {
+   "id": "vendor:2685",
+   "kind": "vendor",
+   "name": "Mazk Snipeshot",
+   "x": -14364.5,
+   "y": 402.07,
+   "z": 6.71
+  },
+  {
+   "id": "vendor:2847",
+   "kind": "vendor",
+   "name": "Jansen Underwood",
+   "x": -14380.0,
+   "y": 365.55,
+   "z": 24.04
+  },
+  {
+   "id": "vendor:2840",
+   "kind": "vendor",
+   "name": "Kizz Bluntstrike",
+   "x": -14368.6,
+   "y": 416.77,
+   "z": 6.71
+  },
+  {
+   "id": "vendor:2664",
+   "kind": "vendor",
+   "name": "Kelsey Yance",
+   "x": -14331.2,
+   "y": 419.3,
+   "z": 6.71
+  },
+  {
+   "id": "vendor:2699",
+   "kind": "vendor",
+   "name": "Rikqiz",
+   "x": -14404.0,
+   "y": 402.9,
+   "z": 23.14
+  },
+  {
+   "id": "vendor:8116",
+   "kind": "vendor",
+   "name": "Ziggle Sparks",
+   "x": -14472.9,
+   "y": 458.62,
+   "z": 37.14
+  }
+ ],
+ "vendors": {
+  "vendor:2843": [
+   2520,
+   2521,
+   2526,
+   2528,
+   2529,
+   2534
+  ],
+  "vendor:2838": [
+   5740
+  ],
+  "vendor:2839": [
+   2512,
+   2515,
+   3026,
+   3027,
+   3030,
+   5439,
+   11285,
+   11362
+  ],
+  "vendor:2626": [
+   6256,
+   6529,
+   6530,
+   6532,
+   16083
+  ],
+  "vendor:2482": [
+   2520,
+   2521,
+   2522,
+   2523,
+   2524,
+   2525,
+   2526,
+   2527
+  ],
+  "vendor:2832": [
+   159,
+   1179,
+   1205,
+   1645,
+   1708,
+   2593,
+   2594,
+   2595,
+   2596,
+   2723,
+   4540,
+   4541,
+   4542,
+   4544,
+   4595,
+   4600,
+   4601,
+   8766,
+   8950
+  ],
+  "vendor:2622": [
+   2928,
+   2930,
+   3371,
+   3372,
+   3777,
+   5060,
+   5140,
+   5173,
+   8923,
+   8924,
+   8925
+  ],
+  "vendor:2844": [
+   2880,
+   2901,
+   3466,
+   3857,
+   5956,
+   18567
+  ],
+  "vendor:2663": [
+   8495,
+   8496
+  ],
+  "vendor:6807": [
+   159,
+   787,
+   1179,
+   1205,
+   1645,
+   1708,
+   4592,
+   4593,
+   4594,
+   8766,
+   8957,
+   21552
+  ],
+  "vendor:2842": [
+   787,
+   4592,
+   4593,
+   4594,
+   8957,
+   21552
+  ],
+  "vendor:2845": [
+   2417,
+   2418,
+   2419,
+   2420,
+   2421,
+   2422,
+   2448,
+   3891,
+   17189
+  ],
+  "vendor:2685": [
+   2880,
+   2901,
+   3466,
+   4399,
+   4400,
+   5956,
+   10647,
+   10648
+  ],
+  "vendor:2847": [
+   2880,
+   2901,
+   3466,
+   3857,
+   5956,
+   18567
+  ],
+  "vendor:2840": [
+   852,
+   1197
+  ],
+  "vendor:2664": [
+   159,
+   2678,
+   2692,
+   3713,
+   6039,
+   6369,
+   13940,
+   13941,
+   13943,
+   17062,
+   21099,
+   21219
+  ],
+  "vendor:2699": [
+   2320,
+   2321,
+   2325,
+   2604,
+   2605,
+   4289,
+   4291,
+   4340,
+   4341,
+   4342,
+   6260,
+   6261,
+   7005,
+   8343,
+   10290,
+   14341
+  ],
+  "vendor:8116": [
+   5740,
+   8624,
+   8625,
+   8626,
+   9312,
+   9313,
+   9314,
+   9315,
+   9317,
+   9318
+  ]
+ },
+ "generated": {
+  "source": "vmangos db-sqlite-13b49dc",
+  "tele": "BootyBay",
+  "radius": 200,
+  "counts": {
+   "auctioneers": 3,
+   "mailboxes": 2,
+   "anvil": 2,
+   "cooking_fire": 11,
+   "forge": 2,
+   "vendors": 18,
+   "items": 120
+  }
+ },
+ "overrides": {}
+}

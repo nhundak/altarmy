@@ -7,17 +7,18 @@ the game has rewritten it (on logout or /reload).
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Hashable, Iterable, Sequence
+from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import Connection
 
-from . import altarmy, auctionator, db, ingest, merge, prices, store, talents, users
+from . import altarmy, auctionator, db, ingest, merge, prices, store, talents, timing, users
 from .altarmy import Character
 from .engine import (
     AH_CUT,
@@ -29,6 +30,7 @@ from .engine import (
     Market,
     Recipe,
     Result,
+    TimeModel,
     recipes_for_characters,
 )
 from .versions import GameVersion
@@ -145,15 +147,18 @@ def search(
     exits: frozenset[str] = ALL_EXITS,
     no_ah: frozenset[int] = frozenset(),
     include_trivial: bool = True,
+    time: TimeModel | None = None,
 ) -> list[Result]:
     """Rank what the characters can craft, selling only via `exits` (never items in `no_ah` on the AH),
-    and keep what `filters` accepts. Chains sub-craft through any of their recipes too.
+    and keep what `filters` accepts. Chains sub-craft through any of their recipes too. Most profitable
+    first (see `by_rate` for profit per hour).
 
     `include_unlearned` widens that to every recipe of the characters' professions. Disenchanting needs
     an enchanter among them, plus postage unless one of the recipe's crafters enchants. Without
-    `include_trivial` the final craft is only done by a character it can give a skillup.
+    `include_trivial` the final craft is only done by a character it can give a skillup. With a `time`
+    model the results are timed, and its time value weighs play time in every plan.
     """
-    market = _market(base, chars, include_unlearned, exits, no_ah, include_trivial)
+    market = _market(base, chars, include_unlearned, exits, no_ah, include_trivial, time)
     min_profit = filters.min_profit if filters.min_profit is not None else -(10**18)
     return [r for r in market.rank(min_profit=min_profit) if filters.accepts(r)]
 
@@ -167,10 +172,11 @@ def evaluate(
     choices: Choices,
     no_ah: frozenset[int] = frozenset(),
     include_trivial: bool = True,
+    time: TimeModel | None = None,
 ) -> Result | None:
     """One recipe as `search` would rank it, but with the user's `choices` of sources and exit; None if
     the characters can't make or sell it."""
-    market = _market(base, chars, include_unlearned, exits, no_ah, include_trivial)
+    market = _market(base, chars, include_unlearned, exits, no_ah, include_trivial, time)
     recipe = next((r for r in market.recipes if r.id == recipe_id), None)
     return None if recipe is None else market.evaluate(recipe, choices)
 
@@ -182,6 +188,7 @@ def _market(
     exits: frozenset[str],
     no_ah: frozenset[int],
     include_trivial: bool,
+    time: TimeModel | None = None,
 ) -> Market:
     """`base` narrowed to what the characters can craft (see `search`), with them as the crafters. Without
     characters every recipe counts, crafted by one unnamed character (so nothing is mailed)."""
@@ -214,6 +221,72 @@ def _market(
         include_trivial=include_trivial,
         mail_postage=base.mail_postage,
         sell_prices=base.sell_prices,
+        time=time,
+    )
+
+
+def by_rate(results: Iterable[Result]) -> list[Result]:
+    """`results` by profit per hour, best first (untimed ones last; ties keep their order). Times every
+    result, once: they cache their timing."""
+    return sorted(results, key=lambda r: -(r.rate if r.rate is not None else -(10**18)))
+
+
+# --- profit per hour -------------------------------------------------------------------------------
+DEFAULT_CITIES = ("Orgrimmar", "Stormwind")  # where a faction's plans are timed unless the user picks
+
+
+def faction_cities(cities: Mapping[str, timing.CityMap], faction: str) -> list[timing.CityMap]:
+    """The cities a character of `faction` crafts in: their faction's, then the neutral towns, each by
+    name; every city for faction "" (an auction house both factions share)."""
+    if not faction:
+        return sorted(cities.values(), key=lambda c: c.name)
+    own = sorted((c for c in cities.values() if c.faction == faction), key=lambda c: c.name)
+    return own + sorted((c for c in cities.values() if not c.faction), key=lambda c: c.name)
+
+
+def default_city(cities: Mapping[str, timing.CityMap], faction: str) -> timing.CityMap:
+    """The faction's capital, else its first city, else `timing.ANYWHERE` (no presets)."""
+    allowed = faction_cities(cities, faction)
+    preferred = [c for c in allowed if c.name in DEFAULT_CITIES and (c.faction == faction or not faction)]
+    return (preferred or allowed or [timing.ANYWHERE])[0]
+
+
+def time_model(
+    conn: Connection,
+    user_uid: str,
+    game_version: str,
+    cities: Mapping[str, timing.CityMap],
+    faction: str,
+) -> TimeModel:
+    """The user's time settings: their saved city if a `faction` character crafts there, else the
+    faction's default, and their config overrides."""
+    saved = users.get_settings(conn, user_uid, game_version)
+    config = timing.config_from_json(saved.time_config)
+    allowed = {c.name for c in faction_cities(cities, faction)}
+    if saved.time_city in allowed:
+        return TimeModel(config, cities[saved.time_city])
+    return TimeModel(config, default_city(cities, faction))
+
+
+def set_time(
+    conn: Connection,
+    user_uid: str,
+    game_version: str,
+    cities: Mapping[str, timing.CityMap],
+    city: str | None,
+    config: Mapping[str, object],
+) -> None:
+    """Save the user's city (None: the faction's default) and config overrides (replacing the old ones);
+    ValueError for an unknown city or a bad setting."""
+    if city is not None and city not in cities:
+        raise ValueError(f"No city preset named {city}.")
+    changes = timing.config_changes(timing.config_from_dict(config))
+    users.update_settings(
+        conn,
+        user_uid,
+        game_version,
+        time_city=city,
+        time_config=json.dumps(changes) if changes else None,
     )
 
 

@@ -28,6 +28,11 @@ export type Me = components['schemas']['Me']
 export type UploadResult = components['schemas']['UploadResult']
 /** A character typed in by hand. */
 export type ManualCharacter = components['schemas']['ManualCharacter']
+/** The user's time settings: the cities they can craft in, the one plans are timed in, seconds per action. */
+export type TimeSettings = components['schemas']['TimeSettings']
+export type TimeConfig = components['schemas']['TimeConfigModel']
+/** How long a batch of a recipe takes in a city, and what it makes per hour. */
+export type Timing = components['schemas']['TimingOut']
 
 export const client = createClient<paths>({
   baseUrl: globalThis.location?.origin ?? '',

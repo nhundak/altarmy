@@ -12,6 +12,8 @@ RUN pip install ".[ui,postgres,hosted]"
 # Hand-maintained game data the ingest job reads (versions.DATA_DIR is relative to the working directory).
 COPY data/forever/*.csv data/forever/
 COPY data/tbc/*.csv data/tbc/
+# City presets the API times plans in (scripts/build_cities.py); TBC has none yet.
+COPY data/forever/cities data/forever/cities
 
 RUN useradd --system --uid 10001 app
 USER app

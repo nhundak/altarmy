@@ -1,0 +1,2080 @@
+{
+ "name": "Ironforge",
+ "faction": "Alliance",
+ "map": 0,
+ "hub": "ah",
+ "locations": [
+  {
+   "id": "ah",
+   "kind": "ah",
+   "name": "Auctioneer Redmuse",
+   "x": -4963.19,
+   "y": -904.62,
+   "z": 505.17
+  },
+  {
+   "id": "mailbox:516",
+   "kind": "mailbox",
+   "name": "Mailbox",
+   "x": -4949.82,
+   "y": -1277.37,
+   "z": 501.58
+  },
+  {
+   "id": "mailbox:866",
+   "kind": "mailbox",
+   "name": "Mailbox",
+   "x": -4910.38,
+   "y": -976.21,
+   "z": 501.41
+  },
+  {
+   "id": "mailbox:1564",
+   "kind": "mailbox",
+   "name": "Mailbox",
+   "x": -4845.78,
+   "y": -879.3,
+   "z": 501.61
+  },
+  {
+   "id": "cooking_fire:19",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4931.68,
+   "y": -1279.03,
+   "z": 501.68
+  },
+  {
+   "id": "cooking_fire:45",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4866.55,
+   "y": -1238.4,
+   "z": 501.73
+  },
+  {
+   "id": "cooking_fire:92",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4857.79,
+   "y": -1232.98,
+   "z": 501.73
+  },
+  {
+   "id": "forge:95",
+   "kind": "forge",
+   "name": "Forge",
+   "x": -4816.34,
+   "y": -1250.14,
+   "z": 501.9
+  },
+  {
+   "id": "cooking_fire:110",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4796.79,
+   "y": -1240.82,
+   "z": 502.0
+  },
+  {
+   "id": "cooking_fire:112",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4790.85,
+   "y": -1249.23,
+   "z": 502.0
+  },
+  {
+   "id": "cooking_fire:114",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4911.82,
+   "y": -1227.7,
+   "z": 501.61
+  },
+  {
+   "id": "cooking_fire:481",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4821.71,
+   "y": -1177.98,
+   "z": 502.19
+  },
+  {
+   "id": "cooking_fire:503",
+   "kind": "cooking_fire",
+   "name": "Hot Coals",
+   "x": -4970.59,
+   "y": -1209.67,
+   "z": 501.78
+  },
+  {
+   "id": "cooking_fire:512",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4960.58,
+   "y": -1274.09,
+   "z": 501.64
+  },
+  {
+   "id": "cooking_fire:596",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -5023.6,
+   "y": -1206.5,
+   "z": 501.61
+  },
+  {
+   "id": "cooking_fire:603",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -5023.4,
+   "y": -1261.69,
+   "z": 505.3
+  },
+  {
+   "id": "cooking_fire:611",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -5031.0,
+   "y": -1252.47,
+   "z": 505.3
+  },
+  {
+   "id": "cooking_fire:640",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4973.9,
+   "y": -1159.04,
+   "z": 501.61
+  },
+  {
+   "id": "cooking_fire:658",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -5022.02,
+   "y": -1116.98,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:664",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4989.99,
+   "y": -1080.22,
+   "z": 497.99
+  },
+  {
+   "id": "cooking_fire:666",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -5025.33,
+   "y": -1083.12,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:670",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4988.84,
+   "y": -1108.41,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:717",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -5035.62,
+   "y": -1158.8,
+   "z": 501.62
+  },
+  {
+   "id": "cooking_fire:749",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -5011.37,
+   "y": -1054.44,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:762",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4950.79,
+   "y": -1025.79,
+   "z": 501.44
+  },
+  {
+   "id": "cooking_fire:786",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4982.64,
+   "y": -1041.34,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:790",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -5019.07,
+   "y": -1018.72,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:794",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4972.38,
+   "y": -1013.9,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:800",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4941.68,
+   "y": -1016.17,
+   "z": 501.44
+  },
+  {
+   "id": "cooking_fire:805",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4989.85,
+   "y": -1056.28,
+   "z": 497.99
+  },
+  {
+   "id": "cooking_fire:827",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4980.89,
+   "y": -948.22,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:829",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4934.4,
+   "y": -994.14,
+   "z": 501.44
+  },
+  {
+   "id": "cooking_fire:835",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4996.75,
+   "y": -971.41,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:848",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4896.83,
+   "y": -1012.27,
+   "z": 504.02
+  },
+  {
+   "id": "cooking_fire:856",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4904.64,
+   "y": -1000.83,
+   "z": 504.02
+  },
+  {
+   "id": "cooking_fire:862",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4899.76,
+   "y": -968.25,
+   "z": 501.44
+  },
+  {
+   "id": "cooking_fire:867",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4912.94,
+   "y": -979.08,
+   "z": 501.44
+  },
+  {
+   "id": "cooking_fire:920",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4967.09,
+   "y": -922.35,
+   "z": 504.31
+  },
+  {
+   "id": "cooking_fire:921",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4953.63,
+   "y": -928.33,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:922",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4972.13,
+   "y": -916.24,
+   "z": 504.31
+  },
+  {
+   "id": "cooking_fire:924",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4948.9,
+   "y": -897.09,
+   "z": 504.31
+  },
+  {
+   "id": "cooking_fire:925",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4943.86,
+   "y": -903.2,
+   "z": 504.31
+  },
+  {
+   "id": "cooking_fire:926",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4967.48,
+   "y": -906.24,
+   "z": 504.31
+  },
+  {
+   "id": "cooking_fire:948",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4941.36,
+   "y": -918.3,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:949",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4960.7,
+   "y": -900.84,
+   "z": 504.31
+  },
+  {
+   "id": "cooking_fire:969",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4916.48,
+   "y": -895.25,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:991",
+   "kind": "cooking_fire",
+   "name": "Brazier",
+   "x": -5083.85,
+   "y": -780.97,
+   "z": 494.59
+  },
+  {
+   "id": "cooking_fire:1483",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4891.32,
+   "y": -883.55,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:1486",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4881.91,
+   "y": -955.41,
+   "z": 501.44
+  },
+  {
+   "id": "cooking_fire:1566",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4857.2,
+   "y": -879.59,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:1572",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4826.51,
+   "y": -876.09,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:1596",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4858.64,
+   "y": -916.32,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:1664",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4879.56,
+   "y": -980.15,
+   "z": 504.02
+  },
+  {
+   "id": "cooking_fire:1675",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4848.26,
+   "y": -937.49,
+   "z": 501.44
+  },
+  {
+   "id": "cooking_fire:1680",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4857.61,
+   "y": -947.22,
+   "z": 501.44
+  },
+  {
+   "id": "cooking_fire:1683",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4856.98,
+   "y": -997.96,
+   "z": 453.7
+  },
+  {
+   "id": "cooking_fire:1685",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4820.14,
+   "y": -964.21,
+   "z": 464.64
+  },
+  {
+   "id": "cooking_fire:1689",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4820.3,
+   "y": -986.57,
+   "z": 464.64
+  },
+  {
+   "id": "cooking_fire:1701",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4809.23,
+   "y": -977.44,
+   "z": 464.64
+  },
+  {
+   "id": "cooking_fire:1707",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4831.21,
+   "y": -973.33,
+   "z": 464.64
+  },
+  {
+   "id": "cooking_fire:1709",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4870.01,
+   "y": -990.16,
+   "z": 504.02
+  },
+  {
+   "id": "cooking_fire:1775",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4808.22,
+   "y": -870.31,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:1780",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4808.47,
+   "y": -911.88,
+   "z": 497.9
+  },
+  {
+   "id": "cooking_fire:1789",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4830.09,
+   "y": -909.81,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:1826",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4784.52,
+   "y": -913.6,
+   "z": 497.9
+  },
+  {
+   "id": "cooking_fire:1848",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4733.11,
+   "y": -941.82,
+   "z": 501.62
+  },
+  {
+   "id": "cooking_fire:1869",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4756.94,
+   "y": -917.03,
+   "z": 501.66
+  },
+  {
+   "id": "cooking_fire:1906",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4764.52,
+   "y": -880.7,
+   "z": 501.61
+  },
+  {
+   "id": "cooking_fire:1948",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4743.02,
+   "y": -885.34,
+   "z": 501.61
+  },
+  {
+   "id": "cooking_fire:1964",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4781.68,
+   "y": -874.99,
+   "z": 501.67
+  },
+  {
+   "id": "cooking_fire:4142",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4695.73,
+   "y": -874.0,
+   "z": 501.62
+  },
+  {
+   "id": "cooking_fire:4593",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4707.69,
+   "y": -898.56,
+   "z": 501.63
+  },
+  {
+   "id": "cooking_fire:4684",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4635.54,
+   "y": -1037.33,
+   "z": 501.06
+  },
+  {
+   "id": "cooking_fire:4691",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4613.51,
+   "y": -1010.71,
+   "z": 501.6
+  },
+  {
+   "id": "cooking_fire:4704",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4624.28,
+   "y": -934.23,
+   "z": 502.77
+  },
+  {
+   "id": "cooking_fire:4708",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4629.37,
+   "y": -1017.04,
+   "z": 501.61
+  },
+  {
+   "id": "cooking_fire:4710",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4643.84,
+   "y": -1021.33,
+   "z": 501.61
+  },
+  {
+   "id": "cooking_fire:4730",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4629.37,
+   "y": -938.42,
+   "z": 524.7
+  },
+  {
+   "id": "cooking_fire:4738",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4594.39,
+   "y": -1003.96,
+   "z": 501.6
+  },
+  {
+   "id": "cooking_fire:4744",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4602.6,
+   "y": -973.61,
+   "z": 501.6
+  },
+  {
+   "id": "cooking_fire:4776",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4601.62,
+   "y": -889.11,
+   "z": 524.7
+  },
+  {
+   "id": "cooking_fire:4789",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4616.11,
+   "y": -927.56,
+   "z": 501.06
+  },
+  {
+   "id": "cooking_fire:4792",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4612.75,
+   "y": -905.67,
+   "z": 501.06
+  },
+  {
+   "id": "cooking_fire:4795",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4597.79,
+   "y": -891.95,
+   "z": 502.77
+  },
+  {
+   "id": "cooking_fire:4808",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4634.05,
+   "y": -922.37,
+   "z": 502.77
+  },
+  {
+   "id": "cooking_fire:4817",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4604.54,
+   "y": -931.25,
+   "z": 524.72
+  },
+  {
+   "id": "cooking_fire:4820",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4604.32,
+   "y": -915.89,
+   "z": 501.06
+  },
+  {
+   "id": "cooking_fire:4823",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4626.1,
+   "y": -915.43,
+   "z": 501.06
+  },
+  {
+   "id": "cooking_fire:4828",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4627.39,
+   "y": -903.52,
+   "z": 524.7
+  },
+  {
+   "id": "cooking_fire:4834",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4588.64,
+   "y": -903.06,
+   "z": 502.77
+  },
+  {
+   "id": "cooking_fire:4837",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4584.53,
+   "y": -924.94,
+   "z": 502.78
+  },
+  {
+   "id": "cooking_fire:4839",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4639.14,
+   "y": -926.57,
+   "z": 524.7
+  },
+  {
+   "id": "cooking_fire:4847",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4615.65,
+   "y": -1087.31,
+   "z": 501.34
+  },
+  {
+   "id": "cooking_fire:4858",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4634.48,
+   "y": -1113.25,
+   "z": 501.33
+  },
+  {
+   "id": "cooking_fire:4922",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4623.18,
+   "y": -1055.84,
+   "z": 500.89
+  },
+  {
+   "id": "cooking_fire:4995",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4723.92,
+   "y": -1093.02,
+   "z": 502.19
+  },
+  {
+   "id": "cooking_fire:5003",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4628.21,
+   "y": -1134.49,
+   "z": 501.33
+  },
+  {
+   "id": "cooking_fire:5016",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4729.94,
+   "y": -1123.25,
+   "z": 502.19
+  },
+  {
+   "id": "cooking_fire:5054",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4737.56,
+   "y": -1152.55,
+   "z": 502.19
+  },
+  {
+   "id": "cooking_fire:5058",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4732.15,
+   "y": -1066.07,
+   "z": 502.19
+  },
+  {
+   "id": "cooking_fire:5231",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4770.98,
+   "y": -1171.26,
+   "z": 502.19
+  },
+  {
+   "id": "cooking_fire:5243",
+   "kind": "cooking_fire",
+   "name": "Potbelly Stove",
+   "x": -4773.95,
+   "y": -1190.97,
+   "z": 509.43
+  },
+  {
+   "id": "forge:5258",
+   "kind": "forge",
+   "name": "Forge",
+   "x": -4762.97,
+   "y": -1117.11,
+   "z": 499.33
+  },
+  {
+   "id": "cooking_fire:5319",
+   "kind": "cooking_fire",
+   "name": "Potbelly Stove",
+   "x": -4772.97,
+   "y": -1193.28,
+   "z": 509.43
+  },
+  {
+   "id": "cooking_fire:5426",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4802.87,
+   "y": -1175.06,
+   "z": 502.19
+  },
+  {
+   "id": "cooking_fire:5428",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4846.84,
+   "y": -1159.43,
+   "z": 502.19
+  },
+  {
+   "id": "forge:5430",
+   "kind": "forge",
+   "name": "Forge",
+   "x": -4807.86,
+   "y": -1130.18,
+   "z": 499.5
+  },
+  {
+   "id": "anvil:5453",
+   "kind": "anvil",
+   "name": "Anvil",
+   "x": -4789.21,
+   "y": -1128.66,
+   "z": 498.88
+  },
+  {
+   "id": "anvil:5459",
+   "kind": "anvil",
+   "name": "Anvil",
+   "x": -4792.54,
+   "y": -1127.9,
+   "z": 498.88
+  },
+  {
+   "id": "cooking_fire:6063",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -5058.56,
+   "y": -1250.43,
+   "z": 507.71
+  },
+  {
+   "id": "cooking_fire:6790",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4870.76,
+   "y": -1135.6,
+   "z": 502.19
+  },
+  {
+   "id": "cooking_fire:6831",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4882.58,
+   "y": -1091.71,
+   "z": 502.19
+  },
+  {
+   "id": "cooking_fire:6836",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4833.91,
+   "y": -1070.91,
+   "z": 502.19
+  },
+  {
+   "id": "cooking_fire:6860",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4883.28,
+   "y": -1055.7,
+   "z": 502.15
+  },
+  {
+   "id": "cooking_fire:6862",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4883.13,
+   "y": -1063.89,
+   "z": 502.22
+  },
+  {
+   "id": "anvil:6866",
+   "kind": "anvil",
+   "name": "The Great Anvil",
+   "x": -4799.36,
+   "y": -1107.18,
+   "z": 498.82
+  },
+  {
+   "id": "cooking_fire:6872",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4823.44,
+   "y": -1062.69,
+   "z": 502.19
+  },
+  {
+   "id": "cooking_fire:6877",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4747.62,
+   "y": -1048.82,
+   "z": 502.19
+  },
+  {
+   "id": "cooking_fire:6893",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4830.92,
+   "y": -1011.86,
+   "z": 502.1
+  },
+  {
+   "id": "cooking_fire:6902",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4824.23,
+   "y": -1013.84,
+   "z": 502.17
+  },
+  {
+   "id": "cooking_fire:6906",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4806.63,
+   "y": -1019.93,
+   "z": 502.19
+  },
+  {
+   "id": "cooking_fire:6963",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4811.94,
+   "y": -1030.88,
+   "z": 438.6
+  },
+  {
+   "id": "cooking_fire:6978",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4849.57,
+   "y": -1006.95,
+   "z": 453.7
+  },
+  {
+   "id": "cooking_fire:6999",
+   "kind": "cooking_fire",
+   "name": "Dwarven Brazier",
+   "x": -4585.49,
+   "y": -908.46,
+   "z": 524.72
+  },
+  {
+   "id": "vendor:5123",
+   "kind": "vendor",
+   "name": "Bretta Goldfury",
+   "x": -4913.43,
+   "y": -1284.47,
+   "z": 505.38
+  },
+  {
+   "id": "vendor:5178",
+   "kind": "vendor",
+   "name": "Soolie Berryfizz",
+   "x": -4856.88,
+   "y": -1237.26,
+   "z": 501.81
+  },
+  {
+   "id": "vendor:5122",
+   "kind": "vendor",
+   "name": "Skolmin Goldfury",
+   "x": -4921.13,
+   "y": -1280.97,
+   "z": 512.04
+  },
+  {
+   "id": "vendor:5175",
+   "kind": "vendor",
+   "name": "Gearcutter Cogspinner",
+   "x": -4793.47,
+   "y": -1249.97,
+   "z": 502.09
+  },
+  {
+   "id": "vendor:5158",
+   "kind": "vendor",
+   "name": "Tilli Thistlefuzz",
+   "x": -4801.37,
+   "y": -1196.13,
+   "z": 505.9
+  },
+  {
+   "id": "vendor:5124",
+   "kind": "vendor",
+   "name": "Sognar Cliffbeard",
+   "x": -4984.79,
+   "y": -1169.45,
+   "z": 501.66
+  },
+  {
+   "id": "vendor:5140",
+   "kind": "vendor",
+   "name": "Edris Barleybeard",
+   "x": -4969.12,
+   "y": -1284.82,
+   "z": 510.39
+  },
+  {
+   "id": "vendor:7976",
+   "kind": "vendor",
+   "name": "Thalgus Thunderfist",
+   "x": -5041.1,
+   "y": -1200.23,
+   "z": 502.32
+  },
+  {
+   "id": "vendor:5121",
+   "kind": "vendor",
+   "name": "Kelomir Ironhand",
+   "x": -5037.28,
+   "y": -1208.09,
+   "z": 508.99
+  },
+  {
+   "id": "vendor:5119",
+   "kind": "vendor",
+   "name": "Hegnar Swiftaxe",
+   "x": -5034.4,
+   "y": -1205.31,
+   "z": 502.32
+  },
+  {
+   "id": "vendor:5120",
+   "kind": "vendor",
+   "name": "Brenwyn Wintersteel",
+   "x": -5037.14,
+   "y": -1206.7,
+   "z": 502.32
+  },
+  {
+   "id": "vendor:5126",
+   "kind": "vendor",
+   "name": "Olthran Craghelm",
+   "x": -5030.41,
+   "y": -1147.3,
+   "z": 512.06
+  },
+  {
+   "id": "vendor:5125",
+   "kind": "vendor",
+   "name": "Dolkin Craghelm",
+   "x": -5032.96,
+   "y": -1139.38,
+   "z": 505.4
+  },
+  {
+   "id": "vendor:5129",
+   "kind": "vendor",
+   "name": "Lissyphus Finespindle",
+   "x": -5033.39,
+   "y": -1146.08,
+   "z": 505.4
+  },
+  {
+   "id": "vendor:5138",
+   "kind": "vendor",
+   "name": "Gwina Stonebranch",
+   "x": -4883.2,
+   "y": -1149.06,
+   "z": 505.85
+  },
+  {
+   "id": "vendor:5100",
+   "kind": "vendor",
+   "name": "Fillius Fizzlespinner",
+   "x": -4958.07,
+   "y": -1015.15,
+   "z": 503.95
+  },
+  {
+   "id": "vendor:5101",
+   "kind": "vendor",
+   "name": "Bryllia Ironbrand",
+   "x": -4962.1,
+   "y": -1023.77,
+   "z": 503.95
+  },
+  {
+   "id": "vendor:5132",
+   "kind": "vendor",
+   "name": "Pithwick",
+   "x": -4963.59,
+   "y": -1014.19,
+   "z": 503.95
+  },
+  {
+   "id": "vendor:5049",
+   "kind": "vendor",
+   "name": "Lyesa Steelbrow",
+   "x": -5020.17,
+   "y": -1000.65,
+   "z": 503.96
+  },
+  {
+   "id": "vendor:5102",
+   "kind": "vendor",
+   "name": "Dolman Steelfury",
+   "x": -4916.0,
+   "y": -996.63,
+   "z": 502.08
+  },
+  {
+   "id": "vendor:5103",
+   "kind": "vendor",
+   "name": "Grenil Steelfury",
+   "x": -4914.14,
+   "y": -998.02,
+   "z": 502.08
+  },
+  {
+   "id": "vendor:5109",
+   "kind": "vendor",
+   "name": "Myra Tyrngaarde",
+   "x": -4925.12,
+   "y": -947.7,
+   "z": 501.65
+  },
+  {
+   "id": "vendor:5111",
+   "kind": "vendor",
+   "name": "Innkeeper Firebrew",
+   "x": -4840.67,
+   "y": -857.09,
+   "z": 502.0
+  },
+  {
+   "id": "vendor:5110",
+   "kind": "vendor",
+   "name": "Barim Jurgenstaad",
+   "x": -4865.23,
+   "y": -865.33,
+   "z": 502.27
+  },
+  {
+   "id": "vendor:5112",
+   "kind": "vendor",
+   "name": "Gwenna Firebrew",
+   "x": -4842.34,
+   "y": -860.93,
+   "z": 502.0
+  },
+  {
+   "id": "vendor:5107",
+   "kind": "vendor",
+   "name": "Mangorn Flinthammer",
+   "x": -4874.87,
+   "y": -966.2,
+   "z": 505.16
+  },
+  {
+   "id": "vendor:5106",
+   "kind": "vendor",
+   "name": "Bromiir Ormsen",
+   "x": -4876.68,
+   "y": -964.37,
+   "z": 511.82
+  },
+  {
+   "id": "vendor:5108",
+   "kind": "vendor",
+   "name": "Raena Flinthammer",
+   "x": -4872.03,
+   "y": -971.53,
+   "z": 505.16
+  },
+  {
+   "id": "vendor:5151",
+   "kind": "vendor",
+   "name": "Ginny Longberry",
+   "x": -4715.88,
+   "y": -961.25,
+   "z": 505.37
+  },
+  {
+   "id": "vendor:5133",
+   "kind": "vendor",
+   "name": "Harick Boulderdrum",
+   "x": -4653.32,
+   "y": -896.48,
+   "z": 502.28
+  },
+  {
+   "id": "vendor:5152",
+   "kind": "vendor",
+   "name": "Bingus",
+   "x": -4653.22,
+   "y": -893.6,
+   "z": 508.95
+  },
+  {
+   "id": "vendor:7978",
+   "kind": "vendor",
+   "name": "Bimble Longberry",
+   "x": -4707.85,
+   "y": -907.01,
+   "z": 501.66
+  },
+  {
+   "id": "vendor:5163",
+   "kind": "vendor",
+   "name": "Burbik Gearspanner",
+   "x": -4711.06,
+   "y": -1080.45,
+   "z": 502.85
+  },
+  {
+   "id": "vendor:5170",
+   "kind": "vendor",
+   "name": "Hjoldir Stoneblade",
+   "x": -4605.08,
+   "y": -1069.33,
+   "z": 503.67
+  },
+  {
+   "id": "vendor:8681",
+   "kind": "vendor",
+   "name": "Outfitter Eric",
+   "x": -4723.88,
+   "y": -1056.45,
+   "z": 510.95
+  },
+  {
+   "id": "vendor:5154",
+   "kind": "vendor",
+   "name": "Poranna Snowbraid",
+   "x": -4718.58,
+   "y": -1053.08,
+   "z": 504.28
+  },
+  {
+   "id": "vendor:5155",
+   "kind": "vendor",
+   "name": "Ingrys Stonebrow",
+   "x": -4596.43,
+   "y": -1016.03,
+   "z": 512.04
+  },
+  {
+   "id": "vendor:5156",
+   "kind": "vendor",
+   "name": "Maeva Snowbraid",
+   "x": -4600.87,
+   "y": -1019.38,
+   "z": 505.37
+  },
+  {
+   "id": "vendor:5169",
+   "kind": "vendor",
+   "name": "Tynnus Venomsprout",
+   "x": -4641.6,
+   "y": -1132.24,
+   "z": 507.24
+  },
+  {
+   "id": "vendor:4256",
+   "kind": "vendor",
+   "name": "Golnir Bouldertoe",
+   "x": -4708.06,
+   "y": -1120.93,
+   "z": 504.53
+  },
+  {
+   "id": "vendor:9099",
+   "kind": "vendor",
+   "name": "Sraaz",
+   "x": -4733.36,
+   "y": -1103.48,
+   "z": 502.22
+  },
+  {
+   "id": "vendor:5160",
+   "kind": "vendor",
+   "name": "Emrul Riknussun",
+   "x": -4766.43,
+   "y": -1187.03,
+   "z": 502.81
+  },
+  {
+   "id": "vendor:4259",
+   "kind": "vendor",
+   "name": "Thurgrum Deepforge",
+   "x": -4794.96,
+   "y": -1122.64,
+   "z": 498.89
+  },
+  {
+   "id": "vendor:5128",
+   "kind": "vendor",
+   "name": "Bombus Finespindle",
+   "x": -4751.19,
+   "y": -1026.82,
+   "z": 504.51
+  },
+  {
+   "id": "vendor:15898",
+   "kind": "vendor",
+   "name": "Lunar Festival Vendor",
+   "x": -4644.21,
+   "y": -950.14,
+   "z": 501.74
+  },
+  {
+   "id": "vendor:13434",
+   "kind": "vendor",
+   "name": "Macey Jinglepocket",
+   "x": -4926.36,
+   "y": -979.27,
+   "z": 501.56
+  },
+  {
+   "id": "vendor:13433",
+   "kind": "vendor",
+   "name": "Wulmort Jinglepocket",
+   "x": -4923.96,
+   "y": -980.01,
+   "z": 501.55
+  },
+  {
+   "id": "vendor:15353",
+   "kind": "vendor",
+   "name": "Katrina Shimmerstar",
+   "x": -4918.64,
+   "y": -983.14,
+   "z": 501.54
+  },
+  {
+   "id": "vendor:15011",
+   "kind": "vendor",
+   "name": "Wagner Hammerstrike",
+   "x": -5060.04,
+   "y": -788.61,
+   "z": 495.15
+  },
+  {
+   "id": "vendor:8117",
+   "kind": "vendor",
+   "name": "Wizbang Booms",
+   "x": -4896.27,
+   "y": -962.63,
+   "z": 501.53
+  }
+ ],
+ "vendors": {
+  "vendor:5123": [
+   2509,
+   2510,
+   2516,
+   2519,
+   3023,
+   3024,
+   3033,
+   5441,
+   11284
+  ],
+  "vendor:5178": [
+   3371,
+   3372,
+   8925,
+   18256
+  ],
+  "vendor:5122": [
+   2512,
+   2515,
+   3026,
+   3027,
+   3030,
+   5439,
+   11285,
+   11362
+  ],
+  "vendor:5175": [
+   2880,
+   2901,
+   3466,
+   4399,
+   4400,
+   5956,
+   10647,
+   10648
+  ],
+  "vendor:5158": [
+   4470,
+   6217,
+   11291,
+   20752,
+   20753,
+   20758,
+   22307
+  ],
+  "vendor:5124": [
+   117,
+   2287,
+   3770,
+   3771,
+   4599,
+   8952
+  ],
+  "vendor:5140": [
+   159,
+   1179,
+   1205,
+   1645,
+   1708,
+   2593,
+   2594,
+   2595,
+   2596,
+   2723,
+   8766
+  ],
+  "vendor:7976": [
+   2101,
+   2509,
+   2511,
+   2512,
+   2515,
+   2516,
+   2519,
+   3030,
+   5441,
+   7371,
+   11362,
+   15807,
+   15808,
+   15809,
+   15903,
+   15904,
+   15905,
+   15906,
+   15907,
+   15909
+  ],
+  "vendor:5121": [
+   852,
+   854,
+   924,
+   925,
+   928,
+   1197,
+   2026,
+   2028,
+   2030,
+   2524,
+   2525,
+   2527,
+   2532,
+   2533,
+   2535
+  ],
+  "vendor:5119": [
+   853,
+   926,
+   927,
+   1196,
+   2025,
+   2029,
+   2522,
+   2523,
+   2530,
+   2531
+  ],
+  "vendor:5120": [
+   851,
+   922,
+   923,
+   1198,
+   2024,
+   2027,
+   2207,
+   2208,
+   2209,
+   2520,
+   2521,
+   2526,
+   2528,
+   2529,
+   2534,
+   2946,
+   2947,
+   3107,
+   3108,
+   3111,
+   3131,
+   3135,
+   3137,
+   15326,
+   15327
+  ],
+  "vendor:5126": [
+   2423,
+   2424,
+   2425,
+   2426,
+   2427,
+   2428,
+   2445,
+   2446,
+   2448,
+   2451,
+   3894,
+   8088,
+   8089,
+   8090,
+   8091,
+   8092,
+   8093,
+   8094,
+   17188,
+   17189,
+   17190,
+   17192
+  ],
+  "vendor:5125": [
+   285,
+   286,
+   287,
+   718,
+   1852,
+   1853,
+   2148,
+   2149,
+   2150,
+   2151,
+   2152,
+   2153,
+   2417,
+   2418,
+   2419,
+   2420,
+   2421,
+   2422,
+   2448,
+   3891,
+   17189
+  ],
+  "vendor:5129": [
+   2435,
+   2437,
+   2438,
+   2440,
+   2463,
+   2464,
+   2465,
+   2467,
+   2468,
+   2469,
+   2470,
+   2471,
+   2472,
+   2473,
+   2474,
+   2475,
+   3587,
+   3588,
+   3890,
+   3892,
+   3893
+  ],
+  "vendor:5138": [
+   3371,
+   3372,
+   8925,
+   22250
+  ],
+  "vendor:5100": [
+   2320,
+   2321,
+   2324,
+   2678,
+   2692,
+   2880,
+   2901,
+   3371,
+   3372,
+   3466,
+   3713,
+   3857,
+   4289,
+   4291,
+   4399,
+   4400,
+   5956,
+   6217,
+   6530,
+   6532
+  ],
+  "vendor:5101": [
+   159,
+   1205,
+   1645,
+   1708,
+   2515,
+   2519,
+   3030,
+   3033,
+   3107,
+   3108,
+   3135,
+   3137,
+   4470,
+   4471,
+   4497,
+   4498,
+   11284,
+   11285,
+   15326,
+   15327
+  ],
+  "vendor:5132": [
+   4496,
+   4497,
+   4498,
+   4499
+  ],
+  "vendor:5049": [
+   5976
+  ],
+  "vendor:5102": [
+   1194,
+   2130,
+   2131,
+   2132,
+   2134,
+   2139,
+   2479,
+   2480,
+   2488,
+   2489,
+   2490,
+   2491,
+   2492,
+   2493,
+   2494,
+   2495
+  ],
+  "vendor:5103": [
+   851,
+   852,
+   853,
+   854,
+   1196,
+   1197,
+   1198,
+   2024,
+   2025,
+   2026,
+   2027,
+   2028,
+   2029,
+   2030,
+   2207,
+   2208
+  ],
+  "vendor:5109": [
+   4540,
+   4541,
+   4542,
+   4544,
+   4601,
+   8950
+  ],
+  "vendor:5111": [
+   117,
+   159,
+   1179,
+   1205,
+   1645,
+   1708,
+   2287,
+   2593,
+   2594,
+   2595,
+   2596,
+   2723,
+   3770,
+   3771,
+   4599,
+   8766,
+   8952,
+   21815,
+   21829,
+   21833
+  ],
+  "vendor:5110": [
+   5565,
+   16583,
+   17019,
+   17020,
+   17021,
+   17026,
+   17028,
+   17029,
+   17030,
+   17031,
+   17032,
+   17033,
+   17034,
+   17035,
+   17036,
+   17037,
+   17038,
+   21177
+  ],
+  "vendor:5112": [
+   159,
+   1179,
+   1205,
+   1645,
+   1708,
+   2593,
+   2594,
+   2595,
+   2596,
+   2723,
+   8766
+  ],
+  "vendor:5107": [
+   847,
+   848,
+   849,
+   850,
+   1202,
+   1845,
+   1846,
+   17187
+  ],
+  "vendor:5106": [
+   1201,
+   2392,
+   2393,
+   2394,
+   2395,
+   2396,
+   2397,
+   17186
+  ],
+  "vendor:5108": [
+   837,
+   838,
+   839,
+   840,
+   843,
+   844,
+   845,
+   846,
+   1843,
+   1844,
+   3428,
+   3589,
+   3590,
+   16059,
+   16060
+  ],
+  "vendor:5151": [
+   5565,
+   16583,
+   17019,
+   17020,
+   17021,
+   17026,
+   17028,
+   17029,
+   17030,
+   17031,
+   17032,
+   17033,
+   17034,
+   17035,
+   17036,
+   17037,
+   17038,
+   21177
+  ],
+  "vendor:5133": [
+   5208,
+   5209,
+   5210,
+   5211,
+   5236,
+   5238,
+   5239,
+   5347
+  ],
+  "vendor:5152": [
+   2524,
+   2525,
+   2527,
+   2532,
+   2533,
+   2535
+  ],
+  "vendor:7978": [
+   4536,
+   4537,
+   4538,
+   4539,
+   4602,
+   8953
+  ],
+  "vendor:5163": [
+   2320,
+   2321,
+   2324,
+   2678,
+   2692,
+   2880,
+   2901,
+   3371,
+   3372,
+   3466,
+   3713,
+   3857,
+   4289,
+   4291,
+   4399,
+   4400,
+   5956,
+   6217,
+   6530,
+   6532
+  ],
+  "vendor:5170": [
+   2520,
+   2521,
+   2526,
+   2528,
+   2529,
+   2534
+  ],
+  "vendor:8681": [
+   2320,
+   2321,
+   2324,
+   2325,
+   2604,
+   2605,
+   4291,
+   4340,
+   4341,
+   4342,
+   6260,
+   6261,
+   8343,
+   10290,
+   14341
+  ],
+  "vendor:5154": [
+   2320,
+   2321,
+   2324,
+   2325,
+   2604,
+   2605,
+   4291,
+   4340,
+   4341,
+   4342,
+   6260,
+   6261,
+   8343,
+   10290,
+   14341
+  ],
+  "vendor:5155": [
+   200,
+   201,
+   202,
+   203,
+   2429,
+   2431,
+   2432,
+   2434,
+   2435,
+   2437,
+   2438,
+   2440,
+   3587,
+   3588,
+   3593,
+   3594,
+   3597,
+   3598,
+   3889,
+   3892
+  ],
+  "vendor:5156": [
+   2612,
+   2613,
+   2614,
+   2615,
+   2616,
+   2617,
+   2618
+  ],
+  "vendor:5169": [
+   2928,
+   2930,
+   3371,
+   3372,
+   3777,
+   5060,
+   5140,
+   5173,
+   8923,
+   8924,
+   8925
+  ],
+  "vendor:4256": [
+   2880,
+   2901,
+   3466,
+   3857
+  ],
+  "vendor:9099": [
+   8950
+  ],
+  "vendor:5160": [
+   159,
+   2678,
+   2692,
+   3713,
+   21099,
+   21219
+  ],
+  "vendor:4259": [
+   2880,
+   2901,
+   3466,
+   3857,
+   5956,
+   18567
+  ],
+  "vendor:5128": [
+   2320,
+   2321,
+   2325,
+   2604,
+   2605,
+   4289,
+   4291,
+   4340,
+   4341,
+   4342,
+   6260,
+   6261,
+   7005,
+   8343,
+   10290,
+   14341
+  ],
+  "vendor:15898": [
+   21557,
+   21558,
+   21559,
+   21571,
+   21574,
+   21576,
+   21721,
+   21747
+  ],
+  "vendor:13434": [
+   17402,
+   17403,
+   17404,
+   17405,
+   17406,
+   17407,
+   17408
+  ],
+  "vendor:13433": [
+   17194,
+   17195,
+   17196,
+   17200,
+   17201,
+   17202,
+   17303,
+   17304,
+   17307,
+   17344
+  ],
+  "vendor:15353": [
+   7228,
+   18632,
+   18633,
+   18635
+  ],
+  "vendor:15011": [
+   9312,
+   9313,
+   9314,
+   9315,
+   9318
+  ],
+  "vendor:8117": [
+   5740,
+   8624,
+   8625,
+   8626,
+   9312,
+   9313,
+   9314,
+   9315,
+   9317,
+   9318
+  ]
+ },
+ "generated": {
+  "source": "vmangos db-sqlite-13b49dc",
+  "tele": "Ironforge",
+  "radius": 350,
+  "counts": {
+   "auctioneers": 3,
+   "mailboxes": 3,
+   "anvil": 3,
+   "cooking_fire": 114,
+   "forge": 3,
+   "vendors": 50,
+   "items": 365
+  }
+ },
+ "overrides": {}
+}

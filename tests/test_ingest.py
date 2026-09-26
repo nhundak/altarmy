@@ -46,6 +46,33 @@ def test_build_db_loads_items_and_recipes(db2_paths: dict[str, Path], conn: Conn
     assert sorted(reagents) == [(0, 1, 10), (1, 2, 1)]
 
 
+def test_build_db_loads_cast_time_and_station(db2_paths: dict[str, Path], conn: Connection) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    recipe = conn.execute(select(schema.recipes)).one()
+    assert (recipe.cast_time_ms, recipe.station) == (3000, "anvil")  # SpellMisc -> SpellCastTimes; focus 1
+
+
+def test_craft_stations_are_the_foci_profession_spells_need(db2_paths: dict[str, Path]) -> None:
+    assert ingest.craft_stations(db2_paths) == {1: "Anvil"}  # the robe's; the forge and fire go unused
+
+
+def test_build_db_without_cast_time_or_focus_reads_zero(
+    db2_paths: dict[str, Path], conn: Connection, tmp_path: Path
+) -> None:
+    paths = {
+        **db2_paths,
+        "SpellMisc": write_csv(
+            tmp_path / "NoMisc.csv", ["ID", "SpellID", "CastingTimeIndex", "DifficultyID"], []
+        ),
+        "SpellCastingRequirements": write_csv(
+            tmp_path / "NoReq.csv", ["ID", "SpellID", "RequiresSpellFocus"], []
+        ),
+    }
+    ingest.build_db(paths, conn, FOREVER)
+    recipe = conn.execute(select(schema.recipes)).one()
+    assert (recipe.cast_time_ms, recipe.station) == (0, "")
+
+
 def test_build_db_loads_tooltip_fields(db2_paths: dict[str, Path], conn: Connection) -> None:
     ingest.build_db(db2_paths, conn, FOREVER)
     robe = item(conn, 3)._mapping

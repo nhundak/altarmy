@@ -14,11 +14,13 @@ const step = (action: Step['action'], paths: string[]): Step => ({
   paths,
   discount: 0,
   bonus: 0,
+  seconds: 0,
+  station: '',
 })
 
 const both = (vendor: number, ah: number): FlowNode['options'] => [
-  { key: 'vendor', cost: vendor, source: 'vendor', via: '', crafter: '' },
-  { key: 'ah', cost: ah, source: 'ah', via: '', crafter: '' },
+  { key: 'vendor', cost: vendor, source: 'vendor', via: '', crafter: '', seconds: 0 },
+  { key: 'ah', cost: ah, source: 'ah', via: '', crafter: '', seconds: 0 },
 ]
 
 // A robe from a bolt (crafted from 2 linen) and 3 more linen: linen sits at r.0.0 and r.1.
@@ -33,13 +35,13 @@ const tree: FlowNode = {
       crafter: 'Tailor',
       mail_to: 'Smithy',
       options: [
-        { key: 'craft:11', cost: 20, source: '', via: 'Bolt of Linen', crafter: 'Tailor' },
-        { key: 'ah', cost: 90, source: 'ah', via: '', crafter: '' },
+        { key: 'craft:11', cost: 20, source: '', via: 'Bolt of Linen', crafter: 'Tailor', seconds: 0 },
+        { key: 'ah', cost: 90, source: 'ah', via: '', crafter: '', seconds: 0 },
       ],
       option: 'craft:11',
       inputs: [bought(1, 'Linen Cloth', 2, 20, 'vendor', both(20, 30))],
     },
-    bought(1, 'Linen Cloth', 3, 30, 'vendor', [...both(30, 45), { key: 'craft:9', cost: 99, source: '', via: 'X', crafter: '' }]),
+    bought(1, 'Linen Cloth', 3, 30, 'vendor', [...both(30, 45), { key: 'craft:9', cost: 99, source: '', via: 'X', crafter: '', seconds: 0 }]),
   ],
 }
 

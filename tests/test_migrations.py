@@ -113,6 +113,8 @@ def test_0002_moves_local_state_to_the_local_user(database: db.Database) -> None
                 "selected_realm": "PvE",
                 "selected_faction": None,
                 "data_version": 0,
+                "time_city": None,
+                "time_config": None,
             },
             {
                 "user_uid": "local",
@@ -120,6 +122,8 @@ def test_0002_moves_local_state_to_the_local_user(database: db.Database) -> None
                 "selected_realm": "Dreamscythe",
                 "selected_faction": "Horde",
                 "data_version": 7,
+                "time_city": None,
+                "time_config": None,
             },
         ]
 

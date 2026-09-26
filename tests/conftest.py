@@ -2,6 +2,7 @@
 shaped like the wago.tools exports."""
 
 import csv
+import json
 import os
 import shutil
 from collections.abc import Iterator, Mapping
@@ -222,6 +223,34 @@ def db2_paths(tmp_path: Path) -> dict[str, Path]:
                 {"ID": 2, "Effect": 6, "EffectItemType": 0, "EffectBasePointsF": 0, "SpellID": 901},
             ],
         ),
+        # Spell 900 casts in 3 s (index 5; a heroic-difficulty row must not win) at an anvil (focus 1).
+        "SpellMisc": write_csv(
+            tmp_path / "SpellMisc.csv",
+            ["ID", "SpellID", "CastingTimeIndex", "DifficultyID"],
+            [
+                {"ID": 1, "SpellID": 900, "CastingTimeIndex": 5, "DifficultyID": 0},
+                {"ID": 2, "SpellID": 900, "CastingTimeIndex": 1, "DifficultyID": 2},
+            ],
+        ),
+        "SpellCastTimes": write_csv(
+            tmp_path / "SpellCastTimes.csv",
+            ["ID", "Base", "Minimum"],
+            [{"ID": 1, "Base": 0, "Minimum": 0}, {"ID": 5, "Base": 3000, "Minimum": 3000}],
+        ),
+        "SpellCastingRequirements": write_csv(
+            tmp_path / "SpellCastingRequirements.csv",
+            ["ID", "SpellID", "RequiresSpellFocus"],
+            [{"ID": 1, "SpellID": 900, "RequiresSpellFocus": 1}],
+        ),
+        "SpellFocusObject": write_csv(
+            tmp_path / "SpellFocusObject.csv",
+            ["ID", "Name_lang"],
+            [
+                {"ID": 1, "Name_lang": "Anvil"},
+                {"ID": 3, "Name_lang": "Forge"},
+                {"ID": 4, "Name_lang": "Cooking Fire"},
+            ],
+        ),
         "SpellReagents": write_csv(
             tmp_path / "SpellReagents.csv",
             ["ID", "SpellID", *reagent_cols],
@@ -247,6 +276,41 @@ def vendor_csv(tmp_path: Path) -> Path:
         ["item_id", "name"],
         [{"item_id": 2, "name": "Coarse Thread"}, {"item_id": 99, "name": "Removed Item"}],
     )
+
+
+def city_preset(name: str, faction: str, vendor_x: float, anvil: bool = False) -> dict[str, object]:
+    """A city with its auction house at the hub, a mailbox 35 yd away, a vendor selling Coarse Thread
+    (item 2) `vendor_x` yards away and, with `anvil`, an anvil 20 yd away."""
+    anvils = [{"id": "anvil:1", "kind": "anvil", "name": "Anvil", "x": 0, "y": 20, "z": 0}] if anvil else []
+    return {
+        "name": name,
+        "faction": faction,
+        "map": 1,
+        "hub": "ah",
+        "locations": [
+            {"id": "ah", "kind": "ah", "name": "Auctioneer", "x": 0, "y": 0, "z": 0},
+            {"id": "mailbox:1", "kind": "mailbox", "name": "Mailbox", "x": 35, "y": 0, "z": 0},
+            {"id": "vendor:1", "kind": "vendor", "name": "Thread Seller", "x": vendor_x, "y": 0, "z": 0},
+            *anvils,
+        ],
+        "vendors": {"vendor:1": [2]},
+    }
+
+
+@pytest.fixture
+def cities(tmp_path: Path) -> Path:
+    """Forever's city presets (the `game_versions` data dir): Orgrimmar (Horde, its vendor 700 yd off, no
+    anvil), Booty Bay (neutral, 14 yd, an anvil) and Stormwind (Alliance, an anvil)."""
+    folder = tmp_path / "cities"
+    folder.mkdir()
+    for name, faction, x, anvil in [
+        ("Orgrimmar", "Horde", 700, False),
+        ("Booty Bay", "", 14, True),
+        ("Stormwind", "Alliance", 70, True),
+    ]:
+        preset = city_preset(name, faction, x, anvil)
+        (folder / f"{name}.json").write_text(json.dumps(preset), encoding="utf-8")
+    return folder
 
 
 @pytest.fixture

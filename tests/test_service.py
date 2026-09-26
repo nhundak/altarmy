@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection
 
-from altarmy_profit import altarmy, db, ingest, prices, service, store, talents, users
+from altarmy_profit import altarmy, db, engine, ingest, prices, service, store, talents, timing, users
 from altarmy_profit.altarmy import Character, Profession
 from altarmy_profit.engine import ALL_EXITS, Filters
 from altarmy_profit.service import Selection, SyncResult
@@ -361,3 +361,34 @@ def test_sync_without_characters_records_every_realm(
     assert realms == {("ClassicBetaPvE", ""): 2, ("Dreamscythe", "Horde"): 1}
     assert service.selected_characters(conn, ME, FOREVER)[0] is not None
     assert service.sync(conn, ME, FOREVER, [wow_root]) == SyncResult(False, [warning])  # unchanged file
+
+
+# --- profit per hour ----------------------------------------------------------------------------------
+def test_time_model_follows_the_users_settings(conn: Connection, cities: Path) -> None:
+    maps = store.load_cities(cities)
+    assert [c.name for c in service.faction_cities(maps, "Horde")] == ["Orgrimmar", "Booty Bay"]
+    assert [c.name for c in service.faction_cities(maps, "")] == ["Booty Bay", "Orgrimmar", "Stormwind"]
+    model = service.time_model(conn, ME, FOREVER, maps, "Horde")
+    assert (model.city.name, model.config) == ("Orgrimmar", timing.DEFAULT_CONFIG)  # the faction's capital
+    assert service.time_model(conn, ME, FOREVER, maps, "Alliance").city.name == "Stormwind"
+    users.update_settings(conn, ME, FOREVER, time_city="Booty Bay", time_config='{"batch": 5}')
+    model = service.time_model(conn, ME, FOREVER, maps, "Horde")
+    assert (model.city.name, model.config.batch) == ("Booty Bay", 5)
+    users.update_settings(conn, ME, FOREVER, time_city="Stormwind")
+    assert service.time_model(conn, ME, FOREVER, maps, "Horde").city.name == "Orgrimmar"  # not a Horde city
+    assert service.time_model(conn, ME, FOREVER, {}, "Horde").city is timing.ANYWHERE  # no presets
+
+
+def test_by_rate_puts_the_best_per_hour_first() -> None:
+    fast = engine.Recipe(1, "Fast", 3, 1, ((1, 1),), "Tailoring")
+    slow = engine.Recipe(2, "Slow", 4, 1, ((1, 1),), "Tailoring", cast_time_ms=60_000)
+    items = {
+        1: engine.Item(1, "Cloth"),
+        3: engine.Item(3, "Fast Thing", sell_price=100),
+        4: engine.Item(4, "Slow Thing", sell_price=200),
+    }
+    model = engine.TimeModel(timing.DEFAULT_CONFIG, timing.ANYWHERE)
+    market = engine.Market(items, [fast, slow], {1: 10}, time=model)
+    by_profit = service.search(market, [], False, engine.Filters(), time=model)
+    assert [r.recipe.name for r in by_profit] == ["Slow", "Fast"]
+    assert [r.recipe.name for r in service.by_rate(by_profit)] == ["Fast", "Slow"]

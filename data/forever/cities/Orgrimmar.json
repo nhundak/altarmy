@@ -1,0 +1,3264 @@
+{
+ "name": "Orgrimmar",
+ "faction": "Horde",
+ "map": 1,
+ "hub": "ah",
+ "locations": [
+  {
+   "id": "ah",
+   "kind": "ah",
+   "name": "Auctioneer Thathung",
+   "x": 1687.26,
+   "y": -4464.71,
+   "z": 20.15
+  },
+  {
+   "id": "mailbox:10107",
+   "kind": "mailbox",
+   "name": "Mailbox",
+   "x": 1615.58,
+   "y": -4391.6,
+   "z": 10.11
+  },
+  {
+   "id": "mailbox:10968",
+   "kind": "mailbox",
+   "name": "Mailbox",
+   "x": 1894.97,
+   "y": -4553.88,
+   "z": 29.15
+  },
+  {
+   "id": "cooking_fire:1347",
+   "kind": "cooking_fire",
+   "name": "Campfire",
+   "x": 1001.47,
+   "y": -4416.67,
+   "z": 14.03
+  },
+  {
+   "id": "cooking_fire:1576",
+   "kind": "cooking_fire",
+   "name": "Brazier",
+   "x": 1674.99,
+   "y": -3905.79,
+   "z": 50.85
+  },
+  {
+   "id": "cooking_fire:1583",
+   "kind": "cooking_fire",
+   "name": "Brazier",
+   "x": 1696.92,
+   "y": -3891.0,
+   "z": 50.85
+  },
+  {
+   "id": "cooking_fire:1772",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1800.16,
+   "y": -4371.6,
+   "z": -17.51
+  },
+  {
+   "id": "cooking_fire:1933",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1850.49,
+   "y": -4359.16,
+   "z": -15.04
+  },
+  {
+   "id": "cooking_fire:2119",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1831.72,
+   "y": -4404.97,
+   "z": 4.74
+  },
+  {
+   "id": "cooking_fire:2163",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1832.39,
+   "y": -4344.82,
+   "z": -15.32
+  },
+  {
+   "id": "cooking_fire:2254",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1817.41,
+   "y": -4359.19,
+   "z": -9.83
+  },
+  {
+   "id": "cooking_fire:2336",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1900.65,
+   "y": -4386.07,
+   "z": 48.08
+  },
+  {
+   "id": "cooking_fire:2466",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1919.03,
+   "y": -4453.21,
+   "z": 23.05
+  },
+  {
+   "id": "cooking_fire:2499",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1733.02,
+   "y": -4424.7,
+   "z": 36.9
+  },
+  {
+   "id": "cooking_fire:4544",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1871.62,
+   "y": -4521.0,
+   "z": 26.8
+  },
+  {
+   "id": "anvil:4548",
+   "kind": "anvil",
+   "name": "Anvil",
+   "x": 2104.76,
+   "y": -4831.93,
+   "z": 24.18
+  },
+  {
+   "id": "anvil:4549",
+   "kind": "anvil",
+   "name": "Anvil",
+   "x": 2099.77,
+   "y": -4835.06,
+   "z": 24.18
+  },
+  {
+   "id": "cooking_fire:4551",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1766.3,
+   "y": -4497.01,
+   "z": 44.48
+  },
+  {
+   "id": "cooking_fire:4553",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1798.63,
+   "y": -4496.64,
+   "z": 45.69
+  },
+  {
+   "id": "cooking_fire:4555",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1952.68,
+   "y": -4429.13,
+   "z": 24.73
+  },
+  {
+   "id": "cooking_fire:4558",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1704.63,
+   "y": -4339.8,
+   "z": 24.63
+  },
+  {
+   "id": "cooking_fire:4560",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1797.98,
+   "y": -4397.19,
+   "z": -17.82
+  },
+  {
+   "id": "cooking_fire:4565",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1871.92,
+   "y": -4699.32,
+   "z": 39.35
+  },
+  {
+   "id": "cooking_fire:4568",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1457.86,
+   "y": -4427.24,
+   "z": 25.29
+  },
+  {
+   "id": "cooking_fire:4571",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1938.89,
+   "y": -4208.65,
+   "z": 42.15
+  },
+  {
+   "id": "cooking_fire:4573",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1914.64,
+   "y": -4135.08,
+   "z": 40.85
+  },
+  {
+   "id": "cooking_fire:4575",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1676.38,
+   "y": -4336.09,
+   "z": 32.38
+  },
+  {
+   "id": "cooking_fire:4577",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1993.18,
+   "y": -4802.81,
+   "z": 56.87
+  },
+  {
+   "id": "cooking_fire:4579",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1984.04,
+   "y": -4806.71,
+   "z": 56.87
+  },
+  {
+   "id": "cooking_fire:4582",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1973.83,
+   "y": -4786.46,
+   "z": 56.84
+  },
+  {
+   "id": "cooking_fire:4585",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1921.68,
+   "y": -4693.21,
+   "z": 32.8
+  },
+  {
+   "id": "cooking_fire:4587",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1438.43,
+   "y": -4373.89,
+   "z": 25.29
+  },
+  {
+   "id": "cooking_fire:4589",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1743.32,
+   "y": -4327.31,
+   "z": 5.89
+  },
+  {
+   "id": "cooking_fire:4591",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1804.12,
+   "y": -4294.39,
+   "z": 5.75
+  },
+  {
+   "id": "cooking_fire:4615",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1945.58,
+   "y": -4127.67,
+   "z": 43.49
+  },
+  {
+   "id": "cooking_fire:4621",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1924.28,
+   "y": -4116.57,
+   "z": 43.49
+  },
+  {
+   "id": "cooking_fire:4647",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1788.69,
+   "y": -4201.4,
+   "z": 40.08
+  },
+  {
+   "id": "cooking_fire:6772",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2156.99,
+   "y": -4792.74,
+   "z": 67.57
+  },
+  {
+   "id": "cooking_fire:6776",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2184.68,
+   "y": -4799.56,
+   "z": 67.57
+  },
+  {
+   "id": "cooking_fire:6788",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1691.88,
+   "y": -4103.52,
+   "z": 38.02
+  },
+  {
+   "id": "cooking_fire:6792",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1561.1,
+   "y": -4186.86,
+   "z": 41.66
+  },
+  {
+   "id": "cooking_fire:6796",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1904.41,
+   "y": -4773.03,
+   "z": 36.38
+  },
+  {
+   "id": "cooking_fire:6800",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2034.78,
+   "y": -4710.6,
+   "z": 26.87
+  },
+  {
+   "id": "cooking_fire:6805",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2056.66,
+   "y": -4846.36,
+   "z": 24.46
+  },
+  {
+   "id": "cooking_fire:6816",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2046.44,
+   "y": -4756.55,
+   "z": 29.22
+  },
+  {
+   "id": "cooking_fire:6859",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1576.84,
+   "y": -4098.22,
+   "z": 36.1
+  },
+  {
+   "id": "cooking_fire:6903",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1952.79,
+   "y": -4150.57,
+   "z": 43.49
+  },
+  {
+   "id": "cooking_fire:6913",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1920.19,
+   "y": -4180.52,
+   "z": 40.97
+  },
+  {
+   "id": "cooking_fire:6917",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1983.14,
+   "y": -4781.51,
+   "z": 56.84
+  },
+  {
+   "id": "cooking_fire:6920",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1927.89,
+   "y": -4156.86,
+   "z": 40.85
+  },
+  {
+   "id": "cooking_fire:6952",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1915.93,
+   "y": -4157.83,
+   "z": 40.85
+  },
+  {
+   "id": "cooking_fire:6956",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1722.65,
+   "y": -4204.29,
+   "z": 51.74
+  },
+  {
+   "id": "cooking_fire:6975",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1891.22,
+   "y": -4154.87,
+   "z": 43.49
+  },
+  {
+   "id": "cooking_fire:6979",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1897.49,
+   "y": -4167.99,
+   "z": 43.49
+  },
+  {
+   "id": "anvil:6981",
+   "kind": "anvil",
+   "name": "Anvil",
+   "x": 2056.67,
+   "y": -4836.1,
+   "z": 24.52
+  },
+  {
+   "id": "cooking_fire:6989",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1510.94,
+   "y": -4433.99,
+   "z": 19.77
+  },
+  {
+   "id": "cooking_fire:7004",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1624.88,
+   "y": -4275.13,
+   "z": 22.99
+  },
+  {
+   "id": "cooking_fire:7023",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1426.41,
+   "y": -4394.38,
+   "z": 25.29
+  },
+  {
+   "id": "cooking_fire:7027",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1408.85,
+   "y": -4359.43,
+   "z": 25.29
+  },
+  {
+   "id": "cooking_fire:7030",
+   "kind": "cooking_fire",
+   "name": "Meat Rack",
+   "x": 1784.89,
+   "y": -4495.34,
+   "z": 45.18
+  },
+  {
+   "id": "cooking_fire:7033",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1739.52,
+   "y": -4380.44,
+   "z": 34.72
+  },
+  {
+   "id": "cooking_fire:7037",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1996.23,
+   "y": -4794.01,
+   "z": 56.87
+  },
+  {
+   "id": "cooking_fire:7041",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2107.63,
+   "y": -4834.74,
+   "z": 24.19
+  },
+  {
+   "id": "cooking_fire:9912",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1776.2,
+   "y": -4480.38,
+   "z": 45.51
+  },
+  {
+   "id": "cooking_fire:9914",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1786.78,
+   "y": -4508.49,
+   "z": 27.51
+  },
+  {
+   "id": "cooking_fire:9917",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1703.04,
+   "y": -4266.29,
+   "z": 33.13
+  },
+  {
+   "id": "cooking_fire:9921",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1975.43,
+   "y": -4803.2,
+   "z": 56.87
+  },
+  {
+   "id": "cooking_fire:9923",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1733.05,
+   "y": -4285.26,
+   "z": 16.7
+  },
+  {
+   "id": "cooking_fire:9925",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1914.41,
+   "y": -4117.59,
+   "z": 43.49
+  },
+  {
+   "id": "cooking_fire:9929",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1901.38,
+   "y": -4123.78,
+   "z": 43.49
+  },
+  {
+   "id": "cooking_fire:9933",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1905.06,
+   "y": -4174.18,
+   "z": 43.49
+  },
+  {
+   "id": "cooking_fire:9936",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2200.26,
+   "y": -4758.37,
+   "z": 55.0
+  },
+  {
+   "id": "cooking_fire:9943",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1929.07,
+   "y": -4499.71,
+   "z": 27.21
+  },
+  {
+   "id": "cooking_fire:9947",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1918.4,
+   "y": -4219.04,
+   "z": 42.19
+  },
+  {
+   "id": "cooking_fire:9950",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2139.87,
+   "y": -4731.3,
+   "z": 50.53
+  },
+  {
+   "id": "cooking_fire:9953",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1890.28,
+   "y": -4145.08,
+   "z": 43.49
+  },
+  {
+   "id": "cooking_fire:9957",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1951.69,
+   "y": -4140.78,
+   "z": 43.49
+  },
+  {
+   "id": "cooking_fire:9959",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1927.4,
+   "y": -4180.39,
+   "z": 40.97
+  },
+  {
+   "id": "cooking_fire:9963",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2088.97,
+   "y": -4827.37,
+   "z": 24.19
+  },
+  {
+   "id": "cooking_fire:9966",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1888.35,
+   "y": -4416.65,
+   "z": 11.97
+  },
+  {
+   "id": "cooking_fire:9972",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1888.19,
+   "y": -4451.45,
+   "z": 19.38
+  },
+  {
+   "id": "cooking_fire:9977",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1912.47,
+   "y": -4210.89,
+   "z": 42.15
+  },
+  {
+   "id": "cooking_fire:9981",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1776.04,
+   "y": -4277.56,
+   "z": 7.77
+  },
+  {
+   "id": "cooking_fire:9988",
+   "kind": "cooking_fire",
+   "name": "Orc Cooker",
+   "x": 1620.57,
+   "y": -4305.25,
+   "z": 3.07
+  },
+  {
+   "id": "cooking_fire:9990",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1581.33,
+   "y": -4295.08,
+   "z": 26.08
+  },
+  {
+   "id": "cooking_fire:9994",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1934.18,
+   "y": -4217.94,
+   "z": 42.19
+  },
+  {
+   "id": "cooking_fire:9998",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2200.15,
+   "y": -4785.75,
+   "z": 64.81
+  },
+  {
+   "id": "cooking_fire:10003",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1788.38,
+   "y": -3998.3,
+   "z": 53.25
+  },
+  {
+   "id": "cooking_fire:10008",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1516.76,
+   "y": -4349.4,
+   "z": 18.67
+  },
+  {
+   "id": "cooking_fire:10010",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2182.04,
+   "y": -4787.51,
+   "z": 55.0
+  },
+  {
+   "id": "cooking_fire:10019",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2193.79,
+   "y": -4733.5,
+   "z": 67.57
+  },
+  {
+   "id": "cooking_fire:10022",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2179.63,
+   "y": -4730.01,
+   "z": 67.57
+  },
+  {
+   "id": "cooking_fire:10028",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1898.57,
+   "y": -4268.71,
+   "z": 31.33
+  },
+  {
+   "id": "cooking_fire:10033",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 2125.08,
+   "y": -4706.55,
+   "z": 40.73
+  },
+  {
+   "id": "cooking_fire:10035",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 2101.66,
+   "y": -4741.79,
+   "z": 37.89
+  },
+  {
+   "id": "cooking_fire:10038",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1937.95,
+   "y": -4625.81,
+   "z": 31.85
+  },
+  {
+   "id": "cooking_fire:10041",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1682.25,
+   "y": -4323.06,
+   "z": 61.16
+  },
+  {
+   "id": "cooking_fire:10044",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1555.24,
+   "y": -4384.33,
+   "z": 3.2
+  },
+  {
+   "id": "cooking_fire:10046",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1537.42,
+   "y": -4377.83,
+   "z": 16.7
+  },
+  {
+   "id": "cooking_fire:10050",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1570.73,
+   "y": -4355.52,
+   "z": 1.39
+  },
+  {
+   "id": "forge:10054",
+   "kind": "forge",
+   "name": "Forge",
+   "x": 2021.61,
+   "y": -4688.13,
+   "z": 25.18
+  },
+  {
+   "id": "cooking_fire:10057",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2212.18,
+   "y": -4755.3,
+   "z": 67.57
+  },
+  {
+   "id": "cooking_fire:10064",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1750.06,
+   "y": -4258.67,
+   "z": 27.35
+  },
+  {
+   "id": "cooking_fire:10068",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1604.9,
+   "y": -4343.5,
+   "z": 3.23
+  },
+  {
+   "id": "cooking_fire:10075",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2145.53,
+   "y": -4753.15,
+   "z": 67.57
+  },
+  {
+   "id": "cooking_fire:10078",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1568.64,
+   "y": -4408.59,
+   "z": 7.49
+  },
+  {
+   "id": "cooking_fire:10083",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1937.86,
+   "y": -4121.46,
+   "z": 43.49
+  },
+  {
+   "id": "cooking_fire:10086",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1495.13,
+   "y": -4382.21,
+   "z": 24.24
+  },
+  {
+   "id": "cooking_fire:10090",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1592.37,
+   "y": -4427.32,
+   "z": 8.05
+  },
+  {
+   "id": "cooking_fire:10094",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1661.73,
+   "y": -4339.47,
+   "z": 61.16
+  },
+  {
+   "id": "cooking_fire:10097",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1893.41,
+   "y": -4697.28,
+   "z": 37.32
+  },
+  {
+   "id": "cooking_fire:10115",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1882.76,
+   "y": -4718.2,
+   "z": 39.35
+  },
+  {
+   "id": "cooking_fire:10125",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1608.97,
+   "y": -4447.55,
+   "z": 8.14
+  },
+  {
+   "id": "cooking_fire:10128",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1430.61,
+   "y": -4430.64,
+   "z": 25.29
+  },
+  {
+   "id": "cooking_fire:10132",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1884.1,
+   "y": -4312.75,
+   "z": 23.21
+  },
+  {
+   "id": "cooking_fire:10136",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1901.55,
+   "y": -4439.03,
+   "z": 49.27
+  },
+  {
+   "id": "cooking_fire:10139",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1855.11,
+   "y": -4474.31,
+   "z": 47.5
+  },
+  {
+   "id": "cooking_fire:10142",
+   "kind": "cooking_fire",
+   "name": "Meat Rack",
+   "x": 1617.57,
+   "y": -4322.31,
+   "z": 2.04
+  },
+  {
+   "id": "cooking_fire:10143",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2051.75,
+   "y": -4734.88,
+   "z": 26.38
+  },
+  {
+   "id": "cooking_fire:10145",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2063.59,
+   "y": -4700.42,
+   "z": 37.9
+  },
+  {
+   "id": "cooking_fire:10148",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2092.57,
+   "y": -4721.56,
+   "z": 40.99
+  },
+  {
+   "id": "cooking_fire:10150",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1941.16,
+   "y": -4695.53,
+   "z": 29.61
+  },
+  {
+   "id": "cooking_fire:10152",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1947.82,
+   "y": -4164.22,
+   "z": 43.49
+  },
+  {
+   "id": "cooking_fire:10156",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1928.46,
+   "y": -4198.14,
+   "z": 41.99
+  },
+  {
+   "id": "cooking_fire:10160",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1927.67,
+   "y": -4184.3,
+   "z": 41.99
+  },
+  {
+   "id": "cooking_fire:10166",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1746.71,
+   "y": -4415.49,
+   "z": 36.9
+  },
+  {
+   "id": "cooking_fire:10174",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1833.63,
+   "y": -4472.11,
+   "z": 47.43
+  },
+  {
+   "id": "cooking_fire:10180",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1959.73,
+   "y": -4249.64,
+   "z": 31.33
+  },
+  {
+   "id": "cooking_fire:10185",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1886.24,
+   "y": -4603.91,
+   "z": 33.94
+  },
+  {
+   "id": "anvil:10187",
+   "kind": "anvil",
+   "name": "Anvil",
+   "x": 2057.71,
+   "y": -4798.63,
+   "z": 22.5
+  },
+  {
+   "id": "anvil:10189",
+   "kind": "anvil",
+   "name": "Anvil",
+   "x": 2052.75,
+   "y": -4806.18,
+   "z": 22.45
+  },
+  {
+   "id": "cooking_fire:10191",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2103.47,
+   "y": -4676.45,
+   "z": 44.42
+  },
+  {
+   "id": "cooking_fire:10198",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1965.15,
+   "y": -4733.15,
+   "z": 49.48
+  },
+  {
+   "id": "cooking_fire:10205",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1629.5,
+   "y": -4301.75,
+   "z": 3.2
+  },
+  {
+   "id": "cooking_fire:10209",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2131.42,
+   "y": -4744.47,
+   "z": 50.53
+  },
+  {
+   "id": "cooking_fire:10217",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2102.43,
+   "y": -4706.35,
+   "z": 40.85
+  },
+  {
+   "id": "cooking_fire:10224",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1637.6,
+   "y": -4361.3,
+   "z": 12.33
+  },
+  {
+   "id": "cooking_fire:10724",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2022.51,
+   "y": -4635.41,
+   "z": 29.68
+  },
+  {
+   "id": "cooking_fire:10726",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1855.12,
+   "y": -4422.16,
+   "z": 6.87
+  },
+  {
+   "id": "cooking_fire:10952",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1636.69,
+   "y": -4351.04,
+   "z": 4.47
+  },
+  {
+   "id": "cooking_fire:10954",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1896.28,
+   "y": -4618.79,
+   "z": 33.94
+  },
+  {
+   "id": "cooking_fire:10956",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1813.52,
+   "y": -4574.06,
+   "z": 22.85
+  },
+  {
+   "id": "cooking_fire:10958",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2212.03,
+   "y": -4786.6,
+   "z": 64.81
+  },
+  {
+   "id": "cooking_fire:10960",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1854.7,
+   "y": -4546.16,
+   "z": 25.42
+  },
+  {
+   "id": "cooking_fire:10962",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1894.74,
+   "y": -4559.66,
+   "z": 30.02
+  },
+  {
+   "id": "cooking_fire:10970",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1916.48,
+   "y": -4428.22,
+   "z": 24.64
+  },
+  {
+   "id": "cooking_fire:10972",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1956.55,
+   "y": -4468.75,
+   "z": 35.72
+  },
+  {
+   "id": "cooking_fire:10975",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1665.5,
+   "y": -4360.83,
+   "z": 26.66
+  },
+  {
+   "id": "cooking_fire:10977",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1920.61,
+   "y": -4279.69,
+   "z": 30.54
+  },
+  {
+   "id": "cooking_fire:10979",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1800.97,
+   "y": -4513.69,
+   "z": 21.56
+  },
+  {
+   "id": "cooking_fire:10986",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2147.59,
+   "y": -4781.6,
+   "z": 67.57
+  },
+  {
+   "id": "cooking_fire:10993",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1548.71,
+   "y": -4325.49,
+   "z": 20.7
+  },
+  {
+   "id": "cooking_fire:10995",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1626.66,
+   "y": -4387.85,
+   "z": 12.27
+  },
+  {
+   "id": "cooking_fire:10998",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1841.13,
+   "y": -4458.72,
+   "z": 47.5
+  },
+  {
+   "id": "cooking_fire:11072",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 2095.35,
+   "y": -4634.1,
+   "z": 58.21
+  },
+  {
+   "id": "cooking_fire:11091",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2188.85,
+   "y": -4744.81,
+   "z": 55.0
+  },
+  {
+   "id": "cooking_fire:11124",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1844.57,
+   "y": -4394.1,
+   "z": 4.6
+  },
+  {
+   "id": "cooking_fire:11126",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1886.55,
+   "y": -4328.41,
+   "z": 23.21
+  },
+  {
+   "id": "cooking_fire:11136",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1875.4,
+   "y": -4320.84,
+   "z": 32.23
+  },
+  {
+   "id": "cooking_fire:11143",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1757.45,
+   "y": -4533.91,
+   "z": 28.05
+  },
+  {
+   "id": "cooking_fire:11207",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1644.12,
+   "y": -4376.15,
+   "z": 12.78
+  },
+  {
+   "id": "cooking_fire:11223",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1596.16,
+   "y": -4385.23,
+   "z": 9.79
+  },
+  {
+   "id": "cooking_fire:11227",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1920.59,
+   "y": -4184.83,
+   "z": 41.99
+  },
+  {
+   "id": "cooking_fire:11231",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1736.65,
+   "y": -4476.9,
+   "z": 32.04
+  },
+  {
+   "id": "cooking_fire:11234",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1665.07,
+   "y": -4325.22,
+   "z": 61.16
+  },
+  {
+   "id": "cooking_fire:11239",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1618.12,
+   "y": -4365.36,
+   "z": 12.19
+  },
+  {
+   "id": "cooking_fire:11315",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2164.83,
+   "y": -4783.25,
+   "z": 55.0
+  },
+  {
+   "id": "cooking_fire:11318",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1915.35,
+   "y": -4417.57,
+   "z": 21.83
+  },
+  {
+   "id": "forge:11324",
+   "kind": "forge",
+   "name": "Forge",
+   "x": 2051.63,
+   "y": -4838.97,
+   "z": 24.35
+  },
+  {
+   "id": "cooking_fire:11329",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1826.98,
+   "y": -4508.03,
+   "z": 21.38
+  },
+  {
+   "id": "cooking_fire:11331",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1912.65,
+   "y": -4547.59,
+   "z": 30.1
+  },
+  {
+   "id": "cooking_fire:11334",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1922.93,
+   "y": -4518.17,
+   "z": 29.12
+  },
+  {
+   "id": "cooking_fire:11337",
+   "kind": "cooking_fire",
+   "name": "Meat Rack",
+   "x": 1611.8,
+   "y": -4302.14,
+   "z": 3.01
+  },
+  {
+   "id": "cooking_fire:11546",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1926.6,
+   "y": -4134.1,
+   "z": 40.85
+  },
+  {
+   "id": "cooking_fire:11548",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1815.54,
+   "y": -4556.47,
+   "z": 22.85
+  },
+  {
+   "id": "cooking_fire:11551",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1796.53,
+   "y": -4575.21,
+   "z": 22.85
+  },
+  {
+   "id": "cooking_fire:11553",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1865.54,
+   "y": -4559.36,
+   "z": 24.87
+  },
+  {
+   "id": "cooking_fire:11555",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1844.26,
+   "y": -4568.07,
+   "z": 24.8
+  },
+  {
+   "id": "cooking_fire:11557",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1920.52,
+   "y": -4570.01,
+   "z": 33.94
+  },
+  {
+   "id": "cooking_fire:11562",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1911.25,
+   "y": -4791.89,
+   "z": 36.38
+  },
+  {
+   "id": "cooking_fire:11566",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1968.63,
+   "y": -4463.09,
+   "z": 25.74
+  },
+  {
+   "id": "cooking_fire:11568",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2065.84,
+   "y": -4804.09,
+   "z": 21.7
+  },
+  {
+   "id": "cooking_fire:11574",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1827.71,
+   "y": -4324.88,
+   "z": -15.59
+  },
+  {
+   "id": "cooking_fire:11576",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1920.58,
+   "y": -4591.22,
+   "z": 33.94
+  },
+  {
+   "id": "cooking_fire:11578",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1901.62,
+   "y": -4593.54,
+   "z": 33.94
+  },
+  {
+   "id": "cooking_fire:11582",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1791.09,
+   "y": -4557.93,
+   "z": 22.85
+  },
+  {
+   "id": "cooking_fire:11585",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1933.28,
+   "y": -4510.89,
+   "z": 29.12
+  },
+  {
+   "id": "cooking_fire:11588",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2030.85,
+   "y": -4740.4,
+   "z": 29.22
+  },
+  {
+   "id": "cooking_fire:11591",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1917.28,
+   "y": -4759.56,
+   "z": 34.22
+  },
+  {
+   "id": "cooking_fire:11595",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1555.5,
+   "y": -4355.75,
+   "z": 0.49
+  },
+  {
+   "id": "forge:11598",
+   "kind": "forge",
+   "name": "Forge",
+   "x": 2048.72,
+   "y": -4812.21,
+   "z": 22.43
+  },
+  {
+   "id": "cooking_fire:11602",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1615.66,
+   "y": -4314.0,
+   "z": 3.2
+  },
+  {
+   "id": "cooking_fire:11604",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1956.85,
+   "y": -4468.36,
+   "z": 42.89
+  },
+  {
+   "id": "cooking_fire:11606",
+   "kind": "cooking_fire",
+   "name": "Meat Rack",
+   "x": 1782.19,
+   "y": -4497.99,
+   "z": 44.86
+  },
+  {
+   "id": "cooking_fire:11607",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1940.42,
+   "y": -4226.31,
+   "z": 42.15
+  },
+  {
+   "id": "cooking_fire:11609",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1778.94,
+   "y": -4495.76,
+   "z": 27.59
+  },
+  {
+   "id": "cooking_fire:11611",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1657.96,
+   "y": -4309.97,
+   "z": 2.42
+  },
+  {
+   "id": "cooking_fire:11614",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1779.92,
+   "y": -4369.31,
+   "z": -16.34
+  },
+  {
+   "id": "cooking_fire:11616",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1654.93,
+   "y": -4315.18,
+   "z": 2.08
+  },
+  {
+   "id": "cooking_fire:11618",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 2085.81,
+   "y": -4769.67,
+   "z": 23.27
+  },
+  {
+   "id": "cooking_fire:11624",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2184.29,
+   "y": -4720.51,
+   "z": 56.66
+  },
+  {
+   "id": "cooking_fire:11627",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1757.13,
+   "y": -4208.73,
+   "z": 41.21
+  },
+  {
+   "id": "cooking_fire:11630",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1956.27,
+   "y": -4338.9,
+   "z": 21.98
+  },
+  {
+   "id": "cooking_fire:11633",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1956.14,
+   "y": -4470.62,
+   "z": 25.74
+  },
+  {
+   "id": "cooking_fire:11720",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1895.1,
+   "y": -4131.42,
+   "z": 43.49
+  },
+  {
+   "id": "cooking_fire:11733",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2023.87,
+   "y": -4656.08,
+   "z": 27.18
+  },
+  {
+   "id": "cooking_fire:11736",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1639.73,
+   "y": -4438.38,
+   "z": 15.54
+  },
+  {
+   "id": "cooking_fire:11739",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 2040.5,
+   "y": -4633.04,
+   "z": 50.82
+  },
+  {
+   "id": "cooking_fire:11775",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1941.7,
+   "y": -4171.87,
+   "z": 43.49
+  },
+  {
+   "id": "cooking_fire:11777",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2206.41,
+   "y": -4775.41,
+   "z": 64.81
+  },
+  {
+   "id": "cooking_fire:11779",
+   "kind": "cooking_fire",
+   "name": "Meat Rack",
+   "x": 1627.12,
+   "y": -4299.51,
+   "z": 3.07
+  },
+  {
+   "id": "cooking_fire:11781",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1804.83,
+   "y": -4309.08,
+   "z": -11.73
+  },
+  {
+   "id": "cooking_fire:11783",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1742.33,
+   "y": -4314.65,
+   "z": 33.22
+  },
+  {
+   "id": "cooking_fire:11785",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1909.75,
+   "y": -4461.53,
+   "z": 53.31
+  },
+  {
+   "id": "cooking_fire:11787",
+   "kind": "cooking_fire",
+   "name": "Meat Rack",
+   "x": 1637.32,
+   "y": -4311.27,
+   "z": 0.84
+  },
+  {
+   "id": "cooking_fire:11788",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1997.29,
+   "y": -4717.17,
+   "z": 26.56
+  },
+  {
+   "id": "cooking_fire:11790",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1428.53,
+   "y": -4412.34,
+   "z": 25.29
+  },
+  {
+   "id": "cooking_fire:11792",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2141.06,
+   "y": -4789.56,
+   "z": 56.66
+  },
+  {
+   "id": "cooking_fire:11794",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": 1606.92,
+   "y": -4095.97,
+   "z": 33.29
+  },
+  {
+   "id": "cooking_fire:11799",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1685.0,
+   "y": -4344.48,
+   "z": 61.16
+  },
+  {
+   "id": "cooking_fire:11802",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1520.58,
+   "y": -4428.06,
+   "z": 17.67
+  },
+  {
+   "id": "cooking_fire:11911",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1938.21,
+   "y": -4277.06,
+   "z": 30.1
+  },
+  {
+   "id": "cooking_fire:11914",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1954.33,
+   "y": -4372.81,
+   "z": 22.3
+  },
+  {
+   "id": "cooking_fire:11916",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1794.18,
+   "y": -4301.78,
+   "z": 4.38
+  },
+  {
+   "id": "cooking_fire:11918",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2153.22,
+   "y": -4740.77,
+   "z": 67.57
+  },
+  {
+   "id": "cooking_fire:11920",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1769.61,
+   "y": -4333.75,
+   "z": -8.32
+  },
+  {
+   "id": "cooking_fire:11927",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1635.84,
+   "y": -4450.78,
+   "z": 15.54
+  },
+  {
+   "id": "cooking_fire:11938",
+   "kind": "cooking_fire",
+   "name": "Meat Rack",
+   "x": 1768.76,
+   "y": -4482.94,
+   "z": 45.4
+  },
+  {
+   "id": "cooking_fire:11939",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1921.37,
+   "y": -4198.65,
+   "z": 41.99
+  },
+  {
+   "id": "cooking_fire:11943",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1760.99,
+   "y": -4301.22,
+   "z": 6.98
+  },
+  {
+   "id": "cooking_fire:11945",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 2035.21,
+   "y": -4638.21,
+   "z": 29.68
+  },
+  {
+   "id": "cooking_fire:11950",
+   "kind": "cooking_fire",
+   "name": "Mighty Blaze",
+   "x": 1913.95,
+   "y": -4228.37,
+   "z": 42.15
+  },
+  {
+   "id": "cooking_fire:11958",
+   "kind": "cooking_fire",
+   "name": "Blazing Fire",
+   "x": 1350.54,
+   "y": -4663.39,
+   "z": 53.45
+  },
+  {
+   "id": "vendor:5611",
+   "kind": "vendor",
+   "name": "Barkeep Morag",
+   "x": 1640.83,
+   "y": -4446.99,
+   "z": 15.49
+  },
+  {
+   "id": "vendor:3331",
+   "kind": "vendor",
+   "name": "Kareth",
+   "x": 1750.38,
+   "y": -4320.91,
+   "z": 5.99
+  },
+  {
+   "id": "vendor:3330",
+   "kind": "vendor",
+   "name": "Muragus",
+   "x": 1823.88,
+   "y": -4302.59,
+   "z": -12.31
+  },
+  {
+   "id": "vendor:5815",
+   "kind": "vendor",
+   "name": "Kurgul",
+   "x": 1836.86,
+   "y": -4347.13,
+   "z": -14.76
+  },
+  {
+   "id": "vendor:3335",
+   "kind": "vendor",
+   "name": "Hagrus",
+   "x": 1846.54,
+   "y": -4325.67,
+   "z": -15.62
+  },
+  {
+   "id": "vendor:3334",
+   "kind": "vendor",
+   "name": "Rekkul",
+   "x": 1811.04,
+   "y": -4270.9,
+   "z": 7.17
+  },
+  {
+   "id": "vendor:3329",
+   "kind": "vendor",
+   "name": "Kor'jus",
+   "x": 1766.71,
+   "y": -4367.36,
+   "z": -15.94
+  },
+  {
+   "id": "vendor:5816",
+   "kind": "vendor",
+   "name": "Katis",
+   "x": 1820.77,
+   "y": -4300.23,
+   "z": -12.31
+  },
+  {
+   "id": "vendor:3349",
+   "kind": "vendor",
+   "name": "Ukra'nor",
+   "x": 1580.05,
+   "y": -4097.68,
+   "z": 36.32
+  },
+  {
+   "id": "vendor:8404",
+   "kind": "vendor",
+   "name": "Xan'tish",
+   "x": 1527.01,
+   "y": -4154.91,
+   "z": 40.39
+  },
+  {
+   "id": "vendor:3317",
+   "kind": "vendor",
+   "name": "Ollanus",
+   "x": 1583.8,
+   "y": -4473.31,
+   "z": 7.81
+  },
+  {
+   "id": "vendor:5817",
+   "kind": "vendor",
+   "name": "Shimra",
+   "x": 1522.3,
+   "y": -4352.53,
+   "z": 18.9
+  },
+  {
+   "id": "vendor:3322",
+   "kind": "vendor",
+   "name": "Kaja",
+   "x": 1692.69,
+   "y": -4412.03,
+   "z": 21.7
+  },
+  {
+   "id": "vendor:3312",
+   "kind": "vendor",
+   "name": "Olvia",
+   "x": 1618.96,
+   "y": -4307.28,
+   "z": 3.19
+  },
+  {
+   "id": "vendor:5188",
+   "kind": "vendor",
+   "name": "Garyl",
+   "x": 1579.36,
+   "y": -4294.5,
+   "z": 26.1
+  },
+  {
+   "id": "vendor:6929",
+   "kind": "vendor",
+   "name": "Innkeeper Gryshka",
+   "x": 1633.99,
+   "y": -4439.37,
+   "z": 15.52
+  },
+  {
+   "id": "vendor:3342",
+   "kind": "vendor",
+   "name": "Shan'ti",
+   "x": 1784.44,
+   "y": -4205.35,
+   "z": 40.09
+  },
+  {
+   "id": "vendor:3350",
+   "kind": "vendor",
+   "name": "Asoran",
+   "x": 1891.6,
+   "y": -4326.75,
+   "z": 23.25
+  },
+  {
+   "id": "vendor:3351",
+   "kind": "vendor",
+   "name": "Magenius",
+   "x": 1890.9,
+   "y": -4322.09,
+   "z": 23.25
+  },
+  {
+   "id": "vendor:3358",
+   "kind": "vendor",
+   "name": "Gorina",
+   "x": 2025.08,
+   "y": -4708.91,
+   "z": 26.89
+  },
+  {
+   "id": "vendor:3333",
+   "kind": "vendor",
+   "name": "Shankys",
+   "x": 1995.41,
+   "y": -4662.32,
+   "z": 26.89
+  },
+  {
+   "id": "vendor:3346",
+   "kind": "vendor",
+   "name": "Kithas",
+   "x": 1918.26,
+   "y": -4436.26,
+   "z": 24.63
+  },
+  {
+   "id": "vendor:3366",
+   "kind": "vendor",
+   "name": "Tamar",
+   "x": 1848.01,
+   "y": -4564.89,
+   "z": 24.84
+  },
+  {
+   "id": "vendor:3367",
+   "kind": "vendor",
+   "name": "Felika",
+   "x": 1816.21,
+   "y": -4530.52,
+   "z": 19.98
+  },
+  {
+   "id": "vendor:3368",
+   "kind": "vendor",
+   "name": "Borstan",
+   "x": 1775.1,
+   "y": -4482.91,
+   "z": 45.5
+  },
+  {
+   "id": "vendor:3348",
+   "kind": "vendor",
+   "name": "Kor'geld",
+   "x": 1954.75,
+   "y": -4466.79,
+   "z": 25.79
+  },
+  {
+   "id": "vendor:3319",
+   "kind": "vendor",
+   "name": "Sana",
+   "x": 1593.54,
+   "y": -4465.65,
+   "z": 7.75
+  },
+  {
+   "id": "vendor:3314",
+   "kind": "vendor",
+   "name": "Urtharo",
+   "x": 1634.23,
+   "y": -4347.62,
+   "z": 4.38
+  },
+  {
+   "id": "vendor:3313",
+   "kind": "vendor",
+   "name": "Trak'gen",
+   "x": 1520.54,
+   "y": -4355.58,
+   "z": 18.85
+  },
+  {
+   "id": "vendor:3321",
+   "kind": "vendor",
+   "name": "Morgum",
+   "x": 1589.02,
+   "y": -4469.48,
+   "z": 7.75
+  },
+  {
+   "id": "vendor:3359",
+   "kind": "vendor",
+   "name": "Kiro",
+   "x": 1878.64,
+   "y": -4708.12,
+   "z": 39.35
+  },
+  {
+   "id": "vendor:3361",
+   "kind": "vendor",
+   "name": "Shoma",
+   "x": 2097.42,
+   "y": -4824.92,
+   "z": 24.1
+  },
+  {
+   "id": "vendor:7231",
+   "kind": "vendor",
+   "name": "Kelgruk Bloodaxe",
+   "x": 2105.33,
+   "y": -4829.99,
+   "z": 24.09
+  },
+  {
+   "id": "vendor:3405",
+   "kind": "vendor",
+   "name": "Zeal'aya",
+   "x": 1904.86,
+   "y": -4451.63,
+   "z": 53.28
+  },
+  {
+   "id": "vendor:3315",
+   "kind": "vendor",
+   "name": "Tor'phan",
+   "x": 1802.08,
+   "y": -4561.55,
+   "z": 22.86
+  },
+  {
+   "id": "vendor:3369",
+   "kind": "vendor",
+   "name": "Gotri",
+   "x": 1780.63,
+   "y": -4505.51,
+   "z": 27.6
+  },
+  {
+   "id": "vendor:3400",
+   "kind": "vendor",
+   "name": "Xen'to",
+   "x": 1779.08,
+   "y": -4488.08,
+   "z": 45.5
+  },
+  {
+   "id": "vendor:4043",
+   "kind": "vendor",
+   "name": "Galthuk",
+   "x": 2097.44,
+   "y": -4834.81,
+   "z": 24.12
+  },
+  {
+   "id": "vendor:3360",
+   "kind": "vendor",
+   "name": "Koru",
+   "x": 2098.59,
+   "y": -4823.44,
+   "z": 34.12
+  },
+  {
+   "id": "vendor:3362",
+   "kind": "vendor",
+   "name": "Ogunaro Wolfrunner",
+   "x": 2159.36,
+   "y": -4653.74,
+   "z": 49.74
+  },
+  {
+   "id": "vendor:5812",
+   "kind": "vendor",
+   "name": "Tumi",
+   "x": 2053.4,
+   "y": -4838.88,
+   "z": 24.43
+  },
+  {
+   "id": "vendor:3410",
+   "kind": "vendor",
+   "name": "Jin'sora",
+   "x": 1914.16,
+   "y": -4775.87,
+   "z": 36.34
+  },
+  {
+   "id": "vendor:3409",
+   "kind": "vendor",
+   "name": "Zendo'jian",
+   "x": 2099.23,
+   "y": -4818.85,
+   "z": 24.16
+  },
+  {
+   "id": "vendor:3316",
+   "kind": "vendor",
+   "name": "Handor",
+   "x": 1855.82,
+   "y": -4562.49,
+   "z": 24.84
+  },
+  {
+   "id": "vendor:3364",
+   "kind": "vendor",
+   "name": "Borya",
+   "x": 1792.65,
+   "y": -4565.39,
+   "z": 22.86
+  },
+  {
+   "id": "vendor:3413",
+   "kind": "vendor",
+   "name": "Sovik",
+   "x": 2036.63,
+   "y": -4739.49,
+   "z": 29.24
+  },
+  {
+   "id": "vendor:3356",
+   "kind": "vendor",
+   "name": "Sumi",
+   "x": 2049.79,
+   "y": -4839.13,
+   "z": 24.43
+  },
+  {
+   "id": "vendor:15898",
+   "kind": "vendor",
+   "name": "Lunar Festival Vendor",
+   "x": 1971.18,
+   "y": -4259.46,
+   "z": 32.22
+  },
+  {
+   "id": "vendor:13418",
+   "kind": "vendor",
+   "name": "Kaymard Copperpinch",
+   "x": 1651.95,
+   "y": -4428.67,
+   "z": 16.92
+  },
+  {
+   "id": "vendor:13420",
+   "kind": "vendor",
+   "name": "Penney Copperpinch",
+   "x": 1657.5,
+   "y": -4426.88,
+   "z": 17.21
+  },
+  {
+   "id": "vendor:15354",
+   "kind": "vendor",
+   "name": "Rachelle Gothena",
+   "x": 1657.86,
+   "y": -4432.84,
+   "z": 17.48
+  },
+  {
+   "id": "vendor:14480",
+   "kind": "vendor",
+   "name": "Alowicious Czervik",
+   "x": 1627.82,
+   "y": -4413.17,
+   "z": 15.7
+  },
+  {
+   "id": "vendor:15012",
+   "kind": "vendor",
+   "name": "Javnir Nashak",
+   "x": 1322.99,
+   "y": -4400.1,
+   "z": 27.25
+  },
+  {
+   "id": "vendor:8122",
+   "kind": "vendor",
+   "name": "Kizzak Sparks",
+   "x": 2014.38,
+   "y": -4729.67,
+   "z": 26.18
+  },
+  {
+   "id": "vendor:12799",
+   "kind": "vendor",
+   "name": "Sergeant Ba'sha",
+   "x": 1632.21,
+   "y": -4262.19,
+   "z": 49.03
+  },
+  {
+   "id": "vendor:3323",
+   "kind": "vendor",
+   "name": "Horthus",
+   "x": 1744.9,
+   "y": -4317.86,
+   "z": 33.39
+  }
+ ],
+ "vendors": {
+  "vendor:5611": [
+   117,
+   159,
+   1179,
+   1205,
+   1645,
+   1708,
+   2287,
+   2593,
+   2594,
+   2595,
+   2596,
+   2723,
+   3770,
+   3771,
+   4599,
+   8766,
+   8952
+  ],
+  "vendor:3331": [
+   851,
+   922,
+   923,
+   1198,
+   2024,
+   2027,
+   2207,
+   2208,
+   2209,
+   2520,
+   2526,
+   2528,
+   2534
+  ],
+  "vendor:3330": [
+   2527,
+   2535
+  ],
+  "vendor:5815": [
+   16302,
+   16316,
+   16317,
+   16318,
+   16319,
+   16320,
+   16321,
+   16322,
+   16323,
+   16324,
+   16325,
+   16326,
+   16327,
+   16328,
+   16329,
+   16330,
+   16331,
+   16346,
+   16347,
+   16348,
+   16349,
+   16350,
+   16351,
+   16352,
+   16353,
+   16354,
+   16355,
+   16356,
+   16357,
+   16358,
+   16359,
+   16360,
+   16361,
+   16362,
+   16363,
+   16364,
+   16365,
+   16366,
+   16368,
+   16371,
+   16372,
+   16373,
+   16374,
+   16375,
+   16376,
+   16377,
+   16378,
+   16379,
+   16380,
+   16381,
+   16382,
+   16383,
+   16384,
+   16385,
+   16386,
+   16387,
+   16388,
+   16389,
+   16390
+  ],
+  "vendor:3335": [
+   5565,
+   16583,
+   17019,
+   17020,
+   17021,
+   17026,
+   17028,
+   17029,
+   17030,
+   17031,
+   17032,
+   17033,
+   17034,
+   17035,
+   17036,
+   17037,
+   17038,
+   21177
+  ],
+  "vendor:3334": [
+   2928,
+   2930,
+   3371,
+   3372,
+   3777,
+   5060,
+   5140,
+   5173,
+   8923,
+   8924,
+   8925
+  ],
+  "vendor:3329": [
+   4604,
+   4605,
+   4606,
+   4607,
+   4608,
+   8948
+  ],
+  "vendor:5816": [
+   5208,
+   5209,
+   5210,
+   5211,
+   5236,
+   5238,
+   5239,
+   5347
+  ],
+  "vendor:3349": [
+   2527,
+   2535
+  ],
+  "vendor:8404": [
+   10360,
+   10361,
+   10392
+  ],
+  "vendor:3317": [
+   200,
+   201,
+   202,
+   203,
+   837,
+   838,
+   839,
+   840,
+   2364,
+   2366,
+   2367,
+   2369,
+   3428,
+   3589,
+   3590,
+   3597,
+   3598,
+   3606,
+   3607,
+   16059,
+   16060
+  ],
+  "vendor:5817": [
+   2320,
+   2321,
+   2324,
+   2325,
+   2604,
+   2605,
+   2678,
+   2692,
+   2880,
+   2901,
+   2928,
+   3371,
+   3372,
+   3466,
+   3713,
+   3777,
+   3857,
+   4289,
+   4291,
+   4340,
+   4341,
+   4342,
+   4399,
+   4400,
+   5956,
+   6217,
+   6256,
+   6260,
+   6529,
+   6530,
+   6532,
+   7005,
+   8343,
+   8925
+  ],
+  "vendor:3322": [
+   2509,
+   2511,
+   2516,
+   2519,
+   3023,
+   3024,
+   3025,
+   3033,
+   5441,
+   11284
+  ],
+  "vendor:3312": [
+   117,
+   2287,
+   3770,
+   3771,
+   4599,
+   8952
+  ],
+  "vendor:5188": [
+   5976
+  ],
+  "vendor:6929": [
+   117,
+   159,
+   1179,
+   1205,
+   1645,
+   1708,
+   2287,
+   3770,
+   3771,
+   4599,
+   8766,
+   8952,
+   21815,
+   21829,
+   21833
+  ],
+  "vendor:3342": [
+   4536,
+   4537,
+   4538,
+   4539,
+   4602,
+   8953
+  ],
+  "vendor:3350": [
+   159,
+   1205,
+   1645,
+   1708,
+   2515,
+   2519,
+   3030,
+   3033,
+   3107,
+   3108,
+   3135,
+   3137,
+   4470,
+   4471,
+   4497,
+   4498,
+   11284,
+   11285,
+   15326,
+   15327
+  ],
+  "vendor:3351": [
+   5565,
+   16583,
+   17019,
+   17020,
+   17021,
+   17026,
+   17028,
+   17029,
+   17030,
+   17031,
+   17032,
+   17033,
+   17034,
+   17035,
+   17036,
+   17037,
+   17038,
+   21177
+  ],
+  "vendor:3358": [
+   2880,
+   2901,
+   3466,
+   3857
+  ],
+  "vendor:3333": [
+   6256,
+   6368,
+   6369,
+   6529,
+   6530,
+   6532,
+   17062
+  ],
+  "vendor:3346": [
+   4470,
+   6217,
+   11291,
+   20752,
+   20753,
+   20758,
+   22307
+  ],
+  "vendor:3366": [
+   2320,
+   2321,
+   2325,
+   2604,
+   2605,
+   4289,
+   4291,
+   4340,
+   4341,
+   4342,
+   6260,
+   6261,
+   7005,
+   8343,
+   10290,
+   14341
+  ],
+  "vendor:3367": [
+   2320,
+   2321,
+   2324,
+   2325,
+   2604,
+   2605,
+   2678,
+   2692,
+   2880,
+   2901,
+   2928,
+   3371,
+   3372,
+   3466,
+   3713,
+   3777,
+   3857,
+   4289,
+   4291,
+   4340,
+   4341,
+   4342,
+   4399,
+   4400,
+   5956,
+   6217,
+   6256,
+   6260,
+   6529,
+   6530,
+   6532,
+   7005,
+   8343,
+   8925
+  ],
+  "vendor:3368": [
+   117,
+   2287,
+   3770,
+   3771,
+   4599,
+   8952
+  ],
+  "vendor:3348": [
+   3371,
+   3372,
+   8925,
+   18256
+  ],
+  "vendor:3319": [
+   285,
+   286,
+   287,
+   718,
+   847,
+   848,
+   849,
+   850,
+   1202,
+   1845,
+   1846,
+   1852,
+   1853,
+   2376,
+   2398,
+   2399,
+   2400,
+   2401,
+   2402,
+   2403,
+   2445,
+   17185,
+   17187,
+   17188
+  ],
+  "vendor:3314": [
+   851,
+   852,
+   853,
+   854,
+   1194,
+   1196,
+   1197,
+   1198,
+   2130,
+   2131,
+   2132,
+   2134,
+   2139,
+   2207,
+   2479,
+   2480,
+   2488,
+   2489,
+   2490,
+   2491,
+   2492,
+   2493,
+   2494,
+   2495
+  ],
+  "vendor:3313": [
+   159,
+   1179,
+   1205,
+   1645,
+   1708,
+   2512,
+   2515,
+   2516,
+   2519,
+   2946,
+   2947,
+   3030,
+   3033,
+   3107,
+   3108,
+   3111,
+   3131,
+   3135,
+   3137,
+   4470,
+   4471,
+   4496,
+   4497,
+   4498,
+   4540,
+   5042,
+   5048,
+   11284,
+   11285,
+   15326,
+   15327
+  ],
+  "vendor:3321": [
+   236,
+   237,
+   238,
+   239,
+   843,
+   844,
+   845,
+   846,
+   1843,
+   1844,
+   1849,
+   1850,
+   2370,
+   2371,
+   2372,
+   2373,
+   2374,
+   2375
+  ],
+  "vendor:3359": [
+   6523,
+   6524,
+   6525,
+   6526
+  ],
+  "vendor:3361": [
+   851,
+   922,
+   923,
+   1198,
+   2024,
+   2027,
+   2207,
+   2208,
+   2209,
+   2520,
+   2526,
+   2528,
+   2534,
+   15903,
+   15904,
+   15905,
+   15906,
+   15907,
+   15909
+  ],
+  "vendor:7231": [
+   851,
+   922,
+   923,
+   1198,
+   2024,
+   2027,
+   2207,
+   2208,
+   2209,
+   2520,
+   2526,
+   2528,
+   15903,
+   15904,
+   15905,
+   15906,
+   15907
+  ],
+  "vendor:3405": [
+   3371,
+   3372,
+   8925,
+   22250
+  ],
+  "vendor:3315": [
+   2141,
+   2142,
+   2143,
+   2144,
+   2145,
+   2146,
+   2156,
+   2158,
+   2159,
+   2160,
+   2429,
+   2431,
+   2432,
+   2434,
+   2435,
+   2437,
+   2438,
+   2440,
+   2463,
+   2464,
+   2465,
+   2467,
+   2468,
+   2469,
+   2470,
+   2471,
+   2472,
+   2473,
+   2474,
+   2475,
+   2612,
+   2613,
+   2614,
+   2615,
+   2616,
+   2617,
+   2618,
+   3587,
+   3588,
+   3591,
+   3592,
+   3593,
+   3594,
+   3889,
+   3890,
+   3892,
+   3893
+  ],
+  "vendor:3369": [
+   4496,
+   4497,
+   4498,
+   4499
+  ],
+  "vendor:3400": [
+   159,
+   2678,
+   2692,
+   3713,
+   21099,
+   21219
+  ],
+  "vendor:4043": [
+   2521,
+   2523,
+   2525,
+   2529,
+   2531,
+   2533
+  ],
+  "vendor:3360": [
+   852,
+   854,
+   924,
+   925,
+   928,
+   1197,
+   2026,
+   2028,
+   2030
+  ],
+  "vendor:3362": [
+   1132,
+   5665,
+   5668,
+   12330,
+   12351,
+   18796,
+   18797,
+   18798
+  ],
+  "vendor:5812": [
+   285,
+   286,
+   287,
+   718,
+   847,
+   848,
+   849,
+   850,
+   1845,
+   1846,
+   1852,
+   1853,
+   2148,
+   2149,
+   2150,
+   2151,
+   2152,
+   2153,
+   2392,
+   2393,
+   2394,
+   2395,
+   2396,
+   2397,
+   2417,
+   2418,
+   2419,
+   2420,
+   2421,
+   2422,
+   2423,
+   2424,
+   2425,
+   2426,
+   2427,
+   2428,
+   2446,
+   2448,
+   2451,
+   3891,
+   3894,
+   8088,
+   8089,
+   8090,
+   8091,
+   8092,
+   8093,
+   8094,
+   17189,
+   17190,
+   17192
+  ],
+  "vendor:3410": [
+   2512,
+   2515,
+   3026,
+   3027,
+   3030,
+   5439,
+   11285,
+   11362
+  ],
+  "vendor:3409": [
+   853,
+   854,
+   926,
+   927,
+   928,
+   1196,
+   2025,
+   2029,
+   2030,
+   2495,
+   2507,
+   2512,
+   2515,
+   2946,
+   2947,
+   3026,
+   3107,
+   3108,
+   3111,
+   3131,
+   3135,
+   3137,
+   5439,
+   11362,
+   15326,
+   15327
+  ],
+  "vendor:3316": [
+   2141,
+   2142,
+   2143,
+   2144,
+   2145,
+   2146,
+   2156,
+   2158,
+   2159,
+   2160,
+   2429,
+   2431,
+   2432,
+   2434,
+   2435,
+   2437,
+   2438,
+   2440,
+   2463,
+   2464,
+   2465,
+   2467,
+   2468,
+   2469,
+   2470,
+   2471,
+   2472,
+   2473,
+   2474,
+   2475,
+   3587,
+   3588,
+   3591,
+   3592,
+   3593,
+   3594,
+   3889,
+   3890,
+   3892,
+   3893
+  ],
+  "vendor:3364": [
+   2320,
+   2321,
+   2324,
+   2325,
+   2604,
+   2605,
+   4291,
+   4340,
+   4341,
+   4342,
+   6260,
+   6261,
+   8343,
+   10290,
+   14341
+  ],
+  "vendor:3413": [
+   2880,
+   2901,
+   3466,
+   4399,
+   4400,
+   5956,
+   10647,
+   10648
+  ],
+  "vendor:3356": [
+   2880,
+   2901,
+   3466,
+   3857,
+   5956,
+   18567
+  ],
+  "vendor:15898": [
+   21557,
+   21558,
+   21559,
+   21571,
+   21574,
+   21576,
+   21721,
+   21747
+  ],
+  "vendor:13418": [
+   17402,
+   17403,
+   17404,
+   17405,
+   17406,
+   17407,
+   17408
+  ],
+  "vendor:13420": [
+   17194,
+   17195,
+   17196,
+   17200,
+   17201,
+   17202,
+   17303,
+   17304,
+   17307,
+   17344
+  ],
+  "vendor:15354": [
+   7228,
+   18632,
+   18633,
+   18635
+  ],
+  "vendor:14480": [
+   7228,
+   18632,
+   18633,
+   18635
+  ],
+  "vendor:15012": [
+   9312,
+   9313,
+   9314,
+   9315,
+   9318
+  ],
+  "vendor:8122": [
+   5740,
+   8624,
+   8625,
+   8626,
+   9312,
+   9313,
+   9314,
+   9315,
+   9317,
+   9318
+  ],
+  "vendor:12799": [
+   15197,
+   15200,
+   16335,
+   16341,
+   16486,
+   16497,
+   16532,
+   18427,
+   18428,
+   18429,
+   18430,
+   18432,
+   18434,
+   18435,
+   18436,
+   18437,
+   18461,
+   18675,
+   18834,
+   18845,
+   18846,
+   18849,
+   18850,
+   18851,
+   18852,
+   18853
+  ],
+  "vendor:3323": [
+   5565,
+   16583,
+   17019,
+   17020,
+   17021,
+   17026,
+   17028,
+   17029,
+   17030,
+   17031,
+   17032,
+   17033,
+   17034,
+   17035,
+   17036,
+   17037,
+   17038,
+   21177
+  ]
+ },
+ "generated": {
+  "source": "vmangos db-sqlite-13b49dc",
+  "tele": "Orgrimmar",
+  "radius": 750,
+  "counts": {
+   "auctioneers": 3,
+   "mailboxes": 2,
+   "anvil": 5,
+   "cooking_fire": 222,
+   "forge": 3,
+   "vendors": 56,
+   "items": 501
+  }
+ },
+ "overrides": {}
+}

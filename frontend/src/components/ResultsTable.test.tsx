@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { RankResult } from '../api/client'
 import { linen, robe as robeItem, thread } from '../test/items'
-import { bought, robeResult as robe } from '../test/results'
+import { bought, robeResult as robe, timedRobe } from '../test/results'
 import { mockApi, renderWithProviders, shown } from '../test/utils'
 import { ResultsTable } from './ResultsTable'
 
@@ -30,11 +30,11 @@ const disenchanted: RankResult = {
     },
   ],
   steps: [
-    { action: 'buy', item_id: 4, name: 'Medium Hide', quantity: 2, value: -12648, via: 'ah', who: '', discount: 0, bonus: 0, paths: ['r.0.0'] },
-    { action: 'craft', item_id: 5, name: 'Cured Medium Hide', quantity: 2, value: 0, via: 'Cure', who: '', discount: 0, bonus: 0, paths: ['r.0'] },
-    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, bonus: 0, paths: ['r'] },
-    { action: 'mail', item_id: 3, name: 'Green Robe', quantity: 1, value: -30, via: 'Enchy', who: '', discount: 0, bonus: 0, paths: ['r'] },
-    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 75988, via: 'disenchant', who: '', discount: 0, bonus: 0, paths: ['sell'] },
+    { action: 'buy', item_id: 4, name: 'Medium Hide', quantity: 2, value: -12648, via: 'ah', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.0.0'] },
+    { action: 'craft', item_id: 5, name: 'Cured Medium Hide', quantity: 2, value: 0, via: 'Cure', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.0'] },
+    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r'] },
+    { action: 'mail', item_id: 3, name: 'Green Robe', quantity: 1, value: -30, via: 'Enchy', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r'] },
+    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 75988, via: 'disenchant', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['sell'] },
   ],
 }
 
@@ -176,11 +176,11 @@ describe('ResultsTable', () => {
       recipe_id: 102,
       crafter: 'Smithy',
       steps: [
-        { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 6, value: -120, via: 'ah', who: 'Leathery', discount: 0, bonus: 0, paths: ['r.0.0'] },
-        { action: 'craft', item_id: 2, name: 'Coarse Thread', quantity: 2, value: 0, via: 'Thread', who: 'Leathery', discount: 0, bonus: 0, paths: ['r.0'] },
-        { action: 'mail', item_id: 2, name: 'Coarse Thread', quantity: 2, value: -30, via: 'Smithy', who: 'Leathery', discount: 0, bonus: 0, paths: ['r.0'] },
-        { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: 'Smithy', discount: 0, bonus: 0, paths: ['r'] },
-        { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: 'Smithy', discount: 0, bonus: 0, paths: ['sell'] },
+        { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 6, value: -120, via: 'ah', who: 'Leathery', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.0.0'] },
+        { action: 'craft', item_id: 2, name: 'Coarse Thread', quantity: 2, value: 0, via: 'Thread', who: 'Leathery', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.0'] },
+        { action: 'mail', item_id: 2, name: 'Coarse Thread', quantity: 2, value: -30, via: 'Smithy', who: 'Leathery', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.0'] },
+        { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: 'Smithy', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r'] },
+        { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: 'Smithy', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['sell'] },
       ],
     }
     renderWithProviders(<ResultsTable results={[split]} items={items} />)
@@ -390,21 +390,21 @@ describe('ResultsTable', () => {
     it('changes every use of a merged step at once, offering what they all offer, costs summed', async () => {
       const fetch = mockApi({ '/api/evaluate': { result: robe, items } })
       const both = (vendor: number, ah: number) => [
-        { key: 'vendor', cost: vendor, source: 'vendor', via: '', crafter: '' },
-        { key: 'ah', cost: ah, source: 'ah', via: '', crafter: '' },
+        { key: 'vendor', cost: vendor, source: 'vendor', via: '', crafter: '', seconds: 0 },
+        { key: 'ah', cost: ah, source: 'ah', via: '', crafter: '', seconds: 0 },
       ]
       // Thread for a sub-crafted bolt (r.0.0) and for the robe itself (r.1), bought in one step.
       const merged: RankResult = {
         ...robe,
         steps: [
-          { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 3, value: -300, via: 'vendor', who: '', discount: 0, bonus: 0, paths: ['r.0.0', 'r.1'] },
+          { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 3, value: -300, via: 'vendor', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.0.0', 'r.1'] },
           ...robe.steps.slice(2),
         ],
         tree: {
           ...robe.tree,
           inputs: [
             { ...robe.tree, item_id: 1, name: 'Linen Cloth', inputs: [bought(2, 'Coarse Thread', 2, 200, 'vendor', both(200, 300))] },
-            bought(2, 'Coarse Thread', 1, 100, 'vendor', [...both(100, 150), { key: 'craft:9', cost: 90, source: '', via: 'Spin', crafter: '' }]),
+            bought(2, 'Coarse Thread', 1, 100, 'vendor', [...both(100, 150), { key: 'craft:9', cost: 90, source: '', via: 'Spin', crafter: '', seconds: 0 }]),
           ],
         },
       }
@@ -445,5 +445,71 @@ describe('ResultsTable', () => {
       renderWithProviders(<ResultsTable results={[robe]} items={items} />)
       expect(screen.queryByRole('button', { name: 'Actions for Green Robe' })).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('ResultsTable profit per hour', () => {
+  const header = (name: string) => screen.getByRole('columnheader', { name: new RegExp(`^${name}`) })
+
+  it('shows profit per hour, with the batch time on hover', () => {
+    renderWithProviders(<ResultsTable results={[timedRobe]} items={items} />)
+    const cell = line('1 23 45')
+    expect(cell).toHaveAttribute('title', '20 crafts in 4 min 10 s')
+  })
+
+  it('shows a dash without a timing', () => {
+    renderWithProviders(<ResultsTable results={[robe]} items={items} />)
+    expect(line('–')).toBeInTheDocument()
+  })
+
+  it('ranks by profit or per hour on the server when it can', async () => {
+    const onRankBy = vi.fn()
+    const cheap = { ...timedRobe, recipe_id: 7, recipe: 'Cap', output_name: 'Cap', profit: 10 }
+    renderWithProviders(
+      <ResultsTable results={[timedRobe, cheap]} items={items} rankBy="profit" onRankBy={onRankBy} />,
+    )
+    expect(header('Profit')).toHaveAttribute('aria-sort', 'descending')
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Per hour' }))
+    expect(onRankBy).toHaveBeenCalledWith('rate')
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Cost' }))
+    expect(header('Cost')).toHaveAttribute('aria-sort', 'descending')
+    expect(header('Profit')).toHaveAttribute('aria-sort', 'none')
+  })
+
+  it('names the new Forever stations a plan needs, counted as set down on the spot', async () => {
+    const deployed: RankResult = { ...timedRobe, timing: { ...timedRobe.timing!, deployed: ['loom', 'spinning_wheel'] } }
+    renderWithProviders(<ResultsTable results={[deployed]} items={items} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    expect(
+      screen.getByText('Needs a loom and a spinning wheel'),
+    ).toBeInTheDocument()
+  })
+
+  it('says when a city lacks a station the plan needs, and never recommends it', async () => {
+    const noAnvil: RankResult = {
+      ...timedRobe,
+      timing: { ...timedRobe.timing!, missing: ['anvil', 'spinning_wheel'] },
+      cities: [{ ...timedRobe.cities[0]!, missing: ['anvil'] }, timedRobe.cities[1]!],
+    }
+    renderWithProviders(<ResultsTable results={[noAnvil]} items={items} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    expect(screen.getByText(/Orgrimmar has no anvil or spinning wheel: this plan can't be crafted there/)).toBeInTheDocument()
+    const text = (t: string) => screen.getByText((_, el) => el?.tagName === 'P' && shown(el) === t)
+    expect(text('By city: Orgrimmar (no anvil) · Booty Bay 1 min (5 12 34/hr) · quickest in Booty Bay')).toBeInTheDocument()
+  })
+
+  it('shows the time of each step, the runs, and how the cities compare', async () => {
+    renderWithProviders(<ResultsTable results={[timedRobe]} items={items} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    const text = (t: string) => screen.getByText((_, el) => el?.tagName === 'P' && shown(el) === t)
+    expect(text('A batch of 20 takes 4 min 10 s in Orgrimmar: 1 23 45/hr')).toBeInTheDocument()
+    expect(text('running 3 min 20 s · crafting 50 s')).toBeInTheDocument()
+    expect(line('Auctioneer → Thread Seller → Auctioneer (3 min 20 s)')).toBeInTheDocument()
+    expect(text('By city: Orgrimmar 4 min 10 s (1 23 45/hr) · Booty Bay 1 min (5 12 34/hr) · quickest in Booty Bay')).toBeInTheDocument()
+    expect(screen.getByText(/No vendor in Orgrimmar sells Coarse Thread/)).toBeInTheDocument()
+    expect(screen.queryByText(/can't be crafted there/)).not.toBeInTheDocument()
+    await showSteps()
+    expect(line('Craft 1x Green Robe · 3.5 s')).toBeInTheDocument()
+    expect(line('Purchase 10x Linen Cloth on the AH (2 0)')).toBeInTheDocument() // no time: no suffix
   })
 })

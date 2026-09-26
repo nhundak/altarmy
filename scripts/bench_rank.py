@@ -3,7 +3,8 @@
 Usage: python scripts/bench_rank.py [--game-version forever|tbc] [--altarmy <AltArmy_TBC.lua>] [--repeat N]
 Characters come from --altarmy if given, else from the database (as last synced). Prices are the selected
 realm's auction house's. The database is DATABASE_URL, else data/altarmy-profit.sqlite. Prints the best of N
-runs per step.
+runs per step. "timed" ranks with unlearned recipes in the version's first faction city (or anywhere) at
+50 gold per hour of play; "by rate" then sorts those results by profit per hour (timing each).
 """
 
 import argparse
@@ -13,8 +14,8 @@ from functools import partial
 from pathlib import Path
 from typing import TypeVar
 
-from altarmy_profit import altarmy, db, prices, service, store, versions
-from altarmy_profit.engine import Filters
+from altarmy_profit import altarmy, db, prices, service, store, timing, versions
+from altarmy_profit.engine import Filters, TimeModel
 
 T = TypeVar("T")
 
@@ -53,14 +54,26 @@ def main() -> None:
         else store.load_characters(conn, db.LOCAL_UID, v.key)
     )
     everything = Filters(min_profit=-(10**18))
-    print(f"{'realm (faction)':<32} {'chars':>5} {'learned':>16} {'+ unlearned':>16}")
+    cities = store.load_cities(v.cities_dir)
+    config = timing.TimeConfig(time_value=50 * 10_000)
+    columns = f"{'learned':>16} {'+ unlearned':>16} {'timed':>16} {'by rate':>8}"
+    print(f"{'realm (faction)':<32} {'chars':>5} {columns}")
     for g in altarmy.groups(chars):
         cells = []
         for unlearned in (False, True):
             search = partial(service.search, market, g.characters, unlearned, everything)
             secs, results = best_of(args.repeat, search)
             cells.append(f"{secs:6.3f}s {len(results):>5}")
-        print(f"{g.realm + ' (' + g.faction + ')':<32} {len(g.characters):>5} {cells[0]:>16} {cells[1]:>16}")
+        model = TimeModel(config, service.default_city(cities, g.faction))
+        timed = partial(service.search, market, g.characters, True, everything, time=model)
+        secs, results = best_of(args.repeat, timed)
+        cells.append(f"{secs:6.3f}s {len(results):>5}")
+        rate_secs, _ = best_of(1, partial(service.by_rate, results))
+        cells.append(f"{rate_secs:6.3f}s")
+        print(
+            f"{g.realm + ' (' + g.faction + ')':<32} {len(g.characters):>5} {cells[0]:>16} {cells[1]:>16}"
+            f" {cells[2]:>16} {cells[3]:>8}"
+        )
     conn.close()
     database.dispose()
 

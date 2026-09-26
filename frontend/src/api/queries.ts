@@ -9,6 +9,7 @@ import {
   type Selection,
   type Sources,
   type Status,
+  type TimeConfig,
   type UpdateResult,
 } from './client'
 import { GAME_VERSION } from '../lib/gameVersion'
@@ -94,6 +95,8 @@ export type RankParams = {
   maxRoi: number | null
   /** only recipes of these professions; empty for every one */
   professions: string[]
+  /** best profit per craft first, or per hour of play */
+  sort: 'profit' | 'rate'
   top: number
 }
 
@@ -120,6 +123,7 @@ export function useRank(params: RankParams) {
               min_roi: orUndefined(params.minRoi),
               max_roi: orUndefined(params.maxRoi),
               professions: params.professions.length ? params.professions : undefined,
+              sort: params.sort === 'rate' ? 'rate' : undefined,
               top: params.top,
             },
           },
@@ -295,6 +299,29 @@ export function useAhBlocked() {
   return useQuery({
     queryKey: ['ah-blocked', GAME_VERSION],
     queryFn: () => call(client.GET('/api/ah-blocked', GV)),
+  })
+}
+
+/** The user's time settings: where plans are timed, seconds per action, what an hour is worth. */
+export function useTime() {
+  return useQuery({
+    queryKey: ['time', GAME_VERSION],
+    queryFn: () => call(client.GET('/api/time', GV)),
+  })
+}
+
+/** Save the city (null: the faction's default) and the settings that differ from the defaults; searches and
+ * re-costed plans are refetched, since plans depend on them. */
+export function useSetTime() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { city: string | null; config: Partial<TimeConfig> }) =>
+      call(client.PUT('/api/time', { ...GV, body: { city: body.city, config: body.config as Record<string, number> } })),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(['time', GAME_VERSION], settings)
+      return queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'rank' || q.queryKey[0] === 'evaluate' })
+    },
+    onError: showError('Could not save the time settings'),
   })
 }
 

@@ -7,7 +7,7 @@ export const bought = (
   quantity: number,
   cost: number,
   source = 'ah',
-  options: FlowNode['options'] = [{ key: source, cost, source, via: '', crafter: '' }],
+  options: FlowNode['options'] = [{ key: source, cost, source, via: '', crafter: '', seconds: 0 }],
 ): FlowNode => ({
   item_id,
   name,
@@ -21,6 +21,7 @@ export const bought = (
   mail_to: '',
   postage: 0,
   discount: 0,
+  seconds: 0,
   options,
   option: source,
   inputs: [],
@@ -54,10 +55,10 @@ export const robeResult: RankResult = {
     { item_id: 2, count: 1 },
   ],
   steps: [
-    { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 10, value: -200, via: 'ah', who: '', discount: 0, bonus: 0, paths: ['r.0'] },
-    { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 1, value: -100, via: 'vendor', who: '', discount: 0, bonus: 0, paths: ['r.1'] },
-    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, bonus: 0, paths: ['r'] },
-    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: '', discount: 0, bonus: 0, paths: ['sell'] },
+    { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 10, value: -200, via: 'ah', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.0'] },
+    { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 1, value: -100, via: 'vendor', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r.1'] },
+    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['r'] },
+    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: '', discount: 0, bonus: 0, seconds: 0, station: '', paths: ['sell'] },
   ],
   tree: {
     item_id: 3,
@@ -72,13 +73,14 @@ export const robeResult: RankResult = {
     mail_to: '',
     postage: 0,
     discount: 0,
+    seconds: 0,
     options: [],
     option: '',
     inputs: [
       bought(1, 'Linen Cloth', 10, 200),
       bought(2, 'Coarse Thread', 1, 100, 'vendor', [
-        { key: 'vendor', cost: 100, source: 'vendor', via: '', crafter: '' },
-        { key: 'ah', cost: 150, source: 'ah', via: '', crafter: '' },
+        { key: 'vendor', cost: 100, source: 'vendor', via: '', crafter: '', seconds: 0 },
+        { key: 'ah', cost: 150, source: 'ah', via: '', crafter: '', seconds: 0 },
       ]),
     ],
   },
@@ -86,4 +88,33 @@ export const robeResult: RankResult = {
     { kind: 'vendor', profit: 200 },
     { kind: 'ah', profit: 175 },
   ],
+  cities: [],
+}
+
+/** The robe timed in Orgrimmar: a 3.5 s craft, a run to the thread seller and back, 1g 23s 45c an hour; quicker
+ * in Booty Bay. No vendor there sells thread. */
+export const timedRobe: RankResult = {
+  ...robeResult,
+  steps: robeResult.steps.map((s) => (s.action === 'craft' ? { ...s, seconds: 3.5, station: 'anvil' } : s)),
+  timing: {
+    city: 'Orgrimmar',
+    batch: 20,
+    fixed_seconds: 200,
+    per_craft_seconds: 2.5,
+    total_seconds: 250,
+    per_hour: 12345,
+    breakdown: { travel: 200, switch: 0, ah: 0, vendor: 0, mail: 0, craft: 50, disenchant: 0 },
+    legs: [
+      { who: '', from_id: 'ah', from_name: 'Auctioneer', to_id: 'vendor:1', to_name: 'Thread Seller', seconds: 100 },
+      { who: '', from_id: 'vendor:1', from_name: 'Thread Seller', to_id: 'ah', to_name: 'Auctioneer', seconds: 100 },
+    ],
+    unsold: [2],
+    missing: [],
+    deployed: [],
+  },
+  cities: [
+    { city: 'Orgrimmar', total_seconds: 250, per_hour: 12345, missing: [] },
+    { city: 'Booty Bay', total_seconds: 60, per_hour: 51234, missing: [] },
+  ],
+  best_city: 'Booty Bay',
 }

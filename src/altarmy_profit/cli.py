@@ -14,9 +14,11 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import altarmy, db, ingest, legacy, merge, prices, service, store, versions, watch
+from sqlalchemy import Connection
+
+from . import altarmy, db, ingest, legacy, merge, prices, service, store, timing, versions, watch
 from .db import LOCAL_UID
-from .engine import Filters, format_money
+from .engine import Filters, TimeModel, format_money
 from .store import load_market
 from .versions import GameVersion
 
@@ -138,29 +140,65 @@ def cmd_rank(args: argparse.Namespace) -> None:
         ah = service.auction_house_of(conn, v.key, sel)
         market = load_market(conn, v.key, ah, ah_cut=v.ah_cut, mail_postage=v.mail_postage)
         no_ah = frozenset(i for i, _ in store.load_ah_blocked(conn, LOCAL_UID, v.key))
-    if sel is None:  # no Alt Army import: rank every recipe
-        results = market.rank(min_profit=args.min_profit, skill_name=args.skill)
-    else:
+        model = _time_model(args, conn, v, sel.faction if sel else "")
+    if sel is not None:
         print(f"{sel.realm} ({sel.faction}). Characters: {', '.join(c.name for c in chars)}")
-        filters = Filters(min_profit=args.min_profit)
-        results = service.search(
-            market, chars, args.include_unlearned, filters, no_ah=no_ah, include_trivial=not args.no_trivial
-        )
-        if args.skill:
-            results = [r for r in results if r.recipe.skill_name.lower() == args.skill.lower()]
+    cfg = model.config
+    worth = format_money(cfg.time_value)
+    print(f"Timed in {model.city.name}: {cfg.batch} crafts per session, an hour worth {worth}.")
+    filters = Filters(min_profit=args.min_profit)
+    results = service.search(
+        market,
+        chars,
+        args.include_unlearned,
+        filters,
+        no_ah=no_ah,
+        include_trivial=not args.no_trivial,
+        time=model,
+    )
+    if args.skill:
+        results = [r for r in results if r.recipe.skill_name.lower() == args.skill.lower()]
+    if args.sort == "rate":
+        results = service.by_rate(results)
     results = results[: args.top]
     if not results:
         print("No profitable recipes found (are prices imported?).")
         return
     for r in results:
         out = market.items[r.recipe.output_item_id].name
+        t = r.timing
+        assert t is not None
+        per_hour = format_money(t.per_hour(r.profit))
         print(
-            f"{format_money(r.profit):>14}  {r.roi:6.0%}  {r.recipe.name} -> {r.recipe.output_count}x {out}"
-            f"  [cost {format_money(r.cost)}, sell via {r.best_exit}]"
+            f"{format_money(r.profit):>14}  {per_hour:>16}/h  {r.roi:6.0%}  {r.recipe.name}"
+            f" -> {r.recipe.output_count}x {out}  [cost {format_money(r.cost)}, sell via {r.best_exit},"
+            f" {t.batch} in {t.total_seconds / 60:.1f} min]"
         )
         for step in r.steps:
             if step.action == "craft" and step.via != r.recipe.name:
                 print(f"{'':>24}chain: {step.quantity}x {step.name} via {step.via}")
+
+
+def _time_model(args: argparse.Namespace, conn: Connection, v: GameVersion, faction: str) -> TimeModel:
+    """The saved time settings (as the web app's), with this run's --city, --batch and --gold-per-hour."""
+    cities = store.load_cities(v.cities_dir)
+    model = service.time_model(conn, LOCAL_UID, v.key, cities, faction)
+    city = model.city
+    if args.city is not None:
+        if args.city not in cities:
+            known = ", ".join(cities) or "none (run scripts/build_cities.py)"
+            sys.exit(f"No city preset named {args.city}; known: {known}.")
+        city = cities[args.city]
+    changes: dict[str, object] = {}
+    if args.batch is not None:
+        changes["batch"] = args.batch
+    if args.gold_per_hour is not None:
+        changes["time_value"] = round(args.gold_per_hour * 10_000)
+    try:
+        config = timing.config_from_dict(changes, model.config)
+    except ValueError as e:
+        sys.exit(str(e))
+    return TimeModel(config, city)
 
 
 def cmd_ui(args: argparse.Namespace) -> None:
@@ -270,6 +308,14 @@ def main(argv: list[str] | None = None) -> None:
     )
     s.add_argument(
         "--no-trivial", action="store_true", help="only recipes that can give the crafter a skillup"
+    )
+    s.add_argument(
+        "--sort", choices=["profit", "rate"], default="profit", help="per craft, or per hour of play"
+    )
+    s.add_argument("--city", help="time plans in this city preset (this run; default: the saved one)")
+    s.add_argument("--batch", type=int, help="crafts per session (this run)")
+    s.add_argument(
+        "--gold-per-hour", type=float, help="what an hour of play is worth; plans weigh time by it (this run)"
     )
     s.set_defaults(fn=cmd_rank)
 

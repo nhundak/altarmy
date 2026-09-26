@@ -3,13 +3,14 @@ search an auction house's prices."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
 
 from sqlalchemy import Connection, delete, func, select
 
-from . import db, prices, schema
+from . import db, prices, schema, timing
 from .altarmy import Character, Profession
 from .engine import AH_CUT, MAIL_POSTAGE, DisenchantRow, Item, Market, Recipe
 
@@ -106,6 +107,8 @@ def load_market(
             r.spell_id,
             r.trivial_low,
             r.trivial_high,
+            cast_time_ms=r.cast_time_ms,
+            station=r.station,
         )
         for r in conn.execute(select(rt).where(rt.c.game_version == game_version).order_by(rt.c.id))
     ]
@@ -125,6 +128,19 @@ def load_market(
     ]
     buy, sell = prices.load_buy_and_sell(conn, auction_house_id)
     return Market(items, recipes, buy, de, ah_cut, mail_postage=mail_postage, sell_prices=sell)
+
+
+def load_cities(folder: Path) -> dict[str, timing.CityMap]:
+    """The city presets in `folder` (a version's `cities_dir`) by name, sorted; none if it is missing.
+    ValueError naming the file if one is malformed."""
+    out: dict[str, timing.CityMap] = {}
+    for path in sorted(folder.glob("*.json")) if folder.is_dir() else ():
+        try:
+            city = timing.CityMap.from_dict(json.loads(path.read_text(encoding="utf-8")))
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"bad city preset {path.name}: {e}") from e
+        out[city.name] = city
+    return dict(sorted(out.items()))
 
 
 def load_item_details(conn: Connection, game_version: str, ids: Iterable[int]) -> dict[int, ItemDetails]:

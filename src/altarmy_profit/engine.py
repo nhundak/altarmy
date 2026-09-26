@@ -6,6 +6,9 @@ from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 
+from . import timing
+from .timing import Timing
+
 AH_CUT = 0.05  # auction house cut taken from the sale price (deposit ignored)
 MAIL_POSTAGE = 30  # copper per attached item
 MAX_CHAIN_DEPTH = 3
@@ -56,6 +59,8 @@ class Recipe:
     spell_id: int = 0  # the craft spell; Alt Army's recipe ids
     trivial_low: int = 0  # skill where it turns yellow; 0 if unknown
     trivial_high: int = 0  # skill where it turns grey (no more skillups); 0 if unknown
+    cast_time_ms: int = 0  # one cast; 0 if instant or unknown
+    station: str = ""  # the crafting station it is cast at (`timing.station_kind`: anvil, loom, ...); "" none
 
 
 @dataclass(frozen=True)
@@ -145,6 +150,9 @@ class Step:
     paths: tuple[str, ...] = field(default=(), compare=False)
     discount: int = 0  # buy from a vendor: percent off from the buyer's Legacy talents (Bartering)
     bonus: float = 0.0  # sell: expected extra units on top of `quantity` (Master Chef), counted in `value`
+    # seconds of play per craft of the recipe the step itself takes (clicks, casts); travel is in `Timing`
+    seconds: float = field(default=0.0, compare=False)
+    station: str = field(default="", compare=False)  # craft: the station it is cast at; "" anywhere
 
 
 @dataclass(frozen=True)
@@ -156,6 +164,7 @@ class Option:
     source: str = ""  # vendor | ah if bought
     via: str = ""  # recipe name if crafted
     crafter: str = ""  # who crafts it: the cheapest character for that recipe
+    seconds: float = field(default=0.0, compare=False)  # estimated play time per craft this way (see Node)
 
 
 @dataclass(frozen=True)
@@ -187,6 +196,27 @@ class Node:
     # every way to get these items, cheapest first; empty for the recipe's own craft
     options: tuple[Option, ...] = field(default=(), compare=False)
     option: str = field(default="", compare=False)  # the key of the option taken; "" for the recipe's craft
+    # With a time model: estimated play time per craft of the recipe for this whole branch, travel and
+    # switches shared out over the batch (what plans are chosen by); the node's own buy or craft clicks and
+    # casts, and its mail's, per craft; and where it is crafted.
+    seconds: float = field(default=0.0, compare=False)
+    act_seconds: float = field(default=0.0, compare=False)
+    mail_seconds: float = field(default=0.0, compare=False)
+    station: str = field(default="", compare=False)
+
+
+@dataclass(frozen=True, eq=False)
+class TimeModel:
+    """How plans are timed: the user's `timing.TimeConfig` in one city. With a time value, plans are chosen
+    by copper plus the value of the play time they take."""
+
+    config: timing.TimeConfig
+    city: timing.CityMap
+
+    @property
+    def key(self) -> tuple[str, timing.TimeConfig]:
+        """What a ranking under this model depends on (the city by name: maps are loaded once)."""
+        return self.city.name, self.config
 
 
 @dataclass
@@ -202,6 +232,12 @@ class Result:
     crafter: str = ""  # who does the final craft; "" if no characters are known
     sell_options: list[SellOption] = field(default_factory=list)  # each exit's best profit, best first
     bonus_output: float = 0.0  # expected extra units per craft from the crafter's talents (Master Chef)
+    # With a time model: the estimated play time per craft (what the plan was chosen by), and the per-craft
+    # seconds of the sale and of mailing the output to whoever sells it
+    seconds: float = field(default=0.0, compare=False)
+    sell_seconds: float = field(default=0.0, compare=False)
+    mail_seconds: float = field(default=0.0, compare=False)
+    time_model: TimeModel | None = field(default=None, compare=False, repr=False)
 
     @cached_property
     def steps(self) -> list[Step]:
@@ -209,8 +245,27 @@ class Result:
         when first read, so a ranking never schedules results nobody looks at. Pure over frozen fields, so
         two threads reading a shared result at once merely plan the same steps twice."""
         return plan_steps(
-            self.tree, self.best_exit, self.revenue, self.mail_to, self.postage, self.bonus_output
+            self.tree,
+            self.best_exit,
+            self.revenue,
+            self.mail_to,
+            self.postage,
+            self.bonus_output,
+            self.sell_seconds,
+            self.mail_seconds,
         )
+
+    @cached_property
+    def timing(self) -> Timing | None:
+        """How long a batch takes in the model's city, routed step by step (see `time_result`); None
+        without a time model. Worked out when first read, like `steps`."""
+        return None if self.time_model is None else time_result(self, self.time_model)
+
+    @property
+    def rate(self) -> int | None:
+        """Copper per hour of play; None without a time model."""
+        t = self.timing
+        return None if t is None else t.per_hour(self.profit)
 
     @property
     def profit(self) -> int:
@@ -260,8 +315,8 @@ def _touches(choices: Choices, path: str) -> bool:
 
 def _option(key: str, node: Node) -> Option:
     if node.via:
-        return Option(key, node.cost, via=node.via, crafter=node.crafter)
-    return Option(key, node.cost, source=node.source)
+        return Option(key, node.cost, via=node.via, crafter=node.crafter, seconds=node.seconds)
+    return Option(key, node.cost, source=node.source, seconds=node.seconds)
 
 
 def ah_net(price: int, cut: float = AH_CUT) -> int:
@@ -305,7 +360,14 @@ def _schedule(steps: dict[StepKey, Step], deps: dict[StepKey, set[StepKey]]) -> 
 
 
 def plan_steps(
-    tree: Node, sell_via: str, revenue: int, mail_to: str = "", postage: int = 0, bonus: float = 0.0
+    tree: Node,
+    sell_via: str,
+    revenue: int,
+    mail_to: str = "",
+    postage: int = 0,
+    bonus: float = 0.0,
+    sell_seconds: float = 0.0,
+    mail_seconds: float = 0.0,
 ) -> list[Step]:
     """Instructions for a craft tree: buy every bought reagent (merged per item and character), craft
     intermediates, mail each to the character who needs it, craft, mail the output to `mail_to` if set
@@ -313,7 +375,8 @@ def plan_steps(
     before what it needs; within that, the steps are
     grouped per character, each doing all their buys, then crafts, then mails before another takes
     over (see `_schedule`). Sub-crafts are whole crafts, so a multi-output intermediate may leave
-    spares. Each step names the tree paths it stands for (a mail its craft's)."""
+    spares. Each step names the tree paths it stands for (a mail its craft's) and carries its nodes'
+    seconds (`sell_seconds` and `mail_seconds` for the sale and the output's mail)."""
     steps: dict[StepKey, Step] = {}  # in walk order
     deps: dict[StepKey, set[StepKey]] = {}
 
@@ -326,6 +389,7 @@ def plan_steps(
                 quantity=step.quantity + had.quantity,
                 value=step.value + had.value,
                 paths=had.paths + step.paths,
+                seconds=step.seconds + had.seconds,
             )
             if had
             else step
@@ -347,24 +411,33 @@ def plan_steps(
                 node.crafter,
                 at,
                 discount=node.discount,
+                seconds=node.act_seconds,
             )
             return add(step, set())
         inputs = {walk(n, f"{path}.{i}") for i, n in enumerate(node.inputs)}
-        step = Step("craft", node.item_id, node.name, node.made, via=node.via, who=node.crafter, paths=at)
-        craft = add(step, inputs)
+        craft = add(_craft_step(node, at), inputs)
         if not node.mail_to:
             return craft
         mail = Step(
-            "mail", node.item_id, node.name, node.quantity, -node.postage, node.mail_to, node.crafter, at
+            "mail",
+            node.item_id,
+            node.name,
+            node.quantity,
+            -node.postage,
+            node.mail_to,
+            node.crafter,
+            at,
+            seconds=node.mail_seconds,
         )
         return add(mail, {craft})
 
     inputs = {walk(n, f"{ROOT}.{i}") for i, n in enumerate(tree.inputs)}
     who, root = tree.crafter, (ROOT,)
-    craft = Step("craft", tree.item_id, tree.name, tree.made, via=tree.via, who=who, paths=root)
-    last = add(craft, inputs)
+    last = add(_craft_step(tree, root), inputs)
     if mail_to:
-        mail = Step("mail", tree.item_id, tree.name, tree.made, -postage, mail_to, who, root)
+        mail = Step(
+            "mail", tree.item_id, tree.name, tree.made, -postage, mail_to, who, root, seconds=mail_seconds
+        )
         last = add(mail, {last})
     sale = Step(
         "sell",
@@ -376,9 +449,87 @@ def plan_steps(
         mail_to or who,
         (SELL,),
         bonus=bonus,
+        seconds=sell_seconds,
     )
     add(sale, {last})
     return _schedule(steps, deps)
+
+
+def _craft_step(node: Node, paths: tuple[str, ...]) -> Step:
+    return Step(
+        "craft",
+        node.item_id,
+        node.name,
+        node.made,
+        via=node.via,
+        who=node.crafter,
+        paths=paths,
+        seconds=node.act_seconds,
+        station=node.station,
+    )
+
+
+# --- exact timing ------------------------------------------------------------------------------------
+_STEP_KIND = {("buy", "ah"): "ah", ("buy", "vendor"): "vendor", ("sell", "ah"): "ah"}
+
+
+def _step_kind(step: Step) -> str:
+    """The `timing.BREAKDOWN` kind a step's seconds count as."""
+    if step.action in ("craft", "mail"):
+        return step.action
+    if step.action == "sell":
+        return {"ah": "ah", "vendor": "vendor"}.get(step.via, "disenchant")
+    return _STEP_KIND.get((step.action, step.via), "vendor")
+
+
+def time_result(result: Result, model: TimeModel) -> timing.Timing:
+    """How long a batch of `result` takes in the model's city: its steps in order, one block per stretch a
+    character is logged in (see `_schedule`), each routed through the city (`timing.time_blocks`). A
+    character who was mailed something starts at the mailbox; one search per item on the AH is paid per
+    batch, for buying and for selling (disenchant materials count as sold on the AH)."""
+    blocks: list[timing.Block] = []
+    mailed: set[str] = set()  # who has been sent something so far
+    run: list[Step] = []
+
+    def close() -> None:
+        if not run:
+            return
+        who = run[0].who
+        searched = {s.item_id for s in run if s.via == "ah"}
+        searched |= {m.item_id for s in run if s.via == "disenchant" for m in _materials(result)}
+        per_craft: dict[str, float] = {}
+        for s in run:
+            kind = _step_kind(s)
+            per_craft[kind] = per_craft.get(kind, 0.0) + s.seconds
+        stations = tuple(dict.fromkeys(s.station for s in run if s.action == "craft" and s.station))
+        blocks.append(
+            timing.Block(
+                who,
+                receives_mail=who in mailed,
+                buys_ah=any(s.action == "buy" and s.via == "ah" for s in run),
+                vendor_items=frozenset(s.item_id for s in run if s.action == "buy" and s.via == "vendor"),
+                stations=stations,
+                sends_mail=any(s.action == "mail" for s in run),
+                sells_ah=any(s.action == "sell" and s.via in ("ah", "disenchant") for s in run),
+                sells_vendor=any(s.action == "sell" and s.via == "vendor" for s in run),
+                fixed={"ah": model.config.ah_search * len(searched)} if searched else {},
+                per_craft=per_craft,
+            )
+        )
+        mailed.difference_update({who})
+        mailed.update(s.via for s in run if s.action == "mail")
+        run.clear()
+
+    for step in result.steps:
+        if run and step.who != run[0].who:
+            close()
+        run.append(step)
+    close()
+    return timing.time_blocks(blocks, model.config, model.city)
+
+
+def _materials(result: Result) -> tuple[Material, ...]:
+    return next((e.materials for e in result.exits if e.kind == "disenchant"), ())
 
 
 class Market:
@@ -397,6 +548,7 @@ class Market:
         include_trivial: bool = True,
         mail_postage: int = MAIL_POSTAGE,
         sell_prices: dict[int, int] | None = None,
+        time: TimeModel | None = None,
     ):
         """`crafters` are the characters who craft and disenchant, mailing items between them; without
         them one unnamed character does everything. `include_unlearned` lets anyone with a recipe's
@@ -405,7 +557,9 @@ class Market:
         is only done by a character it can give a skillup (see `can_skill_up`); sub-crafts may be grey.
         `mail_postage` is the copper charged per mail attachment on this game version. Reagents are bought
         at `prices`; crafts and disenchant materials are sold at `sell_prices` (default: `prices`), which
-        may be more conservative than the newest listing."""
+        may be more conservative than the newest listing. With a `time` model every node and result
+        carries estimated play time, and with its time value plans are chosen by copper plus the value of
+        that time (see `_effective`)."""
         self.items = items
         self.recipes = recipes
         self.prices = prices
@@ -418,6 +572,9 @@ class Market:
         self.no_ah = no_ah
         self.include_trivial = include_trivial
         self.mail_postage = mail_postage
+        self.time = time
+        self._per_second = time.config.time_value / 3600 if time else 0.0  # copper a second of play is worth
+        self._trips: dict[str, float] = {}
         self._by_output: dict[int, list[Recipe]] = {}
         for r in recipes:
             self._by_output.setdefault(r.output_item_id, []).append(r)
@@ -513,9 +670,75 @@ class Market:
 
     def postage(self, item_id: int, qty: int) -> int:
         """Copper to mail `qty` units: one attachment per stack."""
+        return self.mail_postage * -(-qty // self._stack(item_id))
+
+    def _stack(self, item_id: int) -> int:
         item = self.items.get(item_id)
-        stack = max(1, item.stack_size) if item else 1
-        return self.mail_postage * -(-qty // stack)
+        return max(1, item.stack_size) if item else 1
+
+    # --- play time -----------------------------------------------------------------------------------
+    # Seconds are per craft of the recipe being evaluated: clicks per stack are counted in fractions of a
+    # stack, and a trip across the city, a character switch or an AH search is shared by the batch.
+    def _effective(self, copper: int, seconds: float) -> float:
+        """What a plan costs counting its play time at the time value: plans are compared by this."""
+        return copper + self._per_second * seconds
+
+    def _trip(self, target: str) -> float:
+        """A trip from the hub to `target` (a location id or kind) and back, shared by the batch."""
+        assert self.time is not None
+        got = self._trips.get(target)
+        if got is None:
+            got = self.time.city.trip(target, self.time.config) / self.time.config.batch
+            self._trips[target] = got
+        return got
+
+    def _buy_seconds(self, item_id: int, qty: int, source: str) -> tuple[float, float]:
+        """(the buy's own seconds, with the shared trip and search) for `qty` units from `source`."""
+        if self.time is None:
+            return 0.0, 0.0
+        cfg, stacks = self.time.config, qty / self._stack(item_id)
+        if source == "ah":
+            act = cfg.ah_buy * stacks
+            return act, act + cfg.ah_search / cfg.batch + self._trip("ah")
+        act = cfg.vendor_buy * stacks
+        key = f"vendor-of:{item_id}"
+        if key not in self._trips:
+            seller = self.time.city.vendor_for(item_id, self.time.city.hub.id, cfg)
+            self._trips[key] = self._trip(seller.id if seller else "vendor")
+        return act, act + self._trips[key]
+
+    def _mail_seconds(self, item_id: int, qty: int) -> tuple[float, float]:
+        """(sending and taking `qty` units, with both characters' mailbox trips and the switch)."""
+        if self.time is None:
+            return 0.0, 0.0
+        cfg, stacks = self.time.config, qty / self._stack(item_id)
+        act = cfg.mail_attach * stacks + stacks / cfg.mail_attachments * (cfg.mail_send + cfg.mail_open)
+        return act, act + cfg.switch_character / cfg.batch + 2 * self._trip("mailbox")
+
+    def _craft_seconds(self, recipe: Recipe, runs: int) -> tuple[float, float, str]:
+        """(`runs` casts, with the shared trip to its station, the station kind)."""
+        if self.time is None:
+            return 0.0, 0.0, ""
+        station = recipe.station
+        act = runs * (recipe.cast_time_ms / 1000 + self.time.config.craft_overhead)
+        return act, act + (self._trip(station) if station else 0.0), station
+
+    def _sell_seconds(self, exit: Exit, item_id: int, made: int) -> tuple[float, float]:
+        """(selling `made` units via `exit`, with its shared trip and searches)."""
+        if self.time is None:
+            return 0.0, 0.0
+        cfg = self.time.config
+        if exit.kind == "vendor":
+            act = cfg.vendor_sell * made / self._stack(item_id)
+            return act, act + self._trip("vendor")
+        if exit.kind == "ah":
+            act = cfg.ah_post * made / self._stack(item_id)
+            return act, act + cfg.ah_search / cfg.batch + self._trip("ah")
+        posts = sum(
+            m.chance * (m.min_count + m.max_count) / 2 * made / self._stack(m.item_id) for m in exit.materials
+        )
+        act = cfg.disenchant * made + cfg.ah_post * posts
+        return act, act + cfg.ah_search * len(exit.materials) / cfg.batch + self._trip("ah")
 
     # --- buying / chains ---------------------------------------------------------------
     def _crafter_names(self, recipe: Recipe) -> list[str]:
@@ -577,16 +800,36 @@ class Market:
         item = self.items.get(item_id)
         if item is not None and item.vendor_price is not None:
             unit, discount = self._vendor_unit(item, at)
+            act, est = self._buy_seconds(item_id, qty, "vendor")
             candidates.append(
                 (
                     "vendor",
-                    Node(item_id, name, qty, qty * unit, source="vendor", crafter=at, discount=discount),
+                    Node(
+                        item_id,
+                        name,
+                        qty,
+                        qty * unit,
+                        source="vendor",
+                        crafter=at,
+                        discount=discount,
+                        seconds=est,
+                        act_seconds=act,
+                    ),
                 )
             )
         if item_id in self.prices:
-            candidates.append(
-                ("ah", Node(item_id, name, qty, qty * self.prices[item_id], source="ah", crafter=at))
+            act, est = self._buy_seconds(item_id, qty, "ah")
+            bought = Node(
+                item_id,
+                name,
+                qty,
+                qty * self.prices[item_id],
+                source="ah",
+                crafter=at,
+                seconds=est,
+                act_seconds=act,
             )
+            candidates.append(("ah", bought))
         if depth < MAX_CHAIN_DEPTH:
             tradable = item is None or item.tradable
             for r in self._by_output.get(item_id, []):
@@ -600,14 +843,24 @@ class Market:
                     node = self._craft(r, qty, runs, who, depth + 1, memo, path, choices)
                     if node is not None and who != at:
                         p = self.postage(item_id, qty)
-                        node = replace(node, cost=node.cost + p, mail_to=at, postage=p)
+                        act, est = self._mail_seconds(item_id, qty)
+                        node = replace(
+                            node,
+                            cost=node.cost + p,
+                            mail_to=at,
+                            postage=p,
+                            seconds=node.seconds + est,
+                            mail_seconds=act,
+                        )
                     if node is not None:
                         crafted.append(node)
                 if crafted:
-                    candidates.append((f"craft:{r.id}", min(crafted, key=lambda n: n.cost)))
+                    best_craft = min(crafted, key=lambda n: self._effective(n.cost, n.seconds))
+                    candidates.append((f"craft:{r.id}", best_craft))
         best: Node | None = None
         if candidates:
-            ranked = sorted(candidates, key=lambda c: c[1].cost)  # stable: ties keep the preference order
+            # stable: ties keep the preference order; without a time value this is the cheapest first
+            ranked = sorted(candidates, key=lambda c: self._effective(c[1].cost, c[1].seconds))
             taken, picked = next((c for c in ranked if c[0] == choices.get(path)), ranked[0])
             best = replace(picked, options=tuple(_option(k, n) for k, n in ranked), option=taken)
         if not chosen:
@@ -636,8 +889,20 @@ class Market:
         item_id = recipe.output_item_id
         cost = sum(n.cost for n in inputs)
         made = recipe.output_count * runs
+        act, est, station = self._craft_seconds(recipe, runs)
         return Node(
-            item_id, self._name(item_id), qty, cost, recipe.name, runs, made, tuple(inputs), crafter=who
+            item_id,
+            self._name(item_id),
+            qty,
+            cost,
+            recipe.name,
+            runs,
+            made,
+            tuple(inputs),
+            crafter=who,
+            seconds=est + sum(n.seconds for n in inputs),
+            act_seconds=act,
+            station=station,
         )
 
     # --- evaluation --------------------------------------------------------------------
@@ -660,13 +925,17 @@ class Market:
             if tree is None or not here:
                 continue
             mail = self.postage(recipe.output_item_id, tree.made)
+            mail_act, mail_est = self._mail_seconds(recipe.output_item_id, tree.made)
             # A Master Chef's extra results are counted at their expected number; mailing them is not charged.
             bonus = self._bonus_output(recipe, who)
             for exit in here:
                 postage = mail if exit.postage else 0
                 revenue = round(exit.value * (recipe.output_count + bonus))
+                sell_act, sell_est = self._sell_seconds(exit, recipe.output_item_id, tree.made)
+                seconds = tree.seconds + sell_est + (mail_est if exit.postage else 0.0)
                 had = by_exit.get(exit.kind)
-                if had is not None and revenue - tree.cost - postage <= had.profit:
+                worth = revenue - self._effective(tree.cost + postage, seconds)
+                if had is not None and worth <= had.profit - self._per_second * had.seconds:
                     continue  # ties keep the earlier crafter
                 by_exit[exit.kind] = Result(
                     recipe,
@@ -679,11 +948,15 @@ class Market:
                     exit.mail_to,
                     who,
                     bonus_output=bonus,
+                    seconds=seconds,
+                    sell_seconds=sell_act,
+                    mail_seconds=mail_act if exit.postage else 0.0,
+                    time_model=self.time,
                 )
         if not by_exit:
             return None
         # stable sort over the exits' order (vendor, ah, disenchant): ties keep the earlier, unmailed one
-        ranked = sorted(by_exit.values(), key=lambda r: -r.profit)
+        ranked = sorted(by_exit.values(), key=lambda r: self._per_second * r.seconds - r.profit)
         picked = by_exit.get(choices.get(SELL, ""), ranked[0])
         picked.sell_options = [SellOption(r.best_exit, r.profit) for r in ranked]
         return picked

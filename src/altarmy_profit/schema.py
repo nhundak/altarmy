@@ -116,6 +116,11 @@ recipes = Table(
     Column("trivial_high", Integer, nullable=False, default=0),  # green -> grey threshold
     Column("output_item_id", Integer, nullable=False),
     Column("output_count", Integer, nullable=False, default=1),
+    # SpellMisc.CastingTimeIndex -> SpellCastTimes.Base: one cast, ms; 0 if instant or unknown
+    Column("cast_time_ms", Integer, nullable=False, default=0, server_default="0"),
+    # the object it is cast at (SpellCastingRequirements.RequiresSpellFocus's SpellFocusObject name as
+    # `timing.station_kind` spells it: anvil, cooking_fire, spinning_wheel, ...); "" for none
+    Column("station", Text, nullable=False, default="", server_default=""),
 )
 
 recipe_reagents = Table(
@@ -181,6 +186,8 @@ user_settings = Table(
     Column("selected_faction", String(16)),
     # bumped whenever the user's characters or prices were re-imported, so the front end refetches
     Column("data_version", Integer, nullable=False, default=0, server_default="0"),
+    Column("time_city", Text),  # the city preset profit per hour is timed in; NULL: the faction's default
+    Column("time_config", Text),  # JSON: the user's timing.TimeConfig overrides; NULL: the defaults
 )
 
 # Local mode's addon file sync: which SavedVariables files it reads and when they last changed.

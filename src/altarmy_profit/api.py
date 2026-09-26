@@ -21,7 +21,7 @@ import threading
 import urllib.error
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path, PurePath
 from typing import Annotated, Literal, cast
@@ -35,7 +35,21 @@ from sqlalchemy import Connection
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 
-from . import altarmy, auth, db, engine, prices, ratelimit, service, store, talents, uploads, users, versions
+from . import (
+    altarmy,
+    auth,
+    db,
+    engine,
+    prices,
+    ratelimit,
+    service,
+    store,
+    talents,
+    timing,
+    uploads,
+    users,
+    versions,
+)
 from .store import CACHE_DIR
 from .versions import GameVersion, GameVersionKey
 
@@ -105,6 +119,8 @@ class StepOut(BaseModel):
     paths: list[str]  # the tree paths (choice keys) of the nodes it stands for; ["sell"] for the sale
     discount: int = 0  # buy from a vendor: percent off from the buyer's Legacy talents (Bartering)
     bonus: float = 0.0  # sell: expected extra units on top of quantity (Master Chef), counted in value
+    seconds: float = 0.0  # play time per craft this step takes (clicks, casts); travel is in the timing
+    station: str = ""  # craft: the station it is cast at (anvil, cooking_fire, loom, ...); "" anywhere
 
 
 class OptionOut(BaseModel):
@@ -115,6 +131,7 @@ class OptionOut(BaseModel):
     source: str  # vendor | ah if bought
     via: str  # recipe name if crafted
     crafter: str  # who crafts it (the cheapest character for that recipe)
+    seconds: float = 0.0  # estimated play time per craft this way, shared trips included
 
 
 class SellOptionOut(BaseModel):
@@ -138,6 +155,7 @@ class NodeOut(BaseModel):
     mail_to: str  # who it is mailed to (the parent's crafter); "" if not mailed
     postage: int  # copper for that mail
     discount: int = 0  # bought from a vendor: percent off the buyer gets (Bartering)
+    seconds: float = 0.0  # estimated play time per craft for this branch, shared trips included
     options: list[OptionOut]  # every way to get these items, cheapest first; empty for the recipe's craft
     option: str  # the key of the option taken; "" for the recipe's craft
     inputs: list[NodeOut]
@@ -157,6 +175,7 @@ def _node_out(n: engine.Node) -> NodeOut:
         mail_to=n.mail_to,
         postage=n.postage,
         discount=n.discount,
+        seconds=n.seconds,
         options=[OptionOut(**asdict(o)) for o in n.options],
         option=n.option,
         inputs=[_node_out(i) for i in n.inputs],
@@ -193,6 +212,40 @@ class ItemInfo(BaseModel):
     vendor_price: int | None  # per unit, if a vendor sells it
 
 
+class LegOut(BaseModel):
+    """One run across the city."""
+
+    who: str  # the character running; "" if no characters are known
+    from_id: str
+    from_name: str
+    to_id: str
+    to_name: str
+    seconds: float
+
+
+class TimingOut(BaseModel):
+    """How long a batch of the recipe takes in a city, and what that makes per hour."""
+
+    city: str
+    batch: int  # crafts per session
+    fixed_seconds: float  # once per batch: travel, character switches, AH searches
+    per_craft_seconds: float  # every craft: casts, buys, posts, mail
+    total_seconds: float  # the whole batch
+    per_hour: int  # copper profit per hour of play
+    breakdown: dict[str, float]  # the batch's seconds: travel, switch, ah, vendor, mail, craft, disenchant
+    legs: list[LegOut]  # every run, in order
+    unsold: list[int]  # vendor items no vendor in the city sells (timed at the nearest vendor)
+    missing: list[str]  # crafting stations (anvil, moonwell, ...) the plan needs and the city lacks
+    deployed: list[str]  # stations new in Forever (loom, ...) the plan needs: counted as set down on the spot
+
+
+class CityTimingOut(BaseModel):
+    city: str
+    total_seconds: float
+    per_hour: int
+    missing: list[str]  # crafting stations the plan needs and the city lacks: it can't be crafted there
+
+
 class RankResult(BaseModel):
     recipe_id: int
     recipe: str
@@ -215,6 +268,9 @@ class RankResult(BaseModel):
     steps: list[StepOut]  # per character: buys, crafts (intermediates first), mails; then the sale
     tree: NodeOut  # the recipe's craft, with reagents as inputs
     sell_options: list[SellOptionOut]  # each exit's best profit, best first
+    timing: TimingOut | None = None  # this plan in the user's city
+    cities: list[CityTimingOut] = []  # this plan in each city the selection's faction crafts in
+    best_city: str | None = None  # the quickest of those; None without city presets
 
 
 class RankResponse(BaseModel):
@@ -238,6 +294,48 @@ class EvaluateRequest(BaseModel):
 class EvaluateResponse(BaseModel):
     result: RankResult
     items: dict[int, ItemInfo]  # every item the result mentions, for tooltips
+
+
+class TimeConfigModel(BaseModel):
+    """Seconds per action, crafts per session, what an hour of play is worth (copper) and running speed."""
+
+    ah_search: float
+    ah_buy: float
+    ah_post: float
+    vendor_buy: float
+    vendor_sell: float
+    mail_send: float
+    mail_attach: float
+    mail_open: float
+    mail_attachments: int
+    switch_character: float
+    disenchant: float
+    craft_overhead: float
+    batch: int
+    time_value: int
+    run_speed: float
+    detour: float
+
+
+class CityOut(BaseModel):
+    name: str
+    faction: str  # Horde | Alliance | "" (neutral)
+    hub: str  # where every character starts and ends
+    locations: int
+    vendors: int
+
+
+class TimeSettings(BaseModel):
+    cities: list[CityOut]  # where the selection's faction crafts: its cities, then neutral towns
+    city: str | None  # the user's pick; None: the faction's default
+    active: str  # the city plans are timed in now
+    config: TimeConfigModel
+    defaults: TimeConfigModel
+
+
+class TimeSettingsIn(BaseModel):
+    city: str | None = None  # None: the faction's default
+    config: dict[str, float] = {}  # settings that differ from the defaults (the rest are reset)
 
 
 class AhBlockedItem(BaseModel):
@@ -437,10 +535,21 @@ class AppState:
     update_lock: threading.Lock
     sync_lock: threading.Lock
     wow_roots: Sequence[Path]  # where to look for the addons' SavedVariables
+    _cities: Mapping[str, timing.CityMap] | None = None
 
     @property
     def key(self) -> str:
         return self.version.key
+
+    @property
+    def cities(self) -> Mapping[str, timing.CityMap]:
+        """The version's city presets, read on first use (a bad file is a 500 then, not a failed start)."""
+        if self._cities is None:
+            self._cities = store.load_cities(self.version.cities_dir)
+        return self._cities
+
+    def forget_cities(self) -> None:
+        self._cities = None
 
 
 def _states(request: Request) -> dict[str, AppState]:
@@ -775,22 +884,41 @@ def get_rank(
     professions: Annotated[
         list[str] | None, Query(description="only recipes of these professions (default: every one)")
     ] = None,
+    sort: Annotated[
+        Literal["profit", "rate"], Query(description="profit per craft, or per hour of play")
+    ] = "profit",
     top: Annotated[int, Query(ge=1)] = 50,
 ) -> RankResponse:
-    """What the selected realm/faction's characters can craft, most profitable first; without characters,
-    every recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive; an omitted
-    bound is unbounded (so losses are included unless `min_profit` is set)."""
-    base, chars, no_ah = _selected(state, user)
-    # Without characters the ranking depends on nobody: every browsing user shares it. The bounds and the
-    # profession filter only narrow the cached, unbounded ranking, so moving them never ranks again.
+    """What the selected realm/faction's characters can craft, most profitable first (per craft, or with
+    `sort=rate` per hour of play in the user's city); without characters, every recipe, crafted by one
+    unnamed character (nothing is mailed). Bounds are inclusive; an omitted bound is unbounded (so losses
+    are included unless `min_profit` is set)."""
+    s = _selected(state, user)
+    base, chars, no_ah = s.base, s.chars, s.no_ah
+    # Without characters the ranking depends on nobody but the time settings: browsing users with the same
+    # ones share it. The bounds and the profession filter only narrow the cached, unbounded ranking, so
+    # moving them never ranks again; nor does sorting it by rate.
     whose = user.uid if chars else ""
-    key = (whose, tuple(chars), include_unlearned, include_trivial, frozenset(exits), no_ah)
+    key = (whose, tuple(chars), include_unlearned, include_trivial, frozenset(exits), no_ah, s.time.key)
     matches = state.rank_cache.get(key, base)
     if matches is None:
         matches = service.search(
-            base, chars, include_unlearned, engine.Filters(), frozenset(exits), no_ah, include_trivial
+            base,
+            chars,
+            include_unlearned,
+            engine.Filters(),
+            frozenset(exits),
+            no_ah,
+            include_trivial,
+            s.time,
         )
         state.rank_cache.put(key, base, matches)
+    if sort == "rate":
+        by_rate = state.rank_cache.get((key, "rate"), base)
+        if by_rate is None:
+            by_rate = service.by_rate(matches)
+            state.rank_cache.put((key, "rate"), base, by_rate)
+        matches = by_rate
     filters = engine.Filters(min_cost, max_cost, min_profit, max_profit, min_roi, max_roi)
     matches = [r for r in matches if filters.accepts(r)]
     if professions:
@@ -802,42 +930,61 @@ def get_rank(
         total=len(matches),
         classes={c.name: c.class_file for c in chars},
         items=_item_infos(state, base, results),
-        results=[_result_out(r, base, crafters) for r in results],
+        results=[_result_out(r, base, crafters, s.cities) for r in results],
     )
 
 
 @router.post("/evaluate")
 def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> EvaluateResponse:
     """One recipe as /api/rank would give it, with the user's `choices` of sources and exit applied."""
-    base, chars, no_ah = _selected(state, user)
+    s = _selected(state, user)
     r = service.evaluate(
-        base,
-        chars,
+        s.base,
+        s.chars,
         body.include_unlearned,
         frozenset(body.exits),
         body.recipe_id,
         body.choices,
-        no_ah,
+        s.no_ah,
         body.include_trivial,
+        s.time,
     )
     if r is None:
         raise HTTPException(404, "These characters can't craft and sell that recipe.")
     return EvaluateResponse(
-        result=_result_out(r, base, altarmy.crafters(chars)), items=_item_infos(state, base, [r])
+        result=_result_out(r, s.base, altarmy.crafters(s.chars), s.cities),
+        items=_item_infos(state, s.base, [r]),
     )
 
 
-def _selected(
-    state: AppState, user: auth.User
-) -> tuple[engine.Market, list[altarmy.Character], frozenset[int]]:
-    """The selection's market (priced by its auction house), characters (hand-made ones knowing every
-    recipe of their professions) and never-on-the-AH items."""
+@dataclass(frozen=True)
+class Selected:
+    """What a search runs on: the selection's market (priced by its auction house), characters (hand-made
+    ones knowing every recipe of their professions), never-on-the-AH items, the user's time model and
+    the cities the selection's faction crafts in."""
+
+    base: engine.Market
+    chars: list[altarmy.Character]
+    no_ah: frozenset[int]
+    time: engine.TimeModel
+    cities: list[timing.CityMap]
+
+
+def _selected(state: AppState, user: auth.User) -> Selected:
     with _connect(state) as conn:
         sel, chars = service.selected_characters(conn, user.uid, state.key)
         ah = service.auction_house_of(conn, state.key, sel)
         no_ah = _no_ah(state, conn, user)
+        faction = sel.faction if sel else ""
+        model = service.time_model(conn, user.uid, state.key, state.cities, faction)
     base = state.cache.get(ah)
-    return base, service.imply_recipes(base.recipes, chars), no_ah
+    return Selected(
+        base,
+        service.imply_recipes(base.recipes, chars),
+        no_ah,
+        model,
+        service.faction_cities(state.cities, faction),
+    )
 
 
 def _item_infos(
@@ -868,7 +1015,68 @@ def _item_details(
     }
 
 
-def _result_out(r: engine.Result, base: engine.Market, crafters: dict[int, list[str]]) -> RankResult:
+def _timing_out(t: timing.Timing, profit: int, city: timing.CityMap) -> TimingOut:
+    def name(loc_id: str) -> str:
+        return city.location(loc_id).name
+
+    return TimingOut(
+        city=t.city,
+        batch=t.batch,
+        fixed_seconds=t.fixed_seconds,
+        per_craft_seconds=t.per_craft_seconds,
+        total_seconds=t.total_seconds,
+        per_hour=t.per_hour(profit),
+        breakdown=dict(t.breakdown),
+        legs=[
+            LegOut(
+                who=leg.who,
+                from_id=leg.from_id,
+                from_name=name(leg.from_id),
+                to_id=leg.to_id,
+                to_name=name(leg.to_id),
+                seconds=leg.seconds,
+            )
+            for leg in t.legs
+        ],
+        unsold=sorted(t.unsold),
+        missing=sorted(t.missing),
+        deployed=sorted(t.deployed),
+    )
+
+
+def _cities_out(r: engine.Result, cities: Sequence[timing.CityMap]) -> list[CityTimingOut]:
+    """The result's plan timed in each city (as chosen for the user's city)."""
+    if r.time_model is None:
+        return []
+    out = []
+    for city in cities:
+        t = r.timing if city is r.time_model.city else engine.time_result(r, replace(r.time_model, city=city))
+        assert t is not None
+        out.append(
+            CityTimingOut(
+                city=city.name,
+                total_seconds=t.total_seconds,
+                per_hour=t.per_hour(r.profit),
+                missing=sorted(t.missing),
+            )
+        )
+    return out
+
+
+def _best_city(cities: Sequence[CityTimingOut]) -> str | None:
+    """The quickest city that has every station the plan needs; None if none has."""
+    possible = [c for c in cities if not c.missing]
+    return min(possible, key=lambda c: c.total_seconds).city if possible else None
+
+
+def _result_out(
+    r: engine.Result,
+    base: engine.Market,
+    crafters: dict[int, list[str]],
+    cities: Sequence[timing.CityMap] = (),
+) -> RankResult:
+    per_city = _cities_out(r, cities)
+    t = r.timing
     return RankResult(
         recipe_id=r.recipe.id,
         recipe=r.recipe.name,
@@ -911,12 +1119,58 @@ def _result_out(r: engine.Result, base: engine.Market, crafters: dict[int, list[
                 paths=list(s.paths),
                 discount=s.discount,
                 bonus=s.bonus,
+                seconds=s.seconds,
+                station=s.station,
             )
             for s in r.steps
         ],
         tree=_node_out(r.tree),
         sell_options=[SellOptionOut(**asdict(o)) for o in r.sell_options],
+        timing=None if t is None or r.time_model is None else _timing_out(t, r.profit, r.time_model.city),
+        cities=per_city,
+        best_city=_best_city(per_city),
     )
+
+
+def _time_settings(state: AppState, conn: Connection, user: auth.User) -> TimeSettings:
+    sel, _ = service.selected_characters(conn, user.uid, state.key)
+    faction = sel.faction if sel else ""
+    model = service.time_model(conn, user.uid, state.key, state.cities, faction)
+    saved = users.get_settings(conn, user.uid, state.key).time_city
+    cities = service.faction_cities(state.cities, faction)
+    return TimeSettings(
+        cities=[
+            CityOut(
+                name=c.name,
+                faction=c.faction,
+                hub=c.hub.name,
+                locations=len(c.locations),
+                vendors=len(c.vendor_items),
+            )
+            for c in cities
+        ],
+        city=saved if saved in state.cities else None,
+        active=model.city.name,
+        config=TimeConfigModel(**asdict(model.config)),
+        defaults=TimeConfigModel(**asdict(timing.DEFAULT_CONFIG)),
+    )
+
+
+@router.get("/time")
+def get_time(state: State, user: CurrentUser) -> TimeSettings:
+    """The user's time settings: the cities the selection's faction crafts in, the one plans are timed
+    in, and the seconds per action."""
+    with _connect(state) as conn:
+        return _time_settings(state, conn, user)
+
+
+@router.put("/time")
+def put_time(state: State, user: CurrentUser, body: TimeSettingsIn) -> TimeSettings:
+    """Save the user's city (None: the faction's default) and time settings (those not given are reset
+    to the defaults); 400 for an unknown city or a bad setting."""
+    with _connect(state) as conn, _http_errors():
+        service.set_time(conn, user.uid, state.key, state.cities, body.city, body.config)
+        return _time_settings(state, conn, user)
 
 
 def _no_ah(state: AppState, conn: Connection, user: auth.User) -> frozenset[int]:
@@ -1168,8 +1422,10 @@ def get_altarmy_files(state: State, user: CurrentUser) -> SourceFiles:
 
 @router.post("/reload", dependencies=LOCAL_ONLY)
 def reload(state: State, user: CurrentUser) -> Status:
-    """Drop the cached market, e.g. after changing the database from the command line."""
+    """Drop the cached market and city presets, e.g. after changing the database from the command line
+    or regenerating the presets."""
     state.cache.invalidate()
+    state.forget_cities()
     with _connect(state) as conn:
         return _status(state, conn, user, False)
 

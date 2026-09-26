@@ -7,6 +7,7 @@ from sqlalchemy import Connection, func, select
 from altarmy_profit import cli, db, ingest, prices, schema, store, versions
 from altarmy_profit.auctionator import DayStats, ItemPrice
 from altarmy_profit.prices import Observation
+from altarmy_profit.versions import GameVersion
 
 from .conftest import FOREVER, SV_DIR, set_prices, write_csv
 
@@ -268,6 +269,38 @@ def test_cli_import_altarmy_and_rank_by_realm(
     assert "Green Robe" in capsys.readouterr().out
     with pytest.raises(SystemExit, match="both"):
         cli.main(["--db", dbfile, "rank", "--realm", "Dreamscythe"])
+
+
+def test_cli_ranks_by_profit_per_hour(
+    db2_paths: dict[str, Path],
+    tmp_path: Path,
+    wow_root: Path,
+    cities: Path,
+    game_versions: dict[str, GameVersion],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(versions, "VERSIONS", game_versions)  # Forever's presets are the `cities` fixture's
+    dbfile = str(tmp_path / "cli.sqlite")
+    database = db.Database(db.sqlite_url(dbfile))
+    with database.begin() as conn:
+        ingest.build_db(db2_paths, conn, FOREVER)
+        set_prices(conn, {1: 20, 2: 100})
+    database.dispose()
+    cli.main(["--db", dbfile, "import-altarmy", str(wow_root / SV_DIR / "AltArmy_TBC.lua")])
+    capsys.readouterr()
+    rank = ["--db", dbfile, "rank", "--realm", "Classic Beta PvE", "--faction", "Horde"]
+    cli.main([*rank, "--sort", "rate", "--city", "Booty Bay", "--batch", "10", "--gold-per-hour", "100"])
+    out = capsys.readouterr().out
+    assert "Timed in Booty Bay: 10 crafts per session, an hour worth 100g 00s 00c." in out
+    assert "/h" in out and "Green Robe" in out
+    assert "10 in " in out  # the batch's time
+    cli.main(rank)  # the saved settings: the faction's default city
+    assert "Timed in Orgrimmar: 20 crafts per session" in capsys.readouterr().out
+    with pytest.raises(SystemExit, match="No city preset named Atlantis"):
+        cli.main([*rank, "--city", "Atlantis"])
+    with pytest.raises(SystemExit, match="batch"):
+        cli.main([*rank, "--batch", "0"])
 
 
 def test_cli_prices_go_to_the_selected_auction_house(

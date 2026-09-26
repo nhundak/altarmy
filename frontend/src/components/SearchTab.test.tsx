@@ -127,6 +127,46 @@ describe('SearchTab', () => {
     )
   })
 
+  it('ranks by profit per hour, remembering it', async () => {
+    const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<SearchTab />)
+    await userEvent.click(await screen.findByText('Profit per hour'))
+    await waitFor(() => expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('sort')).toBe('rate'))
+    expect(localStorage.getItem('altarmy-profit.search.sort')).toBe('"rate"')
+  })
+
+  it('saves the time settings on the server, then ranks again', async () => {
+    const config = {
+      ah_search: 8, ah_buy: 4, ah_post: 6, vendor_buy: 2, vendor_sell: 1.5, mail_send: 8, mail_attach: 2,
+      mail_open: 3, mail_attachments: 12, switch_character: 45, disenchant: 3.5, craft_overhead: 0.5, batch: 20,
+      time_value: 0, run_speed: 7, detour: 1.3,
+    }
+    const city = (name: string, faction: string) => ({ name, faction, hub: 'Auctioneer', locations: 9, vendors: 3 })
+    const settings = {
+      cities: [city('Orgrimmar', 'Horde'), city('Booty Bay', '')],
+      city: null,
+      active: 'Orgrimmar',
+      config,
+      defaults: config,
+    }
+    const fetch = mockApi({
+      '/api/status': status(),
+      '/api/characters': characters,
+      '/api/rank': noResults,
+      '/api/time': settings,
+    })
+    renderWithProviders(<SearchTab />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Play Time and City' }))
+    const batch = await screen.findByLabelText('Crafts per session')
+    const ranked = urls(fetch, '/api/rank').length
+    fireEvent.change(batch, { target: { value: '5' } })
+    fireEvent.change(screen.getByLabelText('An hour of your time is worth (gold)'), { target: { value: '50' } })
+    await waitFor(() => expect(fetch.mock.calls.some(([r]) => r.method === 'PUT')).toBe(true), { timeout: 3000 })
+    const put = fetch.mock.calls.map(([r]) => r).find((r) => r.method === 'PUT')
+    expect(await put?.json()).toEqual({ city: null, config: { batch: 5, time_value: 500000 } })
+    await waitFor(() => expect(urls(fetch, '/api/rank').length).toBeGreaterThan(ranked))
+  })
+
   it('opens and closes Advanced Options, remembering it, and ignores sections that are gone', async () => {
     localStorage.setItem('altarmy-profit.search.open', JSON.stringify(['characters']))
     mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })

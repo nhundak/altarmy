@@ -17,21 +17,24 @@ import { useEvaluations, type EvaluateParams } from '../api/queries'
 import { choose, SELL_PATH, type Choices } from '../lib/choices'
 import { formatRoi } from '../lib/money'
 import { stepSource } from '../lib/steps'
+import { formatSeconds } from '../lib/time'
 import { bonusNote, discountNote } from '../lib/talents'
 import { CharacterClasses, CharacterName } from './CharacterName'
 import { ChoiceMenu, ChooseContext, sellChoices, sourceChoices, type PlanEditing } from './ChoiceMenu'
 import { DisenchantHover, ItemLink, RecipeTooltip } from './ItemTooltip'
 import { Money } from './Money'
 import { RecipeFlow } from './RecipeFlow'
+import { TimingSummary } from './TimingSummary'
 import classes from './ResultsTable.module.css'
 
-const COLUMNS = ['', 'Profit', 'ROI', 'Recipe', 'Profession', 'Crafter', 'Cost', 'Revenue', 'Sell via']
+const COLUMNS = ['', 'Profit', 'Per hour', 'ROI', 'Recipe', 'Profession', 'Crafter', 'Cost', 'Revenue', 'Sell via']
 /** Sell via column text per exit; unknown exits show as-is. */
 const EXIT_LABELS: Readonly<Record<string, string>> = { ah: 'auction' }
 const exitLabel = (exit: string): string => EXIT_LABELS[exit] ?? exit
 /** Sort key per sortable column; numbers sort largest first on the first click, text alphabetically. */
 const SORT_KEYS: Readonly<Record<string, (r: RankResult) => number | string>> = {
   Profit: (r) => r.profit,
+  'Per hour': (r) => r.timing?.per_hour ?? -Infinity,
   ROI: (r) => r.roi,
   Recipe: (r) => r.output_name,
   Profession: (r) => r.profession,
@@ -40,14 +43,15 @@ const SORT_KEYS: Readonly<Record<string, (r: RankResult) => number | string>> = 
   Revenue: (r) => r.revenue,
   'Sell via': (r) => exitLabel(r.best_exit),
 }
-const NUMERIC_COLUMNS: ReadonlySet<string> = new Set(['Profit', 'ROI', 'Cost', 'Revenue'])
+const NUMERIC_COLUMNS: ReadonlySet<string> = new Set(['Profit', 'Per hour', 'ROI', 'Cost', 'Revenue'])
 /** Money columns: fixed width, room for -99g 99s 99c on one line (larger amounts drop copper, then silver). */
-const MONEY_COLUMNS: ReadonlySet<string> = new Set(['Profit', 'Cost', 'Revenue'])
+const MONEY_COLUMNS: ReadonlySet<string> = new Set(['Profit', 'Per hour', 'Cost', 'Revenue'])
 const MONEY_WIDTH = 110
 /** Widths (px) for columns that should not just fit their content: crafter lists wrap, money never does. */
 const COLUMN_WIDTHS: Readonly<Record<string, number>> = {
   Crafter: 219,
   Profit: MONEY_WIDTH,
+  'Per hour': MONEY_WIDTH,
   Cost: MONEY_WIDTH,
   Revenue: MONEY_WIDTH,
 }
@@ -59,7 +63,11 @@ const COLUMN_HIDDEN: Readonly<Record<string, string | undefined>> = {
   Revenue: classes.hideBelowMd,
   Crafter: classes.hideBelowSm,
   'Sell via': classes.hideBelowXs,
+  'Per hour': classes.hideBelowXs,
 }
+/** The columns whose order the server can rank by (the whole ranking, not just this page). */
+export type RankBy = 'profit' | 'rate'
+const SERVER_SORTS: Readonly<Record<string, RankBy>> = { Profit: 'profit', 'Per hour': 'rate' }
 
 type Sort = { column: string; descending: boolean }
 
@@ -190,6 +198,12 @@ function StepList({ result, items, editing }: { result: RankResult; items: ItemM
       ) : (
         <>
           {line}
+          {step.seconds >= 0.05 && (
+            <Text span size="xs" c="dimmed">
+              {' '}
+              · {formatSeconds(step.seconds)}
+            </Text>
+          )}
           <span className={classes.stepChoice}>
             <StepChoice step={step} result={result} />
           </span>
@@ -247,6 +261,7 @@ function Details({ result, items, editing }: { result: RankResult; items: ItemMa
       ) : (
         <StepList result={result} items={items} editing={editing} />
       )}
+      <TimingSummary result={result} items={items} />
     </Stack>
   )
 }
@@ -300,6 +315,8 @@ export function ResultsTable({
   params = DEFAULT_PARAMS,
   ahBlocked = NONE,
   onSetAhBlocked,
+  rankBy,
+  onRankBy,
 }: {
   results: RankResult[]
   items: ItemMap
@@ -311,6 +328,10 @@ export function ResultsTable({
   ahBlocked?: ReadonlySet<number>
   /** Stop or allow selling an item on the AH; without it rows have no actions menu. */
   onSetAhBlocked?: (itemId: number, blocked: boolean) => void
+  /** What the server ranked `results` by (best first). */
+  rankBy?: RankBy
+  /** Re-rank on the server: the Profit and Per hour headers call it instead of sorting this page. */
+  onRankBy?: (rankBy: RankBy) => void
 }) {
   const columns = COLUMNS.length + (onSetAhBlocked ? 1 : 0)
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set())
@@ -322,12 +343,22 @@ export function ResultsTable({
       return next
     })
   const [sort, setSort] = useState<Sort | null>(null)
-  const sortBy = (column: string) =>
+  const sortBy = (column: string) => {
+    const server = SERVER_SORTS[column]
+    if (onRankBy && server) {
+      setSort(null)
+      onRankBy(server)
+      return
+    }
     setSort((prev) =>
       prev?.column === column
         ? { column, descending: !prev.descending }
         : { column, descending: NUMERIC_COLUMNS.has(column) },
     )
+  }
+  // With no column picked here, the server's order shows on the column it ranked by.
+  const shownSort: Sort | null =
+    sort ?? (onRankBy && rankBy ? { column: rankBy === 'rate' ? 'Per hour' : 'Profit', descending: true } : null)
   // The user's changes to each recipe's plan, by recipe id; a row shows its changed plan once it is costed.
   const [choices, setChoices] = useState<Readonly<Record<number, Choices>>>({})
   const evaluations = useEvaluations(choices, params)
@@ -359,20 +390,22 @@ export function ResultsTable({
           <Table.Thead>
             <Table.Tr>
               {COLUMNS.map((c) => {
-                const active = sort?.column === c
+                const active = shownSort?.column === c
                 return (
                   <Table.Th
                     key={c}
                     className={COLUMN_HIDDEN[c]}
                     w={COLUMN_WIDTHS[c]}
                     ta={MONEY_COLUMNS.has(c) ? 'right' : undefined}
-                    aria-sort={!(c in SORT_KEYS) ? undefined : !active ? 'none' : sort.descending ? 'descending' : 'ascending'}
+                    aria-sort={
+                      !(c in SORT_KEYS) ? undefined : !active ? 'none' : shownSort.descending ? 'descending' : 'ascending'
+                    }
                   >
                     {c in SORT_KEYS ? (
                       <UnstyledButton className={classes.sort} aria-label={`Sort by ${c}`} onClick={() => sortBy(c)}>
                         {c}
                         <span className={classes.arrow} data-active={active || undefined}>
-                          {active && !sort.descending ? '▲' : '▼'}
+                          {active && !shownSort.descending ? '▲' : '▼'}
                         </span>
                       </UnstyledButton>
                     ) : (
@@ -410,6 +443,22 @@ export function ResultsTable({
                     </Table.Td>
                     <Table.Td c={r.profit < 0 ? 'red' : 'teal'} ff="monospace" ta="right">
                       <Money copper={r.profit} padded />
+                    </Table.Td>
+                    <Table.Td
+                      className={COLUMN_HIDDEN['Per hour']}
+                      ff="monospace"
+                      ta="right"
+                      title={r.timing ? `${r.timing.batch} crafts in ${formatSeconds(r.timing.total_seconds)}` : undefined}
+                    >
+                      {r.timing ? (
+                        <Text span inherit c={r.timing.per_hour < 0 ? 'red' : 'teal'}>
+                          <Money copper={r.timing.per_hour} padded />
+                        </Text>
+                      ) : (
+                        <Text span size="sm" c="dimmed">
+                          –
+                        </Text>
+                      )}
                     </Table.Td>
                     <Table.Td>{formatRoi(r.roi)}</Table.Td>
                     <Table.Td>

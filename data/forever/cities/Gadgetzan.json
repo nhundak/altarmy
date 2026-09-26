@@ -1,0 +1,241 @@
+{
+ "name": "Gadgetzan",
+ "faction": "",
+ "map": 1,
+ "hub": "ah",
+ "locations": [
+  {
+   "id": "ah",
+   "kind": "ah",
+   "name": "Auctioneer Beardo",
+   "x": -7239.1,
+   "y": -3803.89,
+   "z": 0.81
+  },
+  {
+   "id": "mailbox:17473",
+   "kind": "mailbox",
+   "name": "Mailbox",
+   "x": -7154.4,
+   "y": -3829.52,
+   "z": 8.75
+  },
+  {
+   "id": "forge:17240",
+   "kind": "forge",
+   "name": "Forge",
+   "x": -7199.05,
+   "y": -3766.19,
+   "z": 8.66
+  },
+  {
+   "id": "anvil:17243",
+   "kind": "anvil",
+   "name": "Anvil",
+   "x": -7197.15,
+   "y": -3764.29,
+   "z": 8.78
+  },
+  {
+   "id": "cooking_fire:17445",
+   "kind": "cooking_fire",
+   "name": "Stove",
+   "x": -7169.4,
+   "y": -3738.68,
+   "z": 8.57
+  },
+  {
+   "id": "cooking_fire:17465",
+   "kind": "cooking_fire",
+   "name": "Bonfire",
+   "x": -7141.32,
+   "y": -3862.75,
+   "z": 8.9
+  },
+  {
+   "id": "vendor:5411",
+   "kind": "vendor",
+   "name": "Krinkle Goodsteel",
+   "x": -7200.43,
+   "y": -3769.82,
+   "z": 8.76
+  },
+  {
+   "id": "vendor:7733",
+   "kind": "vendor",
+   "name": "Innkeeper Fizzgrimble",
+   "x": -7158.96,
+   "y": -3841.61,
+   "z": 8.85
+  },
+  {
+   "id": "vendor:7564",
+   "kind": "vendor",
+   "name": "Marin Noggenfogger",
+   "x": -7193.42,
+   "y": -3793.48,
+   "z": 9.76
+  },
+  {
+   "id": "vendor:6568",
+   "kind": "vendor",
+   "name": "Vizzklick",
+   "x": -7133.52,
+   "y": -3738.63,
+   "z": 8.44
+  },
+  {
+   "id": "vendor:8125",
+   "kind": "vendor",
+   "name": "Dirge Quikcleave",
+   "x": -7168.27,
+   "y": -3850.27,
+   "z": 8.85
+  },
+  {
+   "id": "vendor:8129",
+   "kind": "vendor",
+   "name": "Wrinkle Goodsteel",
+   "x": -7149.83,
+   "y": -3723.66,
+   "z": 8.58
+  },
+  {
+   "id": "vendor:8131",
+   "kind": "vendor",
+   "name": "Blizrik Buckshot",
+   "x": -7141.49,
+   "y": -3719.69,
+   "z": 8.58
+  },
+  {
+   "id": "vendor:5594",
+   "kind": "vendor",
+   "name": "Alchemist Pestlezugg",
+   "x": -7115.3,
+   "y": -3729.93,
+   "z": 8.86
+  }
+ ],
+ "vendors": {
+  "vendor:5411": [
+   2880,
+   2901,
+   3466,
+   3857,
+   5956,
+   18567
+  ],
+  "vendor:7733": [
+   117,
+   159,
+   1179,
+   1205,
+   1645,
+   1708,
+   2287,
+   3770,
+   3771,
+   4599,
+   8766,
+   8952,
+   18046
+  ],
+  "vendor:7564": [
+   8529
+  ],
+  "vendor:6568": [
+   2320,
+   2321,
+   2324,
+   2325,
+   2604,
+   2605,
+   4291,
+   4340,
+   4341,
+   4342,
+   6260,
+   6261,
+   8343,
+   10290,
+   14341,
+   21358
+  ],
+  "vendor:8125": [
+   117,
+   159,
+   1179,
+   1205,
+   1645,
+   1708,
+   2287,
+   3770,
+   3771,
+   4599,
+   8766,
+   8952,
+   18046
+  ],
+  "vendor:8129": [
+   2417,
+   2418,
+   2419,
+   2420,
+   2421,
+   2422,
+   2423,
+   2424,
+   2425,
+   2426,
+   2427,
+   2428,
+   2448,
+   2451,
+   3891,
+   3894,
+   8088,
+   8089,
+   8090,
+   8091,
+   8092,
+   8093,
+   8094,
+   17189,
+   17190
+  ],
+  "vendor:8131": [
+   2516,
+   2519,
+   3023,
+   3024,
+   3025,
+   3033,
+   11284
+  ],
+  "vendor:5594": [
+   3371,
+   3372,
+   8925,
+   9303,
+   9304,
+   12958,
+   18256
+  ]
+ },
+ "generated": {
+  "source": "vmangos db-sqlite-13b49dc",
+  "tele": "Gadgetzan",
+  "radius": 200,
+  "counts": {
+   "auctioneers": 1,
+   "mailboxes": 1,
+   "anvil": 1,
+   "cooking_fire": 2,
+   "forge": 1,
+   "vendors": 8,
+   "items": 75
+  }
+ },
+ "overrides": {}
+}

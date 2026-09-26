@@ -9,6 +9,7 @@ import {
   Loader,
   MultiSelect,
   NumberInput,
+  SegmentedControl,
   Select,
   SimpleGrid,
   Stack,
@@ -34,7 +35,8 @@ import { goldToCopper } from '../lib/money'
 import { fromKey, realmOptions, toKey } from '../lib/realms'
 import { useSession } from '../lib/session'
 import { useStoredState } from '../lib/storage'
-import { ResultsTable } from './ResultsTable'
+import { ResultsTable, type RankBy } from './ResultsTable'
+import { TimeSettingsPanel } from './TimeSettingsPanel'
 
 /** Results per page: the first request asks for this many, and each "Show more" for this many more. */
 const PAGE = 50
@@ -45,7 +47,8 @@ const EXITS: { value: Exit; label: string }[] = [
   { value: 'ah', label: 'Auction house' },
 ]
 const ALL_EXITS: Exit[] = EXITS.map((e) => e.value)
-const SECTIONS = ['advanced'] as const
+const SECTIONS = ['advanced', 'time'] as const
+const RANK_BY: RankBy[] = ['profit', 'rate']
 const NONE_OPEN: string[] = []
 const NO_PROFESSIONS: string[] = []
 
@@ -56,7 +59,15 @@ const scaled = (v: number | null, f: (v: number) => number) => (v === null ? nul
 
 type Filters = Omit<RankParams, 'top'>
 
-function Results({ filters, browsing }: { filters: Filters; browsing: boolean }) {
+function Results({
+  filters,
+  browsing,
+  onRankBy,
+}: {
+  filters: Filters
+  browsing: boolean
+  onRankBy: (rankBy: RankBy) => void
+}) {
   // Back to one page whenever the filters change.
   const [page, setPage] = useState({ filters, top: PAGE })
   const top = page.filters === filters ? page.top : PAGE
@@ -91,6 +102,8 @@ function Results({ filters, browsing }: { filters: Filters; browsing: boolean })
         }}
         ahBlocked={ahBlocked}
         onSetAhBlocked={(itemId, blocked) => setAhBlocked({ itemId, blocked })}
+        rankBy={filters.sort}
+        onRankBy={onRankBy}
       />
       {total > results.length && (
         <Group justify="center">
@@ -175,6 +188,7 @@ export function SearchTab() {
     z.array(z.string()),
     NO_PROFESSIONS,
   )
+  const [sort, setSort] = useStoredState<RankBy>('altarmy-profit.search.sort', z.enum(RANK_BY), 'profit')
   const filters = useMemo<Filters>(
     () => ({
       includeUnlearned,
@@ -187,8 +201,9 @@ export function SearchTab() {
       minRoi: scaled(minRoi, (p) => p / 100),
       maxRoi: scaled(maxRoi, (p) => p / 100),
       professions,
+      sort,
     }),
-    [includeUnlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, professions],
+    [includeUnlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, professions, sort],
   )
   const [debouncedFilters] = useDebouncedValue(filters, 300)
 
@@ -261,6 +276,21 @@ export function SearchTab() {
           />
         )}
       </Flex>
+      <Group gap="xs">
+        <Text size="sm" fw={500} id="rank-by">
+          Rank by
+        </Text>
+        <SegmentedControl
+          size="xs"
+          aria-labelledby="rank-by"
+          value={sort}
+          onChange={(v) => setSort(v === 'rate' ? 'rate' : 'profit')}
+          data={[
+            { value: 'profit', label: 'Profit per craft' },
+            { value: 'rate', label: 'Profit per hour' },
+          ]}
+        />
+      </Group>
       {browsing && (
         <Text size="sm" c="dimmed">
           Browsing every recipe on this realm, crafted and sold by one character. Add your characters to see who can
@@ -318,6 +348,10 @@ export function SearchTab() {
             </Stack>
           </Accordion.Panel>
         </Accordion.Item>
+        <Accordion.Item value="time">
+          <Accordion.Control>Play Time and City</Accordion.Control>
+          <Accordion.Panel>{open.includes('time') && <TimeSettingsPanel />}</Accordion.Panel>
+        </Accordion.Item>
       </Accordion>
       {status.data.prices === 0 && (
         <Alert color="yellow">
@@ -327,7 +361,7 @@ export function SearchTab() {
         </Alert>
       )}
       {debouncedFilters.exits.length ? (
-        <Results filters={debouncedFilters} browsing={browsing} />
+        <Results filters={debouncedFilters} browsing={browsing} onRankBy={setSort} />
       ) : (
         <Alert>Pick at least one way to sell under Advanced Options.</Alert>
       )}

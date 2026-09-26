@@ -38,6 +38,11 @@ class GameVersion:
     def vendor_csv(self) -> Path:
         return self.data_dir / "vendor_items.csv"
 
+    @property
+    def cities_dir(self) -> Path:
+        """City presets for timing crafts (`timing.CityMap` JSON), from scripts/build_cities.py."""
+        return self.data_dir / "cities"
+
 
 VERSIONS: dict[str, GameVersion] = {
     "forever": GameVersion(

@@ -23,6 +23,7 @@ def test_each_version_has_its_own_files() -> None:
     tbc, forever = VERSIONS["tbc"], VERSIONS["forever"]
     assert tbc.disenchant_csv == Path("data/tbc/disenchant.csv")
     assert forever.vendor_csv == Path("data/forever/vendor_items.csv")
+    assert forever.cities_dir == Path("data/forever/cities")
     assert tbc.flavor_folders == ("_anniversary_",)
     assert forever.flavor_folders == ("_classic_beta_",)
     assert (tbc.interface, forever.interface) == (20506, 16001)

@@ -72,6 +72,8 @@ class UserSettings:
     selected_realm: str | None = None  # with selected_faction: whose characters count
     selected_faction: str | None = None
     data_version: int = 0  # bumped when the user's characters or prices were re-imported
+    time_city: str | None = None  # the city preset profit per hour is timed in; None: the faction's default
+    time_config: str | None = None  # JSON of the user's timing.TimeConfig overrides; None: the defaults
 
 
 @dataclass(frozen=True)

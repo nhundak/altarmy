@@ -41,6 +41,7 @@ altarmy-profit import-auctionator "<WoW>\_classic_beta_\WTF\Account\<account>\Sa
 altarmy-profit import-altarmy "<WoW>\_classic_beta_\WTF\Account\<account>\SavedVariables\AltArmy_TBC.lua"
 altarmy-profit set-price 2589 250              # one item, copper
 altarmy-profit rank --top 25 --realm "Classic Beta PvE" --faction Horde   # remembered; --include-unlearned
+altarmy-profit rank --sort rate --city Orgrimmar --batch 20 --gold-per-hour 50   # by profit per hour of play
 altarmy-profit ui                              # web UI on http://127.0.0.1:8600 (--port, --no-browser)
 altarmy-profit watch --server URL --key KEY    # upload the addon files to a hosted site as WoW rewrites them
 altarmy-profit ingest --only-if-new            # the newest build, unless already loaded (the hosted daily job)
@@ -74,6 +75,14 @@ source; older prices stay as history (see Data notes).
 characters, their professions and the recipes they have learned. `rank` then only ranks what the
 characters of one realm and faction can craft (chains may use any of their recipes, whoever knows them).
 
+**Profit per hour.** Every plan is also timed: casts (DB2 cast times), clicks at the auction house, vendors
+and mailbox, character switches, and running between them in a city (see Data notes). A session crafts a
+batch (`--batch`, default 20), so a run across town or a switch to an alt is shared by the batch. `rank
+--sort rate` ranks by profit per hour. `--gold-per-hour` says what an hour of play is worth: plans then
+weigh time as money, so a slow vendor run or a mail to an alt can lose to paying more at the AH. At 0 (the
+default) time never changes a plan, it is only reported. `--city` picks where to time plans; the default
+is the saved choice, else the faction's capital. The CLI flags apply to one run; the web UI saves them.
+
 The web UI, **Alt Army**, is a React app (`frontend/`) served by a local FastAPI server (`altarmy-profit
 ui`); build it once with `npm run build` in `frontend/`. It serves WoW: Forever only (the API and CLI
 serve both games). The header links **Manage**, **Upload** (hosted mode) and **Get the Addon** (a
@@ -100,7 +109,11 @@ appears below it:
   first. Picking one re-costs the recipe, adding or removing buy, craft and mail steps, and the row
   shows the changed numbers. **Reset** goes back to the best plan. A row's ⋯ menu can mark its output
   **Never sell on auction house**: from then on it is only vendored or disenchanted (it can still be
-  bought there).
+  bought there). **Rank by** switches between profit per craft and **profit per hour** (the Per hour
+  column; its header ranks by it too). An expanded row shows each step's seconds, the batch's time and
+  where each character runs, and how long the plan takes in each city the faction can craft in, the
+  quickest marked. **Play Time and City** sets the city, crafts per session, what an hour is worth and
+  the seconds each action takes (all saved per user).
 - **Manage** lists the items never sold on the auction house (remove one to allow it again), downloads
   the game's latest data (its newest build on wago.tools; prices are kept) and shows the addon
   files in use.
@@ -285,7 +298,25 @@ Coarse Thread,120
   cheaper. Forever may differ from vanilla; edit the CSV and re-run `altarmy-profit ingest` if a vendor
   item is missing or wrong.
 - Recipe output count comes from `SpellEffect.EffectBasePointsF` (Forever) or `EffectBasePoints` plus the
-  average `EffectDieSides` roll (TBC); see `ingest.output_count`.
+  average `EffectDieSides` roll (TBC); see `ingest.output_count`. Cast time comes from `SpellMisc`'s
+  `CastingTimeIndex` into `SpellCastTimes`, and the station a craft needs (anvil, cooking fire, loom, ...)
+  from `SpellCastingRequirements.RequiresSpellFocus`'s `SpellFocusObject` name.
+- **City presets** (`data/forever/cities/*.json`) say where the auction house (the hub every character
+  starts and ends at), mailboxes, anvils, forges, cooking fires and vendors (with what they sell) stand,
+  taken from vmangos' world database by `python scripts/build_cities.py` (patch 1.12 spawns within a
+  radius of each city's teleport point; `cities.CITY_SPECS`). Running time is straight-line distance
+  times a detour factor over the run speed. Measured times go in a preset's `overrides`, which
+  regenerating keeps: `travel` (`{"ah|mailbox:123": 12.5}` seconds), `detour` (e.g. 1.8 for Undercity's
+  levels), `hub`, `drop` (location ids) and `locations` (added or moved, e.g. `{"id": "anvil:9", "kind":
+  "anvil", "name": "Anvil", "x": 1650, "y": -4410, "z": 21}`). Positions are world coordinates, not map
+  percentages: standing there, `/dump UnitPosition("player")` prints them (check its order against a known
+  spot, such as the preset's auction house). WoW: Forever's new stations (spinning wheel, sewing machine,
+  tanning rack, loom, master forge, iron oven, ...; `timing.DEPLOYABLE`) are not in vmangos. For now they
+  count as set down where the crafter stands: always there, no running. A plan still names them. Restart
+  the app, or reload in
+  local mode, to load them. A plan needing a station a city lacks is flagged and never recommended there;
+  a vendor item no vendor in the city sells is timed at the nearest vendor. TBC has no presets yet: its
+  plans are timed "Anywhere" (actions and switches, no running).
 
 ## Layout
 
@@ -295,6 +326,8 @@ Coarse Thread,120
   Postgres), its tables and Alembic migrations; `legacy.py` imports older releases' SQLite files
 - `src/altarmy_profit/ingest.py` – download + load DB2 CSVs
 - `src/altarmy_profit/engine.py` – pure profit/chain logic (no I/O), covered by `tests/`
+- `src/altarmy_profit/timing.py` – pure play-time model (action seconds, city maps, routes, per-hour
+  rates); `cities.py` builds city presets from vmangos spawns (`scripts/build_cities.py`)
 - `src/altarmy_profit/prices.py` – the price store (auction houses, snapshots, current and daily prices,
   screening uploads, coverage) and its sources (CSV, Auctionator SavedVariables via `auctionator.py`);
   `merge.py` – daily medians and 7-day statistics

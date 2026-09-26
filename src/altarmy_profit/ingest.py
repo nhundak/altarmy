@@ -10,7 +10,7 @@ from pathlib import Path
 
 from sqlalchemy import Connection, delete
 
-from . import db, schema
+from . import db, schema, timing
 
 LATEST_URL = "https://wago.tools/api/builds/latest"
 TABLES = [
@@ -23,6 +23,10 @@ TABLES = [
     "SpellName",
     "SpellEffect",
     "SpellReagents",
+    "SpellMisc",
+    "SpellCastTimes",
+    "SpellCastingRequirements",
+    "SpellFocusObject",
 ]
 EFFECT_CREATE_ITEM = 24
 MAX_REAGENTS = 8
@@ -93,6 +97,46 @@ def output_count(effect: dict[str, str]) -> int:
         return as_float
     base, sides = _int(effect.get("EffectBasePoints")), _int(effect.get("EffectDieSides"))
     return max(1, base + (1 + sides) // 2 if sides > 0 else base)
+
+
+def cast_times(spell_misc: Path, spell_cast_times: Path) -> dict[int, int]:
+    """Spell id -> cast time in ms, from SpellMisc's CastingTimeIndex into SpellCastTimes' Base. A spell
+    has a SpellMisc row per difficulty; the normal one (DifficultyID 0) wins, else the first."""
+    base = {_int(r["ID"]): _int(r["Base"]) for r in _rows(spell_cast_times)}
+    out: dict[int, int] = {}
+    for r in _rows(spell_misc):
+        spell = _int(r["SpellID"])
+        if spell not in out or _int(r.get("DifficultyID")) == 0:
+            out[spell] = base.get(_int(r["CastingTimeIndex"]), 0)
+    return out
+
+
+def spell_stations(requirements: Path, focus_objects: Path) -> dict[int, str]:
+    """Spell id -> the crafting station it is cast at (`timing.station_kind` of its SpellFocusObject name)."""
+    names = focus_names(focus_objects)
+    out = {}
+    for r in _rows(requirements):
+        focus = _int(r["RequiresSpellFocus"])
+        if focus in names:
+            out[_int(r["SpellID"])] = timing.station_kind(names[focus])
+    return out
+
+
+def focus_names(focus_objects: Path) -> dict[int, str]:
+    """SpellFocusObject id -> name (Anvil, Spinning Wheel, ...)."""
+    return {_int(r["ID"]): r["Name_lang"] for r in _rows(focus_objects) if r["Name_lang"]}
+
+
+def craft_stations(paths: dict[str, Path]) -> dict[int, str]:
+    """The spell foci some profession spell (SkillLineAbility) is cast at: id -> name. Leaves out the
+    holiday and quest objects (bonfires, firework launchers, ...) nothing is crafted at."""
+    crafts = {_int(r["Spell"]) for r in _rows(paths["SkillLineAbility"])}
+    used = {
+        _int(r["RequiresSpellFocus"])
+        for r in _rows(paths["SpellCastingRequirements"])
+        if _int(r["SpellID"]) in crafts
+    }
+    return {i: n for i, n in focus_names(paths["SpellFocusObject"]).items() if i in used}
 
 
 ITEM_INSERT_COLUMNS = (
@@ -183,6 +227,8 @@ def build_db(
     conn.execute(schema.items.insert(), [dict(zip(ITEM_INSERT_COLUMNS, i, strict=True)) for i in items])
 
     spell_names = {_int(r["ID"]): r["Name_lang"] for r in _rows(paths["SpellName"])}
+    cast_ms = cast_times(paths["SpellMisc"], paths["SpellCastTimes"])
+    stations = spell_stations(paths["SpellCastingRequirements"], paths["SpellFocusObject"])
 
     # spell -> (output item, count); first CreateItem effect wins
     outputs: dict[int, tuple[int, int]] = {}
@@ -226,6 +272,8 @@ def build_db(
             "trivial_high": _int(r["TrivialSkillLineRankHigh"]),
             "output_item_id": out_item,
             "output_count": out_count,
+            "cast_time_ms": cast_ms.get(spell, 0),
+            "station": stations.get(spell, ""),
         }
         for k in [k for k in recipe_reagents if k[0] == rid]:
             del recipe_reagents[k]

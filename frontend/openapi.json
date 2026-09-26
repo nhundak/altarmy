@@ -194,6 +194,70 @@
         "title": "Characters",
         "type": "object"
       },
+      "CityOut": {
+        "properties": {
+          "faction": {
+            "title": "Faction",
+            "type": "string"
+          },
+          "hub": {
+            "title": "Hub",
+            "type": "string"
+          },
+          "locations": {
+            "title": "Locations",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "vendors": {
+            "title": "Vendors",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "faction",
+          "hub",
+          "locations",
+          "vendors"
+        ],
+        "title": "CityOut",
+        "type": "object"
+      },
+      "CityTimingOut": {
+        "properties": {
+          "city": {
+            "title": "City",
+            "type": "string"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "per_hour": {
+            "title": "Per Hour",
+            "type": "integer"
+          },
+          "total_seconds": {
+            "title": "Total Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "city",
+          "total_seconds",
+          "per_hour",
+          "missing"
+        ],
+        "title": "CityTimingOut",
+        "type": "object"
+      },
       "ConfigOut": {
         "properties": {
           "firebase": {
@@ -662,6 +726,45 @@
         "title": "KeyRequest",
         "type": "object"
       },
+      "LegOut": {
+        "description": "One run across the city.",
+        "properties": {
+          "from_id": {
+            "title": "From Id",
+            "type": "string"
+          },
+          "from_name": {
+            "title": "From Name",
+            "type": "string"
+          },
+          "seconds": {
+            "title": "Seconds",
+            "type": "number"
+          },
+          "to_id": {
+            "title": "To Id",
+            "type": "string"
+          },
+          "to_name": {
+            "title": "To Name",
+            "type": "string"
+          },
+          "who": {
+            "title": "Who",
+            "type": "string"
+          }
+        },
+        "required": [
+          "who",
+          "from_id",
+          "from_name",
+          "to_id",
+          "to_name",
+          "seconds"
+        ],
+        "title": "LegOut",
+        "type": "object"
+      },
       "ManualCharacter": {
         "description": "A character typed in by hand. It knows every recipe of its professions (nothing is learned).",
         "properties": {
@@ -910,6 +1013,11 @@
             "title": "Quantity",
             "type": "integer"
           },
+          "seconds": {
+            "default": 0.0,
+            "title": "Seconds",
+            "type": "number"
+          },
           "source": {
             "title": "Source",
             "type": "string"
@@ -952,6 +1060,11 @@
           "key": {
             "title": "Key",
             "type": "string"
+          },
+          "seconds": {
+            "default": 0.0,
+            "title": "Seconds",
+            "type": "number"
           },
           "source": {
             "title": "Source",
@@ -1052,6 +1165,17 @@
       },
       "RankResult": {
         "properties": {
+          "best_city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best City"
+          },
           "best_exit": {
             "title": "Best Exit",
             "type": "string"
@@ -1060,6 +1184,14 @@
             "default": 0.0,
             "title": "Bonus Output",
             "type": "number"
+          },
+          "cities": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CityTimingOut"
+            },
+            "title": "Cities",
+            "type": "array"
           },
           "cost": {
             "title": "Cost",
@@ -1147,6 +1279,16 @@
             },
             "title": "Steps",
             "type": "array"
+          },
+          "timing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimingOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "tree": {
             "$ref": "#/components/schemas/NodeOut"
@@ -1520,6 +1662,16 @@
             "title": "Quantity",
             "type": "integer"
           },
+          "seconds": {
+            "default": 0.0,
+            "title": "Seconds",
+            "type": "number"
+          },
+          "station": {
+            "default": "",
+            "title": "Station",
+            "type": "string"
+          },
           "value": {
             "title": "Value",
             "type": "integer"
@@ -1573,6 +1725,240 @@
           "max_rank"
         ],
         "title": "TalentOut",
+        "type": "object"
+      },
+      "TimeConfigModel": {
+        "description": "Seconds per action, crafts per session, what an hour of play is worth (copper) and running speed.",
+        "properties": {
+          "ah_buy": {
+            "title": "Ah Buy",
+            "type": "number"
+          },
+          "ah_post": {
+            "title": "Ah Post",
+            "type": "number"
+          },
+          "ah_search": {
+            "title": "Ah Search",
+            "type": "number"
+          },
+          "batch": {
+            "title": "Batch",
+            "type": "integer"
+          },
+          "craft_overhead": {
+            "title": "Craft Overhead",
+            "type": "number"
+          },
+          "detour": {
+            "title": "Detour",
+            "type": "number"
+          },
+          "disenchant": {
+            "title": "Disenchant",
+            "type": "number"
+          },
+          "mail_attach": {
+            "title": "Mail Attach",
+            "type": "number"
+          },
+          "mail_attachments": {
+            "title": "Mail Attachments",
+            "type": "integer"
+          },
+          "mail_open": {
+            "title": "Mail Open",
+            "type": "number"
+          },
+          "mail_send": {
+            "title": "Mail Send",
+            "type": "number"
+          },
+          "run_speed": {
+            "title": "Run Speed",
+            "type": "number"
+          },
+          "switch_character": {
+            "title": "Switch Character",
+            "type": "number"
+          },
+          "time_value": {
+            "title": "Time Value",
+            "type": "integer"
+          },
+          "vendor_buy": {
+            "title": "Vendor Buy",
+            "type": "number"
+          },
+          "vendor_sell": {
+            "title": "Vendor Sell",
+            "type": "number"
+          }
+        },
+        "required": [
+          "ah_search",
+          "ah_buy",
+          "ah_post",
+          "vendor_buy",
+          "vendor_sell",
+          "mail_send",
+          "mail_attach",
+          "mail_open",
+          "mail_attachments",
+          "switch_character",
+          "disenchant",
+          "craft_overhead",
+          "batch",
+          "time_value",
+          "run_speed",
+          "detour"
+        ],
+        "title": "TimeConfigModel",
+        "type": "object"
+      },
+      "TimeSettings": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "string"
+          },
+          "cities": {
+            "items": {
+              "$ref": "#/components/schemas/CityOut"
+            },
+            "title": "Cities",
+            "type": "array"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "config": {
+            "$ref": "#/components/schemas/TimeConfigModel"
+          },
+          "defaults": {
+            "$ref": "#/components/schemas/TimeConfigModel"
+          }
+        },
+        "required": [
+          "cities",
+          "city",
+          "active",
+          "config",
+          "defaults"
+        ],
+        "title": "TimeSettings",
+        "type": "object"
+      },
+      "TimeSettingsIn": {
+        "properties": {
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "config": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "default": {},
+            "title": "Config",
+            "type": "object"
+          }
+        },
+        "title": "TimeSettingsIn",
+        "type": "object"
+      },
+      "TimingOut": {
+        "description": "How long a batch of the recipe takes in a city, and what that makes per hour.",
+        "properties": {
+          "batch": {
+            "title": "Batch",
+            "type": "integer"
+          },
+          "breakdown": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Breakdown",
+            "type": "object"
+          },
+          "city": {
+            "title": "City",
+            "type": "string"
+          },
+          "deployed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Deployed",
+            "type": "array"
+          },
+          "fixed_seconds": {
+            "title": "Fixed Seconds",
+            "type": "number"
+          },
+          "legs": {
+            "items": {
+              "$ref": "#/components/schemas/LegOut"
+            },
+            "title": "Legs",
+            "type": "array"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "per_craft_seconds": {
+            "title": "Per Craft Seconds",
+            "type": "number"
+          },
+          "per_hour": {
+            "title": "Per Hour",
+            "type": "integer"
+          },
+          "total_seconds": {
+            "title": "Total Seconds",
+            "type": "number"
+          },
+          "unsold": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Unsold",
+            "type": "array"
+          }
+        },
+        "required": [
+          "city",
+          "batch",
+          "fixed_seconds",
+          "per_craft_seconds",
+          "total_seconds",
+          "per_hour",
+          "breakdown",
+          "legs",
+          "unsold",
+          "missing",
+          "deployed"
+        ],
+        "title": "TimingOut",
         "type": "object"
       },
       "UpdateResult": {
@@ -2657,7 +3043,7 @@
     },
     "/api/rank": {
       "get": {
-        "description": "What the selected realm/faction's characters can craft, most profitable first; without characters,\nevery recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive; an omitted\nbound is unbounded (so losses are included unless `min_profit` is set).",
+        "description": "What the selected realm/faction's characters can craft, most profitable first (per craft, or with\n`sort=rate` per hour of play in the user's city); without characters, every recipe, crafted by one\nunnamed character (nothing is mailed). Bounds are inclusive; an omitted bound is unbounded (so losses\nare included unless `min_profit` is set).",
         "operationId": "get_rank_api_rank_get",
         "parameters": [
           {
@@ -2838,6 +3224,22 @@
             }
           },
           {
+            "description": "profit per craft, or per hour of play",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "profit",
+              "description": "profit per craft, or per hour of play",
+              "enum": [
+                "profit",
+                "rate"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
             "in": "query",
             "name": "top",
             "required": false,
@@ -2896,7 +3298,7 @@
     },
     "/api/reload": {
       "post": {
-        "description": "Drop the cached market, e.g. after changing the database from the command line.",
+        "description": "Drop the cached market and city presets, e.g. after changing the database from the command line\nor regenerating the presets.",
         "operationId": "reload_api_reload_post",
         "parameters": [
           {
@@ -3166,6 +3568,116 @@
           }
         ],
         "summary": "Sync Now"
+      }
+    },
+    "/api/time": {
+      "get": {
+        "description": "The user's time settings: the cities the selection's faction crafts in, the one plans are timed\nin, and the seconds per action.",
+        "operationId": "get_time_api_time_get",
+        "parameters": [
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Time"
+      },
+      "put": {
+        "description": "Save the user's city (None: the faction's default) and time settings (those not given are reset\nto the defaults); 400 for an unknown city or a bad setting.",
+        "operationId": "put_time_api_time_put",
+        "parameters": [
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TimeSettingsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Time"
       }
     },
     "/api/uploads": {

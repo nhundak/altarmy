@@ -46,6 +46,7 @@ def test_load_market_keeps_spell_ids(db2_paths: dict[str, Path], conn: Connectio
     (recipe,) = store.load_market(conn, FOREVER, None).recipes
     assert recipe.spell_id == 900
     assert (recipe.trivial_low, recipe.trivial_high) == (30, 60)
+    assert (recipe.cast_time_ms, recipe.station) == (3000, "anvil")
 
 
 def test_characters_round_trip_and_replace(conn: Connection) -> None:
@@ -117,3 +118,13 @@ def test_load_market_marks_soulbound_items_not_tradable(db2_paths: dict[str, Pat
     conn.execute(update(t).where(t.c.game_version == FOREVER, t.c.id == 3).values(bonding=1))
     items = store.load_market(conn, FOREVER, None).items
     assert (items[1].tradable, items[3].tradable) == (True, False)  # the fixture's robe is BoE
+
+
+def test_load_cities_reads_every_preset(cities: Path, tmp_path: Path) -> None:
+    got = store.load_cities(cities)
+    assert list(got) == ["Booty Bay", "Orgrimmar", "Stormwind"]
+    assert (got["Orgrimmar"].faction, got["Booty Bay"].faction) == ("Horde", "")
+    assert store.load_cities(tmp_path / "nowhere") == {}
+    (cities / "Broken.json").write_text("{", encoding="utf-8")
+    with pytest.raises(ValueError, match="Broken.json"):
+        store.load_cities(cities)

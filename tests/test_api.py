@@ -220,7 +220,7 @@ def test_rank_lists_options_and_evaluate_applies_choices(
     with_tailor(conn)
     (r,) = client.get("/api/rank").json()["results"]
     assert r["tree"]["options"] == []
-    assert r["tree"]["inputs"][1]["options"] == [
+    assert [{k: v for k, v in o.items() if k != "seconds"} for o in r["tree"]["inputs"][1]["options"]] == [
         {"key": "vendor", "cost": 11, "source": "vendor", "via": "", "crafter": ""},
         {"key": "ah", "cost": 100, "source": "ah", "via": "", "crafter": ""},
     ]
@@ -687,6 +687,11 @@ def test_rank_pages_through_one_search(
     client.post("/api/reload")  # a rebuilt market ranks again
     client.get("/api/rank", params={"top": 1})
     assert len(calls) == 4
+    client.get("/api/rank", params={"top": 1, "sort": "rate"})
+    assert len(calls) == 4  # sorting by rate reuses the ranking
+    client.put("/api/time", json={"config": {"batch": 3}})
+    client.get("/api/rank", params={"top": 1})
+    assert len(calls) == 5  # plans depend on the time settings
 
 
 def test_status_reports_the_price_version(client: TestClient, priced: Connection) -> None:
@@ -1039,3 +1044,59 @@ def test_serves_the_front_end_for_its_own_pages(
     assert client.get("/assets/missing.js").status_code == 404
     assert client.get("/api/nope").status_code == 404
     assert "app" not in client.get("/api/nope").text
+
+
+# --- profit per hour ----------------------------------------------------------------------------------
+def test_time_settings_round_trip(client: TestClient, priced: Connection, cities: Path) -> None:
+    got = client.get("/api/time").json()
+    assert [c["name"] for c in got["cities"]] == ["Orgrimmar", "Booty Bay"]  # Horde's, then neutral
+    assert (got["city"], got["active"]) == (None, "Orgrimmar")
+    assert got["config"] == got["defaults"]
+    assert got["defaults"]["batch"] == 20
+    put = client.put("/api/time", json={"city": "Booty Bay", "config": {"batch": 5, "time_value": 10**6}})
+    assert put.status_code == 200
+    assert (put.json()["city"], put.json()["active"]) == ("Booty Bay", "Booty Bay")
+    assert (put.json()["config"]["batch"], put.json()["config"]["time_value"]) == (5, 10**6)
+    assert client.get("/api/time").json() == put.json()
+    for bad in [{"city": "Atlantis"}, {"config": {"batch": 0}}, {"config": {"nope": 1}}]:
+        assert client.put("/api/time", json=bad).status_code == 400
+    reset = client.put("/api/time", json={}).json()
+    assert (reset["city"], reset["config"]) == (None, reset["defaults"])
+
+
+def test_rank_reports_profit_per_hour(client: TestClient, priced: Connection, cities: Path) -> None:
+    (r,) = client.get("/api/rank").json()["results"]
+    t = r["timing"]
+    assert (t["city"], t["batch"]) == ("Orgrimmar", 20)
+    assert t["total_seconds"] == pytest.approx(t["fixed_seconds"] + 20 * t["per_craft_seconds"])
+    assert t["per_hour"] == round(200 * 20 * 3600 / t["total_seconds"])
+    assert set(t["breakdown"]) >= {"travel", "craft", "ah", "vendor"}
+    assert {leg["to_name"] for leg in t["legs"]} == {"Thread Seller", "Auctioneer"}  # the robe sells to it
+    assert [c["city"] for c in r["cities"]] == ["Orgrimmar", "Booty Bay"]
+    assert r["best_city"] == "Booty Bay"  # its vendor is next door
+    # the robe is crafted at an anvil, which Orgrimmar lacks here: noted, not timed
+    assert (t["missing"], r["cities"][0]["missing"], r["cities"][1]["missing"]) == (["anvil"], ["anvil"], [])
+    craft = next(s for s in r["steps"] if s["action"] == "craft")
+    assert craft["seconds"] == pytest.approx(3.5) and craft["station"] == "anvil"  # a 3 s cast at an anvil
+    assert r["tree"]["seconds"] > 0 and r["tree"]["inputs"][0]["options"][0]["seconds"] > 0
+    by_rate = client.get("/api/rank", params={"sort": "rate"}).json()["results"]
+    assert [x["recipe_id"] for x in by_rate] == [r["recipe_id"]]
+
+
+def test_rank_times_anywhere_without_presets(client: TestClient, priced: Connection) -> None:
+    (r,) = client.get("/api/rank").json()["results"]
+    assert r["timing"]["city"] == "Anywhere"
+    assert r["timing"]["breakdown"]["travel"] == 0
+    assert (r["cities"], r["best_city"]) == ([], None)
+    assert client.get("/api/time").json()["cities"] == []
+
+
+def test_evaluate_uses_the_time_settings(client: TestClient, priced: Connection, cities: Path) -> None:
+    client.put("/api/time", json={"city": "Booty Bay", "config": {"batch": 4}})
+    body = client.post("/api/evaluate", json={"recipe_id": 100, "choices": {}}).json()
+    assert (body["result"]["timing"]["city"], body["result"]["timing"]["batch"]) == ("Booty Bay", 4)
+
+
+def test_guests_keep_their_own_time_settings(hosted: TestClient, conn: Connection) -> None:
+    assert hosted.put("/api/time", json={"config": {"batch": 2}}, headers=FREE).status_code == 200
+    assert hosted.get("/api/time", headers=FREE).json()["config"]["batch"] == 2

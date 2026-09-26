@@ -277,9 +277,10 @@ export interface paths {
         };
         /**
          * Get Rank
-         * @description What the selected realm/faction's characters can craft, most profitable first; without characters,
-         *     every recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive; an omitted
-         *     bound is unbounded (so losses are included unless `min_profit` is set).
+         * @description What the selected realm/faction's characters can craft, most profitable first (per craft, or with
+         *     `sort=rate` per hour of play in the user's city); without characters, every recipe, crafted by one
+         *     unnamed character (nothing is mailed). Bounds are inclusive; an omitted bound is unbounded (so losses
+         *     are included unless `min_profit` is set).
          */
         get: operations["get_rank_api_rank_get"];
         put?: never;
@@ -301,7 +302,8 @@ export interface paths {
         put?: never;
         /**
          * Reload
-         * @description Drop the cached market, e.g. after changing the database from the command line.
+         * @description Drop the cached market and city presets, e.g. after changing the database from the command line
+         *     or regenerating the presets.
          */
         post: operations["reload_api_reload_post"];
         delete?: never;
@@ -382,6 +384,32 @@ export interface paths {
          * @description Re-import both addon files even if they look unchanged.
          */
         post: operations["sync_now_api_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/time": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Time
+         * @description The user's time settings: the cities the selection's faction crafts in, the one plans are timed
+         *     in, and the seconds per action.
+         */
+        get: operations["get_time_api_time_get"];
+        /**
+         * Put Time
+         * @description Save the user's city (None: the faction's default) and time settings (those not given are reset
+         *     to the defaults); 400 for an unknown city or a bad setting.
+         */
+        put: operations["put_time_api_time_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -532,6 +560,30 @@ export interface components {
             /** Groups */
             groups: components["schemas"]["GroupOut"][];
             selection: components["schemas"]["SelectionModel"] | null;
+        };
+        /** CityOut */
+        CityOut: {
+            /** Faction */
+            faction: string;
+            /** Hub */
+            hub: string;
+            /** Locations */
+            locations: number;
+            /** Name */
+            name: string;
+            /** Vendors */
+            vendors: number;
+        };
+        /** CityTimingOut */
+        CityTimingOut: {
+            /** City */
+            city: string;
+            /** Missing */
+            missing: string[];
+            /** Per Hour */
+            per_hour: number;
+            /** Total Seconds */
+            total_seconds: number;
         };
         /** ConfigOut */
         ConfigOut: {
@@ -708,6 +760,24 @@ export interface components {
             label: string;
         };
         /**
+         * LegOut
+         * @description One run across the city.
+         */
+        LegOut: {
+            /** From Id */
+            from_id: string;
+            /** From Name */
+            from_name: string;
+            /** Seconds */
+            seconds: number;
+            /** To Id */
+            to_id: string;
+            /** To Name */
+            to_name: string;
+            /** Who */
+            who: string;
+        };
+        /**
          * ManualCharacter
          * @description A character typed in by hand. It knows every recipe of its professions (nothing is learned).
          */
@@ -813,6 +883,11 @@ export interface components {
             postage: number;
             /** Quantity */
             quantity: number;
+            /**
+             * Seconds
+             * @default 0
+             */
+            seconds: number;
             /** Source */
             source: string;
             /** Via */
@@ -829,6 +904,11 @@ export interface components {
             crafter: string;
             /** Key */
             key: string;
+            /**
+             * Seconds
+             * @default 0
+             */
+            seconds: number;
             /** Source */
             source: string;
             /** Via */
@@ -867,6 +947,8 @@ export interface components {
         };
         /** RankResult */
         RankResult: {
+            /** Best City */
+            best_city?: string | null;
             /** Best Exit */
             best_exit: string;
             /**
@@ -874,6 +956,11 @@ export interface components {
              * @default 0
              */
             bonus_output: number;
+            /**
+             * Cities
+             * @default []
+             */
+            cities: components["schemas"]["CityTimingOut"][];
             /** Cost */
             cost: number;
             /** Crafter */
@@ -910,6 +997,7 @@ export interface components {
             sell_options: components["schemas"]["SellOptionOut"][];
             /** Steps */
             steps: components["schemas"]["StepOut"][];
+            timing?: components["schemas"]["TimingOut"] | null;
             tree: components["schemas"]["NodeOut"];
         };
         /** RealmPricesOut */
@@ -1024,6 +1112,16 @@ export interface components {
             paths: string[];
             /** Quantity */
             quantity: number;
+            /**
+             * Seconds
+             * @default 0
+             */
+            seconds: number;
+            /**
+             * Station
+             * @default
+             */
+            station: string;
             /** Value */
             value: number;
             /** Via */
@@ -1044,6 +1142,97 @@ export interface components {
             rank: number;
             /** Spell Id */
             spell_id: number;
+        };
+        /**
+         * TimeConfigModel
+         * @description Seconds per action, crafts per session, what an hour of play is worth (copper) and running speed.
+         */
+        TimeConfigModel: {
+            /** Ah Buy */
+            ah_buy: number;
+            /** Ah Post */
+            ah_post: number;
+            /** Ah Search */
+            ah_search: number;
+            /** Batch */
+            batch: number;
+            /** Craft Overhead */
+            craft_overhead: number;
+            /** Detour */
+            detour: number;
+            /** Disenchant */
+            disenchant: number;
+            /** Mail Attach */
+            mail_attach: number;
+            /** Mail Attachments */
+            mail_attachments: number;
+            /** Mail Open */
+            mail_open: number;
+            /** Mail Send */
+            mail_send: number;
+            /** Run Speed */
+            run_speed: number;
+            /** Switch Character */
+            switch_character: number;
+            /** Time Value */
+            time_value: number;
+            /** Vendor Buy */
+            vendor_buy: number;
+            /** Vendor Sell */
+            vendor_sell: number;
+        };
+        /** TimeSettings */
+        TimeSettings: {
+            /** Active */
+            active: string;
+            /** Cities */
+            cities: components["schemas"]["CityOut"][];
+            /** City */
+            city: string | null;
+            config: components["schemas"]["TimeConfigModel"];
+            defaults: components["schemas"]["TimeConfigModel"];
+        };
+        /** TimeSettingsIn */
+        TimeSettingsIn: {
+            /** City */
+            city?: string | null;
+            /**
+             * Config
+             * @default {}
+             */
+            config: {
+                [key: string]: number;
+            };
+        };
+        /**
+         * TimingOut
+         * @description How long a batch of the recipe takes in a city, and what that makes per hour.
+         */
+        TimingOut: {
+            /** Batch */
+            batch: number;
+            /** Breakdown */
+            breakdown: {
+                [key: string]: number;
+            };
+            /** City */
+            city: string;
+            /** Deployed */
+            deployed: string[];
+            /** Fixed Seconds */
+            fixed_seconds: number;
+            /** Legs */
+            legs: components["schemas"]["LegOut"][];
+            /** Missing */
+            missing: string[];
+            /** Per Craft Seconds */
+            per_craft_seconds: number;
+            /** Per Hour */
+            per_hour: number;
+            /** Total Seconds */
+            total_seconds: number;
+            /** Unsold */
+            unsold: number[];
         };
         /** UpdateResult */
         UpdateResult: {
@@ -1708,6 +1897,8 @@ export interface operations {
                 max_roi?: number | null;
                 /** @description only recipes of these professions (default: every one) */
                 professions?: string[] | null;
+                /** @description profit per craft, or per hour of play */
+                sort?: "profit" | "rate";
                 top?: number;
                 /** @description which game's data: tbc or forever */
                 game_version: "tbc" | "forever";
@@ -1893,6 +2084,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Status"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_time_api_time_get: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_time_api_time_put: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TimeSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeSettings"];
                 };
             };
             /** @description Validation Error */
