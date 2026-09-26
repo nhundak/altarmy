@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react'
 import { notifications } from '@mantine/notifications'
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -7,21 +6,18 @@ import {
   type Evaluation,
   type ManualCharacter,
   type Selection,
-  type Sources,
   type Status,
   type TimeConfig,
-  type UpdateResult,
 } from './client'
 import { GAME_VERSION } from '../lib/gameVersion'
 import type { Choices } from '../lib/choices'
-import { importedSince, readSyncSeen, syncSeen, writeSyncSeen } from '../lib/syncNotice'
 
 /** The `game_version` query parameter every per-game route takes. */
 const GV = { params: { query: { game_version: GAME_VERSION } } }
 
 /**
- * The server status. Fetching it also makes the server re-import the Alt Army and Auctionator files if WoW
- * rewrote them (on logout or /reload), so poll it, and refetch when the user comes back from the game.
+ * The server status. Polled, and refetched when the user comes back from the game, so the watcher's uploads
+ * and the hourly merge show up.
  */
 export function useStatus() {
   return useQuery({
@@ -33,8 +29,8 @@ export function useStatus() {
 }
 
 /**
- * Part of the keys of data that imports and merges affect: the user's data version (bumped whenever a sync or upload
- * re-imported something) and the selected auction house's price version (bumped by the hourly merge).
+ * Part of the keys of data that imports and merges affect: the user's data version (bumped whenever an upload or edit
+ * changed something) and the selected auction house's price version (bumped by the hourly merge).
  */
 export function useDataVersion() {
   const status = useStatus().data
@@ -307,20 +303,6 @@ export function useRevokeKey() {
   })
 }
 
-export function useAuctionatorFiles() {
-  return useQuery({
-    queryKey: ['auctionator', GAME_VERSION, 'files'],
-    queryFn: () => call(client.GET('/api/auctionator/files', GV)),
-  })
-}
-
-export function useAltArmyFiles() {
-  return useQuery({
-    queryKey: ['altarmy', GAME_VERSION, 'files'],
-    queryFn: () => call(client.GET('/api/altarmy/files', GV)),
-  })
-}
-
 function showError(title: string) {
   return (error: Error) => notifications.show({ color: 'red', title, message: error.message })
 }
@@ -409,69 +391,6 @@ function useInvalidateAll() {
   return () => queryClient.invalidateQueries()
 }
 
-function updateGameData(onlyIfNew: boolean) {
-  return call(
-    client.POST('/api/game-data/update', { params: { query: { game_version: GAME_VERSION, only_if_new: onlyIfNew } } }),
-  )
-}
-
-function showUpdated(r: UpdateResult, title: string) {
-  notifications.show({
-    color: 'green',
-    title,
-    message: `Loaded build ${r.build}: ${r.items.toLocaleString()} items, ${r.recipes.toLocaleString()} recipes.`,
-  })
-}
-
-export function useUpdateGameData() {
-  const invalidate = useInvalidateAll()
-  return useMutation({
-    mutationFn: () => updateGameData(false),
-    onSuccess: (r) => {
-      showUpdated(r, 'Game data updated')
-      return invalidate()
-    },
-    onError: showError('Update failed'),
-  })
-}
-
-/**
- * Once per page load, fetch the game's newest build if the database does not have it yet. Failures only go to
- * the console: being offline should not raise a toast on every visit.
- */
-export function useAutoUpdateGameData() {
-  const invalidate = useInvalidateAll()
-  const { mutate } = useMutation({
-    mutationFn: () => updateGameData(true),
-    onSuccess: (r) => {
-      if (!r.updated) return
-      showUpdated(r, 'New game data downloaded')
-      return invalidate()
-    },
-    onError: (error) => console.warn('Automatic game data update failed:', error),
-  })
-  const started = useRef(false) // StrictMode runs effects twice in development
-  useEffect(() => {
-    if (started.current) return
-    started.current = true
-    mutate()
-  }, [mutate])
-}
-
-/**
- * Toast whenever the server's addon sync re-imported Alt Army or Auctionator data: while the page is
- * open (status polling), or since it was last open.
- */
-export function useSyncNotifications() {
-  const status = useStatus().data
-  useEffect(() => {
-    if (!status) return
-    const lines = importedSince(readSyncSeen(GAME_VERSION), status)
-    writeSyncSeen(GAME_VERSION, syncSeen(status))
-    if (lines.length) notifications.show({ color: 'green', title: 'Addon data imported', message: lines.join(' ') })
-  }, [status])
-}
-
 /** The mutations below answer with the new status: show it at once, then refetch the rest. */
 function useApplyStatus() {
   const queryClient = useQueryClient()
@@ -481,7 +400,7 @@ function useApplyStatus() {
   }
 }
 
-/** Switch realm/faction; the server swaps in that realm's Auctionator prices. */
+/** Switch realm/faction: whose recipes count, and which auction house prices them. */
 export function useSelectRealm() {
   const apply = useApplyStatus()
   return useMutation({
@@ -491,30 +410,3 @@ export function useSelectRealm() {
   })
 }
 
-export function useSetSources() {
-  const apply = useApplyStatus()
-  return useMutation({
-    mutationFn: (body: Sources) => call(client.PUT('/api/sources', { ...GV, body })),
-    onSuccess: apply,
-    onError: showError('Could not use that file'),
-  })
-}
-
-/** Re-import both addon files even if they look unchanged. */
-export function useSyncNow() {
-  const apply = useApplyStatus()
-  return useMutation({
-    mutationFn: () => call(client.POST('/api/sync', GV)),
-    onSuccess: apply,
-    onError: showError('Sync failed'),
-  })
-}
-
-export function useReload() {
-  const invalidate = useInvalidateAll()
-  return useMutation({
-    mutationFn: () => call(client.POST('/api/reload', GV)),
-    onSuccess: () => invalidate(),
-    onError: showError('Reload failed'),
-  })
-}

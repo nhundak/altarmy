@@ -1,4 +1,4 @@
-"""The database: an engine factory over SQLite (local mode, tests) or Postgres (hosted), plus small helpers.
+"""The database: an engine factory over SQLite (development, tests) or Postgres (the site), plus helpers.
 
 Queries use SQLAlchemy Core against the tables in `schema.py`; Alembic (`migrations/`) keeps the schema
 current. Functions taking a `Connection` never commit: the caller owns the transaction (`Database.begin`).
@@ -108,8 +108,7 @@ class Database:
         return engine
 
     def ensure_schema(self) -> None:
-        """Migrate to the newest revision and register the game versions and the local user (once per
-        instance)."""
+        """Migrate to the newest revision and register the game versions (once per instance)."""
         if self._ready:
             return
         engine = self.engine
@@ -119,7 +118,6 @@ class Database:
             with engine.begin() as conn:
                 upgrade(conn)
                 register_versions(conn)
-                register_local_user(conn)
             self._ready = True
 
     def connect(self) -> Connection:
@@ -177,16 +175,6 @@ def register_versions(conn: Connection) -> None:
         for v in versions.VERSIONS.values()
     ]
     upsert(conn, schema.game_versions, rows, ["id"])
-
-
-LOCAL_UID = "local"  # auth.LOCAL_USER.uid: local mode's one user, who owns what the CLI and sync store
-
-
-def register_local_user(conn: Connection) -> None:
-    """The local user's row (linked tier), which revision 0002 also creates for the data it moves."""
-    now = utcnow()
-    row = {"uid": LOCAL_UID, "created_at": now, "linked_at": now, "tier": "linked"}
-    upsert(conn, schema.users, [row], ["uid"], update=[])
 
 
 def upsert(

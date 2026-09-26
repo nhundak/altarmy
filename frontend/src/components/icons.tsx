@@ -54,16 +54,6 @@ export function IconCompass(props: IconProps) {
   )
 }
 
-/** The site's mark: a shield with crossed blades. */
-export function IconMark(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <path d="M12 2.8 19.5 5.6v6.1c0 4.3-3.1 7.6-7.5 9.5-4.4-1.9-7.5-5.2-7.5-9.5V5.6z" />
-      <path d="m8.5 9.5 7 5M15.5 9.5l-7 5" />
-    </Svg>
-  )
-}
-
 /** A sun: switch to the light scheme. */
 export function IconSun(props: IconProps) {
   return (

@@ -153,7 +153,7 @@ function AccountMenu() {
   )
 }
 
-/** Hosted mode's header: the account menu once signed in, else the way in. */
+/** The header's account menu once signed in, else the way in. */
 export function AccountControls() {
   const { tier } = useSession()
   return tier === 'linked' ? <AccountMenu /> : <SignInButton />

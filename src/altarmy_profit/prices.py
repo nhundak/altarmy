@@ -1,6 +1,6 @@
 """Price sources and the price store. All money is integer copper.
 
-Every source (Auctionator's SavedVariables, CSV, a manual price) records a snapshot for one auction house
+Every source (an uploaded Auctionator scan, a manual price) records a snapshot for one auction house
 (`record_snapshot`). A snapshot writes observations only for items it tells something new about, and those
 move `price_current`, which the engine reads: the newest price per auction house and item. Auctionator's
 per-day history also fills `price_daily`, pooled across uploaders. Observations are pruned after
@@ -11,19 +11,14 @@ are mostly far off it is quarantined and changes nothing.
 
 from __future__ import annotations
 
-import csv
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
-from pathlib import Path
 
 from sqlalchemy import Connection, delete, func, select
 
-from . import auctionator, db, schema
+from . import db, schema
 from .auctionator import ItemPrice
-from .wowfiles import WOW_ROOTS as WOW_ROOTS  # re-exported: the rest of the code finds them here
-from .wowfiles import find_altarmy_files as find_altarmy_files
-from .wowfiles import find_auctionator_files as find_auctionator_files
 
 KEEP_DAYS = 90  # observations older than this are pruned (price_daily is kept)
 AUCTIONATOR = "auctionator"
@@ -512,66 +507,3 @@ def set_price(
     """One price, seen now."""
     now = db.utcnow()
     record_snapshot(conn, auction_house_id, source, now, [Observation(item_id, price, now)])
-
-
-def import_csv(
-    conn: Connection, game_version: str, auction_house_id: int, path: Path
-) -> tuple[int, list[str]]:
-    """CSV columns: `item_id` or `name`, plus `price` in copper. Returns (imported, unresolved)."""
-    items = schema.items
-    now = db.utcnow()
-    found: dict[int, Observation] = {}
-    unresolved = []
-    with open(path, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            item_id = row.get("item_id")
-            if not item_id:
-                name = (row.get("name") or "").strip()
-                match = conn.execute(
-                    select(items.c.id)
-                    .where(items.c.game_version == game_version, func.lower(items.c.name) == name.lower())
-                    .order_by(items.c.id)
-                    .limit(1)
-                ).scalar_one_or_none()
-                if match is None:
-                    unresolved.append(name)
-                    continue
-                item_id = str(match)
-            found[int(item_id)] = Observation(int(item_id), int(row["price"]), now)
-    record_snapshot(conn, auction_house_id, "csv", now, list(found.values()))
-    return len(found), unresolved
-
-
-def auctionator_realms(path: Path) -> list[str]:
-    return sorted(auctionator.parse_price_database(path.read_bytes()))
-
-
-def file_time(path: Path) -> datetime:
-    """A file's modification time, UTC: when a SavedVariables scan was written."""
-    return datetime.fromtimestamp(path.stat().st_mtime, db.utcnow().tzinfo)
-
-
-def import_auctionator(
-    conn: Connection, game_version: str, path: Path, realm: str | None = None
-) -> tuple[str, int, int]:
-    """Record one realm's scan for the auction house that realm key names. Returns (realm, prices in the
-    scan, how many are not in `items`).
-
-    `realm` may be omitted when the file holds a single realm."""
-    realms = auctionator.parse_price_database(path.read_bytes())
-    if realm is None:
-        if len(realms) != 1:
-            raise ValueError(
-                f"file has {len(realms)} realms, pick one with --realm: {', '.join(sorted(realms))}"
-            )
-        (realm,) = realms
-    elif realm not in realms:
-        raise ValueError(f"realm {realm!r} not in file; found: {', '.join(sorted(realms))}")
-    items = schema.items
-    known: set[int] = set(
-        conn.execute(select(items.c.id).where(items.c.game_version == game_version)).scalars()
-    )
-    item_prices = realms[realm]
-    ah = auction_house_for_auctionator_key(conn, game_version, realm)
-    record_auctionator(conn, ah, item_prices, file_time(path))
-    return realm, len(item_prices), len(item_prices.keys() - known)

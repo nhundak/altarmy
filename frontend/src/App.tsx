@@ -8,22 +8,14 @@ import {
   useMantineColorScheme,
 } from '@mantine/core'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
-import { useAutoUpdateGameData, useSyncNotifications } from './api/queries'
 import classes from './App.module.css'
 import { AccountControls } from './components/Account'
-import { IconMark, IconMoon, IconSun } from './components/icons'
+import { IconMoon, IconSun } from './components/icons'
 import { Landing } from './components/Landing'
 import { AddonPage, ManagePage, UploadPage } from './components/Pages'
 import { ProfitPage } from './components/Profit'
 import { linkProps, useRoute, type Route } from './lib/router'
 import { useSession } from './lib/session'
-
-/** Local mode keeps the game data current and toasts what the addon file sync imported. */
-function LocalUpkeep() {
-  useAutoUpdateGameData()
-  useSyncNotifications()
-  return null
-}
 
 function NavLink({ to, label }: { to: Route; label: string }) {
   const route = useRoute()
@@ -54,24 +46,21 @@ function ThemeToggle() {
 }
 
 function Header() {
-  const { mode } = useSession()
   return (
     <header className={classes.header}>
       <a className={classes.brand} aria-label="Alt Army, main page" {...linkProps('/')}>
-        <span className={classes.mark}>
-          <IconMark size={28} />
-        </span>
+        <img className={classes.mark} src="/logo.png" alt="" width={32} height={32} />
         <span className={classes.wordmark}>Alt Army</span>
       </a>
       <Group gap="md">
         <Group gap="md" component="nav" aria-label="Pages">
-          {mode === 'hosted' && <NavLink to="/upload" label="Upload" />}
+          <NavLink to="/upload" label="Upload" />
           <NavLink to="/manage" label="Manage" />
         </Group>
         <Button component="a" {...linkProps('/addon')}>
           Get the Addon
         </Button>
-        {mode === 'hosted' && <AccountControls />}
+        <AccountControls />
         <ThemeToggle />
       </Group>
     </header>
@@ -79,7 +68,7 @@ function Header() {
 }
 
 function Page({ route }: { route: Route }) {
-  const { mode, uid } = useSession()
+  const { uid } = useSession()
   switch (route) {
     case '/addon':
       return <AddonPage />
@@ -87,7 +76,7 @@ function Page({ route }: { route: Route }) {
       // Per user: what they chose on the Profit page is theirs.
       return <ProfitPage key={uid} />
     case '/upload':
-      return mode === 'hosted' ? <UploadPage /> : <ProfitPage key={uid} />
+      return <UploadPage />
     case '/manage':
       return <ManagePage />
     default:
@@ -96,12 +85,10 @@ function Page({ route }: { route: Route }) {
 }
 
 export function App() {
-  const { mode } = useSession()
   const route = useRoute()
   return (
     <MotionConfig reducedMotion="user">
       <Container size="xl" pb="xl">
-        {mode === 'local' && <LocalUpkeep />}
         <Header />
         <AnimatePresence mode="wait" initial={false}>
           <motion.main

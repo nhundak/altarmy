@@ -19,12 +19,12 @@ const firebase = {
   project_id: 'demo-altarmy',
   emulator_url: 'http://127.0.0.1:9099',
 }
-const hosted: Config = { mode: 'hosted', firebase }
+const config: Config = { firebase }
 const guest: Me = { uid: 'guest', tier: 'free' }
 
 function Who() {
   const s = useSession()
-  return <p>{`${s.mode} ${s.uid} ${s.tier}`}</p>
+  return <p>{`${s.uid} ${s.tier}`}</p>
 }
 
 const renderApp = () =>
@@ -37,25 +37,19 @@ const renderApp = () =>
 describe('AuthProvider', () => {
   afterEach(() => vi.clearAllMocks())
 
-  it('needs no sign-in in local mode', async () => {
-    mockApi({ '/api/config': { mode: 'local', firebase: null }, '/api/me': { uid: 'local', tier: 'linked' } })
+  it('signs in with Firebase, then asks the API who that is', async () => {
+    const fetch = mockApi({ '/api/config': config, '/api/me': guest })
     renderApp()
-    expect(await screen.findByText('local local linked')).toBeInTheDocument()
-    expect(initAuth).not.toHaveBeenCalled()
-  })
-
-  it('signs in with Firebase in hosted mode, then asks the API who that is', async () => {
-    const fetch = mockApi({ '/api/config': hosted, '/api/me': guest })
-    renderApp()
-    expect(await screen.findByText('hosted guest free')).toBeInTheDocument()
+    expect(await screen.findByText('guest free')).toBeInTheDocument()
     expect(initAuth).toHaveBeenCalledWith(firebase)
     const me = fetch.mock.calls.map(([r]) => r).find((r) => new URL(r.url).pathname === '/api/me')
     expect(me?.headers.get('Authorization')).toBe('Bearer id-token')
   })
 
   it('explains a failed sign-in', async () => {
-    mockApi({ '/api/config': { mode: 'hosted', firebase: null } })
+    vi.mocked(initAuth).mockRejectedValueOnce(new Error('auth/network-request-failed'))
+    mockApi({ '/api/config': config, '/api/me': guest })
     renderApp()
-    expect(await screen.findByText(/hosted mode without a Firebase configuration/)).toBeInTheDocument()
+    expect(await screen.findByText('auth/network-request-failed')).toBeInTheDocument()
   })
 })

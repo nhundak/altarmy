@@ -9,6 +9,8 @@ from sqlalchemy import Connection, MetaData, inspect, select
 
 from altarmy_profit import db, schema
 
+from .conftest import ME
+
 
 def test_migrations_match_the_schema(database: db.Database) -> None:
     with database.engine.connect() as conn:
@@ -181,7 +183,7 @@ def test_0002_downgrade_restores_the_local_users_settings(database: db.Database)
 def test_0005_keeps_uploads_and_allows_paste(database: db.Database) -> None:
     u = schema.uploads
     row = {
-        "user_uid": "local",
+        "user_uid": ME,
         "game_version": "tbc",
         "kind": "altarmy",
         "via": "watcher",

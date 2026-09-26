@@ -41,27 +41,22 @@ function urls(fetch: ReturnType<typeof mockApi>, pathname: string) {
 describe('SearchTab', () => {
   const realm = () => screen.getByRole('combobox', { name: 'Realm and faction' })
 
-  it('points to the Manage page when there are no recipes', async () => {
+  it('says so when no game data is loaded', async () => {
     mockApi({ '/api/status': status({ recipes: 0 }), '/api/characters': characters })
     renderWithProviders(<SearchTab />)
-    expect(await screen.findByText(/Download game data on the Manage page/)).toBeInTheDocument()
+    expect(await screen.findByText(/No game data has been loaded yet/)).toBeInTheDocument()
   })
 
-  it('browses every recipe of a realm without characters, and shows sync warnings', async () => {
+  it('browses every recipe of a realm without characters', async () => {
     const shared = { realm: 'Classic Beta PvE', faction: '' }
     const fetch = mockApi({
-      '/api/status': status({
-        characters: 0,
-        selection: shared,
-        warnings: ['No Alt Army file found. Pick AltArmy_TBC.lua on the Manage page.'],
-      }),
+      '/api/status': status({ characters: 0, selection: shared }),
       '/api/characters': { groups: [], selection: shared },
       '/api/coverage': [house('Classic Beta PvE', ''), house('Dreamscythe', 'Horde')],
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
     expect(await screen.findByText(/Browsing every recipe on this realm/)).toBeInTheDocument()
-    expect(screen.getByText(/No Alt Army file found/)).toBeInTheDocument()
     expect(screen.queryByRole('switch', { name: /Include recipes not learned yet/ })).not.toBeInTheDocument()
     expect(await screen.findByText('No recipes match these filters with the current prices.')).toBeInTheDocument()
     expect(urls(fetch, '/api/rank')).toHaveLength(1)

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from altarmy_profit import engine, prices, versions
+from altarmy_profit import engine, versions, wowfiles
 from altarmy_profit.engine import Item, Market, Recipe
 from altarmy_profit.versions import VERSIONS
 
@@ -38,11 +38,11 @@ def test_find_files_only_in_the_versions_flavor_folders(tmp_path: Path) -> None:
         (sv / "Auctionator.lua").write_text("")
         found[flavor] = sv
     tbc = VERSIONS["tbc"].flavor_folders
-    assert prices.find_altarmy_files([tmp_path], tbc) == [found["_anniversary_"] / "AltArmy_TBC.lua"]
-    assert prices.find_auctionator_files([tmp_path], ("_classic_beta_",)) == [
+    assert wowfiles.find_altarmy_files([tmp_path], tbc) == [found["_anniversary_"] / "AltArmy_TBC.lua"]
+    assert wowfiles.find_auctionator_files([tmp_path], ("_classic_beta_",)) == [
         found["_classic_beta_"] / "Auctionator.lua"
     ]
-    assert len(prices.find_altarmy_files([tmp_path])) == 2  # no flavors: every install folder
+    assert len(wowfiles.find_altarmy_files([tmp_path])) == 2  # no flavors: every install folder
 
 
 def test_market_charges_the_versions_postage() -> None:

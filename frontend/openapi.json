@@ -261,26 +261,10 @@
       "ConfigOut": {
         "properties": {
           "firebase": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/FirebaseOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "mode": {
-            "enum": [
-              "local",
-              "hosted"
-            ],
-            "title": "Mode",
-            "type": "string"
+            "$ref": "#/components/schemas/FirebaseOut"
           }
         },
         "required": [
-          "mode",
           "firebase"
         ],
         "title": "ConfigOut",
@@ -1591,76 +1575,8 @@
         "title": "SellOptionOut",
         "type": "object"
       },
-      "SourceFiles": {
-        "properties": {
-          "default": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Default"
-          },
-          "files": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Files",
-            "type": "array"
-          }
-        },
-        "required": [
-          "files",
-          "default"
-        ],
-        "title": "SourceFiles",
-        "type": "object"
-      },
-      "Sources": {
-        "description": "SavedVariables files to sync from; a missing field keeps that source.",
-        "properties": {
-          "altarmy_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Altarmy Path"
-          },
-          "auctionator_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Auctionator Path"
-          }
-        },
-        "title": "Sources",
-        "type": "object"
-      },
       "Status": {
         "properties": {
-          "altarmy_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Altarmy Path"
-          },
           "auction_house_id": {
             "anyOf": [
               {
@@ -1671,28 +1587,6 @@
               }
             ],
             "title": "Auction House Id"
-          },
-          "auctionator_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Auctionator Path"
-          },
-          "auctionator_realm": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Auctionator Realm"
           },
           "build": {
             "anyOf": [
@@ -1713,46 +1607,9 @@
             "title": "Data Version",
             "type": "integer"
           },
-          "db_path": {
-            "title": "Db Path",
-            "type": "string"
-          },
           "items": {
             "title": "Items",
             "type": "integer"
-          },
-          "last_altarmy_sync": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Altarmy Sync"
-          },
-          "last_auctionator_import": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Auctionator Import"
-          },
-          "last_auctionator_sync": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Auctionator Sync"
           },
           "price_version": {
             "anyOf": [
@@ -1782,33 +1639,18 @@
                 "type": "null"
               }
             ]
-          },
-          "warnings": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Warnings",
-            "type": "array"
           }
         },
         "required": [
-          "db_path",
           "build",
           "items",
           "recipes",
           "prices",
           "characters",
-          "last_auctionator_import",
-          "last_altarmy_sync",
-          "last_auctionator_sync",
-          "altarmy_path",
-          "auctionator_path",
-          "auctionator_realm",
           "selection",
           "auction_house_id",
           "data_version",
-          "price_version",
-          "warnings"
+          "price_version"
         ],
         "title": "Status",
         "type": "object"
@@ -2165,44 +2007,6 @@
         "title": "TimingOut",
         "type": "object"
       },
-      "UpdateResult": {
-        "properties": {
-          "build": {
-            "title": "Build",
-            "type": "string"
-          },
-          "disenchant_rows": {
-            "title": "Disenchant Rows",
-            "type": "integer"
-          },
-          "items": {
-            "title": "Items",
-            "type": "integer"
-          },
-          "recipes": {
-            "title": "Recipes",
-            "type": "integer"
-          },
-          "updated": {
-            "title": "Updated",
-            "type": "boolean"
-          },
-          "vendor_items": {
-            "title": "Vendor Items",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "build",
-          "updated",
-          "items",
-          "recipes",
-          "disenchant_rows",
-          "vendor_items"
-        ],
-        "title": "UpdateResult",
-        "type": "object"
-      },
       "UploadOut": {
         "properties": {
           "detail": {
@@ -2390,7 +2194,7 @@
     },
     "securitySchemes": {
       "HTTPBearer": {
-        "description": "Firebase ID token (hosted mode only)",
+        "description": "Firebase ID token (or, to upload, an API key)",
         "scheme": "bearer",
         "type": "http"
       }
@@ -2568,106 +2372,6 @@
           }
         ],
         "summary": "Block Ah"
-      }
-    },
-    "/api/altarmy/files": {
-      "get": {
-        "operationId": "get_altarmy_files_api_altarmy_files_get",
-        "parameters": [
-          {
-            "description": "which game's data: tbc or forever",
-            "in": "query",
-            "name": "game_version",
-            "required": true,
-            "schema": {
-              "description": "which game's data: tbc or forever",
-              "enum": [
-                "tbc",
-                "forever"
-              ],
-              "title": "Game Version",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SourceFiles"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Altarmy Files"
-      }
-    },
-    "/api/auctionator/files": {
-      "get": {
-        "operationId": "get_auctionator_files_api_auctionator_files_get",
-        "parameters": [
-          {
-            "description": "which game's data: tbc or forever",
-            "in": "query",
-            "name": "game_version",
-            "required": true,
-            "schema": {
-              "description": "which game's data: tbc or forever",
-              "enum": [
-                "tbc",
-                "forever"
-              ],
-              "title": "Game Version",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SourceFiles"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Auctionator Files"
       }
     },
     "/api/characters": {
@@ -2848,7 +2552,7 @@
     },
     "/api/config": {
       "get": {
-        "description": "How the front end signs in: not at all (local mode), or with this Firebase project.",
+        "description": "The Firebase project the front end signs in with.",
         "operationId": "get_config_api_config_get",
         "responses": {
           "200": {
@@ -3147,63 +2851,6 @@
           }
         ],
         "summary": "Add Favorite"
-      }
-    },
-    "/api/game-data/update": {
-      "post": {
-        "operationId": "update_game_data_api_game_data_update_post",
-        "parameters": [
-          {
-            "description": "skip the rebuild if the newest build is loaded",
-            "in": "query",
-            "name": "only_if_new",
-            "required": false,
-            "schema": {
-              "default": false,
-              "description": "skip the rebuild if the newest build is loaded",
-              "title": "Only If New",
-              "type": "boolean"
-            }
-          },
-          {
-            "description": "which game's data: tbc or forever",
-            "in": "query",
-            "name": "game_version",
-            "required": true,
-            "schema": {
-              "description": "which game's data: tbc or forever",
-              "enum": [
-                "tbc",
-                "forever"
-              ],
-              "title": "Game Version",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UpdateResult"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Game Data"
       }
     },
     "/api/keys": {
@@ -3668,60 +3315,9 @@
         "summary": "Get Rank"
       }
     },
-    "/api/reload": {
-      "post": {
-        "description": "Drop the cached market and city presets, e.g. after changing the database from the command line\nor regenerating the presets.",
-        "operationId": "reload_api_reload_post",
-        "parameters": [
-          {
-            "description": "which game's data: tbc or forever",
-            "in": "query",
-            "name": "game_version",
-            "required": true,
-            "schema": {
-              "description": "which game's data: tbc or forever",
-              "enum": [
-                "tbc",
-                "forever"
-              ],
-              "title": "Game Version",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Status"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Reload"
-      }
-    },
     "/api/selection": {
       "put": {
-        "description": "Switch realm/faction; in local mode that realm's Auctionator prices are synced too.",
+        "description": "Switch realm/faction.",
         "operationId": "put_selection_api_selection_put",
         "parameters": [
           {
@@ -3780,69 +3376,9 @@
         "summary": "Put Selection"
       }
     },
-    "/api/sources": {
-      "put": {
-        "operationId": "put_sources_api_sources_put",
-        "parameters": [
-          {
-            "description": "which game's data: tbc or forever",
-            "in": "query",
-            "name": "game_version",
-            "required": true,
-            "schema": {
-              "description": "which game's data: tbc or forever",
-              "enum": [
-                "tbc",
-                "forever"
-              ],
-              "title": "Game Version",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Sources"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Status"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Put Sources"
-      }
-    },
     "/api/status": {
       "get": {
-        "description": "In local mode also the addon file watcher: re-imports Alt Army and Auctionator data the game has\nrewritten. Hosted mode never reads local files.",
+        "description": "Counts, the selection and the versions the front end polls to notice uploads and merges.",
         "operationId": "get_status_api_status_get",
         "parameters": [
           {
@@ -3889,57 +3425,6 @@
           }
         ],
         "summary": "Get Status"
-      }
-    },
-    "/api/sync": {
-      "post": {
-        "description": "Re-import both addon files even if they look unchanged.",
-        "operationId": "sync_now_api_sync_post",
-        "parameters": [
-          {
-            "description": "which game's data: tbc or forever",
-            "in": "query",
-            "name": "game_version",
-            "required": true,
-            "schema": {
-              "description": "which game's data: tbc or forever",
-              "enum": [
-                "tbc",
-                "forever"
-              ],
-              "title": "Game Version",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Status"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Sync Now"
       }
     },
     "/api/time": {

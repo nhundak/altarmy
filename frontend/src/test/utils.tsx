@@ -3,15 +3,15 @@ import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
 import { vi } from 'vitest'
-import { LOCAL_SESSION, SessionContext, type Session } from '../lib/session'
+import { FALLBACK_SESSION, SessionContext, type Session } from '../lib/session'
 import { theme } from '../theme'
 
-/** Hosted mode's sessions, for rendering as a guest or a linked user. */
-export const GUEST: Session = { mode: 'hosted', uid: 'guest', tier: 'free' }
-export const LINKED: Session = { mode: 'hosted', uid: 'g1', tier: 'linked' }
+/** Sessions to render as: an anonymous guest, or a user with an account (the default). */
+export const GUEST: Session = { uid: 'guest', tier: 'free' }
+export const LINKED: Session = FALLBACK_SESSION
 
-/** Render with Mantine, a fresh query client and a signed-in `session` (default: local mode's user). */
-export function renderWithProviders(ui: ReactElement, session: Session = LOCAL_SESSION) {
+/** Render with Mantine, a fresh query client and a signed-in `session` (default: `LINKED`). */
+export function renderWithProviders(ui: ReactElement, session: Session = LINKED) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <MantineProvider theme={theme} env="test">

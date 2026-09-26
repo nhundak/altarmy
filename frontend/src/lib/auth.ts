@@ -2,7 +2,7 @@ import type { Auth, User } from 'firebase/auth'
 import type { components } from '../api/schema'
 
 /**
- * Firebase sign-in for hosted mode. The Firebase SDK is loaded on first use, so local mode never downloads it.
+ * Firebase sign-in. The Firebase SDK is loaded on first use, so it stays out of the main bundle.
  *
  * Every visitor is signed in anonymously. Linking an email and password keeps the uid (and with it the user's data)
  * and moves them to the linked tier; on another browser they sign in with that email. Signing out starts a new
@@ -37,7 +37,7 @@ export function onUserChange(listener: () => void): () => void {
   }
 }
 
-/** The signed-in user's ID token for the API, or null in local mode. Firebase refreshes it when it expires. */
+/** The signed-in user's ID token for the API, or null before sign-in. Firebase refreshes it when it expires. */
 export async function getIdToken(): Promise<string | null> {
   return auth?.currentUser ? auth.currentUser.getIdToken() : null
 }

@@ -157,7 +157,7 @@ function History() {
   )
 }
 
-/** Hosted mode's way in for addon data: upload the SavedVariables files (or run the watcher, see Manage). */
+/** The way in for addon data: upload the SavedVariables files (or run the watcher, see Manage). */
 export function UploadTab() {
   return (
     <Stack>

@@ -4,7 +4,7 @@ Reads frellscout's SavedVariables (every account's under the Forever install, or
 mailbox no preset has yet to its city's `overrides` ("locations"), which regenerating the presets keeps.
 Mailboxes vmangos already has (Classic's) and ones imported before are skipped, so re-running is safe.
 Usage: python scripts/import_mailboxes.py [--file frellscout.lua] [--dry-run]
-Then restart the app (or POST /api/reload in local mode) to load them.
+Then restart the API (`npm run dev`, or a deploy) to load them.
 """
 
 import argparse

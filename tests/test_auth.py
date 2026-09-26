@@ -52,16 +52,6 @@ def test_user_from_claims_needs_a_uid() -> None:
     assert auth.user_from_claims({"sub": "s", "firebase": {}}) == User("s", "linked")
 
 
-def test_mode_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ALTARMY_MODE", raising=False)
-    assert auth.mode_from_env() == "local"
-    monkeypatch.setenv("ALTARMY_MODE", "hosted")
-    assert auth.mode_from_env() == "hosted"
-    monkeypatch.setenv("ALTARMY_MODE", "cloud")
-    with pytest.raises(ValueError, match="ALTARMY_MODE"):
-        auth.mode_from_env()
-
-
 def test_firebase_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
         "FIREBASE_PROJECT_ID",
@@ -125,11 +115,5 @@ def test_user_state_is_per_user(conn: Connection) -> None:
     assert [i for i, _ in store.load_favorites(conn, other, FOREVER)] == [7]
 
 
-def test_settings_and_sync_roundtrip(conn: Connection) -> None:
-    assert users.get_sync(conn, ME, FOREVER) == users.LocalSync()
-    users.update_sync(conn, ME, FOREVER, altarmy_path="a.lua", altarmy_mtime=10**18 + 7)
-    users.update_sync(conn, ME, FOREVER, auctionator_realm="")
-    got = users.get_sync(conn, ME, FOREVER)
-    assert (got.altarmy_path, got.altarmy_mtime, got.auctionator_realm) == ("a.lua", 10**18 + 7, "")
-    assert users.get_sync(conn, ME, "tbc") == users.LocalSync()
+def test_update_settings_returns_them_all(conn: Connection) -> None:
     assert users.update_settings(conn, ME, FOREVER, data_version=3).data_version == 3

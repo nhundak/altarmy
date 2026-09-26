@@ -49,10 +49,24 @@ const CARDS: readonly CardSpec[] = [
     key: 'browse',
     title: 'Just browse',
     blurb: 'See the most profitable recipes on a realm right now, no characters needed.',
-    short: 'Every recipe, no characters.',
+    short: 'Every recipe, no character optimization.',
     icon: <IconCompass />,
   },
 ]
+
+/** The third card once the user has characters: it no longer offers browsing without them, only moving on. */
+const CONTINUE: CardSpec = {
+  key: 'browse',
+  title: 'Continue',
+  blurb: 'Done adding characters.',
+  short: 'Done adding characters.',
+  icon: <IconCompass />,
+}
+
+/** The three start cards for a user with or without characters. */
+function cardsFor(hasCharacters: boolean): readonly CardSpec[] {
+  return hasCharacters ? CARDS.map((c) => (c.key === 'browse' ? CONTINUE : c)) : CARDS
+}
 
 /** One of the three ways to start: a big button while choosing, a form once opened, a small button beside it. */
 function StartCard({
@@ -299,7 +313,7 @@ export function ProfitPage() {
                 role="group"
                 aria-label="Ways to start"
               >
-                {CARDS.map((spec) => (
+                {cardsFor(groups.length > 0).map((spec) => (
                   <StartCard
                     key={spec.key}
                     spec={spec}

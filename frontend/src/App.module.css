@@ -22,8 +22,8 @@
 }
 
 .mark {
-  display: inline-flex;
-  color: var(--mantine-primary-color-filled);
+  display: block;
+  border-radius: 6px;
 }
 
 .wordmark {

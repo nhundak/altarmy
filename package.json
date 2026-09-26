@@ -3,13 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently --kill-others --names api,web --prefix-colors blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev": "concurrently --kill-others --names auth,api,web --prefix-colors magenta,blue,green \"npm:dev:auth\" \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:auth": "firebase emulators:start --only auth --project demo-altarmy",
     "dev:api": "node scripts/dev-api.mjs",
-    "dev:web": "wait-on --timeout 60000 http-get://127.0.0.1:8600/api/config && npm --prefix frontend run dev -- --open",
-    "dev:hosted": "concurrently --kill-others --names api,web --prefix-colors blue,green \"npm:dev:api -- --hosted\" \"npm:dev:web\""
+    "dev:web": "wait-on --timeout 120000 tcp:127.0.0.1:9099 http-get://127.0.0.1:8600/api/config && npm --prefix frontend run dev -- --open",
+    "dev:prod-auth": "concurrently --kill-others --names api,web --prefix-colors blue,green \"npm:dev:api -- --prod-auth\" \"npm:dev:web:prod-auth\"",
+    "dev:web:prod-auth": "wait-on --timeout 120000 http-get://127.0.0.1:8600/api/config && npm --prefix frontend run dev -- --open"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",
+    "firebase-tools": "^14.27.0",
     "wait-on": "^9.1.0"
   }
 }

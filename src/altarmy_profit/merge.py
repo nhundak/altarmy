@@ -1,5 +1,5 @@
-"""The merge: pooled price statistics per auction house, run hourly in hosted mode (`altarmy-profit merge`)
-and after each local sync.
+"""The merge: pooled price statistics per auction house, run hourly (`altarmy-profit merge`, a Cloud Run
+job).
 
 For every item with `price_daily` rows in the last LOOKBACK_DAYS days:
 

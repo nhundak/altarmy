@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection, text
 
-from altarmy_profit import db, prices, schema
+from altarmy_profit import auth, db, prices, schema, users
 from altarmy_profit.versions import VERSIONS, GameVersion
 
 from .test_altarmy import ALTARMY_SV
@@ -20,7 +20,7 @@ from .test_auctionator import _entry, _saved_variables
 
 SV_DIR = "_classic_beta_/WTF/Account/ACCT/SavedVariables"  # under `wow_root`
 FOREVER = "forever"
-ME = db.LOCAL_UID  # local mode's user, who owns what tests store
+ME = "me"  # the signed-in user (linked) who owns what tests store; the `database` fixture registers them
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")  # e.g. postgresql+psycopg://u:p@localhost/test
 
 
@@ -45,7 +45,7 @@ def _migrated(tmp_path_factory: pytest.TempPathFactory) -> Path | None:
 
 @pytest.fixture
 def database(tmp_path: Path, _migrated: Path | None) -> Iterator[db.Database]:
-    """An empty, migrated database with the game versions registered."""
+    """An empty, migrated database with the game versions and the user `ME` registered."""
     if _migrated is None:
         assert TEST_DATABASE_URL
         database = db.Database(TEST_DATABASE_URL)
@@ -58,6 +58,10 @@ def database(tmp_path: Path, _migrated: Path | None) -> Iterator[db.Database]:
         shutil.copyfile(_migrated, path)
         database = db.Database(db.sqlite_url(path))
     database.ensure_schema()
+    with database.begin() as conn:
+        # revision 0002 creates the removed local mode's user; Postgres' TRUNCATE drops it: drop it here too
+        conn.execute(schema.users.delete().where(schema.users.c.uid == "local"))
+        users.ensure_user(conn, auth.User(ME, "linked"))
     yield database
     database.dispose()
 

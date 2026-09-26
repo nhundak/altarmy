@@ -6,7 +6,7 @@ in WoW: Forever (spinning wheels, looms, ...) are not in vmangos: add them to a 
 ("locations"), which regenerating keeps.
 Only Forever (vanilla) is supported for now. Usage:
 python scripts/build_cities.py [--game-version forever] [--city NAME] [--radius YARDS]
-Then restart the app (or POST /api/reload in local mode) to load them.
+Then restart the API (`npm run dev`, or a deploy) to load them.
 """
 
 import argparse

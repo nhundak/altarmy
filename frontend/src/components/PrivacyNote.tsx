@@ -63,7 +63,7 @@ function DeleteAccount({ onDone }: { onDone: () => void }) {
   )
 }
 
-/** Hosted mode's footer: what the site stores, and deleting the account. */
+/** The footer: what the site stores, and deleting the account. */
 export function PrivacyNote() {
   const [open, setOpen] = useState(false)
   return (

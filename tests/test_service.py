@@ -8,11 +8,10 @@ from sqlalchemy import Connection
 from altarmy_profit import altarmy, db, engine, ingest, prices, service, store, talents, timing, users
 from altarmy_profit.altarmy import Character, Profession
 from altarmy_profit.engine import ALL_EXITS, Filters
-from altarmy_profit.service import Selection, SyncResult
+from altarmy_profit.service import Selection
 
-from .conftest import FOREVER, ME, SV_DIR, set_prices
+from .conftest import FOREVER, ME, set_prices
 from .test_altarmy import ALTARMY_SV
-from .test_auctionator import _entry, _saved_variables
 
 
 def chars(*names: str) -> list[Character]:
@@ -23,15 +22,6 @@ def touch(path: Path) -> None:
     """Move the mtime forward a second (a rewrite within the clock's resolution may not change it)."""
     st = path.stat()
     os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
-
-
-def test_default_path_prefers_last_then_first_found() -> None:
-    files = [r"W\_classic_\A.lua", r"W\_classic_beta_\A.lua"]
-    assert service.default_path(files, None) == files[0]
-    assert service.default_path(files, files[0]) == files[0]
-    assert service.default_path(files[:1], None) == files[0]
-    assert service.default_path([], None) is None
-    assert service.default_path([], r"C:\custom\A.lua") == r"C:\custom\A.lua"
 
 
 def test_search_ranks_known_recipes_or_whole_professions(
@@ -156,84 +146,6 @@ def current(conn: Connection) -> dict[int, int]:
     return prices.load_current(conn, service.selected_auction_house(conn, ME, FOREVER))
 
 
-def test_sync_finds_files_and_imports_the_selected_realms_prices(
-    db2_paths: dict[str, Path], conn: Connection, wow_root: Path
-) -> None:
-    ingest.build_db(db2_paths, conn, FOREVER)
-    assert current(conn) == {}
-
-    assert service.sync(conn, ME, FOREVER, [wow_root]) == SyncResult(True, [])
-    assert users.get_sync(conn, ME, FOREVER).altarmy_path == str(wow_root / SV_DIR / "AltArmy_TBC.lua")
-    assert users.get_sync(conn, ME, FOREVER).auctionator_path == str(wow_root / SV_DIR / "Auctionator.lua")
-    assert len(store.load_characters(conn, ME, FOREVER)) == 4
-    assert users.get_sync(conn, ME, FOREVER).auctionator_realm == "Dreamscythe Horde"
-    assert current(conn) == {1: 5}
-    assert service.data_version(conn, ME, FOREVER) == 1
-    horde = service.selected_auction_house(conn, ME, FOREVER)
-    assert horde is not None
-    prices.set_price(conn, horde, 3, 999)  # a manual price stays through every sync
-
-    assert service.sync(conn, ME, FOREVER, [wow_root]) == SyncResult(False, [])  # nothing changed on disk
-
-    service.select(conn, ME, FOREVER, "Classic Beta PvE", "Horde")
-    assert service.sync(conn, ME, FOREVER, [wow_root]).changed
-    assert users.get_sync(conn, ME, FOREVER).auctionator_realm == "ClassicBetaPvE"
-    assert current(conn) == {1: 20, 2: 100}  # that auction house's own prices
-    assert service.data_version(conn, ME, FOREVER) == 2
-
-    service.select(conn, ME, FOREVER, "Dreamscythe", "Horde")  # back: its prices were kept
-    assert current(conn) == {1: 5, 3: 999}
-    assert prices.daily(conn, horde, 1)  # Auctionator's history came along
-
-
-def test_sync_rereads_files_the_game_rewrote(conn: Connection, wow_root: Path) -> None:
-    service.sync(conn, ME, FOREVER, [wow_root])
-    alt_army = wow_root / SV_DIR / "AltArmy_TBC.lua"
-    alt_army.write_bytes(ALTARMY_SV.replace(b"Tailor Guy", b"Tailor Gal"))
-    touch(alt_army)
-    assert service.sync(conn, ME, FOREVER, [wow_root]).changed
-    assert "Tailor Gal" in [c.name for c in store.load_characters(conn, ME, FOREVER)]
-
-    auctions = wow_root / SV_DIR / "Auctionator.lua"
-    auctions.write_bytes(_saved_variables({"Dreamscythe Horde": {"1": _entry(6)}}))
-    touch(auctions)
-    assert service.sync(conn, ME, FOREVER, [wow_root]).changed
-    assert current(conn) == {1: 6}
-    assert service.sync(conn, ME, FOREVER, [wow_root], force=True).changed
-
-
-def test_sync_warnings(conn: Connection, wow_root: Path, tmp_path: Path) -> None:
-    res = service.sync(conn, ME, FOREVER, [tmp_path / "no wow here"])
-    assert not res.changed
-    assert res.warnings == [
-        "No Alt Army file found. Pick AltArmy_TBC.lua on the Manage page.",
-        "No Auctionator file found. Pick Auctionator.lua on the Manage page.",
-    ]
-
-    (wow_root / SV_DIR / "Auctionator.lua").write_bytes(_saved_variables({"Atiesh": {"1": _entry(1)}}))
-    users.update_sync(conn, ME, FOREVER, altarmy_path=str(wow_root / SV_DIR / "AltArmy_TBC.lua"))
-    no_prices = "Auctionator has no prices for Dreamscythe (Horde). Scan that auction house in game."
-    assert service.sync(conn, ME, FOREVER, [wow_root]) == SyncResult(True, [no_prices])
-    assert current(conn) == {}  # the scan's realm isn't the selected one
-    assert service.sync(conn, ME, FOREVER, [wow_root]) == SyncResult(False, [no_prices])
-
-    (wow_root / SV_DIR / "Auctionator.lua").write_text("garbage")
-    res = service.sync(conn, ME, FOREVER, [wow_root], force=True)
-    assert "Could not read" in res.warnings[-1]
-
-    users.update_sync(conn, ME, FOREVER, altarmy_path=str(tmp_path / "gone.lua"))
-    assert service.sync(conn, ME, FOREVER, [wow_root]).warnings[0].startswith("Alt Army file not found")
-
-
-def test_set_sources(conn: Connection, wow_root: Path, tmp_path: Path) -> None:
-    alt_army = str(wow_root / SV_DIR / "AltArmy_TBC.lua")
-    service.set_sources(conn, ME, FOREVER, alt_army, None)
-    assert users.get_sync(conn, ME, FOREVER).altarmy_path == alt_army
-    assert users.get_sync(conn, ME, FOREVER).auctionator_path is None
-    with pytest.raises(FileNotFoundError):
-        service.set_sources(conn, ME, FOREVER, None, str(tmp_path / "missing.lua"))
-
-
 def test_market_cache_reloads_only_after_invalidate(
     db2_paths: dict[str, Path], conn: Connection, database: db.Database
 ) -> None:
@@ -270,19 +182,6 @@ def test_market_cache_sees_other_processes_changes_after_its_ttl(
     db.set_build(conn, FOREVER, "1.60.2.1")  # a game data update
     now[0] += service.STAMP_TTL * 2
     assert cache.get(ah) is not second
-
-
-def test_pricing_auction_house(conn: Connection, wow_root: Path) -> None:
-    unnamed = service.pricing_auction_house(conn, ME, FOREVER)  # no characters yet
-    assert service.selected_auction_house(conn, ME, FOREVER) == unnamed
-    store.save_characters(conn, ME, FOREVER, chars())
-    assert service.selected_auction_house(conn, ME, FOREVER) is None
-    with pytest.raises(ValueError, match="No auction house known for Dreamscythe"):
-        service.pricing_auction_house(conn, ME, FOREVER)
-    service.sync(conn, ME, FOREVER, [wow_root])
-    horde = service.pricing_auction_house(conn, ME, FOREVER)
-    assert horde != unnamed
-    assert service.selected_auction_house(conn, ME, FOREVER) == horde
 
 
 def test_hand_made_characters_know_every_recipe_of_their_professions(
@@ -348,19 +247,6 @@ def test_create_and_delete_characters(conn: Connection, monkeypatch: pytest.Monk
     assert store.load_characters(conn, ME, FOREVER) == []
     with pytest.raises(FileNotFoundError):
         service.delete_character(conn, ME, FOREVER, "Classic Beta PvE", "Handy")
-
-
-def test_sync_without_characters_records_every_realm(
-    db2_paths: dict[str, Path], conn: Connection, wow_root: Path
-) -> None:
-    ingest.build_db(db2_paths, conn, FOREVER)
-    (wow_root / SV_DIR / "AltArmy_TBC.lua").unlink()
-    warning = "No Alt Army file found. Pick AltArmy_TBC.lua on the Manage page."
-    assert service.sync(conn, ME, FOREVER, [wow_root]) == SyncResult(True, [warning])
-    realms = {(c.realm, c.faction): c.prices for c in prices.coverage(conn, FOREVER)}
-    assert realms == {("ClassicBetaPvE", ""): 2, ("Dreamscythe", "Horde"): 1}
-    assert service.selected_characters(conn, ME, FOREVER)[0] is not None
-    assert service.sync(conn, ME, FOREVER, [wow_root]) == SyncResult(False, [warning])  # unchanged file
 
 
 # --- profit per hour ----------------------------------------------------------------------------------

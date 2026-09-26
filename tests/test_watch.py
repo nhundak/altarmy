@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Connection
 
-from altarmy_profit import cli, prices, store, watch
+from altarmy_profit import cli, prices, store, users, watch
 from altarmy_profit.versions import VERSIONS
 
 from .conftest import FOREVER, ME, SV_DIR
@@ -99,20 +99,24 @@ def test_sync_uploads_what_changed(
     wow_root: Path,
     tmp_path: Path,
 ) -> None:
+    del client.headers["Authorization"]  # only the watcher's key signs in
+    _, key = users.create_key(conn, ME, "pc")
     server = Server(client)
     state = tmp_path / "watch.json"
-    sent = watch.sync_once([wow_root], "http://server/", None, state, server, print)
+    sent = watch.sync_once([wow_root], "http://server/", key, state, server, print)
     assert [(f.game_version, f.kind) for f in sent] == [("forever", "altarmy"), ("forever", "auctionator")]
     assert server.seen[0][0] == "http://server/api/uploads?game_version=forever"
-    assert "Authorization" not in server.seen[0][1]  # no key given (a local server)
+    assert server.seen[0][1]["Authorization"] == f"Bearer {key}"
     assert store.count_characters(conn, ME, FOREVER) == 4
     assert prices.find_auction_house(conn, FOREVER, "Classic Beta PvE", "") is not None
 
-    assert watch.sync_once([wow_root], "http://server", None, state, server, print) == []
+    assert watch.sync_once([wow_root], "http://server", key, state, server, print) == []
     touch(wow_root / SV_DIR / "AltArmy_TBC.lua")
-    (again,) = watch.sync_once([wow_root], "http://server", "ak_k", state, server, print)
+    (again,) = watch.sync_once([wow_root], "http://server", key, state, server, print)
     assert again.kind == "altarmy"
-    assert server.seen[-1][1]["Authorization"] == "Bearer ak_k"
+    with pytest.raises(watch.BadKey):
+        touch(wow_root / SV_DIR / "AltArmy_TBC.lua")
+        watch.sync_once([wow_root], "http://server", "ak_unknown", state, server, print)
 
 
 def test_sync_sends_gzip_and_the_modified_time(wow_root: Path, tmp_path: Path) -> None:

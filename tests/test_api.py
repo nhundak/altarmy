@@ -1,5 +1,4 @@
 import gzip
-import urllib.error
 from pathlib import Path
 from typing import Any
 
@@ -26,29 +25,47 @@ from altarmy_profit.api import create_app
 from altarmy_profit.auctionator import DayStats, ItemPrice
 from altarmy_profit.versions import GameVersion
 
-from .conftest import FOREVER, ME, SV_DIR, set_prices
+from .conftest import FOREVER, ME, set_prices
 from .test_altarmy import ALTARMY_SV
 from .test_auctionator import _entry, _saved_variables
 from .test_auth import FakeVerifier
+
+FIREBASE = auth.FirebaseConfig("demo-altarmy", "key", "demo-altarmy.firebaseapp.com", "127.0.0.1:9099")
+FREE = {"Authorization": "Bearer anonymous:guest"}  # tokens as `FakeVerifier` reads them: an anonymous user
+LINKED = {"Authorization": "Bearer google.com:g1"}  # a user with an account
+SIGNED_IN = {"Authorization": f"Bearer password:{ME}"}  # the `client` fixture's default: `ME`, linked
+
+
+def make_client(
+    database: db.Database,
+    game_versions: dict[str, GameVersion],
+    static_dir: Path,
+    *,
+    verifier: FakeVerifier | None = None,
+    limits: ratelimit.Limits | None = None,
+) -> TestClient:
+    """The app with fake tokens (see `FakeVerifier`), asking about Forever unless a request passes another
+    game_version, signed in as `ME` unless a request sends other headers."""
+    app = create_app(
+        game_versions,
+        database=database,
+        static_dir=static_dir,
+        verifier=verifier or FakeVerifier(),
+        firebase=FIREBASE,
+        limits=limits,
+    )
+    c = TestClient(app)
+    c.params = c.params.set("game_version", "forever")
+    c.headers.update(SIGNED_IN)
+    return c
 
 
 @pytest.fixture
 def client(
     tmp_path: Path, vendor_csv: Path, game_versions: dict[str, GameVersion], database: db.Database
 ) -> TestClient:
-    """Asks about Forever unless a request passes another game_version; shares the `conn` fixture's
-    database."""
-    app = create_app(
-        game_versions,
-        database=database,
-        cache_dir=tmp_path / "cache",
-        static_dir=tmp_path / "nodist",
-        wow_roots=[tmp_path / "World of Warcraft"],  # where the `wow_root` fixture puts one
-        mode="local",
-    )
-    c = TestClient(app)
-    c.params = c.params.set("game_version", "forever")
-    return c
+    """Signed in as `ME`; shares the `conn` fixture's database. FREE and LINKED sign in as others."""
+    return make_client(database, game_versions, tmp_path / "nodist")
 
 
 def with_tailor(conn: Connection) -> None:
@@ -71,13 +88,7 @@ def test_empty_db(client: TestClient, database: db.Database) -> None:
     status = client.get("/api/status").json()
     assert status["recipes"] == 0
     assert status["build"] is None
-    assert status["last_auctionator_import"] is None
-    assert status["db_path"] == database.display_url
     assert (status["characters"], status["selection"], status["data_version"]) == (0, None, 0)
-    assert status["warnings"] == [
-        "No Alt Army file found. Pick AltArmy_TBC.lua on the Manage page.",
-        "No Auctionator file found. Pick Auctionator.lua on the Manage page.",
-    ]
     assert client.get("/api/characters").json() == {"groups": [], "selection": None}
     assert client.get("/api/rank").json()["results"] == []
 
@@ -298,72 +309,6 @@ def test_rank_filters_and_validation(client: TestClient, priced: Connection) -> 
     assert total() == 0
 
 
-def test_update_game_data_invalidates_cache(
-    client: TestClient, db2_paths: dict[str, Path], conn: Connection, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(ingest, "latest_build", lambda product: "9.9.9.1")
-    monkeypatch.setattr(ingest, "download_all", lambda build, cache_dir: db2_paths)
-    set_prices(conn, {1: 20, 2: 100})
-    with_tailor(conn)
-    assert client.get("/api/rank").json()["results"] == []  # prime the cache: no recipes yet
-
-    res = client.post("/api/game-data/update")
-    assert res.status_code == 200
-    assert res.json()["build"] == "9.9.9.1"
-    assert res.json()["updated"] is True
-    assert res.json()["items"] == 3
-    assert res.json()["vendor_items"] == 2
-    assert client.get("/api/status").json()["build"] == "9.9.9.1"
-    assert len(client.get("/api/rank").json()["results"]) == 1
-
-
-def test_update_game_data_only_if_new(
-    client: TestClient, db2_paths: dict[str, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    downloads: list[str] = []
-
-    def fake_download_all(build: str, cache_dir: Path) -> dict[str, Path]:
-        downloads.append(build)
-        return db2_paths
-
-    monkeypatch.setattr(ingest, "latest_build", lambda product: "9.9.9.1")
-    monkeypatch.setattr(ingest, "download_all", fake_download_all)
-
-    first = client.post("/api/game-data/update", params={"only_if_new": True}).json()
-    assert first["updated"] is True
-    same = client.post("/api/game-data/update", params={"only_if_new": True}).json()
-    assert same == {**first, "updated": False}  # counts reflect the database as it stands
-    assert downloads == ["9.9.9.1"]
-
-    client.post("/api/game-data/update")  # without the flag it always rebuilds
-    assert downloads == ["9.9.9.1", "9.9.9.1"]
-
-    monkeypatch.setattr(ingest, "latest_build", lambda product: "9.9.9.2")
-    assert client.post("/api/game-data/update", params={"only_if_new": True}).json()["updated"] is True
-    assert client.get("/api/status").json()["build"] == "9.9.9.2"
-
-
-def test_update_game_data_network_error(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    def fail(product: str) -> str:
-        raise urllib.error.URLError("offline")
-
-    monkeypatch.setattr(ingest, "latest_build", fail)
-    res = client.post("/api/game-data/update")
-    assert res.status_code == 502
-    assert "offline" in res.json()["detail"]
-
-
-def test_auctionator_files_default(
-    client: TestClient, conn: Connection, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    files = [Path(r"W\_classic_\A.lua"), Path(r"W\_classic_beta_\A.lua")]
-    monkeypatch.setattr(prices, "find_auctionator_files", lambda roots, flavors: files)
-    body = client.get("/api/auctionator/files").json()
-    assert body == {"files": [str(f) for f in files], "default": str(files[0])}
-    users.update_sync(conn, ME, FOREVER, auctionator_path=str(files[1]))
-    assert client.get("/api/auctionator/files").json()["default"] == str(files[1])
-
-
 def test_rank_include_unlearned(client: TestClient, priced: Connection) -> None:
     # knows a recipe this build lacks, so it counts as imported (hand-made characters know everything)
     novice = Character(
@@ -390,19 +335,13 @@ def test_rank_and_evaluate_without_trivial_recipes(client: TestClient, priced: C
     assert client.post("/api/evaluate", json={**body, "include_trivial": False}).status_code == 404
 
 
-def test_status_syncs_addon_files_and_selection_switches_realm(
-    client: TestClient, db2_paths: dict[str, Path], conn: Connection, wow_root: Path
-) -> None:
+def test_characters_and_selection(client: TestClient, db2_paths: dict[str, Path], conn: Connection) -> None:
     ingest.build_db(db2_paths, conn, FOREVER)
+    set_prices(conn, {1: 20, 2: 100})
+    store.save_characters(conn, ME, FOREVER, altarmy.parse_characters(ALTARMY_SV))
     status = client.get("/api/status").json()
-    assert status["altarmy_path"] == str(wow_root / SV_DIR / "AltArmy_TBC.lua")
-    assert status["auctionator_path"] == str(wow_root / SV_DIR / "Auctionator.lua")
-    assert (status["characters"], status["data_version"], status["warnings"]) == (4, 1, [])
-    assert status["selection"] == {"realm": "Dreamscythe", "faction": "Horde"}
-    assert status["auctionator_realm"] == "Dreamscythe Horde"
-    assert status["last_altarmy_sync"] is not None
-    assert status["last_auctionator_sync"] is not None
-    assert client.get("/api/status").json()["data_version"] == 1  # files unchanged
+    assert status["characters"] == 4
+    assert status["selection"] == {"realm": "Dreamscythe", "faction": "Horde"}  # the biggest group
 
     body = client.get("/api/characters").json()
     assert [(g["realm"], g["faction"], len(g["characters"])) for g in body["groups"]] == [
@@ -432,51 +371,12 @@ def test_status_syncs_addon_files_and_selection_switches_realm(
 
     res = client.put("/api/selection", json={"realm": "Classic Beta PvE", "faction": "Horde"})
     assert res.status_code == 200
-    assert res.json()["auctionator_realm"] == "ClassicBetaPvE"
-    assert res.json()["data_version"] == 2
+    assert res.json()["selection"] == {"realm": "Classic Beta PvE", "faction": "Horde"}
     (r,) = client.get("/api/rank").json()["results"]
-    assert (r["crafters"], r["profit"]) == (["Tailor Guy"], 200)  # priced by that realm's scan
+    assert (r["crafters"], r["profit"]) == (["Tailor Guy"], 200)  # priced by that realm's auction house
 
     res = client.put("/api/selection", json={"realm": "Nowhere", "faction": "Horde"})
     assert res.status_code == 400
-
-
-def test_sources_and_sync_now(client: TestClient, conn: Connection, wow_root: Path) -> None:
-    assert client.get("/api/status").json()["characters"] == 4
-    missing = client.put("/api/sources", json={"altarmy_path": str(wow_root / "missing.lua")})
-    assert missing.status_code == 404
-
-    other = wow_root / "AltArmy_TBC.lua"
-    other.write_bytes(ALTARMY_SV.replace(b'["Newbie"]', b'["Newbie Two"]'))
-    status = client.put("/api/sources", json={"altarmy_path": str(other)}).json()
-    assert status["altarmy_path"] == str(other)
-    assert status["data_version"] == 2
-    assert "Newbie Two" in [c.name for c in store.load_characters(conn, ME, FOREVER)]
-
-    assert client.post("/api/sync").json()["data_version"] == 3  # forced, even though nothing changed
-
-    (wow_root / SV_DIR / "Auctionator.lua").write_bytes(_saved_variables({"Atiesh": {"1": _entry(1)}}))
-    warnings = client.post("/api/sync").json()["warnings"]
-    assert warnings == ["Auctionator has no prices for Dreamscythe (Horde). Scan that auction house in game."]
-
-
-def test_altarmy_files(client: TestClient, conn: Connection, wow_root: Path) -> None:
-    found = str(wow_root / SV_DIR / "AltArmy_TBC.lua")
-    assert client.get("/api/altarmy/files").json() == {"files": [found], "default": found}
-    users.update_sync(conn, ME, FOREVER, altarmy_path=r"C:\elsewhere\AltArmy_TBC.lua")
-    assert client.get("/api/altarmy/files").json()["default"] == r"C:\elsewhere\AltArmy_TBC.lua"
-
-
-def test_reload_rereads_database(client: TestClient, priced: Connection) -> None:
-    def profit() -> int:
-        (r,) = client.get("/api/rank").json()["results"]
-        return int(r["profit"])
-
-    assert profit() == 200
-    set_prices(priced, {2: 50})
-    assert profit() == 200  # cached
-    assert client.post("/api/reload").json()["prices"] == 2
-    assert profit() == 250
 
 
 def test_serves_built_frontend(
@@ -485,7 +385,7 @@ def test_serves_built_frontend(
     dist = tmp_path / "dist"
     dist.mkdir()
     (dist / "index.html").write_text("<html>altarmy-profit</html>")
-    client = TestClient(create_app(game_versions, database=database, static_dir=dist, wow_roots=()))
+    client = make_client(database, game_versions, dist)
     assert "altarmy-profit" in client.get("/").text
     assert client.get("/api/status", params={"game_version": "tbc"}).json()["recipes"] == 0
 
@@ -502,9 +402,7 @@ def test_routes_need_a_known_game_version(client: TestClient) -> None:
     assert client.get("/api/status", params={"game_version": "retail"}).status_code == 422
 
 
-def test_each_game_version_has_its_own_data(
-    client: TestClient, priced: Connection, tmp_path: Path, wow_root: Path
-) -> None:
+def test_each_game_version_has_its_own_data(client: TestClient, priced: Connection) -> None:
     assert len(client.get("/api/rank").json()["results"]) == 1  # Forever: the tailor's robe
     client.put("/api/ah-blocked/3")
     tbc = {"game_version": "tbc"}
@@ -512,63 +410,15 @@ def test_each_game_version_has_its_own_data(
     assert (status["recipes"], status["prices"], status["characters"]) == (0, 0, 0)
     assert client.get("/api/ah-blocked", params=tbc).json()["items"] == []
     assert client.get("/api/rank", params=tbc).json()["results"] == []
-    assert client.get("/api/altarmy/files", params=tbc).json() == {"files": [], "default": None}
     assert client.get("/api/versions").json() == [
         {"key": "forever", "label": "WoW: Forever", "build": None, "recipes": 1},
         {"key": "tbc", "label": "TBC Anniversary", "build": None, "recipes": 0},
     ]
 
 
-def test_update_game_data_uses_the_versions_product(
-    client: TestClient, db2_paths: dict[str, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    asked: list[str] = []
-
-    def latest(product: str) -> str:
-        asked.append(product)
-        return "2.5.6.1"
-
-    monkeypatch.setattr(ingest, "latest_build", latest)
-    monkeypatch.setattr(ingest, "download_all", lambda build, cache_dir: db2_paths)
-    res = client.post("/api/game-data/update", params={"game_version": "tbc"}).json()
-    assert asked == ["wow_anniversary"]
-    assert (res["build"], res["vendor_items"]) == ("2.5.6.1", 0)  # TBC's data dir has no vendor list here
-    assert client.get("/api/status").json()["build"] is None  # Forever untouched
-
-
 # --- users, tiers and prices ------------------------------------------------------------------------
-FREE = {"Authorization": "Bearer anonymous:guest"}
-LINKED = {"Authorization": "Bearer google.com:g1"}
-
-
-@pytest.fixture
-def hosted(tmp_path: Path, game_versions: dict[str, GameVersion], database: db.Database) -> TestClient:
-    """Hosted mode, with fake tokens (see `FakeVerifier`): FREE is an anonymous user, LINKED a Google one.
-    Local mode would sync addon files from the WoW install the `wow_root` fixture makes."""
-    app = create_app(
-        game_versions,
-        database=database,
-        cache_dir=tmp_path / "cache",
-        static_dir=tmp_path / "nodist",
-        wow_roots=[tmp_path / "World of Warcraft"],
-        mode="hosted",
-        verifier=FakeVerifier(),
-        firebase=auth.FirebaseConfig("demo-altarmy", "key", "demo-altarmy.firebaseapp.com", "127.0.0.1:9099"),
-    )
-    c = TestClient(app)
-    c.params = c.params.set("game_version", "forever")
-    return c
-
-
-def test_local_mode_needs_no_sign_in(client: TestClient) -> None:
-    assert client.get("/api/me").json() == {"uid": "local", "tier": "linked"}
-    assert client.get("/api/me", headers=FREE).json()["uid"] == "local"  # tokens are ignored
-    assert client.get("/api/config").json() == {"mode": "local", "firebase": None}
-
-
-def test_hosted_mode_signs_users_in(hosted: TestClient, conn: Connection) -> None:
-    assert hosted.get("/api/config").json() == {
-        "mode": "hosted",
+def test_users_sign_in_with_a_token(client: TestClient, conn: Connection) -> None:
+    assert client.get("/api/config").json() == {
         "firebase": {
             "api_key": "key",
             "auth_domain": "demo-altarmy.firebaseapp.com",
@@ -576,45 +426,50 @@ def test_hosted_mode_signs_users_in(hosted: TestClient, conn: Connection) -> Non
             "emulator_url": "http://127.0.0.1:9099",
         },
     }
-    assert hosted.get("/api/versions").status_code == 200  # public
-    assert hosted.get("/api/me").status_code == 401
-    assert hosted.get("/api/me", headers={"Authorization": "Bearer nonsense"}).status_code == 401
-    assert hosted.get("/api/me", headers=FREE).json() == {
+    del client.headers["Authorization"]
+    assert client.get("/api/versions").status_code == 200  # public
+    assert client.get("/api/me").status_code == 401
+    assert client.get("/api/me", headers={"Authorization": "Bearer nonsense"}).status_code == 401
+    assert client.get("/api/me", headers=FREE).json() == {
         "uid": "guest",
         "tier": "free",
     }
-    assert hosted.get("/api/me", headers=LINKED).json()["tier"] == "linked"
+    assert client.get("/api/me", headers=LINKED).json()["tier"] == "linked"
     u = schema.users
     rows = conn.execute(select(u.c.uid, u.c.tier).order_by(u.c.uid)).all()
-    assert [tuple(r) for r in rows] == [("g1", "linked"), ("guest", "free"), ("local", "linked")]
+    assert [tuple(r) for r in rows] == [
+        ("g1", "linked"),
+        ("guest", "free"),
+        ("me", "linked"),
+    ]
 
 
 @pytest.mark.parametrize(
     ("method", "path"),
     [("GET", "/api/keys"), ("POST", "/api/keys"), ("DELETE", "/api/keys/1")],
 )
-def test_only_api_keys_need_a_linked_account(hosted: TestClient, method: str, path: str) -> None:
-    res = hosted.request(method, path, headers=FREE, json={"label": "pc"} if method == "POST" else None)
+def test_only_api_keys_need_a_linked_account(client: TestClient, method: str, path: str) -> None:
+    res = client.request(method, path, headers=FREE, json={"label": "pc"} if method == "POST" else None)
     assert res.status_code == 403
     assert "Create an account or sign in" in res.json()["detail"]
 
 
-def test_guests_rank_evaluate_and_block_like_everyone(hosted: TestClient, priced: Connection) -> None:
+def test_guests_rank_evaluate_and_block_like_everyone(client: TestClient, priced: Connection) -> None:
     # a new user without characters browses every recipe of the freshest realm, crafted by nobody
-    (browsed,) = hosted.get("/api/rank", headers=FREE).json()["results"]
+    (browsed,) = client.get("/api/rank", headers=FREE).json()["results"]
     assert (browsed["crafter"], browsed["crafters"]) == ("", [])
     store.save_characters(priced, "guest", FOREVER, altarmy.parse_characters(ALTARMY_SV))
     selection = {"realm": "Classic Beta PvE", "faction": "Horde"}
-    assert hosted.put("/api/selection", headers=FREE, json=selection).json()["selection"] == selection
-    assert [g["realm"] for g in hosted.get("/api/characters", headers=FREE).json()["groups"]][0] == (
+    assert client.put("/api/selection", headers=FREE, json=selection).json()["selection"] == selection
+    assert [g["realm"] for g in client.get("/api/characters", headers=FREE).json()["groups"]][0] == (
         "Classic Beta PvE"
     )
-    (r,) = hosted.get("/api/rank", headers=FREE).json()["results"]
+    (r,) = client.get("/api/rank", headers=FREE).json()["results"]
     assert (r["recipe"], r["tree"]["via"]) == ("Green Robe", "Green Robe")  # with its flow chart
     body = {"recipe_id": r["recipe_id"], "choices": {}}
-    assert hosted.post("/api/evaluate", headers=FREE, json=body).json()["result"]["profit"] == r["profit"]
-    assert hosted.put("/api/ah-blocked/3", headers=FREE).json()["items"][0]["item_id"] == 3
-    assert hosted.delete("/api/ah-blocked/3", headers=FREE).json()["items"] == []
+    assert client.post("/api/evaluate", headers=FREE, json=body).json()["result"]["profit"] == r["profit"]
+    assert client.put("/api/ah-blocked/3", headers=FREE).json()["items"][0]["item_id"] == 3
+    assert client.delete("/api/ah-blocked/3", headers=FREE).json()["items"] == []
 
 
 @pytest.mark.parametrize(
@@ -628,28 +483,19 @@ def test_guests_rank_evaluate_and_block_like_everyone(hosted: TestClient, priced
         ("POST", "/api/reload"),
     ],
 )
-def test_local_file_and_admin_routes_are_gone_in_hosted_mode(
-    hosted: TestClient, method: str, path: str
-) -> None:
-    res = hosted.request(method, path, headers=LINKED, json={} if method == "PUT" else None)
-    assert res.status_code == 404
+def test_the_old_local_file_and_admin_routes_are_gone(client: TestClient, method: str, path: str) -> None:
+    res = client.request(method, path, json={} if method == "PUT" else None)
+    assert res.status_code in (404, 405)
 
 
-def test_hosted_status_never_syncs_local_files(hosted: TestClient, conn: Connection, wow_root: Path) -> None:
-    status = hosted.get("/api/status", headers=LINKED).json()
-    assert (status["characters"], status["warnings"], status["db_path"]) == (0, [], "")
-    assert hosted.get("/api/characters", headers=LINKED).json()["groups"] == []
-    assert store.count_characters(conn, ME, FOREVER) == 0  # nor for the local user
-
-
-def test_linked_users_rank_their_own_characters(hosted: TestClient, priced: Connection) -> None:
-    # the tailor is the local user's: this user only browses
-    assert hosted.get("/api/rank", headers=LINKED).json()["results"][0]["crafter"] == ""
+def test_linked_users_rank_their_own_characters(client: TestClient, priced: Connection) -> None:
+    # the tailor is ME's: this user only browses
+    assert client.get("/api/rank", headers=LINKED).json()["results"][0]["crafter"] == ""
     store.save_characters(priced, "g1", FOREVER, altarmy.parse_characters(ALTARMY_SV))
     selection = {"realm": "Classic Beta PvE", "faction": "Horde"}
-    assert hosted.put("/api/selection", headers=LINKED, json=selection).json()["selection"] == selection
-    assert hosted.get("/api/rank", headers=LINKED).json()["total"] == 1
-    hosted.put("/api/ah-blocked/3", headers=LINKED)
+    assert client.put("/api/selection", headers=LINKED, json=selection).json()["selection"] == selection
+    assert client.get("/api/rank", headers=LINKED).json()["total"] == 1
+    client.put("/api/ah-blocked/3", headers=LINKED)
     assert store.load_ah_blocked(priced, ME, FOREVER) == []
 
 
@@ -696,14 +542,11 @@ def test_rank_pages_through_one_search(
     assert len(calls) == 2  # the exits change what is ranked
     client.get("/api/rank", params={"top": 2, "include_unlearned": True})
     assert len(calls) == 3  # other parameters rank again
-    client.post("/api/reload")  # a rebuilt market ranks again
-    client.get("/api/rank", params={"top": 1})
-    assert len(calls) == 4
     client.get("/api/rank", params={"top": 1, "sort": "rate"})
-    assert len(calls) == 4  # sorting by rate reuses the ranking
+    assert len(calls) == 3  # sorting by rate reuses the ranking
     client.put("/api/time", json={"config": {"batch": 3}})
     client.get("/api/rank", params={"top": 1})
-    assert len(calls) == 5  # plans depend on the time settings
+    assert len(calls) == 4  # plans depend on the time settings
 
 
 def test_status_reports_the_price_version(client: TestClient, priced: Connection) -> None:
@@ -718,13 +561,13 @@ def _item_price(price: int) -> ItemPrice:
     return ItemPrice(price, {db.utcnow().date(): DayStats(price, price, 1)})
 
 
-def test_coverage_lists_each_realms_scans(hosted: TestClient, conn: Connection) -> None:
+def test_coverage_lists_each_realms_scans(client: TestClient, conn: Connection) -> None:
     assert upload(
-        hosted, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": _entry(20)}}), FREE
+        client, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": _entry(20)}}), FREE
     ).is_success
     prices.unnamed_auction_house(conn, FOREVER)  # never listed
     tbc = prices.auction_house(conn, "tbc", "Dreamscythe", "Horde")
-    (row,) = hosted.get("/api/coverage", headers=FREE).json()
+    (row,) = client.get("/api/coverage", headers=FREE).json()
     assert (row["realm"], row["faction"], row["prices"], row["last_scan_items"]) == (
         "ClassicBetaPvE",
         "",
@@ -733,7 +576,7 @@ def test_coverage_lists_each_realms_scans(hosted: TestClient, conn: Connection) 
     )
     assert (row["scans_7d"], row["uploaders_7d"]) == (1, 1)
     assert row["last_scan"] is not None
-    (dream,) = hosted.get("/api/coverage", params={"game_version": "tbc"}, headers=FREE).json()
+    (dream,) = client.get("/api/coverage", params={"game_version": "tbc"}, headers=FREE).json()
     assert (dream["auction_house_id"], dream["last_scan"], dream["scans_7d"]) == (tbc, None, 0)
 
 
@@ -754,17 +597,17 @@ def upload(
     return c.post("/api/uploads", headers=headers or {}, data=form, files={"file": (filename, data)})
 
 
-def test_guests_upload_characters_and_prices(hosted: TestClient, conn: Connection) -> None:
-    res = upload(hosted, "altarmy", ALTARMY_SV, FREE)
+def test_guests_upload_characters_and_prices(client: TestClient, conn: Connection) -> None:
+    res = upload(client, "altarmy", ALTARMY_SV, FREE)
     assert res.status_code == 200, res.text
     body = res.json()
     assert (body["kind"], body["characters"]) == ("altarmy", 4)
     assert body["groups"][0] == {"realm": "Classic Beta PvE", "faction": "Alliance", "characters": 1}
     assert store.count_characters(conn, "guest", FOREVER) == 4
-    assert len(hosted.get("/api/characters", headers=FREE).json()["groups"]) == 3
+    assert len(client.get("/api/characters", headers=FREE).json()["groups"]) == 3
 
     data = _saved_variables({"ClassicBetaPvE": {"1": _entry(20), "2": _entry(100)}})
-    res = upload(hosted, "auctionator", gzip.compress(data), FREE, modified_at=1_790_000_000_000)
+    res = upload(client, "auctionator", gzip.compress(data), FREE, modified_at=1_790_000_000_000)
     realm = res.json()["realms"][0]
     assert (realm["key"], realm["realm"], realm["faction"], realm["items"]) == (
         "ClassicBetaPvE",
@@ -772,14 +615,14 @@ def test_guests_upload_characters_and_prices(hosted: TestClient, conn: Connectio
         "",
         2,
     )
-    (covered,) = hosted.get("/api/coverage", headers=FREE).json()
+    (covered,) = client.get("/api/coverage", headers=FREE).json()
     assert (covered["realm"], covered["prices"]) == ("Classic Beta PvE", 2)
-    history = hosted.get("/api/uploads", headers=FREE).json()
+    history = client.get("/api/uploads", headers=FREE).json()
     assert [(u["kind"], u["outcome"], u["via"]) for u in history] == [
         ("auctionator", "accepted", "browser"),
         ("altarmy", "accepted", "browser"),
     ]
-    assert hosted.get("/api/status", headers=FREE).json()["data_version"] == 2
+    assert client.get("/api/status", headers=FREE).json()["data_version"] == 2
 
 
 def test_upload_refreshes_the_cached_market(client: TestClient, priced: Connection) -> None:
@@ -788,35 +631,35 @@ def test_upload_refreshes_the_cached_market(client: TestClient, priced: Connecti
     assert client.get("/api/rank").json()["results"][0]["cost"] == 10 * 33 + 100  # linen repriced
 
 
-def test_bad_uploads(hosted: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    res = upload(hosted, "auctionator", b"garbage", LINKED)
+def test_bad_uploads(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    res = upload(client, "auctionator", b"garbage", LINKED)
     assert res.status_code == 400
     assert "AUCTIONATOR_PRICE_DATABASE" in res.json()["detail"]
-    (row,) = hosted.get("/api/uploads", headers=LINKED).json()
+    (row,) = client.get("/api/uploads", headers=LINKED).json()
     assert (row["outcome"], row["size"]) == ("rejected", 7)
-    assert upload(hosted, "cheese", b"x", LINKED).status_code == 422
-    assert upload(hosted, "altarmy", b"x").status_code == 401
+    assert upload(client, "cheese", b"x", LINKED).status_code == 422
+    assert upload(client, "altarmy", b"x", {"Authorization": "Bearer nonsense"}).status_code == 401
 
     monkeypatch.setattr(uploads, "MAX_BYTES", 1000)
-    assert upload(hosted, "altarmy", b"x" * 1001, LINKED).status_code == 413
-    assert upload(hosted, "altarmy", gzip.compress(b"x" * 5000), LINKED).status_code == 413
+    assert upload(client, "altarmy", b"x" * 1001, LINKED).status_code == 413
+    assert upload(client, "altarmy", gzip.compress(b"x" * 5000), LINKED).status_code == 413
 
     monkeypatch.setattr(uploads, "RATE_LIMIT", 3)
-    res = upload(hosted, "altarmy", ALTARMY_SV, LINKED)
+    res = upload(client, "altarmy", ALTARMY_SV, LINKED)
     assert res.status_code == 429  # the rejected ones count too
 
 
 PASTE = (Path(__file__).parent / "fixtures" / "altarmy_export_v1.txt").read_text(encoding="utf-8")
 
 
-def test_guests_paste_the_addons_export(hosted: TestClient) -> None:
+def test_guests_paste_the_addons_export(client: TestClient) -> None:
     tbc = {"game_version": "tbc"}
-    res = hosted.post("/api/uploads/paste", params=tbc, headers=FREE, json={"text": PASTE})
+    res = client.post("/api/uploads/paste", params=tbc, headers=FREE, json={"text": PASTE})
     assert res.status_code == 200, res.text
     body = res.json()
     assert (body["kind"], body["characters"], body["realms"]) == ("altarmy", 2, [])
     assert body["groups"] == [{"realm": "Dreamscythe", "faction": "Horde", "characters": 1}]
-    (row,) = hosted.get("/api/uploads", headers=FREE).json()
+    (row,) = client.get("/api/uploads", headers=FREE).json()
     assert (row["kind"], row["via"], row["outcome"], row["game_version"]) == (
         "altarmy",
         "paste",
@@ -825,95 +668,65 @@ def test_guests_paste_the_addons_export(hosted: TestClient) -> None:
     )
 
 
-def test_bad_pastes(hosted: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    res = hosted.post(
+def test_bad_pastes(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    res = client.post(
         "/api/uploads/paste", headers=LINKED, json={"text": PASTE}
     )  # a TBC export, Forever chosen
     assert res.status_code == 400
     assert res.json()["detail"] == "This is a TBC Anniversary export; this site serves WoW: Forever."
-    res = hosted.post("/api/uploads/paste", headers=LINKED, json={"text": "hello"})
+    res = client.post("/api/uploads/paste", headers=LINKED, json={"text": "hello"})
     assert res.status_code == 400
-    rows = hosted.get("/api/uploads", headers=LINKED).json()
+    rows = client.get("/api/uploads", headers=LINKED).json()
     assert [(r["via"], r["outcome"]) for r in rows] == [("paste", "rejected")] * 2
-    assert hosted.post("/api/uploads/paste", json={"text": PASTE}).status_code == 401
+    signed_out = {"Authorization": "Bearer nonsense"}
+    assert client.post("/api/uploads/paste", headers=signed_out, json={"text": PASTE}).status_code == 401
 
     monkeypatch.setattr(uploads, "MAX_BYTES", 100)
-    assert hosted.post("/api/uploads/paste", headers=LINKED, json={"text": "x" * 101}).status_code == 413
+    assert client.post("/api/uploads/paste", headers=LINKED, json={"text": "x" * 101}).status_code == 413
     monkeypatch.setattr(uploads, "RATE_LIMIT", 3)
-    assert hosted.post("/api/uploads/paste", headers=LINKED, json={"text": PASTE}).status_code == 429
+    assert client.post("/api/uploads/paste", headers=LINKED, json={"text": PASTE}).status_code == 429
 
 
-def test_api_keys(hosted: TestClient, conn: Connection) -> None:
-    assert hosted.post("/api/keys", headers=FREE, json={"label": "pc"}).status_code == 403
-    made = hosted.post("/api/keys", headers=LINKED, json={"label": "gaming pc"}).json()
+def test_api_keys(client: TestClient, conn: Connection) -> None:
+    assert client.post("/api/keys", headers=FREE, json={"label": "pc"}).status_code == 403
+    made = client.post("/api/keys", headers=LINKED, json={"label": "gaming pc"}).json()
     key = made["key"]
     assert key.startswith("ak_") and made["prefix"] == key[:8] and made["label"] == "gaming pc"
     stored: str = conn.execute(select(schema.api_keys.c.key_hash)).scalar_one()
     assert key not in stored and len(stored) == 64
-    (listed,) = hosted.get("/api/keys", headers=LINKED).json()
+    (listed,) = client.get("/api/keys", headers=LINKED).json()
     assert "key" not in listed and listed["last_used_at"] is None
 
     with_key = {"Authorization": f"Bearer {key}"}
-    res = upload(hosted, "altarmy", ALTARMY_SV, with_key, via="watcher")
+    res = upload(client, "altarmy", ALTARMY_SV, with_key, via="watcher")
     assert res.status_code == 200
     assert store.count_characters(conn, "g1", FOREVER) == 4
-    assert hosted.get("/api/rank", headers=with_key).status_code == 401  # keys only upload
-    assert hosted.get("/api/keys", headers=LINKED).json()[0]["last_used_at"] is not None
+    assert client.get("/api/rank", headers=with_key).status_code == 401  # keys only upload
+    assert client.get("/api/keys", headers=LINKED).json()[0]["last_used_at"] is not None
 
     users.ensure_user(conn, auth.User("g2", "linked"))
     theirs = {"Authorization": "Bearer google.com:g2"}
-    assert hosted.delete(f"/api/keys/{made['id']}", headers=theirs).status_code == 404
-    assert hosted.delete(f"/api/keys/{made['id']}", headers=LINKED).json() == []
-    assert upload(hosted, "altarmy", ALTARMY_SV, with_key).status_code == 401
-    assert upload(hosted, "altarmy", ALTARMY_SV, {"Authorization": "Bearer ak_madeup"}).status_code == 401
-
-
-def test_local_mode_uploads_as_the_local_user(client: TestClient, conn: Connection) -> None:
-    assert upload(client, "altarmy", ALTARMY_SV).status_code == 200
-    assert store.count_characters(conn, ME, FOREVER) == 4
-    made = client.post("/api/keys", json={"label": "x"}).json()
-    assert (
-        upload(client, "altarmy", ALTARMY_SV, {"Authorization": f"Bearer {made['key']}"}).status_code == 200
-    )
-
-
-def _hosted_app(
-    tmp_path: Path,
-    game_versions: dict[str, GameVersion],
-    database: db.Database,
-    verifier: FakeVerifier,
-    limits: ratelimit.Limits | None = None,
-) -> TestClient:
-    app = create_app(
-        game_versions,
-        database=database,
-        cache_dir=tmp_path / "cache",
-        static_dir=tmp_path / "nodist",
-        mode="hosted",
-        verifier=verifier,
-        firebase=auth.FirebaseConfig("demo-altarmy", "key", "demo-altarmy.firebaseapp.com", None),
-        limits=limits,
-    )
-    c = TestClient(app)
-    c.params = c.params.set("game_version", "forever")
-    return c
+    assert client.delete(f"/api/keys/{made['id']}", headers=theirs).status_code == 404
+    assert client.delete(f"/api/keys/{made['id']}", headers=LINKED).json() == []
+    assert upload(client, "altarmy", ALTARMY_SV, with_key).status_code == 401
+    assert upload(client, "altarmy", ALTARMY_SV, {"Authorization": "Bearer ak_madeup"}).status_code == 401
 
 
 def test_users_delete_their_account(
     tmp_path: Path, game_versions: dict[str, GameVersion], database: db.Database, conn: Connection
 ) -> None:
     verifier = FakeVerifier()
-    hosted = _hosted_app(tmp_path, game_versions, database, verifier)
-    upload(hosted, "altarmy", ALTARMY_SV, LINKED)
-    upload(hosted, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": _entry(20)}}), LINKED)
-    hosted.post("/api/keys", headers=LINKED, json={"label": "pc"})
+    client = make_client(database, game_versions, tmp_path / "nodist", verifier=verifier)
+    upload(client, "altarmy", ALTARMY_SV, LINKED)
+    upload(client, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": _entry(20)}}), LINKED)
+    client.post("/api/keys", headers=LINKED, json={"label": "pc"})
 
     verifier.fail = True
-    assert hosted.delete("/api/me", headers=LINKED).status_code == 502
+    assert client.delete("/api/me", headers=LINKED).status_code == 502
     assert store.count_characters(conn, "g1", FOREVER) == 4  # rolled back with the Firebase failure
 
     verifier.fail = False
-    assert hosted.delete("/api/me", headers=LINKED).status_code == 204
+    assert client.delete("/api/me", headers=LINKED).status_code == 204
     assert verifier.deleted == ["g1"]
     assert store.count_characters(conn, "g1", FOREVER) == 0
     assert conn.execute(select(schema.users.c.uid).where(schema.users.c.uid == "g1")).first() is None
@@ -924,42 +737,40 @@ def test_users_delete_their_account(
     assert conn.execute(select(schema.price_current)).first() is not None
 
 
-def test_local_mode_has_no_account_to_delete(client: TestClient) -> None:
-    assert client.delete("/api/me").status_code == 404
-
-
-def test_hosted_mode_rate_limits_per_user_and_ip(
+def test_rate_limits_per_user_and_ip(
     tmp_path: Path, game_versions: dict[str, GameVersion], database: db.Database
 ) -> None:
-    hosted = _hosted_app(
-        tmp_path, game_versions, database, FakeVerifier(), ratelimit.Limits(per_ip=5, per_uid=2, window=60)
-    )
+    limits = ratelimit.Limits(per_ip=5, per_uid=2, window=60)
+    client = make_client(database, game_versions, tmp_path / "nodist", limits=limits)
+    del client.headers["Authorization"]
     ip1 = {"X-Forwarded-For": "203.0.113.1"}
-    assert [hosted.get("/api/me", headers={**LINKED, **ip1}).status_code for _ in range(3)] == [200, 200, 429]
-    res = hosted.get("/api/me", headers={**FREE, **ip1})  # another user from the same address
+    assert [client.get("/api/me", headers={**LINKED, **ip1}).status_code for _ in range(3)] == [200, 200, 429]
+    res = client.get("/api/me", headers={**FREE, **ip1})  # another user from the same address
     assert res.status_code == 200
-    assert [hosted.get("/api/versions", headers=ip1).status_code for _ in range(2)] == [200, 429]
-    assert int(hosted.get("/api/versions", headers=ip1).headers["Retry-After"]) >= 1
-    assert hosted.get("/api/versions", headers={"X-Forwarded-For": "203.0.113.2"}).status_code == 200
+    assert [client.get("/api/versions", headers=ip1).status_code for _ in range(2)] == [200, 429]
+    assert int(client.get("/api/versions", headers=ip1).headers["Retry-After"]) >= 1
+    assert client.get("/api/versions", headers={"X-Forwarded-For": "203.0.113.2"}).status_code == 200
 
 
 def test_api_responses_are_never_cached(client: TestClient) -> None:
     assert client.get("/api/versions").headers["Cache-Control"] == "no-store"
 
 
-def test_hosted_instances_leave_migrations_to_the_deploy(
+def test_the_default_database_is_never_migrated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, game_versions: dict[str, GameVersion]
 ) -> None:
-    monkeypatch.setenv("DATABASE_URL", db.sqlite_url(tmp_path / "hosted.sqlite"))
-    app = create_app(
-        game_versions,
-        mode="hosted",
-        verifier=FakeVerifier(),
-        firebase=auth.FirebaseConfig("demo-altarmy", "key", "demo-altarmy.firebaseapp.com", None),
-    )
+    """Each deploy migrates, once; `altarmy-profit serve` passes a database that migrates."""
+    monkeypatch.setenv("DATABASE_URL", db.sqlite_url(tmp_path / "site.sqlite"))
+    app = create_app(game_versions, verifier=FakeVerifier(), firebase=FIREBASE)
     assert not app.state.auth.database.migrates
-    local = create_app(game_versions, mode="local")
-    assert local.state.auth.database.migrates
+
+
+def test_needs_a_firebase_project(
+    monkeypatch: pytest.MonkeyPatch, game_versions: dict[str, GameVersion]
+) -> None:
+    monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
+    with pytest.raises(ValueError, match="FIREBASE_PROJECT_ID"):
+        create_app(game_versions, verifier=FakeVerifier())
 
 
 def test_professions(client: TestClient, db2_paths: dict[str, Path], conn: Connection) -> None:
@@ -1049,7 +860,7 @@ def test_serves_the_front_end_for_its_own_pages(
     (dist / "assets").mkdir(parents=True)
     (dist / "index.html").write_text("<html>app</html>")
     (dist / "assets" / "app.js").write_text("js")
-    client = TestClient(create_app(game_versions, database=database, static_dir=dist, wow_roots=()))
+    client = make_client(database, game_versions, dist)
     for page in ("/addon", "/profit", "/upload", "/manage"):
         assert client.get(page).text == "<html>app</html>"
     assert client.get("/assets/app.js").text == "js"
@@ -1121,9 +932,9 @@ def test_evaluate_uses_the_time_settings(client: TestClient, priced: Connection,
     assert (body["result"]["timing"]["city"], body["result"]["timing"]["batch"]) == ("Thunder Bluff", 4)
 
 
-def test_guests_keep_their_own_time_settings(hosted: TestClient, conn: Connection) -> None:
-    assert hosted.put("/api/time", json={"config": {"batch": 2}}, headers=FREE).status_code == 200
-    assert hosted.get("/api/time", headers=FREE).json()["config"]["batch"] == 2
+def test_guests_keep_their_own_time_settings(client: TestClient, conn: Connection) -> None:
+    assert client.put("/api/time", json={"config": {"batch": 2}}, headers=FREE).status_code == 200
+    assert client.get("/api/time", headers=FREE).json()["config"]["batch"] == 2
 
 
 def test_evaluate_plans_a_session_spelled_out(client: TestClient, priced: Connection, cities: Path) -> None:

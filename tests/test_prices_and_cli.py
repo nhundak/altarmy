@@ -7,36 +7,14 @@ from sqlalchemy import Connection, func, select
 from altarmy_profit import cli, db, ingest, prices, schema, store, versions, wowfiles
 from altarmy_profit.auctionator import DayStats, ItemPrice
 from altarmy_profit.prices import Observation
-from altarmy_profit.versions import GameVersion
 
-from .conftest import FOREVER, SV_DIR, set_prices, write_csv
+from .conftest import FOREVER, SV_DIR, set_prices
 
 T0 = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
 
 
 def count(conn: Connection, table: str) -> int:
     return int(conn.execute(select(func.count()).select_from(schema.metadata.tables[table])).scalar_one())
-
-
-def test_import_csv_by_id_and_name(db2_paths: dict[str, Path], conn: Connection, tmp_path: Path) -> None:
-    ingest.build_db(db2_paths, conn, FOREVER)
-    ingest.build_db(db2_paths, conn, "tbc")
-    f = write_csv(
-        tmp_path / "prices.csv",
-        ["item_id", "name", "price"],
-        [
-            {"item_id": 1, "price": 45},
-            {"item_id": "", "name": "coarse thread", "price": 120},  # case-insensitive
-            {"item_id": "", "name": "Nonexistent Item", "price": 9},
-        ],
-    )
-    ah = prices.unnamed_auction_house(conn, FOREVER)
-    imported, unresolved = prices.import_csv(conn, FOREVER, ah, f)
-    assert imported == 2
-    assert unresolved == ["Nonexistent Item"]
-    assert prices.load_current(conn, ah) == {1: 45, 2: 120}
-    snap = schema.price_snapshots
-    assert conn.execute(select(snap.c.source, snap.c.item_count)).all() == [("csv", 2)]
 
 
 def test_set_price_records_manual_snapshots(conn: Connection) -> None:
@@ -240,100 +218,16 @@ def test_find_auctionator_files(tmp_path: Path) -> None:
     sv.mkdir(parents=True)
     (sv / "Auctionator.lua").write_text("")
     (sv / "Other.lua").write_text("")
-    assert prices.find_auctionator_files([tmp_path, tmp_path / "missing"]) == [sv / "Auctionator.lua"]
+    assert wowfiles.find_auctionator_files([tmp_path, tmp_path / "missing"]) == [sv / "Auctionator.lua"]
 
 
 def test_find_altarmy_files(wow_root: Path) -> None:
-    assert prices.find_altarmy_files([wow_root]) == [wow_root / SV_DIR / "AltArmy_TBC.lua"]
+    assert wowfiles.find_altarmy_files([wow_root]) == [wow_root / SV_DIR / "AltArmy_TBC.lua"]
 
 
-def test_cli_import_altarmy_and_rank_by_realm(
-    db2_paths: dict[str, Path], tmp_path: Path, wow_root: Path, capsys: pytest.CaptureFixture[str]
+def test_serve_runs_the_api_with_uvicorn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    dbfile = str(tmp_path / "cli.sqlite")
-    database = db.Database(db.sqlite_url(dbfile))
-    with database.begin() as conn:
-        ingest.build_db(db2_paths, conn, FOREVER)
-        set_prices(conn, {1: 20, 2: 100})
-    database.dispose()
-    cli.main(["--db", dbfile, "import-altarmy", str(wow_root / SV_DIR / "AltArmy_TBC.lua")])
-    assert "Classic Beta PvE (Horde): Tailor Guy" in capsys.readouterr().out
-
-    cli.main(["--db", dbfile, "rank", "--realm", "Dreamscythe", "--faction", "Horde"])
-    assert "No profitable recipes" in capsys.readouterr().out
-    cli.main(["--db", dbfile, "rank", "--realm", "Classic Beta PvE", "--faction", "Horde"])
-    out = capsys.readouterr().out
-    assert "Characters: Tailor Guy" in out
-    assert "Green Robe" in out
-    cli.main(["--db", dbfile, "rank"])  # remembers the realm and faction
-    assert "Green Robe" in capsys.readouterr().out
-    with pytest.raises(SystemExit, match="both"):
-        cli.main(["--db", dbfile, "rank", "--realm", "Dreamscythe"])
-
-
-def test_cli_ranks_by_profit_per_hour(
-    db2_paths: dict[str, Path],
-    tmp_path: Path,
-    wow_root: Path,
-    cities: Path,
-    game_versions: dict[str, GameVersion],
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.setattr(versions, "VERSIONS", game_versions)  # Forever's presets are the `cities` fixture's
-    dbfile = str(tmp_path / "cli.sqlite")
-    database = db.Database(db.sqlite_url(dbfile))
-    with database.begin() as conn:
-        ingest.build_db(db2_paths, conn, FOREVER)
-        set_prices(conn, {1: 20, 2: 100})
-    database.dispose()
-    cli.main(["--db", dbfile, "import-altarmy", str(wow_root / SV_DIR / "AltArmy_TBC.lua")])
-    capsys.readouterr()
-    rank = ["--db", dbfile, "rank", "--realm", "Classic Beta PvE", "--faction", "Horde"]
-    cli.main([*rank, "--sort", "rate", "--city", "Thunder Bluff", "--batch", "10", "--gold-per-hour", "100"])
-    out = capsys.readouterr().out
-    assert "Timed in Thunder Bluff: 10 crafts per session, an hour worth 100g 00s 00c." in out
-    assert "/h" in out and "Green Robe" in out
-    assert "10 in " in out  # the batch's time
-    cli.main(rank)  # the saved settings: the batch stays, the faction's default city
-    assert (
-        "Timed in the fastest of Orgrimmar, Thunder Bluff: 10 crafts per session" in capsys.readouterr().out
-    )
-    with pytest.raises(SystemExit, match="No city preset named Atlantis"):
-        cli.main([*rank, "--city", "Atlantis"])
-    with pytest.raises(SystemExit, match="No city preset named Booty Bay"):  # neutral: not the tracked AH
-        cli.main([*rank, "--city", "Booty Bay"])
-    with pytest.raises(SystemExit, match="batch"):
-        cli.main([*rank, "--batch", "0"])
-
-
-def test_cli_prices_go_to_the_selected_auction_house(
-    tmp_path: Path, wow_root: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    dbfile = str(tmp_path / "cli.sqlite")
-    cli.main(["--db", dbfile, "set-price", "1", "45"])  # no characters: the unnamed auction house
-    cli.main(["--db", dbfile, "import-altarmy", str(wow_root / SV_DIR / "AltArmy_TBC.lua")])
-    with pytest.raises(SystemExit, match="No auction house known for Dreamscythe"):
-        cli.main(["--db", dbfile, "set-price", "1", "50"])
-    f = write_csv(tmp_path / "p.csv", ["item_id", "price"], [{"item_id": 2, "price": 7}])
-    with pytest.raises(SystemExit, match="No auction house known"):
-        cli.main(["--db", dbfile, "import-prices", str(f)])
-    auctionator = str(wow_root / SV_DIR / "Auctionator.lua")
-    cli.main(["--db", dbfile, "import-auctionator", auctionator, "--realm", "Dreamscythe Horde"])
-    cli.main(["--db", dbfile, "set-price", "1", "50"])
-    cli.main(["--db", dbfile, "import-prices", str(f)])
-    database = db.Database(db.sqlite_url(dbfile))
-    with database.begin() as conn:
-        unnamed = prices.find_auction_house(conn, FOREVER, "", "")
-        horde = prices.find_auction_house(conn, FOREVER, "Dreamscythe", "Horde")
-        assert (prices.load_current(conn, unnamed), prices.load_current(conn, horde)) == (
-            {1: 45},
-            {1: 50, 2: 7},
-        )
-    database.dispose()
-
-
-def test_ui_serves_api_with_uvicorn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import uvicorn
     from fastapi import FastAPI
 
@@ -343,32 +237,20 @@ def test_ui_serves_api_with_uvicorn(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         calls.append((app, host, port))
 
     monkeypatch.setattr(uvicorn, "run", fake_run)
-    cli.main(["--db", str(tmp_path / "x.sqlite"), "ui", "--port", "9123", "--no-browser"])
+    monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
+    with pytest.raises(SystemExit, match="FIREBASE_PROJECT_ID"):
+        cli.main(["--db", str(tmp_path / "x.sqlite"), "serve"])
+    assert calls == []
+
+    monkeypatch.setenv("FIREBASE_PROJECT_ID", "demo-altarmy")
+    cli.main(["--db", str(tmp_path / "x.sqlite"), "serve", "--port", "9123"])
     ((app, host, port),) = calls
     assert isinstance(app, FastAPI)
     assert (host, port) == ("127.0.0.1", 9123)
-
-
-def test_cli_imports_old_version_files_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    from altarmy_profit import legacy
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    old = legacy.version_file("tbc", Path("data"))
-    old.parent.mkdir()
-    conn = legacy.connect(old)
-    legacy.init_schema(conn)
-    conn.execute("INSERT INTO meta VALUES ('build', '2.5.6.1')")
-    conn.commit()
-    conn.close()
-    cli.main(["set-price", "1", "45"])
-    assert "Imported data" in capsys.readouterr().out
-    cli.main(["set-price", "1", "45"])
-    assert "Imported" not in capsys.readouterr().out
-    assert Path("data/altarmy-profit.sqlite").is_file()
-    assert Path("data/altarmy-profit-tbc.db.imported").is_file()
+    assert app.state.auth.database.migrates  # a dev server migrates its own database
+    out = capsys.readouterr().out
+    assert "No WoW: Forever game data yet: run `altarmy-profit ingest`." in out
+    assert "No TBC Anniversary game data yet: run `altarmy-profit --game-version tbc ingest`." in out
 
 
 def test_cli_ingest_uses_the_game_versions_build_and_product(
@@ -396,30 +278,14 @@ def test_cli_ingest_uses_the_game_versions_build_and_product(
     database.dispose()
 
 
-def test_cli_skips_old_version_files_with_a_database_url(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Hosted jobs set DATABASE_URL: the legacy import (local SQLite files) must never run there."""
-    from altarmy_profit import legacy
-
-    monkeypatch.chdir(tmp_path)
-    old = legacy.version_file("tbc", Path("data"))
-    old.parent.mkdir()
-    conn = legacy.connect(old)
-    legacy.init_schema(conn)
-    conn.commit()
-    conn.close()
-    monkeypatch.setenv("DATABASE_URL", db.sqlite_url(tmp_path / "hosted.sqlite"))
-    cli.main(["set-price", "1", "45"])
-    assert "Imported" not in capsys.readouterr().out
-    assert old.is_file()
-
-
 def test_cli_migrate_prune_and_merge(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     dbfile = str(tmp_path / "m.sqlite")
     cli.main(["--db", dbfile, "migrate"])
     assert "Database at revision" in capsys.readouterr().out
-    cli.main(["--db", dbfile, "set-price", "1", "45"])
+    database = db.Database(db.sqlite_url(dbfile))
+    with database.begin() as conn:
+        set_prices(conn, {1: 45})
+    database.dispose()
     cli.main(["--db", dbfile, "prune"])
     assert "Pruned" in capsys.readouterr().out
     cli.main(["--db", dbfile, "merge"])

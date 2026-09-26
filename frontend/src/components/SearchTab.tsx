@@ -35,7 +35,6 @@ import {
 } from '../api/queries'
 import { goldToCopper } from '../lib/money'
 import { fromKey, realmOptions, toKey } from '../lib/realms'
-import { useSession } from '../lib/session'
 import { useStoredState } from '../lib/storage'
 import { PriceFreshness } from './PriceFreshness'
 import { ResultsTable, type RankBy } from './ResultsTable'
@@ -175,7 +174,6 @@ function Range({ name, min, max, onMin, onMax, step }: RangeProps) {
 
 export function SearchTab() {
   const status = useStatus()
-  const { mode } = useSession()
   const characters = useCharacters()
   const coverage = useCoverage()
   const professionNames = useProfessions()
@@ -234,7 +232,7 @@ export function SearchTab() {
   if (status.data.recipes === 0) {
     return (
       <Alert color="red">
-        No recipes in {status.data.db_path}. Download game data on the Manage page (or run `altarmy-profit ingest`).
+        No game data has been loaded yet. If you run this site, run `altarmy-profit ingest`.
       </Alert>
     )
   }
@@ -262,11 +260,6 @@ export function SearchTab() {
 
   return (
     <Stack>
-      {status.data.warnings.map((w) => (
-        <Alert key={w} color="yellow">
-          {w}
-        </Alert>
-      ))}
       <Flex
         direction={{ base: 'column', sm: 'row' }}
         justify="space-between"
@@ -400,9 +393,8 @@ export function SearchTab() {
       </SimpleGrid>
       {status.data.prices === 0 && (
         <Alert color="yellow">
-          {mode === 'hosted'
-            ? 'No prices yet for this realm. Scan the auction house with Auctionator, then upload Auctionator.lua on the Upload page.'
-            : 'No prices yet. Scan the auction house with Auctionator, then /reload.'}
+          No prices yet for this realm. Scan the auction house with Auctionator, then upload Auctionator.lua on the
+          Upload page.
         </Alert>
       )}
       {debouncedFilters.exits.length ? (

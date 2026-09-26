@@ -5,6 +5,13 @@ How `altarmy-profit` becomes a hosted, multi-user web app covering both **TBC An
 Feature ideas that do not depend on hosting live in [ROADMAP_IDEAS.md](ROADMAP_IDEAS.md). Written
 2026-09-24; each phase below is meant to be picked up on its own.
 
+> **2026-09-26: local mode was removed.** The site is the only mode: no `ALTARMY_MODE`, no fixed local user,
+> no addon file sync, game-data update or reload routes, no `legacy.py` and no single-user CLI commands
+> (`import-*`, `set-price`, `rank`). `npm run dev` runs the site's code against the Firebase Auth emulator
+> (see README's Development). What this plan says about local mode below is history. The unused `local_sync`
+> table stays one release, so the previous release's instances keep working during a deploy; the next
+> revision drops it.
+
 ## 1. Goals and decisions
 
 | Decision | Choice | Why |

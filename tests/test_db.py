@@ -6,12 +6,12 @@ from sqlalchemy import Connection, inspect, select
 
 from altarmy_profit import db, schema
 
-from .conftest import FOREVER
+from .conftest import FOREVER, ME
 
 
-def test_the_local_user_is_registered(conn: Connection) -> None:
+def test_the_fixture_registers_the_test_user(conn: Connection) -> None:
     u = schema.users
-    assert [tuple(r) for r in conn.execute(select(u.c.uid, u.c.tier))] == [(db.LOCAL_UID, "linked")]
+    assert [tuple(r) for r in conn.execute(select(u.c.uid, u.c.tier))] == [(ME, "linked")]
 
 
 def test_game_versions_are_registered_and_hold_the_build(conn: Connection) -> None:
@@ -36,7 +36,7 @@ def test_upsert_updates_ignores_or_filters(conn: Connection) -> None:
 
     s = schema.user_settings
     skeys = ["user_uid", "game_version"]
-    row = {"user_uid": db.LOCAL_UID, "game_version": FOREVER}
+    row = {"user_uid": ME, "game_version": FOREVER}
     db.upsert(conn, s, [{**row, "data_version": 5}], skeys)
     db.upsert(conn, s, [{**row, "data_version": 3}], skeys, where=s.c.data_version < 4)
     assert conn.execute(select(s.c.data_version)).scalar_one() == 5  # the where clause kept the stored row

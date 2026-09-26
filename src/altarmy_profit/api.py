@@ -1,24 +1,20 @@
 """FastAPI JSON API for the React front end, which it also serves once built (frontend/dist).
 
 Money is integer copper on the wire; the front end formats it. Handlers are plain `def` so FastAPI runs
-them in its threadpool: the game data download blocks for a while and must not stall other requests.
+them in its threadpool, so a slow request never stalls the others.
 Each handler opens its own connection from the shared `db.Database` (never shared across threads).
 
-Every route but /api/config and /api/versions has a user (`CurrentUser`). Local mode (`ALTARMY_MODE=local`,
-the default) always has `auth.LOCAL_USER`; hosted mode verifies the Firebase ID token sent as a bearer
-token. Every tier, anonymous guests included, ranks recipes, keeps characters and blocks AH items; only the
-API key routes need a linked account (`LinkedUser`, else 403), since a guest's uid is lost with the
-browser's data. The addon file sync, source files and game data
-update exist only in local mode (`LOCAL_ONLY`, else 404); account deletion only in hosted mode
-(`HOSTED_ONLY`). Uploads also take an API key (`Uploader`), the CLI watcher's credential; no other route
-does, so a leaked key can only upload. Hosted mode rate-limits every request per client IP and per user
-(`ratelimit`), and no /api response may be cached (Firebase Hosting's CDN sits in front).
+Every route but /api/config and /api/versions has a user (`CurrentUser`): whoever the Firebase ID token
+sent as a bearer token says (401 without one). Every tier, anonymous guests included, ranks recipes, keeps
+characters and blocks AH items; only the API key routes need a linked account (`LinkedUser`, else 403),
+since a guest's uid is lost with the browser's data. Uploads also take an API key (`Uploader`), the
+watcher's credential; no other route does, so a leaked key can only upload. Every request is rate-limited
+per client IP and per user (`ratelimit`), and no /api response may be cached (Firebase Hosting's CDN sits
+in front).
 """
 
 from __future__ import annotations
 
-import threading
-import urllib.error
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
@@ -50,7 +46,6 @@ from . import (
     users,
     versions,
 )
-from .store import CACHE_DIR
 from .versions import GameVersion, GameVersionKey
 
 DEFAULT_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
@@ -68,25 +63,17 @@ class SelectionModel(BaseModel):
 
 
 class Status(BaseModel):
-    db_path: str  # the SQLite file, or the database URL without its password; "" in hosted mode
     build: str | None
     items: int
     recipes: int
     prices: int  # current prices of the selection's auction house
     characters: int
-    last_auctionator_import: str | None  # "YYYY-MM-DD HH:MM:SS", UTC
-    last_altarmy_sync: str | None  # same format
-    last_auctionator_sync: str | None  # same format; set even when the scan had no prices for the realm
-    altarmy_path: str | None
-    auctionator_path: str | None
-    auctionator_realm: str | None  # Auctionator's key for the selection; "" if it has none
     selection: SelectionModel | None
     auction_house_id: int | None  # the selection's auction house (the unnamed one without characters)
-    data_version: int  # bumped whenever a sync re-imported something: refetch characters and results
+    data_version: int  # bumped when an upload or edit changed the user's data: refetch characters, results
     price_version: (
         int | None
     )  # the auction house's, bumped by each merge that moved its statistics: refetch results
-    warnings: list[str]  # addon files missing, unreadable, or without prices for the selection
 
 
 class MaterialOut(BaseModel):
@@ -387,27 +374,6 @@ class Favorites(BaseModel):
     recipes: list[FavoriteRecipe]  # newest first
 
 
-class UpdateResult(BaseModel):
-    build: str
-    updated: bool  # False if only_if_new and the database already held this build
-    items: int
-    recipes: int
-    disenchant_rows: int
-    vendor_items: int
-
-
-class SourceFiles(BaseModel):
-    files: list[str]  # found under the usual WoW install folders
-    default: str | None  # the file in use, else the best guess
-
-
-class Sources(BaseModel):
-    """SavedVariables files to sync from; a missing field keeps that source."""
-
-    altarmy_path: str | None = None
-    auctionator_path: str | None = None
-
-
 class ProfessionOut(BaseModel):
     name: str
     rank: int
@@ -481,8 +447,7 @@ class FirebaseOut(BaseModel):
 
 
 class ConfigOut(BaseModel):
-    mode: auth.Mode  # local: no sign-in, one user; hosted: Firebase sign-in
-    firebase: FirebaseOut | None  # hosted mode only
+    firebase: FirebaseOut
 
 
 class Me(BaseModel):
@@ -562,16 +527,12 @@ class NewApiKey(ApiKeyOut):
 # --- app state and helpers -------------------------------------------------------------------------
 @dataclass
 class AppState:
-    """One game version's cached markets and locks, plus what every version shares."""
+    """One game version's cached markets, plus what every version shares."""
 
     version: GameVersion
     database: db.Database  # shared by every version
-    cache_dir: Path
     cache: service.MarketCache
     rank_cache: service.RankCache
-    update_lock: threading.Lock
-    sync_lock: threading.Lock
-    wow_roots: Sequence[Path]  # where to look for the addons' SavedVariables
     _cities: Mapping[str, timing.CityMap] | None = None
 
     @property
@@ -584,9 +545,6 @@ class AppState:
         if self._cities is None:
             self._cities = store.load_cities(self.version.cities_dir)
         return self._cities
-
-    def forget_cities(self) -> None:
-        self._cities = None
 
 
 def _states(request: Request) -> dict[str, AppState]:
@@ -606,13 +564,12 @@ State = Annotated[AppState, Depends(_state)]
 
 @dataclass(frozen=True)
 class AuthState:
-    mode: auth.Mode
     database: db.Database
-    verifier: auth.TokenVerifier | None  # hosted mode
-    firebase: auth.FirebaseConfig | None  # hosted mode
-    accounts: auth.AccountAdmin | None = None  # hosted mode: deletes sign-in accounts
-    per_ip: ratelimit.RateLimiter | None = None  # hosted mode
-    per_uid: ratelimit.RateLimiter | None = None  # hosted mode
+    verifier: auth.TokenVerifier
+    firebase: auth.FirebaseConfig
+    per_ip: ratelimit.RateLimiter
+    per_uid: ratelimit.RateLimiter
+    accounts: auth.AccountAdmin | None = None  # deletes sign-in accounts
 
 
 def _too_many(retry: float) -> HTTPException:
@@ -622,7 +579,7 @@ def _too_many(retry: float) -> HTTPException:
 
 
 def _limit_user(a: AuthState, user: auth.User) -> auth.User:
-    retry = a.per_uid.hit(user.uid) if a.per_uid is not None else None
+    retry = a.per_uid.hit(user.uid)
     if retry is not None:
         raise _too_many(retry)
     return user
@@ -633,17 +590,15 @@ def _auth(request: Request) -> AuthState:
     return state
 
 
-_bearer = HTTPBearer(auto_error=False, description="Firebase ID token (hosted mode only)")
+_bearer = HTTPBearer(auto_error=False, description="Firebase ID token (or, to upload, an API key)")
 
 
 def _current_user(
     request: Request, credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
 ) -> auth.User:
-    """The local user in local mode; in hosted mode, whoever the bearer token says (401 without one)."""
+    """Whoever the bearer token says (401 without one)."""
     a = _auth(request)
-    if a.mode == "local":
-        return auth.LOCAL_USER
-    if credentials is None or a.verifier is None:
+    if credentials is None:
         raise HTTPException(401, "Sign in first.", headers={"WWW-Authenticate": "Bearer"})
     try:
         user = auth.user_from_claims(a.verifier.verify(credentials.credentials))
@@ -661,11 +616,10 @@ CurrentUser = Annotated[auth.User, Depends(_current_user)]
 def _uploader(
     request: Request, credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
 ) -> auth.User:
-    """Like CurrentUser, but an API key (the CLI watcher's) also signs in, as its owner. Local mode, as
-    everywhere, is the local user whatever is sent."""
+    """Like CurrentUser, but an API key (the watcher's) also signs in, as its owner."""
     a = _auth(request)
     token = credentials.credentials if credentials is not None else ""
-    if a.mode == "local" or not token.startswith(users.KEY_PREFIX):
+    if not token.startswith(users.KEY_PREFIX):
         return _current_user(request, credentials)
     with a.database.begin() as conn:
         user = users.user_for_key(conn, token)
@@ -690,22 +644,6 @@ def _linked_user(user: CurrentUser) -> auth.User:
 LinkedUser = Annotated[auth.User, Depends(_linked_user)]
 
 
-def _local_only(request: Request) -> None:
-    if _auth(request).mode != "local":
-        raise HTTPException(404, "Not available in hosted mode.")
-
-
-LOCAL_ONLY = [Depends(_local_only)]  # route dependencies of the local file sync and admin actions
-
-
-def _hosted_only(request: Request) -> None:
-    if _auth(request).mode != "hosted":
-        raise HTTPException(404, "Only in hosted mode.")
-
-
-HOSTED_ONLY = [Depends(_hosted_only)]  # route dependencies of account management
-
-
 @contextmanager
 def _connect(state: AppState) -> Iterator[Connection]:
     """A connection in a transaction, committed when the block succeeds."""
@@ -715,11 +653,9 @@ def _connect(state: AppState) -> Iterator[Connection]:
 
 @contextmanager
 def _http_errors() -> Iterator[None]:
-    """Map domain errors to HTTP. Order matters: URLError and FileNotFoundError are OSErrors."""
+    """Map domain errors to HTTP. Order matters: FileNotFoundError (nothing by that name) is an OSError."""
     try:
         yield
-    except urllib.error.URLError as e:
-        raise HTTPException(502, f"Download failed: {e.reason}") from e
     except FileNotFoundError as e:
         raise HTTPException(404, str(e)) from e
     except ValueError as e:
@@ -728,46 +664,24 @@ def _http_errors() -> Iterator[None]:
         raise HTTPException(500, str(e)) from e
 
 
-def _sync(state: AppState, conn: Connection, user: auth.User, force: bool = False) -> list[str]:
-    """Re-import whichever addon file the game rewrote; returns the sync's warnings."""
-    with state.sync_lock:
-        result = service.sync(
-            conn, user.uid, state.key, state.wow_roots, force=force, flavors=state.version.flavor_folders
-        )
-    if result.changed:
-        state.cache.invalidate()
-    return result.warnings
-
-
 def _selection_model(sel: service.Selection | None) -> SelectionModel | None:
     return None if sel is None else SelectionModel(realm=sel.realm, faction=sel.faction)
 
 
-def _status(
-    state: AppState, conn: Connection, user: auth.User, hosted: bool, warnings: list[str] | None = None
-) -> Status:
+def _status(state: AppState, conn: Connection, user: auth.User) -> Status:
     gv, uid = state.key, user.uid
     sel, _ = service.selected_characters(conn, uid, gv)
     ah = service.auction_house_of(conn, gv, sel)
-    sync = users.get_sync(conn, uid, gv)
     return Status(
-        db_path="" if hosted else state.database.display_url,
         build=db.get_build(conn, gv),
         items=db.count_rows(conn, "items", gv),
         recipes=db.count_rows(conn, "recipes", gv),
         prices=prices.count_current(conn, ah),
         characters=store.count_characters(conn, uid, gv),
-        last_auctionator_import=prices.last_import(conn, ah),
-        last_altarmy_sync=db.timestamp_text(sync.altarmy_synced),
-        last_auctionator_sync=db.timestamp_text(sync.auctionator_synced),
-        altarmy_path=sync.altarmy_path,
-        auctionator_path=sync.auctionator_path,
-        auctionator_realm=sync.auctionator_realm,
         selection=_selection_model(sel),
         auction_house_id=ah,
         data_version=service.data_version(conn, uid, gv),
         price_version=prices.price_version(conn, ah),
-        warnings=warnings or [],
     )
 
 
@@ -781,20 +695,10 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/status")
-def get_status(state: State, user: CurrentUser, request: Request) -> Status:
-    """In local mode also the addon file watcher: re-imports Alt Army and Auctionator data the game has
-    rewritten. Hosted mode never reads local files."""
-    hosted = _auth(request).mode == "hosted"
+def get_status(state: State, user: CurrentUser) -> Status:
+    """Counts, the selection and the versions the front end polls to notice uploads and merges."""
     with _connect(state) as conn:
-        warnings = [] if hosted else _sync(state, conn, user)
-        return _status(state, conn, user, hosted, warnings)
-
-
-@router.post("/sync", dependencies=LOCAL_ONLY)
-def sync_now(state: State, user: CurrentUser) -> Status:
-    """Re-import both addon files even if they look unchanged."""
-    with _connect(state) as conn:
-        return _status(state, conn, user, False, _sync(state, conn, user, force=True))
+        return _status(state, conn, user)
 
 
 def _characters(state: AppState, conn: Connection, user: auth.User) -> Characters:
@@ -886,19 +790,11 @@ def get_professions(state: State) -> list[str]:
 
 
 @router.put("/selection")
-def put_selection(state: State, user: CurrentUser, body: SelectionModel, request: Request) -> Status:
-    """Switch realm/faction; in local mode that realm's Auctionator prices are synced too."""
-    hosted = _auth(request).mode == "hosted"
+def put_selection(state: State, user: CurrentUser, body: SelectionModel) -> Status:
+    """Switch realm/faction."""
     with _http_errors(), _connect(state) as conn:
         service.select(conn, user.uid, state.key, body.realm, body.faction)
-        return _status(state, conn, user, hosted, [] if hosted else _sync(state, conn, user))
-
-
-@router.put("/sources", dependencies=LOCAL_ONLY)
-def put_sources(state: State, user: CurrentUser, body: Sources) -> Status:
-    with _http_errors(), _connect(state) as conn:
-        service.set_sources(conn, user.uid, state.key, body.altarmy_path, body.auctionator_path)
-        return _status(state, conn, user, False, _sync(state, conn, user, force=True))
+        return _status(state, conn, user)
 
 
 @router.get("/rank")
@@ -1504,64 +1400,13 @@ def get_coverage(state: State, user: CurrentUser) -> list[CoverageOut]:
     ]
 
 
-# --- local mode: game data, addon files ------------------------------------------------------------
-@router.post("/game-data/update", dependencies=LOCAL_ONLY)
-def update_game_data(
-    state: State,
-    only_if_new: Annotated[bool, Query(description="skip the rebuild if the newest build is loaded")] = False,
-) -> UpdateResult:
-    if not state.update_lock.acquire(blocking=False):
-        raise HTTPException(409, "A game data update is already running.")
-    try:
-        with _http_errors(), _connect(state) as conn:
-            build, updated, stats = service.update_game_data(
-                conn, state.version, state.cache_dir, only_if_new=only_if_new
-            )
-    finally:
-        state.update_lock.release()
-    if updated:
-        state.cache.invalidate()
-    return UpdateResult(build=build, updated=updated, **stats)
-
-
-def _source_files(state: AppState, user: auth.User, find: service.Finder, key: str) -> SourceFiles:
-    files = [str(f) for f in find(state.wow_roots, state.version.flavor_folders)]
-    with _connect(state) as conn:
-        last: str | None = getattr(users.get_sync(conn, user.uid, state.key), key)
-    return SourceFiles(files=files, default=service.default_path(files, last))
-
-
-@router.get("/auctionator/files", dependencies=LOCAL_ONLY)
-def get_auctionator_files(state: State, user: CurrentUser) -> SourceFiles:
-    return _source_files(state, user, prices.find_auctionator_files, "auctionator_path")
-
-
-@router.get("/altarmy/files", dependencies=LOCAL_ONLY)
-def get_altarmy_files(state: State, user: CurrentUser) -> SourceFiles:
-    return _source_files(state, user, prices.find_altarmy_files, "altarmy_path")
-
-
-@router.post("/reload", dependencies=LOCAL_ONLY)
-def reload(state: State, user: CurrentUser) -> Status:
-    """Drop the cached market and city presets, e.g. after changing the database from the command line
-    or regenerating the presets."""
-    state.cache.invalidate()
-    state.forget_cities()
-    with _connect(state) as conn:
-        return _status(state, conn, user, False)
-
-
 # --- who and how -----------------------------------------------------------------------------------
 @router.get("/config")
 def get_config(request: Request) -> ConfigOut:
-    """How the front end signs in: not at all (local mode), or with this Firebase project."""
-    a = _auth(request)
-    fb = a.firebase
+    """The Firebase project the front end signs in with."""
+    fb = _auth(request).firebase
     return ConfigOut(
-        mode=a.mode,
-        firebase=None
-        if fb is None
-        else FirebaseOut(
+        firebase=FirebaseOut(
             api_key=fb.api_key,
             auth_domain=fb.auth_domain,
             project_id=fb.project_id,
@@ -1575,7 +1420,7 @@ def get_me(user: CurrentUser) -> Me:
     return Me(uid=user.uid, tier=user.tier)
 
 
-@router.delete("/me", dependencies=HOSTED_ONLY, status_code=204)
+@router.delete("/me", status_code=204)
 def delete_me(request: Request, user: CurrentUser) -> None:
     """Delete your account: your characters, settings, AH blocks, upload history and API keys, then the
     sign-in account itself. Prices you uploaded stay in the pool, no longer linked to you."""
@@ -1619,39 +1464,31 @@ def create_app(
     game_versions: Mapping[str, GameVersion] = versions.VERSIONS,
     *,
     database: db.Database | None = None,
-    cache_dir: Path = CACHE_DIR,
     static_dir: Path | None = DEFAULT_DIST,
-    wow_roots: Sequence[Path] = tuple(prices.WOW_ROOTS),
-    mode: auth.Mode | None = None,
     verifier: auth.TokenVerifier | None = None,
     firebase: auth.FirebaseConfig | None = None,
     accounts: auth.AccountAdmin | None = None,
     limits: ratelimit.Limits | None = None,
 ) -> FastAPI:
     """Build the app for `game_versions`, each with its own data files, sharing `database` (default:
-    `DATABASE_URL`, else data/altarmy-profit.sqlite). Touches no database or network (the schema is
-    migrated on the first request), so tests and the OpenAPI export can call it freely.
+    `DATABASE_URL`, else data/altarmy-profit.sqlite). Touches no database or network, so tests and the
+    OpenAPI export can call it freely. It never migrates its default database: each deploy does, once
+    (`altarmy-profit migrate`), and `altarmy-profit serve` passes a database that migrates.
 
-    `mode` defaults to `ALTARMY_MODE` (local). Hosted mode takes the Firebase project from the environment
-    (`auth.FirebaseConfig.from_env`) unless `firebase` is given, and verifies tokens with firebase-admin
-    unless a `verifier` is given (tests pass a fake one), which also deletes accounts unless `accounts` is
-    given. Hosted mode rate-limits with `limits` (default `ratelimit.HOSTED_LIMITS`) and never migrates
-    the default database: each deploy does, once."""
-    mode = mode or auth.mode_from_env()
-    database = database or db.Database(db.default_url(), migrate=mode == "local")
-    per_ip = per_uid = None
-    if mode == "hosted":
-        firebase = firebase or auth.FirebaseConfig.from_env()
-        verifier = verifier or auth.FirebaseVerifier(firebase.project_id)
-        if accounts is None and isinstance(verifier, auth.AccountAdmin):
-            accounts = verifier
-        limits = limits or ratelimit.HOSTED_LIMITS
-        per_ip = ratelimit.RateLimiter(limits.per_ip, limits.window)
-        per_uid = ratelimit.RateLimiter(limits.per_uid, limits.window)
-    else:
-        firebase = verifier = accounts = None
+    The Firebase project comes from the environment (`auth.FirebaseConfig.from_env`, ValueError without
+    `FIREBASE_PROJECT_ID`) unless `firebase` is given. Tokens are verified with firebase-admin unless a
+    `verifier` is given (tests pass a fake one), which also deletes accounts unless `accounts` is given.
+    Requests are rate-limited with `limits` (default `ratelimit.HOSTED_LIMITS`)."""
+    database = database or db.Database(db.default_url(), migrate=False)
+    firebase = firebase or auth.FirebaseConfig.from_env()
+    verifier = verifier or auth.FirebaseVerifier(firebase.project_id)
+    if accounts is None and isinstance(verifier, auth.AccountAdmin):
+        accounts = verifier
+    limits = limits or ratelimit.HOSTED_LIMITS
+    per_ip = ratelimit.RateLimiter(limits.per_ip, limits.window)
+    per_uid = ratelimit.RateLimiter(limits.per_uid, limits.window)
     app = FastAPI(title="altarmy-profit", version="0.1.0")
-    app.state.auth = AuthState(mode, database, verifier, firebase, accounts, per_ip, per_uid)
+    app.state.auth = AuthState(database, verifier, firebase, per_ip, per_uid, accounts)
 
     @app.middleware("http")
     async def api_headers_and_ip_limit(
@@ -1660,7 +1497,7 @@ def create_app(
         if not request.url.path.startswith("/api/"):
             return await call_next(request)
         peer = request.client.host if request.client else None
-        retry = per_ip.hit(ratelimit.client_ip(request.headers, peer)) if per_ip is not None else None
+        retry = per_ip.hit(ratelimit.client_ip(request.headers, peer))
         if retry is not None:
             e = _too_many(retry)
             response: Response = JSONResponse({"detail": e.detail}, 429, headers=e.headers)
@@ -1673,12 +1510,8 @@ def create_app(
         key: AppState(
             v,
             database,
-            cache_dir,
             service.MarketCache(database, v.key, ah_cut=v.ah_cut, mail_postage=v.mail_postage),
             service.RankCache(),
-            threading.Lock(),
-            threading.Lock(),
-            wow_roots,
         )
         for key, v in game_versions.items()
     }

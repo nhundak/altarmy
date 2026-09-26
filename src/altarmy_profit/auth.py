@@ -1,8 +1,8 @@
 """Who is asking, and what their tier lets them see. No database or HTTP here.
 
-Hosted mode signs every visitor in with Firebase (anonymously at first); the front end sends the Firebase
-ID token and a `TokenVerifier` turns it into claims. Linking a Google or email account keeps the uid and
-moves the user from the free to the linked tier. Local mode has one fixed user with the linked tier.
+Every visitor is signed in with Firebase (anonymously at first); the front end sends the Firebase ID
+token and a `TokenVerifier` turns it into claims. Linking an email account keeps the uid and moves the
+user from the free to the linked tier. Development signs in against the Firebase Auth emulator.
 """
 
 from __future__ import annotations
@@ -12,11 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from .db import LOCAL_UID
-
 Tier = Literal["free", "linked"]
-Mode = Literal["local", "hosted"]
-MODES: tuple[Mode, ...] = ("local", "hosted")
 
 
 @dataclass(frozen=True)
@@ -27,9 +23,6 @@ class User:
     @property
     def linked(self) -> bool:
         return self.tier == "linked"
-
-
-LOCAL_USER = User(LOCAL_UID, "linked")
 
 
 class InvalidToken(Exception):
@@ -63,14 +56,6 @@ def user_from_claims(claims: Mapping[str, Any]) -> User:
     return User(uid, "free" if provider == "anonymous" else "linked")
 
 
-def mode_from_env() -> Mode:
-    """`ALTARMY_MODE`: local (the default) or hosted."""
-    mode = os.environ.get("ALTARMY_MODE") or "local"
-    if mode not in MODES:
-        raise ValueError(f"ALTARMY_MODE must be local or hosted, not {mode!r}")
-    return "hosted" if mode == "hosted" else "local"
-
-
 @dataclass(frozen=True)
 class FirebaseConfig:
     """What the front end needs to sign in (public values), plus the emulator when developing."""
@@ -86,7 +71,10 @@ class FirebaseConfig:
         `FIREBASE_AUTH_EMULATOR_HOST`, which firebase-admin reads too."""
         project_id = os.environ.get("FIREBASE_PROJECT_ID")
         if not project_id:
-            raise ValueError("Hosted mode needs FIREBASE_PROJECT_ID.")
+            raise ValueError(
+                "FIREBASE_PROJECT_ID is not set (npm run dev sets demo-altarmy and the Auth emulator;"
+                " the deploy sets the real project)."
+            )
         emulator = os.environ.get("FIREBASE_AUTH_EMULATOR_HOST") or None
         return cls(
             project_id=project_id,
@@ -98,7 +86,7 @@ class FirebaseConfig:
 
 
 class FirebaseVerifier:
-    """Verifies Firebase ID tokens with firebase-admin (the `hosted` extra), and deletes accounts. Verifying
+    """Verifies Firebase ID tokens with firebase-admin (the `ui` extra), and deletes accounts. Verifying
     needs only the project id (the signing keys are Google's public certificates); deleting needs
     credentials with Firebase Auth admin rights (on Cloud Run, the service account's). With
     `FIREBASE_AUTH_EMULATOR_HOST` set, firebase-admin talks to the emulator instead."""

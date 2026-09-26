@@ -1,8 +1,7 @@
-"""Use-cases behind the web API: the shared market cache, search, addon sync and the Manage actions.
+"""Use-cases behind the web API: the shared market cache, search, characters and selection.
 
-No HTTP here. User state is per `user_uid` (local mode: `auth.LOCAL_USER`). Characters come from the Alt
-Army addon and prices from Auctionator; in local mode `sync` re-reads either SavedVariables file whenever
-the game has rewritten it (on logout or /reload).
+No HTTP here. User state is per `user_uid`. Characters come from the Alt Army addon and prices from
+Auctionator, both through uploads (`uploads.py`), or from characters made by hand.
 """
 
 from __future__ import annotations
@@ -14,11 +13,10 @@ from collections import OrderedDict
 from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
 
 from sqlalchemy import Connection
 
-from . import altarmy, auctionator, db, ingest, merge, prices, store, talents, timing, users
+from . import altarmy, db, ingest, prices, store, talents, timing, users
 from .altarmy import Character
 from .engine import (
     AH_CUT,
@@ -431,21 +429,6 @@ def selected_auction_house(conn: Connection, user_uid: str, game_version: str) -
     return auction_house_of(conn, game_version, sel)
 
 
-def pricing_auction_house(conn: Connection, user_uid: str, game_version: str) -> int:
-    """Where manual and CSV prices go: the selection's auction house, or the unnamed one without
-    characters. ValueError if the selected realm has no auction house yet."""
-    sel, _ = selected_characters(conn, user_uid, game_version)
-    if sel is None:
-        return prices.unnamed_auction_house(conn, game_version)
-    ah = auction_house_of(conn, game_version, sel)
-    if ah is None:
-        raise ValueError(
-            f"No auction house known for {realm_label(sel.realm, sel.faction)} yet: import its"
-            " Auctionator scan first."
-        )
-    return ah
-
-
 def match_auctionator_realm(realms: Iterable[str], realm: str, faction: str) -> str | None:
     """Auctionator's key for a realm: the realm name without spaces, plus the faction where the auction
     houses are split (e.g. "ClassicBetaPvE", "Dreamscythe Horde")."""
@@ -457,18 +440,7 @@ def match_auctionator_realm(realms: Iterable[str], realm: str, faction: str) -> 
     return None
 
 
-# --- addon file sync -------------------------------------------------------------------------------
-@dataclass(frozen=True)
-class SyncResult:
-    changed: bool  # characters or prices were re-imported: drop the cached market
-    warnings: list[str]
-
-
-def default_path(files: Sequence[str], last: str | None) -> str | None:
-    """The last used file (even a pasted one), else the first one found."""
-    return last or (files[0] if files else None)
-
-
+# --- user data version ----------------------------------------------------------------------------
 def data_version(conn: Connection, user_uid: str, game_version: str) -> int:
     """Bumped whenever the user's characters or prices were re-imported, so the front end refetches."""
     return users.get_settings(conn, user_uid, game_version).data_version
@@ -477,195 +449,6 @@ def data_version(conn: Connection, user_uid: str, game_version: str) -> int:
 def bump_data_version(conn: Connection, user_uid: str, game_version: str) -> None:
     users.update_settings(
         conn, user_uid, game_version, data_version=data_version(conn, user_uid, game_version) + 1
-    )
-
-
-def set_sources(
-    conn: Connection,
-    user_uid: str,
-    game_version: str,
-    altarmy_path: str | None,
-    auctionator_path: str | None,
-) -> None:
-    """Point the sync at other SavedVariables files; None keeps that source as it is."""
-    changes = {}
-    for key, path in (("altarmy_path", altarmy_path), ("auctionator_path", auctionator_path)):
-        if path is None:
-            continue
-        if not Path(path).is_file():
-            raise FileNotFoundError(f"File not found: {path}")
-        changes[key] = path
-    users.update_sync(conn, user_uid, game_version, **changes)
-
-
-def sync(
-    conn: Connection,
-    user_uid: str,
-    game_version: str,
-    roots: Iterable[Path] = prices.WOW_ROOTS,
-    *,
-    force: bool = False,
-    flavors: Sequence[str] | None = None,
-) -> SyncResult:
-    """Local mode: re-import the user's Alt Army characters and the selected realm's Auctionator prices if
-    either file changed.
-
-    Unset paths are filled in from the files found under the WoW installs in `roots`, looking only in the
-    game version's `flavors` folders (e.g. ("_anniversary_",)) when given.
-    """
-    found = _Finder(user_uid, game_version, list(roots), flavors)
-    warnings: list[str] = []
-    changed = _sync_altarmy(conn, found, force, warnings)
-    changed = _sync_auctionator(conn, found, force, warnings) or changed
-    if changed:
-        bump_data_version(conn, user_uid, game_version)
-    return SyncResult(changed, warnings)
-
-
-Finder = Callable[[Iterable[Path], Sequence[str] | None], list[Path]]  # prices.find_*_files
-
-
-@dataclass(frozen=True)
-class _Finder:
-    """Whose sync, which version's addon files, and where to look for them: WoW installs and, optionally,
-    only some flavor folders."""
-
-    user_uid: str
-    game_version: str
-    roots: list[Path]
-    flavors: Sequence[str] | None
-
-    def __call__(self, find: Finder) -> list[Path]:
-        return find(self.roots, self.flavors)
-
-    def state(self, conn: Connection) -> users.LocalSync:
-        return users.get_sync(conn, self.user_uid, self.game_version)
-
-    def update(self, conn: Connection, **changes: Any) -> None:
-        users.update_sync(conn, self.user_uid, self.game_version, **changes)
-
-
-def _source(conn: Connection, key: str, find: Finder, found: _Finder) -> Path | None:
-    path: str | None = getattr(found.state(conn), key)
-    if path is None:
-        path = default_path([str(f) for f in found(find)], None)
-        if path is None:
-            return None
-        found.update(conn, **{key: path})
-    return Path(path)
-
-
-def _changed_mtime(path: Path, last: int | None, force: bool) -> int | None:
-    """The file's mtime (ns) if it differs from `last` (or `force`), else None."""
-    mtime = path.stat().st_mtime_ns
-    return mtime if force or mtime != last else None
-
-
-def _sync_altarmy(conn: Connection, found: _Finder, force: bool, warnings: list[str]) -> bool:
-    path = _source(conn, "altarmy_path", prices.find_altarmy_files, found)
-    if path is None:
-        warnings.append("No Alt Army file found. Pick AltArmy_TBC.lua on the Manage page.")
-        return False
-    if not path.is_file():
-        warnings.append(f"Alt Army file not found: {path}")
-        return False
-    mtime = _changed_mtime(path, found.state(conn).altarmy_mtime, force)
-    if mtime is None:
-        return False
-    try:
-        chars = altarmy.parse_characters(path.read_bytes())
-    except ValueError as e:
-        warnings.append(f"Could not read {path}: {e}")
-        return False
-    replace_characters(conn, found.user_uid, found.game_version, chars)
-    found.update(conn, altarmy_mtime=mtime, altarmy_synced=db.utcnow())
-    return True
-
-
-def _sync_auctionator(conn: Connection, found: _Finder, force: bool, warnings: list[str]) -> bool:
-    """Record the selected realm's scan when the file (or the selection) changed. Each auction house
-    keeps its own prices, so a file without the realm leaves the prices alone and only warns."""
-    uid, gv = found.user_uid, found.game_version
-    chars = store.load_characters(conn, uid, gv)
-    path = _source(conn, "auctionator_path", prices.find_auctionator_files, found)
-    if path is None:
-        warnings.append("No Auctionator file found. Pick Auctionator.lua on the Manage page.")
-        return False
-    if not path.is_file():
-        warnings.append(f"Auctionator file not found: {path}")
-        return False
-    if not altarmy.groups(chars):
-        return _sync_every_realm(conn, found, path, force, warnings)
-    sel = selection(conn, uid, gv, chars)
-    assert sel is not None  # there are characters
-    state = found.state(conn)
-    wanted = f"{sel.realm}\t{sel.faction}"
-    moved = wanted != state.auctionator_for
-    mtime = _changed_mtime(path, state.auctionator_mtime, force or moved)
-    if mtime is None:
-        if not state.auctionator_realm:
-            warnings.append(_no_prices(sel))
-        return False
-    try:
-        realms = auctionator.parse_price_database(path.read_bytes())
-    except ValueError as e:
-        warnings.append(f"Could not read {path}: {e}")
-        return False
-    key = match_auctionator_realm(realms, sel.realm, sel.faction)
-    if key is None:
-        warnings.append(_no_prices(sel))
-    else:
-        ah = prices.auctionator_auction_house(conn, gv, key, sel.realm, sel.faction)
-        prices.record_auctionator(conn, ah, realms[key], prices.file_time(path), uploader_uid=uid)
-        prices.prune(conn)
-        merge.merge_auction_house(conn, ah, db.utcnow().date())
-    found.update(
-        conn,
-        auctionator_realm=key or "",
-        auctionator_for=wanted,
-        auctionator_mtime=mtime,
-        auctionator_synced=db.utcnow(),
-    )
-    return True
-
-
-EVERY_REALM = "*"  # local_sync.auctionator_for once the file's every realm was recorded
-
-
-def _sync_every_realm(conn: Connection, found: _Finder, path: Path, force: bool, warnings: list[str]) -> bool:
-    """Without characters there is no realm to pick: record every realm the file has prices for, as an
-    upload does, so browsing has prices (the selection then falls back to the freshest scan)."""
-    state = found.state(conn)
-    mtime = _changed_mtime(path, state.auctionator_mtime, force or state.auctionator_for != EVERY_REALM)
-    if mtime is None:
-        return False
-    try:
-        realms = auctionator.parse_price_database(path.read_bytes())
-    except ValueError as e:
-        warnings.append(f"Could not read {path}: {e}")
-        return False
-    scanned_at = prices.file_time(path)
-    for key, item_prices in sorted(realms.items()):
-        if not item_prices:
-            continue
-        ah = prices.auction_house_for_auctionator_key(conn, found.game_version, key)
-        prices.record_auctionator(conn, ah, item_prices, scanned_at, uploader_uid=found.user_uid)
-        merge.merge_auction_house(conn, ah, db.utcnow().date())
-    prices.prune(conn)
-    found.update(
-        conn,
-        auctionator_realm="",
-        auctionator_for=EVERY_REALM,
-        auctionator_mtime=mtime,
-        auctionator_synced=db.utcnow(),
-    )
-    return True
-
-
-def _no_prices(sel: Selection) -> str:
-    return (
-        f"Auctionator has no prices for {realm_label(sel.realm, sel.faction)}. Scan that auction house"
-        " in game."
     )
 
 
@@ -679,8 +462,9 @@ def update_game_data(
 ) -> tuple[str, bool, dict[str, int]]:
     """Download the version's newest build's DB2 tables and rebuild items/recipes (prices are kept).
 
-    With `only_if_new`, skip the rebuild when the database already holds the newest build. The manual
-    update always rebuilds, since the version's disenchant.csv or vendor_items.csv may have changed.
+    With `only_if_new` (the daily ingest job), skip the rebuild when the database already holds the newest
+    build. Without it, always rebuild, since the version's disenchant.csv or vendor_items.csv may have
+    changed.
     Returns (build, whether it rebuilt, row counts).
     """
     build = ingest.latest_build(version.wago_product)

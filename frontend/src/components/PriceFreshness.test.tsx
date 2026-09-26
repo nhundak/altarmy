@@ -1,8 +1,6 @@
 import { screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { status } from '../test/status'
-import { GUEST, mockApi, renderWithProviders } from '../test/utils'
+import { GUEST, renderWithProviders } from '../test/utils'
 import { PriceFreshness } from './PriceFreshness'
 
 /** A server timestamp for `minutes` ago. */
@@ -28,15 +26,8 @@ describe('PriceFreshness', () => {
     expect(screen.getByText('No auction house scan for this realm yet.')).toHaveStyle({ fontWeight: 500 })
   })
 
-  it('links hosted users to the Upload page', () => {
+  it('links to the Upload page', () => {
     renderWithProviders(<PriceFreshness lastScan={ago(90)} />, GUEST)
     expect(screen.getByRole('link', { name: 'Upload your scan' })).toHaveAttribute('href', '/upload')
-  })
-
-  it('re-reads the addon files in local mode', async () => {
-    const fetch = mockApi({ '/api/sync': status() })
-    renderWithProviders(<PriceFreshness lastScan={ago(90)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Sync your scan' }))
-    expect(fetch.mock.calls.map(([r]) => [r.method, new URL(r.url).pathname])).toContainEqual(['POST', '/api/sync'])
   })
 })

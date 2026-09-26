@@ -49,7 +49,7 @@ describe('ProfitPage', () => {
     await waitFor(() => expect(cards()).not.toBeInTheDocument())
     await waitFor(() => expect(hero()).not.toBeInTheDocument())
     await waitFor(() => expect(paths(fetch, '/api/rank')).toHaveLength(1))
-    expect(JSON.parse(localStorage.getItem('altarmy-profit.landing.local') ?? '')).toEqual({ browsed: true })
+    expect(JSON.parse(localStorage.getItem('altarmy-profit.landing.g1') ?? '')).toEqual({ browsed: true })
 
     unmount()
     renderWithProviders(<ProfitPage />)
@@ -80,6 +80,7 @@ describe('ProfitPage', () => {
     expect(screen.getByText('/altarmy export')).toBeInTheDocument()
     // the other two ways stay at hand, smaller
     expect(screen.getByRole('button', { name: 'Just browse' })).toBeInTheDocument()
+    expect(screen.getByText('Every recipe, no character optimization.')).toBeInTheDocument()
     await userEvent.type(box, 'AAX1:abc')
     await userEvent.click(screen.getByRole('button', { name: 'Import characters' }))
     expect(await screen.findByText('Characters imported')).toBeInTheDocument()
@@ -101,6 +102,19 @@ describe('ProfitPage', () => {
     expect(await screen.findByRole('textbox', { name: 'Name' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Back to the three ways to start' }))
     await waitFor(() => expect(cards()).not.toBeInTheDocument())
+  })
+
+  it('offers Continue instead of Just browse once the user has characters', async () => {
+    mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<ProfitPage />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a character' }))
+    expect(await screen.findByRole('textbox', { name: 'Name' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Just browse' })).not.toBeInTheDocument()
+    const cont = screen.getByRole('button', { name: 'Continue' })
+    expect(within(cont).getByText('Done adding characters.')).toBeInTheDocument()
+    await userEvent.click(cont)
+    await waitFor(() => expect(cards()).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /^3 characters on/ })).toBeInTheDocument()
   })
 
   it('opens the summary to show every character, and removes one', async () => {

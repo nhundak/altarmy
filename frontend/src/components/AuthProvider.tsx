@@ -8,33 +8,28 @@ import { SessionContext, type Session } from '../lib/session'
 const AUTH_KEYS = new Set(['config', 'sign-in', 'me'])
 
 /**
- * Signs the visitor in before rendering the app: nothing to do in local mode, an anonymous Firebase
- * sign-in (or the stored session) in hosted mode. Then provides who they are (`useSession`).
+ * Signs the visitor in before rendering the app: an anonymous Firebase sign-in, or the stored session
+ * (against the Auth emulator in development). Then provides who they are (`useSession`).
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const config = useConfig()
   const firebase = config.data?.firebase
-  const hosted = config.data?.mode === 'hosted'
   const signIn = useQuery({
     queryKey: ['sign-in'],
     queryFn: async () => {
-      if (!firebase) throw new Error('The server runs in hosted mode without a Firebase configuration.')
-      await initAuth(firebase)
+      await initAuth(firebase!)
       return true
     },
-    enabled: hosted,
+    enabled: firebase !== undefined,
     staleTime: Infinity,
   })
-  const me = useMe(config.data !== undefined && (!hosted || signIn.data === true))
+  const me = useMe(signIn.data === true)
   const queryClient = useQueryClient()
   // Signing in, linking or signing out changes the token: ask the API who that is now.
   useEffect(() => onUserChange(() => void queryClient.invalidateQueries({ queryKey: ['me'] })), [queryClient])
   const session = useMemo<Session | undefined>(
-    () =>
-      config.data && me.data
-        ? { mode: config.data.mode, uid: me.data.uid, tier: me.data.tier }
-        : undefined,
-    [config.data, me.data],
+    () => (me.data ? { uid: me.data.uid, tier: me.data.tier } : undefined),
+    [me.data],
   )
   useRefetchOnUserChange(session)
 

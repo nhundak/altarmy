@@ -1,5 +1,5 @@
-"""Users, their per-version state rows (settings: selection, data version; local mode's addon file sync)
-and their API keys. Functions take a `Connection` and never commit."""
+"""Users, their per-version settings (selection, data version, time settings) and their API keys.
+Functions take a `Connection` and never commit."""
 
 from __future__ import annotations
 
@@ -60,8 +60,6 @@ def adjust_trust(conn: Connection, user_uid: str, *, quarantined: bool) -> float
 def delete_user(conn: Connection, user_uid: str) -> None:
     """Delete the user and everything they own (characters, settings, AH blocks, uploads, API keys cascade).
     Their price snapshots stay in the pool, no longer attributed to them."""
-    if user_uid == db.LOCAL_UID:
-        raise ValueError("the local user can't be deleted")
     snap = schema.price_snapshots
     conn.execute(snap.update().where(snap.c.uploader_uid == user_uid).values(uploader_uid=None))
     conn.execute(delete(schema.users).where(schema.users.c.uid == user_uid))
@@ -74,20 +72,6 @@ class UserSettings:
     data_version: int = 0  # bumped when the user's characters or prices were re-imported
     time_city: str | None = None  # the city preset profit per hour is timed in; None: the faction's default
     time_config: str | None = None  # JSON of the user's timing.TimeConfig overrides; None: the defaults
-
-
-@dataclass(frozen=True)
-class LocalSync:
-    """Local mode's addon file sync state: which files, their last seen mtime (ns) and sync time."""
-
-    altarmy_path: str | None = None
-    altarmy_mtime: int | None = None
-    altarmy_synced: datetime | None = None
-    auctionator_path: str | None = None
-    auctionator_mtime: int | None = None
-    auctionator_synced: datetime | None = None
-    auctionator_realm: str | None = None  # Auctionator's key for the selection; "" if it has none
-    auctionator_for: str | None = None  # "realm\tfaction" the prices were recorded for
 
 
 def _get(conn: Connection, t: Table, user_uid: str, game_version: str) -> dict[str, Any] | None:
@@ -115,24 +99,6 @@ def update_settings(conn: Connection, user_uid: str, game_version: str, **change
     """Change some settings (keyword per `UserSettings` field); returns them all."""
     new = replace(get_settings(conn, user_uid, game_version), **changes)
     _put(conn, schema.user_settings, user_uid, game_version, asdict(new))
-    return new
-
-
-def get_sync(conn: Connection, user_uid: str, game_version: str) -> LocalSync:
-    row = _get(conn, schema.local_sync, user_uid, game_version)
-    if row is None:
-        return LocalSync()
-    values = {f.name: row[f.name] for f in fields(LocalSync)}
-    for key in ("altarmy_synced", "auctionator_synced"):
-        if values[key] is not None:
-            values[key] = db.utc(values[key])
-    return LocalSync(**values)
-
-
-def update_sync(conn: Connection, user_uid: str, game_version: str, **changes: Any) -> LocalSync:
-    """Change some sync fields (keyword per `LocalSync` field); returns them all."""
-    new = replace(get_sync(conn, user_uid, game_version), **changes)
-    _put(conn, schema.local_sync, user_uid, game_version, asdict(new))
     return new
 
 

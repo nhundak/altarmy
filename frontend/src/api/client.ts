@@ -18,8 +18,6 @@ export type Characters = components['schemas']['Characters']
 export type GameVersion = components['schemas']['VersionOut']['key']
 export type CharacterGroup = components['schemas']['GroupOut']
 export type Selection = components['schemas']['SelectionModel']
-export type Sources = components['schemas']['Sources']
-export type UpdateResult = components['schemas']['UpdateResult']
 /** Items never sold on the AH, with tooltip details. */
 export type AhBlocked = components['schemas']['AhBlocked']
 /** The user's favorite recipes, listed first in searches. */
@@ -42,7 +40,7 @@ export const client = createClient<paths>({
   fetch: (request) => globalThis.fetch(request),
 })
 
-// Hosted mode: every request carries the signed-in user's Firebase ID token.
+// Every request carries the signed-in user's Firebase ID token.
 client.use({
   async onRequest({ request }) {
     const token = await getIdToken()

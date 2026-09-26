@@ -1,4 +1,4 @@
-"""In-memory sliding-window rate limits for hosted mode: per client IP and per user. No database or HTTP.
+"""In-memory sliding-window rate limits for the API: per client IP and per user. No database or HTTP.
 
 Each Cloud Run instance keeps its own counts, so the effective limit is the limit times the instance count
 (at most 2). Uploads also have their own per-user limit in the database (`uploads.check_rate`).

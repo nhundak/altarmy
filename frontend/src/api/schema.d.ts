@@ -45,40 +45,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/altarmy/files": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Altarmy Files */
-        get: operations["get_altarmy_files_api_altarmy_files_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auctionator/files": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Auctionator Files */
-        get: operations["get_auctionator_files_api_auctionator_files_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/characters": {
         parameters: {
             query?: never;
@@ -114,7 +80,7 @@ export interface paths {
         };
         /**
          * Get Config
-         * @description How the front end signs in: not at all (local mode), or with this Firebase project.
+         * @description The Firebase project the front end signs in with.
          */
         get: operations["get_config_api_config_get"];
         put?: never;
@@ -201,23 +167,6 @@ export interface paths {
          * @description Unmark `recipe_id` as a favorite.
          */
         delete: operations["remove_favorite_api_favorites__recipe_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/game-data/update": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Update Game Data */
-        post: operations["update_game_data_api_game_data_update_post"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -332,27 +281,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/reload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Reload
-         * @description Drop the cached market and city presets, e.g. after changing the database from the command line
-         *     or regenerating the presets.
-         */
-        post: operations["reload_api_reload_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/selection": {
         parameters: {
             query?: never;
@@ -363,26 +291,9 @@ export interface paths {
         get?: never;
         /**
          * Put Selection
-         * @description Switch realm/faction; in local mode that realm's Auctionator prices are synced too.
+         * @description Switch realm/faction.
          */
         put: operations["put_selection_api_selection_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sources": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Put Sources */
-        put: operations["put_sources_api_sources_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -399,32 +310,11 @@ export interface paths {
         };
         /**
          * Get Status
-         * @description In local mode also the addon file watcher: re-imports Alt Army and Auctionator data the game has
-         *     rewritten. Hosted mode never reads local files.
+         * @description Counts, the selection and the versions the front end polls to notice uploads and merges.
          */
         get: operations["get_status_api_status_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sync": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Sync Now
-         * @description Re-import both addon files even if they look unchanged.
-         */
-        post: operations["sync_now_api_sync_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -628,12 +518,7 @@ export interface components {
         };
         /** ConfigOut */
         ConfigOut: {
-            firebase: components["schemas"]["FirebaseOut"] | null;
-            /**
-             * Mode
-             * @enum {string}
-             */
-            mode: "local" | "hosted";
+            firebase: components["schemas"]["FirebaseOut"];
         };
         /**
          * CoverageOut
@@ -1139,49 +1024,18 @@ export interface components {
             /** Profit */
             profit: number;
         };
-        /** SourceFiles */
-        SourceFiles: {
-            /** Default */
-            default: string | null;
-            /** Files */
-            files: string[];
-        };
-        /**
-         * Sources
-         * @description SavedVariables files to sync from; a missing field keeps that source.
-         */
-        Sources: {
-            /** Altarmy Path */
-            altarmy_path?: string | null;
-            /** Auctionator Path */
-            auctionator_path?: string | null;
-        };
         /** Status */
         Status: {
-            /** Altarmy Path */
-            altarmy_path: string | null;
             /** Auction House Id */
             auction_house_id: number | null;
-            /** Auctionator Path */
-            auctionator_path: string | null;
-            /** Auctionator Realm */
-            auctionator_realm: string | null;
             /** Build */
             build: string | null;
             /** Characters */
             characters: number;
             /** Data Version */
             data_version: number;
-            /** Db Path */
-            db_path: string;
             /** Items */
             items: number;
-            /** Last Altarmy Sync */
-            last_altarmy_sync: string | null;
-            /** Last Auctionator Import */
-            last_auctionator_import: string | null;
-            /** Last Auctionator Sync */
-            last_auctionator_sync: string | null;
             /** Price Version */
             price_version: number | null;
             /** Prices */
@@ -1189,8 +1043,6 @@ export interface components {
             /** Recipes */
             recipes: number;
             selection: components["schemas"]["SelectionModel"] | null;
-            /** Warnings */
-            warnings: string[];
         };
         /** StepOut */
         StepOut: {
@@ -1343,21 +1195,6 @@ export interface components {
             total_seconds: number;
             /** Unsold */
             unsold: number[];
-        };
-        /** UpdateResult */
-        UpdateResult: {
-            /** Build */
-            build: string;
-            /** Disenchant Rows */
-            disenchant_rows: number;
-            /** Items */
-            items: number;
-            /** Recipes */
-            recipes: number;
-            /** Updated */
-            updated: boolean;
-            /** Vendor Items */
-            vendor_items: number;
         };
         /** UploadOut */
         UploadOut: {
@@ -1529,70 +1366,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AhBlocked"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_altarmy_files_api_altarmy_files_get: {
-        parameters: {
-            query: {
-                /** @description which game's data: tbc or forever */
-                game_version: "tbc" | "forever";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceFiles"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_auctionator_files_api_auctionator_files_get: {
-        parameters: {
-            query: {
-                /** @description which game's data: tbc or forever */
-                game_version: "tbc" | "forever";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceFiles"];
                 };
             };
             /** @description Validation Error */
@@ -1896,40 +1669,6 @@ export interface operations {
             };
         };
     };
-    update_game_data_api_game_data_update_post: {
-        parameters: {
-            query: {
-                /** @description skip the rebuild if the newest build is loaded */
-                only_if_new?: boolean;
-                /** @description which game's data: tbc or forever */
-                game_version: "tbc" | "forever";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UpdateResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_keys_api_keys_get: {
         parameters: {
             query?: never;
@@ -2139,38 +1878,6 @@ export interface operations {
             };
         };
     };
-    reload_api_reload_post: {
-        parameters: {
-            query: {
-                /** @description which game's data: tbc or forever */
-                game_version: "tbc" | "forever";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Status"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     put_selection_api_selection_put: {
         parameters: {
             query: {
@@ -2207,75 +1914,7 @@ export interface operations {
             };
         };
     };
-    put_sources_api_sources_put: {
-        parameters: {
-            query: {
-                /** @description which game's data: tbc or forever */
-                game_version: "tbc" | "forever";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Sources"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Status"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_status_api_status_get: {
-        parameters: {
-            query: {
-                /** @description which game's data: tbc or forever */
-                game_version: "tbc" | "forever";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Status"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    sync_now_api_sync_post: {
         parameters: {
             query: {
                 /** @description which game's data: tbc or forever */

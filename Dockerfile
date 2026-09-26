@@ -7,7 +7,7 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 COPY src ./src
-RUN pip install ".[ui,postgres,hosted]"
+RUN pip install ".[ui,postgres]"
 
 # Hand-maintained game data the ingest job reads (versions.DATA_DIR is relative to the working directory).
 COPY data/forever/*.csv data/forever/

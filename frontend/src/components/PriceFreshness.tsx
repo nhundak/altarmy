@@ -1,10 +1,8 @@
 import { useState } from 'react'
 import { Button, Group, Text } from '@mantine/core'
 import { useInterval } from '@mantine/hooks'
-import { useSyncNow } from '../api/queries'
 import { age, parseUtc } from '../lib/age'
 import { linkProps } from '../lib/router'
-import { useSession } from '../lib/session'
 import { IconWarning } from './icons'
 
 /** Prices older than this are called out: a scan since then would give better results. */
@@ -12,12 +10,9 @@ export const STALE_AFTER_MS = 60 * 60_000
 
 /**
  * How fresh the selected auction house's prices are: when its newest scan was made, in a warning colour once
- * that is over an hour ago (or there is no scan at all), and the way to bring in a newer scan: the Upload page
- * in hosted mode, re-reading the Auctionator file in local mode.
+ * that is over an hour ago (or there is no scan at all), and the way to bring in a newer scan: the Upload page.
  */
 export function PriceFreshness({ lastScan }: { lastScan: string | null }) {
-  const { mode } = useSession()
-  const sync = useSyncNow()
   // Re-render each minute, so the age keeps up while the page stays open.
   const [now, setNow] = useState(() => new Date())
   useInterval(() => setNow(new Date()), 60_000, { autoInvoke: true })
@@ -41,15 +36,9 @@ export function PriceFreshness({ lastScan }: { lastScan: string | null }) {
         {stale && <IconWarning size={16} />}
         {text}
       </Text>
-      {mode === 'hosted' ? (
-        <Button component="a" size="compact-xs" variant="light" {...linkProps('/upload')}>
-          Upload your scan
-        </Button>
-      ) : (
-        <Button size="compact-xs" variant="light" loading={sync.isPending} onClick={() => sync.mutate()}>
-          Sync your scan
-        </Button>
-      )}
+      <Button component="a" size="compact-xs" variant="light" {...linkProps('/upload')}>
+        Upload your scan
+      </Button>
     </Group>
   )
 }

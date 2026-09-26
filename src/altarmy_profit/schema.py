@@ -1,9 +1,8 @@
-"""The database schema as SQLAlchemy Core tables, shared by SQLite (local mode, tests) and Postgres (hosted).
+"""The database schema as SQLAlchemy Core tables, shared by SQLite (development, tests) and Postgres.
 
 Alembic migrations (`migrations/`) create it; a test checks they match. All money is integer copper. Game
 data is keyed by `game_version`; prices by auction house, whose row carries the version. User state
-(settings, characters, AH blocks, the local file sync) is keyed by `user_uid` and `game_version`; local mode
-has one user, `auth.LOCAL_USER` ("local").
+(settings, characters, AH blocks) is keyed by `user_uid` and `game_version`.
 """
 
 from __future__ import annotations
@@ -165,7 +164,8 @@ vendor_items = Table(
 )
 
 # --- users and their state ------------------------------------------------------------------------
-# Firebase uids (hosted mode) or "local". The tier is the one the user's last token carried.
+# Firebase uids ("local" too: the single user of the removed local mode, created by revision 0002). The
+# tier is the one the user's last token carried.
 users = Table(
     "users",
     metadata,
@@ -190,7 +190,8 @@ user_settings = Table(
     Column("time_config", Text),  # JSON: the user's timing.TimeConfig overrides; NULL: the defaults
 )
 
-# Local mode's addon file sync: which SavedVariables files it reads and when they last changed.
+# Unused since local mode was removed (2026-09): kept one release so the previous release's instances,
+# still serving while a deploy rolls out, can read it; the next revision drops it.
 local_sync = Table(
     "local_sync",
     metadata,

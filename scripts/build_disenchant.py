@@ -11,7 +11,7 @@ import csv
 import sys
 from pathlib import Path
 
-from altarmy_profit import disenchant_rates, prices
+from altarmy_profit import disenchant_rates, wowfiles
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "data" / "tbc" / "disenchant.csv"
@@ -28,7 +28,7 @@ COLUMNS = [
 
 
 def installed_addon() -> Path | None:
-    for root in prices.WOW_ROOTS:
+    for root in wowfiles.WOW_ROOTS:
         addon = root / "_anniversary_" / "Interface" / "AddOns" / "Auctionator"
         if disenchant_rates.auctionator_table(addon).is_file():
             return addon
