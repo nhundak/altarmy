@@ -148,6 +148,14 @@
             },
             "title": "Professions",
             "type": "array"
+          },
+          "talents": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TalentOut"
+            },
+            "title": "Talents",
+            "type": "array"
           }
         },
         "required": [
@@ -855,6 +863,11 @@
             "title": "Crafts",
             "type": "integer"
           },
+          "discount": {
+            "default": 0,
+            "title": "Discount",
+            "type": "integer"
+          },
           "inputs": {
             "items": {
               "$ref": "#/components/schemas/NodeOut"
@@ -1042,6 +1055,11 @@
           "best_exit": {
             "title": "Best Exit",
             "type": "string"
+          },
+          "bonus_output": {
+            "default": 0.0,
+            "title": "Bonus Output",
+            "type": "number"
           },
           "cost": {
             "title": "Cost",
@@ -1473,6 +1491,16 @@
             "title": "Action",
             "type": "string"
           },
+          "bonus": {
+            "default": 0.0,
+            "title": "Bonus",
+            "type": "number"
+          },
+          "discount": {
+            "default": 0,
+            "title": "Discount",
+            "type": "integer"
+          },
           "item_id": {
             "title": "Item Id",
             "type": "integer"
@@ -1516,6 +1544,35 @@
           "paths"
         ],
         "title": "StepOut",
+        "type": "object"
+      },
+      "TalentOut": {
+        "description": "A Legacy talent (WoW: Forever) that changes profits.",
+        "properties": {
+          "max_rank": {
+            "title": "Max Rank",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "spell_id": {
+            "title": "Spell Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "spell_id",
+          "name",
+          "rank",
+          "max_rank"
+        ],
+        "title": "TalentOut",
         "type": "object"
       },
       "UpdateResult": {

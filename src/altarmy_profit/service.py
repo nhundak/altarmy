@@ -17,7 +17,7 @@ from typing import Any
 
 from sqlalchemy import Connection
 
-from . import altarmy, auctionator, db, ingest, merge, prices, store, users
+from . import altarmy, auctionator, db, ingest, merge, prices, store, talents, users
 from .altarmy import Character
 from .engine import (
     AH_CUT,
@@ -105,7 +105,8 @@ class RankCache:
     """The last `size` full rankings (`search` results), so paging through one ("Show more") and refetching
     it don't rank again. An entry only counts for the very Market it was ranked on: once the MarketCache
     rebuilds a market (new prices, a merge, new game data), its rankings miss. The key must cover
-    everything else the ranking depends on (user, characters, parameters, AH blocks)."""
+    everything else the ranking depends on (user, characters, unlearned/trivial switches, exits, AH
+    blocks); bounds on cost, profit and ROI and the profession filter are applied to a cached ranking."""
 
     def __init__(self, size: int = 64) -> None:
         self.size = size
@@ -191,7 +192,13 @@ def _market(
     else:
         recipes = list(base.recipes)
     crafters = [
-        Crafter(c.name, tuple((p.name, p.rank, p.max_rank) for p in c.professions), c.known_recipes)
+        Crafter(
+            c.name,
+            tuple((p.name, p.rank, p.max_rank) for p in c.professions),
+            c.known_recipes,
+            talents.extra_results(c.talents),
+            talents.vendor_discount(c.talents),
+        )
         for c in chars
     ]
     return Market(

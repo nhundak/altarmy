@@ -37,6 +37,7 @@ def test_decodes_the_addons_golden_export() -> None:
                 Profession("Enchanting", 300, 375, frozenset({7418, 7420})),
                 Profession("Tailoring", 375, 375, frozenset({26745, 26746})),
             ),
+            ((1225457, 3), (1225459, 2)),
         ),
     ]
 
@@ -81,11 +82,21 @@ def test_bad_strings_raise_value_error(text: str) -> None:
         "V|1|20506|x\nC|R|N|Horde|MAGE|lots",
         "V|1|20506|x\nC|R|N|Horde|MAGE|1\nP|Tailoring|1|75|1,x",
         "V|1|20506|x\nZ|what",
+        "V|1|20506|x\nT|1225457|3",  # a talent before any character
+        "V|1|20506|x\nC|R|N|Horde|MAGE|1\nT|1225457|x",
+        "V|1|20506|x\nC|R|N|Horde|MAGE|1\nT|1225457",
     ],
 )
 def test_malformed_lines_raise_value_error(lines: str) -> None:
     with pytest.raises(ValueError):
         paste.decode(encoded(lines))
+
+
+def test_talents_belong_to_the_character_before_them() -> None:
+    got = paste.decode(
+        encoded("V|1|16001|x\nC|R|A|Horde|MAGE|30\nT|1225459|1\nT|1225457|5\nT|7|0\nC|R|B|Horde|MAGE|1")
+    )
+    assert [c.talents for c in got.characters] == [((1225457, 5), (1225459, 1)), ()]
 
 
 def test_size_is_capped() -> None:

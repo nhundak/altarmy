@@ -81,6 +81,7 @@ def load_market(
             r.sell_price,
             -(-r.buy_price // r.buy_count) if r.sold and r.buy_price > 0 else None,
             r.stack_size,
+            tradable=r.bonding not in (1, 4),  # bind on pickup, quest item
         )
         for r in conn.execute(select(i, sold).where(i.c.game_version == game_version))
     }
@@ -196,6 +197,11 @@ def _insert_character(conn: Connection, user_uid: str, game_version: str, ch: Ch
                     for spell in sorted(p.recipe_ids)
                 ],
             )
+    if ch.talents:
+        conn.execute(
+            schema.character_talents.insert(),
+            [{"character_id": char_id, "spell_id": spell, "rank": rank} for spell, rank in ch.talents],
+        )
 
 
 def load_characters(conn: Connection, user_uid: str, game_version: str) -> list[Character]:
@@ -212,8 +218,20 @@ def load_characters(conn: Connection, user_uid: str, game_version: str) -> list[
         profs.setdefault(r.character_id, []).append(
             Profession(r.skill_name, r.rank, r.max_rank, frozenset(recipes.get(key, ())))
         )
+    ct = schema.character_talents
+    talents: dict[int, list[tuple[int, int]]] = {}
+    for r in conn.execute(select(ct).where(ct.c.character_id.in_(mine)).order_by(ct.c.spell_id)):
+        talents.setdefault(r.character_id, []).append((r.spell_id, r.rank))
     return [
-        Character(r.realm, r.name, r.faction, r.class_file, r.level, tuple(profs.get(r.id, ())))
+        Character(
+            r.realm,
+            r.name,
+            r.faction,
+            r.class_file,
+            r.level,
+            tuple(profs.get(r.id, ())),
+            tuple(talents.get(r.id, ())),
+        )
         for r in conn.execute(select(c).where(*owned).order_by(c.c.realm, c.c.name))
     ]
 

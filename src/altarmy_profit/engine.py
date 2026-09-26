@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from functools import cached_property
 
 AH_CUT = 0.05  # auction house cut taken from the sale price (deposit ignored)
 MAIL_POSTAGE = 30  # copper per attached item
@@ -40,6 +41,7 @@ class Item:
     sell_price: int = 0
     vendor_price: int | None = None  # copper per unit if a vendor sells it (unlimited stock)
     stack_size: int = 1  # units per stack: one mail attachment
+    tradable: bool = True  # False when it binds on pickup (or is a quest item): never mailed or on the AH
 
 
 @dataclass(frozen=True)
@@ -59,11 +61,18 @@ class Recipe:
 @dataclass(frozen=True)
 class Crafter:
     """One character who may craft or disenchant: their (profession, rank, max rank) triples and learned
-    craft spells."""
+    craft spells, plus what their Legacy talents do (see `talents`): a chance per profession of one extra
+    result from a craft, and a percent off vendor prices."""
 
     name: str
     professions: tuple[tuple[str, int, int], ...]
     known_spells: frozenset[int]
+    extra_results: tuple[tuple[str, float], ...] = ()  # (profession, chance of one extra result)
+    vendor_discount: int = 0  # percent off what they buy from vendors
+
+    def extra_chance(self, profession: str) -> float:
+        """Their chance of one extra result from a `profession` craft."""
+        return sum(c for p, c in self.extra_results if p.lower() == profession.lower())
 
     def has(self, profession: str) -> bool:
         return self.skill(profession) is not None
@@ -134,6 +143,8 @@ class Step:
     who: str = ""  # the character doing it; "" if no characters are known
     # the tree paths (see `Choices`) of the nodes it stands for: several when merged; "sell" for the sale
     paths: tuple[str, ...] = field(default=(), compare=False)
+    discount: int = 0  # buy from a vendor: percent off from the buyer's Legacy talents (Bartering)
+    bonus: float = 0.0  # sell: expected extra units on top of `quantity` (Master Chef), counted in `value`
 
 
 @dataclass(frozen=True)
@@ -172,6 +183,7 @@ class Node:
     crafter: str = ""  # who buys or crafts it; "" if no characters are known
     mail_to: str = ""  # who it is mailed to (the parent's crafter); "" if not mailed
     postage: int = 0  # copper for that mail, included in cost
+    discount: int = 0  # bought from a vendor: percent off the buyer gets (Bartering)
     # every way to get these items, cheapest first; empty for the recipe's own craft
     options: tuple[Option, ...] = field(default=(), compare=False)
     option: str = field(default="", compare=False)  # the key of the option taken; "" for the recipe's craft
@@ -181,15 +193,24 @@ class Node:
 class Result:
     recipe: Recipe
     cost: int  # per craft: reagents plus postage
-    revenue: int  # per craft (best exit x output_count)
+    revenue: int  # per craft (best exit x (output_count + bonus_output))
     best_exit: str
     tree: Node  # the recipe's craft, with its reagents as inputs
     exits: list[Exit] = field(default_factory=list)
-    steps: list[Step] = field(default_factory=list)  # per character: buys, crafts (sub-crafts first), mails
     postage: int = 0  # per craft: mailing the output to whoever sells it (included in cost)
     mail_to: str = ""  # who the output is mailed to; "" if the crafter sells it
     crafter: str = ""  # who does the final craft; "" if no characters are known
     sell_options: list[SellOption] = field(default_factory=list)  # each exit's best profit, best first
+    bonus_output: float = 0.0  # expected extra units per craft from the crafter's talents (Master Chef)
+
+    @cached_property
+    def steps(self) -> list[Step]:
+        """Per character: buys, crafts (sub-crafts first), mails, then the sale (see `plan_steps`). Planned
+        when first read, so a ranking never schedules results nobody looks at. Pure over frozen fields, so
+        two threads reading a shared result at once merely plan the same steps twice."""
+        return plan_steps(
+            self.tree, self.best_exit, self.revenue, self.mail_to, self.postage, self.bonus_output
+        )
 
     @property
     def profit(self) -> int:
@@ -222,7 +243,9 @@ class Filters:
         )
 
 
-Memo = dict[tuple[int, int, str, int, frozenset[int]], Node | None]
+# The cheapest way to hold (item, quantity) at a character with that many chain levels above it: the same
+# whichever recipe asks, so one memo serves a whole ranking.
+Memo = dict[tuple[int, int, str, int], Node | None]
 # The user's picks by tree path ("r" is the recipe's craft, "r.0" its first reagent, "r.0.1" that one's
 # second reagent, "sell" the exit): an Option key, or an exit kind for "sell". Unknown keys are ignored.
 Choices = Mapping[str, str]
@@ -281,6 +304,83 @@ def _schedule(steps: dict[StepKey, Step], deps: dict[StepKey, set[StepKey]]) -> 
     return out
 
 
+def plan_steps(
+    tree: Node, sell_via: str, revenue: int, mail_to: str = "", postage: int = 0, bonus: float = 0.0
+) -> list[Step]:
+    """Instructions for a craft tree: buy every bought reagent (merged per item and character), craft
+    intermediates, mail each to the character who needs it, craft, mail the output to `mail_to` if set
+    (`postage` in total), then sell (`bonus` expected extra units besides the made ones). Nothing comes
+    before what it needs; within that, the steps are
+    grouped per character, each doing all their buys, then crafts, then mails before another takes
+    over (see `_schedule`). Sub-crafts are whole crafts, so a multi-output intermediate may leave
+    spares. Each step names the tree paths it stands for (a mail its craft's)."""
+    steps: dict[StepKey, Step] = {}  # in walk order
+    deps: dict[StepKey, set[StepKey]] = {}
+
+    def add(step: Step, needs: set[StepKey]) -> StepKey:
+        key = (step.action, step.item_id, step.who, step.via)
+        had = steps.get(key)
+        steps[key] = (
+            replace(
+                step,
+                quantity=step.quantity + had.quantity,
+                value=step.value + had.value,
+                paths=had.paths + step.paths,
+            )
+            if had
+            else step
+        )
+        deps.setdefault(key, set()).update(needs)
+        return key
+
+    def walk(node: Node, path: str) -> StepKey:
+        """Adds the node's steps; the key of the one that puts its items in its consumer's hands."""
+        at = (path,)
+        if not node.via:
+            step = Step(
+                "buy",
+                node.item_id,
+                node.name,
+                node.quantity,
+                -node.cost,
+                node.source,
+                node.crafter,
+                at,
+                discount=node.discount,
+            )
+            return add(step, set())
+        inputs = {walk(n, f"{path}.{i}") for i, n in enumerate(node.inputs)}
+        step = Step("craft", node.item_id, node.name, node.made, via=node.via, who=node.crafter, paths=at)
+        craft = add(step, inputs)
+        if not node.mail_to:
+            return craft
+        mail = Step(
+            "mail", node.item_id, node.name, node.quantity, -node.postage, node.mail_to, node.crafter, at
+        )
+        return add(mail, {craft})
+
+    inputs = {walk(n, f"{ROOT}.{i}") for i, n in enumerate(tree.inputs)}
+    who, root = tree.crafter, (ROOT,)
+    craft = Step("craft", tree.item_id, tree.name, tree.made, via=tree.via, who=who, paths=root)
+    last = add(craft, inputs)
+    if mail_to:
+        mail = Step("mail", tree.item_id, tree.name, tree.made, -postage, mail_to, who, root)
+        last = add(mail, {last})
+    sale = Step(
+        "sell",
+        tree.item_id,
+        tree.name,
+        tree.made,
+        revenue,
+        sell_via,
+        mail_to or who,
+        (SELL,),
+        bonus=bonus,
+    )
+    add(sale, {last})
+    return _schedule(steps, deps)
+
+
 class Market:
     def __init__(
         self,
@@ -322,6 +422,7 @@ class Market:
         for r in recipes:
             self._by_output.setdefault(r.output_item_id, []).append(r)
         self._who_crafts = {r.id: self._crafter_names(r) for r in recipes}
+        self._by_name = {c.name: c for c in crafters}
 
     # --- selling ---------------------------------------------------------------------
     def _disenchant_rows(self, item: Item) -> list[DisenchantRow]:
@@ -372,7 +473,7 @@ class Market:
         out: list[Exit] = []
         if item.sell_price > 0:
             out.append(Exit("vendor", item.sell_price))
-        if item_id in self.sell_prices and item_id not in self.no_ah:
+        if item_id in self.sell_prices and item_id not in self.no_ah and item.tradable:
             out.append(Exit("ah", ah_net(self.sell_prices[item_id], self.ah_cut)))
         de = self.disenchant_value(item)
         if de:
@@ -393,17 +494,22 @@ class Market:
         best = min(enchanters, key=lambda c: (-c.enchanting, c.name))
         return best.name, self.mail_postage
 
-    def _exits_at(self, exits: list[Exit], who: str) -> list[Exit]:
-        """`exits` for an item `who` holds: disenchanting charged postage or dropped per `_disenchanter`."""
+    def _exits_at(self, exits: list[Exit], who: str, item_id: int) -> list[Exit]:
+        """`exits` for `item_id` `who` holds: disenchanting charged postage or dropped per `_disenchanter`,
+        and never mailed if the item is soulbound."""
         out = []
         for e in exits:
             if e.kind == "disenchant":
                 de = self._disenchanter(who)
-                if de is None:
+                if de is None or (de[0] and not self._tradable(item_id)):
                     continue
                 e = replace(e, mail_to=de[0], postage=de[1])
             out.append(e)
         return out
+
+    def _tradable(self, item_id: int) -> bool:
+        item = self.items.get(item_id)
+        return item is None or item.tradable
 
     def postage(self, item_id: int, qty: int) -> int:
         """Copper to mail `qty` units: one attachment per stack."""
@@ -423,8 +529,19 @@ class Market:
         who = self._who(recipe)
         if self.include_trivial or not self.crafters:
             return who
-        by_name = {c.name: c for c in self.crafters}
-        return [w for w in who if can_skill_up(recipe, by_name[w])]
+        return [w for w in who if can_skill_up(recipe, self._by_name[w])]
+
+    def _vendor_unit(self, item: Item, buyer: str) -> tuple[int, int]:
+        """What `buyer` pays a vendor per unit of `item` (rounded up) and the percent off they get."""
+        assert item.vendor_price is not None
+        c = self._by_name.get(buyer)
+        discount = c.vendor_discount if c else 0
+        return -(-item.vendor_price * (100 - discount) // 100), discount
+
+    def _bonus_output(self, recipe: Recipe, who: str) -> float:
+        """Expected extra units a craft of `recipe` by `who` gives (Master Chef)."""
+        c = self._by_name.get(who)
+        return c.extra_chance(recipe.skill_name) if c else 0.0
 
     def _who(self, recipe: Recipe) -> list[str]:
         """Who can craft `recipe`."""
@@ -440,16 +557,17 @@ class Market:
         qty: int,
         at: str,
         depth: int,
-        seen: frozenset[int],
         memo: Memo,
         path: str = ROOT,
         choices: Choices | None = None,
     ) -> Node | None:
         """The cheapest way for `at` to hold `qty` units, or the one `choices` picks at `path`: buy them
-        (vendor or AH), or craft them in whole batches (themselves, or another character who mails them
-        over). Ties prefer the vendor, then the AH, then crafting. The node lists every option."""
+        (vendor or AH), or craft them in whole batches (themselves, or, unless the item is soulbound,
+        another character who mails them over). Ties prefer the vendor, then the AH, then crafting. The
+        node lists every option. Chains stop `MAX_CHAIN_DEPTH` levels down, which also ends any cycle: a
+        chain through the item itself is never cheaper than getting it directly, so it loses the tie."""
         choices = choices or {}
-        key = (item_id, qty, at, depth, seen)
+        key = (item_id, qty, at, depth)
         # A subtree's cheapest plan doesn't depend on where it sits, unless the user changed something in it.
         chosen = _touches(choices, path)
         if not chosen and key in memo:
@@ -458,19 +576,28 @@ class Market:
         candidates: list[tuple[str, Node]] = []
         item = self.items.get(item_id)
         if item is not None and item.vendor_price is not None:
+            unit, discount = self._vendor_unit(item, at)
             candidates.append(
-                ("vendor", Node(item_id, name, qty, qty * item.vendor_price, source="vendor", crafter=at))
+                (
+                    "vendor",
+                    Node(item_id, name, qty, qty * unit, source="vendor", crafter=at, discount=discount),
+                )
             )
         if item_id in self.prices:
             candidates.append(
                 ("ah", Node(item_id, name, qty, qty * self.prices[item_id], source="ah", crafter=at))
             )
-        if depth < MAX_CHAIN_DEPTH and item_id not in seen:
+        if depth < MAX_CHAIN_DEPTH:
+            tradable = item is None or item.tradable
             for r in self._by_output.get(item_id, []):
+                if any(i == item_id for i, _ in r.reagents):
+                    continue  # a recipe that consumes what it makes is no way to get it
                 runs = -(-qty // r.output_count)
                 crafted: list[Node] = []
                 for who in sorted(self._who(r), key=lambda w: w != at):
-                    node = self._craft(r, qty, runs, who, depth + 1, seen | {item_id}, memo, path, choices)
+                    if who != at and not tradable:
+                        continue
+                    node = self._craft(r, qty, runs, who, depth + 1, memo, path, choices)
                     if node is not None and who != at:
                         p = self.postage(item_id, qty)
                         node = replace(node, cost=node.cost + p, mail_to=at, postage=p)
@@ -494,7 +621,6 @@ class Market:
         runs: int,
         who: str,
         depth: int,
-        seen: frozenset[int],
         memo: Memo,
         path: str = ROOT,
         choices: Choices | None = None,
@@ -503,7 +629,7 @@ class Market:
         or as `choices` says; None if one can't be had."""
         inputs = []
         for i, (item_id, count) in enumerate(recipe.reagents):
-            got = self._obtain(item_id, count * runs, who, depth, seen, memo, f"{path}.{i}", choices)
+            got = self._obtain(item_id, count * runs, who, depth, memo, f"{path}.{i}", choices)
             if got is None:
                 return None
             inputs.append(got)
@@ -514,85 +640,34 @@ class Market:
             item_id, self._name(item_id), qty, cost, recipe.name, runs, made, tuple(inputs), crafter=who
         )
 
-    @staticmethod
-    def steps(tree: Node, sell_via: str, revenue: int, mail_to: str = "", postage: int = 0) -> list[Step]:
-        """Instructions for a craft tree: buy every bought reagent (merged per item and character), craft
-        intermediates, mail each to the character who needs it, craft, mail the output to `mail_to` if set
-        (`postage` in total), then sell. Nothing comes before what it needs; within that, the steps are
-        grouped per character, each doing all their buys, then crafts, then mails before another takes
-        over (see `_schedule`). Sub-crafts are whole crafts, so a multi-output intermediate may leave
-        spares. Each step names the tree paths it stands for (a mail its craft's)."""
-        steps: dict[StepKey, Step] = {}  # in walk order
-        deps: dict[StepKey, set[StepKey]] = {}
-
-        def add(step: Step, needs: set[StepKey]) -> StepKey:
-            key = (step.action, step.item_id, step.who, step.via)
-            had = steps.get(key)
-            steps[key] = (
-                replace(
-                    step,
-                    quantity=step.quantity + had.quantity,
-                    value=step.value + had.value,
-                    paths=had.paths + step.paths,
-                )
-                if had
-                else step
-            )
-            deps.setdefault(key, set()).update(needs)
-            return key
-
-        def walk(node: Node, path: str) -> StepKey:
-            """Adds the node's steps; the key of the one that puts its items in its consumer's hands."""
-            at = (path,)
-            if not node.via:
-                step = Step(
-                    "buy", node.item_id, node.name, node.quantity, -node.cost, node.source, node.crafter, at
-                )
-                return add(step, set())
-            inputs = {walk(n, f"{path}.{i}") for i, n in enumerate(node.inputs)}
-            step = Step("craft", node.item_id, node.name, node.made, via=node.via, who=node.crafter, paths=at)
-            craft = add(step, inputs)
-            if not node.mail_to:
-                return craft
-            mail = Step(
-                "mail", node.item_id, node.name, node.quantity, -node.postage, node.mail_to, node.crafter, at
-            )
-            return add(mail, {craft})
-
-        inputs = {walk(n, f"{ROOT}.{i}") for i, n in enumerate(tree.inputs)}
-        who, root = tree.crafter, (ROOT,)
-        craft = Step("craft", tree.item_id, tree.name, tree.made, via=tree.via, who=who, paths=root)
-        last = add(craft, inputs)
-        if mail_to:
-            mail = Step("mail", tree.item_id, tree.name, tree.made, -postage, mail_to, who, root)
-            last = add(mail, {last})
-        sale = Step("sell", tree.item_id, tree.name, tree.made, revenue, sell_via, mail_to or who, (SELL,))
-        add(sale, {last})
-        return _schedule(steps, deps)
-
     # --- evaluation --------------------------------------------------------------------
-    def evaluate(self, recipe: Recipe, choices: Choices | None = None) -> Result | None:
+    def evaluate(
+        self, recipe: Recipe, choices: Choices | None = None, memo: Memo | None = None
+    ) -> Result | None:
         """The most profitable way to craft and sell `recipe`: over who crafts it, how each reagent
-        is had (and mailed), and the exit. `choices` fixes some of those (see `Choices`)."""
+        is had (and mailed), and the exit. `choices` fixes some of those (see `Choices`). A `memo` from an
+        earlier evaluation on this market saves working the shared subtrees out again."""
         choices = choices or {}
         exits = [e for e in self.exits_for(recipe.output_item_id) if e.kind in self.exits]
         if not exits:
             return None
-        memo: Memo = {}
+        if memo is None:
+            memo = {}
         by_exit: dict[str, Result] = {}  # the most profitable result for each way of selling
         for who in self._final_crafters(recipe):
-            tree = self._craft(recipe, recipe.output_count, 1, who, 0, frozenset(), memo, ROOT, choices)
-            here = self._exits_at(exits, who)
+            tree = self._craft(recipe, recipe.output_count, 1, who, 0, memo, ROOT, choices)
+            here = self._exits_at(exits, who, recipe.output_item_id)
             if tree is None or not here:
                 continue
             mail = self.postage(recipe.output_item_id, tree.made)
+            # A Master Chef's extra results are counted at their expected number; mailing them is not charged.
+            bonus = self._bonus_output(recipe, who)
             for exit in here:
                 postage = mail if exit.postage else 0
-                revenue = exit.value * recipe.output_count
+                revenue = round(exit.value * (recipe.output_count + bonus))
                 had = by_exit.get(exit.kind)
                 if had is not None and revenue - tree.cost - postage <= had.profit:
                     continue  # ties keep the earlier crafter
-                steps = self.steps(tree, exit.kind, revenue, exit.mail_to, postage)
                 by_exit[exit.kind] = Result(
                     recipe,
                     tree.cost + postage,
@@ -600,10 +675,10 @@ class Market:
                     exit.kind,
                     tree,
                     here,
-                    steps,
                     postage,
                     exit.mail_to,
                     who,
+                    bonus_output=bonus,
                 )
         if not by_exit:
             return None
@@ -614,11 +689,14 @@ class Market:
         return picked
 
     def rank(self, min_profit: int = 0, skill_name: str | None = None) -> list[Result]:
+        """Every recipe's best result with at least `min_profit`, most profitable first. One memo serves
+        the whole ranking: an intermediate is worked out once however many recipes need it."""
         results = []
+        memo: Memo = {}
         for r in self.recipes:
             if skill_name and r.skill_name.lower() != skill_name.lower():
                 continue
-            res = self.evaluate(r)
+            res = self.evaluate(r, memo=memo)
             if res and res.profit >= min_profit:
                 results.append(res)
         return sorted(results, key=lambda x: x.profit, reverse=True)

@@ -521,6 +521,11 @@ export interface components {
             name: string;
             /** Professions */
             professions: components["schemas"]["ProfessionOut"][];
+            /**
+             * Talents
+             * @default []
+             */
+            talents: components["schemas"]["TalentOut"][];
         };
         /** Characters */
         Characters: {
@@ -785,6 +790,11 @@ export interface components {
             crafter: string;
             /** Crafts */
             crafts: number;
+            /**
+             * Discount
+             * @default 0
+             */
+            discount: number;
             /** Inputs */
             inputs: components["schemas"]["NodeOut"][];
             /** Item Id */
@@ -859,6 +869,11 @@ export interface components {
         RankResult: {
             /** Best Exit */
             best_exit: string;
+            /**
+             * Bonus Output
+             * @default 0
+             */
+            bonus_output: number;
             /** Cost */
             cost: number;
             /** Crafter */
@@ -991,6 +1006,16 @@ export interface components {
              * @enum {string}
              */
             action: "buy" | "craft" | "mail" | "sell";
+            /**
+             * Bonus
+             * @default 0
+             */
+            bonus: number;
+            /**
+             * Discount
+             * @default 0
+             */
+            discount: number;
             /** Item Id */
             item_id: number;
             /** Name */
@@ -1005,6 +1030,20 @@ export interface components {
             via: string;
             /** Who */
             who: string;
+        };
+        /**
+         * TalentOut
+         * @description A Legacy talent (WoW: Forever) that changes profits.
+         */
+        TalentOut: {
+            /** Max Rank */
+            max_rank: number;
+            /** Name */
+            name: string;
+            /** Rank */
+            rank: number;
+            /** Spell Id */
+            spell_id: number;
         };
         /** UpdateResult */
         UpdateResult: {

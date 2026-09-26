@@ -22,6 +22,13 @@ AltArmyTBC_Data = {
 ["Tailor Guy"] = {
 ["name"] = "Tailor Guy",
 ["realm"] = "Classic Beta PvE",
+["legacyTalents"] = {
+["nodes"] = {
+[105955] = 2,
+},
+["totalRanksSpent"] = 2,
+["restRank"] = 0,
+},
 ["faction"] = "Horde",
 ["classFile"] = "MAGE",
 ["level"] = 20,
@@ -106,6 +113,19 @@ nil,
 ["rank"] = 370,
 },
 },
+["legacyTalents"] = {
+["spells"] = {
+[1225459] = 2,
+[1225457] = 3,
+[1225478] = 0,
+},
+["nodes"] = {
+[110289] = 3,
+[110286] = 2,
+},
+["totalRanksSpent"] = 5,
+["restRank"] = 0,
+},
 },
 ["Newbie"] = {
 ["faction"] = "Horde",
@@ -142,6 +162,10 @@ def test_parse_characters() -> None:
     assert ally.professions == (Profession("Enchanting", 12, 75, frozenset({7418})),)
     # TBC alias keys collapse onto primaryRecipeID.
     assert frell.professions == (Profession("Cooking", 370, 375, frozenset({33284})),)
+    # Legacy talents by spell id, sorted, without unspent ones; data version 1 (no `spells`: class talents
+    # really) gives none.
+    assert frell.talents == ((1225457, 3), (1225459, 2))
+    assert tailor.talents == ()
     # A character that was never fully scanned still shows up, without professions.
     assert newbie == Character("Dreamscythe", "Newbie", "Horde", "", 0, ())
 

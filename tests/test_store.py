@@ -2,9 +2,9 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Connection
+from sqlalchemy import Connection, update
 
-from altarmy_profit import altarmy, ingest, store
+from altarmy_profit import altarmy, ingest, schema, store
 from altarmy_profit.altarmy import Profession
 
 from .conftest import FOREVER, ME, set_prices
@@ -53,6 +53,7 @@ def test_characters_round_trip_and_replace(conn: Connection) -> None:
     store.save_characters(conn, ME, FOREVER, chars)
     store.save_characters(conn, ME, "tbc", chars[:2])
     assert store.load_characters(conn, ME, FOREVER) == chars
+    assert any(c.talents for c in store.load_characters(conn, ME, FOREVER))  # Legacy talents too
     store.save_characters(conn, ME, FOREVER, chars[:1])
     assert store.load_characters(conn, ME, FOREVER) == chars[:1]
     assert store.load_characters(conn, ME, "tbc") == chars[:2]  # each version has its own characters
@@ -108,3 +109,11 @@ def test_upsert_and_delete_one_character(conn: Connection) -> None:
     assert store.delete_character(conn, ME, FOREVER, first.realm, first.name)
     assert not store.delete_character(conn, ME, FOREVER, first.realm, first.name)
     assert len(store.load_characters(conn, ME, FOREVER)) == len(chars) - 1
+
+
+def test_load_market_marks_soulbound_items_not_tradable(db2_paths: dict[str, Path], conn: Connection) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    t = schema.items
+    conn.execute(update(t).where(t.c.game_version == FOREVER, t.c.id == 3).values(bonding=1))
+    items = store.load_market(conn, FOREVER, None).items
+    assert (items[1].tradable, items[3].tradable) == (True, False)  # the fixture's robe is BoE

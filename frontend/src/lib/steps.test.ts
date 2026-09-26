@@ -12,6 +12,8 @@ const step = (action: Step['action'], paths: string[]): Step => ({
   via: '',
   who: '',
   paths,
+  discount: 0,
+  bonus: 0,
 })
 
 const both = (vendor: number, ah: number): FlowNode['options'] => [

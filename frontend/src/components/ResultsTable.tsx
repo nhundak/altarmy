@@ -17,6 +17,7 @@ import { useEvaluations, type EvaluateParams } from '../api/queries'
 import { choose, SELL_PATH, type Choices } from '../lib/choices'
 import { formatRoi } from '../lib/money'
 import { stepSource } from '../lib/steps'
+import { bonusNote, discountNote } from '../lib/talents'
 import { CharacterClasses, CharacterName } from './CharacterName'
 import { ChoiceMenu, ChooseContext, sellChoices, sourceChoices, type PlanEditing } from './ChoiceMenu'
 import { DisenchantHover, ItemLink, RecipeTooltip } from './ItemTooltip'
@@ -107,16 +108,19 @@ function describe(step: Step, result: RankResult, items: ItemMap): ReactNode[] {
 }
 
 function describeAction(
-  { action, item_id, name, quantity, value, via }: Step,
+  { action, item_id, name, quantity, value, via, discount, bonus }: Step,
   result: RankResult,
   items: ItemMap,
 ): ReactNode[] {
   const item = <ItemLink item={items[item_id]} name={name} />
+  const discounted = discountNote(discount)
+  const extra = bonus > 0 ? ` (${bonusNote(bonus)})` : ''
   switch (action) {
     case 'buy':
       return [
         <>
-          Purchase {quantity}x {item} {via === 'vendor' ? 'from a vendor' : 'on the AH'} (<StepMoney value={value} />)
+          Purchase {quantity}x {item} {via === 'vendor' ? 'from a vendor' : 'on the AH'} (<StepMoney value={value} />
+          {discounted && `, ${discounted}`})
         </>,
       ]
     case 'craft':
@@ -137,6 +141,7 @@ function describeAction(
           <>
             Disenchant {quantity > 1 ? `${quantity}x ` : ''}
             {item}
+            {extra}
           </>,
           <>
             <DisenchantHover result={result} items={items}>
@@ -147,7 +152,8 @@ function describeAction(
         ]
       return [
         <>
-          Sell {quantity}x {item} {via === 'ah' ? 'on the AH' : 'to a vendor'}{' '}
+          Sell {quantity}x {item}
+          {extra} {via === 'ah' ? 'on the AH' : 'to a vendor'}{' '}
           <Sale gross={value} net={result.profit} />
         </>,
       ]

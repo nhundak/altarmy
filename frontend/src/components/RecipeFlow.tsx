@@ -4,6 +4,7 @@ import { Controls, Handle, Position, ReactFlow, type NodeProps, type NodeTypes }
 import type { ItemMap, RankResult } from '../api/client'
 import { SELL_PATH } from '../lib/choices'
 import { buildFlow, type ItemFlowNode, type MailFlowNode, type SellFlowNode } from '../lib/flow'
+import { bonusNote, discountNote } from '../lib/talents'
 import { CharacterName } from './CharacterName'
 import {
   BUY_FROM,
@@ -23,8 +24,23 @@ const MAX_HEIGHT = 480
 const PADDING = 32
 
 function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap }) {
-  const { itemId, name, quantity, cost, via, crafts, made, source, crafter, isLeaf, path, options, option, holder } =
-    data
+  const {
+    itemId,
+    name,
+    quantity,
+    cost,
+    via,
+    crafts,
+    made,
+    source,
+    discount,
+    crafter,
+    isLeaf,
+    path,
+    options,
+    option,
+    holder,
+  } = data
   const spare = made - quantity
   return (
     <div className={classes.node}>
@@ -46,6 +62,7 @@ function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap })
         ) : (
           <>
             Buy {BUY_FROM[source] ?? source} · <Money copper={cost} cost />
+            {discount > 0 && ` · ${discountNote(discount)}`}
           </>
         )}
       </div>
@@ -75,7 +92,7 @@ function MailNode({ data: { to, postage, quantity } }: NodeProps<MailFlowNode>) 
 }
 
 function SellNode({
-  data: { exit, revenue, profit, seller, options },
+  data: { exit, revenue, profit, bonus, seller, options },
   result,
   items,
 }: NodeProps<SellFlowNode> & { result: RankResult; items: ItemMap }) {
@@ -98,6 +115,7 @@ function SellNode({
       <div className={classes.detail}>
         Gross <Earned copper={revenue} /> · Net <Earned copper={profit} />
       </div>
+      {bonus > 0 && <div className={classes.detail}>{bonusNote(bonus)}</div>}
       {exit === 'disenchant' && seller && (
         <div className={classes.detail}>
           <CharacterName name={seller} />

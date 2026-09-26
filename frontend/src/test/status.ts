@@ -36,6 +36,7 @@ export const characters: Characters = {
             { name: 'Cooking', rank: 1, max_rank: 75, recipes: 0 },
             { name: 'Tailoring', rank: 50, max_rank: 75, recipes: 1 },
           ],
+          talents: [],
         },
       ],
     },
@@ -43,8 +44,8 @@ export const characters: Characters = {
       realm: 'Dreamscythe',
       faction: 'Horde',
       characters: [
-        { name: 'Frell', class_file: 'WARLOCK', level: 70, professions: [] },
-        { name: 'Newbie', class_file: '', level: 0, professions: [] },
+        { name: 'Frell', class_file: 'WARLOCK', level: 70, professions: [], talents: [] },
+        { name: 'Newbie', class_file: '', level: 0, professions: [], talents: [] },
       ],
     },
   ],

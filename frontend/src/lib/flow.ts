@@ -18,6 +18,8 @@ export type ItemNodeData = {
   crafts: number
   made: number
   source: string
+  /** Bought from a vendor: percent off from the buyer's Legacy talents (Bartering). */
+  discount: number
   crafter: string
   isLeaf: boolean
   /** The tree path, which is also the node id: where a choice of source applies. */
@@ -34,6 +36,8 @@ export type SellNodeData = {
   revenue: number
   profit: number
   quantity: number
+  /** Expected extra units on top of `quantity` (Master Chef), counted in `revenue`. */
+  bonus: number
   seller: string
   /** Each exit's best profit, best first. */
   options: RankResult['sell_options']
@@ -61,7 +65,9 @@ export function buildFlow({
   postage,
   mail_to,
   sell_options,
-}: Pick<RankResult, 'tree' | 'best_exit' | 'revenue' | 'profit' | 'postage' | 'mail_to' | 'sell_options'>): Flow {
+  bonus_output = 0,
+}: Pick<RankResult, 'tree' | 'best_exit' | 'revenue' | 'profit' | 'postage' | 'mail_to' | 'sell_options'> &
+  Partial<Pick<RankResult, 'bonus_output'>>): Flow {
   const nodes: Flow['nodes'] = []
   const edges: Edge[] = []
   const edge = (source: string, target: string, quantity: number) =>
@@ -77,7 +83,8 @@ export function buildFlow({
 
   let named = false
   const visit = (node: FlowNode, id: string) => {
-    const { item_id, name, quantity, cost, via, crafts, made, source, crafter, inputs, options, option } = node
+    const { item_id, name, quantity, cost, via, crafts, made, source, discount, crafter, inputs, options, option } =
+      node
     if (crafter) named = true
     nodes.push({
       id,
@@ -92,6 +99,7 @@ export function buildFlow({
         crafts,
         made,
         source,
+        discount,
         crafter,
         isLeaf: inputs.length === 0,
         path: id,
@@ -117,6 +125,7 @@ export function buildFlow({
       revenue,
       profit,
       quantity: tree.made,
+      bonus: bonus_output,
       seller: mail_to || tree.crafter,
       options: sell_options,
     },

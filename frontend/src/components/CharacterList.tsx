@@ -24,6 +24,8 @@ export function CharacterList({ groups }: { groups: readonly CharacterGroup[] })
                   {c.level}
                   {c.professions.length ? ': ' : ''}
                   {c.professions.map((p) => `${p.name} ${p.rank}/${p.max_rank}`).join(', ')}
+                  {c.talents.length > 0 &&
+                    ` · ${c.talents.map((t) => `${t.name} ${t.rank}/${t.max_rank}`).join(', ')}`}
                 </Text>
               </Text>
               <Button

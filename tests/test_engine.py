@@ -1,6 +1,10 @@
 from collections.abc import Sequence
 from dataclasses import replace
+from typing import Any
 
+import pytest
+
+from altarmy_profit import engine
 from altarmy_profit.engine import (
     ALL_EXITS,
     MAIL_POSTAGE,
@@ -10,6 +14,7 @@ from altarmy_profit.engine import (
     Item,
     Market,
     Material,
+    Memo,
     Node,
     Option,
     Recipe,
@@ -18,6 +23,7 @@ from altarmy_profit.engine import (
     Step,
     ah_net,
     can_skill_up,
+    plan_steps,
     recipes_for_characters,
     recipes_for_professions,
 )
@@ -34,6 +40,7 @@ def make_market(
     include_unlearned: bool = False,
     exits: frozenset[str] = ALL_EXITS,
     no_ah: frozenset[int] = frozenset(),
+    extra_items: Sequence[Item] = (),
 ) -> Market:
     items = {
         LINEN: Item(LINEN, "Linen Cloth"),
@@ -41,6 +48,7 @@ def make_market(
         BOLT: Item(BOLT, "Bolt of Linen"),
         GREEN: Item(GREEN, "Green Robe", quality=2, item_level=20, class_id=4, sell_price=500),
         DUST: Item(DUST, "Strange Dust"),
+        **{i.id: i for i in extra_items},
     }
     recipes = (
         recipes
@@ -659,3 +667,193 @@ def test_without_trivial_recipes_one_grey_for_everyone_is_dropped() -> None:
 def test_without_characters_trivial_recipes_are_kept() -> None:
     m = maul_market(recipes=(CURE, GREY_AT_60), include_trivial=False)
     assert must_evaluate(m, GREY_AT_60).crafter == ""
+
+
+# --- Legacy talents -------------------------------------------------------------------------------------
+
+STEW = Recipe(20, "Stew", GREEN, 1, ((LINEN, 1),), "Cooking", spell_id=920)
+
+
+def test_bartering_discounts_the_buyers_vendor_purchases() -> None:
+    barterer = replace(TAILOR, name="Barterer", vendor_discount=10)
+    m = make_market({LINEN: 20}, [ROBE], thread_vendor_price=100, crafters=[barterer])
+    res = must_evaluate(m, ROBE)
+    assert res.cost == 10 * 20 + 90
+    assert res.tree.inputs[1].discount == 10
+    (thread,) = [s for s in res.steps if s.item_id == THREAD]
+    assert (thread.value, thread.via, thread.discount) == (-90, "vendor", 10)
+    (linen,) = [s for s in res.steps if s.item_id == LINEN]
+    assert linen.discount == 0  # bought on the AH: no discount
+
+
+def test_bartering_rounds_the_unit_price_up() -> None:
+    m = make_market(
+        {LINEN: 20}, [ROBE], thread_vendor_price=15, crafters=[replace(TAILOR, vendor_discount=5)]
+    )
+    assert must_evaluate(m, ROBE).tree.inputs[1].cost == 15  # 14.25 -> 15
+
+
+def test_bartering_can_make_the_vendor_cheaper_than_the_ah() -> None:
+    m = make_market({LINEN: 20, THREAD: 95}, [ROBE], thread_vendor_price=100, crafters=[TAILOR])
+    assert must_evaluate(m, ROBE).tree.inputs[1].source == "ah"
+    m = make_market(
+        {LINEN: 20, THREAD: 95},
+        [ROBE],
+        thread_vendor_price=100,
+        crafters=[replace(TAILOR, vendor_discount=10)],
+    )
+    assert must_evaluate(m, ROBE).tree.inputs[1].source == "vendor"
+
+
+def test_the_barterer_does_the_craft() -> None:
+    barterer = replace(TAILOR, name="Zed", vendor_discount=10)
+    m = make_market({LINEN: 20}, [ROBE], thread_vendor_price=100, crafters=[TAILOR, barterer])
+    assert must_evaluate(m, ROBE).crafter == "Zed"
+
+
+def cook(name: str, chance: float = 0.0) -> Crafter:
+    return replace(
+        crafter(name, ("Cooking", 300), ("Tailoring", 50), known=frozenset({900, 920})),
+        extra_results=(("Cooking", chance),) if chance else (),
+    )
+
+
+def test_master_chef_adds_the_expected_extra_result_to_the_revenue() -> None:
+    m = make_market({LINEN: 20}, [STEW], crafters=[cook("Chef", 0.3)], exits=frozenset({"vendor"}))
+    res = must_evaluate(m, STEW)
+    assert res.revenue == round(500 * 1.3)
+    assert res.bonus_output == 0.3
+    assert res.steps[-1].action == "sell"
+    assert (res.steps[-1].quantity, res.steps[-1].bonus) == (1, 0.3)
+    assert res.cost == 20  # the extra result is free
+
+
+def test_master_chef_only_helps_cooking() -> None:
+    m = make_market(
+        {LINEN: 20, THREAD: 100}, [ROBE], crafters=[cook("Chef", 0.3)], exits=frozenset({"vendor"})
+    )
+    res = must_evaluate(m, ROBE)
+    assert (res.revenue, res.bonus_output) == (500, 0.0)
+
+
+def test_the_master_chef_does_the_cooking() -> None:
+    m = make_market(
+        {LINEN: 20}, [STEW], crafters=[cook("Cook"), cook("Zed", 0.5)], exits=frozenset({"vendor"})
+    )
+    res = must_evaluate(m, STEW)
+    assert (res.crafter, res.revenue) == ("Zed", 750)
+
+
+# --- one memo per ranking ---------------------------------------------------------------------------
+BOLT_RECIPE = Recipe(11, "Bolt of Linen", BOLT, 1, ((LINEN, 2),), "Tailoring")
+BOLT_ROBE = Recipe(10, "Green Robe", GREEN, 1, ((BOLT, 2), (THREAD, 1)), "Tailoring")
+BOLT_TUNIC = Recipe(12, "Linen Tunic", GREEN, 1, ((BOLT, 2),), "Tailoring")
+
+
+def test_evaluations_share_a_memo_across_recipes() -> None:
+    m = make_market({LINEN: 10, THREAD: 5, BOLT: 100}, [BOLT_RECIPE, BOLT_ROBE, BOLT_TUNIC])
+    memo: Memo = {}
+    robe = m.evaluate(BOLT_ROBE, memo=memo)
+    known = len(memo)
+    tunic = m.evaluate(BOLT_TUNIC, memo=memo)
+    assert robe is not None and tunic is not None
+    assert len(memo) == known  # the tunic's bolts were already worked out for the robe
+    assert tunic.tree.inputs[0] == robe.tree.inputs[0]
+    assert tunic.cost == 40
+
+
+def test_rank_matches_fresh_evaluations() -> None:
+    m = make_market({LINEN: 10, THREAD: 5, BOLT: 100}, [BOLT_RECIPE, BOLT_ROBE, BOLT_TUNIC])
+    ranked = m.rank(min_profit=-(10**9))
+    fresh = sorted((must_evaluate(m, r) for r in m.recipes), key=lambda r: -r.profit)
+    assert [(r.recipe.id, r.cost, r.revenue, r.best_exit, r.tree) for r in ranked] == [
+        (r.recipe.id, r.cost, r.revenue, r.best_exit, r.tree) for r in fresh
+    ]
+    assert [r.sell_options for r in ranked] == [r.sell_options for r in fresh]
+
+
+def test_chain_cycle_buys_the_item_directly() -> None:
+    recipes = [
+        ROBE,
+        Recipe(11, "Linen from Thread", LINEN, 1, ((THREAD, 1),), "Tailoring"),
+        Recipe(12, "Thread from Linen", THREAD, 1, ((LINEN, 1),), "Tailoring"),
+    ]
+    m = make_market({LINEN: 20, THREAD: 20}, recipes)
+    res = must_evaluate(m, ROBE)
+    assert res.cost == 200 + 20
+    linen, thread = res.tree.inputs
+    assert (linen.option, linen.options[0].key) == ("ah", "ah")
+    assert all(o.cost >= 200 for o in linen.options)  # a chain through itself is never cheaper
+    assert (thread.option, thread.options[0].key) == ("ah", "ah")
+    assert len(m.rank(min_profit=-(10**9))) == 3  # and the walk terminates
+
+
+def test_self_loop_recipe_is_not_an_option() -> None:
+    recharge = Recipe(11, "Recharge", THREAD, 2, ((THREAD, 1), (LINEN, 1)), "Tailoring")
+    m = make_market({LINEN: 20, THREAD: 100}, [ROBE, recharge])
+    thread = must_evaluate(m, ROBE).tree.inputs[1]
+    assert [o.key for o in thread.options] == ["ah"]
+
+
+# --- steps are built when read ----------------------------------------------------------------------
+def test_steps_are_built_on_first_access() -> None:
+    res = must_evaluate(maul_market(SMITHY, LEATHERY), MAUL_RECIPE)
+    assert "steps" not in vars(res)
+    first = res.steps
+    assert res.steps is first
+    assert first == plan_steps(
+        res.tree, res.best_exit, res.revenue, res.mail_to, res.postage, res.bonus_output
+    )
+
+
+def test_rank_does_not_schedule_steps(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+    schedule = engine._schedule
+
+    def counted(*args: Any) -> Any:
+        calls.append(1)
+        return schedule(*args)
+
+    monkeypatch.setattr(engine, "_schedule", counted)
+    ranked = maul_market(SMITHY, LEATHERY).rank()
+    assert ranked and calls == []
+    assert ranked[0].steps
+    assert len(calls) == 1
+
+
+def test_results_compare_without_their_steps() -> None:
+    m = maul_market(SMITHY, LEATHERY)
+    a, b = must_evaluate(m, MAUL_RECIPE), must_evaluate(m, MAUL_RECIPE)
+    assert a.steps
+    assert a == b
+
+
+# --- soulbound items stay with whoever made them ----------------------------------------------------
+BOUND_LEATHER = Item(LEATHER, "Light Leather", stack_size=20, tradable=False)
+BOUND_ROBE = Item(GREEN, "Green Robe", quality=2, item_level=20, class_id=4, sell_price=500, tradable=False)
+
+
+def test_soulbound_intermediate_is_not_mailed() -> None:
+    res = must_evaluate(maul_market(SMITHY, LEATHERY, extra_items=[BOUND_LEATHER]), MAUL_RECIPE)
+    leather = res.tree.inputs[0]
+    assert (leather.source, res.cost) == ("ah", 200 + 10)
+    assert [o.key for o in leather.options] == ["ah"]
+    assert "mail" not in [s.action for s in res.steps]
+    # whoever can craft it themself still does
+    res = must_evaluate(maul_market(BOTH, extra_items=[BOUND_LEATHER]), MAUL_RECIPE)
+    assert (res.tree.inputs[0].via, res.cost) == ("Light Leather", 2 * 15 + 10)
+
+
+def test_soulbound_craft_is_not_mailed_to_an_enchanter() -> None:
+    enchanter = crafter("Enc", ("Enchanting", 1))
+    m = make_market(DE_PRICES, [ROBE], DE_ROWS, crafters=[TAILOR, enchanter], extra_items=[BOUND_ROBE])
+    res = must_evaluate(m, ROBE)
+    assert (res.best_exit, [e.kind for e in res.exits]) == ("vendor", ["vendor"])
+    both = crafter("Both", ("Enchanting", 10), ("Tailoring", 50), known=frozenset({900}))
+    m = make_market(DE_PRICES, [ROBE], DE_ROWS, crafters=[both], extra_items=[BOUND_ROBE])
+    assert (must_evaluate(m, ROBE).best_exit, must_evaluate(m, ROBE).postage) == ("disenchant", 0)
+
+
+def test_soulbound_items_have_no_ah_exit() -> None:
+    m = make_market({LINEN: 20, THREAD: 100, GREEN: 100_000}, extra_items=[BOUND_ROBE])
+    assert [e.kind for e in m.exits_for(GREEN)] == ["vendor"]

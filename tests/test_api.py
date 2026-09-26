@@ -407,7 +407,13 @@ def test_status_syncs_addon_files_and_selection_switches_realm(
                 {"name": "Cooking", "rank": 1, "max_rank": 75, "recipes": 0},
                 {"name": "Tailoring", "rank": 50, "max_rank": 75, "recipes": 1},
             ],
+            "talents": [],
         }
+    ]
+    (frell,) = [c for c in body["groups"][2]["characters"] if c["name"] == "Frell"]
+    assert frell["talents"] == [
+        {"spell_id": 1225457, "name": "Master Chef", "rank": 3, "max_rank": 5},
+        {"spell_id": 1225459, "name": "Bartering", "rank": 2, "max_rank": 2},
     ]
     assert body["selection"] == {"realm": "Dreamscythe", "faction": "Horde"}
     assert client.get("/api/rank").json()["results"] == []  # Dreamscythe only cooks
@@ -671,11 +677,16 @@ def test_rank_pages_through_one_search(
     assert client.get("/api/rank", params={"top": 1}).json()["total"] == 1
     assert client.get("/api/rank", params={"top": 2}).json()["total"] == 1
     assert len(calls) == 1  # "Show more" reuses the ranking
+    assert client.get("/api/rank", params={"top": 1, "min_profit": 10**9}).json()["total"] == 0
+    assert client.get("/api/rank", params={"top": 1, "max_cost": 0, "min_roi": 9}).json()["total"] == 0
+    assert len(calls) == 1  # the bounds are applied to the cached ranking
+    client.get("/api/rank", params={"top": 2, "exits": ["vendor"]})
+    assert len(calls) == 2  # the exits change what is ranked
     client.get("/api/rank", params={"top": 2, "include_unlearned": True})
-    assert len(calls) == 2  # other parameters rank again
+    assert len(calls) == 3  # other parameters rank again
     client.post("/api/reload")  # a rebuilt market ranks again
     client.get("/api/rank", params={"top": 1})
-    assert len(calls) == 3
+    assert len(calls) == 4
 
 
 def test_status_reports_the_price_version(client: TestClient, priced: Connection) -> None:

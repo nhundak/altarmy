@@ -233,6 +233,15 @@ character_recipes = Table(
     Column("spell_id", Integer, primary_key=True, autoincrement=False),  # matches recipes.spell_id
 )
 
+# Legacy talents (WoW: Forever) by their spell id; `talents.py` says which change profits.
+character_talents = Table(
+    "character_talents",
+    metadata,
+    Column("character_id", Integer, ForeignKey("characters.id", ondelete="CASCADE"), primary_key=True),
+    Column("spell_id", Integer, primary_key=True, autoincrement=False),
+    Column("rank", Integer, nullable=False),
+)
+
 # Items the user never wants sold on the AH (only vendor or disenchant). Ingest leaves them alone.
 ah_blocked = Table(
     "ah_blocked",

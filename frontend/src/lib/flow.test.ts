@@ -21,6 +21,7 @@ const tree: FlowNode = {
   crafter: '',
   mail_to: '',
   postage: 0,
+  discount: 0,
   options: [],
   option: '',
   inputs: [
@@ -36,6 +37,7 @@ const tree: FlowNode = {
       crafter: '',
       mail_to: '',
       postage: 0,
+      discount: 0,
       options: boltOptions,
       option: 'craft:11',
       inputs: [bought(1, 'Linen Cloth', 6, 60)],

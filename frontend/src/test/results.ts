@@ -20,6 +20,7 @@ export const bought = (
   crafter: '',
   mail_to: '',
   postage: 0,
+  discount: 0,
   options,
   option: source,
   inputs: [],
@@ -43,6 +44,7 @@ export const robeResult: RankResult = {
   best_exit: 'vendor',
   postage: 0,
   mail_to: '',
+  bonus_output: 0,
   exits: [
     { kind: 'vendor', value: 500, materials: [], postage: 0, mail_to: '' },
     { kind: 'ah', value: 475, materials: [], postage: 0, mail_to: '' },
@@ -52,10 +54,10 @@ export const robeResult: RankResult = {
     { item_id: 2, count: 1 },
   ],
   steps: [
-    { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 10, value: -200, via: 'ah', who: '', paths: ['r.0'] },
-    { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 1, value: -100, via: 'vendor', who: '', paths: ['r.1'] },
-    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', paths: ['r'] },
-    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: '', paths: ['sell'] },
+    { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 10, value: -200, via: 'ah', who: '', discount: 0, bonus: 0, paths: ['r.0'] },
+    { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 1, value: -100, via: 'vendor', who: '', discount: 0, bonus: 0, paths: ['r.1'] },
+    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, bonus: 0, paths: ['r'] },
+    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: '', discount: 0, bonus: 0, paths: ['sell'] },
   ],
   tree: {
     item_id: 3,
@@ -69,6 +71,7 @@ export const robeResult: RankResult = {
     crafter: '',
     mail_to: '',
     postage: 0,
+    discount: 0,
     options: [],
     option: '',
     inputs: [

@@ -35,7 +35,7 @@ from sqlalchemy import Connection
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 
-from . import altarmy, auth, db, engine, prices, ratelimit, service, store, uploads, users, versions
+from . import altarmy, auth, db, engine, prices, ratelimit, service, store, talents, uploads, users, versions
 from .store import CACHE_DIR
 from .versions import GameVersion, GameVersionKey
 
@@ -103,6 +103,8 @@ class StepOut(BaseModel):
     via: str  # buy: vendor | ah; craft: recipe name; mail: recipient; sell: vendor | ah | disenchant
     who: str  # the character doing it; "" if no characters are known
     paths: list[str]  # the tree paths (choice keys) of the nodes it stands for; ["sell"] for the sale
+    discount: int = 0  # buy from a vendor: percent off from the buyer's Legacy talents (Bartering)
+    bonus: float = 0.0  # sell: expected extra units on top of quantity (Master Chef), counted in value
 
 
 class OptionOut(BaseModel):
@@ -135,6 +137,7 @@ class NodeOut(BaseModel):
     crafter: str  # who buys or crafts it
     mail_to: str  # who it is mailed to (the parent's crafter); "" if not mailed
     postage: int  # copper for that mail
+    discount: int = 0  # bought from a vendor: percent off the buyer gets (Bartering)
     options: list[OptionOut]  # every way to get these items, cheapest first; empty for the recipe's craft
     option: str  # the key of the option taken; "" for the recipe's craft
     inputs: list[NodeOut]
@@ -153,6 +156,7 @@ def _node_out(n: engine.Node) -> NodeOut:
         crafter=n.crafter,
         mail_to=n.mail_to,
         postage=n.postage,
+        discount=n.discount,
         options=[OptionOut(**asdict(o)) for o in n.options],
         option=n.option,
         inputs=[_node_out(i) for i in n.inputs],
@@ -205,6 +209,7 @@ class RankResult(BaseModel):
     best_exit: str
     postage: int  # copper to mail the output to whoever sells it (included in cost)
     mail_to: str  # who the output is mailed to; "" if the crafter sells it
+    bonus_output: float = 0.0  # expected extra units per craft from the crafter's talents (Master Chef)
     exits: list[ExitOut]
     reagents: list[ItemCount]
     steps: list[StepOut]  # per character: buys, crafts (intermediates first), mails; then the sale
@@ -275,11 +280,21 @@ class ProfessionOut(BaseModel):
     recipes: int  # learned recipes
 
 
+class TalentOut(BaseModel):
+    """A Legacy talent (WoW: Forever) that changes profits."""
+
+    spell_id: int
+    name: str
+    rank: int
+    max_rank: int
+
+
 class CharacterOut(BaseModel):
     name: str
     class_file: str  # e.g. PALADIN
     level: int
     professions: list[ProfessionOut]
+    talents: list[TalentOut] = []  # the Legacy talents the engine knows, as the addon saw them
 
 
 class GroupOut(BaseModel):
@@ -655,6 +670,10 @@ def _characters(state: AppState, conn: Connection, user: auth.User) -> Character
                             )
                             for p in c.professions
                         ],
+                        talents=[
+                            TalentOut(spell_id=t.spell_id, name=t.name, rank=rank, max_rank=t.max_rank)
+                            for t, rank in talents.known(c.talents)
+                        ],
                     )
                     for c in g.characters
                 ],
@@ -762,16 +781,18 @@ def get_rank(
     every recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive; an omitted
     bound is unbounded (so losses are included unless `min_profit` is set)."""
     base, chars, no_ah = _selected(state, user)
-    filters = engine.Filters(min_cost, max_cost, min_profit, max_profit, min_roi, max_roi)
-    # Without characters the ranking depends on nobody: every browsing user shares it.
+    # Without characters the ranking depends on nobody: every browsing user shares it. The bounds and the
+    # profession filter only narrow the cached, unbounded ranking, so moving them never ranks again.
     whose = user.uid if chars else ""
-    key = (whose, tuple(chars), include_unlearned, include_trivial, frozenset(exits), filters, no_ah)
+    key = (whose, tuple(chars), include_unlearned, include_trivial, frozenset(exits), no_ah)
     matches = state.rank_cache.get(key, base)
     if matches is None:
         matches = service.search(
-            base, chars, include_unlearned, filters, frozenset(exits), no_ah, include_trivial
+            base, chars, include_unlearned, engine.Filters(), frozenset(exits), no_ah, include_trivial
         )
         state.rank_cache.put(key, base, matches)
+    filters = engine.Filters(min_cost, max_cost, min_profit, max_profit, min_roi, max_roi)
+    matches = [r for r in matches if filters.accepts(r)]
     if professions:
         wanted = {p.lower() for p in professions}
         matches = [r for r in matches if r.recipe.skill_name.lower() in wanted]
@@ -866,6 +887,7 @@ def _result_out(r: engine.Result, base: engine.Market, crafters: dict[int, list[
         best_exit=r.best_exit,
         postage=r.postage,
         mail_to=r.mail_to,
+        bonus_output=r.bonus_output,
         exits=[
             ExitOut(
                 kind=e.kind,
@@ -887,6 +909,8 @@ def _result_out(r: engine.Result, base: engine.Market, crafters: dict[int, list[
                 via=s.via,
                 who=s.who,
                 paths=list(s.paths),
+                discount=s.discount,
+                bonus=s.bonus,
             )
             for s in r.steps
         ],

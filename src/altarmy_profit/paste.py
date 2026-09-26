@@ -7,8 +7,10 @@ DEFLATE of these lines:
     V|1|<interface>|<build>                       the client, so the export says which game it is from
     C|<realm>|<name>|<faction>|<CLASS_FILE>|<level>
     P|<profession>|<rank>|<maxRank>|<recipe ids>  belongs to the C line before it; ids comma-separated
+    T|<spell id>|<rank>                           a Legacy talent (WoW: Forever) of the C line before it
 
 Recipe ids are craft spell ids with aliases already resolved, as `altarmy.parse_characters` reads them.
+Talents are the addon's `legacyTalents.spells` (see `talents` for the ones that change profits).
 The string is untrusted: anything wrong raises ValueError (the API's 400).
 """
 
@@ -114,19 +116,25 @@ def _parse(lines: list[str]) -> Export:
         raise ValueError(f"export format {head[1]!r} is not supported: update the site or the addon")
     interface = _int(head[2], "interface")
     chars: list[Character] = []
-    current: tuple[list[str], list[Profession]] | None = None
+    current: tuple[list[str], list[Profession], dict[int, int]] | None = None
     for line in lines[1:]:
         fields = line.split("|")
         if fields[0] == "C" and len(fields) == 6:
             if current is not None:
                 chars.append(_character(*current))
-            current = (fields[1:], [])
+            current = (fields[1:], [], {})
         elif fields[0] == "P" and len(fields) == 5:
             if current is None:
                 raise ValueError("the export lists a profession before any character")
             name, rank, max_rank, ids = fields[1:]
             recipe_ids = frozenset(_int(i, "recipe id") for i in ids.split(",") if i)
             current[1].append(Profession(name, _int(rank, "rank"), _int(max_rank, "max rank"), recipe_ids))
+        elif fields[0] == "T" and len(fields) == 3:
+            if current is None:
+                raise ValueError("the export lists a talent before any character")
+            talent_rank = _int(fields[2], "talent rank")
+            if talent_rank > 0:
+                current[2][_int(fields[1], "talent")] = talent_rank
         elif line.strip():
             raise ValueError(f"unexpected line in the export: {line[:40]!r}")
     if current is not None:
@@ -134,7 +142,7 @@ def _parse(lines: list[str]) -> Export:
     return Export(interface, head[3], sorted(chars, key=lambda c: (c.realm, c.name)))
 
 
-def _character(fields: list[str], professions: list[Profession]) -> Character:
+def _character(fields: list[str], professions: list[Profession], talents: dict[int, int]) -> Character:
     realm, name, faction, class_file, level = fields
     return Character(
         realm,
@@ -143,6 +151,7 @@ def _character(fields: list[str], professions: list[Profession]) -> Character:
         class_file,
         _int(level, "level"),
         tuple(sorted(professions, key=lambda p: p.name)),
+        tuple(sorted(talents.items())),
     )
 
 

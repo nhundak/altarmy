@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection
 
-from altarmy_profit import altarmy, db, ingest, prices, service, store, users
+from altarmy_profit import altarmy, db, ingest, prices, service, store, talents, users
 from altarmy_profit.altarmy import Character, Profession
 from altarmy_profit.engine import ALL_EXITS, Filters
 from altarmy_profit.service import Selection, SyncResult
@@ -83,6 +83,18 @@ def test_evaluate_applies_choices(db2_paths: dict[str, Path], conn: Connection, 
     assert (chosen.cost, chosen.tree.inputs[1].source) == (300, "ah")
     assert service.evaluate(base, chars("Tailor Guy"), False, ALL_EXITS, 999, {}) is None
     assert service.evaluate(base, chars("Frell"), False, ALL_EXITS, 100, {}) is None
+
+
+def test_legacy_talents_reach_the_engine(
+    db2_paths: dict[str, Path], conn: Connection, vendor_csv: Path
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER, vendor_csv=vendor_csv)
+    base = store.load_market(conn, FOREVER, set_prices(conn, {1: 20, 2: 100}))  # vendors sell thread for 11c
+    (tailor,) = chars("Tailor Guy")
+    barterer = replace(tailor, talents=((talents.BARTERING, 2),))
+    got = service.evaluate(base, [barterer], False, ALL_EXITS, 100, {})
+    assert got is not None
+    assert (got.cost, got.tree.inputs[1].discount) == (200 + 10, 10)  # 11c less 10%, rounded up
 
 
 def test_search_and_evaluate_never_sell_blocked_items_on_the_ah(

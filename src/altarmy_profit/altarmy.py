@@ -2,7 +2,8 @@
 
 The file is account-wide (WTF/Account/<acct>/SavedVariables/AltArmy_TBC.lua). Characters live in
 `AltArmyTBC_Data.Characters[realm][name]`; each profession has `rank`, `maxRank` and
-`Recipes[recipeID] = {color, primaryRecipeID?, resultItemID?, name?}`.
+`Recipes[recipeID] = {color, primaryRecipeID?, resultItemID?, name?}`. WoW: Forever characters also have
+`legacyTalents.spells[spellID] = rank` (their Legacy talents, addon data version 2).
 
 Recipe ids are craft spell ids (they match `recipes.spell_id`). On TBC clients one recipe can be stored
 under several alias keys that all share a `primaryRecipeID`; Enchanting rows only carry `color`.
@@ -44,6 +45,8 @@ class Character:
     class_file: str  # e.g. PALADIN
     level: int
     professions: tuple[Profession, ...]  # sorted by name
+    # Legacy talents (WoW: Forever) as (spell id, rank), ranks above 0, sorted by spell id; see `talents`
+    talents: tuple[tuple[int, int], ...] = ()
 
     @property
     def known_recipes(self) -> frozenset[int]:
@@ -99,9 +102,20 @@ def parse_characters(data: bytes) -> list[Character]:
                             key=lambda p: p.name,
                         )
                     ),
+                    talents=_talents(_table(c.get("legacyTalents"))),
                 )
             )
     return sorted(chars, key=lambda c: (c.realm, c.name))
+
+
+def _talents(legacy: LuaTable) -> tuple[tuple[int, int], ...]:
+    """`legacyTalents.spells` (spell id -> rank). Data version 1 has no `spells`: it was read from the class
+    talent config, so it gives none."""
+    got = {}
+    for spell_id, rank in _table(legacy.get("spells")).items():
+        if isinstance(spell_id, int) and not isinstance(spell_id, bool) and _int(rank) > 0:
+            got[spell_id] = _int(rank)
+    return tuple(sorted(got.items()))
 
 
 def _profession(name: str, prof: LuaTable) -> Profession:

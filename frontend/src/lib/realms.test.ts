@@ -15,7 +15,7 @@ const house = (realm: string, faction: string, prices = 10): Coverage => ({
 const group = (realm: string, faction: string, n = 1): CharacterGroup => ({
   realm,
   faction,
-  characters: Array.from({ length: n }, (_, i) => ({ name: `C${i}`, class_file: 'MAGE', level: 60, professions: [] })),
+  characters: Array.from({ length: n }, (_, i) => ({ name: `C${i}`, class_file: 'MAGE', level: 60, professions: [], talents: [] })),
 })
 
 describe('realms', () => {
