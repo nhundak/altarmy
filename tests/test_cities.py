@@ -181,10 +181,10 @@ def test_build_city_makes_a_preset_the_timing_model_reads(town: sqlite3.Connecti
 
 def test_build_city_names_the_smallest_zone_map_around_the_hub(town: sqlite3.Connection) -> None:
     zones = [
-        (1, "Kalimdor", -9000.0, -9000.0, 9000.0, 9000.0),
-        (1, "Town", X - 500, Y - 500, X + 500, Y + 500),
-        (1, "Elsewhere", X + 1000, Y, X + 2000, Y + 500),  # not around the hub
-        (0, "Other Continent", X - 100, Y - 100, X + 100, Y + 100),
+        (1, "Kalimdor", -9000.0, -9000.0, 9000.0, 9000.0, 0),
+        (1, "Town", X - 500, Y - 500, X + 500, Y + 500, 1637),
+        (1, "Elsewhere", X + 1000, Y, X + 2000, Y + 500, 2),  # not around the hub
+        (0, "Other Continent", X - 100, Y - 100, X + 100, Y + 100, 3),
     ]
     data = build(town, zones=zones)
     assert data["zone"] == {
@@ -193,6 +193,7 @@ def test_build_city_names_the_smallest_zone_map_around_the_hub(town: sqlite3.Con
         "min_y": Y - 500,
         "max_x": X + 500,
         "max_y": Y + 500,
+        "area": 1637,
     }
     assert timing.CityMap.from_dict(data).map_coords("ah") == (50.0, 49.0)  # Ann stands 10 yd north of centre
     assert "zone" not in build(town)

@@ -1,4 +1,5 @@
 import { createTheme, type CSSVariablesResolver, type MantineColorsTuple } from '@mantine/core'
+import classes from './theme.module.css'
 
 /**
  * The look: warm charcoal (dark, the default) or warm ivory (light) with a single gold accent. Profit stays
@@ -59,6 +60,7 @@ export const theme = createTheme({
   headings: { fontFamily: "'Source Sans 3', 'Segoe UI', system-ui, sans-serif", fontWeight: '700' },
   defaultRadius: 'md',
   components: {
+    Accordion: { classNames: { item: classes.accordionItem } },
     Table: { defaultProps: { verticalSpacing: 'sm' } },
   },
 })

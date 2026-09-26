@@ -259,6 +259,16 @@ ah_blocked = Table(
     Column("added_at", DateTime(timezone=True), nullable=False),
 )
 
+# Recipes the user marked as favorites: listed first in their searches. Ingest leaves them alone.
+favorite_recipes = Table(
+    "favorite_recipes",
+    metadata,
+    _owner(),
+    _version(),
+    Column("recipe_id", Integer, primary_key=True, autoincrement=False),
+    Column("added_at", DateTime(timezone=True), nullable=False),
+)
+
 # Every addon file a user uploaded (the file itself is never stored), for their history and rate limit.
 uploads = Table(
     "uploads",

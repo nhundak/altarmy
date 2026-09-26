@@ -241,6 +241,18 @@ def test_rank_lists_options_and_evaluate_applies_choices(
     assert client.post("/api/evaluate", json=only_ah).status_code == 404
 
 
+def test_favorites_are_listed_and_ranked_first(client: TestClient, priced: Connection) -> None:
+    assert client.get("/api/favorites").json() == {"recipes": []}
+    (r,) = client.get("/api/rank").json()["results"]
+    added = client.put(f"/api/favorites/{r['recipe_id']}").json()
+    assert [f["recipe_id"] for f in added["recipes"]] == [r["recipe_id"]]
+    assert added["recipes"][0]["added_at"]
+    assert client.get("/api/favorites").json() == added
+    assert client.get("/api/favorites", params={"game_version": "tbc"}).json() == {"recipes": []}
+    assert [x["recipe_id"] for x in client.get("/api/rank").json()["results"]] == [r["recipe_id"]]
+    assert client.delete(f"/api/favorites/{r['recipe_id']}").json() == {"recipes": []}
+
+
 def test_ah_blocked_items_are_never_sold_on_the_ah(client: TestClient, priced: Connection) -> None:
     set_prices(priced, {3: 1000})  # the robe sells for 950 on the AH, 500 at a vendor
     assert client.get("/api/ah-blocked").json() == {"items": [], "details": {}}
@@ -1052,7 +1064,7 @@ def test_time_settings_round_trip(client: TestClient, priced: Connection, cities
     assert [c["name"] for c in got["cities"]] == ["Orgrimmar", "Thunder Bluff"]  # Horde's; no neutral town
     assert (got["city"], got["active"]) == (None, None)  # whatever is fastest
     assert got["config"] == got["defaults"]
-    assert got["defaults"]["batch"] == 20
+    assert got["defaults"]["batch"] == 10
     put = client.put("/api/time", json={"city": "Thunder Bluff", "config": {"batch": 5, "time_value": 10**6}})
     assert put.status_code == 200
     assert (put.json()["city"], put.json()["active"]) == ("Thunder Bluff", "Thunder Bluff")
@@ -1073,9 +1085,9 @@ def test_rank_reports_profit_per_hour(client: TestClient, priced: Connection, ci
     (r,) = client.get("/api/rank").json()["results"]
     t = r["timing"]
     # by default each plan is timed in the fastest Horde city: Thunder Bluff has the anvil and the vendor
-    assert (t["city"], t["batch"]) == ("Thunder Bluff", 20)
-    assert t["total_seconds"] == pytest.approx(t["fixed_seconds"] + 20 * t["per_craft_seconds"])
-    assert t["per_hour"] == round(200 * 20 * 3600 / t["total_seconds"])
+    assert (t["city"], t["batch"]) == ("Thunder Bluff", 10)
+    assert t["total_seconds"] == pytest.approx(t["fixed_seconds"] + 10 * t["per_craft_seconds"])
+    assert t["per_hour"] == round(200 * 10 * 3600 / t["total_seconds"])
     assert set(t["breakdown"]) >= {"travel", "craft", "ah", "vendor"}
     # collect the AH purchases, craft at the anvil, sell the robe to the vendor, and stop there
     assert [leg["to_name"] for leg in t["legs"]] == ["Mailbox", "Anvil", "Thread Seller"]
@@ -1138,7 +1150,7 @@ def test_evaluate_plans_a_session_spelled_out(client: TestClient, priced: Connec
         ("sell", "Green Robe", 20),
     ]
     anvil = r["details"][3]["location"]
-    assert (anvil["kind"], anvil["map_x"], anvil["map_y"]) == ("anvil", 49.0, 50.0)
+    assert (anvil["kind"], anvil["map_x"], anvil["map_y"], anvil["map_area"]) == ("anvil", 49.0, 50.0, 1638)
     assert (
         client.post("/api/evaluate", json={"recipe_id": 100, "choices": {}}).json()["result"]["details"] == []
     )

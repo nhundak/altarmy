@@ -139,7 +139,8 @@ def craft_stations(paths: dict[str, Path]) -> dict[int, str]:
     return {i: n for i, n in focus_names(paths["SpellFocusObject"]).items() if i in used}
 
 
-ZoneBox = tuple[int, str, float, float, float, float]  # (map id, zone map name, min x, min y, max x, max y)
+# (map id, zone map name, min x, min y, max x, max y, area id: AreaTable's, naming Wowhead's zone map)
+ZoneBox = tuple[int, str, float, float, float, float, int]
 
 
 def zone_boxes(ui_map_assignment: Path, ui_map: Path) -> list[ZoneBox]:
@@ -154,7 +155,7 @@ def zone_boxes(ui_map_assignment: Path, ui_map: Path) -> list[ZoneBox]:
         if ui not in names:
             continue
         box = tuple(float(r[f"Region_{i}"]) for i in (0, 1, 3, 4))
-        out.append((_int(r["MapID"]), names[ui], box[0], box[1], box[2], box[3]))
+        out.append((_int(r["MapID"]), names[ui], box[0], box[1], box[2], box[3], _int(r["AreaID"])))
     return out
 
 

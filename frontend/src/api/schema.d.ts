@@ -165,6 +165,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/favorites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Favorites */
+        get: operations["get_favorites_api_favorites_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/favorites/{recipe_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Add Favorite
+         * @description Mark `recipe_id` as a favorite: /api/rank lists it first.
+         */
+        put: operations["add_favorite_api_favorites__recipe_id__put"];
+        post?: never;
+        /**
+         * Remove Favorite
+         * @description Unmark `recipe_id` as a favorite.
+         */
+        delete: operations["remove_favorite_api_favorites__recipe_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/game-data/update": {
         parameters: {
             query?: never;
@@ -277,10 +318,10 @@ export interface paths {
         };
         /**
          * Get Rank
-         * @description What the selected realm/faction's characters can craft, most profitable first (per craft, or with
-         *     `sort=rate` per hour of play in the user's city); without characters, every recipe, crafted by one
-         *     unnamed character (nothing is mailed). Bounds are inclusive; an omitted bound is unbounded (so losses
-         *     are included unless `min_profit` is set).
+         * @description What the selected realm/faction's characters can craft, the user's favorites first, then most
+         *     profitable first (per craft, or with `sort=rate` per hour of play in the user's city); without
+         *     characters, every recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive;
+         *     an omitted bound is unbounded (so losses are included unless `min_profit` is set).
          */
         get: operations["get_rank_api_rank_get"];
         put?: never;
@@ -692,6 +733,21 @@ export interface components {
             /** Value */
             value: number;
         };
+        /** FavoriteRecipe */
+        FavoriteRecipe: {
+            /** Added At */
+            added_at: string;
+            /** Recipe Id */
+            recipe_id: number;
+        };
+        /**
+         * Favorites
+         * @description Recipes the user marked as favorites: /api/rank lists them first.
+         */
+        Favorites: {
+            /** Recipes */
+            recipes: components["schemas"]["FavoriteRecipe"][];
+        };
         /**
          * FirebaseOut
          * @description The Firebase web config the front end signs in with (public values).
@@ -807,6 +863,8 @@ export interface components {
             id: string;
             /** Kind */
             kind: string;
+            /** Map Area */
+            map_area: number | null;
             /** Map X */
             map_x: number | null;
             /** Map Y */
@@ -1725,6 +1783,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvaluateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_favorites_api_favorites_get: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Favorites"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_favorite_api_favorites__recipe_id__put: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path: {
+                recipe_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Favorites"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_favorite_api_favorites__recipe_id__delete: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path: {
+                recipe_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Favorites"];
                 };
             };
             /** @description Validation Error */

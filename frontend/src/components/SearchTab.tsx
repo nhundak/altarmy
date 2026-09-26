@@ -25,10 +25,12 @@ import {
   useCharacters,
   useCoverage,
   useDataVersion,
+  useFavorites,
   useProfessions,
   useRank,
   useSelectRealm,
   useSetAhBlocked,
+  useSetFavorite,
   useStatus,
 } from '../api/queries'
 import { goldToCopper } from '../lib/money'
@@ -86,6 +88,9 @@ function Results({
   const ahBlockedList = useAhBlocked().data
   const ahBlocked = useMemo(() => new Set(ahBlockedList?.items.map((i) => i.item_id)), [ahBlockedList])
   const { mutate: setAhBlocked } = useSetAhBlocked()
+  const favoriteList = useFavorites().data
+  const favorites = useMemo(() => new Set(favoriteList?.recipes.map((f) => f.recipe_id)), [favoriteList])
+  const { mutate: setFavorite } = useSetFavorite()
   if (rank.isPending) return <Loader />
   if (rank.isError) return <Alert color="red">{rank.error.message}</Alert>
   const { results, total } = rank.data
@@ -112,6 +117,8 @@ function Results({
         }}
         ahBlocked={ahBlocked}
         onSetAhBlocked={(itemId, blocked) => setAhBlocked({ itemId, blocked })}
+        favorites={favorites}
+        onSetFavorite={(recipeId, favorite) => setFavorite({ recipeId, favorite })}
         rankBy={filters.sort}
         onRankBy={onRankBy}
       />

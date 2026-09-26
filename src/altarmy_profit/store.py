@@ -275,6 +275,36 @@ def count_characters(conn: Connection, user_uid: str, game_version: str) -> int:
     return int(conn.execute(query).scalar_one())
 
 
+def load_favorites(conn: Connection, user_uid: str, game_version: str) -> list[tuple[int, str]]:
+    """The user's favorite recipes as (recipe id, when added as UTC text), newest first."""
+    t = schema.favorite_recipes
+    rows = conn.execute(
+        select(t.c.recipe_id, t.c.added_at)
+        .where(t.c.user_uid == user_uid, t.c.game_version == game_version)
+        .order_by(t.c.added_at.desc(), t.c.recipe_id)
+    )
+    return [(r.recipe_id, db.timestamp_text(r.added_at) or "") for r in rows]
+
+
+def set_favorite(conn: Connection, user_uid: str, game_version: str, recipe_id: int, favorite: bool) -> None:
+    """Mark `recipe_id` as a favorite, or not."""
+    t = schema.favorite_recipes
+    if favorite:
+        row = {
+            "user_uid": user_uid,
+            "game_version": game_version,
+            "recipe_id": recipe_id,
+            "added_at": db.utcnow(),
+        }
+        db.upsert(conn, t, [row], ["user_uid", "game_version", "recipe_id"], update=[])
+    else:
+        conn.execute(
+            delete(t).where(
+                t.c.user_uid == user_uid, t.c.game_version == game_version, t.c.recipe_id == recipe_id
+            )
+        )
+
+
 def load_ah_blocked(conn: Connection, user_uid: str, game_version: str) -> list[tuple[int, str]]:
     """Items the user never sells on the AH as (item id, when added as UTC text), newest first."""
     t = schema.ah_blocked

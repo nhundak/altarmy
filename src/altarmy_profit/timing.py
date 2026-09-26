@@ -71,7 +71,7 @@ class TimeConfig:
     switch_character: float = 45.0  # logging out and in as another character
     disenchant: float = 3.5  # per item: the cast and the loot
     craft_overhead: float = 0.5  # per craft on top of its cast time
-    batch: int = 20  # crafts per session: travel and switches are shared by them
+    batch: int = 10  # crafts per session: travel and switches are shared by them
     time_value: int = 0  # copper an hour of play is worth; 0: time only reports, it never picks a plan
     run_speed: float = 7.0  # yards per second (7 on foot, 14 on a 100% mount)
     detour: float = 1.3  # walking distance over straight-line distance
@@ -178,13 +178,15 @@ def _location(data: object) -> Location:
 @dataclass(frozen=True)
 class Zone:
     """The city's zone map (DB2 UiMapAssignment): its name and the world box it shows, so a position can
-    be given as the map percentages players read (0 top/left, 100 bottom/right)."""
+    be given as the map percentages players read (0 top/left, 100 bottom/right). `area` is its AreaTable id,
+    which names its image (frontend/public/maps); 0 if unknown."""
 
     name: str
     min_x: float
     min_y: float
     max_x: float
     max_y: float
+    area: int = 0
 
     def map_coords(self, x: float, y: float) -> tuple[float, float]:
         """(map x, map y) in percent, one decimal. World y runs right to left, world x bottom to top."""
@@ -197,7 +199,8 @@ def _zone(data: object) -> Zone | None:
     if data is None:
         return None
     d = _mapping(data, "zone")
-    zone = Zone(_str(d, "name"), _num(d, "min_x"), _num(d, "min_y"), _num(d, "max_x"), _num(d, "max_y"))
+    area = int(_num(d, "area")) if "area" in d else 0
+    zone = Zone(_str(d, "name"), _num(d, "min_x"), _num(d, "min_y"), _num(d, "max_x"), _num(d, "max_y"), area)
     if zone.max_x <= zone.min_x or zone.max_y <= zone.min_y:
         raise ValueError("zone: max must exceed min")
     return zone

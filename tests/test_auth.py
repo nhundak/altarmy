@@ -120,6 +120,10 @@ def test_user_state_is_per_user(conn: Connection) -> None:
     assert store.load_ah_blocked(conn, ME, FOREVER) == []
     assert [i for i, _ in store.load_ah_blocked(conn, other, FOREVER)] == [7]
 
+    store.set_favorite(conn, other, FOREVER, 7, True)
+    assert store.load_favorites(conn, ME, FOREVER) == []
+    assert [i for i, _ in store.load_favorites(conn, other, FOREVER)] == [7]
+
 
 def test_settings_and_sync_roundtrip(conn: Connection) -> None:
     assert users.get_sync(conn, ME, FOREVER) == users.LocalSync()

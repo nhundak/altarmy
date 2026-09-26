@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState } from 'react'
 import { ActionIcon, Menu, Table, Text, UnstyledButton } from '@mantine/core'
+import { motion } from 'motion/react'
 import type { ItemMap, RankResult } from '../api/client'
 import { useEvaluations, type EvaluateParams } from '../api/queries'
 import { choose, type Choices } from '../lib/choices'
@@ -56,12 +57,18 @@ const SERVER_SORTS: Readonly<Record<string, RankBy>> = { Profit: 'profit', 'Per 
 
 type Sort = { column: string; descending: boolean }
 
-/** `results` ordered by `sort`, stably; unsorted keeps the server's order (profit, best first). */
-function sorted(results: RankResult[], sort: Sort | null): RankResult[] {
-  if (!sort) return results
-  const key = SORT_KEYS[sort.column]
-  const sign = sort.descending ? -1 : 1
+/** Rows slide to their new place when the order changes (a favorite, a re-rank, a sort). */
+const MotionTr = motion.create(Table.Tr)
+const REORDER = { layout: { duration: 0.35, ease: [0.25, 0.8, 0.25, 1] as const } }
+
+/** `results` ordered by `sort`, stably, favorites first; unsorted keeps the server's order (favorites, then
+ * profit, best first). */
+function sorted(results: RankResult[], sort: Sort | null, favorites: ReadonlySet<number>): RankResult[] {
+  const key = sort && SORT_KEYS[sort.column]
+  const sign = sort?.descending ? -1 : 1
   return results.toSorted((a, b) => {
+    const f = Number(favorites.has(b.recipe_id)) - Number(favorites.has(a.recipe_id))
+    if (f || !key) return f
     const x = key(a)
     const y = key(b)
     const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y))
@@ -89,15 +96,19 @@ const DOTS = (
   </svg>
 )
 
-/** A row's ⋯ menu: stop or allow selling its output on the AH. */
+/** A row's ⋯ menu: mark the recipe as a favorite or not, stop or allow selling its output on the AH. */
 function RowActions({
   result,
   blocked,
   onSetAhBlocked,
+  favorite,
+  onSetFavorite,
 }: {
   result: RankResult
   blocked: boolean
-  onSetAhBlocked: (itemId: number, blocked: boolean) => void
+  onSetAhBlocked?: (itemId: number, blocked: boolean) => void
+  favorite: boolean
+  onSetFavorite?: (recipeId: number, favorite: boolean) => void
 }) {
   return (
     <Menu position="bottom-end" withinPortal>
@@ -107,9 +118,16 @@ function RowActions({
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>
-        <Menu.Item onClick={() => onSetAhBlocked(result.output_item_id, !blocked)}>
-          {blocked ? 'Allow selling on auction house' : 'Never sell on auction house'}
-        </Menu.Item>
+        {onSetFavorite && (
+          <Menu.Item onClick={() => onSetFavorite(result.recipe_id, !favorite)}>
+            {favorite ? 'Remove from favorites' : 'Add to favorites'}
+          </Menu.Item>
+        )}
+        {onSetAhBlocked && (
+          <Menu.Item onClick={() => onSetAhBlocked(result.output_item_id, !blocked)}>
+            {blocked ? 'Allow selling on auction house' : 'Never sell on auction house'}
+          </Menu.Item>
+        )}
       </Menu.Dropdown>
     </Menu>
   )
@@ -122,6 +140,8 @@ export function ResultsTable({
   params = DEFAULT_PARAMS,
   ahBlocked = NONE,
   onSetAhBlocked,
+  favorites = NONE,
+  onSetFavorite,
   rankBy,
   onRankBy,
 }: {
@@ -133,14 +153,19 @@ export function ResultsTable({
   params?: EvaluateParams
   /** Item ids never sold on the AH. */
   ahBlocked?: ReadonlySet<number>
-  /** Stop or allow selling an item on the AH; without it rows have no actions menu. */
+  /** Stop or allow selling an item on the AH; without it and `onSetFavorite` rows have no actions menu. */
   onSetAhBlocked?: (itemId: number, blocked: boolean) => void
+  /** Favorite recipe ids: listed first and highlighted. */
+  favorites?: ReadonlySet<number>
+  /** Mark a recipe as a favorite or not. */
+  onSetFavorite?: (recipeId: number, favorite: boolean) => void
   /** What the server ranked `results` by (best first). */
   rankBy?: RankBy
   /** Re-rank on the server: the Profit and Per hour headers call it instead of sorting this page. */
   onRankBy?: (rankBy: RankBy) => void
 }) {
-  const columns = COLUMNS.length + (onSetAhBlocked ? 1 : 0)
+  const actions = Boolean(onSetAhBlocked || onSetFavorite)
+  const columns = COLUMNS.length + (actions ? 1 : 0)
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set())
   const toggle = (id: number) =>
     setOpen((prev) => {
@@ -177,7 +202,7 @@ export function ResultsTable({
     () => Object.assign({}, rankItems, ...Object.values(evaluations).map((e) => e.data?.items ?? {})) as ItemMap,
     [rankItems, evaluations],
   )
-  const rows = useMemo(() => sorted(current, sort), [current, sort])
+  const rows = useMemo(() => sorted(current, sort, favorites), [current, sort, favorites])
   const editing = (id: number): PlanEditing => {
     const evaluation = evaluations[id]
     return {
@@ -221,16 +246,25 @@ export function ResultsTable({
                   </Table.Th>
                 )
               })}
-              {onSetAhBlocked && <Table.Th w={44} aria-label="Actions" />}
+              {actions && <Table.Th w={44} aria-label="Actions" />}
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {rows.map((r) => {
+            {rows.map((r, index) => {
               const expanded = open.has(r.recipe_id)
               const modified = r.recipe_id in choices
+              const favorite = favorites.has(r.recipe_id)
+              // Measured only when the row's place in the order changes, so expanding a row above doesn't
+              // slide the rows below it.
+              const reorder = { layout: 'position', layoutDependency: index, transition: REORDER } as const
               return (
                 <Fragment key={r.recipe_id}>
-                  <Table.Tr onClick={() => toggle(r.recipe_id)} style={{ cursor: 'pointer' }}>
+                  <MotionTr
+                    {...reorder}
+                    onClick={() => toggle(r.recipe_id)}
+                    style={{ cursor: 'pointer' }}
+                    className={favorite ? classes.favorite : undefined}
+                  >
                     <Table.Td>
                       <UnstyledButton
                         aria-expanded={expanded}
@@ -242,6 +276,11 @@ export function ResultsTable({
                       >
                         {expanded ? '▾' : '▸'}
                       </UnstyledButton>
+                      {favorite && (
+                        <Text span c="yellow" ml={4} title="Favorite" aria-label="Favorite">
+                          ★
+                        </Text>
+                      )}
                       {modified && (
                         <Text span c="yellow" ml={4} title="Your changed plan, not the best one" aria-label="Changed plan">
                           ●
@@ -308,19 +347,21 @@ export function ResultsTable({
                       <Money copper={r.revenue} padded />
                     </Table.Td>
                     <Table.Td className={COLUMN_HIDDEN['Sell via']}>{exitLabel(r.best_exit)}</Table.Td>
-                    {onSetAhBlocked && (
+                    {actions && (
                       // Menu clicks (in its portal too) bubble here in React, not to the row.
                       <Table.Td onClick={(e) => e.stopPropagation()}>
                         <RowActions
                           result={r}
                           blocked={ahBlocked.has(r.output_item_id)}
                           onSetAhBlocked={onSetAhBlocked}
+                          favorite={favorite}
+                          onSetFavorite={onSetFavorite}
                         />
                       </Table.Td>
                     )}
-                  </Table.Tr>
+                  </MotionTr>
                   {expanded && (
-                    <Table.Tr className={classes.details}>
+                    <MotionTr {...reorder} className={classes.details}>
                       <Table.Td />
                       <Table.Td colSpan={columns - 1}>
                         <SessionDetails
@@ -331,7 +372,7 @@ export function ResultsTable({
                           choices={choices[r.recipe_id]}
                         />
                       </Table.Td>
-                    </Table.Tr>
+                    </MotionTr>
                   )}
                 </Fragment>
               )

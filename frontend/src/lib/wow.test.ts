@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { makeItem, robe } from '../test/items'
-import { bindingText, iconUrl, slotLine, speedText, splitMoney } from './wow'
+import { bindingText, iconUrl, slotLine, speedText, splitMoney, zoneMapUrl } from './wow'
 
 describe('wow helpers', () => {
   it('splits copper into coins from the largest non-zero one down', () => {
@@ -43,6 +43,10 @@ describe('wow helpers', () => {
     expect(iconUrl('inv_fabric_linen_01', 'large')).toBe(
       'https://wow.zamimg.com/images/wow/icons/large/inv_fabric_linen_01.jpg',
     )
+  })
+
+  it('names a zone map by its area id among the served maps', () => {
+    expect(zoneMapUrl(1637)).toBe('/maps/1637.jpg')
   })
 
   it('names bindings', () => {

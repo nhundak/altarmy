@@ -202,7 +202,9 @@ def test_map_coordinates_come_from_the_zone_box() -> None:
     assert city().map_coords("ah") is None  # no zone in the preset
     zone = {"name": "Testville", "min_x": -100, "min_y": -200, "max_x": 100, "max_y": 200}
     c = CityMap.from_dict({**city_data(), "zone": zone})
-    assert c.zone is not None and c.zone.name == "Testville"
+    assert c.zone is not None and (c.zone.name, c.zone.area) == ("Testville", 0)  # no area: unknown
+    with_area = CityMap.from_dict({**city_data(), "zone": {**zone, "area": 1637}}).zone
+    assert with_area is not None and with_area.area == 1637
     assert c.map_coords("ah") == (50.0, 50.0)  # the middle of the box
     assert c.map_coords("mailbox:1") == (50.0, 25.0)  # world x 50: a quarter of the way up from the middle
     with pytest.raises(ValueError):

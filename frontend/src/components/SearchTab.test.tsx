@@ -142,7 +142,7 @@ describe('SearchTab', () => {
   it('saves the time settings on the server, then ranks again', async () => {
     const config = {
       ah_search: 8, ah_buy: 4, ah_post: 6, vendor_buy: 2, vendor_sell: 1.5, mail_send: 8, mail_attach: 2,
-      mail_open: 3, mail_attachments: 12, switch_character: 45, disenchant: 3.5, craft_overhead: 0.5, batch: 20,
+      mail_open: 3, mail_attachments: 12, switch_character: 45, disenchant: 3.5, craft_overhead: 0.5, batch: 10,
       time_value: 0, run_speed: 7, detour: 1.3,
     }
     const city = (name: string, faction: string) => ({ name, faction, hub: 'Auctioneer', locations: 9, vendors: 3 })

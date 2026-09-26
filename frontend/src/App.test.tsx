@@ -88,6 +88,7 @@ describe('the shell by mode and tier', () => {
       '/api/status': status(),
       '/api/characters': characters,
       '/api/ah-blocked': { items: [], details: {} },
+      '/api/favorites': { recipes: [] },
       '/api/keys': [],
       '/api/uploads': [],
       '/api/coverage': [],

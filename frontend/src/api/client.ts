@@ -22,6 +22,8 @@ export type Sources = components['schemas']['Sources']
 export type UpdateResult = components['schemas']['UpdateResult']
 /** Items never sold on the AH, with tooltip details. */
 export type AhBlocked = components['schemas']['AhBlocked']
+/** The user's favorite recipes, listed first in searches. */
+export type Favorites = components['schemas']['Favorites']
 export type Coverage = components['schemas']['CoverageOut']
 export type Config = components['schemas']['ConfigOut']
 export type Me = components['schemas']['Me']

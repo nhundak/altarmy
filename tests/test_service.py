@@ -397,3 +397,14 @@ def test_by_rate_puts_the_best_per_hour_first() -> None:
     by_profit = service.search(market, [], False, engine.Filters(), time=model)
     assert [r.recipe.name for r in by_profit] == ["Slow", "Fast"]
     assert [r.recipe.name for r in service.by_rate(by_profit)] == ["Fast", "Slow"]
+
+
+def test_favorites_first_keeps_each_part_in_order() -> None:
+    recipes = [engine.Recipe(i, f"R{i}", 10 + i, 1, ((1, 1),), "Tailoring") for i in range(1, 5)]
+    items = {1: engine.Item(1, "Cloth")} | {
+        10 + i: engine.Item(10 + i, f"T{i}", sell_price=100 * i) for i in range(1, 5)
+    }
+    ranked = service.search(engine.Market(items, recipes, {1: 10}), [], False, engine.Filters())
+    assert [r.recipe.id for r in ranked] == [4, 3, 2, 1]
+    assert [r.recipe.id for r in service.favorites_first(ranked, frozenset({1, 3}))] == [3, 1, 4, 2]
+    assert service.favorites_first(ranked, frozenset()) == ranked

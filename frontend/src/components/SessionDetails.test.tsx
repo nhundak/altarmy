@@ -17,13 +17,14 @@ const config = {
 const city = (name: string) => ({ name, faction: 'Horde', hub: 'Auctioneer', locations: 9, vendors: 3 })
 const settings = { cities: [city('Orgrimmar'), city('Thunder Bluff')], city: null, active: null, config, defaults: config }
 
-const at = (id: string, kind: string, name: string, map_x: number | null, map_y: number | null) => ({
-  id,
-  kind,
-  name,
-  map_x,
-  map_y,
-})
+const at = (
+  id: string,
+  kind: string,
+  name: string,
+  map_x: number | null,
+  map_y: number | null,
+  map_area: number | null = null,
+) => ({ id, kind, name, map_x, map_y, map_area })
 
 /** The robe planned for 20 crafts: the steps say 20x, and the details say where to go. */
 const session: RankResult = {
@@ -41,7 +42,7 @@ const session: RankResult = {
       kind: 'go',
       who: '',
       step: null,
-      location: at('mailbox:1', 'mailbox', 'Mailbox', 50, 70.4),
+      location: at('mailbox:1', 'mailbox', 'Mailbox', 50, 70.4, 1637),
       retrieve: [{ item_id: 1, count: 200 }],
       seconds: 0,
     },
@@ -125,6 +126,23 @@ describe('the Steps view plans a session', () => {
     expect(await line('Run to Mailbox at 50.0, 70.4. Retrieve 200x Linen Cloth.')).toBeInTheDocument()
     expect(localStorage.getItem('altarmy-profit.steps.detailed')).toBe('true')
     expect(screen.getAllByRole('listitem').map((li) => shown(li)?.split(' ')[0])).toContain('Craft')
+  })
+
+  it('shows the zone map with the spot marked on hovering a run', async () => {
+    localStorage.setItem('altarmy-profit.steps.detailed', 'true')
+    serve()
+    await openSteps()
+    await userEvent.hover(await screen.findByText('Run to Mailbox at 50.0, 70.4'))
+    expect(await screen.findByRole('img', { name: 'Map: Mailbox' })).toHaveAttribute(
+      'src',
+      '/maps/1637.jpg',
+    )
+    expect(screen.getByTestId('map-dot')).toHaveStyle({ left: '50%', top: '70.4%' })
+    await userEvent.unhover(screen.getByText('Run to Mailbox at 50.0, 70.4'))
+    await waitFor(() => expect(screen.queryByRole('img', { name: 'Map: Mailbox' })).not.toBeInTheDocument())
+    // a run without a known zone map is plain text
+    await userEvent.hover(screen.getAllByText(/Run to Thread Seller/)[0])
+    expect(screen.queryAllByRole('img', { name: /^Map:/ })).toHaveLength(0)
   })
 })
 

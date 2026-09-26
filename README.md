@@ -77,7 +77,7 @@ characters of one realm and faction can craft (chains may use any of their recip
 
 **Profit per hour.** Every plan is also timed: casts (DB2 cast times), clicks at the auction house, vendors
 and mailbox, character switches, and running between them in a city (see Data notes). A session crafts a
-batch (`--batch`, default 20), so a run across town or a switch to an alt is shared by the batch. `rank
+batch (`--batch`, default 10), so a run across town or a switch to an alt is shared by the batch. `rank
 --sort rate` ranks by profit per hour. `--gold-per-hour` says what an hour of play is worth: plans then
 weigh time as money, so a slow vendor run or a mail to an alt can lose to paying more at the AH. At 0 (the
 default) time never changes a plan, it is only reported. `--city` picks where to time plans; the default

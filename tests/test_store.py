@@ -76,6 +76,22 @@ def test_ah_blocked_round_trip_survives_ingest(db2_paths: dict[str, Path], conn:
     assert len(added_at) == len("2026-09-24 20:53:16")  # UTC text
 
 
+def test_favorites_round_trip_survives_ingest(db2_paths: dict[str, Path], conn: Connection) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    assert store.load_favorites(conn, ME, FOREVER) == []
+    store.set_favorite(conn, ME, FOREVER, 7, True)
+    store.set_favorite(conn, ME, FOREVER, 7, True)  # already there: kept once
+    store.set_favorite(conn, ME, FOREVER, 8, True)
+    ingest.build_db(db2_paths, conn, FOREVER)
+    assert sorted(i for i, _ in store.load_favorites(conn, ME, FOREVER)) == [7, 8]
+    assert store.load_favorites(conn, ME, "tbc") == []
+    store.set_favorite(conn, ME, FOREVER, 8, False)
+    store.set_favorite(conn, ME, FOREVER, 42, False)  # not there: nothing to do
+    ((recipe_id, added_at),) = store.load_favorites(conn, ME, FOREVER)
+    assert recipe_id == 7
+    assert len(added_at) == len("2026-09-24 20:53:16")  # UTC text
+
+
 def test_load_market_prices_from_one_auction_house(db2_paths: dict[str, Path], conn: Connection) -> None:
     ingest.build_db(db2_paths, conn, FOREVER)
     here = set_prices(conn, {1: 20})

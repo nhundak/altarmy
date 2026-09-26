@@ -379,6 +379,30 @@ export function useSetAhBlocked() {
   })
 }
 
+/** The user's favorite recipes: searches list them first. */
+export function useFavorites() {
+  return useQuery({
+    queryKey: ['favorites', GAME_VERSION],
+    queryFn: () => call(client.GET('/api/favorites', GV)),
+  })
+}
+
+/** Mark a recipe as a favorite, or not; searches are refetched, since favorites come first. */
+export function useSetFavorite() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ recipeId, favorite }: { recipeId: number; favorite: boolean }) => {
+      const params = { params: { path: { recipe_id: recipeId }, query: { game_version: GAME_VERSION } } }
+      return call(favorite ? client.PUT('/api/favorites/{recipe_id}', params) : client.DELETE('/api/favorites/{recipe_id}', params))
+    },
+    onSuccess: (list) => {
+      queryClient.setQueryData(['favorites', GAME_VERSION], list)
+      return queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'rank' })
+    },
+    onError: showError('Could not update your favorites'),
+  })
+}
+
 /** Every mutation changes the database, so refetch everything afterwards. */
 function useInvalidateAll() {
   const queryClient = useQueryClient()

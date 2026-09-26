@@ -70,8 +70,8 @@ def _zone(
     around = [z for z in zones if z[0] == map_id and z[2] <= at["x"] <= z[4] and z[3] <= at["y"] <= z[5]]
     if not around:
         return None
-    _, name, x0, y0, x1, y1 = min(around, key=lambda z: (z[4] - z[2]) * (z[5] - z[3]))
-    return {"name": name, "min_x": x0, "min_y": y0, "max_x": x1, "max_y": y1}
+    _, name, x0, y0, x1, y1, area = min(around, key=lambda z: (z[4] - z[2]) * (z[5] - z[3]))
+    return {"name": name, "min_x": x0, "min_y": y0, "max_x": x1, "max_y": y1, "area": area}
 
 
 def build_city(

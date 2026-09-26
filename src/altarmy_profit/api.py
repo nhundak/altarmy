@@ -253,6 +253,7 @@ class LocationOut(BaseModel):
     name: str
     map_x: float | None  # on the city's zone map, percent; None if the preset has no zone
     map_y: float | None
+    map_area: int | None  # the zone map's AreaTable id (frontend/public/maps/<id>.jpg); None if unknown
 
 
 class DetailOut(BaseModel):
@@ -373,6 +374,17 @@ class AhBlocked(BaseModel):
 
     items: list[AhBlockedItem]  # newest first
     details: dict[int, ItemInfo]  # for tooltips
+
+
+class FavoriteRecipe(BaseModel):
+    recipe_id: int
+    added_at: str  # "YYYY-MM-DD HH:MM:SS", UTC
+
+
+class Favorites(BaseModel):
+    """Recipes the user marked as favorites: /api/rank lists them first."""
+
+    recipes: list[FavoriteRecipe]  # newest first
 
 
 class UpdateResult(BaseModel):
@@ -914,10 +926,10 @@ def get_rank(
     ] = "profit",
     top: Annotated[int, Query(ge=1)] = 50,
 ) -> RankResponse:
-    """What the selected realm/faction's characters can craft, most profitable first (per craft, or with
-    `sort=rate` per hour of play in the user's city); without characters, every recipe, crafted by one
-    unnamed character (nothing is mailed). Bounds are inclusive; an omitted bound is unbounded (so losses
-    are included unless `min_profit` is set)."""
+    """What the selected realm/faction's characters can craft, the user's favorites first, then most
+    profitable first (per craft, or with `sort=rate` per hour of play in the user's city); without
+    characters, every recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive;
+    an omitted bound is unbounded (so losses are included unless `min_profit` is set)."""
     s = _selected(state, user)
     base, chars, no_ah = s.base, s.chars, s.no_ah
     # Without characters the ranking depends on nobody but the time settings: browsing users with the same
@@ -949,6 +961,8 @@ def get_rank(
     if professions:
         wanted = {p.lower() for p in professions}
         matches = [r for r in matches if r.recipe.skill_name.lower() in wanted]
+    if s.favorites:
+        matches = service.favorites_first(matches, s.favorites)
     results = matches[:top]
     crafters = altarmy.crafters(chars)
     return RankResponse(
@@ -995,6 +1009,7 @@ class Selected:
     base: engine.Market
     chars: list[altarmy.Character]
     no_ah: frozenset[int]
+    favorites: frozenset[int]  # recipe ids
     time: engine.TimeModel
     cities: list[timing.CityMap]
 
@@ -1004,6 +1019,7 @@ def _selected(state: AppState, user: auth.User) -> Selected:
         sel, chars = service.selected_characters(conn, user.uid, state.key)
         ah = service.auction_house_of(conn, state.key, sel)
         no_ah = _no_ah(state, conn, user)
+        favorites = frozenset(i for i, _ in store.load_favorites(conn, user.uid, state.key))
         faction = sel.faction if sel else ""
         model = service.time_model(conn, user.uid, state.key, state.cities, faction)
     base = state.cache.get(ah)
@@ -1011,6 +1027,7 @@ def _selected(state: AppState, user: auth.User) -> Selected:
         base,
         service.imply_recipes(base.recipes, chars),
         no_ah,
+        favorites,
         model,
         service.faction_cities(state.cities, faction),
     )
@@ -1182,6 +1199,8 @@ def _details_out(r: engine.Result) -> list[DetailOut]:
     if city is None:
         return []
 
+    area = city.zone.area if city.zone is not None and city.zone.area else None
+
     def where(loc_id: str) -> LocationOut:
         loc = city.location(loc_id)
         coords = city.map_coords(loc_id)
@@ -1191,6 +1210,7 @@ def _details_out(r: engine.Result) -> list[DetailOut]:
             name=loc.name,
             map_x=coords[0] if coords else None,
             map_y=coords[1] if coords else None,
+            map_area=area,
         )
 
     return [
@@ -1280,6 +1300,33 @@ def unblock_ah(state: State, user: CurrentUser, item_id: int) -> AhBlocked:
     with _connect(state) as conn:
         store.set_ah_blocked(conn, user.uid, state.key, item_id, False)
         return _ah_blocked(state, conn, user)
+
+
+def _favorites(state: AppState, conn: Connection, user: auth.User) -> Favorites:
+    favorites = store.load_favorites(conn, user.uid, state.key)
+    return Favorites(recipes=[FavoriteRecipe(recipe_id=i, added_at=added) for i, added in favorites])
+
+
+@router.get("/favorites")
+def get_favorites(state: State, user: CurrentUser) -> Favorites:
+    with _connect(state) as conn:
+        return _favorites(state, conn, user)
+
+
+@router.put("/favorites/{recipe_id}")
+def add_favorite(state: State, user: CurrentUser, recipe_id: int) -> Favorites:
+    """Mark `recipe_id` as a favorite: /api/rank lists it first."""
+    with _connect(state) as conn:
+        store.set_favorite(conn, user.uid, state.key, recipe_id, True)
+        return _favorites(state, conn, user)
+
+
+@router.delete("/favorites/{recipe_id}")
+def remove_favorite(state: State, user: CurrentUser, recipe_id: int) -> Favorites:
+    """Unmark `recipe_id` as a favorite."""
+    with _connect(state) as conn:
+        store.set_favorite(conn, user.uid, state.key, recipe_id, False)
+        return _favorites(state, conn, user)
 
 
 # --- uploads and API keys -------------------------------------------------------------------------

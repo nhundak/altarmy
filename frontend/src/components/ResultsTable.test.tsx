@@ -309,6 +309,18 @@ describe('ResultsTable', () => {
       expect(header('Recipe')).toHaveAttribute('aria-sort', 'none')
     })
 
+    it('keeps favorites first and marks them, whatever the sort', async () => {
+      renderWithProviders(<ResultsTable results={rows} items={items} favorites={new Set([3])} />)
+      expect(order()).toEqual(['Cape', 'Bolt', 'Axe'])
+      await sortBy('Cost')
+      expect(order()).toEqual(['Cape', 'Axe', 'Bolt'])
+      await sortBy('Cost')
+      expect(order()).toEqual(['Cape', 'Bolt', 'Axe'])
+      expect(screen.getAllByLabelText('Favorite')).toHaveLength(1)
+      expect(screen.getByRole('button', { name: 'Details for Cape' }).closest('tr')?.className).toMatch(/favorite/)
+      expect(screen.getByRole('button', { name: 'Details for Axe' }).closest('tr')?.className).not.toMatch(/favorite/)
+    })
+
     it('sorts profit ascending to surface the losers', async () => {
       renderWithProviders(<ResultsTable results={rows} items={items} />)
       await sortBy('Profit')
@@ -477,6 +489,24 @@ describe('ResultsTable', () => {
       expect(onSetAhBlocked).toHaveBeenCalledWith(3, false)
     })
 
+    it('offers to add a recipe to favorites', async () => {
+      const onSetFavorite = vi.fn()
+      renderWithProviders(<ResultsTable results={[robe]} items={items} onSetFavorite={onSetFavorite} />)
+      await userEvent.click(screen.getByRole('button', { name: 'Actions for Green Robe' }))
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Add to favorites' }))
+      expect(onSetFavorite).toHaveBeenCalledWith(robe.recipe_id, true)
+    })
+
+    it('offers to remove a favorite', async () => {
+      const onSetFavorite = vi.fn()
+      renderWithProviders(
+        <ResultsTable results={[robe]} items={items} favorites={new Set([robe.recipe_id])} onSetFavorite={onSetFavorite} />,
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Actions for Green Robe' }))
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Remove from favorites' }))
+      expect(onSetFavorite).toHaveBeenCalledWith(robe.recipe_id, false)
+    })
+
     it('has no actions menu without a handler', () => {
       renderRows([robe])
       expect(screen.queryByRole('button', { name: 'Actions for Green Robe' })).not.toBeInTheDocument()
@@ -536,7 +566,7 @@ describe('ResultsTable profit per hour', () => {
     renderRows([timedRobe])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     const text = (t: string) => screen.findByText((_, el) => el?.tagName === 'P' && shown(el) === t)
-    expect(await text('20 crafts: cost 3 0 · profit 2 0 · 4 min 10 s · 1 23 45/hr')).toBeInTheDocument()
+    expect(await text('10 crafts: cost 3 0 · profit 2 0 · 4 min 10 s · 1 23 45/hr')).toBeInTheDocument()
     expect(screen.queryByText(/^A batch of|^By city/)).not.toBeInTheDocument() // the controls say it now
     expect(screen.getByText(/No vendor in Orgrimmar sells Coarse Thread/)).toBeInTheDocument()
     expect(screen.queryByText(/can't be crafted there/)).not.toBeInTheDocument()

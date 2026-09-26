@@ -7,9 +7,10 @@ import { bonusNote, discountNote } from '../lib/talents'
 import { formatCoords, formatSeconds } from '../lib/time'
 import { CharacterName } from './CharacterName'
 import { ChoiceMenu, ChooseContext, sellChoices, sourceChoices, type PlanEditing } from './ChoiceMenu'
-import { DisenchantHover, ItemLink } from './ItemTooltip'
+import { DisenchantHover, Hover, ItemLink } from './ItemTooltip'
 import { Money } from './Money'
 import classes from './ResultsTable.module.css'
+import { ZoneMap } from './ZoneMap'
 
 /** A step's amount: spending is a cost (red, unsigned), income is a signed gain. */
 const StepMoney = ({ value }: { value: number }) =>
@@ -161,12 +162,24 @@ type Detail = RankResult['details'][number]
 /** A run to somewhere, with what to take from the mailbox there. */
 function goLine({ who, location, retrieve, seconds }: Detail, items: ItemMap): ReactNode {
   if (!location) return null
-  const at = location.map_x != null && location.map_y != null ? ` at ${formatCoords(location.map_x, location.map_y)}` : ''
+  const { name, map_x: x, map_y: y, map_area: area } = location
+  const run = (
+    <>
+      Run to {name}
+      {x != null && y != null && ` at ${formatCoords(x, y)}`}
+    </>
+  )
   return (
     <>
       <Who who={who} />
-      Run to {location.name}
-      {at}.
+      {area != null && x != null && y != null ? (
+        <Hover tooltip={<ZoneMap area={area} x={x} y={y} name={name} />}>
+          <span className={classes.mapLink}>{run}</span>
+        </Hover>
+      ) : (
+        run
+      )}
+      .
       {retrieve.length > 0 && (
         <>
           {' '}

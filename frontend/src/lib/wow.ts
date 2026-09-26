@@ -60,6 +60,11 @@ export function iconUrl(icon: string, size: 'small' | 'medium' | 'large'): strin
   return `https://wow.zamimg.com/images/wow/icons/${size}/${icon}.jpg`
 }
 
+/** A zone's map (772x515), by AreaTable id, served with the front end (`public/maps`, fetched from Wowhead by
+ * scripts/fetch_zone_maps.py); it frames the zone as the in-game world map does, so map coordinates are
+ * percentages of it. */
+export const zoneMapUrl = (area: number): string => `/maps/${area}.jpg`
+
 /** Copper split into the coins to show, from the largest non-zero one down to copper, zeros included so amounts
  * line up (0 shows as 0 copper). Copper is left out from 100 gold, silver too from 10000 gold. */
 export function splitMoney(copper: number): { unit: 'gold' | 'silver' | 'copper'; amount: number }[] {

@@ -1,0 +1,5 @@
+/* Mantine fills a closed separated accordion item with gray-0, which is the light scheme's page: a shade darker
+   so it still reads as something to click, as dark-6 on dark-7 does. */
+[data-mantine-color-scheme='light'] .accordionItem {
+  --item-filled-color: var(--mantine-color-gray-1);
+}

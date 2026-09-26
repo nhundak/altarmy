@@ -4,6 +4,35 @@ tr.details:hover {
   background-color: transparent;
 }
 
+/* A favorite recipe's row: a faint gold wash (Mantine's stripe and hover colours are redefined, so neither
+   hides it) and a thin gold ring, drawn on the cells since a collapsed table's rows take no border. */
+.favorite {
+  --favorite-ring: color-mix(in srgb, var(--mantine-color-yellow-6) 55%, transparent);
+  --table-striped-color: color-mix(in srgb, var(--mantine-color-yellow-6) 10%, transparent);
+  --table-highlight-on-hover-color: color-mix(in srgb, var(--mantine-color-yellow-6) 16%, transparent);
+  background-color: color-mix(in srgb, var(--mantine-color-yellow-6) 10%, transparent);
+}
+
+.favorite > td {
+  box-shadow:
+    inset 0 1px 0 var(--favorite-ring),
+    inset 0 -1px 0 var(--favorite-ring);
+}
+
+.favorite > td:first-child {
+  box-shadow:
+    inset 1px 0 0 var(--favorite-ring),
+    inset 0 1px 0 var(--favorite-ring),
+    inset 0 -1px 0 var(--favorite-ring);
+}
+
+.favorite > td:last-child {
+  box-shadow:
+    inset -1px 0 0 var(--favorite-ring),
+    inset 0 1px 0 var(--favorite-ring),
+    inset 0 -1px 0 var(--favorite-ring);
+}
+
 /* Sortable column headers: the arrow shows faintly until its column is the sort. */
 /* A step's alternatives menu, just after its text. */
 .stepChoice {
@@ -49,4 +78,10 @@ tr.details:hover {
   .hideBelowXs {
     display: none;
   }
+}
+
+/* A run whose spot shows on the zone map on hover. */
+.mapLink {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
 }

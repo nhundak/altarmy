@@ -73,6 +73,7 @@ def test_zone_boxes_are_the_whole_map_assignments(tmp_path: Path) -> None:
             "ID",
             "UiMapID",
             "MapID",
+            "AreaID",
         ],
         [
             {
@@ -89,6 +90,7 @@ def test_zone_boxes_are_the_whole_map_assignments(tmp_path: Path) -> None:
                 "ID": 1,
                 "UiMapID": 1454,
                 "MapID": 1,
+                "AreaID": 1637,
             },
             # a corner of a map (a sub-zone overlay): not the whole map
             {
@@ -105,11 +107,12 @@ def test_zone_boxes_are_the_whole_map_assignments(tmp_path: Path) -> None:
                 "ID": 2,
                 "UiMapID": 1454,
                 "MapID": 1,
+                "AreaID": 1637,
             },
         ],
     )
     names = write_csv(tmp_path / "UiMap.csv", ["Name_lang", "ID"], [{"Name_lang": "Orgrimmar", "ID": 1454}])
-    assert ingest.zone_boxes(uma, names) == [(1, "Orgrimmar", 1000.0, -5000.0, 2000.0, -4000.0)]
+    assert ingest.zone_boxes(uma, names) == [(1, "Orgrimmar", 1000.0, -5000.0, 2000.0, -4000.0, 1637)]
 
 
 def test_build_db_without_cast_time_or_focus_reads_zero(

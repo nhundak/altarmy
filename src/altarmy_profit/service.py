@@ -245,6 +245,14 @@ def by_rate(results: Iterable[Result]) -> list[Result]:
     return sorted(results, key=lambda r: -(r.rate if r.rate is not None else -(10**18)))
 
 
+def favorites_first(results: Iterable[Result], favorites: frozenset[int]) -> list[Result]:
+    """`results` with the favorite recipes' first; each part keeps its order."""
+    listed = list(results)
+    return [r for r in listed if r.recipe.id in favorites] + [
+        r for r in listed if r.recipe.id not in favorites
+    ]
+
+
 # --- profit per hour -------------------------------------------------------------------------------
 DEFAULT_CITIES = ("Orgrimmar", "Stormwind")  # where a faction's plans are timed unless the user picks
 

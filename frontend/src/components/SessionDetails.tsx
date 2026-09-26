@@ -15,7 +15,7 @@ import { Earned, StepList } from './StepList'
 import { TimingNotes } from './TimingSummary'
 
 /** Copies when the time settings haven't loaded (their own default). */
-const FALLBACK_COPIES = 20
+const FALLBACK_COPIES = 10
 const MAX_COPIES = 1000
 
 type View = 'flow' | 'steps'

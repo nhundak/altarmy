@@ -531,6 +531,41 @@
         "title": "ExitOut",
         "type": "object"
       },
+      "FavoriteRecipe": {
+        "properties": {
+          "added_at": {
+            "title": "Added At",
+            "type": "string"
+          },
+          "recipe_id": {
+            "title": "Recipe Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "recipe_id",
+          "added_at"
+        ],
+        "title": "FavoriteRecipe",
+        "type": "object"
+      },
+      "Favorites": {
+        "description": "Recipes the user marked as favorites: /api/rank lists them first.",
+        "properties": {
+          "recipes": {
+            "items": {
+              "$ref": "#/components/schemas/FavoriteRecipe"
+            },
+            "title": "Recipes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "recipes"
+        ],
+        "title": "Favorites",
+        "type": "object"
+      },
       "FirebaseOut": {
         "description": "The Firebase web config the front end signs in with (public values).",
         "properties": {
@@ -859,6 +894,17 @@
             "title": "Kind",
             "type": "string"
           },
+          "map_area": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Map Area"
+          },
           "map_x": {
             "anyOf": [
               {
@@ -891,7 +937,8 @@
           "kind",
           "name",
           "map_x",
-          "map_y"
+          "map_y",
+          "map_area"
         ],
         "title": "LocationOut",
         "type": "object"
@@ -2933,6 +2980,174 @@
         "summary": "Evaluate"
       }
     },
+    "/api/favorites": {
+      "get": {
+        "operationId": "get_favorites_api_favorites_get",
+        "parameters": [
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Favorites"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Favorites"
+      }
+    },
+    "/api/favorites/{recipe_id}": {
+      "delete": {
+        "description": "Unmark `recipe_id` as a favorite.",
+        "operationId": "remove_favorite_api_favorites__recipe_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "recipe_id",
+            "required": true,
+            "schema": {
+              "title": "Recipe Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Favorites"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Remove Favorite"
+      },
+      "put": {
+        "description": "Mark `recipe_id` as a favorite: /api/rank lists it first.",
+        "operationId": "add_favorite_api_favorites__recipe_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "recipe_id",
+            "required": true,
+            "schema": {
+              "title": "Recipe Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Favorites"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Favorite"
+      }
+    },
     "/api/game-data/update": {
       "post": {
         "operationId": "update_game_data_api_game_data_update_post",
@@ -3199,7 +3414,7 @@
     },
     "/api/rank": {
       "get": {
-        "description": "What the selected realm/faction's characters can craft, most profitable first (per craft, or with\n`sort=rate` per hour of play in the user's city); without characters, every recipe, crafted by one\nunnamed character (nothing is mailed). Bounds are inclusive; an omitted bound is unbounded (so losses\nare included unless `min_profit` is set).",
+        "description": "What the selected realm/faction's characters can craft, the user's favorites first, then most\nprofitable first (per craft, or with `sort=rate` per hour of play in the user's city); without\ncharacters, every recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive;\nan omitted bound is unbounded (so losses are included unless `min_profit` is set).",
         "operationId": "get_rank_api_rank_get",
         "parameters": [
           {
