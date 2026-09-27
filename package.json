@@ -14,5 +14,8 @@
     "concurrently": "^10.0.5",
     "firebase-tools": "^14.27.0",
     "wait-on": "^9.1.0"
+  },
+  "overrides": {
+    "typescript": "^5.9.0"
   }
 }
