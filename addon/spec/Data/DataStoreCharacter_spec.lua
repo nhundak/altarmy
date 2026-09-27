@@ -203,6 +203,99 @@ describe("DataStoreCharacter", function()
     end)
   end)
 
+  describe("ScanCharacter renamed characters", function()
+    -- WoW Forever's UnitName("player") went from "Frell Ofelements" to "Frell" for the same character,
+    -- so the old key must fold into the new one instead of staying as a duplicate.
+    local guid
+    before_each(function()
+      AltArmyTBC_Data.Characters = {}
+      guid = "Player-1-A"
+      _G.UnitName = function() return "Frell" end
+      _G.GetRealmName = function() return "Classic Beta PvE" end
+      _G.UnitLevel = function() return 21 end
+      _G.GetMoney = function() return 500 end
+      _G.UnitClass = function() return "Shaman", "SHAMAN" end
+      _G.UnitRace = function() return "Tauren", "TAUREN" end
+      _G.UnitSex = function() return 2 end
+      _G.UnitFactionGroup = function() return "Horde" end
+      _G.UnitXP = function() return 0 end
+      _G.UnitXPMax = function() return 100 end
+      _G.GetXPExhaustion = function() return 0 end
+      _G.GetGuildInfo = function() return nil end
+      _G.UnitGUID = function(unit) if unit == "player" then return guid end end
+      _G.time = function() return 1700000000 end
+    end)
+
+    local function oldEntry(name, fields)
+      local e = {
+        name = name, realm = "Classic Beta PvE", level = 20, money = 100,
+        class = "Shaman", classFile = "SHAMAN", raceFile = "TAUREN", faction = "Horde",
+        Professions = { Leatherworking = { rank = 102 } },
+      }
+      for k, v in pairs(fields or {}) do e[k] = v end
+      AltArmyTBC_Data.Characters["Classic Beta PvE"][name] = e
+      return e
+    end
+
+    local function keys()
+      local out = {}
+      for k in pairs(AltArmyTBC_Data.Characters["Classic Beta PvE"]) do out[#out + 1] = k end
+      table.sort(out)
+      return out
+    end
+
+    it("stores the character's GUID", function()
+      DS:ScanCharacter()
+      assert.are.equal("Player-1-A", AltArmyTBC_Data.Characters["Classic Beta PvE"].Frell.guid)
+      assert.are.equal(2, AltArmyTBC_Data.Characters["Classic Beta PvE"].Frell.dataVersions.character)
+    end)
+
+    it("folds the entry saved under the full name into the new key", function()
+      AltArmyTBC_Data.Characters["Classic Beta PvE"] = {}
+      oldEntry("Frell Ofelements")
+      DS:ScanCharacter()
+      assert.are.same({ "Frell" }, keys())
+      local char = AltArmyTBC_Data.Characters["Classic Beta PvE"].Frell
+      -- Fresh scan values win; what this scan does not write is kept from the old entry.
+      assert.are.equal("Frell", char.name)
+      assert.are.equal(21, char.level)
+      assert.are.equal(500, char.money)
+      assert.are.equal(102, char.Professions.Leatherworking.rank)
+    end)
+
+    it("folds a short key into the full name the other way round", function()
+      _G.UnitName = function() return "Frell Ofelements" end
+      AltArmyTBC_Data.Characters["Classic Beta PvE"] = {}
+      oldEntry("Frell")
+      DS:ScanCharacter()
+      assert.are.same({ "Frell Ofelements" }, keys())
+    end)
+
+    it("folds any entry with the same GUID", function()
+      AltArmyTBC_Data.Characters["Classic Beta PvE"] = {}
+      oldEntry("Someone Else", { guid = "Player-1-A", classFile = "SHAMAN" })
+      DS:ScanCharacter()
+      assert.are.same({ "Frell" }, keys())
+    end)
+
+    it("keeps other characters that share the first name", function()
+      AltArmyTBC_Data.Characters["Classic Beta PvE"] = {}
+      oldEntry("Frell Blast", { class = "Mage", classFile = "MAGE" })
+      oldEntry("Frell Hound", { guid = "Player-1-B" })
+      oldEntry("Frells Angel")
+      DS:ScanCharacter()
+      assert.are.same({ "Frell", "Frell Blast", "Frell Hound", "Frells Angel" }, keys())
+    end)
+
+    it("leaves other realms alone", function()
+      AltArmyTBC_Data.Characters["Other Realm"] = {
+        ["Frell Ofelements"] = { name = "Frell Ofelements", classFile = "SHAMAN", raceFile = "TAUREN", faction = "Horde" },
+      }
+      DS:ScanCharacter()
+      assert.is_not_nil(AltArmyTBC_Data.Characters["Other Realm"]["Frell Ofelements"])
+    end)
+  end)
+
   describe("ScanGuildMembership", function()
     before_each(function()
       AltArmyTBC_Data.Characters = {}

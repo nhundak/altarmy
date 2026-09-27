@@ -25,7 +25,7 @@ DS.MAX_LEVEL = (GetMaxPlayerLevel and GetMaxPlayerLevel()) or 70
 DS.IsWowForever = (GetBuildInfo and select(4, GetBuildInfo()) == 16001) or false
 
 local DATA_VERSIONS = {
-    character = 1,
+    character = 2,
     guildMembership = 1,
     containers = 2,
     equipment = 1,
@@ -55,12 +55,23 @@ local function SyncAccountDataRoot()
     AltArmy.DB = AltArmyTBC_Data
 end
 
+-- UnitName("player") reads UNKNOWNOBJECT ("Unknown") early in loading; that is no character's name.
+local UNKNOWN_NAME = "Unknown"
+
+local function IsUnknownName(name)
+    return name == UNKNOWN_NAME or (UNKNOWNOBJECT ~= nil and name == UNKNOWNOBJECT) --luacheck: ignore 113
+end
+
 local function GetCurrentName()
+    local name
     if UnitName then
-        local name = UnitName("player")
-        if name and name ~= "" then return name end
+        name = UnitName("player")
     end
-    return GetUnitName and GetUnitName("player") or ""
+    if not name or name == "" then
+        name = GetUnitName and GetUnitName("player") or ""
+    end
+    if IsUnknownName(name) then return "" end
+    return name
 end
 
 local function GetCurrentRealm()
@@ -100,7 +111,53 @@ local function MigrateDataVersions(data)
     end
 end
 
+--- Drop entries keyed "Unknown" that were never scanned (no name, class or faction): older versions made one
+--- when UnitName("player") still read "Unknown" during loading.
+local function RemoveUnknownStubs(data)
+    data = data or AltArmyTBC_Data
+    for _, chars in pairs(data.Characters or {}) do
+        for key, char in pairs(chars) do
+            if IsUnknownName(key) and type(char) == "table"
+                and not char.name and not char.classFile and not char.faction
+            then
+                chars[key] = nil
+            end
+        end
+    end
+end
+
+--- True when `oldKey`'s entry is the character now saved as `name` (with `char`'s scanned fields).
+--- WoW Forever changed UnitName("player") from the full name ("Frell Ofelements") to the first name
+--- ("Frell"). Two entries with GUIDs match only on GUID; without one, a key that is the other's first name
+--- matches when class, race and faction agree.
+local function IsSameCharacter(oldKey, old, name, char)
+    if type(old) ~= "table" or oldKey == name then return false end
+    if old.guid and char.guid then return old.guid == char.guid end
+    local short, full = oldKey, name
+    if #short > #full then short, full = full, short end
+    if short:find(" ", 1, true) or full:match("^(%S+) ") ~= short then return false end
+    return old.classFile == char.classFile and old.raceFile == char.raceFile and old.faction == char.faction
+end
+
+--- Fold older entries of the current character (see IsSameCharacter) on `realm` into `char`, keeping
+--- `char`'s values, and delete them.
+local function MergeRenamedCharacter(data, realm, name, char)
+    local chars = (data or AltArmyTBC_Data).Characters
+    local realmTable = chars and chars[realm]
+    if not realmTable or not char then return end
+    for key, old in pairs(realmTable) do
+        if IsSameCharacter(key, old, name, char) then
+            for field, value in pairs(old) do
+                if char[field] == nil then char[field] = value end
+            end
+            realmTable[key] = nil
+        end
+    end
+end
+
 DS._GetCurrentCharTable = GetCurrentCharTable
+DS._RemoveUnknownStubs = RemoveUnknownStubs
+DS._MergeRenamedCharacter = MergeRenamedCharacter
 DS._MigrateDataVersions = MigrateDataVersions
 DS._DATA_VERSIONS = DATA_VERSIONS
 
@@ -459,6 +516,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
             AltArmyTBC_Data.Characters = AltArmyTBC_Data.Characters or {}
             AltArmyTBC_Data.OrphanImports = AltArmyTBC_Data.OrphanImports or {}
             AltArmyTBC_Data.RecipeReagents = AltArmyTBC_Data.RecipeReagents or {}
+            RemoveUnknownStubs()
             GetCurrentCharTable()
             MigrateDataVersions()
             if DS.MigratePhantomLevelHistoryImports then

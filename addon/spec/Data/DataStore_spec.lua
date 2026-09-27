@@ -215,6 +215,36 @@ describe("DataStore", function()
     end)
   end)
 
+  describe("the name while loading", function()
+    -- UnitName("player") reads "Unknown" (UNKNOWNOBJECT) early in loading: never key a character by it.
+    it("is empty while UnitName says Unknown", function()
+      _G.UnitName = function() return "Unknown" end
+      _G.GetRealmName = function() return "RealmA" end
+      _G.AltArmyTBC_Data = { Characters = {} }
+      assert.are.equal("", DS:GetCurrentPlayerName())
+      assert.is_nil(DS:GetCurrentCharacter())
+      assert.is_nil(AltArmyTBC_Data.Characters.RealmA)
+    end)
+
+    it("drops stubs saved under Unknown that were never scanned", function()
+      local data = { Characters = {
+        RealmA = {
+          Unknown = { lastUpdate = 5, Reputations = {} },
+          Alice = { name = "Alice", faction = "Horde" },
+        },
+      } }
+      DS._RemoveUnknownStubs(data)
+      assert.is_nil(data.Characters.RealmA.Unknown)
+      assert.is_not_nil(data.Characters.RealmA.Alice)
+    end)
+
+    it("keeps a real character named Unknown", function()
+      local data = { Characters = { RealmA = { Unknown = { name = "Unknown", faction = "Horde" } } } }
+      DS._RemoveUnknownStubs(data)
+      assert.is_not_nil(data.Characters.RealmA.Unknown)
+    end)
+  end)
+
   describe("IsCurrentCharacter", function()
     before_each(function()
       _G.UnitName = function() return "Alice" end
@@ -323,7 +353,7 @@ describe("DataStore", function()
       assert.is_true(DS:NeedsRescan({ dataVersions = { character = 0 } }, "character"))
     end)
     it("returns false when stored version == current", function()
-      assert.is_false(DS:NeedsRescan({ dataVersions = { character = 1 } }, "character"))
+      assert.is_false(DS:NeedsRescan({ dataVersions = { character = DS._DATA_VERSIONS.character } }, "character"))
     end)
   end)
 

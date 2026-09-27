@@ -80,7 +80,7 @@ Data flows in one direction:
 - No required external addon dependencies. DataStore is internal; no DataStore_Characters or similar.
 - OptionalDeps (Auctionator, CraftLib, etc.) enrich features when present.
 - WoW API usage is defensive: check for function existence (e.g. `UnitName and UnitName("player")`, `GetRealmName and GetRealmName()`) so the addon runs on TBC Classic even when some APIs differ or are missing.
-- SavedVariables key is `AltArmyTBC_Data`; structure is `Characters[realm][name] = charData`.
+- SavedVariables key is `AltArmyTBC_Data`; structure is `Characters[realm][name] = charData`. The name is `UnitName("player")` (never `Unknown`); since it can change for the same character (WoW Forever dropped surnames), `ScanCharacter` stores `guid` and folds the character's older keys into the current one (see `DATA_VERSIONS.md`, character v2).
 
 ---
 

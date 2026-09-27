@@ -7,8 +7,9 @@ Canonical table: `DATA_VERSIONS` in [`DataStore.lua`](DataStore/DataStore.lua).
 
 ## Module Versions
 
-### character (v1)
+### character (v2)
 - **v1**: Initial version. Stores name, realm, level, class, classFile, race, faction, money, xp, xpMax, restXP, played, lastLogout, lastUpdate.
+- **v2**: Also stores `guid` (`UnitGUID("player")`). Each scan folds older entries of the same character on the realm into the current key and deletes them: the same `guid`, or, for entries without one, a key that is the other's first name with the same classFile, raceFile and faction (WoW Forever's `UnitName("player")` went from "Frell Ofelements" to "Frell"). Entries keyed `Unknown` that were never scanned (made while `UnitName` read `UNKNOWNOBJECT` during loading) are dropped at `ADDON_LOADED`, and that name is never used as a key.
 
 ### guildMembership (v1)
 - **v1**: Guild name / membership fields on the character for guild-tab and sharing eligibility (written with character scans).

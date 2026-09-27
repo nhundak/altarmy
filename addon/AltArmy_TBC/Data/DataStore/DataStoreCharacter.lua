@@ -44,6 +44,8 @@ function DS:ScanCharacter(_self)
     else
         char.faction = ""
     end
+    char.guid = (UnitGUID and UnitGUID("player")) or char.guid
+    DS._MergeRenamedCharacter(nil, char.realm, char.name, char)
     -- Guild membership (needed by guild data sharing; nil = not in a guild).
     DS:ScanGuildMembership()
     if GetMoney then
