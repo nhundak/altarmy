@@ -21,14 +21,23 @@ export function Summary({ result }: { result: UploadResult }) {
       {result.realms.map((r) => (
         <Group key={r.key} gap="xs">
           <Text size="sm">
-            {r.realm}
+            {r.realm || r.key}
             {r.faction ? ` (${r.faction})` : ''}: {r.items} prices
-            {r.quarantined ? '' : `, ${r.moved} changed`}
+            {r.quarantined || r.skipped ? '' : `, ${r.moved} changed`}
           </Text>
-          {r.quarantined && (
-            <Badge color="yellow" variant="light" title="They differ widely from recent scans of this realm">
+          {(r.quarantined || r.skipped) && (
+            <Badge
+              color="yellow"
+              variant="light"
+              title={r.skipped ?? 'They differ widely from recent scans of this realm'}
+            >
               not used
             </Badge>
+          )}
+          {r.skipped && (
+            <Text size="sm" c="dimmed">
+              {r.skipped}
+            </Text>
           )}
         </Group>
       ))}

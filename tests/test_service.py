@@ -187,9 +187,9 @@ def test_market_cache_sees_other_processes_changes_after_its_ttl(
 def test_selection_falls_back_to_the_freshest_scanned_realm(conn: Connection) -> None:
     assert service.selection(conn, ME, FOREVER, []) is None
     set_prices(conn, {1: 20}, realm="Dreamscythe", faction="Horde")
-    set_prices(conn, {1: 30})  # Classic Beta PvE (both factions), later
-    set_prices(conn, {1: 40}, realm="")  # the unnamed auction house never counts
-    assert service.selection(conn, ME, FOREVER, []) == Selection("Classic Beta PvE", "")
+    set_prices(conn, {1: 30})  # Classic Beta PvE Horde, later
+    set_prices(conn, {1: 40}, realm="", faction="")  # the unnamed auction house never counts
+    assert service.selection(conn, ME, FOREVER, []) == Selection("Classic Beta PvE", "Horde")
 
     service.select(conn, ME, FOREVER, "Dreamscythe", "Horde")  # a realm with prices but no characters
     assert service.selected_characters(conn, ME, FOREVER) == (Selection("Dreamscythe", "Horde"), [])
@@ -201,7 +201,7 @@ def test_selection_falls_back_to_the_freshest_scanned_realm(conn: Connection) ->
 
 def test_an_import_forgets_a_selected_realm_it_has_no_characters_on(conn: Connection) -> None:
     set_prices(conn, {1: 20}, realm="Elsewhere")
-    service.select(conn, ME, FOREVER, "Elsewhere", "")
+    service.select(conn, ME, FOREVER, "Elsewhere", "Horde")
     service.replace_characters(conn, ME, FOREVER, chars())
     assert service.selected_characters(conn, ME, FOREVER)[0] == Selection("Dreamscythe", "Horde")
 

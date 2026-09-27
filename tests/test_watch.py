@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Connection
 
-from altarmy_profit import cli, prices, signin, store, watch
+from altarmy_profit import cli, signin, store, uploads, watch
 from altarmy_profit.versions import VERSIONS
 
 from .conftest import FOREVER, ME, SV_DIR
@@ -114,7 +114,7 @@ def test_sync_uploads_what_changed(
     assert server.seen[0][0] == "http://server/api/uploads?game_version=forever"
     assert server.seen[0][1]["Authorization"] == f"Bearer password:{ME}"
     assert store.count_characters(conn, ME, FOREVER) == 4
-    assert prices.find_auction_house(conn, FOREVER, "Classic Beta PvE", "") is not None
+    assert [u.kind for u in uploads.recent(conn, ME)] == ["auctionator", "altarmy"]
 
     assert watch.sync_once([wow_root], "http://server", me, state, server, print) == []
     touch(wow_root / SV_DIR / "AltArmy_TBC.lua")

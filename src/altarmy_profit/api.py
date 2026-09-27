@@ -446,6 +446,7 @@ class CoverageOut(BaseModel):
     last_scan_items: int  # items in that scan
     scans_7d: int  # accepted scans in the last 7 days
     uploaders_7d: int  # how many users sent them
+    sources: list[str]  # where those scans came from ("auctionator", "ahledger", ...), sorted
 
 
 UploadKind = Literal["altarmy", "auctionator"]
@@ -461,12 +462,13 @@ class GroupCount(BaseModel):
 
 class RealmPricesOut(BaseModel):
     key: str  # Auctionator's realm key
-    auction_house_id: int
+    auction_house_id: int | None  # None if skipped
     realm: str
     faction: str
     items: int  # items priced in the scan
     moved: int  # of them, items whose current price changed
     quarantined: bool  # far off this auction house's recent prices, so not used
+    skipped: str | None  # why the scan was not used: which faction scanned it is unknown
 
 
 class UploadResult(BaseModel):
@@ -1259,6 +1261,7 @@ def get_coverage(state: State, user: CurrentUser) -> list[CoverageOut]:
             last_scan_items=c.last_scan_items,
             scans_7d=c.scans_7d,
             uploaders_7d=c.uploaders_7d,
+            sources=list(c.sources),
         )
         for c in found
     ]

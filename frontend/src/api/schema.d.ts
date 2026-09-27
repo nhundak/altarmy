@@ -477,6 +477,8 @@ export interface components {
             realm: string;
             /** Scans 7D */
             scans_7d: number;
+            /** Sources */
+            sources: string[];
             /** Uploaders 7D */
             uploaders_7d: number;
         };
@@ -883,7 +885,7 @@ export interface components {
         /** RealmPricesOut */
         RealmPricesOut: {
             /** Auction House Id */
-            auction_house_id: number;
+            auction_house_id: number | null;
             /** Faction */
             faction: string;
             /** Items */
@@ -896,6 +898,8 @@ export interface components {
             quarantined: boolean;
             /** Realm */
             realm: string;
+            /** Skipped */
+            skipped: string | null;
         };
         /**
          * SelectionModel

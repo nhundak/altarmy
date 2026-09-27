@@ -36,7 +36,7 @@ metadata = MetaData(
     }
 )
 
-PRICE_SOURCES = ("auctionator", "ahdb", "blizzard_api", "csv", "manual")
+PRICE_SOURCES = ("auctionator", "ahledger", "ahdb", "blizzard_api", "csv", "manual")
 TIERS = ("free", "linked")
 UPLOAD_KINDS = ("altarmy", "auctionator")
 UPLOAD_VIA = ("browser", "watcher", "paste")
@@ -391,6 +391,25 @@ price_current = Table(
     Column("median_7d", BigInteger),  # filled by the Phase 6 merge job
     Column("avail_7d", Integer),
     Column("scans_7d", Integer),
+)
+
+# The last price table an external feed served per market (AHledger's `ahledger`), so a poll records only
+# the rows that changed since.
+feed_tables = Table(
+    "feed_tables",
+    metadata,
+    Column("source", String(16), primary_key=True),
+    Column("market", String(64), primary_key=True),
+    Column(
+        "auction_house_id",
+        Integer,
+        ForeignKey("auction_houses.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("scanned_at", DateTime(timezone=True), nullable=False),  # the table's own time
+    Column("stamped_at", DateTime(timezone=True), nullable=False),  # the seen_at its rows were recorded at
+    Column("fetched_at", DateTime(timezone=True), nullable=False),
+    Column("body", Text, nullable=False),  # the table as served
 )
 
 # One row per auction house, item and day, for charts and stale checks.

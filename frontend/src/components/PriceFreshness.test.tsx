@@ -21,6 +21,16 @@ describe('PriceFreshness', () => {
     expect(line.querySelector('svg')).toBeInTheDocument()
   })
 
+  it('credits AHledger when its scans price the realm', () => {
+    renderWithProviders(<PriceFreshness lastScan={ago(5)} ahledger />)
+    expect(screen.getByRole('link', { name: 'AHledger' })).toHaveAttribute('href', 'https://ahledger.com')
+  })
+
+  it('names no feed when only uploads price the realm', () => {
+    renderWithProviders(<PriceFreshness lastScan={ago(5)} />)
+    expect(screen.queryByRole('link', { name: 'AHledger' })).not.toBeInTheDocument()
+  })
+
   it('warns when there is no scan', () => {
     renderWithProviders(<PriceFreshness lastScan={null} />)
     expect(screen.getByText('No auction house scan for this realm yet.')).toHaveStyle({ fontWeight: 500 })

@@ -268,6 +268,13 @@
             "title": "Scans 7D",
             "type": "integer"
           },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
           "uploaders_7d": {
             "title": "Uploaders 7D",
             "type": "integer"
@@ -281,7 +288,8 @@
           "last_scan",
           "last_scan_items",
           "scans_7d",
-          "uploaders_7d"
+          "uploaders_7d",
+          "sources"
         ],
         "title": "CoverageOut",
         "type": "object"
@@ -1325,8 +1333,15 @@
       "RealmPricesOut": {
         "properties": {
           "auction_house_id": {
-            "title": "Auction House Id",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auction House Id"
           },
           "faction": {
             "title": "Faction",
@@ -1351,6 +1366,17 @@
           "realm": {
             "title": "Realm",
             "type": "string"
+          },
+          "skipped": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped"
           }
         },
         "required": [
@@ -1360,7 +1386,8 @@
           "faction",
           "items",
           "moved",
-          "quarantined"
+          "quarantined",
+          "skipped"
         ],
         "title": "RealmPricesOut",
         "type": "object"

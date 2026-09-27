@@ -124,6 +124,7 @@ scheduler() {
   schedule altarmy-ingest-tbc "0 9 * * *"
   schedule altarmy-ingest-forever "15 9 * * *"
   schedule altarmy-prune "0 10 * * *"
+  schedule altarmy-ahledger "20 * * * *" # hourly: AHledger's newest prices, before the merge
   schedule altarmy-merge "30 * * * *" # hourly: daily medians and 7-day price statistics
 }
 

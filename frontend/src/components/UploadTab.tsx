@@ -4,6 +4,7 @@ import { useCoverage, useUpload, useUploads, type UploadKind } from '../api/quer
 import { age } from '../lib/age'
 import { GAME_FLAVOR, GAME_VERSION_LABEL } from '../lib/gameVersion'
 import { PasteForm, Summary } from './PasteForm'
+import { AhledgerCredit } from './PriceFreshness'
 
 const MAX_MB = 32
 
@@ -40,6 +41,7 @@ function CoverageCard() {
         <Text size="sm" c="dimmed">
           Every user's scans price these auction houses. The stalest come first: a scan there helps the most.
         </Text>
+        {coverage.data.some((c) => c.sources.includes('ahledger')) && <AhledgerCredit />}
         <Table aria-label="Coverage">
           <Table.Thead>
             <Table.Tr>
@@ -72,6 +74,12 @@ function CoverageCard() {
       </Stack>
     </Card>
   )
+}
+
+function uploadedTitle(realms: readonly { quarantined: boolean; skipped: string | null }[]): string {
+  if (realms.some((r) => r.skipped)) return 'Uploaded, but some prices were not used'
+  if (realms.some((r) => r.quarantined)) return 'Uploaded, but some prices were not used: they differ widely from recent scans'
+  return 'Uploaded'
 }
 
 function UploadCard({ kind, name, what }: { kind: UploadKind; name: string; what: string }) {
@@ -110,12 +118,8 @@ function UploadCard({ kind, name, what }: { kind: UploadKind; name: string; what
         {upload.isError && <Alert color="red">{upload.error.message}</Alert>}
         {upload.data && (
           <Alert
-            color={upload.data.realms.some((r) => r.quarantined) ? 'yellow' : 'green'}
-            title={
-              upload.data.realms.some((r) => r.quarantined)
-                ? 'Uploaded, but some prices were not used: they differ widely from recent scans'
-                : 'Uploaded'
-            }
+            color={upload.data.realms.some((r) => r.quarantined || r.skipped) ? 'yellow' : 'green'}
+            title={uploadedTitle(upload.data.realms)}
           >
             <Summary result={upload.data} />
           </Alert>

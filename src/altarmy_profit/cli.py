@@ -1,5 +1,5 @@
-"""Command line interface: the site's jobs (ingest, migrate, prune, merge), `serve` (the API and built
-front end, for development) and `watch` (uploads the addon files to a server).
+"""Command line interface: the site's jobs (ingest, migrate, prune, merge, ahledger), `serve` (the API and
+built front end, for development) and `watch` (uploads the addon files to a server).
 
 `--game-version` (tbc | forever) picks the game's data and wago.tools product. Every version shares one
 database: `--db` (a SQLite file), else `DATABASE_URL`, else data/altarmy-profit.sqlite.
@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import db, ingest, merge, prices, service, signin, versions, watch, wowfiles
+from . import ahledger, db, ingest, merge, prices, service, signin, versions, watch, wowfiles
 from .versions import GameVersion
 
 
@@ -71,6 +71,33 @@ def cmd_merge(args: argparse.Namespace) -> None:
         f"Merged {len(changed)} auction houses of every game version ({sum(changed.values())} changed); "
         f"{observations} price observations stored."
     )
+
+
+def cmd_ahledger(args: argparse.Namespace) -> None:
+    """Poll AHledger's markets of every version (an hourly job), one transaction per market."""
+    client = ahledger.Client.from_env()
+    wanted = [(v.key, m) for v in versions.VERSIONS.values() for m in ahledger.markets(v.key)]
+    failed = 0
+    try:
+        served = client.markets()
+    except (ahledger.AHledgerError, ValueError) as e:
+        sys.exit(f"AHledger: {e}")
+    for game_version, market in wanted:
+        if market.id not in served:
+            print(f"{market.id}: not an AHledger market (any more?)")
+            failed += 1
+            continue
+        try:
+            with args.database.begin() as conn:
+                print(ahledger.poll_market(conn, game_version, market, client).summary)
+        except (ahledger.AHledgerError, ValueError) as e:
+            print(f"{market.id}: {e}")
+            failed += 1
+    with args.database.begin() as conn:
+        prices.prune(conn)
+    print(f"{client.requests} requests to AHledger.")
+    if failed:
+        sys.exit(f"{failed} of {len(wanted)} AHledger markets failed.")
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
@@ -198,6 +225,12 @@ def main(argv: list[str] | None = None) -> None:
         help="recompute daily medians and the 7-day price statistics (every game version)",
     )
     s.set_defaults(fn=cmd_merge)
+
+    s = sub.add_parser(
+        "ahledger",
+        help="record AHledger's newest auction house prices (every game version; AHLEDGER_API_KEY optional)",
+    )
+    s.set_defaults(fn=cmd_ahledger)
 
     s = sub.add_parser("serve", help="serve the API and the built front end (needs the [ui] extra)")
     s.add_argument("--host", default="127.0.0.1")

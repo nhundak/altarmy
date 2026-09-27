@@ -310,7 +310,7 @@ export function SearchTab() {
           </Flex>
           {selection && (
             <>
-              {lastScan !== undefined && <PriceFreshness lastScan={lastScan} />}
+              {lastScan !== undefined && <PriceFreshness lastScan={lastScan} ahledger={house?.sources.includes('ahledger')} />}
               {browsing && (
                 <Text size="sm" c="dimmed">
                   Browsing every recipe on this realm, crafted and sold by one character. Add your characters to see

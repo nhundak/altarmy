@@ -56,9 +56,11 @@ The database is `DATABASE_URL` (a SQLAlchemy URL such as `postgresql+psycopg://u
 `data/altarmy-profit.sqlite`; `--db <file>` picks another SQLite file. `serve` and the CLI jobs migrate it
 (Alembic); the site's instances never do, its deploy runs `migrate` once.
 
-Prices belong to an auction house: a realm and faction (one shared by both factions where the auction
-house is, as on Forever). The newest price per item wins, whatever its source; older prices stay as history
-(see Data notes).
+Prices belong to an auction house: a realm and faction. They come from users' Auctionator uploads and,
+for Forever, from [AHledger](https://ahledger.com)'s crowdsourced scans (`altarmy-profit ahledger`, an hourly
+job; `AHLEDGER_API_KEY` optional). The most recently captured price per item wins, whatever its source;
+older prices stay as history (see Data notes). Forever's Auctionator names a realm without its faction, so
+a Forever scan counts for the faction of the uploader's characters on that realm (none or both: skipped).
 
 **Profit per hour.** Every plan is also timed: casts (DB2 cast times), clicks at the auction house, vendors
 and mailbox, character switches, and running between them in a city (see Data notes). A session crafts a

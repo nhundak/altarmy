@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection, select
 
-from altarmy_profit import prices, schema, service, store, uploads, users
+from altarmy_profit import altarmy, prices, schema, service, store, uploads, users
 from altarmy_profit.auth import User
 
 from .conftest import FOREVER, ME
@@ -48,33 +48,56 @@ def test_auctionator_upload_records_every_realm_named_like_the_characters(conn: 
     uploads.ingest(conn, ME, FOREVER, "altarmy", ALTARMY_SV, None, now=NOW)
     data = scan({"ClassicBetaPvE": {"1": _entry(20)}, "Dreamscythe Horde": {"1": _entry(5)}, "Empty": {}})
     got = uploads.ingest(conn, ME, FOREVER, "auctionator", data, NOW - timedelta(hours=1), now=NOW)
-    names = [(r.key, r.realm, r.faction, r.items) for r in got.realms]
+    names = [(r.key, r.realm, r.faction, r.items, r.skipped) for r in got.realms]
     assert names == [
-        ("ClassicBetaPvE", "Classic Beta PvE", "", 1),  # Forever's shared auction house
-        ("Dreamscythe Horde", "Dreamscythe", "Horde", 1),
+        # Forever's houses are per faction, Auctionator's key names none, and ME has both there
+        ("ClassicBetaPvE", "", "", 1, uploads.BOTH_FACTIONS),
+        ("Dreamscythe Horde", "Dreamscythe", "Horde", 1, None),
     ]
-    assert len(got.auction_house_ids) == 2
+    assert len(got.auction_house_ids) == 1
+    assert "ClassicBetaPvE: 1 prices not used: You have Horde and Alliance" in got.detail
     assert prices.find_auction_house(conn, FOREVER, "Empty", "") is None  # realms without prices are skipped
     assert prices.load_current(conn, service.selected_auction_house(conn, ME, FOREVER)) == {1: 5}
     snap = schema.price_snapshots
     assert set(conn.execute(select(snap.c.uploader_uid)).scalars()) == {ME}
-    assert service.data_version(conn, ME, FOREVER) == 2
+    assert set(conn.execute(select(schema.auction_houses.c.faction)).scalars()) == {"Horde"}
 
 
-def test_prices_before_characters_still_price_them(conn: Connection) -> None:
+def _characters(*where: tuple[str, str]) -> list[altarmy.Character]:
+    return [
+        altarmy.Character(realm, f"Char{i}", faction, "MAGE", 60, ())
+        for i, (realm, faction) in enumerate(where)
+    ]
+
+
+def test_a_forever_scan_goes_to_the_uploaders_faction(conn: Connection, other: str) -> None:
+    store.save_characters(
+        conn, ME, FOREVER, _characters(("Classic Beta PvE", "Horde"), ("Classic Beta PvE", "Horde"))
+    )
+    store.save_characters(conn, other, FOREVER, _characters(("Classic Beta PvE", "Alliance")))
     uploads.ingest(
         conn, ME, FOREVER, "auctionator", scan({"ClassicBetaPvE": {"1": _entry(20)}}), None, now=NOW
     )
-    uploads.ingest(conn, ME, FOREVER, "altarmy", ALTARMY_SV, None, now=NOW)
-    service.select(conn, ME, FOREVER, "Classic Beta PvE", "Horde")
-    ah = service.selected_auction_house(conn, ME, FOREVER)
-    assert ah is not None and prices.load_current(conn, ah) == {1: 20}  # found through the alias
-    # a later scan lands on the same auction house, not a second one named like the characters
     uploads.ingest(
-        conn, ME, FOREVER, "auctionator", scan({"ClassicBetaPvE": {"1": _entry(25)}}), None, now=NOW
+        conn, other, FOREVER, "auctionator", scan({"ClassicBetaPvE": {"1": _entry(30)}}), None, now=NOW
     )
-    assert prices.load_current(conn, ah) == {1: 25}
-    assert len(prices.coverage(conn, FOREVER)) == 1
+    horde = prices.find_auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
+    alliance = prices.find_auction_house(conn, FOREVER, "Classic Beta PvE", "Alliance")
+    assert horde is not None and alliance is not None and horde != alliance
+    assert prices.load_current(conn, horde) == {1: 20}
+    assert prices.load_current(conn, alliance) == {1: 30}
+    assert prices.find_auction_house_by_key(conn, FOREVER, "ClassicBetaPvE") is None  # ambiguous: no alias
+    assert service.selected_auction_house(conn, ME, FOREVER) == horde
+
+
+def test_a_forever_scan_before_any_characters_is_skipped(conn: Connection) -> None:
+    got = uploads.ingest(
+        conn, ME, FOREVER, "auctionator", scan({"ClassicBetaPvE": {"1": _entry(20)}}), None, now=NOW
+    )
+    (realm,) = got.realms
+    assert realm.skipped == uploads.NO_CHARACTERS and realm.auction_house_id is None
+    assert prices.coverage(conn, FOREVER) == []
+    assert service.data_version(conn, ME, FOREVER) == 0
 
 
 def test_uploads_pool_and_the_newest_scan_wins(conn: Connection, other: str) -> None:

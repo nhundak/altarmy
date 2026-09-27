@@ -22,6 +22,7 @@ from .auctionator import ItemPrice
 
 KEEP_DAYS = 90  # observations older than this are pruned (price_daily is kept)
 AUCTIONATOR = "auctionator"
+AHLEDGER = "ahledger"  # AHledger's crowdsourced scans (`ahledger`)
 HAND_SET = ("manual", "csv")  # sources whose price is used as it is, never capped by the 7-day median
 
 # Screening an uploaded scan against the 7-day medians (normal scans have at most ~5% of items this far off)
@@ -139,6 +140,7 @@ class Coverage:
     last_scan_items: int  # items in it
     scans_7d: int  # accepted scans in the last 7 days
     uploaders_7d: int  # distinct users who sent them
+    sources: tuple[str, ...] = ()  # sources of those scans, sorted (AHledger's must be credited)
 
 
 def coverage(conn: Connection, game_version: str, now: datetime | None = None) -> list[Coverage]:
@@ -162,6 +164,14 @@ def coverage(conn: Connection, game_version: str, now: datetime | None = None) -
             .group_by(snap.c.auction_house_id)
         )
     }
+    sources: dict[int, list[str]] = {}
+    for r in conn.execute(
+        select(snap.c.auction_house_id, snap.c.source)
+        .where(accepted, snap.c.scanned_at >= since)
+        .distinct()
+        .order_by(snap.c.auction_house_id, snap.c.source)
+    ):
+        sources.setdefault(r.auction_house_id, []).append(r.source)
     newest = (
         select(snap.c.auction_house_id, func.max(snap.c.id).label("id"))
         .where(accepted)
@@ -185,7 +195,17 @@ def coverage(conn: Connection, game_version: str, now: datetime | None = None) -
         scan, items = last.get(r.id, (None, 0))
         scans, uploaders = recent.get(r.id, (0, 0))
         out.append(
-            Coverage(r.id, r.realm, r.faction, int(counts.get(r.id, 0)), scan, items, scans, uploaders)
+            Coverage(
+                r.id,
+                r.realm,
+                r.faction,
+                int(counts.get(r.id, 0)),
+                scan,
+                items,
+                scans,
+                uploaders,
+                tuple(sources.get(r.id, ())),
+            )
         )
     return out
 
@@ -406,20 +426,73 @@ def record_auctionator(
     """One realm of an Auctionator scan: a snapshot plus its daily history. With the uploader's `trust`,
     the scan is screened first (see `screen`); a quarantined one is kept as a snapshot row only."""
     observations = auctionator_observations(item_prices, scanned_at)
+    got = record_screened(conn, auction_house_id, AUCTIONATOR, scanned_at, observations, uploader_uid, trust)
+    if not got.quarantined:
+        record_daily(conn, auction_house_id, item_prices)
+    return got
+
+
+def record_screened(
+    conn: Connection,
+    auction_house_id: int,
+    source: str,
+    scanned_at: datetime,
+    observations: Sequence[Observation],
+    uploader_uid: str | None = None,
+    trust: float | None = None,
+) -> Recorded:
+    """A snapshot, screened first with `trust` (None: not screened); a quarantined one is kept as a
+    snapshot row only."""
     verdict = None
     if trust is not None:
         verdict = screen(observations, baseline(conn, auction_house_id), scanned_at, trust)
     if verdict:
         count = len(observations)
-        _insert_snapshot(
-            conn, auction_house_id, AUCTIONATOR, scanned_at, count, None, uploader_uid, "quarantined"
-        )
+        _insert_snapshot(conn, auction_house_id, source, scanned_at, count, None, uploader_uid, "quarantined")
         return Recorded(0, quarantined=True, screened=True)
     moved = record_snapshot(
-        conn, auction_house_id, AUCTIONATOR, scanned_at, observations, uploader_uid=uploader_uid
+        conn, auction_house_id, source, scanned_at, observations, uploader_uid=uploader_uid
     )
-    record_daily(conn, auction_house_id, item_prices)
     return Recorded(moved, screened=verdict is not None)
+
+
+def record_daily_observations(
+    conn: Connection, auction_house_id: int, observations: Sequence[Observation]
+) -> int:
+    """Pool observations into `price_daily` on their UTC day, as `record_daily` pools uploaders: the
+    lowest low, the highest high, the most available. Returns the rows written."""
+    pd = schema.price_daily
+    days: dict[tuple[int, date], tuple[int, int, int | None]] = {}
+    for o in observations:
+        key = (o.item_id, db.utc(o.seen_at).date())
+        low, high, available = days.get(key, (o.min_buyout, o.min_buyout, o.quantity))
+        days[key] = (min(low, o.min_buyout), max(high, o.min_buyout), _most(available, o.quantity))
+    if not days:
+        return 0
+    items = sorted({item for item, _ in days})
+    stored = {
+        (r.item_id, r.day): (r.low, r.high, r.available)
+        for r in conn.execute(
+            select(pd.c.item_id, pd.c.day, pd.c.low, pd.c.high, pd.c.available).where(
+                pd.c.auction_house_id == auction_house_id,
+                pd.c.item_id.in_(items),
+                pd.c.day >= min(day for _, day in days),
+            )
+        )
+    }
+    rows = []
+    for (item_id, day), (low, high, available) in sorted(days.items()):
+        old = stored.get((item_id, day))
+        if old is not None:
+            low, high, available = min(low, old[0]), max(high, old[1]), _most(available, old[2])
+        row = {"low": low, "high": high, "available": available}
+        rows.append({"auction_house_id": auction_house_id, "item_id": item_id, "day": day, **row})
+    db.upsert(conn, pd, rows, ["auction_house_id", "item_id", "day"], ["low", "high", "available"])
+    return len(rows)
+
+
+def _most(a: int | None, b: int | None) -> int | None:
+    return max((x for x in (a, b) if x is not None), default=None)
 
 
 def prune(conn: Connection, now: datetime | None = None, keep_days: int = KEEP_DAYS) -> None:

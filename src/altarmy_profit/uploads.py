@@ -5,7 +5,9 @@ An Alt Army file replaces the uploader's characters of that game version. An Auc
 snapshot for every realm it has prices for, whoever uploads it, so auction houses pool everyone's scans
 (the newest `seen_at` wins, see `prices.record_snapshot`). Each realm's scan is screened against its 7-day
 medians first: a quarantined one changes nothing and lowers the uploader's trust (`prices.screen`,
-`users.adjust_trust`). The file itself is never stored.
+`users.adjust_trust`). Where Auctionator's realm key names no faction but the version's auction houses are
+per faction (Forever), the faction is the uploader's characters' on that realm; with none there, or both
+factions, that realm is skipped. The file itself is never stored.
 """
 
 from __future__ import annotations
@@ -35,12 +37,19 @@ class TooLarge(Exception):
 @dataclass(frozen=True)
 class RealmPrices:
     key: str  # Auctionator's realm key, e.g. "Dreamscythe Horde"
-    auction_house_id: int
+    auction_house_id: int | None  # None if skipped
     realm: str
     faction: str
     items: int  # items priced in the scan
     moved: int  # of them, items whose current price changed
     quarantined: bool = False  # the scan was far off recent prices and not used
+    skipped: str | None = None  # why the scan was not recorded: its auction house is unknown
+
+
+NO_CHARACTERS = "Upload your Alt Army characters first so we know which faction scanned it."
+BOTH_FACTIONS = (
+    "You have Horde and Alliance characters on this realm, and Auctionator doesn't record which one scanned."
+)
 
 
 @dataclass(frozen=True)
@@ -52,7 +61,7 @@ class Imported:
 
     @property
     def auction_house_ids(self) -> frozenset[int]:
-        return frozenset(r.auction_house_id for r in self.realms)
+        return frozenset(r.auction_house_id for r in self.realms if r.auction_house_id is not None)
 
     @property
     def detail(self) -> str:
@@ -61,12 +70,15 @@ class Imported:
             return f"{self.characters} characters" + (f" on {where}" if where else "")
         if not self.realms:
             return "No realm in the file has prices."
-        return "; ".join(
-            f"{r.key}: {r.items} prices not used: they differ widely from recent scans"
-            if r.quarantined
-            else f"{r.key}: {r.items} prices, {r.moved} changed"
-            for r in self.realms
-        )
+        return "; ".join(_realm_detail(r) for r in self.realms)
+
+
+def _realm_detail(r: RealmPrices) -> str:
+    if r.skipped:
+        return f"{r.key}: {r.items} prices not used: {r.skipped}"
+    if r.quarantined:
+        return f"{r.key}: {r.items} prices not used: they differ widely from recent scans"
+    return f"{r.key}: {r.items} prices, {r.moved} changed"
 
 
 @dataclass(frozen=True)
@@ -160,30 +172,55 @@ def ingest_auctionator(
     for key, item_prices in sorted(realms.items()):
         if not item_prices:
             continue
-        ah = _auction_house(conn, game_version, key, [(g.realm, g.faction) for g in groups])
+        ah, skipped = _auction_house(conn, game_version, key, [(g.realm, g.faction) for g in groups])
+        if ah is None:
+            recorded.append(RealmPrices(key, None, "", "", len(item_prices), 0, skipped=skipped))
+            continue
         trust = users.trust(conn, user_uid)
         got = prices.record_auctionator(conn, ah, item_prices, scanned_at, uploader_uid=user_uid, trust=trust)
         if got.screened:
             users.adjust_trust(conn, user_uid, quarantined=got.quarantined)
         realm, faction = _name(conn, ah)
         recorded.append(RealmPrices(key, ah, realm, faction, len(item_prices), got.moved, got.quarantined))
-    if recorded:
+    if any(r.auction_house_id is not None for r in recorded):
         prices.prune(conn)
         service.bump_data_version(conn, user_uid, game_version)
     return Imported("auctionator", realms=tuple(recorded))
 
 
-def _auction_house(conn: Connection, game_version: str, key: str, groups: list[tuple[str, str]]) -> int:
-    """The auction house an Auctionator key prices: one that already has the key as an alias, else the
-    one of the uploader's characters it matches (named as the characters' realm), else parsed from the
-    key. The alias comes first so a realm never splits into two auction houses."""
+def _auction_house(
+    conn: Connection, game_version: str, key: str, groups: list[tuple[str, str]]
+) -> tuple[int | None, str | None]:
+    """The auction house an Auctionator key prices, or None and why not.
+
+    Where auction houses are per faction but the key names none (`GameVersion.split_by_faction`), it is
+    the house of the one faction the uploader has characters of on that realm. Otherwise: one that
+    already has the key as an alias, else the one of the uploader's characters it matches (named as the
+    characters' realm), else parsed from the key. The alias comes first so a realm never splits into two
+    auction houses."""
+    matched = [
+        (realm, faction)
+        for realm, faction in groups
+        if service.match_auctionator_realm([key], realm, faction) == key
+    ]
+    if versions.get(game_version).split_by_faction and not _names_faction(key):
+        factions = {faction for _, faction in matched}
+        if not factions:
+            return None, NO_CHARACTERS
+        if len(factions) > 1:
+            return None, BOTH_FACTIONS
+        realm, faction = matched[0]
+        return prices.auction_house(conn, game_version, realm, faction), None
     known = prices.find_auction_house_by_key(conn, game_version, key)
     if known is not None:
-        return known
-    for realm, faction in groups:
-        if service.match_auctionator_realm([key], realm, faction) == key:
-            return prices.auctionator_auction_house(conn, game_version, key, realm, faction)
-    return prices.auction_house_for_auctionator_key(conn, game_version, key)
+        return known, None
+    for realm, faction in matched:
+        return prices.auctionator_auction_house(conn, game_version, key, realm, faction), None
+    return prices.auction_house_for_auctionator_key(conn, game_version, key), None
+
+
+def _names_faction(key: str) -> bool:
+    return key.endswith((" Horde", " Alliance"))
 
 
 def _name(conn: Connection, auction_house_id: int) -> tuple[str, str]:

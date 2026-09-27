@@ -2,10 +2,12 @@
 
 from datetime import UTC, datetime
 
+import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import Connection, MetaData, inspect, select
+from sqlalchemy import Connection, MetaData, func, inspect, select
+from sqlalchemy.exc import IntegrityError
 
 from altarmy_profit import db, schema
 
@@ -199,3 +201,83 @@ def test_0005_keeps_uploads_and_allows_paste(database: db.Database) -> None:
         conn.execute(u.insert().values(**{**row, "via": "paste"}))
         assert conn.execute(select(u.c.via).order_by(u.c.id)).scalars().all() == ["watcher", "paste"]
         assert inspect(conn).get_indexes("uploads")[0]["name"] == "ix_uploads_user_uid_received_at"
+
+
+def test_0009_allows_ahledger_and_drops_forevers_shared_houses(database: db.Database) -> None:
+    t, snap, obs, pc = (
+        schema.auction_houses,
+        schema.price_snapshots,
+        schema.price_observations,
+        schema.price_current,
+    )
+    when = datetime(2026, 9, 25, tzinfo=UTC)
+    with database.engine.begin() as conn:
+        command.downgrade(db.alembic_config(conn), "0008")
+        houses: dict[tuple[str, str], int] = {}
+        for version, realm, faction in (
+            ("forever", "Classic Beta PvE", ""),  # shared: dropped
+            ("forever", "", ""),  # the unnamed one: kept
+            ("tbc", "Dreamscythe", "Horde"),  # kept
+        ):
+            houses[(version, realm)] = conn.execute(
+                t.insert().values(game_version=version, realm=realm, faction=faction).returning(t.c.id)
+            ).scalar_one()
+        for ah in houses.values():
+            snapshot: int = conn.execute(
+                snap.insert()
+                .values(
+                    auction_house_id=ah,
+                    source="auctionator",
+                    scanned_at=when,
+                    received_at=when,
+                    item_count=1,
+                    status="accepted",
+                )
+                .returning(snap.c.id)
+            ).scalar_one()
+            conn.execute(obs.insert().values(snapshot_id=snapshot, item_id=1, min_buyout=5))
+            conn.execute(
+                pc.insert().values(
+                    auction_house_id=ah, item_id=1, price=5, seen_at=when, snapshot_id=snapshot
+                )
+            )
+        conn.execute(
+            schema.realm_aliases.insert().values(
+                auction_house_id=houses[("forever", "Classic Beta PvE")],
+                kind="auctionator",
+                value="ClassicBetaPvE",
+            )
+        )
+        conn.execute(
+            schema.user_settings.insert().values(
+                user_uid=ME, game_version="forever", selected_realm="Classic Beta PvE", selected_faction=""
+            )
+        )
+        db.upgrade(conn)
+        kept = {houses[("forever", "")], houses[("tbc", "Dreamscythe")]}
+        assert set(conn.execute(select(t.c.id)).scalars()) == kept
+        assert set(conn.execute(select(pc.c.auction_house_id)).scalars()) == kept
+        assert conn.execute(select(func.count()).select_from(obs)).scalar_one() == 2
+        assert conn.execute(select(schema.realm_aliases.c.value)).all() == []
+        assert conn.execute(select(schema.user_settings.c.selected_realm)).scalar_one() is None
+        conn.execute(
+            snap.insert().values(
+                auction_house_id=houses[("tbc", "Dreamscythe")],
+                source="ahledger",
+                scanned_at=when,
+                received_at=when,
+                item_count=0,
+                status="accepted",
+            )
+        )
+        with pytest.raises(IntegrityError), conn.begin_nested():
+            conn.execute(
+                snap.insert().values(
+                    auction_house_id=houses[("tbc", "Dreamscythe")],
+                    source="nonsense",
+                    scanned_at=when,
+                    received_at=when,
+                    item_count=0,
+                    status="accepted",
+                )
+            )

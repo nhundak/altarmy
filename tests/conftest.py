@@ -77,11 +77,11 @@ def set_prices(
     conn: Connection,
     item_prices: Mapping[int, int],
     realm: str = "Classic Beta PvE",
-    faction: str = "",
+    faction: str = "Horde",
     game_version: str = FOREVER,
 ) -> int:
-    """Manual prices on an auction house (default: the one Classic Beta PvE's factions share, as the
-    tailor's Auctionator scan would be). Returns its id."""
+    """Manual prices on an auction house (default: Classic Beta PvE's Horde one, the tailor's). Returns
+    its id."""
     ah = prices.auction_house(conn, game_version, realm, faction)
     for item_id, price in item_prices.items():
         prices.set_price(conn, ah, item_id, price)

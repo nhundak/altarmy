@@ -32,6 +32,7 @@ const house = (realm: string, faction: string, prices = 10) => ({
   last_scan_items: prices,
   scans_7d: 1,
   uploaders_7d: 1,
+  sources: ['auctionator'],
 })
 
 function urls(fetch: ReturnType<typeof mockApi>, pathname: string) {

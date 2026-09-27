@@ -17,7 +17,27 @@ unless marked otherwise. The hosted plan's decision that addon uploads are the p
   candidate for a Forever feed.
 - **Nothing helps TBC Anniversary today.** Its only sources are addon scans, ours or anyone's.
 
-## AHledger (prime candidate)
+## AHledger (implemented 2026-09-27)
+
+`src/altarmy_profit/ahledger.py`, run hourly as `altarmy-profit ahledger`. Findings while building it:
+
+- **Row order is `item:median:minBuyout:quantity:median7d:median30d:low30d:high30d`**: the median comes
+  first (the developers page's "Row: item id, median, minimum buyout, quantity, 7 day median, 30 day
+  median, 30 day low, 30 day high"). The table below had them swapped at first.
+- The header's unix time equalled the newest scan's `observedAt` to the second (Wool Cloth, 2026-09-27
+  07:12:36Z), so it is the time of the newest scan in the table. Rows carry no time of their own; only
+  `/v1/prices/{market}/{item}` gives an item's `latest.observedAt`, and the poller never calls it (one
+  request per market an hour, to stay well clear of the rate limit). It keeps each market's last table
+  and records only rows new or changed since, at the new table's time: off by at most the gap between
+  tables. A market's first table is recorded as seen when fetched; it starts the history, and uploads
+  come after it.
+- **Auctionator on Forever names no faction.** Forever's 12.x client loads Auctionator's modern AH code
+  (`Source_ModernAH`), whose price database key is `GetNormalizedRealmName()` alone; the legacy code that
+  appends `UnitFactionGroup` loads only on vanilla, tbc and wrath clients. Nothing in `Auctionator.lua`
+  names the faction, so uploads take it from the uploader's characters on the realm. AHledger's markets
+  are per faction and map onto the same houses.
+
+## AHledger (survey)
 
 Site: https://ahledger.com/wow-forever. API docs: https://ahledger.com/developers. Terms:
 https://ahledger.com/terms. Run by Hubrig Crew Marketing LLC; the site started in 2026.
@@ -32,7 +52,7 @@ The API, as verified on 2026-09-26:
 | Call | Returns |
 |------|---------|
 | `GET https://api.ahledger.com/v1/markets` | every market: `id`, `game`, `ruleset`, `faction`, `region`, `label` |
-| `GET /v1/pricetable/{market}` | every priced item as text: header `AHL1\|forever/normal/horde/us\|<unix time>\|<count>`, then `item:minBuyout:median:quantity:...` lines (about 1,900 items, 68 KB, 5-minute cache) |
+| `GET /v1/pricetable/{market}` | every priced item as text: header `AHL1\|forever/normal/horde/us\|<unix time>\|<count>`, then `item:median:minBuyout:quantity:...` lines (about 1,900 items, 68 KB, 5-minute cache) |
 | `GET /v1/prices/{market}/{itemId}?range=7d` | `latest` (`observedAt`, `source`, `minBuyout`, `median`, `quantity`, `auctions`, `median7d`, `median30d`, `median90d`) and a `series` of hourly points (`min`, `median`, `p25`, `p75`, `quantity`, `auctions`); ranges 24h, 7d, 30d, 90d |
 | `GET /v1/items/{itemId}?game=forever` | item name, quality, class, level, vendor value, icon |
 | `GET /health` | database, workers, backup age, ingestion lag per polled market |
@@ -120,13 +140,13 @@ Forum threads: [Era endpoints 404](https://us.forums.blizzard.com/en/blizzard/t/
 (June 2026). Forever runs on the modern 12.x client, so a namespace may appear at or after its launch
 (2026-11-04); rerun `scripts/probe_blizzard_api.py` with a Forever namespace guess when it does.
 
-## Next steps, if a feed is added
+## Status
 
-1. Decide the realm mapping for AHledger's ruleset-level markets (above).
-2. Add source `ahledger` to `price_snapshots` and a poller (a Cloud Run job like `merge`, hourly is
-   plenty given the 5-minute cache and a few scans a day) that fetches each Forever market's price table,
-   records it through `prices.record_snapshot` with screening, and skips a table whose header time has
-   not moved.
-3. Show the credit link wherever AHledger prices are displayed (the results table and the item tooltip
-   know each price's snapshot source).
+1. Done (2026-09-27): each AHledger market maps to its ruleset's realm (`GameVersion.ahledger_realms`; one
+   realm per ruleset at launch too, so edit the map when launch realms are named) and faction.
+2. Done: source `ahledger`, the hourly `ahledger` job (at :20, before the merge), screened like uploads
+   with a fixed trust; the newest capture wins against uploads either way.
+3. Done: the price freshness line and the Upload page's coverage credit AHledger with a link.
 4. Keep the Blizzard probe as the trigger for a first-party poller; it supersedes any third party.
+5. Optional: ask AHledger (contact form) for a per-row observed time in the price table, which would date
+   changes exactly instead of to within a poll.

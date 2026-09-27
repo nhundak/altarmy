@@ -491,7 +491,7 @@ def test_linked_users_rank_their_own_characters(client: TestClient, priced: Conn
 def scanned_robe(conn: Connection, price: int, median_7d: int) -> int:
     """An Auctionator scan pricing the robe at `price` on the tailor's auction house, whose 7-day median
     (as the merge would fill it) is `median_7d`. Returns the auction house."""
-    ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "")
+    ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
     now = db.utcnow()
     prices.record_snapshot(conn, ah, "auctionator", now, [prices.Observation(3, price, now)])
     pc = schema.price_current
@@ -552,18 +552,18 @@ def _item_price(price: int) -> ItemPrice:
 
 def test_coverage_lists_each_realms_scans(client: TestClient, conn: Connection) -> None:
     assert upload(
-        client, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": _entry(20)}}), FREE
+        client, "auctionator", _saved_variables({"Dreamscythe Horde": {"1": _entry(20)}}), FREE
     ).is_success
     prices.unnamed_auction_house(conn, FOREVER)  # never listed
     tbc = prices.auction_house(conn, "tbc", "Dreamscythe", "Horde")
     (row,) = client.get("/api/coverage", headers=FREE).json()
     assert (row["realm"], row["faction"], row["prices"], row["last_scan_items"]) == (
-        "ClassicBetaPvE",
-        "",
+        "Dreamscythe",
+        "Horde",
         1,
         1,
     )
-    assert (row["scans_7d"], row["uploaders_7d"]) == (1, 1)
+    assert (row["scans_7d"], row["uploaders_7d"], row["sources"]) == (1, 1, ["auctionator"])
     assert row["last_scan"] is not None
     (dream,) = client.get("/api/coverage", params={"game_version": "tbc"}, headers=FREE).json()
     assert (dream["auction_house_id"], dream["last_scan"], dream["scans_7d"]) == (tbc, None, 0)
@@ -595,27 +595,32 @@ def test_guests_upload_characters_and_prices(client: TestClient, conn: Connectio
     assert store.count_characters(conn, "guest", FOREVER) == 4
     assert len(client.get("/api/characters", headers=FREE).json()["groups"]) == 3
 
+    assert client.delete(
+        "/api/characters", params={"realm": "Classic Beta PvE", "name": "Ally Alt"}, headers=FREE
+    ).is_success  # left with one faction on Classic Beta PvE: scans there are the Horde's
     data = _saved_variables({"ClassicBetaPvE": {"1": _entry(20), "2": _entry(100)}})
     res = upload(client, "auctionator", gzip.compress(data), FREE, modified_at=1_790_000_000_000)
     realm = res.json()["realms"][0]
-    assert (realm["key"], realm["realm"], realm["faction"], realm["items"]) == (
+    assert (realm["key"], realm["realm"], realm["faction"], realm["items"], realm["skipped"]) == (
         "ClassicBetaPvE",
         "Classic Beta PvE",
-        "",
+        "Horde",
         2,
+        None,
     )
     (covered,) = client.get("/api/coverage", headers=FREE).json()
-    assert (covered["realm"], covered["prices"]) == ("Classic Beta PvE", 2)
+    assert (covered["realm"], covered["faction"], covered["prices"]) == ("Classic Beta PvE", "Horde", 2)
     history = client.get("/api/uploads", headers=FREE).json()
     assert [(u["kind"], u["outcome"], u["via"]) for u in history] == [
         ("auctionator", "accepted", "browser"),
         ("altarmy", "accepted", "browser"),
     ]
-    assert client.get("/api/status", headers=FREE).json()["data_version"] == 2
+    assert client.get("/api/status", headers=FREE).json()["data_version"] == 3
 
 
 def test_upload_refreshes_the_cached_market(client: TestClient, priced: Connection) -> None:
     assert client.get("/api/rank").json()["results"][0]["cost"] == 10 * 20 + 100
+    service.delete_character(priced, ME, FOREVER, "Classic Beta PvE", "Ally Alt")  # scans are the Horde's
     upload(client, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": {"m": 33}}}))
     assert client.get("/api/rank").json()["results"][0]["cost"] == 10 * 33 + 100  # linen repriced
 
@@ -692,7 +697,7 @@ def test_users_delete_their_account(
     verifier = FakeVerifier()
     client = make_client(database, game_versions, tmp_path / "nodist", verifier=verifier)
     upload(client, "altarmy", ALTARMY_SV, LINKED)
-    upload(client, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": _entry(20)}}), LINKED)
+    upload(client, "auctionator", _saved_variables({"Dreamscythe Horde": {"1": _entry(20)}}), LINKED)
 
     verifier.fail = True
     assert client.delete("/api/me", headers=LINKED).status_code == 502
@@ -758,7 +763,8 @@ def test_browsing_without_characters(
     ingest.build_db(db2_paths, conn, FOREVER)
     set_prices(conn, {1: 20, 2: 100})
     status = client.get("/api/status").json()
-    assert (status["characters"], status["selection"]) == (0, {"realm": "Classic Beta PvE", "faction": ""})
+    selection = {"realm": "Classic Beta PvE", "faction": "Horde"}
+    assert (status["characters"], status["selection"]) == (0, selection)
     body = client.get("/api/rank").json()
     (r,) = body["results"]
     assert (r["crafter"], r["crafters"], r["mail_to"], body["classes"]) == ("", [], "", {})
