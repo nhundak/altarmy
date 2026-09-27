@@ -158,14 +158,17 @@ export function useEvaluations(
   })
 }
 
-/** A recipe planned as a session: `copies` crafts at once in `city` (null: as the time settings pick), spelled
- * out with where to go. The user's plan `choices` apply. The previous plan stays shown while a new one loads. */
+/** A recipe planned as a session of `copies` crafts (null: the time settings' batch, as ranked) in `city` (null: as
+ * the time settings pick), spelled out with where to go. The user's plan `choices` apply. Only fetched while
+ * `enabled`: with neither set the ranked (or re-costed) result already is this plan. The previous plan stays
+ * shown while a new one loads. */
 export function useSessionPlan(
   recipeId: number,
   { includeUnlearned, includeTrivial, exits, version }: EvaluateParams,
   choices: Choices | undefined,
-  copies: number,
+  copies: number | null,
   city: string | null,
+  enabled: boolean,
 ) {
   const priceVersion = usePriceVersion()
   return useQuery({
@@ -181,13 +184,14 @@ export function useSessionPlan(
             include_trivial: includeTrivial,
             exits,
             choices: choices ?? {},
-            copies,
+            copies: copies ?? undefined,
             city: city ?? undefined,
             price_version: priceVersion,
           },
         }),
       ),
     placeholderData: keepPreviousData,
+    enabled,
   })
 }
 
@@ -298,6 +302,8 @@ export function useTime() {
   return useQuery({
     queryKey: ['time', GAME_VERSION],
     queryFn: () => call(client.GET('/api/time', GV)),
+    // Changes only through `useSetTime` (which stores the answer) or a new selection (which refetches everything).
+    staleTime: Infinity,
   })
 }
 

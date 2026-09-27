@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import csv
 import json
+import urllib.error
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from sqlalchemy import Connection, delete
 
-from . import db, schema, timing
+from . import db, itemstats, schema, spelltext, timing, versions
 
 LATEST_URL = "https://wago.tools/api/builds/latest"
 TABLES = [
@@ -27,6 +29,26 @@ TABLES = [
     "SpellCastTimes",
     "SpellCastingRequirements",
     "SpellFocusObject",
+    # item tooltips (itemstats.py)
+    "RandPropPoints",
+    "ItemArmorTotal",
+    "ItemArmorQuality",
+    "ArmorLocation",
+    "ItemDamageOneHand",
+    "ItemDamageTwoHand",
+    "ItemDamageRanged",
+    "ItemDamageWand",
+    # item spell effects (spelltext.py)
+    "ItemEffect",
+    "Spell",
+    "SpellDuration",
+]
+# Tables some client lacks (wago.tools answers 4xx): cached as an empty file and read as no rows.
+OPTIONAL_TABLES = [
+    "ItemArmorShield",  # not in TBC's client
+    "ItemXItemEffect",  # Forever links items to effects through it; TBC's ItemEffect names the item
+    "SpellAuraOptions",
+    "SpellRadius",
 ]
 EFFECT_CREATE_ITEM = 24
 MAX_REAGENTS = 8
@@ -52,17 +74,27 @@ def latest_build(product: str) -> str:
     return parse_latest_build(_fetch(LATEST_URL), product)
 
 
-def download(table: str, build: str, cache_dir: Path) -> Path:
+def download(table: str, build: str, cache_dir: Path, optional: bool = False) -> Path:
+    """The table's CSV for the build, downloaded once into the cache. An `optional` table the build does
+    not serve (4xx) is cached as an empty file, which reads as no rows."""
     dest = cache_dir / build / f"{table}.csv"
     if dest.exists():
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(_fetch(f"https://wago.tools/db2/{table}/csv?build={build}"))
+    try:
+        data = _fetch(f"https://wago.tools/db2/{table}/csv?build={build}")
+    except urllib.error.HTTPError as e:
+        if not optional or not 400 <= e.code < 500:
+            raise
+        data = b""
+    dest.write_bytes(data)
     return dest
 
 
 def download_all(build: str, cache_dir: Path) -> dict[str, Path]:
-    return {t: download(t, build, cache_dir) for t in TABLES}
+    paths = {t: download(t, build, cache_dir) for t in TABLES}
+    paths.update({t: download(t, build, cache_dir, optional=True) for t in OPTIONAL_TABLES})
+    return paths
 
 
 def _rows(path: Path) -> Iterator[dict[str, str]]:
@@ -70,9 +102,24 @@ def _rows(path: Path) -> Iterator[dict[str, str]]:
         yield from csv.DictReader(f)
 
 
+def _optional_rows(paths: dict[str, Path], table: str) -> Iterator[dict[str, str]]:
+    """The table's rows, or none when it is missing (an older `paths`, the test fixture) or empty (a
+    build that does not serve it)."""
+    path = paths.get(table)
+    if path is not None and path.stat().st_size > 0:
+        yield from _rows(path)
+
+
 def _int(v: str | None, default: int = 0) -> int:
     try:
         return int(float(v)) if v not in (None, "") else default
+    except ValueError:
+        return default
+
+
+def _float(v: str | None, default: float = 0.0) -> float:
+    try:
+        return float(v) if v not in (None, "") else default
     except ValueError:
         return default
 
@@ -159,6 +206,213 @@ def zone_boxes(ui_map_assignment: Path, ui_map: Path) -> list[ZoneBox]:
     return out
 
 
+Rows = Iterable[dict[str, str]]
+
+
+def _rand_prop_points(
+    rows: Rows,
+) -> dict[int, tuple[itemstats.Points5, itemstats.Points5, itemstats.Points5]]:
+    """Item level -> (epic, superior, good) points per slot group. Forever's client keeps them in the
+    `EpicF_n` float columns, TBC's in the integer `Epic_n` ones."""
+    out = {}
+    for r in rows:
+        groups = []
+        for name in ("Epic", "Superior", "Good"):
+            groups.append(tuple(_int(r.get(f"{name}F_{i}") or r.get(f"{name}_{i}")) for i in range(5)))
+        out[_int(r["ID"])] = (groups[0], groups[1], groups[2])
+    return out
+
+
+def _quality_rows(rows: Rows, key: str, prefix: str = "Quality") -> dict[int, itemstats.Quality7]:
+    """`key` -> the row's `<prefix>_0..6` (a value per item quality)."""
+    return {_int(r[key]): tuple(_float(r.get(f"{prefix}_{q}")) for q in range(7)) for r in rows}
+
+
+def _armor_total(rows: Rows) -> dict[int, tuple[float, float, float, float]]:
+    return {
+        _int(r["ItemLevel"]): (
+            _float(r["Cloth"]),
+            _float(r["Leather"]),
+            _float(r["Mail"]),
+            _float(r["Plate"]),
+        )
+        for r in rows
+    }
+
+
+def _armor_location(rows: Rows) -> dict[int, tuple[float, float, float, float]]:
+    return {
+        _int(r["ID"]): (
+            _float(r["Clothmodifier"]),
+            _float(r["Leathermodifier"]),
+            _float(r["Chainmodifier"]),
+            _float(r["Platemodifier"]),
+        )
+        for r in rows
+    }
+
+
+def game_tables(paths: dict[str, Path]) -> itemstats.GameTables:
+    """The stat, armor and damage lookups (every table optional: missing ones leave their numbers 0)."""
+    damage = {
+        "one_hand": "ItemDamageOneHand",
+        "two_hand": "ItemDamageTwoHand",
+        "ranged": "ItemDamageRanged",
+        "wand": "ItemDamageWand",
+    }
+    return itemstats.GameTables(
+        rand_prop_points=_rand_prop_points(_optional_rows(paths, "RandPropPoints")),
+        armor_total=_armor_total(_optional_rows(paths, "ItemArmorTotal")),
+        armor_quality=_quality_rows(_optional_rows(paths, "ItemArmorQuality"), "ID", "Qualitymod"),
+        armor_location=_armor_location(_optional_rows(paths, "ArmorLocation")),
+        shield=_quality_rows(_optional_rows(paths, "ItemArmorShield"), "ItemLevel"),
+        damage={k: _quality_rows(_optional_rows(paths, t), "ItemLevel") for k, t in damage.items()},
+    )
+
+
+MAX_STATS = 10  # ItemSparse stat slots
+
+
+def item_spec(r: dict[str, str], class_id: int, subclass_id: int) -> itemstats.ItemSpec:
+    """One ItemSparse row (with its Item class) as the stats module reads it."""
+    stats = [
+        (_int(r.get(f"StatModifier_bonusStat_{i}"), -1), _int(r.get(f"StatPercentEditor_{i}")))
+        for i in range(MAX_STATS)
+    ]
+    return itemstats.ItemSpec(
+        class_id=class_id,
+        subclass_id=subclass_id,
+        quality=_int(r["OverallQualityID"]),
+        item_level=_int(r["ItemLevel"]),
+        inventory_type=_int(r["InventoryType"]),
+        delay_ms=_int(r["ItemDelay"]),
+        dmg_variance=_float(r.get("DmgVariance")),
+        stats=tuple(s for s in stats if s[0] >= 0),
+    )
+
+
+ItemEffectRef = tuple[str, int, int]  # trigger, spell id, cooldown ms
+
+
+def item_effects(paths: dict[str, Path]) -> dict[int, list[ItemEffectRef]]:
+    """Each item's Use / Equip / Chance on hit effects in slot order. TBC's ItemEffect names its item
+    (`ParentItemID`); Forever's links them through ItemXItemEffect."""
+    by_id: dict[int, tuple[int, str, int, int]] = {}
+    out: dict[int, list[tuple[int, str, int, int]]] = {}
+    for r in _optional_rows(paths, "ItemEffect"):
+        trigger = spelltext.TRIGGERS.get(_int(r["TriggerType"]))
+        if trigger is None:
+            continue
+        # potions and the like have only a category cooldown
+        cooldown = _int(r.get("CoolDownMSec")) or _int(r.get("CategoryCoolDownMSec"))
+        ref = (_int(r.get("LegacySlotIndex")), trigger, _int(r["SpellID"]), cooldown)
+        parent = _int(r.get("ParentItemID"))
+        if parent > 0:
+            out.setdefault(parent, []).append(ref)
+        else:
+            by_id[_int(r["ID"])] = ref
+    for r in _optional_rows(paths, "ItemXItemEffect"):
+        linked = by_id.get(_int(r["ItemEffectID"]))
+        if linked is not None:
+            out.setdefault(_int(r["ItemID"]), []).append(linked)
+    return {i: [(t, s, c) for _, t, s, c in sorted(refs)] for i, refs in out.items()}
+
+
+def _effect_base(r: dict[str, str]) -> float:
+    """An effect's value: `EffectBasePointsF`, or TBC's `EffectBasePoints` plus an average die roll."""
+    as_float = _float(r.get("EffectBasePointsF"))
+    if as_float:
+        return as_float
+    base, sides = _int(r.get("EffectBasePoints")), _int(r.get("EffectDieSides"))
+    return base + (1 + sides) / 2 if sides > 0 else base
+
+
+def spell_data(paths: dict[str, Path], spell_ids: Iterable[int]) -> spelltext.SpellData:
+    """What the descriptions of `spell_ids` need, including the spells they inline or quote (to
+    `spelltext.MAX_DEPTH`); the normal difficulty's rows win where a spell has several."""
+    descriptions = {
+        _int(r["ID"]): r["Description_lang"] for r in _optional_rows(paths, "Spell") if r["Description_lang"]
+    }
+    wanted = set(spell_ids)
+    frontier = set(wanted)
+    for _ in range(spelltext.MAX_DEPTH + 1):
+        refs: set[int] = set()
+        for sid in frontier:
+            refs |= spelltext.referenced(descriptions.get(sid, ""))
+        frontier = refs - wanted
+        if not frontier:
+            break
+        wanted |= frontier
+
+    radius = {_int(r["ID"]): _float(r["Radius"]) for r in _optional_rows(paths, "SpellRadius")}
+    effects: dict[int, dict[int, spelltext.EffectValues]] = {}
+    normal: set[tuple[int, int]] = set()
+    for r in _rows(paths["SpellEffect"]):
+        sid = _int(r["SpellID"])
+        if sid not in wanted:
+            continue
+        idx, difficulty = _int(r.get("EffectIndex")), _int(r.get("DifficultyID"))
+        if (sid, idx) in normal:
+            continue
+        if difficulty == 0:
+            normal.add((sid, idx))
+        effects.setdefault(sid, {})[idx] = spelltext.EffectValues(
+            base=_effect_base(r),
+            variance=_float(r.get("Variance")),
+            period_ms=_int(r.get("EffectAuraPeriod")),
+            misc=_int(r.get("EffectMiscValue_0")),
+            radius=radius.get(_int(r.get("EffectRadiusIndex_0")), 0.0),
+            chain=_int(r.get("EffectChainTargets")),
+        )
+    duration_ms = {_int(r["ID"]): _int(r["Duration"]) for r in _optional_rows(paths, "SpellDuration")}
+    durations: dict[int, int] = {}
+    for r in _rows(paths["SpellMisc"]):
+        sid = _int(r["SpellID"])
+        if sid in wanted and (sid not in durations or _int(r.get("DifficultyID")) == 0):
+            durations[sid] = duration_ms.get(_int(r.get("DurationIndex")), 0)
+    proc_chance: dict[int, int] = {}
+    max_stacks: dict[int, int] = {}
+    for r in _optional_rows(paths, "SpellAuraOptions"):
+        sid = _int(r["SpellID"])
+        if sid in wanted and (sid not in proc_chance or _int(r.get("DifficultyID")) == 0):
+            proc_chance[sid] = _int(r["ProcChance"])
+            max_stacks[sid] = _int(r["CumulativeAura"])
+    blank = spelltext.EffectValues(0.0)
+    return spelltext.SpellData(
+        descriptions={s: descriptions[s] for s in wanted if s in descriptions},
+        effects={s: tuple(e.get(i, blank) for i in range(max(e) + 1)) for s, e in effects.items()},
+        durations=durations,
+        proc_chance=proc_chance,
+        max_stacks=max_stacks,
+    )
+
+
+def item_tooltips(
+    paths: dict[str, Path], max_level: int = itemstats.LEVEL_60
+) -> dict[int, itemstats.Computed]:
+    """Every item's tooltip numbers and lines, by item id: the stats' lines, then its spell effects'
+    (Use, Equip, Chance on hit)."""
+    tables = game_tables(paths)
+    classes = {_int(r["ID"]): (_int(r["ClassID"]), _int(r["SubclassID"])) for r in _rows(paths["Item"])}
+    out = {}
+    for r in _rows(paths["ItemSparse"]):
+        iid = _int(r["ID"])
+        cls, sub = classes.get(iid, (0, 0))
+        out[iid] = itemstats.compute(item_spec(r, cls, sub), tables, max_level)
+    effects = item_effects(paths)
+    data = spell_data(paths, {spell for refs in effects.values() for _, spell, _ in refs})
+    for iid, refs in effects.items():
+        if iid not in out:
+            continue
+        rendered = (spelltext.render_effect(t, s, c, data, max_level) for t, s, c in refs)
+        lines = tuple(e for e in rendered if e is not None)
+        if lines:
+            out[iid] = replace(out[iid], effects=out[iid].effects + lines)
+    return out
+
+
+NO_TOOLTIP = itemstats.Computed(0, 0, 0, 0.0, (), ())
+
 ITEM_INSERT_COLUMNS = (
     "game_version",
     "id",
@@ -181,6 +435,12 @@ ITEM_INSERT_COLUMNS = (
     "icon",
     "buy_count",
     "stack_size",
+    "armor",
+    "dmg_min",
+    "dmg_max",
+    "dps",
+    "stats",
+    "effects",
 )
 
 
@@ -199,12 +459,14 @@ def build_db(
     game_version: str,
     disenchant_csv: Path | None = None,
     vendor_csv: Path | None = None,
+    max_level: int = itemstats.LEVEL_60,
 ) -> dict[str, int]:
     """Rebuild one version's items/recipes/recipe_reagents/disenchant/vendor_items; prices, characters
-    and other versions are left alone."""
+    and other versions are left alone. `max_level` is the version's level cap (how ratings are shown)."""
     for table in GAME_DATA_TABLES:
         conn.execute(delete(table).where(table.c.game_version == game_version))
 
+    tooltips = item_tooltips(paths, max_level)
     skill_names = {_int(r["ID"]): r["DisplayName_lang"] for r in _rows(paths["SkillLine"])}
     subclass_names = {
         (_int(r["ClassID"]), _int(r["SubClassID"])): r["DisplayName_lang"]
@@ -219,6 +481,7 @@ def build_db(
     for r in _rows(paths["ItemSparse"]):
         iid = _int(r["ID"])
         cls, sub, icon = classes.get(iid, (0, 0, 0))
+        tip = tooltips.get(iid, NO_TOOLTIP)
         items.append(
             (
                 game_version,
@@ -242,6 +505,12 @@ def build_db(
                 icons.get(icon),
                 max(1, _int(r.get("VendorStackCount"), 1)),
                 max(1, _int(r.get("Stackable"), 1)),
+                tip.armor,
+                tip.dmg_min,
+                tip.dmg_max,
+                tip.dps,
+                json.dumps(list(tip.stats)),
+                json.dumps([asdict(e) for e in tip.effects]),
             )
         )
     conn.execute(schema.items.insert(), [dict(zip(ITEM_INSERT_COLUMNS, i, strict=True)) for i in items])
@@ -350,6 +619,9 @@ def update(
     vendor_csv: Path | None = None,
 ) -> dict[str, int]:
     """Download `build` (cached per build) and rebuild the version's game data from it, keeping prices."""
-    stats = build_db(download_all(build, cache_dir), conn, game_version, disenchant_csv, vendor_csv)
+    max_level = versions.get(game_version).max_level
+    stats = build_db(
+        download_all(build, cache_dir), conn, game_version, disenchant_csv, vendor_csv, max_level
+    )
     db.set_build(conn, game_version, build)
     return stats

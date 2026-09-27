@@ -10,20 +10,28 @@ export const GOALS: readonly {
   title: string;
   blurb: string;
   details: string;
+  /** Said after `details`, highlighted, and followed by `points` as a list. */
+  caution?: string;
+  points?: readonly string[];
 }[] = [
   {
     key: "profit",
     title: "Maximize profit",
     blurb: "The most gold for each hour of play, whatever the up front costs.",
     details:
-      "Emphasis is placed on minimizing time wasted traveling and switching characters. Selling through the auction house is preferred, but be wary of items that look profitable, yet no one's buying.",
+      "Emphasis is placed on minimizing time wasted travelling and switching characters. We'll show you the theoretical profits from selling on the auction house,",
+    caution: "but you must take an active role in:",
+    points: [
+      "Evaluating which items you think are likely to sell",
+      "Taking care not to flood the market",
+    ],
   },
   {
     key: "budget",
     title: "Make profit on a budget",
     blurb: "Reliable profit from every single craft, even if it takes longer.",
     details:
-      "If you can save a few copper by crafting intermediate materials yourself, you'll do so. Selling reliable enchanting materials will be preferred, rather than intact items that might not sell.",
+      "If you can save a few copper by crafting intermediate materials yourself, we'll point it out. We'll usually only recommend selling enchanting materials and other well known trade goods. These tend to have smaller margins, but are more predictable than selling intact items which can be hit or miss.",
   },
   {
     key: "skill",

@@ -5,6 +5,13 @@ The file is account-wide (WTF/Account/<acct>/SavedVariables/AltArmy_TBC.lua). Ch
 `Recipes[recipeID] = {color, primaryRecipeID?, resultItemID?, name?}`. WoW: Forever characters also have
 `legacyTalents.spells[spellID] = rank` (their Legacy talents, addon data version 2).
 
+The addon keys characters by `UnitName("player")`, which on WoW: Forever changed from the full name
+("Frell Ofelements") to the first name ("Frell"), so older files hold a renamed character twice. One
+character is kept per `guid` (newer addons save it), and without GUIDs a key that is another's first name,
+with the same class, race and faction, is the same character: the most recently updated entry wins.
+Entries never scanned (no name, faction or class: the addon made one while the name still read
+"Unknown") are skipped.
+
 Recipe ids are craft spell ids (they match `recipes.spell_id`). On TBC clients one recipe can be stored
 under several alias keys that all share a `primaryRecipeID`; Enchanting rows only carry `color`.
 """
@@ -75,12 +82,17 @@ def parse_characters(data: bytes) -> list[Character]:
         raise ValueError("no AltArmyTBC_Data in file (is this Alt Army's AltArmy_TBC.lua?)")
     chars: list[Character] = []
     for realm, by_name in _table(root.get("Characters")).items():
-        for name, char in _table(by_name).items():
-            c = _table(char)
+        entries = {
+            str(name): c
+            for name, char in _table(by_name).items()
+            if (c := _table(char)).get("name") or c.get("faction") or c.get("classFile")
+        }
+        for name in _without_renamed(entries):
+            c = entries[name]
             chars.append(
                 Character(
                     realm=str(realm),
-                    name=str(name),
+                    name=name,
                     faction=_str(c.get("faction")),
                     class_file=_str(c.get("classFile")),
                     level=_int(c.get("level")),
@@ -94,6 +106,27 @@ def parse_characters(data: bytes) -> list[Character]:
                 )
             )
     return sorted(chars, key=lambda c: (c.realm, c.name))
+
+
+def _without_renamed(entries: dict[str, LuaTable]) -> list[str]:
+    """The keys of one realm's entries, less those that are an older copy of another (see the module doc)."""
+
+    def same(a: str, b: str) -> bool:
+        ca, cb = entries[a], entries[b]
+        ga, gb = _str(ca.get("guid")), _str(cb.get("guid"))
+        if ga and gb:
+            return ga == gb
+        short, full = sorted((a, b), key=len)
+        return (
+            " " not in short
+            and full.split(" ", 1)[0] == short
+            and all(_str(ca.get(f)) == _str(cb.get(f)) for f in ("classFile", "raceFile", "faction"))
+        )
+
+    def newer(a: str, b: str) -> bool:
+        return (_int(entries[a].get("lastUpdate")), a) > (_int(entries[b].get("lastUpdate")), b)
+
+    return [a for a in entries if not any(b != a and same(a, b) and newer(b, a) for b in entries)]
 
 
 def _talents(legacy: LuaTable) -> tuple[tuple[int, int], ...]:

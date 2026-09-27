@@ -100,6 +100,13 @@ items = Table(
     Column("icon", Text),  # icon file name, lowercase, without extension
     Column("buy_count", Integer, nullable=False, default=1),  # vendors sell stacks of this many
     Column("stack_size", Integer, nullable=False, default=1),  # units per stack (one mail attachment)
+    # Tooltip numbers and lines computed at ingest (itemstats.py); 0 / "[]" in databases from before them
+    Column("armor", Integer, nullable=False, default=0, server_default="0"),
+    Column("dmg_min", Integer, nullable=False, default=0, server_default="0"),
+    Column("dmg_max", Integer, nullable=False, default=0, server_default="0"),
+    Column("dps", Float, nullable=False, default=0.0, server_default="0"),
+    Column("stats", Text, nullable=False, default="[]", server_default="[]"),  # JSON list of white lines
+    Column("effects", Text, nullable=False, default="[]", server_default="[]"),  # JSON [{trigger, text}]
     Index(None, "game_version", "name"),
 )
 

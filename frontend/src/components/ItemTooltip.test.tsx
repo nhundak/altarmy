@@ -2,13 +2,37 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { renderWithProviders, shown } from '../test/utils'
-import { linen, robe, thread } from '../test/items'
+import { hammer, helm, linen, robe, thread } from '../test/items'
 import { ItemLink, ItemTooltip, RecipeTooltip } from './ItemTooltip'
 
 /** The element whose own text content (including children) is exactly `text`. */
 const line = (text: string) => screen.getByText((_, el) => shown(el) === text && el!.children.length > 0)
 
 describe('ItemTooltip', () => {
+  it('shows armor, stats and the green lines in game order', () => {
+    const { container } = renderWithProviders(<ItemTooltip item={helm} />)
+    const lines = Array.from(container.querySelectorAll('div > div')).map((el) => el.textContent)
+    const at = (text: string) => lines.findIndex((l) => l === text)
+    expect(at('565 Armor')).toBeGreaterThan(at('Head'))
+    expect(at('+18 Strength')).toBeGreaterThan(at('565 Armor'))
+    expect(at('Requires Level 56')).toBeGreaterThan(at('+18 Strength'))
+    expect(at('Equip: Improves your chance to get a critical strike by 2%.')).toBeGreaterThan(
+      at('Requires Level 56'),
+    )
+    expect(at('Equip: Improves your chance to hit by 2%.')).toBeGreaterThan(
+      at('Equip: Improves your chance to get a critical strike by 2%.'),
+    )
+    expect(screen.getByText('Equip: Improves your chance to hit by 2%.').className).toContain('green')
+  })
+
+  it('shows a weapon as damage, speed and dps', () => {
+    renderWithProviders(<ItemTooltip item={hammer} />)
+    expect(screen.getByText('46 - 86 Damage')).toBeInTheDocument()
+    expect(screen.getByText('Speed 2.80')).toBeInTheDocument()
+    expect(screen.getByText('(23.6 damage per second)')).toBeInTheDocument()
+    expect(screen.queryByText(/Armor/)).not.toBeInTheDocument()
+  })
+
   it('shows the in-game lines for an item', () => {
     renderWithProviders(<ItemTooltip item={robe} />)
     expect(screen.getByText('Green Robe')).toHaveStyle({ color: '#1eff00' })
@@ -29,7 +53,7 @@ describe('ItemTooltip', () => {
   it('adds the auction price and leaves out empty lines', () => {
     renderWithProviders(<ItemTooltip item={linen} />)
     expect(line('Auction: 20')).toBeInTheDocument()
-    expect(screen.queryByText(/Binds|Requires/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Binds|Requires|Armor|Damage|Equip/)).not.toBeInTheDocument()
     expect(screen.queryByRole('presentation')).not.toBeInTheDocument()
   })
 
@@ -51,7 +75,13 @@ describe('ItemTooltip', () => {
       { item_id: 2, count: 1 },
     ]
     renderWithProviders(
-      <RecipeTooltip name="Green Robe" profession="Tailoring" reagents={reagents} output={robe} items={items} />,
+      <RecipeTooltip
+        name="Green Robe"
+        profession="Tailoring"
+        reagents={reagents}
+        output={robe}
+        items={items}
+      />,
     )
     expect(screen.getByText('Tailoring')).toBeInTheDocument()
     expect(screen.getByText('Reagents: Linen Cloth (10), Coarse Thread')).toBeInTheDocument()

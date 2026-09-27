@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from 'react'
 import { ActionIcon, Menu, Table, Text, UnstyledButton } from '@mantine/core'
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import type { ItemMap, RankResult } from '../api/client'
 import { useEvaluations, type EvaluateParams } from '../api/queries'
 import { choose, type Choices } from '../lib/choices'
@@ -59,6 +59,15 @@ type Sort = { column: string; descending: boolean }
 /** Rows slide to their new place when the order changes (a favorite, a re-rank, a sort). */
 const MotionTr = motion.create(Table.Tr)
 const REORDER = { layout: { duration: 0.35, ease: [0.25, 0.8, 0.25, 1] as const } }
+/** A details row opens and closes by its content's height (a table row's own height can't be animated), so
+ * its cells have no padding of their own. */
+const UNFOLD = {
+  initial: { height: 0, opacity: 0 },
+  animate: { height: 'auto', opacity: 1 },
+  exit: { height: 0, opacity: 0 },
+  transition: { duration: 0.25, ease: [0.25, 0.8, 0.25, 1] as const },
+  style: { overflow: 'hidden' },
+}
 
 /** `results` ordered by `sort`, stably, favorites first; unsorted keeps the server's order (favorites, then
  * profit, best first). */
@@ -284,7 +293,11 @@ export function ResultsTable({
                       className={COLUMN_HIDDEN['Per hour']}
                       ff="monospace"
                       ta="right"
-                      title={r.timing ? `${r.timing.batch} crafts in ${formatSeconds(r.timing.total_seconds)}` : undefined}
+                      title={
+                        r.timing
+                          ? `${r.crafts} ${r.crafts === 1 ? 'craft' : 'crafts'} in ${formatSeconds(r.timing.total_seconds)}`
+                          : undefined
+                      }
                     >
                       {r.timing ? (
                         <Text span inherit c={r.timing.per_hour < 0 ? 'red' : 'teal'}>
@@ -350,20 +363,24 @@ export function ResultsTable({
                       </Table.Td>
                     )}
                   </MotionTr>
-                  {expanded && (
-                    <MotionTr {...reorder} className={classes.details}>
-                      <Table.Td />
-                      <Table.Td colSpan={columns - 1}>
-                        <SessionDetails
-                          result={r}
-                          items={items}
-                          editing={editing(r.recipe_id)}
-                          params={params}
-                          choices={choices[r.recipe_id]}
-                        />
-                      </Table.Td>
-                    </MotionTr>
-                  )}
+                  <AnimatePresence initial={false}>
+                    {expanded && (
+                      <MotionTr key="details" {...reorder} className={classes.details}>
+                        <Table.Td py={0} />
+                        <Table.Td py={0} colSpan={columns - 1}>
+                          <motion.div {...UNFOLD}>
+                            <SessionDetails
+                              result={r}
+                              items={items}
+                              editing={editing(r.recipe_id)}
+                              params={params}
+                              choices={choices[r.recipe_id]}
+                            />
+                          </motion.div>
+                        </Table.Td>
+                      </MotionTr>
+                    )}
+                  </AnimatePresence>
                 </Fragment>
               )
             })}

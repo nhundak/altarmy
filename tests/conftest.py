@@ -135,6 +135,11 @@ def db2_paths(tmp_path: Path) -> dict[str, Path]:
                 "RequiredSkill",
                 "RequiredSkillRank",
                 "Description_lang",
+                "DmgVariance",
+                "StatModifier_bonusStat_0",
+                "StatPercentEditor_0",
+                "StatModifier_bonusStat_1",
+                "StatPercentEditor_1",
             ],
             [
                 {
@@ -166,7 +171,41 @@ def db2_paths(tmp_path: Path) -> dict[str, Path]:
                     "RequiredSkill": 197,
                     "RequiredSkillRank": 50,
                     "Description_lang": "Soft and green.",
+                    # +9 Intellect and spell power 6 at 30 points (see RandPropPoints below)
+                    "StatModifier_bonusStat_0": 5,
+                    "StatPercentEditor_0": 3000,
+                    "StatModifier_bonusStat_1": 45,
+                    "StatPercentEditor_1": 2000,
                 },
+            ],
+        ),
+        # Tooltip numbers for ilvl 20 (itemstats.py): the robe gets 46 armor (46.4 * 1.0 * 1.0).
+        "RandPropPoints": write_csv(
+            tmp_path / "RandPropPoints.csv",
+            ["ID", "EpicF_0", "SuperiorF_0", "GoodF_0", "GoodF_1"],
+            [{"ID": 20, "EpicF_0": 60, "SuperiorF_0": 40, "GoodF_0": 30, "GoodF_1": 20}],
+        ),
+        "ItemArmorTotal": write_csv(
+            tmp_path / "ItemArmorTotal.csv",
+            ["ID", "ItemLevel", "Cloth", "Leather", "Mail", "Plate"],
+            [{"ID": 20, "ItemLevel": 20, "Cloth": 46.4, "Leather": 90, "Mail": 180, "Plate": 360}],
+        ),
+        "ItemArmorQuality": write_csv(
+            tmp_path / "ItemArmorQuality.csv",
+            ["ID", "Qualitymod_0", "Qualitymod_1", "Qualitymod_2", "Qualitymod_3", "Qualitymod_4"],
+            [{"ID": 20, "Qualitymod_0": 0.9, "Qualitymod_1": 1.0, "Qualitymod_2": 1.0, "Qualitymod_3": 1.1}],
+        ),
+        "ArmorLocation": write_csv(
+            tmp_path / "ArmorLocation.csv",
+            ["ID", "Clothmodifier", "Leathermodifier", "Chainmodifier", "Platemodifier"],
+            [
+                {
+                    "ID": 5,
+                    "Clothmodifier": 1.0,
+                    "Leathermodifier": 1.0,
+                    "Chainmodifier": 1.0,
+                    "Platemodifier": 1,
+                }
             ],
         ),
         "ItemSubClass": write_csv(
@@ -221,16 +260,52 @@ def db2_paths(tmp_path: Path) -> dict[str, Path]:
         ),
         "SpellEffect": write_csv(
             tmp_path / "SpellEffect.csv",
-            ["ID", "Effect", "EffectItemType", "EffectBasePointsF", "SpellID"],
+            [
+                "ID",
+                "Effect",
+                "EffectItemType",
+                "EffectBasePointsF",
+                "SpellID",
+                "EffectIndex",
+                "Variance",
+                "EffectAuraPeriod",
+                "EffectMiscValue_0",
+                "EffectRadiusIndex_0",
+                "DifficultyID",
+            ],
             [
                 {"ID": 1, "Effect": 24, "EffectItemType": 3, "EffectBasePointsF": 1.0, "SpellID": 900},
                 {"ID": 2, "Effect": 6, "EffectItemType": 0, "EffectBasePointsF": 0, "SpellID": 901},
+                # the robe's Use effect (spell 950): 1400 health with a 50% spread
+                {"ID": 3, "Effect": 10, "EffectBasePointsF": 1400, "Variance": 0.5, "SpellID": 950},
             ],
+        ),
+        # The robe's "Use:" line: ItemXItemEffect links it (Forever's shape) to a 2-minute-cooldown spell.
+        "ItemEffect": write_csv(
+            tmp_path / "ItemEffect.csv",
+            ["ID", "LegacySlotIndex", "TriggerType", "CoolDownMSec", "CategoryCoolDownMSec", "SpellID"],
+            [
+                {"ID": 1, "TriggerType": 0, "CategoryCoolDownMSec": 120000, "SpellID": 950},  # a potion's
+                {"ID": 2, "TriggerType": 6, "SpellID": 900},  # on learn: not a tooltip line
+            ],
+        ),
+        "ItemXItemEffect": write_csv(
+            tmp_path / "ItemXItemEffect.csv",
+            ["ID", "ItemEffectID", "ItemID"],
+            [{"ID": 1, "ItemEffectID": 1, "ItemID": 3}, {"ID": 2, "ItemEffectID": 2, "ItemID": 3}],
+        ),
+        "Spell": write_csv(
+            tmp_path / "Spell.csv",
+            ["ID", "NameSubtext_lang", "Description_lang", "AuraDescription_lang"],
+            [{"ID": 950, "Description_lang": "Restores $s1 health."}, {"ID": 900, "Description_lang": ""}],
+        ),
+        "SpellDuration": write_csv(
+            tmp_path / "SpellDuration.csv", ["ID", "Duration", "MaxDuration"], [{"ID": 9, "Duration": 30000}]
         ),
         # Spell 900 casts in 3 s (index 5; a heroic-difficulty row must not win) at an anvil (focus 1).
         "SpellMisc": write_csv(
             tmp_path / "SpellMisc.csv",
-            ["ID", "SpellID", "CastingTimeIndex", "DifficultyID"],
+            ["ID", "SpellID", "CastingTimeIndex", "DifficultyID", "DurationIndex"],
             [
                 {"ID": 1, "SpellID": 900, "CastingTimeIndex": 5, "DifficultyID": 0},
                 {"ID": 2, "SpellID": 900, "CastingTimeIndex": 1, "DifficultyID": 2},

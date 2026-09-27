@@ -189,6 +189,13 @@ class ItemCount(BaseModel):
     count: int
 
 
+class EffectOut(BaseModel):
+    """A green tooltip line."""
+
+    trigger: str  # Use, Equip, Chance on hit
+    text: str
+
+
 class ItemInfo(BaseModel):
     """Everything an item tooltip shows."""
 
@@ -207,6 +214,13 @@ class ItemInfo(BaseModel):
     description: str | None
     sell_price: int
     icon: str | None  # wow.zamimg.com icon name
+    # computed at ingest (itemstats.py); 0 and empty until the version's game data is updated
+    armor: int
+    dmg_min: int
+    dmg_max: int
+    dps: float
+    stats: list[str]  # white lines, in game order: "+18 Strength", "+25 Fire Resistance"
+    effects: list[EffectOut]  # green lines, in game order
     ah_price: int | None  # the current minimum buyout: what buying it costs
     # what selling it on the AH counts as: the lower of ah_price and the 7-day median (hand-set prices as
     # they are), so a lone overpriced listing isn't taken for the going rate
@@ -226,15 +240,14 @@ class LegOut(BaseModel):
 
 
 class TimingOut(BaseModel):
-    """How long a batch of the recipe takes in a city, and what that makes per hour."""
+    """How long the result's session (its `crafts`) takes in a city, and what that makes per hour."""
 
     city: str
-    batch: int  # crafts per session
-    fixed_seconds: float  # once per batch: travel, character switches, AH searches
-    per_craft_seconds: float  # every craft: casts, buys, posts, mail
-    total_seconds: float  # the whole batch
+    fixed_seconds: float  # travel, character switches, AH searches
+    per_craft_seconds: float  # the crafts' own: casts, buys, posts, mail
+    total_seconds: float  # the whole session
     per_hour: int  # copper profit per hour of play
-    breakdown: dict[str, float]  # the batch's seconds: travel, switch, ah, vendor, mail, craft, disenchant
+    breakdown: dict[str, float]  # the session's seconds: travel, switch, ah, vendor, mail, craft, disenchant
     legs: list[LegOut]  # every run, in order
     unsold: list[int]  # vendor items no vendor in the city sells (timed at the nearest vendor)
     missing: list[str]  # crafting stations (anvil, moonwell, ...) the plan needs and the city lacks
@@ -284,7 +297,7 @@ class RankResult(BaseModel):
     best_exit: str
     postage: int  # copper to mail the output to whoever sells it (included in cost)
     mail_to: str  # who the output is mailed to; "" if the crafter sells it
-    bonus_output: float = 0.0  # expected extra units per craft from the crafter's talents (Master Chef)
+    bonus_output: float = 0.0  # expected extra units from the crafter's talents (Master Chef), all crafts
     exits: list[ExitOut]
     reagents: list[ItemCount]
     steps: list[StepOut]  # per character: buys, crafts (intermediates first), mails; then the sale
@@ -293,8 +306,8 @@ class RankResult(BaseModel):
     timing: TimingOut | None = None  # this plan in the user's city
     cities: list[CityTimingOut] = []  # this plan in each city the selection's faction crafts in
     best_city: str | None = None  # the quickest of those; None without city presets
-    crafts: int = 1  # what cost, revenue, profit, steps and tree are for (a session's, from /api/evaluate)
-    details: list[DetailOut] = []  # a session's steps with where to go in between (/api/evaluate with copies)
+    crafts: int = 1  # what cost, revenue, profit, steps and tree are for: a session (the user's batch)
+    details: list[DetailOut] = []  # the steps with where to go in between
 
 
 class RankResponse(BaseModel):
@@ -313,7 +326,7 @@ class EvaluateRequest(BaseModel):
     exits: list[ExitKind] = list(ALL_EXIT_KINDS)
     # tree path ("r.0", "r.0.1"; "sell" for the exit) -> option key (or exit kind); unknown keys are ignored
     choices: dict[str, str]
-    # a session: that many crafts at once, spelled out step by step (`details`); None: one craft, as ranked
+    # that many crafts at once; None: the user's batch, as ranked
     copies: int | None = Field(default=None, ge=1, le=1000)
     city: str | None = None  # time and route the session in this city (the selection's faction's)
     price_version: int | None = None  # the auction house's price version the front end knows of
@@ -819,7 +832,7 @@ def get_rank(
         list[str] | None, Query(description="only recipes of these professions (default: every one)")
     ] = None,
     sort: Annotated[
-        Literal["profit", "rate"], Query(description="profit per craft, or per hour of play")
+        Literal["profit", "rate"], Query(description="profit per session (the batch), or per hour of play")
     ] = "profit",
     top: Annotated[int, Query(ge=1)] = 50,
     price_version: Annotated[
@@ -827,9 +840,10 @@ def get_rank(
     ] = None,
 ) -> RankResponse:
     """What the selected realm/faction's characters can craft, the user's favorites first, then most
-    profitable first (per craft, or with `sort=rate` per hour of play in the user's city); without
-    characters, every recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive;
-    an omitted bound is unbounded (so losses are included unless `min_profit` is set)."""
+    profitable first (each a session of the user's batch of crafts, or with `sort=rate` per hour of play in
+    the user's city); without characters, every recipe, crafted by one unnamed character (nothing is
+    mailed). Bounds are inclusive and on the session's numbers; an omitted bound is unbounded (so losses are
+    included unless `min_profit` is set)."""
     s = _selected(state, user, price_version)
     base, chars, no_ah = s.base, s.chars, s.no_ah
     # Without characters the ranking depends on nobody but the time settings: browsing users with the same
@@ -875,11 +889,11 @@ def get_rank(
 
 @router.post("/evaluate")
 def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> EvaluateResponse:
-    """One recipe as /api/rank would give it, with the user's `choices` of sources and exit applied."""
+    """One recipe as /api/rank would give it (a session of the user's batch of crafts), with the user's
+    `choices` of sources and exit applied, and for `copies` crafts or in `city` if given."""
     s = _selected(state, user, body.price_version)
-    session = body.copies is not None or body.city is not None
     with _http_errors():
-        time = service.session_model(s.time, s.cities, body.city) if session else s.time
+        time = service.session_model(s.time, s.cities, body.city)
     r = service.evaluate(
         s.base,
         s.chars,
@@ -890,12 +904,12 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
         s.no_ah,
         body.include_trivial,
         time,
-        body.copies or 1,
+        body.copies or s.time.config.batch,
     )
     if r is None:
         raise HTTPException(404, "These characters can't craft and sell that recipe.")
     return EvaluateResponse(
-        result=_result_out(r, s.base, altarmy.crafters(s.chars), s.cities, detailed=session),
+        result=_result_out(r, s.base, altarmy.crafters(s.chars), s.cities),
         items=_item_infos(state, s.base, [r]),
     )
 
@@ -967,7 +981,6 @@ def _timing_out(t: timing.Timing, profit: int, city: timing.CityMap) -> TimingOu
 
     return TimingOut(
         city=t.city,
-        batch=t.batch,
         fixed_seconds=t.fixed_seconds,
         per_craft_seconds=t.per_craft_seconds,
         total_seconds=t.total_seconds,
@@ -1029,8 +1042,6 @@ def _result_out(
     base: engine.Market,
     crafters: dict[int, list[str]],
     cities: Sequence[timing.CityMap] = (),
-    *,
-    detailed: bool = False,
 ) -> RankResult:
     per_city = _cities_out(r, cities)
     t = r.timing
@@ -1090,7 +1101,7 @@ def _result_out(
         cities=per_city,
         best_city=_best_city(per_city),
         crafts=r.crafts,
-        details=_details_out(r) if detailed else [],
+        details=_details_out(r),
     )
 
 

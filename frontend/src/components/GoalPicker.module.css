@@ -11,3 +11,10 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* A card's button stretches to the row's tallest card; a button centers its content, so start it at the top. */
+.top {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}

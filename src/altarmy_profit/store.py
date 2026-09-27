@@ -10,7 +10,7 @@ from pathlib import Path
 
 from sqlalchemy import Connection, delete, func, select
 
-from . import db, prices, schema, timing
+from . import db, itemstats, prices, schema, timing
 from .altarmy import Character, Profession
 from .engine import AH_CUT, MAIL_POSTAGE, DisenchantRow, Item, Market, Recipe
 
@@ -37,6 +37,32 @@ class ItemDetails:
     description: str | None
     sell_price: int
     icon: str | None
+    armor: int
+    dmg_min: int
+    dmg_max: int
+    dps: float
+    stats: tuple[str, ...]  # white tooltip lines ("+18 Strength")
+    effects: tuple[itemstats.Effect, ...]  # green lines (Equip, Use, Chance on hit)
+
+
+def _json_list(text: str) -> list[object]:
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return []
+    return list(value) if isinstance(value, list) else []
+
+
+def _stat_lines(text: str) -> tuple[str, ...]:
+    return tuple(s for s in _json_list(text) if isinstance(s, str))
+
+
+def _effect_lines(text: str) -> tuple[itemstats.Effect, ...]:
+    return tuple(
+        itemstats.Effect(str(e["trigger"]), str(e["text"]))
+        for e in _json_list(text)
+        if isinstance(e, dict) and "trigger" in e and "text" in e
+    )
 
 
 MarketStamp = tuple[str | None, int | None, int | None]
@@ -153,7 +179,10 @@ def load_item_details(conn: Connection, game_version: str, ids: Iterable[int]) -
         chunk = wanted[start : start + IN_CHUNK]
         query = select(*columns).where(t.c.game_version == game_version, t.c.id.in_(chunk))
         for r in conn.execute(query):
-            out[r.id] = ItemDetails(*r)
+            d = dict(r._mapping)
+            d["stats"] = _stat_lines(d["stats"])
+            d["effects"] = _effect_lines(d["effects"])
+            out[r.id] = ItemDetails(**d)
     return out
 
 

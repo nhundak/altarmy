@@ -227,12 +227,12 @@ class TimeModel:
 @dataclass
 class Result:
     recipe: Recipe
-    cost: int  # per craft: reagents plus postage
-    revenue: int  # per craft (best exit x (output_count + bonus_output))
+    cost: int  # for `crafts` crafts: reagents plus postage
+    revenue: int  # for `crafts` crafts (best exit x (output_count x crafts + bonus_output))
     best_exit: str
     tree: Node  # the recipe's craft, with its reagents as inputs
     exits: list[Exit] = field(default_factory=list)
-    postage: int = 0  # per craft: mailing the output to whoever sells it (included in cost)
+    postage: int = 0  # mailing the output to whoever sells it (included in cost)
     mail_to: str = ""  # who the output is mailed to; "" if the crafter sells it
     crafter: str = ""  # who does the final craft; "" if no characters are known
     sell_options: list[SellOption] = field(default_factory=list)  # each exit's best profit, best first
@@ -244,7 +244,7 @@ class Result:
     disenchant_seconds: float = field(default=0.0, compare=False)  # the disenchanting part of `sell_seconds`
     mail_seconds: float = field(default=0.0, compare=False)
     time_model: TimeModel | None = field(default=None, compare=False, repr=False)
-    crafts: int = 1  # how many crafts cost, revenue, steps and tree are for (a session's; 1 in rankings)
+    crafts: int = 1  # how many crafts cost, revenue, steps and tree are for (a session's)
 
     @cached_property
     def steps(self) -> list[Step]:
@@ -1164,15 +1164,16 @@ class Market:
         picked.sell_options = [SellOption(r.best_exit, r.profit) for r in ranked]
         return picked
 
-    def rank(self, min_profit: int = 0, skill_name: str | None = None) -> list[Result]:
-        """Every recipe's best result with at least `min_profit`, most profitable first. One memo serves
-        the whole ranking: an intermediate is worked out once however many recipes need it."""
+    def rank(self, min_profit: int = 0, skill_name: str | None = None, crafts: int = 1) -> list[Result]:
+        """Every recipe's best result for `crafts` crafts at once with at least `min_profit`, most
+        profitable first. One memo serves the whole ranking: an intermediate is worked out once however many
+        recipes need it."""
         results = []
         memo: Memo = {}
         for r in self.recipes:
             if skill_name and r.skill_name.lower() != skill_name.lower():
                 continue
-            res = self.evaluate(r, memo=memo)
+            res = self.evaluate(r, memo=memo, crafts=crafts)
             if res and res.profit >= min_profit:
                 results.append(res)
         return sorted(results, key=lambda x: x.profit, reverse=True)

@@ -137,7 +137,8 @@ export interface paths {
         put?: never;
         /**
          * Evaluate
-         * @description One recipe as /api/rank would give it, with the user's `choices` of sources and exit applied.
+         * @description One recipe as /api/rank would give it (a session of the user's batch of crafts), with the user's
+         *     `choices` of sources and exit applied, and for `copies` crafts or in `city` if given.
          */
         post: operations["evaluate_api_evaluate_post"];
         delete?: never;
@@ -239,9 +240,10 @@ export interface paths {
         /**
          * Get Rank
          * @description What the selected realm/faction's characters can craft, the user's favorites first, then most
-         *     profitable first (per craft, or with `sort=rate` per hour of play in the user's city); without
-         *     characters, every recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive;
-         *     an omitted bound is unbounded (so losses are included unless `min_profit` is set).
+         *     profitable first (each a session of the user's batch of crafts, or with `sort=rate` per hour of play in
+         *     the user's city); without characters, every recipe, crafted by one unnamed character (nothing is
+         *     mailed). Bounds are inclusive and on the session's numbers; an omitted bound is unbounded (so losses are
+         *     included unless `min_profit` is set).
          */
         get: operations["get_rank_api_rank_get"];
         put?: never;
@@ -559,6 +561,16 @@ export interface components {
             who: string;
         };
         /**
+         * EffectOut
+         * @description A green tooltip line.
+         */
+        EffectOut: {
+            /** Text */
+            text: string;
+            /** Trigger */
+            trigger: string;
+        };
+        /**
          * EvaluateRequest
          * @description Re-cost one recipe with some of its sources or its exit picked by the user.
          */
@@ -718,6 +730,8 @@ export interface components {
             ah_price: number | null;
             /** Ah Sell Price */
             ah_sell_price: number | null;
+            /** Armor */
+            armor: number;
             /** Bonding */
             bonding: number;
             /** Class Id */
@@ -726,6 +740,14 @@ export interface components {
             container_slots: number;
             /** Description */
             description: string | null;
+            /** Dmg Max */
+            dmg_max: number;
+            /** Dmg Min */
+            dmg_min: number;
+            /** Dps */
+            dps: number;
+            /** Effects */
+            effects: components["schemas"]["EffectOut"][];
             /** Icon */
             icon: string | null;
             /** Id */
@@ -746,6 +768,8 @@ export interface components {
             required_skill_rank: number;
             /** Sell Price */
             sell_price: number;
+            /** Stats */
+            stats: string[];
             /** Subclass Name */
             subclass_name: string | null;
             /** Vendor Price */
@@ -1208,11 +1232,9 @@ export interface components {
         };
         /**
          * TimingOut
-         * @description How long a batch of the recipe takes in a city, and what that makes per hour.
+         * @description How long the result's session (its `crafts`) takes in a city, and what that makes per hour.
          */
         TimingOut: {
-            /** Batch */
-            batch: number;
             /** Breakdown */
             breakdown: {
                 [key: string]: number;
@@ -1813,7 +1835,7 @@ export interface operations {
                 max_roi?: number | null;
                 /** @description only recipes of these professions (default: every one) */
                 professions?: string[] | null;
-                /** @description profit per craft, or per hour of play */
+                /** @description profit per session (the batch), or per hour of play */
                 sort?: "profit" | "rate";
                 top?: number;
                 /** @description the auction house's price version the front end knows of */

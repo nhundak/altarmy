@@ -3,7 +3,7 @@ import { Button, Checkbox, Group, Loader, NumberInput, SegmentedControl, Select,
 import { useDebouncedValue } from '@mantine/hooks'
 import { z } from 'zod'
 import type { ItemMap, RankResult } from '../api/client'
-import { useSessionPlan, useTime, type EvaluateParams } from '../api/queries'
+import { useSessionPlan, type EvaluateParams } from '../api/queries'
 import type { Choices } from '../lib/choices'
 import { formatMoney } from '../lib/money'
 import { useStoredState } from '../lib/storage'
@@ -14,18 +14,14 @@ import { RecipeFlow } from './RecipeFlow'
 import { Earned, StepList } from './StepList'
 import { TimingNotes } from './TimingSummary'
 
-/** Copies when the time settings haven't loaded (their own default). */
-const FALLBACK_COPIES = 10
 const MAX_COPIES = 1000
 
 type View = 'flow' | 'steps'
 
-/** Each city with what this session makes per hour there (once planned), or the station it lacks. */
-function cityOptions(cities: string[], session: RankResult | undefined) {
-  const timed = new Map(session?.cities.map((c) => [c.city, c]))
-  return cities.map((name) => {
-    const c = timed.get(name)
-    if (!c) return { value: name, label: name }
+/** Each city the plan was timed in, with what it makes per hour there or the station it lacks. */
+function cityOptions(shown: RankResult) {
+  return shown.cities.map((c) => {
+    const name = c.city
     const note = c.missing.length
       ? `no ${c.missing.map((k) => k.replaceAll('_', ' ')).join(' or ')}`
       : `${formatMoney(c.per_hour)}/hr`
@@ -54,8 +50,9 @@ function Summary({ result }: { result: RankResult }) {
 /**
  * An expanded row: the plan for a session of `copies` crafts in a city, as the server works it out (whole
  * batches, whole stacks, the route), as a flow chart or steps (optionally with where to go in between).
- * One Reset brings back the best plan, the default copies and the default city. Until the session is
- * planned (or if planning fails) the row's own plan shows.
+ * The row's own result already is the session of the time settings' batch, timed where it is quickest, so
+ * it shows at once; only other copies or another city are planned again (until then, or if that fails,
+ * the row's plan shows). One Reset brings back the best plan, the default copies and the default city.
  */
 export function SessionDetails({
   result,
@@ -71,23 +68,26 @@ export function SessionDetails({
   choices: Choices | undefined
 }) {
   const [view, setView] = useState<View>('flow')
-  const settings = useTime().data
-  const cities = settings?.cities.map((c) => c.name) ?? []
-  const defaultCopies = settings?.config.batch ?? FALLBACK_COPIES
+  const cities = result.cities.map((c) => c.city)
+  const defaultCopies = result.crafts
   const timedIn = result.timing?.city
   const defaultCity = timedIn && cities.includes(timedIn) ? timedIn : (cities[0] ?? null)
   const [copies, setCopies] = useState<number | null>(null) // null: the default
   const [city, setCity] = useState<string | null>(null)
   const [detailed, setDetailed] = useStoredState('altarmy-profit.steps.detailed', z.boolean(), false)
+  // What differs from the row's own plan (null: as ranked); typed copies wait for the typing to stop.
+  const wantedCopies = copies !== null && copies !== defaultCopies ? copies : null
+  const wantedCity = city !== null && city !== defaultCity ? city : null
+  const [debouncedCopies] = useDebouncedValue(wantedCopies, 400)
+  const planCopies = wantedCopies === null ? null : debouncedCopies // back to the default at once
+  const custom = planCopies !== null || wantedCity !== null
+  const plan = useSessionPlan(result.recipe_id, params, choices, planCopies, wantedCity, custom)
+  const session = custom ? plan.data?.result : undefined
+  const shown = session ?? result
+  const shownItems = session ? { ...items, ...plan.data?.items } : items
   const shownCopies = copies ?? defaultCopies
   const shownCity = city ?? defaultCity
-  const [debouncedCopies] = useDebouncedValue(shownCopies, 400)
-  const plan = useSessionPlan(result.recipe_id, params, choices, debouncedCopies, shownCity)
-  const session = plan.data?.result
-  const shown = session ?? result
-  const shownItems = { ...items, ...plan.data?.items }
-  const changed =
-    editing.modified || (copies !== null && copies !== defaultCopies) || (city !== null && city !== defaultCity)
+  const changed = editing.modified || wantedCopies !== null || wantedCity !== null
   const reset = () => {
     setCopies(null)
     setCity(null)
@@ -121,7 +121,7 @@ export function SessionDetails({
             label="City"
             size="xs"
             w={230}
-            data={cityOptions(cities, session)}
+            data={cityOptions(shown)}
             value={shownCity}
             onChange={(v) => v && setCity(v)}
             allowDeselect={false}
@@ -142,8 +142,8 @@ export function SessionDetails({
           </Button>
         )}
         {editing.pending && <Loader size="xs" mb={6} aria-label="Re-costing" />}
-        {plan.isFetching && !editing.pending && <Loader size="xs" mb={6} aria-label="Planning" />}
-        {(editing.error || plan.error) && (
+        {custom && plan.isFetching && !editing.pending && <Loader size="xs" mb={6} aria-label="Planning" />}
+        {(editing.error || (custom && plan.error)) && (
           <Text size="xs" c="red" mb={6}>
             {editing.error ?? plan.error?.message}
           </Text>

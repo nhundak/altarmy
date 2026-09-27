@@ -58,6 +58,11 @@
   color: #ffd100;
 }
 
+/* Equip / Use / Chance on hit lines */
+.green {
+  color: #1eff00;
+}
+
 .reagents {
   color: #fff;
 }

@@ -390,7 +390,7 @@ describe('ResultsTable', () => {
           .filter((r) => r.method === 'POST' && new URL(r.url).pathname === '/api/evaluate')
           .map((r) => r.clone().json() as Promise<Record<string, unknown>>),
       )
-      // the row is re-costed per craft (no copies), as the ranking has it
+      // the row is re-costed as the ranking has it (no copies or city: the time settings' batch)
       expect(bodies).toContainEqual({
         recipe_id: 100,
         include_unlearned: false,
@@ -520,7 +520,7 @@ describe('ResultsTable profit per hour', () => {
   it('shows profit per hour, with the batch time on hover', () => {
     renderRows([timedRobe])
     const cell = line('1 23 45')
-    expect(cell).toHaveAttribute('title', '20 crafts in 4 min 10 s')
+    expect(cell).toHaveAttribute('title', '10 crafts in 4 min 10 s')
   })
 
   it('shows a dash without a timing', () => {

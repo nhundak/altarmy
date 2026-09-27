@@ -195,3 +195,63 @@ def chars() -> list[Character]:
 def test_rejects_other_files() -> None:
     with pytest.raises(ValueError, match="AltArmyTBC_Data"):
         altarmy.parse_characters(b"AUCTIONATOR_PRICE_DATABASE = {}\n")
+
+
+def _sv(realm_body: str) -> bytes:
+    body = f'["Characters"] = {{\n["Classic Beta PvE"] = {{\n{realm_body}}},\n}},\n'
+    return f"AltArmyTBC_Data = {{\n{body}}}\n".encode()
+
+
+def _entry(key: str, *, level: int, updated: int, guid: str = "", class_file: str = "SHAMAN") -> str:
+    guid_line = f'["guid"] = "{guid}",\n' if guid else ""
+    return (
+        f'["{key}"] = {{\n["name"] = "{key}",\n["faction"] = "Horde",\n["classFile"] = "{class_file}",\n'
+        f'["raceFile"] = "TAUREN",\n["level"] = {level},\n["lastUpdate"] = {updated},\n{guid_line}}},\n'
+    )
+
+
+def names(data: bytes) -> list[tuple[str, int]]:
+    return [(c.name, c.level) for c in altarmy.parse_characters(data)]
+
+
+def test_a_renamed_character_imports_once() -> None:
+    # WoW: Forever's UnitName("player") dropped the surname: the addon saved the same character under
+    # its old key ("Frell Ofelements") and its new one ("Frell"). The newest entry wins.
+    data = _sv(_entry("Frell Ofelements", level=20, updated=100) + _entry("Frell", level=21, updated=200))
+    assert names(data) == [("Frell", 21)]
+    short_first = _entry("Frell", level=20, updated=100)
+    older_short = _sv(short_first + _entry("Frell Ofelements", level=21, updated=200))
+    assert names(older_short) == [("Frell Ofelements", 21)]
+
+
+def test_characters_sharing_a_first_name_are_kept() -> None:
+    # Another class, or both with surnames: different characters.
+    data = _sv(
+        _entry("Frell", level=20, updated=200)
+        + _entry("Frell Blast", level=9, updated=100, class_file="MAGE")
+        + _entry("Frell Hound", level=1, updated=100, class_file="HUNTER")
+    )
+    assert names(data) == [("Frell", 20), ("Frell Blast", 9), ("Frell Hound", 1)]
+    # Only a key without a surname can be a rename of one with it.
+    both = _sv(_entry("Frell Hound", level=1, updated=100) + _entry("Frell Wrath", level=3, updated=100))
+    assert names(both) == [("Frell Hound", 1), ("Frell Wrath", 3)]
+
+
+def test_the_same_guid_is_one_character() -> None:
+    data = _sv(
+        _entry("Old Name", level=10, updated=100, guid="Player-1-A")
+        + _entry("New Name", level=11, updated=200, guid="Player-1-A")
+        + _entry("Frell", level=20, updated=300, guid="Player-1-B")
+        + _entry("Frell Ofelements", level=20, updated=100, guid="Player-1-C")
+    )
+    # Different GUIDs are different characters, whatever their names.
+    assert names(data) == [("Frell", 20), ("Frell Ofelements", 20), ("New Name", 11)]
+
+
+def test_a_never_scanned_stub_is_skipped() -> None:
+    # The addon once created an entry while UnitName("player") still said "Unknown" during loading.
+    data = _sv(
+        '["Unknown"] = {\n["lastUpdate"] = 5,\n["Reputations"] = {\n},\n},\n'
+        + _entry("Frell", level=20, updated=1)
+    )
+    assert names(data) == [("Frell", 20)]

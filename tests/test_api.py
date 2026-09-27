@@ -105,6 +105,11 @@ def test_empty_db(client: TestClient, database: db.Database) -> None:
     assert client.get("/api/rank").json()["results"] == []
 
 
+def one_craft(client: TestClient) -> None:
+    """Rank and evaluate single crafts (a batch of 1), for tests about prices rather than sessions."""
+    assert client.put("/api/time", json={"config": {"batch": 1}}).is_success
+
+
 def test_rank_known_recipes(client: TestClient, priced: Connection) -> None:
     body = client.get("/api/rank").json()
     (r,) = body["results"]
@@ -113,29 +118,33 @@ def test_rank_known_recipes(client: TestClient, priced: Connection) -> None:
     assert (r["crafters"], r["crafter"]) == (["Tailor Guy"], "Tailor Guy")
     assert body["classes"] == {"Tailor Guy": "MAGE"}
     assert (r["output_name"], r["output_count"]) == ("Green Robe", 1)
-    assert (r["cost"], r["revenue"], r["profit"]) == (300, 500, 200)
+    # a session of the time settings' batch (10 crafts by default), as the expanded row plans it
+    assert (r["crafts"], r["cost"], r["revenue"], r["profit"]) == (10, 3000, 5000, 2000)
     assert r["roi"] == pytest.approx(2 / 3)
     assert r["best_exit"] == "vendor"
     assert [(s["action"], s["name"], s["quantity"], s["value"], s["via"]) for s in r["steps"]] == [
-        ("buy", "Linen Cloth", 10, -200, "ah"),
-        ("buy", "Coarse Thread", 1, -100, "ah"),
-        ("craft", "Green Robe", 1, 0, "Green Robe"),
-        ("sell", "Green Robe", 1, 500, "vendor"),
+        ("buy", "Linen Cloth", 100, -2000, "ah"),
+        ("buy", "Coarse Thread", 10, -1000, "ah"),
+        ("craft", "Green Robe", 10, 0, "Green Robe"),
+        ("sell", "Green Robe", 10, 5000, "vendor"),
     ]
     assert {"kind": "vendor", "value": 500, "materials": [], "postage": 0, "mail_to": ""} in r["exits"]
     assert (r["postage"], r["mail_to"]) == (0, "")
     tree = r["tree"]
     assert (tree["item_id"], tree["quantity"], tree["cost"], tree["via"], tree["crafts"]) == (
         3,
-        1,
-        300,
+        10,
+        3000,
         "Green Robe",
-        1,
+        10,
     )
     assert [(n["item_id"], n["quantity"], n["cost"], n["source"], n["inputs"]) for n in tree["inputs"]] == [
-        (1, 10, 200, "ah", []),
-        (2, 1, 100, "ah", []),
+        (1, 100, 2000, "ah", []),
+        (2, 10, 1000, "ah", []),
     ]
+    one_craft(client)
+    (r,) = client.get("/api/rank").json()["results"]
+    assert (r["crafts"], r["cost"], r["revenue"], r["profit"]) == (1, 300, 500, 200)
 
 
 def test_rank_buys_reagents_from_vendors(
@@ -143,6 +152,7 @@ def test_rank_buys_reagents_from_vendors(
 ) -> None:
     ingest.build_db(db2_paths, conn, FOREVER, vendor_csv=vendor_csv)
     set_prices(conn, {1: 20})  # thread has no AH price, but vendors sell it for 11c
+    one_craft(client)
     with_tailor(conn)
     body = client.get("/api/rank").json()
     (r,) = body["results"]
@@ -190,6 +200,7 @@ def test_rank_sends_disenchant_materials(client: TestClient, priced: Connection)
 
 
 def test_rank_mails_disenchants_to_an_enchanter(client: TestClient, priced: Connection) -> None:
+    one_craft(client)
     add_disenchant(priced, 1.0, 100, 100)  # robe -> 100 linen
     (r,) = client.get("/api/rank").json()["results"]
     assert r["best_exit"] == "vendor"  # nobody on the realm can disenchant
@@ -229,6 +240,18 @@ def test_rank_sends_reagents_and_item_details(client: TestClient, priced: Connec
         "description": "Soft and green.",
         "sell_price": 500,
         "icon": "inv_chest_cloth_39",
+        "armor": 46,
+        "dmg_min": 0,
+        "dmg_max": 0,
+        "dps": 0.0,
+        "stats": ["+9 Intellect"],
+        "effects": [
+            {
+                "trigger": "Equip",
+                "text": "Increases damage and healing done by magical spells and effects by up to 6.",
+            },
+            {"trigger": "Use", "text": "Restores 1050 to 1750 health. (2 Min Cooldown)"},
+        ],
         "ah_price": None,
         "ah_sell_price": None,
         "vendor_price": None,
@@ -240,6 +263,7 @@ def test_rank_lists_options_and_evaluate_applies_choices(
 ) -> None:
     ingest.build_db(db2_paths, conn, FOREVER, vendor_csv=vendor_csv)
     set_prices(conn, {1: 20, 2: 100})  # vendors sell thread for 11c
+    one_craft(client)
     with_tailor(conn)
     (r,) = client.get("/api/rank").json()["results"]
     assert r["tree"]["options"] == []
@@ -304,6 +328,7 @@ def test_rank_filters_and_validation(client: TestClient, priced: Connection) -> 
         assert len(body["results"]) == body["total"]
         return int(body["total"])
 
+    one_craft(client)
     assert total() == 1  # cost 300, profit 200, roi 2/3, sold to a vendor
     assert total(min_profit=201) == 0
     assert total(min_profit=200, max_profit=200, min_cost=300, max_cost=300) == 1
@@ -351,6 +376,7 @@ def test_characters_and_selection(client: TestClient, db2_paths: dict[str, Path]
     ingest.build_db(db2_paths, conn, FOREVER)
     set_prices(conn, {1: 20, 2: 100})
     store.save_characters(conn, ME, FOREVER, altarmy.parse_characters(ALTARMY_SV))
+    one_craft(client)
     status = client.get("/api/status").json()
     assert status["characters"] == 4
     assert status["selection"] == {"realm": "Dreamscythe", "faction": "Horde"}  # the biggest group
@@ -518,6 +544,7 @@ def scanned_robe(conn: Connection, price: int, median_7d: int) -> int:
 def test_rank_sells_at_the_lower_of_now_and_the_seven_day_median(
     client: TestClient, priced: Connection
 ) -> None:
+    one_craft(client)
     scanned_robe(priced, 3_330_000, 1000)  # a lone overpriced listing
     body = client.get("/api/rank").json()
     (r,) = body["results"]
@@ -637,6 +664,7 @@ def test_guests_upload_characters_and_prices(client: TestClient, conn: Connectio
 
 
 def test_upload_refreshes_the_cached_market(client: TestClient, priced: Connection) -> None:
+    one_craft(client)
     assert client.get("/api/rank").json()["results"][0]["cost"] == 10 * 20 + 100
     service.delete_character(priced, ME, FOREVER, "Classic Beta PvE", "Ally Alt")  # scans are the Horde's
     upload(client, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": {"m": 33}}}))
@@ -668,6 +696,7 @@ def test_an_upload_that_moves_prices_signals_the_auction_house(
 def test_a_known_price_version_skips_the_markets_ttl(client: TestClient, priced: Connection) -> None:
     """After a price signal the front end asks with the new version: another instance's prices show at
     once, not STAMP_TTL later."""
+    one_craft(client)
     assert client.get("/api/rank").json()["results"][0]["cost"] == 10 * 20 + 100
     ah = service.selected_auction_house(priced, ME, FOREVER)
     prices.set_price(priced, ah or 0, 1, 33)  # as another instance's upload would
@@ -935,9 +964,9 @@ def test_rank_reports_profit_per_hour(client: TestClient, priced: Connection, ci
     (r,) = client.get("/api/rank").json()["results"]
     t = r["timing"]
     # by default each plan is timed in the fastest Horde city: Thunder Bluff has the anvil and the vendor
-    assert (t["city"], t["batch"]) == ("Thunder Bluff", 10)
-    assert t["total_seconds"] == pytest.approx(t["fixed_seconds"] + 10 * t["per_craft_seconds"])
-    assert t["per_hour"] == round(200 * 10 * 3600 / t["total_seconds"])
+    assert (t["city"], r["crafts"]) == ("Thunder Bluff", 10)
+    assert t["total_seconds"] == pytest.approx(t["fixed_seconds"] + t["per_craft_seconds"])
+    assert t["per_hour"] == round(10 * 200 * 3600 / t["total_seconds"])
     assert set(t["breakdown"]) >= {"travel", "craft", "ah", "vendor"}
     # collect the AH purchases, craft at the anvil, sell the robe to the vendor, and stop there
     assert [leg["to_name"] for leg in t["legs"]] == ["Mailbox", "Anvil", "Thread Seller"]
@@ -951,7 +980,7 @@ def test_rank_reports_profit_per_hour(client: TestClient, priced: Connection, ci
     assert [leg["to_name"] for leg in there["timing"]["legs"]] == ["Mailbox", "Thread Seller"]
     client.put("/api/time", json={})
     craft = next(s for s in r["steps"] if s["action"] == "craft")
-    assert craft["seconds"] == pytest.approx(3.5) and craft["station"] == "anvil"  # a 3 s cast at an anvil
+    assert craft["seconds"] == pytest.approx(35) and craft["station"] == "anvil"  # 10 3 s casts at an anvil
     assert r["tree"]["seconds"] > 0 and r["tree"]["inputs"][0]["options"][0]["seconds"] > 0
     by_rate = client.get("/api/rank", params={"sort": "rate"}).json()["results"]
     assert [x["recipe_id"] for x in by_rate] == [r["recipe_id"]]
@@ -968,7 +997,7 @@ def test_rank_times_anywhere_without_presets(client: TestClient, priced: Connect
 def test_evaluate_uses_the_time_settings(client: TestClient, priced: Connection, cities: Path) -> None:
     client.put("/api/time", json={"city": "Thunder Bluff", "config": {"batch": 4}})
     body = client.post("/api/evaluate", json={"recipe_id": 100, "choices": {}}).json()
-    assert (body["result"]["timing"]["city"], body["result"]["timing"]["batch"]) == ("Thunder Bluff", 4)
+    assert (body["result"]["timing"]["city"], body["result"]["crafts"]) == ("Thunder Bluff", 4)
 
 
 def test_guests_keep_their_own_time_settings(client: TestClient, conn: Connection) -> None:
@@ -980,7 +1009,7 @@ def test_evaluate_plans_a_session_spelled_out(client: TestClient, priced: Connec
     body = {"recipe_id": 100, "choices": {}, "copies": 20, "city": "Thunder Bluff"}
     r = client.post("/api/evaluate", json=body).json()["result"]
     assert (r["crafts"], r["cost"], r["revenue"], r["profit"]) == (20, 20 * 300, 20 * 500, 20 * 200)
-    assert (r["timing"]["city"], r["timing"]["batch"]) == ("Thunder Bluff", 1)
+    assert r["timing"]["city"] == "Thunder Bluff"
     assert r["timing"]["per_hour"] == round(20 * 200 * 3600 / r["timing"]["total_seconds"])
     said = []
     for d in r["details"]:
@@ -1003,9 +1032,11 @@ def test_evaluate_plans_a_session_spelled_out(client: TestClient, priced: Connec
     assert r["details"][0]["seconds"] == 0
     anvil = r["details"][4]["location"]
     assert (anvil["kind"], anvil["map_x"], anvil["map_y"], anvil["map_area"]) == ("anvil", 49.0, 50.0, 1638)
-    assert (
-        client.post("/api/evaluate", json={"recipe_id": 100, "choices": {}}).json()["result"]["details"] == []
-    )
+    # without copies or a city: the time settings' batch, exactly as the ranking has it
+    (ranked,) = client.get("/api/rank").json()["results"]
+    default = client.post("/api/evaluate", json={"recipe_id": 100, "choices": {}}).json()["result"]
+    assert (default["crafts"], default["details"] != []) == (10, True)
+    assert default == ranked
 
 
 def test_evaluate_refuses_a_city_the_characters_dont_craft_in(

@@ -195,7 +195,11 @@ export function SearchTab() {
   const characters = useCharacters()
   const coverage = useCoverage()
   const select = useSelectRealm()
-  const [goal, setGoal] = useStoredState<Goal | null>(`altarmy-profit.goal.${uid}`, storedGoal, null)
+  const [savedGoal, setGoal] = useStoredState<Goal | null>(`altarmy-profit.goal.${uid}`, storedGoal, null)
+  // Skilling up needs the characters' professions: without imported characters that goal can't be picked (and a
+  // saved one asks again).
+  const noCharacters = characters.data !== undefined && characters.data.groups.length === 0
+  const goal = noCharacters && savedGoal === 'skill' ? null : savedGoal
   const [choosing, setChoosing] = useState(false)
   const [includeUnlearned, setIncludeUnlearned] = useStoredState(
     'altarmy-profit.search.includeUnlearned',
@@ -283,7 +287,13 @@ export function SearchTab() {
   return (
     <Stack>
       <PriceSignal />
-      <GoalPicker goal={goal} choosing={choosing} onPick={pickGoal} onChange={() => setChoosing(true)} />
+      <GoalPicker
+        goal={goal}
+        choosing={choosing}
+        onPick={pickGoal}
+        onChange={() => setChoosing(true)}
+        unavailable={noCharacters ? { skill: 'Import your characters first, so we know which skills they have.' } : {}}
+      />
       {goal !== null && !choosing && (
         <>
           <Flex

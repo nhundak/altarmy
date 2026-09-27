@@ -459,6 +459,25 @@
         "title": "DetailOut",
         "type": "object"
       },
+      "EffectOut": {
+        "description": "A green tooltip line.",
+        "properties": {
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "trigger": {
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trigger",
+          "text"
+        ],
+        "title": "EffectOut",
+        "type": "object"
+      },
       "EvaluateRequest": {
         "description": "Re-cost one recipe with some of its sources or its exit picked by the user.",
         "properties": {
@@ -874,6 +893,10 @@
             ],
             "title": "Ah Sell Price"
           },
+          "armor": {
+            "title": "Armor",
+            "type": "integer"
+          },
           "bonding": {
             "title": "Bonding",
             "type": "integer"
@@ -896,6 +919,25 @@
               }
             ],
             "title": "Description"
+          },
+          "dmg_max": {
+            "title": "Dmg Max",
+            "type": "integer"
+          },
+          "dmg_min": {
+            "title": "Dmg Min",
+            "type": "integer"
+          },
+          "dps": {
+            "title": "Dps",
+            "type": "number"
+          },
+          "effects": {
+            "items": {
+              "$ref": "#/components/schemas/EffectOut"
+            },
+            "title": "Effects",
+            "type": "array"
           },
           "icon": {
             "anyOf": [
@@ -951,6 +993,13 @@
             "title": "Sell Price",
             "type": "integer"
           },
+          "stats": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stats",
+            "type": "array"
+          },
           "subclass_name": {
             "anyOf": [
               {
@@ -990,6 +1039,12 @@
           "description",
           "sell_price",
           "icon",
+          "armor",
+          "dmg_min",
+          "dmg_max",
+          "dps",
+          "stats",
+          "effects",
           "ah_price",
           "ah_sell_price",
           "vendor_price"
@@ -2176,12 +2231,8 @@
         "type": "object"
       },
       "TimingOut": {
-        "description": "How long a batch of the recipe takes in a city, and what that makes per hour.",
+        "description": "How long the result's session (its `crafts`) takes in a city, and what that makes per hour.",
         "properties": {
-          "batch": {
-            "title": "Batch",
-            "type": "integer"
-          },
           "breakdown": {
             "additionalProperties": {
               "type": "number"
@@ -2240,7 +2291,6 @@
         },
         "required": [
           "city",
-          "batch",
           "fixed_seconds",
           "per_craft_seconds",
           "total_seconds",
@@ -2906,7 +2956,7 @@
     },
     "/api/evaluate": {
       "post": {
-        "description": "One recipe as /api/rank would give it, with the user's `choices` of sources and exit applied.",
+        "description": "One recipe as /api/rank would give it (a session of the user's batch of crafts), with the user's\n`choices` of sources and exit applied, and for `copies` crafts or in `city` if given.",
         "operationId": "evaluate_api_evaluate_post",
         "parameters": [
           {
@@ -3223,7 +3273,7 @@
     },
     "/api/rank": {
       "get": {
-        "description": "What the selected realm/faction's characters can craft, the user's favorites first, then most\nprofitable first (per craft, or with `sort=rate` per hour of play in the user's city); without\ncharacters, every recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive;\nan omitted bound is unbounded (so losses are included unless `min_profit` is set).",
+        "description": "What the selected realm/faction's characters can craft, the user's favorites first, then most\nprofitable first (each a session of the user's batch of crafts, or with `sort=rate` per hour of play in\nthe user's city); without characters, every recipe, crafted by one unnamed character (nothing is\nmailed). Bounds are inclusive and on the session's numbers; an omitted bound is unbounded (so losses are\nincluded unless `min_profit` is set).",
         "operationId": "get_rank_api_rank_get",
         "parameters": [
           {
@@ -3404,13 +3454,13 @@
             }
           },
           {
-            "description": "profit per craft, or per hour of play",
+            "description": "profit per session (the batch), or per hour of play",
             "in": "query",
             "name": "sort",
             "required": false,
             "schema": {
               "default": "profit",
-              "description": "profit per craft, or per hour of play",
+              "description": "profit per session (the batch), or per hour of play",
               "enum": [
                 "profit",
                 "rate"

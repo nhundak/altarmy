@@ -1,24 +1,45 @@
 import { useState, type ReactNode } from 'react'
 import { HoverCard } from '@mantine/core'
 import type { ItemInfo, ItemMap, RankResult } from '../api/client'
-import { QUALITY_COLORS, bindingText, iconUrl, slotLine, speedText } from '../lib/wow'
+import {
+  QUALITY_COLORS,
+  armorText,
+  bindingText,
+  damageLine,
+  dpsText,
+  iconUrl,
+  slotLine,
+  speedText,
+} from '../lib/wow'
 import classes from './ItemTooltip.module.css'
 import { Money } from './Money'
 
 const qualityColor = (quality: number) => QUALITY_COLORS[quality] ?? QUALITY_COLORS[1]
 
 /** A CDN icon that disappears if it cannot load (offline, or an icon Wowhead does not have). */
-function Icon({ icon, size, className }: { icon: string | null; size: 'small' | 'large'; className: string }) {
+function Icon({
+  icon,
+  size,
+  className,
+}: {
+  icon: string | null
+  size: 'small' | 'large'
+  className: string
+}) {
   const [failed, setFailed] = useState(false)
   if (!icon || failed) return null
   return <img className={className} src={iconUrl(icon, size)} alt="" onError={() => setFailed(true)} />
 }
 
-/** The item's tooltip lines in in-game order (stats, armor and damage are not in the data yet). */
+/** The item's tooltip lines in in-game order. Stats, armor, damage and the green lines are computed at
+ * ingest; a database from before that shows none of them. */
 function ItemLines({ item }: { item: ItemInfo }) {
   const binding = bindingText(item.bonding)
   const slot = slotLine(item)
+  const damage = damageLine(item)
   const speed = speedText(item)
+  const dps = dpsText(item)
+  const armor = armorText(item)
   return (
     <>
       <div className={classes.title} style={{ color: qualityColor(item.quality) }}>
@@ -31,13 +52,30 @@ function ItemLines({ item }: { item: ItemInfo }) {
           {slot.right && <span>{slot.right}</span>}
         </div>
       )}
-      {speed && <div className={classes.right}>{speed}</div>}
+      {damage ? (
+        <div className={classes.split}>
+          <span>{damage.left}</span>
+          {damage.right && <span>{damage.right}</span>}
+        </div>
+      ) : (
+        speed && <div className={classes.right}>{speed}</div>
+      )}
+      {dps && <div>{dps}</div>}
+      {armor && <div>{armor}</div>}
+      {item.stats.map((stat) => (
+        <div key={stat}>{stat}</div>
+      ))}
       {item.required_level > 1 && <div>Requires Level {item.required_level}</div>}
       {item.required_skill && (
         <div>
           Requires {item.required_skill} ({item.required_skill_rank})
         </div>
       )}
+      {item.effects.map((effect, i) => (
+        <div key={i} className={classes.green}>
+          {effect.trigger}: {effect.text}
+        </div>
+      ))}
       {item.description && <div className={classes.flavor}>"{item.description}"</div>}
       {item.sell_price > 0 && (
         <div>
@@ -169,7 +207,12 @@ export function DisenchantHover({
   return (
     <Hover
       tooltip={
-        <DisenchantTooltip name={result.output_name} materials={exit.materials} value={exit.value} items={items} />
+        <DisenchantTooltip
+          name={result.output_name}
+          materials={exit.materials}
+          value={exit.value}
+          items={items}
+        />
       }
     >
       {children}

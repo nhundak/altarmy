@@ -160,11 +160,16 @@ def search(
     `include_unlearned` widens that to every recipe of the characters' professions. Disenchanting needs
     an enchanter among them, plus postage unless one of the recipe's crafters enchants. Without
     `include_trivial` the final craft is only done by a character it can give a skillup. With a `time`
-    model the results are timed, and its time value weighs play time in every plan.
+    model each result is a session of its `batch` crafts (as `evaluate` plans one, see `session_model`),
+    timed, and its time value weighs play time in every plan; without one, a single craft.
     """
+    crafts = 1
+    if time is not None:
+        crafts = time.config.batch
+        time = session_model(time, (), None)
     market = _market(base, chars, include_unlearned, exits, no_ah, include_trivial, time)
     min_profit = filters.min_profit if filters.min_profit is not None else -(10**18)
-    return [r for r in market.rank(min_profit=min_profit) if filters.accepts(r)]
+    return [r for r in market.rank(min_profit=min_profit, crafts=crafts) if filters.accepts(r)]
 
 
 def evaluate(
@@ -179,9 +184,9 @@ def evaluate(
     time: TimeModel | None = None,
     crafts: int = 1,
 ) -> Result | None:
-    """One recipe as `search` would rank it, but with the user's `choices` of sources and exit, for
-    `crafts` crafts at once (see `session_model` for timing them); None if the characters can't make or sell
-    it."""
+    """One recipe with the user's `choices` of sources and exit, for `crafts` crafts at once (timed by a
+    `session_model`: with `time`'s batch as `crafts` and no city, as `search` ranks it); None if the
+    characters can't make or sell it."""
     market = _market(base, chars, include_unlearned, exits, no_ah, include_trivial, time)
     recipe = next((r for r in market.recipes if r.id == recipe_id), None)
     return None if recipe is None else market.evaluate(recipe, choices, crafts=crafts)

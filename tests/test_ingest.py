@@ -1,11 +1,13 @@
+import csv
 import json
+import urllib.error
 from pathlib import Path
 
 import pytest
 from sqlalchemy import Connection, func, select
 from sqlalchemy.engine import Row
 
-from altarmy_profit import db, ingest, prices, schema, store
+from altarmy_profit import db, ingest, prices, schema, spelltext, store
 
 from .conftest import FOREVER, set_prices, write_csv
 
@@ -146,11 +148,24 @@ def test_build_db_loads_tooltip_fields(db2_paths: dict[str, Path], conn: Connect
         "required_skill_rank": 50,
         "description": "Soft and green.",
         "icon": "inv_chest_cloth_39",
+        "armor": 46,
+        "dmg_min": 0,
+        "dmg_max": 0,
+        "dps": 0.0,
+        "stats": '["+9 Intellect"]',
+        "effects": json.dumps(ROBE_EFFECTS),
     }
     assert (item(conn, 1).icon, item(conn, 2).icon) == ("inv_fabric_linen_01", None)  # 2: not in the manifest
     linen = item(conn, 1)
     assert (linen.subclass_name, linen.required_skill, linen.description) == (None, None, None)
+    assert (linen.armor, linen.dps, linen.stats, linen.effects) == (0, 0.0, "[]", "[]")
 
+
+SPELL_POWER_LINE = "Increases damage and healing done by magical spells and effects by up to 6."
+ROBE_EFFECTS = [
+    {"trigger": "Equip", "text": SPELL_POWER_LINE},
+    {"trigger": "Use", "text": "Restores 1050 to 1750 health. (2 Min Cooldown)"},
+]
 
 TOOLTIP_COLUMNS = {
     "bonding",
@@ -163,7 +178,162 @@ TOOLTIP_COLUMNS = {
     "required_skill_rank",
     "description",
     "icon",
+    "armor",
+    "dmg_min",
+    "dmg_max",
+    "dps",
+    "stats",
+    "effects",
 }
+
+
+def _robe_row(db2_paths: dict[str, Path], **changes: object) -> tuple[list[str], dict[str, object]]:
+    """The fixture's ItemSparse header and its Green Robe row with `changes` applied."""
+    rows = _read(db2_paths["ItemSparse"])
+    robe: dict[str, object] = {**next(r for r in rows if r["ID"] == "3"), **changes}
+    return list(rows[0]), robe
+
+
+def test_build_db_loads_weapon_damage(db2_paths: dict[str, Path], conn: Connection, tmp_path: Path) -> None:
+    # A rare one-hand dagger (subclass 15) at ilvl 20: 10 DPS at speed 1.8 with a 40% spread is 14-22.
+    header, dagger = _robe_row(
+        db2_paths,
+        Display_lang="Dagger",
+        OverallQualityID=3,
+        InventoryType=13,
+        ItemDelay=1800,
+        DmgVariance=0.4,
+    )
+    paths = {
+        **db2_paths,
+        "Item": write_csv(
+            tmp_path / "Dagger.csv",
+            ["ID", "ClassID", "SubclassID", "IconFileDataID"],
+            [{"ID": 3, "ClassID": 2, "SubclassID": 15}],
+        ),
+        "ItemSparse": write_csv(tmp_path / "DaggerSparse.csv", header, [dagger]),
+        "ItemDamageOneHand": write_csv(
+            tmp_path / "ItemDamageOneHand.csv",
+            ["ID", "ItemLevel", "Quality_0", "Quality_1", "Quality_2", "Quality_3"],
+            [{"ID": 20, "ItemLevel": 20, "Quality_2": 8.0, "Quality_3": 10.0}],
+        ),
+    }
+    ingest.build_db(paths, conn, FOREVER)
+    got = item(conn, 3)
+    assert (got.armor, got.dmg_min, got.dmg_max, got.dps, got.stats) == (0, 14, 22, 10.0, "[]")
+
+
+def test_build_db_without_stat_tables_reads_empty(db2_paths: dict[str, Path], conn: Connection) -> None:
+    gone = ("RandPropPoints", "ItemArmorTotal", "ItemEffect", "Spell")
+    paths = {k: v for k, v in db2_paths.items() if k not in gone}
+    ingest.build_db(paths, conn, FOREVER)
+    robe = item(conn, 3)
+    assert (robe.armor, robe.stats, robe.effects) == (0, "[]", "[]")
+
+
+def test_build_db_reads_tbc_item_effects_by_parent_item(
+    db2_paths: dict[str, Path], conn: Connection, tmp_path: Path
+) -> None:
+    # TBC's ItemEffect names the item itself and there is no ItemXItemEffect; a chance-on-hit effect
+    # and an equip effect with a cooldown (not shown on Equip lines).
+    paths = {
+        **db2_paths,
+        "ItemEffect": write_csv(
+            tmp_path / "TbcItemEffect.csv",
+            ["ID", "LegacySlotIndex", "TriggerType", "CoolDownMSec", "SpellID", "ParentItemID"],
+            [
+                {
+                    "ID": 1,
+                    "LegacySlotIndex": 1,
+                    "TriggerType": 1,
+                    "CoolDownMSec": 5000,
+                    "SpellID": 950,
+                    "ParentItemID": 3,
+                },
+                {"ID": 2, "LegacySlotIndex": 0, "TriggerType": 2, "SpellID": 950, "ParentItemID": 3},
+            ],
+        ),
+    }
+    del paths["ItemXItemEffect"]
+    ingest.build_db(paths, conn, "tbc", max_level=70)
+    assert json.loads(item(conn, 3, "tbc").effects)[1:] == [
+        {"trigger": "Chance on hit", "text": "Restores 1050 to 1750 health."},
+        {"trigger": "Equip", "text": "Restores 1050 to 1750 health."},
+    ]
+
+
+def test_spell_data_follows_references_and_prefers_the_normal_difficulty(
+    db2_paths: dict[str, Path], tmp_path: Path
+) -> None:
+    paths = {
+        **db2_paths,
+        "Spell": write_csv(
+            tmp_path / "Spell2.csv",
+            ["ID", "Description_lang"],
+            [
+                {"ID": 950, "Description_lang": "$@spelldesc951 for $951d."},
+                {"ID": 951, "Description_lang": "Heals $s1"},
+                {"ID": 952, "Description_lang": "unrelated"},
+            ],
+        ),
+        "SpellEffect": write_csv(
+            tmp_path / "SpellEffect2.csv",
+            ["ID", "SpellID", "EffectIndex", "EffectBasePointsF", "DifficultyID", "EffectAuraPeriod"],
+            [
+                {"ID": 1, "SpellID": 951, "EffectBasePointsF": 5, "DifficultyID": 2},
+                {"ID": 2, "SpellID": 951, "EffectBasePointsF": 7, "DifficultyID": 0},
+                {"ID": 3, "SpellID": 951, "EffectBasePointsF": 9, "DifficultyID": 3},
+            ],
+        ),
+        "SpellMisc": write_csv(
+            tmp_path / "SpellMisc2.csv",
+            ["ID", "SpellID", "DurationIndex", "DifficultyID", "CastingTimeIndex"],
+            [{"ID": 1, "SpellID": 951, "DurationIndex": 9}],
+        ),
+    }
+    data = ingest.spell_data(paths, [950])
+    assert set(data.descriptions) == {950, 951}
+    assert data.effects[951][0].base == 7
+    assert data.durations == {951: 30000}
+    assert spelltext.expand(data.descriptions[950], 950, data) == "Heals 7 for 30 sec."
+
+
+def test_build_db_shows_ratings_raw_at_other_level_caps(
+    db2_paths: dict[str, Path], conn: Connection, tmp_path: Path
+) -> None:
+    header, robe = _robe_row(
+        db2_paths, StatModifier_bonusStat_0=32, StatPercentEditor_0=7000
+    )  # 21 crit rating
+    paths = {**db2_paths, "ItemSparse": write_csv(tmp_path / "Rating.csv", header, [robe])}
+    ingest.build_db(paths, conn, "tbc", max_level=70)
+    assert (
+        json.loads(item(conn, 3, "tbc").effects)[0]["text"] == "Increases your critical strike rating by 21."
+    )
+    ingest.build_db(paths, conn, FOREVER, max_level=60)
+    assert (
+        json.loads(item(conn, 3).effects)[0]["text"]
+        == "Improves your chance to get a critical strike by 1.5%."
+    )
+
+
+def _read(path: Path) -> list[dict[str, str]]:
+    with open(path, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def test_download_caches_an_optional_table_the_build_lacks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fetch(url: str) -> bytes:
+        raise urllib.error.HTTPError(url, 400, "Bad Request", None, None)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(ingest, "_fetch", fetch)
+    path = ingest.download("ItemArmorShield", "1.0", tmp_path, optional=True)
+    assert path.read_bytes() == b""
+    assert list(ingest._optional_rows({"ItemArmorShield": path}, "ItemArmorShield")) == []
+    assert list(ingest._optional_rows({}, "ItemArmorShield")) == []
+    with pytest.raises(urllib.error.HTTPError):
+        ingest.download("Item", "1.0", tmp_path)
 
 
 def test_build_db_preserves_prices_and_other_versions(db2_paths: dict[str, Path], conn: Connection) -> None:

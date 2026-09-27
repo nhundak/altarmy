@@ -149,6 +149,20 @@ describe('SearchTab', () => {
     await waitFor(() => expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('include_trivial')).toBe('true'))
   })
 
+  it("can't skill up without characters, saying why", async () => {
+    withGoal('skill')
+    mockApi({
+      '/api/status': status({ characters: 0 }),
+      '/api/characters': { groups: [], selection: null },
+      '/api/rank': noResults,
+    })
+    renderWithProviders(<SearchTab />)
+    const goals = await screen.findByRole('group', { name: 'Your goal' })
+    expect(within(goals).getByRole('button', { name: 'Skill up for minimum expense' })).toBeDisabled()
+    expect(within(goals).getByText(/Import your characters first/)).toBeInTheDocument()
+    expect(within(goals).getByRole('button', { name: 'Maximize profit' })).toBeEnabled()
+  })
+
   it('changes the goal from its row, hiding the search meanwhile', async () => {
     withGoal('profit')
     const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection, update
 
-from altarmy_profit import altarmy, ingest, schema, store
+from altarmy_profit import altarmy, ingest, itemstats, schema, store
 
 from .conftest import FOREVER, ME, set_prices
 from .test_altarmy import ALTARMY_SV
@@ -21,7 +21,22 @@ def test_load_item_details_returns_requested_items(db2_paths: dict[str, Path], c
         "Tailoring",
     )
     assert got[1].icon == "inv_fabric_linen_01"
+    assert (robe.armor, robe.stats) == (46, ("+9 Intellect",))
+    assert (robe.effects[0].trigger, robe.effects[0].text[:36]) == (
+        "Equip",
+        "Increases damage and healing done by",
+    )
+    assert robe.effects[1] == itemstats.Effect("Use", "Restores 1050 to 1750 health. (2 Min Cooldown)")
+    assert (got[1].armor, got[1].dps, got[1].stats, got[1].effects) == (0, 0.0, (), ())
     assert store.load_item_details(conn, FOREVER, []) == {}
+
+
+def test_load_item_details_tolerates_bad_json(db2_paths: dict[str, Path], conn: Connection) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    t = schema.items
+    conn.execute(update(t).where(t.c.id == 3).values(stats="not json", effects='[{"trigger": "Use"}, 5]'))
+    robe = store.load_item_details(conn, FOREVER, [3])[3]
+    assert (robe.stats, robe.effects) == ((), ())
 
 
 def test_load_item_details_handles_many_ids(db2_paths: dict[str, Path], conn: Connection) -> None:

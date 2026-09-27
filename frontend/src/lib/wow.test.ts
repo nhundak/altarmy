@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { makeItem, robe } from '../test/items'
-import { bindingText, iconUrl, slotLine, speedText, splitMoney, zoneMapUrl } from './wow'
+import { hammer, helm, makeItem, robe } from '../test/items'
+import {
+  armorText,
+  bindingText,
+  damageLine,
+  dpsText,
+  iconUrl,
+  slotLine,
+  speedText,
+  splitMoney,
+  zoneMapUrl,
+} from './wow'
 
 describe('wow helpers', () => {
   it('splits copper into coins from the largest non-zero one down', () => {
@@ -56,19 +66,46 @@ describe('wow helpers', () => {
 
   it('builds the slot line', () => {
     expect(slotLine(robe)).toEqual({ left: 'Chest', right: 'Cloth' })
-    expect(slotLine({ ...robe, inventory_type: 16 })).toEqual({ left: 'Back', right: undefined })
+    expect(slotLine({ ...robe, inventory_type: 16 })).toEqual({
+      left: 'Back',
+      right: undefined,
+    })
     expect(slotLine({ ...robe, subclass_name: 'Miscellaneous', inventory_type: 11 })).toEqual({
       left: 'Finger',
       right: undefined,
     })
-    const bag = makeItem({ id: 9, name: 'Bag', class_id: 1, subclass_name: 'Herb Bag', container_slots: 12 })
+    const bag = makeItem({
+      id: 9,
+      name: 'Bag',
+      class_id: 1,
+      subclass_name: 'Herb Bag',
+      container_slots: 12,
+    })
     expect(slotLine(bag)).toEqual({ left: '12 Slot Herb Bag' })
     expect(slotLine(makeItem({ id: 1, name: 'Linen Cloth' }))).toBeUndefined()
   })
 
   it('shows weapon speed', () => {
-    const sword = makeItem({ id: 5, name: 'Sword', class_id: 2, item_delay: 2500, inventory_type: 13 })
+    const sword = makeItem({
+      id: 5,
+      name: 'Sword',
+      class_id: 2,
+      item_delay: 2500,
+      inventory_type: 13,
+    })
     expect(speedText(sword)).toBe('Speed 2.50')
     expect(speedText(robe)).toBeUndefined()
+  })
+
+  it('shows weapon damage and dps once ingested, and armor', () => {
+    expect(damageLine(hammer)).toEqual({
+      left: '46 - 86 Damage',
+      right: 'Speed 2.80',
+    })
+    expect(dpsText(hammer)).toBe('(23.6 damage per second)')
+    expect(damageLine({ ...hammer, dmg_min: 0, dmg_max: 0, dps: 0 })).toBeUndefined()
+    expect(dpsText(robe)).toBeUndefined()
+    expect(armorText(helm)).toBe('565 Armor')
+    expect(armorText(hammer)).toBeUndefined()
   })
 })

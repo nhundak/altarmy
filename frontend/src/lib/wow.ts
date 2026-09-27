@@ -89,7 +89,9 @@ export function splitMoney(copper: number): { unit: 'gold' | 'silver' | 'copper'
 export function slotLine(item: ItemInfo): { left: string; right?: string } | undefined {
   if (item.class_id === ITEM_CLASS.container || item.class_id === ITEM_CLASS.quiver) {
     if (!item.container_slots) return undefined
-    return { left: `${item.container_slots} Slot ${item.subclass_name ?? 'Bag'}` }
+    return {
+      left: `${item.container_slots} Slot ${item.subclass_name ?? 'Bag'}`,
+    }
   }
   const slot = INVENTORY_TYPES[item.inventory_type]
   if (!slot) return undefined
@@ -97,7 +99,10 @@ export function slotLine(item: ItemInfo): { left: string; right?: string } | und
     (item.class_id === ITEM_CLASS.weapon || item.class_id === ITEM_CLASS.armor) &&
     item.inventory_type !== 16 && // cloaks are all Cloth; the game shows just "Back"
     item.subclass_name !== 'Miscellaneous'
-  return { left: slot, right: showSubclass ? (item.subclass_name ?? undefined) : undefined }
+  return {
+    left: slot,
+    right: showSubclass ? (item.subclass_name ?? undefined) : undefined,
+  }
 }
 
 /** Weapon speed as the tooltip shows it ("Speed 2.50"), or undefined. */
@@ -105,3 +110,20 @@ export const speedText = (item: ItemInfo): string | undefined =>
   item.class_id === ITEM_CLASS.weapon && item.item_delay > 0
     ? `Speed ${(item.item_delay / 1000).toFixed(2)}`
     : undefined
+
+/** A weapon's damage line: left "153 - 256 Damage", right its speed. Undefined until the damage is ingested. */
+export function damageLine(item: ItemInfo): { left: string; right?: string } | undefined {
+  if (item.dmg_max <= 0) return undefined
+  return {
+    left: `${item.dmg_min} - ${item.dmg_max} Damage`,
+    right: speedText(item),
+  }
+}
+
+/** The line under a weapon's damage: "(53.8 damage per second)", or undefined. */
+export const dpsText = (item: ItemInfo): string | undefined =>
+  item.dmg_max > 0 ? `(${item.dps.toFixed(1)} damage per second)` : undefined
+
+/** "565 Armor", or undefined for items without armor (or from before it was ingested). */
+export const armorText = (item: ItemInfo): string | undefined =>
+  item.armor > 0 ? `${item.armor} Armor` : undefined

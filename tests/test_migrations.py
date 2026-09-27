@@ -294,3 +294,18 @@ def test_0010_records_job_runs(database: db.Database) -> None:
         assert conn.execute(select(t.c.job, t.c.summary, t.c.ok)).one() == ("merge", "", None)
         with pytest.raises(IntegrityError), conn.begin_nested():
             conn.execute(t.insert().values(job="nonsense", started_at=when))
+
+
+def test_0011_item_tooltip_columns_default_empty(database: db.Database) -> None:
+    t = schema.items
+    with database.engine.begin() as conn:
+        command.downgrade(db.alembic_config(conn), "0010")
+        assert "armor" not in {c["name"] for c in inspect(conn).get_columns("items")}
+        old = MetaData()
+        old.reflect(conn, only=["items"])
+        required = {c.name: 0 for c in old.tables["items"].columns if not c.nullable}
+        values = {**required, "game_version": "forever", "id": 1, "name": "Linen Cloth"}
+        conn.execute(old.tables["items"].insert().values(**values))
+        db.upgrade(conn)
+        row = conn.execute(select(t.c.armor, t.c.dmg_min, t.c.dmg_max, t.c.dps, t.c.stats, t.c.effects)).one()
+        assert tuple(row) == (0, 0, 0, 0.0, "[]", "[]")

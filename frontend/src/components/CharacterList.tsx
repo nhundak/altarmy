@@ -1,47 +1,54 @@
-import { Button, Group, Stack, Text } from '@mantine/core'
+import { Box, Text } from '@mantine/core'
+import { Fragment } from 'react'
 import type { CharacterGroup } from '../api/client'
-import { useDeleteCharacter } from '../api/queries'
 import { realmLabel } from '../lib/realms'
 import { CharacterName } from './CharacterName'
 
-/** Each realm/faction's characters: level and profession skills, with a way to remove one. */
+/** Highest level first; equal levels by name. */
+function byLevel(characters: CharacterGroup['characters']) {
+  return [...characters].sort((a, b) => b.level - a.level || a.name.localeCompare(b.name))
+}
+
+/** Each realm/faction's characters in aligned columns: name, level, profession skills (and Legacy talents). */
 export function CharacterList({ groups }: { groups: readonly CharacterGroup[] }) {
-  const remove = useDeleteCharacter()
   return (
-    <Stack gap="sm">
-      {groups.map((g) => (
-        <Stack key={`${g.realm}\t${g.faction}`} gap={4}>
-          <Text size="xs" fw={700} tt="uppercase" c="dimmed">
+    <Box
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'max-content max-content 1fr',
+        columnGap: 'var(--mantine-spacing-md)',
+        rowGap: 4,
+        alignItems: 'baseline',
+      }}
+    >
+      {groups.map((g, i) => (
+        <Fragment key={`${g.realm}\t${g.faction}`}>
+          <Text
+            size="xs"
+            fw={700}
+            tt="uppercase"
+            c="dimmed"
+            style={{ gridColumn: '1 / -1', marginTop: i ? 'var(--mantine-spacing-xs)' : 0 }}
+          >
             {realmLabel(g)}
           </Text>
-          {g.characters.map((c) => (
-            <Group key={c.name} justify="space-between" wrap="nowrap" gap="xs">
-              <Text size="sm">
-                <b>
-                  <CharacterName name={c.name} classFile={c.class_file} />
-                </b>{' '}
-                <Text span c="dimmed" size="sm">
-                  {c.level}
-                  {c.professions.length ? ': ' : ''}
-                  {c.professions.map((p) => `${p.name} ${p.rank}/${p.max_rank}`).join(', ')}
-                  {c.talents.length > 0 &&
-                    ` · ${c.talents.map((t) => `${t.name} ${t.rank}/${t.max_rank}`).join(', ')}`}
-                </Text>
+          {byLevel(g.characters).map((c) => (
+            <Fragment key={c.name}>
+              <Text size="sm" fw={700}>
+                <CharacterName name={c.name} classFile={c.class_file} />
               </Text>
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                color="gray"
-                aria-label={`Remove ${c.name}`}
-                loading={remove.isPending && remove.variables.name === c.name}
-                onClick={() => remove.mutate({ realm: g.realm, name: c.name })}
-              >
-                Remove
-              </Button>
-            </Group>
+              <Text size="sm" c="dimmed" ta="right">
+                {c.level}
+              </Text>
+              <Text size="sm" c="dimmed">
+                {c.professions.map((p) => `${p.name} ${p.rank}/${p.max_rank}`).join(', ')}
+                {c.talents.length > 0 &&
+                  `${c.professions.length ? ' · ' : ''}${c.talents.map((t) => `${t.name} ${t.rank}/${t.max_rank}`).join(', ')}`}
+              </Text>
+            </Fragment>
           ))}
-        </Stack>
+        </Fragment>
       ))}
-    </Stack>
+    </Box>
   )
 }

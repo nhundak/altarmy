@@ -201,8 +201,8 @@ describe('ProfitPage', () => {
     expect(await screen.findByRole('button', { name: '3 characters, updated 31 days ago, Auto-import off' })).toBeInTheDocument()
   })
 
-  it('opens the summary to show every character, and removes one', async () => {
-    const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+  it('opens the summary to show every character', async () => {
+    mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<ProfitPage />)
     const summary = await screen.findByRole('button', { name: /^3 characters/ })
     expect(summary).toHaveAttribute('aria-expanded', 'false')
@@ -214,10 +214,7 @@ describe('ProfitPage', () => {
     expect(screen.getByText('Frell')).toBeInTheDocument() // every realm, not just the selected one
     expect(screen.getByText('Dreamscythe (Horde)')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Remove Frell' }))
-    await waitFor(() => expect(fetch.mock.calls.some(([r]) => r.method === 'DELETE')).toBe(true))
-    const del = fetch.mock.calls.map(([r]) => r).find((r) => r.method === 'DELETE')
-    expect(new URL(del!.url).searchParams.toString()).toBe('game_version=forever&realm=Dreamscythe&name=Frell')
+    expect(screen.queryByRole('button', { name: 'Remove Frell' })).not.toBeInTheDocument()
 
     await userEvent.click(summary)
     await waitFor(() => expect(screen.queryByText('Tailor Guy')).not.toBeInTheDocument())

@@ -93,14 +93,14 @@ export const robeResult: RankResult = {
   details: [],
 }
 
-/** The robe timed in Orgrimmar: a 3.5 s craft, a run to the thread seller and back, 1g 23s 45c an hour; quicker
+/** The robe timed in Orgrimmar (as a session of 10 crafts, though its numbers are one craft's): a 3.5 s craft, a run to the thread seller and back, 1g 23s 45c an hour; quicker
  * in Thunder Bluff. No vendor there sells thread. */
 export const timedRobe: RankResult = {
   ...robeResult,
+  crafts: 10,
   steps: robeResult.steps.map((s) => (s.action === 'craft' ? { ...s, seconds: 3.5, station: 'anvil' } : s)),
   timing: {
     city: 'Orgrimmar',
-    batch: 20,
     fixed_seconds: 200,
     per_craft_seconds: 2.5,
     total_seconds: 250,

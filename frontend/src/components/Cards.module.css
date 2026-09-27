@@ -23,10 +23,18 @@
   text-align: left;
 }
 
-.card:has(.pick:hover),
+.card:has(.pick:not(:disabled):hover),
 .card:has(.pick:focus-visible) {
   border-color: var(--mantine-primary-color-filled);
   box-shadow: 0 0 0 1px var(--mantine-primary-color-filled);
+}
+
+.card[data-disabled] {
+  opacity: 0.6;
+}
+
+.card[data-disabled] .pick {
+  cursor: not-allowed;
 }
 
 .card[data-featured] {

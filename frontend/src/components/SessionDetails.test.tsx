@@ -9,14 +9,6 @@ import { ResultsTable } from './ResultsTable'
 
 const items = { '1': linen, '2': thread, '3': robeItem }
 
-const config = {
-  ah_search: 8, ah_buy: 4, ah_post: 6, vendor_buy: 2, vendor_sell: 1.5, mail_send: 8, mail_attach: 2,
-  mail_open: 3, mail_attachments: 12, switch_character: 45, disenchant: 3.5, craft_overhead: 0.5, batch: 12,
-  time_value: 0, run_speed: 7, detour: 1.3,
-}
-const city = (name: string) => ({ name, faction: 'Horde', hub: 'Auctioneer', locations: 9, vendors: 3 })
-const settings = { cities: [city('Orgrimmar'), city('Thunder Bluff')], city: null, active: null, config, defaults: config }
-
 const at = (
   id: string,
   kind: string,
@@ -28,7 +20,8 @@ const at = (
 
 const stockton = at('ah', 'ah', 'Auctioneer Stockton', 71.4, 46.7, 1637)
 
-/** The robe planned for 20 crafts: the steps say 20x, and the details say where to go. */
+/** The robe ranked as a session of the time settings' 20 crafts: the steps say 20x, and the details say where
+ * to go. */
 const session: RankResult = {
   ...timedRobe,
   crafts: 20,
@@ -57,26 +50,25 @@ const session: RankResult = {
 
 type Body = { recipe_id: number; choices: object; copies?: number; city?: string }
 
-/** The server: time settings, and every session planned as `session`; returns the plan requests' bodies. */
+/** The server: every session planned as `session`; returns the plan requests' bodies. */
 function serve() {
   const asked: Body[] = []
   mockApi({
-    '/api/time': settings,
     '/api/evaluate': async (_: URL, request: Request) => {
       const body = (await request.clone().json()) as Body
       asked.push(body)
-      return { result: { ...session, crafts: body.copies ?? 1 }, items }
+      return { result: { ...session, crafts: body.copies ?? 20 }, items }
     },
   })
   return asked
 }
 
-async function openRow(row: RankResult = timedRobe) {
+async function openRow(row: RankResult = session) {
   renderWithProviders(<ResultsTable results={[row]} items={items} />)
   await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
 }
 
-async function openSteps(row: RankResult = timedRobe) {
+async function openSteps(row: RankResult = session) {
   await openRow(row)
   await userEvent.click(screen.getByText('Steps'))
 }
@@ -87,16 +79,16 @@ const line = (text: string) =>
 describe('the Steps view plans a session', () => {
   beforeEach(() => localStorage.clear())
 
-  it('crafts as many copies as a session makes, in the city the row was timed in', async () => {
+  it("shows the row's own session at once, in the city the row was timed in", async () => {
     const asked = serve()
     await openSteps()
     expect(await line('Purchase 200x Linen Cloth on the AH (40 0)')).toBeInTheDocument()
-    await waitFor(() => expect(asked.at(-1)).toMatchObject({ recipe_id: 100, copies: 12, city: 'Orgrimmar' }))
-    expect(screen.getByLabelText('Copies')).toHaveValue('12')
+    expect(asked).toEqual([]) // the ranking already planned it
+    expect(screen.getByLabelText('Copies')).toHaveValue('20')
     // each city says what the session makes per hour there
     expect(screen.getByRole('combobox', { name: 'City' })).toHaveValue('Orgrimmar (1g 23s 45c/hr)')
     expect(screen.queryByText(/^A batch of/)).not.toBeInTheDocument() // the summary above says it all
-    expect(screen.getByText((_, el) => el?.tagName === 'P' && shown(el)?.startsWith('12 crafts: cost') === true)).toBeInTheDocument()
+    expect(screen.getByText((_, el) => el?.tagName === 'P' && shown(el)?.startsWith('20 crafts: cost') === true)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
   })
 
@@ -106,13 +98,15 @@ describe('the Steps view plans a session', () => {
     await line('Purchase 200x Linen Cloth on the AH (40 0)')
     fireEvent.change(screen.getByLabelText('Copies'), { target: { value: '5' } })
     await waitFor(() => expect(asked.at(-1)).toMatchObject({ copies: 5 }), { timeout: 2000 })
+    expect(asked.at(-1)).not.toHaveProperty('city') // still wherever is quickest, as ranked
     await userEvent.click(screen.getByRole('combobox', { name: 'City' }))
     await userEvent.click(await screen.findByRole('option', { name: 'Thunder Bluff (5g 12s 34c/hr)' }))
     await waitFor(() => expect(asked.at(-1)).toMatchObject({ copies: 5, city: 'Thunder Bluff' }), { timeout: 2000 })
+    const planned = asked.length
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
-    await waitFor(() => expect(asked.at(-1)).toMatchObject({ copies: 12, city: 'Orgrimmar' }), { timeout: 2000 })
-    expect(screen.getByLabelText('Copies')).toHaveValue('12')
+    expect(screen.getByLabelText('Copies')).toHaveValue('20')
     expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
+    expect(asked).toHaveLength(planned) // back to the row's own plan
   })
 
   it('spells out where to go in the detailed view, and remembers it', async () => {
@@ -161,27 +155,26 @@ describe('the flow view plans the same session', () => {
   it('has the copies, city and reset, but no detailed view', async () => {
     const asked = serve()
     await openRow()
-    await waitFor(() => expect(asked.at(-1)).toMatchObject({ copies: 12, city: 'Orgrimmar' }))
-    expect(screen.getByLabelText('Copies')).toHaveValue('12')
+    expect(screen.getByLabelText('Copies')).toHaveValue('20')
     expect(screen.getByRole('combobox', { name: 'City' })).toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: 'Detailed view' })).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Copies'), { target: { value: '3' } })
     await waitFor(() => expect(asked.at(-1)).toMatchObject({ copies: 3 }), { timeout: 2000 })
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
-    await waitFor(() => expect(asked.at(-1)).toMatchObject({ copies: 12 }), { timeout: 2000 })
+    expect(screen.getByLabelText('Copies')).toHaveValue('20')
+    expect(asked).toHaveLength(1)
   })
 
   it('has one Reset for the plan changes, the copies and the city', async () => {
     const asked = serve()
     await openRow()
-    await waitFor(() => expect(asked.at(-1)).toMatchObject({ copies: 12 }))
     await userEvent.click(screen.getByRole('button', { name: 'Change source of Coarse Thread' }))
     await userEvent.click(screen.getByRole('menuitem', { name: /Buy on the AH/ }))
     fireEvent.change(screen.getByLabelText('Copies'), { target: { value: '7' } })
     await waitFor(() => expect(asked.at(-1)).toMatchObject({ copies: 7, choices: { 'r.1': 'ah' } }), { timeout: 2000 })
     expect(screen.getAllByRole('button', { name: 'Reset' })).toHaveLength(1)
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
-    await waitFor(() => expect(asked.at(-1)).toMatchObject({ copies: 12, choices: {} }), { timeout: 2000 })
+    expect(screen.getByLabelText('Copies')).toHaveValue('20')
     expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
   })
 })
@@ -202,12 +195,8 @@ describe('every line of a session says how long it takes', () => {
         { kind: 'step', who: 'Frell', step: 0, location: null, retrieve: [], seconds: 0 },
       ],
     }
-    mockApi({
-      '/api/time': settings,
-      '/api/evaluate': { result: disenchanted, items },
-    })
     localStorage.setItem('altarmy-profit.steps.detailed', 'true')
-    await openSteps()
+    await openSteps(disenchanted)
     expect(await line('Switch to Frell · 45 s')).toBeInTheDocument()
     expect(await line('Frell: Start at Auctioneer Stockton at 71.4, 46.7')).toBeInTheDocument()
     expect(await line('Frell: Disenchant 20x Green Robe · 1 min 10 s')).toBeInTheDocument()
