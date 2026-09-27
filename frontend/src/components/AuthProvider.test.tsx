@@ -1,7 +1,7 @@
-import { screen } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Config, Me } from '../api/client'
-import { initAuth } from '../lib/auth'
+import { initAuth, onUserChange } from '../lib/auth'
 import { useSession } from '../lib/session'
 import { mockApi, renderWithProviders } from '../test/utils'
 import { AuthProvider } from './AuthProvider'
@@ -44,6 +44,18 @@ describe('AuthProvider', () => {
     expect(initAuth).toHaveBeenCalledWith(firebase)
     const me = fetch.mock.calls.map(([r]) => r).find((r) => new URL(r.url).pathname === '/api/me')
     expect(me?.headers.get('Authorization')).toBe('Bearer id-token')
+  })
+
+  it('keeps the app up when asking who the user is fails later', async () => {
+    mockApi({ '/api/config': config, '/api/me': guest })
+    renderApp()
+    expect(await screen.findByText('guest free')).toBeInTheDocument()
+    const fetch = mockApi({ '/api/config': config }) // /api/me now fails
+    const userChanged = vi.mocked(onUserChange).mock.calls[0][0]
+    act(() => userChanged())
+    await waitFor(() => expect(fetch).toHaveBeenCalled())
+    expect(screen.getByText('guest free')).toBeInTheDocument()
+    expect(screen.queryByText('Could not sign in')).not.toBeInTheDocument()
   })
 
   it('explains a failed sign-in', async () => {

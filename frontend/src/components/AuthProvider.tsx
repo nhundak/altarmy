@@ -33,8 +33,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
   useRefetchOnUserChange(session)
 
+  // Once signed in, keep the app up if a later refetch of who they are fails: its data is still the session.
   const error = config.error ?? signIn.error ?? me.error
-  if (error) {
+  if (error && !session) {
     return (
       <Alert color="red" title="Could not sign in" m="md">
         {error.message}

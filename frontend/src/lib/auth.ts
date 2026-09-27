@@ -12,6 +12,7 @@ export type FirebaseConfig = components['schemas']['FirebaseOut']
 
 let auth: Auth | null = null
 let started: Promise<void> | null = null
+let signingIn: Promise<void> | null = null
 const listeners = new Set<() => void>()
 
 /** Start Firebase and sign in anonymously unless a session is already stored. Safe to call twice. */
@@ -22,11 +23,29 @@ export function initAuth(config: FirebaseConfig): Promise<void> {
     const a = fa.getAuth(app)
     if (config.emulator_url) fa.connectAuthEmulator(a, config.emulator_url, { disableWarnings: true })
     await a.authStateReady()
-    if (!a.currentUser) await fa.signInAnonymously(a)
     auth = a
-    fa.onIdTokenChanged(a, () => listeners.forEach((l) => l()))
+    await ensureUser()
+    fa.onIdTokenChanged(a, (user) => {
+      // Firebase drops a stored session it can no longer refresh (the account was deleted, or the emulator
+      // restarted): start a new anonymous one, whose sign-in notifies the listeners in turn.
+      if (user) listeners.forEach((l) => l())
+      else void ensureUser().catch(() => {})
+    })
   })()
   return started
+}
+
+/** Sign in anonymously unless someone is signed in; concurrent callers share one sign-in. */
+async function ensureUser(): Promise<void> {
+  const a = auth
+  if (!a || a.currentUser) return
+  signingIn ??= import('firebase/auth')
+    .then((fa) => fa.signInAnonymously(a))
+    .then(() => {})
+    .finally(() => {
+      signingIn = null
+    })
+  return signingIn
 }
 
 /** Call `listener` whenever the signed-in user or their token changes (sign-in, linking, sign-out). */
@@ -37,9 +56,24 @@ export function onUserChange(listener: () => void): () => void {
   }
 }
 
-/** The signed-in user's ID token for the API, or null before sign-in. Firebase refreshes it when it expires. */
+/**
+ * The signed-in user's ID token for the API, or null before sign-in. Firebase refreshes it when it expires; if the
+ * stored session can no longer be refreshed, a new anonymous one takes its place.
+ */
 export async function getIdToken(): Promise<string | null> {
-  return auth?.currentUser ? auth.currentUser.getIdToken() : null
+  const a = auth
+  if (!a) return null
+  // A function, not `a.currentUser?.getIdToken()` twice: TypeScript would keep its narrowing across the sign-in.
+  const token = async () => {
+    await ensureUser()
+    return (await a.currentUser?.getIdToken()) ?? null
+  }
+  try {
+    return await token()
+  } catch (error) {
+    if (a.currentUser) throw error // a network failure, not a lost session
+    return token()
+  }
 }
 
 /** The signed-in account's email, if it has one (linked accounts). */
@@ -83,7 +117,7 @@ export async function signOut(): Promise<void> {
   const fa = await import('firebase/auth')
   const a = requireAuth()
   await fa.signOut(a)
-  await fa.signInAnonymously(a)
+  await ensureUser()
 }
 
 const AUTH_ERRORS: Readonly<Record<string, string>> = {
