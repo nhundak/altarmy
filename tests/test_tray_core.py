@@ -1,5 +1,7 @@
 """Alt Army Sync's testable part: its settings file, status line and start-with-Windows command."""
 
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -186,3 +188,16 @@ def test_checking_for_an_update_never_raises() -> None:
         raise OSError("no network")
 
     assert tray_core.check_for_update("0.3.0", offline) is None
+
+
+def test_the_icon_needs_none_of_the_pillow_extensions_the_exe_leaves_out() -> None:
+    pytest.importorskip("PIL")  # the tray extra; the release workflow installs it
+    code = (
+        "import io, sys\n"
+        f"for m in {tray_core.PILLOW_UNUSED!r}: sys.modules[m] = None  # unimportable, as in the exe\n"
+        "from altarmy_profit.tray import _icon_image\n"
+        "out = io.BytesIO()\n"
+        "_icon_image().save(out, format='ICO')  # what pystray does with it\n"
+        "assert out.getvalue()[:4] == bytes([0, 0, 1, 0])\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)

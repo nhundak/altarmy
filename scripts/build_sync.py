@@ -57,10 +57,18 @@ def main() -> None:
                 "--specpath",
                 str(work),
                 # the tray needs only the watcher: keep the server's packages (and numpy, which Pillow would
-                # pull in) out of the exe
+                # pull in) out of the exe, and Pillow's extensions the icon doesn't use (AVIF alone is 4 MB)
                 *[
                     f"--exclude-module={m}"
-                    for m in ("sqlalchemy", "alembic", "fastapi", "uvicorn", "psycopg", "numpy")
+                    for m in (
+                        "sqlalchemy",
+                        "alembic",
+                        "fastapi",
+                        "uvicorn",
+                        "psycopg",
+                        "numpy",
+                        *tray_core.PILLOW_UNUSED,
+                    )
                 ],
             ]
         )

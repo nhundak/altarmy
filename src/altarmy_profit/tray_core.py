@@ -21,6 +21,17 @@ STAGING_SERVER = "https://alt-army-prod--staging-hn1s06um.web.app"  # the Hostin
 SETTINGS_DIR = Path.home() / ".altarmy-profit"
 STATUS_MAX = 90  # characters of status in the menu
 PROBLEMS = ("Upload failed", "Stopped", "Rejected")  # watch.py's log lines that need the user's attention
+# Pillow's extensions the tray icon never needs (fonts, colour management, image formats), left out of the
+# exe; pystray only needs Pillow's core to turn the icon into an ICO
+PILLOW_UNUSED = (
+    "PIL._avif",
+    "PIL._webp",
+    "PIL._imagingft",
+    "PIL._imagingcms",
+    "PIL._imagingmath",
+    "PIL._imagingmorph",
+    "PIL._imagingtk",
+)
 
 
 @dataclass(frozen=True)

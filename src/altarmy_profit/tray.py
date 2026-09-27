@@ -275,13 +275,16 @@ class Tray:
 
 
 def _icon_image() -> Any:
-    """A gold coin with an A."""
+    """A gold coin with an A. The A is drawn with lines, not a font, so the exe needs no FreeType
+    (scripts/build_sync.py leaves Pillow's font, colour-management and image-format extensions out)."""
     from PIL import Image, ImageDraw
 
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     draw.ellipse((2, 2, 62, 62), fill=(214, 168, 46, 255), outline=(120, 86, 12, 255), width=4)
-    draw.text((32, 33), "A", fill=(60, 40, 5, 255), anchor="mm", font_size=40)
+    ink = (60, 40, 5, 255)
+    draw.line([(20, 50), (32, 14), (44, 50)], fill=ink, width=7, joint="curve")
+    draw.line([(25, 38), (39, 38)], fill=ink, width=5)
     return img
 
 
