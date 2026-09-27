@@ -3,8 +3,9 @@ server whenever WoW rewrites them (on logout or /reload).
 
 It needs no database: which files it has sent is a small JSON state file of {path: mtime}. The WoW
 flavor folder a file is in (`_anniversary_`, `_classic_beta_`) says its game version. Files go gzipped to
-`POST /api/uploads`, Alt Army first so the server names new auction houses after the characters' realms.
-Only standard library HTTP (urllib), so the CLI needs no extra packages.
+`POST /api/uploads`, Alt Army first so the server names new auction houses after the characters' realms,
+with the ID token of the user's email sign-in (`signin.Credentials`). Only standard library HTTP (urllib), so
+the CLI needs no extra packages.
 """
 
 from __future__ import annotations
@@ -20,7 +21,8 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePath
 
-from . import versions, wowfiles
+from . import signin, versions, wowfiles
+from .signin import SignedOut
 
 DEFAULT_STATE = Path.home() / ".altarmy-profit" / "watch-state.json"
 KINDS = (("altarmy", wowfiles.find_altarmy_files), ("auctionator", wowfiles.find_auctionator_files))
@@ -29,14 +31,11 @@ MAX_BACKOFF = 300  # seconds between retries after failures, at most
 # (url, headers, body) -> (HTTP status, response body); `urllib_transport` or a test double
 Transport = Callable[[str, Mapping[str, str], bytes], tuple[int, bytes]]
 Log = Callable[[str], None]
+Auth = Callable[[], str]  # a valid ID token (a `signin.Credentials`); raises SignedOut or signin.Unreachable
 
 
 class UploadFailed(Exception):
     """The server could not be reached or failed (5xx, 429): try again later."""
-
-
-class BadKey(Exception):
-    """The server refused the API key: stop."""
 
 
 @dataclass(frozen=True)
@@ -119,14 +118,20 @@ def urllib_transport(url: str, headers: Mapping[str, str], body: bytes) -> tuple
         return e.code, e.read()
 
 
-def upload(server: str, key: str | None, f: Found, transport: Transport) -> tuple[bool, str]:
-    """Send one file. Returns (accepted, the server's summary or complaint); raises BadKey on 401/403 and
-    UploadFailed when it should be retried."""
+def upload(server: str, auth: Auth, f: Found, transport: Transport) -> tuple[bool, str]:
+    """Send one file. Returns (accepted, the server's summary or complaint); raises SignedOut when the sign-in
+    is refused and UploadFailed when it should be retried."""
     fields = {"kind": f.kind, "via": "watcher", "modified_at": str(f.mtime_ns // 10**6)}
     content_type, body = multipart_body(fields, f.path.name, gzip.compress(f.path.read_bytes()))
-    headers = {"Content-Type": content_type, "User-Agent": "altarmy-profit-watch"}
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
+    try:
+        token = auth()
+    except signin.Unreachable as e:
+        raise UploadFailed(f"could not sign in: {e}") from e
+    headers = {
+        "Content-Type": content_type,
+        "User-Agent": "altarmy-profit-watch",
+        "Authorization": f"Bearer {token}",
+    }
     query = urllib.parse.urlencode({"game_version": f.game_version})
     url = f"{server.rstrip('/')}/api/uploads?{query}"
     try:
@@ -135,7 +140,7 @@ def upload(server: str, key: str | None, f: Found, transport: Transport) -> tupl
         raise UploadFailed(f"could not reach {server}: {e}") from e
     detail = _detail(text)
     if status in (401, 403):
-        raise BadKey(f"the server refused the key ({status}): {detail}")
+        raise SignedOut(f"the server refused the sign-in ({status}): {detail}")
     if status == 429 or status >= 500:
         raise UploadFailed(f"{status}: {detail}")
     return status == 200, detail
@@ -152,7 +157,7 @@ def _detail(text: bytes) -> str:
 def sync_once(
     roots: Iterable[Path],
     server: str,
-    key: str | None,
+    auth: Auth,
     state_path: Path,
     transport: Transport = urllib_transport,
     log: Log = print,
@@ -162,7 +167,7 @@ def sync_once(
     state = load_state(state_path)
     sent = []
     for f in changed(find_files(roots), state):
-        accepted, detail = upload(server, key, f, transport)
+        accepted, detail = upload(server, auth, f, transport)
         log(f"{'Uploaded' if accepted else 'Rejected'} {f.game_version} {f.path.name}: {detail}")
         state[str(f.path)] = f.mtime_ns
         save_state(state_path, state)
@@ -173,24 +178,24 @@ def sync_once(
 def run(
     roots: Iterable[Path],
     server: str,
-    key: str | None,
+    auth: Auth,
     state_path: Path = DEFAULT_STATE,
     interval: float = 15,
     transport: Transport = urllib_transport,
     log: Log = print,
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
-    """Watch forever: check every `interval` seconds, backing off after failures. Returns on BadKey."""
+    """Watch forever: check every `interval` seconds, backing off after failures. Returns when signed out."""
     roots = list(roots)
     failures = 0
     while True:
         try:
-            sync_once(roots, server, key, state_path, transport, log)
+            sync_once(roots, server, auth, state_path, transport, log)
             failures = 0
         except UploadFailed as e:
             failures += 1
             log(f"Upload failed ({e}); retrying.")
-        except BadKey as e:
-            log(f"Stopped: {e}. Make a new key on the site's Manage page.")
+        except SignedOut as e:
+            log(f"Stopped: {e}. Sign in again.")
             return
         sleep(min(interval * 2**failures, MAX_BACKOFF))

@@ -33,13 +33,43 @@ export function IconPaste(props: IconProps) {
   )
 }
 
-/** A person with a plus: add a character. */
-export function IconUserPlus(props: IconProps) {
+/** An arrow into a tray: download the uploader. */
+export function IconDownload(props: IconProps) {
   return (
     <Svg {...props}>
-      <circle cx="10" cy="8" r="3.5" />
-      <path d="M3.5 20a6.5 6.5 0 0 1 13 0" />
-      <path d="M19 8v6M16 11h6" />
+      <path d="M12 3.5v11m-4.5-4.5 4.5 4.5 4.5-4.5" />
+      <path d="M4 15.5v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+    </Svg>
+  )
+}
+
+/** A clock: time is money. */
+export function IconClock(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </Svg>
+  )
+}
+
+/** A coin: spend little. */
+export function IconCoin(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <ellipse cx="12" cy="7" rx="7" ry="3" />
+      <path d="M5 7v5c0 1.7 3.1 3 7 3s7-1.3 7-3V7" />
+      <path d="M5 12v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5" />
+    </Svg>
+  )
+}
+
+/** Rising steps: skill up. */
+export function IconSteps(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 20h5v-5h5v-5h5V5h2" />
+      <path d="M3.5 20H20.5" />
     </Svg>
   )
 }

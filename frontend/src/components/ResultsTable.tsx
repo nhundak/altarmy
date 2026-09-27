@@ -51,9 +51,8 @@ const COLUMN_HIDDEN: Readonly<Record<string, string | undefined>> = {
   'Sell via': classes.hideBelowXs,
   'Per hour': classes.hideBelowXs,
 }
-/** The columns whose order the server can rank by (the whole ranking, not just this page). */
+/** What the server can rank by (the whole ranking, not just this page): profit per craft or per hour. */
 export type RankBy = 'profit' | 'rate'
-const SERVER_SORTS: Readonly<Record<string, RankBy>> = { Profit: 'profit', 'Per hour': 'rate' }
 
 type Sort = { column: string; descending: boolean }
 
@@ -143,7 +142,6 @@ export function ResultsTable({
   favorites = NONE,
   onSetFavorite,
   rankBy,
-  onRankBy,
 }: {
   results: RankResult[]
   items: ItemMap
@@ -159,10 +157,9 @@ export function ResultsTable({
   favorites?: ReadonlySet<number>
   /** Mark a recipe as a favorite or not. */
   onSetFavorite?: (recipeId: number, favorite: boolean) => void
-  /** What the server ranked `results` by (best first). */
+  /** What the server ranked `results` by (best first): its column shows as sorted until the user sorts the page
+   * by a header (which orders only the rows loaded, like every other column). */
   rankBy?: RankBy
-  /** Re-rank on the server: the Profit and Per hour headers call it instead of sorting this page. */
-  onRankBy?: (rankBy: RankBy) => void
 }) {
   const actions = Boolean(onSetAhBlocked || onSetFavorite)
   const columns = COLUMNS.length + (actions ? 1 : 0)
@@ -175,22 +172,15 @@ export function ResultsTable({
       return next
     })
   const [sort, setSort] = useState<Sort | null>(null)
-  const sortBy = (column: string) => {
-    const server = SERVER_SORTS[column]
-    if (onRankBy && server) {
-      setSort(null)
-      onRankBy(server)
-      return
-    }
-    setSort((prev) =>
-      prev?.column === column
-        ? { column, descending: !prev.descending }
-        : { column, descending: NUMERIC_COLUMNS.has(column) },
-    )
-  }
   // With no column picked here, the server's order shows on the column it ranked by.
   const shownSort: Sort | null =
-    sort ?? (onRankBy && rankBy ? { column: rankBy === 'rate' ? 'Per hour' : 'Profit', descending: true } : null)
+    sort ?? (rankBy ? { column: rankBy === 'rate' ? 'Per hour' : 'Profit', descending: true } : null)
+  const sortBy = (column: string) =>
+    setSort(
+      shownSort?.column === column
+        ? { column, descending: !shownSort.descending }
+        : { column, descending: NUMERIC_COLUMNS.has(column) },
+    )
   // The user's changes to each recipe's plan, by recipe id; a row shows its changed plan once it is costed.
   const [choices, setChoices] = useState<Readonly<Record<number, Choices>>>({})
   const evaluations = useEvaluations(choices, params)

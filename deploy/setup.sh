@@ -7,6 +7,8 @@
 #   deploy/setup.sh accounts     service accounts and their roles
 #   deploy/setup.sh sql          Cloud SQL instance (Postgres 16, db-f1-micro, 10 GB SSD)
 #   deploy/setup.sh database ENV   a database, its user (random password) and the DATABASE_URL secret
+#   deploy/setup.sh staging-auth staging's runtime service account (after `database staging` and the
+#                                alt-army-staging Firebase project exist; README, "Firebase projects")
 #   deploy/setup.sh wif          Workload Identity Federation for GitHub Actions
 #   deploy/setup.sh scheduler    Cloud Scheduler jobs (after a prod deploy made the jobs; existing ones are kept)
 #
@@ -41,8 +43,8 @@ accounts() {
   gcloud iam service-accounts create altarmy-deploy --display-name "altarmy-profit CI deploys" "${G[@]}"
 
   # runtime: Cloud SQL, its secrets (granted per secret in `database`), deleting Firebase Auth users
-  project_role "serviceAccount:$RUN_SA" roles/cloudsql.client
-  project_role "serviceAccount:$RUN_SA" roles/firebaseauth.admin
+  project_role "serviceAccount:$PROD_RUN_SA" roles/cloudsql.client
+  project_role "serviceAccount:$PROD_RUN_SA" roles/firebaseauth.admin
   # scheduler: start Cloud Run jobs
   project_role "serviceAccount:$SCHEDULER_SA" roles/run.invoker
   # CI: deploy services and jobs as altarmy-run, push images, deploy Hosting; Cloud Build as itself
@@ -50,7 +52,7 @@ accounts() {
     roles/serviceusage.serviceUsageConsumer roles/logging.logWriter roles/storage.objectViewer; do
     project_role "serviceAccount:$DEPLOY_SA" "$role"
   done
-  gcloud iam service-accounts add-iam-policy-binding "$RUN_SA" --member "serviceAccount:$DEPLOY_SA" \
+  gcloud iam service-accounts add-iam-policy-binding "$PROD_RUN_SA" --member "serviceAccount:$DEPLOY_SA" \
     --role roles/iam.serviceAccountUser "${G[@]}" >/dev/null
 }
 
@@ -71,6 +73,25 @@ database() { # database prod|staging: its database, user and DATABASE_URL secret
     "$SQL_CONNECTION" | gcloud secrets create "$SECRET" --data-file - --replication-policy automatic "${G[@]}"
   gcloud secrets add-iam-policy-binding "$SECRET" --member "serviceAccount:$RUN_SA" \
     --role roles/secretmanager.secretAccessor "${G[@]}" >/dev/null
+}
+
+staging_auth() { # staging's own runtime account: its database secret only, and admin of staging's Auth only
+  gcloud iam service-accounts create altarmy-staging-run --display-name "altarmy-profit staging service and jobs" \
+    "${G[@]}"
+  project_role "serviceAccount:$STAGING_RUN_SA" roles/cloudsql.client
+  # deleting accounts (DELETE /api/me) in the staging Firebase project; that project has no billing, so the
+  # call bills (nothing) to $PROJECT
+  gcloud projects add-iam-policy-binding "$STAGING_AUTH_PROJECT" --member "serviceAccount:$STAGING_RUN_SA" \
+    --role roles/firebaseauth.admin --condition None --billing-project "$PROJECT" --quiet >/dev/null
+  echo "  roles/firebaseauth.admin on $STAGING_AUTH_PROJECT -> $STAGING_RUN_SA"
+  env_config staging
+  gcloud secrets add-iam-policy-binding "$SECRET" --member "serviceAccount:$STAGING_RUN_SA" \
+    --role roles/secretmanager.secretAccessor "${G[@]}" >/dev/null
+  # prod's account read staging's secret while staging ran as it
+  gcloud secrets remove-iam-policy-binding "$SECRET" --member "serviceAccount:$PROD_RUN_SA" \
+    --role roles/secretmanager.secretAccessor "${G[@]}" >/dev/null 2>&1 || echo "  (prod had no access to $SECRET)"
+  gcloud iam service-accounts add-iam-policy-binding "$STAGING_RUN_SA" --member "serviceAccount:$DEPLOY_SA" \
+    --role roles/iam.serviceAccountUser "${G[@]}" >/dev/null
 }
 
 wif() {
@@ -109,8 +130,9 @@ scheduler() {
 case "${1:-}" in
   apis | registry | accounts | sql | wif | scheduler) "$1" ;;
   database) database "${2:-}" ;;
+  staging-auth) staging_auth ;;
   *)
-    sed -n '2,15p' "$0"
+    sed -n '2,17p' "$0"
     exit 1
     ;;
 esac

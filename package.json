@@ -7,8 +7,8 @@
     "dev:auth": "firebase emulators:start --only auth --project demo-altarmy",
     "dev:api": "node scripts/dev-api.mjs",
     "dev:web": "wait-on --timeout 120000 tcp:127.0.0.1:9099 http-get://127.0.0.1:8600/api/config && npm --prefix frontend run dev -- --open",
-    "dev:prod-auth": "concurrently --kill-others --names api,web --prefix-colors blue,green \"npm:dev:api -- --prod-auth\" \"npm:dev:web:prod-auth\"",
-    "dev:web:prod-auth": "wait-on --timeout 120000 http-get://127.0.0.1:8600/api/config && npm --prefix frontend run dev -- --open"
+    "dev:staging-auth": "concurrently --kill-others --names api,web --prefix-colors blue,green \"npm:dev:api -- --staging-auth\" \"npm:dev:web:staging-auth\"",
+    "dev:web:staging-auth": "wait-on --timeout 120000 http-get://127.0.0.1:8600/api/config && npm --prefix frontend run dev -- --open"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",

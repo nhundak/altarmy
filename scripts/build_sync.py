@@ -1,32 +1,44 @@
-"""Build the tray uploader as one Windows exe: dist/altarmy-profit-tray.exe.
+"""Build Alt Army Sync as one Windows exe: dist/altarmy-sync.exe.
 
 Usage (Windows, in the venv with the tray and build-tray extras: pip install -e ".[tray,build-tray]"):
-    python scripts/build_tray.py
-CI does the same on a `tray-v*` tag (.github/workflows/tray.yml) and attaches the exe to a GitHub Release.
+    python scripts/build_sync.py [--version 1.2.3]
+CI does the same on a `sync-v*` tag (.github/workflows/sync.yml), passing the tag's version, and attaches the
+exe to a GitHub Release. The exe checks GitHub for a newer release; built without --version it never does.
 The exe is unsigned, so Windows SmartScreen warns the first time it runs.
 """
 
+import argparse
 import sys
 import tempfile
 from pathlib import Path
 
 import PyInstaller.__main__
 
-from altarmy_profit import tray
+from altarmy_profit import tray, tray_core
 
 ROOT = Path(__file__).resolve().parents[1]
-NAME = "altarmy-profit-tray"
+NAME = "altarmy-sync"
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Build dist/altarmy-sync.exe.")
+    parser.add_argument("--version", default="dev", help="the release, e.g. 1.2.3 (default: dev)")
+    version = parser.parse_args().version
+    if version != "dev" and tray_core.parse_version(version) is None:
+        parser.error("--version needs three numbers, e.g. 1.2.3")
     if sys.platform != "win32":
-        sys.exit("The tray uploader is built on Windows.")
+        sys.exit("Alt Army Sync is built on Windows.")
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
         icon = work / "icon.ico"
         tray._icon_image().save(icon, sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
         entry = work / "tray_entry.py"
-        entry.write_text("from altarmy_profit.tray import main\n\nmain()\n", encoding="utf-8")
+        entry.write_text(
+            "from altarmy_profit import tray_core\n"
+            f"tray_core.VERSION = {version!r}\n"
+            "from altarmy_profit.tray import main\n\nmain()\n",
+            encoding="utf-8",
+        )
         PyInstaller.__main__.run(
             [
                 str(entry),
@@ -52,7 +64,7 @@ def main() -> None:
                 ],
             ]
         )
-    print(f"Built {ROOT / 'dist' / (NAME + '.exe')}")
+    print(f"Built {ROOT / 'dist' / (NAME + '.exe')} ({version})")
 
 
 if __name__ == "__main__":

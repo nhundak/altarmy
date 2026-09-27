@@ -12,13 +12,14 @@ import { linkProps } from '../lib/router'
 import { useSession } from '../lib/session'
 import { useStoredState } from '../lib/storage'
 import { Hero } from './Hero'
-import { IconChevron, IconCompass, IconPaste, IconUserPlus } from './icons'
+import { AutoImportBody } from './AutoImport'
+import cards from './Cards.module.css'
+import { IconChevron, IconCompass, IconDownload, IconPaste } from './icons'
 import classes from './Profit.module.css'
-import { ManualCharacterForm } from './ManualCharacterForm'
 import { PasteForm } from './PasteForm'
 import { SearchTab } from './SearchTab'
 
-type CardKey = 'import' | 'manual' | 'browse'
+type CardKey = 'import' | 'auto' | 'browse'
 type Phase = 'choose' | 'expanded' | 'collapsed'
 
 const EASE = [0.25, 0.8, 0.25, 1] as const
@@ -26,6 +27,7 @@ const LAYOUT = { layout: { duration: 0.35, ease: EASE } }
 
 const landingSchema = z.object({ browsed: z.boolean() })
 const NOT_BROWSED = { browsed: false }
+const NO_GROUPS: readonly CharacterGroup[] = []
 
 type CardSpec = { key: CardKey; title: string; blurb: string; short: string; icon: ReactNode }
 
@@ -39,16 +41,17 @@ const CARDS: readonly CardSpec[] = [
     icon: <IconPaste />,
   },
   {
-    key: 'manual',
-    title: 'Create manually',
-    blurb: 'No addon? Type in a character: class, level and profession skills.',
-    short: 'Type in a character.',
-    icon: <IconUserPlus />,
+    key: 'auto',
+    title: 'Auto-import',
+    blurb:
+      'A small app on your gaming PC uploads your characters and auction scans whenever WoW saves them. Nothing to paste, and prices stay fresh.',
+    short: 'Set up Alt Army Sync.',
+    icon: <IconDownload />,
   },
   {
     key: 'browse',
-    title: 'Just browse',
-    blurb: 'See the most profitable recipes on a realm right now, no characters needed.',
+    title: 'Skip for now',
+    blurb: 'See the most profitable recipes on a realm right now. You can add characters any time.',
     short: 'Every recipe, no character optimization.',
     icon: <IconCompass />,
   },
@@ -68,7 +71,7 @@ function cardsFor(hasCharacters: boolean): readonly CardSpec[] {
   return hasCharacters ? CARDS.map((c) => (c.key === 'browse' ? CONTINUE : c)) : CARDS
 }
 
-/** One of the three ways to start: a big button while choosing, a form once opened, a small button beside it. */
+/** One of the three ways to start: a big button while choosing, its steps once opened, a small button beside it. */
 function StartCard({
   spec,
   phase,
@@ -96,7 +99,7 @@ function StartCard({
       <motion.div
         layout
         transition={LAYOUT}
-        className={classes.card}
+        className={cards.card}
         data-featured={(spec.key === 'import' && !compact) || undefined}
         style={{ borderRadius: 12 }}
       >
@@ -104,7 +107,7 @@ function StartCard({
           <motion.div layout="position" className={classes.open}>
             <Group justify="space-between" align="flex-start" wrap="nowrap" mb="md">
               <Group gap="sm" wrap="nowrap">
-                <span className={classes.icon}>{spec.icon}</span>
+                <span className={cards.icon}>{spec.icon}</span>
                 <Title order={3}>{spec.title}</Title>
               </Group>
               <CloseButton aria-label="Back to the three ways to start" onClick={onClose} />
@@ -114,11 +117,13 @@ function StartCard({
             </motion.div>
           </motion.div>
         ) : (
-          <UnstyledButton className={classes.pick} onClick={onPick} aria-label={spec.title}>
+          <UnstyledButton className={cards.pick} onClick={onPick} aria-label={spec.title}>
             <motion.div layout="position" className={compact ? classes.compact : undefined}>
               {compact ? (
                 <Group gap="sm" wrap="nowrap">
-                  <span className={classes.icon}>{spec.icon}</span>
+                  <span className={cards.icon} data-small>
+                    {spec.icon}
+                  </span>
                   <Stack gap={0}>
                     <Text fw={700}>{spec.title}</Text>
                     <Text size="sm" c="dimmed">
@@ -129,7 +134,7 @@ function StartCard({
               ) : (
                 <Stack gap="sm">
                   <Group justify="space-between" align="flex-start">
-                    <span className={classes.icon}>{spec.icon}</span>
+                    <span className={cards.icon}>{spec.icon}</span>
                     {spec.key === 'import' && (
                       <Badge variant="light" size="sm">
                         Recommended
@@ -174,7 +179,7 @@ function Strip({ groups, onOpen }: { groups: readonly CharacterGroup[]; onOpen: 
   const count = groups.reduce((n, g) => n + g.characters.length, 0)
   return (
     <motion.div
-      className={classes.strip}
+      className={cards.strip}
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
@@ -205,8 +210,8 @@ function Strip({ groups, onOpen }: { groups: readonly CharacterGroup[]; onOpen: 
           <Button size="xs" variant="light" leftSection={<IconPaste size={16} />} onClick={() => onOpen('import')}>
             {count > 0 ? 'Import again' : 'Import your characters'}
           </Button>
-          <Button size="xs" variant="default" leftSection={<IconUserPlus size={16} />} onClick={() => onOpen('manual')}>
-            Add a character
+          <Button size="xs" variant="default" leftSection={<IconDownload size={16} />} onClick={() => onOpen('auto')}>
+            Auto-import
           </Button>
         </Group>
       </Group>
@@ -232,8 +237,8 @@ function Strip({ groups, onOpen }: { groups: readonly CharacterGroup[]; onOpen: 
 }
 
 /**
- * The Profit page: the welcome banner and three ways to start (import, create by hand, just browse) and, once the
- * visitor has characters or chose to browse, the search in their place. Whether they browsed is remembered per user;
+ * The Profit page: the welcome banner and three ways to start (paste an import, set up the auto-import, skip) and,
+ * once the visitor has characters or skipped, the search (which starts by asking for their goal) in their place. Whether they browsed is remembered per user;
  * having characters comes from the server, so another browser's import counts too.
  */
 export function ProfitPage() {
@@ -245,7 +250,7 @@ export function ProfitPage() {
   const searchRef = useRef<HTMLElement>(null)
   const shownBefore = useRef<boolean | null>(null)
 
-  const groups = characters.data?.groups ?? []
+  const groups = characters.data?.groups ?? NO_GROUPS
   const started = groups.length > 0 || landing.browsed
   const phase: Phase = open ? 'expanded' : started ? 'collapsed' : 'choose'
   const ready = characters.data !== undefined
@@ -258,6 +263,23 @@ export function ProfitPage() {
     }
     shownBefore.current = started
   }, [ready, started, reduced])
+
+  // Alt Army Sync's first upload brings characters in while its card is open (the status poll notices): move on.
+  const hadCharacters = useRef(false)
+  useEffect(() => {
+    if (!ready) return
+    const has = groups.length > 0
+    if (has && !hadCharacters.current && open === 'auto') {
+      setOpen(null)
+      const count = groups.reduce((n, g) => n + g.characters.length, 0)
+      notifications.show({
+        color: 'green',
+        title: 'Characters uploaded',
+        message: `${count} ${count === 1 ? 'character' : 'characters'} on ${groups.map((g) => realmLabel(g)).join(', ')}.`,
+      })
+    }
+    hadCharacters.current = has
+  }, [ready, groups, open])
 
   const pick = (key: CardKey) => {
     if (key === 'browse') {
@@ -323,14 +345,7 @@ export function ProfitPage() {
                     onClose={() => setOpen(null)}
                   >
                     {spec.key === 'import' && <ImportBody onImported={imported} />}
-                    {spec.key === 'manual' && (
-                      <ManualCharacterForm
-                        onCreated={(c) => {
-                          setOpen(null)
-                          notifications.show({ color: 'green', title: 'Character added', message: `${c.name} on ${realmLabel(c)}.` })
-                        }}
-                      />
-                    )}
+                    {spec.key === 'auto' && <AutoImportBody />}
                   </StartCard>
                 ))}
               </motion.div>

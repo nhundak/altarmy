@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react'
 import type { components } from '../api/schema'
 
-/** free: an anonymous guest (everything but API keys); linked: signed in with an email address. */
+/** free: an anonymous guest (everything the site has); linked: signed in with an email address. */
 export type Tier = components['schemas']['Me']['tier']
 
 export type Session = { uid: string; tier: Tier }

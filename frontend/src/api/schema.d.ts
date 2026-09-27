@@ -55,12 +55,7 @@ export interface paths {
         /** Get Characters */
         get: operations["get_characters_api_characters_get"];
         put?: never;
-        /**
-         * Post Character
-         * @description Add a character by hand (or replace yours of that realm and name) and select its realm. It knows
-         *     every recipe of its professions. An Alt Army import later replaces every character, these included.
-         */
-        post: operations["post_character_api_characters_post"];
+        post?: never;
         /**
          * Delete Character
          * @description Delete one of your characters (404 if you have none of that realm and name).
@@ -172,50 +167,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/keys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Keys
-         * @description Your API keys for the CLI watcher (the keys themselves are not stored).
-         */
-        get: operations["get_keys_api_keys_get"];
-        put?: never;
-        /**
-         * Post Key
-         * @description A new API key for `altarmy-profit watch`. The key is in this response only.
-         */
-        post: operations["post_key_api_keys_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/keys/{key_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete Key
-         * @description Revoke a key: the watcher using it stops. Returns your remaining keys.
-         */
-        delete: operations["delete_key_api_keys__key_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/me": {
         parameters: {
             query?: never;
@@ -229,7 +180,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Me
-         * @description Delete your account: your characters, settings, AH blocks, upload history and API keys, then the
+         * @description Delete your account: your characters, settings, AH blocks and upload history, then the
          *     sign-in account itself. Prices you uploaded stay in the pool, no longer linked to you.
          */
         delete: operations["delete_me_api_me_delete"];
@@ -435,19 +386,6 @@ export interface components {
             added_at: string;
             /** Item Id */
             item_id: number;
-        };
-        /** ApiKeyOut */
-        ApiKeyOut: {
-            /** Created At */
-            created_at: string;
-            /** Id */
-            id: number;
-            /** Label */
-            label: string;
-            /** Last Used At */
-            last_used_at: string | null;
-            /** Prefix */
-            prefix: string;
         };
         /** Body_post_upload_api_uploads_post */
         Body_post_upload_api_uploads_post: {
@@ -719,11 +657,6 @@ export interface components {
             /** Vendor Price */
             vendor_price: number | null;
         };
-        /** KeyRequest */
-        KeyRequest: {
-            /** Label */
-            label: string;
-        };
         /**
          * LegOut
          * @description One run across the city.
@@ -758,34 +691,6 @@ export interface components {
             name: string;
         };
         /**
-         * ManualCharacter
-         * @description A character typed in by hand. It knows every recipe of its professions (nothing is learned).
-         */
-        ManualCharacter: {
-            /** Class File */
-            class_file: string;
-            /**
-             * Faction
-             * @enum {string}
-             */
-            faction: "Horde" | "Alliance";
-            /** Level */
-            level: number;
-            /** Name */
-            name: string;
-            /** Professions */
-            professions: components["schemas"]["ManualProfession"][];
-            /** Realm */
-            realm: string;
-        };
-        /** ManualProfession */
-        ManualProfession: {
-            /** Name */
-            name: string;
-            /** Rank */
-            rank: number;
-        };
-        /**
          * MaterialOut
          * @description One possible disenchant result.
          */
@@ -812,21 +717,6 @@ export interface components {
             tier: "free" | "linked";
             /** Uid */
             uid: string;
-        };
-        /** NewApiKey */
-        NewApiKey: {
-            /** Created At */
-            created_at: string;
-            /** Id */
-            id: number;
-            /** Key */
-            key: string;
-            /** Label */
-            label: string;
-            /** Last Used At */
-            last_used_at: string | null;
-            /** Prefix */
-            prefix: string;
         };
         /**
          * NodeOut
@@ -1411,42 +1301,6 @@ export interface operations {
             };
         };
     };
-    post_character_api_characters_post: {
-        parameters: {
-            query: {
-                /** @description which game's data: tbc or forever */
-                game_version: "tbc" | "forever";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ManualCharacter"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Characters"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     delete_character_api_characters_delete: {
         parameters: {
             query: {
@@ -1656,90 +1510,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Favorites"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_keys_api_keys_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiKeyOut"][];
-                };
-            };
-        };
-    };
-    post_key_api_keys_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["KeyRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NewApiKey"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_key_api_keys__key_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                key_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiKeyOut"][];
                 };
             };
             /** @description Validation Error */

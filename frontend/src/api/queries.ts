@@ -4,7 +4,6 @@ import {
   call,
   client,
   type Evaluation,
-  type ManualCharacter,
   type Selection,
   type Status,
   type TimeConfig,
@@ -47,24 +46,6 @@ export function useCharacters() {
   })
 }
 
-/** Every profession of the game's recipes (fixed until the next game data update). */
-export function useProfessions() {
-  return useQuery({
-    queryKey: ['professions', GAME_VERSION],
-    queryFn: () => call(client.GET('/api/professions', GV)),
-    staleTime: Infinity,
-  })
-}
-
-/** Add a character by hand (it knows every recipe of its professions) and select its realm. */
-export function useCreateCharacter() {
-  const invalidate = useInvalidateAll()
-  return useMutation({
-    mutationFn: (body: ManualCharacter) => call(client.POST('/api/characters', { ...GV, body })),
-    onSuccess: () => invalidate(),
-  })
-}
-
 export function useDeleteCharacter() {
   const invalidate = useInvalidateAll()
   return useMutation({
@@ -89,8 +70,6 @@ export type RankParams = {
   maxProfit: number | null
   minRoi: number | null
   maxRoi: number | null
-  /** only recipes of these professions; empty for every one */
-  professions: string[]
   /** best profit per craft first, or per hour of play */
   sort: 'profit' | 'rate'
   top: number
@@ -118,7 +97,6 @@ export function useRank(params: RankParams) {
               max_profit: orUndefined(params.maxProfit),
               min_roi: orUndefined(params.minRoi),
               max_roi: orUndefined(params.maxRoi),
-              professions: params.professions.length ? params.professions : undefined,
               sort: params.sort === 'rate' ? 'rate' : undefined,
               top: params.top,
             },
@@ -273,33 +251,6 @@ export function useUpload() {
       ),
     onSuccess: () => invalidate(),
     onError: () => queryClient.invalidateQueries({ queryKey: ['uploads'] }), // it lists rejected ones too
-  })
-}
-
-/** Your API keys for the CLI watcher. */
-export function useApiKeys() {
-  return useQuery({
-    queryKey: ['keys'],
-    queryFn: () => call(client.GET('/api/keys')),
-  })
-}
-
-/** Make an API key; the response is the only time the key itself is shown. */
-export function useCreateKey() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (label: string) => call(client.POST('/api/keys', { body: { label } })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['keys'] }),
-    onError: showError('Could not make a key'),
-  })
-}
-
-export function useRevokeKey() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (keyId: number) => call(client.DELETE('/api/keys/{key_id}', { params: { path: { key_id: keyId } } })),
-    onSuccess: (keys) => queryClient.setQueryData(['keys'], keys),
-    onError: showError('Could not revoke the key'),
   })
 }
 

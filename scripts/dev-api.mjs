@@ -1,6 +1,6 @@
 // Start the Python API for `npm run dev` (`altarmy-profit serve` on :8600) using the project venv's interpreter
 // (Windows or POSIX layout). It signs users in against the Firebase Auth emulator (`npm run dev:auth`, project
-// demo-altarmy), or with `--prod-auth` (npm run dev:prod-auth) against the real project in hosted.env. The
+// demo-altarmy), or with `--staging-auth` (npm run dev:staging-auth) against the staging project in staging.env. The
 // database is DATABASE_URL, else data/altarmy-profit.sqlite, migrated on start.
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -27,10 +27,10 @@ function readEnvFile(path) {
 const EMULATOR = { FIREBASE_PROJECT_ID: 'demo-altarmy', FIREBASE_AUTH_EMULATOR_HOST: '127.0.0.1:9099' }
 
 const args = process.argv.slice(2)
-const prodAuth = args.includes('--prod-auth')
-const env = { ...process.env, ...(prodAuth ? readEnvFile(join(root, 'hosted.env')) : EMULATOR) }
-if (prodAuth) delete env.FIREBASE_AUTH_EMULATOR_HOST
-const child = spawn(python, ['-m', 'altarmy_profit.cli', 'serve', ...args.filter((a) => a !== '--prod-auth')], {
+const stagingAuth = args.includes('--staging-auth')
+const env = { ...process.env, ...(stagingAuth ? readEnvFile(join(root, 'staging.env')) : EMULATOR) }
+if (stagingAuth) delete env.FIREBASE_AUTH_EMULATOR_HOST
+const child = spawn(python, ['-m', 'altarmy_profit.cli', 'serve', ...args.filter((a) => a !== '--staging-auth')], {
   cwd: root,
   stdio: 'inherit',
   env,

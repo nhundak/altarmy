@@ -25,7 +25,7 @@ class GameVersion:
     flavor_folders: tuple[str, ...]  # WoW install subfolders whose WTF holds this client's SavedVariables
     data_dir: Path  # hand-maintained CSVs: disenchant.csv, vendor_items.csv
     interface: int  # the client's interface number (## Interface in addon TOCs)
-    max_level: int  # the level cap: bounds hand-made characters
+    max_level: int  # the level cap
     max_skill: int  # the highest profession skill rank
     ah_cut: float = AH_CUT
     mail_postage: int = MAIL_POSTAGE  # copper per attachment

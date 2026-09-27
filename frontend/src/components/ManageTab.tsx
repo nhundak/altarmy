@@ -1,7 +1,7 @@
 import { Alert, Button, Card, Stack, Table, Text, Title } from '@mantine/core'
 import { useAhBlocked, useSetAhBlocked } from '../api/queries'
-import { ApiKeysCard } from './ApiKeysCard'
 import { ItemLink } from './ItemTooltip'
+import { SyncCard } from './SyncCard'
 
 function AhBlockedCard() {
   const blocked = useAhBlocked()
@@ -57,12 +57,12 @@ function AhBlockedCard() {
   )
 }
 
-/** The AH blocks and the watcher's API keys. */
+/** The AH blocks, and where to get Alt Army Sync. */
 export function ManageTab() {
   return (
     <Stack>
       <AhBlockedCard />
-      <ApiKeysCard />
+      <SyncCard />
     </Stack>
   )
 }

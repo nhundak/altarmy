@@ -21,7 +21,6 @@ describe('the shell by tier', () => {
       '/api/characters': characters,
       '/api/ah-blocked': { items: [], details: {} },
       '/api/favorites': { recipes: [] },
-      '/api/keys': [],
       '/api/uploads': [],
       '/api/coverage': [],
       '/api/rank': { results: [], total: 0, items: {}, classes: {} },
@@ -50,8 +49,8 @@ describe('the shell by tier', () => {
     expect(await screen.findByRole('link', { name: 'Put your army to work' })).toBeInTheDocument()
   })
 
-  it('gives anonymous users everything but API keys, with a way to sign in', async () => {
-    const fetch = hostedApi()
+  it('gives anonymous users everything, with a way to sign in', async () => {
+    hostedApi()
     window.history.pushState(null, '', '/profit')
     renderWithProviders(<App />, GUEST)
     expect(nav()).toEqual(['Upload', 'Manage'])
@@ -60,19 +59,17 @@ describe('the shell by tier', () => {
     expect(screen.queryByText(/guest/i)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('link', { name: 'Manage' }))
     expect(await screen.findByText('Never sold on the auction house')).toBeInTheDocument()
-    expect(screen.getByText(/Create an account or sign in \(top right\) to make API keys/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Make key' })).not.toBeInTheDocument()
-    expect(fetch.mock.calls.map(([r]) => new URL(r.url).pathname)).not.toContain('/api/keys')
+    expect(screen.getByText(/create one with Sign in \(top right\)/)).toBeInTheDocument()
   })
 
-  it('gives signed-in users their AH blocks and API keys', async () => {
+  it('gives signed-in users their AH blocks and Alt Army Sync', async () => {
     hostedApi()
     window.history.pushState(null, '', '/manage')
     renderWithProviders(<App />, LINKED)
     expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument()
     expect(await screen.findByText('Never sold on the auction house')).toBeInTheDocument()
     expect(screen.getByText('Upload automatically')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Make key' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Alt Army Sync for Windows' })).toBeInTheDocument()
   })
 
   it('opens the upload page', async () => {

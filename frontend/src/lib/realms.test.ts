@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CharacterGroup, Coverage } from '../api/client'
-import { fromKey, realmLabel, realmNames, realmOptions, toKey } from './realms'
+import { fromKey, realmLabel, realmOptions, toKey } from './realms'
 
 const house = (realm: string, faction: string, prices = 10): Coverage => ({
   auction_house_id: 1,
@@ -38,6 +38,5 @@ describe('realms', () => {
       { value: 'Dreamscythe\tHorde', label: 'Dreamscythe (Horde) · 1 character', section: 'Your characters' },
       { value: 'Dreamscythe\tAlliance', label: 'Dreamscythe (Alliance)', section: 'Browse a realm' },
     ])
-    expect(realmNames(groups, coverage)).toEqual(['Classic Beta PvE', 'Dreamscythe', 'Empty'])
   })
 })

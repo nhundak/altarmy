@@ -46,7 +46,7 @@ function DeleteAccount({ onDone }: { onDone: () => void }) {
     <Alert color="red" title="Delete your account?">
       <Stack gap="xs">
         <Text size="sm">
-          Your characters, settings, upload history and API keys are deleted, and so is the sign-in account. This
+          Your characters, settings and upload history are deleted, and so is the sign-in account. This
           can't be undone.
         </Text>
         {error && <Text size="sm">{error}</Text>}
@@ -85,8 +85,7 @@ export function PrivacyNote() {
               account.
             </List.Item>
             <List.Item>
-              Each upload is logged (kind, size, time, result) for your history and the upload limit. API keys are
-              stored only as hashes.
+              Each upload is logged (kind, size, time, result) for your history and the upload limit.
             </List.Item>
             <List.Item>
               Sign-in is handled by Firebase Authentication. Your email and password live there, not in this app's

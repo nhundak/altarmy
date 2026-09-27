@@ -1,4 +1,4 @@
-"""Where WoW keeps the addons' SavedVariables. Standard library only, so the watcher and the tray app need
+"""Where WoW keeps the addons' SavedVariables. Standard library only, so the watcher and Alt Army Sync need
 no database packages; `prices` re-exports these for the rest of the code."""
 
 from __future__ import annotations

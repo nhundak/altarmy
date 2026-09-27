@@ -184,25 +184,6 @@ def test_market_cache_sees_other_processes_changes_after_its_ttl(
     assert cache.get(ah) is not second
 
 
-def test_hand_made_characters_know_every_recipe_of_their_professions(
-    db2_paths: dict[str, Path], conn: Connection
-) -> None:
-    ingest.build_db(db2_paths, conn, FOREVER)
-    base = store.load_market(conn, FOREVER, set_prices(conn, {1: 20, 2: 100}))
-    handy = Character(
-        "Classic Beta PvE", "Handy", "Horde", "MAGE", 60, (Profession("tailoring", 50, 75, frozenset()),)
-    )
-    (implied,) = service.imply_recipes(base.recipes, [handy])
-    assert implied.known_recipes == {900}
-    (r,) = service.search(base, [implied], False, Filters(min_profit=0))
-    assert r.crafter == "Handy"
-
-    (tailor,) = chars("Tailor Guy")  # imported: knows the robe, and Cooking with no recipes stays so
-    assert service.imply_recipes(base.recipes, [tailor]) == [tailor]
-    nobody = replace(handy, professions=())
-    assert service.imply_recipes(base.recipes, [nobody]) == [nobody]
-
-
 def test_selection_falls_back_to_the_freshest_scanned_realm(conn: Connection) -> None:
     assert service.selection(conn, ME, FOREVER, []) is None
     set_prices(conn, {1: 20}, realm="Dreamscythe", faction="Horde")
@@ -229,24 +210,12 @@ def test_an_import_forgets_a_selected_realm_it_has_no_characters_on(conn: Connec
     assert service.selected_characters(conn, ME, FOREVER)[0] == Selection("Classic Beta PvE", "Horde")
 
 
-def test_create_and_delete_characters(conn: Connection, monkeypatch: pytest.MonkeyPatch) -> None:
-    handy = Character("Classic Beta PvE", "Handy", "Alliance", "MAGE", 60, ())
-    service.create_character(conn, ME, FOREVER, handy)
-    assert service.selected_characters(conn, ME, FOREVER) == (
-        Selection("Classic Beta PvE", "Alliance"),
-        [handy],
-    )
-    assert service.data_version(conn, ME, FOREVER) == 1
-
-    monkeypatch.setattr(service, "MAX_CHARACTERS", 1)
-    service.create_character(conn, ME, FOREVER, replace(handy, level=10))  # replacing one is fine
-    with pytest.raises(ValueError, match="At most 1"):
-        service.create_character(conn, ME, FOREVER, replace(handy, name="Other"))
-
-    service.delete_character(conn, ME, FOREVER, "Classic Beta PvE", "Handy")
-    assert store.load_characters(conn, ME, FOREVER) == []
+def test_delete_characters(conn: Connection) -> None:
+    service.replace_characters(conn, ME, FOREVER, chars())
+    service.delete_character(conn, ME, FOREVER, "Classic Beta PvE", "Tailor Guy")
+    assert "Tailor Guy" not in [c.name for c in store.load_characters(conn, ME, FOREVER)]
     with pytest.raises(FileNotFoundError):
-        service.delete_character(conn, ME, FOREVER, "Classic Beta PvE", "Handy")
+        service.delete_character(conn, ME, FOREVER, "Classic Beta PvE", "Tailor Guy")
 
 
 # --- profit per hour ----------------------------------------------------------------------------------

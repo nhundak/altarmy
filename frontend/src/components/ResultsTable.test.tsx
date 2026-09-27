@@ -528,17 +528,23 @@ describe('ResultsTable profit per hour', () => {
     expect(line('–')).toBeInTheDocument()
   })
 
-  it('ranks by profit or per hour on the server when it can', async () => {
-    const onRankBy = vi.fn()
+  it("shows the server's ranking on its column, and sorts the page by any header", async () => {
     const cheap = { ...timedRobe, recipe_id: 7, recipe: 'Cap', output_name: 'Cap', profit: 10 }
-    renderWithProviders(
-      <ResultsTable results={[timedRobe, cheap]} items={items} rankBy="profit" onRankBy={onRankBy} />,
-    )
+    const recipes = () => screen.getAllByRole('button', { name: /^Details for / }).map((b) => b.getAttribute('aria-label'))
+    renderWithProviders(<ResultsTable results={[timedRobe, cheap]} items={items} rankBy="profit" />)
     expect(header('Profit')).toHaveAttribute('aria-sort', 'descending')
+    expect(recipes()).toEqual(['Details for Green Robe', 'Details for Cap'])
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Profit' })) // flips the server's order
+    expect(header('Profit')).toHaveAttribute('aria-sort', 'ascending')
+    expect(recipes()).toEqual(['Details for Cap', 'Details for Green Robe'])
     await userEvent.click(screen.getByRole('button', { name: 'Sort by Per hour' }))
-    expect(onRankBy).toHaveBeenCalledWith('rate')
-    await userEvent.click(screen.getByRole('button', { name: 'Sort by Cost' }))
-    expect(header('Cost')).toHaveAttribute('aria-sort', 'descending')
+    expect(header('Per hour')).toHaveAttribute('aria-sort', 'descending')
+    expect(header('Profit')).toHaveAttribute('aria-sort', 'none')
+  })
+
+  it('shows a ranking per hour on the Per hour column', () => {
+    renderWithProviders(<ResultsTable results={[timedRobe]} items={items} rankBy="rate" />)
+    expect(header('Per hour')).toHaveAttribute('aria-sort', 'descending')
     expect(header('Profit')).toHaveAttribute('aria-sort', 'none')
   })
 

@@ -44,46 +44,6 @@
         "title": "AhBlockedItem",
         "type": "object"
       },
-      "ApiKeyOut": {
-        "properties": {
-          "created_at": {
-            "title": "Created At",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "integer"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "last_used_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Used At"
-          },
-          "prefix": {
-            "title": "Prefix",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "prefix",
-          "label",
-          "created_at",
-          "last_used_at"
-        ],
-        "title": "ApiKeyOut",
-        "type": "object"
-      },
       "Body_post_upload_api_uploads_post": {
         "properties": {
           "file": {
@@ -815,21 +775,6 @@
         "title": "ItemInfo",
         "type": "object"
       },
-      "KeyRequest": {
-        "properties": {
-          "label": {
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Label",
-            "type": "string"
-          }
-        },
-        "required": [
-          "label"
-        ],
-        "title": "KeyRequest",
-        "type": "object"
-      },
       "LegOut": {
         "description": "One run across the city.",
         "properties": {
@@ -928,79 +873,6 @@
         "title": "LocationOut",
         "type": "object"
       },
-      "ManualCharacter": {
-        "description": "A character typed in by hand. It knows every recipe of its professions (nothing is learned).",
-        "properties": {
-          "class_file": {
-            "title": "Class File",
-            "type": "string"
-          },
-          "faction": {
-            "enum": [
-              "Horde",
-              "Alliance"
-            ],
-            "title": "Faction",
-            "type": "string"
-          },
-          "level": {
-            "minimum": 1.0,
-            "title": "Level",
-            "type": "integer"
-          },
-          "name": {
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[^\\t\\n]*\\S[^\\t\\n]*$",
-            "title": "Name",
-            "type": "string"
-          },
-          "professions": {
-            "items": {
-              "$ref": "#/components/schemas/ManualProfession"
-            },
-            "maxItems": 12,
-            "title": "Professions",
-            "type": "array"
-          },
-          "realm": {
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[^\\t\\n]*\\S[^\\t\\n]*$",
-            "title": "Realm",
-            "type": "string"
-          }
-        },
-        "required": [
-          "realm",
-          "faction",
-          "name",
-          "class_file",
-          "level",
-          "professions"
-        ],
-        "title": "ManualCharacter",
-        "type": "object"
-      },
-      "ManualProfession": {
-        "properties": {
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "rank": {
-            "minimum": 1.0,
-            "title": "Rank",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "name",
-          "rank"
-        ],
-        "title": "ManualProfession",
-        "type": "object"
-      },
       "MaterialOut": {
         "description": "One possible disenchant result.",
         "properties": {
@@ -1067,51 +939,6 @@
           "tier"
         ],
         "title": "Me",
-        "type": "object"
-      },
-      "NewApiKey": {
-        "properties": {
-          "created_at": {
-            "title": "Created At",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "integer"
-          },
-          "key": {
-            "title": "Key",
-            "type": "string"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "last_used_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Used At"
-          },
-          "prefix": {
-            "title": "Prefix",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "prefix",
-          "label",
-          "created_at",
-          "last_used_at",
-          "key"
-        ],
-        "title": "NewApiKey",
         "type": "object"
       },
       "NodeOut": {
@@ -2194,7 +2021,7 @@
     },
     "securitySchemes": {
       "HTTPBearer": {
-        "description": "Firebase ID token (or, to upload, an API key)",
+        "description": "Firebase ID token",
         "scheme": "bearer",
         "type": "http"
       }
@@ -2489,65 +2316,6 @@
           }
         ],
         "summary": "Get Characters"
-      },
-      "post": {
-        "description": "Add a character by hand (or replace yours of that realm and name) and select its realm. It knows\nevery recipe of its professions. An Alt Army import later replaces every character, these included.",
-        "operationId": "post_character_api_characters_post",
-        "parameters": [
-          {
-            "description": "which game's data: tbc or forever",
-            "in": "query",
-            "name": "game_version",
-            "required": true,
-            "schema": {
-              "description": "which game's data: tbc or forever",
-              "enum": [
-                "tbc",
-                "forever"
-              ],
-              "title": "Game Version",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ManualCharacter"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Characters"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Post Character"
       }
     },
     "/api/config": {
@@ -2853,128 +2621,9 @@
         "summary": "Add Favorite"
       }
     },
-    "/api/keys": {
-      "get": {
-        "description": "Your API keys for the CLI watcher (the keys themselves are not stored).",
-        "operationId": "get_keys_api_keys_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ApiKeyOut"
-                  },
-                  "title": "Response Get Keys Api Keys Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Keys"
-      },
-      "post": {
-        "description": "A new API key for `altarmy-profit watch`. The key is in this response only.",
-        "operationId": "post_key_api_keys_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/KeyRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NewApiKey"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Post Key"
-      }
-    },
-    "/api/keys/{key_id}": {
-      "delete": {
-        "description": "Revoke a key: the watcher using it stops. Returns your remaining keys.",
-        "operationId": "delete_key_api_keys__key_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "key_id",
-            "required": true,
-            "schema": {
-              "title": "Key Id",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ApiKeyOut"
-                  },
-                  "title": "Response Delete Key Api Keys  Key Id  Delete",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Delete Key"
-      }
-    },
     "/api/me": {
       "delete": {
-        "description": "Delete your account: your characters, settings, AH blocks, upload history and API keys, then the\nsign-in account itself. Prices you uploaded stay in the pool, no longer linked to you.",
+        "description": "Delete your account: your characters, settings, AH blocks and upload history, then the\nsign-in account itself. Prices you uploaded stay in the pool, no longer linked to you.",
         "operationId": "delete_me_api_me_delete",
         "responses": {
           "204": {

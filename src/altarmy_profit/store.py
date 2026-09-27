@@ -166,12 +166,6 @@ def save_characters(conn: Connection, user_uid: str, game_version: str, chars: S
         _insert_character(conn, user_uid, game_version, ch)
 
 
-def upsert_character(conn: Connection, user_uid: str, game_version: str, char: Character) -> None:
-    """Store one character, replacing the user's character of that realm and name; the others stay."""
-    delete_character(conn, user_uid, game_version, char.realm, char.name)
-    _insert_character(conn, user_uid, game_version, char)
-
-
 def delete_character(conn: Connection, user_uid: str, game_version: str, realm: str, name: str) -> bool:
     """Delete the user's character of that realm and name (its professions and recipes cascade); False if
     there was none."""

@@ -1,6 +1,6 @@
 import type { CharacterGroup, Coverage, Selection } from '../api/client'
 
-// Realms may contain spaces but never tabs (the API refuses them in hand-made characters).
+// Realms may contain spaces but never tabs (WoW realm names have none).
 export const toKey = (s: Selection) => `${s.realm}\t${s.faction}`
 export const fromKey = (key: string): Selection => {
   const [realm = '', faction = ''] = key.split('\t')
@@ -32,9 +32,4 @@ export function realmOptions(groups: readonly CharacterGroup[], coverage: readon
       .filter((c) => c.prices > 0 && !covered.has(toKey(c)))
       .map((c) => ({ value: toKey(c), label: realmLabel(c), section: 'Browse a realm' as const })),
   ]
-}
-
-/** Realm names a new character can be on: those of the user's characters and of every auction house. */
-export function realmNames(groups: readonly CharacterGroup[], coverage: readonly Coverage[]): string[] {
-  return [...new Set([...groups.map((g) => g.realm), ...coverage.map((c) => c.realm)])].sort()
 }

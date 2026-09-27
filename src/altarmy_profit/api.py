@@ -5,10 +5,9 @@ them in its threadpool, so a slow request never stalls the others.
 Each handler opens its own connection from the shared `db.Database` (never shared across threads).
 
 Every route but /api/config and /api/versions has a user (`CurrentUser`): whoever the Firebase ID token
-sent as a bearer token says (401 without one). Every tier, anonymous guests included, ranks recipes, keeps
-characters and blocks AH items; only the API key routes need a linked account (`LinkedUser`, else 403),
-since a guest's uid is lost with the browser's data. Uploads also take an API key (`Uploader`), the
-watcher's credential; no other route does, so a leaked key can only upload. Every request is rate-limited
+sent as a bearer token says (401 without one). Every tier, anonymous guests included, gets every route.
+The watcher and Alt Army Sync sign in to the same Firebase project with an email and password (`signin`),
+so their uploads carry an ID token like the browser's. Every request is rate-limited
 per client IP and per user (`ratelimit`), and no /api response may be cached (Firebase Hosting's CDN sits
 in front).
 """
@@ -409,25 +408,6 @@ class Characters(BaseModel):
     selection: SelectionModel | None
 
 
-NoTab = Field(min_length=1, max_length=64, pattern=r"^[^\t\n]*\S[^\t\n]*$")  # the front end keys by tabs
-
-
-class ManualProfession(BaseModel):
-    name: str  # one of /api/professions
-    rank: int = Field(ge=1)  # skill; at most the game version's cap
-
-
-class ManualCharacter(BaseModel):
-    """A character typed in by hand. It knows every recipe of its professions (nothing is learned)."""
-
-    realm: Annotated[str, NoTab]
-    faction: Literal["Horde", "Alliance"]
-    name: Annotated[str, NoTab]
-    class_file: str  # e.g. MAGE
-    level: int = Field(ge=1)  # at most the game version's cap
-    professions: list[ManualProfession] = Field(max_length=12)
-
-
 class VersionOut(BaseModel):
     """A game version the app serves; pass its `key` as `game_version` to the other routes."""
 
@@ -452,7 +432,7 @@ class ConfigOut(BaseModel):
 
 class Me(BaseModel):
     uid: str
-    tier: auth.Tier  # free: an anonymous session (no API keys); linked: signed in with an email
+    tier: auth.Tier  # free: an anonymous session; linked: signed in with an email
 
 
 class CoverageOut(BaseModel):
@@ -506,22 +486,6 @@ class UploadOut(BaseModel):
     received_at: str  # "YYYY-MM-DD HH:MM:SS" UTC
     outcome: Literal["accepted", "rejected"]
     detail: str
-
-
-class KeyRequest(BaseModel):
-    label: str = Field(min_length=1, max_length=64)  # e.g. the computer it runs on
-
-
-class ApiKeyOut(BaseModel):
-    id: int
-    prefix: str  # the key's first characters
-    label: str
-    created_at: str  # "YYYY-MM-DD HH:MM:SS" UTC
-    last_used_at: str | None
-
-
-class NewApiKey(ApiKeyOut):
-    key: str  # shown only now: only its hash is stored
 
 
 # --- app state and helpers -------------------------------------------------------------------------
@@ -590,7 +554,7 @@ def _auth(request: Request) -> AuthState:
     return state
 
 
-_bearer = HTTPBearer(auto_error=False, description="Firebase ID token (or, to upload, an API key)")
+_bearer = HTTPBearer(auto_error=False, description="Firebase ID token")
 
 
 def _current_user(
@@ -611,37 +575,6 @@ def _current_user(
 
 
 CurrentUser = Annotated[auth.User, Depends(_current_user)]
-
-
-def _uploader(
-    request: Request, credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
-) -> auth.User:
-    """Like CurrentUser, but an API key (the watcher's) also signs in, as its owner."""
-    a = _auth(request)
-    token = credentials.credentials if credentials is not None else ""
-    if not token.startswith(users.KEY_PREFIX):
-        return _current_user(request, credentials)
-    with a.database.begin() as conn:
-        user = users.user_for_key(conn, token)
-    if user is None:
-        raise HTTPException(401, "Unknown or revoked API key.", headers={"WWW-Authenticate": "Bearer"})
-    return _limit_user(a, user)
-
-
-Uploader = Annotated[auth.User, Depends(_uploader)]
-
-
-def _linked_user(user: CurrentUser) -> auth.User:
-    if not user.linked:
-        raise HTTPException(
-            403,
-            "Create an account or sign in to make API keys: an anonymous session ends with this browser's"
-            " data.",
-        )
-    return user
-
-
-LinkedUser = Annotated[auth.User, Depends(_linked_user)]
 
 
 @contextmanager
@@ -737,40 +670,6 @@ def _characters(state: AppState, conn: Connection, user: auth.User) -> Character
 @router.get("/characters")
 def get_characters(state: State, user: CurrentUser) -> Characters:
     with _connect(state) as conn:
-        return _characters(state, conn, user)
-
-
-@router.post("/characters")
-def post_character(state: State, user: CurrentUser, body: ManualCharacter) -> Characters:
-    """Add a character by hand (or replace yours of that realm and name) and select its realm. It knows
-    every recipe of its professions. An Alt Army import later replaces every character, these included."""
-    v = state.version
-    if body.class_file not in altarmy.CLASS_FILES:
-        raise HTTPException(400, f"Unknown class {body.class_file}.")
-    if body.level > v.max_level:
-        raise HTTPException(400, f"The level cap is {v.max_level}.")
-    names = [p.name for p in body.professions]
-    if len(set(names)) < len(names):
-        raise HTTPException(400, "Each profession once, please.")
-    with _http_errors(), _connect(state) as conn:
-        known = set(store.profession_names(conn, state.key))
-        for p in body.professions:
-            if p.name not in known:
-                raise HTTPException(400, f"Unknown profession {p.name}.")
-            if p.rank > v.max_skill:
-                raise HTTPException(400, f"Profession skill goes up to {v.max_skill}.")
-        char = altarmy.Character(
-            realm=body.realm.strip(),
-            name=body.name.strip(),
-            faction=body.faction,
-            class_file=body.class_file,
-            level=body.level,
-            professions=tuple(
-                altarmy.Profession(p.name, p.rank, altarmy.max_rank_for(p.rank, v.max_skill), frozenset())
-                for p in sorted(body.professions, key=lambda p: p.name)
-            ),
-        )
-        service.create_character(conn, user.uid, state.key, char)
         return _characters(state, conn, user)
 
 
@@ -898,9 +797,8 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
 
 @dataclass(frozen=True)
 class Selected:
-    """What a search runs on: the selection's market (priced by its auction house), characters (hand-made
-    ones knowing every recipe of their professions), never-on-the-AH items, the user's time model and
-    the cities the selection's faction crafts in."""
+    """What a search runs on: the selection's market (priced by its auction house), characters,
+    never-on-the-AH items, the user's time model and the cities the selection's faction crafts in."""
 
     base: engine.Market
     chars: list[altarmy.Character]
@@ -921,7 +819,7 @@ def _selected(state: AppState, user: auth.User) -> Selected:
     base = state.cache.get(ah)
     return Selected(
         base,
-        service.imply_recipes(base.recipes, chars),
+        chars,
         no_ah,
         favorites,
         model,
@@ -1225,7 +1123,7 @@ def remove_favorite(state: State, user: CurrentUser, recipe_id: int) -> Favorite
         return _favorites(state, conn, user)
 
 
-# --- uploads and API keys -------------------------------------------------------------------------
+# --- uploads ----------------------------------------------------------------------------------------
 def _database(request: Request) -> db.Database:
     return _auth(request).database
 
@@ -1255,7 +1153,7 @@ def _read_upload(file: UploadFile) -> bytes:
 @router.post("/uploads")
 def post_upload(
     state: State,
-    user: Uploader,
+    user: CurrentUser,
     file: UploadFile,
     kind: Annotated[UploadKind, Form()],
     modified_at: Annotated[int | None, Form(description="the file's modified time, ms since 1970")] = None,
@@ -1300,7 +1198,7 @@ class PasteRequest(BaseModel):
 
 
 @router.post("/uploads/paste")
-def post_paste(state: State, user: Uploader, body: PasteRequest) -> UploadResult:
+def post_paste(state: State, user: CurrentUser, body: PasteRequest) -> UploadResult:
     """Import the Alt Army addon's export string: replaces your characters of this game version, as an
     AltArmy_TBC.lua upload would. 400 if it is damaged or from the other game's client."""
     database = state.database
@@ -1343,40 +1241,6 @@ def get_uploads(request: Request, user: CurrentUser) -> list[UploadOut]:
     """Your newest uploads (every game version), newest first."""
     with _database(request).begin() as conn:
         return [_upload_out(u) for u in uploads.recent(conn, user.uid)]
-
-
-def _key_out(k: users.ApiKey) -> ApiKeyOut:
-    return ApiKeyOut(
-        id=k.id,
-        prefix=k.prefix,
-        label=k.label,
-        created_at=db.timestamp_text(k.created_at) or "",
-        last_used_at=db.timestamp_text(k.last_used_at),
-    )
-
-
-@router.get("/keys")
-def get_keys(request: Request, user: LinkedUser) -> list[ApiKeyOut]:
-    """Your API keys for the CLI watcher (the keys themselves are not stored)."""
-    with _database(request).begin() as conn:
-        return [_key_out(k) for k in users.list_keys(conn, user.uid)]
-
-
-@router.post("/keys")
-def post_key(request: Request, user: LinkedUser, body: KeyRequest) -> NewApiKey:
-    """A new API key for `altarmy-profit watch`. The key is in this response only."""
-    with _database(request).begin() as conn:
-        made, key = users.create_key(conn, user.uid, body.label.strip() or "key")
-    return NewApiKey(**_key_out(made).model_dump(), key=key)
-
-
-@router.delete("/keys/{key_id}")
-def delete_key(request: Request, user: LinkedUser, key_id: int) -> list[ApiKeyOut]:
-    """Revoke a key: the watcher using it stops. Returns your remaining keys."""
-    with _database(request).begin() as conn:
-        if not users.revoke_key(conn, user.uid, key_id):
-            raise HTTPException(404, f"You have no API key {key_id}.")
-        return [_key_out(k) for k in users.list_keys(conn, user.uid)]
 
 
 # --- coverage --------------------------------------------------------------------------------------
@@ -1422,7 +1286,7 @@ def get_me(user: CurrentUser) -> Me:
 
 @router.delete("/me", status_code=204)
 def delete_me(request: Request, user: CurrentUser) -> None:
-    """Delete your account: your characters, settings, AH blocks, upload history and API keys, then the
+    """Delete your account: your characters, settings, AH blocks and upload history, then the
     sign-in account itself. Prices you uploaded stay in the pool, no longer linked to you."""
     a = _auth(request)
     if a.accounts is None:

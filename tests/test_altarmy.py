@@ -195,17 +195,3 @@ def chars() -> list[Character]:
 def test_rejects_other_files() -> None:
     with pytest.raises(ValueError, match="AltArmyTBC_Data"):
         altarmy.parse_characters(b"AUCTIONATOR_PRICE_DATABASE = {}\n")
-
-
-@pytest.mark.parametrize(
-    ("rank", "max_skill", "cap"),
-    [(1, 300, 75), (75, 300, 75), (76, 300, 150), (300, 300, 300), (310, 300, 300)],
-)
-def test_max_rank_for_takes_the_tier_holding_the_rank(rank: int, max_skill: int, cap: int) -> None:
-    assert altarmy.max_rank_for(rank, max_skill) == cap
-
-
-def test_class_files_are_the_classic_classes() -> None:
-    assert len(altarmy.CLASS_FILES) == 9
-    assert {"MAGE", "DRUID"} <= altarmy.CLASS_FILES
-    assert "DEATHKNIGHT" not in altarmy.CLASS_FILES

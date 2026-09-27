@@ -105,16 +105,3 @@ export const speedText = (item: ItemInfo): string | undefined =>
   item.class_id === ITEM_CLASS.weapon && item.item_delay > 0
     ? `Speed ${(item.item_delay / 1000).toFixed(2)}`
     : undefined
-
-/** The classic clients' classes, as Alt Army's classFile spells them (the API's `class_file`). */
-export const CLASSES: readonly { file: string; name: string }[] = [
-  { file: 'DRUID', name: 'Druid' },
-  { file: 'HUNTER', name: 'Hunter' },
-  { file: 'MAGE', name: 'Mage' },
-  { file: 'PALADIN', name: 'Paladin' },
-  { file: 'PRIEST', name: 'Priest' },
-  { file: 'ROGUE', name: 'Rogue' },
-  { file: 'SHAMAN', name: 'Shaman' },
-  { file: 'WARLOCK', name: 'Warlock' },
-  { file: 'WARRIOR', name: 'Warrior' },
-]

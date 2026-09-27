@@ -290,6 +290,8 @@ uploads = Table(
 )
 
 # Keys the CLI watcher uploads with. Only a hash is kept; the key is shown once when it is made.
+# Unused since API keys were removed; dropped with local_sync in the next revision, once the release
+# without them is deployed (the previous one still reads it while a deploy rolls out).
 api_keys = Table(
     "api_keys",
     metadata,

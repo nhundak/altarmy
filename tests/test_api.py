@@ -18,7 +18,6 @@ from altarmy_profit import (
     service,
     store,
     uploads,
-    users,
 )
 from altarmy_profit.altarmy import Character, Profession
 from altarmy_profit.api import create_app
@@ -310,7 +309,7 @@ def test_rank_filters_and_validation(client: TestClient, priced: Connection) -> 
 
 
 def test_rank_include_unlearned(client: TestClient, priced: Connection) -> None:
-    # knows a recipe this build lacks, so it counts as imported (hand-made characters know everything)
+    # knows only a recipe this build lacks
     novice = Character(
         "Realm", "Novice", "Horde", "MAGE", 5, (Profession("Tailoring", 1, 75, frozenset({1})),)
     )
@@ -444,16 +443,6 @@ def test_users_sign_in_with_a_token(client: TestClient, conn: Connection) -> Non
     ]
 
 
-@pytest.mark.parametrize(
-    ("method", "path"),
-    [("GET", "/api/keys"), ("POST", "/api/keys"), ("DELETE", "/api/keys/1")],
-)
-def test_only_api_keys_need_a_linked_account(client: TestClient, method: str, path: str) -> None:
-    res = client.request(method, path, headers=FREE, json={"label": "pc"} if method == "POST" else None)
-    assert res.status_code == 403
-    assert "Create an account or sign in" in res.json()["detail"]
-
-
 def test_guests_rank_evaluate_and_block_like_everyone(client: TestClient, priced: Connection) -> None:
     # a new user without characters browses every recipe of the freshest realm, crafted by nobody
     (browsed,) = client.get("/api/rank", headers=FREE).json()["results"]
@@ -580,7 +569,7 @@ def test_coverage_lists_each_realms_scans(client: TestClient, conn: Connection) 
     assert (dream["auction_house_id"], dream["last_scan"], dream["scans_7d"]) == (tbc, None, 0)
 
 
-# --- uploads and API keys ---------------------------------------------------------------------------
+# --- uploads ------------------------------------------------------------------------------------------
 def upload(
     c: TestClient,
     kind: str,
@@ -687,29 +676,14 @@ def test_bad_pastes(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None
     assert client.post("/api/uploads/paste", headers=LINKED, json={"text": PASTE}).status_code == 429
 
 
-def test_api_keys(client: TestClient, conn: Connection) -> None:
-    assert client.post("/api/keys", headers=FREE, json={"label": "pc"}).status_code == 403
-    made = client.post("/api/keys", headers=LINKED, json={"label": "gaming pc"}).json()
-    key = made["key"]
-    assert key.startswith("ak_") and made["prefix"] == key[:8] and made["label"] == "gaming pc"
-    stored: str = conn.execute(select(schema.api_keys.c.key_hash)).scalar_one()
-    assert key not in stored and len(stored) == 64
-    (listed,) = client.get("/api/keys", headers=LINKED).json()
-    assert "key" not in listed and listed["last_used_at"] is None
-
-    with_key = {"Authorization": f"Bearer {key}"}
-    res = upload(client, "altarmy", ALTARMY_SV, with_key, via="watcher")
-    assert res.status_code == 200
+def test_the_watcher_uploads_with_an_email_sign_in(client: TestClient, conn: Connection) -> None:
+    signed_in = {"Authorization": "Bearer password:g1"}  # the ID token Alt Army Sync gets from Firebase
+    assert upload(client, "altarmy", ALTARMY_SV, signed_in, via="watcher").status_code == 200
     assert store.count_characters(conn, "g1", FOREVER) == 4
-    assert client.get("/api/rank", headers=with_key).status_code == 401  # keys only upload
-    assert client.get("/api/keys", headers=LINKED).json()[0]["last_used_at"] is not None
-
-    users.ensure_user(conn, auth.User("g2", "linked"))
-    theirs = {"Authorization": "Bearer google.com:g2"}
-    assert client.delete(f"/api/keys/{made['id']}", headers=theirs).status_code == 404
-    assert client.delete(f"/api/keys/{made['id']}", headers=LINKED).json() == []
-    assert upload(client, "altarmy", ALTARMY_SV, with_key).status_code == 401
-    assert upload(client, "altarmy", ALTARMY_SV, {"Authorization": "Bearer ak_madeup"}).status_code == 401
+    assert (
+        upload(client, "altarmy", ALTARMY_SV, {"Authorization": "Bearer ak_old"}).status_code == 401
+    )  # no keys
+    assert client.get("/api/keys", headers=LINKED).status_code == 404
 
 
 def test_users_delete_their_account(
@@ -719,7 +693,6 @@ def test_users_delete_their_account(
     client = make_client(database, game_versions, tmp_path / "nodist", verifier=verifier)
     upload(client, "altarmy", ALTARMY_SV, LINKED)
     upload(client, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": _entry(20)}}), LINKED)
-    client.post("/api/keys", headers=LINKED, json={"label": "pc"})
 
     verifier.fail = True
     assert client.delete("/api/me", headers=LINKED).status_code == 502
@@ -730,7 +703,7 @@ def test_users_delete_their_account(
     assert verifier.deleted == ["g1"]
     assert store.count_characters(conn, "g1", FOREVER) == 0
     assert conn.execute(select(schema.users.c.uid).where(schema.users.c.uid == "g1")).first() is None
-    for table in (schema.uploads, schema.api_keys, schema.user_settings):
+    for table in (schema.uploads, schema.user_settings):
         assert conn.execute(select(table)).first() is None
     snap = schema.price_snapshots
     assert conn.execute(select(snap.c.uploader_uid)).scalars().all() == [None]  # pooled prices stay
@@ -777,60 +750,6 @@ def test_professions(client: TestClient, db2_paths: dict[str, Path], conn: Conne
     assert client.get("/api/professions").json() == []
     ingest.build_db(db2_paths, conn, FOREVER)
     assert client.get("/api/professions").json() == ["Tailoring"]
-
-
-HANDY = {
-    "realm": "Classic Beta PvE",
-    "faction": "Alliance",
-    "name": "Handy",
-    "class_file": "MAGE",
-    "level": 60,
-    "professions": [{"name": "Tailoring", "rank": 80}],
-}
-
-
-def test_characters_made_by_hand(client: TestClient, db2_paths: dict[str, Path], conn: Connection) -> None:
-    ingest.build_db(db2_paths, conn, FOREVER)
-    set_prices(conn, {1: 20, 2: 100})
-    body = client.post("/api/characters", json=HANDY).json()
-    assert body["selection"] == {"realm": "Classic Beta PvE", "faction": "Alliance"}
-    ((handy,),) = [g["characters"] for g in body["groups"]]
-    assert (handy["name"], handy["professions"]) == (
-        "Handy",
-        [{"name": "Tailoring", "rank": 80, "max_rank": 150, "recipes": 0}],
-    )
-    assert client.get("/api/status").json()["data_version"] >= 1
-    (r,) = client.get("/api/rank").json()["results"]  # knows every Tailoring recipe
-    assert (r["crafters"], r["crafter"]) == (["Handy"], "Handy")
-
-    gone = client.delete("/api/characters", params={"realm": "Classic Beta PvE", "name": "Handy"})
-    assert gone.json()["groups"] == []
-    assert (
-        client.delete("/api/characters", params={"realm": "Classic Beta PvE", "name": "Handy"}).status_code
-        == 404
-    )
-
-
-@pytest.mark.parametrize(
-    "change",
-    [
-        {"class_file": "DEATHKNIGHT"},
-        {"level": 61},
-        {"faction": "Neutral"},
-        {"name": "Tab\tbed"},
-        {"realm": "  "},
-        {"professions": [{"name": "Juggling", "rank": 1}]},
-        {"professions": [{"name": "Tailoring", "rank": 301}]},
-        {"professions": [{"name": "Tailoring", "rank": 1}, {"name": "Tailoring", "rank": 2}]},
-    ],
-)
-def test_bad_hand_made_characters(
-    client: TestClient, db2_paths: dict[str, Path], conn: Connection, change: dict[str, Any]
-) -> None:
-    ingest.build_db(db2_paths, conn, FOREVER)
-    res = client.post("/api/characters", json={**HANDY, **change})
-    assert res.status_code in (400, 422)
-    assert store.load_characters(conn, ME, FOREVER) == []
 
 
 def test_browsing_without_characters(

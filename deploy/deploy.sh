@@ -14,6 +14,7 @@ source deploy/config.sh
 ENV_NAME="${1:?prod or staging}"
 IMAGE="${2:?image, e.g. from deploy/build.sh}"
 env_config "$ENV_NAME"
+FIREBASE_VARS="$(firebase_env)" # its own Firebase project: prod's from hosted.env, staging's from staging.env
 
 COMMON=(--image "$IMAGE" --region "$REGION" --service-account "$RUN_SA"
   --set-cloudsql-instances "$SQL_CONNECTION" --set-secrets "DATABASE_URL=$SECRET:latest")
@@ -44,7 +45,7 @@ echo "== service $SERVICE"
 gcloud run deploy "$SERVICE" "${COMMON[@]}" \
   --allow-unauthenticated --min-instances 0 --max-instances "$MAX_INSTANCES" --concurrency 40 \
   --cpu 1 --memory 1Gi --cpu-boost --timeout 300 \
-  --set-env-vars "$(firebase_env),DB_POOL_SIZE=3,DB_MAX_OVERFLOW=2" \
+  --set-env-vars "$FIREBASE_VARS,DB_POOL_SIZE=3,DB_MAX_OVERFLOW=2" \
   "${GCLOUD_FLAGS[@]}"
 
 echo "== front end"

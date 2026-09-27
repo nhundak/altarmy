@@ -26,7 +26,6 @@ from .engine import (
     Crafter,
     Filters,
     Market,
-    Recipe,
     Result,
     TimeModel,
     recipes_for_characters,
@@ -311,23 +310,6 @@ def set_time(
     )
 
 
-def imply_recipes(recipes: Iterable[Recipe], chars: Sequence[Character]) -> list[Character]:
-    """Characters made by hand know no recipes: give each one with professions but no learned recipe at
-    all every recipe of its professions. Imported characters (any learned recipe) stay as they are."""
-    recipes = list(recipes)
-    out = []
-    for c in chars:
-        if c.professions and not c.known_recipes:
-            ids: dict[str, set[int]] = {p.name.lower(): set() for p in c.professions}
-            for r in recipes:
-                if r.skill_name.lower() in ids:
-                    ids[r.skill_name.lower()].add(r.spell_id)
-            profs = tuple(replace(p, recipe_ids=frozenset(ids[p.name.lower()])) for p in c.professions)
-            c = replace(c, professions=profs)
-        out.append(c)
-    return out
-
-
 # --- realm/faction selection -----------------------------------------------------------------------
 def realm_label(realm: str, faction: str) -> str:
     """ "Realm (Faction)", or "Realm (both factions)" for an auction house the factions share."""
@@ -378,22 +360,6 @@ def replace_characters(
     wanted = (saved.selected_realm, saved.selected_faction)
     if not any((g.realm, g.faction) == wanted for g in altarmy.groups(chars)):
         users.update_settings(conn, user_uid, game_version, selected_realm=None, selected_faction=None)
-
-
-MAX_CHARACTERS = 50  # per user and game version, when made by hand
-
-
-def create_character(conn: Connection, user_uid: str, game_version: str, char: Character) -> None:
-    """Store a character made by hand (replacing the user's one of that realm and name) and select its
-    realm and faction."""
-    have = store.load_characters(conn, user_uid, game_version)
-    if len(have) >= MAX_CHARACTERS and not any((c.realm, c.name) == (char.realm, char.name) for c in have):
-        raise ValueError(f"At most {MAX_CHARACTERS} characters.")
-    store.upsert_character(conn, user_uid, game_version, char)
-    users.update_settings(
-        conn, user_uid, game_version, selected_realm=char.realm, selected_faction=char.faction
-    )
-    bump_data_version(conn, user_uid, game_version)
 
 
 def delete_character(conn: Connection, user_uid: str, game_version: str, realm: str, name: str) -> None:

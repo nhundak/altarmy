@@ -9,13 +9,19 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Connection
 
-from altarmy_profit import cli, prices, store, users, watch
+from altarmy_profit import cli, prices, signin, store, watch
 from altarmy_profit.versions import VERSIONS
 
 from .conftest import FOREVER, ME, SV_DIR
 from .test_altarmy import ALTARMY_SV
 from .test_api import client  # noqa: F401  (fixture)
 from .test_auctionator import _entry, _saved_variables
+from .test_signin import FakeFirebase
+
+
+def token(value: str = "password:x") -> watch.Auth:
+    """An `Auth` that always hands out `value`."""
+    return lambda: value
 
 
 def touch(path: Path) -> None:
@@ -99,24 +105,24 @@ def test_sync_uploads_what_changed(
     wow_root: Path,
     tmp_path: Path,
 ) -> None:
-    del client.headers["Authorization"]  # only the watcher's key signs in
-    _, key = users.create_key(conn, ME, "pc")
+    del client.headers["Authorization"]  # only the watcher's sign-in counts
+    me = token(f"password:{ME}")  # the ID token of ME's email sign-in, as the fake verifier reads it
     server = Server(client)
     state = tmp_path / "watch.json"
-    sent = watch.sync_once([wow_root], "http://server/", key, state, server, print)
+    sent = watch.sync_once([wow_root], "http://server/", me, state, server, print)
     assert [(f.game_version, f.kind) for f in sent] == [("forever", "altarmy"), ("forever", "auctionator")]
     assert server.seen[0][0] == "http://server/api/uploads?game_version=forever"
-    assert server.seen[0][1]["Authorization"] == f"Bearer {key}"
+    assert server.seen[0][1]["Authorization"] == f"Bearer password:{ME}"
     assert store.count_characters(conn, ME, FOREVER) == 4
     assert prices.find_auction_house(conn, FOREVER, "Classic Beta PvE", "") is not None
 
-    assert watch.sync_once([wow_root], "http://server", key, state, server, print) == []
+    assert watch.sync_once([wow_root], "http://server", me, state, server, print) == []
     touch(wow_root / SV_DIR / "AltArmy_TBC.lua")
-    (again,) = watch.sync_once([wow_root], "http://server", key, state, server, print)
+    (again,) = watch.sync_once([wow_root], "http://server", me, state, server, print)
     assert again.kind == "altarmy"
-    with pytest.raises(watch.BadKey):
+    with pytest.raises(signin.SignedOut):
         touch(wow_root / SV_DIR / "AltArmy_TBC.lua")
-        watch.sync_once([wow_root], "http://server", "ak_unknown", state, server, print)
+        watch.sync_once([wow_root], "http://server", token("not a token"), state, server, print)
 
 
 def test_sync_sends_gzip_and_the_modified_time(wow_root: Path, tmp_path: Path) -> None:
@@ -126,7 +132,7 @@ def test_sync_sends_gzip_and_the_modified_time(wow_root: Path, tmp_path: Path) -
         got.append(body)
         return 200, b"{}"
 
-    watch.sync_once([wow_root], "http://s", "ak_k", tmp_path / "s.json", capture, print)
+    watch.sync_once([wow_root], "http://s", token(), tmp_path / "s.json", capture, print)
     body = got[0]
     assert b'name="via"\r\n\r\nwatcher' in body
     mtime_ms = (wow_root / SV_DIR / "AltArmy_TBC.lua").stat().st_mtime_ns // 10**6
@@ -135,14 +141,20 @@ def test_sync_sends_gzip_and_the_modified_time(wow_root: Path, tmp_path: Path) -
     assert gzip.decompress(body[start : body.index(b"\r\n--", start)]) == ALTARMY_SV
 
 
-def test_failed_uploads_are_retried_and_a_bad_key_stops(wow_root: Path, tmp_path: Path) -> None:
+def test_failed_uploads_are_retried_and_a_refused_sign_in_stops(wow_root: Path, tmp_path: Path) -> None:
     state = tmp_path / "s.json"
     with pytest.raises(watch.UploadFailed, match="500"):
-        watch.sync_once([wow_root], "http://s", "ak_k", state, Server(None, 500), print)
+        watch.sync_once([wow_root], "http://s", token(), state, Server(None, 500), print)
     assert watch.load_state(state) == {}  # nothing recorded: the next round tries again
-    with pytest.raises(watch.BadKey):
-        watch.sync_once([wow_root], "http://s", "ak_k", state, Server(None, 401), print)
-    rejected = watch.sync_once([wow_root], "http://s", "ak_k", state, Server(None, 400), print)
+
+    def firebase_down() -> str:
+        raise signin.Unreachable("securetoken.googleapis.com answered 503")
+
+    with pytest.raises(watch.UploadFailed, match="could not sign in"):
+        watch.sync_once([wow_root], "http://s", firebase_down, state, Server(None, 200), print)
+    with pytest.raises(signin.SignedOut):
+        watch.sync_once([wow_root], "http://s", token(), state, Server(None, 401), print)
+    rejected = watch.sync_once([wow_root], "http://s", token(), state, Server(None, 400), print)
     assert len(rejected) == 2  # a file the server refuses is skipped until WoW rewrites it
     assert len(watch.load_state(state)) == 2
 
@@ -152,18 +164,24 @@ def test_every_version_has_a_flavor() -> None:
 
 
 def test_cli_watch_once(wow_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[str, str | None]] = []
+    calls: list[tuple[str, str]] = []
 
-    def fake_sync(roots: list[Path], server: str, key: str | None, state: Path) -> list[watch.Found]:
-        calls.append((server, key))
+    def fake_sync(roots: list[Path], server: str, auth: watch.Auth, state: Path) -> list[watch.Found]:
+        calls.append((server, auth()))
         return []
 
+    def fake_credentials(server: str, path: Path, *, fresh: bool, create: bool) -> watch.Auth:
+        creds = signin.Credentials.of(
+            signin.AuthConfig(server, "k"), signin.Session("u", "me@example.com", "id-token", "rt", 1e12)
+        )
+        return creds
+
     monkeypatch.setattr(watch, "sync_once", fake_sync)
-    monkeypatch.setenv("ALTARMY_KEY", "ak_env")
+    monkeypatch.setattr(cli, "watch_credentials", fake_credentials)
     args = [
         "watch",
         "--server",
-        "http://s",
+        "http://s/",
         "--once",
         "--wow-root",
         str(wow_root),
@@ -171,13 +189,35 @@ def test_cli_watch_once(wow_root: Path, tmp_path: Path, monkeypatch: pytest.Monk
         str(tmp_path / "s"),
     ]
     cli.main(args)
-    assert calls == [("http://s", "ak_env")]
+    assert calls == [("http://s", "id-token")]
     assert not (tmp_path / "data").exists()  # no database touched
     with pytest.raises(SystemExit, match="No Alt Army"):
         cli.main(["watch", "--server", "http://s", "--once", "--wow-root", str(tmp_path / "none")])
 
 
-def test_run_backs_off_and_stops_on_a_bad_key(wow_root: Path, tmp_path: Path) -> None:
+def test_cli_signs_in_once_and_keeps_only_the_refresh_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fb = FakeFirebase()
+    path = tmp_path / "auth.json"
+    monkeypatch.setenv("ALTARMY_EMAIL", "me@example.com")
+    monkeypatch.setenv("ALTARMY_PASSWORD", "hunter22")
+    creds = cli.watch_credentials("https://site.test", path, transport=fb)
+    assert (creds.email, creds()) == ("me@example.com", "id:me@example.com:1")
+    assert signin.load_saved(path, "https://site.test") == ("me@example.com", "rt:me@example.com:1")
+    assert "hunter22" not in path.read_text()
+
+    monkeypatch.delenv("ALTARMY_PASSWORD")  # the saved sign-in needs no password
+    again = cli.watch_credentials("https://site.test", path, transport=fb)
+    assert again() == "id:me@example.com:2"  # refreshed from the saved token
+
+    monkeypatch.setenv("ALTARMY_EMAIL", "new@example.com")
+    monkeypatch.setenv("ALTARMY_PASSWORD", "secret1")
+    made = cli.watch_credentials("https://site.test", path, create=True, transport=fb)
+    assert made.email == "new@example.com" and "new@example.com" in fb.accounts
+
+
+def test_run_backs_off_and_stops_when_signed_out(wow_root: Path, tmp_path: Path) -> None:
     statuses = iter([503, 503, 401])
     naps: list[float] = []
     logged: list[str] = []
@@ -185,6 +225,6 @@ def test_run_backs_off_and_stops_on_a_bad_key(wow_root: Path, tmp_path: Path) ->
     def flaky(url: str, headers: Mapping[str, str], body: bytes) -> tuple[int, bytes]:
         return next(statuses), b'{"detail": "busy"}'
 
-    watch.run([wow_root], "http://s", "ak_k", tmp_path / "s.json", 10, flaky, logged.append, naps.append)
+    watch.run([wow_root], "http://s", token(), tmp_path / "s.json", 10, flaky, logged.append, naps.append)
     assert naps == [20, 40]  # doubled after each failure
-    assert logged[-1].startswith("Stopped: the server refused the key (401)")
+    assert logged[-1].startswith("Stopped: the server refused the sign-in (401)")

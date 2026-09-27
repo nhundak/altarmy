@@ -11,7 +11,7 @@ function requests(fetch: ReturnType<typeof mockApi>, pathname: string) {
 }
 
 describe('ManageTab auction house list', () => {
-  const routes = { '/api/status': status(), '/api/keys': [] }
+  const routes = { '/api/status': status() }
 
   it('lists items never sold on the AH and removes them', async () => {
     const fetch = mockApi({

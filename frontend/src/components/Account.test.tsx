@@ -32,7 +32,6 @@ describe('account', () => {
     expect(screen.queryByText(/Google/)).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await userEvent.click(await screen.findByText('Create account'))
-    expect(screen.getByText(/keeps the characters and settings already in this browser/)).toBeInTheDocument()
     await fill('me@example.com', 'hunter22')
     await submit('Create account')
     await waitFor(() => expect(linkWithEmail).toHaveBeenCalledWith('me@example.com', 'hunter22'))

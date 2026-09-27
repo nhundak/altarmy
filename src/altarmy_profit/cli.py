@@ -8,11 +8,12 @@ database: `--db` (a SQLite file), else `DATABASE_URL`, else data/altarmy-profit.
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 import sys
 from pathlib import Path
 
-from . import db, ingest, merge, prices, service, versions, watch, wowfiles
+from . import db, ingest, merge, prices, service, signin, versions, watch, wowfiles
 from .versions import GameVersion
 
 
@@ -96,24 +97,70 @@ def cmd_serve(args: argparse.Namespace) -> None:
     uvicorn.run(app, host=args.host, port=args.port)
 
 
+def _ask(prompt: str, env: str, secret: bool = False) -> str:
+    """A value from the environment (for running unattended), else asked for on the terminal."""
+    value = os.environ.get(env)
+    if value:
+        return value
+    return getpass.getpass(prompt) if secret else input(prompt)
+
+
+def watch_credentials(
+    server: str,
+    path: Path,
+    *,
+    fresh: bool = False,
+    create: bool = False,
+    transport: signin.Transport = signin.urllib_transport,
+) -> signin.Credentials:
+    """The watcher's sign-in to `server`: the one saved in `path`, else (or with `fresh`) an email and
+    password asked for once (`create`: a new account). Only the refresh token is saved."""
+    config = signin.fetch_config(server, transport)
+
+    def remember(session: signin.Session) -> None:
+        signin.save(path, server, session)
+
+    saved = None if fresh or create else signin.load_saved(path, server)
+    if saved is not None:
+        email, token = saved
+        return signin.Credentials(config, email, token, transport, on_change=remember)
+    email = _ask("Email: ", "ALTARMY_EMAIL")
+    password = _ask("Password: ", "ALTARMY_PASSWORD", secret=True)
+    if create:
+        if _ask("Password again: ", "ALTARMY_PASSWORD", secret=True) != password:
+            raise signin.SignInError("The passwords don't match.")
+        session = signin.sign_up(config, email, password, transport)
+    else:
+        session = signin.sign_in(config, email, password, transport)
+    remember(session)
+    print(f"Signed in as {session.email}.")
+    return signin.Credentials.of(config, session, transport=transport, on_change=remember)
+
+
 def cmd_watch(args: argparse.Namespace) -> None:
     """Upload the addon files to a server whenever WoW rewrites them (no local database)."""
     roots = [Path(r) for r in args.wow_root] if args.wow_root else wowfiles.WOW_ROOTS
-    key = args.key or os.environ.get("ALTARMY_KEY")
     state = Path(args.state)
+    auth_path = Path(args.auth)
+    server = args.server.rstrip("/")
     found = watch.find_files(roots)
     if not found:
         sys.exit(
             f"No Alt Army or Auctionator files under {', '.join(str(r) for r in roots)}; pass --wow-root."
         )
-    print(f"Watching {len(found)} files for {args.server} (Ctrl+C to stop).")
     try:
+        creds = watch_credentials(server, auth_path, fresh=args.sign_in, create=args.create_account)
+        print(f"Watching {len(found)} files for {server} as {creds.email} (Ctrl+C to stop).")
         if args.once:
-            if not watch.sync_once(roots, args.server, key, state):
+            if not watch.sync_once(roots, server, creds, state):
                 print("Nothing changed since the last upload.")
         else:
-            watch.run(roots, args.server, key, state, interval=args.interval)
-    except (watch.UploadFailed, watch.BadKey) as e:
+            watch.run(roots, server, creds, state, interval=args.interval)
+            raise signin.SignedOut("the sign-in stopped working")  # run returns only then
+    except signin.SignedOut as e:
+        signin.save(auth_path, server, None)
+        sys.exit(f"Signed out ({e}): run again to sign in.")
+    except (watch.UploadFailed, signin.SignInError, signin.Unreachable) as e:
         sys.exit(str(e))
     except KeyboardInterrupt:
         pass
@@ -161,7 +208,14 @@ def main(argv: list[str] | None = None) -> None:
         "watch", help="upload the addon files to an altarmy-profit server whenever WoW rewrites them"
     )
     s.add_argument("--server", required=True, help="e.g. https://altarmy.example.com")
-    s.add_argument("--key", help="API key from the site's Manage page (default: the ALTARMY_KEY variable)")
+    s.add_argument(
+        "--sign-in",
+        action="store_true",
+        help="ask for the email and password even if a sign-in is saved (ALTARMY_EMAIL, ALTARMY_PASSWORD"
+        " answer instead when set)",
+    )
+    s.add_argument("--create-account", action="store_true", help="create an account on the site, then watch")
+    s.add_argument("--auth", default=str(signin.DEFAULT_AUTH), help="the saved sign-in (a refresh token)")
     s.add_argument("--interval", type=float, default=15, help="seconds between checks (default: 15)")
     s.add_argument("--once", action="store_true", help="upload what changed, then exit")
     s.add_argument("--state", default=str(watch.DEFAULT_STATE), help="which files were sent (JSON)")

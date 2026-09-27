@@ -1,0 +1,13 @@
+/* Three equal cards; one column on phones. */
+.goals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--mantine-spacing-md);
+  align-items: stretch;
+}
+
+@media (max-width: 48em) {
+  .goals {
+    grid-template-columns: 1fr;
+  }
+}

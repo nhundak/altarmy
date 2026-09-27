@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import type { UploadResult } from '../api/client'
 import { characters, status } from '../test/status'
-import { mockApi, renderWithProviders } from '../test/utils'
+import { GUEST, mockApi, renderWithProviders } from '../test/utils'
+import { SYNC_DOWNLOAD } from './SyncCard'
 import { ProfitPage } from './Profit'
 
 const noResults = { results: [], total: 0, items: {}, classes: {} }
@@ -33,27 +34,34 @@ describe('ProfitPage', () => {
     const group = await screen.findByRole('group', { name: 'Ways to start' })
     expect(within(group).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
       'Import your characters',
-      'Create manually',
-      'Just browse',
+      'Auto-import',
+      'Skip for now',
     ])
     expect(screen.queryByRole('region', { name: 'Search' })).not.toBeInTheDocument()
     expect(paths(fetch, '/api/rank')).toEqual([])
   })
 
-  it('just browsing folds the cards away, shows the search and remembers the choice', async () => {
+  it('skipping folds the cards away, asks for a goal, then ranks, remembering both', async () => {
     const fetch = mockApi({ '/api/status': status({ characters: 0 }), '/api/characters': nobody, '/api/rank': noResults })
     const { unmount } = renderWithProviders(<ProfitPage />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Just browse' }))
-    expect(await screen.findByRole('region', { name: 'Search' })).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
+    const search = await screen.findByRole('region', { name: 'Search' })
     expect(await screen.findByText('Browsing every recipe.')).toBeInTheDocument()
     await waitFor(() => expect(cards()).not.toBeInTheDocument())
     await waitFor(() => expect(hero()).not.toBeInTheDocument())
-    await waitFor(() => expect(paths(fetch, '/api/rank')).toHaveLength(1))
     expect(JSON.parse(localStorage.getItem('altarmy-profit.landing.g1') ?? '')).toEqual({ browsed: true })
+    // nothing is ranked until the goal is known
+    const goals = within(search).getByRole('group', { name: 'Your goal' })
+    expect(paths(fetch, '/api/rank')).toEqual([])
+    await userEvent.click(within(goals).getByRole('button', { name: 'Maximize profit' }))
+    await waitFor(() => expect(paths(fetch, '/api/rank')).toHaveLength(1))
+    expect(new URL(paths(fetch, '/api/rank')[0]!.url).searchParams.get('sort')).toBe('rate')
 
     unmount()
     renderWithProviders(<ProfitPage />)
     expect(await screen.findByRole('region', { name: 'Search' })).toBeInTheDocument()
+    expect(await screen.findByText('Goal: Maximize profit.')).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Your goal' })).not.toBeInTheDocument()
     expect(cards()).not.toBeInTheDocument()
     expect(hero()).not.toBeInTheDocument()
   })
@@ -79,7 +87,8 @@ describe('ProfitPage', () => {
     const box = await screen.findByRole('textbox', { name: 'Alt Army export' })
     expect(screen.getByText('/altarmy export')).toBeInTheDocument()
     // the other two ways stay at hand, smaller
-    expect(screen.getByRole('button', { name: 'Just browse' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Skip for now' })).toBeInTheDocument()
+    expect(screen.getByText('Set up Alt Army Sync.')).toBeInTheDocument()
     expect(screen.getByText('Every recipe, no character optimization.')).toBeInTheDocument()
     await userEvent.type(box, 'AAX1:abc')
     await userEvent.click(screen.getByRole('button', { name: 'Import characters' }))
@@ -91,25 +100,61 @@ describe('ProfitPage', () => {
     expect(await post?.json()).toEqual({ text: 'AAX1:abc' })
   })
 
-  it('starts folded with the search when the user already has characters', async () => {
+  it('starts folded with the search when the user already has characters, and sets up auto-import', async () => {
     mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<ProfitPage />)
     expect(await screen.findByRole('region', { name: 'Search' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '3 characters on Classic Beta PvE (Horde), Dreamscythe (Horde)' })).toBeInTheDocument()
     expect(cards()).not.toBeInTheDocument()
     expect(hero()).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Add a character' }))
-    expect(await screen.findByRole('textbox', { name: 'Name' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Auto-import' }))
+    expect(await screen.findByRole('heading', { name: 'Auto-import' })).toBeInTheDocument()
+    expect(screen.getByText(/never changes a game file/)).toBeInTheDocument()
+    expect(screen.getByText('Signed in.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Sign in to the app' })).toBeInTheDocument()
+    expect(screen.getByText(/never your password/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Download Alt Army Sync' })).toHaveAttribute('href', SYNC_DOWNLOAD)
     await userEvent.click(screen.getByRole('button', { name: 'Back to the three ways to start' }))
     await waitFor(() => expect(cards()).not.toBeInTheDocument())
   })
 
-  it('offers Continue instead of Just browse once the user has characters', async () => {
+  it('offers a guest an account first, which keeps what the browser has', async () => {
+    mockApi({ '/api/status': status({ characters: 0 }), '/api/characters': nobody })
+    renderWithProviders(<ProfitPage />, GUEST)
+    await userEvent.click(await screen.findByRole('button', { name: 'Auto-import' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign in or create an account' }))
+    expect(await screen.findByRole('dialog', { name: 'Your account' })).toBeInTheDocument()
+    expect(screen.getByText(/tick Create a new account there/)).toBeInTheDocument()
+  })
+
+  it("moves on by itself when Alt Army Sync's first upload brings characters in", async () => {
+    let have = false
+    mockApi({
+      '/api/status': () => status({ characters: have ? 3 : 0, data_version: have ? 2 : 1 }),
+      '/api/characters': () => (have ? characters : nobody),
+      '/api/rank': noResults,
+    })
+    renderWithProviders(
+      <>
+        <Notifications />
+        <ProfitPage />
+      </>,
+    )
+    await userEvent.click(await screen.findByRole('button', { name: 'Auto-import' }))
+    expect(await screen.findByRole('heading', { name: 'Auto-import' })).toBeInTheDocument()
+    have = true
+    window.dispatchEvent(new Event('visibilitychange')) // what the status poll would notice
+    expect(await screen.findByText('Characters uploaded')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^3 characters on/ })).toBeInTheDocument()
+    await waitFor(() => expect(cards()).not.toBeInTheDocument())
+  })
+
+  it('offers Continue instead of Skip for now once the user has characters', async () => {
     mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<ProfitPage />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Add a character' }))
-    expect(await screen.findByRole('textbox', { name: 'Name' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Just browse' })).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: 'Auto-import' }))
+    expect(await screen.findByRole('heading', { name: 'Auto-import' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Skip for now' })).not.toBeInTheDocument()
     const cont = screen.getByRole('button', { name: 'Continue' })
     expect(within(cont).getByText('Done adding characters.')).toBeInTheDocument()
     await userEvent.click(cont)

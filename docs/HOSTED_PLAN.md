@@ -21,7 +21,7 @@ Feature ideas that do not depend on hosting live in [ROADMAP_IDEAS.md](ROADMAP_I
 | Game versions | `tbc` and `forever`, selectable in the UI | The two clients the [Alt Army](../../altarmy_tbc) addon supports |
 | Price sources | Addon snapshots uploaded by users are primary; third-party feeds are added as they exist | Blizzard's Classic AH endpoints have been 404 since late 2024, NexusHub is gone, Undermine Exchange is retail-only |
 | Access | Firebase **anonymous** auth on first visit, with the full app (rankings and flow charts); linking an email keeps the account across browsers and enables API keys. A level limit for guests is to be designed separately (the Phase 3 gate was removed) | Low-friction first experience that still identifies the visitor |
-| Uploaders | Browser file upload and CLI watcher first; packaged tray app and Alt Army paste export later | Cheapest paths first; the watcher is the existing sync code with a remote sink |
+| Uploaders | Browser file upload and CLI watcher first; packaged Windows uploader (Alt Army Sync) and Alt Army paste export later | Cheapest paths first; the watcher is the existing sync code with a remote sink |
 
 ## 2. Architecture
 
@@ -36,7 +36,7 @@ Firebase Hosting                    Cloud Run: FastAPI (engine, parsers, tiers)
 
 Inputs                                  Scheduled jobs (Cloud Scheduler -> Cloud Run endpoints)
 - browser upload of SavedVariables      - daily game-data update per version (wago.tools builds/latest)
-- CLI watcher / tray app (API key)      - hourly snapshot merge and daily aggregation
+- CLI watcher / Alt Army Sync (API key)      - hourly snapshot merge and daily aggregation
 - Alt Army paste export (later)         - hourly Blizzard API poll where a namespace works
 - AHDB snapshots, Blizzard API (later)  - daily retention of raw observations
 ```
@@ -145,6 +145,9 @@ Differences from the list above:
   update`; see README) to the Identity Toolkit and Token Service APIs, called from localhost:5173/8600,
   127.0.0.1:5173/8600, `alt-army-prod.firebaseapp.com` and `alt-army-prod.web.app`. Phase 5 adds any custom
   hosting domain to both that list and the Auth authorized domains.
+- (2026-09-26) Staging signs in against its own Firebase project, `alt-army-staging` (`staging.env`; Spark,
+  no billing, Auth only), so staging accounts are never prod ones; the staging channel's origin moved from
+  prod's key to staging's. Staging's service runs as `altarmy-staging-run`.
 - A FastAPI dependency verifies the Firebase ID token with `firebase-admin` and yields `User(uid, tier)`.
   `tier` is `linked` when the token's `firebase.sign_in_provider` is not `anonymous`, else `free`.
 - Free tier (Phase 3 to 7): price routes and item pages were filtered to items of required level 30 and
@@ -160,7 +163,9 @@ Differences from the list above:
 - Linked-only routes answer 403 to a free user: only `/api/keys` now (until Phase 7 also characters,
   selection, rank, evaluate and ah-blocked). The local file sync, source-file lookups, game data update
   and reload answer 404 in hosted mode.
-- CLI and tray uploaders authenticate with per-user API keys minted on the site (`POST /api/keys`), not
+- (Superseded 2026-09-26: API keys were removed; the CLI and Alt Army Sync uploaders sign in with the account's email
+  and password through Firebase Auth's REST API and send ID tokens like the browser. The original decision:)
+  CLI and Alt Army Sync uploaders authenticate with per-user API keys minted on the site (`POST /api/keys`), not
   Firebase tokens. Only linked accounts can mint keys (an anonymous uid is lost when the browser's data
   is cleared). Keys are `ak_` + 32 random bytes, stored as SHA-256 hashes, and only `POST /api/uploads`
   accepts them.
@@ -208,7 +213,7 @@ Phase 4 status (done): browser upload (Upload tab, hosted mode, every tier), the
 - Limits: 32 MB decompressed per file, 60 uploads per user per hour (rejected ones count). The parsers
   cap nesting depth and turn malformed input into `ValueError` (400); a seeded fuzz test holds them to it.
 - Uploads are accepted as they come. Quarantine and trust are Phase 6 (done, see section 8).
-3. **Tray app** (later). A PyInstaller build of the watcher with auto-start.
+3. **Alt Army Sync** (later). A PyInstaller build of the watcher with auto-start.
 4. **Alt Army paste export** (later). The addon shows a compressed string (LibDeflate + base64) of the
    characters; the site has a paste box. Live data, no `/reload`.
 5. **Other sources** (later). An AHDB SavedVariables parser (timestamped full snapshots with quantities), a
@@ -332,7 +337,7 @@ Each phase ships on its own and local mode keeps working throughout.
    coverage, an in-process rank cache. Monthly partitions for `price_observations` stay deferred: the merge
    job prints the row count; partition once it passes about 5 million or the daily prune takes over a
    minute (a Postgres-only revision; the primary key then needs a date column).
-7. **More uploaders** (done: Alt Army paste export, tray app). An AHDB parser waits for a real AHDB file; a
+7. **More uploaders** (done: Alt Army paste export, Alt Army Sync). An AHDB parser waits for a real AHDB file; a
    Blizzard API poller waits for the Classic auction endpoints to come back (section 14: every house 404s
    as of 2026-09-25).
 
@@ -344,8 +349,8 @@ Phase 7 status (done, 2026-09-25). Revision `0005` allows `uploads.via = 'paste'
   carries characters only, no prices. The `V|` line holds the client's interface and build, which settles
   section 3's addon follow-up for pastes: an export from the other game's client is refused, while file
   uploads still infer the game from the folder. A golden export string is shared by both repos' tests.
-- **Tray app:** `altarmy-profit-tray.exe` (PyInstaller, one unsigned file of about 18 MB), published as a
-  GitHub Release by `.github/workflows/tray.yml` on a `tray-v*` tag and linked from the Manage tab. It runs
+- **Alt Army Sync:** `altarmy-sync.exe` (PyInstaller, one unsigned file of about 18 MB), published as a
+  GitHub Release by `.github/workflows/sync.yml` on a `sync-v*` tag and linked from the Manage tab. It runs
   `watch.run`, so uploads, state file and backoff are the watcher's. The finders moved to `wowfiles.py` so
   the exe carries no database packages.
 - AHDB is not parsed: no AHDB file to build against.

@@ -1,6 +1,6 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { robeResult } from '../test/results'
 import { characters, status } from '../test/status'
 import { GUEST, mockApi, renderWithProviders } from '../test/utils'
@@ -38,8 +38,18 @@ function urls(fetch: ReturnType<typeof mockApi>, pathname: string) {
   return fetch.mock.calls.map(([request]) => new URL(request.url)).filter((u) => u.pathname === pathname)
 }
 
+/** Seed the stored goal for both test sessions; most tests search for profit per craft (no `sort` sent). */
+const withGoal = (goal: string | null) => {
+  for (const uid of ['g1', 'guest']) {
+    if (goal) localStorage.setItem(`altarmy-profit.goal.${uid}`, JSON.stringify(goal))
+    else localStorage.removeItem(`altarmy-profit.goal.${uid}`)
+  }
+}
+
 describe('SearchTab', () => {
   const realm = () => screen.getByRole('combobox', { name: 'Realm and faction' })
+
+  beforeEach(() => withGoal('budget'))
 
   it('says so when no game data is loaded', async () => {
     mockApi({ '/api/status': status({ recipes: 0 }), '/api/characters': characters })
@@ -78,8 +88,8 @@ describe('SearchTab', () => {
     expect(screen.getByRole('link', { name: 'Upload your scan' })).toHaveAttribute('href', '/upload')
   })
 
-  it('points hosted users to the Upload page for prices', async () => {
-    mockApi({
+  it('points hosted users to the Upload page for prices, with nothing to rank until a realm has them', async () => {
+    const fetch = mockApi({
       '/api/status': status({ characters: 0, selection: null, prices: 0 }),
       '/api/characters': { groups: [], selection: null },
       '/api/rank': noResults,
@@ -87,24 +97,71 @@ describe('SearchTab', () => {
     renderWithProviders(<SearchTab />, GUEST)
     expect(await screen.findByText(/then upload Auctionator.lua on the Upload page/)).toBeInTheDocument()
     expect(screen.queryByText(/guest/i)).not.toBeInTheDocument()
+    expect(realm()).toHaveValue('')
+    expect(screen.queryByRole('button', { name: 'Advanced Filters' })).not.toBeInTheDocument()
+    expect(urls(fetch, '/api/rank')).toEqual([])
   })
 
-  it('ranks only the chosen professions', async () => {
-    localStorage.setItem('altarmy-profit.search.professions', JSON.stringify(['Tailoring']))
-    const fetch = mockApi({
-      '/api/status': status(),
-      '/api/characters': characters,
-      '/api/rank': noResults,
-      '/api/professions': ['Cooking', 'Tailoring'],
-    })
+  it('asks for a goal first, then ranks the way it wants', async () => {
+    withGoal(null)
+    const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<SearchTab />)
-    await screen.findByText(/No recipes match these filters/)
-    expect(urls(fetch, '/api/rank')[0]?.searchParams.getAll('professions')).toEqual(['Tailoring'])
-    await userEvent.click(screen.getByRole('combobox', { name: 'Professions' }))
-    await userEvent.click(await screen.findByRole('option', { name: 'Cooking' }))
-    await waitFor(() =>
-      expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('professions')).toEqual(['Tailoring', 'Cooking']),
-    )
+    const goals = await screen.findByRole('group', { name: 'Your goal' })
+    expect(screen.getByRole('heading', { name: 'What is your goal?' })).toBeInTheDocument()
+    expect(within(goals).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Maximize profit',
+      'Make profit on a budget',
+      'Skill up for minimum expense',
+    ])
+    expect(screen.queryByRole('combobox', { name: 'Realm and faction' })).not.toBeInTheDocument()
+    expect(urls(fetch, '/api/rank')).toEqual([])
+
+    await userEvent.click(within(goals).getByRole('button', { name: 'Maximize profit' }))
+    await waitFor(() => expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('sort')).toBe('rate'))
+    expect(localStorage.getItem('altarmy-profit.goal.g1')).toBe('"profit"')
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Your goal' })).not.toBeInTheDocument())
+    expect(screen.getByText('Goal: Maximize profit.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Change goal' })).toBeInTheDocument()
+    expect(realm()).toBeInTheDocument()
+    // the goal ranks: no Rank by switch and no profession filter
+    expect(screen.queryByText('Rank by')).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Professions' })).not.toBeInTheDocument()
+    expect(urls(fetch, '/api/rank').at(-1)?.searchParams.has('professions')).toBe(false)
+  })
+
+  it('skills up without trivial recipes, losing ones included, until the filters say otherwise', async () => {
+    withGoal(null)
+    localStorage.setItem('altarmy-profit.search.minProfit', JSON.stringify(0.5))
+    const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<SearchTab />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Skill up for minimum expense' }))
+    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
+    const [rank] = urls(fetch, '/api/rank')
+    expect(rank?.searchParams.get('include_trivial')).toBe('false')
+    expect(rank?.searchParams.has('min_profit')).toBe(false)
+    expect(rank?.searchParams.has('sort')).toBe(false)
+    expect(localStorage.getItem('altarmy-profit.search.includeTrivial')).toBe('false')
+    expect(localStorage.getItem('altarmy-profit.search.minProfit')).toBe('null')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Advanced Filters' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: /Include Trivial Recipes/ }))
+    await waitFor(() => expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('include_trivial')).toBe('true'))
+  })
+
+  it('changes the goal from its row, hiding the search meanwhile', async () => {
+    withGoal('profit')
+    const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<SearchTab />)
+    await waitFor(() => expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('sort')).toBe('rate'))
+    await userEvent.click(screen.getByRole('button', { name: 'Change goal' }))
+    const goals = await screen.findByRole('group', { name: 'Your goal' })
+    expect(within(goals).getByRole('button', { name: 'Maximize profit' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('combobox', { name: 'Realm and faction' })).not.toBeInTheDocument()
+    const ranked = urls(fetch, '/api/rank').length
+    await userEvent.click(within(goals).getByRole('button', { name: 'Make profit on a budget' }))
+    await waitFor(() => expect(urls(fetch, '/api/rank').length).toBeGreaterThan(ranked))
+    expect(urls(fetch, '/api/rank').at(-1)?.searchParams.has('sort')).toBe(false)
+    expect(await screen.findByText('Goal: Make profit on a budget.')).toBeInTheDocument()
   })
 
   it('ranks with the stored parameters', async () => {
@@ -137,14 +194,6 @@ describe('SearchTab', () => {
     expect(rank?.searchParams.toString()).toBe(
       'game_version=forever&include_unlearned=true&include_trivial=false&exits=vendor&exits=ah&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&top=50',
     )
-  })
-
-  it('ranks by profit per hour, remembering it', async () => {
-    const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
-    renderWithProviders(<SearchTab />)
-    await userEvent.click(await screen.findByText('Profit per hour'))
-    await waitFor(() => expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('sort')).toBe('rate'))
-    expect(localStorage.getItem('altarmy-profit.search.sort')).toBe('"rate"')
   })
 
   it('saves the time settings on the server, then ranks again', async () => {

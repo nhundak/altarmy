@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import {
   Accordion,
   Alert,
@@ -7,16 +7,13 @@ import {
   Flex,
   Group,
   Loader,
-  MultiSelect,
   NumberInput,
-  SegmentedControl,
   Select,
   SimpleGrid,
   Stack,
   Switch,
   Text,
 } from '@mantine/core'
-import { useDebouncedValue } from '@mantine/hooks'
 import { z } from 'zod'
 import {
   type Exit,
@@ -26,18 +23,20 @@ import {
   useCoverage,
   useDataVersion,
   useFavorites,
-  useProfessions,
   useRank,
   useSelectRealm,
   useSetAhBlocked,
   useSetFavorite,
   useStatus,
 } from '../api/queries'
+import { GOAL_SEARCH, goalSchema, type Goal } from '../lib/goals'
 import { goldToCopper } from '../lib/money'
 import { fromKey, realmOptions, toKey } from '../lib/realms'
+import { useSession } from '../lib/session'
 import { useStoredState } from '../lib/storage'
+import { GoalPicker } from './GoalPicker'
 import { PriceFreshness } from './PriceFreshness'
-import { ResultsTable, type RankBy } from './ResultsTable'
+import { ResultsTable } from './ResultsTable'
 import { TimeSettingsPanel } from './TimeSettingsPanel'
 
 /** Results per page: the first request asks for this many, and each "Show more" for this many more. */
@@ -60,9 +59,8 @@ const EXITS: { value: Exit; label: string; description: string }[] = [
 ]
 const ALL_EXITS: Exit[] = EXITS.map((e) => e.value)
 const SECTIONS = ['advanced', 'time'] as const
-const RANK_BY: RankBy[] = ['profit', 'rate']
 const NONE_OPEN: string[] = []
-const NO_PROFESSIONS: string[] = []
+const storedGoal = goalSchema.nullable()
 
 const bound = z.number().nullable()
 /** NumberInput reports an empty field as ''; that means no bound. */
@@ -71,15 +69,29 @@ const scaled = (v: number | null, f: (v: number) => number) => (v === null ? nul
 
 type Filters = Omit<RankParams, 'top'>
 
+/**
+ * `value` once it has stopped changing for `wait` ms (typing a bound re-ranks once, not per key), except that a new
+ * `flush` (a goal just picked) takes it at once, so the results never show a request with the old goal's filters.
+ */
+function useSettled<T>(value: T, wait: number, flush: number): T {
+  const [settled, setSettled] = useState({ value, flush })
+  const flushing = settled.flush !== flush
+  if (flushing) setSettled({ value, flush })
+  useEffect(() => {
+    // A timer already queued before the flush must not bring the older value back after it.
+    const timer = setTimeout(() => setSettled((prev) => (prev.flush === flush ? { value, flush } : prev)), wait)
+    return () => clearTimeout(timer)
+  }, [value, wait, flush])
+  return flushing ? value : settled.value
+}
+
 /** Memoized: opening or closing a filter section re-renders the search, and the table is the costly part. */
 const Results = memo(function Results({
   filters,
   browsing,
-  onRankBy,
 }: {
   filters: Filters
   browsing: boolean
-  onRankBy: (rankBy: RankBy) => void
 }) {
   // Back to one page whenever the filters change.
   const [page, setPage] = useState({ filters, top: PAGE })
@@ -121,7 +133,6 @@ const Results = memo(function Results({
         favorites={favorites}
         onSetFavorite={(recipeId, favorite) => setFavorite({ recipeId, favorite })}
         rankBy={filters.sort}
-        onRankBy={onRankBy}
       />
       {total > results.length && (
         <Group justify="center">
@@ -172,12 +183,19 @@ function Range({ name, min, max, onMin, onMax, step }: RangeProps) {
   )
 }
 
+/**
+ * The search: first the user's goal, then (once one is picked) the realm and faction, and with a realm the price
+ * freshness, filters, time assumptions and ranked recipes. The goal decides the ranking's order and presets the filters
+ * it cares about; it is remembered per user, like the Profit page's start.
+ */
 export function SearchTab() {
+  const { uid } = useSession()
   const status = useStatus()
   const characters = useCharacters()
   const coverage = useCoverage()
-  const professionNames = useProfessions()
   const select = useSelectRealm()
+  const [goal, setGoal] = useStoredState<Goal | null>(`altarmy-profit.goal.${uid}`, storedGoal, null)
+  const [choosing, setChoosing] = useState(false)
   const [includeUnlearned, setIncludeUnlearned] = useStoredState(
     'altarmy-profit.search.includeUnlearned',
     z.boolean(),
@@ -203,12 +221,6 @@ export function SearchTab() {
   const [maxProfit, setMaxProfit] = useStoredState('altarmy-profit.search.maxProfit', bound, null)
   const [minRoi, setMinRoi] = useStoredState('altarmy-profit.search.minRoi', bound, 0)
   const [maxRoi, setMaxRoi] = useStoredState('altarmy-profit.search.maxRoi', bound, null)
-  const [professions, setProfessions] = useStoredState(
-    'altarmy-profit.search.professions',
-    z.array(z.string()),
-    NO_PROFESSIONS,
-  )
-  const [sort, setSort] = useStoredState<RankBy>('altarmy-profit.search.sort', z.enum(RANK_BY), 'profit')
   const filters = useMemo<Filters>(
     () => ({
       includeUnlearned,
@@ -220,12 +232,21 @@ export function SearchTab() {
       maxProfit: scaled(maxProfit, goldToCopper),
       minRoi: scaled(minRoi, (p) => p / 100),
       maxRoi: scaled(maxRoi, (p) => p / 100),
-      professions,
-      sort,
+      sort: goal ? GOAL_SEARCH[goal].sort : 'profit',
     }),
-    [includeUnlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, professions, sort],
+    [includeUnlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, goal],
   )
-  const [debouncedFilters] = useDebouncedValue(filters, 300)
+  const [picks, setPicks] = useState(0)
+  const debouncedFilters = useSettled(filters, 300, picks)
+
+  /** Choose a goal, writing the filters it presets (the user may change them afterwards). */
+  const pickGoal = (next: Goal) => {
+    setGoal(next)
+    setChoosing(false)
+    setPicks((n) => n + 1)
+    setIncludeTrivial(GOAL_SEARCH[next].includeTrivial)
+    setMinProfit(GOAL_SEARCH[next].minProfit)
+  }
 
   if (status.isPending) return <Loader />
   if (status.isError) return <Alert color="red">{status.error.message}</Alert>
@@ -260,147 +281,132 @@ export function SearchTab() {
 
   return (
     <Stack>
-      <Flex
-        direction={{ base: 'column', sm: 'row' }}
-        justify="space-between"
-        align={{ base: 'stretch', sm: 'flex-end' }}
-        gap="md"
-      >
-        <Select
-          label="Realm and faction"
-          placeholder="No realm has prices yet"
-          data={grouped}
-          value={selection ? toKey(selection) : null}
-          onChange={(key) => key && select.mutate(fromKey(key))}
-          allowDeselect={false}
-          style={{ flex: 1, maxWidth: 420 }}
-        />
-        <MultiSelect
-          label="Professions"
-          placeholder={professions.length ? undefined : 'Every profession'}
-          data={professionNames.data ?? []}
-          value={professions}
-          onChange={setProfessions}
-          clearable
-          searchable
-          style={{ flex: 1, maxWidth: 420 }}
-        />
-        {!browsing && (
-          <Switch
-            label="Include recipes not learned yet"
-            description="Every recipe of these characters' professions, not just the ones they know."
-            checked={includeUnlearned}
-            onChange={(e) => setIncludeUnlearned(e.currentTarget.checked)}
-          />
-        )}
-      </Flex>
-      {lastScan !== undefined && <PriceFreshness lastScan={lastScan} />}
-      <Group gap="xs">
-        <Text size="sm" fw={500} id="rank-by">
-          Rank by
-        </Text>
-        <SegmentedControl
-          size="xs"
-          aria-labelledby="rank-by"
-          value={sort}
-          onChange={(v) => setSort(v === 'rate' ? 'rate' : 'profit')}
-          data={[
-            { value: 'profit', label: 'Profit per craft' },
-            { value: 'rate', label: 'Profit per hour' },
-          ]}
-        />
-      </Group>
-      {browsing && (
-        <Text size="sm" c="dimmed">
-          Browsing every recipe on this realm, crafted and sold by one character. Add your characters to see who can
-          craft what and what mailing between them costs.
-        </Text>
-      )}
-      {/* Two independent sections, side by side on large screens, each remembering whether it is open. They open
-          without animating: a height transition re-lays out the results table below on every frame. Both panels
-          stay mounted and are only hidden when closed (Mantine's default hides them in an Activity, which re-runs
-          every input's effects on each open). */}
-      <SimpleGrid cols={{ base: 1, lg: 2 }} style={{ alignItems: 'start' }}>
-        <Accordion
-          multiple
-          variant="separated"
-          transitionDuration={0}
-          keepMountedMode="display-none"
-          value={open}
-          onChange={(v) => toggleSection('advanced', v)}
-        >
-          <Accordion.Item value="advanced">
-            <Accordion.Control>Advanced Filters</Accordion.Control>
-            <Accordion.Panel>
-              <Stack>
-                {!browsing && (
-                  <Checkbox
-                    label="Include Trivial Recipes"
-                    description="Uncheck to show only recipes that can still give the crafter a skill point."
-                    checked={includeTrivial}
-                    onChange={(e) => setIncludeTrivial(e.currentTarget.checked)}
-                  />
-                )}
-                <Checkbox.Group
-                  label="Sell via"
-                  value={exits}
-                  onChange={(v) => setExits(ALL_EXITS.filter((e) => v.includes(e)))}
-                >
-                  <Stack mt={4} gap="xs">
-                    {EXITS.map((e) => (
-                      <Checkbox key={e.value} value={e.value} label={e.label} description={e.description} />
-                    ))}
-                  </Stack>
-                </Checkbox.Group>
-                <SimpleGrid cols={{ base: 1, sm: 3, lg: 1 }}>
-                  <Range
-                    name="cost (gold)"
-                    min={minCost}
-                    max={maxCost}
-                    onMin={setMinCost}
-                    onMax={setMaxCost}
-                    step={1}
-                  />
-                  <Range
-                    name="profit (gold)"
-                    min={minProfit}
-                    max={maxProfit}
-                    onMin={setMinProfit}
-                    onMax={setMaxProfit}
-                    step={0.5}
-                  />
-                  <Range name="ROI (%)" min={minRoi} max={maxRoi} onMin={setMinRoi} onMax={setMaxRoi} step={10} />
-                </SimpleGrid>
-              </Stack>
-            </Accordion.Panel>
-          </Accordion.Item>
-        </Accordion>
-        <Accordion
-          multiple
-          variant="separated"
-          transitionDuration={0}
-          keepMountedMode="display-none"
-          value={open}
-          onChange={(v) => toggleSection('time', v)}
-        >
-          <Accordion.Item value="time">
-            <Accordion.Control>Time assumptions</Accordion.Control>
-            <Accordion.Panel>
-              <TimeSettingsPanel />
-            </Accordion.Panel>
-          </Accordion.Item>
-        </Accordion>
-      </SimpleGrid>
-      {status.data.prices === 0 && (
-        <Alert color="yellow">
-          No prices yet for this realm. Scan the auction house with Auctionator, then upload Auctionator.lua on the
-          Upload page.
-        </Alert>
-      )}
-      {debouncedFilters.exits.length ? (
-        <Results filters={debouncedFilters} browsing={browsing} onRankBy={setSort} />
-      ) : (
-        <Alert>Pick at least one way to sell under Advanced Filters.</Alert>
+      <GoalPicker goal={goal} choosing={choosing} onPick={pickGoal} onChange={() => setChoosing(true)} />
+      {goal !== null && !choosing && (
+        <>
+          <Flex
+            direction={{ base: 'column', sm: 'row' }}
+            justify="space-between"
+            align={{ base: 'stretch', sm: 'flex-end' }}
+            gap="md"
+          >
+            <Select
+              label="Realm and faction"
+              placeholder="No realm has prices yet"
+              data={grouped}
+              value={selection ? toKey(selection) : null}
+              onChange={(key) => key && select.mutate(fromKey(key))}
+              allowDeselect={false}
+              style={{ flex: 1, maxWidth: 420 }}
+            />
+            {!browsing && (
+              <Switch
+                label="Include recipes not learned yet"
+                description="Every recipe of these characters' professions, not just the ones they know."
+                checked={includeUnlearned}
+                onChange={(e) => setIncludeUnlearned(e.currentTarget.checked)}
+              />
+            )}
+          </Flex>
+          {selection && (
+            <>
+              {lastScan !== undefined && <PriceFreshness lastScan={lastScan} />}
+              {browsing && (
+                <Text size="sm" c="dimmed">
+                  Browsing every recipe on this realm, crafted and sold by one character. Add your characters to see
+                  who can craft what and what mailing between them costs.
+                </Text>
+              )}
+            {/* Two independent sections, side by side on large screens, each remembering whether it is open. They open
+                without animating: a height transition re-lays out the results table below on every frame. Both panels
+                stay mounted and are only hidden when closed (Mantine's default hides them in an Activity, which re-runs
+                every input's effects on each open). */}
+            <SimpleGrid cols={{ base: 1, lg: 2 }} style={{ alignItems: 'start' }}>
+              <Accordion
+                multiple
+                variant="separated"
+                transitionDuration={0}
+                keepMountedMode="display-none"
+                value={open}
+                onChange={(v) => toggleSection('advanced', v)}
+              >
+                <Accordion.Item value="advanced">
+                  <Accordion.Control>Advanced Filters</Accordion.Control>
+                  <Accordion.Panel>
+                    <Stack>
+                      {!browsing && (
+                        <Checkbox
+                          label="Include Trivial Recipes"
+                          description="Uncheck to show only recipes that can still give the crafter a skill point."
+                          checked={includeTrivial}
+                          onChange={(e) => setIncludeTrivial(e.currentTarget.checked)}
+                        />
+                      )}
+                      <Checkbox.Group
+                        label="Sell via"
+                        value={exits}
+                        onChange={(v) => setExits(ALL_EXITS.filter((e) => v.includes(e)))}
+                      >
+                        <Stack mt={4} gap="xs">
+                          {EXITS.map((e) => (
+                            <Checkbox key={e.value} value={e.value} label={e.label} description={e.description} />
+                          ))}
+                        </Stack>
+                      </Checkbox.Group>
+                      <SimpleGrid cols={{ base: 1, sm: 3, lg: 1 }}>
+                        <Range
+                          name="cost (gold)"
+                          min={minCost}
+                          max={maxCost}
+                          onMin={setMinCost}
+                          onMax={setMaxCost}
+                          step={1}
+                        />
+                        <Range
+                          name="profit (gold)"
+                          min={minProfit}
+                          max={maxProfit}
+                          onMin={setMinProfit}
+                          onMax={setMaxProfit}
+                          step={0.5}
+                        />
+                        <Range name="ROI (%)" min={minRoi} max={maxRoi} onMin={setMinRoi} onMax={setMaxRoi} step={10} />
+                      </SimpleGrid>
+                    </Stack>
+                  </Accordion.Panel>
+                </Accordion.Item>
+              </Accordion>
+              <Accordion
+                multiple
+                variant="separated"
+                transitionDuration={0}
+                keepMountedMode="display-none"
+                value={open}
+                onChange={(v) => toggleSection('time', v)}
+              >
+                <Accordion.Item value="time">
+                  <Accordion.Control>Time assumptions</Accordion.Control>
+                  <Accordion.Panel>
+                    <TimeSettingsPanel />
+                  </Accordion.Panel>
+                </Accordion.Item>
+              </Accordion>
+            </SimpleGrid>
+            </>
+          )}
+          {status.data.prices === 0 && (
+            <Alert color="yellow">
+              No prices yet for this realm. Scan the auction house with Auctionator, then upload Auctionator.lua on the
+              Upload page.
+            </Alert>
+          )}
+          {selection &&
+            (debouncedFilters.exits.length ? (
+              <Results filters={debouncedFilters} browsing={browsing} />
+            ) : (
+              <Alert>Pick at least one way to sell under Advanced Filters.</Alert>
+            ))}
+        </>
       )}
     </Stack>
   )

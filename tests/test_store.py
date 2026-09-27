@@ -1,11 +1,9 @@
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from sqlalchemy import Connection, update
 
 from altarmy_profit import altarmy, ingest, schema, store
-from altarmy_profit.altarmy import Profession
 
 from .conftest import FOREVER, ME, set_prices
 from .test_altarmy import ALTARMY_SV
@@ -113,16 +111,10 @@ def test_profession_names(
     assert store.profession_names(conn, FOREVER) == []
 
 
-def test_upsert_and_delete_one_character(conn: Connection) -> None:
+def test_delete_one_character(conn: Connection) -> None:
     chars = altarmy.parse_characters(ALTARMY_SV)
     store.save_characters(conn, ME, FOREVER, chars)
     first = chars[0]
-    changed = replace(first, level=first.level + 1, professions=(Profession("Cooking", 10, 75, frozenset()),))
-    store.upsert_character(conn, ME, FOREVER, changed)
-    got = store.load_characters(conn, ME, FOREVER)
-    assert changed in got and first not in got
-    assert len(got) == len(chars)  # the others stay
-
     assert store.delete_character(conn, ME, FOREVER, first.realm, first.name)
     assert not store.delete_character(conn, ME, FOREVER, first.realm, first.name)
     assert len(store.load_characters(conn, ME, FOREVER)) == len(chars) - 1

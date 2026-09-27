@@ -46,69 +46,8 @@
   min-width: 0;
 }
 
-.card {
-  height: 100%;
-  border-radius: 12px;
-  border: 1px solid var(--mantine-color-default-border);
-  background: var(--mantine-color-body);
-  transition:
-    border-color 150ms ease,
-    box-shadow 150ms ease;
-}
-
-:global([data-mantine-color-scheme='dark']) .card {
-  background: var(--mantine-color-dark-6);
-}
-
-.pick {
-  display: block;
-  width: 100%;
-  height: 100%;
-  padding: var(--mantine-spacing-lg);
-  border-radius: 12px;
-  text-align: left;
-}
-
-.card:has(.pick:hover),
-.card:has(.pick:focus-visible) {
-  border-color: var(--mantine-primary-color-filled);
-  box-shadow: 0 0 0 1px var(--mantine-primary-color-filled);
-}
-
-.card[data-featured] {
-  border-color: color-mix(in srgb, var(--mantine-primary-color-filled) 55%, var(--mantine-color-default-border));
-}
-
 .open {
   padding: var(--mantine-spacing-lg);
-}
-
-.icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  color: var(--mantine-primary-color-filled);
-  background: color-mix(in srgb, var(--mantine-primary-color-filled) 14%, transparent);
-  flex: none;
-}
-
-.slot:not([data-open]) .compact .icon {
-  width: 32px;
-  height: 32px;
-}
-
-.strip {
-  border-radius: 12px;
-  border: 1px solid var(--mantine-color-default-border);
-  padding: var(--mantine-spacing-sm) var(--mantine-spacing-lg);
-  background: var(--mantine-color-body);
-}
-
-:global([data-mantine-color-scheme='dark']) .strip {
-  background: var(--mantine-color-dark-6);
 }
 
 .steps {
