@@ -25,6 +25,8 @@ export type Favorites = components['schemas']['Favorites']
 export type Coverage = components['schemas']['CoverageOut']
 export type Config = components['schemas']['ConfigOut']
 export type Me = components['schemas']['Me']
+/** What the ingestion jobs, uploads and feeds have been doing (the Admin page). */
+export type Ingestion = components['schemas']['IngestionOut']
 export type UploadResult = components['schemas']['UploadResult']
 /** A character typed in by hand. */
 /** The user's time settings: the cities they can craft in, the one plans are timed in, seconds per action. */

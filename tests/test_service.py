@@ -184,6 +184,24 @@ def test_market_cache_sees_other_processes_changes_after_its_ttl(
     assert cache.get(ah) is not second
 
 
+def test_market_cache_checks_at_once_for_a_newer_price_version(
+    db2_paths: dict[str, Path], conn: Connection, database: db.Database
+) -> None:
+    """The front end heard of new prices (a price signal): its request must not get the old market, even
+    within STAMP_TTL of the last check."""
+    ingest.build_db(db2_paths, conn, FOREVER)
+    ah = set_prices(conn, {1: 5})
+    now = [0.0]
+    cache = service.MarketCache(database, FOREVER, clock=lambda: now[0])
+    first = cache.get(ah)
+    known = prices.price_version(conn, ah)
+    assert known is not None
+    assert cache.get(ah, at_least=known) is first  # the version it has: no check
+    prices.set_price(conn, ah, 1, 7)  # as another instance's upload would
+    assert cache.get(ah) is first  # within the TTL
+    assert cache.get(ah, at_least=known + 1).prices == {1: 7}
+
+
 def test_selection_falls_back_to_the_freshest_scanned_realm(conn: Connection) -> None:
     assert service.selection(conn, ME, FOREVER, []) is None
     set_prices(conn, {1: 20}, realm="Dreamscythe", faction="Horde")

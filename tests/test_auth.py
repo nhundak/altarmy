@@ -13,14 +13,18 @@ from altarmy_profit.auth import User
 from .conftest import FOREVER, ME
 
 
-def claims(uid: str, provider: str) -> dict[str, Any]:
-    """Firebase ID token claims as firebase-admin returns them."""
-    return {"uid": uid, "sub": uid, "firebase": {"sign_in_provider": provider}}
+def claims(uid: str, provider: str, admin: bool = False) -> dict[str, Any]:
+    """Firebase ID token claims as firebase-admin returns them (custom claims at the top level)."""
+    found: dict[str, Any] = {"uid": uid, "sub": uid, "firebase": {"sign_in_provider": provider}}
+    if admin:
+        found["admin"] = True
+    return found
 
 
 class FakeVerifier:
-    """Tokens are "<provider>:<uid>", e.g. "anonymous:abc" or "google.com:abc"; anything else is invalid.
-    Also the account admin: `deleted` lists the uids deleted, and `fail` makes deletion fail."""
+    """Tokens are "<provider>:<uid>", e.g. "anonymous:abc" or "google.com:abc", or "<provider>:<uid>:admin"
+    for a token with the admin claim; anything else is invalid. Also the account admin: `deleted` lists
+    the uids deleted, and `fail` makes deletion fail."""
 
     def __init__(self) -> None:
         self.deleted: list[str] = []
@@ -32,10 +36,27 @@ class FakeVerifier:
         self.deleted.append(uid)
 
     def verify(self, token: str) -> Mapping[str, Any]:
-        provider, sep, uid = token.partition(":")
-        if not sep or not uid:
+        parts = token.split(":")
+        if len(parts) not in (2, 3) or not parts[1] or parts[2:] not in ([], ["admin"]):
             raise auth.InvalidToken("not a fake token")
-        return claims(uid, provider)
+        return claims(parts[1], parts[0], admin=len(parts) == 3)
+
+
+class FakeRoster:
+    """The admin roster by email: `accounts` maps emails to uids; `admins` returns those granted."""
+
+    def __init__(self, accounts: dict[str, str]) -> None:
+        self.accounts = accounts
+        self.granted: set[str] = set()
+
+    def set_admin(self, email: str, on: bool) -> str:
+        if email not in self.accounts:
+            raise auth.AccountError(f"no account has the email {email}")
+        (self.granted.add if on else self.granted.discard)(email)
+        return self.accounts[email]
+
+    def admins(self) -> list[tuple[str, str]]:
+        return sorted((self.accounts[e], e) for e in self.granted)
 
 
 @pytest.mark.parametrize(
@@ -44,6 +65,15 @@ class FakeVerifier:
 )
 def test_user_from_claims(provider: str, tier: str) -> None:
     assert auth.user_from_claims(claims("u1", provider)) == User("u1", tier)  # type: ignore[arg-type]
+
+
+def test_the_admin_claim_makes_a_linked_user_an_admin() -> None:
+    assert auth.user_from_claims(claims("u1", "password", admin=True)) == User("u1", "linked", admin=True)
+    assert not auth.user_from_claims(claims("u1", "password")).admin
+    assert not auth.user_from_claims({**claims("u1", "password"), "admin": "yes"}).admin
+    # only the Admin SDK sets claims, but an anonymous session is never an admin anyway
+    assert auth.user_from_claims(claims("u1", "anonymous", admin=True)) == User("u1", "free")
+    assert isinstance(FakeRoster({}), auth.AdminRoster)
 
 
 def test_user_from_claims_needs_a_uid() -> None:
@@ -58,6 +88,7 @@ def test_firebase_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "FIREBASE_API_KEY",
         "FIREBASE_AUTH_DOMAIN",
         "FIREBASE_AUTH_EMULATOR_HOST",
+        "FIRESTORE_EMULATOR_HOST",
     ):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(ValueError, match="FIREBASE_PROJECT_ID"):
@@ -67,6 +98,8 @@ def test_firebase_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert auth.FirebaseConfig.from_env() == auth.FirebaseConfig(
         "demo-altarmy", "emulator", "demo-altarmy.firebaseapp.com", "127.0.0.1:9099"
     )
+    monkeypatch.setenv("FIRESTORE_EMULATOR_HOST", "127.0.0.1:8080")  # price signals, in development
+    assert auth.FirebaseConfig.from_env().firestore_emulator_host == "127.0.0.1:8080"
 
 
 def test_ensure_user_creates_and_follows_the_tier(conn: Connection) -> None:

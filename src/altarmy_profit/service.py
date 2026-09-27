@@ -42,6 +42,11 @@ class _Cached:
     checked: float  # clock time of the last stamp check
 
 
+def _older(stamp: store.MarketStamp, price_version: int | None) -> bool:
+    """Whether a market with this stamp predates `price_version` of its auction house."""
+    return price_version is not None and (stamp[2] or 0) < price_version
+
+
 class MarketCache:
     """In-process Markets for one game version, one per auction house, shared by all requests; rebuilt
     from the database lazily after invalidate().
@@ -69,12 +74,14 @@ class MarketCache:
         self._lock = threading.Lock()
         self._markets: dict[int | None, _Cached] = {}
 
-    def get(self, auction_house_id: int | None) -> Market:
-        """The version's game data priced by the auction house (None: unpriced)."""
+    def get(self, auction_house_id: int | None, at_least: int | None = None) -> Market:
+        """The version's game data priced by the auction house (None: unpriced). `at_least`: a price
+        version the caller knows of (a price signal told the front end); a market built on an older one
+        is checked now, not after STAMP_TTL."""
         with self._lock:
             cached = self._markets.get(auction_house_id)
             now = self._clock()
-            if cached is not None and now - cached.checked < STAMP_TTL:
+            if cached is not None and now - cached.checked < STAMP_TTL and not _older(cached.stamp, at_least):
                 return cached.market
             with self.database.begin() as conn:
                 stamp = store.market_stamp(conn, self.game_version, auction_house_id)

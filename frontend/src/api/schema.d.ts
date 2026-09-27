@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/admin/ingestion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Admin Ingestion
+         * @description The version's job runs, every user's uploads, snapshots per source and AHledger's feeds (admins).
+         */
+        get: operations["get_admin_ingestion_api_admin_ingestion_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ah-blocked": {
         parameters: {
             query?: never;
@@ -368,6 +388,36 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdminUploadOut */
+        AdminUploadOut: {
+            /** Detail */
+            detail: string;
+            /** Game Version */
+            game_version: string;
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "altarmy" | "auctionator";
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "accepted" | "rejected";
+            /** Received At */
+            received_at: string;
+            /** Size */
+            size: number;
+            /** User Uid */
+            user_uid: string;
+            /**
+             * Via
+             * @enum {string}
+             */
+            via: "browser" | "watcher" | "paste";
+        };
         /**
          * AhBlocked
          * @description Items never sold on the AH: only vendored or disenchanted.
@@ -426,8 +476,14 @@ export interface components {
         };
         /** Characters */
         Characters: {
+            /** Auto Import At */
+            auto_import_at?: string | null;
             /** Groups */
             groups: components["schemas"]["GroupOut"][];
+            /** Imported At */
+            imported_at?: string | null;
+            /** Imported Via */
+            imported_via?: ("browser" | "watcher" | "paste") | null;
             selection: components["schemas"]["SelectionModel"] | null;
         };
         /** CityOut */
@@ -534,6 +590,8 @@ export interface components {
              * @default false
              */
             include_unlearned: boolean;
+            /** Price Version */
+            price_version?: number | null;
             /** Recipe Id */
             recipe_id: number;
         };
@@ -573,6 +631,21 @@ export interface components {
             /** Recipes */
             recipes: components["schemas"]["FavoriteRecipe"][];
         };
+        /** FeedOut */
+        FeedOut: {
+            /** Faction */
+            faction: string;
+            /** Fetched At */
+            fetched_at: string;
+            /** Market */
+            market: string;
+            /** Realm */
+            realm: string;
+            /** Rows */
+            rows: number;
+            /** Scanned At */
+            scanned_at: string;
+        };
         /**
          * FirebaseOut
          * @description The Firebase web config the front end signs in with (public values).
@@ -584,6 +657,8 @@ export interface components {
             auth_domain: string;
             /** Emulator Url */
             emulator_url: string | null;
+            /** Firestore Emulator Host */
+            firestore_emulator_host?: string | null;
             /** Project Id */
             project_id: string;
         };
@@ -609,6 +684,23 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * IngestionOut
+         * @description What the ingestion jobs, uploads and feeds have been doing (the Admin page).
+         */
+        IngestionOut: {
+            /** Feeds */
+            feeds: components["schemas"]["FeedOut"][];
+            /** Jobs */
+            jobs: components["schemas"]["JobStatusOut"][];
+            /** Now */
+            now: string;
+            /** Runs */
+            runs: components["schemas"]["JobRunOut"][];
+            /** Snapshots */
+            snapshots: components["schemas"]["SnapshotStatsOut"][];
+            uploads: components["schemas"]["UploadStatsOut"];
         };
         /** ItemCount */
         ItemCount: {
@@ -658,6 +750,43 @@ export interface components {
             subclass_name: string | null;
             /** Vendor Price */
             vendor_price: number | null;
+        };
+        /** JobRunOut */
+        JobRunOut: {
+            /** Finished At */
+            finished_at: string | null;
+            /** Game Version */
+            game_version: string | null;
+            /** Id */
+            id: number;
+            /** Job */
+            job: string;
+            /** Ok */
+            ok: boolean | null;
+            /** Started At */
+            started_at: string;
+            /** Summary */
+            summary: string;
+        };
+        /**
+         * JobStatusOut
+         * @description A scheduled job's newest run (every field but `job` and `late` None if it never ran).
+         */
+        JobStatusOut: {
+            /** Game Version */
+            game_version: string | null;
+            /** Job */
+            job: string;
+            /** Last Finished */
+            last_finished: string | null;
+            /** Last Started */
+            last_started: string | null;
+            /** Late */
+            late: boolean;
+            /** Ok */
+            ok: boolean | null;
+            /** Summary */
+            summary: string;
         };
         /**
          * LegOut
@@ -712,6 +841,8 @@ export interface components {
         };
         /** Me */
         Me: {
+            /** Admin */
+            admin: boolean;
             /**
              * Tier
              * @enum {string}
@@ -917,6 +1048,21 @@ export interface components {
             kind: string;
             /** Profit */
             profit: number;
+        };
+        /** SnapshotStatsOut */
+        SnapshotStatsOut: {
+            /** Items 7D */
+            items_7d: number;
+            /** Newest Received At */
+            newest_received_at: string;
+            /** Quarantined 7D */
+            quarantined_7d: number;
+            /** Snapshots 24H */
+            snapshots_24h: number;
+            /** Snapshots 7D */
+            snapshots_7d: number;
+            /** Source */
+            source: string;
         };
         /** Status */
         Status: {
@@ -1134,6 +1280,21 @@ export interface components {
             /** Realms */
             realms: components["schemas"]["RealmPricesOut"][];
         };
+        /** UploadStatsOut */
+        UploadStatsOut: {
+            /** Accepted 24H */
+            accepted_24h: number;
+            /** Accepted 7D */
+            accepted_7d: number;
+            /** Recent */
+            recent: components["schemas"]["AdminUploadOut"][];
+            /** Rejected 24H */
+            rejected_24h: number;
+            /** Rejected 7D */
+            rejected_7d: number;
+            /** Uploaders 7D */
+            uploaders_7d: number;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -1173,6 +1334,38 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_admin_ingestion_api_admin_ingestion_get: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_ah_blocked_api_ah_blocked_get: {
         parameters: {
             query: {
@@ -1623,6 +1816,8 @@ export interface operations {
                 /** @description profit per craft, or per hour of play */
                 sort?: "profit" | "rate";
                 top?: number;
+                /** @description the auction house's price version the front end knows of */
+                price_version?: number | null;
                 /** @description which game's data: tbc or forever */
                 game_version: "tbc" | "forever";
             };

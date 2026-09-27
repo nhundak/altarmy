@@ -16,7 +16,7 @@ import zlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import Connection, func, select
+from sqlalchemy import ColumnElement, Connection, case, func, select
 
 from . import altarmy, auctionator, db, paste, prices, schema, service, store, users, versions
 
@@ -64,6 +64,15 @@ class Imported:
         return frozenset(r.auction_house_id for r in self.realms if r.auction_house_id is not None)
 
     @property
+    def moved_auction_house_ids(self) -> frozenset[int]:
+        """The auction houses whose current prices this upload moved (their price version was bumped)."""
+        return frozenset(
+            r.auction_house_id
+            for r in self.realms
+            if r.auction_house_id is not None and r.moved and not r.quarantined
+        )
+
+    @property
     def detail(self) -> str:
         if self.kind == "altarmy":
             where = ", ".join(f"{r} ({f or 'no faction'}): {n}" for r, f, n in self.groups)
@@ -91,6 +100,18 @@ class UploadRow:
     received_at: datetime
     outcome: str
     detail: str
+    user_uid: str = ""
+
+
+@dataclass(frozen=True)
+class UploadStats:
+    """Every user's uploads of a game version lately, for the Admin page."""
+
+    accepted_24h: int
+    rejected_24h: int
+    accepted_7d: int
+    rejected_7d: int
+    uploaders_7d: int  # distinct users
 
 
 def decompress(data: bytes, limit: int = MAX_BYTES) -> bytes:
@@ -267,15 +288,86 @@ def check_rate(conn: Connection, user_uid: str, *, now: datetime | None = None) 
         raise RateLimited
 
 
-def recent(conn: Connection, user_uid: str, limit: int = 20) -> list[UploadRow]:
-    """The user's newest uploads first."""
+def _recent(conn: Connection, where: ColumnElement[bool], limit: int) -> list[UploadRow]:
     t = schema.uploads
     rows = conn.execute(
         select(
-            t.c.id, t.c.game_version, t.c.kind, t.c.via, t.c.size, t.c.received_at, t.c.outcome, t.c.detail
+            t.c.id,
+            t.c.game_version,
+            t.c.kind,
+            t.c.via,
+            t.c.size,
+            t.c.received_at,
+            t.c.outcome,
+            t.c.detail,
+            t.c.user_uid,
         )
-        .where(t.c.user_uid == user_uid)
+        .where(where)
         .order_by(t.c.received_at.desc(), t.c.id.desc())
         .limit(limit)
     )
-    return [UploadRow(r[0], r[1], r[2], r[3], r[4], db.utc(r[5]), r[6], r[7]) for r in rows]
+    return [UploadRow(r[0], r[1], r[2], r[3], r[4], db.utc(r[5]), r[6], r[7], r[8]) for r in rows]
+
+
+def recent(conn: Connection, user_uid: str, limit: int = 20) -> list[UploadRow]:
+    """The user's newest uploads first."""
+    return _recent(conn, schema.uploads.c.user_uid == user_uid, limit)
+
+
+@dataclass(frozen=True)
+class ImportStatus:
+    """Where a user's characters of one game version came from, from their upload history."""
+
+    imported_at: datetime | None  # the newest accepted Alt Army upload: when the characters were gathered
+    imported_via: str | None  # how it came: browser | watcher | paste
+    auto_import_at: (
+        datetime | None
+    )  # the newest accepted upload (either kind) the watcher or Alt Army Sync sent
+
+
+def import_status(conn: Connection, user_uid: str, game_version: str) -> ImportStatus:
+    t = schema.uploads
+    mine = (t.c.user_uid == user_uid) & (t.c.game_version == game_version) & (t.c.outcome == "accepted")
+    last = conn.execute(
+        select(t.c.received_at, t.c.via)
+        .where(mine, t.c.kind == "altarmy")
+        .order_by(t.c.received_at.desc(), t.c.id.desc())
+        .limit(1)
+    ).first()
+    auto: datetime | None = conn.execute(
+        select(func.max(t.c.received_at)).where(mine, t.c.via == "watcher")
+    ).scalar_one()
+    return ImportStatus(
+        imported_at=None if last is None else db.utc(last[0]),
+        imported_via=None if last is None else last[1],
+        auto_import_at=None if auto is None else db.utc(auto),
+    )
+
+
+def recent_all(conn: Connection, game_version: str, limit: int = 50) -> list[UploadRow]:
+    """Every user's newest uploads of `game_version` first (the Admin page)."""
+    return _recent(conn, schema.uploads.c.game_version == game_version, limit)
+
+
+def stats(conn: Connection, game_version: str, now: datetime | None = None) -> UploadStats:
+    """How many uploads of `game_version` were accepted and rejected in the last day and week, and by how
+    many users."""
+    t = schema.uploads
+    now = db.utc(now or db.utcnow())
+    day, week = now - timedelta(days=1), now - timedelta(days=7)
+
+    def count(outcome: str, since: datetime) -> ColumnElement[int]:
+        return func.coalesce(
+            func.sum(case(((t.c.outcome == outcome) & (t.c.received_at >= since), 1), else_=0)), 0
+        )
+
+    row = conn.execute(
+        select(
+            count("accepted", day),
+            count("rejected", day),
+            count("accepted", week),
+            count("rejected", week),
+            func.count(func.distinct(t.c.user_uid)),
+        ).where(t.c.game_version == game_version, t.c.received_at >= week)
+    ).one()
+    return UploadStats(*(int(v) for v in row))

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     Date,
@@ -42,6 +43,7 @@ UPLOAD_KINDS = ("altarmy", "auctionator")
 UPLOAD_VIA = ("browser", "watcher", "paste")
 UPLOAD_OUTCOMES = ("accepted", "rejected")
 SNAPSHOT_STATUSES = ("accepted", "quarantined")
+JOBS = ("ingest", "merge", "prune", "ahledger")  # the scheduled CLI jobs that record their runs
 
 
 def _version(primary_key: bool = True) -> Column[str]:
@@ -429,4 +431,20 @@ price_daily = Table(
     Column("high", BigInteger, nullable=False),
     Column("available", Integer),  # most seen that day
     PrimaryKeyConstraint("auction_house_id", "item_id", "day"),
+)
+
+# --- jobs ------------------------------------------------------------------------------------------
+# Each run of a scheduled CLI job (`jobs.recording`), for the Admin page. ok is NULL while it runs.
+job_runs = Table(
+    "job_runs",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("job", String(16), nullable=False),
+    Column("game_version", String(16), ForeignKey("game_versions.id")),  # NULL: every version
+    Column("started_at", DateTime(timezone=True), nullable=False),
+    Column("finished_at", DateTime(timezone=True)),
+    Column("ok", Boolean),
+    Column("summary", Text, nullable=False, default="", server_default=""),  # what it printed
+    CheckConstraint(f"job IN ({_in(JOBS)})", name="job"),
+    Index(None, "job", "started_at"),
 )

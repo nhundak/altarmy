@@ -21,7 +21,18 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePath
 from typing import Annotated, Literal, cast
 
-from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
@@ -31,12 +42,15 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 
 from . import (
+    ahledger,
     altarmy,
     auth,
     db,
     engine,
+    jobs,
     prices,
     ratelimit,
+    schema,
     service,
     store,
     talents,
@@ -45,6 +59,7 @@ from . import (
     users,
     versions,
 )
+from . import signals as price_signals
 from .versions import GameVersion, GameVersionKey
 
 DEFAULT_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
@@ -301,6 +316,7 @@ class EvaluateRequest(BaseModel):
     # a session: that many crafts at once, spelled out step by step (`details`); None: one craft, as ranked
     copies: int | None = Field(default=None, ge=1, le=1000)
     city: str | None = None  # time and route the session in this city (the selection's faction's)
+    price_version: int | None = None  # the auction house's price version the front end knows of
 
 
 class EvaluateResponse(BaseModel):
@@ -406,6 +422,9 @@ class GroupOut(BaseModel):
 class Characters(BaseModel):
     groups: list[GroupOut]  # by realm, then faction
     selection: SelectionModel | None
+    imported_at: str | None = None  # "YYYY-MM-DD HH:MM:SS" UTC: the newest accepted Alt Army upload
+    imported_via: Literal["browser", "watcher", "paste"] | None = None  # how that upload came
+    auto_import_at: str | None = None  # the newest accepted upload from the watcher or Alt Army Sync
 
 
 class VersionOut(BaseModel):
@@ -424,6 +443,7 @@ class FirebaseOut(BaseModel):
     auth_domain: str
     project_id: str
     emulator_url: str | None  # the Firebase Auth emulator, when developing
+    firestore_emulator_host: str | None = None  # host:port of the Firestore emulator (price signals)
 
 
 class ConfigOut(BaseModel):
@@ -433,6 +453,7 @@ class ConfigOut(BaseModel):
 class Me(BaseModel):
     uid: str
     tier: auth.Tier  # free: an anonymous session; linked: signed in with an email
+    admin: bool  # the Firebase custom claim: the Admin page
 
 
 class CoverageOut(BaseModel):
@@ -490,6 +511,70 @@ class UploadOut(BaseModel):
     detail: str
 
 
+class JobStatusOut(BaseModel):
+    """A scheduled job's newest run (every field but `job` and `late` None if it never ran)."""
+
+    job: str
+    game_version: str | None  # None: the run covered every version
+    last_started: str | None
+    last_finished: str | None  # None while running
+    ok: bool | None  # None while running
+    late: bool  # it should have run again by now (or never ran)
+    summary: str
+
+
+class JobRunOut(BaseModel):
+    id: int
+    job: str
+    game_version: str | None
+    started_at: str
+    finished_at: str | None
+    ok: bool | None
+    summary: str
+
+
+class AdminUploadOut(UploadOut):
+    user_uid: str
+
+
+class UploadStatsOut(BaseModel):
+    accepted_24h: int
+    rejected_24h: int
+    accepted_7d: int
+    rejected_7d: int
+    uploaders_7d: int
+    recent: list[AdminUploadOut]  # every user's newest, newest first
+
+
+class SnapshotStatsOut(BaseModel):
+    source: str
+    snapshots_24h: int
+    snapshots_7d: int
+    quarantined_7d: int
+    items_7d: int
+    newest_received_at: str
+
+
+class FeedOut(BaseModel):
+    market: str
+    realm: str
+    faction: str
+    rows: int
+    scanned_at: str
+    fetched_at: str
+
+
+class IngestionOut(BaseModel):
+    """What the ingestion jobs, uploads and feeds have been doing (the Admin page)."""
+
+    now: str  # the server's time, which `late` was judged at
+    jobs: list[JobStatusOut]  # every job, in schema.JOBS order
+    runs: list[JobRunOut]  # the newest runs, newest first
+    uploads: UploadStatsOut
+    snapshots: list[SnapshotStatsOut]  # per source, by name
+    feeds: list[FeedOut]  # AHledger's markets
+
+
 # --- app state and helpers -------------------------------------------------------------------------
 @dataclass
 class AppState:
@@ -499,6 +584,7 @@ class AppState:
     database: db.Database  # shared by every version
     cache: service.MarketCache
     rank_cache: service.RankCache
+    signals: price_signals.Signals  # shared by every version
     _cities: Mapping[str, timing.CityMap] | None = None
 
     @property
@@ -579,6 +665,16 @@ def _current_user(
 CurrentUser = Annotated[auth.User, Depends(_current_user)]
 
 
+def _admin_user(user: CurrentUser) -> auth.User:
+    """The current user if they are a site admin (the Firebase `admin` claim), else 403."""
+    if not user.admin:
+        raise HTTPException(403, "Admins only.")
+    return user
+
+
+AdminUser = Annotated[auth.User, Depends(_admin_user)]
+
+
 @contextmanager
 def _connect(state: AppState) -> Iterator[Connection]:
     """A connection in a transaction, committed when the block succeeds."""
@@ -639,6 +735,7 @@ def get_status(state: State, user: CurrentUser) -> Status:
 def _characters(state: AppState, conn: Connection, user: auth.User) -> Characters:
     chars = store.load_characters(conn, user.uid, state.key)
     sel = service.selection(conn, user.uid, state.key, chars)
+    imported = uploads.import_status(conn, user.uid, state.key)
     return Characters(
         groups=[
             GroupOut(
@@ -666,6 +763,9 @@ def _characters(state: AppState, conn: Connection, user: auth.User) -> Character
             for g in altarmy.groups(chars)
         ],
         selection=_selection_model(sel),
+        imported_at=db.timestamp_text(imported.imported_at),
+        imported_via=cast(UploadVia | None, imported.imported_via),
+        auto_import_at=db.timestamp_text(imported.auto_import_at),
     )
 
 
@@ -722,12 +822,15 @@ def get_rank(
         Literal["profit", "rate"], Query(description="profit per craft, or per hour of play")
     ] = "profit",
     top: Annotated[int, Query(ge=1)] = 50,
+    price_version: Annotated[
+        int | None, Query(description="the auction house's price version the front end knows of")
+    ] = None,
 ) -> RankResponse:
     """What the selected realm/faction's characters can craft, the user's favorites first, then most
     profitable first (per craft, or with `sort=rate` per hour of play in the user's city); without
     characters, every recipe, crafted by one unnamed character (nothing is mailed). Bounds are inclusive;
     an omitted bound is unbounded (so losses are included unless `min_profit` is set)."""
-    s = _selected(state, user)
+    s = _selected(state, user, price_version)
     base, chars, no_ah = s.base, s.chars, s.no_ah
     # Without characters the ranking depends on nobody but the time settings: browsing users with the same
     # ones share it. The bounds and the profession filter only narrow the cached, unbounded ranking, so
@@ -773,7 +876,7 @@ def get_rank(
 @router.post("/evaluate")
 def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> EvaluateResponse:
     """One recipe as /api/rank would give it, with the user's `choices` of sources and exit applied."""
-    s = _selected(state, user)
+    s = _selected(state, user, body.price_version)
     session = body.copies is not None or body.city is not None
     with _http_errors():
         time = service.session_model(s.time, s.cities, body.city) if session else s.time
@@ -810,7 +913,8 @@ class Selected:
     cities: list[timing.CityMap]
 
 
-def _selected(state: AppState, user: auth.User) -> Selected:
+def _selected(state: AppState, user: auth.User, price_version: int | None = None) -> Selected:
+    """`price_version`: the one the front end knows of (see `MarketCache.get`)."""
     with _connect(state) as conn:
         sel, chars = service.selected_characters(conn, user.uid, state.key)
         ah = service.auction_house_of(conn, state.key, sel)
@@ -818,7 +922,7 @@ def _selected(state: AppState, user: auth.User) -> Selected:
         favorites = frozenset(i for i, _ in store.load_favorites(conn, user.uid, state.key))
         faction = sel.faction if sel else ""
         model = service.time_model(conn, user.uid, state.key, state.cities, faction)
-    base = state.cache.get(ah)
+    base = state.cache.get(ah, at_least=price_version)
     return Selected(
         base,
         chars,
@@ -1156,6 +1260,7 @@ def _read_upload(file: UploadFile) -> bytes:
 def post_upload(
     state: State,
     user: CurrentUser,
+    background: BackgroundTasks,
     file: UploadFile,
     kind: Annotated[UploadKind, Form()],
     modified_at: Annotated[int | None, Form(description="the file's modified time, ms since 1970")] = None,
@@ -1187,11 +1292,16 @@ def post_upload(
         with database.begin() as conn:
             got = uploads.ingest(conn, user.uid, state.key, kind, data, modified)
             uploads.record_upload(conn, user.uid, state.key, kind, via, len(data), "accepted", got.detail)
+            moved = {ah: prices.price_version(conn, ah) for ah in got.moved_auction_house_ids}
     except ValueError as e:
         reject(len(data), str(e))
         raise HTTPException(400, str(e)) from e
     if got.auction_house_ids:
         state.cache.invalidate(got.auction_house_ids)
+    # committed: browsers watching these auction houses refetch (after the response, off its latency)
+    background.add_task(
+        price_signals.publish_all, state.signals, state.key, {a: v for a, v in moved.items() if v is not None}
+    )
     return _upload_result(got)
 
 
@@ -1245,6 +1355,97 @@ def get_uploads(request: Request, user: CurrentUser) -> list[UploadOut]:
         return [_upload_out(u) for u in uploads.recent(conn, user.uid)]
 
 
+# --- admin -----------------------------------------------------------------------------------------
+def _text(dt: datetime) -> str:
+    return db.timestamp_text(dt) or ""
+
+
+@router.get("/admin/ingestion")
+def get_admin_ingestion(state: State, user: AdminUser) -> IngestionOut:
+    """The version's job runs, every user's uploads, snapshots per source and AHledger's feeds (admins)."""
+    now = db.utcnow()
+    with _connect(state) as conn:
+        newest = jobs.latest(conn, state.key)
+        runs = jobs.recent(conn, state.key)
+        counts = uploads.stats(conn, state.key, now)
+        recent = uploads.recent_all(conn, state.key)
+        snapshots = prices.snapshot_stats(conn, state.key, now)
+        feeds = ahledger.feeds(conn, state.key)
+    statuses = []
+    for job in schema.JOBS:
+        run = newest.get(job)
+        if run is None:
+            statuses.append(
+                JobStatusOut(
+                    job=job,
+                    game_version=None,
+                    last_started=None,
+                    last_finished=None,
+                    ok=None,
+                    late=True,
+                    summary="",
+                )
+            )
+            continue
+        statuses.append(
+            JobStatusOut(
+                job=job,
+                game_version=run.game_version,
+                last_started=_text(run.started_at),
+                last_finished=db.timestamp_text(run.finished_at),
+                ok=run.ok,
+                late=jobs.late(job, run.started_at, now),
+                summary=run.summary,
+            )
+        )
+    return IngestionOut(
+        now=_text(now),
+        jobs=statuses,
+        runs=[
+            JobRunOut(
+                id=r.id,
+                job=r.job,
+                game_version=r.game_version,
+                started_at=_text(r.started_at),
+                finished_at=db.timestamp_text(r.finished_at),
+                ok=r.ok,
+                summary=r.summary,
+            )
+            for r in runs
+        ],
+        uploads=UploadStatsOut(
+            accepted_24h=counts.accepted_24h,
+            rejected_24h=counts.rejected_24h,
+            accepted_7d=counts.accepted_7d,
+            rejected_7d=counts.rejected_7d,
+            uploaders_7d=counts.uploaders_7d,
+            recent=[AdminUploadOut(**_upload_out(u).model_dump(), user_uid=u.user_uid) for u in recent],
+        ),
+        snapshots=[
+            SnapshotStatsOut(
+                source=s.source,
+                snapshots_24h=s.snapshots_24h,
+                snapshots_7d=s.snapshots_7d,
+                quarantined_7d=s.quarantined_7d,
+                items_7d=s.items_7d,
+                newest_received_at=_text(s.newest_received_at),
+            )
+            for s in snapshots
+        ],
+        feeds=[
+            FeedOut(
+                market=f.market,
+                realm=f.realm,
+                faction=f.faction,
+                rows=f.rows,
+                scanned_at=_text(f.scanned_at),
+                fetched_at=_text(f.fetched_at),
+            )
+            for f in feeds
+        ],
+    )
+
+
 # --- coverage --------------------------------------------------------------------------------------
 @router.get("/coverage")
 def get_coverage(state: State, user: CurrentUser) -> list[CoverageOut]:
@@ -1278,13 +1479,14 @@ def get_config(request: Request) -> ConfigOut:
             auth_domain=fb.auth_domain,
             project_id=fb.project_id,
             emulator_url=f"http://{fb.emulator_host}" if fb.emulator_host else None,
+            firestore_emulator_host=fb.firestore_emulator_host,
         ),
     )
 
 
 @router.get("/me")
 def get_me(user: CurrentUser) -> Me:
-    return Me(uid=user.uid, tier=user.tier)
+    return Me(uid=user.uid, tier=user.tier, admin=user.admin)
 
 
 @router.delete("/me", status_code=204)
@@ -1336,6 +1538,7 @@ def create_app(
     firebase: auth.FirebaseConfig | None = None,
     accounts: auth.AccountAdmin | None = None,
     limits: ratelimit.Limits | None = None,
+    signals: price_signals.Signals | None = None,
 ) -> FastAPI:
     """Build the app for `game_versions`, each with its own data files, sharing `database` (default:
     `DATABASE_URL`, else data/altarmy-profit.sqlite). Touches no database or network, so tests and the
@@ -1345,13 +1548,15 @@ def create_app(
     The Firebase project comes from the environment (`auth.FirebaseConfig.from_env`, ValueError without
     `FIREBASE_PROJECT_ID`) unless `firebase` is given. Tokens are verified with firebase-admin unless a
     `verifier` is given (tests pass a fake one), which also deletes accounts unless `accounts` is given.
-    Requests are rate-limited with `limits` (default `ratelimit.HOSTED_LIMITS`)."""
+    Requests are rate-limited with `limits` (default `ratelimit.HOSTED_LIMITS`). Price signals go to the
+    Firebase project's Firestore unless `signals` is given (`signals.for_project`)."""
     database = database or db.Database(db.default_url(), migrate=False)
     firebase = firebase or auth.FirebaseConfig.from_env()
     verifier = verifier or auth.FirebaseVerifier(firebase.project_id)
     if accounts is None and isinstance(verifier, auth.AccountAdmin):
         accounts = verifier
     limits = limits or ratelimit.HOSTED_LIMITS
+    signals = signals or price_signals.for_project(firebase.project_id)
     per_ip = ratelimit.RateLimiter(limits.per_ip, limits.window)
     per_uid = ratelimit.RateLimiter(limits.per_uid, limits.window)
     app = FastAPI(title="altarmy-profit", version="0.1.0")
@@ -1379,6 +1584,7 @@ def create_app(
             database,
             service.MarketCache(database, v.key, ah_cut=v.ah_cut, mail_postage=v.mail_postage),
             service.RankCache(),
+            signals,
         )
         for key, v in game_versions.items()
     }

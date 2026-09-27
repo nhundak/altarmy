@@ -1,0 +1,13 @@
+rules_version = '2';
+
+// Firestore holds only price signals (src/altarmy_profit/signals.py): one document per auction house with its
+// price version, which the API and jobs write with the Admin SDK (rules don't apply to it). Signed-in visitors
+// (anonymous ones too) may read them; nobody writes from a browser, and nothing else is readable.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /priceSignals/{auctionHouseId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+  }
+}

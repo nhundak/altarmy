@@ -5,7 +5,8 @@
 #   2. run the migrate job and wait: migrations run once per deploy, before any new instance starts
 #   3. deploy the Cloud Run service (its instances never migrate)
 #   4. build the front end and deploy it to Firebase Hosting (prod: the live site; staging: the
-#      `staging` preview channel, whose /api rewrites to the staging service)
+#      `staging` preview channel, whose /api rewrites to the staging service), and the Firestore rules
+#      to the environment's Firebase project (price signals, firestore.rules)
 #
 #   deploy/deploy.sh prod|staging IMAGE
 set -euo pipefail
@@ -25,7 +26,7 @@ job() { # job NAME ARGS...: the CLI with ARGS, as a Cloud Run job
   local args
   args="$(IFS=,; echo "$*")"
   gcloud run jobs deploy "$name" "${COMMON[@]}" --command altarmy-profit --args="$args" \
-    --memory 2Gi --cpu 1 --max-retries 1 --task-timeout 30m --set-env-vars DB_POOL_SIZE=1,DB_MAX_OVERFLOW=0 \
+    --memory 2Gi --cpu 1 --max-retries 1 --task-timeout 30m     --set-env-vars "$FIREBASE_VARS,DB_POOL_SIZE=1,DB_MAX_OVERFLOW=0" \
     "${GCLOUD_FLAGS[@]}"
 }
 
@@ -53,7 +54,9 @@ echo "== front end"
 (cd frontend && npm run build)
 FIREBASE=(npx --yes firebase-tools@14 --project "$PROJECT" --non-interactive)
 if [ "$ENV_NAME" = prod ]; then
-  "${FIREBASE[@]}" deploy --only hosting
+  "${FIREBASE[@]}" deploy --only hosting,firestore:rules
 else
   "${FIREBASE[@]}" --config firebase.staging.json hosting:channel:deploy staging --expires 30d
+  # staging's price signals live in its own Firebase project
+  npx --yes firebase-tools@14 --project "$STAGING_AUTH_PROJECT" --non-interactive --config firebase.staging.json     deploy --only firestore:rules
 fi

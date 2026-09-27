@@ -1,3 +1,4 @@
+import type { FirebaseApp } from 'firebase/app'
 import type { Auth, User } from 'firebase/auth'
 import type { components } from '../api/schema'
 
@@ -11,6 +12,7 @@ import type { components } from '../api/schema'
 export type FirebaseConfig = components['schemas']['FirebaseOut']
 
 let auth: Auth | null = null
+let firebaseConfig: FirebaseConfig | null = null
 let started: Promise<void> | null = null
 let signingIn: Promise<void> | null = null
 const listeners = new Set<() => void>()
@@ -39,6 +41,7 @@ async function startFirebase(config: FirebaseConfig): Promise<void> {
   }
   await a.authStateReady()
   auth = a
+  firebaseConfig = config
   fa.onIdTokenChanged(a, (user) => {
     // Firebase drops a stored session it can no longer refresh (the account was deleted, or the emulator
     // restarted): start a new anonymous one, whose sign-in notifies the listeners in turn.
@@ -58,6 +61,11 @@ async function ensureUser(): Promise<void> {
       signingIn = null
     })
   return signingIn
+}
+
+/** The started Firebase app and its config (for Firestore's price signals), or null before sign-in starts. */
+export function firebaseApp(): { app: FirebaseApp; config: FirebaseConfig } | null {
+  return auth && firebaseConfig ? { app: auth.app, config: firebaseConfig } : null
 }
 
 /** Call `listener` whenever the signed-in user or their token changes (sign-in, linking, sign-out). */

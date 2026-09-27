@@ -4,17 +4,33 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection, func, select
 
-from altarmy_profit import cli, db, ingest, prices, schema, store, versions, wowfiles
+from altarmy_profit import auth, cli, db, ingest, jobs, prices, schema, signals, store, versions, wowfiles
 from altarmy_profit.auctionator import DayStats, ItemPrice
 from altarmy_profit.prices import Observation
 
 from .conftest import FOREVER, SV_DIR, set_prices
+from .test_auth import FakeRoster
+from .test_signals import FakeSignals
 
 T0 = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
 
 
 def count(conn: Connection, table: str) -> int:
     return int(conn.execute(select(func.count()).select_from(schema.metadata.tables[table])).scalar_one())
+
+
+def test_snapshot_stats_per_source(conn: Connection) -> None:
+    ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
+    tbc = prices.auction_house(conn, "tbc", "Dreamscythe", "Horde")
+    obs = [Observation(1, 10, T0), Observation(2, 20, T0)]
+    two_days = T0 - timedelta(days=2)
+    prices.record_snapshot(conn, ah, "auctionator", T0, obs, received_at=T0)
+    prices.record_snapshot(conn, ah, "auctionator", T0, obs[:1], received_at=two_days)
+    prices.record_snapshot(conn, ah, "ahledger", T0, obs[:1], received_at=T0 - timedelta(days=8))  # too old
+    prices.record_snapshot(conn, tbc, "auctionator", T0, obs, received_at=T0)  # another version
+    snap = schema.price_snapshots
+    conn.execute(snap.update().where(snap.c.received_at == two_days).values(status="quarantined"))
+    assert prices.snapshot_stats(conn, FOREVER, T0) == [prices.SnapshotStats("auctionator", 1, 2, 1, 3, T0)]
 
 
 def test_set_price_records_manual_snapshots(conn: Connection) -> None:
@@ -157,6 +173,30 @@ def test_screened_auctionator_scan_is_quarantined(conn: Connection) -> None:
     assert unscreened == prices.Recorded(moved=30)
 
 
+def test_new_prices_bump_the_price_version(conn: Connection) -> None:
+    """Every write that moves a current price bumps the version the front end watches; a repeat doesn't."""
+    ah = prices.unnamed_auction_house(conn, FOREVER)
+    assert prices.price_version(conn, ah) == 0
+    obs = [Observation(1, 10, T0), Observation(2, 20, T0)]
+    prices.record_snapshot(conn, ah, "auctionator", T0, obs)
+    assert prices.price_version(conn, ah) == 1
+    prices.record_snapshot(conn, ah, "auctionator", T0, obs)  # the same scan again: no news
+    assert prices.price_version(conn, ah) == 1
+    prices.set_price(conn, ah, 1, 11)
+    assert prices.price_version(conn, ah) == 2
+
+
+def test_a_quarantined_scan_keeps_the_price_version(conn: Connection) -> None:
+    ah = prices.unnamed_auction_house(conn, FOREVER)
+    prices.record_snapshot(conn, ah, "auctionator", T0, [Observation(i, 100, T0) for i in range(1, 31)])
+    conn.execute(schema.price_current.update().values(median_7d=100, scans_7d=3))
+    later = T0 + timedelta(hours=1)
+    wild = [Observation(i, 10_000, later) for i in range(1, 31)]
+    got = prices.record_screened(conn, ah, "auctionator", later, wild, "u1", trust=1.0)
+    assert got.quarantined
+    assert prices.price_version(conn, ah) == 1
+
+
 def test_load_prices_sells_at_the_lower_of_now_and_the_median(conn: Connection) -> None:
     ah = prices.unnamed_auction_house(conn, FOREVER)
     prices.record_snapshot(
@@ -292,6 +332,62 @@ def test_cli_migrate_prune_and_merge(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "Merged 1 auction houses of every game version (0 changed); 1 price observations stored." in (
         capsys.readouterr().out
     )
+    database = db.Database(db.sqlite_url(dbfile))
+    with database.begin() as conn:
+        runs = jobs.recent(conn, FOREVER)
+    database.dispose()
+    assert [(r.job, r.ok) for r in runs] == [("merge", True), ("prune", True)]
+    assert runs[0].summary.startswith("Merged 1 auction houses")
+
+
+def test_cli_merge_signals_the_auction_houses_it_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake = FakeSignals()
+    monkeypatch.setattr(signals, "from_env", lambda: fake)
+    dbfile = str(tmp_path / "m.sqlite")
+    cli.main(["--db", dbfile, "migrate"])
+    database = db.Database(db.sqlite_url(dbfile))
+    today = db.utcnow().date()
+    with database.begin() as conn:
+        ah = set_prices(conn, {1: 45})
+        prices.record_daily(conn, ah, {1: ItemPrice(45, {today: DayStats(45, 45, 1)})})
+        version = prices.price_version(conn, ah)
+    database.dispose()
+    assert version is not None
+    cli.main(["--db", dbfile, "merge"])
+    assert fake.published == [(ah, FOREVER, version + 1)]
+    cli.main(["--db", dbfile, "merge"])  # nothing changed
+    assert len(fake.published) == 1
+    assert "1 price signal sent" in capsys.readouterr().out
+
+
+def test_cli_admin_grants_revokes_and_lists(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    roster = FakeRoster({"me@example.com": "u1", "you@example.com": "u2"})
+    projects: list[str] = []
+
+    def verifier(project: str) -> FakeRoster:
+        projects.append(project)
+        return roster
+
+    monkeypatch.setattr(auth, "FirebaseVerifier", verifier)
+    monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
+    with pytest.raises(SystemExit, match="FIREBASE_PROJECT_ID"):
+        cli.main(["admin", "list"])
+    monkeypatch.setenv("FIREBASE_PROJECT_ID", "demo-altarmy")
+    cli.main(["admin", "grant", "me@example.com"])
+    assert "Granted admin for me@example.com (u1) in demo-altarmy." in capsys.readouterr().out
+    cli.main(["admin", "grant", "you@example.com", "--project", "other"])
+    cli.main(["admin", "revoke", "you@example.com"])
+    cli.main(["admin", "list"])
+    assert capsys.readouterr().out.endswith("me@example.com (u1)\n1 admins in demo-altarmy.\n")
+    assert projects == ["demo-altarmy", "other", "demo-altarmy", "demo-altarmy"]
+    with pytest.raises(SystemExit, match="no account has the email nobody@example.com"):
+        cli.main(["admin", "grant", "nobody@example.com"])
+    with pytest.raises(SystemExit, match="needs the account's email"):
+        cli.main(["admin", "grant"])
 
 
 def test_cli_ingest_only_if_new_skips_a_loaded_build(

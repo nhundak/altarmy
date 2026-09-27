@@ -9,6 +9,8 @@
 #   deploy/setup.sh database ENV   a database, its user (random password) and the DATABASE_URL secret
 #   deploy/setup.sh staging-auth staging's runtime service account (after `database staging` and the
 #                                alt-army-staging Firebase project exist; README, "Firebase projects")
+#   deploy/setup.sh firestore    Firestore for price signals in prod's and staging's Firebase projects (after
+#                                `accounts` and `staging-auth`), and who may write signals and deploy rules
 #   deploy/setup.sh wif          Workload Identity Federation for GitHub Actions
 #   deploy/setup.sh scheduler    Cloud Scheduler jobs (after a prod deploy made the jobs; existing ones are kept)
 #
@@ -94,6 +96,21 @@ staging_auth() { # staging's own runtime account: its database secret only, and 
     --role roles/iam.serviceAccountUser "${G[@]}" >/dev/null
 }
 
+firestore() { # the price signals' database (signals.py, firestore.rules): one per Firebase project
+  local project sa
+  for pair in "$PROJECT:$PROD_RUN_SA" "$STAGING_AUTH_PROJECT:$STAGING_RUN_SA"; do
+    project="${pair%%:*}" sa="${pair#*:}"
+    # staging's project has no billing: every call bills (nothing) to $PROJECT
+    gcloud services enable firestore.googleapis.com firebaserules.googleapis.com --project "$project"       --billing-project "$PROJECT" --quiet
+    gcloud firestore databases create --location "$REGION" --type firestore-native --project "$project"       --billing-project "$PROJECT" --quiet
+    # the service and its jobs write signals; CI deploys the rules
+    gcloud projects add-iam-policy-binding "$project" --member "serviceAccount:$sa" --role roles/datastore.user       --condition None --billing-project "$PROJECT" --quiet >/dev/null
+    echo "  roles/datastore.user on $project -> $sa"
+    gcloud projects add-iam-policy-binding "$project" --member "serviceAccount:$DEPLOY_SA"       --role roles/firebaserules.admin --condition None --billing-project "$PROJECT" --quiet >/dev/null
+    echo "  roles/firebaserules.admin on $project -> $DEPLOY_SA"
+  done
+}
+
 wif() {
   gcloud iam workload-identity-pools create "$WIF_POOL" --location global \
     --display-name "GitHub Actions" "${G[@]}"
@@ -129,11 +146,11 @@ scheduler() {
 }
 
 case "${1:-}" in
-  apis | registry | accounts | sql | wif | scheduler) "$1" ;;
+  apis | registry | accounts | sql | firestore | wif | scheduler) "$1" ;;
   database) database "${2:-}" ;;
   staging-auth) staging_auth ;;
   *)
-    sed -n '2,17p' "$0"
+    sed -n '2,19p' "$0"
     exit 1
     ;;
 esac

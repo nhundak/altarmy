@@ -120,7 +120,7 @@ describe('ProfitPage', () => {
     mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<ProfitPage />)
     expect(await screen.findByRole('region', { name: 'Search' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '3 characters on Classic Beta PvE (Horde), Dreamscythe (Horde)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '3 characters, Auto-import off' })).toBeInTheDocument()
     expect(cards()).not.toBeInTheDocument()
     expect(hero()).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Auto-import' }))
@@ -161,7 +161,7 @@ describe('ProfitPage', () => {
     have = true
     window.dispatchEvent(new Event('visibilitychange')) // what the status poll would notice
     expect(await screen.findByText('Characters uploaded')).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: /^3 characters on/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^3 characters/ })).toBeInTheDocument()
     await waitFor(() => expect(cards()).not.toBeInTheDocument())
   })
 
@@ -175,13 +175,36 @@ describe('ProfitPage', () => {
     expect(within(cont).getByText('Done adding characters.')).toBeInTheDocument()
     await userEvent.click(cont)
     await waitFor(() => expect(cards()).not.toBeInTheDocument())
-    expect(screen.getByRole('button', { name: /^3 characters on/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^3 characters/ })).toBeInTheDocument()
+  })
+
+  it('sums up the characters: how many, when they were gathered, and whether auto-import is on', async () => {
+    const utc = (hoursAgo: number) => new Date(Date.now() - hoursAgo * 3_600_000).toISOString().slice(0, 19).replace('T', ' ')
+    mockApi({
+      '/api/status': status(),
+      '/api/characters': { ...characters, imported_at: utc(3), imported_via: 'watcher', auto_import_at: utc(1) },
+      '/api/rank': noResults,
+    })
+    renderWithProviders(<ProfitPage />)
+    const summary = await screen.findByRole('button', { name: '3 characters, updated 3 h ago, Auto-import on' })
+    expect(within(summary).queryByText(/Dreamscythe/)).not.toBeInTheDocument()
+  })
+
+  it('says auto-import is off once Alt Army Sync has been quiet for a month', async () => {
+    const longAgo = new Date(Date.now() - 31 * 86_400_000).toISOString().slice(0, 19).replace('T', ' ')
+    mockApi({
+      '/api/status': status(),
+      '/api/characters': { ...characters, imported_at: longAgo, imported_via: 'paste', auto_import_at: longAgo },
+      '/api/rank': noResults,
+    })
+    renderWithProviders(<ProfitPage />)
+    expect(await screen.findByRole('button', { name: '3 characters, updated 31 days ago, Auto-import off' })).toBeInTheDocument()
   })
 
   it('opens the summary to show every character, and removes one', async () => {
     const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<ProfitPage />)
-    const summary = await screen.findByRole('button', { name: /^3 characters on/ })
+    const summary = await screen.findByRole('button', { name: /^3 characters/ })
     expect(summary).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('Tailor Guy')).not.toBeInTheDocument()
     await userEvent.click(summary)

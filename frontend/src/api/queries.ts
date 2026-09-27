@@ -16,7 +16,7 @@ const GV = { params: { query: { game_version: GAME_VERSION } } }
 
 /**
  * The server status. Polled, and refetched when the user comes back from the game, so the watcher's uploads
- * and the hourly merge show up.
+ * show up; new prices refetch it at once (`PriceSignal`).
  */
 export function useStatus() {
   return useQuery({
@@ -29,11 +29,17 @@ export function useStatus() {
 
 /**
  * Part of the keys of data that imports and merges affect: the user's data version (bumped whenever an upload or edit
- * changed something) and the selected auction house's price version (bumped by the hourly merge).
+ * changed something) and the selected auction house's price version (bumped whenever its prices changed).
  */
 export function useDataVersion() {
   const status = useStatus().data
   return status && `${status.data_version}.${status.price_version ?? 0}`
+}
+
+/** The selected auction house's price version, sent with requests that price things: after a price signal the
+ * server then never answers from a market older than it (`MarketCache.get`). */
+function usePriceVersion() {
+  return useStatus().data?.price_version ?? undefined
 }
 
 export function useCharacters() {
@@ -80,6 +86,7 @@ const orUndefined = <T>(v: T | null) => v ?? undefined
 /** Ranked recipes for the selected realm/faction's characters (every recipe without characters). */
 export function useRank(params: RankParams) {
   const version = useDataVersion()
+  const priceVersion = usePriceVersion()
   return useQuery({
     queryKey: ['rank', GAME_VERSION, version, params],
     queryFn: () =>
@@ -99,6 +106,7 @@ export function useRank(params: RankParams) {
               max_roi: orUndefined(params.maxRoi),
               sort: params.sort === 'rate' ? 'rate' : undefined,
               top: params.top,
+              price_version: priceVersion,
             },
           },
         }),
@@ -121,6 +129,7 @@ export function useEvaluations(
   { includeUnlearned, includeTrivial, exits, version }: EvaluateParams,
 ): Readonly<Record<number, EvaluationState>> {
   const ids = Object.keys(choices).map(Number)
+  const priceVersion = usePriceVersion()
   return useQueries({
     queries: ids.map((id) => ({
       queryKey: ['evaluate', GAME_VERSION, version, id, includeUnlearned, includeTrivial, exits, choices[id]],
@@ -134,6 +143,7 @@ export function useEvaluations(
               include_trivial: includeTrivial,
               exits,
               choices: choices[id] ?? {},
+              price_version: priceVersion,
             },
           }),
         ),
@@ -157,6 +167,7 @@ export function useSessionPlan(
   copies: number,
   city: string | null,
 ) {
+  const priceVersion = usePriceVersion()
   return useQuery({
     // under 'evaluate', so whatever re-costs plans (time settings, AH blocks) re-plans sessions too
     queryKey: ['evaluate', GAME_VERSION, version, recipeId, includeUnlearned, includeTrivial, exits, choices ?? {}, 'session', copies, city],
@@ -172,6 +183,7 @@ export function useSessionPlan(
             choices: choices ?? {},
             copies,
             city: city ?? undefined,
+            price_version: priceVersion,
           },
         }),
       ),
@@ -199,6 +211,17 @@ export function useMe(enabled: boolean) {
     queryFn: () => call(client.GET('/api/me')),
     enabled,
     staleTime: Infinity,
+  })
+}
+
+/** The ingestion log and statistics for site admins (`enabled` only for them); polled like the status. */
+export function useAdminIngestion(enabled: boolean) {
+  return useQuery({
+    queryKey: ['admin-ingestion', GAME_VERSION],
+    queryFn: () => call(client.GET('/api/admin/ingestion', GV)),
+    enabled,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   })
 }
 

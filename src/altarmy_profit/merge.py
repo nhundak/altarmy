@@ -23,7 +23,7 @@ from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import Connection, bindparam, func, select, update
 
-from . import db, schema
+from . import db, prices, schema
 
 SAMPLE_DAYS = 7  # the latest days with data that make an item's median
 LOOKBACK_DAYS = 30  # how far back those days may be
@@ -100,8 +100,7 @@ def merge_auction_house(conn: Connection, auction_house_id: int, today: date) ->
 
     changed = bool(daily_updates or current_updates)
     if changed:
-        t = schema.auction_houses
-        conn.execute(update(t).where(t.c.id == auction_house_id).values(price_version=t.c.price_version + 1))
+        prices.bump_price_version(conn, auction_house_id)
     return changed
 
 

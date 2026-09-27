@@ -36,6 +36,7 @@ import { useSession } from '../lib/session'
 import { useStoredState } from '../lib/storage'
 import { GoalPicker } from './GoalPicker'
 import { PriceFreshness } from './PriceFreshness'
+import { PriceSignal } from './PriceSignal'
 import { ResultsTable } from './ResultsTable'
 import { TimeSettingsPanel } from './TimeSettingsPanel'
 
@@ -281,6 +282,7 @@ export function SearchTab() {
 
   return (
     <Stack>
+      <PriceSignal />
       <GoalPicker goal={goal} choosing={choosing} onPick={pickGoal} onChange={() => setChoosing(true)} />
       {goal !== null && !choosing && (
         <>

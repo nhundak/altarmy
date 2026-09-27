@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
-import { Anchor, Button, Code, Group, List, SimpleGrid, Stack, Text, Title } from '@mantine/core'
+import { Alert, Anchor, Button, Code, Group, List, SimpleGrid, Stack, Text, Title } from '@mantine/core'
 import { linkProps } from '../lib/router'
+import { useSession } from '../lib/session'
 import { motion } from 'motion/react'
+import { AdminTab } from './AdminTab'
 import cards from './Cards.module.css'
 import { IconDownload, IconExternal } from './icons'
 import { ADDON_SHOWCASE, ShowcaseCard } from './Landing'
@@ -135,6 +137,16 @@ export function UploadPage() {
       lead="Bring in characters and auction prices from WoW's saved files, and see which realms need a scan."
     >
       <UploadTab />
+    </Page>
+  )
+}
+
+/** Site admins only (the Firebase `admin` claim); anyone else who opens it gets a notice, and no request. */
+export function AdminPage() {
+  const { admin } = useSession()
+  return (
+    <Page title="Admin" lead="What the scheduled jobs, uploads and price feeds have been doing.">
+      {admin ? <AdminTab /> : <Alert color="yellow">This page is for site admins. Sign in with an admin account.</Alert>}
     </Page>
   )
 }

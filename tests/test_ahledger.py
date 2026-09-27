@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection, select
 
-from altarmy_profit import ahledger, cli, db, prices, schema
+from altarmy_profit import ahledger, cli, db, jobs, prices, schema
 
 from .conftest import FOREVER
 from .test_auctionator import _mangled
@@ -231,3 +231,12 @@ def test_the_cli_polls_every_market(
     assert "forever.pvp.alliance.us: AHledger answered 404" in out
     with db.Database(db.sqlite_url(Path(dbfile))).begin() as conn:
         assert len(prices.coverage(conn, FOREVER)) == 3
+        (run,) = jobs.recent(conn, FOREVER)
+        feeds = ahledger.feeds(conn, FOREVER)
+    assert (run.job, run.ok) == ("ahledger", False)
+    assert run.summary.endswith("5 requests to AHledger.\n1 of 4 AHledger markets failed.")
+    assert [(f.market, f.rows) for f in feeds] == [
+        ("forever.normal.alliance.us", 1),
+        ("forever.normal.horde.us", 1),
+        ("forever.pvp.horde.us", 1),
+    ]

@@ -3,7 +3,8 @@ import { fireEvent, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import { characters, status } from './test/status'
-import { GUEST, LINKED, mockApi, renderWithProviders } from './test/utils'
+import { ingestion } from './components/AdminTab.test'
+import { ADMIN, GUEST, LINKED, mockApi, renderWithProviders } from './test/utils'
 
 function renderApp() {
   return renderWithProviders(
@@ -56,7 +57,7 @@ describe('the shell by tier', () => {
     expect(screen.getByRole('link', { name: 'Alt Army' })).toHaveAttribute('href', '/addon')
     fireEvent.click(screen.getByRole('link', { name: 'Put your army to work' }))
     expect(window.location.pathname).toBe('/profit')
-    expect(await screen.findByRole('button', { name: /^3 characters on/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^3 characters,/ })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('link', { name: 'Alt Army, main page' }))
     expect(await screen.findByRole('link', { name: 'Put your army to work' })).toBeInTheDocument()
   })
@@ -67,7 +68,7 @@ describe('the shell by tier', () => {
     renderWithProviders(<App />, GUEST)
     expect(nav()).toEqual(['Upload', 'Manage'])
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: /^3 characters on/ })).toBeInTheDocument() // theirs, ready to rank
+    expect(await screen.findByRole('button', { name: /^3 characters,/ })).toBeInTheDocument() // theirs, ready to rank
     expect(screen.queryByText(/guest/i)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('link', { name: 'Manage' }))
     expect(await screen.findByText('Never sold on the auction house')).toBeInTheDocument()
@@ -82,6 +83,24 @@ describe('the shell by tier', () => {
     expect(await screen.findByText('Never sold on the auction house')).toBeInTheDocument()
     expect(screen.getByText('Upload automatically')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Alt Army Sync for Windows' })).toBeInTheDocument()
+  })
+
+  it('links the admin page for site admins only', async () => {
+    const fetch = hostedApi()
+    window.history.pushState(null, '', '/admin')
+    const { unmount } = renderWithProviders(<App />, LINKED)
+    expect(nav()).toEqual(['Upload', 'Manage'])
+    expect(await screen.findByText(/This page is for site admins/)).toBeInTheDocument()
+    expect(fetch.mock.calls.map(([r]) => new URL(r.url).pathname)).not.toContain('/api/admin/ingestion')
+    unmount()
+
+    mockApi({ '/api/status': status(), '/api/admin/ingestion': ingestion })
+    window.history.pushState(null, '', '/manage')
+    renderWithProviders(<App />, ADMIN)
+    expect(nav()).toEqual(['Upload', 'Manage', 'Admin'])
+    fireEvent.click(screen.getByRole('link', { name: 'Admin' }))
+    expect(window.location.pathname).toBe('/admin')
+    expect(await screen.findByRole('table', { name: 'Jobs' })).toBeInTheDocument()
   })
 
   it('opens the upload page', async () => {

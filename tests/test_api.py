@@ -7,10 +7,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Connection, select
 
 from altarmy_profit import (
+    ahledger,
     altarmy,
     auth,
     db,
     ingest,
+    jobs,
     merge,
     prices,
     ratelimit,
@@ -28,11 +30,15 @@ from .conftest import FOREVER, ME, set_prices
 from .test_altarmy import ALTARMY_SV
 from .test_auctionator import _entry, _saved_variables
 from .test_auth import FakeVerifier
+from .test_signals import FakeSignals
 
-FIREBASE = auth.FirebaseConfig("demo-altarmy", "key", "demo-altarmy.firebaseapp.com", "127.0.0.1:9099")
+FIREBASE = auth.FirebaseConfig(
+    "demo-altarmy", "key", "demo-altarmy.firebaseapp.com", "127.0.0.1:9099", "127.0.0.1:8080"
+)
 FREE = {"Authorization": "Bearer anonymous:guest"}  # tokens as `FakeVerifier` reads them: an anonymous user
 LINKED = {"Authorization": "Bearer google.com:g1"}  # a user with an account
 SIGNED_IN = {"Authorization": f"Bearer password:{ME}"}  # the `client` fixture's default: `ME`, linked
+ADMIN = {"Authorization": "Bearer password:a1:admin"}  # a linked user with the admin claim
 
 
 def make_client(
@@ -52,6 +58,7 @@ def make_client(
         verifier=verifier or FakeVerifier(),
         firebase=FIREBASE,
         limits=limits,
+        signals=FakeSignals(),
     )
     c = TestClient(app)
     c.params = c.params.set("game_version", "forever")
@@ -88,7 +95,13 @@ def test_empty_db(client: TestClient, database: db.Database) -> None:
     assert status["recipes"] == 0
     assert status["build"] is None
     assert (status["characters"], status["selection"], status["data_version"]) == (0, None, 0)
-    assert client.get("/api/characters").json() == {"groups": [], "selection": None}
+    assert client.get("/api/characters").json() == {
+        "groups": [],
+        "selection": None,
+        "imported_at": None,
+        "imported_via": None,
+        "auto_import_at": None,
+    }
     assert client.get("/api/rank").json()["results"] == []
 
 
@@ -423,6 +436,7 @@ def test_users_sign_in_with_a_token(client: TestClient, conn: Connection) -> Non
             "auth_domain": "demo-altarmy.firebaseapp.com",
             "project_id": "demo-altarmy",
             "emulator_url": "http://127.0.0.1:9099",
+            "firestore_emulator_host": "127.0.0.1:8080",
         },
     }
     del client.headers["Authorization"]
@@ -432,8 +446,10 @@ def test_users_sign_in_with_a_token(client: TestClient, conn: Connection) -> Non
     assert client.get("/api/me", headers=FREE).json() == {
         "uid": "guest",
         "tier": "free",
+        "admin": False,
     }
     assert client.get("/api/me", headers=LINKED).json()["tier"] == "linked"
+    assert not client.get("/api/me", headers=LINKED).json()["admin"]
     u = schema.users
     rows = conn.execute(select(u.c.uid, u.c.tier).order_by(u.c.uid)).all()
     assert [tuple(r) for r in rows] == [
@@ -539,11 +555,13 @@ def test_rank_pages_through_one_search(
 
 
 def test_status_reports_the_price_version(client: TestClient, priced: Connection) -> None:
-    assert client.get("/api/status").json()["price_version"] == 0
+    assert client.get("/api/status").json()["price_version"] == 2  # the fixture's two prices
     ah = scanned_robe(priced, 1200, 1000)
+    scanned = client.get("/api/status").json()["price_version"]
+    assert scanned > 2
     prices.record_daily(priced, ah, {3: _item_price(1200)})
     merge.merge(priced, FOREVER)
-    assert client.get("/api/status").json()["price_version"] == 1
+    assert client.get("/api/status").json()["price_version"] == scanned + 1
 
 
 def _item_price(price: int) -> ItemPrice:
@@ -625,6 +643,41 @@ def test_upload_refreshes_the_cached_market(client: TestClient, priced: Connecti
     assert client.get("/api/rank").json()["results"][0]["cost"] == 10 * 33 + 100  # linen repriced
 
 
+def published(client: TestClient) -> list[tuple[int, str, int]]:
+    fake: FakeSignals = client.app.state.wow[FOREVER].signals  # type: ignore[attr-defined]
+    return fake.published
+
+
+def test_an_upload_that_moves_prices_signals_the_auction_house(
+    client: TestClient, priced: Connection
+) -> None:
+    ah = service.selected_auction_house(priced, ME, FOREVER)
+    assert ah is not None
+    before = prices.price_version(priced, ah)
+    assert before is not None
+    service.delete_character(priced, ME, FOREVER, "Classic Beta PvE", "Ally Alt")  # scans are the Horde's
+    data = _saved_variables({"ClassicBetaPvE": {"1": {"m": 33}}})
+    upload(client, "auctionator", data)
+    assert published(client) == [(ah, FOREVER, before + 1)]
+    upload(client, "auctionator", data)  # the same prices again: nothing moved
+    assert published(client) == [(ah, FOREVER, before + 1)]
+    upload(client, "altarmy", ALTARMY_SV)  # characters only
+    assert len(published(client)) == 1
+
+
+def test_a_known_price_version_skips_the_markets_ttl(client: TestClient, priced: Connection) -> None:
+    """After a price signal the front end asks with the new version: another instance's prices show at
+    once, not STAMP_TTL later."""
+    assert client.get("/api/rank").json()["results"][0]["cost"] == 10 * 20 + 100
+    ah = service.selected_auction_house(priced, ME, FOREVER)
+    prices.set_price(priced, ah or 0, 1, 33)  # as another instance's upload would
+    version = prices.price_version(priced, ah)
+    got = client.get("/api/rank", params={"price_version": version}).json()
+    assert got["results"][0]["cost"] == 10 * 33 + 100
+    body = {"recipe_id": got["results"][0]["recipe_id"], "choices": {}, "price_version": version}
+    assert client.post("/api/evaluate", json=body).json()["result"]["cost"] == 10 * 33 + 100
+
+
 def test_bad_uploads(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     res = upload(client, "auctionator", b"garbage", LINKED)
     assert res.status_code == 400
@@ -659,6 +712,12 @@ def test_guests_paste_the_addons_export(client: TestClient) -> None:
         "paste",
         "accepted",
         "tbc",
+    )
+    chars = client.get("/api/characters", params=tbc, headers=FREE).json()
+    assert (chars["imported_at"], chars["imported_via"], chars["auto_import_at"]) == (
+        row["received_at"],
+        "paste",
+        None,
     )
 
 
@@ -786,12 +845,67 @@ def test_serves_the_front_end_for_its_own_pages(
     (dist / "index.html").write_text("<html>app</html>")
     (dist / "assets" / "app.js").write_text("js")
     client = make_client(database, game_versions, dist)
-    for page in ("/addon", "/profit", "/upload", "/manage"):
+    for page in ("/addon", "/profit", "/upload", "/manage", "/admin"):
         assert client.get(page).text == "<html>app</html>"
     assert client.get("/assets/app.js").text == "js"
     assert client.get("/assets/missing.js").status_code == 404
     assert client.get("/api/nope").status_code == 404
     assert "app" not in client.get("/api/nope").text
+
+
+# --- admin -----------------------------------------------------------------------------------------------
+def test_the_admin_page_is_for_admins_only(client: TestClient) -> None:
+    assert client.get("/api/me", headers=ADMIN).json() == {"uid": "a1", "tier": "linked", "admin": True}
+    for headers in (FREE, LINKED, SIGNED_IN):
+        assert client.get("/api/admin/ingestion", headers=headers).status_code == 403
+    assert client.get("/api/admin/ingestion", headers={"Authorization": "Bearer nonsense"}).status_code == 401
+    assert client.get("/api/admin/ingestion", headers=ADMIN).status_code == 200
+
+
+def test_the_admin_page_shows_jobs_uploads_snapshots_and_feeds(client: TestClient, conn: Connection) -> None:
+    now = db.utcnow()
+    run_id = jobs.start(conn, "merge", now=now)
+    jobs.finish(conn, run_id, True, "Merged 1 auction houses", now=now)
+    jobs.start(conn, "ingest", "tbc", now=now)  # another version's: not shown
+    uploads.record_upload(conn, ME, FOREVER, "auctionator", "watcher", 10, "accepted", "2 prices", now=now)
+    uploads.record_upload(conn, ME, "tbc", "auctionator", "watcher", 10, "accepted", "", now=now)
+    ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
+    prices.record_snapshot(conn, ah, "auctionator", now, [prices.Observation(1, 10, now)], received_at=now)
+    conn.execute(
+        schema.feed_tables.insert().values(
+            source="ahledger",
+            market="forever.normal.horde.us",
+            auction_house_id=ah,
+            scanned_at=now,
+            stamped_at=now,
+            fetched_at=now,
+            body=f"AHL1|forever/normal/horde/us|{int(now.timestamp())}|1\n1:10:10:3",
+        )
+    )
+    got = client.get("/api/admin/ingestion", headers=ADMIN).json()
+    assert got["now"] >= db.timestamp_text(now)
+    status = {j["job"]: j for j in got["jobs"]}
+    assert list(status) == list(schema.JOBS)
+    assert status["merge"]["ok"] and not status["merge"]["late"]
+    assert status["merge"]["summary"] == "Merged 1 auction houses"
+    assert status["ingest"] == {
+        "job": "ingest",
+        "game_version": None,
+        "last_started": None,
+        "last_finished": None,
+        "ok": None,
+        "late": True,
+        "summary": "",
+    }
+    assert [r["job"] for r in got["runs"]] == ["merge"]
+    assert got["uploads"]["accepted_24h"] == 1 and got["uploads"]["uploaders_7d"] == 1
+    assert [(u["user_uid"], u["detail"]) for u in got["uploads"]["recent"]] == [(ME, "2 prices")]
+    ((source, stats),) = [(s["source"], s) for s in got["snapshots"]]
+    assert (source, stats["snapshots_24h"], stats["items_7d"]) == ("auctionator", 1, 1)
+    assert [(f["market"], f["faction"], f["rows"]) for f in got["feeds"]] == [
+        ("forever.normal.horde.us", "Horde", 1)
+    ]
+    assert ahledger.feeds(conn, FOREVER)[0].auction_house_id == ah
 
 
 # --- profit per hour ----------------------------------------------------------------------------------

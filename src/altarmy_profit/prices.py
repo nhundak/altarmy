@@ -15,7 +15,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import Connection, delete, func, select
+from sqlalchemy import ColumnElement, Connection, case, delete, func, select, update
 
 from . import db, schema
 from .auctionator import ItemPrice
@@ -120,7 +120,9 @@ def auction_house_for_auctionator_key(conn: Connection, game_version: str, key: 
 
 
 def price_version(conn: Connection, auction_house_id: int | None) -> int | None:
-    """How many merges changed the auction house's 7-day columns (None: no such auction house)."""
+    """Bumped whenever the auction house's prices changed: a snapshot that moved a current price
+    (`record_snapshot`) or a merge that changed its 7-day columns. The front end refetches when it moves
+    (`/api/status`, and the Firestore price signal, `signals.py`). None: no such auction house."""
     if auction_house_id is None:
         return None
     t = schema.auction_houses
@@ -311,7 +313,8 @@ def record_snapshot(
     received_at: datetime | None = None,
     uploader_uid: str | None = None,
 ) -> int:
-    """Store a snapshot and whatever it adds to `price_current`. Returns how many items it moved.
+    """Store a snapshot and whatever it adds to `price_current`. Returns how many items it moved; if any,
+    the auction house's `price_version` is bumped.
 
     An observation is news when the auction house has no price for the item, when it was seen on a later
     day, or when it was seen no earlier and its price differs. Re-sending the same scan writes nothing."""
@@ -347,7 +350,13 @@ def record_snapshot(
         for o in news
     ]
     db.upsert(conn, pc, rows, ["auction_house_id", "item_id"], ["price", "seen_at", "snapshot_id"])
+    bump_price_version(conn, auction_house_id)
     return len(news)
+
+
+def bump_price_version(conn: Connection, auction_house_id: int) -> None:
+    t = schema.auction_houses
+    conn.execute(update(t).where(t.c.id == auction_house_id).values(price_version=t.c.price_version + 1))
 
 
 def _current(conn: Connection, auction_house_id: int) -> dict[int, tuple[int, datetime]]:
@@ -547,6 +556,47 @@ def count_current(conn: Connection, auction_house_id: int | None) -> int:
             select(func.count()).select_from(pc).where(pc.c.auction_house_id == auction_house_id)
         ).scalar_one()
     )
+
+
+@dataclass(frozen=True)
+class SnapshotStats:
+    """One source's snapshots of a game version lately, for the Admin page."""
+
+    source: str
+    snapshots_24h: int
+    snapshots_7d: int
+    quarantined_7d: int
+    items_7d: int  # items in those snapshots
+    newest_received_at: datetime
+
+
+def snapshot_stats(conn: Connection, game_version: str, now: datetime | None = None) -> list[SnapshotStats]:
+    """Per source (by name), the snapshots `game_version`'s auction houses received in the last week."""
+    snap, t = schema.price_snapshots, schema.auction_houses
+    now = db.utc(now or db.utcnow())
+    day, week = now - timedelta(days=1), now - timedelta(days=7)
+
+    def count(condition: ColumnElement[bool]) -> ColumnElement[int]:
+        return func.sum(case((condition, 1), else_=0))
+
+    rows = conn.execute(
+        select(
+            snap.c.source,
+            count(snap.c.received_at >= day),
+            func.count(),
+            count(snap.c.status == "quarantined"),
+            func.sum(snap.c.item_count),
+            func.max(snap.c.received_at),
+        )
+        .join(t, t.c.id == snap.c.auction_house_id)
+        .where(t.c.game_version == game_version, snap.c.received_at >= week)
+        .group_by(snap.c.source)
+        .order_by(snap.c.source)
+    ).all()
+    return [
+        SnapshotStats(source, int(d), int(w), int(q), int(items or 0), db.utc(newest))
+        for source, d, w, q, items, newest in rows
+    ]
 
 
 def last_import(conn: Connection, auction_house_id: int | None, source: str = AUCTIONATOR) -> str | None:

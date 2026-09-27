@@ -1,5 +1,6 @@
-"""Command line interface: the site's jobs (ingest, migrate, prune, merge, ahledger), `serve` (the API and
-built front end, for development) and `watch` (uploads the addon files to a server).
+"""Command line interface: the site's jobs (ingest, migrate, prune, merge, ahledger; all but migrate record
+their runs in `job_runs`), `serve` (the API and built front end, for development), `watch` (uploads the
+addon files to a server) and `admin` (the site admin claim on Firebase accounts).
 
 `--game-version` (tbc | forever) picks the game's data and wago.tools product. Every version shares one
 database: `--db` (a SQLite file), else `DATABASE_URL`, else data/altarmy-profit.sqlite.
@@ -11,9 +12,27 @@ import argparse
 import getpass
 import os
 import sys
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-from . import ahledger, db, ingest, merge, prices, service, signin, versions, watch, wowfiles
+from sqlalchemy import Connection, select
+
+from . import (
+    ahledger,
+    auth,
+    db,
+    ingest,
+    jobs,
+    merge,
+    prices,
+    schema,
+    service,
+    signals,
+    signin,
+    versions,
+    watch,
+    wowfiles,
+)
 from .versions import GameVersion
 
 
@@ -31,21 +50,22 @@ def _database(args: argparse.Namespace) -> db.Database:
 
 def cmd_ingest(args: argparse.Namespace) -> None:
     v = _version(args)
-    if args.only_if_new:  # the hosted daily job: the newest build, unless it is already loaded
+    with jobs.recording(args.database, "ingest", v.key) as run:
+        if args.only_if_new:  # the hosted daily job: the newest build, unless it is already loaded
+            with args.database.begin() as conn:
+                build, updated, stats = service.update_game_data(conn, v, Path(args.cache), only_if_new=True)
+            run.say(
+                f"Ingested {v.label} build {build}: {stats}"
+                if updated
+                else f"{v.label} build {build} already loaded."
+            )
+            return
+        build = args.build or v.default_build
+        if build == "latest":
+            build = ingest.latest_build(v.wago_product)
         with args.database.begin() as conn:
-            build, updated, stats = service.update_game_data(conn, v, Path(args.cache), only_if_new=True)
-        print(
-            f"Ingested {v.label} build {build}: {stats}"
-            if updated
-            else f"{v.label} build {build} already loaded."
-        )
-        return
-    build = args.build or v.default_build
-    if build == "latest":
-        build = ingest.latest_build(v.wago_product)
-    with args.database.begin() as conn:
-        stats = ingest.update(conn, v.key, build, Path(args.cache), v.disenchant_csv, v.vendor_csv)
-    print(f"Ingested {v.label} build {build}: {stats}")
+            stats = ingest.update(conn, v.key, build, Path(args.cache), v.disenchant_csv, v.vendor_csv)
+        run.say(f"Ingested {v.label} build {build}: {stats}")
 
 
 def cmd_migrate(args: argparse.Namespace) -> None:
@@ -58,46 +78,78 @@ def cmd_migrate(args: argparse.Namespace) -> None:
 
 
 def cmd_prune(args: argparse.Namespace) -> None:
-    with args.database.begin() as conn:
-        prices.prune(conn)
-    print(f"Pruned price observations older than {prices.KEEP_DAYS} days.")
+    with jobs.recording(args.database, "prune") as run:
+        with args.database.begin() as conn:
+            prices.prune(conn)
+        run.say(f"Pruned price observations older than {prices.KEEP_DAYS} days.")
 
 
 def cmd_merge(args: argparse.Namespace) -> None:
-    with args.database.begin() as conn:
-        changed = merge.merge(conn)
-        observations = merge.observation_count(conn)
-    print(
-        f"Merged {len(changed)} auction houses of every game version ({sum(changed.values())} changed); "
-        f"{observations} price observations stored."
+    with jobs.recording(args.database, "merge") as run:
+        with args.database.begin() as conn:
+            changed = merge.merge(conn)
+            observations = merge.observation_count(conn)
+            moved = _price_versions(conn, [ah for ah, c in changed.items() if c])
+        run.say(
+            f"Merged {len(changed)} auction houses of every game version ({sum(changed.values())} changed); "
+            f"{observations} price observations stored."
+        )
+        run.say(_signal(signals.from_env(), moved))
+
+
+def _price_versions(conn: Connection, auction_house_ids: Iterable[int]) -> dict[str, dict[int, int]]:
+    """{game version: {auction house id: price version}} of these auction houses, to signal."""
+    t = schema.auction_houses
+    rows = conn.execute(
+        select(t.c.id, t.c.game_version, t.c.price_version).where(t.c.id.in_(list(auction_house_ids)))
     )
+    out: dict[str, dict[int, int]] = {}
+    for r in rows:
+        out.setdefault(r.game_version, {})[r.id] = r.price_version
+    return out
+
+
+def _signal(to: signals.Signals, moved: Mapping[str, Mapping[int, int]]) -> str:
+    """Publish the committed price versions (see `signals`); what to say about it."""
+    if isinstance(to, signals.NoSignals):
+        return "No price signals: no Firebase project."
+    sent = sum(signals.publish_all(to, version, houses) for version, houses in sorted(moved.items()))
+    wanted = sum(len(h) for h in moved.values())
+    said = f"{sent} price signal{'' if sent == 1 else 's'} sent"
+    return f"{said} ({wanted - sent} failed)." if sent < wanted else f"{said}."
 
 
 def cmd_ahledger(args: argparse.Namespace) -> None:
     """Poll AHledger's markets of every version (an hourly job), one transaction per market."""
-    client = ahledger.Client.from_env()
-    wanted = [(v.key, m) for v in versions.VERSIONS.values() for m in ahledger.markets(v.key)]
-    failed = 0
-    try:
-        served = client.markets()
-    except (ahledger.AHledgerError, ValueError) as e:
-        sys.exit(f"AHledger: {e}")
-    for game_version, market in wanted:
-        if market.id not in served:
-            print(f"{market.id}: not an AHledger market (any more?)")
-            failed += 1
-            continue
+    with jobs.recording(args.database, "ahledger") as run:
+        client = ahledger.Client.from_env()
+        to = signals.from_env()
+        wanted = [(v.key, m) for v in versions.VERSIONS.values() for m in ahledger.markets(v.key)]
+        failed = 0
         try:
-            with args.database.begin() as conn:
-                print(ahledger.poll_market(conn, game_version, market, client).summary)
+            served = client.markets()
         except (ahledger.AHledgerError, ValueError) as e:
-            print(f"{market.id}: {e}")
-            failed += 1
-    with args.database.begin() as conn:
-        prices.prune(conn)
-    print(f"{client.requests} requests to AHledger.")
-    if failed:
-        sys.exit(f"{failed} of {len(wanted)} AHledger markets failed.")
+            sys.exit(f"AHledger: {e}")
+        for game_version, market in wanted:
+            if market.id not in served:
+                run.say(f"{market.id}: not an AHledger market (any more?)")
+                failed += 1
+                continue
+            try:
+                with args.database.begin() as conn:
+                    polled = ahledger.poll_market(conn, game_version, market, client)
+                    moved = _price_versions(conn, [polled.auction_house_id] if polled.moved else [])
+                run.say(polled.summary)
+                if moved:
+                    run.say(_signal(to, moved))
+            except (ahledger.AHledgerError, ValueError) as e:
+                run.say(f"{market.id}: {e}")
+                failed += 1
+        with args.database.begin() as conn:
+            prices.prune(conn)
+        run.say(f"{client.requests} requests to AHledger.")
+        if failed:
+            sys.exit(f"{failed} of {len(wanted)} AHledger markets failed.")
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
@@ -122,6 +174,39 @@ def cmd_serve(args: argparse.Namespace) -> None:
         print(f"Front end not built ({DEFAULT_DIST} missing): `npm run dev` serves it through Vite instead.")
     print(f"altarmy-profit API on http://{args.host}:{args.port} (Ctrl+C to stop)")
     uvicorn.run(app, host=args.host, port=args.port)
+
+
+def cmd_admin(args: argparse.Namespace) -> None:
+    """Grant, revoke or list the site admin claim on Firebase accounts (no database). Needs Firebase Auth
+    admin rights: Application Default Credentials, or the Auth emulator when FIREBASE_AUTH_EMULATOR_HOST
+    is set."""
+    if args.action != "list" and not args.email:
+        sys.exit(f"admin {args.action} needs the account's email.")
+    project = args.project
+    if not project:
+        try:
+            project = auth.FirebaseConfig.from_env().project_id
+        except ValueError as e:
+            sys.exit(str(e))
+    try:
+        roster: auth.AdminRoster = auth.FirebaseVerifier(project)
+    except ImportError:
+        sys.exit('Managing admins needs firebase-admin: pip install -e ".[ui]"')
+    try:
+        if args.action == "list":
+            found = roster.admins()
+            for uid, email in found:
+                print(f"{email or '(no email)'} ({uid})")
+            print(f"{len(found)} admins in {project}.")
+            return
+        uid = roster.set_admin(args.email, args.action == "grant")
+    except auth.AccountError as e:
+        sys.exit(f"{project}: {e}")
+    done = "Granted" if args.action == "grant" else "Revoked"
+    print(
+        f"{done} admin for {args.email} ({uid}) in {project}. It applies to sign-in tokens issued from now:"
+        " sign out and in to see it."
+    )
 
 
 def _ask(prompt: str, env: str, secret: bool = False) -> str:
@@ -231,6 +316,14 @@ def main(argv: list[str] | None = None) -> None:
         help="record AHledger's newest auction house prices (every game version; AHLEDGER_API_KEY optional)",
     )
     s.set_defaults(fn=cmd_ahledger)
+
+    s = sub.add_parser(
+        "admin", help="grant, revoke or list the site admin claim on Firebase accounts (needs the [ui] extra)"
+    )
+    s.add_argument("action", choices=["grant", "revoke", "list"])
+    s.add_argument("email", nargs="?", help="the account's email (grant, revoke)")
+    s.add_argument("--project", help="the Firebase project (default: FIREBASE_PROJECT_ID)")
+    s.set_defaults(fn=cmd_admin, needs_db=False)
 
     s = sub.add_parser("serve", help="serve the API and the built front end (needs the [ui] extra)")
     s.add_argument("--host", default="127.0.0.1")

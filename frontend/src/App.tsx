@@ -12,7 +12,7 @@ import classes from './App.module.css'
 import { AccountControls } from './components/Account'
 import { IconMoon, IconSun } from './components/icons'
 import { carriesCard, Landing } from './components/Landing'
-import { AddonPage, ManagePage, UploadPage } from './components/Pages'
+import { AddonPage, AdminPage, ManagePage, UploadPage } from './components/Pages'
 import { ProfitPage } from './components/Profit'
 import { linkProps, previousRoute, useRoute, type Route } from './lib/router'
 import { useSession } from './lib/session'
@@ -46,6 +46,7 @@ function ThemeToggle() {
 }
 
 function Header() {
+  const { admin } = useSession()
   return (
     <header className={classes.header}>
       <a className={classes.brand} aria-label="Alt Army, main page" {...linkProps('/')}>
@@ -56,6 +57,7 @@ function Header() {
         <Group gap="md" component="nav" aria-label="Pages">
           <NavLink to="/upload" label="Upload" />
           <NavLink to="/manage" label="Manage" />
+          {admin && <NavLink to="/admin" label="Admin" />}
         </Group>
         <Button component="a" {...linkProps('/addon')}>
           Get the Addon
@@ -79,6 +81,8 @@ function Page({ route }: { route: Route }) {
       return <UploadPage />
     case '/manage':
       return <ManagePage />
+    case '/admin':
+      return <AdminPage />
     default:
       return <Landing />
   }

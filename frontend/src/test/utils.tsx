@@ -6,9 +6,10 @@ import { vi } from 'vitest'
 import { FALLBACK_SESSION, SessionContext, type Session } from '../lib/session'
 import { theme } from '../theme'
 
-/** Sessions to render as: an anonymous guest, or a user with an account (the default). */
-export const GUEST: Session = { uid: 'guest', tier: 'free' }
+/** Sessions to render as: an anonymous guest, a user with an account (the default), or a site admin. */
+export const GUEST: Session = { uid: 'guest', tier: 'free', admin: false }
 export const LINKED: Session = FALLBACK_SESSION
+export const ADMIN: Session = { uid: 'a1', tier: 'linked', admin: true }
 
 /** Render with Mantine, a fresh query client and a signed-in `session` (default: `LINKED`). */
 export function renderWithProviders(ui: ReactElement, session: Session = LINKED) {

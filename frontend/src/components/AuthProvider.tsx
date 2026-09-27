@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Signing in, linking or signing out changes the token: ask the API who that is now.
   useEffect(() => onUserChange(() => void queryClient.invalidateQueries({ queryKey: ['me'] })), [queryClient])
   const signedIn = useMemo<Session | undefined>(
-    () => (me.data ? { uid: me.data.uid, tier: me.data.tier } : undefined),
+    () => (me.data ? { uid: me.data.uid, tier: me.data.tier, admin: me.data.admin } : undefined),
     [me.data],
   )
 

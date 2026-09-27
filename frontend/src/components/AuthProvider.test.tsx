@@ -21,11 +21,11 @@ const firebase = {
   emulator_url: 'http://127.0.0.1:9099',
 }
 const config: Config = { firebase }
-const guest: Me = { uid: 'guest', tier: 'free' }
+const guest: Me = { uid: 'guest', tier: 'free', admin: false }
 
 function Who() {
   const s = useSession()
-  return <p>{`${s.uid} ${s.tier}`}</p>
+  return <p>{`${s.uid} ${s.tier}${s.admin ? ' admin' : ''}`}</p>
 }
 
 const renderApp = () =>

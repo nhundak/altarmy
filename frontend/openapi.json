@@ -1,6 +1,72 @@
 {
   "components": {
     "schemas": {
+      "AdminUploadOut": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "game_version": {
+            "title": "Game Version",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "altarmy",
+              "auctionator"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "received_at": {
+            "title": "Received At",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "user_uid": {
+            "title": "User Uid",
+            "type": "string"
+          },
+          "via": {
+            "enum": [
+              "browser",
+              "watcher",
+              "paste"
+            ],
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "game_version",
+          "kind",
+          "via",
+          "size",
+          "received_at",
+          "outcome",
+          "detail",
+          "user_uid"
+        ],
+        "title": "AdminUploadOut",
+        "type": "object"
+      },
       "AhBlocked": {
         "description": "Items never sold on the AH: only vendored or disenchanted.",
         "properties": {
@@ -129,12 +195,50 @@
       },
       "Characters": {
         "properties": {
+          "auto_import_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Import At"
+          },
           "groups": {
             "items": {
               "$ref": "#/components/schemas/GroupOut"
             },
             "title": "Groups",
             "type": "array"
+          },
+          "imported_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imported At"
+          },
+          "imported_via": {
+            "anyOf": [
+              {
+                "enum": [
+                  "browser",
+                  "watcher",
+                  "paste"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imported Via"
           },
           "selection": {
             "anyOf": [
@@ -416,6 +520,17 @@
             "title": "Include Unlearned",
             "type": "boolean"
           },
+          "price_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Version"
+          },
           "recipe_id": {
             "title": "Recipe Id",
             "type": "integer"
@@ -519,6 +634,44 @@
         "title": "Favorites",
         "type": "object"
       },
+      "FeedOut": {
+        "properties": {
+          "faction": {
+            "title": "Faction",
+            "type": "string"
+          },
+          "fetched_at": {
+            "title": "Fetched At",
+            "type": "string"
+          },
+          "market": {
+            "title": "Market",
+            "type": "string"
+          },
+          "realm": {
+            "title": "Realm",
+            "type": "string"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          },
+          "scanned_at": {
+            "title": "Scanned At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "market",
+          "realm",
+          "faction",
+          "rows",
+          "scanned_at",
+          "fetched_at"
+        ],
+        "title": "FeedOut",
+        "type": "object"
+      },
       "FirebaseOut": {
         "description": "The Firebase web config the front end signs in with (public values).",
         "properties": {
@@ -540,6 +693,17 @@
               }
             ],
             "title": "Emulator Url"
+          },
+          "firestore_emulator_host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firestore Emulator Host"
           },
           "project_id": {
             "title": "Project Id",
@@ -615,6 +779,56 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "IngestionOut": {
+        "description": "What the ingestion jobs, uploads and feeds have been doing (the Admin page).",
+        "properties": {
+          "feeds": {
+            "items": {
+              "$ref": "#/components/schemas/FeedOut"
+            },
+            "title": "Feeds",
+            "type": "array"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/JobStatusOut"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "now": {
+            "title": "Now",
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/JobRunOut"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotStatsOut"
+            },
+            "title": "Snapshots",
+            "type": "array"
+          },
+          "uploads": {
+            "$ref": "#/components/schemas/UploadStatsOut"
+          }
+        },
+        "required": [
+          "now",
+          "jobs",
+          "runs",
+          "uploads",
+          "snapshots",
+          "feeds"
+        ],
+        "title": "IngestionOut",
         "type": "object"
       },
       "ItemCount": {
@@ -783,6 +997,142 @@
         "title": "ItemInfo",
         "type": "object"
       },
+      "JobRunOut": {
+        "properties": {
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "game_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Game Version"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ok"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "job",
+          "game_version",
+          "started_at",
+          "finished_at",
+          "ok",
+          "summary"
+        ],
+        "title": "JobRunOut",
+        "type": "object"
+      },
+      "JobStatusOut": {
+        "description": "A scheduled job's newest run (every field but `job` and `late` None if it never ran).",
+        "properties": {
+          "game_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Game Version"
+          },
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "last_finished": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Finished"
+          },
+          "last_started": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Started"
+          },
+          "late": {
+            "title": "Late",
+            "type": "boolean"
+          },
+          "ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ok"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job",
+          "game_version",
+          "last_started",
+          "last_finished",
+          "ok",
+          "late",
+          "summary"
+        ],
+        "title": "JobStatusOut",
+        "type": "object"
+      },
       "LegOut": {
         "description": "One run across the city.",
         "properties": {
@@ -929,6 +1279,10 @@
       },
       "Me": {
         "properties": {
+          "admin": {
+            "title": "Admin",
+            "type": "boolean"
+          },
           "tier": {
             "enum": [
               "free",
@@ -944,7 +1298,8 @@
         },
         "required": [
           "uid",
-          "tier"
+          "tier",
+          "admin"
         ],
         "title": "Me",
         "type": "object"
@@ -1427,6 +1782,44 @@
           "profit"
         ],
         "title": "SellOptionOut",
+        "type": "object"
+      },
+      "SnapshotStatsOut": {
+        "properties": {
+          "items_7d": {
+            "title": "Items 7D",
+            "type": "integer"
+          },
+          "newest_received_at": {
+            "title": "Newest Received At",
+            "type": "string"
+          },
+          "quarantined_7d": {
+            "title": "Quarantined 7D",
+            "type": "integer"
+          },
+          "snapshots_24h": {
+            "title": "Snapshots 24H",
+            "type": "integer"
+          },
+          "snapshots_7d": {
+            "title": "Snapshots 7D",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "snapshots_24h",
+          "snapshots_7d",
+          "quarantined_7d",
+          "items_7d",
+          "newest_received_at"
+        ],
+        "title": "SnapshotStatsOut",
         "type": "object"
       },
       "Status": {
@@ -1965,6 +2358,47 @@
         "title": "UploadResult",
         "type": "object"
       },
+      "UploadStatsOut": {
+        "properties": {
+          "accepted_24h": {
+            "title": "Accepted 24H",
+            "type": "integer"
+          },
+          "accepted_7d": {
+            "title": "Accepted 7D",
+            "type": "integer"
+          },
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUploadOut"
+            },
+            "title": "Recent",
+            "type": "array"
+          },
+          "rejected_24h": {
+            "title": "Rejected 24H",
+            "type": "integer"
+          },
+          "rejected_7d": {
+            "title": "Rejected 7D",
+            "type": "integer"
+          },
+          "uploaders_7d": {
+            "title": "Uploaders 7D",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "accepted_24h",
+          "rejected_24h",
+          "accepted_7d",
+          "rejected_7d",
+          "uploaders_7d",
+          "recent"
+        ],
+        "title": "UploadStatsOut",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -2060,6 +2494,57 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/admin/ingestion": {
+      "get": {
+        "description": "The version's job runs, every user's uploads, snapshots per source and AHledger's feeds (admins).",
+        "operationId": "get_admin_ingestion_api_admin_ingestion_get",
+        "parameters": [
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Admin Ingestion"
+      }
+    },
     "/api/ah-blocked": {
       "get": {
         "operationId": "get_ah_blocked_api_ah_blocked_get",
@@ -2943,6 +3428,24 @@
               "minimum": 1,
               "title": "Top",
               "type": "integer"
+            }
+          },
+          {
+            "description": "the auction house's price version the front end knows of",
+            "in": "query",
+            "name": "price_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the auction house's price version the front end knows of",
+              "title": "Price Version"
             }
           },
           {

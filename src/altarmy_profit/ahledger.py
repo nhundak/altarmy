@@ -269,3 +269,37 @@ def _previous(conn: Connection, market: str) -> _Previous | None:
         return _Previous(parse_table(found.body), db.utc(found.stamped_at))
     except ValueError:
         return None  # unreadable: start over
+
+
+@dataclass(frozen=True)
+class Feed:
+    """A market's last table (`feed_tables`), for the Admin page."""
+
+    market: str
+    auction_house_id: int
+    realm: str
+    faction: str
+    rows: int  # items in the table (0 if unreadable)
+    scanned_at: datetime  # the table's own time: its newest scan
+    stamped_at: datetime  # the seen_at its changed rows were recorded at
+    fetched_at: datetime  # when it was fetched (a poll finding no newer table leaves it)
+
+
+def feeds(conn: Connection, game_version: str) -> list[Feed]:
+    """AHledger's last table of each of `game_version`'s markets, by market."""
+    f, t = schema.feed_tables, schema.auction_houses
+    rows = conn.execute(
+        select(f.c.market, f.c.auction_house_id, t.c.realm, t.c.faction, f.c.body)
+        .add_columns(f.c.scanned_at, f.c.stamped_at, f.c.fetched_at)
+        .join(t, t.c.id == f.c.auction_house_id)
+        .where(f.c.source == prices.AHLEDGER, t.c.game_version == game_version)
+        .order_by(f.c.market)
+    )
+    out = []
+    for market, ah, realm, faction, body, scanned, stamped, fetched in rows:
+        try:
+            count = len(parse_table(body).rows)
+        except ValueError:
+            count = 0
+        out.append(Feed(market, ah, realm, faction, count, db.utc(scanned), db.utc(stamped), db.utc(fetched)))
+    return out

@@ -281,3 +281,16 @@ def test_0009_allows_ahledger_and_drops_forevers_shared_houses(database: db.Data
                     status="accepted",
                 )
             )
+
+
+def test_0010_records_job_runs(database: db.Database) -> None:
+    t = schema.job_runs
+    when = datetime(2026, 9, 27, tzinfo=UTC)
+    with database.engine.begin() as conn:
+        command.downgrade(db.alembic_config(conn), "0009")
+        assert "job_runs" not in inspect(conn).get_table_names()
+        db.upgrade(conn)
+        conn.execute(t.insert().values(job="merge", started_at=when))
+        assert conn.execute(select(t.c.job, t.c.summary, t.c.ok)).one() == ("merge", "", None)
+        with pytest.raises(IntegrityError), conn.begin_nested():
+            conn.execute(t.insert().values(job="nonsense", started_at=when))

@@ -183,6 +183,21 @@ def test_history_and_rate_limit(conn: Connection) -> None:
     assert uploads.recent(conn, "local-nobody") == []
 
 
+def test_import_status_from_the_upload_history(conn: Connection) -> None:
+    assert uploads.import_status(conn, ME, FOREVER) == uploads.ImportStatus(None, None, None)
+    earlier, later = NOW - timedelta(days=2), NOW - timedelta(hours=1)
+    uploads.record_upload(conn, ME, FOREVER, "altarmy", "watcher", 10, "accepted", "", now=earlier)
+    uploads.record_upload(conn, ME, FOREVER, "auctionator", "watcher", 10, "accepted", "", now=later)
+    uploads.record_upload(conn, ME, FOREVER, "altarmy", "paste", 10, "accepted", "", now=later)
+    uploads.record_upload(conn, ME, FOREVER, "altarmy", "browser", 10, "rejected", "bad", now=NOW)
+    uploads.record_upload(conn, ME, "tbc", "altarmy", "watcher", 10, "accepted", "", now=NOW)
+    users.ensure_user(conn, User("someone-else", "linked"))
+    uploads.record_upload(conn, "someone-else", FOREVER, "altarmy", "watcher", 10, "accepted", "", now=NOW)
+    status = uploads.import_status(conn, ME, FOREVER)
+    # The characters came from the newest accepted Alt Army upload; the watcher sent a price scan later.
+    assert status == uploads.ImportStatus(imported_at=later, imported_via="paste", auto_import_at=later)
+
+
 def test_decompress_limits_the_size() -> None:
     assert uploads.decompress(gzip.compress(b"x" * 100), 1000) == b"x" * 100
     assert uploads.decompress(b"plain", 1000) == b"plain"
@@ -192,3 +207,19 @@ def test_decompress_limits_the_size() -> None:
         uploads.decompress(b"y" * 5000, 1000)
     with pytest.raises(ValueError, match="gzip"):
         uploads.decompress(b"\x1f\x8b" + b"not gzip", 1000)
+
+
+def test_every_users_uploads_and_their_counts(conn: Connection, other: str) -> None:
+    def upload(uid: str, version: str, outcome: str, detail: str, days: int) -> None:
+        when = NOW - timedelta(days=days)
+        uploads.record_upload(conn, uid, version, "auctionator", "watcher", 10, outcome, detail, now=when)
+
+    upload(ME, FOREVER, "accepted", "mine", 0)
+    upload(other, FOREVER, "rejected", "bad", 6)
+    upload(other, FOREVER, "accepted", "old", 8)
+    upload(other, "tbc", "accepted", "tbc", 0)
+    got = uploads.recent_all(conn, FOREVER)
+    assert [(u.user_uid, u.detail) for u in got] == [(ME, "mine"), (other, "bad"), (other, "old")]
+    assert uploads.recent_all(conn, FOREVER, limit=1)[0].detail == "mine"
+    assert uploads.stats(conn, FOREVER, NOW) == uploads.UploadStats(1, 0, 1, 1, 2)
+    assert uploads.stats(conn, "tbc", NOW + timedelta(days=30)) == uploads.UploadStats(0, 0, 0, 0, 0)

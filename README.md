@@ -119,6 +119,19 @@ blocks. Data comes in through uploads (below), game data through a daily job. `D
 account (the UI has no link to it for now). Requests are rate-limited per client IP and per user (429). The
 server needs `FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY` and `FIREBASE_AUTH_DOMAIN` (see `hosted.env`; staging's in `staging.env`).
 
+**Site admins** get an **Admin** link in the header: the scheduled jobs' runs (ingest, merge, prune,
+AHledger; late or failed ones flagged), every user's uploads, price snapshots per source and AHledger's
+markets. Admin is the Firebase custom claim `admin: true` on an email account, set from the command line
+with Firebase Auth admin rights (your own `gcloud auth application-default login` on the project):
+
+```bash
+FIREBASE_PROJECT_ID=alt-army-prod altarmy-profit admin grant you@example.com   # or revoke; `admin list`
+# development, against the Auth emulator of `npm run dev`:
+FIREBASE_PROJECT_ID=demo-altarmy FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 altarmy-profit admin grant you@example.com
+```
+
+The claim shows once the browser's sign-in token is refreshed: sign out and in (or wait up to an hour).
+
 - **Upload** takes the Alt Army addon's export: in game, `/altarmy export` shows a string starting
   with `AAX1:`. Copy it (Ctrl+C) and
   paste it in **Paste from Alt Army**. That replaces your characters like the file does, with no logout or
@@ -183,16 +196,17 @@ sets on its Cloud Run service:
 | Env file | Project | Used by |
 |----------|---------|---------|
 | `hosted.env` | `alt-army-prod` | the live site |
-| `staging.env` | `alt-army-staging` (Spark plan, no billing account: it holds only Auth) | the staging service, `npm run dev:staging-auth` |
+| `staging.env` | `alt-army-staging` (Spark plan, no billing account: it holds only Auth and the price signals' Firestore) | the staging service, `npm run dev:staging-auth` |
 
 Everything else of staging's (Hosting's `staging` channel, the `altarmy-staging` service, its database)
 stays in `alt-army-prod`: Hosting only rewrites `/api` to Cloud Run in its own project. So the staging
 channel's domain is added by hand to `alt-army-staging`'s Auth authorized domains (Firebase adds only its
 own project's channels). Staging runs as its own service account, `altarmy-staging-run`
 (`deploy/setup.sh staging-auth`), which can read only staging's database secret and administer only
-staging's Auth.
+staging's Auth (and, after `deploy/setup.sh firestore`, write its price signals).
 
-Each browser API key only calls the Identity Toolkit and Token Service APIs (sign-in and token refresh), from
+Each browser API key only calls the Identity Toolkit and Token Service APIs (sign-in and token refresh) and
+Firestore (the price signals the page listens to), from
 `http://localhost:5173`, `http://localhost:8600` and the same two on `127.0.0.1` (Google's referrer patterns
 take no port wildcard), plus its own site's origins: prod's `alt-army-prod.firebaseapp.com` and
 `alt-army-prod.web.app`, and its custom domain `alt-army.com` and `www.alt-army.com`; staging's
@@ -206,11 +220,13 @@ too.
 gcloud services api-keys update 9856a0a7-d9e2-4b98-ad97-543f83f7bb5b --project alt-army-prod `
   --billing-project alt-army-prod `
   --api-target=service=identitytoolkit.googleapis.com --api-target=service=securetoken.googleapis.com `
+  --api-target=service=firestore.googleapis.com `
   --allowed-referrers="http://localhost:5173/*,http://localhost:8600/*,http://127.0.0.1:5173/*,http://127.0.0.1:8600/*,https://alt-army-prod.firebaseapp.com/*,https://alt-army-prod.web.app/*,https://alt-army.com/*,https://www.alt-army.com/*"
 # staging (its key id: gcloud services api-keys list --project alt-army-staging --billing-project alt-army-prod)
 gcloud services api-keys update <staging key id> --project alt-army-staging `
   --billing-project alt-army-prod `
   --api-target=service=identitytoolkit.googleapis.com --api-target=service=securetoken.googleapis.com `
+  --api-target=service=firestore.googleapis.com `
   --allowed-referrers="http://localhost:5173/*,http://localhost:8600/*,http://127.0.0.1:5173/*,http://127.0.0.1:8600/*,https://alt-army-staging.firebaseapp.com/*,https://alt-army-staging.web.app/*,https://alt-army-prod--staging-hn1s06um.web.app/*"
 ```
 
@@ -229,6 +245,7 @@ The site runs on Google Cloud in `alt-army-prod` (us-central1). The config is in
 | Secret Manager | `database-url`, `database-url-staging`: each database's `DATABASE_URL` (Cloud Run's Cloud SQL socket) |
 | Service accounts | `altarmy-run` (prod's service and jobs), `altarmy-staging-run` (staging's), `altarmy-scheduler`, `altarmy-deploy` (CI) |
 | Firebase Auth | prod: `alt-army-prod`; staging: `alt-army-staging`, a free Spark project (see "Firebase projects") |
+| Firestore | price signals only (`priceSignals/<auction house id>`: the price version, never prices), in each environment's Firebase project; the API and jobs write them, signed-in browsers read them (`firestore.rules`, deployed with Hosting). Within the free tier |
 
 About $9 to 11 a month, nearly all of it Cloud SQL; Cloud Run stays in its free tier at hobby traffic.
 Staging adds nothing: its database shares the Cloud SQL instance and its Auth project has no billing.
@@ -254,7 +271,8 @@ A new database gets its game data from an ingest run: `gcloud run jobs execute a
 (add `--region us-central1 --project alt-army-prod --billing-project alt-army-prod` to both).
 
 `deploy/setup.sh` holds the one-time setup, one section per run: APIs, registry, service accounts and
-roles, Cloud SQL, each database's user and secret, Workload Identity Federation, and the schedules. Every
+roles, Cloud SQL, each database's user and secret, Firestore for the price signals (both Firebase projects;
+before the first deploy that ships `firestore.rules`), Workload Identity Federation, and the schedules. Every
 command passes `--project alt-army-prod --billing-project alt-army-prod`, so gcloud's defaults don't matter.
 
 ### Development
@@ -263,6 +281,9 @@ command passes `--project alt-army-prod --billing-project alt-army-prod`, so gcl
 
 - the Firebase Auth emulator (`firebase.json`, project `demo-altarmy`, 127.0.0.1:9099; needs Java 11+), so
   sign-in and accounts (the site's, the watcher's and Alt Army Sync's) work offline and create no real users;
+- the Firestore emulator (127.0.0.1:8080), where the API and the CLI's `merge`/`ahledger` (with
+  `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` and `FIREBASE_PROJECT_ID=demo-altarmy`) write price signals, so an
+  open page refetches and says "Prices updated";
 - the API on :8600 (`altarmy-profit serve` via the venv, `scripts/dev-api.mjs`), on the SQLite file
   `data/altarmy-profit.sqlite` (or `DATABASE_URL`), migrated on start;
 - once both answer, Vite on http://localhost:5173, which it opens. Vite hot-reloads the React code and
@@ -276,7 +297,7 @@ stops; to keep them, run `npx firebase emulators:start --only auth --project dem
 .firebase/auth-emulator --export-on-exit` yourself (the folder must exist).
 
 `npm run dev:staging-auth` signs in against the real staging Firebase project (`staging.env`) instead, so
-accounts made while developing never land in prod's. After changing the
+accounts made while developing never land in prod's; it sends no price signals (`PRICE_SIGNALS=off`). After changing the
 API's models or routes, regenerate the TypeScript types with `python scripts/export_openapi.py` and
 `npm run gen-types` (`check.py` does both). Tests never need Firebase: they pass a fake token verifier to
 `create_app`.

@@ -4,9 +4,10 @@ import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'motion/react'
 import { z } from 'zod'
-import type { CharacterGroup, UploadResult } from '../api/client'
+import type { CharacterGroup, Characters, UploadResult } from '../api/client'
 import { useCharacters } from '../api/queries'
 import { CharacterList } from './CharacterList'
+import { age, parseUtc } from '../lib/age'
 import { realmLabel } from '../lib/realms'
 import { linkProps, previousRoute } from '../lib/router'
 import { useSession } from '../lib/session'
@@ -28,6 +29,14 @@ const LAYOUT = { layout: { duration: 0.35, ease: EASE } }
 const landingSchema = z.object({ browsed: z.boolean() })
 const NOT_BROWSED = { browsed: false }
 const NO_GROUPS: readonly CharacterGroup[] = []
+/** Alt Army Sync counts as set up while it has uploaded anything within this many days. */
+const AUTO_IMPORT_DAYS = 30
+
+/** Whether Alt Army Sync (or the CLI watcher) is uploading for the user: it sent something recently. */
+function autoImportOn(lastAt: string | null | undefined, now: Date = new Date()): boolean {
+  if (!lastAt) return false
+  return now.getTime() - parseUtc(lastAt) < AUTO_IMPORT_DAYS * 86_400_000
+}
 
 type CardSpec = { key: CardKey; title: string; blurb: string; short: string; icon: ReactNode }
 
@@ -173,10 +182,23 @@ function ImportBody({ onImported }: { onImported: (r: UploadResult) => void }) {
   )
 }
 
-/** Once started: what the search works with (its characters open to show their details), and ways to change it. */
-function Strip({ groups, onOpen }: { groups: readonly CharacterGroup[]; onOpen: (k: CardKey) => void }) {
+/**
+ * Once started: what the search works with (how many characters, when they were gathered, whether auto-import is
+ * on; it opens to show every character), and ways to change it.
+ */
+function Strip({ data, onOpen }: { data: Characters | undefined; onOpen: (k: CardKey) => void }) {
   const [details, { toggle }] = useDisclosure(false)
+  const groups = data?.groups ?? NO_GROUPS
   const count = groups.reduce((n, g) => n + g.characters.length, 0)
+  const auto = autoImportOn(data?.auto_import_at)
+  const counted = `${count} ${count === 1 ? 'character' : 'characters'}`
+  const updated = data?.imported_at ? `updated ${age(data.imported_at)}` : null
+  const autoText = `Auto-import ${auto ? 'on' : 'off'}`
+  const dot = (
+    <Text span c="dimmed" size="sm" aria-hidden>
+      {' · '}
+    </Text>
+  )
   return (
     <motion.div
       className={cards.strip}
@@ -187,12 +209,27 @@ function Strip({ groups, onOpen }: { groups: readonly CharacterGroup[]; onOpen: 
     >
       <Group justify="space-between" gap="sm">
         {count > 0 ? (
-          <UnstyledButton className={classes.summary} onClick={toggle} aria-expanded={details} aria-controls="your-characters">
+          <UnstyledButton
+            className={classes.summary}
+            onClick={toggle}
+            aria-expanded={details}
+            aria-controls="your-characters"
+            aria-label={[counted, updated, autoText].filter(Boolean).join(', ')}
+          >
             <Text size="sm" span>
-              <b>
-                {count} {count === 1 ? 'character' : 'characters'}
-              </b>{' '}
-              on {groups.map((g) => realmLabel(g)).join(', ')}
+              <b>{counted}</b>
+              {updated && (
+                <>
+                  {dot}
+                  <Text span c="dimmed" size="sm">
+                    {updated}
+                  </Text>
+                </>
+              )}
+              {dot}
+              <Text span size="sm" c={auto ? 'green' : 'dimmed'}>
+                {autoText}
+              </Text>
             </Text>
             <span className={classes.chevron} data-open={details || undefined}>
               <IconChevron size={16} />
@@ -330,7 +367,7 @@ export function ProfitPage() {
         <LayoutGroup>
           <AnimatePresence mode="wait" initial={false}>
             {phase === 'collapsed' ? (
-              <Strip key="strip" groups={groups} onOpen={setOpen} />
+              <Strip key="strip" data={characters.data} onOpen={setOpen} />
             ) : (
               <motion.div
                 key="cards"
