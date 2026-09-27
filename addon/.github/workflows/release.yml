@@ -1,11 +1,12 @@
-# CurseForge + Wago Release — build addon zip and upload via API
+# Release — build the addon zip, upload it to CurseForge and Wago via their APIs, and attach it to a GitHub
+# Release (AltArmy_TBC.zip, which the Alt Army site links as releases/latest/download/AltArmy_TBC.zip)
 # Requires: CURSEFORGE_API_TOKEN, WAGO_API_TOKEN (secrets)
 # Requires: CURSEFORGE_PROJECT_ID, CURSEFORGE_DISPLAY_NAME (vars)
 # CURSEFORGE_GAME_VERSIONS: CurseForge game version IDs (the specific-version "id", not "gameVersionTypeID") for
 #   TBC Classic 2.5.6 (Interface 20506) and WoW Forever 1.60.1 (Interface 16001)
 # Wago project ID is read from ## X-Wago-ID in the TOC
 
-name: CurseForge Release
+name: Release
 
 on:
   push:
@@ -31,6 +32,8 @@ env:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -146,3 +149,15 @@ jobs:
           fi
           echo "Uploaded $ZIP_FILE_NAME to Wago as $WAGO_STABILITY (HTTP $HTTP_CODE)"
           cat /tmp/wago_response.txt
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp "$ZIP_FILE_NAME" AltArmy_TBC.zip
+          PRERELEASE=""
+          if [ "$RELEASE_TYPE" != "release" ]; then PRERELEASE="--prerelease"; fi
+          # A prerelease never becomes releases/latest, so the site's link always gets a stable build.
+          gh release create "${GITHUB_REF#refs/tags/}" AltArmy_TBC.zip "$ZIP_FILE_NAME" \
+            --title "$DISPLAY_NAME" --notes-file CHANGELOG.txt $PRERELEASE
