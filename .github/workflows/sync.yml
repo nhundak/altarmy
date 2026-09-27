@@ -17,8 +17,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: python -m pip install -e ".[tray,build-tray,dev]"
-      - run: python -m pytest -q tests/test_tray_core.py tests/test_watch.py
+      # ui: test_watch uploads to a real API (FastAPI's TestClient); the exe still leaves the server out
+      - run: python -m pip install -e ".[tray,build-tray,dev,ui]"
+      - run: python -m pytest -q tests/test_tray_core.py tests/test_watch.py tests/test_signin.py
       - run: python scripts/build_sync.py --version "${GITHUB_REF_NAME#sync-v}"
         shell: bash
       - name: Release
