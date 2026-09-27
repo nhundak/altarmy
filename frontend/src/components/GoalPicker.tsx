@@ -51,6 +51,9 @@ export function GoalPicker({
                       <Text size="sm" c="dimmed">
                         {g.blurb}
                       </Text>
+                      <Text size="xs" c="dimmed">
+                        {g.details}
+                      </Text>
                     </Stack>
                   </UnstyledButton>
                 </div>

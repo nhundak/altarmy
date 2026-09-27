@@ -143,8 +143,8 @@ Differences from the list above:
 - Firebase project: `alt-army-prod`, with the Anonymous and Email/Password providers. Its public web config
   is in `hosted.env`. Its browser API key is restricted (done after Phase 4, with `gcloud services api-keys
   update`; see README) to the Identity Toolkit and Token Service APIs, called from localhost:5173/8600,
-  127.0.0.1:5173/8600, `alt-army-prod.firebaseapp.com` and `alt-army-prod.web.app`. Phase 5 adds any custom
-  hosting domain to both that list and the Auth authorized domains.
+  127.0.0.1:5173/8600, `alt-army-prod.firebaseapp.com` and `alt-army-prod.web.app`, and (2026-09-26) the
+  custom domain `alt-army.com` and `www.alt-army.com`, which are in the Auth authorized domains too.
 - (2026-09-26) Staging signs in against its own Firebase project, `alt-army-staging` (`staging.env`; Spark,
   no billing, Auth only), so staging accounts are never prod ones; the staging channel's origin moved from
   prod's key to staging's. Staging's service runs as `altarmy-staging-run`.
@@ -289,8 +289,8 @@ the list above and from section 4:
 - Rate limiting per uid and per IP. Privacy: only extracted fields are stored, raw uploads are discarded, an
   account-deletion endpoint exists, and the site carries a short privacy note.
 
-Phase 5 status (done, 2026-09-24): live at https://alt-army-prod.web.app, staging at
-https://alt-army-prod--staging-hn1s06um.web.app. README's "Deploy" has the pieces and commands; `deploy/`
+Phase 5 status (done, 2026-09-24): live at https://alt-army-prod.web.app (https://alt-army.com from
+2026-09-26), staging at https://alt-army-prod--staging-hn1s06um.web.app. README's "Deploy" has the pieces and commands; `deploy/`
 and `Dockerfile` hold them. Differences from the list above:
 
 - Scheduled work runs as **Cloud Run jobs** (the image running the CLI: `ingest --only-if-new` per version,

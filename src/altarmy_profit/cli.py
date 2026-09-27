@@ -207,7 +207,7 @@ def main(argv: list[str] | None = None) -> None:
     s = sub.add_parser(
         "watch", help="upload the addon files to an altarmy-profit server whenever WoW rewrites them"
     )
-    s.add_argument("--server", required=True, help="e.g. https://altarmy.example.com")
+    s.add_argument("--server", required=True, help="e.g. https://alt-army.com")
     s.add_argument(
         "--sign-in",
         action="store_true",

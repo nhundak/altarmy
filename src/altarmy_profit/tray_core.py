@@ -16,7 +16,7 @@ from . import signin
 VERSION = "dev"  # the packaged exe's release, set by its entry script (scripts/build_sync.py)
 RELEASES_URL = "https://api.github.com/repos/ntower/altarmy-profit/releases?per_page=30"
 RELEASE_TAG = "sync-v"
-PROD_SERVER = "https://alt-army-prod.web.app"
+PROD_SERVER = "https://alt-army.com"
 STAGING_SERVER = "https://alt-army-prod--staging-hn1s06um.web.app"  # the Hosting `staging` preview channel
 SETTINGS_DIR = Path.home() / ".altarmy-profit"
 STATUS_MAX = 90  # characters of status in the menu

@@ -11,7 +11,7 @@ from altarmy_profit.tray_core import TrayConfig
 
 def test_the_live_site_by_default_and_staging_or_another_on_request() -> None:
     assert tray_core.parse_args([]) == tray_core.PROD
-    assert tray_core.PROD.server == "https://alt-army-prod.web.app"
+    assert tray_core.PROD.server == "https://alt-army.com"
     assert tray_core.PROD.config_path.name == "sync.json"
     assert tray_core.PROD.run_value == "altarmy-sync"
     assert tray_core.PROD.title == "Alt Army Sync"

@@ -1,6 +1,6 @@
 # altarmy-profit
 
-A website, **Alt Army** (https://alt-army-prod.web.app), that finds profitable crafting recipes and production
+A website, **Alt Army** (https://alt-army.com), that finds profitable crafting recipes and production
 chains for **WoW: Forever** and **TBC Anniversary**, the two clients the Alt Army addon runs on. Both share one
 database.
 
@@ -193,8 +193,9 @@ staging's Auth.
 Each browser API key only calls the Identity Toolkit and Token Service APIs (sign-in and token refresh), from
 `http://localhost:5173`, `http://localhost:8600` and the same two on `127.0.0.1` (Google's referrer patterns
 take no port wildcard), plus its own site's origins: prod's `alt-army-prod.firebaseapp.com` and
-`alt-army-prod.web.app`; staging's `alt-army-staging.firebaseapp.com`, `alt-army-staging.web.app` and the
-staging channel `alt-army-prod--staging-hn1s06um.web.app`. To serve the front end from another origin, pass
+`alt-army-prod.web.app`, and its custom domain `alt-army.com` and `www.alt-army.com`; staging's
+`alt-army-staging.firebaseapp.com`, `alt-army-staging.web.app` and the staging channel
+`alt-army-prod--staging-hn1s06um.web.app`. To serve the front end from another origin, pass
 the full list again, since the update replaces it; a custom domain needs adding to Auth's authorized domains
 too.
 
@@ -203,7 +204,7 @@ too.
 gcloud services api-keys update 9856a0a7-d9e2-4b98-ad97-543f83f7bb5b --project alt-army-prod `
   --billing-project alt-army-prod `
   --api-target=service=identitytoolkit.googleapis.com --api-target=service=securetoken.googleapis.com `
-  --allowed-referrers="http://localhost:5173/*,http://localhost:8600/*,http://127.0.0.1:5173/*,http://127.0.0.1:8600/*,https://alt-army-prod.firebaseapp.com/*,https://alt-army-prod.web.app/*"
+  --allowed-referrers="http://localhost:5173/*,http://localhost:8600/*,http://127.0.0.1:5173/*,http://127.0.0.1:8600/*,https://alt-army-prod.firebaseapp.com/*,https://alt-army-prod.web.app/*,https://alt-army.com/*,https://www.alt-army.com/*"
 # staging (its key id: gcloud services api-keys list --project alt-army-staging --billing-project alt-army-prod)
 gcloud services api-keys update <staging key id> --project alt-army-staging `
   --billing-project alt-army-prod `
