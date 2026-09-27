@@ -1,4 +1,4 @@
-/* The Profit page's cards and strips: the start cards, the goal cards and the one-line summaries they fold into. */
+/* The Profit page's cards and strips: the start cards, the goal cards and the one-line summaries they fold into; the Addon page's download cards reuse .card and .icon. */
 
 .card {
   height: 100%;

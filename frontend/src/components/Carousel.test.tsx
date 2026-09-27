@@ -63,6 +63,16 @@ describe('Carousel', () => {
     expect(current()).toBe(2)
   })
 
+  it('keeps each picture it has shown mounted, so cycling back does not load it again', () => {
+    vi.useFakeTimers()
+    renderCarousel()
+    const first = screen.getByRole('img', { name: 'First' })
+    for (let i = 0; i < 3; i++) act(() => vi.advanceTimersByTime(1000))
+    expect(current()).toBe(0)
+    expect(screen.getByRole('img', { name: 'First' })).toBe(first)
+    expect(shown()).toEqual(['First'])
+  })
+
   it('stops cycling once the visitor picks a picture', () => {
     vi.useFakeTimers()
     renderCarousel()

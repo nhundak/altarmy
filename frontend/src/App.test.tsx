@@ -38,6 +38,18 @@ describe('the shell by tier', () => {
     expect(window.location.pathname).toBe('/addon')
   })
 
+  it("carries the addon card from the main page to the addon page's banner", async () => {
+    hostedApi()
+    window.history.pushState(null, '', '/')
+    renderApp()
+    fireEvent.click(screen.getByRole('link', { name: 'Alt Army' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Get the Addon' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/addon')
+    fireEvent.click(screen.getByRole('link', { name: '← Back' }))
+    expect(window.location.pathname).toBe('/')
+    expect(await screen.findByRole('link', { name: 'Alt Army' })).toBeInTheDocument()
+  })
+
   it('opens with the two showcase cards, the profit one leading to the search', async () => {
     hostedApi()
     renderApp()

@@ -11,6 +11,7 @@ vi.mock('../lib/auth', () => ({
   initAuth: vi.fn(async () => {}),
   getIdToken: vi.fn(async () => 'id-token'),
   onUserChange: vi.fn(() => () => {}),
+  authErrorMessage: (error: Error) => error.message,
 }))
 
 const firebase = {
@@ -58,10 +59,19 @@ describe('AuthProvider', () => {
     expect(screen.queryByText('Could not sign in')).not.toBeInTheDocument()
   })
 
-  it('explains a failed sign-in', async () => {
-    vi.mocked(initAuth).mockRejectedValueOnce(new Error('auth/network-request-failed'))
-    mockApi({ '/api/config': config, '/api/me': guest })
-    renderApp()
-    expect(await screen.findByText('auth/network-request-failed')).toBeInTheDocument()
+  it('shows the app signed out while a failed sign-in is retried', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      vi.mocked(initAuth).mockRejectedValueOnce(new Error('auth/network-request-failed'))
+      mockApi({ '/api/config': config, '/api/me': guest })
+      renderApp()
+      expect(await screen.findByText(/auth\/network-request-failed/)).toBeInTheDocument()
+      expect(screen.getByText('null free')).toBeInTheDocument()
+      await act(() => vi.advanceTimersByTimeAsync(1000))
+      expect(await screen.findByText('guest free')).toBeInTheDocument()
+      expect(screen.queryByText('Could not sign in')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

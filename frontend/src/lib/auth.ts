@@ -15,24 +15,36 @@ let started: Promise<void> | null = null
 let signingIn: Promise<void> | null = null
 const listeners = new Set<() => void>()
 
-/** Start Firebase and sign in anonymously unless a session is already stored. Safe to call twice. */
-export function initAuth(config: FirebaseConfig): Promise<void> {
-  started ??= (async () => {
-    const [{ initializeApp }, fa] = await Promise.all([import('firebase/app'), import('firebase/auth')])
-    const app = initializeApp({ apiKey: config.api_key, authDomain: config.auth_domain, projectId: config.project_id })
-    const a = fa.getAuth(app)
-    if (config.emulator_url) fa.connectAuthEmulator(a, config.emulator_url, { disableWarnings: true })
-    await a.authStateReady()
-    auth = a
-    await ensureUser()
-    fa.onIdTokenChanged(a, (user) => {
-      // Firebase drops a stored session it can no longer refresh (the account was deleted, or the emulator
-      // restarted): start a new anonymous one, whose sign-in notifies the listeners in turn.
-      if (user) listeners.forEach((l) => l())
-      else void ensureUser().catch(() => {})
-    })
-  })()
-  return started
+/**
+ * Start Firebase and sign in anonymously unless a session is already stored. Safe to call twice, and to call again
+ * after a failure (the sign-in server was unreachable): Firebase starts once, the sign-in is retried.
+ */
+export async function initAuth(config: FirebaseConfig): Promise<void> {
+  started ??= startFirebase(config).catch((error: unknown) => {
+    started = null
+    throw error
+  })
+  await started
+  await ensureUser()
+}
+
+async function startFirebase(config: FirebaseConfig): Promise<void> {
+  const [{ initializeApp, getApps }, fa] = await Promise.all([import('firebase/app'), import('firebase/auth')])
+  const app =
+    getApps()[0] ??
+    initializeApp({ apiKey: config.api_key, authDomain: config.auth_domain, projectId: config.project_id })
+  const a = fa.getAuth(app)
+  if (config.emulator_url && !a.emulatorConfig) {
+    fa.connectAuthEmulator(a, config.emulator_url, { disableWarnings: true })
+  }
+  await a.authStateReady()
+  auth = a
+  fa.onIdTokenChanged(a, (user) => {
+    // Firebase drops a stored session it can no longer refresh (the account was deleted, or the emulator
+    // restarted): start a new anonymous one, whose sign-in notifies the listeners in turn.
+    if (user) listeners.forEach((l) => l())
+    else void ensureUser().catch(() => {})
+  })
 }
 
 /** Sign in anonymously unless someone is signed in; concurrent callers share one sign-in. */
@@ -130,6 +142,7 @@ const AUTH_ERRORS: Readonly<Record<string, string>> = {
   'auth/weak-password': 'Pick a password of at least 6 characters.',
   'auth/invalid-email': 'That is not a valid email address.',
   'auth/missing-email': 'Enter your email address first.',
+  'auth/network-request-failed': 'Could not reach the sign-in server.',
 }
 
 /** What to tell the user when signing in, linking or resetting failed. */

@@ -5,7 +5,7 @@
   min-width: 0;
 }
 
-/* The pictures stack in one frame (its aspect ratio set inline) so a new one fades in over the old. */
+/* The pictures stack in one frame (its aspect ratio set inline); the current one fades in on top. */
 .frame {
   position: relative;
   overflow: hidden;

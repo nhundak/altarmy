@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { Alert, Center, Loader } from '@mantine/core'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useConfig, useMe } from '../api/queries'
-import { initAuth, onUserChange } from '../lib/auth'
-import { SessionContext, type Session } from '../lib/session'
+import { KEEP_TRYING, useConfig, useMe } from '../api/queries'
+import { authErrorMessage, initAuth, onUserChange } from '../lib/auth'
+import { SessionContext, SIGNED_OUT, type Session } from '../lib/session'
 
 const AUTH_KEYS = new Set(['config', 'sign-in', 'me'])
 
 /**
  * Signs the visitor in before rendering the app: an anonymous Firebase sign-in, or the stored session
- * (against the Auth emulator in development). Then provides who they are (`useSession`).
+ * (against the Auth emulator in development). Then provides who they are (`useSession`). If signing in fails, the
+ * app shows signed out (`SIGNED_OUT`) under a notice, and signing in is retried until it works.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const config = useConfig()
@@ -22,26 +23,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     enabled: firebase !== undefined,
     staleTime: Infinity,
+    ...KEEP_TRYING,
   })
   const me = useMe(signIn.data === true)
   const queryClient = useQueryClient()
   // Signing in, linking or signing out changes the token: ask the API who that is now.
   useEffect(() => onUserChange(() => void queryClient.invalidateQueries({ queryKey: ['me'] })), [queryClient])
-  const session = useMemo<Session | undefined>(
+  const signedIn = useMemo<Session | undefined>(
     () => (me.data ? { uid: me.data.uid, tier: me.data.tier } : undefined),
     [me.data],
   )
-  useRefetchOnUserChange(session)
 
   // Once signed in, keep the app up if a later refetch of who they are fails: its data is still the session.
-  const error = config.error ?? signIn.error ?? me.error
-  if (error && !session) {
-    return (
-      <Alert color="red" title="Could not sign in" m="md">
-        {error.message}
-      </Alert>
-    )
-  }
+  // Before that, a failure (the sign-in server unreachable) shows the app signed out while signing in is retried.
+  const problem = signedIn ? null : (config.failureReason ?? signIn.failureReason ?? me.error)
+  const session = signedIn ?? (problem ? SIGNED_OUT : undefined)
+  useRefetchOnUserChange(session)
+
   if (!session) {
     return (
       <Center h="50vh">
@@ -49,7 +47,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       </Center>
     )
   }
-  return <SessionContext.Provider value={session}>{children}</SessionContext.Provider>
+  return (
+    <SessionContext.Provider value={session}>
+      {problem && (
+        <Alert color="yellow" title="Could not sign in" m="md">
+          {authErrorMessage(problem)} Your data will show once signing in works; trying again.
+        </Alert>
+      )}
+      {children}
+    </SessionContext.Provider>
+  )
 }
 
 /** A different user or tier (after linking) sees different data: refetch everything but the sign-in itself. */

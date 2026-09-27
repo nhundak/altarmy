@@ -8,7 +8,7 @@ const fake = vi.hoisted(() => ({
   anonymous: 0,
 }))
 
-vi.mock('firebase/app', () => ({ initializeApp: vi.fn(() => ({})) }))
+vi.mock('firebase/app', () => ({ initializeApp: vi.fn(() => ({})), getApps: vi.fn(() => []) }))
 vi.mock('firebase/auth', () => ({
   getAuth: vi.fn(() => fake.auth),
   connectAuthEmulator: vi.fn(),
@@ -43,6 +43,15 @@ describe('auth', () => {
 
   it('signs in anonymously when no session is stored', async () => {
     const auth = await freshAuth()
+    await auth.initAuth(config)
+    expect(await auth.getIdToken()).toBe('token-anon-1')
+  })
+
+  it('retries the sign-in when the sign-in server was unreachable', async () => {
+    const fa = await import('firebase/auth')
+    vi.mocked(fa.signInAnonymously).mockRejectedValueOnce(new Error('auth/network-request-failed'))
+    const auth = await freshAuth()
+    await expect(auth.initAuth(config)).rejects.toThrow('auth/network-request-failed')
     await auth.initAuth(config)
     expect(await auth.getIdToken()).toBe('token-anon-1')
   })

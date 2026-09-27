@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { linkProps, navigate, routeOf, useRoute } from './router'
+import { linkProps, navigate, previousRoute, routeOf, useRoute } from './router'
 
 function Where() {
   const route = useRoute()
@@ -46,5 +46,18 @@ describe('router', () => {
     expect(link).toHaveAttribute('href', '/manage')
     fireEvent.click(link, { ctrlKey: true })
     expect(screen.getByText('at /')).toBeInTheDocument()
+  })
+
+  it('remembers the page shown before the current one, through links and the back button', () => {
+    act(() => navigate('/'))
+    act(() => navigate('/addon'))
+    expect(previousRoute()).toBe('/')
+    act(() => navigate('/addon'))
+    expect(previousRoute()).toBe('/') // staying put is no move
+    act(() => {
+      window.history.pushState(null, '', '/profit')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(previousRoute()).toBe('/addon')
   })
 })

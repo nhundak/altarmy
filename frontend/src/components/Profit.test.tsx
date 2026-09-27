@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { UploadResult } from '../api/client'
 import { characters, status } from '../test/status'
 import { GUEST, mockApi, renderWithProviders } from '../test/utils'
+import { navigate } from '../lib/router'
 import { SYNC_DOWNLOAD } from './SyncCard'
 import { ProfitPage } from './Profit'
 
@@ -39,6 +40,21 @@ describe('ProfitPage', () => {
     ])
     expect(screen.queryByRole('region', { name: 'Search' })).not.toBeInTheDocument()
     expect(paths(fetch, '/api/rank')).toEqual([])
+  })
+
+  it('arriving from the main page, shows the banner at once and folds it away once the characters load', async () => {
+    mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    navigate('/')
+    navigate('/profit')
+    try {
+      renderWithProviders(<ProfitPage />)
+      // before the characters answer: the main page's card has somewhere to land
+      expect(hero()).toBeInTheDocument()
+      expect(await screen.findByRole('region', { name: 'Search' })).toBeInTheDocument()
+      await waitFor(() => expect(hero()).not.toBeInTheDocument())
+    } finally {
+      navigate('/manage') // the other tests arrive from elsewhere
+    }
   })
 
   it('skipping folds the cards away, asks for a goal, then ranks, remembering both', async () => {

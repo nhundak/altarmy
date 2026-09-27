@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ActionIcon, UnstyledButton } from '@mantine/core'
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import classes from './Carousel.module.css'
 import { IconChevron } from './icons'
 
@@ -47,8 +47,13 @@ export function Carousel({
     return () => window.clearTimeout(id)
   }, [paused, stopped, reduced, count, interval, index])
 
-  const slide = slides[index]
-  if (!slide) return null
+  // Every picture shown so far, plus the next one (preloaded), stays mounted and only fades, so cycling never
+  // makes a new <img> (which would fetch or revalidate its file again).
+  const [mounted, setMounted] = useState<ReadonlySet<number>>(() => new Set([0, 1 % Math.max(count, 1)]))
+  const next = (index + 1) % Math.max(count, 1)
+  if (!mounted.has(index) || !mounted.has(next)) setMounted(new Set(mounted).add(index).add(next))
+
+  if (!slides[index]) return null
   return (
     <div
       className={classes.carousel}
@@ -61,18 +66,22 @@ export function Carousel({
       onBlur={() => setPaused(false)}
     >
       <div className={classes.frame} style={{ aspectRatio: aspect }}>
-        <AnimatePresence initial={false}>
-          <motion.img
-            key={slide.src}
-            src={slide.src}
-            alt={slide.alt}
-            className={classes.image}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-          />
-        </AnimatePresence>
+        {slides.map(
+          (s, i) =>
+            mounted.has(i) && (
+              <motion.img
+                key={s.src}
+                src={s.src}
+                alt={s.alt}
+                aria-hidden={i !== index || undefined}
+                className={classes.image}
+                style={{ zIndex: i === index ? 1 : 0 }}
+                initial={i === 0 ? false : { opacity: 0 }}
+                animate={{ opacity: i === index ? 1 : 0 }}
+                transition={{ duration: 0.5 }}
+              />
+            ),
+        )}
       </div>
       {count > 1 && (
         <div className={classes.controls}>

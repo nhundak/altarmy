@@ -8,7 +8,7 @@ import type { CharacterGroup, UploadResult } from '../api/client'
 import { useCharacters } from '../api/queries'
 import { CharacterList } from './CharacterList'
 import { realmLabel } from '../lib/realms'
-import { linkProps } from '../lib/router'
+import { linkProps, previousRoute } from '../lib/router'
 import { useSession } from '../lib/session'
 import { useStoredState } from '../lib/storage'
 import { Hero } from './Hero'
@@ -254,6 +254,10 @@ export function ProfitPage() {
   const started = groups.length > 0 || landing.browsed
   const phase: Phase = open ? 'expanded' : started ? 'collapsed' : 'choose'
   const ready = characters.data !== undefined
+  // Arriving from the main page, its card turns into the banner, so the banner is there at once (not after the
+  // characters load) and folds away once they show the visitor has already started.
+  const [carried] = useState(() => previousRoute() === '/')
+  const showHero = (ready && !started) || (carried && !ready)
 
   // Bring the search into view when it first appears, not when the page loads with it.
   useEffect(() => {
@@ -304,12 +308,15 @@ export function ProfitPage() {
   return (
     <Stack gap="lg">
       <AnimatePresence initial={false}>
-        {ready && !started && (
+        {showHero && (
           <motion.div
             key="hero"
+            layoutId="showcase-profit"
+            layout
             exit={{ opacity: 0, height: 0, marginBottom: 'calc(-1 * var(--mantine-spacing-lg))' }}
             transition={{ duration: 0.3, ease: EASE }}
-            style={{ overflow: 'hidden' }}
+            // The banner's radius, so Motion keeps its corners round while the main page's card resizes into it.
+            style={{ overflow: 'hidden', borderRadius: 12 }}
           >
             <Hero />
           </motion.div>

@@ -27,7 +27,8 @@
     var(--mantine-color-dark-6);
 }
 
-.card:hover,
+/* Only the main page's cards are links; a page's own card (data-home) is its banner. */
+.card:not([data-home]):hover,
 .card:has(.link:focus-visible) {
   border-color: var(--mantine-primary-color-filled);
   box-shadow: 0 0 0 1px var(--mantine-primary-color-filled);
@@ -107,6 +108,11 @@
   position: relative;
   z-index: 1;
   min-width: 0;
+}
+
+/* A page's own card is its banner: the copy alone, in one column. */
+.card[data-home] {
+  grid-template-columns: 1fr;
 }
 
 /* One column on phones: the copy first, then the screenshots, whichever side they take on wide screens. */

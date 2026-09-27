@@ -11,10 +11,10 @@ import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import classes from './App.module.css'
 import { AccountControls } from './components/Account'
 import { IconMoon, IconSun } from './components/icons'
-import { Landing } from './components/Landing'
+import { carriesCard, Landing } from './components/Landing'
 import { AddonPage, ManagePage, UploadPage } from './components/Pages'
 import { ProfitPage } from './components/Profit'
-import { linkProps, useRoute, type Route } from './lib/router'
+import { linkProps, previousRoute, useRoute, type Route } from './lib/router'
 import { useSession } from './lib/session'
 
 function NavLink({ to, label }: { to: Route; label: string }) {
@@ -86,14 +86,17 @@ function Page({ route }: { route: Route }) {
 
 export function App() {
   const route = useRoute()
+  // The old page fades out over the new one (popLayout), so a showcase card on both (layoutId) moves across; when
+  // it does, the new page shows at once and the card carries it in.
+  const carried = carriesCard(previousRoute(), route)
   return (
     <MotionConfig reducedMotion="user">
-      <Container size="xl" pb="xl">
+      <Container size="xl" pb="xl" pos="relative">
         <Header />
-        <AnimatePresence mode="wait" initial={false}>
+        <AnimatePresence mode="popLayout" initial={false}>
           <motion.main
             key={route}
-            initial={{ opacity: 0 }}
+            initial={carried ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}

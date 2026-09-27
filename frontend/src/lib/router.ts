@@ -26,9 +26,29 @@ export function useRoute(): Route {
   return useSyncExternalStore(subscribe, () => routeOf(window.location.pathname))
 }
 
+// The page shown now and the one before it (null on the first), so a page can tell where the visitor came from.
+let shown: Route = routeOf(window.location.pathname)
+let previous: Route | null = null
+
+/** The page shown before the current one: null until the visitor has moved. */
+export function previousRoute(): Route | null {
+  return previous
+}
+
+/** Records a move to the page now at `window.location` (from `navigate` and the back and forward buttons). */
+function moved() {
+  const now = routeOf(window.location.pathname)
+  if (now === shown) return
+  previous = shown
+  shown = now
+}
+
+window.addEventListener('popstate', moved)
+
 /** Go to a page, adding a history entry. */
 export function navigate(to: Route) {
   if (window.location.pathname !== to) window.history.pushState(null, '', to)
+  moved()
   window.scrollTo?.({ top: 0 })
   listeners.forEach((l) => l())
 }

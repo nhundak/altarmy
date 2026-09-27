@@ -179,12 +179,16 @@ export function useSessionPlan(
   })
 }
 
+/** Keep retrying a query the app can't do without (signing in), backing off to every 30 s. */
+export const KEEP_TRYING = { retry: true, retryDelay: (attempt: number) => Math.min(1000 * 2 ** attempt, 30_000) }
+
 /** How to sign in (never changes while the page is open). */
 export function useConfig() {
   return useQuery({
     queryKey: ['config'],
     queryFn: () => call(client.GET('/api/config')),
     staleTime: Infinity,
+    ...KEEP_TRYING,
   })
 }
 
