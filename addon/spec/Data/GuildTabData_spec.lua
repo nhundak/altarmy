@@ -2264,6 +2264,38 @@ describe("GuildTabData", function()
       }, GTD.GetProfessionRecipes(entry, "tailoring"))
       AltArmy.DataStore = savedDS
     end)
+
+    -- WoW Forever: Skinning has recipes (e.g. Camp Chair) but isn't in Search's profession tables,
+    -- so the display-cased stored key "Skinning" must still match the "skinning" tab key.
+    it("finds Skinning recipes stored under the display-cased profession name", function()
+      local savedDS = AltArmy.DataStore
+      AltArmy.DataStore = {
+        GetCharacters = function(_, realm)
+          if realm == "R" then
+            return {
+              Frell = {
+                Professions = {
+                  Skinning = {
+                    rank = 150,
+                    Recipes = {
+                      [1229517] = { primaryRecipeID = 1229517, resultItemID = 279979, name = "Camp Chair" },
+                    },
+                  },
+                },
+              },
+            }
+          end
+          return {}
+        end,
+      }
+      local entry = member({ name = "Frell", realm = "R", source = "local" })
+      local ok, result = pcall(GTD.GetProfessionRecipes, entry, "skinning")
+      AltArmy.DataStore = savedDS
+      assert.is_true(ok, tostring(result))
+      assert.are.same({
+        { recipeID = 1229517, resultItemID = 279979, name = "Camp Chair" },
+      }, result)
+    end)
   end)
 
   describe("FormatCharacterTitle", function()
@@ -3242,6 +3274,43 @@ describe("GuildTabData", function()
       }
       assert.are.same({ "Bob", "Bobsalt" }, GTD.ManualProposalDisplayOrder(proposal))
       assert.are.same({ "Bob", "Bobsalt" }, proposal.order)
+    end)
+  end)
+  describe("GetProfessionIcon", function()
+    local savedGetSpellInfo, savedCSpell
+
+    before_each(function()
+      savedGetSpellInfo, savedCSpell = _G.GetSpellInfo, _G.C_Spell
+      _G.GetSpellInfo, _G.C_Spell = nil, nil
+    end)
+
+    after_each(function()
+      _G.GetSpellInfo, _G.C_Spell = savedGetSpellInfo, savedCSpell
+    end)
+
+    it("uses the profession spell's icon via C_Spell (WoW Forever)", function()
+      _G.C_Spell = {
+        GetSpellInfo = function(id)
+          if id == 2259 then return { name = "Alchemy", iconID = 4620669 } end
+        end,
+      }
+      assert.are.equal(4620669, GTD.GetProfessionIcon("alchemy"))
+    end)
+
+    it("uses the legacy GetSpellInfo icon when present", function()
+      _G.GetSpellInfo = function(id)
+        if id == 8613 then return "Skinning", nil, 134366 end
+      end
+      assert.are.equal(134366, GTD.GetProfessionIcon("skinning"))
+    end)
+
+    it("falls back to a static texture when the spell does not resolve", function()
+      assert.are.equal("Interface\\Icons\\Trade_Tailoring", GTD.GetProfessionIcon("tailoring"))
+    end)
+
+    it("returns the question mark for unknown keys", function()
+      assert.are.equal("Interface\\Icons\\INV_Misc_QuestionMark", GTD.GetProfessionIcon("fishing"))
+      assert.are.equal("Interface\\Icons\\INV_Misc_QuestionMark", GTD.GetProfessionIcon(nil))
     end)
   end)
 end)

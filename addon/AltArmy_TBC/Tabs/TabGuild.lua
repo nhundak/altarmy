@@ -722,12 +722,16 @@ else
     anchorGuildHeaderSearch(searchEdit)
 end
 
--- Recipe detail search (top right while viewing one character's recipes).
-local recipeSearchEdit = Theme.CreateSearchBox(header, {
+-- Recipe detail search: same toolbar-row slot as the character search it replaces.
+local recipeSearchEdit = Theme.CreateSearchBox(frame, {
     name = "AltArmyTBC_GuildRecipeSearchEdit",
     placeholder = "Search for recipes on this character",
 })
-anchorGuildHeaderSearch(recipeSearchEdit)
+if AltArmy.PlaceInToolbarSearchSlot then
+    AltArmy.PlaceInToolbarSearchSlot(recipeSearchEdit, frame)
+else
+    anchorGuildHeaderSearch(recipeSearchEdit)
+end
 recipeSearchEdit:Hide()
 
 local function updateRecipeSearchPlaceholder(entry)
@@ -773,11 +777,26 @@ local backBtnLabel = backBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.headin
 backBtnLabel:SetPoint("CENTER", backBtn, "CENTER", 0, 0)
 backBtnLabel:SetText("Back")
 
+-- CraftLib recommendation sits at the right end of the Back / character title line.
+local craftLibRecommendBtn = CreateFrame("Button", nil, header)
+craftLibRecommendBtn:SetHeight(22)
+craftLibRecommendBtn:SetPoint("RIGHT", header, "RIGHT", -2, 0)
+Theme.SkinButton(craftLibRecommendBtn, true)
+Theme.BindInteractableHover(craftLibRecommendBtn)
+local craftLibRecommendLabel = craftLibRecommendBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
+craftLibRecommendLabel:SetPoint("CENTER", craftLibRecommendBtn, "CENTER", 0, 0)
+craftLibRecommendLabel:SetText("Recommended: CraftLib")
+craftLibRecommendBtn:Hide()
+
+-- Right edge of the title line's free space (left of CraftLib when shown, else the header edge).
+ME.recipeRightGuard = CreateFrame("Frame", nil, header)
+ME.recipeRightGuard:SetSize(1, 1)
+
 local TruncateFontString = AltArmy.Text and AltArmy.Text.TruncateFontString
 
 local recipeTitleFS = header:CreateFontString(nil, "OVERLAY", Theme.FONTS.title)
 recipeTitleFS:SetPoint("LEFT", backBtn, "RIGHT", 8, 0)
-recipeTitleFS:SetPoint("RIGHT", recipeSearchEdit, "LEFT", -8, 0)
+recipeTitleFS:SetPoint("RIGHT", ME.recipeRightGuard, "LEFT", -8, 0)
 recipeTitleFS:SetJustifyH("LEFT")
 recipeTitleFS:SetWordWrap(false)
 recipeTitleFS:Hide()
@@ -800,13 +819,20 @@ whisperBtn:SetScript("OnClick", function(self)
     end
 end)
 
---- Right edge reserved for the recipe search box.
-local function recipeSearchLeftGuard()
-    return recipeSearchEdit, "LEFT"
+--- Right edge reserved for the CraftLib recommendation (or the header edge when it is hidden).
+local function recipeTitleRightGuard()
+    local guard = ME.recipeRightGuard
+    guard:ClearAllPoints()
+    if craftLibRecommendBtn:IsShown() then
+        guard:SetPoint("RIGHT", craftLibRecommendBtn, "LEFT", 0, 0)
+    else
+        guard:SetPoint("RIGHT", header, "RIGHT", 6, 0)
+    end
+    return guard, "LEFT"
 end
 
 local function anchorWhisperFlushRight()
-    local guard, point = recipeSearchLeftGuard()
+    local guard, point = recipeTitleRightGuard()
     whisperBtn:ClearAllPoints()
     whisperBtn:SetPoint("RIGHT", guard, point, -8, 0)
 end
@@ -819,7 +845,7 @@ end
 
 local function recipeTitleMaxWidth()
     local left = backBtn:GetRight() or 0
-    local rightFrame = whisperBtn:IsShown() and whisperBtn or select(1, recipeSearchLeftGuard())
+    local rightFrame = whisperBtn:IsShown() and whisperBtn or select(1, recipeTitleRightGuard())
     local right = rightFrame and rightFrame:GetLeft() or 0
     return math.max(0, right - left - 16)
 end
@@ -859,7 +885,7 @@ updateWhisperButton = function(entry)
     whisperBtn.whisperTarget = nil
     if not entry then
         whisperBtn:Hide()
-        anchorRecipeTitleTo(select(1, recipeSearchLeftGuard()))
+        anchorRecipeTitleTo(select(1, recipeTitleRightGuard()))
         applyRecipeTitleText(nil)
         return
     end
@@ -877,7 +903,7 @@ updateWhisperButton = function(entry)
         anchorRecipeTitleTo(whisperBtn)
     else
         whisperBtn:Hide()
-        anchorRecipeTitleTo(select(1, recipeSearchLeftGuard()))
+        anchorRecipeTitleTo(select(1, recipeTitleRightGuard()))
     end
     applyRecipeTitleText(entry)
 end
@@ -894,20 +920,14 @@ profTabStrip:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, -2)
 profTabStrip:SetHeight(UI.PROF_TAB_HEIGHT)
 profTabStrip:Hide()
 
+-- Forever (spellbook icon tab art available): profession tabs move to the toolbar row as icons.
+ME.useProfIconTabs = (AltArmy.NativeUI and AltArmy.NativeUI.GetCaps().iconTabs) and true or false
+ME.profIconTabSets = {}
+
 local function isCraftLibAvailable()
     local RCL = AltArmy and AltArmy.RecipeCraftLib
     return RCL and RCL.IsAvailable and RCL.IsAvailable() or false
 end
-
-local craftLibRecommendBtn = CreateFrame("Button", nil, profTabStrip)
-craftLibRecommendBtn:SetHeight(UI.PROF_TAB_HEIGHT - 4)
-craftLibRecommendBtn:SetPoint("TOPRIGHT", profTabStrip, "TOPRIGHT", 0, 0)
-Theme.SkinButton(craftLibRecommendBtn, true)
-Theme.BindInteractableHover(craftLibRecommendBtn)
-local craftLibRecommendLabel = craftLibRecommendBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
-craftLibRecommendLabel:SetPoint("CENTER", craftLibRecommendBtn, "CENTER", 0, 0)
-craftLibRecommendLabel:SetText("Recommended: CraftLib")
-craftLibRecommendBtn:Hide()
 
 local craftLibRecommendPanel = Theme.CreateCraftLibInstallCallout(listView, {
     introText = "Install the CraftLib addon to see:",
@@ -1002,7 +1022,10 @@ local function setListHeaderVisible(visible)
         updateGuildHeaderForListMode()
         recipeSearchEdit:Hide()
         whisperBtn:Hide()
-        anchorRecipeTitleTo(recipeSearchEdit)
+        craftLibRecommendBtn:Hide()
+        craftLibRecommendPanel:Hide()
+        if ME.hideProfIconTabs then ME.hideProfIconTabs() end
+        anchorRecipeTitleTo(select(1, recipeTitleRightGuard()))
     else
         guildNameText:Hide()
         guildBackBtn:Hide()
@@ -1017,7 +1040,7 @@ local function setListHeaderVisible(visible)
     if visible then
         whisperBtn:Hide()
     end
-    profTabStrip:SetShown(not visible)
+    profTabStrip:SetShown(not visible and not ME.useProfIconTabs)
 end
 
 -- Member-list page body (slides against recipeBody / notesWizard).
@@ -3993,6 +4016,44 @@ local function acquireRecipeRow(index)
     return row
 end
 
+-- Forever: profession tabs are spellbook-style icon tabs in the main toolbar row (same spot as
+-- the Gear / Cooldowns sub-view tabs). One TopTabs set per profession list, reused per session.
+function ME.hideProfIconTabs()
+    for _, set in pairs(ME.profIconTabSets) do
+        set.frame:Hide()
+    end
+end
+
+function ME.showProfIconTabs(profs, selectedIndex)
+    local keys = {}
+    for i, prof in ipairs(profs) do keys[i] = prof.key end
+    local signature = table.concat(keys, ",")
+    local set = ME.profIconTabSets[signature]
+    if not set then
+        local defs = {}
+        for i, prof in ipairs(profs) do
+            defs[i] = { name = prof.key, label = prof.name or prof.key, icon = GTD.GetProfessionIcon(prof.key) }
+        end
+        set = AltArmy.TopTabs.Create(frame, defs, {
+            onSelect = function(key)
+                for i, k in ipairs(keys) do
+                    if k == key then
+                        clearRecipeFocus()
+                        selectedProfIndex = i
+                        layoutRecipeView(selectedCharacter)
+                        return
+                    end
+                end
+            end,
+        })
+        set.frame:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", AltArmy.MainToolbarInsetX or 54, 0)
+        ME.profIconTabSets[signature] = set
+    end
+    ME.hideProfIconTabs()
+    set.frame:Show()
+    set:SetSelected(keys[selectedIndex])
+end
+
 layoutRecipeView = function(entry)
     if not entry then return end
     clearPendingRecipeIcons()
@@ -4009,6 +4070,13 @@ layoutRecipeView = function(entry)
         selectedProfIndex = 1
     end
 
+    -- CraftLib state first: it decides where the title / Whisper line ends.
+    if #profs > 0 then
+        updateCraftLibRecommendUi()
+    else
+        craftLibRecommendBtn:Hide()
+        craftLibRecommendPanel:Hide()
+    end
     updateWhisperButton(entry)
 
     noProfText:Hide()
@@ -4026,8 +4094,7 @@ layoutRecipeView = function(entry)
 
     if #profs == 0 then
         profTabStrip:Hide()
-        craftLibRecommendBtn:Hide()
-        craftLibRecommendPanel:Hide()
+        ME.hideProfIconTabs()
         header:SetHeight(UI.RECIPE_TITLE_HEIGHT)
         recipeBody:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
         noProfText:SetText(GTD.FormatNoProfessionsMessage(entry, formatName))
@@ -4036,45 +4103,42 @@ layoutRecipeView = function(entry)
     end
 
     header:SetHeight(UI.RECIPE_TITLE_HEIGHT)
-    profTabStrip:Show()
-    updateCraftLibRecommendUi()
-    recipeBody:SetPoint("TOPLEFT", profTabStrip, "BOTTOMLEFT", 0, -PAD)
-
-    local tabX = 0
-    local tabRightReserve = craftLibRecommendBtn:IsShown() and (craftLibRecommendBtn:GetWidth() + 8) or 0
-    for i, prof in ipairs(profs) do
-        local tab = profTabPool[i]
-        if not tab then
-            tab = CreateFrame("Button", nil, profTabStrip)
-            tab:SetHeight(UI.PROF_TAB_HEIGHT - 4)
-            Theme.SkinButton(tab, true)
-            local tabLabel = tab:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
-            tabLabel:SetPoint("CENTER", tab, "CENTER", 0, 0)
-            tab.label = tabLabel
-            profTabPool[i] = tab
-        end
-        tab:ClearAllPoints()
-        tab:SetPoint("LEFT", profTabStrip, "LEFT", tabX, 0)
-        local labelText = (prof.name or prof.key or "?") .. " (" .. (prof.rank or 0) .. ")"
-        tab.label:SetText(labelText)
-        local textWidth = tab.label:GetStringWidth() or 40
-        tab:SetWidth(math.max(64, textWidth + 16))
-        if tabRightReserve > 0 then
-            local stripWidth = profTabStrip:GetWidth() or 0
-            if tabX + tab:GetWidth() > stripWidth - tabRightReserve then
-                tab:SetWidth(math.max(64, stripWidth - tabRightReserve - tabX))
+    if ME.useProfIconTabs then
+        profTabStrip:Hide()
+        recipeBody:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -PAD)
+        ME.showProfIconTabs(profs, selectedProfIndex)
+    else
+        profTabStrip:Show()
+        recipeBody:SetPoint("TOPLEFT", profTabStrip, "BOTTOMLEFT", 0, -PAD)
+        local tabX = 0
+        for i, prof in ipairs(profs) do
+            local tab = profTabPool[i]
+            if not tab then
+                tab = CreateFrame("Button", nil, profTabStrip)
+                tab:SetHeight(UI.PROF_TAB_HEIGHT - 4)
+                Theme.SkinButton(tab, true)
+                local tabLabel = tab:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
+                tabLabel:SetPoint("CENTER", tab, "CENTER", 0, 0)
+                tab.label = tabLabel
+                profTabPool[i] = tab
             end
+            tab:ClearAllPoints()
+            tab:SetPoint("LEFT", profTabStrip, "LEFT", tabX, 0)
+            local labelText = (prof.name or prof.key or "?") .. " (" .. (prof.rank or 0) .. ")"
+            tab.label:SetText(labelText)
+            local textWidth = tab.label:GetStringWidth() or 40
+            tab:SetWidth(math.max(64, textWidth + 16))
+            tab:SetSelected(i == selectedProfIndex)
+            tab:Show()
+            tab:SetScript("OnClick", function()
+                clearRecipeFocus()
+                selectedProfIndex = i
+                layoutRecipeView(selectedCharacter)
+            end)
+            tabX = tabX + tab:GetWidth() + UI.PROF_TAB_GAP
         end
-        tab:SetSelected(i == selectedProfIndex)
-        tab:Show()
-        tab:SetScript("OnClick", function()
-            clearRecipeFocus()
-            selectedProfIndex = i
-            layoutRecipeView(selectedCharacter)
-        end)
-        tabX = tabX + tab:GetWidth() + UI.PROF_TAB_GAP
+        hideProfTabsFrom(#profs + 1)
     end
-    hideProfTabsFrom(#profs + 1)
 
     local selectedProf = profs[selectedProfIndex]
     local profKey = selectedProf and selectedProf.key
@@ -4210,6 +4274,7 @@ showGuildList = function()
     recipeBody:Hide()
     emptyMsgRegion:Hide()
     profTabStrip:Hide()
+    ME.hideProfIconTabs()
     craftLibRecommendBtn:Hide()
     craftLibRecommendPanel:Hide()
     updateListHeaderFade()

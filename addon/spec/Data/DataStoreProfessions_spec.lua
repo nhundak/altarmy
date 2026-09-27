@@ -395,6 +395,64 @@ describe("DataStoreProfessions", function()
     end)
   end)
 
+  describe("ProfessionHasNoRecipeWindow", function()
+    local oldGetNumTradeSkills, oldGetTradeSkillLine, oldCTradeSkillUI
+
+    local function useLegacyApi()
+      _G.GetNumTradeSkills = function() return 0 end
+      _G.GetTradeSkillLine = function() end
+      _G.C_TradeSkillUI = nil
+    end
+
+    local function useTradeSkillUiFallback()
+      _G.GetNumTradeSkills, _G.GetTradeSkillLine = nil, nil
+      _G.C_TradeSkillUI = { GetAllRecipeIDs = function() return {} end }
+    end
+
+    before_each(function()
+      oldGetNumTradeSkills, oldGetTradeSkillLine = _G.GetNumTradeSkills, _G.GetTradeSkillLine
+      oldCTradeSkillUI = _G.C_TradeSkillUI
+    end)
+
+    after_each(function()
+      _G.GetNumTradeSkills, _G.GetTradeSkillLine = oldGetNumTradeSkills, oldGetTradeSkillLine
+      _G.C_TradeSkillUI = oldCTradeSkillUI
+    end)
+
+    it("treats gathering skills and fishing as recipe-less on the legacy TBC API", function()
+      useLegacyApi()
+      for _, name in ipairs({ "Fishing", "Riding", "Herbalism", "Mining", "Skinning" }) do
+        assert.is_true(DS.ProfessionHasNoRecipeWindow(name), name)
+      end
+    end)
+
+    -- WoW Forever: Smelt Copper (Mining), Incense Candle (Herbalism), Fish Bowl (Fishing), Camp Chair (Skinning).
+    it("treats only Riding as recipe-less on the C_TradeSkillUI fallback (WoW Forever)", function()
+      useTradeSkillUiFallback()
+      for _, name in ipairs({ "Fishing", "Herbalism", "Mining", "Skinning" }) do
+        assert.is_false(DS.ProfessionHasNoRecipeWindow(name), name)
+      end
+      assert.is_true(DS.ProfessionHasNoRecipeWindow("Riding"))
+    end)
+
+    it("drives MarkProfessionRecipesStale: Skinning skipped on legacy, marked on the fallback", function()
+      local char = {
+        Professions = {
+          Skinning = { rank = 150, Recipes = {} },
+          Riding = { rank = 75, Recipes = {} },
+        },
+      }
+      useLegacyApi()
+      DS:MarkProfessionRecipesStale(char, "Skinning")
+      assert.is_nil(char.professionsNeedingRecipeScan.Skinning)
+
+      useTradeSkillUiFallback()
+      DS:MarkProfessionRecipesStale(char, "Skinning")
+      assert.is_true(char.professionsNeedingRecipeScan.Skinning)
+      assert.is_nil(char.professionsNeedingRecipeScan.Riding)
+    end)
+  end)
+
   describe("ScanRecipes (C_TradeSkillUI fallback)", function()
     local scheduleCount
     local oldGetNumTradeSkills, oldGetTradeSkillLine

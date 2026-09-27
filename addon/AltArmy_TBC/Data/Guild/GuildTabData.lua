@@ -299,6 +299,29 @@ function GTD.GetPrimaryProfessions(entry)
     return out
 end
 
+-- Profession spell per display key; its icon is the one the native profession window shows.
+-- Static textures cover clients where the spell lookup comes back empty.
+local PROFESSION_ICONS = {
+    alchemy = { spellID = 2259, texture = "Interface\\Icons\\Trade_Alchemy" },
+    blacksmithing = { spellID = 2018, texture = "Interface\\Icons\\Trade_BlackSmithing" },
+    enchanting = { spellID = 7411, texture = "Interface\\Icons\\Trade_Engraving" },
+    engineering = { spellID = 4036, texture = "Interface\\Icons\\Trade_Engineering" },
+    jewelcrafting = { spellID = 25229, texture = "Interface\\Icons\\INV_Misc_Gem_02" },
+    leatherworking = { spellID = 2108, texture = "Interface\\Icons\\INV_Misc_ArmorKit_17" },
+    tailoring = { spellID = 3908, texture = "Interface\\Icons\\Trade_Tailoring" },
+    herbalism = { spellID = 2366, texture = "Interface\\Icons\\Trade_Herbalism" },
+    mining = { spellID = 2575, texture = "Interface\\Icons\\Trade_Mining" },
+    skinning = { spellID = 8613, texture = "Interface\\Icons\\INV_Misc_Pelt_Wolf_01" },
+}
+
+--- Icon (file id or texture path) for a crafting/gathering profession key.
+function GTD.GetProfessionIcon(profKey)
+    local def = profKey and PROFESSION_ICONS[profKey]
+    if not def then return "Interface\\Icons\\INV_Misc_QuestionMark" end
+    local _, _, icon = compatGetSpellInfo(def.spellID)
+    return icon or def.texture
+end
+
 --- Crafting-only professions for recipe tabs (excludes gathering).
 function GTD.GetCraftingProfessions(entry)
     local crafting = collectProfessions(entry, false)
@@ -317,6 +340,11 @@ local function findProfessionByKey(char, profKey)
     for name, p in pairs(char.Professions) do
         local key = (SS and SS.ResolveProfessionKey and SS.ResolveProfessionKey(name)) or name
         if key == profKey then return p end
+    end
+    -- Search's key tables omit gathering skills, but WoW Forever's Skinning has recipes; match on
+    -- this module's own tab keys too (e.g. stored "Skinning" -> "skinning").
+    for name, p in pairs(char.Professions) do
+        if resolveDisplayProfessionKey(name, p) == profKey then return p end
     end
     return nil
 end

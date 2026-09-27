@@ -814,12 +814,13 @@ function DS.IsUsingTradeSkillUiFallback()
 end
 
 -- Canonical lowercase profession keys with no recipe list at all on the legacy TBC API (pure
--- gathering/secondary skills). WoW Forever gave Skinning real recipes (see
--- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md, "Ninth"), so it's dropped from the equivalent set
+-- gathering/secondary skills). WoW Forever gave Skinning, Mining, Herbalism, and Fishing real
+-- recipes (Camp Chair, Smelt Copper, Incense Candle, Fish Bowl — see
+-- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md, "Ninth"), so only Riding stays in the equivalent set
 -- for the C_TradeSkillUI fallback. Single source of truth for "does this profession have a recipe
--- window" — SummaryData.lua's missing-data nag and GuildTabData.lua's crafting/gathering split both
--- read this (via DS.ProfessionHasNoRecipeWindow) instead of keeping their own copies, so a future
--- correction (another profession gaining/losing recipes) only has to happen here.
+-- window" — SummaryData.lua's missing-data nag, GuildTabData.lua's crafting/gathering split, and
+-- this file's recipe-stale / learned-recipe-share guards all read this (via
+-- DS.ProfessionHasNoRecipeWindow), so a future correction only has to happen here.
 DS.NO_RECIPE_PROFESSION_KEYS_LEGACY = {
     fishing = true,
     riding = true,
@@ -828,10 +829,7 @@ DS.NO_RECIPE_PROFESSION_KEYS_LEGACY = {
     skinning = true,
 }
 DS.NO_RECIPE_PROFESSION_KEYS_TRADESKILLUI_FALLBACK = {
-    fishing = true,
     riding = true,
-    herbalism = true,
-    mining = true,
 }
 
 --- True when profNameOrKey (matched case-insensitively) has no recipe window to open on whichever
@@ -1199,15 +1197,6 @@ local function isCraftUiOpen()
     return name ~= nil and name ~= ""
 end
 
--- Match SummaryData: gathering/secondary skills have no recipe window to open.
-local PROFESSIONS_NO_RECIPE_SCAN_WARNING = {
-    Fishing = true,
-    Riding = true,
-    Herbalism = true,
-    Mining = true,
-    Skinning = true,
-}
-
 --- Capture %s from a WoW global format string (e.g. ERR_LEARN_SPELL_S).
 local function captureGlobalFormat(fmt, msg)
     if type(fmt) ~= "string" or type(msg) ~= "string" then
@@ -1301,7 +1290,7 @@ local function markOneProfessionRecipesStale(needing, char, professionName)
     if type(professionName) ~= "string" or professionName == "" then
         return false
     end
-    if PROFESSIONS_NO_RECIPE_SCAN_WARNING[professionName] then
+    if DS.ProfessionHasNoRecipeWindow(professionName) then
         return false
     end
     local prof = char.Professions[professionName]
@@ -1315,7 +1304,7 @@ end
 
 local function markAllCraftableProfessionRecipesStale(needing, char)
     for profName, prof in pairs(char.Professions) do
-        if type(profName) == "string" and not PROFESSIONS_NO_RECIPE_SCAN_WARNING[profName] then
+        if type(profName) == "string" and not DS.ProfessionHasNoRecipeWindow(profName) then
             local rank = (prof and prof.rank) or 0
             if rank > 0 then
                 needing[profName] = true
@@ -1373,7 +1362,7 @@ function DS:AddLearnedRecipeForShare(professionName, recipeID, resultItemID, cha
     if type(prof) ~= "table" or (prof.rank or 0) <= 0 then
         return false
     end
-    if PROFESSIONS_NO_RECIPE_SCAN_WARNING[professionName] then
+    if DS.ProfessionHasNoRecipeWindow(professionName) then
         return false
     end
     prof.Recipes = prof.Recipes or {}
