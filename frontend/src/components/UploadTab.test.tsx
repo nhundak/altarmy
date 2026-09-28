@@ -2,7 +2,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { components } from '../api/schema'
-import { GUEST, LINKED, mockApi, renderWithProviders } from '../test/utils'
+import { ADMIN, GUEST, LINKED, mockApi, renderWithProviders } from '../test/utils'
 import { UploadTab } from './UploadTab'
 
 type UploadResult = components['schemas']['UploadResult']
@@ -87,9 +87,9 @@ describe('UploadTab', () => {
       characters: 0,
       groups: [],
       realms: [
-        { key: 'ClassicBetaPvE', auction_house_id: 1, realm: 'Classic Beta PvE', faction: 'Horde', items: 30, moved: 0, quarantined: true, skipped: null },
-        { key: 'Dreamscythe Horde', auction_house_id: 2, realm: 'Dreamscythe', faction: 'Horde', items: 5, moved: 2, quarantined: false, skipped: null },
-        { key: 'ClassicBetaPvP2', auction_house_id: null, realm: '', faction: '', items: 7, moved: 0, quarantined: false, skipped: 'Upload your characters first.' },
+        { key: 'ClassicBetaPvE', auction_house_id: 1, realm: 'Classic Beta PvE', faction: 'Horde', items: 30, moved: 0, quarantined: true, skipped: null, both_factions: false },
+        { key: 'Dreamscythe Horde', auction_house_id: 2, realm: 'Dreamscythe', faction: 'Horde', items: 5, moved: 2, quarantined: false, skipped: null, both_factions: false },
+        { key: 'ClassicBetaPvP2', auction_house_id: null, realm: '', faction: '', items: 7, moved: 0, quarantined: false, skipped: 'Upload your characters first.', both_factions: false },
       ],
     }
     mockApi({ '/api/uploads': (url: URL) => (url.search.includes('game_version') ? scan : []) })
@@ -103,6 +103,38 @@ describe('UploadTab', () => {
     expect(screen.getByText(/ClassicBetaPvP2: 7 prices$/)).toBeInTheDocument()
     expect(screen.getByText('Upload your characters first.')).toBeInTheDocument()
     expect(screen.getByText(/Dreamscythe \(Horde\): 5 prices, 2 changed/)).toBeInTheDocument()
+  })
+
+  it('lets only admins say which faction scanned a realm they have both factions on', async () => {
+    const appended = new Map<string, unknown>()
+    vi.stubGlobal(
+      'FormData',
+      class extends FormData {
+        override append(name: string, value: string | Blob, fileName?: string): void {
+          appended.set(name, value)
+          super.append(name, typeof value === 'string' ? value : `file ${fileName}`)
+        }
+      },
+    )
+    const both = { key: 'ClassicBetaPvE', auction_house_id: null, realm: '', faction: '', items: 7, moved: 0, quarantined: false, skipped: 'You have Horde and Alliance characters on this realm.', both_factions: true }
+    const scan: UploadResult = { kind: 'auctionator', detail: '', characters: 0, groups: [], realms: [both] }
+    mockApi({ '/api/uploads': (url: URL) => (url.search.includes('game_version') ? scan : []) })
+    for (const session of [LINKED, ADMIN]) {
+      const { unmount } = renderWithProviders(<UploadTab />, session)
+      const inputs = document.querySelectorAll<HTMLInputElement>('input[type="file"]')
+      await userEvent.upload(inputs[1]!, new File(['x'], 'Auctionator.lua'))
+      await userEvent.click(screen.getAllByRole('button', { name: 'Upload' })[1]!)
+      expect(await screen.findByText(/some prices were not used/)).toBeInTheDocument()
+      if (session === LINKED) {
+        expect(screen.queryByRole('button', { name: 'Horde' })).not.toBeInTheDocument()
+        expect(appended.has('faction')).toBe(false)
+      } else {
+        await userEvent.click(screen.getByRole('button', { name: 'Alliance' }))
+        await waitFor(() => expect(appended.get('faction')).toBe('Alliance'))
+      }
+      unmount()
+    }
+    vi.unstubAllGlobals()
   })
 
   it('lists the stalest auction houses first', async () => {

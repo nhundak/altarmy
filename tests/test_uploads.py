@@ -90,6 +90,32 @@ def test_a_forever_scan_goes_to_the_uploaders_faction(conn: Connection, other: s
     assert service.selected_auction_house(conn, ME, FOREVER) == horde
 
 
+def test_an_admin_names_the_faction_of_a_scan_on_a_realm_with_both(conn: Connection) -> None:
+    store.save_characters(
+        conn, ME, FOREVER, _characters(("Classic Beta PvE", "Horde"), ("Classic Beta PvE", "Alliance"))
+    )
+    data = scan({"ClassicBetaPvE": {"1": _entry(20)}, "Dreamscythe Horde": {"1": _entry(5)}})
+    (both, _) = uploads.ingest(conn, ME, FOREVER, "auctionator", data, None, now=NOW).realms
+    assert both.skipped == uploads.BOTH_FACTIONS and both.both_factions
+    got = uploads.ingest(conn, ME, FOREVER, "auctionator", data, None, now=NOW, faction="Alliance")
+    assert [(r.key, r.realm, r.faction, r.skipped, r.both_factions) for r in got.realms] == [
+        ("ClassicBetaPvE", "Classic Beta PvE", "Alliance", None, False),
+        ("Dreamscythe Horde", "Dreamscythe", "Horde", None, False),  # the key names its faction
+    ]
+    alliance = prices.find_auction_house(conn, FOREVER, "Classic Beta PvE", "Alliance")
+    assert alliance is not None and prices.load_current(conn, alliance) == {1: 20}
+    assert prices.find_auction_house(conn, FOREVER, "Classic Beta PvE", "Horde") is None
+
+
+def test_a_named_faction_the_uploader_has_no_characters_of_changes_nothing(conn: Connection) -> None:
+    store.save_characters(conn, ME, FOREVER, _characters(("Classic Beta PvE", "Horde")))
+    data = scan({"ClassicBetaPvE": {"1": _entry(20)}})
+    (realm,) = uploads.ingest(
+        conn, ME, FOREVER, "auctionator", data, None, now=NOW, faction="Alliance"
+    ).realms
+    assert (realm.realm, realm.faction) == ("Classic Beta PvE", "Horde")
+
+
 def test_a_forever_scan_before_any_characters_is_skipped(conn: Connection) -> None:
     got = uploads.ingest(
         conn, ME, FOREVER, "auctionator", scan({"ClassicBetaPvE": {"1": _entry(20)}}), None, now=NOW

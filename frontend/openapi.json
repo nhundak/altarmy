@@ -112,6 +112,22 @@
       },
       "Body_post_upload_api_uploads_post": {
         "properties": {
+          "faction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Horde",
+                  "Alliance"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "admins: the faction that scanned realms you have both factions on",
+            "title": "Faction"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -1758,6 +1774,10 @@
             ],
             "title": "Auction House Id"
           },
+          "both_factions": {
+            "title": "Both Factions",
+            "type": "boolean"
+          },
           "faction": {
             "title": "Faction",
             "type": "string"
@@ -1802,7 +1822,8 @@
           "items",
           "moved",
           "quarantined",
-          "skipped"
+          "skipped",
+          "both_factions"
         ],
         "title": "RealmPricesOut",
         "type": "object"
@@ -3804,7 +3825,7 @@
         "summary": "Get Uploads"
       },
       "post": {
-        "description": "Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this\ngame version, Auctionator adds a scan for every realm it has prices for.",
+        "description": "Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this\ngame version, Auctionator adds a scan for every realm it has prices for. 403 for `faction` unless\nyou are an admin.",
         "operationId": "post_upload_api_uploads_post",
         "parameters": [
           {

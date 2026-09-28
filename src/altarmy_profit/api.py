@@ -503,6 +503,7 @@ class RealmPricesOut(BaseModel):
     moved: int  # of them, items whose current price changed
     quarantined: bool  # far off this auction house's recent prices, so not used
     skipped: str | None  # why the scan was not used: which faction scanned it is unknown
+    both_factions: bool  # skipped: the uploader has both factions there (an admin may name the scanner's)
 
 
 class UploadResult(BaseModel):
@@ -661,7 +662,8 @@ _bearer = HTTPBearer(auto_error=False, description="Firebase ID token")
 def _current_user(
     request: Request, credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
 ) -> auth.User:
-    """Whoever the bearer token says (401 without one)."""
+    """Whoever the bearer token says (401 without one). Against the Auth emulator (development only: it
+    accepts unsigned tokens, so it never serves a real site) everyone is an admin."""
     a = _auth(request)
     if credentials is None:
         raise HTTPException(401, "Sign in first.", headers={"WWW-Authenticate": "Bearer"})
@@ -669,6 +671,8 @@ def _current_user(
         user = auth.user_from_claims(a.verifier.verify(credentials.credentials))
     except auth.InvalidToken as e:
         raise HTTPException(401, f"Invalid sign-in token: {e}", headers={"WWW-Authenticate": "Bearer"}) from e
+    if a.firebase.emulator_host:
+        user = replace(user, admin=True)
     _limit_user(a, user)
     with a.database.begin() as conn:
         users.ensure_user(conn, user)
@@ -1280,9 +1284,16 @@ def post_upload(
     kind: Annotated[UploadKind, Form()],
     modified_at: Annotated[int | None, Form(description="the file's modified time, ms since 1970")] = None,
     via: Annotated[FileVia, Form()] = "browser",
+    faction: Annotated[
+        Literal["Horde", "Alliance"] | None,
+        Form(description="admins: the faction that scanned realms you have both factions on"),
+    ] = None,
 ) -> UploadResult:
     """Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this
-    game version, Auctionator adds a scan for every realm it has prices for."""
+    game version, Auctionator adds a scan for every realm it has prices for. 403 for `faction` unless
+    you are an admin."""
+    if faction is not None and not user.admin:
+        raise HTTPException(403, "Only admins may say which faction scanned.")
     database = state.database
     with database.begin() as conn:
         try:
@@ -1305,7 +1316,7 @@ def post_upload(
     modified = None if modified_at is None else datetime.fromtimestamp(modified_at / 1000, UTC)
     try:
         with database.begin() as conn:
-            got = uploads.ingest(conn, user.uid, state.key, kind, data, modified)
+            got = uploads.ingest(conn, user.uid, state.key, kind, data, modified, faction=faction)
             uploads.record_upload(conn, user.uid, state.key, kind, via, len(data), "accepted", got.detail)
             moved = {ah: prices.price_version(conn, ah) for ah in got.moved_auction_house_ids}
     except ValueError as e:

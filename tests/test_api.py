@@ -32,7 +32,8 @@ from .test_auctionator import _entry, _saved_variables
 from .test_auth import FakeVerifier
 from .test_signals import FakeSignals
 
-FIREBASE = auth.FirebaseConfig(
+FIREBASE = auth.FirebaseConfig("demo-altarmy", "key", "demo-altarmy.firebaseapp.com", None)
+EMULATOR = auth.FirebaseConfig(  # as `npm run dev` runs it
     "demo-altarmy", "key", "demo-altarmy.firebaseapp.com", "127.0.0.1:9099", "127.0.0.1:8080"
 )
 FREE = {"Authorization": "Bearer anonymous:guest"}  # tokens as `FakeVerifier` reads them: an anonymous user
@@ -48,6 +49,7 @@ def make_client(
     *,
     verifier: FakeVerifier | None = None,
     limits: ratelimit.Limits | None = None,
+    firebase: auth.FirebaseConfig = FIREBASE,
 ) -> TestClient:
     """The app with fake tokens (see `FakeVerifier`), asking about Forever unless a request passes another
     game_version, signed in as `ME` unless a request sends other headers."""
@@ -56,7 +58,7 @@ def make_client(
         database=database,
         static_dir=static_dir,
         verifier=verifier or FakeVerifier(),
-        firebase=FIREBASE,
+        firebase=firebase,
         limits=limits,
         signals=FakeSignals(),
     )
@@ -462,8 +464,11 @@ def test_each_game_version_has_its_own_data(client: TestClient, priced: Connecti
 
 
 # --- users, tiers and prices ------------------------------------------------------------------------
-def test_users_sign_in_with_a_token(client: TestClient, conn: Connection) -> None:
-    assert client.get("/api/config").json() == {
+def test_the_config_names_the_emulators_in_development(
+    tmp_path: Path, game_versions: dict[str, GameVersion], database: db.Database
+) -> None:
+    dev = make_client(database, game_versions, tmp_path, firebase=EMULATOR)
+    assert dev.get("/api/config").json() == {
         "firebase": {
             "api_key": "key",
             "auth_domain": "demo-altarmy.firebaseapp.com",
@@ -472,6 +477,10 @@ def test_users_sign_in_with_a_token(client: TestClient, conn: Connection) -> Non
             "firestore_emulator_host": "127.0.0.1:8080",
         },
     }
+
+
+def test_users_sign_in_with_a_token(client: TestClient, conn: Connection) -> None:
+    assert client.get("/api/config").json()["firebase"]["emulator_url"] is None
     del client.headers["Authorization"]
     assert client.get("/api/versions").status_code == 200  # public
     assert client.get("/api/me").status_code == 401
@@ -631,11 +640,25 @@ def upload(
     modified_at: int | None = None,
     via: str = "browser",
     filename: str = "x.lua",
+    faction: str | None = None,
 ) -> Any:
     form: dict[str, str] = {"kind": kind, "via": via}
+    if faction is not None:
+        form["faction"] = faction
     if modified_at is not None:
         form["modified_at"] = str(modified_at)
     return c.post("/api/uploads", headers=headers or {}, data=form, files={"file": (filename, data)})
+
+
+def test_only_admins_name_the_faction_of_a_scan(client: TestClient) -> None:
+    for headers in (FREE, ADMIN):
+        assert upload(client, "altarmy", ALTARMY_SV, headers).is_success  # both factions on Classic Beta PvE
+    data = _saved_variables({"ClassicBetaPvE": {"1": _entry(20)}})
+    (realm,) = upload(client, "auctionator", data, ADMIN).json()["realms"]
+    assert (realm["auction_house_id"], realm["both_factions"]) == (None, True)
+    assert upload(client, "auctionator", data, FREE, faction="Horde").status_code == 403
+    (realm,) = upload(client, "auctionator", data, ADMIN, faction="Horde").json()["realms"]
+    assert (realm["realm"], realm["faction"], realm["skipped"]) == ("Classic Beta PvE", "Horde", None)
 
 
 def test_guests_upload_characters_and_prices(client: TestClient, conn: Connection) -> None:
@@ -896,6 +919,16 @@ def test_the_admin_page_is_for_admins_only(client: TestClient) -> None:
         assert client.get("/api/admin/ingestion", headers=headers).status_code == 403
     assert client.get("/api/admin/ingestion", headers={"Authorization": "Bearer nonsense"}).status_code == 401
     assert client.get("/api/admin/ingestion", headers=ADMIN).status_code == 200
+
+
+def test_everyone_is_an_admin_against_the_auth_emulator(
+    tmp_path: Path, game_versions: dict[str, GameVersion], database: db.Database
+) -> None:
+    dev = make_client(database, game_versions, tmp_path, firebase=EMULATOR)
+    for headers in (FREE, LINKED, SIGNED_IN):
+        assert dev.get("/api/me", headers=headers).json()["admin"]
+        assert dev.get("/api/admin/ingestion", headers=headers).status_code == 200
+    assert dev.get("/api/admin/ingestion", headers={"Authorization": "Bearer nonsense"}).status_code == 401
 
 
 def test_the_admin_page_shows_jobs_uploads_snapshots_and_feeds(client: TestClient, conn: Connection) -> None:

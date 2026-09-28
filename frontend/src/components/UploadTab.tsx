@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Alert, Badge, Button, Card, Code, FileInput, Group, Stack, Table, Text, Title } from '@mantine/core'
-import { useCoverage, useUpload, useUploads, type UploadKind } from '../api/queries'
+import { useCoverage, useUpload, useUploads, type Faction, type UploadKind } from '../api/queries'
 import { age } from '../lib/age'
 import { GAME_FLAVOR, GAME_VERSION_LABEL } from '../lib/gameVersion'
+import { useSession } from '../lib/session'
 import { PasteForm, Summary } from './PasteForm'
 import { AhledgerCredit } from './PriceFreshness'
 
@@ -82,8 +83,11 @@ function uploadedTitle(realms: readonly { quarantined: boolean; skipped: string 
   return 'Uploaded'
 }
 
+const FACTIONS: readonly Faction[] = ['Horde', 'Alliance']
+
 function UploadCard({ kind, name, what }: { kind: UploadKind; name: string; what: string }) {
   const upload = useUpload()
+  const { admin } = useSession()
   const [file, setFile] = useState<File | null>(null)
   const tooBig = file !== null && file.size > MAX_MB * 2 ** 20
   return (
@@ -123,6 +127,16 @@ function UploadCard({ kind, name, what }: { kind: UploadKind; name: string; what
           >
             <Summary result={upload.data} />
           </Alert>
+        )}
+        {admin && file && upload.data?.realms.some((r) => r.both_factions) && (
+          <Group gap="xs">
+            <Text size="sm">Admin: which faction scanned?</Text>
+            {FACTIONS.map((faction) => (
+              <Button key={faction} size="xs" variant="light" onClick={() => upload.mutate({ kind, file, faction })}>
+                {faction}
+              </Button>
+            ))}
+          </Group>
         )}
       </Stack>
     </Card>
