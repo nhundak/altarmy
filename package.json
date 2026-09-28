@@ -3,11 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently --kill-others --names auth,api,web --prefix-colors magenta,blue,green \"npm:dev:auth\" \"npm:dev:api\" \"npm:dev:web\"",
+    "predev": "node scripts/free-ports.mjs 9099 8080 9150 4400 4500 8600 5173",
+    "dev":"concurrently --kill-others --names auth,api,web --prefix-colors magenta,blue,green \"npm:dev:auth\" \"npm:dev:api\" \"npm:dev:web\"",
     "dev:auth": "firebase emulators:start --only auth,firestore --project demo-altarmy",
     "dev:api": "node scripts/dev-api.mjs",
     "dev:web": "wait-on --timeout 120000 tcp:127.0.0.1:9099 tcp:127.0.0.1:8080 http-get://127.0.0.1:8600/api/config && npm --prefix frontend run dev -- --open",
-    "dev:staging-auth": "concurrently --kill-others --names api,web --prefix-colors blue,green \"npm:dev:api -- --staging-auth\" \"npm:dev:web:staging-auth\"",
+    "predev:staging-auth": "node scripts/free-ports.mjs 8600 5173",
+    "dev:staging-auth":"concurrently --kill-others --names api,web --prefix-colors blue,green \"npm:dev:api -- --staging-auth\" \"npm:dev:web:staging-auth\"",
     "dev:web:staging-auth": "wait-on --timeout 120000 http-get://127.0.0.1:8600/api/config && npm --prefix frontend run dev -- --open"
   },
   "devDependencies": {

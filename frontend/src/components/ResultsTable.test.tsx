@@ -393,7 +393,7 @@ describe('ResultsTable', () => {
       // the row is re-costed as the ranking has it (no copies or city: the time settings' batch)
       expect(bodies).toContainEqual({
         recipe_id: 100,
-        include_unlearned: false,
+        unlearned: 'none',
         include_trivial: true,
         exits: ['vendor', 'ah', 'disenchant'],
         choices: { 'r.1': 'ah' },

@@ -202,10 +202,14 @@ def _sv(realm_body: str) -> bytes:
     return f"AltArmyTBC_Data = {{\n{body}}}\n".encode()
 
 
-def _entry(key: str, *, level: int, updated: int, guid: str = "", class_file: str = "SHAMAN") -> str:
+def _entry(
+    name: str, *, level: int, updated: int, guid: str = "", class_file: str = "SHAMAN", key: str = ""
+) -> str:
+    """One character entry, keyed by `key`, else by its GUID (addon character data v3), else by its name."""
     guid_line = f'["guid"] = "{guid}",\n' if guid else ""
     return (
-        f'["{key}"] = {{\n["name"] = "{key}",\n["faction"] = "Horde",\n["classFile"] = "{class_file}",\n'
+        f'["{key or guid or name}"] = {{\n["name"] = "{name}",\n["faction"] = "Horde",\n'
+        f'["classFile"] = "{class_file}",\n'
         f'["raceFile"] = "TAUREN",\n["level"] = {level},\n["lastUpdate"] = {updated},\n{guid_line}}},\n'
     )
 
@@ -214,14 +218,28 @@ def names(data: bytes) -> list[tuple[str, int]]:
     return [(c.name, c.level) for c in altarmy.parse_characters(data)]
 
 
-def test_a_renamed_character_imports_once() -> None:
-    # WoW: Forever's UnitName("player") dropped the surname: the addon saved the same character under
-    # its old key ("Frell Ofelements") and its new one ("Frell"). The newest entry wins.
+def test_characters_keyed_by_guid_are_named_by_their_name_field() -> None:
+    data = _sv(_entry("Frell Ofelements", level=20, updated=100, guid="Player-1-A"))
+    assert '["Player-1-A"]' in data.decode()
+    assert names(data) == [("Frell Ofelements", 20)]
+    assert [c.guid for c in altarmy.parse_characters(data)] == ["Player-1-A"]
+
+
+def test_an_entry_saved_before_guids_is_the_guid_entry_of_the_same_name() -> None:
+    # A character's name-keyed entry from before GUIDs stays until it logs in with a newer addon; beside
+    # its GUID entry, the newest wins.
+    data = _sv(
+        _entry("Frell Ofelements", level=20, updated=100)
+        + _entry("Frell Ofelements", level=21, updated=200, guid="Player-1-A")
+    )
+    assert names(data) == [("Frell Ofelements", 21)]
+
+
+def test_a_first_name_is_not_a_rename() -> None:
+    # Forever's UnitName returns the first name and surname as two values: addons before character data v3
+    # saved "Frell Blast" and "Frell Ofelements" both as "Frell". That entry is neither of them.
     data = _sv(_entry("Frell Ofelements", level=20, updated=100) + _entry("Frell", level=21, updated=200))
-    assert names(data) == [("Frell", 21)]
-    short_first = _entry("Frell", level=20, updated=100)
-    older_short = _sv(short_first + _entry("Frell Ofelements", level=21, updated=200))
-    assert names(older_short) == [("Frell Ofelements", 21)]
+    assert names(data) == [("Frell", 21), ("Frell Ofelements", 20)]
 
 
 def test_characters_sharing_a_first_name_are_kept() -> None:
@@ -232,14 +250,13 @@ def test_characters_sharing_a_first_name_are_kept() -> None:
         + _entry("Frell Hound", level=1, updated=100, class_file="HUNTER")
     )
     assert names(data) == [("Frell", 20), ("Frell Blast", 9), ("Frell Hound", 1)]
-    # Only a key without a surname can be a rename of one with it.
     both = _sv(_entry("Frell Hound", level=1, updated=100) + _entry("Frell Wrath", level=3, updated=100))
     assert names(both) == [("Frell Hound", 1), ("Frell Wrath", 3)]
 
 
 def test_the_same_guid_is_one_character() -> None:
     data = _sv(
-        _entry("Old Name", level=10, updated=100, guid="Player-1-A")
+        _entry("Old Name", level=10, updated=100, guid="Player-1-A", key="Old Name")
         + _entry("New Name", level=11, updated=200, guid="Player-1-A")
         + _entry("Frell", level=20, updated=300, guid="Player-1-B")
         + _entry("Frell Ofelements", level=20, updated=100, guid="Player-1-C")

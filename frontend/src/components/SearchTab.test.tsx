@@ -68,7 +68,7 @@ describe('SearchTab', () => {
     })
     renderWithProviders(<SearchTab />)
     expect(await screen.findByText(/Browsing every recipe on this realm/)).toBeInTheDocument()
-    expect(screen.queryByRole('switch', { name: /Include recipes not learned yet/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('radiogroup', { name: 'Recipes' })).not.toBeInTheDocument()
     expect(await screen.findByText('No recipes match these filters with the current prices.')).toBeInTheDocument()
     expect(urls(fetch, '/api/rank')).toHaveLength(1)
     await waitFor(() =>
@@ -180,7 +180,7 @@ describe('SearchTab', () => {
   })
 
   it('ranks with the stored parameters', async () => {
-    localStorage.setItem('altarmy-profit.search.includeUnlearned', 'true')
+    localStorage.setItem('altarmy-profit.search.unlearned', '"soon"')
     localStorage.setItem('altarmy-profit.search.includeTrivial', 'false')
     localStorage.setItem('altarmy-profit.search.open', JSON.stringify(['advanced', 'characters']))
     localStorage.setItem('altarmy-profit.search.exits', JSON.stringify(['ah', 'vendor']))
@@ -200,14 +200,14 @@ describe('SearchTab', () => {
       /Requires at least one character with enchanting/,
     )
     expect(screen.getByText("Rarely the best profit, but it's always available.")).toBeInTheDocument()
-    expect(screen.getByRole('switch', { name: /Include recipes not learned yet/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Include recipes I can train soon (20 skill points)' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Include Trivial Recipes/ })).not.toBeChecked()
     await waitFor(() => expect(realm()).toHaveValue('Classic Beta PvE (Horde) · 1 character'))
     expect(screen.queryByRole('button', { name: /^Characters/ })).not.toBeInTheDocument()
     await screen.findByText(/No recipes match these filters/)
     const [rank] = urls(fetch, '/api/rank')
     expect(rank?.searchParams.toString()).toBe(
-      'game_version=forever&include_unlearned=true&include_trivial=false&exits=vendor&exits=ah&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&top=50&price_version=0',
+      'game_version=forever&unlearned=soon&include_trivial=false&exits=vendor&exits=ah&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&top=50&price_version=0',
     )
   })
 
@@ -329,7 +329,7 @@ describe('SearchTab', () => {
   })
 
   it('saves changed parameters and ignores malformed stored values', async () => {
-    localStorage.setItem('altarmy-profit.search.includeUnlearned', '"yes"')
+    localStorage.setItem('altarmy-profit.search.unlearned', '"yes"')
     localStorage.setItem('altarmy-profit.search.maxProfit', 'garbage')
     localStorage.setItem('altarmy-profit.search.exits', '["trade"]')
     mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
@@ -339,8 +339,7 @@ describe('SearchTab', () => {
     for (const name of ['Vendor', 'Disenchant', 'Auction house']) {
       expect(screen.getByRole('checkbox', { name, hidden: true })).toBeChecked()
     }
-    const unlearned = screen.getByRole('switch', { name: /Include recipes not learned yet/ })
-    expect(unlearned).not.toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Show recipes I already know' })).toBeChecked()
     const trivial = screen.getByRole('checkbox', { name: /Include Trivial Recipes/, hidden: true })
     expect(trivial).toBeChecked()
     fireEvent.change(maxProfit, { target: { value: '40' } })
@@ -349,8 +348,8 @@ describe('SearchTab', () => {
     expect(localStorage.getItem('altarmy-profit.search.maxProfit')).toBe('null')
     fireEvent.click(screen.getByRole('checkbox', { name: 'Disenchant', hidden: true }))
     expect(localStorage.getItem('altarmy-profit.search.exits')).toBe('["vendor","ah"]')
-    fireEvent.click(unlearned)
-    expect(localStorage.getItem('altarmy-profit.search.includeUnlearned')).toBe('true')
+    fireEvent.click(screen.getByRole('radio', { name: 'Include all recipes' }))
+    expect(localStorage.getItem('altarmy-profit.search.unlearned')).toBe('"all"')
     fireEvent.click(trivial)
     expect(localStorage.getItem('altarmy-profit.search.includeTrivial')).toBe('false')
   })

@@ -8,16 +8,17 @@ import {
   Group,
   Loader,
   NumberInput,
+  Radio,
   Select,
   SimpleGrid,
   Stack,
-  Switch,
   Text,
 } from '@mantine/core'
 import { z } from 'zod'
 import {
   type Exit,
   type RankParams,
+  type Unlearned,
   useAhBlocked,
   useCharacters,
   useCoverage,
@@ -59,6 +60,11 @@ const EXITS: { value: Exit; label: string; description: string }[] = [
   },
 ]
 const ALL_EXITS: Exit[] = EXITS.map((e) => e.value)
+const UNLEARNED: { value: Unlearned; label: string }[] = [
+  { value: 'none', label: 'Show recipes I already know' },
+  { value: 'soon', label: 'Include recipes I can train soon (20 skill points)' },
+  { value: 'all', label: 'Include all recipes' },
+]
 const SECTIONS = ['advanced', 'time'] as const
 const NONE_OPEN: string[] = []
 const storedGoal = goalSchema.nullable()
@@ -124,7 +130,7 @@ const Results = memo(function Results({
         items={rank.data.items}
         classes={rank.data.classes}
         params={{
-          includeUnlearned: filters.includeUnlearned,
+          unlearned: filters.unlearned,
           includeTrivial: filters.includeTrivial,
           exits: filters.exits,
           version,
@@ -201,10 +207,10 @@ export function SearchTab() {
   const noCharacters = characters.data !== undefined && characters.data.groups.length === 0
   const goal = noCharacters && savedGoal === 'skill' ? null : savedGoal
   const [choosing, setChoosing] = useState(false)
-  const [includeUnlearned, setIncludeUnlearned] = useStoredState(
-    'altarmy-profit.search.includeUnlearned',
-    z.boolean(),
-    false,
+  const [unlearned, setUnlearned] = useStoredState<Unlearned>(
+    'altarmy-profit.search.unlearned',
+    z.enum(['none', 'soon', 'all']),
+    'none',
   )
   const [includeTrivial, setIncludeTrivial] = useStoredState(
     'altarmy-profit.search.includeTrivial',
@@ -228,7 +234,7 @@ export function SearchTab() {
   const [maxRoi, setMaxRoi] = useStoredState('altarmy-profit.search.maxRoi', bound, null)
   const filters = useMemo<Filters>(
     () => ({
-      includeUnlearned,
+      unlearned,
       includeTrivial,
       exits: ALL_EXITS.filter((e) => exits.includes(e)),
       minCost: scaled(minCost, goldToCopper),
@@ -239,7 +245,7 @@ export function SearchTab() {
       maxRoi: scaled(maxRoi, (p) => p / 100),
       sort: goal ? GOAL_SEARCH[goal].sort : 'profit',
     }),
-    [includeUnlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, goal],
+    [unlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, goal],
   )
   const [picks, setPicks] = useState(0)
   const debouncedFilters = useSettled(filters, 300, picks)
@@ -299,30 +305,39 @@ export function SearchTab() {
           <Flex
             direction={{ base: 'column', sm: 'row' }}
             justify="space-between"
-            align={{ base: 'stretch', sm: 'flex-end' }}
+            align={{ base: 'stretch', sm: 'flex-start' }}
             gap="md"
           >
-            <Select
-              label="Realm and faction"
-              placeholder="No realm has prices yet"
-              data={grouped}
-              value={selection ? toKey(selection) : null}
-              onChange={(key) => key && select.mutate(fromKey(key))}
-              allowDeselect={false}
-              style={{ flex: 1, maxWidth: 420 }}
-            />
-            {!browsing && (
-              <Switch
-                label="Include recipes not learned yet"
-                description="Every recipe of these characters' professions, not just the ones they know."
-                checked={includeUnlearned}
-                onChange={(e) => setIncludeUnlearned(e.currentTarget.checked)}
+            <Stack gap="xs" style={{ flex: 1 }}>
+              <Select
+                label="Realm and faction"
+                placeholder="No realm has prices yet"
+                data={grouped}
+                value={selection ? toKey(selection) : null}
+                onChange={(key) => key && select.mutate(fromKey(key))}
+                allowDeselect={false}
+                style={{ maxWidth: 420 }}
               />
+              {selection && lastScan !== undefined && (
+                <PriceFreshness lastScan={lastScan} ahledger={house?.sources.includes('ahledger')} />
+              )}
+            </Stack>
+            {!browsing && (
+              <Radio.Group
+                label="Recipes"
+                value={unlearned}
+                onChange={(v) => setUnlearned(UNLEARNED.find((o) => o.value === v)?.value ?? 'none')}
+              >
+                <Stack mt={4} gap="xs">
+                  {UNLEARNED.map((o) => (
+                    <Radio key={o.value} value={o.value} label={o.label} />
+                  ))}
+                </Stack>
+              </Radio.Group>
             )}
           </Flex>
           {selection && (
             <>
-              {lastScan !== undefined && <PriceFreshness lastScan={lastScan} ahledger={house?.sources.includes('ahledger')} />}
               {browsing && (
                 <Text size="sm" c="dimmed">
                   Browsing every recipe on this realm, crafted and sold by one character. Add your characters to see

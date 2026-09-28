@@ -1,7 +1,8 @@
 """Alt Army's paste export: the string the addon shows, decoded to characters.
 
-tests/fixtures/altarmy_export_v1.txt is a copy of the addon repo's spec/fixtures/profit_export_v1.txt (made by
-AltArmy_TBC/Data/ProfitExport.lua), so the two sides can't drift apart unnoticed.
+tests/fixtures/altarmy_export_v2.txt is a copy of the addon repo's spec/fixtures/profit_export_v2.txt (made by
+AltArmy_TBC/Data/ProfitExport.lua), so the two sides can't drift apart unnoticed. altarmy_export_v1.txt is the
+golden string of format v1, which older addons still write.
 """
 
 import zlib
@@ -12,7 +13,15 @@ import pytest
 from altarmy_profit import paste
 from altarmy_profit.altarmy import Character, Profession
 
-GOLDEN = (Path(__file__).parent / "fixtures" / "altarmy_export_v1.txt").read_text(encoding="utf-8")
+FIXTURES = Path(__file__).parent / "fixtures"
+GOLDEN = (FIXTURES / "altarmy_export_v2.txt").read_text(encoding="utf-8")
+GOLDEN_V1 = (FIXTURES / "altarmy_export_v1.txt").read_text(encoding="utf-8")
+FRELL_PROFESSIONS = (
+    Profession("Cooking", 1, 75, frozenset()),
+    Profession("Enchanting", 300, 375, frozenset({7418, 7420})),
+    Profession("Tailoring", 375, 375, frozenset({26745, 26746})),
+)
+FRELL_TALENTS = ((1225457, 3), (1225459, 2))
 
 
 def encoded(lines: str) -> str:
@@ -26,19 +35,25 @@ def test_decodes_the_addons_golden_export() -> None:
     assert (got.interface, got.build) == (20506, "2.5.6.69795")
     assert got.characters == [
         Character("Classic Beta PvE", "Tailor Guy", "", "PRIEST", 20, ()),
+        Character("Dreamscythe", "Alchemist", "Horde", "ROGUE", 12, ()),
         Character(
             "Dreamscythe",
-            "Frell",
+            "Frell Ofelements",
             "Horde",
             "MAGE",
             70,
-            (
-                Profession("Cooking", 1, 75, frozenset()),
-                Profession("Enchanting", 300, 375, frozenset({7418, 7420})),
-                Profession("Tailoring", 375, 375, frozenset({26745, 26746})),
-            ),
-            ((1225457, 3), (1225459, 2)),
+            FRELL_PROFESSIONS,
+            FRELL_TALENTS,
+            guid="Player-5826-0A1B2C3D",
         ),
+    ]
+
+
+def test_decodes_format_v1_from_older_addons() -> None:
+    got = paste.decode(GOLDEN_V1)
+    assert got.characters == [
+        Character("Classic Beta PvE", "Tailor Guy", "", "PRIEST", 20, ()),
+        Character("Dreamscythe", "Frell", "Horde", "MAGE", 70, FRELL_PROFESSIONS, FRELL_TALENTS),
     ]
 
 
@@ -77,7 +92,9 @@ def test_bad_strings_raise_value_error(text: str) -> None:
     "lines",
     [
         "C|R|N|Horde|MAGE|1",  # no version line
-        "V|2|20506|x",  # unknown export version
+        "V|3|20506|x",  # unknown export version
+        "V|2|20506|x\nC|R|N|Horde|MAGE|1",  # v2 without the GUID
+        "V|1|20506|x\nC|R|N|Horde|MAGE|1|Player-1-A",  # v1 with one
         "V|1|20506|x\nP|Tailoring|1|75|1",  # a profession before any character
         "V|1|20506|x\nC|R|N|Horde|MAGE|lots",
         "V|1|20506|x\nC|R|N|Horde|MAGE|1\nP|Tailoring|1|75|1,x",
@@ -97,6 +114,13 @@ def test_talents_belong_to_the_character_before_them() -> None:
         encoded("V|1|16001|x\nC|R|A|Horde|MAGE|30\nT|1225459|1\nT|1225457|5\nT|7|0\nC|R|B|Horde|MAGE|1")
     )
     assert [c.talents for c in got.characters] == [((1225457, 5), (1225459, 1)), ()]
+
+
+def test_an_export_naming_characters_by_guid_asks_for_a_newer_addon() -> None:
+    # Addon 2.1.3 keys characters by GUID and its v1 export wrote that key where the name belongs.
+    guid = encoded("V|1|16001|x\nC|R|Player-5826-0A1B2C3D|Horde|MAGE|30")
+    with pytest.raises(ValueError, match="update the Alt Army addon"):
+        paste.decode(guid)
 
 
 def test_size_is_capped() -> None:

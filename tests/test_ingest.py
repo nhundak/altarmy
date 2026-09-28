@@ -54,6 +54,30 @@ def test_build_db_loads_cast_time_and_station(db2_paths: dict[str, Path], conn: 
     assert (recipe.cast_time_ms, recipe.station) == (3000, "anvil")  # SpellMisc -> SpellCastTimes; focus 1
 
 
+def test_build_db_loads_the_skill_the_recipe_item_requires(
+    db2_paths: dict[str, Path], conn: Connection
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    # the robe item teaches the robe's craft spell (on learn, through ItemXItemEffect) and requires 50
+    assert conn.execute(select(schema.recipes.c.learn_skill)).scalar_one() == 50
+
+
+def test_learn_skills_take_the_lowest_rank_of_the_items_teaching_a_spell(tmp_path: Path) -> None:
+    effects = write_csv(  # TBC's shape: each effect names its item
+        tmp_path / "ItemEffect.csv",
+        ["ID", "TriggerType", "SpellID", "ParentItemID"],
+        [
+            {"ID": 1, "TriggerType": 0, "SpellID": 483, "ParentItemID": 10},  # "Learning", on use
+            {"ID": 2, "TriggerType": 6, "SpellID": 700, "ParentItemID": 10},
+            {"ID": 3, "TriggerType": 6, "SpellID": 700, "ParentItemID": 11},  # another pattern, lower
+            {"ID": 4, "TriggerType": 6, "SpellID": 701, "ParentItemID": 12},  # requires no skill
+            {"ID": 5, "TriggerType": 0, "SpellID": 702, "ParentItemID": 13},  # not a recipe item
+        ],
+    )
+    ranks = {10: 75, 11: 60, 12: 0, 13: 40}
+    assert ingest.learn_skills({"ItemEffect": effects}, ranks) == {700: 60}
+
+
 def test_craft_stations_are_the_foci_profession_spells_need(db2_paths: dict[str, Path]) -> None:
     assert ingest.craft_stations(db2_paths) == {1: "Anvil"}  # the robe's; the forge and fire go unused
 

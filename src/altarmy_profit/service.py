@@ -28,6 +28,7 @@ from .engine import (
     Market,
     Result,
     TimeModel,
+    Unlearned,
     recipes_for_characters,
 )
 from .versions import GameVersion
@@ -111,7 +112,7 @@ class RankCache:
     """The last `size` full rankings (`search` results), so paging through one ("Show more") and refetching
     it don't rank again. An entry only counts for the very Market it was ranked on: once the MarketCache
     rebuilds a market (new prices, a merge, new game data), its rankings miss. The key must cover
-    everything else the ranking depends on (user, characters, unlearned/trivial switches, exits, AH
+    everything else the ranking depends on (user, characters, unlearned/trivial choices, exits, AH
     blocks); bounds on cost, profit and ROI and the profession filter are applied to a cached ranking."""
 
     def __init__(self, size: int = 64) -> None:
@@ -146,7 +147,7 @@ class Selection:
 def search(
     base: Market,
     chars: Sequence[Character],
-    include_unlearned: bool,
+    unlearned: Unlearned,
     filters: Filters,
     exits: frozenset[str] = ALL_EXITS,
     no_ah: frozenset[int] = frozenset(),
@@ -157,7 +158,8 @@ def search(
     and keep what `filters` accepts. Chains sub-craft through any of their recipes too. Most profitable
     first (see `by_rate` for profit per hour).
 
-    `include_unlearned` widens that to every recipe of the characters' professions. Disenchanting needs
+    `unlearned` adds recipes nobody has learned: those they can train soon, or all of their professions'
+    (see `engine.can_learn`). Disenchanting needs
     an enchanter among them, plus postage unless one of the recipe's crafters enchants. Without
     `include_trivial` the final craft is only done by a character it can give a skillup. With a `time`
     model each result is a session of its `batch` crafts (as `evaluate` plans one, see `session_model`),
@@ -167,7 +169,7 @@ def search(
     if time is not None:
         crafts = time.config.batch
         time = session_model(time, (), None)
-    market = _market(base, chars, include_unlearned, exits, no_ah, include_trivial, time)
+    market = _market(base, chars, unlearned, exits, no_ah, include_trivial, time)
     min_profit = filters.min_profit if filters.min_profit is not None else -(10**18)
     return [r for r in market.rank(min_profit=min_profit, crafts=crafts) if filters.accepts(r)]
 
@@ -175,7 +177,7 @@ def search(
 def evaluate(
     base: Market,
     chars: Sequence[Character],
-    include_unlearned: bool,
+    unlearned: Unlearned,
     exits: frozenset[str],
     recipe_id: int,
     choices: Choices,
@@ -187,7 +189,7 @@ def evaluate(
     """One recipe with the user's `choices` of sources and exit, for `crafts` crafts at once (timed by a
     `session_model`: with `time`'s batch as `crafts` and no city, as `search` ranks it); None if the
     characters can't make or sell it."""
-    market = _market(base, chars, include_unlearned, exits, no_ah, include_trivial, time)
+    market = _market(base, chars, unlearned, exits, no_ah, include_trivial, time)
     recipe = next((r for r in market.recipes if r.id == recipe_id), None)
     return None if recipe is None else market.evaluate(recipe, choices, crafts=crafts)
 
@@ -207,7 +209,7 @@ def session_model(time: TimeModel, cities: Sequence[timing.CityMap], city: str |
 def _market(
     base: Market,
     chars: Sequence[Character],
-    include_unlearned: bool,
+    unlearned: Unlearned,
     exits: frozenset[str],
     no_ah: frozenset[int],
     include_trivial: bool,
@@ -215,12 +217,6 @@ def _market(
 ) -> Market:
     """`base` narrowed to what the characters can craft (see `search`), with them as the crafters. Without
     characters every recipe counts, crafted by one unnamed character (so nothing is mailed)."""
-    if chars:
-        known = frozenset().union(*(c.known_recipes for c in chars))
-        professions = {p.name for c in chars for p in c.professions}
-        recipes = recipes_for_characters(base.recipes, known, professions, include_unlearned)
-    else:
-        recipes = list(base.recipes)
     crafters = [
         Crafter(
             c.name,
@@ -231,6 +227,7 @@ def _market(
         )
         for c in chars
     ]
+    recipes = recipes_for_characters(base.recipes, crafters, unlearned) if chars else list(base.recipes)
     return Market(
         base.items,
         recipes,
@@ -238,7 +235,7 @@ def _market(
         base.disenchant,
         base.ah_cut,
         crafters=crafters,
-        include_unlearned=include_unlearned,
+        unlearned=unlearned,
         exits=exits,
         no_ah=no_ah,
         include_trivial=include_trivial,

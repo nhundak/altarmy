@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
+from typing import Literal
 
 from . import timing
 from .timing import Timing
@@ -16,6 +17,10 @@ MAX_CHAIN_DEPTH = 3
 DISENCHANTABLE_CLASSES = (2, 4)  # weapon, armor
 DISENCHANTABLE_QUALITIES = (2, 3, 4)
 ALL_EXITS = frozenset({"vendor", "ah", "disenchant"})  # ways to sell a craft (Exit.kind)
+# Which recipes nobody has learned count: none, those a character can train soon (see `can_learn`), all of
+# their professions'.
+Unlearned = Literal["none", "soon", "all"]
+SOON_SKILL = 20  # "soon": a recipe needing at most this much more skill than the character has
 # Real professions offered in the UI; the DB also holds junk skill lines (test, class, etc.).
 PROFESSIONS = (
     "Alchemy",
@@ -62,6 +67,13 @@ class Recipe:
     trivial_high: int = 0  # skill where it turns grey (no more skillups); 0 if unknown
     cast_time_ms: int = 0  # one cast; 0 if instant or unknown
     station: str = ""  # the crafting station it is cast at (`timing.station_kind`: anvil, loom, ...); "" none
+    learn_skill: int = 0  # skill the recipe item teaching it requires; 0 if none does (a trainer's)
+
+    @property
+    def required_skill(self) -> int:
+        """Skill needed to learn it: its recipe item's requirement, else (DB2 doesn't say what a trainer
+        asks) the skill where it turns yellow, which is never below the real requirement."""
+        return self.learn_skill or max(self.min_skill, self.trivial_low)
 
 
 @dataclass(frozen=True)
@@ -92,6 +104,16 @@ class Crafter:
         """Enchanting skill; 0 if they don't have it."""
         skill = self.skill("enchanting")
         return skill[0] if skill else 0
+
+
+def can_learn(recipe: Recipe, crafter: Crafter, unlearned: Unlearned) -> bool:
+    """Whether `crafter` counts as able to craft `recipe` without having learned it: never with "none", with
+    "soon" if they have its profession at most `SOON_SKILL` below its `required_skill`, with "all" if they
+    have its profession."""
+    if unlearned == "none":
+        return False
+    skill = crafter.skill(recipe.skill_name)
+    return skill is not None and (unlearned == "all" or recipe.required_skill <= skill[0] + SOON_SKILL)
 
 
 def can_skill_up(recipe: Recipe, crafter: Crafter) -> bool:
@@ -717,7 +739,7 @@ class Market:
         ah_cut: float = AH_CUT,
         *,
         crafters: Sequence[Crafter] = (),
-        include_unlearned: bool = False,
+        unlearned: Unlearned = "none",
         exits: frozenset[str] = ALL_EXITS,
         no_ah: frozenset[int] = frozenset(),
         include_trivial: bool = True,
@@ -726,8 +748,8 @@ class Market:
         time: TimeModel | None = None,
     ):
         """`crafters` are the characters who craft and disenchant, mailing items between them; without
-        them one unnamed character does everything. `include_unlearned` lets anyone with a recipe's
-        profession craft it when nobody has learned it. Crafts are only sold via `exits`, and items in
+        them one unnamed character does everything. When nobody has learned a recipe, `unlearned` says who
+        may craft it anyway (see `can_learn`). Crafts are only sold via `exits`, and items in
         `no_ah` never on the AH (they may still be bought there). Without `include_trivial` the final craft
         is only done by a character it can give a skillup (see `can_skill_up`); sub-crafts may be grey.
         `mail_postage` is the copper charged per mail attachment on this game version. Reagents are bought
@@ -742,7 +764,7 @@ class Market:
         self.disenchant = disenchant or []
         self.ah_cut = ah_cut
         self.crafters = crafters
-        self.include_unlearned = include_unlearned
+        self.unlearned = unlearned
         self.exits = exits
         self.no_ah = no_ah
         self.include_trivial = include_trivial
@@ -935,7 +957,7 @@ class Market:
     def _crafter_names(self, recipe: Recipe) -> list[str]:
         if not self.crafters:
             return [""]  # one unnamed character who does everything
-        return [c.name for c in crafters_of(recipe, self.crafters, self.include_unlearned)]
+        return [c.name for c in crafters_of(recipe, self.crafters, self.unlearned)]
 
     def _final_crafters(self, recipe: Recipe) -> list[str]:
         """Who may do `recipe`'s final craft: anyone who can craft it, or without `include_trivial` only
@@ -1187,27 +1209,24 @@ def recipes_for_professions(recipes: Iterable[Recipe], professions: Iterable[str
 
 
 def recipes_for_characters(
-    recipes: Iterable[Recipe],
-    known_spells: Collection[int],
-    professions: Iterable[str],
-    include_unlearned: bool,
+    recipes: Iterable[Recipe], crafters: Sequence[Crafter], unlearned: Unlearned
 ) -> list[Recipe]:
-    """Recipes the characters have learned, or with `include_unlearned` every recipe of their professions.
+    """Recipes the characters have learned, plus those `unlearned` lets one of them craft (`can_learn`).
 
     A Market built from these sub-crafts through any of the characters' recipes, whoever knows them.
     """
-    wanted = {p.lower() for p in professions} if include_unlearned else set()
-    return [r for r in recipes if r.spell_id in known_spells or r.skill_name.lower() in wanted]
+    known = frozenset().union(*(c.known_spells for c in crafters))
+    return [r for r in recipes if r.spell_id in known or any(can_learn(r, c, unlearned) for c in crafters)]
 
 
-def crafters_of(recipe: Recipe, crafters: Iterable[Crafter], include_unlearned: bool) -> list[Crafter]:
-    """Who can craft `recipe`: those who learned it, or with `include_unlearned` and nobody having
-    learned it, everyone with its profession (as in `recipes_for_characters`)."""
+def crafters_of(recipe: Recipe, crafters: Iterable[Crafter], unlearned: Unlearned) -> list[Crafter]:
+    """Who can craft `recipe`: those who learned it, or with nobody having learned it, those `unlearned`
+    lets (`can_learn`, as in `recipes_for_characters`)."""
     crafters = list(crafters)
     known = [c for c in crafters if recipe.spell_id in c.known_spells]
-    if known or not include_unlearned:
+    if known:
         return known
-    return [c for c in crafters if c.has(recipe.skill_name)]
+    return [c for c in crafters if can_learn(recipe, c, unlearned)]
 
 
 def format_money(copper: int) -> str:

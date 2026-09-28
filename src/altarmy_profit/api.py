@@ -286,7 +286,7 @@ class RankResult(BaseModel):
     recipe: str
     profession: str
     crafters: list[str]  # selected characters who know the recipe; empty if nobody has learned it
-    crafter: str  # who does the cheapest craft (may not have learned it, with include_unlearned)
+    crafter: str  # who does the cheapest craft (may not have learned it, with `unlearned`)
     output_item_id: int
     output_name: str
     output_count: int
@@ -321,7 +321,7 @@ class EvaluateRequest(BaseModel):
     """Re-cost one recipe with some of its sources or its exit picked by the user."""
 
     recipe_id: int
-    include_unlearned: bool = False
+    unlearned: engine.Unlearned = "none"  # as /api/rank's
     include_trivial: bool = True  # False: only a crafter it can give a skillup does the final craft
     exits: list[ExitKind] = list(ALL_EXIT_KINDS)
     # tree path ("r.0", "r.0.1"; "sell" for the exit) -> option key (or exit kind); unknown keys are ignored
@@ -815,9 +815,13 @@ def put_selection(state: State, user: CurrentUser, body: SelectionModel) -> Stat
 def get_rank(
     state: State,
     user: CurrentUser,
-    include_unlearned: Annotated[
-        bool, Query(description="rank every recipe of the characters' professions, not just learned ones")
-    ] = False,
+    unlearned: Annotated[
+        engine.Unlearned,
+        Query(
+            description="recipes nobody has learned: none, those a character is at most "
+            f"{engine.SOON_SKILL} skill short of learning (soon), or every recipe of their professions (all)"
+        ),
+    ] = "none",
     include_trivial: Annotated[
         bool, Query(description="also recipes that can't give the crafter a skillup (grey or at the cap)")
     ] = True,
@@ -850,13 +854,13 @@ def get_rank(
     # ones share it. The bounds and the profession filter only narrow the cached, unbounded ranking, so
     # moving them never ranks again; nor does sorting it by rate.
     whose = user.uid if chars else ""
-    key = (whose, tuple(chars), include_unlearned, include_trivial, frozenset(exits), no_ah, s.time.key)
+    key = (whose, tuple(chars), unlearned, include_trivial, frozenset(exits), no_ah, s.time.key)
     matches = state.rank_cache.get(key, base)
     if matches is None:
         matches = service.search(
             base,
             chars,
-            include_unlearned,
+            unlearned,
             engine.Filters(),
             frozenset(exits),
             no_ah,
@@ -897,7 +901,7 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
     r = service.evaluate(
         s.base,
         s.chars,
-        body.include_unlearned,
+        body.unlearned,
         frozenset(body.exits),
         body.recipe_id,
         body.choices,

@@ -129,6 +129,9 @@ recipes = Table(
     # the object it is cast at (SpellCastingRequirements.RequiresSpellFocus's SpellFocusObject name as
     # `timing.station_kind` spells it: anvil, cooking_fire, spinning_wheel, ...); "" for none
     Column("station", Text, nullable=False, default="", server_default=""),
+    # ItemSparse.RequiredSkillRank of the recipe item teaching it (the lowest, if several do); 0 if none
+    # does: trainers teach it, and DB2 doesn't say at what skill
+    Column("learn_skill", Integer, nullable=False, default=0, server_default="0"),
 )
 
 recipe_reagents = Table(

@@ -143,8 +143,8 @@ def test_mangled_files_only_raise_value_error() -> None:
     """Uploads are untrusted: whatever the bytes, parsing either succeeds or raises ValueError (a 400)."""
     rng = random.Random(1)
     prices = [_saved_variables({"R": {"1": _entry(5), "g:2:3": _entry(7)}, "S": {"4": {"m": 1}}})]
-    export = (Path(__file__).parent / "fixtures" / "altarmy_export_v1.txt").read_bytes().strip()
-    export_lines = b"V|1|20506|x\nC|R|N|Horde|MAGE|70\nP|Tailoring|375|375|1,2,3\nC|R|M||PRIEST|1"
+    export = (Path(__file__).parent / "fixtures" / "altarmy_export_v2.txt").read_bytes().strip()
+    export_lines = b"V|2|20506|x\nC|R|N|Horde|MAGE|70|Player-1-A\nP|Tailoring|375|375|1,2,3\nC|R|M||PRIEST|1|"
     for _ in range(1500):
         with contextlib.suppress(ValueError):
             auctionator.parse_price_database(_mangled(prices, rng))

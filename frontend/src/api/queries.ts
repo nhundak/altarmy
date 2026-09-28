@@ -64,9 +64,13 @@ export function useDeleteCharacter() {
 
 export type Exit = 'vendor' | 'disenchant' | 'ah'
 
+/** Which recipes nobody has learned count: none, those a character can train soon (at most 20 skill short of
+ * learning), or every recipe of their professions. */
+export type Unlearned = 'none' | 'soon' | 'all'
+
 /** `/api/rank` parameters: money in copper, ROI as a fraction (0.5 = 50%), `null` for no bound. */
 export type RankParams = {
-  includeUnlearned: boolean
+  unlearned: Unlearned
   /** false: only recipes that can give the crafter a skillup */
   includeTrivial: boolean
   exits: Exit[]
@@ -95,7 +99,7 @@ export function useRank(params: RankParams) {
           params: {
             query: {
               game_version: GAME_VERSION,
-              include_unlearned: params.includeUnlearned,
+              unlearned: params.unlearned,
               include_trivial: params.includeTrivial,
               exits: params.exits,
               min_cost: orUndefined(params.minCost),
@@ -118,7 +122,7 @@ export function useRank(params: RankParams) {
 
 /** What `/api/evaluate` needs besides the choices: the search's settings, and the data version its results
  * came from (so a sync re-costs the user's changed plans too). */
-export type EvaluateParams = Pick<RankParams, 'includeUnlearned' | 'includeTrivial' | 'exits'> & { version?: string }
+export type EvaluateParams = Pick<RankParams, 'unlearned' | 'includeTrivial' | 'exits'> & { version?: string }
 
 export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: Error | null }
 
@@ -126,20 +130,20 @@ export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: E
  * previous evaluation stays in `data`. */
 export function useEvaluations(
   choices: Readonly<Record<number, Choices>>,
-  { includeUnlearned, includeTrivial, exits, version }: EvaluateParams,
+  { unlearned, includeTrivial, exits, version }: EvaluateParams,
 ): Readonly<Record<number, EvaluationState>> {
   const ids = Object.keys(choices).map(Number)
   const priceVersion = usePriceVersion()
   return useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['evaluate', GAME_VERSION, version, id, includeUnlearned, includeTrivial, exits, choices[id]],
+      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, includeTrivial, exits, choices[id]],
       queryFn: () =>
         call(
           client.POST('/api/evaluate', {
             ...GV,
             body: {
               recipe_id: id,
-              include_unlearned: includeUnlearned,
+              unlearned,
               include_trivial: includeTrivial,
               exits,
               choices: choices[id] ?? {},
@@ -164,7 +168,7 @@ export function useEvaluations(
  * shown while a new one loads. */
 export function useSessionPlan(
   recipeId: number,
-  { includeUnlearned, includeTrivial, exits, version }: EvaluateParams,
+  { unlearned, includeTrivial, exits, version }: EvaluateParams,
   choices: Choices | undefined,
   copies: number | null,
   city: string | null,
@@ -173,14 +177,14 @@ export function useSessionPlan(
   const priceVersion = usePriceVersion()
   return useQuery({
     // under 'evaluate', so whatever re-costs plans (time settings, AH blocks) re-plans sessions too
-    queryKey: ['evaluate', GAME_VERSION, version, recipeId, includeUnlearned, includeTrivial, exits, choices ?? {}, 'session', copies, city],
+    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, includeTrivial, exits, choices ?? {}, 'session', copies, city],
     queryFn: () =>
       call(
         client.POST('/api/evaluate', {
           ...GV,
           body: {
             recipe_id: recipeId,
-            include_unlearned: includeUnlearned,
+            unlearned,
             include_trivial: includeTrivial,
             exits,
             choices: choices ?? {},

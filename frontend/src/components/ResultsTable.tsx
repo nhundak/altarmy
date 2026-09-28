@@ -89,7 +89,7 @@ const byCrafter = (crafters: string[], crafter: string) =>
   crafters.includes(crafter) ? [crafter, ...crafters.filter((c) => c !== crafter)] : crafters
 
 const DEFAULT_PARAMS: EvaluateParams = {
-  includeUnlearned: false,
+  unlearned: 'none',
   includeTrivial: true,
   exits: ['vendor', 'ah', 'disenchant'],
 }

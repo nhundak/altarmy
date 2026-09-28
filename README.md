@@ -94,7 +94,8 @@ goal**. Then:
 
 - **Search** ranks what your characters on the chosen realm and faction can craft (every profession they
   have), and names who crafts each recipe. The realm picker also lists every other realm with prices, to
-  browse it without characters. A switch adds recipes of their professions they have not learned yet.
+  browse it without characters. A choice adds recipes they have not learned yet: those a character is
+  at most 20 skill points short of learning, or every recipe of their professions.
   Expand a
   recipe to see its plan as a flow chart or steps. Where a material could come from elsewhere (vendor,
   AH, or a craft), or the output could be sold another way, the node's ⇄ menu lists the options, best
@@ -285,7 +286,9 @@ command passes `--project alt-army-prod --billing-project alt-army-prod`, so gcl
   `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` and `FIREBASE_PROJECT_ID=demo-altarmy`) write price signals, so an
   open page refetches and says "Prices updated";
 - the API on :8600 (`altarmy-profit serve` via the venv, `scripts/dev-api.mjs`), on the SQLite file
-  `data/altarmy-profit.sqlite` (or `DATABASE_URL`), migrated on start;
+  `data/altarmy-profit.sqlite` (or `DATABASE_URL`), migrated on start; once it answers, the script fetches
+  AHledger's newest prices and merges them (`altarmy-profit ahledger`, then `merge`) in the background
+  (`npm run dev:api -- --no-prices` skips it; offline, it only reports the failure);
 - once both answer, Vite on http://localhost:5173, which it opens. Vite hot-reloads the React code and
   proxies `/api` to the API; press Ctrl+C and rerun for Python changes.
 

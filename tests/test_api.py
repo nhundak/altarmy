@@ -346,16 +346,23 @@ def test_rank_filters_and_validation(client: TestClient, priced: Connection) -> 
     assert total() == 0
 
 
-def test_rank_include_unlearned(client: TestClient, priced: Connection) -> None:
-    # knows only a recipe this build lacks
-    novice = Character(
-        "Realm", "Novice", "Horde", "MAGE", 5, (Profession("Tailoring", 1, 75, frozenset({1})),)
-    )
-    service.replace_characters(priced, ME, FOREVER, [novice])
+def test_rank_unlearned_recipes(client: TestClient, priced: Connection) -> None:
+    def novice(skill: int) -> Character:  # knows only a recipe this build lacks
+        tailoring = Profession("Tailoring", skill, 75, frozenset({1}))
+        return Character("Realm", "Novice", "Horde", "MAGE", 5, (tailoring,))
+
+    def ranked(unlearned: str) -> list[tuple[str, list[str]]]:
+        results = client.get("/api/rank", params={"unlearned": unlearned}).json()["results"]
+        return [(r["recipe"], r["crafters"]) for r in results]
+
+    service.replace_characters(priced, ME, FOREVER, [novice(29)])
     set_prices(priced, {1: 20, 2: 100}, realm="Realm")
-    assert client.get("/api/rank").json()["results"] == []
-    (r,) = client.get("/api/rank", params={"include_unlearned": True}).json()["results"]
-    assert (r["recipe"], r["crafters"]) == ("Green Robe", [])
+    assert client.get("/api/rank").json()["results"] == ranked("none") == []
+    assert ranked("all") == [("Green Robe", [])]
+    assert ranked("soon") == []  # its pattern requires 50: 21 short
+    service.replace_characters(priced, ME, FOREVER, [novice(30)])
+    assert ranked("soon") == [("Green Robe", [])]  # 20 short
+    assert client.get("/api/rank", params={"unlearned": "maybe"}).status_code == 422
 
 
 def test_rank_and_evaluate_without_trivial_recipes(client: TestClient, priced: Connection) -> None:
@@ -572,7 +579,7 @@ def test_rank_pages_through_one_search(
     assert len(calls) == 1  # the bounds are applied to the cached ranking
     client.get("/api/rank", params={"top": 2, "exits": ["vendor"]})
     assert len(calls) == 2  # the exits change what is ranked
-    client.get("/api/rank", params={"top": 2, "include_unlearned": True})
+    client.get("/api/rank", params={"top": 2, "unlearned": "all"})
     assert len(calls) == 3  # other parameters rank again
     client.get("/api/rank", params={"top": 1, "sort": "rate"})
     assert len(calls) == 3  # sorting by rate reuses the ranking
@@ -725,7 +732,7 @@ def test_bad_uploads(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> Non
     assert res.status_code == 429  # the rejected ones count too
 
 
-PASTE = (Path(__file__).parent / "fixtures" / "altarmy_export_v1.txt").read_text(encoding="utf-8")
+PASTE = (Path(__file__).parent / "fixtures" / "altarmy_export_v2.txt").read_text(encoding="utf-8")
 
 
 def test_guests_paste_the_addons_export(client: TestClient) -> None:
@@ -733,8 +740,8 @@ def test_guests_paste_the_addons_export(client: TestClient) -> None:
     res = client.post("/api/uploads/paste", params=tbc, headers=FREE, json={"text": PASTE})
     assert res.status_code == 200, res.text
     body = res.json()
-    assert (body["kind"], body["characters"], body["realms"]) == ("altarmy", 2, [])
-    assert body["groups"] == [{"realm": "Dreamscythe", "faction": "Horde", "characters": 1}]
+    assert (body["kind"], body["characters"], body["realms"]) == ("altarmy", 3, [])
+    assert body["groups"] == [{"realm": "Dreamscythe", "faction": "Horde", "characters": 2}]
     (row,) = client.get("/api/uploads", headers=FREE).json()
     assert (row["kind"], row["via"], row["outcome"], row["game_version"]) == (
         "altarmy",

@@ -4,18 +4,22 @@ pasted on the main page or the Upload page instead of uploading AltArmy_TBC.lua 
 The addon (`AltArmy_TBC/Data/ProfitExport.lua`) writes "AAX1:" plus LibDeflate's printable encoding of raw
 DEFLATE of these lines:
 
-    V|1|<interface>|<build>                       the client, so the export says which game it is from
-    C|<realm>|<name>|<faction>|<CLASS_FILE>|<level>
+    V|2|<interface>|<build>                       the client, so the export says which game it is from
+    C|<realm>|<name>|<faction>|<CLASS_FILE>|<level>|<guid>
     P|<profession>|<rank>|<maxRank>|<recipe ids>  belongs to the C line before it; ids comma-separated
     T|<spell id>|<rank>                           a Legacy talent (WoW: Forever) of the C line before it
 
 Recipe ids are craft spell ids with aliases already resolved, as `altarmy.parse_characters` reads them.
 Talents are the addon's `legacyTalents.spells` (see `talents` for the ones that change profits).
+The name is the full name and the GUID `UnitGUID("player")`, empty for characters the addon saved before it
+stored GUIDs. Format v1, which older addons still write, has no GUID; addon 2.1.3 (which keys characters by
+GUID) wrote the GUID as the name there, which is refused.
 The string is untrusted: anything wrong raises ValueError (the API's 400).
 """
 
 from __future__ import annotations
 
+import re
 import zlib
 from dataclasses import dataclass
 
@@ -23,8 +27,10 @@ from . import versions
 from .altarmy import Character, Profession
 
 PREFIX = "AAX1:"
-FORMAT_VERSION = "1"
+# Fields of a C line (with the "C") per format version.
+CHARACTER_FIELDS = {"1": 6, "2": 7}
 MAX_BYTES = 32 * 2**20  # decompressed, as for uploaded files
+_GUID = re.compile(r"Player-\d+-[0-9A-Fa-f]+")  # UnitGUID("player")
 
 # LibDeflate's EncodeForPrint alphabet: 6 bits per character, little-endian.
 _ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789()"
@@ -112,17 +118,18 @@ def _parse(lines: list[str]) -> Export:
     head = lines[0].split("|")
     if len(head) != 4 or head[0] != "V":
         raise ValueError("the export has no version line")
-    if head[1] != FORMAT_VERSION:
+    character_fields = CHARACTER_FIELDS.get(head[1])
+    if character_fields is None:
         raise ValueError(f"export format {head[1]!r} is not supported: update the site or the addon")
     interface = _int(head[2], "interface")
     chars: list[Character] = []
     current: tuple[list[str], list[Profession], dict[int, int]] | None = None
     for line in lines[1:]:
         fields = line.split("|")
-        if fields[0] == "C" and len(fields) == 6:
+        if fields[0] == "C" and len(fields) == character_fields:
             if current is not None:
                 chars.append(_character(*current))
-            current = (fields[1:], [], {})
+            current = ((fields[1:] + [""])[:6], [], {})
         elif fields[0] == "P" and len(fields) == 5:
             if current is None:
                 raise ValueError("the export lists a profession before any character")
@@ -143,7 +150,12 @@ def _parse(lines: list[str]) -> Export:
 
 
 def _character(fields: list[str], professions: list[Profession], talents: dict[int, int]) -> Character:
-    realm, name, faction, class_file, level = fields
+    realm, name, faction, class_file, level, guid = fields
+    if _GUID.fullmatch(name):
+        # Addon 2.1.3 keys characters by GUID, and its v1 export wrote the key instead of the name.
+        raise ValueError(
+            "the export names characters by their id: update the Alt Army addon and export again"
+        )
     return Character(
         realm,
         name,
@@ -152,6 +164,7 @@ def _character(fields: list[str], professions: list[Profession], talents: dict[i
         _int(level, "level"),
         tuple(sorted(professions, key=lambda p: p.name)),
         tuple(sorted(talents.items())),
+        guid,
     )
 
 

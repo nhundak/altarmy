@@ -1,16 +1,17 @@
 """Read characters, professions and learned recipes from the Alt Army addon's SavedVariables.
 
 The file is account-wide (WTF/Account/<acct>/SavedVariables/AltArmy_TBC.lua). Characters live in
-`AltArmyTBC_Data.Characters[realm][name]`; each profession has `rank`, `maxRank` and
+`AltArmyTBC_Data.Characters[realm][key]`; each profession has `rank`, `maxRank` and
 `Recipes[recipeID] = {color, primaryRecipeID?, resultItemID?, name?}`. WoW: Forever characters also have
 `legacyTalents.spells[spellID] = rank` (their Legacy talents, addon data version 2).
 
-The addon keys characters by `UnitName("player")`, which on WoW: Forever changed from the full name
-("Frell Ofelements") to the first name ("Frell"), so older files hold a renamed character twice. One
-character is kept per `guid` (newer addons save it), and without GUIDs a key that is another's first name,
-with the same class, race and faction, is the same character: the most recently updated entry wins.
-Entries never scanned (no name, faction or class: the addon made one while the name still read
-"Unknown") are skipped.
+The key is the character's GUID since the addon's character data v3 (a name before that, and still for
+entries of characters not logged in since), so the name is the entry's `name` field: the full name
+("Frell Ofelements"; on Forever the addon joins `UnitName`'s first name and surname), else the key. Older
+files can hold one character twice: entries with the same `guid`, or the same name, are one character, and
+the most recently updated wins. A bare first name ("Frell", saved by addons before v3, possibly from several
+characters) is not matched with a full one. Entries never scanned (no name, faction or class: the addon
+made one while the name still read "Unknown") are skipped.
 
 Recipe ids are craft spell ids (they match `recipes.spell_id`). On TBC clients one recipe can be stored
 under several alias keys that all share a `primaryRecipeID`; Enchanting rows only carry `color`.
@@ -42,6 +43,7 @@ class Character:
     professions: tuple[Profession, ...]  # sorted by name
     # Legacy talents (WoW: Forever) as (spell id, rank), ranks above 0, sorted by spell id; see `talents`
     talents: tuple[tuple[int, int], ...] = ()
+    guid: str = ""  # UnitGUID("player"); "" for characters the addon saved before it stored GUIDs
 
     @property
     def known_recipes(self) -> frozenset[int]:
@@ -81,18 +83,18 @@ def parse_characters(data: bytes) -> list[Character]:
     if not isinstance(root, dict):
         raise ValueError("no AltArmyTBC_Data in file (is this Alt Army's AltArmy_TBC.lua?)")
     chars: list[Character] = []
-    for realm, by_name in _table(root.get("Characters")).items():
+    for realm, by_key in _table(root.get("Characters")).items():
         entries = {
-            str(name): c
-            for name, char in _table(by_name).items()
+            str(key): c
+            for key, char in _table(by_key).items()
             if (c := _table(char)).get("name") or c.get("faction") or c.get("classFile")
         }
-        for name in _without_renamed(entries):
-            c = entries[name]
+        for key in _one_per_character(entries):
+            c = entries[key]
             chars.append(
                 Character(
                     realm=str(realm),
-                    name=name,
+                    name=_name(key, c),
                     faction=_str(c.get("faction")),
                     class_file=_str(c.get("classFile")),
                     level=_int(c.get("level")),
@@ -103,25 +105,23 @@ def parse_characters(data: bytes) -> list[Character]:
                         )
                     ),
                     talents=_talents(_table(c.get("legacyTalents"))),
+                    guid=_str(c.get("guid")),
                 )
             )
     return sorted(chars, key=lambda c: (c.realm, c.name))
 
 
-def _without_renamed(entries: dict[str, LuaTable]) -> list[str]:
+def _name(key: str, char: LuaTable) -> str:
+    """The character's name: its `name` field, else (entries saved before the addon stored one) its key."""
+    return _str(char.get("name")) or key
+
+
+def _one_per_character(entries: dict[str, LuaTable]) -> list[str]:
     """The keys of one realm's entries, less those that are an older copy of another (see the module doc)."""
 
     def same(a: str, b: str) -> bool:
-        ca, cb = entries[a], entries[b]
-        ga, gb = _str(ca.get("guid")), _str(cb.get("guid"))
-        if ga and gb:
-            return ga == gb
-        short, full = sorted((a, b), key=len)
-        return (
-            " " not in short
-            and full.split(" ", 1)[0] == short
-            and all(_str(ca.get(f)) == _str(cb.get(f)) for f in ("classFile", "raceFile", "faction"))
-        )
+        ga, gb = _str(entries[a].get("guid")), _str(entries[b].get("guid"))
+        return (ga != "" and ga == gb) or _name(a, entries[a]) == _name(b, entries[b])
 
     def newer(a: str, b: str) -> bool:
         return (_int(entries[a].get("lastUpdate")), a) > (_int(entries[b].get("lastUpdate")), b)

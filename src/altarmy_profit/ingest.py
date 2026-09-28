@@ -51,6 +51,7 @@ OPTIONAL_TABLES = [
     "SpellRadius",
 ]
 EFFECT_CREATE_ITEM = 24
+TRIGGER_LEARN = 6  # ItemEffect.TriggerType of the spell a recipe item teaches
 MAX_REAGENTS = 8
 
 
@@ -294,28 +295,47 @@ def item_spec(r: dict[str, str], class_id: int, subclass_id: int) -> itemstats.I
 ItemEffectRef = tuple[str, int, int]  # trigger, spell id, cooldown ms
 
 
-def item_effects(paths: dict[str, Path]) -> dict[int, list[ItemEffectRef]]:
-    """Each item's Use / Equip / Chance on hit effects in slot order. TBC's ItemEffect names its item
-    (`ParentItemID`); Forever's links them through ItemXItemEffect."""
-    by_id: dict[int, tuple[int, str, int, int]] = {}
-    out: dict[int, list[tuple[int, str, int, int]]] = {}
+def _effects_by_item(paths: dict[str, Path]) -> Iterator[tuple[int, dict[str, str]]]:
+    """Every (item id, ItemEffect row). TBC's ItemEffect names its item (`ParentItemID`); Forever's links
+    them through ItemXItemEffect."""
+    by_id: dict[int, dict[str, str]] = {}
     for r in _optional_rows(paths, "ItemEffect"):
+        parent = _int(r.get("ParentItemID"))
+        if parent > 0:
+            yield parent, r
+        else:
+            by_id[_int(r["ID"])] = r
+    for r in _optional_rows(paths, "ItemXItemEffect"):
+        linked = by_id.get(_int(r["ItemEffectID"]))
+        if linked is not None:
+            yield _int(r["ItemID"]), linked
+
+
+def item_effects(paths: dict[str, Path]) -> dict[int, list[ItemEffectRef]]:
+    """Each item's Use / Equip / Chance on hit effects in slot order."""
+    out: dict[int, list[tuple[int, str, int, int]]] = {}
+    for item, r in _effects_by_item(paths):
         trigger = spelltext.TRIGGERS.get(_int(r["TriggerType"]))
         if trigger is None:
             continue
         # potions and the like have only a category cooldown
         cooldown = _int(r.get("CoolDownMSec")) or _int(r.get("CategoryCoolDownMSec"))
-        ref = (_int(r.get("LegacySlotIndex")), trigger, _int(r["SpellID"]), cooldown)
-        parent = _int(r.get("ParentItemID"))
-        if parent > 0:
-            out.setdefault(parent, []).append(ref)
-        else:
-            by_id[_int(r["ID"])] = ref
-    for r in _optional_rows(paths, "ItemXItemEffect"):
-        linked = by_id.get(_int(r["ItemEffectID"]))
-        if linked is not None:
-            out.setdefault(_int(r["ItemID"]), []).append(linked)
+        out.setdefault(item, []).append(
+            (_int(r.get("LegacySlotIndex")), trigger, _int(r["SpellID"]), cooldown)
+        )
     return {i: [(t, s, c) for _, t, s, c in sorted(refs)] for i, refs in out.items()}
+
+
+def learn_skills(paths: dict[str, Path], skill_ranks: dict[int, int]) -> dict[int, int]:
+    """Each spell recipe items teach -> the lowest skill rank one of them requires (`skill_ranks`: item
+    id -> ItemSparse.RequiredSkillRank). Items requiring no skill are left out."""
+    out: dict[int, int] = {}
+    for item, r in _effects_by_item(paths):
+        rank = skill_ranks.get(item, 0)
+        if _int(r["TriggerType"]) == TRIGGER_LEARN and rank > 0:
+            spell = _int(r["SpellID"])
+            out[spell] = min(rank, out.get(spell, rank))
+    return out
 
 
 def _effect_base(r: dict[str, str]) -> float:
@@ -478,9 +498,11 @@ def build_db(
         for r in _rows(paths["Item"])
     }
     items = []
+    skill_ranks: dict[int, int] = {}
     for r in _rows(paths["ItemSparse"]):
         iid = _int(r["ID"])
         cls, sub, icon = classes.get(iid, (0, 0, 0))
+        skill_ranks[iid] = _int(r["RequiredSkillRank"])
         tip = tooltips.get(iid, NO_TOOLTIP)
         items.append(
             (
@@ -518,6 +540,7 @@ def build_db(
     spell_names = {_int(r["ID"]): r["Name_lang"] for r in _rows(paths["SpellName"])}
     cast_ms = cast_times(paths["SpellMisc"], paths["SpellCastTimes"])
     stations = spell_stations(paths["SpellCastingRequirements"], paths["SpellFocusObject"])
+    learned_at = learn_skills(paths, skill_ranks)
 
     # spell -> (output item, count); first CreateItem effect wins
     outputs: dict[int, tuple[int, int]] = {}
@@ -563,6 +586,7 @@ def build_db(
             "output_count": out_count,
             "cast_time_ms": cast_ms.get(spell, 0),
             "station": stations.get(spell, ""),
+            "learn_skill": learned_at.get(spell, 0),
         }
         for k in [k for k in recipe_reagents if k[0] == rid]:
             del recipe_reagents[k]

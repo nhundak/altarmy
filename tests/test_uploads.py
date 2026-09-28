@@ -16,7 +16,7 @@ from .test_auctionator import _entry, _saved_variables
 
 NOW = datetime(2026, 9, 24, 20, 0, tzinfo=UTC)
 OTHER = "other-user"
-PASTE = (Path(__file__).parent / "fixtures" / "altarmy_export_v1.txt").read_text(encoding="utf-8")
+PASTE = (Path(__file__).parent / "fixtures" / "altarmy_export_v2.txt").read_text(encoding="utf-8")
 
 
 @pytest.fixture
@@ -145,9 +145,13 @@ def test_trust_halves_on_quarantine_and_recovers(conn: Connection, other: str) -
 
 def test_a_pasted_export_replaces_the_characters(conn: Connection) -> None:
     got = uploads.ingest_paste(conn, ME, "tbc", PASTE)
-    assert (got.kind, got.characters) == ("altarmy", 2)
-    assert got.groups == (("Dreamscythe", "Horde", 1),)  # a character never scanned has no faction group
-    assert [c.name for c in store.load_characters(conn, ME, "tbc")] == ["Tailor Guy", "Frell"]
+    assert (got.kind, got.characters) == ("altarmy", 3)
+    assert got.groups == (("Dreamscythe", "Horde", 2),)  # a character never scanned has no faction group
+    assert [c.name for c in store.load_characters(conn, ME, "tbc")] == [
+        "Tailor Guy",
+        "Alchemist",
+        "Frell Ofelements",
+    ]
     assert service.data_version(conn, ME, "tbc") == 1
 
 

@@ -22,7 +22,9 @@ from altarmy_profit.engine import (
     SellOption,
     Step,
     TimeModel,
+    Unlearned,
     ah_net,
+    can_learn,
     can_skill_up,
     plan_steps,
     recipes_for_characters,
@@ -38,7 +40,7 @@ def make_market(
     disenchant: list[DisenchantRow] | None = None,
     thread_vendor_price: int | None = None,
     crafters: Sequence[Crafter] = (),
-    include_unlearned: bool = False,
+    unlearned: Unlearned = "none",
     exits: frozenset[str] = ALL_EXITS,
     no_ah: frozenset[int] = frozenset(),
     extra_items: Sequence[Item] = (),
@@ -65,7 +67,7 @@ def make_market(
         prices,
         disenchant,
         crafters=crafters,
-        include_unlearned=include_unlearned,
+        unlearned=unlearned,
         exits=exits,
         no_ah=no_ah,
         time=time,
@@ -334,16 +336,36 @@ def test_recipes_for_professions_ignores_case() -> None:
     assert [r.name for r in got] == ["Robe", "Bolt"]
 
 
-def test_recipes_for_characters_known_or_whole_professions() -> None:
+def test_recipes_for_characters_known_soon_or_whole_professions() -> None:
     recipes = [
-        Recipe(10, "Robe", GREEN, 1, ((LINEN, 1),), "Tailoring", spell_id=900),
-        Recipe(11, "Bolt", BOLT, 1, ((LINEN, 2),), "Tailoring", spell_id=901),
-        Recipe(12, "Dust", DUST, 1, ((LINEN, 2),), "Enchanting", spell_id=902),
+        Recipe(10, "Robe", GREEN, 1, ((LINEN, 1),), "Tailoring", spell_id=900, trivial_low=200),
+        Recipe(11, "Bolt", BOLT, 1, ((LINEN, 2),), "Tailoring", spell_id=901, trivial_low=90, learn_skill=70),
+        Recipe(12, "Cloak", GREEN, 1, ((LINEN, 3),), "Tailoring", spell_id=903, trivial_low=71),
+        Recipe(13, "Dust", DUST, 1, ((LINEN, 2),), "Enchanting", spell_id=902),
     ]
-    known = [r.name for r in recipes_for_characters(recipes, {900}, {"Tailoring"}, include_unlearned=False)]
-    assert known == ["Robe"]
-    every = recipes_for_characters(recipes, {900}, {"tailoring"}, include_unlearned=True)
-    assert [r.name for r in every] == ["Robe", "Bolt"]
+    tailor = crafter("Tailor", ("Tailoring", 50), known=frozenset({900}))
+
+    def names(unlearned: Unlearned) -> list[str]:
+        return [r.name for r in recipes_for_characters(recipes, [tailor], unlearned)]
+
+    assert names("none") == ["Robe"]
+    assert names("soon") == ["Robe", "Bolt"]  # its pattern requires 70; the cloak is yellow from 71
+    assert names("all") == ["Robe", "Bolt", "Cloak"]
+
+
+def test_required_skill_is_the_recipe_items_else_where_it_turns_yellow() -> None:
+    assert Recipe(1, "Taught by a pattern", GREEN, trivial_low=90, learn_skill=70).required_skill == 70
+    assert Recipe(1, "Trainer's", GREEN, min_skill=1, trivial_low=90).required_skill == 90
+    assert Recipe(1, "Trainer's", GREEN, min_skill=95, trivial_low=90).required_skill == 95
+
+
+def test_can_learn_soon_needs_the_profession_within_20_skill() -> None:
+    bolt = Recipe(11, "Bolt", BOLT, skill_name="Tailoring", learn_skill=70)
+    assert can_learn(bolt, crafter("Close", ("Tailoring", 50)), "soon")
+    assert not can_learn(bolt, crafter("Far", ("Tailoring", 49)), "soon")
+    assert can_learn(bolt, crafter("Far", ("Tailoring", 49)), "all")
+    assert not can_learn(bolt, crafter("Past", ("Tailoring", 300)), "none")
+    assert not can_learn(bolt, crafter("Smith", ("Blacksmithing", 300)), "soon")
 
 
 def test_chain_subcrafts_through_an_alts_known_recipe() -> None:
@@ -352,7 +374,9 @@ def test_chain_subcrafts_through_an_alts_known_recipe() -> None:
         Recipe(12, "Green Robe", GREEN, 1, ((BOLT, 3), (THREAD, 1)), "Blacksmithing", spell_id=2),
     ]
     prices = {LINEN: 10, THREAD: 5, BOLT: 100}
-    market = make_market(prices, recipes_for_characters(recipes, {1, 2}, set(), include_unlearned=False))
+    market = make_market(
+        prices, recipes_for_characters(recipes, [crafter("Alt", known=frozenset({1, 2}))], "none")
+    )
     assert must_evaluate(market, recipes[1]).cost == 3 * 20 + 5
 
 
@@ -389,11 +413,9 @@ TAILOR = crafter("Tailor", ("Tailoring", 50), known=frozenset({900}))
 
 
 def de_market(
-    *crafters: Crafter, include_unlearned: bool = False, prices: dict[int, int] = DE_PRICES
+    *crafters: Crafter, unlearned: Unlearned = "none", prices: dict[int, int] = DE_PRICES
 ) -> Market:
-    return make_market(
-        prices, [ROBE], disenchant=DE_ROWS, crafters=crafters, include_unlearned=include_unlearned
-    )
+    return make_market(prices, [ROBE], disenchant=DE_ROWS, crafters=crafters, unlearned=unlearned)
 
 
 def test_disenchant_is_free_when_the_crafter_enchants() -> None:
@@ -452,10 +474,17 @@ def test_no_crafters_means_free_disenchanting() -> None:
 def test_unlearned_recipe_can_be_crafted_by_anyone_with_the_profession() -> None:
     novice_tailor = crafter("Novice", ("Tailoring", 1))
     both = crafter("Both", ("Enchanting", 10), ("Tailoring", 1))
-    assert must_evaluate(de_market(novice_tailor, both, include_unlearned=True), ROBE).postage == 0
+    assert must_evaluate(de_market(novice_tailor, both, unlearned="all"), ROBE).postage == 0
     # someone knows it, so only they craft it
-    res = must_evaluate(de_market(TAILOR, both, include_unlearned=True), ROBE)
+    res = must_evaluate(de_market(TAILOR, both, unlearned="all"), ROBE)
     assert (res.postage, res.mail_to) == (MAIL_POSTAGE, "Both")
+
+
+def test_recipe_to_train_soon_is_crafted_by_whoever_is_close_enough() -> None:
+    robe = replace(ROBE, learn_skill=40)
+    novice, close = crafter("Novice", ("Tailoring", 1)), crafter("Close", ("Tailoring", 20))
+    market = make_market(DE_PRICES, [robe], disenchant=DE_ROWS, crafters=(novice, close), unlearned="soon")
+    assert must_evaluate(market, robe).crafter == "Close"
 
 
 # --- mailing intermediates between crafters ---------------------------------------------------------

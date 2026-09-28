@@ -597,15 +597,16 @@ export interface components {
              * @default true
              */
             include_trivial: boolean;
-            /**
-             * Include Unlearned
-             * @default false
-             */
-            include_unlearned: boolean;
             /** Price Version */
             price_version?: number | null;
             /** Recipe Id */
             recipe_id: number;
+            /**
+             * Unlearned
+             * @default none
+             * @enum {string}
+             */
+            unlearned: "none" | "soon" | "all";
         };
         /** EvaluateResponse */
         EvaluateResponse: {
@@ -1815,8 +1816,8 @@ export interface operations {
     get_rank_api_rank_get: {
         parameters: {
             query: {
-                /** @description rank every recipe of the characters' professions, not just learned ones */
-                include_unlearned?: boolean;
+                /** @description recipes nobody has learned: none, those a character is at most 20 skill short of learning (soon), or every recipe of their professions (all) */
+                unlearned?: "none" | "soon" | "all";
                 /** @description also recipes that can't give the crafter a skillup (grey or at the cap) */
                 include_trivial?: boolean;
                 /** @description ways the crafts may be sold */

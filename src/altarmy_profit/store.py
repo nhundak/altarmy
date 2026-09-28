@@ -135,6 +135,7 @@ def load_market(
             r.trivial_high,
             cast_time_ms=r.cast_time_ms,
             station=r.station,
+            learn_skill=r.learn_skill,
         )
         for r in conn.execute(select(rt).where(rt.c.game_version == game_version).order_by(rt.c.id))
     ]

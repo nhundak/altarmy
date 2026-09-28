@@ -534,11 +534,6 @@
             "title": "Include Trivial",
             "type": "boolean"
           },
-          "include_unlearned": {
-            "default": false,
-            "title": "Include Unlearned",
-            "type": "boolean"
-          },
           "price_version": {
             "anyOf": [
               {
@@ -553,6 +548,16 @@
           "recipe_id": {
             "title": "Recipe Id",
             "type": "integer"
+          },
+          "unlearned": {
+            "default": "none",
+            "enum": [
+              "none",
+              "soon",
+              "all"
+            ],
+            "title": "Unlearned",
+            "type": "string"
           }
         },
         "required": [
@@ -3277,15 +3282,20 @@
         "operationId": "get_rank_api_rank_get",
         "parameters": [
           {
-            "description": "rank every recipe of the characters' professions, not just learned ones",
+            "description": "recipes nobody has learned: none, those a character is at most 20 skill short of learning (soon), or every recipe of their professions (all)",
             "in": "query",
-            "name": "include_unlearned",
+            "name": "unlearned",
             "required": false,
             "schema": {
-              "default": false,
-              "description": "rank every recipe of the characters' professions, not just learned ones",
-              "title": "Include Unlearned",
-              "type": "boolean"
+              "default": "none",
+              "description": "recipes nobody has learned: none, those a character is at most 20 skill short of learning (soon), or every recipe of their professions (all)",
+              "enum": [
+                "none",
+                "soon",
+                "all"
+              ],
+              "title": "Unlearned",
+              "type": "string"
             }
           },
           {

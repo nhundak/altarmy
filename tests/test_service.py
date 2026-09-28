@@ -31,19 +31,19 @@ def test_search_ranks_known_recipes_or_whole_professions(
     base = store.load_market(conn, FOREVER, set_prices(conn, {1: 20, 2: 100}))
 
     profitable = Filters(min_profit=0)
-    (r,) = service.search(base, chars("Tailor Guy"), False, profitable)
+    (r,) = service.search(base, chars("Tailor Guy"), "none", profitable)
     assert r.profit == 200
-    assert service.search(base, chars("Tailor Guy"), False, Filters(min_profit=201)) == []
-    assert service.search(base, chars("Tailor Guy"), False, Filters(max_cost=299)) == []
-    assert service.search(base, chars("Tailor Guy"), False, profitable, exits=frozenset({"ah"})) == []
-    assert service.search(base, chars("Frell", "Ally Alt"), False, profitable) == []
-    (browsed,) = service.search(base, [], False, profitable)  # no characters: every recipe, nobody named
+    assert service.search(base, chars("Tailor Guy"), "none", Filters(min_profit=201)) == []
+    assert service.search(base, chars("Tailor Guy"), "none", Filters(max_cost=299)) == []
+    assert service.search(base, chars("Tailor Guy"), "none", profitable, exits=frozenset({"ah"})) == []
+    assert service.search(base, chars("Frell", "Ally Alt"), "none", profitable) == []
+    (browsed,) = service.search(base, [], "none", profitable)  # no characters: every recipe, nobody named
     assert (browsed.recipe.name, browsed.crafter, browsed.postage) == ("Green Robe", "", 0)
 
     (tailor,) = chars("Tailor Guy")
     novice = replace(tailor, professions=(Profession("Tailoring", 1, 75, frozenset()),))
-    assert service.search(base, [novice], False, profitable) == []
-    unlearned = service.search(base, [novice], True, profitable)
+    assert service.search(base, [novice], "none", profitable) == []
+    unlearned = service.search(base, [novice], "all", profitable)
     assert [r.recipe.name for r in unlearned] == ["Green Robe"]
 
 
@@ -53,26 +53,26 @@ def test_search_and_evaluate_without_trivial_recipes(db2_paths: dict[str, Path],
     (tailor,) = chars("Tailor Guy")  # Tailoring 50: the robe turns grey at 60
     (robe,) = base.recipes
     profitable = Filters(min_profit=0)
-    assert len(service.search(base, [tailor], False, profitable, include_trivial=False)) == 1
+    assert len(service.search(base, [tailor], "none", profitable, include_trivial=False)) == 1
 
     (p,) = [p for p in tailor.professions if p.name == "Tailoring"]
     veteran = replace(tailor, professions=(replace(p, rank=60, max_rank=150),))
-    assert len(service.search(base, [veteran], False, profitable)) == 1
-    assert service.search(base, [veteran], False, profitable, include_trivial=False) == []
-    assert service.evaluate(base, [veteran], False, ALL_EXITS, robe.id, {}, include_trivial=False) is None
+    assert len(service.search(base, [veteran], "none", profitable)) == 1
+    assert service.search(base, [veteran], "none", profitable, include_trivial=False) == []
+    assert service.evaluate(base, [veteran], "none", ALL_EXITS, robe.id, {}, include_trivial=False) is None
 
 
 def test_evaluate_applies_choices(db2_paths: dict[str, Path], conn: Connection, vendor_csv: Path) -> None:
     ingest.build_db(db2_paths, conn, FOREVER, vendor_csv=vendor_csv)
     base = store.load_market(conn, FOREVER, set_prices(conn, {1: 20, 2: 100}))  # vendors sell thread for 11c
-    best = service.evaluate(base, chars("Tailor Guy"), False, ALL_EXITS, 100, {})
+    best = service.evaluate(base, chars("Tailor Guy"), "none", ALL_EXITS, 100, {})
     assert best is not None
     assert (best.cost, best.tree.inputs[1].source) == (211, "vendor")
-    chosen = service.evaluate(base, chars("Tailor Guy"), False, ALL_EXITS, 100, {"r.1": "ah"})
+    chosen = service.evaluate(base, chars("Tailor Guy"), "none", ALL_EXITS, 100, {"r.1": "ah"})
     assert chosen is not None
     assert (chosen.cost, chosen.tree.inputs[1].source) == (300, "ah")
-    assert service.evaluate(base, chars("Tailor Guy"), False, ALL_EXITS, 999, {}) is None
-    assert service.evaluate(base, chars("Frell"), False, ALL_EXITS, 100, {}) is None
+    assert service.evaluate(base, chars("Tailor Guy"), "none", ALL_EXITS, 999, {}) is None
+    assert service.evaluate(base, chars("Frell"), "none", ALL_EXITS, 100, {}) is None
 
 
 def test_legacy_talents_reach_the_engine(
@@ -82,7 +82,7 @@ def test_legacy_talents_reach_the_engine(
     base = store.load_market(conn, FOREVER, set_prices(conn, {1: 20, 2: 100}))  # vendors sell thread for 11c
     (tailor,) = chars("Tailor Guy")
     barterer = replace(tailor, talents=((talents.BARTERING, 2),))
-    got = service.evaluate(base, [barterer], False, ALL_EXITS, 100, {})
+    got = service.evaluate(base, [barterer], "none", ALL_EXITS, 100, {})
     assert got is not None
     assert (got.cost, got.tree.inputs[1].discount) == (200 + 10, 10)  # 11c less 10%, rounded up
 
@@ -93,11 +93,11 @@ def test_search_and_evaluate_never_sell_blocked_items_on_the_ah(
     ingest.build_db(db2_paths, conn, FOREVER)
     # the robe: 950 on the AH beats 500 at a vendor
     base = store.load_market(conn, FOREVER, set_prices(conn, {1: 20, 2: 100, 3: 1000}))
-    (r,) = service.search(base, chars("Tailor Guy"), False, Filters())
+    (r,) = service.search(base, chars("Tailor Guy"), "none", Filters())
     assert r.best_exit == "ah"
-    (r,) = service.search(base, chars("Tailor Guy"), False, Filters(), no_ah=frozenset({3}))
+    (r,) = service.search(base, chars("Tailor Guy"), "none", Filters(), no_ah=frozenset({3}))
     assert (r.best_exit, [e.kind for e in r.exits]) == ("vendor", ["vendor"])
-    got = service.evaluate(base, chars("Tailor Guy"), False, ALL_EXITS, 100, {}, no_ah=frozenset({3}))
+    got = service.evaluate(base, chars("Tailor Guy"), "none", ALL_EXITS, 100, {}, no_ah=frozenset({3}))
     assert got is not None
     assert got.best_exit == "vendor"
 
@@ -105,8 +105,8 @@ def test_search_and_evaluate_never_sell_blocked_items_on_the_ah(
 def test_search_without_min_profit_keeps_losses(db2_paths: dict[str, Path], conn: Connection) -> None:
     ingest.build_db(db2_paths, conn, FOREVER)
     base = store.load_market(conn, FOREVER, set_prices(conn, {1: 100, 2: 100}))  # 10 linen > the robe
-    assert service.search(base, chars("Tailor Guy"), False, Filters(min_profit=0)) == []
-    (r,) = service.search(base, chars("Tailor Guy"), False, Filters())
+    assert service.search(base, chars("Tailor Guy"), "none", Filters(min_profit=0)) == []
+    (r,) = service.search(base, chars("Tailor Guy"), "none", Filters())
     assert r.profit < 0
 
 
@@ -267,7 +267,7 @@ def test_by_rate_puts_the_best_per_hour_first() -> None:
     }
     model = engine.TimeModel(timing.DEFAULT_CONFIG, timing.ANYWHERE)
     market = engine.Market(items, [fast, slow], {1: 10}, time=model)
-    by_profit = service.search(market, [], False, engine.Filters(), time=model)
+    by_profit = service.search(market, [], "none", engine.Filters(), time=model)
     assert [r.recipe.name for r in by_profit] == ["Slow", "Fast"]
     assert [r.recipe.name for r in service.by_rate(by_profit)] == ["Fast", "Slow"]
 
@@ -277,7 +277,7 @@ def test_favorites_first_keeps_each_part_in_order() -> None:
     items = {1: engine.Item(1, "Cloth")} | {
         10 + i: engine.Item(10 + i, f"T{i}", sell_price=100 * i) for i in range(1, 5)
     }
-    ranked = service.search(engine.Market(items, recipes, {1: 10}), [], False, engine.Filters())
+    ranked = service.search(engine.Market(items, recipes, {1: 10}), [], "none", engine.Filters())
     assert [r.recipe.id for r in ranked] == [4, 3, 2, 1]
     assert [r.recipe.id for r in service.favorites_first(ranked, frozenset({1, 3}))] == [3, 1, 4, 2]
     assert service.favorites_first(ranked, frozenset()) == ranked
