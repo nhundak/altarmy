@@ -2,14 +2,17 @@
   Unit tests for ProfitExport.lua: the string the altarmy-profit site's Upload tab takes.
   Run from project root: npm test
 
-  spec/fixtures/profit_export_v1.txt is the golden export of CHARACTERS below. The altarmy-profit repo keeps a
-  copy (tests/fixtures/altarmy_export_v1.txt) that its parser must read back, so a change here that alters the
+  spec/fixtures/profit_export_v2.txt is the golden export of CHARACTERS below. The altarmy-profit repo keeps a
+  copy (tests/fixtures/altarmy_export_v2.txt) that its parser must read back, so a change here that alters the
   string needs that copy updated too.
 ]]
 
 local CHARACTERS = {
   Dreamscythe = {
-    Frell = {
+    -- keyed by GUID (character data v3); the name is the entry's `name`
+    ["Player-5826-0A1B2C3D"] = {
+      name = "Frell Ofelements",
+      guid = "Player-5826-0A1B2C3D",
       faction = "Horde",
       classFile = "MAGE",
       level = 70,
@@ -35,6 +38,8 @@ local CHARACTERS = {
       },
       legacyTalents = { spells = { [1225459] = 2, [1225457] = 3, [1225478] = 0 }, nodes = {}, restRank = 0 },
     },
+    -- saved before GUIDs: keyed by name, which the entry also carries
+    Alchemist = { name = "Alchemist", faction = "Horde", classFile = "ROGUE", level = 12 },
   },
   ["Classic Beta PvE"] = {
     -- never scanned: no faction, no professions; v1 legacy talents (class talents really) aren't exported
@@ -43,9 +48,10 @@ local CHARACTERS = {
 }
 
 local LINES = table.concat({
-  "V|1|20506|2.5.6.69795",
-  "C|Classic Beta PvE|Tailor Guy||PRIEST|20",
-  "C|Dreamscythe|Frell|Horde|MAGE|70",
+  "V|2|20506|2.5.6.69795",
+  "C|Classic Beta PvE|Tailor Guy||PRIEST|20|",
+  "C|Dreamscythe|Alchemist|Horde|ROGUE|12|",
+  "C|Dreamscythe|Frell Ofelements|Horde|MAGE|70|Player-5826-0A1B2C3D",
   "P|Cooking|1|75|",
   "P|Enchanting|300|375|7418,7420",
   "P|Tailoring|375|375|26745,26746",
@@ -64,7 +70,7 @@ describe("ProfitExport", function()
     ProfitExport = AltArmy.ProfitExport
   end)
 
-  it("lists realms, characters, professions and recipe ids in a stable order", function()
+  it("names characters by their name and identifies them by GUID, sorted by name", function()
     assert.are.equal(LINES, ProfitExport.Lines(CHARACTERS, 20506, "2.5.6.69795"))
   end)
 
@@ -75,18 +81,18 @@ describe("ProfitExport", function()
 
   it("drops separators from names so a line always splits the same way", function()
     local odd = { ["Realm|X"] = { ["A\nB"] = { faction = "Horde", classFile = "MAGE", level = 1 } } }
-    assert.are.equal("V|1|16001|1.60.1\nC|RealmX|AB|Horde|MAGE|1", ProfitExport.Lines(odd, 16001, "1.60.1"))
+    assert.are.equal("V|2|16001|1.60.1\nC|RealmX|AB|Horde|MAGE|1|", ProfitExport.Lines(odd, 16001, "1.60.1"))
   end)
 
   it("exports nothing but the version line without characters", function()
-    assert.are.equal("V|1|16001|1.60.1", ProfitExport.Lines(nil, 16001, "1.60.1"))
+    assert.are.equal("V|2|16001|1.60.1", ProfitExport.Lines(nil, 16001, "1.60.1"))
   end)
 
   it("encodes as AAX1: plus LibDeflate's printable raw DEFLATE, matching the golden fixture", function()
     local encoded = ProfitExport.Encode(LINES, LibDeflate)
     assert.are.equal("AAX1:", encoded:sub(1, 5))
     assert.are.equal(LINES, LibDeflate:DecompressDeflate(LibDeflate:DecodeForPrint(encoded:sub(6))))
-    local f = assert(io.open("spec/fixtures/profit_export_v1.txt", "rb"))
+    local f = assert(io.open("spec/fixtures/profit_export_v2.txt", "rb"))
     local golden = f:read("*a"):gsub("%s+$", "")
     f:close()
     assert.are.equal(golden, encoded)

@@ -37,10 +37,10 @@ Additional `debug …` subcommands exist for developers (mail alerts, compare du
 Only `/altarmy export` opens it. An **Export** dialog with one selected line of text (starts with `AAX1:`) and
 "Copy this string into the alt army website to upload your data": press Ctrl+C and paste it on the Upload tab of
 the altarmy-profit site (alt-army-prod.web.app), which then knows your characters without a SavedVariables
-upload or `/reload`. It holds every saved character's realm, name, faction, class, level, professions (rank
-and max) and learned recipe ids, plus the client's interface number and build so the site can tell TBC
+upload or `/reload`. It holds every saved character's realm, full name, GUID, faction, class, level, professions
+(rank and max), learned recipe ids and Legacy talents, plus the client's interface number and build so the site can tell TBC
 Anniversary from Forever. The string is LibDeflate-compressed text built by `Data/ProfitExport.lua`; its
-format is documented there, and `spec/fixtures/profit_export_v1.txt` is the golden string the site's parser is
+format is documented there, and `spec/fixtures/profit_export_v2.txt` (format v2) is the golden string the site's parser is
 tested against (the altarmy-profit repo keeps a copy).
 
 ## Related UI
