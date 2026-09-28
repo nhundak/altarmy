@@ -10,6 +10,11 @@
 --   v1 (legacy inbound): fat chars with embedded profession summaries.
 --   v2 (outbound + inbound): slim chars with identity + checksum `ch`; profs via CC whisper.
 -- Recipe payloads stay at RECIPES_VERSION (1).
+--
+-- Character IDs (GUIDs) ride along as optional fields, never replacing names, so the versions
+-- stay the same: older clients reject unknown versions but ignore unknown fields. Each character
+-- carries `guid`; presence also carries `mainGuid`; every message carries the sending character's
+-- `from` (stamped by GuildShareComm). Payloads from older clients have none of these.
 
 if not AltArmy then return end
 
@@ -155,6 +160,7 @@ local function identityAndProfsForChar(entryName, entryRealm, char)
     return {
         name = entryName or (char and char.name),
         realm = entryRealm or (char and char.realm),
+        guid = char and char.guid,
         classFile = classFile,
         faction = faction,
         level = level,
@@ -174,9 +180,13 @@ function P.BuildPresence(chars, mainName, displayName)
         local char = entry.char
         if char then
             local built = identityAndProfsForChar(entry.name, entry.realm, char)
+            if mainName ~= nil and built.name == mainName then
+                msg.mainGuid = built.guid
+            end
             msg.chars[#msg.chars + 1] = {
                 name = built.name,
                 realm = built.realm,
+                guid = built.guid,
                 classFile = built.classFile,
                 faction = built.faction,
                 level = built.level,
@@ -195,6 +205,7 @@ function P.BuildCharCard(name, realm, char)
         v = P.PRESENCE_V2,
         name = built.name,
         realm = built.realm,
+        guid = built.guid,
         classFile = built.classFile,
         faction = built.faction,
         level = built.level,
@@ -204,14 +215,15 @@ function P.BuildCharCard(name, realm, char)
     }
 end
 
---- Request profession card for one character (whispered CQ).
-function P.BuildCharCardRequest(name, realm)
-    return { v = P.PRESENCE_V2, name = name, realm = realm }
+--- Request profession card for one character (whispered CQ). `guid` is optional: responders
+--- running an older version match by name only, so the name is always sent too.
+function P.BuildCharCardRequest(name, realm, guid)
+    return { v = P.PRESENCE_V2, name = name, realm = realm, guid = guid }
 end
 
 --- Full recipe payload for one character (pulled on demand), keyed by profession.
 function P.BuildRecipes(name, realm, char)
-    local msg = { v = P.RECIPES_VERSION, name = name, realm = realm, profs = {} }
+    local msg = { v = P.RECIPES_VERSION, name = name, realm = realm, guid = char and char.guid, profs = {} }
     local profs = char and char.Professions
     if profs then
         local list = {}
@@ -229,6 +241,15 @@ end
 local function isNonEmptyString(v)
     return type(v) == "string" and v ~= ""
 end
+
+local MAX_GUID_LENGTH = 64
+
+--- A character ID from an inbound payload, or nil when absent or malformed.
+local function parseGuid(v)
+    if isNonEmptyString(v) and #v <= MAX_GUID_LENGTH then return v end
+    return nil
+end
+P._ParseGuid = parseGuid
 
 local function parseProfSummaries(rawProfs)
     local profs = {}
@@ -263,6 +284,8 @@ function P.ParsePresence(msg)
     local out = {
         v = ver,
         main = isNonEmptyString(msg.main) and msg.main or nil,
+        mainGuid = parseGuid(msg.mainGuid),
+        from = parseGuid(msg.from),
         displayName = displayName,
         -- Login announces ask peers to whisper their presence even when data is unchanged.
         login = msg.login == true or nil,
@@ -273,6 +296,7 @@ function P.ParsePresence(msg)
             local entry = {
                 name = c.name,
                 realm = isNonEmptyString(c.realm) and c.realm or nil,
+                guid = parseGuid(c.guid),
                 classFile = isNonEmptyString(c.classFile) and c.classFile or nil,
                 faction = isNonEmptyString(c.faction) and c.faction or nil,
                 level = tonumber(c.level) or 0,
@@ -299,6 +323,8 @@ function P.ParseCharCardRequest(msg)
         v = P.PRESENCE_V2,
         name = msg.name,
         realm = isNonEmptyString(msg.realm) and msg.realm or nil,
+        guid = parseGuid(msg.guid),
+        from = parseGuid(msg.from),
     }
 end
 
@@ -312,6 +338,8 @@ function P.ParseCharCard(msg)
         v = P.PRESENCE_V2,
         name = msg.name,
         realm = isNonEmptyString(msg.realm) and msg.realm or nil,
+        guid = parseGuid(msg.guid),
+        from = parseGuid(msg.from),
         classFile = isNonEmptyString(msg.classFile) and msg.classFile or nil,
         faction = isNonEmptyString(msg.faction) and msg.faction or nil,
         level = tonumber(msg.level) or 0,
@@ -329,6 +357,8 @@ function P.ParseRecipes(msg)
         v = P.RECIPES_VERSION,
         name = msg.name,
         realm = isNonEmptyString(msg.realm) and msg.realm or nil,
+        guid = parseGuid(msg.guid),
+        from = parseGuid(msg.from),
         profs = {},
     }
     for _, pr in ipairs(msg.profs) do

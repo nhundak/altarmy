@@ -284,4 +284,65 @@ describe("GuildShareProtocol", function()
       assert.is_nil(P.ParseRecipes({ v = 2, name = "Bob", profs = {} }))
     end)
   end)
+
+  describe("character IDs", function()
+    local blast, ofelements
+    before_each(function()
+      blast = makeChar({ name = "Frell Blast", guid = "Player-1-B" })
+      ofelements = makeChar({ name = "Frell Ofelements", guid = "Player-1-A" })
+    end)
+
+    it("sends each character's ID and the main's ID, and stays version 2 for older clients", function()
+      local msg = P.BuildPresence({
+        { name = "Frell Blast", realm = "R", char = blast },
+        { name = "Frell Ofelements", realm = "R", char = ofelements },
+      }, "Frell Ofelements", nil)
+      assert.are.equal(P.PRESENCE_V2, msg.v)
+      assert.are.equal("Player-1-B", msg.chars[1].guid)
+      assert.are.equal("Player-1-A", msg.chars[2].guid)
+      assert.are.equal("Player-1-A", msg.mainGuid)
+    end)
+
+    it("keeps the checksum independent of the ID", function()
+      local withId = P.BuildCharCard("Frell Blast", "R", blast)
+      local withoutId = P.BuildCharCard("Frell Blast", "R", makeChar({ name = "Frell Blast" }))
+      assert.are.equal(withoutId.ch, withId.ch)
+    end)
+
+    it("carries the ID in cards, card requests and recipe lists", function()
+      assert.are.equal("Player-1-B", P.BuildCharCard("Frell Blast", "R", blast).guid)
+      assert.are.equal("Player-1-B", P.BuildCharCardRequest("Frell Blast", "R", "Player-1-B").guid)
+      assert.are.equal("Player-1-B", P.BuildRecipes("Frell Blast", "R", blast).guid)
+    end)
+
+    it("parses IDs and the sender's ID from every payload", function()
+      local presence = P.ParsePresence({
+        v = 2, from = "Player-1-B", main = "Frell Blast", mainGuid = "Player-1-B",
+        chars = { { name = "Frell Blast", guid = "Player-1-B", ch = 1 } },
+      })
+      assert.are.equal("Player-1-B", presence.from)
+      assert.are.equal("Player-1-B", presence.mainGuid)
+      assert.are.equal("Player-1-B", presence.chars[1].guid)
+      local card = P.ParseCharCard({
+        v = 2, from = "Player-1-B", name = "Frell Blast", guid = "Player-1-B", ch = 1, profs = {},
+      })
+      assert.are.equal("Player-1-B", card.guid)
+      assert.are.equal("Player-1-B", card.from)
+      assert.are.equal("Player-1-B",
+        P.ParseCharCardRequest({ v = 2, name = "Frell Blast", guid = "Player-1-B" }).guid)
+      assert.are.equal("Player-1-B",
+        P.ParseRecipes({ v = 1, name = "Frell Blast", guid = "Player-1-B", profs = {} }).guid)
+    end)
+
+    it("accepts payloads without IDs from older clients and drops malformed IDs", function()
+      local presence = P.ParsePresence({
+        v = 2, from = 7, mainGuid = "",
+        chars = { { name = "Frell", ch = 1 }, { name = "Other", guid = {}, ch = 1 } },
+      })
+      assert.is_nil(presence.from)
+      assert.is_nil(presence.mainGuid)
+      assert.is_nil(presence.chars[1].guid)
+      assert.is_nil(presence.chars[2].guid)
+    end)
+  end)
 end)

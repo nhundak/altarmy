@@ -1023,4 +1023,131 @@ describe("GuildShareComm helpers", function()
       assert.is_false(marked)
     end)
   end)
+
+  describe("character IDs", function()
+    local saved, sent
+
+    before_each(function()
+      saved, sent = {}, {}
+      _G.UnitName = function() return "Frell", "Blast" end
+      _G.UnitGUID = function(unit) if unit == "player" then return "Player-1-B" end end
+      AltArmy.DataStore = {}
+      AltArmy.Debug = {
+        IsGuildShareEnabled = function() return true end,
+        LogGuildShare = function() end,
+      }
+      AltArmy.GuildShareProtocol = {
+        ParsePresence = function(msg) return msg end,
+        ParseCharCardRequest = function(msg) return msg end,
+        BuildPresence = function(chars) return { v = 2, chars = chars or {} } end,
+        BuildRecipes = function(name, realm, char)
+          saved.recipesFor = { name = name, char = char }
+          return { v = 1, name = name, realm = realm, guid = char and char.guid, profs = {} }
+        end,
+        BuildCharCard = function(name, realm, char)
+          saved.cardFor = { name = name, char = char }
+          return { v = 2, name = name, realm = realm, ch = 1, profs = {} }
+        end,
+        BuildCharCardRequest = function(name, realm, guid)
+          return { v = 2, name = name, realm = realm, guid = guid }
+        end,
+      }
+      AltArmy.GuildShareData = {
+        SaveReceived = function(sender, presence) saved.received = { sender = sender, presence = presence } end,
+        PresenceMatchesStored = function() return false end,
+        CharsNeedingProfessionCard = function() return {} end,
+        GetProfessionsNeedingRecipes = function(nameOrKey)
+          saved.neededFor = nameOrKey
+          return { "tailoring" }
+        end,
+        MarkRecipesRequested = function(nameOrKey) saved.markedFor = nameOrKey end,
+      }
+      Comm.NotifyDataChanged = function() end
+      AltArmy.GuildShareSettings = {
+        IsSharingEnabled = function() return true end,
+        GetShareableCharacters = function()
+          return { { name = "Frell Blast", char = { name = "Frell Blast", guid = "Player-1-B", Professions = {} } } }
+        end,
+        GetAllGuildedCharacters = function() return {} end,
+        ResolvePresenceMainAndDisplay = function() return nil, nil end,
+      }
+      _G.GetGuildInfo = function() return "G" end
+      _G.GetRealmName = function() return "R" end
+      Comm._TestHookSend = function(msgType, payload, distribution, target)
+        sent[#sent + 1] = { msgType = msgType, payload = payload, distribution = distribution, target = target }
+      end
+    end)
+
+    after_each(function()
+      Comm._TestHookSend = nil
+      _G.UnitGUID = nil
+    end)
+
+    it("does not ignore another player who shares my short name", function()
+      Comm._DispatchReceivedMessage("P", { from = "Player-9-X", chars = { { name = "Frell Hound" } } }, "Frell")
+      assert.truthy(saved.received)
+    end)
+
+    it("ignores my own messages by ID, whatever name they arrive under", function()
+      Comm._DispatchReceivedMessage("P", { from = "Player-1-B", chars = { { name = "Frell Blast" } } }, "Frelly")
+      assert.is_nil(saved.received)
+    end)
+
+    it("still ignores my own messages by name when they carry no ID", function()
+      Comm._DispatchReceivedMessage("P", { chars = { { name = "Frell Blast" } } }, "Frell")
+      assert.is_nil(saved.received)
+    end)
+
+    it("stamps outgoing messages with my ID", function()
+      local realOnline = Comm.IsGuildMemberOnline
+      Comm.IsGuildMemberOnline = function() return true end
+      Comm.RequestCharCard("Frell Hound", "R", "Frell", "Player-9-X")
+      Comm.IsGuildMemberOnline = realOnline
+      assert.are.equal(1, #sent)
+      assert.are.equal("Player-1-B", sent[1].payload.from)
+      assert.are.equal("Player-9-X", sent[1].payload.guid)
+    end)
+
+    it("requests recipes by ID and tracks them under that ID", function()
+      local realOnline = Comm.IsGuildMemberOnline
+      Comm.IsGuildMemberOnline = function() return true end
+      Comm.RequestRecipesForCharacter("Frell Hound", "R", "Frell", "Player-9-X")
+      Comm.IsGuildMemberOnline = realOnline
+      assert.are.equal("Player-9-X", saved.neededFor)
+      assert.are.equal("Player-9-X", saved.markedFor)
+      assert.are.equal("RQ", sent[1].msgType)
+      assert.are.same("Frell Hound", sent[1].payload.name)
+      assert.are.same("Player-9-X", sent[1].payload.guid)
+    end)
+
+    it("answers recipe and card requests by ID even under an old name", function()
+      Comm._DispatchReceivedMessage("RQ", { name = "Frell", realm = "R", guid = "Player-1-B" }, "Peer")
+      assert.truthy(saved.recipesFor)
+      -- Echo the requested name: an older requester stored the character under it.
+      assert.are.equal("Frell", saved.recipesFor.name)
+      Comm._DispatchReceivedMessage("CQ", { v = 2, name = "Frell", realm = "R", guid = "Player-1-B" }, "Peer")
+      assert.truthy(saved.cardFor)
+    end)
+
+    it("does not answer a request whose ID belongs to another character", function()
+      Comm._DispatchReceivedMessage("RQ", { name = "Frell Blast", realm = "R", guid = "Player-1-Z" }, "Peer")
+      assert.is_nil(saved.recipesFor)
+    end)
+
+    it("asks for profession cards by ID", function()
+      local realOnline = Comm.IsGuildMemberOnline
+      Comm.IsGuildMemberOnline = function() return true end
+      AltArmy.GuildShareData.CharsNeedingProfessionCard = function()
+        return { { name = "Frell Hound", realm = "R", guid = "Player-9-X" } }
+      end
+      Comm._DispatchReceivedMessage("P", {
+        v = 2, from = "Player-9-X", chars = { { name = "Frell Hound", guid = "Player-9-X", ch = 1 } },
+      }, "Frell")
+      Comm.IsGuildMemberOnline = realOnline
+      local cq
+      for _, s in ipairs(sent) do if s.msgType == "CQ" then cq = s end end
+      assert.truthy(cq)
+      assert.are.equal("Player-9-X", cq.payload.guid)
+    end)
+  end)
 end)

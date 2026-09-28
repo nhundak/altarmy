@@ -24,6 +24,8 @@ See who is playing which alts in the guild, open their shared professions/recipe
 - Opt-in (`AltArmyTBC_SharingSettings`); defaults off.
 - Broadcasts shareable character cards and recipes over guild addon messages (AceComm).
 - Received data in `AltArmyTBC_GuildData`.
+- Characters are identified by their character ID, so guildmates whose names share a first name (common on WoW Forever) stay separate, and a renamed character keeps its shared data. Every message also carries the sending character's ID, so our own echoed broadcasts are recognized even when another guildmate has the same short name.
+- Works with guildmates on older AltArmy versions. IDs travel as extra fields next to the names, and older versions ignore them. Their messages carry no IDs, so their characters are stored and requested by name as before. When such a guildmate upgrades, their old name-only entries are replaced on their next broadcast.
 - Onboarding dialog when appropriate (queued with other onboarding prompts).
 - Changing the main (onboarding dialog or Options) also sets the preferred name ("What should people call you?") to the new main's first name — but only when the current preferred name is empty or matches (case-insensitive) a realm character's full or first name. Custom names are kept.
 - Chat main-name insertion (channels configurable): prefixes messages / online-offline lines with the poster’s group display label when it differs from the sender.

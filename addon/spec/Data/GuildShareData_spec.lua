@@ -842,4 +842,123 @@ describe("GuildShareData", function()
       assert.are.equal("ManualMain", altMap.main)
     end)
   end)
+
+  describe("character IDs", function()
+    local function idChar(name, guid, fields)
+      local c = charEntry(name)
+      c.guid = guid
+      for k, v in pairs(fields or {}) do c[k] = v end
+      return c
+    end
+
+    local function idPresence(from, main, mainGuid, chars)
+      return P.ParsePresence({ v = 1, from = from, main = main, mainGuid = mainGuid, chars = chars })
+    end
+
+    local function keys(realm)
+      local out = {}
+      for k in pairs(AltArmyTBC_GuildData.chars[realm or "R"] or {}) do out[#out + 1] = k end
+      table.sort(out)
+      return out
+    end
+
+    it("stores characters that carry an ID under that ID and finds them by name", function()
+      GSD.SaveReceived("Frell", idPresence("Player-1-B", "Frell Blast", "Player-1-B", {
+        idChar("Frell Blast", "Player-1-B"),
+        idChar("Frell Ofelements", "Player-1-A"),
+      }), "G", "R")
+      assert.are.same({ "Player-1-A", "Player-1-B" }, keys())
+      local blast = GSD.GetCharacter("Frell Blast", "R")
+      assert.are.equal("Frell Blast", blast.name)
+      assert.are.equal("Player-1-B", blast.guid)
+      assert.are.equal(blast, GSD.GetCharacter("Player-1-B", "R"))
+      assert.are.equal(blast, GSD.FindCharacter("Frell Blast"))
+      assert.are.equal("Frell Blast", GSD.GetMainOf("Frell Ofelements"))
+      assert.are.equal("Frell Blast", GSD.GetMainOf("Frell Ofelements", "R"))
+    end)
+
+    it("keeps two senders whose names shorten to the same first name apart", function()
+      GSD.SaveReceived("Frell", idPresence("Player-1-B", nil, nil, { idChar("Frell Blast", "Player-1-B") }), "G", "R")
+      GSD.SaveReceived("Frell", idPresence("Player-9-X", nil, nil, { idChar("Frell Hound", "Player-9-X") }), "G", "R")
+      assert.are.same({ "Player-1-B", "Player-9-X" }, keys())
+    end)
+
+    it("adopts an older name-keyed entry when that character now sends its ID", function()
+      GSD.SaveReceived("Frell", P.ParsePresence(presence(nil, { charEntry("Frell Blast") })), "G", "R")
+      assert.are.same({ "Frell Blast" }, keys())
+      GSD.SaveReceived("Frell", idPresence("Player-1-B", nil, nil, { idChar("Frell Blast", "Player-1-B") }), "G", "R")
+      assert.are.same({ "Player-1-B" }, keys())
+    end)
+
+    it("drops a first-name entry from an older version when that sender upgrades", function()
+      GSD.SaveReceived("Frell", P.ParsePresence(presence(nil, { charEntry("Frell") })), "G", "R")
+      GSD.SaveReceived("Frell", idPresence("Player-1-B", nil, nil, { idChar("Frell Blast", "Player-1-B") }), "G", "R")
+      assert.are.same({ "Player-1-B" }, keys())
+    end)
+
+    it("does not let an older client with the same short name remove ID-keyed characters", function()
+      GSD.SaveReceived("Frell", idPresence("Player-1-B", nil, nil, { idChar("Frell Blast", "Player-1-B") }), "G", "R")
+      GSD.SaveReceived("Frell", P.ParsePresence(presence(nil, { charEntry("Frell") })), "G", "R")
+      assert.are.same({ "Frell", "Player-1-B" }, keys())
+    end)
+
+    it("names the group after the main's ID", function()
+      GSD.SaveReceived("Frell", idPresence("Player-1-B", "Frell", "Player-1-B", {
+        idChar("Frell Blast", "Player-1-B"),
+        idChar("Frell Ofelements", "Player-1-A"),
+      }), "G", "R")
+      assert.are.equal("Frell Blast", GSD.GetCharacter("Player-1-A", "R").main)
+      assert.is_true(GSD.GetCharacter("Player-1-B", "R").isMain)
+    end)
+
+    it("matches and touches an unchanged ID presence", function()
+      local msg = idPresence("Player-1-B", "Frell Blast", "Player-1-B", { idChar("Frell Blast", "Player-1-B") })
+      GSD.SaveReceived("Frell", msg, "G", "R")
+      assert.is_true(GSD.PresenceMatchesStored("Frell", msg, "R"))
+      assert.is_true(GSD.TouchReceivedAt("Frell", msg, "R"))
+      local renamed = idPresence("Player-1-B", "Frell Blasty", "Player-1-B", { idChar("Frell Blasty", "Player-1-B") })
+      assert.is_false(GSD.PresenceMatchesStored("Frell", renamed, "R"))
+      GSD.SaveReceived("Frell", renamed, "G", "R")
+      assert.are.same({ "Player-1-B" }, keys())
+      assert.are.equal("Frell Blasty", GSD.GetCharacter("Player-1-B", "R").name)
+    end)
+
+    it("treats a presence that still needs its legacy entry re-keyed as changed", function()
+      GSD.SaveReceived("Frell", P.ParsePresence(presence(nil, { charEntry("Frell Blast") })), "G", "R")
+      local msg = idPresence("Player-1-B", nil, nil, { idChar("Frell Blast", "Player-1-B") })
+      assert.is_false(GSD.PresenceMatchesStored("Frell", msg, "R"))
+    end)
+
+    it("saves cards and recipe lists sent with an ID under that ID", function()
+      GSD.SaveReceived("Frell", P.ParsePresence({
+        v = 2, from = "Player-1-B", chars = { { name = "Frell Blast", guid = "Player-1-B", ch = 5 } },
+      }), "G", "R")
+      assert.are.same({ { name = "Frell Blast", realm = "R", guid = "Player-1-B" } },
+        GSD.CharsNeedingProfessionCard(P.ParsePresence({
+          v = 2, chars = { { name = "Frell Blast", guid = "Player-1-B", ch = 5 } },
+        }), "R"))
+      GSD.SaveCharCard("Frell", P.ParseCharCard({
+        v = 2, from = "Player-1-B", name = "Frell Blast", guid = "Player-1-B", ch = 5,
+        profs = { { key = "tailoring", rank = 300, count = 1, rv = 9 } },
+      }), "G", "R")
+      -- The requester may still know the character by an older name; the ID wins.
+      GSD.SaveRecipes("R", P.ParseRecipes({
+        v = 1, name = "Frell", guid = "Player-1-B", profs = { { key = "tailoring", ids = { 42 } } },
+      }))
+      assert.are.same({ "Player-1-B" }, keys())
+      local entry = GSD.GetCharacter("Player-1-B", "R")
+      assert.is_false(entry.needsProfessionCard)
+      assert.is_truthy(entry.Professions.tailoring.Recipes[42])
+    end)
+
+    it("keeps a manual mapping by name when an ID-keyed character goes stale", function()
+      GSD.SaveReceived("Frell", idPresence("Player-1-B", "Frell Blast", "Player-1-B", {
+        idChar("Frell Blast", "Player-1-B"),
+      }), "G", "R")
+      GSD.PurgeStale(10, NOW + 100)
+      assert.are.same({}, keys())
+      assert.is_truthy(GMG.GetMapping("Frell Blast", "R"))
+      assert.is_nil(GMG.GetMapping("Player-1-B", "R"))
+    end)
+  end)
 end)

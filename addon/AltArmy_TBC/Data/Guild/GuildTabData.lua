@@ -384,7 +384,7 @@ function GTD.GetStoredCharacter(entry)
         return nil
     end
     local GSD = AltArmy.GuildShareData
-    return GSD and GSD.GetCharacter and GSD.GetCharacter(entry.name, entry.realm) or nil
+    return GSD and GSD.GetCharacter and GSD.GetCharacter(entry.guid or entry.name, entry.realm) or nil
 end
 
 --- Enrich a guild-tab recipe row with optional CraftLib skill metadata (mutates entry).

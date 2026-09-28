@@ -64,4 +64,4 @@ Canonical table: `DATA_VERSIONS` in [`DataStore.lua`](DataStore/DataStore.lua).
 These are persisted on the character (or in other SavedVariables) but are not tracked in `DATA_VERSIONS` today:
 
 - **Raid lockouts** — `char.RaidLockouts` / `lastLockoutScan` via `DataStoreLockouts` (list replaced each scan).
-- **Guild share** — `AltArmyTBC_GuildData` and `AltArmyTBC_SharingSettings` (protocol versioning is separate from character `dataVersions`).
+- **Guild share** — `AltArmyTBC_GuildData` and `AltArmyTBC_SharingSettings` (protocol versioning is separate from character `dataVersions`). Received characters live in `AltArmyTBC_GuildData.chars[realm][key]`: `key` is the character's GUID when its sender shares IDs, else its name (senders on older versions). Entries carry `guid`, `sourceGuid` (the sending character) and `mainGuid` when known. Wire payloads stay at presence v2 / recipes v1 and add optional `guid`, `mainGuid` and `from` fields, which older clients ignore. Name-keyed entries are re-keyed by the sender's next presence that carries IDs; there is no load-time migration.

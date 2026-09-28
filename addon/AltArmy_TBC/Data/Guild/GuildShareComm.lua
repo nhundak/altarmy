@@ -174,6 +174,17 @@ local function playerName()
     return (UnitName and UnitName("player")) or ""
 end
 
+--- The logged-in character's ID (GUID), or nil when unknown.
+local function playerGuid()
+    local DS = AltArmy.DataStore
+    if DS and DS.GetCurrentPlayerGUID then
+        return DS:GetCurrentPlayerGUID()
+    end
+    local guid = UnitGUID and UnitGUID("player")
+    if type(guid) == "string" and guid ~= "" then return guid end
+    return nil
+end
+
 local function currentRealm()
     local GSS = AltArmy.GuildShareSettings
     if GSS and GSS._CurrentRealm then return GSS._CurrentRealm() end
@@ -202,6 +213,18 @@ local function isLocalSender(sender)
     return normalizeSender(sender) == mine
 end
 Comm._IsLocalSender = isLocalSender
+
+--- True when a received message came from this client. Messages that carry the sender's ID are
+--- judged by ID alone: on WoW Forever another guildmate's short name can equal ours. Messages from
+--- older versions carry no ID and fall back to the name.
+local function isLocalMessage(payload, sender)
+    local from = type(payload) == "table" and payload.from or nil
+    if type(from) == "string" and from ~= "" then
+        return from == playerGuid()
+    end
+    return isLocalSender(sender)
+end
+Comm._IsLocalMessage = isLocalMessage
 
 --- Select the set of characters to broadcast, branching on the feature flag.
 --- Exposed for unit testing the flag inversion.
@@ -329,6 +352,11 @@ local function serialize(msgType, payload)
 end
 
 local function send(msgType, payload, distribution, target)
+    -- Stamp the sending character's ID so peers can tell senders apart and ignore our echo.
+    -- Older clients ignore the field.
+    if type(payload) == "table" and payload.from == nil then
+        payload.from = playerGuid()
+    end
     -- Unit-test hook: capture outbound messages without AceComm.
     if Comm._TestHookSend then
         Comm._TestHookSend(msgType, payload, distribution, target)
@@ -344,31 +372,33 @@ local function send(msgType, payload, distribution, target)
 end
 
 --- On-demand recipe pull for one character; whispers `sender` when they are online and recipes are missing.
+--- `guid` (optional) is the character's ID; the name is always sent for responders on older versions.
 --- Returns true when a request was sent.
-function Comm.RequestRecipesForCharacter(name, realm, sender)
+function Comm.RequestRecipesForCharacter(name, realm, sender, guid)
     if not name or not sender or sender == "" then return false end
     sender = normalizeSender(sender)
     if not Comm.IsGuildMemberOnline(sender) then return false end
     local GSD = AltArmy.GuildShareData
     if not GSD or not GSD.GetProfessionsNeedingRecipes then return false end
-    local needed = GSD.GetProfessionsNeedingRecipes(name, realm)
+    local storedKey = guid or name
+    local needed = GSD.GetProfessionsNeedingRecipes(storedKey, realm)
     if #needed == 0 then return false end
-    send(MSG_REQ_RECIPES, { name = name, realm = realm }, "WHISPER", sender)
+    send(MSG_REQ_RECIPES, { name = name, realm = realm, guid = guid }, "WHISPER", sender)
     if GSD.MarkRecipesRequested then
-        GSD.MarkRecipesRequested(name, realm, needed)
+        GSD.MarkRecipesRequested(storedKey, realm, needed)
     end
     return true
 end
 
 --- On-demand profession-card pull for one character (slim v2 presence follow-up).
 --- Returns true when a request was sent.
-function Comm.RequestCharCard(name, realm, sender)
+function Comm.RequestCharCard(name, realm, sender, guid)
     if not name or not sender or sender == "" then return false end
     sender = normalizeSender(sender)
     if not Comm.IsGuildMemberOnline(sender) then return false end
     local P = AltArmy.GuildShareProtocol
     if not P or not P.BuildCharCardRequest then return false end
-    send(MSG_REQ_CHAR_CARD, P.BuildCharCardRequest(name, realm), "WHISPER", sender)
+    send(MSG_REQ_CHAR_CARD, P.BuildCharCardRequest(name, realm, guid), "WHISPER", sender)
     return true
 end
 
@@ -529,7 +559,7 @@ end
 --- After storing a peer's presence, request recipe lists for any professions we lack.
 local function requestMissingRecipes(presence, sender, realm)
     for _, c in ipairs(presence.chars or {}) do
-        Comm.RequestRecipesForCharacter(c.name, realm, sender)
+        Comm.RequestRecipesForCharacter(c.name, realm, sender, c.guid)
     end
 end
 
@@ -539,9 +569,24 @@ local function requestMissingCharCards(presence, sender, realm)
     if not GSD or not GSD.CharsNeedingProfessionCard then return end
     local needing = GSD.CharsNeedingProfessionCard(presence, realm)
     for _, entry in ipairs(needing) do
-        Comm.RequestCharCard(entry.name, entry.realm or realm, sender)
+        Comm.RequestCharCard(entry.name, entry.realm or realm, sender, entry.guid)
     end
 end
+
+--- The shared character a request asks for: by ID when the request has one (the requester may
+--- know it by an older name), else by name. Only characters we own and share can match.
+local function findRequestedShareChar(chars, name, guid)
+    for _, entry in ipairs(chars) do
+        local char = entry.char
+        if guid and char and char.guid then
+            if char.guid == guid then return char end
+        elseif entry.name == name then
+            return char
+        end
+    end
+    return nil
+end
+Comm._FindRequestedShareChar = findRequestedShareChar
 
 --- Reply to a recipe request: only for characters we actually own and are sharing.
 local function handleRecipeRequest(payload, sender)
@@ -553,14 +598,10 @@ local function handleRecipeRequest(payload, sender)
     local realm = payload.realm or currentRealm()
     local flagOn = isReceiveEnabled()
     local chars = Comm._SelectShareChars(flagOn, guild, realm)
-    local ownedAndShared
-    for _, entry in ipairs(chars) do
-        if entry.name == payload.name then
-            ownedAndShared = entry.char
-            break
-        end
-    end
+    local guid = type(payload.guid) == "string" and payload.guid ~= "" and payload.guid or nil
+    local ownedAndShared = findRequestedShareChar(chars, payload.name, guid)
     if not ownedAndShared then return end
+    -- Echo the requested name: an older requester stores the reply under the name it asked for.
     send(MSG_RECIPES, P.BuildRecipes(payload.name, realm, ownedAndShared), "WHISPER", sender)
 end
 
@@ -575,13 +616,7 @@ local function handleCharCardRequest(payload, sender)
     local realm = parsed.realm or currentRealm()
     local flagOn = isReceiveEnabled()
     local chars = Comm._SelectShareChars(flagOn, guild, realm)
-    local ownedAndShared
-    for _, entry in ipairs(chars) do
-        if entry.name == parsed.name then
-            ownedAndShared = entry.char
-            break
-        end
-    end
+    local ownedAndShared = findRequestedShareChar(chars, parsed.name, parsed.guid)
     if not ownedAndShared then return end
     send(MSG_CHAR_CARD, P.BuildCharCard(parsed.name, realm, ownedAndShared), "WHISPER", sender)
 end
@@ -638,7 +673,7 @@ local function handleCharCard(payload, sender)
     local realm = parsed.realm or currentRealm()
     GSD.SaveCharCard(sender, parsed, guild, realm)
     Comm.NotifyDataChanged()
-    Comm.RequestRecipesForCharacter(parsed.name, realm, sender)
+    Comm.RequestRecipesForCharacter(parsed.name, realm, sender, parsed.guid)
 end
 
 local function handleRecipes(payload)
@@ -656,7 +691,7 @@ end
 --- which send-only clients still answer with RC/CC.
 function Comm._DispatchReceivedMessage(msgType, payload, rawSender)
     local sender = normalizeSender(rawSender)
-    if isLocalSender(sender) then return end
+    if isLocalMessage(payload, sender) then return end
     log(string.format("RECV %s from %s", formatMsgType(msgType), tostring(sender)))
     if msgType == MSG_PRESENCE then
         handlePresence(payload, sender, false)

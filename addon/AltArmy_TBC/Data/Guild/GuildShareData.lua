@@ -1,7 +1,10 @@
 -- AltArmy TBC — Guild data sharing: received guildmate data store.
 -- Persists to AltArmyTBC_GuildData, kept fully separate from AltArmyTBC_Data so guild
 -- data never contaminates account data and can be wiped independently.
--- Structure: AltArmyTBC_GuildData.chars[realm][charName] = { identity + main + Professions }.
+-- Structure: AltArmyTBC_GuildData.chars[realm][key] = { identity + main + Professions }.
+-- `key` is the character's ID (GUID) when its sender runs a version that shares IDs, else its
+-- name (older senders). Entries always carry `name`; look characters up with GetCharacter, which
+-- accepts an ID or a name.
 
 if not AltArmy then return end
 
@@ -26,6 +29,64 @@ local function realmTable(realm, create)
         d.chars[realm] = {}
     end
     return d.chars[realm]
+end
+
+--- Key and entry of a stored character: by `guid` when given, else by storage key (ID or legacy
+--- name), else by stored name. An entry that carries a different ID than `guid` never matches;
+--- a legacy entry without an ID does, so it can be adopted under the ID.
+local function findEntry(rt, nameOrKey, guid)
+    if not rt then return nil end
+    if guid and rt[guid] then return guid, rt[guid] end
+    if nameOrKey == nil then return nil end
+    local function compatible(entry)
+        return type(entry) == "table" and not (guid and entry.guid and entry.guid ~= guid)
+    end
+    local direct = rt[nameOrKey]
+    if compatible(direct) then return nameOrKey, direct end
+    for key, entry in pairs(rt) do
+        if compatible(entry) and entry.name == nameOrKey then
+            return key, entry
+        end
+    end
+    return nil
+end
+
+--- Stored entry for a character named in a payload (presence char, card or recipe list).
+--- Payloads with an ID match by ID (adopting a legacy name-keyed entry); payloads from older
+--- senders match only the legacy name key, never an ID-keyed entry.
+local function findPayloadEntry(rt, c)
+    if not rt or not c then return nil end
+    if c.guid then return findEntry(rt, c.name, c.guid) end
+    local entry = rt[c.name]
+    if type(entry) == "table" and not entry.guid then return c.name, entry end
+    return nil
+end
+
+--- Storage key for a payload character: its ID, or its name when the sender shares no IDs.
+local function payloadKey(c)
+    return c.guid or c.name
+end
+
+--- True when `entry` was stored from the character that sent a message. Matches by the sender's
+--- ID when both sides have one. An ID-keyed sender never matches a message without an ID (an
+--- older client that only shares a short name); a legacy entry matches by sender name.
+local function sameSource(entry, sender, fromGuid)
+    if type(entry) ~= "table" then return false end
+    if entry.sourceGuid then
+        return fromGuid ~= nil and entry.sourceGuid == fromGuid
+    end
+    return sender ~= nil and entry.source == sender
+end
+
+--- Effective main name for a presence: the character with the main's ID when present (so a stale
+--- main name cannot split a group), else the declared name.
+local function declaredMainName(presence)
+    if presence.mainGuid then
+        for _, c in ipairs(presence.chars or {}) do
+            if c.guid == presence.mainGuid then return c.name end
+        end
+    end
+    return presence.main
 end
 
 --- Pick an implicit main from a candidate list ({ name, char }) so a person's characters
@@ -166,20 +227,24 @@ function GSD.PresenceMatchesStored(sender, presence, realm)
     if #presence.chars == 0 then
         if not rt or not sender then return true end
         for _, entry in pairs(rt) do
-            if entry and entry.source == sender then
+            if sameSource(entry, sender, presence.from) then
                 return false
             end
         end
         return true
     end
-    local effectiveMain = presence.main or defaultReceivedMain(presence.chars)
-    local mainDeclared = presence.main ~= nil
+    local declared = declaredMainName(presence)
+    local effectiveMain = declared or defaultReceivedMain(presence.chars)
+    local mainDeclared = declared ~= nil
     local displayName = presence.displayName
     local inPresence = {}
     for _, c in ipairs(presence.chars) do
-        inPresence[c.name] = true
-        local stored = GSD.GetCharacter(c.name, realm)
+        local key, stored = findPayloadEntry(rt, c)
         if not stored then return false end
+        -- A legacy name-keyed entry that now has an ID still needs re-keying.
+        if key ~= payloadKey(c) then return false end
+        inPresence[key] = true
+        if stored.name ~= c.name then return false end
         if stored.main ~= effectiveMain then return false end
         if (stored.mainDeclared == true) ~= mainDeclared then return false end
         if stored.displayName ~= displayName then return false end
@@ -187,8 +252,8 @@ function GSD.PresenceMatchesStored(sender, presence, realm)
     end
     -- A char previously shared by this sender but omitted from the new presence is a change.
     if rt and sender then
-        for name, entry in pairs(rt) do
-            if entry and entry.source == sender and not inPresence[name] then
+        for key, entry in pairs(rt) do
+            if sameSource(entry, sender, presence.from) and not inPresence[key] then
                 return false
             end
         end
@@ -205,10 +270,11 @@ function GSD.TouchReceivedAt(sender, presence, realm)
     realm = realm or "?"
     local ts = now()
     local touched = false
+    local rt = realmTable(realm, false)
     for _, c in ipairs(presence.chars) do
         if c and c.name then
-            local stored = GSD.GetCharacter(c.name, realm)
-            if stored and (not sender or stored.source == sender) then
+            local _, stored = findPayloadEntry(rt, c)
+            if stored and (not sender or sameSource(stored, sender, presence.from)) then
                 stored.receivedAt = ts
                 touched = true
             end
@@ -229,14 +295,20 @@ function GSD.SaveReceived(sender, presence, guild, realm)
     local rt = realmTable(realm, true)
     local ts = now()
     -- Honor a sender-declared main; otherwise guess one so their alts still group together.
-    local mainDeclared = presence.main ~= nil
-    local effectiveMain = presence.main or defaultReceivedMain(presence.chars)
-    local keep = {}
+    local declared = declaredMainName(presence)
+    local mainDeclared = declared ~= nil
+    local effectiveMain = declared or defaultReceivedMain(presence.chars)
+    local keep, keptNames = {}, {}
     for _, c in ipairs(presence.chars) do
-        local existing = rt[c.name]
+        local key = payloadKey(c)
+        local oldKey, existing = findPayloadEntry(rt, c)
+        if oldKey and oldKey ~= key then
+            rt[oldKey] = nil
+        end
         local entry = existing or {}
         entry.name = c.name
         entry.realm = realm
+        entry.guid = c.guid or entry.guid
         entry.classFile = c.classFile
         entry.faction = c.faction
         entry.level = c.level or 0
@@ -245,10 +317,12 @@ function GSD.SaveReceived(sender, presence, guild, realm)
             entry.guildName = guild
         end
         entry.main = effectiveMain
+        entry.mainGuid = presence.mainGuid
         entry.displayName = presence.displayName
         entry.isMain = (effectiveMain ~= nil and c.name == effectiveMain)
         entry.mainDeclared = mainDeclared
         entry.source = sender
+        entry.sourceGuid = presence.from
         entry.receivedAt = ts
 
         local hasProfs = type(c.profs) == "table" and #c.profs > 0
@@ -275,20 +349,21 @@ function GSD.SaveReceived(sender, presence, guild, realm)
             entry.needsProfessionCard = false
         end
 
-        rt[c.name] = entry
-        keep[c.name] = true
+        rt[key] = entry
+        keep[key] = true
+        keptNames[#keptNames + 1] = c.name
     end
     if sender then
-        for name, entry in pairs(rt) do
-            if entry and entry.source == sender and not keep[name] then
-                rt[name] = nil
+        for key, entry in pairs(rt) do
+            if not keep[key] and sameSource(entry, sender, presence.from) then
+                rt[key] = nil
             end
         end
     end
     -- Retire manual mappings that the addon presence confirms.
     local GMG = AltArmy.GuildManualGroups
     if GMG and GMG.RetireIfAgrees and effectiveMain then
-        for name in pairs(keep) do
+        for _, name in ipairs(keptNames) do
             GMG.RetireIfAgrees(name, realm, effectiveMain)
         end
     end
@@ -299,11 +374,12 @@ function GSD.CharsNeedingProfessionCard(presence, realm)
     local out = {}
     if not presence or type(presence.chars) ~= "table" then return out end
     realm = realm or "?"
+    local rt = realmTable(realm, false)
     for _, c in ipairs(presence.chars) do
         if c and c.name then
-            local stored = GSD.GetCharacter(c.name, realm)
+            local _, stored = findPayloadEntry(rt, c)
             if stored and stored.needsProfessionCard then
-                out[#out + 1] = { name = c.name, realm = realm }
+                out[#out + 1] = { name = c.name, realm = realm, guid = c.guid }
             end
         end
     end
@@ -315,9 +391,16 @@ function GSD.SaveCharCard(sender, card, guild, realm)
     if not card or not card.name then return end
     realm = realm or card.realm or "?"
     local rt = realmTable(realm, true)
-    local entry = rt[card.name] or {}
+    local key = payloadKey(card)
+    local oldKey, existing = findPayloadEntry(rt, card)
+    if oldKey and oldKey ~= key then
+        rt[oldKey] = nil
+    end
+    local entry = existing or {}
     entry.name = card.name
     entry.realm = realm
+    entry.guid = card.guid or entry.guid
+    if card.from then entry.sourceGuid = card.from end
     if card.classFile then entry.classFile = card.classFile end
     if card.faction then entry.faction = card.faction end
     entry.level = card.level or entry.level or 0
@@ -328,14 +411,14 @@ function GSD.SaveCharCard(sender, card, guild, realm)
     if card.ch ~= nil then entry.ch = card.ch end
     mergeProfessionSummaries(entry, card.profs or {})
     entry.needsProfessionCard = false
-    rt[card.name] = entry
+    rt[key] = entry
 end
 
 --- Store a pulled recipe payload; reconstructs a minimal Recipes map ({ [id] = { primaryRecipeID = id } }).
 function GSD.SaveRecipes(realm, payload)
     if not payload or not payload.name or type(payload.profs) ~= "table" then return end
     local rt = realmTable(realm, false)
-    local entry = rt and rt[payload.name]
+    local _, entry = findPayloadEntry(rt, payload)
     if not entry then return end
     entry.Professions = entry.Professions or {}
     local P = AltArmy.GuildShareProtocol
@@ -357,19 +440,20 @@ end
 
 -- *** Getters ***
 
-function GSD.GetCharacter(name, realm)
-    local rt = realmTable(realm, false)
-    return rt and rt[name] or nil
+--- A stored character on `realm`, by ID (storage key) or by name.
+function GSD.GetCharacter(nameOrKey, realm)
+    local _, entry = findEntry(realmTable(realm, false), nameOrKey)
+    return entry
 end
 
---- Find a stored character by name. When realm is omitted, searches all realms.
+--- Find a stored character by name or ID. When realm is omitted, searches all realms.
 function GSD.FindCharacter(name, realm)
     if realm then
         return GSD.GetCharacter(name, realm)
     end
     local d = ensure()
     for _, rt in pairs(d.chars) do
-        local hit = rt[name]
+        local _, hit = findEntry(rt, name)
         if hit then return hit end
     end
     return nil
@@ -413,6 +497,7 @@ function GSD.BuildLocalMemberEntry(name, realm, char, guild, mainName, displayNa
     return {
         name = charName,
         realm = realm,
+        guid = char and char.guid,
         classFile = char and char.classFile or "",
         faction = char and char.faction or "",
         level = (char and char.level) or 0,
@@ -572,7 +657,8 @@ function GSD.GetMainOf(name, realm)
     else
         local d = ensure()
         for _, rt in pairs(d.chars) do
-            local hit = fromEntry(rt[name])
+            local _, entry = findEntry(rt, name)
+            local hit = fromEntry(entry)
             if hit then return hit end
         end
     end
@@ -648,11 +734,12 @@ function GSD.PurgeStale(maxAgeSeconds, nowTs)
     local removed = 0
     local d = ensure()
     for realm, rt in pairs(d.chars) do
-        for name, entry in pairs(rt) do
+        for key, entry in pairs(rt) do
             local ts = entry.receivedAt or 0
             if (nowTs - ts) > maxAgeSeconds then
-                GSD.ConvertReceivedToManual(name, realm, entry)
-                rt[name] = nil
+                -- Manual mappings are keyed by name (roster names), never by ID.
+                GSD.ConvertReceivedToManual(entry.name or key, realm, entry)
+                rt[key] = nil
                 removed = removed + 1
             end
         end

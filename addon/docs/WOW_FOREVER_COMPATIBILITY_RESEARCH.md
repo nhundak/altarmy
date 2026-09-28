@@ -674,7 +674,7 @@ Two characters, "Frell Blast" and "Frell Ofelements", both showed as "Frell" and
 
 AltArmy had kept only the first return. Older saved entries have full names because earlier beta builds returned one joined string. Fix: DataStore joins both returns, and characters are now keyed by `UnitGUID("player")` so a name change can never split or merge them again (`AltArmy_TBC/Data/DATA_VERSIONS.md`, character v3).
 
-Not yet checked: what name format Forever uses for addon-message senders and guild-roster names ("First", "First Surname", or "First-Realm"). Guild sharing still matches senders by the first `-`-separated part.
+Guild sharing followed (2026-09-28): characters and senders are identified by GUID when the other side runs a version that shares IDs (see `docs/tabs/guild.md`). Still not checked on a live client: what name format Forever uses for addon-message senders and guild-roster names ("First", "First Surname", or "First-Realm"). Whisper targets, online checks and messages from older versions still rely on the part before the first `-`.
 
 ## Sources
 
