@@ -58,6 +58,7 @@ still on the drop prompt returns to Grid; a focused item stays in Upgrade Check.
 - Built-in spec scales (Pawn-style weights) for “is this an upgrade?” WoW Forever uses its own scale table (hit and crit merged into single stats, since Forever has no separate spell/physical version of either) rather than TBC's.
 - Optional gear-score providers for scoring and missing-data hints.
 - Chat alerts (clickable) for loot, Need/Greed rolls, quest rewards, and level-up upgrades for the current character and/or alts.
+- Loot / roll alerts announce a given item at most once per 60 seconds (e.g. crafting a stack of the same item alerts once). The window is in-memory only and resets on reload/logout.
 - Quest reward overlays on turn-in and quest log (upgrade vs vendor).
 - Toggles live under Interface Options → AltArmy → **Gear**.
 

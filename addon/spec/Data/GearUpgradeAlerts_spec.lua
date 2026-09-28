@@ -344,6 +344,66 @@ describe("GearUpgradeAlerts", function()
             GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
             assert.matches("is an upgrade for MageAlt, Bravo:", chatLines[1])
         end)
+
+        describe("repeat-alert debounce", function()
+            local mockTime
+            local savedGetTime
+
+            before_each(function()
+                savedGetTime = _G.GetTime
+                mockTime = 1000
+                _G.GetTime = function() return mockTime end
+                loadWithMocks({
+                    evaluateForAllAlts = function()
+                        return { { name = "Bravo", classFile = "PRIEST" } }
+                    end,
+                })
+            end)
+
+            after_each(function()
+                _G.GetTime = savedGetTime
+            end)
+
+            it("does not re-announce the same item within 60 seconds", function()
+                assert.is_true(GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h"))
+                mockTime = 1059
+                local ok, reason = GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+                assert.is_false(ok)
+                assert.are.equal("debounced", reason)
+                assert.are.equal(1, #chatLines)
+            end)
+
+            it("announces the same item again after 60 seconds", function()
+                GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+                mockTime = 1060
+                assert.is_true(GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h"))
+                assert.are.equal(2, #chatLines)
+            end)
+
+            it("keeps the window anchored to the last announcement", function()
+                GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+                mockTime = 1030
+                GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+                mockTime = 1061
+                assert.is_true(GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h"))
+                assert.are.equal(2, #chatLines)
+            end)
+
+            it("does not debounce a different item", function()
+                GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h")
+                assert.is_true(GA.AnnounceLootUpgrade("|Hitem:12:0|h[Other Helm]|h"))
+                assert.are.equal(2, #chatLines)
+            end)
+
+            it("does not start the window when nothing was announced", function()
+                AltArmy.GearUpgrade.EvaluateForAllAlts = function() return {} end
+                assert.is_false(GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h"))
+                AltArmy.GearUpgrade.EvaluateForAllAlts = function()
+                    return { { name = "Bravo", classFile = "PRIEST" } }
+                end
+                assert.is_true(GA.AnnounceLootUpgrade("|Hitem:11:0|h[New Helm]|h"))
+            end)
+        end)
     end)
 
     describe("AnnounceLootRollUpgrade", function()

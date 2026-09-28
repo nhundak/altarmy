@@ -21,7 +21,6 @@ Core.lua
 Data\CharKey.lua
 Data\Characters\BankAlt.lua
 Data\Characters\BankAltDetect.lua
-Data\DevStatusNotice.lua
 Data\Debug.lua
 Data\ApiCheck.lua
 Data\DataStore\DataStore.lua
@@ -115,7 +114,6 @@ UI\MinimapSavedVars.lua
 UI\Minimap.lua
 UI\BankAltSuggestDialog.lua
 UI\OnboardingDialogQueue.lua
-UI\DevStatusNoticeDialog.lua
 UI\GuildShareOnboarding.lua
 UI\RestedXpQuestRewardConflictDialog.lua
 UI\Options.lua

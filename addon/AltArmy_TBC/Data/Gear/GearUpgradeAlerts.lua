@@ -79,6 +79,11 @@ end
 -- next PLAYER_ENTERING_WORLD. No timers are involved, so a slow loot delivery
 -- cannot outrace the suppression.
 local lootUpgradeSuppressedIds = {}
+-- Repeat loot alerts (e.g. crafting a stack of the same item) are debounced per
+-- item id: after an announcement, the same id stays quiet for this many seconds.
+-- In-memory only; resets on /reload or logout.
+GA.LOOT_UPGRADE_REPEAT_DEBOUNCE_SEC = 60
+local lootUpgradeAnnouncedAt = {}
 local QUEST_REWARD_ANNOUNCE_DEBOUNCE_SEC = 1.0
 local questRewardAnnounceDebounce = nil
 GA.LEVEL_UP_UPGRADE_ANNOUNCE_DELAY_SEC = 0.5
@@ -621,6 +626,13 @@ function GA.AnnounceLootUpgrade(itemLink)
         return false, "disabled"
     end
 
+    local itemId = extractItemId(itemLink)
+    local now = GetTime and GetTime() or 0
+    local lastAt = itemId and lootUpgradeAnnouncedAt[itemId]
+    if lastAt and (now - lastAt) < GA.LOOT_UPGRADE_REPEAT_DEBOUNCE_SEC then
+        return false, "debounced"
+    end
+
     local opts = GU.GetOptions() or {}
     local evalOpts = {
         technique = opts.technique,
@@ -632,6 +644,9 @@ function GA.AnnounceLootUpgrade(itemLink)
     if not matches or #matches == 0 then return false, reason or "no_matches" end
 
     postLootUpgradeAnnouncement(itemLink, matches, opts)
+    if itemId then
+        lootUpgradeAnnouncedAt[itemId] = now
+    end
     return true
 end
 
@@ -674,6 +689,9 @@ function GA.SimulateSelfLoot(rawInput)
             .. "current-character notifications are disabled).")
     elseif reason == "no_matches" then
         postChat(ALTARMY_GOLD .. "Alt Army|r debug: no upgrade matches for this item.")
+    elseif reason == "debounced" then
+        postChat(ALTARMY_GOLD .. "Alt Army|r debug: skipped (this item was announced within the last "
+            .. tostring(GA.LOOT_UPGRADE_REPEAT_DEBOUNCE_SEC) .. " seconds).")
     end
     return false
 end
