@@ -266,6 +266,137 @@ describe("DataStore", function()
     end)
   end)
 
+  describe("full character names", function()
+    -- WoW Forever's UnitName returns the first name and the surname as two values.
+    before_each(function()
+      _G.GetRealmName = function() return "RealmA" end
+    end)
+    after_each(function()
+      _G.Constants = nil
+    end)
+
+    it("joins the first name and surname", function()
+      _G.UnitName = function() return "Frell", "Ofelements" end
+      assert.are.equal("Frell Ofelements", DS:GetCurrentPlayerName())
+    end)
+
+    it("uses the client's surname separator when it has one", function()
+      _G.Constants = { CharacterNameSeparatorConsts = { CHARACTERNAME_SURNAME_SEPARATOR = "_" } }
+      _G.UnitName = function() return "Frell", "Ofelements" end
+      assert.are.equal("Frell_Ofelements", DS:GetCurrentPlayerName())
+    end)
+
+    it("is the first name alone when there is no surname", function()
+      _G.UnitName = function() return "Alice", nil end
+      assert.are.equal("Alice", DS:GetCurrentPlayerName())
+      _G.UnitName = function() return "Alice", "" end
+      assert.are.equal("Alice", DS:GetCurrentPlayerName())
+    end)
+
+    it("never appends the realm name", function()
+      _G.UnitName = function() return "Alice", "RealmA" end
+      assert.are.equal("Alice", DS:GetCurrentPlayerName())
+    end)
+
+    it("matches the current character by full name", function()
+      _G.UnitName = function() return "Frell", "Blast" end
+      assert.is_true(DS:IsCurrentCharacter("Frell Blast", "RealmA"))
+      assert.is_false(DS:IsCurrentCharacter("Frell", "RealmA"))
+      assert.is_false(DS:IsCurrentCharacter("Frell Ofelements", "RealmA"))
+    end)
+  end)
+
+  describe("GUID keys", function()
+    local guid
+    before_each(function()
+      guid = "Player-1-A"
+      _G.UnitName = function() return "Frell", "Blast" end
+      _G.GetRealmName = function() return "RealmA" end
+      _G.UnitGUID = function(unit) if unit == "player" then return guid end end
+      _G.AltArmyTBC_Data = { Characters = {} }
+    end)
+    after_each(function()
+      _G.UnitGUID = nil
+    end)
+
+    it("keys the current character by its GUID", function()
+      local char = DS:GetCurrentCharacter()
+      assert.are.equal(char, AltArmyTBC_Data.Characters.RealmA["Player-1-A"])
+      assert.are.equal("Frell Blast", char.name)
+      assert.are.equal("Player-1-A", char.guid)
+      assert.are.equal("RealmA", char.realm)
+      assert.are.equal("Player-1-A", DS:GetCurrentPlayerGUID())
+    end)
+
+    it("gives characters that share a first name separate entries", function()
+      local blast = DS:GetCurrentCharacter()
+      guid = "Player-1-B"
+      _G.UnitName = function() return "Frell", "Ofelements" end
+      local ofelements = DS:GetCurrentCharacter()
+      assert.are_not.equal(blast, ofelements)
+      assert.are.equal("Frell Blast", AltArmyTBC_Data.Characters.RealmA["Player-1-A"].name)
+      assert.are.equal("Frell Ofelements", AltArmyTBC_Data.Characters.RealmA["Player-1-B"].name)
+    end)
+
+    it("has no current character while the GUID is unknown", function()
+      guid = nil
+      assert.is_nil(DS:GetCurrentCharacter())
+      assert.is_nil(AltArmyTBC_Data.Characters.RealmA)
+    end)
+
+    it("keys by name on a client without UnitGUID", function()
+      _G.UnitGUID = nil
+      local char = DS:GetCurrentCharacter()
+      assert.are.equal(char, AltArmyTBC_Data.Characters.RealmA["Frell Blast"])
+    end)
+
+    it("finds and deletes a GUID-keyed character by name", function()
+      AltArmyTBC_Data.Characters.RealmA = {
+        ["Player-1-A"] = { name = "Frell Blast", guid = "Player-1-A" },
+        Legacy = { name = "Legacy" },
+      }
+      assert.are.equal(AltArmyTBC_Data.Characters.RealmA["Player-1-A"], DS:GetCharacter("Frell Blast", "RealmA"))
+      assert.are.equal(AltArmyTBC_Data.Characters.RealmA["Player-1-A"], DS:GetCharacter("Player-1-A", "RealmA"))
+      assert.are.equal(AltArmyTBC_Data.Characters.RealmA.Legacy, DS:GetCharacter("Legacy", "RealmA"))
+      assert.is_nil(DS:GetCharacter("Frell", "RealmA"))
+      DS:DeleteCharacter("Frell Blast", "RealmA")
+      assert.is_nil(AltArmyTBC_Data.Characters.RealmA["Player-1-A"])
+      assert.is_not_nil(AltArmyTBC_Data.Characters.RealmA.Legacy)
+    end)
+
+    it("returns the storage key for a character", function()
+      assert.are.equal("Player-1-A", DS:GetCharacterKey({ name = "Frell Blast", guid = "Player-1-A" }))
+      assert.are.equal("Legacy", DS:GetCharacterKey({ name = "Legacy" }))
+    end)
+  end)
+
+  describe("_MigrateCharacterKeys", function()
+    it("moves entries that carry a GUID under that GUID", function()
+      local data = { Characters = { R = {
+        Frell = { name = "Frell", guid = "Player-1-A", level = 20 },
+        ["Frell Hound"] = { name = "Frell Hound", level = 1 },
+      } } }
+      DS._MigrateCharacterKeys(data)
+      assert.is_nil(data.Characters.R.Frell)
+      assert.are.equal(20, data.Characters.R["Player-1-A"].level)
+      assert.are.equal(1, data.Characters.R["Frell Hound"].level)
+    end)
+
+    it("keeps the newer entry's values when two share a GUID", function()
+      local data = { Characters = { R = {
+        Frell = { name = "Frell", guid = "Player-1-A", lastUpdate = 20, level = 20, Professions = { A = 1 } },
+        ["Player-1-A"] = { name = "Frell Blast", guid = "Player-1-A", lastUpdate = 10, level = 18, Mails = {} },
+      } } }
+      DS._MigrateCharacterKeys(data)
+      local char = data.Characters.R["Player-1-A"]
+      assert.is_nil(data.Characters.R.Frell)
+      assert.are.equal(20, char.level)
+      assert.are.equal("Frell", char.name)
+      assert.are.same({ A = 1 }, char.Professions)
+      assert.are.same({}, char.Mails)
+    end)
+  end)
+
   describe("ForEachCharacter", function()
     it("visits every character", function()
       _G.AltArmyTBC_Data = {

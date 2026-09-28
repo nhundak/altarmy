@@ -41,7 +41,7 @@ Data flows in one direction:
 1. **DataStore (core + modules)** — Persistence and scanning  
    - Core owns `AltArmyTBC_Data` (SavedVariables) and the event frame; modules attach scans and getters.  
    - Scans the current character on WoW events (e.g. `PLAYER_ENTERING_WORLD`, `PLAYER_MONEY`, `TIME_PLAYED_MSG`).  
-   - Exposes: `GetRealms()`, `GetCharacters(realm)`, `GetCharacter(name, realm)`, `GetCurrentCharacter()`, and per-field getters on character data (and containers, equipment, professions, etc.).
+   - Exposes: `GetRealms()`, `GetCharacters(realm)`, `GetCharacter(name, realm)`, `GetCurrentCharacter()`, and per-field getters on character data (and containers, equipment, professions, etc.). `GetCharacter` and `DeleteCharacter` accept a character name or a storage key. `GetCharacters` and `ForEachCharacter` hand out storage keys, so callers read the name from `charData.name`.
 
 2. **SummaryData.lua** — Aggregation and formatting  
    - Reads from DataStore only (no direct SavedVariables access).  
@@ -80,7 +80,8 @@ Data flows in one direction:
 - No required external addon dependencies. DataStore is internal; no DataStore_Characters or similar.
 - OptionalDeps (Auctionator, CraftLib, etc.) enrich features when present.
 - WoW API usage is defensive: check for function existence (e.g. `UnitName and UnitName("player")`, `GetRealmName and GetRealmName()`) so the addon runs on TBC Classic even when some APIs differ or are missing.
-- SavedVariables key is `AltArmyTBC_Data`; structure is `Characters[realm][name] = charData`. The name is `UnitName("player")` (never `Unknown`); since it can change for the same character (WoW Forever dropped surnames), `ScanCharacter` stores `guid` and folds the character's older keys into the current one (see `DATA_VERSIONS.md`, character v2).
+- SavedVariables key is `AltArmyTBC_Data`; structure is `Characters[realm][guid] = charData`, keyed by `UnitGUID("player")` so a renamed character keeps its data. Entries saved before GUIDs stay under their name until that character logs in again. `charData.name` is the full name: on WoW Forever `UnitName` returns the first name and surname as two values, which DataStore joins ("Frell Ofelements"). It is never `Unknown`. See `DATA_VERSIONS.md`, character v3.
+- Per-character settings (Summary/Gear/Reputation pin and hide, Graph selection, bank alts, guild-share main and opt-outs) stay keyed by `AltArmy.CharKey(name, realm)`. When a character's stored name changes, `AltArmy.RekeyCharSettings` moves them to the new name.
 
 ---
 

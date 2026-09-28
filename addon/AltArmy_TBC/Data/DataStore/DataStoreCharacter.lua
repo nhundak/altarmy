@@ -13,8 +13,20 @@ local MAX_LOGOUT_SENTINEL = 5000000000
 function DS:ScanCharacter(_self)
     local char = GetCurrentCharTable()
     if not char then return end
-    char.name = DS:GetCurrentPlayerName()
-    char.realm = DS:GetCurrentPlayerRealm()
+    local realm = DS:GetCurrentPlayerRealm()
+    local fullName = DS:GetCurrentPlayerName()
+    local guid = DS:GetCurrentPlayerGUID()
+    -- Adopt this character's older entries (same GUID, or saved under its full name before GUIDs).
+    DS._FoldLegacyEntries(nil, realm, guid, fullName, char)
+    if fullName ~= "" then
+        -- Renamed (paid rename, or WoW Forever now reporting the surname): carry settings over.
+        if char.name and char.name ~= fullName and AltArmy.RekeyCharSettings then
+            AltArmy.RekeyCharSettings(realm, char.name, fullName)
+        end
+        char.name = fullName
+    end
+    char.realm = realm
+    char.guid = guid or char.guid
     char.level = (UnitLevel and UnitLevel("player")) or 0
     char.money = (GetMoney and GetMoney()) or 0
     char.lastUpdate = time()
@@ -44,8 +56,6 @@ function DS:ScanCharacter(_self)
     else
         char.faction = ""
     end
-    char.guid = (UnitGUID and UnitGUID("player")) or char.guid
-    DS._MergeRenamedCharacter(nil, char.realm, char.name, char)
     -- Guild membership (needed by guild data sharing; nil = not in a guild).
     DS:ScanGuildMembership()
     if GetMoney then

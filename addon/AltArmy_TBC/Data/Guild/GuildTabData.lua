@@ -373,6 +373,10 @@ function GTD.GetStoredCharacter(entry)
     if not entry or not entry.name then return nil end
     if entry.source == "local" then
         local DS = AltArmy.DataStore
+        -- By name: DataStore keys characters by GUID.
+        if DS and DS.GetCharacter then
+            return DS:GetCharacter(entry.name, entry.realm)
+        end
         if DS and DS.GetCharacters then
             local chars = DS:GetCharacters(entry.realm)
             return chars and chars[entry.name] or nil

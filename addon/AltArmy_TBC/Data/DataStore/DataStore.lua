@@ -25,7 +25,7 @@ DS.MAX_LEVEL = (GetMaxPlayerLevel and GetMaxPlayerLevel()) or 70
 DS.IsWowForever = (GetBuildInfo and select(4, GetBuildInfo()) == 16001) or false
 
 local DATA_VERSIONS = {
-    character = 2,
+    character = 3,
     guildMembership = 1,
     containers = 2,
     equipment = 1,
@@ -62,33 +62,67 @@ local function IsUnknownName(name)
     return name == UNKNOWN_NAME or (UNKNOWNOBJECT ~= nil and name == UNKNOWNOBJECT) --luacheck: ignore 113
 end
 
-local function GetCurrentName()
-    local name
-    if UnitName then
-        name = UnitName("player")
-    end
-    if not name or name == "" then
-        name = GetUnitName and GetUnitName("player") or ""
-    end
-    if IsUnknownName(name) then return "" end
-    return name
+--- Separator the client puts between first name and surname (WoW Forever), else a space.
+local function SurnameSeparator()
+    local c = Constants --luacheck: ignore 113
+    local sep = type(c) == "table" and c.CharacterNameSeparatorConsts
+        and c.CharacterNameSeparatorConsts.CHARACTERNAME_SURNAME_SEPARATOR
+    if type(sep) == "string" and sep ~= "" then return sep end
+    return " "
 end
 
 local function GetCurrentRealm()
     return (GetRealmName and GetRealmName()) or ""
 end
 
+--- Full character name. WoW Forever's UnitName returns the first name and the surname as two
+--- values ("Frell", "Ofelements"); older clients return one name (the second value is a realm,
+--- and only for cross-realm units, never for "player").
+local function GetCurrentName()
+    local name, surname
+    if UnitName then
+        name, surname = UnitName("player")
+    end
+    if not name or name == "" then
+        name, surname = (GetUnitName and GetUnitName("player", true)) or "", nil
+    end
+    if IsUnknownName(name) then return "" end
+    if type(surname) == "string" and surname ~= "" and surname ~= GetCurrentRealm() then
+        name = name .. SurnameSeparator() .. surname
+    end
+    return name
+end
+
+local function GetCurrentGUID()
+    local guid = UnitGUID and UnitGUID("player")
+    if type(guid) == "string" and guid ~= "" then return guid end
+    return nil
+end
+
+--- The current character's storage key and name. The key is the GUID (stable across renames and
+--- however the client formats names); only a client without UnitGUID falls back to the name.
+--- The key is nil while it is not known yet.
+local function GetCurrentKey()
+    local name = GetCurrentName()
+    if UnitGUID then
+        return GetCurrentGUID(), name
+    end
+    if name == "" then return nil, name end
+    return name, name
+end
+
 local function GetCurrentCharTable()
     local realm = GetCurrentRealm()
-    local name = GetCurrentName()
-    if not realm or not name or name == "" then return nil end
+    local key, name = GetCurrentKey()
+    if not realm or not key then return nil end
     if not AltArmyTBC_Data.Characters[realm] then
         AltArmyTBC_Data.Characters[realm] = {}
     end
-    local char = AltArmyTBC_Data.Characters[realm][name]
+    local char = AltArmyTBC_Data.Characters[realm][key]
     if not char then
-        char = {}
-        AltArmyTBC_Data.Characters[realm][name] = char
+        char = { realm = realm, guid = GetCurrentGUID() }
+        if name ~= "" then char.name = name end
+        AltArmyTBC_Data.Characters[realm][key] = char
     end
     return char
 end
@@ -126,38 +160,75 @@ local function RemoveUnknownStubs(data)
     end
 end
 
---- True when `oldKey`'s entry is the character now saved as `name` (with `char`'s scanned fields).
---- WoW Forever changed UnitName("player") from the full name ("Frell Ofelements") to the first name
---- ("Frell"). Two entries with GUIDs match only on GUID; without one, a key that is the other's first name
---- matches when class, race and faction agree.
-local function IsSameCharacter(oldKey, old, name, char)
-    if type(old) ~= "table" or oldKey == name then return false end
-    if old.guid and char.guid then return old.guid == char.guid end
-    local short, full = oldKey, name
-    if #short > #full then short, full = full, short end
-    if short:find(" ", 1, true) or full:match("^(%S+) ") ~= short then return false end
-    return old.classFile == char.classFile and old.raceFile == char.raceFile and old.faction == char.faction
+--- Copy `old`'s fields that `char` lacks into `char` (char's values win).
+local function MergeInto(char, old)
+    for field, value in pairs(old) do
+        if char[field] == nil then char[field] = value end
+    end
 end
 
---- Fold older entries of the current character (see IsSameCharacter) on `realm` into `char`, keeping
---- `char`'s values, and delete them.
-local function MergeRenamedCharacter(data, realm, name, char)
+--- Move every character entry that carries a GUID under that GUID (character v3). Entries without
+--- one (saved before v2) stay under their name until that character logs in (FoldLegacyEntries).
+--- When two entries share a GUID, the one scanned last wins and the other fills its gaps.
+local function MigrateCharacterKeys(data)
+    data = data or AltArmyTBC_Data
+    for _, chars in pairs(data.Characters or {}) do
+        local moves = {}
+        for key, char in pairs(chars) do
+            if type(char) == "table" and type(char.guid) == "string" and char.guid ~= ""
+                and key ~= char.guid
+            then
+                moves[#moves + 1] = key
+            end
+        end
+        for _, key in ipairs(moves) do
+            local char = chars[key]
+            local existing = chars[char.guid]
+            chars[key] = nil
+            if type(existing) ~= "table" then
+                chars[char.guid] = char
+            elseif (char.lastUpdate or 0) > (existing.lastUpdate or 0) then
+                MergeInto(char, existing)
+                chars[char.guid] = char
+            else
+                MergeInto(existing, char)
+            end
+        end
+    end
+end
+
+--- Fold older entries of the current character on `realm` into `char` and delete them: any entry
+--- with the same GUID, and a GUID-less entry saved under exactly the character's full name.
+--- Settings saved under an adopted entry's old name move to `fullName`.
+local function FoldLegacyEntries(data, realm, guid, fullName, char)
     local chars = (data or AltArmyTBC_Data).Characters
     local realmTable = chars and chars[realm]
     if not realmTable or not char then return end
+    local adopted = {}
     for key, old in pairs(realmTable) do
-        if IsSameCharacter(key, old, name, char) then
-            for field, value in pairs(old) do
-                if char[field] == nil then char[field] = value end
+        if old ~= char and type(old) == "table" then
+            local sameGuid = guid ~= nil and old.guid == guid
+            local sameLegacyName = old.guid == nil and fullName ~= "" and key == fullName
+            if sameGuid or sameLegacyName then
+                adopted[#adopted + 1] = key
             end
-            realmTable[key] = nil
+        end
+    end
+    for _, key in ipairs(adopted) do
+        local old = realmTable[key]
+        MergeInto(char, old)
+        realmTable[key] = nil
+        local oldName = old.name or key
+        if AltArmy.RekeyCharSettings and fullName ~= "" and oldName ~= fullName then
+            AltArmy.RekeyCharSettings(realm, oldName, fullName)
         end
     end
 end
 
 DS._GetCurrentCharTable = GetCurrentCharTable
 DS._RemoveUnknownStubs = RemoveUnknownStubs
-DS._MergeRenamedCharacter = MergeRenamedCharacter
+DS._MigrateCharacterKeys = MigrateCharacterKeys
+DS._FoldLegacyEntries = FoldLegacyEntries
 DS._MigrateDataVersions = MigrateDataVersions
 DS._DATA_VERSIONS = DATA_VERSIONS
 
@@ -174,10 +245,30 @@ function DS:GetCharacters(realm)
     return AltArmyTBC_Data.Characters[realm] or {}
 end
 
-function DS:GetCharacter(name, realm)
-    if not name or not realm then return nil end
+--- Storage key and entry of a character on `realm`, by storage key (GUID or legacy name) or by name.
+local function FindCharacterEntry(nameOrKey, realm)
+    if not nameOrKey or not realm then return nil end
     local realmTable = AltArmyTBC_Data.Characters[realm]
-    return realmTable and realmTable[name] or nil
+    if not realmTable then return nil end
+    if realmTable[nameOrKey] then return nameOrKey, realmTable[nameOrKey] end
+    for key, char in pairs(realmTable) do
+        if type(char) == "table" and char.name == nameOrKey then
+            return key, char
+        end
+    end
+    return nil
+end
+
+--- A stored character, looked up by name or by storage key.
+function DS:GetCharacter(name, realm)
+    local _, char = FindCharacterEntry(name, realm)
+    return char
+end
+
+--- Storage key of a stored character: its GUID, or the name for entries saved before GUIDs.
+function DS:GetCharacterKey(char)
+    if type(char) ~= "table" then return nil end
+    return char.guid or char.name
 end
 
 function DS:GetCurrentCharacter()
@@ -192,6 +283,10 @@ function DS:GetCurrentPlayerRealm()
     return GetCurrentRealm()
 end
 
+function DS:GetCurrentPlayerGUID()
+    return GetCurrentGUID()
+end
+
 function DS:GetCurrentPlayerIdentity()
     return GetCurrentName(), GetCurrentRealm()
 end
@@ -201,7 +296,8 @@ function DS:IsCurrentCharacter(name, realm)
     return name == GetCurrentName() and realm == GetCurrentRealm()
 end
 
---- Iterate all stored characters. fn(realm, charName, charData) — return true to stop early.
+--- Iterate all stored characters. fn(realm, key, charData) — return true to stop early. `key` is the
+--- storage key (GUID, or the name for entries saved before GUIDs); charData.name is the name.
 function DS:ForEachCharacter(fn)
     if not fn then return end
     for realm in pairs(self:GetRealms()) do
@@ -241,10 +337,9 @@ function DS:GetAllDataVersions(char)
 end
 
 function DS:DeleteCharacter(name, realm)
-    if not name or not realm then return end
-    local realmTable = AltArmyTBC_Data.Characters[realm]
-    if not realmTable then return end
-    realmTable[name] = nil
+    local key = FindCharacterEntry(name, realm)
+    if not key then return end
+    AltArmyTBC_Data.Characters[realm][key] = nil
     if AltArmy.Characters and AltArmy.Characters.InvalidateView then
         AltArmy.Characters:InvalidateView()
     end
@@ -517,6 +612,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
             AltArmyTBC_Data.OrphanImports = AltArmyTBC_Data.OrphanImports or {}
             AltArmyTBC_Data.RecipeReagents = AltArmyTBC_Data.RecipeReagents or {}
             RemoveUnknownStubs()
+            MigrateCharacterKeys()
             GetCurrentCharTable()
             MigrateDataVersions()
             if DS.MigratePhantomLevelHistoryImports then

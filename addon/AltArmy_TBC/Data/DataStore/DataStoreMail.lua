@@ -39,13 +39,15 @@ local function FindCharacterByName(realm, name)
     local chars = DS.GetCharacters and DS:GetCharacters(realm) or nil
     if not chars then return nil end
     local wanted = NormalizeName(name)
-    for charName, charTable in pairs(chars) do
+    for key, charTable in pairs(chars) do
+        local charName = (type(charTable) == "table" and charTable.name) or key
         if NormalizeName(charName) == wanted then
             return charTable
         end
     end
     return nil
 end
+DS._FindCharacterByName = FindCharacterByName
 
 local function GetMailTable(char, index)
     if not char or not index or index < 1 then return nil end

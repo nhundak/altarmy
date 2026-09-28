@@ -325,6 +325,10 @@ local function needsCooldownSpecializationScan(char, DS)
 end
 
 local function resolveIsCurrentChar(name, realm)
+    local DS = AltArmy.DataStore
+    if DS and DS.IsCurrentCharacter then
+        return DS:IsCurrentCharacter(name, realm)
+    end
     local currentName = (UnitName and UnitName("player")) or (GetUnitName and GetUnitName("player")) or ""
     local currentRealm = GetRealmName and GetRealmName() or ""
     return (name == currentName and realm == currentRealm)

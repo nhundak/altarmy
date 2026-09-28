@@ -1052,7 +1052,8 @@ function CD.BuildRows(DS, options, now)
                             rows[#rows + 1] = {
                                 categoryKey = catKey,
                                 categoryTitle = title,
-                                charKeyName = charName,
+                                -- The name, not the storage key (a GUID): also the stockpile mail recipient.
+                                charKeyName = displayName,
                                 name = displayName,
                                 realm = realm,
                                 classFile = char and char.classFile or nil,

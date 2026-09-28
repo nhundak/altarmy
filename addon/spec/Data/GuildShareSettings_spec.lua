@@ -439,6 +439,51 @@ describe("GuildShareSettings", function()
     end)
   end)
 
+  describe("GUID-keyed characters", function()
+    it("reports the stored full name, not the storage key", function()
+      setChars("R", {
+        ["Player-1-A"] = { name = "Frell Ofelements", guid = "Player-1-A", realm = "R", guildName = "G" },
+        ["Player-1-B"] = { name = "Frell Blast", guid = "Player-1-B", realm = "R" },
+      })
+      GSS.SetSharingEnabled(true)
+      GSS.SetNonGuildedOptIn("Frell Blast", "R", "G")
+      local names = {}
+      for _, e in ipairs(GSS.GetShareableCharacters("G", "R")) do names[e.name] = true end
+      assert.are.same({ ["Frell Ofelements"] = true, ["Frell Blast"] = true }, names)
+      local all = GSS.GetAllGuildedCharacters("G", "R")
+      assert.are.equal("Frell Ofelements", all[1].name)
+    end)
+
+    it("syncs the display name against stored names", function()
+      local chars = { ["Player-1-A"] = { name = "Frell Ofelements" } }
+      assert.is_true(GSS.ShouldSyncDisplayNameWithMain("Other", "Frell", chars))
+      assert.is_false(GSS.ShouldSyncDisplayNameWithMain("Other", "Player-1-A", chars))
+    end)
+  end)
+
+  describe("RenameCharacter", function()
+    it("moves main, opt-out and non-guilded opt-in to the new name", function()
+      GSS.SetMain("R", "Frell")
+      GSS.SetCharacterOptedOut("Frell", "R", true)
+      GSS.SetNonGuildedOptIn("Frell", "R", "G")
+      GSS.SetMain("Other", "Frell")
+      GSS.RenameCharacter("R", "Frell", "Frell Blast")
+      assert.are.equal("Frell Blast", GSS.GetMain("R"))
+      assert.are.equal("Frell", GSS.GetMain("Other"))
+      assert.is_true(GSS.IsCharacterOptedOut("Frell Blast", "R"))
+      assert.is_false(GSS.IsCharacterOptedOut("Frell", "R"))
+      assert.are.equal("G", GSS.GetNonGuildedOptInGuild("Frell Blast", "R"))
+      assert.is_nil(GSS.GetNonGuildedOptInGuild("Frell", "R"))
+    end)
+
+    it("keeps settings already saved under the new name", function()
+      GSS.SetNonGuildedOptIn("Frell", "R", "Old")
+      GSS.SetNonGuildedOptIn("Frell Blast", "R", "New")
+      GSS.RenameCharacter("R", "Frell", "Frell Blast")
+      assert.are.equal("New", GSS.GetNonGuildedOptInGuild("Frell Blast", "R"))
+    end)
+  end)
+
   describe("chat insertion channels", function()
     it("SetChatInsertionChannelEnabled toggles individual channels", function()
       GSS.SetChatInsertionChannelEnabled("party", false)

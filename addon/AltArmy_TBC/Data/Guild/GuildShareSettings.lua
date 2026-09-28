@@ -378,7 +378,7 @@ end
 --- Whether changing main should also update the preferred/display name.
 --- Sync when the preferred name is empty, or matches (case-insensitive) the full
 --- name or first name of the old main or any character in charsByName
---- (name-keyed, e.g. DataStore:GetCharacters(realm)). Keep a custom name otherwise.
+--- (e.g. DataStore:GetCharacters(realm); each entry's `name`, else its key). Keep a custom name otherwise.
 function GSS.ShouldSyncDisplayNameWithMain(oldMain, oldDisplayName, charsByName)
     if type(oldDisplayName) ~= "string" or oldDisplayName == "" then
         return true
@@ -387,7 +387,8 @@ function GSS.ShouldSyncDisplayNameWithMain(oldMain, oldDisplayName, charsByName)
     if displayMatchesCharacter(oldMain, displayLower) then
         return true
     end
-    for name in pairs(charsByName or {}) do
+    for key, char in pairs(charsByName or {}) do
+        local name = (type(char) == "table" and char.name) or key
         if displayMatchesCharacter(name, displayLower) then
             return true
         end
@@ -553,6 +554,26 @@ function GSS.SetNonGuildedOptIn(name, realm, guild)
     s.nonGuildedOptIn[realm][name] = guild
 end
 
+--- Move this realm's main, opt-out and non-guilded opt-in from `oldName` to `newName` (character
+--- renamed). A setting already saved under the new name is kept.
+function GSS.RenameCharacter(realm, oldName, newName)
+    if not oldName or not newName or oldName == newName then return end
+    realm = realm or currentRealm()
+    local s = ensure()
+    if s.mains[realm] == oldName then
+        s.mains[realm] = newName
+    end
+    for _, byRealmMap in ipairs({ s.optOut, s.nonGuildedOptIn }) do
+        local byName = byRealmMap[realm]
+        if byName and byName[oldName] ~= nil then
+            if byName[newName] == nil then
+                byName[newName] = byName[oldName]
+            end
+            byName[oldName] = nil
+        end
+    end
+end
+
 -- *** Per-character share mode (tri-state UI) ***
 
 GSS.CHARACTER_SHARE_MODE_LABELS = {
@@ -605,8 +626,9 @@ end
 
 -- *** Send-set resolvers ***
 
-local function makeEntry(name, realm, char)
-    return { name = name, realm = realm, char = char }
+--- `key` is the storage key (a GUID for scanned characters); entries carry the character's name.
+local function makeEntry(key, realm, char)
+    return { name = (char and char.name) or key, realm = realm, char = char }
 end
 
 --- Default set (used when the feature flag is OFF): every one of my characters in `guild`
@@ -631,14 +653,15 @@ function GSS.GetShareableCharacters(guild, realm)
     realm = realm or currentRealm()
     local out = {}
     if not guild or not GSS.IsSharingEnabled() then return out end
-    for name, char in pairs(charactersOnRealm(realm)) do
+    for key, char in pairs(charactersOnRealm(realm)) do
         if char then
+            local name = char.name or key
             if char.guildName == guild then
                 if not GSS.IsCharacterOptedOut(name, realm) then
-                    out[#out + 1] = makeEntry(name, realm, char)
+                    out[#out + 1] = makeEntry(key, realm, char)
                 end
             elseif char.guildName == nil and GSS.GetNonGuildedOptInGuild(name, realm) == guild then
-                out[#out + 1] = makeEntry(name, realm, char)
+                out[#out + 1] = makeEntry(key, realm, char)
             end
         end
     end

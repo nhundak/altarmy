@@ -138,6 +138,24 @@ describe("LockoutData", function()
       assert.is_true(byName.Bob.extended)
     end)
 
+    it("names rows by character name, not by the GUID storage key", function()
+      local now = 5000
+      local ds = mockDS({
+        TestRealm = {
+          ["Player-1-B"] = {
+            name = "Frell Blast",
+            guid = "Player-1-B",
+            classFile = "MAGE",
+            RaidLockouts = { { name = "Karazhan", resetAtUnix = now + 3600, isRaid = true } },
+          },
+        },
+      })
+      local rows = LD.BuildRows(ds, now)
+      assert.are.equal(1, #rows)
+      assert.are.equal("Frell Blast", rows[1].name)
+      assert.are.equal("Frell Blast", rows[1].charKeyName)
+    end)
+
     it("prunes expired lockouts on read", function()
       local now = 5000
       local ds = mockDS({

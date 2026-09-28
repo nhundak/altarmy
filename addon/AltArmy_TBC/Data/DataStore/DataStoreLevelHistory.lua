@@ -239,7 +239,8 @@ function DS:MigratePhantomLevelHistoryImports()
     local moved = 0
     for realm, chars in pairs(account.Characters or {}) do
         for name, char in pairs(chars) do
-            if char and char.levelHistory and not self:HasModuleData(char, "character") then
+            -- GUID-bearing entries are live characters (keyed by GUID), never phantom imports.
+            if char and char.levelHistory and not char.guid and not self:HasModuleData(char, "character") then
                 local orphan = self:GetOrphanLevelHistoryRecord(realm, name)
                 self:MergeLevelHistory(orphan, char)
                 chars[name] = nil

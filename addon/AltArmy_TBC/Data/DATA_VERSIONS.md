@@ -7,9 +7,16 @@ Canonical table: `DATA_VERSIONS` in [`DataStore.lua`](DataStore/DataStore.lua).
 
 ## Module Versions
 
-### character (v2)
+### character (v3)
 - **v1**: Initial version. Stores name, realm, level, class, classFile, race, faction, money, xp, xpMax, restXP, played, lastLogout, lastUpdate.
 - **v2**: Also stores `guid` (`UnitGUID("player")`). Each scan folds older entries of the same character on the realm into the current key and deletes them: the same `guid`, or, for entries without one, a key that is the other's first name with the same classFile, raceFile and faction (WoW Forever's `UnitName("player")` went from "Frell Ofelements" to "Frell"). Entries keyed `Unknown` that were never scanned (made while `UnitName` read `UNKNOWNOBJECT` during loading) are dropped at `ADDON_LOADED`, and that name is never used as a key.
+- **v3**: v2 misread the Forever change. `UnitName("player")` there returns the first name and the surname as two values ("Frell", "Ofelements"), so characters sharing a first name ("Frell Blast", "Frell Ofelements") were saved under the same "Frell" entry and overwrote each other. v2's first-name matching also folded one of them into the other.
+  - Characters are keyed by GUID: `Characters[realm][guid]`. Only a client without `UnitGUID` keys by name.
+  - `name` is the full name, joined with `Constants.CharacterNameSeparatorConsts.CHARACTERNAME_SURNAME_SEPARATOR` (a space when the client has none).
+  - At `ADDON_LOADED`, every entry that carries a `guid` moves under that GUID. When two entries share a GUID, the one with the later `lastUpdate` wins and the other fills its missing fields.
+  - Each scan folds in only the same GUID, or a GUID-less entry saved under exactly the character's full name. The first-name heuristic is gone.
+  - When the stored name changes (paid rename, or the surname now reported), per-character settings keyed `realm\name` move to the new name (`AltArmy.RekeyCharSettings`).
+  - An entry that v2 already mixed from two characters keeps the GUID it last carried. Its live fields are rescanned on login, but sub-tables written by the other character cannot be split apart.
 
 ### guildMembership (v1)
 - **v1**: Guild name / membership fields on the character for guild-tab and sharing eligibility (written with character scans).

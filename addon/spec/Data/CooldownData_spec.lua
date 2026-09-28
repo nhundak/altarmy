@@ -75,6 +75,21 @@ describe("CooldownData", function()
         assert.are.equal("Banker", rows[1].name)
     end)
 
+    it("BuildRows names rows by character name, not by the GUID storage key", function()
+        CD.ResetCooldownOptionsToDefaults()
+        local char = {
+            name = "Frell Blast",
+            guid = "Player-1-B",
+            Professions = { Alchemy = { Recipes = { [29688] = { color = 1 } } } },
+        }
+        local ds = mockDS({ TestRealm = { ["Player-1-B"] = char } })
+        local rows = CD.BuildRows(ds, AltArmyTBC_Options.cooldowns, 1000)
+        assert.is_true(#rows >= 1)
+        assert.are.equal("Frell Blast", rows[1].name)
+        -- Also the stockpile mail recipient, so it must be the name.
+        assert.are.equal("Frell Blast", rows[1].charKeyName)
+    end)
+
     it("BuildRows includes transmute when recipe in set", function()
         local char = {
             name = "T",

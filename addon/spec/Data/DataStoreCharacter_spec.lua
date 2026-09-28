@@ -14,6 +14,7 @@ describe("DataStoreCharacter", function()
     end
     _G.UIParent = _G.UIParent or {}
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+    require("CharKey")
     require("DataStore")
     require("DataStoreCharacter")
     DS = AltArmy.DataStore
@@ -203,18 +204,19 @@ describe("DataStoreCharacter", function()
     end)
   end)
 
-  describe("ScanCharacter renamed characters", function()
-    -- WoW Forever's UnitName("player") went from "Frell Ofelements" to "Frell" for the same character,
-    -- so the old key must fold into the new one instead of staying as a duplicate.
-    local guid
+  describe("ScanCharacter on WoW Forever", function()
+    -- Forever's UnitName returns the first name and surname separately ("Frell", "Ofelements"), and
+    -- several characters can share a first name. Entries are keyed by GUID and named in full.
+    local REALM = "Classic Beta PvE"
+    local guid, surname, classFile
     before_each(function()
       AltArmyTBC_Data.Characters = {}
-      guid = "Player-1-A"
-      _G.UnitName = function() return "Frell" end
-      _G.GetRealmName = function() return "Classic Beta PvE" end
+      guid, surname, classFile = "Player-1-A", "Ofelements", "SHAMAN"
+      _G.UnitName = function() return "Frell", surname end
+      _G.GetRealmName = function() return REALM end
       _G.UnitLevel = function() return 21 end
       _G.GetMoney = function() return 500 end
-      _G.UnitClass = function() return "Shaman", "SHAMAN" end
+      _G.UnitClass = function() return classFile, classFile end
       _G.UnitRace = function() return "Tauren", "TAUREN" end
       _G.UnitSex = function() return 2 end
       _G.UnitFactionGroup = function() return "Horde" end
@@ -224,67 +226,86 @@ describe("DataStoreCharacter", function()
       _G.GetGuildInfo = function() return nil end
       _G.UnitGUID = function(unit) if unit == "player" then return guid end end
       _G.time = function() return 1700000000 end
+      _G.AltArmyTBC_GraphSettings = nil
+    end)
+    after_each(function()
+      _G.UnitGUID = nil
+      _G.AltArmyTBC_GraphSettings = nil
     end)
 
-    local function oldEntry(name, fields)
+    local function realmChars()
+      AltArmyTBC_Data.Characters[REALM] = AltArmyTBC_Data.Characters[REALM] or {}
+      return AltArmyTBC_Data.Characters[REALM]
+    end
+
+    local function oldEntry(key, fields)
       local e = {
-        name = name, realm = "Classic Beta PvE", level = 20, money = 100,
+        name = key, realm = REALM, level = 20, money = 100,
         class = "Shaman", classFile = "SHAMAN", raceFile = "TAUREN", faction = "Horde",
         Professions = { Leatherworking = { rank = 102 } },
       }
       for k, v in pairs(fields or {}) do e[k] = v end
-      AltArmyTBC_Data.Characters["Classic Beta PvE"][name] = e
+      realmChars()[key] = e
       return e
     end
 
     local function keys()
       local out = {}
-      for k in pairs(AltArmyTBC_Data.Characters["Classic Beta PvE"]) do out[#out + 1] = k end
+      for k in pairs(realmChars()) do out[#out + 1] = k end
       table.sort(out)
       return out
     end
 
-    it("stores the character's GUID", function()
+    it("stores the full name under the GUID", function()
       DS:ScanCharacter()
-      assert.are.equal("Player-1-A", AltArmyTBC_Data.Characters["Classic Beta PvE"].Frell.guid)
-      assert.are.equal(2, AltArmyTBC_Data.Characters["Classic Beta PvE"].Frell.dataVersions.character)
+      assert.are.same({ "Player-1-A" }, keys())
+      local char = realmChars()["Player-1-A"]
+      assert.are.equal("Frell Ofelements", char.name)
+      assert.are.equal("Player-1-A", char.guid)
+      assert.are.equal(3, char.dataVersions.character)
     end)
 
-    it("folds the entry saved under the full name into the new key", function()
-      AltArmyTBC_Data.Characters["Classic Beta PvE"] = {}
+    it("keeps two characters that share a first name apart", function()
+      DS:ScanCharacter()
+      guid, surname, classFile = "Player-1-B", "Blast", "MAGE"
+      _G.UnitLevel = function() return 20 end
+      DS:ScanCharacter()
+      assert.are.same({ "Player-1-A", "Player-1-B" }, keys())
+      assert.are.equal("Frell Ofelements", realmChars()["Player-1-A"].name)
+      assert.are.equal(21, realmChars()["Player-1-A"].level)
+      assert.are.equal("SHAMAN", realmChars()["Player-1-A"].classFile)
+      assert.are.equal("Frell Blast", realmChars()["Player-1-B"].name)
+      assert.are.equal(20, realmChars()["Player-1-B"].level)
+      assert.are.equal("MAGE", realmChars()["Player-1-B"].classFile)
+    end)
+
+    it("adopts the old entry saved under the full name", function()
       oldEntry("Frell Ofelements")
       DS:ScanCharacter()
-      assert.are.same({ "Frell" }, keys())
-      local char = AltArmyTBC_Data.Characters["Classic Beta PvE"].Frell
+      assert.are.same({ "Player-1-A" }, keys())
+      local char = realmChars()["Player-1-A"]
       -- Fresh scan values win; what this scan does not write is kept from the old entry.
-      assert.are.equal("Frell", char.name)
+      assert.are.equal("Frell Ofelements", char.name)
       assert.are.equal(21, char.level)
       assert.are.equal(500, char.money)
       assert.are.equal(102, char.Professions.Leatherworking.rank)
     end)
 
-    it("folds a short key into the full name the other way round", function()
-      _G.UnitName = function() return "Frell Ofelements" end
-      AltArmyTBC_Data.Characters["Classic Beta PvE"] = {}
-      oldEntry("Frell")
+    it("adopts an entry with the same GUID under any key", function()
+      oldEntry("Frell", { guid = "Player-1-A" })
       DS:ScanCharacter()
-      assert.are.same({ "Frell Ofelements" }, keys())
+      assert.are.same({ "Player-1-A" }, keys())
+      assert.are.equal("Frell Ofelements", realmChars()["Player-1-A"].name)
     end)
 
-    it("folds any entry with the same GUID", function()
-      AltArmyTBC_Data.Characters["Classic Beta PvE"] = {}
-      oldEntry("Someone Else", { guid = "Player-1-A", classFile = "SHAMAN" })
-      DS:ScanCharacter()
-      assert.are.same({ "Frell" }, keys())
-    end)
-
-    it("keeps other characters that share the first name", function()
-      AltArmyTBC_Data.Characters["Classic Beta PvE"] = {}
+    it("leaves other characters that share the first name alone", function()
+      oldEntry("Frell", { guid = "Player-1-B", classFile = "MAGE" })
       oldEntry("Frell Blast", { class = "Mage", classFile = "MAGE" })
-      oldEntry("Frell Hound", { guid = "Player-1-B" })
+      oldEntry("Frell Hound", { guid = "Player-1-C" })
       oldEntry("Frells Angel")
       DS:ScanCharacter()
-      assert.are.same({ "Frell", "Frell Blast", "Frell Hound", "Frells Angel" }, keys())
+      assert.are.same({ "Frell", "Frell Blast", "Frell Hound", "Frells Angel", "Player-1-A" }, keys())
+      assert.are.equal("MAGE", realmChars().Frell.classFile)
     end)
 
     it("leaves other realms alone", function()
@@ -293,6 +314,21 @@ describe("DataStoreCharacter", function()
       }
       DS:ScanCharacter()
       assert.is_not_nil(AltArmyTBC_Data.Characters["Other Realm"]["Frell Ofelements"])
+    end)
+
+    it("carries per-character settings over when the name changes", function()
+      _G.AltArmyTBC_GraphSettings = { selected = { [REALM .. "\\Frell"] = true } }
+      oldEntry("Player-1-A", { name = "Frell", guid = "Player-1-A" })
+      DS:ScanCharacter()
+      assert.are.equal("Frell Ofelements", realmChars()["Player-1-A"].name)
+      assert.are.same({ [REALM .. "\\Frell Ofelements"] = true }, AltArmyTBC_GraphSettings.selected)
+    end)
+
+    it("carries settings over from an adopted entry's old name", function()
+      _G.AltArmyTBC_GraphSettings = { selected = { [REALM .. "\\Frell"] = true } }
+      oldEntry("Frell", { guid = "Player-1-A" })
+      DS:ScanCharacter()
+      assert.are.same({ [REALM .. "\\Frell Ofelements"] = true }, AltArmyTBC_GraphSettings.selected)
     end)
   end)
 

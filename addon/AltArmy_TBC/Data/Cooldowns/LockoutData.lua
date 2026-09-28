@@ -79,7 +79,7 @@ function LD.FormatResetRemaining(resetAtUnix, now)
 end
 
 --- Build display rows for all characters' active lockouts.
---- @return table[] rows with name, realm, classFile, charKeyName, instanceName,
+--- @return table[] rows with name, realm, classFile, charKeyName (the character's name), instanceName,
 ---   instanceLabel, progressText, resetAtUnix, timeText, extended, isRaid
 function LD.BuildRows(DS, now)
     now = now or (time and time() or 0)
@@ -105,7 +105,7 @@ function LD.BuildRows(DS, now)
             if resetAt and resetAt > now then
                 rows[#rows + 1] = {
                     name = displayName,
-                    charKeyName = charName,
+                    charKeyName = displayName,
                     realm = realm,
                     classFile = classFile or "",
                     instanceName = entry.name or "?",

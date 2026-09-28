@@ -13,6 +13,7 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 - Graphs leveling progress over calendar and played time.
 - Optionally shares character cards and recipes with guildmates.
 - Provides configurable filters, sorting, pin/hide, bank-alt flags, and alerts.
+- Keeps each character's data under its unique character ID, shown with its full name. WoW Forever characters that share a first name ("Frell Blast", "Frell Ofelements") stay separate. A paid name change keeps the character's data, pins, hides and bank-alt flag.
 
 ## UI design system
 

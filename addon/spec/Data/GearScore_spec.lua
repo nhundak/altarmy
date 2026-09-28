@@ -75,7 +75,7 @@ describe("GearScore", function()
     _G.GearScoreCalc = nil
     _G.GEAR_SCORE_CACHE = nil
     _G._mockLoadedAddons = {}
-    _G.AltArmyTBC_Data = { Characters = { TestRealm = { TestChar = {} } } }
+    _G.AltArmyTBC_Data = { Characters = { TestRealm = { ["PlayerGUID-1"] = { name = "TestChar", guid = "PlayerGUID-1" } } } }
     if GS and GS._ClearCache then GS._ClearCache() end
     if GS and GS.RefreshProviders then GS.RefreshProviders() end
   end)

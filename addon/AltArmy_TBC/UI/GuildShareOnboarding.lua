@@ -54,6 +54,8 @@ local function currentRealm()
 end
 
 local function currentPlayer()
+    local DS = AltArmy.DataStore
+    if DS and DS.GetCurrentPlayerName then return DS:GetCurrentPlayerName() end
     return (UnitName and UnitName("player")) or ""
 end
 
@@ -156,13 +158,14 @@ end
 
 --- Build dropdown entries for every character on the realm, sorted by the same ranking
 --- used for the default main pick (level, gear score, item level, then name).
+--- `charsByName` is DataStore:GetCharacters(realm) (keyed by GUID); entry ids are character names.
 function GSO.BuildRealmCharEntries(charsByName, formatName, opts)
     opts = opts or {}
     local getLevel = opts.getLevel or charLevel
     local candidates = {}
-    for name, char in pairs(charsByName or {}) do
+    for key, char in pairs(charsByName or {}) do
         if char then
-            candidates[#candidates + 1] = { name = name, char = char }
+            candidates[#candidates + 1] = { name = (type(char) == "table" and char.name) or key, char = char }
         end
     end
     table.sort(candidates, function(a, b)
@@ -187,9 +190,9 @@ local function realmCandidates()
     local realm = currentRealm()
     local out = {}
     if DS and DS.GetCharacters then
-        for name, char in pairs(DS:GetCharacters(realm) or {}) do
+        for key, char in pairs(DS:GetCharacters(realm) or {}) do
             if char then
-                out[#out + 1] = { name = name, char = char }
+                out[#out + 1] = { name = (type(char) == "table" and char.name) or key, char = char }
             end
         end
     end

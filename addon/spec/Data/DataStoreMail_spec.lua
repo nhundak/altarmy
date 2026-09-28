@@ -124,6 +124,19 @@ describe("DataStoreMail", function()
     end)
   end)
 
+  describe("finding the alt a mail is for", function()
+    it("matches the stored name of a GUID-keyed character, ignoring case", function()
+      local blast = { name = "Frell Blast", guid = "Player-1-B" }
+      _G.AltArmyTBC_Data = { Characters = { R = {
+        ["Player-1-A"] = { name = "Frell Ofelements", guid = "Player-1-A" },
+        ["Player-1-B"] = blast,
+      } } }
+      assert.are.equal(blast, DS._FindCharacterByName("R", "frell blast"))
+      assert.is_nil(DS._FindCharacterByName("R", "Frell"))
+      assert.is_nil(DS._FindCharacterByName("R", "Player-1-B"))
+    end)
+  end)
+
   describe("Cache + scan interactions", function()
     it("SaveMailAttachmentToCache appends an entry with expiry metadata", function()
       local char = { Mails = {}, MailCache = {} }

@@ -501,7 +501,10 @@ end
 
 local function isCurrentCharacter(classFile, charData)
     if not charData or not UnitClass or not UnitName then return false end
-    local playerName = UnitName("player")
+    -- Full name (WoW Forever's UnitName returns the surname separately); stored names are full.
+    local liveDS = AltArmy.DataStore
+    local playerName = (liveDS and liveDS.GetCurrentPlayerName and liveDS:GetCurrentPlayerName())
+        or UnitName("player")
     if not playerName or playerName ~= charData.name then return false end
     local _, currentClass = UnitClass("player")
     return normalizeClassFile(classFile) == normalizeClassFile(currentClass)

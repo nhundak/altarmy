@@ -668,6 +668,14 @@ WoW Forever's **Legacy** system: an account-wide progression layer, separate fro
 
 **If it recurs:** the remaining `hooksecurefunc` sites in AltArmy itself are `SendMail` / `ReturnInboxItem` (`DataStoreMail.lua`, mailbox only) and `SetItemRef` / `ChatFrame_OnHyperlinkClick` / `SelectQuestLogEntry` (click-driven); none run during a boss fight. The chat message event filters in `GuildChatMainName.lua` are the other in-combat entry point into Blizzard chat code; they already bail on secret `message`/`author` via `canaccessvalue`, but if a "string conversion" error with a hidden stack ever reappears with chat insertion on and boss mods off, uninstalling those filters (`ChatFrame_RemoveMessageEventFilter`) while chat insertion is disabled is the next experiment.
 
+## Character names: `UnitName` returns the surname as a second value (2026-09-28)
+
+Two characters, "Frell Blast" and "Frell Ofelements", both showed as "Frell" and overwrote each other's saved data. Blizzard's Forever UI source (`forever` branch of Gethe/wow-ui-source, build 1.60.1.70009) explains it. `Blizzard_FrameXMLUtil/Camelot/NameUtil.lua` reads `local name, surname = UnitName(unit)` and joins the two with `Constants.CharacterNameSeparatorConsts.CHARACTERNAME_SURNAME_SEPARATOR`. The API docs still call the second return `unitServer`, but on Forever it carries the surname. `GetUnitName(unit, true)` returns the joined name.
+
+AltArmy had kept only the first return. Older saved entries have full names because earlier beta builds returned one joined string. Fix: DataStore joins both returns, and characters are now keyed by `UnitGUID("player")` so a name change can never split or merge them again (`AltArmy_TBC/Data/DATA_VERSIONS.md`, character v3).
+
+Not yet checked: what name format Forever uses for addon-message senders and guild-roster names ("First", "First Surname", or "First-Realm"). Guild sharing still matches senders by the first `-`-separated part.
+
 ## Sources
 
 - [Multi-TOC for World of Warcraft Addons — CurseForge support](https://support.curseforge.com/support/solutions/articles/9000209856-multi-toc-for-world-of-warcraft-addons)

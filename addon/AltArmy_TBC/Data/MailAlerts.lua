@@ -154,7 +154,7 @@ function MA.DebugAnnounceForCharacter(characterName)
     local matches = {}
     DS:ForEachCharacter(function(realm, charName, char)
         local display = (char and char.name) or charName
-        if string.lower(display) == wanted or string.lower(charName) == wanted then
+        if string.lower(display) == wanted then
             matches[#matches + 1] = {
                 name = display,
                 realm = realm,
