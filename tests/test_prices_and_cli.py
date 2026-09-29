@@ -69,6 +69,65 @@ def test_snapshots_only_record_news(conn: Connection) -> None:
     assert db.utc(seen) == next_day
 
 
+def current_row(conn: Connection, ah: int, item_id: int) -> tuple[int, int | None, int | None]:
+    """An item's (price, sell cap, quantity) in price_current."""
+    pc = schema.price_current
+    row = conn.execute(
+        select(pc.c.price, pc.c.sell_cap, pc.c.quantity).where(
+            pc.c.auction_house_id == ah, pc.c.item_id == item_id
+        )
+    ).one()
+    return row.price, row.sell_cap, row.quantity
+
+
+def test_a_quantity_change_updates_current_in_place(conn: Connection) -> None:
+    ah = prices.unnamed_auction_house(conn, FOREVER)
+    prices.record_snapshot(conn, ah, "auctionator", T0, [Observation(1, 100, T0, 5)])
+    version = prices.price_version(conn, ah)
+    later = T0 + timedelta(hours=1)
+    assert prices.record_snapshot(conn, ah, "auctionator", later, [Observation(1, 100, later, 2)]) == 0
+    assert current_row(conn, ah, 1) == (100, None, 2)
+    assert count(conn, "price_observations") == 1  # no observation: the price didn't move
+    assert prices.price_version(conn, ah) == version
+    earlier = T0 - timedelta(hours=1)  # an older scan never overwrites it
+    prices.record_snapshot(conn, ah, "auctionator", earlier, [Observation(1, 100, earlier, 9)])
+    assert current_row(conn, ah, 1) == (100, None, 2)
+
+
+def test_a_feeds_sell_cap_is_news(conn: Connection) -> None:
+    ah = prices.unnamed_auction_house(conn, FOREVER)
+    capped = [Observation(1, 2500, T0, 1, sell_cap=400)]
+    assert prices.record_snapshot(conn, ah, "ahledger", T0, capped) == 1
+    assert prices.record_snapshot(conn, ah, "ahledger", T0, capped) == 0  # the same again
+    t1 = T0 + timedelta(hours=1)
+    assert prices.record_snapshot(conn, ah, "ahledger", t1, [Observation(1, 2500, t1, 1, sell_cap=380)]) == 1
+    assert current_row(conn, ah, 1) == (2500, 380, 1)
+    t2 = T0 + timedelta(hours=2)
+    assert prices.record_snapshot(conn, ah, "ahledger", t2, [Observation(1, 2500, t2, 1)]) == 1
+    assert current_row(conn, ah, 1) == (2500, None, 1)  # the medians caught up: no cap
+    obs = schema.price_observations
+    stored: list[int | None] = list(
+        conn.execute(select(obs.c.sell_cap).order_by(obs.c.snapshot_id)).scalars().all()
+    )
+    assert stored == [400, 380, None]
+
+
+def test_uploads_keep_the_feeds_sell_cap(conn: Connection) -> None:
+    """An upload sees only the cheapest listing: the feed's sell cap stays. A price set by hand is used as
+    it is."""
+    ah = prices.unnamed_auction_house(conn, FOREVER)
+    prices.record_snapshot(conn, ah, "ahledger", T0, [Observation(2, 2500, T0, 1, sell_cap=400)])
+    day = T0 + timedelta(days=1)
+    assert prices.record_snapshot(conn, ah, "auctionator", day, [Observation(2, 2400, day)]) == 1
+    assert current_row(conn, ah, 2) == (2400, 400, 1)
+    obs = schema.price_observations
+    newest: int = conn.execute(select(func.max(obs.c.snapshot_id))).scalar_one()
+    stored: int | None = conn.execute(select(obs.c.sell_cap).where(obs.c.snapshot_id == newest)).scalar_one()
+    assert stored is None  # the upload's own, as it said
+    prices.set_price(conn, ah, 2, 700)
+    assert current_row(conn, ah, 2) == (700, None, None)
+
+
 def test_manual_price_holds_until_a_newer_scan(conn: Connection) -> None:
     ah = prices.unnamed_auction_house(conn, FOREVER)
     prices.record_snapshot(conn, ah, "auctionator", T0, [Observation(1, 100, T0)])
@@ -216,6 +275,38 @@ def test_load_prices_sells_at_the_lower_of_now_and_the_median(conn: Connection) 
     # set by hand is used as it is
     assert sell == {1: 4900, 2: 80, 3: 5, 4: 500}
     assert prices.load_buy_and_sell(conn, None) == ({}, {})
+
+
+def test_load_prices_sells_under_the_feeds_cap(conn: Connection) -> None:
+    ah = prices.unnamed_auction_house(conn, FOREVER)
+    feed = [
+        Observation(1, 30, T0, 50),
+        Observation(2, 2500, T0, 1, sell_cap=400),  # a lone absurd ask: sells for at most the medians
+        Observation(3, 100, T0, 20, sell_cap=60),
+    ]
+    prices.record_snapshot(conn, ah, "ahledger", T0, feed)
+    pc = schema.price_current
+    conn.execute(pc.update().where(pc.c.item_id == 3).values(median_7d=50))
+    buy, sell = prices.load_buy_and_sell(conn, ah)
+    assert buy == {1: 30, 2: 2500, 3: 100}  # the cheapest listing
+    assert sell == {1: 30, 2: 400, 3: 50}  # the lowest of the price, our median and the feed's cap
+    assert prices.load_listings(conn, ah) == {
+        1: prices.Listing(30, 50),
+        2: prices.Listing(2500, 1),
+        3: prices.Listing(100, 20),
+    }
+    assert prices.load_listings(conn, None) == {}
+
+
+def test_price_rules() -> None:
+    assert prices.sell_price(100, None, None, "ahledger") == 100
+    assert prices.sell_price(100, 80, 60, "ahledger") == 60
+    assert prices.sell_price(100, 80, None, "auctionator") == 80
+    assert prices.sell_price(100, 80, 60, "manual") == 100  # set by hand: as it is
+    assert not prices.thin_market(None, 1)  # unknown: no flag
+    assert prices.thin_market(prices.THIN_UNITS - 1, 1)
+    assert not prices.thin_market(prices.THIN_UNITS, 1)
+    assert prices.thin_market(10, 20)  # fewer listed than the plan sells
 
 
 def test_prune_keeps_what_price_current_points_at(conn: Connection) -> None:

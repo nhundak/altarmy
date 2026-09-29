@@ -21,11 +21,19 @@ T0 = datetime(2026, 9, 27, 7, 0, tzinfo=UTC)
 HORDE = ahledger.Market("forever.normal.horde.us", "Classic Beta PvE", "Horde")
 
 
-def table_text(market: str, at: datetime, rows: Mapping[int, tuple[int, int]]) -> str:
-    """A price table as AHledger serves it; rows are item -> (min buyout, quantity)."""
+# item -> (min buyout, quantity), or (min buyout, quantity, listing median, 7-day median, 30-day median)
+Rows = Mapping[int, tuple[int, ...]]
+
+
+def table_text(market: str, at: datetime, rows: Rows) -> str:
+    """A price table as AHledger serves it. Unless given, the listing median is a copper above the min
+    buyout and the longer medians are the min buyout: no cap."""
     game, ruleset, faction, region = market.split(".")
     head = f"AHL1|{game}/{ruleset}/{faction}/{region}|{int(at.timestamp())}|{len(rows)}"
-    lines = [f"{i}:{p + 1}:{p}:{q}:{p}:{p}:{p}:{p}" for i, (p, q) in rows.items()]
+    lines = []
+    for i, row in rows.items():
+        p, q, median, m7, m30 = (*row, row[0] + 1, row[0], row[0])[:5] if len(row) == 2 else row
+        lines.append(f"{i}:{median}:{p}:{q}:{m7}:{m30}:{p}:{p}")
     return "\n".join([head, *lines]) + "\n"
 
 
@@ -37,7 +45,7 @@ class FakeAHledger:
         self.urls: list[str] = []
         self.throttle = 0  # how many requests to answer 429 first
 
-    def set(self, market: str, at: datetime, rows: Mapping[int, tuple[int, int]]) -> None:
+    def set(self, market: str, at: datetime, rows: Rows) -> None:
         self.tables[market] = table_text(market, at, rows)
 
     def __call__(self, url: str, headers: Mapping[str, str]) -> tuple[int, bytes, Mapping[str, str]]:
@@ -70,11 +78,23 @@ def current(conn: Connection, ah: int) -> dict[int, tuple[int, datetime]]:
 
 def test_parse_table_reads_median_before_min_buyout() -> None:
     got = ahledger.parse_table(
-        "AHL1|forever/normal/horde/us|1790493156|2\n117:3:2:208:29:29:1:40\n118:7:4:1138\n"
+        "AHL1|forever/normal/horde/us|1790493156|3\n117:3:2:208:29:31:1:40\n118:7:4:1138\n119:5:5:1:-4\n"
     )
     assert got.market == "forever.normal.horde.us"
     assert got.scanned_at == datetime(2026, 9, 27, 7, 12, 36, tzinfo=UTC)
-    assert got.rows == {117: ahledger.Row(2, 3, 208), 118: ahledger.Row(4, 7, 1138)}
+    assert got.rows == {
+        117: ahledger.Row(2, 3, 208, 29, 31),
+        118: ahledger.Row(4, 7, 1138),  # no longer medians: none
+        119: ahledger.Row(5, 5, 1),
+    }
+
+
+def test_the_sell_cap_is_the_lower_longer_median_below_the_cheapest_listing() -> None:
+    row = ahledger.Row
+    assert ahledger.sell_cap(row(2500, 2500, 1, 500, 423)) == 423
+    assert ahledger.sell_cap(row(2500, 2500, 1, 0, 423)) == 423  # 0: none
+    assert ahledger.sell_cap(row(2500, 2500, 1)) is None
+    assert ahledger.sell_cap(row(100, 100, 50, 100, 120)) is None
 
 
 @pytest.mark.parametrize(
@@ -193,6 +213,38 @@ def test_a_wild_table_is_quarantined_and_not_judged_again(conn: Connection, api:
     assert got.quarantined and got.moved == 0
     assert set(prices.load_current(conn, ah).values()) == {100}
     assert poll(conn, api, FETCHED + timedelta(hours=1)).unchanged
+
+
+def feed_row(conn: Connection, ah: int, item_id: int) -> tuple[int, int | None, int | None]:
+    """An item's (price, sell cap, quantity) in price_current."""
+    pc = schema.price_current
+    row = conn.execute(
+        select(pc.c.price, pc.c.sell_cap, pc.c.quantity).where(
+            pc.c.auction_house_id == ah, pc.c.item_id == item_id
+        )
+    ).one()
+    return row.price, row.sell_cap, row.quantity
+
+
+def test_a_poll_records_the_sell_cap_and_quantity(conn: Connection, api: FakeAHledger) -> None:
+    # 1: one cheap listing far below the rest; 2: a lone ask far above the longer medians; 3: neither
+    api.set(HORDE.id, T0, {1: (30, 50, 100, 90, 95), 2: (2500, 1, 2600, 400, 380), 3: (20, 5)})
+    got = poll(conn, api, FETCHED)
+    assert api.urls == [f"{ahledger.API}/pricetable/{HORDE.id}"]
+    ah = got.auction_house_id
+    assert feed_row(conn, ah, 1) == (30, None, 50)
+    assert feed_row(conn, ah, 2) == (2500, 380, 1)
+    assert feed_row(conn, ah, 3) == (20, None, 5)
+    # bought at the cheapest listing; a lone ask sells for no more than the longer medians
+    assert prices.load_buy_and_sell(conn, ah) == ({1: 30, 2: 2500, 3: 20}, {1: 30, 2: 380, 3: 20})
+
+
+def test_drifting_medians_record_nothing(conn: Connection, api: FakeAHledger) -> None:
+    api.set(HORDE.id, T0, {1: (30, 50, 100, 90, 95)})
+    poll(conn, api, FETCHED)
+    t1 = T0 + timedelta(hours=1)
+    api.set(HORDE.id, t1, {1: (30, 50, 120, 91, 96)})  # medians above the cheapest listing moved
+    assert poll(conn, api, t1 + timedelta(minutes=5)).recorded == 0
 
 
 def test_ahledger_scans_show_in_coverage(conn: Connection, api: FakeAHledger) -> None:

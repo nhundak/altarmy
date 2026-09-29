@@ -57,10 +57,16 @@ describe('ItemTooltip', () => {
     expect(screen.queryByRole('presentation')).not.toBeInTheDocument()
   })
 
-  it('adds the 7-day median when crafts sell below the auction price', () => {
+  it('adds the going rate when crafts sell below the auction price', () => {
     renderWithProviders(<ItemTooltip item={{ ...linen, ah_sell_price: 15 }} />)
     expect(line('Auction: 20')).toBeInTheDocument()
-    expect(line('Sells for (7-day median): 15')).toBeInTheDocument()
+    expect(line('Sells for (going rate): 15')).toBeInTheDocument()
+  })
+
+  it('says how many are listed, if known', () => {
+    renderWithProviders(<ItemTooltip item={{ ...linen, ah_quantity: 3 }} />)
+    expect(line('Auction: 20')).toBeInTheDocument()
+    expect(screen.getByText('3 listed')).toBeInTheDocument()
   })
 
   it('adds the vendor price of vendor-sold items', () => {

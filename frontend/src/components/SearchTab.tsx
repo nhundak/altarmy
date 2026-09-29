@@ -24,21 +24,34 @@ import {
   useCoverage,
   useDataVersion,
   useFavorites,
+  useProfessions,
   useRank,
   useSelectRealm,
   useSetAhBlocked,
   useSetFavorite,
   useStatus,
 } from '../api/queries'
-import { GOAL_SEARCH, goalSchema, type Goal } from '../lib/goals'
 import { goldToCopper } from '../lib/money'
 import { fromKey, realmOptions, toKey } from '../lib/realms'
 import { useSession } from '../lib/session'
+import {
+  ALL_EXITS,
+  answer,
+  hasEnchanter,
+  nextStep,
+  presetsFor,
+  professionsOf,
+  rankProfessions,
+  rankSort,
+  setupSchema,
+  type Setup as SetupAnswers,
+  type Step,
+} from '../lib/setup'
 import { useStoredState } from '../lib/storage'
-import { GoalPicker } from './GoalPicker'
 import { PriceFreshness } from './PriceFreshness'
 import { PriceSignal } from './PriceSignal'
 import { ResultsTable } from './ResultsTable'
+import { Setup } from './Setup'
 import { TimeSettingsPanel } from './TimeSettingsPanel'
 
 /** Results per page: the first request asks for this many, and each "Show more" for this many more. */
@@ -59,7 +72,6 @@ const EXITS: { value: Exit; label: string; description: string }[] = [
       "Sometimes the best profit, but for some items there will be no buyers. You'll need to take an active role in figuring out what sells reliably.",
   },
 ]
-const ALL_EXITS: Exit[] = EXITS.map((e) => e.value)
 const UNLEARNED: { value: Unlearned; label: string }[] = [
   { value: 'none', label: 'Show recipes I already know' },
   { value: 'soon', label: 'Include recipes I can train soon (20 skill points)' },
@@ -67,7 +79,9 @@ const UNLEARNED: { value: Unlearned; label: string }[] = [
 ]
 const SECTIONS = ['advanced', 'time'] as const
 const NONE_OPEN: string[] = []
-const storedGoal = goalSchema.nullable()
+const storedSetup = setupSchema.nullable()
+const exitList = z.array(z.enum(['vendor', 'disenchant', 'ah']))
+const EVERY_EXIT: Exit[] = [...ALL_EXITS]
 
 const bound = z.number().nullable()
 /** NumberInput reports an empty field as ''; that means no bound. */
@@ -78,7 +92,8 @@ type Filters = Omit<RankParams, 'top'>
 
 /**
  * `value` once it has stopped changing for `wait` ms (typing a bound re-ranks once, not per key), except that a new
- * `flush` (a goal just picked) takes it at once, so the results never show a request with the old goal's filters.
+ * `flush` (a setup question just answered) takes it at once, so the results never show a request with the filters of
+ * the answer before.
  */
 function useSettled<T>(value: T, wait: number, flush: number): T {
   const [settled, setSettled] = useState({ value, flush })
@@ -191,9 +206,10 @@ function Range({ name, min, max, onMin, onMax, step }: RangeProps) {
 }
 
 /**
- * The search: first the user's goal, then (once one is picked) the realm and faction, and with a realm the price
- * freshness, filters, time assumptions and ranked recipes. The goal decides the ranking's order and presets the filters
- * it cares about; it is remembered per user, like the Profit page's start.
+ * The search: first the setup's questions (what the user is after, then a profession, or how to sell and what a session
+ * ), then the realm and faction, and with a realm the price freshness, filters, time assumptions and ranked
+ * recipes. The answers decide the ranking's order and preset the filters they are about; they are remembered per user,
+ * like the Profit page's start.
  */
 export function SearchTab() {
   const { uid } = useSession()
@@ -201,12 +217,13 @@ export function SearchTab() {
   const characters = useCharacters()
   const coverage = useCoverage()
   const select = useSelectRealm()
-  const [savedGoal, setGoal] = useStoredState<Goal | null>(`altarmy-profit.goal.${uid}`, storedGoal, null)
-  // Skilling up needs the characters' professions: without imported characters that goal can't be picked (and a
-  // saved one asks again).
+  const professionNames = useProfessions().data
+  const [setup, setSetup] = useStoredState<SetupAnswers | null>(`altarmy-profit.setup.${uid}`, storedSetup, null)
+  // Skilling up needs the characters' professions: without imported characters it can't be picked (and a saved
+  // setup asks again).
   const noCharacters = characters.data !== undefined && characters.data.groups.length === 0
-  const goal = noCharacters && savedGoal === 'skill' ? null : savedGoal
-  const [choosing, setChoosing] = useState(false)
+  // A question the user reopened from the summary; otherwise the first unanswered one is shown.
+  const [editing, setEditing] = useState<Step | null>(null)
   const [unlearned, setUnlearned] = useStoredState<Unlearned>(
     'altarmy-profit.search.unlearned',
     z.enum(['none', 'soon', 'all']),
@@ -223,7 +240,7 @@ export function SearchTab() {
   /** Open or close one section from its own accordion's value, keeping the other's state. */
   const toggleSection = (section: (typeof SECTIONS)[number], value: string[]) =>
     setOpen(SECTIONS.filter((s) => (s === section ? value.includes(s) : open.includes(s))))
-  const [exits, setExits] = useStoredState('altarmy-profit.search.exits', z.array(z.enum(ALL_EXITS)), ALL_EXITS)
+  const [exits, setExits] = useStoredState<Exit[]>('altarmy-profit.search.exits', exitList, EVERY_EXIT)
   // Money in gold and ROI in percent, as typed; converted for the API below.
   const [minCost, setMinCost] = useStoredState('altarmy-profit.search.minCost', bound, 0)
   const [maxCost, setMaxCost] = useStoredState('altarmy-profit.search.maxCost', bound, null)
@@ -232,6 +249,9 @@ export function SearchTab() {
   const [maxProfit, setMaxProfit] = useStoredState('altarmy-profit.search.maxProfit', bound, null)
   const [minRoi, setMinRoi] = useStoredState('altarmy-profit.search.minRoi', bound, 0)
   const [maxRoi, setMaxRoi] = useStoredState('altarmy-profit.search.maxRoi', bound, null)
+  // By value, not the stored object: a new but equal setup must not count as new filters (that resets paging).
+  const sort = rankSort(setup)
+  const [profession = null] = rankProfessions(setup)
   const filters = useMemo<Filters>(
     () => ({
       unlearned,
@@ -243,23 +263,29 @@ export function SearchTab() {
       maxProfit: scaled(maxProfit, goldToCopper),
       minRoi: scaled(minRoi, (p) => p / 100),
       maxRoi: scaled(maxRoi, (p) => p / 100),
-      sort: goal ? GOAL_SEARCH[goal].sort : 'profit',
+      professions: profession === null ? [] : [profession],
+      sort,
     }),
-    [unlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, goal],
+    [unlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, sort, profession],
   )
   const [picks, setPicks] = useState(0)
   const debouncedFilters = useSettled(filters, 300, picks)
 
-  /** Choose a goal, writing the filters it presets (the user may change them afterwards). */
-  const pickGoal = (next: Goal) => {
-    setGoal(next)
-    setChoosing(false)
+  /** Answer one question, writing the filters that answer presets (the user may change them afterwards). */
+  const pick = (step: Step, value: string) => {
+    const next = answer(setup, step, value)
+    setSetup(next)
+    setEditing(null)
     setPicks((n) => n + 1)
-    setIncludeTrivial(GOAL_SEARCH[next].includeTrivial)
-    setMinProfit(GOAL_SEARCH[next].minProfit)
+    const presets = presetsFor(next, step)
+    if (presets.includeTrivial !== undefined) setIncludeTrivial(presets.includeTrivial)
+    if (presets.minProfit !== undefined) setMinProfit(presets.minProfit)
+    if (presets.minRoi !== undefined) setMinRoi(presets.minRoi)
+    if (presets.unlearned !== undefined) setUnlearned(presets.unlearned)
+    if (presets.exits !== undefined) setExits(presets.exits)
   }
 
-  if (status.isPending) return <Loader />
+  if (status.isPending || characters.isPending) return <Loader />
   if (status.isError) return <Alert color="red">{status.error.message}</Alert>
   if (status.data.recipes === 0) {
     return (
@@ -289,18 +315,41 @@ export function SearchTab() {
   // The selection's auction house and its newest scan; undefined while the coverage is still loading.
   const house = coverage.data?.find((c) => c.auction_house_id === status.data.auction_house_id)
   const lastScan = coverage.data && status.data.auction_house_id !== null ? (house?.last_scan ?? null) : undefined
+  const professions = professionsOf(group, professionNames)
+  const step =
+    editing ??
+    nextStep(
+      setup,
+      professions.map((p) => p.name),
+      noCharacters,
+    )
+  const realmSelect = (
+    <Select
+      label="Realm and faction"
+      placeholder="No realm has prices yet"
+      data={grouped}
+      value={selection ? toKey(selection) : null}
+      onChange={(key) => key && select.mutate(fromKey(key))}
+      allowDeselect={false}
+      style={{ maxWidth: 420 }}
+    />
+  )
 
   return (
     <Stack>
       <PriceSignal />
-      <GoalPicker
-        goal={goal}
-        choosing={choosing}
-        onPick={pickGoal}
-        onChange={() => setChoosing(true)}
+      <Setup
+        setup={setup}
+        step={step}
+        professions={professions}
+        onPick={pick}
+        onOpen={setEditing}
         unavailable={noCharacters ? { skill: 'Import your characters first, so we know which skills they have.' } : {}}
-      />
-      {goal !== null && !choosing && (
+      >
+        {/* Which professions there are depends on the realm: it can be changed right there. */}
+        {step === 'profession' && realmSelect}
+      </Setup>
+      {step === null && (
         <>
           <Flex
             direction={{ base: 'column', sm: 'row' }}
@@ -309,15 +358,7 @@ export function SearchTab() {
             gap="md"
           >
             <Stack gap="xs" style={{ flex: 1 }}>
-              <Select
-                label="Realm and faction"
-                placeholder="No realm has prices yet"
-                data={grouped}
-                value={selection ? toKey(selection) : null}
-                onChange={(key) => key && select.mutate(fromKey(key))}
-                allowDeselect={false}
-                style={{ maxWidth: 420 }}
-              />
+              {realmSelect}
               {selection && lastScan !== undefined && (
                 <PriceFreshness lastScan={lastScan} ahledger={house?.sources.includes('ahledger')} />
               )}
@@ -336,6 +377,13 @@ export function SearchTab() {
               </Radio.Group>
             )}
           </Flex>
+          {selection && !browsing && !hasEnchanter(group) && (
+            <Alert color="yellow" title="Nobody here can disenchant">
+              None of your characters on {selection.realm} has Enchanting, so nothing can be disenchanted. Levelling
+              Enchanting on any alt is an easy way to expand your options: enchanting materials sell reliably.
+              {setup?.aim === 'gold' && setup.selling === 'reliable' && ' Until then only vendor sales count.'}
+            </Alert>
+          )}
           {selection && (
             <>
               {browsing && (

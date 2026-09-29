@@ -903,6 +903,17 @@
             ],
             "title": "Ah Price"
           },
+          "ah_quantity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ah Quantity"
+          },
           "ah_sell_price": {
             "anyOf": [
               {
@@ -1068,6 +1079,7 @@
           "effects",
           "ah_price",
           "ah_sell_price",
+          "ah_quantity",
           "vendor_price"
         ],
         "title": "ItemInfo",
@@ -1715,12 +1727,24 @@
             "title": "Sell Options",
             "type": "array"
           },
+          "skill_chance": {
+            "title": "Skill Chance",
+            "type": "number"
+          },
+          "skill_ups": {
+            "title": "Skill Ups",
+            "type": "number"
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/StepOut"
             },
             "title": "Steps",
             "type": "array"
+          },
+          "thin_market": {
+            "title": "Thin Market",
+            "type": "boolean"
           },
           "timing": {
             "anyOf": [
@@ -1750,8 +1774,11 @@
           "profit",
           "roi",
           "best_exit",
+          "thin_market",
           "postage",
           "mail_to",
+          "skill_chance",
+          "skill_ups",
           "exits",
           "reagents",
           "steps",
@@ -3299,7 +3326,7 @@
     },
     "/api/rank": {
       "get": {
-        "description": "What the selected realm/faction's characters can craft, the user's favorites first, then most\nprofitable first (each a session of the user's batch of crafts, or with `sort=rate` per hour of play in\nthe user's city); without characters, every recipe, crafted by one unnamed character (nothing is\nmailed). Bounds are inclusive and on the session's numbers; an omitted bound is unbounded (so losses are\nincluded unless `min_profit` is set).",
+        "description": "What the selected realm/faction's characters can craft, the user's favorites first, then most\nprofitable first (each a session of the user's batch of crafts, or with `sort=rate` per hour of play in\nthe user's city, or with `sort=skill` cheapest expected skill point first (`skill_ups`), those that give\nnone last); without characters, every recipe, crafted by one unnamed character (nothing is\nmailed). Bounds are inclusive and on the session's numbers; an omitted bound is unbounded (so losses are\nincluded unless `min_profit` is set).",
         "operationId": "get_rank_api_rank_get",
         "parameters": [
           {
@@ -3485,16 +3512,17 @@
             }
           },
           {
-            "description": "profit per session (the batch), or per hour of play",
+            "description": "profit per session (the batch), per hour of play, or cheapest skill point",
             "in": "query",
             "name": "sort",
             "required": false,
             "schema": {
               "default": "profit",
-              "description": "profit per session (the batch), or per hour of play",
+              "description": "profit per session (the batch), per hour of play, or cheapest skill point",
               "enum": [
                 "profit",
-                "rate"
+                "rate",
+                "skill"
               ],
               "title": "Sort",
               "type": "string"

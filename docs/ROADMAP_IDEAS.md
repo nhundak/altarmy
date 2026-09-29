@@ -123,7 +123,8 @@ off earlier than the planning features.
 
 - Trivial thresholds are ingested; `min_skill` is not usable yet (see README data notes).
 - Given a character and a target skill, find the cheapest path priced from the user's AH, net of
-  reselling the crafts. The trivial-only toggle is the first step toward this.
+  reselling the crafts. The Skill up setup already ranks one profession by the cheapest expected skill
+  point (`sort=skill`); what remains is a path across skill levels to a target.
 
 ### Alt planning
 

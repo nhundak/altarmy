@@ -1,5 +1,6 @@
 import os
 from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -202,6 +203,38 @@ def test_market_cache_checks_at_once_for_a_newer_price_version(
     assert cache.get(ah, at_least=known + 1).prices == {1: 7}
 
 
+def test_market_cache_keeps_the_listings_with_its_market(
+    db2_paths: dict[str, Path], conn: Connection, database: db.Database
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
+    now = db.utcnow()
+    prices.record_snapshot(conn, ah, "ahledger", now, [prices.Observation(1, 20, now, 3)])
+    cache = service.MarketCache(database, FOREVER)
+    priced = cache.get_priced(ah)
+    assert priced.market is cache.get(ah)  # the one rankings are cached on
+    assert priced.listings == {1: prices.Listing(20, 3)}
+    later = now + timedelta(minutes=1)
+    prices.record_snapshot(conn, ah, "ahledger", later, [prices.Observation(1, 20, later, 7)])
+    cache.invalidate()
+    assert cache.get_priced(ah).listings == {1: prices.Listing(20, 7)}
+    assert cache.get_priced(None).listings == {}
+
+
+def test_a_thin_market_is_an_ah_sale_resting_on_few_listed_units() -> None:
+    recipe = engine.Recipe(1, "Green Robe", 3, output_count=1)
+    tree = engine.Node(3, "Green Robe", 1, 100)
+    sale = engine.Result(recipe, 100, 500, "ah", tree, crafts=1)
+    assert service.thin_market(sale, {3: prices.Listing(900, 2)})
+    assert not service.thin_market(sale, {3: prices.Listing(900, 50)})
+    assert service.thin_market(
+        replace(sale, crafts=60), {3: prices.Listing(900, 50)}
+    )  # sells more than listed
+    assert not service.thin_market(sale, {3: prices.Listing(900, None)})  # unknown
+    assert not service.thin_market(sale, {})  # nobody lists it: no market to rest on
+    assert not service.thin_market(replace(sale, best_exit="vendor"), {3: prices.Listing(900, 2)})
+
+
 def test_selection_falls_back_to_the_freshest_scanned_realm(conn: Connection) -> None:
     assert service.selection(conn, ME, FOREVER, []) is None
     set_prices(conn, {1: 20}, realm="Dreamscythe", faction="Horde")
@@ -270,6 +303,29 @@ def test_by_rate_puts_the_best_per_hour_first() -> None:
     by_profit = service.search(market, [], "none", engine.Filters(), time=model)
     assert [r.recipe.name for r in by_profit] == ["Slow", "Fast"]
     assert [r.recipe.name for r in service.by_rate(by_profit)] == ["Fast", "Slow"]
+
+
+def test_by_skill_puts_the_cheapest_skill_point_first() -> None:
+    def recipe(i: int, name: str, low: int, high: int, cloth: int = 1) -> engine.Recipe:
+        return engine.Recipe(
+            i, name, 10 + i, 1, ((1, cloth),), "Tailoring", spell_id=i, trivial_low=low, trivial_high=high
+        )
+
+    recipes = [
+        recipe(1, "Orange", 55, 70),  # +5, a sure skill point
+        recipe(2, "Yellow", 50, 60),  # -7, a sure one: 7c a point
+        recipe(3, "Green", 40, 60),  # -5 at half a chance: 10c a point
+        recipe(4, "Grey", 20, 50),  # -1, but no skill point
+        recipe(5, "Sure", 0, 0, cloth=2),  # -10, thresholds unknown: a sure point, as dear as Green's
+    ]
+    sells = {1: 15, 2: 3, 3: 5, 4: 9, 5: 10}
+    items = {1: engine.Item(1, "Cloth")} | {
+        10 + i: engine.Item(10 + i, r.name, sell_price=sells[i]) for i, r in enumerate(recipes, 1)
+    }
+    tailor = engine.Crafter("Tailor", (("Tailoring", 50, 75),), frozenset({1, 2, 3, 4, 5}))
+    market = engine.Market(items, recipes, {1: 10}, crafters=[tailor], exits=frozenset({"vendor"}))
+    ranked = market.rank(min_profit=-(10**18))
+    assert [r.recipe.name for r in service.by_skill(ranked)] == ["Orange", "Yellow", "Sure", "Green", "Grey"]
 
 
 def test_favorites_first_keeps_each_part_in_order() -> None:

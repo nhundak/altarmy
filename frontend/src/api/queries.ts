@@ -52,6 +52,15 @@ export function useCharacters() {
   })
 }
 
+/** Every profession that has recipes in this game version, by name (game data: it changes only with an update). */
+export function useProfessions() {
+  return useQuery({
+    queryKey: ['professions', GAME_VERSION],
+    queryFn: () => call(client.GET('/api/professions', GV)),
+    staleTime: Infinity,
+  })
+}
+
 export function useDeleteCharacter() {
   const invalidate = useInvalidateAll()
   return useMutation({
@@ -80,8 +89,10 @@ export type RankParams = {
   maxProfit: number | null
   minRoi: number | null
   maxRoi: number | null
-  /** best profit per craft first, or per hour of play */
-  sort: 'profit' | 'rate'
+  /** only recipes of these professions; empty for every one */
+  professions: string[]
+  /** best profit per session first, per hour of play, or cheapest expected skill point */
+  sort: 'profit' | 'rate' | 'skill'
   top: number
 }
 
@@ -108,7 +119,8 @@ export function useRank(params: RankParams) {
               max_profit: orUndefined(params.maxProfit),
               min_roi: orUndefined(params.minRoi),
               max_roi: orUndefined(params.maxRoi),
-              sort: params.sort === 'rate' ? 'rate' : undefined,
+              professions: params.professions.length ? params.professions : undefined,
+              sort: params.sort === 'profit' ? undefined : params.sort,
               top: params.top,
               price_version: priceVersion,
             },

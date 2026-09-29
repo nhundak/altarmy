@@ -13,7 +13,23 @@ import { Money } from './Money'
 import { SessionDetails } from './SessionDetails'
 import classes from './ResultsTable.module.css'
 
-const COLUMNS = ['', 'Profit', 'Per hour', 'ROI', 'Recipe', 'Profession', 'Crafter', 'Cost', 'Revenue', 'Sell via']
+/** Profit per skill point the crafter can expect: shown only when the server ranked by it. */
+const PER_SKILL = 'Per skill up'
+const COLUMNS = [
+  '',
+  'Profit',
+  'Per hour',
+  PER_SKILL,
+  'ROI',
+  'Recipe',
+  'Profession',
+  'Crafter',
+  'Cost',
+  'Revenue',
+  'Sell via',
+]
+/** Profit per expected skill point (negative: what one costs); null when the craft can't give one. */
+const perSkillUp = (r: RankResult): number | null => (r.skill_ups ? r.profit / r.skill_ups : null)
 /** Sell via column text per exit; unknown exits show as-is. */
 const EXIT_LABELS: Readonly<Record<string, string>> = { ah: 'auction' }
 const exitLabel = (exit: string): string => EXIT_LABELS[exit] ?? exit
@@ -21,6 +37,7 @@ const exitLabel = (exit: string): string => EXIT_LABELS[exit] ?? exit
 const SORT_KEYS: Readonly<Record<string, (r: RankResult) => number | string>> = {
   Profit: (r) => r.profit,
   'Per hour': (r) => r.timing?.per_hour ?? -Infinity,
+  [PER_SKILL]: (r) => perSkillUp(r) ?? -Infinity,
   ROI: (r) => r.roi,
   Recipe: (r) => r.output_name,
   Profession: (r) => r.profession,
@@ -29,15 +46,16 @@ const SORT_KEYS: Readonly<Record<string, (r: RankResult) => number | string>> = 
   Revenue: (r) => r.revenue,
   'Sell via': (r) => exitLabel(r.best_exit),
 }
-const NUMERIC_COLUMNS: ReadonlySet<string> = new Set(['Profit', 'Per hour', 'ROI', 'Cost', 'Revenue'])
+const NUMERIC_COLUMNS: ReadonlySet<string> = new Set(['Profit', 'Per hour', PER_SKILL, 'ROI', 'Cost', 'Revenue'])
 /** Money columns: fixed width, room for -99g 99s 99c on one line (larger amounts drop copper, then silver). */
-const MONEY_COLUMNS: ReadonlySet<string> = new Set(['Profit', 'Per hour', 'Cost', 'Revenue'])
+const MONEY_COLUMNS: ReadonlySet<string> = new Set(['Profit', 'Per hour', PER_SKILL, 'Cost', 'Revenue'])
 const MONEY_WIDTH = 110
 /** Widths (px) for columns that should not just fit their content: crafter lists wrap, money never does. */
 const COLUMN_WIDTHS: Readonly<Record<string, number>> = {
   Crafter: 219,
   Profit: MONEY_WIDTH,
   'Per hour': MONEY_WIDTH,
+  [PER_SKILL]: MONEY_WIDTH,
   Cost: MONEY_WIDTH,
   Revenue: MONEY_WIDTH,
 }
@@ -50,9 +68,13 @@ const COLUMN_HIDDEN: Readonly<Record<string, string | undefined>> = {
   Crafter: classes.hideBelowSm,
   'Sell via': classes.hideBelowXs,
   'Per hour': classes.hideBelowXs,
+  [PER_SKILL]: classes.hideBelowXs,
 }
-/** What the server can rank by (the whole ranking, not just this page): profit per craft or per hour. */
-export type RankBy = 'profit' | 'rate'
+/** What the server can rank by (the whole ranking, not just this page): profit per session, per hour, or per
+ * expected skill point. */
+export type RankBy = 'profit' | 'rate' | 'skill'
+/** The column showing each ranking. */
+const RANK_COLUMN: Readonly<Record<RankBy, string>> = { profit: 'Profit', rate: 'Per hour', skill: PER_SKILL }
 
 type Sort = { column: string; descending: boolean }
 
@@ -84,6 +106,30 @@ function sorted(results: RankResult[], sort: Sort | null, favorites: ReadonlySet
   })
 }
 
+/** A row's profit per expected skill point, with the chance of one on hover. */
+function PerSkillCell({ result: r }: { result: RankResult }) {
+  const value = perSkillUp(r)
+  const crafts = `${r.crafts} ${r.crafts === 1 ? 'craft' : 'crafts'}`
+  return (
+    <Table.Td
+      className={COLUMN_HIDDEN[PER_SKILL]}
+      ff="monospace"
+      ta="right"
+      title={`${Math.round(r.skill_chance * 100)}% chance of a skill point per craft · ${r.skill_ups.toFixed(1)} expected from ${crafts}`}
+    >
+      {value === null ? (
+        <Text span size="sm" c="dimmed">
+          –
+        </Text>
+      ) : (
+        <Text span inherit c={value < 0 ? 'red' : 'teal'}>
+          <Money copper={Math.round(value)} padded />
+        </Text>
+      )}
+    </Table.Td>
+  )
+}
+
 /** The characters who know the recipe, the one doing the craft first. */
 const byCrafter = (crafters: string[], crafter: string) =>
   crafters.includes(crafter) ? [crafter, ...crafters.filter((c) => c !== crafter)] : crafters
@@ -103,6 +149,13 @@ const DOTS = (
     <circle cx="13" cy="8" r="1.5" />
   </svg>
 )
+
+/** Why a row is flagged as resting on a thin market: the units of its output listed, if known. */
+function thinTitle(output: ItemMap[string] | undefined): string {
+  const listed = output?.ah_quantity
+  if (listed == null) return 'Sell price rests on few listed units'
+  return `Sell price rests on ${listed} listed ${listed === 1 ? 'unit' : 'units'}`
+}
 
 /** A row's ⋯ menu: mark the recipe as a favorite or not, stop or allow selling its output on the AH. */
 function RowActions({
@@ -171,7 +224,8 @@ export function ResultsTable({
   rankBy?: RankBy
 }) {
   const actions = Boolean(onSetAhBlocked || onSetFavorite)
-  const columns = COLUMNS.length + (actions ? 1 : 0)
+  const shownColumns = rankBy === 'skill' ? COLUMNS : COLUMNS.filter((c) => c !== PER_SKILL)
+  const columns = shownColumns.length + (actions ? 1 : 0)
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set())
   const toggle = (id: number) =>
     setOpen((prev) => {
@@ -183,7 +237,7 @@ export function ResultsTable({
   const [sort, setSort] = useState<Sort | null>(null)
   // With no column picked here, the server's order shows on the column it ranked by.
   const shownSort: Sort | null =
-    sort ?? (rankBy ? { column: rankBy === 'rate' ? 'Per hour' : 'Profit', descending: true } : null)
+    sort ?? (rankBy ? { column: RANK_COLUMN[rankBy], descending: true } : null)
   const sortBy = (column: string) =>
     setSort(
       shownSort?.column === column
@@ -220,7 +274,7 @@ export function ResultsTable({
         <Table striped highlightOnHover stickyHeader>
           <Table.Thead>
             <Table.Tr>
-              {COLUMNS.map((c) => {
+              {shownColumns.map((c) => {
                 const active = shownSort?.column === c
                 return (
                   <Table.Th
@@ -280,6 +334,11 @@ export function ResultsTable({
                           ★
                         </Text>
                       )}
+                      {r.thin_market && (
+                        <Text span c="orange" ml={4} title={thinTitle(items[r.output_item_id])} aria-label="Thin market">
+                          ⚠
+                        </Text>
+                      )}
                       {modified && (
                         <Text span c="yellow" ml={4} title="Your changed plan, not the best one" aria-label="Changed plan">
                           ●
@@ -309,7 +368,8 @@ export function ResultsTable({
                         </Text>
                       )}
                     </Table.Td>
-                    <Table.Td>{formatRoi(r.roi)}</Table.Td>
+                    {rankBy === 'skill' && <PerSkillCell result={r} />}
+                    <Table.Td c={r.roi < 0 ? 'red' : undefined}>{formatRoi(r.roi)}</Table.Td>
                     <Table.Td>
                       <ItemLink
                         item={items[r.output_item_id]}

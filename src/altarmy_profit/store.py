@@ -157,6 +157,28 @@ def load_market(
     return Market(items, recipes, buy, de, ah_cut, mail_postage=mail_postage, sell_prices=sell)
 
 
+@dataclass(frozen=True)
+class Priced:
+    """A market and what its auction house lists of each item (for thin-market flags, which the engine
+    doesn't need)."""
+
+    market: Market
+    listings: dict[int, prices.Listing]
+
+
+def load_priced(
+    conn: Connection,
+    game_version: str,
+    auction_house_id: int | None,
+    *,
+    ah_cut: float = AH_CUT,
+    mail_postage: int = MAIL_POSTAGE,
+) -> Priced:
+    """`load_market` and the auction house's listings, read together."""
+    market = load_market(conn, game_version, auction_house_id, ah_cut=ah_cut, mail_postage=mail_postage)
+    return Priced(market, prices.load_listings(conn, auction_house_id))
+
+
 def load_cities(folder: Path) -> dict[str, timing.CityMap]:
     """The city presets in `folder` (a version's `cities_dir`) by name, sorted; none if it is missing.
     ValueError naming the file if one is malformed."""

@@ -256,6 +256,7 @@ def test_rank_sends_reagents_and_item_details(client: TestClient, priced: Connec
         ],
         "ah_price": None,
         "ah_sell_price": None,
+        "ah_quantity": None,
         "vendor_price": None,
     }
 
@@ -367,6 +368,19 @@ def test_rank_unlearned_recipes(client: TestClient, priced: Connection) -> None:
     assert client.get("/api/rank", params={"unlearned": "maybe"}).status_code == 422
 
 
+def test_rank_by_skill_reports_the_chance_of_a_skill_point(client: TestClient, priced: Connection) -> None:
+    # Tailor Guy has Tailoring 50: the robe is yellow from 30 and grey from 60
+    (r,) = client.get("/api/rank", params={"sort": "skill"}).json()["results"]
+    assert r["skill_chance"] == pytest.approx(1 / 3)
+    assert r["skill_ups"] == pytest.approx(10 / 3)  # a session of the default batch of 10
+    one_craft(client)
+    (r,) = client.get("/api/rank", params={"sort": "skill", "professions": ["Tailoring"]}).json()["results"]
+    assert r["skill_ups"] == pytest.approx(1 / 3)
+    (r,) = client.get("/api/rank").json()["results"]
+    assert r["skill_chance"] == pytest.approx(1 / 3)
+    assert client.get("/api/rank", params={"sort": "cheapest"}).status_code == 422
+
+
 def test_rank_and_evaluate_without_trivial_recipes(client: TestClient, priced: Connection) -> None:
     veteran = Character(
         "Realm", "Veteran", "Horde", "MAGE", 60, (Profession("Tailoring", 60, 150, frozenset({900})),)
@@ -374,6 +388,7 @@ def test_rank_and_evaluate_without_trivial_recipes(client: TestClient, priced: C
     service.replace_characters(priced, ME, FOREVER, [veteran])  # the robe is grey from 60
     set_prices(priced, {1: 20, 2: 100}, realm="Realm")
     (r,) = client.get("/api/rank").json()["results"]
+    assert r["skill_chance"] == 0.0
     grey = client.get("/api/rank", params={"include_trivial": False}).json()
     assert (grey["results"], grey["total"]) == ([], 0)
     body = {"recipe_id": r["recipe_id"], "choices": {}}
@@ -569,6 +584,34 @@ def test_rank_sells_at_the_lower_of_now_and_the_seven_day_median(
     assert (robe["ah_price"], robe["ah_sell_price"]) == (3_330_000, 1000)
 
 
+def test_rank_buys_at_the_cheapest_listing_and_says_how_many_are_listed(
+    client: TestClient, priced: Connection
+) -> None:
+    ah = prices.auction_house(priced, FOREVER, "Classic Beta PvE", "Horde")
+    now = db.utcnow()
+    prices.record_snapshot(priced, ah, "ahledger", now, [prices.Observation(1, 20, now, 3)])
+    body = client.get("/api/rank").json()
+    linen = body["items"]["1"]
+    assert (linen["ah_price"], linen["ah_quantity"]) == (20, 3)
+    (r,) = body["results"]
+    buy = next(step for step in r["steps"] if step["item_id"] == 1)
+    assert buy["value"] == -20 * buy["quantity"]
+
+
+@pytest.mark.parametrize(("listed", "thin"), [(2, True), (50, False)])
+def test_rank_flags_a_sale_resting_on_a_thin_market(
+    client: TestClient, priced: Connection, listed: int, thin: bool
+) -> None:
+    one_craft(client)
+    ah = prices.auction_house(priced, FOREVER, "Classic Beta PvE", "Horde")
+    now = db.utcnow()
+    prices.record_snapshot(priced, ah, "ahledger", now, [prices.Observation(3, 1000, now, listed)])
+    body = client.get("/api/rank").json()
+    (r,) = body["results"]
+    assert (r["best_exit"], r["thin_market"]) == ("ah", thin)
+    assert body["items"]["3"]["ah_quantity"] == listed
+
+
 def test_rank_pages_through_one_search(
     client: TestClient, priced: Connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -592,6 +635,8 @@ def test_rank_pages_through_one_search(
     assert len(calls) == 3  # other parameters rank again
     client.get("/api/rank", params={"top": 1, "sort": "rate"})
     assert len(calls) == 3  # sorting by rate reuses the ranking
+    client.get("/api/rank", params={"top": 1, "sort": "skill"})
+    assert len(calls) == 3  # so does sorting by skill
     client.put("/api/time", json={"config": {"batch": 3}})
     client.get("/api/rank", params={"top": 1})
     assert len(calls) == 4  # plans depend on the time settings

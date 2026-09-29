@@ -383,6 +383,8 @@ price_observations = Table(
     Column("min_buyout", BigInteger, nullable=False),
     Column("quantity", Integer),
     Column("listings", Integer),
+    # a price feed's (AHledger's) 7/30-day median when below min_buyout; NULL: no cap
+    Column("sell_cap", BigInteger),
     Index(None, "item_id"),
 )
 
@@ -403,6 +405,8 @@ price_current = Table(
     Column("median_7d", BigInteger),  # filled by the Phase 6 merge job
     Column("avail_7d", Integer),
     Column("scans_7d", Integer),
+    Column("sell_cap", BigInteger),  # the most a sale counts as, from a feed's medians; NULL: no cap
+    Column("quantity", Integer),  # units listed at the newest sighting; NULL: unknown
 )
 
 # The last price table an external feed served per market (AHledger's `ahledger`), so a poll records only

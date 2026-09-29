@@ -27,7 +27,11 @@ unless marked otherwise. The hosted plan's decision that addon uploads are the p
 - The header's unix time equalled the newest scan's `observedAt` to the second (Wool Cloth, 2026-09-27
   07:12:36Z), so it is the time of the newest scan in the table. Rows carry no time of their own; only
   `/v1/prices/{market}/{item}` gives an item's `latest.observedAt`, and the poller never calls it (one
-  request per market an hour, to stay well clear of the rate limit). It keeps each market's last table
+  request per market an hour, to stay well clear of the rate limit). Its hourly `p25` was tried as the
+  buy price for rows whose listing median is far above the min buyout, and dropped (2026-09-29): with a
+  handful of auctions its percentiles count listings, not units, so a 64-unit market of two auctions
+  priced Mana Potions at the dear one. Reagents are bought at the min buyout. It keeps each market's last
+  table
   and records only rows new or changed since, at the new table's time: off by at most the gap between
   tables. A market's first table is recorded as seen when fetched; it starts the history, and uploads
   come after it.
@@ -73,8 +77,9 @@ Fit with this app:
 
 - The price table is one request per market and maps straight onto `prices.record_snapshot`: one
   `price_snapshots` row with a new source (`ahledger`), `min_buyout` from the table, `seen_at` from the
-  header's time. Its `median7d` could seed `price_current.median_7d` for realms our merge has no days for,
-  but our own `price_daily` should stay the basis once we have scans.
+  header's time. Its `median7d` and `median30d` cap the sell price (`price_current.sell_cap`, stored
+  only when below the min buyout: a lone absurd ask); our own `price_daily` stays the basis of
+  `median_7d`.
 - **Markets are per ruleset and faction, not per realm.** That matches the beta, which has one realm per
   ruleset (`ClassicBetaPvE`, `ClassicBetaPvP2`), but `auction_houses` is keyed by realm and faction. If
   launch brings several realms per ruleset, AHledger's numbers would be pooled across them. Decide then

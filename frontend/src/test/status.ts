@@ -43,3 +43,25 @@ export const characters: Characters = {
   ],
   selection: { realm: 'Classic Beta PvE', faction: 'Horde' },
 }
+
+/** `characters` with an enchanter beside the tailor on Classic Beta PvE (Horde). */
+export const withEnchanter: Characters = {
+  ...characters,
+  groups: characters.groups.map((g, i) =>
+    i === 0
+      ? {
+          ...g,
+          characters: [
+            ...g.characters,
+            {
+              name: 'Enchy',
+              class_file: 'PRIEST',
+              level: 20,
+              professions: [{ name: 'Enchanting', rank: 60, max_rank: 75, recipes: 0 }],
+              talents: [],
+            },
+          ],
+        }
+      : g,
+  ),
+}

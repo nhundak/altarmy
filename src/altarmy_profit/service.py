@@ -38,7 +38,7 @@ STAMP_TTL = 10.0  # seconds a cached market is trusted before its stamp is check
 
 @dataclass
 class _Cached:
-    market: Market
+    priced: store.Priced
     stamp: store.MarketStamp
     checked: float  # clock time of the last stamp check
 
@@ -79,25 +79,29 @@ class MarketCache:
         """The version's game data priced by the auction house (None: unpriced). `at_least`: a price
         version the caller knows of (a price signal told the front end); a market built on an older one
         is checked now, not after STAMP_TTL."""
+        return self.get_priced(auction_house_id, at_least).market
+
+    def get_priced(self, auction_house_id: int | None, at_least: int | None = None) -> store.Priced:
+        """`get`'s market with the auction house's listings, built and cached together."""
         with self._lock:
             cached = self._markets.get(auction_house_id)
             now = self._clock()
             if cached is not None and now - cached.checked < STAMP_TTL and not _older(cached.stamp, at_least):
-                return cached.market
+                return cached.priced
             with self.database.begin() as conn:
                 stamp = store.market_stamp(conn, self.game_version, auction_house_id)
                 if cached is not None and cached.stamp == stamp:
                     cached.checked = now
-                    return cached.market
-                market = store.load_market(
+                    return cached.priced
+                priced = store.load_priced(
                     conn,
                     self.game_version,
                     auction_house_id,
                     ah_cut=self.ah_cut,
                     mail_postage=self.mail_postage,
                 )
-            self._markets[auction_house_id] = _Cached(market, stamp, now)
-            return market
+            self._markets[auction_house_id] = _Cached(priced, stamp, now)
+            return priced
 
     def invalidate(self, auction_house_ids: Iterable[int] | None = None) -> None:
         """Drop the cached markets of these auction houses (default: all)."""
@@ -245,10 +249,30 @@ def _market(
     )
 
 
+def thin_market(r: Result, listings: Mapping[int, prices.Listing]) -> bool:
+    """Whether the result's sale on the AH rests on a thin market: fewer units listed than
+    `prices.THIN_UNITS` or than the plan sells. Informational: the ranking doesn't use it."""
+    listing = listings.get(r.recipe.output_item_id)
+    if r.best_exit != "ah" or listing is None:
+        return False
+    return prices.thin_market(listing.quantity, r.recipe.output_count * r.crafts)
+
+
 def by_rate(results: Iterable[Result]) -> list[Result]:
     """`results` by profit per hour, best first (untimed ones last; ties keep their order). Times every
     result, once: they cache their timing."""
     return sorted(results, key=lambda r: -(r.rate if r.rate is not None else -(10**18)))
+
+
+def by_skill(results: Iterable[Result]) -> list[Result]:
+    """`results` by what an expected skill point costs, cheapest first (so profitable ones lead), those that
+    can't give one last; ties go to the surer skill point, then the more profitable."""
+
+    def key(r: Result) -> tuple[bool, float, float, int]:
+        ups = r.skill_ups
+        return (ups == 0, -r.profit / ups if ups else 0.0, -r.skill_chance, -r.profit)
+
+    return sorted(results, key=key)
 
 
 def favorites_first(results: Iterable[Result], favorites: frozenset[int]) -> list[Result]:

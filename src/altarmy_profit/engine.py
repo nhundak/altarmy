@@ -125,6 +125,18 @@ def can_skill_up(recipe: Recipe, crafter: Crafter) -> bool:
     return skill is not None and skill[0] < recipe.trivial_high and skill[0] < skill[1]
 
 
+def skill_up_chance(recipe: Recipe, crafter: Crafter) -> float:
+    """The chance a craft of `recipe` gives `crafter` a skill point: 0 unless `can_skill_up`; 1 while it is
+    orange (below `trivial_low`, or its thresholds are unknown); then falling evenly from 1 at yellow to 0
+    at grey."""
+    if not can_skill_up(recipe, crafter):
+        return 0.0
+    skill = crafter.skill(recipe.skill_name)
+    if not recipe.trivial_high or skill is None or skill[0] < recipe.trivial_low:
+        return 1.0
+    return (recipe.trivial_high - skill[0]) / (recipe.trivial_high - recipe.trivial_low)
+
+
 @dataclass(frozen=True)
 class DisenchantRow:
     item_class: int
@@ -259,6 +271,7 @@ class Result:
     crafter: str = ""  # who does the final craft; "" if no characters are known
     sell_options: list[SellOption] = field(default_factory=list)  # each exit's best profit, best first
     bonus_output: float = 0.0  # expected extra units from the crafter's talents (Master Chef), all crafts
+    skill_chance: float = 0.0  # that the final craft gives `crafter` a skill point (1 without characters)
     # With a time model: the estimated play time per craft (what the plan was chosen by), and the per-craft
     # seconds of the sale and of mailing the output to whoever sells it
     seconds: float = field(default=0.0, compare=False)
@@ -304,6 +317,11 @@ class Result:
         """Copper per hour of play; None without a time model."""
         t = self.timing
         return None if t is None else t.per_hour(self.profit)
+
+    @property
+    def skill_ups(self) -> float:
+        """The skill points `crafter` can expect from all `crafts`."""
+        return self.skill_chance * self.crafts
 
     @property
     def profit(self) -> int:
@@ -1147,6 +1165,8 @@ class Market:
             mail_act, mail_est = self._mail_seconds(recipe.output_item_id, tree.made)
             # A Master Chef's extra results are counted at their expected number; mailing them is not charged.
             bonus = self._bonus_output(recipe, who) * crafts
+            crafter = self._by_name.get(who)
+            chance = 1.0 if crafter is None else skill_up_chance(recipe, crafter)
             for exit in here:
                 postage = mail if exit.postage else 0
                 revenue = round(exit.value * (recipe.output_count * crafts + bonus))
@@ -1167,6 +1187,7 @@ class Market:
                     exit.mail_to,
                     who,
                     bonus_output=bonus,
+                    skill_chance=chance,
                     seconds=seconds,
                     sell_seconds=sell_act,
                     disenchant_seconds=(

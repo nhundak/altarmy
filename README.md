@@ -82,15 +82,20 @@ The main page opens with a welcome banner and three ways to start:
   learned, skill-gated or mailed.
 
 Once one is done (or characters already exist) the cards fold into a one-line summary (open it to see or
-remove characters) and the search asks **What is your goal?**:
+remove characters) and the search asks a few questions, one at a time:
 
-- **Maximize profit** ranks by profit per hour of play.
-- **Make profit on a budget** ranks by profit per craft.
-- **Skill up for minimum expense** ranks by profit per craft, shows only recipes that can still give the
-  crafter a skill point, and drops the minimum profit, so cheap losing crafts show too.
+- **What are you after?** **Make gold** ranks by profit per hour of play and shows only profitable recipes your characters know. **Skill up** (needs imported
+  characters) asks **Which profession?** (one someone on the selected realm has), shows only that
+  profession's recipes that can still give the crafter a skill point (with those a character can
+  train within 20 points), drops the minimum profit so cheap
+  losing crafts show too (their numbers in red), and ranks by the cheapest expected skill point (a **Per
+  skill up** column).
+- **How do you want to sell?** (making gold) **Only what reliably sells** sells via vendors and
+  disenchanting; **Anything that might sell** adds the auction house.
 
-Picking one presets those filters (they stay editable) and folds the goals into one row with **Change
-goal**. Then:
+Each answer presets the filters it is about (they stay editable) and the questions fold into one row of
+the answers, each opening its question again. With no enchanter on the selected realm, a notice
+suggests levelling Enchanting on an alt. Then:
 
 - **Search** ranks what your characters on the chosen realm and faction can craft (every profession they
   have), and names who crafts each recipe. The realm picker also lists every other realm with prices, to
@@ -102,7 +107,7 @@ goal**. Then:
   first. Picking one re-costs the recipe, adding or removing buy, craft and mail steps, and the row
   shows the changed numbers. **Reset** goes back to the best plan. A row's ⋯ menu can mark its output
   **Never sell on auction house**: from then on it is only vendored or disenchanted (it can still be
-  bought there). Column headers sort the loaded rows (the goal decides the ranking itself). An expanded row shows each step's seconds, the batch's time and
+  bought there). Column headers sort the loaded rows (the setup decides the ranking itself). An expanded row shows each step's seconds, the batch's time and
   where each character runs, and how long the plan takes in each city the faction can craft in, the
   quickest marked. **Play Time and City** sets the city, crafts per session, what an hour is worth and
   the seconds each action takes (all saved per user).
@@ -314,11 +319,12 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
   `price_current`, which the ranking reads. Auctionator's per-day high/low/available go to `price_daily`
   (pooled across uploaders: lowest low, highest high), which is kept indefinitely (Auctionator itself
   forgets old days).
-- **Buy and sell prices.** Reagents cost the current minimum buyout. A craft (and disenchant materials)
-  sells for the lower of that and the item's 7-day median: the median of its daily medians over its
-  latest 7 days with data in the last 30. So a lone overpriced listing (a 2g bag listed at 2,700g) isn't
-  taken for the going rate. The merge (`altarmy-profit merge`, hourly on the site) fills the medians; prices
-  set by hand are used as they are.
+- **Buy and sell prices.** Reagents cost the current minimum buyout. A craft (and disenchant materials) sells for the lowest of the minimum buyout, the item's 7-day
+  median (the median of its daily medians over its latest 7 days with data in the last 30) and AHledger's
+  7- and 30-day medians. So a lone overpriced listing (a 2g bag listed at 2,700g) isn't taken for the
+  going rate. A sale resting on fewer than 5 listed units, or fewer than the plan sells, is flagged. The
+  merge (`altarmy-profit merge`, hourly on the site) fills our medians; prices set by hand are used as
+  they are.
 - **Disenchant results are not in DB2** (they are server-side loot tables). `data/<version>/disenchant.csv`
   (`item_class,quality,min_ilvl,max_ilvl,result_item_id,chance,min_count,max_count`) holds the rates.
   Forever's are Classic-era rates, derived from the brackets Auctionator uses for Classic clients, and

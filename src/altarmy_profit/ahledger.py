@@ -4,11 +4,15 @@ don't resell them as a feed.
 
 A market (`forever.normal.horde.us`) is one ruleset and faction; `GameVersion.ahledger_realms` names each
 ruleset's realm, so a market prices one (realm, faction) auction house. A poll costs one request per
-market: the price table. It carries one time, that of its newest scan, and no per-row times, so the last
-table is kept (`feed_tables`) and a poll records only the rows that are new or changed since, as seen
+market: the price table. It carries one time, that of its newest scan, and no per-row times, so the
+last table is kept (`feed_tables`) and a poll records only the rows that are new or changed since, as seen
 when the new table was (its time, never before the previous stamp: the table is cached for minutes). The
 very first table of a market is recorded as seen when it was fetched: it starts the market's history, and
 uploads come after it. The newest seen_at wins between feed and uploads (`prices.record_snapshot`).
+
+Outliers. Reagents are bought at the cheapest listing. A lone absurd ask sells for no more than the lower
+of the 7- and 30-day medians (`sell_cap`). A row counts as changed only when its cheapest listing, quantity
+or cap did, so drifting medians record nothing.
 
 HTTP is the standard library's; the transport is injectable for tests. Bad responses raise ValueError.
 """
@@ -48,8 +52,10 @@ class AHledgerError(Exception):
 @dataclass(frozen=True)
 class Row:
     min_buyout: int
-    median: int
+    median: int  # of the listings
     quantity: int
+    median7d: int = 0  # 0: AHledger has none
+    median30d: int = 0
 
 
 @dataclass(frozen=True)
@@ -80,9 +86,10 @@ def parse_table(text: str) -> Table:
         if len(fields) < 4:
             raise ValueError(f"bad AHledger price table row: {line[:80]!r}")
         item, median, min_buyout, quantity = (_int(f, "row") for f in fields[:4])
+        median7d, median30d = (*(max(0, _int(f, "row")) for f in fields[4:6]), 0, 0)[:2]
         if item <= 0 or min_buyout <= 0:
             continue
-        rows[item] = Row(min_buyout, median, quantity)
+        rows[item] = Row(min_buyout, median, quantity, median7d, median30d)
     if count != len(lines) - 1:
         raise ValueError(f"AHledger price table promised {count} rows, has {len(lines) - 1}")
     return Table(market, scanned_at, rows)
@@ -93,6 +100,14 @@ def _int(text: str, what: str) -> int:
         return int(text)
     except ValueError:
         raise ValueError(f"bad {what} in AHledger price table: {text[:40]!r}") from None
+
+
+def sell_cap(row: Row) -> int | None:
+    """The most a sale counts as: the lower of the 7- and 30-day medians, when below the cheapest listing
+    (a lone absurd ask); None otherwise, or without medians."""
+    medians = [m for m in (row.median7d, row.median30d) if m > 0]
+    cap = min(medians, default=None)
+    return cap if cap is not None and cap < row.min_buyout else None
 
 
 # --- HTTP ------------------------------------------------------------------------------------------
@@ -235,7 +250,10 @@ def poll_market(
     else:
         stamp = max(table.scanned_at, previous.stamped_at)
         rows = {i: r for i, r in table.rows.items() if _changed(r, previous.table.rows.get(i))}
-    observations = [prices.Observation(i, r.min_buyout, stamp, r.quantity) for i, r in sorted(rows.items())]
+    observations = [
+        prices.Observation(i, r.min_buyout, stamp, r.quantity, sell_cap=sell_cap(r))
+        for i, r in sorted(rows.items())
+    ]
     got = prices.Recorded(0)
     if observations:
         got = prices.record_screened(conn, ah, prices.AHLEDGER, stamp, observations, trust=FEED_TRUST)
@@ -255,7 +273,12 @@ def poll_market(
 
 
 def _changed(row: Row, before: Row | None) -> bool:
-    return before is None or (row.min_buyout, row.quantity) != (before.min_buyout, before.quantity)
+    """Whether the row tells something new: its cheapest listing, quantity or cap moved."""
+    return before is None or _key(row) != _key(before)
+
+
+def _key(row: Row) -> tuple[int, int, int | None]:
+    return row.min_buyout, row.quantity, sell_cap(row)
 
 
 def _previous(conn: Connection, market: str) -> _Previous | None:

@@ -1,15 +1,9 @@
-/* Three equal cards; one column on phones. */
-.goals {
+/* A question's cards (two to four, or one per profession), as many to a row as fit; one column on phones. */
+.cards {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
   gap: var(--mantine-spacing-md);
   align-items: stretch;
-}
-
-@media (max-width: 48em) {
-  .goals {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* A card's button stretches to the row's tallest card; a button centers its content, so start it at the top. */

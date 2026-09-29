@@ -309,3 +309,59 @@ def test_0011_item_tooltip_columns_default_empty(database: db.Database) -> None:
         db.upgrade(conn)
         row = conn.execute(select(t.c.armor, t.c.dmg_min, t.c.dmg_max, t.c.dps, t.c.stats, t.c.effects)).one()
         assert tuple(row) == (0, 0, 0, 0.0, "[]", "[]")
+
+
+def test_0013_feed_price_columns_start_empty_and_feed_tables_restart(database: db.Database) -> None:
+    """The new price columns read NULL for existing rows (no cap, quantity unknown), and
+    every market's last table is forgotten so the next poll records every row with them."""
+    when = datetime(2026, 9, 29, tzinfo=UTC)
+    with database.engine.begin() as conn:
+        command.downgrade(db.alembic_config(conn), "0012")
+        assert "sell_cap" not in {c["name"] for c in inspect(conn).get_columns("price_current")}
+        old = MetaData()
+        old.reflect(conn, only=["auction_houses", "price_snapshots", "price_observations", "price_current"])
+        old.reflect(conn, only=["feed_tables"])
+        t = old.tables
+        ah: int = conn.execute(
+            t["auction_houses"]
+            .insert()
+            .values(game_version="forever", realm="Classic Beta PvE", faction="Horde")
+            .returning(t["auction_houses"].c.id)
+        ).scalar_one()
+        snapshot: int = conn.execute(
+            t["price_snapshots"]
+            .insert()
+            .values(
+                auction_house_id=ah,
+                source="ahledger",
+                scanned_at=when,
+                received_at=when,
+                item_count=1,
+                status="accepted",
+            )
+            .returning(t["price_snapshots"].c.id)
+        ).scalar_one()
+        conn.execute(t["price_observations"].insert().values(snapshot_id=snapshot, item_id=1, min_buyout=5))
+        conn.execute(
+            t["price_current"]
+            .insert()
+            .values(auction_house_id=ah, item_id=1, price=5, seen_at=when, snapshot_id=snapshot)
+        )
+        conn.execute(
+            t["feed_tables"]
+            .insert()
+            .values(
+                source="ahledger",
+                market="forever.normal.horde.us",
+                auction_house_id=ah,
+                scanned_at=when,
+                stamped_at=when,
+                fetched_at=when,
+                body="AHL1|forever/normal/horde/us|1|1\n1:5:5:3",
+            )
+        )
+        db.upgrade(conn)
+        pc, obs = schema.price_current, schema.price_observations
+        assert tuple(conn.execute(select(pc.c.price, pc.c.sell_cap, pc.c.quantity)).one()) == (5, None, None)
+        assert conn.execute(select(obs.c.sell_cap)).scalar_one() is None
+        assert conn.execute(select(func.count()).select_from(schema.feed_tables)).scalar_one() == 0

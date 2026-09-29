@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { RankResult } from '../api/client'
@@ -37,6 +37,21 @@ const disenchanted: RankResult = {
     { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 75988, via: 'disenchant', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['sell'] },
   ],
 }
+
+describe('ResultsTable thin markets', () => {
+  it('flags a sale resting on a thin market with the units listed', () => {
+    const thin = { ...robe, recipe_id: 102, best_exit: 'ah', thin_market: true }
+    renderWithProviders(<ResultsTable results={[thin]} items={{ ...items, '3': { ...robeItem, ah_quantity: 3 } }} />)
+    expect(screen.getByLabelText('Thin market')).toHaveAttribute('title', 'Sell price rests on 3 listed units')
+  })
+
+  it('says few units when the quantity is unknown, and flags nothing else', () => {
+    const thin = { ...robe, recipe_id: 102, best_exit: 'ah', thin_market: true }
+    renderWithProviders(<ResultsTable results={[thin, robe]} items={items} />)
+    expect(screen.getAllByLabelText('Thin market')).toHaveLength(1)
+    expect(screen.getByLabelText('Thin market')).toHaveAttribute('title', 'Sell price rests on few listed units')
+  })
+})
 
 /** Checks the open disenchant tooltip lists both materials and the expected total. */
 async function expectDisenchantTooltip() {
@@ -546,6 +561,29 @@ describe('ResultsTable profit per hour', () => {
     renderWithProviders(<ResultsTable results={[timedRobe]} items={items} rankBy="rate" />)
     expect(header('Per hour')).toHaveAttribute('aria-sort', 'descending')
     expect(header('Profit')).toHaveAttribute('aria-sort', 'none')
+  })
+
+  it('shows a ranking by skill on its own column, with the chance on hover', async () => {
+    const chancy: RankResult = { ...timedRobe, profit: -300, roi: -0.5, crafts: 10, skill_chance: 0.25, skill_ups: 2.5 }
+    const grey: RankResult = { ...timedRobe, recipe_id: 7, recipe: 'Cap', output_name: 'Cap', skill_chance: 0, skill_ups: 0 }
+    renderWithProviders(<ResultsTable results={[chancy, grey]} items={items} rankBy="skill" />)
+    expect(header('Per skill up')).toHaveAttribute('aria-sort', 'descending')
+    expect(header('Profit')).toHaveAttribute('aria-sort', 'none')
+    const cell = line('-_1 20')
+    expect(cell).toHaveAttribute('title', '25% chance of a skill point per craft · 2.5 expected from 10 crafts')
+    expect(line('–')).toBeInTheDocument() // the grey one gives none
+    // a losing recipe reads as a loss in every number column
+    const color = (el: HTMLElement) => el.closest<HTMLElement>('[style]')?.style.color.match(/--mantine-color-(\w+)-text/)?.[1]
+    expect(color(line('-50%'))).toBe('red')
+    expect(color(within(cell).getByTitle('silver'))).toBe('red')
+    expect(color(within(line('-_3 _0')).getByTitle('silver'))).toBe('red') // the profit
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Per skill up' }))
+    expect(header('Per skill up')).toHaveAttribute('aria-sort', 'ascending')
+  })
+
+  it('shows no skill column for other rankings', () => {
+    renderWithProviders(<ResultsTable results={[timedRobe]} items={items} rankBy="profit" />)
+    expect(screen.queryByRole('columnheader', { name: /Per skill up/ })).not.toBeInTheDocument()
   })
 
   it('names the new Forever stations a plan needs, counted as set down on the spot', async () => {

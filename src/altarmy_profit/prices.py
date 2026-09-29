@@ -7,15 +7,20 @@ per-day history also fills `price_daily`, pooled across uploaders. Observations 
 `KEEP_DAYS`; daily rows are kept. `merge.py` fills the 7-day columns, which set the sell price
 (`load_buy_and_sell`) and the baseline an uploaded scan is screened against (`screen`): one whose prices
 are mostly far off it is quarantined and changes nothing.
+
+A price feed (AHledger) says more than the cheapest listing: the most a sale counts as
+(`Observation.sell_cap`, from its longer medians). Uploads don't know it, so they keep what the feed said
+(`_carried`). The quantity listed
+is kept current without being news (`_restocked`): it flags thin markets, and moves no price.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import ColumnElement, Connection, case, delete, func, select, update
+from sqlalchemy import ColumnElement, Connection, bindparam, case, delete, func, select, update
 
 from . import db, schema
 from .auctionator import ItemPrice
@@ -24,6 +29,8 @@ KEEP_DAYS = 90  # observations older than this are pruned (price_daily is kept)
 AUCTIONATOR = "auctionator"
 AHLEDGER = "ahledger"  # AHledger's crowdsourced scans (`ahledger`)
 HAND_SET = ("manual", "csv")  # sources whose price is used as it is, never capped by the 7-day median
+FEEDS = (AHLEDGER,)  # sources whose observations carry their own sell cap
+THIN_UNITS = 5  # fewer units listed than this: a sale there rests on a thin market
 
 # Screening an uploaded scan against the 7-day medians (normal scans have at most ~5% of items this far off)
 WILD_RATIO = 4.0  # a price more than this many times off its median, either way, is wild
@@ -42,6 +49,7 @@ class Observation:
     seen_at: datetime  # when that price was on the auction house
     quantity: int | None = None
     listings: int | None = None
+    sell_cap: int | None = None  # a feed's: the most a sale counts as, when below min_buyout (None: no cap)
 
 
 # --- auction houses --------------------------------------------------------------------------------
@@ -317,12 +325,18 @@ def record_snapshot(
     the auction house's `price_version` is bumped.
 
     An observation is news when the auction house has no price for the item, when it was seen on a later
-    day, or when it was seen no earlier and its price differs. Re-sending the same scan writes nothing."""
+    day, or when it was seen no earlier and its price or sell cap differs (an upload's taken
+    with what the feed said: `_carried`). A newer quantity alone updates `price_current` in place and is not
+    news. Re-sending the same scan writes nothing."""
     snapshot_id = _insert_snapshot(
         conn, auction_house_id, source, scanned_at, len(observations), received_at, uploader_uid, "accepted"
     )
     current = _current(conn, auction_house_id)
-    news = [o for o in observations if _is_news(o, current.get(o.item_id))]
+    carried = [(o, _carried(o, current.get(o.item_id), source)) for o in observations]
+    _update_quantities(
+        conn, auction_house_id, [c for _, c in carried if _restocked(c, current.get(c.item_id))]
+    )
+    news = [(o, c) for o, c in carried if _is_news(c, current.get(c.item_id))]
     if not news:
         return 0
     conn.execute(
@@ -334,22 +348,26 @@ def record_snapshot(
                 "min_buyout": o.min_buyout,
                 "quantity": o.quantity,
                 "listings": o.listings,
+                "sell_cap": o.sell_cap,
             }
-            for o in news
+            for o, _ in news
         ],
     )
     pc = schema.price_current
     rows = [
         {
             "auction_house_id": auction_house_id,
-            "item_id": o.item_id,
-            "price": o.min_buyout,
-            "seen_at": db.utc(o.seen_at),
+            "item_id": c.item_id,
+            "price": c.min_buyout,
+            "seen_at": db.utc(c.seen_at),
             "snapshot_id": snapshot_id,
+            "sell_cap": c.sell_cap,
+            "quantity": c.quantity,
         }
-        for o in news
+        for _, c in news
     ]
-    db.upsert(conn, pc, rows, ["auction_house_id", "item_id"], ["price", "seen_at", "snapshot_id"])
+    updated = ["price", "seen_at", "snapshot_id", "sell_cap", "quantity"]
+    db.upsert(conn, pc, rows, ["auction_house_id", "item_id"], updated)
     bump_price_version(conn, auction_house_id)
     return len(news)
 
@@ -359,20 +377,66 @@ def bump_price_version(conn: Connection, auction_house_id: int) -> None:
     conn.execute(update(t).where(t.c.id == auction_house_id).values(price_version=t.c.price_version + 1))
 
 
-def _current(conn: Connection, auction_house_id: int) -> dict[int, tuple[int, datetime]]:
+@dataclass(frozen=True)
+class _Current:
+    price: int
+    seen_at: datetime
+    sell_cap: int | None
+    quantity: int | None
+
+
+def _current(conn: Connection, auction_house_id: int) -> dict[int, _Current]:
     pc = schema.price_current
     rows = conn.execute(
-        select(pc.c.item_id, pc.c.price, pc.c.seen_at).where(pc.c.auction_house_id == auction_house_id)
+        select(pc.c.item_id, pc.c.price, pc.c.seen_at, pc.c.sell_cap, pc.c.quantity).where(
+            pc.c.auction_house_id == auction_house_id
+        )
     )
-    return {r.item_id: (r.price, db.utc(r.seen_at)) for r in rows}
+    return {r.item_id: _Current(r.price, db.utc(r.seen_at), r.sell_cap, r.quantity) for r in rows}
 
 
-def _is_news(o: Observation, current: tuple[int, datetime] | None) -> bool:
+def _carried(o: Observation, current: _Current | None, source: str) -> Observation:
+    """What an observation sets `price_current` to. A feed's and a hand-set price are taken as they are;
+    an upload sees only the cheapest listing (and its quantity), so it keeps the feed's sell cap."""
+    if current is None or source in FEEDS or source in HAND_SET:
+        return o
+    return replace(
+        o,
+        sell_cap=o.sell_cap if o.sell_cap is not None else current.sell_cap,
+        quantity=o.quantity if o.quantity is not None else current.quantity,
+    )
+
+
+def _is_news(o: Observation, current: _Current | None) -> bool:
     if current is None:
         return True
-    price, seen_at = current
     new_seen = db.utc(o.seen_at)
-    return new_seen.date() > seen_at.date() or (new_seen >= seen_at and o.min_buyout != price)
+    now = (o.min_buyout, o.sell_cap)
+    before = (current.price, current.sell_cap)
+    return new_seen.date() > current.seen_at.date() or (new_seen >= current.seen_at and now != before)
+
+
+def _restocked(o: Observation, current: _Current | None) -> bool:
+    """Not news, but seen no earlier with another quantity listed."""
+    return (
+        current is not None
+        and not _is_news(o, current)
+        and db.utc(o.seen_at) >= current.seen_at
+        and o.quantity is not None
+        and o.quantity != current.quantity
+    )
+
+
+def _update_quantities(conn: Connection, auction_house_id: int, observations: Sequence[Observation]) -> None:
+    if not observations:
+        return
+    pc = schema.price_current
+    conn.execute(
+        update(pc)
+        .where(pc.c.auction_house_id == auction_house_id, pc.c.item_id == bindparam("i"))
+        .values(quantity=bindparam("q")),
+        [{"i": o.item_id, "q": o.quantity} for o in observations],
+    )
 
 
 def auctionator_observations(item_prices: Mapping[int, ItemPrice], scanned_at: datetime) -> list[Observation]:
@@ -527,14 +591,15 @@ def load_current(conn: Connection, auction_house_id: int | None) -> dict[int, in
 def load_buy_and_sell(
     conn: Connection, auction_house_id: int | None
 ) -> tuple[dict[int, int], dict[int, int]]:
-    """({item_id: price}, {item_id: sell price}) for the auction house; empty for None. Reagents cost the
-    current price; a craft sells at the lower of it and the 7-day median, so a lone overpriced listing
-    doesn't count as the going rate. Prices set by hand (manual, CSV) are used as they are."""
+    """({item_id: buy price}, {item_id: sell price}) for the auction house; empty for None. Reagents cost
+    the cheapest listing; a craft sells at the lowest of the cheapest listing, the 7-day median and a
+    feed's cap (`sell_price`), so a lone overpriced listing doesn't count as the going rate. Prices set by
+    hand are used as they are."""
     if auction_house_id is None:
         return {}, {}
     pc, snap = schema.price_current, schema.price_snapshots
     rows = conn.execute(
-        select(pc.c.item_id, pc.c.price, pc.c.median_7d, snap.c.source)
+        select(pc.c.item_id, pc.c.price, pc.c.median_7d, pc.c.sell_cap, snap.c.source)
         .join(snap, snap.c.id == pc.c.snapshot_id)
         .where(pc.c.auction_house_id == auction_house_id)
     )
@@ -542,9 +607,41 @@ def load_buy_and_sell(
     sell: dict[int, int] = {}
     for r in rows:
         buy[r.item_id] = r.price
-        capped = r.median_7d is not None and r.source not in HAND_SET
-        sell[r.item_id] = min(r.price, r.median_7d) if capped else r.price
+        sell[r.item_id] = sell_price(r.price, r.median_7d, r.sell_cap, r.source)
     return buy, sell
+
+
+def sell_price(price: int, median_7d: int | None, sell_cap: int | None, source: str) -> int:
+    """What a sale counts as: the lowest of the cheapest listing, the 7-day median and a feed's cap; a
+    price set by hand as it is."""
+    if source in HAND_SET:
+        return price
+    return min(p for p in (price, median_7d, sell_cap) if p is not None)
+
+
+@dataclass(frozen=True)
+class Listing:
+    """What the auction house has of an item: its cheapest listing and the units listed (None: unknown)."""
+
+    min_buyout: int
+    quantity: int | None
+
+
+def load_listings(conn: Connection, auction_house_id: int | None) -> dict[int, Listing]:
+    """{item_id: Listing} for the auction house; empty for None."""
+    if auction_house_id is None:
+        return {}
+    pc = schema.price_current
+    rows = conn.execute(
+        select(pc.c.item_id, pc.c.price, pc.c.quantity).where(pc.c.auction_house_id == auction_house_id)
+    )
+    return {r.item_id: Listing(r.price, r.quantity) for r in rows}
+
+
+def thin_market(quantity: int | None, sold: int) -> bool:
+    """Whether a sale of `sold` units rests on a thin market: fewer listed than THIN_UNITS or than it
+    sells. Unknown quantities are not flagged."""
+    return quantity is not None and (quantity < THIN_UNITS or quantity < sold)
 
 
 def count_current(conn: Connection, auction_house_id: int | None) -> int:

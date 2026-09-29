@@ -43,9 +43,12 @@ export const robeResult: RankResult = {
   profit: 200,
   roi: 2 / 3,
   best_exit: 'vendor',
+  thin_market: false,
   postage: 0,
   mail_to: '',
   bonus_output: 0,
+  skill_chance: 1,
+  skill_ups: 1,
   exits: [
     { kind: 'vendor', value: 500, materials: [], postage: 0, mail_to: '' },
     { kind: 'ah', value: 475, materials: [], postage: 0, mail_to: '' },

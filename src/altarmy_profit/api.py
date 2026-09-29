@@ -221,10 +221,12 @@ class ItemInfo(BaseModel):
     dps: float
     stats: list[str]  # white lines, in game order: "+18 Strength", "+25 Fire Resistance"
     effects: list[EffectOut]  # green lines, in game order
-    ah_price: int | None  # the current minimum buyout: what buying it costs
-    # what selling it on the AH counts as: the lower of ah_price and the 7-day median (hand-set prices as
-    # they are), so a lone overpriced listing isn't taken for the going rate
+    ah_price: int | None  # the cheapest listing
+    # what selling it on the AH counts as: the lowest of the cheapest listing, the 7-day median and
+    # AHledger's longer medians (hand-set prices as they are), so a lone overpriced listing isn't taken for
+    # the going rate
     ah_sell_price: int | None
+    ah_quantity: int | None  # units listed; None if unknown
     vendor_price: int | None  # per unit, if a vendor sells it
 
 
@@ -295,9 +297,13 @@ class RankResult(BaseModel):
     profit: int
     roi: float
     best_exit: str
+    # the AH sale rests on fewer listed units than prices.THIN_UNITS or than the plan sells (informational)
+    thin_market: bool
     postage: int  # copper to mail the output to whoever sells it (included in cost)
     mail_to: str  # who the output is mailed to; "" if the crafter sells it
     bonus_output: float = 0.0  # expected extra units from the crafter's talents (Master Chef), all crafts
+    skill_chance: float  # that a craft gives the crafter a skill point (1 without characters)
+    skill_ups: float  # the skill points the crafter can expect from all crafts (skill_chance x crafts)
     exits: list[ExitOut]
     reagents: list[ItemCount]
     steps: list[StepOut]  # per character: buys, crafts (intermediates first), mails; then the sale
@@ -840,7 +846,8 @@ def get_rank(
         list[str] | None, Query(description="only recipes of these professions (default: every one)")
     ] = None,
     sort: Annotated[
-        Literal["profit", "rate"], Query(description="profit per session (the batch), or per hour of play")
+        Literal["profit", "rate", "skill"],
+        Query(description="profit per session (the batch), per hour of play, or cheapest skill point"),
     ] = "profit",
     top: Annotated[int, Query(ge=1)] = 50,
     price_version: Annotated[
@@ -849,14 +856,15 @@ def get_rank(
 ) -> RankResponse:
     """What the selected realm/faction's characters can craft, the user's favorites first, then most
     profitable first (each a session of the user's batch of crafts, or with `sort=rate` per hour of play in
-    the user's city); without characters, every recipe, crafted by one unnamed character (nothing is
+    the user's city, or with `sort=skill` cheapest expected skill point first (`skill_ups`), those that give
+    none last); without characters, every recipe, crafted by one unnamed character (nothing is
     mailed). Bounds are inclusive and on the session's numbers; an omitted bound is unbounded (so losses are
     included unless `min_profit` is set)."""
     s = _selected(state, user, price_version)
     base, chars, no_ah = s.base, s.chars, s.no_ah
     # Without characters the ranking depends on nobody but the time settings: browsing users with the same
     # ones share it. The bounds and the profession filter only narrow the cached, unbounded ranking, so
-    # moving them never ranks again; nor does sorting it by rate.
+    # moving them never ranks again; nor does sorting it by rate or skill.
     whose = user.uid if chars else ""
     key = (whose, tuple(chars), unlearned, include_trivial, frozenset(exits), no_ah, s.time.key)
     matches = state.rank_cache.get(key, base)
@@ -872,12 +880,12 @@ def get_rank(
             s.time,
         )
         state.rank_cache.put(key, base, matches)
-    if sort == "rate":
-        by_rate = state.rank_cache.get((key, "rate"), base)
-        if by_rate is None:
-            by_rate = service.by_rate(matches)
-            state.rank_cache.put((key, "rate"), base, by_rate)
-        matches = by_rate
+    if sort != "profit":
+        ordered = state.rank_cache.get((key, sort), base)
+        if ordered is None:
+            ordered = (service.by_rate if sort == "rate" else service.by_skill)(matches)
+            state.rank_cache.put((key, sort), base, ordered)
+        matches = ordered
     filters = engine.Filters(min_cost, max_cost, min_profit, max_profit, min_roi, max_roi)
     matches = [r for r in matches if filters.accepts(r)]
     if professions:
@@ -890,8 +898,8 @@ def get_rank(
     return RankResponse(
         total=len(matches),
         classes={c.name: c.class_file for c in chars},
-        items=_item_infos(state, base, results),
-        results=[_result_out(r, base, crafters, s.cities) for r in results],
+        items=_item_infos(state, s, results),
+        results=[_result_out(r, base, crafters, s.listings, s.cities) for r in results],
     )
 
 
@@ -917,8 +925,8 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
     if r is None:
         raise HTTPException(404, "These characters can't craft and sell that recipe.")
     return EvaluateResponse(
-        result=_result_out(r, s.base, altarmy.crafters(s.chars), s.cities),
-        items=_item_infos(state, s.base, [r]),
+        result=_result_out(r, s.base, altarmy.crafters(s.chars), s.listings, s.cities),
+        items=_item_infos(state, s, [r]),
     )
 
 
@@ -928,6 +936,7 @@ class Selected:
     never-on-the-AH items, the user's time model and the cities the selection's faction crafts in."""
 
     base: engine.Market
+    listings: Mapping[int, prices.Listing]  # what the auction house lists, for thin-market flags
     chars: list[altarmy.Character]
     no_ah: frozenset[int]
     favorites: frozenset[int]  # recipe ids
@@ -944,9 +953,10 @@ def _selected(state: AppState, user: auth.User, price_version: int | None = None
         favorites = frozenset(i for i, _ in store.load_favorites(conn, user.uid, state.key))
         faction = sel.faction if sel else ""
         model = service.time_model(conn, user.uid, state.key, state.cities, faction)
-    base = state.cache.get(ah, at_least=price_version)
+    priced = state.cache.get_priced(ah, at_least=price_version)
     return Selected(
-        base,
+        priced.market,
+        priced.listings,
         chars,
         no_ah,
         favorites,
@@ -955,9 +965,7 @@ def _selected(state: AppState, user: auth.User, price_version: int | None = None
     )
 
 
-def _item_infos(
-    state: AppState, base: engine.Market, results: Sequence[engine.Result]
-) -> dict[int, ItemInfo]:
+def _item_infos(state: AppState, s: Selected, results: Sequence[engine.Result]) -> dict[int, ItemInfo]:
     """Tooltip details for every item the results mention."""
     item_ids = (
         {s.item_id for r in results for s in r.steps}
@@ -965,22 +973,25 @@ def _item_infos(
         | {m.item_id for r in results for e in r.exits for m in e.materials}
     )
     with _connect(state) as conn:
-        return _item_details(state, conn, base, item_ids)
+        return _item_details(state, conn, store.Priced(s.base, dict(s.listings)), item_ids)
 
 
 def _item_details(
-    state: AppState, conn: Connection, base: engine.Market, item_ids: Iterable[int]
+    state: AppState, conn: Connection, priced: store.Priced, item_ids: Iterable[int]
 ) -> dict[int, ItemInfo]:
     details = store.load_item_details(conn, state.key, item_ids)
-    return {
-        i: ItemInfo(
+    base = priced.market
+    out = {}
+    for i, d in details.items():
+        listing = priced.listings.get(i)
+        out[i] = ItemInfo(
             **asdict(d),
-            ah_price=base.prices.get(i),
+            ah_price=listing.min_buyout if listing else None,
             ah_sell_price=base.sell_prices.get(i),
+            ah_quantity=listing.quantity if listing else None,
             vendor_price=_vendor_price(base, i),
         )
-        for i, d in details.items()
-    }
+    return out
 
 
 def _timing_out(t: timing.Timing, profit: int, city: timing.CityMap) -> TimingOut:
@@ -1049,6 +1060,7 @@ def _result_out(
     r: engine.Result,
     base: engine.Market,
     crafters: dict[int, list[str]],
+    listings: Mapping[int, prices.Listing],
     cities: Sequence[timing.CityMap] = (),
 ) -> RankResult:
     per_city = _cities_out(r, cities)
@@ -1069,9 +1081,12 @@ def _result_out(
         profit=r.profit,
         roi=r.roi,
         best_exit=r.best_exit,
+        thin_market=service.thin_market(r, listings),
         postage=r.postage,
         mail_to=r.mail_to,
         bonus_output=r.bonus_output,
+        skill_chance=r.skill_chance,
+        skill_ups=r.skill_ups,
         exits=[
             ExitOut(
                 kind=e.kind,
@@ -1192,10 +1207,10 @@ def _no_ah(state: AppState, conn: Connection, user: auth.User) -> frozenset[int]
 
 def _ah_blocked(state: AppState, conn: Connection, user: auth.User) -> AhBlocked:
     blocked = store.load_ah_blocked(conn, user.uid, state.key)
-    base = state.cache.get(service.selected_auction_house(conn, user.uid, state.key))
+    priced = state.cache.get_priced(service.selected_auction_house(conn, user.uid, state.key))
     return AhBlocked(
         items=[AhBlockedItem(item_id=i, added_at=added) for i, added in blocked],
-        details=_item_details(state, conn, base, (i for i, _ in blocked)),
+        details=_item_details(state, conn, priced, (i for i, _ in blocked)),
     )
 
 

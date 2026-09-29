@@ -241,7 +241,8 @@ export interface paths {
          * Get Rank
          * @description What the selected realm/faction's characters can craft, the user's favorites first, then most
          *     profitable first (each a session of the user's batch of crafts, or with `sort=rate` per hour of play in
-         *     the user's city); without characters, every recipe, crafted by one unnamed character (nothing is
+         *     the user's city, or with `sort=skill` cheapest expected skill point first (`skill_ups`), those that give
+         *     none last); without characters, every recipe, crafted by one unnamed character (nothing is
          *     mailed). Bounds are inclusive and on the session's numbers; an omitted bound is unbounded (so losses are
          *     included unless `min_profit` is set).
          */
@@ -735,6 +736,8 @@ export interface components {
         ItemInfo: {
             /** Ah Price */
             ah_price: number | null;
+            /** Ah Quantity */
+            ah_quantity: number | null;
             /** Ah Sell Price */
             ah_sell_price: number | null;
             /** Armor */
@@ -1039,8 +1042,14 @@ export interface components {
             roi: number;
             /** Sell Options */
             sell_options: components["schemas"]["SellOptionOut"][];
+            /** Skill Chance */
+            skill_chance: number;
+            /** Skill Ups */
+            skill_ups: number;
             /** Steps */
             steps: components["schemas"]["StepOut"][];
+            /** Thin Market */
+            thin_market: boolean;
             timing?: components["schemas"]["TimingOut"] | null;
             tree: components["schemas"]["NodeOut"];
         };
@@ -1844,8 +1853,8 @@ export interface operations {
                 max_roi?: number | null;
                 /** @description only recipes of these professions (default: every one) */
                 professions?: string[] | null;
-                /** @description profit per session (the batch), or per hour of play */
-                sort?: "profit" | "rate";
+                /** @description profit per session (the batch), per hour of play, or cheapest skill point */
+                sort?: "profit" | "rate" | "skill";
                 top?: number;
                 /** @description the auction house's price version the front end knows of */
                 price_version?: number | null;

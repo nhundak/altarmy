@@ -57,7 +57,7 @@ describe('ProfitPage', () => {
     }
   })
 
-  it('skipping folds the cards away, asks for a goal, then ranks, remembering both', async () => {
+  it('skipping folds the cards away, asks the setup questions, then ranks, remembering both', async () => {
     const fetch = mockApi({ '/api/status': status({ characters: 0 }), '/api/characters': nobody, '/api/rank': noResults })
     const { unmount } = renderWithProviders(<ProfitPage />)
     await userEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
@@ -66,18 +66,20 @@ describe('ProfitPage', () => {
     await waitFor(() => expect(cards()).not.toBeInTheDocument())
     await waitFor(() => expect(hero()).not.toBeInTheDocument())
     expect(JSON.parse(localStorage.getItem('altarmy-profit.landing.g1') ?? '')).toEqual({ browsed: true })
-    // nothing is ranked until the goal is known
-    const goals = within(search).getByRole('group', { name: 'Your goal' })
+    // nothing is ranked until the setup is complete
+    const aims = within(search).getByRole('group', { name: 'What are you after?' })
+    expect(within(aims).getByRole('button', { name: 'Skill up' })).toBeDisabled()
+    await userEvent.click(within(aims).getByRole('button', { name: 'Make gold' }))
     expect(paths(fetch, '/api/rank')).toEqual([])
-    await userEvent.click(within(goals).getByRole('button', { name: 'Maximize profit' }))
+    await userEvent.click(await within(search).findByRole('button', { name: 'Anything that might sell' }))
     await waitFor(() => expect(paths(fetch, '/api/rank')).toHaveLength(1))
     expect(new URL(paths(fetch, '/api/rank')[0]!.url).searchParams.get('sort')).toBe('rate')
 
     unmount()
     renderWithProviders(<ProfitPage />)
     expect(await screen.findByRole('region', { name: 'Search' })).toBeInTheDocument()
-    expect(await screen.findByText('Goal: Maximize profit.')).toBeInTheDocument()
-    expect(screen.queryByRole('group', { name: 'Your goal' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Making gold' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'What are you after?' })).not.toBeInTheDocument()
     expect(cards()).not.toBeInTheDocument()
     expect(hero()).not.toBeInTheDocument()
   })

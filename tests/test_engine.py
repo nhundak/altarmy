@@ -29,6 +29,7 @@ from altarmy_profit.engine import (
     plan_steps,
     recipes_for_characters,
     recipes_for_professions,
+    skill_up_chance,
 )
 
 LINEN, THREAD, BOLT, GREEN, DUST = 1, 2, 3, 4, 5
@@ -677,6 +678,25 @@ def test_can_skill_up_below_grey_and_under_the_cap() -> None:
     assert can_skill_up(replace(recipe, trivial_low=0, trivial_high=0), smith(300, cap=300))  # unknown
 
 
+def test_skill_up_chance_falls_from_yellow_to_grey() -> None:
+    recipe = Recipe(
+        1, "Rough Sharpening Stone", 1, skill_name="Blacksmithing", trivial_low=15, trivial_high=55
+    )
+
+    def smith(rank: int, cap: int = 75) -> Crafter:
+        return Crafter("Smith", (("Blacksmithing", rank, cap),), frozenset())
+
+    assert skill_up_chance(recipe, smith(1)) == 1.0  # orange
+    assert skill_up_chance(recipe, smith(15)) == 1.0  # just yellow
+    assert skill_up_chance(recipe, smith(35)) == 0.5
+    assert skill_up_chance(recipe, smith(54)) == pytest.approx(1 / 40)  # green, nearly grey
+    assert skill_up_chance(recipe, smith(55)) == 0.0  # grey
+    assert skill_up_chance(recipe, smith(40, cap=40)) == 0.0  # must train first
+    assert skill_up_chance(recipe, crafter("Tailor", ("Tailoring", 1))) == 0.0  # not their profession
+    assert skill_up_chance(replace(recipe, trivial_low=0, trivial_high=0), smith(300, cap=300)) == 1.0
+    assert skill_up_chance(replace(recipe, trivial_low=55), smith(54)) == 1.0  # orange up to grey
+
+
 GREY_AT_60 = replace(MAUL_RECIPE, trivial_low=40, trivial_high=60)
 VETERAN = crafter("Veteran", ("Blacksmithing", 75), ("Leatherworking", 50), known=frozenset({950, 951}))
 
@@ -700,6 +720,17 @@ def test_without_trivial_recipes_one_grey_for_everyone_is_dropped() -> None:
 def test_without_characters_trivial_recipes_are_kept() -> None:
     m = maul_market(recipes=(CURE, GREY_AT_60), include_trivial=False)
     assert must_evaluate(m, GREY_AT_60).crafter == ""
+
+
+def test_result_carries_the_crafters_skill_up_chance() -> None:
+    both = must_evaluate(maul_market(SMITHY, LEATHERY, VETERAN, recipes=(CURE, GREY_AT_60)), GREY_AT_60)
+    assert (both.crafter, both.skill_chance, both.skill_ups) == ("Veteran", 0.0, 0.0)  # grey for them
+    skillups = maul_market(SMITHY, LEATHERY, VETERAN, recipes=(CURE, GREY_AT_60), include_trivial=False)
+    res = skillups.evaluate(GREY_AT_60, crafts=4)
+    assert res is not None
+    assert (res.crafter, res.skill_chance, res.skill_ups) == ("Smithy", 0.5, 2.0)  # 50 of 40..60
+    anyone = must_evaluate(maul_market(recipes=(CURE, GREY_AT_60)), GREY_AT_60)
+    assert (anyone.skill_chance, anyone.skill_ups) == (1.0, 1.0)  # nobody's skill is known
 
 
 # --- Legacy talents -------------------------------------------------------------------------------------
