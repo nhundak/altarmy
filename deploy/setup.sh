@@ -109,6 +109,9 @@ firestore() { # the price signals' database (signals.py, firestore.rules): one p
     echo "  roles/datastore.user on $project -> $sa"
     gcloud projects add-iam-policy-binding "$project" --member "serviceAccount:$DEPLOY_SA"       --role roles/firebaserules.admin --condition None --billing-project "$PROJECT" --quiet >/dev/null
     echo "  roles/firebaserules.admin on $project -> $DEPLOY_SA"
+    # the Firebase CLI checks the Firestore API is enabled before deploying rules
+    gcloud projects add-iam-policy-binding "$project" --member "serviceAccount:$DEPLOY_SA"       --role roles/serviceusage.serviceUsageConsumer --condition None --billing-project "$PROJECT" --quiet >/dev/null
+    echo "  roles/serviceusage.serviceUsageConsumer on $project -> $DEPLOY_SA"
   done
 }
 
