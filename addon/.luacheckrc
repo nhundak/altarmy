@@ -25,6 +25,7 @@ globals = {
     "AltArmyTBC_ProgressionSettings",
     "AltArmyTBC_GuildData",
     "AltArmyTBC_SharingSettings",
+    "AltArmyTBC_AuctionScans",
     "UISpecialFrames",
     "SLASH_ALTARMY1",
     "SLASH_ALTARMY2",

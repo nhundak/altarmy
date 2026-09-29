@@ -1,10 +1,10 @@
 ## Interface: 20506, 16001
 ## Title: AltArmy
 ## Notes: Alt management: character summary, gear and reputation grids, per-character containers, cross-character item search. TBC Classic.
-## Version: 2.1.4
+## Version: 2.1.5
 ## Author: Nick Tower
 ## X-Wago-ID: aNDMjY6o
-## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings, AltArmyTBC_GraphSettings, AltArmyTBC_GuildData, AltArmyTBC_SharingSettings
+## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings, AltArmyTBC_GraphSettings, AltArmyTBC_GuildData, AltArmyTBC_SharingSettings, AltArmyTBC_AuctionScans
 ## OptionalDeps: Auctionator, CraftLib, TacoTip, GearScoreTBCClassic, RXPGuides, RXPGuides_TBC, NovaInstanceTracker, Questie, ZygorGuidesViewerClassicTBCAnniv
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
@@ -52,6 +52,7 @@ Data\Gear\GearUpgradeAlerts.lua
 Data\Integrations\RestedXpIntegration.lua
 Data\Integrations\RestedXpQuestRewardConflict.lua
 Data\Integrations\ZygorIntegration.lua
+Data\Integrations\AuctionatorScans.lua
 Data\DataStore\DataStoreReputations.lua
 Data\DataStore\DataStoreMail.lua
 Data\MailAlerts.lua
