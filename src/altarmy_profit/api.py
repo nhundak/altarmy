@@ -1286,14 +1286,12 @@ def post_upload(
     via: Annotated[FileVia, Form()] = "browser",
     faction: Annotated[
         Literal["Horde", "Alliance"] | None,
-        Form(description="admins: the faction that scanned realms you have both factions on"),
+        Form(description="the faction that scanned realms you have both factions on"),
     ] = None,
 ) -> UploadResult:
     """Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this
-    game version, Auctionator adds a scan for every realm it has prices for. 403 for `faction` unless
-    you are an admin."""
-    if faction is not None and not user.admin:
-        raise HTTPException(403, "Only admins may say which faction scanned.")
+    game version, Auctionator adds a scan for every realm it has prices for. `faction` (the watcher sends
+    what the Alt Army addon logged) names the scanning faction where you have characters of both."""
     database = state.database
     with database.begin() as conn:
         try:

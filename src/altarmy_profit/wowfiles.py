@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
+ALTARMY_FILE = "AltArmy_TBC.lua"
 WOW_ROOTS = [
     Path(r"C:\Program Files (x86)\World of Warcraft"),
     Path(r"C:\Program Files\World of Warcraft"),
@@ -24,7 +25,7 @@ def find_auctionator_files(
 def find_altarmy_files(roots: Iterable[Path] = WOW_ROOTS, flavors: Sequence[str] | None = None) -> list[Path]:
     """Alt Army's account-wide SavedVariables (characters, professions, recipes) under each WoW install,
     or only under `flavors`."""
-    return _find(roots, flavors, "AltArmy_TBC.lua")
+    return _find(roots, flavors, ALTARMY_FILE)
 
 
 def find_saved_variables(

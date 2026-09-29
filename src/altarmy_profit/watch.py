@@ -5,7 +5,8 @@ It needs no database: which files it has sent is a small JSON state file of {pat
 flavor folder a file is in (`_anniversary_`, `_classic_beta_`) says its game version. Files go gzipped to
 `POST /api/uploads`, Alt Army first so the server names new auction houses after the characters' realms,
 with the ID token of the user's email sign-in (`signin.Credentials`). Only standard library HTTP (urllib), so
-the CLI needs no extra packages.
+the CLI needs no extra packages. An Auctionator file goes with the faction its prices came from when the
+Alt Army file beside it says (`scanlog`): Auctionator keys a modern auction house's prices by realm alone.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePath
 
-from . import signin, versions, wowfiles
+from . import scanlog, signin, versions, wowfiles
 from .signin import SignedOut
 
 DEFAULT_STATE = Path.home() / ".altarmy-profit" / "watch-state.json"
@@ -118,10 +119,27 @@ def urllib_transport(url: str, headers: Mapping[str, str], body: bytes) -> tuple
         return e.code, e.read()
 
 
-def upload(server: str, auth: Auth, f: Found, transport: Transport) -> tuple[bool, str]:
-    """Send one file. Returns (accepted, the server's summary or complaint); raises SignedOut when the sign-in
-    is refused and UploadFailed when it should be retried."""
+def scan_faction(f: Found, sent_mtime_ns: int | None) -> str | None:
+    """The faction an Auctionator file's new prices came from, by the Alt Army file in the same folder;
+    `sent_mtime_ns` is the modified time of the copy uploaded before, if any."""
+    if f.kind != "auctionator":
+        return None
+    try:
+        data = (f.path.parent / wowfiles.ALTARMY_FILE).read_bytes()
+    except OSError:
+        return None
+    since = None if sent_mtime_ns is None else sent_mtime_ns // 10**9
+    return scanlog.scan_faction(scanlog.read(data), since, f.mtime_ns // 10**9)
+
+
+def upload(
+    server: str, auth: Auth, f: Found, transport: Transport, faction: str | None = None
+) -> tuple[bool, str]:
+    """Send one file, with the faction that scanned it if known. Returns (accepted, the server's summary or
+    complaint); raises SignedOut when the sign-in is refused and UploadFailed when it should be retried."""
     fields = {"kind": f.kind, "via": "watcher", "modified_at": str(f.mtime_ns // 10**6)}
+    if faction is not None:
+        fields["faction"] = faction
     content_type, body = multipart_body(fields, f.path.name, gzip.compress(f.path.read_bytes()))
     try:
         token = auth()
@@ -167,8 +185,10 @@ def sync_once(
     state = load_state(state_path)
     sent = []
     for f in changed(find_files(roots), state):
-        accepted, detail = upload(server, auth, f, transport)
-        log(f"{'Uploaded' if accepted else 'Rejected'} {f.game_version} {f.path.name}: {detail}")
+        faction = scan_faction(f, state.get(str(f.path)))
+        accepted, detail = upload(server, auth, f, transport, faction)
+        scanned = f" ({faction} scan)" if faction else ""
+        log(f"{'Uploaded' if accepted else 'Rejected'} {f.game_version} {f.path.name}{scanned}: {detail}")
         state[str(f.path)] = f.mtime_ns
         save_state(state_path, state)
         sent.append(f)

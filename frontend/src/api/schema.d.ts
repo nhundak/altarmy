@@ -336,8 +336,8 @@ export interface paths {
         /**
          * Post Upload
          * @description Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this
-         *     game version, Auctionator adds a scan for every realm it has prices for. 403 for `faction` unless
-         *     you are an admin.
+         *     game version, Auctionator adds a scan for every realm it has prices for. `faction` (the watcher sends
+         *     what the Alt Army addon logged) names the scanning faction where you have characters of both.
          */
         post: operations["post_upload_api_uploads_post"];
         delete?: never;
@@ -444,7 +444,7 @@ export interface components {
         Body_post_upload_api_uploads_post: {
             /**
              * Faction
-             * @description admins: the faction that scanned realms you have both factions on
+             * @description the faction that scanned realms you have both factions on
              */
             faction?: ("Horde" | "Alliance") | null;
             /** File */

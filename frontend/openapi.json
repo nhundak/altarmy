@@ -125,7 +125,7 @@
                 "type": "null"
               }
             ],
-            "description": "admins: the faction that scanned realms you have both factions on",
+            "description": "the faction that scanned realms you have both factions on",
             "title": "Faction"
           },
           "file": {
@@ -3825,7 +3825,7 @@
         "summary": "Get Uploads"
       },
       "post": {
-        "description": "Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this\ngame version, Auctionator adds a scan for every realm it has prices for. 403 for `faction` unless\nyou are an admin.",
+        "description": "Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this\ngame version, Auctionator adds a scan for every realm it has prices for. `faction` (the watcher sends\nwhat the Alt Army addon logged) names the scanning faction where you have characters of both.",
         "operationId": "post_upload_api_uploads_post",
         "parameters": [
           {

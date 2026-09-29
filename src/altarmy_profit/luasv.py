@@ -36,6 +36,17 @@ def parse_assignments(data: bytes) -> dict[str, LuaValue]:
     return out
 
 
+def parse_assignment(data: bytes, name: str) -> LuaValue:
+    """The value of the one top-level assignment to `name`, parsing nothing else (None if absent). The
+    client writes each global at the start of a line and never a raw newline inside a string."""
+    m = re.search(rb"^" + re.escape(name.encode()) + rb"[ \t]*=(?!=)", data, re.MULTILINE)
+    if not m:
+        return None
+    p = _Parser(data)
+    p.pos = m.end()
+    return p.value()
+
+
 def lua_string(text: bytes, pos: int) -> tuple[bytes, int]:
     """Decode the quoted Lua string starting at `pos`; returns (bytes, position after closing quote).
     ValueError if there is no string there; IndexError if it never ends."""

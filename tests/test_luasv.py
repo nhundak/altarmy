@@ -64,3 +64,16 @@ def test_deep_nesting_is_rejected_not_a_crash() -> None:
         luasv.parse_assignments(deep)
     ok = b"X = " + b"{" * 50 + b"}" * 50
     assert isinstance(luasv.parse_assignments(ok)["X"], dict)  # real files nest a handful of levels
+
+
+def test_parse_assignment_reads_one_global_only() -> None:
+    data = (
+        b'Big = {\n\t["Wanted"] = "inside a table",\n\t"Wanted = 1",\n}\n'
+        b'Wanted = {\n\t["a"] = 1,\n}\n'
+        b"Broken = {{{\n"
+    )
+    assert luasv.parse_assignment(data, "Wanted") == {"a": 1}
+    assert luasv.parse_assignment(data, "Missing") is None
+    assert luasv.parse_assignment(data, "Want") is None
+    with pytest.raises(ValueError):
+        luasv.parse_assignment(data, "Broken")

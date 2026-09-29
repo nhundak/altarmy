@@ -650,14 +650,12 @@ def upload(
     return c.post("/api/uploads", headers=headers or {}, data=form, files={"file": (filename, data)})
 
 
-def test_only_admins_name_the_faction_of_a_scan(client: TestClient) -> None:
-    for headers in (FREE, ADMIN):
-        assert upload(client, "altarmy", ALTARMY_SV, headers).is_success  # both factions on Classic Beta PvE
+def test_any_user_names_the_faction_of_a_scan(client: TestClient) -> None:
+    assert upload(client, "altarmy", ALTARMY_SV, FREE).is_success  # both factions on Classic Beta PvE
     data = _saved_variables({"ClassicBetaPvE": {"1": _entry(20)}})
-    (realm,) = upload(client, "auctionator", data, ADMIN).json()["realms"]
+    (realm,) = upload(client, "auctionator", data, FREE).json()["realms"]
     assert (realm["auction_house_id"], realm["both_factions"]) == (None, True)
-    assert upload(client, "auctionator", data, FREE, faction="Horde").status_code == 403
-    (realm,) = upload(client, "auctionator", data, ADMIN, faction="Horde").json()["realms"]
+    (realm,) = upload(client, "auctionator", data, FREE, faction="Horde").json()["realms"]
     assert (realm["realm"], realm["faction"], realm["skipped"]) == ("Classic Beta PvE", "Horde", None)
 
 
