@@ -12,7 +12,8 @@
 #   deploy/setup.sh firestore    Firestore for price signals in prod's and staging's Firebase projects (after
 #                                `accounts` and `staging-auth`), and who may write signals and deploy rules
 #   deploy/setup.sh wif          Workload Identity Federation for GitHub Actions
-#   deploy/setup.sh scheduler    Cloud Scheduler jobs (after a prod deploy made the jobs; existing ones are kept)
+#   deploy/setup.sh scheduler ENV  Cloud Scheduler jobs for prod or staging (after a deploy of ENV made its
+#                                jobs; existing ones are kept)
 #
 # Then: BUILDER=cloudbuild deploy/build.sh, deploy/deploy.sh prod|staging IMAGE (README, "Deploy").
 set -euo pipefail
@@ -126,7 +127,7 @@ wif() {
   echo "  GCP_DEPLOY_SA=$DEPLOY_SA"
 }
 
-schedule() { # schedule NAME CRON: run the prod job NAME on CRON (UTC); skipped if it exists
+schedule() { # schedule NAME CRON: run the Cloud Run job NAME on CRON (UTC); skipped if it exists
   if gcloud scheduler jobs describe "$1" --location "$REGION" "${G[@]}" >/dev/null 2>&1; then
     echo "schedule $1 exists"
     return
@@ -137,17 +138,22 @@ schedule() { # schedule NAME CRON: run the prod job NAME on CRON (UTC); skipped 
     --oauth-token-scope https://www.googleapis.com/auth/cloud-platform "${G[@]}"
 }
 
-scheduler() {
-  schedule altarmy-ingest-tbc "0 9 * * *"
-  schedule altarmy-ingest-forever "15 9 * * *"
-  schedule altarmy-prune "0 10 * * *"
-  schedule altarmy-ahledger "20 * * * *" # hourly: AHledger's newest prices, before the merge
-  schedule altarmy-merge "30 * * * *" # hourly: daily medians and 7-day price statistics
+scheduler() { # scheduler prod|staging: the same cadence (jobs.CADENCE); staging's a few minutes after prod's,
+  # so the two never run at once on the shared Cloud SQL instance
+  env_config "${1:?prod or staging}"
+  local m=0
+  [ "$1" = staging ] && m=5
+  schedule "$JOB_PREFIX-ingest-tbc" "$((0 + m)) 9 * * *"
+  schedule "$JOB_PREFIX-ingest-forever" "$((15 + m)) 9 * * *"
+  schedule "$JOB_PREFIX-prune" "$((0 + m)) 10 * * *"
+  schedule "$JOB_PREFIX-ahledger" "$((20 + m)) * * * *" # hourly: AHledger's newest prices, before the merge
+  schedule "$JOB_PREFIX-merge" "$((30 + m)) * * * *" # hourly: daily medians and 7-day price statistics
 }
 
 case "${1:-}" in
-  apis | registry | accounts | sql | firestore | wif | scheduler) "$1" ;;
+  apis | registry | accounts | sql | firestore | wif) "$1" ;;
   database) database "${2:-}" ;;
+  scheduler) scheduler "${2:-}" ;;
   staging-auth) staging_auth ;;
   *)
     sed -n '2,19p' "$0"

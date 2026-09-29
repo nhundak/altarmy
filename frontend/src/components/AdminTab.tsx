@@ -20,7 +20,16 @@ function When({ utc, now }: { utc: string | null; now: Date }) {
   return <span title={`${utc} UTC`}>{age(utc, now)}</span>
 }
 
-function RunBadge({ ok, finished }: { ok: boolean | null; finished: string | null }) {
+function RunBadge({
+  ok,
+  started,
+  finished,
+}: {
+  ok: boolean | null
+  started: string | null
+  finished: string | null
+}) {
+  if (started === null) return null // never ran
   if (ok === true) return <Badge color="green" variant="light">ok</Badge>
   if (ok === false) return <Badge color="red" variant="light">failed</Badge>
   return finished === null ? <Badge color="yellow" variant="light">running</Badge> : null
@@ -73,7 +82,7 @@ function JobsCard({ jobs, now }: { jobs: readonly Job[]; now: Date }) {
               </Table.Td>
               <Table.Td>
                 <Group gap={4} wrap="nowrap">
-                  <RunBadge ok={j.ok} finished={j.last_finished} />
+                  <RunBadge ok={j.ok} started={j.last_started} finished={j.last_finished} />
                   {j.late && (
                     <Badge color="red" variant="outline">
                       late
@@ -124,7 +133,7 @@ function RunsCard({ runs, now }: { runs: readonly Run[]; now: Date }) {
               </Table.Td>
               <Table.Td>{duration(r)}</Table.Td>
               <Table.Td>
-                <RunBadge ok={r.ok} finished={r.finished_at} />
+                <RunBadge ok={r.ok} started={r.started_at} finished={r.finished_at} />
               </Table.Td>
               <Table.Td>
                 <Summary text={r.summary} />

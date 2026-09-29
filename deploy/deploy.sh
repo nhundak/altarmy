@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy an image to an environment, in order:
-#   1. define the Cloud Run jobs with the new image (migrate, merge and ahledger; prod also ingest-tbc,
-#      ingest-forever, prune). Only prod's are scheduled (setup.sh scheduler); staging's run by hand
+#   1. define the Cloud Run jobs with the new image (migrate, merge, ahledger, ingest-tbc, ingest-forever,
+#      prune); `setup.sh scheduler ENV` schedules all but migrate
 #   2. run the migrate job and wait: migrations run once per deploy, before any new instance starts
 #   3. deploy the Cloud Run service (its instances never migrate)
 #   4. build the front end and deploy it to Firebase Hosting (prod: the live site; staging: the
@@ -34,11 +34,9 @@ echo "== jobs ($ENV_NAME)"
 job "$JOB_PREFIX-migrate" migrate
 job "$JOB_PREFIX-merge" merge
 job "$JOB_PREFIX-ahledger" ahledger
-if [ "$ENV_NAME" = prod ]; then
-  job "$JOB_PREFIX-ingest-tbc" --game-version tbc ingest --only-if-new --cache /tmp/cache
-  job "$JOB_PREFIX-ingest-forever" --game-version forever ingest --only-if-new --cache /tmp/cache
-  job "$JOB_PREFIX-prune" prune
-fi
+job "$JOB_PREFIX-ingest-tbc" --game-version tbc ingest --only-if-new --cache /tmp/cache
+job "$JOB_PREFIX-ingest-forever" --game-version forever ingest --only-if-new --cache /tmp/cache
+job "$JOB_PREFIX-prune" prune
 
 echo "== migrate"
 gcloud run jobs execute "$JOB_PREFIX-migrate" --region "$REGION" --wait "${GCLOUD_FLAGS[@]}"

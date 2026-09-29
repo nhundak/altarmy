@@ -114,6 +114,7 @@ describe('AdminTab', () => {
     const [ingest, merge, prune, ahledger] = rows.map((r) => within(r))
     expect(ingest?.getByText('never')).toBeInTheDocument()
     expect(ingest?.getByText('late')).toBeInTheDocument()
+    expect(ingest?.queryByText('running')).not.toBeInTheDocument()
     expect(merge?.getByText('ok')).toBeInTheDocument()
     expect(merge?.getByText('30 min ago')).toHaveAttribute('title', '2026-09-27 11:30:00 UTC')
     expect(prune?.getByText('running')).toBeInTheDocument()
