@@ -3,16 +3,19 @@ import { Button, Group, List, Stack, Text, Title, UnstyledButton } from '@mantin
 import { AnimatePresence, motion } from 'motion/react'
 import {
   AIMS,
+  ANY_PROFESSION,
   SELLING,
   STEP_QUESTION,
   stripParts,
   type Aim,
   type Card,
+  type Holder,
   type ProfessionChoice,
   type Setup as SetupAnswers,
   type Step,
 } from '../lib/setup'
 import cards from './Cards.module.css'
+import { CharacterName } from './CharacterName'
 import classes from './Setup.module.css'
 import { IconCoin, IconSteps } from './icons'
 
@@ -47,12 +50,15 @@ function Answers({ setup, skip, onOpen }: { setup: SetupAnswers; skip?: Step; on
 function OptionCard<K extends string>({
   card,
   icon,
+  body,
   picked,
   reason,
   onPick,
 }: {
   card: Card<K>
   icon?: ReactNode
+  /** Shown instead of the card's blurb. */
+  body?: ReactNode
   picked: boolean
   reason?: string
   onPick: () => void
@@ -69,9 +75,11 @@ function OptionCard<K extends string>({
         <Stack gap="sm">
           {icon && <span className={cards.icon}>{icon}</span>}
           <Title order={4}>{card.title}</Title>
-          <Text size="sm" c="dimmed">
-            {card.blurb}
-          </Text>
+          {body ?? (
+            <Text size="sm" c="dimmed">
+              {card.blurb}
+            </Text>
+          )}
           {card.details && (
             <div>
               <Text size="xs" c="dimmed">
@@ -105,6 +113,25 @@ function OptionCard<K extends string>({
   )
 }
 
+const ANY_CARD: Card<string> = {
+  key: ANY_PROFESSION,
+  title: 'Any profession',
+  blurb: 'Every recipe that gives at least one of your characters a skill point.',
+}
+
+/** Who has a profession, one per line: the name in its class colour, then the skill. */
+function Holders({ holders }: { holders: readonly Holder[] }) {
+  return (
+    <Stack gap={2}>
+      {holders.map((h) => (
+        <Text key={h.name} size="sm" c="dimmed">
+          <CharacterName name={h.name} classFile={h.classFile} /> {h.rank}/{h.maxRank}
+        </Text>
+      ))}
+    </Stack>
+  )
+}
+
 /** The cards answering `step`, the current answer marked. */
 function StepCards({
   step,
@@ -120,12 +147,20 @@ function StepCards({
   onPick: (value: string) => void
 }) {
   const current: string | undefined = setup?.[step]
-  const options: { card: Card<string>; icon?: ReactNode; reason?: string }[] =
+  const options: { card: Card<string>; icon?: ReactNode; body?: ReactNode; reason?: string }[] =
     step === 'aim'
       ? AIMS.map((card) => ({ card, icon: AIM_ICONS[card.key], reason: unavailable[card.key] }))
       : step === 'selling'
         ? SELLING.map((card) => ({ card }))
-        : professions.map((p) => ({ card: { key: p.name, title: p.name, blurb: p.holders } }))
+        : professions.length === 0
+          ? []
+          : [
+              { card: ANY_CARD },
+              ...professions.map((p) => ({
+                card: { key: p.name, title: p.name, blurb: '' },
+                body: <Holders holders={p.holders} />,
+              })),
+            ]
   if (!options.length) {
     return (
       <Text size="sm" c="dimmed">
@@ -135,11 +170,12 @@ function StepCards({
   }
   return (
     <div className={classes.cards} role="group" aria-label={STEP_QUESTION[step]}>
-      {options.map(({ card, icon, reason }) => (
+      {options.map(({ card, icon, body, reason }) => (
         <OptionCard
           key={card.key}
           card={card}
           icon={icon}
+          body={body}
           picked={card.key === current}
           reason={reason}
           onPick={() => onPick(card.key)}

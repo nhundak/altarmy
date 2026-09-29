@@ -162,8 +162,11 @@ describe('SearchTab', () => {
     renderWithProviders(<SearchTab />)
     await userEvent.click(await screen.findByRole('button', { name: 'Skill up' }))
     await screen.findByRole('group', { name: 'Which profession?' })
-    expect(answers('Which profession?')).toEqual(['Cooking', 'Tailoring'])
-    expect(screen.getByText('Tailor Guy 50/75')).toBeInTheDocument()
+    expect(answers('Which profession?')).toEqual(['Any profession', 'Cooking', 'Tailoring'])
+    const tailoring = screen.getByRole('button', { name: 'Tailoring' })
+    const tailor = within(tailoring).getByText('Tailor Guy')
+    expect(tailor).toHaveAttribute('data-class', 'MAGE')
+    expect(tailor.parentElement).toHaveTextContent(/^Tailor Guy 50\/75$/)
     expect(urls(fetch, '/api/rank')).toEqual([])
     await userEvent.click(screen.getByRole('button', { name: 'Tailoring' }))
     await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
@@ -173,6 +176,7 @@ describe('SearchTab', () => {
     expect(rank?.searchParams.has('min_roi')).toBe(false) // losses have a negative ROI
     expect(rank?.searchParams.get('sort')).toBe('skill')
     expect(rank?.searchParams.get('unlearned')).toBe('soon') // and those they can train soon
+    expect(rank?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant']) // no auction house
     expect(screen.getByRole('radio', { name: 'Include recipes I can train soon (20 skill points)' })).toBeChecked()
     expect(rank?.searchParams.getAll('professions')).toEqual(['Tailoring'])
     expect(localStorage.getItem('altarmy-profit.search.includeTrivial')).toBe('false')
@@ -212,7 +216,22 @@ describe('SearchTab', () => {
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
-    await waitFor(() => expect(answers('Which profession?')).toEqual(['Tailoring']))
+    await waitFor(() => expect(answers('Which profession?')).toEqual(['Any profession', 'Tailoring']))
+  })
+
+  it('skills up any profession: every recipe that gives someone a skill point', async () => {
+    withSetup({ aim: 'skill' })
+    const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<SearchTab />)
+    const any = await screen.findByRole('button', { name: 'Any profession' })
+    expect(within(any).queryByText('Tailor Guy')).not.toBeInTheDocument()
+    await userEvent.click(any)
+    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
+    const [rank] = urls(fetch, '/api/rank')
+    expect(rank?.searchParams.has('professions')).toBe(false)
+    expect(rank?.searchParams.get('sort')).toBe('skill')
+    const summary = await screen.findByRole('group', { name: 'Your setup' })
+    expect(within(summary).getAllByRole('button').map((b) => b.textContent)).toEqual(['Skilling up', 'Any profession'])
   })
 
   it("can't skill up without characters, saying why", async () => {

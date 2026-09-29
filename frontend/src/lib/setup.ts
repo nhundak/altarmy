@@ -53,7 +53,7 @@ export const AIMS: readonly Card<Aim>[] = [
   {
     key: 'skill',
     title: 'Skill up',
-    blurb: 'Raise one profession for as little gold as possible.',
+    blurb: 'Raise a profession, or any, for as little gold as possible.',
     details:
       'Recipes that can no longer give a skill point are hidden. The rest are ranked by what an expected skill point costs: orange recipes always give one, yellow and green ones less often.',
   },
@@ -77,8 +77,14 @@ export const SELLING: readonly Card<Selling>[] = [
   },
 ]
 
-/** A profession someone on the realm has, and who: "Tailor Guy 50/75 · Alt 12/75". */
-export type ProfessionChoice = { name: string; holders: string }
+/** The profession answer that skills up any profession: every recipe that gives someone a skill point. */
+export const ANY_PROFESSION = 'any'
+
+/** One character having a profession, at what skill. */
+export type Holder = { name: string; classFile: string; rank: number; maxRank: number }
+
+/** A profession someone on the realm has, and who. */
+export type ProfessionChoice = { name: string; holders: Holder[] }
 
 /**
  * The professions the group's characters have, by name, each once, with who has it at what skill. With `withRecipes`
@@ -89,19 +95,17 @@ export function professionsOf(
   withRecipes?: readonly string[],
 ): ProfessionChoice[] {
   const ranked = withRecipes && new Set(withRecipes.map((n) => n.toLowerCase()))
-  const byName = new Map<string, { name: string; holders: string[] }>()
+  const byName = new Map<string, ProfessionChoice>()
   for (const c of group?.characters ?? []) {
     for (const p of c.professions) {
       const key = p.name.toLowerCase()
       if (ranked && !ranked.has(key)) continue
       const entry = byName.get(key) ?? { name: p.name, holders: [] }
-      entry.holders.push(`${c.name} ${p.rank}/${p.max_rank}`)
+      entry.holders.push({ name: c.name, classFile: c.class_file, rank: p.rank, maxRank: p.max_rank })
       byName.set(key, entry)
     }
   }
-  return [...byName.values()]
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((e) => ({ name: e.name, holders: e.holders.join(' · ') }))
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** Whether anyone in the group can disenchant. */
@@ -117,6 +121,7 @@ export function nextStep(setup: Setup | null, professions: readonly string[], no
   if (setup.aim === 'skill') {
     if (noCharacters) return 'aim'
     const wanted = setup.profession?.toLowerCase()
+    if (wanted === ANY_PROFESSION) return professions.length ? null : 'profession'
     return professions.some((p) => p.toLowerCase() === wanted) ? null : 'profession'
   }
   return setup.selling ? null : 'selling'
@@ -154,8 +159,9 @@ export type Presets = {
 export function presetsFor(setup: Setup, step: Step): Partial<Presets> {
   const all: Presets =
     setup.aim === 'skill'
-      ? // losing recipes may be the only way to skill up: no lower bound on profit or ROI
-        { includeTrivial: false, minProfit: null, minRoi: null, exits: [...ALL_EXITS], unlearned: 'soon' }
+      ? // losing recipes may be the only way to skill up: no lower bound on profit or ROI; what is made along the way
+        // is sold where it surely sells, not left on the auction house
+        { includeTrivial: false, minProfit: null, minRoi: null, exits: [...RELIABLE_EXITS], unlearned: 'soon' }
       : {
           includeTrivial: true,
           minProfit: 0.0001,
@@ -176,9 +182,9 @@ export function presetsFor(setup: Setup, step: Step): Partial<Presets> {
 /** How the server ranks for this setup: gold per hour, or the cheapest expected skill point. */
 export const rankSort = (setup: Setup | null): 'rate' | 'skill' => (setup?.aim === 'skill' ? 'skill' : 'rate')
 
-/** The professions the search is narrowed to: the one being skilled up. */
+/** The professions the search is narrowed to: the one being skilled up (none for any profession). */
 export const rankProfessions = (setup: Setup | null): string[] =>
-  setup?.aim === 'skill' && setup.profession ? [setup.profession] : []
+  setup?.aim === 'skill' && setup.profession && setup.profession !== ANY_PROFESSION ? [setup.profession] : []
 
 const SELLING_TEXT: Readonly<Record<Selling, string>> = {
   reliable: 'only what reliably sells',
@@ -190,7 +196,12 @@ export function stripParts(setup: Setup): { step: Step; text: string }[] {
   const parts: { step: Step; text: string }[] = []
   if (setup.aim === 'skill') {
     parts.push({ step: 'aim', text: 'Skilling up' })
-    if (setup.profession) parts.push({ step: 'profession', text: setup.profession })
+    if (setup.profession) {
+      parts.push({
+        step: 'profession',
+        text: setup.profession === ANY_PROFESSION ? 'Any profession' : setup.profession,
+      })
+    }
     return parts
   }
   parts.push({ step: 'aim', text: 'Making gold' })
