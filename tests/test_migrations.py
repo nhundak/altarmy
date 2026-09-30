@@ -281,6 +281,7 @@ def test_0009_allows_ahledger_and_drops_forevers_shared_houses(database: db.Data
                     status="accepted",
                 )
             )
+        db.upgrade(conn)  # back to head: Postgres keeps the schema for the next test
 
 
 def test_0010_records_job_runs(database: db.Database) -> None:
@@ -365,6 +366,7 @@ def test_0013_feed_price_columns_start_empty_and_feed_tables_restart(database: d
         assert tuple(conn.execute(select(pc.c.price, pc.c.sell_cap, pc.c.quantity)).one()) == (5, None, None)
         assert conn.execute(select(obs.c.sell_cap)).scalar_one() is None
         assert conn.execute(select(func.count()).select_from(schema.feed_tables)).scalar_one() == 0
+        db.upgrade(conn)  # back to head: Postgres keeps the schema for the next test
 
 
 def test_0014_adds_the_order_book_and_drops_forevers_third_party_prices(database: db.Database) -> None:
