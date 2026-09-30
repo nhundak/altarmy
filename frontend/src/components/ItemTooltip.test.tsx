@@ -69,6 +69,25 @@ describe('ItemTooltip', () => {
     expect(screen.getByText('3 listed')).toBeInTheDocument()
   })
 
+  it('lists the cheapest price levels of a scanned item', () => {
+    const ah_levels = [
+      { price: 7, quantity: 1, counted: false, more: false },
+      { price: 20, quantity: 300, counted: true, more: false },
+      { price: 45, quantity: 90, counted: true, more: true },
+    ]
+    renderWithProviders(<ItemTooltip item={{ ...linen, ah_quantity: 391, ah_levels }} />)
+    expect(line('1 at 7 (just listed: not counted on)')).toBeInTheDocument()
+    expect(line('300 at 20')).toBeInTheDocument()
+    expect(line('90 more from 45')).toBeInTheDocument()
+  })
+
+  it('lists no levels for a single price', () => {
+    const ah_levels = [{ price: 20, quantity: 3, counted: true, more: false }]
+    renderWithProviders(<ItemTooltip item={{ ...linen, ah_quantity: 3, ah_levels }} />)
+    expect(screen.getByText('3 listed')).toBeInTheDocument()
+    expect(screen.queryByText(/3 at/)).not.toBeInTheDocument()
+  })
+
   it('adds the vendor price of vendor-sold items', () => {
     renderWithProviders(<ItemTooltip item={thread} />)
     expect(line('Vendor: 1 0')).toBeInTheDocument()

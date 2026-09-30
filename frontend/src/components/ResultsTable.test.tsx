@@ -38,18 +38,36 @@ const disenchanted: RankResult = {
   ],
 }
 
-describe('ResultsTable thin markets', () => {
-  it('flags a sale resting on a thin market with the units listed', () => {
-    const thin = { ...robe, recipe_id: 102, best_exit: 'ah', thin_market: true }
+describe('ResultsTable slow sales and short books', () => {
+  it('says how long a slow sale may take', () => {
+    const slow = { ...robe, recipe_id: 102, best_exit: 'ah', slow: true, days_to_sell: 3.2 }
+    renderWithProviders(<ResultsTable results={[slow]} items={items} />)
+    expect(screen.getByLabelText('Slow to sell')).toHaveAttribute(
+      'title',
+      'May take about 3 days to sell at the rate it sold lately',
+    )
+  })
+
+  it('falls back to the units listed when nothing says how fast it sells', () => {
+    const thin = { ...robe, recipe_id: 102, best_exit: 'ah', slow: true }
     renderWithProviders(<ResultsTable results={[thin]} items={{ ...items, '3': { ...robeItem, ah_quantity: 3 } }} />)
-    expect(screen.getByLabelText('Thin market')).toHaveAttribute('title', 'Sell price rests on 3 listed units')
+    expect(screen.getByLabelText('Slow to sell')).toHaveAttribute('title', 'Sell price rests on 3 listed units')
   })
 
   it('says few units when the quantity is unknown, and flags nothing else', () => {
-    const thin = { ...robe, recipe_id: 102, best_exit: 'ah', thin_market: true }
+    const thin = { ...robe, recipe_id: 102, best_exit: 'ah', slow: true }
     renderWithProviders(<ResultsTable results={[thin, robe]} items={items} />)
-    expect(screen.getAllByLabelText('Thin market')).toHaveLength(1)
-    expect(screen.getByLabelText('Thin market')).toHaveAttribute('title', 'Sell price rests on few listed units')
+    expect(screen.getAllByLabelText('Slow to sell')).toHaveLength(1)
+    expect(screen.getByLabelText('Slow to sell')).toHaveAttribute('title', 'Sell price rests on few listed units')
+    expect(screen.queryByLabelText('Not enough listed')).not.toBeInTheDocument()
+  })
+
+  it('flags a plan that buys more than the auction house lists', () => {
+    renderWithProviders(<ResultsTable results={[{ ...robe, short: 2 }]} items={items} />)
+    expect(screen.getByLabelText('Not enough listed')).toHaveAttribute(
+      'title',
+      'Needs 2 more units than the auction house lists; they are counted at the dearest price listed',
+    )
   })
 })
 

@@ -13,7 +13,7 @@ export interface paths {
         };
         /**
          * Get Admin Ingestion
-         * @description The version's job runs, every user's uploads, snapshots per source and AHledger's feeds (admins).
+         * @description The version's job runs, every user's uploads and snapshots per source (admins).
          */
         get: operations["get_admin_ingestion_api_admin_ingestion_get"];
         put?: never;
@@ -336,9 +336,9 @@ export interface paths {
         put?: never;
         /**
          * Post Upload
-         * @description Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this
-         *     game version, Auctionator adds a scan for every realm it has prices for. `faction` (the watcher sends
-         *     what the Alt Army addon logged) names the scanning faction where you have characters of both.
+         * @description Import an addon's SavedVariables file (plain or gzipped). Alt Army replaces your characters of this
+         *     game version and, on WoW: Forever, records the auction house scans the addon took. An Auctionator file
+         *     is refused (400) where prices come from those scans alone.
          */
         post: operations["post_upload_api_uploads_post"];
         delete?: never;
@@ -443,11 +443,6 @@ export interface components {
         };
         /** Body_post_upload_api_uploads_post */
         Body_post_upload_api_uploads_post: {
-            /**
-             * Faction
-             * @description the faction that scanned realms you have both factions on
-             */
-            faction?: ("Horde" | "Alliance") | null;
             /** File */
             file: string;
             /**
@@ -542,8 +537,6 @@ export interface components {
             realm: string;
             /** Scans 7D */
             scans_7d: number;
-            /** Sources */
-            sources: string[];
             /** Uploaders 7D */
             uploaders_7d: number;
         };
@@ -651,21 +644,6 @@ export interface components {
             /** Recipes */
             recipes: components["schemas"]["FavoriteRecipe"][];
         };
-        /** FeedOut */
-        FeedOut: {
-            /** Faction */
-            faction: string;
-            /** Fetched At */
-            fetched_at: string;
-            /** Market */
-            market: string;
-            /** Realm */
-            realm: string;
-            /** Rows */
-            rows: number;
-            /** Scanned At */
-            scanned_at: string;
-        };
         /**
          * FirebaseOut
          * @description The Firebase web config the front end signs in with (public values).
@@ -707,11 +685,9 @@ export interface components {
         };
         /**
          * IngestionOut
-         * @description What the ingestion jobs, uploads and feeds have been doing (the Admin page).
+         * @description What the ingestion jobs and uploads have been doing (the Admin page).
          */
         IngestionOut: {
-            /** Feeds */
-            feeds: components["schemas"]["FeedOut"][];
             /** Jobs */
             jobs: components["schemas"]["JobStatusOut"][];
             /** Now */
@@ -734,6 +710,11 @@ export interface components {
          * @description Everything an item tooltip shows.
          */
         ItemInfo: {
+            /**
+             * Ah Levels
+             * @default []
+             */
+            ah_levels: components["schemas"]["LevelOut"][];
             /** Ah Price */
             ah_price: number | null;
             /** Ah Quantity */
@@ -839,6 +820,20 @@ export interface components {
             to_name: string;
             /** Who */
             who: string;
+        };
+        /**
+         * LevelOut
+         * @description The units listed at one unit price.
+         */
+        LevelOut: {
+            /** Counted */
+            counted: boolean;
+            /** More */
+            more: boolean;
+            /** Price */
+            price: number;
+            /** Quantity */
+            quantity: number;
         };
         /** LocationOut */
         LocationOut: {
@@ -1009,6 +1004,8 @@ export interface components {
              * @default 1
              */
             crafts: number;
+            /** Days To Sell */
+            days_to_sell: number | null;
             /**
              * Details
              * @default []
@@ -1042,23 +1039,23 @@ export interface components {
             roi: number;
             /** Sell Options */
             sell_options: components["schemas"]["SellOptionOut"][];
+            /** Short */
+            short: number;
             /** Skill Chance */
             skill_chance: number;
             /** Skill Ups */
             skill_ups: number;
+            /** Slow */
+            slow: boolean;
             /** Steps */
             steps: components["schemas"]["StepOut"][];
-            /** Thin Market */
-            thin_market: boolean;
             timing?: components["schemas"]["TimingOut"] | null;
             tree: components["schemas"]["NodeOut"];
         };
         /** RealmPricesOut */
         RealmPricesOut: {
             /** Auction House Id */
-            auction_house_id: number | null;
-            /** Both Factions */
-            both_factions: boolean;
+            auction_house_id: number;
             /** Faction */
             faction: string;
             /** Items */
@@ -1071,8 +1068,6 @@ export interface components {
             quarantined: boolean;
             /** Realm */
             realm: string;
-            /** Skipped */
-            skipped: string | null;
         };
         /**
          * SelectionModel

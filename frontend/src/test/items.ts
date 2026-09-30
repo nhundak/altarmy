@@ -25,6 +25,7 @@ export function makeItem(overrides: Partial<ItemInfo> & Pick<ItemInfo, 'id' | 'n
     ah_price: null,
     ah_sell_price: null,
     ah_quantity: null,
+    ah_levels: [],
     vendor_price: null,
     ...overrides,
   }

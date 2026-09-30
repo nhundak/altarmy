@@ -1,5 +1,11 @@
 # External auction house price feeds
 
+> **Status, 2026-09-29: no external feed is used.** The AHledger poller described below was removed.
+> Forever's prices come from the Alt Army addon's own full scans alone (`book.py`,
+> `prices.record_book`), which carry every listing and not one minimum buyout per item: a lone cheap
+> listing in a feed's table had made recipes look profitable that were not. The survey stays for the
+> record.
+
 Which third-party sources could supply auction house prices to `altarmy-profit`, beside the addon scans
 users upload. Surveyed 2026-09-26; every claim below was checked against the live site or API that day
 unless marked otherwise. The hosted plan's decision that addon uploads are the primary source
@@ -17,9 +23,10 @@ unless marked otherwise. The hosted plan's decision that addon uploads are the p
   candidate for a Forever feed.
 - **Nothing helps TBC Anniversary today.** Its only sources are addon scans, ours or anyone's.
 
-## AHledger (implemented 2026-09-27)
+## AHledger (implemented 2026-09-27, removed 2026-09-29)
 
-`src/altarmy_profit/ahledger.py`, run hourly as `altarmy-profit ahledger`. Findings while building it:
+It was `src/altarmy_profit/ahledger.py`, run hourly as `altarmy-profit ahledger`. Findings while
+building it:
 
 - **Row order is `item:median:minBuyout:quantity:median7d:median30d:low30d:high30d`**: the median comes
   first (the developers page's "Row: item id, median, minimum buyout, quantity, 7 day median, 30 day

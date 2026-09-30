@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Anchor, Button, Group, Text } from '@mantine/core'
+import { Button, Group, Text } from '@mantine/core'
 import { useInterval } from '@mantine/hooks'
 import { age, parseUtc } from '../lib/age'
 import { linkProps } from '../lib/router'
@@ -8,28 +8,14 @@ import { IconWarning } from './icons'
 /** Prices older than this are called out: a scan since then would give better results. */
 export const STALE_AFTER_MS = 60 * 60_000
 
-/** AHledger's site: its terms ask for a link wherever its prices are shown. */
-export const AHLEDGER_URL = 'https://ahledger.com'
-
-/** The credit AHledger's terms require wherever its prices are used. */
-export function AhledgerCredit() {
-  return (
-    <Text size="sm" c="dimmed">
-      Includes prices from{' '}
-      <Anchor href={AHLEDGER_URL} target="_blank" rel="noopener noreferrer" inherit>
-        AHledger
-      </Anchor>
-      .
-    </Text>
-  )
-}
+/** How a scan is taken: prices come from the Alt Army addon's own scan of the auction house. */
+export const HOW_TO_SCAN = 'At the auction house, press Alt Army scan, then upload your Alt Army data.'
 
 /**
  * How fresh the selected auction house's prices are: when its newest scan was made, in a warning colour once
  * that is over an hour ago (or there is no scan at all), and the way to bring in a newer scan: the Upload page.
- * With `ahledger`, some of those scans came from AHledger, which is credited.
  */
-export function PriceFreshness({ lastScan, ahledger = false }: { lastScan: string | null; ahledger?: boolean }) {
+export function PriceFreshness({ lastScan }: { lastScan: string | null }) {
   // Re-render each minute, so the age keeps up while the page stays open.
   const [now, setNow] = useState(() => new Date())
   useInterval(() => setNow(new Date()), 60_000, { autoInvoke: true })
@@ -37,7 +23,7 @@ export function PriceFreshness({ lastScan, ahledger = false }: { lastScan: strin
   const stale = Number.isNaN(scanned) || now.getTime() - scanned > STALE_AFTER_MS
   const text =
     lastScan === null
-      ? 'No auction house scan for this realm yet.'
+      ? `Nobody has scanned this auction house yet. ${HOW_TO_SCAN}`
       : stale
         ? `Auction house prices are from a scan ${age(lastScan, now)}.`
         : `Auction house prices scanned ${age(lastScan, now)}.`
@@ -56,7 +42,6 @@ export function PriceFreshness({ lastScan, ahledger = false }: { lastScan: strin
       <Button component="a" size="compact-xs" variant="light" {...linkProps('/upload')}>
         Upload your scan
       </Button>
-      {ahledger && <AhledgerCredit />}
     </Group>
   )
 }

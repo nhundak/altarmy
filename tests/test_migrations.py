@@ -253,7 +253,7 @@ def test_0009_allows_ahledger_and_drops_forevers_shared_houses(database: db.Data
                 user_uid=ME, game_version="forever", selected_realm="Classic Beta PvE", selected_faction=""
             )
         )
-        db.upgrade(conn)
+        command.upgrade(db.alembic_config(conn), "0009")  # 0014 deletes Forever's Auctionator prices
         kept = {houses[("forever", "")], houses[("tbc", "Dreamscythe")]}
         assert set(conn.execute(select(t.c.id)).scalars()) == kept
         assert set(conn.execute(select(pc.c.auction_house_id)).scalars()) == kept
@@ -360,8 +360,123 @@ def test_0013_feed_price_columns_start_empty_and_feed_tables_restart(database: d
                 body="AHL1|forever/normal/horde/us|1|1\n1:5:5:3",
             )
         )
-        db.upgrade(conn)
+        command.upgrade(db.alembic_config(conn), "0013")  # 0014 deletes Forever's AHledger prices
         pc, obs = schema.price_current, schema.price_observations
         assert tuple(conn.execute(select(pc.c.price, pc.c.sell_cap, pc.c.quantity)).one()) == (5, None, None)
         assert conn.execute(select(obs.c.sell_cap)).scalar_one() is None
         assert conn.execute(select(func.count()).select_from(schema.feed_tables)).scalar_one() == 0
+
+
+def test_0014_adds_the_order_book_and_drops_forevers_third_party_prices(database: db.Database) -> None:
+    """Forever keeps only hand-set prices; TBC keeps everything; 'altarmy' snapshots are allowed."""
+    when = datetime(2026, 9, 29, tzinfo=UTC)
+    with database.engine.begin() as conn:
+        command.downgrade(db.alembic_config(conn), "0013")
+        assert "ladder" not in {c["name"] for c in inspect(conn).get_columns("price_current")}
+        assert "price_sales_daily" not in inspect(conn).get_table_names()
+        old = MetaData()
+        old.reflect(conn)
+        t = old.tables
+        houses: dict[str, int] = {}
+        for version, realm in (("forever", "Classic Beta PvE"), ("tbc", "Dreamscythe")):
+            houses[version] = conn.execute(
+                t["auction_houses"]
+                .insert()
+                .values(game_version=version, realm=realm, faction="Horde", price_version=3)
+                .returning(t["auction_houses"].c.id)
+            ).scalar_one()
+        sources = (("forever", "ahledger"), ("forever", "auctionator"), ("forever", "manual"))
+        for item, (version, source) in enumerate((*sources, ("tbc", "auctionator")), start=1):
+            snapshot: int = conn.execute(
+                t["price_snapshots"]
+                .insert()
+                .values(
+                    auction_house_id=houses[version],
+                    source=source,
+                    scanned_at=when,
+                    received_at=when,
+                    item_count=1,
+                    status="accepted",
+                )
+                .returning(t["price_snapshots"].c.id)
+            ).scalar_one()
+            conn.execute(
+                t["price_observations"].insert().values(snapshot_id=snapshot, item_id=item, min_buyout=5)
+            )
+            conn.execute(
+                t["price_current"]
+                .insert()
+                .values(
+                    auction_house_id=houses[version],
+                    item_id=item,
+                    price=5,
+                    seen_at=when,
+                    snapshot_id=snapshot,
+                    median_7d=4,
+                    scans_7d=3,
+                    sell_cap=4,
+                )
+            )
+            conn.execute(
+                t["price_daily"]
+                .insert()
+                .values(auction_house_id=houses[version], item_id=item, day=when.date(), low=5, high=5)
+            )
+        conn.execute(
+            t["feed_tables"]
+            .insert()
+            .values(
+                source="ahledger",
+                market="forever.normal.horde.us",
+                auction_house_id=houses["forever"],
+                scanned_at=when,
+                stamped_at=when,
+                fetched_at=when,
+                body="AHL1|forever/normal/horde/us|1|1\n1:5:5:3",
+            )
+        )
+        db.upgrade(conn)
+        pc, snap, ah = schema.price_current, schema.price_snapshots, schema.auction_houses
+        rows = conn.execute(
+            select(
+                pc.c.item_id, pc.c.price, pc.c.median_7d, pc.c.sell_cap, pc.c.ladder, pc.c.listed
+            ).order_by(pc.c.item_id)
+        ).all()
+        assert [tuple(r) for r in rows] == [(3, 5, None, None, None, None), (4, 5, 4, 4, None, None)]
+        assert sorted(conn.execute(select(snap.c.source)).scalars()) == ["auctionator", "manual"]
+        assert sorted(conn.execute(select(schema.price_observations.c.item_id)).scalars()) == [3, 4]
+        assert list(conn.execute(select(schema.price_daily.c.item_id)).scalars()) == [4]
+        assert conn.execute(select(func.count()).select_from(schema.feed_tables)).scalar_one() == 0
+        versions = {r.game_version: r.price_version for r in conn.execute(select(ah))}
+        assert versions == {"forever": 4, "tbc": 3}
+        conn.execute(
+            snap.insert().values(
+                auction_house_id=houses["forever"],
+                source="altarmy",
+                scanned_at=when,
+                received_at=when,
+                item_count=0,
+                status="accepted",
+            )
+        )
+        conn.execute(
+            schema.price_sales_daily.insert().values(
+                auction_house_id=houses["forever"],
+                item_id=1,
+                day=when.date(),
+                units=2,
+                copper=10,
+                cancelled=0,
+            )
+        )
+        with pytest.raises(IntegrityError), conn.begin_nested():
+            conn.execute(
+                snap.insert().values(
+                    auction_house_id=houses["forever"],
+                    source="nonsense",
+                    scanned_at=when,
+                    received_at=when,
+                    item_count=0,
+                    status="accepted",
+                )
+            )

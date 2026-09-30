@@ -3,41 +3,30 @@ import { Alert, Badge, Button, Group, Stack, Text, Textarea } from '@mantine/cor
 import type { UploadResult } from '../api/client'
 import { usePasteUpload } from '../api/queries'
 
-/** What an upload or paste brought in, in a sentence per realm. */
+/** What an upload or paste brought in: the characters, and a line per auction house scan recorded. */
 export function Summary({ result }: { result: UploadResult }) {
-  if (result.kind === 'altarmy') {
-    return (
-      <Text size="sm">
-        Imported {result.characters} characters
-        {result.groups.length > 0 &&
-          `: ${result.groups.map((g) => `${g.realm} (${g.faction || 'no faction'}) ${g.characters}`).join(', ')}`}
-        .
-      </Text>
-    )
-  }
-  if (!result.realms.length) return <Text size="sm">No realm in the file has prices.</Text>
   return (
     <Stack gap={4}>
-      {result.realms.map((r) => (
-        <Group key={r.key} gap="xs">
+      {result.kind === 'altarmy' && (
+        <Text size="sm">
+          Imported {result.characters} characters
+          {result.groups.length > 0 &&
+            `: ${result.groups.map((g) => `${g.realm} (${g.faction || 'no faction'}) ${g.characters}`).join(', ')}`}
+          .
+        </Text>
+      )}
+      {result.kind !== 'altarmy' && !result.realms.length && <Text size="sm">No realm in the file has prices.</Text>}
+      {result.realms.map((r, i) => (
+        <Group key={`${r.key}-${i}`} gap="xs">
           <Text size="sm">
             {r.realm || r.key}
-            {r.faction ? ` (${r.faction})` : ''}: {r.items} prices
-            {r.quarantined || r.skipped ? '' : `, ${r.moved} changed`}
+            {r.faction ? ` (${r.faction})` : ''} scan: {r.items.toLocaleString()} prices
+            {r.quarantined ? '' : `, ${r.moved.toLocaleString()} changed`}
           </Text>
-          {(r.quarantined || r.skipped) && (
-            <Badge
-              color="yellow"
-              variant="light"
-              title={r.skipped ?? 'They differ widely from recent scans of this realm'}
-            >
+          {r.quarantined && (
+            <Badge color="yellow" variant="light" title="They differ widely from recent scans of this realm">
               not used
             </Badge>
-          )}
-          {r.skipped && (
-            <Text size="sm" c="dimmed">
-              {r.skipped}
-            </Text>
           )}
         </Group>
       ))}

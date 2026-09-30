@@ -44,7 +44,6 @@ def test_finds_both_versions_files_characters_first(wow_root: Path, tbc_files: P
     assert [(f.game_version, f.kind, f.path.parent.parts[-5]) for f in found] == [
         ("forever", "altarmy", "_classic_beta_"),
         ("tbc", "altarmy", "_anniversary_"),
-        ("forever", "auctionator", "_classic_beta_"),
         ("tbc", "auctionator", "_anniversary_"),
     ]
 
@@ -67,9 +66,11 @@ def test_changed_and_state_file(wow_root: Path, tmp_path: Path) -> None:
         state[str(f.path)] = f.mtime_ns
     watch.save_state(state_path, state)
     assert watch.load_state(state_path) == state
-    touch(wow_root / SV_DIR / "Auctionator.lua")
+    touch(wow_root / SV_DIR / "Auctionator.lua")  # Forever's is not watched
+    assert watch.changed(watch.find_files([wow_root]), state) == []
+    touch(wow_root / SV_DIR / "AltArmy_TBC.lua")
     (again,) = watch.changed(watch.find_files([wow_root]), state)
-    assert again.kind == "auctionator"
+    assert again.kind == "altarmy"
     state_path.write_text("not json")
     assert watch.load_state(state_path) == {}  # a broken state file means upload everything again
 
@@ -110,11 +111,11 @@ def test_sync_uploads_what_changed(
     server = Server(client)
     state = tmp_path / "watch.json"
     sent = watch.sync_once([wow_root], "http://server/", me, state, server, print)
-    assert [(f.game_version, f.kind) for f in sent] == [("forever", "altarmy"), ("forever", "auctionator")]
+    assert [(f.game_version, f.kind) for f in sent] == [("forever", "altarmy")]
     assert server.seen[0][0] == "http://server/api/uploads?game_version=forever"
     assert server.seen[0][1]["Authorization"] == f"Bearer password:{ME}"
     assert store.count_characters(conn, ME, FOREVER) == 4
-    assert [u.kind for u in uploads.recent(conn, ME)] == ["auctionator", "altarmy"]
+    assert [u.kind for u in uploads.recent(conn, ME)] == ["altarmy"]
 
     assert watch.sync_once([wow_root], "http://server", me, state, server, print) == []
     touch(wow_root / SV_DIR / "AltArmy_TBC.lua")
@@ -155,8 +156,8 @@ def test_failed_uploads_are_retried_and_a_refused_sign_in_stops(wow_root: Path, 
     with pytest.raises(signin.SignedOut):
         watch.sync_once([wow_root], "http://s", token(), state, Server(None, 401), print)
     rejected = watch.sync_once([wow_root], "http://s", token(), state, Server(None, 400), print)
-    assert len(rejected) == 2  # a file the server refuses is skipped until WoW rewrites it
-    assert len(watch.load_state(state)) == 2
+    assert len(rejected) == 1  # a file the server refuses is skipped until WoW rewrites it
+    assert len(watch.load_state(state)) == 1
 
 
 def test_every_version_has_a_flavor() -> None:
@@ -228,40 +229,3 @@ def test_run_backs_off_and_stops_when_signed_out(wow_root: Path, tmp_path: Path)
     watch.run([wow_root], "http://s", token(), tmp_path / "s.json", 10, flaky, logged.append, naps.append)
     assert naps == [20, 40]  # doubled after each failure
     assert logged[-1].startswith("Stopped: the server refused the sign-in (401)")
-
-
-def test_auctionator_uploads_name_the_faction_alt_army_logged(wow_root: Path, tmp_path: Path) -> None:
-    from .test_scanlog import scan_log
-
-    sv = wow_root / SV_DIR
-    auctionator = sv / "Auctionator.lua"
-    mtime = auctionator.stat().st_mtime_ns // 10**9
-    got: list[bytes] = []
-    lines: list[str] = []
-
-    def capture(url: str, headers: Mapping[str, str], body: bytes) -> tuple[int, bytes]:
-        got.append(body)
-        return 200, b"{}"
-
-    (sv / "AltArmy_TBC.lua").write_bytes(
-        ALTARMY_SV + scan_log((mtime - 5000, "Alliance"), (mtime - 10, "Horde"))
-    )
-    state = tmp_path / "s.json"
-    watch.sync_once([wow_root], "http://s", token(), state, capture, lines.append)
-    altarmy_body, auctionator_body = got
-    assert b'name="faction"' not in altarmy_body
-    assert b'name="faction"\r\n\r\nHorde\r\n' in auctionator_body  # first upload: the newest update decides
-    assert lines[1].startswith("Uploaded forever Auctionator.lua (Horde scan)")
-
-    # since the last upload: an Alliance update, then Horde again: mixed, so no faction
-    (sv / "AltArmy_TBC.lua").write_bytes(ALTARMY_SV + scan_log((mtime + 5, "Alliance"), (mtime + 8, "Horde")))
-    os.utime(auctionator, ns=(auctionator.stat().st_atime_ns, (mtime + 10) * 10**9))
-    got.clear()
-    watch.sync_once([wow_root], "http://s", token(), state, capture, print)
-    assert all(b'name="faction"' not in body for body in got)
-
-    (sv / "AltArmy_TBC.lua").unlink()
-    touch(auctionator)
-    got.clear()
-    watch.sync_once([wow_root], "http://s", token(), state, capture, print)
-    assert b'name="faction"' not in got[0]

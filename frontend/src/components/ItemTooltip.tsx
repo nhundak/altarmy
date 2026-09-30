@@ -87,7 +87,16 @@ function ItemLines({ item }: { item: ItemInfo }) {
           Auction: <Money copper={item.ah_price} />
         </div>
       )}
-      {item.ah_quantity != null && <div>{item.ah_quantity} listed</div>}
+      {item.ah_quantity != null && <div>{item.ah_quantity.toLocaleString()} listed</div>}
+      {item.ah_levels.length > 1 &&
+        item.ah_levels.map((level) => (
+          <div key={level.price} style={{ opacity: 0.8 }}>
+            {level.quantity.toLocaleString()}
+            {level.more ? ' more from ' : ' at '}
+            <Money copper={level.price} />
+            {level.counted ? '' : ' (just listed: not counted on)'}
+          </div>
+        ))}
       {item.ah_price != null && item.ah_sell_price != null && item.ah_sell_price < item.ah_price && (
         <div>
           Sells for (going rate): <Money copper={item.ah_sell_price} />

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import Literal
 
-from . import timing
+from . import book, timing
 from .timing import Timing
 
 AH_CUT = 0.05  # auction house cut taken from the sale price (deposit ignored)
@@ -230,6 +230,7 @@ class Node:
     mail_to: str = ""  # who it is mailed to (the parent's crafter); "" if not mailed
     postage: int = 0  # copper for that mail, included in cost
     discount: int = 0  # bought from a vendor: percent off the buyer gets (Bartering)
+    short: int = 0  # bought on the AH: units more than it lists, counted at its dearest price
     # every way to get these items, cheapest first; empty for the recipe's own craft
     options: tuple[Option, ...] = field(default=(), compare=False)
     option: str = field(default="", compare=False)  # the key of the option taken; "" for the recipe's craft
@@ -317,6 +318,11 @@ class Result:
         """Copper per hour of play; None without a time model."""
         t = self.timing
         return None if t is None else t.per_hour(self.profit)
+
+    @property
+    def short(self) -> int:
+        """Units the plan buys on the AH beyond what is listed there (see `Node.short`)."""
+        return _short(self.tree)
 
     @property
     def skill_ups(self) -> float:
@@ -739,6 +745,18 @@ def _vendor_buy(sold: frozenset[int], anything: bool) -> Callable[[Step], bool]:
     return lambda s: s.action == "buy" and s.via == "vendor" and (anything or s.item_id in sold)
 
 
+def _recosted(node: Node, cost: int, short: int) -> Node:
+    """`node` at another cost, the option it took with it."""
+    if cost == node.cost and short == node.short:
+        return node
+    options = tuple(replace(o, cost=cost) if o.key == node.option else o for o in node.options)
+    return replace(node, cost=cost, short=short, options=options)
+
+
+def _short(node: Node) -> int:
+    return node.short + sum(_short(i) for i in node.inputs)
+
+
 def _ah_buy(step: Step) -> bool:
     return step.action == "buy" and step.via == "ah"
 
@@ -764,6 +782,7 @@ class Market:
         mail_postage: int = MAIL_POSTAGE,
         sell_prices: dict[int, int] | None = None,
         time: TimeModel | None = None,
+        books: Mapping[int, book.Ladder] | None = None,
     ):
         """`crafters` are the characters who craft and disenchant, mailing items between them; without
         them one unnamed character does everything. When nobody has learned a recipe, `unlearned` says who
@@ -774,10 +793,16 @@ class Market:
         at `prices`; crafts and disenchant materials are sold at `sell_prices` (default: `prices`), which
         may be more conservative than the newest listing. With a `time` model every node and result
         carries estimated play time, and with its time value plans are chosen by copper plus the value of
-        that time (see `_effective`)."""
+        that time (see `_effective`).
+
+        An item in `books` is bought up its ladder instead (`book.cost`): the units listed at each price,
+        cheapest first, so what it costs depends on how many are needed; units the book is short of are
+        counted at its dearest price and reported (`Node.short`). Branches of one plan buying the same
+        item share its ladder (`_share_books`)."""
         self.items = items
         self.recipes = recipes
         self.prices = prices
+        self.books = books or {}
         self.sell_prices = prices if sell_prices is None else sell_prices
         self.disenchant = disenchant or []
         self.ah_cut = ah_cut
@@ -1005,6 +1030,49 @@ class Market:
     def _name(self, item_id: int) -> str:
         return self.items[item_id].name if item_id in self.items else str(item_id)
 
+    def _ah_cost(self, item_id: int, qty: int, skip: int = 0) -> tuple[int, int] | None:
+        """(copper, units short) for `qty` units off the auction house, after `skip` units already taken
+        from the item's ladder; None if it has no price there."""
+        ladder = self.books.get(item_id)
+        if ladder:
+            upto, before = book.cost(ladder, skip + qty), book.cost(ladder, skip)
+            assert upto is not None and before is not None
+            return upto[0] - before[0], upto[1] - before[1]
+        if item_id in self.prices:
+            return qty * self.prices[item_id], 0
+        return None
+
+    def _share_books(self, tree: Node) -> Node:
+        """`tree` with the auction house buys of an item that several of its branches buy costed as one
+        walk up the item's ladder, in the tree's order: each branch was planned as if the cheapest units
+        were its own. Costs change up to the root; the plan stays as chosen."""
+        buys: dict[int, int] = {}
+
+        def count(n: Node) -> None:
+            if n.source == "ah" and n.item_id in self.books:
+                buys[n.item_id] = buys.get(n.item_id, 0) + 1
+            for i in n.inputs:
+                count(i)
+
+        count(tree)
+        shared = {item_id for item_id, times in buys.items() if times > 1}
+        if not shared:
+            return tree
+        taken: dict[int, int] = {}
+
+        def walk(n: Node) -> Node:
+            if n.source == "ah" and n.item_id in shared:
+                skip = taken.get(n.item_id, 0)
+                taken[n.item_id] = skip + n.quantity
+                got = self._ah_cost(n.item_id, n.quantity, skip)
+                assert got is not None
+                return _recosted(n, got[0], got[1])
+            inputs = tuple(walk(i) for i in n.inputs)
+            added = sum(new.cost - old.cost for new, old in zip(inputs, n.inputs, strict=True))
+            return replace(_recosted(n, n.cost + added, n.short), inputs=inputs)
+
+        return walk(tree)
+
     def _obtain(
         self,
         item_id: int,
@@ -1048,15 +1116,17 @@ class Market:
                     ),
                 )
             )
-        if item_id in self.prices:
+        listed = self._ah_cost(item_id, qty)
+        if listed is not None:
             act, est = self._buy_seconds(item_id, qty, "ah")
             bought = Node(
                 item_id,
                 name,
                 qty,
-                qty * self.prices[item_id],
+                listed[0],
                 source="ah",
                 crafter=at,
+                short=listed[1],
                 seconds=est,
                 act_seconds=act,
             )
@@ -1161,6 +1231,7 @@ class Market:
             here = self._exits_at(exits, who, recipe.output_item_id)
             if tree is None or not here:
                 continue
+            tree = self._share_books(tree)
             mail = self.postage(recipe.output_item_id, tree.made)
             mail_act, mail_est = self._mail_seconds(recipe.output_item_id, tree.made)
             # A Master Chef's extra results are counted at their expected number; mailing them is not charged.

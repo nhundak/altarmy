@@ -10,6 +10,13 @@ For every item with `price_daily` rows in the last LOOKBACK_DAYS days:
   availability; `scans_7d` how many days that was. Latest days with data rather than the last 7 calendar
   days: one player scans every few days, and a lone overpriced listing must not be the only sample.
 
+A snapshot's price is its market price where it has one (an Alt Army scan: the price a little way into
+the listed units), else its minimum buyout.
+
+- `price_current.sale_rate`: the units a day that sold over the last SALES_DAYS days
+  (`price_sales_daily`, which Alt Army's scans fill); `sale_price`: by units, the middle price they sold
+  for, once MIN_SALES sold.
+
 Items without a day in the lookback get NULLs. A merge that changed anything bumps
 `auction_houses.price_version`, which moves `store.market_stamp`, so every instance's cached market is
 rebuilt.
@@ -27,8 +34,11 @@ from . import db, prices, schema
 
 SAMPLE_DAYS = 7  # the latest days with data that make an item's median
 LOOKBACK_DAYS = 30  # how far back those days may be
+SALES_DAYS = 7  # the calendar days whose inferred sales count
+MIN_SALES = 5  # fewer units sold than this say nothing of a price
 
 Stats = tuple[int | None, int | None, int | None]  # median_7d, avail_7d, scans_7d
+Sales = tuple[int | None, float | None]  # sale_price, sale_rate
 
 
 def median(values: Sequence[int]) -> int:
@@ -81,15 +91,20 @@ def merge_auction_house(conn: Connection, auction_house_id: int, today: date) ->
             daily_updates,
         )
 
+    sold = _sales(conn, auction_house_id, today)
     current_updates = []
+    sales_updates = []
     for r in conn.execute(
-        select(pc.c.item_id, pc.c.median_7d, pc.c.avail_7d, pc.c.scans_7d).where(
-            pc.c.auction_house_id == auction_house_id
-        )
+        select(pc.c.item_id, pc.c.median_7d, pc.c.avail_7d, pc.c.scans_7d)
+        .add_columns(pc.c.sale_price, pc.c.sale_rate)
+        .where(pc.c.auction_house_id == auction_house_id)
     ):
         stats = _stats(per_item.get(r.item_id, []))
         if stats != (r.median_7d, r.avail_7d, r.scans_7d):
             current_updates.append({"i": r.item_id, "m": stats[0], "a": stats[1], "s": stats[2]})
+        sales = sold.get(r.item_id, (None, None))
+        if sales != (r.sale_price, r.sale_rate):
+            sales_updates.append({"i": r.item_id, "p": sales[0], "r": sales[1]})
     if current_updates:
         conn.execute(
             update(pc)
@@ -97,8 +112,15 @@ def merge_auction_house(conn: Connection, auction_house_id: int, today: date) ->
             .values(median_7d=bindparam("m"), avail_7d=bindparam("a"), scans_7d=bindparam("s")),
             current_updates,
         )
+    if sales_updates:
+        conn.execute(
+            update(pc)
+            .where(pc.c.auction_house_id == auction_house_id, pc.c.item_id == bindparam("i"))
+            .values(sale_price=bindparam("p"), sale_rate=bindparam("r")),
+            sales_updates,
+        )
 
-    changed = bool(daily_updates or current_updates)
+    changed = bool(daily_updates or current_updates or sales_updates)
     if changed:
         prices.bump_price_version(conn, auction_house_id)
     return changed
@@ -112,6 +134,42 @@ def _stats(days: list[tuple[date, int, int | None]]) -> Stats:
     return median([m for _, m, _ in latest]), median(available) if available else None, len(latest)
 
 
+def _sales(conn: Connection, auction_house_id: int, today: date) -> dict[int, Sales]:
+    """{item_id: (sale price, units sold a day)} over the SALES_DAYS days up to `today`, for items that
+    sold at all. The sale price is, by units, the middle of the days' average prices; None under
+    MIN_SALES units."""
+    t = schema.price_sales_daily
+    rows = conn.execute(
+        select(t.c.item_id, t.c.units, t.c.copper)
+        .where(
+            t.c.auction_house_id == auction_house_id,
+            t.c.day > today - timedelta(days=SALES_DAYS),
+            t.c.day <= today,
+            t.c.units > 0,
+        )
+        .order_by(t.c.item_id, t.c.day)
+    )
+    days: dict[int, list[tuple[int, int]]] = defaultdict(list)  # (average price, units)
+    for r in rows:
+        days[r.item_id].append((r.copper // r.units, r.units))
+    out: dict[int, Sales] = {}
+    for item_id, sold in days.items():
+        units = sum(u for _, u in sold)
+        out[item_id] = (_middle(sold) if units >= MIN_SALES else None, units / SALES_DAYS)
+    return out
+
+
+def _middle(priced: list[tuple[int, int]]) -> int:
+    """The price of the middle unit of (price, units) pairs."""
+    half = sum(u for _, u in priced) / 2
+    seen = 0
+    for price, units in sorted(priced):
+        seen += units
+        if seen >= half:
+            return price
+    raise ValueError("no units")
+
+
 def _scan_samples(
     conn: Connection, auction_house_id: int, start: date, today: date
 ) -> dict[tuple[int, date], list[int]]:
@@ -120,7 +178,11 @@ def _scan_samples(
     since = datetime.combine(start, time(), db.utcnow().tzinfo)
     until = datetime.combine(today + timedelta(days=1), time(), db.utcnow().tzinfo)
     rows = conn.execute(
-        select(obs.c.item_id, snap.c.scanned_at, obs.c.min_buyout)
+        select(
+            obs.c.item_id,
+            snap.c.scanned_at,
+            func.coalesce(obs.c.market_price, obs.c.min_buyout).label("min_buyout"),
+        )
         .join(snap, snap.c.id == obs.c.snapshot_id)
         .where(
             snap.c.auction_house_id == auction_house_id,

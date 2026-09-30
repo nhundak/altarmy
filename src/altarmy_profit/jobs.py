@@ -1,4 +1,4 @@
-"""Runs of the scheduled CLI jobs (ingest, merge, prune, ahledger) in `job_runs`, for the Admin page.
+"""Runs of the scheduled CLI jobs (ingest, merge, prune) in `job_runs`, for the Admin page.
 
 A job wraps its work in `recording`, which writes a row when it starts and completes it when it ends
 (with what the job said, and whether it succeeded), each in a transaction of its own around the job's.
@@ -18,11 +18,11 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 from . import db, schema
 
 # How often each job is scheduled (deploy/setup.sh `scheduler`): a job is late after LATE_FACTOR of it.
+# `schema.JOBS` also names the removed ahledger job, whose old runs stay in `job_runs`.
 CADENCE: dict[str, timedelta] = {
     "ingest": timedelta(days=1),
     "merge": timedelta(hours=1),
     "prune": timedelta(days=1),
-    "ahledger": timedelta(hours=1),
 }
 LATE_FACTOR = 2
 SUMMARY_MAX = 4000  # characters of a run's summary kept (the end, where failures are)

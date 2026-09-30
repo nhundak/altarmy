@@ -123,6 +123,17 @@ export function AddonPage() {
               </List.Item>
               <List.Item>Paste the export into Import your characters on the Profit page.</List.Item>
             </List>
+            <Text>For auction house prices:</Text>
+            <List spacing={4}>
+              <List.Item>
+                At the auction house, press <b>Alt Army scan</b> and keep the window open until it finishes. The game
+                allows one full scan every 15 minutes.
+              </List.Item>
+              <List.Item>
+                Log out or type <Code>/reload</Code>, then upload AltArmy_TBC.lua on the{' '}
+                <Anchor {...linkProps('/upload')}>Upload page</Anchor>, or let Alt Army Sync send it.
+              </List.Item>
+            </List>
           </Stack>
         </Stack>
       </motion.div>
@@ -145,7 +156,7 @@ export function UploadPage() {
 export function AdminPage() {
   const { admin } = useSession()
   return (
-    <Page title="Admin" lead="What the scheduled jobs, uploads and price feeds have been doing.">
+    <Page title="Admin" lead="What the scheduled jobs and uploads have been doing.">
       {admin ? <AdminTab /> : <Alert color="yellow">This page is for site admins. Sign in with an admin account.</Alert>}
     </Page>
   )

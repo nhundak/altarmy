@@ -5,14 +5,15 @@ import csv
 import json
 import os
 import shutil
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 from sqlalchemy import Connection, text
 
-from altarmy_profit import auth, db, prices, schema, users
+from altarmy_profit import auth, book, db, prices, schema, users
 from altarmy_profit.versions import VERSIONS, GameVersion
 
 from .test_altarmy import ALTARMY_SV
@@ -86,6 +87,60 @@ def set_prices(
     for item_id, price in item_prices.items():
         prices.set_price(conn, ah, item_id, price)
     return ah
+
+
+Levels = Sequence[tuple[int, int]]  # an item's (unit price, units listed), cheapest first
+
+
+def book_scan(
+    items: Mapping[int, Levels],
+    at: datetime,
+    realm: str = "Classic Beta PvE",
+    faction: str = "Horde",
+) -> book.Scan:
+    """An Alt Army scan of an auction house (default: the tailor's), one listing per price level."""
+    ladders = {i: tuple(book.Level(p, q, 1) for p, q in levels) for i, levels in items.items()}
+    listings = sum(len(levels) for levels in items.values())
+    return book.Scan(int(at.timestamp()), realm, faction, listings, 0, "own", ladders)
+
+
+def scanned(
+    conn: Connection,
+    items: Mapping[int, Levels],
+    at: datetime | None = None,
+    realm: str = "Classic Beta PvE",
+    faction: str = "Horde",
+    game_version: str = FOREVER,
+) -> int:
+    """Record an Alt Army scan (default: taken now); returns the auction house."""
+    ah = prices.auction_house(conn, game_version, realm, faction)
+    at = at or db.utcnow()
+    prices.record_book(conn, ah, book_scan(items, at, realm, faction), scanned_at=at)
+    return ah
+
+
+def saved_book(*scans: book.Scan) -> bytes:
+    """`AltArmyTBC_AuctionBook` as the addon saves it, to append to an AltArmy_TBC.lua."""
+    out = ["\nAltArmyTBC_AuctionBook = {", '["version"] = 1,', '["scans"] = {']
+    for s in scans:
+        items = ";".join(
+            f"{item}:"
+            + ",".join(f"{'~' if lv.tail else ''}{lv.price}*{lv.quantity}*{lv.listings}" for lv in lad)
+            for item, lad in sorted(s.items.items())
+        )
+        out += [
+            "{",
+            f'["t"] = {s.t},',
+            f'["realm"] = "{s.realm}",',
+            f'["faction"] = "{s.faction}",',
+            '["complete"] = true,',
+            f'["listings"] = {s.listings},',
+            f'["bidOnly"] = {s.bid_only},',
+            f'["source"] = "{s.source}",',
+            f'["items"] = "{items}",',
+            "},",
+        ]
+    return "\n".join([*out, "},", "}", ""]).encode()
 
 
 def write_csv(path: Path, header: list[str], rows: list[dict[str, object]]) -> Path:

@@ -227,43 +227,7 @@ function SnapshotsCard({ snapshots, now }: { snapshots: Ingestion['snapshots']; 
   )
 }
 
-function FeedsCard({ feeds, now }: { feeds: Ingestion['feeds']; now: Date }) {
-  if (!feeds.length) return null
-  return (
-    <Section title="AHledger feeds" lead="Each market's newest table. A poll that finds no newer table leaves it.">
-      <Table aria-label="AHledger feeds">
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Market</Table.Th>
-            <Table.Th>Auction house</Table.Th>
-            <Table.Th ta="right">Items</Table.Th>
-            <Table.Th>Scanned</Table.Th>
-            <Table.Th>Fetched</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {feeds.map((f) => (
-            <Table.Tr key={f.market}>
-              <Table.Td>{f.market}</Table.Td>
-              <Table.Td>
-                {f.realm} ({f.faction})
-              </Table.Td>
-              <Table.Td ta="right">{f.rows.toLocaleString()}</Table.Td>
-              <Table.Td>
-                <When utc={f.scanned_at} now={now} />
-              </Table.Td>
-              <Table.Td>
-                <When utc={f.fetched_at} now={now} />
-              </Table.Td>
-            </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
-    </Section>
-  )
-}
-
-/** The ingestion log and statistics: jobs, their runs, every user's uploads, snapshots per source, feeds. */
+/** The ingestion log and statistics: jobs, their runs, every user's uploads, snapshots per source. */
 export function AdminTab() {
   const ingestion = useAdminIngestion(true)
   if (ingestion.isPending) return <Loader aria-label="Loading" />
@@ -276,7 +240,6 @@ export function AdminTab() {
       <RunsCard runs={data.runs} now={now} />
       <UploadsCard uploads={data.uploads} now={now} />
       <SnapshotsCard snapshots={data.snapshots} now={now} />
-      <FeedsCard feeds={data.feeds} now={now} />
     </Stack>
   )
 }

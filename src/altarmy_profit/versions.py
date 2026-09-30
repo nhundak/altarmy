@@ -6,8 +6,7 @@ Alt Army runs on both clients and writes the same `AltArmy_TBC.lua` on each; onl
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -30,11 +29,8 @@ class GameVersion:
     max_skill: int  # the highest profession skill rank
     ah_cut: float = AH_CUT
     mail_postage: int = MAIL_POSTAGE  # copper per attachment
-    # Auction houses are per faction, but Auctionator's realm key doesn't say which (Forever's client loads
-    # its modern AH code, keyed by realm alone): an upload's faction comes from the uploader's characters.
-    split_by_faction: bool = False
-    # AHledger's markets (`ahledger`): ruleset -> the realm as characters spell it (one realm per ruleset)
-    ahledger_realms: Mapping[str, str] = field(default_factory=dict)
+    # Prices come from the Alt Army addon's full scans (and prices set by hand) alone: `prices.record_book`
+    first_party_prices: bool = False
 
     @property
     def disenchant_csv(self) -> Path:
@@ -61,8 +57,7 @@ VERSIONS: dict[str, GameVersion] = {
         interface=16001,
         max_level=60,
         max_skill=300,
-        split_by_faction=True,
-        ahledger_realms={"normal": "Classic Beta PvE", "pvp": "Classic Beta PvP 2"},
+        first_party_prices=True,
     ),
     "tbc": GameVersion(
         key="tbc",

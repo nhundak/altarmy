@@ -112,22 +112,6 @@
       },
       "Body_post_upload_api_uploads_post": {
         "properties": {
-          "faction": {
-            "anyOf": [
-              {
-                "enum": [
-                  "Horde",
-                  "Alliance"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "the faction that scanned realms you have both factions on",
-            "title": "Faction"
-          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -388,13 +372,6 @@
             "title": "Scans 7D",
             "type": "integer"
           },
-          "sources": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Sources",
-            "type": "array"
-          },
           "uploaders_7d": {
             "title": "Uploaders 7D",
             "type": "integer"
@@ -408,8 +385,7 @@
           "last_scan",
           "last_scan_items",
           "scans_7d",
-          "uploaders_7d",
-          "sources"
+          "uploaders_7d"
         ],
         "title": "CoverageOut",
         "type": "object"
@@ -674,44 +650,6 @@
         "title": "Favorites",
         "type": "object"
       },
-      "FeedOut": {
-        "properties": {
-          "faction": {
-            "title": "Faction",
-            "type": "string"
-          },
-          "fetched_at": {
-            "title": "Fetched At",
-            "type": "string"
-          },
-          "market": {
-            "title": "Market",
-            "type": "string"
-          },
-          "realm": {
-            "title": "Realm",
-            "type": "string"
-          },
-          "rows": {
-            "title": "Rows",
-            "type": "integer"
-          },
-          "scanned_at": {
-            "title": "Scanned At",
-            "type": "string"
-          }
-        },
-        "required": [
-          "market",
-          "realm",
-          "faction",
-          "rows",
-          "scanned_at",
-          "fetched_at"
-        ],
-        "title": "FeedOut",
-        "type": "object"
-      },
       "FirebaseOut": {
         "description": "The Firebase web config the front end signs in with (public values).",
         "properties": {
@@ -822,15 +760,8 @@
         "type": "object"
       },
       "IngestionOut": {
-        "description": "What the ingestion jobs, uploads and feeds have been doing (the Admin page).",
+        "description": "What the ingestion jobs and uploads have been doing (the Admin page).",
         "properties": {
-          "feeds": {
-            "items": {
-              "$ref": "#/components/schemas/FeedOut"
-            },
-            "title": "Feeds",
-            "type": "array"
-          },
           "jobs": {
             "items": {
               "$ref": "#/components/schemas/JobStatusOut"
@@ -865,8 +796,7 @@
           "jobs",
           "runs",
           "uploads",
-          "snapshots",
-          "feeds"
+          "snapshots"
         ],
         "title": "IngestionOut",
         "type": "object"
@@ -892,6 +822,14 @@
       "ItemInfo": {
         "description": "Everything an item tooltip shows.",
         "properties": {
+          "ah_levels": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LevelOut"
+            },
+            "title": "Ah Levels",
+            "type": "array"
+          },
           "ah_price": {
             "anyOf": [
               {
@@ -1258,6 +1196,35 @@
           "seconds"
         ],
         "title": "LegOut",
+        "type": "object"
+      },
+      "LevelOut": {
+        "description": "The units listed at one unit price.",
+        "properties": {
+          "counted": {
+            "title": "Counted",
+            "type": "boolean"
+          },
+          "more": {
+            "title": "More",
+            "type": "boolean"
+          },
+          "price": {
+            "title": "Price",
+            "type": "integer"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "price",
+          "quantity",
+          "counted",
+          "more"
+        ],
+        "title": "LevelOut",
         "type": "object"
       },
       "LocationOut": {
@@ -1654,6 +1621,17 @@
             "title": "Crafts",
             "type": "integer"
           },
+          "days_to_sell": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days To Sell"
+          },
           "details": {
             "default": [],
             "items": {
@@ -1727,6 +1705,10 @@
             "title": "Sell Options",
             "type": "array"
           },
+          "short": {
+            "title": "Short",
+            "type": "integer"
+          },
           "skill_chance": {
             "title": "Skill Chance",
             "type": "number"
@@ -1735,16 +1717,16 @@
             "title": "Skill Ups",
             "type": "number"
           },
+          "slow": {
+            "title": "Slow",
+            "type": "boolean"
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/StepOut"
             },
             "title": "Steps",
             "type": "array"
-          },
-          "thin_market": {
-            "title": "Thin Market",
-            "type": "boolean"
           },
           "timing": {
             "anyOf": [
@@ -1774,7 +1756,9 @@
           "profit",
           "roi",
           "best_exit",
-          "thin_market",
+          "slow",
+          "days_to_sell",
+          "short",
           "postage",
           "mail_to",
           "skill_chance",
@@ -1791,19 +1775,8 @@
       "RealmPricesOut": {
         "properties": {
           "auction_house_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Auction House Id"
-          },
-          "both_factions": {
-            "title": "Both Factions",
-            "type": "boolean"
+            "title": "Auction House Id",
+            "type": "integer"
           },
           "faction": {
             "title": "Faction",
@@ -1828,17 +1801,6 @@
           "realm": {
             "title": "Realm",
             "type": "string"
-          },
-          "skipped": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Skipped"
           }
         },
         "required": [
@@ -1848,9 +1810,7 @@
           "faction",
           "items",
           "moved",
-          "quarantined",
-          "skipped",
-          "both_factions"
+          "quarantined"
         ],
         "title": "RealmPricesOut",
         "type": "object"
@@ -2599,7 +2559,7 @@
   "paths": {
     "/api/admin/ingestion": {
       "get": {
-        "description": "The version's job runs, every user's uploads, snapshots per source and AHledger's feeds (admins).",
+        "description": "The version's job runs, every user's uploads and snapshots per source (admins).",
         "operationId": "get_admin_ingestion_api_admin_ingestion_get",
         "parameters": [
           {
@@ -3853,7 +3813,7 @@
         "summary": "Get Uploads"
       },
       "post": {
-        "description": "Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this\ngame version, Auctionator adds a scan for every realm it has prices for. `faction` (the watcher sends\nwhat the Alt Army addon logged) names the scanning faction where you have characters of both.",
+        "description": "Import an addon's SavedVariables file (plain or gzipped). Alt Army replaces your characters of this\ngame version and, on WoW: Forever, records the auction house scans the addon took. An Auctionator file\nis refused (400) where prices come from those scans alone.",
         "operationId": "post_upload_api_uploads_post",
         "parameters": [
           {

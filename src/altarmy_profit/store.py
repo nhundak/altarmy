@@ -10,7 +10,7 @@ from pathlib import Path
 
 from sqlalchemy import Connection, delete, func, select
 
-from . import db, itemstats, prices, schema, timing
+from . import db, itemstats, prices, schema, timing, versions
 from .altarmy import Character, Profession
 from .engine import AH_CUT, MAIL_POSTAGE, DisenchantRow, Item, Market, Recipe
 
@@ -90,7 +90,8 @@ def load_market(
     mail_postage: int = MAIL_POSTAGE,
 ) -> Market:
     """One version's game data priced by an auction house's current prices (None: no prices), with the
-    version's AH cut and postage per attachment."""
+    version's AH cut and postage per attachment. Where the version's prices are first-party, from Alt
+    Army's scans and hand-set prices alone, the scanned items bought up their ladders (`Market.books`)."""
     i, v = schema.items, schema.vendor_items
     sold = (
         select(v.c.item_id)
@@ -153,8 +154,10 @@ def load_market(
         )
         for r in conn.execute(select(d).where(d.c.game_version == game_version).order_by(d.c.id))
     ]
-    buy, sell = prices.load_buy_and_sell(conn, auction_house_id)
-    return Market(items, recipes, buy, de, ah_cut, mail_postage=mail_postage, sell_prices=sell)
+    first_party = versions.get(game_version).first_party_prices
+    buy, sell = prices.load_buy_and_sell(conn, auction_house_id, first_party=first_party)
+    books = prices.load_books(conn, auction_house_id) if first_party else {}
+    return Market(items, recipes, buy, de, ah_cut, mail_postage=mail_postage, sell_prices=sell, books=books)
 
 
 @dataclass(frozen=True)

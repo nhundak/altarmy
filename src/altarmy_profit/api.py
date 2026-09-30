@@ -42,7 +42,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 
 from . import (
-    ahledger,
     altarmy,
     auth,
     db,
@@ -50,7 +49,6 @@ from . import (
     jobs,
     prices,
     ratelimit,
-    schema,
     service,
     store,
     talents,
@@ -196,6 +194,20 @@ class EffectOut(BaseModel):
     text: str
 
 
+LEVELS_SHOWN = 5
+
+
+class LevelOut(BaseModel):
+    """The units listed at one unit price."""
+
+    price: int
+    quantity: int
+    # False: first seen in the newest scan and far under the usual price, so plans don't count on it
+    # (it may be gone before you get there)
+    counted: bool
+    more: bool  # pools every dearer level too (`price` is the cheapest of them)
+
+
 class ItemInfo(BaseModel):
     """Everything an item tooltip shows."""
 
@@ -222,11 +234,12 @@ class ItemInfo(BaseModel):
     stats: list[str]  # white lines, in game order: "+18 Strength", "+25 Fire Resistance"
     effects: list[EffectOut]  # green lines, in game order
     ah_price: int | None  # the cheapest listing
-    # what selling it on the AH counts as: the lowest of the cheapest listing, the 7-day median and
-    # AHledger's longer medians (hand-set prices as they are), so a lone overpriced listing isn't taken for
-    # the going rate
+    # what selling it on the AH counts as: the lower of what is asked a little way into the listed units
+    # and what it goes for (what sold lately, else the 7-day median; hand-set prices as they are), so a
+    # lone listing, cheap or overpriced, isn't taken for the going rate
     ah_sell_price: int | None
     ah_quantity: int | None  # units listed; None if unknown
+    ah_levels: list[LevelOut] = []  # the cheapest price levels listed (Alt Army's scans)
     vendor_price: int | None  # per unit, if a vendor sells it
 
 
@@ -297,8 +310,11 @@ class RankResult(BaseModel):
     profit: int
     roi: float
     best_exit: str
-    # the AH sale rests on fewer listed units than prices.THIN_UNITS or than the plan sells (informational)
-    thin_market: bool
+    # the AH sale may take over service.SLOW_DAYS, or (nothing known of how fast it sells) rests on fewer
+    # listed units than prices.THIN_UNITS or than the plan sells (informational)
+    slow: bool
+    days_to_sell: float | None  # how long that sale may take; None if unknown or not sold on the AH
+    short: int  # units the plan buys on the AH beyond what is listed (counted at the dearest price)
     postage: int  # copper to mail the output to whoever sells it (included in cost)
     mail_to: str  # who the output is mailed to; "" if the crafter sells it
     bonus_output: float = 0.0  # expected extra units from the crafter's talents (Master Chef), all crafts
@@ -486,7 +502,6 @@ class CoverageOut(BaseModel):
     last_scan_items: int  # items in that scan
     scans_7d: int  # accepted scans in the last 7 days
     uploaders_7d: int  # how many users sent them
-    sources: list[str]  # where those scans came from ("auctionator", "ahledger", ...), sorted
 
 
 UploadKind = Literal["altarmy", "auctionator"]
@@ -501,15 +516,13 @@ class GroupCount(BaseModel):
 
 
 class RealmPricesOut(BaseModel):
-    key: str  # Auctionator's realm key
-    auction_house_id: int | None  # None if skipped
+    key: str  # an Alt Army scan's realm and faction (TBC: Auctionator's realm key)
+    auction_house_id: int
     realm: str
     faction: str
     items: int  # items priced in the scan
     moved: int  # of them, items whose current price changed
     quarantined: bool  # far off this auction house's recent prices, so not used
-    skipped: str | None  # why the scan was not used: which faction scanned it is unknown
-    both_factions: bool  # skipped: the uploader has both factions there (an admin may name the scanner's)
 
 
 class UploadResult(BaseModel):
@@ -517,7 +530,7 @@ class UploadResult(BaseModel):
     detail: str  # a one-line summary
     characters: int  # altarmy: characters imported
     groups: list[GroupCount]  # altarmy: by realm and faction
-    realms: list[RealmPricesOut]  # auctionator: every realm with prices
+    realms: list[RealmPricesOut]  # the auction house scans recorded (those already known are left out)
 
 
 class UploadOut(BaseModel):
@@ -575,24 +588,14 @@ class SnapshotStatsOut(BaseModel):
     newest_received_at: str
 
 
-class FeedOut(BaseModel):
-    market: str
-    realm: str
-    faction: str
-    rows: int
-    scanned_at: str
-    fetched_at: str
-
-
 class IngestionOut(BaseModel):
-    """What the ingestion jobs, uploads and feeds have been doing (the Admin page)."""
+    """What the ingestion jobs and uploads have been doing (the Admin page)."""
 
     now: str  # the server's time, which `late` was judged at
-    jobs: list[JobStatusOut]  # every job, in schema.JOBS order
+    jobs: list[JobStatusOut]  # every scheduled job, in jobs.CADENCE order
     runs: list[JobRunOut]  # the newest runs, newest first
     uploads: UploadStatsOut
     snapshots: list[SnapshotStatsOut]  # per source, by name
-    feeds: list[FeedOut]  # AHledger's markets
 
 
 # --- app state and helpers -------------------------------------------------------------------------
@@ -984,11 +987,16 @@ def _item_details(
     out = {}
     for i, d in details.items():
         listing = priced.listings.get(i)
+        counted = {lv.price for lv in base.books.get(i, ())}
         out[i] = ItemInfo(
             **asdict(d),
             ah_price=listing.min_buyout if listing else None,
             ah_sell_price=base.sell_prices.get(i),
             ah_quantity=listing.quantity if listing else None,
+            ah_levels=[
+                LevelOut(price=lv.price, quantity=lv.quantity, counted=lv.price in counted, more=lv.tail)
+                for lv in (listing.ladder[:LEVELS_SHOWN] if listing else ())
+            ],
             vendor_price=_vendor_price(base, i),
         )
     return out
@@ -1081,7 +1089,9 @@ def _result_out(
         profit=r.profit,
         roi=r.roi,
         best_exit=r.best_exit,
-        thin_market=service.thin_market(r, listings),
+        slow=service.slow_to_sell(r, listings, base.sell_prices.get(r.recipe.output_item_id)),
+        days_to_sell=service.days_to_sell(r, listings, base.sell_prices.get(r.recipe.output_item_id)),
+        short=r.short,
         postage=r.postage,
         mail_to=r.mail_to,
         bonus_output=r.bonus_output,
@@ -1299,14 +1309,10 @@ def post_upload(
     kind: Annotated[UploadKind, Form()],
     modified_at: Annotated[int | None, Form(description="the file's modified time, ms since 1970")] = None,
     via: Annotated[FileVia, Form()] = "browser",
-    faction: Annotated[
-        Literal["Horde", "Alliance"] | None,
-        Form(description="the faction that scanned realms you have both factions on"),
-    ] = None,
 ) -> UploadResult:
-    """Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this
-    game version, Auctionator adds a scan for every realm it has prices for. `faction` (the watcher sends
-    what the Alt Army addon logged) names the scanning faction where you have characters of both."""
+    """Import an addon's SavedVariables file (plain or gzipped). Alt Army replaces your characters of this
+    game version and, on WoW: Forever, records the auction house scans the addon took. An Auctionator file
+    is refused (400) where prices come from those scans alone."""
     database = state.database
     with database.begin() as conn:
         try:
@@ -1329,7 +1335,7 @@ def post_upload(
     modified = None if modified_at is None else datetime.fromtimestamp(modified_at / 1000, UTC)
     try:
         with database.begin() as conn:
-            got = uploads.ingest(conn, user.uid, state.key, kind, data, modified, faction=faction)
+            got = uploads.ingest(conn, user.uid, state.key, kind, data, modified)
             uploads.record_upload(conn, user.uid, state.key, kind, via, len(data), "accepted", got.detail)
             moved = {ah: prices.price_version(conn, ah) for ah in got.moved_auction_house_ids}
     except ValueError as e:
@@ -1401,7 +1407,7 @@ def _text(dt: datetime) -> str:
 
 @router.get("/admin/ingestion")
 def get_admin_ingestion(state: State, user: AdminUser) -> IngestionOut:
-    """The version's job runs, every user's uploads, snapshots per source and AHledger's feeds (admins)."""
+    """The version's job runs, every user's uploads and snapshots per source (admins)."""
     now = db.utcnow()
     with _connect(state) as conn:
         newest = jobs.latest(conn, state.key)
@@ -1409,9 +1415,8 @@ def get_admin_ingestion(state: State, user: AdminUser) -> IngestionOut:
         counts = uploads.stats(conn, state.key, now)
         recent = uploads.recent_all(conn, state.key)
         snapshots = prices.snapshot_stats(conn, state.key, now)
-        feeds = ahledger.feeds(conn, state.key)
     statuses = []
-    for job in schema.JOBS:
+    for job in jobs.CADENCE:
         run = newest.get(job)
         if run is None:
             statuses.append(
@@ -1471,17 +1476,6 @@ def get_admin_ingestion(state: State, user: AdminUser) -> IngestionOut:
             )
             for s in snapshots
         ],
-        feeds=[
-            FeedOut(
-                market=f.market,
-                realm=f.realm,
-                faction=f.faction,
-                rows=f.rows,
-                scanned_at=_text(f.scanned_at),
-                fetched_at=_text(f.fetched_at),
-            )
-            for f in feeds
-        ],
     )
 
 
@@ -1501,7 +1495,6 @@ def get_coverage(state: State, user: CurrentUser) -> list[CoverageOut]:
             last_scan_items=c.last_scan_items,
             scans_7d=c.scans_7d,
             uploaders_7d=c.uploaders_7d,
-            sources=list(c.sources),
         )
         for c in found
     ]

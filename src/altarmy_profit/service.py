@@ -140,6 +140,9 @@ class RankCache:
                 self._entries.popitem(last=False)
 
 
+SLOW_DAYS = 2.0  # an AH sale expected to take longer than this is flagged
+
+
 @dataclass(frozen=True)
 class Selection:
     """Whose recipes count: every character of one realm and faction (they share an auction house)."""
@@ -246,6 +249,7 @@ def _market(
         mail_postage=base.mail_postage,
         sell_prices=base.sell_prices,
         time=time,
+        books=base.books,
     )
 
 
@@ -256,6 +260,25 @@ def thin_market(r: Result, listings: Mapping[int, prices.Listing]) -> bool:
     if r.best_exit != "ah" or listing is None:
         return False
     return prices.thin_market(listing.quantity, r.recipe.output_count * r.crafts)
+
+
+def days_to_sell(r: Result, listings: Mapping[int, prices.Listing], sell_price: int | None) -> float | None:
+    """How long the result's AH sale may take, in days: the units listed at or under `sell_price`
+    (they sell first) plus the plan's own, at the rate the item sold lately. None when it is not sold
+    on the AH or nothing says how fast it sells."""
+    listing = listings.get(r.recipe.output_item_id)
+    if r.best_exit != "ah" or listing is None or sell_price is None or not listing.sale_rate:
+        return None
+    ahead = sum(lv.quantity for lv in listing.ladder if lv.price <= sell_price)
+    return (ahead + r.recipe.output_count * r.crafts) / listing.sale_rate
+
+
+def slow_to_sell(r: Result, listings: Mapping[int, prices.Listing], sell_price: int | None) -> bool:
+    """Whether the result's AH sale may take over SLOW_DAYS (`days_to_sell`), or, where nothing says how
+    fast the item sells, rests on a thin market (`thin_market`). Informational: the ranking doesn't use
+    it."""
+    days = days_to_sell(r, listings, sell_price)
+    return thin_market(r, listings) if days is None else days > SLOW_DAYS
 
 
 def by_rate(results: Iterable[Result]) -> list[Result]:

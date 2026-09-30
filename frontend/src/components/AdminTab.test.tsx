@@ -34,15 +34,6 @@ export const ingestion: Ingestion = {
       late: false,
       summary: '',
     },
-    {
-      job: 'ahledger',
-      game_version: null,
-      last_started: '2026-09-27 11:20:00',
-      last_finished: '2026-09-27 11:21:00',
-      ok: false,
-      late: false,
-      summary: 'forever.normal.horde.us: 12 items\n1 of 4 AHledger markets failed.',
-    },
   ],
   runs: [
     {
@@ -53,6 +44,15 @@ export const ingestion: Ingestion = {
       finished_at: '2026-09-27 11:30:40',
       ok: true,
       summary: 'Merged 3 auction houses',
+    },
+    {
+      id: 6,
+      job: 'ahledger', // a run from before the feed was removed
+      game_version: null,
+      started_at: '2026-09-27 11:20:00',
+      finished_at: '2026-09-27 11:21:00',
+      ok: false,
+      summary: '1 of 4 AHledger markets failed.',
     },
   ],
   uploads: {
@@ -65,34 +65,24 @@ export const ingestion: Ingestion = {
       {
         id: 1,
         game_version: 'forever',
-        kind: 'auctionator',
+        kind: 'altarmy',
         via: 'watcher',
         size: 2048,
         received_at: '2026-09-27 10:00:00',
         outcome: 'rejected',
-        detail: 'Not an Auctionator file',
+        detail: 'Not an Alt Army file',
         user_uid: 'abcdefghijklmnop',
       },
     ],
   },
   snapshots: [
     {
-      source: 'auctionator',
+      source: 'altarmy',
       snapshots_24h: 2,
       snapshots_7d: 9,
       quarantined_7d: 1,
       items_7d: 12345,
       newest_received_at: '2026-09-27 10:00:00',
-    },
-  ],
-  feeds: [
-    {
-      market: 'forever.normal.horde.us',
-      realm: 'Classic Beta PvE',
-      faction: 'Horde',
-      rows: 800,
-      scanned_at: '2026-09-27 11:00:00',
-      fetched_at: '2026-09-27 11:20:00',
     },
   ],
 }
@@ -109,30 +99,28 @@ describe('AdminTab', () => {
       'Game data ingest',
       'Price merge',
       'Prune',
-      'AHledger poll',
     ])
-    const [ingest, merge, prune, ahledger] = rows.map((r) => within(r))
+    const [ingest, merge, prune] = rows.map((r) => within(r))
     expect(ingest?.getByText('never')).toBeInTheDocument()
     expect(ingest?.getByText('late')).toBeInTheDocument()
     expect(ingest?.queryByText('running')).not.toBeInTheDocument()
     expect(merge?.getByText('ok')).toBeInTheDocument()
     expect(merge?.getByText('30 min ago')).toHaveAttribute('title', '2026-09-27 11:30:00 UTC')
     expect(prune?.getByText('running')).toBeInTheDocument()
-    expect(ahledger?.getByText('failed')).toBeInTheDocument()
-    expect(ahledger?.getByText('1 of 4 AHledger markets failed.')).toBeInTheDocument()
   })
 
-  it('shows the runs, uploads, snapshots and feeds', async () => {
+  it('shows the runs, uploads and snapshots', async () => {
     mockApi({ '/api/admin/ingestion': ingestion })
     renderWithProviders(<AdminTab />)
     const runs = await screen.findByRole('table', { name: 'Recent runs' })
     expect(within(runs).getByText('40 s')).toBeInTheDocument()
+    expect(within(runs).getByText('1 of 4 AHledger markets failed.')).toBeInTheDocument() // old runs stay
     expect(screen.getByText(/Last 24 hours: 4 accepted, 1 rejected\. Last 7 days: 20 accepted, 2 rejected, from 3 users\./)).toBeInTheDocument()
     const uploads = screen.getByRole('table', { name: 'Uploads' })
     expect(within(uploads).getByText('abcdefgh')).toHaveAttribute('title', 'abcdefghijklmnop')
     expect(within(uploads).getByText('rejected')).toBeInTheDocument()
     expect(within(screen.getByRole('table', { name: 'Price snapshots' })).getByText((12345).toLocaleString())).toBeInTheDocument()
-    expect(within(screen.getByRole('table', { name: 'AHledger feeds' })).getByText('Classic Beta PvE (Horde)')).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'AHledger feeds' })).not.toBeInTheDocument()
   })
 
   it('says what went wrong', async () => {

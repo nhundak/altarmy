@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import Connection, select
 
-from altarmy_profit import merge, prices, schema, store
+from altarmy_profit import book, merge, prices, schema, store
 from altarmy_profit.auctionator import DayStats, ItemPrice
 from altarmy_profit.prices import Observation
 
@@ -121,3 +121,65 @@ def test_quarantined_snapshots_do_not_count(conn: Connection) -> None:
     conn.execute(schema.price_observations.insert().values(snapshot_id=bad, item_id=1, min_buyout=200))
     merge.merge_auction_house(conn, ah, TODAY)
     assert daily_medians(conn, ah, 1) == {TODAY: 150}  # of 100, 200 and 150 only
+
+
+# --- Alt Army's order book -----------------------------------------------------------------------
+def book_scan(items: dict[int, list[tuple[int, int]]], at: datetime) -> book.Scan:
+    ladders = {i: tuple(book.Level(p, q, 1) for p, q in levels) for i, levels in items.items()}
+    return book.Scan(int(at.timestamp()), "Classic Beta PvE", "Horde", 1, 0, "own", ladders)
+
+
+def sales(conn: Connection, ah: int, item_id: int) -> tuple[int | None, float | None]:
+    pc = schema.price_current
+    row = conn.execute(
+        select(pc.c.sale_price, pc.c.sale_rate).where(pc.c.auction_house_id == ah, pc.c.item_id == item_id)
+    ).one()
+    return row.sale_price, row.sale_rate
+
+
+def test_a_scans_market_price_makes_the_median_not_its_cheapest_listing(conn: Connection) -> None:
+    ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
+    prices.record_book(conn, ah, book_scan({1: [(64, 3), (167, 5000)]}, NOON))
+    merge.merge_auction_house(conn, ah, TODAY)
+    assert daily_medians(conn, ah, 1) == {TODAY: 167}
+    assert seven_day(conn, ah, 1) == (167, 5003, 1)
+
+
+def test_sales_of_the_last_week_make_the_sale_price_and_rate(conn: Connection) -> None:
+    ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
+    prices.record_book(conn, ah, book_scan({1: [(100, 50)], 2: [(100, 50)]}, NOON))
+    t = schema.price_sales_daily
+    rows = [
+        (1, TODAY - timedelta(days=8), 500, 500 * 900),  # too long ago
+        (1, TODAY - timedelta(days=3), 10, 10 * 100),
+        (1, TODAY - timedelta(days=1), 30, 30 * 120),
+        (1, TODAY, 2, 2 * 500),
+        (2, TODAY, merge.MIN_SALES - 1, (merge.MIN_SALES - 1) * 100),  # too few to tell a price by
+    ]
+    for item, day, units, copper in rows:
+        conn.execute(
+            t.insert().values(
+                auction_house_id=ah, item_id=item, day=day, units=units, copper=copper, cancelled=0
+            )
+        )
+    before = prices.price_version(conn, ah)
+    assert merge.merge_auction_house(conn, ah, TODAY)
+    # by units, the middle sale went for 120: 10 at 100, 30 at 120, 2 at 500
+    assert sales(conn, ah, 1) == (120, 42 / 7)
+    assert sales(conn, ah, 2) == (None, (merge.MIN_SALES - 1) / 7)
+    assert prices.price_version(conn, ah) == (before or 0) + 1
+    assert not merge.merge_auction_house(conn, ah, TODAY)
+
+
+def test_sales_that_age_out_are_forgotten(conn: Connection) -> None:
+    ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
+    prices.record_book(conn, ah, book_scan({1: [(100, 50)]}, NOON))
+    conn.execute(
+        schema.price_sales_daily.insert().values(
+            auction_house_id=ah, item_id=1, day=TODAY, units=10, copper=1000, cancelled=0
+        )
+    )
+    merge.merge_auction_house(conn, ah, TODAY)
+    assert sales(conn, ah, 1) == (100, 10 / 7)
+    merge.merge_auction_house(conn, ah, TODAY + timedelta(days=7))
+    assert sales(conn, ah, 1) == (None, None)

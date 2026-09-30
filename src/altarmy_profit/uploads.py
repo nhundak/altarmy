@@ -1,14 +1,18 @@
 """Addon files users upload (from the browser or the CLI watcher): parse, store what they tell us, keep a
 history. Functions taking a `Connection` never commit.
 
-An Alt Army file replaces the uploader's characters of that game version. An Auctionator file records a
-snapshot for every realm it has prices for, whoever uploads it, so auction houses pool everyone's scans
-(the newest `seen_at` wins, see `prices.record_snapshot`). Each realm's scan is screened against its 7-day
-medians first: a quarantined one changes nothing and lowers the uploader's trust (`prices.screen`,
-`users.adjust_trust`). Where Auctionator's realm key names no faction but the version's auction houses are
-per faction (Forever), the faction is the uploader's characters' on that realm; with none there, or both
-factions, that realm is skipped, unless an admin's upload names the `faction` that scanned. The file itself
-is never stored.
+An Alt Army file replaces the uploader's characters of that game version. Where the version's prices are
+first-party (Forever), it also carries the addon's auction house scans (`book.py`): each is recorded for
+the auction house of the realm and faction it names, whoever uploads it, so auction houses pool everyone's
+scans and the newest wins (`prices.record_book`). A scan already recorded, or older than the house's
+newest, is passed over: the file holds the last few scans and is sent again whenever it changes. An
+Auctionator file is refused there.
+
+Elsewhere (TBC) an Auctionator file records a snapshot for every realm it has prices for (the newest
+`seen_at` wins, see `prices.record_snapshot`).
+
+Every scan is screened first: a quarantined one changes nothing and lowers the uploader's trust
+(`prices.screen`, `users.adjust_trust`). The file itself is never stored.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import ColumnElement, Connection, case, func, select
 
-from . import altarmy, auctionator, db, paste, prices, schema, service, store, users, versions
+from . import altarmy, auctionator, book, db, paste, prices, schema, service, store, users, versions
 
 MAX_BYTES = 32 * 2**20  # decompressed; the biggest real file (TBC Auctionator.lua) is about 5 MB
 RATE_LIMIT = 60  # uploads per user per hour
@@ -37,20 +41,18 @@ class TooLarge(Exception):
 
 @dataclass(frozen=True)
 class RealmPrices:
-    key: str  # Auctionator's realm key, e.g. "Dreamscythe Horde"
-    auction_house_id: int | None  # None if skipped
+    key: str  # Auctionator's realm key ("Dreamscythe Horde"), or an Alt Army scan's realm and faction
+    auction_house_id: int
     realm: str
     faction: str
     items: int  # items priced in the scan
     moved: int  # of them, items whose current price changed
     quarantined: bool = False  # the scan was far off recent prices and not used
-    skipped: str | None = None  # why the scan was not recorded: its auction house is unknown
-    both_factions: bool = False  # skipped as BOTH_FACTIONS: an admin may upload it again naming the faction
 
 
-NO_CHARACTERS = "Upload your Alt Army characters first so we know which faction scanned it."
-BOTH_FACTIONS = (
-    "You have Horde and Alliance characters on this realm, and Auctionator doesn't record which one scanned."
+FIRST_PARTY_ONLY = (
+    "Prices for {label} come from Alt Army's own auction house scan now: press Alt Army scan at the "
+    "auction house, then upload your Alt Army data."
 )
 
 
@@ -63,30 +65,24 @@ class Imported:
 
     @property
     def auction_house_ids(self) -> frozenset[int]:
-        return frozenset(r.auction_house_id for r in self.realms if r.auction_house_id is not None)
+        return frozenset(r.auction_house_id for r in self.realms)
 
     @property
     def moved_auction_house_ids(self) -> frozenset[int]:
         """The auction houses whose current prices this upload moved (their price version was bumped)."""
-        return frozenset(
-            r.auction_house_id
-            for r in self.realms
-            if r.auction_house_id is not None and r.moved and not r.quarantined
-        )
+        return frozenset(r.auction_house_id for r in self.realms if r.moved and not r.quarantined)
 
     @property
     def detail(self) -> str:
+        scans = "; ".join(_realm_detail(r) for r in self.realms)
         if self.kind == "altarmy":
             where = ", ".join(f"{r} ({f or 'no faction'}): {n}" for r, f, n in self.groups)
-            return f"{self.characters} characters" + (f" on {where}" if where else "")
-        if not self.realms:
-            return "No realm in the file has prices."
-        return "; ".join(_realm_detail(r) for r in self.realms)
+            chars = f"{self.characters} characters" + (f" on {where}" if where else "")
+            return f"{chars}. Auction house scans: {scans}" if scans else chars
+        return scans or "No realm in the file has prices."
 
 
 def _realm_detail(r: RealmPrices) -> str:
-    if r.skipped:
-        return f"{r.key}: {r.items} prices not used: {r.skipped}"
     if r.quarantined:
         return f"{r.key}: {r.items} prices not used: they differ widely from recent scans"
     return f"{r.key}: {r.items} prices, {r.moved} changed"
@@ -148,21 +144,50 @@ def ingest(
     modified_at: datetime | None,
     *,
     now: datetime | None = None,
-    faction: str | None = None,
 ) -> Imported:
-    """Store an uploaded file of `kind`; ValueError if it is not one. `faction` (admins only, the API
-    checks): which faction scanned an Auctionator file's realms the uploader has both factions on."""
+    """Store an uploaded file of `kind`; ValueError if it is not one, or an Auctionator file where
+    prices are first-party."""
     now = now or db.utcnow()
     if kind == "altarmy":
-        return ingest_altarmy(conn, user_uid, game_version, data)
+        return ingest_altarmy(conn, user_uid, game_version, data, now=now)
     if kind == "auctionator":
-        scanned_at = scan_time(modified_at, now)
-        return ingest_auctionator(conn, user_uid, game_version, data, scanned_at, faction=faction)
+        version = versions.get(game_version)
+        if version.first_party_prices:
+            raise ValueError(FIRST_PARTY_ONLY.format(label=version.label))
+        return ingest_auctionator(conn, user_uid, game_version, data, scan_time(modified_at, now))
     raise ValueError(f"unknown upload kind {kind!r}")
 
 
-def ingest_altarmy(conn: Connection, user_uid: str, game_version: str, data: bytes) -> Imported:
-    return _save_characters(conn, user_uid, game_version, altarmy.parse_characters(data))
+def ingest_altarmy(
+    conn: Connection, user_uid: str, game_version: str, data: bytes, *, now: datetime | None = None
+) -> Imported:
+    """The file's characters and, where prices are first-party, its auction house scans."""
+    chars = altarmy.parse_characters(data)
+    scans = book.read(data) if versions.get(game_version).first_party_prices else []
+    got = _save_characters(conn, user_uid, game_version, chars)
+    realms = _record_books(conn, user_uid, game_version, scans, db.utc(now or db.utcnow()))
+    return Imported("altarmy", got.characters, got.groups, realms)
+
+
+def _record_books(
+    conn: Connection, user_uid: str, game_version: str, scans: list[book.Scan], now: datetime
+) -> tuple[RealmPrices, ...]:
+    """Record the scans, oldest first; those passed over as stale are left out."""
+    recorded = []
+    for scan in scans:
+        ah = prices.auction_house(conn, game_version, scan.realm, scan.faction)
+        at = scan_time(datetime.fromtimestamp(scan.t, now.tzinfo), now)
+        trust = users.trust(conn, user_uid)
+        got = prices.record_book(conn, ah, scan, scanned_at=at, uploader_uid=user_uid, trust=trust)
+        if got.stale:
+            continue
+        if got.screened:
+            users.adjust_trust(conn, user_uid, quarantined=got.quarantined)
+        key = f"{scan.realm} {scan.faction}"
+        recorded.append(RealmPrices(key, ah, scan.realm, scan.faction, got.items, got.moved, got.quarantined))
+    if recorded:
+        prices.prune(conn)
+    return tuple(recorded)
 
 
 def ingest_paste(conn: Connection, user_uid: str, game_version: str, text: str) -> Imported:
@@ -195,8 +220,6 @@ def ingest_auctionator(
     game_version: str,
     data: bytes,
     scanned_at: datetime,
-    *,
-    faction: str | None = None,
 ) -> Imported:
     realms = auctionator.parse_price_database(data)
     groups = altarmy.groups(store.load_characters(conn, user_uid, game_version))
@@ -204,61 +227,30 @@ def ingest_auctionator(
     for key, item_prices in sorted(realms.items()):
         if not item_prices:
             continue
-        ah, skipped = _auction_house(conn, game_version, key, [(g.realm, g.faction) for g in groups], faction)
-        if ah is None:
-            both = skipped == BOTH_FACTIONS
-            recorded.append(
-                RealmPrices(key, None, "", "", len(item_prices), 0, skipped=skipped, both_factions=both)
-            )
-            continue
+        ah = _auction_house(conn, game_version, key, [(g.realm, g.faction) for g in groups])
         trust = users.trust(conn, user_uid)
         got = prices.record_auctionator(conn, ah, item_prices, scanned_at, uploader_uid=user_uid, trust=trust)
         if got.screened:
             users.adjust_trust(conn, user_uid, quarantined=got.quarantined)
         realm, faction = _name(conn, ah)
         recorded.append(RealmPrices(key, ah, realm, faction, len(item_prices), got.moved, got.quarantined))
-    if any(r.auction_house_id is not None for r in recorded):
+    if recorded:
         prices.prune(conn)
         service.bump_data_version(conn, user_uid, game_version)
     return Imported("auctionator", realms=tuple(recorded))
 
 
-def _auction_house(
-    conn: Connection, game_version: str, key: str, groups: list[tuple[str, str]], chosen: str | None = None
-) -> tuple[int | None, str | None]:
-    """The auction house an Auctionator key prices, or None and why not.
-
-    Where auction houses are per faction but the key names none (`GameVersion.split_by_faction`), it is
-    the house of the one faction the uploader has characters of on that realm; with both, the `chosen`
-    one (an admin's pick). Otherwise: one that
-    already has the key as an alias, else the one of the uploader's characters it matches (named as the
-    characters' realm), else parsed from the key. The alias comes first so a realm never splits into two
-    auction houses."""
-    matched = [
-        (realm, faction)
-        for realm, faction in groups
-        if service.match_auctionator_realm([key], realm, faction) == key
-    ]
-    if versions.get(game_version).split_by_faction and not _names_faction(key):
-        factions = {faction for _, faction in matched}
-        if not factions:
-            return None, NO_CHARACTERS
-        if len(factions) > 1:
-            if chosen not in factions:
-                return None, BOTH_FACTIONS
-            matched = [(realm, faction) for realm, faction in matched if faction == chosen]
-        realm, faction = matched[0]
-        return prices.auction_house(conn, game_version, realm, faction), None
+def _auction_house(conn: Connection, game_version: str, key: str, groups: list[tuple[str, str]]) -> int:
+    """The auction house an Auctionator key prices: one that already has the key as an alias, else the
+    one of the uploader's characters it matches (named as the characters' realm), else parsed from the
+    key. The alias comes first so a realm never splits into two auction houses."""
     known = prices.find_auction_house_by_key(conn, game_version, key)
     if known is not None:
-        return known, None
-    for realm, faction in matched:
-        return prices.auctionator_auction_house(conn, game_version, key, realm, faction), None
-    return prices.auction_house_for_auctionator_key(conn, game_version, key), None
-
-
-def _names_faction(key: str) -> bool:
-    return key.endswith((" Horde", " Alliance"))
+        return known
+    for realm, faction in groups:
+        if service.match_auctionator_realm([key], realm, faction) == key:
+            return prices.auctionator_auction_house(conn, game_version, key, realm, faction)
+    return prices.auction_house_for_auctionator_key(conn, game_version, key)
 
 
 def _name(conn: Connection, auction_house_id: int) -> tuple[str, str]:

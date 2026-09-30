@@ -36,15 +36,15 @@ def test_a_failing_run_is_recorded_and_the_failure_raised(database: db.Database,
     with pytest.raises(RuntimeError), jobs.recording(database, "merge") as run:
         run.say("started")
         raise RuntimeError("boom")
-    with pytest.raises(SystemExit), jobs.recording(database, "ahledger"):
-        sys.exit("1 of 4 AHledger markets failed.")
+    with pytest.raises(SystemExit), jobs.recording(database, "ingest"):
+        sys.exit("The download failed.")
     with pytest.raises(SystemExit), jobs.recording(database, "prune"):
         sys.exit(2)
     with pytest.raises(SystemExit), jobs.recording(database, "prune"):
         sys.exit(0)
     assert runs(conn) == [
         ("merge", None, False, "started\nRuntimeError: boom", True),
-        ("ahledger", None, False, "1 of 4 AHledger markets failed.", True),
+        ("ingest", None, False, "The download failed.", True),
         ("prune", None, False, "Exit code 2", True),
         ("prune", None, True, "", True),
     ]
@@ -84,4 +84,4 @@ def test_late_is_twice_the_cadence(conn: Connection) -> None:
     assert not jobs.late("merge", T0 - timedelta(hours=2), T0)
     assert jobs.late("merge", T0 - timedelta(hours=2, minutes=1), T0)
     assert not jobs.late("ingest", T0 - timedelta(hours=47), T0)
-    assert set(jobs.CADENCE) == set(schema.JOBS)
+    assert set(jobs.CADENCE) == set(schema.JOBS) - {"ahledger"}  # gone; its old runs stay

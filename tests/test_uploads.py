@@ -1,4 +1,4 @@
-"""Uploaded addon files: characters replace the uploader's, prices pool per auction house."""
+"""Uploaded addon files: characters replace the uploader's, scans pool per auction house."""
 
 import gzip
 from datetime import UTC, datetime, timedelta
@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection, select
 
-from altarmy_profit import altarmy, prices, schema, service, store, uploads, users
+from altarmy_profit import book, prices, schema, service, store, uploads, users
 from altarmy_profit.auth import User
 
-from .conftest import FOREVER, ME
+from .conftest import FOREVER, ME, book_scan, saved_book
 from .test_altarmy import ALTARMY_SV
 from .test_auctionator import _entry, _saved_variables
 
@@ -44,97 +44,108 @@ def test_altarmy_upload_replaces_only_the_uploaders_characters(conn: Connection,
     assert service.data_version(conn, ME, FOREVER) == 1
 
 
-def test_auctionator_upload_records_every_realm_named_like_the_characters(conn: Connection) -> None:
-    uploads.ingest(conn, ME, FOREVER, "altarmy", ALTARMY_SV, None, now=NOW)
-    data = scan({"ClassicBetaPvE": {"1": _entry(20)}, "Dreamscythe Horde": {"1": _entry(5)}, "Empty": {}})
-    got = uploads.ingest(conn, ME, FOREVER, "auctionator", data, NOW - timedelta(hours=1), now=NOW)
-    names = [(r.key, r.realm, r.faction, r.items, r.skipped) for r in got.realms]
-    assert names == [
-        # Forever's houses are per faction, Auctionator's key names none, and ME has both there
-        ("ClassicBetaPvE", "", "", 1, uploads.BOTH_FACTIONS),
-        ("Dreamscythe Horde", "Dreamscythe", "Horde", 1, None),
+def with_scans(*scans: book.Scan) -> bytes:
+    """An AltArmy_TBC.lua holding the usual characters and these auction house scans."""
+    return ALTARMY_SV + saved_book(*scans)
+
+
+def test_an_alt_army_upload_records_the_scans_it_carries(conn: Connection) -> None:
+    first = book_scan({1: [(20, 5)], 2: [(100, 1)]}, NOW - timedelta(minutes=40))
+    second = book_scan({1: [(15, 2), (20, 5)]}, NOW - timedelta(minutes=20))
+    other = book_scan({1: [(9, 1)]}, NOW - timedelta(minutes=30), "Dreamscythe", "Alliance")
+    got = uploads.ingest(conn, ME, FOREVER, "altarmy", with_scans(first, other, second), None, now=NOW)
+    assert got.characters == 4
+    assert [(r.key, r.realm, r.faction, r.items, r.moved) for r in got.realms] == [
+        ("Classic Beta PvE Horde", "Classic Beta PvE", "Horde", 2, 2),
+        ("Dreamscythe Alliance", "Dreamscythe", "Alliance", 1, 1),
+        ("Classic Beta PvE Horde", "Classic Beta PvE", "Horde", 1, 2),  # linen cheaper, thread gone
     ]
-    assert len(got.auction_house_ids) == 1
-    assert "ClassicBetaPvE: 1 prices not used: You have Horde and Alliance" in got.detail
-    assert prices.find_auction_house(conn, FOREVER, "Empty", "") is None  # realms without prices are skipped
-    assert prices.load_current(conn, service.selected_auction_house(conn, ME, FOREVER)) == {1: 5}
-    snap = schema.price_snapshots
-    assert set(conn.execute(select(snap.c.uploader_uid)).scalars()) == {ME}
-    assert set(conn.execute(select(schema.auction_houses.c.faction)).scalars()) == {"Horde"}
-
-
-def _characters(*where: tuple[str, str]) -> list[altarmy.Character]:
-    return [
-        altarmy.Character(realm, f"Char{i}", faction, "MAGE", 60, ())
-        for i, (realm, faction) in enumerate(where)
-    ]
-
-
-def test_a_forever_scan_goes_to_the_uploaders_faction(conn: Connection, other: str) -> None:
-    store.save_characters(
-        conn, ME, FOREVER, _characters(("Classic Beta PvE", "Horde"), ("Classic Beta PvE", "Horde"))
-    )
-    store.save_characters(conn, other, FOREVER, _characters(("Classic Beta PvE", "Alliance")))
-    uploads.ingest(
-        conn, ME, FOREVER, "auctionator", scan({"ClassicBetaPvE": {"1": _entry(20)}}), None, now=NOW
-    )
-    uploads.ingest(
-        conn, other, FOREVER, "auctionator", scan({"ClassicBetaPvE": {"1": _entry(30)}}), None, now=NOW
+    assert got.detail.startswith("4 characters on ")
+    assert got.detail.endswith(
+        "Auction house scans: Classic Beta PvE Horde: 2 prices, 2 changed; "
+        "Dreamscythe Alliance: 1 prices, 1 changed; Classic Beta PvE Horde: 1 prices, 2 changed"
     )
     horde = prices.find_auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
-    alliance = prices.find_auction_house(conn, FOREVER, "Classic Beta PvE", "Alliance")
-    assert horde is not None and alliance is not None and horde != alliance
-    assert prices.load_current(conn, horde) == {1: 20}
-    assert prices.load_current(conn, alliance) == {1: 30}
-    assert prices.find_auction_house_by_key(conn, FOREVER, "ClassicBetaPvE") is None  # ambiguous: no alias
-    assert service.selected_auction_house(conn, ME, FOREVER) == horde
+    assert horde is not None and got.moved_auction_house_ids == {horde, got.realms[1].auction_house_id}
+    assert prices.load_buy_and_sell(conn, horde, first_party=True)[0] == {1: 15}
+    snap = schema.price_snapshots
+    rows = conn.execute(select(snap.c.source, snap.c.uploader_uid, snap.c.scanned_at)).all()
+    assert {(r.source, r.uploader_uid) for r in rows} == {("altarmy", ME)}
+    assert service.data_version(conn, ME, FOREVER) == 1
 
 
-def test_an_admin_names_the_faction_of_a_scan_on_a_realm_with_both(conn: Connection) -> None:
-    store.save_characters(
-        conn, ME, FOREVER, _characters(("Classic Beta PvE", "Horde"), ("Classic Beta PvE", "Alliance"))
-    )
-    data = scan({"ClassicBetaPvE": {"1": _entry(20)}, "Dreamscythe Horde": {"1": _entry(5)}})
-    (both, _) = uploads.ingest(conn, ME, FOREVER, "auctionator", data, None, now=NOW).realms
-    assert both.skipped == uploads.BOTH_FACTIONS and both.both_factions
-    got = uploads.ingest(conn, ME, FOREVER, "auctionator", data, None, now=NOW, faction="Alliance")
-    assert [(r.key, r.realm, r.faction, r.skipped, r.both_factions) for r in got.realms] == [
-        ("ClassicBetaPvE", "Classic Beta PvE", "Alliance", None, False),
-        ("Dreamscythe Horde", "Dreamscythe", "Horde", None, False),  # the key names its faction
-    ]
-    alliance = prices.find_auction_house(conn, FOREVER, "Classic Beta PvE", "Alliance")
-    assert alliance is not None and prices.load_current(conn, alliance) == {1: 20}
-    assert prices.find_auction_house(conn, FOREVER, "Classic Beta PvE", "Horde") is None
+def test_scans_already_recorded_are_passed_over(conn: Connection, other: str) -> None:
+    first = book_scan({1: [(20, 5)]}, NOW - timedelta(minutes=40))
+    uploads.ingest(conn, ME, FOREVER, "altarmy", with_scans(first), None, now=NOW)
+    ah = prices.find_auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
+    version = prices.price_version(conn, ah)
+    again = uploads.ingest(conn, ME, FOREVER, "altarmy", with_scans(first), None, now=NOW)
+    assert again.realms == () and again.detail.endswith("(Horde): 2")  # only the characters
+    # another uploader's older scan of the same house changes nothing either
+    older = book_scan({1: [(5, 5)]}, NOW - timedelta(minutes=50))
+    assert uploads.ingest(conn, other, FOREVER, "altarmy", with_scans(older), None, now=NOW).realms == ()
+    newer = book_scan({1: [(30, 5)]}, NOW - timedelta(minutes=10))
+    (realm,) = uploads.ingest(conn, other, FOREVER, "altarmy", with_scans(first, newer), None, now=NOW).realms
+    assert realm.moved == 1
+    assert prices.load_current(conn, ah) == {1: 30}
+    assert prices.price_version(conn, ah) == (version or 0) + 1
+    assert len(conn.execute(select(schema.price_snapshots.c.id)).all()) == 2
 
 
-def test_a_named_faction_the_uploader_has_no_characters_of_changes_nothing(conn: Connection) -> None:
-    store.save_characters(conn, ME, FOREVER, _characters(("Classic Beta PvE", "Horde")))
-    data = scan({"ClassicBetaPvE": {"1": _entry(20)}})
-    (realm,) = uploads.ingest(
-        conn, ME, FOREVER, "auctionator", data, None, now=NOW, faction="Alliance"
-    ).realms
-    assert (realm.realm, realm.faction) == ("Classic Beta PvE", "Horde")
+def test_a_scans_time_is_its_own_and_never_the_future(conn: Connection) -> None:
+    ahead = book_scan({1: [(20, 5)]}, NOW + timedelta(hours=3))
+    uploads.ingest(conn, ME, FOREVER, "altarmy", with_scans(ahead), None, now=NOW)
+    at: datetime = conn.execute(select(schema.price_snapshots.c.scanned_at)).scalar_one()
+    assert at.replace(tzinfo=UTC) == NOW
 
 
-def test_a_forever_scan_before_any_characters_is_skipped(conn: Connection) -> None:
+def test_tbc_ignores_the_scans_and_forever_refuses_auctionator(conn: Connection) -> None:
     got = uploads.ingest(
-        conn, ME, FOREVER, "auctionator", scan({"ClassicBetaPvE": {"1": _entry(20)}}), None, now=NOW
+        conn, ME, "tbc", "altarmy", with_scans(book_scan({1: [(20, 5)]}, NOW)), None, now=NOW
     )
+    assert got.realms == () and got.characters == 4
+    assert conn.execute(select(schema.price_snapshots.c.id)).all() == []
+    data = scan({"Dreamscythe Horde": {"1": _entry(5)}})
+    with pytest.raises(ValueError, match="come from Alt Army's own auction house scan"):
+        uploads.ingest(conn, ME, FOREVER, "auctionator", data, None, now=NOW)
+    assert (
+        uploads.ingest(conn, ME, "tbc", "auctionator", data, None, now=NOW).realms[0].realm == "Dreamscythe"
+    )
+
+
+def test_a_scan_far_off_recent_prices_is_quarantined_and_costs_trust(conn: Connection, other: str) -> None:
+    usual = book_scan({i: [(100, 10)] for i in range(1, 31)}, NOW - timedelta(hours=5))
+    uploads.ingest(conn, ME, FOREVER, "altarmy", with_scans(usual), None, now=NOW)
+    ah = prices.find_auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
+    pc = schema.price_current
+    conn.execute(pc.update().values(median_7d=100, scans_7d=5))  # as the merge job would
+    wild = book_scan({i: [(10_000, 10)] for i in range(1, 31)}, NOW - timedelta(hours=1))
+    got = uploads.ingest(conn, other, FOREVER, "altarmy", with_scans(wild), None, now=NOW)
     (realm,) = got.realms
-    assert realm.skipped == uploads.NO_CHARACTERS and realm.auction_house_id is None
-    assert prices.coverage(conn, FOREVER) == []
-    assert service.data_version(conn, ME, FOREVER) == 0
+    assert realm.quarantined and realm.moved == 0
+    assert got.detail.endswith(
+        "Classic Beta PvE Horde: 30 prices not used: they differ widely from recent scans"
+    )
+    assert set(prices.load_current(conn, ah).values()) == {100}
+    assert users.trust(conn, other) == 0.5
+    assert got.moved_auction_house_ids == frozenset()
+
+
+def test_a_malformed_book_refuses_the_file(conn: Connection) -> None:
+    bad = ALTARMY_SV + b'\nAltArmyTBC_AuctionBook = {\n["scans"] = 5,\n}\n'
+    with pytest.raises(ValueError, match="auction house scans"):
+        uploads.ingest(conn, ME, FOREVER, "altarmy", bad, None, now=NOW)
 
 
 def test_uploads_pool_and_the_newest_scan_wins(conn: Connection, other: str) -> None:
     def latest(price: int) -> bytes:  # no day history: seen at the file's scan time
         return scan({"Dreamscythe Horde": {"1": {"m": price}}})
 
-    uploads.ingest(conn, ME, FOREVER, "auctionator", latest(5), NOW - timedelta(hours=2), now=NOW)
-    uploads.ingest(conn, other, FOREVER, "auctionator", latest(9), NOW - timedelta(hours=1), now=NOW)
-    ah = prices.find_auction_house(conn, FOREVER, "Dreamscythe", "Horde")
+    uploads.ingest(conn, ME, "tbc", "auctionator", latest(5), NOW - timedelta(hours=2), now=NOW)
+    uploads.ingest(conn, other, "tbc", "auctionator", latest(9), NOW - timedelta(hours=1), now=NOW)
+    ah = prices.find_auction_house(conn, "tbc", "Dreamscythe", "Horde")
     assert prices.load_current(conn, ah) == {1: 9}  # another user's newer scan
-    uploads.ingest(conn, ME, FOREVER, "auctionator", latest(7), NOW - timedelta(hours=3), now=NOW)
+    uploads.ingest(conn, ME, "tbc", "auctionator", latest(7), NOW - timedelta(hours=3), now=NOW)
     assert prices.load_current(conn, ah) == {1: 9}  # an older file doesn't win
 
 
@@ -142,21 +153,19 @@ def test_a_wildly_off_scan_is_quarantined_and_costs_trust(conn: Connection, othe
     def latest(price: int) -> bytes:
         return scan({"Dreamscythe Horde": {str(i): {"m": price} for i in range(1, 31)}})
 
-    uploads.ingest(conn, ME, FOREVER, "auctionator", latest(100), NOW - timedelta(hours=2), now=NOW)
-    ah = prices.find_auction_house(conn, FOREVER, "Dreamscythe", "Horde")
+    uploads.ingest(conn, ME, "tbc", "auctionator", latest(100), NOW - timedelta(hours=2), now=NOW)
+    ah = prices.find_auction_house(conn, "tbc", "Dreamscythe", "Horde")
     pc = schema.price_current
     conn.execute(pc.update().values(median_7d=100, scans_7d=5))  # as the merge job would
 
-    got = uploads.ingest(
-        conn, other, FOREVER, "auctionator", latest(10_000), NOW - timedelta(hours=1), now=NOW
-    )
+    got = uploads.ingest(conn, other, "tbc", "auctionator", latest(10_000), NOW - timedelta(hours=1), now=NOW)
     (realm,) = got.realms
     assert realm.quarantined and realm.moved == 0
     assert got.detail == "Dreamscythe Horde: 30 prices not used: they differ widely from recent scans"
     assert set(prices.load_current(conn, ah).values()) == {100}
     assert users.trust(conn, other) == 0.5
 
-    got = uploads.ingest(conn, ME, FOREVER, "auctionator", latest(110), NOW, now=NOW)
+    got = uploads.ingest(conn, ME, "tbc", "auctionator", latest(110), NOW, now=NOW)
     assert not got.realms[0].quarantined
     assert users.trust(conn, ME) == 1.0  # capped
 
@@ -198,7 +207,7 @@ def test_bad_files_raise_value_error(conn: Connection) -> None:
     with pytest.raises(ValueError, match="AltArmyTBC_Data"):
         uploads.ingest(conn, ME, FOREVER, "altarmy", b"Foo = {}", None, now=NOW)
     with pytest.raises(ValueError, match="AUCTIONATOR_PRICE_DATABASE"):
-        uploads.ingest(conn, ME, FOREVER, "auctionator", ALTARMY_SV, None, now=NOW)
+        uploads.ingest(conn, ME, "tbc", "auctionator", ALTARMY_SV, None, now=NOW)
 
 
 def test_history_and_rate_limit(conn: Connection) -> None:

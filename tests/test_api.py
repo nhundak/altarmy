@@ -1,4 +1,5 @@
 import gzip
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -7,7 +8,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Connection, select
 
 from altarmy_profit import (
-    ahledger,
     altarmy,
     auth,
     db,
@@ -26,7 +26,7 @@ from altarmy_profit.api import create_app
 from altarmy_profit.auctionator import DayStats, ItemPrice
 from altarmy_profit.versions import GameVersion
 
-from .conftest import FOREVER, ME, set_prices
+from .conftest import FOREVER, ME, book_scan, saved_book, scanned, set_prices
 from .test_altarmy import ALTARMY_SV
 from .test_auctionator import _entry, _saved_variables
 from .test_auth import FakeVerifier
@@ -257,6 +257,7 @@ def test_rank_sends_reagents_and_item_details(client: TestClient, priced: Connec
         "ah_price": None,
         "ah_sell_price": None,
         "ah_quantity": None,
+        "ah_levels": [],
         "vendor_price": None,
     }
 
@@ -562,11 +563,9 @@ def test_linked_users_rank_their_own_characters(client: TestClient, priced: Conn
 
 
 def scanned_robe(conn: Connection, price: int, median_7d: int) -> int:
-    """An Auctionator scan pricing the robe at `price` on the tailor's auction house, whose 7-day median
-    (as the merge would fill it) is `median_7d`. Returns the auction house."""
-    ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
-    now = db.utcnow()
-    prices.record_snapshot(conn, ah, "auctionator", now, [prices.Observation(3, price, now)])
+    """A scan listing one robe at `price` on the tailor's auction house, whose 7-day median (as the
+    merge would fill it) is `median_7d`. Returns the auction house."""
+    ah = scanned(conn, {3: [(price, 1)]})
     pc = schema.price_current
     conn.execute(pc.update().where(pc.c.item_id == 3).values(median_7d=median_7d, avail_7d=2, scans_7d=4))
     return ah
@@ -587,15 +586,18 @@ def test_rank_sells_at_the_lower_of_now_and_the_seven_day_median(
 def test_rank_buys_at_the_cheapest_listing_and_says_how_many_are_listed(
     client: TestClient, priced: Connection
 ) -> None:
-    ah = prices.auction_house(priced, FOREVER, "Classic Beta PvE", "Horde")
-    now = db.utcnow()
-    prices.record_snapshot(priced, ah, "ahledger", now, [prices.Observation(1, 20, now, 3)])
+    scanned(priced, {1: [(20, 3), (25, 400)], 2: [(100, 50)]})
     body = client.get("/api/rank").json()
     linen = body["items"]["1"]
-    assert (linen["ah_price"], linen["ah_quantity"]) == (20, 3)
+    assert (linen["ah_price"], linen["ah_quantity"]) == (20, 403)
+    assert linen["ah_levels"] == [
+        {"price": 20, "quantity": 3, "counted": True, "more": False},
+        {"price": 25, "quantity": 400, "counted": True, "more": False},
+    ]
     (r,) = body["results"]
     buy = next(step for step in r["steps"] if step["item_id"] == 1)
-    assert buy["value"] == -20 * buy["quantity"]
+    # up the ladder: the three at 20, the rest at 25
+    assert buy["value"] == -(3 * 20 + (buy["quantity"] - 3) * 25)
 
 
 @pytest.mark.parametrize(("listed", "thin"), [(2, True), (50, False)])
@@ -603,12 +605,10 @@ def test_rank_flags_a_sale_resting_on_a_thin_market(
     client: TestClient, priced: Connection, listed: int, thin: bool
 ) -> None:
     one_craft(client)
-    ah = prices.auction_house(priced, FOREVER, "Classic Beta PvE", "Horde")
-    now = db.utcnow()
-    prices.record_snapshot(priced, ah, "ahledger", now, [prices.Observation(3, 1000, now, listed)])
+    scanned(priced, {3: [(1000, listed)]})
     body = client.get("/api/rank").json()
     (r,) = body["results"]
-    assert (r["best_exit"], r["thin_market"]) == ("ah", thin)
+    assert (r["best_exit"], r["slow"], r["days_to_sell"], r["short"]) == ("ah", thin, None, 0)
     assert body["items"]["3"]["ah_quantity"] == listed
 
 
@@ -657,9 +657,8 @@ def _item_price(price: int) -> ItemPrice:
 
 
 def test_coverage_lists_each_realms_scans(client: TestClient, conn: Connection) -> None:
-    assert upload(
-        client, "auctionator", _saved_variables({"Dreamscythe Horde": {"1": _entry(20)}}), FREE
-    ).is_success
+    scan = book_scan({1: [(20, 5)]}, db.utcnow(), "Dreamscythe", "Horde")
+    assert upload(client, "altarmy", ALTARMY_SV + saved_book(scan), FREE).is_success
     prices.unnamed_auction_house(conn, FOREVER)  # never listed
     tbc = prices.auction_house(conn, "tbc", "Dreamscythe", "Horde")
     (row,) = client.get("/api/coverage", headers=FREE).json()
@@ -669,7 +668,7 @@ def test_coverage_lists_each_realms_scans(client: TestClient, conn: Connection) 
         1,
         1,
     )
-    assert (row["scans_7d"], row["uploaders_7d"], row["sources"]) == (1, 1, ["auctionator"])
+    assert (row["scans_7d"], row["uploaders_7d"]) == (1, 1)
     assert row["last_scan"] is not None
     (dream,) = client.get("/api/coverage", params={"game_version": "tbc"}, headers=FREE).json()
     assert (dream["auction_house_id"], dream["last_scan"], dream["scans_7d"]) == (tbc, None, 0)
@@ -685,62 +684,60 @@ def upload(
     modified_at: int | None = None,
     via: str = "browser",
     filename: str = "x.lua",
-    faction: str | None = None,
+    game_version: str | None = None,
 ) -> Any:
     form: dict[str, str] = {"kind": kind, "via": via}
-    if faction is not None:
-        form["faction"] = faction
     if modified_at is not None:
         form["modified_at"] = str(modified_at)
-    return c.post("/api/uploads", headers=headers or {}, data=form, files={"file": (filename, data)})
+    params = {} if game_version is None else {"game_version": game_version}
+    files = {"file": (filename, data)}
+    return c.post("/api/uploads", headers=headers or {}, params=params, data=form, files=files)
 
 
-def test_any_user_names_the_faction_of_a_scan(client: TestClient) -> None:
-    assert upload(client, "altarmy", ALTARMY_SV, FREE).is_success  # both factions on Classic Beta PvE
-    data = _saved_variables({"ClassicBetaPvE": {"1": _entry(20)}})
-    (realm,) = upload(client, "auctionator", data, FREE).json()["realms"]
-    assert (realm["auction_house_id"], realm["both_factions"]) == (None, True)
-    (realm,) = upload(client, "auctionator", data, FREE, faction="Horde").json()["realms"]
-    assert (realm["realm"], realm["faction"], realm["skipped"]) == ("Classic Beta PvE", "Horde", None)
-
-
-def test_guests_upload_characters_and_prices(client: TestClient, conn: Connection) -> None:
-    res = upload(client, "altarmy", ALTARMY_SV, FREE)
+def test_guests_upload_characters_and_scans(client: TestClient, conn: Connection) -> None:
+    scan = book_scan({1: [(20, 5)], 2: [(100, 1)]}, db.utcnow() - timedelta(minutes=5))
+    res = upload(client, "altarmy", gzip.compress(ALTARMY_SV + saved_book(scan)), FREE)
     assert res.status_code == 200, res.text
     body = res.json()
     assert (body["kind"], body["characters"]) == ("altarmy", 4)
     assert body["groups"][0] == {"realm": "Classic Beta PvE", "faction": "Alliance", "characters": 1}
     assert store.count_characters(conn, "guest", FOREVER) == 4
     assert len(client.get("/api/characters", headers=FREE).json()["groups"]) == 3
-
-    assert client.delete(
-        "/api/characters", params={"realm": "Classic Beta PvE", "name": "Ally Alt"}, headers=FREE
-    ).is_success  # left with one faction on Classic Beta PvE: scans there are the Horde's
-    data = _saved_variables({"ClassicBetaPvE": {"1": _entry(20), "2": _entry(100)}})
-    res = upload(client, "auctionator", gzip.compress(data), FREE, modified_at=1_790_000_000_000)
-    realm = res.json()["realms"][0]
-    assert (realm["key"], realm["realm"], realm["faction"], realm["items"], realm["skipped"]) == (
-        "ClassicBetaPvE",
-        "Classic Beta PvE",
-        "Horde",
-        2,
-        None,
-    )
+    (realm,) = body["realms"]
+    assert realm == {
+        "key": "Classic Beta PvE Horde",
+        "auction_house_id": realm["auction_house_id"],
+        "realm": "Classic Beta PvE",
+        "faction": "Horde",
+        "items": 2,
+        "moved": 2,
+        "quarantined": False,
+    }
     (covered,) = client.get("/api/coverage", headers=FREE).json()
     assert (covered["realm"], covered["faction"], covered["prices"]) == ("Classic Beta PvE", "Horde", 2)
     history = client.get("/api/uploads", headers=FREE).json()
-    assert [(u["kind"], u["outcome"], u["via"]) for u in history] == [
-        ("auctionator", "accepted", "browser"),
-        ("altarmy", "accepted", "browser"),
+    assert [(u["kind"], u["outcome"], u["via"]) for u in history] == [("altarmy", "accepted", "browser")]
+    assert client.get("/api/status", headers=FREE).json()["data_version"] == 1
+
+
+def test_an_auctionator_file_is_refused_where_prices_are_alt_armys(client: TestClient) -> None:
+    data = _saved_variables({"Dreamscythe Horde": {"1": _entry(20)}})
+    res = upload(client, "auctionator", data, FREE)
+    assert res.status_code == 400
+    assert "Alt Army's own auction house scan" in res.json()["detail"]
+    assert upload(client, "auctionator", data, FREE, game_version="tbc").is_success
+    history = client.get("/api/uploads", headers=FREE).json()
+    assert [(u["game_version"], u["outcome"]) for u in history] == [
+        ("tbc", "accepted"),
+        ("forever", "rejected"),
     ]
-    assert client.get("/api/status", headers=FREE).json()["data_version"] == 3
 
 
 def test_upload_refreshes_the_cached_market(client: TestClient, priced: Connection) -> None:
     one_craft(client)
     assert client.get("/api/rank").json()["results"][0]["cost"] == 10 * 20 + 100
-    service.delete_character(priced, ME, FOREVER, "Classic Beta PvE", "Ally Alt")  # scans are the Horde's
-    upload(client, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": {"m": 33}}}))
+    scan = book_scan({1: [(33, 500)], 2: [(100, 50)]}, db.utcnow() + timedelta(seconds=1))
+    assert upload(client, "altarmy", ALTARMY_SV + saved_book(scan)).is_success
     assert client.get("/api/rank").json()["results"][0]["cost"] == 10 * 33 + 100  # linen repriced
 
 
@@ -756,11 +753,11 @@ def test_an_upload_that_moves_prices_signals_the_auction_house(
     assert ah is not None
     before = prices.price_version(priced, ah)
     assert before is not None
-    service.delete_character(priced, ME, FOREVER, "Classic Beta PvE", "Ally Alt")  # scans are the Horde's
-    data = _saved_variables({"ClassicBetaPvE": {"1": {"m": 33}}})
-    upload(client, "auctionator", data)
+    scan = book_scan({1: [(33, 500)]}, db.utcnow() + timedelta(seconds=1))
+    data = ALTARMY_SV + saved_book(scan)
+    upload(client, "altarmy", data)
     assert published(client) == [(ah, FOREVER, before + 1)]
-    upload(client, "auctionator", data)  # the same prices again: nothing moved
+    upload(client, "altarmy", data)  # the same scan again: nothing moved
     assert published(client) == [(ah, FOREVER, before + 1)]
     upload(client, "altarmy", ALTARMY_SV)  # characters only
     assert len(published(client)) == 1
@@ -781,9 +778,9 @@ def test_a_known_price_version_skips_the_markets_ttl(client: TestClient, priced:
 
 
 def test_bad_uploads(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    res = upload(client, "auctionator", b"garbage", LINKED)
+    res = upload(client, "altarmy", b"garbage", LINKED)
     assert res.status_code == 400
-    assert "AUCTIONATOR_PRICE_DATABASE" in res.json()["detail"]
+    assert "Lua syntax error" in res.json()["detail"]
     (row,) = client.get("/api/uploads", headers=LINKED).json()
     assert (row["outcome"], row["size"]) == ("rejected", 7)
     assert upload(client, "cheese", b"x", LINKED).status_code == 422
@@ -857,8 +854,8 @@ def test_users_delete_their_account(
 ) -> None:
     verifier = FakeVerifier()
     client = make_client(database, game_versions, tmp_path / "nodist", verifier=verifier)
-    upload(client, "altarmy", ALTARMY_SV, LINKED)
-    upload(client, "auctionator", _saved_variables({"Dreamscythe Horde": {"1": _entry(20)}}), LINKED)
+    scan = book_scan({1: [(20, 5)]}, db.utcnow(), "Dreamscythe", "Horde")
+    upload(client, "altarmy", ALTARMY_SV + saved_book(scan), LINKED)
 
     verifier.fail = True
     assert client.delete("/api/me", headers=LINKED).status_code == 502
@@ -974,30 +971,18 @@ def test_everyone_is_an_admin_against_the_auth_emulator(
     assert dev.get("/api/admin/ingestion", headers={"Authorization": "Bearer nonsense"}).status_code == 401
 
 
-def test_the_admin_page_shows_jobs_uploads_snapshots_and_feeds(client: TestClient, conn: Connection) -> None:
+def test_the_admin_page_shows_jobs_uploads_and_snapshots(client: TestClient, conn: Connection) -> None:
     now = db.utcnow()
     run_id = jobs.start(conn, "merge", now=now)
     jobs.finish(conn, run_id, True, "Merged 1 auction houses", now=now)
     jobs.start(conn, "ingest", "tbc", now=now)  # another version's: not shown
-    uploads.record_upload(conn, ME, FOREVER, "auctionator", "watcher", 10, "accepted", "2 prices", now=now)
+    uploads.record_upload(conn, ME, FOREVER, "altarmy", "watcher", 10, "accepted", "2 prices", now=now)
     uploads.record_upload(conn, ME, "tbc", "auctionator", "watcher", 10, "accepted", "", now=now)
-    ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
-    prices.record_snapshot(conn, ah, "auctionator", now, [prices.Observation(1, 10, now)], received_at=now)
-    conn.execute(
-        schema.feed_tables.insert().values(
-            source="ahledger",
-            market="forever.normal.horde.us",
-            auction_house_id=ah,
-            scanned_at=now,
-            stamped_at=now,
-            fetched_at=now,
-            body=f"AHL1|forever/normal/horde/us|{int(now.timestamp())}|1\n1:10:10:3",
-        )
-    )
+    scanned(conn, {1: [(10, 1)]}, now)
     got = client.get("/api/admin/ingestion", headers=ADMIN).json()
     assert got["now"] >= db.timestamp_text(now)
     status = {j["job"]: j for j in got["jobs"]}
-    assert list(status) == list(schema.JOBS)
+    assert list(status) == list(jobs.CADENCE)
     assert status["merge"]["ok"] and not status["merge"]["late"]
     assert status["merge"]["summary"] == "Merged 1 auction houses"
     assert status["ingest"] == {
@@ -1013,11 +998,8 @@ def test_the_admin_page_shows_jobs_uploads_snapshots_and_feeds(client: TestClien
     assert got["uploads"]["accepted_24h"] == 1 and got["uploads"]["uploaders_7d"] == 1
     assert [(u["user_uid"], u["detail"]) for u in got["uploads"]["recent"]] == [(ME, "2 prices")]
     ((source, stats),) = [(s["source"], s) for s in got["snapshots"]]
-    assert (source, stats["snapshots_24h"], stats["items_7d"]) == ("auctionator", 1, 1)
-    assert [(f["market"], f["faction"], f["rows"]) for f in got["feeds"]] == [
-        ("forever.normal.horde.us", "Horde", 1)
-    ]
-    assert ahledger.feeds(conn, FOREVER)[0].auction_house_id == ah
+    assert (source, stats["snapshots_24h"], stats["items_7d"]) == ("altarmy", 1, 1)
+    assert "feeds" not in got
 
 
 # --- profit per hour ----------------------------------------------------------------------------------

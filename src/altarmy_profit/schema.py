@@ -37,13 +37,15 @@ metadata = MetaData(
     }
 )
 
-PRICE_SOURCES = ("auctionator", "ahledger", "ahdb", "blizzard_api", "csv", "manual")
+PRICE_SOURCES = ("auctionator", "ahledger", "altarmy", "ahdb", "blizzard_api", "csv", "manual")
 TIERS = ("free", "linked")
 UPLOAD_KINDS = ("altarmy", "auctionator")
 UPLOAD_VIA = ("browser", "watcher", "paste")
 UPLOAD_OUTCOMES = ("accepted", "rejected")
 SNAPSHOT_STATUSES = ("accepted", "quarantined")
-JOBS = ("ingest", "merge", "prune", "ahledger")  # the scheduled CLI jobs that record their runs
+# The CLI jobs whose runs are recorded. ahledger is gone (`jobs.CADENCE` has the scheduled ones); its
+# old runs stay.
+JOBS = ("ingest", "merge", "prune", "ahledger")
 
 
 def _version(primary_key: bool = True) -> Column[str]:
@@ -383,8 +385,10 @@ price_observations = Table(
     Column("min_buyout", BigInteger, nullable=False),
     Column("quantity", Integer),
     Column("listings", Integer),
-    # a price feed's (AHledger's) 7/30-day median when below min_buyout; NULL: no cap
+    # a price feed's cap, unused since AHledger went (revision 0014); dropped by the next revision
     Column("sell_cap", BigInteger),
+    # an Alt Army scan's: the unit price a little way into the listed units (`book.market_price`)
+    Column("market_price", BigInteger),
     Index(None, "item_id"),
 )
 
@@ -405,12 +409,18 @@ price_current = Table(
     Column("median_7d", BigInteger),  # filled by the Phase 6 merge job
     Column("avail_7d", Integer),
     Column("scans_7d", Integer),
-    Column("sell_cap", BigInteger),  # the most a sale counts as, from a feed's medians; NULL: no cap
+    Column("sell_cap", BigInteger),  # unused since revision 0014; dropped by the next revision
     Column("quantity", Integer),  # units listed at the newest sighting; NULL: unknown
+    # From Alt Army's full scans (`prices.record_book`); NULL for prices from any other source.
+    Column("ladder", Text),  # the units listed at each price (`book.encode`); "" when none are
+    Column("listed", Boolean),  # False: the newest complete scan had none (price is the last one seen)
+    Column("market_price", BigInteger),  # `book.market_price` of the ladder; the last one when unlisted
+    Column("sale_price", BigInteger),  # what units sold for over the last week (the merge); NULL: too few
+    Column("sale_rate", Float),  # units sold a day over the last week (the merge)
 )
 
-# The last price table an external feed served per market (AHledger's `ahledger`), so a poll records only
-# the rows that changed since.
+# The last price table AHledger served per market. Unused since revision 0014, which emptied it; dropped
+# by the next revision.
 feed_tables = Table(
     "feed_tables",
     metadata,
@@ -444,6 +454,25 @@ price_daily = Table(
     Column("median", BigInteger),  # filled by the Phase 6 aggregation
     Column("high", BigInteger, nullable=False),
     Column("available", Integer),  # most seen that day
+    PrimaryKeyConstraint("auction_house_id", "item_id", "day"),
+)
+
+# What sold, inferred from the units gone off the cheap end between two Alt Army scans
+# (`book.sold_between`), per auction house, item and UTC day.
+price_sales_daily = Table(
+    "price_sales_daily",
+    metadata,
+    Column(
+        "auction_house_id",
+        Integer,
+        ForeignKey("auction_houses.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("item_id", Integer, nullable=False),
+    Column("day", Date, nullable=False),
+    Column("units", Integer, nullable=False),  # bought
+    Column("copper", BigInteger, nullable=False),  # what they were listed for, in all
+    Column("cancelled", Integer, nullable=False),  # gone from behind cheaper listings
     PrimaryKeyConstraint("auction_house_id", "item_id", "day"),
 )
 

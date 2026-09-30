@@ -8,29 +8,38 @@ per-day history also fills `price_daily`, pooled across uploaders. Observations 
 (`load_buy_and_sell`) and the baseline an uploaded scan is screened against (`screen`): one whose prices
 are mostly far off it is quarantined and changes nothing.
 
-A price feed (AHledger) says more than the cheapest listing: the most a sale counts as
-(`Observation.sell_cap`, from its longer medians). Uploads don't know it, so they keep what the feed said
-(`_carried`). The quantity listed
-is kept current without being news (`_restocked`): it flags thin markets, and moves no price.
+The quantity listed is kept current without being news (`_restocked`): it flags thin markets, and
+moves no price.
+
+Where a version's prices are first-party (`GameVersion.first_party_prices`: Forever), they come from the
+Alt Army addon's full scans (`record_book`): per item a ladder of the units listed at each price
+(`book.py`), kept in `price_current.ladder`. Buying walks the ladder (`load_books`), an item missing from
+a scan is no longer listed, and the units gone off the cheap end between two scans are counted as sales
+(`price_sales_daily`), which the merge turns into `sale_price`. Only 'altarmy' and hand-set snapshots
+are read there (`FIRST_PARTY`).
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import ColumnElement, Connection, bindparam, case, delete, func, select, update
 
-from . import db, schema
+from . import book, db, schema
 from .auctionator import ItemPrice
 
 KEEP_DAYS = 90  # observations older than this are pruned (price_daily is kept)
 AUCTIONATOR = "auctionator"
-AHLEDGER = "ahledger"  # AHledger's crowdsourced scans (`ahledger`)
 HAND_SET = ("manual", "csv")  # sources whose price is used as it is, never capped by the 7-day median
-FEEDS = (AHLEDGER,)  # sources whose observations carry their own sell cap
 THIN_UNITS = 5  # fewer units listed than this: a sale there rests on a thin market
+ALTARMY = "altarmy"  # the Alt Army addon's full scans (`record_book`)
+FIRST_PARTY = (ALTARMY, *HAND_SET)  # the sources read where prices are first-party
+SALES_GAP = timedelta(minutes=30)  # scans further apart than this say nothing of what sold between them
+MIN_LEVELS = 50  # fewer price levels in the scan before than this: too few to judge a scan's continuity by
+MIN_SHARED = 0.25  # quarantine a scan that has under this share of the price levels of one SALES_GAP before
+STRAY = 0.5  # a level first seen in the newest scan under this share of the usual price is not counted on
 
 # Screening an uploaded scan against the 7-day medians (normal scans have at most ~5% of items this far off)
 WILD_RATIO = 4.0  # a price more than this many times off its median, either way, is wild
@@ -49,7 +58,6 @@ class Observation:
     seen_at: datetime  # when that price was on the auction house
     quantity: int | None = None
     listings: int | None = None
-    sell_cap: int | None = None  # a feed's: the most a sale counts as, when below min_buyout (None: no cap)
 
 
 # --- auction houses --------------------------------------------------------------------------------
@@ -150,7 +158,6 @@ class Coverage:
     last_scan_items: int  # items in it
     scans_7d: int  # accepted scans in the last 7 days
     uploaders_7d: int  # distinct users who sent them
-    sources: tuple[str, ...] = ()  # sources of those scans, sorted (AHledger's must be credited)
 
 
 def coverage(conn: Connection, game_version: str, now: datetime | None = None) -> list[Coverage]:
@@ -174,14 +181,6 @@ def coverage(conn: Connection, game_version: str, now: datetime | None = None) -
             .group_by(snap.c.auction_house_id)
         )
     }
-    sources: dict[int, list[str]] = {}
-    for r in conn.execute(
-        select(snap.c.auction_house_id, snap.c.source)
-        .where(accepted, snap.c.scanned_at >= since)
-        .distinct()
-        .order_by(snap.c.auction_house_id, snap.c.source)
-    ):
-        sources.setdefault(r.auction_house_id, []).append(r.source)
     newest = (
         select(snap.c.auction_house_id, func.max(snap.c.id).label("id"))
         .where(accepted)
@@ -214,7 +213,6 @@ def coverage(conn: Connection, game_version: str, now: datetime | None = None) -
                 items,
                 scans,
                 uploaders,
-                tuple(sources.get(r.id, ())),
             )
         )
     return out
@@ -325,18 +323,16 @@ def record_snapshot(
     the auction house's `price_version` is bumped.
 
     An observation is news when the auction house has no price for the item, when it was seen on a later
-    day, or when it was seen no earlier and its price or sell cap differs (an upload's taken
-    with what the feed said: `_carried`). A newer quantity alone updates `price_current` in place and is not
-    news. Re-sending the same scan writes nothing."""
+    day, or when it was seen no earlier and its price differs. A newer quantity alone updates
+    `price_current` in place and is not news. Re-sending the same scan writes nothing."""
     snapshot_id = _insert_snapshot(
         conn, auction_house_id, source, scanned_at, len(observations), received_at, uploader_uid, "accepted"
     )
     current = _current(conn, auction_house_id)
-    carried = [(o, _carried(o, current.get(o.item_id), source)) for o in observations]
     _update_quantities(
-        conn, auction_house_id, [c for _, c in carried if _restocked(c, current.get(c.item_id))]
+        conn, auction_house_id, [o for o in observations if _restocked(o, current.get(o.item_id))]
     )
-    news = [(o, c) for o, c in carried if _is_news(c, current.get(c.item_id))]
+    news = [o for o in observations if _is_news(o, current.get(o.item_id))]
     if not news:
         return 0
     conn.execute(
@@ -348,25 +344,26 @@ def record_snapshot(
                 "min_buyout": o.min_buyout,
                 "quantity": o.quantity,
                 "listings": o.listings,
-                "sell_cap": o.sell_cap,
             }
-            for o, _ in news
+            for o in news
         ],
     )
     pc = schema.price_current
     rows = [
         {
             "auction_house_id": auction_house_id,
-            "item_id": c.item_id,
-            "price": c.min_buyout,
-            "seen_at": db.utc(c.seen_at),
+            "item_id": o.item_id,
+            "price": o.min_buyout,
+            "seen_at": db.utc(o.seen_at),
             "snapshot_id": snapshot_id,
-            "sell_cap": c.sell_cap,
-            "quantity": c.quantity,
+            "quantity": o.quantity,
+            "ladder": None,
+            "listed": None,
+            "market_price": None,
         }
-        for _, c in news
+        for o in news
     ]
-    updated = ["price", "seen_at", "snapshot_id", "sell_cap", "quantity"]
+    updated = ["price", "seen_at", "snapshot_id", "quantity", "ladder", "listed", "market_price"]
     db.upsert(conn, pc, rows, ["auction_house_id", "item_id"], updated)
     bump_price_version(conn, auction_house_id)
     return len(news)
@@ -381,39 +378,25 @@ def bump_price_version(conn: Connection, auction_house_id: int) -> None:
 class _Current:
     price: int
     seen_at: datetime
-    sell_cap: int | None
     quantity: int | None
 
 
 def _current(conn: Connection, auction_house_id: int) -> dict[int, _Current]:
     pc = schema.price_current
     rows = conn.execute(
-        select(pc.c.item_id, pc.c.price, pc.c.seen_at, pc.c.sell_cap, pc.c.quantity).where(
+        select(pc.c.item_id, pc.c.price, pc.c.seen_at, pc.c.quantity).where(
             pc.c.auction_house_id == auction_house_id
         )
     )
-    return {r.item_id: _Current(r.price, db.utc(r.seen_at), r.sell_cap, r.quantity) for r in rows}
-
-
-def _carried(o: Observation, current: _Current | None, source: str) -> Observation:
-    """What an observation sets `price_current` to. A feed's and a hand-set price are taken as they are;
-    an upload sees only the cheapest listing (and its quantity), so it keeps the feed's sell cap."""
-    if current is None or source in FEEDS or source in HAND_SET:
-        return o
-    return replace(
-        o,
-        sell_cap=o.sell_cap if o.sell_cap is not None else current.sell_cap,
-        quantity=o.quantity if o.quantity is not None else current.quantity,
-    )
+    return {r.item_id: _Current(r.price, db.utc(r.seen_at), r.quantity) for r in rows}
 
 
 def _is_news(o: Observation, current: _Current | None) -> bool:
     if current is None:
         return True
     new_seen = db.utc(o.seen_at)
-    now = (o.min_buyout, o.sell_cap)
-    before = (current.price, current.sell_cap)
-    return new_seen.date() > current.seen_at.date() or (new_seen >= current.seen_at and now != before)
+    changed = o.min_buyout != current.price
+    return new_seen.date() > current.seen_at.date() or (new_seen >= current.seen_at and changed)
 
 
 def _restocked(o: Observation, current: _Current | None) -> bool:
@@ -529,6 +512,249 @@ def record_screened(
     return Recorded(moved, screened=verdict is not None)
 
 
+# --- the order book --------------------------------------------------------------------------------
+@dataclass(frozen=True)
+class BookRecorded:
+    items: int  # items in the scan
+    moved: int  # of them (and of those it no longer lists), items whose price or listing changed
+    stale: bool = False  # no newer than the auction house's newest scan: not used
+    quarantined: bool = False  # held back: it changed nothing
+    screened: bool = False  # it was compared with enough to judge the uploader by
+
+
+@dataclass(frozen=True)
+class _BookRow:
+    price: int
+    seen_at: datetime
+    source: str
+    ladder: book.Ladder  # () unless the row is a scan's and listed
+    listed: bool
+    market_price: int | None
+
+
+def _book_rows(conn: Connection, auction_house_id: int) -> dict[int, _BookRow]:
+    pc, snap = schema.price_current, schema.price_snapshots
+    rows = conn.execute(
+        select(pc.c.item_id, pc.c.price, pc.c.seen_at, pc.c.ladder, pc.c.listed, pc.c.market_price)
+        .add_columns(snap.c.source)
+        .join(snap, snap.c.id == pc.c.snapshot_id)
+        .where(pc.c.auction_house_id == auction_house_id)
+    )
+    out = {}
+    for r in rows:
+        listed = r.source == ALTARMY and bool(r.listed)
+        ladder = book.decode(r.ladder) if listed and r.ladder else ()
+        out[r.item_id] = _BookRow(r.price, db.utc(r.seen_at), r.source, ladder, listed, r.market_price)
+    return out
+
+
+def _newest_book(conn: Connection, auction_house_id: int) -> datetime | None:
+    snap = schema.price_snapshots
+    found = conn.execute(
+        select(func.max(snap.c.scanned_at)).where(
+            snap.c.auction_house_id == auction_house_id,
+            snap.c.source == ALTARMY,
+            snap.c.status == "accepted",
+        )
+    ).scalar_one_or_none()
+    return None if found is None else db.utc(found)
+
+
+def _breaks_off(rows: Mapping[int, _BookRow], scan: book.Scan) -> bool | None:
+    """Whether the scan shares too few price levels with the book of a moment ago to be the same auction
+    house's; None when that book is too small to tell."""
+    before = [(item, lv.price) for item, row in rows.items() for lv in row.ladder if not lv.tail]
+    if len(before) < MIN_LEVELS:
+        return None
+    now = {(item, lv.price) for item, ladder in scan.items.items() for lv in ladder}
+    return sum(1 for level in before if level in now) / len(before) < MIN_SHARED
+
+
+def record_book(
+    conn: Connection,
+    auction_house_id: int,
+    scan: book.Scan,
+    *,
+    scanned_at: datetime | None = None,
+    uploader_uid: str | None = None,
+    trust: float | None = None,
+) -> BookRecorded:
+    """Store one Alt Army scan of the auction house, taken at `scanned_at` (default: the scan's own time).
+
+    A scan no newer than the house's newest is not used (whoever uploads it, and however often). With the
+    uploader's `trust` it is screened first: its market prices against the 7-day medians (`screen`), and,
+    right after another scan, its price levels against that one's (`_breaks_off`); a quarantined scan is
+    kept as a snapshot row only.
+
+    Every item's ladder replaces the one before, its levels aged; an item the scan no longer has is
+    unlisted. An item is news (an observation, and the price version moves) when its cheapest or its
+    market price changed or it was listed or unlisted. Units gone since a scan at most SALES_GAP before
+    are added to the day's sales. An item with a newer price (set by hand since) is left alone."""
+    at = db.utc(scanned_at or datetime.fromtimestamp(scan.t, db.utcnow().tzinfo))
+    newest = _newest_book(conn, auction_house_id)
+    if newest is not None and at <= newest:
+        return BookRecorded(len(scan.items), 0, stale=True)
+    rows = _book_rows(conn, auction_house_id)
+    follows = newest is not None and at - newest <= SALES_GAP
+    markets = {i: book.market_price(ladder) or ladder[0].price for i, ladder in scan.items.items() if ladder}
+
+    verdict = None
+    if trust is not None:
+        seen = [Observation(i, m, at) for i, m in sorted(markets.items())]
+        verdict = screen(seen, baseline(conn, auction_house_id), at, trust)
+        broken = _breaks_off(rows, scan) if follows else None
+        if broken is not None:
+            verdict = bool(verdict) or broken
+    if verdict:
+        _insert_snapshot(
+            conn, auction_house_id, ALTARMY, at, len(scan.items), None, uploader_uid, "quarantined"
+        )
+        return BookRecorded(len(scan.items), 0, quarantined=True, screened=True)
+
+    snapshot_id = _insert_snapshot(
+        conn, auction_house_id, ALTARMY, at, len(scan.items), None, uploader_uid, "accepted"
+    )
+    current: list[dict[str, object]] = []
+    news: list[dict[str, object]] = []
+    daily_rows = []
+    sales: dict[int, book.Sold] = {}
+    for item_id, ladder in sorted(scan.items.items()):
+        row = rows.get(item_id)
+        if not ladder or (row is not None and row.seen_at > at):
+            continue
+        before = row.ladder if row is not None else ()
+        if follows and before:
+            sales[item_id] = book.sold_between(before, ladder)
+        units, market = book.quantity(ladder), markets[item_id]
+        current.append(
+            {
+                "item_id": item_id,
+                "price": ladder[0].price,
+                "quantity": units,
+                "ladder": book.encode(book.aged(before, ladder)),
+                "listed": True,
+                "market_price": market,
+            }
+        )
+        daily_rows.append(Observation(item_id, market, at, units))
+        was = None if row is None or not row.listed else (row.price, row.market_price)
+        if was != (ladder[0].price, market):
+            news.append(
+                {
+                    "snapshot_id": snapshot_id,
+                    "item_id": item_id,
+                    "min_buyout": ladder[0].price,
+                    "quantity": units,
+                    "listings": sum(lv.listings for lv in ladder),
+                    "market_price": market,
+                }
+            )
+    gone = 0
+    for item_id, row in sorted(rows.items()):
+        if not row.listed or item_id in scan.items or row.seen_at > at:
+            continue
+        if follows and row.ladder:
+            sales[item_id] = book.sold_between(row.ladder, ())
+        current.append(
+            {
+                "item_id": item_id,
+                "price": row.price,
+                "quantity": 0,
+                "ladder": "",
+                "listed": False,
+                "market_price": row.market_price,
+            }
+        )
+        gone += 1
+
+    shared = {"auction_house_id": auction_house_id, "seen_at": at, "snapshot_id": snapshot_id}
+    db.upsert(
+        conn,
+        schema.price_current,
+        [{**shared, **r} for r in current],
+        ["auction_house_id", "item_id"],
+        ["price", "seen_at", "snapshot_id", "quantity", "ladder", "listed", "market_price"],
+    )
+    if news:
+        conn.execute(schema.price_observations.insert(), news)
+    record_daily_observations(conn, auction_house_id, daily_rows)
+    _add_sales(conn, auction_house_id, at.date(), sales)
+    moved = len(news) + gone
+    if moved:
+        bump_price_version(conn, auction_house_id)
+    return BookRecorded(len(scan.items), moved, screened=verdict is not None)
+
+
+def _add_sales(conn: Connection, auction_house_id: int, day: date, sales: Mapping[int, book.Sold]) -> None:
+    """Add what sold (and was cancelled) to the day's `price_sales_daily` rows."""
+    sales = {i: s for i, s in sales.items() if s.units or s.cancelled}
+    if not sales:
+        return
+    t = schema.price_sales_daily
+    stored = {
+        r.item_id: (r.units, r.copper, r.cancelled)
+        for r in conn.execute(
+            select(t.c.item_id, t.c.units, t.c.copper, t.c.cancelled).where(
+                t.c.auction_house_id == auction_house_id, t.c.day == day, t.c.item_id.in_(sorted(sales))
+            )
+        )
+    }
+    rows = []
+    for item_id, s in sorted(sales.items()):
+        units, copper, cancelled = stored.get(item_id, (0, 0, 0))
+        rows.append(
+            {
+                "auction_house_id": auction_house_id,
+                "item_id": item_id,
+                "day": day,
+                "units": units + s.units,
+                "copper": copper + s.copper,
+                "cancelled": cancelled + s.cancelled,
+            }
+        )
+    db.upsert(conn, t, rows, ["auction_house_id", "item_id", "day"], ["units", "copper", "cancelled"])
+
+
+def load_books(
+    conn: Connection, auction_house_id: int | None, *, credible: bool = True
+) -> dict[int, book.Ladder]:
+    """{item_id: ladder} of what the auction house's newest scan lists; empty for None. With `credible`,
+    without the levels first seen in that scan that are under STRAY of the item's 7-day median (where it
+    has MIN_BASELINE_DAYS days of one): a stray cheap listing is gone before anyone gets there. An item
+    left without levels is left out."""
+    if auction_house_id is None:
+        return {}
+    pc, snap = schema.price_current, schema.price_snapshots
+    rows = conn.execute(
+        select(pc.c.item_id, pc.c.ladder, pc.c.median_7d, pc.c.scans_7d)
+        .join(snap, snap.c.id == pc.c.snapshot_id)
+        .where(
+            pc.c.auction_house_id == auction_house_id,
+            snap.c.source == ALTARMY,
+            pc.c.listed.is_(True),
+            pc.c.ladder != "",
+        )
+        .order_by(pc.c.item_id)
+    )
+    out = {}
+    for r in rows:
+        ladder = book.decode(r.ladder)
+        if credible and r.median_7d and (r.scans_7d or 0) >= MIN_BASELINE_DAYS:
+            ladder = tuple(lv for lv in ladder if lv.age > 0 or lv.price >= STRAY * r.median_7d)
+        if ladder:
+            out[r.item_id] = ladder
+    return out
+
+
+def book_sell_price(market: int, listed: bool, reference: int | None, sale_price: int | None) -> int:
+    """What a sale counts as where prices are first-party: the lower of what is asked (the market price,
+    while listed) and what the item goes for (what it sold for lately, else its 7-day median). Without
+    either, the last market price."""
+    usual = sale_price if sale_price is not None else reference
+    asked = [market] if listed else []
+    return min([*asked, *([usual] if usual is not None else [])], default=market)
+
+
 def record_daily_observations(
     conn: Connection, auction_house_id: int, observations: Sequence[Observation]
 ) -> int:
@@ -589,42 +815,58 @@ def load_current(conn: Connection, auction_house_id: int | None) -> dict[int, in
 
 
 def load_buy_and_sell(
-    conn: Connection, auction_house_id: int | None
+    conn: Connection, auction_house_id: int | None, *, first_party: bool = False
 ) -> tuple[dict[int, int], dict[int, int]]:
     """({item_id: buy price}, {item_id: sell price}) for the auction house; empty for None. Reagents cost
-    the cheapest listing; a craft sells at the lowest of the cheapest listing, the 7-day median and a
-    feed's cap (`sell_price`), so a lone overpriced listing doesn't count as the going rate. Prices set by
-    hand are used as they are."""
+    the cheapest listing; a craft sells at the lower of the cheapest listing and the 7-day median
+    (`sell_price`), so a lone overpriced listing doesn't count as the going rate. Prices set by hand are
+    used as they are.
+
+    With `first_party` only Alt Army's scans and hand-set prices are read. A scanned item's buy price is
+    its cheapest level worth counting on (`load_books`; none if it is not listed: it cannot be bought) and
+    its sell price `book_sell_price`."""
     if auction_house_id is None:
         return {}, {}
     pc, snap = schema.price_current, schema.price_snapshots
     rows = conn.execute(
-        select(pc.c.item_id, pc.c.price, pc.c.median_7d, pc.c.sell_cap, snap.c.source)
+        select(pc.c.item_id, pc.c.price, pc.c.median_7d, snap.c.source)
+        .add_columns(pc.c.listed, pc.c.market_price, pc.c.sale_price)
         .join(snap, snap.c.id == pc.c.snapshot_id)
         .where(pc.c.auction_house_id == auction_house_id)
-    )
+    ).all()
     buy: dict[int, int] = {}
     sell: dict[int, int] = {}
+    books = load_books(conn, auction_house_id) if first_party else {}
     for r in rows:
-        buy[r.item_id] = r.price
-        sell[r.item_id] = sell_price(r.price, r.median_7d, r.sell_cap, r.source)
+        if first_party and r.source == ALTARMY:
+            if r.item_id in books:
+                buy[r.item_id] = books[r.item_id][0].price
+            market = r.price if r.market_price is None else r.market_price
+            sell[r.item_id] = book_sell_price(market, bool(r.listed), r.median_7d, r.sale_price)
+        elif not first_party or r.source in HAND_SET:
+            buy[r.item_id] = r.price
+            sell[r.item_id] = sell_price(r.price, r.median_7d, r.source)
     return buy, sell
 
 
-def sell_price(price: int, median_7d: int | None, sell_cap: int | None, source: str) -> int:
-    """What a sale counts as: the lowest of the cheapest listing, the 7-day median and a feed's cap; a
-    price set by hand as it is."""
-    if source in HAND_SET:
+def sell_price(price: int, median_7d: int | None, source: str) -> int:
+    """What a sale counts as: the lower of the cheapest listing and the 7-day median; a price set by hand
+    as it is."""
+    if source in HAND_SET or median_7d is None:
         return price
-    return min(p for p in (price, median_7d, sell_cap) if p is not None)
+    return min(price, median_7d)
 
 
 @dataclass(frozen=True)
 class Listing:
-    """What the auction house has of an item: its cheapest listing and the units listed (None: unknown)."""
+    """What the auction house has of an item: its cheapest listing and the units listed (None: unknown).
+    From Alt Army's scans also every price level listed, and the units that sold a day lately (None:
+    unknown)."""
 
     min_buyout: int
     quantity: int | None
+    ladder: book.Ladder = ()
+    sale_rate: float | None = None
 
 
 def load_listings(conn: Connection, auction_house_id: int | None) -> dict[int, Listing]:
@@ -633,9 +875,14 @@ def load_listings(conn: Connection, auction_house_id: int | None) -> dict[int, L
         return {}
     pc = schema.price_current
     rows = conn.execute(
-        select(pc.c.item_id, pc.c.price, pc.c.quantity).where(pc.c.auction_house_id == auction_house_id)
+        select(pc.c.item_id, pc.c.price, pc.c.quantity, pc.c.ladder, pc.c.sale_rate).where(
+            pc.c.auction_house_id == auction_house_id
+        )
     )
-    return {r.item_id: Listing(r.price, r.quantity) for r in rows}
+    return {
+        r.item_id: Listing(r.price, r.quantity, book.decode(r.ladder) if r.ladder else (), r.sale_rate)
+        for r in rows
+    }
 
 
 def thin_market(quantity: int | None, sold: int) -> bool:

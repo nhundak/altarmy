@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from altarmy_profit import engine, timing
+from altarmy_profit import book, engine, timing
 from altarmy_profit.engine import (
     ALL_EXITS,
     MAIL_POSTAGE,
@@ -1188,3 +1188,99 @@ def test_a_disenchant_sale_says_how_long_the_disenchanting_takes() -> None:
 
 def test_detailed_steps_need_a_timing() -> None:
     assert engine.detailed_steps(must_evaluate(maul_market(SMITHY, LEATHERY), MAUL_RECIPE)) == []
+
+
+# --- the order book: buying walks the ladder -----------------------------------------------------
+ORE, EARTH, BAR, BLADE = 20, 21, 22, 23
+
+
+def ladder(*levels: tuple[int, int]) -> book.Ladder:
+    return tuple(book.Level(price, quantity, 1) for price, quantity in levels)
+
+
+def book_market(
+    books: dict[int, book.Ladder],
+    recipes: list[Recipe],
+    prices: dict[int, int] | None = None,
+    sell_prices: dict[int, int] | None = None,
+) -> Market:
+    items = {
+        ORE: Item(ORE, "Copper Ore"),
+        EARTH: Item(EARTH, "Elemental Earth"),
+        BAR: Item(BAR, "Copper Bar"),
+        BLADE: Item(BLADE, "Copper Blade", sell_price=5),
+    }
+    cheapest = {i: levels[0].price for i, levels in books.items()}
+    return Market(
+        items,
+        recipes,
+        {**cheapest, **(prices or {})},
+        books=books,
+        sell_prices={BLADE: 100_000, **(sell_prices or {})},
+    )
+
+
+def test_a_lone_cheap_listing_is_one_cheap_unit() -> None:
+    blade = Recipe(1, "Blade", BLADE, 1, ((EARTH, 2),), "Blacksmithing")
+    m = book_market({EARTH: ladder((700, 1), (12000, 3))}, [blade])
+    res = must_evaluate(m, blade)
+    assert res.cost == 700 + 12000  # 1.27g, not two at 7s
+    assert res.tree.inputs[0].cost == 12700
+    assert res.short == 0
+
+
+def test_a_batch_costs_about_the_wall_behind_a_few_cheap_units() -> None:
+    blade = Recipe(1, "Blade", BLADE, 1, ((ORE, 10),), "Blacksmithing")
+    m = book_market({ORE: ladder((64, 3), (167, 5000))}, [blade])
+    res = m.evaluate(blade, crafts=20)
+    assert res is not None
+    assert res.cost == 3 * 64 + 197 * 167
+    one = must_evaluate(m, blade)
+    assert one.cost == 3 * 64 + 7 * 167
+
+
+def test_an_item_no_scan_lists_cannot_be_bought() -> None:
+    blade = Recipe(1, "Blade", BLADE, 1, ((ORE, 1), (EARTH, 1)), "Blacksmithing")
+    m = book_market({ORE: ladder((167, 5000))}, [blade], sell_prices={EARTH: 12000})
+    assert m.evaluate(blade) is None  # Elemental Earth sells for something, but none is listed
+
+
+def test_needing_more_than_is_listed_is_short() -> None:
+    blade = Recipe(1, "Blade", BLADE, 1, ((EARTH, 5),), "Blacksmithing")
+    m = book_market({EARTH: ladder((700, 1), (12000, 2))}, [blade])
+    res = must_evaluate(m, blade)
+    assert res.cost == 700 + 4 * 12000
+    assert res.tree.inputs[0].short == 2
+    assert res.short == 2
+
+
+def test_an_item_without_a_ladder_costs_its_flat_price() -> None:
+    blade = Recipe(1, "Blade", BLADE, 1, ((ORE, 10), (EARTH, 1)), "Blacksmithing")
+    m = book_market({EARTH: ladder((700, 1))}, [blade], prices={ORE: 100})
+    assert must_evaluate(m, blade).cost == 1000 + 700
+
+
+def test_branches_buying_the_same_item_share_its_ladder() -> None:
+    bar = Recipe(2, "Smelt Copper", BAR, 1, ((ORE, 1),), "Mining")
+    blade = Recipe(1, "Blade", BLADE, 1, ((ORE, 1), (BAR, 1)), "Blacksmithing")
+    m = book_market({ORE: ladder((10, 1), (100, 50))}, [blade, bar])
+    res = must_evaluate(m, blade)
+    # the one cheap unit is bought once: the blade's ore, then the bar's at the next price
+    assert res.cost == 10 + 100
+    direct, crafted = res.tree.inputs
+    assert (direct.cost, direct.source) == (10, "ah")
+    assert (crafted.cost, crafted.via, crafted.inputs[0].cost) == (100, "Smelt Copper", 100)
+    assert res.tree.cost == 110
+    assert {o.key: o.cost for o in crafted.options} == {"craft:2": 100}
+    assert sum(-s.value for s in res.steps if s.action == "buy") == 110
+
+
+def test_how_many_are_needed_decides_between_buying_and_crafting() -> None:
+    bar = Recipe(2, "Smelt Copper", BAR, 1, ((ORE, 1),), "Mining")
+    blade = Recipe(1, "Blade", BLADE, 1, ((BAR, 1),), "Blacksmithing")
+    m = book_market({BAR: ladder((50, 1), (400, 50)), ORE: ladder((100, 500))}, [blade, bar])
+    assert must_evaluate(m, blade).tree.inputs[0].source == "ah"  # one bar at 50
+    session = m.evaluate(blade, crafts=10)
+    assert session is not None
+    assert session.tree.inputs[0].via == "Smelt Copper"  # ten bars: 50 + 9 x 400 against 10 x 100 of ore
+    assert session.cost == 1000

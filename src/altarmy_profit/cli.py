@@ -1,4 +1,4 @@
-"""Command line interface: the site's jobs (ingest, migrate, prune, merge, ahledger; all but migrate record
+"""Command line interface: the site's jobs (ingest, migrate, prune, merge; all but migrate record
 their runs in `job_runs`), `serve` (the API and built front end, for development), `watch` (uploads the
 addon files to a server) and `admin` (the site admin claim on Firebase accounts).
 
@@ -18,7 +18,6 @@ from pathlib import Path
 from sqlalchemy import Connection, select
 
 from . import (
-    ahledger,
     auth,
     db,
     ingest,
@@ -117,39 +116,6 @@ def _signal(to: signals.Signals, moved: Mapping[str, Mapping[int, int]]) -> str:
     wanted = sum(len(h) for h in moved.values())
     said = f"{sent} price signal{'' if sent == 1 else 's'} sent"
     return f"{said} ({wanted - sent} failed)." if sent < wanted else f"{said}."
-
-
-def cmd_ahledger(args: argparse.Namespace) -> None:
-    """Poll AHledger's markets of every version (an hourly job), one transaction per market."""
-    with jobs.recording(args.database, "ahledger") as run:
-        client = ahledger.Client.from_env()
-        to = signals.from_env()
-        wanted = [(v.key, m) for v in versions.VERSIONS.values() for m in ahledger.markets(v.key)]
-        failed = 0
-        try:
-            served = client.markets()
-        except (ahledger.AHledgerError, ValueError) as e:
-            sys.exit(f"AHledger: {e}")
-        for game_version, market in wanted:
-            if market.id not in served:
-                run.say(f"{market.id}: not an AHledger market (any more?)")
-                failed += 1
-                continue
-            try:
-                with args.database.begin() as conn:
-                    polled = ahledger.poll_market(conn, game_version, market, client)
-                    moved = _price_versions(conn, [polled.auction_house_id] if polled.moved else [])
-                run.say(polled.summary)
-                if moved:
-                    run.say(_signal(to, moved))
-            except (ahledger.AHledgerError, ValueError) as e:
-                run.say(f"{market.id}: {e}")
-                failed += 1
-        with args.database.begin() as conn:
-            prices.prune(conn)
-        run.say(f"{client.requests} requests to AHledger.")
-        if failed:
-            sys.exit(f"{failed} of {len(wanted)} AHledger markets failed.")
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
@@ -310,12 +276,6 @@ def main(argv: list[str] | None = None) -> None:
         help="recompute daily medians and the 7-day price statistics (every game version)",
     )
     s.set_defaults(fn=cmd_merge)
-
-    s = sub.add_parser(
-        "ahledger",
-        help="record AHledger's newest auction house prices (every game version; AHLEDGER_API_KEY optional)",
-    )
-    s.set_defaults(fn=cmd_ahledger)
 
     s = sub.add_parser(
         "admin", help="grant, revoke or list the site admin claim on Firebase accounts (needs the [ui] extra)"

@@ -150,11 +150,20 @@ const DOTS = (
   </svg>
 )
 
-/** Why a row is flagged as resting on a thin market: the units of its output listed, if known. */
-function thinTitle(output: ItemMap[string] | undefined): string {
+/** Why a row's sale is flagged: how long it may take, or else how few units its price rests on. */
+function slowTitle(result: RankResult, output: ItemMap[string] | undefined): string {
+  if (result.days_to_sell != null) {
+    const days = Math.round(result.days_to_sell)
+    return `May take about ${days} ${days === 1 ? 'day' : 'days'} to sell at the rate it sold lately`
+  }
   const listed = output?.ah_quantity
   if (listed == null) return 'Sell price rests on few listed units'
   return `Sell price rests on ${listed} listed ${listed === 1 ? 'unit' : 'units'}`
+}
+
+/** Why a row is flagged as buying more than the auction house lists. */
+function shortTitle(short: number): string {
+  return `Needs ${short.toLocaleString()} more ${short === 1 ? 'unit' : 'units'} than the auction house lists; they are counted at the dearest price listed`
 }
 
 /** A row's ⋯ menu: mark the recipe as a favorite or not, stop or allow selling its output on the AH. */
@@ -334,9 +343,14 @@ export function ResultsTable({
                           ★
                         </Text>
                       )}
-                      {r.thin_market && (
-                        <Text span c="orange" ml={4} title={thinTitle(items[r.output_item_id])} aria-label="Thin market">
+                      {r.slow && (
+                        <Text span c="orange" ml={4} title={slowTitle(r, items[r.output_item_id])} aria-label="Slow to sell">
                           ⚠
+                        </Text>
+                      )}
+                      {r.short > 0 && (
+                        <Text span c="orange" ml={4} title={shortTitle(r.short)} aria-label="Not enough listed">
+                          ◔
                         </Text>
                       )}
                       {modified && (

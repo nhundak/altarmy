@@ -149,7 +149,6 @@ scheduler() { # scheduler prod|staging: the same cadence (jobs.CADENCE); staging
   schedule "$JOB_PREFIX-ingest-tbc" "$((0 + m)) 9 * * *"
   schedule "$JOB_PREFIX-ingest-forever" "$((15 + m)) 9 * * *"
   schedule "$JOB_PREFIX-prune" "$((0 + m)) 10 * * *"
-  schedule "$JOB_PREFIX-ahledger" "$((20 + m)) * * * *" # hourly: AHledger's newest prices, before the merge
   schedule "$JOB_PREFIX-merge" "$((30 + m)) * * * *" # hourly: daily medians and 7-day price statistics
 }
 

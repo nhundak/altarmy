@@ -6,12 +6,12 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection
 
-from altarmy_profit import altarmy, db, engine, ingest, prices, service, store, talents, timing, users
+from altarmy_profit import altarmy, book, db, engine, ingest, prices, service, store, talents, timing, users
 from altarmy_profit.altarmy import Character, Profession
 from altarmy_profit.engine import ALL_EXITS, Filters
 from altarmy_profit.service import Selection
 
-from .conftest import FOREVER, ME, set_prices
+from .conftest import FOREVER, ME, scanned, set_prices
 from .test_altarmy import ALTARMY_SV
 
 
@@ -207,17 +207,16 @@ def test_market_cache_keeps_the_listings_with_its_market(
     db2_paths: dict[str, Path], conn: Connection, database: db.Database
 ) -> None:
     ingest.build_db(db2_paths, conn, FOREVER)
-    ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
     now = db.utcnow()
-    prices.record_snapshot(conn, ah, "ahledger", now, [prices.Observation(1, 20, now, 3)])
+    ah = scanned(conn, {1: [(20, 3)]}, now)
     cache = service.MarketCache(database, FOREVER)
     priced = cache.get_priced(ah)
     assert priced.market is cache.get(ah)  # the one rankings are cached on
-    assert priced.listings == {1: prices.Listing(20, 3)}
+    assert priced.listings == {1: prices.Listing(20, 3, (book.Level(20, 3, 1),))}
     later = now + timedelta(minutes=1)
-    prices.record_snapshot(conn, ah, "ahledger", later, [prices.Observation(1, 20, later, 7)])
+    scanned(conn, {1: [(20, 7)]}, later)
     cache.invalidate()
-    assert cache.get_priced(ah).listings == {1: prices.Listing(20, 7)}
+    assert cache.get_priced(ah).listings == {1: prices.Listing(20, 7, (book.Level(20, 7, 1, age=1),))}
     assert cache.get_priced(None).listings == {}
 
 
@@ -233,6 +232,29 @@ def test_a_thin_market_is_an_ah_sale_resting_on_few_listed_units() -> None:
     assert not service.thin_market(sale, {3: prices.Listing(900, None)})  # unknown
     assert not service.thin_market(sale, {})  # nobody lists it: no market to rest on
     assert not service.thin_market(replace(sale, best_exit="vendor"), {3: prices.Listing(900, 2)})
+
+
+def test_a_sale_is_slow_when_what_is_listed_ahead_outlasts_two_days() -> None:
+    recipe = engine.Recipe(1, "Green Robe", 3, output_count=1)
+    sale = engine.Result(recipe, 100, 500, "ah", engine.Node(3, "Green Robe", 1, 100), crafts=10)
+    ladder = (book.Level(800, 20, 2), book.Level(900, 30, 3), book.Level(2000, 500, 9))
+
+    def listed(rate: float | None) -> dict[int, prices.Listing]:
+        return {3: prices.Listing(800, 550, ladder, rate)}
+
+    # 50 listed at or under 900 sell first, then the plan's 10: at 40 a day, a day and a half
+    assert service.days_to_sell(sale, listed(40.0), 900) == 1.5
+    assert not service.slow_to_sell(sale, listed(40.0), 900)
+    assert service.days_to_sell(sale, listed(20.0), 900) == 3.0
+    assert service.slow_to_sell(sale, listed(20.0), 900)
+    assert service.days_to_sell(sale, listed(20.0), 799) == 0.5  # undercutting everyone
+    # nothing known of its sales: the thin market rule
+    assert service.days_to_sell(sale, listed(None), 900) is None
+    assert not service.slow_to_sell(sale, listed(None), 900)
+    assert service.slow_to_sell(sale, {3: prices.Listing(800, 2)}, 900)
+    vendored = replace(sale, best_exit="vendor")
+    assert service.days_to_sell(vendored, listed(1.0), 900) is None
+    assert not service.slow_to_sell(vendored, listed(1.0), 900)
 
 
 def test_selection_falls_back_to_the_freshest_scanned_realm(conn: Connection) -> None:

@@ -38,13 +38,13 @@ export function AutoImportBody() {
   return (
     <Stack gap="md">
       <Text size="sm">
-        Addons can't reach the internet, so Alt Army and Auctionator write what they see to files in your WoW folder.
+        Addons can't reach the internet, so Alt Army writes what it sees to a file in your WoW folder.
         Alt Army Sync is a small Windows app that waits by the clock and sends those files here whenever the game
         saves them: when you log out, switch characters or reload. Your characters, their professions and recipes, and
         your latest auction scan stay current without pasting a thing.
       </Text>
       <Text size="sm" c="dimmed">
-        It only reads AltArmy_TBC.lua and Auctionator.lua and never changes a game file. It signs in to your account
+        It only reads AltArmy_TBC.lua and never changes a game file. It signs in to your account
         once and keeps only a sign-in token on your computer, never your password; Sign out in its menu forgets it.
       </Text>
       <Stack gap="lg" component="ol" m={0} p={0} style={{ listStyle: 'none' }}>

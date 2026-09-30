@@ -6,8 +6,9 @@ database.
 
 - Items and recipes come from the client's DB2 tables (via [wago.tools](https://wago.tools/) CSV exports) into
   the database: Postgres on the site, a SQLite file in development.
-- Auction house prices come from players' Auctionator scans (uploaded on the site, or by the watcher or the
-  Alt Army Sync), per auction house, with history.
+- Auction house prices come from the full scans players take with the Alt Army addon (uploaded on the
+  site, or by the watcher or Alt Army Sync), per auction house, with history. A scan holds every
+  listing, so an item is priced from how many units are listed at each price.
 - The engine ranks recipes by profit: reagent cost (buy from a vendor or the AH, or craft an intermediate if cheaper) vs. the best of vendor sale, AH sale (minus the 5% cut) and expected disenchant value. Each craft is costed per character: a reagent is bought by the crafter, or crafted by whichever of your characters can make it and mailed over (30c postage per stack), whichever is cheapest. Disenchanting needs an enchanter among the selected characters; if the crafter doesn't enchant, the output is mailed to the highest-skilled enchanter.
 
 ## Setup
@@ -56,11 +57,11 @@ The database is `DATABASE_URL` (a SQLAlchemy URL such as `postgresql+psycopg://u
 `data/altarmy-profit.sqlite`; `--db <file>` picks another SQLite file. `serve` and the CLI jobs migrate it
 (Alembic); the site's instances never do, its deploy runs `migrate` once.
 
-Prices belong to an auction house: a realm and faction. They come from users' Auctionator uploads and,
-for Forever, from [AHledger](https://ahledger.com)'s crowdsourced scans (`altarmy-profit ahledger`, an hourly
-job; `AHLEDGER_API_KEY` optional). The most recently captured price per item wins, whatever its source;
-older prices stay as history (see Data notes). Forever's Auctionator names a realm without its faction, so
-a Forever scan counts for the faction of the uploader's characters on that realm (none or both: skipped).
+Prices belong to an auction house: a realm and faction. Forever's come from the Alt Army addon's own
+scans alone (the **Alt Army scan** button at the auction house, or `/altarmy scan`); each scan names the
+realm and faction it was taken on. TBC's come from users' Auctionator uploads. The newest scan of an
+auction house wins, whoever uploaded it; older prices stay as history (see Data notes). A realm nobody
+has scanned has no prices.
 
 **Profit per hour.** Every plan is also timed: casts (DB2 cast times), clicks at the auction house, vendors
 and mailbox, character switches, and running between them in a city (see Data notes). A session crafts a
@@ -125,9 +126,8 @@ blocks. Data comes in through uploads (below), game data through a daily job. `D
 account (the UI has no link to it for now). Requests are rate-limited per client IP and per user (429). The
 server needs `FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY` and `FIREBASE_AUTH_DOMAIN` (see `hosted.env`; staging's in `staging.env`).
 
-**Site admins** get an **Admin** link in the header: the scheduled jobs' runs (ingest, merge, prune,
-AHledger; late or failed ones flagged), every user's uploads, price snapshots per source and AHledger's
-markets. Admin is the Firebase custom claim `admin: true` on an email account, set from the command line
+**Site admins** get an **Admin** link in the header: the scheduled jobs' runs (ingest, merge, prune;
+late or failed ones flagged), every user's uploads and price snapshots per source. Admin is the Firebase custom claim `admin: true` on an email account, set from the command line
 with Firebase Auth admin rights (your own `gcloud auth application-default login` on the project):
 
 ```bash
@@ -142,14 +142,14 @@ The claim shows once the browser's sign-in token is refreshed: sign out and in (
   with `AAX1:`. Copy it (Ctrl+C) and
   paste it in **Paste from Alt Army**. That replaces your characters like the file does, with no logout or
   `/reload`. The string says which client made it, so a TBC export is refused.
-- **Upload** takes `AltArmy_TBC.lua` (replaces your characters) and `Auctionator.lua`
-  (adds a scan for every realm in it; everyone's scans fill the same auction houses, the newest price
-  wins). Use Auctionator's **account-wide** SavedVariables file, not the per-character one; WoW writes it
-  on logout or `/reload`. Files are parsed on the server, never stored, and limited to 32 MB; the page
-  lists your recent uploads, rejected ones included. A realm's scan whose prices mostly differ wildly from
-  its recent prices is not used (shown as **not used**), and makes the uploader's next scans face a
-  stricter check. **Coverage** lists every realm's last scan, stalest first, so you can see where a scan
-  helps most.
+- **Upload** takes `AltArmy_TBC.lua`: it replaces your characters and records the auction house scans
+  you took with Alt Army (the file keeps the last 3 per realm and faction; scans the site already has
+  are passed over). Everyone's scans fill the same auction houses, and the newest wins. WoW writes the
+  file on logout or `/reload`. Files are parsed on the server, never stored, and limited to 32 MB; the
+  page lists your recent uploads, rejected ones included. A scan whose prices mostly differ wildly from
+  the realm's recent prices is not used (shown as **not used**), and makes the uploader's next scans
+  face a stricter check. **Coverage** lists every realm's last scan, stalest first, so you can see where
+  a scan helps most. An `Auctionator.lua` is refused for Forever.
 - **The watcher** uploads the addon files whenever WoW rewrites them, signed in to your account with
   its email and password (`signin.py`: Firebase Auth's REST API, with the site's public config from
   `/api/config`). On the computer you play on, with this package installed:
@@ -245,8 +245,8 @@ The site runs on Google Cloud in `alt-army-prod` (us-central1). The config is in
 |-------|------|
 | Firebase Hosting | serves `frontend/dist`; `/api/**` rewrites to Cloud Run. Prod is the live site; staging is the `staging` preview channel (https://alt-army-prod--staging-hn1s06um.web.app, expires 30 days after its last deploy) |
 | Cloud Run services | `altarmy` (min 0, max 2) and `altarmy-staging` (max 1): the API, 1 vCPU, 1 GiB. Instances never migrate |
-| Cloud Run jobs | the same image running the CLI: `altarmy-migrate` (each deploy, before the service), `altarmy-ingest-tbc` / `-forever` (`ingest --only-if-new`), `altarmy-prune`, `altarmy-merge`, `altarmy-ahledger`. Staging has the same, prefixed `altarmy-staging-` |
-| Cloud Scheduler | ingest tbc 09:00 UTC, ingest forever 09:15, prune 10:00, ahledger hourly at :20, merge hourly at :30 (`deploy/setup.sh scheduler prod`); staging's the same 5 minutes later (`scheduler staging`); run as `altarmy-scheduler` |
+| Cloud Run jobs | the same image running the CLI: `altarmy-migrate` (each deploy, before the service), `altarmy-ingest-tbc` / `-forever` (`ingest --only-if-new`), `altarmy-prune`, `altarmy-merge`. Staging has the same, prefixed `altarmy-staging-` |
+| Cloud Scheduler | ingest tbc 09:00 UTC, ingest forever 09:15, prune 10:00, merge hourly at :30 (`deploy/setup.sh scheduler prod`); staging's the same 5 minutes later (`scheduler staging`); run as `altarmy-scheduler` |
 | Cloud SQL | `altarmy-pg`: Postgres 16, db-f1-micro, databases `altarmy` and `altarmy_staging` |
 | Secret Manager | `database-url`, `database-url-staging`: each database's `DATABASE_URL` (Cloud Run's Cloud SQL socket) |
 | Service accounts | `altarmy-run` (prod's service and jobs), `altarmy-staging-run` (staging's), `altarmy-scheduler`, `altarmy-deploy` (CI) |
@@ -287,19 +287,19 @@ command passes `--project alt-army-prod --billing-project alt-army-prod`, so gcl
 
 - the Firebase Auth emulator (`firebase.json`, project `demo-altarmy`, 127.0.0.1:9099; needs Java 11+), so
   sign-in and accounts (the site's, the watcher's and Alt Army Sync's) work offline and create no real users;
-- the Firestore emulator (127.0.0.1:8080), where the API and the CLI's `merge`/`ahledger` (with
+- the Firestore emulator (127.0.0.1:8080), where the API and the CLI's `merge` (with
   `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` and `FIREBASE_PROJECT_ID=demo-altarmy`) write price signals, so an
   open page refetches and says "Prices updated";
 - the API on :8600 (`altarmy-profit serve` via the venv, `scripts/dev-api.mjs`), on the SQLite file
-  `data/altarmy-profit.sqlite` (or `DATABASE_URL`), migrated on start; once it answers, the script fetches
-  AHledger's newest prices and merges them (`altarmy-profit ahledger`, then `merge`) in the background
-  (`npm run dev:api -- --no-prices` skips it; offline, it only reports the failure);
+  `data/altarmy-profit.sqlite` (or `DATABASE_URL`), migrated on start; once it answers, the script runs
+  the merge (`altarmy-profit merge`) in the background (`npm run dev:api -- --no-prices` skips it);
 - once both answer, Vite on http://localhost:5173, which it opens. Vite hot-reloads the React code and
   proxies `/api` to the API; press Ctrl+C and rerun for Python changes.
 
 A fresh database needs game data first: `altarmy-profit ingest` (and `altarmy-profit --game-version tbc
-ingest`); `serve` says so when it is missing. Prices come in as on the site: upload `Auctionator.lua` on the
-Upload page, or point the watcher or Alt Army Sync at `http://127.0.0.1:8600` with a key from Manage.
+ingest`); `serve` says so when it is missing. Prices come in as on the site: scan with Alt Army in game, then
+upload `AltArmy_TBC.lua` on the Upload page, or point the watcher or Alt Army Sync at
+`http://127.0.0.1:8600`.
 Uploads don't merge: run `altarmy-profit merge` for the 7-day medians. Emulator accounts are forgotten when it
 stops; to keep them, run `npx firebase emulators:start --only auth --project demo-altarmy --import
 .firebase/auth-emulator --export-on-exit` yourself (the folder must exist).
@@ -316,15 +316,24 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
   or `--build latest` for a newer one. The build actually loaded is stored in the `game_versions` table.
 - **Price history.** Every import is a snapshot (`price_snapshots`); it records observations only for
   items whose price or last-seen day moved (`price_observations`, pruned after 90 days) and updates
-  `price_current`, which the ranking reads. Auctionator's per-day high/low/available go to `price_daily`
-  (pooled across uploaders: lowest low, highest high), which is kept indefinitely (Auctionator itself
-  forgets old days).
-- **Buy and sell prices.** Reagents cost the current minimum buyout. A craft (and disenchant materials) sells for the lowest of the minimum buyout, the item's 7-day
-  median (the median of its daily medians over its latest 7 days with data in the last 30) and AHledger's
-  7- and 30-day medians. So a lone overpriced listing (a 2g bag listed at 2,700g) isn't taken for the
-  going rate. A sale resting on fewer than 5 listed units, or fewer than the plan sells, is flagged. The
-  merge (`altarmy-profit merge`, hourly on the site) fills our medians; prices set by hand are used as
-  they are.
+  `price_current`, which the ranking reads. Each scan's market price (TBC: Auctionator's per-day
+  high/low/available) goes to `price_daily` (pooled across uploaders: lowest low, highest high), which
+  is kept indefinitely.
+- **The order book.** An Alt Army scan reads every listing; per item the site keeps the units listed at
+  each price, cheapest first. What a plan pays for a reagent is a walk up that ladder for the quantity
+  it needs, so one cheap listing is one cheap unit. A plan needing more than is listed is flagged. An
+  item missing from the newest scan is not listed: it cannot be bought on the AH. A cheap listing
+  first seen in the newest scan, under half the item's usual price, is not counted on. Sellers are
+  never stored.
+- **Buy and sell prices.** Reagents are bought up the order book. A craft (and disenchant materials)
+  sells for the lower of the market price (the price 15% of the way into the listed units) and what the
+  item goes for: what it sold for over the last week, inferred from the units that left the cheap end
+  of the book between scans at most 30 minutes apart, else its 7-day median (the median of its daily
+  medians over its latest 7 days with data in the last 30). So a lone overpriced listing (a 2g bag
+  listed at 2,700g) isn't taken for the going rate. A sale that may take over 2 days at the rate the
+  item sold lately is flagged; where nothing is known of its sales, one resting on fewer than 5 listed
+  units, or fewer than the plan sells. The merge (`altarmy-profit merge`, hourly on the site) fills
+  the medians and sale figures; prices set by hand are used as they are.
 - **Disenchant results are not in DB2** (they are server-side loot tables). `data/<version>/disenchant.csv`
   (`item_class,quality,min_ilvl,max_ilvl,result_item_id,chance,min_count,max_count`) holds the rates.
   Forever's are Classic-era rates, derived from the brackets Auctionator uses for Classic clients, and
@@ -372,7 +381,8 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
 - `src/altarmy_profit/timing.py` – pure play-time model (action seconds, city maps, routes, per-hour
   rates); `cities.py` builds city presets from vmangos spawns (`scripts/build_cities.py`)
 - `src/altarmy_profit/prices.py` – the price store (auction houses, snapshots, current and daily prices,
-  screening uploads, coverage); `auctionator.py` parses Auctionator's SavedVariables;
+  screening uploads, coverage); `book.py` reads Alt Army's auction house scans and prices from their
+  ladders; `auctionator.py` parses Auctionator's SavedVariables (TBC);
   `merge.py` – daily medians and 7-day statistics
 - `src/altarmy_profit/altarmy.py` – characters and learned recipes from Alt Army's SavedVariables (`luasv.py` parses them)
 - `src/altarmy_profit/auth.py`, `users.py` – users and tiers (Firebase token verification), each user's

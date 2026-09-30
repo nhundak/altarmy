@@ -1,9 +1,10 @@
 // Start the Python API for `npm run dev` (`altarmy-profit serve` on :8600) using the project venv's interpreter
 // (Windows or POSIX layout). It signs users in against the Firebase Auth emulator and sends price signals to the
 // Firestore emulator (`npm run dev:auth`, project demo-altarmy), or with `--staging-auth` (npm run dev:staging-auth) against the staging project in staging.env. The
-// database is DATABASE_URL, else data/altarmy-profit.sqlite, migrated on start. Once the API answers, it fetches
-// AHledger's newest prices and merges them (`altarmy-profit ahledger`, then `merge`) in the background, unless
-// `--no-prices`; a failure (offline, say) is only reported.
+// database is DATABASE_URL, else data/altarmy-profit.sqlite, migrated on start. Once the API answers, it runs
+// the merge (`altarmy-profit merge`: the 7-day price statistics of the scans uploaded so far) in the
+// background, unless `--no-prices`; a failure is only reported. Prices themselves come from uploads: scan
+// with the Alt Army addon and upload AltArmy_TBC.lua.
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -91,16 +92,15 @@ async function apiReady() {
 }
 
 if (portTaken) {
-  console.log('dev-api: something already answers on :8600; fetching no AHledger prices')
+  console.log('dev-api: something already answers on :8600; not merging prices')
 } else if (fetchPrices && (await apiReady())) {
-  console.log('dev-api: fetching AHledger prices (--no-prices to skip)')
-  const ahledger = await cli('ahledger')
-  const merged = exited ? 1 : await cli('merge')
+  console.log('dev-api: merging price statistics (--no-prices to skip)')
+  const merged = await cli('merge')
   if (!exited) {
     console.log(
-      ahledger === 0 && merged === 0
-        ? 'dev-api: AHledger prices are up to date'
-        : 'dev-api: the AHledger price update failed (see above); the API keeps running',
+      merged === 0
+        ? 'dev-api: price statistics are up to date'
+        : 'dev-api: the merge failed (see above); the API keeps running',
     )
   }
 }

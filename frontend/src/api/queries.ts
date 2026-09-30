@@ -263,7 +263,6 @@ export function useUploads() {
 }
 
 export type UploadKind = 'altarmy' | 'auctionator'
-export type Faction = 'Horde' | 'Alliance'
 
 /** Import the Alt Army addon's export string (replaces your characters, like the file). */
 export function usePasteUpload() {
@@ -281,8 +280,7 @@ export function useUpload() {
   const invalidate = useInvalidateAll()
   const queryClient = useQueryClient()
   return useMutation({
-    // faction: admins only, the faction that scanned the realms the uploader has both factions on
-    mutationFn: ({ kind, file, faction }: { kind: UploadKind; file: File; faction?: Faction }) =>
+    mutationFn: ({ kind, file }: { kind: UploadKind; file: File }) =>
       call(
         client.POST('/api/uploads', {
           ...GV,
@@ -293,7 +291,6 @@ export function useUpload() {
             form.append('kind', body.kind)
             form.append('via', 'browser')
             if (body.modified_at != null) form.append('modified_at', String(body.modified_at))
-            if (faction) form.append('faction', faction)
             form.append('file', file, file.name)
             return form
           },

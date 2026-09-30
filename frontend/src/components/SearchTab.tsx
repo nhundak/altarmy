@@ -48,7 +48,7 @@ import {
   type Step,
 } from '../lib/setup'
 import { useStoredState } from '../lib/storage'
-import { PriceFreshness } from './PriceFreshness'
+import { HOW_TO_SCAN, PriceFreshness } from './PriceFreshness'
 import { PriceSignal } from './PriceSignal'
 import { ResultsTable } from './ResultsTable'
 import { Setup } from './Setup'
@@ -360,7 +360,7 @@ export function SearchTab() {
             <Stack gap="xs" style={{ flex: 1 }}>
               {realmSelect}
               {selection && lastScan !== undefined && (
-                <PriceFreshness lastScan={lastScan} ahledger={house?.sources.includes('ahledger')} />
+                <PriceFreshness lastScan={lastScan} />
               )}
             </Stack>
             {!browsing && (
@@ -471,8 +471,7 @@ export function SearchTab() {
           )}
           {status.data.prices === 0 && (
             <Alert color="yellow">
-              No prices yet for this realm. Scan the auction house with Auctionator, then upload Auctionator.lua on the
-              Upload page.
+              No prices yet for this realm. {HOW_TO_SCAN}
             </Alert>
           )}
           {selection &&

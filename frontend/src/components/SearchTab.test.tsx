@@ -32,7 +32,6 @@ const house = (realm: string, faction: string, prices = 10) => ({
   last_scan_items: prices,
   scans_7d: 1,
   uploaders_7d: 1,
-  sources: ['auctionator'],
 })
 
 function urls(fetch: ReturnType<typeof mockApi>, pathname: string) {
@@ -101,7 +100,7 @@ describe('SearchTab', () => {
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />, GUEST)
-    expect(await screen.findByText(/then upload Auctionator.lua on the Upload page/)).toBeInTheDocument()
+    expect(await screen.findByText(/No prices yet for this realm\. At the auction house, press Alt Army scan/)).toBeInTheDocument()
     expect(screen.queryByText(/guest/i)).not.toBeInTheDocument()
     expect(realm()).toHaveValue('')
     expect(screen.queryByRole('button', { name: 'Advanced Filters' })).not.toBeInTheDocument()
