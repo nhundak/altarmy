@@ -1145,6 +1145,24 @@ describe("DataStoreProfessions", function()
       assert.are.equal("Alchemy", char.Prof1)
     end)
 
+    it("keeps Comprehension, which no GetProfessions slot reports (WoW Forever)", function()
+      _G.AltArmyTBC_Data.Characters.TestRealm = {
+        TestPlayer = {
+          Prof1 = "Tailoring",
+          Professions = {
+            Tailoring = { rank = 112, maxRank = 150, Recipes = {} },
+            Comprehension = { rank = 24, maxRank = 100, Recipes = { [1302508] = { name = "Study" } } },
+          },
+        },
+      }
+      mockGetProfessions({ [1] = { name = "Tailoring", rank = 112, maxRank = 150 } })
+      DS:ScanProfessionLinks()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.is_not_nil(char.Professions.Comprehension)
+      assert.is_not_nil(char.Professions.Comprehension.Recipes[1302508])
+      assert.are.equal(24, char.Professions.Comprehension.rank)
+    end)
+
     it("schedules a guild-share broadcast when profession presence changes", function()
       mockGetProfessions({ [1] = { name = "Alchemy", rank = 1, maxRank = 75 } })
       DS:ScanProfessionLinks()

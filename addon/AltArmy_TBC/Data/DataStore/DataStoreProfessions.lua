@@ -654,6 +654,14 @@ function DS:ScanCooldownSpecializations(char)
     cs.moonclothTailor = knows(ids.moonclothTailor)
 end
 
+--- Lowercase names of professions the login scan can't see: WoW Forever's GetProfessions() only
+--- reports fixed slots (two primaries, fishing, cooking, first aid), and Comprehension (mage-only)
+--- isn't one. Only the recipe scan adds these, so pruning must leave them alone or their recipes
+--- (and the Research cooldown row) vanish at every login until the window is reopened.
+DS.PROFESSIONS_OUTSIDE_SKILL_SCAN = {
+    comprehension = true,
+}
+
 --- Remove stored professions absent from the live skill-line scan.
 --- Skips pruning until profession categories are present (skill data can load late at login).
 local function PruneDroppedProfessions(char, currentNames, skillLinesReady)
@@ -662,7 +670,9 @@ local function PruneDroppedProfessions(char, currentNames, skillLinesReady)
     end
     local removed = false
     for profName in pairs(char.Professions) do
-        if not currentNames[profName] then
+        if not currentNames[profName]
+            and not (type(profName) == "string" and DS.PROFESSIONS_OUTSIDE_SKILL_SCAN[profName:lower()])
+        then
             char.Professions[profName] = nil
             removed = true
         end
