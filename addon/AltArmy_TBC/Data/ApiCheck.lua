@@ -120,6 +120,28 @@ AC.MANIFEST = {
     { area = "Auctions", label = "GetBidInfo",
       candidates = { "GetAuctionItemInfo", "C_AuctionHouse.GetBidInfo" } },
 
+    -- Auction house listings (every listing at once: the full scan altarmy-profit's prices are to come
+    -- from). Existing says nothing about what they return: /altarmy debug ahprobe asks once
+    -- (AuctionProbe.lua). The browse and search entries are the fallback if the full scan is missing.
+    { area = "Auction Listings", label = "ReplicateItems", candidates = { "C_AuctionHouse.ReplicateItems" } },
+    { area = "Auction Listings", label = "GetNumReplicateItems",
+      candidates = { "C_AuctionHouse.GetNumReplicateItems" } },
+    { area = "Auction Listings", label = "GetReplicateItemInfo",
+      candidates = { "C_AuctionHouse.GetReplicateItemInfo" } },
+    { area = "Auction Listings", label = "GetReplicateItemLink",
+      candidates = { "C_AuctionHouse.GetReplicateItemLink" } },
+    { area = "Auction Listings", label = "GetReplicateItemTimeLeft",
+      candidates = { "C_AuctionHouse.GetReplicateItemTimeLeft" } },
+    { area = "Auction Listings", label = "SendBrowseQuery", candidates = { "C_AuctionHouse.SendBrowseQuery" } },
+    { area = "Auction Listings", label = "GetBrowseResults",
+      candidates = { "C_AuctionHouse.GetBrowseResults" } },
+    { area = "Auction Listings", label = "SendSearchQuery", candidates = { "C_AuctionHouse.SendSearchQuery" } },
+    { area = "Auction Listings", label = "GetCommoditySearchResultInfo",
+      candidates = { "C_AuctionHouse.GetCommoditySearchResultInfo" } },
+    { area = "Auction Listings", label = "GetItemSearchResultInfo",
+      candidates = { "C_AuctionHouse.GetItemSearchResultInfo" } },
+    { area = "Auction Listings", label = "GetServerTime", candidates = { "GetServerTime" } },
+
     -- Talents
     { area = "Talents", label = "GetNumTalentTabs", candidates = { "GetNumTalentTabs" } },
     { area = "Talents", label = "GetTalentTabInfo", candidates = { "GetTalentTabInfo" } },

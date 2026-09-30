@@ -6,13 +6,15 @@ Interface Options panel (AddOns → AltArmy) and user-facing slash commands.
 
 | Tab | Contents |
 |-----|----------|
-| **General** | Minimap show/hide; global realm filter (current / all realms) |
+| **General** | Collapsible sections, drawn like the Keybindings page's (all start open): **General** (minimap show/hide; global realm filter, current / all realms), **Guild** (guild data sharing: main, display name, data retention, chat; shown while guild sharing is available) and **Auction House** (scan automatically when the auction house opens; WoW Forever only). Scrolls when the open sections outgrow the panel |
 | **Characters** | Per-character bank-alt flags; delete character data (self-delete protected + confirmation) |
 | **Gear** | Gear upgrade notification toggles (current character / alts; loot, quest rewards, etc.) |
 | **Cooldowns** | Per-category UI visibility, alerts, reminder intervals; specialization-related options. On WoW Forever, shows a "work in progress" banner and only the Transmute category (the others are TBC-specific crafts) |
 | **Debug** | Hidden until `/altarmy debug on`; search timing, cooldown scan logging, item stats, guild share verbose, etc. |
 
 Shared theme with the main UI ([UI_DESIGN.md](../UI_DESIGN.md)).
+
+Options opened on a particular control (for example from the Alt Army scan button's settings icon, or from the guild-sharing prompts) switch to its tab, open only the section it is in (the others close), scroll it into view and flash it.
 
 ## Minimap
 
@@ -28,6 +30,7 @@ Shared theme with the main UI ([UI_DESIGN.md](../UI_DESIGN.md)).
 | `/altarmy` / `/alta` | Open main UI |
 | `/altarmy networth [all] [scale]` | Net worth (vendor + Auctionator); `all` = all realms; scale 0–1 (default 0.9) |
 | `/altarmy export` | Export for altarmy-profit (see below; there is no button for it) |
+| `/altarmy scan` | Scan the open auction house for altarmy-profit (same as the **Alt Army scan** button) |
 | `/altarmy debug on` / `off` | Show/hide Debug options tab and enable/suppress debug logging |
 
 Additional `debug …` subcommands exist for developers (mail alerts, compare dump, guild share inject, etc.); they are not part of the product feature surface.

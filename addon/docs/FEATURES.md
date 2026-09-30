@@ -87,9 +87,32 @@ professions and learned recipes as one copyable string for the altarmy-profit si
 crafts for them. See [tabs/options.md](tabs/options.md#export-for-altarmy-profit). Bundles LibDeflate
 (zlib license) for the compression.
 
+### Auction house scan for altarmy-profit
+
+On WoW Forever only, an **Alt Army scan** button sits above the auction house window; `/altarmy scan` does
+the same. Elsewhere (TBC Anniversary) the button, the Auction House options section, the automatic scan and
+the reading of other addons' full scans are all off, whatever the client's API offers
+(`AuctionScan.HasApi` checks `DataStore.IsWowForever` first).
+
+- It reads every listing and saves, per item, how many units are listed at each price. altarmy-profit prices
+  crafts from that, so one odd listing no longer decides what an item costs.
+- The game allows one full scan every 15 minutes per account. The button counts the wait down.
+- **Scan automatically:** Options → General → **Auction House** can start the scan by itself a second after
+  the auction house opens (off by default). The settings icon right of the button opens that option. A visit
+  within the 15-minute cooldown, or one where another addon already started a full scan, is skipped.
+- A full scan started by another addon (Auctionator's full scan option) is saved too, and spends the same
+  cooldown.
+- Keep the auction house open until the button stops showing progress: a scan that was cut short is dropped.
+- A scan Alt Army starts (the button, `/altarmy scan` or the automatic scan) says in chat when it starts and
+  when it ends: how many listings were saved, or that it was cut short and nothing was saved. Another addon's
+  scan is saved quietly.
+- The last 3 scans per realm and faction are kept, for 7 days. Seller names are never saved.
+- The scan is uploaded with the rest of Alt Army's data (Alt Army Sync, or the site's Upload page after a
+  `/reload` or logout).
+
 ### Data collection and persistence
 
-Stored under `AltArmyTBC_Data`, `AltArmyTBC_Options`, tab settings tables, `AltArmyTBC_GuildData`, and `AltArmyTBC_SharingSettings` (see [ARCHITECTURE.md](ARCHITECTURE.md)).
+Stored under `AltArmyTBC_Data`, `AltArmyTBC_Options`, tab settings tables, `AltArmyTBC_GuildData`, `AltArmyTBC_SharingSettings`, and `AltArmyTBC_AuctionBook` (see [ARCHITECTURE.md](ARCHITECTURE.md)).
 
 Core domains include: character basics, containers/bank, equipment, currencies, professions/recipes, cooldowns/specialization, lockouts, reputations, mail, auctions/bids, talents, level history.
 

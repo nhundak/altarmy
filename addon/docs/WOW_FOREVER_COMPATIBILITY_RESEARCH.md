@@ -676,6 +676,31 @@ AltArmy had kept only the first return. Older saved entries have full names beca
 
 Guild sharing followed (2026-09-28): characters and senders are identified by GUID when the other side runs a version that shares IDs (see `docs/tabs/guild.md`). Still not checked on a live client: what name format Forever uses for addon-message senders and guild-roster names ("First", "First Surname", or "First-Realm"). Whisper targets, online checks and messages from older versions still rely on the part before the first `-`.
 
+## Auction house: the full scan works, and what it returns (2026-09-29)
+
+altarmy-profit is to price crafts from Alt Army's own scans, which needs every listing, not one price per item.
+Checked on a live client (interface 16001, Classic Beta PvE, Horde) with `/altarmy debug apicheck` and
+`/altarmy debug ahprobe` (`Data/Auctions/AuctionProbe.lua`).
+
+| Check | Result |
+|---|---|
+| `C_AuctionHouse.ReplicateItems`, `GetNumReplicateItems`, `GetReplicateItemInfo`, `GetReplicateItemLink`, `GetReplicateItemTimeLeft` | All present |
+| `SendBrowseQuery`, `GetBrowseResults`, `SendSearchQuery`, `GetCommoditySearchResultInfo`, `GetItemSearchResultInfo`, `GetServerTime` | All present |
+| Listings one scan returned | 68,246 |
+| Of 5,000 rows read: count, buyout, minimum bid, item id, time left | 5,000 each |
+| Name, link, `hasAllInfo` | 4,901: item data not loaded yet for the rest |
+| Owner | 0: sellers are never returned |
+
+- `buyout` is for the whole stack (Rage Potion: 39 units, 10,686 copper), so a unit price is buyout over count.
+- `GetReplicateItemInfo` takes a 0-based index, and item id is its 17th return.
+- Item id, count and buyout are there even when the item's data is not loaded, so a scan need not wait for
+  names or links.
+
+Auctionator's default scan on this client is its "summary" scan, a different API: a blank `SendBrowseQuery`
+whose results carry one row per item with `minPrice` and `totalQuantity` only. It has no 15-minute limit and
+handles far fewer rows (about 2,800 items), but it cannot show how many units sit at each price. Its full
+scan (`ReplicateItems`) is an option that is off by default; this account's Auctionator had never run one.
+
 ## Sources
 
 - [Multi-TOC for World of Warcraft Addons — CurseForge support](https://support.curseforge.com/support/solutions/articles/9000209856-multi-toc-for-world-of-warcraft-addons)

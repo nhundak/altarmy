@@ -330,4 +330,14 @@ function D.SaveApiCheckSnapshot(snapshot)
     AltArmyTBC_Options.debug.apiCheckSnapshot = snapshot
 end
 
+--- Overwrites the auction house listings probe's result from AuctionProbe.lua's
+--- /altarmy debug ahprobe.
+function D.SaveAuctionProbe(result)
+    if type(result) ~= "table" then
+        return
+    end
+    D.Ensure()
+    AltArmyTBC_Options.debug.auctionProbe = result
+end
+
 D.Ensure()

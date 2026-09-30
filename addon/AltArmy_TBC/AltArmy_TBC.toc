@@ -4,7 +4,7 @@
 ## Version: 2.1.5
 ## Author: Nick Tower
 ## X-Wago-ID: aNDMjY6o
-## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings, AltArmyTBC_GraphSettings, AltArmyTBC_GuildData, AltArmyTBC_SharingSettings, AltArmyTBC_AuctionScans
+## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings, AltArmyTBC_GraphSettings, AltArmyTBC_GuildData, AltArmyTBC_SharingSettings, AltArmyTBC_AuctionScans, AltArmyTBC_AuctionBook
 ## OptionalDeps: Auctionator, CraftLib, TacoTip, GearScoreTBCClassic, RXPGuides, RXPGuides_TBC, NovaInstanceTracker, Questie, ZygorGuidesViewerClassicTBCAnniv
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
@@ -23,6 +23,9 @@ Data\Characters\BankAlt.lua
 Data\Characters\BankAltDetect.lua
 Data\Debug.lua
 Data\ApiCheck.lua
+Data\Auctions\AuctionProbe.lua
+Data\Auctions\AuctionBook.lua
+Data\Auctions\AuctionScan.lua
 Data\DataStore\DataStore.lua
 Data\DataStore\DataStoreItemSpellCompat.lua
 Data\ClassColor.lua
@@ -122,3 +125,4 @@ UI\CooldownOptions.lua
 UI\QuestRewardIndicators.lua
 UI\GearUpgradeOptions.lua
 UI\ProfitExportDialog.lua
+UI\AuctionScanButton.lua

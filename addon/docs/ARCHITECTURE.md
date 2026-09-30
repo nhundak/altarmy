@@ -67,7 +67,7 @@ Declared in `AltArmy_TBC.toc`:
 | Variable | Role |
 |----------|------|
 | `AltArmyTBC_Data` | Account-wide character / domain data |
-| `AltArmyTBC_Options` | Global options (realm filter, bank alts, cooldowns, debug, etc.) |
+| `AltArmyTBC_Options` | Global options (realm filter, bank alts, cooldowns, automatic auction house scan, debug, etc.) |
 | `AltArmyTBC_GearSettings` | Gear tab settings |
 | `AltArmyTBC_ReputationSettings` | Reputation tab settings |
 | `AltArmyTBC_SummarySettings` | Summary tab settings |
@@ -75,6 +75,8 @@ Declared in `AltArmy_TBC.toc`:
 | `AltArmyTBC_GraphSettings` | Graphs tab settings |
 | `AltArmyTBC_GuildData` | Received guild-share payloads |
 | `AltArmyTBC_SharingSettings` | Own guild-share preferences (opt-in) |
+| `AltArmyTBC_AuctionScans` | Log of Auctionator's price updates and their faction, for altarmy-profit |
+| `AltArmyTBC_AuctionBook` | The auction house's order book from full scans, for altarmy-profit |
 
 ## Document map
 

@@ -12,6 +12,7 @@ describe("AltArmy.Theme", function()
         function t:SetColorTexture(r, g, b, a) self._color = { r, g, b, a } end
         function t:SetAtlas(a) self._atlas = a end
         function t:SetBlendMode(m) self._blendMode = m end
+        function t:SetAlpha(a) self._alpha = a end
         function t:SetTexture(tex) self._texture = tex end
         function t:SetTexCoord(a, b, c, d, e, f, g, h)
             self._texCoord = { a, b, c, d, e, f, g, h }
@@ -2014,6 +2015,159 @@ describe("AltArmy.Theme", function()
             end
             assert.is_true(hasLeftOnLabel)
             assert.is_true(hasRightOnBtn)
+        end)
+    end)
+
+    describe("CreateCollapsibleSection", function()
+        local savedNativeUI
+
+        --- The frame's newest TOPLEFT anchor (the stub's ClearAllPoints keeps old ones).
+        local function lastPoint(frame)
+            for i = #(frame._points or {}), 1, -1 do
+                if frame._points[i][1] == "TOPLEFT" then
+                    return frame._points[i]
+                end
+            end
+        end
+
+        local function withAtlases(on)
+            AltArmy.NativeUI = { HasAtlas = function() return on end }
+        end
+
+        before_each(function()
+            savedNativeUI = AltArmy.NativeUI
+        end)
+
+        after_each(function()
+            AltArmy.NativeUI = savedNativeUI
+        end)
+
+        describe("with the Settings panel's expandable-section art", function()
+            before_each(function() withAtlases(true) end)
+
+            it("draws the Options_ListExpand bar, collapsed by default", function()
+                local section = Theme.CreateCollapsibleSection(makeStubFrame(), { text = "Guild" })
+                assert.is_true(section.native)
+                assert.are.equal("Options_ListExpand_Left", section.header.Left._atlas)
+                assert.are.equal("_Options_ListExpand_Middle", section.header.Middle._atlas)
+                assert.are.equal("Options_ListExpand_Right", section.header.Right._atlas)
+                assert.are.equal("Guild", section.label._text)
+                assert.is_false(section.content:IsShown())
+                assert.are.equal(Theme.COLLAPSIBLE_HEADER_HEIGHT, section.frame:GetHeight())
+            end)
+
+            it("opens and closes from its header, taking its content's height", function()
+                local toggled = {}
+                local section = Theme.CreateCollapsibleSection(makeStubFrame(), {
+                    text = "General",
+                    contentHeight = 58,
+                    defaultExpanded = true,
+                    onToggle = function(on) toggled[#toggled + 1] = on end,
+                })
+                local open = Theme.COLLAPSIBLE_HEADER_HEIGHT + Theme.COLLAPSIBLE_CONTENT_GAP + 58
+                    + Theme.COLLAPSIBLE_BOTTOM_PAD
+                assert.are.equal(open, section.frame:GetHeight())
+                assert.are.equal("Options_ListExpand_Right_Expanded", section.header.Right._atlas)
+                assert.is_true(section.content:IsShown())
+                section.header:Click()
+                assert.is_false(section.IsExpanded())
+                assert.are.equal(Theme.COLLAPSIBLE_HEADER_HEIGHT, section.frame:GetHeight())
+                assert.are.equal("Options_ListExpand_Right", section.header.Right._atlas)
+                assert.is_false(section.content:IsShown())
+                section.SetExpanded(true, true)
+                assert.are.equal(open, section.GetHeight())
+                assert.same({ false }, toggled) -- a silent change calls nobody
+            end)
+
+            it("lights up its bar and brightens its label under the mouse", function()
+                local section = Theme.CreateCollapsibleSection(makeStubFrame(), { text = "Guild" })
+                local header = section.header
+                for _, key in ipairs({ "Left", "Middle", "Right" }) do
+                    local glow = header.Highlight[key]
+                    assert.are.equal("HIGHLIGHT", glow._layer)
+                    assert.are.equal("ADD", glow._blendMode)
+                    assert.are.equal(header[key]._atlas, glow._atlas)
+                end
+                header:GetScript("OnEnter")(header)
+                assert.same({ 1, 1, 1, nil }, section.label._textColor)
+                header:GetScript("OnLeave")(header)
+                assert.same({ 1, 0.82, 0, nil }, section.label._textColor)
+                section.SetExpanded(true)
+                assert.are.equal("Options_ListExpand_Right_Expanded", header.Highlight.Right._atlas)
+            end)
+
+            it("keeps its content inside its own frame, below the header", function()
+                local section = Theme.CreateCollapsibleSection(makeStubFrame(), { text = "Guild" })
+                assert.same({ "TOPLEFT", section.header, "BOTTOMLEFT", 0, -Theme.COLLAPSIBLE_CONTENT_GAP },
+                    lastPoint(section.content))
+                assert.same({ "TOPLEFT", section.frame, "TOPLEFT", 0, 0 }, lastPoint(section.header))
+            end)
+        end)
+
+        describe("without it", function()
+            before_each(function() withAtlases(false) end)
+
+            it("draws the trade skill window's plus and minus buttons", function()
+                local section = Theme.CreateCollapsibleSection(makeStubFrame(), { text = "Guild" })
+                assert.is_false(section.native)
+                local icon = section.header.collapseIcon
+                assert.are.equal("Interface\\Buttons\\UI-PlusButton-UP", icon._texture)
+                section.header:Click()
+                assert.are.equal("Interface\\Buttons\\UI-MinusButton-UP", icon._texture)
+                assert.is_true(section.content:IsShown())
+            end)
+        end)
+
+        describe("StackCollapsibleSections", function()
+            before_each(function() withAtlases(true) end)
+
+            local function closed()
+                return Theme.COLLAPSIBLE_HEADER_HEIGHT
+            end
+
+            local function open(h)
+                return Theme.COLLAPSIBLE_HEADER_HEIGHT + Theme.COLLAPSIBLE_CONTENT_GAP + h
+                    + Theme.COLLAPSIBLE_BOTTOM_PAD
+            end
+
+            local function sections(parent)
+                local a = Theme.CreateCollapsibleSection(parent,
+                    { text = "General", contentHeight = 60, defaultExpanded = true })
+                local b = Theme.CreateCollapsibleSection(parent, { text = "Guild", contentHeight = 200 })
+                local c = Theme.CreateCollapsibleSection(parent, { text = "Auction House", contentHeight = 30 })
+                return a, b, c
+            end
+
+            it("puts each section under the one before, whatever it holds", function()
+                local parent = makeStubFrame()
+                local a, b, c = sections(parent)
+                local layout = Theme.StackCollapsibleSections({ a, b, c }, { parent = parent, gap = 6 })
+                assert.are.equal(open(60) + closed() * 2 + 6 * 2, layout())
+                assert.same({ "TOPLEFT", parent, "TOPLEFT", 0, 0 }, lastPoint(a.frame))
+                assert.same({ "TOPLEFT", a.frame, "BOTTOMLEFT", 0, -6 }, lastPoint(b.frame))
+                assert.same({ "TOPLEFT", b.frame, "BOTTOMLEFT", 0, -6 }, lastPoint(c.frame))
+                b.SetExpanded(true)
+                assert.are.equal(open(60) + open(200) + closed() + 6 * 2, layout())
+                assert.same({ "TOPLEFT", b.frame, "BOTTOMLEFT", 0, -6 }, lastPoint(c.frame))
+            end)
+
+            it("skips a hidden section", function()
+                local parent = makeStubFrame()
+                local a, b, c = sections(parent)
+                b.SetShown(false)
+                assert.is_false(b.frame:IsShown())
+                local layout = Theme.StackCollapsibleSections({ a, b, c }, { parent = parent, gap = 6 })
+                assert.are.equal(open(60) + closed() + 6, layout())
+                assert.same({ "TOPLEFT", a.frame, "BOTTOMLEFT", 0, -6 }, lastPoint(c.frame))
+            end)
+
+            it("follows a section whose content changes height", function()
+                local parent = makeStubFrame()
+                local a, b, c = sections(parent)
+                local layout = Theme.StackCollapsibleSections({ a, b, c }, { parent = parent, gap = 6 })
+                a.SetContentHeight(100)
+                assert.are.equal(open(100) + closed() * 2 + 6 * 2, layout())
+            end)
         end)
     end)
 end)

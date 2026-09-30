@@ -110,6 +110,7 @@ The rework goes **fully native**: the dark/bronze theme is removed, with no togg
   - text inputs: `InputBoxTemplate` / `SearchBoxTemplate`
   - buttons: `UIPanelButtonTemplate`
   - panels: `InsetFrameTemplate`
+  - collapsible sections (Options → General, `Theme.CreateCollapsibleSection`): modelled on the Settings panel's own expandable section, `SettingsExpandableSectionTemplate` (Blizzard_Settings_Shared, used by the Keybindings page; present on Forever and TBC Anniversary). We draw its art, the `Options_ListExpand_Left` / `_Options_ListExpand_Middle` / `Options_ListExpand_Right` (`_Right_Expanded` when open) atlases, and follow its structure: one frame holding the header and its controls, its height worked out from the controls' fixed heights (as `GetExtent` does) rather than measured. Under the mouse the bar's atlases are drawn again in the HIGHLIGHT layer (ADD blend, 35% alpha) and the label turns from gold to white. The template itself can't be used on a canvas page: it is abstract (`OnExpandedChanged`, `GetExtent` must be implemented) and reads its state from the Settings list's ScrollBox through `GetElementData`, so it only works inside a vertical-layout category. The profession list's `ListHeaderVisualTemplate` is a different, list-row style and is missing on TBC Anniversary
 - **Fonts:** a role → Blizzard font object map, taken from Forever's CharacterFrame / ReputationFrame usage.
 - **Capability layer:** `AltArmy_TBC/UI/NativeUI.lua` (`HasTemplate`, `HasAtlas`, `GetCaps`) chooses between a template and its fallback.
 

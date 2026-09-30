@@ -174,6 +174,12 @@ panel.default = function()
     if panel.RefreshGearUpgradeOptionsFromVars then
         panel.RefreshGearUpgradeOptionsFromVars()
     end
+    if AltArmy.AuctionScan and AltArmy.AuctionScan.SetAutoScanEnabled then
+        AltArmy.AuctionScan.SetAutoScanEnabled(false)
+    end
+    if panel.RefreshAuctionOptions then
+        panel.RefreshAuctionOptions()
+    end
 end
 panel.refresh = function()
     ensureDefaults()
@@ -188,6 +194,9 @@ panel.refresh = function()
     end
     if panel.RefreshGearUpgradeOptionsFromVars then
         panel.RefreshGearUpgradeOptionsFromVars()
+    end
+    if panel.RefreshAuctionOptions then
+        panel.RefreshAuctionOptions()
     end
 end
 
@@ -656,21 +665,55 @@ panel.RefreshDebugTabVisibility = RefreshDebugTabVisibility
 RefreshDebugTabVisibility()
 
 -- ---------------------------------------------------------------------------
--- General tab
+-- General tab: collapsible sections (General, Guild, Auction House) in a scroll area, since Guild and
+-- Auction House open together can outgrow the Interface Options canvas.
 -- ---------------------------------------------------------------------------
 
-local generalSectionHeader = Theme.CreateOptionsSectionLabel(tabGeneral, {
+local GENERAL_SCROLL_GUTTER = Theme.VerticalScrollBarGutter()
+local generalViewport = Theme.CreateVerticalScrollViewport({
+    name = "AltArmyTBC_GeneralOptionsScroll",
+    parent = tabGeneral,
+    gutterEdge = panel,
+    anchorTop = { "TOPLEFT", tabGeneral, "TOPLEFT", 0, 0 },
+    anchorBottom = { "BOTTOMRIGHT", panel, "BOTTOMRIGHT", -GENERAL_SCROLL_GUTTER, 4 },
+    wheelStep = 40,
+    valueStep = 20,
+    enableMouseWheel = true,
+    wheelOnChild = false,
+    wheelSource = "slider",
+    minScrollToShow = 1,
+})
+local generalScrollChild = generalViewport.child
+
+local LayoutGeneralSections -- defined once every section is built
+local function onSectionToggled()
+    if LayoutGeneralSections then
+        LayoutGeneralSections()
+    end
+end
+
+local generalSection = Theme.CreateCollapsibleSection(generalScrollChild, {
     text = "General",
-    justifyH = "LEFT",
-    y = 0,
+    defaultExpanded = true,
+    onToggle = onSectionToggled,
+})
+local guildSection = Theme.CreateCollapsibleSection(generalScrollChild, {
+    text = "Guild",
+    defaultExpanded = true,
+    onToggle = onSectionToggled,
+})
+local auctionSection = Theme.CreateCollapsibleSection(generalScrollChild, {
+    text = "Auction House",
+    defaultExpanded = true,
+    onToggle = onSectionToggled,
 })
 
-local minimapRow = Theme.CreateLabeledCheckbox(tabGeneral, {
+local minimapRow = Theme.CreateLabeledCheckbox(generalSection.content, {
     point = "TOPLEFT",
-    relativeTo = generalSectionHeader,
-    relativePoint = "BOTTOMLEFT",
+    relativeTo = generalSection.content,
+    relativePoint = "TOPLEFT",
     x = 0,
-    y = -8,
+    y = 0,
     text = "Show Minimap Button",
     fullWidthHover = true,
     onClick = function(checked)
@@ -698,9 +741,9 @@ local function realmFilterEntries()
 end
 
 local REALM_FILTER_ROW_HEIGHT = Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or 24
-local realmFilterRow = CreateFrame("Frame", nil, tabGeneral)
+local realmFilterRow = CreateFrame("Frame", nil, generalSection.content)
 realmFilterRow:SetPoint("TOPLEFT", minimapRow, "BOTTOMLEFT", 0, -14)
-realmFilterRow:SetPoint("RIGHT", tabGeneral, "RIGHT", 0, 0)
+realmFilterRow:SetPoint("RIGHT", generalSection.content, "RIGHT", 0, 0)
 realmFilterRow:SetHeight(REALM_FILTER_ROW_HEIGHT)
 
 local realmFilterColumn = CreateFrame("Frame", nil, realmFilterRow)
@@ -753,6 +796,7 @@ panel.RefreshRealmFilterDropdown = RefreshRealmFilterDropdown
 
 -- Guild sharing settings (only shown when the guildShare feature flag is on).
 local GUILD_SHARING_ROW_GAP = 16
+local GUILD_TOP_ROW_HEIGHT = 22 -- the share checkbox and Manage exceptions
 
 local function setGuildSharingCheckboxCaptionMuted(fontString, muted)
     if not fontString then return end
@@ -838,15 +882,10 @@ end
 
 local refreshGuildSharingDependentControls
 
-local guildSharingBlock = CreateFrame("Frame", nil, tabGeneral)
-guildSharingBlock:SetPoint("TOPLEFT", realmFilterRow, "BOTTOMLEFT", 0, -20)
-guildSharingBlock:SetPoint("RIGHT", tabGeneral, "RIGHT", 0, 0)
-
-local guildSharingHeader = Theme.CreateOptionsSectionLabel(guildSharingBlock, {
-    text = "Guild",
-    layer = "ARTWORK",
-    y = 0,
-})
+local guildSharingBlock = CreateFrame("Frame", nil, guildSection.content)
+guildSharingBlock:SetPoint("TOPLEFT", guildSection.content, "TOPLEFT", 0, 0)
+guildSharingBlock:SetPoint("RIGHT", guildSection.content, "RIGHT", 0, 0)
+guildSharingBlock:SetHeight(1)
 
 local GUILD_SHARING_HALF_GAP = 8
 
@@ -887,9 +926,9 @@ local function anchorGuildSharingRightCaption(fontString, parent, gap)
 end
 
 local guildShareTopRow = CreateFrame("Frame", nil, guildSharingBlock)
-guildShareTopRow:SetPoint("TOPLEFT", guildSharingHeader, "BOTTOMLEFT", 0, -8)
+guildShareTopRow:SetPoint("TOPLEFT", guildSharingBlock, "TOPLEFT", 0, 0)
 guildShareTopRow:SetPoint("RIGHT", guildSharingBlock, "RIGHT", 0, 0)
-guildShareTopRow:SetHeight(22)
+guildShareTopRow:SetHeight(GUILD_TOP_ROW_HEIGHT)
 
 local guildShareEnableColumn = CreateFrame("Frame", nil, guildShareTopRow)
 anchorGuildSharingLeftHalf(guildShareEnableColumn, guildShareTopRow)
@@ -958,6 +997,19 @@ local GUILD_CHAT_CHANNELS_LABEL_HEIGHT = GUILD_IDENTITY_LABEL_HEIGHT
 local GUILD_CHAT_CHANNELS_CONTROL_HEIGHT = Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or 24
 local GUILD_CHAT_CHANNELS_ROW_HEIGHT = GUILD_CHAT_CHANNELS_LABEL_HEIGHT
     + GUILD_IDENTITY_CONTROL_GAP + GUILD_CHAT_CHANNELS_CONTROL_HEIGHT
+local GUILD_SUBHEADING_HEIGHT = 16 -- "Data retention", "Chat"
+local GUILD_TWO_CHECK_ROW_HEIGHT = GUILD_CHAT_CHECK_ROW_HEIGHT + 4
+--- The Guild section's content, top to bottom: the share row, the identity row, Data retention, Chat
+--- and its channels (each row's height and the gaps between them, as laid out below).
+local GUILD_CONTENT_HEIGHT = GUILD_TOP_ROW_HEIGHT
+    + GUILD_SHARING_ROW_GAP + GUILD_IDENTITY_ROW_HEIGHT
+    + GUILD_SHARING_ROW_GAP + GUILD_SUBHEADING_HEIGHT + 8 + GUILD_TWO_CHECK_ROW_HEIGHT
+    + GUILD_SHARING_ROW_GAP + GUILD_SUBHEADING_HEIGHT + 8 + GUILD_TWO_CHECK_ROW_HEIGHT
+    + GUILD_SHARING_ROW_GAP + GUILD_CHAT_CHANNELS_ROW_HEIGHT
+-- Real heights: WoW doesn't re-resolve a frame without one when what it hangs from moves, so rows
+-- anchored to a zero-height tail kept a stale position and overlapped the section header.
+guildSharingBlock:SetHeight(GUILD_CONTENT_HEIGHT)
+guildSharingTail:SetHeight(GUILD_CONTENT_HEIGHT - GUILD_TOP_ROW_HEIGHT - GUILD_SHARING_ROW_GAP)
 
 local guildIdentityRow = CreateFrame("Frame", nil, guildSharingTail)
 guildIdentityRow:SetPoint("TOPLEFT", guildSharingTail, "TOPLEFT", 0, 0)
@@ -1102,10 +1154,12 @@ local guildDataRetentionHeader = Theme.CreateOptionsSectionLabel(guildSharingTai
     justifyH = "LEFT",
 })
 
+guildDataRetentionHeader:SetHeight(GUILD_SUBHEADING_HEIGHT)
+
 local guildDataRetentionRow = CreateFrame("Frame", nil, guildSharingTail)
 guildDataRetentionRow:SetPoint("TOPLEFT", guildDataRetentionHeader, "BOTTOMLEFT", 0, -8)
 guildDataRetentionRow:SetPoint("RIGHT", guildSharingTail, "RIGHT", 0, 0)
-guildDataRetentionRow:SetHeight(GUILD_CHAT_CHECK_ROW_HEIGHT + 4)
+guildDataRetentionRow:SetHeight(GUILD_TWO_CHECK_ROW_HEIGHT)
 
 local guildDataRetentionLeft = CreateFrame("Frame", nil, guildDataRetentionRow)
 anchorGuildSharingLeftHalf(guildDataRetentionLeft, guildDataRetentionRow)
@@ -1161,10 +1215,12 @@ local guildChatHeader = Theme.CreateOptionsSectionLabel(guildSharingTail, {
     justifyH = "LEFT",
 })
 
+guildChatHeader:SetHeight(GUILD_SUBHEADING_HEIGHT)
+
 local guildChatChecksRow = CreateFrame("Frame", nil, guildSharingTail)
 guildChatChecksRow:SetPoint("TOPLEFT", guildChatHeader, "BOTTOMLEFT", 0, -8)
 guildChatChecksRow:SetPoint("RIGHT", guildSharingTail, "RIGHT", 0, 0)
-guildChatChecksRow:SetHeight(GUILD_CHAT_CHECK_ROW_HEIGHT + 4)
+guildChatChecksRow:SetHeight(GUILD_TWO_CHECK_ROW_HEIGHT)
 
 local guildChatLeftColumn = CreateFrame("Frame", nil, guildChatChecksRow)
 anchorGuildSharingLeftHalf(guildChatLeftColumn, guildChatChecksRow)
@@ -1345,10 +1401,11 @@ local function RefreshGuildSharingControls()
     local D = AltArmy.Debug
     local flagOn = D and D.IsGuildShareEnabled and D.IsGuildShareEnabled()
     local shown = flagOn and true or false
-    if shown then
-        guildSharingBlock:Show()
-    else
-        guildSharingBlock:Hide()
+    if shown ~= guildSection.IsShown() then
+        guildSection.SetShown(shown)
+        if LayoutGeneralSections then
+            LayoutGeneralSections()
+        end
     end
     if shown then
         local GSS = AltArmy.GuildShareSettings
@@ -1388,6 +1445,138 @@ local function RefreshGuildSharingControls()
 end
 panel.RefreshGuildSharingControls = RefreshGuildSharingControls
 layoutGuildSharingTail()
+
+-- Auction House section: the Alt Army scan (Data/Auctions/AuctionScan.lua). Only on clients with the full
+-- scan (WoW Forever); TBC Anniversary's auction house has none.
+local autoScanRow = Theme.CreateLabeledCheckbox(auctionSection.content, {
+    point = "TOPLEFT",
+    relativeTo = auctionSection.content,
+    relativePoint = "TOPLEFT",
+    x = 0,
+    y = 0,
+    text = "Scan the auction house automatically when it opens",
+    fullWidthHover = true,
+    onClick = function(checked)
+        local S = AltArmy.AuctionScan
+        if S and S.SetAutoScanEnabled then
+            S.SetAutoScanEnabled(checked)
+        end
+    end,
+})
+panel.auctionAutoScanCheckbox = autoScanRow.check
+
+local function RefreshAuctionOptions()
+    local S = AltArmy.AuctionScan
+    panel.auctionAutoScanCheckbox:SetChecked(S and S.IsAutoScanEnabled and S.IsAutoScanEnabled() or false)
+end
+panel.RefreshAuctionOptions = RefreshAuctionOptions
+do
+    local S = AltArmy.AuctionScan
+    auctionSection.SetShown(S and S.HasApi and S.HasApi() or false)
+end
+
+-- Each section's content height, from its rows (as Blizzard's Settings sections compute theirs).
+generalSection.SetContentHeight(Theme.CHAR_LIST_ROW_HEIGHT + 14 + REALM_FILTER_ROW_HEIGHT)
+guildSection.SetContentHeight(GUILD_CONTENT_HEIGHT)
+auctionSection.SetContentHeight(Theme.CHAR_LIST_ROW_HEIGHT)
+
+--- Where the General tab's section frames and the Guild rows actually are, for `/altarmy debug layout`
+--- (a dev dump: see docs/DEV_DUMPS.md).
+local function regionReport(region)
+    if not region then return "missing" end
+    local out = {
+        top = region.GetTop and region:GetTop(),
+        bottom = region.GetBottom and region:GetBottom(),
+        left = region.GetLeft and region:GetLeft(),
+        height = region.GetHeight and region:GetHeight(),
+        shown = region.IsShown and region:IsShown(),
+        points = {},
+    }
+    for i = 1, (region.GetNumPoints and region:GetNumPoints() or 0) do
+        local point, relativeTo, relativePoint, x, y = region:GetPoint(i)
+        local relName = relativeTo and relativeTo.GetDebugName and relativeTo:GetDebugName() or tostring(relativeTo)
+        out.points[i] = string.format("%s -> %s %s (%s, %s)", tostring(point), tostring(relName),
+            tostring(relativePoint), tostring(x), tostring(y))
+    end
+    return out
+end
+
+function panel.DumpGeneralLayout()
+    local D = AltArmy.Debug
+    if not (D and D.Dump) then return end
+    D.Dump("optionsLayout", {
+        scrollChild = regionReport(generalScrollChild),
+        guildFrame = regionReport(guildSection.frame),
+        guildHeader = regionReport(guildSection.header),
+        guildContent = regionReport(guildSection.content),
+        guildBlock = regionReport(guildSharingBlock),
+        guildTopRow = regionReport(guildShareTopRow),
+        guildEnableColumn = regionReport(guildShareEnableColumn),
+        guildEnableRow = regionReport(guildShareEnableRow),
+        guildTail = regionReport(guildSharingTail),
+        guildIdentityRow = regionReport(guildIdentityRow),
+        guildRetentionHeader = regionReport(guildDataRetentionHeader),
+        guildRetentionRow = regionReport(guildDataRetentionRow),
+        guildChatHeader = regionReport(guildChatHeader),
+        guildChatChecksRow = regionReport(guildChatChecksRow),
+        guildChatChannelsRow = regionReport(guildChatChannelsRow),
+        auctionFrame = regionReport(auctionSection.frame),
+        guildExpanded = guildSection.IsExpanded(),
+        guildContentHeight = GUILD_CONTENT_HEIGHT,
+    })
+end
+
+local generalSections = { generalSection, guildSection, auctionSection }
+local stackGeneralSections = Theme.StackCollapsibleSections(generalSections, { parent = generalScrollChild, gap = 8 })
+
+--- Stack the sections and size the scroll area to them.
+function LayoutGeneralSections()
+    generalScrollChild:SetHeight(math.max(1, stackGeneralSections() + 8))
+    if generalViewport.UpdateRange then
+        generalViewport.UpdateRange()
+    end
+end
+LayoutGeneralSections()
+
+--- The section a flashed control lives in, and the control (see AltArmy.OpenInterfaceOptions).
+local GENERAL_FLASH_TARGETS = {
+    main = { section = guildSection, region = guildMainFocusRegion },
+    guildShare = { section = guildSection, region = guildShareEnableFocusRegion },
+    autoDelete = { section = guildSection, region = guildAutoDeleteRow },
+    autoScan = { section = auctionSection, region = autoScanRow },
+}
+
+--- Show `flash`'s control: open only the section it is in (the others close), scroll it into view and
+--- flash it. False if it is not on the General tab.
+local function FocusGeneralControl(flash)
+    local target = GENERAL_FLASH_TARGETS[flash]
+    if not target then
+        return false
+    end
+    for _, section in ipairs(generalSections) do
+        section.SetExpanded(section == target.section, true)
+    end
+    LayoutGeneralSections()
+    if generalViewport.SetOffset then
+        generalViewport.SetOffset(0)
+    end
+    local function reveal()
+        local top, rowTop, rowBottom = generalScrollChild:GetTop(), target.region:GetTop(), target.region:GetBottom()
+        local viewHeight = generalViewport.scroll:GetHeight() or 0
+        if top and rowTop and rowBottom and top - rowBottom > viewHeight and generalViewport.SetOffset then
+            generalViewport.SetOffset(math.max(0, top - rowTop - 24))
+        end
+        if Theme.FlashAttentionHighlight then
+            Theme.FlashAttentionHighlight(target.region)
+        end
+    end
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, reveal) -- positions settle on the next frame
+    else
+        reveal()
+    end
+    return true
+end
 
 -- Host frame for UI/CooldownOptions.lua (loaded after this file)
 panel.tabCooldownsHost = tabCooldowns
@@ -1840,14 +2029,11 @@ local function applyOptionsFocus(focus)
         UpdateCharSettings()
         RefreshCharacterList()
     end
-    if focus.flash == "main" and Theme.FlashAttentionHighlight and guildMainFocusRegion then
-        Theme.FlashAttentionHighlight(guildMainFocusRegion)
-    elseif focus.flash == "bankAlt" and Theme.FlashAttentionHighlight and bankAltRow then
+    if focus.flash == "bankAlt" and Theme.FlashAttentionHighlight and bankAltRow then
         Theme.FlashAttentionHighlight(bankAltRow)
-    elseif focus.flash == "guildShare" and Theme.FlashAttentionHighlight and guildShareEnableFocusRegion then
-        Theme.FlashAttentionHighlight(guildShareEnableFocusRegion)
-    elseif focus.flash == "autoDelete" and Theme.FlashAttentionHighlight and guildAutoDeleteRow then
-        Theme.FlashAttentionHighlight(guildAutoDeleteRow)
+    elseif focus.flash then
+        -- General tab controls sit in collapsible sections: open the right one first.
+        FocusGeneralControl(focus.flash)
     end
 end
 
@@ -1896,6 +2082,9 @@ panel:HookScript("OnShow", function()
     end
     if panel.RefreshGuildSharingControls then
         panel.RefreshGuildSharingControls()
+    end
+    if panel.RefreshAuctionOptions then
+        panel.RefreshAuctionOptions()
     end
 end)
 
@@ -1954,6 +2143,28 @@ SlashCmdList.ALTARMY = function(msg)
     if lower == "export" then
         if AltArmy.ProfitExportDialog then
             AltArmy.ProfitExportDialog.Show()
+        end
+        return
+    end
+    if lower == "scan" then
+        local scan = AltArmy.AuctionScan
+        local ok, reason = false, "missing"
+        if scan and scan.Start then
+            ok, reason = scan.Start()
+        end
+        local said = {
+            missing = "This client has no full auction house scan.",
+            closed = "Open the auction house first.",
+            busy = "A scan is already running.",
+            error = "The game refused the scan. Try again in a moment.",
+        }
+        local text = not ok and said[reason] or nil -- a scan that starts says so itself
+        if reason == "cooldown" then
+            local left = scan.CooldownLeft()
+            text = string.format("The game allows the next scan in %d:%02d.", math.floor(left / 60), left % 60)
+        end
+        if text and AltArmy.Debug and AltArmy.Debug.NotifyChat then
+            AltArmy.Debug.NotifyChat("|cff00ccff[Alt Army]|r " .. text)
         end
         return
     end
@@ -2082,12 +2293,28 @@ SlashCmdList.ALTARMY = function(msg)
         end
         return
     end
+    if lower == "debug layout" then
+        local optionsPanel = AltArmy.OptionsPanel
+        if optionsPanel and optionsPanel.DumpGeneralLayout then
+            optionsPanel.DumpGeneralLayout()
+        end
+        return
+    end
     if lower == "debug apicheck" then
         local AC = AltArmy and AltArmy.ApiCheck
         if AC and AC.RunAndReport then
             AC.RunAndReport()
         elseif AltArmy.Debug and AltArmy.Debug.NotifyChat then
             AltArmy.Debug.NotifyChat("API check is unavailable.")
+        end
+        return
+    end
+    if lower == "debug ahprobe" then
+        local probe = AltArmy and AltArmy.AuctionProbe
+        if probe and probe.Start then
+            probe.Start()
+        elseif AltArmy.Debug and AltArmy.Debug.NotifyChat then
+            AltArmy.Debug.NotifyChat("The auction house probe is unavailable.")
         end
         return
     end
@@ -2233,7 +2460,9 @@ end
 AltArmy.OptionsPanel = panel
 
 --- @param initialTab string|nil "general" (default), "characters", "cooldowns", or "debug"
---- @param opts table|nil { name, realm, flash = "main"|"bankAlt"|"guildShare"|"autoDelete" }
+--- @param opts table|nil { name, realm, flash = "main"|"bankAlt"|"guildShare"|"autoDelete"|"autoScan" }
+--- A flashed General tab control's section is opened first (Guild: main, guildShare, autoDelete;
+--- Auction House: autoScan).
 function AltArmy.OpenInterfaceOptions(initialTab, opts)
     opts = opts or {}
     local tab = initialTab or "general"

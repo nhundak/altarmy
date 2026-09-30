@@ -3174,55 +3174,107 @@ function Theme.CreateFilterDropdown(opts)
     return { button = btn, popup = popup, Close = function() popup:Hide() end }
 end
 
---- Collapsible settings section with a clickable header and optional body frame.
+--- Collapsible settings section, built like the Settings panel's own (SettingsExpandableSectionTemplate,
+--- the Keybindings page): one frame holding its header and its content, whose height is worked out from
+--- the content's declared height rather than measured on screen. The header is the Options_ListExpand bar
+--- (both WoW Forever and TBC Anniversary have its atlases); a client without them gets the trade skill
+--- window's plus/minus buttons. Blizzard's template itself can't be used here: it is abstract and reads its
+--- state from the Settings list's scroll box.
+--- opts: text, contentHeight (the content's height, from its rows' own heights), defaultExpanded (false),
+---   onToggle(expanded).
+--- Returns { frame, header, content, native, SetExpanded(on, silent), IsExpanded(), SetShown(on), IsShown(),
+---   SetContentHeight(h), GetHeight() }. Place `frame` (Theme.StackCollapsibleSections stacks several); put
+---   the controls in `content`, anchored from its top.
 function Theme.CreateCollapsibleSection(parent, opts)
     opts = opts or {}
-    local rowHeight = opts.rowHeight or Theme.CHAR_LIST_ROW_HEIGHT or 20
     local expanded = opts.defaultExpanded == true
+    local shown = true
+    local contentHeight = opts.contentHeight or 0
+    local NativeUI = AltArmy.NativeUI
+    local native = NativeUI and NativeUI.HasAtlas and NativeUI.HasAtlas("Options_ListExpand_Left") or false
 
-    local header = CreateFrame("Button", nil, parent)
-    header:SetHeight(rowHeight)
-    if opts.relativeTo then
-        header:SetPoint(opts.point or "TOPLEFT", opts.relativeTo, opts.relativePoint or "BOTTOMLEFT",
-            opts.x or 0, opts.y or -8)
-    else
-        header:SetPoint(opts.point or "TOPLEFT", parent, opts.relativePoint or "TOPLEFT", opts.x or 0, opts.y or 0)
-    end
-    header:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
-    Theme.BindInteractableHover(header)
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
 
-    local chevron = header:CreateTexture(nil, "ARTWORK")
-    chevron:SetSize(12, 12)
-    chevron:SetPoint("LEFT", header, "LEFT", 0, 0)
-    chevron:SetTexture("Interface\\Buttons\\UI-PlusButton-UP")
+    local header = CreateFrame("Button", nil, frame)
+    header:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+    header:SetHeight(Theme.COLLAPSIBLE_HEADER_HEIGHT)
 
-    local label = header:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
-    label:SetPoint("LEFT", chevron, "RIGHT", 4, 0)
-    label:SetPoint("RIGHT", header, "RIGHT", 0, 0)
+    local label = header:CreateFontString(nil, "OVERLAY", native and "GameFontNormal" or Theme.FONTS.heading)
     label:SetJustifyH("LEFT")
     label:SetText(opts.text or "")
+    header.label = label
 
-    local body = CreateFrame("Frame", nil, parent)
-    body:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
-    body:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
-    body:Hide()
+    local right, icon
+    if native then
+        -- As SettingsExpandableSectionTemplate: Left and Right caps, a stretched Middle, text at x 21.
+        local left = header:CreateTexture(nil, "BACKGROUND")
+        left:SetAtlas("Options_ListExpand_Left", true)
+        left:SetPoint("TOPLEFT", header, "TOPLEFT", 0, 0)
+        right = header:CreateTexture(nil, "BACKGROUND")
+        right:SetPoint("TOPRIGHT", header, "TOPRIGHT", 0, 0)
+        local middle = header:CreateTexture(nil, "BACKGROUND")
+        middle:SetAtlas("_Options_ListExpand_Middle", true)
+        middle:SetPoint("TOPLEFT", left, "TOPRIGHT", 0, 0)
+        middle:SetPoint("TOPRIGHT", right, "TOPLEFT", 0, 0)
+        label:SetPoint("LEFT", header, "LEFT", 21, 2)
+        header.Left, header.Right, header.Middle = left, right, middle
+        -- Hover: the bar's own art again, added on top in the HIGHLIGHT layer (shown only under the
+        -- mouse), and the label white instead of gold.
+        local glow = {}
+        for key, tex in pairs({ Left = left, Middle = middle, Right = right }) do
+            local g = header:CreateTexture(nil, "HIGHLIGHT")
+            g:SetAllPoints(tex)
+            g:SetBlendMode("ADD")
+            g:SetAlpha(0.35)
+            glow[key] = g
+        end
+        glow.Left:SetAtlas("Options_ListExpand_Left", true)
+        glow.Middle:SetAtlas("_Options_ListExpand_Middle", true)
+        header.Highlight = glow
+        header:SetScript("OnEnter", function() label:SetTextColor(1, 1, 1) end)
+        header:SetScript("OnLeave", function() label:SetTextColor(1, 0.82, 0) end)
+    else
+        Theme.BindInteractableHover(header)
+        icon = header:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(12, 12)
+        icon:SetPoint("LEFT", header, "LEFT", 0, 0)
+        label:SetPoint("LEFT", icon, "RIGHT", 4, 0)
+        label:SetPoint("RIGHT", header, "RIGHT", 0, 0)
+        header.collapseIcon = icon
+    end
 
-    local function updateChevron()
-        if expanded then
-            chevron:SetTexture("Interface\\Buttons\\UI-MinusButton-UP")
+    local content = CreateFrame("Frame", nil, frame)
+    content:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -Theme.COLLAPSIBLE_CONTENT_GAP)
+    content:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+
+    local function height()
+        if not expanded then
+            return Theme.COLLAPSIBLE_HEADER_HEIGHT
+        end
+        return Theme.COLLAPSIBLE_HEADER_HEIGHT + Theme.COLLAPSIBLE_CONTENT_GAP + contentHeight
+            + Theme.COLLAPSIBLE_BOTTOM_PAD
+    end
+
+    local function update()
+        frame:SetShown(shown)
+        content:SetShown(expanded)
+        content:SetHeight(math.max(1, contentHeight))
+        frame:SetHeight(height())
+        if native then
+            local atlas = expanded and "Options_ListExpand_Right_Expanded" or "Options_ListExpand_Right"
+            right:SetAtlas(atlas, true)
+            header.Highlight.Right:SetAtlas(atlas, true)
         else
-            chevron:SetTexture("Interface\\Buttons\\UI-PlusButton-UP")
+            icon:SetTexture(expanded and "Interface\\Buttons\\UI-MinusButton-UP"
+                or "Interface\\Buttons\\UI-PlusButton-UP")
         end
     end
 
     local function setExpanded(on, silent)
         expanded = on == true
-        if expanded then
-            body:Show()
-        else
-            body:Hide()
-        end
-        updateChevron()
+        update()
         if not silent and opts.onToggle then
             opts.onToggle(expanded)
         end
@@ -3231,28 +3283,58 @@ function Theme.CreateCollapsibleSection(parent, opts)
     header:SetScript("OnClick", function()
         setExpanded(not expanded)
     end)
-
-    updateChevron()
-    if expanded then
-        body:Show()
-    end
+    update()
 
     return {
+        frame = frame,
         header = header,
-        body = body,
+        content = content,
         label = label,
+        native = native,
         SetExpanded = setExpanded,
         IsExpanded = function() return expanded end,
         SetShown = function(on)
-            if on ~= false then
-                header:Show()
-                if expanded then body:Show() end
-            else
-                header:Hide()
-                body:Hide()
-            end
+            shown = on ~= false
+            update()
         end,
+        IsShown = function() return shown end,
+        SetContentHeight = function(h)
+            contentHeight = h or 0
+            update()
+        end,
+        GetHeight = height,
     }
+end
+
+Theme.COLLAPSIBLE_HEADER_HEIGHT = 30 -- SettingsExpandableSectionTemplate's button
+Theme.COLLAPSIBLE_CONTENT_GAP = 8 -- between the header and the content
+Theme.COLLAPSIBLE_BOTTOM_PAD = 8 -- below an open section's content
+
+--- Stack collapsible sections one under another, skipping hidden ones. opts: parent, gap (default 8),
+--- x/y (the first section's offset from the parent's top left). Returns a function that anchors them and
+--- returns the height they take; call it again after a section opens, closes, shows or hides.
+function Theme.StackCollapsibleSections(sections, opts)
+    opts = opts or {}
+    local gap = opts.gap or 8
+    return function()
+        local previous
+        local total = 0
+        for _, s in ipairs(sections) do
+            if s.IsShown() then
+                s.frame:ClearAllPoints()
+                if previous then
+                    s.frame:SetPoint("TOPLEFT", previous.frame, "BOTTOMLEFT", 0, -gap)
+                    total = total + gap
+                else
+                    s.frame:SetPoint("TOPLEFT", opts.parent, "TOPLEFT", opts.x or 0, opts.y or 0)
+                end
+                s.frame:SetPoint("RIGHT", opts.parent, "RIGHT", 0, 0)
+                total = total + s.GetHeight()
+                previous = s
+            end
+        end
+        return total
+    end
 end
 
 Theme.CRAFTLIB_INSTALL_URL_CURSEFORGE = "https://www.curseforge.com/wow/addons/craftlib"

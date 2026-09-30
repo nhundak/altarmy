@@ -1,0 +1,138 @@
+-- AltArmy TBC — the auction house's order book, as altarmy-profit reads it.
+-- Pure (no events, no client calls): AuctionScan.lua feeds it every listing of a full scan.
+--
+-- AltArmyTBC_AuctionBook = { version = 1, lastRequest = <t>, scans = { <scan>, ... } } oldest first, its own
+-- SavedVariable so altarmy-profit's uploader need not parse AltArmyTBC_Data. A scan:
+--   { t, realm, faction, complete, listings, bidOnly, source, items }
+--   t         GetServerTime() when the listings arrived
+--   realm     GetRealmName(); faction: UnitFactionGroup("player") — whose auction house it is
+--   complete  every listing was read (only complete scans are stored)
+--   listings  listings read; bidOnly: those without a buyout (counted, never priced)
+--   source    "own" (Alt Army asked for the listings) or "heard" (another addon did)
+--   items     "<item>;<item>;..." by item id, each "<itemID>:<level>,<level>,..." cheapest first, a level
+--             being "<unit price>*<units>*<listings>". Unit prices are a listing's buyout over its count,
+--             rounded up. Past MAX_LEVELS levels the rest is one tail level, "~<its cheapest unit
+--             price>*<units>*<listings>".
+-- Items are keyed by item id alone: gear with a random suffix shares its base item's ladder.
+-- altarmy-profit's book.py parses this; spec/fixtures/auction_book_v1.lua is the golden copy both test.
+-- luacheck: globals AltArmyTBC_AuctionBook
+
+if not AltArmy then return end
+
+AltArmy.AuctionBook = AltArmy.AuctionBook or {}
+local B = AltArmy.AuctionBook
+
+B.VERSION = 1
+B.MAX_LEVELS = 12 -- price levels kept per item, before the tail
+B.MAX_SCANS = 3 -- scans kept per realm and faction
+B.MAX_AGE = 7 * 24 * 60 * 60 -- seconds
+B.COOLDOWN = 15 * 60 -- seconds between full scans the client allows an account
+
+--- An empty tally of one scan's listings.
+function B.NewTally()
+    return { items = {}, listings = 0, bidOnly = 0 }
+end
+
+--- Add one listing: `count` units of `itemID` for `buyout` copper in all (0: no buyout).
+function B.Add(tally, itemID, count, buyout)
+    if type(itemID) ~= "number" or itemID <= 0 then return end
+    if type(count) ~= "number" or count <= 0 then return end
+    if type(buyout) ~= "number" or buyout < 0 then return end
+    tally.listings = tally.listings + 1
+    if buyout == 0 then
+        tally.bidOnly = tally.bidOnly + 1
+        return
+    end
+    local price = math.ceil(buyout / count)
+    local levels = tally.items[itemID]
+    if not levels then
+        levels = {}
+        tally.items[itemID] = levels
+    end
+    local level = levels[price]
+    if not level then
+        level = { units = 0, listings = 0 }
+        levels[price] = level
+    end
+    level.units = level.units + count
+    level.listings = level.listings + 1
+end
+
+local function encodeItem(itemID, levels)
+    local prices = {}
+    for price in pairs(levels) do
+        prices[#prices + 1] = price
+    end
+    table.sort(prices)
+    local parts = {}
+    for i = 1, math.min(#prices, B.MAX_LEVELS) do
+        local level = levels[prices[i]]
+        parts[#parts + 1] = prices[i] .. "*" .. level.units .. "*" .. level.listings
+    end
+    if #prices > B.MAX_LEVELS then
+        local units, listings = 0, 0
+        for i = B.MAX_LEVELS + 1, #prices do
+            units = units + levels[prices[i]].units
+            listings = listings + levels[prices[i]].listings
+        end
+        parts[#parts + 1] = "~" .. prices[B.MAX_LEVELS + 1] .. "*" .. units .. "*" .. listings
+    end
+    return itemID .. ":" .. table.concat(parts, ",")
+end
+
+--- The tally's `items` text (see the header).
+function B.Encode(tally)
+    local ids = {}
+    for itemID in pairs(tally.items) do
+        ids[#ids + 1] = itemID
+    end
+    table.sort(ids)
+    local out = {}
+    for i = 1, #ids do
+        out[i] = encodeItem(ids[i], tally.items[ids[i]])
+    end
+    return table.concat(out, ";")
+end
+
+--- The log, created on first use.
+function B.GetLog()
+    local log = AltArmyTBC_AuctionBook
+    if type(log) ~= "table" or type(log.scans) ~= "table" then
+        log = { version = B.VERSION, scans = {} }
+        AltArmyTBC_AuctionBook = log
+    end
+    return log
+end
+
+--- Append `scan`, keeping each realm and faction's newest MAX_SCANS and nothing older than MAX_AGE.
+function B.Store(scan, now)
+    local log = B.GetLog()
+    local scans = log.scans
+    scans[#scans + 1] = scan
+    local kept = {} -- realm\faction -> scans kept, counted from the newest
+    local keep = {}
+    for i = #scans, 1, -1 do
+        local s = scans[i]
+        local key = tostring(s.realm) .. "\\" .. tostring(s.faction)
+        local count = (kept[key] or 0) + 1
+        if count <= B.MAX_SCANS and now - (s.t or 0) <= B.MAX_AGE then
+            kept[key] = count
+            table.insert(keep, 1, s)
+        end
+    end
+    log.scans = keep
+end
+
+--- Remember that someone asked the client for every listing at `now`: its cooldown starts over.
+function B.NoteRequest(now)
+    B.GetLog().lastRequest = now
+end
+
+--- Seconds until the client allows another full scan; 0 if it does now.
+function B.CooldownLeft(now)
+    local last = B.GetLog().lastRequest
+    if type(last) ~= "number" or last > now then
+        return 0
+    end
+    return math.max(0, B.COOLDOWN - (now - last))
+end

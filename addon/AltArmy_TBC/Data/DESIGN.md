@@ -30,6 +30,8 @@ Modules are grouped by domain. Filenames and `AltArmy.*` namespaces are unchange
 
 Guild share payloads use separate SavedVariables (`AltArmyTBC_GuildData`, `AltArmyTBC_SharingSettings`) owned by the Guild modules, not `AltArmyTBC_Data.Characters`.
 
+The auction house's order book for altarmy-profit has its own SavedVariable too (`AltArmyTBC_AuctionBook`), owned by `Auctions/AuctionBook.lua` (pure: ladders, encoding, pruning) and written by `Auctions/AuctionScan.lua` (the client's full scan, read a batch a frame). It is not character data and does not go through DataStore.
+
 See [DATA_VERSIONS.md](DATA_VERSIONS.md) for per-module format versions.
 
 ---
