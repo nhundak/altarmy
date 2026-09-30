@@ -15,6 +15,7 @@ AltArmy collects character data while you play and presents it in tabbed dashboa
 
 ```bash
 npm run setup:dev   # one-time: local Lua 5.1, busted, luacheck
+npm run hooks:install   # one-time (npm install does it too): pre-commit check of generated data
 npm test
 npm run check
 ```

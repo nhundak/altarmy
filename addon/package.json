@@ -10,6 +10,10 @@
     "lint": "node scripts/run-luacheck.js AltArmy_TBC",
     "check:compile": "node scripts/check-lua51-compile.js AltArmy_TBC",
     "test": "node scripts/run-busted.js",
-    "dump:sync": "node scripts/sync-compare-dump.js"
+    "dump:sync": "node scripts/sync-compare-dump.js",
+    "prepare": "node scripts/install-git-hooks.js",
+    "hooks:install": "node scripts/install-git-hooks.js",
+    "crates:generate": "python scripts/generate-waylaid-crates.py",
+    "crates:check": "python scripts/generate-waylaid-crates.py --check"
   }
 }

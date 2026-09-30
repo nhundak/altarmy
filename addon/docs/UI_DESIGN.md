@@ -44,6 +44,7 @@ Background research is in [WOW_FOREVER_NATIVE_UI_RESEARCH.md](WOW_FOREVER_NATIVE
 
 Rules:
 - **Use atlases and texture paths, never bundled art, for chrome.** The textures under `AltArmy_TBC/Textures/` are for content, such as the compare arrow and quest reward markers.
+  - `Textures/Economy/SupplyChain*.tga` are alt-army.com screenshots for the Economy tab's Supply Chain carousel, at native size. To replace them: `python scripts/convert-economy-screenshots.py [--src <folder with the PNGs>]` (requires Pillow), then update `IMAGES` in `Tabs/TabEconomySupplyChain.lua` if a size changed.
   - **One exception:** `Textures/Icons/INV_SideTab_Reputation2_c60.blp` and `INV_SideTab_Stats_c60.blp` are byte-identical copies of Forever's CharacterFrame side-tab icons (fileDataIDs 8197103 / 8197104).
   - Only TBC Anniversary uses them, because those files don't exist in its game data. Forever keeps loading its own copies from `Interface\Icons`.
   - To re-extract them after a game update, with a local Forever install: `python scripts/extract-casc-files.py wow_classic_beta <outdir> interface/icons/inv_sidetab_reputation2_c60.blp interface/icons/inv_sidetab_stats_c60.blp`. The script is a read-only reader of the local CASC storage.

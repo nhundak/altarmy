@@ -9,6 +9,7 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 - Collects and persists character data automatically while you play.
 - Presents cross-character information in tabbed dashboards.
 - Supports item and recipe search across characters (optional CraftLib skill/difficulty filters; optional guildmate recipes).
+- Shows what each Waylaid Crate costs to buy and fill from the auction house scan, and explains alt-army.com's crafting planner (WoW Forever).
 - Tracks profession cooldown readiness (including WoW Forever's Comprehension "Research"), stockpile mailing, and raid/heroic lockouts.
 - Graphs leveling progress over calendar and played time.
 - Optionally shares character cards and recipes with guildmates.
@@ -26,7 +27,7 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 - Tabs are icon flyouts on the right edge; hovering one shows its name. The portrait icon and title show the active tab.
 - Open with `/altarmy` or `/alta`.
 - Minimap button (left-click toggle, drag to move).
-- The toolbar item/recipe search box is on the Summary tab. Typing in it switches into Search mode. Reputation and Guild use the same toolbar spot for their own filter. Gear, Cooldowns and Graphs have no toolbar search. Clicking any side tab leaves Search mode.
+- The toolbar item/recipe search box is on the Summary tab. Typing in it switches into Search mode. Reputation and Guild use the same toolbar spot for their own filter. Gear, Economy, Cooldowns and Graphs have no toolbar search. Clicking any side tab leaves Search mode.
 - One toolbar settings button opens the active tab's settings (Summary, Gear, Reputation, Search panels; Cooldowns opens Interface Options).
 - `/altarmy networth [all] [scale]` — vendor + Auctionator AH value across characters (Auctionator required).
 
@@ -36,6 +37,7 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 |-----|-----|
 | [Summary](tabs/summary.md) | Character overview, totals, missing-data warnings, bank-alt icons |
 | [Gear](tabs/gear.md) | Equipment grid, item check, compare panel, upgrade scoring / alerts |
+| [Economy](tabs/economy.md) | Waylaid Crate fill costs from the auction scan; alt-army.com and Alt Army Sync guide (WoW Forever only) |
 | [Reputation](tabs/reputation.md) | Faction matrix, score-sort, optional Zygor guide links |
 | [Cooldowns](tabs/cooldowns.md) | Crafting cooldowns + Raids lockouts, stockpile send / send-all |
 | [Search](tabs/search.md) | Items and recipes (toolbar Search mode) |
@@ -109,6 +111,8 @@ the reading of other addons' full scans are all off, whatever the client's API o
 - The last 3 scans per realm and faction are kept, for 7 days. Seller names are never saved.
 - The scan is uploaded with the rest of Alt Army's data (Alt Army Sync, or the site's Upload page after a
   `/reload` or logout).
+- In game, the [Economy](tabs/economy.md) tab's **Waylaid Crates** view prices every Waylaid Crate and its
+  cheapest fill from the newest scan, and can turn on the automatic scan too.
 
 ### Data collection and persistence
 

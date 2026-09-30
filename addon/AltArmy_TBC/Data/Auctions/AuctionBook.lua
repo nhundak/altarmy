@@ -94,6 +94,43 @@ function B.Encode(tally)
     return table.concat(out, ";")
 end
 
+--- Encode's text read back: itemID -> its levels cheapest first, each { price, units, listings, tail }
+--- (`tail`: the folded levels past MAX_LEVELS, at their cheapest price). Unreadable pieces are skipped.
+function B.Decode(itemsText)
+    local book = {}
+    if type(itemsText) ~= "string" then return book end
+    for item in itemsText:gmatch("[^;]+") do
+        local id, ladder = item:match("^(%d+):(.*)$")
+        if id then
+            local levels = {}
+            for level in ladder:gmatch("[^,]+") do
+                local tail, price, units, listings = level:match("^(~?)(%d+)%*(%d+)%*(%d+)$")
+                if price then
+                    levels[#levels + 1] = { price = tonumber(price), units = tonumber(units),
+                        listings = tonumber(listings), tail = tail == "~" }
+                end
+            end
+            if #levels > 0 then
+                book[tonumber(id)] = levels
+            end
+        end
+    end
+    return book
+end
+
+--- The newest complete scan of `realm`'s `faction` auction house, or nil.
+function B.Latest(realm, faction)
+    local log = AltArmyTBC_AuctionBook
+    if type(log) ~= "table" or type(log.scans) ~= "table" then return nil end
+    for i = #log.scans, 1, -1 do
+        local s = log.scans[i]
+        if type(s) == "table" and s.realm == realm and s.faction == faction and s.complete then
+            return s
+        end
+    end
+    return nil
+end
+
 --- The log, created on first use.
 function B.GetLog()
     local log = AltArmyTBC_AuctionBook

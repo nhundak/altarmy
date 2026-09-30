@@ -1,0 +1,23 @@
+#!/bin/sh
+# AltArmy TBC pre-commit hook (enabled by `npm install`, or `npm run hooks:install`).
+# Blocks the commit when Data/Economy/WaylaidCrates.lua is out of date with altarmy-profit's game data
+# (the wow-profit checkout next to this repo). Skips when that database or Python isn't there.
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+PY=""
+for cand in python3 python py; do
+    if command -v "$cand" >/dev/null 2>&1 && "$cand" -c "import sys" >/dev/null 2>&1; then
+        PY="$cand"
+        break
+    fi
+done
+if [ -z "$PY" ]; then
+    echo "pre-commit: Python not found, skipping the Waylaid Crates check."
+    exit 0
+fi
+
+"$PY" scripts/generate-waylaid-crates.py --check || {
+    echo "pre-commit: commit blocked. (Bypass once with git commit --no-verify.)"
+    exit 1
+}

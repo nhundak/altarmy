@@ -26,6 +26,8 @@ Data\ApiCheck.lua
 Data\Auctions\AuctionProbe.lua
 Data\Auctions\AuctionBook.lua
 Data\Auctions\AuctionScan.lua
+Data\Economy\WaylaidCrates.lua
+Data\Economy\WaylaidCosts.lua
 Data\DataStore\DataStore.lua
 Data\DataStore\DataStoreItemSpellCompat.lua
 Data\ClassColor.lua
@@ -95,6 +97,8 @@ UI\ItemActions.lua
 UI\GraphCore.lua
 Tabs\TabSummary.lua
 Tabs\TabGear.lua
+Tabs\TabEconomy.lua
+Tabs\TabEconomySupplyChain.lua
 Tabs\TabReputation.lua
 Tabs\TabCooldowns.lua
 Tabs\TabCooldownsRaids.lua

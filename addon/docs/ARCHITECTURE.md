@@ -45,6 +45,7 @@ The order, icons, titles, and each tab's settings button action live in `UI/Main
 |-----|--------|
 | **Summary** | Character list overview |
 | **Gear** | Equipment grid, item check, compare / upgrades |
+| **Economy** | **Waylaid Crates** fill costs + **Supply Chain** (alt-army.com, Alt Army Sync) sub-views; WoW Forever only, hidden elsewhere by `Tabs/TabEconomy.lua` |
 | **Reputation** | Faction × character matrix |
 | **Cooldowns** | Crafting cooldowns + **Raids** lockout sub-view |
 | **Graphs** | Level progress over time |
@@ -67,7 +68,7 @@ Declared in `AltArmy_TBC.toc`:
 | Variable | Role |
 |----------|------|
 | `AltArmyTBC_Data` | Account-wide character / domain data |
-| `AltArmyTBC_Options` | Global options (realm filter, bank alts, cooldowns, automatic auction house scan, debug, etc.) |
+| `AltArmyTBC_Options` | Global options (realm filter, bank alts, cooldowns, automatic auction house scan, Economy view and sort, debug, etc.) |
 | `AltArmyTBC_GearSettings` | Gear tab settings |
 | `AltArmyTBC_ReputationSettings` | Reputation tab settings |
 | `AltArmyTBC_SummarySettings` | Summary tab settings |

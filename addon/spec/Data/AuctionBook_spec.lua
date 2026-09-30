@@ -119,6 +119,61 @@ describe("AuctionBook", function()
         end)
     end)
 
+    describe("Decode", function()
+        it("reads Encode's text back into ladders, cheapest first", function()
+            local book = B.Decode("2770:64*3*2,167*5020*2;7067:700*1*1")
+            assert.same({ { price = 64, units = 3, listings = 2, tail = false },
+                { price = 167, units = 5020, listings = 2, tail = false } }, book[2770])
+            assert.same({ { price = 700, units = 1, listings = 1, tail = false } }, book[7067])
+        end)
+
+        it("flags the tail level", function()
+            local listings = {}
+            for i = 1, B.MAX_LEVELS + 3 do
+                listings[#listings + 1] = { 2770, 2, 2 * (100 + i) }
+            end
+            local levels = B.Decode(B.Encode(tally(listings)))[2770]
+            assert.equals(B.MAX_LEVELS + 1, #levels)
+            assert.is_false(levels[1].tail)
+            assert.same({ price = 100 + B.MAX_LEVELS + 1, units = 6, listings = 3, tail = true },
+                levels[#levels])
+        end)
+
+        it("reads the golden scan", function()
+            dofile("spec/fixtures/auction_book_v1.lua")
+            local book = B.Decode(AltArmyTBC_AuctionBook.scans[2].items)
+            assert.equals(80, book[2589][1].price)
+            assert.equals(13, #book[14048])
+            assert.is_true(book[14048][13].tail)
+        end)
+
+        it("gives nothing for empty or unreadable text", function()
+            assert.same({}, B.Decode(nil))
+            assert.same({}, B.Decode(""))
+            assert.same({}, B.Decode("junk;2770:abc"))
+        end)
+    end)
+
+    describe("Latest", function()
+        local function scan(t, realm, faction, complete)
+            return { t = t, realm = realm, faction = faction, complete = complete ~= false, items = "" }
+        end
+
+        it("is nil before any scan", function()
+            assert.is_nil(B.Latest("Classic Beta PvE", "Horde"))
+        end)
+
+        it("picks the newest complete scan of that realm and faction", function()
+            _G.AltArmyTBC_AuctionBook = { version = 1, scans = {
+                scan(1000, "R", "Horde"), scan(2000, "R", "Horde"), scan(3000, "R", "Alliance"),
+                scan(4000, "Other", "Horde"), scan(5000, "R", "Horde", false),
+            } }
+            assert.equals(2000, B.Latest("R", "Horde").t)
+            assert.equals(3000, B.Latest("R", "Alliance").t)
+            assert.is_nil(B.Latest("Nope", "Horde"))
+        end)
+    end)
+
     describe("the client's cooldown", function()
         it("is none before any request", function()
             assert.equals(0, B.CooldownLeft(5000))

@@ -10,7 +10,7 @@ local ADDON_TITLE = "Alt Army"
 local ICON_PREFIX = "Interface\\Icons\\"
 
 -- "Guild" stays last so hiding it (no guilded characters) never leaves a gap in the stack.
-MainTabs.ORDER = { "Summary", "Gear", "Reputation", "Cooldowns", "Graph", "Guild" }
+MainTabs.ORDER = { "Summary", "Gear", "Economy", "Reputation", "Cooldowns", "Graph", "Guild" }
 
 -- settings.toggle / settings.isShown: method names on AltArmy.TabFrames[name].
 -- settings.optionsKey: opens Interface Options on that AltArmy section instead.
@@ -26,6 +26,10 @@ local DEFS = {
         label = "Gear",
         icon = "INV_Chest_Plate01",
         settings = { toggle = "ToggleGearSettings", isShown = "IsGearSettingsShown" },
+    },
+    Economy = {
+        label = "Economy",
+        icon = "INV_Misc_Coin_02", -- WoW Forever only: Tabs/TabEconomy.lua hides it elsewhere
     },
     Reputation = {
         label = "Reputation",
