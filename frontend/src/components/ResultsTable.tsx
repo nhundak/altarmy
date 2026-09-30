@@ -19,12 +19,12 @@ const PROFIT = 'Net profit'
 const PER_SKILL = 'Per skill up'
 /** Profit per hour of play: the rate column when making gold. */
 const PER_HOUR = 'Per hour'
-/** The columns in order; the third shows the rate the goal cares about. */
+/** The columns in order; the second shows the rate the goal cares about. */
 const columnsFor = (rankBy: RankBy | undefined): string[] => [
   '',
-  'Investment',
   PROFIT,
   rankBy === 'skill' ? PER_SKILL : PER_HOUR,
+  'Investment',
   'ROI',
   'Recipe',
   'Crafter',
@@ -375,13 +375,13 @@ export function ResultsTable({
                         </Text>
                       )}
                     </Table.Td>
-                    <Table.Td className={COLUMN_HIDDEN.Investment} ff="monospace" ta="right">
-                      <Money copper={r.cost} cost padded />
-                    </Table.Td>
                     <Table.Td c={r.profit < 0 ? 'red' : 'teal'} ff="monospace" ta="right">
                       <Money copper={r.profit} padded />
                     </Table.Td>
                     {rankBy === 'skill' ? <PerSkillCell result={r} /> : <PerHourCell result={r} />}
+                    <Table.Td className={COLUMN_HIDDEN.Investment} ff="monospace" ta="right">
+                      <Money copper={r.cost} cost padded />
+                    </Table.Td>
                     <Table.Td c={r.roi < 0 ? 'red' : undefined}>{formatRoi(r.roi)}</Table.Td>
                     <Table.Td>
                       <ItemLink

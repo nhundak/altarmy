@@ -55,6 +55,7 @@ import { IconInfo } from './icons'
 import { HOW_TO_SCAN } from './PriceFreshness'
 import { PriceSignal } from './PriceSignal'
 import { RealmCard } from './RealmCard'
+import classes from './SearchTab.module.css'
 import { ResultsTable } from './ResultsTable'
 import { Setup } from './Setup'
 import { CraftsPerSession, TimeSettingsPanel } from './TimeSettingsPanel'
@@ -62,32 +63,59 @@ import { CraftsPerSession, TimeSettingsPanel } from './TimeSettingsPanel'
 /** Results per page: the first request asks for this many, and each "Show more" for this many more. */
 const PAGE = 50
 
-const EXITS: { value: Exit; label: string; description: string }[] = [
-  { value: 'vendor', label: 'Vendor', description: "Rarely the best profit, but it's always available." },
+const EXITS: { value: Exit; label: string; description: string; warning?: string }[] = [
+  {
+    value: 'vendor',
+    label: 'Vendor',
+    description: "Dead simple, 100% reliable. It's rarely profitable, but use it if you can.",
+  },
   {
     value: 'disenchant',
     label: 'Disenchant',
     description:
-      'Often the best choice if you want reliable results. Enchanting materials tend to have stable prices and sell well. Requires at least one character with enchanting',
+      'Enchanting materials tend to have stable prices and sell well. Usually the most reliable way to turn a profit.',
   },
   {
     value: 'ah',
     label: 'Auction house',
-    description:
-      "Sometimes the best profit, but for some items there will be no buyers. You'll need to take an active role in figuring out what sells reliably.",
+    description: 'Volatile, unpredictable, but potentially lucrative.',
+    warning: 'You will need to take an active role in figuring out what sells reliably.',
   },
 ]
+/** The Disenchant tooltip's extra line when none of the selected realm's characters has Enchanting. */
+const NO_ENCHANTER = 'None of your characters here has Enchanting, so nothing can be disenchanted.'
+
 /**
  * One way to sell: its checkbox, with the explanation in a tooltip beside it (and as the checkbox's description for
- * screen readers), so the options stay one short row.
+ * screen readers), so the options stay one short row. A `warning` sentence follows the explanation in a warning
+ * colour, and a `note` (something about the user's characters) goes on a line of its own in that colour.
  */
-function SellVia({ value, label, description }: (typeof EXITS)[number]) {
+function SellVia({
+  value,
+  label,
+  description,
+  warning,
+  note,
+}: (typeof EXITS)[number] & { note?: string | undefined }) {
   const id = useId()
+  const text = [description, warning, note].filter(Boolean).join(' ')
+  const tooltip = (
+    <>
+      {description}
+      {warning && (
+        <>
+          {' '}
+          <span className={classes.warning}>{warning}</span>
+        </>
+      )}
+      {note && <div className={classes.warning}>{note}</div>}
+    </>
+  )
   return (
     <Group gap={6} wrap="nowrap">
       <Checkbox value={value} label={label} aria-describedby={id} />
-      <VisuallyHidden id={id}>{description}</VisuallyHidden>
-      <Tooltip label={description} multiline w={280} withArrow events={{ hover: true, focus: false, touch: true }}>
+      <VisuallyHidden id={id}>{text}</VisuallyHidden>
+      <Tooltip label={tooltip} multiline w={280} withArrow events={{ hover: true, focus: false, touch: true }}>
         <Text component="span" c="dimmed" lh={0} aria-hidden="true">
           <IconInfo size={15} />
         </Text>
@@ -358,6 +386,7 @@ export function SearchTab() {
 
   // Without characters on the selected realm, every recipe is ranked for one unnamed crafter.
   const browsing = group === undefined
+  const noEnchanter = !!selection && !browsing && !hasEnchanter(group)
   const options = realmOptions(groups, coverage.data ?? [])
   const grouped = (['Your characters', 'Browse a realm'] as const)
     .map((name) => ({
@@ -373,16 +402,18 @@ export function SearchTab() {
   const house = coverage.data?.find((c) => c.auction_house_id === status.data.auction_house_id)
   const lastScan = coverage.data && status.data.auction_house_id !== null ? (house?.last_scan ?? null) : undefined
   const step = editing ?? nextStep(setup, professions, noCharacters)
-  const realmSelect = (size?: 'md') => (
+  // In the realm card its heading says Realm already, so the picker carries only its accessible name.
+  const realmSelect = (inCard = false) => (
     <Select
-      label="Realm and faction"
+      label={inCard ? undefined : 'Realm'}
+      aria-label={inCard ? 'Realm' : undefined}
       placeholder="No realm has prices yet"
       data={grouped}
       value={selection ? toKey(selection) : null}
       onChange={(key) => key && select.mutate(fromKey(key))}
       allowDeselect={false}
-      size={size}
-      maw={size ? 480 : 420}
+      size={inCard ? 'md' : undefined}
+      maw={inCard ? 480 : 420}
     />
   )
 
@@ -395,14 +426,14 @@ export function SearchTab() {
         professions={professions}
         onPick={pick}
         onOpen={setEditing}
-        unavailable={noCharacters ? { skill: 'Import your characters first, so we know which skills they have.' } : {}}
+        unavailable={noCharacters ? { skill: 'Upload your characters first, so we know which skills they have.' } : {}}
       >
         {/* Which professions there are depends on the realm: it can be changed right there. */}
         {step === 'profession' && realmSelect()}
       </Setup>
       {step === null && (
         <>
-          <RealmCard select={realmSelect('md')} lastScan={selection ? lastScan : undefined} />
+          <RealmCard select={realmSelect(true)} lastScan={selection ? lastScan : undefined} />
           {selection && (
             <Options>
               <SimpleGrid cols={{ base: 1, sm: browsing ? 2 : 3 }} spacing="xl">
@@ -434,7 +465,11 @@ export function SearchTab() {
                 >
                   <Stack mt={4} gap="xs">
                     {EXITS.map((e) => (
-                      <SellVia key={e.value} {...e} />
+                      <SellVia
+                        key={e.value}
+                        {...e}
+                        note={e.value === 'disenchant' && noEnchanter ? NO_ENCHANTER : undefined}
+                      />
                     ))}
                   </Stack>
                 </Checkbox.Group>
@@ -442,7 +477,7 @@ export function SearchTab() {
               </SimpleGrid>
             </Options>
           )}
-          {selection && !browsing && !hasEnchanter(group) && (
+          {noEnchanter && (
             <Alert color="yellow" title="Nobody here can disenchant">
               None of your characters on {selection.realm} has Enchanting, so nothing can be disenchanted. Levelling
               Enchanting on any alt is an easy way to expand your options: enchanting materials sell reliably.

@@ -16,10 +16,10 @@ import { ZoneMap } from './ZoneMap'
 const StepMoney = ({ value }: { value: number }) =>
   value < 0 ? <Money copper={-value} cost /> : <Money copper={value} signed />
 
-/** Money made, green or (a loss) red, without a sign. */
-export const Earned = ({ copper }: { copper: number }) => (
+/** Money made, green or (a loss) red, without a sign unless `minus` marks a loss with one. */
+export const Earned = ({ copper, minus = false }: { copper: number; minus?: boolean }) => (
   <Text span inherit c={copper < 0 ? 'red' : 'teal'}>
-    <Money copper={Math.abs(copper)} />
+    <Money copper={minus ? copper : Math.abs(copper)} />
   </Text>
 )
 

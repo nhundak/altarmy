@@ -19,7 +19,7 @@ import { IconChevron, IconCompass, IconDownload, IconPaste } from './icons'
 import classes from './Profit.module.css'
 import { PasteForm } from './PasteForm'
 import { SearchTab } from './SearchTab'
-import { type CardSpec, EASE, type Phase, StartCard } from './StartCard'
+import { type CardSpec, EASE, LAYOUT, type Phase, StartCard } from './StartCard'
 
 type CardKey = 'import' | 'auto' | 'browse'
 
@@ -28,6 +28,9 @@ const NOT_BROWSED = { browsed: false }
 const NO_GROUPS: readonly CharacterGroup[] = []
 /** Alt Army Sync counts as set up while it has uploaded anything within this many days. */
 const AUTO_IMPORT_DAYS = 30
+
+/** The layout id a start card shares with the characters strip while it is the card the strip grows into. */
+const cardLayoutId = (key: CardKey) => `start-card-${key}`
 
 /** Whether Alt Army Sync (or the CLI watcher) is uploading for the user: it sent something recently. */
 function autoImportOn(lastAt: string | null | undefined, now: Date = new Date()): boolean {
@@ -38,7 +41,7 @@ function autoImportOn(lastAt: string | null | undefined, now: Date = new Date())
 const CARDS: readonly CardSpec<CardKey>[] = [
   {
     key: 'import',
-    title: 'Import your characters',
+    title: 'Upload your characters',
     blurb:
       "Paste one line from the Alt Army addon: every alt's professions and learned recipes, so results show who crafts what and what mailing reagents between them costs.",
     short: 'Paste the Alt Army export.',
@@ -88,75 +91,80 @@ function ImportBody({ onImported }: { onImported: (r: UploadResult) => void }) {
 }
 
 /**
- * Once started: what the search works with (how many characters, when they were gathered, whether auto-import is
+ * Once started: what the search works with (how many characters, when they were gathered, whether auto-upload is
  * on; it opens to show every character), and ways to change it.
  */
-function Strip({ data, onOpen }: { data: Characters | undefined; onOpen: (k: CardKey) => void }) {
+function Strip({
+  data,
+  onOpen,
+  layoutId,
+}: {
+  data: Characters | undefined
+  onOpen: (k: CardKey) => void
+  /** the card it turns into, and back from: the one opened last */
+  layoutId: string
+}) {
   const [details, { toggle }] = useDisclosure(false)
   const groups = data?.groups ?? NO_GROUPS
   const count = groups.reduce((n, g) => n + g.characters.length, 0)
   const auto = autoImportOn(data?.auto_import_at)
   const counted = `${count} ${count === 1 ? 'character' : 'characters'}`
   const updated = data?.imported_at ? `updated ${age(data.imported_at)}` : null
-  const autoText = `Auto-import ${auto ? 'on' : 'off'}`
+  const autoText = `Auto-upload ${auto ? 'on' : 'off'}`
   const dot = (
     <Text span c="dimmed" size="sm" aria-hidden>
       {' · '}
     </Text>
   )
   return (
-    <motion.div
-      className={cards.strip}
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -8 }}
-      transition={{ duration: 0.25 }}
-    >
-      <Group justify="space-between" gap="sm">
-        {count > 0 ? (
-          <UnstyledButton
-            className={classes.summary}
-            onClick={toggle}
-            aria-expanded={details}
-            aria-controls="your-characters"
-            aria-label={[counted, updated, autoText].filter(Boolean).join(', ')}
-          >
-            <Text size="sm" span>
-              <b>{counted}</b>
-              {updated && (
-                <>
-                  {dot}
-                  <Text span c="dimmed" size="sm">
-                    {updated}
-                  </Text>
-                </>
-              )}
-              {dot}
-              <Text span size="sm" c={auto ? 'green' : 'dimmed'}>
-                {autoText}
+    <motion.div layoutId={layoutId} transition={LAYOUT} className={cards.strip} style={{ borderRadius: 12 }}>
+      <motion.div layout="position">
+        <Group justify="space-between" gap="sm">
+          {count > 0 ? (
+            <UnstyledButton
+              className={classes.summary}
+              onClick={toggle}
+              aria-expanded={details}
+              aria-controls="your-characters"
+              aria-label={[counted, updated, autoText].filter(Boolean).join(', ')}
+            >
+              <Text size="sm" span>
+                <b>{counted}</b>
+                {updated && (
+                  <>
+                    {dot}
+                    <Text span c="dimmed" size="sm">
+                      {updated}
+                    </Text>
+                  </>
+                )}
+                {dot}
+                <Text span size="sm" c={auto ? 'green' : 'dimmed'}>
+                  {autoText}
+                </Text>
+              </Text>
+              <span className={classes.chevron} data-open={details || undefined}>
+                <IconChevron size={16} />
+              </span>
+            </UnstyledButton>
+          ) : (
+            <Text size="sm">
+              <b>Browsing every recipe.</b>{' '}
+              <Text span c="dimmed" size="sm">
+                Add characters to see what they can craft and what mailing between them costs.
               </Text>
             </Text>
-            <span className={classes.chevron} data-open={details || undefined}>
-              <IconChevron size={16} />
-            </span>
-          </UnstyledButton>
-        ) : (
-          <Text size="sm">
-            <b>Browsing every recipe.</b>{' '}
-            <Text span c="dimmed" size="sm">
-              Add characters to see what they can craft and what mailing between them costs.
-            </Text>
-          </Text>
-        )}
-        <Group gap="xs">
-          <Button size="xs" variant="light" leftSection={<IconPaste size={16} />} onClick={() => onOpen('import')}>
-            {count > 0 ? 'Import again' : 'Import your characters'}
-          </Button>
-          <Button size="xs" variant="default" leftSection={<IconDownload size={16} />} onClick={() => onOpen('auto')}>
-            Auto-import
-          </Button>
+          )}
+          <Group gap="xs">
+            <Button size="xs" variant="light" leftSection={<IconPaste size={16} />} onClick={() => onOpen('import')}>
+              {count > 0 ? 'Upload again' : 'Upload your characters'}
+            </Button>
+            <Button size="xs" variant="default" leftSection={<IconDownload size={16} />} onClick={() => onOpen('auto')}>
+              Auto-upload
+            </Button>
+          </Group>
         </Group>
-      </Group>
+      </motion.div>
       <AnimatePresence initial={false}>
         {details && count > 0 && (
           <motion.div
@@ -179,15 +187,24 @@ function Strip({ data, onOpen }: { data: Characters | undefined; onOpen: (k: Car
 }
 
 /**
- * The Profit page: the welcome banner and three ways to start (paste an import, set up the auto-import, skip) and,
+ * The Profit page: the welcome banner and three ways to start (paste an upload, set up the auto-upload, skip) and,
  * once the visitor has characters or skipped, the search (which starts by asking for their goal) in their place. Whether they browsed is remembered per user;
- * having characters comes from the server, so another browser's import counts too.
+ * having characters comes from the server, so another browser's upload counts too.
  */
 export function ProfitPage() {
   const { uid } = useSession()
   const characters = useCharacters()
   const [landing, setLanding] = useStoredState(`altarmy-profit.landing.${uid}`, landingSchema, NOT_BROWSED)
-  const [open, setOpen] = useState<CardKey | null>(null)
+  const [open, setOpenKey] = useState<CardKey | null>(null)
+  // The card the strip grows into and shrinks back from: the one picked last.
+  const [lastPicked, setLastPicked] = useState<CardKey>('import')
+  // Whether the visitor has moved between the cards and the strip yet: until then nothing fades in.
+  const [moved, setMoved] = useState(false)
+  const setOpen = (key: CardKey | null) => {
+    if (key) setLastPicked(key)
+    setMoved(true)
+    setOpenKey(key)
+  }
   const reduced = useReducedMotion()
   const searchRef = useRef<HTMLElement>(null)
   const shownBefore = useRef<boolean | null>(null)
@@ -229,6 +246,8 @@ export function ProfitPage() {
 
   const pick = (key: CardKey) => {
     if (key === 'browse') {
+      setLastPicked('browse')
+      setMoved(true)
       setLanding({ browsed: true })
       setOpen(null)
     } else {
@@ -240,7 +259,7 @@ export function ProfitPage() {
     setOpen(null)
     notifications.show({
       color: 'green',
-      title: 'Characters imported',
+      title: 'Characters uploaded',
       message: `${r.characters} ${r.characters === 1 ? 'character' : 'characters'}${
         r.groups.length ? ` on ${r.groups.map((g) => realmLabel(g)).join(', ')}` : ''
       }.`,
@@ -270,36 +289,36 @@ export function ProfitPage() {
         </Group>
       ) : (
         <LayoutGroup>
-          <AnimatePresence mode="wait" initial={false}>
-            {phase === 'collapsed' ? (
-              <Strip key="strip" data={characters.data} onOpen={setOpen} />
-            ) : (
-              <motion.div
-                key="cards"
-                className={cards.cards}
-                data-phase={phase}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0, transition: { duration: 0.15 } }}
-                role="group"
-                aria-label="Ways to start"
-              >
-                {cardsFor(groups.length > 0).map((spec) => (
-                  <StartCard
-                    key={spec.key}
-                    spec={spec}
-                    phase={phase}
-                    open={open === spec.key}
-                    onPick={() => pick(spec.key)}
-                    onClose={() => setOpen(null)}
-                  >
-                    {spec.key === 'import' && <ImportBody onImported={imported} />}
-                    {spec.key === 'auto' && <AutoImportBody />}
-                  </StartCard>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {/* The strip and the card picked last share a layout id, so one resizes into the other (as the Realm card
+              does) while the other cards fade in. No AnimatePresence: Motion would hold a leaving shared-layout box
+              until the new one's animation ends, and the resize needs nothing more than the old box's last layout. */}
+          {phase === 'collapsed' ? (
+            <Strip key="strip" data={characters.data} onOpen={setOpen} layoutId={cardLayoutId(lastPicked)} />
+          ) : (
+            <div
+              key="cards"
+              className={cards.cards}
+              data-phase={phase}
+              role="group"
+              aria-label="Ways to start"
+            >
+              {cardsFor(groups.length > 0).map((spec) => (
+                <StartCard
+                  key={spec.key}
+                  spec={spec}
+                  phase={phase}
+                  layoutId={cardLayoutId(spec.key)}
+                  fade={moved && spec.key !== lastPicked}
+                  open={open === spec.key}
+                  onPick={() => pick(spec.key)}
+                  onClose={() => setOpen(null)}
+                >
+                  {spec.key === 'import' && <ImportBody onImported={imported} />}
+                  {spec.key === 'auto' && <AutoImportBody />}
+                </StartCard>
+              ))}
+            </div>
+          )}
           <AnimatePresence>
             {started && (
               <motion.section

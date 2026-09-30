@@ -9,7 +9,7 @@ export function Summary({ result }: { result: UploadResult }) {
     <Stack gap={4}>
       {result.kind === 'altarmy' && (
         <Text size="sm">
-          Imported {result.characters} characters
+          Uploaded {result.characters} characters
           {result.groups.length > 0 &&
             `: ${result.groups.map((g) => `${g.realm} (${g.faction || 'no faction'}) ${g.characters}`).join(', ')}`}
           .
@@ -36,7 +36,7 @@ export function Summary({ result }: { result: UploadResult }) {
 
 /**
  * The Alt Army addon's export string: characters without a file or /reload (but no auction house scans).
- * `onImported` runs after a successful import.
+ * `onImported` runs after a successful upload.
  */
 export function PasteForm({ onImported, autoFocus }: { onImported: (r: UploadResult) => void; autoFocus?: boolean }) {
   const upload = usePasteUpload()
@@ -62,7 +62,7 @@ export function PasteForm({ onImported, autoFocus }: { onImported: (r: UploadRes
           loading={upload.isPending}
           onClick={() => upload.mutate(text, { onSuccess: onImported })}
         >
-          Import characters
+          Upload characters
         </Button>
       </Group>
       {upload.isError && <Alert color="red">{upload.error.message}</Alert>}

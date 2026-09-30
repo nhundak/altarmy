@@ -120,7 +120,7 @@ export function AddonPage() {
               <List.Item>
                 Type <Code>/altarmy export</Code> in game and press Ctrl+C.
               </List.Item>
-              <List.Item>Paste the export into Import your characters on the Profit page.</List.Item>
+              <List.Item>Paste the export into Upload your characters on the Profit page.</List.Item>
             </List>
             <Text>For auction house prices:</Text>
             <List spacing={4}>

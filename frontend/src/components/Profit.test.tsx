@@ -34,8 +34,8 @@ describe('ProfitPage', () => {
     expect(screen.getByText(/steps through all of your characters/)).toBeInTheDocument()
     const group = await screen.findByRole('group', { name: 'Ways to start' })
     expect(within(group).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
-      'Import your characters',
-      'Auto-import',
+      'Upload your characters',
+      'Auto-upload',
       'Skip for now',
     ])
     expect(screen.queryByRole('region', { name: 'Search' })).not.toBeInTheDocument()
@@ -84,7 +84,7 @@ describe('ProfitPage', () => {
     expect(hero()).not.toBeInTheDocument()
   })
 
-  it('imports pasted characters, then shows them above the search', async () => {
+  it('uploads pasted characters, then shows them above the search', async () => {
     let have = false
     const fetch = mockApi({
       '/api/status': () => status({ characters: have ? 3 : 0, data_version: have ? 2 : 1 }),
@@ -101,7 +101,7 @@ describe('ProfitPage', () => {
         <ProfitPage />
       </>,
     )
-    await userEvent.click(await screen.findByRole('button', { name: 'Import your characters' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Upload your characters' }))
     const box = await screen.findByRole('textbox', { name: 'Alt Army export' })
     expect(screen.getByText('/altarmy export')).toBeInTheDocument()
     // the other two ways stay at hand, smaller
@@ -109,8 +109,8 @@ describe('ProfitPage', () => {
     expect(screen.getByText('Set up Alt Army Sync.')).toBeInTheDocument()
     expect(screen.getByText('Every recipe, no character optimization.')).toBeInTheDocument()
     await userEvent.type(box, 'AAX1:abc')
-    await userEvent.click(screen.getByRole('button', { name: 'Import characters' }))
-    expect(await screen.findByText('Characters imported')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Upload characters' }))
+    expect(await screen.findByText('Characters uploaded')).toBeInTheDocument()
     expect(await screen.findByText(/^3 characters on Classic Beta PvE/)).toBeInTheDocument()
     expect(await screen.findByRole('region', { name: 'Search' })).toBeInTheDocument()
     await waitFor(() => expect(cards()).not.toBeInTheDocument())
@@ -118,15 +118,15 @@ describe('ProfitPage', () => {
     expect(await post?.json()).toEqual({ text: 'AAX1:abc' })
   })
 
-  it('starts folded with the search when the user already has characters, and sets up auto-import', async () => {
+  it('starts folded with the search when the user already has characters, and sets up auto-upload', async () => {
     mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<ProfitPage />)
     expect(await screen.findByRole('region', { name: 'Search' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '3 characters, Auto-import off' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '3 characters, Auto-upload off' })).toBeInTheDocument()
     expect(cards()).not.toBeInTheDocument()
     expect(hero()).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Auto-import' }))
-    expect(await screen.findByRole('heading', { name: 'Auto-import' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Auto-upload' }))
+    expect(await screen.findByRole('heading', { name: 'Auto-upload' })).toBeInTheDocument()
     expect(screen.getByText(/never changes a game file/)).toBeInTheDocument()
     expect(screen.getByText('Signed in.')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Sign in to the app' })).toBeInTheDocument()
@@ -139,7 +139,7 @@ describe('ProfitPage', () => {
   it('offers a guest an account first, which keeps what the browser has', async () => {
     mockApi({ '/api/status': status({ characters: 0 }), '/api/characters': nobody })
     renderWithProviders(<ProfitPage />, GUEST)
-    await userEvent.click(await screen.findByRole('button', { name: 'Auto-import' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Auto-upload' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Sign in or create an account' }))
     expect(await screen.findByRole('dialog', { name: 'Your account' })).toBeInTheDocument()
     expect(screen.getByText(/tick Create a new account there/)).toBeInTheDocument()
@@ -158,8 +158,8 @@ describe('ProfitPage', () => {
         <ProfitPage />
       </>,
     )
-    await userEvent.click(await screen.findByRole('button', { name: 'Auto-import' }))
-    expect(await screen.findByRole('heading', { name: 'Auto-import' })).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: 'Auto-upload' }))
+    expect(await screen.findByRole('heading', { name: 'Auto-upload' })).toBeInTheDocument()
     have = true
     window.dispatchEvent(new Event('visibilitychange')) // what the status poll would notice
     expect(await screen.findByText('Characters uploaded')).toBeInTheDocument()
@@ -170,8 +170,8 @@ describe('ProfitPage', () => {
   it('offers Continue instead of Skip for now once the user has characters', async () => {
     mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<ProfitPage />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Auto-import' }))
-    expect(await screen.findByRole('heading', { name: 'Auto-import' })).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: 'Auto-upload' }))
+    expect(await screen.findByRole('heading', { name: 'Auto-upload' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Skip for now' })).not.toBeInTheDocument()
     const cont = screen.getByRole('button', { name: 'Continue' })
     expect(within(cont).getByText('Done adding characters.')).toBeInTheDocument()
@@ -180,7 +180,7 @@ describe('ProfitPage', () => {
     expect(screen.getByRole('button', { name: /^3 characters/ })).toBeInTheDocument()
   })
 
-  it('sums up the characters: how many, when they were gathered, and whether auto-import is on', async () => {
+  it('sums up the characters: how many, when they were gathered, and whether auto-upload is on', async () => {
     const utc = (hoursAgo: number) => new Date(Date.now() - hoursAgo * 3_600_000).toISOString().slice(0, 19).replace('T', ' ')
     mockApi({
       '/api/status': status(),
@@ -188,11 +188,11 @@ describe('ProfitPage', () => {
       '/api/rank': noResults,
     })
     renderWithProviders(<ProfitPage />)
-    const summary = await screen.findByRole('button', { name: '3 characters, updated 3 h ago, Auto-import on' })
+    const summary = await screen.findByRole('button', { name: '3 characters, updated 3 h ago, Auto-upload on' })
     expect(within(summary).queryByText(/Dreamscythe/)).not.toBeInTheDocument()
   })
 
-  it('says auto-import is off once Alt Army Sync has been quiet for a month', async () => {
+  it('says auto-upload is off once Alt Army Sync has been quiet for a month', async () => {
     const longAgo = new Date(Date.now() - 31 * 86_400_000).toISOString().slice(0, 19).replace('T', ' ')
     mockApi({
       '/api/status': status(),
@@ -200,7 +200,7 @@ describe('ProfitPage', () => {
       '/api/rank': noResults,
     })
     renderWithProviders(<ProfitPage />)
-    expect(await screen.findByRole('button', { name: '3 characters, updated 31 days ago, Auto-import off' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '3 characters, updated 31 days ago, Auto-upload off' })).toBeInTheDocument()
   })
 
   it('opens the summary to show every character', async () => {

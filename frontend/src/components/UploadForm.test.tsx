@@ -24,7 +24,7 @@ const fileInput = () => document.querySelector<HTMLInputElement>('input[type="fi
 const form = <UploadForm kind="altarmy" name="AltArmy_TBC.lua" />
 
 describe('UploadForm', () => {
-  it('uploads a file for the game and shows what it imported', async () => {
+  it('uploads a file for the game and shows what it uploaded', async () => {
     // Node's FormData (which Request needs) refuses jsdom's File on newer Node versions, so record what the
     // app appends and pass Node a placeholder.
     const appended = new Map<string, unknown>()
@@ -43,7 +43,7 @@ describe('UploadForm', () => {
     expect(screen.getByRole('button', { name: 'AltArmy_TBC.lua for WoW: Forever' })).toBeInTheDocument()
     await userEvent.upload(fileInput(), file)
     await userEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    expect(await screen.findByText(/Imported 3 characters: Classic Beta PvE \(Horde\) 1, Dreamscythe \(Horde\) 2/)).toBeInTheDocument()
+    expect(await screen.findByText(/Uploaded 3 characters: Classic Beta PvE \(Horde\) 1, Dreamscythe \(Horde\) 2/)).toBeInTheDocument()
 
     const post = fetch.mock.calls.map(([r]) => r).find((r) => r.method === 'POST')
     expect(new URL(post!.url).searchParams.get('game_version')).toBe('forever')
@@ -78,7 +78,7 @@ describe('UploadForm', () => {
     await userEvent.upload(fileInput(), new File(['x'], 'AltArmy_TBC.lua'))
     await userEvent.click(screen.getByRole('button', { name: 'Upload' }))
     expect(await screen.findByText(/some prices were not used/)).toBeInTheDocument()
-    expect(screen.getByText(/Imported 3 characters/)).toBeInTheDocument()
+    expect(screen.getByText(/Uploaded 3 characters/)).toBeInTheDocument()
     expect(screen.getAllByText('not used')).toHaveLength(1)
     expect(screen.getByText(`Classic Beta PvE (Horde) scan: ${(2778).toLocaleString()} prices`)).toBeInTheDocument()
     expect(screen.getByText('Dreamscythe (Horde) scan: 5 prices, 2 changed')).toBeInTheDocument()

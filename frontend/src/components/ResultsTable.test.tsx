@@ -141,16 +141,16 @@ describe('ResultsTable', () => {
     expect(screen.queryByText(/Purchase/)).not.toBeInTheDocument()
   })
 
-  it('shows the investment, profit, per hour, ROI, recipe and sell via columns for making gold', () => {
+  it('shows the profit, per hour, investment, ROI, recipe and sell via columns for making gold', () => {
     renderWithProviders(<ResultsTable results={[robe]} items={items} rankBy="rate" onSetFavorite={() => {}} />)
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent?.replace(/[▲▼]/g, ''))
-    expect(headers).toEqual(['', 'Investment', 'Net profit', 'Per hour', 'ROI', 'Recipe', 'Crafter', 'Sell via', ''])
+    expect(headers).toEqual(['', 'Net profit', 'Per hour', 'Investment', 'ROI', 'Recipe', 'Crafter', 'Sell via', ''])
   })
 
   it('shows per skill up in place of per hour when skilling up', () => {
     renderWithProviders(<ResultsTable results={[robe]} items={items} rankBy="skill" />)
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent?.replace(/[▲▼]/g, ''))
-    expect(headers).toEqual(['', 'Investment', 'Net profit', 'Per skill up', 'ROI', 'Recipe', 'Crafter', 'Sell via'])
+    expect(headers).toEqual(['', 'Net profit', 'Per skill up', 'Investment', 'ROI', 'Recipe', 'Crafter', 'Sell via'])
   })
 
   it('names the characters who know the recipe', () => {
@@ -667,5 +667,14 @@ describe('ResultsTable profit per hour', () => {
     await showSteps()
     expect(line('Craft 1x Green Robe · 3.5 s')).toBeInTheDocument()
     expect(line('Purchase 10x Linen Cloth on the AH (2 0)')).toBeInTheDocument() // no time: no suffix
+  })
+
+  it('puts a minus sign before a losing session in the summary', async () => {
+    const losing: RankResult = { ...timedRobe, profit: -200, timing: { ...timedRobe.timing!, per_hour: -12345 } }
+    renderRows([losing])
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    const text = (t: string) => screen.findByText((_, el) => el?.tagName === 'P' && shown(el) === t)
+    expect(await text('10 crafts: Investment 3 0 · Net profit -2 0')).toBeInTheDocument()
+    expect(await text('Estimated time: 4 min 10 s (Net profit -1 23 45/hr)')).toBeInTheDocument()
   })
 })

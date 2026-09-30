@@ -7,10 +7,10 @@ import { IconDownload } from "./icons";
 import type { CardSpec } from "./StartCard";
 import { SYNC_DOWNLOAD } from "./SyncCard";
 
-/** The Auto-import card, the same on the Profit page's start cards and beside the Realm card's upload. */
+/** The Auto-upload card, the same on the Profit page's start cards and beside the Realm card's upload. */
 export const AUTO_IMPORT_CARD: CardSpec<"auto"> = {
   key: "auto",
-  title: "Auto-import",
+  title: "Auto-upload",
   blurb:
     "A small app on your gaming PC uploads your characters and auction scans whenever WoW saves them. Nothing to paste, and prices stay fresh.",
   short: "Set up Alt Army Sync.",
@@ -52,7 +52,7 @@ function Step({
 }
 
 /**
- * The Auto-import card, open (on the Profit page's start cards and in the Realm card's upload): what Alt Army Sync
+ * The Auto-upload card, open (on the Profit page's start cards and in the Realm card's upload): what Alt Army Sync
  * does, then an account, the download and signing in to the app. Once the app's first upload lands, the page's
  * polling brings the characters in and the start cards fold away on their own.
  */

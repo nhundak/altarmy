@@ -42,11 +42,11 @@ function Summary({ result }: { result: RankResult }) {
     <Stack gap={2}>
       <Text size="sm">
         {result.crafts} {result.crafts === 1 ? 'craft' : 'crafts'}: Investment <Money copper={result.cost} cost /> · Net
-        profit <Earned copper={result.profit} />
+        profit <Earned copper={result.profit} minus />
       </Text>
       {t && (
         <Text size="sm">
-          Estimated time: {formatSeconds(t.total_seconds)} (Net profit <Earned copper={t.per_hour} />
+          Estimated time: {formatSeconds(t.total_seconds)} (Net profit <Earned copper={t.per_hour} minus />
           /hr)
         </Text>
       )}

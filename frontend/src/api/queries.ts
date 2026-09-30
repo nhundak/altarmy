@@ -269,7 +269,7 @@ export function useCoverage() {
 
 export type UploadKind = 'altarmy' | 'auctionator'
 
-/** Import the Alt Army addon's export string (replaces your characters, like the file). */
+/** Upload the Alt Army addon's export string (replaces your characters, like the file). */
 export function usePasteUpload() {
   const invalidate = useInvalidateAll()
   return useMutation({

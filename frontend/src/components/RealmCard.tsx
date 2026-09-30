@@ -1,9 +1,9 @@
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
-import { Anchor, Button, Code, Stack, Text, Title } from '@mantine/core'
+import { Anchor, Button, Code, Group, Stack, Text, Title } from '@mantine/core'
 import { AnimatePresence, LayoutGroup, motion } from 'motion/react'
 import { AUTO_IMPORT_CARD, AutoImportBody } from './AutoImport'
 import cards from './Cards.module.css'
-import { IconCompass, IconUpload } from './icons'
+import { IconCompass, IconDownload, IconUpload } from './icons'
 import { PriceFreshness } from './PriceFreshness'
 import { type CardSpec, LAYOUT, OpenCardBody, OpenCardHeader, StartCard } from './StartCard'
 import { ScanSteps, savedVariablesPath, UploadForm } from './UploadForm'
@@ -31,9 +31,10 @@ const CONTINUE_CARD: CardSpec<'realm'> = {
 const BACK = 'Back to the realm'
 
 /**
- * The realm and faction the search is for and how fresh its auction house prices are. Upload your scan lays it out
- * like the Profit page's start cards: this card, large on the left, turns into the upload's steps, with Auto-import
- * (Alt Army Sync's steps, in its place) and Continue (back to the realm) beside it.
+ * The realm and faction the search is for and how fresh its auction house prices are, with Upload your scan and
+ * Auto-upload on the right. Upload your scan lays it out like the Profit page's start cards: this card, large on the
+ * left, turns into the upload's steps, with Auto-upload (Alt Army Sync's steps, in its place) and Continue (back to
+ * the realm) beside it; Auto-upload opens those steps straight away.
  */
 export function RealmCard({
   select,
@@ -71,19 +72,29 @@ export function RealmCard({
           <motion.div layout transition={LAYOUT} className={cards.card} style={{ borderRadius: 12 }}>
             <motion.div layout="position" className={cards.open}>
               {mode === 'realm' ? (
-                <Stack gap="sm">
-                  <Title order={4} id={title}>
-                    Realm
-                  </Title>
-                  {select}
-                  {lastScan === undefined ? (
-                    <Button size="compact-xs" variant="light" onClick={upload} style={{ alignSelf: 'flex-start' }}>
+                <Group justify="space-between" align="flex-start" gap="sm">
+                  <Stack gap="sm" style={{ flex: '1 1 16rem', minWidth: 0 }}>
+                    <Title order={4} id={title}>
+                      Realm
+                    </Title>
+                    {select}
+                    {lastScan !== undefined && <PriceFreshness lastScan={lastScan} />}
+                  </Stack>
+                  {/* The actions, on the right like the characters strip's Upload and Auto-upload. */}
+                  <Group gap="xs">
+                    <Button size="xs" variant="light" leftSection={<IconUpload size={16} />} onClick={upload}>
                       Upload your scan
                     </Button>
-                  ) : (
-                    <PriceFreshness lastScan={lastScan} onUpload={upload} />
-                  )}
-                </Stack>
+                    <Button
+                      size="xs"
+                      variant="default"
+                      leftSection={<IconDownload size={16} />}
+                      onClick={() => setMode('auto')}
+                    >
+                      Auto-upload
+                    </Button>
+                  </Group>
+                </Group>
               ) : (
                 <div key={mode}>
                   <OpenCardHeader

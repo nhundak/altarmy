@@ -79,8 +79,8 @@ only (the API serves both games). The header links **Manage** and **Get the Addo
 
 The main page opens with a welcome banner and three ways to start:
 
-- **Import your characters** pastes the Alt Army addon's export (see Upload below).
-- **Auto-import** sets up Alt Army Sync (see below): create an account, make an upload key, download
+- **Upload your characters** pastes the Alt Army addon's export (see Upload below).
+- **Auto-upload** sets up Alt Army Sync (see below): create an account, make an upload key, download
   the app. When its first upload brings your characters in, the cards fold away by themselves.
 - **Skip for now** needs no characters: every recipe is ranked for one unnamed character, so nothing is
   learned, skill-gated or mailed.

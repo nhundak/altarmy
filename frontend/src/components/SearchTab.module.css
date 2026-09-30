@@ -1,0 +1,10 @@
+/* A warning sentence in a Sell via tooltip. Mantine's tooltip is dark on the light scheme and light on the dark one,
+   so the orange is light on the first and deep on the second. */
+.warning {
+  color: var(--mantine-color-orange-4);
+  font-weight: 600;
+}
+
+:global([data-mantine-color-scheme='dark']) .warning {
+  color: var(--mantine-color-orange-9);
+}

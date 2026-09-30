@@ -49,6 +49,8 @@ export function StartCard({
   onPick,
   onClose,
   closeLabel = 'Back to the three ways to start',
+  layoutId,
+  fade = false,
   children,
 }: {
   spec: CardSpec
@@ -57,6 +59,10 @@ export function StartCard({
   onPick: () => void
   onClose: () => void
   closeLabel?: string
+  /** shared with another box (the Profit page's characters strip), so one resizes into the other */
+  layoutId?: string
+  /** fades in as it appears (a card beside the one growing out of the strip) */
+  fade?: boolean
   children?: ReactNode
 }) {
   const compact = phase === 'expanded' && !open
@@ -67,9 +73,11 @@ export function StartCard({
       className={cards.slot}
       data-open={open || undefined}
       style={{ borderRadius: 12 }}
+      {...(fade && { initial: { opacity: 0 }, animate: { opacity: 1 } })}
     >
       <motion.div
         layout
+        layoutId={layoutId}
         transition={LAYOUT}
         className={cards.card}
         data-featured={(spec.recommended && !compact) || undefined}

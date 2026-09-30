@@ -53,7 +53,7 @@ const answers = (name: string) =>
   within(screen.getByRole('group', { name })).getAllByRole('button').map((b) => b.getAttribute('aria-label'))
 
 describe('SearchTab', () => {
-  const realm = () => screen.getByRole('combobox', { name: 'Realm and faction' })
+  const realm = () => screen.getByRole('combobox', { name: 'Realm' })
 
   beforeEach(() => withSetup(GOLD))
 
@@ -77,7 +77,7 @@ describe('SearchTab', () => {
     expect(await screen.findByText('No recipes match these filters with the current prices.')).toBeInTheDocument()
     expect(urls(fetch, '/api/rank')).toHaveLength(1)
     await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: 'Realm and faction' })).toHaveValue('Classic Beta PvE (both factions)'),
+      expect(screen.getByRole('combobox', { name: 'Realm' })).toHaveValue('Classic Beta PvE (both factions)'),
     )
   })
 
@@ -116,25 +116,41 @@ describe('SearchTab', () => {
     const card = await screen.findByRole('region', { name: 'Realm' })
     await userEvent.click(await within(card).findByRole('button', { name: 'Upload your scan' }))
     expect(within(card).getByRole('heading', { name: 'Upload your scan' })).toBeInTheDocument()
-    expect(within(card).queryByRole('combobox', { name: 'Realm and faction' })).not.toBeInTheDocument()
-    expect(within(card).getByRole('button', { name: 'Auto-import' })).toBeInTheDocument()
+    expect(within(card).queryByRole('combobox', { name: 'Realm' })).not.toBeInTheDocument()
+    expect(within(card).getByRole('button', { name: 'Auto-upload' })).toBeInTheDocument()
     const file = new File(['AltArmyTBC_Data = {}'], 'AltArmy_TBC.lua')
     await userEvent.upload(card.querySelector<HTMLInputElement>('input[type="file"]')!, file)
     await userEvent.click(within(card).getByRole('button', { name: 'Upload' }))
-    expect(await within(card).findByText(/Imported 1 characters/)).toBeInTheDocument()
+    expect(await within(card).findByText(/Uploaded 1 characters/)).toBeInTheDocument()
     const post = fetch.mock.calls.map(([r]) => r).find((r) => r.method === 'POST')
     expect(new URL(post!.url).pathname).toBe('/api/uploads')
     expect(appended.get('file')).toBe(file)
-    // The Alt Army Sync mention opens the same steps as the Auto-import card.
+    // The Alt Army Sync mention opens the same steps as the Auto-upload card.
     await userEvent.click(within(card).getByRole('button', { name: 'Alt Army Sync' }))
-    expect(await within(card).findByRole('heading', { name: 'Auto-import' })).toBeInTheDocument()
+    expect(await within(card).findByRole('heading', { name: 'Auto-upload' })).toBeInTheDocument()
     expect(within(card).getByRole('link', { name: 'Download Alt Army Sync' })).toHaveAttribute('href', SYNC_DOWNLOAD)
     await userEvent.click(within(card).getByRole('button', { name: 'Continue' }))
-    expect(await within(card).findByRole('combobox', { name: 'Realm and faction' })).toBeInTheDocument()
+    expect(await within(card).findByRole('combobox', { name: 'Realm' })).toBeInTheDocument()
     vi.unstubAllGlobals()
   })
 
-  it("opens Alt Army Sync's steps from the upload's Auto-import card", async () => {
+  it("opens Alt Army Sync's steps from the realm card's Auto-upload button", async () => {
+    mockApi({
+      '/api/status': status(),
+      '/api/characters': characters,
+      '/api/coverage': [house('Classic Beta PvE', 'Horde')],
+      '/api/rank': noResults,
+    })
+    renderWithProviders(<SearchTab />)
+    const card = await screen.findByRole('region', { name: 'Realm' })
+    await userEvent.click(await within(card).findByRole('button', { name: 'Auto-upload' }))
+    expect(await within(card).findByRole('heading', { name: 'Auto-upload' })).toBeInTheDocument()
+    expect(within(card).getByRole('link', { name: 'Download Alt Army Sync' })).toHaveAttribute('href', SYNC_DOWNLOAD)
+    await userEvent.click(within(card).getByRole('button', { name: 'Back to the realm' }))
+    expect(await within(card).findByRole('combobox', { name: 'Realm' })).toBeInTheDocument()
+  })
+
+  it("opens Alt Army Sync's steps from the upload's Auto-upload card", async () => {
     mockApi({
       '/api/status': status(),
       '/api/characters': characters,
@@ -144,8 +160,8 @@ describe('SearchTab', () => {
     renderWithProviders(<SearchTab />)
     const card = await screen.findByRole('region', { name: 'Realm' })
     await userEvent.click(await within(card).findByRole('button', { name: 'Upload your scan' }))
-    await userEvent.click(within(card).getByRole('button', { name: 'Auto-import' }))
-    expect(await within(card).findByRole('heading', { name: 'Auto-import' })).toBeInTheDocument()
+    await userEvent.click(within(card).getByRole('button', { name: 'Auto-upload' }))
+    expect(await within(card).findByRole('heading', { name: 'Auto-upload' })).toBeInTheDocument()
     // The manual upload is now the card beside it.
     await userEvent.click(within(card).getByRole('button', { name: 'Upload your scan' }))
     expect(await within(card).findByRole('heading', { name: 'Upload your scan' })).toBeInTheDocument()
@@ -173,7 +189,7 @@ describe('SearchTab', () => {
     await screen.findByRole('group', { name: 'What are you after?' })
     expect(screen.getByRole('heading', { name: 'What are you after?' })).toBeInTheDocument()
     expect(answers('What are you after?')).toEqual(['Make gold', 'Skill up'])
-    expect(screen.queryByRole('combobox', { name: 'Realm and faction' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Realm' })).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Make gold' }))
     await screen.findByRole('group', { name: 'How do you want to sell?' })
@@ -347,7 +363,7 @@ describe('SearchTab', () => {
     renderWithProviders(<SearchTab />)
     const aims = await screen.findByRole('group', { name: 'What are you after?' })
     expect(within(aims).getByRole('button', { name: 'Skill up' })).toBeDisabled()
-    expect(within(aims).getByText(/Import your characters first/)).toBeInTheDocument()
+    expect(within(aims).getByText(/Upload your characters first/)).toBeInTheDocument()
     expect(within(aims).getByRole('button', { name: 'Make gold' })).toBeEnabled()
   })
 
@@ -358,7 +374,7 @@ describe('SearchTab', () => {
     await userEvent.click(screen.getByRole('button', { name: 'anything that might sell' }))
     await screen.findByRole('group', { name: 'How do you want to sell?' })
     expect(screen.getByRole('button', { name: 'Anything that might sell' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.queryByRole('combobox', { name: 'Realm and faction' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Realm' })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Only what reliably sells' }))
     await waitFor(() => expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant']))
     expect(await screen.findByRole('button', { name: 'only what reliably sells' })).toBeInTheDocument()
@@ -441,6 +457,9 @@ describe('SearchTab', () => {
     expect(alert).toHaveTextContent(/None of your characters on Classic Beta PvE has Enchanting/)
     expect(alert).toHaveTextContent(/Levelling Enchanting on any alt is an easy way to expand your options/)
     expect(alert).toHaveTextContent(/Until then only vendor sales count/)
+    expect(screen.getByRole('checkbox', { name: 'Disenchant' })).toHaveAccessibleDescription(
+      /None of your characters here has Enchanting, so nothing can be disenchanted\.$/,
+    )
     unmount()
 
     withSetup(GOLD)
@@ -453,6 +472,7 @@ describe('SearchTab', () => {
     const { unmount } = renderWithProviders(<SearchTab />)
     await screen.findByText(/No recipes match these filters/)
     expect(screen.queryByText(/has Enchanting/)).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Disenchant' })).not.toHaveAccessibleDescription(/has Enchanting/)
     unmount()
 
     const shared = { realm: 'Classic Beta PvE', faction: '' }
@@ -484,9 +504,14 @@ describe('SearchTab', () => {
     expect(screen.getByRole('checkbox', { name: 'Auction house' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Disenchant' })).not.toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Disenchant' })).toHaveAccessibleDescription(
-      /Requires at least one character with enchanting/,
+      /Usually the most reliable way to turn a profit/,
     )
-    expect(screen.getByText("Rarely the best profit, but it's always available.")).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Auction house' })).toHaveAccessibleDescription(
+      'Volatile, unpredictable, but potentially lucrative. You will need to take an active role in figuring out what sells reliably.',
+    )
+    expect(
+      screen.getByText("Dead simple, 100% reliable. It's rarely profitable, but use it if you can."),
+    ).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: 'Include recipes I can train soon (20 skill points)' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Show only recipes that can give a skill up' })).toBeChecked()
     await waitFor(() => expect(realm()).toHaveValue('Classic Beta PvE (Horde) · 1 character'))
