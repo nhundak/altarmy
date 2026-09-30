@@ -6,8 +6,12 @@
 --   C|<realm>|<name>|<faction>|<CLASS_FILE>|<level>|<guid>
 --   P|<profession>|<rank>|<maxRank>|<recipe ids>  belongs to the C line before it; ids comma-separated
 --   T|<spell id>|<rank>                           a Legacy talent of the C line before it (rank > 0)
+--   R|<faction id>|<standing>                     its standing (1 Hated .. 8 Exalted) with a city faction
 -- Recipe ids are craft spell ids, aliases resolved to primaryRecipeID (as the site reads the file). Talents
--- are char.legacyTalents.spells (DataStoreLegacy.lua, data version 2), sorted by spell id.
+-- are char.legacyTalents.spells (DataStoreLegacy.lua, data version 2), sorted by spell id. Reputations are
+-- char.Reputations (DataStoreReputations.lua, data version 2) for CITY_FACTIONS only, sorted by faction id:
+-- the site discounts vendor prices by them, and no other faction's vendors stand in the cities. A faction
+-- with no saved row (untouched Neutral) gets no line.
 -- Characters are sorted by name within a realm. The name is char.name (the full name), else the storage key;
 -- the GUID is char.guid, empty for entries saved before GUIDs (character data v3 keys entries by GUID).
 -- v1 had no GUID and wrote the storage key as the name, which is a GUID since character data v3.
@@ -20,6 +24,18 @@ local ProfitExport = {}
 AltArmy.ProfitExport = ProfitExport
 
 ProfitExport.PREFIX = "AAX1:"
+
+-- The factions whose vendors stand in the cities (the site's reputation.CITY_FACTIONS: change both together).
+ProfitExport.CITY_FACTIONS = {
+    47, -- Ironforge
+    54, -- Gnomeregan Exiles
+    68, -- Undercity
+    69, -- Darnassus
+    72, -- Stormwind
+    76, -- Orgrimmar
+    81, -- Thunder Bluff
+    530, -- Darkspear Trolls
+}
 
 local function field(value)
     return (tostring(value or ""):gsub("[|\r\n]", ""))
@@ -84,6 +100,21 @@ local function legacyTalents(char)
     return out
 end
 
+--- A character's standings with the city factions as {faction id, standing} pairs, by faction id; none from
+--- v1 rows (bare numbers) or a standing the game doesn't have.
+local function cityReputations(char)
+    local saved = type(char.Reputations) == "table" and char.Reputations or {}
+    local out = {}
+    for _, factionID in ipairs(ProfitExport.CITY_FACTIONS) do
+        local row = saved[factionID]
+        local standing = type(row) == "table" and row.s
+        if type(standing) == "number" and standing >= 1 and standing <= 8 then
+            out[#out + 1] = { factionID, standing }
+        end
+    end
+    return out
+end
+
 --- The export's text: `characters` is AltArmyTBC_Data.Characters (realm -> storage key -> character).
 --- @return string
 function ProfitExport.Lines(characters, interface, build)
@@ -106,6 +137,9 @@ function ProfitExport.Lines(characters, interface, build)
             end
             for _, talent in ipairs(legacyTalents(char)) do
                 out[#out + 1] = table.concat({ "T", field(talent[1]), field(talent[2]) }, "|")
+            end
+            for _, rep in ipairs(cityReputations(char)) do
+                out[#out + 1] = table.concat({ "R", field(rep[1]), field(rep[2]) }, "|")
             end
         end
     end

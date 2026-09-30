@@ -37,6 +37,15 @@ local CHARACTERS = {
         Cooking = { rank = 1, maxRank = 75 },
       },
       legacyTalents = { spells = { [1225459] = 2, [1225457] = 3, [1225478] = 0 }, nodes = {}, restRank = 0 },
+      -- only the city factions are exported: not the Darkmoon Faire (909), nor a pre-v2 scalar row (68) or a
+      -- standing the game doesn't have (81)
+      Reputations = {
+        [530] = { s = 5, e = 100, b = 3000, t = 9000 },
+        [76] = { s = 6, e = 1200, b = 9000, t = 21000 },
+        [909] = { s = 8, e = 0, b = 42000, t = 43000 },
+        [68] = 4500,
+        [81] = { s = 12 },
+      },
     },
     -- saved before GUIDs: keyed by name, which the entry also carries
     Alchemist = { name = "Alchemist", faction = "Horde", classFile = "ROGUE", level = 12 },
@@ -57,6 +66,8 @@ local LINES = table.concat({
   "P|Tailoring|375|375|26745,26746",
   "T|1225457|3",
   "T|1225459|2",
+  "R|76|6",
+  "R|530|5",
 }, "\n")
 
 describe("ProfitExport", function()
