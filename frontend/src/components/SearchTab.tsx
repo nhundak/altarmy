@@ -3,7 +3,6 @@ import {
   Accordion,
   Alert,
   Button,
-  Card,
   Checkbox,
   Group,
   Loader,
@@ -17,7 +16,6 @@ import {
   useMantineTheme,
   VisuallyHidden,
 } from '@mantine/core'
-import { useMediaQuery } from '@mantine/hooks'
 import { z } from 'zod'
 import {
   type Exit,
@@ -99,21 +97,15 @@ function SellVia({ value, label, description }: (typeof EXITS)[number]) {
 }
 
 /**
- * The options' card. Where its columns stack (below the `sm` breakpoint) it is a Filters section, closed until opened,
- * so the results are not pushed a screen down; its content stays mounted either way.
+ * The options, a Filters section. It starts open, except where its columns stack (below the `sm` breakpoint): there
+ * it starts closed, so the results are not pushed a screen down. Its content stays mounted either way.
  */
 function Options({ children }: { children: ReactNode }) {
   const theme = useMantineTheme()
-  // the complement of SimpleGrid's own `sm` query, so the section folds exactly where the columns stack
-  const small = useMediaQuery(`not all and (min-width: ${theme.breakpoints.sm})`)
-  const [open, setOpen] = useState<string | null>(null)
-  if (!small) {
-    return (
-      <Card withBorder padding="lg" component="section" aria-label="Options">
-        {children}
-      </Card>
-    )
-  }
+  // the complement of SimpleGrid's own `sm` query, so the section starts closed exactly where the columns stack
+  const [open, setOpen] = useState<string | null>(() =>
+    window.matchMedia(`not all and (min-width: ${theme.breakpoints.sm})`).matches ? null : 'filters',
+  )
   return (
     <Accordion
       variant="separated"
@@ -343,7 +335,8 @@ export function SearchTab() {
   const pick = (step: Step, value: string, characters?: string[]) => {
     const next = answer(setup, step, value, characters)
     setSetup(next)
-    setEditing(null)
+    // an aim always asks its follow-up (which profession, how to sell), even when an answer is kept from before
+    setEditing(step === 'aim' ? (next.aim === 'skill' ? 'profession' : 'selling') : null)
     setPicks((n) => n + 1)
     const presets = presetsFor(next, step)
     if (presets.includeTrivial !== undefined) setIncludeTrivial(presets.includeTrivial)

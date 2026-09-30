@@ -373,6 +373,32 @@ describe('SearchTab', () => {
     expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('professions')).toEqual(['Cooking'])
   })
 
+  it('asks the follow-up question again whenever the aim is picked', async () => {
+    withSetup({ aim: 'skill', profession: 'Cooking', selling: 'reliable' })
+    const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<SearchTab />)
+    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
+
+    // picking skill up again, with a profession already chosen, still asks which one
+    await userEvent.click(await screen.findByRole('button', { name: 'Skilling up' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Skill up' }))
+    await screen.findByRole('group', { name: 'Which profession?' })
+    expect(screen.getByRole('button', { name: 'Cooking' })).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.click(screen.getByRole('button', { name: 'Tailoring' }))
+    await waitFor(() => expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('professions')).toEqual(['Tailoring']))
+
+    // likewise making gold asks again how to sell, the answer kept from before marked
+    await userEvent.click(await screen.findByRole('button', { name: 'Skilling up' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Make gold' }))
+    await screen.findByRole('group', { name: 'How do you want to sell?' })
+    expect(screen.getByRole('button', { name: 'Only what reliably sells' })).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.click(screen.getByRole('button', { name: 'Anything that might sell' }))
+    await waitFor(() =>
+      expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant', 'ah']),
+    )
+    expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('sort')).toBe('rate')
+  })
+
   it('asks for the profession again on a realm where nobody has it, with the realm picker at hand', async () => {
     withSetup({ aim: 'skill', profession: 'Tailoring' })
     let selection = { realm: 'Classic Beta PvE', faction: 'Horde' }
@@ -539,11 +565,15 @@ describe('SearchTab', () => {
     }
   })
 
-  it('shows the options as they are on large screens', async () => {
+  it('opens the Filters section on large screens, and it folds', async () => {
     mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<SearchTab />)
     expect(await screen.findByRole('checkbox', { name: 'Vendor' })).toBeVisible()
-    expect(screen.queryByRole('button', { name: 'Filters' })).not.toBeInTheDocument()
+    const filters = screen.getByRole('button', { name: 'Filters' })
+    expect(filters).toHaveAttribute('aria-expanded', 'true')
+    await userEvent.click(filters)
+    expect(filters).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('checkbox', { name: 'Vendor', hidden: true })).not.toBeVisible()
   })
 
   it('opens and closes Advanced Filters, remembering it, and ignores sections that are gone', async () => {
