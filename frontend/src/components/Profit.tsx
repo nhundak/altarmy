@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Anchor, Badge, Button, CloseButton, Code, Group, Loader, Stack, Text, Title, UnstyledButton } from '@mantine/core'
+import { useEffect, useRef, useState } from 'react'
+import { Anchor, Button, Code, Group, Loader, Stack, Text, UnstyledButton } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'motion/react'
@@ -13,18 +13,15 @@ import { linkProps, previousRoute } from '../lib/router'
 import { useSession } from '../lib/session'
 import { useStoredState } from '../lib/storage'
 import { Hero } from './Hero'
-import { AutoImportBody } from './AutoImport'
+import { AUTO_IMPORT_CARD, AutoImportBody } from './AutoImport'
 import cards from './Cards.module.css'
 import { IconChevron, IconCompass, IconDownload, IconPaste } from './icons'
 import classes from './Profit.module.css'
 import { PasteForm } from './PasteForm'
 import { SearchTab } from './SearchTab'
+import { type CardSpec, EASE, type Phase, StartCard } from './StartCard'
 
 type CardKey = 'import' | 'auto' | 'browse'
-type Phase = 'choose' | 'expanded' | 'collapsed'
-
-const EASE = [0.25, 0.8, 0.25, 1] as const
-const LAYOUT = { layout: { duration: 0.35, ease: EASE } }
 
 const landingSchema = z.object({ browsed: z.boolean() })
 const NOT_BROWSED = { browsed: false }
@@ -38,9 +35,7 @@ function autoImportOn(lastAt: string | null | undefined, now: Date = new Date())
   return now.getTime() - parseUtc(lastAt) < AUTO_IMPORT_DAYS * 86_400_000
 }
 
-type CardSpec = { key: CardKey; title: string; blurb: string; short: string; icon: ReactNode }
-
-const CARDS: readonly CardSpec[] = [
+const CARDS: readonly CardSpec<CardKey>[] = [
   {
     key: 'import',
     title: 'Import your characters',
@@ -48,15 +43,9 @@ const CARDS: readonly CardSpec[] = [
       "Paste one line from the Alt Army addon: every alt's professions and learned recipes, so results show who crafts what and what mailing reagents between them costs.",
     short: 'Paste the Alt Army export.',
     icon: <IconPaste />,
+    recommended: true,
   },
-  {
-    key: 'auto',
-    title: 'Auto-import',
-    blurb:
-      'A small app on your gaming PC uploads your characters and auction scans whenever WoW saves them. Nothing to paste, and prices stay fresh.',
-    short: 'Set up Alt Army Sync.',
-    icon: <IconDownload />,
-  },
+  AUTO_IMPORT_CARD,
   {
     key: 'browse',
     title: 'Skip for now',
@@ -67,7 +56,7 @@ const CARDS: readonly CardSpec[] = [
 ]
 
 /** The third card once the user has characters: it no longer offers browsing without them, only moving on. */
-const CONTINUE: CardSpec = {
+const CONTINUE: CardSpec<CardKey> = {
   key: 'browse',
   title: 'Continue',
   blurb: 'Done adding characters.',
@@ -76,92 +65,8 @@ const CONTINUE: CardSpec = {
 }
 
 /** The three start cards for a user with or without characters. */
-function cardsFor(hasCharacters: boolean): readonly CardSpec[] {
+function cardsFor(hasCharacters: boolean): readonly CardSpec<CardKey>[] {
   return hasCharacters ? CARDS.map((c) => (c.key === 'browse' ? CONTINUE : c)) : CARDS
-}
-
-/** One of the three ways to start: a big button while choosing, its steps once opened, a small button beside it. */
-function StartCard({
-  spec,
-  phase,
-  open,
-  onPick,
-  onClose,
-  children,
-}: {
-  spec: CardSpec
-  phase: Phase
-  open: boolean
-  onPick: () => void
-  onClose: () => void
-  children?: ReactNode
-}) {
-  const compact = phase === 'expanded' && !open
-  return (
-    <motion.div
-      layout
-      transition={LAYOUT}
-      className={classes.slot}
-      data-open={open || undefined}
-      style={{ borderRadius: 12 }}
-    >
-      <motion.div
-        layout
-        transition={LAYOUT}
-        className={cards.card}
-        data-featured={(spec.key === 'import' && !compact) || undefined}
-        style={{ borderRadius: 12 }}
-      >
-        {open ? (
-          <motion.div layout="position" className={classes.open}>
-            <Group justify="space-between" align="flex-start" wrap="nowrap" mb="md">
-              <Group gap="sm" wrap="nowrap">
-                <span className={cards.icon}>{spec.icon}</span>
-                <Title order={3}>{spec.title}</Title>
-              </Group>
-              <CloseButton aria-label="Back to the three ways to start" onClick={onClose} />
-            </Group>
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, delay: 0.1 }}>
-              {children}
-            </motion.div>
-          </motion.div>
-        ) : (
-          <UnstyledButton className={cards.pick} onClick={onPick} aria-label={spec.title}>
-            <motion.div layout="position" className={compact ? classes.compact : undefined}>
-              {compact ? (
-                <Group gap="sm" wrap="nowrap">
-                  <span className={cards.icon} data-small>
-                    {spec.icon}
-                  </span>
-                  <Stack gap={0}>
-                    <Text fw={700}>{spec.title}</Text>
-                    <Text size="sm" c="dimmed">
-                      {spec.short}
-                    </Text>
-                  </Stack>
-                </Group>
-              ) : (
-                <Stack gap="sm">
-                  <Group justify="space-between" align="flex-start">
-                    <span className={cards.icon}>{spec.icon}</span>
-                    {spec.key === 'import' && (
-                      <Badge variant="light" size="sm">
-                        Recommended
-                      </Badge>
-                    )}
-                  </Group>
-                  <Title order={3}>{spec.title}</Title>
-                  <Text size="sm" c="dimmed">
-                    {spec.blurb}
-                  </Text>
-                </Stack>
-              )}
-            </motion.div>
-          </UnstyledButton>
-        )}
-      </motion.div>
-    </motion.div>
-  )
 }
 
 function ImportBody({ onImported }: { onImported: (r: UploadResult) => void }) {
@@ -371,7 +276,7 @@ export function ProfitPage() {
             ) : (
               <motion.div
                 key="cards"
-                className={classes.cards}
+                className={cards.cards}
                 data-phase={phase}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}

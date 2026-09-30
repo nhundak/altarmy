@@ -54,20 +54,7 @@ tr.details:hover {
   opacity: 1;
 }
 
-/* Columns that give way on narrower screens (Mantine's lg, md, sm and xs breakpoints); the full table needs
-   about 1080px. */
-@media (max-width: 75em) {
-  .hideBelowLg {
-    display: none;
-  }
-}
-
-@media (max-width: 62em) {
-  .hideBelowMd {
-    display: none;
-  }
-}
-
+/* Columns that give way on narrower screens (Mantine's sm and xs breakpoints). */
 @media (max-width: 48em) {
   .hideBelowSm {
     display: none;

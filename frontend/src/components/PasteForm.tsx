@@ -35,16 +35,17 @@ export function Summary({ result }: { result: UploadResult }) {
 }
 
 /**
- * The Alt Army addon's export string: characters without a file or /reload. `onImported` runs after a successful
- * import; without it the form shows what was imported.
+ * The Alt Army addon's export string: characters without a file or /reload (but no auction house scans).
+ * `onImported` runs after a successful import.
  */
-export function PasteForm({ onImported, autoFocus }: { onImported?: (r: UploadResult) => void; autoFocus?: boolean }) {
+export function PasteForm({ onImported, autoFocus }: { onImported: (r: UploadResult) => void; autoFocus?: boolean }) {
   const upload = usePasteUpload()
   const [text, setText] = useState('')
   return (
     <Stack gap="sm">
       <Textarea
         label="Alt Army export"
+        description="It brings in your characters only, not auction house scans: upload AltArmy_TBC.lua for those."
         placeholder="AAX1:..."
         value={text}
         onChange={(e) => {
@@ -59,17 +60,12 @@ export function PasteForm({ onImported, autoFocus }: { onImported?: (r: UploadRe
         <Button
           disabled={!text.trim()}
           loading={upload.isPending}
-          onClick={() => upload.mutate(text, { onSuccess: (r) => onImported?.(r) })}
+          onClick={() => upload.mutate(text, { onSuccess: onImported })}
         >
           Import characters
         </Button>
       </Group>
       {upload.isError && <Alert color="red">{upload.error.message}</Alert>}
-      {upload.data && !onImported && (
-        <Alert color="green" title="Imported">
-          <Summary result={upload.data} />
-        </Alert>
-      )}
     </Stack>
   )
 }

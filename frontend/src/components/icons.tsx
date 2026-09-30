@@ -43,6 +43,16 @@ export function IconDownload(props: IconProps) {
   )
 }
 
+/** An arrow out of a tray: upload a file by hand. */
+export function IconUpload(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 14.5v-11m-4.5 4.5 4.5-4.5 4.5 4.5" />
+      <path d="M4 15.5v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+    </Svg>
+  )
+}
+
 /** An arrow out of a box: a page on another site. */
 export function IconExternal(props: IconProps) {
   return (
@@ -127,6 +137,16 @@ export function IconChevron(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="m6 9 6 6 6-6" />
+    </Svg>
+  )
+}
+
+/** An i in a circle: more about something, on hover. */
+export function IconInfo(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5M12 8h.01" />
     </Svg>
   )
 }

@@ -40,6 +40,9 @@ describe('Money', () => {
   it('pads single-digit silver and copper with a non-breaking space when padded', () => {
     expect(shown(render(<Money copper={10003} padded />).container)).toBe('1 _0 _3')
     expect(shown(render(<Money copper={1234567} padded />).container)).toBe('123 45')
+    // the leading coin is never padded: there is no larger coin to line up with
+    expect(shown(render(<Money copper={540} padded />).container)).toBe('5 40')
+    expect(shown(render(<Money copper={3} padded />).container)).toBe('3')
   })
 
   it('shows a cost in red without a sign', () => {

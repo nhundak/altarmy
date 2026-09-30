@@ -17,6 +17,8 @@ export type Selling = z.infer<typeof sellingSchema>
 export const setupSchema = z.object({
   aim: aimSchema,
   profession: z.string().optional(),
+  /** Which of the profession's holders are being skilled up; unset: all of them. */
+  characters: z.array(z.string()).optional(),
   selling: sellingSchema.optional(),
 })
 export type Setup = z.infer<typeof setupSchema>
@@ -112,29 +114,52 @@ export function professionsOf(
 export const hasEnchanter = (group: CharacterGroup | undefined): boolean =>
   group?.characters.some((c) => c.professions.some((p) => p.name.toLowerCase() === 'enchanting')) ?? false
 
+const professionIn = (professions: readonly ProfessionChoice[], name: string | undefined) =>
+  professions.find((p) => p.name.toLowerCase() === name?.toLowerCase())
+
 /**
  * The first question still to answer, or null when the setup is complete. Skilling up needs characters (their
- * professions) and a profession someone on the selected realm has (`professions`), so it asks again when those change.
+ * professions) and a profession someone on the selected realm has (`professions`), one of the characters picked among
+ * them, so it asks again when those change.
  */
-export function nextStep(setup: Setup | null, professions: readonly string[], noCharacters: boolean): Step | null {
+export function nextStep(
+  setup: Setup | null,
+  professions: readonly ProfessionChoice[],
+  noCharacters: boolean,
+): Step | null {
   if (setup === null) return 'aim'
   if (setup.aim === 'skill') {
     if (noCharacters) return 'aim'
-    const wanted = setup.profession?.toLowerCase()
-    if (wanted === ANY_PROFESSION) return professions.length ? null : 'profession'
-    return professions.some((p) => p.toLowerCase() === wanted) ? null : 'profession'
+    if (setup.profession?.toLowerCase() === ANY_PROFESSION) return professions.length ? null : 'profession'
+    return skillCrafters(setup, professions).length ? null : 'profession'
   }
   return setup.selling ? null : 'selling'
 }
 
-/** `setup` with `step` answered `value` (the key of the card picked). */
-export function answer(setup: Setup | null, step: Step, value: string): Setup {
+/**
+ * The characters being skilled up: the picked profession's holders on the realm (those picked, if some were), every
+ * holder of a profession for any profession, none when making gold. Only they do a recipe's final craft.
+ */
+export function skillCrafters(setup: Setup | null, professions: readonly ProfessionChoice[]): string[] {
+  if (setup?.aim !== 'skill' || !setup.profession) return []
+  const holders =
+    setup.profession === ANY_PROFESSION
+      ? professions.flatMap((p) => p.holders)
+      : (professionIn(professions, setup.profession)?.holders ?? [])
+  const picked = setup.profession === ANY_PROFESSION ? undefined : setup.characters
+  const names = holders.map((h) => h.name).filter((n) => !picked || picked.includes(n))
+  return [...new Set(names)].sort()
+}
+
+/** `setup` with `step` answered `value` (the key of the card picked); a profession with the `characters` picked among
+ * its holders (unset: all of them). */
+export function answer(setup: Setup | null, step: Step, value: string, characters?: string[]): Setup {
   const base: Setup = setup ?? { aim: step === 'profession' ? 'skill' : 'gold' }
   switch (step) {
     case 'aim':
       return { ...base, aim: aimSchema.parse(value) }
     case 'profession':
-      return { ...base, profession: value }
+      return { ...base, profession: value, characters }
     case 'selling':
       return { ...base, selling: sellingSchema.parse(value) }
   }
@@ -197,9 +222,15 @@ export function stripParts(setup: Setup): { step: Step; text: string }[] {
   if (setup.aim === 'skill') {
     parts.push({ step: 'aim', text: 'Skilling up' })
     if (setup.profession) {
+      const who = setup.profession !== ANY_PROFESSION && setup.characters
       parts.push({
         step: 'profession',
-        text: setup.profession === ANY_PROFESSION ? 'Any profession' : setup.profession,
+        text:
+          setup.profession === ANY_PROFESSION
+            ? 'Any profession'
+            : who
+              ? `${setup.profession} (${who.join(', ')})`
+              : setup.profession,
       })
     }
     return parts

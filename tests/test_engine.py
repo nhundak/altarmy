@@ -26,6 +26,7 @@ from altarmy_profit.engine import (
     ah_net,
     can_learn,
     can_skill_up,
+    expected_skill_ups,
     plan_steps,
     recipes_for_characters,
     recipes_for_professions,
@@ -520,6 +521,7 @@ def maul_market(
     include_trivial: bool = True,
     extra_items: Sequence[Item] = (),
     time: TimeModel | None = None,
+    skill_crafters: frozenset[str] = frozenset(),
 ) -> Market:
     items = {
         SCRAPS: Item(SCRAPS, "Ruined Leather Scraps", stack_size=20),
@@ -529,7 +531,15 @@ def maul_market(
         **{i.id: i for i in extra_items},
     }
     prices = {SCRAPS: 5, LEATHER: leather_price, COPPER: 10}
-    return Market(items, list(recipes), prices, crafters=crafters, include_trivial=include_trivial, time=time)
+    return Market(
+        items,
+        list(recipes),
+        prices,
+        crafters=crafters,
+        include_trivial=include_trivial,
+        time=time,
+        skill_crafters=skill_crafters,
+    )
 
 
 def test_intermediate_is_crafted_by_another_character_and_mailed() -> None:
@@ -711,6 +721,30 @@ def test_skill_up_chance_falls_from_yellow_to_grey() -> None:
     assert skill_up_chance(replace(recipe, trivial_low=55), smith(54)) == 1.0  # orange up to grey
 
 
+def test_expected_skill_ups_fall_as_the_skill_rises() -> None:
+    recipe = Recipe(
+        1, "Rough Sharpening Stone", 1, skill_name="Blacksmithing", trivial_low=15, trivial_high=55
+    )
+
+    def smith(rank: int, cap: int = 75) -> Crafter:
+        return Crafter("Smith", (("Blacksmithing", rank, cap),), frozenset())
+
+    assert expected_skill_ups(recipe, smith(35), 1) == 0.5
+    # each expected point takes 1/40 off the next craft's chance: 0.5 + 0.4875 + 0.4753...
+    assert expected_skill_ups(recipe, smith(35), 3) == pytest.approx(0.5 + 0.4875 + 0.4875 * 39 / 40)
+    assert expected_skill_ups(recipe, smith(35), 1000) == pytest.approx(20)  # never past grey
+    assert expected_skill_ups(recipe, smith(1), 5) == 5  # orange: a point a craft
+    # orange up to 15, then yellow: 14 sure points, then 0.975 of the rest
+    assert expected_skill_ups(recipe, smith(1), 15) == pytest.approx(14 + 1)
+    assert expected_skill_ups(recipe, smith(1), 16) == pytest.approx(15 + 39 / 40)
+    assert expected_skill_ups(recipe, smith(1, cap=10), 50) == 9  # stops at the profession's cap
+    assert expected_skill_ups(recipe, smith(33, cap=35), 50) == pytest.approx(2)
+    assert expected_skill_ups(recipe, smith(55), 10) == 0.0  # grey
+    unknown = replace(recipe, trivial_low=0, trivial_high=0)
+    assert expected_skill_ups(unknown, smith(70), 10) == 5  # a point a craft up to the cap
+    assert expected_skill_ups(recipe, None, 7) == 7  # nobody's skill is known
+
+
 GREY_AT_60 = replace(MAUL_RECIPE, trivial_low=40, trivial_high=60)
 VETERAN = crafter("Veteran", ("Blacksmithing", 75), ("Leatherworking", 50), known=frozenset({950, 951}))
 
@@ -736,13 +770,70 @@ def test_without_characters_trivial_recipes_are_kept() -> None:
     assert must_evaluate(m, GREY_AT_60).crafter == ""
 
 
+NOVICE_SMITH = crafter("Novice", ("Blacksmithing", 45), known=frozenset({951}))
+
+
+def test_the_lowest_skilled_of_the_characters_skilled_up_makes_it() -> None:
+    # Veteran would make it most profitably (no mail), but the lowest skill among those chosen wins
+    m = maul_market(
+        SMITHY, LEATHERY, VETERAN, recipes=(CURE, GREY_AT_60), skill_crafters=frozenset({"Smithy", "Veteran"})
+    )
+    assert must_evaluate(m, GREY_AT_60).crafter == "Smithy"
+    chosen = frozenset({"Smithy", "Novice"})
+    m = maul_market(SMITHY, NOVICE_SMITH, LEATHERY, recipes=(CURE, GREY_AT_60), skill_crafters=chosen)
+    res = must_evaluate(m, GREY_AT_60)
+    assert res.crafter == "Novice"
+    assert res.tree.inputs[0].crafter == "Leathery"  # sub-crafts still by anyone
+
+
+def test_a_recipe_that_skills_up_none_of_the_chosen_characters_is_dropped() -> None:
+    # grey for Veteran; Smithy could skill up on it but isn't being skilled up
+    m = maul_market(
+        SMITHY,
+        LEATHERY,
+        VETERAN,
+        recipes=(CURE, GREY_AT_60),
+        include_trivial=False,
+        skill_crafters=frozenset({"Veteran"}),
+    )
+    assert m.evaluate(GREY_AT_60) is None
+    assert GREY_AT_60 not in [r.recipe for r in m.rank(min_profit=-(10**9))]
+    # skipping the grey one, the lowest who can still skill up
+    m = maul_market(
+        SMITHY,
+        LEATHERY,
+        VETERAN,
+        recipes=(CURE, GREY_AT_60),
+        include_trivial=False,
+        skill_crafters=frozenset({"Veteran", "Smithy"}),
+    )
+    assert must_evaluate(m, GREY_AT_60).crafter == "Smithy"
+
+
+def test_a_final_crafter_picked_by_the_user_makes_it_even_if_grey() -> None:
+    m = maul_market(SMITHY, LEATHERY, VETERAN, recipes=(CURE, GREY_AT_60))
+    assert must_evaluate(m, GREY_AT_60).crafter == "Veteran"  # most profitable
+    picked = Market(
+        m.items, m.recipes, m.prices, crafters=m.crafters, include_trivial=False, final_crafter="Smithy"
+    )
+    assert must_evaluate(picked, GREY_AT_60).crafter == "Smithy"
+    grey = Market(
+        m.items, m.recipes, m.prices, crafters=m.crafters, include_trivial=False, final_crafter="Veteran"
+    )
+    assert must_evaluate(grey, GREY_AT_60).crafter == "Veteran"
+    nobody = Market(m.items, m.recipes, m.prices, crafters=m.crafters, final_crafter="Leathery")
+    assert nobody.evaluate(GREY_AT_60) is None  # no blacksmith
+
+
 def test_result_carries_the_crafters_skill_up_chance() -> None:
     both = must_evaluate(maul_market(SMITHY, LEATHERY, VETERAN, recipes=(CURE, GREY_AT_60)), GREY_AT_60)
     assert (both.crafter, both.skill_chance, both.skill_ups) == ("Veteran", 0.0, 0.0)  # grey for them
     skillups = maul_market(SMITHY, LEATHERY, VETERAN, recipes=(CURE, GREY_AT_60), include_trivial=False)
     res = skillups.evaluate(GREY_AT_60, crafts=4)
     assert res is not None
-    assert (res.crafter, res.skill_chance, res.skill_ups) == ("Smithy", 0.5, 2.0)  # 50 of 40..60
+    assert (res.crafter, res.skill_chance) == ("Smithy", 0.5)  # 50 of 40..60
+    # each expected point takes 1/20 off the next craft's chance
+    assert res.skill_ups == pytest.approx(0.5 * (1 - 0.95**4) / 0.05)
     anyone = must_evaluate(maul_market(recipes=(CURE, GREY_AT_60)), GREY_AT_60)
     assert (anyone.skill_chance, anyone.skill_ups) == (1.0, 1.0)  # nobody's skill is known
 

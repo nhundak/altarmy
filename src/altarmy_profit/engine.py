@@ -141,6 +141,34 @@ def skill_up_chance(recipe: Recipe, crafter: Crafter) -> float:
     return (recipe.trivial_high - skill[0]) / (recipe.trivial_high - recipe.trivial_low)
 
 
+def expected_skill_ups(recipe: Recipe, crafter: Crafter | None, crafts: int) -> float:
+    """The skill points `crafter` can expect from `crafts` crafts of `recipe` in a row: craft by craft, each
+    at the chance for the skill the crafts before it are expected to have reached (`skill_up_chance`'s
+    rule), never past grey or the profession's cap. While the recipe is yellow or green the chance falls
+    linearly with the skill, so the expected skill gives the expected chance exactly; only a session
+    crossing into yellow or reaching the cap is approximate. Without a crafter every craft counts."""
+    if crafter is None:
+        return float(crafts)
+    if not can_skill_up(recipe, crafter):
+        return 0.0
+    skill = crafter.skill(recipe.skill_name)
+    if skill is None:  # can_skill_up allows a recipe without thresholds to anyone
+        return float(crafts)
+    rank, cap = skill
+    limit = min(cap, recipe.trivial_high) if recipe.trivial_high else cap
+    level = float(rank)
+    for _ in range(crafts):
+        if level >= limit - 1e-9:
+            break
+        chance = (
+            1.0
+            if not recipe.trivial_high or level < recipe.trivial_low
+            else (recipe.trivial_high - level) / (recipe.trivial_high - recipe.trivial_low)
+        )
+        level += min(chance, limit - level)
+    return level - rank
+
+
 @dataclass(frozen=True)
 class DisenchantRow:
     item_class: int
@@ -281,7 +309,8 @@ class Result:
     crafter: str = ""  # who does the final craft; "" if no characters are known
     sell_options: list[SellOption] = field(default_factory=list)  # each exit's best profit, best first
     bonus_output: float = 0.0  # expected extra units from the crafter's talents (Master Chef), all crafts
-    skill_chance: float = 0.0  # that the final craft gives `crafter` a skill point (1 without characters)
+    skill_chance: float = 0.0  # that the first craft gives `crafter` a skill point (1 without characters)
+    skill_ups: float = 0.0  # the skill points `crafter` can expect from all `crafts` (`expected_skill_ups`)
     # With a time model: the estimated play time per craft (what the plan was chosen by), and the per-craft
     # seconds of the sale and of mailing the output to whoever sells it
     seconds: float = field(default=0.0, compare=False)
@@ -337,11 +366,6 @@ class Result:
     def short(self) -> int:
         """Units the plan buys on the AH beyond what is listed there (see `Node.short`)."""
         return _short(self.tree)
-
-    @property
-    def skill_ups(self) -> float:
-        """The skill points `crafter` can expect from all `crafts`."""
-        return self.skill_chance * self.crafts
 
     @property
     def profit(self) -> int:
@@ -881,6 +905,8 @@ class Market:
         exits: frozenset[str] = ALL_EXITS,
         no_ah: frozenset[int] = frozenset(),
         include_trivial: bool = True,
+        skill_crafters: frozenset[str] = frozenset(),
+        final_crafter: str = "",
         mail_postage: int = MAIL_POSTAGE,
         sell_prices: dict[int, int] | None = None,
         time: TimeModel | None = None,
@@ -892,6 +918,9 @@ class Market:
         may craft it anyway (see `can_learn`). Crafts are only sold via `exits`, and items in
         `no_ah` never on the AH (they may still be bought there). Without `include_trivial` the final craft
         is only done by a character it can give a skillup (see `can_skill_up`); sub-crafts may be grey.
+        `skill_crafters` names the characters being skilled up: the final craft is then done only by one of
+        them, the lowest-skilled in the recipe's profession (sub-crafts still by anyone). A `final_crafter`
+        (the user's pick) does every final craft they can, whatever the other two say, and no other.
         `mail_postage` is the copper charged per mail attachment on this game version. Reagents are bought
         at `prices`; crafts and disenchant materials are sold at `sell_prices` (default: `prices`), which
         may be more conservative than the newest listing. With a `time` model every node and result
@@ -919,6 +948,8 @@ class Market:
         self.exits = exits
         self.no_ah = no_ah
         self.include_trivial = include_trivial
+        self.skill_crafters = skill_crafters
+        self.final_crafter = final_crafter
         self.mail_postage = mail_postage
         self.time = time
         self._per_second = time.config.time_value / 3600 if time else 0.0  # copper a second of play is worth
@@ -1126,11 +1157,20 @@ class Market:
 
     def _final_crafters(self, recipe: Recipe) -> list[str]:
         """Who may do `recipe`'s final craft: anyone who can craft it, or without `include_trivial` only
-        those it can give a skillup (everyone if no characters are known)."""
+        those it can give a skillup (everyone if no characters are known); with `skill_crafters`, only the
+        lowest-skilled of those among them; with a `final_crafter`, only them."""
         who = self._who(recipe)
-        if self.include_trivial or not self.crafters:
+        if not self.crafters:
             return who
-        return [w for w in who if can_skill_up(recipe, self._by_name[w])]
+        if self.final_crafter:
+            return [w for w in who if w == self.final_crafter]
+        if not self.include_trivial:
+            who = [w for w in who if can_skill_up(recipe, self._by_name[w])]
+        if self.skill_crafters:
+            who = [w for w in who if w in self.skill_crafters]
+            ranks = {w: (self._by_name[w].skill(recipe.skill_name) or (0, 0))[0] for w in who}
+            who = [w for w in who if ranks[w] == min(ranks.values())]
+        return who
 
     def _reputation(self, item_id: int, buyer: str) -> tuple[int, tuple[str, ...]]:
         """The best percent off `buyer`'s standings get them on `item_id` in the model's city, and the
@@ -1375,6 +1415,7 @@ class Market:
             bonus = self._bonus_output(recipe, who) * crafts
             crafter = self._by_name.get(who)
             chance = 1.0 if crafter is None else skill_up_chance(recipe, crafter)
+            ups = expected_skill_ups(recipe, crafter, crafts)
             for exit in here:
                 postage = mail if exit.postage else 0
                 revenue = round(exit.value * (recipe.output_count * crafts + bonus))
@@ -1396,6 +1437,7 @@ class Market:
                     who,
                     bonus_output=bonus,
                     skill_chance=chance,
+                    skill_ups=ups,
                     seconds=seconds,
                     sell_seconds=sell_act,
                     disenchant_seconds=(

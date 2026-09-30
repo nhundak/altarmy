@@ -34,10 +34,10 @@ describe('router', () => {
     expect(screen.getByText('at /')).toBeInTheDocument()
 
     act(() => {
-      window.history.pushState(null, '', '/upload')
+      window.history.pushState(null, '', '/profit')
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
-    expect(screen.getByText('at /upload')).toBeInTheDocument()
+    expect(screen.getByText('at /profit')).toBeInTheDocument()
   })
 
   it('leaves modified clicks to the browser', () => {

@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { Button, Group, List, Stack, Text, Title, UnstyledButton } from '@mantine/core'
+import { useState, type ReactNode } from 'react'
+import { Button, Checkbox, Group, List, Stack, Text, Title, UnstyledButton } from '@mantine/core'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   AIMS,
@@ -132,7 +132,56 @@ function Holders({ holders }: { holders: readonly Holder[] }) {
   )
 }
 
-/** The cards answering `step`, the current answer marked. */
+/**
+ * A profession card opened to ask which of its holders are skilling up: a checkbox each, `initial` checked, and Done
+ * with the ones checked (in the holders' order).
+ */
+function HolderPicker({
+  choice,
+  initial,
+  onDone,
+}: {
+  choice: ProfessionChoice
+  initial: readonly string[]
+  onDone: (names: string[]) => void
+}) {
+  const [checked, setChecked] = useState<string[]>([...initial])
+  return (
+    <div className={cards.card} data-featured>
+      <Stack gap="sm" p="lg">
+        <Title order={4}>{choice.name}</Title>
+        <Checkbox.Group label="Who is skilling up?" value={checked} onChange={setChecked}>
+          <Stack gap={6} mt={4}>
+            {choice.holders.map((h) => (
+              <Checkbox
+                key={h.name}
+                value={h.name}
+                label={
+                  <>
+                    <CharacterName name={h.name} classFile={h.classFile} /> {h.rank}/{h.maxRank}
+                  </>
+                }
+              />
+            ))}
+          </Stack>
+        </Checkbox.Group>
+        <Group justify="flex-end">
+          <Button
+            disabled={checked.length === 0}
+            onClick={() => onDone(choice.holders.map((h) => h.name).filter((n) => checked.includes(n)))}
+          >
+            Done
+          </Button>
+        </Group>
+      </Stack>
+    </div>
+  )
+}
+
+/**
+ * The cards answering `step`, the current answer marked. A profession several characters have first opens its card to
+ * pick which of them are skilling up; `onPick` then gets them (none when all are).
+ */
 function StepCards({
   step,
   setup,
@@ -144,10 +193,18 @@ function StepCards({
   setup: SetupAnswers | null
   professions: readonly ProfessionChoice[]
   unavailable: Partial<Record<Aim, string>>
-  onPick: (value: string) => void
+  onPick: (value: string, characters?: string[]) => void
 }) {
+  // The profession whose card is open to pick characters.
+  const [choosing, setChoosing] = useState<string | null>(null)
   const current: string | undefined = setup?.[step]
-  const options: { card: Card<string>; icon?: ReactNode; body?: ReactNode; reason?: string }[] =
+  const options: {
+    card: Card<string>
+    icon?: ReactNode
+    body?: ReactNode
+    reason?: string
+    choice?: ProfessionChoice
+  }[] =
     step === 'aim'
       ? AIMS.map((card) => ({ card, icon: AIM_ICONS[card.key], reason: unavailable[card.key] }))
       : step === 'selling'
@@ -159,6 +216,7 @@ function StepCards({
               ...professions.map((p) => ({
                 card: { key: p.name, title: p.name, blurb: '' },
                 body: <Holders holders={p.holders} />,
+                choice: p,
               })),
             ]
   if (!options.length) {
@@ -170,17 +228,29 @@ function StepCards({
   }
   return (
     <div className={classes.cards} role="group" aria-label={STEP_QUESTION[step]}>
-      {options.map(({ card, icon, body, reason }) => (
-        <OptionCard
-          key={card.key}
-          card={card}
-          icon={icon}
-          body={body}
-          picked={card.key === current}
-          reason={reason}
-          onPick={() => onPick(card.key)}
-        />
-      ))}
+      {options.map(({ card, icon, body, reason, choice }) =>
+        choice && choosing === card.key ? (
+          <HolderPicker
+            key={card.key}
+            choice={choice}
+            // reopened on the profession already picked: who was picked then
+            initial={
+              card.key === current && setup?.characters ? setup.characters : choice.holders.map((h) => h.name)
+            }
+            onDone={(names) => onPick(card.key, names.length === choice.holders.length ? undefined : names)}
+          />
+        ) : (
+          <OptionCard
+            key={card.key}
+            card={card}
+            icon={icon}
+            body={body}
+            picked={card.key === current}
+            reason={reason}
+            onPick={() => (choice && choice.holders.length > 1 ? setChoosing(card.key) : onPick(card.key))}
+          />
+        ),
+      )}
     </div>
   )
 }
@@ -203,7 +273,7 @@ export function Setup({
   step: Step | null
   professions: readonly ProfessionChoice[]
   unavailable?: Partial<Record<Aim, string>>
-  onPick: (step: Step, value: string) => void
+  onPick: (step: Step, value: string, characters?: string[]) => void
   onOpen: (step: Step) => void
   children?: ReactNode
 }) {
@@ -220,7 +290,7 @@ export function Setup({
               setup={setup}
               professions={professions}
               unavailable={unavailable}
-              onPick={(value) => onPick(step ?? 'aim', value)}
+              onPick={(value, characters) => onPick(step ?? 'aim', value, characters)}
             />
           </Stack>
         </motion.div>

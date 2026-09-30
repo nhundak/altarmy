@@ -133,12 +133,24 @@ function renderRows(rows: RankResult[]) {
 describe('ResultsTable', () => {
   it('formats money, ROI and the recipe as its output item, without the quantity', () => {
     renderRows([robe])
-    expect(line('_2 _0')).toBeInTheDocument()
+    expect(line('2 _0')).toBeInTheDocument()
     expect(screen.getByText('67%')).toBeInTheDocument()
     expect(line('Green Robe')).toBeInTheDocument()
     expect(screen.queryByRole('columnheader', { name: /^Output/ })).not.toBeInTheDocument()
-    expect(line('_3 _0')).toBeInTheDocument()
+    expect(line('3 _0')).toBeInTheDocument()
     expect(screen.queryByText(/Purchase/)).not.toBeInTheDocument()
+  })
+
+  it('shows the investment, profit, per hour, ROI, recipe and sell via columns for making gold', () => {
+    renderWithProviders(<ResultsTable results={[robe]} items={items} rankBy="rate" onSetFavorite={() => {}} />)
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent?.replace(/[▲▼]/g, ''))
+    expect(headers).toEqual(['', 'Investment', 'Net profit', 'Per hour', 'ROI', 'Recipe', 'Crafter', 'Sell via', ''])
+  })
+
+  it('shows per skill up in place of per hour when skilling up', () => {
+    renderWithProviders(<ResultsTable results={[robe]} items={items} rankBy="skill" />)
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent?.replace(/[▲▼]/g, ''))
+    expect(headers).toEqual(['', 'Investment', 'Net profit', 'Per skill up', 'ROI', 'Recipe', 'Crafter', 'Sell via'])
   })
 
   it('names the characters who know the recipe', () => {
@@ -148,6 +160,22 @@ describe('ResultsTable', () => {
     expect(screen.getByText('Tailor Guy')).toBeInTheDocument()
     expect(screen.getByText('not learned')).toBeInTheDocument()
     expect(screen.getByText('anyone')).toBeInTheDocument()
+  })
+
+  it('shows only the chosen crafter, in class colours, then how many others know the recipe', () => {
+    renderWithProviders(
+      <ResultsTable
+        results={[
+          { ...robe, crafters: ['Alice', 'Tailor Guy'] },
+          { ...robe, recipe_id: 101, crafters: ['Alice', 'Bob', 'Tailor Guy'] },
+        ]}
+        items={items}
+        classes={{ 'Tailor Guy': 'MAGE', Alice: 'ROGUE' }}
+      />,
+    )
+    expect(line('Tailor Guy (and 1 other)')).toHaveAttribute('title', 'Tailor Guy, Alice')
+    expect(line('Tailor Guy (and 2 others)')).toHaveAttribute('title', 'Tailor Guy, Alice, Bob')
+    expect(screen.getAllByText('Tailor Guy')[0]).toHaveAttribute('data-class', 'MAGE')
   })
 
   it('expands a row into a flow chart of the reagents, crafts and sale', async () => {
@@ -274,22 +302,6 @@ describe('ResultsTable', () => {
     expect(line('Smithy: Sell 1x Green Robe to a vendor (Gross 5 0 · Net 2 0)')).toBeInTheDocument()
   })
 
-  it('shows only the chosen crafter, in class colours, then how many others know the recipe', () => {
-    renderWithProviders(
-      <ResultsTable
-        results={[
-          { ...robe, crafters: ['Alice', 'Tailor Guy'] },
-          { ...robe, recipe_id: 101, crafters: ['Alice', 'Bob', 'Tailor Guy'] },
-        ]}
-        items={items}
-        classes={{ 'Tailor Guy': 'MAGE', Alice: 'ROGUE' }}
-      />,
-    )
-    expect(line('Tailor Guy (and 1 other)')).toHaveAttribute('title', 'Tailor Guy, Alice')
-    expect(line('Tailor Guy (and 2 others)')).toHaveAttribute('title', 'Tailor Guy, Alice, Bob')
-    expect(screen.getAllByText('Tailor Guy')[0]).toHaveAttribute('data-class', 'MAGE')
-  })
-
   it('puts the character on its own line in flow chart nodes', async () => {
     const named: RankResult = { ...robe, tree: { ...robe.tree, crafter: 'Smithy' } }
     renderRows([named])
@@ -336,17 +348,17 @@ describe('ResultsTable', () => {
     it('keeps the given order until a column is picked', () => {
       renderWithProviders(<ResultsTable results={rows} items={items} />)
       expect(order()).toEqual(['Bolt', 'Axe', 'Cape'])
-      expect(header('Profit')).toHaveAttribute('aria-sort', 'none')
+      expect(header('Net profit')).toHaveAttribute('aria-sort', 'none')
     })
 
     it('sorts numbers largest first, then reverses on a second click', async () => {
       renderWithProviders(<ResultsTable results={rows} items={items} />)
-      await sortBy('Cost')
+      await sortBy('Investment')
       expect(order()).toEqual(['Axe', 'Cape', 'Bolt'])
-      expect(header('Cost')).toHaveAttribute('aria-sort', 'descending')
-      await sortBy('Cost')
+      expect(header('Investment')).toHaveAttribute('aria-sort', 'descending')
+      await sortBy('Investment')
       expect(order()).toEqual(['Bolt', 'Cape', 'Axe'])
-      expect(header('Cost')).toHaveAttribute('aria-sort', 'ascending')
+      expect(header('Investment')).toHaveAttribute('aria-sort', 'ascending')
     })
 
     it('sorts text alphabetically first', async () => {
@@ -355,16 +367,16 @@ describe('ResultsTable', () => {
       expect(order()).toEqual(['Axe', 'Bolt', 'Cape'])
       await sortBy('Sell via')
       expect(order()).toEqual(['Bolt', 'Cape', 'Axe'])
-      expect(screen.getByText('auction')).toBeInTheDocument()
+      expect(screen.getByText('Auction')).toBeInTheDocument()
       expect(header('Recipe')).toHaveAttribute('aria-sort', 'none')
     })
 
     it('keeps favorites first and marks them, whatever the sort', async () => {
       renderWithProviders(<ResultsTable results={rows} items={items} favorites={new Set([3])} />)
       expect(order()).toEqual(['Cape', 'Bolt', 'Axe'])
-      await sortBy('Cost')
+      await sortBy('Investment')
       expect(order()).toEqual(['Cape', 'Axe', 'Bolt'])
-      await sortBy('Cost')
+      await sortBy('Investment')
       expect(order()).toEqual(['Cape', 'Bolt', 'Axe'])
       expect(screen.getAllByLabelText('Favorite')).toHaveLength(1)
       expect(screen.getByRole('button', { name: 'Details for Cape' }).closest('tr')?.className).toMatch(/favorite/)
@@ -373,9 +385,9 @@ describe('ResultsTable', () => {
 
     it('sorts profit ascending to surface the losers', async () => {
       renderWithProviders(<ResultsTable results={rows} items={items} />)
-      await sortBy('Profit')
+      await sortBy('Net profit')
       expect(order()).toEqual(['Bolt', 'Cape', 'Axe'])
-      await sortBy('Profit')
+      await sortBy('Net profit')
       expect(order()).toEqual(['Axe', 'Cape', 'Bolt'])
     })
   })
@@ -445,15 +457,16 @@ describe('ResultsTable', () => {
         recipe_id: 100,
         unlearned: 'none',
         include_trivial: true,
+        skill_crafters: [],
         exits: ['vendor', 'ah', 'disenchant'],
         choices: { 'r.1': 'ah' },
       })
-      expect(line('_1 50')).toBeInTheDocument() // the row's profit follows the changed plan
+      expect(line('1 50')).toBeInTheDocument() // the row's profit follows the changed plan
       expect(screen.getByLabelText('Changed plan')).toBeInTheDocument()
 
       await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
       expect(await screen.findByText(detail('Buy from a vendor · 1 0'))).toBeInTheDocument()
-      expect(line('_2 _0')).toBeInTheDocument()
+      expect(line('2 _0')).toBeInTheDocument()
       expect(screen.queryByLabelText('Changed plan')).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
     })
@@ -582,20 +595,20 @@ describe('ResultsTable profit per hour', () => {
     const cheap = { ...timedRobe, recipe_id: 7, recipe: 'Cap', output_name: 'Cap', profit: 10 }
     const recipes = () => screen.getAllByRole('button', { name: /^Details for / }).map((b) => b.getAttribute('aria-label'))
     renderWithProviders(<ResultsTable results={[timedRobe, cheap]} items={items} rankBy="profit" />)
-    expect(header('Profit')).toHaveAttribute('aria-sort', 'descending')
+    expect(header('Net profit')).toHaveAttribute('aria-sort', 'descending')
     expect(recipes()).toEqual(['Details for Green Robe', 'Details for Cap'])
-    await userEvent.click(screen.getByRole('button', { name: 'Sort by Profit' })) // flips the server's order
-    expect(header('Profit')).toHaveAttribute('aria-sort', 'ascending')
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Net profit' })) // flips the server's order
+    expect(header('Net profit')).toHaveAttribute('aria-sort', 'ascending')
     expect(recipes()).toEqual(['Details for Cap', 'Details for Green Robe'])
     await userEvent.click(screen.getByRole('button', { name: 'Sort by Per hour' }))
     expect(header('Per hour')).toHaveAttribute('aria-sort', 'descending')
-    expect(header('Profit')).toHaveAttribute('aria-sort', 'none')
+    expect(header('Net profit')).toHaveAttribute('aria-sort', 'none')
   })
 
   it('shows a ranking per hour on the Per hour column', () => {
     renderWithProviders(<ResultsTable results={[timedRobe]} items={items} rankBy="rate" />)
     expect(header('Per hour')).toHaveAttribute('aria-sort', 'descending')
-    expect(header('Profit')).toHaveAttribute('aria-sort', 'none')
+    expect(header('Net profit')).toHaveAttribute('aria-sort', 'none')
   })
 
   it('shows a ranking by skill on its own column, with the chance on hover', async () => {
@@ -603,15 +616,15 @@ describe('ResultsTable profit per hour', () => {
     const grey: RankResult = { ...timedRobe, recipe_id: 7, recipe: 'Cap', output_name: 'Cap', skill_chance: 0, skill_ups: 0 }
     renderWithProviders(<ResultsTable results={[chancy, grey]} items={items} rankBy="skill" />)
     expect(header('Per skill up')).toHaveAttribute('aria-sort', 'descending')
-    expect(header('Profit')).toHaveAttribute('aria-sort', 'none')
-    const cell = line('-_1 20')
-    expect(cell).toHaveAttribute('title', '25% chance of a skill point per craft · 2.5 expected from 10 crafts')
+    expect(header('Net profit')).toHaveAttribute('aria-sort', 'none')
+    const cell = line('-1 20')
+    expect(cell).toHaveAttribute('title', '25% chance of a skill point on the first craft ·2.5 expected from 10 crafts')
     expect(line('–')).toBeInTheDocument() // the grey one gives none
     // a losing recipe reads as a loss in every number column
     const color = (el: HTMLElement) => el.closest<HTMLElement>('[style]')?.style.color.match(/--mantine-color-(\w+)-text/)?.[1]
     expect(color(line('-50%'))).toBe('red')
     expect(color(within(cell).getByTitle('silver'))).toBe('red')
-    expect(color(within(line('-_3 _0')).getByTitle('silver'))).toBe('red') // the profit
+    expect(color(within(line('-3 _0')).getByTitle('silver'))).toBe('red') // the profit
     await userEvent.click(screen.getByRole('button', { name: 'Sort by Per skill up' }))
     expect(header('Per skill up')).toHaveAttribute('aria-sort', 'ascending')
   })
@@ -645,7 +658,9 @@ describe('ResultsTable profit per hour', () => {
     renderRows([timedRobe])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     const text = (t: string) => screen.findByText((_, el) => el?.tagName === 'P' && shown(el) === t)
-    expect(await text('10 crafts: cost 3 0 · profit 2 0 · 4 min 10 s · 1 23 45/hr')).toBeInTheDocument()
+    expect(await text('10 crafts: Investment 3 0 · Net profit 2 0')).toBeInTheDocument()
+    expect(screen.getByText((_, el) => el?.tagName === 'P' && shown(el) === 'Estimated time: 4 min 10 s (Net profit 1 23 45/hr)')).toBeInTheDocument()
+    expect(screen.getByText(`Estimated skill points gained: ${timedRobe.skill_ups}`)).toBeInTheDocument()
     expect(screen.queryByText(/^A batch of|^By city/)).not.toBeInTheDocument() // the controls say it now
     expect(screen.getByText(/No vendor in Orgrimmar sells Coarse Thread/)).toBeInTheDocument()
     expect(screen.queryByText(/can't be crafted there/)).not.toBeInTheDocument()

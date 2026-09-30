@@ -8,7 +8,6 @@ import cards from './Cards.module.css'
 import { IconDownload, IconExternal } from './icons'
 import { ADDON_SHOWCASE, ShowcaseCard } from './Landing'
 import { ManageTab } from './ManageTab'
-import { UploadTab } from './UploadTab'
 
 function Page({ title, lead, children }: { title: string; lead?: ReactNode; children: ReactNode }) {
   return (
@@ -130,25 +129,14 @@ export function AddonPage() {
                 allows one full scan every 15 minutes.
               </List.Item>
               <List.Item>
-                Log out or type <Code>/reload</Code>, then upload AltArmy_TBC.lua on the{' '}
-                <Anchor {...linkProps('/upload')}>Upload page</Anchor>, or let Alt Army Sync send it.
+                Log out or type <Code>/reload</Code>, then upload AltArmy_TBC.lua with Upload your scan under
+                Realm on the <Anchor {...linkProps('/profit')}>Profit page</Anchor>, or let Alt Army Sync send it.
               </List.Item>
             </List>
           </Stack>
         </Stack>
       </motion.div>
     </Stack>
-  )
-}
-
-export function UploadPage() {
-  return (
-    <Page
-      title="Upload"
-      lead="Bring in characters and auction prices from WoW's saved files, and see which realms need a scan."
-    >
-      <UploadTab />
-    </Page>
   )
 }
 

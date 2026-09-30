@@ -42,6 +42,7 @@ altarmy-profit ingest                          # downloads DB2 tables into cache
 altarmy-profit ingest --build latest           # same, for the newest WoW: Forever build on wago.tools
 altarmy-profit --game-version tbc ingest       # TBC Anniversary's instead
 altarmy-profit ingest --only-if-new            # the newest build, unless already loaded (the site's daily job)
+altarmy-profit ingest --only-if-new --force    # reload the newest build even if loaded (add --force to the job's args)
 altarmy-profit serve                           # the API (and the built front end) on http://127.0.0.1:8600
 altarmy-profit watch --server URL --key KEY    # upload the addon files to the site as WoW rewrites them
 altarmy-profit migrate                         # migrate the database now (each deploy runs this once)
@@ -73,8 +74,8 @@ fastest of the faction's cities, but vendors charge a character less where their
 better (10%), so a city can also win by being cheaper.
 
 The site, **Alt Army**, is a React app (`frontend/`) in front of a FastAPI JSON API. It serves WoW: Forever
-only (the API serves both games). The header links **Upload**, **Manage** and **Get the Addon** (a
-placeholder page for now); each is its own page (`/upload`, `/manage`, `/addon`).
+only (the API serves both games). The header links **Manage** and **Get the Addon**; each is its own page (`/manage`,
+`/addon`).
 
 The main page opens with a welcome banner and three ways to start:
 

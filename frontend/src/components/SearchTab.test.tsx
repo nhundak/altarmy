@@ -5,6 +5,7 @@ import { robeResult } from '../test/results'
 import { characters, status, withEnchanter } from '../test/status'
 import { GUEST, mockApi, renderWithProviders } from '../test/utils'
 import { SearchTab } from './SearchTab'
+import { SYNC_DOWNLOAD } from './SyncCard'
 
 // Tests that only check paging swap the results table for one line per row: rendering 150 full rows
 // in jsdom takes seconds on a loaded machine.
@@ -90,7 +91,64 @@ describe('SearchTab', () => {
     renderWithProviders(<SearchTab />, GUEST)
     const freshness = await screen.findByRole('status', { name: 'Price freshness' })
     expect(freshness).toHaveTextContent(/Auction house prices are from a scan \d+ days ago\./)
-    expect(screen.getByRole('link', { name: 'Upload your scan' })).toHaveAttribute('href', '/upload')
+  })
+
+  it('uploads a scan right in the realm card', async () => {
+    const appended = new Map<string, unknown>()
+    vi.stubGlobal(
+      'FormData',
+      class extends FormData {
+        override append(name: string, value: string | Blob, fileName?: string): void {
+          appended.set(name, value)
+          super.append(name, typeof value === 'string' ? value : `file ${fileName}`)
+        }
+      },
+    )
+    const imported = { kind: 'altarmy', detail: '', characters: 1, groups: [], realms: [] }
+    const fetch = mockApi({
+      '/api/status': status(),
+      '/api/characters': characters,
+      '/api/coverage': [house('Classic Beta PvE', 'Horde')],
+      '/api/rank': noResults,
+      '/api/uploads': imported,
+    })
+    renderWithProviders(<SearchTab />)
+    const card = await screen.findByRole('region', { name: 'Realm' })
+    await userEvent.click(await within(card).findByRole('button', { name: 'Upload your scan' }))
+    expect(within(card).getByRole('heading', { name: 'Upload your scan' })).toBeInTheDocument()
+    expect(within(card).queryByRole('combobox', { name: 'Realm and faction' })).not.toBeInTheDocument()
+    expect(within(card).getByRole('button', { name: 'Auto-import' })).toBeInTheDocument()
+    const file = new File(['AltArmyTBC_Data = {}'], 'AltArmy_TBC.lua')
+    await userEvent.upload(card.querySelector<HTMLInputElement>('input[type="file"]')!, file)
+    await userEvent.click(within(card).getByRole('button', { name: 'Upload' }))
+    expect(await within(card).findByText(/Imported 1 characters/)).toBeInTheDocument()
+    const post = fetch.mock.calls.map(([r]) => r).find((r) => r.method === 'POST')
+    expect(new URL(post!.url).pathname).toBe('/api/uploads')
+    expect(appended.get('file')).toBe(file)
+    // The Alt Army Sync mention opens the same steps as the Auto-import card.
+    await userEvent.click(within(card).getByRole('button', { name: 'Alt Army Sync' }))
+    expect(await within(card).findByRole('heading', { name: 'Auto-import' })).toBeInTheDocument()
+    expect(within(card).getByRole('link', { name: 'Download Alt Army Sync' })).toHaveAttribute('href', SYNC_DOWNLOAD)
+    await userEvent.click(within(card).getByRole('button', { name: 'Continue' }))
+    expect(await within(card).findByRole('combobox', { name: 'Realm and faction' })).toBeInTheDocument()
+    vi.unstubAllGlobals()
+  })
+
+  it("opens Alt Army Sync's steps from the upload's Auto-import card", async () => {
+    mockApi({
+      '/api/status': status(),
+      '/api/characters': characters,
+      '/api/coverage': [house('Classic Beta PvE', 'Horde')],
+      '/api/rank': noResults,
+    })
+    renderWithProviders(<SearchTab />)
+    const card = await screen.findByRole('region', { name: 'Realm' })
+    await userEvent.click(await within(card).findByRole('button', { name: 'Upload your scan' }))
+    await userEvent.click(within(card).getByRole('button', { name: 'Auto-import' }))
+    expect(await within(card).findByRole('heading', { name: 'Auto-import' })).toBeInTheDocument()
+    // The manual upload is now the card beside it.
+    await userEvent.click(within(card).getByRole('button', { name: 'Upload your scan' }))
+    expect(await within(card).findByRole('heading', { name: 'Upload your scan' })).toBeInTheDocument()
   })
 
   it('points hosted users to the Upload page for prices, with nothing to rank until a realm has them', async () => {
@@ -178,15 +236,61 @@ describe('SearchTab', () => {
     expect(rank?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant']) // no auction house
     expect(screen.getByRole('radio', { name: 'Include recipes I can train soon (20 skill points)' })).toBeChecked()
     expect(rank?.searchParams.getAll('professions')).toEqual(['Tailoring'])
+    expect(rank?.searchParams.getAll('skill_crafters')).toEqual(['Tailor Guy']) // the only tailor, picked at once
     expect(localStorage.getItem('altarmy-profit.search.includeTrivial')).toBe('false')
     expect(localStorage.getItem('altarmy-profit.search.minProfit')).toBe('null')
     expect(localStorage.getItem('altarmy-profit.search.minRoi')).toBe('null')
     const summary = await screen.findByRole('group', { name: 'Your setup' })
     expect(within(summary).getAllByRole('button').map((b) => b.textContent)).toEqual(['Skilling up', 'Tailoring'])
 
-    await userEvent.click(screen.getByRole('button', { name: 'Advanced Filters' }))
-    await userEvent.click(screen.getByRole('checkbox', { name: /Include Trivial Recipes/ }))
+    const skillUps = screen.getByRole('checkbox', { name: 'Show only recipes that can give a skill up' })
+    expect(skillUps).toBeChecked()
+    await userEvent.click(skillUps)
     await waitFor(() => expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('include_trivial')).toBe('true'))
+  })
+
+  it('asks which of several tailors are skilling up before searching', async () => {
+    withSetup({ aim: 'skill' })
+    const [first, ...rest] = characters.groups
+    const seamstress = {
+      name: 'Seamstress',
+      class_file: 'PRIEST',
+      level: 20,
+      professions: [{ name: 'Tailoring', rank: 30, max_rank: 75, recipes: 1 }],
+      talents: [],
+      vendor_discounts: [],
+    }
+    const tailors = { ...characters, groups: [{ ...first!, characters: [...first!.characters, seamstress] }, ...rest] }
+    const fetch = mockApi({ '/api/status': status(), '/api/characters': tailors, '/api/rank': noResults })
+    renderWithProviders(<SearchTab />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Tailoring' }))
+    const who = screen.getByRole('group', { name: 'Who is skilling up?' })
+    const guy = within(who).getByRole('checkbox', { name: /Tailor Guy 50\/75/ })
+    const sea = within(who).getByRole('checkbox', { name: /Seamstress 30\/75/ })
+    expect(guy).toBeChecked()
+    expect(sea).toBeChecked()
+    const done = screen.getByRole('button', { name: 'Done' })
+    await userEvent.click(guy)
+    await userEvent.click(sea)
+    expect(done).toBeDisabled()
+    expect(urls(fetch, '/api/rank')).toEqual([])
+    await userEvent.click(sea)
+    await userEvent.click(done)
+    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
+    expect(urls(fetch, '/api/rank')[0]?.searchParams.getAll('skill_crafters')).toEqual(['Seamstress'])
+    const summary = await screen.findByRole('group', { name: 'Your setup' })
+    await userEvent.click(within(summary).getByRole('button', { name: 'Tailoring (Seamstress)' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Tailoring' }))
+    expect(screen.getByRole('checkbox', { name: /Seamstress/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Tailor Guy/ })).not.toBeChecked()
+  })
+
+  it('asks for the profession again when the characters picked for it are gone', async () => {
+    withSetup({ aim: 'skill', profession: 'Tailoring', characters: ['Retired'] })
+    const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<SearchTab />)
+    expect(await screen.findByRole('group', { name: 'Which profession?' })).toBeInTheDocument()
+    expect(urls(fetch, '/api/rank')).toEqual([])
   })
 
   it('offers only professions that have recipes', async () => {
@@ -358,7 +462,7 @@ describe('SearchTab', () => {
     )
     expect(screen.getByText("Rarely the best profit, but it's always available.")).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: 'Include recipes I can train soon (20 skill points)' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: /Include Trivial Recipes/ })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Show only recipes that can give a skill up' })).toBeChecked()
     await waitFor(() => expect(realm()).toHaveValue('Classic Beta PvE (Horde) · 1 character'))
     expect(screen.queryByRole('button', { name: /^Characters/ })).not.toBeInTheDocument()
     await screen.findByText(/No recipes match these filters/)
@@ -382,26 +486,64 @@ describe('SearchTab', () => {
       config,
       defaults: config,
     }
+    // The server answers with what it stored.
+    const saved: object[] = []
     const fetch = mockApi({
       '/api/status': status(),
       '/api/characters': characters,
       '/api/rank': noResults,
-      '/api/time': settings,
+      '/api/time': async (_: URL, request: Request) => {
+        if (request.method !== 'PUT') return settings
+        const body = (await request.json()) as { city: string | null; config: object }
+        saved.push(body)
+        return { ...settings, city: body.city, config: { ...config, ...body.config } }
+      },
     })
     renderWithProviders(<SearchTab />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Time assumptions' }))
+    // Crafts per session is one of the search's options; the rest are under Time assumptions.
     const batch = await screen.findByLabelText('Crafts per session')
-    expect(screen.getByRole('combobox', { name: 'Craft Location' })).toHaveValue('Wherever pays best')
-    expect(screen.getByLabelText('Open a mail')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Time assumptions' })).toHaveAttribute('aria-expanded', 'false')
     const ranked = urls(fetch, '/api/rank').length
     fireEvent.change(batch, { target: { value: '5' } })
+    await waitFor(() => expect(saved).toEqual([{ city: null, config: { batch: 5 } }]), { timeout: 3000 })
+    await waitFor(() => expect(urls(fetch, '/api/rank').length).toBeGreaterThan(ranked))
+
+    // A change under Time assumptions keeps the new batch (each editor saves the settings as they now are).
+    await userEvent.click(screen.getByRole('button', { name: 'Time assumptions' }))
+    expect(screen.getByRole('combobox', { name: 'Craft Location' })).toHaveValue('Wherever pays best')
     for (const gone of ['An hour of your time is worth (gold)', 'Stacks per mail', 'Disenchant (per item)', /Detour/]) {
       expect(screen.queryByLabelText(gone)).not.toBeInTheDocument()
     }
-    await waitFor(() => expect(fetch.mock.calls.some(([r]) => r.method === 'PUT')).toBe(true), { timeout: 3000 })
-    const put = fetch.mock.calls.map(([r]) => r).find((r) => r.method === 'PUT')
-    expect(await put?.json()).toEqual({ city: null, config: { batch: 5 } })
-    await waitFor(() => expect(urls(fetch, '/api/rank').length).toBeGreaterThan(ranked))
+    fireEvent.change(screen.getByLabelText('Open a mail'), { target: { value: '4' } })
+    await waitFor(() => expect(saved).toHaveLength(2), { timeout: 3000 })
+    expect(saved[1]).toEqual({ city: null, config: { batch: 5, mail_open: 4 } })
+    expect(batch).toHaveValue('5')
+  })
+
+  it('folds the options into a closed Filters section on small screens', async () => {
+    const real = window.matchMedia
+    // Only the query for "narrower than sm" matches.
+    window.matchMedia = (query: string) => ({ ...real(query), matches: query.startsWith('not all') })
+    try {
+      mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+      renderWithProviders(<SearchTab />)
+      const filters = await screen.findByRole('button', { name: 'Filters' })
+      expect(filters).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.getByRole('checkbox', { name: 'Vendor', hidden: true })).not.toBeVisible()
+      await userEvent.click(filters)
+      expect(filters).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('checkbox', { name: 'Vendor' })).toBeVisible()
+      expect(screen.getByRole('radio', { name: 'Show recipes I already know' })).toBeVisible()
+    } finally {
+      window.matchMedia = real
+    }
+  })
+
+  it('shows the options as they are on large screens', async () => {
+    mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<SearchTab />)
+    expect(await screen.findByRole('checkbox', { name: 'Vendor' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Filters' })).not.toBeInTheDocument()
   })
 
   it('opens and closes Advanced Filters, remembering it, and ignores sections that are gone', async () => {
@@ -494,20 +636,20 @@ describe('SearchTab', () => {
     const maxProfit = await screen.findByLabelText('Max profit (gold)')
     expect(maxProfit).toHaveValue('')
     for (const name of ['Vendor', 'Disenchant', 'Auction house']) {
-      expect(screen.getByRole('checkbox', { name, hidden: true })).toBeChecked()
+      expect(screen.getByRole('checkbox', { name })).toBeChecked()
     }
     expect(screen.getByRole('radio', { name: 'Show recipes I already know' })).toBeChecked()
-    const trivial = screen.getByRole('checkbox', { name: /Include Trivial Recipes/, hidden: true })
-    expect(trivial).toBeChecked()
+    const skillUps = screen.getByRole('checkbox', { name: 'Show only recipes that can give a skill up' })
+    expect(skillUps).not.toBeChecked()
     fireEvent.change(maxProfit, { target: { value: '40' } })
     expect(localStorage.getItem('altarmy-profit.search.maxProfit')).toBe('40')
     fireEvent.change(maxProfit, { target: { value: '' } })
     expect(localStorage.getItem('altarmy-profit.search.maxProfit')).toBe('null')
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Disenchant', hidden: true }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Disenchant' }))
     expect(localStorage.getItem('altarmy-profit.search.exits')).toBe('["vendor","ah"]')
     fireEvent.click(screen.getByRole('radio', { name: 'Include all recipes' }))
     expect(localStorage.getItem('altarmy-profit.search.unlearned')).toBe('"all"')
-    fireEvent.click(trivial)
+    fireEvent.click(skillUps)
     expect(localStorage.getItem('altarmy-profit.search.includeTrivial')).toBe('false')
   })
 })

@@ -330,8 +330,9 @@ class RankResult(BaseModel):
     postage: int  # copper to mail the output to whoever sells it (included in cost)
     mail_to: str  # who the output is mailed to; "" if the crafter sells it
     bonus_output: float = 0.0  # expected extra units from the crafter's talents (Master Chef), all crafts
-    skill_chance: float  # that a craft gives the crafter a skill point (1 without characters)
-    skill_ups: float  # the skill points the crafter can expect from all crafts (skill_chance x crafts)
+    skill_chance: float  # that the first craft gives the crafter a skill point (1 without characters)
+    # the skill points the crafter can expect from all crafts, each craft's chance falling as the skill rises
+    skill_ups: float
     exits: list[ExitOut]
     reagents: list[ItemCount]
     steps: list[StepOut]  # per character: buys, crafts (intermediates first), mails; then the sale
@@ -358,6 +359,8 @@ class EvaluateRequest(BaseModel):
     recipe_id: int
     unlearned: engine.Unlearned = "none"  # as /api/rank's
     include_trivial: bool = True  # False: only a crafter it can give a skillup does the final craft
+    skill_crafters: list[str] = []  # as /api/rank's
+    crafter: str | None = None  # who does the final craft (default: as /api/rank picks)
     exits: list[ExitKind] = list(ALL_EXIT_KINDS)
     # tree path ("r.0", "r.0.1"; "sell" for the exit) -> option key (or exit kind); unknown keys are ignored
     choices: dict[str, str]
@@ -864,6 +867,13 @@ def get_rank(
     include_trivial: Annotated[
         bool, Query(description="also recipes that can't give the crafter a skillup (grey or at the cap)")
     ] = True,
+    skill_crafters: Annotated[
+        list[str] | None,
+        Query(
+            description="the characters being skilled up: the final craft is done only by one of them, the "
+            "lowest-skilled in the recipe's profession (default: anyone)"
+        ),
+    ] = None,
     exits: Annotated[Sequence[ExitKind], Query(description="ways the crafts may be sold")] = ALL_EXIT_KINDS,
     min_cost: Annotated[int | None, Query(description="copper")] = None,
     max_cost: Annotated[int | None, Query(description="copper")] = None,
@@ -895,7 +905,8 @@ def get_rank(
     # ones share it. The bounds and the profession filter only narrow the cached, unbounded ranking, so
     # moving them never ranks again; nor does sorting it by rate or skill.
     whose = user.uid if chars else ""
-    key = (whose, tuple(chars), unlearned, include_trivial, frozenset(exits), no_ah, s.time.key)
+    skilled = frozenset(skill_crafters or ())
+    key = (whose, tuple(chars), unlearned, include_trivial, skilled, frozenset(exits), no_ah, s.time.key)
     matches = state.rank_cache.get(key, base)
     if matches is None:
         matches = service.search(
@@ -907,6 +918,7 @@ def get_rank(
             no_ah,
             include_trivial,
             s.time,
+            skilled,
         )
         state.rank_cache.put(key, base, matches)
     if sort != "profit":
@@ -950,6 +962,8 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
         body.include_trivial,
         time,
         body.copies or s.time.config.batch,
+        frozenset(body.skill_crafters),
+        body.crafter or "",
     )
     if r is None:
         raise HTTPException(404, "These characters can't craft and sell that recipe.")

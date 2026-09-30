@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Button, Group, Text } from '@mantine/core'
 import { useInterval } from '@mantine/hooks'
 import { age, parseUtc } from '../lib/age'
-import { linkProps } from '../lib/router'
 import { IconWarning } from './icons'
 
 /** Prices older than this are called out: a scan since then would give better results. */
@@ -13,9 +12,15 @@ export const HOW_TO_SCAN = 'At the auction house, press Alt Army scan, then uplo
 
 /**
  * How fresh the selected auction house's prices are: when its newest scan was made, in a warning colour once
- * that is over an hour ago (or there is no scan at all), and the way to bring in a newer scan: the Upload page.
+ * that is over an hour ago (or there is no scan at all), and the button that opens an upload of a newer scan (`onUpload`).
  */
-export function PriceFreshness({ lastScan }: { lastScan: string | null }) {
+export function PriceFreshness({
+  lastScan,
+  onUpload,
+}: {
+  lastScan: string | null
+  onUpload: () => void
+}) {
   // Re-render each minute, so the age keeps up while the page stays open.
   const [now, setNow] = useState(() => new Date())
   useInterval(() => setNow(new Date()), 60_000, { autoInvoke: true })
@@ -39,7 +44,7 @@ export function PriceFreshness({ lastScan }: { lastScan: string | null }) {
         {stale && <IconWarning size={16} />}
         {text}
       </Text>
-      <Button component="a" size="compact-xs" variant="light" {...linkProps('/upload')}>
+      <Button size="compact-xs" variant="light" onClick={onUpload}>
         Upload your scan
       </Button>
     </Group>

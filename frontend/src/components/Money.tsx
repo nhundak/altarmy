@@ -2,8 +2,9 @@ import { Fragment } from 'react'
 import { splitMoney } from '../lib/wow'
 import classes from './Money.module.css'
 
-/** Silver and copper padded to two characters with a non-breaking space, so coins line up in a column. */
-const pad = (unit: string, amount: number) => (unit !== 'gold' && amount < 10 ? `\u00a0${amount}` : String(amount))
+/** Silver and copper after a larger coin padded to two characters with a non-breaking space, so coins line up
+ * in a column; the leading coin is never padded. */
+const pad = (amount: number, leading: boolean) => (!leading && amount < 10 ? `\u00a0${amount}` : String(amount))
 
 /** Integer copper as in-game coins (amounts with gold, silver and copper icons). `signed` adds a `+` to gains;
  * a `cost` (money spent, positive) shows in red with no sign; `padded` lines amounts up in a table column. */
@@ -26,7 +27,7 @@ export function Money({
         <Fragment key={unit}>
           {i > 0 && ' '}
           <span className={classes.coin} data-unit={unit} title={unit}>
-            {padded ? pad(unit, amount) : amount}
+            {padded ? pad(amount, i === 0) : amount}
           </span>
         </Fragment>
       ))}

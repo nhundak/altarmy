@@ -22,17 +22,16 @@ describe('the shell by tier', () => {
       '/api/characters': characters,
       '/api/ah-blocked': { items: [], details: {} },
       '/api/favorites': { recipes: [] },
-      '/api/uploads': [],
       '/api/coverage': [],
       '/api/rank': { results: [], total: 0, items: {}, classes: {} },
     })
   const nav = () => within(screen.getByRole('navigation', { name: 'Pages' })).getAllByRole('link').map((l) => l.textContent)
 
-  it('names the site Alt Army and links the upload, manage and addon pages', async () => {
+  it('names the site Alt Army and links the manage and addon pages', async () => {
     hostedApi()
     renderApp()
     expect(screen.getByRole('link', { name: 'Alt Army, main page' })).toHaveAttribute('href', '/')
-    expect(nav()).toEqual(['Upload', 'Manage'])
+    expect(nav()).toEqual(['Manage'])
     expect(screen.queryByRole('radiogroup', { name: 'Game version' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('link', { name: 'Get the Addon' }))
     expect(await screen.findByRole('heading', { name: 'Get the Addon' })).toBeInTheDocument()
@@ -66,7 +65,7 @@ describe('the shell by tier', () => {
     hostedApi()
     window.history.pushState(null, '', '/profit')
     renderWithProviders(<App />, GUEST)
-    expect(nav()).toEqual(['Upload', 'Manage'])
+    expect(nav()).toEqual(['Manage'])
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: /^3 characters,/ })).toBeInTheDocument() // theirs, ready to rank
     expect(screen.queryByText(/guest/i)).not.toBeInTheDocument()
@@ -89,7 +88,7 @@ describe('the shell by tier', () => {
     const fetch = hostedApi()
     window.history.pushState(null, '', '/admin')
     const { unmount } = renderWithProviders(<App />, LINKED)
-    expect(nav()).toEqual(['Upload', 'Manage'])
+    expect(nav()).toEqual(['Manage'])
     expect(await screen.findByText(/This page is for site admins/)).toBeInTheDocument()
     expect(fetch.mock.calls.map(([r]) => new URL(r.url).pathname)).not.toContain('/api/admin/ingestion')
     unmount()
@@ -97,18 +96,10 @@ describe('the shell by tier', () => {
     mockApi({ '/api/status': status(), '/api/admin/ingestion': ingestion })
     window.history.pushState(null, '', '/manage')
     renderWithProviders(<App />, ADMIN)
-    expect(nav()).toEqual(['Upload', 'Manage', 'Admin'])
+    expect(nav()).toEqual(['Manage', 'Admin'])
     fireEvent.click(screen.getByRole('link', { name: 'Admin' }))
     expect(window.location.pathname).toBe('/admin')
     expect(await screen.findByRole('table', { name: 'Jobs' })).toBeInTheDocument()
-  })
-
-  it('opens the upload page', async () => {
-    hostedApi()
-    window.history.pushState(null, '', '/upload')
-    renderWithProviders(<App />, GUEST)
-    expect(await screen.findByRole('heading', { name: 'Upload' })).toBeInTheDocument()
-    expect(screen.getByText('Paste from Alt Army')).toBeInTheDocument()
   })
 })
 

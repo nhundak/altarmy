@@ -453,6 +453,11 @@ def test_cli_ingest_only_if_new_skips_a_loaded_build(
     cli.main(["--game-version", "tbc", "--db", dbfile, "ingest", "--only-if-new"])
     assert "already loaded" in capsys.readouterr().out
     assert builds == ["2.5.7.1"]
+    cli.main(["--game-version", "tbc", "--db", dbfile, "ingest", "--only-if-new", "--force"])
+    assert "Ingested TBC Anniversary build 2.5.7.1" in capsys.readouterr().out
+    assert builds == ["2.5.7.1", "2.5.7.1"]
+    with pytest.raises(SystemExit):
+        cli.main(["--game-version", "tbc", "--db", dbfile, "ingest", "--force"])
 
 
 def test_find_saved_variables(wow_root: Path) -> None:

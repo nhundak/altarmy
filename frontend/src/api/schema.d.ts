@@ -594,6 +594,8 @@ export interface components {
             city?: string | null;
             /** Copies */
             copies?: number | null;
+            /** Crafter */
+            crafter?: string | null;
             /**
              * Exits
              * @default [
@@ -612,6 +614,11 @@ export interface components {
             price_version?: number | null;
             /** Recipe Id */
             recipe_id: number;
+            /**
+             * Skill Crafters
+             * @default []
+             */
+            skill_crafters: string[];
             /**
              * Unlearned
              * @default none
@@ -1873,6 +1880,8 @@ export interface operations {
                 unlearned?: "none" | "soon" | "all";
                 /** @description also recipes that can't give the crafter a skillup (grey or at the cap) */
                 include_trivial?: boolean;
+                /** @description the characters being skilled up: the final craft is done only by one of them, the lowest-skilled in the recipe's profession (default: anyone) */
+                skill_crafters?: string[] | null;
                 /** @description ways the crafts may be sold */
                 exits?: ("vendor" | "ah" | "disenchant")[];
                 /** @description copper */

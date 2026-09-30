@@ -48,7 +48,7 @@ const session: RankResult = {
   ],
 }
 
-type Body = { recipe_id: number; choices: object; copies?: number; city?: string }
+type Body = { recipe_id: number; choices: object; copies?: number; city?: string; crafter?: string }
 
 /** The server: every session planned as `session`; returns the plan requests' bodies. */
 function serve() {
@@ -88,7 +88,7 @@ describe('the Steps view plans a session', () => {
     // each city says what the session makes per hour there
     expect(screen.getByRole('combobox', { name: 'City' })).toHaveValue('Orgrimmar (1g 23s 45c/hr)')
     expect(screen.queryByText(/^A batch of/)).not.toBeInTheDocument() // the summary above says it all
-    expect(screen.getByText((_, el) => el?.tagName === 'P' && shown(el)?.startsWith('20 crafts: cost') === true)).toBeInTheDocument()
+    expect(screen.getByText((_, el) => el?.tagName === 'P' && shown(el)?.startsWith('20 crafts: Investment') === true)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
   })
 
@@ -176,6 +176,40 @@ describe('the flow view plans the same session', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
     expect(screen.getByLabelText('Copies')).toHaveValue('20')
     expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
+  })
+})
+
+describe('picking who crafts it', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('offers the characters who could craft it, in class colour, and re-plans for the one picked', async () => {
+    const asked = serve()
+    renderWithProviders(
+      <ResultsTable
+        results={[{ ...session, crafters: ['Tailor Guy', 'Seamstress'] }]}
+        items={items}
+        classes={{ 'Tailor Guy': 'MAGE', Seamstress: 'PRIEST' }}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    const who = screen.getByRole('combobox', { name: 'Crafter' })
+    expect(who).toHaveValue('Tailor Guy')
+    expect(who).toHaveAttribute('data-class', 'MAGE')
+    await userEvent.click(who)
+    const option = await screen.findByRole('option', { name: 'Seamstress' })
+    expect(option.querySelector('[data-class="PRIEST"]')).not.toBeNull()
+    await userEvent.click(option)
+    await waitFor(() => expect(asked.at(-1)).toMatchObject({ crafter: 'Seamstress' }))
+    expect(asked.at(-1)).not.toHaveProperty('copies')
+    await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
+    expect(screen.getByRole('combobox', { name: 'Crafter' })).toHaveValue('Tailor Guy')
+    expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
+  })
+
+  it('has no pick when only one character could craft it', async () => {
+    serve()
+    await openRow()
+    expect(screen.queryByRole('combobox', { name: 'Crafter' })).not.toBeInTheDocument()
   })
 })
 

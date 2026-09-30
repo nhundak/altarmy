@@ -1,10 +1,10 @@
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, type ReactNode, useEffect, useId, useMemo, useState } from 'react'
 import {
   Accordion,
   Alert,
   Button,
+  Card,
   Checkbox,
-  Flex,
   Group,
   Loader,
   NumberInput,
@@ -13,7 +13,11 @@ import {
   SimpleGrid,
   Stack,
   Text,
+  Tooltip,
+  useMantineTheme,
+  VisuallyHidden,
 } from '@mantine/core'
+import { useMediaQuery } from '@mantine/hooks'
 import { z } from 'zod'
 import {
   type Exit,
@@ -41,6 +45,7 @@ import {
   nextStep,
   presetsFor,
   professionsOf,
+  skillCrafters,
   rankProfessions,
   rankSort,
   setupSchema,
@@ -48,11 +53,13 @@ import {
   type Step,
 } from '../lib/setup'
 import { useStoredState } from '../lib/storage'
-import { HOW_TO_SCAN, PriceFreshness } from './PriceFreshness'
+import { IconInfo } from './icons'
+import { HOW_TO_SCAN } from './PriceFreshness'
 import { PriceSignal } from './PriceSignal'
+import { RealmCard } from './RealmCard'
 import { ResultsTable } from './ResultsTable'
 import { Setup } from './Setup'
-import { TimeSettingsPanel } from './TimeSettingsPanel'
+import { CraftsPerSession, TimeSettingsPanel } from './TimeSettingsPanel'
 
 /** Results per page: the first request asks for this many, and each "Show more" for this many more. */
 const PAGE = 50
@@ -72,6 +79,57 @@ const EXITS: { value: Exit; label: string; description: string }[] = [
       "Sometimes the best profit, but for some items there will be no buyers. You'll need to take an active role in figuring out what sells reliably.",
   },
 ]
+/**
+ * One way to sell: its checkbox, with the explanation in a tooltip beside it (and as the checkbox's description for
+ * screen readers), so the options stay one short row.
+ */
+function SellVia({ value, label, description }: (typeof EXITS)[number]) {
+  const id = useId()
+  return (
+    <Group gap={6} wrap="nowrap">
+      <Checkbox value={value} label={label} aria-describedby={id} />
+      <VisuallyHidden id={id}>{description}</VisuallyHidden>
+      <Tooltip label={description} multiline w={280} withArrow events={{ hover: true, focus: false, touch: true }}>
+        <Text component="span" c="dimmed" lh={0} aria-hidden="true">
+          <IconInfo size={15} />
+        </Text>
+      </Tooltip>
+    </Group>
+  )
+}
+
+/**
+ * The options' card. Where its columns stack (below the `sm` breakpoint) it is a Filters section, closed until opened,
+ * so the results are not pushed a screen down; its content stays mounted either way.
+ */
+function Options({ children }: { children: ReactNode }) {
+  const theme = useMantineTheme()
+  // the complement of SimpleGrid's own `sm` query, so the section folds exactly where the columns stack
+  const small = useMediaQuery(`not all and (min-width: ${theme.breakpoints.sm})`)
+  const [open, setOpen] = useState<string | null>(null)
+  if (!small) {
+    return (
+      <Card withBorder padding="lg" component="section" aria-label="Options">
+        {children}
+      </Card>
+    )
+  }
+  return (
+    <Accordion
+      variant="separated"
+      transitionDuration={0}
+      keepMountedMode="display-none"
+      value={open}
+      onChange={setOpen}
+    >
+      <Accordion.Item value="filters">
+        <Accordion.Control>Filters</Accordion.Control>
+        <Accordion.Panel>{children}</Accordion.Panel>
+      </Accordion.Item>
+    </Accordion>
+  )
+}
+
 const UNLEARNED: { value: Unlearned; label: string }[] = [
   { value: 'none', label: 'Show recipes I already know' },
   { value: 'soon', label: 'Include recipes I can train soon (20 skill points)' },
@@ -147,6 +205,7 @@ const Results = memo(function Results({
         params={{
           unlearned: filters.unlearned,
           includeTrivial: filters.includeTrivial,
+          skillCrafters: filters.skillCrafters,
           exits: filters.exits,
           version,
         }}
@@ -207,8 +266,8 @@ function Range({ name, min, max, onMin, onMax, step }: RangeProps) {
 
 /**
  * The search: first the setup's questions (what the user is after, then a profession, or how to sell and what a session
- * ), then the realm and faction, and with a realm the price freshness, filters, time assumptions and ranked
- * recipes. The answers decide the ranking's order and preset the filters they are about; they are remembered per user,
+ * ), then the realm card (realm and faction, price freshness, an upload in place) and, with a realm, the options
+ * (recipes, skill-ups only, sell via, crafts per session), advanced filters, time assumptions and ranked recipes. The answers decide the ranking's order and preset the filters they are about; they are remembered per user,
  * like the Profit page's start.
  */
 export function SearchTab() {
@@ -249,9 +308,16 @@ export function SearchTab() {
   const [maxProfit, setMaxProfit] = useStoredState('altarmy-profit.search.maxProfit', bound, null)
   const [minRoi, setMinRoi] = useStoredState('altarmy-profit.search.minRoi', bound, 0)
   const [maxRoi, setMaxRoi] = useStoredState('altarmy-profit.search.maxRoi', bound, null)
+  const groups = characters.data?.groups ?? []
+  // Show the realm being switched to while the server imports its prices.
+  const selection = select.isPending ? select.variables : status.data?.selection
+  const group = groups.find((g) => selection && toKey(g) === toKey(selection))
+  const professions = professionsOf(group, professionNames)
   // By value, not the stored object: a new but equal setup must not count as new filters (that resets paging).
   const sort = rankSort(setup)
   const [profession = null] = rankProfessions(setup)
+  // Joined, for the same reason (character names never hold a comma).
+  const skilled = skillCrafters(setup, professions).join(',')
   const filters = useMemo<Filters>(
     () => ({
       unlearned,
@@ -264,16 +330,17 @@ export function SearchTab() {
       minRoi: scaled(minRoi, (p) => p / 100),
       maxRoi: scaled(maxRoi, (p) => p / 100),
       professions: profession === null ? [] : [profession],
+      skillCrafters: skilled ? skilled.split(',') : [],
       sort,
     }),
-    [unlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, sort, profession],
+    [unlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, sort, profession, skilled],
   )
   const [picks, setPicks] = useState(0)
   const debouncedFilters = useSettled(filters, 300, picks)
 
   /** Answer one question, writing the filters that answer presets (the user may change them afterwards). */
-  const pick = (step: Step, value: string) => {
-    const next = answer(setup, step, value)
+  const pick = (step: Step, value: string, characters?: string[]) => {
+    const next = answer(setup, step, value, characters)
     setSetup(next)
     setEditing(null)
     setPicks((n) => n + 1)
@@ -295,10 +362,6 @@ export function SearchTab() {
     )
   }
 
-  const groups = characters.data?.groups ?? []
-  // Show the realm being switched to while the server imports its prices.
-  const selection = select.isPending ? select.variables : status.data.selection
-  const group = groups.find((g) => selection && toKey(g) === toKey(selection))
   // Without characters on the selected realm, every recipe is ranked for one unnamed crafter.
   const browsing = group === undefined
   const options = realmOptions(groups, coverage.data ?? [])
@@ -315,15 +378,8 @@ export function SearchTab() {
   // The selection's auction house and its newest scan; undefined while the coverage is still loading.
   const house = coverage.data?.find((c) => c.auction_house_id === status.data.auction_house_id)
   const lastScan = coverage.data && status.data.auction_house_id !== null ? (house?.last_scan ?? null) : undefined
-  const professions = professionsOf(group, professionNames)
-  const step =
-    editing ??
-    nextStep(
-      setup,
-      professions.map((p) => p.name),
-      noCharacters,
-    )
-  const realmSelect = (
+  const step = editing ?? nextStep(setup, professions, noCharacters)
+  const realmSelect = (size?: 'md') => (
     <Select
       label="Realm and faction"
       placeholder="No realm has prices yet"
@@ -331,7 +387,8 @@ export function SearchTab() {
       value={selection ? toKey(selection) : null}
       onChange={(key) => key && select.mutate(fromKey(key))}
       allowDeselect={false}
-      style={{ maxWidth: 420 }}
+      size={size}
+      maw={size ? 480 : 420}
     />
   )
 
@@ -347,36 +404,50 @@ export function SearchTab() {
         unavailable={noCharacters ? { skill: 'Import your characters first, so we know which skills they have.' } : {}}
       >
         {/* Which professions there are depends on the realm: it can be changed right there. */}
-        {step === 'profession' && realmSelect}
+        {step === 'profession' && realmSelect()}
       </Setup>
       {step === null && (
         <>
-          <Flex
-            direction={{ base: 'column', sm: 'row' }}
-            justify="space-between"
-            align={{ base: 'stretch', sm: 'flex-start' }}
-            gap="md"
-          >
-            <Stack gap="xs" style={{ flex: 1 }}>
-              {realmSelect}
-              {selection && lastScan !== undefined && (
-                <PriceFreshness lastScan={lastScan} />
-              )}
-            </Stack>
-            {!browsing && (
-              <Radio.Group
-                label="Recipes"
-                value={unlearned}
-                onChange={(v) => setUnlearned(UNLEARNED.find((o) => o.value === v)?.value ?? 'none')}
-              >
-                <Stack mt={4} gap="xs">
-                  {UNLEARNED.map((o) => (
-                    <Radio key={o.value} value={o.value} label={o.label} />
-                  ))}
-                </Stack>
-              </Radio.Group>
-            )}
-          </Flex>
+          <RealmCard select={realmSelect('md')} lastScan={selection ? lastScan : undefined} />
+          {selection && (
+            <Options>
+              <SimpleGrid cols={{ base: 1, sm: browsing ? 2 : 3 }} spacing="xl">
+                {!browsing && (
+                  <Stack gap="md">
+                    <Radio.Group
+                      label="Recipes"
+                      value={unlearned}
+                      onChange={(v) => setUnlearned(UNLEARNED.find((o) => o.value === v)?.value ?? 'none')}
+                    >
+                      <Stack mt={4} gap="xs">
+                        {UNLEARNED.map((o) => (
+                          <Radio key={o.value} value={o.value} label={o.label} />
+                        ))}
+                      </Stack>
+                    </Radio.Group>
+                    {/* Stored as includeTrivial, the API's parameter: checked means trivial recipes are left out. */}
+                    <Checkbox
+                      label="Show only recipes that can give a skill up"
+                      checked={!includeTrivial}
+                      onChange={(e) => setIncludeTrivial(!e.currentTarget.checked)}
+                    />
+                  </Stack>
+                )}
+                <Checkbox.Group
+                  label="Sell via"
+                  value={exits}
+                  onChange={(v) => setExits(ALL_EXITS.filter((e) => v.includes(e)))}
+                >
+                  <Stack mt={4} gap="xs">
+                    {EXITS.map((e) => (
+                      <SellVia key={e.value} {...e} />
+                    ))}
+                  </Stack>
+                </Checkbox.Group>
+                <CraftsPerSession />
+              </SimpleGrid>
+            </Options>
+          )}
           {selection && !browsing && !hasEnchanter(group) && (
             <Alert color="yellow" title="Nobody here can disenchant">
               None of your characters on {selection.realm} has Enchanting, so nothing can be disenchanted. Levelling
@@ -409,25 +480,6 @@ export function SearchTab() {
                   <Accordion.Control>Advanced Filters</Accordion.Control>
                   <Accordion.Panel>
                     <Stack>
-                      {!browsing && (
-                        <Checkbox
-                          label="Include Trivial Recipes"
-                          description="Uncheck to show only recipes that can still give the crafter a skill point."
-                          checked={includeTrivial}
-                          onChange={(e) => setIncludeTrivial(e.currentTarget.checked)}
-                        />
-                      )}
-                      <Checkbox.Group
-                        label="Sell via"
-                        value={exits}
-                        onChange={(v) => setExits(ALL_EXITS.filter((e) => v.includes(e)))}
-                      >
-                        <Stack mt={4} gap="xs">
-                          {EXITS.map((e) => (
-                            <Checkbox key={e.value} value={e.value} label={e.label} description={e.description} />
-                          ))}
-                        </Stack>
-                      </Checkbox.Group>
                       <SimpleGrid cols={{ base: 1, sm: 3, lg: 1 }}>
                         <Range
                           name="cost (gold)"
@@ -478,7 +530,7 @@ export function SearchTab() {
             (debouncedFilters.exits.length ? (
               <Results filters={debouncedFilters} browsing={browsing} />
             ) : (
-              <Alert>Pick at least one way to sell under Advanced Filters.</Alert>
+              <Alert>Pick at least one way to sell under Sell via.</Alert>
             ))}
         </>
       )}

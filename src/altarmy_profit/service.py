@@ -162,6 +162,7 @@ def search(
     no_ah: frozenset[int] = frozenset(),
     include_trivial: bool = True,
     time: TimeModel | None = None,
+    skill_crafters: frozenset[str] = frozenset(),
 ) -> list[Result]:
     """Rank what the characters can craft, selling only via `exits` (never items in `no_ah` on the AH),
     and keep what `filters` accepts. Chains sub-craft through any of their recipes too. Most profitable
@@ -170,7 +171,8 @@ def search(
     `unlearned` adds recipes nobody has learned: those they can train soon, or all of their professions'
     (see `engine.can_learn`). Disenchanting needs
     an enchanter among them, plus postage unless one of the recipe's crafters enchants. Without
-    `include_trivial` the final craft is only done by a character it can give a skillup. With a `time`
+    `include_trivial` the final craft is only done by a character it can give a skillup, and with
+    `skill_crafters` by the lowest-skilled of those characters (see `Market`). With a `time`
     model each result is a session of its `batch` crafts (as `evaluate` plans one, see `session_model`),
     timed, and its time value weighs play time in every plan; without one, a single craft. Left to pick
     the city (`time.fastest`), each recipe is planned where it pays best per hour (`best_of`): vendors
@@ -182,7 +184,10 @@ def search(
         time = session_model(time, (), None)
     min_profit = filters.min_profit if filters.min_profit is not None else -(10**18)
     models, differ = _models(base, chars, time)
-    markets = [_market(base, chars, unlearned, exits, no_ah, include_trivial, model) for model in models]
+    markets = [
+        _market(base, chars, unlearned, exits, no_ah, include_trivial, model, skill_crafters)
+        for model in models
+    ]
     ranked = markets[0].rank(min_profit=min_profit, crafts=crafts)
     if time is not None and len(markets) > 1:
         # Only recipes that can involve an item the cities price differently are planned in the others too.
@@ -203,15 +208,19 @@ def evaluate(
     include_trivial: bool = True,
     time: TimeModel | None = None,
     crafts: int = 1,
+    skill_crafters: frozenset[str] = frozenset(),
+    crafter: str = "",
 ) -> Result | None:
     """One recipe with the user's `choices` of sources and exit, for `crafts` crafts at once (timed by a
     `session_model`: with `time`'s batch as `crafts` and no city, as `search` ranks it); None if the
-    characters can't make or sell it."""
+    characters can't make or sell it. A `crafter` does the final craft (see `Market`'s `final_crafter`)."""
     models, differ = _models(base, chars, time)
     found = []
     same = False  # whether the recipe costs the same in every city: nothing in it is priced differently
     for n, model in enumerate(models):
-        market = _market(base, chars, unlearned, exits, no_ah, include_trivial, model)
+        market = _market(
+            base, chars, unlearned, exits, no_ah, include_trivial, model, skill_crafters, crafter
+        )
         recipe = next((r for r in market.recipes if r.id == recipe_id), None)
         if recipe is None:
             return None
@@ -337,6 +346,8 @@ def _market(
     no_ah: frozenset[int],
     include_trivial: bool,
     time: TimeModel | None = None,
+    skill_crafters: frozenset[str] = frozenset(),
+    crafter: str = "",
 ) -> Market:
     """`base` narrowed to what the characters can craft (see `search`), with them as the crafters. Without
     characters every recipe counts, crafted by one unnamed character (so nothing is mailed)."""
@@ -353,6 +364,8 @@ def _market(
         exits=exits,
         no_ah=no_ah,
         include_trivial=include_trivial,
+        skill_crafters=skill_crafters,
+        final_crafter=crafter,
         mail_postage=base.mail_postage,
         sell_prices=base.sell_prices,
         time=time,

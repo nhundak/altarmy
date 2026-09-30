@@ -49,10 +49,14 @@ def _database(args: argparse.Namespace) -> db.Database:
 
 def cmd_ingest(args: argparse.Namespace) -> None:
     v = _version(args)
+    if args.force and not args.only_if_new:
+        sys.exit("--force goes with --only-if-new (without it, ingest always reloads)")
     with jobs.recording(args.database, "ingest", v.key) as run:
-        if args.only_if_new:  # the hosted daily job: the newest build, unless it is already loaded
+        if args.only_if_new:  # the hosted daily job: the newest build, unless already loaded (or --force)
             with args.database.begin() as conn:
-                build, updated, stats = service.update_game_data(conn, v, Path(args.cache), only_if_new=True)
+                build, updated, stats = service.update_game_data(
+                    conn, v, Path(args.cache), only_if_new=not args.force
+                )
             run.say(
                 f"Ingested {v.label} build {build}: {stats}"
                 if updated
@@ -262,6 +266,11 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--cache", default="cache")
     s.add_argument(
         "--only-if-new", action="store_true", help="load the latest build, unless the database already has it"
+    )
+    s.add_argument(
+        "--force",
+        action="store_true",
+        help="with --only-if-new: reload the latest build even if the database already has it",
     )
     s.set_defaults(fn=cmd_ingest)
 

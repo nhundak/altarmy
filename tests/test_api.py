@@ -374,7 +374,8 @@ def test_rank_by_skill_reports_the_chance_of_a_skill_point(client: TestClient, p
     # Tailor Guy has Tailoring 50: the robe is yellow from 30 and grey from 60
     (r,) = client.get("/api/rank", params={"sort": "skill"}).json()["results"]
     assert r["skill_chance"] == pytest.approx(1 / 3)
-    assert r["skill_ups"] == pytest.approx(10 / 3)  # a session of the default batch of 10
+    # a session of the default batch of 10, each expected point taking 1/30 off the next craft's chance
+    assert r["skill_ups"] == pytest.approx(10 * (1 - (29 / 30) ** 10))
     one_craft(client)
     (r,) = client.get("/api/rank", params={"sort": "skill", "professions": ["Tailoring"]}).json()["results"]
     assert r["skill_ups"] == pytest.approx(1 / 3)
@@ -396,6 +397,32 @@ def test_rank_and_evaluate_without_trivial_recipes(client: TestClient, priced: C
     body = {"recipe_id": r["recipe_id"], "choices": {}}
     assert client.post("/api/evaluate", json=body).status_code == 200
     assert client.post("/api/evaluate", json={**body, "include_trivial": False}).status_code == 404
+
+
+def test_rank_and_evaluate_for_the_characters_skilled_up(client: TestClient, priced: Connection) -> None:
+    def tailor(name: str, rank: int) -> Character:
+        return Character(
+            "Realm", name, "Horde", "MAGE", 60, (Profession("Tailoring", rank, 150, frozenset({900})),)
+        )
+
+    service.replace_characters(priced, ME, FOREVER, [tailor("High", 55), tailor("Low", 40)])
+    set_prices(priced, {1: 20, 2: 100}, realm="Realm")
+    params: dict[str, bool | list[str]] = {"include_trivial": False, "skill_crafters": ["High", "Low"]}
+    (r,) = client.get("/api/rank", params=params).json()["results"]
+    assert r["crafter"] == "Low"  # the lowest-skilled of those chosen
+    (r,) = client.get("/api/rank", params={**params, "skill_crafters": ["High"]}).json()["results"]
+    assert r["crafter"] == "High"
+    body = {"recipe_id": r["recipe_id"], "choices": {}, "include_trivial": False}
+    got = client.post("/api/evaluate", json={**body, "skill_crafters": ["High"]}).json()
+    assert got["result"]["crafter"] == "High"
+    assert (
+        client.post("/api/evaluate", json={**body, "skill_crafters": ["Low"]}).json()["result"]["crafter"]
+        == "Low"
+    )
+    # the user picks who does the final craft
+    got = client.post("/api/evaluate", json={**body, "skill_crafters": ["Low"], "crafter": "High"}).json()
+    assert got["result"]["crafter"] == "High"
+    assert client.post("/api/evaluate", json={**body, "crafter": "Nobody"}).status_code == 404
 
 
 def test_characters_and_selection(client: TestClient, db2_paths: dict[str, Path], conn: Connection) -> None:
@@ -948,7 +975,7 @@ def test_serves_the_front_end_for_its_own_pages(
     (dist / "index.html").write_text("<html>app</html>")
     (dist / "assets" / "app.js").write_text("js")
     client = make_client(database, game_versions, dist)
-    for page in ("/addon", "/profit", "/upload", "/manage", "/admin"):
+    for page in ("/addon", "/profit", "/manage", "/admin"):
         assert client.get(page).text == "<html>app</html>"
     assert client.get("/assets/app.js").text == "js"
     assert client.get("/assets/missing.js").status_code == 404

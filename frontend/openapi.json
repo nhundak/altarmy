@@ -518,6 +518,17 @@
             ],
             "title": "Copies"
           },
+          "crafter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crafter"
+          },
           "exits": {
             "default": [
               "vendor",
@@ -554,6 +565,14 @@
           "recipe_id": {
             "title": "Recipe Id",
             "type": "integer"
+          },
+          "skill_crafters": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Skill Crafters",
+            "type": "array"
           },
           "unlearned": {
             "default": "none",
@@ -3369,6 +3388,27 @@
               "description": "also recipes that can't give the crafter a skillup (grey or at the cap)",
               "title": "Include Trivial",
               "type": "boolean"
+            }
+          },
+          {
+            "description": "the characters being skilled up: the final craft is done only by one of them, the lowest-skilled in the recipe's profession (default: anyone)",
+            "in": "query",
+            "name": "skill_crafters",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the characters being skilled up: the final craft is done only by one of them, the lowest-skilled in the recipe's profession (default: anyone)",
+              "title": "Skill Crafters"
             }
           },
           {

@@ -1,3 +1,4 @@
+import { useDebouncedCallback } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -7,6 +8,7 @@ import {
   type Selection,
   type Status,
   type TimeConfig,
+  type TimeSettings,
 } from './client'
 import { GAME_VERSION } from '../lib/gameVersion'
 import type { Choices } from '../lib/choices'
@@ -82,6 +84,8 @@ export type RankParams = {
   unlearned: Unlearned
   /** false: only recipes that can give the crafter a skillup */
   includeTrivial: boolean
+  /** the characters being skilled up: only they do the final craft, the lowest-skilled first; empty for anyone */
+  skillCrafters: string[]
   exits: Exit[]
   minCost: number | null
   maxCost: number | null
@@ -112,6 +116,7 @@ export function useRank(params: RankParams) {
               game_version: GAME_VERSION,
               unlearned: params.unlearned,
               include_trivial: params.includeTrivial,
+              skill_crafters: params.skillCrafters.length ? params.skillCrafters : undefined,
               exits: params.exits,
               min_cost: orUndefined(params.minCost),
               max_cost: orUndefined(params.maxCost),
@@ -134,7 +139,10 @@ export function useRank(params: RankParams) {
 
 /** What `/api/evaluate` needs besides the choices: the search's settings, and the data version its results
  * came from (so a sync re-costs the user's changed plans too). */
-export type EvaluateParams = Pick<RankParams, 'unlearned' | 'includeTrivial' | 'exits'> & { version?: string }
+export type EvaluateParams = Pick<
+  RankParams,
+  'unlearned' | 'includeTrivial' | 'skillCrafters' | 'exits'
+> & { version?: string }
 
 export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: Error | null }
 
@@ -142,13 +150,13 @@ export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: E
  * previous evaluation stays in `data`. */
 export function useEvaluations(
   choices: Readonly<Record<number, Choices>>,
-  { unlearned, includeTrivial, exits, version }: EvaluateParams,
+  { unlearned, includeTrivial, skillCrafters, exits, version }: EvaluateParams,
 ): Readonly<Record<number, EvaluationState>> {
   const ids = Object.keys(choices).map(Number)
   const priceVersion = usePriceVersion()
   return useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, includeTrivial, exits, choices[id]],
+      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, includeTrivial, skillCrafters, exits, choices[id]],
       queryFn: () =>
         call(
           client.POST('/api/evaluate', {
@@ -157,6 +165,7 @@ export function useEvaluations(
               recipe_id: id,
               unlearned,
               include_trivial: includeTrivial,
+              skill_crafters: skillCrafters,
               exits,
               choices: choices[id] ?? {},
               price_version: priceVersion,
@@ -175,21 +184,23 @@ export function useEvaluations(
 }
 
 /** A recipe planned as a session of `copies` crafts (null: the time settings' batch, as ranked) in `city` (null: as
- * the time settings pick), spelled out with where to go. The user's plan `choices` apply. Only fetched while
- * `enabled`: with neither set the ranked (or re-costed) result already is this plan. The previous plan stays
+ * the time settings pick) with `crafter` doing the final craft (null: as ranked), spelled out with where to go. The
+ * user's plan `choices` apply. Only fetched while `enabled`: with none set the ranked (or re-costed) result already
+ * is this plan. The previous plan stays
  * shown while a new one loads. */
 export function useSessionPlan(
   recipeId: number,
-  { unlearned, includeTrivial, exits, version }: EvaluateParams,
+  { unlearned, includeTrivial, skillCrafters, exits, version }: EvaluateParams,
   choices: Choices | undefined,
   copies: number | null,
   city: string | null,
+  crafter: string | null,
   enabled: boolean,
 ) {
   const priceVersion = usePriceVersion()
   return useQuery({
     // under 'evaluate', so whatever re-costs plans (time settings, AH blocks) re-plans sessions too
-    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, includeTrivial, exits, choices ?? {}, 'session', copies, city],
+    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, includeTrivial, skillCrafters, exits, choices ?? {}, 'session', copies, city, crafter],
     queryFn: () =>
       call(
         client.POST('/api/evaluate', {
@@ -198,10 +209,12 @@ export function useSessionPlan(
             recipe_id: recipeId,
             unlearned,
             include_trivial: includeTrivial,
+            skill_crafters: skillCrafters,
             exits,
             choices: choices ?? {},
             copies: copies ?? undefined,
             city: city ?? undefined,
+            crafter: crafter ?? undefined,
             price_version: priceVersion,
           },
         }),
@@ -245,7 +258,7 @@ export function useAdminIngestion(enabled: boolean) {
   })
 }
 
-/** Each realm's scans (every tier): where uploads are needed, and the realms one can browse. */
+/** Each realm's scans (every tier): the realms one can browse, and how fresh their prices are. */
 export function useCoverage() {
   const version = useDataVersion()
   return useQuery({
@@ -254,31 +267,20 @@ export function useCoverage() {
   })
 }
 
-/** Your newest uploads, every game version. */
-export function useUploads() {
-  return useQuery({
-    queryKey: ['uploads'],
-    queryFn: () => call(client.GET('/api/uploads')),
-  })
-}
-
 export type UploadKind = 'altarmy' | 'auctionator'
 
 /** Import the Alt Army addon's export string (replaces your characters, like the file). */
 export function usePasteUpload() {
   const invalidate = useInvalidateAll()
-  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (text: string) => call(client.POST('/api/uploads/paste', { ...GV, body: { text } })),
     onSuccess: () => invalidate(),
-    onError: () => queryClient.invalidateQueries({ queryKey: ['uploads'] }), // it lists rejected ones too
   })
 }
 
 /** Upload an addon file; everything it can change is refetched afterwards. */
 export function useUpload() {
   const invalidate = useInvalidateAll()
-  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ kind, file }: { kind: UploadKind; file: File }) =>
       call(
@@ -297,7 +299,6 @@ export function useUpload() {
         }),
       ),
     onSuccess: () => invalidate(),
-    onError: () => queryClient.invalidateQueries({ queryKey: ['uploads'] }), // it lists rejected ones too
   })
 }
 
@@ -314,9 +315,11 @@ export function useAhBlocked() {
 }
 
 /** The user's time settings: where plans are timed, seconds per action, what an hour is worth. */
+const TIME_KEY = ['time', GAME_VERSION]
+
 export function useTime() {
   return useQuery({
-    queryKey: ['time', GAME_VERSION],
+    queryKey: TIME_KEY,
     queryFn: () => call(client.GET('/api/time', GV)),
     // Changes only through `useSetTime` (which stores the answer) or a new selection (which refetches everything).
     staleTime: Infinity,
@@ -331,11 +334,40 @@ export function useSetTime() {
     mutationFn: (body: { city: string | null; config: Partial<TimeConfig> }) =>
       call(client.PUT('/api/time', { ...GV, body: { city: body.city, config: body.config as Record<string, number> } })),
     onSuccess: (settings) => {
-      queryClient.setQueryData(['time', GAME_VERSION], settings)
+      // The cached city and config are what the user has edited since (`useEditTime`), so never older than the answer.
+      queryClient.setQueryData<TimeSettings>(TIME_KEY, (shown) =>
+        shown ? { ...settings, city: shown.city, config: shown.config } : settings,
+      )
       return queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'rank' || q.queryKey[0] === 'evaluate' })
     },
     onError: showError('Could not save the time settings'),
   })
+}
+
+/** The config's settings that differ from the defaults: what is saved. */
+function changes(config: TimeConfig, defaults: TimeConfig): Partial<TimeConfig> {
+  return Object.fromEntries(
+    Object.entries(config).filter(([key, value]) => value !== defaults[key as keyof TimeConfig]),
+  ) as Partial<TimeConfig>
+}
+
+/**
+ * Edit the time settings. The cached settings are the draft every editor shares (the options' Crafts per session and
+ * the Time assumptions panel): an edit shows at once, and a moment after the last one the settings are saved as the
+ * cache then holds them, so one editor never undoes another's change.
+ */
+export function useEditTime() {
+  const queryClient = useQueryClient()
+  const setTime = useSetTime()
+  const save = useDebouncedCallback(() => {
+    const shown = queryClient.getQueryData<TimeSettings>(TIME_KEY)
+    if (shown) setTime.mutate({ city: shown.city, config: changes(shown.config, shown.defaults) })
+  }, 600)
+  const edit = (next: { city: string | null; config: TimeConfig }) => {
+    queryClient.setQueryData<TimeSettings>(TIME_KEY, (shown) => shown && { ...shown, ...next })
+    save()
+  }
+  return { edit, saving: setTime.isPending }
 }
 
 /** Never sell an item on the AH, or allow it again; searches and re-costed plans are refetched. */

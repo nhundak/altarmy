@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Alert,
   Button,
@@ -10,11 +9,9 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
-import { useDebouncedCallback } from "@mantine/hooks";
 import type { TimeConfig, TimeSettings } from "../api/client";
-import { useSetTime, useTime } from "../api/queries";
+import { useEditTime, useTime } from "../api/queries";
 
-type Draft = { city: string | null; config: TimeConfig };
 type NumberKey = {
   [K in keyof TimeConfig]: TimeConfig[K] extends number ? K : never;
 }[keyof TimeConfig];
@@ -45,18 +42,6 @@ const ACTIONS: readonly {
   },
 ];
 
-/** The config's settings that differ from the defaults: what is saved. */
-function changes(
-  config: TimeConfig,
-  defaults: TimeConfig,
-): Partial<TimeConfig> {
-  return Object.fromEntries(
-    Object.entries(config).filter(
-      ([key, value]) => value !== defaults[key as keyof TimeConfig],
-    ),
-  ) as Partial<TimeConfig>;
-}
-
 function cityOptions(settings: TimeSettings) {
   return [
     { value: "", label: "Wherever pays best" },
@@ -64,25 +49,38 @@ function cityOptions(settings: TimeSettings) {
   ];
 }
 
+/**
+ * Crafts per session: one of the search's options, outside the Time assumptions panel, saved like the rest of the time
+ * settings.
+ */
+export function CraftsPerSession() {
+  const time = useTime();
+  const { edit } = useEditTime();
+  if (!time.data) return time.isError ? null : <Loader size="sm" />;
+  const settings = time.data;
+  return (
+    <NumberInput
+      label="Crafts per session"
+      description="More crafts at once need more gold up front and bag space, but less running around per craft."
+      value={settings.config.batch}
+      onChange={(v) => {
+        if (typeof v === "number" && v >= 1)
+          edit({ city: settings.city, config: { ...settings.config, batch: Math.round(v) } });
+      }}
+      min={1}
+      step={5}
+      allowDecimal={false}
+    />
+  );
+}
+
 /** Where plans are timed and how long each action takes; saved on the server a moment after each change. */
 export function TimeSettingsPanel() {
   const time = useTime();
-  const setTime = useSetTime();
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const save = useDebouncedCallback((d: Draft, defaults: TimeConfig) => {
-    setTime.mutate({ city: d.city, config: changes(d.config, defaults) });
-  }, 600);
+  const { edit, saving } = useEditTime();
   if (time.isPending) return <Loader size="sm" />;
   if (time.isError) return <Alert color="red">{time.error.message}</Alert>;
   const settings = time.data;
-  const shown: Draft = draft ?? {
-    city: settings.city,
-    config: settings.config,
-  };
-  const update = (next: Draft) => {
-    setDraft(next);
-    save(next, settings.defaults);
-  };
   const set = (
     key: NumberKey,
     value: number | string,
@@ -90,11 +88,16 @@ export function TimeSettingsPanel() {
     whole = false,
   ) => {
     if (typeof value !== "number" || value < min) return; // an empty or out-of-range field keeps the old value
-    update({
-      ...shown,
-      config: { ...shown.config, [key]: whole ? Math.round(value) : value },
+    edit({
+      city: settings.city,
+      config: { ...settings.config, [key]: whole ? Math.round(value) : value },
     });
   };
+  const atDefaults =
+    settings.city === null &&
+    Object.entries(settings.config).every(
+      ([key, value]) => value === settings.defaults[key as keyof TimeConfig],
+    );
   return (
     <Stack>
       {settings.cities.length ? (
@@ -102,8 +105,8 @@ export function TimeSettingsPanel() {
           label="Craft Location"
           description="Some cities have shorter runs between mailboxes, vendors, etc, and vendors charge less where your reputation is good"
           data={cityOptions(settings)}
-          value={shown.city ?? ""}
-          onChange={(v) => update({ ...shown, city: v || null })}
+          value={settings.city ?? ""}
+          onChange={(v) => edit({ city: v || null, config: settings.config })}
           allowDeselect={false}
           maw={420}
         />
@@ -113,16 +116,6 @@ export function TimeSettingsPanel() {
           switching characters, not running.
         </Text>
       )}
-      <NumberInput
-        label="Crafts per session"
-        description="Crafting multiple items at once require more up front capital and bag space, but improves average time since you don't need to run around as often."
-        value={shown.config.batch}
-        onChange={(v) => set("batch", v, 1, true)}
-        min={1}
-        step={5}
-        allowDecimal={false}
-        maw={420}
-      />
       <Text size="sm" fw={500}>
         Seconds per action
       </Text>
@@ -131,7 +124,7 @@ export function TimeSettingsPanel() {
           <NumberInput
             key={key}
             label={label}
-            value={shown.config[key]}
+            value={settings.config[key]}
             onChange={(v) => set(key, v, min, whole)}
             min={min}
             step={step}
@@ -144,15 +137,12 @@ export function TimeSettingsPanel() {
         <Button
           variant="light"
           size="xs"
-          onClick={() => update({ city: null, config: settings.defaults })}
-          disabled={
-            shown.city === null &&
-            Object.keys(changes(shown.config, settings.defaults)).length === 0
-          }
+          onClick={() => edit({ city: null, config: settings.defaults })}
+          disabled={atDefaults}
         >
           Reset to defaults
         </Button>
-        {setTime.isPending && <Loader size="xs" aria-label="Saving" />}
+        {saving && <Loader size="xs" aria-label="Saving" />}
       </Group>
     </Stack>
   );

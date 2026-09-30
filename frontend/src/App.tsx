@@ -12,7 +12,7 @@ import classes from './App.module.css'
 import { AccountControls } from './components/Account'
 import { IconMoon, IconSun } from './components/icons'
 import { carriesCard, Landing } from './components/Landing'
-import { AddonPage, AdminPage, ManagePage, UploadPage } from './components/Pages'
+import { AddonPage, AdminPage, ManagePage } from './components/Pages'
 import { ProfitPage } from './components/Profit'
 import { linkProps, previousRoute, useRoute, type Route } from './lib/router'
 import { useSession } from './lib/session'
@@ -55,7 +55,6 @@ function Header() {
       </a>
       <Group gap="md">
         <Group gap="md" component="nav" aria-label="Pages">
-          <NavLink to="/upload" label="Upload" />
           <NavLink to="/manage" label="Manage" />
           {admin && <NavLink to="/admin" label="Admin" />}
         </Group>
@@ -77,8 +76,6 @@ function Page({ route }: { route: Route }) {
     case '/profit':
       // Per user: what they chose on the Profit page is theirs.
       return <ProfitPage key={uid} />
-    case '/upload':
-      return <UploadPage />
     case '/manage':
       return <ManagePage />
     case '/admin':
