@@ -21,6 +21,8 @@ export const bought = (
   mail_to: '',
   postage: 0,
   discount: 0,
+  rep_discount: 0,
+  rep_faction: '',
   seconds: 0,
   options,
   option: source,
@@ -60,10 +62,10 @@ export const robeResult: RankResult = {
     { item_id: 2, count: 1 },
   ],
   steps: [
-    { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 10, value: -200, via: 'ah', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0'] },
-    { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 1, value: -100, via: 'vendor', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.1'] },
-    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r'] },
-    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['sell'] },
+    { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 10, value: -200, via: 'ah', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0'] },
+    { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 1, value: -100, via: 'vendor', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.1'] },
+    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r'] },
+    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['sell'] },
   ],
   tree: {
     item_id: 3,
@@ -78,6 +80,8 @@ export const robeResult: RankResult = {
     mail_to: '',
     postage: 0,
     discount: 0,
+    rep_discount: 0,
+    rep_faction: '',
     seconds: 0,
     options: [],
     option: '',
@@ -120,8 +124,8 @@ export const timedRobe: RankResult = {
     deployed: [],
   },
   cities: [
-    { city: 'Orgrimmar', total_seconds: 250, per_hour: 12345, missing: [] },
-    { city: 'Thunder Bluff', total_seconds: 60, per_hour: 51234, missing: [] },
+    { city: 'Orgrimmar', total_seconds: 250, per_hour: 12345, profit: 200, missing: [] },
+    { city: 'Thunder Bluff', total_seconds: 60, per_hour: 51234, profit: 200, missing: [] },
   ],
   best_city: 'Thunder Bluff',
 }

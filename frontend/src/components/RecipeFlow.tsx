@@ -34,6 +34,8 @@ function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap })
     made,
     source,
     discount,
+    repDiscount,
+    repFaction,
     crafter,
     isLeaf,
     path,
@@ -42,6 +44,8 @@ function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap })
     holder,
   } = data
   const spare = made - quantity
+  // the box is narrow: the faction whose reputation it is goes in the tooltip
+  const discounted = discountNote(discount, repDiscount)
   return (
     <div className={classes.node}>
       {!isLeaf && <Handle type="target" position={Position.Left} className={classes.handle} />}
@@ -56,13 +60,13 @@ function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap })
           choices={sourceChoices(options, option, holder)}
         />
       </div>
-      <div className={classes.detail}>
+      <div className={classes.detail} title={discountNote(discount, repDiscount, repFaction) || undefined}>
         {via ? (
           `Craft ${crafts}x ${via}${spare > 0 ? ` (${spare} spare)` : ''}`
         ) : (
           <>
             Buy {BUY_FROM[source] ?? source} · <Money copper={cost} cost />
-            {discount > 0 && ` · ${discountNote(discount)}`}
+            {discounted && ` · ${discounted}`}
           </>
         )}
       </div>

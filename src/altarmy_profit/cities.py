@@ -4,8 +4,8 @@ reads the spawns from vmangos (`vmangos.npcs_near`, ...) and writes data/<versio
 A preset lists the auction house (the auctioneer nearest the middle of them all, which is also the hub every
 character starts from), every mailbox, every crafting station DB2 names (anvils, forges, cooking fires,
 ...; stations new in WoW: Forever are not in vmangos and go in by hand), and every vendor selling something
-without limit, with what they sell. Its `overrides` are hand-tuned (see `timing.CityMap.from_dict`) and kept
-when the preset is regenerated.
+without limit, with what they sell and whose reputation their prices follow. Its `overrides` are hand-tuned
+(see `timing.CityMap.from_dict`) and kept when the preset is regenerated.
 
 Forever's new mailboxes aren't in vmangos either: the frellscout addon records where the player opens them,
 and `add_scouted_mailboxes` (scripts/import_mailboxes.py) adds the ones no preset has yet to its `overrides`.
@@ -21,6 +21,7 @@ from typing import Any
 
 from . import luasv
 from .ingest import ZoneBox
+from .reputation import CITY_FACTIONS
 from .timing import CityMap, station_kind
 from .vmangos import Spawn
 
@@ -86,10 +87,13 @@ def build_city(
     existing: Mapping[str, Any] | None = None,
     source: str = "vmangos",
     zones: Sequence[ZoneBox] = (),
+    factions: Mapping[int, int] | None = None,
 ) -> dict[str, Any]:
     """The preset for `spec`: its locations and vendors' stock, with `existing`'s overrides kept.
     `stations` are spell focus objects, kept if `focus_names` (DB2's SpellFocusObject) names their focus.
     `zones` (`ingest.zone_boxes`) give the city's zone map: the smallest on its map around the hub.
+    `factions` (`vmangos.vendor_factions`) give the vendors' factions: those of a city faction
+    (`reputation.CITY_FACTIONS`) are kept as `vendor_reputations`, whose standing discounts their prices.
     ValueError if the city has no auctioneer and no mailbox (nowhere to start from)."""
     locations: list[dict[str, Any]] = []
     hub = ""
@@ -106,6 +110,7 @@ def build_city(
     for kind, s in kept:
         locations.append(_location(f"{kind}:{s.guid}", kind, s))
     sold: dict[str, list[int]] = {}
+    reputations: dict[str, int] = {}
     seen: set[int] = set()
     for v in vendors:
         if v.entry in seen or not stock.get(v.entry):
@@ -113,6 +118,9 @@ def build_city(
         seen.add(v.entry)
         locations.append(_location(f"vendor:{v.entry}", "vendor", v))
         sold[f"vendor:{v.entry}"] = sorted(set(stock[v.entry]))
+        faction = (factions or {}).get(v.entry, 0)
+        if faction in CITY_FACTIONS:
+            reputations[f"vendor:{v.entry}"] = faction
     by_kind: dict[str, int] = {}
     for kind, _ in kept:
         by_kind[kind] = by_kind.get(kind, 0) + 1
@@ -131,6 +139,7 @@ def build_city(
         **({"zone": zone} if (zone := _zone(map_id, locations, hub, zones)) else {}),
         "locations": locations,
         "vendors": sold,
+        "vendor_reputations": reputations,
         "generated": {"source": source, "tele": spec.tele, "radius": spec.radius, "counts": counts},
         "overrides": dict((existing or {}).get("overrides") or {}),
     }

@@ -182,6 +182,14 @@
             },
             "title": "Talents",
             "type": "array"
+          },
+          "vendor_discounts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VendorDiscountOut"
+            },
+            "title": "Vendor Discounts",
+            "type": "array"
           }
         },
         "required": [
@@ -292,6 +300,7 @@
         "type": "object"
       },
       "CityTimingOut": {
+        "description": "The result in one city: as planned there when the cities were compared, else (the user's city is\nset, or `city` was asked for) its plan with the vendor buys at that city's prices.",
         "properties": {
           "city": {
             "title": "City",
@@ -308,6 +317,10 @@
             "title": "Per Hour",
             "type": "integer"
           },
+          "profit": {
+            "title": "Profit",
+            "type": "integer"
+          },
           "total_seconds": {
             "title": "Total Seconds",
             "type": "number"
@@ -317,6 +330,7 @@
           "city",
           "total_seconds",
           "per_hour",
+          "profit",
           "missing"
         ],
         "title": "CityTimingOut",
@@ -1421,6 +1435,16 @@
             "title": "Quantity",
             "type": "integer"
           },
+          "rep_discount": {
+            "default": 0,
+            "title": "Rep Discount",
+            "type": "integer"
+          },
+          "rep_faction": {
+            "default": "",
+            "title": "Rep Faction",
+            "type": "string"
+          },
           "seconds": {
             "default": 0.0,
             "title": "Seconds",
@@ -2016,6 +2040,16 @@
             "title": "Quantity",
             "type": "integer"
           },
+          "rep_discount": {
+            "default": 0,
+            "title": "Rep Discount",
+            "type": "integer"
+          },
+          "rep_faction": {
+            "default": "",
+            "title": "Rep Faction",
+            "type": "string"
+          },
           "seconds": {
             "default": 0.0,
             "title": "Seconds",
@@ -2500,6 +2534,25 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VendorDiscountOut": {
+        "description": "What a character's reputation takes off at a city faction's vendors.",
+        "properties": {
+          "faction": {
+            "title": "Faction",
+            "type": "string"
+          },
+          "percent": {
+            "title": "Percent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "faction",
+          "percent"
+        ],
+        "title": "VendorDiscountOut",
         "type": "object"
       },
       "VersionOut": {

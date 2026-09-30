@@ -17,7 +17,8 @@ CREATE TABLE game_tele (id INTEGER, position_x REAL, position_y REAL, position_z
 CREATE TABLE creature (guid INTEGER, id INTEGER, map INTEGER, position_x REAL, position_y REAL,
     position_z REAL, patch_min INTEGER, patch_max INTEGER, movement_type INTEGER DEFAULT 0);
 CREATE TABLE creature_template (entry INTEGER, patch INTEGER, name TEXT, npc_flags INTEGER,
-    vendor_id INTEGER);
+    vendor_id INTEGER, faction INTEGER);
+CREATE TABLE faction_template (id INTEGER, build INTEGER, faction_id INTEGER);
 CREATE TABLE npc_vendor (entry INTEGER, item INTEGER, maxcount INTEGER, condition_id INTEGER);
 CREATE TABLE npc_vendor_template (entry INTEGER, item INTEGER, maxcount INTEGER, condition_id INTEGER);
 CREATE TABLE gameobject (guid INTEGER, id INTEGER, map INTEGER, position_x REAL, position_y REAL,
@@ -35,17 +36,22 @@ def town(tmp_path: Path) -> Iterator[sqlite3.Connection]:
     conn.executescript(SCHEMA)
     conn.execute("INSERT INTO game_tele VALUES (1, ?, ?, ?, 0, 1, 'Town')", (X, Y, Z))
     conn.executemany(
-        "INSERT INTO creature_template VALUES (?,?,?,?,?)",
+        "INSERT INTO creature_template VALUES (?,?,?,?,?,?)",
         [
-            (10, 0, "Auctioneer Old", 4096, 0),
-            (10, 5, "Auctioneer Ann", 4096, 0),  # the newest patch's name wins
-            (11, 0, "Auctioneer Bob", 4096, 0),
-            (12, 0, "Auctioneer Cid", 4096, 0),
-            (20, 0, "Thread Seller", 4 | 1, 0),
-            (21, 0, "Template Seller", 4, 70),
-            (22, 0, "Rep Seller", 4, 0),  # sells only behind a condition: dropped
-            (30, 0, "Guard", 1, 0),
+            (10, 0, "Auctioneer Old", 4096, 0, 12),
+            (10, 5, "Auctioneer Ann", 4096, 0, 12),  # the newest patch's name wins
+            (11, 0, "Auctioneer Bob", 4096, 0, 12),
+            (12, 0, "Auctioneer Cid", 4096, 0, 12),
+            (20, 0, "Thread Seller", 4 | 1, 0, 35),
+            (20, 2, "Thread Seller", 4 | 1, 0, 12),  # the newest patch's faction too
+            (21, 0, "Template Seller", 4, 70, 35),
+            (22, 0, "Rep Seller", 4, 0, 875),  # sells only behind a condition: dropped
+            (30, 0, "Guard", 1, 0, 0),
         ],
+    )
+    conn.executemany(  # faction templates: Stormwind's (renumbered in a later build), the gnomes', and one
+        "INSERT INTO faction_template VALUES (?,?,?)",  # of a faction nobody has a reputation with
+        [(12, 4222, 11), (12, 5875, 72), (875, 5875, 54), (35, 5875, 31)],
     )
     conn.executemany(
         "INSERT INTO creature (guid, id, map, position_x, position_y, position_z, patch_min, patch_max)"
@@ -65,7 +71,7 @@ def town(tmp_path: Path) -> Iterator[sqlite3.Connection]:
             (12, 11, 1, X + 5, Y, Z + 500, 0, 10),  # far above (a flying ship, say)
         ],
     )
-    conn.execute("INSERT INTO creature_template VALUES (23, 0, 'Wandering Seller', 4, 0)")
+    conn.execute("INSERT INTO creature_template VALUES (23, 0, 'Wandering Seller', 4, 0, 12)")
     conn.execute(  # walks a waypoint route: nowhere to run to
         "INSERT INTO creature (guid, id, map, position_x, position_y, position_z, patch_min, patch_max,"
         " movement_type) VALUES (13, 23, 1, ?, ?, ?, 0, 10, 2)",
@@ -129,6 +135,12 @@ def test_vendor_stock_is_unlimited_and_unconditional(town: sqlite3.Connection) -
     assert vmangos.vendor_stock(town, []) == {}
 
 
+def test_vendor_factions_come_from_the_newest_templates(town: sqlite3.Connection) -> None:
+    # the guard (30) has no faction template
+    assert vmangos.vendor_factions(town, [20, 21, 22, 30]) == {20: 72, 21: 31, 22: 54}
+    assert vmangos.vendor_factions(town, []) == {}
+
+
 def build(
     town: sqlite3.Connection,
     existing: dict[str, object] | None = None,
@@ -148,6 +160,7 @@ def build(
         FOCUS,
         existing,
         zones=zones,
+        factions=vmangos.vendor_factions(town, [v.entry for v in vendors]),
     )
 
 
@@ -164,6 +177,9 @@ def test_build_city_makes_a_preset_the_timing_model_reads(town: sqlite3.Connecti
         "vendor:21",
     ]
     assert city.vendor_items == {"vendor:20": frozenset({2, 3}), "vendor:21": frozenset({2, 6})}
+    # only a city faction's vendors: nobody has a reputation with the Template Seller's faction
+    assert data["vendor_reputations"] == {"vendor:20": 72}
+    assert (city.reputation_of("vendor:20"), city.reputation_of("vendor:21")) == (72, 0)
     assert data["generated"] == {
         "source": "vmangos",
         "tele": "Town",

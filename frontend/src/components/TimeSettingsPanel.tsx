@@ -59,7 +59,7 @@ function changes(
 
 function cityOptions(settings: TimeSettings) {
   return [
-    { value: "", label: "Whatever is fastest" },
+    { value: "", label: "Wherever pays best" },
     ...settings.cities.map((c) => ({ value: c.name, label: c.name })),
   ];
 }
@@ -100,7 +100,7 @@ export function TimeSettingsPanel() {
       {settings.cities.length ? (
         <Select
           label="Craft Location"
-          description="Some cities have shorter times to run between mailboxes, vendors, etc"
+          description="Some cities have shorter runs between mailboxes, vendors, etc, and vendors charge less where your reputation is good"
           data={cityOptions(settings)}
           value={shown.city ?? ""}
           onChange={(v) => update({ ...shown, city: v || null })}

@@ -68,7 +68,9 @@ and mailbox, character switches, and running between them in a city (see Data no
 batch (default 10), so a run across town or a switch to an alt is shared by the batch. The search can rank
 by profit per hour. What an hour of play is worth makes plans weigh time as money, so a slow vendor run or
 a mail to an alt can lose to paying more at the AH. At 0 (the default) time never changes a plan, it is only
-reported. Plans are timed in the chosen city, by default whichever of the faction's cities is fastest.
+reported. Plans are timed in the chosen city, by default wherever each pays best per hour: usually the
+fastest of the faction's cities, but vendors charge a character less where their reputation is Honored or
+better (10%), so a city can also win by being cheaper.
 
 The site, **Alt Army**, is a React app (`frontend/`) in front of a FastAPI JSON API. It serves WoW: Forever
 only (the API serves both games). The header links **Upload**, **Manage** and **Get the Addon** (a
@@ -349,6 +351,13 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
   `VendorStackCount`, rounded up to whole copper. Reagents are bought from whichever of vendor and AH is
   cheaper. Forever may differ from vanilla; edit the CSV and re-run `altarmy-profit ingest` if a vendor
   item is missing or wrong.
+- **Reputation discounts.** A vendor takes 10% off for a buyer who is Honored or better with the vendor's
+  faction (vanilla's rule, `GameVersion.reputation_discounts`; it adds to the Bartering talent's discount,
+  an assumption until a vendor's price in Forever has been compared). Which faction a vendor belongs to
+  comes from vmangos too, per vendor (`vendor_reputations` in the city presets): Ironforge and Stormwind
+  have gnome vendors, Orgrimmar troll ones. The characters' standings come from the Alt Army addon, for
+  the eight city factions only. The discount needs a city preset, so there is none on TBC or in the CLI's
+  ranking. Vanilla's second 10% for PvP rank 3 is not counted.
 - Recipe output count comes from `SpellEffect.EffectBasePointsF` (Forever) or `EffectBasePoints` plus the
   average `EffectDieSides` roll (TBC); see `ingest.output_count`. Cast time comes from `SpellMisc`'s
   `CastingTimeIndex` into `SpellCastTimes`, and the station a craft needs (anvil, cooking fire, loom, ...)

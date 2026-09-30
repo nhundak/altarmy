@@ -6,7 +6,9 @@ Characters come from --altarmy if given, else from the database (user --uid's). 
 selected realm's auction house's (without a user, the freshest one). The database is DATABASE_URL, else
 data/altarmy-profit.sqlite. Prints the best of N runs per step. "timed" ranks with unlearned recipes in
 the version's first faction city (or anywhere) at 50 gold per hour of play; "by rate" then sorts those
-results by profit per hour (timing each).
+results by profit per hour (timing each). "best city" ranks them again left to pick each recipe's city: one
+ranking per group of the faction's cities whose vendors charge the characters differently (their
+reputations), so it costs up to that many times "timed".
 """
 
 import argparse
@@ -59,7 +61,7 @@ def main() -> None:
     everything = Filters(min_profit=-(10**18))
     cities = store.load_cities(v.cities_dir)
     config = timing.TimeConfig(time_value=50 * 10_000)
-    columns = f"{'learned':>16} {'+ unlearned':>16} {'timed':>16} {'by rate':>8}"
+    columns = f"{'learned':>16} {'+ unlearned':>16} {'timed':>16} {'by rate':>8} {'best city':>18}"
     print(f"{'realm (faction)':<32} {'chars':>5} {columns}")
     for g in altarmy.groups(chars):
         cells = []
@@ -73,9 +75,15 @@ def main() -> None:
         cells.append(f"{secs:6.3f}s {len(results):>5}")
         rate_secs, _ = best_of(1, partial(service.by_rate, results))
         cells.append(f"{rate_secs:6.3f}s")
+        allowed = tuple(service.faction_cities(cities, g.faction))
+        groups = service.city_groups(allowed, service.as_crafters(g.characters), market.reputation_discounts)
+        open_model = TimeModel(config, model.city, allowed)
+        picked = partial(service.search, market, g.characters, True, everything, time=open_model)
+        secs, _ = best_of(args.repeat, picked)
+        cells.append(f"{secs:6.3f}s {len(groups)} groups")
         print(
             f"{g.realm + ' (' + g.faction + ')':<32} {len(g.characters):>5} {cells[0]:>16} {cells[1]:>16}"
-            f" {cells[2]:>16} {cells[3]:>8}"
+            f" {cells[2]:>16} {cells[3]:>8} {cells[4]:>18}"
         )
     conn.close()
     database.dispose()

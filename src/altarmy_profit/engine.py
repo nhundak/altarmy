@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import Literal
 
 from . import book, timing
+from .reputation import vendor_discounts
 from .timing import Timing
 
 AH_CUT = 0.05  # auction house cut taken from the sale price (deposit ignored)
@@ -80,13 +81,15 @@ class Recipe:
 class Crafter:
     """One character who may craft or disenchant: their (profession, rank, max rank) triples and learned
     craft spells, plus what their Legacy talents do (see `talents`): a chance per profession of one extra
-    result from a craft, and a percent off vendor prices."""
+    result from a craft, and a percent off vendor prices. Their standings with the city factions take more
+    off at those factions' vendors (see `Market`'s `reputation_discounts`)."""
 
     name: str
     professions: tuple[tuple[str, int, int], ...]
     known_spells: frozenset[int]
     extra_results: tuple[tuple[str, float], ...] = ()  # (profession, chance of one extra result)
     vendor_discount: int = 0  # percent off what they buy from vendors
+    reputations: tuple[tuple[int, int], ...] = ()  # (faction id, standing 1 Hated .. 8 Exalted)
 
     def extra_chance(self, profession: str) -> float:
         """Their chance of one extra result from a `profession` craft."""
@@ -184,6 +187,7 @@ class Step:
     # the tree paths (see `Choices`) of the nodes it stands for: several when merged; "sell" for the sale
     paths: tuple[str, ...] = field(default=(), compare=False)
     discount: int = 0  # buy from a vendor: percent off from the buyer's Legacy talents (Bartering)
+    rep_discount: int = 0  # buy from a vendor: percent off for the buyer's standing with the vendor's faction
     bonus: float = 0.0  # sell: expected extra units on top of `quantity` (Master Chef), counted in `value`
     # seconds of play per craft of the recipe the step itself takes (clicks, casts); travel is in `Timing`
     seconds: float = field(default=0.0, compare=False)
@@ -230,6 +234,7 @@ class Node:
     mail_to: str = ""  # who it is mailed to (the parent's crafter); "" if not mailed
     postage: int = 0  # copper for that mail, included in cost
     discount: int = 0  # bought from a vendor: percent off the buyer gets (Bartering)
+    rep_discount: int = 0  # bought from a vendor: percent off for their standing with the vendor's faction
     short: int = 0  # bought on the AH: units more than it lists, counted at its dearest price
     # every way to get these items, cheapest first; empty for the recipe's own craft
     options: tuple[Option, ...] = field(default=(), compare=False)
@@ -247,7 +252,10 @@ class Node:
 class TimeModel:
     """How plans are timed: the user's `timing.TimeConfig` in one city, or with `fastest` in whichever of
     those cities is quickest for each plan (`city` then only guides the estimate plans are chosen by). With
-    a time value, plans are chosen by copper plus the value of the play time they take."""
+    a time value, plans are chosen by copper plus the value of the play time they take.
+
+    The city also prices vendor buys (a vendor charges a buyer by their standing with its faction), and
+    those prices are `city`'s: the `fastest` cities must charge the crafters the same (`city_prices`)."""
 
     config: timing.TimeConfig
     city: timing.CityMap
@@ -281,6 +289,11 @@ class Result:
     mail_seconds: float = field(default=0.0, compare=False)
     time_model: TimeModel | None = field(default=None, compare=False, repr=False)
     crafts: int = 1  # how many crafts cost, revenue, steps and tree are for (a session's)
+    # who -> {faction id: percent off at that faction's vendors}: where the plan's vendor prices hold
+    reputations: Mapping[str, Mapping[int, int]] = field(default_factory=dict, compare=False, repr=False)
+    # the same recipe planned in the cities that charge the crafters differently (each timed in its own
+    # cities), when this one was picked from among them; see `service.best_of`
+    alternatives: tuple[Result, ...] = field(default=(), compare=False, repr=False)
 
     @cached_property
     def steps(self) -> list[Step]:
@@ -385,6 +398,39 @@ def ah_net(price: int, cut: float = AH_CUT) -> int:
     return int(price * (1 - cut))
 
 
+def vendor_price(list_price: int, talent: int = 0, reputation: int = 0) -> int:
+    """What a vendor charges per unit after the buyer's talent (Bartering) and reputation discounts, both
+    in percent, rounded up. The two add up, as vanilla adds its reputation and rank discounts: an
+    assumption until a Forever vendor's price has been compared."""
+    return -(-list_price * max(0, 100 - talent - reputation) // 100)
+
+
+def _price_holders(
+    city: timing.CityMap, item_id: int, known: Mapping[int, int]
+) -> tuple[int, tuple[str, ...]]:
+    """(the best percent off among `city`'s sellers of the item for a buyer with `known` discounts by
+    faction, the vendors giving it); (0, ()) if none gives one."""
+    by_seller = {v: known.get(city.reputation_of(v), 0) for v in city.sellers(item_id)}
+    best = max(by_seller.values(), default=0)
+    if best <= 0:
+        return 0, ()
+    return best, tuple(v for v, percent in by_seller.items() if percent == best)
+
+
+def city_prices(city: timing.CityMap, buyers: Sequence[Mapping[int, int]]) -> frozenset[tuple[int, int, int]]:
+    """What `city`'s vendors take off for `buyers` (each their discounts by faction, in percent): (index of
+    the buyer, item id, percent) for every item one of them gets cheaper there. Cities where this is equal
+    charge those buyers the same for everything, so a plan costs the same in each."""
+    items = sorted({i for stock in city.vendor_items.values() for i in stock})
+    return frozenset(
+        (n, i, percent)
+        for n, known in enumerate(buyers)
+        if known
+        for i in items
+        if (percent := _price_holders(city, i, known)[0])
+    )
+
+
 StepKey = tuple[str, int, str, str]  # (action, item_id, who, via): a merged step
 _ACTION_RANK = {"buy": 0, "craft": 1, "mail": 2, "sell": 3}
 
@@ -474,6 +520,7 @@ def plan_steps(
                 node.crafter,
                 at,
                 discount=node.discount,
+                rep_discount=node.rep_discount,
                 seconds=node.act_seconds,
             )
             return add(step, set())
@@ -550,10 +597,12 @@ def time_result(result: Result, model: TimeModel) -> timing.Timing:
     """How long a batch of `result` takes in the model's city: its steps in order, one block per stretch a
     character is logged in (see `_schedule`), each routed through the city (`timing.time_blocks`). A
     character who was mailed something starts at the mailbox; one search per item on the AH is paid per
-    batch, for buying and for selling (disenchant materials count as sold on the AH)."""
+    batch, for buying and for selling (disenchant materials count as sold on the AH). A vendor buy is made
+    where the buyer's reputation gets them the best price (`vendor_holders`)."""
     blocks: list[timing.Block] = []
     mailed: set[str] = set()  # who has been sent something so far
     run: list[Step] = []
+    holders = vendor_holders(result, model.city)
 
     def close() -> None:
         if not run:
@@ -575,6 +624,7 @@ def time_result(result: Result, model: TimeModel) -> timing.Timing:
                 receives_mail=who in mailed,
                 buys_ah=any(s.action == "buy" and s.via == "ah" for s in run),
                 vendor_items=frozenset(s.item_id for s in run if s.action == "buy" and s.via == "vendor"),
+                vendor_sellers={item_id: at for (buyer, item_id), at in holders.items() if buyer == who},
                 stations=stations,
                 sends_mail=any(s.action == "mail" for s in run),
                 sells_ah=any(s.action == "sell" and s.via in ("ah", "disenchant") for s in run),
@@ -596,6 +646,45 @@ def time_result(result: Result, model: TimeModel) -> timing.Timing:
         run.append(step)
     close()
     return timing.time_blocks(blocks, model.config, model.city)
+
+
+def vendor_holders(result: Result, city: timing.CityMap) -> dict[tuple[str, int], frozenset[str]]:
+    """For each vendor buy of `result`, as (buyer, item id): the vendors in `city` who give that buyer their
+    best price there. A buy nobody there discounts is left out: any seller will do."""
+    out: dict[tuple[str, int], frozenset[str]] = {}
+    for s in result.steps:
+        if s.action == "buy" and s.via == "vendor":
+            _, sellers = _price_holders(city, s.item_id, result.reputations.get(s.who, {}))
+            if sellers:
+                out[s.who, s.item_id] = frozenset(sellers)
+    return out
+
+
+def cost_in(result: Result, city: timing.CityMap, items: Mapping[int, Item]) -> int:
+    """What `result`'s plan costs with its vendor buys made in `city`, each at the best price a vendor there
+    gives the buyer. The plan stays as it is: for a city that charges the crafters differently from the one
+    it was chosen in, another plan may be cheaper still."""
+
+    def extra(n: Node) -> int:
+        more = sum(extra(i) for i in n.inputs)
+        item = items.get(n.item_id)
+        if n.source == "vendor" and item is not None and item.vendor_price is not None:
+            percent, _ = _price_holders(city, n.item_id, result.reputations.get(n.crafter, {}))
+            more += n.quantity * vendor_price(item.vendor_price, n.discount, percent) - n.cost
+        return more
+
+    return result.cost + extra(result.tree)
+
+
+def reputation_faction(result: Result, who: str, item_id: int) -> int:
+    """The faction whose standing gets `who` their discount on `item_id` in the city the result is timed
+    in: that of the vendor nearest the hub who gives it. 0 if none does, or without a timing."""
+    city, model = timed_city(result), result.time_model
+    if city is None or model is None:
+        return 0
+    _, sellers = _price_holders(city, item_id, result.reputations.get(who, {}))
+    seller = city.vendor_for(item_id, city.hub.id, model.config, sellers)
+    return 0 if seller is None else city.reputation_of(seller.id)
 
 
 @dataclass(frozen=True)
@@ -680,6 +769,7 @@ def detailed_steps(result: Result) -> list[Detail]:
 
     steps = result.steps
     stops = list(t.stops)
+    holders = vendor_holders(result, city)
     out: list[Detail] = []
     mailed: dict[str, list[tuple[int, str, int]]] = {}  # recipient -> what waits in their mailbox
     runs: list[list[int]] = []
@@ -710,7 +800,8 @@ def detailed_steps(result: Result) -> list[Detail]:
                 if kind == "ah":
                     me.take(_ah_buy)
                 else:  # what this vendor sells; the last vendor also takes what no vendor here sells
-                    me.take(_vendor_buy(city.vendor_items.get(loc, frozenset()), loc == vendors[-1]))
+                    sold = city.vendor_items.get(loc, frozenset())
+                    me.take(_vendor_buy(sold, loc == vendors[-1], loc, holders))
             elif st.phase == "collect":
                 bought = [
                     (steps[i].item_id, steps[i].name, steps[i].quantity) for i in run if _ah_buy(steps[i])
@@ -741,8 +832,18 @@ def detailed_steps(result: Result) -> list[Detail]:
     return out
 
 
-def _vendor_buy(sold: frozenset[int], anything: bool) -> Callable[[Step], bool]:
-    return lambda s: s.action == "buy" and s.via == "vendor" and (anything or s.item_id in sold)
+def _vendor_buy(
+    sold: frozenset[int], anything: bool, loc: str, holders: Mapping[tuple[str, int], frozenset[str]]
+) -> Callable[[Step], bool]:
+    """The vendor buys made at `loc`: what it sells (`anything` still to buy, at the last vendor), but a
+    buy at a reputation discount only if this vendor gives it."""
+
+    def here(s: Step) -> bool:
+        if s.action != "buy" or s.via != "vendor":
+            return False
+        return anything or (s.item_id in sold and loc in holders.get((s.who, s.item_id), (loc,)))
+
+    return here
 
 
 def _recosted(node: Node, cost: int, short: int) -> Node:
@@ -783,6 +884,7 @@ class Market:
         sell_prices: dict[int, int] | None = None,
         time: TimeModel | None = None,
         books: Mapping[int, book.Ladder] | None = None,
+        reputation_discounts: Mapping[int, int] | None = None,
     ):
         """`crafters` are the characters who craft and disenchant, mailing items between them; without
         them one unnamed character does everything. When nobody has learned a recipe, `unlearned` says who
@@ -798,7 +900,12 @@ class Market:
         An item in `books` is bought up its ladder instead (`book.cost`): the units listed at each price,
         cheapest first, so what it costs depends on how many are needed; units the book is short of are
         counted at its dearest price and reported (`Node.short`). Branches of one plan buying the same
-        item share its ladder (`_share_books`)."""
+        item share its ladder (`_share_books`).
+
+        `reputation_discounts` is the game version's percent off at a vendor by the buyer's standing with
+        the vendor's faction (standing -> percent). It needs the `time` model's city, which says whose
+        vendors sell an item there: a buyer pays the best price a vendor there gives them, and the plan is
+        routed to such a vendor. Without a time model every vendor charges the list price."""
         self.items = items
         self.recipes = recipes
         self.prices = prices
@@ -820,6 +927,14 @@ class Market:
             self._by_output.setdefault(r.output_item_id, []).append(r)
         self._who_crafts = {r.id: self._crafter_names(r) for r in recipes}
         self._by_name = {c.name: c for c in crafters}
+        self.reputation_discounts = dict(reputation_discounts or {})
+        # who -> {faction id: percent off at that faction's vendors}, for those with any
+        self._rep: dict[str, dict[int, int]] = {
+            c.name: known
+            for c in crafters
+            if (known := dict(vendor_discounts(c.reputations, self.reputation_discounts)))
+        }
+        self._holders: dict[tuple[int, str], tuple[int, tuple[str, ...]]] = {}  # memo for `_reputation`
 
     # --- selling ---------------------------------------------------------------------
     def _disenchant_rows(self, item: Item) -> list[DisenchantRow]:
@@ -945,8 +1060,9 @@ class Market:
             self._trips[target] = got
         return got
 
-    def _buy_seconds(self, item_id: int, qty: int, source: str) -> tuple[float, float]:
-        """(the buy's own seconds, with the shared trip and search) for `qty` units from `source`."""
+    def _buy_seconds(self, item_id: int, qty: int, source: str, buyer: str = "") -> tuple[float, float]:
+        """(the buy's own seconds, with the shared trip and search) for `qty` units from `source`; a vendor
+        buy's trip is to the nearest seller who gives `buyer` their price."""
         if self.time is None:
             return 0.0, 0.0
         cfg, stacks = self.time.config, self._stacks(item_id, qty)
@@ -956,9 +1072,10 @@ class Market:
                 "mailbox"
             )
         act = cfg.vendor_buy * stacks
-        key = f"vendor-of:{item_id}"
+        _, holders = self._reputation(item_id, buyer)
+        key = f"vendor-of:{item_id}:{buyer if holders else ''}"
         if key not in self._trips:
-            seller = self.time.city.vendor_for(item_id, self.time.city.hub.id, cfg)
+            seller = self.time.city.vendor_for(item_id, self.time.city.hub.id, cfg, holders or None)
             self._trips[key] = self._trip(seller.id if seller else "vendor")
         return act, act + self._trips[key]
 
@@ -1010,12 +1127,26 @@ class Market:
             return who
         return [w for w in who if can_skill_up(recipe, self._by_name[w])]
 
-    def _vendor_unit(self, item: Item, buyer: str) -> tuple[int, int]:
-        """What `buyer` pays a vendor per unit of `item` (rounded up) and the percent off they get."""
+    def _reputation(self, item_id: int, buyer: str) -> tuple[int, tuple[str, ...]]:
+        """The best percent off `buyer`'s standings get them on `item_id` in the model's city, and the
+        vendors there who give it; (0, ()) without a city, a standing that counts or such a vendor."""
+        known = self._rep.get(buyer)
+        if self.time is None or not known:
+            return 0, ()
+        key = (item_id, buyer)
+        got = self._holders.get(key)
+        if got is None:
+            got = self._holders[key] = _price_holders(self.time.city, item_id, known)
+        return got
+
+    def _vendor_unit(self, item: Item, buyer: str) -> tuple[int, int, int]:
+        """What `buyer` pays a vendor per unit of `item` (see `vendor_price`), and the percent off their
+        talents and their reputation get them."""
         assert item.vendor_price is not None
         c = self._by_name.get(buyer)
         discount = c.vendor_discount if c else 0
-        return -(-item.vendor_price * (100 - discount) // 100), discount
+        reputation, _ = self._reputation(item.id, buyer)
+        return vendor_price(item.vendor_price, discount, reputation), discount, reputation
 
     def _bonus_output(self, recipe: Recipe, who: str) -> float:
         """Expected extra units a craft of `recipe` by `who` gives (Master Chef)."""
@@ -1098,8 +1229,8 @@ class Market:
         candidates: list[tuple[str, Node]] = []
         item = self.items.get(item_id)
         if item is not None and item.vendor_price is not None:
-            unit, discount = self._vendor_unit(item, at)
-            act, est = self._buy_seconds(item_id, qty, "vendor")
+            unit, discount, reputation = self._vendor_unit(item, at)
+            act, est = self._buy_seconds(item_id, qty, "vendor", at)
             candidates.append(
                 (
                     "vendor",
@@ -1111,6 +1242,7 @@ class Market:
                         source="vendor",
                         crafter=at,
                         discount=discount,
+                        rep_discount=reputation,
                         seconds=est,
                         act_seconds=act,
                     ),
@@ -1269,6 +1401,7 @@ class Market:
                     mail_seconds=mail_act if exit.postage else 0.0,
                     time_model=self.time,
                     crafts=crafts,
+                    reputations=self._rep,
                 )
         if not by_exit:
             return None
@@ -1278,19 +1411,44 @@ class Market:
         picked.sell_options = [SellOption(r.best_exit, r.profit) for r in ranked]
         return picked
 
-    def rank(self, min_profit: int = 0, skill_name: str | None = None, crafts: int = 1) -> list[Result]:
+    def rank(
+        self,
+        min_profit: int = 0,
+        skill_name: str | None = None,
+        crafts: int = 1,
+        only: Collection[int] | None = None,
+    ) -> list[Result]:
         """Every recipe's best result for `crafts` crafts at once with at least `min_profit`, most
-        profitable first. One memo serves the whole ranking: an intermediate is worked out once however many
-        recipes need it."""
+        profitable first (of the recipes with ids in `only`, if given). One memo serves the whole ranking:
+        an intermediate is worked out once however many recipes need it."""
         results = []
         memo: Memo = {}
         for r in self.recipes:
             if skill_name and r.skill_name.lower() != skill_name.lower():
                 continue
+            if only is not None and r.id not in only:
+                continue
             res = self.evaluate(r, memo=memo, crafts=crafts)
             if res and res.profit >= min_profit:
                 results.append(res)
         return sorted(results, key=lambda x: x.profit, reverse=True)
+
+
+def recipes_using(recipes: Sequence[Recipe], items: Collection[int]) -> frozenset[int]:
+    """The ids of the recipes whose plans can involve one of `items`: as a reagent, or through a reagent
+    another of `recipes` makes from one, however deep. What the other recipes cost doesn't depend on what
+    those items cost."""
+    touched = set(items)
+    found: set[int] = set()
+    grew = bool(touched)
+    while grew:
+        grew = False
+        for r in recipes:
+            if r.id not in found and any(i in touched for i, _ in r.reagents):
+                found.add(r.id)
+                touched.add(r.output_item_id)
+                grew = True
+    return frozenset(found)
 
 
 def recipes_for_professions(recipes: Iterable[Recipe], professions: Iterable[str]) -> list[Recipe]:

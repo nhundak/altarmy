@@ -90,8 +90,9 @@ def load_market(
     mail_postage: int = MAIL_POSTAGE,
 ) -> Market:
     """One version's game data priced by an auction house's current prices (None: no prices), with the
-    version's AH cut and postage per attachment. Where the version's prices are first-party, from Alt
-    Army's scans and hand-set prices alone, the scanned items bought up their ladders (`Market.books`)."""
+    version's AH cut, postage per attachment and reputation discounts at vendors. Where the version's
+    prices are first-party, from Alt Army's scans and hand-set prices alone, the scanned items bought up
+    their ladders (`Market.books`)."""
     i, v = schema.items, schema.vendor_items
     sold = (
         select(v.c.item_id)
@@ -154,10 +155,21 @@ def load_market(
         )
         for r in conn.execute(select(d).where(d.c.game_version == game_version).order_by(d.c.id))
     ]
-    first_party = versions.get(game_version).first_party_prices
+    version = versions.get(game_version)
+    first_party = version.first_party_prices
     buy, sell = prices.load_buy_and_sell(conn, auction_house_id, first_party=first_party)
     books = prices.load_books(conn, auction_house_id) if first_party else {}
-    return Market(items, recipes, buy, de, ah_cut, mail_postage=mail_postage, sell_prices=sell, books=books)
+    return Market(
+        items,
+        recipes,
+        buy,
+        de,
+        ah_cut,
+        mail_postage=mail_postage,
+        sell_prices=sell,
+        books=books,
+        reputation_discounts=dict(version.reputation_discounts),
+    )
 
 
 @dataclass(frozen=True)
@@ -267,6 +279,14 @@ def _insert_character(conn: Connection, user_uid: str, game_version: str, ch: Ch
             schema.character_talents.insert(),
             [{"character_id": char_id, "spell_id": spell, "rank": rank} for spell, rank in ch.talents],
         )
+    if ch.reputations:
+        conn.execute(
+            schema.character_reputations.insert(),
+            [
+                {"character_id": char_id, "faction_id": faction, "standing": standing}
+                for faction, standing in ch.reputations
+            ],
+        )
 
 
 def load_characters(conn: Connection, user_uid: str, game_version: str) -> list[Character]:
@@ -287,6 +307,10 @@ def load_characters(conn: Connection, user_uid: str, game_version: str) -> list[
     talents: dict[int, list[tuple[int, int]]] = {}
     for r in conn.execute(select(ct).where(ct.c.character_id.in_(mine)).order_by(ct.c.spell_id)):
         talents.setdefault(r.character_id, []).append((r.spell_id, r.rank))
+    rep = schema.character_reputations
+    standings: dict[int, list[tuple[int, int]]] = {}
+    for r in conn.execute(select(rep).where(rep.c.character_id.in_(mine)).order_by(rep.c.faction_id)):
+        standings.setdefault(r.character_id, []).append((r.faction_id, r.standing))
     return [
         Character(
             r.realm,
@@ -296,6 +320,7 @@ def load_characters(conn: Connection, user_uid: str, game_version: str) -> list[
             r.level,
             tuple(profs.get(r.id, ())),
             tuple(talents.get(r.id, ())),
+            reputations=tuple(standings.get(r.id, ())),
         )
         for r in conn.execute(select(c).where(*owned).order_by(c.c.realm, c.c.name))
     ]

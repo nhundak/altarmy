@@ -1,4 +1,5 @@
 import gzip
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -422,6 +423,7 @@ def test_characters_and_selection(client: TestClient, db2_paths: dict[str, Path]
                 {"name": "Tailoring", "rank": 50, "max_rank": 75, "recipes": 1},
             ],
             "talents": [],
+            "vendor_discounts": [],
         }
     ]
     (frell,) = [c for c in body["groups"][2]["characters"] if c["name"] == "Frell"]
@@ -429,6 +431,8 @@ def test_characters_and_selection(client: TestClient, db2_paths: dict[str, Path]
         {"spell_id": 1225457, "name": "Master Chef", "rank": 3, "max_rank": 5},
         {"spell_id": 1225459, "name": "Bartering", "rank": 2, "max_rank": 2},
     ]
+    # Honored with Orgrimmar; only Friendly with the Darkspear Trolls, which takes nothing off
+    assert frell["vendor_discounts"] == [{"faction": "Orgrimmar", "percent": 10}]
     assert body["selection"] == {"realm": "Dreamscythe", "faction": "Horde"}
     assert client.get("/api/rank").json()["results"] == []  # Dreamscythe only cooks
 
@@ -1102,6 +1106,47 @@ def test_evaluate_plans_a_session_spelled_out(client: TestClient, priced: Connec
     default = client.post("/api/evaluate", json={"recipe_id": 100, "choices": {}}).json()["result"]
     assert (default["crafts"], default["details"] != []) == (10, True)
     assert default == ranked
+
+
+@pytest.fixture
+def honored(db2_paths: dict[str, Path], conn: Connection, vendor_csv: Path) -> Connection:
+    """Vendors sell thread (11c); the selected tailor is Honored with Thunder Bluff and only Friendly with
+    Orgrimmar."""
+    ingest.build_db(db2_paths, conn, FOREVER, vendor_csv=vendor_csv)
+    set_prices(conn, {1: 20, 2: 100})
+    chars = [
+        replace(c, reputations=((76, 5), (81, 6))) if c.name == "Tailor Guy" else c
+        for c in altarmy.parse_characters(ALTARMY_SV)
+    ]
+    store.save_characters(conn, ME, FOREVER, chars)
+    service.select(conn, ME, FOREVER, "Classic Beta PvE", "Horde")
+    return conn
+
+
+def test_rank_prices_vendor_buys_by_reputation(client: TestClient, honored: Connection, cities: Path) -> None:
+    def thread_of(result: dict[str, Any]) -> tuple[object, ...]:
+        s = next(s for s in result["steps"] if s["name"] == "Coarse Thread")
+        return (s["via"], s["value"], s["rep_discount"], s["rep_faction"], s["discount"])
+
+    (r,) = client.get("/api/rank").json()["results"]
+    assert thread_of(r) == ("vendor", -100, 10, "Thunder Bluff", 0)  # 11c less 10%, rounded up: 10c each
+    node = r["tree"]["inputs"][1]
+    assert (node["rep_discount"], node["rep_faction"], node["cost"]) == (10, "Thunder Bluff", 100)
+    assert (r["timing"]["city"], r["profit"]) == ("Thunder Bluff", 10 * (500 - 200 - 10))
+    # each city's own numbers: Orgrimmar's vendor gives a Friendly buyer nothing off
+    assert [(c["city"], c["profit"]) for c in r["cities"]] == [("Orgrimmar", 2890), ("Thunder Bluff", 2900)]
+    assert r["best_city"] == "Thunder Bluff"
+    assert client.post("/api/evaluate", json={"recipe_id": 100, "choices": {}}).json()["result"] == r
+    # asked for Orgrimmar, the plan is priced there; the table still says what it makes in Thunder Bluff
+    body = {"recipe_id": 100, "choices": {}, "city": "Orgrimmar"}
+    there = client.post("/api/evaluate", json=body).json()["result"]
+    assert thread_of(there) == ("vendor", -110, 0, "", 0)
+    assert [(c["city"], c["profit"]) for c in there["cities"]] == [
+        ("Orgrimmar", 2890),
+        ("Thunder Bluff", 2900),
+    ]
+    (tailor,) = client.get("/api/characters").json()["groups"][1]["characters"]
+    assert tailor["vendor_discounts"] == [{"faction": "Thunder Bluff", "percent": 10}]
 
 
 def test_evaluate_refuses_a_city_the_characters_dont_craft_in(

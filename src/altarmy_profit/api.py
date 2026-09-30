@@ -49,6 +49,7 @@ from . import (
     jobs,
     prices,
     ratelimit,
+    reputation,
     service,
     store,
     talents,
@@ -117,6 +118,8 @@ class StepOut(BaseModel):
     who: str  # the character doing it; "" if no characters are known
     paths: list[str]  # the tree paths (choice keys) of the nodes it stands for; ["sell"] for the sale
     discount: int = 0  # buy from a vendor: percent off from the buyer's Legacy talents (Bartering)
+    rep_discount: int = 0  # buy from a vendor: percent off for the buyer's standing with its faction
+    rep_faction: str = ""  # that faction (Orgrimmar, Darkspear Trolls, ...); "" without such a discount
     bonus: float = 0.0  # sell: expected extra units on top of quantity (Master Chef), counted in value
     seconds: float = 0.0  # play time per craft this step takes (clicks, casts); travel is in the timing
     lead_seconds: float = 0.0  # a disenchant sale: the disenchanting's share of `seconds` (then posting)
@@ -155,13 +158,16 @@ class NodeOut(BaseModel):
     mail_to: str  # who it is mailed to (the parent's crafter); "" if not mailed
     postage: int  # copper for that mail
     discount: int = 0  # bought from a vendor: percent off the buyer gets (Bartering)
+    rep_discount: int = 0  # bought from a vendor: percent off for the buyer's standing with its faction
+    rep_faction: str = ""  # that faction; "" without such a discount
     seconds: float = 0.0  # estimated play time per craft for this branch, shared trips included
     options: list[OptionOut]  # every way to get these items, cheapest first; empty for the recipe's craft
     option: str  # the key of the option taken; "" for the recipe's craft
     inputs: list[NodeOut]
 
 
-def _node_out(n: engine.Node) -> NodeOut:
+def _node_out(n: engine.Node, faction: Callable[[str, int, int], str]) -> NodeOut:
+    """`faction(who, item id, percent)` names the faction a reputation discount comes from."""
     return NodeOut(
         item_id=n.item_id,
         name=n.name,
@@ -175,10 +181,12 @@ def _node_out(n: engine.Node) -> NodeOut:
         mail_to=n.mail_to,
         postage=n.postage,
         discount=n.discount,
+        rep_discount=n.rep_discount,
+        rep_faction=faction(n.crafter, n.item_id, n.rep_discount),
         seconds=n.seconds,
         options=[OptionOut(**asdict(o)) for o in n.options],
         option=n.option,
-        inputs=[_node_out(i) for i in n.inputs],
+        inputs=[_node_out(i, faction) for i in n.inputs],
     )
 
 
@@ -270,9 +278,13 @@ class TimingOut(BaseModel):
 
 
 class CityTimingOut(BaseModel):
+    """The result in one city: as planned there when the cities were compared, else (the user's city is
+    set, or `city` was asked for) its plan with the vendor buys at that city's prices."""
+
     city: str
     total_seconds: float
     per_hour: int
+    profit: int  # vendors charge a character by their reputation, so it differs between cities
     missing: list[str]  # crafting stations the plan needs and the city lacks: it can't be crafted there
 
 
@@ -325,9 +337,10 @@ class RankResult(BaseModel):
     steps: list[StepOut]  # per character: buys, crafts (intermediates first), mails; then the sale
     tree: NodeOut  # the recipe's craft, with reagents as inputs
     sell_options: list[SellOptionOut]  # each exit's best profit, best first
-    timing: TimingOut | None = None  # this plan in the user's city
-    cities: list[CityTimingOut] = []  # this plan in each city the selection's faction crafts in
-    best_city: str | None = None  # the quickest of those; None without city presets
+    timing: TimingOut | None = None  # this plan in the user's city, or where it pays best per hour
+    cities: list[CityTimingOut] = []  # the recipe in each city the selection's faction crafts in
+    # the one of those paying most per hour (losing least, if none profits); None without city presets
+    best_city: str | None = None
     crafts: int = 1  # what cost, revenue, profit, steps and tree are for: a session (the user's batch)
     details: list[DetailOut] = []  # the steps with where to go in between
 
@@ -440,12 +453,20 @@ class TalentOut(BaseModel):
     max_rank: int
 
 
+class VendorDiscountOut(BaseModel):
+    """What a character's reputation takes off at a city faction's vendors."""
+
+    faction: str  # Orgrimmar, Darkspear Trolls, ...
+    percent: int
+
+
 class CharacterOut(BaseModel):
     name: str
     class_file: str  # e.g. PALADIN
     level: int
     professions: list[ProfessionOut]
     talents: list[TalentOut] = []  # the Legacy talents the engine knows, as the addon saw them
+    vendor_discounts: list[VendorDiscountOut] = []  # from their standings, as the addon saw them
 
 
 class GroupOut(BaseModel):
@@ -762,6 +783,7 @@ def _characters(state: AppState, conn: Connection, user: auth.User) -> Character
     chars = store.load_characters(conn, user.uid, state.key)
     sel = service.selection(conn, user.uid, state.key, chars)
     imported = uploads.import_status(conn, user.uid, state.key)
+    discounts = dict(state.version.reputation_discounts)
     return Characters(
         groups=[
             GroupOut(
@@ -781,6 +803,10 @@ def _characters(state: AppState, conn: Connection, user: auth.User) -> Character
                         talents=[
                             TalentOut(spell_id=t.spell_id, name=t.name, rank=rank, max_rank=t.max_rank)
                             for t, rank in talents.known(c.talents)
+                        ],
+                        vendor_discounts=[
+                            VendorDiscountOut(faction=reputation.CITY_FACTIONS[f], percent=percent)
+                            for f, percent in reputation.vendor_discounts(c.reputations, discounts)
                         ],
                     )
                     for c in g.characters
@@ -1035,23 +1061,32 @@ def _timed_city(model: engine.TimeModel, t: timing.Timing) -> timing.CityMap:
     return next(c for c in (model.city, *model.fastest) if c.name == t.city)
 
 
-def _cities_out(r: engine.Result, cities: Sequence[timing.CityMap]) -> list[CityTimingOut]:
-    """The result's plan timed in each city (as chosen for the user's settings)."""
+def _cities_out(
+    r: engine.Result, base: engine.Market, cities: Sequence[timing.CityMap]
+) -> list[CityTimingOut]:
+    """The result in each city: as planned there if it was (the cities it is timed in, or an alternative's:
+    `service.best_of`), else its plan timed there with the vendor buys at that city's prices
+    (`engine.cost_in`)."""
     if r.time_model is None:
         return []
     out = []
-    timed = r.timing
     for city in cities:
-        if timed is not None and timed.city == city.name:
-            t: timing.Timing | None = timed
-        else:
-            t = engine.time_result(r, replace(r.time_model, city=city, fastest=()))
-        assert t is not None
+        plan, profit = r, r.revenue - engine.cost_in(r, city, base.items)
+        for planned in (r, *r.alternatives):
+            model = planned.time_model
+            if model is not None and city in (model.fastest or (model.city,)):
+                plan, profit = planned, planned.profit
+                break
+        t = plan.timing
+        if t is None or t.city != city.name:
+            assert plan.time_model is not None
+            t = engine.time_result(plan, replace(plan.time_model, city=city, fastest=()))
         out.append(
             CityTimingOut(
                 city=city.name,
                 total_seconds=t.total_seconds,
-                per_hour=t.per_hour(r.profit),
+                per_hour=t.per_hour(profit),
+                profit=profit,
                 missing=sorted(t.missing),
             )
         )
@@ -1059,9 +1094,11 @@ def _cities_out(r: engine.Result, cities: Sequence[timing.CityMap]) -> list[City
 
 
 def _best_city(cities: Sequence[CityTimingOut]) -> str | None:
-    """The quickest city that has every station the plan needs; None if none has."""
+    """The city paying most per hour (see `service.city_worth`); None if none has every station."""
     possible = [c for c in cities if not c.missing]
-    return min(possible, key=lambda c: c.total_seconds).city if possible else None
+    if not possible:
+        return None
+    return max(possible, key=lambda c: service.city_worth(True, c.profit, c.per_hour, c.total_seconds)).city
 
 
 def _result_out(
@@ -1071,8 +1108,15 @@ def _result_out(
     listings: Mapping[int, prices.Listing],
     cities: Sequence[timing.CityMap] = (),
 ) -> RankResult:
-    per_city = _cities_out(r, cities)
+    per_city = _cities_out(r, base, cities)
     t = r.timing
+
+    def faction(who: str, item_id: int, percent: int) -> str:
+        """The faction whose standing takes `percent` off that vendor buy in the result's city."""
+        if not percent:
+            return ""
+        return reputation.CITY_FACTIONS.get(engine.reputation_faction(r, who, item_id), "")
+
     return RankResult(
         recipe_id=r.recipe.id,
         recipe=r.recipe.name,
@@ -1119,6 +1163,8 @@ def _result_out(
                 who=s.who,
                 paths=list(s.paths),
                 discount=s.discount,
+                rep_discount=s.rep_discount,
+                rep_faction=faction(s.who, s.item_id, s.rep_discount),
                 bonus=s.bonus,
                 seconds=s.seconds,
                 station=s.station,
@@ -1126,7 +1172,7 @@ def _result_out(
             )
             for s in r.steps
         ],
-        tree=_node_out(r.tree),
+        tree=_node_out(r.tree, faction),
         sell_options=[SellOptionOut(**asdict(o)) for o in r.sell_options],
         timing=None
         if t is None or r.time_model is None

@@ -13,6 +13,8 @@ const step = (action: Step['action'], paths: string[]): Step => ({
   who: '',
   paths,
   discount: 0,
+  rep_discount: 0,
+  rep_faction: '',
   bonus: 0,
   seconds: 0,
   station: '',

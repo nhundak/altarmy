@@ -30,11 +30,11 @@ const disenchanted: RankResult = {
     },
   ],
   steps: [
-    { action: 'buy', item_id: 4, name: 'Medium Hide', quantity: 2, value: -12648, via: 'ah', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0.0'] },
-    { action: 'craft', item_id: 5, name: 'Cured Medium Hide', quantity: 2, value: 0, via: 'Cure', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0'] },
-    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r'] },
-    { action: 'mail', item_id: 3, name: 'Green Robe', quantity: 1, value: -30, via: 'Enchy', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r'] },
-    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 75988, via: 'disenchant', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['sell'] },
+    { action: 'buy', item_id: 4, name: 'Medium Hide', quantity: 2, value: -12648, via: 'ah', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0.0'] },
+    { action: 'craft', item_id: 5, name: 'Cured Medium Hide', quantity: 2, value: 0, via: 'Cure', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0'] },
+    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r'] },
+    { action: 'mail', item_id: 3, name: 'Green Robe', quantity: 1, value: -30, via: 'Enchy', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r'] },
+    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 75988, via: 'disenchant', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['sell'] },
   ],
 }
 
@@ -212,6 +212,23 @@ describe('ResultsTable', () => {
     ).toBeInTheDocument()
   })
 
+  it('names the reputation that made a vendor cheaper', async () => {
+    const [linenStep, threadStep, craft, sale] = robe.steps
+    const honored = { rep_discount: 10, rep_faction: 'Orgrimmar' }
+    const reputed: RankResult = {
+      ...robe,
+      steps: [linenStep, { ...threadStep, value: -90, ...honored }, craft, sale],
+      tree: { ...robe.tree, inputs: [robe.tree.inputs[0], { ...robe.tree.inputs[1], cost: 90, ...honored }] },
+    }
+    renderRows([reputed])
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    // the flow chart's boxes are narrow: whose reputation is in the tooltip
+    const node = screen.getByText(detail('Buy from a vendor · 90 · Reputation −10%'))
+    expect(node).toHaveAttribute('title', 'Orgrimmar reputation −10%')
+    await showSteps()
+    expect(line('Purchase 1x Coarse Thread from a vendor (90, Orgrimmar reputation −10%)')).toBeInTheDocument()
+  })
+
   it('colours the Steps sale by its sign, without + or -', async () => {
     renderRows([{ ...robe, profit: -150 }])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
@@ -240,11 +257,11 @@ describe('ResultsTable', () => {
       recipe_id: 102,
       crafter: 'Smithy',
       steps: [
-        { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 6, value: -120, via: 'ah', who: 'Leathery', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0.0'] },
-        { action: 'craft', item_id: 2, name: 'Coarse Thread', quantity: 2, value: 0, via: 'Thread', who: 'Leathery', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0'] },
-        { action: 'mail', item_id: 2, name: 'Coarse Thread', quantity: 2, value: -30, via: 'Smithy', who: 'Leathery', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0'] },
-        { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: 'Smithy', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r'] },
-        { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: 'Smithy', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['sell'] },
+        { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 6, value: -120, via: 'ah', who: 'Leathery', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0.0'] },
+        { action: 'craft', item_id: 2, name: 'Coarse Thread', quantity: 2, value: 0, via: 'Thread', who: 'Leathery', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0'] },
+        { action: 'mail', item_id: 2, name: 'Coarse Thread', quantity: 2, value: -30, via: 'Smithy', who: 'Leathery', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0'] },
+        { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: 'Smithy', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r'] },
+        { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: 'Smithy', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['sell'] },
       ],
     }
     renderRows([split])
@@ -477,7 +494,7 @@ describe('ResultsTable', () => {
       const merged: RankResult = {
         ...robe,
         steps: [
-          { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 3, value: -300, via: 'vendor', who: '', discount: 0, bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0.0', 'r.1'] },
+          { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 3, value: -300, via: 'vendor', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0.0', 'r.1'] },
           ...robe.steps.slice(2),
         ],
         tree: {

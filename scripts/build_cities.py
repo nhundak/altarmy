@@ -61,6 +61,7 @@ def main() -> None:
             existing,
             source=f"vmangos {world.parent.name}",
             zones=zones,
+            factions=vmangos.vendor_factions(conn, [v.entry for v in vendors]),
         )
         path.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
         counts = ", ".join(f"{v} {k}" for k, v in data["generated"]["counts"].items())

@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any
 
@@ -227,7 +227,10 @@ class CityMap:
         detour: float | None = None,
         travel: Mapping[tuple[str, str], float] | None = None,
         zone: Zone | None = None,
+        vendor_reputations: Mapping[str, int] | None = None,
     ) -> None:
+        """`vendor_reputations`: the faction (a `Faction` id) each vendor's prices follow the buyer's
+        standing with; a vendor without one charges everyone the same."""
         if faction not in FACTIONS:
             raise ValueError(f"unknown faction {faction!r}")
         self.name = name
@@ -243,6 +246,10 @@ class CityMap:
             if loc_id not in self._by_id:
                 raise ValueError(f"{name}: vendor {loc_id!r} is not one of its locations")
         self.vendor_items = dict(vendor_items)
+        for loc_id in vendor_reputations or {}:
+            if loc_id not in self._by_id:
+                raise ValueError(f"{name}: vendor {loc_id!r} is not one of its locations")
+        self._reputations = dict(vendor_reputations or {})
         self.detour = detour  # the city's own detour factor (e.g. Undercity's levels); None: the config's
         self._travel = {_pair(a, b): s for (a, b), s in (travel or {}).items()}  # hand-measured seconds
         self._sellers: dict[int, list[str]] = {}
@@ -271,6 +278,12 @@ class CityMap:
             for loc_id, items in _mapping(data.get("vendors") or {}, "vendors").items()
             if loc_id not in dropped
         }
+        reputations: dict[str, int] = {}
+        for loc_id, faction in _mapping(data.get("vendor_reputations") or {}, "vendor reputations").items():
+            if isinstance(faction, bool) or not isinstance(faction, int):
+                raise ValueError(f"vendor reputation of {loc_id!r} must be a faction id")
+            if loc_id not in dropped:
+                reputations[str(loc_id)] = faction
         travel: dict[tuple[str, str], float] = {}
         for key, seconds in _mapping(overrides.get("travel") or {}, "travel").items():
             a, sep, b = str(key).partition("|")
@@ -289,10 +302,19 @@ class CityMap:
             zone=_zone(data.get("zone")),
             detour=detour,
             travel=travel,
+            vendor_reputations=reputations,
         )
 
     def location(self, loc_id: str) -> Location:
         return self._by_id[loc_id]
+
+    def sellers(self, item_id: int) -> tuple[str, ...]:
+        """The vendors (location ids) selling `item_id` here, by id."""
+        return tuple(self._sellers.get(item_id, ()))
+
+    def reputation_of(self, loc_id: str) -> int:
+        """The faction a vendor's prices follow the buyer's standing with; 0 if none."""
+        return self._reputations.get(loc_id, 0)
 
     def map_coords(self, loc_id: str) -> tuple[float, float] | None:
         """Where a location is on the city's zone map, in percent; None without a zone."""
@@ -330,9 +352,12 @@ class CityMap:
             )
         return self._nearest[key]
 
-    def vendor_for(self, item_id: int, from_id: str, config: TimeConfig) -> Location | None:
-        """The vendor selling `item_id` quickest to reach from `from_id`; None if nobody here sells it."""
-        sellers = self._sellers.get(item_id, [])
+    def vendor_for(
+        self, item_id: int, from_id: str, config: TimeConfig, among: Collection[str] | None = None
+    ) -> Location | None:
+        """The vendor selling `item_id` quickest to reach from `from_id` (of those in `among`, if given);
+        None if nobody here sells it."""
+        sellers = [v for v in self._sellers.get(item_id, []) if among is None or v in among]
         best = min(sellers, key=lambda v: (self.seconds(from_id, v, config), v), default=None)
         return None if best is None else self._by_id[best]
 
@@ -373,6 +398,9 @@ class Block:
     receives_mail: bool = False  # an alt sent them something: collected at the mailbox
     buys_ah: bool = False  # AH purchases arrive by mail: collected at the mailbox, some time after the AH
     vendor_items: frozenset[int] = frozenset()  # items bought from vendors
+    # items bought only at one of these vendors (where the price the plan counts on holds: the buyer's
+    # reputation); the rest at any vendor selling them
+    vendor_sellers: Mapping[int, frozenset[str]] = field(default_factory=dict)
     stations: tuple[str, ...] = ()  # station kinds crafted at (see `station_kind`)
     sends_mail: bool = False
     sells_ah: bool = False
@@ -390,19 +418,28 @@ class Leg:
 
 
 def _vendors_for(
-    city: CityMap, items: frozenset[int], config: TimeConfig
+    city: CityMap,
+    items: frozenset[int],
+    config: TimeConfig,
+    only: Mapping[int, frozenset[str]] | None = None,
 ) -> tuple[list[str], frozenset[int]]:
     """Vendors covering `items` (greedy: the item with the fewest sellers first, reusing a chosen vendor
-    when it sells the item, else the nearest to the hub) and the items no vendor here sells."""
+    when it sells the item, else the nearest to the hub) and the items no vendor here sells. An item in
+    `only` is bought at one of those vendors (if any of them sells it here)."""
     chosen: list[str] = []
     unsold = set()
-    by_choice = sorted(items, key=lambda i: (len(city._sellers.get(i, [])), i))
+
+    def sellers_of(item: int) -> list[str]:
+        everyone = city._sellers.get(item, [])
+        return [v for v in everyone if v in (only or {}).get(item, everyone)] or everyone
+
+    by_choice = sorted(items, key=lambda i: (len(sellers_of(i)), i))
     for item in by_choice:
-        sellers = city._sellers.get(item, [])
+        sellers = sellers_of(item)
         if not sellers:
             unsold.add(item)
         elif not any(v in chosen for v in sellers):
-            loc = city.vendor_for(item, city.hub.id, config)
+            loc = city.vendor_for(item, city.hub.id, config, sellers)
             assert loc is not None
             chosen.append(loc.id)
     if unsold:  # timed at the nearest vendor of any kind
@@ -537,7 +574,7 @@ def _reach(city: CityMap, at: str, target: str, config: TimeConfig) -> float:
 def _stops(city: CityMap, block: Block, config: TimeConfig) -> tuple[list[str], list[str], frozenset[int]]:
     """The block's gather and dispose stops (ids or kinds) and the vendor items nobody here sells. The
     mailbox visit that collects AH purchases and alts' mail is added by `route`, after the AH."""
-    vendors, unsold = _vendors_for(city, block.vendor_items, config)
+    vendors, unsold = _vendors_for(city, block.vendor_items, config, block.vendor_sellers)
     gather = (["ah"] if block.buys_ah else []) + vendors
     dispose = (
         (["mailbox"] if block.sends_mail else [])

@@ -31,6 +31,9 @@ class GameVersion:
     mail_postage: int = MAIL_POSTAGE  # copper per attachment
     # Prices come from the Alt Army addon's full scans (and prices set by hand) alone: `prices.record_book`
     first_party_prices: bool = False
+    # (standing, percent off) at a vendor for the buyer's standing with the vendor's faction (5 Friendly,
+    # 6 Honored, 7 Revered, 8 Exalted; see `reputation`); standings not listed get nothing off
+    reputation_discounts: tuple[tuple[int, int], ...] = ()
 
     @property
     def disenchant_csv(self) -> Path:
@@ -58,6 +61,7 @@ VERSIONS: dict[str, GameVersion] = {
         max_level=60,
         max_skill=300,
         first_party_prices=True,
+        reputation_discounts=((6, 10), (7, 10), (8, 10)),  # vanilla's: 10% from Honored, no more after
     ),
     "tbc": GameVersion(
         key="tbc",

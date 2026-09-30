@@ -3,7 +3,9 @@
 The file is account-wide (WTF/Account/<acct>/SavedVariables/AltArmy_TBC.lua). Characters live in
 `AltArmyTBC_Data.Characters[realm][key]`; each profession has `rank`, `maxRank` and
 `Recipes[recipeID] = {color, primaryRecipeID?, resultItemID?, name?}`. WoW: Forever characters also have
-`legacyTalents.spells[spellID] = rank` (their Legacy talents, addon data version 2).
+`legacyTalents.spells[spellID] = rank` (their Legacy talents, addon data version 2). Every character has
+`Reputations[factionID] = {s = standing, ...}`, of which the city factions' standings are read (they
+discount vendor prices: `reputation`).
 
 The key is the character's GUID since the addon's character data v3 (a name before that, and still for
 entries of characters not logged in since), so the name is the entry's `name` field: the full name
@@ -23,6 +25,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from .luasv import LuaTable, LuaValue, parse_assignments
+from .reputation import city_standings
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,9 @@ class Character:
     # Legacy talents (WoW: Forever) as (spell id, rank), ranks above 0, sorted by spell id; see `talents`
     talents: tuple[tuple[int, int], ...] = ()
     guid: str = ""  # UnitGUID("player"); "" for characters the addon saved before it stored GUIDs
+    # standings with the city factions as (faction id, standing 1 Hated .. 8 Exalted), sorted by faction id;
+    # a faction not listed is Neutral, or was never seen (see `reputation`)
+    reputations: tuple[tuple[int, int], ...] = ()
 
     @property
     def known_recipes(self) -> frozenset[int]:
@@ -106,6 +112,7 @@ def parse_characters(data: bytes) -> list[Character]:
                     ),
                     talents=_talents(_table(c.get("legacyTalents"))),
                     guid=_str(c.get("guid")),
+                    reputations=_reputations(_table(c.get("Reputations"))),
                 )
             )
     return sorted(chars, key=lambda c: (c.realm, c.name))
@@ -137,6 +144,16 @@ def _talents(legacy: LuaTable) -> tuple[tuple[int, int], ...]:
         if isinstance(spell_id, int) and not isinstance(spell_id, bool) and _int(rank) > 0:
             got[spell_id] = _int(rank)
     return tuple(sorted(got.items()))
+
+
+def _reputations(saved: LuaTable) -> tuple[tuple[int, int], ...]:
+    """`Reputations[factionID] = {s = standing, ...}` (the addon's reputation data v2; v1 rows are bare
+    numbers and give nothing), kept for the city factions only."""
+    return city_standings(
+        (faction, _int(_table(row).get("s")))
+        for faction, row in saved.items()
+        if isinstance(faction, int) and not isinstance(faction, bool)
+    )
 
 
 def _profession(name: str, prof: LuaTable) -> Profession:

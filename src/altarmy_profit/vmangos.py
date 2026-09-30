@@ -164,6 +164,29 @@ def vendor_stock(conn: sqlite3.Connection, entries: Iterable[int]) -> dict[int, 
     return out
 
 
+def vendor_factions(conn: sqlite3.Connection, entries: Iterable[int]) -> dict[int, int]:
+    """The faction (`Faction` id: whose reputation their prices follow) of each creature entry, from its
+    newest template and that faction template's newest build; creatures without one are left out."""
+    wanted = sorted(set(entries))
+    if not wanted:
+        return {}
+    marks = ",".join("?" * len(wanted))
+    rows = conn.execute(
+        f"""
+        SELECT t.entry, ft.faction_id
+        FROM creature_template t JOIN faction_template ft ON ft.id = t.faction
+        WHERE t.entry IN ({marks})
+          AND t.patch = (
+            SELECT MAX(patch) FROM creature_template n WHERE n.entry = t.entry AND n.patch <= ?
+          )
+          AND ft.build = (SELECT MAX(build) FROM faction_template n WHERE n.id = ft.id)
+        ORDER BY 1
+        """,
+        (*wanted, LATEST_PATCH),
+    )
+    return {int(entry): int(faction) for entry, faction in rows}
+
+
 def vendor_items(conn: sqlite3.Connection) -> list[tuple[int, str]]:
     """(item id, name) of every item a vendor sells without limit."""
     return [(int(i), str(name or "")) for i, name in conn.execute(VENDOR_ITEMS_SQL)]

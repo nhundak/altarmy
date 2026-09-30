@@ -391,7 +391,7 @@ describe('SearchTab', () => {
     renderWithProviders(<SearchTab />)
     await userEvent.click(await screen.findByRole('button', { name: 'Time assumptions' }))
     const batch = await screen.findByLabelText('Crafts per session')
-    expect(screen.getByRole('combobox', { name: 'Craft Location' })).toHaveValue('Whatever is fastest')
+    expect(screen.getByRole('combobox', { name: 'Craft Location' })).toHaveValue('Wherever pays best')
     expect(screen.getByLabelText('Open a mail')).toBeInTheDocument()
     const ranked = urls(fetch, '/api/rank').length
     fireEvent.change(batch, { target: { value: '5' } })

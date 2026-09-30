@@ -20,6 +20,9 @@ export type ItemNodeData = {
   source: string
   /** Bought from a vendor: percent off from the buyer's Legacy talents (Bartering). */
   discount: number
+  /** Bought from a vendor: percent off for the buyer's standing with the vendor's faction, and that faction. */
+  repDiscount: number
+  repFaction: string
   crafter: string
   isLeaf: boolean
   /** The tree path, which is also the node id: where a choice of source applies. */
@@ -100,6 +103,8 @@ export function buildFlow({
         made,
         source,
         discount,
+        repDiscount: node.rep_discount,
+        repFaction: node.rep_faction,
         crafter,
         isLeaf: inputs.length === 0,
         path: id,

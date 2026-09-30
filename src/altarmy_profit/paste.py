@@ -8,9 +8,12 @@ DEFLATE of these lines:
     C|<realm>|<name>|<faction>|<CLASS_FILE>|<level>|<guid>
     P|<profession>|<rank>|<maxRank>|<recipe ids>  belongs to the C line before it; ids comma-separated
     T|<spell id>|<rank>                           a Legacy talent (WoW: Forever) of the C line before it
+    R|<faction id>|<standing>                     its standing (1 Hated .. 8 Exalted) with a city faction
 
 Recipe ids are craft spell ids with aliases already resolved, as `altarmy.parse_characters` reads them.
 Talents are the addon's `legacyTalents.spells` (see `talents` for the ones that change profits).
+Reputations are the addon's `Reputations` for the city factions (`reputation.CITY_FACTIONS`: they discount
+vendor prices); a line for any other faction is passed over, and older addons write none.
 The name is the full name and the GUID `UnitGUID("player")`, empty for characters the addon saved before it
 stored GUIDs. Format v1, which older addons still write, has no GUID; addon 2.1.3 (which keys characters by
 GUID) wrote the GUID as the name there, which is refused.
@@ -25,6 +28,7 @@ from dataclasses import dataclass
 
 from . import versions
 from .altarmy import Character, Profession
+from .reputation import EXALTED, HATED, city_standings
 
 PREFIX = "AAX1:"
 # Fields of a C line (with the "C") per format version.
@@ -123,13 +127,13 @@ def _parse(lines: list[str]) -> Export:
         raise ValueError(f"export format {head[1]!r} is not supported: update the site or the addon")
     interface = _int(head[2], "interface")
     chars: list[Character] = []
-    current: tuple[list[str], list[Profession], dict[int, int]] | None = None
+    current: tuple[list[str], list[Profession], dict[int, int], list[tuple[int, int]]] | None = None
     for line in lines[1:]:
         fields = line.split("|")
         if fields[0] == "C" and len(fields) == character_fields:
             if current is not None:
                 chars.append(_character(*current))
-            current = ((fields[1:] + [""])[:6], [], {})
+            current = ((fields[1:] + [""])[:6], [], {}, [])
         elif fields[0] == "P" and len(fields) == 5:
             if current is None:
                 raise ValueError("the export lists a profession before any character")
@@ -142,6 +146,13 @@ def _parse(lines: list[str]) -> Export:
             talent_rank = _int(fields[2], "talent rank")
             if talent_rank > 0:
                 current[2][_int(fields[1], "talent")] = talent_rank
+        elif fields[0] == "R" and len(fields) == 3:
+            if current is None:
+                raise ValueError("the export lists a reputation before any character")
+            standing = _int(fields[2], "standing")
+            if not HATED <= standing <= EXALTED:
+                raise ValueError(f"bad standing {fields[2]!r} in the export")
+            current[3].append((_int(fields[1], "faction"), standing))
         elif line.strip():
             raise ValueError(f"unexpected line in the export: {line[:40]!r}")
     if current is not None:
@@ -149,7 +160,12 @@ def _parse(lines: list[str]) -> Export:
     return Export(interface, head[3], sorted(chars, key=lambda c: (c.realm, c.name)))
 
 
-def _character(fields: list[str], professions: list[Profession], talents: dict[int, int]) -> Character:
+def _character(
+    fields: list[str],
+    professions: list[Profession],
+    talents: dict[int, int],
+    reputations: list[tuple[int, int]],
+) -> Character:
     realm, name, faction, class_file, level, guid = fields
     if _GUID.fullmatch(name):
         # Addon 2.1.3 keys characters by GUID, and its v1 export wrote the key instead of the name.
@@ -165,6 +181,7 @@ def _character(fields: list[str], professions: list[Profession], talents: dict[i
         tuple(sorted(professions, key=lambda p: p.name)),
         tuple(sorted(talents.items())),
         guid,
+        city_standings(reputations),
     )
 
 

@@ -68,6 +68,7 @@ def test_characters_round_trip_and_replace(conn: Connection) -> None:
     store.save_characters(conn, ME, "tbc", chars[:2])
     assert store.load_characters(conn, ME, FOREVER) == chars
     assert any(c.talents for c in store.load_characters(conn, ME, FOREVER))  # Legacy talents too
+    assert any(c.reputations for c in store.load_characters(conn, ME, FOREVER))  # and standings
     store.save_characters(conn, ME, FOREVER, chars[:1])
     assert store.load_characters(conn, ME, FOREVER) == chars[:1]
     assert store.load_characters(conn, ME, "tbc") == chars[:2]  # each version has its own characters

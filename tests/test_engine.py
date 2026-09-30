@@ -46,6 +46,7 @@ def make_market(
     no_ah: frozenset[int] = frozenset(),
     extra_items: Sequence[Item] = (),
     time: TimeModel | None = None,
+    reputation_discounts: dict[int, int] | None = None,
 ) -> Market:
     items = {
         LINEN: Item(LINEN, "Linen Cloth"),
@@ -72,6 +73,7 @@ def make_market(
         exits=exits,
         no_ah=no_ah,
         time=time,
+        reputation_discounts=reputation_discounts,
     )
 
 
@@ -1188,6 +1190,184 @@ def test_a_disenchant_sale_says_how_long_the_disenchanting_takes() -> None:
 
 def test_detailed_steps_need_a_timing() -> None:
     assert engine.detailed_steps(must_evaluate(maul_market(SMITHY, LEATHERY), MAUL_RECIPE)) == []
+
+
+# --- reputation: what a vendor charges this buyer in this city ------------------------------------------
+ORGRIMMAR, DARKSPEAR = 76, 530
+HONORED_UP = {6: 10, 7: 10, 8: 10}  # vanilla: 10% off from Honored
+# Two vendors sell thread: a troll 10 s from the auction house and an orc 100 s away. A third, of a faction
+# nobody has a reputation with, sells nothing we need.
+REP_TOWN = timing.CityMap(
+    "Rep Town",
+    "Horde",
+    [
+        timing.Location("ah", "ah", "Auctioneer", 0, 0, 0),
+        timing.Location("mailbox:1", "mailbox", "Mailbox", 35, 0, 0),
+        timing.Location("vendor:1", "vendor", "Troll Seller", 70, 0, 0),
+        timing.Location("vendor:2", "vendor", "Orc Seller", 700, 0, 0),
+        timing.Location("vendor:3", "vendor", "Junk Seller", 0, 21, 0),
+    ],
+    "ah",
+    {"vendor:1": frozenset({THREAD}), "vendor:2": frozenset({THREAD}), "vendor:3": frozenset()},
+    vendor_reputations={"vendor:1": DARKSPEAR, "vendor:2": ORGRIMMAR},
+)
+
+
+def rep_market(
+    *standings: tuple[int, int],
+    city: timing.CityMap | None = REP_TOWN,
+    bartering: int = 0,
+    thread: int = 100,
+    prices: dict[int, int] | None = None,
+) -> Market:
+    """The robe's market for a tailor with those (faction, standing) pairs, thread at a vendor."""
+    tailor = replace(TAILOR, reputations=standings, vendor_discount=bartering)
+    model = None if city is None else TimeModel(timed(0).config, city)
+    return make_market(
+        prices or {LINEN: 20},
+        [ROBE],
+        thread_vendor_price=thread,
+        crafters=[tailor],
+        time=model,
+        reputation_discounts=HONORED_UP,
+    )
+
+
+def thread_buy(res: Result) -> Step:
+    (step,) = [s for s in res.steps if s.item_id == THREAD]
+    return step
+
+
+def test_an_honored_buyer_pays_less_at_that_factions_vendor() -> None:
+    res = must_evaluate(rep_market((ORGRIMMAR, 6)), ROBE)
+    assert res.cost == 10 * 20 + 90
+    assert (res.tree.inputs[1].rep_discount, res.tree.inputs[1].discount) == (10, 0)
+    buy = thread_buy(res)
+    assert (buy.value, buy.via, buy.rep_discount, buy.discount) == (-90, "vendor", 10, 0)
+    assert engine.reputation_faction(res, "Tailor", THREAD) == ORGRIMMAR
+    (linen,) = [s for s in res.steps if s.item_id == LINEN]
+    assert linen.rep_discount == 0  # bought on the AH
+
+
+@pytest.mark.parametrize("standings", [(), ((ORGRIMMAR, 5),), ((81, 8),)])
+def test_no_discount_below_the_standing_or_with_another_faction(
+    standings: tuple[tuple[int, int], ...],
+) -> None:
+    # Friendly is not enough (vanilla), and Thunder Bluff's vendors aren't here
+    res = must_evaluate(rep_market(*standings), ROBE)
+    assert (res.cost, thread_buy(res).rep_discount) == (10 * 20 + 100, 0)
+    assert engine.reputation_faction(res, "Tailor", THREAD) == 0
+
+
+def test_reputation_adds_to_bartering() -> None:
+    res = must_evaluate(rep_market((ORGRIMMAR, 8), bartering=10), ROBE)
+    buy = thread_buy(res)
+    assert (buy.value, buy.discount, buy.rep_discount) == (-80, 10, 10)
+    assert engine.vendor_price(15, 5, 10) == 13  # 12.75 -> 13: rounded up, like Bartering alone
+
+
+def test_the_price_needs_a_city() -> None:
+    # No time model (the CLI's ranking), or no presets: nobody knows whose vendor it is.
+    assert must_evaluate(rep_market((ORGRIMMAR, 6), city=None), ROBE).cost == 300
+    res = must_evaluate(rep_market((ORGRIMMAR, 6), city=timing.ANYWHERE), ROBE)
+    assert (res.cost, thread_buy(res).rep_discount) == (300, 0)
+
+
+def test_the_route_buys_where_the_price_holds() -> None:
+    def vendors_visited(res: Result) -> list[str]:
+        t = res.timing
+        assert t is not None
+        return [st.location_id for st in t.stops if st.phase == "gather"]
+
+    # Honored with the orcs: past the troll to the orc seller, where the thread is cheaper
+    orc = must_evaluate(rep_market((ORGRIMMAR, 6)), ROBE)
+    assert vendors_visited(orc) == ["ah", "vendor:2"]
+    went = [d.location_id for d in engine.detailed_steps(orc) if d.kind == "go"]
+    assert "vendor:2" in went and "vendor:1" not in went
+    # Honored with the trolls: the near one
+    assert vendors_visited(must_evaluate(rep_market((DARKSPEAR, 6)), ROBE)) == ["ah", "vendor:1"]
+    # with both, either gives the price: the nearer
+    both = must_evaluate(rep_market((ORGRIMMAR, 6), (DARKSPEAR, 7)), ROBE)
+    assert vendors_visited(both) == ["ah", "vendor:1"]
+    assert engine.reputation_faction(both, "Tailor", THREAD) == DARKSPEAR
+    # with neither, the nearest seller
+    assert vendors_visited(must_evaluate(rep_market(), ROBE)) == ["ah", "vendor:1"]
+
+
+def test_a_plan_can_be_costed_and_timed_in_another_city() -> None:
+    # A town whose only thread seller is a troll, next to the auction house.
+    troll_town = timing.CityMap(
+        "Troll Town",
+        "Horde",
+        [
+            timing.Location("ah", "ah", "Auctioneer", 0, 0, 0),
+            timing.Location("vendor:9", "vendor", "T", 7, 0, 0),
+        ],
+        "ah",
+        {"vendor:9": frozenset({THREAD})},
+        vendor_reputations={"vendor:9": DARKSPEAR},
+    )
+    m = rep_market((ORGRIMMAR, 6))
+    res = must_evaluate(m, ROBE)
+    assert engine.cost_in(res, REP_TOWN, m.items) == res.cost == 290  # where it was planned
+    assert engine.cost_in(res, troll_town, m.items) == 300  # the orcs' discount doesn't hold there
+    there = engine.time_result(res, TimeModel(timed(0).config, troll_town))
+    assert [st.location_id for st in there.stops if st.phase == "gather"] == ["ah", "vendor:9"]
+    both = must_evaluate(rep_market((ORGRIMMAR, 6), (DARKSPEAR, 6), bartering=10), ROBE)
+    assert engine.cost_in(both, troll_town, m.items) == both.cost == 280  # Bartering goes along
+
+
+def test_city_prices_tell_cities_that_charge_differently_apart() -> None:
+    orc: dict[int, int] = {ORGRIMMAR: 10}
+    troll: dict[int, int] = {DARKSPEAR: 10}
+    nobody: dict[int, int] = {}
+    assert engine.city_prices(REP_TOWN, [nobody]) == frozenset()
+    assert engine.city_prices(REP_TOWN, [orc, nobody, troll]) == {(0, THREAD, 10), (2, THREAD, 10)}
+    assert engine.city_prices(TOWN, [orc, troll]) == frozenset()  # its vendors follow no reputation
+
+
+def test_recipes_using_follows_chains_of_any_depth() -> None:
+    dye = Recipe(30, "Dye", 40, 1, ((THREAD, 1),), "Tailoring")
+    dyed_bolt = Recipe(31, "Dyed Bolt", 41, 1, ((40, 1), (BOLT, 1)), "Tailoring")
+    cloak = Recipe(32, "Cloak", 42, 1, ((41, 2),), "Tailoring")
+    recipes = [cloak, BOLT_RECIPE, BOLT_TUNIC, dyed_bolt, dye]
+    # thread goes into the dye, the dye into the dyed bolt, that into the cloak; bolts and tunics need none
+    assert engine.recipes_using(recipes, {THREAD}) == {30, 31, 32}
+    assert engine.recipes_using(recipes, {LINEN}) == {11, 12, 31, 32}
+    assert engine.recipes_using(recipes, set()) == frozenset()
+
+
+def test_rank_can_be_kept_to_some_recipes() -> None:
+    m = make_market(BOLT_PRICES, BOLT_RECIPES)
+    everything = m.rank(min_profit=-(10**9))
+    some = m.rank(min_profit=-(10**9), only={BOLT_ROBE.id, BOLT_TUNIC.id})
+    assert [r.recipe.id for r in some] == [r.recipe.id for r in everything if r.recipe.id != BOLT_RECIPE.id]
+    assert [plan(r) for r in some] == [plan(r) for r in everything if r.recipe.id != BOLT_RECIPE.id]
+    assert m.rank(only=set()) == []
+
+
+def test_a_reputation_discount_can_beat_the_auction_house() -> None:
+    prices = {LINEN: 20, THREAD: 95}
+    assert must_evaluate(rep_market(prices=prices), ROBE).tree.inputs[1].source == "ah"
+    assert must_evaluate(rep_market((ORGRIMMAR, 6), prices=prices), ROBE).tree.inputs[1].source == "vendor"
+
+
+def test_the_trip_to_a_far_discount_counts_when_time_has_a_value() -> None:
+    # The orc seller is 100 s out: at 100g an hour the trip costs far more than the 10c saved, but the
+    # price is still the orc's if the thread is bought from a vendor at all.
+    tailor = replace(TAILOR, reputations=((ORGRIMMAR, 6),))
+    model = TimeModel(timed(100).config, REP_TOWN)
+    m = make_market(
+        {LINEN: 20, THREAD: 100},
+        [ROBE],
+        thread_vendor_price=100,
+        crafters=[tailor],
+        time=model,
+        reputation_discounts=HONORED_UP,
+    )
+    thread = must_evaluate(m, ROBE).tree.inputs[1]
+    assert (thread.source, [o.key for o in thread.options]) == ("ah", ["ah", "vendor"])
+    assert thread.options[1].cost == 90
 
 
 # --- the order book: buying walks the ladder -----------------------------------------------------

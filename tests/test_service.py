@@ -2,6 +2,7 @@ import os
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import Connection
@@ -359,3 +360,196 @@ def test_favorites_first_keeps_each_part_in_order() -> None:
     assert [r.recipe.id for r in ranked] == [4, 3, 2, 1]
     assert [r.recipe.id for r in service.favorites_first(ranked, frozenset({1, 3}))] == [3, 1, 4, 2]
     assert service.favorites_first(ranked, frozenset()) == ranked
+
+
+# --- reputation: the city a plan pays best in -----------------------------------------------------------
+ORGRIMMAR, THUNDER_BLUFF = 76, 81
+HONORED_UP = {6: 10, 7: 10, 8: 10}
+CLOTH, THREAD, ROBE_ITEM = 1, 2, 3
+ROBE = engine.Recipe(10, "Robe", ROBE_ITEM, 1, ((CLOTH, 10), (THREAD, 1)), "Tailoring", spell_id=900)
+WALK = timing.TimeConfig(run_speed=7.0, detour=1.0)  # 7 yd is a second
+
+
+def rep_city(name: str, vendor_x: float, faction: int, anvil: bool = True) -> timing.CityMap:
+    """A Horde city: the auction house, a mailbox 5 s away, an anvil there too, and `faction`'s thread
+    seller `vendor_x` yards out."""
+    places = [
+        timing.Location("ah", "ah", "Auctioneer", 0, 0, 0),
+        timing.Location("mailbox:1", "mailbox", "Mailbox", 35, 0, 0),
+        timing.Location("vendor:1", "vendor", "Thread Seller", vendor_x, 0, 0),
+    ]
+    if anvil:
+        places.append(timing.Location("anvil:1", "anvil", "Anvil", 35, 0, 0))
+    return timing.CityMap(
+        name,
+        "Horde",
+        places,
+        "ah",
+        {"vendor:1": frozenset({THREAD})},
+        vendor_reputations={"vendor:1": faction},
+    )
+
+
+def tailor(*standings: tuple[int, int]) -> Character:
+    tailoring = Profession("Tailoring", 300, 300, frozenset({900}))
+    return Character("R", "Tailor", "Horde", "MAGE", 60, (tailoring,), reputations=standings)
+
+
+def rep_base(thread: int, robe: int = 500, recipe: engine.Recipe = ROBE) -> engine.Market:
+    """Cloth at 20c on the AH, thread at a vendor, the robe sold to a vendor."""
+    items = {
+        CLOTH: engine.Item(CLOTH, "Cloth", stack_size=20),
+        THREAD: engine.Item(THREAD, "Thread", vendor_price=thread, stack_size=20),
+        ROBE_ITEM: engine.Item(ROBE_ITEM, "Robe", sell_price=robe),
+    }
+    return engine.Market(items, [recipe], {CLOTH: 20}, reputation_discounts=HONORED_UP)
+
+
+def best_plan(
+    base: engine.Market, who: Character, near: timing.CityMap, far: timing.CityMap
+) -> engine.Result:
+    """The robe as the search ranks it for `who`, left to pick between the two cities."""
+    model = engine.TimeModel(WALK, near, (near, far))
+    (r,) = service.search(base, [who], "none", Filters(), time=model)
+    return r
+
+
+def test_cities_are_grouped_by_what_their_vendors_charge() -> None:
+    org, tb = rep_city("Orgrimmar", 70, ORGRIMMAR), rep_city("Thunder Bluff", 70, THUNDER_BLUFF)
+
+    def groups(*standings: tuple[int, int]) -> list[list[str]]:
+        crafters = [engine.Crafter("Tailor", (), frozenset(), reputations=standings)]
+        return [[c.name for c in g] for g in service.city_groups([org, tb], crafters, HONORED_UP)]
+
+    assert groups() == [["Orgrimmar", "Thunder Bluff"]]
+    assert groups((THUNDER_BLUFF, 5)) == [["Orgrimmar", "Thunder Bluff"]]  # Friendly: nothing off
+    assert groups((THUNDER_BLUFF, 6)) == [["Orgrimmar"], ["Thunder Bluff"]]
+    assert groups((THUNDER_BLUFF, 6), (ORGRIMMAR, 8)) == [["Orgrimmar", "Thunder Bluff"]]  # 10% in both
+    assert service.city_groups([org, tb], [], HONORED_UP) == [(org, tb)]  # browsing: nobody's standing
+
+
+def test_a_small_saving_is_not_worth_a_long_run() -> None:
+    # Honored in Thunder Bluff, where the thread seller is 1000 s out: 10c off a thread doesn't pay for it.
+    org, tb = rep_city("Orgrimmar", 70, ORGRIMMAR), rep_city("Thunder Bluff", 7000, THUNDER_BLUFF)
+    r = best_plan(rep_base(thread=100), tailor((THUNDER_BLUFF, 6)), org, tb)
+    assert r.timing is not None
+    assert (r.timing.city, r.cost, r.tree.inputs[1].rep_discount) == ("Orgrimmar", 10 * (200 + 100), 0)
+    (other,) = r.alternatives  # the same session in Thunder Bluff: cheaper, and far slower
+    assert other.timing is not None
+    assert (other.timing.city, other.cost) == ("Thunder Bluff", 10 * (200 + 90))
+    assert r.rate is not None and other.rate is not None and r.rate > other.rate
+
+
+def test_the_cheaper_city_wins_when_it_pays_more_per_hour() -> None:
+    # The robe barely profits at list price (10c a craft); 29c off the thread nearly quadruples that, for
+    # ten seconds more of running.
+    org, tb = rep_city("Orgrimmar", 70, ORGRIMMAR), rep_city("Thunder Bluff", 140, THUNDER_BLUFF)
+    r = best_plan(rep_base(thread=290), tailor((THUNDER_BLUFF, 6)), org, tb)
+    assert r.timing is not None
+    assert (r.timing.city, r.profit) == ("Thunder Bluff", 10 * (500 - 200 - 261))
+    assert [a.profit for a in r.alternatives] == [10 * 10]
+
+
+def test_a_plan_that_loses_everywhere_goes_where_it_loses_least() -> None:
+    org, tb = rep_city("Orgrimmar", 70, ORGRIMMAR), rep_city("Thunder Bluff", 7000, THUNDER_BLUFF)
+    r = best_plan(rep_base(thread=400), tailor((THUNDER_BLUFF, 6)), org, tb)
+    assert r.timing is not None
+    assert (r.timing.city, r.profit) == ("Thunder Bluff", 10 * (500 - 200 - 360))  # -60 a craft, not -100
+
+
+def test_a_plan_that_profits_in_one_city_only_goes_there() -> None:
+    org, tb = rep_city("Orgrimmar", 70, ORGRIMMAR), rep_city("Thunder Bluff", 7000, THUNDER_BLUFF)
+    r = best_plan(rep_base(thread=310), tailor((THUNDER_BLUFF, 6)), org, tb)  # -10 a craft, or +21
+    assert r.timing is not None
+    assert (r.timing.city, r.profit) == ("Thunder Bluff", 10 * 21)
+
+
+def test_a_city_without_the_plans_station_is_passed_over() -> None:
+    forged = replace(ROBE, station="anvil")
+    org = rep_city("Orgrimmar", 70, ORGRIMMAR)
+    tb = rep_city("Thunder Bluff", 140, THUNDER_BLUFF, anvil=False)
+    r = best_plan(rep_base(thread=290, recipe=forged), tailor((THUNDER_BLUFF, 6)), org, tb)
+    assert r.timing is not None
+    assert (r.timing.city, r.timing.missing) == ("Orgrimmar", frozenset())
+
+
+def test_the_same_plan_everywhere_is_timed_in_the_quickest_city_lazily() -> None:
+    # Thread is cheaper still on the AH: no vendor buy, so the cities differ in nothing but the running.
+    org, tb = rep_city("Orgrimmar", 700, ORGRIMMAR), rep_city("Thunder Bluff", 70, THUNDER_BLUFF)
+    base = rep_base(thread=100)
+    base.prices[THREAD] = 50
+    r = best_plan(base, tailor((THUNDER_BLUFF, 6)), org, tb)
+    assert r.alternatives == () and "timing" not in vars(r)  # nothing timed to rank it
+    assert r.time_model is not None
+    assert [c.name for c in r.time_model.fastest] == ["Orgrimmar", "Thunder Bluff"]
+    assert r.timing is not None and r.timing.city == "Thunder Bluff"  # the robe sells at the nearer vendor
+
+
+def test_a_recipe_the_cities_price_alike_is_planned_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The sash takes no thread: what it costs has nothing to do with whose vendor sells thread for less.
+    sash = engine.Recipe(11, "Sash", 4, 1, ((CLOTH, 5),), "Tailoring", spell_id=901)
+    base = rep_base(thread=290)
+    base.items[4] = engine.Item(4, "Sash", sell_price=300)
+    base.recipes.append(sash)
+    who = replace(
+        tailor((THUNDER_BLUFF, 6)), professions=(Profession("Tailoring", 300, 300, frozenset({900, 901})),)
+    )
+    org, tb = rep_city("Orgrimmar", 700, ORGRIMMAR), rep_city("Thunder Bluff", 70, THUNDER_BLUFF)
+    model = engine.TimeModel(WALK, org, (org, tb))
+    planned: list[int] = []
+    evaluate = engine.Market.evaluate
+
+    def counted(
+        self: engine.Market, recipe: engine.Recipe, *args: Any, **kwargs: Any
+    ) -> engine.Result | None:
+        planned.append(recipe.id)
+        return evaluate(self, recipe, *args, **kwargs)
+
+    monkeypatch.setattr(engine.Market, "evaluate", counted)
+    by_id = {r.recipe.id: r for r in service.search(base, [who], "none", Filters(), time=model)}
+    assert sorted(planned) == [10, 10, 11]  # the robe in both cities, the sash once
+    got = by_id[11]
+    assert got.alternatives == () and "timing" not in vars(got)
+    assert got.time_model is not None and [c.name for c in got.time_model.fastest] == [
+        "Orgrimmar",
+        "Thunder Bluff",
+    ]
+    assert got.timing is not None and got.timing.city == "Thunder Bluff"  # the nearer vendor to sell it to
+    assert by_id[10].timing is not None and by_id[10].timing.city == "Thunder Bluff"
+    planned.clear()
+    session = service.session_model(model, [org, tb], None)
+    again = service.evaluate(base, [who], "none", ALL_EXITS, 11, {}, time=session, crafts=WALK.batch)
+    assert again == got and planned == [11]
+    assert again is not None and again.timing is not None and again.timing.city == "Thunder Bluff"
+
+
+def test_without_standings_the_ranking_is_the_plain_one() -> None:
+    org, tb = rep_city("Orgrimmar", 70, ORGRIMMAR), rep_city("Thunder Bluff", 140, THUNDER_BLUFF)
+    r = best_plan(rep_base(thread=290), tailor(), org, tb)
+    assert r.time_model is not None and r.time_model.city is org
+    assert (r.alternatives, "timing" in vars(r), r.profit) == ((), False, 100)
+
+
+def test_evaluate_gives_the_ranked_result() -> None:
+    org, tb = rep_city("Orgrimmar", 70, ORGRIMMAR), rep_city("Thunder Bluff", 140, THUNDER_BLUFF)
+    base, who = rep_base(thread=290), tailor((THUNDER_BLUFF, 6))
+    model = engine.TimeModel(WALK, org, (org, tb))
+    (r,) = service.search(base, [who], "none", Filters(), time=model)
+    session = service.session_model(model, [org, tb], None)
+    got = service.evaluate(base, [who], "none", ALL_EXITS, ROBE.id, {}, time=session, crafts=WALK.batch)
+    assert got is not None and got == r
+    assert got.timing is not None and got.timing.city == "Thunder Bluff"
+    assert [a.profit for a in got.alternatives] == [a.profit for a in r.alternatives]
+    # asked for a city, it is planned and priced there alone
+    there = service.session_model(model, [org, tb], "Orgrimmar")
+    got = service.evaluate(base, [who], "none", ALL_EXITS, ROBE.id, {}, time=there, crafts=WALK.batch)
+    assert got is not None and got.timing is not None
+    assert (got.timing.city, got.profit, got.alternatives) == ("Orgrimmar", 100, ())
+
+
+def test_a_saved_city_prices_the_plan_there() -> None:
+    tb = rep_city("Thunder Bluff", 140, THUNDER_BLUFF)
+    (r,) = service.search(
+        rep_base(thread=290), [tailor((THUNDER_BLUFF, 6))], "none", Filters(), time=engine.TimeModel(WALK, tb)
+    )
+    assert (r.profit, r.alternatives) == (10 * 39, ())

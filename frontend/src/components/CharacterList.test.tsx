@@ -18,8 +18,20 @@ const groups: CharacterGroup[] = [
           { spell_id: 1225457, name: 'Master Chef', rank: 3, max_rank: 5 },
           { spell_id: 1225459, name: 'Bartering', rank: 2, max_rank: 2 },
         ],
+        vendor_discounts: [],
       },
-      { name: 'Plain', class_file: 'MAGE', level: 10, professions: [], talents: [] },
+      { name: 'Plain', class_file: 'MAGE', level: 10, professions: [], talents: [], vendor_discounts: [] },
+      {
+        name: 'Envoy',
+        class_file: 'SHAMAN',
+        level: 5,
+        professions: [],
+        talents: [],
+        vendor_discounts: [
+          { faction: 'Orgrimmar', percent: 10 },
+          { faction: 'Thunder Bluff', percent: 10 },
+        ],
+      },
     ],
   },
 ]
@@ -35,11 +47,16 @@ describe('CharacterList', () => {
     expect(text('10')).toBeInTheDocument()
   })
 
+  it('says whose vendors a character’s reputation makes cheaper', () => {
+    renderWithProviders(<CharacterList groups={groups} />)
+    expect(screen.getByText('Vendors −10%: Orgrimmar, Thunder Bluff')).toBeInTheDocument()
+  })
+
   it('lists each realm’s characters by level, highest first', () => {
     const [group] = groups
     renderWithProviders(<CharacterList groups={[{ ...group, characters: [...group.characters].reverse() }]} />)
-    const names = screen.getAllByText(/^(Chef|Plain)$/).map((el) => el.textContent)
-    expect(names).toEqual(['Chef', 'Plain'])
+    const names = screen.getAllByText(/^(Chef|Plain|Envoy)$/).map((el) => el.textContent)
+    expect(names).toEqual(['Chef', 'Plain', 'Envoy'])
   })
 
   it('has no remove button', () => {

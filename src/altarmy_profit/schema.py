@@ -264,6 +264,15 @@ character_talents = Table(
     Column("rank", Integer, nullable=False),
 )
 
+# Standings with the city factions (`reputation.CITY_FACTIONS`), which discount their vendors' prices.
+character_reputations = Table(
+    "character_reputations",
+    metadata,
+    Column("character_id", Integer, ForeignKey("characters.id", ondelete="CASCADE"), primary_key=True),
+    Column("faction_id", Integer, primary_key=True, autoincrement=False),  # DB2 Faction
+    Column("standing", Integer, nullable=False),  # 1 Hated .. 8 Exalted
+)
+
 # Items the user never wants sold on the AH (only vendor or disenchant). Ingest leaves them alone.
 ah_blocked = Table(
     "ah_blocked",

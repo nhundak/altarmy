@@ -9,7 +9,31 @@ function byLevel(characters: CharacterGroup['characters']) {
   return [...characters].sort((a, b) => b.level - a.level || a.name.localeCompare(b.name))
 }
 
-/** Each realm/faction's characters in aligned columns: name, level, profession skills (and Legacy talents). */
+type Character = CharacterGroup['characters'][number]
+
+/** What the character's reputation takes off at vendors, e.g. "Vendors −10%: Orgrimmar, Thunder Bluff". */
+function vendorNote(discounts: Character['vendor_discounts']): string {
+  const percents = [...new Set(discounts.map((d) => d.percent))].sort((a, b) => b - a)
+  return percents
+    .map((p) => `Vendors −${p}%: ${discounts.filter((d) => d.percent === p).map((d) => d.faction).join(', ')}`)
+    .join('; ')
+}
+
+/** A character's profession skills, Legacy talents and vendor discounts on one line. */
+function skills(c: Character): string {
+  return [
+    c.professions.map((p) => `${p.name} ${p.rank}/${p.max_rank}`).join(', '),
+    c.talents.map((t) => `${t.name} ${t.rank}/${t.max_rank}`).join(', '),
+    vendorNote(c.vendor_discounts),
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/**
+ * Each realm/faction's characters in aligned columns: name, level, profession skills (and Legacy talents, and
+ * what their reputation takes off at vendors).
+ */
 export function CharacterList({ groups }: { groups: readonly CharacterGroup[] }) {
   return (
     <Box
@@ -41,9 +65,7 @@ export function CharacterList({ groups }: { groups: readonly CharacterGroup[] })
                 {c.level}
               </Text>
               <Text size="sm" c="dimmed">
-                {c.professions.map((p) => `${p.name} ${p.rank}/${p.max_rank}`).join(', ')}
-                {c.talents.length > 0 &&
-                  `${c.professions.length ? ' · ' : ''}${c.talents.map((t) => `${t.name} ${t.rank}/${t.max_rank}`).join(', ')}`}
+                {skills(c)}
               </Text>
             </Fragment>
           ))}

@@ -477,6 +477,11 @@ export interface components {
              * @default []
              */
             talents: components["schemas"]["TalentOut"][];
+            /**
+             * Vendor Discounts
+             * @default []
+             */
+            vendor_discounts: components["schemas"]["VendorDiscountOut"][];
         };
         /** Characters */
         Characters: {
@@ -503,7 +508,11 @@ export interface components {
             /** Vendors */
             vendors: number;
         };
-        /** CityTimingOut */
+        /**
+         * CityTimingOut
+         * @description The result in one city: as planned there when the cities were compared, else (the user's city is
+         *     set, or `city` was asked for) its plan with the vendor buys at that city's prices.
+         */
         CityTimingOut: {
             /** City */
             city: string;
@@ -511,6 +520,8 @@ export interface components {
             missing: string[];
             /** Per Hour */
             per_hour: number;
+            /** Profit */
+            profit: number;
             /** Total Seconds */
             total_seconds: number;
         };
@@ -916,6 +927,16 @@ export interface components {
             /** Quantity */
             quantity: number;
             /**
+             * Rep Discount
+             * @default 0
+             */
+            rep_discount: number;
+            /**
+             * Rep Faction
+             * @default
+             */
+            rep_faction: string;
+            /**
              * Seconds
              * @default 0
              */
@@ -1152,6 +1173,16 @@ export interface components {
             /** Quantity */
             quantity: number;
             /**
+             * Rep Discount
+             * @default 0
+             */
+            rep_discount: number;
+            /**
+             * Rep Faction
+             * @default
+             */
+            rep_faction: string;
+            /**
              * Seconds
              * @default 0
              */
@@ -1342,6 +1373,16 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * VendorDiscountOut
+         * @description What a character's reputation takes off at a city faction's vendors.
+         */
+        VendorDiscountOut: {
+            /** Faction */
+            faction: string;
+            /** Percent */
+            percent: number;
         };
         /**
          * VersionOut

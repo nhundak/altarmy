@@ -127,6 +127,8 @@ def test_any_station_kind_can_be_placed() -> None:
         {**city_data(), "vendors": {"vendor:9": [1]}},  # not a location
         {**city_data(), "overrides": {"travel": {"ah": 1}}},  # not a pair
         {**city_data(), "faction": "Pirates"},
+        {**city_data(), "vendor_reputations": {"vendor:9": 76}},  # not a location
+        {**city_data(), "vendor_reputations": {"vendor:1": "Orgrimmar"}},  # not a faction id
     ],
 )
 def test_bad_maps_raise_value_error(bad: dict[str, Any]) -> None:
@@ -146,6 +148,27 @@ def test_nearest_and_vendor_for() -> None:
     v3 = c.vendor_for(3, "ah", FAST)
     assert v3 is not None and v3.id == "vendor:2"
     assert c.vendor_for(99, "ah", FAST) is None
+
+
+def test_vendors_have_a_reputation_faction() -> None:
+    c = CityMap.from_dict({**city_data(), "vendor_reputations": {"vendor:2": 76}})
+    assert (c.reputation_of("vendor:1"), c.reputation_of("vendor:2")) == (0, 76)
+    assert c.sellers(2) == ("vendor:1", "vendor:2")
+    assert c.sellers(99) == ()
+    assert city().reputation_of("vendor:2") == 0  # a preset from before vendors had one
+
+
+def test_vendor_for_can_be_kept_to_some_sellers() -> None:
+    c = city()
+    far = c.vendor_for(2, "ah", FAST, among=["vendor:2"])
+    assert far is not None and far.id == "vendor:2"  # though vendor 1 is nearer
+    assert c.vendor_for(2, "ah", FAST, among=[]) is None
+    assert c.vendor_for(1, "ah", FAST, among=["vendor:2"]) is None  # vendor 2 doesn't sell it
+
+
+def test_a_dropped_vendor_has_no_reputation_either() -> None:
+    data = {**city_data(drop=["vendor:2"]), "vendor_reputations": {"vendor:2": 76}}
+    assert CityMap.from_dict(data).sellers(2) == ("vendor:1",)
 
 
 def test_trip_goes_there_and_back_from_the_hub() -> None:
@@ -171,6 +194,17 @@ def test_route_covers_vendor_items_with_few_vendors() -> None:
     c = city()
     block = Block("A", vendor_items=frozenset({2, 3}))
     assert [leg.to_id for leg in timing.route(c, block, FAST)] == ["vendor:2"]  # one vendor sells both
+
+
+def test_route_buys_an_item_only_where_its_price_holds() -> None:
+    c = city()
+    only_far = {2: frozenset({"vendor:2"})}  # item 2's price is the far vendor's
+    block = Block("A", vendor_items=frozenset({2}), vendor_sellers=only_far)
+    assert [leg.to_id for leg in timing.route(c, block, FAST)] == ["vendor:2"]
+    both = Block("A", vendor_items=frozenset({1, 2}), vendor_sellers=only_far)
+    # vendor 1 sells both, but item 2 must come from vendor 2
+    assert [leg.to_id for leg in timing.route(c, both, FAST)] == ["vendor:1", "vendor:2"]
+    assert timing.time_blocks([both], FAST, c).unsold == frozenset()
 
 
 def test_route_disposes_after_crafting() -> None:

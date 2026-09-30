@@ -412,9 +412,12 @@ def vendor_csv(tmp_path: Path) -> Path:
     )
 
 
-def city_preset(name: str, faction: str, vendor_x: float, anvil: bool = False) -> dict[str, object]:
+def city_preset(
+    name: str, faction: str, vendor_x: float, anvil: bool = False, reputation: int = 0
+) -> dict[str, object]:
     """A city with its auction house at the hub, a mailbox 35 yd away, a vendor selling Coarse Thread
-    (item 2) `vendor_x` yards away and, with `anvil`, an anvil 20 yd away."""
+    (item 2) `vendor_x` yards away and, with `anvil`, an anvil 20 yd away. The vendor's prices follow the
+    buyer's standing with the faction `reputation` (0: nobody's)."""
     anvils = [{"id": "anvil:1", "kind": "anvil", "name": "Anvil", "x": 0, "y": 20, "z": 0}] if anvil else []
     return {
         "name": name,
@@ -429,6 +432,7 @@ def city_preset(name: str, faction: str, vendor_x: float, anvil: bool = False) -
             *anvils,
         ],
         "vendors": {"vendor:1": [2]},
+        "vendor_reputations": {"vendor:1": reputation} if reputation else {},
     }
 
 
@@ -436,16 +440,17 @@ def city_preset(name: str, faction: str, vendor_x: float, anvil: bool = False) -
 def cities(tmp_path: Path) -> Path:
     """Forever's city presets (the `game_versions` data dir): Orgrimmar (Horde, its vendor 700 yd off, no
     anvil), Thunder Bluff (Horde, 14 yd, an anvil), Stormwind (Alliance, an anvil) and Booty Bay (neutral,
-    its vendor next door: never offered, its auction house isn't the tracked one)."""
+    its vendor next door: never offered, its auction house isn't the tracked one). Each city's vendor is
+    its own faction's (Booty Bay's nobody's)."""
     folder = tmp_path / "cities"
     folder.mkdir()
-    for name, faction, x, anvil in [
-        ("Orgrimmar", "Horde", 700, False),
-        ("Thunder Bluff", "Horde", 14, True),
-        ("Booty Bay", "", 1, True),
-        ("Stormwind", "Alliance", 70, True),
+    for name, faction, x, anvil, reputation in [
+        ("Orgrimmar", "Horde", 700, False, 76),
+        ("Thunder Bluff", "Horde", 14, True, 81),
+        ("Booty Bay", "", 1, True, 0),
+        ("Stormwind", "Alliance", 70, True, 72),
     ]:
-        preset = city_preset(name, faction, x, anvil)
+        preset = city_preset(name, faction, x, anvil, reputation)
         (folder / f"{name}.json").write_text(json.dumps(preset), encoding="utf-8")
     return folder
 

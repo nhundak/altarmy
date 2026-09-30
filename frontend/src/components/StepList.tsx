@@ -52,13 +52,13 @@ function describe(step: Step, result: RankResult, items: ItemMap, vendor?: strin
 }
 
 function describeAction(
-  { action, item_id, name, quantity, value, via, discount, bonus }: Step,
+  { action, item_id, name, quantity, value, via, discount, rep_discount, rep_faction, bonus }: Step,
   result: RankResult,
   items: ItemMap,
   vendor?: string,
 ): ReactNode[] {
   const item = <ItemLink item={items[item_id]} name={name} />
-  const discounted = discountNote(discount)
+  const discounted = discountNote(discount, rep_discount, rep_faction)
   const extra = bonus > 0 ? ` (${bonusNote(bonus)})` : ''
   switch (action) {
     case 'buy':

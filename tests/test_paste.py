@@ -45,6 +45,7 @@ def test_decodes_the_addons_golden_export() -> None:
             FRELL_PROFESSIONS,
             FRELL_TALENTS,
             guid="Player-5826-0A1B2C3D",
+            reputations=((76, 6), (530, 5)),  # Honored with Orgrimmar, Friendly with the Darkspear Trolls
         ),
     ]
 
@@ -102,6 +103,11 @@ def test_bad_strings_raise_value_error(text: str) -> None:
         "V|1|20506|x\nT|1225457|3",  # a talent before any character
         "V|1|20506|x\nC|R|N|Horde|MAGE|1\nT|1225457|x",
         "V|1|20506|x\nC|R|N|Horde|MAGE|1\nT|1225457",
+        "V|1|20506|x\nR|76|6",  # a reputation before any character
+        "V|1|20506|x\nC|R|N|Horde|MAGE|1\nR|76|x",
+        "V|1|20506|x\nC|R|N|Horde|MAGE|1\nR|76",
+        "V|1|20506|x\nC|R|N|Horde|MAGE|1\nR|76|9",  # no such standing
+        "V|1|20506|x\nC|R|N|Horde|MAGE|1\nR|76|0",
     ],
 )
 def test_malformed_lines_raise_value_error(lines: str) -> None:
@@ -114,6 +120,14 @@ def test_talents_belong_to_the_character_before_them() -> None:
         encoded("V|1|16001|x\nC|R|A|Horde|MAGE|30\nT|1225459|1\nT|1225457|5\nT|7|0\nC|R|B|Horde|MAGE|1")
     )
     assert [c.talents for c in got.characters] == [((1225457, 5), (1225459, 1)), ()]
+
+
+def test_reputations_belong_to_the_character_before_them() -> None:
+    got = paste.decode(
+        encoded("V|2|16001|x\nC|R|A|Horde|MAGE|30|\nR|530|8\nR|76|6\nR|909|7\nC|R|B|Horde|MAGE|1|")
+    )
+    # by faction id; a faction that isn't a city's (the Darkmoon Faire) is passed over
+    assert [c.reputations for c in got.characters] == [((76, 6), (530, 8)), ()]
 
 
 def test_an_export_naming_characters_by_guid_asks_for_a_newer_addon() -> None:

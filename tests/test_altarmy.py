@@ -126,6 +126,30 @@ nil,
 ["totalRanksSpent"] = 5,
 ["restRank"] = 0,
 },
+["Reputations"] = {
+[76] = {
+["s"] = 6,
+["e"] = 1200,
+["b"] = 9000,
+["t"] = 21000,
+},
+[530] = {
+["s"] = 5,
+["e"] = 100,
+["b"] = 3000,
+["t"] = 9000,
+},
+[909] = {
+["s"] = 8,
+["e"] = 0,
+["b"] = 42000,
+["t"] = 43000,
+},
+[68] = 4500,
+[81] = {
+["s"] = 12,
+},
+},
 },
 ["Newbie"] = {
 ["faction"] = "Horde",
@@ -166,6 +190,10 @@ def test_parse_characters() -> None:
     # really) gives none.
     assert frell.talents == ((1225457, 3), (1225459, 2))
     assert tailor.talents == ()
+    # Standings with the city factions only (not the Darkmoon Faire's 909), by faction id; a bare number
+    # (the addon's reputation data v1) and a standing the game doesn't have are passed over.
+    assert frell.reputations == ((76, 6), (530, 5))
+    assert tailor.reputations == ()
     # A character that was never fully scanned still shows up, without professions.
     assert newbie == Character("Dreamscythe", "Newbie", "Horde", "", 0, ())
 

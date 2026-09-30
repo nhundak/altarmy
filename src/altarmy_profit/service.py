@@ -16,7 +16,7 @@ from pathlib import Path
 
 from sqlalchemy import Connection
 
-from . import altarmy, db, ingest, prices, store, talents, timing, users
+from . import altarmy, db, ingest, prices, reputation, store, talents, timing, users
 from .altarmy import Character
 from .engine import (
     AH_CUT,
@@ -29,7 +29,9 @@ from .engine import (
     Result,
     TimeModel,
     Unlearned,
+    city_prices,
     recipes_for_characters,
+    recipes_using,
 )
 from .versions import GameVersion
 
@@ -170,15 +172,24 @@ def search(
     an enchanter among them, plus postage unless one of the recipe's crafters enchants. Without
     `include_trivial` the final craft is only done by a character it can give a skillup. With a `time`
     model each result is a session of its `batch` crafts (as `evaluate` plans one, see `session_model`),
-    timed, and its time value weighs play time in every plan; without one, a single craft.
+    timed, and its time value weighs play time in every plan; without one, a single craft. Left to pick
+    the city (`time.fastest`), each recipe is planned where it pays best per hour (`best_of`): vendors
+    charge a character by their reputation, so cities differ in copper too.
     """
     crafts = 1
     if time is not None:
         crafts = time.config.batch
         time = session_model(time, (), None)
-    market = _market(base, chars, unlearned, exits, no_ah, include_trivial, time)
     min_profit = filters.min_profit if filters.min_profit is not None else -(10**18)
-    return [r for r in market.rank(min_profit=min_profit, crafts=crafts) if filters.accepts(r)]
+    models, differ = _models(base, chars, time)
+    markets = [_market(base, chars, unlearned, exits, no_ah, include_trivial, model) for model in models]
+    ranked = markets[0].rank(min_profit=min_profit, crafts=crafts)
+    if time is not None and len(markets) > 1:
+        # Only recipes that can involve an item the cities price differently are planned in the others too.
+        affected = recipes_using(markets[0].recipes, differ)
+        others = [m.rank(min_profit=min_profit, crafts=crafts, only=affected) for m in markets[1:]]
+        ranked = best_of([ranked, *others], time.fastest, affected)
+    return [r for r in ranked if filters.accepts(r)]
 
 
 def evaluate(
@@ -196,9 +207,114 @@ def evaluate(
     """One recipe with the user's `choices` of sources and exit, for `crafts` crafts at once (timed by a
     `session_model`: with `time`'s batch as `crafts` and no city, as `search` ranks it); None if the
     characters can't make or sell it."""
-    market = _market(base, chars, unlearned, exits, no_ah, include_trivial, time)
-    recipe = next((r for r in market.recipes if r.id == recipe_id), None)
-    return None if recipe is None else market.evaluate(recipe, choices, crafts=crafts)
+    models, differ = _models(base, chars, time)
+    found = []
+    same = False  # whether the recipe costs the same in every city: nothing in it is priced differently
+    for n, model in enumerate(models):
+        market = _market(base, chars, unlearned, exits, no_ah, include_trivial, model)
+        recipe = next((r for r in market.recipes if r.id == recipe_id), None)
+        if recipe is None:
+            return None
+        if n == 0:
+            same = recipe.id not in recipes_using(market.recipes, differ)
+        elif same:
+            break  # as `search` ranks it: planned once, with the first model
+        result = market.evaluate(recipe, choices, crafts=crafts)
+        if result is not None:
+            found.append(result)
+    if not found:
+        return None
+    if time is None or len(models) == 1:
+        return found[0]
+    return _pick_city(found, same or len(found) == len(models), time.fastest)
+
+
+PriceTerms = frozenset[tuple[int, int, int]]  # `engine.city_prices`: what a city's vendors take off for whom
+
+
+def _price_groups(
+    cities: Sequence[timing.CityMap], crafters: Sequence[Crafter], discounts: Mapping[int, int]
+) -> dict[PriceTerms, list[timing.CityMap]]:
+    known = [dict(reputation.vendor_discounts(c.reputations, discounts)) for c in crafters]
+    groups: dict[PriceTerms, list[timing.CityMap]] = {}
+    for city in cities:
+        groups.setdefault(city_prices(city, known), []).append(city)
+    return groups
+
+
+def city_groups(
+    cities: Sequence[timing.CityMap], crafters: Sequence[Crafter], discounts: Mapping[int, int]
+) -> list[tuple[timing.CityMap, ...]]:
+    """`cities` grouped by what their vendors charge `crafters` (`discounts`: the version's percent off by
+    standing): a plan costs the same in every city of a group. In the cities' order; one group when nobody
+    has a standing that counts."""
+    return [tuple(g) for g in _price_groups(cities, crafters, discounts).values()]
+
+
+def _models(
+    base: Market, chars: Sequence[Character], time: TimeModel | None
+) -> tuple[list[TimeModel | None], frozenset[int]]:
+    """`time` as the models to plan with: itself, unless it leaves the city open (`fastest`) and those
+    cities charge the characters differently; then one per group of cities charging the same
+    (`city_groups`), each guided by `time`'s own city if it has it, that group first. With them, the vendor
+    items that cost some character more in one group than in another."""
+    if time is None or len(time.fastest) < 2:
+        return [time], frozenset()
+    groups = _price_groups(time.fastest, as_crafters(chars), base.reputation_discounts)
+    if len(groups) == 1:
+        return [time], frozenset()
+    everywhere = frozenset.intersection(*groups)
+    differ = frozenset(item for terms in groups for _, item, _ in terms - everywhere)
+    guide = time.city
+    models = [replace(time, city=guide if guide in g else g[0], fastest=tuple(g)) for g in groups.values()]
+    models.sort(key=lambda m: m.city is not guide)
+    return [*models], differ
+
+
+def city_worth(usable: bool, profit: int, per_hour: int, seconds: float) -> tuple[bool, bool, int, float]:
+    """What a recipe is worth in a city, to compare it with the same recipe in another (the greater wins):
+    a city with every station the plan needs (`usable`) first, then one where it profits, then the most
+    copper per hour (the smallest loss where it doesn't profit), then the quicker."""
+    return (usable, profit > 0, per_hour if profit > 0 else profit, -seconds)
+
+
+def _worth(r: Result) -> tuple[bool, bool, int, float]:
+    """`city_worth` of a result in the city it is timed in."""
+    t = r.timing
+    assert t is not None
+    return city_worth(not t.missing, r.profit, t.per_hour(r.profit), t.total_seconds)
+
+
+def _pick_city(found: Sequence[Result], everywhere: bool, cities: tuple[timing.CityMap, ...]) -> Result:
+    """One recipe's results, each planned in a group of cities: if they are one plan `everywhere` (every
+    group gave the same, or only the first was asked because nothing in the recipe is priced differently),
+    that plan, timed in whichever of all `cities` is quickest once somebody asks; else the one worth most
+    (`_worth`; ties keep the first), the others as its `alternatives`."""
+    first = found[0]
+    if everywhere and all(r == first for r in found[1:]) and first.time_model is not None:
+        return replace(first, time_model=replace(first.time_model, fastest=cities))
+    if len(found) == 1:
+        return first
+    best = max(found, key=_worth)
+    return replace(best, alternatives=tuple(r for r in found if r is not best))
+
+
+def best_of(
+    rankings: Sequence[Sequence[Result]], cities: tuple[timing.CityMap, ...], affected: frozenset[int]
+) -> list[Result]:
+    """One ranking from those of each group of `cities` that charges the crafters differently (see
+    `_models`): every recipe where it is worth most (`_pick_city`), most profitable first. Only the
+    `affected` recipes (ids) were ranked in every group; the rest cost the same everywhere and are in the
+    first ranking alone. Only recipes whose plans differ between the groups are timed for it."""
+    by_recipe: dict[int, list[Result]] = {}
+    for ranking in rankings:
+        for r in ranking:
+            by_recipe.setdefault(r.recipe.id, []).append(r)
+    picked = [
+        _pick_city(found, recipe_id not in affected or len(found) == len(rankings), cities)
+        for recipe_id, found in by_recipe.items()
+    ]
+    return sorted(picked, key=lambda r: r.profit, reverse=True)
 
 
 def session_model(time: TimeModel, cities: Sequence[timing.CityMap], city: str | None) -> TimeModel:
@@ -224,16 +340,7 @@ def _market(
 ) -> Market:
     """`base` narrowed to what the characters can craft (see `search`), with them as the crafters. Without
     characters every recipe counts, crafted by one unnamed character (so nothing is mailed)."""
-    crafters = [
-        Crafter(
-            c.name,
-            tuple((p.name, p.rank, p.max_rank) for p in c.professions),
-            c.known_recipes,
-            talents.extra_results(c.talents),
-            talents.vendor_discount(c.talents),
-        )
-        for c in chars
-    ]
+    crafters = as_crafters(chars)
     recipes = recipes_for_characters(base.recipes, crafters, unlearned) if chars else list(base.recipes)
     return Market(
         base.items,
@@ -250,7 +357,24 @@ def _market(
         sell_prices=base.sell_prices,
         time=time,
         books=base.books,
+        reputation_discounts=base.reputation_discounts,
     )
+
+
+def as_crafters(chars: Sequence[Character]) -> list[Crafter]:
+    """The characters as the engine's crafters: their professions, recipes, what their Legacy talents do
+    and their standings."""
+    return [
+        Crafter(
+            c.name,
+            tuple((p.name, p.rank, p.max_rank) for p in c.professions),
+            c.known_recipes,
+            talents.extra_results(c.talents),
+            talents.vendor_discount(c.talents),
+            c.reputations,
+        )
+        for c in chars
+    ]
 
 
 def thin_market(r: Result, listings: Mapping[int, prices.Listing]) -> bool:
