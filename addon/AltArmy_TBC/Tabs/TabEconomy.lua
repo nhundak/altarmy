@@ -1,5 +1,6 @@
--- AltArmy TBC — Economy tab (WoW Forever only): Waylaid Crates fill costs from the Alt Army auction scan,
--- and the Supply Chain page about alt-army.com (Tabs/TabEconomySupplyChain.lua fills frame.SupplyChainView).
+-- AltArmy TBC — Economy tab (WoW Forever only): the Currency grid (Tabs/TabEconomyCurrency.lua fills
+-- frame.CurrencyView), Waylaid Crates fill costs from the Alt Army auction scan, and the Supply Chain page
+-- about alt-army.com (Tabs/TabEconomySupplyChain.lua fills frame.SupplyChainView).
 -- luacheck: globals GameTooltip GetItemIcon GetServerTime
 
 local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Economy
@@ -12,6 +13,7 @@ if not (DS and DS.IsWowForever) then
         AltArmy.MainSideTabs:SetTabShown("Economy", false)
     end
     frame.SupplyChainView = nil
+    frame.CurrencyView = nil
     return
 end
 
@@ -28,9 +30,10 @@ local UI = {
     ROW_HEIGHT = 20,
     HEADER_HEIGHT = 20,
     HEADER_ROW_GAP = 3,
-    STATUS_HEIGHT = 18,
+    STATUS_HEIGHT = 22, -- fits the scan button
     ICON_SIZE = 14,
-    colWidths = { crate = 170, price = 92, bundle = 152, bundleCost = 92, total = 92 },
+    -- Sums to 626: the list viewport's width (window 670, content insets, panel padding, scrollbar gutter).
+    colWidths = { crate = 170, price = 96, bundle = 168, bundleCost = 96, total = 96 },
     sortKeys = { "crate", "price", "bundle", "bundleCost", "total" },
     sortLabels = {
         crate = "Crate",
@@ -49,9 +52,11 @@ local UI = {
 }
 
 local VIEW = {
-    active = "waylaid",
+    active = "currency",
     tabs = nil,
     defs = {
+        -- Forever's CharacterFrame Currency side-tab icon.
+        { name = "currency", label = "Currency", icon = "Interface\\Icons\\INV_SideTab_Currency_c60" },
         { name = "waylaid", label = "Waylaid Crates", icon = "Interface\\Icons\\INV_Crate_01" },
         { name = "supply", label = "Supply Chain", icon = "Interface\\Icons\\INV_Misc_Map_01" },
     },
@@ -83,6 +88,9 @@ local function CrateLabel(row)
 end
 
 -- Panels: one per sub-view, same anchors; only the active one is shown.
+local currencyPanel = Theme.CreateMainContentPanel(frame)
+currencyPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", Theme.TAB_SECTION_INSET, -Theme.TAB_SECTION_INSET)
+currencyPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -Theme.TAB_SECTION_INSET, Theme.TAB_SECTION_INSET)
 local waylaidPanel = Theme.CreateMainContentPanel(frame)
 waylaidPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", Theme.TAB_SECTION_INSET, -Theme.TAB_SECTION_INSET)
 waylaidPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -Theme.TAB_SECTION_INSET, Theme.TAB_SECTION_INSET)
@@ -90,22 +98,76 @@ local supplyPanel = Theme.CreateMainContentPanel(frame)
 supplyPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", Theme.TAB_SECTION_INSET, -Theme.TAB_SECTION_INSET)
 supplyPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -Theme.TAB_SECTION_INSET, Theme.TAB_SECTION_INSET)
 supplyPanel:Hide()
+waylaidPanel:Hide()
+frame.CurrencyView = currencyPanel
 frame.WaylaidView = waylaidPanel
 frame.SupplyChainView = supplyPanel
 
 local inner = Theme.CreatePanelInnerContent(waylaidPanel)
 
--- Scan age and whose auction house it is, above the table.
-local statusLabel = inner:CreateFontString(nil, "OVERLAY", Theme.FONTS.muted)
-statusLabel:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, 0)
-statusLabel:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
+-- Bottom row: scan age on the left (colored by how stale the prices are), the scan button centered while
+-- the auction house is open, the automatic scan checkbox on the right.
+local statusLabel = inner:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
+statusLabel:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 0, 0)
 statusLabel:SetHeight(UI.STATUS_HEIGHT)
 statusLabel:SetJustifyH("LEFT")
+
+-- Same setting as Options → General → Auction House. CreateLabeledCheckbox stretches its row to its
+-- parent's right edge: a holder sized to the checkbox and label keeps it right-aligned.
+UI.autoScanHolder = CreateFrame("Frame", nil, inner)
+UI.autoScanHolder:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", 0, 0)
+UI.autoScanHolder:SetHeight(UI.STATUS_HEIGHT)
+UI.autoScanCheck = Theme.CreateLabeledCheckbox(UI.autoScanHolder, {
+    point = "LEFT",
+    relativeTo = UI.autoScanHolder,
+    relativePoint = "LEFT",
+    text = "Auto scan when opening AH",
+    onClick = function(checked)
+        local S = AltArmy.AuctionScan
+        if S and S.SetAutoScanEnabled then S.SetAutoScanEnabled(checked) end
+    end,
+})
+UI.autoScanHolder:SetWidth(Theme.CHAR_LIST_CHECKBOX_SIZE + 2 + UI.autoScanCheck.label:GetStringWidth() + 4)
+
+-- While the auction house is open: scan now, or the cooldown left (same text as the auction house button).
+UI.scanBtn = CreateFrame("Button", nil, inner, "UIPanelButtonTemplate")
+UI.scanBtn:SetSize(110, UI.STATUS_HEIGHT)
+UI.scanBtn:SetPoint("BOTTOM", inner, "BOTTOM", 0, 0)
+UI.scanBtn:SetMotionScriptsWhileDisabled(true)
+Theme.SkinButton(UI.scanBtn)
+UI.scanBtn:Hide()
+
+local function UpdateScanButton()
+    local S = AltArmy.AuctionScan
+    local Btn = AltArmy.AuctionScanButton
+    local show = S and S.HasApi() and S.IsOpen() and Btn and Btn.Label and statusLabel:IsShown()
+    UI.scanBtn:SetShown(show and true or false)
+    if not show then return end
+    local text, enabled = Btn.Label(S.State(), S.Progress(), S.CooldownLeft())
+    UI.scanBtn:SetText(enabled and "Scan now" or text)
+    UI.scanBtn:SetEnabled(enabled)
+end
+
+UI.scanBtn:SetScript("OnClick", function()
+    local S = AltArmy.AuctionScan
+    if S then S.Start() end
+    UpdateScanButton()
+end)
+do
+    local elapsed = 0
+    UI.scanBtn:SetScript("OnUpdate", function(_, dt) -- the cooldown's countdown
+        elapsed = elapsed + dt
+        if elapsed >= 1 then
+            elapsed = 0
+            UpdateScanButton()
+        end
+    end)
+end
 
 local headerRow = CreateFrame("Frame", nil, inner)
 headerRow:SetHeight(UI.HEADER_HEIGHT)
 headerRow:SetWidth(TotalColWidth())
-headerRow:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, -UI.STATUS_HEIGHT)
+headerRow:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, 0)
 
 local function UpdateHeaderSortIndicators()
     local o = W.EnsureOptions()
@@ -148,8 +210,9 @@ do
 end
 
 local listViewport = CreateFrame("Frame", nil, inner)
-listViewport:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, -(UI.STATUS_HEIGHT + UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP))
-listViewport:SetPoint("BOTTOMRIGHT", waylaidPanel, "BOTTOMRIGHT", -Theme.VerticalScrollBarGutter(), UI.PAD)
+listViewport:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, -(UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP))
+listViewport:SetPoint("BOTTOM", statusLabel, "TOP", 0, UI.PAD)
+listViewport:SetPoint("RIGHT", waylaidPanel, "RIGHT", -Theme.VerticalScrollBarGutter(), 0)
 
 local viewport = Theme.CreateVerticalScrollViewport({
     parent = listViewport,
@@ -173,6 +236,12 @@ local headerFade = Theme.CreatePinnedHeaderScrollFade({
 viewport.OnScroll(function()
     if headerFade then headerFade:Update() end
 end)
+
+-- A scan with no Waylaid Crates listed: a message in the empty table.
+UI.noCratesLabel = listViewport:CreateFontString(nil, "OVERLAY", Theme.FONTS.emptyState)
+UI.noCratesLabel:SetPoint("CENTER", listViewport, "CENTER", 0, 20)
+UI.noCratesLabel:SetText("No Waylaid Crates were listed on this scan.")
+UI.noCratesLabel:Hide()
 
 -- No scan of this auction house yet: a message and the automatic scan checkbox, in place of the table.
 local empty = CreateFrame("Frame", nil, inner)
@@ -291,6 +360,8 @@ local function ShowEmpty(realm, faction)
     autoScanRow.check:SetChecked(S and S.IsAutoScanEnabled and S.IsAutoScanEnabled() or false)
     empty:Show()
     statusLabel:Hide()
+    UI.scanBtn:Hide()
+    UI.autoScanHolder:Hide()
     headerRow:Hide()
     listViewport:Hide()
 end
@@ -308,6 +379,7 @@ local function RefreshWaylaid()
     end
     empty:Hide()
     statusLabel:Show()
+    UI.autoScanHolder:Show()
     headerRow:Show()
     listViewport:Show()
 
@@ -317,17 +389,19 @@ local function RefreshWaylaid()
     UpdateHeaderSortIndicators()
 
     local now = GetServerTime and GetServerTime() or time()
-    local status = W.AgeText(scan.t, now, AltArmy.SummaryData.GetTimeString) .. " on " .. realm
-        .. " (" .. faction .. "). "
-    if #rows == 0 then
-        status = status .. "No Waylaid Crates were listed."
-    else
-        status = status .. "Hover a crate to see every bundle that fills it."
-    end
-    statusLabel:SetText(status)
+    statusLabel:SetText(W.AgeText(scan.t, now, AltArmy.SummaryData.GetTimeString))
+    local level = W.AgeLevel(scan.t, now)
+    local ageColor = level == "old" and Theme.COLORS.warningBlocking
+        or level == "stale" and Theme.COLORS.warningCaution
+        or { 1, 1, 1 }
+    statusLabel:SetTextColor(ageColor[1], ageColor[2], ageColor[3], 1)
+    UpdateScanButton()
+    local S = AltArmy.AuctionScan
+    UI.autoScanCheck.check:SetChecked(S and S.IsAutoScanEnabled and S.IsAutoScanEnabled() or false)
 
     local totalW = TotalColWidth()
     scrollChild:SetSize(totalW, math.max(1, #rows) * UI.ROW_HEIGHT)
+    UI.noCratesLabel:SetShown(#rows == 0)
     local y = 0
     for _, rd in ipairs(rows) do
         local row = PoolRow()
@@ -356,22 +430,31 @@ end
 frame.RefreshWaylaid = RefreshWaylaid
 
 local function SetActiveEconomyView(which)
-    if which ~= "waylaid" and which ~= "supply" then
-        which = "waylaid"
+    if not W.VIEWS[which] then
+        which = "currency"
     end
     VIEW.active = which
     W.EnsureOptions().activeView = which
+    if which ~= "currency" and frame.HideEconomySettings then
+        frame.HideEconomySettings()
+    end
+    currencyPanel:SetShown(which == "currency")
     waylaidPanel:SetShown(which == "waylaid")
     supplyPanel:SetShown(which == "supply")
     if VIEW.tabs then
         VIEW.tabs:SetSelected(which)
     end
-    if which == "waylaid" then
+    if which == "currency" then
+        if frame.RefreshCurrency then frame.RefreshCurrency() end
+    elseif which == "waylaid" then
         RefreshWaylaid()
     elseif frame.LayoutSupplyChain then
         frame.LayoutSupplyChain()
     end
+    -- The toolbar settings button belongs to the Currency view only.
+    if AltArmy.UpdateSearchSettingsButtonGlow then AltArmy.UpdateSearchSettingsButtonGlow() end
 end
+frame.GetEconomyView = function() return VIEW.active end
 frame.SetEconomyView = SetActiveEconomyView
 
 -- Sub-view tabs hang from the panel top into the main window's toolbar row (as on Gear and Cooldowns).
@@ -393,8 +476,12 @@ do
     local S = AltArmy.AuctionScan
     if S and S.OnChange then
         S.OnChange(function(state)
-            if state == "idle" and frame:IsShown() and waylaidPanel:IsShown() then
+            -- Idle also follows the auction house opening or closing (the scan button comes and goes).
+            if not (frame:IsShown() and waylaidPanel:IsShown()) then return end
+            if state == "idle" then
                 RefreshWaylaid()
+            else
+                UpdateScanButton()
             end
         end)
     end

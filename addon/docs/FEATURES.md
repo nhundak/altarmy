@@ -37,7 +37,7 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 |-----|-----|
 | [Summary](tabs/summary.md) | Character overview, totals, missing-data warnings, bank-alt icons |
 | [Gear](tabs/gear.md) | Equipment grid, item check, compare panel, upgrade scoring / alerts |
-| [Economy](tabs/economy.md) | Waylaid Crate fill costs from the auction scan; alt-army.com and Alt Army Sync guide (WoW Forever only) |
+| [Economy](tabs/economy.md) | Currency × character grid; Waylaid Crate fill costs from the auction scan; alt-army.com crafting planner guide (WoW Forever only) |
 | [Reputation](tabs/reputation.md) | Faction matrix, score-sort, optional Zygor guide links |
 | [Cooldowns](tabs/cooldowns.md) | Crafting cooldowns + Raids lockouts, stockpile send / send-all |
 | [Search](tabs/search.md) | Items and recipes (toolbar Search mode) |

@@ -291,7 +291,15 @@ end
 local function activeSettings()
     local key = searchModeHandlers.inSearchMode and "Search" or AltArmy.CurrentTab
     local def = MainTabs.Get(key)
-    return def and def.settings, key
+    local settings = def and def.settings
+    if settings and settings.isAvailable then
+        local frame = AltArmy.TabFrames[key]
+        local isAvailable = frame and frame[settings.isAvailable]
+        if not (isAvailable and isAvailable(frame)) then
+            return nil, key
+        end
+    end
+    return settings, key
 end
 
 local function isSettingsActive()

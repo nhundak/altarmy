@@ -47,6 +47,9 @@ Canonical table: `DATA_VERSIONS` in [`DataStore.lua`](DataStore/DataStore.lua).
 ### currencies (v1)
 - **v1**: Initial version. Stores TBC currency item counts in `char.Currencies[itemID] = count`.
 
+### currencyList (v1)
+- **v1**: Initial version. The native currency list (`C_CurrencyInfo`, WoW Forever's Character window Currency tab): `char.CurrencyList[currencyID] = quantity`, zeros included. Account-wide details in `AltArmyTBC_Data.CurrencyMeta[currencyID] = { name, icon, max, header, headerOrder, order }` (native header and list order). Absent on clients without `C_CurrencyInfo.GetCurrencyListInfo`.
+
 ### talents (v2)
 - **v1**: Talent tab point totals for primary-spec inference (gear upgrade / compare warnings and missing-data).
 - **v2**: On clients without the legacy `GetNumTalentTabs`/`GetTalentTabInfo` (e.g. WoW Forever), falls back to `C_SpecializationInfo.GetSpecialization`/`GetSpecializationInfo`. `char.talents.tabs` becomes an empty table (not a per-tab point array) and `char.talents.primary` becomes the specialization index (not a tab index) on this path; `specKey` is resolved from Blizzard's canonical specialization ID rather than tab position. Same fields, same meaning to callers (`ResolveSpecKey`/`HasTalentData`), just a different source on clients where the fallback is active.

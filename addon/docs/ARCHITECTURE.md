@@ -45,7 +45,7 @@ The order, icons, titles, and each tab's settings button action live in `UI/Main
 |-----|--------|
 | **Summary** | Character list overview |
 | **Gear** | Equipment grid, item check, compare / upgrades |
-| **Economy** | **Waylaid Crates** fill costs + **Supply Chain** (alt-army.com, Alt Army Sync) sub-views; WoW Forever only, hidden elsewhere by `Tabs/TabEconomy.lua` |
+| **Economy** | **Currency** grid (default), **Waylaid Crates** fill costs + **Supply Chain** (alt-army.com) sub-views; WoW Forever only, hidden elsewhere by `Tabs/TabEconomy.lua` |
 | **Reputation** | Faction × character matrix |
 | **Cooldowns** | Crafting cooldowns + **Raids** lockout sub-view |
 | **Graphs** | Level progress over time |

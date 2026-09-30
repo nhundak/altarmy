@@ -8,7 +8,7 @@ AltArmy.WaylaidCosts = AltArmy.WaylaidCosts or {}
 local W = AltArmy.WaylaidCosts
 
 W.SORT_KEYS = { "crate", "price", "bundle", "bundleCost", "total" }
-W.VIEWS = { waylaid = true, supply = true }
+W.VIEWS = { currency = true, waylaid = true, supply = true }
 
 local TIER_ORDER = { Apprentice = 1, Journeyman = 2, Expert = 3, Artisan = 4 }
 
@@ -23,7 +23,7 @@ function W.EnsureOptions()
         AltArmyTBC_Options.economy = o
     end
     if not W.VIEWS[o.activeView] then
-        o.activeView = "waylaid"
+        o.activeView = "currency"
     end
     local validKey = false
     for _, k in ipairs(W.SORT_KEYS) do
@@ -62,6 +62,24 @@ local function unitsListed(levels)
     return units
 end
 
+--- Cheapest bundle first; bundles that can't be bought in full last (short before unlisted), in list order.
+local function sortOptions(options)
+    local order = {}
+    for i, opt in ipairs(options) do
+        order[opt] = i
+    end
+    table.sort(options, function(a, b)
+        if a.cost and b.cost then
+            if a.cost ~= b.cost then return a.cost < b.cost end
+        elseif a.cost or b.cost then
+            return a.cost ~= nil
+        elseif (a.listed > 0) ~= (b.listed > 0) then
+            return a.listed > 0
+        end
+        return order[a] < order[b]
+    end)
+end
+
 --- One row per crate listed in `book` (itemID -> ladder): its cheapest price and the cheapest bundle
 --- that can be bought in full. `crates` is AltArmy.WaylaidCrates (LIST).
 function W.BuildRows(book, crates)
@@ -89,6 +107,7 @@ function W.BuildRows(book, crates)
                     row.unlisted = row.unlisted + 1
                 end
             end
+            sortOptions(row.options)
             if row.bundle then
                 row.total = row.price + row.bundle.cost
                 row.bundleText = row.bundle.count .. " x " .. row.bundle.name
@@ -149,4 +168,15 @@ function W.AgeText(scanTime, now, fmt)
         return "Scanned just now"
     end
     return "Scanned " .. fmt(age) .. " ago"
+end
+
+--- How much to trust a scan's prices by its age: "fresh" under 15 min, "stale" up to 30, then "old".
+function W.AgeLevel(scanTime, now)
+    local age = (now or 0) - (scanTime or 0)
+    if age < 15 * 60 then
+        return "fresh"
+    elseif age <= 30 * 60 then
+        return "stale"
+    end
+    return "old"
 end

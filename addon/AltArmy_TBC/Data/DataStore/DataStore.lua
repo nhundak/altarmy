@@ -35,6 +35,7 @@ local DATA_VERSIONS = {
     mail = 1,
     auctions = 1,
     currencies = 1,
+    currencyList = 1,
     levelHistory = 1,
     talents = 2,
     legacyTalents = 2,
@@ -398,6 +399,7 @@ SafeRegisterEvent("CHAT_MSG_SKILL")
 SafeRegisterEvent("CHAT_MSG_SYSTEM")
 SafeRegisterEvent("NEW_RECIPE_LEARNED")
 SafeRegisterEvent("UPDATE_FACTION")
+SafeRegisterEvent("CURRENCY_DISPLAY_UPDATE")
 SafeRegisterEvent("MAIL_SHOW")
 SafeRegisterEvent("MAIL_INBOX_UPDATE")
 SafeRegisterEvent("MAIL_CLOSED")
@@ -639,6 +641,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
             if DS.HasReputationApi and DS.HasReputationApi() and DS.ScanReputations then
                 DS:ScanReputations()
             end
+            if DS.RequestCurrencyListScan then DS:RequestCurrencyListScan() end
             -- Delayed run: skill/faction data can load after login; rescan so we get it without opening panels
             lateScanFrame.elapsed = 0
             lateScanFrame:SetScript("OnUpdate", function(f, elapsed)
@@ -792,6 +795,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
         if char and DS.HasProfessionsListApi and DS.HasProfessionsListApi() and DS.ScanProfessionLinks then
             DS:ScanProfessionLinks()
         end
+        return
+    end
+    if event == "CURRENCY_DISPLAY_UPDATE" then
+        if DS.RequestCurrencyListScan then DS:RequestCurrencyListScan() end
         return
     end
     if event == "UPDATE_FACTION" then

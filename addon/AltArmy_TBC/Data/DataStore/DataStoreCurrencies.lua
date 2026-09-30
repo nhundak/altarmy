@@ -51,3 +51,141 @@ function DS:GetAllCurrencies(char)
     end
     return out
 end
+
+-- ---------------------------------------------------------------------------
+-- Native currency list (C_CurrencyInfo; WoW Forever's Character window Currency tab).
+-- Per character: char.CurrencyList[currencyID] = quantity (0 kept, as the native tab lists it).
+-- Account-wide: AltArmyTBC_Data.CurrencyMeta[currencyID] = { name, icon, max, header, headerOrder, order }.
+-- ---------------------------------------------------------------------------
+
+function DS.HasCurrencyListApi()
+    local C = _G.C_CurrencyInfo
+    return type(C) == "table" and type(C.GetCurrencyListSize) == "function"
+        and type(C.GetCurrencyListInfo) == "function"
+end
+
+function DS:GetCurrencyMeta()
+    AltArmyTBC_Data.CurrencyMeta = AltArmyTBC_Data.CurrencyMeta or {}
+    return AltArmyTBC_Data.CurrencyMeta
+end
+
+function DS:GetCurrencyListAmount(char, currencyID)
+    if not char or not currencyID or not char.CurrencyList then return nil end
+    return char.CurrencyList[currencyID]
+end
+
+local function currencyIdAt(C, index, info)
+    if info.currencyID then return info.currencyID end
+    if C.GetCurrencyListLink and C.GetCurrencyIDFromLink then
+        local link = C.GetCurrencyListLink(index)
+        if link then return C.GetCurrencyIDFromLink(link) end
+    end
+    return nil
+end
+
+-- Expanding headers fires CURRENCY_DISPLAY_UPDATE, which asks for another scan: ignore it meanwhile.
+local scanningCurrencyList = false
+
+--- Reads the whole list: expands collapsed headers, then collapses them again so the native tab
+--- looks as the player left it. Returns { [currencyID] = quantity }.
+local function readCurrencyList(meta)
+    local C = _G.C_CurrencyInfo
+    local collapsed = {}
+    if C.ExpandCurrencyList then
+        -- Expanding shifts later indices, so restart the walk after each expand.
+        local expanded = true
+        local guard = 0
+        while expanded and guard < 100 do
+            expanded = false
+            guard = guard + 1
+            for i = 1, C.GetCurrencyListSize() or 0 do
+                local info = C.GetCurrencyListInfo(i)
+                if info and info.isHeader and not info.isHeaderExpanded then
+                    collapsed[info.name or ""] = true
+                    C.ExpandCurrencyList(i, true)
+                    expanded = true
+                    break
+                end
+            end
+        end
+    end
+
+    local amounts = {}
+    local header, headerOrder = nil, 0
+    local size = C.GetCurrencyListSize() or 0
+    for i = 1, size do
+        local info = C.GetCurrencyListInfo(i)
+        if info and info.isHeader then
+            header = info.name
+            headerOrder = headerOrder + 1
+        elseif info then
+            local id = currencyIdAt(C, i, info)
+            if id then
+                amounts[id] = tonumber(info.quantity) or 0
+                meta[id] = {
+                    name = info.name,
+                    icon = info.iconFileID,
+                    max = (tonumber(info.maxQuantity) or 0) > 0 and info.maxQuantity or nil,
+                    header = header,
+                    headerOrder = headerOrder,
+                    order = i,
+                }
+            end
+        end
+    end
+
+    if C.ExpandCurrencyList and next(collapsed) then
+        -- From the end, so collapsing a header doesn't shift the ones still to visit.
+        for i = C.GetCurrencyListSize() or 0, 1, -1 do
+            local info = C.GetCurrencyListInfo(i)
+            if info and info.isHeader and info.isHeaderExpanded and collapsed[info.name or ""] then
+                C.ExpandCurrencyList(i, false)
+            end
+        end
+    end
+    return amounts
+end
+
+--- Scan the current character's currencies (or `char`, for tests).
+function DS:ScanCurrencyList(char)
+    if scanningCurrencyList or not DS.HasCurrencyListApi() then return end
+    char = char or GetCurrentCharTable()
+    if not char then return end
+    scanningCurrencyList = true
+    local ok, amounts = pcall(readCurrencyList, self:GetCurrencyMeta())
+    scanningCurrencyList = false
+    if not ok or type(amounts) ~= "table" then return end
+
+    char.CurrencyList = amounts
+    char.lastUpdate = time()
+    char.dataVersions = char.dataVersions or {}
+    char.dataVersions.currencyList = DATA_VERSIONS.currencyList
+    if self.FireCurrencyListChanged then self:FireCurrencyListChanged() end
+end
+
+-- Listeners (the Economy tab's Currency grid) run after each scan.
+local currencyListeners = {}
+function DS:OnCurrencyListChanged(fn)
+    currencyListeners[#currencyListeners + 1] = fn
+end
+function DS:FireCurrencyListChanged()
+    for _, fn in ipairs(currencyListeners) do pcall(fn) end
+end
+
+-- CURRENCY_DISPLAY_UPDATE fires in bursts: scan once, shortly after the last one.
+local CURRENCY_SCAN_DELAY = 0.5
+local currencyScanPending = false
+function DS:RequestCurrencyListScan()
+    if not DS.HasCurrencyListApi() or scanningCurrencyList then return end
+    local timer = _G.C_Timer
+    if not (timer and timer.After) then
+        self:ScanCurrencyList()
+        return
+    end
+    if currencyScanPending then return end
+    currencyScanPending = true
+    timer.After(CURRENCY_SCAN_DELAY, function()
+        currencyScanPending = false
+        DS:ScanCurrencyList()
+    end)
+end

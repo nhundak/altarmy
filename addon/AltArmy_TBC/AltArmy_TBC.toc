@@ -28,6 +28,7 @@ Data\Auctions\AuctionBook.lua
 Data\Auctions\AuctionScan.lua
 Data\Economy\WaylaidCrates.lua
 Data\Economy\WaylaidCosts.lua
+Data\Economy\CurrencyGrid.lua
 Data\DataStore\DataStore.lua
 Data\DataStore\DataStoreItemSpellCompat.lua
 Data\ClassColor.lua
@@ -99,6 +100,7 @@ Tabs\TabSummary.lua
 Tabs\TabGear.lua
 Tabs\TabEconomy.lua
 Tabs\TabEconomySupplyChain.lua
+Tabs\TabEconomyCurrency.lua
 Tabs\TabReputation.lua
 Tabs\TabCooldowns.lua
 Tabs\TabCooldownsRaids.lua

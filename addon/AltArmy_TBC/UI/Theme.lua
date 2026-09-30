@@ -50,6 +50,9 @@ Theme.COLORS = {
     label         = { 0.69, 0.69, 0.69, 1.00 },
     value         = { 0.92, 0.92, 0.92, 1.00 },
     groupHeader   = { 0.55, 0.55, 0.60, 1.00 },
+    -- Warning text: caution (yellow) and blocking/error (red), as on Gear compare warnings.
+    warningCaution  = { 1.00, 0.82, 0.00, 1.00 },
+    warningBlocking = { 1.00, 0.40, 0.30, 1.00 },
 
     btnBg         = { 0.14, 0.14, 0.18, 1.00 },
     btnBorder     = { 0.28, 0.25, 0.20, 0.90 },

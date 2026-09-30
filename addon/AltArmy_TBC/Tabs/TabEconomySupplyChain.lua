@@ -1,5 +1,5 @@
--- AltArmy TBC — Economy tab, Supply Chain view: what alt-army.com's crafting planner does (with a
--- carousel of its screens) and how to set up Alt Army Sync, which uploads this addon's saved data.
+-- AltArmy TBC — Economy tab, Supply Chain view: what alt-army.com's crafting planner does, with its
+-- address to copy and a carousel of its screens.
 -- Screens: Textures/Economy/*.tga, made by scripts/convert-economy-screenshots.py.
 
 local frame = AltArmy and AltArmy.TabFrames and AltArmy.TabFrames.Economy
@@ -12,60 +12,30 @@ local inner = Theme.CreatePanelInnerContent(panel)
 local UI = {
     TEXTURE_ROOT = "Interface\\AddOns\\AltArmy_TBC\\Textures\\Economy\\",
     GAP = 10, -- between paragraphs
-    SECTION_GAP = 22, -- before a heading
-    BUTTON_WIDTH = 90,
-    BUTTON_HEIGHT = 22,
+    SECTION_GAP = 22, -- before the carousel
+    ARROW_SIZE = 24, -- carousel arrows, at the page's left and right edges
     BOX_HEIGHT = 24,
-    BOX_LABEL_WIDTH = 150,
+    BOX_WIDTH = 260,
+    IMAGE_HEIGHT = 280, -- every screenshot is drawn this tall (less if the page is too narrow)
     index = 1,
     blocks = {}, -- laid out top to bottom by Layout()
 }
 
 local TEXT = {
-    title = "Plan your crafting on alt-army.com",
+    title = "Put your army to work",
+    url = "https://alt-army.com/profit",
     intro = {
-        "Alt Army's website finds the most profitable things your characters can craft right now. It prices "
-            .. "every recipe from real auction house scans taken with this addon, then works out the cheapest way "
-            .. "to make it: buy each material from a vendor or the auction house, or craft it on one of your alts "
-            .. "and mail it over.",
-        "Choose Make gold to rank recipes by profit per hour of play, or Skill up to find the cheapest skill "
-            .. "points in a profession. Open any recipe to see its plan as a flow chart or as timed steps, down "
-            .. "to who crafts what and where to run in town.",
-    },
-    syncTitle = "Upload automatically with Alt Army Sync",
-    syncIntro = "Addons can't reach the internet, so Alt Army saves what it sees to AltArmy_TBC.lua in your WoW "
-        .. "folder. Alt Army Sync is a small Windows app that watches that file. Each time the game saves it "
-        .. "(when you log out, switch characters or /reload), it uploads your characters, their professions and "
-        .. "recipes, and your latest auction house scans. Nothing to copy or paste.",
-    steps = {
-        { "1. Create an account", "Sign in or create an account on alt-army.com. Making it on the website keeps "
-            .. "what you have already set up in your browser." },
-        { "2. Download and run Alt Army Sync", "Windows only. It finds your WoW folder on its own. The app isn't "
-            .. "signed yet, so Windows warns you once: choose More info, then Run anyway." },
-        { "3. Sign in to the app", "It asks for your email and password the first time: use the account from "
-            .. "step 1. It keeps only a sign-in token on your computer, never your password." },
-    },
-    outro = "Then log in to each of your characters once with Alt Army installed, and scan the auction house as "
-        .. "usual. Your characters and prices show up on the website after each upload. Alt Army Sync only reads "
-        .. "AltArmy_TBC.lua and never changes a game file.",
-    copyHint = "Click a box and press Ctrl+C to copy the address.",
-    links = {
-        { "Website", "https://alt-army.com" },
-        { "Alt Army Sync download",
-            "https://github.com/ntower/altarmy-profit/releases/latest/download/altarmy-sync.exe" },
+        "Alt Army's website compares your character professions against auction house data to show you the most "
+            .. "profitable things to craft. It will give you price comparisons and step by step instructions on "
+            .. "what to craft and what to do with the results.",
     },
 }
 
--- Native pixel sizes (convert-economy-screenshots.py prints them); drawn at the page width.
+-- Native pixel sizes (convert-economy-screenshots.py prints them); each is scaled to UI.IMAGE_HEIGHT.
 local IMAGES = {
-    { file = "SupplyChainSearchResults", w = 814, h = 467,
-        caption = "Search results: recipes your characters know, ranked by profit, profit per hour and return "
-            .. "on investment, with the best way to sell each." },
-    { file = "SupplyChainFlowChart", w = 800, h = 436,
-        caption = "Flow chart: every material in a plan and where it comes from. Each node's swap menu lists "
-            .. "other sources, best first." },
-    { file = "SupplyChainDetailedSteps", w = 921, h = 567,
-        caption = "Detailed steps: the same plan as a timed checklist for each character, with a map of the city." },
+    { file = "SupplyChainFlowChart", w = 800, h = 436 },
+    { file = "SupplyChainDetailedSteps", w = 921, h = 567 },
+    { file = "SupplyChainSearchResults", w = 814, h = 467 },
 }
 
 local viewport = Theme.CreateVerticalScrollViewport({
@@ -91,13 +61,37 @@ local function AddText(text, font, gap, color)
     return fs
 end
 
--- 1. What the site does.
-Theme.SetTitleColor(AddText(TEXT.title, Theme.FONTS.title, 0))
+-- 1. Title with a read-only box to copy the address from (the game can't open links).
+local titleRow = CreateFrame("Frame", nil, page)
+local titleText = titleRow:CreateFontString(nil, "OVERLAY", Theme.FONTS.title)
+titleText:SetPoint("LEFT", titleRow, "LEFT", 0, 0)
+titleText:SetText(TEXT.title)
+Theme.SetTitleColor(titleText)
+local urlBox = CreateFrame("EditBox", nil, titleRow, "InputBoxTemplate")
+urlBox:SetPoint("LEFT", titleText, "RIGHT", 14, 0)
+urlBox:SetSize(UI.BOX_WIDTH, UI.BOX_HEIGHT)
+urlBox:SetAutoFocus(false)
+urlBox:SetMaxLetters(0)
+urlBox:SetText(TEXT.url)
+urlBox:SetCursorPosition(0)
+-- Read-only: typing puts the address back; clicking selects all of it.
+urlBox:SetScript("OnTextChanged", function(self, userInput)
+    if userInput then
+        self:SetText(TEXT.url)
+        self:HighlightText()
+    end
+end)
+urlBox:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+urlBox:SetScript("OnMouseUp", function(self) self:HighlightText() end)
+urlBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+urlBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+UI.blocks[#UI.blocks + 1] = { kind = "fixed", region = titleRow, height = UI.BOX_HEIGHT + 4, gap = 0 }
+
 for _, p in ipairs(TEXT.intro) do
     AddText(p, Theme.FONTS.body, UI.GAP)
 end
 
--- 2. Carousel: one screenshot at a time, Previous / Next, its caption below.
+-- 2. Carousel: one screenshot at a time, with arrows at the page edges.
 local carousel = CreateFrame("Frame", nil, page)
 local shot = carousel:CreateTexture(nil, "ARTWORK")
 shot:SetPoint("TOP", carousel, "TOP", 0, 0)
@@ -108,80 +102,34 @@ if shotBorder.SetBackdrop then
     shotBorder:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
     shotBorder:SetBackdropBorderColor(0.45, 0.38, 0.22, 0.9)
 end
-local prevBtn = CreateFrame("Button", nil, carousel, "UIPanelButtonTemplate")
-prevBtn:SetSize(UI.BUTTON_WIDTH, UI.BUTTON_HEIGHT)
-prevBtn:SetText("Previous")
-Theme.SkinButton(prevBtn)
-local nextBtn = CreateFrame("Button", nil, carousel, "UIPanelButtonTemplate")
-nextBtn:SetSize(UI.BUTTON_WIDTH, UI.BUTTON_HEIGHT)
-nextBtn:SetText("Next")
-Theme.SkinButton(nextBtn)
-local counter = carousel:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
-counter:SetPoint("TOP", shot, "BOTTOM", 0, -UI.GAP)
-counter:SetHeight(UI.BUTTON_HEIGHT)
-prevBtn:SetPoint("RIGHT", counter, "LEFT", -12, 0)
-nextBtn:SetPoint("LEFT", counter, "RIGHT", 12, 0)
-local caption = carousel:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
-caption:SetPoint("TOP", counter, "BOTTOM", 0, -6)
-caption:SetJustifyH("CENTER")
-caption:SetJustifyV("TOP")
-caption:SetWordWrap(true)
-caption:SetTextColor(0.85, 0.85, 0.85, 1)
+--- A small skinned arrow button at one side edge of the page, level with the screenshot's middle.
+local function CreateArrow(label, point)
+    local btn = CreateFrame("Button", nil, carousel, "UIPanelButtonTemplate")
+    btn:SetSize(UI.ARROW_SIZE, UI.ARROW_SIZE)
+    btn:SetFrameLevel(shotBorder:GetFrameLevel() + 2)
+    btn:SetPoint(point, carousel, point, 0, 0)
+    btn:SetText(label)
+    Theme.SkinButton(btn)
+    return btn
+end
+local prevBtn = CreateArrow("<", "LEFT")
+local nextBtn = CreateArrow(">", "RIGHT")
 UI.blocks[#UI.blocks + 1] = { kind = "carousel", region = carousel, gap = UI.SECTION_GAP }
-
--- 3. Alt Army Sync setup.
-Theme.SetTitleColor(AddText(TEXT.syncTitle, Theme.FONTS.title, UI.SECTION_GAP))
-AddText(TEXT.syncIntro, Theme.FONTS.body, UI.GAP)
-for _, step in ipairs(TEXT.steps) do
-    AddText(step[1], Theme.FONTS.heading, UI.GAP + 4)
-    AddText(step[2], Theme.FONTS.body, 4)
-end
-AddText(TEXT.outro, Theme.FONTS.body, UI.GAP + 4)
-
--- 4. Read-only boxes to copy the addresses from (the game can't open links).
-AddText(TEXT.copyHint, Theme.FONTS.muted, UI.SECTION_GAP)
-for _, link in ipairs(TEXT.links) do
-    local rowFrame = CreateFrame("Frame", nil, page)
-    local label = rowFrame:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
-    label:SetPoint("LEFT", rowFrame, "LEFT", 0, 0)
-    label:SetWidth(UI.BOX_LABEL_WIDTH)
-    label:SetJustifyH("LEFT")
-    label:SetText(link[1])
-    local box = CreateFrame("EditBox", nil, rowFrame, "InputBoxTemplate")
-    box:SetPoint("LEFT", rowFrame, "LEFT", UI.BOX_LABEL_WIDTH + 6, 0)
-    box:SetPoint("RIGHT", rowFrame, "RIGHT", -4, 0)
-    box:SetHeight(UI.BOX_HEIGHT)
-    box:SetAutoFocus(false)
-    box:SetMaxLetters(0)
-    box.url = link[2]
-    box:SetText(link[2])
-    box:SetCursorPosition(0)
-    -- Read-only: typing puts the address back; clicking selects all of it.
-    box:SetScript("OnTextChanged", function(self, userInput)
-        if userInput then
-            self:SetText(self.url)
-            self:HighlightText()
-        end
-    end)
-    box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
-    box:SetScript("OnMouseUp", function(self) self:HighlightText() end)
-    box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    UI.blocks[#UI.blocks + 1] = { kind = "fixed", region = rowFrame, height = UI.BOX_HEIGHT, gap = UI.GAP }
-end
 
 --- Show screenshot `i` (wraps around) sized to `width`; returns the carousel's height.
 local function ShowShot(i, width)
     UI.index = ((i - 1) % #IMAGES) + 1
     local img = IMAGES[UI.index]
-    local w = math.min(width, img.w)
-    local h = math.floor(w * img.h / img.w + 0.5)
+    -- One height for all, lowered only if the widest screenshot wouldn't fit between the arrows.
+    local maxW = width - 2 * (UI.ARROW_SIZE + UI.GAP)
+    local h = UI.IMAGE_HEIGHT
+    for _, other in ipairs(IMAGES) do
+        h = math.min(h, math.floor(maxW * other.h / other.w))
+    end
+    local w = math.floor(h * img.w / img.h + 0.5)
     shot:SetTexture(UI.TEXTURE_ROOT .. img.file)
     shot:SetSize(w, h)
-    counter:SetText(UI.index .. " / " .. #IMAGES)
-    caption:SetWidth(width)
-    caption:SetText(img.caption)
-    return h + UI.GAP + UI.BUTTON_HEIGHT + 6 + caption:GetStringHeight()
+    return h
 end
 
 --- Stack the blocks down the page at its current width and size the scroll range to fit.

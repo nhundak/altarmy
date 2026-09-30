@@ -15,7 +15,7 @@ describe("MainTabs", function()
 
   it("lists the side tabs in display order with Guild last", function()
     assert.are.same(
-      { "Summary", "Gear", "Economy", "Reputation", "Cooldowns", "Graph", "Guild" },
+      { "Summary", "Economy", "Gear", "Reputation", "Cooldowns", "Graph", "Guild" },
       MainTabs.ORDER
     )
   end)
@@ -126,8 +126,14 @@ describe("MainTabs", function()
       assert.are.equal("cooldowns", MainTabs.Get("Cooldowns").settings.optionsKey)
     end)
 
-    it("has no settings for Economy, Graph or Guild", function()
-      assert.is_nil(MainTabs.Get("Economy").settings)
+    it("routes Economy settings to its Currency view, only while that view is available", function()
+      local s = MainTabs.Get("Economy").settings
+      assert.are.equal("ToggleEconomySettings", s.toggle)
+      assert.are.equal("IsEconomySettingsShown", s.isShown)
+      assert.are.equal("IsEconomySettingsAvailable", s.isAvailable)
+    end)
+
+    it("has no settings for Graph or Guild", function()
       assert.is_nil(MainTabs.Get("Graph").settings)
       assert.is_nil(MainTabs.Get("Guild").settings)
     end)

@@ -13,7 +13,7 @@ When you change **user-visible** behavior, update the matching docs in the **sam
 | [FEATURES.md](FEATURES.md) | Shipped feature catalog (start here for “what does it do?”) |
 | [FEATURE_IDEAS.md](FEATURE_IDEAS.md) | Roadmap: unbuilt and partial ideas |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | High-level structure, tabs, SavedVariables, DataStore |
-| [tabs/](tabs/) | Per-tab detail (Summary, Gear, Economy, Reputation, Cooldowns, Search, Graphs, Guild, Options) |
+| [tabs/](tabs/) | Per-tab detail (Summary, Economy, Gear, Reputation, Cooldowns, Search, Graphs, Guild, Options) |
 
 ## Design and engineering
 
