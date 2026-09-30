@@ -111,6 +111,7 @@ def load_market(
             -(-r.buy_price // r.buy_count) if r.sold and r.buy_price > 0 else None,
             r.stack_size,
             tradable=r.bonding not in (1, 4),  # bind on pickup, quest item
+            disenchantable=r.disenchantable,
         )
         for r in conn.execute(select(i, sold).where(i.c.game_version == game_version))
     }

@@ -25,6 +25,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    true,
 )
 
 metadata = MetaData(
@@ -109,6 +110,8 @@ items = Table(
     Column("dps", Float, nullable=False, default=0.0, server_default="0"),
     Column("stats", Text, nullable=False, default="[]", server_default="[]"),  # JSON list of white lines
     Column("effects", Text, nullable=False, default="[]", server_default="[]"),  # JSON [{trigger, text}]
+    # False when ItemSparse flags it NO_DISENCHANT (Enchanting's wands, PvP rank gear); true in old databases
+    Column("disenchantable", Boolean, nullable=False, default=True, server_default=true()),
     Index(None, "game_version", "name"),
 )
 

@@ -144,6 +144,16 @@ def test_load_market_marks_soulbound_items_not_tradable(db2_paths: dict[str, Pat
     assert (items[1].tradable, items[3].tradable) == (True, False)  # the fixture's robe is BoE
 
 
+def test_load_market_marks_items_that_cannot_be_disenchanted(
+    db2_paths: dict[str, Path], conn: Connection
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    t = schema.items
+    conn.execute(update(t).where(t.c.game_version == FOREVER, t.c.id == 3).values(disenchantable=False))
+    items = store.load_market(conn, FOREVER, None).items
+    assert (items[1].disenchantable, items[3].disenchantable) == (True, False)
+
+
 def test_load_cities_reads_every_preset(cities: Path, tmp_path: Path) -> None:
     got = store.load_cities(cities)
     assert list(got) == ["Booty Bay", "Orgrimmar", "Stormwind", "Thunder Bluff"]

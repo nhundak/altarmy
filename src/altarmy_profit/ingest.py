@@ -461,7 +461,10 @@ ITEM_INSERT_COLUMNS = (
     "dps",
     "stats",
     "effects",
+    "disenchantable",
 )
+
+NO_DISENCHANT = 0x8000  # ItemSparse Flags_0: ITEM_FLAG_NO_DISENCHANT
 
 
 GAME_DATA_TABLES = (
@@ -533,6 +536,7 @@ def build_db(
                 tip.dps,
                 json.dumps(list(tip.stats)),
                 json.dumps([asdict(e) for e in tip.effects]),
+                not _int(r.get("Flags_0")) & NO_DISENCHANT,
             )
         )
     conn.execute(schema.items.insert(), [dict(zip(ITEM_INSERT_COLUMNS, i, strict=True)) for i in items])

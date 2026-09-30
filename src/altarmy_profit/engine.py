@@ -52,6 +52,7 @@ class Item:
     vendor_price: int | None = None  # copper per unit if a vendor sells it (unlimited stock)
     stack_size: int = 1  # units per stack: one mail attachment
     tradable: bool = True  # False when it binds on pickup (or is a quest item): never mailed or on the AH
+    disenchantable: bool = True  # False when the item is flagged so (Enchanting's wands, PvP rank gear)
 
 
 @dataclass(frozen=True)
@@ -938,7 +939,11 @@ class Market:
 
     # --- selling ---------------------------------------------------------------------
     def _disenchant_rows(self, item: Item) -> list[DisenchantRow]:
-        if item.class_id not in DISENCHANTABLE_CLASSES or item.quality not in DISENCHANTABLE_QUALITIES:
+        if (
+            not item.disenchantable
+            or item.class_id not in DISENCHANTABLE_CLASSES
+            or item.quality not in DISENCHANTABLE_QUALITIES
+        ):
             return []
         return [
             d

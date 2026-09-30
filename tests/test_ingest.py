@@ -247,6 +247,22 @@ def test_build_db_loads_weapon_damage(db2_paths: dict[str, Path], conn: Connecti
     assert (got.armor, got.dmg_min, got.dmg_max, got.dps, got.stats) == (0, 14, 22, 10.0, "[]")
 
 
+def test_build_db_reads_the_no_disenchant_flag(
+    db2_paths: dict[str, Path], conn: Connection, tmp_path: Path
+) -> None:
+    header, robe = _robe_row(db2_paths, Flags_0=0x8000 | 0x40)  # ITEM_FLAG_NO_DISENCHANT, plus another
+    paths = {**db2_paths, "ItemSparse": write_csv(tmp_path / "NoDE.csv", [*header, "Flags_0"], [robe])}
+    ingest.build_db(paths, conn, FOREVER)
+    assert item(conn, 3).disenchantable is False
+
+
+def test_build_db_items_are_disenchantable_without_the_flag(
+    db2_paths: dict[str, Path], conn: Connection
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)  # the fixture has no Flags_0 column
+    assert item(conn, 3).disenchantable is True
+
+
 def test_build_db_without_stat_tables_reads_empty(db2_paths: dict[str, Path], conn: Connection) -> None:
     gone = ("RandPropPoints", "ItemArmorTotal", "ItemEffect", "Spell")
     paths = {k: v for k, v in db2_paths.items() if k not in gone}

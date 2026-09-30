@@ -154,6 +154,18 @@ def test_disenchant_ignores_wrong_item_level() -> None:
     assert must_evaluate(m, m.recipes[0]).best_exit == "vendor"
 
 
+def test_no_disenchant_for_an_item_flagged_so() -> None:
+    # Lesser Magic Wand: a green weapon in a disenchant bracket, but ItemSparse flags it NO_DISENCHANT.
+    de = [DisenchantRow(4, 2, 15, 25, DUST, 1.0, 1, 1)]
+    base = make_market({}, disenchant=de)
+    items = {**base.items, GREEN: replace(base.items[GREEN], disenchantable=False)}
+    m = Market(items, base.recipes, {LINEN: 20, THREAD: 100, DUST: 400}, de)
+    assert m.disenchant_value(items[GREEN]) is None
+    assert m.disenchant_materials(items[GREEN]) == []
+    assert [e.kind for e in m.exits_for(GREEN)] == ["vendor"]
+    assert must_evaluate(m, m.recipes[0]).best_exit == "vendor"
+
+
 def test_vendor_sold_reagent_needs_no_ah_price() -> None:
     m = make_market({LINEN: 20}, thread_vendor_price=10)
     res = must_evaluate(m, m.recipes[0])
