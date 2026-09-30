@@ -18,6 +18,7 @@ from pathlib import Path
 from sqlalchemy import Connection, select
 
 from . import (
+    addon_crates,
     auth,
     db,
     ingest,
@@ -62,13 +63,17 @@ def cmd_ingest(args: argparse.Namespace) -> None:
                 if updated
                 else f"{v.label} build {build} already loaded."
             )
-            return
-        build = args.build or v.default_build
-        if build == "latest":
-            build = ingest.latest_build(v.wago_product)
-        with args.database.begin() as conn:
-            stats = ingest.update(conn, v.key, build, Path(args.cache), v.disenchant_csv, v.vendor_csv)
-        run.say(f"Ingested {v.label} build {build}: {stats}")
+        else:
+            build = args.build or v.default_build
+            if build == "latest":
+                build = ingest.latest_build(v.wago_product)
+            with args.database.begin() as conn:
+                stats = ingest.update(conn, v.key, build, Path(args.cache), v.disenchant_csv, v.vendor_csv)
+            run.say(f"Ingested {v.label} build {build}: {stats}")
+    # The addon's Waylaid Crates table comes from this game data (only for a local SQLite ingest).
+    note = addon_crates.regenerate(args.database, v.key)
+    if note:
+        print(note)
 
 
 def cmd_migrate(args: argparse.Namespace) -> None:

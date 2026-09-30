@@ -315,6 +315,10 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
 
 ## Data notes
 
+- **The addon's Waylaid Crates.** After ingesting WoW: Forever into a SQLite file, `ingest` runs the Alt Army
+  addon's `scripts/generate-waylaid-crates.py` against it (`src/altarmy_profit/addon_crates.py`), when the addon
+  is checked out next to this repo (`../altarmy_tbc`, or `ALTARMY_ADDON_DIR`). A changed crate list then shows up
+  as a change to commit there. The hosted jobs (Postgres, no addon) skip it, and a failure never fails the ingest.
 - Pinned builds: `default_build` per version in `src/altarmy_profit/versions.py`. Pass `--build <version>`
   or `--build latest` for a newer one. The build actually loaded is stored in the `game_versions` table.
 - **Price history.** Every import is a snapshot (`price_snapshots`); it records observations only for
@@ -386,7 +390,8 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
   wago.tools product, WoW flavor folder, AH cut and postage
 - `src/altarmy_profit/db.py`, `schema.py`, `migrations/` – the database (SQLAlchemy Core, SQLite or
   Postgres), its tables and Alembic migrations
-- `src/altarmy_profit/ingest.py` – download + load DB2 CSVs
+- `src/altarmy_profit/ingest.py` – download + load DB2 CSVs; `addon_crates.py` – regenerate the Alt Army
+  addon's Waylaid Crates table after a local Forever ingest
 - `src/altarmy_profit/engine.py` – pure profit/chain logic (no I/O), covered by `tests/`
 - `src/altarmy_profit/timing.py` – pure play-time model (action seconds, city maps, routes, per-hour
   rates); `cities.py` builds city presets from vmangos spawns (`scripts/build_cities.py`)
