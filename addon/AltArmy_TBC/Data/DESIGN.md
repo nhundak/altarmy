@@ -83,6 +83,7 @@ Data flows in one direction:
 - OptionalDeps (Auctionator, CraftLib, etc.) enrich features when present.
 - WoW API usage is defensive: check for function existence (e.g. `UnitName and UnitName("player")`, `GetRealmName and GetRealmName()`) so the addon runs on TBC Classic even when some APIs differ or are missing.
 - SavedVariables key is `AltArmyTBC_Data`; structure is `Characters[realm][guid] = charData`, keyed by `UnitGUID("player")` so a renamed character keeps its data. Entries saved before GUIDs stay under their name until that character logs in again. `charData.name` is the full name: on WoW Forever `UnitName` returns the first name and surname as two values, which DataStore joins ("Frell Ofelements"). It is never `Unknown`. See `DATA_VERSIONS.md`, character v3.
+- Profession cooldowns (`charData.ProfCooldownExpiry[spellId] = { expiresAtUnix }`): TBC fills them from `GetTradeSkillCooldown` / `GetCraftCooldown` when a profession window opens and from `GetSpellCooldown` after a tracked cast. WoW Forever has neither tradeskill function, so there the `C_TradeSkillUI` recipe scan reads `C_TradeSkillUI.GetRecipeCooldown` for tracked recipes, and the after-cast scan falls back to `C_Spell.GetSpellCooldown`. The saved shape is the same on both clients.
 - Per-character settings (Summary/Gear/Reputation pin and hide, Graph selection, bank alts, guild-share main and opt-outs) stay keyed by `AltArmy.CharKey(name, realm)`. When a character's stored name changes, `AltArmy.RekeyCharSettings` moves them to the new name.
 
 ---

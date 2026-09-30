@@ -198,6 +198,42 @@ describe("DataStoreProfessions", function()
     end)
   end)
 
+  describe("TryScanTrackedCooldownFromSpellApi", function()
+    local saved
+
+    before_each(function()
+      saved = {
+        GetSpellCooldown = _G.GetSpellCooldown, C_Spell = _G.C_Spell,
+        time = _G.time, GetTime = _G.GetTime,
+      }
+      _G.AltArmyTBC_Data = { Characters = {} }
+      DS.accountData = _G.AltArmyTBC_Data
+      _G.UnitName = function() return "TestPlayer" end
+      _G.GetRealmName = function() return "TestRealm" end
+      _G.time = function() return 1000 end
+      _G.GetTime = function() return 50 end
+    end)
+
+    after_each(function()
+      _G.GetSpellCooldown, _G.C_Spell = saved.GetSpellCooldown, saved.C_Spell
+      _G.time, _G.GetTime = saved.time, saved.GetTime
+    end)
+
+    it("falls back to C_Spell.GetSpellCooldown when the global is missing (WoW Forever)", function()
+      _G.GetSpellCooldown = nil
+      _G.C_Spell = {
+        GetSpellCooldown = function(spellId)
+          if spellId == 1302508 then
+            return { startTime = 50, duration = 3600, isEnabled = true, modRate = 1 }
+          end
+        end,
+      }
+      DS:TryScanTrackedCooldownFromSpellApi(1302508)
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.are.equal(1000 + 3600, char.ProfCooldownExpiry[1302508].expiresAtUnix)
+    end)
+  end)
+
   describe("CooldownRemainingSecondsFromSpellApi", function()
     it("computes start+duration remaining for normal GetSpellCooldown values", function()
       local rem = DS._CooldownRemainingSecondsFromSpellApiForTest(50, 3600, 100, 1000)
@@ -499,8 +535,47 @@ describe("DataStoreProfessions", function()
           local outputs = opts.outputs or {}
           return outputs[recipeID]
         end,
+        GetRecipeCooldown = opts.cooldowns and function(recipeID)
+          local cd = opts.cooldowns[recipeID]
+          if cd == false then return nil end
+          return cd, false, 0, 0
+        end or nil,
       }
     end
+
+    -- Comprehension's Study (WoW Forever): the legacy tradeskill cooldown scan can't run there.
+    local STUDY = 1302508
+    local studyRecipes = {
+      [STUDY] = { recipeID = STUDY, categoryID = 1, name = "Study", learned = true, relativeDifficulty = 3 },
+      [100] = { recipeID = 100, categoryID = 1, name = "Untracked", learned = true, relativeDifficulty = 3 },
+    }
+
+    it("persists tracked recipe cooldowns from GetRecipeCooldown", function()
+      _G.time = function() return 1000 end
+      mockTradeSkillUI({
+        professionName = "Comprehension",
+        recipeIDs = { STUDY, 100 },
+        recipes = studyRecipes,
+        cooldowns = { [STUDY] = 3600, [100] = 60 },
+      })
+      DS:ScanRecipes()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.are.equal(1000 + 3600, char.ProfCooldownExpiry[STUDY].expiresAtUnix)
+      assert.is_nil(char.ProfCooldownExpiry[100])
+    end)
+
+    it("persists a ready tracked recipe as expiring now when GetRecipeCooldown returns nil", function()
+      _G.time = function() return 1000 end
+      mockTradeSkillUI({
+        professionName = "Comprehension",
+        recipeIDs = { STUDY },
+        recipes = studyRecipes,
+        cooldowns = { [STUDY] = false },
+      })
+      DS:ScanRecipes()
+      local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+      assert.are.equal(1000, char.ProfCooldownExpiry[STUDY].expiresAtUnix)
+    end)
 
     it("populates only learned recipes, mapping relativeDifficulty to our color scale", function()
       mockTradeSkillUI({

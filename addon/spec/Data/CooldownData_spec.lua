@@ -993,8 +993,82 @@ describe("CooldownData", function()
             assert.are.same(CD.CATEGORY_ORDER, CD.GetOptionsCategoryOrder(false))
         end)
 
-        it("returns only transmute on WoW Forever", function()
-            assert.are.same({ "transmute" }, CD.GetOptionsCategoryOrder(true))
+        it("returns transmute and research on WoW Forever", function()
+            assert.are.same({ "transmute", "research" }, CD.GetOptionsCategoryOrder(true))
+        end)
+    end)
+
+    describe("Research (Comprehension, WoW Forever)", function()
+        local STUDY = 1302508
+
+        local function researcher(expiresAtUnix)
+            return {
+                name = "Frell Blast",
+                classFile = "MAGE",
+                Professions = { Comprehension = { Recipes = { [STUDY] = { color = 4, name = "Study" } } } },
+                ProfCooldownExpiry = expiresAtUnix and { [STUDY] = { expiresAtUnix = expiresAtUnix } } or {},
+            }
+        end
+
+        it("is a tracked single-recipe category", function()
+            local found = false
+            for _, key in ipairs(CD.CATEGORY_ORDER) do
+                if key == "research" then found = true end
+            end
+            assert.is_true(found)
+            assert.are.equal("Research", CD.CATEGORIES.research.title)
+            assert.are.equal("single", CD.CATEGORIES.research.mode)
+            assert.is_true(CD.IsTrackedSpellId(STUDY))
+            assert.is_nil(CD.CategorySpecField("research"))
+        end)
+
+        it("EnsureCooldownOptions defaults research to shown and alerting", function()
+            local c = AltArmyTBC_Options.cooldowns.categories.research
+            assert.truthy(c)
+            assert.is_true(c.showInUI)
+            assert.is_true(c.alertWhenAvailable)
+        end)
+
+        it("BuildRows adds a Research row only for characters that know Study", function()
+            local ds = mockDS({ TestRealm = {
+                Mage = researcher(1000 + 3600),
+                Other = { name = "Other", Professions = { Tailoring = { Recipes = { [2963] = {} } } } },
+            } })
+            local rows = CD.BuildRows(ds, AltArmyTBC_Options.cooldowns, 1000)
+            local research = {}
+            for _, r in ipairs(rows) do
+                if r.categoryKey == "research" then research[#research + 1] = r end
+            end
+            assert.are.equal(1, #research)
+            assert.are.equal("Research", research[1].categoryTitle)
+            assert.are.equal("Frell Blast", research[1].name)
+            assert.are.equal(STUDY, research[1].spellId)
+            assert.are.equal(1000 + 3600, research[1].expiresUnix)
+            assert.are.equal("1h 0m", research[1].timeText)
+        end)
+
+        it("Study needs one Light Feather even though Forever never scans reagents", function()
+            assert.is_nil(AltArmyTBC_Data.RecipeReagents[STUDY])
+            assert.are.same({ { 17056, 1 } }, CD.GetReagentList(STUDY))
+            local char = researcher(nil)
+            local function count(_ch, itemId)
+                return itemId == 17056 and 3 or 0
+            end
+            assert.are.equal(3, CD.GetMaxCraftableQuantity(char, STUDY, count))
+        end)
+
+        it("a scanned reagent list still wins over the built-in Study list", function()
+            AltArmyTBC_Data.RecipeReagents[STUDY] = { { 17056, 2 } }
+            assert.are.same({ { 17056, 2 } }, CD.GetReagentList(STUDY))
+        end)
+
+        it("EvaluateAlerts fires when the one-hour cooldown is ready", function()
+            local ds = mockDS({ TestRealm = { Mage = researcher(1000 + 3600) } })
+            local state = {}
+            assert.are.equal(0, #CD.EvaluateAlerts(ds, AltArmyTBC_Options.cooldowns, 1000, state))
+            local alerts = CD.EvaluateAlerts(ds, AltArmyTBC_Options.cooldowns, 1000 + 3600, state)
+            assert.are.equal(1, #alerts)
+            assert.are.equal("research", alerts[1].categoryKey)
         end)
     end)
 end)

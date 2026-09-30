@@ -151,8 +151,8 @@ local function RecipeIconTexture(spellId, charTable)
         local _, _, _, _, _, _, _, _, _, tex = DS.CompatGetItemInfo(resultItemID)
         if tex then return tex end
     end
-    if spellId and GetSpellInfo then
-        local _, _, tex = GetSpellInfo(spellId)
+    if spellId then
+        local _, _, tex = DS.CompatGetSpellInfo(spellId)
         if tex and tex ~= "" then return tex end
     end
     if spellId and DS.HasItemInfoApi() then
@@ -509,7 +509,7 @@ recipePicker.dropdown = Theme.CreateSingleSelectDropdown({
         local raw = CD.ListGroupRecipeChoiceEntries(
             recipePicker.char,
             recipePicker.categoryKey,
-            GetSpellInfo,
+            DS.CompatGetSpellInfo,
             recipePicker.query
         )
         local out = {}
@@ -605,7 +605,7 @@ function recipePicker:EnsureSearchWidgets()
             and CD.ListGroupRecipeChoiceEntries(
                 recipePicker.char,
                 recipePicker.categoryKey,
-                GetSpellInfo,
+                DS.CompatGetSpellInfo,
                 recipePicker.query
             ) or {}
         local first = raw[1]
@@ -1211,7 +1211,7 @@ ShowRecipeTooltip = function(owner, spellId, charTable, anchor)
         return
     end
     GameTooltip:SetOwner(owner, anchor or "ANCHOR_BOTTOMLEFT")
-    local link = _G.GetSpellLink and _G.GetSpellLink(spellId)
+    local link = DS.CompatGetSpellLink(spellId)
     if link and link ~= "" then
         GameTooltip:SetHyperlink(link)
     else
@@ -1220,7 +1220,7 @@ ShowRecipeTooltip = function(owner, spellId, charTable, anchor)
         elseif GameTooltip.ClearLines then
             GameTooltip:ClearLines()
         end
-        local title = _G.GetSpellInfo and _G.GetSpellInfo(spellId)
+        local title = DS.CompatGetSpellInfo(spellId)
         GameTooltip:AddLine(title or ("Spell " .. tostring(spellId)), 1, 1, 1)
     end
     GameTooltip:AddLine(" ", 1, 1, 1)
@@ -1431,7 +1431,7 @@ local function PoolRow()
             local willHave = alloc.willHave or 0
             local desired = sendBar.targetN or 1
             local recipeName = rd.categoryTitle
-                or (_G.GetSpellInfo and _G.GetSpellInfo(self.spellId or rd.spellId))
+                or DS.CompatGetSpellInfo(self.spellId or rd.spellId)
                 or "Recipe"
             GameTooltip:SetOwner(self.matSlot or self, "ANCHOR_BOTTOMLEFT")
             GameTooltip:ClearLines()

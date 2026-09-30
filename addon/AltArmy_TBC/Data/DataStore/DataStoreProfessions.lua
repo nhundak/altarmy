@@ -88,6 +88,24 @@ local function CooldownRemainingSeconds(a, b, gt, wall, apiKind)
     return CooldownRemainingSecondsFromSpellApi(a, b, gt, wall)
 end
 
+--- (start, duration) from the global GetSpellCooldown, or C_Spell.GetSpellCooldown's table where
+--- the global is gone (WoW Forever). nil when neither API exists.
+local function GetSpellCooldownCompat(spellId)
+    local legacy = _G.GetSpellCooldown
+    if legacy then
+        return legacy(spellId)
+    end
+    local cSpell = _G.C_Spell
+    if not cSpell or not cSpell.GetSpellCooldown then return nil end
+    local ok, info = pcall(cSpell.GetSpellCooldown, spellId)
+    if not ok or type(info) ~= "table" then return 0, 0 end
+    return info.startTime, info.duration
+end
+
+local function HasSpellCooldownApi()
+    return _G.GetSpellCooldown ~= nil or (_G.C_Spell ~= nil and _G.C_Spell.GetSpellCooldown ~= nil)
+end
+
 local function PrevExpiryUnix(char, spellId)
     if not char or not spellId then return nil end
     local t = char.ProfCooldownExpiry and char.ProfCooldownExpiry[spellId]
@@ -932,6 +950,12 @@ local function ScanRecipesViaTradeSkillUI(char)
     for k in pairs(prof.Recipes) do prof.Recipes[k] = nil end
 
     local hasOutputApi = C_TradeSkillUI.GetRecipeOutputItemData ~= nil
+    -- Cooldowns: the legacy ScanTradeSkillCooldownExpiry can't run on this API, so read tracked
+    -- recipes' cooldowns here (remaining seconds; nil when ready — same shape as GetTradeSkillCooldown).
+    local getRecipeCooldown = C_TradeSkillUI.GetRecipeCooldown
+    local CD = AltArmy and AltArmy.CooldownData
+    local gt = GetTime and GetTime() or 0
+    local wall = time and time() or 0
     for _, recipeID in ipairs(recipeIDs) do
         local recipeInfo = C_TradeSkillUI.GetRecipeInfo(recipeID)
         if recipeInfo and recipeInfo.learned then
@@ -948,6 +972,18 @@ local function ScanRecipesViaTradeSkillUI(char)
             prof.Recipes[recipeID] = {
                 color = color, resultItemID = resultItemID, primaryRecipeID = recipeID, name = recipeInfo.name,
             }
+            if getRecipeCooldown and CD and CD.IsTrackedSpellId and CD.IsTrackedSpellId(recipeID) then
+                local ok, remaining, isDay = pcall(getRecipeCooldown, recipeID)
+                if ok then
+                    PersistCooldownExpiry(char, recipeID, remaining, isDay, gt, wall, "TradeSkillUI", "tradeskill")
+                    LogCooldownScanDebug(string.format(
+                        "TradeSkillUI recipe=%d cd=%s -> expUnix=%s",
+                        recipeID,
+                        tostring(remaining),
+                        tostring(char.ProfCooldownExpiry[recipeID] and char.ProfCooldownExpiry[recipeID].expiresAtUnix)
+                    ))
+                end
+            end
         end
     end
     return tradeskillName
@@ -1550,8 +1586,7 @@ end
 function DS:TryScanTransmuteCooldownsFromSpellApi(preferredSpellId)
     local CD = AltArmy and AltArmy.CooldownData
     if not CD or not CD.TRANSMUTE_SPELL_IDS or not CD.IsTrackedSpellId then return end
-    local GetSpellCooldown = _G.GetSpellCooldown
-    if not GetSpellCooldown then return end
+    if not HasSpellCooldownApi() then return end
 
     local char = GetCurrentCharTable()
     if not char then return end
@@ -1563,7 +1598,7 @@ function DS:TryScanTransmuteCooldownsFromSpellApi(preferredSpellId)
 
     local function consider(spellId)
         if not spellId or not CD.IsTrackedSpellId(spellId) then return end
-        local a, b = GetSpellCooldown(spellId)
+        local a, b = GetSpellCooldownCompat(spellId)
         local rem = CooldownRemainingSecondsFromSpellApi(a, b, gt, wall)
         if rem > bestRemaining then
             bestRemaining = rem
@@ -1577,7 +1612,7 @@ function DS:TryScanTransmuteCooldownsFromSpellApi(preferredSpellId)
     end
 
     if bestSpellId then
-        local a, b = GetSpellCooldown(bestSpellId)
+        local a, b = GetSpellCooldownCompat(bestSpellId)
         PersistCooldownExpiry(char, bestSpellId, a, b, gt, wall, "TransmuteSpellApi", "spell")
         local bestExp = char.ProfCooldownExpiry[bestSpellId]
             and char.ProfCooldownExpiry[bestSpellId].expiresAtUnix
@@ -1603,8 +1638,7 @@ end
 function DS:TryScanSphereCooldownsFromSpellApi(preferredSpellId)
     local CD = AltArmy and AltArmy.CooldownData
     if not CD or not CD.SPHERE_SPELL_IDS or not CD.IsTrackedSpellId then return end
-    local GetSpellCooldown = _G.GetSpellCooldown
-    if not GetSpellCooldown then return end
+    if not HasSpellCooldownApi() then return end
 
     local char = GetCurrentCharTable()
     if not char then return end
@@ -1616,7 +1650,7 @@ function DS:TryScanSphereCooldownsFromSpellApi(preferredSpellId)
 
     local function consider(spellId)
         if not spellId or not CD.IsTrackedSpellId(spellId) then return end
-        local a, b = GetSpellCooldown(spellId)
+        local a, b = GetSpellCooldownCompat(spellId)
         local rem = CooldownRemainingSecondsFromSpellApi(a, b, gt, wall)
         if rem > bestRemaining then
             bestRemaining = rem
@@ -1630,7 +1664,7 @@ function DS:TryScanSphereCooldownsFromSpellApi(preferredSpellId)
     end
 
     if bestSpellId then
-        local a, b = GetSpellCooldown(bestSpellId)
+        local a, b = GetSpellCooldownCompat(bestSpellId)
         PersistCooldownExpiry(char, bestSpellId, a, b, gt, wall, "SphereSpellApi", "spell")
         local bestExp = char.ProfCooldownExpiry[bestSpellId]
             and char.ProfCooldownExpiry[bestSpellId].expiresAtUnix
@@ -1658,13 +1692,12 @@ function DS:TryScanTrackedCooldownFromSpellApi(spellId)
     local CD = AltArmy and AltArmy.CooldownData
     if not CD or not CD.IsTrackedSpellId then return end
     if not spellId or not CD.IsTrackedSpellId(spellId) then return end
-    local GetSpellCooldown = _G.GetSpellCooldown
-    if not GetSpellCooldown then return end
+    if not HasSpellCooldownApi() then return end
 
     local char = GetCurrentCharTable()
     if not char then return end
 
-    local a, b = GetSpellCooldown(spellId)
+    local a, b = GetSpellCooldownCompat(spellId)
     local gt = GetTime and GetTime() or 0
     local wall = time and time() or 0
     PersistCooldownExpiry(char, spellId, a, b, gt, wall, "SpellApi", "spell")

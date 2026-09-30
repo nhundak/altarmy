@@ -49,6 +49,9 @@ AC.MANIFEST = {
     { area = "Item Info", label = "GetItemQualityColor", candidates = { "GetItemQualityColor" } },
     { area = "Item Info", label = "GetSpellInfo", candidates = { "GetSpellInfo", "C_Spell.GetSpellInfo" } },
     { area = "Item Info", label = "GetSpellLink", candidates = { "GetSpellLink", "C_Spell.GetSpellLink" } },
+    -- Profession cooldown capture after a cast (DataStoreProfessions GetSpellCooldownCompat).
+    { area = "Item Info", label = "GetSpellCooldown",
+      candidates = { "GetSpellCooldown", "C_Spell.GetSpellCooldown" } },
 
     -- Professions/Tradeskills
     { area = "Professions", label = "GetNumTradeSkills", candidates = { "GetNumTradeSkills" } },

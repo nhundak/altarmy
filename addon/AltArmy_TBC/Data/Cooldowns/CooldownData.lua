@@ -24,10 +24,11 @@ CD.CATEGORY_ORDER = {
     "primal_mooncloth",
     "brilliant_glass",
     "void_sphere",
+    "research",
 }
 
 --- Categories WoW Forever's Options → Cooldowns tab shows (the rest are TBC-specific crafts).
-CD.FOREVER_OPTIONS_CATEGORY_ORDER = { "transmute" }
+CD.FOREVER_OPTIONS_CATEGORY_ORDER = { "transmute", "research" }
 
 --- Category keys the Options → Cooldowns tab builds rows for.
 ---@param isForever boolean
@@ -137,10 +138,27 @@ CD.CATEGORIES = {
         mode = "group",
         spellIds = CD.SPHERE_SPELL_IDS,
     },
+    -- WoW Forever: Comprehension (mage-only profession), shown as "Research" in the spellbook; 1h.
+    -- Study is the only Research recipe known so far. Revisit if more appear: if they share one
+    -- cooldown this should become a "group" category like transmute.
+    research = {
+        key = "research",
+        title = "Research",
+        mode = "single",
+        spellId = 1302508, -- Study
+        spellIds = { 1302508 },
+    },
 }
 
 -- Reagent lists for mats + tooltips come from AltArmyTBC_Data.RecipeReagents, filled when you
 -- open a tradeskill or craft window (ScanRecipes / ScanCraftRecipes read the client APIs).
+
+--- Built-in reagents for tracked recipes whose reagents the client scan can't capture. WoW Forever's
+--- C_TradeSkillUI recipe scan doesn't read reagents yet, so without this Research has no mats.
+--- A scanned RecipeReagents entry still wins.
+CD.KNOWN_RECIPE_REAGENTS = {
+    [1302508] = { { 17056, 1 } }, -- Study: 1x Light Feather
+}
 
 --- Lookup order matches DataStoreProfession captures (accountData then SavedVariables root).
 local function RecipeReagentsTableForSpell(spellId)
@@ -166,7 +184,7 @@ local function RecipeReagentsTableForSpell(spellId)
             end
         end
     end
-    return nil
+    return CD.KNOWN_RECIPE_REAGENTS[spellId]
 end
 
 --- Flat set of every spell id we persist cooldown expiry for.
