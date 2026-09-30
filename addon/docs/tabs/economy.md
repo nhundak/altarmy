@@ -66,7 +66,7 @@ Early reading: the sealed crate keeps the Waylaid Crate's quality, and within th
 A scrolling page about alt-army.com's crafting planner:
 
 1. The title **Put your army to work** with a read-only box holding `https://alt-army.com/profit` to copy with Ctrl+C.
-2. What the site does: compares your characters' professions against auction house data to find the most profitable crafts, with price comparisons and step-by-step instructions.
+2. What the site does: combines your character data, the latest auction house prices, and its item and vendor database to plan the best way to make money or raise your skills.
 3. A carousel of three screenshots (flow chart, detailed steps, search results), all drawn 280 pixels tall, with small previous / next arrows fixed at the left and right edges of the page.
 
 ## Data source

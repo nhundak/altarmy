@@ -9,7 +9,7 @@ Interface Options panel (AddOns → AltArmy) and user-facing slash commands.
 | **General** | Collapsible sections, drawn like the Keybindings page's (all start open): **General** (minimap show/hide; global realm filter, current / all realms), **Guild** (guild data sharing: main, display name, data retention, chat; shown while guild sharing is available) and **Auction House** (scan automatically when the auction house opens; WoW Forever only). Scrolls when the open sections outgrow the panel |
 | **Characters** | Per-character bank-alt flags; delete character data (self-delete protected + confirmation) |
 | **Gear** | Gear upgrade notification toggles (current character / alts; loot, quest rewards, etc.) |
-| **Cooldowns** | Per-category UI visibility, alerts, reminder intervals; specialization-related options. On WoW Forever, shows a "work in progress" banner and only the Transmute and Research (Comprehension) categories (the others are TBC-specific crafts) |
+| **Cooldowns** | One collapsible section per category (all start open), drawn like the General tab's: UI visibility, alerts, reminder intervals; specialization-related options. On WoW Forever, shows a "work in progress" banner and only the Transmute and Research (Comprehension) categories (the others are TBC-specific crafts), and hides the "Only if Master of Transmutation" toggles; a saved value for them is ignored there |
 | **Debug** | Hidden until `/altarmy debug on`; search timing, cooldown scan logging, item stats, guild share verbose, etc. |
 
 Shared theme with the main UI ([UI_DESIGN.md](../UI_DESIGN.md)).

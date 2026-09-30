@@ -906,9 +906,20 @@ function CD.GetReagentHaveCounts(char, spellId, getContainerItemCount)
     return rows
 end
 
+--- Nil on WoW Forever: specializations (Master of Transmutation, tailoring specs) are TBC-only there, so
+--- any saved "only if specialization" setting is ignored.
 --- @return string|nil field key on char.cooldownSpecs
 function CD.CategorySpecField(categoryKey)
+    local DS = AltArmy and AltArmy.DataStore
+    if DS and DS.IsWowForever then
+        return nil
+    end
     return CD.CATEGORY_SPEC_FIELD[categoryKey]
+end
+
+--- Whether the category offers "only if specialization" options on this client.
+function CD.CategoryHasSpecialization(categoryKey)
+    return CD.CategorySpecField(categoryKey) ~= nil
 end
 
 --- @param char table

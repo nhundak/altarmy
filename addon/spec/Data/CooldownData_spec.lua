@@ -812,6 +812,53 @@ describe("CooldownData", function()
         assert.is_true(found)
     end)
 
+    describe("Master of Transmutation gate", function()
+        local savedDS
+        before_each(function()
+            savedDS = AltArmy.DataStore
+            AltArmy.DataStore = { IsWowForever = false }
+            AltArmyTBC_Options.cooldowns.categories.transmute.showOnlyIfSpecialization = true
+            AltArmyTBC_Options.cooldowns.categories.transmute.alertOnlyIfSpecialization = true
+        end)
+        after_each(function()
+            AltArmy.DataStore = savedDS
+        end)
+
+        local function alchemist()
+            return {
+                name = "Alch",
+                Professions = { Alchemy = { Recipes = { [29688] = { color = 1 } } } },
+            }
+        end
+
+        local function hasTransmuteRow(rows)
+            for _, r in ipairs(rows) do
+                if r.categoryKey == "transmute" then return true end
+            end
+            return false
+        end
+
+        it("CategoryHasSpecialization: transmute on TBC, not on WoW Forever", function()
+            assert.is_true(CD.CategoryHasSpecialization("transmute"))
+            assert.is_false(CD.CategoryHasSpecialization("research"))
+            AltArmy.DataStore.IsWowForever = true
+            assert.is_false(CD.CategoryHasSpecialization("transmute"))
+        end)
+
+        it("TBC honors the saved setting (omits a non-master alchemist)", function()
+            local ds = mockDS({ TestRealm = { A = alchemist() } })
+            assert.is_false(hasTransmuteRow(CD.BuildRows(ds, AltArmyTBC_Options.cooldowns, 1000)))
+            assert.is_false(CD.RowMeetsSpecializationGate("transmute", alchemist(), true))
+        end)
+
+        it("WoW Forever ignores the saved setting", function()
+            AltArmy.DataStore.IsWowForever = true
+            local ds = mockDS({ TestRealm = { A = alchemist() } })
+            assert.is_true(hasTransmuteRow(CD.BuildRows(ds, AltArmyTBC_Options.cooldowns, 1000)))
+            assert.is_true(CD.RowMeetsSpecializationGate("transmute", alchemist(), true))
+        end)
+    end)
+
     it("CollectAccountKnownTransmuteSpellIds dedupes", function()
         _G.AltArmyTBC_Data = {
             Characters = {

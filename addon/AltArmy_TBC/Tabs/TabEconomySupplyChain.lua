@@ -25,9 +25,8 @@ local TEXT = {
     title = "Put your army to work",
     url = "https://alt-army.com/profit",
     intro = {
-        "Alt Army's website compares your character professions against auction house data to show you the most "
-            .. "profitable things to craft. It will give you price comparisons and step by step instructions on "
-            .. "what to craft and what to do with the results.",
+        "Alt Army's website combines your character data, the latest auction house prices, and its database of "
+            .. "items and vendors to help you plan the best way to make money or increase your skills.",
     },
 }
 

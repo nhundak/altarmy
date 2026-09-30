@@ -40,8 +40,9 @@ local SPEC_LABEL = {
     primal_mooncloth = "Only if Mooncloth Tailor",
 }
 
+-- WoW Forever has no specializations, so no spec rows there (see CD.CategorySpecField).
 local function CategoryHasSpecRow(key)
-    return SPEC_LABEL[key] ~= nil
+    return SPEC_LABEL[key] ~= nil and CD.CategoryHasSpecialization(key)
 end
 
 --- Dim checkbox caption when the control is disabled (WoW does not gray companion text automatically).
@@ -97,8 +98,8 @@ local function RefreshDependentEnabled(key)
     end
 end
 
-local totalHeight = 0
-local prevBlock = nil
+local topOffset = 0
+local sections = {}
 
 local DS = AltArmy.DataStore
 local isForever = DS and DS.IsWowForever or false
@@ -115,27 +116,37 @@ if isForever then
     local bannerH = math.ceil(bannerFs:GetStringHeight() or 20) + 8
     banner:SetHeight(bannerH)
     banner:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, 0)
-    totalHeight = totalHeight + bannerH + BLOCK_GAP
-    prevBlock = banner
+    topOffset = bannerH + BLOCK_GAP
 end
+
+local LayoutSections -- defined once every section is built
+local function onSectionToggled()
+    if LayoutSections then
+        LayoutSections()
+    end
+end
+
+-- Two checkbox rows (Show in UI / Alert when available) with a gap between them.
+local SECTION_CONTENT_HEIGHT = Theme.CHAR_LIST_ROW_HEIGHT * 2 + 6
 
 for _, key in ipairs(CD.GetOptionsCategoryOrder(isForever)) do
     local catDef = CD.CATEGORIES[key]
     local title = catDef and catDef.title or key
-    local block = CreateFrame("Frame", nil, scrollChild)
-    block:SetWidth(520)
-
-    local titleFs = Theme.CreateOptionsSectionLabel(block, {
+    local section = Theme.CreateCollapsibleSection(scrollChild, {
         text = title,
-        y = 0,
+        contentHeight = SECTION_CONTENT_HEIGHT,
+        defaultExpanded = true,
+        onToggle = onSectionToggled,
     })
+    sections[#sections + 1] = section
+    local block = section.content
 
     local showRow = Theme.CreateLabeledCheckbox(block, {
         point = "TOPLEFT",
-        relativeTo = titleFs,
-        relativePoint = "BOTTOMLEFT",
+        relativeTo = block,
+        relativePoint = "TOPLEFT",
         x = 0,
-        y = -8,
+        y = 0,
         text = "Show in UI",
         onClick = function()
             SaveCategory(key)
@@ -186,17 +197,6 @@ for _, key in ipairs(CD.GetOptionsCategoryOrder(isForever)) do
         })
     end
 
-    local blockH = 88
-    block:SetHeight(blockH)
-    if not prevBlock then
-        block:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, 0)
-    else
-        block:SetPoint("TOPLEFT", prevBlock, "BOTTOMLEFT", 0, -BLOCK_GAP)
-    end
-    totalHeight = totalHeight + blockH + BLOCK_GAP
-
-    prevBlock = block
-
     panel.cooldownWidgets[key] = {
         showRow = showRow,
         showSpecRow = showSpecRow,
@@ -205,7 +205,20 @@ for _, key in ipairs(CD.GetOptionsCategoryOrder(isForever)) do
     }
 end
 
-scrollChild:SetHeight(math.max(totalHeight + 24, 120))
+local stackSections = Theme.StackCollapsibleSections(sections, {
+    parent = scrollChild,
+    gap = BLOCK_GAP,
+    y = -topOffset,
+})
+
+--- Stack the sections and size the scroll area to them.
+function LayoutSections()
+    scrollChild:SetHeight(math.max(topOffset + stackSections() + 24, 120))
+    if cooldownViewport.UpdateRange then
+        cooldownViewport:UpdateRange()
+    end
+end
+LayoutSections()
 
 local function UpdateCooldownScrollRange()
     cooldownViewport:UpdateRange()
