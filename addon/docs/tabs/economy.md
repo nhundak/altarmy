@@ -46,7 +46,18 @@ A Waylaid Crate is filled with **any one** of the bundles its label lists (for e
 - An asterisk marks a cost that reaches the scan's dearest listings. Those are saved together at their cheapest price, so the cost is a close estimate.
 - Hovering a row shows the crate's tooltip plus every bundle with its cost, "only N listed" or "not listed", cheapest first (bundles that can't be bought in full at the bottom).
 - The row below the table shows, on the left, how old the scan is ("Scanned 12 min ago"): white under 15 minutes, yellow up to 30, red after that. On the right, an **Auto scan when opening AH** checkbox (same setting as Options → General → Auction House). While the auction house is open, a **Scan now** button sits in the middle; it reads "Scan in m:ss" while the game's 15-minute scan cooldown runs (same as the button on the auction house). If the scan found no Waylaid Crates, the table says so. The table refreshes when a scan finishes while it is open.
-- Merchant's Favor per crate isn't shown. Guides disagree on it, and it may differ by tier or between gathered and crafted crates, so compare crates of the same tier.
+- Merchant's Favor per crate isn't shown. Guides disagree on it, and it may differ by tier or between gathered and crafted crates, so compare crates of the same tier. What we have measured so far is below.
+
+#### Merchant's Favor: tested in game
+
+Not enough yet to show Favor per crate or rank by gold per Favor. Record new results here.
+
+| Waylaid Crate (quality) | Filled, it became (quality) | Merchant's Favor |
+|-------------------------|-----------------------------|------------------|
+| Apprentice Curiosities (white) | Sealed Apprentice Crate (white) | 5 |
+| Apprentice Fabrics (green) | Sealed Apprentice Crate (green) | 10 |
+
+Early reading: the sealed crate keeps the Waylaid Crate's quality, and within the Apprentice tier green is worth twice white. Untested: Journeyman, Expert and Artisan crates, and whether every crate of one tier and quality gives the same Favor.
 
 **No scan yet** for this realm and faction: the table is replaced by a message to visit an auction house and use the Alt Army scan button, plus a **Scan the auction house automatically when it opens** checkbox. It is the same setting as Options → General → Auction House.
 
