@@ -132,6 +132,7 @@ function Options({ children }: { children: ReactNode }) {
 
 const UNLEARNED: { value: Unlearned; label: string }[] = [
   { value: 'none', label: 'Show recipes I already know' },
+  { value: 'now', label: 'Include recipes I can train now' },
   { value: 'soon', label: 'Include recipes I can train soon (20 skill points)' },
   { value: 'all', label: 'Include all recipes' },
 ]
@@ -285,7 +286,7 @@ export function SearchTab() {
   const [editing, setEditing] = useState<Step | null>(null)
   const [unlearned, setUnlearned] = useStoredState<Unlearned>(
     'altarmy-profit.search.unlearned',
-    z.enum(['none', 'soon', 'all']),
+    z.enum(['none', 'now', 'soon', 'all']),
     'none',
   )
   const [includeTrivial, setIncludeTrivial] = useStoredState(

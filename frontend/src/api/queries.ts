@@ -77,7 +77,7 @@ export type Exit = 'vendor' | 'disenchant' | 'ah'
 
 /** Which recipes nobody has learned count: none, those a character can train soon (at most 20 skill short of
  * learning), or every recipe of their professions. */
-export type Unlearned = 'none' | 'soon' | 'all'
+export type Unlearned = 'none' | 'now' | 'soon' | 'all'
 
 /** `/api/rank` parameters: money in copper, ROI as a fraction (0.5 = 50%), `null` for no bound. */
 export type RankParams = {

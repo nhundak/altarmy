@@ -367,6 +367,9 @@ def test_rank_unlearned_recipes(client: TestClient, priced: Connection) -> None:
     assert ranked("soon") == []  # its pattern requires 50: 21 short
     service.replace_characters(priced, ME, FOREVER, [novice(30)])
     assert ranked("soon") == [("Green Robe", [])]  # 20 short
+    assert ranked("now") == []
+    service.replace_characters(priced, ME, FOREVER, [novice(50)])
+    assert ranked("now") == [("Green Robe", [])]
     assert client.get("/api/rank", params={"unlearned": "maybe"}).status_code == 422
 
 

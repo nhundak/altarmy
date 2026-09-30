@@ -860,8 +860,9 @@ def get_rank(
     unlearned: Annotated[
         engine.Unlearned,
         Query(
-            description="recipes nobody has learned: none, those a character is at most "
-            f"{engine.SOON_SKILL} skill short of learning (soon), or every recipe of their professions (all)"
+            description="recipes nobody has learned: none, those a character has the skill to learn (now), "
+            f"those they are at most {engine.SOON_SKILL} skill short of learning (soon), or every recipe of "
+            "their professions (all)"
         ),
     ] = "none",
     include_trivial: Annotated[

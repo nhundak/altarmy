@@ -365,6 +365,7 @@ def test_recipes_for_characters_known_soon_or_whole_professions() -> None:
         return [r.name for r in recipes_for_characters(recipes, [tailor], unlearned)]
 
     assert names("none") == ["Robe"]
+    assert names("now") == ["Robe"]
     assert names("soon") == ["Robe", "Bolt"]  # its pattern requires 70; the cloak is yellow from 71
     assert names("all") == ["Robe", "Bolt", "Cloak"]
 
@@ -380,6 +381,8 @@ def test_can_learn_soon_needs_the_profession_within_20_skill() -> None:
     assert can_learn(bolt, crafter("Close", ("Tailoring", 50)), "soon")
     assert not can_learn(bolt, crafter("Far", ("Tailoring", 49)), "soon")
     assert can_learn(bolt, crafter("Far", ("Tailoring", 49)), "all")
+    assert not can_learn(bolt, crafter("Close", ("Tailoring", 69)), "now")
+    assert can_learn(bolt, crafter("Ready", ("Tailoring", 70)), "now")
     assert not can_learn(bolt, crafter("Past", ("Tailoring", 300)), "none")
     assert not can_learn(bolt, crafter("Smith", ("Blacksmithing", 300)), "soon")
 

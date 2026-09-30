@@ -173,7 +173,7 @@ export type Presets = {
   /** percent; null lets losing recipes (negative ROI) through */
   minRoi: number | null
   exits: Exit[]
-  /** which recipes nobody has learned count: skilling up looks at what can be trained soon too */
+  /** which recipes nobody has learned count: skilling up looks at what can be trained now too */
   unlearned: Unlearned
 }
 
@@ -186,7 +186,7 @@ export function presetsFor(setup: Setup, step: Step): Partial<Presets> {
     setup.aim === 'skill'
       ? // losing recipes may be the only way to skill up: no lower bound on profit or ROI; what is made along the way
         // is sold where it surely sells, not left on the auction house
-        { includeTrivial: false, minProfit: null, minRoi: null, exits: [...RELIABLE_EXITS], unlearned: 'soon' }
+        { includeTrivial: false, minProfit: null, minRoi: null, exits: [...RELIABLE_EXITS], unlearned: 'now' }
       : {
           includeTrivial: true,
           minProfit: 0.0001,

@@ -624,7 +624,7 @@ export interface components {
              * @default none
              * @enum {string}
              */
-            unlearned: "none" | "soon" | "all";
+            unlearned: "none" | "now" | "soon" | "all";
         };
         /** EvaluateResponse */
         EvaluateResponse: {
@@ -1876,8 +1876,8 @@ export interface operations {
     get_rank_api_rank_get: {
         parameters: {
             query: {
-                /** @description recipes nobody has learned: none, those a character is at most 20 skill short of learning (soon), or every recipe of their professions (all) */
-                unlearned?: "none" | "soon" | "all";
+                /** @description recipes nobody has learned: none, those a character has the skill to learn (now), those they are at most 20 skill short of learning (soon), or every recipe of their professions (all) */
+                unlearned?: "none" | "now" | "soon" | "all";
                 /** @description also recipes that can't give the crafter a skillup (grey or at the cap) */
                 include_trivial?: boolean;
                 /** @description the characters being skilled up: the final craft is done only by one of them, the lowest-skilled in the recipe's profession (default: anyone) */

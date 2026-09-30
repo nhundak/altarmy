@@ -18,9 +18,9 @@ MAX_CHAIN_DEPTH = 3
 DISENCHANTABLE_CLASSES = (2, 4)  # weapon, armor
 DISENCHANTABLE_QUALITIES = (2, 3, 4)
 ALL_EXITS = frozenset({"vendor", "ah", "disenchant"})  # ways to sell a craft (Exit.kind)
-# Which recipes nobody has learned count: none, those a character can train soon (see `can_learn`), all of
-# their professions'.
-Unlearned = Literal["none", "soon", "all"]
+# Which recipes nobody has learned count: none, those a character can train now, those they can train soon
+# (see `can_learn`), all of their professions'.
+Unlearned = Literal["none", "now", "soon", "all"]
 SOON_SKILL = 20  # "soon": a recipe needing at most this much more skill than the character has
 # Real professions offered in the UI; the DB also holds junk skill lines (test, class, etc.).
 PROFESSIONS = (
@@ -112,12 +112,16 @@ class Crafter:
 
 def can_learn(recipe: Recipe, crafter: Crafter, unlearned: Unlearned) -> bool:
     """Whether `crafter` counts as able to craft `recipe` without having learned it: never with "none", with
-    "soon" if they have its profession at most `SOON_SKILL` below its `required_skill`, with "all" if they
-    have its profession."""
+    "now" if their skill in its profession reaches its `required_skill`, with "soon" if it is at most
+    `SOON_SKILL` below, with "all" if they have its profession."""
     if unlearned == "none":
         return False
     skill = crafter.skill(recipe.skill_name)
-    return skill is not None and (unlearned == "all" or recipe.required_skill <= skill[0] + SOON_SKILL)
+    if skill is None:
+        return False
+    if unlearned == "all":
+        return True
+    return recipe.required_skill <= skill[0] + (SOON_SKILL if unlearned == "soon" else 0)
 
 
 def can_skill_up(recipe: Recipe, crafter: Crafter) -> bool:

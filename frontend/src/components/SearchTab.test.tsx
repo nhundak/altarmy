@@ -232,9 +232,9 @@ describe('SearchTab', () => {
     expect(rank?.searchParams.has('min_profit')).toBe(false)
     expect(rank?.searchParams.has('min_roi')).toBe(false) // losses have a negative ROI
     expect(rank?.searchParams.get('sort')).toBe('skill')
-    expect(rank?.searchParams.get('unlearned')).toBe('soon') // and those they can train soon
+    expect(rank?.searchParams.get('unlearned')).toBe('now') // and those they can train now
     expect(rank?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant']) // no auction house
-    expect(screen.getByRole('radio', { name: 'Include recipes I can train soon (20 skill points)' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Include recipes I can train now' })).toBeChecked()
     expect(rank?.searchParams.getAll('professions')).toEqual(['Tailoring'])
     expect(rank?.searchParams.getAll('skill_crafters')).toEqual(['Tailor Guy']) // the only tailor, picked at once
     expect(localStorage.getItem('altarmy-profit.search.includeTrivial')).toBe('false')

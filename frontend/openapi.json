@@ -578,6 +578,7 @@
             "default": "none",
             "enum": [
               "none",
+              "now",
               "soon",
               "all"
             ],
@@ -3362,15 +3363,16 @@
         "operationId": "get_rank_api_rank_get",
         "parameters": [
           {
-            "description": "recipes nobody has learned: none, those a character is at most 20 skill short of learning (soon), or every recipe of their professions (all)",
+            "description": "recipes nobody has learned: none, those a character has the skill to learn (now), those they are at most 20 skill short of learning (soon), or every recipe of their professions (all)",
             "in": "query",
             "name": "unlearned",
             "required": false,
             "schema": {
               "default": "none",
-              "description": "recipes nobody has learned: none, those a character is at most 20 skill short of learning (soon), or every recipe of their professions (all)",
+              "description": "recipes nobody has learned: none, those a character has the skill to learn (now), those they are at most 20 skill short of learning (soon), or every recipe of their professions (all)",
               "enum": [
                 "none",
+                "now",
                 "soon",
                 "all"
               ],
