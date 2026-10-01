@@ -85,7 +85,10 @@ function describeAction(
       if (via === 'disenchant')
         return [
           <>
-            Disenchant {quantity > 1 ? `${quantity}x ` : ''}
+            <DisenchantHover result={result} items={items}>
+              Disenchant
+            </DisenchantHover>{' '}
+            {quantity > 1 ? `${quantity}x ` : ''}
             {item}
             {extra}
           </>,

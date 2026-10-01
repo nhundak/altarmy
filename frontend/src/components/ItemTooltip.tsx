@@ -31,6 +31,16 @@ function Icon({
   return <img className={className} src={iconUrl(icon, size)} alt="" onError={() => setFailed(true)} />
 }
 
+/** The Disenchant spell's icon and name, as a flip's recipe column starts. */
+export function DisenchantLabel() {
+  return (
+    <span className={classes.link}>
+      <Icon icon="inv_enchant_disenchant" size="small" className={classes.smallIcon} />
+      <span>Disenchant</span>
+    </span>
+  )
+}
+
 /** The item's tooltip lines in in-game order. Stats, armor, damage and the green lines are computed at
  * ingest; a database from before that shows none of them. */
 function ItemLines({ item }: { item: ItemInfo }) {
@@ -185,21 +195,31 @@ export function DisenchantTooltip({
   return (
     <TooltipFrame icon={null} wide>
       <div className={classes.title}>Disenchanting {name}</div>
-      {materials.map((m) => {
-        const item = items[m.item_id]
-        return (
-          <div key={m.item_id} className={classes.split}>
-            <span className={classes.material}>
-              <Icon icon={item?.icon ?? null} size="small" className={classes.smallIcon} />
-              <span style={{ color: qualityColor(item?.quality ?? 1) }}>{m.name}</span> {countRange(m)} (
-              {Math.round(m.chance * 100)}%)
-            </span>
-            {m.value == null ? <span className={classes.dim}>no price</span> : <Money copper={m.value} />}
-          </div>
-        )
-      })}
-      <div className={classes.section}>
-        Expected: <Money copper={value} />
+      <div className={classes.materials}>
+        {materials.map((m) => {
+          const item = items[m.item_id]
+          return (
+            <div key={m.item_id} className={classes.materialRow}>
+              <span className={classes.material}>
+                <Icon icon={item?.icon ?? null} size="small" className={classes.smallIcon} />
+                <span style={{ color: qualityColor(item?.quality ?? 1) }}>{m.name}</span>
+              </span>
+              <span>
+                {countRange(m)} ({Math.round(m.chance * 100)}%)
+              </span>
+              <span className={classes.right}>
+                {m.value == null ? <span className={classes.dim}>no price</span> : <Money copper={m.value} />}
+              </span>
+            </div>
+          )
+        })}
+        <div className={`${classes.materialRow} ${classes.total}`}>
+          <span>Expected total after AH cut</span>
+          <span />
+          <span className={classes.right}>
+            <Money copper={value} />
+          </span>
+        </div>
       </div>
     </TooltipFrame>
   )

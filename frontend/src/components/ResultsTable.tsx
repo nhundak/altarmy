@@ -8,7 +8,7 @@ import { formatRoi } from '../lib/money'
 import { formatSeconds } from '../lib/time'
 import { CharacterClasses, CharacterName } from './CharacterName'
 import { type PlanEditing } from './ChoiceMenu'
-import { ItemLink, RecipeTooltip } from './ItemTooltip'
+import { DisenchantLabel, ItemLink, RecipeTooltip } from './ItemTooltip'
 import { Money } from './Money'
 import { SessionDetails } from './SessionDetails'
 import classes from './ResultsTable.module.css'
@@ -188,7 +188,8 @@ function shortTitle(short: number): string {
   return `Needs ${short.toLocaleString()} more ${short === 1 ? 'unit' : 'units'} than the auction house lists; they are counted at the dearest price listed`
 }
 
-/** A row's ⋯ menu: mark the recipe as a favorite or not, stop or allow selling its output on the AH. */
+/** A row's ⋯ menu: mark the recipe as a favorite or not, stop or allow selling its output on the AH (only
+ * for a craft: a flip is only disenchanted, and a conversion's AH sale does not follow the AH exit). */
 function RowActions({
   result,
   blocked,
@@ -215,7 +216,7 @@ function RowActions({
             {favorite ? 'Remove from favorites' : 'Add to favorites'}
           </Menu.Item>
         )}
-        {onSetAhBlocked && (
+        {onSetAhBlocked && result.kind === 'craft' && (
           <Menu.Item onClick={() => onSetAhBlocked(result.output_item_id, !blocked)}>
             {blocked ? 'Allow selling on auction house' : 'Never sell on auction house'}
           </Menu.Item>
@@ -390,6 +391,12 @@ export function ResultsTable({
                     </Table.Td>
                     <Table.Td c={r.roi < 0 ? 'red' : undefined}>{formatRoi(r.roi)}</Table.Td>
                     <Table.Td>
+                      {r.kind === 'flip' && (
+                        // buy the item and disenchant it: no recipe to name
+                        <>
+                          <DisenchantLabel />{' '}
+                        </>
+                      )}
                       <ItemLink
                         item={items[r.output_item_id]}
                         name={r.output_name}

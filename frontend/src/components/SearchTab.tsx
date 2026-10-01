@@ -85,6 +85,9 @@ const EXITS: { value: Exit; label: string; description: string; warning?: string
   },
 ]
 /** The Disenchant tooltip's extra line when none of the selected realm's characters has Enchanting. */
+/** The Arcane Salvager checkbox is hidden for now: while it is, disenchants never count on a salvager. */
+export const SHOW_ARCANE_SALVAGER = false
+
 const NO_ENCHANTER = 'None of your characters here has Enchanting, so nothing can be disenchanted.'
 
 /**
@@ -330,7 +333,7 @@ export function SearchTab() {
     z.boolean().nullable(),
     null,
   )
-  const arcaneSalvager = salvagerPick ?? characters.data?.arcane_salvager ?? false
+  const arcaneSalvager = SHOW_ARCANE_SALVAGER && (salvagerPick ?? characters.data?.arcane_salvager ?? false)
   // Money in gold and ROI in percent, as typed; converted for the API below.
   const [minCost, setMinCost] = useStoredState('altarmy-profit.search.minCost', bound, 0)
   const [maxCost, setMaxCost] = useStoredState('altarmy-profit.search.maxCost', bound, null)
@@ -487,12 +490,14 @@ export function SearchTab() {
                 </Checkbox.Group>
                 <Stack gap="md">
                   <CraftsPerSession />
-                  <Checkbox
-                    label="Use Arcane Salvager for disenchanting"
-                    description="A 10% chance of a second disenchant's worth of materials."
-                    checked={arcaneSalvager}
-                    onChange={(e) => setSalvagerPick(e.currentTarget.checked)}
-                  />
+                  {SHOW_ARCANE_SALVAGER && (
+                    <Checkbox
+                      label="Use Arcane Salvager for disenchanting"
+                      description="10% chance of extra disenchanting materials. Usable only at campfires."
+                      checked={arcaneSalvager}
+                      onChange={(e) => setSalvagerPick(e.currentTarget.checked)}
+                    />
+                  )}
                 </Stack>
               </SimpleGrid>
             </Options>

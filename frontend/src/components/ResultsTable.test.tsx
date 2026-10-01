@@ -71,14 +71,15 @@ describe('ResultsTable slow sales and short books', () => {
   })
 })
 
-/** Checks the open disenchant tooltip lists both materials and the expected total. */
+/** Checks the open disenchant tooltip lists both materials and the expected total, three columns a row. */
 async function expectDisenchantTooltip() {
-  const text = (t: string) => screen.findByText((_, el) => shown(el) === t)
-  expect(await text('Disenchanting Green Robe')).toBeInTheDocument()
-  expect(await text('Linen Cloth ×1-2 (75%)')).toBeInTheDocument()
-  expect(await text('Coarse Thread ×1 (25%)')).toBeInTheDocument()
-  expect(await text('no price')).toBeInTheDocument()
-  expect(await text('Expected: 7 59 88')).toBeInTheDocument()
+  const title = await screen.findByText((_, el) => shown(el) === 'Disenchanting Green Robe')
+  const rows = Array.from(title.nextElementSibling?.children ?? [], (row) => Array.from(row.children, shown))
+  expect(rows).toEqual([
+    ['Linen Cloth', '×1-2 (75%)', '7 59 88'],
+    ['Coarse Thread', '×1 (25%)', 'no price'],
+    ['Expected total after AH cut', '', '7 59 88'],
+  ])
 }
 
 /** A list item or table cell whose whole text is `text` (item names inside are separate elements). */
@@ -195,6 +196,16 @@ describe('ResultsTable', () => {
     expect(screen.queryByText('not learned')).not.toBeInTheDocument()
   })
 
+  it('names a flip as disenchanting the item it buys', () => {
+    renderRows([{ ...disenchanted, recipe_id: 2_000_000_003, kind: 'flip', profession: '' }])
+    expect(line('Disenchant Green Robe')).toBeInTheDocument()
+  })
+
+  it('does not say Disenchant before a crafted recipe', () => {
+    renderRows([disenchanted])
+    expect(line('Green Robe')).toBeInTheDocument()
+  })
+
   it('shows only the chosen crafter, in class colours, then how many others know the recipe', () => {
     renderWithProviders(
       <ResultsTable
@@ -302,6 +313,14 @@ describe('ResultsTable', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await showSteps()
     await userEvent.hover(screen.getByText('Sell materials'))
+    await expectDisenchantTooltip()
+  })
+
+  it('shows the expected disenchant materials on the Steps Disenchant word', async () => {
+    renderRows([disenchanted])
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    await showSteps()
+    await userEvent.hover(within(line('Disenchant Green Robe')).getByText('Disenchant'))
     await expectDisenchantTooltip()
   })
 
@@ -584,6 +603,20 @@ describe('ResultsTable', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Actions for Green Robe' }))
       await userEvent.click(await screen.findByRole('menuitem', { name: 'Allow selling on auction house' }))
       expect(onSetAhBlocked).toHaveBeenCalledWith(3, false)
+    })
+
+    it.each(['flip', 'convert'] as const)('does not offer to stop selling a %s on the AH', async (kind) => {
+      renderWithProviders(
+        <ResultsTable
+          results={[{ ...disenchanted, kind, profession: '' }]}
+          items={items}
+          ahBlocked={new Set()}
+          onSetAhBlocked={vi.fn()}
+          onSetFavorite={vi.fn()}
+        />,
+      )
+      await userEvent.click(screen.getByRole('button', { name: /^Actions for / }))
+      expect((await screen.findAllByRole('menuitem')).map(shown)).toEqual(['Add to favorites'])
     })
 
     it('offers to add a recipe to favorites', async () => {

@@ -76,6 +76,22 @@
   margin-top: 10px;
 }
 
+/* Disenchant materials as a headerless table: name, count and chance, value; the total on the same columns. */
+.materials {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  column-gap: 16px;
+  margin-top: 10px;
+}
+
+.materialRow {
+  display: contents;
+}
+
+.total > * {
+  margin-top: 10px;
+}
+
 .material {
   display: inline-flex;
   align-items: center;

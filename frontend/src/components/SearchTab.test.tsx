@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { robeResult } from '../test/results'
 import { characters, status, withEnchanter } from '../test/status'
 import { GUEST, mockApi, renderWithProviders } from '../test/utils'
-import { SearchTab } from './SearchTab'
+import { SearchTab, SHOW_ARCANE_SALVAGER } from './SearchTab'
 import { SYNC_DOWNLOAD } from './SyncCard'
 
 // Tests that only check paging swap the results table for one line per row: rendering 150 full rows
@@ -523,7 +523,20 @@ describe('SearchTab', () => {
     )
   })
 
-  it('disenchants at an Arcane Salvager when a character can make one, until the user says otherwise', async () => {
+  it('hides the Arcane Salvager checkbox and never counts on one while it is hidden', async () => {
+    if (SHOW_ARCANE_SALVAGER) return
+    const fetch = mockApi({
+      '/api/status': status(),
+      '/api/characters': { ...characters, arcane_salvager: true },
+      '/api/rank': noResults,
+    })
+    renderWithProviders(<SearchTab />)
+    await screen.findByText(/No recipes match these filters/)
+    expect(screen.queryByRole('checkbox', { name: 'Use Arcane Salvager for disenchanting' })).toBeNull()
+    expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('arcane_salvager')).toBe('false')
+  })
+
+  it.skipIf(!SHOW_ARCANE_SALVAGER)('disenchants at an Arcane Salvager when a character can make one, until the user says otherwise', async () => {
     const salvager = () => urls(fetch, '/api/rank').at(-1)?.searchParams.get('arcane_salvager')
     let fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     const { unmount } = renderWithProviders(<SearchTab />)
@@ -541,7 +554,7 @@ describe('SearchTab', () => {
     renderWithProviders(<SearchTab />)
     await screen.findByText(/No recipes match these filters/)
     expect(box()).toBeChecked()
-    expect(box()).toHaveAccessibleDescription("A 10% chance of a second disenchant's worth of materials.")
+    expect(box()).toHaveAccessibleDescription("10% chance of extra disenchanting materials. Usable only at campfires.")
     expect(salvager()).toBe('true')
     expect(urls(fetch, '/api/rank')).toHaveLength(1)
     await userEvent.click(box())
