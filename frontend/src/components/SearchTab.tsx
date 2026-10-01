@@ -479,32 +479,34 @@ export function SearchTab() {
   const browsing = group === undefined
   const noEnchanter = !!selection && !browsing && !hasEnchanter(group)
   const options = realmOptions(groups, coverage.data ?? [])
-  const grouped = (['Your characters', 'Browse a realm'] as const)
-    .map((name) => ({
-      group: name,
-      items: options.filter((o) => o.section === name).map(({ value, label }) => ({ value, label })),
-    }))
-    .filter((g) => g.items.length > 0)
+  // The characters' realms come first, without a heading; the other priced realms under Browse a realm.
+  const item = ({ value, label }: { value: string; label: string }) => ({ value, label })
+  const browse = options.filter((o) => o.section === 'Browse a realm').map(item)
   if (selection && !options.some((o) => o.value === toKey(selection))) {
     // e.g. a realm whose scan is still being merged: still show what is selected
-    grouped.push({ group: 'Browse a realm', items: [{ value: toKey(selection), label: selection.realm }] })
+    browse.push({ value: toKey(selection), label: selection.realm })
   }
+  const realmData = [
+    ...options.filter((o) => o.section === 'Your characters').map(item),
+    ...(browse.length > 0 ? [{ group: 'Browse a realm', items: browse }] : []),
+  ]
   // The selection's auction house and its newest scan; undefined while the coverage is still loading.
   const house = coverage.data?.find((c) => c.auction_house_id === status.data.auction_house_id)
   const lastScan = coverage.data && status.data.auction_house_id !== null ? (house?.last_scan ?? null) : undefined
   const step = editing ?? nextStep(setup, professions, noCharacters)
-  // In the realm card its heading says Realm already, so the picker carries only its accessible name.
+  // In the realm card the picker has no visible label (it sits beside the upload buttons), only its accessible name.
   const realmSelect = (inCard = false) => (
     <Select
       label={inCard ? undefined : 'Realm'}
       aria-label={inCard ? 'Realm' : undefined}
       placeholder="No realm has prices yet"
-      data={grouped}
+      data={realmData}
       value={selection ? toKey(selection) : null}
       onChange={(key) => key && select.mutate(fromKey(key))}
       allowDeselect={false}
-      size={inCard ? 'md' : undefined}
-      maw={inCard ? 480 : 420}
+      size={inCard ? 'sm' : undefined}
+      w={inCard ? 300 : undefined}
+      maw={inCard ? '100%' : 420}
     />
   )
 

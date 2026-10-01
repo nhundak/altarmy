@@ -14,9 +14,14 @@ describe('PriceFreshness', () => {
     expect(line).toHaveAttribute('title', expect.stringMatching(/UTC$/))
   })
 
-  it('warns when the scan is over an hour old', () => {
-    renderWithProviders(<PriceFreshness lastScan={ago(61)} />)
-    const line = screen.getByText('Auction house prices are from a scan 1 h ago.')
+  it('still shows a 29-minute-old scan quietly', () => {
+    renderWithProviders(<PriceFreshness lastScan={ago(29)} />)
+    expect(screen.getByText('Auction house prices scanned 29 min ago.')).not.toHaveStyle({ fontWeight: 500 })
+  })
+
+  it('warns when the scan is over half an hour old', () => {
+    renderWithProviders(<PriceFreshness lastScan={ago(31)} />)
+    const line = screen.getByText('Auction house prices are from a scan 31 min ago.')
     expect(line).toHaveStyle({ fontWeight: 500 })
     expect(line.querySelector('svg')).toBeInTheDocument()
   })

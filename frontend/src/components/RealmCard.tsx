@@ -1,5 +1,5 @@
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
-import { Anchor, Button, Code, Group, Stack, Text, Title } from '@mantine/core'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { Anchor, Button, Code, Group, Stack, Text } from '@mantine/core'
 import { AnimatePresence, LayoutGroup, motion } from 'motion/react'
 import { AUTO_IMPORT_CARD, AutoImportBody } from './AutoImport'
 import cards from './Cards.module.css'
@@ -46,7 +46,6 @@ export function RealmCard({
   lastScan: string | null | undefined
 }) {
   const [mode, setMode] = useState<Mode>('realm')
-  const title = useId()
   const upload = () => setMode('upload')
 
   // Alt Army Sync's first scan lands while its steps are open: back to the realm, where its age now shows.
@@ -62,8 +61,7 @@ export function RealmCard({
   return (
     <LayoutGroup id="realm-card">
       <section
-        aria-labelledby={mode === 'realm' ? title : undefined}
-        aria-label={mode === 'realm' ? undefined : 'Realm'}
+        aria-label="Realm"
         className={cards.cards}
         data-phase={mode === 'realm' ? undefined : 'expanded'}
         style={{ position: 'relative' }}
@@ -72,29 +70,26 @@ export function RealmCard({
           <motion.div layout transition={LAYOUT} className={cards.card} style={{ borderRadius: 12 }}>
             <motion.div layout="position" className={cards.open}>
               {mode === 'realm' ? (
-                <Group justify="space-between" align="flex-start" gap="sm">
-                  <Stack gap="sm" style={{ flex: '1 1 16rem', minWidth: 0 }}>
-                    <Title order={4} id={title}>
-                      Realm
-                    </Title>
+                <Stack gap="sm">
+                  <Group justify="space-between" align="center" gap="sm">
                     {select}
-                    {lastScan !== undefined && <PriceFreshness lastScan={lastScan} />}
-                  </Stack>
-                  {/* The actions, on the right like the characters strip's Upload and Auto-upload. */}
-                  <Group gap="xs">
-                    <Button size="xs" variant="light" leftSection={<IconUpload size={16} />} onClick={upload}>
-                      Upload your scan
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="default"
-                      leftSection={<IconDownload size={16} />}
-                      onClick={() => setMode('auto')}
-                    >
-                      Auto-upload
-                    </Button>
+                    {/* The actions, on the right like the characters strip's Upload and Auto-upload. */}
+                    <Group gap="xs">
+                      <Button size="xs" variant="light" leftSection={<IconUpload size={16} />} onClick={upload}>
+                        Upload your scan
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="default"
+                        leftSection={<IconDownload size={16} />}
+                        onClick={() => setMode('auto')}
+                      >
+                        Auto-upload
+                      </Button>
+                    </Group>
                   </Group>
-                </Group>
+                  {lastScan !== undefined && <PriceFreshness lastScan={lastScan} />}
+                </Stack>
               ) : (
                 <div key={mode}>
                   <OpenCardHeader
