@@ -41,7 +41,7 @@ GitHub Actions (`.github/workflows/check.yml`) runs `check.py` and the Postgres 
 altarmy-profit ingest                          # downloads DB2 tables into cache/, loads WoW: Forever's game data
 altarmy-profit ingest --build latest           # same, for the newest WoW: Forever build on wago.tools
 altarmy-profit --game-version tbc ingest       # TBC Anniversary's instead
-altarmy-profit ingest --only-if-new            # the newest build, unless already loaded (the site's daily job)
+altarmy-profit ingest --only-if-new            # the newest build, unless loaded by this ingest code and CSVs (the site's job)
 altarmy-profit ingest --only-if-new --force    # reload the newest build even if loaded (add --force to the job's args)
 altarmy-profit serve                           # the API (and the built front end) on http://127.0.0.1:8600
 altarmy-profit watch --server URL --key KEY    # upload the addon files to the site as WoW rewrites them
@@ -250,7 +250,7 @@ The site runs on Google Cloud in `alt-army-prod` (us-central1). The config is in
 |-------|------|
 | Firebase Hosting | serves `frontend/dist`; `/api/**` rewrites to Cloud Run. Prod is the live site; staging is the `staging` preview channel (https://alt-army-prod--staging-hn1s06um.web.app, expires 30 days after its last deploy) |
 | Cloud Run services | `altarmy` (min 0, max 2) and `altarmy-staging` (max 1): the API, 1 vCPU, 1 GiB. Instances never migrate |
-| Cloud Run jobs | the same image running the CLI: `altarmy-migrate` (each deploy, before the service), `altarmy-ingest-tbc` / `-forever` (`ingest --only-if-new`), `altarmy-prune`, `altarmy-merge`. Staging has the same, prefixed `altarmy-staging-` |
+| Cloud Run jobs | the same image running the CLI: `altarmy-migrate` (each deploy, before the service), `altarmy-ingest-tbc` / `-forever` (`ingest --only-if-new`: daily, and at the end of each deploy), `altarmy-prune`, `altarmy-merge`. Staging has the same, prefixed `altarmy-staging-` |
 | Cloud Scheduler | ingest tbc 09:00 UTC, ingest forever 09:15, prune 10:00, merge hourly at :30 (`deploy/setup.sh scheduler prod`); staging's the same 5 minutes later (`scheduler staging`); run as `altarmy-scheduler` |
 | Cloud SQL | `altarmy-pg`: Postgres 16, db-f1-micro, databases `altarmy` and `altarmy_staging` |
 | Secret Manager | `database-url`, `database-url-staging`: each database's `DATABASE_URL` (Cloud Run's Cloud SQL socket) |
@@ -273,11 +273,14 @@ By hand (Git Bash, with gcloud and the Firebase CLI signed in; no Docker needed)
 
 ```bash
 IMAGE=$(BUILDER=cloudbuild deploy/build.sh)   # build on Cloud Build, push to Artifact Registry
-deploy/deploy.sh staging "$IMAGE"             # jobs, migrate, service, front end to the staging channel
+deploy/deploy.sh staging "$IMAGE"             # jobs, migrate, service, front end to the staging channel, ingest
 deploy/deploy.sh prod "$IMAGE"
 ```
 
-A new database gets its game data from an ingest run: `gcloud run jobs execute altarmy-ingest-tbc --wait`
+Each deploy ends by running both ingest jobs: they reload the game data when the build, the ingest code
+(`ingest.py`, `itemstats.py`, `spelltext.py`) or the version's hand-maintained CSVs changed
+(`ingest.fingerprint`, kept in `game_versions.ingest_fingerprint`), and otherwise stop at once. A new
+database gets its game data the same way, or by hand: `gcloud run jobs execute altarmy-ingest-tbc --wait`
 (prod) or `altarmy-staging-ingest-tbc` (staging)
 (add `--region us-central1 --project alt-army-prod --billing-project alt-army-prod` to both).
 

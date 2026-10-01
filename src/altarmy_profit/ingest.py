@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import urllib.error
 import urllib.request
@@ -15,6 +16,8 @@ from sqlalchemy import Connection, delete
 from . import db, itemstats, schema, spelltext, timing, versions
 
 LATEST_URL = "https://wago.tools/api/builds/latest"
+# The modules whose code decides what a load derives from the DB2 tables (`fingerprint`).
+FINGERPRINTED_MODULES = (Path(__file__), Path(itemstats.__file__), Path(spelltext.__file__))
 TABLES = [
     "Item",
     "ItemSparse",
@@ -751,5 +754,30 @@ def update(
         max_level,
         vendor_recipes_csv,
     )
-    db.set_build(conn, game_version, build)
+    db.set_build(conn, game_version, build, _fingerprint((disenchant_csv, vendor_csv, vendor_recipes_csv)))
     return stats
+
+
+def fingerprint(version: versions.GameVersion) -> str:
+    """A hash of what a load of `version` makes of a build besides the build itself: the ingest code and
+    the version's hand-maintained CSVs. When it differs from the loaded data's (`db.get_fingerprint`),
+    `ingest --only-if-new` reloads the same build. Line endings are ignored (a Windows checkout's files)."""
+    return _fingerprint((version.disenchant_csv, version.vendor_csv, version.vendor_recipes_csv))
+
+
+def _fingerprint(data_files: Iterable[Path | None]) -> str:
+    h = hashlib.sha256()
+
+    def add(content: bytes | None) -> None:
+        if content is None:  # no file: unlike an empty one
+            h.update(b"-")
+            return
+        content = content.replace(b"\r\n", b"\n")
+        h.update(f"{len(content)}:".encode())
+        h.update(content)
+
+    for module in FINGERPRINTED_MODULES:
+        add(module.read_bytes())
+    for path in data_files:
+        add(path.read_bytes() if path is not None and path.is_file() else None)
+    return h.hexdigest()

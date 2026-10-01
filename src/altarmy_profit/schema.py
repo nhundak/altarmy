@@ -79,6 +79,9 @@ game_versions = Table(
     # game data loads so far (`db.set_build`): moves the cached markets' stamp even when the same build
     # is loaded again (ingest --force, a changed disenchant.csv)
     Column("loads", Integer, nullable=False, default=0, server_default="0"),
+    # `ingest.fingerprint` of the load: the ingest code and hand-maintained CSVs that made the game data, so
+    # `ingest --only-if-new` reloads the same build when they changed; NULL before revision 0020's first load
+    Column("ingest_fingerprint", String(64)),
     Column("interface", Integer),  # client interface number, e.g. 20506
 )
 

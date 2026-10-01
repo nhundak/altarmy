@@ -1,10 +1,24 @@
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from sqlalchemy import Connection, func, select
 
-from altarmy_profit import auth, cli, db, ingest, jobs, prices, schema, signals, store, versions, wowfiles
+from altarmy_profit import (
+    auth,
+    cli,
+    db,
+    ingest,
+    jobs,
+    prices,
+    schema,
+    service,
+    signals,
+    store,
+    versions,
+    wowfiles,
+)
 from altarmy_profit.auctionator import DayStats, ItemPrice
 from altarmy_profit.prices import Observation
 
@@ -458,6 +472,50 @@ def test_cli_ingest_only_if_new_skips_a_loaded_build(
     assert builds == ["2.5.7.1", "2.5.7.1"]
     with pytest.raises(SystemExit):
         cli.main(["--game-version", "tbc", "--db", dbfile, "ingest", "--force"])
+
+
+def test_only_if_new_reloads_a_loaded_build_when_the_ingest_changed(
+    conn: Connection, db2_paths: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds: list[str] = []
+
+    def download_all(build: str, cache_dir: Path) -> dict[str, Path]:
+        builds.append(build)
+        return db2_paths
+
+    monkeypatch.setattr(ingest, "download_all", download_all)
+    monkeypatch.setattr(ingest, "latest_build", lambda product: "2.5.7.1")
+    data = tmp_path / "data"
+    data.mkdir()
+    header = "item_class,quality,min_ilvl,max_ilvl,result_item_id,chance,min_count,max_count\n"
+    (data / "disenchant.csv").write_text(header)
+    v = replace(versions.get("tbc"), data_dir=data)
+
+    def update() -> bool:
+        return service.update_game_data(conn, v, tmp_path / "cache", only_if_new=True)[1]
+
+    assert update()
+    assert db.get_fingerprint(conn, "tbc") == ingest.fingerprint(v)
+    assert not update()  # same build, same ingest
+    (data / "disenchant.csv").write_text(header + "4,2,5,15,10940,1,1,1\n")
+    assert update()  # a hand-maintained file changed
+    assert not update()
+    monkeypatch.setattr(ingest, "fingerprint", lambda version: "new code")
+    assert update()  # the ingest code changed
+    assert builds == ["2.5.7.1"] * 3
+
+
+def test_fingerprint_follows_the_data_files_but_not_line_endings(tmp_path: Path) -> None:
+    v = replace(versions.get("tbc"), data_dir=tmp_path)
+    missing = ingest.fingerprint(v)
+    assert len(missing) == 64 and ingest.fingerprint(v) == missing
+    (tmp_path / "vendor_items.csv").write_bytes(b"item_id\n1\n")
+    lf = ingest.fingerprint(v)
+    assert lf != missing
+    (tmp_path / "vendor_items.csv").write_bytes(b"item_id\r\n1\r\n")
+    assert ingest.fingerprint(v) == lf
+    (tmp_path / "vendor_items.csv").write_bytes(b"item_id\n2\n")
+    assert ingest.fingerprint(v) != lf
 
 
 def test_find_saved_variables(wow_root: Path) -> None:

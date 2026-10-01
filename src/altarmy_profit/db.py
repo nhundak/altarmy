@@ -216,10 +216,22 @@ def get_loaded(conn: Connection, game_version: str) -> tuple[str | None, int]:
     return (None, 0) if row is None else (row.build, int(row.loads))
 
 
-def set_build(conn: Connection, game_version: str, build: str) -> None:
-    """Record that `build`'s game data was loaded (again, perhaps), counting the load."""
+def get_fingerprint(conn: Connection, game_version: str) -> str | None:
+    """The `ingest.fingerprint` of the loaded game data (None if unknown)."""
     t = schema.game_versions
-    conn.execute(t.update().where(t.c.id == game_version).values(build=build, loads=t.c.loads + 1))
+    found = conn.execute(select(t.c.ingest_fingerprint).where(t.c.id == game_version)).scalar_one_or_none()
+    return None if found is None else str(found)
+
+
+def set_build(conn: Connection, game_version: str, build: str, fingerprint: str | None = None) -> None:
+    """Record that `build`'s game data was loaded (again, perhaps) by the ingest `fingerprint` names,
+    counting the load."""
+    t = schema.game_versions
+    conn.execute(
+        t.update()
+        .where(t.c.id == game_version)
+        .values(build=build, ingest_fingerprint=fingerprint, loads=t.c.loads + 1)
+    )
 
 
 COUNTED_TABLES = ("items", "recipes", "disenchant", "vendor_items")

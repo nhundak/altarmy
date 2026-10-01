@@ -7,6 +7,8 @@
 #   4. build the front end and deploy it to Firebase Hosting (prod: the live site; staging: the
 #      `staging` preview channel, whose /api rewrites to the staging service), and the Firestore rules
 #      to the environment's Firebase project (price signals, firestore.rules)
+#   5. run the ingest jobs and wait: they reload the game data when the new image's ingest code or
+#      hand-maintained CSVs changed (`ingest.fingerprint`), and otherwise find it loaded and stop
 #
 #   deploy/deploy.sh prod|staging IMAGE
 set -euo pipefail
@@ -57,3 +59,8 @@ else
   # staging's price signals live in its own Firebase project
   npx --yes firebase-tools@14 --project "$STAGING_AUTH_PROJECT" --non-interactive --config firebase.staging.json     deploy --only firestore:rules
 fi
+
+echo "== game data"
+for v in forever tbc; do
+  gcloud run jobs execute "$JOB_PREFIX-ingest-$v" --region "$REGION" --wait "${GCLOUD_FLAGS[@]}"
+done
