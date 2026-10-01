@@ -70,6 +70,14 @@ class Recipe:
     cast_time_ms: int = 0  # one cast; 0 if instant or unknown
     station: str = ""  # the crafting station it is cast at (`timing.station_kind`: anvil, loom, ...); "" none
     learn_skill: int = 0  # skill the recipe item teaching it requires; 0 if none does (a trainer's)
+    # "craft", or "convert": enchanting materials turned into others with their Use spell (3 lesser
+    # essences into a greater and back): anyone does it, it never skills up, and it ranks only when
+    # disenchant is a way to sell (see `Market.rank`)
+    kind: str = "craft"
+
+    @property
+    def is_conversion(self) -> bool:
+        return self.kind == "convert"
 
     @property
     def required_skill(self) -> int:
@@ -126,7 +134,9 @@ def can_learn(recipe: Recipe, crafter: Crafter, unlearned: Unlearned) -> bool:
 
 def can_skill_up(recipe: Recipe, crafter: Crafter) -> bool:
     """Whether crafting `recipe` can raise `crafter`'s skill: it isn't grey for them and they aren't at their
-    profession's cap. Recipes without skill thresholds count as able to."""
+    profession's cap. Recipes without skill thresholds count as able to; conversions never do."""
+    if recipe.is_conversion:
+        return False
     if not recipe.trivial_high:
         return True
     skill = crafter.skill(recipe.skill_name)
@@ -150,7 +160,10 @@ def expected_skill_ups(recipe: Recipe, crafter: Crafter | None, crafts: int) -> 
     at the chance for the skill the crafts before it are expected to have reached (`skill_up_chance`'s
     rule), never past grey or the profession's cap. While the recipe is yellow or green the chance falls
     linearly with the skill, so the expected skill gives the expected chance exactly; only a session
-    crossing into yellow or reaching the cap is approximate. Without a crafter every craft counts."""
+    crossing into yellow or reaching the cap is approximate. Without a crafter every craft counts (but a
+    conversion's)."""
+    if recipe.is_conversion:
+        return 0.0
     if crafter is None:
         return float(crafts)
     if not can_skill_up(recipe, crafter):
@@ -227,6 +240,7 @@ class Step:
     station: str = field(default="", compare=False)  # craft: the station it is cast at; "" anywhere
     # sell by disenchanting: the disenchanting's share of `seconds` (the rest is posting the materials)
     lead_seconds: float = field(default=0.0, compare=False)
+    convert: bool = False  # craft: a conversion (`Recipe.is_conversion`), not a profession craft
 
 
 @dataclass(frozen=True)
@@ -239,6 +253,7 @@ class Option:
     via: str = ""  # recipe name if crafted
     crafter: str = ""  # who crafts it: the cheapest character for that recipe
     seconds: float = field(default=0.0, compare=False)  # estimated play time per craft this way (see Node)
+    convert: bool = False  # crafted by a conversion (`Recipe.is_conversion`)
 
 
 @dataclass(frozen=True)
@@ -279,6 +294,7 @@ class Node:
     act_seconds: float = field(default=0.0, compare=False)
     mail_seconds: float = field(default=0.0, compare=False)
     station: str = field(default="", compare=False)
+    convert: bool = False  # crafted by a conversion (`Recipe.is_conversion`)
 
 
 @dataclass(frozen=True, eq=False)
@@ -419,7 +435,9 @@ def _touches(choices: Choices, path: str) -> bool:
 
 def _option(key: str, node: Node) -> Option:
     if node.via:
-        return Option(key, node.cost, via=node.via, crafter=node.crafter, seconds=node.seconds)
+        return Option(
+            key, node.cost, via=node.via, crafter=node.crafter, seconds=node.seconds, convert=node.convert
+        )
     return Option(key, node.cost, source=node.source, seconds=node.seconds)
 
 
@@ -606,6 +624,7 @@ def _craft_step(node: Node, paths: tuple[str, ...]) -> Step:
         paths=paths,
         seconds=node.act_seconds,
         station=node.station,
+        convert=node.convert,
     )
 
 
@@ -1361,10 +1380,12 @@ class Market:
         choices: Choices | None = None,
     ) -> Node | None:
         """`runs` crafts of `recipe` by `who` (the node at `path`), getting each reagent the cheapest way
-        or as `choices` says; None if one can't be had."""
+        or as `choices` says; None if one can't be had. A conversion's input is only bought: converted
+        back from what it makes, it would go round in circles."""
         inputs = []
+        below = MAX_CHAIN_DEPTH if recipe.is_conversion else depth
         for i, (item_id, count) in enumerate(recipe.reagents):
-            got = self._obtain(item_id, count * runs, who, depth, memo, f"{path}.{i}", choices)
+            got = self._obtain(item_id, count * runs, who, below, memo, f"{path}.{i}", choices)
             if got is None:
                 return None
             inputs.append(got)
@@ -1385,6 +1406,7 @@ class Market:
             seconds=est + sum(n.seconds for n in inputs),
             act_seconds=act,
             station=station,
+            convert=recipe.is_conversion,
         )
 
     # --- evaluation --------------------------------------------------------------------
@@ -1401,7 +1423,8 @@ class Market:
         plan is for that many crafts at once (a session): sub-crafts are whole batches for all of them, and
         cost, revenue and steps are the session's."""
         choices = choices or {}
-        exits = [e for e in self.exits_for(recipe.output_item_id) if e.kind in self.exits]
+        allowed = self._sell_kinds(recipe)
+        exits = [e for e in self.exits_for(recipe.output_item_id) if e.kind in allowed]
         if not exits:
             return None
         if memo is None:
@@ -1418,7 +1441,13 @@ class Market:
             # A Master Chef's extra results are counted at their expected number; mailing them is not charged.
             bonus = self._bonus_output(recipe, who) * crafts
             crafter = self._by_name.get(who)
-            chance = 1.0 if crafter is None else skill_up_chance(recipe, crafter)
+            chance = (
+                skill_up_chance(recipe, crafter)
+                if crafter is not None
+                else 0.0
+                if recipe.is_conversion
+                else 1.0
+            )
             ups = expected_skill_ups(recipe, crafter, crafts)
             for exit in here:
                 postage = mail if exit.postage else 0
@@ -1462,6 +1491,13 @@ class Market:
         picked.sell_options = [SellOption(r.best_exit, r.profit) for r in ranked]
         return picked
 
+    def _sell_kinds(self, recipe: Recipe) -> Collection[str]:
+        """The exits `recipe`'s output may be sold by. A conversion sells what it makes on the AH, but only
+        when disenchant is allowed: it is the same bet on enchanting materials' AH prices."""
+        if not recipe.is_conversion:
+            return self.exits
+        return self.exits | {"ah"} if "disenchant" in self.exits else ()
+
     def rank(
         self,
         min_profit: int = 0,
@@ -1471,10 +1507,14 @@ class Market:
     ) -> list[Result]:
         """Every recipe's best result for `crafts` crafts at once with at least `min_profit`, most
         profitable first (of the recipes with ids in `only`, if given). One memo serves the whole ranking:
-        an intermediate is worked out once however many recipes need it."""
+        an intermediate is worked out once however many recipes need it. Conversions skill nobody up, so
+        they are left out when skilling up (without `include_trivial`, or with `skill_crafters`)."""
         results = []
         memo: Memo = {}
+        skilling = not self.include_trivial or bool(self.skill_crafters)
         for r in self.recipes:
+            if r.is_conversion and skilling:
+                continue
             if skill_name and r.skill_name.lower() != skill_name.lower():
                 continue
             if only is not None and r.id not in only:
@@ -1515,15 +1555,22 @@ def recipes_for_characters(
     """Recipes the characters have learned, plus those `unlearned` lets one of them craft (`can_learn`).
 
     A Market built from these sub-crafts through any of the characters' recipes, whoever knows them.
+    Conversions need no learning: anyone can do them.
     """
     known = frozenset().union(*(c.known_spells for c in crafters))
-    return [r for r in recipes if r.spell_id in known or any(can_learn(r, c, unlearned) for c in crafters)]
+    return [
+        r
+        for r in recipes
+        if r.is_conversion or r.spell_id in known or any(can_learn(r, c, unlearned) for c in crafters)
+    ]
 
 
 def crafters_of(recipe: Recipe, crafters: Iterable[Crafter], unlearned: Unlearned) -> list[Crafter]:
     """Who can craft `recipe`: those who learned it, or with nobody having learned it, those `unlearned`
-    lets (`can_learn`, as in `recipes_for_characters`)."""
+    lets (`can_learn`, as in `recipes_for_characters`). Anyone converts."""
     crafters = list(crafters)
+    if recipe.is_conversion:
+        return crafters
     known = [c for c in crafters if recipe.spell_id in c.known_spells]
     if known:
         return known

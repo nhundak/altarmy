@@ -34,6 +34,7 @@ const columnsFor = (rankBy: RankBy | undefined): string[] => [
 const perSkillUp = (r: RankResult): number | null => (r.skill_ups ? r.profit / r.skill_ups : null)
 /** Sell via column text per exit; unknown exits show as-is. */
 const EXIT_LABELS: Readonly<Record<string, string>> = { ah: 'Auction', vendor: 'Vendor', disenchant: 'Disenchant' }
+const CONVERSION_NOTE = 'Essence conversion (use the item; no profession)'
 const exitLabel = (exit: string): string => EXIT_LABELS[exit] ?? exit.charAt(0).toUpperCase() + exit.slice(1)
 /** Sort key per sortable column; numbers sort largest first on the first click, text alphabetically. */
 const SORT_KEYS: Readonly<Record<string, (r: RankResult) => number | string>> = {
@@ -390,7 +391,7 @@ export function ResultsTable({
                         tooltip={
                           <RecipeTooltip
                             name={r.recipe}
-                            profession={r.profession}
+                            profession={r.kind === 'convert' ? CONVERSION_NOTE : r.profession}
                             reagents={r.reagents}
                             output={items[r.output_item_id]}
                             items={items}
@@ -410,8 +411,8 @@ export function ResultsTable({
                         </>
                       ) : (
                         <Text span size="sm" c="dimmed">
-                          {/* no crafter named: browsing without characters */}
-                          {r.crafter ? 'not learned' : 'anyone'}
+                          {/* no crafter named: browsing without characters; anyone converts */}
+                          {r.crafter && r.kind !== 'convert' ? 'not learned' : 'anyone'}
                         </Text>
                       )}
                     </Table.Td>

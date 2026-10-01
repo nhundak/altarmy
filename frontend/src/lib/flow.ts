@@ -15,6 +15,8 @@ export type ItemNodeData = {
   quantity: number
   cost: number
   via: string
+  /** Crafted by an essence conversion (the item's Use spell) rather than a profession recipe. */
+  convert: boolean
   crafts: number
   made: number
   source: string
@@ -99,6 +101,7 @@ export function buildFlow({
         quantity,
         cost,
         via,
+        convert: node.convert ?? false,
         crafts,
         made,
         source,

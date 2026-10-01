@@ -212,8 +212,8 @@ export const rankProfessions = (setup: Setup | null): string[] =>
   setup?.aim === 'skill' && setup.profession && setup.profession !== ANY_PROFESSION ? [setup.profession] : []
 
 const SELLING_TEXT: Readonly<Record<Selling, string>> = {
-  reliable: 'only what reliably sells',
-  any: 'anything that might sell',
+  reliable: 'Only what reliably sells',
+  any: 'Anything that might sell',
 }
 
 /** The answers in a few words each, in question order, for the folded summary: "Making gold · …". */

@@ -7,7 +7,7 @@ export const bought = (
   quantity: number,
   cost: number,
   source = 'ah',
-  options: FlowNode['options'] = [{ key: source, cost, source, via: '', crafter: '', seconds: 0 }],
+  options: FlowNode['options'] = [{ key: source, cost, source, via: '', crafter: '', seconds: 0, convert: false }],
 ): FlowNode => ({
   item_id,
   name,
@@ -26,6 +26,7 @@ export const bought = (
   seconds: 0,
   options,
   option: source,
+  convert: false,
   inputs: [],
 })
 
@@ -34,6 +35,7 @@ export const bought = (
 export const robeResult: RankResult = {
   recipe_id: 100,
   recipe: 'Green Robe',
+  kind: 'craft',
   profession: 'Tailoring',
   crafters: ['Tailor Guy'],
   crafter: 'Tailor Guy',
@@ -62,10 +64,10 @@ export const robeResult: RankResult = {
     { item_id: 2, count: 1 },
   ],
   steps: [
-    { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 10, value: -200, via: 'ah', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.0'] },
-    { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 1, value: -100, via: 'vendor', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r.1'] },
-    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['r'] },
-    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, paths: ['sell'] },
+    { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 10, value: -200, via: 'ah', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['r.0'] },
+    { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 1, value: -100, via: 'vendor', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['r.1'] },
+    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['r'] },
+    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['sell'] },
   ],
   tree: {
     item_id: 3,
@@ -85,11 +87,12 @@ export const robeResult: RankResult = {
     seconds: 0,
     options: [],
     option: '',
+    convert: false,
     inputs: [
       bought(1, 'Linen Cloth', 10, 200),
       bought(2, 'Coarse Thread', 1, 100, 'vendor', [
-        { key: 'vendor', cost: 100, source: 'vendor', via: '', crafter: '', seconds: 0 },
-        { key: 'ah', cost: 150, source: 'ah', via: '', crafter: '', seconds: 0 },
+        { key: 'vendor', cost: 100, source: 'vendor', via: '', crafter: '', seconds: 0, convert: false },
+        { key: 'ah', cost: 150, source: 'ah', via: '', crafter: '', seconds: 0, convert: false },
       ]),
     ],
   },

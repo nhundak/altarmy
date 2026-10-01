@@ -52,7 +52,7 @@ function describe(step: Step, result: RankResult, items: ItemMap, vendor?: strin
 }
 
 function describeAction(
-  { action, item_id, name, quantity, value, via, discount, rep_discount, rep_faction, bonus }: Step,
+  { action, item_id, name, quantity, value, via, discount, rep_discount, rep_faction, bonus, convert }: Step,
   result: RankResult,
   items: ItemMap,
   vendor?: string,
@@ -72,7 +72,7 @@ function describeAction(
     case 'craft':
       return [
         <>
-          Craft {quantity}x {item}
+          {convert ? 'Convert into' : 'Craft'} {quantity}x {item}
         </>,
       ]
     case 'mail':

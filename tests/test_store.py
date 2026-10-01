@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Connection, update
+from sqlalchemy import Connection, insert, update
 
 from altarmy_profit import altarmy, ingest, itemstats, schema, store
 
@@ -125,6 +125,23 @@ def test_profession_names(
     assert store.profession_names(conn, "tbc") == []
     monkeypatch.setattr(store, "HIDDEN_PROFESSIONS", frozenset({"Tailoring"}))
     assert store.profession_names(conn, FOREVER) == []
+
+
+def test_profession_names_leave_out_conversions(db2_paths: dict[str, Path], conn: Connection) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    conn.execute(
+        insert(schema.recipes).values(
+            game_version=FOREVER,
+            id=ingest.CONVERSION_ID_BASE + 960,
+            spell_id=960,
+            name="Greater Magic Essence",
+            kind="convert",
+            skill_line=0,
+            skill_name="",
+            output_item_id=1,
+        )
+    )
+    assert store.profession_names(conn, FOREVER) == ["Tailoring"]
 
 
 def test_delete_one_character(conn: Connection) -> None:

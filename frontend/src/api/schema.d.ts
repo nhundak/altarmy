@@ -904,6 +904,11 @@ export interface components {
          *     another character who then mails it on.
          */
         NodeOut: {
+            /**
+             * Convert
+             * @default false
+             */
+            convert: boolean;
             /** Cost */
             cost: number;
             /** Crafter */
@@ -958,6 +963,11 @@ export interface components {
          * @description One way to get a node's items; POST it back as a choice by `key`.
          */
         OptionOut: {
+            /**
+             * Convert
+             * @default false
+             */
+            convert: boolean;
             /** Cost */
             cost: number;
             /** Crafter */
@@ -1041,6 +1051,12 @@ export interface components {
             details: components["schemas"]["DetailOut"][];
             /** Exits */
             exits: components["schemas"]["ExitOut"][];
+            /**
+             * Kind
+             * @default craft
+             * @enum {string}
+             */
+            kind: "craft" | "convert";
             /** Mail To */
             mail_to: string;
             /** Output Count */
@@ -1161,6 +1177,11 @@ export interface components {
              * @default 0
              */
             bonus: number;
+            /**
+             * Convert
+             * @default false
+             */
+            convert: boolean;
             /**
              * Discount
              * @default 0

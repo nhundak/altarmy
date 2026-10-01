@@ -139,6 +139,7 @@ def load_market(
             cast_time_ms=r.cast_time_ms,
             station=r.station,
             learn_skill=r.learn_skill,
+            kind=r.kind,
         )
         for r in conn.execute(select(rt).where(rt.c.game_version == game_version).order_by(rt.c.id))
     ]
@@ -332,11 +333,16 @@ HIDDEN_PROFESSIONS = frozenset({"Comprehension", "Demonology", "Poisons", "Test 
 
 
 def profession_names(conn: Connection, game_version: str) -> list[str]:
-    """Every profession the version's recipes belong to, by name, but `HIDDEN_PROFESSIONS`."""
+    """Every profession the version's recipes belong to, by name, but `HIDDEN_PROFESSIONS` (conversions
+    belong to none)."""
     r = schema.recipes
     query = (
         select(r.c.skill_name)
-        .where(r.c.game_version == game_version, r.c.skill_name.not_in(HIDDEN_PROFESSIONS))
+        .where(
+            r.c.game_version == game_version,
+            r.c.kind == "craft",
+            r.c.skill_name.not_in(HIDDEN_PROFESSIONS),
+        )
         .distinct()
         .order_by(r.c.skill_name)
     )

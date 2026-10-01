@@ -348,6 +348,15 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
   Forever-specific rates are not yet published — verify against Wowhead's Forever database as data comes
   in, then re-run `altarmy-profit ingest`. TBC's are generated from the TBC client's Auctionator
   (one row per count) by `python scripts/build_disenchant.py`.
+- **Essence conversions** (3 Lesser Astral Essence into 1 Greater and back) come from DB2: an item whose Use
+  effect consumes it (negative charges) and casts a spell creating another item, the spell's reagents (if
+  any) being more of the same item, with both items disenchant results in `disenchant.csv` (so only
+  enchanting materials: Magic, Astral, Mystic, Nether and Eternal essences on Forever, Planar too on TBC).
+  Ingest stores each as a `recipes` row of `kind` `convert` (id 1,000,000,000 + its spell id, no
+  profession, input count 1 + the spell's reagents). Anyone converts, it never skills anyone up, and it is
+  ranked only when Sell via includes Disenchant and nobody is being skilled up; its output then sells on the
+  AH even if Auction house is unticked, the same bet on enchanting materials' prices. Chains also use a
+  conversion to get a reagent when that is cheaper; what a conversion converts is always bought.
 - **Vendor-sold items are not in DB2** (vendor inventories are server-side). `data/<version>/vendor_items.csv`
   (`item_id,name`) lists the items vendors sell with unlimited stock and no reputation or event condition
   (TBC: and no honor or badge cost), taken from [vmangos](https://github.com/vmangos/core)' vanilla world

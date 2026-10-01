@@ -52,6 +52,9 @@ OPTIONAL_TABLES = [
 ]
 EFFECT_CREATE_ITEM = 24
 TRIGGER_LEARN = 6  # ItemEffect.TriggerType of the spell a recipe item teaches
+TRIGGER_USE = 0
+# A conversion's recipe id: clear of SkillLineAbility ids, inside 32 bits
+CONVERSION_ID_BASE = 1_000_000_000
 MAX_REAGENTS = 8
 
 
@@ -326,6 +329,33 @@ def item_effects(paths: dict[str, Path]) -> dict[int, list[ItemEffectRef]]:
     return {i: [(t, s, c) for _, t, s, c in sorted(refs)] for i, refs in out.items()}
 
 
+Conversion = tuple[int, int, int, int, int]  # input item, input count, spell, output item, output count
+
+
+def conversions(
+    paths: dict[str, Path],
+    outputs: dict[int, tuple[int, int]],
+    reagents: dict[int, list[tuple[int, int]]],
+    materials: set[int],
+) -> list[Conversion]:
+    """Enchanting materials an item's Use spell turns into others (3 Lesser Magic Essence -> 1 Greater, 1
+    Greater -> 3 Lesser): a Use effect that consumes the item (negative charges) and casts a spell creating
+    an item, the spell's reagents (if any) being more of the same item, input and output both disenchant
+    results (`materials`), so openables and the like are left out. The input count is the item used plus
+    the reagents."""
+    out: dict[tuple[int, int], Conversion] = {}
+    for item, r in _effects_by_item(paths):
+        spell = _int(r["SpellID"])
+        if _int(r["TriggerType"]) != TRIGGER_USE or _int(r.get("Charges")) >= 0 or spell not in outputs:
+            continue
+        out_item, out_count = outputs[spell]
+        extra = reagents.get(spell, [])
+        if item not in materials or out_item not in materials or any(i != item for i, _ in extra):
+            continue
+        out[item, spell] = (item, 1 + sum(c for _, c in extra), spell, out_item, out_count)
+    return sorted(out.values(), key=lambda c: c[2])
+
+
 def learn_skills(paths: dict[str, Path], skill_ranks: dict[int, int]) -> dict[int, int]:
     """Each spell recipe items teach -> the lowest skill rank one of them requires (`skill_ranks`: item
     id -> ItemSparse.RequiredSkillRank). Items requiring no skill are left out."""
@@ -564,6 +594,26 @@ def build_db(
         if lst:
             reagents[_int(r["SpellID"])] = lst
 
+    de_rows = []
+    if disenchant_csv and disenchant_csv.exists():
+        de_rows = [
+            {
+                "game_version": game_version,
+                "item_class": _int(r["item_class"]),
+                "quality": _int(r["quality"]),
+                "min_ilvl": _int(r["min_ilvl"]),
+                "max_ilvl": _int(r["max_ilvl"]),
+                "result_item_id": _int(r["result_item_id"]),
+                "chance": float(r["chance"]),
+                "min_count": _int(r["min_count"]),
+                "max_count": _int(r["max_count"]),
+            }
+            for r in _rows(disenchant_csv)
+        ]
+    if de_rows:
+        conn.execute(schema.disenchant.insert(), de_rows)
+    de_results = {r["result_item_id"] for r in de_rows}
+
     known_items = {i[1] for i in items}
     recipes: dict[int, dict[str, object]] = {}
     recipe_reagents: dict[tuple[int, int], dict[str, object]] = {}
@@ -581,6 +631,7 @@ def build_db(
             "id": rid,
             "spell_id": spell,
             "name": spell_names.get(spell, f"Spell {spell}"),
+            "kind": "craft",
             "skill_line": line,
             "skill_name": skill_names[line],
             "min_skill": _int(r["MinSkillLineRank"]),
@@ -602,30 +653,39 @@ def build_db(
                 "count": c,
                 "slot": slot,
             }
+    materials = {i for i in known_items if i in de_results}
+    for item, in_count, spell, out_item, out_count in conversions(paths, outputs, reagents, materials):
+        rid = CONVERSION_ID_BASE + spell
+        recipes[rid] = {
+            "game_version": game_version,
+            "id": rid,
+            "spell_id": spell,
+            "name": spell_names.get(spell, f"Spell {spell}"),
+            "kind": "convert",
+            "skill_line": 0,
+            "skill_name": "",
+            "min_skill": 0,
+            "trivial_low": 0,
+            "trivial_high": 0,
+            "output_item_id": out_item,
+            "output_count": out_count,
+            "cast_time_ms": cast_ms.get(spell, 0),
+            "station": "",
+            "learn_skill": 0,
+        }
+        recipe_reagents[rid, item] = {
+            "game_version": game_version,
+            "recipe_id": rid,
+            "item_id": item,
+            "count": in_count,
+            "slot": 0,
+        }
     n_recipes = len(recipes)
     if recipes:
         conn.execute(schema.recipes.insert(), list(recipes.values()))
     if recipe_reagents:
         conn.execute(schema.recipe_reagents.insert(), list(recipe_reagents.values()))
 
-    de_rows = []
-    if disenchant_csv and disenchant_csv.exists():
-        de_rows = [
-            {
-                "game_version": game_version,
-                "item_class": _int(r["item_class"]),
-                "quality": _int(r["quality"]),
-                "min_ilvl": _int(r["min_ilvl"]),
-                "max_ilvl": _int(r["max_ilvl"]),
-                "result_item_id": _int(r["result_item_id"]),
-                "chance": float(r["chance"]),
-                "min_count": _int(r["min_count"]),
-                "max_count": _int(r["max_count"]),
-            }
-            for r in _rows(disenchant_csv)
-        ]
-        if de_rows:
-            conn.execute(schema.disenchant.insert(), de_rows)
     n_de = len(de_rows)
 
     n_vendor = 0

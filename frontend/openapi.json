@@ -1396,6 +1396,11 @@
       "NodeOut": {
         "description": "One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs, possibly by\nanother character who then mails it on.",
         "properties": {
+          "convert": {
+            "default": false,
+            "title": "Convert",
+            "type": "boolean"
+          },
           "cost": {
             "title": "Cost",
             "type": "integer"
@@ -1501,6 +1506,11 @@
       "OptionOut": {
         "description": "One way to get a node's items; POST it back as a choice by `key`.",
         "properties": {
+          "convert": {
+            "default": false,
+            "title": "Convert",
+            "type": "boolean"
+          },
           "cost": {
             "title": "Cost",
             "type": "integer"
@@ -1690,6 +1700,15 @@
             },
             "title": "Exits",
             "type": "array"
+          },
+          "kind": {
+            "default": "craft",
+            "enum": [
+              "craft",
+              "convert"
+            ],
+            "title": "Kind",
+            "type": "string"
           },
           "mail_to": {
             "title": "Mail To",
@@ -2030,6 +2049,11 @@
             "default": 0.0,
             "title": "Bonus",
             "type": "number"
+          },
+          "convert": {
+            "default": false,
+            "title": "Convert",
+            "type": "boolean"
           },
           "discount": {
             "default": 0,

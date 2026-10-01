@@ -1570,3 +1570,70 @@ def test_how_many_are_needed_decides_between_buying_and_crafting() -> None:
     assert session is not None
     assert session.tree.inputs[0].via == "Smelt Copper"  # ten bars: 50 + 9 x 400 against 10 x 100 of ore
     assert session.cost == 1000
+
+
+LESSER, GREATER, WAND = 20, 21, 22
+UPGRADE = Recipe(
+    1_000_000_960, "Greater Magic Essence", GREATER, 1, ((LESSER, 3),), spell_id=960, kind="convert"
+)
+DOWNGRADE = Recipe(
+    1_000_000_961, "Lesser Magic Essence", LESSER, 3, ((GREATER, 1),), spell_id=961, kind="convert"
+)
+WAND_RECIPE = Recipe(30, "Greater Magic Wand", WAND, 1, ((GREATER, 1),), "Enchanting", spell_id=930)
+ESSENCES = (Item(LESSER, "Lesser Magic Essence"), Item(GREATER, "Greater Magic Essence"), Item(WAND, "Wand"))
+# 3 lesser cost 300; a greater sells for 500 (475 after the cut)
+ESSENCE_PRICES = {LESSER: 100, GREATER: 500, WAND: 2000}
+
+
+def essence_market(prices: dict[int, int] = ESSENCE_PRICES, **kwargs: Any) -> Market:
+    items = {i.id: i for i in ESSENCES}
+    return Market(items, [UPGRADE, DOWNGRADE, WAND_RECIPE], prices, **kwargs)
+
+
+def test_a_conversion_ranks_on_its_price_asymmetry() -> None:
+    ranked = {r.recipe.id: r for r in essence_market().rank(min_profit=-(10**9))}
+    up = ranked[UPGRADE.id]
+    assert (up.cost, up.revenue, up.best_exit, up.crafter) == (300, 475, "ah", "")
+    assert ranked[DOWNGRADE.id].profit == 3 * 95 - 500
+    assert (up.skill_chance, up.skill_ups) == (0.0, 0.0)
+
+
+def test_conversions_rank_only_when_disenchant_is_a_way_to_sell() -> None:
+    assert essence_market(exits=frozenset({"vendor", "ah"})).evaluate(UPGRADE) is None
+    assert UPGRADE not in [r.recipe for r in essence_market(exits=frozenset({"ah"})).rank()]
+    # selling the output on the AH is what a conversion is for, as disenchanting values its materials
+    reliable = must_evaluate(essence_market(exits=frozenset({"vendor", "disenchant"})), UPGRADE)
+    assert (reliable.best_exit, reliable.profit) == ("ah", 175)
+    blocked = essence_market(exits=frozenset({"vendor", "disenchant"}), no_ah=frozenset({GREATER}))
+    assert blocked.evaluate(UPGRADE) is None
+
+
+def test_conversions_never_rank_when_skilling_up() -> None:
+    def ranked(**kwargs: Any) -> list[Recipe]:
+        return [r.recipe for r in essence_market(**kwargs).rank(min_profit=-(10**9))]
+
+    assert UPGRADE in ranked()
+    assert UPGRADE not in ranked(include_trivial=False)
+    assert UPGRADE not in ranked(crafters=[TAILOR], skill_crafters=frozenset({"Tailor"}))
+    assert not can_skill_up(UPGRADE, TAILOR)
+    assert skill_up_chance(UPGRADE, TAILOR) == 0.0
+    assert expected_skill_ups(UPGRADE, None, 5) == expected_skill_ups(UPGRADE, TAILOR, 5) == 0.0
+
+
+def test_anyone_can_convert() -> None:
+    assert recipes_for_characters([UPGRADE, WAND_RECIPE], [TAILOR], "none") == [UPGRADE]
+    assert must_evaluate(essence_market(crafters=[TAILOR]), UPGRADE).crafter == "Tailor"
+
+
+def test_a_chain_converts_a_reagent_when_that_is_cheaper() -> None:
+    res = must_evaluate(essence_market(), WAND_RECIPE)
+    (greater,) = res.tree.inputs
+    assert (greater.option, greater.cost, greater.convert) == (f"craft:{UPGRADE.id}", 300, True)
+    assert [(o.key, o.convert) for o in greater.options] == [(f"craft:{UPGRADE.id}", True), ("ah", False)]
+    crafts = [s for s in res.steps if s.action == "craft"]
+    assert [(s.name, s.convert) for s in crafts] == [("Greater Magic Essence", True), ("Wand", False)]
+
+
+def test_a_conversion_only_buys_what_it_converts() -> None:
+    # Lesser essences aren't listed: making them from greater ones to turn back into a greater is no plan
+    assert essence_market({GREATER: 100}).evaluate(UPGRADE) is None

@@ -124,6 +124,7 @@ class StepOut(BaseModel):
     seconds: float = 0.0  # play time per craft this step takes (clicks, casts); travel is in the timing
     lead_seconds: float = 0.0  # a disenchant sale: the disenchanting's share of `seconds` (then posting)
     station: str = ""  # craft: the station it is cast at (anvil, cooking_fire, loom, ...); "" anywhere
+    convert: bool = False  # craft: an essence conversion (the item's Use spell), not a profession craft
 
 
 class OptionOut(BaseModel):
@@ -135,6 +136,7 @@ class OptionOut(BaseModel):
     via: str  # recipe name if crafted
     crafter: str  # who crafts it (the cheapest character for that recipe)
     seconds: float = 0.0  # estimated play time per craft this way, shared trips included
+    convert: bool = False  # crafted by an essence conversion
 
 
 class SellOptionOut(BaseModel):
@@ -163,6 +165,7 @@ class NodeOut(BaseModel):
     seconds: float = 0.0  # estimated play time per craft for this branch, shared trips included
     options: list[OptionOut]  # every way to get these items, cheapest first; empty for the recipe's craft
     option: str  # the key of the option taken; "" for the recipe's craft
+    convert: bool = False  # crafted by an essence conversion
     inputs: list[NodeOut]
 
 
@@ -186,6 +189,7 @@ def _node_out(n: engine.Node, faction: Callable[[str, int, int], str]) -> NodeOu
         seconds=n.seconds,
         options=[OptionOut(**asdict(o)) for o in n.options],
         option=n.option,
+        convert=n.convert,
         inputs=[_node_out(i, faction) for i in n.inputs],
     )
 
@@ -311,6 +315,8 @@ class DetailOut(BaseModel):
 class RankResult(BaseModel):
     recipe_id: int
     recipe: str
+    # craft: a profession recipe; convert: an essence conversion (no profession: anyone does it)
+    kind: Literal["craft", "convert"] = "craft"
     profession: str
     crafters: list[str]  # selected characters who know the recipe; empty if nobody has learned it
     crafter: str  # who does the cheapest craft (may not have learned it, with `unlearned`)
@@ -1135,6 +1141,7 @@ def _result_out(
     return RankResult(
         recipe_id=r.recipe.id,
         recipe=r.recipe.name,
+        kind="convert" if r.recipe.is_conversion else "craft",
         profession=r.recipe.skill_name,
         crafters=crafters.get(r.recipe.spell_id, []),
         crafter=r.crafter,
@@ -1184,6 +1191,7 @@ def _result_out(
                 seconds=s.seconds,
                 station=s.station,
                 lead_seconds=s.lead_seconds,
+                convert=s.convert,
             )
             for s in r.steps
         ],

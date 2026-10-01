@@ -4,8 +4,8 @@ import { bought } from '../test/results'
 import { NAMED_NODE_HEIGHT, NODE_HEIGHT, NODE_WIDTH, buildFlow } from './flow'
 
 const boltOptions: FlowNode['options'] = [
-  { key: 'craft:11', cost: 60, source: '', via: 'Bolt of Linen', crafter: '', seconds: 0 },
-  { key: 'ah', cost: 300, source: 'ah', via: '', crafter: '', seconds: 0 },
+  { key: 'craft:11', cost: 60, source: '', via: 'Bolt of Linen', crafter: '', seconds: 0, convert: false },
+  { key: 'ah', cost: 300, source: 'ah', via: '', crafter: '', seconds: 0, convert: false },
 ]
 
 // Green Robe from 3 crafted Bolts of Linen (from 6 Linen) and 1 bought Coarse Thread.
@@ -27,6 +27,7 @@ const tree: FlowNode = {
   seconds: 0,
   options: [],
   option: '',
+  convert: false,
   inputs: [
     {
       item_id: 5,
@@ -46,6 +47,7 @@ const tree: FlowNode = {
       seconds: 0,
       options: boltOptions,
       option: 'craft:11',
+      convert: false,
       inputs: [bought(1, 'Linen Cloth', 6, 60)],
     },
     bought(2, 'Coarse Thread', 1, 5),

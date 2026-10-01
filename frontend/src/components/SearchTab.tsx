@@ -73,7 +73,8 @@ const EXITS: { value: Exit; label: string; description: string; warning?: string
     value: 'disenchant',
     label: 'Disenchant',
     description:
-      'Enchanting materials tend to have stable prices and sell well. Usually the most reliable way to turn a profit.',
+      'Enchanting materials tend to have stable prices and sell well. Usually the most reliable way to turn a profit. ' +
+      'Also converts essences (3 lesser into 1 greater, or back) when one sells for more than the other.',
   },
   {
     value: 'ah',

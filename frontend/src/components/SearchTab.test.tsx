@@ -209,7 +209,7 @@ describe('SearchTab', () => {
     const summary = await screen.findByRole('group', { name: 'Your setup' })
     expect(within(summary).getAllByRole('button').map((b) => b.textContent)).toEqual([
       'Making gold',
-      'anything that might sell',
+      'Anything that might sell',
     ])
     expect(realm()).toBeInTheDocument()
     expect(screen.queryByText('Rank by')).not.toBeInTheDocument()
@@ -224,7 +224,7 @@ describe('SearchTab', () => {
     const [rank] = urls(fetch, '/api/rank')
     expect(rank?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant'])
     const summary = await screen.findByRole('group', { name: 'Your setup' })
-    expect(within(summary).getByRole('button', { name: 'only what reliably sells' })).toBeInTheDocument()
+    expect(within(summary).getByRole('button', { name: 'Only what reliably sells' })).toBeInTheDocument()
   })
 
   it('skills up one profession without trivial recipes, losing ones included, until the filters say otherwise', async () => {
@@ -371,13 +371,13 @@ describe('SearchTab', () => {
     const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<SearchTab />)
     await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
-    await userEvent.click(screen.getByRole('button', { name: 'anything that might sell' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Anything that might sell' }))
     await screen.findByRole('group', { name: 'How do you want to sell?' })
     expect(screen.getByRole('button', { name: 'Anything that might sell' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByRole('combobox', { name: 'Realm' })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Only what reliably sells' }))
     await waitFor(() => expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant']))
-    expect(await screen.findByRole('button', { name: 'only what reliably sells' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Only what reliably sells' })).toBeInTheDocument()
 
     // changing what the user is after asks what the new aim needs
     await userEvent.click(screen.getByRole('button', { name: 'Making gold' }))

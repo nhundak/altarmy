@@ -119,9 +119,13 @@ recipes = Table(
     "recipes",
     metadata,
     _version(),
-    Column("id", Integer, primary_key=True, autoincrement=False),  # SkillLineAbility.ID
+    # SkillLineAbility.ID; a conversion's is ingest.CONVERSION_ID_BASE + its spell id
+    Column("id", Integer, primary_key=True, autoincrement=False),
     Column("spell_id", Integer, nullable=False),
     Column("name", Text, nullable=False),
+    # "craft": a profession recipe; "convert": an item's Use spell turning enchanting materials into
+    # others (3 lesser essences into a greater and back), skill line 0 and skill name ""
+    Column("kind", Text, nullable=False, default="craft", server_default="craft"),
     Column("skill_line", Integer, nullable=False),
     Column("skill_name", Text, nullable=False),
     Column("min_skill", Integer, nullable=False, default=0),

@@ -30,6 +30,7 @@ function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap })
     quantity,
     cost,
     via,
+    convert,
     crafts,
     made,
     source,
@@ -62,7 +63,7 @@ function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap })
       </div>
       <div className={classes.detail} title={discountNote(discount, repDiscount, repFaction) || undefined}>
         {via ? (
-          `Craft ${crafts}x ${via}${spare > 0 ? ` (${spare} spare)` : ''}`
+          `${convert ? `Convert ${crafts}x` : `Craft ${crafts}x ${via}`}${spare > 0 ? ` (${spare} spare)` : ''}`
         ) : (
           <>
             Buy {BUY_FROM[source] ?? source} · <Money copper={cost} cost />

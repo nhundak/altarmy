@@ -74,11 +74,11 @@ export function ChoiceMenu({ label, paths, choices }: { label: string; paths: re
 }
 
 /** A source option as a menu line: crafts name the crafter, and say so when they mail it to `holder`. */
-function optionLabel({ source, via, crafter }: FlowNode['options'][number], holder: string): ReactNode {
+function optionLabel({ source, via, crafter, convert }: FlowNode['options'][number], holder: string): ReactNode {
   if (!via) return `Buy ${BUY_FROM[source] ?? source}`
   return (
     <>
-      Craft ({via})
+      {convert ? 'Convert' : `Craft (${via})`}
       {crafter && (
         <>
           {' '}

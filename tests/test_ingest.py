@@ -511,3 +511,146 @@ def test_build_db_reads_tbc_style_output_counts(db2_paths: dict[str, Path], conn
     )
     ingest.build_db(db2_paths, conn, FOREVER)
     assert conn.execute(select(schema.recipes.c.output_count)).scalar_one() == 3
+
+
+def _extend_csv(path: Path, rows: list[dict[str, object]]) -> Path:
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        header = list(reader.fieldnames or [])
+        existing: list[dict[str, object]] = list(reader)
+    header += [k for r in rows for k in r if k not in header]
+    return write_csv(path, list(dict.fromkeys(header)), [*existing, *rows])
+
+
+DE_HEADER = [
+    "item_class",
+    "quality",
+    "min_ilvl",
+    "max_ilvl",
+    "result_item_id",
+    "chance",
+    "min_count",
+    "max_count",
+]
+
+
+@pytest.fixture
+def essence_paths(db2_paths: dict[str, Path]) -> dict[str, Path]:
+    """Adds 10 Lesser Magic Essence and 11 Greater Magic Essence, each with a Use spell turning it into the
+    other the way the client does (the used item is consumed: 1 lesser + 2 reagents -> 1 greater; 1 greater
+    -> 3 lesser), and Linen Cloth (1) a consumed Use spell creating thread: not enchanting materials."""
+    _extend_csv(db2_paths["Item"], [{"ID": 10, "ClassID": 7}, {"ID": 11, "ClassID": 7}])
+    _extend_csv(
+        db2_paths["ItemSparse"],
+        [
+            {"ID": 10, "Display_lang": "Lesser Magic Essence", "OverallQualityID": 2, "Stackable": 20},
+            {"ID": 11, "Display_lang": "Greater Magic Essence", "OverallQualityID": 2, "Stackable": 20},
+        ],
+    )
+    _extend_csv(
+        db2_paths["SpellName"],
+        [{"ID": 960, "Name_lang": "Greater Magic Essence"}, {"ID": 961, "Name_lang": "Lesser Magic Essence"}],
+    )
+    _extend_csv(
+        db2_paths["SpellEffect"],
+        [
+            {"ID": 10, "Effect": 24, "EffectItemType": 11, "EffectBasePointsF": 1, "SpellID": 960},
+            {"ID": 11, "Effect": 24, "EffectItemType": 10, "EffectBasePointsF": 3, "SpellID": 961},
+            {"ID": 12, "Effect": 24, "EffectItemType": 2, "EffectBasePointsF": 1, "SpellID": 962},
+        ],
+    )
+    _extend_csv(
+        db2_paths["SpellReagents"], [{"ID": 10, "SpellID": 960, "Reagent_0": 10, "ReagentCount_0": 2}]
+    )
+    _extend_csv(
+        db2_paths["ItemEffect"],
+        [
+            {"ID": 10, "TriggerType": 0, "Charges": -1, "SpellID": 960},
+            {"ID": 11, "TriggerType": 0, "Charges": -1, "SpellID": 961},
+            {"ID": 12, "TriggerType": 0, "Charges": -1, "SpellID": 962},
+        ],
+    )
+    _extend_csv(
+        db2_paths["ItemXItemEffect"],
+        [
+            {"ID": 10, "ItemEffectID": 10, "ItemID": 10},
+            {"ID": 11, "ItemEffectID": 11, "ItemID": 11},
+            {"ID": 12, "ItemEffectID": 12, "ItemID": 1},
+        ],
+    )
+    return db2_paths
+
+
+@pytest.fixture
+def essence_de(tmp_path: Path) -> Path:
+    """Robes disenchant into either essence."""
+    return write_csv(
+        tmp_path / "essence_de.csv",
+        DE_HEADER,
+        [
+            {
+                "item_class": 4,
+                "quality": 2,
+                "min_ilvl": 5,
+                "max_ilvl": 15,
+                "result_item_id": 10,
+                "chance": 0.2,
+                "min_count": 1,
+                "max_count": 2,
+            },
+            {
+                "item_class": 4,
+                "quality": 2,
+                "min_ilvl": 16,
+                "max_ilvl": 20,
+                "result_item_id": 11,
+                "chance": 0.2,
+                "min_count": 1,
+                "max_count": 2,
+            },
+        ],
+    )
+
+
+def test_build_db_loads_essence_conversions(
+    essence_paths: dict[str, Path], essence_de: Path, conn: Connection
+) -> None:
+    assert ingest.build_db(essence_paths, conn, FOREVER, essence_de)["recipes"] == 3
+    market = store.load_market(conn, FOREVER, None)
+    conversions = {r.spell_id: r for r in market.recipes if r.kind == "convert"}
+    assert sorted(conversions) == [960, 961]
+    up, down = conversions[960], conversions[961]
+    assert (up.id, up.name, up.skill_name, up.output_item_id, up.output_count, up.reagents) == (
+        ingest.CONVERSION_ID_BASE + 960,
+        "Greater Magic Essence",
+        "",
+        11,
+        1,
+        ((10, 3),),  # the essence used and the two more the spell takes
+    )
+    assert (down.output_item_id, down.output_count, down.reagents) == (10, 3, ((11, 1),))
+    (craft,) = [r for r in market.recipes if r.kind == "craft"]
+    assert craft.id == 100
+
+
+def test_build_db_has_no_conversions_without_disenchant_results(
+    essence_paths: dict[str, Path], conn: Connection
+) -> None:
+    assert ingest.build_db(essence_paths, conn, FOREVER)["recipes"] == 1
+
+
+def test_a_use_spell_not_consuming_its_item_is_no_conversion(
+    essence_paths: dict[str, Path], essence_de: Path, conn: Connection
+) -> None:
+    # Greater's Use effect keeps its item (Charges 0)
+    with open(essence_paths["ItemEffect"], newline="", encoding="utf-8") as f:
+        rows: list[dict[str, object]] = list(csv.DictReader(f))
+    for r in rows:
+        if r["ID"] == "11":
+            r["Charges"] = 0
+    write_csv(essence_paths["ItemEffect"], list(rows[0]), rows)
+    ingest.build_db(essence_paths, conn, FOREVER, essence_de)
+    spells: list[int] = list(
+        conn.execute(select(schema.recipes.c.spell_id).where(schema.recipes.c.kind == "convert")).scalars()
+    )
+    assert spells == [960]

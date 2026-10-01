@@ -273,8 +273,8 @@ def test_rank_lists_options_and_evaluate_applies_choices(
     (r,) = client.get("/api/rank").json()["results"]
     assert r["tree"]["options"] == []
     assert [{k: v for k, v in o.items() if k != "seconds"} for o in r["tree"]["inputs"][1]["options"]] == [
-        {"key": "vendor", "cost": 11, "source": "vendor", "via": "", "crafter": ""},
-        {"key": "ah", "cost": 100, "source": "ah", "via": "", "crafter": ""},
+        {"key": "vendor", "cost": 11, "source": "vendor", "via": "", "crafter": "", "convert": False},
+        {"key": "ah", "cost": 100, "source": "ah", "via": "", "crafter": "", "convert": False},
     ]
     assert r["sell_options"] == [{"kind": "vendor", "profit": 500 - 211}]
     assert [(st["action"], st["paths"]) for st in r["steps"]] == [
@@ -349,6 +349,51 @@ def test_rank_filters_and_validation(client: TestClient, priced: Connection) -> 
     assert client.get("/api/rank", params={"top": 0}).status_code == 422
     service.select(priced, ME, FOREVER, "Dreamscythe", "Horde")  # cooks only
     assert total() == 0
+
+
+def add_conversion(conn: Connection) -> None:
+    """A conversion of 3 linen (20 each) into 1 thread (100 on the AH, 95 after the cut)."""
+    rid = ingest.CONVERSION_ID_BASE + 960
+    conn.execute(
+        schema.recipes.insert().values(
+            game_version=FOREVER,
+            id=rid,
+            spell_id=960,
+            name="Coarse Thread",
+            kind="convert",
+            skill_line=0,
+            skill_name="",
+            output_item_id=2,
+        )
+    )
+    conn.execute(
+        schema.recipe_reagents.insert().values(
+            game_version=FOREVER, recipe_id=rid, item_id=1, count=3, slot=0
+        )
+    )
+
+
+def test_rank_sells_conversions_when_disenchant_is_allowed(client: TestClient, priced: Connection) -> None:
+    add_conversion(priced)
+    one_craft(client)
+
+    def conversions(**params: bool | list[str]) -> list[dict[str, Any]]:
+        results = client.get("/api/rank", params=params).json()["results"]
+        return [r for r in results if r["kind"] == "convert"]
+
+    (r,) = conversions(exits=["vendor", "disenchant"])
+    assert (r["profession"], r["crafters"], r["crafter"]) == ("", [], "Tailor Guy")
+    assert (r["cost"], r["revenue"], r["best_exit"]) == (60, 95, "ah")
+    assert [(s["action"], s["convert"]) for s in r["steps"]] == [
+        ("buy", False),
+        ("craft", True),
+        ("sell", False),
+    ]
+    assert r["tree"]["convert"] is True
+    assert conversions(exits=["vendor", "ah"]) == []
+    assert conversions(exits=["vendor", "disenchant"], include_trivial=False) == []
+    (craft,) = [r for r in client.get("/api/rank").json()["results"] if r["kind"] == "craft"]
+    assert craft["recipe"] == "Green Robe"
 
 
 def test_rank_unlearned_recipes(client: TestClient, priced: Connection) -> None:
