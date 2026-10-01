@@ -96,8 +96,10 @@ off earlier than the planning features.
   the disenchant shuffle (buy greens, disenchant, sell materials), vendor flips (buy from a vendor,
   sell on the AH), and listings below vendor sell price.
 - These need no new pricing data and reuse `exits_for` and the disenchant model as they stand.
-- Shipped: essence conversions (buy lesser essences, convert, sell the greater, or the reverse), ranked
-  like recipes under Sell via: Disenchant (see README's Data notes).
+- Shipped: essence conversions (buy lesser essences, convert, sell the greater, or the reverse), and the
+  disenchant shuffle (buy gear listed below its materials' worth, disenchant, sell the materials), both
+  ranked like recipes under Sell via: Disenchant (see README's Data notes). Still open: vendor flips and
+  listings below vendor sell price.
 
 ## 4. Dashboard
 

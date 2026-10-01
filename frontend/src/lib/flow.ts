@@ -61,7 +61,8 @@ export type Flow = {
 
 /** Ids are tree paths ("r", "r.0", "r.0.1"), so an item used in two branches gets two nodes. When the output
  * has to be mailed to whoever sells it (an enchanter), a mail node sits between the craft and the sale; likewise
- * between an intermediate and the craft using it when another character makes it. */
+ * between an intermediate and the craft using it when another character makes it. A flip's tree has no craft to
+ * show: its bought input is sold directly. */
 export function buildFlow({
   tree,
   best_exit,
@@ -123,7 +124,10 @@ export function buildFlow({
       else edge(child, id, input.quantity)
     })
   }
-  visit(tree, 'r')
+  // A flip crafts nothing: what it buys (its one input) goes straight to the sale.
+  const last = tree.flip && tree.inputs.length === 1 ? 'r.0' : 'r'
+  if (last === 'r') visit(tree, 'r')
+  else visit(tree.inputs[0], last)
   nodes.push({
     id: SELL_PATH,
     type: 'sell',
@@ -138,8 +142,8 @@ export function buildFlow({
       options: sell_options,
     },
   })
-  if (mail_to) mail('r', SELL_PATH, mail_to, postage, tree.made)
-  else edge('r', SELL_PATH, tree.made)
+  if (mail_to) mail(last, SELL_PATH, mail_to, postage, tree.made)
+  else edge(last, SELL_PATH, tree.made)
 
   const g = new dagre.graphlib.Graph()
   g.setGraph({ rankdir: 'LR', nodesep: 16, ranksep: 56, marginx: 0, marginy: 0 })

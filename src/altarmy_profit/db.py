@@ -209,9 +209,17 @@ def get_build(conn: Connection, game_version: str) -> str | None:
     return None if build is None else str(build)
 
 
-def set_build(conn: Connection, game_version: str, build: str) -> None:
+def get_loaded(conn: Connection, game_version: str) -> tuple[str | None, int]:
+    """The build loaded and how many game data loads there have been (`set_build`)."""
     t = schema.game_versions
-    conn.execute(t.update().where(t.c.id == game_version).values(build=build))
+    row = conn.execute(select(t.c.build, t.c.loads).where(t.c.id == game_version)).one_or_none()
+    return (None, 0) if row is None else (row.build, int(row.loads))
+
+
+def set_build(conn: Connection, game_version: str, build: str) -> None:
+    """Record that `build`'s game data was loaded (again, perhaps), counting the load."""
+    t = schema.game_versions
+    conn.execute(t.update().where(t.c.id == game_version).values(build=build, loads=t.c.loads + 1))
 
 
 COUNTED_TABLES = ("items", "recipes", "disenchant", "vendor_items")

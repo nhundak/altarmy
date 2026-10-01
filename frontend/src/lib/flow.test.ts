@@ -28,6 +28,7 @@ const tree: FlowNode = {
   options: [],
   option: '',
   convert: false,
+  flip: false,
   inputs: [
     {
       item_id: 5,
@@ -48,6 +49,7 @@ const tree: FlowNode = {
       options: boltOptions,
       option: 'craft:11',
       convert: false,
+      flip: false,
       inputs: [bought(1, 'Linen Cloth', 6, 60)],
     },
     bought(2, 'Coarse Thread', 1, 5),
@@ -62,6 +64,20 @@ describe('buildFlow', () => {
   const sale = { best_exit: 'ah', revenue: 500, profit: 435, postage: 0, mail_to: '', sell_options: sellOptions }
   const flow = buildFlow({ tree, ...sale })
   const byId = new Map(flow.nodes.map((n) => [n.id, n]))
+
+  it('sends what a flip buys straight to the sale', () => {
+    const robe = bought(3, 'Green Robe', 7, 3500)
+    const flipped = buildFlow({
+      tree: { ...robe, via: 'Green Robe', source: '', crafts: 7, made: 7, flip: true, inputs: [robe] },
+      ...sale,
+      best_exit: 'disenchant',
+    })
+    expect(flipped.nodes.map((n) => [n.id, n.type])).toEqual([
+      ['r.0', 'item'],
+      ['sell', 'sell'],
+    ])
+    expect(flipped.edges.map((e) => [e.source, e.target, e.label])).toEqual([['r.0', 'sell', '7x']])
+  })
 
   it('makes one node per tree item plus the sale', () => {
     expect(flow.nodes.map((n) => [n.id, n.type])).toEqual([

@@ -39,6 +39,11 @@
     0 2px 8px rgba(0, 0, 0, 0.6);
 }
 
+/* Disenchant material lines do not wrap (name, count, chance, then price), so the box grows to fit them. */
+.tooltip[data-wide] {
+  max-width: none;
+}
+
 .title {
   font-size: 14px;
   line-height: 1.35;

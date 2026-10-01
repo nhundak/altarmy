@@ -87,6 +87,8 @@ export type RankParams = {
   /** the characters being skilled up: only they do the final craft, the lowest-skilled first; empty for anyone */
   skillCrafters: string[]
   exits: Exit[]
+  /** disenchant at an Arcane Salvager: a 10% chance of a second disenchant's materials */
+  arcaneSalvager: boolean
   minCost: number | null
   maxCost: number | null
   minProfit: number | null
@@ -118,6 +120,7 @@ export function useRank(params: RankParams) {
               include_trivial: params.includeTrivial,
               skill_crafters: params.skillCrafters.length ? params.skillCrafters : undefined,
               exits: params.exits,
+              arcane_salvager: params.arcaneSalvager,
               min_cost: orUndefined(params.minCost),
               max_cost: orUndefined(params.maxCost),
               min_profit: orUndefined(params.minProfit),
@@ -141,7 +144,7 @@ export function useRank(params: RankParams) {
  * came from (so a sync re-costs the user's changed plans too). */
 export type EvaluateParams = Pick<
   RankParams,
-  'unlearned' | 'includeTrivial' | 'skillCrafters' | 'exits'
+  'unlearned' | 'includeTrivial' | 'skillCrafters' | 'exits' | 'arcaneSalvager'
 > & { version?: string }
 
 export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: Error | null }
@@ -150,13 +153,13 @@ export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: E
  * previous evaluation stays in `data`. */
 export function useEvaluations(
   choices: Readonly<Record<number, Choices>>,
-  { unlearned, includeTrivial, skillCrafters, exits, version }: EvaluateParams,
+  { unlearned, includeTrivial, skillCrafters, exits, arcaneSalvager, version }: EvaluateParams,
 ): Readonly<Record<number, EvaluationState>> {
   const ids = Object.keys(choices).map(Number)
   const priceVersion = usePriceVersion()
   return useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, includeTrivial, skillCrafters, exits, choices[id]],
+      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, includeTrivial, skillCrafters, exits, arcaneSalvager, choices[id]],
       queryFn: () =>
         call(
           client.POST('/api/evaluate', {
@@ -167,6 +170,7 @@ export function useEvaluations(
               include_trivial: includeTrivial,
               skill_crafters: skillCrafters,
               exits,
+              arcane_salvager: arcaneSalvager,
               choices: choices[id] ?? {},
               price_version: priceVersion,
             },
@@ -190,7 +194,7 @@ export function useEvaluations(
  * shown while a new one loads. */
 export function useSessionPlan(
   recipeId: number,
-  { unlearned, includeTrivial, skillCrafters, exits, version }: EvaluateParams,
+  { unlearned, includeTrivial, skillCrafters, exits, arcaneSalvager, version }: EvaluateParams,
   choices: Choices | undefined,
   copies: number | null,
   city: string | null,
@@ -200,7 +204,7 @@ export function useSessionPlan(
   const priceVersion = usePriceVersion()
   return useQuery({
     // under 'evaluate', so whatever re-costs plans (time settings, AH blocks) re-plans sessions too
-    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, includeTrivial, skillCrafters, exits, choices ?? {}, 'session', copies, city, crafter],
+    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, includeTrivial, skillCrafters, exits, arcaneSalvager, choices ?? {}, 'session', copies, city, crafter],
     queryFn: () =>
       call(
         client.POST('/api/evaluate', {
@@ -211,6 +215,7 @@ export function useSessionPlan(
             include_trivial: includeTrivial,
             skill_crafters: skillCrafters,
             exits,
+            arcane_salvager: arcaneSalvager,
             choices: choices ?? {},
             copies: copies ?? undefined,
             city: city ?? undefined,

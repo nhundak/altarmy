@@ -99,7 +99,9 @@ remove characters) and the search asks a few questions, one at a time:
 
 Each answer presets the filters it is about (they stay editable) and the questions fold into one row of
 the answers, each opening its question again. With no enchanter on the selected realm, a notice
-suggests levelling Enchanting on an alt. Then:
+suggests levelling Enchanting on an alt. Under Crafts per session, **Use Arcane Salvager for disenchanting**
+counts the Arcane Salvager's bonus (see below); it starts ticked when one of your characters knows the
+Arcane Salvager recipe. Then:
 
 - **Search** ranks what your characters on the chosen realm and faction can craft (every profession they
   have), and names who crafts each recipe. The realm picker also lists every other realm with prices, to
@@ -348,6 +350,10 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
   Forever-specific rates are not yet published — verify against Wowhead's Forever database as data comes
   in, then re-run `altarmy-profit ingest`. TBC's are generated from the TBC client's Auctionator
   (one row per count) by `python scripts/build_disenchant.py`.
+- **Arcane Salvager** (WoW: Forever): an Enchanting-made station (recipe spell 1263056). Near it a
+  disenchant has a 10% chance of a second roll of the same table, so with the search's Arcane Salvager
+  option every disenchant sale (flips included) is worth 1.1 times its expected
+  materials. The 10% is the players' understanding, not yet measured in game.
 - **Essence conversions** (3 Lesser Astral Essence into 1 Greater and back) come from DB2: an item whose Use
   effect consumes it (negative charges) and casts a spell creating another item, the spell's reagents (if
   any) being more of the same item, with both items disenchant results in `disenchant.csv` (so only
@@ -357,6 +363,16 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
   ranked only when Sell via includes Disenchant and nobody is being skilled up; its output then sells on the
   AH even if Auction house is unticked, the same bet on enchanting materials' prices. Chains also use a
   conversion to get a reagent when that is cheaper; what a conversion converts is always bought.
+- **Buy-and-disenchant flips**: gear on the AH listed below what its disenchant materials are expected to
+  fetch. Every item that can be disenchanted (greens, blues and epics the disenchant rows cover, not flagged
+  NO_DISENCHANT) and can be bought on the AH gets a flip, made by the engine for each market (`kind` `flip`,
+  id 2,000,000,000 + the item id, never stored): buy it, disenchant it, sell the materials. A session buys
+  the batch up the item's listings, cheapest first, but never more units than are listed (one where only a
+  cheapest-listing price is known). Like conversions it needs no profession, never skills anyone up and
+  ranks only when Sell via includes Disenchant (and an enchanter can disenchant it); it is only ever
+  disenchanted, and it is never a way to get a reagent. Brand-new listings under half the item's 7-day
+  median are not counted on (`prices.load_books`), so a stray one-off bargain doesn't show up: it is
+  usually gone before anyone gets there.
 - **Vendor-sold items are not in DB2** (vendor inventories are server-side). `data/<version>/vendor_items.csv`
   (`item_id,name`) lists the items vendors sell with unlimited stock and no reputation or event condition
   (TBC: and no honor or badge cost), taken from [vmangos](https://github.com/vmangos/core)' vanilla world

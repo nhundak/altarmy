@@ -149,6 +149,24 @@ def test_disenchant_exit_lists_expected_materials() -> None:
     assert all(e.materials == () for e in m.exits_for(GREEN) if e.kind != "disenchant")
 
 
+def test_the_arcane_salvager_adds_a_tenth_of_a_disenchant() -> None:
+    # A 10% chance of a second roll: 1.1 times the expected materials, each still 1-2 a roll.
+    de = [DisenchantRow(4, 2, 15, 25, DUST, 0.75, 1, 2)]
+    base = make_market({LINEN: 20, DUST: 1000}, [], disenchant=de)
+    m = Market(base.items, [], base.prices, de, arcane_salvager=True)
+    expected = 1.1 * 0.75 * 1.5 * ah_net(1000)
+    assert m.disenchant_value(m.items[GREEN]) == int(expected)
+    assert m.disenchant_materials(m.items[GREEN]) == [
+        Material(DUST, "Strange Dust", 0.75, 1, 2, int(expected))
+    ]
+    assert base.disenchant_value(base.items[GREEN]) == int(0.75 * 1.5 * ah_net(1000))
+
+
+def test_a_flip_gains_from_the_arcane_salvager() -> None:
+    (flip,) = flips(flip_market(arcane_salvager=True))
+    assert must_evaluate(flip_market(arcane_salvager=True), flip).revenue == int(1.1 * 950)
+
+
 def test_disenchant_ignores_wrong_item_level() -> None:
     de = [DisenchantRow(4, 2, 30, 40, DUST, 1.0, 1, 1)]
     m = make_market({LINEN: 20, THREAD: 100, DUST: 400}, disenchant=de)
@@ -1637,3 +1655,99 @@ def test_a_chain_converts_a_reagent_when_that_is_cheaper() -> None:
 def test_a_conversion_only_buys_what_it_converts() -> None:
     # Lesser essences aren't listed: making them from greater ones to turn back into a greater is no plan
     assert essence_market({GREATER: 100}).evaluate(UPGRADE) is None
+
+
+ENCHANTER = crafter("Enchy", ("Enchanting", 100))
+
+
+def flip_market(green: book.Ladder | None = None, crafters: Sequence[Crafter] = (), **kwargs: Any) -> Market:
+    """The robe disenchants into one dust (950 net); `green` lists robes on the AH (default: 2 at 600)."""
+    green = green if green is not None else ladder((600, 2))
+    items = {
+        GREEN: Item(GREEN, "Green Robe", quality=2, item_level=20, class_id=4, sell_price=500),
+        DUST: Item(DUST, "Strange Dust"),
+        LINEN: Item(LINEN, "Linen Cloth"),
+        THREAD: Item(THREAD, "Coarse Thread"),
+    }
+    return Market(
+        items,
+        [ROBE],
+        {**DE_PRICES, GREEN: green[0].price},
+        DE_ROWS,
+        books={GREEN: green},
+        crafters=crafters,
+        **kwargs,
+    )
+
+
+def flips(m: Market) -> list[Recipe]:
+    return [r for r in m.recipes if r.kind == "flip"]
+
+
+def test_a_flip_buys_listed_gear_to_disenchant() -> None:
+    m = flip_market()
+    (flip,) = flips(m)
+    assert (flip.id, flip.output_item_id, flip.reagents) == (
+        engine.FLIP_ID_BASE + GREEN,
+        GREEN,
+        ((GREEN, 1),),
+    )
+    res = must_evaluate(m, flip)
+    assert (res.cost, res.revenue, res.best_exit) == (600, 950, "disenchant")
+    assert [e.kind for e in res.exits] == ["disenchant"]  # never resold to a vendor or on the AH
+    assert (res.skill_chance, res.skill_ups) == (0.0, 0.0)
+    assert [(s.action, s.via) for s in res.steps] == [("buy", "ah"), ("sell", "disenchant")]
+    assert res.tree.flip
+
+
+def test_only_listed_disenchantable_gear_is_flipped() -> None:
+    m = Market(
+        {
+            GREEN: Item(GREEN, "Green Robe", quality=2, item_level=20, class_id=4),
+            BOLT: Item(BOLT, "Bolt of Linen", quality=2, item_level=20, class_id=7),  # a trade good
+            DUST: Item(DUST, "Strange Dust"),
+        },
+        [],
+        {GREEN: 600, BOLT: 600, DUST: 1000},
+        DE_ROWS,
+    )
+    assert [r.output_item_id for r in flips(m)] == [GREEN]
+    unpriced = Market(
+        {GREEN: Item(GREEN, "Green Robe", quality=2, item_level=20, class_id=4)}, [], {}, DE_ROWS
+    )
+    assert flips(unpriced) == []
+    no_de = replace(m.items[GREEN], disenchantable=False)
+    assert flips(Market({GREEN: no_de}, [], {GREEN: 600, DUST: 1000}, DE_ROWS)) == []
+
+
+def test_a_flip_ranks_only_when_disenchanting_and_not_skilling_up() -> None:
+    def ranked(**kwargs: Any) -> list[str]:
+        return [r.recipe.kind for r in flip_market(**kwargs).rank(min_profit=-(10**9))]
+
+    assert "flip" in ranked()
+    assert "flip" not in ranked(exits=frozenset({"vendor", "ah"}))
+    assert "flip" not in ranked(include_trivial=False)
+    assert "flip" not in ranked(crafters=[ENCHANTER], skill_crafters=frozenset({"Enchy"}))
+
+
+def test_a_flip_buys_the_session_up_the_listings_but_never_more_than_listed() -> None:
+    m = flip_market(ladder((600, 2), (700, 5)))
+    (flip,) = flips(m)
+    res = m.evaluate(flip, crafts=10)
+    assert res is not None
+    assert (res.crafts, res.cost, res.short) == (7, 2 * 600 + 5 * 700, 0)
+    assert res.revenue == 7 * 950
+    assert must_evaluate(flip_market(), flip).crafts == 1
+
+
+def test_a_flip_is_never_a_way_to_get_a_reagent() -> None:
+    m = flip_market()
+    keys = {o.key for n in m.rank(min_profit=-(10**9)) for i in n.tree.inputs for o in i.options}
+    assert not any(k == f"craft:{engine.FLIP_ID_BASE + GREEN}" for k in keys)
+
+
+def test_a_flip_needs_an_enchanter_and_mails_to_one() -> None:
+    (flip,) = flips(flip_market())
+    assert flip_market(crafters=[TAILOR]).evaluate(flip) is None
+    res = must_evaluate(flip_market(crafters=[TAILOR, ENCHANTER]), flip)
+    assert res.crafter == "Enchy" and res.postage == 0  # the enchanter buys it: nothing to mail

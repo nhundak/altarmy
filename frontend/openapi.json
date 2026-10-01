@@ -203,6 +203,11 @@
       },
       "Characters": {
         "properties": {
+          "arcane_salvager": {
+            "default": false,
+            "title": "Arcane Salvager",
+            "type": "boolean"
+          },
           "auto_import_at": {
             "anyOf": [
               {
@@ -487,6 +492,11 @@
       "EvaluateRequest": {
         "description": "Re-cost one recipe with some of its sources or its exit picked by the user.",
         "properties": {
+          "arcane_salvager": {
+            "default": false,
+            "title": "Arcane Salvager",
+            "type": "boolean"
+          },
           "choices": {
             "additionalProperties": {
               "type": "string"
@@ -1418,6 +1428,11 @@
             "title": "Discount",
             "type": "integer"
           },
+          "flip": {
+            "default": false,
+            "title": "Flip",
+            "type": "boolean"
+          },
           "inputs": {
             "items": {
               "$ref": "#/components/schemas/NodeOut"
@@ -1705,7 +1720,8 @@
             "default": "craft",
             "enum": [
               "craft",
-              "convert"
+              "convert",
+              "flip"
             ],
             "title": "Kind",
             "type": "string"
@@ -3459,6 +3475,18 @@
               },
               "title": "Exits",
               "type": "array"
+            }
+          },
+          {
+            "description": "disenchant at an Arcane Salvager: a 10% chance of a second disenchant's materials",
+            "in": "query",
+            "name": "arcane_salvager",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "disenchant at an Arcane Salvager: a 10% chance of a second disenchant's materials",
+              "title": "Arcane Salvager",
+              "type": "boolean"
             }
           },
           {

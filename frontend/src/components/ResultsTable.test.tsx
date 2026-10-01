@@ -171,12 +171,28 @@ describe('ResultsTable', () => {
       crafters: [],
       steps: robe.steps.map((s) => (s.action === 'craft' ? { ...s, convert: true } : s)),
     }
-    renderRows([converted])
+    const browsed = { ...converted, recipe_id: 1_000_000_961, crafter: '' } // no characters at all
+    renderRows([converted, browsed])
+    expect(screen.getByText('Tailor Guy')).toBeInTheDocument() // whoever the plan picks: no recipe to learn
     expect(screen.getByText('anyone')).toBeInTheDocument()
     expect(screen.queryByText('not learned')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    await userEvent.click(screen.getAllByRole('button', { name: 'Details for Green Robe' })[0])
     await showSteps()
     expect(line('Convert into 1x Green Robe')).toBeInTheDocument()
+  })
+
+  it('names the enchanter who buys and disenchants a flip', () => {
+    const flipped: RankResult = {
+      ...disenchanted,
+      recipe_id: 2_000_000_003,
+      kind: 'flip',
+      profession: '',
+      crafters: [],
+      crafter: 'Enchy',
+    }
+    renderRows([flipped])
+    expect(screen.getByText('Enchy')).toBeInTheDocument()
+    expect(screen.queryByText('not learned')).not.toBeInTheDocument()
   })
 
   it('shows only the chosen crafter, in class colours, then how many others know the recipe', () => {
@@ -476,6 +492,7 @@ describe('ResultsTable', () => {
         include_trivial: true,
         skill_crafters: [],
         exits: ['vendor', 'ah', 'disenchant'],
+        arcane_salvager: false,
         choices: { 'r.1': 'ah' },
       })
       expect(line('1 50')).toBeInTheDocument() // the row's profit follows the changed plan

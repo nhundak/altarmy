@@ -166,6 +166,7 @@ class NodeOut(BaseModel):
     options: list[OptionOut]  # every way to get these items, cheapest first; empty for the recipe's craft
     option: str  # the key of the option taken; "" for the recipe's craft
     convert: bool = False  # crafted by an essence conversion
+    flip: bool = False  # a flip's root: nothing is crafted, its one input (bought) is what is sold
     inputs: list[NodeOut]
 
 
@@ -190,6 +191,7 @@ def _node_out(n: engine.Node, faction: Callable[[str, int, int], str]) -> NodeOu
         options=[OptionOut(**asdict(o)) for o in n.options],
         option=n.option,
         convert=n.convert,
+        flip=n.flip,
         inputs=[_node_out(i, faction) for i in n.inputs],
     )
 
@@ -315,8 +317,9 @@ class DetailOut(BaseModel):
 class RankResult(BaseModel):
     recipe_id: int
     recipe: str
-    # craft: a profession recipe; convert: an essence conversion (no profession: anyone does it)
-    kind: Literal["craft", "convert"] = "craft"
+    # craft: a profession recipe; convert: an essence conversion; flip: gear bought on the AH to disenchant
+    # (the last two need no profession: anyone does them)
+    kind: Literal["craft", "convert", "flip"] = "craft"
     profession: str
     crafters: list[str]  # selected characters who know the recipe; empty if nobody has learned it
     crafter: str  # who does the cheapest craft (may not have learned it, with `unlearned`)
@@ -368,6 +371,7 @@ class EvaluateRequest(BaseModel):
     skill_crafters: list[str] = []  # as /api/rank's
     crafter: str | None = None  # who does the final craft (default: as /api/rank picks)
     exits: list[ExitKind] = list(ALL_EXIT_KINDS)
+    arcane_salvager: bool = False  # as /api/rank's
     # tree path ("r.0", "r.0.1"; "sell" for the exit) -> option key (or exit kind); unknown keys are ignored
     choices: dict[str, str]
     # that many crafts at once; None: the user's batch, as ranked
@@ -490,6 +494,8 @@ class Characters(BaseModel):
     imported_at: str | None = None  # "YYYY-MM-DD HH:MM:SS" UTC: the newest accepted Alt Army upload
     imported_via: Literal["browser", "watcher", "paste"] | None = None  # how that upload came
     auto_import_at: str | None = None  # the newest accepted upload from the watcher or Alt Army Sync
+    # whether any of them can craft an Arcane Salvager: the search's default for disenchanting at one
+    arcane_salvager: bool = False
 
 
 class VersionOut(BaseModel):
@@ -827,6 +833,7 @@ def _characters(state: AppState, conn: Connection, user: auth.User) -> Character
         imported_at=db.timestamp_text(imported.imported_at),
         imported_via=cast(UploadVia | None, imported.imported_via),
         auto_import_at=db.timestamp_text(imported.auto_import_at),
+        arcane_salvager=service.knows_arcane_salvager(chars),
     )
 
 
@@ -882,6 +889,12 @@ def get_rank(
         ),
     ] = None,
     exits: Annotated[Sequence[ExitKind], Query(description="ways the crafts may be sold")] = ALL_EXIT_KINDS,
+    arcane_salvager: Annotated[
+        bool,
+        Query(
+            description="disenchant at an Arcane Salvager: a 10% chance of a second disenchant's materials"
+        ),
+    ] = False,
     min_cost: Annotated[int | None, Query(description="copper")] = None,
     max_cost: Annotated[int | None, Query(description="copper")] = None,
     min_profit: Annotated[int | None, Query(description="copper")] = None,
@@ -913,7 +926,17 @@ def get_rank(
     # moving them never ranks again; nor does sorting it by rate or skill.
     whose = user.uid if chars else ""
     skilled = frozenset(skill_crafters or ())
-    key = (whose, tuple(chars), unlearned, include_trivial, skilled, frozenset(exits), no_ah, s.time.key)
+    key = (
+        whose,
+        tuple(chars),
+        unlearned,
+        include_trivial,
+        skilled,
+        frozenset(exits),
+        arcane_salvager,
+        no_ah,
+        s.time.key,
+    )
     matches = state.rank_cache.get(key, base)
     if matches is None:
         matches = service.search(
@@ -926,6 +949,7 @@ def get_rank(
             include_trivial,
             s.time,
             skilled,
+            arcane_salvager,
         )
         state.rank_cache.put(key, base, matches)
     if sort != "profit":
@@ -971,6 +995,7 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
         body.copies or s.time.config.batch,
         frozenset(body.skill_crafters),
         body.crafter or "",
+        body.arcane_salvager,
     )
     if r is None:
         raise HTTPException(404, "These characters can't craft and sell that recipe.")
@@ -1141,7 +1166,7 @@ def _result_out(
     return RankResult(
         recipe_id=r.recipe.id,
         recipe=r.recipe.name,
-        kind="convert" if r.recipe.is_conversion else "craft",
+        kind=cast(Literal["craft", "convert", "flip"], r.recipe.kind),
         profession=r.recipe.skill_name,
         crafters=crafters.get(r.recipe.spell_id, []),
         crafter=r.crafter,

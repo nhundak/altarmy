@@ -104,6 +104,7 @@ def test_empty_db(client: TestClient, database: db.Database) -> None:
         "imported_at": None,
         "imported_via": None,
         "auto_import_at": None,
+        "arcane_salvager": False,
     }
     assert client.get("/api/rank").json()["results"] == []
 
@@ -200,6 +201,38 @@ def test_rank_sends_disenchant_materials(client: TestClient, priced: Connection)
         {"item_id": 1, "name": "Linen Cloth", "chance": 0.5, "min_count": 1, "max_count": 3, "value": 19}
     ]
     assert all(e["materials"] == [] for e in r["exits"] if e["kind"] != "disenchant")
+
+
+def test_rank_and_evaluate_count_the_arcane_salvager(client: TestClient, priced: Connection) -> None:
+    add_disenchant(priced, 0.5, 1, 3)  # robe -> 1-3 linen, 19c a disenchant; 20.9 with a 10% second roll
+    with_enchanter(priced)
+
+    def value(**params: bool) -> int:
+        (r,) = client.get("/api/rank", params=params).json()["results"]
+        (de,) = [e for e in r["exits"] if e["kind"] == "disenchant"]
+        body = {"recipe_id": r["recipe_id"], "choices": {}, **params}
+        got = client.post("/api/evaluate", json=body).json()["result"]
+        assert [e["value"] for e in got["exits"]] == [e["value"] for e in r["exits"]]
+        (material,) = de["materials"]
+        assert material["value"] == de["value"]
+        return int(de["value"])
+
+    assert value(arcane_salvager=True) == 20
+    assert value() == value(arcane_salvager=False) == 19  # not the cached ranking with the salvager
+
+
+def test_characters_say_whether_anyone_can_make_an_arcane_salvager(
+    client: TestClient, conn: Connection
+) -> None:
+    def enchanter(*recipes: int) -> Character:
+        return Character(
+            "Realm", "Enchy", "Horde", "MAGE", 60, (Profession("Enchanting", 150, 150, frozenset(recipes)),)
+        )
+
+    service.replace_characters(conn, ME, FOREVER, [enchanter(7418)])
+    assert client.get("/api/characters").json()["arcane_salvager"] is False
+    service.replace_characters(conn, ME, FOREVER, [enchanter(7418, service.ARCANE_SALVAGER_SPELL)])
+    assert client.get("/api/characters").json()["arcane_salvager"] is True
 
 
 def test_rank_mails_disenchants_to_an_enchanter(client: TestClient, priced: Connection) -> None:
@@ -394,6 +427,31 @@ def test_rank_sells_conversions_when_disenchant_is_allowed(client: TestClient, p
     assert conversions(exits=["vendor", "disenchant"], include_trivial=False) == []
     (craft,) = [r for r in client.get("/api/rank").json()["results"] if r["kind"] == "craft"]
     assert craft["recipe"] == "Green Robe"
+
+
+def test_rank_flips_gear_listed_below_what_it_disenchants_for(client: TestClient, priced: Connection) -> None:
+    add_disenchant(priced, 1.0, 2, 2)  # a robe -> 2 linen, 38 net
+    with_enchanter(priced)
+    set_prices(priced, {3: 30})  # one robe listed at 30: a manual price, so one unit
+
+    def flipped(**params: list[str]) -> list[dict[str, Any]]:
+        results = client.get("/api/rank", params=params).json()["results"]
+        return [r for r in results if r["kind"] == "flip"]
+
+    (r,) = flipped(exits=["vendor", "disenchant"])
+    assert (r["recipe"], r["crafter"], r["crafts"], r["best_exit"]) == (
+        "Green Robe",
+        "Enchy",
+        1,
+        "disenchant",
+    )
+    assert (r["cost"], r["revenue"]) == (30, 38)
+    assert r["tree"]["flip"] is True
+    assert [s["action"] for s in r["steps"]] == ["buy", "sell"]
+    assert flipped(exits=["vendor", "ah"]) == []
+    body = {"recipe_id": r["recipe_id"], "choices": {}, "exits": ["vendor", "disenchant"]}
+    evaluated = client.post("/api/evaluate", json=body).json()["result"]
+    assert (evaluated["kind"], evaluated["profit"]) == ("flip", 8)
 
 
 def test_rank_unlearned_recipes(client: TestClient, priced: Connection) -> None:

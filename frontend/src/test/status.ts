@@ -15,6 +15,7 @@ export const status = (over: Partial<Status> = {}): Status => ({
 })
 
 export const characters: Characters = {
+  arcane_salvager: false,
   groups: [
     {
       realm: 'Classic Beta PvE',

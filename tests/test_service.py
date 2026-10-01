@@ -183,7 +183,11 @@ def test_market_cache_sees_other_processes_changes_after_its_ttl(
     assert cache.get(ah) is second  # nothing changed: kept
     db.set_build(conn, FOREVER, "1.60.2.1")  # a game data update
     now[0] += service.STAMP_TTL * 2
-    assert cache.get(ah) is not second
+    third = cache.get(ah)
+    assert third is not second
+    db.set_build(conn, FOREVER, "1.60.2.1")  # the same build loaded again (ingest --force)
+    now[0] += service.STAMP_TTL * 2
+    assert cache.get(ah) is not third
 
 
 def test_market_cache_checks_at_once_for_a_newer_price_version(
@@ -360,6 +364,39 @@ def test_favorites_first_keeps_each_part_in_order() -> None:
     assert [r.recipe.id for r in ranked] == [4, 3, 2, 1]
     assert [r.recipe.id for r in service.favorites_first(ranked, frozenset({1, 3}))] == [3, 1, 4, 2]
     assert service.favorites_first(ranked, frozenset()) == ranked
+
+
+def enchanter(*recipes: int) -> Character:
+    enchanting = Profession("Enchanting", 150, 150, frozenset(recipes))
+    return Character("R", "Enchy", "Horde", "MAGE", 60, (enchanting,))
+
+
+def test_knows_arcane_salvager_when_any_character_learned_it() -> None:
+    assert service.knows_arcane_salvager([tailor(), enchanter(service.ARCANE_SALVAGER_SPELL)])
+    assert not service.knows_arcane_salvager([tailor(), enchanter(7418)])
+    assert not service.knows_arcane_salvager([])
+
+
+def test_search_and_evaluate_count_the_arcane_salvager() -> None:
+    # A green robe of cloth disenchanted into one dust: 950 net, 1045 at an Arcane Salvager.
+    green, dust = 4, 5
+    items = {
+        1: engine.Item(1, "Cloth"),
+        green: engine.Item(green, "Robe", quality=2, item_level=20, class_id=4),
+        dust: engine.Item(dust, "Dust"),
+    }
+    recipe = engine.Recipe(10, "Robe", green, 1, ((1, 1),), "Enchanting", spell_id=901)
+    de = [engine.DisenchantRow(4, 2, 15, 25, dust, 1.0, 1, 1)]
+    base = engine.Market(items, [recipe], {1: 10, dust: 1000}, de)
+    who = [enchanter(901)]
+
+    def revenue(salvager: bool) -> int:
+        (r,) = service.search(base, who, "none", Filters(), arcane_salvager=salvager)
+        e = service.evaluate(base, who, "none", ALL_EXITS, 10, {}, arcane_salvager=salvager)
+        assert e is not None and e.revenue == r.revenue
+        return r.revenue
+
+    assert (revenue(False), revenue(True)) == (950, 1045)
 
 
 # --- reputation: the city a plan pays best in -----------------------------------------------------------

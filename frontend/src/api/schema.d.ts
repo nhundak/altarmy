@@ -485,6 +485,11 @@ export interface components {
         };
         /** Characters */
         Characters: {
+            /**
+             * Arcane Salvager
+             * @default false
+             */
+            arcane_salvager: boolean;
             /** Auto Import At */
             auto_import_at?: string | null;
             /** Groups */
@@ -586,6 +591,11 @@ export interface components {
          * @description Re-cost one recipe with some of its sources or its exit picked by the user.
          */
         EvaluateRequest: {
+            /**
+             * Arcane Salvager
+             * @default false
+             */
+            arcane_salvager: boolean;
             /** Choices */
             choices: {
                 [key: string]: string;
@@ -920,6 +930,11 @@ export interface components {
              * @default 0
              */
             discount: number;
+            /**
+             * Flip
+             * @default false
+             */
+            flip: boolean;
             /** Inputs */
             inputs: components["schemas"]["NodeOut"][];
             /** Item Id */
@@ -1056,7 +1071,7 @@ export interface components {
              * @default craft
              * @enum {string}
              */
-            kind: "craft" | "convert";
+            kind: "craft" | "convert" | "flip";
             /** Mail To */
             mail_to: string;
             /** Output Count */
@@ -1905,6 +1920,8 @@ export interface operations {
                 skill_crafters?: string[] | null;
                 /** @description ways the crafts may be sold */
                 exits?: ("vendor" | "ah" | "disenchant")[];
+                /** @description disenchant at an Arcane Salvager: a 10% chance of a second disenchant's materials */
+                arcane_salvager?: boolean;
                 /** @description copper */
                 min_cost?: number | null;
                 /** @description copper */

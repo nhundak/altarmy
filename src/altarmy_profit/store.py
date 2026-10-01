@@ -65,20 +65,21 @@ def _effect_lines(text: str) -> tuple[itemstats.Effect, ...]:
     )
 
 
-MarketStamp = tuple[str | None, int | None, int | None]
+MarketStamp = tuple[str | None, int, int | None, int | None]
 
 
 def market_stamp(conn: Connection, game_version: str, auction_house_id: int | None) -> MarketStamp:
-    """What a cached market was built from: the version's game data build, the auction house's newest
-    snapshot (every price write adds one) and its price version (every merge that changed something bumps
-    it). If any moved, the market is stale."""
+    """What a cached market was built from: the version's game data build and load count (a build loaded
+    again counts too), the auction house's newest snapshot (every price write adds one) and its price
+    version (every merge that changed something bumps it). If any moved, the market is stale."""
+    build, loads = db.get_loaded(conn, game_version)
     if auction_house_id is None:
-        return db.get_build(conn, game_version), None, None
+        return build, loads, None, None
     snap = schema.price_snapshots
     newest = conn.execute(
         select(func.max(snap.c.id)).where(snap.c.auction_house_id == auction_house_id)
     ).scalar_one_or_none()
-    return db.get_build(conn, game_version), newest, prices.price_version(conn, auction_house_id)
+    return build, loads, newest, prices.price_version(conn, auction_house_id)
 
 
 def load_market(

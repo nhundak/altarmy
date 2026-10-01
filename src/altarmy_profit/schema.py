@@ -76,6 +76,9 @@ game_versions = Table(
     Column("id", String(16), primary_key=True),  # versions.GameVersion.key: tbc | forever
     Column("wago_product", String(64), nullable=False),
     Column("build", String(32)),  # the DB2 build loaded; NULL before the first game data download
+    # game data loads so far (`db.set_build`): moves the cached markets' stamp even when the same build
+    # is loaded again (ingest --force, a changed disenchant.csv)
+    Column("loads", Integer, nullable=False, default=0, server_default="0"),
     Column("interface", Integer),  # client interface number, e.g. 20506
 )
 

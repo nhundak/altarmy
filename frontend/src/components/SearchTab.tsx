@@ -74,7 +74,8 @@ const EXITS: { value: Exit; label: string; description: string; warning?: string
     label: 'Disenchant',
     description:
       'Enchanting materials tend to have stable prices and sell well. Usually the most reliable way to turn a profit. ' +
-      'Also converts essences (3 lesser into 1 greater, or back) when one sells for more than the other.',
+      'Also converts essences (3 lesser into 1 greater, or back) when one sells for more than the other, ' +
+      'and buys gear listed below what its materials fetch, to disenchant.',
   },
   {
     value: 'ah',
@@ -229,6 +230,7 @@ const Results = memo(function Results({
           includeTrivial: filters.includeTrivial,
           skillCrafters: filters.skillCrafters,
           exits: filters.exits,
+          arcaneSalvager: filters.arcaneSalvager,
           version,
         }}
         ahBlocked={ahBlocked}
@@ -289,7 +291,7 @@ function Range({ name, min, max, onMin, onMax, step }: RangeProps) {
 /**
  * The search: first the setup's questions (what the user is after, then a profession, or how to sell and what a session
  * ), then the realm card (realm and faction, price freshness, an upload in place) and, with a realm, the options
- * (recipes, skill-ups only, sell via, crafts per session), advanced filters, time assumptions and ranked recipes. The answers decide the ranking's order and preset the filters they are about; they are remembered per user,
+ * (recipes, skill-ups only, sell via, crafts per session, Arcane Salvager), advanced filters, time assumptions and ranked recipes. The answers decide the ranking's order and preset the filters they are about; they are remembered per user,
  * like the Profit page's start.
  */
 export function SearchTab() {
@@ -322,6 +324,13 @@ export function SearchTab() {
   const toggleSection = (section: (typeof SECTIONS)[number], value: string[]) =>
     setOpen(SECTIONS.filter((s) => (s === section ? value.includes(s) : open.includes(s))))
   const [exits, setExits] = useStoredState<Exit[]>('altarmy-profit.search.exits', exitList, EVERY_EXIT)
+  // null until the user ticks or unticks it: then it follows whether any character can make an Arcane Salvager.
+  const [salvagerPick, setSalvagerPick] = useStoredState<boolean | null>(
+    'altarmy-profit.search.arcaneSalvager',
+    z.boolean().nullable(),
+    null,
+  )
+  const arcaneSalvager = salvagerPick ?? characters.data?.arcane_salvager ?? false
   // Money in gold and ROI in percent, as typed; converted for the API below.
   const [minCost, setMinCost] = useStoredState('altarmy-profit.search.minCost', bound, 0)
   const [maxCost, setMaxCost] = useStoredState('altarmy-profit.search.maxCost', bound, null)
@@ -345,6 +354,7 @@ export function SearchTab() {
       unlearned,
       includeTrivial,
       exits: ALL_EXITS.filter((e) => exits.includes(e)),
+      arcaneSalvager,
       minCost: scaled(minCost, goldToCopper),
       maxCost: scaled(maxCost, goldToCopper),
       minProfit: scaled(minProfit, goldToCopper),
@@ -355,10 +365,11 @@ export function SearchTab() {
       skillCrafters: skilled ? skilled.split(',') : [],
       sort,
     }),
-    [unlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, sort, profession, skilled],
+    [unlearned, includeTrivial, exits, arcaneSalvager, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, sort, profession, skilled],
   )
   const [picks, setPicks] = useState(0)
-  const debouncedFilters = useSettled(filters, 300, picks)
+  // Flushed once the characters load too: the Arcane Salvager's default comes from them.
+  const debouncedFilters = useSettled(filters, 300, characters.data ? picks : -1)
 
   /** Answer one question, writing the filters that answer presets (the user may change them afterwards). */
   const pick = (step: Step, value: string, characters?: string[]) => {
@@ -474,7 +485,15 @@ export function SearchTab() {
                     ))}
                   </Stack>
                 </Checkbox.Group>
-                <CraftsPerSession />
+                <Stack gap="md">
+                  <CraftsPerSession />
+                  <Checkbox
+                    label="Use Arcane Salvager for disenchanting"
+                    description="A 10% chance of a second disenchant's worth of materials."
+                    checked={arcaneSalvager}
+                    onChange={(e) => setSalvagerPick(e.currentTarget.checked)}
+                  />
+                </Stack>
               </SimpleGrid>
             </Options>
           )}

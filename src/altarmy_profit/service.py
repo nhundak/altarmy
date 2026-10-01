@@ -47,7 +47,7 @@ class _Cached:
 
 def _older(stamp: store.MarketStamp, price_version: int | None) -> bool:
     """Whether a market with this stamp predates `price_version` of its auction house."""
-    return price_version is not None and (stamp[2] or 0) < price_version
+    return price_version is not None and (stamp[3] or 0) < price_version
 
 
 class MarketCache:
@@ -143,6 +143,9 @@ class RankCache:
 
 
 SLOW_DAYS = 2.0  # an AH sale expected to take longer than this is flagged
+ARCANE_SALVAGER_SPELL = (
+    1263056  # Enchanting: Arcane Salvager (WoW: Forever), the recipe that makes the station
+)
 
 
 @dataclass(frozen=True)
@@ -163,6 +166,7 @@ def search(
     include_trivial: bool = True,
     time: TimeModel | None = None,
     skill_crafters: frozenset[str] = frozenset(),
+    arcane_salvager: bool = False,
 ) -> list[Result]:
     """Rank what the characters can craft, selling only via `exits` (never items in `no_ah` on the AH),
     and keep what `filters` accepts. Chains sub-craft through any of their recipes too. Most profitable
@@ -176,7 +180,8 @@ def search(
     model each result is a session of its `batch` crafts (as `evaluate` plans one, see `session_model`),
     timed, and its time value weighs play time in every plan; without one, a single craft. Left to pick
     the city (`time.fastest`), each recipe is planned where it pays best per hour (`best_of`): vendors
-    charge a character by their reputation, so cities differ in copper too.
+    charge a character by their reputation, so cities differ in copper too. With `arcane_salvager` every
+    disenchant is done at an Arcane Salvager (see `Market`).
     """
     crafts = 1
     if time is not None:
@@ -185,7 +190,9 @@ def search(
     min_profit = filters.min_profit if filters.min_profit is not None else -(10**18)
     models, differ = _models(base, chars, time)
     markets = [
-        _market(base, chars, unlearned, exits, no_ah, include_trivial, model, skill_crafters)
+        _market(
+            base, chars, unlearned, exits, no_ah, include_trivial, model, skill_crafters, "", arcane_salvager
+        )
         for model in models
     ]
     ranked = markets[0].rank(min_profit=min_profit, crafts=crafts)
@@ -210,6 +217,7 @@ def evaluate(
     crafts: int = 1,
     skill_crafters: frozenset[str] = frozenset(),
     crafter: str = "",
+    arcane_salvager: bool = False,
 ) -> Result | None:
     """One recipe with the user's `choices` of sources and exit, for `crafts` crafts at once (timed by a
     `session_model`: with `time`'s batch as `crafts` and no city, as `search` ranks it); None if the
@@ -219,7 +227,16 @@ def evaluate(
     same = False  # whether the recipe costs the same in every city: nothing in it is priced differently
     for n, model in enumerate(models):
         market = _market(
-            base, chars, unlearned, exits, no_ah, include_trivial, model, skill_crafters, crafter
+            base,
+            chars,
+            unlearned,
+            exits,
+            no_ah,
+            include_trivial,
+            model,
+            skill_crafters,
+            crafter,
+            arcane_salvager,
         )
         recipe = next((r for r in market.recipes if r.id == recipe_id), None)
         if recipe is None:
@@ -348,6 +365,7 @@ def _market(
     time: TimeModel | None = None,
     skill_crafters: frozenset[str] = frozenset(),
     crafter: str = "",
+    arcane_salvager: bool = False,
 ) -> Market:
     """`base` narrowed to what the characters can craft (see `search`), with them as the crafters. Without
     characters every recipe counts, crafted by one unnamed character (so nothing is mailed)."""
@@ -371,7 +389,14 @@ def _market(
         time=time,
         books=base.books,
         reputation_discounts=base.reputation_discounts,
+        arcane_salvager=arcane_salvager,
     )
+
+
+def knows_arcane_salvager(chars: Sequence[Character]) -> bool:
+    """Whether any of the characters has learned to craft an Arcane Salvager (the search's default for
+    disenchanting at one)."""
+    return any(ARCANE_SALVAGER_SPELL in c.known_recipes for c in chars)
 
 
 def as_crafters(chars: Sequence[Character]) -> list[Crafter]:

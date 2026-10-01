@@ -27,6 +27,7 @@ export const bought = (
   options,
   option: source,
   convert: false,
+  flip: false,
   inputs: [],
 })
 
@@ -88,6 +89,7 @@ export const robeResult: RankResult = {
     options: [],
     option: '',
     convert: false,
+    flip: false,
     inputs: [
       bought(1, 'Linen Cloth', 10, 200),
       bought(2, 'Coarse Thread', 1, 100, 'vendor', [

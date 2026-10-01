@@ -519,8 +519,34 @@ describe('SearchTab', () => {
     await screen.findByText(/No recipes match these filters/)
     const [rank] = urls(fetch, '/api/rank')
     expect(rank?.searchParams.toString()).toBe(
-      'game_version=forever&unlearned=soon&include_trivial=false&exits=vendor&exits=ah&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&sort=rate&top=50&price_version=0',
+      'game_version=forever&unlearned=soon&include_trivial=false&exits=vendor&exits=ah&arcane_salvager=false&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&sort=rate&top=50&price_version=0',
     )
+  })
+
+  it('disenchants at an Arcane Salvager when a character can make one, until the user says otherwise', async () => {
+    const salvager = () => urls(fetch, '/api/rank').at(-1)?.searchParams.get('arcane_salvager')
+    let fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    const { unmount } = renderWithProviders(<SearchTab />)
+    const box = () => screen.getByRole('checkbox', { name: 'Use Arcane Salvager for disenchanting' })
+    await screen.findByText(/No recipes match these filters/)
+    expect(box()).not.toBeChecked()
+    expect(salvager()).toBe('false')
+    unmount()
+
+    fetch = mockApi({
+      '/api/status': status(),
+      '/api/characters': { ...characters, arcane_salvager: true },
+      '/api/rank': noResults,
+    })
+    renderWithProviders(<SearchTab />)
+    await screen.findByText(/No recipes match these filters/)
+    expect(box()).toBeChecked()
+    expect(box()).toHaveAccessibleDescription("A 10% chance of a second disenchant's worth of materials.")
+    expect(salvager()).toBe('true')
+    expect(urls(fetch, '/api/rank')).toHaveLength(1)
+    await userEvent.click(box())
+    await waitFor(() => expect(salvager()).toBe('false'))
+    expect(localStorage.getItem('altarmy-profit.search.arcaneSalvager')).toBe('false')
   })
 
   it('saves the time settings on the server, then ranks again', async () => {

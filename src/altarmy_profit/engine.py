@@ -12,12 +12,17 @@ from . import book, timing
 from .reputation import vendor_discounts
 from .timing import Timing
 
+# A flip's recipe id: FLIP_ID_BASE + the item id (inside 32 bits)
+FLIP_ID_BASE = 2_000_000_000
 AH_CUT = 0.05  # auction house cut taken from the sale price (deposit ignored)
 MAIL_POSTAGE = 30  # copper per attached item
 MAX_CHAIN_DEPTH = 3
 DISENCHANTABLE_CLASSES = (2, 4)  # weapon, armor
 DISENCHANTABLE_QUALITIES = (2, 3, 4)
 ALL_EXITS = frozenset({"vendor", "ah", "disenchant"})  # ways to sell a craft (Exit.kind)
+# WoW: Forever's Arcane Salvager (an Enchanting-made station): near it a disenchant has this chance of a
+# second roll of the same table, so it yields 1.1 times the materials on average
+ARCANE_SALVAGER_BONUS = 0.10
 # Which recipes nobody has learned count: none, those a character can train now, those they can train soon
 # (see `can_learn`), all of their professions'.
 Unlearned = Literal["none", "now", "soon", "all"]
@@ -70,14 +75,24 @@ class Recipe:
     cast_time_ms: int = 0  # one cast; 0 if instant or unknown
     station: str = ""  # the crafting station it is cast at (`timing.station_kind`: anvil, loom, ...); "" none
     learn_skill: int = 0  # skill the recipe item teaching it requires; 0 if none does (a trainer's)
-    # "craft", or "convert": enchanting materials turned into others with their Use spell (3 lesser
-    # essences into a greater and back): anyone does it, it never skills up, and it ranks only when
+    # "craft"; "convert": enchanting materials turned into others with their Use spell (3 lesser essences
+    # into a greater and back); "flip": gear bought on the AH to disenchant (`Market` makes these). The
+    # last two need no profession: anyone does them, they never skill up, and they rank only when
     # disenchant is a way to sell (see `Market.rank`)
     kind: str = "craft"
 
     @property
     def is_conversion(self) -> bool:
         return self.kind == "convert"
+
+    @property
+    def is_flip(self) -> bool:
+        return self.kind == "flip"
+
+    @property
+    def anyone(self) -> bool:
+        """No profession's recipe: a conversion or a flip."""
+        return self.kind != "craft"
 
     @property
     def required_skill(self) -> int:
@@ -134,8 +149,8 @@ def can_learn(recipe: Recipe, crafter: Crafter, unlearned: Unlearned) -> bool:
 
 def can_skill_up(recipe: Recipe, crafter: Crafter) -> bool:
     """Whether crafting `recipe` can raise `crafter`'s skill: it isn't grey for them and they aren't at their
-    profession's cap. Recipes without skill thresholds count as able to; conversions never do."""
-    if recipe.is_conversion:
+    profession's cap. Recipes without skill thresholds count as able to; conversions and flips never do."""
+    if recipe.anyone:
         return False
     if not recipe.trivial_high:
         return True
@@ -161,8 +176,8 @@ def expected_skill_ups(recipe: Recipe, crafter: Crafter | None, crafts: int) -> 
     rule), never past grey or the profession's cap. While the recipe is yellow or green the chance falls
     linearly with the skill, so the expected skill gives the expected chance exactly; only a session
     crossing into yellow or reaching the cap is approximate. Without a crafter every craft counts (but a
-    conversion's)."""
-    if recipe.is_conversion:
+    conversion's or a flip's)."""
+    if recipe.anyone:
         return 0.0
     if crafter is None:
         return float(crafts)
@@ -295,6 +310,7 @@ class Node:
     mail_seconds: float = field(default=0.0, compare=False)
     station: str = field(default="", compare=False)
     convert: bool = False  # crafted by a conversion (`Recipe.is_conversion`)
+    flip: bool = False  # a flip's root (`Recipe.is_flip`): nothing is crafted, the bought input is sold
 
 
 @dataclass(frozen=True, eq=False)
@@ -590,7 +606,8 @@ def plan_steps(
 
     inputs = {walk(n, f"{ROOT}.{i}") for i, n in enumerate(tree.inputs)}
     who, root = tree.crafter, (ROOT,)
-    last = add(_craft_step(tree, root), inputs)
+    # a flip crafts nothing: what was bought is what is sold
+    last = next(iter(inputs)) if tree.flip else add(_craft_step(tree, root), inputs)
     if mail_to:
         mail = Step(
             "mail", tree.item_id, tree.name, tree.made, -postage, mail_to, who, root, seconds=mail_seconds
@@ -935,6 +952,7 @@ class Market:
         time: TimeModel | None = None,
         books: Mapping[int, book.Ladder] | None = None,
         reputation_discounts: Mapping[int, int] | None = None,
+        arcane_salvager: bool = False,
     ):
         """`crafters` are the characters who craft and disenchant, mailing items between them; without
         them one unnamed character does everything. When nobody has learned a recipe, `unlearned` says who
@@ -958,13 +976,17 @@ class Market:
         `reputation_discounts` is the game version's percent off at a vendor by the buyer's standing with
         the vendor's faction (standing -> percent). It needs the `time` model's city, which says whose
         vendors sell an item there: a buyer pays the best price a vendor there gives them, and the plan is
-        routed to such a vendor. Without a time model every vendor charges the list price."""
+        routed to such a vendor. Without a time model every vendor charges the list price.
+
+        With `arcane_salvager` every disenchant is done at an Arcane Salvager: its materials are worth
+        `ARCANE_SALVAGER_BONUS` more (each `Material` still describes one roll)."""
         self.items = items
         self.recipes = recipes
         self.prices = prices
         self.books = books or {}
         self.sell_prices = prices if sell_prices is None else sell_prices
         self.disenchant = disenchant or []
+        self.arcane_salvager = arcane_salvager
         self.ah_cut = ah_cut
         self.crafters = crafters
         self.unlearned = unlearned
@@ -977,10 +999,13 @@ class Market:
         self.time = time
         self._per_second = time.config.time_value / 3600 if time else 0.0  # copper a second of play is worth
         self._trips: dict[str, float] = {}
+        # flips are this market's own: made anew from its items and prices, whatever `recipes` held
+        self.recipes = [r for r in recipes if not r.is_flip] + self._flips()
         self._by_output: dict[int, list[Recipe]] = {}
-        for r in recipes:
-            self._by_output.setdefault(r.output_item_id, []).append(r)
-        self._who_crafts = {r.id: self._crafter_names(r) for r in recipes}
+        for r in self.recipes:
+            if not r.is_flip:  # a flip is no way to get an item
+                self._by_output.setdefault(r.output_item_id, []).append(r)
+        self._who_crafts = {r.id: self._crafter_names(r) for r in self.recipes}
         self._by_name = {c.name: c for c in crafters}
         self.reputation_discounts = dict(reputation_discounts or {})
         # who -> {faction id: percent off at that faction's vendors}, for those with any
@@ -990,6 +1015,22 @@ class Market:
             if (known := dict(vendor_discounts(c.reputations, self.reputation_discounts)))
         }
         self._holders: dict[tuple[int, str], tuple[int, tuple[str, ...]]] = {}  # memo for `_reputation`
+
+    def _flips(self) -> list[Recipe]:
+        """A flip for every item that can be disenchanted (`_disenchant_rows`) and bought on the AH: buy
+        it, disenchant it, sell the materials."""
+        return [
+            Recipe(FLIP_ID_BASE + i, item.name, i, 1, ((i, 1),), kind="flip")
+            for i, item in sorted(self.items.items())
+            if self._listed(i) and self._disenchant_rows(item)
+        ]
+
+    def _listed(self, item_id: int) -> int:
+        """Units that can be bought on the AH: its ladder's (the levels plans count on), else one if it has
+        a price but no ladder (cheapest-listing prices), else none."""
+        if item_id in self.books:
+            return sum(lv.quantity for lv in self.books[item_id])
+        return 1 if item_id in self.prices else 0
 
     # --- selling ---------------------------------------------------------------------
     def _disenchant_rows(self, item: Item) -> list[DisenchantRow]:
@@ -1010,9 +1051,10 @@ class Market:
     def _expected(self, d: DisenchantRow) -> float | None:
         """Expected net AH copper from one disenchant row; None if its result is unpriced."""
         price = self.sell_prices.get(d.result_item_id)
-        return (
-            None if price is None else d.chance * (d.min_count + d.max_count) / 2 * ah_net(price, self.ah_cut)
-        )
+        if price is None:
+            return None
+        rolls = 1 + ARCANE_SALVAGER_BONUS if self.arcane_salvager else 1
+        return rolls * d.chance * (d.min_count + d.max_count) / 2 * ah_net(price, self.ah_cut)
 
     def disenchant_materials(self, item: Item) -> list[Material]:
         """What disenchanting one item can yield; empty if it can't be disenchanted."""
@@ -1148,8 +1190,8 @@ class Market:
         return act, act + cfg.switch_character / cfg.batch + 2 * self._trip("mailbox")
 
     def _craft_seconds(self, recipe: Recipe, runs: int) -> tuple[float, float, str]:
-        """(`runs` casts, with the shared trip to its station, the station kind)."""
-        if self.time is None:
+        """(`runs` casts, with the shared trip to its station, the station kind). A flip casts nothing."""
+        if self.time is None or recipe.is_flip:
             return 0.0, 0.0, ""
         station = recipe.station
         act = runs * (recipe.cast_time_ms / 1000 + self.time.config.craft_overhead)
@@ -1383,7 +1425,7 @@ class Market:
         or as `choices` says; None if one can't be had. A conversion's input is only bought: converted
         back from what it makes, it would go round in circles."""
         inputs = []
-        below = MAX_CHAIN_DEPTH if recipe.is_conversion else depth
+        below = MAX_CHAIN_DEPTH if recipe.anyone else depth
         for i, (item_id, count) in enumerate(recipe.reagents):
             got = self._obtain(item_id, count * runs, who, below, memo, f"{path}.{i}", choices)
             if got is None:
@@ -1407,6 +1449,7 @@ class Market:
             act_seconds=act,
             station=station,
             convert=recipe.is_conversion,
+            flip=recipe.is_flip,
         )
 
     # --- evaluation --------------------------------------------------------------------
@@ -1423,6 +1466,10 @@ class Market:
         plan is for that many crafts at once (a session): sub-crafts are whole batches for all of them, and
         cost, revenue and steps are the session's."""
         choices = choices or {}
+        if recipe.is_flip:  # never more than are listed
+            crafts = min(crafts, self._listed(recipe.output_item_id))
+            if crafts <= 0:
+                return None
         allowed = self._sell_kinds(recipe)
         exits = [e for e in self.exits_for(recipe.output_item_id) if e.kind in allowed]
         if not exits:
@@ -1442,11 +1489,7 @@ class Market:
             bonus = self._bonus_output(recipe, who) * crafts
             crafter = self._by_name.get(who)
             chance = (
-                skill_up_chance(recipe, crafter)
-                if crafter is not None
-                else 0.0
-                if recipe.is_conversion
-                else 1.0
+                skill_up_chance(recipe, crafter) if crafter is not None else 0.0 if recipe.anyone else 1.0
             )
             ups = expected_skill_ups(recipe, crafter, crafts)
             for exit in here:
@@ -1493,10 +1536,13 @@ class Market:
 
     def _sell_kinds(self, recipe: Recipe) -> Collection[str]:
         """The exits `recipe`'s output may be sold by. A conversion sells what it makes on the AH, but only
-        when disenchant is allowed: it is the same bet on enchanting materials' AH prices."""
-        if not recipe.is_conversion:
+        when disenchant is allowed: it is the same bet on enchanting materials' AH prices. A flip is only
+        disenchanted (reselling it would be another strategy)."""
+        if not recipe.anyone:
             return self.exits
-        return self.exits | {"ah"} if "disenchant" in self.exits else ()
+        if "disenchant" not in self.exits:
+            return ()
+        return {"disenchant"} if recipe.is_flip else self.exits | {"ah"}
 
     def rank(
         self,
@@ -1513,7 +1559,7 @@ class Market:
         memo: Memo = {}
         skilling = not self.include_trivial or bool(self.skill_crafters)
         for r in self.recipes:
-            if r.is_conversion and skilling:
+            if r.anyone and skilling:
                 continue
             if skill_name and r.skill_name.lower() != skill_name.lower():
                 continue
@@ -1555,21 +1601,21 @@ def recipes_for_characters(
     """Recipes the characters have learned, plus those `unlearned` lets one of them craft (`can_learn`).
 
     A Market built from these sub-crafts through any of the characters' recipes, whoever knows them.
-    Conversions need no learning: anyone can do them.
+    Conversions and flips need no learning: anyone can do them.
     """
     known = frozenset().union(*(c.known_spells for c in crafters))
     return [
         r
         for r in recipes
-        if r.is_conversion or r.spell_id in known or any(can_learn(r, c, unlearned) for c in crafters)
+        if r.anyone or r.spell_id in known or any(can_learn(r, c, unlearned) for c in crafters)
     ]
 
 
 def crafters_of(recipe: Recipe, crafters: Iterable[Crafter], unlearned: Unlearned) -> list[Crafter]:
     """Who can craft `recipe`: those who learned it, or with nobody having learned it, those `unlearned`
-    lets (`can_learn`, as in `recipes_for_characters`). Anyone converts."""
+    lets (`can_learn`, as in `recipes_for_characters`). Anyone converts or flips."""
     crafters = list(crafters)
-    if recipe.is_conversion:
+    if recipe.anyone:
         return crafters
     known = [c for c in crafters if recipe.spell_id in c.known_spells]
     if known:
