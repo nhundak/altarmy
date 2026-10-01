@@ -134,6 +134,22 @@ function DS:GetCharacterFaction(char)
     return (char and char.faction) or ""
 end
 
+--- Faction of the logged-in character ("Alliance", "Horde", or "" when unknown).
+function DS:GetCurrentPlayerFaction()
+    local faction = UnitFactionGroup and UnitFactionGroup("player") or ""
+    if faction == "" then
+        faction = DS:GetCharacterFaction(GetCurrentCharTable())
+    end
+    return faction
+end
+
+--- False only when both factions are known and differ (gear compare / upgrade alerts).
+function DS:IsSameFactionAsCurrent(char)
+    local faction = DS:GetCharacterFaction(char)
+    local current = DS:GetCurrentPlayerFaction()
+    return faction == "" or current == "" or faction == current
+end
+
 --- Guild name for a character, or nil when the character is not in a guild.
 function DS:GetCharacterGuild(char)
     return char and char.guildName or nil

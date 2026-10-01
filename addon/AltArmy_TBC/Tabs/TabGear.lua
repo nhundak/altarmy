@@ -818,7 +818,10 @@ function GearTab.GetDisplayList()
         local BA = AltArmy.BankAlt
         local isBankAlt = BA and BA.Is and BA.Is(e.name, e.realm)
         local isHidden = GearTab.GetCharSetting(e.name, e.realm, "hide") or isBankAlt
-        if not isHidden or (showSelfFirst and isSelf) then
+        -- Opposite-faction alts can't receive gear by mail; never list them.
+        local otherFaction = not isSelf and DS and DS.IsSameFactionAsCurrent and DS.GetCharacter
+            and not DS:IsSameFactionAsCurrent(DS:GetCharacter(e.name, e.realm))
+        if not otherFaction and (not isHidden or (showSelfFirst and isSelf)) then
             visible[#visible + 1] = e
             GearTab.DecorateDisplayEntry(e)
         end

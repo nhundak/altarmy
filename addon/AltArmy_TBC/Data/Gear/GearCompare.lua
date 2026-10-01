@@ -644,6 +644,9 @@ local function collectEquippableCharacters(itemLink, levelsAhead)
         if not charMatchesRealmFilter(realm, realmFilter, currentRealm) then
             return
         end
+        if DS.IsSameFactionAsCurrent and not DS:IsSameFactionAsCurrent(charData) then
+            return
+        end
         local BA = AltArmy.BankAlt
         if BA and BA.Is and BA.Is(charData.name or charName, realm) then
             return

@@ -64,7 +64,7 @@ There is no Characters containers tab; inventory is via Search.
 ### Alerts and reminders
 
 - **Cooldowns:** chat, raid-warning style, or both; per-category reminder intervals; optional specialization-dependent visibility.
-- **Gear upgrades:** chat (and clickable links) for loot, Need/Greed, quest rewards, and level-up upgrades for you or alts; quest-reward overlays on turn-in / quest log.
+- **Gear upgrades:** chat (and clickable links) for loot, Need/Greed, quest rewards, and level-up upgrades for you or same-realm, same-faction alts; quest-reward overlays on turn-in / quest log.
 - **Mail expiry:** login chat when any character’s soonest mail returns within 5 days.
 
 ### First-login notices

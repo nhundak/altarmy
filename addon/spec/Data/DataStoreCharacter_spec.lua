@@ -352,4 +352,25 @@ describe("DataStoreCharacter", function()
       assert.are.equal(999, char.money)
     end)
   end)
+
+  describe("IsSameFactionAsCurrent", function()
+    local savedUFG
+    before_each(function() savedUFG = _G.UnitFactionGroup end)
+    after_each(function() _G.UnitFactionGroup = savedUFG end)
+
+    it("matches same faction and rejects the other", function()
+      _G.UnitFactionGroup = function() return "Alliance" end
+      assert.are.equal("Alliance", DS:GetCurrentPlayerFaction())
+      assert.is_true(DS:IsSameFactionAsCurrent({ faction = "Alliance" }))
+      assert.is_false(DS:IsSameFactionAsCurrent({ faction = "Horde" }))
+    end)
+
+    it("keeps characters when either faction is unknown", function()
+      _G.UnitFactionGroup = function() return "Horde" end
+      assert.is_true(DS:IsSameFactionAsCurrent({ faction = "" }))
+      assert.is_true(DS:IsSameFactionAsCurrent({}))
+      _G.UnitFactionGroup = function() return nil end
+      assert.is_true(DS:IsSameFactionAsCurrent({ faction = "Alliance" }))
+    end)
+  end)
 end)

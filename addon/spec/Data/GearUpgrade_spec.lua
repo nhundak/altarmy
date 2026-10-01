@@ -88,6 +88,8 @@ describe("GearUpgrade", function()
         package.loaded["ItemUsability"] = nil
         require("DataStore")
         require("DataStoreEquipment")
+        package.loaded["DataStoreCharacter"] = nil
+        require("DataStoreCharacter")
         package.loaded["DataStoreMail"] = nil
         require("DataStoreMail")
         DS = AltArmy.DataStore
@@ -582,6 +584,47 @@ describe("GearUpgrade", function()
         assert.are.equal(1, #matches)
         assert.are.equal("MageAlt", matches[1].name)
         assert.are.equal("TestRealm", matches[1].realm)
+    end)
+
+    it("EvaluateForAllAlts skips opposite-faction alts but keeps unknown faction", function()
+        local savedUFG = _G.UnitFactionGroup
+        _G.UnitFactionGroup = function() return "Alliance" end
+        local chars = _G.AltArmyTBC_Data.Characters.TestRealm
+        chars.MageAlt.faction = "Alliance"
+        chars.HordeMage = {
+            name = "HordeMage",
+            realm = "TestRealm",
+            faction = "Horde",
+            classFile = "MAGE",
+            level = 60,
+            Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        chars.OldMage = {
+            name = "OldMage",
+            realm = "TestRealm",
+            classFile = "MAGE",
+            level = 60,
+            Inventory = { [1] = "|Hitem:10:0|h[Old Helm]|h" },
+            talents = { tabs = { 0, 0, 21 }, primary = 3, specKey = "frost" },
+        }
+        local entries = GU.BuildFocusEntriesForCurrentRealm()
+        local matches = GU.EvaluateForAllAlts("|Hitem:11:0|h[New Helm]|h", {
+            technique = "ilvl",
+            levelsAhead = 0,
+        })
+        chars.HordeMage = nil
+        chars.OldMage = nil
+        chars.MageAlt.faction = nil
+        _G.UnitFactionGroup = savedUFG
+        local names = {}
+        for i = 1, #entries do names[entries[i].name] = true end
+        assert.is_nil(names.HordeMage)
+        assert.is_true(names.MageAlt)
+        assert.is_true(names.OldMage)
+        for i = 1, #matches do
+            assert.are_not.equal("HordeMage", matches[i].name)
+        end
     end)
 
     it("EvaluateForAllAlts skips bank alts", function()

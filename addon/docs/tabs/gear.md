@@ -16,6 +16,10 @@ Two sub-views, switched with spellbook-style tabs that hang above the panel in t
 **Grid** — rows = equipment slots; columns = characters. Side settings for sort, pin/hide, icon
 size, and spacing.
 
+Both views (and the compare panel) list only characters of the logged-in character's faction —
+opposite-faction alts can't receive gear by mail. Characters with no recorded faction (not
+logged in since faction was first captured) are still shown.
+
 **Upgrade Check** — the item-check drop prompt, then the compare panel once an item is focused.
 Choosing the tab while holding an item on the cursor checks that item immediately. The same happens when you click the main window's **Gear** side tab while holding an item: it switches to Upgrade Check and loads that item, replacing any item already focused. Clicking the minimap button while holding an item (window closed) opens the window straight into this view with the item loaded. Focusing an item
 from elsewhere (loot / quest alerts, links) switches to this tab; right-clicking the focused item
@@ -50,7 +54,7 @@ still on the drop prompt returns to Grid; a focused item stays in Upgrade Check.
   red "*Name* is on a different server" line ("ruleset" on WoW Forever). The verdict and warnings
   show only the character's class-colored first name (WoW Forever names are "First Last");
   hovering the name shows the full name, plus " — Realm" when the realm filter shows all realms.
-- Loot / quest upgrade alerts only consider characters on the current realm.
+- Loot / quest upgrade alerts only consider characters on the current realm and of the current faction.
 - Debug Dump button when `/altarmy debug on` — see [COMPARE_PANEL_DEBUG_DUMP.md](../COMPARE_PANEL_DEBUG_DUMP.md).
 
 ## Upgrade scoring and alerts
