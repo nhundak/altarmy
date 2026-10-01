@@ -1,0 +1,339 @@
+item_id,name
+728,Recipe: Westfall Stew
+2697,Recipe: Goretusk Liver Pie
+2698,Recipe: Cooked Crab Claw
+2699,Recipe: Redridge Goulash
+2700,Recipe: Succulent Pork Ribs
+2701,Recipe: Seasoned Wolf Kabob
+2889,Recipe: Beer Basted Boar Ribs
+3678,Recipe: Crocolisk Steak
+3679,Recipe: Blood Sausage
+3680,Recipe: Murloc Fin Soup
+3681,Recipe: Crocolisk Gumbo
+3682,Recipe: Curiously Tasty Omelet
+3683,Recipe: Gooey Spider Cake
+3734,Recipe: Big Bear Steak
+3735,Recipe: Hot Lion Chops
+4355,Pattern: Icy Cloak
+4609,Recipe: Barbecued Buzzard Wing
+5483,Recipe: Scorpid Surprise
+5484,Recipe: Roasted Kodo Meat
+5485,Recipe: Fillet of Frenzy
+5486,Recipe: Strider Stew
+5488,Recipe: Crispy Lizard Tail
+5489,Recipe: Lean Venison
+5528,Recipe: Clam Chowder
+5640,Recipe: Rage Potion
+5642,Recipe: Free Action Potion
+5643,Recipe: Great Rage Potion
+5771,Pattern: Red Linen Bag
+5772,Pattern: Red Woolen Bag
+5786,Pattern: Murloc Scale Belt
+5787,Pattern: Murloc Scale Breastplate
+5788,Pattern: Thick Murloc Armor
+5789,Pattern: Murloc Scale Bracers
+5973,Pattern: Barbaric Leggings
+6039,Recipe: Giant Clam Scorcho
+6047,Plans: Golden Scale Coif
+6053,Recipe: Holy Protection Potion
+6054,Recipe: Shadow Protection Potion
+6055,Recipe: Fire Protection Potion
+6056,Recipe: Frost Protection Potion
+6057,Recipe: Nature Protection Potion
+6068,Recipe: Shadow Oil
+6270,Pattern: Blue Linen Vest
+6272,Pattern: Blue Linen Robe
+6274,Pattern: Blue Overalls
+6275,Pattern: Greater Adept's Robe
+6325,Recipe: Brilliant Smallfish
+6326,Recipe: Slitherskin Mackerel
+6328,Recipe: Longjaw Mud Snapper
+6329,Recipe: Loch Frenzy Delight
+6330,Recipe: Bristle Whisker Catfish
+6342,Formula: Enchant Chest - Minor Mana
+6346,Formula: Enchant Chest - Lesser Mana
+6349,Formula: Enchant 2H Weapon - Lesser Intellect
+6368,Recipe: Rainbow Fin Albacore
+6369,Recipe: Rockscale Cod
+6377,Formula: Enchant Boots - Minor Agility
+6401,Pattern: Dark Silk Shirt
+6474,Pattern: Deviate Scale Cloak
+6475,Pattern: Deviate Scale Gloves
+6892,Recipe: Smoked Bear Meat
+7087,Pattern: Crimson Silk Cloak
+7088,Pattern: Crimson Silk Robe
+7089,Pattern: Azure Silk Cloak
+7114,Pattern: Azure Silk Gloves
+7289,Pattern: Black Whelp Cloak
+7290,Pattern: Red Whelp Gloves
+7361,Pattern: Herbalist's Gloves
+7362,Pattern: Earthen Leather Shoulders
+7451,Pattern: Green Whelp Bracers
+7560,Schematic: Gnomish Universal Remote
+7561,Schematic: Goblin Jumper Cables
+7613,Pattern: Green Leather Armor
+7742,Schematic: Gnomish Cloaking Device
+7995,Plans: Mithril Scale Bracers
+8030,Plans: Ebon Shiv
+8385,Pattern: Turtle Scale Gloves
+8409,Pattern: Nightscape Shoulders
+9300,Recipe: Elixir of Demonslaying
+9301,Recipe: Elixir of Shadow Power
+9302,Recipe: Ghost Dye
+9303,Recipe: Philosopher's Stone
+9304,Recipe: Transmute Iron to Gold
+9305,Recipe: Transmute Mithril to Truesilver
+10311,Pattern: Orange Martial Shirt
+10314,Pattern: Lavender Mageweave Shirt
+10317,Pattern: Pink Mageweave Shirt
+10318,Pattern: Admiral's Hat
+10321,Pattern: Tuxedo Shirt
+10323,Pattern: Tuxedo Pants
+10325,Pattern: White Wedding Dress
+10326,Pattern: Tuxedo Jacket
+10602,Schematic: Deadly Scope
+10607,Schematic: Deepdive Helmet
+10609,Schematic: Mithril Mechanical Dragonling
+10728,Pattern: Black Swashbuckler's Shirt
+10858,Plans: Solid Iron Maul
+11039,Formula: Enchant Cloak - Minor Agility
+11101,Formula: Enchant Bracer - Lesser Strength
+11163,Formula: Enchant Bracer - Lesser Deflection
+11223,Formula: Enchant Bracer - Deflection
+12162,Plans: Hardened Iron Shortsword
+12163,Plans: Moonsteel Broadsword
+12164,Plans: Massive Iron Axe
+12226,Recipe: Crispy Bat Wing
+12227,Recipe: Lean Wolf Steak
+12228,Recipe: Roast Raptor
+12229,Recipe: Hot Wolf Ribs
+12231,Recipe: Jungle Stew
+12232,Recipe: Carrion Surprise
+12233,Recipe: Mystery Stew
+12239,Recipe: Dragonbreath Chili
+12240,Recipe: Heavy Kodo Stew
+12703,Plans: Storm Gauntlets
+12819,Plans: Ornate Thorium Handaxe
+12823,Plans: Huge Thorium Battleaxe
+12958,Recipe: Transmute Arcanite
+13287,Pattern: Raptor Hide Harness
+13288,Pattern: Raptor Hide Belt
+13308,Schematic: Ice Deflector
+13309,Schematic: Lovingly Crafted Boomstick
+13310,Schematic: Accurate Scope
+13311,Schematic: Mechanical Dragonling
+13477,Recipe: Superior Mana Potion
+13478,Recipe: Elixir of Superior Defense
+13480,Recipe: Major Healing Potion
+13482,Recipe: Transmute Air to Fire
+13483,Recipe: Transmute Fire to Earth
+13484,Recipe: Transmute Earth to Water
+13485,Recipe: Transmute Water to Air
+13501,Recipe: Major Mana Potion
+13939,Recipe: Spotted Yellowtail
+13940,Recipe: Cooked Glossy Mightfish
+13941,Recipe: Filet of Redgill
+13942,Recipe: Grilled Squid
+13943,Recipe: Hot Smoked Bass
+13945,Recipe: Nightfin Soup
+13946,Recipe: Poached Sunscale Salmon
+13947,Recipe: Lobster Stew
+13948,Recipe: Mightfish Steak
+13949,Recipe: Baked Salmon
+14468,Pattern: Runecloth Bag
+14469,Pattern: Runecloth Robe
+14472,Pattern: Runecloth Cloak
+14481,Pattern: Runecloth Gloves
+14483,Pattern: Felcloth Pants
+14488,Pattern: Runecloth Boots
+14627,Pattern: Bright Yellow Shirt
+14630,Pattern: Enchanter's Cowl
+14634,Recipe: Frost Oil
+14635,Pattern: Gem-studded Leather Belt
+14639,Schematic: Minor Recombobulator
+15724,Pattern: Heavy Scorpid Bracers
+15725,Pattern: Wicked Leather Gauntlets
+15726,Pattern: Green Dragonscale Breastplate
+15729,Pattern: Chimeric Gloves
+15734,Pattern: Living Shoulders
+15735,Pattern: Ironfeather Shoulders
+15740,Pattern: Frostsaber Boots
+15741,Pattern: Stormshroud Pants
+15742,Pattern: Warbear Harness
+15751,Pattern: Blue Dragonscale Breastplate
+15754,Pattern: Warbear Woolies
+15756,Pattern: Runic Leather Headband
+15758,Pattern: Devilsaur Gauntlets
+15759,Pattern: Black Dragonscale Breastplate
+15762,Pattern: Heavy Scorpid Helm
+16041,Schematic: Thorium Grenade
+16042,Schematic: Thorium Widget
+16046,Schematic: Masterwork Target Dummy
+16047,Schematic: Thorium Tube
+16050,Schematic: Delicate Arcanite Converter
+16072,Expert Cookbook
+16083,Expert Fishing - The Bass and You
+16084,Expert First Aid - Under Wraps
+16110,Recipe: Monster Omelet
+16111,Recipe: Spiced Chili Crab
+16112,Manual: Heavy Silk Bandage
+16113,Manual: Mageweave Bandage
+16217,Formula: Enchant Shield - Greater Stamina
+16221,Formula: Enchant Chest - Major Health
+16224,Formula: Enchant Cloak - Superior Defense
+16243,Formula: Runed Arcanite Rod
+16302,Grimoire of Firebolt (Rank 2)
+16316,Grimoire of Firebolt (Rank 3)
+16317,Grimoire of Firebolt (Rank 4)
+16318,Grimoire of Firebolt (Rank 5)
+16319,Grimoire of Firebolt (Rank 6)
+16320,Grimoire of Firebolt (Rank 7)
+16321,Grimoire of Blood Pact (Rank 1)
+16322,Grimoire of Blood Pact (Rank 2)
+16323,Grimoire of Blood Pact (Rank 3)
+16324,Grimoire of Blood Pact (Rank 4)
+16325,Grimoire of Blood Pact (Rank 5)
+16326,Grimoire of Fire Shield (Rank 1)
+16327,Grimoire of Fire Shield (Rank 2)
+16328,Grimoire of Fire Shield (Rank 3)
+16329,Grimoire of Fire Shield (Rank 4)
+16330,Grimoire of Fire Shield (Rank 5)
+16331,Grimoire of Phase Shift
+16346,Grimoire of Torment (Rank 2)
+16347,Grimoire of Torment (Rank 3)
+16348,Grimoire of Torment (Rank 4)
+16349,Grimoire of Torment (Rank 5)
+16350,Grimoire of Torment (Rank 6)
+16351,Grimoire of Sacrifice (Rank 1)
+16352,Grimoire of Sacrifice (Rank 2)
+16353,Grimoire of Sacrifice (Rank 3)
+16354,Grimoire of Sacrifice (Rank 4)
+16355,Grimoire of Sacrifice (Rank 5)
+16356,Grimoire of Sacrifice (Rank 6)
+16357,Grimoire of Consume Shadows (Rank 1)
+16358,Grimoire of Consume Shadows (Rank 2)
+16359,Grimoire of Consume Shadows (Rank 3)
+16360,Grimoire of Consume Shadows (Rank 4)
+16361,Grimoire of Consume Shadows (Rank 5)
+16362,Grimoire of Consume Shadows (Rank 6)
+16363,Grimoire of Suffering (Rank 1)
+16364,Grimoire of Suffering (Rank 2)
+16365,Grimoire of Suffering (Rank 3)
+16366,Grimoire of Suffering (Rank 4)
+16368,Grimoire of Lash of Pain (Rank 2)
+16371,Grimoire of Lash of Pain (Rank 3)
+16372,Grimoire of Lash of Pain (Rank 4)
+16373,Grimoire of Lash of Pain (Rank 5)
+16374,Grimoire of Lash of Pain (Rank 6)
+16375,Grimoire of Soothing Kiss (Rank 1)
+16376,Grimoire of Soothing Kiss (Rank 2)
+16377,Grimoire of Soothing Kiss (Rank 3)
+16378,Grimoire of Soothing Kiss (Rank 4)
+16379,Grimoire of Seduction
+16380,Grimoire of Lesser Invisibility
+16381,Grimoire of Devour Magic (Rank 2)
+16382,Grimoire of Devour Magic (Rank 3)
+16383,Grimoire of Devour Magic (Rank 4)
+16384,Grimoire of Tainted Blood (Rank 1)
+16385,Grimoire of Tainted Blood (Rank 2)
+16386,Grimoire of Tainted Blood (Rank 3)
+16387,Grimoire of Tainted Blood (Rank 4)
+16388,Grimoire of Spell Lock (Rank 1)
+16389,Grimoire of Spell Lock (Rank 2)
+16390,Grimoire of Paranoia
+16767,Recipe: Undermine Clam Chowder
+17062,Recipe: Mithril Head Trout
+17200,Recipe: Gingerbread Cookie
+17201,Recipe: Egg Nog
+18046,Recipe: Tender Wolf Steak
+18239,Pattern: Shadowskin Gloves
+18487,Pattern: Mooncloth Robe
+18647,Schematic: Red Firework
+18648,Schematic: Green Firework
+18649,Schematic: Blue Firework
+18650,Schematic: EZ-Thro Dynamite II
+18651,Schematic: Truesilver Transformer
+18652,Schematic: Gyrofreeze Ice Reflector
+18656,Schematic: Powerful Seaforium Charge
+18731,Pattern: Heavy Leather Ball
+18949,Pattern: Barbaric Bracers
+19027,Schematic: Snake Burst Firework
+19202,Plans: Heavy Timbermaw Belt
+19203,Plans: Girdle of the Dawn
+19204,Plans: Heavy Timbermaw Boots
+19205,Plans: Gloves of the Dawn
+19215,Pattern: Wisdom of the Timbermaw
+19216,Pattern: Argent Boots
+19217,Pattern: Argent Shoulders
+19218,Pattern: Mantle of the Timbermaw
+19326,Pattern: Might of the Timbermaw
+19327,Pattern: Timbermaw Brawlers
+19328,Pattern: Dawn Treaders
+19329,Pattern: Golden Mantle of the Dawn
+19442,Formula: Powerful Anti-Venom
+19445,Formula: Enchant Weapon - Agility
+19446,Formula: Enchant Bracer - Mana Regeneration
+19447,Formula: Enchant Bracer - Healing
+19764,Pattern: Bloodvine Vest
+19765,Pattern: Bloodvine Leggings
+19766,Pattern: Bloodvine Boots
+19769,Pattern: Primal Batskin Jerkin
+19770,Pattern: Primal Batskin Gloves
+19771,Pattern: Primal Batskin Bracers
+19772,Pattern: Blood Tiger Breastplate
+19773,Pattern: Blood Tiger Shoulders
+19776,Plans: Bloodsoul Breastplate
+19777,Plans: Bloodsoul Shoulders
+19778,Plans: Bloodsoul Gauntlets
+19779,Plans: Darksoul Breastplate
+19780,Plans: Darksoul Leggings
+19781,Plans: Darksoul Shoulders
+20000,Schematic: Bloodvine Goggles
+20001,Schematic: Bloodvine Lens
+20011,Recipe: Mageblood Potion
+20012,Recipe: Greater Dreamless Sleep
+20013,Recipe: Living Action Potion
+20014,Recipe: Major Troll's Blood Potion
+20075,Recipe: Heavy Crocolisk Stew
+20253,Pattern: Warbear Harness
+20254,Pattern: Warbear Woolies
+20382,Pattern: Dreamscale Breastplate
+20506,Pattern: Spitfire Bracers
+20507,Pattern: Spitfire Gauntlets
+20508,Pattern: Spitfire Breastplate
+20509,Pattern: Sandstalker Bracers
+20510,Pattern: Sandstalker Gauntlets
+20511,Pattern: Sandstalker Breastplate
+20576,Pattern: Black Whelp Tunic
+20732,Formula: Enchant Cloak - Greater Fire Resistance
+20733,Formula: Enchant Cloak - Greater Nature Resistance
+20752,Formula: Minor Mana Oil
+20753,Formula: Lesser Wizard Oil
+20754,Formula: Lesser Mana Oil
+20755,Formula: Wizard Oil
+20756,Formula: Brilliant Wizard Oil
+20757,Formula: Brilliant Mana Oil
+20758,Formula: Minor Wizard Oil
+20761,Recipe: Transmute Elemental Fire
+21099,Recipe: Smoked Sagefish
+21219,Recipe: Sagefish Delight
+21358,Pattern: Soul Pouch
+22209,Plans: Heavy Obsidian Belt
+22214,Plans: Light Obsidian Belt
+22219,Plans: Jagged Obsidian Shield
+22221,Plans: Obsidian Mail Tunic
+22307,Pattern: Enchanted Mageweave Pouch
+22308,Pattern: Enchanted Runecloth Bag
+22310,Pattern: Cenarion Herb Bag
+22312,Pattern: Satchel of Cenarius
+22392,Formula: Enchant 2H Weapon - Agility
+22683,Pattern: Gaea's Embrace
+22766,Plans: Ironvine Breastplate
+22767,Plans: Ironvine Gloves
+22768,Plans: Ironvine Belt
+22769,Pattern: Bramblewood Belt
+22770,Pattern: Bramblewood Boots
+22771,Pattern: Bramblewood Helm
+22772,Pattern: Sylvan Shoulders
+22773,Pattern: Sylvan Crown
+22774,Pattern: Sylvan Vest

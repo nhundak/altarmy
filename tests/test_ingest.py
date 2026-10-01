@@ -78,6 +78,62 @@ def test_learn_skills_take_the_lowest_rank_of_the_items_teaching_a_spell(tmp_pat
     assert ingest.learn_skills({"ItemEffect": effects}, ranks) == {700: 60}
 
 
+def test_build_db_loads_what_teaches_a_recipe(db2_paths: dict[str, Path], conn: Connection) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    # the item teaching the robe's craft spell binds on equip: a recipe that can be traded
+    assert conn.execute(select(schema.recipes.c.source)).scalar_one() == "recipe"
+
+
+def test_learn_sources_are_bind_on_pickup_only_when_every_teaching_item_is(tmp_path: Path) -> None:
+    effects = write_csv(
+        tmp_path / "ItemEffect.csv",
+        ["ID", "TriggerType", "SpellID", "ParentItemID"],
+        [
+            {"ID": 1, "TriggerType": 6, "SpellID": 700, "ParentItemID": 10},  # binds on pickup
+            {"ID": 2, "TriggerType": 6, "SpellID": 700, "ParentItemID": 11},  # the same recipe, tradable
+            {"ID": 3, "TriggerType": 6, "SpellID": 701, "ParentItemID": 12},  # binds on pickup
+            {"ID": 4, "TriggerType": 6, "SpellID": 702, "ParentItemID": 13},  # a quest item
+            {"ID": 5, "TriggerType": 6, "SpellID": 703, "ParentItemID": 14},  # never binds
+            {"ID": 7, "TriggerType": 6, "SpellID": 705, "ParentItemID": 15},  # an item the game lacks
+            {"ID": 8, "TriggerType": 6, "SpellID": 706, "ParentItemID": 16},  # binds on pickup, a vendor's
+            {"ID": 6, "TriggerType": 0, "SpellID": 704, "ParentItemID": 10},  # a Use effect teaches nothing
+        ],
+    )
+    bonding = {10: 1, 11: 2, 12: 1, 13: 4, 14: 0, 16: 1}
+    assert ingest.learn_sources({"ItemEffect": effects}, bonding) == {
+        700: "recipe",
+        701: "bop",
+        702: "bop",
+        703: "recipe",
+        706: "bop",
+    }
+    # a recipe a vendor sells is there for anyone to buy, bound or not: only looted ones stay "bop"
+    assert ingest.learn_sources({"ItemEffect": effects}, bonding, frozenset({16, 99}))[706] == "recipe"
+
+
+def test_build_db_counts_a_vendors_bind_on_pickup_recipe_as_a_normal_one(
+    db2_paths: dict[str, Path], conn: Connection, tmp_path: Path
+) -> None:
+    def source(vendor_csv: Path | None = None, vendor_recipes_csv: Path | None = None) -> str:
+        ingest.build_db(
+            db2_paths, conn, FOREVER, vendor_csv=vendor_csv, vendor_recipes_csv=vendor_recipes_csv
+        )
+        return str(conn.execute(select(schema.recipes.c.source)).scalar_one())
+
+    sparse = db2_paths["ItemSparse"]
+    rows = list(ingest._rows(sparse))
+    for r in rows:
+        if r["ID"] == "3":
+            r["Bonding"] = "1"  # the item teaching the robe now binds on pickup
+    write_csv(sparse, list(rows[0]), [dict(r) for r in rows])
+    assert source() == "bop"
+    limited = write_csv(
+        tmp_path / "vendor_recipes.csv", ["item_id", "name"], [{"item_id": 3, "name": "Robe"}]
+    )
+    assert source(vendor_recipes_csv=limited) == "recipe"
+    assert source(vendor_csv=limited) == "recipe"  # as does one with unlimited stock
+
+
 def test_craft_stations_are_the_foci_profession_spells_need(db2_paths: dict[str, Path]) -> None:
     assert ingest.craft_stations(db2_paths) == {1: "Anvil"}  # the robe's; the forge and fire go unused
 

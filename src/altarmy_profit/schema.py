@@ -144,6 +144,9 @@ recipes = Table(
     # ItemSparse.RequiredSkillRank of the recipe item teaching it (the lowest, if several do); 0 if none
     # does: trainers teach it, and DB2 doesn't say at what skill
     Column("learn_skill", Integer, nullable=False, default=0, server_default="0"),
+    # what teaches it (`engine.Source`): "recipe" a recipe item that can be traded, "bop" only recipe
+    # items that bind on pickup, "trainer" no item (a profession trainer)
+    Column("source", Text, nullable=False, default="trainer", server_default="trainer"),
 )
 
 recipe_reagents = Table(

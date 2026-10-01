@@ -561,6 +561,13 @@
             "title": "Include Trivial",
             "type": "boolean"
           },
+          "look_ahead": {
+            "default": 0,
+            "maximum": 50.0,
+            "minimum": 0.0,
+            "title": "Look Ahead",
+            "type": "integer"
+          },
           "price_version": {
             "anyOf": [
               {
@@ -584,12 +591,27 @@
             "title": "Skill Crafters",
             "type": "array"
           },
+          "sources": {
+            "default": [
+              "trainer",
+              "recipe"
+            ],
+            "items": {
+              "enum": [
+                "trainer",
+                "recipe",
+                "bop"
+              ],
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
           "unlearned": {
             "default": "none",
             "enum": [
               "none",
-              "now",
-              "soon",
+              "train",
               "all"
             ],
             "title": "Unlearned",
@@ -3403,21 +3425,57 @@
         "operationId": "get_rank_api_rank_get",
         "parameters": [
           {
-            "description": "recipes nobody has learned: none, those a character has the skill to learn (now), those they are at most 20 skill short of learning (soon), or every recipe of their professions (all)",
+            "description": "recipes nobody has learned: none, those a character can train (see `look_ahead` and `sources`), or every recipe of their professions (all)",
             "in": "query",
             "name": "unlearned",
             "required": false,
             "schema": {
               "default": "none",
-              "description": "recipes nobody has learned: none, those a character has the skill to learn (now), those they are at most 20 skill short of learning (soon), or every recipe of their professions (all)",
+              "description": "recipes nobody has learned: none, those a character can train (see `look_ahead` and `sources`), or every recipe of their professions (all)",
               "enum": [
                 "none",
-                "now",
-                "soon",
+                "train",
                 "all"
               ],
               "title": "Unlearned",
               "type": "string"
+            }
+          },
+          {
+            "description": "with unlearned=train: how much more skill than a character has a recipe may need (0: only what they can train now)",
+            "in": "query",
+            "name": "look_ahead",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "with unlearned=train: how much more skill than a character has a recipe may need (0: only what they can train now)",
+              "maximum": 50,
+              "minimum": 0,
+              "title": "Look Ahead",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "with unlearned=train: what may teach the recipe: a trainer, a recipe item that can be traded (recipe), one that binds on pickup (bop)",
+            "in": "query",
+            "name": "sources",
+            "required": false,
+            "schema": {
+              "default": [
+                "trainer",
+                "recipe"
+              ],
+              "description": "with unlearned=train: what may teach the recipe: a trainer, a recipe item that can be traded (recipe), one that binds on pickup (bop)",
+              "items": {
+                "enum": [
+                  "trainer",
+                  "recipe",
+                  "bop"
+                ],
+                "type": "string"
+              },
+              "title": "Sources",
+              "type": "array"
             }
           },
           {

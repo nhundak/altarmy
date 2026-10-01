@@ -44,6 +44,11 @@ class GameVersion:
         return self.data_dir / "vendor_items.csv"
 
     @property
+    def vendor_recipes_csv(self) -> Path:
+        """Recipe items vendors sell, limited stock included (Forever only: `vmangos.vendor_recipes`)."""
+        return self.data_dir / "vendor_recipes.csv"
+
+    @property
     def cities_dir(self) -> Path:
         """City presets for timing crafts (`timing.CityMap` JSON), from scripts/build_cities.py."""
         return self.data_dir / "cities"

@@ -140,6 +140,7 @@ def load_market(
             cast_time_ms=r.cast_time_ms,
             station=r.station,
             learn_skill=r.learn_skill,
+            source=r.source,
             kind=r.kind,
         )
         for r in conn.execute(select(rt).where(rt.c.game_version == game_version).order_by(rt.c.id))

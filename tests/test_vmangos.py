@@ -12,7 +12,7 @@ CREATE TABLE creature (guid INTEGER, id INTEGER, id2 INTEGER, id3 INTEGER, id4 I
 CREATE TABLE creature_template (entry INTEGER, patch INTEGER, name TEXT, vendor_id INTEGER);
 CREATE TABLE npc_vendor (entry INTEGER, item INTEGER, maxcount INTEGER, condition_id INTEGER);
 CREATE TABLE npc_vendor_template (entry INTEGER, item INTEGER, maxcount INTEGER, condition_id INTEGER);
-CREATE TABLE item_template (entry INTEGER, patch INTEGER, name TEXT);
+CREATE TABLE item_template (entry INTEGER, patch INTEGER, name TEXT, class INTEGER DEFAULT 0);
 """
 
 
@@ -38,7 +38,7 @@ def world(tmp_path: Path) -> Iterator[sqlite3.Connection]:
     )
     conn.executemany("INSERT INTO npc_vendor_template VALUES (?,?,?,?)", [(50, 104, 0, 0), (50, 100, 0, 0)])
     conn.executemany(
-        "INSERT INTO item_template VALUES (?,?,?)",
+        "INSERT INTO item_template (entry, patch, name) VALUES (?,?,?)",
         [(100, 0, "Rune Thred"), (100, 1, "Rune Thread"), (104, 0, "Empty Vial")],
     )
     yield conn
@@ -47,6 +47,37 @@ def world(tmp_path: Path) -> Iterator[sqlite3.Connection]:
 
 def test_vendor_items_are_unlimited_unconditional_and_spawned(world: sqlite3.Connection) -> None:
     assert vmangos.vendor_items(world) == [(100, "Rune Thread"), (104, "Empty Vial")]
+
+
+def test_vendor_recipes_are_recipe_items_of_any_stock_unconditional_and_spawned(
+    world: sqlite3.Connection,
+) -> None:
+    world.executemany(
+        "INSERT INTO item_template (entry, patch, name, class) VALUES (?,?,?,?)",
+        [
+            (200, 0, "Recipe: Stew", 9),
+            (201, 0, "Plans: Maul", 9),
+            (202, 0, "Pattern: Timbermaw Belt", 9),
+            (203, 0, "Recipe: Ghost Pie", 9),
+            (204, 0, "Formula: Glow", 9),
+        ],
+    )
+    world.executemany(
+        "INSERT INTO npc_vendor VALUES (?,?,?,?)",
+        [
+            (1, 200, 0, 0),  # unlimited
+            (1, 201, 1, 0),  # limited stock: still a vendor's
+            (1, 202, 0, 7),  # behind a condition (reputation, event, ...)
+            (2, 203, 0, 0),  # vendor never spawns
+        ],
+    )
+    world.execute("INSERT INTO npc_vendor_template VALUES (50, 204, 1, 0)")
+    # not the thread and vials: they teach nothing
+    assert vmangos.vendor_recipes(world) == [
+        (200, "Recipe: Stew"),
+        (201, "Plans: Maul"),
+        (204, "Formula: Glow"),
+    ]
 
 
 def test_world_db_url_picks_the_sqlite_dump() -> None:

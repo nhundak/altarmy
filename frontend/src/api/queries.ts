@@ -75,13 +75,23 @@ export function useDeleteCharacter() {
 
 export type Exit = 'vendor' | 'disenchant' | 'ah'
 
-/** Which recipes nobody has learned count: none, those a character can train soon (at most 20 skill short of
- * learning), or every recipe of their professions. */
-export type Unlearned = 'none' | 'now' | 'soon' | 'all'
+/** Which recipes nobody has learned count: none, those a character can train (see `lookAhead` and `sources`), or
+ * every recipe of their professions. */
+export type Unlearned = 'none' | 'train' | 'all'
+
+/** What teaches a recipe: a profession trainer, a recipe item that can be traded, or only ones that bind on pickup. */
+export type Source = 'trainer' | 'recipe' | 'bop'
+export const ALL_SOURCES: readonly Source[] = ['trainer', 'recipe', 'bop']
+/** The most skill a recipe to train may need beyond what the character has (the API's limit). */
+export const MAX_LOOK_AHEAD = 50
 
 /** `/api/rank` parameters: money in copper, ROI as a fraction (0.5 = 50%), `null` for no bound. */
 export type RankParams = {
   unlearned: Unlearned
+  /** recipes to train: how much more skill than a character has one may need (0: what they can train now) */
+  lookAhead: number
+  /** recipes to train: what may teach them */
+  sources: Source[]
   /** false: only recipes that can give the crafter a skillup */
   includeTrivial: boolean
   /** the characters being skilled up: only they do the final craft, the lowest-skilled first; empty for anyone */
@@ -104,6 +114,14 @@ export type RankParams = {
 
 const orUndefined = <T>(v: T | null) => v ?? undefined
 
+/** The look-ahead and sources as the API takes them: only recipes to train have any. */
+const training = ({
+  unlearned,
+  lookAhead,
+  sources,
+}: Pick<RankParams, 'unlearned' | 'lookAhead' | 'sources'>): { look_ahead?: number; sources?: Source[] } =>
+  unlearned === 'train' ? { look_ahead: lookAhead, sources } : {}
+
 /** Ranked recipes for the selected realm/faction's characters (every recipe without characters). */
 export function useRank(params: RankParams) {
   const version = useDataVersion()
@@ -117,6 +135,7 @@ export function useRank(params: RankParams) {
             query: {
               game_version: GAME_VERSION,
               unlearned: params.unlearned,
+              ...training(params),
               include_trivial: params.includeTrivial,
               skill_crafters: params.skillCrafters.length ? params.skillCrafters : undefined,
               exits: params.exits,
@@ -144,7 +163,7 @@ export function useRank(params: RankParams) {
  * came from (so a sync re-costs the user's changed plans too). */
 export type EvaluateParams = Pick<
   RankParams,
-  'unlearned' | 'includeTrivial' | 'skillCrafters' | 'exits' | 'arcaneSalvager'
+  'unlearned' | 'lookAhead' | 'sources' | 'includeTrivial' | 'skillCrafters' | 'exits' | 'arcaneSalvager'
 > & { version?: string }
 
 export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: Error | null }
@@ -153,13 +172,13 @@ export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: E
  * previous evaluation stays in `data`. */
 export function useEvaluations(
   choices: Readonly<Record<number, Choices>>,
-  { unlearned, includeTrivial, skillCrafters, exits, arcaneSalvager, version }: EvaluateParams,
+  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, version }: EvaluateParams,
 ): Readonly<Record<number, EvaluationState>> {
   const ids = Object.keys(choices).map(Number)
   const priceVersion = usePriceVersion()
   return useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, includeTrivial, skillCrafters, exits, arcaneSalvager, choices[id]],
+      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, choices[id]],
       queryFn: () =>
         call(
           client.POST('/api/evaluate', {
@@ -167,6 +186,8 @@ export function useEvaluations(
             body: {
               recipe_id: id,
               unlearned,
+              look_ahead: lookAhead,
+              sources,
               include_trivial: includeTrivial,
               skill_crafters: skillCrafters,
               exits,
@@ -194,7 +215,7 @@ export function useEvaluations(
  * shown while a new one loads. */
 export function useSessionPlan(
   recipeId: number,
-  { unlearned, includeTrivial, skillCrafters, exits, arcaneSalvager, version }: EvaluateParams,
+  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, version }: EvaluateParams,
   choices: Choices | undefined,
   copies: number | null,
   city: string | null,
@@ -204,7 +225,7 @@ export function useSessionPlan(
   const priceVersion = usePriceVersion()
   return useQuery({
     // under 'evaluate', so whatever re-costs plans (time settings, AH blocks) re-plans sessions too
-    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, includeTrivial, skillCrafters, exits, arcaneSalvager, choices ?? {}, 'session', copies, city, crafter],
+    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, choices ?? {}, 'session', copies, city, crafter],
     queryFn: () =>
       call(
         client.POST('/api/evaluate', {
@@ -212,6 +233,8 @@ export function useSessionPlan(
           body: {
             recipe_id: recipeId,
             unlearned,
+            look_ahead: lookAhead,
+            sources,
             include_trivial: includeTrivial,
             skill_crafters: skillCrafters,
             exits,

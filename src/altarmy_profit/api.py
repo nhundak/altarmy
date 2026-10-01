@@ -65,6 +65,8 @@ DEFAULT_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 ExitKind = Literal["vendor", "ah", "disenchant"]
 ALL_EXIT_KINDS: tuple[ExitKind, ...] = ("vendor", "ah", "disenchant")
+# What may teach a recipe "to train" unless the request says otherwise (as `engine.DEFAULT_SOURCES`, ordered)
+DEFAULT_SOURCES: tuple[engine.Source, ...] = ("trainer", "recipe")
 
 
 # --- models ----------------------------------------------------------------------------------------
@@ -367,6 +369,8 @@ class EvaluateRequest(BaseModel):
 
     recipe_id: int
     unlearned: engine.Unlearned = "none"  # as /api/rank's
+    look_ahead: int = Field(default=0, ge=0, le=engine.MAX_LOOK_AHEAD)  # as /api/rank's
+    sources: list[engine.Source] = list(DEFAULT_SOURCES)  # as /api/rank's
     include_trivial: bool = True  # False: only a crafter it can give a skillup does the final craft
     skill_crafters: list[str] = []  # as /api/rank's
     crafter: str | None = None  # who does the final craft (default: as /api/rank picks)
@@ -873,11 +877,26 @@ def get_rank(
     unlearned: Annotated[
         engine.Unlearned,
         Query(
-            description="recipes nobody has learned: none, those a character has the skill to learn (now), "
-            f"those they are at most {engine.SOON_SKILL} skill short of learning (soon), or every recipe of "
-            "their professions (all)"
+            description="recipes nobody has learned: none, those a character can train (see `look_ahead` "
+            "and `sources`), or every recipe of their professions (all)"
         ),
     ] = "none",
+    look_ahead: Annotated[
+        int,
+        Query(
+            ge=0,
+            le=engine.MAX_LOOK_AHEAD,
+            description="with unlearned=train: how much more skill than a character has a recipe may need "
+            "(0: only what they can train now)",
+        ),
+    ] = 0,
+    sources: Annotated[
+        Sequence[engine.Source],
+        Query(
+            description="with unlearned=train: what may teach the recipe: a trainer, a recipe item that can "
+            "be traded (recipe), one that binds on pickup (bop)"
+        ),
+    ] = DEFAULT_SOURCES,
     include_trivial: Annotated[
         bool, Query(description="also recipes that can't give the crafter a skillup (grey or at the cap)")
     ] = True,
@@ -926,10 +945,11 @@ def get_rank(
     # moving them never ranks again; nor does sorting it by rate or skill.
     whose = user.uid if chars else ""
     skilled = frozenset(skill_crafters or ())
+    learning = engine.Learning(unlearned, look_ahead, frozenset(sources)).normalized()
     key = (
         whose,
         tuple(chars),
-        unlearned,
+        learning,
         include_trivial,
         skilled,
         frozenset(exits),
@@ -942,7 +962,7 @@ def get_rank(
         matches = service.search(
             base,
             chars,
-            unlearned,
+            learning,
             engine.Filters(),
             frozenset(exits),
             no_ah,
@@ -985,7 +1005,7 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
     r = service.evaluate(
         s.base,
         s.chars,
-        body.unlearned,
+        engine.Learning(body.unlearned, body.look_ahead, frozenset(body.sources)),
         frozenset(body.exits),
         body.recipe_id,
         body.choices,

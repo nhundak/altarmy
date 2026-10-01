@@ -1,4 +1,5 @@
-"""Regenerate data/<version>/vendor_items.csv from an open-source world database.
+"""Regenerate data/<version>/vendor_items.csv (and Forever's vendor_recipes.csv) from an open-source world
+database.
 
 Forever (vanilla-based) reads vmangos' database, TBC reads cmangos' tbc-db; each is downloaded once into
 cache/. Usage: python scripts/build_vendor_items.py [--game-version forever|tbc]
@@ -23,10 +24,16 @@ def main() -> None:
     world = source.download_world_db(ROOT / "cache")
     conn = sqlite3.connect(world)
     rows = source.vendor_items(conn)
+    # Forever binds most recipes on pickup, so ingest needs to know which of them a vendor sells
+    recipes = vmangos.vendor_recipes(conn) if source is vmangos else None
     conn.close()
     out.parent.mkdir(parents=True, exist_ok=True)
     vmangos.write_csv(rows, out)
     print(f"wrote {len(rows)} vendor items to {out}")
+    if recipes is not None:
+        recipes_out = ROOT / versions.VERSIONS[args.game_version].vendor_recipes_csv
+        vmangos.write_csv(recipes, recipes_out)
+        print(f"wrote {len(recipes)} vendor recipes to {recipes_out}")
 
 
 if __name__ == "__main__":

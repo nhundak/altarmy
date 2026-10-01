@@ -1,4 +1,4 @@
-import { memo, type ReactNode, useEffect, useId, useMemo, useState } from 'react'
+import { Fragment, memo, type ReactNode, useEffect, useId, useMemo, useState } from 'react'
 import {
   Accordion,
   Alert,
@@ -10,6 +10,7 @@ import {
   Radio,
   Select,
   SimpleGrid,
+  Slider,
   Stack,
   Text,
   Tooltip,
@@ -18,8 +19,11 @@ import {
 } from '@mantine/core'
 import { z } from 'zod'
 import {
+  ALL_SOURCES,
   type Exit,
+  MAX_LOOK_AHEAD,
   type RankParams,
+  type Source,
   type Unlearned,
   useAhBlocked,
   useCharacters,
@@ -156,11 +160,76 @@ function Options({ children }: { children: ReactNode }) {
 }
 
 const UNLEARNED: { value: Unlearned; label: string }[] = [
-  { value: 'none', label: 'Show recipes I already know' },
-  { value: 'now', label: 'Include recipes I can train now' },
-  { value: 'soon', label: 'Include recipes I can train soon (20 skill points)' },
+  { value: 'none', label: 'Show all recipes I already know' },
+  { value: 'train', label: 'Include recipes I can train' },
   { value: 'all', label: 'Include all recipes' },
 ]
+/** The stored choice; "now" and "soon", from before the look-ahead was a slider, read as recipes to train. */
+const storedUnlearned = z.preprocess(
+  (v) => (v === 'now' || v === 'soon' ? 'train' : v),
+  z.enum(['none', 'train', 'all']),
+)
+const LOOK_AHEAD_STEP = 5
+const storedLookAhead = z.number().int().min(0).max(MAX_LOOK_AHEAD).multipleOf(LOOK_AHEAD_STEP)
+const SOURCES: { value: Source; label: string }[] = [
+  { value: 'trainer', label: 'Taught by trainers' },
+  { value: 'recipe', label: 'Taught by normal recipes' },
+  { value: 'bop', label: 'Taught by bind on pickup looted recipes' },
+]
+const sourceList = z.array(z.enum(['trainer', 'recipe', 'bop']))
+const DEFAULT_SOURCES: Source[] = ['trainer', 'recipe']
+const LOOK_AHEAD_MARKS = [0, 10, 20, 30, 40, 50].map((value) => ({ value, label: String(value) }))
+
+/** The options of "Include recipes I can train", set in under it: how far to look ahead, and what may teach them. */
+function TrainOptions({
+  lookAhead,
+  onLookAhead,
+  sources,
+  onSources,
+}: {
+  lookAhead: number
+  onLookAhead: (points: number) => void
+  sources: Source[]
+  onSources: (sources: Source[]) => void
+}) {
+  return (
+    <Stack gap="sm" className={classes.suboptions} role="group" aria-label="Recipes I can train">
+      <div>
+        <Text size="sm">
+          Skill points to look ahead: <b>{lookAhead}</b>
+        </Text>
+        <Text size="xs" c="dimmed">
+          {lookAhead === 0
+            ? 'Only recipes that can be trained right now.'
+            : `Also recipes needing up to ${lookAhead} more skill ${lookAhead === 1 ? 'point' : 'points'}.`}
+        </Text>
+        <Slider
+          mt={6}
+          mb="lg"
+          size="sm"
+          min={0}
+          max={MAX_LOOK_AHEAD}
+          step={LOOK_AHEAD_STEP}
+          marks={LOOK_AHEAD_MARKS}
+          value={lookAhead}
+          onChange={onLookAhead}
+          thumbLabel="Skill points to look ahead"
+        />
+      </div>
+      <Checkbox.Group
+        aria-label="Recipe sources"
+        value={sources}
+        onChange={(v) => onSources(ALL_SOURCES.filter((s) => v.includes(s)))}
+      >
+        <Stack gap={6}>
+          {SOURCES.map((s) => (
+            <Checkbox key={s.value} size="xs" value={s.value} label={s.label} />
+          ))}
+        </Stack>
+      </Checkbox.Group>
+    </Stack>
+  )
+}
 const SECTIONS = ['advanced', 'time'] as const
 const NONE_OPEN: string[] = []
 const storedSetup = setupSchema.nullable()
@@ -230,6 +299,8 @@ const Results = memo(function Results({
         classes={rank.data.classes}
         params={{
           unlearned: filters.unlearned,
+          lookAhead: filters.lookAhead,
+          sources: filters.sources,
           includeTrivial: filters.includeTrivial,
           skillCrafters: filters.skillCrafters,
           exits: filters.exits,
@@ -312,9 +383,12 @@ export function SearchTab() {
   const [editing, setEditing] = useState<Step | null>(null)
   const [unlearned, setUnlearned] = useStoredState<Unlearned>(
     'altarmy-profit.search.unlearned',
-    z.enum(['none', 'now', 'soon', 'all']),
+    storedUnlearned,
     'none',
   )
+  // Both only count for recipes to train, and are kept while another option is picked.
+  const [lookAhead, setLookAhead] = useStoredState('altarmy-profit.search.lookAhead', storedLookAhead, 0)
+  const [sources, setSources] = useStoredState<Source[]>('altarmy-profit.search.sources', sourceList, DEFAULT_SOURCES)
   const [includeTrivial, setIncludeTrivial] = useStoredState(
     'altarmy-profit.search.includeTrivial',
     z.boolean(),
@@ -355,6 +429,8 @@ export function SearchTab() {
   const filters = useMemo<Filters>(
     () => ({
       unlearned,
+      lookAhead,
+      sources: ALL_SOURCES.filter((s) => sources.includes(s)),
       includeTrivial,
       exits: ALL_EXITS.filter((e) => exits.includes(e)),
       arcaneSalvager,
@@ -368,7 +444,7 @@ export function SearchTab() {
       skillCrafters: skilled ? skilled.split(',') : [],
       sort,
     }),
-    [unlearned, includeTrivial, exits, arcaneSalvager, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, sort, profession, skilled],
+    [unlearned, lookAhead, sources, includeTrivial, exits, arcaneSalvager, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, sort, profession, skilled],
   )
   const [picks, setPicks] = useState(0)
   // Flushed once the characters load too: the Arcane Salvager's default comes from them.
@@ -461,7 +537,17 @@ export function SearchTab() {
                     >
                       <Stack mt={4} gap="xs">
                         {UNLEARNED.map((o) => (
-                          <Radio key={o.value} value={o.value} label={o.label} />
+                          <Fragment key={o.value}>
+                            <Radio value={o.value} label={o.label} />
+                            {o.value === 'train' && unlearned === 'train' && (
+                              <TrainOptions
+                                lookAhead={lookAhead}
+                                onLookAhead={setLookAhead}
+                                sources={sources}
+                                onSources={setSources}
+                              />
+                            )}
+                          </Fragment>
                         ))}
                       </Stack>
                     </Radio.Group>

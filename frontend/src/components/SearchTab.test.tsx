@@ -203,6 +203,8 @@ describe('SearchTab', () => {
     const [rank] = urls(fetch, '/api/rank')
     expect(rank?.searchParams.get('sort')).toBe('rate')
     expect(rank?.searchParams.get('unlearned')).toBe('none') // only recipes they know
+    expect(rank?.searchParams.has('look_ahead')).toBe(false) // nothing is trained: no look-ahead or sources
+    expect(rank?.searchParams.has('sources')).toBe(false)
     expect(rank?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant', 'ah'])
     expect(rank?.searchParams.has('professions')).toBe(false)
     expect(JSON.parse(localStorage.getItem('altarmy-profit.setup.g1') ?? '')).toEqual({ aim: 'gold', selling: 'any' })
@@ -248,9 +250,11 @@ describe('SearchTab', () => {
     expect(rank?.searchParams.has('min_profit')).toBe(false)
     expect(rank?.searchParams.has('min_roi')).toBe(false) // losses have a negative ROI
     expect(rank?.searchParams.get('sort')).toBe('skill')
-    expect(rank?.searchParams.get('unlearned')).toBe('now') // and those they can train now
+    expect(rank?.searchParams.get('unlearned')).toBe('train') // and those they can train now,
+    expect(rank?.searchParams.get('look_ahead')).toBe('0')
+    expect(rank?.searchParams.getAll('sources')).toEqual(['trainer', 'recipe']) // not from bind on pickup recipes
     expect(rank?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant']) // no auction house
-    expect(screen.getByRole('radio', { name: 'Include recipes I can train now' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Include recipes I can train' })).toBeChecked()
     expect(rank?.searchParams.getAll('professions')).toEqual(['Tailoring'])
     expect(rank?.searchParams.getAll('skill_crafters')).toEqual(['Tailor Guy']) // the only tailor, picked at once
     expect(localStorage.getItem('altarmy-profit.search.includeTrivial')).toBe('false')
@@ -487,7 +491,9 @@ describe('SearchTab', () => {
   })
 
   it('ranks with the stored parameters', async () => {
-    localStorage.setItem('altarmy-profit.search.unlearned', '"soon"')
+    localStorage.setItem('altarmy-profit.search.unlearned', '"train"')
+    localStorage.setItem('altarmy-profit.search.lookAhead', '15')
+    localStorage.setItem('altarmy-profit.search.sources', JSON.stringify(['bop', 'trainer']))
     localStorage.setItem('altarmy-profit.search.includeTrivial', 'false')
     localStorage.setItem('altarmy-profit.search.open', JSON.stringify(['advanced', 'characters']))
     localStorage.setItem('altarmy-profit.search.exits', JSON.stringify(['ah', 'vendor']))
@@ -512,14 +518,18 @@ describe('SearchTab', () => {
     expect(
       screen.getByText("Dead simple, 100% reliable. It's rarely profitable, but use it if you can."),
     ).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: 'Include recipes I can train soon (20 skill points)' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Include recipes I can train' })).toBeChecked()
+    expect(screen.getByRole('slider', { name: 'Skill points to look ahead' })).toHaveAttribute('aria-valuenow', '15')
+    expect(screen.getByRole('checkbox', { name: 'Taught by trainers' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Taught by normal recipes' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Taught by bind on pickup looted recipes' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Show only recipes that can give a skill up' })).toBeChecked()
     await waitFor(() => expect(realm()).toHaveValue('Classic Beta PvE (Horde) · 1 character'))
     expect(screen.queryByRole('button', { name: /^Characters/ })).not.toBeInTheDocument()
     await screen.findByText(/No recipes match these filters/)
     const [rank] = urls(fetch, '/api/rank')
     expect(rank?.searchParams.toString()).toBe(
-      'game_version=forever&unlearned=soon&include_trivial=false&exits=vendor&exits=ah&arcane_salvager=false&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&sort=rate&top=50&price_version=0',
+      'game_version=forever&unlearned=train&look_ahead=15&sources=trainer&sources=bop&include_trivial=false&exits=vendor&exits=ah&arcane_salvager=false&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&sort=rate&top=50&price_version=0',
     )
   })
 
@@ -623,7 +633,7 @@ describe('SearchTab', () => {
       await userEvent.click(filters)
       expect(filters).toHaveAttribute('aria-expanded', 'true')
       expect(screen.getByRole('checkbox', { name: 'Vendor' })).toBeVisible()
-      expect(screen.getByRole('radio', { name: 'Show recipes I already know' })).toBeVisible()
+      expect(screen.getByRole('radio', { name: 'Show all recipes I already know' })).toBeVisible()
     } finally {
       window.matchMedia = real
     }
@@ -721,6 +731,57 @@ describe('SearchTab', () => {
     expect(await put?.json()).toEqual({ realm: 'Atiesh', faction: '' })
   })
 
+  it('offers how far to look ahead and the recipe sources only under recipes to train', async () => {
+    localStorage.setItem('altarmy-profit.search.unlearned', '"soon"') // from before the look-ahead: to train
+    localStorage.setItem('altarmy-profit.search.lookAhead', '55') // out of range: the default
+    const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<SearchTab />)
+    const train = await screen.findByRole('radio', { name: 'Include recipes I can train' })
+    expect(train).toBeChecked()
+    expect(screen.getAllByRole('radio').map((r) => r.closest('.mantine-Radio-root')?.textContent)).toEqual([
+      'Show all recipes I already know',
+      'Include recipes I can train',
+      'Include all recipes',
+    ])
+    const options = screen.getByRole('group', { name: 'Recipes I can train' })
+    const slider = within(options).getByRole('slider', { name: 'Skill points to look ahead' })
+    expect(slider).toHaveAttribute('aria-valuemin', '0')
+    expect(slider).toHaveAttribute('aria-valuemax', '50')
+    expect(slider).toHaveAttribute('aria-valuenow', '0')
+    const boxes = within(options).getAllByRole<HTMLInputElement>('checkbox')
+    expect(boxes.map((c) => [c.closest('.mantine-Checkbox-root')?.textContent, c.checked])).toEqual([
+      ['Taught by trainers', true],
+      ['Taught by normal recipes', true],
+      ['Taught by bind on pickup looted recipes', false],
+    ])
+    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
+
+    fireEvent.keyDown(slider, { key: 'ArrowRight' }) // one step is 5 points
+    expect(localStorage.getItem('altarmy-profit.search.lookAhead')).toBe('5')
+    fireEvent.keyDown(slider, { key: 'End' })
+    expect(localStorage.getItem('altarmy-profit.search.lookAhead')).toBe('50')
+    fireEvent.click(within(options).getByRole('checkbox', { name: 'Taught by bind on pickup looted recipes' }))
+    fireEvent.click(within(options).getByRole('checkbox', { name: 'Taught by trainers' }))
+    expect(localStorage.getItem('altarmy-profit.search.sources')).toBe('["recipe","bop"]')
+    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(2))
+    const params = urls(fetch, '/api/rank')[1]?.searchParams
+    expect(params?.get('look_ahead')).toBe('50')
+    expect(params?.getAll('sources')).toEqual(['recipe', 'bop'])
+
+    // the other two options have no sub-options, and send none
+    fireEvent.click(screen.getByRole('radio', { name: 'Include all recipes' }))
+    expect(screen.queryByRole('group', { name: 'Recipes I can train' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(3))
+    const all = urls(fetch, '/api/rank')[2]?.searchParams
+    expect(all?.get('unlearned')).toBe('all')
+    expect(all?.has('look_ahead')).toBe(false)
+    expect(all?.has('sources')).toBe(false)
+    // what was picked is kept for the next time
+    fireEvent.click(screen.getByRole('radio', { name: 'Include recipes I can train' }))
+    expect(screen.getByRole('slider', { name: 'Skill points to look ahead' })).toHaveAttribute('aria-valuenow', '50')
+  })
+
   it('saves changed parameters and ignores malformed stored values', async () => {
     localStorage.setItem('altarmy-profit.search.unlearned', '"yes"')
     localStorage.setItem('altarmy-profit.search.maxProfit', 'garbage')
@@ -732,7 +793,7 @@ describe('SearchTab', () => {
     for (const name of ['Vendor', 'Disenchant', 'Auction house']) {
       expect(screen.getByRole('checkbox', { name })).toBeChecked()
     }
-    expect(screen.getByRole('radio', { name: 'Show recipes I already know' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Show all recipes I already know' })).toBeChecked()
     const skillUps = screen.getByRole('checkbox', { name: 'Show only recipes that can give a skill up' })
     expect(skillUps).not.toBeChecked()
     fireEvent.change(maxProfit, { target: { value: '40' } })

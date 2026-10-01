@@ -2,7 +2,8 @@
 world database.
 
 DB2 does not say what vendors sell (that is server-side data), so `scripts/build_vendor_items.py` uses
-this to regenerate `data/forever/vendor_items.csv`, which ingest loads. The price comes from DB2's BuyPrice.
+this to regenerate `data/forever/vendor_items.csv` and `vendor_recipes.csv`, which ingest loads. The price
+comes from DB2's BuyPrice.
 `scripts/build_cities.py` reads the spawns of auctioneers, vendors, mailboxes and crafting stations around
 each city (see `cities`). Coordinates are always bound as parameters: a negative one pasted into SQL
 after a minus sign would start a comment.
@@ -44,6 +45,29 @@ SELECT sold.item,
 FROM sold ORDER BY sold.item
 """
 
+# Recipe items (item class 9) a spawned vendor sells without a condition, whatever the stock: a recipe with
+# limited stock is still one anybody can go and buy.
+ITEM_CLASS_RECIPE = 9
+VENDOR_RECIPES_SQL = """
+WITH spawned(entry) AS (
+    SELECT id FROM creature UNION SELECT id2 FROM creature UNION SELECT id3 FROM creature
+    UNION SELECT id4 FROM creature UNION SELECT id5 FROM creature
+),
+sold(item) AS (
+    SELECT v.item FROM npc_vendor v JOIN spawned s ON s.entry = v.entry
+    WHERE v.condition_id = 0
+    UNION
+    SELECT v.item FROM npc_vendor_template v
+    JOIN creature_template ct ON ct.vendor_id = v.entry
+    JOIN spawned s ON s.entry = ct.entry
+    WHERE v.condition_id = 0
+)
+SELECT sold.item,
+       (SELECT name FROM item_template it WHERE it.entry = sold.item ORDER BY patch DESC LIMIT 1)
+FROM sold
+WHERE EXISTS (SELECT 1 FROM item_template it WHERE it.entry = sold.item AND it.class = ?)
+ORDER BY sold.item
+"""
 
 LATEST_PATCH = 10  # vmangos' content patches run 0 (1.2) to 10 (1.12); rows are kept per patch
 NPC_VENDOR = 0x4  # creature_template.npc_flags
@@ -190,6 +214,12 @@ def vendor_factions(conn: sqlite3.Connection, entries: Iterable[int]) -> dict[in
 def vendor_items(conn: sqlite3.Connection) -> list[tuple[int, str]]:
     """(item id, name) of every item a vendor sells without limit."""
     return [(int(i), str(name or "")) for i, name in conn.execute(VENDOR_ITEMS_SQL)]
+
+
+def vendor_recipes(conn: sqlite3.Connection) -> list[tuple[int, str]]:
+    """(item id, name) of every recipe item a vendor sells without a condition, limited stock included."""
+    rows = conn.execute(VENDOR_RECIPES_SQL, (ITEM_CLASS_RECIPE,))
+    return [(int(i), str(name or "")) for i, name in rows]
 
 
 def world_db_url(release: bytes) -> tuple[str, str]:

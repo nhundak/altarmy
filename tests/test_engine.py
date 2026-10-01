@@ -7,11 +7,13 @@ import pytest
 from altarmy_profit import book, engine, timing
 from altarmy_profit.engine import (
     ALL_EXITS,
+    ALL_SOURCES,
     MAIL_POSTAGE,
     Crafter,
     DisenchantRow,
     Filters,
     Item,
+    Learning,
     Market,
     Material,
     Memo,
@@ -20,6 +22,7 @@ from altarmy_profit.engine import (
     Recipe,
     Result,
     SellOption,
+    Source,
     Step,
     TimeModel,
     Unlearned,
@@ -42,7 +45,7 @@ def make_market(
     disenchant: list[DisenchantRow] | None = None,
     thread_vendor_price: int | None = None,
     crafters: Sequence[Crafter] = (),
-    unlearned: Unlearned = "none",
+    unlearned: Learning | Unlearned = "none",
     exits: frozenset[str] = ALL_EXITS,
     no_ah: frozenset[int] = frozenset(),
     extra_items: Sequence[Item] = (),
@@ -370,21 +373,37 @@ def test_recipes_for_professions_ignores_case() -> None:
     assert [r.name for r in got] == ["Robe", "Bolt"]
 
 
-def test_recipes_for_characters_known_soon_or_whole_professions() -> None:
+def test_recipes_for_characters_known_trainable_or_whole_professions() -> None:
     recipes = [
         Recipe(10, "Robe", GREEN, 1, ((LINEN, 1),), "Tailoring", spell_id=900, trivial_low=200),
-        Recipe(11, "Bolt", BOLT, 1, ((LINEN, 2),), "Tailoring", spell_id=901, trivial_low=90, learn_skill=70),
+        Recipe(
+            11,
+            "Bolt",
+            BOLT,
+            1,
+            ((LINEN, 2),),
+            "Tailoring",
+            spell_id=901,
+            trivial_low=90,
+            learn_skill=70,
+            source="recipe",
+        ),  # fmt: skip
         Recipe(12, "Cloak", GREEN, 1, ((LINEN, 3),), "Tailoring", spell_id=903, trivial_low=71),
         Recipe(13, "Dust", DUST, 1, ((LINEN, 2),), "Enchanting", spell_id=902),
     ]
     tailor = crafter("Tailor", ("Tailoring", 50), known=frozenset({900}))
 
-    def names(unlearned: Unlearned) -> list[str]:
+    def names(unlearned: Learning | Unlearned) -> list[str]:
         return [r.name for r in recipes_for_characters(recipes, [tailor], unlearned)]
 
     assert names("none") == ["Robe"]
-    assert names("now") == ["Robe"]
-    assert names("soon") == ["Robe", "Bolt"]  # its pattern requires 70; the cloak is yellow from 71
+    assert names("train") == ["Robe"]
+    assert names(Learning("train", 19)) == ["Robe"]
+    assert names(Learning("train", 20)) == [
+        "Robe",
+        "Bolt",
+    ]  # its pattern requires 70; the cloak is yellow from 71
+    assert names(Learning("train", 20, frozenset({"trainer"}))) == ["Robe"]  # not what recipe items teach
     assert names("all") == ["Robe", "Bolt", "Cloak"]
 
 
@@ -394,15 +413,45 @@ def test_required_skill_is_the_recipe_items_else_where_it_turns_yellow() -> None
     assert Recipe(1, "Trainer's", GREEN, min_skill=95, trivial_low=90).required_skill == 95
 
 
-def test_can_learn_soon_needs_the_profession_within_20_skill() -> None:
+def test_can_learn_to_train_needs_the_profession_within_the_look_ahead() -> None:
     bolt = Recipe(11, "Bolt", BOLT, skill_name="Tailoring", learn_skill=70)
-    assert can_learn(bolt, crafter("Close", ("Tailoring", 50)), "soon")
-    assert not can_learn(bolt, crafter("Far", ("Tailoring", 49)), "soon")
+    soon = Learning("train", 20)
+    assert can_learn(bolt, crafter("Close", ("Tailoring", 50)), soon)
+    assert not can_learn(bolt, crafter("Far", ("Tailoring", 49)), soon)
+    assert can_learn(bolt, crafter("Far", ("Tailoring", 49)), Learning("train", 21))
     assert can_learn(bolt, crafter("Far", ("Tailoring", 49)), "all")
-    assert not can_learn(bolt, crafter("Close", ("Tailoring", 69)), "now")
-    assert can_learn(bolt, crafter("Ready", ("Tailoring", 70)), "now")
+    assert not can_learn(bolt, crafter("Close", ("Tailoring", 69)), "train")
+    assert can_learn(bolt, crafter("Close", ("Tailoring", 69)), Learning("train", 1))
+    assert can_learn(bolt, crafter("Ready", ("Tailoring", 70)), "train")
     assert not can_learn(bolt, crafter("Past", ("Tailoring", 300)), "none")
-    assert not can_learn(bolt, crafter("Smith", ("Blacksmithing", 300)), "soon")
+    assert not can_learn(bolt, crafter("Smith", ("Blacksmithing", 300)), soon)
+
+
+def test_can_learn_to_train_only_from_the_chosen_sources() -> None:
+    ready = crafter("Ready", ("Tailoring", 70))
+    by_source = {
+        source: Recipe(11, "Bolt", BOLT, skill_name="Tailoring", learn_skill=70, source=source)
+        for source in ALL_SOURCES
+    }
+
+    def learnable(*sources: Source) -> list[str]:
+        learning = Learning("train", 0, frozenset(sources))
+        return sorted(s for s, r in by_source.items() if can_learn(r, ready, learning))
+
+    assert sorted(s for s, r in by_source.items() if can_learn(r, ready, "train")) == ["recipe", "trainer"]
+    assert learnable("bop") == ["bop"]
+    assert learnable("trainer", "recipe", "bop") == ["bop", "recipe", "trainer"]
+    assert learnable() == []
+    # every recipe of the profession, whatever teaches it
+    assert all(can_learn(r, ready, Learning("all", 0, frozenset())) for r in by_source.values())
+
+
+def test_learning_normalized_keeps_the_look_ahead_and_sources_only_when_training() -> None:
+    assert Learning("all", 5, frozenset({"bop"})).normalized() == Learning("all")
+    assert Learning("none", 5).normalized() == Learning("none")
+    picky = Learning("train", 5, frozenset({"bop"}))
+    assert picky.normalized() == picky
+    assert Learning.of("train") == Learning("train") and Learning.of(picky) is picky
 
 
 def test_chain_subcrafts_through_an_alts_known_recipe() -> None:
@@ -450,7 +499,7 @@ TAILOR = crafter("Tailor", ("Tailoring", 50), known=frozenset({900}))
 
 
 def de_market(
-    *crafters: Crafter, unlearned: Unlearned = "none", prices: dict[int, int] = DE_PRICES
+    *crafters: Crafter, unlearned: Learning | Unlearned = "none", prices: dict[int, int] = DE_PRICES
 ) -> Market:
     return make_market(prices, [ROBE], disenchant=DE_ROWS, crafters=crafters, unlearned=unlearned)
 
@@ -520,7 +569,8 @@ def test_unlearned_recipe_can_be_crafted_by_anyone_with_the_profession() -> None
 def test_recipe_to_train_soon_is_crafted_by_whoever_is_close_enough() -> None:
     robe = replace(ROBE, learn_skill=40)
     novice, close = crafter("Novice", ("Tailoring", 1)), crafter("Close", ("Tailoring", 20))
-    market = make_market(DE_PRICES, [robe], disenchant=DE_ROWS, crafters=(novice, close), unlearned="soon")
+    train = Learning("train", 20)
+    market = make_market(DE_PRICES, [robe], disenchant=DE_ROWS, crafters=(novice, close), unlearned=train)
     assert must_evaluate(market, robe).crafter == "Close"
 
 

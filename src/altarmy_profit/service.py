@@ -25,6 +25,7 @@ from .engine import (
     Choices,
     Crafter,
     Filters,
+    Learning,
     Market,
     Result,
     TimeModel,
@@ -159,7 +160,7 @@ class Selection:
 def search(
     base: Market,
     chars: Sequence[Character],
-    unlearned: Unlearned,
+    unlearned: Learning | Unlearned,
     filters: Filters,
     exits: frozenset[str] = ALL_EXITS,
     no_ah: frozenset[int] = frozenset(),
@@ -172,10 +173,10 @@ def search(
     and keep what `filters` accepts. Chains sub-craft through any of their recipes too. Most profitable
     first (see `by_rate` for profit per hour).
 
-    `unlearned` adds recipes nobody has learned: those they can train soon, or all of their professions'
-    (see `engine.can_learn`). Disenchanting needs
-    an enchanter among them, plus postage unless one of the recipe's crafters enchants. Without
-    `include_trivial` the final craft is only done by a character it can give a skillup, and with
+    `unlearned` adds recipes nobody has learned: those they can train (an `engine.Learning` says from which
+    sources and how much skill ahead), or all of their professions' (see `engine.can_learn`).
+    Disenchanting needs an enchanter among them, plus postage unless one of the recipe's crafters enchants.
+    Without `include_trivial` the final craft is only done by a character it can give a skillup, and with
     `skill_crafters` by the lowest-skilled of those characters (see `Market`). With a `time`
     model each result is a session of its `batch` crafts (as `evaluate` plans one, see `session_model`),
     timed, and its time value weighs play time in every plan; without one, a single craft. Left to pick
@@ -207,7 +208,7 @@ def search(
 def evaluate(
     base: Market,
     chars: Sequence[Character],
-    unlearned: Unlearned,
+    unlearned: Learning | Unlearned,
     exits: frozenset[str],
     recipe_id: int,
     choices: Choices,
@@ -358,7 +359,7 @@ def session_model(time: TimeModel, cities: Sequence[timing.CityMap], city: str |
 def _market(
     base: Market,
     chars: Sequence[Character],
-    unlearned: Unlearned,
+    unlearned: Learning | Unlearned,
     exits: frozenset[str],
     no_ah: frozenset[int],
     include_trivial: bool,
@@ -654,7 +655,15 @@ def update_game_data(
     build = ingest.latest_build(version.wago_product)
     if only_if_new and db.get_build(conn, version.key) == build:
         return build, False, current_counts(conn, version.key)
-    stats = ingest.update(conn, version.key, build, cache_dir, version.disenchant_csv, version.vendor_csv)
+    stats = ingest.update(
+        conn,
+        version.key,
+        build,
+        cache_dir,
+        version.disenchant_csv,
+        version.vendor_csv,
+        version.vendor_recipes_csv,
+    )
     return build, True, stats
 
 

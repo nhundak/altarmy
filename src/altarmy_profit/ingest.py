@@ -6,7 +6,7 @@ import csv
 import json
 import urllib.error
 import urllib.request
-from collections.abc import Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -51,6 +51,7 @@ OPTIONAL_TABLES = [
     "SpellRadius",
 ]
 EFFECT_CREATE_ITEM = 24
+SOULBOUND = (1, 4)  # ItemSparse.Bonding: on pickup, quest item (never traded)
 TRIGGER_LEARN = 6  # ItemEffect.TriggerType of the spell a recipe item teaches
 TRIGGER_USE = 0
 # A conversion's recipe id: clear of SkillLineAbility ids, inside 32 bits
@@ -368,6 +369,23 @@ def learn_skills(paths: dict[str, Path], skill_ranks: dict[int, int]) -> dict[in
     return out
 
 
+def learn_sources(
+    paths: dict[str, Path], bonding: dict[int, int], vendor_sold: Collection[int] = ()
+) -> dict[int, str]:
+    """Each spell recipe items teach -> "recipe" if one of them can be traded or is one a vendor sells
+    (`vendor_sold`: anybody can go and buy it, bound or not), else "bop": every one binds on pickup or is a
+    quest item and has to be looted or earned (`bonding`: item id -> ItemSparse.Bonding; an item not in it
+    does not exist in the game and teaches nothing). A spell not in here has no recipe item: trainers
+    teach it."""
+    out: dict[int, str] = {}
+    for item, r in _effects_by_item(paths):
+        if _int(r["TriggerType"]) == TRIGGER_LEARN and item in bonding:
+            spell = _int(r["SpellID"])
+            bound = bonding[item] in SOULBOUND and item not in vendor_sold
+            out[spell] = "bop" if bound and out.get(spell, "bop") == "bop" else "recipe"
+    return out
+
+
 def _effect_base(r: dict[str, str]) -> float:
     """An effect's value: `EffectBasePointsF`, or TBC's `EffectBasePoints` plus an average die roll."""
     as_float = _float(r.get("EffectBasePointsF"))
@@ -506,6 +524,11 @@ GAME_DATA_TABLES = (
 )
 
 
+def _item_ids(path: Path | None) -> list[int]:
+    """The `item_id` column of a data CSV; nothing if there is no such file."""
+    return [_int(r["item_id"]) for r in _rows(path)] if path and path.exists() else []
+
+
 def build_db(
     paths: dict[str, Path],
     conn: Connection,
@@ -513,9 +536,12 @@ def build_db(
     disenchant_csv: Path | None = None,
     vendor_csv: Path | None = None,
     max_level: int = itemstats.LEVEL_60,
+    vendor_recipes_csv: Path | None = None,
 ) -> dict[str, int]:
     """Rebuild one version's items/recipes/recipe_reagents/disenchant/vendor_items; prices, characters
-    and other versions are left alone. `max_level` is the version's level cap (how ratings are shown)."""
+    and other versions are left alone. `max_level` is the version's level cap (how ratings are shown).
+    `vendor_recipes_csv` lists the recipe items vendors sell with limited stock too: with `vendor_csv`'s
+    they count as normal recipes even when they bind on pickup (`learn_sources`)."""
     for table in GAME_DATA_TABLES:
         conn.execute(delete(table).where(table.c.game_version == game_version))
 
@@ -532,10 +558,12 @@ def build_db(
     }
     items = []
     skill_ranks: dict[int, int] = {}
+    bonding: dict[int, int] = {}
     for r in _rows(paths["ItemSparse"]):
         iid = _int(r["ID"])
         cls, sub, icon = classes.get(iid, (0, 0, 0))
         skill_ranks[iid] = _int(r["RequiredSkillRank"])
+        bonding[iid] = _int(r["Bonding"])
         tip = tooltips.get(iid, NO_TOOLTIP)
         items.append(
             (
@@ -575,6 +603,10 @@ def build_db(
     cast_ms = cast_times(paths["SpellMisc"], paths["SpellCastTimes"])
     stations = spell_stations(paths["SpellCastingRequirements"], paths["SpellFocusObject"])
     learned_at = learn_skills(paths, skill_ranks)
+    vendor_ids = _item_ids(vendor_csv)
+    taught_by = learn_sources(
+        paths, bonding, frozenset(vendor_ids) | frozenset(_item_ids(vendor_recipes_csv))
+    )
 
     # spell -> (output item, count); first CreateItem effect wins
     outputs: dict[int, tuple[int, int]] = {}
@@ -642,6 +674,7 @@ def build_db(
             "cast_time_ms": cast_ms.get(spell, 0),
             "station": stations.get(spell, ""),
             "learn_skill": learned_at.get(spell, 0),
+            "source": taught_by.get(spell, "trainer"),
         }
         for k in [k for k in recipe_reagents if k[0] == rid]:
             del recipe_reagents[k]
@@ -672,6 +705,7 @@ def build_db(
             "cast_time_ms": cast_ms.get(spell, 0),
             "station": "",
             "learn_skill": 0,
+            "source": "trainer",
         }
         recipe_reagents[rid, item] = {
             "game_version": game_version,
@@ -689,8 +723,7 @@ def build_db(
     n_de = len(de_rows)
 
     n_vendor = 0
-    if vendor_csv and vendor_csv.exists():
-        vendor_ids = [_int(r["item_id"]) for r in _rows(vendor_csv)]
+    if vendor_ids:
         rows = [{"game_version": game_version, "item_id": i} for i in dict.fromkeys(vendor_ids)]
         db.upsert(conn, schema.vendor_items, rows, ["game_version", "item_id"])
         n_vendor = len(vendor_ids)
@@ -705,11 +738,18 @@ def update(
     cache_dir: Path,
     disenchant_csv: Path | None = None,
     vendor_csv: Path | None = None,
+    vendor_recipes_csv: Path | None = None,
 ) -> dict[str, int]:
     """Download `build` (cached per build) and rebuild the version's game data from it, keeping prices."""
     max_level = versions.get(game_version).max_level
     stats = build_db(
-        download_all(build, cache_dir), conn, game_version, disenchant_csv, vendor_csv, max_level
+        download_all(build, cache_dir),
+        conn,
+        game_version,
+        disenchant_csv,
+        vendor_csv,
+        max_level,
+        vendor_recipes_csv,
     )
     db.set_build(conn, game_version, build)
     return stats

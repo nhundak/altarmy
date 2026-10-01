@@ -508,6 +508,8 @@ describe('ResultsTable', () => {
       expect(bodies).toContainEqual({
         recipe_id: 100,
         unlearned: 'none',
+        look_ahead: 0,
+        sources: ['trainer', 'recipe'],
         include_trivial: true,
         skill_crafters: [],
         exits: ['vendor', 'ah', 'disenchant'],

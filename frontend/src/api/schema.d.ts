@@ -620,6 +620,11 @@ export interface components {
              * @default true
              */
             include_trivial: boolean;
+            /**
+             * Look Ahead
+             * @default 0
+             */
+            look_ahead: number;
             /** Price Version */
             price_version?: number | null;
             /** Recipe Id */
@@ -630,11 +635,19 @@ export interface components {
              */
             skill_crafters: string[];
             /**
+             * Sources
+             * @default [
+             *       "trainer",
+             *       "recipe"
+             *     ]
+             */
+            sources: ("trainer" | "recipe" | "bop")[];
+            /**
              * Unlearned
              * @default none
              * @enum {string}
              */
-            unlearned: "none" | "now" | "soon" | "all";
+            unlearned: "none" | "train" | "all";
         };
         /** EvaluateResponse */
         EvaluateResponse: {
@@ -1912,8 +1925,12 @@ export interface operations {
     get_rank_api_rank_get: {
         parameters: {
             query: {
-                /** @description recipes nobody has learned: none, those a character has the skill to learn (now), those they are at most 20 skill short of learning (soon), or every recipe of their professions (all) */
-                unlearned?: "none" | "now" | "soon" | "all";
+                /** @description recipes nobody has learned: none, those a character can train (see `look_ahead` and `sources`), or every recipe of their professions (all) */
+                unlearned?: "none" | "train" | "all";
+                /** @description with unlearned=train: how much more skill than a character has a recipe may need (0: only what they can train now) */
+                look_ahead?: number;
+                /** @description with unlearned=train: what may teach the recipe: a trainer, a recipe item that can be traded (recipe), one that binds on pickup (bop) */
+                sources?: ("trainer" | "recipe" | "bop")[];
                 /** @description also recipes that can't give the crafter a skillup (grey or at the cap) */
                 include_trivial?: boolean;
                 /** @description the characters being skilled up: the final craft is done only by one of them, the lowest-skilled in the recipe's profession (default: anyone) */

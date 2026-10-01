@@ -156,6 +156,8 @@ const byCrafter = (crafters: string[], crafter: string) =>
 
 const DEFAULT_PARAMS: EvaluateParams = {
   unlearned: 'none',
+  lookAhead: 0,
+  sources: ['trainer', 'recipe'],
   includeTrivial: true,
   skillCrafters: [],
   exits: ['vendor', 'ah', 'disenchant'],

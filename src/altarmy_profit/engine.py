@@ -23,10 +23,15 @@ ALL_EXITS = frozenset({"vendor", "ah", "disenchant"})  # ways to sell a craft (E
 # WoW: Forever's Arcane Salvager (an Enchanting-made station): near it a disenchant has this chance of a
 # second roll of the same table, so it yields 1.1 times the materials on average
 ARCANE_SALVAGER_BONUS = 0.10
-# Which recipes nobody has learned count: none, those a character can train now, those they can train soon
-# (see `can_learn`), all of their professions'.
-Unlearned = Literal["none", "now", "soon", "all"]
-SOON_SKILL = 20  # "soon": a recipe needing at most this much more skill than the character has
+# Which recipes nobody has learned count: none, those a character can train (see `Learning`, `can_learn`),
+# all of their professions'.
+Unlearned = Literal["none", "train", "all"]
+MAX_LOOK_AHEAD = 50  # the most skill a recipe "to train" may need beyond what the character has
+# What teaches a recipe: a profession trainer (no item teaches its spell), a recipe item that can be traded,
+# or only recipe items that bind on pickup.
+Source = Literal["trainer", "recipe", "bop"]
+ALL_SOURCES: tuple[Source, ...] = ("trainer", "recipe", "bop")
+DEFAULT_SOURCES: frozenset[Source] = frozenset({"trainer", "recipe"})
 # Real professions offered in the UI; the DB also holds junk skill lines (test, class, etc.).
 PROFESSIONS = (
     "Alchemy",
@@ -75,6 +80,7 @@ class Recipe:
     cast_time_ms: int = 0  # one cast; 0 if instant or unknown
     station: str = ""  # the crafting station it is cast at (`timing.station_kind`: anvil, loom, ...); "" none
     learn_skill: int = 0  # skill the recipe item teaching it requires; 0 if none does (a trainer's)
+    source: Source = "trainer"  # what teaches it
     # "craft"; "convert": enchanting materials turned into others with their Use spell (3 lesser essences
     # into a greater and back); "flip": gear bought on the AH to disenchant (`Market` makes these). The
     # last two need no profession: anyone does them, they never skill up, and they rank only when
@@ -133,18 +139,38 @@ class Crafter:
         return skill[0] if skill else 0
 
 
-def can_learn(recipe: Recipe, crafter: Crafter, unlearned: Unlearned) -> bool:
-    """Whether `crafter` counts as able to craft `recipe` without having learned it: never with "none", with
-    "now" if their skill in its profession reaches its `required_skill`, with "soon" if it is at most
-    `SOON_SKILL` below, with "all" if they have its profession."""
-    if unlearned == "none":
+@dataclass(frozen=True)
+class Learning:
+    """Which recipes nobody has learned count as craftable: with "train" those taught by one of `sources`
+    that need at most `look_ahead` more skill than the character has (0: trainable right now)."""
+
+    unlearned: Unlearned = "none"
+    look_ahead: int = 0
+    sources: frozenset[Source] = DEFAULT_SOURCES
+
+    @staticmethod
+    def of(value: Learning | Unlearned) -> Learning:
+        """`value` itself, or the plain mode with the default look-ahead and sources."""
+        return value if isinstance(value, Learning) else Learning(value)
+
+    def normalized(self) -> Learning:
+        """Without what its mode ignores, so equal choices compare equal (cache keys)."""
+        return self if self.unlearned == "train" else Learning(self.unlearned)
+
+
+def can_learn(recipe: Recipe, crafter: Crafter, unlearned: Learning | Unlearned) -> bool:
+    """Whether `crafter` counts as able to craft `recipe` without having learned it: never with "none"; with
+    "train" if one of the chosen sources teaches it and their skill in its profession is at most the
+    look-ahead below its `required_skill`; with "all" if they have its profession."""
+    learning = Learning.of(unlearned)
+    if learning.unlearned == "none":
         return False
     skill = crafter.skill(recipe.skill_name)
     if skill is None:
         return False
-    if unlearned == "all":
+    if learning.unlearned == "all":
         return True
-    return recipe.required_skill <= skill[0] + (SOON_SKILL if unlearned == "soon" else 0)
+    return recipe.source in learning.sources and recipe.required_skill <= skill[0] + learning.look_ahead
 
 
 def can_skill_up(recipe: Recipe, crafter: Crafter) -> bool:
@@ -941,7 +967,7 @@ class Market:
         ah_cut: float = AH_CUT,
         *,
         crafters: Sequence[Crafter] = (),
-        unlearned: Unlearned = "none",
+        unlearned: Learning | Unlearned = "none",
         exits: frozenset[str] = ALL_EXITS,
         no_ah: frozenset[int] = frozenset(),
         include_trivial: bool = True,
@@ -989,7 +1015,7 @@ class Market:
         self.arcane_salvager = arcane_salvager
         self.ah_cut = ah_cut
         self.crafters = crafters
-        self.unlearned = unlearned
+        self.unlearned = Learning.of(unlearned)
         self.exits = exits
         self.no_ah = no_ah
         self.include_trivial = include_trivial
@@ -1596,7 +1622,7 @@ def recipes_for_professions(recipes: Iterable[Recipe], professions: Iterable[str
 
 
 def recipes_for_characters(
-    recipes: Iterable[Recipe], crafters: Sequence[Crafter], unlearned: Unlearned
+    recipes: Iterable[Recipe], crafters: Sequence[Crafter], unlearned: Learning | Unlearned
 ) -> list[Recipe]:
     """Recipes the characters have learned, plus those `unlearned` lets one of them craft (`can_learn`).
 
@@ -1604,14 +1630,17 @@ def recipes_for_characters(
     Conversions and flips need no learning: anyone can do them.
     """
     known = frozenset().union(*(c.known_spells for c in crafters))
+    learning = Learning.of(unlearned)
     return [
         r
         for r in recipes
-        if r.anyone or r.spell_id in known or any(can_learn(r, c, unlearned) for c in crafters)
+        if r.anyone or r.spell_id in known or any(can_learn(r, c, learning) for c in crafters)
     ]
 
 
-def crafters_of(recipe: Recipe, crafters: Iterable[Crafter], unlearned: Unlearned) -> list[Crafter]:
+def crafters_of(
+    recipe: Recipe, crafters: Iterable[Crafter], unlearned: Learning | Unlearned
+) -> list[Crafter]:
     """Who can craft `recipe`: those who learned it, or with nobody having learned it, those `unlearned`
     lets (`can_learn`, as in `recipes_for_characters`). Anyone converts or flips."""
     crafters = list(crafters)

@@ -65,12 +65,12 @@ def main() -> None:
     print(f"{'realm (faction)':<32} {'chars':>5} {columns}")
     for g in altarmy.groups(chars):
         cells = []
-        for unlearned in (False, True):
+        for unlearned in ("none", "all"):
             search = partial(service.search, market, g.characters, unlearned, everything)
             secs, results = best_of(args.repeat, search)
             cells.append(f"{secs:6.3f}s {len(results):>5}")
         model = TimeModel(config, service.default_city(cities, g.faction))
-        timed = partial(service.search, market, g.characters, True, everything, time=model)
+        timed = partial(service.search, market, g.characters, "all", everything, time=model)
         secs, results = best_of(args.repeat, timed)
         cells.append(f"{secs:6.3f}s {len(results):>5}")
         rate_secs, _ = best_of(1, partial(service.by_rate, results))
@@ -78,7 +78,7 @@ def main() -> None:
         allowed = tuple(service.faction_cities(cities, g.faction))
         groups = service.city_groups(allowed, service.as_crafters(g.characters), market.reputation_discounts)
         open_model = TimeModel(config, model.city, allowed)
-        picked = partial(service.search, market, g.characters, True, everything, time=open_model)
+        picked = partial(service.search, market, g.characters, "all", everything, time=open_model)
         secs, _ = best_of(args.repeat, picked)
         cells.append(f"{secs:6.3f}s {len(groups)} groups")
         print(

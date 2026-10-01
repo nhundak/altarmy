@@ -459,21 +459,45 @@ def test_rank_unlearned_recipes(client: TestClient, priced: Connection) -> None:
         tailoring = Profession("Tailoring", skill, 75, frozenset({1}))
         return Character("Realm", "Novice", "Horde", "MAGE", 5, (tailoring,))
 
-    def ranked(unlearned: str) -> list[tuple[str, list[str]]]:
-        results = client.get("/api/rank", params={"unlearned": unlearned}).json()["results"]
+    def ranked(unlearned: str, **params: int | list[str]) -> list[tuple[str, list[str]]]:
+        results = client.get("/api/rank", params={"unlearned": unlearned, **params}).json()["results"]
         return [(r["recipe"], r["crafters"]) for r in results]
 
     service.replace_characters(priced, ME, FOREVER, [novice(29)])
     set_prices(priced, {1: 20, 2: 100}, realm="Realm")
     assert client.get("/api/rank").json()["results"] == ranked("none") == []
     assert ranked("all") == [("Green Robe", [])]
-    assert ranked("soon") == []  # its pattern requires 50: 21 short
+    assert ranked("all", sources=["trainer"]) == [("Green Robe", [])]  # sources narrow only "train"
+    assert ranked("train", look_ahead=20) == []  # its pattern requires 50: 21 short
     service.replace_characters(priced, ME, FOREVER, [novice(30)])
-    assert ranked("soon") == [("Green Robe", [])]  # 20 short
-    assert ranked("now") == []
+    assert ranked("train", look_ahead=20) == [("Green Robe", [])]  # 20 short
+    assert ranked("train", look_ahead=19) == []
+    assert ranked("train") == []
     service.replace_characters(priced, ME, FOREVER, [novice(50)])
-    assert ranked("now") == [("Green Robe", [])]
-    assert client.get("/api/rank", params={"unlearned": "maybe"}).status_code == 422
+    assert ranked("train") == [("Green Robe", [])]
+    # a recipe item that can be traded teaches it: not a trainer, not a bind on pickup recipe
+    assert ranked("train", sources=["trainer", "bop"]) == []
+    assert ranked("train", sources=["recipe"]) == [("Green Robe", [])]
+    for bad in ({"unlearned": "maybe"}, {"unlearned": "soon"}, {"look_ahead": 51}, {"look_ahead": -1}):
+        assert client.get("/api/rank", params=bad).status_code == 422
+    assert client.get("/api/rank", params={"sources": ["vendor"]}).status_code == 422
+
+
+def test_evaluate_takes_the_look_ahead_and_sources(client: TestClient, priced: Connection) -> None:
+    tailoring = Profession("Tailoring", 30, 75, frozenset({1}))
+    novice = Character("Realm", "Novice", "Horde", "MAGE", 5, (tailoring,))
+    service.replace_characters(priced, ME, FOREVER, [novice])
+    set_prices(priced, {1: 20, 2: 100}, realm="Realm")
+    robe = client.get("/api/rank", params={"unlearned": "all"}).json()["results"][0]["recipe_id"]
+
+    def evaluated(**body: object) -> int:
+        full = {"recipe_id": robe, "unlearned": "train", "choices": {}, **body}
+        return client.post("/api/evaluate", json=full).status_code
+
+    assert evaluated() == 404  # 20 short of its pattern
+    assert evaluated(look_ahead=20) == 200
+    assert evaluated(look_ahead=20, sources=["trainer"]) == 404
+    assert evaluated(look_ahead=51) == 422
 
 
 def test_rank_by_skill_reports_the_chance_of_a_skill_point(client: TestClient, priced: Connection) -> None:

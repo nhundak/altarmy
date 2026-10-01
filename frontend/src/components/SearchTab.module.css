@@ -8,3 +8,11 @@
 :global([data-mantine-color-scheme='dark']) .warning {
   color: var(--mantine-color-orange-9);
 }
+
+/* The options of one radio, set in under it: a rule drops from the radio's centre and the options line up with its
+   label, so they read as belonging to that choice. */
+.suboptions {
+  margin-left: calc(0.625rem - 1px);
+  padding: 2px 0 2px calc(0.625rem + var(--mantine-spacing-sm) - 1px);
+  border-left: 2px solid var(--mantine-color-default-border);
+}
