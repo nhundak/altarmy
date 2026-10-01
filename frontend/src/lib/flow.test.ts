@@ -29,6 +29,7 @@ const tree: FlowNode = {
   option: '',
   convert: false,
   flip: false,
+  enchant: false,
   inputs: [
     {
       item_id: 5,
@@ -50,6 +51,7 @@ const tree: FlowNode = {
       option: 'craft:11',
       convert: false,
       flip: false,
+      enchant: false,
       inputs: [bought(1, 'Linen Cloth', 6, 60)],
     },
     bought(2, 'Coarse Thread', 1, 5),
@@ -162,5 +164,26 @@ describe('buildFlow', () => {
       ['r', 'r.mail', '1x'],
       ['r.mail', 'sell', '1x'],
     ])
+  })
+})
+
+describe('buildFlow: an enchant', () => {
+  it('ends with the cast: no sale', () => {
+    const dust = bought(1, 'Strange Dust', 10, 1000)
+    const flow = buildFlow({
+      tree: { ...dust, item_id: 0, name: 'Enchant Bracer', via: 'Enchant Bracer', source: '', crafts: 5, made: 5, enchant: true, inputs: [dust] },
+      best_exit: 'skill',
+      revenue: 0,
+      profit: -1000,
+      postage: 0,
+      mail_to: '',
+      sell_options: [{ kind: 'skill', profit: -1000 }],
+    })
+    expect(flow.nodes.map((n) => [n.id, n.type])).toEqual([
+      ['r', 'item'],
+      ['r.0', 'item'],
+    ])
+    expect(flow.nodes[0]?.data).toMatchObject({ name: 'Enchant Bracer', enchant: true, crafts: 5 })
+    expect(flow.edges.map((e) => [e.source, e.target])).toEqual([['r.0', 'r']])
   })
 })

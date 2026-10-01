@@ -1315,3 +1315,71 @@ def test_evaluate_refuses_a_city_the_characters_dont_craft_in(
     assert (
         client.post("/api/evaluate", json={"recipe_id": 100, "choices": {}, "copies": 0}).status_code == 422
     )
+
+
+def add_enchant(conn: Connection) -> None:
+    """An Enchanting enchant taking 2 linen (20 each), yellow at 100 and grey at 140, which Enchy (skill 60)
+    on the tailor's realm knows."""
+    conn.execute(
+        schema.recipes.insert().values(
+            game_version=FOREVER,
+            id=110,
+            spell_id=970,
+            name="Enchant Bracer - Minor Health",
+            kind="enchant",
+            skill_line=333,
+            skill_name="Enchanting",
+            trivial_low=100,
+            trivial_high=140,
+            output_item_id=0,
+        )
+    )
+    conn.execute(
+        schema.recipe_reagents.insert().values(
+            game_version=FOREVER, recipe_id=110, item_id=1, count=2, slot=0
+        )
+    )
+    enchanter = Character(
+        "Classic Beta PvE",
+        "Enchy",
+        "Horde",
+        "PRIEST",
+        20,
+        (Profession("Enchanting", 60, 75, frozenset({970})),),
+    )
+    store.save_characters(conn, ME, FOREVER, [*altarmy.parse_characters(ALTARMY_SV), enchanter])
+
+
+def test_rank_and_evaluate_enchants_cast_for_the_skill_point_alone(
+    client: TestClient, priced: Connection
+) -> None:
+    add_enchant(priced)
+    one_craft(client)
+
+    def enchants(**params: bool | str | list[str]) -> list[dict[str, Any]]:
+        results = client.get("/api/rank", params=params).json()["results"]
+        return [r for r in results if r["kind"] == "enchant"]
+
+    assert enchants() == []  # only when asked for
+    (r,) = enchants(exits=["vendor", "skill"], sort="skill")
+    assert (r["recipe"], r["output_name"], r["output_item_id"]) == (
+        "Enchant Bracer - Minor Health",
+        "Enchant Bracer - Minor Health",
+        0,
+    )
+    assert (r["profession"], r["crafters"], r["crafter"]) == ("Enchanting", ["Enchy"], "Enchy")
+    assert (r["cost"], r["revenue"], r["profit"], r["roi"], r["best_exit"]) == (40, 0, -40, -1.0, "skill")
+    assert (r["skill_chance"], r["skill_ups"], r["slow"]) == (1.0, 1.0, False)
+    assert [(s["action"], s["name"], s["enchant"]) for s in r["steps"]] == [
+        ("buy", "Linen Cloth", False),
+        ("craft", "Enchant Bracer - Minor Health", True),
+    ]
+    assert r["tree"]["enchant"] is True
+    # the robe still sells its own way beside it
+    both = client.get("/api/rank", params={"exits": ["vendor", "skill"]}).json()["results"]
+    assert sorted((b["kind"], b["best_exit"]) for b in both) == [("craft", "vendor"), ("enchant", "skill")]
+
+    body = {"recipe_id": 110, "exits": ["skill"], "choices": {}}
+    got = client.post("/api/evaluate", json=body).json()["result"]
+    assert (got["kind"], got["profit"], got["best_exit"]) == ("enchant", -40, "skill")
+    assert client.post("/api/evaluate", json={**body, "exits": ["vendor"]}).status_code == 404

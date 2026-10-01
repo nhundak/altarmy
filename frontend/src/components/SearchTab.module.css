@@ -9,6 +9,14 @@
   color: var(--mantine-color-orange-9);
 }
 
+/* A secondary detail in a Sell via tooltip, on a line of its own: smaller and faded, so it reads after the main text
+   whichever way the tooltip's colours run. */
+.aside {
+  margin-top: 6px;
+  font-size: var(--mantine-font-size-xs);
+  opacity: 0.75;
+}
+
 /* The options of one radio, set in under it: a rule drops from the radio's centre and the options line up with its
    label, so they read as belonging to that choice. */
 .suboptions {

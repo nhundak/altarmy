@@ -710,3 +710,47 @@ def test_a_use_spell_not_consuming_its_item_is_no_conversion(
         conn.execute(select(schema.recipes.c.spell_id).where(schema.recipes.c.kind == "convert")).scalars()
     )
     assert spells == [960]
+
+
+@pytest.fixture
+def enchant_paths(db2_paths: dict[str, Path]) -> dict[str, Path]:
+    """Adds Enchanting with two spells that enchant an item (SpellEffect 53) and create none: 970 takes 2
+    Linen Cloth, 971 has no reagents."""
+    _extend_csv(db2_paths["SkillLine"], [{"ID": 333, "DisplayName_lang": "Enchanting"}])
+    _extend_csv(
+        db2_paths["SkillLineAbility"],
+        [
+            {
+                "ID": 110,
+                "SkillLine": 333,
+                "Spell": 970,
+                "MinSkillLineRank": 1,
+                "TrivialSkillLineRankLow": 20,
+                "TrivialSkillLineRankHigh": 60,
+            },
+            {"ID": 111, "SkillLine": 333, "Spell": 971},
+        ],
+    )
+    _extend_csv(db2_paths["SpellName"], [{"ID": 970, "Name_lang": "Enchant Bracer - Minor Health"}])
+    _extend_csv(
+        db2_paths["SpellEffect"],
+        [{"ID": 20, "Effect": 53, "SpellID": 970}, {"ID": 21, "Effect": 53, "SpellID": 971}],
+    )
+    _extend_csv(db2_paths["SpellReagents"], [{"ID": 20, "SpellID": 970, "Reagent_0": 1, "ReagentCount_0": 2}])
+    return db2_paths
+
+
+def test_build_db_loads_enchants_as_recipes_making_no_item(
+    enchant_paths: dict[str, Path], conn: Connection
+) -> None:
+    assert ingest.build_db(enchant_paths, conn, FOREVER)["recipes"] == 2
+    market = store.load_market(conn, FOREVER, None)
+    (enchant,) = [r for r in market.recipes if r.kind == "enchant"]
+    assert (enchant.id, enchant.spell_id, enchant.name, enchant.skill_name) == (
+        110,
+        970,
+        "Enchant Bracer - Minor Health",
+        "Enchanting",
+    )
+    assert (enchant.output_item_id, enchant.output_count, enchant.reagents) == (0, 1, ((1, 2),))
+    assert (enchant.trivial_low, enchant.trivial_high, enchant.source) == (20, 60, "trainer")

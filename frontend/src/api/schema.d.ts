@@ -614,7 +614,7 @@ export interface components {
              *       "disenchant"
              *     ]
              */
-            exits: ("vendor" | "ah" | "disenchant")[];
+            exits: ("vendor" | "ah" | "disenchant" | "skill")[];
             /**
              * Include Trivial
              * @default true
@@ -944,6 +944,11 @@ export interface components {
              */
             discount: number;
             /**
+             * Enchant
+             * @default false
+             */
+            enchant: boolean;
+            /**
              * Flip
              * @default false
              */
@@ -1084,7 +1089,7 @@ export interface components {
              * @default craft
              * @enum {string}
              */
-            kind: "craft" | "convert" | "flip";
+            kind: "craft" | "convert" | "flip" | "enchant";
             /** Mail To */
             mail_to: string;
             /** Output Count */
@@ -1215,6 +1220,11 @@ export interface components {
              * @default 0
              */
             discount: number;
+            /**
+             * Enchant
+             * @default false
+             */
+            enchant: boolean;
             /** Item Id */
             item_id: number;
             /**
@@ -1936,7 +1946,7 @@ export interface operations {
                 /** @description the characters being skilled up: the final craft is done only by one of them, the lowest-skilled in the recipe's profession (default: anyone) */
                 skill_crafters?: string[] | null;
                 /** @description ways the crafts may be sold */
-                exits?: ("vendor" | "ah" | "disenchant")[];
+                exits?: ("vendor" | "ah" | "disenchant" | "skill")[];
                 /** @description disenchant at an Arcane Salvager: a 10% chance of a second disenchant's materials */
                 arcane_salvager?: boolean;
                 /** @description copper */

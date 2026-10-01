@@ -549,7 +549,8 @@
               "enum": [
                 "vendor",
                 "ah",
-                "disenchant"
+                "disenchant",
+                "skill"
               ],
               "type": "string"
             },
@@ -1450,6 +1451,11 @@
             "title": "Discount",
             "type": "integer"
           },
+          "enchant": {
+            "default": false,
+            "title": "Enchant",
+            "type": "boolean"
+          },
           "flip": {
             "default": false,
             "title": "Flip",
@@ -1743,7 +1749,8 @@
             "enum": [
               "craft",
               "convert",
-              "flip"
+              "flip",
+              "enchant"
             ],
             "title": "Kind",
             "type": "string"
@@ -2097,6 +2104,11 @@
             "default": 0,
             "title": "Discount",
             "type": "integer"
+          },
+          "enchant": {
+            "default": false,
+            "title": "Enchant",
+            "type": "boolean"
           },
           "item_id": {
             "title": "Item Id",
@@ -3527,7 +3539,8 @@
                 "enum": [
                   "vendor",
                   "ah",
-                  "disenchant"
+                  "disenchant",
+                  "skill"
                 ],
                 "type": "string"
               },

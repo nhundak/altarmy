@@ -54,6 +54,7 @@ OPTIONAL_TABLES = [
     "SpellRadius",
 ]
 EFFECT_CREATE_ITEM = 24
+EFFECT_ENCHANT_ITEM = 53  # enchants an item the caster holds: nothing is made
 SOULBOUND = (1, 4)  # ItemSparse.Bonding: on pickup, quest item (never traded)
 TRIGGER_LEARN = 6  # ItemEffect.TriggerType of the spell a recipe item teaches
 TRIGGER_USE = 0
@@ -613,7 +614,10 @@ def build_db(
 
     # spell -> (output item, count); first CreateItem effect wins
     outputs: dict[int, tuple[int, int]] = {}
+    enchants: set[int] = set()  # spells enchanting an item
     for r in _rows(paths["SpellEffect"]):
+        if _int(r["Effect"]) == EFFECT_ENCHANT_ITEM:
+            enchants.add(_int(r["SpellID"]))
         if _int(r["Effect"]) == EFFECT_CREATE_ITEM and _int(r["EffectItemType"]) > 0:
             spell = _int(r["SpellID"])
             if spell not in outputs:
@@ -655,10 +659,17 @@ def build_db(
     for r in _rows(paths["SkillLineAbility"]):
         spell = _int(r["Spell"])
         line = _int(r["SkillLine"])
-        if spell not in outputs or spell not in reagents or line not in skill_names:
+        if spell not in reagents or line not in skill_names:
             continue
-        out_item, out_count = outputs[spell]
-        if out_item not in known_items:
+        if spell in outputs:
+            kind = "craft"
+            out_item, out_count = outputs[spell]
+            if out_item not in known_items:
+                continue
+        elif spell in enchants:
+            # reagents go in and no item comes out (output item 0): cast only for the skill point
+            kind, out_item, out_count = "enchant", 0, 1
+        else:
             continue
         rid = _int(r["ID"])
         recipes[rid] = {  # a later row with the same id replaces an earlier one
@@ -666,7 +677,7 @@ def build_db(
             "id": rid,
             "spell_id": spell,
             "name": spell_names.get(spell, f"Spell {spell}"),
-            "kind": "craft",
+            "kind": kind,
             "skill_line": line,
             "skill_name": skill_names[line],
             "min_skill": _int(r["MinSkillLineRank"]),

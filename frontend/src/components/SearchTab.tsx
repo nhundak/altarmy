@@ -67,7 +67,7 @@ import { CraftsPerSession, TimeSettingsPanel } from './TimeSettingsPanel'
 /** Results per page: the first request asks for this many, and each "Show more" for this many more. */
 const PAGE = 50
 
-const EXITS: { value: Exit; label: string; description: string; warning?: string }[] = [
+const EXITS: { value: Exit; label: string; description: string; warning?: string; aside?: string }[] = [
   {
     value: 'vendor',
     label: 'Vendor',
@@ -77,9 +77,10 @@ const EXITS: { value: Exit; label: string; description: string; warning?: string
     value: 'disenchant',
     label: 'Disenchant',
     description:
-      'Enchanting materials tend to have stable prices and sell well. Usually the most reliable way to turn a profit. ' +
-      'Also converts essences (3 lesser into 1 greater, or back) when one sells for more than the other, ' +
-      'and buys gear listed below what its materials fetch, to disenchant.',
+      'Enchanting materials tend to have stable prices and sell well. Usually the most reliable way to turn a profit.',
+    aside:
+      'Enabling this will also look for cases where converting essences is profitable (3 lesser to 1 greater, ' +
+      'or back), and cases where gear can be bought, disenchanted, and resold.',
   },
   {
     value: 'ah',
@@ -88,6 +89,15 @@ const EXITS: { value: Exit; label: string; description: string; warning?: string
     warning: 'You will need to take an active role in figuring out what sells reliably.',
   },
 ]
+const DEAD_LOSS = 'This is a dead loss unless you can find someone to pay you for it, but you do what you got to do.'
+/** The professions with spells that enhance an item and make none (enchants, Engineering's tinkers), each with how
+ * the tooltip puts it. Only while one of them is skilled up is the option offered: such casts sell nothing, so they
+ * rank at a dead loss. */
+const SKILL_ONLY_WHY: Readonly<Record<string, string>> = {
+  enchanting: `Sometimes to level up enchanting, you just need to repeatedly enchant stuff. ${DEAD_LOSS}`,
+  engineering: `Sometimes to level up engineering, you just need to repeatedly tinker with your gear. ${DEAD_LOSS}`,
+}
+const SKILL_ONLY = { value: 'skill', label: 'Enhance item for skill up only' } as const
 /** The Disenchant tooltip's extra line when none of the selected realm's characters has Enchanting. */
 /** The Arcane Salvager checkbox is hidden for now: while it is, disenchants never count on a salvager. */
 export const SHOW_ARCANE_SALVAGER = false
@@ -97,17 +107,19 @@ const NO_ENCHANTER = 'None of your characters here has Enchanting, so nothing ca
 /**
  * One way to sell: its checkbox, with the explanation in a tooltip beside it (and as the checkbox's description for
  * screen readers), so the options stay one short row. A `warning` sentence follows the explanation in a warning
- * colour, and a `note` (something about the user's characters) goes on a line of its own in that colour.
+ * colour, an `aside` (a secondary detail) goes on a line of its own in smaller, fainter text, and a `note` (something
+ * about the user's characters) on a line of its own in the warning colour.
  */
 function SellVia({
   value,
   label,
   description,
   warning,
+  aside,
   note,
 }: (typeof EXITS)[number] & { note?: string | undefined }) {
   const id = useId()
-  const text = [description, warning, note].filter(Boolean).join(' ')
+  const text = [description, warning, aside, note].filter(Boolean).join(' ')
   const tooltip = (
     <>
       {description}
@@ -117,6 +129,7 @@ function SellVia({
           <span className={classes.warning}>{warning}</span>
         </>
       )}
+      {aside && <div className={classes.aside}>{aside}</div>}
       {note && <div className={classes.warning}>{note}</div>}
     </>
   )
@@ -401,6 +414,8 @@ export function SearchTab() {
   const toggleSection = (section: (typeof SECTIONS)[number], value: string[]) =>
     setOpen(SECTIONS.filter((s) => (s === section ? value.includes(s) : open.includes(s))))
   const [exits, setExits] = useStoredState<Exit[]>('altarmy-profit.search.exits', exitList, EVERY_EXIT)
+  // Kept apart from the ways to sell: it only counts (and shows) while Enchanting is being skilled up.
+  const [skillOnly, setSkillOnly] = useStoredState('altarmy-profit.search.skillOnly', z.boolean(), false)
   // null until the user ticks or unticks it: then it follows whether any character can make an Arcane Salvager.
   const [salvagerPick, setSalvagerPick] = useStoredState<boolean | null>(
     'altarmy-profit.search.arcaneSalvager',
@@ -424,6 +439,10 @@ export function SearchTab() {
   // By value, not the stored object: a new but equal setup must not count as new filters (that resets paging).
   const sort = rankSort(setup)
   const [profession = null] = rankProfessions(setup)
+  const skillOnlyWhy = SKILL_ONLY_WHY[profession?.toLowerCase() ?? '']
+  const enhancing = skillOnlyWhy !== undefined
+  // Whether casts made for the skill point alone are ranked: only while such a profession is the one skilled up.
+  const skilling = enhancing && skillOnly
   // Joined, for the same reason (character names never hold a comma).
   const skilled = skillCrafters(setup, professions).join(',')
   const filters = useMemo<Filters>(
@@ -432,7 +451,7 @@ export function SearchTab() {
       lookAhead,
       sources: ALL_SOURCES.filter((s) => sources.includes(s)),
       includeTrivial,
-      exits: ALL_EXITS.filter((e) => exits.includes(e)),
+      exits: [...ALL_EXITS.filter((e) => exits.includes(e)), ...(skilling ? [SKILL_ONLY.value] : [])],
       arcaneSalvager,
       minCost: scaled(minCost, goldToCopper),
       maxCost: scaled(maxCost, goldToCopper),
@@ -444,7 +463,7 @@ export function SearchTab() {
       skillCrafters: skilled ? skilled.split(',') : [],
       sort,
     }),
-    [unlearned, lookAhead, sources, includeTrivial, exits, arcaneSalvager, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, sort, profession, skilled],
+    [unlearned, lookAhead, sources, includeTrivial, exits, skilling, arcaneSalvager, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, sort, profession, skilled],
   )
   const [picks, setPicks] = useState(0)
   // Flushed once the characters load too: the Arcane Salvager's default comes from them.
@@ -563,8 +582,11 @@ export function SearchTab() {
                 )}
                 <Checkbox.Group
                   label="Sell via"
-                  value={exits}
-                  onChange={(v) => setExits(ALL_EXITS.filter((e) => v.includes(e)))}
+                  value={skilling ? [...exits, SKILL_ONLY.value] : exits}
+                  onChange={(v) => {
+                    setExits(ALL_EXITS.filter((e) => v.includes(e)))
+                    if (enhancing) setSkillOnly(v.includes(SKILL_ONLY.value))
+                  }}
                 >
                   <Stack mt={4} gap="xs">
                     {EXITS.map((e) => (
@@ -574,6 +596,7 @@ export function SearchTab() {
                         note={e.value === 'disenchant' && noEnchanter ? NO_ENCHANTER : undefined}
                       />
                     ))}
+                    {skillOnlyWhy !== undefined && <SellVia {...SKILL_ONLY} description={skillOnlyWhy} />}
                   </Stack>
                 </Checkbox.Group>
                 <Stack gap="md">

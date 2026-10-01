@@ -33,7 +33,14 @@ const columnsFor = (rankBy: RankBy | undefined): string[] => [
 /** Profit per expected skill point (negative: what one costs); null when the craft can't give one. */
 const perSkillUp = (r: RankResult): number | null => (r.skill_ups ? r.profit / r.skill_ups : null)
 /** Sell via column text per exit; unknown exits show as-is. */
-const EXIT_LABELS: Readonly<Record<string, string>> = { ah: 'Auction', vendor: 'Vendor', disenchant: 'Disenchant' }
+const EXIT_LABELS: Readonly<Record<string, string>> = {
+  ah: 'Auction',
+  vendor: 'Vendor',
+  disenchant: 'Disenchant',
+  skill: 'Skill only', // an enchant: nothing is made, so nothing is sold
+}
+/** A conversion or a flip: no profession's recipe, so whoever the plan picks does it. */
+const needsNoRecipe = (r: RankResult): boolean => r.kind === 'convert' || r.kind === 'flip'
 /** The Recipe tooltip's profession line for what needs no profession. */
 const KIND_NOTES: Readonly<Record<string, string>> = {
   convert: 'Essence conversion (use the item; no profession)',
@@ -191,7 +198,8 @@ function shortTitle(short: number): string {
 }
 
 /** A row's ⋯ menu: mark the recipe as a favorite or not, stop or allow selling its output on the AH (only
- * for a craft: a flip is only disenchanted, and a conversion's AH sale does not follow the AH exit). */
+ * for a craft: a flip is only disenchanted, a conversion's AH sale does not follow the AH exit, and an enchant
+ * makes nothing). */
 function RowActions({
   result,
   blocked,
@@ -417,7 +425,7 @@ export function ResultsTable({
                       className={COLUMN_HIDDEN.Crafter}
                       title={r.crafters.length > 1 ? byCrafter(r.crafters, r.crafter).join(', ') : undefined}
                     >
-                      {r.kind !== 'craft' && r.crafter ? (
+                      {needsNoRecipe(r) && r.crafter ? (
                         // a conversion or flip needs no recipe: whoever the plan picks does it
                         <CharacterName name={r.crafter} />
                       ) : r.crafters.length ? (
@@ -429,7 +437,7 @@ export function ResultsTable({
                       ) : (
                         <Text span size="sm" c="dimmed">
                           {/* no crafter named: browsing without characters */}
-                          {r.crafter && r.kind === 'craft' ? 'not learned' : 'anyone'}
+                          {r.crafter && !needsNoRecipe(r) ? 'not learned' : 'anyone'}
                         </Text>
                       )}
                     </Table.Td>

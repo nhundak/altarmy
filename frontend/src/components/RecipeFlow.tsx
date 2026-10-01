@@ -31,6 +31,7 @@ function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap })
     cost,
     via,
     convert,
+    enchant,
     crafts,
     made,
     source,
@@ -51,7 +52,7 @@ function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap })
     <div className={classes.node}>
       {!isLeaf && <Handle type="target" position={Position.Left} className={classes.handle} />}
       <div className={classes.title}>
-        <span className={classes.quantity}>{quantity}x</span>
+        {!enchant && <span className={classes.quantity}>{quantity}x</span>}
         <span className={`nodrag nopan ${classes.name}`}>
           <ItemLink item={items[itemId]} name={name} truncate />
         </span>
@@ -62,7 +63,9 @@ function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap })
         />
       </div>
       <div className={classes.detail} title={discountNote(discount, repDiscount, repFaction) || undefined}>
-        {via ? (
+        {enchant ? (
+          `Cast ${crafts}x · skill up only`
+        ) : via ? (
           `${convert ? `Convert ${crafts}x` : `Craft ${crafts}x ${via}`}${spare > 0 ? ` (${spare} spare)` : ''}`
         ) : (
           <>
@@ -76,7 +79,7 @@ function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap })
           <CharacterName name={crafter} />
         </div>
       )}
-      <Handle type="source" position={Position.Right} className={classes.handle} />
+      {!enchant && <Handle type="source" position={Position.Right} className={classes.handle} />}
     </div>
   )
 }

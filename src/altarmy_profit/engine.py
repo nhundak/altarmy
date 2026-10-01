@@ -20,6 +20,9 @@ MAX_CHAIN_DEPTH = 3
 DISENCHANTABLE_CLASSES = (2, 4)  # weapon, armor
 DISENCHANTABLE_QUALITIES = (2, 3, 4)
 ALL_EXITS = frozenset({"vendor", "ah", "disenchant"})  # ways to sell a craft (Exit.kind)
+# The exit of an enchant, which makes nothing to sell: cast for the skill point alone, at a dead loss. Not
+# among `ALL_EXITS`: enchants rank only where it is asked for.
+SKILL_EXIT = "skill"
 # WoW: Forever's Arcane Salvager (an Enchanting-made station): near it a disenchant has this chance of a
 # second roll of the same table, so it yields 1.1 times the materials on average
 ARCANE_SALVAGER_BONUS = 0.10
@@ -84,7 +87,9 @@ class Recipe:
     # "craft"; "convert": enchanting materials turned into others with their Use spell (3 lesser essences
     # into a greater and back); "flip": gear bought on the AH to disenchant (`Market` makes these). The
     # last two need no profession: anyone does them, they never skill up, and they rank only when
-    # disenchant is a way to sell (see `Market.rank`)
+    # disenchant is a way to sell (see `Market.rank`). "enchant": a profession's spell enchanting an item,
+    # which makes none (`output_item_id` 0): it has only the `SKILL_EXIT`, and only someone it can skill up
+    # casts it
     kind: str = "craft"
 
     @property
@@ -96,9 +101,13 @@ class Recipe:
         return self.kind == "flip"
 
     @property
+    def is_enchant(self) -> bool:
+        return self.kind == "enchant"
+
+    @property
     def anyone(self) -> bool:
         """No profession's recipe: a conversion or a flip."""
-        return self.kind != "craft"
+        return self.kind in ("convert", "flip")
 
     @property
     def required_skill(self) -> int:
@@ -253,7 +262,7 @@ class Material:
 
 @dataclass
 class Exit:
-    kind: str  # vendor | ah | disenchant
+    kind: str  # vendor | ah | disenchant | skill (an enchant's: nothing is sold)
     value: int  # copper per item, after cuts
     materials: tuple[Material, ...] = ()  # disenchant only: what it yields
     postage: int = 0  # copper per item to mail it to the character who can use this exit
@@ -282,6 +291,7 @@ class Step:
     # sell by disenchanting: the disenchanting's share of `seconds` (the rest is posting the materials)
     lead_seconds: float = field(default=0.0, compare=False)
     convert: bool = False  # craft: a conversion (`Recipe.is_conversion`), not a profession craft
+    enchant: bool = False  # craft: an enchant (`Recipe.is_enchant`): `name` is the spell's, no item is made
 
 
 @dataclass(frozen=True)
@@ -337,6 +347,7 @@ class Node:
     station: str = field(default="", compare=False)
     convert: bool = False  # crafted by a conversion (`Recipe.is_conversion`)
     flip: bool = False  # a flip's root (`Recipe.is_flip`): nothing is crafted, the bought input is sold
+    enchant: bool = False  # an enchant's root (`Recipe.is_enchant`): item 0, named after the spell
 
 
 @dataclass(frozen=True, eq=False)
@@ -569,7 +580,8 @@ def plan_steps(
 ) -> list[Step]:
     """Instructions for a craft tree: buy every bought reagent (merged per item and character), craft
     intermediates, mail each to the character who needs it, craft, mail the output to `mail_to` if set
-    (`postage` in total), then sell (`bonus` expected extra units besides the made ones). Nothing comes
+    (`postage` in total), then sell (`bonus` expected extra units besides the made ones; an enchant, sold
+    via `SKILL_EXIT`, ends with its cast). Nothing comes
     before what it needs; within that, the steps are
     grouped per character, each doing all their buys, then crafts, then mails before another takes
     over (see `_schedule`). Sub-crafts are whole crafts, so a multi-output intermediate may leave
@@ -639,6 +651,8 @@ def plan_steps(
             "mail", tree.item_id, tree.name, tree.made, -postage, mail_to, who, root, seconds=mail_seconds
         )
         last = add(mail, {last})
+    if sell_via == SKILL_EXIT:
+        return _schedule(steps, deps)
     sale = Step(
         "sell",
         tree.item_id,
@@ -668,6 +682,7 @@ def _craft_step(node: Node, paths: tuple[str, ...]) -> Step:
         seconds=node.act_seconds,
         station=node.station,
         convert=node.convert,
+        enchant=node.enchant,
     )
 
 
@@ -1029,7 +1044,7 @@ class Market:
         self.recipes = [r for r in recipes if not r.is_flip] + self._flips()
         self._by_output: dict[int, list[Recipe]] = {}
         for r in self.recipes:
-            if not r.is_flip:  # a flip is no way to get an item
+            if not r.is_flip and not r.is_enchant:  # neither is a way to get an item
                 self._by_output.setdefault(r.output_item_id, []).append(r)
         self._who_crafts = {r.id: self._crafter_names(r) for r in self.recipes}
         self._by_name = {c.name: c for c in crafters}
@@ -1228,6 +1243,8 @@ class Market:
         if self.time is None:
             return 0.0, 0.0
         cfg = self.time.config
+        if exit.kind == SKILL_EXIT:
+            return 0.0, 0.0
         if exit.kind == "vendor":
             act = cfg.vendor_sell * self._stacks(item_id, made)
             return act, act + self._trip("vendor")
@@ -1249,10 +1266,13 @@ class Market:
     def _final_crafters(self, recipe: Recipe) -> list[str]:
         """Who may do `recipe`'s final craft: anyone who can craft it, or without `include_trivial` only
         those it can give a skillup (everyone if no characters are known); with `skill_crafters`, only the
-        lowest-skilled of those among them; with a `final_crafter`, only them."""
+        lowest-skilled of those among them; with a `final_crafter`, only them. An enchant is cast for the
+        skill point alone, so only ever by someone it can give one."""
         who = self._who(recipe)
         if not self.crafters:
             return who
+        if recipe.is_enchant:
+            who = [w for w in who if can_skill_up(recipe, self._by_name[w])]
         if self.final_crafter:
             return [w for w in who if w == self.final_crafter]
         if not self.include_trivial:
@@ -1463,7 +1483,7 @@ class Market:
         act, est, station = self._craft_seconds(recipe, runs)
         return Node(
             item_id,
-            self._name(item_id),
+            recipe.name if recipe.is_enchant else self._name(item_id),
             qty,
             cost,
             recipe.name,
@@ -1476,6 +1496,7 @@ class Market:
             station=station,
             convert=recipe.is_conversion,
             flip=recipe.is_flip,
+            enchant=recipe.is_enchant,
         )
 
     # --- evaluation --------------------------------------------------------------------
@@ -1497,7 +1518,9 @@ class Market:
             if crafts <= 0:
                 return None
         allowed = self._sell_kinds(recipe)
-        exits = [e for e in self.exits_for(recipe.output_item_id) if e.kind in allowed]
+        # an enchant makes nothing: its one exit is worth nothing, and nothing is mailed to be sold
+        found = [Exit(SKILL_EXIT, 0)] if recipe.is_enchant else self.exits_for(recipe.output_item_id)
+        exits = [e for e in found if e.kind in allowed]
         if not exits:
             return None
         if memo is None:
@@ -1563,7 +1586,10 @@ class Market:
     def _sell_kinds(self, recipe: Recipe) -> Collection[str]:
         """The exits `recipe`'s output may be sold by. A conversion sells what it makes on the AH, but only
         when disenchant is allowed: it is the same bet on enchanting materials' AH prices. A flip is only
-        disenchanted (reselling it would be another strategy)."""
+        disenchanted (reselling it would be another strategy). An enchant has only the `SKILL_EXIT`, which
+        nothing else has."""
+        if recipe.is_enchant:
+            return self.exits & {SKILL_EXIT}
         if not recipe.anyone:
             return self.exits
         if "disenchant" not in self.exits:
@@ -1609,7 +1635,8 @@ def recipes_using(recipes: Sequence[Recipe], items: Collection[int]) -> frozense
         for r in recipes:
             if r.id not in found and any(i in touched for i, _ in r.reagents):
                 found.add(r.id)
-                touched.add(r.output_item_id)
+                if not r.is_enchant:  # it makes no item
+                    touched.add(r.output_item_id)
                 grew = True
     return frozenset(found)
 

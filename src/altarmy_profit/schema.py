@@ -130,7 +130,8 @@ recipes = Table(
     Column("spell_id", Integer, nullable=False),
     Column("name", Text, nullable=False),
     # "craft": a profession recipe; "convert": an item's Use spell turning enchanting materials into
-    # others (3 lesser essences into a greater and back), skill line 0 and skill name ""
+    # others (3 lesser essences into a greater and back), skill line 0 and skill name ""; "enchant": a
+    # profession's spell enchanting an item, which makes none (`output_item_id` 0)
     Column("kind", Text, nullable=False, default="craft", server_default="craft"),
     Column("skill_line", Integer, nullable=False),
     Column("skill_name", Text, nullable=False),

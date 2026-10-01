@@ -30,11 +30,11 @@ const disenchanted: RankResult = {
     },
   ],
   steps: [
-    { action: 'buy', item_id: 4, name: 'Medium Hide', quantity: 2, value: -12648, via: 'ah', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['r.0.0'] },
-    { action: 'craft', item_id: 5, name: 'Cured Medium Hide', quantity: 2, value: 0, via: 'Cure', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['r.0'] },
-    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['r'] },
-    { action: 'mail', item_id: 3, name: 'Green Robe', quantity: 1, value: -30, via: 'Enchy', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['r'] },
-    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 75988, via: 'disenchant', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['sell'] },
+    { action: 'buy', item_id: 4, name: 'Medium Hide', quantity: 2, value: -12648, via: 'ah', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, enchant: false, paths: ['r.0.0'] },
+    { action: 'craft', item_id: 5, name: 'Cured Medium Hide', quantity: 2, value: 0, via: 'Cure', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, enchant: false, paths: ['r.0'] },
+    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, enchant: false, paths: ['r'] },
+    { action: 'mail', item_id: 3, name: 'Green Robe', quantity: 1, value: -30, via: 'Enchy', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, enchant: false, paths: ['r'] },
+    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 75988, via: 'disenchant', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, enchant: false, paths: ['sell'] },
   ],
 }
 
@@ -337,11 +337,11 @@ describe('ResultsTable', () => {
       recipe_id: 102,
       crafter: 'Smithy',
       steps: [
-        { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 6, value: -120, via: 'ah', who: 'Leathery', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['r.0.0'] },
-        { action: 'craft', item_id: 2, name: 'Coarse Thread', quantity: 2, value: 0, via: 'Thread', who: 'Leathery', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['r.0'] },
-        { action: 'mail', item_id: 2, name: 'Coarse Thread', quantity: 2, value: -30, via: 'Smithy', who: 'Leathery', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['r.0'] },
-        { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: 'Smithy', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['r'] },
-        { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: 'Smithy', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['sell'] },
+        { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 6, value: -120, via: 'ah', who: 'Leathery', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, enchant: false, paths: ['r.0.0'] },
+        { action: 'craft', item_id: 2, name: 'Coarse Thread', quantity: 2, value: 0, via: 'Thread', who: 'Leathery', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, enchant: false, paths: ['r.0'] },
+        { action: 'mail', item_id: 2, name: 'Coarse Thread', quantity: 2, value: -30, via: 'Smithy', who: 'Leathery', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, enchant: false, paths: ['r.0'] },
+        { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: 'Smithy', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, enchant: false, paths: ['r'] },
+        { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: 'Smithy', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, enchant: false, paths: ['sell'] },
       ],
     }
     renderRows([split])
@@ -562,7 +562,7 @@ describe('ResultsTable', () => {
       const merged: RankResult = {
         ...robe,
         steps: [
-          { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 3, value: -300, via: 'vendor', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, paths: ['r.0.0', 'r.1'] },
+          { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 3, value: -300, via: 'vendor', who: '', discount: 0, rep_discount: 0, rep_faction: '', bonus: 0, seconds: 0, station: '', lead_seconds: 0, convert: false, enchant: false, paths: ['r.0.0', 'r.1'] },
           ...robe.steps.slice(2),
         ],
         tree: {
@@ -745,5 +745,67 @@ describe('ResultsTable profit per hour', () => {
     const text = (t: string) => screen.findByText((_, el) => el?.tagName === 'P' && shown(el) === t)
     expect(await text('10 crafts: Investment 3 0 · Net profit -2 0')).toBeInTheDocument()
     expect(await text('Estimated time: 4 min 10 s (Net profit -1 23 45/hr)')).toBeInTheDocument()
+  })
+})
+
+describe('ResultsTable: an enchant cast for the skill point alone', () => {
+  const NAME = 'Enchant Bracer - Minor Health'
+  const enchant: RankResult = {
+    ...robe,
+    recipe_id: 110,
+    recipe: NAME,
+    kind: 'enchant',
+    profession: 'Enchanting',
+    crafters: ['Enchy'],
+    crafter: 'Enchy',
+    output_item_id: 0,
+    output_name: NAME,
+    cost: 20000,
+    revenue: 0,
+    profit: -20000,
+    roi: -1,
+    best_exit: 'skill',
+    crafts: 5,
+    skill_ups: 5,
+    exits: [],
+    sell_options: [{ kind: 'skill', profit: -20000 }],
+    reagents: [{ item_id: 1, count: 2 }],
+    steps: [
+      { ...robe.steps[0]!, quantity: 10, value: -20000, who: 'Enchy' },
+      { ...robe.steps[2]!, item_id: 0, name: NAME, via: NAME, quantity: 5, who: 'Enchy', enchant: true },
+    ],
+    tree: {
+      ...robe.tree,
+      item_id: 0,
+      name: NAME,
+      via: NAME,
+      quantity: 5,
+      crafts: 5,
+      made: 5,
+      cost: 20000,
+      crafter: 'Enchy',
+      enchant: true,
+      inputs: [{ ...bought(1, 'Linen Cloth', 10, 20000), crafter: 'Enchy' }],
+    },
+  }
+
+  it('names the enchant, at a dead loss, sold via Skill only', () => {
+    renderWithProviders(<ResultsTable results={[enchant]} items={items} rankBy="skill" />)
+    expect(line(NAME)).toBeInTheDocument()
+    expect(line('Skill only')).toBeInTheDocument()
+    expect(screen.getByText('-100%')).toBeInTheDocument()
+    expect(line('Enchy')).toBeInTheDocument()
+    expect(line('-2 _0 _0')).toBeInTheDocument() // net profit: what it cost
+    expect(line('-40 _0')).toBeInTheDocument() // per skill up
+  })
+
+  it('ends the flow chart and the steps with the cast: nothing is sold', async () => {
+    renderRows([enchant])
+    await userEvent.click(screen.getByRole('button', { name: `Details for ${NAME}` }))
+    expect(screen.getByText('Cast 5x · skill up only')).toBeInTheDocument()
+    expect(screen.queryByText(/Gross/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByText('Steps'))
+    expect(line(`Enchy: Cast ${NAME} 5 times`)).toBeInTheDocument()
+    expect(screen.queryByText(/^Sell \d/)).not.toBeInTheDocument()
   })
 })

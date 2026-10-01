@@ -73,7 +73,8 @@ export function useDeleteCharacter() {
   })
 }
 
-export type Exit = 'vendor' | 'disenchant' | 'ah'
+/** A way to sell; `skill` is an enchant's: cast for the skill point alone, nothing is sold. */
+export type Exit = 'vendor' | 'disenchant' | 'ah' | 'skill'
 
 /** Which recipes nobody has learned count: none, those a character can train (see `lookAhead` and `sources`), or
  * every recipe of their professions. */

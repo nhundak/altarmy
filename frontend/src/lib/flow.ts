@@ -17,6 +17,8 @@ export type ItemNodeData = {
   via: string
   /** Crafted by an essence conversion (the item's Use spell) rather than a profession recipe. */
   convert: boolean
+  /** An enchant: `name` is the spell's, cast `crafts` times; no item is made. */
+  enchant: boolean
   crafts: number
   made: number
   source: string
@@ -62,7 +64,8 @@ export type Flow = {
 /** Ids are tree paths ("r", "r.0", "r.0.1"), so an item used in two branches gets two nodes. When the output
  * has to be mailed to whoever sells it (an enchanter), a mail node sits between the craft and the sale; likewise
  * between an intermediate and the craft using it when another character makes it. A flip's tree has no craft to
- * show: its bought input is sold directly. */
+ * show: its bought input is sold directly. An enchant (sold via `skill`) makes nothing, so its chart ends with the
+ * cast: no sale. */
 export function buildFlow({
   tree,
   best_exit,
@@ -103,6 +106,7 @@ export function buildFlow({
         cost,
         via,
         convert: node.convert ?? false,
+        enchant: node.enchant ?? false,
         crafts,
         made,
         source,
@@ -128,22 +132,24 @@ export function buildFlow({
   const last = tree.flip && tree.inputs.length === 1 ? 'r.0' : 'r'
   if (last === 'r') visit(tree, 'r')
   else visit(tree.inputs[0], last)
-  nodes.push({
-    id: SELL_PATH,
-    type: 'sell',
-    position: { x: 0, y: 0 },
-    data: {
-      exit: best_exit,
-      revenue,
-      profit,
-      quantity: tree.made,
-      bonus: bonus_output,
-      seller: mail_to || tree.crafter,
-      options: sell_options,
-    },
-  })
-  if (mail_to) mail(last, SELL_PATH, mail_to, postage, tree.made)
-  else edge(last, SELL_PATH, tree.made)
+  if (best_exit !== 'skill') {
+    nodes.push({
+      id: SELL_PATH,
+      type: 'sell',
+      position: { x: 0, y: 0 },
+      data: {
+        exit: best_exit,
+        revenue,
+        profit,
+        quantity: tree.made,
+        bonus: bonus_output,
+        seller: mail_to || tree.crafter,
+        options: sell_options,
+      },
+    })
+    if (mail_to) mail(last, SELL_PATH, mail_to, postage, tree.made)
+    else edge(last, SELL_PATH, tree.made)
+  }
 
   const g = new dagre.graphlib.Graph()
   g.setGraph({ rankdir: 'LR', nodesep: 16, ranksep: 56, marginx: 0, marginy: 0 })

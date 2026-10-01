@@ -1801,3 +1801,82 @@ def test_a_flip_needs_an_enchanter_and_mails_to_one() -> None:
     assert flip_market(crafters=[TAILOR]).evaluate(flip) is None
     res = must_evaluate(flip_market(crafters=[TAILOR, ENCHANTER]), flip)
     assert res.crafter == "Enchy" and res.postage == 0  # the enchanter buys it: nothing to mail
+
+
+# An enchant: reagents in, no item out. Yellow at 120, grey at 160.
+ENCHANT = Recipe(
+    20,
+    "Enchant Bracer - Minor Health",
+    0,
+    1,
+    ((DUST, 2),),
+    "Enchanting",
+    spell_id=970,
+    trivial_low=120,
+    trivial_high=160,
+    kind="enchant",
+)
+SKILL_ONLY = ALL_EXITS | {"skill"}
+
+
+def enchant_market(*crafters: Crafter, **kwargs: Any) -> Market:
+    """Dust at 100 on the AH, and Enchy (Enchanting 100) who knows the enchant unless `crafters` are given."""
+    crafters = crafters or (replace(ENCHANTER, known_spells=frozenset({970})),)
+    items = {DUST: Item(DUST, "Strange Dust")}
+    return Market(items, [ENCHANT], {DUST: 100}, crafters=crafters, **kwargs)
+
+
+def test_an_enchant_is_not_ranked_unless_skill_only_is_a_way_to_sell() -> None:
+    assert enchant_market().rank(min_profit=-(10**9)) == []
+    assert enchant_market().evaluate(ENCHANT) is None
+
+
+def test_an_enchant_costs_its_reagents_and_makes_nothing() -> None:
+    m = enchant_market(exits=SKILL_ONLY)
+    (res,) = m.rank(min_profit=-(10**9), crafts=5)
+    assert (res.cost, res.revenue, res.profit, res.roi) == (1000, 0, -1000, -1.0)
+    assert (res.best_exit, res.crafter, res.postage, res.mail_to) == ("skill", "Enchy", 0, "")
+    assert (res.skill_chance, res.skill_ups) == (1.0, 5.0)
+    assert [(o.kind, o.profit) for o in res.sell_options] == [("skill", -1000)]
+    assert (res.tree.item_id, res.tree.name, res.tree.enchant, res.tree.made) == (0, ENCHANT.name, True, 5)
+
+
+def test_an_enchants_steps_end_with_the_cast() -> None:
+    res = must_evaluate(enchant_market(exits=SKILL_ONLY), ENCHANT)
+    assert [(s.action, s.name, s.quantity, s.enchant) for s in res.steps] == [
+        ("buy", "Strange Dust", 2, False),
+        ("craft", ENCHANT.name, 1, True),
+    ]
+
+
+def test_a_trivial_enchant_is_never_ranked() -> None:
+    grey = replace(ENCHANTER, professions=(("Enchanting", 160, 375),), known_spells=frozenset({970}))
+    m = enchant_market(grey, exits=SKILL_ONLY, include_trivial=True)
+    assert m.rank(min_profit=-(10**9)) == []
+    # nor for a crafter the user picked
+    assert enchant_market(grey, exits=SKILL_ONLY, final_crafter="Enchy").evaluate(ENCHANT) is None
+
+
+def test_an_enchant_is_done_by_whoever_it_can_skill_up() -> None:
+    grey = replace(ENCHANTER, name="Grey", professions=(("Enchanting", 200, 375),))
+    low = replace(ENCHANTER, known_spells=frozenset({970}))
+    m = enchant_market(replace(grey, known_spells=frozenset({970})), low, exits=SKILL_ONLY)
+    assert must_evaluate(m, ENCHANT).crafter == "Enchy"
+
+
+def test_an_enchant_is_no_way_to_get_an_item_and_not_anyones() -> None:
+    assert not ENCHANT.anyone and ENCHANT.is_enchant
+    assert recipes_for_characters([ENCHANT], [TAILOR], "none") == []
+    assert engine.recipes_using([ENCHANT], {DUST}) == frozenset({ENCHANT.id})
+
+
+def test_a_craft_is_never_sold_for_skill_only() -> None:
+    m = make_market({LINEN: 20, THREAD: 100}, exits=frozenset({"skill"}))
+    assert m.evaluate(m.recipes[0]) is None
+
+
+def test_an_enchant_is_timed_without_a_sale() -> None:
+    model = TimeModel(timing.TimeConfig(), timing.ANYWHERE)
+    res = must_evaluate(enchant_market(exits=SKILL_ONLY, time=model), ENCHANT)
+    assert res.sell_seconds == 0
+    assert res.timing is not None and res.timing.total_seconds > 0

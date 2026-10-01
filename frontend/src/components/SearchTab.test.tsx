@@ -808,3 +808,78 @@ describe('SearchTab', () => {
     expect(localStorage.getItem('altarmy-profit.search.includeTrivial')).toBe('false')
   })
 })
+
+describe('SearchTab: enhancing items for the skill point alone', () => {
+  const NAME = 'Enhance item for skill up only'
+  const api = () =>
+    mockApi({
+      '/api/status': status(),
+      '/api/characters': {
+        ...withEnchanter,
+        groups: withEnchanter.groups.map((g) => ({
+          ...g,
+          characters: g.characters.map((c) =>
+            c.name === 'Enchy'
+              ? { ...c, professions: [...c.professions, { name: 'Engineering', rank: 280, max_rank: 300, recipes: 0 }] }
+              : c,
+          ),
+        })),
+      },
+      '/api/professions': ['Enchanting', 'Engineering', 'Tailoring'],
+      '/api/rank': noResults,
+    })
+  const exitsSent = (fetch: ReturnType<typeof mockApi>) => urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('exits')
+
+  it('is offered while Enchanting is skilled up, unchecked, and then ranks enchants', async () => {
+    withSetup({ aim: 'skill', profession: 'Enchanting' })
+    const fetch = api()
+    renderWithProviders(<SearchTab />)
+    const box = await screen.findByRole('checkbox', { name: NAME })
+    expect(box).not.toBeChecked()
+    expect(box).toHaveAccessibleDescription(
+      'Sometimes to level up enchanting, you just need to repeatedly enchant stuff. This is a dead loss unless you ' +
+        'can find someone to pay you for it, but you do what you got to do.',
+    )
+    await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'ah']))
+    await userEvent.click(box)
+    expect(box).toBeChecked()
+    await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'ah', 'skill']))
+    // the other ways to sell keep their own boxes
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Auction house' }))
+    await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'skill']))
+    expect(localStorage.getItem('altarmy-profit.search.exits')).toBe('["vendor","disenchant"]')
+    await userEvent.click(box)
+    await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant']))
+  })
+
+  it('is offered for Engineering too, whose tinkers make no item either', async () => {
+    withSetup({ aim: 'skill', profession: 'Engineering' })
+    const fetch = api()
+    renderWithProviders(<SearchTab />)
+    const box = await screen.findByRole('checkbox', { name: NAME })
+    expect(box).not.toBeChecked()
+    expect(box).toHaveAccessibleDescription(
+      'Sometimes to level up engineering, you just need to repeatedly tinker with your gear. This is a dead loss ' +
+        'unless you can find someone to pay you for it, but you do what you got to do.',
+    )
+    await userEvent.click(box)
+    await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'ah', 'skill']))
+  })
+
+  it.each([
+    ['another profession', { aim: 'skill', profession: 'Tailoring' }],
+    ['any profession', { aim: 'skill', profession: 'any' }],
+    ['making gold', { aim: 'gold', selling: 'any' }],
+  ])('is neither offered nor sent for %s, even if it was ticked before', async (_, setup) => {
+    withSetup(setup)
+    localStorage.setItem('altarmy-profit.search.skillOnly', 'true')
+    const fetch = api()
+    renderWithProviders(<SearchTab />)
+    await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'ah']))
+    expect(screen.queryByRole('checkbox', { name: NAME })).not.toBeInTheDocument()
+    // unticking another way to sell leaves the stored tick alone
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Auction house' }))
+    await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant']))
+    expect(localStorage.getItem('altarmy-profit.search.skillOnly')).toBe('true')
+  })
+})

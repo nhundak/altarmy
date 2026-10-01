@@ -63,7 +63,8 @@ from .versions import GameVersion, GameVersionKey
 
 DEFAULT_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
-ExitKind = Literal["vendor", "ah", "disenchant"]
+# "skill": an enchant cast for the skill point alone (`engine.SKILL_EXIT`); only when asked for
+ExitKind = Literal["vendor", "ah", "disenchant", "skill"]
 ALL_EXIT_KINDS: tuple[ExitKind, ...] = ("vendor", "ah", "disenchant")
 # What may teach a recipe "to train" unless the request says otherwise (as `engine.DEFAULT_SOURCES`, ordered)
 DEFAULT_SOURCES: tuple[engine.Source, ...] = ("trainer", "recipe")
@@ -103,7 +104,7 @@ class MaterialOut(BaseModel):
 
 
 class ExitOut(BaseModel):
-    kind: str  # vendor | ah | disenchant
+    kind: str  # vendor | ah | disenchant | skill (an enchant's: nothing is sold)
     value: int  # copper per item, after cuts
     materials: list[MaterialOut]  # disenchant only: what it yields
     postage: int  # copper per item to mail it to the character who can use this exit
@@ -127,6 +128,7 @@ class StepOut(BaseModel):
     lead_seconds: float = 0.0  # a disenchant sale: the disenchanting's share of `seconds` (then posting)
     station: str = ""  # craft: the station it is cast at (anvil, cooking_fire, loom, ...); "" anywhere
     convert: bool = False  # craft: an essence conversion (the item's Use spell), not a profession craft
+    enchant: bool = False  # craft: an enchant: `name` is the spell's, no item is made (`item_id` 0)
 
 
 class OptionOut(BaseModel):
@@ -142,7 +144,7 @@ class OptionOut(BaseModel):
 
 
 class SellOptionOut(BaseModel):
-    kind: str  # vendor | ah | disenchant
+    kind: str  # vendor | ah | disenchant | skill
     profit: int  # the best profit selling this way
 
 
@@ -169,6 +171,7 @@ class NodeOut(BaseModel):
     option: str  # the key of the option taken; "" for the recipe's craft
     convert: bool = False  # crafted by an essence conversion
     flip: bool = False  # a flip's root: nothing is crafted, its one input (bought) is what is sold
+    enchant: bool = False  # an enchant's root: no item (`item_id` 0), named after the spell
     inputs: list[NodeOut]
 
 
@@ -194,6 +197,7 @@ def _node_out(n: engine.Node, faction: Callable[[str, int, int], str]) -> NodeOu
         option=n.option,
         convert=n.convert,
         flip=n.flip,
+        enchant=n.enchant,
         inputs=[_node_out(i, faction) for i in n.inputs],
     )
 
@@ -320,8 +324,10 @@ class RankResult(BaseModel):
     recipe_id: int
     recipe: str
     # craft: a profession recipe; convert: an essence conversion; flip: gear bought on the AH to disenchant
-    # (the last two need no profession: anyone does them)
-    kind: Literal["craft", "convert", "flip"] = "craft"
+    # (those two need no profession: anyone does them); enchant: a profession's spell enchanting an item,
+    # which makes none (`output_item_id` 0, `output_name` the spell's) and is never sold (`best_exit`
+    # skill)
+    kind: Literal["craft", "convert", "flip", "enchant"] = "craft"
     profession: str
     crafters: list[str]  # selected characters who know the recipe; empty if nobody has learned it
     crafter: str  # who does the cheapest craft (may not have learned it, with `unlearned`)
@@ -1186,12 +1192,14 @@ def _result_out(
     return RankResult(
         recipe_id=r.recipe.id,
         recipe=r.recipe.name,
-        kind=cast(Literal["craft", "convert", "flip"], r.recipe.kind),
+        kind=cast(Literal["craft", "convert", "flip", "enchant"], r.recipe.kind),
         profession=r.recipe.skill_name,
         crafters=crafters.get(r.recipe.spell_id, []),
         crafter=r.crafter,
         output_item_id=r.recipe.output_item_id,
-        output_name=base.items[r.recipe.output_item_id].name
+        output_name=r.recipe.name
+        if r.recipe.is_enchant
+        else base.items[r.recipe.output_item_id].name
         if r.recipe.output_item_id in base.items
         else "?",
         output_count=r.recipe.output_count,
@@ -1237,6 +1245,7 @@ def _result_out(
                 station=s.station,
                 lead_seconds=s.lead_seconds,
                 convert=s.convert,
+                enchant=s.enchant,
             )
             for s in r.steps
         ],

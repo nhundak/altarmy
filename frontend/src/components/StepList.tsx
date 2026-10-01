@@ -52,7 +52,7 @@ function describe(step: Step, result: RankResult, items: ItemMap, vendor?: strin
 }
 
 function describeAction(
-  { action, item_id, name, quantity, value, via, discount, rep_discount, rep_faction, bonus, convert }: Step,
+  { action, item_id, name, quantity, value, via, discount, rep_discount, rep_faction, bonus, convert, enchant }: Step,
   result: RankResult,
   items: ItemMap,
   vendor?: string,
@@ -70,6 +70,8 @@ function describeAction(
         </>,
       ]
     case 'craft':
+      // an enchant makes no item: the step is the spell, cast on anything it can go on
+      if (enchant) return [<>Cast {name} {quantity === 1 ? 'once' : `${quantity} times`}</>]
       return [
         <>
           {convert ? 'Convert into' : 'Craft'} {quantity}x {item}
