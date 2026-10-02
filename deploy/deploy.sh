@@ -43,10 +43,12 @@ echo "== migrate"
 gcloud run jobs execute "$JOB_PREFIX-migrate" --region "$REGION" --wait "${GCLOUD_FLAGS[@]}"
 
 echo "== service $SERVICE"
+# the jobs the Admin page's Run now starts (launch.CloudRunJobs; setup.sh job-runner lets the service)
+RUN_JOBS="CLOUD_RUN_LOCATION=projects/$PROJECT/locations/$REGION,JOB_PREFIX=$JOB_PREFIX"
 gcloud run deploy "$SERVICE" "${COMMON[@]}" \
   --allow-unauthenticated --min-instances 0 --max-instances "$MAX_INSTANCES" --concurrency 40 \
   --cpu 1 --memory 1Gi --cpu-boost --timeout 300 \
-  --set-env-vars "$FIREBASE_VARS,DB_POOL_SIZE=3,DB_MAX_OVERFLOW=2" \
+  --set-env-vars "$FIREBASE_VARS,DB_POOL_SIZE=3,DB_MAX_OVERFLOW=2,$RUN_JOBS" \
   "${GCLOUD_FLAGS[@]}"
 
 echo "== front end"

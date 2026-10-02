@@ -14,6 +14,7 @@ from altarmy_profit import (
     db,
     ingest,
     jobs,
+    launch,
     merge,
     prices,
     ratelimit,
@@ -31,6 +32,7 @@ from .conftest import FOREVER, ME, book_scan, saved_book, scanned, set_prices
 from .test_altarmy import ALTARMY_SV
 from .test_auctionator import _entry, _saved_variables
 from .test_auth import FakeVerifier
+from .test_launch import FakeLauncher
 from .test_signals import FakeSignals
 
 FIREBASE = auth.FirebaseConfig("demo-altarmy", "key", "demo-altarmy.firebaseapp.com", None)
@@ -51,6 +53,7 @@ def make_client(
     verifier: FakeVerifier | None = None,
     limits: ratelimit.Limits | None = None,
     firebase: auth.FirebaseConfig = FIREBASE,
+    launcher: FakeLauncher | None = None,
 ) -> TestClient:
     """The app with fake tokens (see `FakeVerifier`), asking about Forever unless a request passes another
     game_version, signed in as `ME` unless a request sends other headers."""
@@ -62,6 +65,7 @@ def make_client(
         firebase=firebase,
         limits=limits,
         signals=FakeSignals(),
+        launcher=launcher or FakeLauncher(),
     )
     c = TestClient(app)
     c.params = c.params.set("game_version", "forever")
@@ -1161,6 +1165,44 @@ def test_the_admin_page_shows_jobs_uploads_and_snapshots(client: TestClient, con
     ((source, stats),) = [(s["source"], s) for s in got["snapshots"]]
     assert (source, stats["snapshots_24h"], stats["items_7d"]) == ("altarmy", 1, 1)
     assert "feeds" not in got
+    assert got["can_run"] == ["ingest"]
+
+
+def test_admins_start_the_ingest(
+    tmp_path: Path, game_versions: dict[str, GameVersion], database: db.Database, conn: Connection
+) -> None:
+    launcher = FakeLauncher()
+    c = make_client(database, game_versions, tmp_path, launcher=launcher)
+    for headers in (FREE, LINKED, SIGNED_IN):
+        assert c.post("/api/admin/jobs/ingest", headers=headers).status_code == 403
+    got = c.post("/api/admin/jobs/ingest", headers=ADMIN)
+    assert got.status_code == 202
+    assert got.json() == {"job": "ingest", "game_version": FOREVER, "detail": "Started forever."}
+    assert c.post("/api/admin/jobs/ingest", headers=ADMIN, params={"game_version": "tbc"}).is_success
+    assert launcher.started == [FOREVER, "tbc"]
+    run_id = jobs.start(conn, "ingest", FOREVER)  # the run it started is going
+    assert c.post("/api/admin/jobs/ingest", headers=ADMIN).status_code == 409
+    assert launcher.started == [FOREVER, "tbc"]
+    jobs.finish(conn, run_id, True, "")
+    assert c.post("/api/admin/jobs/ingest", headers=ADMIN).status_code == 202
+
+
+def test_the_ingest_says_why_it_could_not_start(
+    tmp_path: Path,
+    game_versions: dict[str, GameVersion],
+    database: db.Database,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    broken = make_client(database, game_versions, tmp_path, launcher=FakeLauncher("No Cloud Run job."))
+    got = broken.post("/api/admin/jobs/ingest", headers=ADMIN)
+    assert (got.status_code, got.json()["detail"]) == (502, "No Cloud Run job.")
+    monkeypatch.setattr(launch, "from_env", lambda database: None)  # a hosted service without the jobs' names
+    app = create_app(
+        game_versions, database=database, static_dir=None, verifier=FakeVerifier(), firebase=FIREBASE
+    )
+    nowhere = TestClient(app, headers=ADMIN)
+    assert nowhere.post("/api/admin/jobs/ingest", params={"game_version": FOREVER}).status_code == 501
+    assert nowhere.get("/api/admin/ingestion", params={"game_version": FOREVER}).json()["can_run"] == []
 
 
 # --- profit per hour ----------------------------------------------------------------------------------

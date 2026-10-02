@@ -829,6 +829,13 @@
       "IngestionOut": {
         "description": "What the ingestion jobs and uploads have been doing (the Admin page).",
         "properties": {
+          "can_run": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Can Run",
+            "type": "array"
+          },
           "jobs": {
             "items": {
               "$ref": "#/components/schemas/JobStatusOut"
@@ -863,7 +870,8 @@
           "jobs",
           "runs",
           "uploads",
-          "snapshots"
+          "snapshots",
+          "can_run"
         ],
         "title": "IngestionOut",
         "type": "object"
@@ -1152,6 +1160,29 @@
           "summary"
         ],
         "title": "JobRunOut",
+        "type": "object"
+      },
+      "JobStartedOut": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "game_version": {
+            "title": "Game Version",
+            "type": "string"
+          },
+          "job": {
+            "title": "Job",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job",
+          "game_version",
+          "detail"
+        ],
+        "title": "JobStartedOut",
         "type": "object"
       },
       "JobStatusOut": {
@@ -2753,6 +2784,57 @@
           }
         ],
         "summary": "Get Admin Ingestion"
+      }
+    },
+    "/api/admin/jobs/ingest": {
+      "post": {
+        "description": "Start the version's game data ingest now, as the daily schedule does: the newest build, unless it is\nloaded already (admins). 409 while a run of it is still going, 501 where nothing can start jobs.",
+        "operationId": "run_ingest_job_api_admin_jobs_ingest_post",
+        "parameters": [
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStartedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Run Ingest Job"
       }
     },
     "/api/ah-blocked": {

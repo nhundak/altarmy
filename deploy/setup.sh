@@ -14,6 +14,10 @@
 #   deploy/setup.sh wif          Workload Identity Federation for GitHub Actions
 #   deploy/setup.sh scheduler ENV  Cloud Scheduler jobs for prod or staging (after a deploy of ENV made its
 #                                jobs; existing ones are kept)
+#   deploy/setup.sh job-runner ENV  let ENV's service start its ingest jobs (the Admin page's Run now; after
+#                                a deploy of ENV made them)
+#   deploy/setup.sh alerts EMAIL  an email channel to EMAIL and the alert policies that use it (existing
+#                                ones are kept)
 #
 # Then: BUILDER=cloudbuild deploy/build.sh, deploy/deploy.sh prod|staging IMAGE (README, "Deploy").
 set -euo pipefail
@@ -152,13 +156,68 @@ scheduler() { # scheduler prod|staging: the same cadence (jobs.CADENCE); staging
   schedule "$JOB_PREFIX-merge" "$((30 + m)) * * * *" # hourly: daily medians and 7-day price statistics
 }
 
+job_runner() { # job-runner prod|staging: the service may start its ingest jobs (the Admin page's Run now)
+  env_config "${1:?prod or staging}"
+  local job
+  for job in "$JOB_PREFIX-ingest-tbc" "$JOB_PREFIX-ingest-forever"; do
+    gcloud run jobs add-iam-policy-binding "$job" --region "$REGION" --member "serviceAccount:$RUN_SA" \
+      --role roles/run.invoker "${G[@]}" >/dev/null
+    echo "  roles/run.invoker on $job -> $RUN_SA"
+  done
+}
+
+alerts() { # alerts EMAIL: log-based alert policies (a job's `Run.warn`), emailed at most once a day
+  local email="${1:?an email address to notify}" channel policy file
+  channel="$(gcloud beta monitoring channels list --filter "type=email AND labels.email_address=$email" \
+    --format 'value(name)' "${G[@]}" | head -n 1)"
+  if [ -z "$channel" ]; then
+    channel="$(gcloud beta monitoring channels create --type email --display-name "altarmy alerts ($email)" \
+      --channel-labels "email_address=$email" --format 'value(name)' "${G[@]}")"
+  fi
+  echo "  notification channel $channel"
+
+  # merge.PARTITION_ALERT: price_observations is past merge.PARTITION_AT rows (prod's or staging's merge)
+  policy="altarmy price_observations needs partitioning"
+  if gcloud alpha monitoring policies list --filter "displayName=\"$policy\"" --format 'value(name)' \
+    "${G[@]}" | grep -q .; then
+    echo "policy '$policy' exists"
+    return
+  fi
+  file="$(mktemp)"
+  cat >"$file" <<EOF
+{
+  "displayName": "$policy",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The hourly merge job counted more rows in price_observations than merge.PARTITION_AT. Partition the table by month (pruning then drops whole partitions), or shorten prices.KEEP_DAYS. The job label says whether it is prod's or staging's."
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "merge logged partition-observations",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_job\" AND severity=WARNING AND jsonPayload.alert=\"partition-observations\"",
+        "labelExtractors": {"job": "EXTRACT(resource.labels.job_name)"}
+      }
+    }
+  ],
+  "alertStrategy": {"notificationRateLimit": {"period": "86400s"}, "autoClose": "604800s"},
+  "notificationChannels": ["$channel"]
+}
+EOF
+  gcloud alpha monitoring policies create --policy-from-file "$file" "${G[@]}"
+  rm -f "$file"
+}
+
 case "${1:-}" in
   apis | registry | accounts | sql | firestore | wif) "$1" ;;
+  alerts) alerts "${2:-}" ;;
   database) database "${2:-}" ;;
   scheduler) scheduler "${2:-}" ;;
+  job-runner) job_runner "${2:-}" ;;
   staging-auth) staging_auth ;;
   *)
-    sed -n '2,19p' "$0"
+    sed -n '2,22p' "$0"
     exit 1
     ;;
 esac

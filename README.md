@@ -46,7 +46,7 @@ altarmy-profit ingest --only-if-new --force    # reload the newest build even if
 altarmy-profit serve                           # the API (and the built front end) on http://127.0.0.1:8600
 altarmy-profit watch --server URL --key KEY    # upload the addon files to the site as WoW rewrites them
 altarmy-profit migrate                         # migrate the database now (each deploy runs this once)
-altarmy-profit prune                           # drop price observations older than 90 days
+altarmy-profit prune                           # drop price observations older than 180 days
 altarmy-profit merge                           # recompute daily medians and 7-day price statistics (hourly job)
 ```
 
@@ -327,7 +327,7 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
 - Pinned builds: `default_build` per version in `src/altarmy_profit/versions.py`. Pass `--build <version>`
   or `--build latest` for a newer one. The build actually loaded is stored in the `game_versions` table.
 - **Price history.** Every import is a snapshot (`price_snapshots`); it records observations only for
-  items whose price or last-seen day moved (`price_observations`, pruned after 90 days) and updates
+  items whose price or last-seen day moved (`price_observations`, pruned after 180 days) and updates
   `price_current`, which the ranking reads. Each scan's market price (TBC: Auctionator's per-day
   high/low/available) goes to `price_daily` (pooled across uploaders: lowest low, highest high), which
   is kept indefinitely.

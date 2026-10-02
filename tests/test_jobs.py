@@ -1,5 +1,6 @@
 """Job runs: recording a CLI job's run, and reading them back for the Admin page."""
 
+import json
 import sys
 from datetime import UTC, datetime, timedelta
 
@@ -30,6 +31,23 @@ def test_a_run_is_recorded_with_what_the_job_said(
         run.say("two")
     assert capsys.readouterr().out == "one\ntwo\n"
     assert runs(conn) == [("ingest", FOREVER, True, "one\ntwo", True)]
+
+
+def test_a_warning_is_a_structured_log_line_and_kept_in_the_summary(
+    database: db.Database, conn: Connection, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with jobs.recording(database, "merge") as run:
+        run.say("Merged.")
+        run.warn("Too many rows.", alert="too-many", rows=6)
+    merged, warning = capsys.readouterr().out.splitlines()
+    assert merged == "Merged."
+    assert json.loads(warning) == {
+        "severity": "WARNING",
+        "message": "Too many rows.",
+        "alert": "too-many",
+        "rows": 6,
+    }
+    assert runs(conn) == [("merge", None, True, "Merged.\nToo many rows.", True)]
 
 
 def test_a_failing_run_is_recorded_and_the_failure_raised(database: db.Database, conn: Connection) -> None:
@@ -77,6 +95,15 @@ def test_recent_and_latest_cover_the_version_and_every_version(conn: Connection)
     assert (latest["merge"].ok, latest["merge"].summary) == (True, "merge 3")
     assert (latest["prune"].ok, latest["prune"].finished_at) == (None, None)
     assert jobs.latest(conn, "tbc")["ingest"].summary == "ingest 0"
+
+
+def test_a_run_is_running_until_it_finishes_or_times_out(conn: Connection) -> None:
+    run_id = jobs.start(conn, "ingest", FOREVER, now=T0)
+    run = jobs.latest(conn, FOREVER)["ingest"]
+    assert jobs.running(run, T0 + timedelta(minutes=29))
+    assert not jobs.running(run, T0 + jobs.TIMEOUT)  # it died without a word
+    jobs.finish(conn, run_id, True, "", now=T0 + timedelta(minutes=1))
+    assert not jobs.running(jobs.latest(conn, FOREVER)["ingest"], T0 + timedelta(minutes=2))
 
 
 def test_late_is_twice_the_cadence(conn: Connection) -> None:

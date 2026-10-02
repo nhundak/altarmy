@@ -23,10 +23,10 @@ from . import (
     db,
     ingest,
     jobs,
+    launch,
     merge,
     prices,
     schema,
-    service,
     signals,
     signin,
     versions,
@@ -52,18 +52,10 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     v = _version(args)
     if args.force and not args.only_if_new:
         sys.exit("--force goes with --only-if-new (without it, ingest always reloads)")
-    with jobs.recording(args.database, "ingest", v.key) as run:
-        if args.only_if_new:  # the hosted daily job: the newest build, unless already loaded (or --force)
-            with args.database.begin() as conn:
-                build, updated, stats = service.update_game_data(
-                    conn, v, Path(args.cache), only_if_new=not args.force
-                )
-            run.say(
-                f"Ingested {v.label} build {build}: {stats}"
-                if updated
-                else f"{v.label} build {build} already loaded."
-            )
-        else:
+    if args.only_if_new:  # the hosted daily job: the newest build, unless already loaded (or --force)
+        launch.run_ingest(args.database, v, Path(args.cache), force=args.force)
+    else:
+        with jobs.recording(args.database, "ingest", v.key) as run:
             build = args.build or v.default_build
             if build == "latest":
                 build = ingest.latest_build(v.wago_product)
@@ -104,6 +96,13 @@ def cmd_merge(args: argparse.Namespace) -> None:
             f"Merged {len(changed)} auction houses of every game version ({sum(changed.values())} changed); "
             f"{observations} price observations stored."
         )
+        if observations >= merge.PARTITION_AT:
+            run.warn(
+                f"price_observations has {observations} rows (limit {merge.PARTITION_AT}): "
+                "partition it by month.",
+                alert=merge.PARTITION_ALERT,
+                observations=observations,
+            )
         run.say(_signal(signals.from_env(), moved))
 
 

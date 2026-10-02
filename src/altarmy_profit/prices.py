@@ -30,7 +30,7 @@ from sqlalchemy import ColumnElement, Connection, bindparam, case, delete, func,
 from . import book, db, schema
 from .auctionator import ItemPrice
 
-KEEP_DAYS = 90  # observations older than this are pruned (price_daily is kept)
+KEEP_DAYS = 180  # observations older than this are pruned (price_daily is kept)
 AUCTIONATOR = "auctionator"
 HAND_SET = ("manual", "csv")  # sources whose price is used as it is, never capped by the 7-day median
 THIN_UNITS = 5  # fewer units listed than this: a sale there rests on a thin market

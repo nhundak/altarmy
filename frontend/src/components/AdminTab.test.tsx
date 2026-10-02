@@ -1,4 +1,5 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Ingestion } from '../api/client'
 import { mockApi, renderWithProviders } from '../test/utils'
@@ -85,6 +86,7 @@ export const ingestion: Ingestion = {
       newest_received_at: '2026-09-27 10:00:00',
     },
   ],
+  can_run: ['ingest'],
 }
 
 describe('AdminTab', () => {
@@ -121,6 +123,33 @@ describe('AdminTab', () => {
     expect(within(uploads).getByText('rejected')).toBeInTheDocument()
     expect(within(screen.getByRole('table', { name: 'Price snapshots' })).getByText((12345).toLocaleString())).toBeInTheDocument()
     expect(screen.queryByRole('table', { name: 'AHledger feeds' })).not.toBeInTheDocument()
+  })
+
+  it('starts the ingest from its row', async () => {
+    const fetch = mockApi({
+      '/api/admin/ingestion': ingestion,
+      '/api/admin/jobs/ingest': { job: 'ingest', game_version: 'forever', detail: 'Started altarmy-ingest-forever.' },
+    })
+    renderWithProviders(<AdminTab />)
+    const jobs = await screen.findByRole('table', { name: 'Jobs' })
+    const [ingestRow, ...others] = within(jobs).getAllByRole('row').slice(1)
+    for (const row of others) expect(within(row).queryByRole('button')).not.toBeInTheDocument()
+    await userEvent.click(within(ingestRow!).getByRole('button', { name: 'Run now' }))
+    await waitFor(() => expect(fetch.mock.calls.some(([r]) => r.method === 'POST')).toBe(true))
+    const posted = new URL(fetch.mock.calls.find(([r]) => r.method === 'POST')![0].url)
+    expect([posted.pathname, posted.searchParams.get('game_version')]).toEqual(['/api/admin/jobs/ingest', 'forever'])
+  })
+
+  it('offers no Run now while the ingest runs, or where the server cannot start it', async () => {
+    const running = { ...ingestion.jobs[0]!, last_started: '2026-09-27 11:58:00' }
+    mockApi({ '/api/admin/ingestion': { ...ingestion, jobs: [running, ...ingestion.jobs.slice(1)] } })
+    const { unmount } = renderWithProviders(<AdminTab />)
+    expect(await screen.findByRole('button', { name: 'Run now' })).toBeDisabled()
+    unmount()
+    mockApi({ '/api/admin/ingestion': { ...ingestion, can_run: [] } })
+    renderWithProviders(<AdminTab />)
+    await screen.findByRole('table', { name: 'Jobs' })
+    expect(screen.queryByRole('button', { name: 'Run now' })).not.toBeInTheDocument()
   })
 
   it('says what went wrong', async () => {

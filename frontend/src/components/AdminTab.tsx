@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
-import { Alert, Badge, Card, Group, Loader, Stack, Table, Text, Title } from '@mantine/core'
+import { Alert, Badge, Button, Card, Group, Loader, Stack, Table, Text, Title } from '@mantine/core'
 import type { Ingestion } from '../api/client'
-import { useAdminIngestion } from '../api/queries'
+import { useAdminIngestion, useRunIngest } from '../api/queries'
 import { age, parseUtc } from '../lib/age'
 
 type Job = Ingestion['jobs'][number]
@@ -61,7 +61,30 @@ function Section({ title, lead, children }: { title: string; lead?: ReactNode; c
   )
 }
 
-function JobsCard({ jobs, now }: { jobs: readonly Job[]; now: Date }) {
+/** Whether the job's newest run is still going (the server refuses another until it ends). */
+function isRunning(job: Job): boolean {
+  return job.last_started !== null && job.last_finished === null && job.ok === null
+}
+
+/** Start the ingest now (the only job the server starts on demand). */
+function RunNow({ job }: { job: Job }) {
+  const ingest = useRunIngest()
+  return (
+    <Button
+      size="compact-sm"
+      variant="light"
+      title="Load the newest game build now, unless it is loaded already"
+      loading={ingest.isPending}
+      disabled={isRunning(job)}
+      onClick={() => ingest.mutate()}
+    >
+      Run now
+    </Button>
+  )
+}
+
+function JobsCard({ jobs, now, canRun }: { jobs: readonly Job[]; now: Date; canRun: readonly string[] }) {
+  const runnable = canRun.length > 0
   return (
     <Section title="Jobs" lead="Each scheduled job's newest run. Late: it has not run for twice its schedule.">
       <Table aria-label="Jobs">
@@ -71,6 +94,7 @@ function JobsCard({ jobs, now }: { jobs: readonly Job[]; now: Date }) {
             <Table.Th>Last run</Table.Th>
             <Table.Th>Status</Table.Th>
             <Table.Th>Said</Table.Th>
+            {runnable && <Table.Th aria-label="Actions" />}
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
@@ -93,6 +117,7 @@ function JobsCard({ jobs, now }: { jobs: readonly Job[]; now: Date }) {
               <Table.Td>
                 <Summary text={j.summary} />
               </Table.Td>
+              {runnable && <Table.Td>{j.job === 'ingest' && canRun.includes(j.job) && <RunNow job={j} />}</Table.Td>}
             </Table.Tr>
           ))}
         </Table.Tbody>
@@ -236,7 +261,7 @@ export function AdminTab() {
   const now = new Date(parseUtc(data.now))
   return (
     <Stack gap="lg">
-      <JobsCard jobs={data.jobs} now={now} />
+      <JobsCard jobs={data.jobs} now={now} canRun={data.can_run} />
       <RunsCard runs={data.runs} now={now} />
       <UploadsCard uploads={data.uploads} now={now} />
       <SnapshotsCard snapshots={data.snapshots} now={now} />

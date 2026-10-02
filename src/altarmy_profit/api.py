@@ -47,6 +47,7 @@ from . import (
     db,
     engine,
     jobs,
+    launch,
     prices,
     ratelimit,
     reputation,
@@ -642,6 +643,13 @@ class IngestionOut(BaseModel):
     runs: list[JobRunOut]  # the newest runs, newest first
     uploads: UploadStatsOut
     snapshots: list[SnapshotStatsOut]  # per source, by name
+    can_run: list[str]  # the jobs Run now can start here (none where nothing launches them)
+
+
+class JobStartedOut(BaseModel):
+    job: str
+    game_version: str
+    detail: str  # what to tell the admin
 
 
 # --- app state and helpers -------------------------------------------------------------------------
@@ -654,6 +662,7 @@ class AppState:
     cache: service.MarketCache
     rank_cache: service.RankCache
     signals: price_signals.Signals  # shared by every version
+    launcher: launch.Launcher | None  # starts jobs on demand (the Admin page); shared by every version
     _cities: Mapping[str, timing.CityMap] | None = None
 
     @property
@@ -1599,7 +1608,26 @@ def get_admin_ingestion(state: State, user: AdminUser) -> IngestionOut:
             )
             for s in snapshots
         ],
+        can_run=["ingest"] if state.launcher is not None else [],
     )
+
+
+@router.post("/admin/jobs/ingest", status_code=202)
+def run_ingest_job(state: State, user: AdminUser) -> JobStartedOut:
+    """Start the version's game data ingest now, as the daily schedule does: the newest build, unless it is
+    loaded already (admins). 409 while a run of it is still going, 501 where nothing can start jobs."""
+    if state.launcher is None:
+        raise HTTPException(501, "Jobs can't be started from this server.")
+    now = db.utcnow()
+    with _connect(state) as conn:
+        last = jobs.latest(conn, state.key).get("ingest")
+    if last is not None and jobs.running(last, now):
+        raise HTTPException(409, f"The {state.version.label} ingest is still running.")
+    try:
+        detail = state.launcher.ingest(state.version)
+    except launch.LaunchError as e:
+        raise HTTPException(502, str(e)) from e
+    return JobStartedOut(job="ingest", game_version=state.key, detail=detail)
 
 
 # --- coverage --------------------------------------------------------------------------------------
@@ -1694,6 +1722,7 @@ def create_app(
     accounts: auth.AccountAdmin | None = None,
     limits: ratelimit.Limits | None = None,
     signals: price_signals.Signals | None = None,
+    launcher: launch.Launcher | None = None,
 ) -> FastAPI:
     """Build the app for `game_versions`, each with its own data files, sharing `database` (default:
     `DATABASE_URL`, else data/altarmy-profit.sqlite). Touches no database or network, so tests and the
@@ -1704,7 +1733,8 @@ def create_app(
     `FIREBASE_PROJECT_ID`) unless `firebase` is given. Tokens are verified with firebase-admin unless a
     `verifier` is given (tests pass a fake one), which also deletes accounts unless `accounts` is given.
     Requests are rate-limited with `limits` (default `ratelimit.HOSTED_LIMITS`). Price signals go to the
-    Firebase project's Firestore unless `signals` is given (`signals.for_project`)."""
+    Firebase project's Firestore unless `signals` is given (`signals.for_project`). The Admin page's Run
+    now starts jobs with `launcher`, else `launch.from_env`'s."""
     database = database or db.Database(db.default_url(), migrate=False)
     firebase = firebase or auth.FirebaseConfig.from_env()
     verifier = verifier or auth.FirebaseVerifier(firebase.project_id)
@@ -1712,6 +1742,7 @@ def create_app(
         accounts = verifier
     limits = limits or ratelimit.HOSTED_LIMITS
     signals = signals or price_signals.for_project(firebase.project_id)
+    launcher = launcher or launch.from_env(database)
     per_ip = ratelimit.RateLimiter(limits.per_ip, limits.window)
     per_uid = ratelimit.RateLimiter(limits.per_uid, limits.window)
     app = FastAPI(title="altarmy-profit", version="0.1.0")
@@ -1740,6 +1771,7 @@ def create_app(
             service.MarketCache(database, v.key, ah_cut=v.ah_cut, mail_postage=v.mail_postage),
             service.RankCache(),
             signals,
+            launcher,
         )
         for key, v in game_versions.items()
     }

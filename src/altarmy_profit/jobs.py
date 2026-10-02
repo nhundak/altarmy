@@ -7,6 +7,7 @@ Functions taking a `Connection` never commit.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -25,6 +26,7 @@ CADENCE: dict[str, timedelta] = {
     "prune": timedelta(days=1),
 }
 LATE_FACTOR = 2
+TIMEOUT = timedelta(minutes=30)  # a job's task timeout (deploy/deploy.sh): an unfinished run older died
 SUMMARY_MAX = 4000  # characters of a run's summary kept (the end, where failures are)
 
 
@@ -68,6 +70,12 @@ class Run:
 
     def say(self, text: str) -> None:
         print(text)
+        self.lines.append(text)
+
+    def warn(self, text: str, *, alert: str, **fields: object) -> None:
+        """Say `text` as one JSON line, which Cloud Logging reads as a WARNING entry carrying `alert` (what
+        a log-based alert policy matches; deploy/setup.sh `alerts`) and `fields`."""
+        print(json.dumps({"severity": "WARNING", "message": text, "alert": alert, **fields}))
         self.lines.append(text)
 
 
@@ -142,6 +150,11 @@ def latest(conn: Connection, game_version: str) -> dict[str, JobRun]:
     )
     rows = conn.execute(select(t).join(newest, newest.c.id == t.c.id)).mappings()
     return {run.job: run for run in map(_run, rows)}
+
+
+def running(run: JobRun, now: datetime) -> bool:
+    """Whether the run is still going: unfinished, and not older than a job may run (else it died)."""
+    return run.finished_at is None and now - run.started_at < TIMEOUT
 
 
 def late(job: str, last_started: datetime | None, now: datetime) -> bool:

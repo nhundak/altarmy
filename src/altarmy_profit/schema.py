@@ -397,7 +397,7 @@ price_snapshots = Table(
     CheckConstraint(f"status IN ({_in(SNAPSHOT_STATUSES)})", name="status"),
 )
 
-# Prices a snapshot added: only items whose price or last-seen day moved. Pruned after ~90 days.
+# Prices a snapshot added: only items whose price or last-seen day moved. Pruned after ~180 days.
 price_observations = Table(
     "price_observations",
     metadata,

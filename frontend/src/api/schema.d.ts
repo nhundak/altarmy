@@ -24,6 +24,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/jobs/ingest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Ingest Job
+         * @description Start the version's game data ingest now, as the daily schedule does: the newest build, unless it is
+         *     loaded already (admins). 409 while a run of it is still going, 501 where nothing can start jobs.
+         */
+        post: operations["run_ingest_job_api_admin_jobs_ingest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ah-blocked": {
         parameters: {
             query?: never;
@@ -729,6 +750,8 @@ export interface components {
          * @description What the ingestion jobs and uploads have been doing (the Admin page).
          */
         IngestionOut: {
+            /** Can Run */
+            can_run: string[];
             /** Jobs */
             jobs: components["schemas"]["JobStatusOut"][];
             /** Now */
@@ -823,6 +846,15 @@ export interface components {
             started_at: string;
             /** Summary */
             summary: string;
+        };
+        /** JobStartedOut */
+        JobStartedOut: {
+            /** Detail */
+            detail: string;
+            /** Game Version */
+            game_version: string;
+            /** Job */
+            job: string;
         };
         /**
          * JobStatusOut
@@ -1495,6 +1527,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IngestionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_ingest_job_api_admin_jobs_ingest_post: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobStartedOut"];
                 };
             };
             /** @description Validation Error */

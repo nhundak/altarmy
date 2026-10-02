@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -11,6 +12,7 @@ from altarmy_profit import (
     db,
     ingest,
     jobs,
+    merge,
     prices,
     schema,
     service,
@@ -277,7 +279,7 @@ def test_price_rules() -> None:
 
 def test_prune_keeps_what_price_current_points_at(conn: Connection) -> None:
     ah = prices.unnamed_auction_house(conn, FOREVER)
-    old = T0 - timedelta(days=100)
+    old = T0 - timedelta(days=prices.KEEP_DAYS + 10)
     prices.record_snapshot(conn, ah, "auctionator", old, [Observation(1, 10, old), Observation(2, 20, old)])
     prices.record_snapshot(conn, ah, "auctionator", old, [Observation(3, 30, old)])
     prices.record_snapshot(conn, ah, "auctionator", T0, [Observation(1, 11, T0), Observation(3, 31, T0)])
@@ -395,6 +397,32 @@ def test_cli_migrate_prune_and_merge(tmp_path: Path, capsys: pytest.CaptureFixtu
     database.dispose()
     assert [(r.job, r.ok) for r in runs] == [("merge", True), ("prune", True)]
     assert runs[0].summary.startswith("Merged 1 auction houses")
+
+
+def test_cli_merge_warns_once_observations_need_partitioning(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dbfile = str(tmp_path / "m.sqlite")
+    cli.main(["--db", dbfile, "migrate"])
+    database = db.Database(db.sqlite_url(dbfile))
+    with database.begin() as conn:
+        set_prices(conn, {1: 45, 2: 50})
+    database.dispose()
+    monkeypatch.setattr(merge, "PARTITION_AT", 3)
+    capsys.readouterr()
+    cli.main(["--db", dbfile, "merge"])
+    assert merge.PARTITION_ALERT not in capsys.readouterr().out  # 2 rows: under it
+    monkeypatch.setattr(merge, "PARTITION_AT", 2)
+    cli.main(["--db", dbfile, "merge"])
+    alerts = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
+    assert alerts == [
+        {
+            "severity": "WARNING",
+            "message": "price_observations has 2 rows (limit 2): partition it by month.",
+            "alert": merge.PARTITION_ALERT,
+            "observations": 2,
+        }
+    ]
 
 
 def test_cli_merge_signals_the_auction_houses_it_changed(

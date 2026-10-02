@@ -372,8 +372,8 @@ Phase 7 status (done, 2026-09-25). Revision `0005` allows `uploads.via = 'paste'
 - Region is not part of the auction house key (decided: realm names are assumed unique across regions).
   If a future realm list breaks that, add `region` to the key and a realm directory to resolve it; until
   then the merge job only logs when one realm name arrives tagged with two regions.
-- Retention window for raw observations: decided in Phase 2, 90 days (`prices.KEEP_DAYS`, pruned at each
-  local sync; the hosted daily `altarmy-prune` job calls the same `prices.prune`). `price_daily` is kept indefinitely.
+- Retention window for raw observations: decided in Phase 2, 90 days, raised to 180 on 2026-10-01 (`prices.KEEP_DAYS`, pruned after
+  each upload; the hosted daily `altarmy-prune` job calls the same `prices.prune`). `price_daily` is kept indefinitely.
 - Whether the TBC Anniversary realms will ever expose a Blizzard AH endpoint; the plan does not depend on it.
   As of 2026-09-25 the realms and their auction house list are there, but the auction data itself 404s.
 

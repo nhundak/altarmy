@@ -287,6 +287,19 @@ export function useAdminIngestion(enabled: boolean) {
   })
 }
 
+/** Start the game data ingest now (admins): the newest build, unless it is loaded already. */
+export function useRunIngest() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => call(client.POST('/api/admin/jobs/ingest', GV)),
+    onSuccess: (started) => {
+      notifications.show({ color: 'green', title: 'Ingest started', message: started.detail })
+      return queryClient.invalidateQueries({ queryKey: ['admin-ingestion'] })
+    },
+    onError: showError('Could not start the ingest'),
+  })
+}
+
 /** Each realm's scans (every tier): the realms one can browse, and how fresh their prices are. */
 export function useCoverage() {
   const version = useDataVersion()
