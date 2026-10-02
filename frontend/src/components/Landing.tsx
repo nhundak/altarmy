@@ -56,7 +56,7 @@ export const PROFIT_SHOWCASE: Showcase = {
     'results.',
   cue: 'Find profitable crafts',
   slides: [
-    { src: '/landing/profit-search.png', alt: 'Profit: recipes ranked by profit, profit per hour and return' },
+    { src: '/landing/profit-search.png', alt: 'Profit: recipes ranked by profit and return' },
     { src: '/landing/profit-flow.png', alt: 'Profit: the flow chart of what to buy and craft for Hard Gold Bracers' },
     { src: '/landing/profit-steps.png', alt: 'Profit: the step-by-step plan, with the run to each spot on the city map' },
   ],

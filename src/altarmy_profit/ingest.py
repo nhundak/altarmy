@@ -215,6 +215,37 @@ def zone_boxes(ui_map_assignment: Path, ui_map: Path) -> list[ZoneBox]:
     return out
 
 
+def zone_at(zones: Iterable[ZoneBox], map_id: int, x: float, y: float) -> ZoneBox | None:
+    """The smallest zone map on `map_id` whose box holds (x, y); None if none does."""
+    around = [z for z in zones if z[0] == map_id and z[2] <= x <= z[4] and z[3] <= y <= z[5]]
+    return min(around, key=lambda z: (z[4] - z[2]) * (z[5] - z[3])) if around else None
+
+
+CITY_SIZE = 2000.0  # `spawn_zone`: a zone map's box shorter than this (yards) on both sides is a city's
+INNER = 0.25  # `spawn_zone`: how far from its map's centre (a fraction of each side) a spot is well inside
+
+
+def spawn_zone(zones: Iterable[ZoneBox], map_id: int, x: float, y: float) -> ZoneBox | None:
+    """The zone (x, y) on `map_id` most likely stands in, from zone maps alone (their boxes overlap their
+    neighbours): a city's map holding it (a city is drawn off its map's centre), else the smallest box
+    holding it well inside, else the one it is nearest the centre of (a map is drawn around its zone).
+    Continents (AreaID 0) never count; None if no zone map holds it. 69% agree with the zone vmangos files
+    the quest givers' quests under (much of the rest a battleground's quests given outside it)."""
+
+    def off(z: ZoneBox) -> tuple[float, float]:
+        fx, fy = (x - z[2]) / (z[4] - z[2]) - 0.5, (y - z[3]) / (z[5] - z[3]) - 0.5
+        return max(abs(fx), abs(fy)), fx * fx + fy * fy
+
+    around = [z for z in zones if z[0] == map_id and z[6] and z[2] <= x <= z[4] and z[3] <= y <= z[5]]
+    around.sort(key=lambda z: (z[4] - z[2]) * (z[5] - z[3]))
+    if around and max(around[0][4] - around[0][2], around[0][5] - around[0][3]) < CITY_SIZE:
+        return around[0]
+    for z in around:
+        if off(z)[0] <= INNER:
+            return z
+    return min(around, key=lambda z: off(z)[1]) if around else None
+
+
 Rows = Iterable[dict[str, str]]
 
 
@@ -390,6 +421,50 @@ def learn_sources(
     return out
 
 
+def recipe_items(paths: dict[str, Path], bonding: dict[int, int]) -> list[tuple[int, int]]:
+    """(spell, item) for every item teaching a spell, as `learn_sources` reads them: items the game has
+    (`bonding`) on learn."""
+    out: set[tuple[int, int]] = set()
+    for item, r in _effects_by_item(paths):
+        if _int(r["TriggerType"]) == TRIGGER_LEARN and item in bonding:
+            out.add((_int(r["SpellID"]), item))
+    return sorted(out)
+
+
+ITEM_SOURCE_KINDS = frozenset({"vendor", "drop", "object", "container", "world_drop", "quest", "more"})
+SIDES = frozenset({"", "alliance", "horde"})
+
+
+def item_sources(path: Path | None, game_version: str) -> list[dict[str, object]]:
+    """`item_sources` rows from a version's `recipe_item_sources.csv` (`vmangos.recipe_item_sources`), in
+    the file's order per item; nothing if there is no such file."""
+    if not path or not path.exists():
+        return []
+    out: list[dict[str, object]] = []
+    seq: dict[int, int] = {}
+    for r in _rows(path):
+        item, kind, side = _int(r["item_id"]), r["kind"], r["side"]
+        if kind not in ITEM_SOURCE_KINDS or side not in SIDES:
+            raise ValueError(f"{path.name}: bad kind {kind!r} or side {side!r} for item {item}")
+        seq[item] = seq.get(item, -1) + 1
+        out.append(
+            {
+                "game_version": game_version,
+                "item_id": item,
+                "seq": seq[item],
+                "kind": kind,
+                "name": r["name"],
+                "zone": r["zone"],
+                "side": side,
+                "chance": _float(r["chance"]),
+                "count": _int(r["count"]),
+                "levels": r["levels"],
+                "limited": r["limited"] == "1",
+            }
+        )
+    return out
+
+
 def _effect_base(r: dict[str, str]) -> float:
     """An effect's value: `EffectBasePointsF`, or TBC's `EffectBasePoints` plus an average die roll."""
     as_float = _float(r.get("EffectBasePointsF"))
@@ -525,6 +600,8 @@ GAME_DATA_TABLES = (
     schema.items,
     schema.disenchant,
     schema.vendor_items,
+    schema.recipe_items,
+    schema.item_sources,
 )
 
 
@@ -541,11 +618,13 @@ def build_db(
     vendor_csv: Path | None = None,
     max_level: int = itemstats.LEVEL_60,
     vendor_recipes_csv: Path | None = None,
+    sources_csv: Path | None = None,
 ) -> dict[str, int]:
-    """Rebuild one version's items/recipes/recipe_reagents/disenchant/vendor_items; prices, characters
-    and other versions are left alone. `max_level` is the version's level cap (how ratings are shown).
-    `vendor_recipes_csv` lists the recipe items vendors sell with limited stock too: with `vendor_csv`'s
-    they count as normal recipes even when they bind on pickup (`learn_sources`)."""
+    """Rebuild one version's items/recipes/recipe_reagents/disenchant/vendor_items/recipe_items/
+    item_sources; prices, characters and other versions are left alone. `max_level` is the version's level
+    cap (how ratings are shown). `vendor_recipes_csv` lists the recipe items vendors sell with limited
+    stock too: with `vendor_csv`'s they count as normal recipes even when they bind on pickup
+    (`learn_sources`). `sources_csv` says where recipe items come from (`item_sources`)."""
     for table in GAME_DATA_TABLES:
         conn.execute(delete(table).where(table.c.game_version == game_version))
 
@@ -736,6 +815,15 @@ def build_db(
 
     n_de = len(de_rows)
 
+    taught = [
+        {"game_version": game_version, "spell_id": s, "item_id": i} for s, i in recipe_items(paths, bonding)
+    ]
+    if taught:
+        conn.execute(schema.recipe_items.insert(), taught)
+    sources = item_sources(sources_csv, game_version)
+    if sources:
+        conn.execute(schema.item_sources.insert(), sources)
+
     n_vendor = 0
     if vendor_ids:
         rows = [{"game_version": game_version, "item_id": i} for i in dict.fromkeys(vendor_ids)]
@@ -753,6 +841,7 @@ def update(
     disenchant_csv: Path | None = None,
     vendor_csv: Path | None = None,
     vendor_recipes_csv: Path | None = None,
+    sources_csv: Path | None = None,
 ) -> dict[str, int]:
     """Download `build` (cached per build) and rebuild the version's game data from it, keeping prices."""
     max_level = versions.get(game_version).max_level
@@ -764,8 +853,10 @@ def update(
         vendor_csv,
         max_level,
         vendor_recipes_csv,
+        sources_csv,
     )
-    db.set_build(conn, game_version, build, _fingerprint((disenchant_csv, vendor_csv, vendor_recipes_csv)))
+    data_files = (disenchant_csv, vendor_csv, vendor_recipes_csv, sources_csv)
+    db.set_build(conn, game_version, build, _fingerprint(data_files))
     return stats
 
 
@@ -773,7 +864,9 @@ def fingerprint(version: versions.GameVersion) -> str:
     """A hash of what a load of `version` makes of a build besides the build itself: the ingest code and
     the version's hand-maintained CSVs. When it differs from the loaded data's (`db.get_fingerprint`),
     `ingest --only-if-new` reloads the same build. Line endings are ignored (a Windows checkout's files)."""
-    return _fingerprint((version.disenchant_csv, version.vendor_csv, version.vendor_recipes_csv))
+    return _fingerprint(
+        (version.disenchant_csv, version.vendor_csv, version.vendor_recipes_csv, version.sources_csv)
+    )
 
 
 def _fingerprint(data_files: Iterable[Path | None]) -> str:

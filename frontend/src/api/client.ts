@@ -7,6 +7,8 @@ export type RankResult = components['schemas']['RankResult']
 /** One recipe re-costed with the user's choices, and tooltip details for the items it now uses. */
 export type Evaluation = components['schemas']['EvaluateResponse']
 export type ItemInfo = components['schemas']['ItemInfo']
+/** Where to learn a recipe nobody selected has learned (`RankResponse.learn`). */
+export type Learn = components['schemas']['LearnOut']
 /** One item in a recipe's reagent tree: bought (no inputs) or crafted from its inputs. */
 export type FlowNode = components['schemas']['NodeOut']
 /** One instruction of a recipe's plan; `paths` are the tree paths of the nodes it stands for. */

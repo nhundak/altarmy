@@ -351,6 +351,7 @@ class RankResult(BaseModel):
     skill_chance: float  # that the first craft gives the crafter a skill point (1 without characters)
     # the skill points the crafter can expect from all crafts, each craft's chance falling as the skill rises
     skill_ups: float
+    skill_ups_bonus: float = 0.0  # the part of `skill_ups` owed to Working Overtime
     exits: list[ExitOut]
     reagents: list[ItemCount]
     steps: list[StepOut]  # per character: buys, crafts (intermediates first), mails; then the sale
@@ -364,10 +365,40 @@ class RankResult(BaseModel):
     details: list[DetailOut] = []  # the steps with where to go in between
 
 
+class PlaceOut(BaseModel):
+    """Somewhere a recipe item comes from (vanilla's world data: Forever may differ)."""
+
+    kind: Literal["vendor", "drop", "object", "container", "world_drop", "quest", "more"]
+    name: str  # the vendor, creature, object, container item or quest; "" for world_drop and more
+    zone: str  # "" if unknown
+    side: Literal["alliance", "horde", ""]  # who it serves ("" both)
+    chance: float  # drop chance, percent; 0 if not a drop
+    count: int  # world_drop: how many creatures drop it; more: sources not listed
+    levels: str  # world_drop: the creatures' levels, quest: its level ("30-40"); "" otherwise
+    limited: bool  # vendor: limited stock
+
+
+class RecipeItemOut(BaseModel):
+    item_id: int
+    name: str
+    places: list[PlaceOut]  # none known: one of Forever's own recipe items, or one nobody tracked
+
+
+class LearnOut(BaseModel):
+    """Where to learn a recipe nobody has learned."""
+
+    source: engine.Source  # trainer, recipe (an item anyone can get), bop (a bind on pickup item)
+    skill: int  # the profession skill it needs
+    profession: str
+    items: list[RecipeItemOut]  # the items teaching it (none for a trainer's)
+
+
 class RankResponse(BaseModel):
     results: list[RankResult]  # the first `top` matches
     total: int  # how many recipes matched the filters
     items: dict[int, ItemInfo]  # every item the results mention, for tooltips
+    # recipe id -> where to learn it, for the results nobody selected has learned ("not learned")
+    learn: dict[int, LearnOut] = {}
     classes: dict[str, str]  # selected character name -> class file (e.g. PALADIN), for class colours
 
 
@@ -1002,11 +1033,13 @@ def get_rank(
         matches = service.favorites_first(matches, s.favorites)
     results = matches[:top]
     crafters = altarmy.crafters(chars)
+    out = [_result_out(r, base, crafters, s.listings, s.cities) for r in results]
     return RankResponse(
         total=len(matches),
         classes={c.name: c.class_file for c in chars},
         items=_item_infos(state, s, results),
-        results=[_result_out(r, base, crafters, s.listings, s.cities) for r in results],
+        results=out,
+        learn=_learn(state, s.faction, [r for r, o in zip(results, out, strict=True) if _not_learned(o)]),
     )
 
 
@@ -1052,6 +1085,7 @@ class Selected:
     favorites: frozenset[int]  # recipe ids
     time: engine.TimeModel
     cities: list[timing.CityMap]
+    faction: str = ""  # the selection's (Horde, Alliance); "" without one
 
 
 def _selected(state: AppState, user: auth.User, price_version: int | None = None) -> Selected:
@@ -1072,6 +1106,7 @@ def _selected(state: AppState, user: auth.User, price_version: int | None = None
         favorites,
         model,
         service.faction_cities(state.cities, faction),
+        faction,
     )
 
 
@@ -1084,6 +1119,36 @@ def _item_infos(state: AppState, s: Selected, results: Sequence[engine.Result]) 
     )
     with _connect(state) as conn:
         return _item_details(state, conn, store.Priced(s.base, dict(s.listings)), item_ids)
+
+
+def _not_learned(r: RankResult) -> bool:
+    """The results table's "not learned": a profession's recipe the plan has someone learn."""
+    return r.kind in ("craft", "enchant") and not r.crafters and bool(r.crafter)
+
+
+def _learn(state: AppState, faction: str, results: Sequence[engine.Result]) -> dict[int, LearnOut]:
+    """Where to learn each result's recipe, leaving out places that serve only the other faction."""
+    if not results:
+        return {}
+    with _connect(state) as conn:
+        taught = store.load_recipe_items(conn, state.key, {r.recipe.spell_id for r in results})
+    other = {"horde": "alliance", "alliance": "horde"}.get(faction.lower(), "")
+    return {
+        r.recipe.id: LearnOut(
+            source=r.recipe.source,
+            skill=r.recipe.required_skill,
+            profession=r.recipe.skill_name,
+            items=[
+                RecipeItemOut(
+                    item_id=i.item_id,
+                    name=i.name,
+                    places=[PlaceOut(**asdict(p)) for p in i.places if not other or p.side != other],
+                )
+                for i in taught.get(r.recipe.spell_id, [])
+            ],
+        )
+        for r in results
+    }
 
 
 def _item_details(
@@ -1225,6 +1290,7 @@ def _result_out(
         bonus_output=r.bonus_output,
         skill_chance=r.skill_chance,
         skill_ups=r.skill_ups,
+        skill_ups_bonus=r.skill_ups_bonus,
         exits=[
             ExitOut(
                 kind=e.kind,

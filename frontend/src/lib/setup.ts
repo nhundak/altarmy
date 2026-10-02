@@ -49,8 +49,7 @@ export const AIMS: readonly Card<Aim>[] = [
   {
     key: 'gold',
     title: 'Make gold',
-    blurb: 'The most gold for each hour of play.',
-    details: 'Emphasis is placed on minimizing time wasted travelling and switching characters.',
+    blurb: 'The most profitable recipes your characters can craft.',
   },
   {
     key: 'skill',
@@ -204,8 +203,8 @@ export function presetsFor(setup: Setup, step: Step): Partial<Presets> {
   }
 }
 
-/** How the server ranks for this setup: gold per hour, or the cheapest expected skill point. */
-export const rankSort = (setup: Setup | null): 'rate' | 'skill' => (setup?.aim === 'skill' ? 'skill' : 'rate')
+/** How the server ranks for this setup: the most profit, or the cheapest expected skill point. */
+export const rankSort = (setup: Setup | null): 'profit' | 'skill' => (setup?.aim === 'skill' ? 'skill' : 'profit')
 
 /** The professions the search is narrowed to: the one being skilled up (none for any profession). */
 export const rankProfessions = (setup: Setup | null): string[] =>

@@ -1,29 +1,27 @@
-import { Fragment, useMemo, useState } from 'react'
-import { ActionIcon, Menu, Table, Text, UnstyledButton } from '@mantine/core'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { ActionIcon, Menu, Table, Text, Tooltip, UnstyledButton } from '@mantine/core'
 import { AnimatePresence, motion } from 'motion/react'
-import type { ItemMap, RankResult } from '../api/client'
+import type { ItemMap, Learn, RankResult } from '../api/client'
 import { useEvaluations, type EvaluateParams } from '../api/queries'
 import { choose, type Choices } from '../lib/choices'
 import { formatRoi } from '../lib/money'
-import { formatSeconds } from '../lib/time'
 import { CharacterClasses, CharacterName } from './CharacterName'
 import { type PlanEditing } from './ChoiceMenu'
 import { DisenchantLabel, ItemLink, RecipeTooltip } from './ItemTooltip'
+import { LearnTooltip } from './LearnTooltip'
 import { Money } from './Money'
 import { SessionDetails } from './SessionDetails'
 import classes from './ResultsTable.module.css'
 
 /** Profit after costs, AH cut and postage. */
 const PROFIT = 'Net profit'
-/** Profit per skill point the crafter can expect: the rate column when skilling up. */
+/** Profit per skill point the crafter can expect: a column only when skilling up. */
 const PER_SKILL = 'Per skill up'
-/** Profit per hour of play: the rate column when making gold. */
-const PER_HOUR = 'Per hour'
-/** The columns in order; the second shows the rate the goal cares about. */
+/** The columns in order; skilling up adds what a skill point costs. */
 const columnsFor = (rankBy: RankBy | undefined): string[] => [
   '',
   PROFIT,
-  rankBy === 'skill' ? PER_SKILL : PER_HOUR,
+  ...(rankBy === 'skill' ? [PER_SKILL] : []),
   'Investment',
   'ROI',
   'Recipe',
@@ -50,7 +48,6 @@ const exitLabel = (exit: string): string => EXIT_LABELS[exit] ?? exit.charAt(0).
 /** Sort key per sortable column; numbers sort largest first on the first click, text alphabetically. */
 const SORT_KEYS: Readonly<Record<string, (r: RankResult) => number | string>> = {
   [PROFIT]: (r) => r.profit,
-  [PER_HOUR]: (r) => r.timing?.per_hour ?? -Infinity,
   [PER_SKILL]: (r) => perSkillUp(r) ?? -Infinity,
   ROI: (r) => r.roi,
   Recipe: (r) => r.output_name,
@@ -58,26 +55,25 @@ const SORT_KEYS: Readonly<Record<string, (r: RankResult) => number | string>> = 
   Investment: (r) => r.cost,
   'Sell via': (r) => exitLabel(r.best_exit),
 }
-const NUMERIC_COLUMNS: ReadonlySet<string> = new Set(['Investment', PROFIT, PER_HOUR, PER_SKILL, 'ROI'])
+const NUMERIC_COLUMNS: ReadonlySet<string> = new Set(['Investment', PROFIT, PER_SKILL, 'ROI'])
 /** Money columns: fixed width, room for -99g 99s 99c on one line (larger amounts drop copper, then silver). */
-const MONEY_COLUMNS: ReadonlySet<string> = new Set(['Investment', PROFIT, PER_HOUR, PER_SKILL])
+const MONEY_COLUMNS: ReadonlySet<string> = new Set(['Investment', PROFIT, PER_SKILL])
 const MONEY_WIDTH = 110
 /** Crafter lists wrap at this width (px). */
 const CRAFTER_WIDTH = 219
 /** Columns dropped as the screen narrows (ResultsTable.module.css): Investment and Crafter first, then Sell via
- * and the rate. */
+ * and Per skill up. */
 const COLUMN_HIDDEN: Readonly<Record<string, string | undefined>> = {
   Investment: classes.hideBelowSm,
   Crafter: classes.hideBelowSm,
   'Sell via': classes.hideBelowXs,
-  [PER_HOUR]: classes.hideBelowXs,
   [PER_SKILL]: classes.hideBelowXs,
 }
-/** What the server can rank by (the whole ranking, not just this page): profit per session, per hour, or per
- * expected skill point. */
-export type RankBy = 'profit' | 'rate' | 'skill'
+/** What the server ranks by here (the whole ranking, not just this page): profit per session, or per expected
+ * skill point. */
+export type RankBy = 'profit' | 'skill'
 /** The column showing each ranking. */
-const RANK_COLUMN: Readonly<Record<RankBy, string>> = { profit: PROFIT, rate: PER_HOUR, skill: PER_SKILL }
+const RANK_COLUMN: Readonly<Record<RankBy, string>> = { profit: PROFIT, skill: PER_SKILL }
 
 type Sort = { column: string; descending: boolean }
 
@@ -107,30 +103,6 @@ function sorted(results: RankResult[], sort: Sort | null, favorites: ReadonlySet
     const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y))
     return sign * c
   })
-}
-
-/** A row's profit per hour of play, with the session's time on hover. */
-function PerHourCell({ result: r }: { result: RankResult }) {
-  return (
-    <Table.Td
-      className={COLUMN_HIDDEN[PER_HOUR]}
-      ff="monospace"
-      ta="right"
-      title={
-        r.timing ? `${r.crafts} ${r.crafts === 1 ? 'craft' : 'crafts'} in ${formatSeconds(r.timing.total_seconds)}` : undefined
-      }
-    >
-      {r.timing ? (
-        <Text span inherit c={r.timing.per_hour < 0 ? 'red' : 'teal'}>
-          <Money copper={r.timing.per_hour} padded />
-        </Text>
-      ) : (
-        <Text span size="sm" c="dimmed">
-          –
-        </Text>
-      )}
-    </Table.Td>
-  )
 }
 
 /** A row's profit per expected skill point, with the chance of one on hover. */
@@ -172,6 +144,7 @@ const DEFAULT_PARAMS: EvaluateParams = {
 }
 
 const NONE: ReadonlySet<number> = new Set()
+const NO_LEARN: Readonly<Record<string, Learn>> = {}
 
 const DOTS = (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
@@ -195,6 +168,17 @@ function slowTitle(result: RankResult, output: ItemMap[string] | undefined): str
 /** Why a row is flagged as buying more than the auction house lists. */
 function shortTitle(short: number): string {
   return `Needs ${short.toLocaleString()} more ${short === 1 ? 'unit' : 'units'} than the auction house lists; they are counted at the dearest price listed`
+}
+
+/** A flag icon in a row's first column, explained in a tooltip that opens at once on hover, focus or tap. */
+function Flag({ label, why, color, children }: { label: string; why: string; color: string; children: ReactNode }) {
+  return (
+    <Tooltip label={why} multiline maw={280} withArrow openDelay={0} transitionProps={{ duration: 0 }} events={{ hover: true, focus: true, touch: true }}>
+      <Text span c={color} ml={4} aria-label={label} tabIndex={0} style={{ cursor: 'help' }} onClick={(e) => e.stopPropagation()}>
+        {children}
+      </Text>
+    </Tooltip>
+  )
 }
 
 /** A row's ⋯ menu: mark the recipe as a favorite or not, stop or allow selling its output on the AH (only
@@ -246,6 +230,7 @@ export function ResultsTable({
   favorites = NONE,
   onSetFavorite,
   rankBy,
+  learn = NO_LEARN,
 }: {
   results: RankResult[]
   items: ItemMap
@@ -264,6 +249,8 @@ export function ResultsTable({
   /** What the server ranked `results` by (best first): its column shows as sorted until the user sorts the page
    * by a header (which orders only the rows loaded, like every other column). */
   rankBy?: RankBy
+  /** Recipe id -> where to learn it, for the rows saying "not learned". */
+  learn?: Readonly<Record<string, Learn>>
 }) {
   const actions = Boolean(onSetAhBlocked || onSetFavorite)
   const shownColumns = columnsFor(rankBy)
@@ -372,30 +359,30 @@ export function ResultsTable({
                         {expanded ? '▾' : '▸'}
                       </UnstyledButton>
                       {favorite && (
-                        <Text span c="yellow" ml={4} title="Favorite" aria-label="Favorite">
+                        <Flag color="yellow" label="Favorite" why="Favorite">
                           ★
-                        </Text>
+                        </Flag>
                       )}
                       {r.slow && (
-                        <Text span c="orange" ml={4} title={slowTitle(r, items[r.output_item_id])} aria-label="Slow to sell">
+                        <Flag color="orange" label="Slow to sell" why={slowTitle(r, items[r.output_item_id])}>
                           ⚠
-                        </Text>
+                        </Flag>
                       )}
                       {r.short > 0 && (
-                        <Text span c="orange" ml={4} title={shortTitle(r.short)} aria-label="Not enough listed">
+                        <Flag color="orange" label="Not enough listed" why={shortTitle(r.short)}>
                           ◔
-                        </Text>
+                        </Flag>
                       )}
                       {modified && (
-                        <Text span c="yellow" ml={4} title="Your changed plan, not the best one" aria-label="Changed plan">
+                        <Flag color="yellow" label="Changed plan" why="Your changed plan, not the best one">
                           ●
-                        </Text>
+                        </Flag>
                       )}
                     </Table.Td>
                     <Table.Td c={r.profit < 0 ? 'red' : 'teal'} ff="monospace" ta="right">
                       <Money copper={r.profit} padded />
                     </Table.Td>
-                    {rankBy === 'skill' ? <PerSkillCell result={r} /> : <PerHourCell result={r} />}
+                    {rankBy === 'skill' && <PerSkillCell result={r} />}
                     <Table.Td className={COLUMN_HIDDEN.Investment} ff="monospace" ta="right">
                       <Money copper={r.cost} cost padded />
                     </Table.Td>
@@ -434,6 +421,8 @@ export function ResultsTable({
                           {r.crafters.length > 1 &&
                             ` (and ${r.crafters.length - 1} other${r.crafters.length > 2 ? 's' : ''})`}
                         </>
+                      ) : r.crafter && !needsNoRecipe(r) && learn[r.recipe_id] ? (
+                        <LearnTooltip learn={learn[r.recipe_id]}>not learned</LearnTooltip>
                       ) : (
                         <Text span size="sm" c="dimmed">
                           {/* no crafter named: browsing without characters */}

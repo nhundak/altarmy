@@ -1257,6 +1257,43 @@
         "title": "JobStatusOut",
         "type": "object"
       },
+      "LearnOut": {
+        "description": "Where to learn a recipe nobody has learned.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RecipeItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "profession": {
+            "title": "Profession",
+            "type": "string"
+          },
+          "skill": {
+            "title": "Skill",
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "trainer",
+              "recipe",
+              "bop"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "skill",
+          "profession",
+          "items"
+        ],
+        "title": "LearnOut",
+        "type": "object"
+      },
       "LegOut": {
         "description": "One run across the city.",
         "properties": {
@@ -1634,6 +1671,69 @@
         "title": "PasteRequest",
         "type": "object"
       },
+      "PlaceOut": {
+        "description": "Somewhere a recipe item comes from (vanilla's world data: Forever may differ).",
+        "properties": {
+          "chance": {
+            "title": "Chance",
+            "type": "number"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "vendor",
+              "drop",
+              "object",
+              "container",
+              "world_drop",
+              "quest",
+              "more"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "levels": {
+            "title": "Levels",
+            "type": "string"
+          },
+          "limited": {
+            "title": "Limited",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "side": {
+            "enum": [
+              "alliance",
+              "horde",
+              ""
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "zone": {
+            "title": "Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "zone",
+          "side",
+          "chance",
+          "count",
+          "levels",
+          "limited"
+        ],
+        "title": "PlaceOut",
+        "type": "object"
+      },
       "ProfessionOut": {
         "properties": {
           "max_rank": {
@@ -1676,6 +1776,14 @@
               "$ref": "#/components/schemas/ItemInfo"
             },
             "title": "Items",
+            "type": "object"
+          },
+          "learn": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LearnOut"
+            },
+            "default": {},
+            "title": "Learn",
             "type": "object"
           },
           "results": {
@@ -1856,6 +1964,11 @@
             "title": "Skill Ups",
             "type": "number"
           },
+          "skill_ups_bonus": {
+            "default": 0.0,
+            "title": "Skill Ups Bonus",
+            "type": "number"
+          },
           "slow": {
             "title": "Slow",
             "type": "boolean"
@@ -1952,6 +2065,32 @@
           "quarantined"
         ],
         "title": "RealmPricesOut",
+        "type": "object"
+      },
+      "RecipeItemOut": {
+        "properties": {
+          "item_id": {
+            "title": "Item Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "places": {
+            "items": {
+              "$ref": "#/components/schemas/PlaceOut"
+            },
+            "title": "Places",
+            "type": "array"
+          }
+        },
+        "required": [
+          "item_id",
+          "name",
+          "places"
+        ],
+        "title": "RecipeItemOut",
         "type": "object"
       },
       "SelectionModel": {

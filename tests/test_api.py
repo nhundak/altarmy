@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Connection, select
+from sqlalchemy import Connection, insert, select
 
 from altarmy_profit import (
     altarmy,
@@ -485,6 +485,46 @@ def test_rank_unlearned_recipes(client: TestClient, priced: Connection) -> None:
     for bad in ({"unlearned": "maybe"}, {"unlearned": "soon"}, {"look_ahead": 51}, {"look_ahead": -1}):
         assert client.get("/api/rank", params=bad).status_code == 422
     assert client.get("/api/rank", params={"sources": ["vendor"]}).status_code == 422
+
+
+def test_rank_says_where_to_learn_recipes_nobody_has(client: TestClient, priced: Connection) -> None:
+    src = {"game_version": FOREVER, "item_id": 3, "chance": 0.0, "count": 0, "levels": "", "limited": False}
+    priced.execute(
+        insert(schema.item_sources),
+        [
+            {**src, "seq": 0, "kind": "vendor", "name": "Kendor", "zone": "Stormwind", "side": "alliance"},
+            {**src, "seq": 1, "kind": "vendor", "name": "Borya", "zone": "Orgrimmar", "side": "horde"},
+            {
+                **src,
+                "seq": 2,
+                "kind": "drop",
+                "name": "Defias Pillager",
+                "zone": "Westfall",
+                "side": "",
+                "chance": 2.5,
+            },
+        ],
+    )
+    tailoring = Profession("Tailoring", 50, 75, frozenset({1}))
+    service.replace_characters(
+        priced, ME, FOREVER, [Character("Realm", "Novice", "Horde", "MAGE", 5, (tailoring,))]
+    )
+    set_prices(priced, {1: 20, 2: 100}, realm="Realm")
+    body = client.get("/api/rank", params={"unlearned": "train"}).json()
+    (r,) = body["results"]
+    assert (r["crafters"], r["crafter"]) == ([], "Novice")
+    learn = body["learn"][str(r["recipe_id"])]
+    assert (learn["source"], learn["skill"], learn["profession"]) == ("recipe", 50, "Tailoring")
+    (taught,) = learn["items"]
+    assert (taught["item_id"], taught["name"]) == (3, "Green Robe")
+    # the Alliance vendor serves nobody on the Horde
+    assert [(p["kind"], p["name"]) for p in taught["places"]] == [
+        ("vendor", "Borya"),
+        ("drop", "Defias Pillager"),
+    ]
+    # without characters nobody is named: "anyone", nothing to learn
+    service.replace_characters(priced, ME, FOREVER, [])
+    assert client.get("/api/rank").json()["learn"] == {}
 
 
 def test_evaluate_takes_the_look_ahead_and_sources(client: TestClient, priced: Connection) -> None:

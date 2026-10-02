@@ -62,7 +62,7 @@ import { RealmCard } from './RealmCard'
 import classes from './SearchTab.module.css'
 import { ResultsTable } from './ResultsTable'
 import { Setup } from './Setup'
-import { CraftsPerSession, TimeSettingsPanel } from './TimeSettingsPanel'
+import { CraftsPerSession } from './CraftsPerSession'
 
 /** Results per page: the first request asks for this many, and each "Show more" for this many more. */
 const PAGE = 50
@@ -243,7 +243,7 @@ function TrainOptions({
     </Stack>
   )
 }
-const SECTIONS = ['advanced', 'time'] as const
+const SECTIONS = ['advanced'] as const
 const NONE_OPEN: string[] = []
 const storedSetup = setupSchema.nullable()
 const exitList = z.array(z.enum(['vendor', 'disenchant', 'ah']))
@@ -310,6 +310,7 @@ const Results = memo(function Results({
         results={results}
         items={rank.data.items}
         classes={rank.data.classes}
+        learn={rank.data.learn}
         params={{
           unlearned: filters.unlearned,
           lookAhead: filters.lookAhead,
@@ -376,10 +377,10 @@ function Range({ name, min, max, onMin, onMax, step }: RangeProps) {
 }
 
 /**
- * The search: first the setup's questions (what the user is after, then a profession, or how to sell and what a session
- * ), then the realm card (realm and faction, price freshness, an upload in place) and, with a realm, the options
- * (recipes, skill-ups only, sell via, crafts per session, Arcane Salvager), advanced filters, time assumptions and ranked recipes. The answers decide the ranking's order and preset the filters they are about; they are remembered per user,
- * like the Profit page's start.
+ * The search: first the setup's questions (what the user is after, then a profession, or how to sell), then the realm
+ * card (realm and faction, price freshness, an upload in place) and, with a realm, the options (recipes, skill-ups
+ * only, sell via, crafts per session, Arcane Salvager), advanced filters and ranked recipes. The answers decide the
+ * ranking's order and preset the filters they are about; they are remembered per user, like the Profit page's start.
  */
 export function SearchTab() {
   const { uid } = useSession()
@@ -407,12 +408,10 @@ export function SearchTab() {
     z.boolean(),
     true,
   )
-  // Stored as strings: sections that no longer exist (the old Characters one) are dropped, not an error.
+  // Stored as strings: sections that no longer exist (the old Characters and Time assumptions ones) are dropped,
+  // not an error.
   const [stored, setOpen] = useStoredState('altarmy-profit.search.open', z.array(z.string()), NONE_OPEN)
   const open = SECTIONS.filter((s) => stored.includes(s))
-  /** Open or close one section from its own accordion's value, keeping the other's state. */
-  const toggleSection = (section: (typeof SECTIONS)[number], value: string[]) =>
-    setOpen(SECTIONS.filter((s) => (s === section ? value.includes(s) : open.includes(s))))
   const [exits, setExits] = useStoredState<Exit[]>('altarmy-profit.search.exits', exitList, EVERY_EXIT)
   // Kept apart from the ways to sell: it only counts (and shows) while Enchanting is being skilled up.
   const [skillOnly, setSkillOnly] = useStoredState('altarmy-profit.search.skillOnly', z.boolean(), false)
@@ -628,9 +627,9 @@ export function SearchTab() {
                   who can craft what and what mailing between them costs.
                 </Text>
               )}
-            {/* Two independent sections, side by side on large screens, each remembering whether it is open. They open
-                without animating: a height transition re-lays out the results table below on every frame. Both panels
-                stay mounted and are only hidden when closed (Mantine's default hides them in an Activity, which re-runs
+            {/* A section remembering whether it is open, half the width on large screens. It opens without
+                animating: a height transition re-lays out the results table below on every frame. The panel stays
+                mounted and is only hidden when closed (Mantine's default hides it in an Activity, which re-runs
                 every input's effects on each open). */}
             <SimpleGrid cols={{ base: 1, lg: 2 }} style={{ alignItems: 'start' }}>
               <Accordion
@@ -639,7 +638,7 @@ export function SearchTab() {
                 transitionDuration={0}
                 keepMountedMode="display-none"
                 value={open}
-                onChange={(v) => toggleSection('advanced', v)}
+                onChange={(v) => setOpen(SECTIONS.filter((s) => v.includes(s)))}
               >
                 <Accordion.Item value="advanced">
                   <Accordion.Control>Advanced Filters</Accordion.Control>
@@ -665,21 +664,6 @@ export function SearchTab() {
                         <Range name="ROI (%)" min={minRoi} max={maxRoi} onMin={setMinRoi} onMax={setMaxRoi} step={10} />
                       </SimpleGrid>
                     </Stack>
-                  </Accordion.Panel>
-                </Accordion.Item>
-              </Accordion>
-              <Accordion
-                multiple
-                variant="separated"
-                transitionDuration={0}
-                keepMountedMode="display-none"
-                value={open}
-                onChange={(v) => toggleSection('time', v)}
-              >
-                <Accordion.Item value="time">
-                  <Accordion.Control>Time assumptions</Accordion.Control>
-                  <Accordion.Panel>
-                    <TimeSettingsPanel />
                   </Accordion.Panel>
                 </Accordion.Item>
               </Accordion>

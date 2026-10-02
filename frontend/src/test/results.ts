@@ -57,6 +57,7 @@ export const robeResult: RankResult = {
   bonus_output: 0,
   skill_chance: 1,
   skill_ups: 1,
+  skill_ups_bonus: 0,
   exits: [
     { kind: 'vendor', value: 500, materials: [], postage: 0, mail_to: '' },
     { kind: 'ah', value: 475, materials: [], postage: 0, mail_to: '' },

@@ -181,7 +181,7 @@ describe('SearchTab', () => {
     expect(urls(fetch, '/api/rank')).toEqual([])
   })
 
-  it('asks what the user is after, then how to sell, then ranks per hour', async () => {
+  it('asks what the user is after, then how to sell, then ranks by profit', async () => {
     withSetup(null)
     localStorage.setItem('altarmy-profit.search.unlearned', '"soon"')
     const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
@@ -201,7 +201,7 @@ describe('SearchTab', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Anything that might sell' }))
     await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
     const [rank] = urls(fetch, '/api/rank')
-    expect(rank?.searchParams.get('sort')).toBe('rate')
+    expect(rank?.searchParams.has('sort')).toBe(false) // the API's default: most profit first
     expect(rank?.searchParams.get('unlearned')).toBe('none') // only recipes they know
     expect(rank?.searchParams.has('look_ahead')).toBe(false) // nothing is trained: no look-ahead or sources
     expect(rank?.searchParams.has('sources')).toBe(false)
@@ -416,7 +416,7 @@ describe('SearchTab', () => {
     await waitFor(() =>
       expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant', 'ah']),
     )
-    expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('sort')).toBe('rate')
+    expect(urls(fetch, '/api/rank').at(-1)?.searchParams.has('sort')).toBe(false)
   })
 
   it('asks for the profession again on a realm where nobody has it, with the realm picker at hand', async () => {
@@ -529,7 +529,7 @@ describe('SearchTab', () => {
     await screen.findByText(/No recipes match these filters/)
     const [rank] = urls(fetch, '/api/rank')
     expect(rank?.searchParams.toString()).toBe(
-      'game_version=forever&unlearned=train&look_ahead=15&sources=trainer&sources=bop&include_trivial=false&exits=vendor&exits=ah&arcane_salvager=false&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&sort=rate&top=50&price_version=0',
+      'game_version=forever&unlearned=train&look_ahead=15&sources=trainer&sources=bop&include_trivial=false&exits=vendor&exits=ah&arcane_salvager=false&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&top=50&price_version=0',
     )
   })
 
@@ -572,7 +572,7 @@ describe('SearchTab', () => {
     expect(localStorage.getItem('altarmy-profit.search.arcaneSalvager')).toBe('false')
   })
 
-  it('saves the time settings on the server, then ranks again', async () => {
+  it('saves the crafts per session on the server, then ranks again, and shows no time settings', async () => {
     const config = {
       ah_search: 8, ah_buy: 4, ah_post: 6, vendor_buy: 2, vendor_sell: 1.5, mail_send: 8, mail_attach: 2,
       mail_open: 3, mail_attachments: 12, switch_character: 45, disenchant: 3.5, craft_overhead: 0.5, batch: 10,
@@ -600,23 +600,16 @@ describe('SearchTab', () => {
       },
     })
     renderWithProviders(<SearchTab />)
-    // Crafts per session is one of the search's options; the rest are under Time assumptions.
+    // Crafts per session is one of the search's options; the other time settings are not shown.
     const batch = await screen.findByLabelText('Crafts per session')
-    expect(screen.getByRole('button', { name: 'Time assumptions' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('button', { name: 'Time assumptions' })).not.toBeInTheDocument()
+    for (const gone of ['Craft Location', 'Open a mail', 'Run speed (yards per second)']) {
+      expect(screen.queryByLabelText(gone)).not.toBeInTheDocument()
+    }
     const ranked = urls(fetch, '/api/rank').length
     fireEvent.change(batch, { target: { value: '5' } })
     await waitFor(() => expect(saved).toEqual([{ city: null, config: { batch: 5 } }]), { timeout: 3000 })
     await waitFor(() => expect(urls(fetch, '/api/rank').length).toBeGreaterThan(ranked))
-
-    // A change under Time assumptions keeps the new batch (each editor saves the settings as they now are).
-    await userEvent.click(screen.getByRole('button', { name: 'Time assumptions' }))
-    expect(screen.getByRole('combobox', { name: 'Craft Location' })).toHaveValue('Wherever pays best')
-    for (const gone of ['An hour of your time is worth (gold)', 'Stacks per mail', 'Disenchant (per item)', /Detour/]) {
-      expect(screen.queryByLabelText(gone)).not.toBeInTheDocument()
-    }
-    fireEvent.change(screen.getByLabelText('Open a mail'), { target: { value: '4' } })
-    await waitFor(() => expect(saved).toHaveLength(2), { timeout: 3000 })
-    expect(saved[1]).toEqual({ city: null, config: { batch: 5, mail_open: 4 } })
     expect(batch).toHaveValue('5')
   })
 

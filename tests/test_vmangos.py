@@ -103,3 +103,174 @@ def test_write_csv_round_trips(tmp_path: Path) -> None:
         "100,Rune Thread",
         '104,"Vial, Empty"',
     ]
+
+
+LOOT = (
+    "entry INTEGER, item INTEGER, ChanceOrQuestChance REAL, groupid INTEGER, mincountOrRef INTEGER, "
+    "maxcount INTEGER, patch_min INTEGER DEFAULT 0, patch_max INTEGER DEFAULT 10"
+)
+REWARDS = ", ".join(f"{c} INTEGER DEFAULT 0" for c in vmangos.QUEST_REWARDS)
+SOURCES_SCHEMA = f"""
+CREATE TABLE creature (guid INTEGER, id INTEGER, id2 INTEGER DEFAULT 0, id3 INTEGER DEFAULT 0,
+    id4 INTEGER DEFAULT 0, id5 INTEGER DEFAULT 0, map INTEGER, position_x REAL, position_y REAL,
+    patch_min INTEGER DEFAULT 0, patch_max INTEGER DEFAULT 10);
+CREATE TABLE creature_template (entry INTEGER, patch INTEGER, name TEXT, faction INTEGER, level_min INTEGER,
+    level_max INTEGER, loot_id INTEGER, vendor_id INTEGER DEFAULT 0);
+CREATE TABLE faction_template (id INTEGER, build INTEGER, hostile_mask INTEGER);
+CREATE TABLE map_template (entry INTEGER, patch INTEGER, map_type INTEGER, map_name TEXT);
+CREATE TABLE npc_vendor (entry INTEGER, item INTEGER, maxcount INTEGER, condition_id INTEGER DEFAULT 0);
+CREATE TABLE npc_vendor_template (entry INTEGER, item INTEGER, maxcount INTEGER, condition_id INTEGER);
+CREATE TABLE item_template (entry INTEGER, patch INTEGER, name TEXT, class INTEGER);
+CREATE TABLE quest_template (entry INTEGER, patch INTEGER, Title TEXT, ZoneOrSort INTEGER, QuestLevel INTEGER,
+    RequiredRaces INTEGER, {REWARDS});
+CREATE TABLE creature_questrelation (id INTEGER, quest INTEGER, patch_min INTEGER DEFAULT 0,
+    patch_max INTEGER DEFAULT 10);
+CREATE TABLE area_template (entry INTEGER, name TEXT);
+CREATE TABLE gameobject (guid INTEGER, id INTEGER, map INTEGER, position_x REAL, position_y REAL,
+    patch_min INTEGER DEFAULT 0, patch_max INTEGER DEFAULT 10);
+CREATE TABLE gameobject_template (entry INTEGER, patch INTEGER, name TEXT, type INTEGER, data1 INTEGER);
+CREATE TABLE creature_loot_template ({LOOT});
+CREATE TABLE reference_loot_template ({LOOT});
+CREATE TABLE gameobject_loot_template ({LOOT});
+CREATE TABLE item_loot_template ({LOOT});
+"""
+LOOT_INSERT = "(entry, item, ChanceOrQuestChance, groupid, mincountOrRef, maxcount) VALUES (?,?,?,?,?,?)"
+# map 0, in yards: Westfall's box overlaps Duskwood's, both bigger than a city's (the continent never
+# counts); map 33 is a dungeon
+ZONES = [
+    (0, "Eastern Kingdoms", -100000.0, -100000.0, 100000.0, 100000.0, 0),
+    (0, "Westfall", 0.0, 0.0, 10000.0, 10000.0, 40),
+    (0, "Duskwood", 9000.0, 0.0, 30000.0, 10000.0, 10),
+]
+MOBS = vmangos.WORLD_DROP_AT + 1
+
+
+@pytest.fixture
+def sources_world(tmp_path: Path) -> Iterator[sqlite3.Connection]:
+    conn = sqlite3.connect(tmp_path / "mangos.sqlite")
+    conn.executescript(SOURCES_SCHEMA)
+    conn.executemany(
+        "INSERT INTO item_template VALUES (?,?,?,?)",
+        [
+            (500, 0, "Recipe: Stew", 9),
+            (501, 0, "Pattern: Cloak", 9),
+            (502, 0, "Plans: Helm", 9),
+            (503, 0, "Formula: Wand", 9),
+            (504, 0, "Schematic: Gun", 9),
+            (600, 0, "Lockbox", 15),
+        ],
+    )
+    # hostile to the Horde (4), to the Alliance (2); 35's newest build hostile to neither
+    conn.executemany(
+        "INSERT INTO faction_template VALUES (?,?,?)",
+        [(12, 1, 4), (29, 1, 2), (35, 1, 0), (35, 0, 4), (14, 1, 6)],
+    )
+    conn.executemany(
+        "INSERT INTO map_template VALUES (?,?,?,?)", [(0, 0, 0, "Eastern Kingdoms"), (33, 0, 1, "Deadmines")]
+    )
+    conn.executemany(
+        "INSERT INTO creature_template (entry, patch, name, faction, level_min, level_max, loot_id) "
+        "VALUES (?,?,?,?,?,?,?)",
+        [
+            (1, 0, "Kendor", 12, 30, 30, 0),
+            (2, 0, "Borya", 29, 30, 30, 0),
+            (3, 0, "Gazlowe", 35, 30, 30, 0),
+            (4, 0, "Pillager", 14, 15, 16, 4),
+            (5, 0, "Van Cleef", 14, 20, 20, 5),
+            (6, 0, "Ghost", 14, 20, 20, 4),  # never spawned
+        ]
+        + [(100 + i, 0, f"Mob {i}", 14, 10 + i, 12 + i, 100) for i in range(MOBS)],
+    )
+    conn.executemany(
+        "INSERT INTO creature (guid, id, map, position_x, position_y) VALUES (?,?,?,?,?)",
+        [
+            (1, 1, 0, 5000, 5000),  # well inside Westfall
+            (2, 2, 0, 9900, 5000),  # where Westfall and Duskwood overlap, nearer Duskwood's middle
+            (3, 3, 0, 5000, 5000),
+            (4, 4, 0, 5000, 5000),
+            (5, 4, 0, 5200, 5000),
+            (6, 4, 0, 20000, 5000),  # one of three spawns in Duskwood: Westfall wins
+            (7, 5, 33, 0, 0),
+        ]
+        + [(200 + i, 100 + i, 0, 5000, 5000) for i in range(MOBS)],
+    )
+    conn.executemany(  # 502 behind a condition
+        "INSERT INTO npc_vendor VALUES (?,?,?,?)",
+        [(1, 500, 0, 0), (2, 500, 1, 0), (3, 501, 0, 0), (3, 502, 0, 9)],
+    )
+    conn.executemany(
+        "INSERT INTO quest_template (entry, patch, Title, ZoneOrSort, QuestLevel, RequiredRaces, RewItemId1, "
+        "RewChoiceItemId2) VALUES (?,?,?,?,?,?,?,?)",
+        [
+            (1, 0, "Stew Time", 40, 12, 1, 0, 500),  # humans only, filed under Westfall, no giver
+            (2, 0, "<UNUSED>Stew", 40, 12, 0, 500, 0),
+            (3, 0, "Cloak Job", -101, 20, 0, 501, 0),  # given by Borya
+        ],
+    )
+    conn.execute("INSERT INTO creature_questrelation (id, quest) VALUES (2, 3)")
+    conn.execute("INSERT INTO area_template VALUES (40, 'Westfall')")
+    conn.executemany(
+        f"INSERT INTO creature_loot_template {LOOT_INSERT}",
+        [
+            (4, 502, 2.0, 0, 1, 1),
+            (5, 0, 50.0, 0, -900, 2),  # rolls reference 900 twice, half the time
+            (5, 501, 30.0, 1, 1, 1),
+            (5, 502, 0, 1, 1, 1),  # shares the group's remaining 70% with 503
+            (5, 503, 0, 1, 1, 1),
+            (100, 504, -5.0, 0, 1, 1),  # a quest drop's chance is negative
+        ],
+    )
+    conn.execute(f"INSERT INTO reference_loot_template {LOOT_INSERT}", (900, 504, 10.0, 0, 1, 1))
+    conn.executemany(  # two chests of the same name
+        "INSERT INTO gameobject_template VALUES (?,?,?,?,?)",
+        [(70, 0, "Chest", 3, 71), (72, 0, "Chest", 3, 71)],
+    )
+    conn.executemany(
+        "INSERT INTO gameobject (guid, id, map, position_x, position_y) VALUES (?,?,?,?,?)",
+        [(1, 70, 0, 5000, 5000), (2, 72, 0, 20000, 5000)],
+    )
+    conn.executemany(
+        f"INSERT INTO gameobject_loot_template {LOOT_INSERT}",
+        [(71, 502, 1.0, 0, 1, 1), (71, 504, 50.0, 0, 1, 1)],
+    )
+    conn.execute(f"INSERT INTO item_loot_template {LOOT_INSERT}", (600, 502, 0.5, 0, 1, 1))
+    yield conn
+    conn.close()
+
+
+def test_recipe_item_sources(sources_world: sqlite3.Connection) -> None:
+    by_item: dict[int, list[vmangos.ItemSource]] = {}
+    for s in vmangos.recipe_item_sources(sources_world, ZONES):
+        by_item.setdefault(s.item_id, []).append(s)
+    src = vmangos.ItemSource
+    assert by_item[500] == [
+        src(500, "vendor", "Borya", "Duskwood", "horde", limited=True),
+        src(500, "vendor", "Kendor", "Westfall", "alliance"),
+        src(500, "quest", "Stew Time", "Westfall", "alliance", levels="12"),
+    ]
+    assert by_item[501] == [
+        src(501, "vendor", "Gazlowe", "Westfall"),
+        src(501, "quest", "Cloak Job", "Duskwood", "horde", levels="20"),  # where Borya stands, his side
+        src(501, "drop", "Van Cleef", "Deadmines", chance=30.0),
+    ]
+    # the group's 70% left over, shared by two; then the chest (seen in two zones) and the lockbox
+    assert by_item[502] == [
+        src(502, "drop", "Van Cleef", "Deadmines", chance=35.0),
+        src(502, "drop", "Pillager", "Westfall", chance=2.0),
+        src(502, "object", "Chest", "", chance=1.0),
+        src(502, "more", count=1),
+    ]
+    assert by_item[503] == [src(503, "drop", "Van Cleef", "Deadmines", chance=35.0)]
+    # more creatures than WORLD_DROP_AT: a world drop, the chest holding it left out (and Van Cleef's
+    # 50% x 2 rolls x 10% among them)
+    assert by_item[504] == [src(504, "world_drop", count=MOBS + 1, levels="10-32")]
+
+
+def test_write_sources_csv(tmp_path: Path) -> None:
+    path = tmp_path / "sources.csv"
+    rows = [vmangos.ItemSource(500, "vendor", "Kendor, the Cook", "Westfall", "alliance", limited=True)]
+    vmangos.write_sources_csv(rows, path)
+    assert path.read_text(encoding="utf-8").splitlines() == [
+        "item_id,kind,name,zone,side,chance,count,levels,limited",
+        '500,vendor,"Kendor, the Cook",Westfall,alliance,0.0,0,,1',
+    ]

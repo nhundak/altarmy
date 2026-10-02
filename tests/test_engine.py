@@ -792,6 +792,28 @@ def test_skill_up_chance_falls_from_yellow_to_grey() -> None:
     assert skill_up_chance(replace(recipe, trivial_low=55), smith(54)) == 1.0  # orange up to grey
 
 
+def test_working_overtime_adds_to_the_skill_up_chance_but_never_to_grey() -> None:
+    recipe = Recipe(
+        1, "Rough Sharpening Stone", 1, skill_name="Blacksmithing", trivial_low=15, trivial_high=55
+    )
+
+    def smith(rank: int, cap: int = 75) -> Crafter:
+        return Crafter("Smith", (("Blacksmithing", rank, cap),), frozenset(), skill_bonus=0.2)
+
+    assert skill_up_chance(recipe, smith(35)) == pytest.approx(0.7)
+    assert skill_up_chance(recipe, smith(54)) == pytest.approx(0.2 + 1 / 40)
+    assert skill_up_chance(recipe, smith(1)) == 1.0  # orange: capped
+    assert skill_up_chance(recipe, smith(15)) == 1.0
+    assert skill_up_chance(recipe, smith(55)) == 0.0  # grey
+    assert skill_up_chance(recipe, smith(40, cap=40)) == 0.0  # must train first
+    plain = replace(smith(35), skill_bonus=0.0)
+    assert expected_skill_ups(recipe, smith(35), 1) == pytest.approx(0.7)
+    assert expected_skill_ups(recipe, smith(35), 10) > expected_skill_ups(recipe, plain, 10)
+    assert expected_skill_ups(recipe, smith(35), 1000) == pytest.approx(20)  # never past grey
+    assert expected_skill_ups(recipe, smith(33, cap=35), 50) == pytest.approx(2)  # nor the cap
+    assert expected_skill_ups(recipe, smith(55), 10) == 0.0
+
+
 def test_expected_skill_ups_fall_as_the_skill_rises() -> None:
     recipe = Recipe(
         1, "Rough Sharpening Stone", 1, skill_name="Blacksmithing", trivial_low=15, trivial_high=55
@@ -907,6 +929,20 @@ def test_result_carries_the_crafters_skill_up_chance() -> None:
     assert res.skill_ups == pytest.approx(0.5 * (1 - 0.95**4) / 0.05)
     anyone = must_evaluate(maul_market(recipes=(CURE, GREY_AT_60)), GREY_AT_60)
     assert (anyone.skill_chance, anyone.skill_ups) == (1.0, 1.0)  # nobody's skill is known
+    assert res.skill_ups_bonus == 0.0  # no Working Overtime
+
+
+def test_result_says_how_many_skill_ups_working_overtime_adds() -> None:
+    overtime = replace(SMITHY, skill_bonus=0.2)
+    m = maul_market(overtime, LEATHERY, VETERAN, recipes=(CURE, GREY_AT_60), include_trivial=False)
+    res = m.evaluate(GREY_AT_60, crafts=4)
+    assert res is not None
+    assert res.crafter == "Smithy"
+    assert res.skill_chance == pytest.approx(0.7)
+    without = expected_skill_ups(GREY_AT_60, SMITHY, 4)
+    assert res.skill_ups == pytest.approx(expected_skill_ups(GREY_AT_60, overtime, 4))
+    assert res.skill_ups_bonus == pytest.approx(res.skill_ups - without)
+    assert res.skill_ups_bonus > 0
 
 
 # --- Legacy talents -------------------------------------------------------------------------------------

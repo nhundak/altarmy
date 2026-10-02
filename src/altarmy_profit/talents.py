@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+WORKING_OVERTIME = 1225451
 MASTER_CHEF = 1225457
 BARTERING = 1225459
 
@@ -18,8 +19,9 @@ class LegacyTalent:
     spell_id: int
     name: str
     max_rank: int
-    per_rank: float  # extra_result: chance of one extra result; vendor_discount: percent off
-    effect: str  # extra_result | vendor_discount
+    # extra_result: chance of one extra result; vendor_discount: percent off; skill_chance: chance added
+    per_rank: float
+    effect: str  # extra_result | vendor_discount | skill_chance
     profession: str = ""  # extra_result: the profession whose crafts it applies to
 
 
@@ -28,6 +30,7 @@ LEGACY_TALENTS: dict[int, LegacyTalent] = {
     for t in (
         LegacyTalent(MASTER_CHEF, "Master Chef", 5, 0.10, "extra_result", "Cooking"),
         LegacyTalent(BARTERING, "Bartering", 2, 5, "vendor_discount"),
+        LegacyTalent(WORKING_OVERTIME, "Working Overtime", 5, 0.04, "skill_chance"),
     )
 }
 
@@ -47,3 +50,8 @@ def extra_results(talents: Iterable[tuple[int, int]]) -> tuple[tuple[str, float]
 def vendor_discount(talents: Iterable[tuple[int, int]]) -> int:
     """Percent off vendor prices."""
     return round(sum(t.per_rank * rank for t, rank in known(talents) if t.effect == "vendor_discount"))
+
+
+def skill_bonus(talents: Iterable[tuple[int, int]]) -> float:
+    """What is added to the chance of a skill point from any tradeskill craft that can give one."""
+    return sum(t.per_rank * rank for t, rank in known(talents) if t.effect == "skill_chance")

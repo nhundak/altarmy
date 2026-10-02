@@ -64,7 +64,9 @@ realm and faction it was taken on. TBC's come from users' Auctionator uploads. T
 auction house wins, whoever uploaded it; older prices stay as history (see Data notes). A realm nobody
 has scanned has no prices.
 
-**Profit per hour.** Every plan is also timed: casts (DB2 cast times), clicks at the auction house, vendors
+**Profit per hour (not shown for now).** The site's UI no longer shows play time or profit per hour, and ranks
+Make gold by net profit; the model below still runs on the server and its numbers are in the API, so the UI can
+come back. Every plan is also timed: casts (DB2 cast times), clicks at the auction house, vendors
 and mailbox, character switches, and running between them in a city (see Data notes). A session crafts a
 batch (default 10), so a run across town or a switch to an alt is shared by the batch. The search can rank
 by profit per hour. What an hour of play is worth makes plans weigh time as money, so a slow vendor run or
@@ -88,7 +90,7 @@ The main page opens with a welcome banner and three ways to start:
 Once one is done (or characters already exist) the cards fold into a one-line summary (open it to see or
 remove characters) and the search asks a few questions, one at a time:
 
-- **What are you after?** **Make gold** ranks by profit per hour of play and shows only profitable recipes your characters know. **Skill up** (needs imported
+- **What are you after?** **Make gold** ranks by net profit and shows only profitable recipes your characters know. **Skill up** (needs imported
   characters) asks **Which profession?** (one someone on the selected realm has), shows only that
   profession's recipes that can still give the crafter a skill point (with those a character can
   train within 20 points), drops the minimum profit so cheap
@@ -113,10 +115,9 @@ Arcane Salvager recipe. Then:
   first. Picking one re-costs the recipe, adding or removing buy, craft and mail steps, and the row
   shows the changed numbers. **Reset** goes back to the best plan. A row's ⋯ menu can mark its output
   **Never sell on auction house**: from then on it is only vendored or disenchanted (it can still be
-  bought there). Column headers sort the loaded rows (the setup decides the ranking itself). An expanded row shows each step's seconds, the batch's time and
-  where each character runs, and how long the plan takes in each city the faction can craft in, the
-  quickest marked. **Play Time and City** sets the city, crafts per session, what an hour is worth and
-  the seconds each action takes (all saved per user).
+  bought there). Column headers sort the loaded rows (the setup decides the ranking itself). An expanded row's steps can
+  spell out where each character runs (Detailed view), without times. **Crafts per session** (saved per
+  user) sets how many crafts a row plans; the city is the server's pick.
 - **Manage** lists the items never sold on the auction house (remove one to allow it again) and links
   Alt Army Sync (see below).
 

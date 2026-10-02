@@ -73,7 +73,7 @@ describe('ProfitPage', () => {
     expect(paths(fetch, '/api/rank')).toEqual([])
     await userEvent.click(await within(search).findByRole('button', { name: 'Anything that might sell' }))
     await waitFor(() => expect(paths(fetch, '/api/rank')).toHaveLength(1))
-    expect(new URL(paths(fetch, '/api/rank')[0]!.url).searchParams.get('sort')).toBe('rate')
+    expect(new URL(paths(fetch, '/api/rank')[0]!.url).searchParams.has('sort')).toBe(false)
 
     unmount()
     renderWithProviders(<ProfitPage />)

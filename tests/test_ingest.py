@@ -62,6 +62,26 @@ def test_build_db_loads_the_skill_the_recipe_item_requires(
     assert conn.execute(select(schema.recipes.c.learn_skill)).scalar_one() == 50
 
 
+def test_spawn_zone_guesses_the_zone_from_overlapping_maps() -> None:
+    zones: list[ingest.ZoneBox] = [
+        (0, "Eastern Kingdoms", -50000, -50000, 50000, 50000, 0),  # a continent never counts
+        (0, "Elwynn Forest", 0, 0, 3000, 3000, 12),
+        (0, "Stormwind City", 2000, 2000, 3500, 3500, 1519),  # a city, drawn off its map's centre
+        (0, "Westfall", -2500, 0, 500, 3000, 40),
+    ]
+
+    def zone(x: float, y: float, map_id: int = 0) -> str | None:
+        box = ingest.spawn_zone(zones, map_id, x, y)
+        return box[1] if box else None
+
+    assert zone(2100, 2100) == "Stormwind City"  # near the city map's edge, still the city
+    assert zone(1500, 1500) == "Elwynn Forest"
+    assert zone(400, 1500) == "Elwynn Forest"  # in both, well inside neither: nearer Elwynn's middle
+    assert zone(-1000, 1500) == "Westfall"
+    assert zone(-10000, 1500) is None  # only the continent's
+    assert zone(1500, 1500, map_id=1) is None
+
+
 def test_learn_skills_take_the_lowest_rank_of_the_items_teaching_a_spell(tmp_path: Path) -> None:
     effects = write_csv(  # TBC's shape: each effect names its item
         tmp_path / "ItemEffect.csv",
@@ -109,6 +129,73 @@ def test_learn_sources_are_bind_on_pickup_only_when_every_teaching_item_is(tmp_p
     }
     # a recipe a vendor sells is there for anyone to buy, bound or not: only looted ones stay "bop"
     assert ingest.learn_sources({"ItemEffect": effects}, bonding, frozenset({16, 99}))[706] == "recipe"
+
+
+def test_build_db_loads_the_items_teaching_each_recipe(db2_paths: dict[str, Path], conn: Connection) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    ri = schema.recipe_items
+    assert [tuple(r) for r in conn.execute(select(ri.c.spell_id, ri.c.item_id))] == [(900, 3)]
+
+
+def test_recipe_items_are_every_item_the_game_has_teaching_a_spell(tmp_path: Path) -> None:
+    effects = write_csv(
+        tmp_path / "ItemEffect.csv",
+        ["ID", "TriggerType", "SpellID", "ParentItemID"],
+        [
+            {"ID": 1, "TriggerType": 6, "SpellID": 700, "ParentItemID": 11},
+            {"ID": 2, "TriggerType": 6, "SpellID": 700, "ParentItemID": 10},  # the other faction's copy
+            {"ID": 3, "TriggerType": 6, "SpellID": 701, "ParentItemID": 15},  # an item the game lacks
+            {"ID": 4, "TriggerType": 0, "SpellID": 702, "ParentItemID": 10},  # a Use effect
+        ],
+    )
+    assert ingest.recipe_items({"ItemEffect": effects}, {10: 1, 11: 2}) == [(700, 10), (700, 11)]
+
+
+def test_build_db_loads_where_recipe_items_come_from(
+    db2_paths: dict[str, Path], conn: Connection, tmp_path: Path
+) -> None:
+    columns = ["item_id", "kind", "name", "zone", "side", "chance", "count", "levels", "limited"]
+    sources = write_csv(
+        tmp_path / "recipe_item_sources.csv",
+        columns,
+        [
+            {
+                "item_id": 3,
+                "kind": "vendor",
+                "name": "Kendor",
+                "zone": "Stormwind",
+                "side": "alliance",
+                "chance": 0,
+                "count": 0,
+                "levels": "",
+                "limited": 1,
+            },
+            {
+                "item_id": 3,
+                "kind": "drop",
+                "name": "Defias Pillager",
+                "zone": "Westfall",
+                "side": "",
+                "chance": 2.5,
+                "count": 0,
+                "levels": "",
+                "limited": 0,
+            },
+        ],
+    )
+    ingest.build_db(db2_paths, conn, FOREVER, sources_csv=sources)
+    t = schema.item_sources
+    rows = conn.execute(select(t.c.seq, t.c.kind, t.c.name, t.c.chance, t.c.limited).order_by(t.c.seq)).all()
+    assert [tuple(r) for r in rows] == [
+        (0, "vendor", "Kendor", 0.0, True),
+        (1, "drop", "Defias Pillager", 2.5, False),
+    ]
+
+    bad = write_csv(
+        tmp_path / "bad.csv", columns, [{"item_id": 3, "kind": "stolen", "side": "", "chance": 0}]
+    )
+    with pytest.raises(ValueError, match="stolen"):
+        ingest.item_sources(bad, FOREVER)
 
 
 def test_build_db_counts_a_vendors_bind_on_pickup_recipe_as_a_normal_one(

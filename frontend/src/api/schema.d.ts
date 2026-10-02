@@ -877,6 +877,23 @@ export interface components {
             summary: string;
         };
         /**
+         * LearnOut
+         * @description Where to learn a recipe nobody has learned.
+         */
+        LearnOut: {
+            /** Items */
+            items: components["schemas"]["RecipeItemOut"][];
+            /** Profession */
+            profession: string;
+            /** Skill */
+            skill: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "trainer" | "recipe" | "bop";
+        };
+        /**
          * LegOut
          * @description One run across the city.
          */
@@ -1054,6 +1071,34 @@ export interface components {
             /** Text */
             text: string;
         };
+        /**
+         * PlaceOut
+         * @description Somewhere a recipe item comes from (vanilla's world data: Forever may differ).
+         */
+        PlaceOut: {
+            /** Chance */
+            chance: number;
+            /** Count */
+            count: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "vendor" | "drop" | "object" | "container" | "world_drop" | "quest" | "more";
+            /** Levels */
+            levels: string;
+            /** Limited */
+            limited: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "alliance" | "horde" | "";
+            /** Zone */
+            zone: string;
+        };
         /** ProfessionOut */
         ProfessionOut: {
             /** Max Rank */
@@ -1074,6 +1119,13 @@ export interface components {
             /** Items */
             items: {
                 [key: string]: components["schemas"]["ItemInfo"];
+            };
+            /**
+             * Learn
+             * @default {}
+             */
+            learn: {
+                [key: string]: components["schemas"]["LearnOut"];
             };
             /** Results */
             results: components["schemas"]["RankResult"][];
@@ -1154,6 +1206,11 @@ export interface components {
             skill_chance: number;
             /** Skill Ups */
             skill_ups: number;
+            /**
+             * Skill Ups Bonus
+             * @default 0
+             */
+            skill_ups_bonus: number;
             /** Slow */
             slow: boolean;
             /** Steps */
@@ -1177,6 +1234,15 @@ export interface components {
             quarantined: boolean;
             /** Realm */
             realm: string;
+        };
+        /** RecipeItemOut */
+        RecipeItemOut: {
+            /** Item Id */
+            item_id: number;
+            /** Name */
+            name: string;
+            /** Places */
+            places: components["schemas"]["PlaceOut"][];
         };
         /**
          * SelectionModel

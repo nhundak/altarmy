@@ -1,7 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import type { RankResult } from '../api/client'
+import type { Learn, RankResult } from '../api/client'
 import { linen, robe as robeItem, thread } from '../test/items'
 import { bought, robeResult as robe, timedRobe } from '../test/results'
 import { mockApi, renderWithProviders, shown } from '../test/utils'
@@ -38,36 +38,44 @@ const disenchanted: RankResult = {
   ],
 }
 
+/** Hovers the flag labelled `label` and returns the text of the tooltip it opens. */
+async function flagText(label: string): Promise<string | null> {
+  await userEvent.hover(screen.getByLabelText(label))
+  return (await screen.findByRole('tooltip')).textContent
+}
+
 describe('ResultsTable slow sales and short books', () => {
-  it('says how long a slow sale may take', () => {
+  it('says how long a slow sale may take', async () => {
     const slow = { ...robe, recipe_id: 102, best_exit: 'ah', slow: true, days_to_sell: 3.2 }
     renderWithProviders(<ResultsTable results={[slow]} items={items} />)
-    expect(screen.getByLabelText('Slow to sell')).toHaveAttribute(
-      'title',
-      'May take about 3 days to sell at the rate it sold lately',
-    )
+    expect(await flagText('Slow to sell')).toBe('May take about 3 days to sell at the rate it sold lately')
   })
 
-  it('falls back to the units listed when nothing says how fast it sells', () => {
+  it('falls back to the units listed when nothing says how fast it sells', async () => {
     const thin = { ...robe, recipe_id: 102, best_exit: 'ah', slow: true }
     renderWithProviders(<ResultsTable results={[thin]} items={{ ...items, '3': { ...robeItem, ah_quantity: 3 } }} />)
-    expect(screen.getByLabelText('Slow to sell')).toHaveAttribute('title', 'Sell price rests on 3 listed units')
+    expect(await flagText('Slow to sell')).toBe('Sell price rests on 3 listed units')
   })
 
-  it('says few units when the quantity is unknown, and flags nothing else', () => {
+  it('says few units when the quantity is unknown, and flags nothing else', async () => {
     const thin = { ...robe, recipe_id: 102, best_exit: 'ah', slow: true }
     renderWithProviders(<ResultsTable results={[thin, robe]} items={items} />)
     expect(screen.getAllByLabelText('Slow to sell')).toHaveLength(1)
-    expect(screen.getByLabelText('Slow to sell')).toHaveAttribute('title', 'Sell price rests on few listed units')
     expect(screen.queryByLabelText('Not enough listed')).not.toBeInTheDocument()
+    expect(await flagText('Slow to sell')).toBe('Sell price rests on few listed units')
   })
 
-  it('flags a plan that buys more than the auction house lists', () => {
+  it('flags a plan that buys more than the auction house lists', async () => {
     renderWithProviders(<ResultsTable results={[{ ...robe, short: 2 }]} items={items} />)
-    expect(screen.getByLabelText('Not enough listed')).toHaveAttribute(
-      'title',
+    expect(await flagText('Not enough listed')).toBe(
       'Needs 2 more units than the auction house lists; they are counted at the dearest price listed',
     )
+  })
+
+  it('opens a flag without expanding its row', async () => {
+    renderWithProviders(<ResultsTable results={[{ ...robe, short: 2 }]} items={items} />)
+    await userEvent.click(screen.getByLabelText('Not enough listed'))
+    expect(screen.getByLabelText(`Details for ${robe.recipe}`)).toHaveAttribute('aria-expanded', 'false')
   })
 })
 
@@ -142,13 +150,13 @@ describe('ResultsTable', () => {
     expect(screen.queryByText(/Purchase/)).not.toBeInTheDocument()
   })
 
-  it('shows the profit, per hour, investment, ROI, recipe and sell via columns for making gold', () => {
-    renderWithProviders(<ResultsTable results={[robe]} items={items} rankBy="rate" onSetFavorite={() => {}} />)
+  it('shows the profit, investment, ROI, recipe and sell via columns for making gold, and nothing per hour', () => {
+    renderWithProviders(<ResultsTable results={[timedRobe]} items={items} rankBy="profit" onSetFavorite={() => {}} />)
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent?.replace(/[▲▼]/g, ''))
-    expect(headers).toEqual(['', 'Net profit', 'Per hour', 'Investment', 'ROI', 'Recipe', 'Crafter', 'Sell via', ''])
+    expect(headers).toEqual(['', 'Net profit', 'Investment', 'ROI', 'Recipe', 'Crafter', 'Sell via', ''])
   })
 
-  it('shows per skill up in place of per hour when skilling up', () => {
+  it('adds per skill up when skilling up', () => {
     renderWithProviders(<ResultsTable results={[robe]} items={items} rankBy="skill" />)
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent?.replace(/[▲▼]/g, ''))
     expect(headers).toEqual(['', 'Net profit', 'Per skill up', 'Investment', 'ROI', 'Recipe', 'Crafter', 'Sell via'])
@@ -161,6 +169,56 @@ describe('ResultsTable', () => {
     expect(screen.getByText('Tailor Guy')).toBeInTheDocument()
     expect(screen.getByText('not learned')).toBeInTheDocument()
     expect(screen.getByText('anyone')).toBeInTheDocument()
+  })
+
+  it('says where to learn a recipe nobody has', async () => {
+    const unlearned = { ...robe, recipe_id: 101, crafters: [] }
+    const trained = { ...robe, recipe_id: 102, crafters: [] }
+    const learn: Record<string, Learn> = {
+      '101': {
+        source: 'recipe',
+        skill: 50,
+        profession: 'Tailoring',
+        items: [
+          {
+            item_id: 4,
+            name: 'Pattern: Green Robe',
+            places: [
+              { kind: 'vendor', name: 'Borya', zone: 'Orgrimmar', side: 'horde', chance: 0, count: 0, levels: '', limited: true },
+              { kind: 'drop', name: 'Defias Pillager', zone: 'Westfall', side: '', chance: 0.0123, count: 0, levels: '', limited: false },
+              { kind: 'more', name: '', zone: '', side: '', chance: 0, count: 4, levels: '', limited: false },
+            ],
+          },
+        ],
+      },
+      '102': { source: 'trainer', skill: 30, profession: 'Tailoring', items: [] },
+    }
+    renderWithProviders(<ResultsTable results={[unlearned, trained]} items={items} learn={learn} />)
+    const [first, second] = screen.getAllByText('not learned')
+    await userEvent.hover(first)
+    const tip = await screen.findByRole('tooltip')
+    expect(within(tip).getByText('Pattern: Green Robe (Tailoring 50)')).toBeInTheDocument()
+    expect(within(tip).getByText('Sold by Borya, Orgrimmar (limited stock)')).toBeInTheDocument()
+    expect(within(tip).getByText('Drops from Defias Pillager, Westfall (0.012%)')).toBeInTheDocument()
+    expect(within(tip).getByText('and 4 more')).toBeInTheDocument()
+    expect(within(tip).getByText(/vanilla's world data/)).toBeInTheDocument()
+    await userEvent.unhover(first)
+    await userEvent.hover(second)
+    expect(await screen.findByText('Taught by Tailoring trainers (skill 30)')).toBeInTheDocument()
+    // hovering or tapping it does not open the row
+    await userEvent.click(second)
+    expect(screen.getAllByLabelText(`Details for ${robe.recipe}`)[1]).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('says what a recipe item without known places is', async () => {
+    const unlearned = { ...robe, recipe_id: 101, crafters: [] }
+    const item = { item_id: 4, name: 'Pattern: Green Robe', places: [] }
+    const learn: Record<string, Learn> = { '101': { source: 'bop', skill: 50, profession: 'Tailoring', items: [item] } }
+    renderWithProviders(<ResultsTable results={[unlearned]} items={items} learn={learn} />)
+    await userEvent.hover(screen.getByText('not learned'))
+    const tip = await screen.findByRole('tooltip')
+    expect(within(tip).getByText('Bind on pickup: looted or earned in the world')).toBeInTheDocument()
+    expect(within(tip).queryByText(/vanilla's world data/)).not.toBeInTheDocument()
   })
 
   it('lets anyone convert essences and says so in the steps', async () => {
@@ -646,18 +704,13 @@ describe('ResultsTable', () => {
   })
 })
 
-describe('ResultsTable profit per hour', () => {
+describe('ResultsTable rankings and timed results', () => {
   const header = (name: string) => screen.getByRole('columnheader', { name: new RegExp(`^${name}`) })
 
-  it('shows profit per hour, with the batch time on hover', () => {
+  it('shows no profit per hour for a timed result', () => {
     renderRows([timedRobe])
-    const cell = line('1 23 45')
-    expect(cell).toHaveAttribute('title', '10 crafts in 4 min 10 s')
-  })
-
-  it('shows a dash without a timing', () => {
-    renderRows([robe])
-    expect(line('–')).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: /Per hour/ })).not.toBeInTheDocument()
+    expect(screen.queryByTitle(/crafts in/)).not.toBeInTheDocument()
   })
 
   it("shows the server's ranking on its column, and sorts the page by any header", async () => {
@@ -669,14 +722,8 @@ describe('ResultsTable profit per hour', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Sort by Net profit' })) // flips the server's order
     expect(header('Net profit')).toHaveAttribute('aria-sort', 'ascending')
     expect(recipes()).toEqual(['Details for Cap', 'Details for Green Robe'])
-    await userEvent.click(screen.getByRole('button', { name: 'Sort by Per hour' }))
-    expect(header('Per hour')).toHaveAttribute('aria-sort', 'descending')
-    expect(header('Net profit')).toHaveAttribute('aria-sort', 'none')
-  })
-
-  it('shows a ranking per hour on the Per hour column', () => {
-    renderWithProviders(<ResultsTable results={[timedRobe]} items={items} rankBy="rate" />)
-    expect(header('Per hour')).toHaveAttribute('aria-sort', 'descending')
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Investment' }))
+    expect(header('Investment')).toHaveAttribute('aria-sort', 'descending')
     expect(header('Net profit')).toHaveAttribute('aria-sort', 'none')
   })
 
@@ -723,19 +770,27 @@ describe('ResultsTable profit per hour', () => {
     expect(screen.getByText(/Orgrimmar has no anvil or spinning wheel: this plan can't be crafted there/)).toBeInTheDocument()
   })
 
-  it('sums the plan up in one line, times each step, and notes what the lines cannot show', async () => {
+  it('sums the plan up in one line, shows no times, and notes what the lines cannot show', async () => {
     renderRows([timedRobe])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     const text = (t: string) => screen.findByText((_, el) => el?.tagName === 'P' && shown(el) === t)
     expect(await text('10 crafts: Investment 3 0 · Net profit 2 0')).toBeInTheDocument()
-    expect(screen.getByText((_, el) => el?.tagName === 'P' && shown(el) === 'Estimated time: 4 min 10 s (Net profit 1 23 45/hr)')).toBeInTheDocument()
+    expect(screen.queryByText(/Estimated time|\/hr/)).not.toBeInTheDocument()
     expect(screen.getByText(`Estimated skill points gained: ${timedRobe.skill_ups}`)).toBeInTheDocument()
-    expect(screen.queryByText(/^A batch of|^By city/)).not.toBeInTheDocument() // the controls say it now
-    expect(screen.getByText(/No vendor in Orgrimmar sells Coarse Thread/)).toBeInTheDocument()
+    expect(screen.queryByText(/^A batch of|^By city/)).not.toBeInTheDocument()
+    expect(screen.getByText('No vendor in Orgrimmar sells Coarse Thread.')).toBeInTheDocument()
     expect(screen.queryByText(/can't be crafted there/)).not.toBeInTheDocument()
     await showSteps()
-    expect(line('Craft 1x Green Robe · 3.5 s')).toBeInTheDocument()
-    expect(line('Purchase 10x Linen Cloth on the AH (2 0)')).toBeInTheDocument() // no time: no suffix
+    expect(line('Craft 1x Green Robe')).toBeInTheDocument() // a 3.5 s craft: the time is not shown
+    expect(line('Purchase 10x Linen Cloth on the AH (2 0)')).toBeInTheDocument()
+  })
+
+  it('says how many of the estimated skill points Working Overtime adds', async () => {
+    renderRows([{ ...timedRobe, skill_ups: 9.71, skill_ups_bonus: 0.38 }])
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    expect(
+      screen.getByText('Estimated skill points gained: 9.7 (including 0.4 from Working Overtime)'),
+    ).toBeInTheDocument()
   })
 
   it('puts a minus sign before a losing session in the summary', async () => {
@@ -744,7 +799,6 @@ describe('ResultsTable profit per hour', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     const text = (t: string) => screen.findByText((_, el) => el?.tagName === 'P' && shown(el) === t)
     expect(await text('10 crafts: Investment 3 0 · Net profit -2 0')).toBeInTheDocument()
-    expect(await text('Estimated time: 4 min 10 s (Net profit -1 23 45/hr)')).toBeInTheDocument()
   })
 })
 

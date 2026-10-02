@@ -194,6 +194,34 @@ vendor_items = Table(
     Column("item_id", Integer, primary_key=True, autoincrement=False),
 )
 
+# The items teaching each recipe's spell (DB2 ItemEffect, trigger 6), for saying where to get a recipe.
+recipe_items = Table(
+    "recipe_items",
+    metadata,
+    _version(),
+    Column("spell_id", Integer, primary_key=True, autoincrement=False),
+    Column("item_id", Integer, primary_key=True, autoincrement=False),
+)
+
+# Where recipe items come from (vendors, drops, quests) is server-side data, NOT in DB2. Seeded from
+# data/<version>/recipe_item_sources.csv (`vmangos.recipe_item_sources`: vanilla's world, so Forever's own
+# recipe items have none); `seq` keeps the file's order.
+item_sources = Table(
+    "item_sources",
+    metadata,
+    _version(),
+    Column("item_id", Integer, primary_key=True, autoincrement=False),
+    Column("seq", Integer, primary_key=True, autoincrement=False),
+    Column("kind", Text, nullable=False),  # vendor | drop | object | container | world_drop | quest | more
+    Column("name", Text, nullable=False),  # the NPC, object, container item or quest; "" for world_drop/more
+    Column("zone", Text, nullable=False),  # "" if unknown
+    Column("side", Text, nullable=False),  # alliance | horde | "" (both)
+    Column("chance", Float, nullable=False),  # drop chance, percent; 0 if not a drop
+    Column("count", Integer, nullable=False),  # world_drop: creatures dropping it; more: other sources
+    Column("levels", Text, nullable=False),  # world_drop/quest: level range ("30-40"); "" otherwise
+    Column("limited", Boolean, nullable=False),  # vendor: limited stock
+)
+
 # --- users and their state ------------------------------------------------------------------------
 # Firebase uids ("local" too: the single user of the removed local mode, created by revision 0002). The
 # tier is the one the user's last token carried.

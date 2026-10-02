@@ -5,9 +5,7 @@ import { z } from 'zod'
 import type { ItemMap, RankResult } from '../api/client'
 import { useSessionPlan, type EvaluateParams } from '../api/queries'
 import type { Choices } from '../lib/choices'
-import { formatMoney } from '../lib/money'
 import { useStoredState } from '../lib/storage'
-import { formatSeconds } from '../lib/time'
 import type { PlanEditing } from './ChoiceMenu'
 import { CharacterClasses, CharacterName } from './CharacterName'
 import nameClasses from './CharacterName.module.css'
@@ -20,49 +18,35 @@ const MAX_COPIES = 1000
 
 type View = 'flow' | 'steps'
 
-/** Each city the plan was timed in, with what it makes per hour there or the station it lacks. */
-function cityOptions(shown: RankResult) {
-  return shown.cities.map((c) => {
-    const name = c.city
-    const note = c.missing.length
-      ? `no ${c.missing.map((k) => k.replaceAll('_', ' ')).join(' or ')}`
-      : `${formatMoney(c.per_hour)}/hr`
-    return { value: name, label: `${name} (${note})` }
-  })
-}
-
 /** Expected skill points to one decimal, without a trailing ".0". */
 const formatSkillUps = (n: number) => String(Math.round(n * 10) / 10)
 
-/** The session's crafts, investment and profit; then its time and rate; then the crafter's expected skill points (unknown
- * without characters, so not shown). */
+/** The session's crafts, investment and profit; then the crafter's expected skill points (unknown without
+ * characters, so not shown), with the part Working Overtime adds. */
 function Summary({ result }: { result: RankResult }) {
-  const t = result.timing
   return (
     <Stack gap={2}>
       <Text size="sm">
         {result.crafts} {result.crafts === 1 ? 'craft' : 'crafts'}: Investment <Money copper={result.cost} cost /> · Net
         profit <Earned copper={result.profit} minus />
       </Text>
-      {t && (
-        <Text size="sm">
-          Estimated time: {formatSeconds(t.total_seconds)} (Net profit <Earned copper={t.per_hour} minus />
-          /hr)
-        </Text>
-      )}
       {result.crafter && (
-        <Text size="sm">Estimated skill points gained: {formatSkillUps(result.skill_ups)}</Text>
+        <Text size="sm">
+          Estimated skill points gained: {formatSkillUps(result.skill_ups)}
+          {formatSkillUps(result.skill_ups_bonus) !== '0' &&
+            ` (including ${formatSkillUps(result.skill_ups_bonus)} from Working Overtime)`}
+        </Text>
       )}
     </Stack>
   )
 }
 
 /**
- * An expanded row: the plan for a session of `copies` crafts in a city, as the server works it out (whole
- * batches, whole stacks, the route), as a flow chart or steps (optionally with where to go in between).
- * The row's own result already is the session of the time settings' batch, timed where it is quickest, so
- * it shows at once; only other copies, another city or another crafter are planned again (until then, or if that
- * fails, the row's plan shows). One Reset brings back the best plan, the default copies, city and crafter.
+ * An expanded row: the plan for a session of `copies` crafts, as the server works it out (whole batches, whole
+ * stacks, the route), as a flow chart or steps (optionally with where to go in between). The row's own result
+ * already is the session of the settings' batch, so it shows at once; only other copies or another crafter are
+ * planned again (until then, or if that fails, the row's plan shows). One Reset brings back the best plan, the
+ * default copies and crafter. The city is the server's pick: there is no choosing one here.
  */
 export function SessionDetails({
   result,
@@ -78,12 +62,8 @@ export function SessionDetails({
   choices: Choices | undefined
 }) {
   const [view, setView] = useState<View>('flow')
-  const cities = result.cities.map((c) => c.city)
   const defaultCopies = result.crafts
-  const timedIn = result.timing?.city
-  const defaultCity = timedIn && cities.includes(timedIn) ? timedIn : (cities[0] ?? null)
   const [copies, setCopies] = useState<number | null>(null) // null: the default
-  const [city, setCity] = useState<string | null>(null)
   const [crafter, setCrafter] = useState<string | null>(null)
   const colours = useContext(CharacterClasses)
   // Who could do the final craft, the one ranked first; a pick only when there is a choice.
@@ -91,22 +71,19 @@ export function SessionDetails({
   const [detailed, setDetailed] = useStoredState('altarmy-profit.steps.detailed', z.boolean(), false)
   // What differs from the row's own plan (null: as ranked); typed copies wait for the typing to stop.
   const wantedCopies = copies !== null && copies !== defaultCopies ? copies : null
-  const wantedCity = city !== null && city !== defaultCity ? city : null
   const wantedCrafter = crafter !== null && crafter !== result.crafter ? crafter : null
   const [debouncedCopies] = useDebouncedValue(wantedCopies, 400)
   const planCopies = wantedCopies === null ? null : debouncedCopies // back to the default at once
-  const custom = planCopies !== null || wantedCity !== null || wantedCrafter !== null
-  const plan = useSessionPlan(result.recipe_id, params, choices, planCopies, wantedCity, wantedCrafter, custom)
+  const custom = planCopies !== null || wantedCrafter !== null
+  const plan = useSessionPlan(result.recipe_id, params, choices, planCopies, null, wantedCrafter, custom)
   const session = custom ? plan.data?.result : undefined
   const shown = session ?? result
   const shownItems = session ? { ...items, ...plan.data?.items } : items
   const shownCopies = copies ?? defaultCopies
-  const shownCity = city ?? defaultCity
   const shownCrafter = crafter ?? result.crafter
-  const changed = editing.modified || wantedCopies !== null || wantedCity !== null || wantedCrafter !== null
+  const changed = editing.modified || wantedCopies !== null || wantedCrafter !== null
   const reset = () => {
     setCopies(null)
-    setCity(null)
     setCrafter(null)
     if (editing.modified) editing.onReset()
   }
@@ -123,17 +100,6 @@ export function SessionDetails({
           value={shownCopies}
           onChange={(v) => typeof v === 'number' && v >= 1 && setCopies(Math.min(Math.round(v), MAX_COPIES))}
         />
-        {cities.length > 0 && (
-          <Select
-            label="City"
-            size="xs"
-            w={230}
-            data={cityOptions(shown)}
-            value={shownCity}
-            onChange={(v) => v && setCity(v)}
-            allowDeselect={false}
-          />
-        )}
         {crafters.length > 1 && (
           <Select
             label="Crafter"

@@ -87,6 +87,8 @@ def test_legacy_talents_reach_the_engine(
     got = service.evaluate(base, [barterer], "none", ALL_EXITS, 100, {})
     assert got is not None
     assert (got.cost, got.tree.inputs[1].discount) == (200 + 10, 10)  # 11c less 10%, rounded up
+    (crafter,) = service.as_crafters([replace(tailor, talents=((talents.WORKING_OVERTIME, 5),))])
+    assert crafter.skill_bonus == pytest.approx(0.2)
 
 
 def test_search_and_evaluate_never_sell_blocked_items_on_the_ah(

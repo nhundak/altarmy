@@ -228,6 +228,76 @@ def load_item_details(conn: Connection, game_version: str, ids: Iterable[int]) -
     return out
 
 
+@dataclass(frozen=True)
+class Place:
+    """Somewhere a recipe item comes from (an `item_sources` row)."""
+
+    kind: str  # vendor | drop | object | container | world_drop | quest | more
+    name: str
+    zone: str
+    side: str  # alliance | horde | "" (both)
+    chance: float  # drop chance, percent
+    count: int  # world_drop: creatures dropping it; more: other sources not listed
+    levels: str
+    limited: bool  # vendor: limited stock
+
+
+@dataclass(frozen=True)
+class RecipeItem:
+    """An item teaching a recipe, and where it comes from (none known: Forever's own, or no data)."""
+
+    item_id: int
+    name: str
+    places: tuple[Place, ...]
+
+
+def load_recipe_items(
+    conn: Connection, game_version: str, spell_ids: Iterable[int]
+) -> dict[int, list[RecipeItem]]:
+    """The items teaching each of `spell_ids` (by item id) with their places (in the data's order);
+    spells no item teaches (trainers') are left out."""
+    wanted = sorted(set(spell_ids))
+    ri, it, src = schema.recipe_items, schema.items, schema.item_sources
+    taught: dict[int, list[tuple[int, str]]] = {}
+    for start in range(0, len(wanted), IN_CHUNK):
+        chunk = wanted[start : start + IN_CHUNK]
+        query = (
+            select(ri.c.spell_id, ri.c.item_id, it.c.name)
+            .join(it, (it.c.game_version == ri.c.game_version) & (it.c.id == ri.c.item_id))
+            .where(ri.c.game_version == game_version, ri.c.spell_id.in_(chunk))
+            .order_by(ri.c.spell_id, ri.c.item_id)
+        )
+        for spell, item, name in conn.execute(query):
+            taught.setdefault(spell, []).append((item, name))
+    items = sorted({i for lst in taught.values() for i, _ in lst})
+    places: dict[int, list[Place]] = {}
+    for start in range(0, len(items), IN_CHUNK):
+        chunk = items[start : start + IN_CHUNK]
+        query = (
+            select(src)
+            .where(src.c.game_version == game_version, src.c.item_id.in_(chunk))
+            .order_by(src.c.item_id, src.c.seq)
+        )
+        for r in conn.execute(query):
+            m = r._mapping  # `Row.count` is a tuple method, not the column
+            places.setdefault(m["item_id"], []).append(
+                Place(
+                    m["kind"],
+                    m["name"],
+                    m["zone"],
+                    m["side"],
+                    m["chance"],
+                    m["count"],
+                    m["levels"],
+                    m["limited"],
+                )
+            )
+    return {
+        spell: [RecipeItem(i, name, tuple(places.get(i, ()))) for i, name in lst]
+        for spell, lst in taught.items()
+    }
+
+
 def save_characters(conn: Connection, user_uid: str, game_version: str, chars: Sequence[Character]) -> None:
     """Replace the user's characters of the version with `chars` (Alt Army's file is the source of truth)."""
     c = schema.characters

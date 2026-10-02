@@ -39,6 +39,49 @@ def test_load_item_details_tolerates_bad_json(db2_paths: dict[str, Path], conn: 
     assert (robe.stats, robe.effects) == ((), ())
 
 
+def test_load_recipe_items_lists_teaching_items_with_their_places(
+    db2_paths: dict[str, Path], conn: Connection
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    src = {
+        "game_version": FOREVER,
+        "item_id": 3,
+        "zone": "",
+        "side": "",
+        "chance": 0.0,
+        "levels": "",
+        "limited": False,
+    }
+    conn.execute(
+        insert(schema.item_sources),
+        [
+            {**src, "seq": 1, "kind": "more", "name": "", "count": 4},
+            {
+                **src,
+                "seq": 0,
+                "kind": "drop",
+                "name": "Defias Pillager",
+                "zone": "Westfall",
+                "chance": 2.5,
+                "count": 0,
+            },
+        ],
+    )
+    got = store.load_recipe_items(conn, FOREVER, [900, 901])
+    assert got == {
+        900: [
+            store.RecipeItem(
+                3,
+                "Green Robe",
+                (
+                    store.Place("drop", "Defias Pillager", "Westfall", "", 2.5, 0, "", False),
+                    store.Place("more", "", "", "", 0.0, 4, "", False),
+                ),
+            )
+        ]
+    }
+
+
 def test_load_item_details_handles_many_ids(db2_paths: dict[str, Path], conn: Connection) -> None:
     ingest.build_db(db2_paths, conn, FOREVER)
     assert set(store.load_item_details(conn, FOREVER, range(5000))) == {1, 2, 3}

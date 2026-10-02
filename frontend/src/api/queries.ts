@@ -108,8 +108,9 @@ export type RankParams = {
   maxRoi: number | null
   /** only recipes of these professions; empty for every one */
   professions: string[]
-  /** best profit per session first, per hour of play, or cheapest expected skill point */
-  sort: 'profit' | 'rate' | 'skill'
+  /** best profit per session first, or cheapest expected skill point (the API's `rate`, per hour of play, is not
+   * used) */
+  sort: 'profit' | 'skill'
   top: number
 }
 
@@ -394,9 +395,9 @@ function changes(config: TimeConfig, defaults: TimeConfig): Partial<TimeConfig> 
 }
 
 /**
- * Edit the time settings. The cached settings are the draft every editor shares (the options' Crafts per session and
- * the Time assumptions panel): an edit shows at once, and a moment after the last one the settings are saved as the
- * cache then holds them, so one editor never undoes another's change.
+ * Edit the time settings. The cached settings are the draft every editor shares (only the options' Crafts per session
+ * for now): an edit shows at once, and a moment after the last one the settings are saved as the cache then holds
+ * them, so one editor never undoes another's change.
  */
 export function useEditTime() {
   const queryClient = useQueryClient()

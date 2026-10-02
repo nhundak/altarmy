@@ -15,11 +15,12 @@ import csv
 import json
 import sqlite3
 import zipfile
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import astuple, dataclass, fields, replace
 from pathlib import Path
 
-from .ingest import _fetch
+from .ingest import ZoneBox, _fetch, spawn_zone
 
 RELEASE_URL = "https://api.github.com/repos/vmangos/core/releases/tags/db_latest"
 WORLD_DB = "mangos.sqlite"
@@ -220,6 +221,297 @@ def vendor_recipes(conn: sqlite3.Connection) -> list[tuple[int, str]]:
     """(item id, name) of every recipe item a vendor sells without a condition, limited stock included."""
     rows = conn.execute(VENDOR_RECIPES_SQL, (ITEM_CLASS_RECIPE,))
     return [(int(i), str(name or "")) for i, name in rows]
+
+
+# --- where recipe items come from -------------------------------------------------------------------
+MAX_DROPS = 3  # drop sources listed per item; the rest are counted in a "more" row
+WORLD_DROP_AT = 20  # more creatures than this dropping an item: a world drop, not a list
+MAX_REF_DEPTH = 3  # reference loot tables pointing at others
+ALLIANCE_MASK, HORDE_MASK = 2, 4  # faction_template masks
+ALLIANCE_RACES = 1 | 4 | 8 | 64  # human, dwarf, night elf, gnome (quest_template.RequiredRaces)
+HORDE_RACES = 2 | 16 | 32 | 128  # orc, undead, tauren, troll
+GO_CHEST = 3  # gameobject_template.type; data1 is its loot id
+MAP_COMMON = 0  # map_template.map_type: the open world; others are instances and battlegrounds
+QUEST_REWARDS = [f"RewItemId{i}" for i in range(1, 5)] + [f"RewChoiceItemId{i}" for i in range(1, 7)]
+
+
+@dataclass(frozen=True)
+class ItemSource:
+    """Somewhere an item comes from: a row of `recipe_item_sources.csv` (see `schema.item_sources`)."""
+
+    item_id: int
+    kind: str  # vendor | drop | object | container | world_drop | quest | more
+    name: str = ""
+    zone: str = ""
+    side: str = ""  # alliance | horde: a vendor or quest only that faction can use; "" both
+    chance: float = 0.0  # percent
+    count: int = 0  # world_drop: creatures dropping it; more: sources not listed
+    levels: str = ""
+    limited: bool = False  # vendor: limited stock
+
+
+@dataclass(frozen=True)
+class _Creature:
+    name: str
+    faction: int
+    level_min: int
+    level_max: int
+    loot_id: int
+
+
+def _newest(rows: Iterable[Sequence[object]]) -> dict[int, tuple[object, ...]]:
+    """(entry, patch, *values) rows -> each entry's values from its newest patch up to `LATEST_PATCH`."""
+    out: dict[int, tuple[int, tuple[object, ...]]] = {}
+    for entry, patch, *values in rows:
+        e, p = int(str(entry)), int(str(patch))
+        if p <= LATEST_PATCH and (e not in out or p >= out[e][0]):
+            out[e] = (p, tuple(values))
+    return {e: v for e, (_, v) in out.items()}
+
+
+def _sides(conn: sqlite3.Connection) -> dict[int, str]:
+    """faction_template id -> the side an NPC of it serves: "horde" if hostile to the Alliance only,
+    "alliance" if hostile to the Horde only, else ""."""
+    newest: dict[int, tuple[int, int]] = {}
+    for fid, build, hostile in conn.execute("SELECT id, build, hostile_mask FROM faction_template"):
+        if fid not in newest or build > newest[fid][0]:
+            newest[fid] = (build, hostile)
+    out = {}
+    for fid, (_, hostile) in newest.items():
+        a, h = bool(hostile & ALLIANCE_MASK), bool(hostile & HORDE_MASK)
+        out[fid] = "horde" if a and not h else "alliance" if h and not a else ""
+    return out
+
+
+def _zones(
+    conn: sqlite3.Connection, table: str, ids: Sequence[str], zones: Sequence[ZoneBox]
+) -> dict[int, str]:
+    """Entry -> the zone most of its spawns in `table` (creature or gameobject) stand in: the zone map
+    around the spawn in the open world, else the instance's name; "" for a spawn neither names."""
+    maps = {
+        m: (int(str(t)), str(n))
+        for m, (t, n) in _newest(
+            conn.execute("SELECT entry, patch, map_type, map_name FROM map_template")
+        ).items()
+    }
+    counts: dict[int, Counter[str]] = {}
+    rows = conn.execute(
+        f"SELECT {', '.join(ids)}, map, position_x, position_y FROM {table} "
+        "WHERE patch_min <= ? AND patch_max >= ?",
+        (LATEST_PATCH, LATEST_PATCH),
+    )
+    for *entries, map_id, x, y in rows:
+        kind, name = maps.get(map_id, (MAP_COMMON, ""))
+        if kind == MAP_COMMON:
+            box = spawn_zone(zones, map_id, x, y)
+            name = box[1] if box else ""
+        for e in entries:
+            if e:
+                counts.setdefault(e, Counter())[name] += 1
+    return {e: c.most_common(1)[0][0] for e, c in counts.items()}
+
+
+_LootRow = tuple[int, float, int, int, int]  # item, chance, group, mincountOrRef, maxcount
+
+
+def _loot(conn: sqlite3.Connection, table: str) -> dict[int, list[_LootRow]]:
+    """A loot table's rows per entry (quest drops' negative chances made positive)."""
+    out: dict[int, list[_LootRow]] = {}
+    rows = conn.execute(
+        f"SELECT entry, item, ChanceOrQuestChance, groupid, mincountOrRef, maxcount FROM {table} "
+        "WHERE patch_min <= ? AND patch_max >= ?",
+        (LATEST_PATCH, LATEST_PATCH),
+    )
+    for entry, item, chance, group, ref, most in rows:
+        out.setdefault(entry, []).append((item, abs(float(chance)), group, ref, most))
+    return out
+
+
+def _chances(rows: Sequence[_LootRow]) -> list[tuple[_LootRow, float]]:
+    """Each row's chance in percent: a grouped row without one shares what the group's others leave."""
+    explicit: dict[int, float] = {}
+    equal: Counter[int] = Counter()
+    for _, chance, group, _, _ in rows:
+        if group and not chance:
+            equal[group] += 1
+        else:
+            explicit[group] = explicit.get(group, 0.0) + chance
+    out = []
+    for r in rows:
+        _, chance, group, _, _ = r
+        if not chance and group:
+            chance = max(0.0, 100.0 - explicit.get(group, 0.0)) / equal[group]
+        out.append((r, chance))
+    return out
+
+
+class _Loot:
+    """Item chances (percent) of loot entries, reference tables followed."""
+
+    def __init__(self, refs: Mapping[int, list[_LootRow]]) -> None:
+        self.refs = refs
+        self.memo: dict[int, dict[int, float]] = {}
+
+    def items(self, rows: Sequence[_LootRow], depth: int = 0) -> dict[int, float]:
+        out: dict[int, float] = {}
+        for (item, _, _, ref, most), chance in _chances(rows):
+            if ref < 0:
+                if depth < MAX_REF_DEPTH:
+                    for i, c in self._ref(-ref, depth + 1).items():
+                        out[i] = out.get(i, 0.0) + chance / 100 * max(1, most) * c
+            else:
+                out[item] = out.get(item, 0.0) + chance
+        return {i: min(100.0, c) for i, c in out.items()}
+
+    def _ref(self, entry: int, depth: int) -> dict[int, float]:
+        if entry not in self.memo:
+            self.memo[entry] = {}  # a reference back to itself ends here
+            self.memo[entry] = self.items(self.refs.get(entry, []), depth)
+        return self.memo[entry]
+
+
+def _creatures(conn: sqlite3.Connection) -> dict[int, _Creature]:
+    rows = conn.execute(
+        "SELECT entry, patch, name, faction, level_min, level_max, loot_id FROM creature_template"
+    )
+    return {
+        e: _Creature(str(n), int(str(f)), int(str(lo)), int(str(hi)), int(str(loot)))
+        for e, (n, f, lo, hi, loot) in _newest(rows).items()
+    }
+
+
+def recipe_item_sources(conn: sqlite3.Connection, zones: Sequence[ZoneBox]) -> list[ItemSource]:
+    """Where every recipe item (item class 9) comes from in vanilla's world: the spawned vendors selling
+    it (without a condition), the quests rewarding it, and what drops it: the `MAX_DROPS` likeliest of
+    the spawned creatures, chests and containers, the rest counted in one "more" row, the creatures
+    replaced by one "world_drop" row when more than `WORLD_DROP_AT` drop it. Per item: vendors, quests,
+    then drops. `zones`: the client's zone maps (`ingest.zone_boxes`)."""
+    items = _newest(conn.execute("SELECT entry, patch, name, class FROM item_template"))
+    recipes = {i for i, (_, cls) in items.items() if cls == ITEM_CLASS_RECIPE}
+    sides = _sides(conn)
+    creatures = _creatures(conn)
+    spawned = _zones(conn, "creature", ["id", "id2", "id3", "id4", "id5"], zones)
+    out: dict[int, list[ItemSource]] = {}
+
+    def add(source: ItemSource) -> None:
+        if source not in out.setdefault(source.item_id, []):
+            out[source.item_id].append(source)
+
+    # vendors
+    sold = conn.execute(
+        """
+        SELECT v.entry, v.item, v.maxcount FROM npc_vendor v WHERE v.condition_id = 0
+        UNION
+        SELECT ct.entry, v.item, v.maxcount FROM npc_vendor_template v
+        JOIN creature_template ct ON ct.vendor_id = v.entry
+        WHERE v.condition_id = 0
+        """
+    )
+    vendors = sorted(
+        (item, creatures[entry].name, entry, most)
+        for entry, item, most in sold
+        if item in recipes and entry in creatures and entry in spawned
+    )
+    for item, name, entry, most in vendors:
+        side = sides.get(creatures[entry].faction, "")
+        add(ItemSource(item, "vendor", name, spawned[entry], side, limited=most > 0))
+
+    # quests, placed where their giver stands, else in the zone they are filed under
+    quests = _newest(
+        conn.execute(
+            f"SELECT entry, patch, Title, ZoneOrSort, QuestLevel, RequiredRaces, {', '.join(QUEST_REWARDS)} "
+            "FROM quest_template"
+        )
+    )
+    givers: dict[int, int] = {}
+    relations = conn.execute(
+        "SELECT id, quest FROM creature_questrelation WHERE patch_min <= ? AND patch_max >= ? ORDER BY id",
+        (LATEST_PATCH, LATEST_PATCH),
+    )
+    for creature, quest in relations:
+        if creature in spawned and creature in creatures:
+            givers.setdefault(quest, creature)
+    areas = {int(a): str(n) for a, n in conn.execute("SELECT entry, name FROM area_template")}
+    for qid in sorted(quests):
+        title, *numbers = quests[qid]
+        if str(title).startswith("<"):  # <UNUSED>, <NYI>, ...: never in the game
+            continue
+        zone_or_sort, level, races, *rewards = (int(str(v or 0)) for v in numbers)
+        for item in dict.fromkeys(rewards):
+            if item not in recipes:
+                continue
+            giver = givers.get(qid)
+            zone = (spawned[giver] if giver else "") or areas.get(zone_or_sort, "")
+            side = "alliance" if races & ALLIANCE_RACES and not races & HORDE_RACES else ""
+            side = "horde" if races & HORDE_RACES and not races & ALLIANCE_RACES else side
+            if not races and giver:
+                side = sides.get(creatures[giver].faction, "")
+            add(ItemSource(item, "quest", str(title), zone, side, levels=str(level) if level > 0 else ""))
+
+    # drops: spawned creatures, chests and containers
+    loot = _Loot(_loot(conn, "reference_loot_template"))
+    looters: dict[int, list[int]] = {}
+    for entry, c in sorted(creatures.items()):
+        if c.loot_id and entry in spawned:
+            looters.setdefault(c.loot_id, []).append(entry)
+    dropped: dict[int, list[tuple[ItemSource, _Creature]]] = {}
+    creature_loot = _loot(conn, "creature_loot_template")
+    for loot_id, entries in sorted(looters.items()):
+        for item, chance in loot.items(creature_loot.get(loot_id, [])).items():
+            if item in recipes and chance > 0:
+                for e in entries:
+                    c = creatures[e]
+                    drop = ItemSource(item, "drop", c.name, spawned[e], chance=chance)
+                    dropped.setdefault(item, []).append((drop, c))
+
+    others: dict[int, list[ItemSource]] = {}
+    placed = _zones(conn, "gameobject", ["id"], zones)
+    object_loot = _loot(conn, "gameobject_loot_template")
+    objects = _newest(conn.execute("SELECT entry, patch, name, type, data1 FROM gameobject_template"))
+    for entry, (go_name, go_type, go_loot) in sorted(objects.items()):
+        if int(str(go_type)) == GO_CHEST and entry in placed:
+            for item, chance in loot.items(object_loot.get(int(str(go_loot)), [])).items():
+                if item in recipes and chance > 0:
+                    chest = ItemSource(item, "object", str(go_name), placed[entry], chance=chance)
+                    others.setdefault(item, []).append(chest)
+    for container, rows in sorted(_loot(conn, "item_loot_template").items()):
+        for item, chance in loot.items(rows).items():
+            if item in recipes and chance > 0 and container in items:
+                box = ItemSource(item, "container", str(items[container][0]), chance=chance)
+                others.setdefault(item, []).append(box)
+
+    for item in sorted(set(dropped) | set(others)):
+        found = dropped.get(item, [])
+        if len({d.name for d, _ in found}) > WORLD_DROP_AT:
+            # the chests and lockboxes holding it share the world drop's loot: nothing more to say
+            span = f"{min(c.level_min for _, c in found)}-{max(c.level_max for _, c in found)}"
+            add(ItemSource(item, "world_drop", count=len({d.name for d, _ in found}), levels=span))
+            continue
+        best: dict[tuple[str, str], ItemSource] = {}
+        for d, _ in found:  # creatures sharing a name and zone are one source
+            if (d.name, d.zone) not in best or d.chance > best[d.name, d.zone].chance:
+                best[d.name, d.zone] = d
+        listed = list(best.values())
+        chests: dict[tuple[str, str], list[ItemSource]] = {}
+        for d in others.get(item, []):  # a chest standing in several zones is one source, placed nowhere
+            chests.setdefault((d.kind, d.name), []).append(d)
+        for same in chests.values():
+            zone = same[0].zone if len({d.zone for d in same}) == 1 else ""
+            listed.append(replace(max(same, key=lambda d: d.chance), zone=zone))
+        listed.sort(key=lambda d: (-d.chance, d.name, d.zone))
+        for d in listed[:MAX_DROPS]:
+            add(ItemSource(d.item_id, d.kind, d.name, d.zone, chance=round(d.chance, 2)))
+        if len(listed) > MAX_DROPS:
+            add(ItemSource(item, "more", count=len(listed) - MAX_DROPS))
+
+    return [s for item in sorted(out) for s in out[item]]
+
+
+def write_sources_csv(rows: Sequence[ItemSource], path: Path) -> None:
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f, lineterminator="\n")
+        w.writerow([f.name for f in fields(ItemSource)])
+        w.writerows([int(v) if isinstance(v, bool) else v for v in astuple(r)] for r in rows)
 
 
 def world_db_url(release: bytes) -> tuple[str, str]:

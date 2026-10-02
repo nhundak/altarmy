@@ -401,8 +401,8 @@ def knows_arcane_salvager(chars: Sequence[Character]) -> bool:
 
 
 def as_crafters(chars: Sequence[Character]) -> list[Crafter]:
-    """The characters as the engine's crafters: their professions, recipes, what their Legacy talents do
-    and their standings."""
+    """The characters as the engine's crafters: their professions, recipes, standings and what their
+    Legacy talents do."""
     return [
         Crafter(
             c.name,
@@ -411,6 +411,7 @@ def as_crafters(chars: Sequence[Character]) -> list[Crafter]:
             talents.extra_results(c.talents),
             talents.vendor_discount(c.talents),
             c.reputations,
+            talents.skill_bonus(c.talents),
         )
         for c in chars
     ]
@@ -667,6 +668,7 @@ def update_game_data(
         version.disenchant_csv,
         version.vendor_csv,
         version.vendor_recipes_csv,
+        version.sources_csv,
     )
     return build, True, stats
 

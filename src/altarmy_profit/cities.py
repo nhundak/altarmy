@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import luasv
-from .ingest import ZoneBox
+from .ingest import ZoneBox, zone_at
 from .reputation import CITY_FACTIONS
 from .timing import CityMap, station_kind
 from .vmangos import Spawn
@@ -68,10 +68,10 @@ def _zone(
 ) -> dict[str, Any] | None:
     """The smallest zone map on `map_id` whose box holds the hub; None if none does."""
     at = next(loc for loc in locations if loc["id"] == hub)
-    around = [z for z in zones if z[0] == map_id and z[2] <= at["x"] <= z[4] and z[3] <= at["y"] <= z[5]]
-    if not around:
+    box = zone_at(zones, map_id, at["x"], at["y"])
+    if box is None:
         return None
-    _, name, x0, y0, x1, y1, area = min(around, key=lambda z: (z[4] - z[2]) * (z[5] - z[3]))
+    _, name, x0, y0, x1, y1, area = box
     return {"name": name, "min_x": x0, "min_y": y0, "max_x": x1, "max_y": y1, "area": area}
 
 

@@ -120,7 +120,8 @@ class Recipe:
 class Crafter:
     """One character who may craft or disenchant: their (profession, rank, max rank) triples and learned
     craft spells, plus what their Legacy talents do (see `talents`): a chance per profession of one extra
-    result from a craft, and a percent off vendor prices. Their standings with the city factions take more
+    result from a craft, a percent off vendor prices, and a chance added to every craft's chance of a skill
+    point (Working Overtime; never to a grey recipe's). Their standings with the city factions take more
     off at those factions' vendors (see `Market`'s `reputation_discounts`)."""
 
     name: str
@@ -129,6 +130,7 @@ class Crafter:
     extra_results: tuple[tuple[str, float], ...] = ()  # (profession, chance of one extra result)
     vendor_discount: int = 0  # percent off what they buy from vendors
     reputations: tuple[tuple[int, int], ...] = ()  # (faction id, standing 1 Hated .. 8 Exalted)
+    skill_bonus: float = 0.0  # added to the chance of a skill point from a craft that can give one
 
     def extra_chance(self, profession: str) -> float:
         """Their chance of one extra result from a `profession` craft."""
@@ -196,21 +198,23 @@ def can_skill_up(recipe: Recipe, crafter: Crafter) -> bool:
 def skill_up_chance(recipe: Recipe, crafter: Crafter) -> float:
     """The chance a craft of `recipe` gives `crafter` a skill point: 0 unless `can_skill_up`; 1 while it is
     orange (below `trivial_low`, or its thresholds are unknown); then falling evenly from 1 at yellow to 0
-    at grey."""
+    at grey; plus the crafter's `skill_bonus`, up to 1."""
     if not can_skill_up(recipe, crafter):
         return 0.0
     skill = crafter.skill(recipe.skill_name)
     if not recipe.trivial_high or skill is None or skill[0] < recipe.trivial_low:
         return 1.0
-    return (recipe.trivial_high - skill[0]) / (recipe.trivial_high - recipe.trivial_low)
+    chance = (recipe.trivial_high - skill[0]) / (recipe.trivial_high - recipe.trivial_low)
+    return min(1.0, chance + crafter.skill_bonus)
 
 
 def expected_skill_ups(recipe: Recipe, crafter: Crafter | None, crafts: int) -> float:
     """The skill points `crafter` can expect from `crafts` crafts of `recipe` in a row: craft by craft, each
     at the chance for the skill the crafts before it are expected to have reached (`skill_up_chance`'s
-    rule), never past grey or the profession's cap. While the recipe is yellow or green the chance falls
-    linearly with the skill, so the expected skill gives the expected chance exactly; only a session
-    crossing into yellow or reaching the cap is approximate. Without a crafter every craft counts (but a
+    rule, the crafter's `skill_bonus` included), never past grey or the profession's cap. While the recipe
+    is yellow or green the chance falls linearly with the skill, so the expected skill gives the expected
+    chance exactly; only a session crossing into yellow, reaching the cap or reaching a chance of 1 with
+    the bonus is approximate. Without a crafter every craft counts (but a
     conversion's or a flip's)."""
     if recipe.anyone:
         return 0.0
@@ -230,7 +234,11 @@ def expected_skill_ups(recipe: Recipe, crafter: Crafter | None, crafts: int) -> 
         chance = (
             1.0
             if not recipe.trivial_high or level < recipe.trivial_low
-            else (recipe.trivial_high - level) / (recipe.trivial_high - recipe.trivial_low)
+            else min(
+                1.0,
+                (recipe.trivial_high - level) / (recipe.trivial_high - recipe.trivial_low)
+                + crafter.skill_bonus,
+            )
         )
         level += min(chance, limit - level)
     return level - rank
@@ -384,6 +392,7 @@ class Result:
     bonus_output: float = 0.0  # expected extra units from the crafter's talents (Master Chef), all crafts
     skill_chance: float = 0.0  # that the first craft gives `crafter` a skill point (1 without characters)
     skill_ups: float = 0.0  # the skill points `crafter` can expect from all `crafts` (`expected_skill_ups`)
+    skill_ups_bonus: float = 0.0  # the part of `skill_ups` owed to the crafter's `skill_bonus`
     # With a time model: the estimated play time per craft (what the plan was chosen by), and the per-craft
     # seconds of the sale and of mailing the output to whoever sells it
     seconds: float = field(default=0.0, compare=False)
@@ -1541,6 +1550,11 @@ class Market:
                 skill_up_chance(recipe, crafter) if crafter is not None else 0.0 if recipe.anyone else 1.0
             )
             ups = expected_skill_ups(recipe, crafter, crafts)
+            ups_bonus = (
+                ups - expected_skill_ups(recipe, replace(crafter, skill_bonus=0.0), crafts)
+                if crafter is not None and crafter.skill_bonus
+                else 0.0
+            )
             for exit in here:
                 postage = mail if exit.postage else 0
                 revenue = round(exit.value * (recipe.output_count * crafts + bonus))
@@ -1563,6 +1577,7 @@ class Market:
                     bonus_output=bonus,
                     skill_chance=chance,
                     skill_ups=ups,
+                    skill_ups_bonus=ups_bonus,
                     seconds=seconds,
                     sell_seconds=sell_act,
                     disenchant_seconds=(

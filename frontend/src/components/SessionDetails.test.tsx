@@ -79,29 +79,26 @@ const line = (text: string) =>
 describe('the Steps view plans a session', () => {
   beforeEach(() => localStorage.clear())
 
-  it("shows the row's own session at once, in the city the row was timed in", async () => {
+  it("shows the row's own session at once, with no city to pick", async () => {
     const asked = serve()
     await openSteps()
     expect(await line('Purchase 200x Linen Cloth on the AH (40 0)')).toBeInTheDocument()
     expect(asked).toEqual([]) // the ranking already planned it
     expect(screen.getByLabelText('Copies')).toHaveValue('20')
-    // each city says what the session makes per hour there
-    expect(screen.getByRole('combobox', { name: 'City' })).toHaveValue('Orgrimmar (1g 23s 45c/hr)')
+    expect(screen.queryByRole('combobox', { name: 'City' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/\/hr|Estimated time/)).not.toBeInTheDocument()
     expect(screen.queryByText(/^A batch of/)).not.toBeInTheDocument() // the summary above says it all
     expect(screen.getByText((_, el) => el?.tagName === 'P' && shown(el)?.startsWith('20 crafts: Investment') === true)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
   })
 
-  it('re-plans for other copies or another city, and Reset goes back', async () => {
+  it('re-plans for other copies, and Reset goes back', async () => {
     const asked = serve()
     await openSteps()
     await line('Purchase 200x Linen Cloth on the AH (40 0)')
     fireEvent.change(screen.getByLabelText('Copies'), { target: { value: '5' } })
     await waitFor(() => expect(asked.at(-1)).toMatchObject({ copies: 5 }), { timeout: 2000 })
-    expect(asked.at(-1)).not.toHaveProperty('city') // still wherever is quickest, as ranked
-    await userEvent.click(screen.getByRole('combobox', { name: 'City' }))
-    await userEvent.click(await screen.findByRole('option', { name: 'Thunder Bluff (5g 12s 34c/hr)' }))
-    await waitFor(() => expect(asked.at(-1)).toMatchObject({ copies: 5, city: 'Thunder Bluff' }), { timeout: 2000 })
+    expect(asked.at(-1)).not.toHaveProperty('city') // the server's pick, as ranked
     const planned = asked.length
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
     expect(screen.getByLabelText('Copies')).toHaveValue('20')
@@ -115,11 +112,9 @@ describe('the Steps view plans a session', () => {
     await line('Purchase 200x Linen Cloth on the AH (40 0)')
     expect(screen.queryByText(/Run to/)).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('checkbox', { name: 'Detailed view' }))
-    // to buy the thread (a 13.6 s run from the auction house), and later to sell the robe
-    // each character starts where they stand, which takes no time
+    // to buy the thread, and later to sell the robe; no line says how long it takes (the first run is 13.6 s)
     expect(await line('Start at Auctioneer Stockton at 71.4, 46.7')).toBeInTheDocument()
-    expect(await line('Run to Thread Seller at 48.5, 71.2. · 14 s')).toBeInTheDocument()
-    expect(await line('Run to Thread Seller at 48.5, 71.2.')).toBeInTheDocument()
+    expect(await screen.findAllByText((_, el) => el?.tagName === 'LI' && shown(el) === 'Run to Thread Seller at 48.5, 71.2.')).toHaveLength(2)
     expect(await line('Sell 20x Green Robe to Thread Seller (Gross 1 0 0 · Net 40 0)')).toBeInTheDocument()
     expect(await line('Purchase 20x Coarse Thread from Thread Seller (20 0)')).toBeInTheDocument()
     expect(await line('Run to Mailbox at 50.0, 70.4. Retrieve 200x Linen Cloth.')).toBeInTheDocument()
@@ -152,11 +147,11 @@ describe('the Steps view plans a session', () => {
 describe('the flow view plans the same session', () => {
   beforeEach(() => localStorage.clear())
 
-  it('has the copies, city and reset, but no detailed view', async () => {
+  it('has the copies and reset, but no city and no detailed view', async () => {
     const asked = serve()
     await openRow()
     expect(screen.getByLabelText('Copies')).toHaveValue('20')
-    expect(screen.getByRole('combobox', { name: 'City' })).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'City' })).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: 'Detailed view' })).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Copies'), { target: { value: '3' } })
     await waitFor(() => expect(asked.at(-1)).toMatchObject({ copies: 3 }), { timeout: 2000 })
@@ -165,7 +160,7 @@ describe('the flow view plans the same session', () => {
     expect(asked).toHaveLength(1)
   })
 
-  it('has one Reset for the plan changes, the copies and the city', async () => {
+  it('has one Reset for the plan changes and the copies', async () => {
     const asked = serve()
     await openRow()
     await userEvent.click(screen.getByRole('button', { name: 'Change source of Coarse Thread' }))
@@ -213,10 +208,10 @@ describe('picking who crafts it', () => {
   })
 })
 
-describe('every line of a session says how long it takes', () => {
+describe('no line of a session says how long it takes', () => {
   beforeEach(() => localStorage.clear())
 
-  it('times switching characters and disenchanting', async () => {
+  it('shows no time for switching characters or disenchanting', async () => {
     const disenchanted: RankResult = {
       ...session,
       best_exit: 'disenchant',
@@ -231,10 +226,10 @@ describe('every line of a session says how long it takes', () => {
     }
     localStorage.setItem('altarmy-profit.steps.detailed', 'true')
     await openSteps(disenchanted)
-    expect(await line('Switch to Frell · 45 s')).toBeInTheDocument()
+    expect(await line('Switch to Frell')).toBeInTheDocument()
     expect(await line('Frell: Start at Auctioneer Stockton at 71.4, 46.7')).toBeInTheDocument()
-    expect(await line('Frell: Disenchant 20x Green Robe · 1 min 10 s')).toBeInTheDocument()
+    expect(await line('Frell: Disenchant 20x Green Robe')).toBeInTheDocument()
     const sell = await screen.findByText((_, el) => el?.tagName === 'LI' && shown(el)?.startsWith('Frell: Sell materials') === true)
-    expect(shown(sell)).toMatch(/· 30 s$/)
+    expect(shown(sell)).not.toMatch(/\d s$/)
   })
 })

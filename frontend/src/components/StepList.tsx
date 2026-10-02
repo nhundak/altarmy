@@ -4,7 +4,7 @@ import type { ItemMap, RankResult, Step } from '../api/client'
 import { SELL_PATH } from '../lib/choices'
 import { stepSource } from '../lib/steps'
 import { bonusNote, discountNote } from '../lib/talents'
-import { formatCoords, formatSeconds } from '../lib/time'
+import { formatCoords } from '../lib/time'
 import { CharacterName } from './CharacterName'
 import { ChoiceMenu, ChooseContext, sellChoices, sourceChoices, type PlanEditing } from './ChoiceMenu'
 import { DisenchantHover, Hover, ItemLink } from './ItemTooltip'
@@ -131,29 +131,15 @@ function StepChoice({ step, result }: { step: Step; result: RankResult }) {
   )
 }
 
-/** A step's lines, the last ending in its time and, where there is a choice, a menu of it. */
-/** A dimmed " · 12 s" after a line; nothing for no time. */
-const Took = ({ seconds }: { seconds: number }) =>
-  seconds >= 0.05 ? (
-    <Text span size="xs" c="dimmed">
-      {' '}
-      · {formatSeconds(seconds)}
-    </Text>
-  ) : null
-
-/** A step's lines, each ending in its time (a disenchant sale's split: disenchanting, then selling the
- * materials); the last also in a menu of its alternatives, if it has any. */
+/** A step's lines (a disenchant sale's split: disenchanting, then selling the materials), the last ending in a
+ * menu of its alternatives, if it has any. */
 function stepLines(step: Step, result: RankResult, items: ItemMap, vendor?: string): ReactNode[] {
   return describe(step, result, items, vendor).map((line, i, all) =>
     i < all.length - 1 ? (
-      <>
-        {line}
-        <Took seconds={step.lead_seconds} />
-      </>
+      line
     ) : (
       <>
         {line}
-        <Took seconds={all.length > 1 ? step.seconds - step.lead_seconds : step.seconds} />
         <span className={classes.stepChoice}>
           <StepChoice step={step} result={result} />
         </span>
@@ -182,7 +168,7 @@ function Place({ verb, location }: { verb: string; location: NonNullable<Detail[
   )
 }
 
-/** Where a character's stretch starts; standing there takes no time, so no time is shown. */
+/** Where a character's stretch starts. */
 function startLine({ who, location }: Detail): ReactNode {
   if (!location) return null
   return (
@@ -194,7 +180,7 @@ function startLine({ who, location }: Detail): ReactNode {
 }
 
 /** A run to somewhere, with what to take from the mailbox there. */
-function goLine({ who, location, retrieve, seconds }: Detail, items: ItemMap): ReactNode {
+function goLine({ who, location, retrieve }: Detail, items: ItemMap): ReactNode {
   if (!location) return null
   return (
     <>
@@ -214,7 +200,6 @@ function goLine({ who, location, retrieve, seconds }: Detail, items: ItemMap): R
           .
         </>
       )}
-      <Took seconds={seconds} />
     </>
   )
 }
@@ -229,7 +214,6 @@ function planLines(result: RankResult, items: ItemMap, detailed: boolean): React
       return [
         <>
           Switch to <CharacterName name={d.who} />
-          <Took seconds={d.seconds} />
         </>,
       ]
     }
