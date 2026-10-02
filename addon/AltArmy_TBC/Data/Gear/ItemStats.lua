@@ -415,6 +415,38 @@ local function finalizeMergedSpellStats(merged)
     merged["ITEM_MOD_SPELL_POWER"] = nil
 end
 
+-- Some clients' GetItemStats expose per-school damage (e.g. ITEM_MOD_FIRE_DAMAGE_DONE_SHORT) while the
+-- tooltip parse yields ALTARMY_*_SPELL for the same line. Keep the larger value under the tooltip key.
+local SCHOOL_SPELL_API_KEYS = {
+    ALTARMY_FIRE_SPELL = { "ITEM_MOD_FIRE_DAMAGE_DONE_SHORT", "ITEM_MOD_FIRE_DAMAGE_DONE" },
+    ALTARMY_FROST_SPELL = { "ITEM_MOD_FROST_DAMAGE_DONE_SHORT", "ITEM_MOD_FROST_DAMAGE_DONE" },
+    ALTARMY_ARCANE_SPELL = { "ITEM_MOD_ARCANE_DAMAGE_DONE_SHORT", "ITEM_MOD_ARCANE_DAMAGE_DONE" },
+    ALTARMY_SHADOW_SPELL = { "ITEM_MOD_SHADOW_DAMAGE_DONE_SHORT", "ITEM_MOD_SHADOW_DAMAGE_DONE" },
+    ALTARMY_NATURE_SPELL = { "ITEM_MOD_NATURE_DAMAGE_DONE_SHORT", "ITEM_MOD_NATURE_DAMAGE_DONE" },
+    ALTARMY_HOLY_SPELL = { "ITEM_MOD_HOLY_DAMAGE_DONE_SHORT", "ITEM_MOD_HOLY_DAMAGE_DONE" },
+}
+
+local function finalizeMergedSchoolSpellStats(merged)
+    if not merged then return end
+    for schoolKey, apiKeys in pairs(SCHOOL_SPELL_API_KEYS) do
+        local best = nil
+        local candidates = { schoolKey, apiKeys[1], apiKeys[2] }
+        for i = 1, #candidates do
+            local value = merged[candidates[i]]
+            if value ~= nil and not isInvalidApiStatValue(value) then
+                local n = tonumber(value) or 0
+                if best == nil or n > best then
+                    best = n
+                end
+            end
+            if i > 1 then
+                merged[candidates[i]] = nil
+            end
+        end
+        merged[schoolKey] = best
+    end
+end
+
 -- API uses POWER_REGEN0; tooltip parse uses MANA_REGENERATION. Both map to mp5.
 local UNIFIED_MP5_STAT_KEYS = {
     "ITEM_MOD_MANA_REGENERATION_SHORT",
@@ -935,6 +967,7 @@ local function collectFreshParseSnapshot(link)
     local tooltipRaw, tooltipLines, incomplete, conditionalRaw = parseTooltipToRaw(link)
     local mergedRaw = mergeTooltipSupplement(apiRaw, tooltipRaw)
     finalizeMergedSpellStats(mergedRaw)
+    finalizeMergedSchoolSpellStats(mergedRaw)
     finalizeMergedManaRegen(mergedRaw)
     finalizeMergedFeralAttackPower(mergedRaw, tooltipRaw)
     local normalized = normalizeRawStats(mergedRaw, link)
@@ -1022,6 +1055,7 @@ local function fetchStats(link)
     local tooltipRaw, tooltipLines, incomplete, conditionalRaw = parseTooltipToRaw(link)
     local mergedRaw = mergeTooltipSupplement(apiRaw, tooltipRaw)
     finalizeMergedSpellStats(mergedRaw)
+    finalizeMergedSchoolSpellStats(mergedRaw)
     finalizeMergedManaRegen(mergedRaw)
     finalizeMergedFeralAttackPower(mergedRaw, tooltipRaw)
 

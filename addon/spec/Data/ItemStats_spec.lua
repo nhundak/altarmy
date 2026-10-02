@@ -298,6 +298,47 @@ describe("ItemStats", function()
         assert.are.equal(42, stats.fire_sp)
     end)
 
+    it("GetNormalized merges API per-school damage key with tooltip school stat", function()
+        _G.GetItemStats = function()
+            return { ["ITEM_MOD_FIRE_DAMAGE_DONE_SHORT"] = 9, ["RESISTANCE0_NAME"] = 24 }
+        end
+        _G.CreateFrame = function(frameType)
+            if frameType == "GameTooltip" then
+                return makeTooltipMock({
+                    "24 Armor",
+                    "Equip: Increases damage done by Fire spells and effects by up to 9.",
+                })
+            end
+            if frameType == "Frame" then
+                return { RegisterEvent = function() end, SetScript = function() end }
+            end
+            return {}
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:11:0|h[New Helm]|h")
+        assert.are.equal(9, stats.fire_sp)
+        assert.is_nil(stats.ITEM_MOD_FIRE_DAMAGE_DONE_SHORT)
+        assert.are.equal(24, stats.armor)
+    end)
+
+    it("GetNormalized maps API-only per-school damage key to school spell stat", function()
+        _G.GetItemStats = function()
+            return { ["ITEM_MOD_SHADOW_DAMAGE_DONE_SHORT"] = 12 }
+        end
+        package.loaded["ItemStats"] = nil
+        require("ItemStats")
+        IS = AltArmy.ItemStats
+        IS.ClearCache()
+
+        local stats = IS.GetNormalized("|Hitem:11:0|h[New Helm]|h")
+        assert.are.equal(12, stats.shadow_sp)
+        assert.is_nil(stats.ITEM_MOD_SHADOW_DAMAGE_DONE_SHORT)
+    end)
+
     it("GetNormalized parses +Shadow Damage tooltip line from addon reformatted stats", function()
         _G.GetItemStats = function() return {} end
         _G.CreateFrame = function(frameType)
