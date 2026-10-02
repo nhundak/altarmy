@@ -168,7 +168,7 @@ job_runner() { # job-runner prod|staging: the service may start its ingest jobs 
 
 alerts() { # alerts EMAIL: log-based alert policies (a job's `Run.warn`), emailed at most once a day
   local email="${1:?an email address to notify}" channel policy file
-  channel="$(gcloud beta monitoring channels list --filter "type=email AND labels.email_address=$email" \
+  channel="$(gcloud beta monitoring channels list --filter "type=\"email\" AND labels.email_address=\"$email\"" \
     --format 'value(name)' "${G[@]}" | head -n 1)"
   if [ -z "$channel" ]; then
     channel="$(gcloud beta monitoring channels create --type email --display-name "altarmy alerts ($email)" \
