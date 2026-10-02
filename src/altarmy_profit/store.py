@@ -240,6 +240,9 @@ class Place:
     count: int  # world_drop: creatures dropping it; more: other sources not listed
     levels: str
     limited: bool  # vendor: limited stock
+    area: int = 0  # vendor: the zone map it stands on (AreaTable id); 0 if none
+    map_x: float = 0.0  # vendor: where on that map, percent
+    map_y: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -280,18 +283,7 @@ def load_recipe_items(
         )
         for r in conn.execute(query):
             m = r._mapping  # `Row.count` is a tuple method, not the column
-            places.setdefault(m["item_id"], []).append(
-                Place(
-                    m["kind"],
-                    m["name"],
-                    m["zone"],
-                    m["side"],
-                    m["chance"],
-                    m["count"],
-                    m["levels"],
-                    m["limited"],
-                )
-            )
+            places.setdefault(m["item_id"], []).append(Place(**{f.name: m[f.name] for f in fields(Place)}))
     return {
         spell: [RecipeItem(i, name, tuple(places.get(i, ()))) for i, name in lst]
         for spell, lst in taught.items()

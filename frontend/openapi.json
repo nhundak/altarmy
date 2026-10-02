@@ -1674,6 +1674,11 @@
       "PlaceOut": {
         "description": "Somewhere a recipe item comes from (vanilla's world data: Forever may differ).",
         "properties": {
+          "area": {
+            "default": 0,
+            "title": "Area",
+            "type": "integer"
+          },
           "chance": {
             "title": "Chance",
             "type": "number"
@@ -1702,6 +1707,16 @@
           "limited": {
             "title": "Limited",
             "type": "boolean"
+          },
+          "map_x": {
+            "default": 0.0,
+            "title": "Map X",
+            "type": "number"
+          },
+          "map_y": {
+            "default": 0.0,
+            "title": "Map Y",
+            "type": "number"
           },
           "name": {
             "title": "Name",

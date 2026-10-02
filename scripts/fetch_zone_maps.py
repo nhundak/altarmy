@@ -1,10 +1,12 @@
-"""Download the zone map of every city preset (data/<version>/cities/*.json, the zone's `area`) from
-Wowhead's CDN into frontend/public/maps/<area>.jpg, which the built front end serves itself. Maps already
-there are kept; pass --force to fetch them again."""
+"""Download the zone map of every city preset (data/<version>/cities/*.json, the zone's `area`) and of every
+zone a recipe vendor stands in (data/<version>/recipe_item_sources.csv) from Wowhead's CDN into
+frontend/public/maps/<area>.jpg, which the built front end serves itself. Maps already there are kept; pass
+--force to fetch them again."""
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import urllib.request
 from pathlib import Path
@@ -24,12 +26,23 @@ def preset_areas() -> dict[int, str]:
     return areas
 
 
+def vendor_areas() -> dict[int, str]:
+    """The zone map area id of every recipe vendor's zone, with the zone's name."""
+    areas: dict[int, str] = {}
+    for path in sorted(ROOT.glob("data/*/recipe_item_sources.csv")):
+        with open(path, encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                if row["kind"] == "vendor" and int(row.get("area") or 0):
+                    areas[int(row["area"])] = row["zone"]
+    return areas
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--force", action="store_true", help="download maps that are already there")
     args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
-    for area, name in sorted(preset_areas().items()):
+    for area, name in sorted((vendor_areas() | preset_areas()).items()):
         target = OUT / f"{area}.jpg"
         if target.exists() and not args.force:
             print(f"{area} {name}: kept")

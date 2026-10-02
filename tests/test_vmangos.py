@@ -244,12 +244,12 @@ def test_recipe_item_sources(sources_world: sqlite3.Connection) -> None:
         by_item.setdefault(s.item_id, []).append(s)
     src = vmangos.ItemSource
     assert by_item[500] == [
-        src(500, "vendor", "Borya", "Duskwood", "horde", limited=True),
-        src(500, "vendor", "Kendor", "Westfall", "alliance"),
+        src(500, "vendor", "Borya", "Duskwood", "horde", limited=True, area=10, map_x=50.0, map_y=95.7),
+        src(500, "vendor", "Kendor", "Westfall", "alliance", area=40, map_x=50.0, map_y=50.0),
         src(500, "quest", "Stew Time", "Westfall", "alliance", levels="12"),
     ]
     assert by_item[501] == [
-        src(501, "vendor", "Gazlowe", "Westfall"),
+        src(501, "vendor", "Gazlowe", "Westfall", area=40, map_x=50.0, map_y=50.0),
         src(501, "quest", "Cloak Job", "Duskwood", "horde", levels="20"),  # where Borya stands, his side
         src(501, "drop", "Van Cleef", "Deadmines", chance=30.0),
     ]
@@ -268,9 +268,13 @@ def test_recipe_item_sources(sources_world: sqlite3.Connection) -> None:
 
 def test_write_sources_csv(tmp_path: Path) -> None:
     path = tmp_path / "sources.csv"
-    rows = [vmangos.ItemSource(500, "vendor", "Kendor, the Cook", "Westfall", "alliance", limited=True)]
+    rows = [
+        vmangos.ItemSource(
+            500, "vendor", "Kendor, the Cook", "Westfall", "alliance", 0.0, 0, "", True, 40, 25.0, 75.5
+        )
+    ]
     vmangos.write_sources_csv(rows, path)
     assert path.read_text(encoding="utf-8").splitlines() == [
-        "item_id,kind,name,zone,side,chance,count,levels,limited",
-        '500,vendor,"Kendor, the Cook",Westfall,alliance,0.0,0,,1',
+        "item_id,kind,name,zone,side,chance,count,levels,limited,area,map_x,map_y",
+        '500,vendor,"Kendor, the Cook",Westfall,alliance,0.0,0,,1,40,25.0,75.5',
     ]

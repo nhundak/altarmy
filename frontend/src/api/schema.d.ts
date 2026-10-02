@@ -1076,6 +1076,11 @@ export interface components {
          * @description Somewhere a recipe item comes from (vanilla's world data: Forever may differ).
          */
         PlaceOut: {
+            /**
+             * Area
+             * @default 0
+             */
+            area: number;
             /** Chance */
             chance: number;
             /** Count */
@@ -1089,6 +1094,16 @@ export interface components {
             levels: string;
             /** Limited */
             limited: boolean;
+            /**
+             * Map X
+             * @default 0
+             */
+            map_x: number;
+            /**
+             * Map Y
+             * @default 0
+             */
+            map_y: number;
             /** Name */
             name: string;
             /**

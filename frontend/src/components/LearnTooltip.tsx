@@ -1,5 +1,6 @@
 import { Stack, Text, Tooltip } from '@mantine/core'
 import type { Learn } from '../api/client'
+import { ZoneMap } from './ZoneMap'
 
 type Place = Learn['items'][number]['places'][number]
 
@@ -35,13 +36,23 @@ function unplaced(source: Learn['source']): string {
   return source === 'bop' ? 'Bind on pickup: looted or earned in the world' : 'Tradable: look on the auction house'
 }
 
-/** Where to learn a recipe: its trainer, or each item teaching it and where that comes from. */
+/** The one vendor selling a recipe's items, if there is exactly one (whichever item it sells); none otherwise. */
+export function onlyVendor(learn: Learn): Place | undefined {
+  const vendors = new Map<string, Place>()
+  for (const item of learn.items)
+    for (const p of item.places) if (p.kind === 'vendor') vendors.set(`${p.name}|${p.zone}`, p)
+  return vendors.size === 1 ? [...vendors.values()][0] : undefined
+}
+
+/** Where to learn a recipe: its trainer, or each item teaching it and where that comes from, with the map when
+ * one vendor sells it. */
 export function LearnDetails({ learn }: { learn: Learn }) {
   const skill = learn.skill ? ` ${learn.skill}` : ''
   if (learn.source === 'trainer' || !learn.items.length) {
     return <Text size="sm">{`Taught by ${learn.profession || 'profession'} trainers${skill ? ` (skill${skill})` : ''}`}</Text>
   }
   const placed = learn.items.some((i) => i.places.length)
+  const vendor = onlyVendor(learn)
   return (
     <Stack gap={6}>
       {learn.items.map((item) => (
@@ -61,6 +72,7 @@ export function LearnDetails({ learn }: { learn: Learn }) {
           )}
         </div>
       ))}
+      {vendor && vendor.area > 0 && <ZoneMap area={vendor.area} x={vendor.map_x} y={vendor.map_y} name={vendor.name} />}
       {placed && (
         <Text size="xs" c="dimmed">
           From vanilla's world data; WoW: Forever may differ
@@ -76,7 +88,7 @@ export function LearnTooltip({ learn, children }: { learn: Learn; children: stri
     <Tooltip
       label={<LearnDetails learn={learn} />}
       multiline
-      maw={340}
+      maw={onlyVendor(learn)?.area ? 460 : 340}
       withArrow
       openDelay={0}
       transitionProps={{ duration: 0 }}

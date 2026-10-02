@@ -248,6 +248,9 @@ class ItemSource:
     count: int = 0  # world_drop: creatures dropping it; more: sources not listed
     levels: str = ""
     limited: bool = False  # vendor: limited stock
+    area: int = 0  # vendor: the zone map it stands on (AreaTable id, frontend/public/maps); 0 if none
+    map_x: float = 0.0  # vendor: where on that map, percent
+    map_y: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -283,11 +286,29 @@ def _sides(conn: sqlite3.Connection) -> dict[int, str]:
     return out
 
 
+@dataclass(frozen=True)
+class _Spot:
+    """Where a creature or object stands: its zone, and on that zone's map (0 when not on one)."""
+
+    zone: str
+    area: int = 0  # the zone map's AreaTable id
+    map_x: float = 0.0  # percent, 0 left to 100 right
+    map_y: float = 0.0  # percent, 0 top to 100 bottom
+
+
+def map_coords(box: ZoneBox, x: float, y: float) -> tuple[float, float]:
+    """(map x, map y) of a world position on a zone map, in percent with one decimal: world y runs right to
+    left, world x bottom to top (as `timing.Zone.map_coords`)."""
+    _, _, x0, y0, x1, y1, _ = box
+    return round(100 * (y1 - y) / (y1 - y0), 1), round(100 * (x1 - x) / (x1 - x0), 1)
+
+
 def _zones(
     conn: sqlite3.Connection, table: str, ids: Sequence[str], zones: Sequence[ZoneBox]
-) -> dict[int, str]:
+) -> dict[int, _Spot]:
     """Entry -> the zone most of its spawns in `table` (creature or gameobject) stand in: the zone map
-    around the spawn in the open world, else the instance's name; "" for a spawn neither names."""
+    around the spawn in the open world, else the instance's name ("" for a spawn neither names), with
+    the first of those spawns (by guid) on that zone's map."""
     maps = {
         m: (int(str(t)), str(n))
         for m, (t, n) in _newest(
@@ -295,20 +316,23 @@ def _zones(
         ).items()
     }
     counts: dict[int, Counter[str]] = {}
+    first: dict[tuple[int, str], _Spot] = {}
     rows = conn.execute(
         f"SELECT {', '.join(ids)}, map, position_x, position_y FROM {table} "
-        "WHERE patch_min <= ? AND patch_max >= ?",
+        "WHERE patch_min <= ? AND patch_max >= ? ORDER BY guid",
         (LATEST_PATCH, LATEST_PATCH),
     )
     for *entries, map_id, x, y in rows:
         kind, name = maps.get(map_id, (MAP_COMMON, ""))
+        spot = _Spot(name)
         if kind == MAP_COMMON:
             box = spawn_zone(zones, map_id, x, y)
-            name = box[1] if box else ""
+            spot = _Spot(box[1], box[6], *map_coords(box, x, y)) if box else _Spot("")
         for e in entries:
             if e:
-                counts.setdefault(e, Counter())[name] += 1
-    return {e: c.most_common(1)[0][0] for e, c in counts.items()}
+                counts.setdefault(e, Counter())[spot.zone] += 1
+                first.setdefault((e, spot.zone), spot)
+    return {e: first[e, c.most_common(1)[0][0]] for e, c in counts.items()}
 
 
 _LootRow = tuple[int, float, int, int, int]  # item, chance, group, mincountOrRef, maxcount
@@ -414,7 +438,10 @@ def recipe_item_sources(conn: sqlite3.Connection, zones: Sequence[ZoneBox]) -> l
     )
     for item, name, entry, most in vendors:
         side = sides.get(creatures[entry].faction, "")
-        add(ItemSource(item, "vendor", name, spawned[entry], side, limited=most > 0))
+        at = spawned[entry]
+        add(
+            ItemSource(item, "vendor", name, at.zone, side, 0.0, 0, "", most > 0, at.area, at.map_x, at.map_y)
+        )
 
     # quests, placed where their giver stands, else in the zone they are filed under
     quests = _newest(
@@ -441,7 +468,7 @@ def recipe_item_sources(conn: sqlite3.Connection, zones: Sequence[ZoneBox]) -> l
             if item not in recipes:
                 continue
             giver = givers.get(qid)
-            zone = (spawned[giver] if giver else "") or areas.get(zone_or_sort, "")
+            zone = (spawned[giver].zone if giver else "") or areas.get(zone_or_sort, "")
             side = "alliance" if races & ALLIANCE_RACES and not races & HORDE_RACES else ""
             side = "horde" if races & HORDE_RACES and not races & ALLIANCE_RACES else side
             if not races and giver:
@@ -461,7 +488,7 @@ def recipe_item_sources(conn: sqlite3.Connection, zones: Sequence[ZoneBox]) -> l
             if item in recipes and chance > 0:
                 for e in entries:
                     c = creatures[e]
-                    drop = ItemSource(item, "drop", c.name, spawned[e], chance=chance)
+                    drop = ItemSource(item, "drop", c.name, spawned[e].zone, chance=chance)
                     dropped.setdefault(item, []).append((drop, c))
 
     others: dict[int, list[ItemSource]] = {}
@@ -472,7 +499,7 @@ def recipe_item_sources(conn: sqlite3.Connection, zones: Sequence[ZoneBox]) -> l
         if int(str(go_type)) == GO_CHEST and entry in placed:
             for item, chance in loot.items(object_loot.get(int(str(go_loot)), [])).items():
                 if item in recipes and chance > 0:
-                    chest = ItemSource(item, "object", str(go_name), placed[entry], chance=chance)
+                    chest = ItemSource(item, "object", str(go_name), placed[entry].zone, chance=chance)
                     others.setdefault(item, []).append(chest)
     for container, rows in sorted(_loot(conn, "item_loot_template").items()):
         for item, chance in loot.items(rows).items():

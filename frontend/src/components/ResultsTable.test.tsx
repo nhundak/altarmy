@@ -44,6 +44,10 @@ async function flagText(label: string): Promise<string | null> {
   return (await screen.findByRole('tooltip')).textContent
 }
 
+type Place = Learn['items'][number]['places'][number]
+const place: Place = { kind: 'drop', name: '', zone: '', side: '', chance: 0, count: 0, levels: '', limited: false, area: 0, map_x: 0, map_y: 0 }
+const vendor: Place = { ...place, kind: 'vendor', area: 1637, map_x: 40, map_y: 60.5 }
+
 describe('ResultsTable slow sales and short books', () => {
   it('says how long a slow sale may take', async () => {
     const slow = { ...robe, recipe_id: 102, best_exit: 'ah', slow: true, days_to_sell: 3.2 }
@@ -184,9 +188,9 @@ describe('ResultsTable', () => {
             item_id: 4,
             name: 'Pattern: Green Robe',
             places: [
-              { kind: 'vendor', name: 'Borya', zone: 'Orgrimmar', side: 'horde', chance: 0, count: 0, levels: '', limited: true },
-              { kind: 'drop', name: 'Defias Pillager', zone: 'Westfall', side: '', chance: 0.0123, count: 0, levels: '', limited: false },
-              { kind: 'more', name: '', zone: '', side: '', chance: 0, count: 4, levels: '', limited: false },
+              { ...vendor, name: 'Borya', zone: 'Orgrimmar', side: 'horde', limited: true },
+              { ...place, kind: 'drop', name: 'Defias Pillager', zone: 'Westfall', chance: 0.0123 },
+              { ...place, kind: 'more', count: 4 },
             ],
           },
         ],
@@ -202,12 +206,31 @@ describe('ResultsTable', () => {
     expect(within(tip).getByText('Drops from Defias Pillager, Westfall (0.012%)')).toBeInTheDocument()
     expect(within(tip).getByText('and 4 more')).toBeInTheDocument()
     expect(within(tip).getByText(/vanilla's world data/)).toBeInTheDocument()
+    // its only vendor, on the zone map
+    expect(within(tip).getByAltText('Map: Borya')).toHaveAttribute('src', '/maps/1637.jpg')
+    expect(within(tip).getByTestId('map-dot')).toHaveStyle({ left: '40%', top: '60.5%' })
     await userEvent.unhover(first)
     await userEvent.hover(second)
     expect(await screen.findByText('Taught by Tailoring trainers (skill 30)')).toBeInTheDocument()
     // hovering or tapping it does not open the row
     await userEvent.click(second)
     expect(screen.getAllByLabelText(`Details for ${robe.recipe}`)[1]).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('shows no map when more than one vendor sells the recipe', async () => {
+    const unlearned = { ...robe, recipe_id: 101, crafters: [] }
+    const places: Place[] = [
+      { ...vendor, name: 'Borya', zone: 'Orgrimmar' },
+      { ...vendor, name: 'Kendor', zone: 'Stormwind City', area: 1519 },
+    ]
+    const learn: Record<string, Learn> = {
+      '101': { source: 'recipe', skill: 50, profession: 'Tailoring', items: [{ item_id: 4, name: 'Pattern: Green Robe', places }] },
+    }
+    renderWithProviders(<ResultsTable results={[unlearned]} items={items} learn={learn} />)
+    await userEvent.hover(screen.getByText('not learned'))
+    const tip = await screen.findByRole('tooltip')
+    expect(within(tip).getByText('Sold by Kendor, Stormwind City')).toBeInTheDocument()
+    expect(within(tip).queryByRole('img')).not.toBeInTheDocument()
   })
 
   it('says what a recipe item without known places is', async () => {

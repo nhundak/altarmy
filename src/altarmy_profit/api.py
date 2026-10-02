@@ -376,6 +376,9 @@ class PlaceOut(BaseModel):
     count: int  # world_drop: how many creatures drop it; more: sources not listed
     levels: str  # world_drop: the creatures' levels, quest: its level ("30-40"); "" otherwise
     limited: bool  # vendor: limited stock
+    area: int = 0  # vendor: the zone map it stands on (frontend/public/maps/<area>.jpg); 0 if none
+    map_x: float = 0.0  # vendor: where on that map, percent
+    map_y: float = 0.0
 
 
 class RecipeItemOut(BaseModel):

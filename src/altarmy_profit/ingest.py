@@ -460,6 +460,9 @@ def item_sources(path: Path | None, game_version: str) -> list[dict[str, object]
                 "count": _int(r["count"]),
                 "levels": r["levels"],
                 "limited": r["limited"] == "1",
+                "area": _int(r.get("area")),
+                "map_x": _float(r.get("map_x")),
+                "map_y": _float(r.get("map_y")),
             }
         )
     return out

@@ -220,6 +220,11 @@ item_sources = Table(
     Column("count", Integer, nullable=False),  # world_drop: creatures dropping it; more: other sources
     Column("levels", Text, nullable=False),  # world_drop/quest: level range ("30-40"); "" otherwise
     Column("limited", Boolean, nullable=False),  # vendor: limited stock
+    # vendor: the zone map it stands on (AreaTable id: frontend/public/maps/<area>.jpg), 0 if none, and
+    # where on it (percent)
+    Column("area", Integer, nullable=False, default=0, server_default="0"),
+    Column("map_x", Float, nullable=False, default=0.0, server_default="0"),
+    Column("map_y", Float, nullable=False, default=0.0, server_default="0"),
 )
 
 # --- users and their state ------------------------------------------------------------------------

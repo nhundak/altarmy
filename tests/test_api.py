@@ -489,11 +489,16 @@ def test_rank_unlearned_recipes(client: TestClient, priced: Connection) -> None:
 
 def test_rank_says_where_to_learn_recipes_nobody_has(client: TestClient, priced: Connection) -> None:
     src = {"game_version": FOREVER, "item_id": 3, "chance": 0.0, "count": 0, "levels": "", "limited": False}
+    src |= {"area": 0, "map_x": 0.0, "map_y": 0.0}  # a vendor's spot on its zone map
     priced.execute(
         insert(schema.item_sources),
         [
             {**src, "seq": 0, "kind": "vendor", "name": "Kendor", "zone": "Stormwind", "side": "alliance"},
-            {**src, "seq": 1, "kind": "vendor", "name": "Borya", "zone": "Orgrimmar", "side": "horde"},
+            {
+                **src,
+                **{"seq": 1, "kind": "vendor", "name": "Borya", "zone": "Orgrimmar", "side": "horde"},
+                **{"area": 1637, "map_x": 40.0, "map_y": 60.5},
+            },
             {
                 **src,
                 "seq": 2,
@@ -522,6 +527,11 @@ def test_rank_says_where_to_learn_recipes_nobody_has(client: TestClient, priced:
         ("vendor", "Borya"),
         ("drop", "Defias Pillager"),
     ]
+    assert (taught["places"][0]["area"], taught["places"][0]["map_x"], taught["places"][0]["map_y"]) == (
+        1637,
+        40.0,
+        60.5,
+    )
     # without characters nobody is named: "anyone", nothing to learn
     service.replace_characters(priced, ME, FOREVER, [])
     assert client.get("/api/rank").json()["learn"] == {}
