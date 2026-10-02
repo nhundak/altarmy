@@ -782,4 +782,76 @@ describe("DataStore", function()
       assert.is_true(reloaded.IsWowForever)
     end)
   end)
+
+  describe("COMBAT_LOG_EVENT_UNFILTERED", function()
+    local eventHandler
+    local levelHistoryPayloads
+    local transmuteCasts
+    local cleuInfo
+
+    local function cleu(subevent, srcGUID, srcName, destGUID, spellId)
+      cleuInfo = { 1, subevent, false, srcGUID, srcName, 0, 0, destGUID, "Dest", 0, 0, spellId }
+      eventHandler(nil, "COMBAT_LOG_EVENT_UNFILTERED")
+    end
+
+    before_each(function()
+      eventHandler = nil
+      levelHistoryPayloads = {}
+      transmuteCasts = {}
+      _G.CreateFrame = function()
+        return {
+          RegisterEvent = function() end,
+          SetScript = function(_, script, handler)
+            if script == "OnEvent" then eventHandler = handler end
+          end,
+        }
+      end
+      _G.CombatLogGetCurrentEventInfo = function() return unpack(cleuInfo) end
+      _G.UnitGUID = function(unit)
+        if unit == "player" then return "Player-1-2" end
+      end
+      _G.UnitName = function() return "Alice" end
+      _G.GetRealmName = function() return "R1" end
+      _G.AltArmyTBC_Data = { Characters = { R1 = { Alice = {} } } }
+      package.loaded["DataStore"] = nil
+      require("DataStore")
+      DS = AltArmy.DataStore
+      DS.HandleCombatLogForLevelHistory = function(_, payload)
+        levelHistoryPayloads[#levelHistoryPayloads + 1] = payload
+      end
+      AltArmy.CooldownData = {
+        RecordSuccessfulTransmuteCast = function(_, spellId)
+          transmuteCasts[#transmuteCasts + 1] = spellId
+        end,
+      }
+    end)
+
+    after_each(function()
+      _G.CombatLogGetCurrentEventInfo = nil
+      AltArmy.CooldownData = nil
+    end)
+
+    it("ignores events that neither come from nor target the player", function()
+      cleu("SPELL_AURA_APPLIED", "Player-9-9", "Stranger", "Creature-0-1", 1234)
+      cleu("SPELL_CAST_SUCCESS", "Player-9-9", "Stranger", "Player-9-9", 28566)
+      assert.are.equal(0, #levelHistoryPayloads)
+      assert.are.equal(0, #transmuteCasts)
+    end)
+
+    it("passes damage taken by the player to level history", function()
+      cleu("SWING_DAMAGE", "Creature-0-1", "Murloc", "Player-1-2")
+      assert.are.equal(1, #levelHistoryPayloads)
+      local p = levelHistoryPayloads[1]
+      assert.are.equal("SWING_DAMAGE", p[2])
+      assert.are.equal("Creature-0-1", p[4])
+      assert.are.equal("Murloc", p[5])
+      assert.are.equal("Player-1-2", p[8])
+      assert.are.equal(0, #transmuteCasts)
+    end)
+
+    it("records the player's own successful casts", function()
+      cleu("SPELL_CAST_SUCCESS", "Player-1-2", "Alice", nil, 28566)
+      assert.are.same({ 28566 }, transmuteCasts)
+    end)
+  end)
 end)

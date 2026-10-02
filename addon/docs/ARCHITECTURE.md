@@ -78,7 +78,7 @@ Declared in `AltArmy_TBC.toc`:
 | `AltArmyTBC_GuildData` | Received guild-share payloads |
 | `AltArmyTBC_SharingSettings` | Own guild-share preferences (opt-in) |
 | `AltArmyTBC_AuctionScans` | Log of Auctionator's price updates and their faction, for altarmy-profit |
-| `AltArmyTBC_AuctionBook` | The auction house's order book from full scans, for altarmy-profit |
+| `AltArmyTBC_AuctionBook` | The auction house's order book from full scans, for altarmy-profit (`scans`), plus the newest summary scan per realm and faction (`summaries`, in-game only) |
 
 ## Document map
 

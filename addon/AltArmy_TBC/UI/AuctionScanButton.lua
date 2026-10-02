@@ -9,18 +9,32 @@ local Btn = AltArmy.AuctionScanButton
 
 local button
 
---- The button's text and whether it can be clicked.
-function Btn.Label(state, progress, cooldown)
-    if state == "waiting" then
+--- The button's text and whether it can be clicked. `progress` is nil for a summary scan (size unknown);
+--- `canScan`: a scan can start despite the full scan's cooldown (a summary scan).
+function Btn.Label(state, progress, cooldown, canScan)
+    if state == "waiting" or (state == "reading" and not progress) then
         return "Scanning...", false
     end
     if state == "reading" then
         return string.format("Scanning %d%%", math.floor(progress * 100)), false
     end
-    if cooldown > 0 then
+    if cooldown > 0 and not canScan then
         return string.format("Scan in %d:%02d", math.floor(cooldown / 60), cooldown % 60), false
     end
     return "Alt Army scan", true
+end
+
+--- What a click does now, for the button's tooltip: `nextKind` is AuctionScan.NextKind().
+function Btn.TooltipText(nextKind, cooldown)
+    if nextKind == "summary" then
+        local text = "Runs a summary scan: each item's cheapest price, so costs are estimates."
+        if cooldown > 0 then
+            text = text .. string.format(" The next full scan is allowed in %d:%02d.",
+                math.floor(cooldown / 60), cooldown % 60)
+        end
+        return text
+    end
+    return "Runs a full scan: every listing, so Alt Army can make price calculations."
 end
 
 --- Open Alt Army's options on the automatic scan checkbox (General tab, Auction House section).
@@ -33,7 +47,7 @@ end
 local function refresh()
     local S = AltArmy.AuctionScan
     if not button or not S then return end
-    local text, enabled = Btn.Label(S.State(), S.Progress(), S.CooldownLeft())
+    local text, enabled = Btn.Label(S.State(), S.Progress(), S.CooldownLeft(), S.NextKind() ~= nil)
     button:SetText(text)
     if enabled then
         button:Enable()
@@ -57,11 +71,11 @@ local function create()
     button:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText("Alt Army scan")
-        local desc = "Reads every listing so Alt Army can make price calculations."
+        GameTooltip:AddLine(Btn.TooltipText(S.NextKind(), S.CooldownLeft()), 1, 1, 1, true)
         if AltArmy.FeatureFlags and AltArmy.FeatureFlags.economySupplyChain then
-            desc = desc .. " For greatest effect, use this in combination with the crafting tools on alt-army.com"
+            GameTooltip:AddLine("For greatest effect, use this in combination with the crafting tools on "
+                .. "alt-army.com", 1, 1, 1, true)
         end
-        GameTooltip:AddLine(desc, 1, 1, 1, true)
         GameTooltip:AddLine("The game allows one full scan every 15 minutes.", 0.7, 0.7, 0.7, true)
         GameTooltip:Show()
     end)

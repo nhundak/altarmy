@@ -30,7 +30,7 @@ A grid of currencies (rows) × characters (columns), like the Reputation tab, wi
 
 ### Waylaid Crates
 
-A Waylaid Crate is filled with **any one** of the bundles its label lists (for example Apprentice Ore takes 20 Copper Ore or 20 Tin Ore), then turned in for Merchant's Favor. The table lists every Waylaid Crate on the newest Alt Army scan of the current realm and faction's auction house.
+A Waylaid Crate is filled with **any one** of the bundles its label lists (for example Apprentice Ore takes 20 Copper Ore or 20 Tin Ore), then turned in for Merchant's Favor. The table lists every Waylaid Crate on the newest Alt Army scan of the current realm and faction's auction house: a full scan or a summary scan, whichever is newer.
 
 | Column | Meaning |
 |--------|---------|
@@ -43,10 +43,11 @@ A Waylaid Crate is filled with **any one** of the bundles its label lists (for e
 - Default order: Total, cheapest first. Every column header sorts, and the choice is saved.
 - A bundle counts only if enough units are listed to buy all of it. When none can be, Cheapest fill says **not enough listed** or **none listed**, Total shows a dash, and the crate sorts last.
 - The unread **Waylaid Crate** (its shipment is random until the label is read) shows its price only.
-- An asterisk marks a cost that reaches the scan's dearest listings. Those are saved together at their cheapest price, so the cost is a close estimate.
+- A cost that reaches the scan's dearest listings is a close estimate: those are saved together at their cheapest price. It is not marked.
+- **From a summary scan**, which knows only each item's cheapest price and units listed, every fill is priced as count × cheapest price, so the real cost can only be higher. Only the "(summary)" note on the scan's age says so.
 - Hovering a row shows the crate's tooltip plus every bundle with its cost, "only N listed" or "not listed", cheapest first (bundles that can't be bought in full at the bottom).
 - **Auctionator search:** with Auctionator installed and the auction house open, clicking a row opens Auctionator's Shopping tab and searches a temporary list ("Alt Army (temporary)") for the crate and its cheapest fill at its count (just the crate when no fill can be bought in full), exact names (the same API as Auctionator's crafting-window Search button). The row tooltip then ends with a grey "Click to search with Auctionator"; elsewhere clicking does nothing and the line is hidden (`Data/Integrations/AuctionatorSearch.lua`).
-- The row below the table shows, on the left, how old the scan is ("Scanned 12 min ago"): white under 15 minutes, yellow up to 30, red after that. On the right, an **Auto scan when opening AH** checkbox (same setting as Options → General → Auction House). While the auction house is open, a **Scan now** button sits in the middle; it reads "Scan in m:ss" while the game's 15-minute scan cooldown runs (same as the button on the auction house). If the scan found no Waylaid Crates, the table says so. The table refreshes when a scan finishes while it is open.
+- The row below the table shows, on the left, how old the scan is ("Scanned 12 min ago", with "(summary)" after a summary scan): white under 15 minutes, yellow up to 30, red after that. On the right, an **Auto scan when opening AH** checkbox (same setting as Options → General → Auction House). While the auction house is open, a **Scan now** button sits in the middle; during the game's 15-minute full-scan cooldown it runs a summary scan, and reads "Scan in m:ss" only when no summary scan is possible (same as the button on the auction house). If the scan found no Waylaid Crates, the table says so. The table refreshes when a scan finishes while it is open.
 - Merchant's Favor per crate isn't shown. Guides disagree on it, and it may differ by tier or between gathered and crafted crates, so compare crates of the same tier. What we have measured so far is below.
 
 #### Merchant's Favor: tested in game
@@ -76,7 +77,7 @@ A scrolling page about alt-army.com's crafting planner:
 
 - Currencies: `DataStore:ScanCurrencyList` (`Data/DataStore/DataStoreCurrencies.lua`) reads `C_CurrencyInfo`'s currency list on login and whenever `CURRENCY_DISPLAY_UPDATE` fires. It expands collapsed headers to read them and collapses them again afterwards. Rows and sorting: `Data/Economy/CurrencyGrid.lua` (pure, unit-tested).
 
-- Prices: `AltArmyTBC_AuctionBook` via `AuctionBook.Latest(realm, faction)` and `AuctionBook.Decode(items)`.
+- Prices: `AltArmyTBC_AuctionBook` via `AuctionBook.Newest(realm, faction)` (the newer of the full scan and the summary scan) and `AuctionBook.Decode(items)`.
 - Crates and bundles: `Data/Economy/WaylaidCrates.lua`, generated from WoW Forever's game data by `python scripts/generate-waylaid-crates.py` (`npm run crates:generate`). It reads the item table in the altarmy-profit repo checked out next to this one (`../wow-profit/data/altarmy-profit.sqlite`). Keeping it current:
   - altarmy-profit's `ingest` reruns the generator whenever it loads Forever data into that SQLite file, so a changed crate list shows up here as an uncommitted change.
   - The pre-commit hook (`.githooks/pre-commit`, enabled by `npm install` or `npm run hooks:install`) runs `--check` (`npm run crates:check`) and blocks a commit while the file is out of date. It skips when the database or Python isn't there.

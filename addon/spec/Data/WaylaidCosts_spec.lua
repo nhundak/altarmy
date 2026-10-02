@@ -132,6 +132,16 @@ describe("WaylaidCosts", function()
             assert.equals(4, rows[902].options[1].listed)
         end)
 
+        it("marks every multi-unit fill from a summary scan as an estimate", function()
+            local r = byId(W.BuildRows(book, CRATES, true))[901]
+            assert.is_true(r.summary)
+            assert.equals(600, r.bundle.cost)
+            assert.is_true(r.bundle.approx)
+            local exact = byId(W.BuildRows(book, CRATES))[901]
+            assert.is_nil(exact.summary)
+            assert.is_false(exact.bundle.approx)
+        end)
+
         it("lists bundles that cannot be bought after the priced ones", function()
             local r = byId(W.BuildRows({ [901] = { lv(1000, 1) }, [2] = { lv(30, 25) } }, CRATES))[901]
             assert.equals("Tin Ore", r.options[1].name)
@@ -181,6 +191,11 @@ describe("WaylaidCosts", function()
 
         it("says how long ago the scan was taken", function()
             assert.equals("Scanned 120s ago", W.AgeText(1000, 1120, fmt))
+        end)
+
+        it("names a summary scan", function()
+            assert.equals("Scanned 120s ago (summary)", W.AgeText(1000, 1120, fmt, true))
+            assert.equals("Scanned just now (summary)", W.AgeText(1000, 1030, fmt, true))
         end)
 
         it("says just now within a minute, or if the clock went back", function()

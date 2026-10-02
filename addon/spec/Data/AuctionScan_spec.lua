@@ -393,6 +393,202 @@ describe("AuctionScan", function()
         end)
     end)
 
+    describe("summary scan", function()
+        local browse, queries, more, ready, pageSize, shown
+
+        --- The client's browse API: `browse` is every result row { itemID, minPrice, totalQuantity };
+        --- `pageSize` of them arrive per page.
+        local function installBrowse()
+            browse, queries, more, ready, shown, pageSize = {}, 0, 0, true, 0, 1000
+            local api = _G.C_AuctionHouse
+            api.SendBrowseQuery = function(q)
+                assert.equals("", q.searchString)
+                queries = queries + 1
+                shown = math.min(#browse, pageSize)
+            end
+            api.GetBrowseResults = function()
+                local out = {}
+                for i = 1, shown do
+                    local r = browse[i]
+                    out[i] = { itemKey = { itemID = r[1] }, minPrice = r[2], totalQuantity = r[3] }
+                end
+                return out
+            end
+            api.HasFullBrowseResults = function() return shown >= #browse end
+            api.RequestMoreBrowseResults = function()
+                more = more + 1
+                shown = math.min(#browse, shown + pageSize)
+            end
+            api.IsThrottledMessageSystemReady = function() return ready end
+        end
+
+        local function summaries()
+            return AltArmyTBC_AuctionBook and AltArmyTBC_AuctionBook.summaries or {}
+        end
+
+        local function said(pattern)
+            for _, line in ipairs(chat) do
+                if line:find(pattern) then return true end
+            end
+            return false
+        end
+
+        before_each(installBrowse)
+
+        it("is the fallback while the full scan cools down", function()
+            B.NoteRequest(now - 60)
+            assert.equals("summary", S.NextKind())
+            assert.is_true((S.Start()))
+            assert.equals(0, requested)
+            assert.equals(1, queries)
+            assert.equals("summary", S.Kind())
+            assert.is_true(said("Summary auction house scan started"))
+        end)
+
+        it("is not used when a full scan is allowed and preferred", function()
+            assert.is_true(S.IsPreferFullEnabled())
+            assert.equals("full", S.NextKind())
+            S.Start()
+            assert.equals(1, requested)
+            assert.equals(0, queries)
+            assert.is_true(said("Full auction house scan started"))
+        end)
+
+        it("is always used when full scans are not preferred", function()
+            S.SetPreferFullEnabled(false)
+            assert.is_false(AltArmyTBC_Options.auctionPreferFullScan)
+            assert.equals("summary", S.NextKind())
+            S.Start()
+            assert.equals(0, requested)
+            assert.equals(1, queries)
+            S.SetPreferFullEnabled(true)
+            assert.is_true(S.IsPreferFullEnabled())
+        end)
+
+        it("falls back to a full scan when there is no summary, preferred or not", function()
+            S.SetPreferFullEnabled(false)
+            _G.C_AuctionHouse.SendBrowseQuery = nil
+            assert.equals("full", S.NextKind())
+        end)
+
+        it("runs when the client refuses the full scan", function()
+            _G.C_AuctionHouse.ReplicateItems = function() error("nope") end
+            assert.is_true((S.Start()))
+            assert.equals(1, queries)
+            assert.equals("summary", S.Kind())
+        end)
+
+        it("pages through the results and stores them apart from full scans", function()
+            B.Store({ t = 1, realm = "Classic Beta PvE", faction = "Horde", complete = true, items = "" }, 1)
+            B.NoteRequest(now - 60)
+            browse = { { 2770, 64, 340 }, { 2771, 90, 12 }, { 2772, 500, 3 } }
+            pageSize = 2
+            S.Start()
+            S.OnEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+            assert.equals("reading", S.State())
+            assert.equals(1, more)
+            S.OnEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED")
+            assert.equals("idle", S.State())
+            assert.same({ {
+                t = 50000,
+                realm = "Classic Beta PvE",
+                faction = "Horde",
+                summary = true,
+                listings = 3,
+                items = "2770:64*340*1;2771:90*12*1;2772:500*3*1",
+            } }, summaries())
+            assert.equals(1, #scans())
+            assert.equals(1, scans()[1].t)
+            assert.is_true(said("Summary auction house scan complete: 3 items saved"))
+        end)
+
+        it("does not spend the full scan's cooldown", function()
+            S.SetPreferFullEnabled(false)
+            browse = { { 2770, 64, 340 } }
+            S.Start()
+            S.OnEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+            assert.equals(0, S.CooldownLeft())
+            S.SetPreferFullEnabled(true)
+            assert.equals("full", S.NextKind())
+        end)
+
+        it("waits for the client's query throttle", function()
+            ready = false
+            B.NoteRequest(now - 60)
+            S.Start()
+            assert.equals(0, queries)
+            assert.equals("waiting", S.State())
+            ready = true
+            S.OnEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")
+            assert.equals(1, queries)
+        end)
+
+        it("ignores browse results while no summary of ours runs", function()
+            browse = { { 2770, 64, 340 } }
+            shown = 1
+            S.OnEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+            assert.equals("idle", S.State())
+            assert.equals(0, #summaries())
+        end)
+
+        it("drops a summary someone else's search replaced", function()
+            B.NoteRequest(now - 60)
+            for i = 1, 10 do browse[i] = { 3000 + i, 10, 1 } end
+            pageSize = 6
+            S.Start()
+            S.OnEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+            browse = { { 2770, 64, 340 } } -- the player searched for one item
+            shown = 1
+            S.OnEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+            assert.equals("idle", S.State())
+            assert.equals(0, #summaries())
+            assert.is_true(said("nothing was saved"))
+        end)
+
+        it("is dropped when the auction house closes, the client fails or nothing comes", function()
+            B.NoteRequest(now - 60)
+            S.Start()
+            S.OnEvent("AUCTION_HOUSE_CLOSED")
+            assert.equals("idle", S.State())
+            S.OnEvent("AUCTION_HOUSE_SHOW")
+            S.Start()
+            S.OnEvent("AUCTION_HOUSE_BROWSE_FAILURE")
+            assert.equals("idle", S.State())
+            S.Start()
+            runTimers(S.TIMEOUT)
+            assert.equals("idle", S.State())
+            assert.equals(0, #summaries())
+        end)
+
+        it("gives way to a full scan another addon asked for", function()
+            B.NoteRequest(now - 60)
+            S.Start()
+            rows = { { 2770, 1, 64 } }
+            now = now + B.COOLDOWN
+            S.OnEvent("REPLICATE_ITEM_LIST_UPDATE")
+            runTimers()
+            assert.equals(1, #scans())
+            assert.equals("heard", scans()[1].source)
+            assert.equals(0, #summaries())
+        end)
+
+        it("is what the automatic scan runs during the cooldown", function()
+            S.SetAutoScanEnabled(true)
+            B.NoteRequest(now - 60)
+            S.OnEvent("AUCTION_HOUSE_CLOSED")
+            timers = {}
+            S.OnEvent("AUCTION_HOUSE_SHOW")
+            runTimers(S.AUTO_DELAY)
+            assert.equals(1, queries)
+        end)
+
+        it("has no progress to report", function()
+            B.NoteRequest(now - 60)
+            S.Start()
+            assert.is_nil(S.Progress())
+        end)
+    end)
+
     -- spec/fixtures/auction_book_v1.lua is the golden SavedVariable of the two scans below. The
     -- altarmy-profit repo keeps a copy (tests/fixtures/auction_book_v1.lua) that its parser is tested
     -- against, so change both together.

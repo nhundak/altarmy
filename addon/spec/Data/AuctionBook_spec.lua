@@ -191,6 +191,75 @@ describe("AuctionBook", function()
         end)
     end)
 
+    describe("summaries", function()
+        local function summary(rows)
+            local t = B.NewTally()
+            for _, r in ipairs(rows) do
+                B.AddSummary(t, r[1], r[2], r[3])
+            end
+            return t
+        end
+
+        it("keeps one level per item: its cheapest price and every unit listed", function()
+            local t = summary({ { 2770, 64, 340 }, { 2771, 90, 12 } })
+            assert.equals("2770:64*340*1;2771:90*12*1", B.Encode(t))
+            assert.equals(2, t.listings)
+        end)
+
+        it("merges rows of one item id at their cheapest price", function()
+            local t = summary({ { 2770, 70, 10 }, { 2770, 64, 5 } })
+            assert.equals("2770:64*15*1", B.Encode(t))
+        end)
+
+        it("skips rows with nothing listed or no price", function()
+            local t = summary({ { 2770, 64, 0 }, { 2771, 0, 4 }, { nil, 5, 5 } })
+            assert.equals("", B.Encode(t))
+            assert.equals(0, t.listings)
+        end)
+
+        local function stored(t, realm, faction)
+            return { t = t, realm = realm or "R", faction = faction or "Horde", summary = true, items = "" }
+        end
+
+        it("are stored apart from full scans, one per realm and faction", function()
+            B.Store({ t = 1000, realm = "R", faction = "Horde", complete = true, items = "" }, 1000)
+            B.StoreSummary(stored(2000), 2000)
+            B.StoreSummary(stored(3000), 3000)
+            B.StoreSummary(stored(3500, "R", "Alliance"), 3500)
+            local log = B.GetLog()
+            assert.equals(1, #log.scans)
+            assert.equals(1000, log.scans[1].t)
+            assert.equals(2, #log.summaries)
+            assert.equals(3000, B.LatestSummary("R", "Horde").t)
+            assert.equals(3500, B.LatestSummary("R", "Alliance").t)
+            assert.equals(1000, B.Latest("R", "Horde").t)
+        end)
+
+        it("drop past their age", function()
+            B.StoreSummary(stored(1000, "R", "Alliance"), 1000)
+            B.StoreSummary(stored(1000 + B.MAX_AGE + 1), 1000 + B.MAX_AGE + 1)
+            assert.is_nil(B.LatestSummary("R", "Alliance"))
+        end)
+
+        it("Newest picks the newer of the full scan and the summary", function()
+            assert.is_nil(B.Newest("R", "Horde"))
+            B.Store({ t = 1000, realm = "R", faction = "Horde", complete = true, items = "" }, 1000)
+            assert.equals(1000, B.Newest("R", "Horde").t)
+            B.StoreSummary(stored(2000), 2000)
+            assert.is_true(B.Newest("R", "Horde").summary)
+            B.Store({ t = 3000, realm = "R", faction = "Horde", complete = true, items = "" }, 3000)
+            assert.equals(3000, B.Newest("R", "Horde").t)
+            assert.is_nil(B.Newest("R", "Horde").summary)
+        end)
+
+        it("are cleared with the full scans", function()
+            B.Store({ t = 1000, realm = "R", faction = "Horde", complete = true, items = "" }, 1000)
+            B.StoreSummary(stored(2000), 2000)
+            assert.equals(2, B.Clear())
+            assert.is_nil(B.Newest("R", "Horde"))
+        end)
+    end)
+
     describe("the client's cooldown", function()
         it("is none before any request", function()
             assert.equals(0, B.CooldownLeft(5000))

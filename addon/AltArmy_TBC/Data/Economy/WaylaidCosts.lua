@@ -81,8 +81,10 @@ local function sortOptions(options)
 end
 
 --- One row per crate listed in `book` (itemID -> ladder): its cheapest price and the cheapest bundle
---- that can be bought in full. `crates` is AltArmy.WaylaidCrates (LIST).
-function W.BuildRows(book, crates)
+--- that can be bought in full. `crates` is AltArmy.WaylaidCrates (LIST). `summary`: the book is a summary
+--- scan's (one level per item, its cheapest price), so a fill of more than one unit is a lower bound: those
+--- costs are marked approx and the row `summary`.
+function W.BuildRows(book, crates, summary)
     local rows = {}
     for _, crate in ipairs(crates.LIST) do
         local ladder = book[crate.id]
@@ -90,10 +92,11 @@ function W.BuildRows(book, crates)
             local row = {
                 id = crate.id, name = crate.name, short = crate.short, tier = crate.tier, kind = crate.kind,
                 random = crate.random == true, price = ladder[1].price, listed = unitsListed(ladder),
-                options = {}, shortBundles = 0, unlisted = 0,
+                options = {}, shortBundles = 0, unlisted = 0, summary = summary and true or nil,
             }
             for _, b in ipairs(crate.bundles) do
                 local cost, approx = W.CostForUnits(book[b.item], b.count)
+                if cost and summary and b.count > 1 then approx = true end
                 local listed = unitsListed(book[b.item])
                 row.options[#row.options + 1] = { item = b.item, name = b.name, count = b.count,
                     cost = cost, approx = approx, listed = listed }
@@ -170,13 +173,15 @@ function W.Compare(a, b, key, ascending)
     return (a.name or "") < (b.name or "")
 end
 
---- "Scanned 2 hr ago", from the scan's time and now (server time); `fmt` formats seconds.
-function W.AgeText(scanTime, now, fmt)
+--- "Scanned 2 hr ago", from the scan's time and now (server time); `fmt` formats seconds. `summary` adds
+--- " (summary)".
+function W.AgeText(scanTime, now, fmt, summary)
     local age = (now or 0) - (scanTime or 0)
+    local suffix = summary and " (summary)" or ""
     if age < 60 then
-        return "Scanned just now"
+        return "Scanned just now" .. suffix
     end
-    return "Scanned " .. fmt(age) .. " ago"
+    return "Scanned " .. fmt(age) .. " ago" .. suffix
 end
 
 --- How much to trust a scan's prices by its age: "fresh" under 15 min, "stale" up to 30, then "old".

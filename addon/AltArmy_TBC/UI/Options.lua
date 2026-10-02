@@ -176,6 +176,7 @@ panel.default = function()
     end
     if AltArmy.AuctionScan and AltArmy.AuctionScan.SetAutoScanEnabled then
         AltArmy.AuctionScan.SetAutoScanEnabled(false)
+        AltArmy.AuctionScan.SetPreferFullEnabled(true)
     end
     if panel.RefreshAuctionOptions then
         panel.RefreshAuctionOptions()
@@ -1456,13 +1457,23 @@ layoutGuildSharingTail()
 
 -- Auction House section: the Alt Army scan (Data/Auctions/AuctionScan.lua). Only on clients with the full
 -- scan (WoW Forever); TBC Anniversary's auction house has none.
-local autoScanRow = Theme.CreateLabeledCheckbox(auctionSection.content, {
+-- Its two checkboxes sit side by side, half the width each: a checkbox row stretches to its parent's right
+-- edge, so each gets a half-width holder (on panel, not main-chunk locals: Lua 5.1's 200-local limit).
+panel.auctionLeftHolder = CreateFrame("Frame", nil, auctionSection.content)
+panel.auctionLeftHolder:SetPoint("TOPLEFT", auctionSection.content, "TOPLEFT", 0, 0)
+panel.auctionLeftHolder:SetPoint("TOPRIGHT", auctionSection.content, "TOP", -4, 0)
+panel.auctionLeftHolder:SetHeight(Theme.CHAR_LIST_ROW_HEIGHT)
+panel.auctionRightHolder = CreateFrame("Frame", nil, auctionSection.content)
+panel.auctionRightHolder:SetPoint("TOPLEFT", auctionSection.content, "TOP", 4, 0)
+panel.auctionRightHolder:SetPoint("TOPRIGHT", auctionSection.content, "TOPRIGHT", 0, 0)
+panel.auctionRightHolder:SetHeight(Theme.CHAR_LIST_ROW_HEIGHT)
+local autoScanRow = Theme.CreateLabeledCheckbox(panel.auctionLeftHolder, {
     point = "TOPLEFT",
-    relativeTo = auctionSection.content,
+    relativeTo = panel.auctionLeftHolder,
     relativePoint = "TOPLEFT",
     x = 0,
     y = 0,
-    text = "Scan the auction house automatically when it opens",
+    text = "Scan AH automatically",
     fullWidthHover = true,
     onClick = function(checked)
         local S = AltArmy.AuctionScan
@@ -1473,9 +1484,36 @@ local autoScanRow = Theme.CreateLabeledCheckbox(auctionSection.content, {
 })
 panel.auctionAutoScanCheckbox = autoScanRow.check
 
+-- Full scans (every listing, 15-minute cooldown) or summary scans (cheapest price per item, no cooldown).
+-- Kept on panel, not as main-chunk locals (Lua 5.1's 200-local limit).
+panel.auctionPreferFullRow = Theme.CreateLabeledCheckbox(panel.auctionRightHolder, {
+    point = "TOPLEFT",
+    relativeTo = panel.auctionRightHolder,
+    relativePoint = "TOPLEFT",
+    x = 0,
+    y = 0,
+    text = "Prefer full scans",
+    fullWidthHover = true,
+    onClick = function(checked)
+        local S = AltArmy.AuctionScan
+        if S and S.SetPreferFullEnabled then
+            S.SetPreferFullEnabled(checked)
+        end
+    end,
+})
+Theme.AttachSettingsHelpIcon(panel.auctionPreferFullRow, {
+    title = "Prefer full scans",
+    lines = {
+        "A full scan lets us determine how many items are available at each cost. However, it is slower. "
+            .. "If you prefer a faster scan but less accurate calculations and tooltips, uncheck this.",
+    },
+})
+
 local function RefreshAuctionOptions()
     local S = AltArmy.AuctionScan
     panel.auctionAutoScanCheckbox:SetChecked(S and S.IsAutoScanEnabled and S.IsAutoScanEnabled() or false)
+    panel.auctionPreferFullRow.check:SetChecked(
+        not (S and S.IsPreferFullEnabled) or S.IsPreferFullEnabled())
 end
 panel.RefreshAuctionOptions = RefreshAuctionOptions
 do
@@ -2161,7 +2199,7 @@ SlashCmdList.ALTARMY = function(msg)
             ok, reason = scan.Start()
         end
         local said = {
-            missing = "This client has no full auction house scan.",
+            missing = "This client has no auction house scan.",
             closed = "Open the auction house first.",
             busy = "A scan is already running.",
             error = "The game refused the scan. Try again in a moment.",
@@ -2169,7 +2207,7 @@ SlashCmdList.ALTARMY = function(msg)
         local text = not ok and said[reason] or nil -- a scan that starts says so itself
         if reason == "cooldown" then
             local left = scan.CooldownLeft()
-            text = string.format("The game allows the next scan in %d:%02d.", math.floor(left / 60), left % 60)
+            text = string.format("The game allows the next full scan in %d:%02d.", math.floor(left / 60), left % 60)
         end
         if text and AltArmy.Debug and AltArmy.Debug.NotifyChat then
             AltArmy.Debug.NotifyChat("|cff00ccff[Alt Army]|r " .. text)

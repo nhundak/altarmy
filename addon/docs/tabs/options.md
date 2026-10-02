@@ -6,7 +6,7 @@ Interface Options panel (AddOns → AltArmy) and user-facing slash commands.
 
 | Tab | Contents |
 |-----|----------|
-| **General** | Collapsible sections, drawn like the Keybindings page's (all start open): **General** (minimap show/hide; global realm filter, current / all realms), **Guild** (guild data sharing: main, display name, data retention, chat; shown while guild sharing is available) and **Auction House** (scan automatically when the auction house opens; WoW Forever only). Scrolls when the open sections outgrow the panel |
+| **General** | Collapsible sections, drawn like the Keybindings page's (all start open): **General** (minimap show/hide; global realm filter, current / all realms), **Guild** (guild data sharing: main, display name, data retention, chat; shown while guild sharing is available) and **Auction House** (two checkboxes side by side, half the width each: **Scan AH automatically** when the auction house opens, and **Prefer full scans**, on by default, with a help icon explaining that a full scan knows how many units sit at each price but is slower, while a summary scan is faster but less accurate; WoW Forever only). Scrolls when the open sections outgrow the panel |
 | **Characters** | Per-character bank-alt flags; delete character data (self-delete protected + confirmation) |
 | **Gear** | Gear upgrade notification toggles (current character / alts; loot, quest rewards, etc.) |
 | **Cooldowns** | One collapsible section per category (all start open), drawn like the General tab's: UI visibility, alerts, reminder intervals; specialization-related options. On WoW Forever, shows a "work in progress" banner and only the Transmute and Research (Comprehension) categories (the others are TBC-specific crafts), and hides the "Only if Master of Transmutation" toggles; a saved value for them is ignored there |
@@ -30,7 +30,7 @@ Options opened on a particular control (for example from the Alt Army scan butto
 | `/altarmy` / `/alta` | Open main UI |
 | `/altarmy networth [all] [scale]` | Net worth (vendor + Auctionator); `all` = all realms; scale 0–1 (default 0.9) |
 | `/altarmy export` | Export for altarmy-profit (see below; there is no button for it) |
-| `/altarmy scan` | Scan the open auction house for altarmy-profit (same as the **Alt Army scan** button) |
+| `/altarmy scan` | Scan the open auction house (same as the **Alt Army scan** button): a full scan when preferred and allowed, otherwise a summary scan |
 | `/altarmy debug on` / `off` | Show/hide Debug options tab and enable/suppress debug logging |
 
 Additional `debug …` subcommands exist for developers (mail alerts, compare dump, guild share inject, etc.); they are not part of the product feature surface.

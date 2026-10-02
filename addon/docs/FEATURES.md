@@ -95,23 +95,33 @@ the same. Elsewhere (TBC Anniversary) the button, the Auction House options sect
 the reading of other addons' full scans are all off, whatever the client's API offers
 (`AuctionScan.HasApi` checks `DataStore.IsWowForever` first).
 
-- It reads every listing and saves, per item, how many units are listed at each price. altarmy-profit prices
-  crafts from that, so one odd listing no longer decides what an item costs.
-- The game allows one full scan every 15 minutes per account. The button counts the wait down.
+- A **full scan** reads every listing and saves, per item, how many units are listed at each price.
+  altarmy-profit prices crafts from that, so one odd listing no longer decides what an item costs.
+- The game allows one full scan every 15 minutes per account. During that wait, or if the game refuses the
+  full scan, the button runs a **summary scan** instead: each item's cheapest price and how many units are
+  listed. It has no cooldown and is faster, but cannot say how many units sit at each price.
+- **Prefer full scans** (Options → General → Auction House, on by default): turned off, every scan is a
+  summary scan, unless the client has no summary scan.
+- Summary scans are kept apart from full scans (the newest one per realm and faction) and are never uploaded
+  to altarmy-profit, which only gets full scans. A summary never replaces a stored full scan.
+- When the full scan is cooling down and no summary scan is possible, the button counts the wait down. Its
+  tooltip says which kind of scan a click runs now.
 - **Scan automatically:** Options → General → **Auction House** can start the scan by itself a second after
   the auction house opens (off by default). The settings icon right of the button opens that option. A visit
-  within the 15-minute cooldown, or one where another addon already started a full scan, is skipped.
+  within the 15-minute cooldown runs a summary scan; one where another addon already started a full scan
+  is skipped.
 - A full scan started by another addon (Auctionator's full scan option) is saved too, and spends the same
   cooldown.
 - Keep the auction house open until the button stops showing progress: a scan that was cut short is dropped.
-- A scan Alt Army starts (the button, `/altarmy scan` or the automatic scan) says in chat when it starts and
-  when it ends: how many listings were saved, or that it was cut short and nothing was saved. Another addon's
-  scan is saved quietly.
+- A scan Alt Army starts (the button, `/altarmy scan` or the automatic scan) says in chat whether it is a
+  full or summary scan when it starts, and when it ends: how many listings (or items) were saved, or that it
+  was cut short and nothing was saved. Another addon's full scan is saved quietly, and replaces a summary
+  scan of ours that is still running.
 - The last 3 scans per realm and faction are kept, for 7 days. Seller names are never saved.
 - The scan is uploaded with the rest of Alt Army's data (Alt Army Sync, or the site's Upload page after a
   `/reload` or logout).
 - In game, the [Economy](tabs/economy.md) tab's **Waylaid Crates** view prices every Waylaid Crate and its
-  cheapest fill from the newest scan, and can turn on the automatic scan too.
+  cheapest fill from the newest scan, full or summary, and can turn on the automatic scan too.
 
 ### Data collection and persistence
 

@@ -520,6 +520,9 @@ cooldownAfterCastFrame:SetScript("OnUpdate", nil)
 cooldownAfterCastFrame.elapsed = 0
 cooldownAfterCastFrame.pendingSpellId = nil
 
+-- Player GUID is fixed for the session; cached so the combat-log hot path skips UnitGUID.
+local cleuPlayerGUID
+
 function DS:IsMailOpen()
     return isMailOpen == true
 end
@@ -527,19 +530,30 @@ end
 frame:SetScript("OnEvent", function(_, event, ...)
     local addonName, a1, a3 = ...
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        -- Hot path: fires for every nearby unit (busy in cities). Everything below only
+        -- cares about events from or to the player, so bail before allocating anything.
         if not CombatLogGetCurrentEventInfo or not UnitGUID then return end
-        local payload = { CombatLogGetCurrentEventInfo() }
-        if DS.HandleCombatLogForLevelHistory then
-            DS:HandleCombatLogForLevelHistory(payload)
+        local playerGUID = cleuPlayerGUID
+        if not playerGUID then
+            playerGUID = UnitGUID("player")
+            if not playerGUID then return end
+            cleuPlayerGUID = playerGUID
         end
+        local timestamp, subevent, hideCaster, srcGUID, srcName, srcFlags, srcRaidFlags,
+            destGUID, destName, destFlags, destRaidFlags, spellId = CombatLogGetCurrentEventInfo()
+        if not canAccessSecretValue(srcGUID) or not canAccessSecretValue(destGUID) then return end
+        local fromPlayer = srcGUID == playerGUID
+        if not fromPlayer and destGUID ~= playerGUID then return end
+        if DS.HandleCombatLogForLevelHistory then
+            DS:HandleCombatLogForLevelHistory({
+                timestamp, subevent, hideCaster, srcGUID, srcName, srcFlags, srcRaidFlags,
+                destGUID, destName, destFlags, destRaidFlags,
+            })
+        end
+        if not fromPlayer then return end
         local CD = AltArmy and AltArmy.CooldownData
         if not CD or not CD.RecordSuccessfulTransmuteCast then return end
-        local subevent = payload[2]
         if not canAccessSecretValue(subevent) or subevent ~= "SPELL_CAST_SUCCESS" then return end
-        local srcGUID = payload[4]
-        local playerGUID = UnitGUID("player")
-        if not playerGUID or srcGUID ~= playerGUID then return end
-        local spellId = payload[12]
         if type(spellId) ~= "number" then return end
         local char = GetCurrentCharTable()
         if char then

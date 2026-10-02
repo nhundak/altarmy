@@ -150,7 +150,7 @@ local function UpdateScanButton()
     local show = S and S.HasApi() and S.IsOpen() and Btn and Btn.Label and statusLabel:IsShown()
     UI.scanBtn:SetShown(show and true or false)
     if not show then return end
-    local text, enabled = Btn.Label(S.State(), S.Progress(), S.CooldownLeft())
+    local text, enabled = Btn.Label(S.State(), S.Progress(), S.CooldownLeft(), S.NextKind() ~= nil)
     UI.scanBtn:SetText(enabled and "Scan now" or text)
     UI.scanBtn:SetEnabled(enabled)
 end
@@ -305,7 +305,7 @@ local function ShowRowTooltip(row)
             local left = opt.count .. " x " .. opt.name
             local right, r, g, b
             if opt.cost then
-                right = Money(opt.cost) .. (opt.approx and "*" or "")
+                right = Money(opt.cost)
                 r, g, b = 1, 1, 1
                 if opt == rd.bundle then
                     left = left .. " (cheapest)"
@@ -316,10 +316,6 @@ local function ShowRowTooltip(row)
                 right, r, g, b = "not listed", 0.7, 0.7, 0.7
             end
             GameTooltip:AddDoubleLine(left, right, 1, 1, 1, r, g, b)
-        end
-        if rd.bundle and rd.bundle.approx then
-            GameTooltip:AddLine("* Estimate: some of it comes from the scan's dearest listings, which are "
-                .. "saved together at their cheapest price.", 0.7, 0.7, 0.7, true)
         end
     end
     local AZ = AltArmy.AuctionatorSearch
@@ -370,7 +366,7 @@ end
 local function CurrentScan()
     local realm = GetRealmName and GetRealmName() or ""
     local faction = UnitFactionGroup and UnitFactionGroup("player") or ""
-    return Book.Latest(realm, faction), realm, faction
+    return Book.Newest(realm, faction), realm, faction
 end
 
 local function ShowEmpty(realm, faction)
@@ -404,13 +400,13 @@ local function RefreshWaylaid()
     headerRow:Show()
     listViewport:Show()
 
-    local rows = W.BuildRows(UI.cache.book, Crates)
+    local rows = W.BuildRows(UI.cache.book, Crates, scan.summary)
     local o = W.EnsureOptions()
     table.sort(rows, function(a, b) return W.Compare(a, b, o.waylaidSortKey, o.waylaidSortAscending) end)
     UpdateHeaderSortIndicators()
 
     local now = GetServerTime and GetServerTime() or time()
-    statusLabel:SetText(W.AgeText(scan.t, now, AltArmy.SummaryData.GetTimeString))
+    statusLabel:SetText(W.AgeText(scan.t, now, AltArmy.SummaryData.GetTimeString, scan.summary))
     local level = W.AgeLevel(scan.t, now)
     local ageColor = level == "old" and Theme.COLORS.warningBlocking
         or level == "stale" and Theme.COLORS.warningCaution
@@ -438,7 +434,7 @@ local function RefreshWaylaid()
         c.bundle:SetText(rd.bundleText)
         if rd.bundle then
             c.bundle:SetTextColor(1, 1, 1, 1)
-            c.bundleCost:SetText(Money(rd.bundle.cost) .. (rd.bundle.approx and "*" or ""))
+            c.bundleCost:SetText(Money(rd.bundle.cost))
         else
             c.bundle:SetTextColor(0.6, 0.6, 0.6, 1)
             c.bundleCost:SetText("—")

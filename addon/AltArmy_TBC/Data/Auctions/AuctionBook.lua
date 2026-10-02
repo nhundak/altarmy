@@ -14,6 +14,12 @@
 --             rounded up. Past MAX_LEVELS levels the rest is one tail level, "~<its cheapest unit
 --             price>*<units>*<listings>".
 -- Items are keyed by item id alone: gear with a random suffix shares its base item's ladder.
+--
+-- `summaries` (beside `scans`) holds summary scans: the client's browse results, one row per item with its
+-- cheapest unit price and units listed. One per realm and faction, newest only, pruned by MAX_AGE:
+--   { t, realm, faction, summary = true, listings, items }   `listings`: items read; `items` as above, one
+--   level per item ("<cheapest unit price>*<units>*1"). Kept apart so altarmy-profit, which reads `scans`
+--   only, never sees one and a summary never displaces a full scan.
 -- altarmy-profit's book.py parses this; spec/fixtures/auction_book_v1.lua is the golden copy both test.
 -- luacheck: globals AltArmyTBC_AuctionBook
 
@@ -56,6 +62,27 @@ function B.Add(tally, itemID, count, buyout)
     end
     level.units = level.units + count
     level.listings = level.listings + 1
+end
+
+--- Add one summary row: `itemID` listed from `minPrice` copper a unit, `quantity` units in all. Rows of one
+--- item id merge at the cheapest price with their units summed.
+function B.AddSummary(tally, itemID, minPrice, quantity)
+    if type(itemID) ~= "number" or itemID <= 0 then return end
+    if type(minPrice) ~= "number" or minPrice <= 0 then return end
+    if type(quantity) ~= "number" or quantity <= 0 then return end
+    local levels = tally.items[itemID]
+    local price, level
+    if levels then
+        price, level = next(levels)
+        levels[price] = nil
+        level.units = level.units + quantity
+        price = math.min(price, minPrice)
+    else
+        tally.listings = tally.listings + 1
+        levels, price, level = {}, minPrice, { units = quantity, listings = 1 }
+        tally.items[itemID] = levels
+    end
+    levels[price] = level
 end
 
 local function encodeItem(itemID, levels)
@@ -131,6 +158,28 @@ function B.Latest(realm, faction)
     return nil
 end
 
+--- The newest summary scan of `realm`'s `faction` auction house, or nil.
+function B.LatestSummary(realm, faction)
+    local log = AltArmyTBC_AuctionBook
+    if type(log) ~= "table" or type(log.summaries) ~= "table" then return nil end
+    for i = #log.summaries, 1, -1 do
+        local s = log.summaries[i]
+        if type(s) == "table" and s.realm == realm and s.faction == faction then
+            return s
+        end
+    end
+    return nil
+end
+
+--- The newer of the full scan (Latest) and the summary (LatestSummary), or nil.
+function B.Newest(realm, faction)
+    local full, summary = B.Latest(realm, faction), B.LatestSummary(realm, faction)
+    if full and summary then
+        return (summary.t or 0) > (full.t or 0) and summary or full
+    end
+    return full or summary
+end
+
 --- The log, created on first use.
 function B.GetLog()
     local log = AltArmyTBC_AuctionBook
@@ -160,12 +209,27 @@ function B.Store(scan, now)
     log.scans = keep
 end
 
---- Forget every stored scan (all realms and factions); returns how many there were. The client's cooldown
+--- Keep `scan` as its realm and faction's summary (replacing the last one), dropping any past MAX_AGE.
+function B.StoreSummary(scan, now)
+    local log = B.GetLog()
+    local keep = {}
+    for _, s in ipairs(type(log.summaries) == "table" and log.summaries or {}) do
+        if type(s) == "table" and not (s.realm == scan.realm and s.faction == scan.faction)
+            and now - (s.t or 0) <= B.MAX_AGE then
+            keep[#keep + 1] = s
+        end
+    end
+    keep[#keep + 1] = scan
+    log.summaries = keep
+end
+
+--- Forget every stored scan and summary (all realms and factions); returns how many there were. The client's cooldown
 --- (lastRequest) is kept: it is the client's state, not ours.
 function B.Clear()
     local log = B.GetLog()
-    local count = #log.scans
+    local count = #log.scans + (type(log.summaries) == "table" and #log.summaries or 0)
     log.scans = {}
+    log.summaries = nil
     return count
 end
 

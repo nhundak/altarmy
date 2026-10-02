@@ -32,6 +32,22 @@ describe("AuctionScanButton", function()
         assert.same({ "Scanning 45%", false }, { Btn.Label("reading", 0.456, 900) })
     end)
 
+    it("offers a summary scan during the cooldown when the client has one", function()
+        assert.same({ "Alt Army scan", true }, { Btn.Label("idle", 0, 899, true) })
+    end)
+
+    it("says it is scanning when a summary has no progress to show", function()
+        assert.same({ "Scanning...", false }, { Btn.Label("reading", nil, 0, true) })
+    end)
+
+    it("says in its tooltip which scan a click runs", function()
+        assert.truthy(Btn.TooltipText("full", 0):find("full scan"))
+        local text = Btn.TooltipText("summary", 125)
+        assert.truthy(text:find("summary scan"))
+        assert.truthy(text:find("2:05"))
+        assert.is_nil(Btn.TooltipText("summary", 0):find("allowed in"))
+    end)
+
     it("opens the options on the automatic scan checkbox", function()
         local opened
         AltArmy.OpenInterfaceOptions = function(tab, opts) opened = { tab, opts.flash } end
