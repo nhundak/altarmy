@@ -777,18 +777,7 @@ local backBtnLabel = backBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.headin
 backBtnLabel:SetPoint("CENTER", backBtn, "CENTER", 0, 0)
 backBtnLabel:SetText("Back")
 
--- CraftLib recommendation sits at the right end of the Back / character title line.
-local craftLibRecommendBtn = CreateFrame("Button", nil, header)
-craftLibRecommendBtn:SetHeight(22)
-craftLibRecommendBtn:SetPoint("RIGHT", header, "RIGHT", -2, 0)
-Theme.SkinButton(craftLibRecommendBtn, true)
-Theme.BindInteractableHover(craftLibRecommendBtn)
-local craftLibRecommendLabel = craftLibRecommendBtn:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
-craftLibRecommendLabel:SetPoint("CENTER", craftLibRecommendBtn, "CENTER", 0, 0)
-craftLibRecommendLabel:SetText("Recommended: CraftLib")
-craftLibRecommendBtn:Hide()
-
--- Right edge of the title line's free space (left of CraftLib when shown, else the header edge).
+-- Right edge of the title line's free space (the header edge).
 ME.recipeRightGuard = CreateFrame("Frame", nil, header)
 ME.recipeRightGuard:SetSize(1, 1)
 
@@ -819,15 +808,11 @@ whisperBtn:SetScript("OnClick", function(self)
     end
 end)
 
---- Right edge reserved for the CraftLib recommendation (or the header edge when it is hidden).
+--- Right edge of the title line's free space.
 local function recipeTitleRightGuard()
     local guard = ME.recipeRightGuard
     guard:ClearAllPoints()
-    if craftLibRecommendBtn:IsShown() then
-        guard:SetPoint("RIGHT", craftLibRecommendBtn, "LEFT", 0, 0)
-    else
-        guard:SetPoint("RIGHT", header, "RIGHT", 6, 0)
-    end
+    guard:SetPoint("RIGHT", header, "RIGHT", 6, 0)
     return guard, "LEFT"
 end
 
@@ -924,44 +909,9 @@ profTabStrip:Hide()
 ME.useProfIconTabs = (AltArmy.NativeUI and AltArmy.NativeUI.GetCaps().iconTabs) and true or false
 ME.profIconTabSets = {}
 
-local function isCraftLibAvailable()
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
-    return RCL and RCL.IsAvailable and RCL.IsAvailable() or false
-end
-
-local craftLibRecommendPanel = Theme.CreateCraftLibInstallCallout(listView, {
-    introText = "Install the CraftLib addon to see:",
-    bulletLines = {
-        "Recipe skill requirements",
-        "Color coded difficulty",
-        "All recipe icons",
-    },
-})
-craftLibRecommendPanel:SetWidth(300)
-craftLibRecommendPanel:SetPoint("TOPRIGHT", craftLibRecommendBtn, "BOTTOMRIGHT", 0, -4)
-craftLibRecommendPanel:SetFrameLevel((listView:GetFrameLevel() or 0) + 50)
-craftLibRecommendPanel:Hide()
-
-craftLibRecommendBtn:SetScript("OnClick", function()
-    craftLibRecommendPanel:SetShown(not craftLibRecommendPanel:IsShown())
-end)
-
-local function layoutCraftLibRecommendButton()
-    if not craftLibRecommendBtn:IsShown() then
-        return
-    end
-    local textWidth = craftLibRecommendLabel:GetStringWidth() or 120
-    craftLibRecommendBtn:SetWidth(math.max(150, textWidth + 16))
-end
-
-local function updateCraftLibRecommendUi()
-    local available = isCraftLibAvailable()
-    craftLibRecommendBtn:SetShown(not available)
-    if available then
-        craftLibRecommendPanel:Hide()
-    else
-        layoutCraftLibRecommendButton()
-    end
+local function isRecipeDataAvailable()
+    local RI = AltArmy and AltArmy.RecipeInfo
+    return RI and RI.IsAvailable and RI.IsAvailable() or false
 end
 
 local function layoutRecipeRowColumns(row, showSkillCol)
@@ -1022,8 +972,6 @@ local function setListHeaderVisible(visible)
         updateGuildHeaderForListMode()
         recipeSearchEdit:Hide()
         whisperBtn:Hide()
-        craftLibRecommendBtn:Hide()
-        craftLibRecommendPanel:Hide()
         if ME.hideProfIconTabs then ME.hideProfIconTabs() end
         anchorRecipeTitleTo(select(1, recipeTitleRightGuard()))
     else
@@ -4070,13 +4018,6 @@ layoutRecipeView = function(entry)
         selectedProfIndex = 1
     end
 
-    -- CraftLib state first: it decides where the title / Whisper line ends.
-    if #profs > 0 then
-        updateCraftLibRecommendUi()
-    else
-        craftLibRecommendBtn:Hide()
-        craftLibRecommendPanel:Hide()
-    end
     updateWhisperButton(entry)
 
     noProfText:Hide()
@@ -4186,7 +4127,7 @@ layoutRecipeView = function(entry)
     local filteredRecipes = GTD.FilterRecipesBySearch(allRecipes, recipeSearchText, function(recipe)
         return select(1, resolveRecipeDisplay(recipe))
     end)
-    local showSkillCol = isCraftLibAvailable()
+    local showSkillCol = isRecipeDataAvailable()
     if not showSkillCol and recipeSortKey == "skill" then
         recipeSortKey = "recipe"
         recipeSortAscending = true
@@ -4223,9 +4164,9 @@ layoutRecipeView = function(entry)
         local highlightedName = GTD.FormatTextWithSearchHighlight(recipeName, nil, recipeSearchText)
         row.label:SetText(("|T%s:0|t %s"):format(iconPath, highlightedName))
         if showSkillCol then
-            local RCL = AltArmy and AltArmy.RecipeCraftLib
-            if RCL and RCL.FormatSkillCell then
-                row.skillCell:SetText(RCL.FormatSkillCell(
+            local RI = AltArmy and AltArmy.RecipeInfo
+            if RI and RI.FormatSkillCell then
+                row.skillCell:SetText(RI.FormatSkillCell(
                     enriched.recipeSkillRequired, enriched.skillRank, enriched.difficulty))
             else
                 row.skillCell:SetText(GTD.FormatRecipeSkillCell(recipe, profName, skillRank))
@@ -4275,8 +4216,6 @@ showGuildList = function()
     emptyMsgRegion:Hide()
     profTabStrip:Hide()
     ME.hideProfIconTabs()
-    craftLibRecommendBtn:Hide()
-    craftLibRecommendPanel:Hide()
     updateListHeaderFade()
     if ME.syncListFooter then ME.syncListFooter() end
 end
@@ -4294,7 +4233,7 @@ showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredR
         selectedProfIndex = Nav.FindProfessionIndex(
             GTD.GetCraftingProfessions(entry), preferredProfKey, preferredProfName)
     end
-    recipeSortKey, recipeSortAscending = GTD.GetDefaultRecipeSort(isCraftLibAvailable())
+    recipeSortKey, recipeSortAscending = GTD.GetDefaultRecipeSort(isRecipeDataAvailable())
     -- Quiet clear so OnTextChanged does not layout/wipe focus mid-open.
     clearRecipeSearchQuiet()
     if preferredRecipeID then

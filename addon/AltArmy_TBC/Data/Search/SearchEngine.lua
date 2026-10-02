@@ -56,8 +56,8 @@ function SE.SortItemResults(list, sortKey, ascending)
     return eng().SortItemResults(list, sortKey, ascending)
 end
 
-function SE.SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
-    return eng().SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
+function SE.SortRecipeResults(list, sortKey, ascending, recipeDataAvailable)
+    return eng().SortRecipeResults(list, sortKey, ascending, recipeDataAvailable)
 end
 
 function SE.CollapseGuildRecipeRows(sortedList, expandedSet, rosterByName)

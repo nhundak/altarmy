@@ -184,9 +184,9 @@ function SS.ResolveProfessionKey(professionName)
         end
         return cached
     end
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
-    if RCL and RCL.IsAvailable and RCL.IsAvailable() and RCL.ResolveProfessionKey then
-        local key = RCL.ResolveProfessionKey(professionName)
+    local RI = AltArmy and AltArmy.RecipeInfo
+    if RI and RI.ResolveProfessionKey then
+        local key = RI.ResolveProfessionKey(professionName)
         if key then
             professionKeyCache[professionName] = key
             return key

@@ -540,36 +540,9 @@ debugClearManualGroupsHint:SetJustifyH("LEFT")
 debugClearManualGroupsHint:SetText(
     "Deletes every local manual main/alt grouping (user and note-accepted). Does not affect shared Alt Army data.")
 
-local debugPretendCraftLibRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
-    point = "TOPLEFT",
-    relativeTo = debugClearManualGroupsHint,
-    relativePoint = "BOTTOMLEFT",
-    x = 0,
-    y = -16,
-    text = "Pretend Craftlib isn't installed",
-    fullWidthHover = true,
-    onClick = function(checked)
-        if AltArmy.Debug and AltArmy.Debug.SetPretendCraftLibNotInstalled then
-            AltArmy.Debug.SetPretendCraftLibNotInstalled(checked)
-        end
-        if AltArmy.Debug and AltArmy.Debug.RefreshCraftLibDependentUi then
-            AltArmy.Debug.RefreshCraftLibDependentUi()
-        end
-    end,
-})
-panel.debugPretendCraftLibCheckbox = debugPretendCraftLibRow.check
-
-local debugPretendCraftLibHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
-debugPretendCraftLibHint:SetPoint("TOPLEFT", debugPretendCraftLibRow, "BOTTOMLEFT", 0, -8)
-debugPretendCraftLibHint:SetWidth(520)
-debugPretendCraftLibHint:SetJustifyH("LEFT")
-debugPretendCraftLibHint:SetText(
-    "Hides CraftLib-only search filters and guild recipe skill columns even when CraftLib is loaded."
-    .. " Toggle with /altarmy craftlib toggle.")
-
 local debugShowZygorMissingRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
     point = "TOPLEFT",
-    relativeTo = debugPretendCraftLibHint,
+    relativeTo = debugClearManualGroupsHint,
     relativePoint = "BOTTOMLEFT",
     x = 0,
     y = -16,
@@ -634,9 +607,6 @@ function RefreshDebugCheckboxes()
     end
     if panel.debugGuildShareVerboseCheckbox then
         panel.debugGuildShareVerboseCheckbox:SetChecked(d.guildShareVerbose == true)
-    end
-    if panel.debugPretendCraftLibCheckbox then
-        panel.debugPretendCraftLibCheckbox:SetChecked(d.pretendCraftLibNotInstalled == true)
     end
     if panel.debugShowZygorMissingCheckbox then
         panel.debugShowZygorMissingCheckbox:SetChecked(d.showZygorMissingGuides == true)
@@ -2380,30 +2350,6 @@ SlashCmdList.ALTARMY = function(msg)
             else
                 D.NotifyChat("Test injection failed (" .. tostring(reason) .. ").")
             end
-        end
-        return
-    end
-    if lower == "craftlib toggle" then
-        local D = AltArmy and AltArmy.Debug
-        if not D or not D.TogglePretendCraftLibNotInstalled then
-            if D and D.NotifyChat then
-                D.NotifyChat("CraftLib pretend mode is unavailable.")
-            end
-            return
-        end
-        local on = D.TogglePretendCraftLibNotInstalled()
-        if D.NotifyChat then
-            if on then
-                D.NotifyChat("Pretending CraftLib is not installed.")
-            else
-                D.NotifyChat("CraftLib pretend mode off.")
-            end
-        end
-        if panel.RefreshDebugCheckboxes then
-            panel.RefreshDebugCheckboxes()
-        end
-        if D.RefreshCraftLibDependentUi then
-            D.RefreshCraftLibDependentUi()
         end
         return
     end

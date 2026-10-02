@@ -18,6 +18,7 @@ describe("DataStoreProfessions", function()
     require("DataStoreItemSpellCompat")
     require("CooldownData")
     require("DataStoreProfessions")
+    require("RecipeInfo")
     DS = AltArmy.DataStore
   end)
 
@@ -1260,85 +1261,80 @@ describe("DataStoreProfessions", function()
       assert.are.equal(0, deferredScanCalls)
     end)
 
-    it("with CraftLib stores recipe id for guild share and marks only that profession stale", function()
-      local broadcastCalls = 0
-      AltArmy.GuildShareComm.ScheduleBroadcast = function()
-        broadcastCalls = broadcastCalls + 1
-      end
-      local savedRCL = AltArmy.RecipeCraftLib
-      AltArmy.RecipeCraftLib = {
-        IsAvailable = function() return true end,
-        FindRecipeLearnInfo = function(spellId, _name)
-          if spellId == 18560 then
-            return { professionName = "Tailoring", recipeID = 18560, resultItemID = 14342 }
-          end
-          return nil
-        end,
-      }
-      local char = DS:_GetCurrentCharTable()
-      char.Professions = {
-        Alchemy = { rank = 300, maxRank = 375, Recipes = { [11449] = { color = 1 } } },
-        Tailoring = { rank = 375, maxRank = 375, Recipes = { [1] = true } },
-      }
-      DS:OnNewRecipeLearned(18560)
-      AltArmy.RecipeCraftLib = savedRCL
-      assert.are.same({
-        color = 0,
-        resultItemID = 14342,
-        primaryRecipeID = 18560,
-      }, char.Professions.Tailoring.Recipes[18560])
-      assert.is_true(char.professionsNeedingRecipeScan.Tailoring)
-      assert.is_nil(char.professionsNeedingRecipeScan.Alchemy)
-      assert.is_true(broadcastCalls >= 1)
-    end)
+    describe("with bundled recipe data", function()
+      local savedSpellInfo
+      local broadcastCalls
 
-    it("with CraftLib does not rebroadcast when recipe is already known", function()
-      local broadcastCalls = 0
-      AltArmy.GuildShareComm.ScheduleBroadcast = function()
-        broadcastCalls = broadcastCalls + 1
-      end
-      local savedRCL = AltArmy.RecipeCraftLib
-      AltArmy.RecipeCraftLib = {
-        IsAvailable = function() return true end,
-        FindRecipeLearnInfo = function(spellId)
-          if spellId == 18560 then
-            return { professionName = "Tailoring", recipeID = 18560, resultItemID = 14342 }
-          end
-          return nil
-        end,
-      }
-      local char = DS:_GetCurrentCharTable()
-      char.Professions = {
-        Tailoring = {
-          rank = 375,
-          maxRank = 375,
-          Recipes = {
-            [18560] = { color = 2, resultItemID = 14342, primaryRecipeID = 18560 },
+      before_each(function()
+        savedSpellInfo = _G.GetSpellInfo
+        _G.GetSpellInfo = function(id)
+          local names = { [3908] = "Tailoring", [2259] = "Alchemy", [18560] = "Mooncloth" }
+          return names[id]
+        end
+        broadcastCalls = 0
+        AltArmy.GuildShareComm.ScheduleBroadcast = function()
+          broadcastCalls = broadcastCalls + 1
+        end
+        AltArmy.RecipeData = {
+          recipes = { [18560] = { "tailoring", 14342, 250, 270, 290, "drop", 14526 } },
+        }
+        AltArmy.RecipeInfo.ClearCaches()
+      end)
+
+      after_each(function()
+        _G.GetSpellInfo = savedSpellInfo
+        AltArmy.RecipeData = nil
+        AltArmy.RecipeInfo.ClearCaches()
+      end)
+
+      it("stores the learned recipe with its difficulty color and keeps the profession fresh", function()
+        local char = DS:_GetCurrentCharTable()
+        char.Professions = {
+          Alchemy = { rank = 300, maxRank = 375, Recipes = { [11449] = { color = 1 } } },
+          Tailoring = { rank = 275, maxRank = 300, Recipes = { [1] = true } },
+        }
+        DS:OnNewRecipeLearned(18560)
+        assert.are.same({
+          color = 2, -- yellow at 275 (yellow 270, green 280)
+          resultItemID = 14342,
+          primaryRecipeID = 18560,
+        }, char.Professions.Tailoring.Recipes[18560])
+        assert.is_nil(char.professionsNeedingRecipeScan)
+        assert.is_true(broadcastCalls >= 1)
+      end)
+
+      it("leaves an already known recipe alone without marking anything stale", function()
+        local char = DS:_GetCurrentCharTable()
+        char.Professions = {
+          Tailoring = {
+            rank = 300,
+            maxRank = 375,
+            Recipes = { [18560] = { color = 2, resultItemID = 14342, primaryRecipeID = 18560 } },
           },
-        },
-      }
-      DS:OnNewRecipeLearned(18560)
-      AltArmy.RecipeCraftLib = savedRCL
-      assert.are.equal(2, char.Professions.Tailoring.Recipes[18560].color)
-      assert.is_true(char.professionsNeedingRecipeScan.Tailoring)
-      assert.are.equal(0, broadcastCalls)
-    end)
+        }
+        DS:OnNewRecipeLearned(18560)
+        assert.are.equal(2, char.Professions.Tailoring.Recipes[18560].color)
+        assert.is_nil(char.professionsNeedingRecipeScan)
+        assert.are.equal(0, broadcastCalls)
+      end)
 
-    it("falls back to all craftable professions when CraftLib lookup misses", function()
-      local savedRCL = AltArmy.RecipeCraftLib
-      AltArmy.RecipeCraftLib = {
-        IsAvailable = function() return true end,
-        FindRecipeLearnInfo = function() return nil end,
-      }
-      local char = DS:_GetCurrentCharTable()
-      char.Professions = {
-        Alchemy = { rank = 300, maxRank = 375, Recipes = {} },
-        Tailoring = { rank = 375, maxRank = 375, Recipes = {} },
-      }
-      DS:OnNewRecipeLearned(999999)
-      AltArmy.RecipeCraftLib = savedRCL
-      assert.is_true(char.professionsNeedingRecipeScan.Alchemy)
-      assert.is_true(char.professionsNeedingRecipeScan.Tailoring)
+      it("falls back to all craftable professions when the recipe is unknown", function()
+        local char = DS:_GetCurrentCharTable()
+        char.Professions = {
+          Alchemy = { rank = 300, maxRank = 375, Recipes = {} },
+          Tailoring = { rank = 375, maxRank = 375, Recipes = {} },
+        }
+        DS:OnNewRecipeLearned(999999)
+        assert.is_true(char.professionsNeedingRecipeScan.Alchemy)
+        assert.is_true(char.professionsNeedingRecipeScan.Tailoring)
+      end)
+
+      it("marks the whole set stale when the character has no row for the recipe's profession", function()
+        local char = DS:_GetCurrentCharTable()
+        char.Professions = { Alchemy = { rank = 300, maxRank = 375, Recipes = {} } }
+        DS:OnNewRecipeLearned(18560)
+        assert.is_true(char.professionsNeedingRecipeScan.Alchemy)
+      end)
     end)
 
     it("ClearProfessionRecipesStale removes one profession and drops empty table", function()
@@ -1435,7 +1431,7 @@ describe("DataStoreProfessions", function()
       assert.is_true(char.professionsNeedingRecipeScan.Enchanting)
     end)
 
-    it("with CraftLib stores recipe id from learn chat for guild share", function()
+    it("stores the recipe named in learn chat and keeps the profession fresh", function()
       local broadcastCalls = 0
       AltArmy.GuildShareComm = {
         PROFESSION_BROADCAST_DEBOUNCE_SEC = 30,
@@ -1443,16 +1439,15 @@ describe("DataStoreProfessions", function()
           broadcastCalls = broadcastCalls + 1
         end,
       }
-      local savedRCL = AltArmy.RecipeCraftLib
-      AltArmy.RecipeCraftLib = {
-        IsAvailable = function() return true end,
-        FindRecipeLearnInfo = function(_spellId, name)
-          if name == "Major Healing Potion" then
-            return { professionName = "Alchemy", recipeID = 11452, resultItemID = 13446 }
-          end
-          return nil
-        end,
+      local savedSpellInfo = _G.GetSpellInfo
+      _G.GetSpellInfo = function(id)
+        local names = { [2259] = "Alchemy", [3908] = "Tailoring", [17556] = "Major Healing Potion" }
+        return names[id]
+      end
+      AltArmy.RecipeData = {
+        recipes = { [17556] = { "alchemy", 13446, 275, 290, 310, "trainer", false } },
       }
+      AltArmy.RecipeInfo.ClearCaches()
       local char = DS:_GetCurrentCharTable()
       char.Professions = {
         Alchemy = { rank = 300, maxRank = 375, Recipes = {} },
@@ -1460,15 +1455,16 @@ describe("DataStoreProfessions", function()
       }
       local ok = DS:OnProfessionLearnSystemMessage(
         "You have learned how to create a new item: Major Healing Potion.")
-      AltArmy.RecipeCraftLib = savedRCL
+      _G.GetSpellInfo = savedSpellInfo
+      AltArmy.RecipeData = nil
+      AltArmy.RecipeInfo.ClearCaches()
       assert.is_true(ok)
       assert.are.same({
-        color = 0,
+        color = 3, -- green at 300 (green 300, gray 310)
         resultItemID = 13446,
-        primaryRecipeID = 11452,
-      }, char.Professions.Alchemy.Recipes[11452])
-      assert.is_true(char.professionsNeedingRecipeScan.Alchemy)
-      assert.is_nil(char.professionsNeedingRecipeScan.Tailoring)
+        primaryRecipeID = 17556,
+      }, char.Professions.Alchemy.Recipes[17556])
+      assert.is_nil(char.professionsNeedingRecipeScan)
       assert.is_true(broadcastCalls >= 1)
     end)
 

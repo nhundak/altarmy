@@ -63,7 +63,7 @@ Compared against:
 ### 6) Recipe gap intelligence — not started
 
 - Unknown but learnable recipes; “who can learn now” vs skill gate.
-- Related: known-recipe Search + CraftLib difficulty for learned recipes.
+- Related: known-recipe Search + difficulty for learned recipes. The built-in recipe data (`Data/Recipes`) already lists every recipe with its required skill and sources, so the remaining work is the UI.
 
 ## Differentiator ideas
 

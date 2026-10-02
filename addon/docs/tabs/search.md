@@ -4,7 +4,7 @@ Toolbar Search mode: find items and recipes across characters (and optionally gu
 
 ## Purpose
 
-Locate items in bags, bank, and mail snapshots; find known recipes; filter by CraftLib skill/difficulty when CraftLib is present.
+Locate items in bags, bank, and mail snapshots; find known recipes; filter recipes by required skill, difficulty and source.
 
 ## Access
 
@@ -23,10 +23,10 @@ Locate items in bags, bank, and mail snapshots; find known recipes; filter by Cr
 ## Settings
 
 - Realm filter guidance (respects global realm filter).
-- Optional CraftLib filters: recipe level range, difficulty bands, source types.
+- Recipe filters (built-in recipe data): required skill range, difficulty bands, and sources (trainer, vendor, quest, drop, reputation, starter). A recipe with several sources stays while any of them is enabled.
 - Guildmate-shared recipes merged into recipe results when guild sharing data is available (presence / whisper helpers).
-- Specialist yield-bonus markers (alchemy / cloth) when CraftLib is available.
+- Specialist yield-bonus markers (alchemy / cloth).
 
 ## Data source
 
-Search index/engine over DataStore containers, mail, professions/recipes; guild recipes via guild-share receive store. Settings: `AltArmyTBC_SearchSettings`.
+Search index/engine over DataStore containers, mail, professions/recipes; guild recipes via guild-share receive store. Recipe skill, difficulty and source come from the built-in recipe data (`Data/Recipes`, see `AltArmy_TBC/Data/DESIGN.md`). Settings: `AltArmyTBC_SearchSettings`.

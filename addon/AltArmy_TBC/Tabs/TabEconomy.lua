@@ -58,9 +58,12 @@ local VIEW = {
         -- Forever's CharacterFrame Currency side-tab icon.
         { name = "currency", label = "Currency", icon = "Interface\\Icons\\INV_SideTab_Currency_c60" },
         { name = "waylaid", label = "Waylaid Crates", icon = "Interface\\Icons\\INV_Crate_01" },
-        { name = "supply", label = "Supply Chain", icon = "Interface\\Icons\\INV_Misc_Map_01" },
     },
 }
+UI.supplyEnabled = AltArmy.FeatureFlags and AltArmy.FeatureFlags.economySupplyChain and true or false
+if UI.supplyEnabled then
+    VIEW.defs[#VIEW.defs + 1] = { name = "supply", label = "Supply Chain", icon = "Interface\\Icons\\INV_Misc_Map_01" }
+end
 
 local function TotalColWidth()
     local w = UI.colWidths
@@ -94,10 +97,14 @@ currencyPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -Theme.TAB_SECTION_I
 local waylaidPanel = Theme.CreateMainContentPanel(frame)
 waylaidPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", Theme.TAB_SECTION_INSET, -Theme.TAB_SECTION_INSET)
 waylaidPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -Theme.TAB_SECTION_INSET, Theme.TAB_SECTION_INSET)
-local supplyPanel = Theme.CreateMainContentPanel(frame)
-supplyPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", Theme.TAB_SECTION_INSET, -Theme.TAB_SECTION_INSET)
-supplyPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -Theme.TAB_SECTION_INSET, Theme.TAB_SECTION_INSET)
-supplyPanel:Hide()
+-- Behind a feature flag: without the panel, Tabs/TabEconomySupplyChain.lua builds nothing.
+local supplyPanel
+if UI.supplyEnabled then
+    supplyPanel = Theme.CreateMainContentPanel(frame)
+    supplyPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", Theme.TAB_SECTION_INSET, -Theme.TAB_SECTION_INSET)
+    supplyPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -Theme.TAB_SECTION_INSET, Theme.TAB_SECTION_INSET)
+    supplyPanel:Hide()
+end
 waylaidPanel:Hide()
 frame.CurrencyView = currencyPanel
 frame.WaylaidView = waylaidPanel
@@ -430,7 +437,7 @@ end
 frame.RefreshWaylaid = RefreshWaylaid
 
 local function SetActiveEconomyView(which)
-    if not W.VIEWS[which] then
+    if not W.VIEWS[which] or (which == "supply" and not supplyPanel) then
         which = "currency"
     end
     VIEW.active = which
@@ -440,7 +447,7 @@ local function SetActiveEconomyView(which)
     end
     currencyPanel:SetShown(which == "currency")
     waylaidPanel:SetShown(which == "waylaid")
-    supplyPanel:SetShown(which == "supply")
+    if supplyPanel then supplyPanel:SetShown(which == "supply") end
     if VIEW.tabs then
         VIEW.tabs:SetSelected(which)
     end

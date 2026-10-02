@@ -334,9 +334,9 @@ local function resetRecipeCollapseExpanded()
     recipeCollapseState.expandedIDs = {}
 end
 
-local function isCraftLibAvailable()
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
-    return RCL and RCL.IsAvailable and RCL.IsAvailable() or false
+local function isRecipeDataAvailable()
+    local RI = AltArmy and AltArmy.RecipeInfo
+    return RI and RI.IsAvailable and RI.IsAvailable() or false
 end
 
 local function applySectionSorts()
@@ -351,7 +351,7 @@ local function applySectionSorts()
             merged,
             sectionSort.recipes.key,
             sectionSort.recipes.ascending,
-            isCraftLibAvailable())
+            isRecipeDataAvailable())
         if uiTimings and SD.MarkUiTiming then
             SD.MarkUiTiming(uiTimings, "sort")
         end
@@ -989,7 +989,7 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
     if rowOpts.scrollDebug and SD.NoteScrollRecipePaint then
         SD.NoteScrollRecipePaint(rowOpts.scrollDebug, entry)
     end
-    -- Viewport-only CraftLib enrich (search defers this unless filters need it).
+    -- Viewport-only recipe data enrich (search defers this unless filters need it).
     if SD._EnrichRecipeEntry then
         SD._EnrichRecipeEntry(entry)
     end
@@ -1058,9 +1058,9 @@ local function fillRecipeRow(row, entry, showRealmSuffix, rowOpts)
     end
     local skillText = entry._aaSkillCellText
     if not skillText then
-        local RCL = AltArmy and AltArmy.RecipeCraftLib
-        if RCL and RCL.FormatSkillCell then
-            skillText = RCL.FormatSkillCell(entry.recipeSkillRequired, entry.skillRank, entry.difficulty)
+        local RI = AltArmy and AltArmy.RecipeInfo
+        if RI and RI.FormatSkillCell then
+            skillText = RI.FormatSkillCell(entry.recipeSkillRequired, entry.skillRank, entry.difficulty)
         else
             skillText = tostring(entry.skillRank or 0)
         end

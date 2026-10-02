@@ -740,24 +740,24 @@ local function ApplyRecipeFilters(results)
     return results
 end
 
-local function NeedsCraftLibEnrichForFilters(settings)
+local function NeedsRecipeEnrichForFilters(settings)
     local SP = AltArmy.SearchPresent
-    if SP and SP.NeedsCraftLibEnrichForFilters then
-        return SP.NeedsCraftLibEnrichForFilters(settings)
+    if SP and SP.NeedsRecipeEnrichForFilters then
+        return SP.NeedsRecipeEnrichForFilters(settings)
     end
     return false
 end
 
 local function EnrichRecipeList(list)
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
-    if not RCL or not RCL.EnrichEntry then
+    local RI = AltArmy and AltArmy.RecipeInfo
+    if not RI or not RI.EnrichEntry then
         return list
     end
     for i = 1, #(list or {}) do
         local entry = list[i]
-        if entry and not entry._aaCraftEnriched then
-            RCL.EnrichEntry(entry)
-            entry._aaCraftEnriched = true
+        if entry and not entry._aaRecipeEnriched then
+            RI.EnrichEntry(entry)
+            entry._aaRecipeEnriched = true
             local RYB = AltArmy and AltArmy.RecipeYieldBonus
             if RYB and RYB.StampEntry then
                 RYB.StampEntry(entry)
@@ -784,7 +784,7 @@ local function searchRecipesInternal(query, ensureIndex, memo, logKind)
     end
     local SS = AltArmy and AltArmy.SearchSettings
     local settings = SS and SS.GetSearchSettings and SS.GetSearchSettings() or nil
-    if NeedsCraftLibEnrichForFilters(settings) then
+    if NeedsRecipeEnrichForFilters(settings) then
         EnrichRecipeList(results)
     end
     Prof.mark(timings, "enrich")
@@ -840,8 +840,8 @@ function SD.SortItemResults(list, sortKey, ascending)
     return AltArmy.SearchPresent.SortItemResults(list, sortKey, ascending)
 end
 
-function SD.SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
-    return AltArmy.SearchPresent.SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
+function SD.SortRecipeResults(list, sortKey, ascending, recipeDataAvailable)
+    return AltArmy.SearchPresent.SortRecipeResults(list, sortKey, ascending, recipeDataAvailable)
 end
 
 function SD.CollapseGuildRecipeRows(sortedList, expandedSet, rosterByName)
@@ -849,14 +849,14 @@ function SD.CollapseGuildRecipeRows(sortedList, expandedSet, rosterByName)
 end
 
 function SD.EnrichRecipeEntry(entry)
-    if not entry or entry._aaCraftEnriched then
+    if not entry or entry._aaRecipeEnriched then
         return entry
     end
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
-    if RCL and RCL.EnrichEntry then
-        RCL.EnrichEntry(entry)
+    local RI = AltArmy and AltArmy.RecipeInfo
+    if RI and RI.EnrichEntry then
+        RI.EnrichEntry(entry)
     end
-    entry._aaCraftEnriched = true
+    entry._aaRecipeEnriched = true
     local RYB = AltArmy and AltArmy.RecipeYieldBonus
     if RYB and RYB.StampEntry then
         RYB.StampEntry(entry)
@@ -1041,10 +1041,10 @@ function SD._ApplyRecipeSearchFilters(results, settings)
     return results
 end
 
-function SD._NeedsCraftLibEnrichForFilters(settings)
+function SD._NeedsRecipeEnrichForFilters(settings)
     local SP = AltArmy.SearchPresent
-    if SP and SP.NeedsCraftLibEnrichForFilters then
-        return SP.NeedsCraftLibEnrichForFilters(settings)
+    if SP and SP.NeedsRecipeEnrichForFilters then
+        return SP.NeedsRecipeEnrichForFilters(settings)
     end
     return false
 end

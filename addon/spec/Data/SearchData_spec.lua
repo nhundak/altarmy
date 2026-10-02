@@ -23,7 +23,7 @@ describe("SearchData", function()
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     require("DataStore")
     require("DataStoreProfessions")
-    require("RecipeCraftLib")
+    require("RecipeInfo")
     require("SearchSettings")
     require("SearchIndex")
     require("SearchQuery")
@@ -1109,14 +1109,14 @@ describe("SearchData", function()
 
   describe("_FilterRecipesByLevel", function()
     it("keeps rows in range and rows with nil recipeSkillRequired", function()
-      _G.CraftLib = { IsReady = function() return true end }
+      AltArmy.RecipeData = { recipes = {} }
       local rows = {
         { recipeID = 1, recipeSkillRequired = 200 },
         { recipeID = 2, recipeSkillRequired = 260 },
         { recipeID = 3, recipeSkillRequired = nil },
       }
       local filtered = SD._FilterRecipesByLevel(rows, { min = 200, max = 250 })
-      _G.CraftLib = nil
+      AltArmy.RecipeData = nil
       assert.are.equal(2, #filtered)
       assert.are.equal(1, filtered[1].recipeID)
       assert.are.equal(3, filtered[2].recipeID)
@@ -1131,34 +1131,18 @@ describe("SearchData", function()
 
   describe("_EnrichRecipeEntry", function()
     before_each(function()
-      _G.CraftLib = nil
-      if AltArmy.RecipeCraftLib and AltArmy.RecipeCraftLib.ClearCaches then
-        AltArmy.RecipeCraftLib.ClearCaches()
+      AltArmy.RecipeData = nil
+      if AltArmy.RecipeInfo and AltArmy.RecipeInfo.ClearCaches then
+        AltArmy.RecipeInfo.ClearCaches()
       end
     end)
 
-    it("adds recipeSkillRequired and difficulty when CraftLib resolves recipe", function()
-      _G.GetSpellInfo = function() return "Alchemy" end
-      _G.CraftLib = {
-        IsReady = function() return true end,
-        GetProfessions = function()
-          return { alchemy = { id = 1, name = "Alchemy", recipes = {} } }
-        end,
-        GetRecipeBySpellId = function(_, profKey, spellId)
-          if profKey == "alchemy" and spellId == 111 then
-            return {
-              id = 111,
-              skillRequired = 180,
-              skillRange = { yellow = 195, green = 210, gray = 225 },
-            }
-          end
-          return nil
-        end,
-        GetRecipeDifficulty = function(_, recipe, skill)
-          if skill < recipe.skillRange.yellow then return "orange" end
-          return "gray"
-        end,
-      }
+    it("adds recipeSkillRequired and difficulty from the bundled recipe data", function()
+      _G.GetSpellInfo = function(id)
+        if id == 2259 then return "Alchemy" end
+        return nil
+      end
+      AltArmy.RecipeData = { recipes = { [111] = { "alchemy", 5, 180, 195, 225, "trainer", false } } }
       local entry = {
         professionName = "Alchemy",
         recipeID = 111,
@@ -1169,10 +1153,10 @@ describe("SearchData", function()
       assert.are.equal("gray", entry.difficulty)
     end)
 
-    it("is idempotent and skips CraftLib on second call", function()
+    it("is idempotent and skips the recipe lookup on second call", function()
       local calls = 0
-      local saved = AltArmy.RecipeCraftLib
-      AltArmy.RecipeCraftLib = {
+      local saved = AltArmy.RecipeInfo
+      AltArmy.RecipeInfo = {
         IsAvailable = function() return true end,
         EnrichEntry = function(entry)
           calls = calls + 1
@@ -1184,7 +1168,7 @@ describe("SearchData", function()
       local entry = { recipeID = 1, professionName = "Alchemy", skillRank = 50 }
       SD._EnrichRecipeEntry(entry)
       SD._EnrichRecipeEntry(entry)
-      AltArmy.RecipeCraftLib = saved
+      AltArmy.RecipeInfo = saved
       assert.are.equal(1, calls)
       assert.are.equal(100, entry.recipeSkillRequired)
     end)
@@ -1219,6 +1203,52 @@ describe("SearchData", function()
       assert.is_truthy(entry._aaSkillCellText)
       assert.is_truthy(entry._aaSkillCellText:find("180", 1, true))
       assert.is_truthy(entry._aaDisplayCached)
+    end)
+
+    it("takes the crafted item's icon without the item cache (GetItemInfoInstant)", function()
+      _G.GetSpellInfo = function() return nil end
+      _G.GetItemInfo = function() return nil end -- item not cached yet
+      _G.GetItemInfoInstant = function(id)
+        if id == 32068 then
+          return 32068, "Consumable", "Elixir", "", "Interface\\Icons\\INV_Potion_158"
+        end
+        return nil
+      end
+      local entry = { professionName = "Alchemy", recipeID = 39639, resultItemID = 32068, name = "Elixir of Ironskin" }
+      SD.EnsureRecipeDisplayCache(entry)
+      _G.GetItemInfoInstant = nil
+      assert.are.equal("Interface\\Icons\\INV_Potion_158", entry._aaIconPath)
+    end)
+
+    it("falls back to the recipe spell's icon when the crafted item has none yet", function()
+      _G.GetSpellInfo = function(id)
+        if id == 39640 then return "Elixir of Ironskin", nil, "Interface\\Icons\\Trade_Alchemy" end
+        return nil
+      end
+      _G.GetItemInfo = function() return nil end
+      local entry = { professionName = "Alchemy", recipeID = 39640, resultItemID = 32069, name = "Elixir of Ironskin" }
+      SD.EnsureRecipeDisplayCache(entry)
+      assert.are.equal("Interface\\Icons\\Trade_Alchemy", entry._aaIconPath)
+    end)
+
+    it("retries the icon on a later paint instead of caching the question mark", function()
+      _G.GetSpellInfo = function() return nil end
+      local cached = false
+      _G.GetItemInfo = function(id)
+        if id == 32070 and cached then
+          return "Elixir", nil, nil, nil, nil, nil, nil, nil, nil, "Interface\\Icons\\INV_Potion_159"
+        end
+        return nil
+      end
+      local first = { professionName = "Alchemy", recipeID = 39641, resultItemID = 32070, name = "Elixir" }
+      SD.EnsureRecipeDisplayCache(first)
+      assert.are.equal("Interface\\Icons\\INV_Misc_QuestionMark", first._aaIconPath)
+      cached = true
+      SD.EnsureRecipeDisplayCache(first) -- same row repainted
+      assert.are.equal("Interface\\Icons\\INV_Potion_159", first._aaIconPath)
+      local second = { professionName = "Alchemy", recipeID = 39641, resultItemID = 32070, name = "Elixir" }
+      SD.EnsureRecipeDisplayCache(second)
+      assert.are.equal("Interface\\Icons\\INV_Potion_159", second._aaIconPath)
     end)
 
     it("uses entry.name instead of GetSpellInfo/GetItemInfo(recipeID) when present", function()
@@ -1311,11 +1341,11 @@ describe("SearchData", function()
         return "Alchemy"
       end
       _G.GetItemInfo = function() return nil end
-      local RCL = AltArmy.RecipeCraftLib
-      local oldAvailable = RCL.IsAvailable
-      local oldEnrich = RCL.EnrichEntry
-      RCL.IsAvailable = function() return true end
-      RCL.EnrichEntry = function(entry)
+      local RI = AltArmy.RecipeInfo
+      local oldAvailable = RI.IsAvailable
+      local oldEnrich = RI.EnrichEntry
+      RI.IsAvailable = function() return true end
+      RI.EnrichEntry = function(entry)
         if not entry then return entry end
         entry.recipeSkillRequired = 180
         if entry.skillRank == 100 then
@@ -1338,17 +1368,17 @@ describe("SearchData", function()
         },
       }
       SD.EnsureRecipeDisplayCache(entry)
-      RCL.IsAvailable = oldAvailable
-      RCL.EnrichEntry = oldEnrich
+      RI.IsAvailable = oldAvailable
+      RI.EnrichEntry = oldEnrich
       assert.are.equal("|cffff8040180|r/***", entry._aaSkillCellText)
     end)
 
-    it("uses * for collapsed rows when CraftLib is unavailable", function()
+    it("uses * for collapsed rows without recipe data", function()
       _G.GetSpellInfo = function() return "Alchemy" end
       _G.GetItemInfo = function() return nil end
-      local RCL = AltArmy.RecipeCraftLib
-      local oldAvailable = RCL.IsAvailable
-      RCL.IsAvailable = function() return false end
+      local RI = AltArmy.RecipeInfo
+      local oldAvailable = RI.IsAvailable
+      RI.IsAvailable = function() return false end
       local entry = {
         isGuildCollapsed = true,
         professionName = "Alchemy",
@@ -1359,7 +1389,7 @@ describe("SearchData", function()
         },
       }
       SD.EnsureRecipeDisplayCache(entry)
-      RCL.IsAvailable = oldAvailable
+      RI.IsAvailable = oldAvailable
       assert.are.equal("*", entry._aaSkillCellText)
     end)
   end)
@@ -1369,9 +1399,9 @@ describe("SearchData", function()
       if SD.StopRecipeResultPrewarm then
         SD.StopRecipeResultPrewarm()
       end
-      _G.CraftLib = nil
-      if AltArmy.RecipeCraftLib and AltArmy.RecipeCraftLib.ClearCaches then
-        AltArmy.RecipeCraftLib.ClearCaches()
+      AltArmy.RecipeData = nil
+      if AltArmy.RecipeInfo and AltArmy.RecipeInfo.ClearCaches then
+        AltArmy.RecipeInfo.ClearCaches()
       end
     end)
 
@@ -1380,7 +1410,7 @@ describe("SearchData", function()
       _G.GetSpellInfo = function(id)
         if id == 1 or id == 2 or id == 3 then
           spellCalls = spellCalls + 1
-          return "Spell" .. tostring(id)
+          return "Spell" .. tostring(id), nil, "Interface\\Icons\\Spell" .. tostring(id)
         end
         return "Alchemy"
       end
@@ -1399,7 +1429,7 @@ describe("SearchData", function()
         guard = guard + 1
       end
       assert.is_false(SD.IsRecipeResultPrewarmRunning())
-      assert.is_true(list[1]._aaCraftEnriched)
+      assert.is_true(list[1]._aaRecipeEnriched)
       assert.is_true(list[3]._aaDisplayCached)
       assert.is_truthy(list[2]._aaRecipeBaseName)
     end)
@@ -1408,8 +1438,8 @@ describe("SearchData", function()
   describe("deferred recipe enrich", function()
     local function stubCraftEnrichCounter()
       local calls = { n = 0 }
-      local saved = AltArmy.RecipeCraftLib
-      AltArmy.RecipeCraftLib = {
+      local saved = AltArmy.RecipeInfo
+      AltArmy.RecipeInfo = {
         IsAvailable = function() return true end,
         EnrichEntry = function(entry)
           calls.n = calls.n + 1
@@ -1422,24 +1452,24 @@ describe("SearchData", function()
       return calls, saved
     end
 
-    it("NeedsCraftLibEnrichForFilters is false when filters are defaults", function()
+    it("NeedsRecipeEnrichForFilters is false when filters are defaults", function()
       local SS = AltArmy.SearchSettings
       SS.ResetAllRecipeFilters()
-      assert.is_false(SD._NeedsCraftLibEnrichForFilters(SS.GetSearchSettings()))
+      assert.is_false(SD._NeedsRecipeEnrichForFilters(SS.GetSearchSettings()))
     end)
 
-    it("NeedsCraftLibEnrichForFilters is true when difficulty filter is narrowed", function()
+    it("NeedsRecipeEnrichForFilters is true when difficulty filter is narrowed", function()
       local SS = AltArmy.SearchSettings
       SS.ResetAllRecipeFilters()
       SS.SetDifficultyBandEnabled("gray", false)
-      assert.is_true(SD._NeedsCraftLibEnrichForFilters(SS.GetSearchSettings()))
+      assert.is_true(SD._NeedsRecipeEnrichForFilters(SS.GetSearchSettings()))
       SS.ResetAllRecipeFilters()
     end)
 
-    it("SearchRecipes skips bulk enrich when CraftLib filters are inactive", function()
+    it("SearchRecipes skips bulk enrich when recipe data filters are inactive", function()
       local SS = AltArmy.SearchSettings
       SS.ResetAllRecipeFilters()
-      local calls, savedRCL = stubCraftEnrichCounter()
+      local calls, savedRI = stubCraftEnrichCounter()
       local oldGetAll = SD.GetAllRecipes
       SD.GetAllRecipes = function()
         return {
@@ -1453,18 +1483,18 @@ describe("SearchData", function()
       local results = SD.SearchRecipes("potion")
       SD.GetAllRecipes = oldGetAll
       _G.GetSpellInfo = oldGetSpellInfo
-      AltArmy.RecipeCraftLib = savedRCL
+      AltArmy.RecipeInfo = savedRI
 
       assert.are.equal(2, #results)
       assert.are.equal(0, calls.n)
       assert.is_nil(results[1].recipeSkillRequired)
     end)
 
-    it("SearchRecipes bulk-enriches when a CraftLib filter is active", function()
+    it("SearchRecipes bulk-enriches when a recipe data filter is active", function()
       local SS = AltArmy.SearchSettings
       SS.ResetAllRecipeFilters()
       SS.SetDifficultyBandEnabled("gray", false)
-      local calls, savedRCL = stubCraftEnrichCounter()
+      local calls, savedRI = stubCraftEnrichCounter()
       local oldGetAll = SD.GetAllRecipes
       SD.GetAllRecipes = function()
         return {
@@ -1477,7 +1507,7 @@ describe("SearchData", function()
       local results = SD.SearchRecipes("potion")
       SD.GetAllRecipes = oldGetAll
       _G.GetSpellInfo = oldGetSpellInfo
-      AltArmy.RecipeCraftLib = savedRCL
+      AltArmy.RecipeInfo = savedRI
       SS.ResetAllRecipeFilters()
 
       assert.are.equal(1, #results)
@@ -1485,14 +1515,14 @@ describe("SearchData", function()
       assert.are.equal(150, results[1].recipeSkillRequired)
     end)
 
-    it("SortRecipeResults enriches before Skill sort when CraftLib is available", function()
-      local calls, savedRCL = stubCraftEnrichCounter()
+    it("SortRecipeResults enriches before Skill sort with recipe data", function()
+      local calls, savedRI = stubCraftEnrichCounter()
       local rows = {
         { characterName = "A", professionName = "Alchemy", recipeID = 1, skillRank = 300, recipeNameLower = "a" },
         { characterName = "B", professionName = "Alchemy", recipeID = 2, skillRank = 100, recipeNameLower = "b" },
       }
       local out = SD.SortRecipeResults(rows, "Skill", true, true)
-      AltArmy.RecipeCraftLib = savedRCL
+      AltArmy.RecipeInfo = savedRI
       assert.are.equal(2, calls.n)
       assert.are.equal(150, out[1].recipeSkillRequired)
     end)
@@ -1500,10 +1530,10 @@ describe("SearchData", function()
 
   describe("_FilterRecipesByDifficulty", function()
     before_each(function()
-      _G.CraftLib = { IsReady = function() return true end }
+      AltArmy.RecipeData = { recipes = {} }
     end)
     after_each(function()
-      _G.CraftLib = nil
+      AltArmy.RecipeData = nil
     end)
 
     it("keeps rows with enabled difficulty and unknown difficulty", function()
@@ -1523,10 +1553,10 @@ describe("SearchData", function()
 
   describe("_FilterRecipesBySource", function()
     before_each(function()
-      _G.CraftLib = { IsReady = function() return true end }
+      AltArmy.RecipeData = { recipes = {} }
     end)
     after_each(function()
-      _G.CraftLib = nil
+      AltArmy.RecipeData = nil
     end)
 
     it("keeps rows with enabled source and unknown source", function()
@@ -1588,10 +1618,10 @@ describe("SearchData", function()
 
   describe("_ApplyRecipeSearchFilters", function()
     before_each(function()
-      _G.CraftLib = { IsReady = function() return true end }
+      AltArmy.RecipeData = { recipes = {} }
     end)
     after_each(function()
-      _G.CraftLib = nil
+      AltArmy.RecipeData = nil
     end)
 
     it("applies difficulty and source filters together", function()
@@ -1617,8 +1647,8 @@ describe("SearchData", function()
       assert.are.equal(1, filtered[1].recipeID)
     end)
 
-    it("applies profession filter without CraftLib", function()
-      _G.CraftLib = nil
+    it("applies profession filter without recipe data", function()
+      AltArmy.RecipeData = nil
       local rows = {
         { recipeID = 1, professionName = "Alchemy" },
         { recipeID = 2, professionName = "Tailoring" },
@@ -1759,14 +1789,14 @@ describe("SearchData", function()
       assert.are.equal("Zebra", out[3].characterName)
     end)
 
-    it("sorts by required skill descending when CraftLib is available", function()
+    it("sorts by required skill descending with recipe data", function()
       local out = SD.SortRecipeResults(rows, "Skill", false, true)
       assert.are.equal(3, out[1].recipeID)
       assert.are.equal(2, out[2].recipeID)
       assert.are.equal(1, out[3].recipeID)
     end)
 
-    it("sorts by character skill rank when CraftLib is unavailable", function()
+    it("sorts by character skill rank without recipe data", function()
       local out = SD.SortRecipeResults(rows, "Skill", false, false)
       assert.are.equal(2, out[1].recipeID)
       assert.are.equal(1, out[2].recipeID)

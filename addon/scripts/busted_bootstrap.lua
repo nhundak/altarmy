@@ -13,6 +13,7 @@ local dataRoots = {
   "AltArmy_TBC/Data/Guild",
   "AltArmy_TBC/Data/Cooldowns",
   "AltArmy_TBC/Data/Integrations",
+  "AltArmy_TBC/Data/Recipes",
   "AltArmy_TBC/Data/Auctions",
   "AltArmy_TBC/Data/Economy",
 }

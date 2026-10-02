@@ -18,6 +18,32 @@ local function compatGetItemInfo(item)
     if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(item) end
 end
 
+local QUESTION_MARK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+
+--- Item icon without needing the item cache (GetItemInfo returns nothing until the client has seen the
+--- item); GetItemInfo is the last resort.
+local function resolveItemIcon(itemID)
+    if not itemID then return nil end
+    if GetItemIcon then
+        local icon = GetItemIcon(itemID)
+        if icon then return icon end
+    end
+    if C_Item and C_Item.GetItemIconByID then
+        local icon = C_Item.GetItemIconByID(itemID)
+        if icon then return icon end
+    end
+    local instant = GetItemInfoInstant or (C_Item and C_Item.GetItemInfoInstant)
+    if instant then
+        local _, _, _, _, icon = instant(itemID)
+        if icon then return icon end
+    end
+    if hasItemInfoApi() then
+        local _, _, _, _, _, _, _, _, _, icon = compatGetItemInfo(itemID)
+        if icon then return icon end
+    end
+    return nil
+end
+
 --- Legacy GetSpellInfo tuple (name, rank, icon); Forever has only C_Spell.GetSpellInfo.
 local function compatGetSpellInfo(spellID)
     if GetSpellInfo then return GetSpellInfo(spellID) end
@@ -378,9 +404,9 @@ local function enrich(entry)
 end
 
 --- Sort recipe search rows by column (`sortKey`: "Recipe", "Character", or "Skill").
---- Skill uses required recipe level when CraftLib is available, otherwise character skill rank.
+--- Skill uses required recipe level when recipe data is loaded, otherwise character skill rank.
 --- Recipe/Skill tie-breakers: own characters, then guildmates, then character name A-Z.
-function SP.SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
+function SP.SortRecipeResults(list, sortKey, ascending, recipeDataAvailable)
     if not list or #list < 2 or not sortKey then
         return list
     end
@@ -391,7 +417,7 @@ function SP.SortRecipeResults(list, sortKey, ascending, craftLibAvailable)
     for i = 1, #list do
         out[i] = list[i]
     end
-    local useRequiredSkill = sortKey == "Skill" and craftLibAvailable
+    local useRequiredSkill = sortKey == "Skill" and recipeDataAvailable
     if useRequiredSkill then
         for i = 1, #out do
             enrich(out[i])
@@ -557,7 +583,6 @@ function SP.EnsureRecipeDisplayCache(entry)
         iconPath = visual.iconPath
     else
         matchName = "Recipe " .. tostring(entry.recipeID or "?")
-        iconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
         -- entry.name is captured directly off the recipe at scan time (see
         -- DataStoreProfessions.lua) and is preferred: recipeID isn't reliably a spell ID
         -- (it can be an item ID depending on profession/client), so the GetSpellInfo/
@@ -572,9 +597,6 @@ function SP.EnsureRecipeDisplayCache(entry)
             if name and matchName == ("Recipe " .. tostring(entry.recipeID or "?")) then
                 matchName = name
             end
-            if spellIcon and not entry.resultItemID then
-                iconPath = spellIcon
-            end
         end
         if matchName == ("Recipe " .. tostring(entry.recipeID or "?")) and hasItemInfoApi() and entry.recipeID then
             local name = compatGetItemInfo(entry.recipeID)
@@ -582,36 +604,33 @@ function SP.EnsureRecipeDisplayCache(entry)
                 matchName = name
             end
         end
-        if entry.resultItemID and hasItemInfoApi() then
-            local _, _, _, _, _, _, _, _, _, resultIcon = compatGetItemInfo(entry.resultItemID)
-            if resultIcon then
-                iconPath = resultIcon
-            end
-        elseif not spellIcon and hasItemInfoApi() and entry.recipeID then
-            local _, _, _, _, _, _, _, _, _, icon = compatGetItemInfo(entry.recipeID)
-            if icon then
-                iconPath = icon
-            end
-        end
+        -- Crafted item's icon, else the recipe spell's, else (no spell) recipeID as an item.
+        iconPath = resolveItemIcon(entry.resultItemID)
+            or spellIcon
+            or (not entry.resultItemID and resolveItemIcon(entry.recipeID))
+            or QUESTION_MARK_ICON
         local profName = entry.professionName or ""
         namePrefix = ""
         if profName ~= "" then
             namePrefix = profName .. ": "
         end
         recipeName = namePrefix .. matchName
-        recipeVisualCache[cacheKey] = {
-            name = recipeName,
-            matchName = matchName,
-            namePrefix = namePrefix,
-            iconPath = iconPath,
-        }
+        -- No icon yet (item and spell data not loaded): leave it uncached so a later paint retries.
+        if iconPath ~= QUESTION_MARK_ICON then
+            recipeVisualCache[cacheKey] = {
+                name = recipeName,
+                matchName = matchName,
+                namePrefix = namePrefix,
+                iconPath = iconPath,
+            }
+        end
     end
     local skillText
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
+    local RI = AltArmy and AltArmy.RecipeInfo
     if entry.isGuildCollapsed then
         skillText = "*"
-        if RCL and RCL.IsAvailable and RCL.IsAvailable()
-            and RCL.FormatCollapsedSkillCell and RCL.PickHardestDifficulty then
+        if RI and RI.IsAvailable and RI.IsAvailable()
+            and RI.FormatCollapsedSkillCell and RI.PickHardestDifficulty then
             -- Required skill is recipe-level; difficulty varies by each guildmate's skillRank.
             enrich(entry)
             local difficulties = {}
@@ -631,10 +650,10 @@ function SP.EnsureRecipeDisplayCache(entry)
                     end
                 end
             end
-            skillText = RCL.FormatCollapsedSkillCell(req, RCL.PickHardestDifficulty(difficulties))
+            skillText = RI.FormatCollapsedSkillCell(req, RI.PickHardestDifficulty(difficulties))
         end
-    elseif RCL and RCL.FormatSkillCell then
-        skillText = RCL.FormatSkillCell(entry.recipeSkillRequired, entry.skillRank, entry.difficulty)
+    elseif RI and RI.FormatSkillCell then
+        skillText = RI.FormatSkillCell(entry.recipeSkillRequired, entry.skillRank, entry.difficulty)
     else
         skillText = tostring(entry.skillRank or 0)
     end
@@ -643,7 +662,7 @@ function SP.EnsureRecipeDisplayCache(entry)
     entry._aaRecipeNamePrefix = namePrefix or ""
     entry._aaIconPath = iconPath
     entry._aaSkillCellText = skillText
-    entry._aaDisplayCached = true
+    entry._aaDisplayCached = iconPath ~= QUESTION_MARK_ICON
     return entry
 end
 
@@ -671,9 +690,9 @@ function SP.FormatHighlightedRecipeName(entry, query, highlightFn)
     return (prefix or "") .. highlighted
 end
 
---- True when search settings require CraftLib fields on every hit (level/difficulty/source).
+--- True when search settings require recipe data fields on every hit (level/difficulty/source).
 --- Profession filter does not need enrichment.
-function SP.NeedsCraftLibEnrichForFilters(settings)
+function SP.NeedsRecipeEnrichForFilters(settings)
     if not settings then
         return false
     end
@@ -693,9 +712,9 @@ function SP.NeedsCraftLibEnrichForFilters(settings)
     return false
 end
 
-local function CraftLibFiltersAvailable()
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
-    return RCL and RCL.IsAvailable and RCL.IsAvailable()
+local function RecipeFiltersAvailable()
+    local RI = AltArmy and AltArmy.RecipeInfo
+    return RI and RI.IsAvailable and RI.IsAvailable()
 end
 
 local function FilterRecipesByLevel(results, filter)
@@ -706,8 +725,7 @@ local function FilterRecipesByLevel(results, filter)
     if SS and SS.IsRecipeLevelFilterActive and not SS.IsRecipeLevelFilterActive(filter) then
         return results
     end
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
-    if not RCL or not RCL.IsAvailable or not RCL.IsAvailable() then
+    if not RecipeFiltersAvailable() then
         return results
     end
     local out = {}
@@ -731,7 +749,7 @@ local function FilterRecipesByDifficulty(results, filter)
     if SS and SS.IsDifficultyFilterActive and not SS.IsDifficultyFilterActive(filter) then
         return results
     end
-    if not CraftLibFiltersAvailable() then
+    if not RecipeFiltersAvailable() then
         return results
     end
     local out = {}
@@ -753,13 +771,15 @@ local function FilterRecipesBySource(results, filter)
     if SS and SS.IsSourceFilterActive and not SS.IsSourceFilterActive(filter) then
         return results
     end
-    if not CraftLibFiltersAvailable() then
+    if not RecipeFiltersAvailable() then
         return results
     end
+    local RI = AltArmy.RecipeInfo
     local out = {}
     for _, entry in ipairs(results) do
-        local sourceType = entry.recipeSource
-        if sourceType == nil or filter[sourceType] then
+        -- "|"-joined: a recipe stays when any of its sources is enabled
+        local source = entry.recipeSource
+        if source == nil or RI.SourceIncludes(source, filter) then
             out[#out + 1] = entry
         end
     end
@@ -796,7 +816,7 @@ function SP.ApplyRecipeSearchFilters(results, settings)
         return results
     end
     results = FilterRecipesByProfession(results, settings.professionFilter)
-    if not CraftLibFiltersAvailable() then
+    if not RecipeFiltersAvailable() then
         return results
     end
     results = FilterRecipesByLevel(results, settings.recipeLevelFilter)

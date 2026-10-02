@@ -1360,7 +1360,7 @@ local function markAllCraftableProfessionRecipesStale(needing, char)
 end
 
 --- Mark craftable professions as needing a recipe-window rescan (Summary ! warning).
---- When professionName is known (CraftLib lookup), only that profession is marked.
+--- When professionName is known (bundled recipe data), only that profession is marked.
 --- Otherwise all craftable professions with rank > 0 are marked.
 function DS:MarkProfessionRecipesStale(char, professionName)
     char = char or GetCurrentCharTable()
@@ -1394,8 +1394,9 @@ function DS:ClearProfessionRecipesStale(profName, char)
 end
 
 --- Insert a newly learned recipe id so guild share can advertise it without a profession UI scan.
+--- color: the scan's difficulty code (1 orange .. 4 gray), 0 when unknown.
 --- Returns true when a new primary recipe entry was stored (and a share broadcast was scheduled).
-function DS:AddLearnedRecipeForShare(professionName, recipeID, resultItemID, char)
+function DS:AddLearnedRecipeForShare(professionName, recipeID, resultItemID, char, color)
     recipeID = tonumber(recipeID)
     if type(professionName) ~= "string" or professionName == "" or not recipeID then
         return false
@@ -1416,7 +1417,7 @@ function DS:AddLearnedRecipeForShare(professionName, recipeID, resultItemID, cha
         return false
     end
     prof.Recipes[recipeID] = {
-        color = 0,
+        color = tonumber(color) or 0,
         resultItemID = tonumber(resultItemID),
         primaryRecipeID = recipeID,
     }
@@ -1427,8 +1428,12 @@ function DS:AddLearnedRecipeForShare(professionName, recipeID, resultItemID, cha
     return true
 end
 
---- Recipe learned (event or system chat): scan if UI open, else mark Summary stale.
---- With CraftLib, also insert the resolved recipe id so guildmates can pull it.
+-- RecipeInfo difficulty -> the color code a recipe-window scan stores (SkillTypeToColor).
+local DifficultyToColor = { orange = 1, yellow = 2, green = 3, gray = 4 }
+
+--- Recipe learned (event or system chat): scan if UI open; otherwise store the recipe from the bundled
+--- recipe data (Data/Recipes) so Search and guild share have it without reopening the window. Only when
+--- the recipe can't be identified or stored is a profession marked stale (Summary ! warning).
 function DS:OnRecipeLearnDetected(recipeID, learnedName)
     local char = GetCurrentCharTable()
     if not char then
@@ -1448,18 +1453,22 @@ function DS:OnRecipeLearnDetected(recipeID, learnedName)
         return
     end
 
-    local professionName = nil
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
-    if RCL and RCL.IsAvailable and RCL.IsAvailable() and RCL.FindRecipeLearnInfo then
-        local info = RCL.FindRecipeLearnInfo(recipeID, learnedName)
-        if info then
-            professionName = info.professionName
-            if info.recipeID then
-                self:AddLearnedRecipeForShare(professionName, info.recipeID, info.resultItemID, char)
-            end
-        end
+    local RI = AltArmy and AltArmy.RecipeInfo
+    local info = RI and RI.FindRecipeLearnInfo and RI.FindRecipeLearnInfo(recipeID, learnedName, char.Professions)
+    if not info then
+        self:MarkProfessionRecipesStale(char, nil)
+        return
     end
-    self:MarkProfessionRecipesStale(char, professionName)
+    local prof = type(char.Professions) == "table" and char.Professions[info.professionName]
+    if type(prof) == "table" and type(prof.Recipes) == "table" and prof.Recipes[info.recipeID] ~= nil then
+        return
+    end
+    local difficulty = prof and RI.GetDifficulty(RI.GetRecipe(info.recipeID), prof.rank)
+    if self:AddLearnedRecipeForShare(info.professionName, info.recipeID, info.resultItemID, char,
+            DifficultyToColor[difficulty]) then
+        return
+    end
+    self:MarkProfessionRecipesStale(char, info.professionName)
 end
 
 --- Handle NEW_RECIPE_LEARNED when the client fires it (optional recipeID).

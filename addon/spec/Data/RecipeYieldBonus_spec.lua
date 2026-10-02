@@ -12,7 +12,7 @@ describe("RecipeYieldBonus", function()
     package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
     require("Debug")
     require("CooldownData")
-    require("RecipeCraftLib")
+    require("RecipeInfo")
     package.loaded["RecipeYieldBonus"] = nil
     require("RecipeYieldBonus")
     RYB = AltArmy.RecipeYieldBonus
@@ -21,7 +21,7 @@ describe("RecipeYieldBonus", function()
   end)
 
   before_each(function()
-    _G.CraftLib = nil
+    AltArmy.RecipeData = nil
     _G.GetItemInfo = nil
     _G.GetSpellInfo = nil
     _G.AltArmyTBC_Options = {}
@@ -30,31 +30,22 @@ describe("RecipeYieldBonus", function()
     if AltArmy.Debug and AltArmy.Debug.Ensure then
       AltArmy.Debug.Ensure()
     end
-    if AltArmy.Debug and AltArmy.Debug.SetPretendCraftLibNotInstalled then
-      AltArmy.Debug.SetPretendCraftLibNotInstalled(false)
-    end
-    if AltArmy.RecipeCraftLib and AltArmy.RecipeCraftLib.ClearCaches then
-      AltArmy.RecipeCraftLib.ClearCaches()
+    if AltArmy.RecipeInfo and AltArmy.RecipeInfo.ClearCaches then
+      AltArmy.RecipeInfo.ClearCaches()
     end
   end)
 
-  local function enableCraftLib()
-    _G.CraftLib = {
-      IsReady = function() return true end,
-      GetProfessions = function() return { alchemy = { id = 2259, name = "Alchemy" } } end,
-      GetRecipeBySpellId = function() return nil end,
-      GetRecipeByItemId = function() return nil end,
-      GetRecipeByProduct = function() return nil end,
-    }
+  local function enableRecipeData()
+    AltArmy.RecipeData = { recipes = {} }
   end
 
   describe("IsFeatureEnabled", function()
-    it("returns false when CraftLib is missing", function()
+    it("returns false without recipe data", function()
       assert.is_false(RYB.IsFeatureEnabled())
     end)
 
-    it("returns true when CraftLib is ready", function()
-      enableCraftLib()
+    it("returns true when recipe data is loaded", function()
+      enableRecipeData()
       assert.is_true(RYB.IsFeatureEnabled())
     end)
   end)
@@ -115,7 +106,7 @@ describe("RecipeYieldBonus", function()
 
   describe("GetMatchingSpecLabel", function()
     it("returns the spec when feature is on and recipe bonus matches", function()
-      enableCraftLib()
+      enableRecipeData()
       assert.are.equal("Potion", RYB.GetMatchingSpecLabel({
         _aaYieldBonusMatch = true,
         _aaCharSpecLabel = "Potion",
@@ -123,14 +114,14 @@ describe("RecipeYieldBonus", function()
     end)
 
     it("returns nil when the character spec does not match the recipe", function()
-      enableCraftLib()
+      enableRecipeData()
       assert.is_nil(RYB.GetMatchingSpecLabel({
         _aaYieldBonusMatch = false,
         _aaCharSpecLabel = "Potion",
       }))
     end)
 
-    it("returns nil when CraftLib is unavailable", function()
+    it("returns nil without recipe data", function()
       assert.is_nil(RYB.GetMatchingSpecLabel({
         _aaYieldBonusMatch = true,
         _aaCharSpecLabel = "Potion",
@@ -138,14 +129,14 @@ describe("RecipeYieldBonus", function()
     end)
 
     it("returns nil when the entry has no matching spec label", function()
-      enableCraftLib()
+      enableRecipeData()
       assert.is_nil(RYB.GetMatchingSpecLabel({ _aaYieldBonusMatch = true }))
       assert.is_nil(RYB.GetMatchingSpecLabel(nil))
     end)
   end)
 
   describe("StampEntry", function()
-    it("no-ops when CraftLib is unavailable", function()
+    it("no-ops without recipe data", function()
       local entry = {
         recipeID = 31373,
         characterName = "Tailor",
@@ -158,7 +149,7 @@ describe("RecipeYieldBonus", function()
     end)
 
     it("stamps match when char spec equals recipe bonus", function()
-      enableCraftLib()
+      enableRecipeData()
       local entry = {
         recipeID = 31373,
         characterName = "Tailor",
@@ -186,7 +177,7 @@ describe("RecipeYieldBonus", function()
     end)
 
     it("stamps non-match when char has a different spec", function()
-      enableCraftLib()
+      enableRecipeData()
       local entry = {
         recipeID = 31373,
         characterName = "Tailor",

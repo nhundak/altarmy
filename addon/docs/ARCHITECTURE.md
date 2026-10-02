@@ -45,7 +45,7 @@ The order, icons, titles, and each tab's settings button action live in `UI/Main
 |-----|--------|
 | **Summary** | Character list overview |
 | **Gear** | Equipment grid, item check, compare / upgrades |
-| **Economy** | **Currency** grid (default), **Waylaid Crates** fill costs + **Supply Chain** (alt-army.com) sub-views; WoW Forever only, hidden elsewhere by `Tabs/TabEconomy.lua` |
+| **Economy** | **Currency** grid (default), **Waylaid Crates** fill costs + **Supply Chain** (alt-army.com, off behind `AltArmy.FeatureFlags.economySupplyChain`) sub-views; WoW Forever only, hidden elsewhere by `Tabs/TabEconomy.lua` |
 | **Reputation** | Faction × character matrix |
 | **Cooldowns** | Crafting cooldowns + **Raids** lockout sub-view |
 | **Graphs** | Level progress over time |
@@ -57,7 +57,8 @@ The order, icons, titles, and each tab's settings button action live in `UI/Main
 
 - **Internal DataStore** (`AltArmy.DataStore`) owns `AltArmyTBC_Data` and scans on WoW events (with delayed rescans where the client loads late).
 - Higher layers (`SummaryData`, `Characters`, search/gear helpers) read through DataStore APIs; tabs should not write SavedVariables for character domains.
-- Optional addons (Auctionator, CraftLib, TacoTip, GearScoreTBCClassic, RestedXP, Questie, NovaInstanceTracker, Zygor) enrich features when present; they are not required to load AltArmy.
+- Optional addons (Auctionator, TacoTip, GearScoreTBCClassic, RestedXP, Questie, NovaInstanceTracker, Zygor) enrich features when present; they are not required to load AltArmy.
+- Recipe metadata (profession, required skill, difficulty, sources) is generated data shipped in `Data/Recipes/`, one table per client; see `AltArmy_TBC/Data/DESIGN.md` ("Recipe data").
 
 See [DESIGN.md](../AltArmy_TBC/Data/DESIGN.md) and [DATA_VERSIONS.md](../AltArmy_TBC/Data/DATA_VERSIONS.md).
 

@@ -228,8 +228,6 @@ read_globals = {
     "ExpandFactionHeader",
     "CollapseFactionHeader",
     "FACTION_BAR_COLORS",
-    -- Optional addon APIs
-    "CraftLib",
     -- Quest reward UI
     "QuestInfoRewardsFrame",
     "QuestInfoFrame",

@@ -57,7 +57,7 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
     filterContent:SetPoint("BOTTOMRIGHT", settingsContent, "BOTTOMRIGHT", 0, 0)
 
     local SS = AltArmy.SearchSettings
-    local RCL = AltArmy.RecipeCraftLib
+    local RI = AltArmy.RecipeInfo
 
     local UpdateRecipeLevelResetButtonVisibility
 
@@ -436,9 +436,7 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
 
     local function ColoredDifficultyLabel(band)
         local plain = DIFFICULTY_LABELS[band] or band
-        local recipeCraftLib = AltArmy.RecipeCraftLib
-        local hex = recipeCraftLib and recipeCraftLib.GetDifficultyColorHex
-            and recipeCraftLib.GetDifficultyColorHex(band)
+        local hex = RI and RI.GetDifficultyColorHex and RI.GetDifficultyColorHex(band)
         if not hex then
             return plain
         end
@@ -503,18 +501,6 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
         CloseCraftFilterDropdowns()
     end)
 
-    local craftLibCallout = Theme.CreateCraftLibInstallCallout(filterContent, {
-        introText = "Install CraftLib addon to see:",
-        bulletLines = {
-            "Advanced filtering options",
-            "Recipe skill requirements",
-            "Color coded difficulty",
-            "All recipe icons",
-        },
-    })
-    craftLibCallout:SetPoint("TOPLEFT", professionDropdownBtn, "BOTTOMLEFT", 0, -UI.FILTER_SECTION_GAP)
-    craftLibCallout:SetPoint("TOPRIGHT", filterContent, "TOPRIGHT", 0, 0)
-
     local function SetCraftFilterWidgetsShown(shown)
         for i = 1, #craftFilterWidgets do
             local widget = craftFilterWidgets[i]
@@ -532,7 +518,8 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
             return
         end
         local f = SS.GetRecipeLevelFilter()
-        local craftLibReady = RCL and RCL.IsAvailable and RCL.IsAvailable()
+        -- Recipe data ships with the addon; without it (unsupported client) the recipe filters hide.
+        local recipeDataReady = RI and RI.IsAvailable and RI.IsAvailable()
         SyncCraftFilterDropdowns()
         if professionDropdown and professionDropdown.header then
             professionDropdown.header:Show()
@@ -541,14 +528,13 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
         if professionDropdownBtn then
             professionDropdownBtn:Show()
         end
-        if craftLibReady then
+        if recipeDataReady then
             recipeLevelHeader:Show()
             minLevelLabel:Show()
             minLevelEdit:Show()
             maxLevelLabel:Show()
             maxLevelEdit:Show()
             SetCraftFilterWidgetsShown(true)
-            craftLibCallout:Hide()
             suppressRecipeFilterTextChanged = true
             minLevelEdit:SetText(tostring(f.min or 0))
             maxLevelEdit:SetText(tostring(f.max or 375))
@@ -572,7 +558,6 @@ function AltArmy.TabSearchSettings.Install(frame, UI)
             recipeLevelResetBtn:Hide()
             SetCraftFilterWidgetsShown(false)
             CloseCraftFilterDropdowns()
-            craftLibCallout:Show()
         end
     end
 

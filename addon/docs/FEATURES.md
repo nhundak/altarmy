@@ -8,7 +8,7 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 
 - Collects and persists character data automatically while you play.
 - Presents cross-character information in tabbed dashboards.
-- Supports item and recipe search across characters (optional CraftLib skill/difficulty filters; optional guildmate recipes).
+- Supports item and recipe search across characters, with recipe skill, difficulty and source filters from built-in recipe data (optional guildmate recipes).
 - Shows what each Waylaid Crate costs to buy and fill from the auction house scan, and explains alt-army.com's crafting planner (WoW Forever).
 - Tracks profession cooldown readiness (including WoW Forever's Comprehension "Research"), stockpile mailing, and raid/heroic lockouts.
 - Graphs leveling progress over calendar and played time.
@@ -75,7 +75,6 @@ One-time dialogs shown at most once each (guild-share prompt, bank-alt suggestio
 
 | Addon | Used for |
 |-------|----------|
-| CraftLib | Recipe skill levels, difficulty bands, Search filters, yield-bonus markers |
 | Auctionator | `/altarmy networth` AH pricing |
 | TacoTip / GearScoreTBCClassic | Gear score providers for score-sort and upgrades |
 | RestedXP (RXPGuides) | Level history import; quest-reward conflict dialog |
@@ -121,3 +120,11 @@ Stored under `AltArmyTBC_Data`, `AltArmyTBC_Options`, tab settings tables, `AltA
 Core domains include: character basics, containers/bank, equipment, currencies, professions/recipes, cooldowns/specialization, lockouts, reputations, mail, auctions/bids, talents, level history.
 
 Scanning is event-driven with delayed rescans where needed.
+
+### Built-in recipe data
+
+AltArmy ships a table of every profession recipe for each client (TBC Anniversary and WoW Forever; only the one for the running client loads). It gives each recipe's profession, crafted item, required skill, difficulty bands and where it is learned (trainer, quest, vendor, reputation, drop, or with the profession). Search and the Guild tab use it for the skill column, difficulty colors and filters, without any other addon.
+
+When a character learns a recipe with the profession window closed, AltArmy recognizes it (from the learn event or the system chat line, in any client language), adds it to that character's recipes with its difficulty color, and shares it with guildmates. The profession window no longer has to be reopened; the Summary warning appears only for a recipe it can't recognize.
+
+The tables are generated from the game client's data (wago.tools) and open-source server data. A daily GitHub workflow opens a pull request when a new client build changes recipes. See `AltArmy_TBC/Data/DESIGN.md` ("Recipe data").

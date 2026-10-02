@@ -1,5 +1,5 @@
 -- AltArmy TBC — recipe yield-bonus specialization classification (alchemy / cloth).
--- CraftLib-gated: IsFeatureEnabled requires RecipeCraftLib.IsAvailable().
+-- Needs recipe data: IsFeatureEnabled requires RecipeInfo.IsAvailable().
 
 AltArmy = AltArmy or {}
 AltArmy.RecipeYieldBonus = AltArmy.RecipeYieldBonus or {}
@@ -34,8 +34,8 @@ local CLOTH_BONUS_BY_SPELL = {
 }
 
 function RYB.IsFeatureEnabled()
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
-    return RCL and RCL.IsAvailable and RCL.IsAvailable() and true or false
+    local RI = AltArmy and AltArmy.RecipeInfo
+    return RI and RI.IsAvailable and RI.IsAvailable() and true or false
 end
 
 function RYB.FormatSpecialistPrefixMarkup()
@@ -200,9 +200,9 @@ local function ensureResultItemId(entry)
     if not entry or entry.resultItemID then
         return
     end
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
-    if RCL and RCL.EnrichEntry then
-        RCL.EnrichEntry(entry)
+    local RI = AltArmy and AltArmy.RecipeInfo
+    if RI and RI.EnrichEntry then
+        RI.EnrichEntry(entry)
     end
 end
 

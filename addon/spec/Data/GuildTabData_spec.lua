@@ -2517,15 +2517,15 @@ describe("GuildTabData", function()
     local savedRCL
 
     before_each(function()
-      savedRCL = AltArmy.RecipeCraftLib
+      savedRCL = AltArmy.RecipeInfo
     end)
 
     after_each(function()
-      AltArmy.RecipeCraftLib = savedRCL
+      AltArmy.RecipeInfo = savedRCL
     end)
 
-    it("delegates to RecipeCraftLib when available", function()
-      AltArmy.RecipeCraftLib = {
+    it("delegates to RecipeInfo when recipe data is loaded", function()
+      AltArmy.RecipeInfo = {
         EnrichEntry = function(entry)
           entry.recipeSkillRequired = 180
           entry.difficulty = "yellow"
@@ -2542,13 +2542,13 @@ describe("GuildTabData", function()
       assert.are.equal("180/375/yellow", text)
     end)
 
-    it("falls back to skill rank when RecipeCraftLib is unavailable", function()
-      AltArmy.RecipeCraftLib = nil
+    it("falls back to skill rank without recipe data", function()
+      AltArmy.RecipeInfo = nil
       assert.are.equal("300", GTD.FormatRecipeSkillCell({ recipeID = 1 }, "Alchemy", 300))
     end)
 
-    it("shows em dash when skill rank is zero and CraftLib is unavailable", function()
-      AltArmy.RecipeCraftLib = {
+    it("shows em dash when skill rank is zero and recipe data is missing", function()
+      AltArmy.RecipeInfo = {
         EnrichEntry = function() end,
         FormatSkillCell = function()
           return "—"
@@ -2562,15 +2562,15 @@ describe("GuildTabData", function()
     local savedRCL
 
     before_each(function()
-      savedRCL = AltArmy.RecipeCraftLib
+      savedRCL = AltArmy.RecipeInfo
     end)
 
     after_each(function()
-      AltArmy.RecipeCraftLib = savedRCL
+      AltArmy.RecipeInfo = savedRCL
     end)
 
-    it("surfaces CraftLib-backfilled resultItemID for guild recipe rows", function()
-      AltArmy.RecipeCraftLib = {
+    it("surfaces recipe-data-backfilled resultItemID for guild recipe rows", function()
+      AltArmy.RecipeInfo = {
         EnrichEntry = function(entry)
           if not entry.resultItemID then
             entry.resultItemID = 6370
@@ -2585,7 +2585,7 @@ describe("GuildTabData", function()
     end)
 
     it("preserves an existing resultItemID", function()
-      AltArmy.RecipeCraftLib = {
+      AltArmy.RecipeInfo = {
         EnrichEntry = function(entry)
           if not entry.resultItemID then
             entry.resultItemID = 6370
@@ -2758,13 +2758,13 @@ describe("GuildTabData", function()
   end)
 
   describe("GetDefaultRecipeSort", function()
-    it("defaults to name ascending when CraftLib is unavailable", function()
+    it("defaults to name ascending without recipe data", function()
       local sortKey, ascending = GTD.GetDefaultRecipeSort(false)
       assert.are.equal("recipe", sortKey)
       assert.is_true(ascending)
     end)
 
-    it("defaults to required skill descending when CraftLib is available", function()
+    it("defaults to required skill descending with recipe data", function()
       local sortKey, ascending = GTD.GetDefaultRecipeSort(true)
       assert.are.equal("skill", sortKey)
       assert.is_false(ascending)
@@ -2797,11 +2797,11 @@ describe("GuildTabData", function()
     end
 
     before_each(function()
-      savedRCL = AltArmy.RecipeCraftLib
+      savedRCL = AltArmy.RecipeInfo
     end)
 
     after_each(function()
-      AltArmy.RecipeCraftLib = savedRCL
+      AltArmy.RecipeInfo = savedRCL
     end)
 
     it("sorts by recipe name ascending", function()
@@ -2819,7 +2819,7 @@ describe("GuildTabData", function()
     end)
 
     it("sorts by required skill ascending with name tiebreaker", function()
-      AltArmy.RecipeCraftLib = {
+      AltArmy.RecipeInfo = {
         EnrichEntry = function(entry)
           if entry.recipeID == 1 then
             entry.recipeSkillRequired = 300
@@ -2844,7 +2844,7 @@ describe("GuildTabData", function()
     end)
 
     it("sorts by required skill descending with name tiebreaker", function()
-      AltArmy.RecipeCraftLib = {
+      AltArmy.RecipeInfo = {
         EnrichEntry = function(entry)
           if entry.recipeID == 1 then
             entry.recipeSkillRequired = 300
@@ -2869,7 +2869,7 @@ describe("GuildTabData", function()
     end)
 
     it("treats missing required skill as 0 when sorting by skill", function()
-      AltArmy.RecipeCraftLib = {
+      AltArmy.RecipeInfo = {
         EnrichEntry = function(entry)
           if entry.recipeID == 1 then
             entry.recipeSkillRequired = nil

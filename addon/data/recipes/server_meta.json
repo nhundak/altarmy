@@ -1,0 +1,10 @@
+{
+  "forever": {
+    "emulator": "vmangos",
+    "release": "db-sqlite-4641790"
+  },
+  "tbc": {
+    "emulator": "cmangos",
+    "release": "2026-09-24"
+  }
+}

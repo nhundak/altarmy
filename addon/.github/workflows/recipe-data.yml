@@ -1,0 +1,110 @@
+# Recipe data — watch for new game data behind AltArmy_TBC/Data/Recipes/RecipeData_*.lua
+#
+# client-data (daily): when wago.tools has a newer TBC Anniversary (wow_anniversary) or Forever
+#   (wow_classic_beta) build than the one pinned in the data file, regenerate it with
+#   scripts/generate-recipe-data.py. If that build changes any recipe, open (or update) a PR on branch
+#   recipe-data/<version> whose body lists the added / removed / changed recipes. A build with the same
+#   recipes changes nothing and opens nothing. Merging the PR ships the data in the next release.
+# server-data (daily): when cmangos' tbc-db or vmangos' world database has a newer release than the one
+#   recorded in data/recipes/server_meta.json, open one issue asking to rerun
+#   scripts/build-recipe-server-facts.py locally (those databases are too large to fetch here).
+#
+# Requires the repository setting "Allow GitHub Actions to create and approve pull requests".
+# See AltArmy_TBC/Data/DESIGN.md ("Recipe data").
+
+name: Recipe data
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  client-data:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [tbc, forever]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compare pinned and latest builds
+        id: builds
+        run: python scripts/generate-recipe-data.py --version "${{ matrix.version }}" --status >> "$GITHUB_OUTPUT"
+
+      - name: Cache wago.tools tables
+        if: steps.builds.outputs.latest != steps.builds.outputs.pinned
+        uses: actions/cache@v4
+        with:
+          path: .cache/wago/${{ steps.builds.outputs.latest }}
+          key: wago-${{ steps.builds.outputs.latest }}
+
+      - name: Regenerate recipe data
+        if: steps.builds.outputs.latest != steps.builds.outputs.pinned
+        run: |
+          python scripts/generate-recipe-data.py --version "${{ matrix.version }}" --build latest \
+            --summary "$RUNNER_TEMP/recipe-summary.md"
+
+      - name: Open or update pull request
+        if: steps.builds.outputs.latest != steps.builds.outputs.pinned
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: recipe-data/${{ matrix.version }}
+          delete-branch: true
+          add-paths: AltArmy_TBC/Data/Recipes/RecipeData_*.lua
+          commit-message: "Recipe data: ${{ steps.builds.outputs.label }} ${{ steps.builds.outputs.latest }}"
+          title: "Recipe data: ${{ steps.builds.outputs.label }} ${{ steps.builds.outputs.latest }}"
+          body-path: ${{ runner.temp }}/recipe-summary.md
+
+  server-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compare emulator releases with server_meta.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cmangos=$(gh api repos/cmangos/tbc-db/releases/tags/latest \
+            --jq '.assets[] | select(.name == "tbc-sqlite-db.zip") | .updated_at[0:10]')
+          vmangos=$(gh api repos/vmangos/core/releases/tags/db_latest \
+            --jq '.assets[] | select(.name | startswith("db-sqlite-") and endswith(".zip")) | .name | rtrimstr(".zip")')
+          recorded_tbc=$(jq -r '.tbc.release' data/recipes/server_meta.json)
+          recorded_forever=$(jq -r '.forever.release' data/recipes/server_meta.json)
+          stale=""
+          if [ -n "$cmangos" ] && [ "$cmangos" != "$recorded_tbc" ]; then
+            stale="$stale"$'\n'"- TBC (cmangos tbc-db): recorded \`$recorded_tbc\`, latest \`$cmangos\`"
+          fi
+          if [ -n "$vmangos" ] && [ "$vmangos" != "$recorded_forever" ]; then
+            stale="$stale"$'\n'"- Forever (vmangos): recorded \`$recorded_forever\`, latest \`$vmangos\`"
+          fi
+          if [ -z "$stale" ]; then
+            echo "Server recipe facts are current."
+            exit 0
+          fi
+          title="Recipe data: emulator databases updated"
+          open=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq 'length')
+          if [ "$open" != "0" ]; then
+            echo "An issue is already open: $title"
+            exit 0
+          fi
+          body="The open-source server databases behind trainer skills and recipe sources have newer releases:$stale
+
+          To refresh: run altarmy-profit's ingest (wow-profit) so its cache has the new databases, then
+          \`python scripts/build-recipe-server-facts.py\` and \`python scripts/generate-recipe-data.py --version tbc\`
+          / \`--version forever\`, review data/recipes/*/overrides.csv, and commit."
+          gh issue create --title "$title" --body "$body"

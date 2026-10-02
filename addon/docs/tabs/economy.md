@@ -12,7 +12,7 @@ See how much of each currency every alt holds. Find the cheapest way to earn Mer
 
 ## Sub-views
 
-Three sub-views, switched with the tabs that hang above the panel in the toolbar row (`UI/TopTabs.lua`, same as Gear and Cooldowns). Currency is first and is the default. The last one used is remembered (`AltArmyTBC_Options.economy.activeView`).
+Three sub-views (two while Supply Chain is behind its feature flag), switched with the tabs that hang above the panel in the toolbar row (`UI/TopTabs.lua`, same as Gear and Cooldowns). Currency is first and is the default. The last one used is remembered (`AltArmyTBC_Options.economy.activeView`).
 
 ### Currency
 
@@ -62,6 +62,8 @@ Early reading: the sealed crate keeps the Waylaid Crate's quality, and within th
 **No scan yet** for this realm and faction: the table is replaced by a message to visit an auction house and use the Alt Army scan button, plus a **Scan the auction house automatically when it opens** checkbox. It is the same setting as Options → General → Auction House.
 
 ### Supply Chain
+
+**Hidden for now** behind `AltArmy.FeatureFlags.economySupplyChain` (`Core.lua`, currently `false`). While it is off, the Supply Chain top tab and panel are not created, and a remembered `activeView` of `supply` falls back to Currency.
 
 A scrolling page about alt-army.com's crafting planner:
 

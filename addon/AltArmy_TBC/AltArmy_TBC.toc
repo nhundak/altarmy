@@ -5,7 +5,7 @@
 ## Author: Nick Tower
 ## X-Wago-ID: aNDMjY6o
 ## SavedVariables: AltArmyTBC_Options, AltArmyTBC_Data, AltArmyTBC_GearSettings, AltArmyTBC_ReputationSettings, AltArmyTBC_SummarySettings, AltArmyTBC_SearchSettings, AltArmyTBC_GraphSettings, AltArmyTBC_GuildData, AltArmyTBC_SharingSettings, AltArmyTBC_AuctionScans, AltArmyTBC_AuctionBook
-## OptionalDeps: Auctionator, CraftLib, TacoTip, GearScoreTBCClassic, RXPGuides, RXPGuides_TBC, NovaInstanceTracker, Questie, ZygorGuidesViewerClassicTBCAnniv
+## OptionalDeps: Auctionator, TacoTip, GearScoreTBCClassic, RXPGuides, RXPGuides_TBC, NovaInstanceTracker, Questie, ZygorGuidesViewerClassicTBCAnniv
 
 # TBC Classic; verify in-game with: /dump select(4, GetBuildInfo())
 UI\NativeUI.lua
@@ -67,7 +67,9 @@ Data\Characters\SummaryData.lua
 Data\Characters\RealmFilter.lua
 Data\Characters\GlobalRealmFilter.lua
 Data\Characters\Characters.lua
-Data\Integrations\RecipeCraftLib.lua
+Data\Recipes\RecipeData_TBC.lua
+Data\Recipes\RecipeData_Forever.lua
+Data\Recipes\RecipeInfo.lua
 Data\Search\RecipeYieldBonus.lua
 Data\Search\SearchSettings.lua
 Data\Search\SearchFilterMenu.lua

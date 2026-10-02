@@ -10,7 +10,6 @@ All integrations listed here are already accessed defensively in AltArmy's own c
 
 | Addon | AltArmy files | Upstream source | Forever status | API changed? | Last checked | Notes |
 |---|---|---|---|---|---|---|
-| CraftLib | `Data/Integrations/RecipeCraftLib.lua` (+ Search/Guild/Tab consumers) | [GitHub](https://github.com/kaldown/CraftLib) | No Forever build yet | No (nothing to change yet) | 2026-09-22 | Last release 2026-06-30, predates Forever |
 | TacoTip | `Data/Gear/GearScore.lua`, `Tabs/TabGear.lua`, `Data/Gear/GearUpgrade.lua` | [GitHub](https://github.com/anzz1/TacoTip) | No Forever build yet | No (nothing to change yet) | 2026-09-22 | Last release 2026-08-23, predates Forever beta |
 | GearScoreTBCClassic | `Data/Gear/GearScore.lua` | [CurseForge](https://www.curseforge.com/wow/addons/gearscoretbcclassic) | No Forever build yet | Unknown | 2026-09-22 | No public source for this fork; changelogs only |
 | RestedXP (RXPGuides) | `Data/Integrations/RestedXpIntegration.lua`, `RestedXpQuestRewardConflict.lua`, `UI/RestedXpQuestRewardConflictDialog.lua`, `Data/DataStore/DataStoreLevelHistory.lua` | [GitHub](https://github.com/RestedXP/RXPGuides) | Confirmed working (base build) | No | 2026-09-22 | `RXPGuides_TBC.toc` itself not yet on Forever interface |
@@ -21,11 +20,9 @@ All integrations listed here are already accessed defensively in AltArmy's own c
 
 ## Findings
 
-### CraftLib
+### CraftLib (no longer used)
 
-No WoW Forever-tagged release exists as of this check. [kaldown/CraftLib](https://github.com/kaldown/CraftLib) (mirrored on [CurseForge](https://www.curseforge.com/wow/addons/craftlib)) last released v0.10.2 on 2026-06-30 — before both the BlizzCon Forever announcement (~2026-09-12) and the beta opening (2026-09-17). Supported flavors remain Classic Era, Classic TBC, WotLK 3.3.5a/3.4.5, and "Titan Reforged Classic" only; no interface `16001` tag anywhere.
-
-The public API AltArmy depends on (`IsReady()`, `GetProfessions()`, `GetProfession(key)`, `GetRecipes(key)`, `GetRecipeBySpellId(key, spellId)`, `GetRecipeByItemId(itemId)`, `GetRecipeByProduct(itemId)`, `GetRecipeDifficulty(recipe, skillLevel)`) currently matches AltArmy's actual call sites in `RecipeCraftLib.lua` exactly — no drift today. Since CraftLib hasn't targeted Forever at all, AltArmy's `RCL.IsAvailable()` check will simply stay false there (feature inert, no crash) until CraftLib ships a Forever build. Multiple community porting-effort sources (e.g. [Thunderz96/forever-addon-kit](https://github.com/Thunderz96/forever-addon-kit)) report Forever runs a modern retail/Midnight-era (12.1.5) API set rather than Classic's, so a future CraftLib Forever release would likely need real rework, not just a `.toc` bump — worth re-checking the API surface again once one ships, not assuming it will match.
+AltArmy dropped its optional CraftLib integration on 2026-10-02. CraftLib never shipped a Forever build, so recipe skill, difficulty and source data were missing there. AltArmy now ships its own recipe tables for both clients, generated from client data (see `AltArmy_TBC/Data/DESIGN.md`, "Recipe data").
 
 ### TacoTip
 

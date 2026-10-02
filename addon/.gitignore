@@ -12,3 +12,5 @@ mediator.zip
 say-1.4.1
 luassert-1.9.0
 mediator_lua-master
+.cache
+__pycache__

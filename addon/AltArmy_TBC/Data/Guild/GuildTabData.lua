@@ -387,7 +387,7 @@ function GTD.GetStoredCharacter(entry)
     return GSD and GSD.GetCharacter and GSD.GetCharacter(entry.guid or entry.name, entry.realm) or nil
 end
 
---- Enrich a guild-tab recipe row with optional CraftLib skill metadata (mutates entry).
+--- Enrich a guild-tab recipe row with recipe data skill metadata (mutates entry).
 function GTD.EnrichRecipeEntry(recipe, professionName, skillRank)
     local entry = {
         recipeID = recipe and recipe.recipeID,
@@ -395,9 +395,9 @@ function GTD.EnrichRecipeEntry(recipe, professionName, skillRank)
         professionName = professionName,
         skillRank = skillRank or 0,
     }
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
-    if RCL and RCL.EnrichEntry then
-        RCL.EnrichEntry(entry)
+    local RI = AltArmy and AltArmy.RecipeInfo
+    if RI and RI.EnrichEntry then
+        RI.EnrichEntry(entry)
     end
     return entry
 end
@@ -466,9 +466,9 @@ end
 --- Skill column text for a recipe row (same formatting as Search recipe results).
 function GTD.FormatRecipeSkillCell(recipe, professionName, skillRank)
     local entry = GTD.EnrichRecipeEntry(recipe, professionName, skillRank)
-    local RCL = AltArmy and AltArmy.RecipeCraftLib
-    if RCL and RCL.FormatSkillCell then
-        return RCL.FormatSkillCell(entry.recipeSkillRequired, entry.skillRank, entry.difficulty)
+    local RI = AltArmy and AltArmy.RecipeInfo
+    if RI and RI.FormatSkillCell then
+        return RI.FormatSkillCell(entry.recipeSkillRequired, entry.skillRank, entry.difficulty)
     end
     return tostring(entry.skillRank or 0)
 end
@@ -489,9 +489,9 @@ local function recipeNameLower(recipe, getRecipeName)
 end
 
 --- Default recipe list sort when opening a character's recipes.
---- With CraftLib: required skill descending (highest first). Otherwise: name ascending.
-function GTD.GetDefaultRecipeSort(craftLibAvailable)
-    if craftLibAvailable then
+--- With recipe data: required skill descending (highest first). Otherwise: name ascending.
+function GTD.GetDefaultRecipeSort(recipeDataAvailable)
+    if recipeDataAvailable then
         return "skill", false
     end
     return "recipe", true

@@ -11,6 +11,11 @@ AltArmy.MainFrame = nil
 AltArmy.TabFrames = {}
 AltArmy.CurrentTab = "Summary"
 
+-- Feature flags: unfinished features ship switched off until they are ready.
+AltArmy.FeatureFlags = {
+    economySupplyChain = false, -- Economy tab's Supply Chain sub-view (alt-army.com page)
+}
+
 AltArmyTBC_Options = AltArmyTBC_Options or {}
 
 local Theme = AltArmy.Theme
