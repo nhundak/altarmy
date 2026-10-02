@@ -540,9 +540,46 @@ debugClearManualGroupsHint:SetJustifyH("LEFT")
 debugClearManualGroupsHint:SetText(
     "Deletes every local manual main/alt grouping (user and note-accepted). Does not affect shared Alt Army data.")
 
+-- Clear auction data (two clicks, like Clear manual groups); state on the button to spare main-chunk locals.
+panel.debugClearAuctionBtn = CreateFrame("Button", nil, debugScrollChild, "UIPanelButtonTemplate")
+panel.debugClearAuctionBtn:SetSize(200, 22)
+panel.debugClearAuctionBtn:SetPoint("TOPLEFT", debugClearManualGroupsHint, "BOTTOMLEFT", 0, -12)
+panel.debugClearAuctionBtn:SetText("Clear auction data")
+Theme.SkinDangerButton(panel.debugClearAuctionBtn)
+panel.debugClearAuctionBtn.Reset = function(self)
+    self.confirmPending = false
+    self:SetText("Clear auction data")
+    self:Enable()
+end
+panel.debugClearAuctionBtn:SetScript("OnClick", function(self)
+    if not self.confirmPending then
+        self.confirmPending = true
+        self:SetText("Really clear?")
+        return
+    end
+    self:Reset()
+    local B = AltArmy and AltArmy.AuctionBook
+    local count = B and B.Clear and B.Clear() or 0
+    local econ = AltArmy.TabFrames and AltArmy.TabFrames.Economy
+    if econ and econ.RefreshWaylaid and econ:IsShown() then
+        econ.RefreshWaylaid()
+    end
+    if AltArmy.Debug and AltArmy.Debug.NotifyChat then
+        AltArmy.Debug.NotifyChat(string.format("Cleared %d auction house scan(s).", count))
+    end
+end)
+
+local debugClearAuctionHint = debugScrollChild:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
+debugClearAuctionHint:SetPoint("TOPLEFT", panel.debugClearAuctionBtn, "BOTTOMLEFT", 0, -12)
+debugClearAuctionHint:SetWidth(520)
+debugClearAuctionHint:SetJustifyH("LEFT")
+debugClearAuctionHint:SetText(
+    "Deletes every stored auction house scan (all realms and factions) used by Economy > Waylaid Crates "
+        .. "and altarmy-profit. The client's 15-minute full-scan cooldown is kept.")
+
 local debugShowZygorMissingRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
     point = "TOPLEFT",
-    relativeTo = debugClearManualGroupsHint,
+    relativeTo = debugClearAuctionHint,
     relativePoint = "BOTTOMLEFT",
     x = 0,
     y = -16,
@@ -613,6 +650,7 @@ function RefreshDebugCheckboxes()
     end
     ResetDeleteAllHistoryButton()
     ResetClearManualGroupsButton()
+    panel.debugClearAuctionBtn:Reset()
     UpdateDebugScrollRange()
 end
 panel.RefreshDebugCheckboxes = RefreshDebugCheckboxes

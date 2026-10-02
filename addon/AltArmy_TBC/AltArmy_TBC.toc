@@ -59,6 +59,7 @@ Data\Integrations\RestedXpIntegration.lua
 Data\Integrations\RestedXpQuestRewardConflict.lua
 Data\Integrations\ZygorIntegration.lua
 Data\Integrations\AuctionatorScans.lua
+Data\Integrations\AuctionatorSearch.lua
 Data\DataStore\DataStoreReputations.lua
 Data\DataStore\DataStoreMail.lua
 Data\MailAlerts.lua

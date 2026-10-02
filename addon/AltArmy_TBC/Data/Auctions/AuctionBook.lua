@@ -160,6 +160,15 @@ function B.Store(scan, now)
     log.scans = keep
 end
 
+--- Forget every stored scan (all realms and factions); returns how many there were. The client's cooldown
+--- (lastRequest) is kept: it is the client's state, not ours.
+function B.Clear()
+    local log = B.GetLog()
+    local count = #log.scans
+    log.scans = {}
+    return count
+end
+
 --- Remember that someone asked the client for every listing at `now`: its cooldown starts over.
 function B.NoteRequest(now)
     B.GetLog().lastRequest = now

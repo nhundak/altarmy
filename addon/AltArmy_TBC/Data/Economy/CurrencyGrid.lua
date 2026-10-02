@@ -112,36 +112,6 @@ function G.FilterRows(rows, filterText)
     return out
 end
 
---- Sort the currencies inside each header group by one character's amount (headers stay put).
---- Currencies the character has no record of go last in either direction.
---- @param amountOf function(currencyID) -> number|nil
-function G.SortRowsForCharacter(rows, amountOf, highFirst)
-    local out = {}
-    local run = {}
-    local function flush()
-        table.sort(run, function(a, b)
-            local va, vb = amountOf(a.currencyID), amountOf(b.currencyID)
-            if (va == nil) ~= (vb == nil) then return va ~= nil end
-            if va ~= nil and va ~= vb then
-                if highFirst then return va > vb end
-                return va < vb
-            end
-            return (a.order or 0) < (b.order or 0)
-        end)
-        for _, r in ipairs(run) do out[#out + 1] = r end
-        run = {}
-    end
-    for _, r in ipairs(rows or {}) do
-        if r.isHeader then
-            flush()
-            out[#out + 1] = r
-        else
-            run[#run + 1] = r
-        end
-    end
-    flush()
-    return out
-end
 
 --- Column comparator: sort characters by their amount of one currency; no data sorts last.
 --- @param amountOf function(entry) -> number|nil

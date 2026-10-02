@@ -225,4 +225,30 @@ describe("WaylaidCosts", function()
             assert.equals("waylaid", W.EnsureOptions().activeView)
         end)
     end)
+
+    describe("SearchTerms", function()
+        it("searches the crate, then its cheapest fill at its count", function()
+            local tin = { name = "Tin Ore", count = 20, cost = 100 }
+            local row = { name = "Waylaid Crate: Apprentice Ore", bundle = tin, options = {
+                tin,
+                { name = "Copper Ore", count = 20, cost = 200 },
+            } }
+            assert.same({
+                { searchString = "Waylaid Crate: Apprentice Ore", quantity = 1, isExact = true },
+                { searchString = "Tin Ore", quantity = 20, isExact = true },
+            }, W.SearchTerms(row))
+        end)
+
+        it("searches only the crate when no fill can be bought in full", function()
+            assert.same({ { searchString = "Waylaid Crate: Apprentice Ore", quantity = 1, isExact = true } },
+                W.SearchTerms({ name = "Waylaid Crate: Apprentice Ore", options = {
+                    { name = "Tin Ore", count = 20, listed = 5 },
+                } }))
+        end)
+
+        it("searches only the crate when it has no bundles", function()
+            assert.same({ { searchString = "Waylaid Crate", quantity = 1, isExact = true } },
+                W.SearchTerms({ name = "Waylaid Crate", random = true, options = {} }))
+        end)
+    end)
 end)

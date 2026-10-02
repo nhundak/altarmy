@@ -46,7 +46,7 @@ local UI = {
     NOTES_COL_GAP = 8,
     GRAY = "|cff808080",
     -- Second column (group character count, character professions) shares one left edge.
-    SECOND_COLUMN = 180,
+    SECOND_COLUMN = 220,
     NAME_COLUMN_GAP = 8,
     -- Third column on main rows: most recent last-online across the group's characters.
     LAST_ONLINE_COLUMN_WIDTH = 72,

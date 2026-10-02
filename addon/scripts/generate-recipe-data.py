@@ -311,8 +311,9 @@ def summarize(version, old_build, new_build, old, new, names):
     added = sorted(set(new) - set(old))
     removed = sorted(set(old) - set(new))
     changed = sorted(s for s in set(old) & set(new) if old[s] != new[s])
+    builds = f"build {new_build}" if old_build == new_build else f"{old_build or 'none'} → {new_build}"
     lines = [
-        f"## {VERSIONS[version]['label']} recipe data: {old_build or 'none'} → {new_build}",
+        f"## {VERSIONS[version]['label']} recipe data: {builds}",
         "",
         f"{len(new)} recipes: **{len(added)} added**, **{len(removed)} removed**, **{len(changed)} changed**.",
     ]

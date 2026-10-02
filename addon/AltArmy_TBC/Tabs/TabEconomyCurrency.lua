@@ -49,15 +49,11 @@ local UI = {
 }
 UI.HEADER_HEIGHT = UI.NAME_ROW_HEIGHT + UI.MESSAGE_ROW_HEIGHT + UI.SCORE_ROW_HEIGHT
 
--- Session state: the sorts are not saved (same as Reputation).
+-- Session state: the sort is not saved (same as Reputation).
 local state = {
     -- Sort columns by one currency (row label click): same row flips direction, another switches.
     rowSortID = nil,
     rowSortHighFirst = true,
-    -- Sort currency rows by one character (column header click): high -> low -> off.
-    colSortName = nil,
-    colSortRealm = nil,
-    colSortHighFirst = true,
     list = {},
     rows = {},
     ctx = nil,
@@ -185,13 +181,7 @@ local function GetDisplayRows(list)
         local c = CharData(e)
         if c then chars[#chars + 1] = c end
     end
-    local rows = G.FilterRows(G.BuildRows(chars, DS:GetCurrencyMeta(), { gold = true }), FilterText())
-    if state.colSortName then
-        local entry = { name = state.colSortName, realm = state.colSortRealm or "" }
-        rows = G.SortRowsForCharacter(rows, function(id) return AmountFor(entry, id) end,
-            state.colSortHighFirst)
-    end
-    return rows
+    return G.FilterRows(G.BuildRows(chars, DS:GetCurrencyMeta(), { gold = true }), FilterText())
 end
 
 -- ---------------------------------------------------------------------------
@@ -350,43 +340,25 @@ W.filterEdit:HookScript("OnEscapePressed", function(box) Theme.ClearEditBoxText(
 -- Pools
 -- ---------------------------------------------------------------------------
 
-local function OnHeaderColumnClick(self, button)
-    if button ~= "LeftButton" then return end
-    local e = state.list[self.columnIndex or 0]
-    if not e then return end
-    local name, realm = e.name or "", e.realm or ""
-    if state.colSortName == name and state.colSortRealm == realm then
-        if state.colSortHighFirst then
-            state.colSortHighFirst = false
-        else
-            state.colSortName, state.colSortRealm = nil, nil
-        end
-    else
-        state.colSortName, state.colSortRealm, state.colSortHighFirst = name, realm, true
-    end
-    Refresh()
-end
-
+-- Character name headers are not interactive (no sort, no hover band); they only show the
+-- cross-realm tooltip.
 local function GetHeaderColumn(index)
     local col = pools.header[index]
     if col then return col end
-    col = CreateFrame("Button", nil, W.headerGrid)
+    col = CreateFrame("Frame", nil, W.headerGrid)
     col:SetSize(UI.COLUMN_WIDTH, UI.HEADER_HEIGHT)
-    Theme.BindInteractableHover(col, {
-        bandHeight = UI.NAME_ROW_HEIGHT,
-        onEnter = function(self)
-            if self.tooltipText and GameTooltip then
-                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-                GameTooltip:ClearLines()
-                GameTooltip:AddLine(self.tooltipText, 1, 1, 1)
-                GameTooltip:Show()
-            end
-        end,
-        onLeave = function()
-            if GameTooltip then GameTooltip:Hide() end
-        end,
-    })
-    if col.RegisterForClicks then col:RegisterForClicks("LeftButtonUp") end
+    col:EnableMouse(true)
+    col:SetScript("OnEnter", function(self)
+        if self.tooltipText and GameTooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine(self.tooltipText, 1, 1, 1)
+            GameTooltip:Show()
+        end
+    end)
+    col:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
     col.header = col:CreateFontString(nil, "OVERLAY", Theme.FONTS.heading)
     col.header:SetPoint("TOPLEFT", col, "TOPLEFT", 0, UI.NAME_Y_OFFSET)
     col.header:SetPoint("TOPRIGHT", col, "TOPRIGHT", 0, UI.NAME_Y_OFFSET)
@@ -412,7 +384,6 @@ local function GetHeaderColumn(index)
     col.scoreHover:SetScript("OnLeave", function()
         if GameTooltip then GameTooltip:Hide() end
     end)
-    col:SetScript("OnMouseUp", OnHeaderColumnClick)
     pools.header[index] = col
     return col
 end
@@ -485,6 +456,9 @@ local function ShowLabelTooltip(self)
     else
         GameTooltip:ClearLines()
         GameTooltip:AddLine(self.row.name, 1, 1, 1)
+        if self.row.isGold then
+            GameTooltip:AddLine("Time is money, friend!", 1, 0.82, 0, true)
+        end
     end
     GameTooltip:AddLine("Click to sort characters by this currency.", 0.7, 0.7, 0.7, true)
     GameTooltip:Show()
@@ -596,19 +570,14 @@ local function PopulateHeaderColumn(c, entry)
     if CC and CC.getRGBOr then
         r, g, b = CC.getRGBOr(entry.classFile, r, g, b)
     end
-    local sorted = state.colSortName == entry.name and (entry.realm or "") == (state.colSortRealm or "")
-    if sorted then r, g, b = UI.GOLD[1], UI.GOLD[2], UI.GOLD[3] end
     col.header:SetTextColor(r, g, b, 1)
     local name = entry.name or "?"
-    local suffix = sorted and Theme.GetSortArrowSuffix(not state.colSortHighFirst) or ""
-    local maxW = UI.COLUMN_WIDTH - 4 - (suffix ~= "" and 14 or 0)
     local shown = name
     if TruncateFontString then
-        shown = TruncateFontString(col.header, name, maxW) or name
+        shown = TruncateFontString(col.header, name, UI.COLUMN_WIDTH - 4) or name
     else
         col.header:SetText(name)
     end
-    if suffix ~= "" then col.header:SetText(shown .. suffix) end
 
     local ctx = state.ctx
     local RF = ctx.RF

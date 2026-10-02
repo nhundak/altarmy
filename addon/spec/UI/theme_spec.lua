@@ -620,7 +620,7 @@ describe("AltArmy.Theme", function()
             return found
         end
 
-        it("uses the mainline (Forever) dropdown atlases on project 1", function()
+        it("uses the mainline dropdown atlases on project 1", function()
             _G.WOW_PROJECT_ID = 1
             local btn = makeStubFrame()
             Theme.SkinDropdownButton(btn)
@@ -637,6 +637,18 @@ describe("AltArmy.Theme", function()
             local a = atlases(btn)
             assert.is_not_nil(a["common-dropdown-classic-textholder"])
             assert.is_not_nil(a["common-dropdown-classic-a-buttonDown"])
+        end)
+
+        it("falls back to the atlas family the client has (Forever reports project 18)", function()
+            _G.WOW_PROJECT_ID = 18
+            AltArmy.NativeUI.HasAtlas = function(name)
+                return name:find("classic", 1, true) == nil
+            end
+            local btn = makeStubFrame()
+            Theme.SkinDropdownButton(btn)
+            local a = atlases(btn)
+            assert.is_not_nil(a["common-dropdown-textholder"])
+            assert.is_not_nil(a["common-dropdown-a-button"])
         end)
 
         it("gives popups the native menu background", function()

@@ -123,6 +123,12 @@ class RenderTest(unittest.TestCase):
         self.assertIn("- Bolt of Linen Cloth (2963, tailoring)", text)
         self.assertIn("gray: 325 → 330", text)
 
+    def test_summary_at_the_pinned_build_names_it_once(self):
+        # server data refreshes regenerate at the pinned build: no build change to show
+        text = gen.summarize("tbc", "2.5.6.1", "2.5.6.1", self.RECIPES, self.RECIPES, {})
+        self.assertIn("## TBC recipe data: build 2.5.6.1", text)
+        self.assertIn("**0 added**, **0 removed**, **0 changed**", text)
+
 
 if __name__ == "__main__":
     unittest.main()

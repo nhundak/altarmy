@@ -2393,12 +2393,20 @@ local function nativeDropdownsAvailable()
     return caps and caps.wowStyleDropdown or false
 end
 
+-- Prefer the family matching WOW_PROJECT_ID, but Forever reports its own project id (18) while
+-- shipping only the mainline atlases, so fall back to whichever family the client actually has.
 local function dropdownArt()
-    local mainline = _G.WOW_PROJECT_MAINLINE or 1
-    if _G.WOW_PROJECT_ID == mainline then
-        return Theme.DROPDOWN_ART.mainline
+    local art = Theme.DROPDOWN_ART
+    local preferred, other = art.classic, art.mainline
+    if _G.WOW_PROJECT_ID == (_G.WOW_PROJECT_MAINLINE or 1) then
+        preferred, other = other, preferred
     end
-    return Theme.DROPDOWN_ART.classic
+    local NativeUI = AltArmy.NativeUI
+    if NativeUI and NativeUI.HasAtlas
+        and not NativeUI.HasAtlas(preferred.holder) and NativeUI.HasAtlas(other.holder) then
+        return other
+    end
+    return preferred
 end
 
 --- Native dropdown trigger look (text holder + arrow). Callers keep their own label FontString;

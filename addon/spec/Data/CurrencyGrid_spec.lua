@@ -88,40 +88,6 @@ describe("CurrencyGrid", function()
         end)
     end)
 
-    describe("SortRowsForCharacter", function()
-        local function rows()
-            return G.BuildRows({ { CurrencyList = { [1900] = 1, [1901] = 1, [3001] = 1 } } }, META)
-        end
-
-        it("sorts within each header group and keeps headers in place", function()
-            local amounts = { [1901] = 5, [1900] = 50, [3001] = 1 }
-            local sorted = G.SortRowsForCharacter(rows(), function(id) return amounts[id] end, true)
-            assert.are.same({ "# Player vs. Player", "Arena Points", "Honor Points",
-                "# Miscellaneous", "Merchant's Favor" }, names(sorted))
-            sorted = G.SortRowsForCharacter(rows(), function(id) return amounts[id] end, false)
-            assert.are.same({ "# Player vs. Player", "Honor Points", "Arena Points",
-                "# Miscellaneous", "Merchant's Favor" }, names(sorted))
-        end)
-
-        it("keeps Gold at the top", function()
-            local rows = G.BuildRows({ { CurrencyList = { [1900] = 1, [1901] = 1 } } }, META, { gold = true })
-            local amounts = { [G.GOLD_ID] = 1, [1901] = 5, [1900] = 50 }
-            for _, high in ipairs({ true, false }) do
-                local sorted = G.SortRowsForCharacter(rows, function(id) return amounts[id] end, high)
-                assert.equals("Gold", sorted[1].name)
-                assert.equals("# Player vs. Player", names(sorted)[2])
-            end
-        end)
-
-        it("puts currencies the character has no record of last, either direction", function()
-            local amounts = { [1900] = 3 }
-            for _, high in ipairs({ true, false }) do
-                local sorted = G.SortRowsForCharacter(rows(), function(id) return amounts[id] end, high)
-                assert.equals("Arena Points", sorted[2].name)
-            end
-        end)
-    end)
-
     describe("CompareByAmount", function()
         local a, b, c = { name = "A" }, { name = "B" }, { name = "C" }
         local amounts = { A = 10, B = 20 }

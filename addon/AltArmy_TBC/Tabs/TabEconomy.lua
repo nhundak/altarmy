@@ -295,7 +295,6 @@ local function ShowRowTooltip(row)
     end
     GameTooltip:AddLine(" ")
     GameTooltip:AddDoubleLine("Cheapest crate on the auction house", Money(rd.price), 1, 0.82, 0, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Crates listed", tostring(rd.listed), 1, 0.82, 0, 1, 1, 1)
     if rd.random then
         GameTooltip:AddLine("Its shipment is random until you read the label, so there is no fill cost.",
             0.7, 0.7, 0.7, true)
@@ -323,7 +322,21 @@ local function ShowRowTooltip(row)
                 .. "saved together at their cheapest price.", 0.7, 0.7, 0.7, true)
         end
     end
+    local AZ = AltArmy.AuctionatorSearch
+    if AZ and AZ.IsAvailable() then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Click to search with Auctionator", 0.5, 0.5, 0.5)
+    end
     GameTooltip:Show()
+end
+
+-- At the auction house with Auctionator: search the crate and its bundles as a temporary shopping list.
+local function OnRowClick(row)
+    local rd = row.rowData
+    local AZ = AltArmy.AuctionatorSearch
+    if rd and AZ and AZ.IsAvailable() then
+        AZ.Search(W.SearchTerms(rd))
+    end
 end
 
 local function PoolRow()
@@ -337,6 +350,7 @@ local function PoolRow()
     Theme.InstallRowHoverHighlight(row)
     row:SetScript("OnEnter", ShowRowTooltip)
     row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row:SetScript("OnClick", OnRowClick)
     row:EnableMouseWheel(true)
     row:SetScript("OnMouseWheel", function(_, delta) viewport.Wheel(delta) end)
     row.cells = {}

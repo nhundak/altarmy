@@ -124,6 +124,15 @@ function W.BuildRows(book, crates)
     return rows
 end
 
+--- Auctionator shopping-list terms for a row: the crate, then its cheapest fill at its count (if any).
+function W.SearchTerms(row)
+    local terms = { { searchString = row.name, quantity = 1, isExact = true } }
+    if row.bundle then
+        terms[2] = { searchString = row.bundle.name, quantity = row.bundle.count, isExact = true }
+    end
+    return terms
+end
+
 local function tierRank(row)
     return TIER_ORDER[row.tier] or 99
 end

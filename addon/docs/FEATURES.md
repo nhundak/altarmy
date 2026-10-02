@@ -75,7 +75,7 @@ One-time dialogs shown at most once each (guild-share prompt, bank-alt suggestio
 
 | Addon | Used for |
 |-------|----------|
-| Auctionator | `/altarmy networth` AH pricing |
+| Auctionator | `/altarmy networth` AH pricing; Economy → Waylaid Crates row click searches the crate and its cheapest fill (temporary shopping list, at the auction house) |
 | TacoTip / GearScoreTBCClassic | Gear score providers for score-sort and upgrades |
 | RestedXP (RXPGuides) | Level history import; quest-reward conflict dialog |
 | Questie / NovaInstanceTracker | Level history import into Graphs |
@@ -127,4 +127,4 @@ AltArmy ships a table of every profession recipe for each client (TBC Anniversar
 
 When a character learns a recipe with the profession window closed, AltArmy recognizes it (from the learn event or the system chat line, in any client language), adds it to that character's recipes with its difficulty color, and shares it with guildmates. The profession window no longer has to be reopened; the Summary warning appears only for a recipe it can't recognize.
 
-The tables are generated from the game client's data (wago.tools) and open-source server data. A daily GitHub workflow opens a pull request when a new client build changes recipes. See `AltArmy_TBC/Data/DESIGN.md` ("Recipe data").
+The tables are generated from the game client's data (wago.tools) and open-source server data. A daily GitHub workflow opens a pull request when a new client build or a new release of the server databases changes recipes. See `AltArmy_TBC/Data/DESIGN.md` ("Recipe data").

@@ -122,7 +122,7 @@ We also reviewed AtlasLoot Classic Forever (CurseForge, author Sliccer) — a fo
 
 **Implemented (2026-09-17):** added `16001` to [`AltArmy_TBC.toc`](../AltArmy_TBC/AltArmy_TBC.toc) (`## Interface: 20506, 16001`), so the client will load the addon on Forever. This only affects load-eligibility — it does **not** confirm `DataStore/` scanning or any other behavior actually works correctly on Forever. Step 1 of the recommendation below (confirm the API surface in-game, ideally via `/altarmy debug apicheck`) is still outstanding and should happen once Forever beta access is in hand.
 
-> **✅ Resolved (2026-09-17):** `/altarmy debug apicheck` was run on Forever the same day — see "`/altarmy debug apicheck` results on Forever" below. Only Forever's `WOW_PROJECT_ID` was never recorded; nothing currently depends on it (Forever detection uses the Interface number, `AltArmy.DataStore.IsWowForever`).
+> **✅ Resolved (2026-09-17):** `/altarmy debug apicheck` was run on Forever the same day — see "`/altarmy debug apicheck` results on Forever" below. Forever's `WOW_PROJECT_ID` is **18** (recorded 2026-10-02 via dev dump), so `WOW_PROJECT_ID == WOW_PROJECT_MAINLINE` is false there even though it ships mainline UI atlases; don't use that check to pick Forever art (Forever detection uses the Interface number, `AltArmy.DataStore.IsWowForever`).
 
 ## Deployment pipeline (2026-09-17): not yet updated, on purpose
 

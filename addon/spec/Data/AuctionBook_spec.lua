@@ -174,6 +174,23 @@ describe("AuctionBook", function()
         end)
     end)
 
+    describe("Clear", function()
+        it("drops every scan but keeps the client's cooldown", function()
+            _G.AltArmyTBC_AuctionBook = { version = 1, lastRequest = 5000, scans = {
+                { t = 1000, realm = "R", faction = "Horde", complete = true, items = "" },
+            } }
+            assert.equals(1, B.Clear())
+            assert.is_nil(B.Latest("R", "Horde"))
+            assert.equals(0, #B.GetLog().scans)
+            assert.equals(B.COOLDOWN, B.CooldownLeft(5000))
+        end)
+
+        it("is fine before any scan", function()
+            assert.equals(0, B.Clear())
+            assert.equals(0, #B.GetLog().scans)
+        end)
+    end)
+
     describe("the client's cooldown", function()
         it("is none before any request", function()
             assert.equals(0, B.CooldownLeft(5000))

@@ -57,8 +57,11 @@ local function create()
     button:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText("Alt Army scan")
-        GameTooltip:AddLine("Reads every listing so Alt Army can make price calculations. For greatest effect, "
-            .. "use this in combination with the crafting tools on alt-army.com", 1, 1, 1, true)
+        local desc = "Reads every listing so Alt Army can make price calculations."
+        if AltArmy.FeatureFlags and AltArmy.FeatureFlags.economySupplyChain then
+            desc = desc .. " For greatest effect, use this in combination with the crafting tools on alt-army.com"
+        end
+        GameTooltip:AddLine(desc, 1, 1, 1, true)
         GameTooltip:AddLine("The game allows one full scan every 15 minutes.", 0.7, 0.7, 0.7, true)
         GameTooltip:Show()
     end)

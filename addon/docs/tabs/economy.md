@@ -23,7 +23,7 @@ A grid of currencies (rows) × characters (columns), like the Reputation tab, wi
 - **Sorting:**
   - The score-sort row under the character names (level / item level / played / gear score, as on Gear and Reputation) orders the columns.
   - Clicking a currency sorts the characters by how much of it they have (click again to flip). Clicking the score selector returns to score sorting.
-  - Clicking a character's name sorts the currencies within each header by that character's amount: high first, low first, then off.
+  - Character names in the header are not clickable.
 - **Filter currency** box in the toolbar row, beside the settings button (shown only on this view): shows only the currencies whose name contains the text (case-insensitive; Gold counts as a currency). Headers stay only while one of their currencies matches. Matching text is green, as in other searches. When nothing matches, the grid says so.
 - **Settings** (toolbar gear button, shown only on this view): Pin current character, and pin / hide per character, like Reputation. Saved in `AltArmyTBC_Options.economy.currency`. Bank alts are hidden, and the global realm filter applies.
 - Characters with no currency data yet still show their gold; their currency cells show a dash.
@@ -45,6 +45,7 @@ A Waylaid Crate is filled with **any one** of the bundles its label lists (for e
 - The unread **Waylaid Crate** (its shipment is random until the label is read) shows its price only.
 - An asterisk marks a cost that reaches the scan's dearest listings. Those are saved together at their cheapest price, so the cost is a close estimate.
 - Hovering a row shows the crate's tooltip plus every bundle with its cost, "only N listed" or "not listed", cheapest first (bundles that can't be bought in full at the bottom).
+- **Auctionator search:** with Auctionator installed and the auction house open, clicking a row opens Auctionator's Shopping tab and searches a temporary list ("Alt Army (temporary)") for the crate and its cheapest fill at its count (just the crate when no fill can be bought in full), exact names (the same API as Auctionator's crafting-window Search button). The row tooltip then ends with a grey "Click to search with Auctionator"; elsewhere clicking does nothing and the line is hidden (`Data/Integrations/AuctionatorSearch.lua`).
 - The row below the table shows, on the left, how old the scan is ("Scanned 12 min ago"): white under 15 minutes, yellow up to 30, red after that. On the right, an **Auto scan when opening AH** checkbox (same setting as Options → General → Auction House). While the auction house is open, a **Scan now** button sits in the middle; it reads "Scan in m:ss" while the game's 15-minute scan cooldown runs (same as the button on the auction house). If the scan found no Waylaid Crates, the table says so. The table refreshes when a scan finishes while it is open.
 - Merchant's Favor per crate isn't shown. Guides disagree on it, and it may differ by tier or between gathered and crafted crates, so compare crates of the same tier. What we have measured so far is below.
 
