@@ -1,0 +1,35 @@
+name: addon-check
+
+# The addon's checks (addon/): its busted specs, luacheck and the Lua 5.1 compile check, run when something under
+# addon/ changed.
+on:
+  push:
+    paths: ["addon/**", ".github/workflows/addon-check.yml"]
+  pull_request:
+    paths: ["addon/**", ".github/workflows/addon-check.yml"]
+
+defaults:
+  run:
+    working-directory: addon
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      # setup:dev builds Lua 5.1 from source and fetches busted and luacheck; keep them between runs
+      - uses: actions/cache@v4
+        with:
+          path: |
+            addon/.lua51
+            addon/busted-2.1.1
+            addon/luacheck-src
+          key: addon-lua-tools-${{ runner.os }}-${{ hashFiles('addon/scripts/setup-dev-tools.js') }}
+      - run: sudo apt-get install -y libreadline-dev # Lua 5.1's `make linux`
+      - run: npm ci
+      - run: npm run setup:dev
+      - run: npm test
+      - run: npm run check
