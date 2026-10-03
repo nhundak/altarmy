@@ -37,7 +37,7 @@ LOOKBACK_DAYS = 30  # how far back those days may be
 SALES_DAYS = 7  # the calendar days whose inferred sales count
 MIN_SALES = 5  # fewer units sold than this say nothing of a price
 # Past this many rows price_observations should be partitioned by month: the merge then logs a warning
-# tagged PARTITION_ALERT, which a log-based alert policy emails (deploy/setup.sh `alerts`).
+# tagged PARTITION_ALERT, which a log-based alert policy posts to Discord (deploy/setup.sh `alerts`).
 PARTITION_AT = 5_000_000
 PARTITION_ALERT = "partition-observations"
 

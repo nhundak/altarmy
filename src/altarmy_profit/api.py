@@ -44,6 +44,7 @@ from starlette.types import Scope
 from . import (
     altarmy,
     auth,
+    cloudlog,
     db,
     engine,
     jobs,
@@ -1803,7 +1804,9 @@ def create_app(
     `verifier` is given (tests pass a fake one), which also deletes accounts unless `accounts` is given.
     Requests are rate-limited with `limits` (default `ratelimit.HOSTED_LIMITS`). Price signals go to the
     Firebase project's Firestore unless `signals` is given (`signals.for_project`). The Admin page's Run
-    now starts jobs with `launcher`, else `launch.from_env`'s."""
+    now starts jobs with `launcher`, else `launch.from_env`'s. On Cloud Run, logs become JSON lines
+    (`cloudlog`), so an unhandled exception is an Error Reporting event."""
+    cloudlog.configure()
     database = database or db.Database(db.default_url(), migrate=False)
     firebase = firebase or auth.FirebaseConfig.from_env()
     verifier = verifier or auth.FirebaseVerifier(firebase.project_id)

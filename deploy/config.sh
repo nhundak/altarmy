@@ -17,6 +17,14 @@ STAGING_AUTH_PROJECT=alt-army-staging # staging's Firebase Auth (Spark, no billi
 SCHEDULER_SA="altarmy-scheduler@$PROJECT.iam.gserviceaccount.com" # Cloud Scheduler starts jobs as this
 DEPLOY_SA="altarmy-deploy@$PROJECT.iam.gserviceaccount.com"       # CI (Workload Identity Federation)
 
+# Alerts to Discord (setup.sh discord): Monitoring -> Pub/Sub topic -> push -> the relay service -> webhook
+ALERTS_SA="altarmy-alerts@$PROJECT.iam.gserviceaccount.com" # the relay runs as this; the push subscription too
+ALERTS_TOPIC=altarmy-alerts
+ALERTS_SUBSCRIPTION=altarmy-alerts-discord
+ALERTS_SERVICE=altarmy-alerts                                # Cloud Run service: `altarmy-profit alert-relay`
+ALERTS_CHANNEL_NAME="altarmy Discord"                        # the Monitoring notification channel
+DISCORD_SECRET=discord-webhook                               # Secret Manager: the channel's webhook URL
+
 WIF_POOL=github
 WIF_PROVIDER=github-actions
 GITHUB_REPO=ntower/altarmy-profit
@@ -38,6 +46,14 @@ env_config() {
       return 1
       ;;
   esac
+}
+
+# Deploy the Discord relay (alerts.py) with IMAGE: setup.sh discord first, then every prod deploy.
+relay_deploy() {
+  gcloud run deploy "$ALERTS_SERVICE" --image "${1:?image}" --region "$REGION" --service-account "$ALERTS_SA" \
+    --command altarmy-profit --args alert-relay --no-allow-unauthenticated \
+    --min-instances 0 --max-instances 1 --concurrency 10 --cpu 1 --memory 256Mi \
+    --set-secrets "DISCORD_WEBHOOK_URL=$DISCORD_SECRET:latest" "${GCLOUD_FLAGS[@]}"
 }
 
 # The environment's Firebase web config (public) from $FIREBASE_ENV (after env_config), as Cloud Run env vars.

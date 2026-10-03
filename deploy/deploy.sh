@@ -3,7 +3,8 @@
 #   1. define the Cloud Run jobs with the new image (migrate, merge, ingest-tbc, ingest-forever, prune);
 #      `setup.sh scheduler ENV` schedules all but migrate
 #   2. run the migrate job and wait: migrations run once per deploy, before any new instance starts
-#   3. deploy the Cloud Run service (its instances never migrate)
+#   3. deploy the Cloud Run service (its instances never migrate); prod: the Discord relay too, if
+#      `setup.sh discord` made it
 #   4. build the front end and deploy it to Firebase Hosting (prod: the live site; staging: the
 #      `staging` preview channel, whose /api rewrites to the staging service), and the Firestore rules
 #      to the environment's Firebase project (price signals, firestore.rules)
@@ -50,6 +51,13 @@ gcloud run deploy "$SERVICE" "${COMMON[@]}" \
   --cpu 1 --memory 1Gi --cpu-boost --timeout 300 \
   --set-env-vars "$FIREBASE_VARS,DB_POOL_SIZE=3,DB_MAX_OVERFLOW=2,$RUN_JOBS" \
   "${GCLOUD_FLAGS[@]}"
+
+# the Discord relay (alerts.py) runs prod's image, once setup.sh discord has made it
+if [ "$ENV_NAME" = prod ] &&
+  gcloud run services describe "$ALERTS_SERVICE" --region "$REGION" "${GCLOUD_FLAGS[@]}" >/dev/null 2>&1; then
+  echo "== $ALERTS_SERVICE"
+  relay_deploy "$IMAGE"
+fi
 
 echo "== front end"
 (cd frontend && npm run build)

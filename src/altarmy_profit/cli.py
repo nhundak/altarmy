@@ -1,6 +1,7 @@
 """Command line interface: the site's jobs (ingest, migrate, prune, merge; all but migrate record
 their runs in `job_runs`), `serve` (the API and built front end, for development), `watch` (uploads the
-addon files to a server) and `admin` (the site admin claim on Firebase accounts).
+addon files to a server), `admin` (the site admin claim on Firebase accounts) and `alert-relay` (the
+Discord relay, `alerts`).
 
 `--game-version` (tbc | forever) picks the game's data and wago.tools product. Every version shares one
 database: `--db` (a SQLite file), else `DATABASE_URL`, else data/altarmy-profit.sqlite.
@@ -20,6 +21,7 @@ from sqlalchemy import Connection, select
 from . import (
     addon_crates,
     auth,
+    cloudlog,
     db,
     ingest,
     jobs,
@@ -192,6 +194,23 @@ def cmd_admin(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_alert_relay(args: argparse.Namespace) -> None:
+    """Cloud Monitoring's notifications to Discord (no database): the Cloud Run service `altarmy-alerts`."""
+    try:
+        import uvicorn
+
+        from .alerts import create_relay_app
+    except ImportError:
+        sys.exit('The relay needs FastAPI and uvicorn: pip install -e ".[ui]"')
+    try:
+        app = create_relay_app()
+    except KeyError:
+        sys.exit("Set DISCORD_WEBHOOK_URL to the Discord channel's webhook.")
+    # on Cloud Run `main` has set up JSON logs, which uvicorn's own config would replace
+    config = None if cloudlog.cloud_run_name() else uvicorn.config.LOGGING_CONFIG
+    uvicorn.run(app, host=args.host, port=args.port, log_config=config)
+
+
 def _ask(prompt: str, env: str, secret: bool = False) -> str:
     """A value from the environment (for running unattended), else asked for on the terminal."""
     value = os.environ.get(env)
@@ -262,6 +281,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    cloudlog.configure()  # on Cloud Run (the jobs): JSON logs, a failure's traceback for Error Reporting
     p = argparse.ArgumentParser(prog="altarmy-profit")
     p.add_argument(
         "--game-version",
@@ -329,6 +349,11 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--state", default=str(watch.DEFAULT_STATE), help="which files were sent (JSON)")
     s.add_argument("--wow-root", action="append", help="a WoW install folder (repeatable)")
     s.set_defaults(fn=cmd_watch, needs_db=False)
+
+    s = sub.add_parser("alert-relay", help="post Cloud Monitoring's Pub/Sub notifications to Discord")
+    s.add_argument("--host", default="0.0.0.0")
+    s.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
+    s.set_defaults(fn=cmd_alert_relay, needs_db=False)
 
     args = p.parse_args(argv)
     if not getattr(args, "needs_db", True):

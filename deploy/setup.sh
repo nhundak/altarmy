@@ -16,8 +16,11 @@
 #                                jobs; existing ones are kept)
 #   deploy/setup.sh job-runner ENV  let ENV's service start its ingest jobs (the Admin page's Run now; after
 #                                a deploy of ENV made them)
-#   deploy/setup.sh alerts EMAIL  an email channel to EMAIL and the alert policies that use it (existing
-#                                ones are kept)
+#   deploy/setup.sh discord      alerts to a Discord channel (after a prod deploy; asks for the webhook URL):
+#                                the relay service, its Pub/Sub topic and push subscription, and the
+#                                notification channel (existing ones are kept)
+#   deploy/setup.sh alerts       the alert policies, notifying the Discord channel (after `discord`;
+#                                existing policies are kept and pointed at it alone)
 #
 # Then: BUILDER=cloudbuild deploy/build.sh, deploy/deploy.sh prod|staging IMAGE (README, "Deploy").
 set -euo pipefail
@@ -166,27 +169,112 @@ job_runner() { # job-runner prod|staging: the service may start its ingest jobs 
   done
 }
 
-alerts() { # alerts EMAIL: log-based alert policies (a job's `Run.warn`), emailed at most once a day
-  local email="${1:?an email address to notify}" channel policy file
-  channel="$(gcloud beta monitoring channels list --filter "type=\"email\" AND labels.email_address=\"$email\"" \
-    --format 'value(name)' "${G[@]}" | head -n 1)"
+discord_channel() { # the Discord notification channel's name, "" before `discord` made it
+  gcloud beta monitoring channels list --filter "type=\"pubsub\" AND displayName=\"$ALERTS_CHANNEL_NAME\"" \
+    --format 'value(name)' "${G[@]}" | head -n 1
+}
+
+discord() { # discord: Monitoring's notifications (alert policies, Error Reporting) to a Discord channel
+  gcloud services enable pubsub.googleapis.com "${G[@]}"
+  # the webhook URL: read without echo, never in argv or the shell history
+  if gcloud secrets describe "$DISCORD_SECRET" "${G[@]}" >/dev/null 2>&1; then
+    echo "secret $DISCORD_SECRET exists"
+  else
+    local webhook
+    read -rsp "Discord webhook URL (channel settings > Integrations > Webhooks): " webhook
+    echo
+    case "$webhook" in
+      https://discord.com/api/webhooks/*) ;;
+      *)
+        echo "not a Discord webhook URL" >&2
+        return 1
+        ;;
+    esac
+    printf '%s' "$webhook" | gcloud secrets create "$DISCORD_SECRET" --data-file - --replication-policy automatic \
+      "${G[@]}"
+  fi
+
+  # the relay's account: reads the webhook, and is who Pub/Sub pushes as
+  if ! gcloud iam service-accounts describe "$ALERTS_SA" "${G[@]}" >/dev/null 2>&1; then
+    gcloud iam service-accounts create altarmy-alerts --display-name "altarmy-profit Discord relay" "${G[@]}"
+  fi
+  gcloud secrets add-iam-policy-binding "$DISCORD_SECRET" --member "serviceAccount:$ALERTS_SA" \
+    --role roles/secretmanager.secretAccessor "${G[@]}" >/dev/null
+  echo "  roles/secretmanager.secretAccessor on $DISCORD_SECRET -> $ALERTS_SA"
+  # CI's prod deploys redeploy the relay as it
+  gcloud iam service-accounts add-iam-policy-binding "$ALERTS_SA" --member "serviceAccount:$DEPLOY_SA" \
+    --role roles/iam.serviceAccountUser "${G[@]}" >/dev/null
+  echo "  roles/iam.serviceAccountUser on $ALERTS_SA -> $DEPLOY_SA"
+
+  # the relay, with the image prod runs now (deploy.sh redeploys it with every prod image)
+  local image url agent channel
+  env_config prod
+  image="$(gcloud run services describe "$SERVICE" --region "$REGION" \
+    --format 'value(spec.template.spec.containers[0].image)' "${G[@]}")"
+  relay_deploy "${image:?deploy prod first}"
+  url="$(gcloud run services describe "$ALERTS_SERVICE" --region "$REGION" --format 'value(status.url)' "${G[@]}")"
+  gcloud run services add-iam-policy-binding "$ALERTS_SERVICE" --region "$REGION" \
+    --member "serviceAccount:$ALERTS_SA" --role roles/run.invoker "${G[@]}" >/dev/null
+  echo "  roles/run.invoker on $ALERTS_SERVICE -> $ALERTS_SA"
+
+  # Monitoring publishes to the topic as its notification service agent
+  if ! gcloud pubsub topics describe "$ALERTS_TOPIC" "${G[@]}" >/dev/null 2>&1; then
+    gcloud pubsub topics create "$ALERTS_TOPIC" "${G[@]}"
+  fi
+  gcloud beta services identity create --service monitoring.googleapis.com "${G[@]}" >/dev/null
+  agent="service-$PROJECT_NUMBER@gcp-sa-monitoring-notification.iam.gserviceaccount.com"
+  gcloud pubsub topics add-iam-policy-binding "$ALERTS_TOPIC" --member "serviceAccount:$agent" \
+    --role roles/pubsub.publisher "${G[@]}" >/dev/null
+  echo "  roles/pubsub.publisher on $ALERTS_TOPIC -> $agent"
+  # pushed to the relay with an ID token; retried with backoff while Discord is down (the relay's 503)
+  if gcloud pubsub subscriptions describe "$ALERTS_SUBSCRIPTION" "${G[@]}" >/dev/null 2>&1; then
+    echo "subscription $ALERTS_SUBSCRIPTION exists"
+  else
+    gcloud pubsub subscriptions create "$ALERTS_SUBSCRIPTION" --topic "$ALERTS_TOPIC" --push-endpoint "$url" \
+      --push-auth-service-account "$ALERTS_SA" --ack-deadline 30 --min-retry-delay 10s \
+      --max-retry-delay 600s --message-retention-duration 1d "${G[@]}"
+  fi
+
+  channel="$(discord_channel)"
   if [ -z "$channel" ]; then
-    channel="$(gcloud beta monitoring channels create --type email --display-name "altarmy alerts ($email)" \
-      --channel-labels "email_address=$email" --format 'value(name)' "${G[@]}")"
+    channel="$(gcloud beta monitoring channels create --type pubsub --display-name "$ALERTS_CHANNEL_NAME" \
+      --channel-labels "topic=projects/$PROJECT/topics/$ALERTS_TOPIC" --format 'value(name)' "${G[@]}")"
   fi
   echo "  notification channel $channel"
+  echo "Next: deploy/setup.sh alerts; and in the console, Error Reporting > Configure notifications:"
+  echo "  pick '$ALERTS_CHANNEL_NAME'."
+}
 
-  # merge.PARTITION_ALERT: price_observations is past merge.PARTITION_AT rows (prod's or staging's merge)
-  policy="altarmy price_observations needs partitioning"
-  if gcloud alpha monitoring policies list --filter "displayName=\"$policy\"" --format 'value(name)' \
-    "${G[@]}" | grep -q .; then
-    echo "policy '$policy' exists"
+policy() { # policy NAME CHANNEL < POLICY_JSON: create the policy, else point the existing one at CHANNEL alone
+  local existing file
+  existing="$(gcloud alpha monitoring policies list --filter "displayName=\"$1\"" --format 'value(name)' \
+    "${G[@]}" | head -n 1)"
+  if [ -n "$existing" ]; then
+    cat >/dev/null
+    gcloud alpha monitoring policies update "$existing" --set-notification-channels "$2" "${G[@]}" >/dev/null
+    echo "policy '$1' exists: it notifies $2 alone"
     return
   fi
   file="$(mktemp)"
-  cat >"$file" <<EOF
+  cat >"$file"
+  gcloud alpha monitoring policies create --policy-from-file "$file" "${G[@]}"
+  rm -f "$file"
+}
+
+alerts() { # alerts: log-based alert policies, to the Discord channel (`discord`)
+  local channel
+  channel="$(discord_channel)"
+  if [ -z "$channel" ]; then
+    echo "no '$ALERTS_CHANNEL_NAME' notification channel: run deploy/setup.sh discord first" >&2
+    return 1
+  fi
+  echo "  notification channel $channel"
+
+  # merge.PARTITION_ALERT: price_observations is past merge.PARTITION_AT rows (prod's or staging's merge);
+  # at most once a day
+  policy "altarmy price_observations needs partitioning" "$channel" <<EOF
 {
-  "displayName": "$policy",
+  "displayName": "altarmy price_observations needs partitioning",
   "documentation": {
     "mimeType": "text/markdown",
     "content": "The hourly merge job counted more rows in price_observations than merge.PARTITION_AT. Partition the table by month (pruning then drops whole partitions), or shorten prices.KEEP_DAYS. The job label says whether it is prod's or staging's."
@@ -205,19 +293,40 @@ alerts() { # alerts EMAIL: log-based alert policies (a job's `Run.warn`), emaile
   "notificationChannels": ["$channel"]
 }
 EOF
-  gcloud alpha monitoring policies create --policy-from-file "$file" "${G[@]}"
-  rm -f "$file"
+
+  # any Cloud Run job's failed execution (after its retry), prod's or staging's: a traceback (also an Error
+  # Reporting event) or a sys.exit with a message (the Admin page's runs say which); at most hourly
+  policy "altarmy job failed" "$channel" <<EOF
+{
+  "displayName": "altarmy job failed",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "A Cloud Run job's execution failed. The job label says which (altarmy-staging-* are staging's); its logs, or the Admin page's recent runs, say why."
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "a job execution failed",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_job\" AND logName=\"projects/$PROJECT/logs/cloudaudit.googleapis.com%2Fsystem_event\" AND protoPayload.methodName=\"/Jobs.RunJob\" AND severity>=ERROR",
+        "labelExtractors": {"job": "EXTRACT(resource.labels.job_name)"}
+      }
+    }
+  ],
+  "alertStrategy": {"notificationRateLimit": {"period": "3600s"}, "autoClose": "86400s"},
+  "notificationChannels": ["$channel"]
+}
+EOF
 }
 
 case "${1:-}" in
-  apis | registry | accounts | sql | firestore | wif) "$1" ;;
-  alerts) alerts "${2:-}" ;;
+  apis | registry | accounts | sql | firestore | wif | discord | alerts) "$1" ;;
   database) database "${2:-}" ;;
   scheduler) scheduler "${2:-}" ;;
   job-runner) job_runner "${2:-}" ;;
   staging-auth) staging_auth ;;
   *)
-    sed -n '2,22p' "$0"
+    sed -n '2,25p' "$0"
     exit 1
     ;;
 esac
