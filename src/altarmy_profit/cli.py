@@ -205,7 +205,9 @@ def cmd_alert_relay(args: argparse.Namespace) -> None:
     try:
         app = create_relay_app()
     except KeyError:
-        sys.exit("Set DISCORD_WEBHOOK_URL to the Discord channel's webhook.")
+        sys.exit(
+            "Set DISCORD_WEBHOOK_URL (the Discord channel's webhook) and RELAY_PASSWORD (the channel's)."
+        )
     # on Cloud Run `main` has set up JSON logs, which uvicorn's own config would replace
     config = None if cloudlog.cloud_run_name() else uvicorn.config.LOGGING_CONFIG
     uvicorn.run(app, host=args.host, port=args.port, log_config=config)

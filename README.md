@@ -258,7 +258,7 @@ The site runs on Google Cloud in `alt-army-prod` (us-central1). The config is in
 | Service accounts | `altarmy-run` (prod's service and jobs), `altarmy-staging-run` (staging's), `altarmy-scheduler`, `altarmy-deploy` (CI) |
 | Firebase Auth | prod: `alt-army-prod`; staging: `alt-army-staging`, a free Spark project (see "Firebase projects") |
 | Firestore | price signals only (`priceSignals/<auction house id>`: the price version, never prices), in each environment's Firebase project; the API and jobs write them, signed-in browsers read them (`firestore.rules`, deployed with Hosting). Within the free tier |
-| Alerts | Cloud Monitoring's alert policies (a job failed; `price_observations` needs partitioning) and Error Reporting notify the Pub/Sub topic `altarmy-alerts`, pushed to `altarmy-alerts` (a Cloud Run service on prod's image, `altarmy-profit alert-relay`), which posts them to a Discord channel's webhook (secret `discord-webhook`). On Cloud Run the service and jobs log JSON lines (`cloudlog.py`), so every exception is an Error Reporting event |
+| Alerts | Cloud Monitoring's alert policies (a job failed; `price_observations` needs partitioning) and Error Reporting notify the basic-auth webhook channel "altarmy Discord", which calls `altarmy-alerts` (a public Cloud Run service on prod's image, `altarmy-profit alert-relay`, refusing requests without the channel's password, secret `alerts-relay-password`), which posts them to a Discord channel's webhook (secret `discord-webhook`). On Cloud Run the service and jobs log JSON lines (`cloudlog.py`), so every exception is an Error Reporting event |
 
 About $9 to 11 a month, nearly all of it Cloud SQL; Cloud Run stays in its free tier at hobby traffic.
 Staging adds little: its database shares the Cloud SQL instance, its Auth project has no billing, and its
@@ -293,10 +293,12 @@ command passes `--project alt-army-prod --billing-project alt-army-prod`, so gcl
 
 Alerts to Discord, once, after a prod deploy: make a webhook in the Discord channel (its settings →
 Integrations → Webhooks), then `deploy/setup.sh discord` (asks for the webhook URL; makes the relay, its
-topic, push subscription and the notification channel) and `deploy/setup.sh alerts` (the policies). Then, in
-the console, Error Reporting → Configure notifications → pick "altarmy Discord": Error Reporting has no
-gcloud command for it. It notifies on each new error and on a resolved one coming back. To try the path:
-`gcloud pubsub topics publish altarmy-alerts --message '{"incident": {"policy_name": "test", "summary": "hello"}}'`.
+password and the webhook notification channel) and `deploy/setup.sh alerts` (the policies). Then, in the
+console, Error Reporting → Configure notifications → pick "altarmy Discord": Error Reporting has no gcloud
+command for it, and notifies only email, Slack and webhooks (hence a webhook, not Pub/Sub). It notifies on
+each new error and on a resolved one coming back. To try the path (curl asks for the password, which
+`gcloud secrets versions access latest --secret alerts-relay-password` prints):
+`curl -u altarmy -H 'Content-Type: application/json' -d '{"incident": {"policy_name": "test", "summary": "hello"}}' https://altarmy-alerts-516573536063.us-central1.run.app/`.
 
 ### Development
 

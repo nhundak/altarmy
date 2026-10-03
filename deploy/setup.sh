@@ -16,8 +16,8 @@
 #                                jobs; existing ones are kept)
 #   deploy/setup.sh job-runner ENV  let ENV's service start its ingest jobs (the Admin page's Run now; after
 #                                a deploy of ENV made them)
-#   deploy/setup.sh discord      alerts to a Discord channel (after a prod deploy; asks for the webhook URL):
-#                                the relay service, its Pub/Sub topic and push subscription, and the
+#   deploy/setup.sh discord [IMAGE]  alerts to a Discord channel (after a prod deploy; asks for the webhook
+#                                URL): the relay service (IMAGE, else prod's), its password and the webhook
 #                                notification channel (existing ones are kept)
 #   deploy/setup.sh alerts       the alert policies, notifying the Discord channel (after `discord`;
 #                                existing policies are kept and pointed at it alone)
@@ -170,13 +170,13 @@ job_runner() { # job-runner prod|staging: the service may start its ingest jobs 
 }
 
 discord_channel() { # the Discord notification channel's name, "" before `discord` made it
-  gcloud beta monitoring channels list --filter "type=\"pubsub\" AND displayName=\"$ALERTS_CHANNEL_NAME\"" \
+  gcloud beta monitoring channels list \
+    --filter "type=\"webhook_basicauth\" AND displayName=\"$ALERTS_CHANNEL_NAME\"" \
     --format 'value(name)' "${G[@]}" | head -n 1
 }
 
-discord() { # discord: Monitoring's notifications (alert policies, Error Reporting) to a Discord channel
-  gcloud services enable pubsub.googleapis.com "${G[@]}"
-  # the webhook URL: read without echo, never in argv or the shell history
+discord() { # discord [IMAGE]: alert policies' and Error Reporting's notifications to a Discord channel
+  # the Discord webhook URL: read without echo, never in argv or the shell history
   if gcloud secrets describe "$DISCORD_SECRET" "${G[@]}" >/dev/null 2>&1; then
     echo "secret $DISCORD_SECRET exists"
   else
@@ -193,52 +193,50 @@ discord() { # discord: Monitoring's notifications (alert policies, Error Reporti
     printf '%s' "$webhook" | gcloud secrets create "$DISCORD_SECRET" --data-file - --replication-policy automatic \
       "${G[@]}"
   fi
+  # the channel's basic-auth password (never printed), which the relay checks on every request
+  if gcloud secrets describe "$RELAY_SECRET" "${G[@]}" >/dev/null 2>&1; then
+    echo "secret $RELAY_SECRET exists"
+  else
+    openssl rand -hex 24 | tr -d '\n' | gcloud secrets create "$RELAY_SECRET" --data-file - \
+      --replication-policy automatic "${G[@]}"
+  fi
 
-  # the relay's account: reads the webhook, and is who Pub/Sub pushes as
+  # the relay's account: reads both secrets
   if ! gcloud iam service-accounts describe "$ALERTS_SA" "${G[@]}" >/dev/null 2>&1; then
     gcloud iam service-accounts create altarmy-alerts --display-name "altarmy-profit Discord relay" "${G[@]}"
   fi
-  gcloud secrets add-iam-policy-binding "$DISCORD_SECRET" --member "serviceAccount:$ALERTS_SA" \
-    --role roles/secretmanager.secretAccessor "${G[@]}" >/dev/null
-  echo "  roles/secretmanager.secretAccessor on $DISCORD_SECRET -> $ALERTS_SA"
+  local secret
+  for secret in "$DISCORD_SECRET" "$RELAY_SECRET"; do
+    gcloud secrets add-iam-policy-binding "$secret" --member "serviceAccount:$ALERTS_SA" \
+      --role roles/secretmanager.secretAccessor "${G[@]}" >/dev/null
+    echo "  roles/secretmanager.secretAccessor on $secret -> $ALERTS_SA"
+  done
   # CI's prod deploys redeploy the relay as it
   gcloud iam service-accounts add-iam-policy-binding "$ALERTS_SA" --member "serviceAccount:$DEPLOY_SA" \
     --role roles/iam.serviceAccountUser "${G[@]}" >/dev/null
   echo "  roles/iam.serviceAccountUser on $ALERTS_SA -> $DEPLOY_SA"
 
-  # the relay, with the image prod runs now (deploy.sh redeploys it with every prod image)
-  local image url agent channel
-  env_config prod
-  image="$(gcloud run services describe "$SERVICE" --region "$REGION" \
-    --format 'value(spec.template.spec.containers[0].image)' "${G[@]}")"
+  # the relay: IMAGE, else the image prod runs now (deploy.sh redeploys it with every prod image)
+  local image="${1:-}" url channel file
+  if [ -z "$image" ]; then
+    env_config prod
+    image="$(gcloud run services describe "$SERVICE" --region "$REGION" \
+      --format 'value(spec.template.spec.containers[0].image)' "${G[@]}")"
+  fi
   relay_deploy "${image:?deploy prod first}"
   url="$(gcloud run services describe "$ALERTS_SERVICE" --region "$REGION" --format 'value(status.url)' "${G[@]}")"
-  gcloud run services add-iam-policy-binding "$ALERTS_SERVICE" --region "$REGION" \
-    --member "serviceAccount:$ALERTS_SA" --role roles/run.invoker "${G[@]}" >/dev/null
-  echo "  roles/run.invoker on $ALERTS_SERVICE -> $ALERTS_SA"
 
-  # Monitoring publishes to the topic as its notification service agent
-  if ! gcloud pubsub topics describe "$ALERTS_TOPIC" "${G[@]}" >/dev/null 2>&1; then
-    gcloud pubsub topics create "$ALERTS_TOPIC" "${G[@]}"
-  fi
-  gcloud beta services identity create --service monitoring.googleapis.com "${G[@]}" >/dev/null
-  agent="service-$PROJECT_NUMBER@gcp-sa-monitoring-notification.iam.gserviceaccount.com"
-  gcloud pubsub topics add-iam-policy-binding "$ALERTS_TOPIC" --member "serviceAccount:$agent" \
-    --role roles/pubsub.publisher "${G[@]}" >/dev/null
-  echo "  roles/pubsub.publisher on $ALERTS_TOPIC -> $agent"
-  # pushed to the relay with an ID token; retried with backoff while Discord is down (the relay's 503)
-  if gcloud pubsub subscriptions describe "$ALERTS_SUBSCRIPTION" "${G[@]}" >/dev/null 2>&1; then
-    echo "subscription $ALERTS_SUBSCRIPTION exists"
-  else
-    gcloud pubsub subscriptions create "$ALERTS_SUBSCRIPTION" --topic "$ALERTS_TOPIC" --push-endpoint "$url" \
-      --push-auth-service-account "$ALERTS_SA" --ack-deadline 30 --min-retry-delay 10s \
-      --max-retry-delay 600s --message-retention-duration 1d "${G[@]}"
-  fi
-
+  # the webhook channel, its password from the secret through a private temporary file (never in argv)
   channel="$(discord_channel)"
   if [ -z "$channel" ]; then
-    channel="$(gcloud beta monitoring channels create --type pubsub --display-name "$ALERTS_CHANNEL_NAME" \
-      --channel-labels "topic=projects/$PROJECT/topics/$ALERTS_TOPIC" --format 'value(name)' "${G[@]}")"
+    file="$(mktemp)"
+    chmod 600 "$file"
+    printf '{"type": "webhook_basicauth", "displayName": "%s", "labels": {"url": "%s/", "username": "altarmy", "password": "%s"}}' \
+      "$ALERTS_CHANNEL_NAME" "$url" "$(gcloud secrets versions access latest --secret "$RELAY_SECRET" "${G[@]}")" \
+      >"$file"
+    channel="$(gcloud beta monitoring channels create --channel-content-from-file "$file" --format 'value(name)' \
+      "${G[@]}")"
+    rm -f "$file"
   fi
   echo "  notification channel $channel"
   echo "Next: deploy/setup.sh alerts; and in the console, Error Reporting > Configure notifications:"
@@ -320,7 +318,8 @@ EOF
 }
 
 case "${1:-}" in
-  apis | registry | accounts | sql | firestore | wif | discord | alerts) "$1" ;;
+  apis | registry | accounts | sql | firestore | wif | alerts) "$1" ;;
+  discord) discord "${2:-}" ;;
   database) database "${2:-}" ;;
   scheduler) scheduler "${2:-}" ;;
   job-runner) job_runner "${2:-}" ;;

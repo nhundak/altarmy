@@ -1,7 +1,6 @@
-"""The Discord relay: Cloud Monitoring's Pub/Sub notifications as Discord messages."""
+"""The Discord relay: Cloud Monitoring's and Error Reporting's webhook notifications as Discord messages."""
 
 import base64
-import json
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -61,9 +60,51 @@ def test_an_unknown_payload_is_posted_as_its_json() -> None:
     assert len(e["description"]) <= alerts.DESCRIPTION_MAX
 
 
-def envelope(payload: object) -> dict[str, Any]:
-    data = base64.b64encode(json.dumps(payload).encode()).decode()
-    return {"message": {"data": data, "messageId": "1"}, "subscription": "projects/p/subscriptions/s"}
+def error_report(**changes: Any) -> dict[str, Any]:
+    """An Error Reporting webhook notification (version 1.0)."""
+    body: dict[str, Any] = {
+        "version": "1.0",
+        "subject": "[alt-army-prod] New error in altarmy-ingest-forever: ProgrammingError",
+        "group_info": {
+            "project_id": "alt-army-prod",
+            "detail_link": "https://console.cloud.google.com/errors/detail/abc?project=alt-army-prod",
+        },
+        "exception_info": {"type": "ProgrammingError", "message": 'column "area" does not exist'},
+        "event_info": {
+            "log_message": "uncaught ProgrammingError\nTraceback (most recent call last):\n  ...",
+            "request_method": "",
+            "request_url": "",
+            "service": "altarmy-ingest-forever",
+            "version": "",
+            "response_status": "0",
+        },
+    }
+    body.update(changes)
+    return body
+
+
+def test_an_error_report() -> None:
+    e = embed(alerts.discord_message(error_report()))
+    assert e["title"] == "[alt-army-prod] New error in altarmy-ingest-forever: ProgrammingError"
+    assert e["url"].startswith("https://console.cloud.google.com/errors/detail/")
+    assert e["color"] == alerts.RED
+    assert e["description"].startswith('**ProgrammingError**: column "area" does not exist\n```\nuncaught')
+    assert {"name": "service", "value": "altarmy-ingest-forever", "inline": True} in e["fields"]
+    assert not any(f["name"] in ("version", "request") for f in e["fields"])
+
+
+def test_a_long_traceback_is_cut_to_fit() -> None:
+    long = error_report(event_info={"log_message": "x" * 9000, "service": "altarmy"})
+    e = embed(alerts.discord_message(long))
+    assert len(e["description"]) <= alerts.DESCRIPTION_MAX
+    assert e["description"].endswith("```")
+
+
+def basic(user: str, password: str) -> dict[str, str]:
+    return {"Authorization": "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()}
+
+
+AUTH = basic(alerts.USERNAME, "s3cret")
 
 
 def relay(status: int | Exception) -> tuple[TestClient, list[dict[str, Any]]]:
@@ -75,32 +116,38 @@ def relay(status: int | Exception) -> tuple[TestClient, list[dict[str, Any]]]:
         posted.append(message)
         return status
 
-    return TestClient(alerts.create_relay_app(post)), posted
+    return TestClient(alerts.create_relay_app("s3cret", post)), posted
 
 
 def test_relay_posts_a_notification_once() -> None:
     client, posted = relay(204)
-    r = client.post("/", json=envelope(incident()))
-    assert r.status_code == 204
-    assert [embed(m)["title"] for m in posted] == ["altarmy job failed"]
+    assert client.post("/", json=incident(), headers=AUTH).status_code == 204
+    assert client.post("/", json=error_report(), headers=AUTH).status_code == 204
+    assert [embed(m)["title"][:18] for m in posted] == ["altarmy job failed", "[alt-army-prod] Ne"]
 
 
-def test_relay_acknowledges_what_it_cannot_read() -> None:
+def test_relay_challenges_without_the_password() -> None:
     client, posted = relay(204)
-    for body in [b"not json", json.dumps({"message": {}}).encode(), json.dumps(envelope("x")).encode()]:
-        assert client.post("/", content=body).status_code == 204
-    bad_data = {"message": {"data": "%%%"}}
-    assert client.post("/", json=bad_data).status_code == 204
-    # "x" is valid JSON: posted as a generic embed; the rest never reached Discord
+    for headers in [
+        {},
+        basic(alerts.USERNAME, "wrong"),
+        basic("someone", "s3cret"),
+        {"Authorization": "Basic %%"},
+    ]:
+        r = client.post("/", json=incident(), headers=headers)
+        assert r.status_code == 401
+        assert r.headers["WWW-Authenticate"].startswith("Basic ")
+    assert posted == []
+
+
+def test_relay_refuses_what_is_not_json() -> None:
+    client, posted = relay(204)
+    assert client.post("/", content=b"not json", headers=AUTH).status_code == 400
+    assert client.post("/", json="x", headers=AUTH).status_code == 204  # JSON: posted as a generic embed
     assert len(posted) == 1
 
 
-def test_relay_drops_what_discord_refuses() -> None:
-    client, _ = relay(400)
-    assert client.post("/", json=envelope(incident())).status_code == 204
-
-
-def test_relay_asks_for_a_retry_when_discord_is_down() -> None:
-    for status in (429, 500, OSError("no network")):
+def test_relay_says_when_discord_failed() -> None:
+    for status in (400, 429, 500, OSError("no network")):
         client, _ = relay(status)
-        assert client.post("/", json=envelope(incident())).status_code == 503
+        assert client.post("/", json=incident(), headers=AUTH).status_code == 502
