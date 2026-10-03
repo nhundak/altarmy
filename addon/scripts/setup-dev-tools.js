@@ -2,7 +2,8 @@
 "use strict";
 /**
  * Bootstrap local Lua 5.1 tooling used by npm test / npm run check:
- *   .lua51/          — Lua 5.1 + penlight + lua_cliargs (gitignored)
+ *   .lua51/          — Lua 5.1 + penlight + lua_cliargs (gitignored); built from source off Windows, with
+ *                      LuaFileSystem (lfs.so), which busted needs and Lua for Windows bundles
  *   busted-2.1.1/    — vendored busted + deps (gitignored)
  *   luacheck-src/    — vendored luacheck + argparse (gitignored)
  *
@@ -28,6 +29,7 @@ const URLS = {
   argparse: "https://raw.githubusercontent.com/luarocks/argparse/0.7.1/src/argparse.lua",
   penlight: "https://github.com/lunarmodules/Penlight/archive/refs/tags/1.14.0.zip",
   cliargs: "https://github.com/amireh/lua_cliargs/archive/refs/tags/v3.0.2.zip",
+  lfs: "https://github.com/lunarmodules/luafilesystem/archive/refs/tags/v1_8_0.zip",
 };
 
 function log(msg) {
@@ -240,6 +242,30 @@ async function ensureLuaRocksLibs() {
   log("Lua rocks libs ready");
 }
 
+/** Builds LuaFileSystem into .lua51/lib/lua/5.1 (on LUA_CPATH: resolve-lua51.js) for a Lua built here. */
+async function ensureLfs() {
+  const prefix = path.join(root, ".lua51");
+  const include = path.join(prefix, "include", "lua.h");
+  if (process.platform === "win32" || !exists(include)) return; // Lua for Windows (or a system Lua) has its own
+  const lib = path.join(prefix, "lib", "lua", "5.1");
+  if (exists(path.join(lib, "lfs.so"))) {
+    log("LuaFileSystem already present in .lua51");
+    return;
+  }
+  log("Building LuaFileSystem into .lua51…");
+  ensureDir(tmpDir);
+  const zip = path.join(tmpDir, "lfs.zip");
+  await download(URLS.lfs, zip);
+  const extract = path.join(tmpDir, "extract-lfs");
+  rmrf(extract);
+  unzip(zip, extract);
+  ensureDir(lib);
+  const src = path.join(extract, "luafilesystem-1_8_0", "src", "lfs.c");
+  const flags = process.platform === "darwin" ? "-bundle -undefined dynamic_lookup" : "-shared -fPIC";
+  run(`cc -O2 ${flags} -I"${path.join(prefix, "include")}" "${src}" -o "${path.join(lib, "lfs.so")}"`);
+  log("LuaFileSystem ready");
+}
+
 function ensureLuaExeShim(binDir) {
   const lua = path.join(binDir, "lua");
   const luaExe = path.join(binDir, "lua.exe");
@@ -258,6 +284,7 @@ async function ensureLua51() {
     if (exists(bin)) ensureLuaExeShim(bin);
     log("Lua 5.1 already available");
     await ensureLuaRocksLibs();
+    await ensureLfs();
     return;
   }
 
@@ -286,6 +313,7 @@ async function ensureLua51() {
   run(`make install INSTALL_TOP="${prefix}"`, { cwd: src });
   ensureLuaExeShim(path.join(prefix, "bin"));
   await ensureLuaRocksLibs();
+  await ensureLfs();
   log("Lua 5.1 ready at .lua51");
 }
 
