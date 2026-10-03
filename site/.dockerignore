@@ -1,6 +1,7 @@
 *
 !pyproject.toml
 !src/
+!data/game-data.json
 !data/forever/*.csv
 !data/tbc/*.csv
 !data/forever/cities/

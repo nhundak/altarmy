@@ -1,4 +1,3 @@
-import json
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
@@ -78,21 +77,6 @@ def test_vendor_recipes_are_recipe_items_of_any_stock_unconditional_and_spawned(
         (201, "Plans: Maul"),
         (204, "Formula: Glow"),
     ]
-
-
-def test_world_db_url_picks_the_sqlite_dump() -> None:
-    release = {
-        "assets": [
-            {"name": "db-13b49dc.zip", "browser_download_url": "https://example/db.zip"},
-            {"name": "db-sqlite-13b49dc.zip", "browser_download_url": "https://example/db-sqlite.zip"},
-        ]
-    }
-    assert vmangos.world_db_url(json.dumps(release).encode()) == (
-        "db-sqlite-13b49dc.zip",
-        "https://example/db-sqlite.zip",
-    )
-    with pytest.raises(ValueError):
-        vmangos.world_db_url(b'{"assets": []}')
 
 
 def test_write_csv_round_trips(tmp_path: Path) -> None:

@@ -646,14 +646,15 @@ def update_game_data(
     *,
     only_if_new: bool = False,
 ) -> tuple[str, bool, dict[str, int]]:
-    """Download the version's newest build's DB2 tables and rebuild items/recipes (prices are kept).
+    """Download the version's pinned build's DB2 tables (`data/game-data.json`, which the game-data workflow
+    moves) and rebuild items/recipes (prices are kept).
 
     With `only_if_new` (the ingest job, daily and after each deploy), skip the rebuild when the database
-    already holds the newest build, loaded by this ingest code from these hand-maintained CSVs
+    already holds the pinned build, loaded by this ingest code from these hand-maintained CSVs
     (`ingest.fingerprint`). Without it, always rebuild.
     Returns (build, whether it rebuilt, row counts).
     """
-    build = ingest.latest_build(version.wago_product)
+    build = ingest.pinned_build(version)
     if (
         only_if_new
         and db.get_build(conn, version.key) == build

@@ -1,4 +1,3 @@
-import json
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
@@ -53,15 +52,3 @@ def world(tmp_path: Path) -> Iterator[sqlite3.Connection]:
 
 def test_vendor_items_are_unlimited_unconditional_gold_and_spawned(world: sqlite3.Connection) -> None:
     assert cmangos.vendor_items(world) == [(100, "Rune Thread"), (104, "Imbued Vial")]
-
-
-def test_world_db_url_picks_the_sqlite_dump() -> None:
-    release = {
-        "assets": [
-            {"name": "tbc-world-db.zip", "updated_at": "2026-09-24T11:01:00Z", "browser_download_url": "x"},
-            {"name": "tbc-sqlite-db.zip", "updated_at": "2026-09-24T11:00:59Z", "browser_download_url": "y"},
-        ]
-    }
-    assert cmangos.world_db_url(json.dumps(release).encode()) == ("2026-09-24", "y")
-    with pytest.raises(ValueError):
-        cmangos.world_db_url(b'{"assets": []}')

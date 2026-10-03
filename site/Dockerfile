@@ -9,7 +9,9 @@ COPY pyproject.toml ./
 COPY src ./src
 RUN pip install ".[ui,postgres]"
 
-# Hand-maintained game data the ingest job reads (versions.DATA_DIR is relative to the working directory).
+# Hand-maintained game data the ingest job reads, and the pinned builds it loads (gamedata.PINS;
+# versions.DATA_DIR is relative to the working directory).
+COPY data/game-data.json data/
 COPY data/forever/*.csv data/forever/
 COPY data/tbc/*.csv data/tbc/
 # City presets the API times plans in (scripts/build_cities.py); TBC has none yet.

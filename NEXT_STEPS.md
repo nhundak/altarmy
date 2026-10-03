@@ -1,8 +1,7 @@
 # Next steps after the monorepo move
 
 The site and the addon moved into this repository on 2026-10-03 (`site/`, `addon/`; see `CLAUDE.md`). The
-move itself is finished. This file lists what is left to confirm, and the changes that make use of having
-both halves of the contract in one place. Delete each item once it is done.
+move itself is finished. This file lists what is left to confirm. Delete each item once it is done.
 
 ## To confirm
 
@@ -18,26 +17,11 @@ both halves of the contract in one place. Delete each item once it is done.
   (`addon/scripts/resolve-lua51.js` reads it first). Then check that a pull request breaking a spec fails it.
 - [ ] **The first `site-check` run on an addon-only commit** (e.g. one touching only
   `addon/spec/fixtures/profit_export_v2.txt`): it should run, and `site-deploy` follow it on main.
+- [ ] **The game-data workflow.** Add the `GAME_DATA_TOKEN` secret (a fine-grained token for this repository:
+  Contents and Pull requests, read and write), then run `game-data` by hand. Its first run should land Forever
+  `1.60.1.70205` and cmangos `2026-10-03` on main; check that site-check and site-deploy follow, and that the
+  deploy's ingest loads the new build (the Admin page's jobs). It will not release the addon until the hand-written
+  addon work since `addon-v2.2.0` has gone out in a manual release. Close any open `recipe-data/*` PRs and delete
+  their branches.
 - [ ] **Delete the old checkout** `C:\Users\Nick\programming\altarmy_tbc` (archived on GitHub; everything in it
   is in `addon/`).
-
-## Changes worth making
-
-In order of value.
-
-### 1. Share the game-data downloads
-
-**Duplication:** both halves download wago.tools DB2 tables and the emulators' world databases:
-
-- the addon's `addon/scripts/generate-recipe-data.py` and `build-recipe-server-facts.py`
-- the site's `site/src/altarmy_profit/ingest.py`, `vmangos.py` and `cmangos.py`
-
-The addon already borrows the site's download cache (`site/cache`).
-
-**Change:** one module for the build lookup (`/api/builds/latest`), the table download and its cache, and
-the emulator release download, imported by both. It has to stay standard library only, since the addon's
-scripts are stdlib only. The site's package could expose it, or it could live in a small root-level
-`shared/` folder.
-
-**When:** this is the biggest of these changes, so wait until a game-data change has to touch both
-halves anyway.

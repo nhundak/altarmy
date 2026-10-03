@@ -17,7 +17,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from . import addon_crates, db, jobs, service
+from . import addon_crates, db, gamedata, jobs, service
 from .versions import GameVersion
 
 log = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ class Launcher(Protocol):
 
 
 def run_ingest(database: db.Database, version: GameVersion, cache_dir: Path, *, force: bool = False) -> None:
-    """The ingest job's work, recorded: load the version's newest build unless the database already has it,
+    """The ingest job's work, recorded: load the version's pinned build unless the database already has it,
     loaded by this ingest code (`service.update_game_data`), or always with `force`."""
     with jobs.recording(database, "ingest", version.key) as run:
         with database.begin() as conn:
@@ -122,7 +122,7 @@ class CloudRunJobs:
         return f"Started {name}: its run shows up here once its container is up."
 
 
-def from_env(database: db.Database, cache_dir: Path = Path("cache")) -> Launcher | None:
+def from_env(database: db.Database, cache_dir: Path = gamedata.REPO_CACHE) -> Launcher | None:
     """Cloud Run jobs with `CLOUD_RUN_LOCATION` and `JOB_PREFIX` set (the hosted service), else in-process
     on a SQLite database (development), else none: a hosted service must not run a job's work itself."""
     location, prefix = os.environ.get("CLOUD_RUN_LOCATION"), os.environ.get("JOB_PREFIX")

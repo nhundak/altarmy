@@ -1,14 +1,15 @@
 """Game versions: lookup, data files and addon folders."""
 
+import re
 from pathlib import Path
 
 import pytest
 
-from altarmy_profit import engine, versions, wowfiles
+from altarmy_profit import engine, gamedata, versions, wowfiles
 from altarmy_profit.engine import Item, Market, Recipe
 from altarmy_profit.versions import VERSIONS
 
-from .addon_fixtures import ADDON_TOC
+from .addon_fixtures import ADDON_TOC, RECIPE_DATA
 
 
 def test_get_and_build_versions() -> None:
@@ -27,6 +28,15 @@ def test_addon_toc_lists_every_version_interface() -> None:
     interface = next(line for line in lines if line.startswith("## Interface:"))
     toc = {int(n) for n in interface.removeprefix("## Interface:").split(",")}
     assert toc == {v.interface for v in VERSIONS.values()}
+
+
+def test_addon_recipe_data_was_made_from_the_pinned_builds() -> None:
+    """The site loads and the addon ships the same build: game_data.py moves the pin and regenerates both."""
+    pins = gamedata.read_pins()
+    for key, path in RECIPE_DATA.items():
+        built = re.search(r'^local BUILD = "([^"]+)"', path.read_text(encoding="utf-8"), re.MULTILINE)
+        assert built is not None, path
+        assert built.group(1) == pins[key].build, f"{path.name} is not at the pinned build"
 
 
 def test_each_version_has_its_own_files() -> None:

@@ -14,7 +14,6 @@ from . import db, itemstats, prices, schema, timing, versions
 from .altarmy import Character, Profession
 from .engine import AH_CUT, MAIL_POSTAGE, DisenchantRow, Item, Market, Recipe
 
-CACHE_DIR = Path("cache")
 IN_CHUNK = 900  # ids per IN (...) query, under SQLite's bound-parameter limit
 
 

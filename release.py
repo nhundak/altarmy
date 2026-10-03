@@ -15,6 +15,10 @@ Asks which to release, checks the checkout (on main, clean, not behind origin), 
           refreshes the rolling sync-latest release.
 Then it finds the workflow run and can watch it (gh run watch). Needs git and gh (signed in). Standard library only.
 --dry-run prints the commands that would change anything instead of running them.
+
+python release.py addon --patch|--minor|--major --notes-file FILE --yes [--no-watch] releases the addon
+without asking anything: the game-data workflow's automatic release after a game data change
+(game_data.py release-addon).
 """
 
 from __future__ import annotations
@@ -190,18 +194,40 @@ def watch(workflow: str, ref: str) -> None:
         subprocess.run(["gh", "run", "watch", "--repo", REPO, "--exit-status", run_id], cwd=ROOT, check=False)
 
 
-def release_addon() -> None:
+def unreleased_addon_commits() -> list[str]:
+    """One line per commit touching what the addon ships since its newest addon-v* tag."""
+    tag = run("git", "describe", "--tags", "--match", "addon-v*", "--abbrev=0", check=False)
+    if not tag:
+        return []
+    return run("git", "log", "--oneline", f"{tag}..HEAD", "--", "addon/AltArmy_TBC").splitlines()
+
+
+def release_addon(
+    part: str | None = None, notes_file: Path | None = None, assume_yes: bool = False, watch_run: bool = True
+) -> None:
+    """Interactive unless `part` (patch, minor or major) is given; then `notes_file` holds the notes."""
     check_checkout()
     current = re.search(r"^## Version: (\S+)", TOC.read_text(encoding="utf-8"), re.MULTILINE)
     if not current:
         sys.exit(f"no '## Version:' in {TOC}")
-    version = choose_version(current.group(1), "The addon")
+    if part is None:
+        commits = unreleased_addon_commits()  # game_data.py's say "Game data: ..."
+        if commits:
+            print(f"Unreleased addon commits ({len(commits)}):")
+            for line in commits[:20]:
+                print(f"  {line}")
+    version = bump(current.group(1), part) if part else choose_version(current.group(1), "The addon")
     tag = f"addon-v{version}"
     if tag_exists(tag):
         sys.exit(f"tag {tag} already exists.")
-    notes = release_notes()
+    if notes_file is not None:
+        notes = [
+            line.rstrip() for line in notes_file.read_text(encoding="utf-8").splitlines() if line.strip()
+        ]
+    else:
+        notes = release_notes()
     print(f"\nBumping {current.group(1)} -> {version}, committing, tagging {tag} and pushing.")
-    if not confirm("Go ahead?"):
+    if not assume_yes and not confirm("Go ahead?"):
         sys.exit("nothing done.")
     old = re.escape(current.group(1))
     replace_once(TOC, rf"^## Version: {old}$", f"## Version: {version}")
@@ -220,7 +246,8 @@ def release_addon() -> None:
     act("git", "commit", "--quiet", "-m", f"v{version}")
     act("git", "tag", tag)
     act("git", "push", "origin", "main", tag)
-    watch("addon-release", tag)
+    if watch_run:
+        watch("addon-release", tag)
 
 
 def release_site(environment: str) -> None:
@@ -288,9 +315,22 @@ def main() -> None:
     global DRY_RUN
     parser = argparse.ArgumentParser(description="Release the addon, the site or Alt Army Sync.")
     parser.add_argument("--dry-run", action="store_true", help="print what would change instead of doing it")
-    DRY_RUN = parser.parse_args().dry_run
+    parser.add_argument("part", nargs="?", choices=["addon"], help="release this without asking (with --yes)")
+    bumps = parser.add_mutually_exclusive_group()
+    for b in ("patch", "minor", "major"):
+        bumps.add_argument(f"--{b}", dest="bump", action="store_const", const=b, help=f"a {b} release")
+    parser.add_argument("--notes-file", type=Path, help="release notes, one line each")
+    parser.add_argument("--yes", action="store_true", help="ask nothing")
+    parser.add_argument("--no-watch", action="store_true", help="don't wait for the release workflow")
+    args = parser.parse_args()
+    DRY_RUN = args.dry_run
     if DRY_RUN:
         print("(dry run: nothing is changed or pushed)")
+    if args.part:
+        if not (args.bump and args.notes_file and args.yes):
+            parser.error("addon without asking needs --patch, --minor or --major, --notes-file and --yes")
+        release_addon(args.bump, args.notes_file, assume_yes=True, watch_run=not args.no_watch)
+        return
     print("What do you want to release?")
     print("  1. addon         (CurseForge, Wago, GitHub Release)")
     print("  2. site, prod    (push main; site-check then site-deploy)")

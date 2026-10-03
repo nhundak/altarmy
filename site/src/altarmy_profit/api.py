@@ -1684,7 +1684,7 @@ def get_admin_ingestion(state: State, user: AdminUser) -> IngestionOut:
 
 @router.post("/admin/jobs/ingest", status_code=202)
 def run_ingest_job(state: State, user: AdminUser) -> JobStartedOut:
-    """Start the version's game data ingest now, as the daily schedule does: the newest build, unless it is
+    """Start the version's game data ingest now, as the daily schedule does: the pinned build, unless it is
     loaded already (admins). 409 while a run of it is still going, 501 where nothing can start jobs."""
     if state.launcher is None:
         raise HTTPException(501, "Jobs can't be started from this server.")

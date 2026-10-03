@@ -12,18 +12,14 @@ after a minus sign would start a comment.
 from __future__ import annotations
 
 import csv
-import json
 import sqlite3
-import zipfile
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import astuple, dataclass, fields, replace
 from pathlib import Path
 
-from .ingest import ZoneBox, _fetch, spawn_zone
-
-RELEASE_URL = "https://api.github.com/repos/vmangos/core/releases/tags/db_latest"
-WORLD_DB = "mangos.sqlite"
+from . import gamedata
+from .ingest import ZoneBox, spawn_zone
 
 # Items with unlimited stock and no condition (reputation, event, ...), sold by a vendor that spawns in
 # the world, either directly or through a vendor template. A creature spawn can pick from up to five ids.
@@ -541,28 +537,9 @@ def write_sources_csv(rows: Sequence[ItemSource], path: Path) -> None:
         w.writerows([int(v) if isinstance(v, bool) else v for v in astuple(r)] for r in rows)
 
 
-def world_db_url(release: bytes) -> tuple[str, str]:
-    """(file name, download URL) of the SQLite dump in vmangos' db_latest release JSON."""
-    for asset in json.loads(release)["assets"]:
-        if asset["name"].startswith("db-sqlite-") and asset["name"].endswith(".zip"):
-            return str(asset["name"]), str(asset["browser_download_url"])
-    raise ValueError("no db-sqlite-*.zip asset in vmangos' db_latest release")
-
-
-def download_world_db(cache_dir: Path) -> Path:
-    """Download (cached per release file) and extract vmangos' world database; returns its path."""
-    name, url = world_db_url(_fetch(RELEASE_URL))
-    dest = cache_dir / "vmangos" / name.removesuffix(".zip")
-    world = dest / WORLD_DB
-    if not world.exists():
-        dest.mkdir(parents=True, exist_ok=True)
-        archive = dest / name
-        archive.write_bytes(_fetch(url))
-        with zipfile.ZipFile(archive) as z:
-            member = next(m for m in z.namelist() if m.endswith("/" + WORLD_DB))
-            world.write_bytes(z.read(member))
-        archive.unlink()
-    return world
+def download_world_db(cache_dir: Path, release: str | None = None) -> Path:
+    """vmangos' world database: `release` (else the newest), cached (`gamedata.world_db`)."""
+    return gamedata.world_db("vmangos", cache_dir, release)
 
 
 def write_csv(rows: list[tuple[int, str]], path: Path) -> None:

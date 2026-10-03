@@ -22,7 +22,6 @@ class GameVersion:
     key: GameVersionKey
     label: str
     wago_product: str  # wago.tools product whose DB2 tables describe this client
-    default_build: str  # pinned build ingested unless another (or "latest") is asked for
     flavor_folders: tuple[str, ...]  # WoW install subfolders whose WTF holds this client's SavedVariables
     data_dir: Path  # hand-maintained CSVs: disenchant.csv, vendor_items.csv
     interface: int  # the client's interface number (## Interface in addon TOCs)
@@ -65,7 +64,6 @@ VERSIONS: dict[str, GameVersion] = {
         key="forever",
         label="WoW: Forever",
         wago_product="wow_classic_beta",
-        default_build="1.60.1.70124",
         flavor_folders=("_classic_beta_",),
         data_dir=DATA_DIR / "forever",
         interface=16001,
@@ -78,7 +76,6 @@ VERSIONS: dict[str, GameVersion] = {
         key="tbc",
         label="TBC Anniversary",
         wago_product="wow_anniversary",
-        default_build="2.5.6.69795",
         flavor_folders=("_anniversary_",),
         data_dir=DATA_DIR / "tbc",
         interface=20506,

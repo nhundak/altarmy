@@ -1,6 +1,5 @@
 import csv
 import json
-import urllib.error
 from pathlib import Path
 
 import pytest
@@ -504,21 +503,6 @@ def _read(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(f))
 
 
-def test_download_caches_an_optional_table_the_build_lacks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def fetch(url: str) -> bytes:
-        raise urllib.error.HTTPError(url, 400, "Bad Request", None, None)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(ingest, "_fetch", fetch)
-    path = ingest.download("ItemArmorShield", "1.0", tmp_path, optional=True)
-    assert path.read_bytes() == b""
-    assert list(ingest._optional_rows({"ItemArmorShield": path}, "ItemArmorShield")) == []
-    assert list(ingest._optional_rows({}, "ItemArmorShield")) == []
-    with pytest.raises(urllib.error.HTTPError):
-        ingest.download("Item", "1.0", tmp_path)
-
-
 def test_build_db_preserves_prices_and_other_versions(db2_paths: dict[str, Path], conn: Connection) -> None:
     ah = set_prices(conn, {1: 45})
     ingest.build_db(db2_paths, conn, "tbc")
@@ -575,19 +559,6 @@ def test_int_parsing_is_forgiving() -> None:
     assert ingest._int("") == 0
     assert ingest._int(None, 7) == 7
     assert ingest._int("abc", 5) == 5
-
-
-def test_parse_latest_build_picks_product() -> None:
-    payload = json.dumps(
-        {
-            "wow": {"product": "wow", "version": "12.1.0.69933"},
-            "wow_classic_beta": {"product": "wow_classic_beta", "version": "1.60.1.69977"},
-        }
-    ).encode()
-    assert ingest.parse_latest_build(payload, "wow_classic_beta") == "1.60.1.69977"
-    assert ingest.parse_latest_build(payload, "wow") == "12.1.0.69933"
-    with pytest.raises(ValueError, match="wow_nope"):
-        ingest.parse_latest_build(payload, "wow_nope")
 
 
 def test_update_downloads_builds_and_records_build(

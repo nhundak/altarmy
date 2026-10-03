@@ -1,0 +1,3 @@
+# downloads shared by the site and the addon (site/src/altarmy_profit/gamedata.py)
+.cache/
+__pycache__/

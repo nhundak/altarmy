@@ -1,10 +1,12 @@
 // Start the Python API for `npm run dev` (`altarmy-profit serve` on :8600) using the project venv's interpreter
 // (Windows or POSIX layout). It signs users in against the Firebase Auth emulator and sends price signals to the
 // Firestore emulator (`npm run dev:auth`, project demo-altarmy), or with `--staging-auth` (npm run dev:staging-auth) against the staging project in staging.env. The
-// database is DATABASE_URL, else data/altarmy-profit.sqlite, migrated on start. Once the API answers, it runs
-// the merge (`altarmy-profit merge`: the 7-day price statistics of the scans uploaded so far) in the
-// background, unless `--no-prices`; a failure is only reported. Prices themselves come from uploads: scan
-// with the Alt Army addon and upload AltArmy_TBC.lua.
+// database is DATABASE_URL, else data/altarmy-profit.sqlite, migrated on start. Once the API answers, it loads
+// each version's pinned build in the background (`altarmy-profit ingest --only-if-new`: nothing to do unless
+// data/game-data.json, the ingest code or its CSVs moved, e.g. after pulling a game-data commit), unless
+// `--no-ingest`, then runs the merge (`altarmy-profit merge`: the 7-day price statistics of the scans uploaded
+// so far), unless `--no-prices`; a failure is only reported. Prices themselves come from uploads: scan with
+// the Alt Army addon and upload AltArmy_TBC.lua.
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -38,6 +40,7 @@ const STAGING = { PRICE_SIGNALS: 'off' }
 const args = process.argv.slice(2)
 const stagingAuth = args.includes('--staging-auth')
 const fetchPrices = !args.includes('--no-prices')
+const loadGameData = !args.includes('--no-ingest')
 const env = { ...process.env, ...(stagingAuth ? { ...readEnvFile(join(root, 'staging.env')), ...STAGING } : EMULATOR) }
 if (stagingAuth) {
   delete env.FIREBASE_AUTH_EMULATOR_HOST
@@ -54,26 +57,26 @@ async function answers() {
   }
 }
 
-// Another API already on :8600 would answer for ours, which then fails to bind: fetch no prices for it.
+// Another API already on :8600 would answer for ours, which then fails to bind: run no jobs for it.
 const portTaken = await answers()
-const ownArgs = ['--staging-auth', '--no-prices']
+const ownArgs = ['--staging-auth', '--no-prices', '--no-ingest']
 const child = spawn(python, ['-m', 'altarmy_profit.cli', 'serve', ...args.filter((a) => !ownArgs.includes(a))], {
   cwd: root,
   stdio: 'inherit',
   env,
 })
 let exited = false
-let job = null // the price job running, stopped with the API
+let job = null // the background job running, stopped with the API
 child.on('exit', (code) => {
   exited = true
   job?.kill()
   process.exit(code ?? 0)
 })
 
-/** Runs `altarmy-profit <command>` with the API's environment; resolves to its exit code. */
-function cli(command) {
+/** Runs `altarmy-profit <args>` with the API's environment; resolves to its exit code. */
+function cli(...cliArgs) {
   return new Promise((resolve) => {
-    job = spawn(python, ['-m', 'altarmy_profit.cli', command], { cwd: root, stdio: 'inherit', env })
+    job = spawn(python, ['-m', 'altarmy_profit.cli', ...cliArgs], { cwd: root, stdio: 'inherit', env })
     job.on('error', () => resolve(1))
     job.on('exit', (code) => {
       job = null
@@ -92,8 +95,17 @@ async function apiReady() {
 }
 
 if (portTaken) {
-  console.log('dev-api: something already answers on :8600; not merging prices')
-} else if (fetchPrices && (await apiReady())) {
+  console.log('dev-api: something already answers on :8600; not loading game data or merging prices')
+} else if ((loadGameData || fetchPrices) && (await apiReady())) {
+  for (const version of loadGameData ? ['forever', 'tbc'] : []) {
+    if (exited) break
+    console.log(`dev-api: loading ${version}'s pinned game data if it moved (--no-ingest to skip)`)
+    if ((await cli('--game-version', version, 'ingest', '--only-if-new')) !== 0 && !exited) {
+      console.log(`dev-api: the ${version} ingest failed (see above); the API keeps running`)
+    }
+  }
+}
+if (!portTaken && fetchPrices && !exited) {
   console.log('dev-api: merging price statistics (--no-prices to skip)')
   const merged = await cli('merge')
   if (!exited) {

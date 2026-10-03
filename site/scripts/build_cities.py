@@ -4,8 +4,10 @@ Reads where auctioneers, mailboxes, crafting stations and vendors stand around e
 database (downloaded once into cache/), naming stations by the version's DB2 SpellFocusObject. Stations new
 in WoW: Forever (spinning wheels, looms, ...) are not in vmangos: add them to a preset's `overrides`
 ("locations"), which regenerating keeps.
-Only Forever (vanilla) is supported for now. Usage:
-python scripts/build_cities.py [--game-version forever] [--city NAME] [--radius YARDS]
+Only Forever (vanilla) is supported for now. By default the build and the vmangos release pinned in
+data/game-data.json (the monorepo's game_data.py passes the ones it moves the pins to). Usage:
+python scripts/build_cities.py [--game-version forever] [--city NAME] [--radius YARDS] [--build B]
+                               [--world-db SQLITE]
 Then restart the API (`npm run dev`, or a deploy) to load them.
 """
 
@@ -15,7 +17,7 @@ import sqlite3
 from dataclasses import replace
 from pathlib import Path
 
-from altarmy_profit import cities, ingest, versions, vmangos
+from altarmy_profit import cities, gamedata, ingest, versions, vmangos
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,6 +27,8 @@ def main() -> None:
     p.add_argument("--game-version", choices=["forever"], default="forever")
     p.add_argument("--city", help="only this city (a preset name, e.g. Orgrimmar)")
     p.add_argument("--radius", type=float, help="yards around the city's centre (with --city)")
+    p.add_argument("--build", help="the DB2 build naming stations and zones (default: the pinned build)")
+    p.add_argument("--world-db", type=Path, help="vmangos' world database (default: the pinned release)")
     args = p.parse_args()
     specs = [s for s in cities.CITY_SPECS if args.city in (None, s.name)]
     if not specs:
@@ -33,15 +37,15 @@ def main() -> None:
     if args.radius is not None:
         specs = [replace(s, radius=args.radius) for s in specs]
     version = versions.VERSIONS[args.game_version]
+    pin = gamedata.read_pins(ROOT / gamedata.PINS)[version.key]
+    build = args.build or pin.build
     tables = ("SpellFocusObject", "SpellCastingRequirements", "SkillLineAbility")
-    focus = ingest.craft_stations(
-        {t: ingest.download(t, version.default_build, ROOT / "cache") for t in tables}
-    )
-    ui = {t: ingest.download(t, version.default_build, ROOT / "cache") for t in ("UiMapAssignment", "UiMap")}
+    focus = ingest.craft_stations({t: ingest.download(t, build, gamedata.REPO_CACHE) for t in tables})
+    ui = {t: ingest.download(t, build, gamedata.REPO_CACHE) for t in ("UiMapAssignment", "UiMap")}
     zones = ingest.zone_boxes(ui["UiMapAssignment"], ui["UiMap"])
     out_dir = ROOT / version.cities_dir
     out_dir.mkdir(parents=True, exist_ok=True)
-    world = vmangos.download_world_db(ROOT / "cache")
+    world = args.world_db or vmangos.download_world_db(gamedata.REPO_CACHE, pin.release)
     conn = sqlite3.connect(world)
     for spec in specs:
         path = out_dir / f"{spec.name}.json"

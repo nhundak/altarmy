@@ -23,6 +23,7 @@ from . import (
     auth,
     cloudlog,
     db,
+    gamedata,
     ingest,
     jobs,
     launch,
@@ -54,11 +55,11 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     v = _version(args)
     if args.force and not args.only_if_new:
         sys.exit("--force goes with --only-if-new (without it, ingest always reloads)")
-    if args.only_if_new:  # the hosted daily job: the newest build, unless already loaded (or --force)
+    if args.only_if_new:  # the hosted job: the pinned build, unless already loaded (or --force)
         launch.run_ingest(args.database, v, Path(args.cache), force=args.force)
     else:
         with jobs.recording(args.database, "ingest", v.key) as run:
-            build = args.build or v.default_build
+            build = args.build or ingest.pinned_build(v)
             if build == "latest":
                 build = ingest.latest_build(v.wago_product)
             with args.database.begin() as conn:
@@ -298,14 +299,18 @@ def main(argv: list[str] | None = None) -> None:
 
     s = sub.add_parser("ingest", help="download DB2 tables from wago.tools and build the database")
     s.add_argument("--build", help='a build version, or "latest" (default: the pinned build)')
-    s.add_argument("--cache", default="cache")
     s.add_argument(
-        "--only-if-new", action="store_true", help="load the latest build, unless the database already has it"
+        "--cache", default=str(gamedata.REPO_CACHE), help="download cache (default: the repo's .cache/)"
+    )
+    s.add_argument(
+        "--only-if-new",
+        action="store_true",
+        help="load the pinned build (data/game-data.json), unless the database already has it",
     )
     s.add_argument(
         "--force",
         action="store_true",
-        help="with --only-if-new: reload the latest build even if the database already has it",
+        help="with --only-if-new: reload the pinned build even if the database already has it",
     )
     s.set_defaults(fn=cmd_ingest)
 

@@ -38,11 +38,11 @@ GitHub Actions (`.github/workflows/check.yml`) runs `check.py` and the Postgres 
 ## Usage
 
 ```powershell
-altarmy-profit ingest                          # downloads DB2 tables into cache/, loads WoW: Forever's game data
+altarmy-profit ingest                          # downloads DB2 tables into ../.cache/, loads WoW: Forever's pinned build
 altarmy-profit ingest --build latest           # same, for the newest WoW: Forever build on wago.tools
 altarmy-profit --game-version tbc ingest       # TBC Anniversary's instead
-altarmy-profit ingest --only-if-new            # the newest build, unless loaded by this ingest code and CSVs (the site's job)
-altarmy-profit ingest --only-if-new --force    # reload the newest build even if loaded (add --force to the job's args)
+altarmy-profit ingest --only-if-new            # the pinned build, unless loaded by this ingest code and CSVs (the site's job)
+altarmy-profit ingest --only-if-new --force    # reload the pinned build even if loaded (add --force to the job's args)
 altarmy-profit serve                           # the API (and the built front end) on http://127.0.0.1:8600
 altarmy-profit watch --server URL --key KEY    # upload the addon files to the site as WoW rewrites them
 altarmy-profit migrate                         # migrate the database now (each deploy runs this once)
@@ -335,8 +335,11 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
   addon's `scripts/generate-waylaid-crates.py` against it (`src/altarmy_profit/addon_crates.py`), when the addon
   is checked out next to the site (the monorepo's `../addon`, or `ALTARMY_ADDON_DIR`). A changed crate list then shows up
   as a change to commit there. The hosted jobs (Postgres, no addon) skip it, and a failure never fails the ingest.
-- Pinned builds: `default_build` per version in `src/altarmy_profit/versions.py`. Pass `--build <version>`
-  or `--build latest` for a newer one. The build actually loaded is stored in the `game_versions` table.
+- Pinned builds: `data/game-data.json` (each version's wago.tools build and the emulator release its CSVs
+  came from), shared with the addon and moved by the monorepo's `game_data.py` (the daily game-data
+  workflow, which also regenerates the CSVs and cities and commits them; the deploy then loads the new
+  build). Pass `--build <version>` or `--build latest` for another. The build actually loaded is stored in
+  the `game_versions` table.
 - **Price history.** Every import is a snapshot (`price_snapshots`); it records observations only for
   items whose price or last-seen day moved (`price_observations`, pruned after 180 days) and updates
   `price_current`, which the ranking reads. Each scan's market price (TBC: Auctionator's per-day
@@ -391,7 +394,8 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
   (`item_id,name`) lists the items vendors sell with unlimited stock and no reputation or event condition
   (TBC: and no honor or badge cost), taken from [vmangos](https://github.com/vmangos/core)' vanilla world
   database for Forever and [cmangos](https://github.com/cmangos/tbc-db)' for TBC by
-  `python scripts/build_vendor_items.py --game-version forever|tbc`. The price is DB2's `BuyPrice` per
+  `python scripts/build_vendor_items.py --game-version forever|tbc` (at the pinned release; `game_data.py`
+  runs it). The price is DB2's `BuyPrice` per
   `VendorStackCount`, rounded up to whole copper. Reagents are bought from whichever of vendor and AH is
   cheaper. Forever may differ from vanilla; edit the CSV and re-run `altarmy-profit ingest` if a vendor
   item is missing or wrong.

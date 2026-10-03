@@ -1,7 +1,8 @@
 name: site-check
 
 # The site's checks (site/), run when something under site/ changed, or the addon's side of the contract the
-# site's tests read (its golden files, their writers, the TOC's interfaces); site-deploy follows it on main.
+# site's tests read (its golden files, their writers, the TOC's interfaces, the generated game data
+# whose builds must match site/data/game-data.json); site-deploy follows it on main.
 on:
   push:
     paths:
@@ -12,6 +13,8 @@ on:
       - "addon/AltArmy_TBC/Data/ProfitExport.lua"
       - "addon/AltArmy_TBC/Data/Auctions/AuctionBook.lua"
       - "addon/AltArmy_TBC/Data/Auctions/AuctionScan.lua"
+      - "addon/AltArmy_TBC/Data/Recipes/**"
+      - "addon/AltArmy_TBC/Data/Economy/WaylaidCrates.lua"
   pull_request:
     paths:
       - "site/**"
@@ -21,6 +24,8 @@ on:
       - "addon/AltArmy_TBC/Data/ProfitExport.lua"
       - "addon/AltArmy_TBC/Data/Auctions/AuctionBook.lua"
       - "addon/AltArmy_TBC/Data/Auctions/AuctionScan.lua"
+      - "addon/AltArmy_TBC/Data/Recipes/**"
+      - "addon/AltArmy_TBC/Data/Economy/WaylaidCrates.lua"
 
 defaults:
   run:

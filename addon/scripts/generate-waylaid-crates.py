@@ -6,8 +6,8 @@ Reads the game data altarmy-profit imports from the client's DB2 tables (the `it
 game_version 'forever'). Each shipment crate's Use text lists the bundles that fill it, any one of
 them ("Fill the crate with any bundle from the following list: - 20 Peacebloom - 20 Silverleaf ...");
 bundle names are resolved to item ids here so the addon needs no item lookups. Stdlib only.
-Rerun after a Forever patch changes the crates (re-ingest altarmy-profit first). altarmy-profit's
-`ingest` runs this itself when it loads Forever data into its SQLite file and this repo sits next to it.
+The monorepo's game_data.py runs this daily against a fresh ingest of the pinned build (the game-data
+workflow), and the site's local `ingest` runs it when it loads Forever data into its SQLite file.
 
 --check writes nothing: it exits 1 when --out differs from what the game data gives (the pre-commit hook,
 .githooks/pre-commit), and 0 with a note when the database isn't there to check against.

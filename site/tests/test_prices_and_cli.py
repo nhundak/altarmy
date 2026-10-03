@@ -369,7 +369,7 @@ def test_cli_ingest_uses_the_game_versions_build_and_product(
     dbfile = str(tmp_path / "t.sqlite")
     cli.main(["--game-version", "tbc", "--db", dbfile, "ingest"])
     cli.main(["--game-version", "tbc", "--db", dbfile, "ingest", "--build", "latest"])
-    assert builds == [versions.VERSIONS["tbc"].default_build, "2.5.7.1"]
+    assert builds == [ingest.pinned_build(versions.VERSIONS["tbc"]), "2.5.7.1"]
     assert "Ingested TBC Anniversary build 2.5.7.1" in capsys.readouterr().out
     database = db.Database(db.sqlite_url(dbfile))
     with database.begin() as conn:
@@ -488,7 +488,7 @@ def test_cli_ingest_only_if_new_skips_a_loaded_build(
         return db2_paths
 
     monkeypatch.setattr(ingest, "download_all", download_all)
-    monkeypatch.setattr(ingest, "latest_build", lambda product: "2.5.7.1")
+    monkeypatch.setattr(ingest, "pinned_build", lambda version, *pins: "2.5.7.1")
     dbfile = str(tmp_path / "t.sqlite")
     cli.main(["--game-version", "tbc", "--db", dbfile, "ingest", "--only-if-new"])
     assert "Ingested TBC Anniversary build 2.5.7.1" in capsys.readouterr().out
@@ -512,7 +512,7 @@ def test_only_if_new_reloads_a_loaded_build_when_the_ingest_changed(
         return db2_paths
 
     monkeypatch.setattr(ingest, "download_all", download_all)
-    monkeypatch.setattr(ingest, "latest_build", lambda product: "2.5.7.1")
+    monkeypatch.setattr(ingest, "pinned_build", lambda version, *pins: "2.5.7.1")
     data = tmp_path / "data"
     data.mkdir()
     header = "item_class,quality,min_ilvl,max_ilvl,result_item_id,chance,min_count,max_count\n"

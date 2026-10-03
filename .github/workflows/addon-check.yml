@@ -1,12 +1,12 @@
 name: addon-check
 
-# The addon's checks (addon/): its busted specs, luacheck and the Lua 5.1 compile check, run when something under
-# addon/ changed.
+# The addon's checks (addon/): its busted specs, luacheck, the Lua 5.1 compile check and its data scripts' tests
+# (which load the site's gamedata.py), run when something under addon/ changed.
 on:
   push:
-    paths: ["addon/**", ".github/workflows/addon-check.yml"]
+    paths: ["addon/**", "site/src/altarmy_profit/gamedata.py", ".github/workflows/addon-check.yml"]
   pull_request:
-    paths: ["addon/**", ".github/workflows/addon-check.yml"]
+    paths: ["addon/**", "site/src/altarmy_profit/gamedata.py", ".github/workflows/addon-check.yml"]
 
 defaults:
   run:
@@ -33,3 +33,4 @@ jobs:
       - run: npm run setup:dev
       - run: npm test
       - run: npm run check
+      - run: python3 -m unittest discover -s scripts -p "test_*.py"

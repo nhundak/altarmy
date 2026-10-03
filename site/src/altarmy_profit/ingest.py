@@ -5,17 +5,14 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-import urllib.error
-import urllib.request
 from collections.abc import Collection, Iterable, Iterator
 from dataclasses import asdict, replace
 from pathlib import Path
 
 from sqlalchemy import Connection, delete
 
-from . import db, itemstats, schema, spelltext, timing, versions
+from . import db, gamedata, itemstats, schema, spelltext, timing, versions
 
-LATEST_URL = "https://wago.tools/api/builds/latest"
 # The modules whose code decides what a load derives from the DB2 tables (`fingerprint`).
 FINGERPRINTED_MODULES = (Path(__file__), Path(itemstats.__file__), Path(spelltext.__file__))
 TABLES = [
@@ -63,41 +60,19 @@ CONVERSION_ID_BASE = 1_000_000_000
 MAX_REAGENTS = 8
 
 
-def _fetch(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "altarmy-profit/0.1"})
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data: bytes = resp.read()
-    return data
-
-
-def parse_latest_build(payload: bytes, product: str) -> str:
-    """Pick `product`'s version out of wago.tools' /api/builds/latest JSON."""
-    builds = json.loads(payload)
-    if product not in builds:
-        raise ValueError(f"no {product} build in wago.tools' latest builds")
-    return str(builds[product]["version"])
-
-
 def latest_build(product: str) -> str:
     """The newest build of a wago.tools product (versions.GameVersion.wago_product)."""
-    return parse_latest_build(_fetch(LATEST_URL), product)
+    return gamedata.latest_build(product)
+
+
+def pinned_build(version: versions.GameVersion, pins: Path = gamedata.PINS) -> str:
+    """The build the version's committed data was made from (`data/game-data.json`)."""
+    return gamedata.read_pins(pins)[version.key].build
 
 
 def download(table: str, build: str, cache_dir: Path, optional: bool = False) -> Path:
-    """The table's CSV for the build, downloaded once into the cache. An `optional` table the build does
-    not serve (4xx) is cached as an empty file, which reads as no rows."""
-    dest = cache_dir / build / f"{table}.csv"
-    if dest.exists():
-        return dest
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        data = _fetch(f"https://wago.tools/db2/{table}/csv?build={build}")
-    except urllib.error.HTTPError as e:
-        if not optional or not 400 <= e.code < 500:
-            raise
-        data = b""
-    dest.write_bytes(data)
-    return dest
+    """The table's CSV for the build, downloaded once into the cache (`gamedata.download_table`)."""
+    return gamedata.download_table(table, build, cache_dir, optional)
 
 
 def download_all(build: str, cache_dir: Path) -> dict[str, Path]:

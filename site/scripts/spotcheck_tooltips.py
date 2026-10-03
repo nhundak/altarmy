@@ -18,7 +18,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-from altarmy_profit import ingest, itemstats, versions
+from altarmy_profit import gamedata, ingest, itemstats, versions
 
 # Gear, a weapon and consumables whose Classic tooltips match the Forever data (Forever changed many
 # weapons' speeds and some elixirs' durations; their DPS still agrees, so those are not our mistake).
@@ -60,11 +60,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--game-version", default="forever")
     parser.add_argument("--build", default=None, help="the wago.tools build (default: the pinned one)")
-    parser.add_argument("--cache", default="cache", type=Path)
+    parser.add_argument("--cache", default=gamedata.REPO_CACHE, type=Path)
     parser.add_argument("ids", nargs="*", type=int, default=DEFAULT_IDS)
     args = parser.parse_args(argv)
     version = versions.get(args.game_version)
-    build = args.build or version.default_build
+    build = args.build or ingest.pinned_build(version)
     paths = ingest.download_all(build, args.cache)
     tips = ingest.item_tooltips(paths, version.max_level)
     delays = {ingest._int(r["ID"]): ingest._int(r["ItemDelay"]) for r in ingest._rows(paths["ItemSparse"])}

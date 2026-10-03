@@ -35,7 +35,7 @@ export interface paths {
         put?: never;
         /**
          * Run Ingest Job
-         * @description Start the version's game data ingest now, as the daily schedule does: the newest build, unless it is
+         * @description Start the version's game data ingest now, as the daily schedule does: the pinned build, unless it is
          *     loaded already (admins). 409 while a run of it is still going, 501 where nothing can start jobs.
          */
         post: operations["run_ingest_job_api_admin_jobs_ingest_post"];

@@ -99,7 +99,7 @@ def test_in_process_runs_and_records_the_ingest_one_at_a_time(
         launcher.ingest(VERSIONS["forever"])
     go.set()
     finish()
-    assert calls == [(FOREVER, True)]  # the newest build, unless it is loaded already
+    assert calls == [(FOREVER, True)]  # the pinned build, unless it is loaded already
     run = jobs.latest(conn, FOREVER)["ingest"]
     assert (run.ok, run.summary) == (True, f"{VERSIONS['forever'].label} build 1.2.3 already loaded.")
     launcher.ingest(VERSIONS["forever"])  # free again
