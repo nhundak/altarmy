@@ -659,6 +659,7 @@ function GA.AnnounceLootRollUpgrade(itemLinkOrRollId)
         if not GetLootRollItemLink then return false, "disabled" end
         itemLink = GetLootRollItemLink(itemLinkOrRollId)
     end
+    if not canAccessSecretValue(itemLink) then return false, "disabled" end
     if not itemLink or itemLink == "" then return false, "disabled" end
 
     local ok, reason = GA.AnnounceLootUpgrade(itemLink)

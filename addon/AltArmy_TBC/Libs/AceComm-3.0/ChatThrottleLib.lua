@@ -289,7 +289,8 @@ function ChatThrottleLib.Hook_SendChatMessage(text, chattype, language, destinat
 	self.nBypass = self.nBypass + size	-- just a statistic
 end
 function ChatThrottleLib.Hook_SendAddonMessage(prefix, text, chattype, destination, ...)
-	if issecretvalue and (issecretvalue(text) or issecretvalue(destination)) then return end
+	-- AltArmy patch: upstream v32 checks text/destination only, but prefix is tostring()-ed below too.
+	if issecretvalue and (issecretvalue(text) or issecretvalue(destination) or issecretvalue(prefix)) then return end
 	if bMyTraffic then
 		return
 	end

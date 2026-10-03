@@ -538,6 +538,23 @@ describe("GearUpgradeAlerts", function()
             assert.is_true(GA.ShouldSuppressLootUpgrade(itemLink))
         end)
 
+        it("ignores a secret roll item link", function()
+            local evaluated = false
+            loadWithMocks({
+                getLootRollItemLink = function() return itemLink end,
+                evaluateForAllAlts = function()
+                    evaluated = true
+                    return { { name = "Bravo", classFile = "PRIEST" } }
+                end,
+            })
+            _G.canaccessvalue = function(v) return v ~= itemLink end
+            local ok = GA.AnnounceLootRollUpgrade(42)
+            _G.canaccessvalue = nil
+            assert.is_false(ok)
+            assert.is_false(evaluated)
+            assert.are.equal(0, #chatLines)
+        end)
+
         it("clears roll suppression when entering the world", function()
             loadWithMocks({
                 evaluateForAllAlts = function()

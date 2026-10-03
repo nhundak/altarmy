@@ -854,4 +854,52 @@ describe("DataStore", function()
       assert.are.same({ 28566 }, transmuteCasts)
     end)
   end)
+
+  describe("UNIT_SPELLCAST_SUCCEEDED", function()
+    local eventHandler
+    local trackedLookups
+
+    before_each(function()
+      eventHandler = nil
+      trackedLookups = {}
+      _G.CreateFrame = function()
+        return {
+          RegisterEvent = function() end,
+          SetScript = function(_, script, handler)
+            if script == "OnEvent" then eventHandler = handler end
+          end,
+        }
+      end
+      _G.UnitName = function() return "Alice" end
+      _G.GetRealmName = function() return "R1" end
+      _G.AltArmyTBC_Data = { Characters = { R1 = { Alice = {} } } }
+      package.loaded["DataStore"] = nil
+      require("DataStore")
+      DS = AltArmy.DataStore
+      AltArmy.CooldownData = {
+        IsTrackedSpellId = function(spellId)
+          trackedLookups[#trackedLookups + 1] = spellId
+          return false
+        end,
+      }
+    end)
+
+    after_each(function()
+      _G.canaccessvalue = nil
+      AltArmy.CooldownData = nil
+    end)
+
+    it("looks up the player's own casts", function()
+      eventHandler(nil, "UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-1", 28566)
+      assert.are.same({ 28566 }, trackedLookups)
+    end)
+
+    it("ignores a secret unit token or spell id", function()
+      _G.canaccessvalue = function(v) return v ~= 28566 end
+      eventHandler(nil, "UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-1", 28566)
+      _G.canaccessvalue = function(v) return v ~= "player" end
+      eventHandler(nil, "UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-1", 28566)
+      assert.are.equal(0, #trackedLookups)
+    end)
+  end)
 end)

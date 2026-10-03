@@ -241,6 +241,15 @@ AceComm.callbacks.OnUnused = nil
 
 local function OnEvent(self, event, prefix, message, distribution, sender)
 	if event == "CHAT_MSG_ADDON" then
+		-- AltArmy patch: 12.0+ clients (WoW Forever included) can deliver addon-message payloads
+		-- as Secret Values during encounter/instance chat lockdown; any string op (Ambiguate,
+		-- match) on one throws "attempt to perform string conversion on a secret string value".
+		-- No one can read them anyway, so drop the message. Same idea as ChatThrottleLib's patch.
+		local canaccessvalue = canaccessvalue
+		if canaccessvalue and not (canaccessvalue(prefix) and canaccessvalue(message)
+			and canaccessvalue(distribution) and canaccessvalue(sender)) then
+			return
+		end
 		sender = Ambiguate(sender, "none")
 		local control, rest = match(message, "^([\001-\009])(.*)")
 		if control then

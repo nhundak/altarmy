@@ -588,6 +588,8 @@ frame:SetScript("OnEvent", function(_, event, ...)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit = addonName
         local spellId = a3
+        -- Spell-cast payloads can be secret during encounters on 12.0+ clients (Forever).
+        if not canAccessSecretValue(unit) or not canAccessSecretValue(spellId) then return end
         if unit ~= "player" then return end
         if type(spellId) ~= "number" then return end
         local CD = AltArmy and AltArmy.CooldownData
