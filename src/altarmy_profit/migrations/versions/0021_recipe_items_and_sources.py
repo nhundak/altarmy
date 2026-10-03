@@ -47,9 +47,6 @@ def upgrade() -> None:
         sa.Column("count", sa.Integer(), nullable=False),
         sa.Column("levels", sa.Text(), nullable=False),
         sa.Column("limited", sa.Boolean(), nullable=False),
-        sa.Column("area", sa.Integer(), server_default="0", nullable=False),
-        sa.Column("map_x", sa.Float(), server_default="0", nullable=False),
-        sa.Column("map_y", sa.Float(), server_default="0", nullable=False),
         sa.ForeignKeyConstraint(
             ["game_version"],
             ["game_versions.id"],
