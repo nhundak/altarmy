@@ -1,11 +1,26 @@
 name: site-check
 
-# The site's checks (site/), run only when something under site/ changed; site-deploy follows it on main.
+# The site's checks (site/), run when something under site/ changed, or the addon's side of the contract the
+# site's tests read (its golden files, their writers, the TOC's interfaces); site-deploy follows it on main.
 on:
   push:
-    paths: ["site/**", ".github/workflows/site-check.yml"]
+    paths:
+      - "site/**"
+      - ".github/workflows/site-check.yml"
+      - "addon/spec/fixtures/**"
+      - "addon/AltArmy_TBC/AltArmy_TBC.toc"
+      - "addon/AltArmy_TBC/Data/ProfitExport.lua"
+      - "addon/AltArmy_TBC/Data/Auctions/AuctionBook.lua"
+      - "addon/AltArmy_TBC/Data/Auctions/AuctionScan.lua"
   pull_request:
-    paths: ["site/**", ".github/workflows/site-check.yml"]
+    paths:
+      - "site/**"
+      - ".github/workflows/site-check.yml"
+      - "addon/spec/fixtures/**"
+      - "addon/AltArmy_TBC/AltArmy_TBC.toc"
+      - "addon/AltArmy_TBC/Data/ProfitExport.lua"
+      - "addon/AltArmy_TBC/Data/Auctions/AuctionBook.lua"
+      - "addon/AltArmy_TBC/Data/Auctions/AuctionScan.lua"
 
 defaults:
   run:

@@ -10,10 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from .engine import AH_CUT, MAIL_POSTAGE
-
 GameVersionKey = Literal["tbc", "forever"]
 DATA_DIR = Path("data")
+# Alt Army Sync bundles this module: it imports nothing of the package (tests/test_sync_imports.py)
+AH_CUT = 0.05  # auction house cut taken from the sale price (deposit ignored)
+MAIL_POSTAGE = 30  # copper per attached item
 
 
 @dataclass(frozen=True)

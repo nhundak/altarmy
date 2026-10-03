@@ -11,11 +11,11 @@ from typing import Literal
 from . import book, timing
 from .reputation import vendor_discounts
 from .timing import Timing
+from .versions import AH_CUT as AH_CUT
+from .versions import MAIL_POSTAGE as MAIL_POSTAGE
 
 # A flip's recipe id: FLIP_ID_BASE + the item id (inside 32 bits)
 FLIP_ID_BASE = 2_000_000_000
-AH_CUT = 0.05  # auction house cut taken from the sale price (deposit ignored)
-MAIL_POSTAGE = 30  # copper per attached item
 MAX_CHAIN_DEPTH = 3
 DISENCHANTABLE_CLASSES = (2, 4)  # weapon, armor
 DISENCHANTABLE_QUALITIES = (2, 3, 4)

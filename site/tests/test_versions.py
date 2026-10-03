@@ -8,6 +8,8 @@ from altarmy_profit import engine, versions, wowfiles
 from altarmy_profit.engine import Item, Market, Recipe
 from altarmy_profit.versions import VERSIONS
 
+from .addon_fixtures import ADDON_TOC
+
 
 def test_get_and_build_versions() -> None:
     assert versions.get("tbc").wago_product == "wow_anniversary"
@@ -17,6 +19,14 @@ def test_get_and_build_versions() -> None:
     assert versions.version_of_build("2.5.6.69795") == "tbc"
     assert versions.version_of_build("1.60.1.69977") == "forever"
     assert versions.version_of_build("") == "forever"
+
+
+def test_addon_toc_lists_every_version_interface() -> None:
+    """The addon's TOC loads in exactly the clients the site serves; a game patch moving one needs both."""
+    lines = ADDON_TOC.read_text(encoding="utf-8").splitlines()
+    interface = next(line for line in lines if line.startswith("## Interface:"))
+    toc = {int(n) for n in interface.removeprefix("## Interface:").split(",")}
+    assert toc == {v.interface for v in VERSIONS.values()}
 
 
 def test_each_version_has_its_own_files() -> None:
