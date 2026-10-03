@@ -1,0 +1,624 @@
+--[[
+  Unit tests for Gear tab compare panel height (two-column layout).
+  Mirrors EstimateComparePanelHeight from TabGear.lua.
+]]
+
+describe("Gear compare panel height", function()
+    local IU_EQUIP_WARNING_KIND = {
+        SOULBOUND = "soulbound",
+        NEVER = "never",
+        LEVEL = "level",
+        TRAINING = "training",
+    }
+    local COMPARE_WARNING_COLOR_BLOCKING = { 1, 0.4, 0.3 }
+    local COMPARE_WARNING_COLOR_CAUTION = { 1, 0.82, 0 }
+
+    local COMPARE_WARNING_KIND = {
+        MISSING_SPEC = "missing_spec",
+        UNPICKED_SPEC = "unpicked_spec",
+    }
+
+    local function isCompareEntryCurrentCharacter(entry)
+        return type(entry) == "table" and entry.isCurrent == true
+    end
+
+    local function getCompareWarningSeverity(warning, entry)
+        if type(warning) == "table"
+            and (warning.kind == COMPARE_WARNING_KIND.MISSING_SPEC
+                or warning.kind == COMPARE_WARNING_KIND.UNPICKED_SPEC) then
+            return "caution"
+        end
+        local kind = type(warning) == "table" and warning.kind or nil
+        if kind == IU_EQUIP_WARNING_KIND.SOULBOUND then
+            if isCompareEntryCurrentCharacter(entry) then
+                return "caution"
+            end
+            return "blocking"
+        end
+        if kind == IU_EQUIP_WARNING_KIND.LEVEL or kind == IU_EQUIP_WARNING_KIND.TRAINING then
+            return "caution"
+        end
+        if kind == IU_EQUIP_WARNING_KIND.NEVER then
+            return "blocking"
+        end
+        local text = type(warning) == "table" and warning.text or warning
+        if type(text) == "string" then
+            if text:find("must gain ", 1, true) or text:find("must train ", 1, true) then
+                return "caution"
+            end
+            if text:find("can never equip this", 1, true) then
+                return "blocking"
+            end
+        end
+        return "blocking"
+    end
+
+    local function getCompareWarningColor(warning, entry)
+        local kind = type(warning) == "table" and warning.kind or nil
+        if kind == IU_EQUIP_WARNING_KIND.SOULBOUND and isCompareEntryCurrentCharacter(entry) then
+            return 1, 1, 1
+        end
+        if getCompareWarningSeverity(warning, entry) == "caution" then
+            return COMPARE_WARNING_COLOR_CAUTION[1], COMPARE_WARNING_COLOR_CAUTION[2], COMPARE_WARNING_COLOR_CAUTION[3]
+        end
+        return COMPARE_WARNING_COLOR_BLOCKING[1], COMPARE_WARNING_COLOR_BLOCKING[2], COMPARE_WARNING_COLOR_BLOCKING[3]
+    end
+
+    local function isCompareSpecAssumptionWarning(warning)
+        return type(warning) == "table"
+            and (warning.kind == COMPARE_WARNING_KIND.MISSING_SPEC
+                or warning.kind == COMPARE_WARNING_KIND.UNPICKED_SPEC)
+    end
+
+    local function sortCompareWarnings(warnings, entry)
+        if not warnings or #warnings < 2 then return warnings end
+        table.sort(warnings, function(a, b)
+            local aSpec = isCompareSpecAssumptionWarning(a)
+            local bSpec = isCompareSpecAssumptionWarning(b)
+            if aSpec ~= bSpec then
+                return not aSpec
+            end
+            local aBlocking = getCompareWarningSeverity(a, entry) == "blocking"
+            local bBlocking = getCompareWarningSeverity(b, entry) == "blocking"
+            if aBlocking ~= bBlocking then
+                return aBlocking
+            end
+            local aKind = type(a) == "table" and a.kind or ""
+            local bKind = type(b) == "table" and b.kind or ""
+            return aKind < bKind
+        end)
+        return warnings
+    end
+
+    local COMPARE_ROW_HEIGHT = 14
+    local COMPARE_ROW_GAP = 2
+    local COMPARE_SECTION_GAP = 6
+    local COMPARE_PANEL_PAD = 8
+    local COMPARE_PANEL_MIN_HEIGHT = 100
+    local COMPARE_ITEMS_ROW_HEIGHT = 52
+    local COMPARE_OPTIONS_SECTION_HEIGHT = 72
+
+    local function compareStackedRowsHeight(rowCount)
+        rowCount = tonumber(rowCount) or 0
+        if rowCount <= 0 then return 0 end
+        return rowCount * COMPARE_ROW_HEIGHT + (rowCount - 1) * COMPARE_ROW_GAP
+    end
+
+    local function estimateComparePanelHeight(comparison, warningCount, hasVerdict)
+        if not comparison then return 0 end
+        local leftH = COMPARE_ITEMS_ROW_HEIGHT + 8
+        warningCount = tonumber(warningCount) or 0
+        local leftRowCount = (hasVerdict and 1 or 0) + warningCount
+        if leftRowCount > 0 then
+            leftH = leftH + compareStackedRowsHeight(leftRowCount)
+        end
+        local sections = comparison.sections or {}
+        for s = 1, #sections do
+            local section = sections[s]
+            leftH = leftH + COMPARE_SECTION_GAP + COMPARE_ROW_HEIGHT
+        local rowCount = #(section.rows or {})
+        if rowCount > 0 then
+            leftH = leftH + rowCount * COMPARE_ROW_HEIGHT
+        end
+        end
+        local contentH = math.max(leftH, COMPARE_OPTIONS_SECTION_HEIGHT)
+        return math.max(COMPARE_PANEL_MIN_HEIGHT, COMPARE_PANEL_PAD * 2 + contentH)
+    end
+
+    it("uses the taller of stats column and settings column", function()
+        local shortStats = { sections = { { title = "Stats", rows = { { label = "AP" } } } } }
+        local tallStats = {
+            sections = {
+                { title = "Stats", rows = { { label = "a" }, { label = "b" }, { label = "c" }, { label = "d" } } },
+                { title = "More", rows = { { label = "e" }, { label = "f" } } },
+            },
+        }
+        local shortHeight = estimateComparePanelHeight(shortStats, false)
+        local tallHeight = estimateComparePanelHeight(tallStats, false)
+        assert.is_true(shortHeight >= COMPARE_PANEL_MIN_HEIGHT)
+        assert.is_true(tallHeight > shortHeight)
+    end)
+
+    it("includes compare warnings in left column height", function()
+        local comparison = {
+            sections = { { title = "Stats", rows = { { label = "a" }, { label = "b" } } } },
+        }
+        local without = estimateComparePanelHeight(comparison, 0, false)
+        local withOne = estimateComparePanelHeight(comparison, 1, false)
+        local withTwo = estimateComparePanelHeight(comparison, 2, false)
+        assert.are.equal(compareStackedRowsHeight(1), withOne - without)
+        assert.are.equal(COMPARE_ROW_HEIGHT + COMPARE_ROW_GAP, withTwo - withOne)
+    end)
+
+    it("includes verdict row in left column height", function()
+        local comparison = {
+            sections = { { title = "Stats", rows = { { label = "a" } } } },
+        }
+        local without = estimateComparePanelHeight(comparison, 0, false)
+        local withVerdict = estimateComparePanelHeight(comparison, 0, true)
+        assert.are.equal(compareStackedRowsHeight(1), withVerdict - without)
+    end)
+
+    local function formatCompareChooseCharacterHintText()
+        return "Choose a character above to compare against"
+    end
+
+    local function formatCompareNoUpgradeHintText()
+        return "This isn't a clear upgrade for any of your characters."
+            .. "\nClick an item above to compare anyway"
+    end
+
+    local function formatCompareEmptyHintText(hasUpgradeOrEventual)
+        if hasUpgradeOrEventual then
+            return formatCompareChooseCharacterHintText()
+        end
+        return formatCompareNoUpgradeHintText()
+    end
+
+    local function formatCompareEmptyStateText(hasUpgradeOrEventual)
+        return formatCompareEmptyHintText(hasUpgradeOrEventual)
+    end
+
+    local function formatItemCheckDropMessage()
+        return "Drop an item to see who can use it as an upgrade"
+    end
+
+    it("formats item check drop message", function()
+        assert.are.equal(
+            "Drop an item to see who can use it as an upgrade",
+            formatItemCheckDropMessage())
+    end)
+
+    it("formats choose-character hint when upgrades exist", function()
+        local text = formatCompareEmptyHintText(true)
+        assert.are.equal("Choose a character above to compare against", text)
+    end)
+
+    it("formats no-upgrade hint when no upgrades exist", function()
+        local text = formatCompareEmptyHintText(false)
+        assert.matches("isn't a clear upgrade", text)
+        assert.matches("Click an item above", text)
+    end)
+
+    it("empty state text matches choose-character hint", function()
+        local text = formatCompareEmptyStateText(true)
+        assert.are.equal(formatCompareChooseCharacterHintText(), text)
+    end)
+
+    it("empty state text matches no-upgrade hint", function()
+        local text = formatCompareEmptyStateText(false)
+        assert.are.equal(formatCompareNoUpgradeHintText(), text)
+    end)
+
+    it("colors compare deltas green, red, and yellow", function()
+        local function getCompareDeltaColor(delta)
+            delta = tonumber(delta) or 0
+            if delta > 0 then return 0.2, 1, 0.2 end
+            if delta < 0 then return 1, 0.4, 0.3 end
+            return 1, 0.82, 0
+        end
+        local upR, upG = getCompareDeltaColor(5)
+        assert.are.equal(0.2, upR)
+        assert.are.equal(1, upG)
+        local downR, downG = getCompareDeltaColor(-3)
+        assert.are.equal(1, downR)
+        assert.are.equal(0.4, downG)
+        local flatR, flatG = getCompareDeltaColor(0)
+        assert.are.equal(1, flatR)
+        assert.are.equal(0.82, flatG)
+    end)
+
+    it("computes compare stat scroll content height from row count", function()
+        local function getCompareStatContentHeight(rowCount)
+            return compareStackedRowsHeight(rowCount)
+        end
+        assert.are.equal(0, getCompareStatContentHeight(0))
+        assert.are.equal(14, getCompareStatContentHeight(1))
+        assert.are.equal(30, getCompareStatContentHeight(2))
+        assert.are.equal(158, getCompareStatContentHeight(10))
+    end)
+
+    it("formats compare verdict prefix with class-colored character name", function()
+        local function formatCompareVerdictPrefix(charName, classFile)
+            local function formatName(name, cf)
+                if cf == "MAGE" then
+                    return string.format("|cff%02x%02x%02x%s|r", 105, 204, 240, name)
+                end
+                return name
+            end
+            return "Verdict for " .. formatName(charName, classFile) .. ": "
+        end
+        local prefix = formatCompareVerdictPrefix("MageAlt", "MAGE")
+        assert.matches("^Verdict for ", prefix)
+        assert.matches("MageAlt", prefix)
+        assert.matches(": $", prefix)
+        assert.matches("|cff69ccf0MageAlt|r", prefix)
+    end)
+
+    it("stacks verdict plus warnings with the same height formula as stat rows", function()
+        local comparison = {
+            sections = { { title = "Stats", rows = { { label = "a" } } } },
+        }
+        local base = estimateComparePanelHeight(comparison, 0, false)
+        local stacked = estimateComparePanelHeight(comparison, 2, true)
+        assert.are.equal(compareStackedRowsHeight(3), stacked - base)
+    end)
+
+    it("uses matching content inset from the panel split on both sides", function()
+        local COMPARE_PANEL_SPLIT_GAP = 8
+        local COMPARE_STAT_ROW_INDENT = 8
+        local function insetFromCenter(isLeftSide)
+            return COMPARE_PANEL_SPLIT_GAP / 2 + COMPARE_STAT_ROW_INDENT
+        end
+        assert.are.equal(insetFromCenter(true), insetFromCenter(false))
+    end)
+
+    it("formats compare stat weight multipliers", function()
+        local function formatCompareNumber(n)
+            n = tonumber(n) or 0
+            if math.floor(n) == n then return tostring(n) end
+            return string.format("%.1f", n)
+        end
+        local function formatCompareWeight(weight)
+            if weight == nil then return "" end
+            weight = tonumber(weight) or 0
+            if weight < 0.005 then return "x0" end
+            if weight < 0.05 then
+                return "x" .. string.format("%.2f", weight)
+            end
+            return "x" .. formatCompareNumber(weight)
+        end
+        local function getCompareWeightColor(weight)
+            weight = tonumber(weight) or 0
+            if weight < 0.005 then return 0.5, 0.5, 0.5 end
+            return 0.82, 0.68, 0.22
+        end
+        assert.are.equal("", formatCompareWeight(nil))
+        assert.are.equal("x0", formatCompareWeight(0))
+        assert.are.equal("x0", formatCompareWeight(0.004))
+        assert.are.equal("x0.01", formatCompareWeight(0.01))
+        assert.are.equal("x0.04", formatCompareWeight(0.037))
+        assert.are.equal("x0.8", formatCompareWeight(0.8))
+        assert.are.equal("x1", formatCompareWeight(1))
+        local wr, wg, wb = getCompareWeightColor(0.8)
+        assert.are.equal(0.82, wr)
+        assert.are.equal(0.68, wg)
+        assert.are.equal(0.22, wb)
+        local zr = getCompareWeightColor(0)
+        assert.are.equal(0.5, zr)
+        local tinyR = getCompareWeightColor(0.002)
+        assert.are.equal(0.5, tinyR)
+        local smallR = getCompareWeightColor(0.01)
+        assert.are.equal(0.82, smallR)
+    end)
+
+    it("formats weighted change as delta with percent in parentheses", function()
+        local function formatCompareNumber(n)
+            n = tonumber(n) or 0
+            if math.floor(n) == n then return tostring(n) end
+            return string.format("%.1f", n)
+        end
+        local function formatCompareDelta(n)
+            local s = formatCompareNumber(n)
+            if n > 0 then return "+" .. s end
+            return s
+        end
+        local function formatComparePercentInParens(percent)
+            percent = tonumber(percent) or 0
+            if percent >= 1000 then
+                return "(999+%)"
+            end
+            if percent < 0 then
+                return "(" .. formatCompareDelta(percent) .. "%)"
+            end
+            return "(" .. formatCompareNumber(percent) .. "%)"
+        end
+        local function formatCompareWeightedChange(delta, percent)
+            local text = formatCompareDelta(delta)
+            if percent == nil then return text end
+            return text .. " " .. formatComparePercentInParens(percent)
+        end
+        assert.are.equal("+1.4 (8.1%)", formatCompareWeightedChange(1.4, 8.1))
+        assert.are.equal("-1.4 (-8.1%)", formatCompareWeightedChange(-1.4, -8.1))
+        assert.are.equal("0 (0%)", formatCompareWeightedChange(0, 0))
+        assert.are.equal("+40", formatCompareWeightedChange(40, nil))
+        assert.are.equal("+12 (999+%)", formatCompareWeightedChange(12, 1000))
+        assert.are.equal("+50 (999+%)", formatCompareWeightedChange(50, 2500))
+        assert.are.equal("+9.9 (999%)", formatCompareWeightedChange(9.9, 999))
+    end)
+
+    it("uses gold label and threshold-based delta color for weighted summary row", function()
+        local function getCompareWeightColor(weight)
+            weight = tonumber(weight) or 0
+            if weight <= 0 then return 0.5, 0.5, 0.5 end
+            return 0.82, 0.68, 0.22
+        end
+        local function getCompareDeltaColor(delta)
+            delta = tonumber(delta) or 0
+            if delta > 0 then return 0.2, 1, 0.2 end
+            if delta < 0 then return 1, 0.4, 0.3 end
+            return 1, 0.82, 0
+        end
+        local WEIGHTED_CHANGE_COLOR_GREEN = { 0.2, 1, 0.2 }
+        local WEIGHTED_CHANGE_COLOR_RED = { 1, 0.4, 0.3 }
+        local WEIGHTED_CHANGE_COLOR_YELLOW = { 1, 0.82, 0 }
+        local function lerpChannel(from, to, t)
+            return from + (to - from) * t
+        end
+        local function getCompareWeightedChangeColor(percent, opts)
+            percent = tonumber(percent) or 0
+            opts = opts or {}
+            local threshold = tonumber(opts.upgradeThresholdPercent) or 10
+            if percent >= threshold then
+                return WEIGHTED_CHANGE_COLOR_GREEN[1], WEIGHTED_CHANGE_COLOR_GREEN[2],
+                    WEIGHTED_CHANGE_COLOR_GREEN[3]
+            end
+            if percent <= -threshold then
+                return WEIGHTED_CHANGE_COLOR_RED[1], WEIGHTED_CHANGE_COLOR_RED[2],
+                    WEIGHTED_CHANGE_COLOR_RED[3]
+            end
+            if percent == 0 then
+                return WEIGHTED_CHANGE_COLOR_YELLOW[1], WEIGHTED_CHANGE_COLOR_YELLOW[2],
+                    WEIGHTED_CHANGE_COLOR_YELLOW[3]
+            end
+            if percent > 0 then
+                local t = percent / threshold
+                return lerpChannel(WEIGHTED_CHANGE_COLOR_YELLOW[1], WEIGHTED_CHANGE_COLOR_GREEN[1], t),
+                    lerpChannel(WEIGHTED_CHANGE_COLOR_YELLOW[2], WEIGHTED_CHANGE_COLOR_GREEN[2], t),
+                    lerpChannel(WEIGHTED_CHANGE_COLOR_YELLOW[3], WEIGHTED_CHANGE_COLOR_GREEN[3], t)
+            end
+            local t = (percent + threshold) / threshold
+            return lerpChannel(WEIGHTED_CHANGE_COLOR_RED[1], WEIGHTED_CHANGE_COLOR_YELLOW[1], t),
+                lerpChannel(WEIGHTED_CHANGE_COLOR_RED[2], WEIGHTED_CHANGE_COLOR_YELLOW[2], t),
+                lerpChannel(WEIGHTED_CHANGE_COLOR_RED[3], WEIGHTED_CHANGE_COLOR_YELLOW[3], t)
+        end
+        local function nameColorForRow(data)
+            if data.formatAsWeightedChange then
+                return getCompareWeightColor(1)
+            end
+            return 1, 1, 1
+        end
+        local function deltaColorForRow(data)
+            if data.formatAsWeightedChange then
+                return getCompareWeightedChangeColor(data.percent, { upgradeThresholdPercent = 10 })
+            end
+            return getCompareDeltaColor(data.delta)
+        end
+        local nr, ng, nb = nameColorForRow({ formatAsWeightedChange = true })
+        assert.are.equal(0.82, nr)
+        assert.are.equal(0.68, ng)
+        assert.are.equal(0.22, nb)
+        local dr, dg, db = deltaColorForRow({
+            formatAsWeightedChange = true,
+            delta = 1.4,
+            percent = 8.1,
+        })
+        assert.is_true(math.abs(0.352 - dr) < 0.001)
+        assert.is_true(math.abs(0.9658 - dg) < 0.001)
+        assert.is_true(math.abs(0.162 - db) < 0.001)
+        local downR, downG = deltaColorForRow({
+            formatAsWeightedChange = true,
+            delta = -1.4,
+            percent = -8.1,
+        })
+        assert.is_true(math.abs(1 - downR) < 0.001)
+        assert.is_true(math.abs(0.4798 - downG) < 0.001)
+    end)
+
+    it("uses fixed column widths for weighted summary row", function()
+        local COMPARE_STAT_ROW_INDENT = 8
+        local COMPARE_STAT_COL_NAME = 110
+        local COMPARE_STAT_COL_DELTA = 52
+        local COMPARE_STAT_COL_WEIGHT = 40
+        local COMPARE_STAT_COL_WEIGHTED_NAME = 60
+        local COMPARE_STAT_COL_WEIGHTED_DELTA = 102
+        local function layoutCompareStatRowColumns(data)
+            local indent = COMPARE_STAT_ROW_INDENT
+            if data.formatAsWeightedChange then
+                return {
+                    nameLeft = indent,
+                    nameWidth = COMPARE_STAT_COL_WEIGHTED_NAME,
+                    deltaLeft = indent + COMPARE_STAT_COL_WEIGHTED_NAME,
+                    deltaWidth = COMPARE_STAT_COL_WEIGHTED_DELTA,
+                    weightWidth = 0,
+                }
+            end
+            local left = indent
+            return {
+                nameLeft = left,
+                nameWidth = COMPARE_STAT_COL_NAME,
+                deltaLeft = left + COMPARE_STAT_COL_NAME,
+                deltaWidth = COMPARE_STAT_COL_DELTA,
+                weightWidth = COMPARE_STAT_COL_WEIGHT,
+            }
+        end
+        local weighted = layoutCompareStatRowColumns({ formatAsWeightedChange = true })
+        local normal = layoutCompareStatRowColumns({})
+        assert.are.equal(60, weighted.nameWidth)
+        assert.are.equal(102, weighted.deltaWidth)
+        assert.are.equal(68, weighted.deltaLeft)
+        assert.are.equal(110, normal.nameWidth)
+        assert.are.equal(52, normal.deltaWidth)
+    end)
+
+    it("uses yellow for level and training warnings, red for never-equip", function()
+        local levelR, levelG = getCompareWarningColor({
+            text = "Alt must gain 5 levels to equip this",
+            kind = IU_EQUIP_WARNING_KIND.LEVEL,
+        })
+        assert.are.equal(1, levelR)
+        assert.are.equal(0.82, levelG)
+
+        local trainR, trainG = getCompareWarningColor({
+            text = "Alt must train Plate Armor to equip this",
+            kind = IU_EQUIP_WARNING_KIND.TRAINING,
+        })
+        assert.are.equal(1, trainR)
+        assert.are.equal(0.82, trainG)
+
+        local neverR, neverG = getCompareWarningColor({
+            text = "Alt can never equip this (Plate Armor)",
+            kind = IU_EQUIP_WARNING_KIND.NEVER,
+        })
+        assert.are.equal(1, neverR)
+        assert.are.equal(0.4, neverG)
+    end)
+
+    it("uses white for soulbound on current character, red on alts", function()
+        local warning = {
+            text = "This item is soulbound",
+            kind = IU_EQUIP_WARNING_KIND.SOULBOUND,
+        }
+        local altR, altG = getCompareWarningColor(warning, { isCurrent = false })
+        assert.are.equal(1, altR)
+        assert.are.equal(0.4, altG)
+
+        local selfR, selfG, selfB = getCompareWarningColor(warning, { isCurrent = true })
+        assert.are.equal(1, selfR)
+        assert.are.equal(1, selfG)
+        assert.are.equal(1, selfB)
+    end)
+
+    it("sorts blocking warnings before caution warnings", function()
+        local warnings = {
+            { text = "Alt must gain 5 levels to equip this", kind = IU_EQUIP_WARNING_KIND.LEVEL },
+            { text = "This item is soulbound", kind = IU_EQUIP_WARNING_KIND.SOULBOUND },
+            { text = "Alt must train Plate Armor to equip this", kind = IU_EQUIP_WARNING_KIND.TRAINING },
+            { text = "Alt can never equip this (Plate Armor)", kind = IU_EQUIP_WARNING_KIND.NEVER },
+        }
+        sortCompareWarnings(warnings)
+        for i = 1, 2 do
+            assert.are.equal("blocking", getCompareWarningSeverity(warnings[i]))
+        end
+        for i = 3, 4 do
+            assert.are.equal("caution", getCompareWarningSeverity(warnings[i]))
+        end
+    end)
+
+    it("sorts current-character soulbound with other caution warnings", function()
+        local warnings = {
+            { text = "This item is soulbound", kind = IU_EQUIP_WARNING_KIND.SOULBOUND },
+            { text = "Alt can never equip this (Plate Armor)", kind = IU_EQUIP_WARNING_KIND.NEVER },
+            { text = "Alt must gain 5 levels to equip this", kind = IU_EQUIP_WARNING_KIND.LEVEL },
+        }
+        sortCompareWarnings(warnings, { isCurrent = true })
+        assert.are.equal(IU_EQUIP_WARNING_KIND.NEVER, warnings[1].kind)
+        assert.are.equal(IU_EQUIP_WARNING_KIND.LEVEL, warnings[2].kind)
+        assert.are.equal(IU_EQUIP_WARNING_KIND.SOULBOUND, warnings[3].kind)
+    end)
+
+    it("sorts spec assumption warnings to the bottom", function()
+        local warnings = {
+            { kind = COMPARE_WARNING_KIND.MISSING_SPEC, text = "spec missing" },
+            { kind = IU_EQUIP_WARNING_KIND.LEVEL, text = "Alt must gain 5 levels to equip this" },
+            { kind = COMPARE_WARNING_KIND.UNPICKED_SPEC, text = "spec unpicked" },
+            { kind = IU_EQUIP_WARNING_KIND.NEVER, text = "Alt can never equip this (Plate Armor)" },
+        }
+        sortCompareWarnings(warnings)
+        assert.are.equal(IU_EQUIP_WARNING_KIND.NEVER, warnings[1].kind)
+        assert.are.equal(IU_EQUIP_WARNING_KIND.LEVEL, warnings[2].kind)
+        assert.are.equal(COMPARE_WARNING_KIND.MISSING_SPEC, warnings[3].kind)
+        assert.are.equal(COMPARE_WARNING_KIND.UNPICKED_SPEC, warnings[4].kind)
+    end)
+
+    it("pins Weighted only when the full stat list overflows the viewport", function()
+        local COMPARE_ROW_HEIGHT = 14
+        local COMPARE_ROW_GAP = 2
+        local function getCompareStatContentHeight(rowCount)
+            rowCount = tonumber(rowCount) or 0
+            if rowCount <= 0 then return 0 end
+            return rowCount * COMPARE_ROW_HEIGHT + (rowCount - 1) * COMPARE_ROW_GAP
+        end
+        local function shouldPinCompareWeightedRow(totalRowCount, viewHeight)
+            if not totalRowCount or totalRowCount <= 0 then return false end
+            viewHeight = tonumber(viewHeight) or 0
+            if viewHeight <= 0 then return false end
+            return getCompareStatContentHeight(totalRowCount) > viewHeight
+        end
+        local function splitCompareStatRows(rows)
+            rows = rows or {}
+            local scrollRows = {}
+            local weightedRow = nil
+            if #rows > 0 and rows[#rows].formatAsWeightedChange then
+                weightedRow = rows[#rows]
+                for i = 1, #rows - 1 do
+                    scrollRows[i] = rows[i]
+                end
+            else
+                for i = 1, #rows do
+                    scrollRows[i] = rows[i]
+                end
+            end
+            return scrollRows, weightedRow
+        end
+
+        local rows = {
+            { label = "Stamina" },
+            { label = "Intellect" },
+            { label = "Weighted", formatAsWeightedChange = true },
+        }
+        local scrollRows, weighted = splitCompareStatRows(rows)
+        assert.are.equal(2, #scrollRows)
+        assert.are.equal("Weighted", weighted.label)
+        assert.is_true(shouldPinCompareWeightedRow(3, getCompareStatContentHeight(3) - 1))
+        assert.is_false(shouldPinCompareWeightedRow(3, getCompareStatContentHeight(3)))
+        assert.is_false(shouldPinCompareWeightedRow(3, getCompareStatContentHeight(3) + 10))
+        assert.is_false(shouldPinCompareWeightedRow(0, 100))
+        local noWeightedScroll = select(1, splitCompareStatRows({ { label = "Stamina" } }))
+        assert.are.equal(1, #noWeightedScroll)
+        assert.is_nil(select(2, splitCompareStatRows({ { label = "Stamina" } })))
+    end)
+
+    it("places off-hand hint beside the property name, not in a 4th column", function()
+        -- Mirrors LayoutCompareStatHint in TabGear.lua.
+        local COMPARE_STAT_HINT_GAP = 2
+        local function layoutCompareStatHint(data, nameWidth)
+            if type(data.offhandHint) ~= "string" or data.offhandHint == ""
+                or data.formatAsWeightedChange then
+                return nil
+            end
+            return {
+                anchor = "name",
+                offsetX = (tonumber(nameWidth) or 0) + COMPARE_STAT_HINT_GAP,
+            }
+        end
+        local shown = layoutCompareStatHint({
+            offhandHint = "When dual wielding, the offhand weapon's damage is scaled to 50% of its listed amount",
+        }, 54)
+        assert.are.equal("name", shown.anchor)
+        assert.are.equal(56, shown.offsetX)
+        assert.is_nil(layoutCompareStatHint({}))
+        assert.is_nil(layoutCompareStatHint({
+            offhandHint = "hint",
+            formatAsWeightedChange = true,
+        }))
+    end)
+
+    it("compare dump row appears when debug is enabled during compare layout", function()
+        local function shouldShowCompareDumpRow(debugEnabled)
+            return debugEnabled == true
+        end
+        assert.is_true(shouldShowCompareDumpRow(true))
+        assert.is_false(shouldShowCompareDumpRow(false))
+    end)
+end)

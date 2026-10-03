@@ -1,0 +1,140 @@
+# Recipe data — watch for new game data behind AltArmy_TBC/Data/Recipes/RecipeData_*.lua
+#
+# client-data (daily): when wago.tools has a newer TBC Anniversary (wow_anniversary) or Forever
+#   (wow_classic_beta) build than the one pinned in the data file, regenerate it with
+#   scripts/generate-recipe-data.py. If that build changes any recipe, open (or update) a PR on branch
+#   recipe-data/<version> whose body lists the added / removed / changed recipes. A build with the same
+#   recipes changes nothing and opens nothing. Merging the PR ships the data in the next release.
+# server-data (daily): when cmangos' tbc-db or vmangos' world database has a newer release than the one
+#   recorded in data/recipes/server_meta.json, download them (~100 MB zipped for cmangos), rebuild the
+#   server facts with scripts/build-recipe-server-facts.py --download, regenerate both data files at their
+#   pinned builds. If either data file changes, open (or update) a PR on branch recipe-data/server listing
+#   the moved releases and the recipe changes; the refreshed CSVs and server_meta.json ride along. When no
+#   recipe changes, nothing opens: the release stays unrecorded, so the job rebuilds daily (from cached
+#   databases) until a release does change a recipe. An override in data/recipes/*/overrides.csv whose
+#   spell is gone fails the job.
+#
+# Requires the repository setting "Allow GitHub Actions to create and approve pull requests".
+# See AltArmy_TBC/Data/DESIGN.md ("Recipe data").
+
+name: Recipe data
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  client-data:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [tbc, forever]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compare pinned and latest builds
+        id: builds
+        run: python scripts/generate-recipe-data.py --version "${{ matrix.version }}" --status >> "$GITHUB_OUTPUT"
+
+      - name: Cache wago.tools tables
+        if: steps.builds.outputs.latest != steps.builds.outputs.pinned
+        uses: actions/cache@v4
+        with:
+          path: .cache/wago/${{ steps.builds.outputs.latest }}
+          key: wago-${{ steps.builds.outputs.latest }}
+
+      - name: Regenerate recipe data
+        if: steps.builds.outputs.latest != steps.builds.outputs.pinned
+        run: |
+          python scripts/generate-recipe-data.py --version "${{ matrix.version }}" --build latest \
+            --summary "$RUNNER_TEMP/recipe-summary.md"
+
+      - name: Open or update pull request
+        if: steps.builds.outputs.latest != steps.builds.outputs.pinned
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: recipe-data/${{ matrix.version }}
+          delete-branch: true
+          add-paths: AltArmy_TBC/Data/Recipes/RecipeData_*.lua
+          commit-message: "Recipe data: ${{ steps.builds.outputs.label }} ${{ steps.builds.outputs.latest }}"
+          title: "Recipe data: ${{ steps.builds.outputs.label }} ${{ steps.builds.outputs.latest }}"
+          body-path: ${{ runner.temp }}/recipe-summary.md
+
+  server-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compare emulator releases with server_meta.json
+        id: status
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/build-recipe-server-facts.py --status \
+            --summary "$RUNNER_TEMP/server-summary.md" >> "$GITHUB_OUTPUT"
+
+      - name: Cache emulator databases
+        if: steps.status.outputs.stale == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .cache/emulators
+          key: emulators-${{ steps.status.outputs.tbc }}-${{ steps.status.outputs.forever }}
+
+      - name: Rebuild server facts from the latest emulator databases
+        if: steps.status.outputs.stale == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/build-recipe-server-facts.py --download
+
+      - name: Regenerate recipe data at the pinned builds
+        id: regen
+        if: steps.status.outputs.stale == 'true'
+        run: |
+          set -euo pipefail
+          for version in tbc forever; do
+            python scripts/generate-recipe-data.py --version "$version" --summary "$RUNNER_TEMP/$version.md"
+          done
+          if git diff --quiet -- AltArmy_TBC/Data/Recipes/; then
+            echo "The new server data changes no recipe; no pull request."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            cat "$RUNNER_TEMP/server-summary.md"
+            for version in tbc forever; do
+              echo
+              cat "$RUNNER_TEMP/$version.md"
+            done
+          } > "$RUNNER_TEMP/pr-body.md"
+
+      - name: Open or update pull request
+        if: steps.regen.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: recipe-data/server
+          delete-branch: true
+          add-paths: |
+            data/recipes/**
+            AltArmy_TBC/Data/Recipes/RecipeData_*.lua
+          commit-message: "Recipe data: emulator databases updated"
+          title: "Recipe data: emulator databases updated"
+          body-path: ${{ runner.temp }}/pr-body.md

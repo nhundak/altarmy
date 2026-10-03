@@ -1,0 +1,112 @@
+-- AltArmy TBC — Native Blizzard UI capability detection.
+-- Forever reskins stock templates/atlases in place; TBC Anniversary lacks a few retail-only
+-- pieces (e.g. LargeSideTabButtonTemplate). UI code asks here before choosing a template or
+-- its fallback. See docs/WOW_FOREVER_NATIVE_UI_RESEARCH.md.
+-- Loaded before Theme.lua in the .toc; must bootstrap the namespace here.
+
+AltArmy = AltArmy or {}
+AltArmy.NativeUI = AltArmy.NativeUI or {}
+
+local NativeUI = AltArmy.NativeUI
+
+--- True when a virtual XML template named `name` exists on this client.
+--- `frameType` is only used by the CreateFrame fallback (default "Frame").
+function NativeUI.HasTemplate(name, frameType)
+    if type(name) ~= "string" or name == "" then
+        return false
+    end
+    local xml = _G.C_XMLUtil
+    if xml and xml.GetTemplateInfo then
+        local ok, info = pcall(xml.GetTemplateInfo, name)
+        return (ok and info ~= nil) and true or false
+    end
+    if not _G.CreateFrame then
+        return false
+    end
+    local ok, frame = pcall(_G.CreateFrame, frameType or "Frame", nil, nil, name)
+    if ok and frame and frame.Hide then
+        frame:Hide()
+    end
+    return (ok and frame ~= nil) and true or false
+end
+
+--- True when the texture atlas `name` exists on this client.
+function NativeUI.HasAtlas(name)
+    local tex = _G.C_Texture
+    if type(name) ~= "string" or not tex or not tex.GetAtlasInfo then
+        return false
+    end
+    local ok, info = pcall(tex.GetAtlasInfo, name)
+    return (ok and info ~= nil) and true or false
+end
+
+local function hasField(tbl, key)
+    return type(tbl) == "table" and tbl[key] ~= nil
+end
+
+-- Layouts Theme.ApplyBackdrop draws natively; present on both Forever and TBC Anniversary.
+NativeUI.NINE_SLICE_LAYOUTS = { "InsetFrameTemplate", "Dialog", "TooltipDefaultLayout" }
+
+local function hasNineSliceLayouts()
+    local util = _G.NineSliceUtil
+    if not hasField(util, "ApplyLayoutByName") or not hasField(util, "GetLayout") then
+        return false
+    end
+    for _, name in ipairs(NativeUI.NINE_SLICE_LAYOUTS) do
+        if not util.GetLayout(name) then
+            return false
+        end
+    end
+    return true
+end
+
+--- Probe the client once for every native widget the reskin relies on.
+function NativeUI.DetectCaps()
+    local has = NativeUI.HasTemplate
+    local caps = {
+        portraitFrame = has("PortraitFrameTemplate"),
+        sideTabs = has("LargeSideTabButtonTemplate") and NativeUI.HasAtlas("common-sidetab"),
+        minimalScrollBar = has("MinimalScrollBar", "EventFrame")
+            and hasField(_G.ScrollUtil, "InitScrollFrameWithScrollBar"),
+        wowStyleDropdown = has("WowStyle1DropdownTemplate", "DropdownButton")
+            and _G.MenuUtil ~= nil,
+        -- Professions-style "Filter" button (checkbox menu + dividers).
+        filterDropdown = has("WowStyle1FilterDropdownTemplate", "DropdownButton")
+            and _G.MenuUtil ~= nil,
+        searchBox = has("SearchBoxTemplate", "EditBox"),
+        inputBox = has("InputBoxTemplate", "EditBox"),
+        checkButton = has("UICheckButtonTemplate", "CheckButton"),
+        insetFrame = has("InsetFrameTemplate"),
+        panelButton = has("UIPanelButtonTemplate", "Button"),
+        tooltipBackdrop = has("TooltipBackdropTemplate"),
+        nineSlice = hasNineSliceLayouts(),
+    }
+    -- Spellbook-style tabs hanging above a panel (TabSystemTopButtonTemplate). Icon (square) tabs
+    -- need Forever's spellbook tab art; TBC Anniversary's TabSystem is text-only.
+    caps.topTabs = has("TabSystemTemplate") and has("TabSystemTopButtonTemplate", "Button")
+        and _G.CreateFramePool ~= nil
+    caps.iconTabs = caps.topTabs and NativeUI.HasAtlas("spellbook-Tab-Frame-C60")
+    -- TBC Anniversary does not load Blizzard_SharedXML's TabSystem (absent from its .toc), but has
+    -- the classic top tab (TabButtonTemplate / HelpFrameTab art) driven by PanelTemplates_*.
+    caps.panelTopTabs = has("PanelTopTabButtonTemplate", "Button")
+        and _G.PanelTemplates_SelectTab ~= nil and _G.PanelTemplates_DeselectTab ~= nil
+    -- Virtualized list (WowScrollBoxList + linear view + DataProvider) driven by a MinimalScrollBar.
+    caps.scrollBoxList = caps.minimalScrollBar and has("WowScrollBoxList")
+        and _G.CreateScrollBoxListLinearView ~= nil and _G.CreateDataProvider ~= nil
+        and hasField(_G.ScrollUtil, "InitScrollBoxListWithScrollBar")
+    return caps
+end
+
+local cachedCaps = nil
+
+--- Cached DetectCaps(); templates never change within a session.
+function NativeUI.GetCaps()
+    if not cachedCaps then
+        cachedCaps = NativeUI.DetectCaps()
+    end
+    return cachedCaps
+end
+
+function NativeUI.ResetCaps()
+    cachedCaps = nil
+end
