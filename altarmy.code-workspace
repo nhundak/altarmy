@@ -1,0 +1,10 @@
+{
+  "folders": [
+    { "name": "site", "path": "site" },
+    { "name": "addon", "path": "addon" },
+    { "name": "altarmy (root)", "path": "." }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "${workspaceFolder:site}/.venv/Scripts/python.exe"
+  }
+}
