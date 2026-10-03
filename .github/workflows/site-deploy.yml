@@ -1,11 +1,12 @@
-name: deploy
+name: site-deploy
 
-# Prod: after `check` passes for a push to main. Staging (or prod by hand): Run workflow.
+# Prod: after `site-check` passes for a push to main (so an addon-only push, which never runs site-check,
+# never deploys). Staging (or prod by hand): Run workflow.
 # Authenticates with Workload Identity Federation (no key): set the repo variables GCP_WIF_PROVIDER and
-# GCP_DEPLOY_SA that `deploy/setup.sh wif` prints.
+# GCP_DEPLOY_SA that `site/deploy/setup.sh wif` prints.
 on:
   workflow_run:
-    workflows: [check]
+    workflows: [site-check]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -23,6 +24,10 @@ concurrency:
   group: deploy-${{ inputs.environment || 'prod' }}
   cancel-in-progress: false
 
+defaults:
+  run:
+    working-directory: site
+
 jobs:
   deploy:
     if: >-
@@ -39,7 +44,7 @@ jobs:
         with:
           node-version: "24"
       - run: npm ci
-        working-directory: frontend
+        working-directory: site/frontend
       - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}

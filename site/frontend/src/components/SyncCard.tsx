@@ -1,8 +1,11 @@
 import { Alert, Anchor, Card, Code, Stack, Text, Title } from '@mantine/core'
 import { useSession } from '../lib/session'
 
-/** The newest Alt Army Sync build (.github/workflows/sync.yml publishes it on a sync-v* tag). */
-export const SYNC_DOWNLOAD = 'https://github.com/ntower/altarmy-profit/releases/latest/download/altarmy-sync.exe'
+/**
+ * The newest Alt Army Sync build: the rolling `sync-latest` release, which .github/workflows/sync-release.yml
+ * refreshes on every sync-v* tag (the repository's Latest release is the addon's, so this is not releases/latest).
+ */
+export const SYNC_DOWNLOAD = 'https://github.com/ntower/altarmy/releases/download/sync-latest/altarmy-sync.exe'
 
 /** The Manage page's pointer to Alt Army Sync (and the CLI watcher), which sign in with the account's email. */
 export function SyncCard() {

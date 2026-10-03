@@ -11,7 +11,7 @@ describe('AddonPage', () => {
     expect(link('CurseForge')).toHaveAttribute('href', CURSEFORGE_URL)
     expect(link('Wago')).toHaveAttribute('href', WAGO_URL)
     expect(link('Download the zip')).toHaveAttribute('href', ADDON_ZIP)
-    expect(ADDON_ZIP).toBe('https://github.com/ntower/altarmy_tbc/releases/latest/download/AltArmy_TBC.zip')
+    expect(ADDON_ZIP).toBe('https://github.com/ntower/altarmy/releases/latest/download/AltArmy_TBC.zip')
   })
 
   it("opens with the addon's showcase card as a banner: Get the Addon and a way back to the main page", () => {

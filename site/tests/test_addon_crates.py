@@ -61,6 +61,6 @@ def test_the_addon_sits_next_to_this_repo_unless_told(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv(addon_crates.ADDON_DIR_ENV, raising=False)
-    assert addon_crates.addon_dir() == addon_crates.REPO_ROOT.parent / "altarmy_tbc"
+    assert addon_crates.addon_dir() == addon_crates.REPO_ROOT.parent / "addon"
     monkeypatch.setenv(addon_crates.ADDON_DIR_ENV, str(tmp_path))
     assert addon_crates.addon_dir() == tmp_path

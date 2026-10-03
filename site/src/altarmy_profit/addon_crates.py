@@ -2,8 +2,8 @@
 (`AltArmy_TBC/Data/Economy/WaylaidCrates.lua`), which the addon's own script builds from this database.
 
 Runs only where it can: Forever, a SQLite database (the script reads the file) and the addon checked out
-next to this repo (`../altarmy_tbc`, or `ALTARMY_ADDON_DIR`). The hosted jobs (Postgres, no addon) skip it.
-The file then shows up as a change to commit in the addon repo, whose pre-commit hook checks it too.
+next to the site (the monorepo's `addon/`, or `ALTARMY_ADDON_DIR`). The hosted jobs (Postgres, no addon) skip
+it. The file then shows up as a change to commit under `addon/`, which the pre-commit hook checks too.
 """
 
 from __future__ import annotations
@@ -24,9 +24,9 @@ Runner = Callable[..., "subprocess.CompletedProcess[str]"]
 
 
 def addon_dir() -> Path:
-    """The Alt Army addon checkout: `ALTARMY_ADDON_DIR`, else `altarmy_tbc` next to this repo."""
+    """The Alt Army addon checkout: `ALTARMY_ADDON_DIR`, else the monorepo's `addon/` next to the site."""
     env = os.environ.get(ADDON_DIR_ENV)
-    return Path(env) if env else REPO_ROOT.parent / "altarmy_tbc"
+    return Path(env) if env else REPO_ROOT.parent / "addon"
 
 
 def regenerate(

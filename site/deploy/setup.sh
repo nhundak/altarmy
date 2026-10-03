@@ -12,6 +12,8 @@
 #   deploy/setup.sh firestore    Firestore for price signals in prod's and staging's Firebase projects (after
 #                                `accounts` and `staging-auth`), and who may write signals and deploy rules
 #   deploy/setup.sh wif          Workload Identity Federation for GitHub Actions
+#   deploy/setup.sh wif-repo     point the existing federation at GITHUB_REPO (after the repo was renamed;
+#                                the old repo's name loses access)
 #   deploy/setup.sh scheduler ENV  Cloud Scheduler jobs for prod or staging (after a deploy of ENV made its
 #                                jobs; existing ones are kept)
 #   deploy/setup.sh job-runner ENV  let ENV's service start its ingest jobs (the Admin page's Run now; after
@@ -135,6 +137,21 @@ wif() {
   echo "GitHub repo variables:"
   echo "  GCP_WIF_PROVIDER=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$WIF_POOL/providers/$WIF_PROVIDER"
   echo "  GCP_DEPLOY_SA=$DEPLOY_SA"
+}
+
+wif_repo() { # the provider admits GITHUB_REPO alone, and only its workflows may act as the deploy account
+  local members="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$WIF_POOL/attribute.repository"
+  gcloud iam workload-identity-pools providers update-oidc "$WIF_PROVIDER" --location global \
+    --workload-identity-pool "$WIF_POOL" --attribute-condition "assertion.repository == '$GITHUB_REPO'" "${G[@]}"
+  gcloud iam service-accounts add-iam-policy-binding "$DEPLOY_SA" --role roles/iam.workloadIdentityUser \
+    --member "$members/$GITHUB_REPO" "${G[@]}" >/dev/null
+  gcloud iam service-accounts get-iam-policy "$DEPLOY_SA" --format "value(bindings.members)" "${G[@]}" \
+    | tr ';,' '\n\n' | grep "^$members/" | grep -v "/$GITHUB_REPO\$" | while read -r old; do
+      gcloud iam service-accounts remove-iam-policy-binding "$DEPLOY_SA" --role roles/iam.workloadIdentityUser \
+        --member "$old" "${G[@]}" >/dev/null
+      echo "  removed $old"
+    done
+  echo "  $GITHUB_REPO may deploy"
 }
 
 schedule() { # schedule NAME CRON: run the Cloud Run job NAME on CRON (UTC); skipped if it exists
@@ -319,6 +336,7 @@ EOF
 
 case "${1:-}" in
   apis | registry | accounts | sql | firestore | wif | alerts) "$1" ;;
+  wif-repo) wif_repo ;;
   discord) discord "${2:-}" ;;
   database) database "${2:-}" ;;
   scheduler) scheduler "${2:-}" ;;

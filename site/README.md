@@ -174,7 +174,7 @@ The claim shows once the browser's sign-in token is refreshed: sign out and in (
   site's Firebase browser key only answers the site's origins, so these requests send the site as their
   Referer.
 - **Alt Army Sync (Windows).** The same watcher without Python or a terminal: download
-  `altarmy-sync.exe` from the [latest release](https://github.com/ntower/altarmy-profit/releases/latest)
+  `altarmy-sync.exe` from the [latest build](https://github.com/ntower/altarmy/releases/download/sync-latest/altarmy-sync.exe)
   (the Manage page links it) and run it. Windows SmartScreen warns once because it is unsigned (More info →
   Run anyway).
   - On first run it asks for your email and password, or ticks **Create a new account** (that account
@@ -333,7 +333,7 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
 
 - **The addon's Waylaid Crates.** After ingesting WoW: Forever into a SQLite file, `ingest` runs the Alt Army
   addon's `scripts/generate-waylaid-crates.py` against it (`src/altarmy_profit/addon_crates.py`), when the addon
-  is checked out next to this repo (`../altarmy_tbc`, or `ALTARMY_ADDON_DIR`). A changed crate list then shows up
+  is checked out next to the site (the monorepo's `../addon`, or `ALTARMY_ADDON_DIR`). A changed crate list then shows up
   as a change to commit there. The hosted jobs (Postgres, no addon) skip it, and a failure never fails the ingest.
 - Pinned builds: `default_build` per version in `src/altarmy_profit/versions.py`. Pass `--build <version>`
   or `--build latest` for a newer one. The build actually loaded is stored in the `game_versions` table.

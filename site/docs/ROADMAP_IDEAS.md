@@ -1,7 +1,7 @@
 # Roadmap ideas
 
 Where `altarmy-profit` could go beyond a per-recipe profit ranker. Written after a review of the
-engine, service, web UI and the [Alt Army](../../altarmy_tbc) addon's data stores on 2026-09-24.
+engine, service, web UI and the [Alt Army](../../addon) addon's data stores on 2026-09-24.
 Shipped behaviour is described in [README.md](../README.md); this file is about what is not built.
 
 ## Where it stands

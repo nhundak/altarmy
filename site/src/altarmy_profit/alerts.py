@@ -34,7 +34,7 @@ GREY = 0x99AAB5
 TITLE_MAX = 256  # Discord's limits on an embed
 DESCRIPTION_MAX = 4096
 FIELD_MAX = 1024
-USER_AGENT = "altarmy-alerts (https://github.com/ntower/altarmy-profit, 1)"  # Discord wants one
+USER_AGENT = "altarmy-alerts (https://github.com/ntower/altarmy, 1)"  # Discord wants one
 
 # a Discord message -> the webhook's HTTP status; OSError when Discord can't be reached
 Post = Callable[[dict[str, Any]], int]

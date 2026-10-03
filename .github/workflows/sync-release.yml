@@ -1,0 +1,44 @@
+name: sync-release
+
+# Build Alt Army Sync, the Windows uploader, and publish it as a GitHub Release when a `sync-v*` tag is pushed
+# (e.g. `git tag sync-v0.1.0 && git push origin sync-v0.1.0`). The release is never the repository's Latest
+# (that is the addon's: addon-release.yml); the exe is also copied onto the rolling `sync-latest` release,
+# whose download URL the site's Manage page links. The exe's own update check reads the `sync-v*` releases.
+on:
+  push:
+    tags: ["sync-v*"]
+
+permissions:
+  contents: write # create the release
+
+defaults:
+  run:
+    working-directory: site
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # ui: test_watch uploads to a real API (FastAPI's TestClient); the exe still leaves the server out
+      - run: python -m pip install -e ".[tray,build-tray,dev,ui]"
+      - run: python -m pytest -q tests/test_tray_core.py tests/test_watch.py tests/test_signin.py
+      - run: python scripts/build_sync.py --version "${GITHUB_REF_NAME#sync-v}"
+        shell: bash
+      - name: Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#sync-v}"
+          gh release create "$GITHUB_REF_NAME" dist/altarmy-sync.exe --latest=false \
+            --title "Alt Army Sync $VERSION" \
+            --notes "Uploads Alt Army and Auctionator SavedVariables to the Alt Army site whenever WoW rewrites them. Download altarmy-sync.exe and run it; it asks you to sign in with your site account's email and password (or to create an account). It checks for new versions and tells you when one is out. The exe is unsigned, so Windows SmartScreen asks once (More info → Run anyway)."
+          if ! gh release view sync-latest >/dev/null 2>&1; then
+            gh release create sync-latest --latest=false --title "Alt Army Sync (latest)" --notes "Alt Army Sync $VERSION"
+          fi
+          gh release upload sync-latest dist/altarmy-sync.exe --clobber
+          gh release edit sync-latest --notes "Alt Army Sync $VERSION: the newest build, as sync-v$VERSION."

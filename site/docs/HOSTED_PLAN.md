@@ -18,7 +18,7 @@ Feature ideas that do not depend on hosting live in [ROADMAP_IDEAS.md](ROADMAP_I
 |----------|--------|-----|
 | Stack | Firebase Auth, FastAPI on Cloud Run, Postgres (Cloud SQL), Firebase Hosting | Keeps the Python engine and most of `api.py` / `service.py`; Firebase is familiar; Postgres suits price history and joins |
 | Modes | One codebase, `ALTARMY_MODE=local` (SQLite, file watcher, no login) or `hosted` | Fast tests, offline and privacy fallback, and the local sync loop becomes the uploader |
-| Game versions | `tbc` and `forever`, selectable in the UI | The two clients the [Alt Army](../../altarmy_tbc) addon supports |
+| Game versions | `tbc` and `forever`, selectable in the UI | The two clients the [Alt Army](../../addon) addon supports |
 | Price sources | Addon snapshots uploaded by users are primary; third-party feeds are added as they exist | Blizzard's Classic AH endpoints have been 404 since late 2024, NexusHub is gone, Undermine Exchange is retail-only |
 | Access | Firebase **anonymous** auth on first visit, with the full app (rankings and flow charts); linking an email keeps the account across browsers and enables API keys. A level limit for guests is to be designed separately (the Phase 3 gate was removed) | Low-friction first experience that still identifies the visitor |
 | Uploaders | Browser file upload and CLI watcher first; packaged Windows uploader (Alt Army Sync) and Alt Army paste export later | Cheapest paths first; the watcher is the existing sync code with a remote sink |
@@ -343,7 +343,7 @@ Each phase ships on its own and local mode keeps working throughout.
 
 Phase 7 status (done, 2026-09-25). Revision `0005` allows `uploads.via = 'paste'`. Differences from section 7:
 
-- **Paste export:** the addon (`../altarmy_tbc`) gained `/altarmy export` (a slash command only, no button),
+- **Paste export:** the addon (`../addon`) gained `/altarmy export` (a slash command only, no button),
   showing `AAX1:` + LibDeflate's printable raw DEFLATE of plain `V|`/`C|`/`P|` lines, not AceSerializer.
   The site's Upload tab has **Paste from Alt Army** (`POST /api/uploads/paste`, parsed by `paste.py`). It
   carries characters only, no prices. The `V|` line holds the client's interface and build, which settles

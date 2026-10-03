@@ -27,7 +27,7 @@ RELAY_SECRET=alerts-relay-password                           # Secret Manager: t
 
 WIF_POOL=github
 WIF_PROVIDER=github-actions
-GITHUB_REPO=ntower/altarmy-profit
+GITHUB_REPO=ntower/altarmy
 
 # Per environment: prod | staging. Sets SERVICE, DB_NAME, DB_USER, SECRET, JOB_PREFIX, MAX_INSTANCES, RUN_SA
 # (the runtime service account) and FIREBASE_ENV (the env file with its Firebase web config).

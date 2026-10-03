@@ -30,8 +30,11 @@ function Page({ title, lead, children }: { title: string; lead?: ReactNode; chil
 
 export const CURSEFORGE_URL = 'https://www.curseforge.com/wow/addons/alt-army'
 export const WAGO_URL = 'https://addons.wago.io/addons/aNDMjY6o'
-/** The newest stable addon zip (the addon repo's release.yml attaches it to a GitHub Release on each v* tag). */
-export const ADDON_ZIP = 'https://github.com/ntower/altarmy_tbc/releases/latest/download/AltArmy_TBC.zip'
+/**
+ * The newest stable addon zip: .github/workflows/addon-release.yml attaches it to a GitHub Release on each
+ * addon-v* tag, and only addon releases become the repository's Latest.
+ */
+export const ADDON_ZIP = 'https://github.com/ntower/altarmy/releases/latest/download/AltArmy_TBC.zip'
 
 type Source = { title: string; copy: ReactNode; href: string; action: string; external?: boolean }
 

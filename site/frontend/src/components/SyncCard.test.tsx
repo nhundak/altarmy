@@ -7,7 +7,7 @@ describe('SyncCard', () => {
   it('links the latest Alt Army Sync, which signs in with the account', () => {
     renderWithProviders(<SyncCard />, LINKED)
     expect(screen.getByRole('link', { name: 'Alt Army Sync for Windows' })).toHaveAttribute('href', SYNC_DOWNLOAD)
-    expect(SYNC_DOWNLOAD).toMatch(/releases\/latest\/download\/altarmy-sync\.exe$/)
+    expect(SYNC_DOWNLOAD).toBe('https://github.com/ntower/altarmy/releases/download/sync-latest/altarmy-sync.exe')
     expect(screen.getByText(/signs in with your account's email and password/)).toBeInTheDocument()
     expect(screen.queryByText(/create one with Sign in/)).not.toBeInTheDocument()
   })

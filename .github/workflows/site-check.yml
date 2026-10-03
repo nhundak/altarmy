@@ -1,8 +1,15 @@
-name: check
+name: site-check
 
+# The site's checks (site/), run only when something under site/ changed; site-deploy follows it on main.
 on:
   push:
+    paths: ["site/**", ".github/workflows/site-check.yml"]
   pull_request:
+    paths: ["site/**", ".github/workflows/site-check.yml"]
+
+defaults:
+  run:
+    working-directory: site
 
 jobs:
   check:
@@ -19,7 +26,7 @@ jobs:
       - run: python -m pip install -e ".[dev,ui]"
       - run: npm ci
       - run: npm ci
-        working-directory: frontend
+        working-directory: site/frontend
       - run: python scripts/check.py
 
   postgres:
