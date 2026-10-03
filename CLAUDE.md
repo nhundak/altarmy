@@ -34,6 +34,9 @@ The addon writes what the site reads, and the golden files live with the addon:
 
 ## Releases
 
+`python release.py` (at this root; `--dry-run` to see what it would do) asks which part to release and does the
+steps below, bumping the addon's version in its TOC, `Core.lua`, `package.json` and `package-lock.json`.
+
 - Addon: tag `addon-vX.Y.Z` (the version in `addon/AltArmy_TBC/AltArmy_TBC.toc`). Only addon releases are the
   repository's Latest, so `releases/latest/download/AltArmy_TBC.zip` is always the addon.
 - Alt Army Sync: tag `sync-vX.Y.Z`. Its release is created with `--latest=false`, and the exe is copied onto the
