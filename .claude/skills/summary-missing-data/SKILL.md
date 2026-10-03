@@ -6,6 +6,8 @@ description: >-
   SummaryData, summary warning columns, missing-data tooltips, adding new
   gathered-data checks, or after addon version migrations.
 ---
+
+> Addon skill: every path and `npm` command below is relative to `addon/` in the monorepo (run `npm` from there).
 # Summary missing-data warnings
 
 ## When warnings appear

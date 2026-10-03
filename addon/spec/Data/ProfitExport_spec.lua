@@ -2,9 +2,8 @@
   Unit tests for ProfitExport.lua: the string the altarmy-profit site's Upload tab takes.
   Run from project root: npm test
 
-  spec/fixtures/profit_export_v2.txt is the golden export of CHARACTERS below. The altarmy-profit repo keeps a
-  copy (tests/fixtures/altarmy_export_v2.txt) that its parser must read back, so a change here that alters the
-  string needs that copy updated too.
+  spec/fixtures/profit_export_v2.txt is the golden export of CHARACTERS below. The site's tests (site/tests,
+  test_paste.py and others) read that same file, so its parser must read back any change made here.
 ]]
 
 local CHARACTERS = {

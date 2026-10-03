@@ -1,8 +1,8 @@
 """Alt Army's paste export: the string the addon shows, decoded to characters.
 
-tests/fixtures/altarmy_export_v2.txt is a copy of the addon repo's spec/fixtures/profit_export_v2.txt (made by
-AltArmy_TBC/Data/ProfitExport.lua), so the two sides can't drift apart unnoticed. altarmy_export_v1.txt is the
-golden string of format v1, which older addons still write.
+The addon's golden addon/spec/fixtures/profit_export_v2.txt (made by AltArmy_TBC/Data/ProfitExport.lua) is
+read straight from the addon, so the two sides can't drift apart unnoticed. The site's own
+tests/fixtures/altarmy_export_v1.txt is the golden string of format v1, which older addons still write.
 """
 
 import zlib
@@ -13,9 +13,10 @@ import pytest
 from altarmy_profit import paste
 from altarmy_profit.altarmy import Character, Profession
 
-FIXTURES = Path(__file__).parent / "fixtures"
-GOLDEN = (FIXTURES / "altarmy_export_v2.txt").read_text(encoding="utf-8")
-GOLDEN_V1 = (FIXTURES / "altarmy_export_v1.txt").read_text(encoding="utf-8")
+from .addon_fixtures import PROFIT_EXPORT
+
+GOLDEN = PROFIT_EXPORT.read_text(encoding="utf-8")
+GOLDEN_V1 = (Path(__file__).parent / "fixtures" / "altarmy_export_v1.txt").read_text(encoding="utf-8")
 FRELL_PROFESSIONS = (
     Profession("Cooking", 1, 75, frozenset()),
     Profession("Enchanting", 300, 375, frozenset({7418, 7420})),

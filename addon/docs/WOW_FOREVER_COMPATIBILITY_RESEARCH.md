@@ -126,7 +126,7 @@ We also reviewed AtlasLoot Classic Forever (CurseForge, author Sliccer) — a fo
 
 ## Deployment pipeline (2026-09-17): not yet updated, on purpose
 
-[.github/workflows/release.yml](../.github/workflows/release.yml) has two flavor-specific values *separate* from the `.toc` Interface number, both owned by the store platforms rather than derived from our own files:
+[.github/workflows/addon-release.yml](../../.github/workflows/addon-release.yml) has two flavor-specific values *separate* from the `.toc` Interface number, both owned by the store platforms rather than derived from our own files:
 
 - `CURSEFORGE_GAME_VERSIONS: "16533"` — a CurseForge-internal numeric game-version-catalog ID for "TBC Classic 2.5.6", not the WoW Interface number. CurseForge has assigned *some* ID for Forever — AtlasLoot Classic Forever is already live on CurseForge tagged flavor "WoW Forever" / version 1.60.1 — but that ID isn't published anywhere we could find (not in CurseForge's multi-TOC support article, not in the public `curseforge-v2` API library), only visible via an authenticated `GET /api/game/versions` call or the web uploader's dropdown.
 - `WAGO_BC_PATCH: "2.5.6"` — Wago's upload metadata only documents `supported_retail_patch`, `supported_wotlk_patch`, `supported_bc_patch`, `supported_classic_patch` fields; no Forever-equivalent field exists yet per their current docs.
@@ -135,7 +135,7 @@ Real-world precedent for this exact gap: another addon's CI currently ships Fore
 
 **Update (2026-09-17, after first Forever-`.toc` deploy):** the deploy went out with only the `.toc` Interface change — CurseForge's page still showed flavor "Classic TBC" only, game version "2.5.6" only, confirming the store-side ID was in fact still missing.
 
-Found CurseForge's `gameVersionTypeId` for "WoW Forever": **`88568`** — read directly off AtlasLoot Classic Forever's CurseForge pages (project page, files listing, and a file detail page all agree). Added it to [`release.yml`](../.github/workflows/release.yml): `CURSEFORGE_GAME_VERSIONS: "16533,88568"`.
+Found CurseForge's `gameVersionTypeId` for "WoW Forever": **`88568`** — read directly off AtlasLoot Classic Forever's CurseForge pages (project page, files listing, and a file detail page all agree). Added it to [`addon-release.yml`](../../.github/workflows/addon-release.yml): `CURSEFORGE_GAME_VERSIONS: "16533,88568"`.
 
 **Result: wrong ID space, deploy failed.** `88568` is CurseForge's **game version *type* ID** (the flavor/category — website filter dropdowns use this), not the **game version ID** the upload API's `gameVersions` field actually wants. CurseForge's own API docs confirm the split: `GET /api/game/versions` returns `{ id, gameVersionTypeID, name, slug }` objects, and `gameVersions` in the upload metadata takes `id` (a specific patch, e.g. our working `16533` = the specific version "2.5.6"), not `gameVersionTypeID` (e.g. `88568` = the "WoW Forever" category as a whole, covering every Forever patch). Deploying with `88568` in `gameVersions` failed: `HTTP 400 {"errorCode":1007,"errorMessage":"Invalid game version ID: 88568 does not exist."}`. Reverted `release.yml` to `CURSEFORGE_GAME_VERSIONS: "16533"` (TBC only) to unblock deploys.
 

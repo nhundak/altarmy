@@ -1,9 +1,15 @@
 #!/bin/sh
-# AltArmy TBC pre-commit hook (enabled by `npm install`, or `npm run hooks:install`).
-# Blocks the commit when Data/Economy/WaylaidCrates.lua is out of date with altarmy-profit's game data
-# (the wow-profit checkout next to this repo). Skips when that database or Python isn't there.
+# Alt Army pre-commit hook (enabled by `npm install` in addon/, or `npm run hooks:install` there).
+# When the commit touches addon/, blocks it if addon/AltArmy_TBC/Data/Economy/WaylaidCrates.lua is out of
+# date with the site's game data (site/data/altarmy-profit.sqlite). Skips when that database or Python isn't
+# there, and does nothing for a commit that leaves addon/ alone.
 
 cd "$(git rev-parse --show-toplevel)" || exit 1
+
+if ! git diff --cached --name-only --diff-filter=ACMR | grep -q '^addon/'; then
+    exit 0
+fi
+cd addon || exit 1
 
 PY=""
 for cand in python3 python py; do

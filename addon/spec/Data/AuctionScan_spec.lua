@@ -589,9 +589,8 @@ describe("AuctionScan", function()
         end)
     end)
 
-    -- spec/fixtures/auction_book_v1.lua is the golden SavedVariable of the two scans below. The
-    -- altarmy-profit repo keeps a copy (tests/fixtures/auction_book_v1.lua) that its parser is tested
-    -- against, so change both together.
+    -- spec/fixtures/auction_book_v1.lua is the golden SavedVariable of the two scans below. The site's
+    -- tests (site/tests/test_book.py) read that same file, so its parser must read back any change here.
     it("writes the golden book", function()
         now = 1790725000
         rows = { { 2770, 20, 3340 }, { 2770, 20, 3340 }, { 2770, 20, 3340 }, { 7067, 1, 12000 },

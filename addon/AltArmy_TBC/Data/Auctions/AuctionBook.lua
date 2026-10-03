@@ -20,7 +20,7 @@
 --   { t, realm, faction, summary = true, listings, items }   `listings`: items read; `items` as above, one
 --   level per item ("<cheapest unit price>*<units>*1"). Kept apart so altarmy-profit, which reads `scans`
 --   only, never sees one and a summary never displaces a full scan.
--- altarmy-profit's book.py parses this; spec/fixtures/auction_book_v1.lua is the golden copy both test.
+-- The site's book.py parses this; spec/fixtures/auction_book_v1.lua is the golden file both test against.
 -- luacheck: globals AltArmyTBC_AuctionBook
 
 if not AltArmy then return end

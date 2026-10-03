@@ -21,7 +21,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..")
-DEFAULT_DB = os.path.join(ROOT, "..", "wow-profit", "data", "altarmy-profit.sqlite")
+DEFAULT_DB = os.path.join(ROOT, "..", "site", "data", "altarmy-profit.sqlite")
 DEFAULT_OUT = os.path.join(ROOT, "AltArmy_TBC", "Data", "Economy", "WaylaidCrates.lua")
 
 GENERIC = 248549  # "Waylaid Crate": read its label to learn which shipment it is

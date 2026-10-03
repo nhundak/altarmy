@@ -28,6 +28,7 @@ from altarmy_profit.api import create_app
 from altarmy_profit.auctionator import DayStats, ItemPrice
 from altarmy_profit.versions import GameVersion
 
+from .addon_fixtures import PROFIT_EXPORT
 from .conftest import FOREVER, ME, book_scan, saved_book, scanned, set_prices
 from .test_altarmy import ALTARMY_SV
 from .test_auctionator import _entry, _saved_variables
@@ -1010,7 +1011,7 @@ def test_bad_uploads(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> Non
     assert res.status_code == 429  # the rejected ones count too
 
 
-PASTE = (Path(__file__).parent / "fixtures" / "altarmy_export_v2.txt").read_text(encoding="utf-8")
+PASTE = PROFIT_EXPORT.read_text(encoding="utf-8")
 
 
 def test_guests_paste_the_addons_export(client: TestClient) -> None:

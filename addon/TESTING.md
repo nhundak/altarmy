@@ -4,7 +4,7 @@ This project uses [busted](https://lunarmodules.github.io/busted/) for Lua unit 
 
 ## One-time setup
 
-From the repo root:
+From `addon/`:
 
 ```bash
 npm run setup:dev

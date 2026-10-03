@@ -78,7 +78,7 @@ A scrolling page about alt-army.com's crafting planner:
 - Currencies: `DataStore:ScanCurrencyList` (`Data/DataStore/DataStoreCurrencies.lua`) reads `C_CurrencyInfo`'s currency list on login and whenever `CURRENCY_DISPLAY_UPDATE` fires. It expands collapsed headers to read them and collapses them again afterwards. Rows and sorting: `Data/Economy/CurrencyGrid.lua` (pure, unit-tested).
 
 - Prices: `AltArmyTBC_AuctionBook` via `AuctionBook.Newest(realm, faction)` (the newer of the full scan and the summary scan) and `AuctionBook.Decode(items)`.
-- Crates and bundles: `Data/Economy/WaylaidCrates.lua`, generated from WoW Forever's game data by `python scripts/generate-waylaid-crates.py` (`npm run crates:generate`). It reads the item table in the altarmy-profit repo checked out next to this one (`../wow-profit/data/altarmy-profit.sqlite`). Keeping it current:
+- Crates and bundles: `Data/Economy/WaylaidCrates.lua`, generated from WoW Forever's game data by `python scripts/generate-waylaid-crates.py` (`npm run crates:generate`). It reads the item table in the site's development database (`../site/data/altarmy-profit.sqlite` in the monorepo). Keeping it current:
   - altarmy-profit's `ingest` reruns the generator whenever it loads Forever data into that SQLite file, so a changed crate list shows up here as an uncommitted change.
   - The pre-commit hook (`.githooks/pre-commit`, enabled by `npm install` or `npm run hooks:install`) runs `--check` (`npm run crates:check`) and blocks a commit while the file is out of date. It skips when the database or Python isn't there.
 - Costs and sorting: `Data/Economy/WaylaidCosts.lua` (pure, unit-tested).

@@ -15,8 +15,8 @@
 -- Characters are sorted by name within a realm. The name is char.name (the full name), else the storage key;
 -- the GUID is char.guid, empty for entries saved before GUIDs (character data v3 keys entries by GUID).
 -- v1 had no GUID and wrote the storage key as the name, which is a GUID since character data v3.
--- The altarmy-profit repo parses it in src/altarmy_profit/paste.py; spec/fixtures/profit_export_v2.txt is
--- the shared golden string.
+-- The site parses it in site/src/altarmy_profit/paste.py; spec/fixtures/profit_export_v2.txt is the golden
+-- string both test against.
 
 AltArmy = AltArmy or {}
 

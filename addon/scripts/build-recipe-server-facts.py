@@ -7,7 +7,7 @@ Usage: python scripts/build-recipe-server-facts.py [--version tbc|forever|all] [
 The client's DB2 tables (scripts/generate-recipe-data.py) say which profession a recipe belongs to and its
 difficulty bands, but not what a trainer requires to teach it or where a recipe item comes from. Those live
 in the open-source emulators' world databases: cmangos' tbc-db for TBC, vmangos' (vanilla 1.12) for Forever.
-By default this reads the newest copies altarmy-profit has cached (the wow-profit checkout next to this repo);
+By default this reads the newest copies the site has cached (the monorepo's site/cache, next to addon/);
 --download fetches each emulator's latest release itself into .cache/emulators/ instead. Stdlib only. Rerun
 generate-recipe-data.py for each version afterwards. The recipe-data workflow does all of this daily when an
 emulator has a newer release than server_meta.json records, and opens a PR.
@@ -40,7 +40,7 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..")
 OUT_DIR = os.path.join(ROOT, "data", "recipes")
-PROFIT_CACHE = os.path.join(ROOT, "..", "wow-profit", "cache")
+PROFIT_CACHE = os.path.join(ROOT, "..", "site", "cache")
 DOWNLOAD_DIR = os.path.join(ROOT, ".cache", "emulators")
 USER_AGENT = "altarmy-tbc-recipe-data/1.0"
 
@@ -304,9 +304,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--version", choices=["tbc", "forever", "all"], default="all")
     ap.add_argument("--download", action="store_true",
-                    help="fetch each emulator's latest release into .cache/emulators/ instead of the wow-profit cache")
-    ap.add_argument("--cmangos", help="cmangos tbc-db sqlite (default: newest in the wow-profit cache)")
-    ap.add_argument("--vmangos", help="vmangos world sqlite (default: newest in the wow-profit cache)")
+                    help="fetch each emulator's latest release into .cache/emulators/ instead of the site's cache")
+    ap.add_argument("--cmangos", help="cmangos tbc-db sqlite (default: newest in the site's cache)")
+    ap.add_argument("--vmangos", help="vmangos world sqlite (default: newest in the site's cache)")
     ap.add_argument("--status", action="store_true", help="print stale=true|false (GitHub step output) and exit")
     ap.add_argument("--summary", help="with --status: write a markdown list of the moved releases here")
     args = ap.parse_args()
@@ -333,7 +333,7 @@ def main():
         if not db_path:
             db_path = download(version) if args.download else newest_cached(cfg["profit_cache"])
         if not db_path or not os.path.exists(db_path):
-            sys.exit(f"{version}: no {emulator} database; pass --download, run altarmy-profit's ingest, "
+            sys.exit(f"{version}: no {emulator} database; pass --download, run the site's ingest, "
                      f"or pass --{emulator}")
         build(version, db_path)
         meta[version] = {"emulator": emulator, "release": release_id(db_path)}

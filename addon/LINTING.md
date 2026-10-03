@@ -1,6 +1,6 @@
 # Linting and static analysis (Luacheck)
 
-This project uses [Luacheck](https://github.com/lunarmodules/luacheck) for linting and static analysis of Lua code. Configuration is in [`.luacheckrc`](.luacheckrc) at the repo root.
+This project uses [Luacheck](https://github.com/lunarmodules/luacheck) for linting and static analysis of Lua code. Configuration is in [`.luacheckrc`](.luacheckrc) in `addon/`.
 
 ## One-time setup
 

@@ -1,6 +1,9 @@
 # CLAUDE.md
 
-Conventions for AI agents working in this repository.
+Conventions for AI agents working on the addon, `addon/` in the altarmy monorepo (the site is `site/`; see the
+root `CLAUDE.md`). "The repo root" below means this folder: run every `npm` command from `addon/`. The
+workflows (`.github/workflows/addon-*.yml`), the pre-commit hook (`.githooks/`) and the skills
+(`.claude/skills/`) live at the monorepo root.
 
 ## Project
 
@@ -37,11 +40,11 @@ If the diff is user-visible and no `docs/` (or Data DESIGN / DATA_VERSIONS) file
 
 Prefer red-green-refactor for new features: write a failing unit test first, then make it pass.
 
-Domain-specific skills (e.g. debug compare dumps, Summary missing-data) live in `.claude/skills/`.
+Domain-specific skills (e.g. debug compare dumps, Summary missing-data) live in the monorepo root's `.claude/skills/`.
 
 ### Debugging live-client behavior
 
-When a bug needs live WoW API / SavedVariables state to diagnose (not just reading code), use the **dev-dump** tool instead of asking the person to paste chat output: `AltArmy.Debug.Dump(label, payload)` (see [`.claude/skills/dev-dump/SKILL.md`](.claude/skills/dev-dump/SKILL.md) and [`docs/DEV_DUMPS.md`](docs/DEV_DUMPS.md)). It writes structured data to SavedVariables (read it yourself via `npm run dump:sync`) and fires a center-screen alert so the person knows it fired. Assume the person cannot easily copy text out of the WoW chat window.
+When a bug needs live WoW API / SavedVariables state to diagnose (not just reading code), use the **dev-dump** tool instead of asking the person to paste chat output: `AltArmy.Debug.Dump(label, payload)` (see [`.claude/skills/dev-dump/SKILL.md`](../.claude/skills/dev-dump/SKILL.md) and [`docs/DEV_DUMPS.md`](docs/DEV_DUMPS.md)). It writes structured data to SavedVariables (read it yourself via `npm run dump:sync`) and fires a center-screen alert so the person knows it fired. Assume the person cannot easily copy text out of the WoW chat window.
 
 ### Lua tooling
 

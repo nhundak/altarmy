@@ -2,7 +2,6 @@
 
 import gzip
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import pytest
 from sqlalchemy import Connection, select
@@ -10,13 +9,14 @@ from sqlalchemy import Connection, select
 from altarmy_profit import book, prices, schema, service, store, uploads, users
 from altarmy_profit.auth import User
 
+from .addon_fixtures import PROFIT_EXPORT
 from .conftest import FOREVER, ME, book_scan, saved_book
 from .test_altarmy import ALTARMY_SV
 from .test_auctionator import _entry, _saved_variables
 
 NOW = datetime(2026, 9, 24, 20, 0, tzinfo=UTC)
 OTHER = "other-user"
-PASTE = (Path(__file__).parent / "fixtures" / "altarmy_export_v2.txt").read_text(encoding="utf-8")
+PASTE = PROFIT_EXPORT.read_text(encoding="utf-8")
 
 
 @pytest.fixture

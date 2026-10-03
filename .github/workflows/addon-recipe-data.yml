@@ -1,4 +1,5 @@
-# Recipe data — watch for new game data behind AltArmy_TBC/Data/Recipes/RecipeData_*.lua
+# Recipe data — watch for new game data behind addon/AltArmy_TBC/Data/Recipes/RecipeData_*.lua (every path
+# below is the addon's: run steps work in addon/, the actions' paths name it)
 #
 # client-data (daily): when wago.tools has a newer TBC Anniversary (wow_anniversary) or Forever
 #   (wow_classic_beta) build than the one pinned in the data file, regenerate it with
@@ -17,7 +18,7 @@
 # Requires the repository setting "Allow GitHub Actions to create and approve pull requests".
 # See AltArmy_TBC/Data/DESIGN.md ("Recipe data").
 
-name: Recipe data
+name: addon-recipe-data
 
 on:
   schedule:
@@ -27,6 +28,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
+
+defaults:
+  run:
+    working-directory: addon
 
 jobs:
   client-data:
@@ -52,7 +57,7 @@ jobs:
         if: steps.builds.outputs.latest != steps.builds.outputs.pinned
         uses: actions/cache@v4
         with:
-          path: .cache/wago/${{ steps.builds.outputs.latest }}
+          path: addon/.cache/wago/${{ steps.builds.outputs.latest }}
           key: wago-${{ steps.builds.outputs.latest }}
 
       - name: Regenerate recipe data
@@ -67,7 +72,7 @@ jobs:
         with:
           branch: recipe-data/${{ matrix.version }}
           delete-branch: true
-          add-paths: AltArmy_TBC/Data/Recipes/RecipeData_*.lua
+          add-paths: addon/AltArmy_TBC/Data/Recipes/RecipeData_*.lua
           commit-message: "Recipe data: ${{ steps.builds.outputs.label }} ${{ steps.builds.outputs.latest }}"
           title: "Recipe data: ${{ steps.builds.outputs.label }} ${{ steps.builds.outputs.latest }}"
           body-path: ${{ runner.temp }}/recipe-summary.md
@@ -95,7 +100,7 @@ jobs:
         if: steps.status.outputs.stale == 'true'
         uses: actions/cache@v4
         with:
-          path: .cache/emulators
+          path: addon/.cache/emulators
           key: emulators-${{ steps.status.outputs.tbc }}-${{ steps.status.outputs.forever }}
 
       - name: Rebuild server facts from the latest emulator databases
@@ -133,8 +138,8 @@ jobs:
           branch: recipe-data/server
           delete-branch: true
           add-paths: |
-            data/recipes/**
-            AltArmy_TBC/Data/Recipes/RecipeData_*.lua
+            addon/data/recipes/**
+            addon/AltArmy_TBC/Data/Recipes/RecipeData_*.lua
           commit-message: "Recipe data: emulator databases updated"
           title: "Recipe data: emulator databases updated"
           body-path: ${{ runner.temp }}/pr-body.md

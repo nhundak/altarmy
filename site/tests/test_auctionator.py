@@ -2,13 +2,13 @@ import contextlib
 import random
 import zlib
 from datetime import date
-from pathlib import Path
 
 import pytest
 
 from altarmy_profit import altarmy, auctionator, book, paste
 from altarmy_profit.auctionator import DayStats, ItemPrice
 
+from .addon_fixtures import AUCTION_BOOK, PROFIT_EXPORT
 from .test_altarmy import ALTARMY_SV
 
 FOREVER = "forever"  # (conftest imports this module, so it can't import conftest's)
@@ -143,9 +143,9 @@ def test_mangled_files_only_raise_value_error() -> None:
     """Uploads are untrusted: whatever the bytes, parsing either succeeds or raises ValueError (a 400)."""
     rng = random.Random(1)
     prices = [_saved_variables({"R": {"1": _entry(5), "g:2:3": _entry(7)}, "S": {"4": {"m": 1}}})]
-    export = (Path(__file__).parent / "fixtures" / "altarmy_export_v2.txt").read_bytes().strip()
+    export = PROFIT_EXPORT.read_bytes().strip()
     export_lines = b"V|2|20506|x\nC|R|N|Horde|MAGE|70|Player-1-A\nP|Tailoring|375|375|1,2,3\nC|R|M||PRIEST|1|"
-    scans = (Path(__file__).parent / "fixtures" / "auction_book_v1.lua").read_bytes()
+    scans = AUCTION_BOOK.read_bytes()
     for _ in range(1500):
         with contextlib.suppress(ValueError):
             book.read(_mangled([scans], rng))

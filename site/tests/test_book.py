@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from altarmy_profit import book
 from altarmy_profit.book import Level
 
-FIXTURE = Path(__file__).parent / "fixtures" / "auction_book_v1.lua"
+from .addon_fixtures import AUCTION_BOOK as FIXTURE
 
 
 def ladder(*levels: tuple[int, int]) -> book.Ladder:

@@ -6,6 +6,8 @@ description: >-
   button, item stat parsing bugs, wrong compare rows, or SavedVariables
   debugging for ItemStats/GearCompare.
 ---
+
+> Addon skill: every path and `npm` command below is relative to `addon/` in the monorepo (run `npm` from there).
 # Debug compare panel dumps
 
 ## Find the dump file

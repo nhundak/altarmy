@@ -8,6 +8,8 @@ description: >-
   API results, or when working with a non-standard client (e.g. WoW Forever)
   where API behavior is uncertain.
 ---
+
+> Addon skill: every path and `npm` command below is relative to `addon/` in the monorepo (run `npm` from there).
 # Dev dumps (general-purpose live-client debug capture)
 
 Full reference: [docs/DEV_DUMPS.md](../../../docs/DEV_DUMPS.md).
@@ -22,7 +24,7 @@ Chat debug logging (`AltArmy.Debug.LogSearch` and friends) is still fine for qui
 
 ## The tool
 
-`AltArmy.Debug.Dump(label, payload)` in [`AltArmy_TBC/Data/Debug.lua`](../../../AltArmy_TBC/Data/Debug.lua):
+`AltArmy.Debug.Dump(label, payload)` in [`AltArmy_TBC/Data/Debug.lua`](../../../addon/AltArmy_TBC/Data/Debug.lua):
 - No-op unless `/altarmy debug on` is active — safe to leave calls in code.
 - Writes `payload` to `AltArmyTBC_Options.debug.devDumps[label]` (SavedVariables), overwriting any previous dump under that label.
 - Fires a center-screen alert (`Alt Army dev dump: <label>`) so the person knows it captured.

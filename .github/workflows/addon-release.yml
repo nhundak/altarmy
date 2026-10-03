@@ -1,16 +1,17 @@
-# Release — build the addon zip, upload it to CurseForge and Wago via their APIs, and attach it to a GitHub
-# Release (AltArmy_TBC.zip, which the Alt Army site links as releases/latest/download/AltArmy_TBC.zip)
+# Release the addon (addon/) on an addon-v* tag — build the zip, upload it to CurseForge and Wago via their APIs,
+# and attach it to a GitHub Release (AltArmy_TBC.zip, which the Alt Army site links as
+# releases/latest/download/AltArmy_TBC.zip: addon releases are the repository's Latest, Alt Army Sync's never are)
 # Requires: CURSEFORGE_API_TOKEN, WAGO_API_TOKEN (secrets)
 # Requires: CURSEFORGE_PROJECT_ID, CURSEFORGE_DISPLAY_NAME (vars)
 # CURSEFORGE_GAME_VERSIONS: CurseForge game version IDs (the specific-version "id", not "gameVersionTypeID") for
 #   TBC Classic 2.5.6 (Interface 20506) and WoW Forever 1.60.1 (Interface 16001)
 # Wago project ID is read from ## X-Wago-ID in the TOC
 
-name: Release
+name: addon-release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["addon-v*"]
   workflow_dispatch:
     inputs:
       release_type:
@@ -29,6 +30,10 @@ env:
   WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
   WAGO_BC_PATCH: "2.5.6"
 
+defaults:
+  run:
+    working-directory: addon
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -43,7 +48,7 @@ jobs:
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             ADDON_VERSION="${GITHUB_REF#refs/tags/}"
-            ADDON_VERSION="${ADDON_VERSION#v}"
+            ADDON_VERSION="${ADDON_VERSION#addon-v}"
           else
             ADDON_VERSION=$(grep -oP "## Version: \K[^\r\n ]+" AltArmy_TBC/AltArmy_TBC.toc || true)
             [ -z "$ADDON_VERSION" ] && ADDON_VERSION="0.0.0"
