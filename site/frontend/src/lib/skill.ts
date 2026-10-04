@@ -1,4 +1,4 @@
-import type { RankResult } from '../api/client'
+import type { FlowNode, RankResult } from '../api/client'
 
 /*
  * Skilling up: what a skill point costs, and how far a run of a recipe goes (the crafts until another recipe would
@@ -9,27 +9,34 @@ import type { RankResult } from '../api/client'
 export const perPoint = (r: Pick<RankResult, 'profit' | 'skill_ups'>): number | null =>
   r.skill_ups ? -r.profit / r.skill_ups : null
 
+type Count = Pick<RankResult, 'crafts' | 'stop_skill' | 'reach_chances'>
+
+/** Whether the run's crafts surely reach its skill: the chance after them exactly 1 (every craft a sure point), not
+ * one that merely rounds to 100%. */
+const certain = (r: Pick<RankResult, 'crafts' | 'reach_chances'>): boolean => r.reach_chances?.[r.crafts - 1] === 1
+
 /** The results table's Craft until: the skill a run takes the crafter to and its crafts, "110 (~17 crafts)",
- * "110 (1 craft)"; just the crafts without a run. */
-export function craftUntil(r: Pick<RankResult, 'crafts' | 'stop_skill'>): string {
-  const crafts = r.crafts === 1 ? '1 craft' : `~${r.crafts} crafts`
+ * "110 (17 crafts)" when certain, "110 (1 craft)"; just the crafts without a run. */
+export function craftUntil(r: Count): string {
+  const crafts = r.crafts === 1 ? '1 craft' : `${certain(r) ? '' : '~'}${r.crafts} crafts`
   return r.stop_skill ? `${r.stop_skill} (${crafts})` : crafts
 }
 
-type Run = Pick<RankResult, 'crafts' | 'stop_skill' | 'stop_reason' | 'overtaken_by'>
+type Run = Count & Pick<RankResult, 'stop_reason' | 'overtaken_by'>
 
-/** How far to craft: "Craft until 85 skill (~17 times)", "(once)"; "Craft ~17 times" without the skill. */
-export function runLead(r: Pick<Run, 'crafts' | 'stop_skill'>): string {
-  const times = r.crafts === 1 ? 'once' : `~${r.crafts} times`
+/** How far to craft: "Craft until 85 skill (~17 times)", "(17 times)" when certain, "(once)"; "Craft ~17 times"
+ * without the skill. */
+export function runLead(r: Count): string {
+  const times = r.crafts === 1 ? 'once' : `${certain(r) ? '' : '~'}${r.crafts} times`
   return r.stop_skill ? `Craft until ${r.stop_skill} skill (${times})` : `Craft ${times}`
 }
 
-/** Why the run stops there, after the lead's ", at which point ": "this recipe becomes trivial", "you reach your
+/** Why the run stops there, after the lead's ", at which point ": "this recipe is about to turn grey", "you reach your
  * skill cap"; for a rival, the words around its name; null when the most crafts a run asks for cut it short. */
 export function runReason(r: Pick<Run, 'stop_reason'>): string | null {
   switch (r.stop_reason) {
     case 'trivial':
-      return 'this recipe becomes trivial'
+      return 'this recipe is about to turn grey'
     case 'cap':
       return 'you reach your skill cap'
     default:
@@ -41,7 +48,7 @@ export const AT_WHICH_POINT = ', at which point '
 export const CHEAPER = ' becomes a cheaper option'
 
 /** The whole run as plain text: "Craft until 85 skill (~17 times), at which point Heavy Copper Maul becomes a
- * cheaper option", "…, at which point this recipe becomes trivial"; just the lead when the ceiling cut it short. */
+ * cheaper option", "…, at which point this recipe is about to turn grey"; just the lead when the ceiling cut it short. */
 export function runText(r: Run): string {
   const lead = runLead(r)
   if (r.stop_reason === 'rival') return `${lead}${AT_WHICH_POINT}${r.overtaken_by || 'another recipe'}${CHEAPER}`
@@ -49,15 +56,32 @@ export function runText(r: Run): string {
   return reason ? `${lead}${AT_WHICH_POINT}${reason}` : lead
 }
 
-/** A plan's steps for `crafts` crafts instead of its own, each quantity (rounded up) and value in proportion: what the
- * checklist shows at once while the server plans that many. */
-export function scaleRun<T extends Pick<RankResult, 'crafts' | 'steps'>>(r: T, crafts: number): T {
+const up = (n: number, f: number) => Math.ceil(n * f - 1e-9)
+
+/** A flow chart node, and the nodes it is made from, scaled by `f`: units and crafts rounded up, copper rounded. */
+function scaleNode(n: FlowNode, f: number): FlowNode {
+  return {
+    ...n,
+    quantity: up(n.quantity, f),
+    crafts: up(n.crafts, f),
+    made: up(n.made, f),
+    cost: Math.round(n.cost * f),
+    postage: Math.round(n.postage * f),
+    options: n.options.map((o) => ({ ...o, cost: Math.round(o.cost * f) })),
+    inputs: n.inputs.map((i) => scaleNode(i, f)),
+  }
+}
+
+/** A plan's steps and flow chart for `crafts` crafts instead of its own, each quantity (rounded up) and amount in
+ * proportion: what the run shows at once while the server plans that many. */
+export function scaleRun<T extends Pick<RankResult, 'crafts' | 'steps' | 'tree'>>(r: T, crafts: number): T {
   if (crafts === r.crafts || r.crafts <= 0 || crafts <= 0) return r
   const f = crafts / r.crafts
   return {
     ...r,
     crafts,
-    steps: r.steps.map((s) => ({ ...s, quantity: Math.ceil(s.quantity * f - 1e-9), value: Math.round(s.value * f) })),
+    steps: r.steps.map((s) => ({ ...s, quantity: up(s.quantity, f), value: Math.round(s.value * f) })),
+    tree: scaleNode(r.tree, f),
   }
 }
 

@@ -17,7 +17,7 @@ describe('runText', () => {
       'Craft until 85 skill (~17 times), at which point Heavy Copper Maul becomes a cheaper option',
     )
     expect(runText({ ...run, stop_reason: 'trivial' })).toBe(
-      'Craft until 85 skill (~17 times), at which point this recipe becomes trivial',
+      'Craft until 85 skill (~17 times), at which point this recipe is about to turn grey',
     )
     expect(runText({ ...run, stop_reason: 'cap' })).toBe(
       'Craft until 85 skill (~17 times), at which point you reach your skill cap',
@@ -25,6 +25,15 @@ describe('runText', () => {
     expect(runText({ ...run, crafts: 100, stop_reason: 'ceiling' })).toBe('Craft until 85 skill (~100 times)')
     expect(runLead({ crafts: 1, stop_skill: 85 })).toBe('Craft until 85 skill (once)')
     expect(runLead({ crafts: 3, stop_skill: 0 })).toBe('Craft ~3 times')
+  })
+
+  it('drops the tilde only when the crafts surely reach the skill', () => {
+    expect(runLead({ crafts: 3, stop_skill: 85, reach_chances: [0, 0, 1, 1] })).toBe('Craft until 85 skill (3 times)')
+    expect(runLead({ crafts: 3, stop_skill: 85, reach_chances: [0, 0, 0.9999, 1] })).toBe(
+      'Craft until 85 skill (~3 times)',
+    )
+    expect(craftUntil({ crafts: 3, stop_skill: 85, reach_chances: [0, 0, 1] })).toBe('85 (3 crafts)')
+    expect(craftUntil({ crafts: 3, stop_skill: 85, reach_chances: [0, 0, 0.9999] })).toBe('85 (~3 crafts)')
   })
 
   it('says to which skill a run in the table goes, and in how many crafts', () => {
@@ -65,6 +74,8 @@ describe('scaleRun', () => {
       ['Green Robe', 2, 0],
       ['Green Robe', 2, 750],
     ])
+    // and the flow chart: 6 robes, 15 linen for them
+    expect([more.tree.quantity, more.tree.crafts, more.tree.inputs[0]?.quantity]).toEqual([2, 2, 15])
     expect(scaleRun(plan, 4)).toBe(plan)
   })
 })

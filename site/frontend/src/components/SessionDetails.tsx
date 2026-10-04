@@ -17,7 +17,29 @@ import { TimingNotes } from './TimingSummary'
 
 const MAX_COPIES = 1000
 
-type View = 'flow' | 'steps'
+/** How a plan shows: its flow chart or its steps. */
+export type PlanView = 'flow' | 'steps'
+
+/** The switch between a plan's flow chart and its steps. It stands out (the primary colour, a size up): it changes
+ * the whole panel below. */
+export function PlanViewSwitch({ value, onChange }: { value: PlanView; onChange: (view: PlanView) => void }) {
+  return (
+    <SegmentedControl
+      aria-label="Show the plan as"
+      size="sm"
+      radius="md"
+      color="gold"
+      fw={600}
+      style={{ alignSelf: 'flex-start' }}
+      value={value}
+      onChange={(v) => onChange(v as PlanView)}
+      data={[
+        { value: 'steps', label: 'Steps' },
+        { value: 'flow', label: 'Flowchart' },
+      ]}
+    />
+  )
+}
 
 /** Expected skill points to one decimal, without a trailing ".0". */
 const formatSkillUps = (n: number) => String(Math.round(n * 10) / 10)
@@ -65,7 +87,7 @@ export function SessionDetails({
   /** a gold list's row: Why this? (the market for what is sold) comes first */
   market?: boolean
 }) {
-  const [view, setView] = useState<View>('flow')
+  const [view, setView] = useState<PlanView>('steps')
   const defaultCopies = result.crafts
   const [copies, setCopies] = useState<number | null>(null) // null: the default
   const [crafter, setCrafter] = useState<string | null>(null)
@@ -133,21 +155,7 @@ export function SessionDetails({
       </Group>
       {market && <MarketPanel result={shown} items={shownItems} />}
       <Summary result={shown} />
-      {/* The view switch stands out (the primary colour, a size up): it changes the whole panel below. */}
-      <SegmentedControl
-        aria-label="Show the plan as"
-        size="sm"
-        radius="md"
-        color="gold"
-        fw={600}
-        style={{ alignSelf: 'flex-start' }}
-        value={view}
-        onChange={(v) => setView(v as View)}
-        data={[
-          { value: 'flow', label: 'Flow' },
-          { value: 'steps', label: 'Steps' },
-        ]}
-      />
+      <PlanViewSwitch value={view} onChange={setView} />
       {view === 'steps' && (
         <Checkbox
           label="Detailed view"

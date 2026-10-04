@@ -348,7 +348,9 @@ def run_until_cheaper(
     reached (as `expected_skill_ups`), until one of the `rivals` it was giving a cheaper point than at the
     start (or one they can't learn yet, from the skill they can) gives a cheaper one, the recipe is about to
     turn grey (its last point is due at `trivial_high` - 1), they reach their cap, or `ceiling` crafts. A
-    point costs a craft's cost over the chance of a point (`skill_up_chance`'s rule)."""
+    point costs a craft's cost over the chance of a point (`skill_up_chance`'s rule). A run about to turn
+    grey names the rival giving the cheapest point there, if any gives a cheaper one than its own last point
+    (watched or not: it is what to craft next), as a `rival` stop; only without one is it `trivial`."""
     skill = crafter.skill(recipe.skill_name)
     rank, cap = skill if skill is not None else (0, 0)
     start = _per_point(cost, _chance_at(recipe, crafter, rank))
@@ -365,16 +367,18 @@ def run_until_cheaper(
             reason = "cap"
             break
         chance = _chance_at(recipe, crafter, level)
-        if chance <= 0 or (recipe.trivial_high and level >= recipe.trivial_high - 1 - 1e-9):
-            reason = "trivial"
-            break
         mine = _per_point(cost, chance)
+        trivial = chance <= 0 or bool(recipe.trivial_high and level >= recipe.trivial_high - 1 - 1e-9)
         cheaper = [
             (per, r)
-            for r in watched
-            if r.from_skill <= level + 1e-9
+            for r in (rivals if trivial else watched)
+            if r.recipe.id != recipe.id
+            and r.from_skill <= level + 1e-9
             and (per := _per_point(r.cost, _chance_at(r.recipe, crafter, level))) < mine - 1e-9
         ]
+        if trivial and not cheaper:
+            reason = "trivial"
+            break
         if cheaper:
             reason, by = "rival", min(cheaper, key=lambda c: c[0])[1].recipe
             break

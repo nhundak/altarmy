@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Badge, Button, Divider, Group, Loader, NumberInput, Paper, SimpleGrid, Stack, Text, Title, UnstyledButton } from '@mantine/core'
+import { Alert, Badge, Box, Button, Divider, Group, Loader, NumberInput, Paper, SimpleGrid, Stack, Text, Title, UnstyledButton } from '@mantine/core'
 import { LayoutGroup, animate, motion } from 'motion/react'
 import { useDebouncedValue } from '@mantine/hooks'
 import type { ItemMap, Learn, RankResult } from '../api/client'
@@ -13,14 +13,18 @@ import {
   useStatus,
   useTrack,
 } from '../api/queries'
+import { choose as chooseAt, type Choices } from '../lib/choices'
 import { layoutTop, scrollTarget } from '../lib/scroll'
 import type { Holder } from '../lib/setup'
 import { AT_WHICH_POINT, CHEAPER, runLead, runText, scaleRun, stepsText } from '../lib/skill'
-import { CharacterName } from './CharacterName'
+import type { PlanEditing } from './ChoiceMenu'
+import { CharacterClasses, CharacterName } from './CharacterName'
 import { ItemLink } from './ItemTooltip'
 import { LearnTooltip } from './LearnTooltip'
 import { ResultsTable } from './ResultsTable'
 import { SkillBar } from './SkillBar'
+import { RecipeFlow } from './RecipeFlow'
+import { PlanViewSwitch, type PlanView } from './SessionDetails'
 import { Earned, StepList } from './StepList'
 
 /** The runs asked for at once: Next up, the few after it, and the rest under See all. */
@@ -63,6 +67,8 @@ function RunText({ result: r, items }: { result: RankResult; items: ItemMap }) {
   )
 }
 
+// The size of the spinner beside the odds (px).
+const SPINNER = 16
 // The most crafts the checklist buys for.
 const MAX_BUY = 999
 
@@ -128,7 +134,8 @@ function OptionCard({
             <Text size="xs" c="dimmed">
               <RunText result={r} items={items} />
             </Text>
-            {learnNote(r, learn) && (
+            {/* a pattern whose cost is counted needs nothing of the reader: the run says so, the card doesn't */}
+            {learnNote(r, learn) && !r.learn_cost && (
               <Text size="xs" c={r.learn_cost === null ? 'orange' : 'dimmed'}>
                 {learnNote(r, learn)}
               </Text>
@@ -196,11 +203,27 @@ export function SkillWorkspace({
     evaluate,
   )
   const buyFor = open && settledCount > 0 && settledCount !== open.crafts ? settledCount : null
-  const plan = useSessionPlan(open?.recipe_id ?? 0, evaluate, undefined, buyFor, null, null, buyFor !== null)
-  // The server's plan for the count when it has one, else the last plan in proportion, so the quantities follow
-  // the count at once.
-  const planned = (buyFor !== null && plan.data?.result) || open
+  // The user's changes to the run's plan (another source for a reagent, another way to sell); undefined: as ranked.
+  const [choices, setChoices] = useState<Choices | undefined>(undefined)
+  const modified = choices !== undefined
+  const planning = buyFor !== null || modified
+  const plan = useSessionPlan(open?.recipe_id ?? 0, evaluate, choices, buyFor, null, null, planning)
+  // The server's plan for the count and choices when it has one, else the last plan in proportion, so the
+  // quantities follow the count at once.
+  const planned = (planning && plan.data?.result) || open
   const checklist = planned && scaleRun(planned, buyCount)
+  // The skill points Working Overtime adds to the crafts bought for (the ranked run's until their plan is back).
+  const overtime = planned?.skill_ups_bonus ?? 0
+  // Planning a count the user typed. The count a run opens with is fetched ahead; should it still be on its way, the
+  // ranked run in proportion shows meanwhile, close enough to need no spinner.
+  const replanning = typed !== null && plan.isFetching && !modified
+  const editing: PlanEditing = {
+    onChoose: (paths, key) => setChoices((prev) => paths.reduce((c, path) => chooseAt(c, path, key), prev ?? {})),
+    modified,
+    onReset: () => setChoices(undefined),
+    pending: modified && plan.isFetching,
+    error: modified ? (plan.error?.message ?? null) : null,
+  }
   const items = useMemo(() => ({ ...rank.data?.items, ...plan.data?.items }), [rank.data, plan.data])
 
   const bestId = results[0]?.recipe_id
@@ -209,6 +232,8 @@ export function SkillWorkspace({
   }, [bestId, profession, track])
 
   const [copied, setCopied] = useState(false)
+  // The run's plan as its steps (first) or a flow chart.
+  const [view, setView] = useState<PlanView>('steps')
   // Scrolls an option being opened out fully into view as it grows: its layout is final as soon as it renders (the
   // growing is a transform), so the scroll runs alongside, with the same timing. A wheel or touch stops it.
   const runRef = useRef<HTMLElement>(null)
@@ -237,6 +262,8 @@ export function SkillWorkspace({
     setOpenId(id)
     scrollPending.current = id !== null
     setTyped(null)
+    setChoices(undefined)
+    setView('steps')
     setCopied(false)
     if (id !== null) track('row_opened', { profession })
   }
@@ -258,11 +285,6 @@ export function SkillWorkspace({
           ({climber.workingOvertime.rank}/{climber.workingOvertime.maxRank} Working Overtime)
         </Text>
       )}
-      {open?.stop_skill ? (
-        <Text size="sm" c="dimmed">
-          → about {open.stop_skill} after this run
-        </Text>
-      ) : null}
     </Group>
   )
 
@@ -298,105 +320,144 @@ export function SkillWorkspace({
   const options = results.slice(0, OPTIONS)
 
   return (
-    <Stack>
-      {header}
-      {capCard}
-      {refresh}
-      <LayoutGroup>
-        {open ? (
-          <motion.div layoutId={`skill-option-${open.recipe_id}`} transition={LAYOUT} style={{ borderRadius: 8 }}>
-            <Paper ref={runRef} withBorder p="md" radius="md" aria-label="Run details" component="section">
-              <Stack gap="xs">
-                <Group justify="space-between">
-                  <Button size="compact-sm" variant="subtle" onClick={() => choose(null)}>
-                    ← All options
-                  </Button>
-                  {open.recipe_id === bestId && (
-                    <Badge size="sm" variant="light" color="teal">
-                      Best
-                    </Badge>
-                  )}
-                </Group>
-                <Title order={4}>
-                  <RecipeName result={open} items={items} />
-                </Title>
-                <Text size="lg" fw={700}>
-                  <NetPerPoint result={open} />
-                </Text>
-                <Text size="sm">
-                  <RunText result={open} items={items} />
-                  {open.skill_ups_bonus >= 0.05 && ` · ${open.skill_ups_bonus.toFixed(1)} points from Working Overtime`}
-                </Text>
-                {learn[open.recipe_id] && !open.crafters.includes(open.crafter) && (
-                  <Text size="sm">
-                    {learnNote(open, learn[open.recipe_id])}:{' '}
-                    <LearnTooltip learn={learn[open.recipe_id]}>where to get it</LearnTooltip>
-                  </Text>
-                )}
-                <Divider my={4} />
-                {open.stop_skill > 0 && (
-                  <Group gap="xs" wrap="nowrap">
-                    <NumberInput
-                      size="xs"
-                      w={90}
-                      min={1}
-                      max={MAX_BUY}
-                      allowDecimal={false}
-                      aria-label="Crafts to buy for"
-                      value={buyCount}
-                      onChange={(v) => setTyped(typeof v === 'number' && v >= 1 ? Math.min(v, MAX_BUY) : null)}
-                    />
-                    <Text size="xs" c="dimmed">
-                      {reachPercent(open, buyCount)}% chance to reach your target of {open.stop_skill} skill
-                    </Text>
-                    {plan.isFetching && <Loader size="xs" aria-label="Planning" />}
+    <CharacterClasses.Provider value={rank.data.classes}>
+      <Stack>
+        {header}
+        {capCard}
+        {refresh}
+        <LayoutGroup>
+          {open ? (
+            // grows out of its option card; opened from the full list, which has none, it fades in
+            <motion.div
+              layoutId={`skill-option-${open.recipe_id}`}
+              transition={LAYOUT}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              style={{ borderRadius: 8 }}
+            >
+              <Paper ref={runRef} withBorder p="md" radius="md" aria-label="Run details" component="section">
+                <Stack gap="xs">
+                  <Group justify="space-between">
+                    <Button size="compact-sm" variant="subtle" onClick={() => choose(null)}>
+                      ← All options
+                    </Button>
+                    <Group gap={6}>
+                      {modified && (
+                        <Badge size="sm" variant="light" color="yellow">
+                          Changed plan
+                        </Badge>
+                      )}
+                      {open.recipe_id === bestId && (
+                        <Badge size="sm" variant="light" color="teal">
+                          Best
+                        </Badge>
+                      )}
+                    </Group>
                   </Group>
-                )}
-                {checklist && <StepList result={checklist} items={items} mode="skill" />}
-                {plan.isFetching && open.stop_skill === 0 && <Loader size="xs" aria-label="Planning" />}
-                <Group gap="xs">
-                  <Button size="xs" variant="light" onClick={copy}>
-                    {copied ? 'Copied' : 'Copy steps'}
-                  </Button>
-                </Group>
-              </Stack>
-            </Paper>
-          </motion.div>
-        ) : (
-          <Stack gap="xs" component="section" aria-label="Your options">
-            <Text size="sm" fw={500}>
-              What to craft next:
-            </Text>
-            <SimpleGrid cols={{ base: 1, xs: 2, md: OPTIONS }} spacing="sm">
-              {options.map((r) => (
-                <OptionCard
-                  key={r.recipe_id}
-                  result={r}
-                  best={r.recipe_id === bestId}
-                  items={items}
-                  learn={learn[r.recipe_id]}
-                  onChoose={() => choose(r.recipe_id)}
-                />
-              ))}
-            </SimpleGrid>
-          </Stack>
+                  <Title order={4}>
+                    <RecipeName result={open} items={items} />
+                  </Title>
+                  <Text size="lg" fw={700}>
+                    {/* the user's changed plan costs what it costs; otherwise the run as ranked */}
+                    <NetPerPoint result={(modified && planned) || open} />
+                  </Text>
+                  <Text size="sm">
+                    <RunText result={open} items={items} />
+                  </Text>
+                  {learn[open.recipe_id] && !open.crafters.includes(open.crafter) && (
+                    <Text size="sm">
+                      {learnNote(open, learn[open.recipe_id])}:{' '}
+                      <LearnTooltip learn={learn[open.recipe_id]}>where to get it</LearnTooltip>
+                    </Text>
+                  )}
+                  <Divider my={4} />
+                  {open.stop_skill > 0 && (
+                    <Group gap="xs" wrap="nowrap">
+                      <NumberInput
+                        size="xs"
+                        w={90}
+                        min={1}
+                        max={MAX_BUY}
+                        allowDecimal={false}
+                        aria-label="Crafts to buy for"
+                        value={buyCount}
+                        onChange={(v) => setTyped(typeof v === 'number' && v >= 1 ? Math.min(v, MAX_BUY) : null)}
+                      />
+                      <Text size="xs" c="dimmed">
+                        {reachPercent(open, buyCount)}% chance to reach your target of {open.stop_skill} skill
+                        {overtime >= 0.05 && ` (includes ~${overtime.toFixed(1)} skill points from Working Overtime)`}
+                      </Text>
+                      {/* A slot of its own size, so the spinner never moves anything */}
+                      <Box w={SPINNER} h={SPINNER} style={{ flexShrink: 0 }}>
+                        {replanning && <Loader size={SPINNER} aria-label="Planning" />}
+                      </Box>
+                    </Group>
+                  )}
+                  <Group gap="sm">
+                    <PlanViewSwitch value={view} onChange={setView} />
+                    {modified && (
+                      <Button size="compact-xs" variant="light" onClick={editing.onReset}>
+                        Reset
+                      </Button>
+                    )}
+                    {editing.pending && <Loader size="xs" aria-label="Re-costing" />}
+                    {editing.error && (
+                      <Text size="xs" c="red">
+                        {editing.error}
+                      </Text>
+                    )}
+                  </Group>
+                  {checklist &&
+                    (view === 'flow' ? (
+                      <RecipeFlow result={checklist} items={items} editing={editing} />
+                    ) : (
+                      <StepList result={checklist} items={items} editing={editing} mode="skill" />
+                    ))}
+                  <Group gap="xs">
+                    <Button size="xs" variant="light" onClick={copy}>
+                      {copied ? 'Copied' : 'Copy steps'}
+                    </Button>
+                  </Group>
+                </Stack>
+              </Paper>
+            </motion.div>
+          ) : (
+            <Stack gap="xs" component="section" aria-label="Your options">
+              <Text size="sm" fw={500}>
+                What to craft next:
+              </Text>
+              <SimpleGrid cols={{ base: 1, xs: 2, md: OPTIONS }} spacing="sm">
+                {options.map((r) => (
+                  <OptionCard
+                    key={r.recipe_id}
+                    result={r}
+                    best={r.recipe_id === bestId}
+                    items={items}
+                    learn={learn[r.recipe_id]}
+                    onChoose={() => choose(r.recipe_id)}
+                  />
+                ))}
+              </SimpleGrid>
+            </Stack>
+          )}
+        </LayoutGroup>
+        {!open && results.length > OPTIONS && (
+          <Button variant="subtle" size="xs" style={{ alignSelf: 'flex-start' }} onClick={() => setAll((a) => !a)}>
+            {all ? 'Hide the full list' : `See all ${rank.data.total} options`}
+          </Button>
         )}
-      </LayoutGroup>
-      {!open && results.length > OPTIONS && (
-        <Button variant="subtle" size="xs" style={{ alignSelf: 'flex-start' }} onClick={() => setAll((a) => !a)}>
-          {all ? 'Hide the full list' : `See all ${rank.data.total} options`}
-        </Button>
-      )}
-      {!open && all && (
-        <ResultsTable
-          results={results}
-          items={items}
-          classes={rank.data.classes}
-          learn={learn}
-          params={evaluate}
-          rankBy="skill"
-        />
-      )}
-    </Stack>
+        {!open && all && (
+          <ResultsTable
+            results={results}
+            items={items}
+            classes={rank.data.classes}
+            learn={learn}
+            params={evaluate}
+            rankBy="skill"
+            onOpen={(r) => choose(r.recipe_id)}
+          />
+        )}
+      </Stack>
+    </CharacterClasses.Provider>
   )
 }

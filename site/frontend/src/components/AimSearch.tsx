@@ -500,7 +500,7 @@ export function AimSearch({
     ],
   )
   const debouncedFilters = useSettled(filters, 300, flush)
-  // One character climbing one profession: the skill workspace (any profession keeps the table).
+  // One character climbing one profession: the skill workspace (the table only until the characters load).
   const climber =
     skill && profession !== null && skilled && !skilled.includes(',')
       ? professions

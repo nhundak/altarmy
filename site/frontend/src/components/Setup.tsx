@@ -3,7 +3,6 @@ import { Button, Group, List, Radio, Stack, Text, Title, UnstyledButton } from '
 import { AnimatePresence, motion } from 'motion/react'
 import {
   AIMS,
-  ANY_PROFESSION,
   SELLING,
   STEP_QUESTION,
   stripParts,
@@ -114,12 +113,6 @@ function OptionCard<K extends string>({
   )
 }
 
-const ANY_CARD: Card<string> = {
-  key: ANY_PROFESSION,
-  title: 'Any profession',
-  blurb: 'Every recipe that gives at least one of your characters a skill point.',
-}
-
 /** Who has a profession, one per line: the name in its class colour, then their skill against its cap. */
 function Holders({ holders, profession }: { holders: readonly Holder[]; profession: string }) {
   return (
@@ -214,16 +207,11 @@ function StepCards({
       ? AIMS.map((card) => ({ card, icon: AIM_ICONS[card.key], reason: unavailable[card.key] }))
       : step === 'selling'
         ? SELLING.map((card) => ({ card }))
-        : professions.length === 0
-          ? []
-          : [
-              { card: ANY_CARD },
-              ...professions.map((p) => ({
-                card: { key: p.name, title: p.name, blurb: '' },
-                body: <Holders holders={p.holders} profession={p.name} />,
-                choice: p,
-              })),
-            ]
+        : professions.map((p) => ({
+            card: { key: p.name, title: p.name, blurb: '' },
+            body: <Holders holders={p.holders} profession={p.name} />,
+            choice: p,
+          }))
   if (!options.length) {
     return (
       <Text size="sm" c="dimmed">

@@ -150,6 +150,7 @@ describe('the flow view plans the same session', () => {
   it('has the copies and reset, but no city and no detailed view', async () => {
     const asked = serve()
     await openRow()
+    await userEvent.click(screen.getByText('Flowchart'))
     expect(screen.getByLabelText('Copies')).toHaveValue('20')
     expect(screen.queryByRole('combobox', { name: 'City' })).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: 'Detailed view' })).not.toBeInTheDocument()
@@ -228,7 +229,7 @@ describe('no line of a session says how long it takes', () => {
     await openSteps(disenchanted)
     expect(await line('Switch to Frell')).toBeInTheDocument()
     expect(await line('Frell: Start at Auctioneer Stockton at 71.4, 46.7')).toBeInTheDocument()
-    expect(await line('Frell: Disenchant 20x Green Robe')).toBeInTheDocument()
+    expect(await line('Frell: Disenchant 20x Green Robe (view expected materials)')).toBeInTheDocument()
     const sell = await screen.findByText((_, el) => el?.tagName === 'LI' && shown(el)?.startsWith('Frell: Sell materials') === true)
     expect(shown(sell)).not.toMatch(/\d s$/)
   })

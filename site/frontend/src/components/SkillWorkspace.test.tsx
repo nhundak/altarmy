@@ -137,10 +137,16 @@ describe('SkillWorkspace', () => {
     expect(within(run).getByRole('textbox', { name: 'Crafts to buy for' })).toHaveValue('14')
     expect(within(run).getByText('82% chance to reach your target of 45 skill')).toBeInTheDocument()
     expect(within(run).queryByText(/Why this one|Then, at/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/after this run/)).not.toBeInTheDocument() // the header stays as it was
     // the checklist buys for the 14 crafts an unlucky run takes, grouped by who does what
     await waitFor(async () => expect(await bodies(fetch, '/api/evaluate')).toHaveLength(2)) // fetched ahead, once
     const [plan] = await bodies(fetch, '/api/evaluate')
     expect(plan).toMatchObject({ recipe_id: 100, copies: 14, runs: true, skill_crafters: ['Tailor Guy'] })
+    // the plan opens as its steps, the flow chart a click away
+    const views = within(run).getByRole('radiogroup', { name: 'Show the plan as' })
+    const [first, second] = within(views).getAllByRole('radio')
+    expect([first, second]).toEqual([within(views).getByLabelText('Steps'), within(views).getByLabelText('Flowchart')])
+    expect(within(views).getByLabelText('Steps')).toBeChecked()
     expect(within(run).getByRole('group', { name: "Tailor Guy's steps" })).toBeInTheDocument()
     expect(within(run).getByText(/Sell back 2x/)).toBeInTheDocument() // for the 14 crafts
     // more crafts: better odds, and the checklist buys for them; past the odds sent, the last of them
@@ -155,6 +161,22 @@ describe('SkillWorkspace', () => {
     // and back to the options
     await userEvent.click(within(run).getByRole('button', { name: '← All options' }))
     expect(await screen.findByRole('region', { name: 'Your options' })).toBeInTheDocument()
+  })
+
+  it('says how many of the skill points counted on come from Working Overtime, after the odds', async () => {
+    // the ranked run's 12 crafts expect 0.5 points from the talent; the plan for the 14 bought for, 0.6
+    api({
+      '/api/rank': { ...ranked, results: [{ ...robeRun, skill_ups_bonus: 0.48 }, capRun] },
+      '/api/evaluate': () => ({ result: { ...scaleRun(robeRun, 14), skill_ups_bonus: 0.56 }, items }),
+    })
+    show({ ...CLIMBER, workingOvertime: { rank: 1, maxRank: 5 } })
+    const run = await choose('Green Robe')
+    expect(
+      await within(run).findByText(
+        '82% chance to reach your target of 45 skill (includes ~0.6 skill points from Working Overtime)',
+      ),
+    ).toBeInTheDocument()
+    expect(within(run).queryByText(/· .* points from Working Overtime/)).not.toBeInTheDocument()
   })
 
   it("names the character's Working Overtime ranks beside their skill, only when they have some", async () => {
@@ -173,10 +195,14 @@ describe('SkillWorkspace', () => {
   it('says what to do to learn a recipe the climber lacks', async () => {
     const pattern: RankResult = { ...capRun, crafters: ['Someone Else'], learn_cost: 1200 }
     const unknown: RankResult = { ...beltRun, crafters: [], learn_cost: null }
-    api({ '/api/rank': { ...ranked, results: [robeRun, pattern, unknown], total: 3 } })
+    const learn = { '101': { source: 'recipe', skill: 50, profession: 'Tailoring', items: [] } }
+    api({ '/api/rank': { ...ranked, results: [robeRun, pattern, unknown], total: 3, learn } })
     show()
-    expect(await screen.findByText('You must buy the pattern (cost included)')).toBeInTheDocument()
-    expect(screen.getByText('You must find the pattern (price unknown)')).toBeInTheDocument()
+    // the cards warn of a pattern nobody can price; one whose cost is counted waits for the run
+    expect(await screen.findByText('You must find the pattern (price unknown)')).toBeInTheDocument()
+    expect(screen.queryByText(/cost included/)).not.toBeInTheDocument()
+    const run = await choose('Linen Cap')
+    expect(within(run).getByText(/You must buy the pattern \(cost included\)/)).toBeInTheDocument()
   })
 
   it('opens an option other than the best', async () => {
@@ -204,6 +230,32 @@ describe('SkillWorkspace', () => {
       height.mockRestore()
       vi.unstubAllGlobals()
     }
+  })
+
+  it('opens a row of the full list as its run, and goes back to the list', async () => {
+    const many = [robeRun, capRun, beltRun, { ...beltRun, recipe_id: 103, recipe: 'Linen Boots', output_name: 'Linen Boots' }]
+    api({ '/api/rank': { ...ranked, results: [...many, { ...beltRun, recipe_id: 104, recipe: 'Linen Bag', output_item_id: 9002, output_name: 'Linen Bag' }], total: 5 } })
+    show()
+    await userEvent.click(await screen.findByRole('button', { name: 'See all 5 options' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open Linen Bag' }))
+    const run = screen.getByRole('region', { name: 'Run details' })
+    expect(within(run).getByRole('heading')).toHaveTextContent('Linen Bag')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    await userEvent.click(within(run).getByRole('button', { name: '← All options' }))
+    expect(await screen.findByRole('button', { name: 'Open Linen Bag' })).toBeInTheDocument() // the list again
+  })
+
+  it('shows no spinner while the plan fetched ahead is on its way, only for a count the user types', async () => {
+    api({ '/api/evaluate': () => new Promise(() => {}) }) // never answers
+    show()
+    const run = await choose('Green Robe')
+    expect(within(run).getByText(/Sell back 2x/)).toBeInTheDocument() // the ranked run, in proportion
+    await new Promise((r) => setTimeout(r, 500)) // past the count's debounce
+    expect(within(run).queryByLabelText('Planning')).not.toBeInTheDocument()
+    const input = within(run).getByRole('textbox', { name: 'Crafts to buy for' })
+    await userEvent.clear(input)
+    await userEvent.type(input, '20')
+    expect(await within(run).findByLabelText('Planning')).toBeInTheDocument()
   })
 
   it('copies the checklist as plain text', async () => {
@@ -242,6 +294,54 @@ describe('SkillWorkspace', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     await waitFor(() => expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('price_version')).toBe('2'))
     expect(screen.queryByText('Prices updated since this list was made')).not.toBeInTheDocument()
+  })
+
+  it("changes a reagent's source in the run, re-costed, until Reset", async () => {
+    const onAh = {
+      ...scaleRun(robeRun, 14),
+      cost: 5000,
+      profit: -5000,
+      steps: robeRun.steps.map((s) => (s.item_id === 2 && s.action === 'buy' ? { ...s, via: 'ah', value: -150 } : s)),
+    }
+    const fetch = api({
+      '/api/evaluate': async (_: URL, request: Request) => {
+        const body = (await request.clone().json()) as { choices: Record<string, string> }
+        return { result: Object.keys(body.choices).length ? onAh : { ...scaleRun(robeRun, 14), cost: 4200 }, items }
+      },
+    })
+    show()
+    const run = await choose('Green Robe')
+    expect(within(run).queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
+    await userEvent.click(await within(run).findByRole('button', { name: 'Change source of Coarse Thread' }))
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+      expect.stringMatching(/^✓Buy from a vendor/),
+      expect.stringMatching(/^Buy on the AH/),
+    ])
+    await userEvent.click(screen.getByRole('menuitem', { name: /Buy on the AH/ }))
+
+    await waitFor(async () =>
+      expect((await bodies(fetch, '/api/evaluate')).at(-1)).toMatchObject({ recipe_id: 100, copies: 14, runs: true, choices: { 'r.1': 'ah' } }),
+    )
+    expect(await within(run).findByText((_, el) => el?.tagName === 'LI' && /Coarse Thread on the AH/.test(el.textContent ?? ''))).toBeInTheDocument()
+    expect(within(run).getByText('Changed plan')).toBeInTheDocument()
+
+    await userEvent.click(within(run).getByRole('button', { name: 'Reset' }))
+    expect(await within(run).findByText((_, el) => el?.tagName === 'LI' && /Coarse Thread from a vendor/.test(el.textContent ?? ''))).toBeInTheDocument()
+    expect(within(run).queryByText('Changed plan')).not.toBeInTheDocument()
+    expect(within(run).queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
+  })
+
+  it('offers the menus in the flow chart too, and forgets the changes on another option', async () => {
+    api()
+    show()
+    let run = await choose('Green Robe')
+    await userEvent.click(within(run).getByRole('radio', { name: 'Flowchart' }))
+    await userEvent.click(await within(run).findByRole('button', { name: 'Change source of Coarse Thread' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /Buy on the AH/ }))
+    expect(await within(run).findByRole('button', { name: 'Reset' })).toBeInTheDocument()
+    await userEvent.click(within(run).getByRole('button', { name: '← All options' }))
+    run = await choose('Linen Cap')
+    expect(within(run).queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
   })
 
   it('says to visit a trainer at the cap', async () => {

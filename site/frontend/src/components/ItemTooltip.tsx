@@ -125,7 +125,7 @@ function ItemLines({ item }: { item: ItemInfo }) {
 }
 
 /** With `wide`, the box grows to fit lines that cannot wrap instead of stopping at the usual max width. */
-function TooltipFrame({ icon, wide = false, children }: { icon: string | null; wide?: boolean; children: ReactNode }) {
+export function TooltipFrame({ icon, wide = false, children }: { icon: string | null; wide?: boolean; children: ReactNode }) {
   return (
     <div className={classes.frame}>
       <Icon icon={icon} size="large" className={classes.bigIcon} />
@@ -197,7 +197,7 @@ export function DisenchantTooltip({
 }) {
   return (
     <TooltipFrame icon={null} wide>
-      <div className={classes.title}>Disenchanting {name}</div>
+      <div className={classes.title}>Disenchanting 1x {name}</div>
       <div className={classes.materials}>
         {materials.map((m) => {
           const item = items[m.item_id]

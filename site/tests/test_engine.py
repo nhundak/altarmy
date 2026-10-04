@@ -962,10 +962,14 @@ def test_a_run_lasts_until_a_recipe_it_was_beating_gives_a_cheaper_point() -> No
     assert (run.crafts, run.reason, run.rival, run.stop_skill) == (18, "rival", rival.recipe, 47)
     assert run.crafts_p80 >= run.crafts
     assert len(run.reach) >= run.crafts_p80 + 20 and run.reach[run.crafts_p80 - 1] >= 0.8
-    # one it never beat doesn't end it: alone, the run goes on until it is about to turn grey
+    # one it never beat doesn't end it: the run goes on until it is about to turn grey, then names it as
+    # what to craft next
     beaten = engine.Rival(_recipe(3, 50, 70), 50.0)
     alone = engine.run_until_cheaper(GREY_AT_60, _smith(30), 100.0, [beaten])
-    assert (alone.crafts, alone.reason, alone.rival, alone.stop_skill) == (69, "trivial", None, 59)
+    assert (alone.crafts, alone.reason, alone.rival, alone.stop_skill) == (69, "rival", beaten.recipe, 59)
+    # with nothing cheaper by then, it just stops there
+    none = engine.run_until_cheaper(GREY_AT_60, _smith(30), 100.0, [])
+    assert (none.crafts, none.reason, none.rival, none.stop_skill) == (69, "trivial", None, 59)
 
 
 def test_a_run_ends_at_the_cap_or_the_ceiling() -> None:

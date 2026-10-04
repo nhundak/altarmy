@@ -84,8 +84,6 @@ export const SELLING: readonly Card<Selling>[] = [
   },
 ]
 
-/** The profession answer that skills up any profession: every recipe that gives someone a skill point. */
-export const ANY_PROFESSION = 'any'
 
 /** One character having a profession, at what skill, and their Working Overtime ranks (unset without any). */
 export type Holder = {
@@ -148,23 +146,19 @@ export function nextStep(
   if (setup === null) return 'aim'
   if (setup.aim === 'skill') {
     if (noCharacters) return 'aim'
-    if (setup.profession?.toLowerCase() === ANY_PROFESSION) return professions.length ? null : 'profession'
     return skillCrafters(setup, professions).length ? null : 'profession'
   }
   return setup.selling ? null : 'selling'
 }
 
 /**
- * The characters being skilled up: the picked profession's holders on the realm (those picked, if some were), every
- * holder of a profession for any profession, none when making gold. Only they do a recipe's final craft.
+ * The characters being skilled up: the picked profession's holders on the realm (those picked, if some were);
+ * none when making gold. Only they do a recipe's final craft.
  */
 export function skillCrafters(setup: Setup | null, professions: readonly ProfessionChoice[]): string[] {
   if (setup?.aim !== 'skill' || !setup.profession) return []
-  const holders =
-    setup.profession === ANY_PROFESSION
-      ? professions.flatMap((p) => p.holders)
-      : (professionIn(professions, setup.profession)?.holders ?? [])
-  const picked = setup.profession === ANY_PROFESSION ? undefined : setup.characters
+  const holders = professionIn(professions, setup.profession)?.holders ?? []
+  const picked = setup.characters
   const names = holders.map((h) => h.name).filter((n) => !picked || picked.includes(n))
   return [...new Set(names)].sort()
 }
@@ -239,9 +233,9 @@ export function storePresets(aim: Aim, presets: Partial<Presets>) {
 /** How the server ranks for this setup: the most profit, or the cheapest expected skill point. */
 export const rankSort = (setup: Setup | null): 'profit' | 'skill' => (setup?.aim === 'skill' ? 'skill' : 'profit')
 
-/** The professions the search is narrowed to: the one being skilled up (none for any profession). */
+/** The professions the search is narrowed to: the one being skilled up. */
 export const rankProfessions = (setup: Setup | null): string[] =>
-  setup?.aim === 'skill' && setup.profession && setup.profession !== ANY_PROFESSION ? [setup.profession] : []
+  setup?.aim === 'skill' && setup.profession ? [setup.profession] : []
 
 const SELLING_TEXT: Readonly<Record<Selling, string>> = {
   reliable: 'Play it safe',
@@ -254,16 +248,8 @@ export function stripParts(setup: Setup): { step: Step; text: string }[] {
   if (setup.aim === 'skill') {
     parts.push({ step: 'aim', text: 'Skilling up' })
     if (setup.profession) {
-      const who = setup.profession !== ANY_PROFESSION && setup.characters
-      parts.push({
-        step: 'profession',
-        text:
-          setup.profession === ANY_PROFESSION
-            ? 'Any profession'
-            : who
-              ? `${setup.profession} (${who.join(', ')})`
-              : setup.profession,
-      })
+      const who = setup.characters
+      parts.push({ step: 'profession', text: who ? `${setup.profession} (${who.join(', ')})` : setup.profession })
     }
     return parts
   }

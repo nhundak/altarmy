@@ -266,7 +266,7 @@ describe('SearchTab', () => {
     renderWithProviders(<SearchTab />)
     await userEvent.click(await screen.findByRole('button', { name: 'Skill up' }))
     await screen.findByRole('group', { name: 'Which profession?' })
-    expect(answers('Which profession?')).toEqual(['Any profession', 'Cooking', 'Tailoring'])
+    expect(answers('Which profession?')).toEqual(['Cooking', 'Tailoring']) // one profession, never any
     const tailoring = screen.getByRole('button', { name: 'Tailoring' })
     const tailor = within(tailoring).getByText('Tailor Guy')
     expect(tailor).toHaveAttribute('data-class', 'MAGE')
@@ -396,30 +396,19 @@ describe('SearchTab', () => {
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
-    await waitFor(() => expect(answers('Which profession?')).toEqual(['Any profession', 'Tailoring']))
+    await waitFor(() => expect(answers('Which profession?')).toEqual(['Tailoring']))
   })
 
-  it('skills up any profession: every recipe that gives someone a skill point', async () => {
-    withSetup({ aim: 'skill' })
-    const fetch = mockApi({
+  it('asks for the profession again after a setup that skilled up any profession', async () => {
+    withSetup({ aim: 'skill', profession: 'any' }) // saved before Any profession was dropped
+    mockApi({
       '/api/status': status(),
       '/api/characters': characters,
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
-    const any = await screen.findByRole('button', { name: 'Any profession' })
-    expect(within(any).queryByText('Tailor Guy')).not.toBeInTheDocument()
-    await userEvent.click(any)
-    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
-    const [rank] = urls(fetch, '/api/rank')
-    expect(rank?.searchParams.has('professions')).toBe(false)
-    expect(rank?.searchParams.get('sort')).toBe('skill')
-    const summary = await screen.findByRole('group', { name: 'Your setup' })
-    expect(
-      within(summary)
-        .getAllByRole('button')
-        .map((b) => b.textContent),
-    ).toEqual(['Skilling up', 'Any profession'])
+    expect(await screen.findByRole('group', { name: 'Which profession?' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Any profession' })).not.toBeInTheDocument()
   })
 
   it("can't skill up without characters, saying why", async () => {
@@ -1167,7 +1156,6 @@ describe('SearchTab: enhancing items for the skill point alone', () => {
 
   it.each([
     ['another profession', { aim: 'skill', profession: 'Tailoring' }],
-    ['any profession', { aim: 'skill', profession: 'any' }],
   ])('is neither offered nor sent for %s, even if it was ticked before', async (_, setup) => {
     withSetup(setup)
     localStorage.setItem('altarmy-profit.search.skill.skillOnly', 'true')

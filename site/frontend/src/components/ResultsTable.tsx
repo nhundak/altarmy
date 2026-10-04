@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { ActionIcon, Menu, Table, Text, Tooltip, UnstyledButton } from '@mantine/core'
 import { AnimatePresence, motion } from 'motion/react'
 import type { ItemMap, Learn, RankResult } from '../api/client'
@@ -26,7 +26,7 @@ const PER_POINT = 'Cost per point'
  * the money a session makes. */
 const columnsFor = (rankBy: RankBy | undefined): string[] =>
   rankBy === 'skill'
-    ? ['', PER_POINT, CRAFT_UNTIL, 'Investment', 'Recipe', 'Learn']
+    ? ['Recipe', PER_POINT, CRAFT_UNTIL, 'Investment', 'Learn']
     : rankBy === 'gold'
       ? ['', 'Recipe', LIKELY, 'Will it sell', 'Market']
       : ['', PROFIT, 'Investment', 'ROI', 'Recipe', 'Crafter', 'Sell via']
@@ -172,7 +172,8 @@ function ExitsLine({ result: r }: { result: RankResult }) {
   return (
     <Text size="xs" c="dimmed">
       {EXIT_SHORT[r.likely_exit] ?? r.likely_exit} <Money copper={r.likely_profit} signed />
-      {r.excess_units > 0 && ` · for ${Math.round(unitsMade(r)) - r.excess_units}, the rest to ${EXIT_SHORT[r.likely_exit === 'ah' ? (other?.kind ?? '') : r.likely_exit]?.toLowerCase() ?? 'nothing'}`}
+      {r.excess_units > 0 &&
+        ` · for ${Math.round(unitsMade(r)) - r.excess_units}, the rest to ${EXIT_SHORT[r.likely_exit === 'ah' ? (other?.kind ?? '') : r.likely_exit]?.toLowerCase() ?? 'nothing'}`}
       {unsold && unsold.kind !== r.likely_exit && (
         <>
           {' '}
@@ -207,14 +208,24 @@ function MarketCell({ result: r, items }: { result: RankResult; items: ItemMap }
   const item = items[r.output_item_id]
   if (!item) return null
   const parts = []
-  if (item.market_price != null) parts.push(<>asking <Money copper={item.market_price} /></>)
+  if (item.market_price != null)
+    parts.push(
+      <>
+        asking <Money copper={item.market_price} />
+      </>,
+    )
   if (item.median_7d != null && (item.scans_7d ?? 0) >= 3)
     parts.push(
       <>
         usually <Money copper={item.median_7d} /> ({item.scans_7d}d)
       </>,
     )
-  if (item.ah_sell_price != null) parts.push(<>count <Money copper={item.ah_sell_price} /></>)
+  if (item.ah_sell_price != null)
+    parts.push(
+      <>
+        count <Money copper={item.ah_sell_price} />
+      </>,
+    )
   return (
     <Text size="xs" c="dimmed">
       {parts.map((p, i) => (
@@ -284,8 +295,24 @@ function shortTitle(short: number): string {
 /** A flag icon in a row's first column, explained in a tooltip that opens at once on hover, focus or tap. */
 function Flag({ label, why, color, children }: { label: string; why: string; color: string; children: ReactNode }) {
   return (
-    <Tooltip label={why} multiline maw={280} withArrow openDelay={0} transitionProps={{ duration: 0 }} events={{ hover: true, focus: true, touch: true }}>
-      <Text span c={color} ml={4} aria-label={label} tabIndex={0} style={{ cursor: 'help' }} onClick={(e) => e.stopPropagation()}>
+    <Tooltip
+      label={why}
+      multiline
+      maw={280}
+      withArrow
+      openDelay={0}
+      transitionProps={{ duration: 0 }}
+      events={{ hover: true, focus: true, touch: true }}
+    >
+      <Text
+        span
+        c={color}
+        ml={4}
+        aria-label={label}
+        tabIndex={0}
+        style={{ cursor: 'help' }}
+        onClick={(e) => e.stopPropagation()}
+      >
         {children}
       </Text>
     </Tooltip>
@@ -342,6 +369,7 @@ export function ResultsTable({
   onSetFavorite,
   rankBy,
   learn = NO_LEARN,
+  onOpen,
 }: {
   results: RankResult[]
   items: ItemMap
@@ -362,6 +390,8 @@ export function ResultsTable({
   rankBy?: RankBy
   /** Recipe id -> where to learn it, for the rows saying "not learned". */
   learn?: Readonly<Record<string, Learn>>
+  /** Open a row's recipe elsewhere (the skill workspace's run card) instead of unfolding it here. */
+  onOpen?: (r: RankResult) => void
 }) {
   const actions = Boolean(onSetAhBlocked || onSetFavorite)
   const shownColumns = columnsFor(rankBy)
@@ -378,6 +408,7 @@ export function ResultsTable({
   // With no column picked here, the server's order shows on the column it ranked by.
   const shownSort: Sort | null = sort ?? (rankBy ? RANK_COLUMN[rankBy] : null)
   const gold = rankBy === 'gold'
+  const skill = rankBy === 'skill'
   const sortBy = (column: string) =>
     setSort(
       shownSort?.column === column
@@ -431,7 +462,13 @@ export function ResultsTable({
                     }
                     ta={MONEY_COLUMNS.has(c) ? 'right' : undefined}
                     aria-sort={
-                      !(c in SORT_KEYS) ? undefined : !active ? 'none' : shownSort.descending ? 'descending' : 'ascending'
+                      !(c in SORT_KEYS)
+                        ? undefined
+                        : !active
+                          ? 'none'
+                          : shownSort.descending
+                            ? 'descending'
+                            : 'ascending'
                     }
                   >
                     {c in SORT_KEYS && !gold ? (
@@ -458,57 +495,97 @@ export function ResultsTable({
               // Measured only when the row's place in the order changes, so expanding a row above doesn't
               // slide the rows below it.
               const reorder = { layout: 'position', layoutDependency: index, transition: REORDER } as const
+              const recipeCell = (
+                <Table.Td>
+                  {r.kind === 'flip' && (
+                    // buy the item and disenchant it: no recipe to name
+                    <>
+                      <DisenchantLabel />{' '}
+                    </>
+                  )}
+                  <ItemLink
+                    item={items[r.output_item_id]}
+                    name={r.output_name}
+                    tooltip={
+                      <RecipeTooltip
+                        name={r.recipe}
+                        profession={KIND_NOTES[r.kind] ?? r.profession}
+                        reagents={r.reagents}
+                        output={items[r.output_item_id]}
+                        items={items}
+                      />
+                    }
+                  />
+                  {gold && <ExitsLine result={r} />}
+                </Table.Td>
+              )
               return (
                 <Fragment key={r.recipe_id}>
                   <MotionTr
                     {...reorder}
-                    onClick={() => toggle(r.recipe_id)}
+                    onClick={() => (onOpen ? onOpen(r) : toggle(r.recipe_id))}
+                    // a row that opens elsewhere is a button of its own (it has no ▸)
+                    {...(onOpen && {
+                      tabIndex: 0,
+                      role: 'button',
+                      'aria-label': `Open ${r.recipe}`,
+                      onKeyDown: (e: KeyboardEvent) => {
+                        if (e.key !== 'Enter' && e.key !== ' ') return
+                        e.preventDefault()
+                        onOpen(r)
+                      },
+                    })}
                     style={{ cursor: 'pointer' }}
                     className={favorite ? classes.favorite : undefined}
                   >
-                    <Table.Td>
-                      <UnstyledButton
-                        aria-expanded={expanded}
-                        aria-label={`Details for ${r.recipe}`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          toggle(r.recipe_id)
-                        }}
-                      >
-                        {expanded ? '▾' : '▸'}
-                      </UnstyledButton>
-                      {favorite && (
-                        <Flag color="yellow" label="Favorite" why="Favorite">
-                          ★
-                        </Flag>
-                      )}
-                      {!gold && r.confidence && r.confidence.level !== 'high' && (
-                        <Flag
-                          color={r.confidence.level === 'low' ? 'orange' : 'yellow'}
-                          label={`${r.confidence.level === 'low' ? 'Low' : 'Medium'} price confidence`}
-                          why={confidenceTitle(r.confidence)}
+                    {!skill && (
+                      <Table.Td>
+                        <UnstyledButton
+                          aria-expanded={expanded}
+                          aria-label={`Details for ${r.recipe}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggle(r.recipe_id)
+                          }}
                         >
-                          ?
-                        </Flag>
-                      )}
-                      {!gold && r.slow && r.days_to_sell != null && (
-                        <Flag color="orange" label="Slow to sell" why={slowTitle(r.days_to_sell)}>
-                          ⚠
-                        </Flag>
-                      )}
-                      {r.short > 0 && (
-                        <Flag color="orange" label="Not enough listed" why={shortTitle(r.short)}>
-                          ◔
-                        </Flag>
-                      )}
-                      {modified && (
-                        <Flag color="yellow" label="Changed plan" why="Your changed plan, not the best one">
-                          ●
-                        </Flag>
-                      )}
-                    </Table.Td>
-                    {gold ? null : rankBy === 'skill' ? (
-                      <SkillCells result={r} />
+                          {expanded ? '▾' : '▸'}
+                        </UnstyledButton>
+                        {favorite && (
+                          <Flag color="yellow" label="Favorite" why="Favorite">
+                            ★
+                          </Flag>
+                        )}
+                        {!gold && r.confidence && r.confidence.level !== 'high' && (
+                          <Flag
+                            color={r.confidence.level === 'low' ? 'orange' : 'yellow'}
+                            label={`${r.confidence.level === 'low' ? 'Low' : 'Medium'} price confidence`}
+                            why={confidenceTitle(r.confidence)}
+                          >
+                            ?
+                          </Flag>
+                        )}
+                        {!gold && r.slow && r.days_to_sell != null && (
+                          <Flag color="orange" label="Slow to sell" why={slowTitle(r.days_to_sell)}>
+                            ⚠
+                          </Flag>
+                        )}
+                        {r.short > 0 && (
+                          <Flag color="orange" label="Not enough listed" why={shortTitle(r.short)}>
+                            ◔
+                          </Flag>
+                        )}
+                        {modified && (
+                          <Flag color="yellow" label="Changed plan" why="Your changed plan, not the best one">
+                            ●
+                          </Flag>
+                        )}
+                      </Table.Td>
+                    )}
+                    {gold ? null : skill ? (
+                      <>
+                        {recipeCell}
+                        <SkillCells result={r} />
+                      </>
                     ) : (
                       <>
                         <Table.Td c={r.profit < 0 ? 'red' : 'teal'} ff="monospace" ta="right">
@@ -520,28 +597,7 @@ export function ResultsTable({
                         <Table.Td c={r.roi < 0 ? 'red' : undefined}>{formatRoi(r.roi)}</Table.Td>
                       </>
                     )}
-                    <Table.Td>
-                      {r.kind === 'flip' && (
-                        // buy the item and disenchant it: no recipe to name
-                        <>
-                          <DisenchantLabel />{' '}
-                        </>
-                      )}
-                      <ItemLink
-                        item={items[r.output_item_id]}
-                        name={r.output_name}
-                        tooltip={
-                          <RecipeTooltip
-                            name={r.recipe}
-                            profession={KIND_NOTES[r.kind] ?? r.profession}
-                            reagents={r.reagents}
-                            output={items[r.output_item_id]}
-                            items={items}
-                          />
-                        }
-                      />
-                      {gold && <ExitsLine result={r} />}
-                    </Table.Td>
+                    {!skill && recipeCell}
                     {gold ? (
                       <>
                         <Table.Td ff="monospace" ta="right">
@@ -575,28 +631,28 @@ export function ResultsTable({
                         )}
                       </Table.Td>
                     ) : (
-                    <Table.Td
-                      className={COLUMN_HIDDEN.Crafter}
-                      title={r.crafters.length > 1 ? byCrafter(r.crafters, r.crafter).join(', ') : undefined}
-                    >
-                      {needsNoRecipe(r) && r.crafter ? (
-                        // a conversion or flip needs no recipe: whoever the plan picks does it
-                        <CharacterName name={r.crafter} />
-                      ) : r.crafters.length ? (
-                        <>
-                          <CharacterName name={byCrafter(r.crafters, r.crafter)[0]} />
-                          {r.crafters.length > 1 &&
-                            ` (and ${r.crafters.length - 1} other${r.crafters.length > 2 ? 's' : ''})`}
-                        </>
-                      ) : r.crafter && !needsNoRecipe(r) && learn[r.recipe_id] ? (
-                        <LearnTooltip learn={learn[r.recipe_id]}>not learned</LearnTooltip>
-                      ) : (
-                        <Text span size="sm" c="dimmed">
-                          {/* no crafter named: browsing without characters */}
-                          {r.crafter && !needsNoRecipe(r) ? 'not learned' : 'anyone'}
-                        </Text>
-                      )}
-                    </Table.Td>
+                      <Table.Td
+                        className={COLUMN_HIDDEN.Crafter}
+                        title={r.crafters.length > 1 ? byCrafter(r.crafters, r.crafter).join(', ') : undefined}
+                      >
+                        {needsNoRecipe(r) && r.crafter ? (
+                          // a conversion or flip needs no recipe: whoever the plan picks does it
+                          <CharacterName name={r.crafter} />
+                        ) : r.crafters.length ? (
+                          <>
+                            <CharacterName name={byCrafter(r.crafters, r.crafter)[0]} />
+                            {r.crafters.length > 1 &&
+                              ` (and ${r.crafters.length - 1} other${r.crafters.length > 2 ? 's' : ''})`}
+                          </>
+                        ) : r.crafter && !needsNoRecipe(r) && learn[r.recipe_id] ? (
+                          <LearnTooltip learn={learn[r.recipe_id]}>not learned</LearnTooltip>
+                        ) : (
+                          <Text span size="sm" c="dimmed">
+                            {/* no crafter named: browsing without characters */}
+                            {r.crafter && !needsNoRecipe(r) ? 'not learned' : 'anyone'}
+                          </Text>
+                        )}
+                      </Table.Td>
                     )}
                     {rankBy !== 'skill' && !gold && (
                       <Table.Td className={COLUMN_HIDDEN['Sell via']}>{exitLabel(r.best_exit)}</Table.Td>
@@ -615,7 +671,7 @@ export function ResultsTable({
                     )}
                   </MotionTr>
                   <AnimatePresence initial={false}>
-                    {expanded && (
+                    {expanded && !onOpen && (
                       <MotionTr key="details" {...reorder} className={classes.details}>
                         <Table.Td py={0} />
                         <Table.Td py={0} colSpan={columns - 1}>

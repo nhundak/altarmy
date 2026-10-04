@@ -67,8 +67,10 @@ tr.details:hover {
   }
 }
 
-/* A run whose spot shows on the zone map on hover. */
-.mapLink {
+/* Text with more on hover: a run whose spot shows on the zone map, a disenchant's expected materials. */
+.mapLink,
+.hint {
   text-decoration: underline dotted;
   text-underline-offset: 2px;
+  cursor: help;
 }

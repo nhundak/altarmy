@@ -5,9 +5,10 @@ import { useAhCut } from '../api/queries'
 import { SELL_PATH } from '../lib/choices'
 import { breakEven, countedOn, floor } from '../lib/selling'
 import { stepSource } from '../lib/steps'
-import { bonusNote, discountNote } from '../lib/talents'
+import { bonusNote, discountLabel } from '../lib/talents'
 import { formatCoords } from '../lib/time'
 import { CharacterName } from './CharacterName'
+import { DiscountTooltip } from './DiscountTooltip'
 import { ChoiceMenu, ChooseContext, sellChoices, sourceChoices, type PlanEditing } from './ChoiceMenu'
 import { DisenchantHover, Hover, ItemLink } from './ItemTooltip'
 import { Money } from './Money'
@@ -79,14 +80,14 @@ function describe(step: Step, result: RankResult, items: ItemMap, vendor?: strin
 }
 
 function describeAction(
-  { action, item_id, name, quantity, value, via, discount, rep_discount, rep_faction, bonus, convert, enchant }: Step,
+  { action, item_id, name, quantity, value, via, who, discount, rep_discount, rep_faction, bonus, convert, enchant }: Step,
   result: RankResult,
   items: ItemMap,
   vendor?: string,
   skill = false,
 ): ReactNode[] {
   const item = <ItemLink item={items[item_id]} name={name} />
-  const discounted = discountNote(discount, rep_discount, rep_faction)
+  const discounted = discountLabel(discount, rep_discount)
   const extra = bonus > 0 ? ` (${bonusNote(bonus)})` : ''
   switch (action) {
     case 'buy':
@@ -94,7 +95,19 @@ function describeAction(
         <>
           Purchase {quantity}x {item} {via === 'vendor' ? `from ${vendor ?? 'a vendor'}` : 'on the AH'} (
           <StepMoney value={value} />
-          {discounted && `, ${discounted}`})
+          {discounted && (
+            <>
+              ,{' '}
+              <Hover
+                tooltip={
+                  <DiscountTooltip who={who} discount={discount} repDiscount={rep_discount} repFaction={rep_faction} />
+                }
+              >
+                <span className={classes.hint}>{discounted}</span>
+              </Hover>
+            </>
+          )}
+          )
         </>,
       ]
     case 'gather':
@@ -122,12 +135,13 @@ function describeAction(
       if (via === 'disenchant')
         return [
           <>
-            <DisenchantHover result={result} items={items}>
-              Disenchant
-            </DisenchantHover>{' '}
-            {quantity > 1 ? `${quantity}x ` : ''}
+            Disenchant {quantity > 1 ? `${quantity}x ` : ''}
             {item}
-            {extra}
+            {extra} (
+            <DisenchantHover result={result} items={items}>
+              <span className={classes.hint}>view expected materials</span>
+            </DisenchantHover>
+            )
           </>,
           <>
             <DisenchantHover result={result} items={items}>
