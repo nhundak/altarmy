@@ -10,8 +10,8 @@
 -- Those who share get their recipes by the guild share messages (GuildShareComm), never by link.
 --   - Each such member online in the guild roster (GUILD_ROSTER_UPDATE, polled every ROSTER_POLL), probed one
 --     linkable skill line at a time: Cooking and First Aid first, since nearly everyone has them. When
---     both go unanswered the member is unreachable for now (offline since the roster was read, or on
---     another server) and their other lines wait. Lines that never answer back off for days
+--     both go unanswered the member is unreachable for now (offline since the roster was read) and their
+--     other lines wait. Members on another server are left out (TRY_OTHER_SERVERS). Lines that never answer back off for days
 --     (GuildShareData.linkProbes); known lines are read again after a few days or when the member levelled.
 -- Pacing: reads run one at a time in OwnRecipeRead's queue after the player's own, SESSION_BUDGET per
 -- session, pausing PAUSE_SEC after PAUSE_AFTER_TIMEOUTS unanswered links in a row. With the Guild tab open
@@ -34,10 +34,11 @@ GLR.REACHABILITY_MISSES = 2   -- unanswered reachability probes that make a memb
 GLR.UNREACHABLE_RETRY_SEC = 1800
 GLR.EMPTY_ROSTER_RETRY_SEC = 10 -- seconds before a pass that found the roster not loaded yet tries again...
 GLR.EMPTY_ROSTER_RETRIES = 6    -- ...at most this many times in a row
--- EXPERIMENT (2026-10-04): Linked Inn says the server answers links only for players on your own backend
--- server (the number after "Player-" in the GUID). Try anyway: other-server members are read last, tagged
--- "other server" in the log, and their unanswered links never pause the reads of everyone else.
-GLR.TRY_OTHER_SERVERS = true
+-- The server answers links only for players on your own backend server (the number after "Player-" in the
+-- GUID): a link for a member on another server always times out, so they are never read. Blizzard may fix
+-- this in the future; turning this on then reads them last, tagged "other server" in the log, and their
+-- unanswered links never pause the reads of everyone else.
+GLR.TRY_OTHER_SERVERS = false
 GLR.PRIORITY_ON_DEMAND = 2
 GLR.PRIORITY_BACKGROUND = 3
 
