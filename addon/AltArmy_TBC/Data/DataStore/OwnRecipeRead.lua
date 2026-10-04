@@ -31,6 +31,29 @@ R.RETRY = 5        -- seconds before trying again while something is in the way
 R.TIMEOUT = 3      -- seconds a read may take before its link counts as unanswered
 
 local PANELS = { "left", "center", "right", "doublewide", "fullscreen" }
+
+-- The server answers a profession link only for skill lines the game lets players link (DB2 SkillLine.CanLink;
+-- Forever 1.60.1). Fishing and Comprehension were tried in game and never opened; Mining, Herbalism and
+-- Skinning carry the same flag. Those are left to the player to open.
+R.LINKABLE_SKILL_LINES = {
+    [129] = true, -- First Aid
+    [164] = true, -- Blacksmithing
+    [165] = true, -- Leatherworking
+    [171] = true, -- Alchemy
+    [185] = true, -- Cooking
+    [197] = true, -- Tailoring
+    [202] = true, -- Engineering
+    [333] = true, -- Enchanting
+}
+-- The same by name (lowercase English, as DS.NO_RECIPE_PROFESSION_KEYS_*), for alts, whose skill lines aren't
+-- stored; names the client gives another way are learned from this character's professions below.
+R.UNREADABLE_PROFESSION_KEYS = {
+    fishing = true,
+    mining = true,
+    herbalism = true,
+    skinning = true,
+    comprehension = true,
+}
 local CONCEALED_SCALE = 0.01
 -- Reads on which silencing Blizzard's window never once got an answer before it is given up (the window is
 -- then only hidden): keeps a client where the silenced window holds the data back from never reading.
@@ -47,6 +70,7 @@ local silenced
 local quietTries, quietWorks, quietOff = 0, 0, false
 local tooltip
 local readLog = {}
+local unreadableNames = {} -- lowercase names of this character's professions on unlinkable skill lines
 local attempts = 0 -- each start's own number, so an old start's timeout can't end a newer one
 
 --- Debug only: the last reads, written as a dev dump when /altarmy debug is on (docs/DEV_DUMPS.md).
@@ -82,6 +106,13 @@ end
 
 local function active()
     return R.HasApi() and R.IsEnabled()
+end
+
+--- Whether a profession's recipes can be read in the background (its skill line can be linked).
+function R.CanRead(profName)
+    if type(profName) ~= "string" then return false end
+    local key = profName:lower()
+    return not R.UNREADABLE_PROFESSION_KEYS[key] and not unreadableNames[key]
 end
 
 --- True while a read is waiting for its window (ScanRecipesViaTradeSkillUI trusts an unnamed link then).
@@ -122,7 +153,9 @@ local function professionJobs()
         if i ~= 3 and type(index) == "number" then -- 3 is Archaeology
             local name, _, rank, _, numSpells, offset, skillLine = GetProfessionInfo(index)
             name = DS.NormalizeProfessionName and DS.NormalizeProfessionName(name) or name
-            if type(name) == "string" and name ~= "" and (tonumber(rank) or 0) > 0
+            if type(name) == "string" and type(skillLine) == "number" and not R.LINKABLE_SKILL_LINES[skillLine] then
+                unreadableNames[name:lower()] = true
+            elseif type(name) == "string" and name ~= "" and (tonumber(rank) or 0) > 0
                 and type(offset) == "number" and type(skillLine) == "number"
                 and not DS.ProfessionHasNoRecipeWindow(name) then
                 local spells = candidateSpells(numSpells, offset, skillLine)
@@ -433,7 +466,7 @@ function R._ResetForTests()
     queue, pending, pumpScheduled, workedSpell = {}, nil, false, {}
     frameHooked, concealed, savedLook, silenced = false, false, nil, nil
     quietTries, quietWorks, quietOff = 0, 0, false
-    tooltip, readLog, attempts = nil, {}, 0
+    tooltip, readLog, attempts, unreadableNames = nil, {}, 0, {}
 end
 
 local frame = CreateFrame and CreateFrame("Frame")

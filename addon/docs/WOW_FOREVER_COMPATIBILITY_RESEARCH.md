@@ -375,8 +375,9 @@ Dispatch: added `TRADE_SKILL_DATA_SOURCE_CHANGED` to `DataStore.lua`'s `SafeRegi
 >
 > Built as [`OwnRecipeRead.lua`](../AltArmy_TBC/Data/DataStore/OwnRecipeRead.lua). It reads only stale professions (marked for the Summary warning, or with no recipes stored), 10 s after login or a reload and 3 s after a learned recipe marks one stale: each read opens the window, which plays its sound. Reads run one at a time, never in combat, while typing or while a panel is open. During a read, Blizzard's handlers that open the window are unregistered and the window is hidden should it open anyway. It can be turned off in Options > General > Advanced. `ScanRecipesViaTradeSkillUI` now also refuses guild, NPC and other players' linked windows, which it used to store as the character's own recipes.
 >
+> **Only linkable professions answer (tested 2026-10-04).** The server answers a profession link only for a skill line whose DB2 `SkillLine.CanLink` is 1. On Forever that is First Aid, Blacksmithing, Leatherworking, Alchemy, Cooking, Tailoring, Engineering and Enchanting. It is 0 for Fishing, Mining, Herbalism, Skinning and Comprehension (the mage profession: skill line 3012, window spell Research 1310041). Links to Comprehension (`trade:<GUID>:1310041:3012`) and Fishing (`trade:<GUID>:1240948:356`) never opened, so the reader tries only `R.LINKABLE_SKILL_LINES`. The others still need their window opened by the player (Comprehension: `/cast Research`).
+>
 > Still unverified in game:
-> - whether a gathering profession's first spellbook spell opens its window (the reader falls back to the profession's other spells);
 > - whether the own link comes back unlinked or linked under the player's name (both are accepted);
 > - whether silencing Blizzard's handlers keeps the window and its sound away;
 > - whether `GetRecipeCooldown` reads correctly from a window opened this way.

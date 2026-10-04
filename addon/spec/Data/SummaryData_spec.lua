@@ -627,7 +627,11 @@ describe("SummaryData", function()
 
       before_each(function()
         savedReader = _G.AltArmy.OwnRecipeRead
-        _G.AltArmy.OwnRecipeRead = { HasApi = function() return true end, IsEnabled = function() return true end }
+        _G.AltArmy.OwnRecipeRead = {
+          HasApi = function() return true end,
+          IsEnabled = function() return true end,
+          CanRead = function(name) return name ~= "Skinning" end,
+        }
         oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
         _G.UnitName = function(unit) return unit == "player" and "Alice" or nil end
         _G.GetRealmName = function() return "Realm1" end
@@ -662,6 +666,18 @@ describe("SummaryData", function()
           if line == "* Open your Alchemy window" then found = true end
         end
         assert.is_true(found, "expected 'Open your Alchemy window' for the current character")
+      end)
+
+      it("names the window of a profession that can't be read in the background", function()
+        DS.ProfessionHasNoRecipeWindow = function() return false end
+        local char = DS.GetCharacter()
+        char.Professions = { Skinning = { rank = 75, maxRank = 150, Recipes = {} } }
+        local out = SD.GetMissingDataInfo("Bob", "Realm1")
+        local found = false
+        for _, line in ipairs(out.instructions) do
+          if line == "* Open your Skinning window" then found = true end
+        end
+        assert.is_true(found, "expected 'Open your Skinning window' for an alt")
       end)
 
       it("names the window when reading is turned off", function()

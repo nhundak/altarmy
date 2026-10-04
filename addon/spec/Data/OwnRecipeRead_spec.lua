@@ -108,13 +108,13 @@ describe("OwnRecipeRead", function()
         _G.UnitGUID = function(unit) if unit == "player" then return "Player-1-ABC" end end
         _G.UnitName = function() return "Me" end
         _G.GetRealmName = function() return "Realm" end
-        -- Slots: 1 Tailoring, 2 Mining (its first spellbook spell is Find Minerals), 5 Cooking (rank 0).
+        -- Slots: 1 Tailoring, 2 Alchemy (its first spellbook spell opens nothing), 5 Cooking (rank 0).
         profs = {
             [1] = { name = "Tailoring", rank = 150, max = 225, numSpells = 1, offset = 10, line = 197 },
-            [2] = { name = "Mining", rank = 75, max = 150, numSpells = 2, offset = 20, line = 186 },
+            [2] = { name = "Alchemy", rank = 75, max = 150, numSpells = 2, offset = 20, line = 171 },
             [5] = { name = "Cooking", rank = 0, max = 75, numSpells = 1, offset = 30, line = 185 },
         }
-        spellbook = { [11] = 3908, [21] = 2580, [22] = 2656, [31] = 2550 }
+        spellbook = { [11] = 3908, [21] = 1111, [22] = 2259, [31] = 2550 }
         _G.GetProfessions = function() return 1, 2, nil, nil, 5, nil end
         _G.GetProfessionInfo = function(i)
             local p = profs[i]
@@ -202,6 +202,20 @@ describe("OwnRecipeRead", function()
             assert.are.equal(0, #links)
         end)
 
+        it("skips professions the game won't link, such as Fishing", function()
+            profs[2] = { name = "Fishing", rank = 75, max = 150, numSpells = 1, offset = 20, line = 356 }
+            assert.are.equal(1, R.QueueAll())
+            assert.are.same({ "trade:Player-1-ABC:3908:197" }, links)
+            assert.is_false(R.CanRead("Fishing"))
+        end)
+
+        it("says which professions it can read", function()
+            assert.is_true(R.CanRead("Tailoring"))
+            for _, name in ipairs({ "Fishing", "Mining", "Herbalism", "Skinning", "Comprehension" }) do
+                assert.is_false(R.CanRead(name), name)
+            end
+        end)
+
         it("skips professions without a rank or without a recipe window", function()
             profs[2] = { name = "Riding", rank = 75, max = 75, numSpells = 1, offset = 20, line = 762 }
             assert.are.equal(1, R.QueueAll())
@@ -219,7 +233,7 @@ describe("OwnRecipeRead", function()
             assert.are.equal(1, closes)
             assert.is_false(R.IsReading())
             advance(R.GAP)
-            assert.are.same({ "trade:Player-1-ABC:3908:197", "trade:Player-1-ABC:2580:186" }, links)
+            assert.are.same({ "trade:Player-1-ABC:3908:197", "trade:Player-1-ABC:1111:171" }, links)
         end)
 
         it("is finished by the DataStore's own recipe scan", function()
@@ -238,18 +252,18 @@ describe("OwnRecipeRead", function()
             login()
             reply("Tailoring")
             advance(R.GAP)
-            assert.are.equal("trade:Player-1-ABC:2580:186", lastLink())
+            assert.are.equal("trade:Player-1-ABC:1111:171", lastLink())
             advance(R.TIMEOUT)
             assert.are.equal(2, closes)
             advance(R.GAP)
-            assert.are.equal("trade:Player-1-ABC:2656:186", lastLink())
-            reply("Mining")
+            assert.are.equal("trade:Player-1-ABC:2259:171", lastLink())
+            reply("Alchemy")
             advance(R.GAP)
             assert.are.equal(3, #links)
 
-            R.Queue("Mining")
+            R.Queue("Alchemy")
             advance(R.GAP)
-            assert.are.equal("trade:Player-1-ABC:2656:186", lastLink())
+            assert.are.equal("trade:Player-1-ABC:2259:171", lastLink())
         end)
 
         it("gives up on a profession once every spell went unanswered", function()
@@ -257,9 +271,9 @@ describe("OwnRecipeRead", function()
             advance(R.TIMEOUT)
             assert.is_false(R.IsReading())
             advance(R.GAP)
-            assert.are.equal("trade:Player-1-ABC:2580:186", lastLink())
+            assert.are.equal("trade:Player-1-ABC:1111:171", lastLink())
             advance(R.TIMEOUT + R.GAP)
-            assert.are.equal("trade:Player-1-ABC:2656:186", lastLink())
+            assert.are.equal("trade:Player-1-ABC:2259:171", lastLink())
             advance(60)
             assert.are.equal(3, #links)
             assert.is_false(R.IsReading())
@@ -368,7 +382,7 @@ describe("OwnRecipeRead", function()
         it("reads nothing at login when every profession has its recipes", function()
             professions({
                 Tailoring = { rank = 150, Recipes = recipes },
-                Mining = { rank = 75, Recipes = recipes },
+                Alchemy = { rank = 75, Recipes = recipes },
             })
             assert.are.equal(0, R.QueueAll())
             login()
@@ -379,24 +393,24 @@ describe("OwnRecipeRead", function()
         it("reads a profession marked stale, and only that one", function()
             local char = professions({
                 Tailoring = { rank = 150, Recipes = recipes },
-                Mining = { rank = 75, Recipes = recipes },
+                Alchemy = { rank = 75, Recipes = recipes },
             })
-            char.professionsNeedingRecipeScan = { Mining = true }
+            char.professionsNeedingRecipeScan = { Alchemy = true }
             login()
-            reply("Mining")
+            reply("Alchemy")
             advance(60)
-            assert.are.same({ "trade:Player-1-ABC:2580:186" }, links)
+            assert.are.same({ "trade:Player-1-ABC:1111:171" }, links)
         end)
 
         it("reads a profession with no recipes stored", function()
             professions({
                 Tailoring = { rank = 150, Recipes = recipes },
-                Mining = { rank = 75, Recipes = {} },
+                Alchemy = { rank = 75, Recipes = {} },
             })
             login()
-            reply("Mining")
+            reply("Alchemy")
             advance(60)
-            assert.are.same({ "trade:Player-1-ABC:2580:186" }, links)
+            assert.are.same({ "trade:Player-1-ABC:1111:171" }, links)
         end)
 
         it("reads stale professions in the game's order", function()
@@ -407,7 +421,7 @@ describe("OwnRecipeRead", function()
         it("doesn't read a profession asked for by name unless it is stale", function()
             local char = professions({
                 Tailoring = { rank = 150, Recipes = recipes },
-                Mining = { rank = 75, Recipes = recipes },
+                Alchemy = { rank = 75, Recipes = recipes },
             })
             assert.are.equal(0, R.Queue("Tailoring"))
             char.professionsNeedingRecipeScan = { Tailoring = true }
@@ -418,9 +432,9 @@ describe("OwnRecipeRead", function()
 
     describe("after learning a recipe", function()
         it("reads that profession again", function()
-            R.OnRecipeLearned("Mining")
+            R.OnRecipeLearned("Alchemy")
             advance(R.LEARN_DELAY)
-            assert.are.same({ "trade:Player-1-ABC:2580:186" }, links)
+            assert.are.same({ "trade:Player-1-ABC:1111:171" }, links)
         end)
 
         it("reads every profession when it can't tell which", function()

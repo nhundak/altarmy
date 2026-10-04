@@ -436,7 +436,8 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
     -- DS.ProfessionHasNoRecipeWindow in DataStoreProfessions.lua, the shared source of truth this
     -- and GuildTabData.lua's crafting/gathering split both read from.
     -- Where recipes are read in the background at login (OwnRecipeRead, WoW Forever), an alt only needs
-    -- logging in; the current character is still told to open the window should a read have failed.
+    -- logging in, for professions that can be read that way (not Fishing, gathering or Comprehension); the
+    -- current character is still told to open the window should a read have failed.
     if DS.HasModuleData and DS:HasModuleData(char, "professions") and DS.GetProfessions and DS.GetNumRecipes then
         local professions = DS:GetProfessions(char)
         local needingRescan = char.professionsNeedingRecipeScan
@@ -447,7 +448,7 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
                 local rank = (prof and prof.rank) or 0
                 local needsOpen = (rank > 0 and DS:GetNumRecipes(char, profName) == 0)
                     or (type(needingRescan) == "table" and needingRescan[profName])
-                if needsOpen and readAtLogin then
+                if needsOpen and readAtLogin and R.CanRead and R.CanRead(profName) then
                     addUniqueInstruction(out, "* Log in with this character")
                 elseif needsOpen then
                     addUniqueInstruction(out, "* Open your " .. profName .. " window")
