@@ -181,6 +181,12 @@ panel.default = function()
     if panel.RefreshAuctionOptions then
         panel.RefreshAuctionOptions()
     end
+    if AltArmy.OwnRecipeRead and AltArmy.OwnRecipeRead.SetEnabled then
+        AltArmy.OwnRecipeRead.SetEnabled(true)
+    end
+    if panel.RefreshAdvancedOptions then
+        panel.RefreshAdvancedOptions()
+    end
 end
 panel.refresh = function()
     ensureDefaults()
@@ -198,6 +204,9 @@ panel.refresh = function()
     end
     if panel.RefreshAuctionOptions then
         panel.RefreshAuctionOptions()
+    end
+    if panel.RefreshAdvancedOptions then
+        panel.RefreshAdvancedOptions()
     end
 end
 
@@ -714,6 +723,12 @@ local guildSection = Theme.CreateCollapsibleSection(generalScrollChild, {
 local auctionSection = Theme.CreateCollapsibleSection(generalScrollChild, {
     text = "Auction House",
     defaultExpanded = true,
+    onToggle = onSectionToggled,
+})
+-- Advanced: last, closed at first. On panel, not a main-chunk local (Lua 5.1's 200-local limit).
+panel.advancedSection = Theme.CreateCollapsibleSection(generalScrollChild, {
+    text = "Advanced",
+    defaultExpanded = false,
     onToggle = onSectionToggled,
 })
 
@@ -1522,9 +1537,46 @@ do
 end
 
 -- Each section's content height, from its rows (as Blizzard's Settings sections compute theirs).
+-- Advanced section: reading recipes in the background (Data/DataStore/OwnRecipeRead.lua). Only on clients
+-- where it can (WoW Forever). Rows on panel, not main-chunk locals (Lua 5.1's 200-local limit).
+panel.autoReadRecipesRow = Theme.CreateLabeledCheckbox(panel.advancedSection.content, {
+    point = "TOPLEFT",
+    relativeTo = panel.advancedSection.content,
+    relativePoint = "TOPLEFT",
+    x = 0,
+    y = 0,
+    text = "Read recipes automatically",
+    fullWidthHover = true,
+    onClick = function(checked)
+        local R = AltArmy.OwnRecipeRead
+        if R and R.SetEnabled then
+            R.SetEnabled(checked)
+        end
+    end,
+})
+Theme.AttachSettingsHelpIcon(panel.autoReadRecipesRow, {
+    title = "Read recipes automatically",
+    lines = {
+        "Reads your recipes without having to open each profession",
+        "Recommended, but you can turn it off if you don't like the occasional sounds of the skill book "
+            .. "opening, or if it causes problems for other addons.",
+    },
+})
+
+function panel.RefreshAdvancedOptions()
+    local R = AltArmy.OwnRecipeRead
+    panel.autoReadRecipesRow.check:SetChecked(not (R and R.IsEnabled) or R.IsEnabled())
+end
+panel.RefreshAdvancedOptions()
+do
+    local R = AltArmy.OwnRecipeRead
+    panel.advancedSection.SetShown(R and R.HasApi and R.HasApi() or false)
+end
+
 generalSection.SetContentHeight(Theme.CHAR_LIST_ROW_HEIGHT + 14 + REALM_FILTER_ROW_HEIGHT)
 guildSection.SetContentHeight(GUILD_CONTENT_HEIGHT)
 auctionSection.SetContentHeight(Theme.CHAR_LIST_ROW_HEIGHT)
+panel.advancedSection.SetContentHeight(Theme.CHAR_LIST_ROW_HEIGHT)
 
 --- Where the General tab's section frames and the Guild rows actually are, for `/altarmy debug layout`
 --- (a dev dump: see docs/DEV_DUMPS.md).
@@ -1572,7 +1624,7 @@ function panel.DumpGeneralLayout()
     })
 end
 
-local generalSections = { generalSection, guildSection, auctionSection }
+local generalSections = { generalSection, guildSection, auctionSection, panel.advancedSection }
 local stackGeneralSections = Theme.StackCollapsibleSections(generalSections, { parent = generalScrollChild, gap = 8 })
 
 --- Stack the sections and size the scroll area to them.
@@ -2131,6 +2183,9 @@ panel:HookScript("OnShow", function()
     end
     if panel.RefreshAuctionOptions then
         panel.RefreshAuctionOptions()
+    end
+    if panel.RefreshAdvancedOptions then
+        panel.RefreshAdvancedOptions()
     end
 end)
 

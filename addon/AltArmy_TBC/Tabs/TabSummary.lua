@@ -78,6 +78,18 @@ local function showStatusIcon(row, icon, hit, x, tooltipEntry)
     end
 end
 
+--- Green up arrow before a Rest XP that includes the "Well Rested" legacy talent: the bags' upgrade
+--- arrow where the client has that atlas, else the green stream arrow flipped to point up.
+local function SetWellRestedArrowArt(tex)
+    local NUI = AltArmy.NativeUI
+    if tex.SetAtlas and NUI and NUI.HasAtlas and NUI.HasAtlas("bags-greenarrow") then
+        tex:SetAtlas("bags-greenarrow")
+    else
+        tex:SetTexture("Interface\\Buttons\\UI-MicroStream-Green")
+        tex:SetTexCoord(0, 1, 1, 0)
+    end
+end
+
 local function SetNameIcon(icon, iconFallback, classFile)
     local tcoords = CLASS_ICON_TCOORDS and classFile and CLASS_ICON_TCOORDS[classFile]
     if tcoords then
@@ -621,6 +633,29 @@ for i = 1, ROW_POOL_SIZE do
             cell:SetWidth(w)
             cell:SetJustifyH(col and col.JustifyH or "LEFT")
             row.cells[colName] = cell
+            if colName == "RestXP" then
+                -- Well Rested: an arrow left of the percentage, and its talent tooltip over the cell.
+                local restArrow = row:CreateTexture(nil, "ARTWORK")
+                restArrow:SetSize(12, 12)
+                SetWellRestedArrowArt(restArrow)
+                restArrow:Hide()
+                row.restArrow = restArrow
+                local restHit = CreateFrame("Frame", nil, row)
+                restHit:SetPoint("LEFT", row, "LEFT", rowCellX, 0)
+                restHit:SetSize(w, ROW_HEIGHT)
+                restHit:EnableMouse(true)
+                restHit:SetFrameLevel(row:GetFrameLevel() + 3)
+                restHit:Hide()
+                restHit:SetScript("OnEnter", function(self)
+                    if self.tooltipEntry and SD and SD.PresentWellRestedTooltip then
+                        SD.PresentWellRestedTooltip(self, "ANCHOR_BOTTOMLEFT", self.tooltipEntry)
+                    end
+                end)
+                restHit:SetScript("OnLeave", function()
+                    if GameTooltip then GameTooltip:Hide() end
+                end)
+                row.restHit = restHit
+            end
         end
         rowCellX = rowCellX + w
     end
@@ -710,6 +745,25 @@ end
 
 local function GetRow(index)
     return rowPool[index]
+end
+
+--- Shows the Well Rested arrow just left of the right-justified Rest XP text, and arms its tooltip,
+--- when the entry has a rank; hides both otherwise (entry nil for an empty row).
+local function UpdateWellRestedMarker(rowFrame, entry)
+    local arrow, hit = rowFrame.restArrow, rowFrame.restHit
+    if not arrow or not hit then return end
+    if entry and not entry.isMaxLevel and (tonumber(entry.wellRestedRank) or 0) > 0 then
+        local cell = rowFrame.cells.RestXP
+        arrow:ClearAllPoints()
+        arrow:SetPoint("RIGHT", cell, "RIGHT", -(cell:GetStringWidth() + 2), 0)
+        arrow:Show()
+        hit.tooltipEntry = entry
+        hit:Show()
+    else
+        arrow:Hide()
+        hit.tooltipEntry = nil
+        hit:Hide()
+    end
 end
 
 --- Update visible rows from the character list using current vertical scrollbar position.
@@ -897,6 +951,9 @@ Update = function()
                         end
                     else
                         cell:SetText(col.GetText(entry))
+                        if colName == "RestXP" then
+                            UpdateWellRestedMarker(rowFrame, entry)
+                        end
                     end
                 end
             end
@@ -916,6 +973,7 @@ Update = function()
                     rowFrame.mainStarHit.showTooltip = false
                 end
                 hideStatusIcon(rowFrame.bankAltIcon, rowFrame.bankAltHit)
+                UpdateWellRestedMarker(rowFrame, nil)
                 rowFrame:Hide()
             end
         end

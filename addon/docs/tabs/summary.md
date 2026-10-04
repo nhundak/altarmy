@@ -18,7 +18,7 @@ See levels, rest XP, money, played time, and last online at a glance; pin/hide c
 |--------|--------|
 | Name | Class-colored with class icon; bank-alt icon when flagged |
 | Level | Fractional level support |
-| Rest XP | Rested experience (cap and accumulation rate widened by the WoW Forever "Well Rested" Legacy Talent, when captured — see [Legacy Talents](../WOW_FOREVER_COMPATIBILITY_RESEARCH.md#legacy-talents-2026-09-21)) |
+| Rest XP | Rested experience (cap and accumulation rate widened by the WoW Forever "Well Rested" Legacy Talent, when captured — see [Legacy Talents](../WOW_FOREVER_COMPATIBILITY_RESEARCH.md#legacy-talents-2026-09-21)). A character with a rank in Well Rested shows a green up arrow before the percentage; hovering the cell shows a tooltip with the talent's rank and what it adds |
 | Money | Bags + mail gold |
 | Played | Time played |
 | Last online | Relative last logout |
@@ -34,7 +34,7 @@ Click headers to sort ascending/descending.
 
 ## Missing data
 
-One gold `!` per character with a de-duped action list (`GetMissingDataInfo`). Covers never-gathered modules, stale reputation schema, professions needing an open window, talents, etc. See the summary-missing-data Cursor skill for the design contract.
+One gold `!` per character with a de-duped action list (`GetMissingDataInfo`). Covers never-gathered modules, stale reputation schema, professions needing an open window (on WoW Forever, where recipes are read at login, an alt's missing recipes only ask to log in with it), talents, etc. See the summary-missing-data Cursor skill for the design contract.
 
 ## Data source
 

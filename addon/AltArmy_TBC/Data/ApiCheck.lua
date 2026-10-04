@@ -86,6 +86,14 @@ AC.MANIFEST = {
       candidates = { "C_TradeSkillUI.GetRecipeOutputItemData" } },
     { area = "Professions", label = "C_TradeSkillUI.GetRecipeCooldown",
       candidates = { "C_TradeSkillUI.GetRecipeCooldown" } },
+    -- Reading the player's own recipes in the background (DataStore/OwnRecipeRead.lua): the profession's
+    -- spell from the spellbook, closing the window it opened, and telling a linked window from our own.
+    { area = "Professions", label = "C_SpellBook.GetSpellBookItemInfo",
+      candidates = { "C_SpellBook.GetSpellBookItemInfo" } },
+    { area = "Professions", label = "C_TradeSkillUI.CloseTradeSkill",
+      candidates = { "C_TradeSkillUI.CloseTradeSkill" } },
+    { area = "Professions", label = "C_TradeSkillUI.IsTradeSkillLinked",
+      candidates = { "C_TradeSkillUI.IsTradeSkillLinked" } },
 
     -- Crafting (old-style profession UI; some TBC-era professions still use this)
     { area = "Crafting", label = "GetCraftSkillLine", candidates = { "GetCraftSkillLine" } },

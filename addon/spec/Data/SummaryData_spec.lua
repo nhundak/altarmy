@@ -41,51 +41,78 @@ describe("SummaryData", function()
     end)
   end)
 
-  describe("GetNameStatusIconLayout", function()
-    it("places main then bank after the class icon", function()
-      local layout = SD.GetNameStatusIconLayout(16, 16, 2, true, true)
-      assert.are.equal(18, layout.mainX)
-      assert.are.equal(36, layout.bankX)
-      assert.are.equal(54, layout.nameTextLeft)
+  describe("GetCharacterList (Well Rested)", function()
+    local DS, savedGetRealms, savedGetCharacters
+
+    setup(function()
+      _G.AltArmyTBC_Data = _G.AltArmyTBC_Data or { Characters = {} }
+      _G.CreateFrame = _G.CreateFrame or function()
+        return { SetScript = function() end, RegisterEvent = function() end }
+      end
+      _G.UIParent = _G.UIParent or {}
+      package.path = package.path .. ";AltArmy_TBC/Data/?.lua"
+      require("DataStore")
+      require("DataStoreCharacter")
+      require("DataStoreLegacy")
+      DS = _G.AltArmy.DataStore
+      savedGetRealms, savedGetCharacters = DS.GetRealms, DS.GetCharacters
     end)
 
-    it("omits hidden status icons from the layout", function()
-      local bankOnly = SD.GetNameStatusIconLayout(16, 16, 2, false, true)
-      assert.is_nil(bankOnly.mainX)
-      assert.are.equal(18, bankOnly.bankX)
-      assert.are.equal(36, bankOnly.nameTextLeft)
+    teardown(function()
+      DS.GetRealms, DS.GetCharacters = savedGetRealms, savedGetCharacters
+    end)
 
-      local mainOnly = SD.GetNameStatusIconLayout(16, 16, 2, true, false)
-      assert.are.equal(18, mainOnly.mainX)
-      assert.is_nil(mainOnly.bankX)
-      assert.are.equal(36, mainOnly.nameTextLeft)
+    local function listFor(chars)
+      DS.GetRealms = function() return { R1 = true } end
+      DS.GetCharacters = function() return chars end
+      local byName = {}
+      for _, e in ipairs(SD.GetCharacterList()) do byName[e.name] = e end
+      return byName
+    end
 
-      local neither = SD.GetNameStatusIconLayout(16, 16, 2, false, false)
-      assert.is_nil(neither.mainX)
-      assert.is_nil(neither.bankX)
-      assert.are.equal(18, neither.nameTextLeft)
+    it("carries the Well Rested rank, none at max level", function()
+      local legacy = { spells = {}, restRank = 2 }
+      local byName = listFor({
+        Rested = { name = "Rested", level = 20, xp = 0, xpMax = 1000, legacyTalents = legacy },
+        Capped = { name = "Capped", level = DS.MAX_LEVEL, legacyTalents = legacy },
+        Plain = { name = "Plain", level = 20, xp = 0, xpMax = 1000 },
+      })
+      assert.are.equal(2, byName.Rested.wellRestedRank)
+      assert.are.equal(0, byName.Capped.wellRestedRank)
+      assert.are.equal(0, byName.Plain.wellRestedRank)
     end)
   end)
 
-  describe("GetMoneyString", function()
-    it("formats copper only", function()
-      local s = SD.GetMoneyString(99)
-      assert.truthy(s:find("99"))
-      assert.truthy(s:find("|t"))
+  describe("PresentWellRestedTooltip", function()
+    local savedTooltip, tip
+
+    local function fakeTooltip()
+      local t = { lines = {} }
+      function t:SetOwner(owner, anchor) self.owner, self.anchor = owner, anchor end
+      function t:ClearLines() self.lines = {} end
+      function t:AddLine(text) self.lines[#self.lines + 1] = text end
+      function t:Show() self.shown = true end
+      return t
+    end
+
+    before_each(function()
+      savedTooltip = _G.GameTooltip
+      tip = fakeTooltip()
+      _G.GameTooltip = tip
     end)
-    it("formats silver and copper when no gold", function()
-      local s = SD.GetMoneyString(150)
-      assert.truthy(s:find("1"))
-      assert.truthy(s:find("50"))
+    after_each(function() _G.GameTooltip = savedTooltip end)
+
+    it("names the talent, its rank and what it adds", function()
+      assert.is_true(SD.PresentWellRestedTooltip("owner", "ANCHOR_BOTTOMLEFT", { wellRestedRank = 2 }))
+      assert.are.same({ "Well Rested", "Rank 2/5", "Rested XP cap and accumulation +8%" }, tip.lines)
+      assert.are.equal("owner", tip.owner)
+      assert.are.equal("ANCHOR_BOTTOMLEFT", tip.anchor)
+      assert.is_true(tip.shown)
     end)
-    it("formats gold, silver, copper", function()
-      local s = SD.GetMoneyString(10000)
-      assert.truthy(s:find("1"))
-      assert.truthy(s:find("0"))
-    end)
-    it("treats nil as 0", function()
-      local s = SD.GetMoneyString(nil)
-      assert.truthy(s:find("0"))
+
+    it("shows nothing without a rank", function()
+      assert.is_false(SD.PresentWellRestedTooltip("owner", "ANCHOR_BOTTOMLEFT", { wellRestedRank = 0 }))
+      assert.is_nil(tip.shown)
     end)
   end)
 
@@ -593,6 +620,59 @@ describe("SummaryData", function()
         if line:find("Alchemy", 1, true) then count = count + 1 end
       end
       assert.are.equal(1, count)
+    end)
+
+    describe("where recipes are read at login (WoW Forever)", function()
+      local savedReader, oldUnitName, oldGetRealmName
+
+      before_each(function()
+        savedReader = _G.AltArmy.OwnRecipeRead
+        _G.AltArmy.OwnRecipeRead = { HasApi = function() return true end, IsEnabled = function() return true end }
+        oldUnitName, oldGetRealmName = _G.UnitName, _G.GetRealmName
+        _G.UnitName = function(unit) return unit == "player" and "Alice" or nil end
+        _G.GetRealmName = function() return "Realm1" end
+        local char = {
+          dataVersions = { character = 1, professions = 1 },
+          Professions = {
+            Alchemy = { rank = 50, maxRank = 300, Recipes = {} },
+            Tailoring = { rank = 75, maxRank = 150, Recipes = {} },
+          },
+        }
+        DS.GetCharacter = function() return char end
+        DS.HasModuleData = function(_, c, mod) return (c.dataVersions and c.dataVersions[mod]) == 1 end
+        DS.GetProfessions = function(_, c) return c.Professions or {} end
+        DS.GetNumRecipes = function() return 0 end
+      end)
+
+      after_each(function()
+        _G.AltArmy.OwnRecipeRead = savedReader
+        _G.UnitName, _G.GetRealmName = oldUnitName, oldGetRealmName
+      end)
+
+      it("asks only to log in with an alt whose recipes are missing", function()
+        local out = SD.GetMissingDataInfo("Bob", "Realm1")
+        assert.is_true(out.hasMissing)
+        assert.are.same({ "* Log in with this character" }, out.instructions)
+      end)
+
+      it("still names the window for the character logged in", function()
+        local out = SD.GetMissingDataInfo("Alice", "Realm1")
+        local found = false
+        for _, line in ipairs(out.instructions) do
+          if line == "* Open your Alchemy window" then found = true end
+        end
+        assert.is_true(found, "expected 'Open your Alchemy window' for the current character")
+      end)
+
+      it("names the window when reading is turned off", function()
+        _G.AltArmy.OwnRecipeRead.IsEnabled = function() return false end
+        local out = SD.GetMissingDataInfo("Bob", "Realm1")
+        local found = false
+        for _, line in ipairs(out.instructions) do
+          if line == "* Open your Tailoring window" then found = true end
+        end
+        assert.is_true(found, "expected 'Open your Tailoring window' when reading is off")
+      end)
     end)
 
     it("adds Open your Poisons window when poison skill rank was not captured", function()

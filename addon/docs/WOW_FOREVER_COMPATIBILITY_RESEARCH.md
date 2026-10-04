@@ -369,6 +369,20 @@ Dispatch: added `TRADE_SKILL_DATA_SOURCE_CHANGED` to `DataStore.lua`'s `SafeRegi
 
 > **✅ Very likely resolved (2026-09-23):** `C_TradeSkillUI` scanning works on Forever — the "Recipe names/tooltips resolved to unrelated items" bug below was reported against recipe rows scanned from Forever characters, which can only exist if this fallback populated them. (Inferred from that report rather than a dedicated check.) Whether `GetRecipeOutputItemData` resolves `resultItemID` and whether the `relativeDifficulty` colors look right are still unverified.
 
+> **Update (2026-10-04): the window can be opened without a click after all.** `OpenTradeSkill` still needs a hardware event, but a profession *link* does not. A hidden tooltip's `SetHyperlink("trade:<player GUID>:<profession spell>:<skill line>")`, called from a timer, makes the client ask the server for that profession and open it, firing `TRADE_SKILL_SHOW` / `TRADE_SKILL_DATA_SOURCE_CHANGED` as if the player had clicked. Pointed at the player's own GUID it opens their own profession, and the existing `ScanRecipesViaTradeSkillUI` stores it unchanged. The technique comes from the Linked Inn addon (github.com/sanredz/Linked-Inn, `Reader.ReadOwn`), which reads every crafter around the player this way.
+>
+> Verified on Forever with `/run C_Timer.After(1, ...)`. The 1-second timer moves the call outside the keypress, and the player's first profession opened and its recipes updated. The spell is the spellbook item at `GetProfessionInfo`'s 6th return (spell offset) + 1, through `C_SpellBook.GetSpellBookItemInfo`; the skill line is its 7th return.
+>
+> Built as [`OwnRecipeRead.lua`](../AltArmy_TBC/Data/DataStore/OwnRecipeRead.lua). It reads only stale professions (marked for the Summary warning, or with no recipes stored), 10 s after login or a reload and 3 s after a learned recipe marks one stale: each read opens the window, which plays its sound. Reads run one at a time, never in combat, while typing or while a panel is open. During a read, Blizzard's handlers that open the window are unregistered and the window is hidden should it open anyway. It can be turned off in Options > General > Advanced. `ScanRecipesViaTradeSkillUI` now also refuses guild, NPC and other players' linked windows, which it used to store as the character's own recipes.
+>
+> Still unverified in game:
+> - whether a gathering profession's first spellbook spell opens its window (the reader falls back to the profession's other spells);
+> - whether the own link comes back unlinked or linked under the player's name (both are accepted);
+> - whether silencing Blizzard's handlers keeps the window and its sound away;
+> - whether `GetRecipeCooldown` reads correctly from a window opened this way.
+>
+> Set `/altarmy debug on` to get the `ownRecipeRead` dev dump.
+
 ## Ninth: Skinning has real recipes on Forever, unlike TBC (2026-09-17)
 
 User report from in-game: on Forever, Skinning has an actual recipe window (crafted items, not just the passive gathering skill it is in TBC). This matters because `SummaryData.lua`'s `PROFESSIONS_NO_WARNING` table — which suppresses the "Open your X window" nag for gathering/secondary skills that have no recipe UI at all — hardcoded `Skinning = true` alongside `Fishing`/`Riding`/`Herbalism`/`Mining`. That's correct for TBC (Skinning genuinely has no trade-skill window there) but wrong for Forever: a Skinning-having character there should get the same "you have a rank but no recipes scanned yet, go open the window" prompt every other profession gets.

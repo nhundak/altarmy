@@ -541,6 +541,11 @@ describe("DataStoreProfessions", function()
           if cd == false then return nil end
           return cd, false, 0, 0
         end or nil,
+        IsTradeSkillLinked = function()
+          return opts.linked == true, opts.linkedName
+        end,
+        IsTradeSkillGuild = function() return opts.guild == true end,
+        IsNPCCrafting = function() return opts.npc == true end,
       }
     end
 
@@ -638,6 +643,45 @@ describe("DataStoreProfessions", function()
       local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
       assert.is_true(not char.dataVersions or not char.dataVersions.professions)
       assert.are.equal(0, scheduleCount)
+    end)
+
+    describe("whose window is open", function()
+      local learned = {
+        [100] = { recipeID = 100, categoryID = 1, name = "Learned Recipe", learned = true, relativeDifficulty = 0 },
+      }
+
+      local function scanned(opts)
+        opts.recipeIDs, opts.recipes = { 100 }, learned
+        mockTradeSkillUI(opts)
+        DS:ScanRecipes()
+        local char = _G.AltArmyTBC_Data.Characters.TestRealm.TestPlayer
+        local prof = char.Professions and char.Professions.Leatherworking
+        return prof ~= nil and prof.Recipes ~= nil and prof.Recipes[100] ~= nil
+      end
+
+      before_each(function()
+        _G.AltArmyTBC_Data.Characters = {}
+      end)
+
+      it("stores the player's own window", function()
+        assert.is_true(scanned({}))
+      end)
+
+      it("stores a linked window bearing the player's own name", function()
+        assert.is_true(scanned({ linked = true, linkedName = "TestPlayer" }))
+        _G.AltArmyTBC_Data.Characters = {}
+        assert.is_true(scanned({ linked = true, linkedName = "TestPlayer-TestRealm" }))
+      end)
+
+      it("ignores another player's linked window", function()
+        assert.is_false(scanned({ linked = true, linkedName = "Someoneelse" }))
+        assert.are.equal(0, scheduleCount)
+      end)
+
+      it("ignores guild and NPC crafting windows", function()
+        assert.is_false(scanned({ guild = true }))
+        assert.is_false(scanned({ npc = true }))
+      end)
     end)
   end)
 

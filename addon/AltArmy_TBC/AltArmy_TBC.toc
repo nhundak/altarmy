@@ -52,6 +52,7 @@ Data\Gear\GearUpgrade.lua
 Data\Gear\GearCompare.lua
 Data\DataStore\DataStoreCurrencies.lua
 Data\DataStore\DataStoreProfessions.lua
+Data\DataStore\OwnRecipeRead.lua
 Data\DataStore\DataStoreLockouts.lua
 Data\Cooldowns\CooldownAlerts.lua
 Data\Gear\GearUpgradeAlerts.lua

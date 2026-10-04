@@ -189,17 +189,22 @@ function DS:ScanLegacyTalents(_self)
     char.lastUpdate = time and time() or char.lastUpdate
 end
 
+--- The captured "Well Rested" legacy talent rank, clamped to its max rank; 0 when unavailable,
+--- unscanned, or zero ranks spent.
+function DL.GetWellRestedRank(char)
+    local legacy = char and char.legacyTalents
+    -- v1 data (no `spells`) came from the class-talent config: not a Legacy rank.
+    if type(legacy) ~= "table" or legacy.spells == nil then return 0 end
+    local rank = tonumber(legacy.restRank) or 0
+    if rank <= 0 then return 0 end
+    return math.min(rank, DL.REST_TALENT_MAX_RANK)
+end
+
 --- Rest-XP multiplier (cap and accumulation rate) from the captured "Well Rested" legacy talent
 --- rank; 1 (no change) when unavailable, unscanned, or zero ranks spent. See DataStoreCharacter.lua
 --- GetRestXp/GetStoredRestXp.
 function DL.GetRestXpMultiplier(char)
-    local legacy = char and char.legacyTalents
-    -- v1 data (no `spells`) came from the class-talent config: not a Legacy rank.
-    if type(legacy) ~= "table" or legacy.spells == nil then return 1 end
-    local rank = tonumber(legacy.restRank) or 0
-    if rank <= 0 then return 1 end
-    if rank > DL.REST_TALENT_MAX_RANK then rank = DL.REST_TALENT_MAX_RANK end
-    return 1 + (rank * DL.REST_TALENT_PERCENT_PER_RANK)
+    return 1 + (DL.GetWellRestedRank(char) * DL.REST_TALENT_PERCENT_PER_RANK)
 end
 
 if CreateFrame then
@@ -219,6 +224,10 @@ if CreateFrame then
     legacyFrame:SetScript("OnEvent", function()
         if DS.ScanLegacyTalents then
             DS:ScanLegacyTalents()
+        end
+        -- A Well Rested rank changes the Summary's Rest XP; RefreshSummary does nothing while hidden.
+        if AltArmy.RefreshSummary then
+            AltArmy.RefreshSummary()
         end
     end)
 end

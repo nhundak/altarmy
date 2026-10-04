@@ -181,6 +181,7 @@ local function NormalizeProfessionName(name)
     end
     return name
 end
+DS.NormalizeProfessionName = NormalizeProfessionName
 
 local function ApplyProfessionRank(prof, rank, maxRank)
     if not prof then
@@ -821,9 +822,9 @@ end
 
 --- True when either recipe-scan API is available: the legacy trade-skill-window pair
 --- (GetNumTradeSkills/GetTradeSkillLine) or the C_TradeSkillUI fallback it falls back to (see
---- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md, "Eighth"). Either way the profession window still
---- has to be opened at least once this session — C_TradeSkillUI.OpenTradeSkill is a
---- hardware-event-protected call, so an addon can never force this, only react to it.
+--- docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md, "Eighth"). Either way only an open profession window can
+--- be scanned. C_TradeSkillUI.OpenTradeSkill needs a click, but on WoW Forever OwnRecipeRead.lua opens
+--- the player's own professions in the background through a profession link; elsewhere the player has to.
 function DS.HasTradeSkillRecipesApi()
     return (GetNumTradeSkills ~= nil and GetTradeSkillLine ~= nil)
         or (C_TradeSkillUI ~= nil and C_TradeSkillUI.GetAllRecipeIDs ~= nil
@@ -943,7 +944,38 @@ local RelativeDifficultyToColor = { [0] = 1, [1] = 2, [2] = 3, [3] = 4 }
 --- ones this character hasn't learned. resultItemID is filled best-effort via
 --- C_TradeSkillUI.GetRecipeOutputItemData when available; reagents are not scanned at all here —
 --- that needs the separate, more involved GetRecipeSchematic API and remains deferred.
+local function tradeSkillFlag(fnName)
+    local fn = C_TradeSkillUI[fnName]
+    if not fn then return false end
+    local ok, a, b = pcall(fn)
+    if not ok then return false end
+    return a == true, b
+end
+
+--- True when the open window is not this character's own profession: a guild or NPC crafting window,
+--- or another player's linked profession (a chat link the player clicked, or another addon reading
+--- players in the background). The player's own link, which OwnRecipeRead opens, still passes: it
+--- comes back unlinked, or linked under the player's own name. A linked window naming nobody is
+--- trusted only while OwnRecipeRead is waiting for one.
+local function IsSomeoneElsesTradeSkill()
+    if tradeSkillFlag("IsTradeSkillGuild") or tradeSkillFlag("IsNPCCrafting") then
+        return true
+    end
+    local linked, linkedName = tradeSkillFlag("IsTradeSkillLinked")
+    if not linked then
+        return false
+    end
+    if type(linkedName) ~= "string" or linkedName == "" then
+        local R = AltArmy.OwnRecipeRead
+        return not (R and R.IsReading and R.IsReading())
+    end
+    local me = UnitName and UnitName("player")
+    local short = linkedName:match("^([^%-]+)") or linkedName
+    return type(me) ~= "string" or short:lower() ~= me:lower()
+end
+
 local function ScanRecipesViaTradeSkillUI(char)
+    if IsSomeoneElsesTradeSkill() then return nil end
     local info = C_TradeSkillUI.GetBaseProfessionInfo()
     if not info or not info.professionName or info.professionName == "" then return nil end
     local tradeskillName = NormalizeProfessionName(info.professionName)
@@ -1020,6 +1052,10 @@ function DS:ScanRecipes()
     self:ScanProfessionSpecializations(char)
     self:ClearProfessionRecipesStale(tradeskillName, char)
     notifyRecipesChanged()
+    local R = AltArmy.OwnRecipeRead
+    if R and R.OnRecipesScanned then
+        R.OnRecipesScanned(tradeskillName)
+    end
 end
 
 --- Scan recipes from the Craft window (Enchanting in TBC Classic uses Craft API, not Trade Skill).
@@ -1431,9 +1467,19 @@ end
 -- RecipeInfo difficulty -> the color code a recipe-window scan stores (SkillTypeToColor).
 local DifficultyToColor = { orange = 1, yellow = 2, green = 3, gray = 4 }
 
+--- Have OwnRecipeRead (WoW Forever) read a profession just marked stale, which stores its real recipe list
+--- and clears the mark; every stale profession when the name is unknown.
+local function readOwnRecipesSoon(professionName)
+    local R = AltArmy.OwnRecipeRead
+    if R and R.OnRecipeLearned then
+        R.OnRecipeLearned(professionName)
+    end
+end
+
 --- Recipe learned (event or system chat): scan if UI open; otherwise store the recipe from the bundled
 --- recipe data (Data/Recipes) so Search and guild share have it without reopening the window. Only when
---- the recipe can't be identified or stored is a profession marked stale (Summary ! warning).
+--- the recipe can't be identified or stored is a profession marked stale (Summary ! warning). On WoW
+--- Forever a stale profession is then read in the background (OwnRecipeRead).
 function DS:OnRecipeLearnDetected(recipeID, learnedName)
     local char = GetCurrentCharTable()
     if not char then
@@ -1457,6 +1503,7 @@ function DS:OnRecipeLearnDetected(recipeID, learnedName)
     local info = RI and RI.FindRecipeLearnInfo and RI.FindRecipeLearnInfo(recipeID, learnedName, char.Professions)
     if not info then
         self:MarkProfessionRecipesStale(char, nil)
+        readOwnRecipesSoon(nil)
         return
     end
     local prof = type(char.Professions) == "table" and char.Professions[info.professionName]
@@ -1469,6 +1516,7 @@ function DS:OnRecipeLearnDetected(recipeID, learnedName)
         return
     end
     self:MarkProfessionRecipesStale(char, info.professionName)
+    readOwnRecipesSoon(info.professionName)
 end
 
 --- Handle NEW_RECIPE_LEARNED when the client fires it (optional recipeID).

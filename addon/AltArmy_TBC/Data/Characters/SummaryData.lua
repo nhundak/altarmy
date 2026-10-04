@@ -1,6 +1,6 @@
 -- AltArmy TBC — Summary data layer: character list for the Summary tab.
--- Summary list entries (SavedVariables / DataStore): name, realm, level, restXp, isMaxLevel,
--- money, played, lastOnline.
+-- Summary list entries (SavedVariables / DataStore): name, realm, level, restXp, wellRestedRank,
+-- isMaxLevel, money, played, lastOnline.
 -- luacheck: globals GetSpellInfo
 
 AltArmy.SummaryData = AltArmy.SummaryData or {}
@@ -156,6 +156,11 @@ function AltArmy.SummaryData.GetCharacterList()
             local lastLogout = DS:GetLastLogout(charData) or MAX_LOGOUT_SENTINEL
             local classLoc, classFile = DS:GetCharacterClass(charData)
             local isMaxLevel = math.floor(level) == MAX_LEVEL
+            local DL = AltArmy.DataStoreLegacy
+            local wellRestedRank = 0
+            if not isMaxLevel and DL and DL.GetWellRestedRank then
+                wellRestedRank = DL.GetWellRestedRank(charData)
+            end
             local restRate
             if isMaxLevel then
                 restRate = 0
@@ -165,7 +170,6 @@ function AltArmy.SummaryData.GetCharacterList()
                 if playerXpMax <= 0 then
                     restRate = 0
                 else
-                    local DL = AltArmy.DataStoreLegacy
                     local restMultiplier = (DL and DL.GetRestXpMultiplier and DL.GetRestXpMultiplier(charData)) or 1
                     local maxRest = playerXpMax * 1.5 * restMultiplier
                     restRate = math.min(100, (restXP / maxRest) * 100)
@@ -187,6 +191,7 @@ function AltArmy.SummaryData.GetCharacterList()
                 realm = realm or "",
                 level = level,
                 restXp = restRate,
+                wellRestedRank = wellRestedRank,
                 isMaxLevel = isMaxLevel,
                 money = money,
                 played = played,
@@ -430,15 +435,21 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
     -- Skinning on TBC's legacy API only — Forever's Skinning has real recipes); see
     -- DS.ProfessionHasNoRecipeWindow in DataStoreProfessions.lua, the shared source of truth this
     -- and GuildTabData.lua's crafting/gathering split both read from.
+    -- Where recipes are read in the background at login (OwnRecipeRead, WoW Forever), an alt only needs
+    -- logging in; the current character is still told to open the window should a read have failed.
     if DS.HasModuleData and DS:HasModuleData(char, "professions") and DS.GetProfessions and DS.GetNumRecipes then
         local professions = DS:GetProfessions(char)
         local needingRescan = char.professionsNeedingRecipeScan
+        local R = AltArmy.OwnRecipeRead
+        local readAtLogin = not isCurrent and R and R.HasApi and R.HasApi() and R.IsEnabled and R.IsEnabled()
         for profName, prof in pairs(professions or {}) do
             if not (DS.ProfessionHasNoRecipeWindow and DS.ProfessionHasNoRecipeWindow(profName)) then
                 local rank = (prof and prof.rank) or 0
                 local needsOpen = (rank > 0 and DS:GetNumRecipes(char, profName) == 0)
                     or (type(needingRescan) == "table" and needingRescan[profName])
-                if needsOpen then
+                if needsOpen and readAtLogin then
+                    addUniqueInstruction(out, "* Log in with this character")
+                elseif needsOpen then
                     addUniqueInstruction(out, "* Open your " .. profName .. " window")
                 end
             end
@@ -501,6 +512,23 @@ end
 function AltArmy.SummaryData.PresentMissingDataTooltip(owner, anchor, name, realm, classFile)
     local title, lines = AltArmy.SummaryData.GetMissingDataTooltip(name, realm, classFile)
     return showInstructionsTooltip(owner, anchor, title, lines)
+end
+
+--- Tooltip for a Rest XP that includes the "Well Rested" legacy talent (entry.wellRestedRank > 0):
+--- the talent's name, rank and what it adds.
+--- @return boolean true if a tooltip was shown
+function AltArmy.SummaryData.PresentWellRestedTooltip(owner, anchor, entry)
+    local rank = entry and tonumber(entry.wellRestedRank) or 0
+    if not GameTooltip or not owner or rank <= 0 then return false end
+    local DL = AltArmy.DataStoreLegacy or {}
+    local percent = math.floor(rank * (DL.REST_TALENT_PERCENT_PER_RANK or 0.04) * 100 + 0.5)
+    GameTooltip:SetOwner(owner, anchor)
+    GameTooltip:ClearLines()
+    GameTooltip:AddLine("Well Rested", 1, 1, 1)
+    GameTooltip:AddLine(string.format("Rank %d/%d", rank, DL.REST_TALENT_MAX_RANK or 5), 1, 0.82, 0)
+    GameTooltip:AddLine(string.format("Rested XP cap and accumulation +%d%%", percent), 0.2, 1, 0.2, true)
+    GameTooltip:Show()
+    return true
 end
 
 --- Whether talent/spec data is missing for this character.
