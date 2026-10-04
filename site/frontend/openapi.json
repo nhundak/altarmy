@@ -713,6 +713,14 @@
             "title": "Skill Crafters",
             "type": "array"
           },
+          "skip": {
+            "default": [],
+            "items": {
+              "type": "integer"
+            },
+            "title": "Skip",
+            "type": "array"
+          },
           "sources": {
             "default": [
               "trainer",
@@ -2041,6 +2049,24 @@
       },
       "RankResponse": {
         "properties": {
+          "chain": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RankResult"
+            },
+            "title": "Chain",
+            "type": "array"
+          },
+          "chain_start": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RankResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "classes": {
             "additionalProperties": {
               "type": "string"
@@ -2068,22 +2094,20 @@
             "title": "Learn",
             "type": "object"
           },
+          "options": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RankResult"
+            },
+            "title": "Options",
+            "type": "array"
+          },
           "results": {
             "items": {
               "$ref": "#/components/schemas/RankResult"
             },
             "title": "Results",
             "type": "array"
-          },
-          "then": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RankResult"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "total": {
             "title": "Total",
@@ -4522,6 +4546,59 @@
               ],
               "description": "the auction house's price version the front end knows of",
               "title": "Price Version"
+            }
+          },
+          {
+            "description": "with sort=skill and runs: the recipe whose run the chain follows (default the first)",
+            "in": "query",
+            "name": "chain_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "with sort=skill and runs: the recipe whose run the chain follows (default the first)",
+              "title": "Chain From"
+            }
+          },
+          {
+            "description": "with sort=skill and runs: the runs the chain may hold",
+            "in": "query",
+            "name": "chain_length",
+            "required": false,
+            "schema": {
+              "default": 4,
+              "description": "with sort=skill and runs: the runs the chain may hold",
+              "maximum": 40,
+              "minimum": 1,
+              "title": "Chain Length",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "with runs: recipes passed over, neither ranked as runs nor rivals that end one (they may still be sub-crafted)",
+            "in": "query",
+            "name": "skip",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "with runs: recipes passed over, neither ranked as runs nor rivals that end one (they may still be sub-crafted)",
+              "title": "Skip"
             }
           },
           {

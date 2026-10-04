@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { bonusNote, discountLabel, discountNote } from './talents'
+import {
+  BARTERING,
+  MASTER_CHEF,
+  WORKING_OVERTIME,
+  bonusNote,
+  craftingTalents,
+  discountLabel,
+  discountNote,
+  talentNote,
+} from './talents'
 
 describe('talent notes', () => {
   it('names the Bartering discount', () => {
@@ -25,5 +34,27 @@ describe('talent notes', () => {
     expect(bonusNote(0.3)).toBe('+0.3 expected from Master Chef')
     expect(bonusNote(0.30000000000000004)).toBe('+0.3 expected from Master Chef')
     expect(bonusNote(0)).toBe('')
+  })
+})
+
+describe('crafting talents', () => {
+  const talents = [
+    { spell_id: MASTER_CHEF, name: 'Master Chef', rank: 3, max_rank: 5 },
+    { spell_id: BARTERING, name: 'Bartering', rank: 2, max_rank: 2 },
+    { spell_id: WORKING_OVERTIME, name: 'Working Overtime', rank: 0, max_rank: 5 },
+  ]
+
+  it('keeps the ranked ones that matter to the profession, Master Chef only for Cooking', () => {
+    expect(craftingTalents(talents, 'Cooking').map((t) => t.name)).toEqual(['Bartering', 'Master Chef'])
+    expect(craftingTalents(talents, 'Tailoring').map((t) => t.name)).toEqual(['Bartering'])
+  })
+
+  it('says what each does at its rank', () => {
+    const [bartering, chef] = craftingTalents(talents, 'Cooking')
+    expect(talentNote(bartering!)).toBe('Reduces the gold price of items from all vendors by 10%')
+    expect(talentNote(chef!)).toBe('Your cooking recipes have a 30% chance to create an extra result')
+    expect(talentNote({ spellId: WORKING_OVERTIME, name: 'Working Overtime', rank: 1, maxRank: 5 })).toBe(
+      'Increases your chance to gain a skill increase by 4%',
+    )
   })
 })

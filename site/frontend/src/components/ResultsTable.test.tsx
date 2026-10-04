@@ -703,6 +703,7 @@ describe('ResultsTable', () => {
         arcane_salvager: false,
         runs: false,
         gathered: [],
+        skip: [],
         choices: { 'r.1': 'ah' },
       })
       expect(line('1 50')).toBeInTheDocument() // the row's profit follows the changed plan

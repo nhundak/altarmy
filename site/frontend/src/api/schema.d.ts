@@ -729,6 +729,11 @@ export interface components {
              */
             skill_crafters: string[];
             /**
+             * Skip
+             * @default []
+             */
+            skip: number[];
+            /**
              * Sources
              * @default [
              *       "trainer",
@@ -1243,6 +1248,12 @@ export interface components {
         };
         /** RankResponse */
         RankResponse: {
+            /**
+             * Chain
+             * @default []
+             */
+            chain: components["schemas"]["RankResult"][];
+            chain_start?: components["schemas"]["RankResult"] | null;
             /** Classes */
             classes: {
                 [key: string]: string;
@@ -1263,9 +1274,13 @@ export interface components {
             learn: {
                 [key: string]: components["schemas"]["LearnOut"];
             };
+            /**
+             * Options
+             * @default []
+             */
+            options: components["schemas"]["RankResult"][];
             /** Results */
             results: components["schemas"]["RankResult"][];
-            then?: components["schemas"]["RankResult"] | null;
             /** Total */
             total: number;
         };
@@ -2364,6 +2379,12 @@ export interface operations {
                 top?: number;
                 /** @description the auction house's price version the front end knows of */
                 price_version?: number | null;
+                /** @description with sort=skill and runs: the recipe whose run the chain follows (default the first) */
+                chain_from?: number | null;
+                /** @description with sort=skill and runs: the runs the chain may hold */
+                chain_length?: number;
+                /** @description with runs: recipes passed over, neither ranked as runs nor rivals that end one (they may still be sub-crafted) */
+                skip?: number[] | null;
                 /** @description which game's data: tbc or forever */
                 game_version: "tbc" | "forever";
             };

@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Badge, Box, Button, Divider, Group, Loader, NumberInput, Paper, SimpleGrid, Stack, Text, Title, UnstyledButton } from '@mantine/core'
+import { type CSSProperties, Fragment, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Alert, Badge, Box, Button, Divider, Group, Loader, NumberInput, Paper, Stack, Text, Title, Tooltip, UnstyledButton } from '@mantine/core'
 import { LayoutGroup, animate, motion } from 'motion/react'
 import { useDebouncedValue } from '@mantine/hooks'
 import type { ItemMap, Learn, RankResult } from '../api/client'
@@ -17,20 +17,27 @@ import { choose as chooseAt, type Choices } from '../lib/choices'
 import { layoutTop, scrollTarget } from '../lib/scroll'
 import type { Holder } from '../lib/setup'
 import { AT_WHICH_POINT, CHEAPER, runLead, runText, scaleRun, stepsText } from '../lib/skill'
+import { talentNote } from '../lib/talents'
 import type { PlanEditing } from './ChoiceMenu'
 import { CharacterClasses, CharacterName } from './CharacterName'
 import { ItemLink } from './ItemTooltip'
-import { LearnTooltip } from './LearnTooltip'
-import { ResultsTable } from './ResultsTable'
+import { LearnStep, LearnTooltip } from './LearnTooltip'
+import { Money } from './Money'
 import { SkillBar } from './SkillBar'
 import { RecipeFlow } from './RecipeFlow'
 import { PlanViewSwitch, type PlanView } from './SessionDetails'
 import { Earned, StepList } from './StepList'
+import classes from './SkillWorkspace.module.css'
 
 /** The runs asked for at once: Next up, the few after it, and the rest under See all. */
 const TOP = 50
 /** Options laid out side by side before See all. */
 const OPTIONS = 4
+// The runs the chain holds at first (the API's `SKILL_CHAIN`), and how many more each Show more asks for
+const CHAIN = 4
+const NO_RUNS: RankResult[] = []
+/** Cards See all shows at first, and how many more each Show more adds. */
+const GRID = 20
 /** How a chosen option opens out into its run (as the Profit page's cards do). */
 const LAYOUT = { duration: 0.3, ease: [0.25, 0.8, 0.25, 1] as const }
 
@@ -80,43 +87,47 @@ function reachPercent(r: RankResult, crafts: number): number {
   return Math.floor(chance * 100 + 1e-9)
 }
 
+/** Whether the climber must learn a run's recipe first. */
+const mustLearn = (r: RankResult): boolean => !!r.crafter && !r.crafters.includes(r.crafter)
+
 /** What the climber must do to learn a run's recipe; null when they know it. */
-function learnNote(r: RankResult, learn: Learn | undefined): string | null {
-  if (!r.crafter || r.crafters.includes(r.crafter)) return null
+function learnNote(r: RankResult, learn: Learn | undefined): ReactNode {
+  if (!mustLearn(r)) return null
   if (r.learn_cost === null) return 'You must find the pattern (price unknown)'
   if (learn?.source === 'trainer') return 'You must learn it from a trainer'
-  return r.learn_cost ? 'You must buy the pattern (cost included)' : 'You must learn it first'
+  if (!r.learn_cost) return 'You must learn it first'
+  return (
+    <>
+      You must buy the pattern (<Money copper={r.learn_cost} />)
+    </>
+  )
 }
+
+/** An option card's last row when the climber lacks the recipe and what learning it costs is counted. */
+const TRAIN_NOTE = 'You will need to train this recipe (included in the cost)'
 
 /** "Frell's", "Frell Ofelements'". */
 const possessive = (name: string) => (name.endsWith('s') ? `${name}'` : `${name}'s`)
 
 /** One option in the overview: the recipe, what its run comes to per skill point, how far it goes, how it is
- * learned. */
+ * learned. Without `onChoose`, a summary of a run to come (in the chain), with nothing to click; `fade`: it fades
+ * in as the other options open out. */
 function OptionCard({
   result: r,
   best,
   items,
   learn,
+  fade,
   onChoose,
 }: {
   result: RankResult
   best: boolean
   items: ItemMap
   learn: Learn | undefined
-  onChoose: () => void
+  fade?: boolean
+  onChoose?: () => void
 }) {
-  return (
-    <motion.div layoutId={`skill-option-${r.recipe_id}`} transition={LAYOUT} style={{ borderRadius: 8 }}>
-      <Paper withBorder radius="md" p="sm" h="100%" data-best={best || undefined}>
-        <UnstyledButton
-          onClick={onChoose}
-          aria-label={`Choose ${r.output_name}`}
-          w="100%"
-          h="100%"
-          // a button centres its content: cards of three lines and of four start at the same height
-          style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}
-        >
+  const body = (
           <Stack gap={4}>
             <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
               <Text fw={600} size="sm">
@@ -134,23 +145,117 @@ function OptionCard({
             <Text size="xs" c="dimmed">
               <RunText result={r} items={items} />
             </Text>
-            {/* a pattern whose cost is counted needs nothing of the reader: the run says so, the card doesn't */}
-            {learnNote(r, learn) && !r.learn_cost && (
+            {/* a recipe the climber lacks: its pattern is counted in the cost, unless nobody can price it */}
+            {mustLearn(r) && (
               <Text size="xs" c={r.learn_cost === null ? 'orange' : 'dimmed'}>
-                {learnNote(r, learn)}
+                {r.learn_cost === null ? learnNote(r, learn) : TRAIN_NOTE}
               </Text>
             )}
           </Stack>
+  )
+  if (!onChoose) {
+    return (
+      <Paper withBorder radius="md" p="sm" component="article" aria-label={r.output_name}>
+        {body}
+      </Paper>
+    )
+  }
+  return (
+    <motion.div
+      layoutId={`skill-option-${r.recipe_id}`}
+      transition={LAYOUT}
+      initial={fade ? { opacity: 0 } : false}
+      animate={{ opacity: 1 }}
+      style={{ borderRadius: 8 }}
+    >
+      <Paper withBorder radius="md" p="sm" h="100%" data-best={best || undefined}>
+        <UnstyledButton
+          onClick={onChoose}
+          aria-label={`Choose ${r.output_name}`}
+          w="100%"
+          h="100%"
+          // a button centres its content: cards of three lines and of four start at the same height
+          style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}
+        >
+          {body}
         </UnstyledButton>
       </Paper>
     </motion.div>
   )
 }
 
+/** The short arrow from one run to the run after it. */
+function ChainArrow() {
+  return (
+    <svg className={classes.arrow} width="16" height="24" viewBox="0 0 16 24" aria-hidden>
+      <path d="M8 2v18M3 15l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** The runs that follow the one crafted now, each under an arrow, hung under that run's card. `muted` while it
+ * isn't the chosen option's own yet: the other options are open, or its chain is on its way. `onMore`: Show more
+ * under the last, when there may be more after it. */
+function Chain({
+  runs,
+  start,
+  items,
+  learn,
+  muted,
+  pending,
+  onMore,
+}: {
+  runs: RankResult[]
+  /** the skill the first of `runs` starts at: where the run crafted now stops */
+  start: number
+  items: ItemMap
+  learn: Record<string, Learn>
+  muted: boolean
+  pending: boolean
+  onMore?: () => void
+}) {
+  if (!runs.length && !pending) return null
+  return (
+    <motion.section
+      layoutId="skill-chain"
+      transition={LAYOUT}
+      className={classes.chain}
+      data-muted={muted || undefined}
+      aria-disabled={muted || undefined}
+      aria-label="What comes after"
+    >
+      {runs.map((r, i) => {
+        const from = i === 0 ? start : (runs[i - 1]?.stop_skill ?? 0)
+        return (
+          <Stack key={r.recipe_id} gap={4}>
+            <div className={classes.step}>
+              <ChainArrow />
+              {from > 0 && (
+                <Text size="xs" c="dimmed" className={classes.at}>
+                  At {from} skill
+                </Text>
+              )}
+            </div>
+            <OptionCard result={r} best={false} items={items} learn={learn[r.recipe_id]} />
+          </Stack>
+        )
+      })}
+      {pending && <Loader size="xs" aria-label="Working out what comes after" className={classes.arrow} />}
+      {onMore && !pending && (
+        <Button size="compact-sm" variant="subtle" className={classes.chainMore} onClick={onMore}>
+          Show more
+        </Button>
+      )}
+    </motion.section>
+  )
+}
+
 /**
- * Skilling up one profession on one character. First an overview: the few best options side by side, the cheapest
- * skill point on the left, each counted as a run (the crafts until another recipe would give a cheaper skill point,
- * it turns trivial or the skill reaches its cap). Choosing one opens it out into the full run: what to make until when, what it costs,
+ * Skilling up one profession on one character. First an overview: the run to craft now (the cheapest skill point,
+ * each option counted as a run: the crafts until another recipe would give a cheaper skill point, it turns trivial
+ * or the skill reaches its cap), centred, with the runs that would follow it hung below; Show me other options lays
+ * the best few side by side, the chain muted under the one it follows until another is picked, which then folds
+ * back to be the one crafted now. Choosing the run crafted now opens it out into the full run: what to make until when, what it costs,
  * what the next best was, what comes after it, and a checklist per character to take into the game. The list holds still while new prices come in, until the
  * user refreshes it.
  */
@@ -175,8 +280,55 @@ export function SkillWorkspace({
   // The option opened out; null: the overview.
   const [openId, setOpenId] = useState<number | null>(null)
   const [all, setAll] = useState(false)
+  // How many cards the full list shows; past the ones that came with the list, more are asked for.
+  const [shown, setShown] = useState(GRID)
   const results = rank.data?.results ?? []
-  const open = openId === null ? undefined : results.find((r) => r.recipe_id === openId)
+  const allRank = useRank(
+    { ...params, top: shown },
+    { priceVersion: frozen, enabled: all && shown > results.length },
+  )
+  const listed = (shown > results.length ? allRank.data?.results : undefined) ?? results
+  // The options side by side: each ranked as picking it gives (the ones before it passed over), else as listed.
+  const options = rank.data?.options?.length ? rank.data.options : results.slice(0, OPTIONS)
+  const bestId = results[0]?.recipe_id
+  // The option to craft now: the best unless the user picked another of the first few (null: the best).
+  const [pickedId, setPickedId] = useState<number | null>(null)
+  const nowIndex = Math.max(
+    0,
+    options.findIndex((r) => r.recipe_id === pickedId),
+  )
+  const ranked = options[nowIndex]
+  const picked = ranked !== undefined && ranked.recipe_id !== bestId
+  // Picked, the options ranked above it were passed over: neither crafted later nor counted as what ends a run.
+  const skip = picked ? options.slice(0, nowIndex).map((r) => r.recipe_id) : []
+  // Whether the first few options are laid out side by side, the user choosing among them.
+  const [expanded, setExpanded] = useState(false)
+  // How many runs the chain holds: CHAIN, and CHAIN more with each Show more (back to CHAIN on a pick).
+  const [chainLength, setChainLength] = useState(CHAIN)
+  const longer = chainLength > CHAIN
+  // A picked option's run ranked again without those, and the runs after it (the ranking itself is the server's
+  // cached one); the best's come with the list, unless more of them are shown.
+  const chainRank = useRank(
+    { ...params, top: 1, chainFrom: ranked?.recipe_id, skip, chainLength: longer ? chainLength : undefined },
+    { priceVersion: frozen, enabled: picked || longer },
+  )
+  const restart = chainRank.data?.chain_start
+  const now = picked && restart?.recipe_id === ranked?.recipe_id ? restart : ranked
+  const chainData = picked || longer ? chainRank.data : rank.data
+  // The chain on its way: a picked option's (the one shown before it stays, muted) or a longer one.
+  const chainPending = (picked || longer) && (chainRank.isPlaceholderData || !chainRank.data)
+  const current = chainData?.chain ?? rank.data?.chain ?? NO_RUNS
+  // The chain as last settled: what stays shown while a longer one is on its way.
+  const [settled, setSettled] = useState(current)
+  if (!chainPending && current !== settled) setSettled(current)
+  const chain = chainPending && longer ? settled : current
+  // the run crafted now as it stands after a pick, else as ranked
+  const open =
+    openId === null
+      ? undefined
+      : openId === now?.recipe_id
+        ? now
+        : (options.find((r) => r.recipe_id === openId) ?? listed.find((r) => r.recipe_id === openId))
   const atCap = climber.rank >= climber.maxRank
   const evaluate: EvaluateParams = {
     unlearned: filters.unlearned,
@@ -187,6 +339,8 @@ export function SkillWorkspace({
     exits: filters.exits,
     arcaneSalvager: filters.arcaneSalvager,
     runs: filters.runs,
+    // the picked run's plan, as it was ranked: without the options passed over
+    skip: picked && openId === now?.recipe_id ? skip : undefined,
     version,
   }
   // The crafts the checklist buys for: what the user typed, else enough to reach the run's target four times in
@@ -196,8 +350,7 @@ export function SkillWorkspace({
   const [settledCount] = useDebouncedValue(buyCount, 400)
   // Each option's plan for the crafts it opens with, fetched ahead: opening one finds it ready.
   usePrefetchSessionPlans(
-    results
-      .slice(0, OPTIONS)
+    [...options, ...(now && now !== ranked ? [now] : [])]
       .filter((r) => r.crafts_p80 > r.crafts)
       .map((r) => ({ recipeId: r.recipe_id, copies: r.crafts_p80 })),
     evaluate,
@@ -224,9 +377,10 @@ export function SkillWorkspace({
     pending: modified && plan.isFetching,
     error: modified ? (plan.error?.message ?? null) : null,
   }
-  const items = useMemo(() => ({ ...rank.data?.items, ...plan.data?.items }), [rank.data, plan.data])
-
-  const bestId = results[0]?.recipe_id
+  const items = useMemo(
+    () => ({ ...allRank.data?.items, ...rank.data?.items, ...chainRank.data?.items, ...plan.data?.items }),
+    [allRank.data, rank.data, chainRank.data, plan.data],
+  )
   useEffect(() => {
     if (bestId !== undefined) track('next_up_shown', { profession })
   }, [bestId, profession, track])
@@ -280,17 +434,38 @@ export function SkillWorkspace({
         <CharacterName name={possessive(climber.name)} classFile={climber.classFile} /> {profession}
       </Text>
       <SkillBar rank={climber.rank} maxRank={climber.maxRank} label={`${climber.name}'s ${profession}`} />
-      {climber.workingOvertime && (
-        <Text size="sm" c="dimmed">
-          ({climber.workingOvertime.rank}/{climber.workingOvertime.maxRank} Working Overtime)
-        </Text>
+      {climber.talents && (
+        <Tooltip
+          label={
+            <Stack gap="xs">
+              {climber.talents.map((t) => (
+                <div key={t.spellId}>
+                  <Text size="sm" fw={700}>
+                    {t.name}
+                  </Text>
+                  <Text size="sm">
+                    Rank {t.rank}/{t.maxRank}
+                  </Text>
+                  <Text size="sm">{talentNote(t)}</Text>
+                </div>
+              ))}
+            </Stack>
+          }
+          multiline
+          w={260}
+          withArrow
+        >
+          <Text size="sm" c="dimmed" style={{ cursor: 'help' }}>
+            ({climber.talents.map((t) => `${t.rank}/${t.maxRank} ${t.name}`).join(', ')})
+          </Text>
+        </Tooltip>
       )}
     </Group>
   )
 
   if (rank.isPending) return <Loader />
   if (rank.isError) return <Alert color="red">{rank.error.message}</Alert>
-  const { learn } = rank.data
+  const learn = { ...allRank.data?.learn, ...rank.data.learn }
   const refresh = frozen !== undefined && livePrices !== frozen && (
     <Alert color="blue" title="Prices updated since this list was made">
       <Group justify="space-between">
@@ -317,7 +492,25 @@ export function SkillWorkspace({
     )
   }
 
-  const options = results.slice(0, OPTIONS)
+  // Picking one of the options side by side makes it the one to craft now, the others folding away around it.
+  const pick = (id: number) => {
+    setPickedId(id === bestId ? null : id)
+    setChainLength(CHAIN)
+    setExpanded(false)
+    setAll(false)
+  }
+  const chainView = (
+    <Chain
+      runs={chain}
+      start={now?.stop_skill ?? 0}
+      items={items}
+      learn={{ ...learn, ...chainRank.data?.learn }}
+      // a longer chain on its way keeps the runs already shown as they are
+      muted={expanded || (chainPending && !longer)}
+      pending={chainPending && !expanded}
+      onMore={!expanded && chain.length >= chainLength ? () => setChainLength((n) => n + CHAIN) : undefined}
+    />
+  )
 
   return (
     <CharacterClasses.Provider value={rank.data.classes}>
@@ -364,7 +557,7 @@ export function SkillWorkspace({
                   <Text size="sm">
                     <RunText result={open} items={items} />
                   </Text>
-                  {learn[open.recipe_id] && !open.crafters.includes(open.crafter) && (
+                  {learn[open.recipe_id] && mustLearn(open) && (
                     <Text size="sm">
                       {learnNote(open, learn[open.recipe_id])}:{' '}
                       <LearnTooltip learn={learn[open.recipe_id]}>where to get it</LearnTooltip>
@@ -411,7 +604,23 @@ export function SkillWorkspace({
                     (view === 'flow' ? (
                       <RecipeFlow result={checklist} items={items} editing={editing} />
                     ) : (
-                      <StepList result={checklist} items={items} editing={editing} mode="skill" />
+                      <StepList
+                        result={checklist}
+                        items={items}
+                        editing={editing}
+                        mode="skill"
+                        learn={
+                          learn[open.recipe_id] &&
+                          mustLearn(open) && (
+                            <LearnStep
+                              learn={learn[open.recipe_id]!}
+                              recipe={open.output_name}
+                              cost={open.learn_cost}
+                              items={items}
+                            />
+                          )
+                        }
+                      />
                     ))}
                   <Group gap="xs">
                     <Button size="xs" variant="light" onClick={copy}>
@@ -423,40 +632,104 @@ export function SkillWorkspace({
             </motion.div>
           ) : (
             <Stack gap="xs" component="section" aria-label="Your options">
-              <Text size="sm" fw={500}>
+              <Text size="lg" fw={600} ta="center">
                 What to craft next:
               </Text>
-              <SimpleGrid cols={{ base: 1, xs: 2, md: OPTIONS }} spacing="sm">
-                {options.map((r) => (
-                  <OptionCard
-                    key={r.recipe_id}
-                    result={r}
-                    best={r.recipe_id === bestId}
-                    items={items}
-                    learn={learn[r.recipe_id]}
-                    onChoose={() => choose(r.recipe_id)}
-                  />
-                ))}
-              </SimpleGrid>
+              {expanded && all ? (
+                // every option as a card, opened straight into its run; no chain here
+                <Stack gap="xs" aria-label="All options">
+                  <Group justify="flex-end">
+                    <Button variant="subtle" size="xs" onClick={() => setAll(false)}>
+                      Hide the full list
+                    </Button>
+                  </Group>
+                  <div className={classes.grid}>
+                    {listed.slice(0, shown).map((r) => (
+                      <OptionCard
+                        key={r.recipe_id}
+                        result={r}
+                        best={r.recipe_id === bestId}
+                        items={items}
+                        learn={learn[r.recipe_id]}
+                        onChoose={() => choose(r.recipe_id)}
+                      />
+                    ))}
+                  </div>
+                  {shown < rank.data.total && (
+                    <Button
+                      variant="light"
+                      size="xs"
+                      style={{ alignSelf: 'center' }}
+                      loading={allRank.isFetching}
+                      onClick={() => setShown((n) => n + GRID)}
+                    >
+                      Show more
+                    </Button>
+                  )}
+                </Stack>
+              ) : expanded ? (
+                <div
+                  className={classes.options}
+                  style={
+                    {
+                      '--options': options.length,
+                      '--now': nowIndex + 1,
+                      // under the rightmost card, below the chain should it hang there too
+                      '--see-all-row': nowIndex === options.length - 1 ? 3 : 2,
+                    } as CSSProperties
+                  }
+                >
+                  {options.map((r) => (
+                    <Fragment key={r.recipe_id}>
+                      <OptionCard
+                        result={r}
+                        best={r.recipe_id === bestId}
+                        items={items}
+                        learn={learn[r.recipe_id]}
+                        fade={r.recipe_id !== now?.recipe_id}
+                        onChoose={() => pick(r.recipe_id)}
+                      />
+                      {r.recipe_id === now?.recipe_id && chainView}
+                    </Fragment>
+                  ))}
+                  {results.length > OPTIONS && (
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      className={classes.seeAll}
+                      onClick={() => {
+                        setShown(GRID)
+                        setAll(true)
+                      }}
+                    >
+                      See all {rank.data.total} options
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                now && (
+                  <div className={classes.single}>
+                    <div className={classes.now}>
+                      <OptionCard
+                        result={now}
+                        best={now.recipe_id === bestId}
+                        items={items}
+                        learn={learn[now.recipe_id]}
+                        onChoose={() => choose(now.recipe_id)}
+                      />
+                    </div>
+                    {options.length > 1 && (
+                      <Button variant="subtle" size="xs" className={classes.more} onClick={() => setExpanded(true)}>
+                        Show me other options
+                      </Button>
+                    )}
+                    {chainView}
+                  </div>
+                )
+              )}
             </Stack>
           )}
         </LayoutGroup>
-        {!open && results.length > OPTIONS && (
-          <Button variant="subtle" size="xs" style={{ alignSelf: 'flex-start' }} onClick={() => setAll((a) => !a)}>
-            {all ? 'Hide the full list' : `See all ${rank.data.total} options`}
-          </Button>
-        )}
-        {!open && all && (
-          <ResultsTable
-            results={results}
-            items={items}
-            classes={rank.data.classes}
-            learn={learn}
-            params={evaluate}
-            rankBy="skill"
-            onOpen={(r) => choose(r.recipe_id)}
-          />
-        )}
       </Stack>
     </CharacterClasses.Provider>
   )

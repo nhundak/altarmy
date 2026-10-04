@@ -1,5 +1,9 @@
 import { Stack, Text, Tooltip } from '@mantine/core'
-import type { Learn } from '../api/client'
+import type { ItemMap, Learn } from '../api/client'
+import { formatCoords } from '../lib/time'
+import { Hover, ItemLink } from './ItemTooltip'
+import { Money } from './Money'
+import classes from './ResultsTable.module.css'
 import { ZoneMap } from './ZoneMap'
 
 type Place = Learn['items'][number]['places'][number]
@@ -79,6 +83,73 @@ export function LearnDetails({ learn }: { learn: Learn }) {
         </Text>
       )}
     </Stack>
+  )
+}
+
+/**
+ * A skill-up checklist's first step when the climber lacks the recipe: the trainer, else buying the pattern that
+ * costs `cost` (the cheapest of its items) from the vendor selling it (its zone map on hover) or on the AH, else
+ * finding it. A pattern sold by a vendor is taken to be bought there.
+ */
+export function LearnStep({
+  learn,
+  recipe,
+  cost,
+  items,
+}: {
+  learn: Learn
+  recipe: string
+  cost: number | null
+  items: ItemMap
+}) {
+  if (learn.source === 'trainer' || !learn.items.length)
+    return <>Learn {recipe} from a {learn.profession || 'profession'} trainer</>
+  const pattern = learn.items.find((i) => cost !== null && i.price === cost) ?? learn.items[0]!
+  const link = <ItemLink item={items[pattern.item_id]} name={pattern.name} />
+  if (cost === null)
+    return (
+      <>
+        Find {link} (price unknown, <LearnTooltip learn={learn}>where to get it</LearnTooltip>)
+      </>
+    )
+  const vendors = pattern.places.filter((p) => p.kind === 'vendor')
+  const vendor = vendors[0]
+  const price = (
+    <>
+      (<Money copper={cost} />)
+    </>
+  )
+  if (!vendor)
+    return (
+      <>
+        Buy {link} on the AH {price}
+      </>
+    )
+  const where = (
+    <>
+      {vendor.name}
+      {vendor.zone && `, ${vendor.zone}`}
+      {vendor.area > 0 && ` at ${formatCoords(vendor.map_x, vendor.map_y)}`}
+    </>
+  )
+  return (
+    <>
+      Buy {link} from{' '}
+      {vendor.area > 0 ? (
+        <Hover tooltip={<ZoneMap area={vendor.area} x={vendor.map_x} y={vendor.map_y} name={vendor.name} />}>
+          <span className={classes.mapLink}>{where}</span>
+        </Hover>
+      ) : (
+        where
+      )}{' '}
+      {price}
+      {vendors.length > 1 && (
+        <>
+          {' '}
+          or <LearnTooltip learn={learn}>{`${vendors.length - 1} other vendor${vendors.length > 2 ? 's' : ''}`}</LearnTooltip>
+        </>
+      )}
+    </>
   )
 }
 

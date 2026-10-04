@@ -14,7 +14,8 @@ export const SELL_TEXT: Readonly<Record<string, string>> = {
   ah: 'Sell on the AH',
   vendor: 'Sell to a vendor',
   disenchant: 'Disenchant, sell the materials',
-  keep: 'Keep it (no vendor buys it)', // skilling up: worth nothing, the skill point was the point
+  // skilling up: worth nothing, the skill point was the point; only ever offered when nothing else is
+  keep: 'Dead loss (no vendor buys it)',
 }
 
 /** Money made: green, or red with a minus sign when it is a loss. */
@@ -100,9 +101,10 @@ export const sourceChoices = (options: FlowNode['options'], option: string, hold
     current: o.key === option,
   }))
 
-/** The ways to sell the craft, with the profit each makes; `exit` is the one taken. */
+/** The ways to sell the craft, with the profit each makes; `exit` is the one taken. Keeping it is left out
+ * unless it is the only way. */
 export const sellChoices = (options: RankResult['sell_options'], exit: string): Choice[] =>
-  options.map((o) => ({
+  (options.some((o) => o.kind !== 'keep') ? options.filter((o) => o.kind !== 'keep') : options).map((o) => ({
     key: o.kind,
     label: SELL_TEXT[o.kind] ?? `Sell via ${o.kind}`,
     amount: (

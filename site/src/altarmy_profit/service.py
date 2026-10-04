@@ -803,6 +803,24 @@ def gather_values(base: Market, item_ids: Iterable[int]) -> dict[int, int]:
     return out
 
 
+def raise_skill(chars: Sequence[Character], first: Result, skill_name: str) -> list[Character]:
+    """`chars` with `first`'s crafter's `skill_name` at where `first`'s run stops (never lowered)."""
+    wanted = skill_name.lower()
+
+    def raised(c: Character) -> Character:
+        if c.name != first.crafter:
+            return c
+        return replace(
+            c,
+            professions=tuple(
+                replace(p, rank=max(p.rank, first.stop_skill)) if p.name.lower() == wanted else p
+                for p in c.professions
+            ),
+        )
+
+    return [raised(c) for c in chars]
+
+
 def then_up(
     base: Market,
     chars: Sequence[Character],
@@ -821,22 +839,9 @@ def then_up(
 ) -> list[Result]:
     """What could come after `first` (the best useful run) once it is done: the ranking with its crafter's
     `skill_name` at where that run stops, cheapest skill point first, without `first`'s recipe."""
-    wanted = skill_name.lower()
-
-    def raised(c: Character) -> Character:
-        if c.name != first.crafter:
-            return c
-        return replace(
-            c,
-            professions=tuple(
-                replace(p, rank=max(p.rank, first.stop_skill)) if p.name.lower() == wanted else p
-                for p in c.professions
-            ),
-        )
-
     later = search(
         base,
-        [raised(c) for c in chars],
+        raise_skill(chars, first, skill_name),
         unlearned,
         Filters(),
         exits,
@@ -850,6 +855,105 @@ def then_up(
         gathered=gathered,
     )
     return [r for r in by_skill(later) if r.recipe.id != first.recipe.id]
+
+
+def passed_over_options(
+    base: Market,
+    chars: Sequence[Character],
+    unlearned: Learning | Unlearned,
+    exits: frozenset[str],
+    no_ah: frozenset[int],
+    include_trivial: bool,
+    time: TimeModel | None,
+    skill_crafters: frozenset[str],
+    arcane_salvager: bool,
+    skill_name: str,
+    skill_run: SkillRuns,
+    *,
+    first: Result,
+    count: int,
+    order: Callable[[list[Result]], list[Result]] = by_skill,
+    gathered: Mapping[int, int] | None = None,
+) -> list[Result]:
+    """The best `count` options to craft now, `first` (the best run) first: each the best run once those
+    before it are passed over (`SkillRuns.skip`: neither crafted nor ending a run), so an option's run is what
+    picking it would give."""
+    out = [first]
+    while len(out) < count:
+        run = replace(skill_run, skip=skill_run.skip | {r.recipe.id for r in out})
+        later = order(
+            search(
+                base,
+                chars,
+                unlearned,
+                Filters(),
+                exits,
+                no_ah,
+                include_trivial,
+                time,
+                skill_crafters,
+                arcane_salvager,
+                skill_name=skill_name,
+                skill_run=run,
+                gathered=gathered,
+            )
+        )
+        if not later or not later[0].skill_ups:
+            break
+        out.append(later[0])
+    return out
+
+
+def skill_chain(
+    base: Market,
+    chars: Sequence[Character],
+    unlearned: Learning | Unlearned,
+    exits: frozenset[str],
+    no_ah: frozenset[int],
+    include_trivial: bool,
+    time: TimeModel | None,
+    skill_crafters: frozenset[str],
+    arcane_salvager: bool,
+    skill_name: str,
+    skill_run: SkillRuns,
+    *,
+    first: Result,
+    steps: int,
+    order: Callable[[list[Result]], list[Result]] = by_skill,
+    gathered: Mapping[int, int] | None = None,
+    done: Sequence[Result] = (),
+) -> list[Result]:
+    """The runs that follow `first`, up to `steps` of them: each the best (`order`'s first) once the one
+    before is done (`then_up`, the crafter's skill raised run by run). It ends early at the skill cap or when
+    nothing after gives a skill point. `done`: the first runs of the chain, already worked out (a shorter
+    `skill_chain` of the same `first`), continued from rather than worked out again."""
+    out: list[Result] = list(done[:steps])
+    for r in [first, *out[:-1]]:
+        chars = raise_skill(chars, r, skill_name)
+    prev = out[-1] if out else first
+    while len(out) < steps and prev.stop_reason != "cap" and prev.stop_skill > 0:
+        later = then_up(
+            base,
+            chars,
+            unlearned,
+            exits,
+            no_ah,
+            include_trivial,
+            time,
+            skill_crafters,
+            arcane_salvager,
+            skill_name,
+            skill_run,
+            first=prev,
+            gathered=gathered,
+        )
+        ordered = order(later)
+        if not ordered or not ordered[0].skill_ups:
+            break
+        chars = raise_skill(chars, prev, skill_name)
+        prev = ordered[0]
+        out.append(prev)
+    return out
 
 
 def pattern_price(

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { CharacterGroup } from '../api/client'
 import type { Exit, Unlearned } from '../api/queries'
 import { writeStored } from './storage'
-import { WORKING_OVERTIME } from './talents'
+import { craftingTalents, type CraftingTalent } from './talents'
 
 /*
  * The Profit page's setup: a few questions asked before the search, each setting one thing about it. What the user is
@@ -85,13 +85,13 @@ export const SELLING: readonly Card<Selling>[] = [
 ]
 
 
-/** One character having a profession, at what skill, and their Working Overtime ranks (unset without any). */
+/** One character having a profession, at what skill, and the Legacy talents that matter to it (`craftingTalents`). */
 export type Holder = {
   name: string
   classFile: string
   rank: number
   maxRank: number
-  workingOvertime?: { rank: number; maxRank: number }
+  talents?: CraftingTalent[]
 }
 
 /** A profession someone on the realm has, and who. */
@@ -112,13 +112,13 @@ export function professionsOf(
       const key = p.name.toLowerCase()
       if (ranked && !ranked.has(key)) continue
       const entry = byName.get(key) ?? { name: p.name, holders: [] }
-      const overtime = c.talents.find((t) => t.spell_id === WORKING_OVERTIME && t.rank > 0)
+      const talents = craftingTalents(c.talents, p.name)
       entry.holders.push({
         name: c.name,
         classFile: c.class_file,
         rank: p.rank,
         maxRank: p.max_rank,
-        ...(overtime ? { workingOvertime: { rank: overtime.rank, maxRank: overtime.max_rank } } : {}),
+        ...(talents.length ? { talents } : {}),
       })
       byName.set(key, entry)
     }

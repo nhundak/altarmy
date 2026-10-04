@@ -719,6 +719,165 @@ def test_then_is_the_best_recipe_once_the_first_run_is_done(
     assert (r.crafts, r.stop_reason, r.stop_skill) == (1, "trivial", 59)
 
 
+def ladder(cap: int = 300) -> tuple[engine.Market, Character]:
+    """Three Tailoring recipes one after another (grey at 30, 55 and 80), known by a tailor at 1."""
+    items = {
+        1: engine.Item(1, "Cloth"),
+        **{10 + i: engine.Item(10 + i, n, sell_price=1) for i, n in ((1, "A"), (2, "B"), (3, "C"))},
+    }
+    recipes = [
+        engine.Recipe(
+            100 + i, n, 10 + i, 1, ((1, 1),), "Tailoring", spell_id=900 + i, trivial_low=lo, trivial_high=hi
+        )
+        for i, (n, lo, hi) in enumerate((("A", 1, 30), ("B", 25, 55), ("C", 50, 80)), start=1)
+    ]
+    who = Character(
+        "R", "T", "Horde", "MAGE", 60, (Profession("Tailoring", 1, cap, frozenset({901, 902, 903})),)
+    )
+    return engine.Market(items, recipes, {1: 20}), who
+
+
+def chain_of(base: engine.Market, who: Character, first: engine.Result, steps: int = 2) -> list[str]:
+    none: frozenset[int] = frozenset()
+    run = engine.SkillRuns()
+    got = service.skill_chain(
+        base,
+        [who],
+        "none",
+        ALL_EXITS,
+        none,
+        False,
+        None,
+        frozenset({who.name}),
+        False,
+        "Tailoring",
+        run,
+        first=first,
+        steps=steps,
+    )
+    return [r.recipe.name for r in got]
+
+
+def test_the_skill_chain_follows_one_run_with_the_next() -> None:
+    base, who = ladder()
+    run = engine.SkillRuns()
+    ranked = service.by_skill(
+        service.search(base, [who], "none", Filters(), skill_crafters=frozenset({"T"}), skill_run=run)
+    )
+    first = next(r for r in ranked if r.recipe.name == "A")
+    assert chain_of(base, who, first) == ["B", "C"]
+    assert chain_of(base, who, first, steps=1) == ["B"]
+    # started from another option, the chain follows that one
+    b = next(r for r in ranked if r.recipe.name == "B")
+    assert chain_of(base, who, b)[0] == "C"
+    # a run that ends at the cap has nothing after it
+    assert chain_of(base, who, replace(first, stop_reason="cap")) == []
+
+
+def test_a_longer_skill_chain_continues_from_a_shorter_one() -> None:
+    base, who = ladder()
+    run = engine.SkillRuns()
+    first = next(
+        r
+        for r in service.search(
+            base, [who], "none", Filters(), skill_crafters=frozenset({"T"}), skill_run=run
+        )
+        if r.recipe.name == "A"
+    )
+
+    def chain(steps: int, done: list[engine.Result] | None = None) -> list[engine.Result]:
+        none: frozenset[int] = frozenset()
+        return service.skill_chain(
+            base,
+            [who],
+            "none",
+            ALL_EXITS,
+            none,
+            False,
+            None,
+            frozenset({who.name}),
+            False,
+            "Tailoring",
+            run,
+            first=first,
+            steps=steps,
+            done=done or (),
+        )
+
+    short = chain(1)
+    longer = chain(2, short)
+    assert longer[0] is short[0]
+    assert [(r.recipe.name, r.stop_skill) for r in longer] == [
+        (r.recipe.name, r.stop_skill) for r in chain(2)
+    ]
+
+
+def test_skipped_recipes_are_neither_runs_nor_rivals() -> None:
+    base, who = ladder()
+
+    def ranked(skip: frozenset[int] = frozenset()) -> dict[str, engine.Result]:
+        run = engine.SkillRuns(skip=skip)
+        got = service.search(base, [who], "none", Filters(), skill_crafters=frozenset({"T"}), skill_run=run)
+        return {r.recipe.name: r for r in got}
+
+    assert ranked()["A"].overtaken_by == "B"
+    passed = ranked(frozenset({102}))  # B passed over
+    assert "B" not in passed
+    assert passed["A"].overtaken_by == "C"  # what ends its run now
+
+
+def test_each_option_is_ranked_with_those_before_it_passed_over() -> None:
+    base, who = ladder()
+    run = engine.SkillRuns()
+    skilled = frozenset({"T"})
+    best = service.by_skill(
+        service.search(base, [who], "none", Filters(), skill_crafters=skilled, skill_run=run)
+    )[0]
+    none: frozenset[int] = frozenset()
+    got = service.passed_over_options(
+        base,
+        [who],
+        "none",
+        ALL_EXITS,
+        none,
+        False,
+        None,
+        skilled,
+        False,
+        "Tailoring",
+        run,
+        first=best,
+        count=3,
+    )
+    assert [r.recipe.name for r in got] == ["A", "B", "C"]
+    # B's run as picking it gives: A, passed over, is no rival of it
+    (b,) = [r for r in got if r.recipe.name == "B"]
+    alone = service.search(
+        base,
+        [who],
+        "none",
+        Filters(),
+        skill_crafters=skilled,
+        skill_run=engine.SkillRuns(skip=frozenset({101})),
+    )
+    assert b == next(r for r in alone if r.recipe.name == "B")
+
+
+def test_raise_skill_raises_only_the_crafters_profession() -> None:
+    _, who = ladder()
+    other = replace(who, name="Other")
+    alchemy = Profession("Alchemy", 5, 300, frozenset())
+    who = replace(who, professions=(*who.professions, alchemy))
+    first = engine.Result(engine.Recipe(1, "A", 11), 0, 0, "vendor", engine.Node(11, "A", 1, 0), crafter="T")
+    first = replace(first, stop_skill=40)
+    raised, same = service.raise_skill([who, other], first, "tailoring")
+    assert [(p.name, p.rank) for p in raised.professions] == [("Tailoring", 40), ("Alchemy", 5)]
+    assert same == other
+    assert service.raise_skill([raised], replace(first, stop_skill=10), "Tailoring") == [
+        raised
+    ]  # never lowered
+
+
 def test_learn_cost_counts_a_pattern_the_climber_must_buy() -> None:
     robe = engine.Recipe(1, "Robe", 10, 1, ((1, 1),), "Tailoring", spell_id=900, source="recipe")
     trained = replace(robe, id=2, spell_id=901, source="trainer")

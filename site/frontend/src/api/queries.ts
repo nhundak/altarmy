@@ -123,6 +123,12 @@ export type RankParams = {
   runs: boolean
   /** items the user gathers themselves: had for what selling them would make, instead of bought */
   gathered?: number[]
+  /** skilling up a run: the recipe whose run `chain` follows; unset for the first result's */
+  chainFrom?: number
+  /** skilling up a run: the runs `chain` may hold; unset for the API's default (`CHAIN`) */
+  chainLength?: number
+  /** skilling up a run: recipes passed over, neither ranked as runs nor what ends one */
+  skip?: number[]
   top: number
 }
 
@@ -146,7 +152,10 @@ const training = ({
 /** Ranked recipes for the selected realm/faction's characters (every recipe without characters). With a
  * `priceVersion`, ranked at that price version (as of when it was frozen) until it is moved, however prices change
  * meanwhile: a list being worked through doesn't reshuffle. */
-export function useRank(params: RankParams, { priceVersion: frozen }: { priceVersion?: number } = {}) {
+export function useRank(
+  params: RankParams,
+  { priceVersion: frozen, enabled = true }: { priceVersion?: number; enabled?: boolean } = {},
+) {
   const live = useDataVersion()
   const status = useStatus().data
   const livePrices = usePriceVersion()
@@ -178,13 +187,16 @@ export function useRank(params: RankParams, { priceVersion: frozen }: { priceVer
               sort: params.sort === 'profit' ? undefined : params.sort,
               runs: params.runs || undefined,
               gathered: params.gathered?.length ? params.gathered : undefined,
+              chain_from: params.chainFrom,
+              chain_length: params.chainLength,
+              skip: params.skip?.length ? params.skip : undefined,
               top: params.top,
               price_version: priceVersion,
             },
           },
         }),
       ),
-    enabled: version !== undefined,
+    enabled: enabled && version !== undefined,
     placeholderData: keepPreviousData,
   })
 }
@@ -194,7 +206,7 @@ export function useRank(params: RankParams, { priceVersion: frozen }: { priceVer
 export type EvaluateParams = Pick<
   RankParams,
   'unlearned' | 'lookAhead' | 'sources' | 'includeTrivial' | 'skillCrafters' | 'exits' | 'arcaneSalvager'
-> & { runs?: boolean; gathered?: number[]; version?: string }
+> & { runs?: boolean; gathered?: number[]; skip?: number[]; version?: string }
 
 export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: Error | null }
 
@@ -202,13 +214,13 @@ export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: E
  * previous evaluation stays in `data`. */
 export function useEvaluations(
   choices: Readonly<Record<number, Choices>>,
-  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version }: EvaluateParams,
+  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, skip, version }: EvaluateParams,
 ): Readonly<Record<number, EvaluationState>> {
   const ids = Object.keys(choices).map(Number)
   const priceVersion = usePriceVersion()
   return useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices[id]],
+      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, skip ?? [], choices[id]],
       queryFn: () =>
         call(
           client.POST('/api/evaluate', {
@@ -224,6 +236,7 @@ export function useEvaluations(
               arcane_salvager: arcaneSalvager,
               runs: runs ?? false,
               gathered: gathered ?? [],
+              skip: skip ?? [],
               choices: choices[id] ?? {},
               price_version: priceVersion,
             },
@@ -246,7 +259,7 @@ export function useEvaluations(
  * until they move: never stale. */
 function sessionPlanQuery(
   recipeId: number,
-  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version }: EvaluateParams,
+  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, skip, version }: EvaluateParams,
   choices: Choices | undefined,
   copies: number | null,
   city: string | null,
@@ -255,7 +268,7 @@ function sessionPlanQuery(
 ) {
   return {
     // under 'evaluate', so whatever re-costs plans (time settings, AH blocks) re-plans sessions too
-    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices ?? {}, 'session', copies, city, crafter],
+    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, skip ?? [], choices ?? {}, 'session', copies, city, crafter],
     queryFn: () =>
       call(
         client.POST('/api/evaluate', {
@@ -271,6 +284,7 @@ function sessionPlanQuery(
             arcane_salvager: arcaneSalvager,
             runs: runs ?? false,
             gathered: gathered ?? [],
+            skip: skip ?? [],
             choices: choices ?? {},
             copies: copies ?? undefined,
             city: city ?? undefined,

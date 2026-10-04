@@ -315,9 +315,12 @@ class Rival:
 
 @dataclass(frozen=True)
 class SkillRuns:
-    """Rank each recipe as a run (`run_until_cheaper`), of at most `ceiling` crafts."""
+    """Rank each recipe as a run (`run_until_cheaper`), of at most `ceiling` crafts. The recipes in `skip`
+    (the user passed them over) are neither ranked as runs nor rivals that end one; they may still be
+    sub-crafted."""
 
     ceiling: int = RUN_CEILING
+    skip: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -1815,7 +1818,7 @@ class Market:
 
     def _skill_run(self, recipe: Recipe, crafter: Crafter, runs: SkillRuns, memo: Memo) -> SkillRun:
         """`crafter`'s run of `recipe` against the other recipes of its profession (`_rivals`)."""
-        rivals = self._rivals(recipe.skill_name, memo)
+        rivals = [x for x in self._rivals(recipe.skill_name, memo) if x.recipe.id not in runs.skip]
         cost = next((r.cost for r in rivals if r.recipe.id == recipe.id), None)
         if cost is None:
             one = self.evaluate(recipe, memo=memo)
@@ -1873,6 +1876,8 @@ class Market:
             if skill_name and r.skill_name.lower() != skill_name.lower():
                 continue
             if only is not None and r.id not in only:
+                continue
+            if skill_run is not None and r.id in skill_run.skip:
                 continue
             res = self.evaluate(r, memo=memo, crafts=crafts, skill_run=skill_run)
             if res and res.profit >= min_profit:

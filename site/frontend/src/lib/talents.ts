@@ -2,6 +2,43 @@
 
 /** Working Overtime (WoW: Forever's Legacy talent): a better chance of a skill point from every craft. */
 export const WORKING_OVERTIME = 1225451
+export const WORKING_OVERTIME_PERCENT = 4
+
+/** Master Chef (WoW: Forever's Legacy talent): a chance of an extra result from Cooking, per rank. */
+export const MASTER_CHEF = 1225457
+export const MASTER_CHEF_PERCENT = 10
+
+/** A Legacy talent a character has that matters to their crafting, as the skill workspace names it. */
+export type CraftingTalent = { spellId: number; name: string; rank: number; maxRank: number }
+
+/**
+ * The Legacy talents (ranked above 0) that matter when crafting `profession`: Working Overtime and Bartering always,
+ * Master Chef only for Cooking.
+ */
+export function craftingTalents(
+  talents: readonly { spell_id: number; name: string; rank: number; max_rank: number }[],
+  profession: string,
+): CraftingTalent[] {
+  const wanted = [WORKING_OVERTIME, BARTERING, ...(profession.toLowerCase() === 'cooking' ? [MASTER_CHEF] : [])]
+  return wanted.flatMap((id) => {
+    const t = talents.find((t) => t.spell_id === id && t.rank > 0)
+    return t ? [{ spellId: id, name: t.name, rank: t.rank, maxRank: t.max_rank }] : []
+  })
+}
+
+/** What a talent's ranks do, the last line of its tooltip; "" for a talent not named here. */
+export function talentNote({ spellId, rank }: CraftingTalent): string {
+  switch (spellId) {
+    case WORKING_OVERTIME:
+      return `Increases your chance to gain a skill increase by ${rank * WORKING_OVERTIME_PERCENT}%`
+    case BARTERING:
+      return `Reduces the gold price of items from all vendors by ${rank * BARTERING_PERCENT}%`
+    case MASTER_CHEF:
+      return `Your cooking recipes have a ${rank * MASTER_CHEF_PERCENT}% chance to create an extra result`
+    default:
+      return ''
+  }
+}
 
 /**
  * What came off a vendor buy: the buyer's Bartering talent and their standing with the vendor's faction, e.g.

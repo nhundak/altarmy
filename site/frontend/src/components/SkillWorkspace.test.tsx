@@ -10,6 +10,7 @@ import { status } from '../test/status'
 import { mockApi, renderWithProviders } from '../test/utils'
 import type { Holder } from '../lib/setup'
 import { scaleRun } from '../lib/skill'
+import { BARTERING, WORKING_OVERTIME } from '../lib/talents'
 import { SkillWorkspace } from './SkillWorkspace'
 
 const capItem = { ...robeItem, id: 4, name: 'Linen Cap', quality: 2 }
@@ -44,7 +45,9 @@ const capRun: RankResult = {
   cost: 4800,
 }
 const beltRun: RankResult = { ...robeRun, recipe_id: 102, recipe: 'Linen Belt', output_name: 'Linen Belt', profit: -100 }
-const ranked = { results: [robeRun, capRun], total: 2, items, classes: {}, learn: {}, then: beltRun }
+const bootsRun: RankResult = { ...beltRun, recipe_id: 103, recipe: 'Linen Boots', output_item_id: 9004, output_name: 'Linen Boots' }
+// After the robe's run: the belt's, then the boots'.
+const ranked = { results: [robeRun, capRun], total: 2, items, classes: {}, learn: {}, chain: [beltRun, bootsRun] }
 
 const FILTERS: Omit<RankParams, 'top'> = {
   unlearned: 'train',
@@ -66,6 +69,8 @@ const FILTERS: Omit<RankParams, 'top'> = {
   runs: true,
 }
 const CLIMBER = { name: 'Tailor Guy', classFile: 'MAGE', rank: 20, maxRank: 75 }
+const overtime = (rank: number) => ({ spellId: WORKING_OVERTIME, name: 'Working Overtime', rank, maxRank: 5 })
+const bartering = (rank: number) => ({ spellId: BARTERING, name: 'Bartering', rank, maxRank: 2 })
 
 function urls(fetch: ReturnType<typeof mockApi>, pathname: string) {
   return fetch.mock.calls.map(([r]) => new URL(r.url)).filter((u) => u.pathname === pathname)
@@ -88,21 +93,128 @@ function api(over: Record<string, unknown> = {}) {
 const show = (climber: Holder = CLIMBER) =>
   renderWithProviders(<SkillWorkspace filters={FILTERS} climber={climber} profession="Tailoring" />)
 
-/** Open the option named `name` from the overview; the run's details. */
+/** Open the option named `name` from the overview, picking it among the others first unless it is the one to craft
+ * now; the run's details. */
 async function choose(name: string) {
-  await userEvent.click(await screen.findByRole('button', { name: `Choose ${name}` }))
+  const options = await screen.findByRole('region', { name: 'Your options' })
+  if (!within(options).queryByRole('button', { name: `Choose ${name}` })) {
+    await userEvent.click(within(options).getByRole('button', { name: 'Show me other options' }))
+  }
+  // side by side, a click picks it; the one to craft now opens
+  if (within(options).getAllByRole('button', { name: /^Choose / }).length > 1) {
+    await userEvent.click(within(options).getByRole('button', { name: `Choose ${name}` }))
+  }
+  await userEvent.click(within(options).getByRole('button', { name: `Choose ${name}` }))
+  // already side by side, that click only picked it
+  if (!screen.queryByRole('region', { name: 'Run details' })) {
+    await userEvent.click(within(options).getByRole('button', { name: `Choose ${name}` }))
+  }
   return screen.getByRole('region', { name: 'Run details' })
 }
 
+/** The chain's recipes, in order. */
+const chainNames = (chain: HTMLElement) =>
+  within(chain)
+    .getAllByRole('article')
+    .map((e) => e.getAttribute('aria-label'))
+
 describe('SkillWorkspace', () => {
-  it('starts with the best options side by side, the cheapest point first', async () => {
-    const fetch = api()
+  it('starts with the best option and what comes after it, the others side by side on asking', async () => {
+    api()
     show()
     const options = await screen.findByRole('region', { name: 'Your options' })
+    expect(within(options).getAllByRole('button', { name: /^Choose / }).map((c) => c.getAttribute('aria-label'))).toEqual([
+      'Choose Green Robe',
+    ])
+    // the runs that follow it, nothing to click on them
+    let chain = within(options).getByRole('region', { name: 'What comes after' })
+    expect(chainNames(chain)).toEqual(['Linen Belt', 'Linen Boots'])
+    // each arrow says the skill the next run starts at: where the one before stops
+    expect(within(chain).getAllByText(/^At \d+ skill$/).map((e) => e.textContent)).toEqual(['At 45 skill', 'At 45 skill'])
+    expect(within(chain).queryByRole('button')).not.toBeInTheDocument()
+    expect(chain).not.toHaveAttribute('aria-disabled')
+    // the others side by side, the cheapest point first, the chain muted until one is picked
+    await userEvent.click(within(options).getByRole('button', { name: 'Show me other options' }))
     const cards = within(options).getAllByRole('button', { name: /^Choose / })
     expect(cards.map((c) => c.getAttribute('aria-label'))).toEqual(['Choose Green Robe', 'Choose Linen Cap'])
     expect(within(cards[0]!).getByText('Best')).toBeInTheDocument()
     expect(within(cards[1]!).queryByText('Best')).not.toBeInTheDocument()
+    chain = within(options).getByRole('region', { name: 'What comes after' })
+    expect(chain).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.queryByRole('region', { name: 'Run details' })).not.toBeInTheDocument()
+  })
+
+  it('shows each option as picking it gives, those before it passed over', async () => {
+    // listed, the cap stops where the robe gets cheaper; as an option, the robe passed over, at 60
+    const asOption: RankResult = { ...capRun, crafts: 30, stop_skill: 60, overtaken_by: 'Linen Boots', overtaken_by_item: 9004 }
+    api({ '/api/rank': { ...ranked, options: [robeRun, asOption] } })
+    show()
+    await userEvent.click(await screen.findByRole('button', { name: 'Show me other options' }))
+    expect(screen.getByRole('button', { name: 'Choose Linen Cap' })).toHaveTextContent(
+      'Craft until 60 skill (~30 times), at which point Linen Boots becomes a cheaper option',
+    )
+  })
+
+  it('shows four more runs after the chain on asking', async () => {
+    const run = (i: number): RankResult => ({ ...beltRun, recipe_id: 200 + i, recipe: `Run ${i}`, output_name: `Run ${i}` })
+    const runs = Array.from({ length: 10 }, (_, i) => run(i + 1))
+    const fetch = api({
+      '/api/rank': (url: URL) => ({ ...ranked, chain: runs.slice(0, Number(url.searchParams.get('chain_length') ?? 4)) }),
+    })
+    show()
+    const options = await screen.findByRole('region', { name: 'Your options' })
+    const chain = within(options).getByRole('region', { name: 'What comes after' })
+    expect(chainNames(chain)).toEqual(['Run 1', 'Run 2', 'Run 3', 'Run 4'])
+    await userEvent.click(within(chain).getByRole('button', { name: 'Show more' }))
+    await waitFor(() => expect(chainNames(chain)).toHaveLength(8))
+    // the longer chain follows the best, the one crafted now
+    const asked = urls(fetch, '/api/rank').find((u) => u.searchParams.get('chain_length'))
+    expect([asked?.searchParams.get('chain_from'), asked?.searchParams.get('chain_length')]).toEqual(['100', '8'])
+    await userEvent.click(within(chain).getByRole('button', { name: 'Show more' }))
+    await waitFor(() => expect(chainNames(chain)).toHaveLength(10))
+    // fewer than asked for: the chain ended
+    expect(within(chain).queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument()
+  })
+
+  it('makes a picked option the one to craft now, with what comes after it', async () => {
+    // without the robe, passed over, the cap's run goes on to 60, where the boots take over
+    const longer: RankResult = { ...capRun, crafts: 30, stop_skill: 60, overtaken_by: 'Linen Boots', overtaken_by_item: 9004 }
+    const capChain = { ...ranked, results: [longer], chain: [bootsRun], chain_start: longer }
+    const fetch = api({
+      '/api/rank': (url: URL) => (url.searchParams.get('chain_from') === '101' ? capChain : ranked),
+    })
+    show()
+    const options = await screen.findByRole('region', { name: 'Your options' })
+    await userEvent.click(within(options).getByRole('button', { name: 'Show me other options' }))
+    await userEvent.click(within(options).getByRole('button', { name: 'Choose Linen Cap' }))
+    // folded back around it
+    expect(within(options).getAllByRole('button', { name: /^Choose / }).map((c) => c.getAttribute('aria-label'))).toEqual([
+      'Choose Linen Cap',
+    ])
+    const chain = within(options).getByRole('region', { name: 'What comes after' })
+    await waitFor(() => expect(chainNames(chain)).toEqual(['Linen Boots']))
+    expect(chain).not.toHaveAttribute('aria-disabled')
+    const asked = urls(fetch, '/api/rank').find((u) => u.searchParams.get('chain_from'))
+    expect(asked?.searchParams.get('chain_from')).toBe('101')
+    expect(asked?.searchParams.get('top')).toBe('1')
+    expect(asked?.searchParams.getAll('skip')).toEqual(['100'])
+    const card = within(options).getByRole('button', { name: 'Choose Linen Cap' })
+    expect(card).toHaveTextContent('Craft until 60 skill (~30 times), at which point Linen Boots becomes a cheaper option')
+    // opened and closed, it is still the one to craft now
+    await userEvent.click(within(options).getByRole('button', { name: 'Choose Linen Cap' }))
+    const run = screen.getByRole('region', { name: 'Run details' })
+    expect(within(run).getByRole('heading')).toHaveTextContent(/Linen Cap/)
+    expect(run).toHaveTextContent(/Craft until 60 skill/) // the run as it stands after the pick
+    await userEvent.click(within(run).getByRole('button', { name: '← All options' }))
+    const back = await screen.findByRole('region', { name: 'Your options' })
+    expect(within(back).getByRole('button', { name: 'Choose Linen Cap' })).toBeInTheDocument()
+  })
+
+  it('says what the best run is worth and how far it goes', async () => {
+    const fetch = api()
+    show()
+    const options = await screen.findByRole('region', { name: 'Your options' })
+    const cards = within(options).getAllByRole('button', { name: /^Choose / })
     expect(cards[0]).toHaveTextContent('Craft until 45 skill (~12 times), at which point Linen Cap becomes a cheaper option')
     // the cheaper recipe's item in its quality's colour, with its tooltip
     expect(within(cards[0]!).getByText('Linen Cap').closest('[data-quality]')).toHaveAttribute('data-quality', '2')
@@ -169,7 +281,7 @@ describe('SkillWorkspace', () => {
       '/api/rank': { ...ranked, results: [{ ...robeRun, skill_ups_bonus: 0.48 }, capRun] },
       '/api/evaluate': () => ({ result: { ...scaleRun(robeRun, 14), skill_ups_bonus: 0.56 }, items }),
     })
-    show({ ...CLIMBER, workingOvertime: { rank: 1, maxRank: 5 } })
+    show({ ...CLIMBER, talents: [overtime(1)] })
     const run = await choose('Green Robe')
     expect(
       await within(run).findByText(
@@ -179,10 +291,10 @@ describe('SkillWorkspace', () => {
     expect(within(run).queryByText(/· .* points from Working Overtime/)).not.toBeInTheDocument()
   })
 
-  it("names the character's Working Overtime ranks beside their skill, only when they have some", async () => {
+  it("names the character's crafting talents beside their skill, only when they have some", async () => {
     api()
-    const { unmount } = show({ ...CLIMBER, name: 'Frell Ofelements', workingOvertime: { rank: 1, maxRank: 5 } })
-    expect(await screen.findByText('(1/5 Working Overtime)')).toBeInTheDocument()
+    const { unmount } = show({ ...CLIMBER, name: 'Frell Ofelements', talents: [overtime(1), bartering(2)] })
+    expect(await screen.findByText('(1/5 Working Overtime, 2/2 Bartering)')).toBeInTheDocument()
     expect(screen.getByText("Frell Ofelements'")).toBeInTheDocument()
     unmount()
     api()
@@ -192,17 +304,61 @@ describe('SkillWorkspace', () => {
     expect(screen.getByText("Tailor Guy's")).toBeInTheDocument()
   })
 
+  it('says what each talent does when they are hovered', async () => {
+    api()
+    show({ ...CLIMBER, talents: [overtime(2), bartering(1)] })
+    await userEvent.hover(await screen.findByText('(2/5 Working Overtime, 1/2 Bartering)'))
+    const tooltip = await screen.findByRole('tooltip')
+    expect(within(tooltip).getByText('Working Overtime')).toBeInTheDocument()
+    expect(within(tooltip).getByText('Rank 2/5')).toBeInTheDocument()
+    expect(within(tooltip).getByText('Increases your chance to gain a skill increase by 8%')).toBeInTheDocument()
+    expect(within(tooltip).getByText('Bartering')).toBeInTheDocument()
+    expect(within(tooltip).getByText('Rank 1/2')).toBeInTheDocument()
+    expect(within(tooltip).getByText('Reduces the gold price of items from all vendors by 5%')).toBeInTheDocument()
+  })
+
   it('says what to do to learn a recipe the climber lacks', async () => {
     const pattern: RankResult = { ...capRun, crafters: ['Someone Else'], learn_cost: 1200 }
     const unknown: RankResult = { ...beltRun, crafters: [], learn_cost: null }
-    const learn = { '101': { source: 'recipe', skill: 50, profession: 'Tailoring', items: [] } }
+    const vendor = {
+      kind: 'vendor',
+      name: 'Rann Flamespinner',
+      zone: 'Orgrimmar',
+      area: 1637,
+      map_x: 63.2,
+      map_y: 51.5,
+      side: '',
+      limited: false,
+      chance: 0,
+      count: 0,
+      levels: '',
+    }
+    const learn = {
+      '101': {
+        source: 'recipe',
+        skill: 50,
+        profession: 'Tailoring',
+        items: [{ item_id: 9001, name: 'Pattern: Linen Cap', price: 1200, limited: false, places: [vendor] }],
+      },
+    }
     api({ '/api/rank': { ...ranked, results: [robeRun, pattern, unknown], total: 3, learn } })
     show()
-    // the cards warn of a pattern nobody can price; one whose cost is counted waits for the run
-    expect(await screen.findByText('You must find the pattern (price unknown)')).toBeInTheDocument()
-    expect(screen.queryByText(/cost included/)).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: 'Show me other options' }))
+    // the cards warn of a pattern nobody can price, and say one whose cost is counted must be trained
+    expect(screen.getByText('You must find the pattern (price unknown)')).toBeInTheDocument()
+    const card = screen.getByRole('button', { name: 'Choose Linen Cap' })
+    expect(within(card).getByText('You will need to train this recipe (included in the cost)')).toBeInTheDocument()
     const run = await choose('Linen Cap')
-    expect(within(run).getByText(/You must buy the pattern \(cost included\)/)).toBeInTheDocument()
+    // the run names what the pattern costs
+    expect(within(run).getByText(/You must buy the pattern/)).toHaveTextContent(/^You must buy the pattern \(12 0\)/)
+    // and the checklist starts with buying it from its vendor, the zone map on hover
+    const steps = within(run).getByRole('group', { name: "Tailor Guy's steps" })
+    const first = within(steps).getAllByRole('listitem')[0]!
+    expect(first).toHaveTextContent(
+      /^Buy Pattern: Linen Cap from Rann Flamespinner, Orgrimmar at 63\.2, 51\.5 \(12 0\)$/,
+    )
+    await userEvent.hover(within(first).getByText(/Rann Flamespinner/))
+    expect(await screen.findByRole('img', { name: /Rann Flamespinner/ })).toBeInTheDocument()
   })
 
   it('opens an option other than the best', async () => {
@@ -232,17 +388,22 @@ describe('SkillWorkspace', () => {
     }
   })
 
-  it('opens a row of the full list as its run, and goes back to the list', async () => {
+  it('opens a card of the full list as its run, and goes back to the list', async () => {
     const many = [robeRun, capRun, beltRun, { ...beltRun, recipe_id: 103, recipe: 'Linen Boots', output_name: 'Linen Boots' }]
     api({ '/api/rank': { ...ranked, results: [...many, { ...beltRun, recipe_id: 104, recipe: 'Linen Bag', output_item_id: 9002, output_name: 'Linen Bag' }], total: 5 } })
     show()
-    await userEvent.click(await screen.findByRole('button', { name: 'See all 5 options' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Open Linen Bag' }))
+    // only once the options are side by side
+    await screen.findByRole('region', { name: 'Your options' })
+    expect(screen.queryByRole('button', { name: 'See all 5 options' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Show me other options' }))
+    await userEvent.click(screen.getByRole('button', { name: 'See all 5 options' }))
+    expect(screen.queryByRole('region', { name: 'What comes after' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Choose Linen Bag' }))
     const run = screen.getByRole('region', { name: 'Run details' })
     expect(within(run).getByRole('heading')).toHaveTextContent('Linen Bag')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     await userEvent.click(within(run).getByRole('button', { name: '← All options' }))
-    expect(await screen.findByRole('button', { name: 'Open Linen Bag' })).toBeInTheDocument() // the list again
+    expect(await screen.findByRole('button', { name: 'Choose Linen Bag' })).toBeInTheDocument() // the list again
   })
 
   it('shows no spinner while the plan fetched ahead is on its way, only for a count the user types', async () => {
@@ -345,7 +506,7 @@ describe('SkillWorkspace', () => {
   })
 
   it('says to visit a trainer at the cap', async () => {
-    api({ '/api/rank': { ...ranked, results: [], total: 0, then: null } })
+    api({ '/api/rank': { ...ranked, results: [], total: 0, chain: [] } })
     show({ ...CLIMBER, rank: 75 })
     expect(await screen.findByText("You're at your Tailoring cap (75)")).toBeInTheDocument()
     expect(screen.getByText(/Visit a Tailoring trainer to learn the next rank, then \/reload/)).toBeInTheDocument()

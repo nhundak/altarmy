@@ -11,6 +11,7 @@ from sqlalchemy import Connection, insert, select, update
 
 from altarmy_profit import (
     altarmy,
+    api,
     auth,
     db,
     engine,
@@ -737,7 +738,8 @@ def test_the_skill_run_ranks_again(
 
     monkeypatch.setattr(service, "search", spy)
     client.get("/api/rank", params={**SKILL_UP, "runs": True})
-    assert calls and set(calls) == {engine.SkillRuns()}  # the ranking, and what comes after its first
+    # the ranking, what comes after its first, and the next options with the ones before passed over
+    assert calls and set(calls) == {engine.SkillRuns(), engine.SkillRuns(skip=frozenset({100}))}
     ranked = len(calls)
     client.get("/api/rank", params={**SKILL_UP, "runs": True})
     assert len(calls) == ranked  # all cached
@@ -1701,7 +1703,16 @@ def test_skill_up_counts_the_pattern_and_says_what_comes_next(client: TestClient
     assert r["learn_cost"] == 2000  # the pattern, from Borya
     (taught,) = body["learn"][str(r["recipe_id"])]["items"]
     assert (taught["price"], taught["limited"]) == (2000, True)
-    assert body["then"] is None  # one recipe: nothing after it
+    assert body["chain"] == []  # one recipe: nothing after it
+    # the chain follows the run asked for; one the ranking doesn't hold has none
+    chained = {**params, "chain_from": r["recipe_id"]}
+    assert client.get("/api/rank", params=chained).json()["chain"] == []
+    assert client.get("/api/rank", params={**params, "chain_from": 999999}).json()["chain"] == []
+    # a longer chain on asking, up to a bound
+    assert client.get("/api/rank", params={**params, "chain_length": 8}).json()["chain"] == []
+    assert (
+        client.get("/api/rank", params={**params, "chain_length": api.MAX_SKILL_CHAIN + 1}).status_code == 422
+    )
     service.replace_characters(
         priced, ME, FOREVER, [replace(low, professions=(Profession("Tailoring", 40, 150, frozenset({900})),))]
     )
@@ -1738,3 +1749,18 @@ def test_rank_says_whether_a_sale_will_sell_and_narrows_to_the_sure_ones(
     assert vendor["results"][0]["verdict"] == "steady"
     for sort in ("all_sell", "roi", "spend", "profit_each"):
         assert client.get("/api/rank", params={"sort": sort}).json()["total"] == 1
+
+
+def test_a_chained_run_names_the_run_after_it_as_the_cheaper_option() -> None:
+    def run(name: str, item: int, reason: str = "rival") -> api.RankResult:
+        return api.RankResult.model_construct(
+            output_name=name, output_item_id=item, stop_reason=reason, overtaken_by="Barbaric Leggings"
+        )
+
+    gloves, harness, last = run("Hillman's Leather Gloves", 1), run("Raptor Hide Harness", 2), run("Cap", 3)
+    grey = run("Grey", 4, reason="trivial")
+    api._link_chain([gloves, harness, grey, last])
+    assert (gloves.overtaken_by, gloves.overtaken_by_item) == ("Raptor Hide Harness", 2)
+    assert harness.overtaken_by == "Grey"
+    assert grey.overtaken_by == "Barbaric Leggings"  # it stops turning grey: nothing to name
+    assert last.overtaken_by == "Barbaric Leggings"  # nothing after it is shown

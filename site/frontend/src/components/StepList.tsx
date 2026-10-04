@@ -299,7 +299,8 @@ function planLines(result: RankResult, items: ItemMap, detailed: boolean): React
 /**
  * The plan as numbered instructions; with `editing`, a step with alternatives ends in a menu of them. In `skill` mode
  * (skilling up: a checklist) the steps are grouped under each character in the order they do them, and selling back
- * says what it brings in rather than a profit.
+ * says what it brings in rather than a profit; `learn`, a step learning the recipe, comes first among the final
+ * crafter's.
  */
 export function StepList({
   result,
@@ -307,19 +308,26 @@ export function StepList({
   editing,
   detailed = false,
   mode = 'default',
+  learn,
 }: {
   result: RankResult
   items: ItemMap
   editing?: PlanEditing
   detailed?: boolean
   mode?: 'default' | 'skill'
+  learn?: ReactNode
 }) {
   if (mode === 'skill') {
-    const groups: { who: string; steps: Step[] }[] = []
+    const groups: { who: string; steps: Step[]; learn?: ReactNode }[] = []
     for (const step of result.steps) {
       const last = groups.at(-1)
       if (last && last.who === step.who) last.steps.push(step)
       else groups.push({ who: step.who, steps: [step] })
+    }
+    if (learn) {
+      const crafter = groups.find((g) => g.who === result.crafter)
+      if (crafter) crafter.learn = learn
+      else groups.unshift({ who: result.crafter, steps: [], learn })
     }
     return (
       <ChooseContext.Provider value={editing?.onChoose}>
@@ -331,6 +339,7 @@ export function StepList({
               </Text>
             )}
             <List type="ordered" size="sm">
+              {g.learn && <List.Item>{g.learn}</List.Item>}
               {g.steps.flatMap((step, i) =>
                 describeAction(step, result, items, undefined, true).map((line, j, all) => (
                   <List.Item key={`${i}.${j}`}>

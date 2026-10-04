@@ -66,6 +66,12 @@ from . import signals as price_signals
 from .versions import GameVersion, GameVersionKey
 
 DEFAULT_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+# The runs `/api/rank` says follow the one crafted now (`RankResponse.chain`), unless `chain_length` asks for
+# more, up to `MAX_SKILL_CHAIN`
+SKILL_CHAIN = 4
+MAX_SKILL_CHAIN = 40
+# The options to craft now `/api/rank` offers side by side (`RankResponse.options`)
+SKILL_OPTIONS = 4
 
 # "skill": an enchant cast for the skill point alone (`engine.SKILL_EXIT`); only when asked for
 ExitKind = Literal["vendor", "ah", "disenchant", "skill", "keep"]
@@ -468,9 +474,14 @@ class RankResponse(BaseModel):
     # recipe id -> where to learn it, for the results nobody selected has learned ("not learned")
     learn: dict[int, LearnOut] = {}
     classes: dict[str, str]  # selected character name -> class file (e.g. PALADIN), for class colours
-    # with `sort=skill`, `runs`, one profession and one character skilled up: the best run once the first
-    # result's is done (its skill at that run's `stop_skill`), another recipe than the first's
-    then: RankResult | None = None
+    # with `sort=skill`, `runs`, one profession and one character skilled up: the runs that follow
+    # `chain_from`'s (else the first result's), up to `chain_length`, each the best once the one before
+    # is done
+    chain: list[RankResult] = []
+    chain_start: RankResult | None = None  # with `chain_from`: its run, as ranked (with `skip`)
+    # as `chain` (without `chain_from`): the best `SKILL_OPTIONS` runs to craft now, each ranked with those
+    # before it passed over (`skip`), so each is what picking it gives
+    options: list[RankResult] = []
     hidden_by_verdict: int = 0  # matches left out by `min_verdict`
 
 
@@ -491,6 +502,7 @@ class EvaluateRequest(BaseModel):
     # that many crafts at once; None: the user's batch, as ranked (or the run, with `runs`)
     copies: int | None = Field(default=None, ge=1, le=1000)
     runs: bool = False  # as /api/rank's: plan the run, unless `copies` is given
+    skip: list[int] = []  # as /api/rank's
     gathered: list[int] = []  # as /api/rank's
     city: str | None = None  # time and route the session in this city (the selection's faction's)
     price_version: int | None = None  # the auction house's price version the front end knows of
@@ -1075,6 +1087,23 @@ def get_rank(
     price_version: Annotated[
         int | None, Query(description="the auction house's price version the front end knows of")
     ] = None,
+    chain_from: Annotated[
+        int | None,
+        Query(
+            description="with sort=skill and runs: the recipe whose run the chain follows (default the first)"
+        ),
+    ] = None,
+    chain_length: Annotated[
+        int,
+        Query(ge=1, le=MAX_SKILL_CHAIN, description="with sort=skill and runs: the runs the chain may hold"),
+    ] = SKILL_CHAIN,
+    skip: Annotated[
+        list[int] | None,
+        Query(
+            description="with runs: recipes passed over, neither ranked as runs nor rivals that end one "
+            "(they may still be sub-crafted)"
+        ),
+    ] = None,
 ) -> RankResponse:
     """What the selected realm/faction's characters can craft, the user's favorites first (not with
     `sort=skill`), then most profitable first (each a session of the user's batch of crafts, or with
@@ -1092,7 +1121,7 @@ def get_rank(
     learning = engine.Learning(unlearned, look_ahead, frozenset(sources)).normalized()
     # One profession is ranked alone (most of the work skipped); several are narrowed from the full ranking.
     skill_name = professions[0] if professions and len(professions) == 1 else None
-    run = engine.SkillRuns() if runs and skilled else None
+    run = engine.SkillRuns(skip=frozenset(skip or ())) if runs and skilled else None
     gather = service.gather_values(base, gathered) if gathered else None
     key = (
         whose,
@@ -1160,41 +1189,104 @@ def get_rank(
     crafters = altarmy.crafters(chars)
     costs = _learn_costs(state, s, results)
     out = [_result_out(r, base, crafters, s, costs.get(r.recipe.id, 0)) for r in results]
-    then = None
+    chain: list[engine.Result] = []
+    start: engine.Result | None = None
+    options: list[engine.Result] = []
+
+    def order(later: list[engine.Result]) -> list[engine.Result]:
+        later_costs = _learn_costs(state, s, later)
+        return service.by_skill(later, lambda r: later_costs.get(r.recipe.id, 0))
+
     if sort == "skill" and skill_name and run is not None and len(skilled) == 1 and matches:
-        first = matches[0]
-        then_key = (key, "then", first.recipe.id)
-        found = state.rank_cache.get(then_key, base)
-        if found is None:
-            later = service.then_up(
-                base,
-                chars,
-                learning,
-                frozenset(exits),
-                no_ah,
-                include_trivial,
-                s.time,
-                skilled,
-                arcane_salvager,
-                skill_name,
-                run,
-                first=first,
-                gathered=gather,
-            )
-            later_costs = _learn_costs(state, s, later)
-            found = service.by_skill(later, lambda r: later_costs.get(r.recipe.id, 0))[:1]
-            state.rank_cache.put(then_key, base, found)
-        if found:
-            then = _result_out(
-                found[0], base, crafters, s, _learn_costs(state, s, found).get(found[0].recipe.id, 0)
-            )
+        if chain_from is None:
+            options_key = (key, "options")
+            found_options = state.rank_cache.get(options_key, base)
+            if found_options is None:
+                found_options = service.passed_over_options(
+                    base,
+                    chars,
+                    learning,
+                    frozenset(exits),
+                    no_ah,
+                    include_trivial,
+                    s.time,
+                    skilled,
+                    arcane_salvager,
+                    skill_name,
+                    run,
+                    first=matches[0],
+                    count=SKILL_OPTIONS,
+                    order=order,
+                    gathered=gather,
+                )
+                state.rank_cache.put(options_key, base, found_options)
+            options = found_options
+        first = (
+            matches[0]
+            if chain_from is None
+            else next((r for r in matches if r.recipe.id == chain_from), None)
+        )
+        start = first
+        if first is not None:
+            # the longest chain worked out yet, continued when a longer one is asked for and it didn't end
+            # (an ended chain is marked under its own key)
+            chain_key = (key, "chain", first.recipe.id)
+            ended_key = (key, "chain-ended", first.recipe.id)
+            found = state.rank_cache.get(chain_key, base)
+            if found is None or (len(found) < chain_length and state.rank_cache.get(ended_key, base) is None):
+                done = found or []
+                found = service.skill_chain(
+                    base,
+                    chars,
+                    learning,
+                    frozenset(exits),
+                    no_ah,
+                    include_trivial,
+                    s.time,
+                    skilled,
+                    arcane_salvager,
+                    skill_name,
+                    run,
+                    first=first,
+                    steps=chain_length,
+                    order=order,
+                    gathered=gather,
+                    done=done,
+                )
+                state.rank_cache.put(chain_key, base, found)
+                if len(found) < chain_length:
+                    state.rank_cache.put(ended_key, base, [])
+            chain = found[:chain_length]
+    chain_costs = _learn_costs(state, s, chain)
+    chain_out = [_result_out(r, base, crafters, s, chain_costs.get(r.recipe.id, 0)) for r in chain]
+    start_out = None
+    if chain_from is not None and start is not None:
+        start_out = _result_out(
+            start, base, crafters, s, _learn_costs(state, s, [start]).get(start.recipe.id, 0)
+        )
+    # the run the chain starts from: `chain_from`'s, else the first result's
+    head = start_out if start_out is not None else (out[0] if out and chain_out else None)
+    if head is not None:
+        _link_chain([head, *chain_out])
+    # the first option is the first result (linked to its chain above); the others ranked with those before
+    # passed over
+    options_costs = _learn_costs(state, s, options[1:])
+    options_out = [
+        *out[:1],
+        *(_result_out(r, base, crafters, s, options_costs.get(r.recipe.id, 0)) for r in options[1:]),
+    ][: len(options)]
+    start_extra = [start] if start is not None and start_out is not None else []
+    shown = [*results, *chain, *start_extra, *options[1:]]
+    shown_out = [*out, *chain_out, *([start_out] if start_out is not None else []), *options_out[1:]]
     return RankResponse(
         total=len(matches),
         classes={c.name: c.class_file for c in chars},
-        items=_item_infos(state, s, results),
+        items=_item_infos(state, s, shown),
         results=out,
-        learn=_learn(state, s, [r for r, o in zip(results, out, strict=True) if _not_learned(o)]),
-        then=then,
+        learn=_learn(state, s, [r for r, o in zip(shown, shown_out, strict=True) if _not_learned(o)]),
+        chain=chain_out,
+        chain_start=start_out,
+        options=options_out,
         hidden_by_verdict=hidden,
     )
 
@@ -1220,7 +1312,7 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
         frozenset(body.skill_crafters),
         body.crafter or "",
         body.arcane_salvager,
-        skill_run=engine.SkillRuns() if body.runs and body.copies is None else None,
+        skill_run=engine.SkillRuns(skip=frozenset(body.skip)) if body.runs and body.copies is None else None,
         gathered=service.gather_values(s.base, body.gathered) if body.gathered else None,
     )
     if r is None:
@@ -1318,6 +1410,16 @@ def _not_learned(r: RankResult) -> bool:
     """The results table's "not learned": a profession's recipe the plan has someone learn (nobody knows
     it, or only another character than the one skilled up who crafts it)."""
     return r.kind in ("craft", "enchant") and bool(r.crafter) and r.crafter not in r.crafters
+
+
+def _link_chain(runs: Sequence[RankResult]) -> None:
+    """Each of a chain's runs that stops for a rival names the run after it as the cheaper option: the rival
+    that ended it gives a cheaper point there than going on, but the run after (ranked whole, patterns
+    included) is the one to move to, and may be another recipe."""
+    for run, after in zip(runs, runs[1:], strict=False):
+        if run.stop_reason == "rival":
+            run.overtaken_by = after.output_name
+            run.overtaken_by_item = after.output_item_id
 
 
 def _learn_costs(state: AppState, s: Selected, results: Sequence[engine.Result]) -> dict[int, int | None]:

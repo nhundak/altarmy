@@ -1,0 +1,105 @@
+/* The skill workspace's overview: the run to craft now, centred with the chain of runs after it hung below, or the
+   best few options side by side with the chain still under the one it follows. */
+
+/* One option: centred, the link to the others beside it (under it on a narrow screen), the chain in the row below. */
+.single {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--mantine-spacing-sm);
+}
+
+.more {
+  justify-self: center;
+}
+
+@media (min-width: 48em) {
+  .single {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 300px) minmax(0, 1fr);
+  }
+
+  .now {
+    grid-column: 2;
+  }
+
+  .more {
+    grid-column: 3;
+    justify-self: start;
+    align-self: center;
+  }
+
+  .single > .chain {
+    grid-column: 2;
+  }
+}
+
+/* The options side by side: the chain under the option it follows (`--now`, its column), in the row below; See all
+   under the rightmost card (`--see-all-row`: below the chain should it hang there). */
+.options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--mantine-spacing-sm);
+}
+
+.seeAll {
+  justify-self: end;
+  align-self: start;
+}
+
+@media (min-width: 62em) {
+  .options {
+    grid-template-columns: repeat(var(--options), minmax(0, 1fr));
+  }
+
+  .options > .chain {
+    grid-row: 2;
+    grid-column: var(--now);
+  }
+
+  .options > .seeAll {
+    grid-row: var(--see-all-row);
+    grid-column: -2;
+  }
+}
+
+/* See all: every option as a card, as many to a row as fit. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--mantine-spacing-sm);
+}
+
+.chain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: opacity 200ms ease;
+}
+
+.chain[data-muted] {
+  opacity: 0.4;
+}
+
+.chainMore {
+  align-self: center;
+}
+
+.arrow {
+  align-self: center;
+  color: var(--mantine-color-dimmed);
+}
+
+/* An arrow, centred, with the skill the next run starts at beside it. */
+.step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--mantine-spacing-xs);
+}
+
+.step > .arrow {
+  grid-column: 2;
+}
+
+.at {
+  grid-column: 3;
+}
