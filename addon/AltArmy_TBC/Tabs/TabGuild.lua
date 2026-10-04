@@ -2464,7 +2464,8 @@ ME.openScanReview = function()
     local storedChars = {}
     if GSD and GSD.GetGuildMembers and guild then
         for _, entry in ipairs(GSD.GetGuildMembers(guild)) do
-            if entry and entry.name then
+            -- A character read by link shared nothing about its group: its note may still say.
+            if entry and entry.name and not entry.linkOnly then
                 storedChars[entry.name] = entry
             end
         end
@@ -4255,7 +4256,12 @@ showRecipeView = function(entry, preferredProfKey, preferredProfName, preferredR
     if entry.source and entry.source ~= "local" then
         local Comm = AltArmy.GuildShareComm
         if Comm and Comm.RequestRecipesForCharacter then
-            Comm.RequestRecipesForCharacter(entry.name, entry.realm, entry.source)
+            Comm.RequestRecipesForCharacter(entry.name, entry.realm, entry.source, entry.guid)
+        end
+        -- Online on WoW Forever: their professions are read from the server next (GuildLinkRead).
+        local GLR = AltArmy.GuildLinkRead
+        if GLR and GLR.RequestNow then
+            pcall(GLR.RequestNow, entry)
         end
     end
     layoutRecipeView(entry)
@@ -4375,7 +4381,10 @@ local function ensureGuildRosterIncludesOffline()
     if SetGuildRosterShowOffline then
         pcall(SetGuildRosterShowOffline, true)
     end
-    if GuildRoster then
+    local Comm = AltArmy.GuildShareComm
+    if Comm and Comm.RequestGuildRoster then
+        Comm.RequestGuildRoster()
+    elseif GuildRoster then
         pcall(GuildRoster)
     end
 end

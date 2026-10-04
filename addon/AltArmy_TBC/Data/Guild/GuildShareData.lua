@@ -5,6 +5,11 @@
 -- `key` is the character's ID (GUID) when its sender runs a version that shares IDs, else its
 -- name (older senders). Entries always carry `name`; look characters up with GetCharacter, which
 -- accepts an ID or a name.
+-- A profession can also come straight from the character's own window, read through a profession link
+-- while they are online (Guild/GuildLinkRead.lua, SaveLinkRead): `linkReadAt`, `linkRv`, `maxRank` and
+-- `skillLine` on the profession, and for a character nobody ever shared (no addon) an entry of its own,
+-- `linkOnly`, keyed by GUID like the rest. `linkProbes[realm][guid][skillLine]` remembers the links that
+-- went unanswered, so a profession a member hasn't got isn't asked for again soon.
 
 if not AltArmy then return end
 
@@ -15,10 +20,16 @@ local function now()
     return (time and time()) or 0
 end
 
+local function isNonEmptyString(v)
+    return type(v) == "string" and v ~= ""
+end
+local isNonEmptyGuid = isNonEmptyString
+
 local function ensure()
     _G.AltArmyTBC_GuildData = _G.AltArmyTBC_GuildData or {}
     local d = _G.AltArmyTBC_GuildData
     d.chars = d.chars or {}
+    d.linkProbes = d.linkProbes or {}
     return d
 end
 GSD._Ensure = ensure
@@ -87,6 +98,51 @@ local function declaredMainName(presence)
         end
     end
     return presence.main
+end
+
+--- The player's own characters on `realm` (the DataStore's): by GUID and by name.
+local function ownCharacters(realm)
+    local byGuid, byName = {}, {}
+    local DS = AltArmy.DataStore
+    if not (DS and DS.GetCharacters) or not realm then return byGuid, byName end
+    local ok, chars = pcall(DS.GetCharacters, DS, realm)
+    if not ok or type(chars) ~= "table" then return byGuid, byName end
+    for key, char in pairs(chars) do
+        if type(char) == "table" then
+            if isNonEmptyString(char.guid) then byGuid[char.guid] = true end
+            local name = isNonEmptyString(char.name) and char.name or (type(key) == "string" and key or nil)
+            if name then byName[name] = true end
+        end
+    end
+    return byGuid, byName
+end
+
+--- Whether a received character (a payload character or a stored entry) is one of the player's own: the
+--- account's characters are never guildmates. By GUID when it carries one, else by full name. Older
+--- clients could store the player's own broadcast as a guildmate: on WoW Forever the sender's full name
+--- ("Frell Ofelements") never matched the short name the echo check compared it with ("Frell").
+function GSD.IsOwnCharacter(c, realm)
+    if type(c) ~= "table" then return false end
+    local byGuid, byName = ownCharacters(realm or c.realm)
+    if isNonEmptyString(c.guid) then
+        if byGuid[c.guid] then return true end
+        -- A GUID unknown here can still be ours when the DataStore entry predates GUIDs.
+    end
+    return isNonEmptyString(c.name) and byName[c.name] == true
+end
+
+--- Remove every stored entry that is one of the player's own characters. Returns how many.
+function GSD.PurgeOwnCharacters()
+    local removed = 0
+    for realm, rt in pairs(ensure().chars) do
+        for key, entry in pairs(rt) do
+            if type(entry) == "table" and GSD.IsOwnCharacter(entry, realm) then
+                rt[key] = nil
+                removed = removed + 1
+            end
+        end
+    end
+    return removed
 end
 
 --- Pick an implicit main from a candidate list ({ name, char }) so a person's characters
@@ -203,7 +259,17 @@ local function mergeProfessionSummaries(entry, profList)
             rv = pr.rv or 0,
             spec = pr.spec,
         }
-        if prev and prev.Recipes and prev.recipesRv == prof.rv then
+        if prev and prev.linkReadAt then
+            -- Recipes read from the character's own window outlive the card: they are the server's
+            -- answer, newer than whatever the sender's saved data says. A card whose rv is the read's own
+            -- means the sender caught up; any other rv asks for another read (or a pull while offline).
+            prof.Recipes = prev.Recipes
+            prof.linkRv = prev.linkRv
+            prof.linkReadAt = prev.linkReadAt
+            prof.maxRank = prev.maxRank
+            prof.skillLine = prev.skillLine
+            prof.recipesRv = (prof.rv == prev.linkRv) and prof.rv or prev.recipesRv
+        elseif prev and prev.Recipes and prev.recipesRv == prof.rv then
             prof.Recipes = prev.Recipes
             prof.recipesRv = prev.recipesRv
         end
@@ -299,7 +365,11 @@ function GSD.SaveReceived(sender, presence, guild, realm)
     local mainDeclared = declared ~= nil
     local effectiveMain = declared or defaultReceivedMain(presence.chars)
     local keep, keptNames = {}, {}
+    local chars = {}
     for _, c in ipairs(presence.chars) do
+        if not GSD.IsOwnCharacter(c, realm) then chars[#chars + 1] = c end
+    end
+    for _, c in ipairs(chars) do
         local key = payloadKey(c)
         local oldKey, existing = findPayloadEntry(rt, c)
         if oldKey and oldKey ~= key then
@@ -324,6 +394,7 @@ function GSD.SaveReceived(sender, presence, guild, realm)
         entry.source = sender
         entry.sourceGuid = presence.from
         entry.receivedAt = ts
+        entry.linkOnly = nil
 
         local hasProfs = type(c.profs) == "table" and #c.profs > 0
         if hasProfs then
@@ -340,7 +411,12 @@ function GSD.SaveReceived(sender, presence, guild, realm)
             if keepProfs then
                 entry.needsProfessionCard = false
             else
-                entry.Professions = {}
+                -- Keep what was read from the character's own window until the card merges it.
+                local linkRead = {}
+                for profKey, prof in pairs(entry.Professions or {}) do
+                    if type(prof) == "table" and prof.linkReadAt then linkRead[profKey] = prof end
+                end
+                entry.Professions = linkRead
                 entry.needsProfessionCard = true
             end
         else
@@ -355,7 +431,8 @@ function GSD.SaveReceived(sender, presence, guild, realm)
     end
     if sender then
         for key, entry in pairs(rt) do
-            if not keep[key] and sameSource(entry, sender, presence.from) then
+            -- A character nobody shared (read by link) isn't theirs to withdraw.
+            if not keep[key] and not entry.linkOnly and sameSource(entry, sender, presence.from) then
                 rt[key] = nil
             end
         end
@@ -390,6 +467,7 @@ end
 function GSD.SaveCharCard(sender, card, guild, realm)
     if not card or not card.name then return end
     realm = realm or card.realm or "?"
+    if GSD.IsOwnCharacter(card, realm) then return end
     local rt = realmTable(realm, true)
     local key = payloadKey(card)
     local oldKey, existing = findPayloadEntry(rt, card)
@@ -408,6 +486,7 @@ function GSD.SaveCharCard(sender, card, guild, realm)
     if guild then entry.guildName = guild end
     if sender then entry.source = sender end
     entry.receivedAt = now()
+    entry.linkOnly = nil
     if card.ch ~= nil then entry.ch = card.ch end
     mergeProfessionSummaries(entry, card.profs or {})
     entry.needsProfessionCard = false
@@ -415,6 +494,8 @@ function GSD.SaveCharCard(sender, card, guild, realm)
 end
 
 --- Store a pulled recipe payload; reconstructs a minimal Recipes map ({ [id] = { primaryRecipeID = id } }).
+--- A profession read from the character's own window within LINK_READ_WINS_SEC is left alone: the
+--- payload comes from the sender's saved data, the read from the server.
 function GSD.SaveRecipes(realm, payload)
     if not payload or not payload.name or type(payload.profs) ~= "table" then return end
     local rt = realmTable(realm, false)
@@ -422,20 +503,232 @@ function GSD.SaveRecipes(realm, payload)
     if not entry then return end
     entry.Professions = entry.Professions or {}
     local P = AltArmy.GuildShareProtocol
+    local ts = now()
     for _, pr in ipairs(payload.profs) do
         local prof = entry.Professions[pr.key]
         if not prof then
             prof = { key = pr.key, name = pr.key, rank = 0, count = 0, rv = 0 }
             entry.Professions[pr.key] = prof
         end
-        local recipes = {}
-        for _, id in ipairs(pr.ids or {}) do
-            recipes[id] = { primaryRecipeID = id }
+        if not (prof.linkReadAt and (ts - prof.linkReadAt) < GSD.LINK_READ_WINS_SEC) then
+            local recipes = {}
+            for _, id in ipairs(pr.ids or {}) do
+                recipes[id] = { primaryRecipeID = id }
+            end
+            prof.Recipes = recipes
+            prof.count = #(pr.ids or {})
+            prof.recipesRv = P and P.HashRecipeIDs(pr.ids or {}) or 0
+            prof.linkReadAt = nil
+            prof.linkRv = nil
         end
-        prof.Recipes = recipes
-        prof.count = #(pr.ids or {})
-        prof.recipesRv = P and P.HashRecipeIDs(pr.ids or {}) or 0
     end
+end
+
+-- *** Professions read through profession links (Guild/GuildLinkRead.lua) ***
+
+GSD.LINK_READ_WINS_SEC = 600            -- a pulled list this soon after a read is older than the read
+GSD.LINK_REREAD_SEC = 3 * 24 * 3600     -- a character nobody shares is read again after this long
+GSD.LINK_NEGATIVE_BACKOFF_DAYS = { 1, 3, 7, 30 } -- days before a profession that never answered is asked again
+
+local function probeTable(realm, guid, create)
+    local d = ensure()
+    local byRealm = d.linkProbes[realm]
+    if not byRealm then
+        if not create then return nil end
+        byRealm = {}
+        d.linkProbes[realm] = byRealm
+    end
+    local probes = byRealm[guid]
+    if not probes and create then
+        probes = {}
+        byRealm[guid] = probes
+    end
+    return probes
+end
+
+--- How long a profession whose link went unanswered `misses` times waits before it is asked again.
+function GSD.LinkProbeBackoffSec(misses)
+    local days = GSD.LINK_NEGATIVE_BACKOFF_DAYS
+    local n = math.max(1, math.min(tonumber(misses) or 1, #days))
+    return days[n] * 24 * 3600
+end
+
+--- What is remembered of a member's unanswered link for a skill line: { triedAt, misses }, or nil.
+function GSD.GetLinkProbe(realm, guid, skillLine)
+    local probes = probeTable(realm, guid, false)
+    return probes and probes[skillLine] or nil
+end
+
+--- Remember that a member's link for a skill line went unanswered.
+function GSD.MarkLinkTried(realm, guid, skillLine, nowTs)
+    if type(guid) ~= "string" or guid == "" or type(skillLine) ~= "number" then return end
+    local probes = probeTable(realm, guid, true)
+    local probe = probes[skillLine] or { misses = 0 }
+    probe.triedAt = nowTs or now()
+    probe.misses = (probe.misses or 0) + 1
+    probes[skillLine] = probe
+end
+
+function GSD.ClearLinkProbe(realm, guid, skillLine)
+    local probes = probeTable(realm, guid, false)
+    if probes then probes[skillLine] = nil end
+end
+
+--- Remember that a member hasn't got a profession (the server answered its link with an empty window), and
+--- forget any stored copy of it read from their window before (they dropped it). Asked again after
+--- LINK_REREAD_SEC or when their level moved. Returns true when a stored profession was removed.
+function GSD.MarkLinkAbsent(realm, guid, skillLine, profKey, nowTs, level)
+    if type(guid) ~= "string" or guid == "" or type(skillLine) ~= "number" then return false end
+    local probes = probeTable(realm, guid, true)
+    probes[skillLine] = { triedAt = nowTs or now(), absent = true, misses = 0, level = tonumber(level) }
+    local _, entry = findEntry(realmTable(realm, false), nil, guid)
+    local profs = entry and entry.Professions
+    local prof = profs and isNonEmptyString(profKey) and profs[profKey] or nil
+    if prof and prof.linkReadAt then
+        profs[profKey] = nil
+        return true
+    end
+    return false
+end
+
+--- Remove professions stored from an empty answer (skill 0 of max 0, no recipes) by builds that didn't
+--- know the server answers links for professions a player hasn't got, remembering them as absent.
+--- Returns how many.
+function GSD.PurgeEmptyLinkReads()
+    local removed = 0
+    for realm, rt in pairs(ensure().chars) do
+        for _, entry in pairs(rt) do
+            if type(entry) == "table" and type(entry.Professions) == "table" then
+                for key, prof in pairs(entry.Professions) do
+                    if type(prof) == "table" and prof.linkReadAt and (tonumber(prof.maxRank) or 0) == 0
+                        and (tonumber(prof.count) or 0) == 0 then
+                        entry.Professions[key] = nil
+                        removed = removed + 1
+                        if isNonEmptyString(entry.guid) and type(prof.skillLine) == "number" then
+                            probeTable(realm, entry.guid, true)[prof.skillLine] = {
+                                triedAt = prof.linkReadAt, absent = true, misses = 0,
+                                level = tonumber(entry.linkLevel),
+                            }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return removed
+end
+
+--- Store one profession read from a character's own window. For a character nobody shared this makes the
+--- entry (`linkOnly`, grouped by any manual mapping, else on its own). After it, the profession's
+--- recipesRv equals its rv, so nothing is pulled for it until the sender's card says it changed.
+--- info = { guid, name, guildName, classFile, level, profKey, profName, skillLine, rank, maxRank, ids,
+--- readAt }. Returns the entry.
+function GSD.SaveLinkRead(realm, info)
+    if type(info) ~= "table" or not isNonEmptyGuid(info.guid) or not isNonEmptyString(info.name)
+        or not isNonEmptyString(info.profKey) then
+        return nil
+    end
+    realm = realm or "?"
+    if GSD.IsOwnCharacter({ guid = info.guid, name = info.name }, realm) then return nil end
+    local rt = realmTable(realm, true)
+    local oldKey, existing = findEntry(rt, info.name, info.guid)
+    if oldKey and oldKey ~= info.guid then
+        rt[oldKey] = nil
+    end
+    local ts = info.readAt or now()
+    local entry = existing or {}
+    local shared = existing ~= nil and not existing.linkOnly
+    if not shared then
+        entry.linkOnly = true
+        entry.name = info.name
+        entry.source = info.name
+        entry.sourceGuid = info.guid
+        if isNonEmptyString(info.classFile) then entry.classFile = info.classFile end
+        if tonumber(info.level) then entry.level = tonumber(info.level) end
+        entry.level = entry.level or 0
+        entry.itemLevel = entry.itemLevel or 0
+        local GMG = AltArmy.GuildManualGroups
+        local mapped = GMG and GMG.GetMainOf and GMG.GetMainOf(info.name, realm) or nil
+        entry.main = mapped or info.name
+        entry.isMain = entry.main == info.name
+        entry.mainDeclared = false
+        entry.needsProfessionCard = false
+    end
+    entry.realm = realm
+    entry.guid = info.guid
+    if isNonEmptyString(info.guildName) then entry.guildName = info.guildName end
+    if tonumber(info.level) then entry.linkLevel = tonumber(info.level) end
+    entry.receivedAt = ts
+
+    entry.Professions = entry.Professions or {}
+    local prof = entry.Professions[info.profKey]
+    if not prof then
+        prof = { key = info.profKey, name = info.profName or info.profKey, rank = 0, count = 0, rv = 0 }
+        entry.Professions[info.profKey] = prof
+    end
+    if isNonEmptyString(info.profName) then prof.name = info.profName end
+    if tonumber(info.rank) then prof.rank = tonumber(info.rank) end
+    if tonumber(info.maxRank) then prof.maxRank = tonumber(info.maxRank) end
+    prof.skillLine = info.skillLine
+    local ids = {}
+    for _, id in ipairs(info.ids or {}) do
+        if type(id) == "number" then ids[#ids + 1] = id end
+    end
+    table.sort(ids)
+    local recipes = {}
+    for _, id in ipairs(ids) do recipes[id] = { primaryRecipeID = id } end
+    prof.Recipes = recipes
+    prof.count = #ids
+    local P = AltArmy.GuildShareProtocol
+    prof.linkRv = P and P.HashRecipeIDs(ids) or 0
+    prof.linkReadAt = ts
+    if not shared or not prof.rv or prof.rv == 0 then
+        prof.rv = prof.linkRv
+    end
+    prof.recipesRv = prof.rv
+    prof.recipesRequestedAt = nil
+    GSD.ClearLinkProbe(realm, info.guid, info.skillLine)
+    rt[info.guid] = entry
+    return entry
+end
+
+--- The skill lines worth reading for an online member, in the order of `lines` ({ { skillLine, key },
+--- ... }): each as { skillLine, key, reason }. A member who shares through Alt Army (an entry from their
+--- presence) needs none: their recipes come by the guild share messages. Anyone else (no Alt Army, or
+--- Alt Army with sharing off) is probed line by line (`probe`), each unanswered line waiting out its
+--- backoff, and a line read before is read again after LINK_REREAD_SEC (`stale`) or when the member's
+--- level moved (`level-changed`). member = { guid, name, level }.
+function GSD.GetSkillLinesNeedingLinkRead(realm, member, nowTs, lines)
+    nowTs = nowTs or now()
+    local out = {}
+    if type(member) ~= "table" or not isNonEmptyGuid(member.guid) then return out end
+    local rt = realmTable(realm or "?", false)
+    local _, entry = findEntry(rt, member.name, member.guid)
+    if entry and not entry.linkOnly then return out end -- shares through Alt Army
+    local profs = entry and entry.Professions or {}
+    for _, line in ipairs(lines or {}) do
+        local prof = profs[line.key]
+        local probe = GSD.GetLinkProbe(realm, member.guid, line.skillLine)
+        if prof and prof.linkReadAt then
+            if (nowTs - prof.linkReadAt) >= GSD.LINK_REREAD_SEC then
+                out[#out + 1] = { skillLine = line.skillLine, key = line.key, reason = "stale" }
+            elseif tonumber(member.level) and tonumber(entry.linkLevel)
+                and tonumber(member.level) ~= tonumber(entry.linkLevel) then
+                out[#out + 1] = { skillLine = line.skillLine, key = line.key, reason = "level-changed" }
+            end
+        elseif probe and probe.absent then
+            -- They hadn't got it: ask again once LINK_REREAD_SEC passed or they levelled.
+            local levelled = tonumber(member.level) and tonumber(probe.level)
+                and tonumber(member.level) ~= tonumber(probe.level)
+            if levelled or (nowTs - (probe.triedAt or 0)) >= GSD.LINK_REREAD_SEC then
+                out[#out + 1] = { skillLine = line.skillLine, key = line.key, reason = "probe" }
+            end
+        elseif not (probe and probe.triedAt
+            and (nowTs - probe.triedAt) < GSD.LinkProbeBackoffSec(probe.misses)) then
+            out[#out + 1] = { skillLine = line.skillLine, key = line.key, reason = "probe" }
+        end
+    end
+    return out
 end
 
 -- *** Getters ***
@@ -574,6 +867,16 @@ function GSD.GetGuildMembersForDisplay(guild, realm, allLocalRealms, rosterInfoM
     end
 
     local GMG = AltArmy.GuildManualGroups
+    -- Characters a manual or note mapping places in a group: as a member, or as the group's main.
+    local mapped = {}
+    if GMG and GMG.GetMappingsForGuild and guild then
+        for _, mapping in ipairs(GMG.GetMappingsForGuild(guild)) do
+            mapped[memberKey({ realm = mapping.realm, name = mapping.name })] = true
+            if type(mapping.main) == "string" and mapping.main ~= "" then
+                mapped[memberKey({ realm = mapping.realm, name = mapping.main })] = true
+            end
+        end
+    end
     if GMG and GMG.GetMappingsForGuild and guild then
         local GTD = AltArmy.GuildTabData
         local normalize = GTD and GTD.NormalizeRosterName
@@ -616,15 +919,25 @@ function GSD.GetGuildMembersForDisplay(guild, realm, allLocalRealms, rosterInfoM
         local mainsNeeded = {}
         for _, mapping in ipairs(GMG.GetMappingsForGuild(guild)) do
             local key = memberKey({ realm = mapping.realm, name = mapping.name })
-            if not byKey[key] then
+            local existing = byKey[key]
+            if not existing then
                 byKey[key] = makeManualEntry(
                     mapping.name, mapping.realm, mapping.main, mapping, mapping.name == mapping.main)
-                if mapping.main and mapping.main ~= "" then
-                    mainsNeeded[memberKey({ realm = mapping.realm, name = mapping.main })] = {
-                        name = mapping.main,
-                        realm = mapping.realm,
-                    }
-                end
+            elseif existing.linkOnly and mapping.main and mapping.main ~= "" then
+                -- A character read by link, nobody's to group: the mapping says whose alt it is.
+                local shown = {}
+                for k, v in pairs(existing) do shown[k] = v end
+                shown.main = mapping.main
+                shown.isMain = mapping.name == mapping.main
+                shown.origin = mapping.origin
+                shown.noteText = mapping.noteText
+                byKey[key] = shown
+            end
+            if (not existing or existing.linkOnly) and mapping.main and mapping.main ~= "" then
+                mainsNeeded[memberKey({ realm = mapping.realm, name = mapping.main })] = {
+                    name = mapping.main,
+                    realm = mapping.realm,
+                }
             end
         end
         for key, mainInfo in pairs(mainsNeeded) do
@@ -637,7 +950,15 @@ function GSD.GetGuildMembersForDisplay(guild, realm, allLocalRealms, rosterInfoM
     end
 
     local out = {}
-    for _, entry in pairs(byKey) do
+    for key, entry in pairs(byKey) do
+        if entry.linkOnly and not mapped[key] then
+            -- Read by link and grouped by nothing (no presence, note or mapping): shown as a group of its
+            -- own that the group editor treats as free to place elsewhere (autoGroup).
+            local shown = {}
+            for k, v in pairs(entry) do shown[k] = v end
+            shown.autoGroup = true
+            entry = shown
+        end
         out[#out + 1] = entry
     end
     return out
@@ -649,6 +970,12 @@ function GSD.GetMainOf(name, realm)
     -- If a realm is supplied, use it; otherwise search all realms.
     local function fromEntry(entry)
         if not entry then return nil end
+        if entry.linkOnly then
+            -- Nobody shared this character: any grouping the user or a guild note gives it wins.
+            local GMG = AltArmy.GuildManualGroups
+            local mapped = GMG and GMG.GetMainOf and GMG.GetMainOf(entry.name, entry.realm)
+            if mapped then return mapped end
+        end
         return entry.main or entry.name
     end
     if realm then
@@ -743,6 +1070,15 @@ function GSD.PurgeStale(maxAgeSeconds, nowTs)
                 removed = removed + 1
             end
         end
+    end
+    for realm, byGuid in pairs(d.linkProbes) do
+        for guid, probes in pairs(byGuid) do
+            for skillLine, probe in pairs(probes) do
+                if (nowTs - (probe.triedAt or 0)) > maxAgeSeconds then probes[skillLine] = nil end
+            end
+            if next(probes) == nil then byGuid[guid] = nil end
+        end
+        if next(byGuid) == nil then d.linkProbes[realm] = nil end
     end
     return removed
 end

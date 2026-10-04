@@ -982,7 +982,9 @@ function GTD.BuildOccupiedGroupReasons(members, getOverride)
         }
         for _, m in ipairs(g.members or {}) do
             local key = GTD.NormalizeRosterName(m and m.name)
-            if key then
+            -- A character read by link that nothing grouped sits in an automatic group of its own: free
+            -- to add to another group, which then replaces the automatic one.
+            if key and not m.autoGroup then
                 occupied[key] = payload
             end
         end
@@ -1014,7 +1016,7 @@ function GTD.FindManualAddonDisagreements(group, gmg)
     gmg = gmg or AltArmy.GuildManualGroups
     if not group or not gmg or not gmg.GetMapping then return out end
     for _, m in ipairs(group.members or {}) do
-        if m and m.name and m.source and m.source ~= "manual" and m.source ~= "local" then
+        if m and m.name and m.source and m.source ~= "manual" and m.source ~= "local" and not m.linkOnly then
             local mapping = gmg.GetMapping(m.name, m.realm)
             if mapping and mapping.main and mapping.main ~= (m.main or m.name) then
                 out[#out + 1] = {
@@ -1084,7 +1086,11 @@ function GTD.BuildGroupEditProposal(group, gmg)
                     reasonKind = "conflict"
                     removable = true
                     conflictManualMain = conflict.manualMain
-                elseif GTD.IsManualMember(m) then
+                elseif m.autoGroup then
+                    reasonKind = "auto"
+                    removable = false
+                elseif GTD.IsManualMember(m) or m.linkOnly then
+                    -- A character read by link sits in this group only by a mapping (note or manual).
                     removable = true
                     local origin = m.origin
                     if (not origin or origin == "") and gmg and gmg.GetMapping then
@@ -1131,11 +1137,13 @@ function GTD.BuildGroupEditProposal(group, gmg)
         mainOrigin = mapping and mapping.origin
     end
     local mainFromShared = mainMember ~= nil and not GTD.IsManualMember(mainMember)
+        and not mainMember.linkOnly
     local mainReasonKind = GTD.ClassifyNotesWizardInclusionReason({
         isMain = true,
         mainFromShared = mainFromShared,
         origin = mainOrigin,
-        isManualMember = GTD.IsManualMember(mainMember),
+        isManualMember = GTD.IsManualMember(mainMember) or (mainMember ~= nil and mainMember.linkOnly == true),
+        autoGroup = mainMember ~= nil and mainMember.autoGroup == true,
     })
 
     return {
@@ -2019,6 +2027,8 @@ function GTD.NotesWizardInclusionReasonLabel(kind)
         return "Manually added"
     elseif kind == "shared" then
         return "Shared via Alt Army"
+    elseif kind == "auto" then
+        return "Group created automatically"
     elseif kind == "conflict" then
         return "Conflicts with addon"
     elseif kind == "main" or kind == "referred" then
@@ -2029,9 +2039,12 @@ end
 
 --- Classify a notes-wizard display row into an inclusion-reason kind.
 --- opts: isMain?, mainFromShared?, isKnownShared?, noteText?, alreadyMapped?,
---- origin? ("note"|"user"), isManualMember?
+--- origin? ("note"|"user"), isManualMember?, autoGroup? (a character read by link that nothing grouped)
 function GTD.ClassifyNotesWizardInclusionReason(opts)
     opts = opts or {}
+    if opts.isMain and opts.autoGroup then
+        return "auto"
+    end
     if opts.isMain then
         if opts.mainFromShared then
             return "shared"

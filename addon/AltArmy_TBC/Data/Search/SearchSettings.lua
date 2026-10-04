@@ -126,11 +126,12 @@ function SS.SetIncludeGuildmatesEnabled(on)
     end
 end
 
---- Whether the search-mode "Guildmate recipes" checkbox should be shown.
-function SS.ShouldShowIncludeGuildmatesToggle(guildShareFlagOn, hasGuildedCharacters, sharingEnabled)
+--- Whether the search-mode "Guildmate recipes" checkbox should be shown. Guildmates' recipes don't
+--- depend on the player sharing their own (Guild/GuildLinkRead.lua reads them from the server), so the
+--- sharing opt-in, which covers grouping and the rest of what the player sends, plays no part.
+function SS.ShouldShowIncludeGuildmatesToggle(guildShareFlagOn, hasGuildedCharacters)
     if not guildShareFlagOn then return false end
     if not hasGuildedCharacters then return false end
-    if not sharingEnabled then return false end
     return true
 end
 
@@ -151,12 +152,7 @@ function SS.CanShowIncludeGuildmatesToggle()
         end
         hasGuild = GTD.HasGuildedCharactersOnRealm(realm)
     end
-    local sharingOn = false
-    local GSS = AltArmy and AltArmy.GuildShareSettings
-    if GSS and GSS.IsSharingEnabled then
-        sharingOn = GSS.IsSharingEnabled()
-    end
-    return SS.ShouldShowIncludeGuildmatesToggle(flagOn, hasGuild, sharingOn)
+    return SS.ShouldShowIncludeGuildmatesToggle(flagOn, hasGuild)
 end
 
 function SS.GetProfessionDropdownOrder()

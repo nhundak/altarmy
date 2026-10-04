@@ -94,6 +94,8 @@ AC.MANIFEST = {
       candidates = { "C_TradeSkillUI.CloseTradeSkill" } },
     { area = "Professions", label = "C_TradeSkillUI.IsTradeSkillLinked",
       candidates = { "C_TradeSkillUI.IsTradeSkillLinked" } },
+    { area = "Professions", label = "C_TradeSkillUI.GetBaseProfessionInfo",
+      candidates = { "C_TradeSkillUI.GetBaseProfessionInfo" } },
 
     -- Crafting (old-style profession UI; some TBC-era professions still use this)
     { area = "Crafting", label = "GetCraftSkillLine", candidates = { "GetCraftSkillLine" } },
@@ -193,8 +195,14 @@ AC.MANIFEST = {
     { area = "Guild", label = "IsInGuild", candidates = { "IsInGuild" } },
     { area = "Guild", label = "GetNumGuildMembers", candidates = { "GetNumGuildMembers" } },
     { area = "Guild", label = "GetGuildRosterInfo", candidates = { "GetGuildRosterInfo" } },
-    { area = "Guild", label = "GuildRoster", candidates = { "GuildRoster" } },
+    { area = "Guild", label = "GuildRoster", candidates = { "C_GuildInfo.GuildRoster", "GuildRoster" } },
     { area = "Guild", label = "GetGuildTabardInfo", candidates = { "C_GuildInfo.GetGuildTabardInfo" } },
+    -- Reading guildmates' recipes by profession link (Guild/GuildLinkRead.lua) needs the roster's GUIDs
+    -- (GetGuildRosterInfo's 17th return). Retail's guild profession roster, if Forever has it, would list
+    -- every member's professions without a link: not used yet, checked so we learn whether it exists.
+    { area = "Guild", label = "GetNumGuildTradeSkill", candidates = { "GetNumGuildTradeSkill" } },
+    { area = "Guild", label = "GetGuildTradeSkillInfo", candidates = { "GetGuildTradeSkillInfo" } },
+    { area = "Guild", label = "QueryGuildRecipes", candidates = { "QueryGuildRecipes" } },
 
     -- Addon/Timer/Chat infra
     { area = "Addon Infra", label = "IsAddOnLoaded",

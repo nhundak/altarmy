@@ -795,6 +795,36 @@ describe("GuildShareComm helpers", function()
     end)
   end)
 
+  describe("RequestGuildRoster", function()
+    local savedInfo, savedRoster
+
+    before_each(function()
+      savedInfo, savedRoster = _G.C_GuildInfo, _G.GuildRoster
+    end)
+
+    after_each(function()
+      _G.C_GuildInfo, _G.GuildRoster = savedInfo, savedRoster
+    end)
+
+    it("uses C_GuildInfo.GuildRoster where the client has it (WoW Forever has no GuildRoster global)", function()
+      local calls = 0
+      _G.C_GuildInfo = { GuildRoster = function() calls = calls + 1 end }
+      _G.GuildRoster = nil
+      assert.is_true(Comm.RequestGuildRoster())
+      assert.are.equal(1, calls)
+    end)
+
+    it("falls back to the GuildRoster global, and says when neither exists", function()
+      local calls = 0
+      _G.C_GuildInfo = nil
+      _G.GuildRoster = function() calls = calls + 1 end
+      assert.is_true(Comm.RequestGuildRoster())
+      assert.are.equal(1, calls)
+      _G.GuildRoster = nil
+      assert.is_false(Comm.RequestGuildRoster())
+    end)
+  end)
+
   describe("_PickSampleProfChar", function()
     it("returns nil when there is no DataStore", function()
       AltArmy.DataStore = nil

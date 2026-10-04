@@ -379,10 +379,17 @@ Dispatch: added `TRADE_SKILL_DATA_SOURCE_CHANGED` to `DataStore.lua`'s `SafeRegi
 >
 > Still unverified in game:
 > - whether the own link comes back unlinked or linked under the player's name (both are accepted);
-> - whether silencing Blizzard's handlers keeps the window and its sound away;
 > - whether `GetRecipeCooldown` reads correctly from a window opened this way.
 >
 > Set `/altarmy debug on` to get the `ownRecipeRead` dev dump.
+>
+> **Update (2026-10-04): silencing dropped, guildmates read too.** Blizzard's `TRADE_SKILL_SHOW` handlers are no longer unregistered for a read; the window is only concealed (alpha 0, tiny, no mouse) and closed. The same reader now serves `Data/Guild/GuildLinkRead.lua`, which reads online guildmates' professions with each skill line's Apprentice spell (`R.APPRENTICE_SPELLS`, Linked Inn's finding; see `docs/GUILD_PROFESSION_LINKS_IDEA.md`). Unverified in game, each a constant or a dump to check:
+> - the server answers a link for a guildmate who never linked anything, with the Apprentice spell at any rank (`/run C_Timer.After(1, function() local t = CreateFrame("GameTooltip", "AAt", UIParent, "GameTooltipTemplate"); t:SetOwner(UIParent, "ANCHOR_NONE"); t:SetHyperlink("trade:<their GUID>:3908:197") end)` for an online same-server tailor; a line they lack and a cross-server GUID should stay silent);
+> - `GetGuildRosterInfo`'s 17th return is the member's GUID and not a Secret Value (the `guildRosterGuid` dev dump);
+> - the linked window's `IsTradeSkillLinked()` name shape (first name, "First Surname" or `Name-Realm`: `R._NamesMatch` compares first words; no name at all: flip `R.REQUIRE_LINKED_NAME`) and `GetBaseProfessionInfo()`'s `skillLevel`/`maxSkillLevel` being the linked player's;
+> - whether the retail guild profession roster exists (`/altarmy debug apicheck`: `GetNumGuildTradeSkill`, `GetGuildTradeSkillInfo`, `QueryGuildRecipes`), which would list every member's professions without probing.
+>
+> **Seen in game (2026-10-04):** links to online same-server guildmates are answered with the Apprentice spells, at any rank (Sylant Butdeadly's Leatherworking 106/150, Cooking, First Aid). The server also answers a link for a profession the player hasn't got: an empty linked window at skill 0 of max 0 with nothing learned, which the reader now reports as `absent`. The classic roster stayed empty (`GetNumGuildMembers()` 0) even after `C_GuildInfo.GuildRoster()`; the global `GuildRoster` doesn't exist on Forever. Members came from the Club API (`C_Club.GetGuildClubId`, `GetClubMembers`, `GetMemberInfo`), now the fallback in `GuildShareComm.GuildRosterRows`, which the guild share online check uses too.
 
 ## Ninth: Skinning has real recipes on Forever, unlike TBC (2026-09-17)
 

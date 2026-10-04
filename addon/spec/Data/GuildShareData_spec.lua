@@ -961,4 +961,376 @@ describe("GuildShareData", function()
       assert.is_nil(GMG.GetMapping("Player-1-B", "R"))
     end)
   end)
+
+  describe("the player's own characters", function()
+    local savedDS
+
+    before_each(function()
+      savedDS = AltArmy.DataStore
+      AltArmy.DataStore = {
+        GetCharacters = function(_, realm)
+          if realm ~= "R" then return {} end
+          return {
+            ["Player-1-OWN"] = { name = "Frell Blast", guid = "Player-1-OWN" },
+            ["Frell Old"] = { name = "Frell Old" },
+          }
+        end,
+      }
+    end)
+
+    after_each(function()
+      AltArmy.DataStore = savedDS
+    end)
+
+    it("are recognised by GUID or by full name", function()
+      assert.is_true(GSD.IsOwnCharacter({ name = "Someone", guid = "Player-1-OWN" }, "R"))
+      assert.is_true(GSD.IsOwnCharacter({ name = "Frell Blast" }, "R"))
+      assert.is_true(GSD.IsOwnCharacter({ name = "Frell Old", guid = "Player-1-NEW" }, "R"))
+      assert.is_false(GSD.IsOwnCharacter({ name = "Frell" }, "R"))
+      assert.is_false(GSD.IsOwnCharacter({ name = "Frell Blast" }, "Elsewhere"))
+    end)
+
+    it("are never stored from a presence, a card or a link read", function()
+      GSD.SaveReceived("Frell Ofelements", P.ParsePresence(presence("Frell Blast", {
+        charEntry("Frell Blast"), charEntry("Guildie"),
+      })), "G", "R")
+      assert.is_nil(GSD.GetCharacter("Frell Blast", "R"))
+      assert.is_truthy(GSD.GetCharacter("Guildie", "R"))
+      GSD.SaveCharCard("Frell", P.ParseCharCard({
+        v = 2, name = "Frell Blast", guid = "Player-1-OWN", ch = 1, profs = {},
+      }), "G", "R")
+      assert.is_nil(GSD.GetCharacter("Player-1-OWN", "R"))
+      assert.is_nil(GSD.SaveLinkRead("R", {
+        guid = "Player-1-OWN", name = "Frell Blast", profKey = "tailoring", skillLine = 197, ids = { 1 },
+      }))
+      assert.is_nil(GSD.GetCharacter("Player-1-OWN", "R"))
+    end)
+
+    it("stored by older clients are purged", function()
+      local rt = AltArmyTBC_GuildData.chars
+      rt.R = {
+        ["Frell Blast"] = { name = "Frell Blast", source = "Frell Ofelements", Professions = {} },
+        ["Player-1-G"] = { name = "Guildie", guid = "Player-1-G", Professions = {} },
+      }
+      assert.are.equal(1, GSD.PurgeOwnCharacters())
+      assert.is_nil(rt.R["Frell Blast"])
+      assert.is_truthy(rt.R["Player-1-G"])
+    end)
+  end)
+
+  describe("link reads", function()
+    local LINES = {
+      { skillLine = 185, key = "cooking" },
+      { skillLine = 129, key = "firstAid" },
+      { skillLine = 171, key = "alchemy" },
+      { skillLine = 197, key = "tailoring" },
+    }
+    local NIA = { guid = "Player-1-N", name = "Nia", level = 40 }
+
+    local function read(overrides)
+      local info = {
+        guid = "Player-1-N", name = "Nia", guildName = "G", classFile = "MAGE", level = 40,
+        profKey = "tailoring", profName = "Tailoring", skillLine = 197, rank = 142, maxRank = 225,
+        ids = { 300, 100 },
+      }
+      for k, v in pairs(overrides or {}) do info[k] = v end
+      return GSD.SaveLinkRead("R", info)
+    end
+
+    local function card(rv, extraProfs)
+      local profs = { { key = "tailoring", rank = 140, count = 2, rv = rv } }
+      for _, pr in ipairs(extraProfs or {}) do profs[#profs + 1] = pr end
+      GSD.SaveCharCard("Nia", P.ParseCharCard({
+        v = 2, from = "Player-1-N", name = "Nia", guid = "Player-1-N", ch = 1, profs = profs,
+      }), "G", "R")
+    end
+
+    local function needs(member, nowTs)
+      local out = {}
+      for _, n in ipairs(GSD.GetSkillLinesNeedingLinkRead("R", member or NIA, nowTs or NOW, LINES)) do
+        out[#out + 1] = n.key .. ":" .. n.reason
+      end
+      return out
+    end
+
+    it("makes an entry for a character nobody shares, in the shape the Guild tab and search read", function()
+      local entry = read()
+      assert.are.equal(entry, GSD.GetCharacter("Player-1-N", "R"))
+      assert.is_true(entry.linkOnly)
+      assert.are.equal("Nia", entry.name)
+      assert.are.equal("G", entry.guildName)
+      assert.are.equal("MAGE", entry.classFile)
+      assert.are.equal(40, entry.level)
+      assert.are.equal("Nia", entry.source)
+      assert.are.equal("Player-1-N", entry.sourceGuid)
+      assert.are.equal(NOW, entry.receivedAt)
+      assert.are.equal("Nia", entry.main)
+      assert.is_true(entry.isMain)
+      assert.is_false(entry.mainDeclared)
+      assert.is_false(entry.needsProfessionCard)
+      local prof = entry.Professions.tailoring
+      assert.are.equal("Tailoring", prof.name)
+      assert.are.same({ primaryRecipeID = 100 }, prof.Recipes[100])
+      assert.are.same({ primaryRecipeID = 300 }, prof.Recipes[300])
+      assert.are.equal(2, prof.count)
+      assert.are.equal(142, prof.rank)
+      assert.are.equal(225, prof.maxRank)
+      assert.are.equal(197, prof.skillLine)
+      assert.are.equal(NOW, prof.linkReadAt)
+      assert.are.equal(P.HashRecipeIDs({ 100, 300 }), prof.linkRv)
+      assert.are.equal(prof.linkRv, prof.rv)
+      assert.are.equal(prof.rv, prof.recipesRv)
+      assert.are.same({}, GSD.GetProfessionsNeedingRecipes("Player-1-N", "R"))
+      assert.are.equal(1, #GSD.GetGuildMembers("G"))
+    end)
+
+    it("fills a shared character's profession and asks for nothing more until their card changes", function()
+      card(77)
+      assert.are.same({ "tailoring" }, GSD.GetProfessionsNeedingRecipes("Player-1-N", "R"))
+      local entry = read()
+      assert.is_nil(entry.linkOnly)
+      local prof = entry.Professions.tailoring
+      assert.are.equal(77, prof.rv)
+      assert.are.equal(77, prof.recipesRv)
+      assert.are.equal(142, prof.rank)
+      assert.is_truthy(prof.Recipes[100])
+      assert.are.same({}, GSD.GetProfessionsNeedingRecipes("Player-1-N", "R"))
+      assert.are.same({}, needs())
+
+      card(77)
+      prof = GSD.GetCharacter("Player-1-N", "R").Professions.tailoring
+      assert.is_truthy(prof.Recipes[100])
+      assert.are.equal(77, prof.recipesRv)
+
+      card(P.HashRecipeIDs({ 100, 300 }))
+      prof = GSD.GetCharacter("Player-1-N", "R").Professions.tailoring
+      assert.are.equal(prof.rv, prof.recipesRv)
+      assert.are.same({}, GSD.GetProfessionsNeedingRecipes("Player-1-N", "R"))
+
+      card(78)
+      prof = GSD.GetCharacter("Player-1-N", "R").Professions.tailoring
+      assert.is_truthy(prof.Recipes[100])
+      assert.are.same({ "tailoring" }, GSD.GetProfessionsNeedingRecipes("Player-1-N", "R"))
+      assert.are.same({}, needs())
+    end)
+
+    it("leaves a profession alone for a pulled list that follows a read too closely, and stores the rest", function()
+      read()
+      local payload = {
+        name = "Nia", guid = "Player-1-N",
+        profs = { { key = "tailoring", ids = { 1 } }, { key = "cooking", ids = { 2 } } },
+      }
+      GSD.SaveRecipes("R", payload)
+      local profs = GSD.GetCharacter("Player-1-N", "R").Professions
+      assert.is_truthy(profs.tailoring.Recipes[100])
+      assert.is_nil(profs.tailoring.Recipes[1])
+      assert.is_truthy(profs.cooking.Recipes[2])
+
+      profs.tailoring.linkReadAt = NOW - GSD.LINK_READ_WINS_SEC
+      GSD.SaveRecipes("R", payload)
+      profs = GSD.GetCharacter("Player-1-N", "R").Professions
+      assert.is_truthy(profs.tailoring.Recipes[1])
+      assert.is_nil(profs.tailoring.Recipes[100])
+      assert.is_nil(profs.tailoring.linkReadAt)
+    end)
+
+    it("keeps link-read recipes through a presence that asks for a card, and adopts the entry", function()
+      read()
+      GSD.SaveReceived("Nia", P.ParsePresence({
+        v = 2, from = "Player-1-N",
+        chars = { { name = "Nia", guid = "Player-1-N", ch = 5, classFile = "MAGE", level = 40 } },
+      }), "G", "R")
+      local entry = GSD.GetCharacter("Player-1-N", "R")
+      assert.is_nil(entry.linkOnly)
+      assert.is_true(entry.needsProfessionCard)
+      assert.is_truthy(entry.Professions.tailoring.Recipes[100])
+      assert.are.same({}, needs())
+    end)
+
+    it("shows in the Guild tab for someone who never shares a presence, as their own group", function()
+      require("GuildTabData")
+      local GTD = AltArmy.GuildTabData
+      read()
+      -- A client with sharing off announces itself with an empty presence: it groups nothing.
+      GSD.SaveReceived("Nia", P.ParsePresence({ v = 2, from = "Player-1-N", chars = {} }), "G", "R")
+      local members = GSD.GetGuildMembersForDisplay("G", "R")
+      assert.are.equal(1, #members)
+      local groups = GTD.GroupMembersByMain(members)
+      assert.are.equal(1, #groups)
+      assert.are.equal("Nia", groups[1].main)
+      assert.are.equal("Nia", groups[1].preferredName)
+      assert.are.equal("MAGE", groups[1].classFile)
+      local m = groups[1].members[1]
+      assert.is_false(GTD.IsManualMember(m))
+      assert.is_false(GTD.IsMemberDataOld(m, NOW))
+      local recipes = GTD.GetProfessionRecipes(m, "tailoring")
+      assert.are.equal(2, #recipes)
+      assert.are.equal(100, recipes[1].recipeID)
+    end)
+
+    describe("as an automatic group", function()
+      local GTD
+
+      local function groupsByMain()
+        local out = {}
+        for _, g in ipairs(GTD.GroupMembersByMain(GSD.GetGuildMembersForDisplay("G", "R"))) do
+          local names = {}
+          for _, m in ipairs(g.members) do names[#names + 1] = m.name end
+          table.sort(names)
+          out[g.main] = names
+        end
+        return out
+      end
+
+      local function groupOf(main)
+        for _, g in ipairs(GTD.GroupMembersByMain(GSD.GetGuildMembersForDisplay("G", "R"))) do
+          if g.main == main then return g end
+        end
+      end
+
+      before_each(function()
+        require("GuildTabData")
+        GTD = AltArmy.GuildTabData
+        read()
+      end)
+
+      it("says why the character is there, and doesn't stop adding them to another group", function()
+        local members = GSD.GetGuildMembersForDisplay("G", "R")
+        assert.is_true(members[1].autoGroup)
+        assert.is_nil(GSD.GetCharacter("Player-1-N", "R").autoGroup)
+        assert.is_nil(GTD.BuildOccupiedGroupReasons(members).nia)
+        local proposal = GTD.BuildGroupEditProposal(groupOf("Nia"), GMG)
+        assert.are.equal("auto", proposal.mainReasonKind)
+        assert.are.equal("Group created automatically", GTD.NotesWizardInclusionReasonLabel("auto"))
+      end)
+
+      it("gives way to the group the character is added to", function()
+        GMG.SetMapping("Mainchar", "R", "Mainchar", { guild = "G", origin = "user" })
+        GMG.AssignToGroup("Nia", "R", "Mainchar", { guild = "G", origin = "user" })
+        local groups = groupsByMain()
+        assert.is_nil(groups.Nia)
+        assert.are.same({ "Mainchar", "Nia" }, groups.Mainchar)
+        local nia
+        for _, m in ipairs(groupOf("Mainchar").members) do
+          if m.name == "Nia" then nia = m end
+        end
+        assert.is_nil(nia.autoGroup)
+        assert.are.equal("Mainchar", GTD.BuildOccupiedGroupReasons(GSD.GetGuildMembersForDisplay("G", "R")).nia.groupName)
+        local proposal = GTD.BuildGroupEditProposal(groupOf("Mainchar"), GMG)
+        local entry
+        for _, m in ipairs(proposal.members) do
+          if m.name == "Nia" then entry = m end
+        end
+        assert.are.equal("manual", entry.reasonKind)
+        assert.is_true(entry.removable)
+      end)
+
+      it("becomes a real group when made the main of one", function()
+        GMG.AssignToGroup("Other", "R", "Nia", { guild = "G", origin = "user" })
+        local members = GSD.GetGuildMembersForDisplay("G", "R")
+        for _, m in ipairs(members) do assert.is_nil(m.autoGroup, m.name) end
+        assert.are.same({ "Nia", "Other" }, groupsByMain().Nia)
+        assert.are_not.equal("auto", GTD.BuildGroupEditProposal(groupOf("Nia"), GMG).mainReasonKind)
+      end)
+    end)
+
+    it("isn't withdrawn by an empty presence from that character", function()
+      read()
+      GSD.SaveReceived("Nia", P.ParsePresence({ v = 2, from = "Player-1-N", chars = {} }), "G", "R")
+      assert.is_truthy(GSD.GetCharacter("Player-1-N", "R"))
+    end)
+
+    it("survives PurgeStale while fresh and becomes a manual mapping when old", function()
+      read()
+      GSD.PurgeStale(10, NOW + 5)
+      assert.is_truthy(GSD.GetCharacter("Player-1-N", "R"))
+      GSD.PurgeStale(10, NOW + 100)
+      assert.is_nil(GSD.GetCharacter("Player-1-N", "R"))
+      assert.is_truthy(GMG.GetMapping("Nia", "R"))
+    end)
+
+    it("remembers unanswered links with a growing backoff, and forgets one that answered", function()
+      GSD.MarkLinkTried("R", "Player-1-N", 171, NOW)
+      assert.are.same({ triedAt = NOW, misses = 1 }, GSD.GetLinkProbe("R", "Player-1-N", 171))
+      GSD.MarkLinkTried("R", "Player-1-N", 171, NOW + 1)
+      assert.are.equal(2, GSD.GetLinkProbe("R", "Player-1-N", 171).misses)
+      assert.are.equal(1 * 86400, GSD.LinkProbeBackoffSec(1))
+      assert.are.equal(3 * 86400, GSD.LinkProbeBackoffSec(2))
+      assert.are.equal(30 * 86400, GSD.LinkProbeBackoffSec(9))
+      read({ profKey = "alchemy", profName = "Alchemy", skillLine = 171 })
+      assert.is_nil(GSD.GetLinkProbe("R", "Player-1-N", 171))
+
+      GSD.MarkLinkTried("R", "Player-1-N", 185, NOW - 100)
+      GSD.PurgeStale(10, NOW)
+      assert.is_nil(GSD.GetLinkProbe("R", "Player-1-N", 185))
+    end)
+
+    it("remembers a profession a member hasn't got, drops a stale copy, and asks again later", function()
+      read()
+      assert.is_true(GSD.MarkLinkAbsent("R", "Player-1-N", 197, "tailoring", NOW, 40))
+      assert.is_nil(GSD.GetCharacter("Player-1-N", "R").Professions.tailoring)
+      assert.is_true(GSD.GetLinkProbe("R", "Player-1-N", 197).absent)
+      assert.are.same({ "cooking:probe", "firstAid:probe", "alchemy:probe" }, needs())
+      assert.are.same({ "cooking:probe", "firstAid:probe", "alchemy:probe", "tailoring:probe" },
+        needs(NIA, NOW + GSD.LINK_REREAD_SEC))
+      assert.are.same({ "cooking:probe", "firstAid:probe", "alchemy:probe", "tailoring:probe" },
+        needs({ guid = "Player-1-N", name = "Nia", level = 41 }))
+      assert.is_false(GSD.MarkLinkAbsent("R", "Player-1-N", 185, "cooking", NOW, 40))
+    end)
+
+    it("purges professions stored from an empty answer by older builds", function()
+      read()
+      read({ profKey = "alchemy", profName = "Alchemy", skillLine = 171, rank = 0, maxRank = 0, ids = {} })
+      assert.are.equal(1, GSD.PurgeEmptyLinkReads())
+      local profs = GSD.GetCharacter("Player-1-N", "R").Professions
+      assert.is_nil(profs.alchemy)
+      assert.is_truthy(profs.tailoring)
+      assert.is_true(GSD.GetLinkProbe("R", "Player-1-N", 171).absent)
+    end)
+
+    it("probes every line of an unknown member, in the order given", function()
+      assert.are.same({ "cooking:probe", "firstAid:probe", "alchemy:probe", "tailoring:probe" }, needs())
+    end)
+
+    it("skips lines inside their backoff, and reads a known line again when stale or the member levelled", function()
+      read()
+      GSD.MarkLinkTried("R", "Player-1-N", 171, NOW)
+      assert.are.same({ "cooking:probe", "firstAid:probe" }, needs())
+      assert.are.same({ "cooking:probe", "firstAid:probe", "alchemy:probe" }, needs(NIA, NOW + 86400))
+      assert.are.same({ "cooking:probe", "firstAid:probe", "tailoring:level-changed" },
+        needs({ guid = "Player-1-N", name = "Nia", level = 45 }))
+      assert.are.same({ "cooking:probe", "firstAid:probe", "alchemy:probe", "tailoring:stale" },
+        needs(NIA, NOW + GSD.LINK_REREAD_SEC))
+    end)
+
+    it("reads nothing by link for a member who shares through Alt Army, whatever their card says", function()
+      card(77, { { key = "cooking", rank = 50, count = 1, rv = 5 } })
+      assert.are.same({}, needs())
+      GSD.SaveReceived("Nia", P.ParsePresence({ v = 2, from = "Player-1-N", chars = {} }), "G", "R")
+      assert.are.same({ "cooking:probe", "firstAid:probe", "alchemy:probe", "tailoring:probe" }, needs())
+    end)
+
+    it("groups a link-read character under a manual mapping", function()
+      read()
+      assert.are.equal("Nia", GSD.GetMainOf("Nia", "R"))
+      GMG.SetMapping("Nia", "R", "Mainchar", { guild = "G", origin = "note" })
+      assert.are.equal("Mainchar", GSD.GetMainOf("Nia", "R"))
+      local byName = {}
+      for _, m in ipairs(GSD.GetGuildMembersForDisplay("G", "R")) do byName[m.name] = m end
+      assert.are.equal("Mainchar", byName.Nia.main)
+      assert.is_false(byName.Nia.isMain)
+      assert.is_truthy(byName.Nia.Professions.tailoring.Recipes[100])
+      assert.are.equal("manual", byName.Mainchar.source)
+      -- The stored entry itself is left alone.
+      assert.are.equal("Nia", GSD.GetCharacter("Player-1-N", "R").main)
+
+      GSD.GetCharacter("Player-1-N", "R").linkOnly = nil
+      read({ guid = "Player-1-M", name = "Mia" })
+      assert.are.equal("Mia", GSD.GetCharacter("Player-1-M", "R").main)
+      GMG.SetMapping("Mia", "R", "Mainchar", { guild = "G", origin = "note" })
+      assert.are.equal("Mainchar", GSD.SaveLinkRead("R", {
+        guid = "Player-1-M", name = "Mia", guildName = "G", profKey = "cooking", skillLine = 185, ids = {},
+      }).main)
+    end)
+  end)
 end)

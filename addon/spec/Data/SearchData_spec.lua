@@ -795,10 +795,26 @@ describe("SearchData", function()
       assert.are.equal(2, #SD.GetAllGuildRecipes())
     end)
 
-    it("excludes guild recipes when guild sharing is disabled", function()
+    it("leaves out the player's own characters stored as guildmates", function()
+      _G.AltArmyTBC_GuildData.chars.R.Local = {
+        name = "Local", realm = "R", classFile = "MAGE", guildName = "G",
+        Professions = { tailoring = { key = "tailoring", name = "Tailoring", rank = 57,
+          Recipes = { [300] = { primaryRecipeID = 300 } } } },
+      }
+      DS.GetCharacters = function(_, realm)
+        if realm == "R" then return { ["Player-1-L"] = { name = "Local", guildName = "G" } } end
+        return {}
+      end
+      SD.NotifyRecipesChanged()
+      local guild = SD.GetAllGuildRecipes()
+      assert.are.equal(2, #guild)
+      for _, r in ipairs(guild) do assert.are.equal("Bob", r.characterName) end
+    end)
+
+    it("includes guild recipes whether or not the player shares their own", function()
       AltArmy.GuildShareSettings.SetSharingEnabled(false)
       SD.NotifyRecipesChanged()
-      assert.are.equal(0, #SD.GetAllGuildRecipes())
+      assert.are.equal(2, #SD.GetAllGuildRecipes())
     end)
   end)
 

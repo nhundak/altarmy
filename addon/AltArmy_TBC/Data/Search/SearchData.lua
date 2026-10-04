@@ -370,9 +370,12 @@ local function BuildGuildRecipes()
     if not data or type(data.chars) ~= "table" then
         return list
     end
+    local GSD = AltArmy.GuildShareData
     for realm, chars in pairs(data.chars) do
         for _, entry in pairs(chars) do
-            if type(entry) == "table" and entry.Professions then
+            -- The player's own characters are listed as local results, never as guildmates.
+            local own = GSD and GSD.IsOwnCharacter and GSD.IsOwnCharacter(entry, realm)
+            if type(entry) == "table" and entry.Professions and not own then
                 for _, prof in pairs(entry.Professions) do
                     if prof.Recipes then
                         for recipeID, rdata in pairs(prof.Recipes) do

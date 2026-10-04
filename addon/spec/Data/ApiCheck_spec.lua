@@ -109,6 +109,16 @@ describe("AltArmy.ApiCheck", function()
                 assert.is_true(#entry.candidates > 0)
             end
         end)
+
+        it("checks what reading guildmates' recipes by link needs, and the guild profession roster", function()
+            local labels = {}
+            for _, entry in ipairs(AC.MANIFEST) do labels[entry.label] = entry.area end
+            assert.are.equal("Professions", labels["C_TradeSkillUI.GetBaseProfessionInfo"])
+            for _, label in ipairs({ "GuildRoster", "GetNumGuildTradeSkill", "GetGuildTradeSkillInfo",
+                "QueryGuildRecipes" }) do
+                assert.are.equal("Guild", labels[label], label)
+            end
+        end)
     end)
 
     describe("BuildSnapshot", function()

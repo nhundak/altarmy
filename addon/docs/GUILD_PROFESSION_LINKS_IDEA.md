@@ -1,15 +1,15 @@
-# Idea: read guildmates' recipes from profession links
+# Guildmates' recipes from profession links
 
-Status: idea, not started (noted 2026-10-04). Depends on the background own-recipe read
-(`Data/DataStore/OwnRecipeRead.lua`), which proved the technique on WoW: Forever.
+Status: built 2026-10-04 (`AltArmy_TBC/Data/Guild/GuildLinkRead.lua` on the reader in
+`Data/DataStore/OwnRecipeRead.lua`; the design is in `AltArmy_TBC/Data/DESIGN.md`, "Guildmates' recipes
+read by link"). The in-game checks at the end are still to run.
 
 ## The technique
 
 A hidden tooltip's `SetHyperlink("trade:<player GUID>:<profession spell>:<skill line>")`, called from
 a timer with no click, makes the client fetch that player's profession from the server. The client
-then opens it as a linked profession window. While the window is hidden and Blizzard's frame is
-silenced, `C_TradeSkillUI` (`GetBaseProfessionInfo`, `GetAllRecipeIDs`, `GetRecipeInfo`) returns
-that player's recipes and skill.
+then opens it as a linked profession window. While the window is concealed, `C_TradeSkillUI`
+(`GetBaseProfessionInfo`, `GetAllRecipeIDs`, `GetRecipeInfo`) returns that player's recipes and skill.
 
 Linked Inn (github.com/sanredz/Linked-Inn, `Reader.lua`, `Clues.lua`, `Data.lua`) does this for
 every player it sees. Its findings:
@@ -22,51 +22,41 @@ every player it sees. Its findings:
 - Check `IsTradeSkillLinked()`'s name against the player you asked for, because other addons and
   chat clicks open linked windows too.
 
-## What it would give us
+## What was built
 
-1. **Guildmates without Alt Army.** The guild roster (`GetGuildRosterInfo`; the GUID and the online
-   flag are among its returns) gives every member's GUID. We can read the professions of any
-   member who is online, whether or not they run the addon.
-   - We don't know which professions a non-user has, so try each primary profession's Apprentice
-     link. Stop once two primaries answer, then try Cooking, First Aid and Fishing. A wrong guess
-     costs one timeout.
-   - Re-read a member only when their data is older than a few days, the way Linked Inn does
-     (`STALE`).
-2. **A simpler guild share protocol.** Today `GuildShareComm` / `GuildShareProtocol` send presence
-   (`P`/`PR`) and then pull recipe lists (`RQ`/`RC`) and profession cards (`CQ`/`CC`) by whisper,
-   chunked with AceComm. For any character that is online, a link read gets the same recipes
-   straight from the server, with no payload, no checksum and no version skew between clients.
-   - The protocol could shrink to presence alone: identity, main and display name, item level,
-     and which alts belong together.
-   - Recipe transfer would be kept only for the case below.
+1. **Guildmates without Alt Army.** The guild roster (`GetGuildRosterInfo`; the GUID is its 17th
+   return, the online flag its 9th) gives every member's GUID. Any member who is online is read,
+   whether or not they run the addon: each linkable skill line is tried with its Apprentice spell,
+   Cooking and First Aid first (nearly everyone has them; when both go unanswered the member is
+   unreachable for a while), and lines that never answer back off for days. A member is read again
+   after three days or when their roster level moved.
+2. **Guildmates with Alt Army.** Those who share get their recipes by the guild share messages as
+   before (`P`/`PR`, `CQ`/`CC`, `RQ`/`RC`) and are never read by link. A guildmate whose addon shares
+   nothing (sharing off: an empty presence) is read by link like someone without the addon. No wire
+   change, no version bump. (A first version read sharing users' logged-in characters by link instead
+   of `RQ`; dropped 2026-10-04 in favour of the messages.)
+3. **Where it shows.** The results go into `AltArmyTBC_GuildData` in the shape the Guild tab and
+   Search already read, with no label saying how they were read. Search shows guildmates' recipes
+   whether or not the player shares their own.
 
-## Limits to design around
+## Decisions taken
 
-- **Offline alts can't be read.** Today a user shares all their opted-in alts at once, from their
-  SavedVariables. A link read sees only the character logged in right now. Options:
-  - keep recipe transfer (`RC`/`CC`) for the user's offline alts;
-  - or accept that each alt is filled in the first time it is online at the same time as you, and
-    cache it with a "read at" date.
-- **Privacy and opt-in.** Guild sharing is opt-in and off by default (`GuildShareSettings`). Reading
-  a profession by link is something any player can do with a chat link, but we'd be doing it for
-  everyone, unasked. Decide whether reads of non-users show in the Guild tab, whether the opt-in
-  should still gate who *we* read, and say clearly in the UI where the data came from.
-- **Cost.** Every read is a hidden profession window, with the same rules as the own read: not in
-  combat, no panel open, and the player's own window never hijacked. A large guild with 50 online
-  members and about 3 tries each is around 150 reads. Spread them over minutes, prioritise members
-  with no data, and share the read queue with `OwnRecipeRead`.
-- **Linked data differs from own data.** Difficulty colours are relative to the linked player's
-  skill. Cooldowns and reagent counts aren't meaningful. Store only recipe ids, rank and max rank.
-- **Forever only.** TBC Anniversary has no `C_TradeSkillUI`; its 2.x-style trade links carried the
+- Reads are not gated by the sharing opt-in or any other option; the opt-in covers what the player
+  sends about their own characters (grouping, main, display name). The one engine switch, "Read
+  recipes in the background" (Options > General > Advanced), stops own and guild reads alike.
+- No read attempts to silence Blizzard's profession window: it is concealed and closed. Its sound
+  may play.
+- Every read is logged through the "Guild sharing traffic (verbose)" debug flag (`LINK …` lines).
+- Linked data is stored as recipe ids, rank and max rank only: difficulty colours are relative to the
+  linked player, and cooldowns and reagents aren't theirs to read.
+- Forever only. TBC Anniversary has no `C_TradeSkillUI`; its 2.x-style trade links carried the
   recipe bitmask inside the link and would need separate research.
 
-## Rough shape if we build it
+## Still to check in game
 
-- Generalise `OwnRecipeRead` into a reader that takes `(guid, professions, onResult)` jobs. Own
-  reads get the highest priority; guild reads use the Apprentice spell table.
-- Add a `GuildLinkRead` module that walks the online roster, skips other-server GUIDs and fresh
-  data, and stores results in `AltArmyTBC_GuildData` with `source = "link"` and `readAt`.
-- Have `GuildTabData` / Search merge link-read characters with addon-shared ones by GUID. When both
-  exist, prefer the newer.
-- Then trim the protocol: stop sending recipes for online characters, and later drop `RQ`/`RC`
-  entirely if offline alts are handled by caching.
+See `docs/WOW_FOREVER_COMPATIBILITY_RESEARCH.md`, "Eighth", the 2026-10-04 update: whether the
+server answers a link for a guildmate who never linked anything (and the Apprentice spell at any
+rank), whether the roster's GUIDs are readable (not Secret Values), the linked window's name shape,
+and whether the retail guild profession roster exists on Forever (`/altarmy debug apicheck`), which
+would replace probing. Each is a constant (`R.APPRENTICE_SPELLS`, `R.REQUIRE_LINKED_NAME`,
+`R._NamesMatch`) or a dev dump (`guildRosterGuid`) to adjust.

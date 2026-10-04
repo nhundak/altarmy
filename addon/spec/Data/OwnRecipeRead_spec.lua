@@ -1,17 +1,18 @@
---[[ Unit tests for OwnRecipeRead.lua (reading the player's own recipes through a trade link) — run: npm test ]]
+--[[ Unit tests for OwnRecipeRead.lua (reading recipes through trade links: the player's own and guildmates') — run: npm test ]]
 
 describe("OwnRecipeRead", function()
     local R, DS
     local timers, links, closes, combat, panel, chatActive
-    local frame, otherAddonFrame, registered
+    local frame
     local profs, spellbook
     local saved = {}
     local TOUCHED = {
         "C_Timer", "UnitGUID", "UnitName", "GetRealmName", "GetProfessions", "GetProfessionInfo", "C_SpellBook",
         "C_TradeSkillUI", "GetNumTradeSkills", "GetTradeSkillLine", "InCombatLockdown", "GetUIPanel",
-        "ProfessionsFrame", "GetFramesRegisteredForEvent", "ChatEdit_GetActiveWindow", "CreateFrame", "UIParent",
-        "AltArmyTBC_Options", "AltArmyTBC_Data", "time",
+        "ProfessionsFrame", "ChatEdit_GetActiveWindow", "CreateFrame", "UIParent",
+        "AltArmyTBC_Options", "AltArmyTBC_Data", "time", "GetTime",
     }
+    local savedSearchSettings
 
     local clock = 0
 
@@ -34,9 +35,9 @@ describe("OwnRecipeRead", function()
         clock = target
     end
 
-    --- A fake frame that records its event registrations and runs hooked OnShow/OnHide scripts.
+    --- A fake frame that runs hooked OnShow/OnHide scripts.
     local function newFrame(name)
-        local f = { name = name, shown = false, alpha = 1, scale = 1, mouse = true, hooks = {}, events = {} }
+        local f = { name = name, shown = false, alpha = 1, scale = 1, mouse = true, hooks = {} }
         function f:HookScript(script, fn)
             self.hooks[script] = self.hooks[script] or {}
             table.insert(self.hooks[script], fn)
@@ -54,17 +55,14 @@ describe("OwnRecipeRead", function()
         function f:EnableMouse(on) self.mouse = on end
         function f:IsMouseEnabled() return self.mouse end
         function f:GetParent() return nil end
-        function f:RegisterEvent(event) self.events[event] = true end
-        function f:UnregisterEvent(event) self.events[event] = nil end
-        f.events.TRADE_SKILL_SHOW = true
         return f
     end
 
     local function lastLink() return links[#links] end
 
-    --- The server's answer to a read: the window opens (unless silenced) and the DataStore scan stores it.
+    --- The server's answer to an own read: the window opens and the DataStore scan stores it.
     local function reply(professionName)
-        if frame.events.TRADE_SKILL_SHOW then frame:Show() end
+        frame:Show()
         R.OnRecipesScanned(professionName)
     end
 
@@ -76,6 +74,7 @@ describe("OwnRecipeRead", function()
     setup(function()
         for _, k in ipairs(TOUCHED) do saved[k] = _G[k] end
         _G.AltArmy = _G.AltArmy or {}
+        savedSearchSettings = AltArmy.SearchSettings
         _G.AltArmyTBC_Data = { Characters = {} }
         _G.CreateFrame = function()
             return { SetScript = function() end, RegisterEvent = function() end }
@@ -94,16 +93,19 @@ describe("OwnRecipeRead", function()
 
     teardown(function()
         for _, k in ipairs(TOUCHED) do _G[k] = saved[k] end
+        AltArmy.SearchSettings = savedSearchSettings
     end)
 
     before_each(function()
         R._ResetForTests()
+        R.REQUIRE_LINKED_NAME = true
         timers, links, closes, combat, panel, chatActive = {}, {}, 0, false, nil, nil
         _G.AltArmyTBC_Options = nil
         _G.AltArmyTBC_Data = { Characters = {} }
         DS.accountData = _G.AltArmyTBC_Data
         _G.time = function() return 1000 end
         clock = 0
+        _G.GetTime = function() return clock end
         _G.C_Timer = { After = function(seconds, fn) timers[#timers + 1] = { at = clock + seconds, fn = fn } end }
         _G.UnitGUID = function(unit) if unit == "player" then return "Player-1-ABC" end end
         _G.UnitName = function() return "Me" end
@@ -128,22 +130,22 @@ describe("OwnRecipeRead", function()
         }
         _G.GetNumTradeSkills, _G.GetTradeSkillLine = nil, nil
         frame = newFrame("ProfessionsFrame")
-        otherAddonFrame = newFrame("SomeAddonFrame")
-        registered = { frame, _G.UIParent, otherAddonFrame }
-        _G.UIParent.RegisterEvent = function(self, event) self.tradeSkillShow = event == "TRADE_SKILL_SHOW" or nil end
-        _G.UIParent.UnregisterEvent = function(self) self.tradeSkillShow = nil end
-        _G.UIParent.tradeSkillShow = true
         _G.ProfessionsFrame = frame
         _G.C_TradeSkillUI = {
             GetAllRecipeIDs = function() return {} end,
             GetBaseProfessionInfo = function() return { professionName = "Tailoring" } end,
             GetRecipeInfo = function() return nil end,
+            IsTradeSkillLinked = function() return false end,
             CloseTradeSkill = function()
                 closes = closes + 1
                 frame:Hide()
             end,
         }
-        _G.GetFramesRegisteredForEvent = function() return unpack(registered) end
+        AltArmy.SearchSettings = {
+            ResolveProfessionKey = function(name)
+                return ({ Tailoring = "tailoring", Alchemy = "alchemy", Cooking = "cooking" })[name]
+            end,
+        }
         _G.InCombatLockdown = function() return combat end
         _G.GetUIPanel = function() return panel end
         _G.ChatEdit_GetActiveWindow = function() return chatActive end
@@ -322,7 +324,6 @@ describe("OwnRecipeRead", function()
             assert.is_false(R.IsReading())
             assert.are.equal(1, closes)
             assert.are.equal(1, frame.alpha)
-            assert.is_true(frame.events.TRADE_SKILL_SHOW)
             combat = false
             advance(R.RETRY)
             assert.are.same({ "trade:Player-1-ABC:3908:197", "trade:Player-1-ABC:3908:197" }, links)
@@ -330,29 +331,7 @@ describe("OwnRecipeRead", function()
     end)
 
     describe("staying out of sight", function()
-        it("silences only Blizzard's profession window while reading", function()
-            login()
-            assert.is_nil(frame.events.TRADE_SKILL_SHOW)
-            assert.is_nil(_G.UIParent.tradeSkillShow)
-            assert.is_true(otherAddonFrame.events.TRADE_SKILL_SHOW)
-            reply("Tailoring")
-            assert.is_true(frame.events.TRADE_SKILL_SHOW)
-            assert.is_true(_G.UIParent.tradeSkillShow)
-        end)
-
-        it("gives the window back after a read that got no answer", function()
-            login()
-            advance(R.TIMEOUT)
-            assert.is_true(frame.events.TRADE_SKILL_SHOW)
-        end)
-
-        it("gives the window back at logout", function()
-            login()
-            R.OnEvent("PLAYER_LOGOUT")
-            assert.is_true(frame.events.TRADE_SKILL_SHOW)
-        end)
-
-        it("hides the window if it opens anyway, and restores it on close", function()
+        it("conceals the window that opens for a read, and restores it on close", function()
             login()
             frame:Show()
             assert.are.equal(0, frame.alpha)
@@ -363,6 +342,15 @@ describe("OwnRecipeRead", function()
             assert.are.equal(1, frame.alpha)
             assert.are.equal(1, frame.scale)
             assert.is_true(frame.mouse)
+        end)
+
+        it("closes and restores the window after a read that got no answer", function()
+            login()
+            frame:Show()
+            advance(R.TIMEOUT)
+            assert.are.equal(1, closes)
+            assert.is_false(frame.shown)
+            assert.are.equal(1, frame.alpha)
         end)
 
         it("leaves a window the player opens alone", function()
@@ -469,6 +457,223 @@ describe("OwnRecipeRead", function()
             DS:OnRecipeLearnDetected(nil, nil)
             advance(R.LEARN_DELAY)
             assert.are.equal(1, #links)
+        end)
+    end)
+
+    describe("reading a guildmate", function()
+        local results
+
+        local function guildJob(overrides)
+            local job = {
+                guid = "Player-1-DEF", name = "Alice", skillLine = 197,
+                onResult = function(outcome, result, elapsed)
+                    results[#results + 1] = { outcome = outcome, result = result, elapsed = elapsed }
+                end,
+            }
+            for k, v in pairs(overrides or {}) do job[k] = v end
+            return job
+        end
+
+        --- The server's answer to a guild read: a linked window, filled, and the client's event for it.
+        local function windowOpens(opts)
+            opts = opts or {}
+            _G.C_TradeSkillUI.IsTradeSkillLinked = function() return opts.linked ~= false, opts.name end
+            _G.C_TradeSkillUI.GetBaseProfessionInfo = function()
+                return {
+                    professionName = opts.profession or "Tailoring",
+                    skillLevel = opts.rank or 142,
+                    maxSkillLevel = opts.maxRank or 225,
+                }
+            end
+            _G.C_TradeSkillUI.GetAllRecipeIDs = function() return opts.ids or { 300, 100, 200 } end
+            _G.C_TradeSkillUI.GetRecipeInfo = function(id) return { learned = id ~= 200 } end
+            frame:Show()
+            if not opts.noEvent then R.OnEvent("TRADE_SKILL_DATA_SOURCE_CHANGED") end
+        end
+
+        before_each(function()
+            results = {}
+        end)
+
+        it("builds the link with the profession's Apprentice spell", function()
+            assert.is_true(R.Enqueue(guildJob()))
+            assert.are.same({ "trade:Player-1-DEF:3908:197" }, links)
+            assert.is_true(R.IsReadingGuild())
+            assert.is_false(R.IsReading())
+            assert.is_true(R.IsQueued(R.JobTag("Player-1-DEF", 197)))
+        end)
+
+        it("refuses a job it can't build a link for, a malformed one, and a duplicate", function()
+            assert.is_false(R.Enqueue(guildJob({ skillLine = 356 })))
+            assert.is_false(R.Enqueue(guildJob({ guid = "" })))
+            assert.is_true(R.Enqueue(guildJob()))
+            assert.is_false(R.Enqueue(guildJob()))
+            assert.are.equal(1, #links)
+        end)
+
+        it("does nothing when reads are turned off", function()
+            R.SetEnabled(false)
+            assert.is_false(R.Enqueue(guildJob()))
+            assert.are.equal(0, #links)
+        end)
+
+        it("reads the player's own professions before guildmates'", function()
+            DS._GetCurrentCharTable().Professions = { Alchemy = { rank = 75, Recipes = { [100] = { color = 1 } } } }
+            combat = true
+            assert.is_true(R.Enqueue(guildJob()))
+            assert.are.equal(1, R.QueueAll())
+            combat = false
+            advance(R.RETRY)
+            assert.are.same({ "trade:Player-1-ABC:3908:197" }, links)
+            reply("Tailoring")
+            advance(R.GAP)
+            assert.are.equal("trade:Player-1-DEF:3908:197", lastLink())
+        end)
+
+        it("delivers the linked window's learned recipes and skill, then closes it", function()
+            R.Enqueue(guildJob())
+            advance(1)
+            windowOpens({ name = "Alice" })
+            assert.are.equal(1, #results)
+            assert.are.equal("ok", results[1].outcome)
+            local r = results[1].result
+            assert.are.same({ 100, 300 }, r.ids)
+            assert.are.equal(142, r.rank)
+            assert.are.equal(225, r.maxRank)
+            assert.are.equal("tailoring", r.key)
+            assert.are.equal("Tailoring", r.professionName)
+            assert.are.equal("Player-1-DEF", r.guid)
+            assert.are.equal("Alice", r.name)
+            assert.are.equal(1, results[1].elapsed)
+            assert.are.equal(1, closes)
+            assert.is_false(frame.shown)
+            assert.is_false(R.IsReadingGuild())
+        end)
+
+        it("scans the window a moment after TRADE_SKILL_SHOW", function()
+            R.Enqueue(guildJob())
+            windowOpens({ name = "Alice", noEvent = true })
+            R.OnEvent("TRADE_SKILL_SHOW")
+            assert.are.equal(0, #results)
+            advance(R.SHOW_SCAN_DELAY)
+            assert.are.equal("ok", results[1].outcome)
+        end)
+
+        it("waits for the window to fill", function()
+            R.Enqueue(guildJob())
+            windowOpens({ name = "Alice", ids = {} })
+            assert.are.equal(0, #results)
+            windowOpens({ name = "Alice" })
+            assert.are.equal("ok", results[1].outcome)
+        end)
+
+        it("matches the linked name whatever realm suffix or surname it carries", function()
+            assert.is_true(R._NamesMatch("alice-Realm", "Alice"))
+            assert.is_true(R._NamesMatch("Alice Smith", "Alice"))
+            assert.is_true(R._NamesMatch("Alice", "Alice Smith-Realm"))
+            assert.is_false(R._NamesMatch("Bob", "Alice"))
+            assert.is_false(R._NamesMatch("", "Alice"))
+            assert.is_false(R._NamesMatch(nil, "Alice"))
+        end)
+
+        it("ends with 'wrong name' when the window is someone else's", function()
+            R.Enqueue(guildJob())
+            windowOpens({ name = "Bob" })
+            assert.are.equal("wrong name", results[1].outcome)
+            assert.are.equal("Bob", results[1].result.linkedName)
+            assert.are.equal(1, closes)
+        end)
+
+        it("ends with 'absent' for the empty window the server sends for a profession they haven't got", function()
+            R.Enqueue(guildJob())
+            windowOpens({ name = "Alice", rank = 0, maxRank = 0, ids = { 200 } })
+            assert.are.equal("absent", results[1].outcome)
+            assert.are.equal("tailoring", results[1].result.key)
+            assert.are.equal(197, results[1].result.skillLine)
+            assert.are.equal(1, closes)
+        end)
+
+        it("ends with 'wrong profession' when another profession opened", function()
+            R.Enqueue(guildJob())
+            windowOpens({ name = "Alice", profession = "Alchemy" })
+            assert.are.equal("wrong profession", results[1].outcome)
+        end)
+
+        it("doesn't trust a linked window that names nobody, and says so at the timeout", function()
+            R.Enqueue(guildJob())
+            windowOpens({ name = nil })
+            assert.are.equal(0, #results)
+            advance(R.TIMEOUT)
+            assert.are.equal("unnamed", results[1].outcome)
+        end)
+
+        it("doesn't trust a window that isn't linked", function()
+            R.Enqueue(guildJob())
+            windowOpens({ linked = false })
+            assert.are.equal(0, #results)
+            advance(R.TIMEOUT)
+            assert.are.equal("timeout", results[1].outcome)
+        end)
+
+        it("trusts an unlinked or unnamed window of the right profession when names aren't required", function()
+            R.REQUIRE_LINKED_NAME = false
+            R.Enqueue(guildJob())
+            windowOpens({ linked = false })
+            assert.are.equal("ok", results[1].outcome)
+            R.Enqueue(guildJob({ skillLine = 171 }))
+            advance(R.GUILD_GAP)
+            windowOpens({ name = nil, profession = "Alchemy" })
+            assert.are.equal("ok", results[2].outcome)
+            assert.are.equal("alchemy", results[2].result.key)
+        end)
+
+        it("reports a timeout and goes on to the next job after GUILD_GAP", function()
+            R.Enqueue(guildJob())
+            R.Enqueue(guildJob({ skillLine = 171 }))
+            advance(R.TIMEOUT)
+            assert.are.equal("timeout", results[1].outcome)
+            assert.are.equal(1, closes)
+            advance(R.GAP)
+            assert.are.equal(1, #links)
+            advance(R.GUILD_GAP - R.GAP)
+            assert.are.equal("trade:Player-1-DEF:2259:171", lastLink())
+        end)
+
+        it("drops queued jobs on request, never the one being read", function()
+            R.Enqueue(guildJob())
+            R.Enqueue(guildJob({ skillLine = 171 }))
+            R.Enqueue(guildJob({ guid = "Player-1-GHI", name = "Bob", skillLine = 171 }))
+            assert.are.equal(1, R.CancelWhere(function(job) return job.guid == "Player-1-DEF" end))
+            assert.is_true(R.IsReadingGuild())
+            assert.is_false(R.IsQueued(R.JobTag("Player-1-DEF", 171)))
+            assert.is_true(R.IsQueued(R.JobTag("Player-1-GHI", 171)))
+        end)
+
+        it("isn't finished by the DataStore's own scan", function()
+            R.Enqueue(guildJob())
+            R.OnRecipesScanned("Tailoring")
+            assert.is_true(R.IsReadingGuild())
+            assert.are.equal(0, #results)
+        end)
+
+        it("stops for combat and tries again afterwards", function()
+            R.Enqueue(guildJob())
+            combat = true
+            R.OnEvent("PLAYER_REGEN_DISABLED")
+            assert.is_false(R.IsReadingGuild())
+            assert.are.equal(0, #results)
+            combat = false
+            advance(R.RETRY)
+            assert.are.same({ "trade:Player-1-DEF:3908:197", "trade:Player-1-DEF:3908:197" }, links)
+        end)
+
+        it("names its Apprentice spells after RecipeInfo's professions", function()
+            require("RecipeInfo")
+            local RI = AltArmy.RecipeInfo
+            assert.truthy(RI and RI.PROFESSION_SPELL_IDS)
+            for key, skillLine in pairs(R.SKILL_LINE_BY_KEY) do
+                assert.are.equal(RI.PROFESSION_SPELL_IDS[key], R.APPRENTICE_SPELLS[skillLine], key)
+            end
         end)
     end)
 end)

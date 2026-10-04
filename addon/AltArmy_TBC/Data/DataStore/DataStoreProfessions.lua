@@ -953,12 +953,17 @@ local function tradeSkillFlag(fnName)
 end
 
 --- True when the open window is not this character's own profession: a guild or NPC crafting window,
---- or another player's linked profession (a chat link the player clicked, or another addon reading
---- players in the background). The player's own link, which OwnRecipeRead opens, still passes: it
---- comes back unlinked, or linked under the player's own name. A linked window naming nobody is
---- trusted only while OwnRecipeRead is waiting for one.
+--- or another player's linked profession (a chat link the player clicked, OwnRecipeRead reading a
+--- guildmate, or another addon reading players in the background). The player's own link, which
+--- OwnRecipeRead opens, still passes: it comes back unlinked, or linked under the player's own name. A
+--- linked window naming nobody is trusted only while OwnRecipeRead is waiting for the player's own; while
+--- it waits for a guildmate's, no window is trusted, whatever the client says about it.
 local function IsSomeoneElsesTradeSkill()
     if tradeSkillFlag("IsTradeSkillGuild") or tradeSkillFlag("IsNPCCrafting") then
+        return true
+    end
+    local R = AltArmy.OwnRecipeRead
+    if R and R.IsReadingGuild and R.IsReadingGuild() then
         return true
     end
     local linked, linkedName = tradeSkillFlag("IsTradeSkillLinked")
@@ -966,7 +971,6 @@ local function IsSomeoneElsesTradeSkill()
         return false
     end
     if type(linkedName) ~= "string" or linkedName == "" then
-        local R = AltArmy.OwnRecipeRead
         return not (R and R.IsReading and R.IsReading())
     end
     local me = UnitName and UnitName("player")
@@ -1130,9 +1134,9 @@ function DS:RunDeferredRecipeScan()
         pcall(RestoreTradeSkillFiltersAfterScan)
     end
     isRecipeScanInProgress = false
-    if ok then
-        notifyRecipesChanged()
-    end
+    -- ScanRecipes notifies when it stored something; a window it passed over (another player's, read by
+    -- OwnRecipeRead or opened from a chat link) changes nothing and must not clear the search caches or
+    -- schedule a guild broadcast.
     if not ok and err then
         error(err)
     end

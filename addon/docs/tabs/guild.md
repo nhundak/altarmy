@@ -29,11 +29,12 @@ See who is playing which alts in the guild, open their shared professions/recipe
 - Onboarding dialog when appropriate (queued with other onboarding prompts).
 - Changing the main (onboarding dialog or Options) also sets the preferred name ("What should people call you?") to the new main's first name — but only when the current preferred name is empty or matches (case-insensitive) a realm character's full or first name. Custom names are kept.
 - Chat main-name insertion (channels configurable): prefixes messages / online-offline lines with the poster’s group display label when it differs from the sender.
+- On WoW Forever, the professions of online guildmates who share nothing through Alt Army (no addon, or sharing turned off) are read straight from the server through profession links (`GuildLinkRead`), whatever the player's own sharing setting, which covers only what the player sends. They appear like any other guildmate's; nothing says how they were read. Opening such a character's recipes reads theirs next. Guildmates who share get theirs through the guild share messages.
 
 ## Search integration
 
-Guildmate recipes can appear in Search (with guild tagging and online/whisper helpers). See [search.md](search.md).
+Guildmate recipes can appear in Search (with guild tagging and online/whisper helpers), whether or not the player shares their own. See [search.md](search.md).
 
 ## Data source
 
-`GuildShareSettings`, `GuildShareComm`, `GuildShareData`, `GuildTabData`, `GuildChatMainName`, `GuildManualGroups`, `GuildNoteAltParser`.
+`GuildShareSettings`, `GuildShareComm`, `GuildShareData`, `GuildLinkRead`, `GuildTabData`, `GuildChatMainName`, `GuildManualGroups`, `GuildNoteAltParser`.

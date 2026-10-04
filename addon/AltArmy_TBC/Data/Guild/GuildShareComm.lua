@@ -1,7 +1,8 @@
 -- AltArmy TBC — Guild data sharing: comm layer (AceComm/AceSerializer wiring).
 -- luacheck: globals C_Timer
 -- Broadcasts a privacy-limited presence over the GUILD channel and pulls recipe lists
--- on demand. Sending is ALWAYS active (subject to the send-set below); receiving + UI
+-- on demand (guildmates who share nothing are read through profession links instead: GuildLinkRead).
+-- Sending is ALWAYS active (subject to the send-set below); receiving + UI
 -- are gated behind the guildShare feature flag, except that inbound RQ/CQ (recipe / char-card
 -- requests) are always processed: flag-off clients always reply with RC/CC; flag-on clients
 -- reply only when guild sharing is enabled in Options.
@@ -297,16 +298,94 @@ local function canAccessSecretValue(value)
     return true
 end
 
+-- Enum.ClubMemberPresence: Online 1, OnlineMobile 2 (the app, not in game), Offline 3, Away 4, Busy 5.
+local IN_GAME_PRESENCE = { [1] = true, [4] = true, [5] = true }
+
+local function accessible(value)
+    return value ~= nil and canAccessSecretValue(value)
+end
+
+local function classFileOf(classID)
+    if type(classID) ~= "number" then return nil end
+    local creature = _G.C_CreatureInfo
+    if creature and creature.GetClassInfo then
+        local ok, info = pcall(creature.GetClassInfo, classID)
+        if ok and type(info) == "table" and type(info.classFile) == "string" then return info.classFile end
+    end
+    if _G.GetClassInfo then
+        local ok, _, file = pcall(_G.GetClassInfo, classID)
+        if ok and type(file) == "string" then return file end
+    end
+    return nil
+end
+
+--- The guild's members from the Club API (C_Club, what the retail guild UI reads), for clients whose
+--- classic roster stays empty: { { name, guid, level, classFile, online }, ... }, or nil when the client
+--- has no guild club. `club` may override C_Club (tests).
+function Comm.ClubRosterRows(club)
+    club = club or _G.C_Club
+    if type(club) ~= "table" or not club.GetGuildClubId or not club.GetClubMembers or not club.GetMemberInfo then
+        return nil
+    end
+    local okId, clubId = pcall(club.GetGuildClubId)
+    if not okId or not accessible(clubId) then return nil end
+    local okM, memberIds = pcall(club.GetClubMembers, clubId)
+    if not okM or type(memberIds) ~= "table" then return nil end
+    local rows = {}
+    for _, memberId in ipairs(memberIds) do
+        local ok, info = pcall(club.GetMemberInfo, clubId, memberId)
+        if ok and type(info) == "table" and info.isSelf ~= true then
+            local presence = accessible(info.presence) and info.presence or 0
+            rows[#rows + 1] = {
+                name = accessible(info.name) and info.name or nil,
+                guid = accessible(info.guid) and info.guid or nil,
+                level = accessible(info.level) and tonumber(info.level) or nil,
+                classFile = classFileOf(accessible(info.classID) and info.classID or nil),
+                online = IN_GAME_PRESENCE[presence] == true,
+            }
+        end
+    end
+    return rows
+end
+
+--- The guild roster as rows { name, guid, level, classFile, online }: the classic roster
+--- (GetGuildRosterInfo), else the Club API's when the classic one reads empty (WoW Forever). Also says
+--- which: "roster" or "club". `api` may override getNumGuildMembers, getGuildRosterInfo and club (tests).
+function Comm.GuildRosterRows(api)
+    api = api or {}
+    local getNum = api.getNumGuildMembers or GetNumGuildMembers
+    local getInfo = api.getGuildRosterInfo or GetGuildRosterInfo
+    local rows = {}
+    local n = 0
+    if getNum then
+        local ok, count = pcall(getNum)
+        if ok and accessible(count) then n = tonumber(count) or 0 end
+    end
+    if getInfo and n > 0 then
+        for i = 1, n do
+            local name, _, _, level, _, _, _, _, online, _, classFile, _, _, _, _, _, guid = getInfo(i)
+            rows[#rows + 1] = {
+                name = accessible(name) and name or nil,
+                guid = accessible(guid) and guid or nil,
+                level = accessible(level) and tonumber(level) or nil,
+                classFile = (type(classFile) == "string" and accessible(classFile)) and classFile or nil,
+                online = online and true or false,
+            }
+        end
+        return rows, "roster"
+    end
+    local clubRows = Comm.ClubRosterRows(api.club)
+    if clubRows and #clubRows > 0 then return clubRows, "club" end
+    return rows, "roster"
+end
+
 local function collectOnlineGuildMembers()
     local out = {}
     if not (IsInGuild and IsInGuild()) then return out end
-    if not GetNumGuildMembers or not GetGuildRosterInfo then return out end
     local mine = normalizeSender(playerName())
-    local n = GetNumGuildMembers()
-    for i = 1, n do
-        local name, _, _, _, _, _, _, _, online = GetGuildRosterInfo(i)
-        if online and name and canAccessSecretValue(name) then
-            local short = normalizeSender(name)
+    for _, row in ipairs((Comm.GuildRosterRows())) do
+        if row.online and type(row.name) == "string" then
+            local short = normalizeSender(row.name)
             if short ~= "" and short ~= mine then
                 out[short] = true
             end
@@ -315,6 +394,20 @@ local function collectOnlineGuildMembers()
     return out
 end
 Comm._CollectOnlineGuildMembers = collectOnlineGuildMembers
+
+--- Ask the server for the guild roster. The roster stays empty (GetNumGuildMembers() = 0) until it is
+--- asked for; WoW Forever has only C_GuildInfo.GuildRoster, older clients only the GuildRoster global.
+--- Returns true when a request went out.
+function Comm.RequestGuildRoster()
+    local info = _G.C_GuildInfo
+    if info and info.GuildRoster then
+        return (pcall(info.GuildRoster))
+    end
+    if _G.GuildRoster then
+        return (pcall(_G.GuildRoster))
+    end
+    return false
+end
 
 --- True when a guildmate (normalized short name) is online in the roster.
 function Comm.IsGuildMemberOnline(name)
@@ -737,6 +830,15 @@ function Comm.Init()
     initialized = true
     -- Prune very old received data (harmless when the flag is off / no data present).
     Comm.PurgeStaleReceived()
+    -- Drop the player's own characters that older clients stored as guildmates.
+    local GSD = AltArmy.GuildShareData
+    if GSD and GSD.PurgeOwnCharacters then
+        pcall(GSD.PurgeOwnCharacters)
+    end
+    -- Drop professions stored from the server's empty answer for a profession the player hasn't got.
+    if GSD and GSD.PurgeEmptyLinkReads then
+        pcall(GSD.PurgeEmptyLinkReads)
+    end
 end
 
 --- Remove received guild share entries older than STALE_MAX_AGE when auto-delete is on.
@@ -767,7 +869,7 @@ if frame then
             Comm.Init()
             knownGuild = currentGuild()
             if Comm._ShouldBroadcastOnEnteringWorld(isInitialLogin, isReloadingUi) then
-                if GuildRoster then pcall(GuildRoster) end
+                Comm.RequestGuildRoster()
                 -- Broadcast no-ops until GetGuildInfo is ready; PLAYER_GUILD_UPDATE
                 -- then login-announces when the name becomes available.
                 Comm.Broadcast(true, true)

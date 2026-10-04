@@ -682,6 +682,43 @@ describe("DataStoreProfessions", function()
         assert.is_false(scanned({ guild = true }))
         assert.is_false(scanned({ npc = true }))
       end)
+
+      describe("while OwnRecipeRead reads a guildmate", function()
+        local savedReader
+
+        before_each(function()
+          savedReader = AltArmy.OwnRecipeRead
+          AltArmy.OwnRecipeRead = {
+            IsReading = function() return false end,
+            IsReadingGuild = function() return true end,
+          }
+        end)
+
+        after_each(function()
+          AltArmy.OwnRecipeRead = savedReader
+        end)
+
+        it("trusts no window as the player's own, linked or not", function()
+          assert.is_false(scanned({}))
+          assert.is_false(scanned({ linked = true }))
+          assert.is_false(scanned({ linked = true, linkedName = "TestPlayer" }))
+        end)
+      end)
+
+      it("neither clears the search caches nor schedules a broadcast for a window it passed over", function()
+        local SD = AltArmy.SearchData
+        local savedNotify = SD and SD.NotifyRecipesChanged
+        local savedWipe = _G.wipe
+        _G.wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
+        local notified = 0
+        if SD then SD.NotifyRecipesChanged = function() notified = notified + 1 end end
+        mockTradeSkillUI({ linked = true, linkedName = "Someoneelse", recipeIDs = { 100 }, recipes = learned })
+        DS:RunDeferredRecipeScan()
+        if SD then SD.NotifyRecipesChanged = savedNotify end
+        _G.wipe = savedWipe
+        assert.are.equal(0, notified)
+        assert.are.equal(0, scheduleCount)
+      end)
     end)
   end)
 
